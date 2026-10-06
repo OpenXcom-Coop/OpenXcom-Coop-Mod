@@ -114,6 +114,7 @@
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Vehicle.h" // W2-H20c (test-only)
 #include "../Savegame/GameTime.h"
 #include "../Savegame/MissionSite.h"
 #include "../Savegame/ResearchProject.h"
@@ -6989,6 +6990,9 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 //     (the quick search is 40 px) and calls its onChange handler edtSoldierChange -> soldierName = the Soldier's name read back.
 //   W2-H20b-B: {op: loadout_load, index, addOnTop} -> the TOP CraftEquipmentState's loadGlobalLoadout (A8); {op: ground_to_base}
 //     -> the TOP base InventoryState's onMoveGroundInventoryToBase (A12), reply craftId + the craft's items before / after.
+//   W2-H20c (A17): {op: craft_vehicles, craft_id, craft_type, base} (read-only) -> that craft's HWPs: vehicles {type: count}, order,
+//     vehicleAmmo, spaceUsed, spaceAvailable, customDeployment; {op: deploy_mark, ...} = the same after a TEST-ONLY saved-deployment entry
+//     (soldier id -1, this machine only; never start a battle after it) so a test sees a vehicle load's custom deployment reset.
 static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value& resp)
 {
 	const std::string op = req.get("op", "").asString();
@@ -7037,6 +7041,34 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		resp["craftId"] = c ? c->getId() : -1;
 		resp["before"] = before;
 		resp["after"] = after;
+		resp["ok"] = true;
+		return;
+	}
+	if (op == "craft_vehicles" || op == "deploy_mark") // W2-H20c (A17): one craft's HWPs on THIS machine (deploy_mark: test-only write first)
+	{
+		const std::string bname = req.get("base", "").asString(), ctype = req.get("craft_type", "").asString();
+		const int cid = req.get("craft_id", -1).asInt();
+		Craft* craft = nullptr;
+		for (auto* b : *sg->getBases())
+			if (!b->_coopBase && (bname.empty() || b->getName() == bname))
+				for (auto* c : *b->getCrafts())
+					if (!craft && c->getId() == cid && (ctype.empty() || c->getRules()->getType() == ctype)) craft = c;
+		if (!craft) { resp["error"] = "base_screen_op: craft not found"; return; }
+		if (op == "deploy_mark") craft->getCustomSoldierDeployment()[-1] = std::make_pair(Position(0, 0, 0), 0); // test-only: no soldier has id -1
+		Json::Value vehicles(Json::objectValue), order(Json::arrayValue), ammo(Json::arrayValue);
+		for (auto* v : *craft->getVehicles())
+		{
+			const std::string t = v->getRules()->getType();
+			vehicles[t] = vehicles.get(t, 0).asInt() + 1;
+			order.append(t);
+			ammo.append(v->getAmmo());
+		}
+		resp["vehicles"] = vehicles;
+		resp["order"] = order;
+		resp["vehicleAmmo"] = ammo;
+		resp["spaceUsed"] = craft->getSpaceUsed();
+		resp["spaceAvailable"] = craft->getSpaceAvailable();
+		resp["customDeployment"] = craft->hasCustomDeployment();
 		resp["ok"] = true;
 		return;
 	}
