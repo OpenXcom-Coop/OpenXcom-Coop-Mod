@@ -289,6 +289,7 @@ void CraftEquipmentState::init()
 		}
 		initList();
 	}
+	SharedEcon::craftStageClose(_game, _base); // coop W2-H20b-B (A4, A6): after the excess removal (no-op unless staged)
 	_reload = true;
 	_returningFromGlobalTemplates = false;
 	_returningFromInventory = false;
@@ -1057,6 +1058,7 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 			// Note: the current implementation assumes no limit to the number or size of items a craft can hold.
 			//       If the craft has limited space, then we just won't have all the base items available on the inventory screen.
 
+			SharedEcon::craftStageOpen(_game, _base); // coop W2-H20b-B (A4): the staging window before the load-all
 			auto& extras = *craft->getExtraItems();
 			extras.clear();
 
@@ -1135,6 +1137,7 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 {
+	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, _base->getCrafts()->at(_craft)); // coop W2-H20b-B (A8)
 	// temporarily turn off alternate craft equipment management to allow removing all items from the craft
 	bool backup = Options::oxceAlternateCraftEquipmentManagement;
 	Options::oxceAlternateCraftEquipmentManagement = false;
@@ -1235,6 +1238,7 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 	// turn back the original setting
 	Options::oxceAlternateCraftEquipmentManagement = backup;
 	_localBatch = false;
+	SharedEcon::craftItemsCommit(_game, _base, _base->getCrafts()->at(_craft), coopCraftMark); // coop W2-H20b-B (A8): the end-state to the host
 }
 
 /**
