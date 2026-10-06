@@ -281,6 +281,7 @@ def give_both(host, client, req):
     assert rh.get("ok") and rc.get("ok"), f"PREMISE: battle_give {req} failed: host={rh} client={rc}"
     assert (rh.get("weaponId"), rh.get("ammoId")) == (rc.get("weaponId"), rc.get("ammoId")), (
         f"PREMISE: battle_give {req} minted different ids: host={rh} client={rc}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return rh["weaponId"], rh["ammoId"]
 
 
@@ -292,6 +293,7 @@ def equalize_tu(host, client, uid):
         r = gc.cmd({"cmd": "battle_set_unit_state", "unit": uid, "tu": tu})
         assert r.get("ok") and r.get("tu") == tu, (
             f"PREMISE: battle_set_unit_state tu={tu} unit {uid} on {gc.name}: {r}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return tu
 
 
@@ -371,6 +373,7 @@ def s6_panic(host, client, ctx):
         r = gc.cmd({"cmd": "battle_set_unit_state", "unit": C2_ID, "status": STATUS_PANICKING})
         assert r.get("ok") and r.get("status") == STATUS_PANICKING, (
             f"PREMISE: status PANICKING on {gc.name}: {r}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     p0h, p0c = probes(host), probes(client)
     uh0, uc0 = units(host)[C2_ID], units(client)[C2_ID]
     r = client.cmd({"cmd": "battle_set_unit_state", "unit": C2_ID, "panicPending": True})
@@ -396,6 +399,7 @@ def s6_panic(host, client, ctx):
     for gc in (client, host):  # F607: client first, then host
         rr = gc.cmd({"cmd": "battle_set_unit_state", "unit": C2_ID, "status": STATUS_STANDING})
         assert rr.get("ok"), f"PREMISE: status STANDING on {gc.name}: {rr}"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     fails = []
     if not settled:
         fails.append(f"client never settled on BattlescapeState (states {seen})")
@@ -669,6 +673,7 @@ def stage(host, client, ctx):
         assert rs[0] == rs[1] == ({"x": tile[0], "y": tile[1], "z": tile[2]}, d), (
             f"PREMISE: battle_teleport_unit {uid} responses differ: host={rs[0]} client={rs[1]}")
         tele[uid] = rs[0]
+        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     print(f"STAGE: C={C_ID} -> {tele[C_ID]} H={H_ID} -> {tele[H_ID]} (both machines)", flush=True)
 
 
@@ -780,6 +785,7 @@ def s5_reload(host, client, ctx):
         assert r.get("ok"), f"PREMISE: battle_set_unit_state tu={TU_MAX} unit {C_ID} on {gc.name}: {r}"
         tus.append(r.get("tu"))
     assert tus[0] == tus[1] and tus[0] >= RELOAD_TU, f"PREMISE: C max TU client/host {tus} (want equal, >= {RELOAD_TU})"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     # F1132 (amendment C2, C23e's order): C's own starting loadout carries a
     # rifle clip that vanilla's reloadAmmo() picks before the staged one (the
     # first green run's end delta moved C's own item into the rifle), so C is
@@ -789,6 +795,7 @@ def s5_reload(host, client, ctx):
     sh = host.cmd({"cmd": "battle_strip_unit", "unit": C_ID})
     assert sh.get("ok") and sc.get("ok") and set(sh.get("deleted") or []) == set(sc.get("deleted") or []), (
         f"PREMISE: battle_strip_unit {C_ID}: host={sh} client={sc}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     rifle, _ = give_both(host, client, {"unit": C_ID, "item": "STR_RIFLE", "clear_hands": True})
     clip, _ = give_both(host, client, {"unit": C_ID, "item": "STR_RIFLE_CLIP",
                                        "slot": "STR_BELT", "slotX": 0, "slotY": 0})

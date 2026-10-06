@@ -918,6 +918,7 @@ def c2_strip(host, client):
     got = {n: (sorted(r.get("deleted") or []), r.get("skippedSpecial"), r.get("remaining"))
            for n, r in (("host", rh), ("client", rc))}
     assert got["host"] == got["client"], f"battle_strip_unit C2 (deleted, skippedSpecial, remaining) differ: {got}"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return {"deleted": got["host"][0], "skippedSpecial": got["host"][1], "remaining": got["host"][2]}
 
 

@@ -514,6 +514,7 @@ def stage_alien_and_walk(host, client, walker_id):
     _walker_to(host, client, walker_id, start, f"walker to roof corner {a}")
     tus = [gc.ok({"cmd": "battle_set_unit_state", "unit": walker_id, "tu": ROOF_FULL_TU})["tu"]
            for gc in (client, host)][::-1]  # F607: client first; tus stays [host, client]
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     assert tus[0] == tus[1], f"S1-PRECOND: the walker's full TU differs host/client: {tus}"
     assert tus[0] >= tu_cost, f"S1-PRECOND: the walker's full TU {tus[0]} < the path's tuCost {tu_cost}"
     session.assert_hash_clean(host, client, full=True, what="walker full TU")

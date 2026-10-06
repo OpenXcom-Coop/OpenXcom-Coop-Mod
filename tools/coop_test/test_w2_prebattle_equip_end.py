@@ -334,6 +334,7 @@ def stage_aliens(host, client, ctx):
                 rec["diffAfterClientOnly"], _ = bucket_diff(host, client)
             rh = host.cmd({"cmd": "battle_set_unit_state", "unit": aid, "status": STATUS_DEAD})
             rec["host"][aid] = {k: rh.get(k) for k in ("ok", "error", "status")}
+            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
         rec["diff"], rec["hashNote"] = bucket_diff(host, client)
         rec["liveAfter"] = {"host": live_aliens(host), "client": live_aliens(client)}
         rec["turn"] = [turn(host), turn(client)]

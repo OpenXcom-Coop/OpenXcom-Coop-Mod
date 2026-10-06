@@ -418,6 +418,7 @@ def phase0_pin_reaction_fire(host, client):
                         "unit": a["id"], "stat": "reactions", "value": 0})
             assert r.get("ok"), \
                 f"PHASE 0: could not zero unit {a['id']}'s reactions on the {tag}: {r}"
+        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
 
     # READ-BACK on BOTH machines. A pin that cannot be read is not a pin, and the
     # symmetry matters twice over: `currStats` is serialized and NOT on

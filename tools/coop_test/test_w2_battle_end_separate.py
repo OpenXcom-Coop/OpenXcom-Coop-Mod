@@ -304,6 +304,7 @@ def both(host, client, req):
     """A per-machine staging lever sent to BOTH machines, client first (F607). Returns (host resp, client resp)."""
     rc = client.cmd(dict(req))
     rh = host.cmd(dict(req))
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return rh, rc
 
 

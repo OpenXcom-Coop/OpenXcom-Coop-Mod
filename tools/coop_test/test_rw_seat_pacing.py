@@ -680,8 +680,10 @@ def run_boot_b(activate_text, deactivate_text):
             rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
             assert rh.get("ok") and rc.get("ok"), (
                 f"boot B fixture: battle_strip_unit failed for {uid}: host={rh} client={rc}")
+            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
+            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
 
         wc0 = (event_state(host).get("lastWalk") or {}).get("actionId", 0)
         turn0 = battle_state(host)["turn"]

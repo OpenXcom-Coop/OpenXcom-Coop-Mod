@@ -227,6 +227,7 @@ def strip_both(host, client, uid):
     assert sorted(dh) == sorted(dc) and rh.get("skippedSpecial") == rc.get("skippedSpecial"), (
         f"battle_strip_unit {uid} differs as sets: host={dh} {rh.get('skippedSpecial')} client={dc} "
         f"{rc.get('skippedSpecial')}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return {"deleted": sorted(dh), "hostOrder": dh, "clientOrder": dc, "skippedSpecial": rh.get("skippedSpecial")}
 
 

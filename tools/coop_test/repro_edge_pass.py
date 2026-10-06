@@ -130,6 +130,7 @@ def set_tu_both(host, client, actor_id, tu, exact=True):
     assert landed[host] == landed[client], (
         f"battle_set_unit_state(unit={actor_id}, tu={tu}) landed at different values - "
         f"host={landed[host]} client={landed[client]}")
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     session.assert_hash_clean(host, client, full=True,
                               what=f"after setting unit {actor_id} tu={tu}")
     return landed[host]
@@ -326,6 +327,7 @@ def phase3_zero_step_spot(host, client, actor_id, door):
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": alien_id,
                     "stat": "reactions", "value": 0})
         assert r.get("ok"), f"PHASE 3: could not zero hostile {alien_id} reactions on {tag}: {r}"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     session.assert_hash_clean(host, client, full=True, what="PHASE 3 after staging")
 
     # VERIFY, NEVER INFER: re-read both units at the tip rather than trusting

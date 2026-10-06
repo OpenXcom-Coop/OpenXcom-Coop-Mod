@@ -439,6 +439,7 @@ def strip_both(host, client, uid):
     assert rh.get("ok") and rc.get("ok"), f"battle_strip_unit {uid}: host={rh} client={rc}"
     dh, dc = set(rh.get("deleted") or []), set(rc.get("deleted") or [])
     assert dh == dc, f"battle_strip_unit {uid} deleted sets differ (F882): host={sorted(dh)} client={sorted(dc)}"
+    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
     return sorted(dh)
 
 
