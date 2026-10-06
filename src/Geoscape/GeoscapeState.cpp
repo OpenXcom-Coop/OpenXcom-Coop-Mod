@@ -2105,6 +2105,7 @@ void GeoscapeState::think()
 			sharedBroadcastDogfights();
 		else
 			sharedReconcileReplicaDogfights();
+		SharedEcon::flushLostCrafts(_game, this); // coop W2-H18b (F7282): a replica removes a lost craft only from its own geoscape
 	}
 }
 
@@ -2758,6 +2759,7 @@ void GeoscapeState::time5Seconds()
 					}
 				}
 
+				const Json::Value h18bCrew = SharedEcon::craftLostMark(_game, xbase, xcraft); // coop W2-H18b (F6177): the crew aboard before vanilla's evacuation
 				//if (_ufoIsAttacking)
 				{
 					// Note: this was moved from DogfightState.cpp, as it was not 100% reliable there
@@ -2779,6 +2781,7 @@ void GeoscapeState::time5Seconds()
 						}
 					}
 				}
+				SharedEcon::hostCraftLost(_game, xbase, xcraft, h18bCrew); // coop W2-H18b (F6177): the replica mirrors the lost craft and its crew
 				_game->getSavedGame()->stopHuntingXcomCraft(xcraft); // craft destroyed in dogfight
 				Craft *craft = *craftIt;
 				craftIt = xbase->removeCraft(craft, false);
