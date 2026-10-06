@@ -1373,8 +1373,8 @@ void GeoscapeState::think()
 
 					auto& root_research = _game->getCoopMod()->waitedResearch[i];
 
-					// new!!!
-					std::string new_research_name = root_research["new_research_name"].asString();
+					// new_research_name (the sender's article decision) is not read:
+					// this player decides from what it already knew.
 					std::string research_name = root_research["research_name"].asString();
 					std::string bonus_name = root_research["bonus_name"].asString();
 
@@ -1393,28 +1393,53 @@ void GeoscapeState::think()
 						}
 					}
 
-					if (selected_base)
+					RuleResearch* research = research_name.empty() ? nullptr : _game->getMod()->getResearch(research_name);
+
+					if (selected_base && research)
 					{
+						// The peer's discovery is a discovery here too: apply it the way
+						// time1Day applies a local one - the getOneFree bonus and the topic,
+						// each with its lookup, then the vanilla side effects (obsolete
+						// projects removed, spawned items/events, counters). The article to
+						// offer depends on what THIS player already knew, as in time1Day.
+						Mod* mod = _game->getMod();
+						SavedGame* save = _game->getSavedGame();
+						Base* ownBase = save->getSelectedBase();
+						RuleResearch* bonus = bonus_name.empty() ? nullptr : mod->getResearch(bonus_name);
 
-						RuleResearch* newResearch = _game->getMod()->getResearch(new_research_name);
+						const std::string& articleTopic = research->getLookup().empty() ? research->getName() : research->getLookup();
+						const RuleResearch* newResearch = save->isResearched(articleTopic, false) ? nullptr : research;
 
-						RuleResearch* research = 0;
-
-						if (research_name != "")
+						bool learnedSomething = false;
+						auto discover = [&](const RuleResearch* r)
 						{
-							research = _game->getMod()->getResearch(research_name);
-						}
-
-						RuleResearch* bonus = 0;
-
-						if (bonus_name != "")
+							if (!r)
+								return;
+							if (!save->isResearched(r, false))
+								learnedSomething = true;
+							save->addFinishedResearch(r, mod, ownBase);
+						};
+						if (bonus)
 						{
-							bonus = _game->getMod()->getResearch(bonus_name);
+							discover(bonus);
+							if (!bonus->getLookup().empty())
+								discover(mod->getResearch(bonus->getLookup(), true));
 						}
+						discover(research);
+						if (!research->getLookup().empty())
+							discover(mod->getResearch(research->getLookup(), true));
 
-						 _game->getSavedGame()->addFinishedResearch(research, _game->getMod(), _game->getSavedGame()->getSelectedBase());
+						std::vector<const RuleResearch*> topicsToCheck = { research };
+						if (bonus)
+							topicsToCheck.push_back(bonus);
+						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase);
 
-						popup(new ResearchCompleteState(newResearch, bonus, research, selected_base, true));
+						// Nothing new to this player (e.g. its own copy of the project
+						// finished after the peer's): no popup.
+						if (learnedSomething)
+						{
+							popup(new ResearchCompleteState(newResearch, bonus, research, selected_base, true));
+						}
 
 					}
 
