@@ -133,8 +133,7 @@ def second_guest(h, c, ctx):
     c.wait_for("client soldiers screen", lambda: has_state(c, "SoldiersState"), timeout=30)
     for cmd in ("soldiers_ok", "leave_base"):
         c.ok({"cmd": cmd})
-    c.wait_for("client back on geoscape", lambda: (not c.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None,
-               timeout=60)
+    session.wait_back_on_geoscape(c, "client back on geoscape")
     wait_for(ctx, h, c, "second_guest sent", lambda: gc_(c).get("sent") == 2, SENT_S, 0.1,
              lambda: f"client guestContrib {gc_(c)} within {SENT_S}s (want sent 2)")
 

@@ -99,8 +99,7 @@ def run_visited_case(visitor, owner, owner_base_name, label):
     visited_report = visitor.ok({"cmd": "base_report", "coop": True})
     assert_visited_no_leak(owner_report, visited_report, label)
     visitor.ok({"cmd": "leave_base"})
-    visitor.wait_for("back in own world",
-                     lambda: (not visitor.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+    session.wait_back_on_geoscape(visitor, "back in own world")
 
 
 # -------------------- cases 3 & 4: the own base --------------------

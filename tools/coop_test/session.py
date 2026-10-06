@@ -2391,6 +2391,29 @@ def _campaign_own_roster_base(gc):
     raise AssertionError("no real base with soldiers")
 
 
+def wait_back_on_geoscape(gc, what="back on geoscape", timeout=60):
+    """W2-U7c (F6361, R-W2i-1): after `leave_base` from a peer's base, wait until THIS machine is back on its OWN world.
+    BasescapeState::btnGeoscapeClick clears insideCoopBase BEFORE it pushes the LoadGameState that reloads the own world
+    (~10 frames later), so the flag alone can read "back" while the visited copy is still live. Ready = insideCoopBase false
+    AND top state GeoscapeState AND no LoadGameState on the stack. Bounded: a timeout raises with what it last saw."""
+    seen = {}
+
+    def ready():
+        seen["insideCoopBase"] = gc.cmd({"cmd": "get_coop"}).get("insideCoopBase")
+        seen["stack"] = states_stripped(gc)
+        st = seen["stack"]
+        if seen["insideCoopBase"] or not st or st[-1] != "GeoscapeState" or any("LoadGameState" in s for s in st):
+            return None
+        return st
+
+    try:
+        return gc.wait_for(what, ready, timeout=timeout)
+    except TimeoutError as e:
+        raise TimeoutError(f"{gc.name}: {what}: not back on its own geoscape within {timeout} s (want insideCoopBase "
+                           f"false, top GeoscapeState, no LoadGameState): insideCoopBase={seen.get('insideCoopBase')!r} "
+                           f"stack={seen.get('stack')!r}") from e
+
+
 def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None):
     """SPEC 19 (W1-P20) S1 fixture: SEPARATE campaign, mixed-ownership squad -
     3 of the host's own soldiers plus a CLIENT guest seated on the host's
@@ -2457,9 +2480,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
                     lambda: has_state(client, "SoldiersState") or None, timeout=30)
     client.ok({"cmd": "soldiers_ok"})
     client.ok({"cmd": "leave_base"})
-    client.wait_for("client back on geoscape",
-                    lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None,
-                    timeout=60)
+    wait_back_on_geoscape(client, "client back on geoscape")
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest "
           f"{guest_id} (coop==1)")
 

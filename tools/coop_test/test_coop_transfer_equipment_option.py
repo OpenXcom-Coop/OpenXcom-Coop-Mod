@@ -66,8 +66,7 @@ def run_mode(alt_on, label):
         print(f"{label}: visited guest '{guest['name']}' layout={layout}")
 
         host.ok({"cmd": "leave_base"})
-        host.wait_for("back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.wait_back_on_geoscape(host, "back home")
         return layout
     finally:
         host.shutdown(); client.shutdown()
