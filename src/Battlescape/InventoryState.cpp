@@ -362,6 +362,10 @@ InventoryState::~InventoryState()
 	_clearInventoryTemplate(_curInventoryTemplate);
 	_clearInventoryTemplate(_tempInventoryTemplate);
 
+	// coop W2-H21 (F8598): a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
+	// delete ran: touch none of it. The swap already set the display for the screen that replaced this one.
+	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle() != _battleGame) return;
+
 	if (!_battleGame->isBaseCraftInventory())
 	{
 		if (Options::maximizeInfoScreens)
