@@ -86,7 +86,7 @@ def main():
             lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
             timeout=120,
         )
-        host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
 
         client.wait_for(
             "resume session up",

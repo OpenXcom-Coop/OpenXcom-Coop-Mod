@@ -286,7 +286,7 @@ def main():
                 f"{tag}: PARALLEL-mode tally after resume is not the reset() default "
                 f"{RESET_TALLY}: {tally}")
 
-        host2.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host2, "host RESUME", codes=(60, 62))
         for gc, tag in ((host2, "host"), (client2, "client")):
             gc.wait_for(f"{tag} on BattlescapeState after RESUME",
                         lambda gc=gc: (rc.top(gc) == "BattlescapeState") or None, timeout=60, interval=0.5)

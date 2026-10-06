@@ -106,7 +106,7 @@ def main():
                               "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_ClientPlayer.data"}).get("present") or None,
             timeout=120,
         )
-        host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))
 
         # the client's waiting dialog must clear and the session comes up
         client.wait_for(

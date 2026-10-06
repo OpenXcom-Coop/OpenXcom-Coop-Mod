@@ -167,7 +167,7 @@ def new_campaign(host, client, port="47900",
             lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
             timeout=120,
         )
-        host.ok({"cmd": "coop_dialog_back"})
+        press_back_when_shown(host, "host BEGIN", codes=(60, 62))
     else:
         # SEPARATE: the client places its own base and pushes its world blob;
         # the host waits for that blob, then clicks BEGIN.
@@ -180,7 +180,7 @@ def new_campaign(host, client, port="47900",
                               "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_{client_name}.data"}).get("present") or None,
             timeout=120,
         )
-        host.ok({"cmd": "coop_dialog_back"})
+        press_back_when_shown(host, "host BEGIN", codes=(60, 62))
 
     # session up: both synced — client sees the geoscape with no dialogs
     try:
@@ -226,7 +226,7 @@ def resume_campaign(host, client, save_file, port="47900",
         lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
         timeout=120,
     )
-    host.ok({"cmd": "coop_dialog_back"})
+    press_back_when_shown(host, "host RESUME", codes=(60, 62))
 
     client.wait_for(
         "resume session up",
@@ -2412,6 +2412,33 @@ def wait_back_on_geoscape(gc, what="back on geoscape", timeout=60):
         raise TimeoutError(f"{gc.name}: {what}: not back on its own geoscape within {timeout} s (want insideCoopBase "
                            f"false, top GeoscapeState, no LoadGameState): insideCoopBase={seen.get('insideCoopBase')!r} "
                            f"stack={seen.get('stack')!r}") from e
+
+
+def press_back_when_shown(gc, what, codes=None, timeout=60):
+    """W2-U7d (F6474, F6824, F8018): press the top co-op dialog's BEGIN / RESUME / OK only once a player could: wait
+    (bounded) until the top state is a CoopState whose back button coop_dialog_info reports shown (and whose code is in
+    `codes` when given), then press it. A host wait dialog (60 / 62) shows its button up to 0.5 s after it is ready
+    (CoopState.cpp :1111-1117, :1199-1213). A timeout raises with the dialog and the stack. Returns the press reply."""
+    seen = {}
+
+    def shown():
+        seen["stack"] = states_stripped(gc)
+        seen["dialog"] = gc.cmd({"cmd": "coop_dialog_info"})
+        d = seen["dialog"]
+        if not seen["stack"] or seen["stack"][-1] != "CoopState" or d.get("backVisible") is not True:
+            return None
+        if codes is not None and d.get("code") not in codes:
+            return None
+        return d
+
+    try:
+        gc.wait_for(what, shown, timeout=timeout)
+    except TimeoutError as e:
+        d = seen.get("dialog") or {}
+        raise TimeoutError(f"{gc.name}: {what}: no shown co-op dialog button within {timeout} s: code={d.get('code')!r} "
+                           f"backVisible={d.get('backVisible')!r} title={d.get('title')!r} "
+                           f"stack={seen.get('stack')!r}") from e
+    return gc.ok({"cmd": "coop_dialog_back"})
 
 
 def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None):
