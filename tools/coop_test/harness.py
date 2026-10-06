@@ -135,6 +135,15 @@ _COOP_JOIN_CMDS = frozenset(("join_tcp", "join_udp"))
 # so keys never cross runs. Distinct live pairs must use distinct keys (the same
 # invariant the old per-port model relied on).
 _EPHEMERAL_COOP_PORTS = {}
+
+# W2-U8e (F8376, F8573): the GameClient that hosted each rendezvous key (with the port it reported and its
+# transport) and the GameClients that joined it. Process-global, like _EPHEMERAL_COOP_PORTS.
+_COOP_HOSTS = {}
+_COOP_JOINERS = {}
+# W2-U8e (F8376): the longest a join_tcp waits for its host's lobby listener, in seconds; then it FAILS with a dump.
+LISTEN_WAIT_S = 60
+# W2-U8e: the TestServer get_coop fields that say where a coop connection stands.
+_JOIN_VIEW = ("onConnect", "coopDialog", "serverOwner", "coopSession", "clientName")
 PORT_FILE_NAME = "testserver_port.txt"
 KILLED_RETURN_CODE = 1 if os.name == "nt" else -signal.SIGKILL
 
@@ -557,6 +566,9 @@ class GameClient:
             actual = resp.get("port")
             if actual:
                 _EPHEMERAL_COOP_PORTS[key] = str(actual)
+                # W2-U8e (F8376): a TCP host unless the host window was asked for UDP (1 / 2) or hotseat (3)
+                tcp = name == "host_tcp" or (name == "host_menu_host" and obj.get("visibility", 0) in (0, "0", None))
+                _COOP_HOSTS[key] = (self, str(actual), "tcp" if tcp else "other")
             return resp
         if name in _COOP_JOIN_CMDS and str(obj.get("port", "")) != "":
             key = str(obj["port"])
@@ -564,6 +576,14 @@ class GameClient:
             obj["port"] = _EPHEMERAL_COOP_PORTS.get(key, obj["port"])
             if "localport" in obj:
                 obj["localport"] = "0"
+            # W2-U8e (F8376, F8566): the client's connect thread makes ONE attempt (~1.1 s after this command) and
+            # never retries, while the host opens its listener on its own thread after host_tcp / host_menu_host
+            # returned: never send join_tcp before the host reports that listener open.
+            host = _COOP_HOSTS.get(key)
+            if name == "join_tcp" and host is not None and host[2] == "tcp":
+                _wait_host_listening(host[0], key, obj["port"], self)
+            if self not in _COOP_JOINERS.setdefault(key, []):
+                _COOP_JOINERS[key].append(self)
             return self._send(obj)
         return self._send(obj)
 
@@ -654,6 +674,49 @@ def shutdown_clients(*clients):
             errors.append(exc)
     if errors:
         raise RuntimeError("peer shutdown failed: " + "; ".join(map(str, errors))) from errors[0]
+
+
+def _wait_host_listening(host, key, port, joiner):
+    """W2-U8e (F8376, F8566): poll the host's get_coop until onConnect is 1 with serverOwner set, then return.
+    connectionTCP::startTCPHost sets onConnect 1 right after SDLNet_TCP_Open opened the listener; a fresh process
+    reads -1 before it, and a re-host joins the old host thread (whose exit sets -1) before starting the new one.
+    A host that is not running is the caller's business: no wait. onConnect -3 or a 440 dialog on the host (its
+    listener failed) FAILS at once; no report within LISTEN_WAIT_S FAILS. Both failures carry the probe dump."""
+    if host.sock is None or (host.proc is not None and host.proc.poll() is not None):
+        return
+    t0, polls = time.monotonic(), 0
+    while True:
+        coop = host._send({"cmd": "get_coop"})
+        polls += 1
+        waited = int((time.monotonic() - t0) * 1000)
+        if coop.get("onConnect") == 1 and coop.get("serverOwner") is True:
+            line = {"key": key, "port": port, "host": host.name, "joiner": joiner.name, "waitedMs": waited,
+                    "polls": polls}
+            _port_file_event("listen_ready", **line)
+            print("[harness-listen] " + json.dumps(line), flush=True)
+            return
+        if coop.get("onConnect") == -3 or coop.get("coopDialog") == 440:
+            why = "reported its lobby listener failed (onConnect %s, coopDialog %s)" % (
+                coop.get("onConnect"), coop.get("coopDialog"))
+            break
+        if waited > LISTEN_WAIT_S * 1000:
+            why = ("never reported its lobby listener open (get_coop onConnect 1 with serverOwner) within %s s"
+                   % LISTEN_WAIT_S)
+            break
+        time.sleep(0.05)
+    tops = {}
+    for gc in (host, joiner):
+        try:
+            tops[gc.name] = gc._send({"cmd": "get_state"}).get("states", [])[-3:]
+        except Exception as exc:
+            tops[gc.name] = "%s: %s" % (type(exc).__name__, exc)
+    dump = {"key": key, "port": port, "waitedMs": waited, "polls": polls,
+            "hostCoop": {k: coop.get(k) for k in _JOIN_VIEW}, "top": tops}
+    exc = RuntimeError("%s: join_tcp to :%s not sent - host %s %s (F8376): %s" % (
+        joiner.name, port, host.name, why, json.dumps(dump, default=str)))
+    if host.user_dir:
+        _report_port_file_error("listen_wait_failed", exc, host.user_dir, **dump)
+    raise exc
 
 
 def make_user_dir(name, saves=(), mods=(), options=None):
