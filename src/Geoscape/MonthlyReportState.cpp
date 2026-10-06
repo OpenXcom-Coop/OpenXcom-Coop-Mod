@@ -395,6 +395,9 @@ void MonthlyReportState::btnOkClick(Action *)
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
 
+			// coop W2-H17d (F7727): as GeoscapeEventState - both SHARED machines show this report and play a video without an ending at their own OK
+			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()->getEnding() == END_NONE) // coop
+				_game->getCoopMod()->allow_cutscene = false; // coop: CutsceneState::init skips the relay; GeoscapeState::init re-arms the latch
 			_game->pushState(new CutsceneState(cutsceneId));
 			if (_game->getSavedGame()->isIronman())
 			{
