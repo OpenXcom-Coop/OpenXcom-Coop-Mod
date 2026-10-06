@@ -56,6 +56,7 @@ public:
 	const std::map<std::string, int> &getRandomProductionInfo() const { return _randomProductionInfo; }
 	int getCoopStarterSeat() const { return _coopStarterSeat; } // coop W2-H16g (OC-H16g-1)
 	void setCoopStarterSeat(int seat) { _coopStarterSeat = seat; } // coop W2-H16g
+	void setRandomProductionInfo(const std::map<std::string, int> &info) { _randomProductionInfo = info; } // coop W2-H16h (F7299): the SHARED replica adopts the host's list
 private:
 	const RuleManufacture * _rules;
 	int _amount;
