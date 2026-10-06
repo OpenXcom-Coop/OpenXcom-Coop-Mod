@@ -340,7 +340,29 @@ jobs:
           sed -i 's/$(PKG)_VERSION := 8\.0\.2/$(PKG)_VERSION := 8.0.3/' src/mingw-w64.mk
           sed -i 's/$(PKG)_CHECKSUM := f00cf1e2f975008855c93b9e0f8ec97decbf50f478e7ae4c7b5ffb9cdc54b743/$(PKG)_CHECKSUM := d702ef712c8f22035f81ddf6089542adf6bcb6ea669d4ebf4e311f87242882f0/' src/mingw-w64.mk
           export MXE_PLUGIN_DIRS="$PWD/plugins/gcc11"
-          make MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
+          # MXE fetches binutils, libiconv, libtool, mpc and others from
+          # ftp.gnu.org (or ftpmirror.gnu.org), so a GNU outage fails every
+          # cold-cache build (2026-10-06). This wget wrapper retries a failed
+          # download from those hosts on GNU mirrors. MXE still checks each
+          # archive's sha256, so a mirror cannot change what is built.
+          cat > /usr/local/bin/mxe-wget <<'EOF'
+          #!/bin/bash
+          wget "$@" && exit 0
+          rc=$?
+          url="${!#}"
+          case "$url" in
+            https://ftp.gnu.org/gnu/*)   path="${url#https://ftp.gnu.org/gnu/}" ;;
+            https://ftpmirror.gnu.org/*) path="${url#https://ftpmirror.gnu.org/}" ;;
+            *) exit "$rc" ;;
+          esac
+          for mirror in https://mirrors.kernel.org/gnu https://mirrors.ocf.berkeley.edu/gnu; do
+            echo "mxe-wget: $url failed, trying $mirror" >&2
+            wget "${@:1:$#-1}" "$mirror/$path" && exit 0
+          done
+          exit "$rc"
+          EOF
+          chmod +x /usr/local/bin/mxe-wget
+          make WGET_TOOL=/usr/local/bin/mxe-wget MXE_TARGETS=i686-w64-mingw32.static JOBS=$(nproc) \
             gcc cmake \
             sdl sdl_net sdl_gfx sdl_mixer sdl_image \
             yaml-cpp jsoncpp libsodium
