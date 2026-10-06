@@ -3295,6 +3295,7 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	// Mirror the host popup (coop=true -> the ctor does NOT re-broadcast).
 	const std::string nrName = payload.get("newResearch", "").asString();
 	const RuleResearch* newResearch = nrName.empty() ? nullptr : mod->getResearch(nrName, false);
+	if (connectionTCP::campaignEnded()) return; // coop W2-H17b (F7217): the host's window died with its setState
 	game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
 }
 

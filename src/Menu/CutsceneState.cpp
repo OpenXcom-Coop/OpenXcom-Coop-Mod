@@ -38,31 +38,6 @@ CutsceneState::CutsceneState(const std::string &cutsceneId)
 	: _cutsceneId(cutsceneId)
 {
 	// empty
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->allow_cutscene == true)
-	{
-
-		Json::Value root;
-
-		root["state"] = "cutscene";
-		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
-		root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
-		root["cutsceneId"] = cutsceneId;
-		root["ending"] = (int)_game->getSavedGame()->getEnding();
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-		_game->getCoopMod()->allow_cutscene = false;
-	}
-
-
-
 }
 
 CutsceneState::~CutsceneState()
@@ -73,6 +48,23 @@ CutsceneState::~CutsceneState()
 void CutsceneState::init()
 {
 	State::init();
+
+	// coop W2-H17b (F7207, F7208): the relay leaves when the cutscene starts, after every caller has set the ending
+	// (GeoscapeState research / GeoscapeEventState / BattlescapeState set it right after building this state)
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->allow_cutscene == true && _game->getSavedGame()) // coop
+	{ // coop
+		Json::Value root; // coop
+		root["state"] = "cutscene"; // coop
+		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed(); // coop (wire unchanged; the receiver ignores it, Q2)
+		root["daysPassed"] = _game->getSavedGame()->getDaysPassed(); // coop
+		root["cutsceneId"] = _cutsceneId; // coop
+		root["ending"] = (int)_game->getSavedGame()->getEnding(); // coop
+		_game->getCoopMod()->sendTCPPacketData(root.toStyledString()); // coop
+	} // coop
+	if (_game->getCoopMod()->getCoopStatic() == true) // coop
+	{ // coop
+		_game->getCoopMod()->allow_cutscene = false; // coop
+	} // coop
 
 	// pop self off stack and replace with actual player state
 	_game->popState();
