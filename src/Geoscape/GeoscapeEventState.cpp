@@ -560,6 +560,10 @@ void GeoscapeEventState::btnOkClick(Action *)
 			if (videoRule->getWinGame()) _game->getSavedGame()->setEnding(END_WIN);
 			if (videoRule->getLoseGame()) _game->getSavedGame()->setEnding(END_LOSE);
 		}
+		// coop W2-H17d (F7719-F7722): both SHARED machines show this window (W2-H15) and play its cutscene at their own OK;
+		// only an ending is relayed (the first OK ends both campaigns, R-H17b-1), so a story cutscene plays once on each
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()->getEnding() == END_NONE) // coop
+			_game->getCoopMod()->allow_cutscene = false; // coop: CutsceneState::init skips the relay; GeoscapeState::init re-arms the latch
 	}
 
 	if (_game->getSavedGame()->getEnding() == END_NONE)
