@@ -72,12 +72,11 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
           {i:STR_RIFLE: 4}, rev unchanged by the refusal, on both.
       (2) coop_dialog_back; funds0 restored on both; client OK: within PAGE_S its PurchaseState gone; incoming X ==
           before + 4 on both; the host's PurchaseState rebuilt (funds changed), every amount 0.
-  P-h (OWNER?-P9-1 = D254, PENDING) (1) client S = 1, host X = 1 -> the host's S amount 1 within SEL_S; sel_state
+  P-h (OWNER?-P9-1 = D254 (b)) (1) client S = 1, host X = 1 -> the host's S amount 1 within SEL_S; sel_state
           buy|n|0| rows {h:STR_SOLDIER: 1, i:STR_RIFLE: 1}, editors {h:STR_SOLDIER: 1, i:STR_RIFLE: 0} on both.
       (2) host OK: its PurchaseState gone within PAGE_S; incoming soldiers == before + 1 and X == before + 1 on both
-          within EQUAL_S; the client's screen rebuilt (funds changed), every amount 0. The new soldierOwners entry is
-          EVIDENCE only while D254 is pending (T7 (3), P9-10): the S32 commit E3.1b adds HIRE_OWNER's assertion once
-          D254 is ruled ((b) 1, (a) 0).
+          within EQUAL_S; the client's screen rebuilt (funds changed), every amount 0; the new soldierOwners entry ==
+          HIRE_OWNER (1, the client who set the Soldier row) on both within EQUAL_S (D254 (b), S32 commit E3.1b).
   Boot REQ (port 47322): P-q.
   P-q (Q-P9-3 (a), V-P3) (1) client PURCHASE/RECRUIT: its top PurchaseState with X 3, Y 2 (vanilla's pre-fill) and
           the host's sel_state buy|r|0| rows {i:STR_RIFLE: 3, i:STR_PISTOL: 2} within SEL_S; client Y = 0.
@@ -131,7 +130,7 @@ MIN_FREE_QUARTERS = 2                    # BUY pre-cell (P-h hires one soldier)
 REQ_CRAFT = "SKYRANGER-1"
 REQ_MISSING = [{"item": X, "qty": 3, "craft": REQ_CRAFT}, {"item": Y, "qty": 2, "craft": REQ_CRAFT}]
 REQ_AFTER = [["Pistol", "2", REQ_CRAFT]]   # P-q (3): the rifles bought, the pistols still missing (xcom1 en-US STR_PISTOL)
-HIRE_OWNER = None                        # D254 PENDING (OWNER?-P9-1): (b) 1 / (a) 0 - set by the S32 commit E3.1b
+HIRE_OWNER = 1                           # D254 (b) (OWNER?-P9-1): the client set the Soldier row: seat 1 owns the hire
 ROW_H = scr.ROW_H                        # 8 px: one small-font text row (TextList::updateVisible)
 PURCHASE_LIST_H = 120                    # PurchaseState :111 TextList(287, 120, 8, 54) (F6630: Sell's geometry)
 SHARED_PURCHASE_LIST_H = PURCHASE_LIST_H - ROW_H   # D243 by analogy (V-P4): one text row shorter in SHARED
@@ -772,15 +771,21 @@ def p_h_cells(host, client, ctx):
                         field="soldiers")
         f = f or inc_settled(host, client, {n: (v.get("items") or {}).get(X, 0) for n, v in b.items()}, 1, ctx,
                              "c2items")
-        owners = {}
-        for gc in (host, client):   # EVIDENCE only while D254 is pending (T7 (3), P9-10): the new soldierOwners entry
-            now = list(incoming(gc).get("soldierOwners") or [])
-            for o in b[gc.name].get("soldierOwners") or []:
-                if o in now:
-                    now.remove(o)
-            owners[gc.name] = now
-        ctx["c2hireOwner"] = {"newEntries": owners, "HIRE_OWNER": HIRE_OWNER, "note": "D254 pending: evidence only"}
-        return f or stays_rebuilt(client, ctx, "c2clientRebuilt")
+
+        def new_owners():   # D254 (b): the new soldierOwners entry == HIRE_OWNER on both machines (P-h step (2))
+            owners = {}
+            for gc in (host, client):
+                now = list(incoming(gc).get("soldierOwners") or [])
+                for o in b[gc.name].get("soldierOwners") or []:
+                    if o in now:
+                        now.remove(o)
+                owners[gc.name] = now
+            return all(v == [HIRE_OWNER] for v in owners.values()), owners
+        ok, owners, secs = poll(new_owners, EQUAL_S)
+        ctx["c2hireOwner"] = {"ok": ok, "newEntries": owners, "HIRE_OWNER": HIRE_OWNER, "secs": secs}
+        fo = [] if ok else [f"the new soldierOwners entry (host, client) {owners} (want [{HIRE_OWNER}] on both within "
+                            f"{EQUAL_S}s, D254 (b))"]
+        return f or stays_rebuilt(client, ctx, "c2clientRebuilt") or fo
     return [
         ("1 the client's Soldier row and the host's X row are on one shared list", c1),
         ("2 the host's OK hires the soldier and buys X; the client's screen rebuilt at zero", c2),
