@@ -510,6 +510,49 @@ def death_schedule(front, octants, is_ms, frames, respawn):
     return {"Ic": ic, "tc": tc, "isOutMs": is_out, "popMs": is_out + 2 * ic}
 
 
+def sampled_list_fails(what, got, full, windows, max_gap):
+    """W2-U8d (F6304): a ghost record's per-advance list (dirsShown, phasesShown) against the list its fixed
+    schedule draws. advance() appends what the ghost draws, once per client frame; windows[i] = the shortest
+    time in ms entry i of `full` stays drawn (0: drawn at the ghost's first advance, never left out). An entry
+    is left out only when one advance() gap spans its whole window, so the record must hold `full` in order
+    with whole runs left out, each run's summed windows at most the record's maxGapMs (the client's largest
+    advance gap while it drew). With every gap below the shortest window this is exactly got == full. `full`
+    holds no repeated entry (every caller's list). Returns fails."""
+    if isinstance(max_gap, bool) or not isinstance(max_gap, int):
+        return [f"{what}: record maxGapMs {max_gap!r} (want the probe's int)"]
+    if len(windows) != len(full):
+        return [f"{what}: {len(windows)} windows for {len(full)} entries of {full}"]
+    if got == full:
+        return []
+    if not isinstance(got, list):
+        return [f"{what}: {got!r} (want a list: {full})"]
+    kept, j = [], 0
+    for v in got:
+        while j < len(full) and full[j] != v:
+            j += 1
+        if j == len(full):
+            return [f"{what}: {got} is not {full} in order with entries left out (an entry added, repeated or "
+                    f"reordered; maxGapMs {max_gap})"]
+        kept.append(j)
+        j += 1
+    fails, run = [], []
+    for i in range(len(full) + 1):
+        if i < len(full) and i not in kept:
+            run.append(i)
+            continue
+        if run:
+            span = sum(windows[k] for k in run)
+            left = [full[k] for k in run]
+            if any(windows[k] == 0 for k in run):
+                fails.append(f"{what}: {got} left out {left}, drawn at the ghost's first advance (want {full})")
+            elif max_gap < span:
+                fails.append(f"{what}: {got} left out {left} ({span} ms of schedule) while the client's largest "
+                             f"advance gap was {max_gap} ms (want {full}: a frame stall leaves out only what one "
+                             f"gap spans)")
+            run = []
+    return fails
+
+
 def wait_death_ghosts_ended(client, notes, timeout=DEATH_SETTLE_S):
     """Bounded: every death ghost the client enqueued has ended (completed + cut == enqueued)."""
     def ended():
@@ -595,6 +638,16 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
                 if k in w:
                     want[k] = w[k]
             got = {k: r.get(k) for k in want}
+            # W2-U8d (F6304): dirsShown / phasesShown are per-advance samples of the fixed schedule (a non-front
+            # victim: fromDir drawn at the start, each pirouette octant Is ms, the final 3 >= 2 x Ic - Is ms, each
+            # collapse phase >= Ic ms); a client frame stall leaves out only whole windows (sampled_list_fails)
+            for k in ("dirsShown", "phasesShown"):
+                if k in want:
+                    lst = want.pop(k)
+                    win = ([0] + [w["Is"]] * (len(lst) - 2) + [2 * want["Ic"] - w["Is"]] if k == "dirsShown"
+                           else [want["Ic"]] * len(lst))
+                    fails += [f"{tag}: {m}" for m in sampled_list_fails(
+                        f"client death record seq {w['seq']} {k}", got.pop(k), lst, win, r.get("maxGapMs"))]
             bad = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
             if bad:
                 fails.append(f"{tag}: client death record seq {w['seq']} (got, want) {bad} (record {r})")

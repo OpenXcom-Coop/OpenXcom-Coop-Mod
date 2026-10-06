@@ -225,6 +225,7 @@ from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_de
 from test_w2_unit_spawn import ring_of, ring_at, ring_view
 from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want
 from test_w2_host_combat import (camera_of, cam_snap, cam_offset, cam_moves, mv, cam_suppressed_delta, cam_view)
+from test_w2_host_combat import sampled_list_fails  # W2-U8d (F6304)
 
 # ----- bring-up (W2-P3 TASK 0b, ledger `## W2-P3 TASK 0b`, T0b constants.md "Common bring-up") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -732,6 +733,11 @@ def fall_row(host, client, rec, snap_e, fall):
         want = {"unit": U_ID, "from": C10_TILE, "to": C10_BELOW, "paceMs": XCOM_FLOOR_MS, "phasesShown": FALL_PHASES,
                 "anchors": FALL_ANCHORS, "landedAtStart": True, "levels": FALL_LEVELS,
                 "startedTop": FALL_STARTED_TOP, "cut": False}
+        # W2-U8d (F6304): phasesShown is a per-advance sample of the fall (phase 0 at its first advance, each
+        # later phase FALL_LEVELS x paceMs): the full sweep, or whole phases left out across a client frame stall
+        fails += [f"C10 E6: {m}" for m in sampled_list_fails(
+            f"client fall record seq {s} phasesShown", got.pop("phasesShown"), want.pop("phasesShown"),
+            [0] + [FALL_LEVELS * XCOM_FLOOR_MS] * (len(FALL_PHASES) - 1), r.get("maxGapMs"))]
         if got != want:
             fails.append(f"C10 E6: client fall record seq {s} {got} (want {want})")
         w = r.get("waitMs")

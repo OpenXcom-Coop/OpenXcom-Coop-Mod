@@ -162,6 +162,7 @@ from test_rw_seat_pacing import tab_select, SDLK_HOME
 from test_w2_delta_core import diff_buckets, desync_record, short, both
 from test_w2_delta_items import items_by_id, tile_of
 from test_w2_host_combat import bring_up_lobby_roster_pinned, evs_since, open_hand_menu_host
+from test_w2_host_combat import sampled_list_fails  # W2-U8d (F6304)
 from test_w2_ai_origins import host_payloads
 from test_w2_client_shoot import (top, units, ubrief, press, give_both, place, set_tu_both, set_firing_both,
                                   wait_seat_dial, aim_click, await_press, RHAND_CENTRE, TU_MAX, KEY_SNAP, KEY_AUTO,
@@ -534,6 +535,11 @@ def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
               "durationMs": octants * TURN_PACE_MS, "seat": seat, "endedBy": "natural", "dirsShown": dirs,
               "poseShown": STATUS_TURNING}
     got_r = {k: tr.get(k) for k in want_r}
+    # W2-U8d (F6304): dirsShown is a per-advance sample of the turn (each octant TURN_PACE_MS from its apply):
+    # the full path, or whole octants left out across a client frame stall (sampled_list_fails)
+    fails += [f"turn seq {tv['turnSeq']}: {m}" for m in sampled_list_fails(
+        "client turnGhost record dirsShown", got_r.pop("dirsShown"), want_r.pop("dirsShown"),
+        [TURN_PACE_MS] * len(dirs), tr.get("maxGapMs"))]
     if got_r != want_r:
         fails.append(f"turn seq {tv['turnSeq']}: client turnGhost record {got_r} (want {want_r})")
     srs = tv["shotRecords"]
