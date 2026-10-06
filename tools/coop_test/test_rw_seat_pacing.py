@@ -814,7 +814,7 @@ def run_boot_b(activate_text, deactivate_text):
         def ai_walk_settled():
             sid.dismiss_next_turn_if_present(host)
             sid.dismiss_next_turn_if_present(client)
-            hs, cs = event_state(host), event_state(client)
+            cs, hs = event_state(client), event_state(host)  # W2-U8c (F6561): the client is read first
             hw = hs.get("lastWalk") or {}
             return bool(hs.get("ok") and cs.get("ok")
                         and hw and hw.get("actionId", 0) != wc0

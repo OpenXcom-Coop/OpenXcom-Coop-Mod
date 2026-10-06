@@ -315,7 +315,7 @@ def chain_settled(host, client, stable=1.0, timeout=45, interval=0.2, want_live=
     samples, t0, idle_since, last = [], time.time(), None, None
     while time.time() - t0 < timeout:
         bs = battle_state(host)
-        eh, ec = event_state(host), event_state(client)
+        ec, eh = event_state(client), event_state(host)  # W2-U8c (F6561): the client is read first
         live = sum(1 for u in bs.get("units", []) if u.get("faction") == 1 and not u.get("isOut"))
         tp = top(host)
         s = (bool(bs.get("isBusy")), bs.get("pendingStates"), tp, live,

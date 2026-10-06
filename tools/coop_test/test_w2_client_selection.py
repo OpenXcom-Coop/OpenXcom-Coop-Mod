@@ -276,7 +276,7 @@ def settle_tops_close(host, client, label, timeout=15):
 
 
 def caught_up(host, client):
-    eh, ec = event_state(host), event_state(client)
+    ec, eh = event_state(client), event_state(host)  # W2-U8c (F6561): the client is read first
     return (eh.get("busyOwnerSeat") == -1 and ec.get("lastSeqApplied", 0) == eh.get("lastSeqEmitted", 0)
             and ec.get("queueDepth") == 0 and eh.get("queueDepth") == 0)
 

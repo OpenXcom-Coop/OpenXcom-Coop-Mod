@@ -320,9 +320,9 @@ def bring_up_qualifying_battle(tag, host_options=None, client_options=None,
 
 def settle_emits(host, client, timeout=40):
     def quiet():
-        hs = event_state(host)
-        cs = event_state(client)
+        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
+        hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
                     and rs.get("unpublished") is False
                     and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)

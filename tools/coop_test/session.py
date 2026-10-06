@@ -1852,9 +1852,9 @@ def settle_reveal(host, client, timeout=40):
     settles, and a measurement started before it would see the previous
     action's leftovers."""
     def quiet():
-        hs = event_state(host)
-        cs = event_state(client)
+        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
+        hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
                     and rs.get("unpublished") is False
                     and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
@@ -1876,8 +1876,8 @@ def wait_walk_settled(host, client, prev_action_id, timeout=30):
     be satisfied instantly by the walk BEFORE this one and every assertion after
     it would read stale data."""
     def done():
+        cs = event_state(client)  # W2-U8c (F6561): the client is read first
         hs = event_state(host)
-        cs = event_state(client)
         hw = hs.get("lastWalk") or {}
         return bool(hs.get("ok") and cs.get("ok")
                     and hw and hw.get("actionId", 0) != prev_action_id
