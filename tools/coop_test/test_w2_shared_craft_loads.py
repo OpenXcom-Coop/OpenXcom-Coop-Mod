@@ -384,6 +384,9 @@ def hb_4(x, r):
     h, c = x.host, x.client
     if not guard(r, x):
         return
+    gv = r.ev["give STR_PISTOL 1"] = {g.name: q(g, {"cmd": "give_items", "item": PISTOL, "count": 1, "base": HB}) for g in (c, h)}
+    if not r.cell("G: give_items STR_PISTOL 1 on both, client first (R-H20bB-G-1, F8754)", all(v.get("ok") for v in gv.values()), gv):
+        return
     h0 = sky(h, x.sky)
     if not h20.open_soldier_screen(r, h):
         return
