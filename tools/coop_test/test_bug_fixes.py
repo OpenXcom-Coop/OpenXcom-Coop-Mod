@@ -119,7 +119,7 @@ def test_bug1b_mirror_open(host, client):
     client.ok({"cmd": "dismiss_notice"})
 
     client.ok({"cmd": "leave_base"})
-    client.wait_for("back in own world", lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+    session.wait_back_on_geoscape(client, "back in own world")
 
     def present():
         r = client.cmd({"cmd": "get_mirror_soldiers", "coopBaseId": host_base_id})

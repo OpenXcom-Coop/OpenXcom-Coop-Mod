@@ -185,8 +185,7 @@ def seat(h, c, ctx, on):
     c.wait_for("client soldiers screen", lambda: session.has_state(c, "SoldiersState") or None, timeout=30)
     c.ok({"cmd": "soldiers_ok"})
     c.ok({"cmd": "leave_base"})
-    c.wait_for("client back on geoscape", lambda: (not c.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None,
-               timeout=60)
+    session.wait_back_on_geoscape(c, "client back on geoscape")
     want = 1 if on else 0
     ok, secs = b1.wait_until(lambda: gcontrib(c).get("sent") == want, SENT_S, 0.1)
     s["sent"] = {"ok": ok, "secs": secs, "client": gcontrib(c), "want": want}

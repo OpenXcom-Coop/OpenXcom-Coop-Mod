@@ -274,8 +274,7 @@ def separate_battle_again(host, client, ctx):
                         timeout=30)
         client.ok({"cmd": "soldiers_ok"})
         client.ok({"cmd": "leave_base"})
-        client.wait_for("client back on geoscape",
-                        lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.wait_back_on_geoscape(client, "client back on geoscape")
         session.drain_host_coop_notice(host)
         b0 = session._campaign_base0(host)
         site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",

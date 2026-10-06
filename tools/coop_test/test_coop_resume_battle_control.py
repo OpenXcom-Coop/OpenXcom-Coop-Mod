@@ -272,8 +272,7 @@ def bring_up_lightning_roof_separate(host, client, port=PORT):
     client.wait_for("client soldiers screen", lambda: has(client, "SoldiersState") or None, timeout=30)
     client.ok({"cmd": "soldiers_ok"})
     client.ok({"cmd": "leave_base"})
-    client.wait_for("client back on geoscape",
-                    lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+    session.wait_back_on_geoscape(client, "client back on geoscape")
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest "
           f"{guest_local_id} 'Guest Zzz' (coop==1), on the Lightning")
 

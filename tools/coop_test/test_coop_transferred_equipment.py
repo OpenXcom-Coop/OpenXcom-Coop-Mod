@@ -236,8 +236,7 @@ def scenario_conservation():
                       lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
         host_all, host_gnd, host_car, host_units = equip_rocket_instances(host, cb["name"])
         host.ok({"cmd": "leave_base"})
-        host.wait_for("host back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.wait_back_on_geoscape(host, "host back home")
 
         # client opens the equip screen for its own base (host idle)
         cli_all, cli_gnd, cli_car, cli_units = equip_rocket_instances(client, cb["name"])
@@ -401,8 +400,7 @@ def scenario_two_screens_agree():
         print("PASS screens-agree-on-item-instances")
 
         host.ok({"cmd": "leave_base"})
-        host.wait_for("host back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.wait_back_on_geoscape(host, "host back home")
     finally:
         host.shutdown(); client.shutdown()
 
