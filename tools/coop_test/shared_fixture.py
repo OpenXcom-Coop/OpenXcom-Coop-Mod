@@ -29,6 +29,10 @@ roster (with ownership). All of that is compared exactly, base list IN INDEX
 ORDER - the base index is the protocol's routing key (PRD-J03), so an ordering
 difference is itself a desync.
 
+W2-G1 (F7951, F8265): each soldier's gear too - armor, equipment layout,
+personal layout and its armor; craft loads are not compared until W2-H20b
+stage B.
+
 Note this is deliberately WIDER than the PRD-J04/J10/GAP-4 world checksum. The
 checksum sums funds + base / tech / item / soldier / transfer / production
 COUNTS, so count drift now trips the auto-repair; but it is only counts, so a
@@ -84,14 +88,23 @@ def world_dump(gc):
 
     Sourced from geo_state (world + per-base economy) + get_soldiers (roster with
     ownerPlayerId). Bases stay in INDEX order on purpose - the index is the SHARED
-    command routing key, so a reordering must fail the compare.
+    command routing key, so a reordering must fail the compare. Each soldier's gear
+    comes from soldier_layouts (per base, by name; W2-G1).
     """
     g = gc.ok({"cmd": "geo_state"})
     roster = gc.ok({"cmd": "get_soldiers"})["bases"]
+    # W2-G1 (F7951, F8265; Q3 a): soldier_layouts reads a base by NAME, so a duplicate name would compare the wrong base.
+    names = [b["name"] for b in g["bases"]]
+    if len(set(names)) != len(names):
+        raise AssertionError(f"world_dump: duplicate base names {names} on {gc.name} (soldier_layouts reads a base by name)")
 
     bases = []
     for i, b in enumerate(g["bases"]):
         soldiers = roster[i]["soldiers"] if i < len(roster) else []
+        # W2-G1 (F7951, F8265; Q3 a, Q4 a): each soldier's gear - armor (get_soldiers), equipment layout, personal layout and
+        # its armor (soldier_layouts, items in stored order). Craft items join with W2-H20b stage B (F8265).
+        armor = {s["id"]: s.get("armor") for s in soldiers}
+        gear = gc.ok({"cmd": "soldier_layouts", "base": b["name"]})["soldiers"]
         bases.append({
             "name": b["name"],
             "lon": b["lon"],
@@ -122,6 +135,9 @@ def world_dump(gc):
             "soldiers": sorted(
                 (s["id"], s["name"], s["owner"], s["craftId"], s["dead"])
                 for s in soldiers),
+            "gear": sorted(({"id": s["id"], "armor": armor.get(s["id"]), "layout": s["layout"],
+                             "personal": s["personal"], "personalArmor": s["personalArmor"]} for s in gear),
+                           key=lambda s: s["id"]),
         })
 
     return {
