@@ -387,7 +387,7 @@ def ok_press(gc):
 
 
 def drained(host, client):
-    eh, ec = es(host), es(client)
+    ec, eh = es(client), es(host)  # W2-U8c (F6561): the client is read first
     return (ec.get("lastSeqApplied", 0) == eh.get("lastSeqEmitted", 0) and ec.get("queueDepth") == 0
             and eh.get("queueDepth") == 0)
 

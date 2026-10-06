@@ -316,7 +316,7 @@ def wait_door_fired(host, client, before_emitted, timeout=30):
     Still used by phase D (SPEC 6f's boundary close)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        hs, cs = session.event_state(host), session.event_state(client)
+        cs, hs = session.event_state(client), session.event_state(host)  # W2-U8c (F6561): the client is read first
         if (hs["coopDoorEvsEmitted"] > before_emitted
                 and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
                 and cs.get("queueDepth") == 0):

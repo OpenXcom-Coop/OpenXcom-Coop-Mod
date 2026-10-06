@@ -296,9 +296,9 @@ def settle_emits(host, client, timeout=30):
     blocker ordered in that window would start against the previous action's
     leftovers."""
     def quiet():
-        hs = event_state(host)
-        cs = event_state(client)
+        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
+        hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
                     and rs.get("unpublished") is False
                     and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
