@@ -30,6 +30,7 @@ namespace OpenXcom
 
 class Surface;
 class Globe;
+class GeoscapeEvent;
 class TextButton;
 class InteractiveSurface;
 class Text;
@@ -148,6 +149,8 @@ public:
 	void baseHunting();
 	/// Trigger whenever 30 minutes pass.
 	void time30Minutes();
+	/// Pops up a geoscape event whose time has come (unless interrupted).
+	void fireGeoscapeEvent(GeoscapeEvent* ge);
 	void ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCrafts);
 	/// Trigger whenever 1 hour passes.
 	void time1Hour();

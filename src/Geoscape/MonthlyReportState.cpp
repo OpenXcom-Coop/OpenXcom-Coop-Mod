@@ -514,6 +514,7 @@ void MonthlyReportState::calculateChanges()
 		Json::Value root;
 
 		root["state"] = "monthly_report";
+		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 
 		// countries
 		Json::Value countries(Json::arrayValue);
