@@ -1,0 +1,48 @@
+manufacture:
+  - name: STR_H16G_ROCKETS
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {STR_SMALL_ROCKET: 1}
+  - name: STR_H16G_SOLDIER
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {}
+    spawnedPersonType: STR_SOLDIER
+  - name: STR_H16G_SCIENTIST
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {}
+    spawnedPersonType: STR_SCIENTIST
+  - name: STR_H16G_DELIVERY
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {STR_SMALL_ROCKET: 2}
+    transferTimes: [12]
+  - name: STR_H16G_RANDOM
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {}
+    randomProducedItems: [[1, {STR_SMALL_ROCKET: 1}], [1, {STR_LARGE_ROCKET: 1}]]
+  - name: STR_H16G_CRAFT
+    category: STR_CRAFT
+    space: 1
+    cost: 1000
+    time: 10
+    producedItems: {STR_INTERCEPTOR: 1}
+    transferTimes: [0, 0, 24]
+  - name: STR_H16G_FALLBACK
+    category: STR_AMMUNITION
+    space: 1
+    cost: 1000
+    time: 1000
+    producedItems: {STR_SMALL_ROCKET: 1}

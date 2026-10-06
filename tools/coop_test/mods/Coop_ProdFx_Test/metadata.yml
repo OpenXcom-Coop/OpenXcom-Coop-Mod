@@ -1,0 +1,6 @@
+name: "Coop prod fx test"
+version: 1.0
+description: "Test-only fixture for W2-H16g (F6711). Data only. Seven no-research manufacture projects STR_H16G_ROCKETS,
+  _SOLDIER, _SCIENTIST, _DELIVERY, _RANDOM, _CRAFT and _FALLBACK (no language file: raw keys). Both machines must load it."
+author: coop harness
+master: xcom1
