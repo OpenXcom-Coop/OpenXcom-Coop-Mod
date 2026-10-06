@@ -177,11 +177,15 @@ def session_sync_on(results):
         if COND_HOST in ce:
             raise Inconclusive(f"E6: client scheduled {COND_HOST} without its trigger")
         if COND in ce:
+            if ce[COND] <= 180:
+                # the client's own delay would fire it inside the window by itself
+                raise Inconclusive(f"E5: client countdown {ce[COND]} fires within the 180-minute window on its own")
             host.ok({"cmd": "set_event_countdown", "name": COND, "minutes": 60})
             seen = advance(host, client, 180)
             topic = "article:STR_COOP_EV_COND_TOPIC"
             ok = all(topic in seen[gc.name] and "RC" not in seen[gc.name] for gc in (host, client))
-            results["E5 conditional, both qualify"] = (ok, f"host={seen[host.name]} client={seen[client.name]}")
+            results["E5 conditional, both qualify"] = (ok, f"countdowns host={he.get(COND)} client={ce.get(COND)} "
+                                                           f"host={seen[host.name]} client={seen[client.name]}")
         else:
             results["E5 conditional, both qualify"] = (False, f"client never scheduled {COND}: {ce}")
         host.ok({"cmd": "set_event_countdown", "name": COND_HOST, "minutes": 60})
