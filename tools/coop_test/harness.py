@@ -637,6 +637,10 @@ class GameClient:
                     forced_kill = True
                     _port_file_event("shutdown_wait_timeout", user_dir=self.user_dir,
                                      game_pid=self.proc.pid)
+                    # W2-U8e (F8563): dump the hung game's threads before the kill erases them
+                    dump = _port_file_event("shutdown_dump", user_dir=self.user_dir, game_pid=self.proc.pid,
+                                            **_dump_hung_game(self.proc, self.name))
+                    print("[harness-dump] " + json.dumps(dump, default=str), flush=True)
                     self.proc.kill()
                     self.proc.wait(timeout=15)
         finally:
@@ -738,6 +742,41 @@ def _print_pair_states():
                 view = {"error": "%s: %s" % (type(exc).__name__, exc)}
             print("[harness-join] " + json.dumps(dict(view, key=key, role=role, name=gc.name), default=str),
                   flush=True)
+
+
+# W2-U8e (F8563): MiniDumpWithHandleData | MiniDumpWithUnloadedModules | MiniDumpWithThreadInfo (dbghelp.h)
+_HANG_DUMP_TYPE = 0x00000004 | 0x00000020 | 0x00001000
+
+
+def _dump_hung_game(proc, name):
+    """W2-U8e (F8563): write a minidump of a game that did not exit 15 s after quit, before shutdown() kills it:
+    System32 dbghelp.dll MiniDumpWriteDump through ctypes (every thread's stack and context, handles, modules) into
+    the diagnostics dir, which make_user_dir never erases. Read it with the Windows SDK's cdb and that build's PDB,
+    no symbol server: cdb -z <dump> -y <exe dir> -c "~*k 30; q". Uses the Popen's own process handle, never a pid
+    lookup, so a reused pid is never dumped. Never raises: returns the dump path or why there is none."""
+    handle = getattr(proc, "_handle", None)
+    if os.name != "nt" or handle is None:
+        return {"dumpSkipped": "no Windows process handle"}
+    try:
+        path = os.path.join(TEMP_ROOT, "oxc-coop-port-diagnostics",
+                            "hang-%s-%d-%d.dmp" % (name, proc.pid, time.time_ns()))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        dbghelp = ctypes.WinDLL(os.path.join(os.environ["SystemRoot"], "System32", "dbghelp.dll"),
+                                use_last_error=True)
+        write = dbghelp.MiniDumpWriteDump
+        write.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.HANDLE, wintypes.DWORD,
+                          ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        write.restype = wintypes.BOOL
+        t0 = time.monotonic()
+        with open(path, "wb") as f:
+            ok = write(int(handle), proc.pid, msvcrt.get_osfhandle(f.fileno()), _HANG_DUMP_TYPE, None, None, None)
+            err = ctypes.get_last_error()
+        ms = int((time.monotonic() - t0) * 1000)
+        if not ok:
+            return {"dump": path, "dumpError": "MiniDumpWriteDump failed: winerror %d" % err, "dumpMs": ms}
+        return {"dump": path, "dumpBytes": os.path.getsize(path), "dumpMs": ms}
+    except Exception as exc:
+        return {"dumpError": "%s: %s" % (type(exc).__name__, exc)}
 
 
 def make_user_dir(name, saves=(), mods=(), options=None):
