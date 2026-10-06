@@ -397,11 +397,13 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   (storage + `crafts` + per-soldier reserved layout items; `coop:true` picks the
   visited base), `give_layout` (reserve an `item` on a base's soldiers, optional
   `slot`=belt|right|left|backpack, `qty` entries per soldier, and a `name`
-  filter), `inventory_move` (drag one item inside an OPEN inventory screen via
-  the real `Inventory::fitItem`/`moveItem`, which is what writes the craft's
-  `coopItems` manifest: `name`=soldier, `item`, `slot`=right|left|backpack|belt|
-  ground, `from`=ground|unit; reports `landedSlot`/`landedOnUnit` because
-  `moveItem` silently no-ops under several co-op guards),
+  filter), `inventory_move` (BASE equip screens only - the top InventoryState
+  that soldiers_inventory / craft_inventory opened: move one item the way a
+  Ctrl-click (`Inventory::fitItem`) or, for `slot`=ground, a paper-doll drop
+  (`Inventory::quickDrop`) does; it writes no co-op item manifest: `name`=soldier,
+  `item`, `slot`=right|left|backpack|belt|ground, `from`=ground|unit; reports
+  `moved`, `landedSlot`/`landedOnUnit` read back after the move, and `path`; a
+  battle's inventory is refused - mid-battle, use `inventory_click`),
   `set_coop_base` (force a soldier's coopBase, e.g. to make it a
   stripped guest), `transfer_to_coop_base` (vanilla base->base transfer of a
   soldier to a peer base, no ownership change), `incoming_transfers` (a base's
@@ -443,9 +445,9 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   deterministic trigger with no pathfinding or TU budget in the way),
   `battle_teleport`, and
   `battle_open_inventory` / `battle_close_inventory` (open a unit's inventory
-  MID-BATTLE via the real `btnInventoryClick`, so a follow-up `inventory_move`
-  runs the same `Inventory::moveItem` a mouse drop calls - which is where the
-  co-op mirror packet is built).
+  MID-BATTLE via the real `btnInventoryClick`; drive it with `inventory_click`,
+  the real-UI clicks - `inventory_move` refuses a battle's inventory, it serves
+  the base equip screens only).
 
   `battle_state` also reports `activeSync` (`_isActivePlayerSync`): the coop
   battle states only emit their packet when it is true, so a driver has to fire

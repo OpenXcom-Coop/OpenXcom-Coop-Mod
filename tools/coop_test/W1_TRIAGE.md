@@ -339,3 +339,13 @@ SKIP-PENDING and are not edited; their intent now runs on the rewrite in `test_w
 | `test_coop_debrief_sync.py` | rows E1/E2 (i)-(j): the client shows the host's own debriefing from `bt_debrief_result` and never scores the battle itself, so the two machines cannot count kills differently |
 | `test_skirmish_end_main_menu.py` | rows E3 (host abort, the client presses OK first) and E3b (last alien down, the host presses OK first): no co-op dialog and no LobbyMenu on the machine still reading, both end on the main menu with the SavedGame dropped |
 | `test_skirmish_debrief_disconnect.py` | row E3: the client leaving at the debriefing opens neither a LobbyMenu nor a "has left the server" dialog on the host |
+
+## Dispositions (U6, post-Wave-2)
+
+Recorded by U6 stage A (docs `rewrite/prompts/u6_base_inventory_levers.md`, owner D241 (a)). TestServer rebuilds the
+base-screen `inventory_move` / `inventory_unload` levers, and both files lose their SKIP-PENDING(r4/r5) guard.
+
+| test | disposition |
+|---|---|
+| `test_coop_peer_equip_screens.py` | run live since U6: the peer drags gear onto its own crew on the base equip screen, and the transferred soldier keeps its full loadout on both equip screens at its own base and at the peer base; the SEPARATE coopItems manifest asserts are deleted (D241 (a)) |
+| `test_unload_weapon_crash.py` | run live since U6: `inventory_unload` presses the base equip screen's UNLOAD on a loaded firearm at the host's base, the client's base and the client's base after a transfer, and the process stays alive |

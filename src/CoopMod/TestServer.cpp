@@ -6751,6 +6751,206 @@ static void coopSyncedAdvancedView(Game* game, Json::Value& out)
 	out["advanced"] = adv;
 }
 
+// U6 (owner D241 (a); docs rewrite/prompts/u6_base_inventory_levers.md, Q2 (b), Q3 (a)): TEST-ONLY levers on the
+// BASE equip screens (Bases > Soldiers > Inventory and the craft's equip screen, i.e. soldiers_inventory /
+// craft_inventory). They act on the TOP InventoryState through the vanilla public methods real input reaches:
+// Inventory::fitItem (the Ctrl-click), Inventory::quickDrop (the paper-doll drop) and InventoryState::btnUnloadClick
+// (the UNLOAD button). The Inventory surface is found through the state's own surface list (getSurfaces() +
+// dynamic_cast), never a vanilla accessor. One machine only: never forwarded, never read by game logic, no co-op
+// battle exists on these screens. A screen whose battle has a BattlescapeState is refused: a battle's inventory
+// uses inventory_click (W2-P8). Contract = main's (1aa4806e2):
+//   inventory_move {name?, item, slot = right|left|belt|backpack|back|ground (default right), from = ground|unit
+//     (default ground)} -> {ok = moved, moved, landedSlot, landedOnUnit, warning?, path = quickDrop|fitItem}
+static void coopTestBaseInventoryMove(Game* game, const Json::Value& req, Json::Value& resp)
+{
+	InventoryState* invState = topState<InventoryState>(game);
+	Inventory* invSurf = nullptr;
+	if (invState)
+	{
+		for (auto* s : invState->getSurfaces())
+		{
+			if (auto* i = dynamic_cast<Inventory*>(s)) { invSurf = i; break; }
+		}
+	}
+	SavedGame* sg = game->getSavedGame();
+	SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+	Tile* ground = bg ? bg->getTile(0) : nullptr;
+	if (!invState || !invSurf || !bg || !ground)
+	{
+		resp["error"] = "inventory_move: no base inventory screen on top (soldiers_inventory / craft_inventory first)";
+		return;
+	}
+	if (bg->getBattleState() != nullptr)
+	{
+		resp["error"] = "inventory_move: base screens only - a battle's inventory uses inventory_click (W2-P8)";
+		return;
+	}
+
+	std::string who = req.get("name", "").asString();
+	BattleUnit* unit = nullptr;
+	for (auto* u : *bg->getUnits())
+	{
+		if (u->getFaction() != FACTION_PLAYER) continue;
+		Soldier* gs = u->getGeoscapeSoldier();
+		if (who.empty() || (gs && gs->getName().find(who) != std::string::npos))
+		{ unit = u; break; }
+	}
+	std::string itemType = req.get("item", "").asString();
+	std::string slotName = req.get("slot", "right").asString();
+	bool fromUnit = (req.get("from", "ground").asString() == "unit");
+	RuleInventory* slot = game->getMod()->getInventoryRightHand();
+	if (slotName == "left") slot = game->getMod()->getInventoryLeftHand();
+	else if (slotName == "belt") slot = game->getMod()->getInventoryBelt();
+	else if (slotName == "backpack" || slotName == "back") slot = game->getMod()->getInventoryBackpack();
+	else if (slotName == "ground") slot = game->getMod()->getInventoryGround();
+
+	BattleItem* found = nullptr;
+	if (fromUnit && unit)
+	{
+		for (auto* bi : *unit->getInventory())
+			if (bi->getRules()->getType() == itemType) { found = bi; break; }
+	}
+	else
+	{
+		for (auto* bi : *ground->getInventory())
+			if (bi->getRules()->getType() == itemType) { found = bi; break; }
+	}
+
+	if (!unit)
+		resp["error"] = "no player unit matching name: " + who;
+	else if (!found)
+		resp["error"] = "no " + itemType + (fromUnit ? " on that soldier" : " on the ground");
+	else
+	{
+		// select the unit exactly as clicking the soldier arrows does, then put the item on the cursor
+		bg->setSelectedUnit(unit);
+		invSurf->setSelectedUnit(unit, true);
+		invSurf->setSelectedItem(found);
+		// the ground has no cell list, so a drop there is the paper-doll drop (quickDrop); every other
+		// section takes the Ctrl-click fit (fitItem: first free cell, overlap checked)
+		std::string warning;
+		const bool toGround = (slot->getType() == INV_GROUND);
+		bool moved;
+		if (toGround)
+			moved = invSurf->quickDrop();
+		else
+			moved = invSurf->fitItem(slot, found, warning);
+		if (invSurf->getSelectedItem())
+			invSurf->setSelectedItem(nullptr);
+		resp["moved"] = moved;
+		// where the item ACTUALLY ended up: read it back instead of trusting the call
+		resp["landedSlot"] = found->getSlot() ? found->getSlot()->getId() : std::string("");
+		resp["landedOnUnit"] = (found->getOwner() == unit);
+		if (!warning.empty()) resp["warning"] = warning;
+		resp["path"] = toGround ? "quickDrop" : "fitItem";
+		resp["ok"] = moved;
+	}
+}
+
+// U6: inventory_unload {} -> {ok, unloaded, weapon} on the BASE equip screen (see coopTestBaseInventoryMove above).
+// The screen's selected soldier gets empty hands (to the ground) and a built, loaded hand-holdable firearm in the
+// right hand, so the UNLOAD button's own handler always reaches the unload path. `unloaded` = no ammo slot of the
+// weapon holds the built ammo afterwards.
+static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json::Value& resp)
+{
+	InventoryState* invState = topState<InventoryState>(game);
+	Inventory* invSurf = nullptr;
+	if (invState)
+	{
+		for (auto* s : invState->getSurfaces())
+		{
+			if (auto* i = dynamic_cast<Inventory*>(s)) { invSurf = i; break; }
+		}
+	}
+	SavedGame* sg = game->getSavedGame();
+	SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+	Tile* ground = bg ? bg->getTile(0) : nullptr;
+	if (!invState || !invSurf || !bg || !ground)
+	{
+		resp["error"] = "inventory_unload: no base inventory screen on top (soldiers_inventory / craft_inventory first)";
+		return;
+	}
+	if (bg->getBattleState() != nullptr)
+	{
+		resp["error"] = "inventory_unload: base screens only - a battle's inventory uses inventory_click (W2-P8)";
+		return;
+	}
+
+	BattleUnit* unit = invSurf->getSelectedUnit();
+	if (!unit)
+	{
+		resp["error"] = "no selected unit in inventory";
+		return;
+	}
+
+	// Deterministic setup: clear the selected soldier's hands to the
+	// ground so the unload always has the free hand it needs -
+	// independent of any state a prior unload left on this soldier.
+	RuleInventory* groundRule = game->getMod()->getInventoryGround();
+	auto* uinv = unit->getInventory();
+	for (auto it = uinv->begin(); it != uinv->end(); )
+	{
+		BattleItem* bi = *it;
+		if (bi->getSlot() && bi->getSlot()->getType() == INV_HAND)
+		{
+			it = uinv->erase(it);
+			ground->addItem(bi, groundRule);
+		}
+		else
+		{
+			++it;
+		}
+	}
+
+	// Build + load a firearm on the (now empty-handed) soldier.
+	const RuleItem* wRule = nullptr;
+	const RuleItem* aRule = nullptr;
+	for (auto& name : game->getMod()->getItemsList())
+	{
+		const RuleItem* r = game->getMod()->getItem(name, false);
+		if (!r || r->getBattleType() != BT_FIREARM) continue;
+		if (r->isFixed()) continue;  // skip tank/vehicle-mounted weapons - not hand-holdable
+		if (r->getInventoryWidth() == 0 || r->getInventoryHeight() == 0) continue;
+		auto* ammos = r->getPrimaryCompatibleAmmo();
+		if (ammos && !ammos->empty()) { wRule = r; aRule = ammos->front(); break; }
+	}
+	if (!wRule)
+	{
+		resp["error"] = "no firearm+ammo rule available in mod";
+		return;
+	}
+
+	// Place the weapon straight into the (now free) right hand,
+	// bypassing addItem()'s weight/placement heuristics which can
+	// refuse an off-craft base soldier.
+	BattleItem* weapon = bg->createItemForTile(wRule, ground);
+	weapon->moveToOwner(unit);
+	weapon->setSlot(game->getMod()->getInventoryRightHand());
+	weapon->setSlotX(0);
+	weapon->setSlotY(0);
+
+	BattleItem* ammo = bg->createItemForTile(aRule, ground);
+	ground->removeItem(ammo);
+	if (!weapon->setAmmoPreMission(ammo))
+	{
+		resp["error"] = "could not load ammo into weapon";
+		return;
+	}
+
+	resp["weapon"] = weapon->getRules()->getType();
+	invSurf->setSelectedItem(weapon);
+	invState->btnUnloadClick(nullptr); // the UNLOAD button's own handler
+	bool unloaded = true;
+	for (int a = 0; a < RuleItem::AmmoSlotMax; ++a)
+	{
+		if (weapon->getAmmoForSlot(a) == ammo) unloaded = false;
+	}
+	if (invSurf->getSelectedItem())
+		invSurf->setSelectedItem(nullptr);
+	resp["unloaded"] = unloaded;
+	resp["ok"] = true;
+}
+
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
@@ -6793,6 +6993,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "geo_event_probe" // W2-H15 (F3261, F5602)
 		&& cmd != "sel_state" && cmd != "set_autosell" // W2-P7 S-C-E1.1 (P7-8 PR-46)
 		&& cmd != "screen_push" // W2-P7 S-C-E2.1 (P7-8 PR-51)
+		&& cmd != "inventory_move" && cmd != "inventory_unload" // U6
 		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
 	{
 		return false;
@@ -10803,6 +11004,16 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else
 			coopFieldPoke(_game->getMod(), bgFP, req, resp);
 	}
+	else if (cmd == "inventory_move")
+	{
+		// U6 (D241 a, Q2 b, Q3 a): the base-screen lever; see coopTestBaseInventoryMove() above.
+		coopTestBaseInventoryMove(_game, req, resp);
+	}
+	else if (cmd == "inventory_unload")
+	{
+		// U6 (D241 a, Q2 b, Q3 a): the base-screen lever; see coopTestBaseInventoryUnload() above.
+		coopTestBaseInventoryUnload(_game, req, resp);
+	}
 
 	return true;
 }
@@ -14317,25 +14528,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["allTotal"] = allTotal;
 				resp["ok"] = true;
 			}
-		}
-		else if (cmd == "inventory_move")
-		{
-			// R1-P4 stub: InventoryState::getInventoryForTest() and
-			// Inventory::harnessMoveItem() were removed by the r1 vanilla
-			// restore (911ca487f) - both were coop/harness-only accessors onto
-			// the private Inventory*, and this packet is not authorized to
-			// re-add methods to vanilla files (only BattleUnit::CoopSeat,
-			// RB-D17). The command name stays registered (harness
-			// compatibility) but its body is dead until r4/r5 rebuild an
-			// equivalent hook.
-			resp["error"] = "rewrite-pending";
-		}
-		else if (cmd == "inventory_unload")
-		{
-			// R1-P4 stub: same InventoryState::getInventoryForTest() removal as
-			// inventory_move above. The command name stays registered but its
-			// body is dead until r4/r5 rebuild an equivalent hook.
-			resp["error"] = "rewrite-pending";
 		}
 		else if (cmd == "incoming_transfers")
 		{
