@@ -926,6 +926,7 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 	{
 		_game->getSavedGame()->setGlobalEquipmentLayoutArmor(index, std::string());
 	}
+	if (_base) SharedEcon::submitLayoutTemplate(_game, _base, index); // coop W2-H20b (A10): the slot to the host (P8b Q9 a)
 }
 
 void InventoryState::loadGlobalLayout(int index)
@@ -1023,6 +1024,7 @@ bool InventoryState::tryArmorChange(const std::string& armorName)
 			_resetCustomDeploymentBackup = true;
 		}
 		soldier->setArmor(next, true);
+		SharedEcon::baseArmorChanged(_game, _base, soldier, prev->getType()); // coop W2-H20b (A11): own -> soldier_armor, the partner's put back
 		armorChanged = true;
 	}
 

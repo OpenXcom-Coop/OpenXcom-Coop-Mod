@@ -432,6 +432,17 @@ void baseEquipOpen(Game* game, Base* base);
 /// (aud-E1-11); the changed records of this player's own soldiers go to the host as one soldier_equip. No-op unless @a base is marked.
 void baseEquipOk(Game* game, Base* base);
 
+/// W2-H20b (A10; P8b Q9 a / D209): SHARED and a real base only - no-op otherwise; called right AFTER vanilla's local save of global equipment
+/// layout template @a index on a base screen (InventoryState::saveGlobalLayout): the whole slot (layout, armor, name) goes to the host as
+/// equip_template, so both machines hold the same slot (one shared template set, the last save wins).
+void submitLayoutTemplate(Game* game, Base* base, int index);
+/// W2-H20b (A10): the same for craft loadout template @a index, right after CraftEquipmentState::saveGlobalLoadout.
+void submitLoadoutTemplate(Game* game, Base* base, int index);
+/// W2-H20b (A11; aud-E1-11, AUD-A48): SHARED and a real base only - no-op otherwise; called right AFTER vanilla's template armor change
+/// (InventoryState::tryArmorChange) set @a soldier's armor (it wore armor type @a prevArmorType): an own soldier's change goes to the host as
+/// soldier_armor (both machines then wear and stock the same); a partner's soldier's change is put back at once (stores and armor).
+void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType);
+
 /// W2-H16c (S-12): SHARED and a real base only - returns false otherwise (vanilla runs). Submits soldier_transform
 /// for @a soldier (alive, or dead in the memorial) with the name box's text; writes nothing locally: the host runs
 /// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).

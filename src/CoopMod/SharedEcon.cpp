@@ -1919,12 +1919,14 @@ bool soldierRenameValidate(Game* /*game*/, const Json::Value& payload, Base* bas
 	failReason = "soldier not found";
 	return false;
 }
+void baseEquipMarkName(Soldier* s); // W2-H20b (A14): defined after soldierEquipApply
 void soldierRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (!base) return;
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
 		if (s->getId() == id) { s->setName(payload.get("name", s->getName()).asString()); break; }
+	baseEquipMarkName(findSoldier(base, id)); // W2-H20b (A14): an open base screen's mark keeps this rename (no put-back at its OK)
 }
 
 // soldier_gift payload: { soldierId, newOwner }. Playtest: gifting (give-unit) a
@@ -2668,7 +2670,7 @@ void soldierPsiTrainingApply(Game* game, Json::Value& payload, Base* base, int /
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
 // SoldierArmorState / CraftArmorState: return the old armor's store item + consume
 // the new one against the shared stores.
-bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                           int64_t& cost, std::string& failReason)
 {
 	cost = 0;
@@ -2685,6 +2687,7 @@ bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, in
 	Craft* craft = s->getCraft();
 	if (craft && !craft->validateArmorChange(s->getArmor()->getSize(), next->getSize()))
 	{ failReason = "STR_NOT_ENOUGH_CRAFT_SPACE"; return false; }
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // W2-H20b (A13; AUD-A48, aud-E1-11): own soldiers only
 	return true;
 }
 
@@ -2705,6 +2708,7 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 		if (next->getStoreItem()) base->getStorageItems()->removeItem(next->getStoreItem());
 	}
 	s->setArmor(next, true);
+	if (payload.get("tmpl", false).asBool()) return; // W2-H20b (A11): a template's armor change leaves the last-selected armor (vanilla)
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
@@ -2750,6 +2754,7 @@ Json::Value soldierEquipRecord(Soldier* s)
 	r["layout"] = equipYaml(*s->getEquipmentLayout());
 	r["personal"] = equipYaml(*s->getPersonalEquipmentLayout());
 	r["personalArmor"] = s->getPersonalEquipmentArmor() ? s->getPersonalEquipmentArmor()->getType() : std::string();
+	r["name"] = s->getName(); // W2-H20b (A14): a rename typed on the base screen rides the record (D167 c, P8b-1 V2)
 	return r;
 }
 
@@ -2759,6 +2764,7 @@ void soldierEquipAdopt(Game* game, Soldier* s, const Json::Value& r)
 	if (r.isMember("layout")) equipFromYaml(game, r["layout"].asString(), *s->getEquipmentLayout());
 	if (r.isMember("personal")) equipFromYaml(game, r["personal"].asString(), *s->getPersonalEquipmentLayout());
 	if (r.isMember("personalArmor")) s->setPersonalEquipmentArmor(game->getMod()->getArmor(r["personalArmor"].asString(), false));
+	if (r.isMember("name")) s->setName(r["name"].asString()); // W2-H20b (A14)
 }
 
 bool soldierEquipValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
@@ -2795,6 +2801,55 @@ void soldierEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 	}
 	if (host) payload["soldiers"] = resolved;
 	Log(LOG_INFO) << "[SHARED] soldier_equip: " << adopted << " adopted, " << kept << " kept by the host, base " << bi;
+}
+
+// W2-H20b (A14): a rename applied while a base screen is open (the partner's soldier_rename) refreshes that soldier's name in the open
+// screen's mark, so the screen's OK does not put the old name back (H20 Q2 (a)'s refresh rule, the name field only).
+void baseEquipMarkName(Soldier* s)
+{
+	if (!s || !g_baseEquipMark.isObject()) return;
+	const std::string key = std::to_string(s->getId());
+	if (g_baseEquipMark["soldiers"].isMember(key)) g_baseEquipMark["soldiers"][key]["name"] = s->getName();
+}
+
+// ---- W2-H20b (A10; P8b Q9 a / D209, SC-5, SC-9 extended): equip_template - a SHARED template save ------------------------------------
+// payload: { kind: "layout" | "loadout", index, name, layout + armor (kind layout: the slot's equipYaml and armor type) | items {type: count}
+// (kind loadout) }, baseId = the saving screen's base. Player-origin from either seat right after vanilla's own local save; the whole slot
+// travels and both roles write it, so the one shared world keeps ONE template set (last write wins). No store, soldier or craft is touched.
+bool equipTemplateValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                           int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	const std::string kind = payload.get("kind", "").asString();
+	const int index = payload.get("index", -1).asInt();
+	if (kind == "layout") return index >= 0 && index < SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES; // a refusal reads "rejected"
+	if (kind == "loadout") return index >= 0 && index < SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES;
+	return false;
+}
+
+void equipTemplateApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	SavedGame* sg = game ? game->getSavedGame() : nullptr;
+	if (!sg) return;
+	const int index = payload.get("index", -1).asInt();
+	const std::string kind = payload.get("kind", "").asString();
+	if (kind == "layout" && index >= 0 && index < SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES)
+	{
+		equipFromYaml(game, payload.get("layout", "").asString(), *sg->getGlobalEquipmentLayout(index));
+		sg->setGlobalEquipmentLayoutArmor(index, payload.get("armor", "").asString());
+		sg->setGlobalEquipmentLayoutName(index, payload.get("name", "").asString());
+	}
+	else if (kind == "loadout" && index >= 0 && index < SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
+	{
+		ItemContainer* tmpl = sg->getGlobalCraftLoadout(index);
+		tmpl->clear();
+		const Json::Value& items = payload["items"];
+		for (const auto& type : items.getMemberNames())
+			if (const RuleItem* rule = game->getMod()->getItem(type, false)) tmpl->addItem(rule, items[type].asInt());
+		sg->setGlobalCraftLoadoutName(index, payload.get("name", "").asString());
+	}
+	Log(LOG_INFO) << "[SHARED] equip_template: " << kind << " " << index << " written";
 }
 
 // W2-H16e (F6176) fac_disable { x, y, disabled }, baseId = the base index: the host re-checks vanilla's gate, applies and broadcasts the resolved flag; a replica adopts it.
@@ -4362,6 +4417,7 @@ void init()
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
 	registerCmd("soldier_equip",  &soldierEquipValidate, &soldierEquipApply); // W2-H20 (D255 a): base-screen OK, player-origin, owner-gated
+	registerCmd("equip_template", &equipTemplateValidate, &equipTemplateApply); // W2-H20b (A10): a template save, player-origin, last write wins
 	// W2-H16 (F3260): manual promotion and nationality (player-origin from either seat; the host resolves the rank).
 	registerCmd("soldier_rank",   &soldierRankValidate,   &soldierRankApply);
 	registerCmd("soldier_nationality", &soldierNationalityValidate, &soldierNationalityApply);
@@ -5713,6 +5769,63 @@ void baseEquipOk(Game* game, Base* base)
 	Json::Value p(Json::objectValue);
 	p["soldiers"] = soldiers;
 	submitLocalCmd(game, "soldier_equip", baseIndex(game, base), p);
+}
+
+// W2-H20b (A10): see SharedEcon.h.
+void submitLayoutTemplate(Game* game, Base* base, int index)
+{
+	if (!game || !base || base->_coopBase || !game->getSavedGame() || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (index < 0 || index >= SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES) return;
+	SavedGame* sg = game->getSavedGame();
+	Json::Value p(Json::objectValue);
+	p["kind"] = "layout";
+	p["index"] = index;
+	p["layout"] = equipYaml(*sg->getGlobalEquipmentLayout(index));
+	p["armor"] = sg->getGlobalEquipmentLayoutArmor(index);
+	p["name"] = sg->getGlobalEquipmentLayoutName(index);
+	submitLocalCmd(game, "equip_template", baseIndex(game, base), p);
+}
+
+void submitLoadoutTemplate(Game* game, Base* base, int index)
+{
+	if (!game || !base || base->_coopBase || !game->getSavedGame() || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (index < 0 || index >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES) return;
+	SavedGame* sg = game->getSavedGame();
+	Json::Value p(Json::objectValue);
+	p["kind"] = "loadout";
+	p["index"] = index;
+	p["items"] = Json::Value(Json::objectValue);
+	for (const auto& pr : *sg->getGlobalCraftLoadout(index)->getContents())
+		p["items"][pr.first->getType()] = pr.second;
+	p["name"] = sg->getGlobalCraftLoadoutName(index);
+	submitLocalCmd(game, "equip_template", baseIndex(game, base), p);
+}
+
+// W2-H20b (A11; aud-E1-11, AUD-A48): see SharedEcon.h.
+void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType)
+{
+	if (!game || !base || !soldier || base->_coopBase || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	Armor* prev = game->getMod()->getArmor(prevArmorType, false);
+	Armor* next = soldier->getArmor();
+	if (!prev || !next || next == prev) return;
+	if (ownsSoldier(game, soldier))
+	{
+		Json::Value p(Json::objectValue);
+		p["soldierId"] = soldier->getId();
+		p["armor"] = next->getType();
+		p["tmpl"] = true; // soldierArmorApply: vanilla's template change leaves the last-selected armor
+		submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
+		return;
+	}
+	// the partner's soldier: vanilla's change is put back at once - its armor store items, then its armor
+	SavedGame* save = game->getSavedGame();
+	if (save && save->getMonthsPassed() != -1)
+	{
+		if (next->getStoreItem()) base->getStorageItems()->addItem(next->getStoreItem());
+		if (prev->getStoreItem()) base->getStorageItems()->removeItem(prev->getStoreItem());
+	}
+	soldier->setArmor(prev, true);
+	Log(LOG_INFO) << "[SHARED] base armor change on the partner's soldier " << soldier->getId() << " put back, base " << baseIndex(game, base);
 }
 
 // W2-H16c (S-12): see SharedEcon.h. The rule travels by name; the host resolves the rest.
