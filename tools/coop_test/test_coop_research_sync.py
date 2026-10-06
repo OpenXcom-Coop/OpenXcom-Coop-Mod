@@ -25,6 +25,10 @@ Rows (vanilla rules, SEPARATE campaign, research sync on):
              rewards (vanilla rule). Guard row: green before and after the fix.
   R5 quiet   host re-researches STR_SECTOID_CORPSE, which both players already
              know. The client gets no "Research Completed" popup.
+  R6 items   host researches STR_COOP_RS_SPAWNS_ITEM (mod Coop_ResearchSync_Test,
+             spawnedItem STR_MEDI_KIT). The client learns the topic but gets no
+             medi-kit: a research-spawned item goes only to the player who did the
+             research (owner ruling, 2026-10-06).
 
   * PASS (exit 0): every row holds.
   * FAIL (exit 2): a row failed (the bug) or a game process crashed.
@@ -43,6 +47,7 @@ import geo  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 PORT = "47966"
+MOD = os.path.join(HERE, "mods", "Coop_ResearchSync_Test")
 DAY = 26 * 60
 # STR_SECTOID_ENGINEER's getOneFree list (bin/standard/xcom1/research.rul)
 ENGINEER_FREE = {"STR_SMALL_SCOUT", "STR_MEDIUM_SCOUT", "STR_LARGE_SCOUT", "STR_HARVESTER",
@@ -63,6 +68,16 @@ def projects(gc):
         if not b["coopBase"] and not b["coopIcon"]:
             return [r["name"] for r in b["research"]]
     return []
+
+
+def medikits(gc):
+    """STR_MEDI_KIT in this player's own base: in stores plus on the way in."""
+    g = gc.ok({"cmd": "geo_state"})
+    for b in g["bases"]:
+        if not b["coopBase"] and not b["coopIcon"]:
+            return b["items"].get("STR_MEDI_KIT", 0) + sum(
+                t["qty"] for t in b["transfers"] if t.get("rule") == "STR_MEDI_KIT")
+    return 0
 
 
 def drain(gc):
@@ -117,8 +132,8 @@ def start(gc, topic, cost):
 
 
 def main():
-    host = GameClient("host", 48991, make_user_dir("rsync_host"))
-    client = GameClient("client", 48992, make_user_dir("rsync_client"))
+    host = GameClient("host", 48991, make_user_dir("rsync_host", mods=[MOD]))
+    client = GameClient("client", 48992, make_user_dir("rsync_client", mods=[MOD]))
     host.spawn(); client.spawn()
     host.connect(); client.connect()
     results = {}
@@ -175,6 +190,17 @@ def main():
         if "RC" not in seen[host.name]:
             raise Inconclusive(f"R5: host never completed the repeat: {seen[host.name]}")
         results["R5 quiet"] = ("RC" not in seen[client.name], f"client popups={seen[client.name]}")
+
+        # R6 a research-spawned item stays with the researcher
+        h0, c0 = medikits(host), medikits(client)
+        start(host, "STR_COOP_RS_SPAWNS_ITEM", 1)
+        seen = advance(host, client, DAY)
+        h1, c1 = medikits(host), medikits(client)
+        if h1 != h0 + 1:
+            raise Inconclusive(f"R6: host medi-kits {h0} -> {h1}, expected +1 from the research")
+        ok = "STR_COOP_RS_SPAWNS_ITEM" in known(client) and c1 == c0
+        results["R6 items"] = (ok, f"client knows topic={'STR_COOP_RS_SPAWNS_ITEM' in known(client)} "
+                                   f"client medi-kits {c0} -> {c1}")
     except Inconclusive as e:
         note = "INCONCLUSIVE: " + str(e)
     except Exception as e:  # a dropped socket mid-command == a crash

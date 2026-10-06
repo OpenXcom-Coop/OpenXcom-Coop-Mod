@@ -1,0 +1,7 @@
+# Test-only mod for test_coop_research_sync.py row R6: completing this topic
+# spawns one medi-kit at the researching player's base (vanilla research side effect).
+research:
+  - name: STR_COOP_RS_SPAWNS_ITEM
+    cost: 10
+    points: 1
+    spawnedItem: STR_MEDI_KIT
