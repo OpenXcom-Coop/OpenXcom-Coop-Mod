@@ -873,6 +873,15 @@ static std::string g_u7ArmType;
 static std::string g_u7ArmFire;
 static Uint32 g_u7ArmDeadline = 0;
 
+// W2-U7c (F6361, F8009): TEST-ONLY frame stand-in for a loaded machine. `slow_top {type, ms, timeoutMs}` arms it: on every pump pass
+// whose top state's name contains `type`, pump sleeps `ms` (1..100) after its own work, so that state lives that much longer per frame
+// (W2i F7704: the client's own-world LoadGameState took 247 ms at 100 % CPU vs ~25 ms quiet). {off: true} disarms; neither only reports.
+static Json::Value g_u7cSlow(Json::objectValue);
+static bool g_u7cSlowArmed = false;
+static std::string g_u7cSlowType;
+static Uint32 g_u7cSlowMs = 0;
+static Uint32 g_u7cSlowDeadline = 0;
+
 // W2-U7 (F5820, F5822): TEST-ONLY. A state a world (re)stream owns: every LoadGameState (it adopts the world and pops itself after
 // ~10 frames; a raw pop loses the world, leaves a SHARED replica's resync pending and its shared-apply hold set) and the hold the
 // adoption pushes (COOP_DLG_CLIENT_RESUME_HOLD, released by the host's campaign_begun). No player can close either.
@@ -976,6 +985,24 @@ void TestServer::pump()
 			g_u7Arm["response"] = u7Resp;
 			g_u7Arm["topAfter"] = armKeyStateName(_game->getStates().empty() ? nullptr : _game->getStates().back());
 			Log(LOG_INFO) << "[coop-test] dismiss_arm: " << g_u7ArmFire << " fired on " << g_u7Arm["topBefore"].asString();
+		}
+	}
+	if (g_u7cSlowArmed) // W2-U7c (F6361): TEST-ONLY slow_top, see its comment above pump()
+	{
+		const State* slowTop = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		if (SDL_GetTicks() > g_u7cSlowDeadline)
+		{
+			g_u7cSlowArmed = false;
+			g_u7cSlow["armed"] = false;
+			g_u7cSlow["expired"] = true;
+		}
+		else if (slowTop && armKeyStateName(slowTop).find(g_u7cSlowType) != std::string::npos)
+		{
+			if (g_u7cSlow["slowedPasses"].asInt() == 0)
+				g_u7cSlow["firstTicks"] = (Json::UInt)SDL_GetTicks();
+			g_u7cSlow["slowedPasses"] = g_u7cSlow["slowedPasses"].asInt() + 1;
+			g_u7cSlow["lastTicks"] = (Json::UInt)SDL_GetTicks();
+			SDL_Delay(g_u7cSlowMs);
 		}
 	}
 }
@@ -6993,6 +7020,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "clear_warning"
 		&& cmd != "toggle_probe" && cmd != "set_toggle_state" && cmd != "open_craft_info" // W2-H16e (F6176)
 		&& cmd != "dismiss_arm" && cmd != "dismiss_arm_state" // W2-U7 (F5820)
+		&& cmd != "slow_top" // W2-U7c (F6361)
 		&& cmd != "display_rules" && cmd != "debrief_state"
 		&& cmd != "geo_event_probe" // W2-H15 (F3261, F5602)
 		&& cmd != "sel_state" && cmd != "set_autosell" // W2-P7 S-C-E1.1 (P7-8 PR-46)
@@ -9354,6 +9382,37 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// W2-U7 (F5820): TEST-ONLY. Reply {ok, arm: {armed, fired, expired, type, fire, topBefore, topAfter,
 		// pendingAtFire, firedTicks, response (the fired command's raw JSON reply)}}.
 		resp["arm"] = g_u7Arm;
+		resp["ok"] = true;
+	}
+	else if (cmd == "slow_top")
+	{
+		// W2-U7c (F6361): TEST-ONLY lever (see the comment above pump()). {type, ms = 30 (1..100), timeoutMs = 60000} arms it;
+		// {off: true} disarms; neither only reports. Reply {ok, slow: {armed, expired, type, ms, slowedPasses, firstTicks, lastTicks}}.
+		if (req.get("off", false).asBool())
+		{
+			g_u7cSlowArmed = false;
+			g_u7cSlow["armed"] = false;
+		}
+		else if (req.isMember("type"))
+		{
+			const std::string typeST = req["type"].asString();
+			const int msST = req.get("ms", 30).asInt();
+			if (typeST.empty() || msST < 1 || msST > 100)
+			{
+				resp["error"] = "slow_top: type must name a state and ms must be 1..100";
+				return true;
+			}
+			g_u7cSlow = Json::Value(Json::objectValue);
+			g_u7cSlow["armed"] = true;
+			g_u7cSlow["expired"] = false;
+			g_u7cSlow["type"] = g_u7cSlowType = typeST;
+			g_u7cSlow["ms"] = msST;
+			g_u7cSlow["slowedPasses"] = 0;
+			g_u7cSlowMs = (Uint32)msST;
+			g_u7cSlowDeadline = SDL_GetTicks() + (Uint32)req.get("timeoutMs", 60000).asInt();
+			g_u7cSlowArmed = true;
+		}
+		resp["slow"] = g_u7cSlow;
 		resp["ok"] = true;
 	}
 	else if (cmd == "clear_warning")
