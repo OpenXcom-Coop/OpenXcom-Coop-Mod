@@ -6779,6 +6779,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base" // W2-P7 S-C-D1.1 (P7-7 PR-28)
 		&& cmd != "followup_state" // W2-P7 S-C-C.1 (P7-6 C re-pin PR-C9)
 		&& cmd != "mission_stats_pad" // W2-P7 S-C-B2.3.1 (F5549)
+		&& cmd != "prod_fx_probe" // W2-H16g (F6711)
 		&& cmd != "battle_visibility_rule"
 		&& cmd != "screen_pixels"
 		&& cmd != "battle_camera_center"
@@ -10021,6 +10022,74 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			resp["ids"] = idsMP;
 			resp["size"] = (int)sgMP->getMissionStatistics()->size();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "prod_fx_probe")
+	{
+		// W2-H16g (F6711, spec (e)): TEST INTROSPECTION ONLY - read-only. {base?} (found as open_screen finds it: by name, else
+		// the first base with _coopBase and _coopIcon false): funds; score (getResearchScores().back(), 0 when empty); ids (the
+		// whole getAllIds() map); engineers (getEngineers()), availableEngineers, scientists; stores (the base's whole store
+		// map); crafts [{id, type}] in list order; transfers [{hours, kind item|craft|soldier|scientist|engineer, item, qty,
+		// soldierId, soldierOwner, soldierName, soldierType, craftType, craftId}] in list order; productions [{name, assigned,
+		// amount, timeSpent, produced (getAmountProduced), infinite, fallback, sell}]; top (typeid of the top state).
+		SavedGame* sgPF = _game->getSavedGame();
+		const std::string basePF = req.get("base", "").asString();
+		Base* targetPF = nullptr;
+		if (sgPF)
+			for (auto* base : *sgPF->getBases())
+				if (!targetPF && (basePF.empty() ? (!base->_coopBase && !base->_coopIcon) : base->getName() == basePF))
+					targetPF = base;
+		State* topPF = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		resp["top"] = topPF ? typeid(*topPF).name() : "none";
+		if (!sgPF || !targetPF)
+			resp["error"] = "prod_fx_probe: no saved game or base";
+		else
+		{
+			resp["funds"] = Json::Value::Int64(sgPF->getFunds());
+			resp["score"] = sgPF->getResearchScores().empty() ? 0 : sgPF->getResearchScores().back();
+			Json::Value idsPF(Json::objectValue), storesPF(Json::objectValue);
+			Json::Value craftsPF(Json::arrayValue), transfersPF(Json::arrayValue), prodsPF(Json::arrayValue);
+			for (const auto& kv : sgPF->getAllIds()) idsPF[kv.first] = kv.second;
+			resp["ids"] = idsPF;
+			resp["engineers"] = targetPF->getEngineers();
+			resp["availableEngineers"] = targetPF->getAvailableEngineers();
+			resp["scientists"] = targetPF->getScientists();
+			for (const auto& kv : *targetPF->getStorageItems()->getContents()) storesPF[kv.first->getType()] = kv.second;
+			resp["stores"] = storesPF;
+			for (auto* c : *targetPF->getCrafts())
+			{
+				Json::Value o(Json::objectValue);
+				o["id"] = c->getId(); o["type"] = c->getRules()->getType();
+				craftsPF.append(o);
+			}
+			resp["crafts"] = craftsPF;
+			static const char* const kindsPF[] = { "item", "craft", "soldier", "scientist", "engineer" }; // TransferType order
+			for (auto* t : *targetPF->getTransfers())
+			{
+				Json::Value o(Json::objectValue);
+				const TransferType k = t->getType();
+				Soldier* s = k == TRANSFER_SOLDIER ? t->getSoldier() : nullptr;
+				Craft* c = k == TRANSFER_CRAFT ? t->getCraft() : nullptr;
+				o["hours"] = t->getHours();
+				o["kind"] = (k >= TRANSFER_ITEM && k <= TRANSFER_ENGINEER) ? kindsPF[(int)k] : "unknown";
+				o["item"] = (k == TRANSFER_ITEM && t->getItems()) ? t->getItems()->getType() : std::string();
+				o["qty"] = t->getQuantity();
+				o["soldierId"] = s ? s->getId() : -1; o["soldierOwner"] = s ? s->getOwnerPlayerId() : -1;
+				o["soldierName"] = s ? s->getName() : std::string(); o["soldierType"] = s ? s->getRules()->getType() : std::string();
+				o["craftType"] = c ? c->getRules()->getType() : std::string(); o["craftId"] = c ? c->getId() : -1;
+				transfersPF.append(o);
+			}
+			resp["transfers"] = transfersPF;
+			for (auto* p : targetPF->getProductions())
+			{
+				Json::Value o(Json::objectValue);
+				o["name"] = p->getRules()->getName(); o["assigned"] = p->getAssignedEngineers(); o["amount"] = p->getAmountTotal();
+				o["timeSpent"] = p->getTimeSpent(); o["produced"] = p->getAmountProduced(); o["infinite"] = p->getInfiniteAmount();
+				o["fallback"] = p->isFallback(); o["sell"] = p->getSellItems();
+				prodsPF.append(o);
+			}
+			resp["productions"] = prodsPF;
 			resp["ok"] = true;
 		}
 	}
