@@ -8,9 +8,10 @@ project listed (both in SHARED) within 5 s, set_research_cost 1, a 2-day skip (s
 interest; poll = both machines' ending_state + research_probe every 0.2 s for 5 s (3 s in H17b-1). Every interest and
 keep list names CutsceneState and StatisticsState (H17b-3 also SlideshowState, R-H17b-T0-1); no dismiss_popup ever
 reaches a machine whose top is one of them (atomic keep list, top read first). The packet-arrived guard is the receiving
-machine's allowCutscene false in H17b-1 / H17b-4 (a window sits under its cutscene) and, in H17b-2 / -3 / -5, its engine
+machine's allowCutscene false in H17b-4 (a window sits under its cutscene) and, in H17b-2 / -3 / -5, its engine
 log's play of the packet's cutscene after the row's S0 mark (R-H17b-R-1; there GeoscapeState::init re-arms the latch);
 H17b-3 also accepts a SlideshowState push after that machine's StatisticsState push (the stock loseGame, R-H17b-G-2).
+H17b-1 has no packet guard: since W2-H17d a SHARED story event's OK relays nothing (each player plays it at its own OK).
 Boot A (SHARED): H17b-1 (first), H17b-2; Boot B: H17b-3; Boot C: H17b-4; Boot D (SEPARATE): H17b-5.
 RED (commit 1): H17b-1..5 fail on their named cells; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss).
 EVIDENCE then PASS / FAIL per row; ONE run; every row runs after a failure; exit 0 only if all pass, else 2.
@@ -198,8 +199,6 @@ def row_h17b_1(r, x):
     press_ok(r, x, c)
     p = poll(x, 3.0)
     r.ev["poll"] = summary(p)
-    guard(r, x, "hostLatch", any(s["h"]["allow"] is False for s in p),
-          f"the client's packet never reached the host: {r.ev['poll']['h.allow']}")
     press_ok(r, x, h)
     time.sleep(1.0)
     st = geo.settle(h, c, keep=list(KEEP))
