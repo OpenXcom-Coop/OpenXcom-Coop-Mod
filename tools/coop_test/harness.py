@@ -603,6 +603,7 @@ class GameClient:
             if last:
                 return last
             time.sleep(interval)
+        _print_pair_states()  # W2-U8e (F8573): a timed-out wait shows where each coop pair's connection stands
         raise TimeoutError(f"{self.name}: timed out waiting for {desc} (last={last!r})")
 
     def kill(self):
@@ -717,6 +718,26 @@ def _wait_host_listening(host, key, port, joiner):
     if host.user_dir:
         _report_port_file_error("listen_wait_failed", exc, host.user_dir, **dump)
     raise exc
+
+
+def _print_pair_states():
+    """W2-U8e (F8573): on a wait_for deadline, print one [harness-join] line per running member of every coop pair
+    this process joined: its get_coop connect fields and its top states. A client whose single connect failed shows
+    coopDialog 16 (connectionTCP::updateCoopTask's onConnect == 0 branch). Read-only requests; never raises; the
+    TimeoutError is unchanged."""
+    for key, joiners in list(_COOP_JOINERS.items()):
+        host = _COOP_HOSTS.get(key, (None,))[0]
+        for role, gc in [("host", host)] + [("joiner", j) for j in joiners]:
+            if gc is None or gc.sock is None or (gc.proc is not None and gc.proc.poll() is not None):
+                continue
+            try:
+                coop = gc._send({"cmd": "get_coop"})
+                view = {k: coop.get(k) for k in _JOIN_VIEW}
+                view["top"] = gc._send({"cmd": "get_state"}).get("states", [])[-3:]
+            except Exception as exc:
+                view = {"error": "%s: %s" % (type(exc).__name__, exc)}
+            print("[harness-join] " + json.dumps(dict(view, key=key, role=role, name=gc.name), default=str),
+                  flush=True)
 
 
 def make_user_dir(name, saves=(), mods=(), options=None):
