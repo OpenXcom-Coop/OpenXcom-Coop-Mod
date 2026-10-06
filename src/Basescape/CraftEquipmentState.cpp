@@ -770,6 +770,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 		submitSharedCraftEquip(item, change <= 0 ? change : -change);
 		return;
 	}
+	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop W2-H20c (A17): vanilla moves an HWP locally below; its end-state follows
 	int cQty = 0;
 	if (item->getVehicleUnit()) cQty = c->getVehicleCount(_items[_sel]);
 	else cQty = c->getItems()->getItem(item);
@@ -838,6 +839,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 			_base->getStorageItems()->addItem(item, change);
 		}
 	}
+	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop W2-H20c (A17): the HWP end-state to the host
 	updateQuantity();
 }
 
@@ -868,6 +870,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 		submitSharedCraftEquip(item, change);
 		return;
 	}
+	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop W2-H20c (A17): vanilla moves an HWP locally below; its end-state follows
 	int bqty = _base->getStorageItems()->getItem(item);
 	if (_isNewBattle)
 	{
@@ -980,6 +983,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 			_base->getStorageItems()->removeItem(item, change);
 		}
 	}
+	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop W2-H20c (A17): the HWP end-state to the host
 	updateQuantity();
 }
 
