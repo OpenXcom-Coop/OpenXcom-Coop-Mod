@@ -126,6 +126,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
+from harness import shutdown_clients  # noqa: E402 (W2-U8d F8416: _s2_bring_up's cleanup)
 import repro_atom_side_transition as sid  # noqa: E402 (S2: bring_up_lobby + dismiss_next_turn_if_present)
 
 SDLK_HOME = 278
@@ -635,11 +636,17 @@ def _s2_bring_up(base_port):
     host = GameClient("host", base_port + 1, host_dir)
     client = GameClient("client", base_port + 2, client_dir)
     seated = {}
-    sid.bring_up_lobby(host, client, str(port))
-    session.drive_to_battlescape(
-        host, client, seated, mission=SPEC16_S2_MISSION, seat_count=2,
-        pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": SPEC16_S2_RACE}),
-        pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SPEC16_S2_SEED}))
+    try:
+        sid.bring_up_lobby(host, client, str(port))
+        session.drive_to_battlescape(
+            host, client, seated, mission=SPEC16_S2_MISSION, seat_count=2,
+            pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": SPEC16_S2_RACE}),
+            pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SPEC16_S2_SEED}))
+    except BaseException:
+        # W2-U8d (F8416): run_s2's try/finally starts only after this returns, so a failed bring-up shuts
+        # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client
 
 
