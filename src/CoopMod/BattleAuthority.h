@@ -786,6 +786,7 @@ bool coopSuppressNonPlayerThink(const SavedBattleGame* s);
 /// How many guest-soldier YAML entries are currently stored for @a seat.
 /// Reported by TestServer's `event_state` as `guestContrib.soldiers[seat]`
 /// (S1's vacuity guard: the roster actually travelled).
+/// W2-H19b (F6989): the store keeps one entry per destination (craftId + craftType); this sums them.
 int coopGuestContribStoredCount(int seat);
 
 /// Whether @a seat's stored entry names the craft (@a craftId + @a
@@ -794,10 +795,15 @@ int coopGuestContribStoredCount(int seat);
 /// anything stored for that seat.
 bool coopGuestContribCraftMatches(int seat, int craftId, const std::string& craftType);
 
-/// The @a index'th stored guest Soldier YAML for @a seat (Soldier::save()'s
+/// W2-H19b (F6989): how many guest-soldier YAML entries @a seat stored for the
+/// craft @a craftId + @a craftType (0 when none) - what coopMergeGuestContributions()
+/// deserialises for the landing craft.
+int coopGuestContribCraftCount(int seat, int craftId, const std::string& craftType);
+
+/// The @a index'th guest Soldier YAML @a seat stored for the craft @a craftId + @a craftType (Soldier::save()'s
 /// wire form), or an empty string if out of range - coopMergeGuestContrib-
 /// utions() deserialises each of these via Soldier::load().
-const std::string& coopGuestContribSoldierYaml(int seat, int index);
+const std::string& coopGuestContribSoldierYaml(int seat, int craftId, const std::string& craftType, int index);
 
 /// The CLIENT's own count of guest soldiers in the last battle_roster_contrib
 /// census it computed (connectionTCP::sendGuestRosterContrib()) - 0 if none

@@ -6118,30 +6118,50 @@ struct CoopGuestContribEntry
 	std::vector<std::string> soldiers; // each guest's Soldier::save() YAML
 	bool afterEnd = false; // W2-H19 (F6860): stored while this host's battle was Ended - kept for the NEXT landing (coopResetBattleScope)
 };
-static CoopGuestContribEntry g_guestContrib[4]; // kMaxSeats (RB-D17: private, stays 4)
+// W2-H19b (F6989): one entry per destination (craftId + craftType) per seat - a client may seat guests on several host crafts.
+static std::vector<CoopGuestContribEntry> g_guestContrib[4]; // kMaxSeats (RB-D17: private, stays 4)
+
+// W2-H19b (F6989): @a seat's entry for one destination, or nullptr.
+static const CoopGuestContribEntry* coopGuestContribFind(int seat, int craftId, const std::string& craftType)
+{
+	if (seat < 0 || seat >= 4)
+		return nullptr;
+	for (const auto& entry : g_guestContrib[seat])
+	{
+		if (entry.craftId == craftId && entry.craftType == craftType)
+			return &entry;
+	}
+	return nullptr;
+}
 
 int coopGuestContribStoredCount(int seat)
 {
 	if (seat < 0 || seat >= 4)
 		return 0;
-	return (int)g_guestContrib[seat].soldiers.size();
+	int count = 0; // W2-H19b: over every destination of @a seat
+	for (const auto& entry : g_guestContrib[seat])
+		count += (int)entry.soldiers.size();
+	return count;
 }
 
 bool coopGuestContribCraftMatches(int seat, int craftId, const std::string& craftType)
 {
-	if (seat < 0 || seat >= 4)
-		return false;
-	return g_guestContrib[seat].craftId == craftId && g_guestContrib[seat].craftType == craftType;
+	return coopGuestContribFind(seat, craftId, craftType) != nullptr;
 }
 
-const std::string& coopGuestContribSoldierYaml(int seat, int index)
+int coopGuestContribCraftCount(int seat, int craftId, const std::string& craftType)
+{
+	const CoopGuestContribEntry* entry = coopGuestContribFind(seat, craftId, craftType);
+	return entry ? (int)entry->soldiers.size() : 0;
+}
+
+const std::string& coopGuestContribSoldierYaml(int seat, int craftId, const std::string& craftType, int index)
 {
 	static const std::string kEmpty;
-	if (seat < 0 || seat >= 4)
+	const CoopGuestContribEntry* entry = coopGuestContribFind(seat, craftId, craftType);
+	if (!entry || index < 0 || index >= (int)entry->soldiers.size())
 		return kEmpty;
-	if (index < 0 || index >= (int)g_guestContrib[seat].soldiers.size())
-		return kEmpty;
-	return g_guestContrib[seat].soldiers[index];
+	return entry->soldiers[index];
 }
 
 // The CLIENT's own count of guest soldiers in the last battle_roster_contrib
@@ -6507,13 +6527,8 @@ void resetBattleAuthority()
 	g_coopSaveDeferredWrittenAt = 0;
 	// SPEC 19 (W1-P20) M2 Branch B: same discipline - a stale guest-roster
 	// contribution must not survive into a battle that no longer exists.
-	for (auto& entry : g_guestContrib)
-	{
-		entry.craftId = -1;
-		entry.craftType.clear();
-		entry.soldiers.clear();
-		entry.afterEnd = false; // W2-H19
-	}
+	for (auto& seatEntries : g_guestContrib)
+		seatEntries.clear(); // W2-H19b (F6989): every destination of every seat
 	g_guestContribLastSentCount = 0;
 	g_guestContribResendAll = true; // W2-H19 (Q3 a): resend the roster after every reset
 	// W2-P4r S-R.2 (spec (b)3/(b)9): the per-seat research lists are
@@ -26109,11 +26124,14 @@ static void coopResetBattleScope()
 {
 	// W2-H19 (F6860; Q1 a): a guest roster stored after this battle ended (a client that pressed OK first and is back on
 	// its own geoscape) is for the NEXT landing - it survives this battle-end reset. Main thread (both callers).
-	CoopGuestContribEntry keepContrib[4];
+	std::vector<CoopGuestContribEntry> keepContrib[4]; // W2-H19b (F6989): per destination
 	for (int s = 0; s < 4; ++s)
 	{
-		if (g_guestContrib[s].afterEnd)
-			keepContrib[s] = g_guestContrib[s];
+		for (const auto& entry : g_guestContrib[s])
+		{
+			if (entry.afterEnd)
+				keepContrib[s].push_back(entry);
+		}
 	}
 	CoopPump::reset(true);
 	CoopIdMaps::reset();
@@ -26121,10 +26139,10 @@ static void coopResetBattleScope()
 	CoopHandshake::resetPendingState();
 	for (int s = 0; s < 4; ++s)
 	{
-		if (keepContrib[s].afterEnd)
+		for (auto& entry : keepContrib[s])
 		{
-			g_guestContrib[s] = keepContrib[s];
-			g_guestContrib[s].afterEnd = false;
+			entry.afterEnd = false;
+			g_guestContrib[s].push_back(entry);
 		}
 	}
 }
@@ -30704,7 +30722,7 @@ void connectionTCP::sendGuestRosterContrib()
 	const int seat = connectionTCP::localSeat();
 	// W2-H19 (F6986; Q2 a): a destination that left the census (its guest was unseated, or came back wounded - MR6) is
 	// sent ONCE with no soldiers so the host's store stops naming it; then every current destination is resent - the
-	// host keeps ONE entry per seat, so the last message must be a current one. Only while the OWN world is live: a
+	// host stored ONE entry per seat before W2-H19b (one per destination now; the resend is harmless). Only while the OWN world is live: a
 	// peer-base visit or a pending own-world load reads no guests (F6983; the gift replay's predicate above).
 	State* rosterTop = _game->getStates().empty() ? nullptr : _game->getStates().back();
 	const bool ownWorldLive = !playerInsideCoopBase && !coopMissionEnd && !_game->getSavedGame()->getSavedBattle()
@@ -33360,14 +33378,29 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				const int seat = obj.get("seat", -1).asInt();
 				if (seat >= 0 && seat < 4)
 				{
-					CoopGuestContribEntry& entry = g_guestContrib[seat];
-					entry.craftId = obj.get("craftId", -1).asInt();
-					entry.craftType = obj.get("craftType", "").asString();
-					entry.soldiers.clear();
-					entry.afterEnd = coopBattleAuthority().phase.load() == CoopBattlePhase::Ended; // W2-H19 (F6860; Q1 a)
+					// W2-H19b (F6989): one entry per destination (craftId + craftType); an empty soldiers list drops that
+					// destination only (W2-H19 Q2 a: its guest left the craft).
+					const int craftId = obj.get("craftId", -1).asInt();
+					const std::string craftType = obj.get("craftType", "").asString();
+					std::vector<CoopGuestContribEntry>& entries = g_guestContrib[seat];
+					size_t at = 0;
+					while (at < entries.size() && !(entries[at].craftId == craftId && entries[at].craftType == craftType))
+						++at;
 					const Json::Value& soldiers = obj["soldiers"];
-					if (soldiers.isArray())
+					if (!soldiers.isArray() || soldiers.empty())
 					{
+						if (at < entries.size())
+							entries.erase(entries.begin() + at);
+					}
+					else
+					{
+						if (at == entries.size())
+							entries.push_back(CoopGuestContribEntry());
+						CoopGuestContribEntry& entry = entries[at];
+						entry.craftId = craftId;
+						entry.craftType = craftType;
+						entry.soldiers.clear();
+						entry.afterEnd = coopBattleAuthority().phase.load() == CoopBattlePhase::Ended; // W2-H19 (F6860; Q1 a)
 						for (const auto& yaml : soldiers)
 						{
 							entry.soldiers.push_back(yaml.asString());
