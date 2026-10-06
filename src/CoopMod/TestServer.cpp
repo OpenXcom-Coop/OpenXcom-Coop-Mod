@@ -14335,6 +14335,16 @@ std::string TestServer::execute(const std::string& line)
 				resp["wait"] = true;
 				resp["code"] = cs->getStateCode();
 			}
+			else if (!cs->isBackVisible())
+			{
+				// W2-U7d (F8018, F6474): any other co-op dialog whose back button is not shown (the host's BEGIN 60 / RESUME 62
+				// before waitSatisfied() shows it, CoopState.cpp :1199-1213) - no player can press it; the caller waits for it.
+				resp["error"] = "coop_dialog_back: the button is not shown (wait until coop_dialog_info.backVisible)";
+				resp["refused"] = "hidden";
+				resp["wait"] = true;
+				resp["code"] = cs->getStateCode();
+				Log(LOG_INFO) << "[coop-test] coop_dialog_back: refused hidden code " << cs->getStateCode();
+			}
 			else
 			{
 				resp["code"] = cs->getStateCode(); // W2-U7b: read before previous() may pop the dialog
