@@ -879,6 +879,8 @@ class connectionTCP
 	/// (setMonthCoop / setYearCoop); coopClientKeepsOwnClock() does not count them as a host jump. Month 0 = none.
 	static int _coopReportMonth;
 	static int _coopReportYear;
+	static int _coopReportOwnMonth; // coop W2-H23 (R-H23-G-2): the own month / year that write replaced, given back
+	static int _coopReportOwnYear; // once the report screen has read the host's (coopClientKeepsOwnClock)
 
 	int _AIProgressCoop = -1;
 	bool _AISecondMoveCoop = false;
