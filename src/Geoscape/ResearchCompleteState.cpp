@@ -88,40 +88,14 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	}
 
 	// COOP
-	// PRD-J04: fence the SEPARATE peer-research mirror in SHARED. A SHARED host
-	// broadcasts research completions over the SharedEcon channel (research_done)
-	// instead; the replica pops this state with coop=true, so it never re-enters
-	// here. (This also avoids the newResearch->getName() null-deref below when the
-	// host completes an already-seen lookup.)
-	if (_game->getCoopMod()->getCoopStatic() == true && _coop == false
-		&& !_game->getCoopMod()->isSharedCampaign()
-		&& _game->getCoopMod()->_enable_research_sync)
+	// SEPARATE research sync: mirror this completion to the other player (a popup
+	// that is itself a mirrored completion, coop=true, does not echo it back).
+	// newResearch is null when the finished topic (or its lookup) was already
+	// researched, e.g. a repeatable getOneFree topic or one research sync delivered
+	// first; sendResearchSync is a no-op in SHARED (PRD-J04) and with sync off.
+	if (_coop == false)
 	{
-
-		Json::Value root;
-
-		root["state"] = "research";
-		root["new_research_name"] = newResearch->getName();
-
-		root["research_name"] = "";
-
-		if (research)
-		{
-			root["research_name"] = research->getName();
-		}
-
-		root["bonus_name"] = "";
-
-		if (bonus)
-		{
-			root["bonus_name"] = bonus->getName();
-		}
-
-		root["base_lat"] = base->getLatitude();
-		root["base_lon"] = base->getLongitude();
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
+		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base);
 	}
 
 }

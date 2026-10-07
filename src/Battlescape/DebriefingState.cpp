@@ -2838,7 +2838,13 @@ void DebriefingState::prepareDebriefing()
 	{
 		// Unlock research defined in alien deployment, if the mission was a success
 		const RuleResearch *research = _game->getMod()->getResearch(ruleDeploy->getUnlockedResearchOnSuccess());
-		save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy);
+		const RuleResearch *bonus = nullptr;
+		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus))
+		{
+			// coop SEPARATE, shared research: only this world ran the mission; the
+			// other player learns the same topic and bonus.
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, base);
+		}
 
 		// Give bounty item defined in alien deployment, if the mission was a success
 		const RuleItem *bountyItem = _game->getMod()->getItem(ruleDeploy->getMissionBountyItem());
@@ -2870,7 +2876,13 @@ void DebriefingState::prepareDebriefing()
 	{
 		// Unlock research defined in alien deployment, if the mission was a failure
 		const RuleResearch* research = _game->getMod()->getResearch(ruleDeploy->getUnlockedResearchOnFailure());
-		save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy);
+		const RuleResearch* bonus = nullptr;
+		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus))
+		{
+			// coop SEPARATE, shared research: only this world ran the mission; the
+			// other player learns the same topic and bonus.
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getBases()->front());
+		}
 
 		// Increase counters
 		save->increaseCustomCounter(ruleDeploy->getCounterFailure());

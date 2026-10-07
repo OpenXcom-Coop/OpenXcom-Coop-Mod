@@ -4483,7 +4483,7 @@ bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
  * 2. Adds also getOneFree bonus and possible lookup(s). Also silently.
  * 3. Handles alien mission interruption.
  */
-bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment)
+bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut)
 {
 	if (!research)
 	{
@@ -4529,6 +4529,8 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 
 	if (auto* bonus = selectGetOneFree(research))
 	{
+		if (bonusOut)
+			*bonusOut = bonus; // coop: research sync mirrors the same bonus
 		researchVec.push_back(bonus);
 		addResearchDiaryEntryForMission(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);
 		addFinishedResearch(bonus, mod, base, true);
@@ -4560,7 +4562,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 /**
  * Handles research side effects for primary research sources.
  */
-void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base)
+void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems)
 {
 	for (auto* myResearchRule : topicsToCheck)
 	{
@@ -4588,8 +4590,9 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 				}
 			}
 		}
-		// 3k. handle spawned items
-		RuleItem* spawnedItem = mod->getItem(myResearchRule->getSpawnedItem());
+		// 3k. handle spawned items (coop: not for a peer's mirrored discovery - the
+		// item goes only to the player who did the research)
+		RuleItem* spawnedItem = spawnItems ? mod->getItem(myResearchRule->getSpawnedItem()) : nullptr;
 		if (spawnedItem)
 		{
 			Transfer* t = new Transfer(1);
@@ -4598,7 +4601,7 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		}
 		for (const auto& spawnedItemName2 : myResearchRule->getSpawnedItemList())
 		{
-			RuleItem* spawnedItem2 = mod->getItem(spawnedItemName2);
+			RuleItem* spawnedItem2 = spawnItems ? mod->getItem(spawnedItemName2) : nullptr;
 			if (spawnedItem2)
 			{
 				Transfer* t = new Transfer(1);

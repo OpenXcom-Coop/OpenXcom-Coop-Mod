@@ -65,6 +65,7 @@
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/MonthlyReportState.h"
 #include "../Geoscape/MissionDetectedState.h"
 #include "../Geoscape/ConfirmLandingState.h"
@@ -108,6 +109,8 @@
 #include "../Savegame/Production.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/GeoscapeEvent.h"
+#include "../Mod/RuleEvent.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/EquipmentLayoutItem.h"
@@ -1728,6 +1731,43 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
 		resp["researched"] = (sg && rule) ? sg->isResearched(rule, false) : false;
 		resp["ok"] = true;
+	}
+	else if (cmd == "geo_events")
+	{
+		// Pending geoscape events on THIS world (spawned by event scripts or
+		// research, waiting for their countdown): name, minutes left, fired yet.
+		SavedGame* sg = _game->getSavedGame();
+		Json::Value list(Json::arrayValue);
+		if (sg)
+			for (auto* ge : sg->getGeoscapeEvents())
+			{
+				Json::Value je;
+				je["name"] = ge->getRules().getName();
+				je["countdown"] = static_cast<Json::UInt64>(ge->getSpawnCountdown());
+				je["over"] = ge->isOver();
+				list.append(je);
+			}
+		resp["events"] = list;
+		resp["ok"] = sg != nullptr;
+	}
+	else if (cmd == "set_event_countdown")
+	{
+		// Shorten a pending event's countdown on THIS world (a multiple of 30 > 0),
+		// so a test can fire it soon without simulating weeks.
+		SavedGame* sg = _game->getSavedGame();
+		std::string name = req.get("name", "").asString();
+		int minutes = req.get("minutes", 60).asInt();
+		bool found = false;
+		if (sg && minutes > 0 && minutes % 30 == 0)
+			for (auto* ge : sg->getGeoscapeEvents())
+				if (!ge->isOver() && ge->getRules().getName() == name)
+				{
+					ge->setSpawnCountdown(minutes);
+					found = true;
+				}
+		resp["found"] = found;
+		resp["ok"] = found;
+		if (!found) resp["error"] = "no pending event " + name + " (or minutes not a multiple of 30)";
 	}
 	else if (cmd == "available_research")
 	{
@@ -7149,7 +7189,19 @@ std::string TestServer::execute(const std::string& line)
 			// unknown popups surface instead of silently hanging.
 			State* top = topState<State>(_game);
 			resp["type"] = top ? typeid(*top).name() : "none";
-			if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
+			if (auto* rc = dynamic_cast<ResearchCompleteState*>(top))
+			{
+				// Research-complete popup: OK by default. view_reports presses the real
+				// VIEW REPORTS button instead, which opens the topic and bonus articles
+				// as ArticleState tops (their ids are reported as they are dismissed).
+				if (req.get("view_reports", false).asBool())
+					rc->btnReportClick(nullptr);
+				else
+					rc->btnOkClick(nullptr);
+				resp["handled"] = "ResearchCompleteState";
+				resp["ok"] = true;
+			}
+			else if (auto* ev = dynamic_cast<GeoscapeEventState*>(top))
 			{
 				ev->btnOkClick(nullptr);
 				resp["handled"] = "GeoscapeEventState";
@@ -7162,6 +7214,7 @@ std::string TestServer::execute(const std::string& line)
 				// protected); it is the exact handler _btnOk fires. For an article
 				// btnOkClick is itself only _game->popState(), but we route through
 				// the real control for faithfulness/consistency.
+				resp["article"] = art->getId();
 				art->testConfirm();
 				resp["handled"] = "ArticleState->btnOkClick";
 				resp["ok"] = true;

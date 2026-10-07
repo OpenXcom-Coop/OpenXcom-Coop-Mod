@@ -75,6 +75,9 @@
 #include "../Engine/Yaml.h"
 #include "../Mod/Mod.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/GeoscapeEvent.h"
+#include "../Mod/RuleEvent.h"
+#include "../Mod/RuleResearch.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
 #include "../Savegame/SavedBattleGame.h"
@@ -2979,7 +2982,16 @@ void connectionTCP::updateCoopTask()
 
 			_game->getSavedGame()->setTime(new_time);
 
-			_game->getSavedGame()->setMonthsPassed(connectionTCP::monthsPassed);
+			// A new SEPARATE client world sits at monthsPassed -1 until its own
+			// GeoscapeState::init run-once block (the game-start mission/event roll and
+			// the start-of-game maintenance) fires; copying the host's 0 first skipped
+			// that block on the client. A PvP alien side has no base, never runs it, and
+			// keeps following the host.
+			if (!(_game->getSavedGame()->getMonthsPassed() == -1 && connectionTCP::monthsPassed >= 0
+				&& !connectionTCP::no_bases))
+			{
+				_game->getSavedGame()->setMonthsPassed(connectionTCP::monthsPassed);
+			}
 			_game->getSavedGame()->setDaysPassed(connectionTCP::daysPassed);
 
 		}
@@ -7426,6 +7438,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
+	// SEPARATE certain-event sync (see coopCertainEventSpawned).
+	if (stateString == "certain_event")
+	{
+		CoopCertainSpawn peer;
+		peer.name = obj.get("name", "").asString();
+		peer.month = obj.get("month", -1).asInt();
+		peer.countdown = obj.get("countdown", 0).asInt64();
+		coopPeerCertainEvent(peer);
+	}
+	if (stateString == "certain_event_timer")
+	{
+		coopCertainEventTimer(obj.get("name", "").asString(), obj.get("countdown", 0).asInt64());
+	}
+	if (stateString == "certain_event_fire")
+	{
+		coopCertainEventFire(obj.get("name", "").asString());
+	}
+
 	if (stateString == "research_sync_option" && !getServerOwner())
 	{
 		_enable_research_sync = obj.get("enabled", false).asBool();
@@ -10339,6 +10369,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "monthly_report")
 	{
+
+		monthlyReportMonthsPassed = obj.get("monthsPassed", -1).asInt();
 
 		// income
 		// countries
@@ -16849,6 +16881,11 @@ void connectionTCP::disconnectTCP(bool isMain)
 		connectionTCP::no_bases = false;
 		connectionTCP::isCoopBaseLoading = false;
 
+		// Unpaired certain-event spawns belong to this session only: a new campaign
+		// starts on the same date, so a stale one could pair with the wrong event.
+		_ownCertainSpawns.clear();
+		_peerCertainSpawns.clear();
+
 		playerInsideCoopBase = false;
 
 		resetCoopTaskDepth();
@@ -17097,5 +17134,205 @@ void connectionTCP::writeHostMapLoadProgressFile()
 
 }
 
+namespace OpenXcom
+{
 
+// ===== SEPARATE research sync + certain-event sync =====
 
+/**
+ * Mirrors one research discovery to the other player in a SEPARATE campaign with
+ * research sync on: a completed project (ResearchCompleteState) or research an event
+ * granted (GeoscapeEventState). The receiver applies it like a local discovery in
+ * GeoscapeState::think. PRD-J04: never in SHARED, where the host broadcasts
+ * research_done over the SharedEcon channel instead.
+ * @param newResearch The topic whose article the sender offers (nullptr if none).
+ * @param bonus The getOneFree bonus topic (nullptr if none).
+ * @param research The discovered topic.
+ * @param base The sender's base it was discovered at.
+ */
+void connectionTCP::sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base)
+{
+	if (!getCoopStatic() || isSharedCampaign() || !_enable_research_sync || !research || !base)
+		return;
+
+	Json::Value root;
+	root["state"] = "research";
+	root["new_research_name"] = newResearch ? newResearch->getName() : "";
+	root["research_name"] = research->getName();
+	root["bonus_name"] = bonus ? bonus->getName() : "";
+	root["base_lat"] = base->getLatitude();
+	root["base_lon"] = base->getLongitude();
+	sendTCPPacketData(root.toStyledString());
+}
+
+namespace
+{
+
+/// Marks our newest pending, unpaired event with this name as shared. On the client
+/// it also moves the event onto the host's timer: the host's countdown at its spawn,
+/// less the 30-minute steps our copy has already counted since ours. Both copies were
+/// spawned in the same roll, so no clock reading is needed (the client's date can be
+/// transiently invalid around a month change - the monthly report sets only month and
+/// year).
+GeoscapeEvent* coopPairCertainEvent(SavedGame* save, const std::string& name, long long hostCountdown, long long ownCountdownAtSpawn, bool adoptHostTimer)
+{
+	auto& events = save->getGeoscapeEvents();
+	for (auto it = events.rbegin(); it != events.rend(); ++it)
+	{
+		GeoscapeEvent* ge = *it;
+		if (ge->isOver() || ge->isCoopShared() || ge->getRules().getName() != name)
+			continue;
+		ge->setCoopShared(true);
+		if (adoptHostTimer)
+		{
+			const long long counted = ownCountdownAtSpawn - (long long)ge->getSpawnCountdown();
+			const long long left = (hostCountdown - counted + 29) / 30 * 30;
+			ge->setSpawnCountdown((size_t)std::max(30LL, left));
+		}
+		return ge;
+	}
+	return nullptr;
+}
+
+/// Drops unpaired spawns from rolls older than last month's.
+void coopPruneCertainSpawns(std::vector<connectionTCP::CoopCertainSpawn>& spawns, int month)
+{
+	spawns.erase(std::remove_if(spawns.begin(), spawns.end(),
+		[month](const connectionTCP::CoopCertainSpawn& s) { return s.month < month - 1; }),
+		spawns.end());
+}
+
+}
+
+/**
+ * Called right after this machine spawned a certain geoscape event (odds 100, one
+ * possible event; see GeoscapeState::determineAlienMissions). Announces it, and
+ * pairs it with the other player's copy if that already arrived.
+ */
+void connectionTCP::coopCertainEventSpawned(GeoscapeEvent* ev)
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	if (!ev || !save || !getCoopStatic() || isSharedCampaign())
+		return;
+
+	CoopCertainSpawn own;
+	own.name = ev->getRules().getName();
+	own.month = save->getMonthsPassed();
+	own.countdown = (long long)ev->getSpawnCountdown();
+
+	Json::Value root;
+	root["state"] = "certain_event";
+	root["name"] = own.name;
+	root["month"] = own.month;
+	root["countdown"] = (Json::Int64)own.countdown;
+	sendTCPPacketData(root.toStyledString());
+
+	for (auto it = _peerCertainSpawns.begin(); it != _peerCertainSpawns.end(); ++it)
+	{
+		if (it->name == own.name && it->month == own.month)
+		{
+			GeoscapeEvent* paired = coopPairCertainEvent(save, own.name, it->countdown, own.countdown, !getServerOwner());
+			_peerCertainSpawns.erase(it);
+			sendCertainEventTimer(paired, own.month);
+			return;
+		}
+	}
+	coopPruneCertainSpawns(_ownCertainSpawns, own.month);
+	_ownCertainSpawns.push_back(own);
+}
+
+/**
+ * The other player spawned a certain event: pair it with our copy, or keep it until
+ * ours spawns.
+ */
+void connectionTCP::coopPeerCertainEvent(const CoopCertainSpawn& peer)
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	if (!save || !getCoopStatic() || isSharedCampaign() || peer.name.empty())
+		return;
+
+	for (auto it = _ownCertainSpawns.begin(); it != _ownCertainSpawns.end(); ++it)
+	{
+		if (it->name == peer.name && it->month == peer.month)
+		{
+			GeoscapeEvent* paired = coopPairCertainEvent(save, peer.name, peer.countdown, it->countdown, !getServerOwner());
+			_ownCertainSpawns.erase(it);
+			sendCertainEventTimer(paired, peer.month);
+			return;
+		}
+	}
+	coopPruneCertainSpawns(_peerCertainSpawns, peer.month);
+	_peerCertainSpawns.push_back(peer);
+}
+
+/**
+ * Host only: once a pair is made, send the host copy's countdown as it is NOW. The
+ * host clock may have run a step between its roll and the client's, so the client
+ * sets its copy to this value rather than to the host's countdown at spawn.
+ */
+void connectionTCP::sendCertainEventTimer(GeoscapeEvent* paired, int month)
+{
+	if (!paired || !getServerOwner())
+		return;
+	Json::Value root;
+	root["state"] = "certain_event_timer";
+	root["name"] = paired->getRules().getName();
+	root["month"] = month;
+	root["countdown"] = (Json::Int64)paired->getSpawnCountdown();
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * Host only: our copy of a shared event just fired; the client fires its copy now.
+ */
+void connectionTCP::sendCertainEventFire(GeoscapeEvent* ge)
+{
+	if (!ge || !getCoopStatic() || !getServerOwner() || isSharedCampaign())
+		return;
+	Json::Value root;
+	root["state"] = "certain_event_fire";
+	root["name"] = ge->getRules().getName();
+	sendTCPPacketData(root.toStyledString());
+}
+
+/**
+ * Client: the host's copy of a shared event fired, so ours fires now (it was held at
+ * its last 30 minutes, see GeoscapeState::time30Minutes).
+ */
+void connectionTCP::coopCertainEventFire(const std::string& name)
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	GeoscapeState* geo = _game ? _game->getGeoscapeState() : nullptr;
+	if (!save || !geo || getServerOwner())
+		return;
+	for (auto* ge : save->getGeoscapeEvents())
+	{
+		if (!ge->isOver() && ge->isCoopShared() && ge->getRules().getName() == name)
+		{
+			ge->setOver();
+			geo->fireGeoscapeEvent(ge);
+			return;
+		}
+	}
+}
+
+/**
+ * Client: put our shared copy of this event on the host's current countdown.
+ */
+void connectionTCP::coopCertainEventTimer(const std::string& name, long long countdown)
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	if (!save || getServerOwner() || countdown <= 0 || countdown % 30 != 0)
+		return;
+	auto& events = save->getGeoscapeEvents();
+	for (auto it = events.rbegin(); it != events.rend(); ++it)
+	{
+		if (!(*it)->isOver() && (*it)->isCoopShared() && (*it)->getRules().getName() == name)
+		{
+			(*it)->setSpawnCountdown((size_t)countdown);
+			return;
+		}
+	}
+}
+
+}

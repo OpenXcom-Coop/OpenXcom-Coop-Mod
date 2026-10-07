@@ -47,12 +47,13 @@ private:
 	std::string _researchName;
 	std::string _bonusResearchName;
 	const RuleEvent &_eventRule;
+	bool _coopShared; // coop SEPARATE: the other player gets this same event too
 
 	/// Helper performing event logic.
 	void eventLogic();
 public:
 	/// Creates the GeoscapeEventState.
-	GeoscapeEventState(const RuleEvent& eventRule);
+	GeoscapeEventState(const RuleEvent& eventRule, bool coopShared = false);
 	/// Cleans up the GeoscapeEventState.
 	~GeoscapeEventState();
 	/// Initializes the state.
