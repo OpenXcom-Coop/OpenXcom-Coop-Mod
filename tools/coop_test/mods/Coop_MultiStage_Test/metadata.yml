@@ -1,0 +1,10 @@
+name: "Coop multi-stage probe"
+version: 1.0
+description: "Test-only fixture for MG-A S-A2 (row MS3, Q5 (a)). Data only. Adds two deployments,
+  STR_COOP_MULTISTAGE_TEST (stage 1) -> STR_COOP_MULTISTAGE_TEST_P2 (stage 2): copies of the stock
+  Cydonia landing and final assault with one alien per stage and without the game-ending cutscenes,
+  finalDestination and objectiveType, so the final stage ends with a debriefing. Both machines in a
+  co-op pair must load it."
+author: coop harness
+
+master: xcom1
