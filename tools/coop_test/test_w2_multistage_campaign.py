@@ -5,9 +5,12 @@ rewrite/mga-task0/a2/CONSTANTS.md).
 
 ONE boot (boot D): test_cydonia_coop_start.py's SHARED bring-up - session.new_campaign(campaign_mode="shared") on
 lobby PORT_D, the squad split (the host's Skyranger CRAFT_D seats SQUAD_D; set_soldier_owner gives the first to
-seat 0 and the second to seat 1 on both machines), open_cydonia, set_seed SEED_D right before confirm_cydonia - then
-the stage-1 spine (session.briefings_to_battlescape: both briefings, both equip screens, turn 1). MAP_FP_D pinned,
-pin_ai_neutral (the 12 landing aliens), hash clean; the client's stack bottom is GeoscapeState.
+seat 0 and the second to seat 1 on both machines), discover_research RESEARCH_D on BOTH machines (orchestrator ruling
+R-MGA-A2-T-1 (a): a fresh SHARED campaign has no discovered research, F10011, so the M1 cell needs a non-zero count),
+open_cydonia, set_seed SEED_D right before confirm_cydonia - then the stage-1 spine (session.briefings_to_battlescape:
+both briefings, both equip screens, turn 1). MAP_FP_D pinned, pin_ai_neutral (the 12 landing aliens), hash clean; the
+client's stack bottom is GeoscapeState; the host's researchMode.seats[1].count is RESEARCH_COUNT_D and equals both
+machines' liveCount (a pre-stage guard, TASK 0 3/3).
 
   MS5  stage 2 for both players in a SHARED campaign, the kill-all route (as MS1): the host kills every alien
        (kill_unit_real faction 1), the chain settles, END TURN client then host, the host closes its NextTurnState
@@ -16,13 +19,13 @@ pin_ai_neutral (the 12 landing aliens), hash clean; the client's stack bottom is
        client's `stage` record applied 1, the host's emitted 1 (read right after the close). Then the stage-2 spine
        and the green cells: both turn 1 on STR_MARS_THE_FINAL_ASSAULT; the client's stack bottom is still
        GeoscapeState; desyncSeen false on both; M1: the host's event_state.researchMode.seats[1].count at stage 2 is
-       > 0 and equals its stage-1 count (TASK 0 measured 0 at stage 1 on this construction, 4/4, F10011: routed to
-       the orchestrator); the host is alive; no new crash file.
+       > 0 and equals its stage-1 count (RESEARCH_COUNT_D); the host is alive; no new crash file.
 
 RED on S-A2's commit 1 (S-A1's red base, no stage writer; the TASK 0 red pre-walk on this build): the four
 stage-entry cells fail (the host died 1.0 s after its close, F5081, and the client left to [GoToMainMenuState,
 CoopState], so its missionType reads None); every pre-stage cell passes. Host liveness and crash files are EVIDENCE
 only until stage 2 is reached (F10010: the host's own event_state read can fault on the freed stage-1 screen).
+M1 is a stage-2 cell: on the red its stage-1 half reads RESEARCH_COUNT_D and its stage-2 half is never reached.
 
 The row prints ONE "EVIDENCE MS5:" line before its verdict, then "PASS MS5" or "FAIL MS5: <cells>" and, on a FAIL,
 ONE "CAPTURE MS5:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past its
@@ -53,6 +56,8 @@ MAP_FP_D = -3.7087676953867494e+18
 CRAFT_D, SQUAD_D = 1, [1, 2]                     # the host's Skyranger and the first two of its roster
 SEATS_D = {1: 0, 2: 1}                           # X-COM id -> coop seat (the squad split)
 ALIENS_D = list(range(1000000, 1000012))
+RESEARCH_D = ["STR_PLASMA_PISTOL"]               # R-MGA-A2-T-1 (a); the test_w2_client_research precedent
+RESEARCH_COUNT_D = 1                             # liveCount on both machines and the host's seats[1].count (TASK 0 3/3)
 
 
 def bottom(gc):
@@ -76,6 +81,15 @@ def boot_d(host, client):
         host.wait_for("shared squad seated", lambda: (_aboard(host, craft) == SQUAD_D) or None, timeout=30)
 
     step("squad split", split, m)
+
+    def research():
+        for gc in (host, client):
+            for topic in RESEARCH_D:
+                r = gc.cmd({"cmd": "discover_research", "topic": topic})
+                if not (r.get("ok") and r.get("researched") is True):
+                    raise FixtureMiss(f"{gc.name} discover_research {topic}: {r}")
+
+    step("discover_research on both machines", research, m)
 
     def cydonia():
         host.ok({"cmd": "open_cydonia", "craft_id": craft})
@@ -110,7 +124,12 @@ def ms5(host, client, ctx, crash0):
     ctx["bottom1"] = bottom(client)
     if ctx["bottom1"] != "GeoscapeState":
         g.append(f"client stack bottom before the stage {stack(client)} (want GeoscapeState)")
-    ctx["research1"] = eview(host).get("seat1Research")
+    he, ce = eview(host), eview(client)
+    ctx["research1"] = he.get("seat1Research")
+    ctx["live1"] = [he.get("liveResearch"), ce.get("liveResearch")]
+    if ctx["research1"] != RESEARCH_COUNT_D or ctx["live1"] != [RESEARCH_COUNT_D, RESEARCH_COUNT_D]:
+        g.append(f"research before the stage: host seats[1].count {ctx['research1']}, liveCount host/client "
+                 f"{ctx['live1']} (want {RESEARCH_COUNT_D} each, R-MGA-A2-T-1)")
     kill_all(host, client, ALIENS_D, g, "stage 1")
     hb, cb = bview(host), bview(client)
     if hb.get("xcom") != SEATS_D or cb.get("xcom") != SEATS_D:
@@ -145,7 +164,8 @@ def ms5(host, client, ctx, crash0):
             fails.append(f"stage-2 spine / cells: {short(e, 600)}")
     liveness_cells(host, ctx, crash0, fails)
     evidence("MS5", {"b1": ctx.get("b1"), "bottom": [ctx.get("bottom1"), ctx.get("bottom2")],
-                     "M1research": [ctx.get("research1"), ctx.get("research2")], "entry": ctx.get("entry"),
+                     "M1research": [ctx.get("research1"), ctx.get("research2")], "live1": ctx.get("live1"),
+                     "entry": ctx.get("entry"),
                      "clientBriefingS": ctx.get("clientBriefingS"), "spineS": ctx.get("spineS"), "green": green,
                      "hostRc": rc(host), "newCrashFiles": ctx.get("newCrashFiles")})
     return fails
