@@ -26905,6 +26905,89 @@ static void coopUnwindToSafeState(Game* game)
 	game->pushState(new MainMenuState());
 }
 
+// coop W2-H24 (R2-m6 "refuse and tear down, not pause"; F5198, F5199): the starts whose failure W2-H24 unwinds on a lost
+// partner and whose world it restores - a campaign battle other than a base defense. A skirmish waits for D259 and a base
+// defense for OWNER? H24-1: both keep today's path (a skirmish has no world to keep; a base defense's stores stay as today).
+static bool coopFailedStartInScope(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	return battle != nullptr && save->getMonthsPassed() != -1 && battle->getMissionType() != "STR_BASE_DEFENSE";
+}
+
+// coop W2-H24: the world half of a failed co-op battle start. The generator marked the battle's craft and target as in
+// battle (BattlescapeGenerator::setCraft / setUfo / setMissionSite / setAlienBase) and only the debriefing clears the
+// marks, so a failed start left them set and left the craft parked at its target, where the geoscape offered the landing
+// again (F5198). Undo it as vanilla undoes a battle that is never fought: every mark cleared (BattlescapeState's
+// skip-debriefing exit, the debriefing) and a craft that landed at its target sent home (ConfirmLandingState::btnNoClick);
+// a Cydonia craft keeps its course (ConfirmCydoniaState::btnNoClick). Runs before the battle is dropped. Returns the
+// marks cleared; @a home counts the crafts sent home.
+static int coopRestoreWorldAfterFailedStart(Game* game, int& home)
+{
+	home = 0;
+	if (!coopFailedStartInScope(game))
+		return 0;
+	SavedGame* save = game->getSavedGame();
+	int marks = 0;
+	for (auto* base : *save->getBases())
+	{
+		for (auto* craft : *base->getCrafts())
+		{
+			if (!craft->isInBattlescape())
+				continue;
+			craft->setInBattlescape(false);
+			++marks;
+			Ufo* ufo = dynamic_cast<Ufo*>(craft->getDestination());
+			MissionSite* site = dynamic_cast<MissionSite*>(craft->getDestination());
+			AlienBase* alienBase = dynamic_cast<AlienBase*>(craft->getDestination());
+			if ((ufo && ufo->isInBattlescape()) || (site && site->isInBattlescape()) || (alienBase && alienBase->isInBattlescape()))
+			{
+				craft->returnToBase();
+				++home;
+			}
+		}
+	}
+	for (auto* ufo : *save->getUfos())
+	{
+		if (ufo->isInBattlescape()) { ufo->setInBattlescape(false); ++marks; }
+	}
+	for (auto* site : *save->getMissionSites())
+	{
+		if (site->isInBattlescape()) { site->setInBattlescape(false); ++marks; }
+	}
+	for (auto* alienBase : *save->getAlienBases())
+	{
+		if (alienBase->isInBattlescape()) { alienBase->setInBattlescape(false); ++marks; }
+	}
+	return marks;
+}
+
+// coop W2-H24: the ONE unwind of a failed FRESH co-op battle start - onRefuse(), onReady()'s mismatch, and a partner lost
+// during the start (connectionTCP::disconnectTCP(), updateCoopTask()'s failed-send arm). The host's screens unwind as
+// before (coopUnwindToSafeState), the world is restored, then the battle and the authority are dropped.
+static void coopUnwindFailedStart(Game* game, const char* why)
+{
+	coopUnwindToSafeState(game);
+	int home = 0;
+	const int marks = coopRestoreWorldAfterFailedStart(game, home);
+	if (game->getSavedGame())
+		game->getSavedGame()->setBattleGame(0);
+
+	resetBattleAuthority();
+	g_pendingHost = PendingHost();
+	Log(LOG_WARNING) << "[coop-handshake] W2-H24: failed battle start (" << why << ") unwound - battle marks cleared="
+		<< marks << ", crafts sent home=" << home;
+}
+
+// coop W2-H24: true on the host while a FRESH battle start is in flight (phase Handshake and a prepared offer that is
+// not a rejoin or a disk resume). The partner-loss paths read it before anything resets the authority.
+static bool coopHostFreshStartPending()
+{
+	return connectionTCP::getServerOwner() && coopBattleAuthority().hostSim.load()
+		&& coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake
+		&& g_pendingHost.prepared && !g_pendingHost.resumed;
+}
+
 // ----- CLIENT pending state: set by onOffer() on accept, consumed by onBlobChunkAppended() -----
 struct PendingClient
 {
@@ -28550,12 +28633,7 @@ void onRefuse(Game* game, const Json::Value& refuse)
 	// pushed BriefingState unconditionally (see CoopHandshake.h's top doc
 	// comment), so the host may be sitting anywhere from BriefingState to
 	// mid-BattlescapeState by the time a refusal arrives.
-	coopUnwindToSafeState(game);
-	if (game->getSavedGame())
-		game->getSavedGame()->setBattleGame(0);
-
-	resetBattleAuthority();
-	g_pendingHost = PendingHost();
+	coopUnwindFailedStart(game, "refused");
 }
 
 void onReady(Game* game, const Json::Value& ready)
@@ -28622,12 +28700,7 @@ void onReady(Game* game, const Json::Value& ready)
 			return;
 		}
 
-		coopUnwindToSafeState(game);
-		if (game->getSavedGame())
-			game->getSavedGame()->setBattleGame(0);
-
-		resetBattleAuthority();
-		g_pendingHost = PendingHost();
+		coopUnwindFailedStart(game, "ready mismatch");
 		return;
 	}
 
@@ -31180,6 +31253,13 @@ void connectionTCP::updateCoopTask()
 			&& connectionTCP::session.lobbyMode != 0
 			&& !campaignEnded())
 		{
+			// coop W2-H24 (R2-m6): the partner was lost on a failed send during a FRESH co-op battle start - the start
+			// fails as a refused one does; the freeze below then waits on the geoscape like any campaign drop.
+			if (CoopHandshake::coopHostFreshStartPending() && CoopHandshake::coopFailedStartInScope(_game))
+			{
+				CoopHandshake::coopUnwindFailedStart(_game, "partner lost");
+			}
+
 			bool waitDialogPresent = false;
 			for (State* st : _game->getStates())
 			{
@@ -39245,6 +39325,13 @@ void connectionTCP::disconnectTCP(bool isMain)
 			&& !campaignEnded()
 			&& coopBattleAuthority().phase == CoopBattlePhase::Active;
 
+		// coop W2-H24 (R2-m6, F5199): the partner's game dropped during a FRESH co-op battle start (phase Handshake; a
+		// rejoin or a disk resume is not one). The start fails as a refused one does (after deleteAllCoopBases() below)
+		// instead of the wait dialog over a battle that never started, which no rejoin could resume (offerRejoinBattle()
+		// needs Active). Read here, before clearNetworkSessionQueues() resets the authority and the pending offer.
+		const bool startLost = teardownAsHost && onConnect == -2
+			&& CoopHandshake::coopHostFreshStartPending() && CoopHandshake::coopFailedStartInScope(_game);
+
 		// SPEC 16 (W1-P17) M4: a DELIBERATE client leave (isMain - the
 		// caller is already committed to the teardown, e.g.
 		// disconnect_to_menu/ABANDON/SAVE&QUIT, as opposed to a passive
@@ -39331,6 +39418,11 @@ void connectionTCP::disconnectTCP(bool isMain)
 		}
 
 		deleteAllCoopBases();
+
+		if (startLost)
+		{
+			CoopHandshake::coopUnwindFailedStart(_game, "partner dropped");
+		}
 
 		// issue #93: when the host vanishes the client is TOLD, and leaves when it
 		// says so. CoopState(21) "Server connection lost" is pushed just before
