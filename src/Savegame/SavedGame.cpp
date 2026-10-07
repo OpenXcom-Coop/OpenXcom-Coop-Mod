@@ -2590,6 +2590,56 @@ void SavedGame::setBattleGame(SavedBattleGame *battleGame)
 }
 
 /**
+ * coop W2-H21d: is the battle a real one - neither a preview nor a base equipment screen's practice battle?
+ * @return True when a battle exists and it is neither.
+ */
+bool SavedGame::coopHasRealBattle() const
+{
+	return _battleGame != 0 && !_battleGame->isPreview() && !_battleGame->isBaseCraftInventory();
+}
+
+/**
+ * coop W2-H21d: hides a practice battle and the base / craft battlescape marks a practice screen set, for a co-op write.
+ * @param save The world; with no battle or a real one nothing is hidden.
+ */
+CoopPracticeBattleHidden::CoopPracticeBattleHidden(SavedGame *save) : _save(save), _battle(0)
+{
+	if (!_save || !_save->getSavedBattle() || _save->coopHasRealBattle())
+		return;
+	_battle = _save->detachBattleGame();
+	for (auto* base : *_save->getBases())
+	{
+		if (base->isInBattlescape())
+		{
+			_bases.push_back(base);
+			base->setInBattlescape(false);
+		}
+		for (auto* craft : *base->getCrafts())
+		{
+			if (craft->isInBattlescape())
+			{
+				_crafts.push_back(craft);
+				craft->setInBattlescape(false);
+			}
+		}
+	}
+}
+
+/**
+ * coop W2-H21d: puts the hidden practice battle and the marks back.
+ */
+CoopPracticeBattleHidden::~CoopPracticeBattleHidden()
+{
+	if (!_battle)
+		return;
+	for (auto* base : _bases)
+		base->setInBattlescape(true);
+	for (auto* craft : _crafts)
+		craft->setInBattlescape(true);
+	_save->reattachBattleGame(_battle);
+}
+
+/**
  * Sets the status of a ufopedia rule
  * @param ufopediaRule The rule ID
  * @param newStatus Status to be set

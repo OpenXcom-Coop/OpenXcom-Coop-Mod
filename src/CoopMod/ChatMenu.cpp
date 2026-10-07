@@ -239,7 +239,7 @@ void ChatMenu::draw(SDL_Surface* screen)
 		if (savedGame)
 		{
 			auto savedBattle = savedGame->getSavedBattle();
-			if (savedBattle)
+			if (savedBattle && savedGame->coopHasRealBattle()) // coop W2-H21d (F9403): an equipment screen's practice battle has no BattlescapeState
 			{
 				auto battleGame = savedBattle->getBattleGame();
 				if (battleGame)

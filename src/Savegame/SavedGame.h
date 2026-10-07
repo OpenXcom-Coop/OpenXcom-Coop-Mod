@@ -370,6 +370,9 @@ private:
 	SavedBattleGame *detachBattleGame() { SavedBattleGame *b = _battleGame; _battleGame = 0; return b; }
 	/// Reattach a battle previously detached (does not delete any current pointer).
 	void reattachBattleGame(SavedBattleGame *battleGame) { _battleGame = battleGame; }
+	/// coop W2-H21d: is the battle a real one - neither a preview (the Ufopaedia craft deployment, the base defence or craft
+	/// soldiers preview) nor a base equipment screen's practice battle? Co-op paths asking "is a mission running" use this.
+	bool coopHasRealBattle() const;
 	/// Sets the status of a ufopedia rule
 	void setUfopediaRuleStatus(const std::string &ufopediaRule, int newStatus);
 	/// Sets the status of a manufacture rule
@@ -627,6 +630,20 @@ private:
 	std::vector<std::string>& getUserNotes() { return _userNotes; }
 	/// Gets the list of geoscape debug log entries.
 	std::vector<std::string>& getGeoscapeDebugLog() { return _geoscapeDebugLog; }
+};
+
+/// coop W2-H21d: while alive, the world reads as vanilla holds it once every practice screen is closed (the preview end in
+/// BattlescapeState, CraftEquipmentState / SoldiersState init): no practice battle, no base or craft marked in the battlescape.
+/// The destructor puts both back for the screen still showing them. A real battle, or none, is left untouched. Co-op writers only.
+class CoopPracticeBattleHidden
+{
+	SavedGame *_save;
+	SavedBattleGame *_battle;
+	std::vector<Base*> _bases;
+	std::vector<Craft*> _crafts;
+public:
+	explicit CoopPracticeBattleHidden(SavedGame *save);
+	~CoopPracticeBattleHidden();
 };
 
 }

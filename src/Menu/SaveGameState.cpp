@@ -286,6 +286,9 @@ void SaveGameState::think()
 			}
 
 			std::string backup = _filename + ".bak";
+			// coop W2-H21d (F9196): a co-op wait dialog's SAVE & QUIT reaches this write with a practice screen open (a preview, a base
+			// equipment screen - vanilla has no save path there): write the world as vanilla holds it once that screen is closed.
+			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame());
 			_game->getSavedGame()->save(backup, _game->getMod());
 			std::string fullPath = Options::getMasterUserFolder() + _filename;
 			std::string bakPath = Options::getMasterUserFolder() + backup;
