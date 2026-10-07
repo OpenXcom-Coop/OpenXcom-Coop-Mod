@@ -145,6 +145,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+from harness import shutdown_clients  # W2-U8f (F9055): bring_up_lightning's cleanup
 import session
 from session import assert_hash_clean, assert_reveal_parity, DIR_DX, DIR_DY, place_deterministic
 import repro_atom_walk as W
@@ -1011,8 +1012,14 @@ def bring_up_lightning():
     client = GameClient("client", 49621 + 1 * 2,
                         make_user_dir("repro_atom_spot_client_1"))
     seated = {}
-    W.bring_up_lobby(host, client, port)
-    drive_to_battlescape(host, client, seated)
+    try:
+        W.bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated)
+    except BaseException:
+        # W2-U8f (F9055): main's try/finally starts only after this returns, so a failed bring-up shuts
+        # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client, seated
 
 
