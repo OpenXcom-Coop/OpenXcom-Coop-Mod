@@ -118,6 +118,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+from harness import shutdown_clients  # W2-U8f (F9059): one_bringup's cleanup
 import session
 import repro_atom_walk as W
 
@@ -294,27 +295,33 @@ def one_bringup(tag, seed, expected_fingerprint):
         client.shutdown()
         raise
 
-    st = battle_state(host)
-    fp = st.get("mapFingerprint")
-    if fp != expected_fingerprint:
+    try:
+        st = battle_state(host)
+        fp = st.get("mapFingerprint")
+        if fp != expected_fingerprint:
+            killed = len(dead_non_player_units(st))
+            stunned = len(stunned_non_player_units(st))
+            record = {
+                "seed": seed, "expected_fingerprint": expected_fingerprint,
+                "actual_fingerprint": fp, "mapSizeXYZ": st.get("mapSizeXYZ"),
+                "killed": killed, "stunned": stunned,
+                "units": [{"id": u.get("id"), "faction": u.get("faction"),
+                           "status": u.get("status")} for u in st.get("units", [])],
+            }
+            host.shutdown()
+            client.shutdown()
+            session.known_flake(
+                "test_rw_m2_corpse_node", "WV-D91",
+                f"pinned seed {seed} no longer reproduces the scenario - re-run hunt_seed.py",
+                record)
+
         killed = len(dead_non_player_units(st))
         stunned = len(stunned_non_player_units(st))
-        record = {
-            "seed": seed, "expected_fingerprint": expected_fingerprint,
-            "actual_fingerprint": fp, "mapSizeXYZ": st.get("mapSizeXYZ"),
-            "killed": killed, "stunned": stunned,
-            "units": [{"id": u.get("id"), "faction": u.get("faction"),
-                       "status": u.get("status")} for u in st.get("units", [])],
-        }
-        host.shutdown()
-        client.shutdown()
-        session.known_flake(
-            "test_rw_m2_corpse_node", "WV-D91",
-            f"pinned seed {seed} no longer reproduces the scenario - re-run hunt_seed.py",
-            record)
-
-    killed = len(dead_non_player_units(st))
-    stunned = len(stunned_non_player_units(st))
+    except BaseException:
+        # W2-U8f (F9059): main's try/finally starts only after this returns, so a failed probe after the
+        # bring-up shuts down its games before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client, killed, stunned
 
 
