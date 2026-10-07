@@ -696,6 +696,14 @@ bool coopTestHoldBattleReadyArmed();
 bool coopTestHoldBattleReadyHeld();
 bool coopTestHoldBattleReadyTake(Json::Value& out);
 
+/// R4-L6 (AMENDMENT R4-L6-1 M4 / M5; ruling Q5 (a)): TEST-ONLY `hold_blob_ack`, CLIENT. Armed, the client withholds its
+/// per-chunk WAIT_MAP_SENDER ack while a battle-handshake blob is awaited, so the host's streamer waits (row LH1).
+/// Arm(false) disarms it and returns the count of withheld acks it cleared (the TestServer lever then sends ONE ack).
+/// Inert unless armed. Never called by game logic.
+int coopTestHoldBlobAckArm(bool on);
+bool coopTestHoldBlobAckArmed();
+int coopTestHoldBlobAckHeld();
+
 /// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 5; owner D206 c, Q1 a):
 /// the ONE guarded statement in InventoryState::btnOkClick, right after its cursor refusal. TRUE (the caller returns)
 /// only on the pre-battle equip screen of a co-op battle whose equip phase is open (`!tu && parent && coopEquipOpen()`):
