@@ -36889,10 +36889,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		if (_game->getSavedGame()->coopHasRealBattle()) // coop W2-H21d (F9398): a practice battle is no battle (an equipment screen's has no BattlescapeState)
 		{
-			if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
-			{
-				inBattle = true;
-			}
+			inBattle = true; // coop W2-H21e (F9587): a real battle counts with or without its BattlescapeState (none yet in its briefing): no battle-screen read
 		}
 
 		if (inBattle == false)
@@ -37022,10 +37019,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		if (_game->getSavedGame()->coopHasRealBattle()) // coop W2-H21d (F9405): a practice battle is no battle (an equipment screen's has no BattlescapeState)
 		{
-			if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
-			{
-				clientInBattle = true;
-			}
+			clientInBattle = true; // coop W2-H21e (F9587): ditto
 		}
 
 		std::string playername = obj.get("playername", "defaultState").asString();
