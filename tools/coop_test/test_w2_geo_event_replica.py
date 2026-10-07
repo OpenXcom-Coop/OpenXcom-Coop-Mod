@@ -322,8 +322,14 @@ def boot(spec, rows, results, walls):
     t0 = time.time()
     try:
         js = shared_fixture.bring_up(tag, ports, mods=(MOD,), host_options=opts)
-        x = SimpleNamespace(host=js.host, client=js.client, h158=None,
-                            hq=js.host.ok({"cmd": "geo_state"})["bases"][0]["name"])
+        try:
+            x = SimpleNamespace(host=js.host, client=js.client, h158=None,
+                                hq=js.host.ok({"cmd": "geo_state"})["bases"][0]["name"])
+        except BaseException:
+            # W2-U8f (F9060): the except below reports a boot miss and returns without js, so a failed probe after
+            # the bring-up shuts down its games before the error propagates (shared_fixture.bring_up's form)
+            js.shutdown()
+            raise
     except Exception as e:
         print(f"CAPTURE {tag} (boot miss): {short(e, 1500)}", flush=True)
         for rid, _fn in rows:
