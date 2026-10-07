@@ -40,7 +40,7 @@ GEO, BS, SFN, BRF = "GeoscapeState", "BattlescapeState", "StatsForNerdsState", "
 PUSH, POP = "push class OpenXcom::", "pop  class OpenXcom::"
 CL_G = [PUSH + "LoadGameState", POP + "LoadGameState", POP + BS, POP + GEO, PUSH + GEO]
 CL_1 = [PUSH + "LoadGameState", POP + "LoadGameState", PUSH + GEO]
-CRASH_DIR = os.path.join(os.path.dirname(harness.EXE), "crashlogs")
+CRASH_DIR = harness.CRASH_DIR  # (W2-U8h F9563: this lane's own crash folder)
 q, stack, short, wait_until = h20.q, h20.stack, h20.short, h20.wait_until
 
 def alive(gc):

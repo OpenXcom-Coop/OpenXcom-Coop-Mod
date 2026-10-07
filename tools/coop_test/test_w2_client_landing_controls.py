@@ -27,7 +27,7 @@ import shared_fixture  # noqa: E402
 
 H9_LOG = "[coop-h9]"
 KEEP = ["ConfirmLandingState", "CraftErrorState"]
-CRASH_DIR = os.path.join(os.path.dirname(EXE), "crashlogs")
+from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
 PUSH_RE = re.compile(r"\[coop-ui\] push (?:class )?(?:OpenXcom::)?(\w+) depth=")
 
 T0 = time.time()

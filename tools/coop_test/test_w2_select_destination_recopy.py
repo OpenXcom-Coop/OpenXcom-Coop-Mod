@@ -42,7 +42,7 @@ TRIG = {"H21b-C": ("client", {"cmd": "click_widget", "match": "CANCEL"}, {"ok": 
         "H21b-1": ("client", {"cmd": "force_resync"}, {"ok": True, "role": "replica", "sent": True}),
         "H21b-2": ("host", {"cmd": "force_resync"}, {"ok": True, "role": "host"})}
 ROWS_A, ORDER = ["H21b-C", "H21b-1", "H21b-2"], ["H21b-C", "H21b-1", "H21b-2", "H21b-3"]
-CRASH_DIR = os.path.join(os.path.dirname(harness.EXE), "crashlogs")
+CRASH_DIR = harness.CRASH_DIR  # (W2-U8h F9563: this lane's own crash folder)
 q, stack, short, wait_until = h20.q, h20.stack, h20.short, h20.wait_until
 
 def alive(gc):

@@ -37,7 +37,7 @@ N_BATTLE, N_RECOPY, W, POLL, HOLD, W3, POLL3 = 3, 8, 10.0, 0.25, 2.0, 90.0, 0.5
 GEO, INV = "GeoscapeState", "InventoryState"
 PUSH_LGS, POP_INV = "push class OpenXcom::LoadGameState", "pop  class OpenXcom::InventoryState"
 ACCEPT = "[coop-handshake] battle_offer accepted (battleId="
-CRASH_DIR = os.path.join(os.path.dirname(harness.EXE), "crashlogs")
+CRASH_DIR = harness.CRASH_DIR  # (W2-U8h F9563: this lane's own crash folder)
 PATHS = ("battle start", "re-copy craft", "re-copy soldier")
 q, stack, short = h20.q, h20.stack, h20.short
 

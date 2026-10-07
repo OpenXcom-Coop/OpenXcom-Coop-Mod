@@ -151,7 +151,7 @@ BS_STATE = "BattlescapeState"
 NEXT_TURN_STATE = "NextTurnState"
 MENU_WAIT_S = 4.0
 CRASH_WAIT_S = 10.0
-CRASHLOGS = os.path.join(os.path.dirname(EXE), "crashlogs")
+from harness import CRASH_DIR as CRASHLOGS  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
 
 
 # ===================== small probes =====================

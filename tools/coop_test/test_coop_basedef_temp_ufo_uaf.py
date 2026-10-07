@@ -69,7 +69,7 @@ BATTLE_STATES = ("BriefingState", "BattlescapeState")
 
 def crash_logs():
     hits = []
-    for root in (harness.TEST_ROOT, RELEASE_DIR):
+    for root in (harness.CRASH_DIR,):  # (W2-U8h F9563: this lane's own crash folder)
         hits += glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)
     return set(hits)
 

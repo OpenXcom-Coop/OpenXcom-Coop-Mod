@@ -382,9 +382,10 @@ def delta_shape(d):
 
 
 def crash_files():
-    """t0_sc1.py :145-:149: every crash_*.log (session._crash_log_snapshot) and every .dmp."""
+    """t0_sc1.py :145-:149: every crash_*.log (session._crash_log_snapshot) and every .dmp, in this lane's own crash
+    folder and under this lane's own user dirs (W2-U8h F9563: never another lane's)."""
     hits = set(session._crash_log_snapshot())
-    for root in (harness.TEST_ROOT, os.path.dirname(session._GAME_EXE)):
+    for root in (harness.CRASH_DIR, os.path.join(harness.TEST_ROOT, "s%d_*" % harness.HARNESS_SLOT)):
         hits |= set(glob.glob(os.path.join(root, "**", "*.dmp"), recursive=True))
     return hits
 

@@ -2993,15 +2993,12 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
 
 
 def _crash_log_snapshot():
-    """Every crash_*.log under the harness temp root or beside the exe, right
-    now - a before/after diff around T-EXIT is what makes 'no crash log' mean
-    something (a fixed set present from an EARLIER test's crash would
-    otherwise false-positive every later T-EXIT)."""
+    """Every crash_*.log in this lane's own crash folder (harness.CRASH_DIR, where every game this process
+    spawns writes its crash files, W2-U8h F9563), right now - a before/after diff around T-EXIT is what makes
+    'no crash log' mean something (a fixed set present from an EARLIER test's crash would otherwise
+    false-positive every later T-EXIT)."""
     import harness as _harness
-    hits = set()
-    for root in (_harness.TEST_ROOT, os.path.dirname(_GAME_EXE)):
-        hits |= set(glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True))
-    return hits
+    return set(glob.glob(os.path.join(_harness.CRASH_DIR, "crash_*.log")))
 
 
 def assert_t_exit(host, client, what="", expect_both=True):

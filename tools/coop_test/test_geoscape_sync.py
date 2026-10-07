@@ -289,8 +289,7 @@ def scan_logs(user_dirs, tag):
             except OSError:
                 pass
     # crashlogs live next to the exe
-    from harness import EXE
-    cl = os.path.join(os.path.dirname(EXE), "crashlogs")
+    from harness import CRASH_DIR as cl  # (W2-U8h F9563: this lane's own crash folder)
     if os.path.isdir(cl):
         for fn in sorted(os.listdir(cl)):
             hits["crash_files"].append(fn)
