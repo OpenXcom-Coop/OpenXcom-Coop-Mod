@@ -22,7 +22,7 @@ REFUSAL = "offerRejoinBattle() called while the battle is not paused"
 HOST_TERM_RC = 0xC0000409      # H13-T1 (F4565)
 TERM_LINE = "std::terminate called (no active exception)."
 CRASH_HEAD = ("==== Crash/Log", "Time:", "Version:", "Compiled:", "Module:", "ImageBase:", "Mods:")
-CRASH_DIR = os.path.join(os.path.dirname(EXE), "crashlogs")
+from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
 COOP_KEYS = ("udpActive", "rendezvousActive", "onConnect", "coopSession", "inBattle")
 IDLE_S = 30
 

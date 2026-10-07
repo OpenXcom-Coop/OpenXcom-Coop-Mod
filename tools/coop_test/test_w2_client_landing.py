@@ -48,7 +48,7 @@ KEEP = ["ConfirmLandingState", "CraftErrorState"]
 # F2707 / ruling H9-G1: states H9-1's host must never show. The post-flush drain keeps
 # them on top (never cleared), so the host top check still fails on them by name.
 HOST_NEVER = ["CraftErrorState", "ConfirmLandingState", "BriefingState"]
-CRASH_DIR = os.path.join(os.path.dirname(EXE), "crashlogs")
+from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
 PUSH_RE = re.compile(r"\[coop-ui\] push (?:class )?(?:OpenXcom::)?(\w+) depth=")
 
 T0 = time.time()

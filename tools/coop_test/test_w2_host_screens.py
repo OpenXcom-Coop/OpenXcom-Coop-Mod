@@ -200,7 +200,7 @@ def top(gc):
     return s[-1] if s else None
 
 
-CRASH_DIR = os.path.join(os.path.dirname(session._GAME_EXE), "crashlogs")
+from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
 
 
 def crash_census():

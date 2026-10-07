@@ -514,7 +514,7 @@ def run_rows(x, rows, results, walls):
 
 
 def crash_logs(js):
-    roots = [os.path.dirname(harness.EXE), js.host_dir, js.client_dir]
+    roots = [harness.CRASH_DIR, js.host_dir, js.client_dir]  # (W2-U8h F9563: this lane's own crash folder)
     return {p for root in roots for p in glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)}
 
 
