@@ -5185,6 +5185,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 						}
 						row["fire"] = t->getFire();
 						row["smoke"] = t->getSmoke();
+						// coop MG-A S-A2 (Q6 a, F9821): the floor part's special tile type; END_POINT 13 (MapData.h) = the exit area
+						row["special"] = (int)t->getFloorSpecialTileType();
 						tiles.append(row);
 					}
 			resp["tiles"] = tiles;
