@@ -131,8 +131,14 @@ def main():
     user = harness.make_user_dir("sp_smoke")
     port = int(os.environ.get("OXC_TEST_PORT", "0")) or 47990
     host = harness.GameClient("sp_smoke_host", port, user)
-    host.spawn()
-    host.connect()
+    try:
+        host.spawn()
+        host.connect()
+    except BaseException:
+        # W2-U8f (F9057): main's try/finally starts after the connect, so a failed spawn or connect shuts
+        # down the game started here before the error propagates (shared_fixture.bring_up's form)
+        harness.shutdown_clients(host)
+        raise
     try:
         # (1) one instance, NO coop: open the New Battle screen and start it,
         # WITHOUT newbattle_coop (the step that turns it into a coop session).
