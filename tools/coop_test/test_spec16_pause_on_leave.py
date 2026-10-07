@@ -207,40 +207,46 @@ def _bring_up(tag, run_idx, seed):
     client_dir = make_user_dir(f"spec16s1_{tag}_client_{run_idx}")
     host = GameClient("host", port, host_dir)
     client = GameClient("client", port + 1, client_dir)
-    host.spawn(); host.connect()
-    client.spawn(); client.connect()
+    try:
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
 
-    host.ok({"cmd": "open_new_battle"})
-    host.wait_for("host new battle", lambda: session.has_state(host, "NewBattleState"))
-    host.ok({"cmd": "newbattle_coop"})
-    host.wait_for("host browser", lambda: session.has_state(host, "ServerList"))
-    host.ok({"cmd": "server_list_host"})
-    host.wait_for("host window", lambda: session.has_state(host, "HostMenu"))
-    host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv",
-             "port": str(port), "player": "HostPlayer"})
-    host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"))
+        host.ok({"cmd": "open_new_battle"})
+        host.wait_for("host new battle", lambda: session.has_state(host, "NewBattleState"))
+        host.ok({"cmd": "newbattle_coop"})
+        host.wait_for("host browser", lambda: session.has_state(host, "ServerList"))
+        host.ok({"cmd": "server_list_host"})
+        host.wait_for("host window", lambda: session.has_state(host, "HostMenu"))
+        host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv",
+                 "port": str(port), "player": "HostPlayer"})
+        host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"))
 
-    client.ok({"cmd": "open_new_battle"})
-    client.wait_for("client new battle", lambda: session.has_state(client, "NewBattleState"))
-    client.ok({"cmd": "newbattle_coop"})
-    client.wait_for("client browser", lambda: session.has_state(client, "ServerList"))
-    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": str(port), "player": "ClientPlayer"})
+        client.ok({"cmd": "open_new_battle"})
+        client.wait_for("client new battle", lambda: session.has_state(client, "NewBattleState"))
+        client.ok({"cmd": "newbattle_coop"})
+        client.wait_for("client browser", lambda: session.has_state(client, "ServerList"))
+        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": str(port), "player": "ClientPlayer"})
 
-    for gc in (host, client):
-        gc.wait_for("join popup", lambda gc=gc: session.has_state(gc, "Profile"))
-        gc.ok({"cmd": "profile_ok"})
-    host.wait_for("BATTLE SETTINGS offered", lambda: _lobby(host).get("buttonVisible") or None)
+        for gc in (host, client):
+            gc.wait_for("join popup", lambda gc=gc: session.has_state(gc, "Profile"))
+            gc.ok({"cmd": "profile_ok"})
+        host.wait_for("BATTLE SETTINGS offered", lambda: _lobby(host).get("buttonVisible") or None)
 
-    seated = {}
-    session.drive_to_battlescape(
-        host, client, seated, mission="STR_SMALL_SCOUT", seat_client=False,
-        pre_seat=lambda h: h.ok({"cmd": "newbattle_craft", "type": "STR_SKYRANGER"}),
-        pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": seed}))
+        seated = {}
+        session.drive_to_battlescape(
+            host, client, seated, mission="STR_SMALL_SCOUT", seat_client=False,
+            pre_seat=lambda h: h.ok({"cmd": "newbattle_craft", "type": "STR_SKYRANGER"}),
+            pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": seed}))
 
-    for gc, name in ((host, "host"), (client, "client")):
-        bs = session.battle_state(gc)
-        assert bs.get("phase") == "Active", f"{name}: phase={bs.get('phase')!r}, expected Active"
-        assert bs.get("authority", {}).get("battleId", 0) != 0, f"{name}: battleId is 0"
+        for gc, name in ((host, "host"), (client, "client")):
+            bs = session.battle_state(gc)
+            assert bs.get("phase") == "Active", f"{name}: phase={bs.get('phase')!r}, expected Active"
+            assert bs.get("authority", {}).get("battleId", 0) != 0, f"{name}: battleId is 0"
+    except BaseException:
+        # W2-U8f (F9051): _run_scenario's try/finally starts only after this returns, so a failed bring-up shuts
+        # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client
 
 
