@@ -544,6 +544,8 @@ long long connectionTCP::_geoTicksStepped = 0; // coop W2-H23
 long long connectionTCP::_hostGeoTicks = -1; // coop W2-H23
 long long connectionTCP::_appliedHostGeoTicks = 0; // coop W2-H23
 const SavedGame* connectionTCP::_geoTickBase = nullptr; // coop W2-H23
+int connectionTCP::_coopReportMonth = 0; // coop W2-H23 (R-H23-G-1)
+int connectionTCP::_coopReportYear = 0; // coop W2-H23 (R-H23-G-1)
 
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesHost{};
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesClient{};
@@ -35473,6 +35475,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		 // year
 		 int year = obj["year"].asInt();
 		 _game->getSavedGame()->getTime()->setYearCoop(year);
+		 if (coopClientOwnClock()) // coop W2-H23 (R-H23-G-1): this report's month / year in the own clock are not a host jump
+		 {
+			 _coopReportMonth = month;
+			 _coopReportYear = year;
+		 }
 
 		 int fundingDiff = obj["fundingDiff"].asInt();
 		 fundingDiffCoop = fundingDiff;
@@ -37926,13 +37933,16 @@ bool connectionTCP::coopClientKeepsOwnClock()
 	{
 		// caught up: the clocks differ only when the host's clock moved without stepping (a load, the set_geo_day lever)
 		const GameTime* t = save->getTime();
+		// coop W2-H23 (R-H23-G-1): a month / year the monthly_report handler wrote (setMonthCoop / setYearCoop) is not a jump
+		const bool reportDate = t->getMonth() == _coopReportMonth && t->getYear() == _coopReportYear;
 		assign = t->getSecond() != _second || t->getMinute() != _minute || t->getHour() != _hour
-			|| t->getDay() != _day || t->getMonth() != _month || t->getYear() != _year;
+			|| t->getDay() != _day || (!reportDate && (t->getMonth() != _month || t->getYear() != _year));
 	}
 	if (!assign)
 		return true;
 	_geoTickBase = save; // the caller assigns the host's time, months and days once; the pending count restarts at 0
 	_appliedHostGeoTicks = _hostGeoTicks;
+	_coopReportMonth = 0; // coop W2-H23 (R-H23-G-1): a new baseline drops the report record
 	return false;
 }
 
