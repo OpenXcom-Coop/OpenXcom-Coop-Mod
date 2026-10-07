@@ -45,6 +45,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+from harness import shutdown_clients  # W2-U8f (F9052): bring_up's cleanup
 import session
 from session import assert_hash_clean, place_deterministic, contact_free_ufo_door_setup
 import repro_atom_walk as W
@@ -62,9 +63,15 @@ def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat
     client_dir = make_user_dir(f"rw_teleport_{tag}_client")
     host = GameClient(f"{tag}-host", host_test_port, host_dir)
     client = GameClient(f"{tag}-client", client_test_port, client_dir)
-    W.bring_up_lobby(host, client, game_port)
-    seated = {}
-    session.drive_to_battlescape(host, client, seated, mission=mission, pre_seat=pre_seat)
+    try:
+        W.bring_up_lobby(host, client, game_port)
+        seated = {}
+        session.drive_to_battlescape(host, client, seated, mission=mission, pre_seat=pre_seat)
+    except BaseException:
+        # W2-U8f (F9052): run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
+        # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client, seated
 
 
