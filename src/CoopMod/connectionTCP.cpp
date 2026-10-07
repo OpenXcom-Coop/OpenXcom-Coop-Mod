@@ -551,6 +551,10 @@ std::mutex OpenXcom::connectionTCP::coopFilesMutex;
 
 std::string current_ping = "";
 
+// coop W2-H23 rider (seqgap-check F9960-F9966): true only while the CoopPump self-test below drains its deliberately
+// out-of-order queue, so CoopPump::drainApplyQueue() logs that expected gap at INFO; every real gap keeps ERROR.
+static bool g_coopPumpSelfTestGap = false;
+
 connectionTCP::connectionTCP(Game* game) : _game(game)
 {
 	// PRD-J01: publish the process-single Game for the static seat accessors.
@@ -628,6 +632,7 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 		CoopPump::enqueue(CoopWire::makeEv(3u, 203u, "turn"));
 		CoopPump::enqueue(CoopWire::makeEv(2u, 202u, "turn"));
 
+		g_coopPumpSelfTestGap = true; // coop W2-H23 rider: the next two drains meet the injected gap on purpose
 		// Drain once: seq 1 applies, then seq 3 (expected 2) is a gap - the
 		// drain must log it and freeze, leaving both unresolved entries queued.
 		CoopPump::drainApplyQueue();
@@ -642,6 +647,7 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 		if (CoopPump::queueDepth() != 2u || CoopPump::lastSeqApplied() != 1u)
 		{ fail("drain resumed while frozen"); ok = false; }
 
+		g_coopPumpSelfTestGap = false; // coop W2-H23 rider
 		CoopPump::reset(); // leave a clean slate for real play in this process
 
 		if (ok)
@@ -2190,6 +2196,12 @@ void drainApplyQueue()
 
 		if (gap)
 		{
+			if (g_coopPumpSelfTestGap) // coop W2-H23 rider: the self-test's injected gap (F9960), not a protocol bug
+			{
+				Log(LOG_INFO) << "[cooppump-selftest] expected injected gap: expected " << expected << " got " << seq
+					<< " (kind=" << ev.get("kind", "?").asString() << ")";
+				return;
+			}
 			Log(LOG_ERROR) << "[coop-pump] SEQ GAP: expected " << expected << " got " << seq
 				<< " (kind=" << ev.get("kind", "?").asString()
 				<< ") - freezing battle input (protocol bug; RB-D5/SS2.2 strict in-order apply)";
