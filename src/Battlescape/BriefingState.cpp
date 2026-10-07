@@ -316,9 +316,9 @@ void BriefingState::btnOkClick(Action *)
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
 			return;
 		}
-		// W1-P4 / W2-P8b (D158): the co-op freeze below covers only a NEXT-STAGE briefing - the equip screen stays
-		// skipped and startFirstTurn() runs here; a fresh co-op battle equips through W2-P8b (both players, OK is a
-		// ready toggle, turn 1 starts at the barrier). False in single player: the vanilla push below is unchanged.
+		// W1-P4 / W2-P8b / MG-A: every co-op battle, a next stage included (MG-A re-offers it as a fresh battle), equips
+		// through W2-P8b (both players, OK is a ready toggle, turn 1 starts at the barrier); the freeze below has no known
+		// caller since MG-A (F5097). False in single player: the vanilla push below is unchanged.
 		if (CoopHandshake::freezePreBattleEquip(_game))
 		{
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();

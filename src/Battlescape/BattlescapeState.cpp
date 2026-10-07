@@ -3966,6 +3966,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		_save->setMissionType(nextStage);
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.nextStage();
+		coopHostNextStage(_game, _save); // coop (MG-A): stage_end sent - offer the next stage to both; no-op in SP
 		_game->popState();
 		_game->pushState(new BriefingState(0, 0));
 	}
