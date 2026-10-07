@@ -36,6 +36,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, EXE, TEST_ROOT  # noqa: E402
+from harness import shutdown_clients  # noqa: E402 (W2-U8f F9053: boot_pair's cleanup)
 import session  # noqa: E402
 
 H9TEXT = ("In co-op only the host's craft can start a mission. Seat your soldiers "
@@ -276,7 +277,13 @@ def vacuity_guard(host, client, tag):
 def boot_pair(tag):
     host = GameClient("host", 1, make_user_dir("w2h9_%s_host" % tag))
     client = GameClient("client", 2, make_user_dir("w2h9_%s_client" % tag))
-    host.spawn(); client.spawn(); host.connect(); client.connect()
+    try:
+        host.spawn(); client.spawn(); host.connect(); client.connect()
+    except BaseException:
+        # W2-U8f (F9053): the row's try/finally gets host / client only from this return, so a failed spawn or
+        # connect shuts down the games started here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client
 
 
