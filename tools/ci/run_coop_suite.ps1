@@ -78,8 +78,9 @@ $quarantine = @(
   # separately - it is currently the only automated thing that notices the drift.
   "test_parallel_heavy_death_repro",
   # BATTLESCAPE DRIFT DETECTORS, quarantined for the duration of the battlescape
-  # rewrite. Both find REAL divergence between the two machines - they are not
-  # flaky and they are not slow - but they are detectors for the exact subsystem
+  # rewrite. The first two find REAL divergence between the two machines - they are
+  # not flaky and they are not slow - and the third fails intermittently on the same
+  # subsystem (see its note). All three are detectors for the exact subsystem
   # being replaced, so gating trunk on them blocks every unrelated change while the
   # rewrite is in flight. Same family as the open reports #168, #178, #179, #182.
   #   test_sync_check     PRD-I0 per-action sequenced sync-check. Last seen: the
@@ -90,11 +91,18 @@ $quarantine = @(
   #                       ("the test that would catch an authority seam nobody thought
   #                       to write a scenario for"). Last seen: the PRD-P2 drift
   #                       tripwire fired after the alien side of turns 2 and 3.
-  # REMOVE BOTH once the rewrite lands - between now and then nothing gates on
+  #   test_parallel_loose_death
+  #                       Chain-atomicity death stamping + side barrier. Failed both
+  #                       attempts on main run 37579947711 (GREEN: unitsCombat bucket
+  #                       mismatch; LIVENESS: a forced wedge never closed the side),
+  #                       failed both attempts in 3 earlier runs since 2026-08-25, and
+  #                       needed its retry in about 9 more.
+  # REMOVE ALL THREE once the rewrite lands - between now and then nothing gates on
   # battlescape drift, which is a deliberate, temporary hole and not a clean bill of
   # health. Keep reading their output: they still run and still print their verdict.
   "test_sync_check",
-  "test_parallel_soak"
+  "test_parallel_soak",
+  "test_parallel_loose_death"
 )
 
 # --- Per-test time budgets ------------------------------------------------------
