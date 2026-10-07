@@ -3,12 +3,15 @@ rewrite/w2h23-task0/CONSTANTS.md): a SEPARATE second player's own geoscape loops
 "time" heartbeat moves its clock while its loops run only on its own step. Deterministic lever: the per-player
 geoClockSpeed option (250 ms on the slow side, the default 80 ms on the other), no TestServer lever.
 Boot S (lobby 47931; host 80 ms, client 250 ms): R1 day (wound recovery -1 a day, ROLL_DAY(4)), R2 hour (Skyranger
-repair -1 an hour, ROLL_HOUR(6)), R4 jump guard (set_geo_day +2 / -1 day runs no day loop; both builds pass).
+repair -1 an hour, ROLL_HOUR(6)), R4 jump guard (set_geo_day +2 / -1 day runs no day loop; both builds pass),
+R5 month end (R-H23-G-2: SETTLE_AT(28, 12), roll to the host's MonthlyReportState; every client date sampled at B0,
+while the client's report is open and for 3 s after both close is a valid calendar date (V1) and never moves backwards (M1)).
 Boot F (lobby 47932; host 250 ms, client 80 ms): R3 day (ROLL_DAY(3), the double).
 Each machine's loop counts are judged against its OWN clock B0 -> B1: the host's are guards (G1-G3), the client's are
 RED (A1-A3); C1 = the client's clock within 1 game minute of the host's at B0 and B1; J1 also needs STAGE's replies.
 FREEZE / RELEASE / SETTLE_AT / STAGE / READ / ROLL as the spec (f); W = 10 s at 0.1 s polls; a WAIT that times out ends
-the row; every row RELEASEs in a finally. RED: R1 fails A1 only, R2 A2 only, R3 A3 only, R4 passes. GREEN: all pass.
+the row; every row RELEASEs in a finally. RED: R1 fails A1 only, R2 A2 only, R3 A3 only, R4 passes. R5 is red on
+d089b0138 (V1 and M1: the monthly_report handler writes the host's month into the client's clock, 1999-02-31). GREEN: all pass.
 CAPTURE (a failed row) then EVIDENCE then PASS / FAIL per row; every row runs; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -23,11 +26,11 @@ import geo  # noqa: E402
 import session  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
-W, POLL, GEO, SOL = 10.0, 0.1, "GeoscapeState", "SoldiersState"
+W, POLL, GEO, SOL, MRS = 10.0, 0.1, "GeoscapeState", "SoldiersState", "MonthlyReportState"
 SLOW = {"geoClockSpeed": 250}
 BOOT_S = ("w2h23_s", (49610, 49611), "47931", None, SLOW)
 BOOT_F = ("w2h23_f", (49612, 49613), "47932", SLOW, None)
-ORDER = ["R1", "R2", "R4", "R3"]
+ORDER = ["R1", "R2", "R4", "R5", "R3"]
 KEYS = "[elapsed days, elapsed hours, heal days, repair hours] host / client"
 
 short = lambda e, n=600: (lambda s: s if len(s) <= n else s[:n] + "...")(f"{type(e).__name__}: {e}")  # noqa: E731
@@ -59,6 +62,13 @@ def gtime(gc):
 
 def dt(t):
     return datetime.datetime(*t)
+
+
+def valid(t):  # a real calendar date (1999-02-31 is not)
+    try:
+        return bool(dt(t))
+    except (TypeError, ValueError):
+        return False
 
 
 def apart(a, b):  # game minutes between two [year .. minute] times
@@ -268,6 +278,31 @@ def row_r4(r):  # jump guard: a forward and a backward set_geo_day run no day lo
     r.cell("J3", True, f"client followed in {t24} s / {t23} s")
 
 
+def row_r5(r):  # R-H23-G-2: across a month-end report the client's date stays a valid calendar date, never backwards
+    h, c = r.x.h, r.x.c
+    settle_at(r, 28, 12)
+    smp = r.ev["samples [phase, client top, year .. minute]"] = [["B0", top(c)] + gtime(c)]
+    release(r)
+    sk = geo.skip_ingame_time(h, c, 5 * 1440, speed_idx=5, interest=geo.popup(MRS), real_timeout=60)
+    r.ev["roll"] = {k: sk.get(k) for k in ("game_minutes", "timed_out", "dismissed", "hit")}
+    r.wait("client MonthlyReportState", lambda: geo.drain_popups(c, interest=geo.popup(MRS))[1])
+    for phase, secs in (("open", 0.5), ("closed", 3.0)):
+        if phase == "closed":                         # close the client's report, then the host's
+            for gc in (c, h):
+                geo.drain_popups(gc)
+            r.wait("both GeoscapeState", lambda: top(h) == GEO and top(c) == GEO)
+        t0 = time.time()
+        while time.time() - t0 < secs:
+            smp.append([phase, top(c)] + gtime(c))
+            time.sleep(POLL)
+    bad = [s for s in smp if not valid(s[2:])]
+    back = [[a, b] for a, b in zip(smp, smp[1:]) if b[2:] < a[2:]]
+    r.cell("setup", sk.get("hit") is not None and gtime(h)[1] == 2 and smp[-1][3] == 2,
+           f"roll hit {sk.get('hit')}, host {gtime(h)}, client last sample {smp[-1]}")
+    r.cell("V1", not bad, f"client dates that are not calendar dates: {bad}")
+    r.cell("M1", not back, f"client date moved backwards: {back}")
+
+
 def run_row(rid, fn, x, results):
     r, t0 = Row(rid, x), time.time()
     try:
@@ -318,7 +353,7 @@ def boot(spec, rows, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_S, (("R1", row_r1), ("R2", row_r2), ("R4", row_r4)), results, walls)
+    boot(BOOT_S, (("R1", row_r1), ("R2", row_r2), ("R4", row_r4), ("R5", row_r5)), results, walls)
     boot(BOOT_F, (("R3", row_r3),), results, walls)
     failed = [n for n in ORDER if not results.get(n)]
     print(f"\ntest_w2_separate_clock: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) walls {walls} "
