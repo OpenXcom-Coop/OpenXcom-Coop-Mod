@@ -30518,8 +30518,11 @@ bool connectionTCP::pushProgressToHostSilently()
 bool connectionTCP::coopSepEntrySnapshot()
 {
 	SavedGame* live = _game->getSavedGame();
-	if (!live || live->getSavedBattle() || playerInsideCoopBase)
+	// coop W2-H21d (F9198): a practice screen (a preview, a base equipment screen) leaves the own world live - take the snapshot,
+	// written as vanilla holds the world once that screen is closed (CoopPracticeBattleHidden).
+	if (!live || live->coopHasRealBattle() || playerInsideCoopBase)
 		return false;
+	CoopPracticeBattleHidden coopPracticeHidden(live);
 	const std::string filename = clientBlobKey(getHostName());
 	live->saveCoopToMemory(filename, _game->getMod(), filename);
 	{
