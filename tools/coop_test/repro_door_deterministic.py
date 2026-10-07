@@ -57,6 +57,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+from harness import shutdown_clients  # W2-U8f (F9054): bring_up's cleanup
 import session
 from session import assert_hash_clean, contact_free_ufo_door_setup, place_deterministic
 import repro_atom_walk as W
@@ -101,17 +102,23 @@ def bring_up():
                       make_user_dir("door_det_host_1"))
     client = GameClient("det-client", BASE_TEST_PORT + 3,
                         make_user_dir("door_det_client_1"))
-    W.bring_up_lobby(host, client, port)
-    seated = {}
-    session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin)
-    # REV E.48 SS.E.2 (SPEC 12): phase D is re-pointed at a REAL end-of-turn,
-    # which needs the alien side inert so the boundary crosses deterministically
-    # (REV E.48 SS.B.2's AI-neutral pin, the one mechanism every SPEC 9..15
-    # boundary-crossing test uses).
-    pinned = session.pin_ai_neutral(host, client, tag="door_det")
-    assert len(pinned) > 0, (
-        f"pin_ai_neutral pinned ZERO NONE-seat non-player units on this "
-        f"CLASSIC {MISSION} boot - the premise is unexercised (M9a-3)")
+    try:
+        W.bring_up_lobby(host, client, port)
+        seated = {}
+        session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin)
+        # REV E.48 SS.E.2 (SPEC 12): phase D is re-pointed at a REAL end-of-turn,
+        # which needs the alien side inert so the boundary crosses deterministically
+        # (REV E.48 SS.B.2's AI-neutral pin, the one mechanism every SPEC 9..15
+        # boundary-crossing test uses).
+        pinned = session.pin_ai_neutral(host, client, tag="door_det")
+        assert len(pinned) > 0, (
+            f"pin_ai_neutral pinned ZERO NONE-seat non-player units on this "
+            f"CLASSIC {MISSION} boot - the premise is unexercised (M9a-3)")
+    except BaseException:
+        # W2-U8f (F9054): run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
+        # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     return host, client
 
 
