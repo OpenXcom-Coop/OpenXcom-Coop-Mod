@@ -2849,6 +2849,42 @@ void baseEquipMarkName(Soldier* s)
 	if (g_baseEquipMark["soldiers"].isMember(key)) g_baseEquipMark["soldiers"][key]["name"] = s->getName();
 }
 
+// ---- W2-H20d (F8551; D226 a): craft_deployment - a SHARED craft type's generic deployment (the Ufopaedia craft preview's save) ----------
+// payload: { craftType, saved, positions [[x, y, z, dir], ...] (saved only) }, baseId -1 (no base; base_new's precedent). Player-origin from
+// either seat right after vanilla's own local save or delete (SavedBattleGame::saveDummyCraftDeployment); both roles repeat vanilla's write:
+// every craft of that type loses its own custom deployment, then the type's entry is written or erased. Last write wins (H20b A10).
+bool craftDeploymentValidate(Game* game, const Json::Value& payload, Base* /*base*/, int /*seat*/,
+                             int64_t& cost, std::string& /*failReason*/)
+{
+	cost = 0;
+	return game->getMod()->getCraft(payload.get("craftType", "").asString(), false) != nullptr; // a refusal reads "rejected"
+}
+
+void craftDeploymentApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	SavedGame* sg = game ? game->getSavedGame() : nullptr;
+	const RuleCraft* rule = sg ? game->getMod()->getCraft(payload.get("craftType", "").asString(), false) : nullptr;
+	if (!rule) return;
+	for (auto* xbase : *sg->getBases())
+		for (auto* xcraft : *xbase->getCrafts())
+			if (xcraft->getRules() == rule) xcraft->resetCustomDeployment(); // vanilla: a type deployment invalidates every craft's own one
+	auto& data = sg->getCustomRuleCraftDeployments();
+	const bool saved = payload.get("saved", false).asBool();
+	const Json::Value positions = payload.get("positions", Json::Value(Json::arrayValue));
+	if (!saved)
+	{
+		data.erase(rule->getType());
+	}
+	else
+	{
+		RuleCraftDeployment deploy;
+		for (const auto& p : positions)
+			if (p.isArray() && p.size() == 4) deploy.push_back({ p[0].asInt(), p[1].asInt(), p[2].asInt(), p[3].asInt() });
+		data[rule->getType()] = deploy;
+	}
+	Log(LOG_INFO) << "[SHARED] craft_deployment: " << rule->getType() << (saved ? " saved, " : " deleted, ") << positions.size() << " position(s)";
+}
+
 // ---- W2-H20b (A10; P8b Q9 a / D209, SC-5, SC-9 extended): equip_template - a SHARED template save ------------------------------------
 // payload: { kind: "layout" | "loadout", index, name, layout + armor (kind layout: the slot's equipYaml and armor type) | items {type: count}
 // (kind loadout) }, baseId = the saving screen's base. Player-origin from either seat right after vanilla's own local save; the whole slot
@@ -4460,6 +4496,7 @@ void init()
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
 	registerCmd("soldier_equip",  &soldierEquipValidate, &soldierEquipApply); // W2-H20 (D255 a): base-screen OK, player-origin, owner-gated
 	registerCmd("equip_template", &equipTemplateValidate, &equipTemplateApply); // W2-H20b (A10): a template save, player-origin, last write wins
+	registerCmd("craft_deployment", &craftDeploymentValidate, &craftDeploymentApply); // W2-H20d (F8551): a craft type's generic deployment, player-origin, last write wins
 	// W2-H16 (F3260): manual promotion and nationality (player-origin from either seat; the host resolves the rank).
 	registerCmd("soldier_rank",   &soldierRankValidate,   &soldierRankApply);
 	registerCmd("soldier_nationality", &soldierNationalityValidate, &soldierNationalityApply);
@@ -5854,6 +5891,27 @@ void submitLoadoutTemplate(Game* game, Base* base, int index)
 		p["items"][pr.first->getType()] = pr.second;
 	p["name"] = sg->getGlobalCraftLoadoutName(index);
 	submitLocalCmd(game, "equip_template", baseIndex(game, base), p);
+}
+
+// W2-H20d (F8551): see SharedEcon.h.
+void craftDeploymentSaved(Game* game, const std::string& craftType)
+{
+	if (!game || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
+		|| !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	const auto& data = game->getSavedGame()->getCustomRuleCraftDeployments();
+	const auto it = data.find(craftType);
+	Json::Value p(Json::objectValue);
+	p["craftType"] = craftType;
+	p["saved"] = it != data.end();
+	p["positions"] = Json::Value(Json::arrayValue);
+	if (it != data.end())
+		for (const auto& v : it->second)
+		{
+			Json::Value row(Json::arrayValue);
+			for (int c : v) row.append(c);
+			p["positions"].append(row);
+		}
+	submitLocalCmd(game, "craft_deployment", -1, p); // the end-state; the presser's own apply writes the same entry again
 }
 
 // W2-H20b (A11; aud-E1-11, AUD-A48): see SharedEcon.h.

@@ -443,6 +443,11 @@ void baseEquipOk(Game* game, Base* base);
 void submitLayoutTemplate(Game* game, Base* base, int index);
 /// W2-H20b (A10): the same for craft loadout template @a index, right after CraftEquipmentState::saveGlobalLoadout.
 void submitLoadoutTemplate(Game* game, Base* base, int index);
+/// W2-H20d (F8551): SHARED and a live campaign only - no-op otherwise; called right AFTER vanilla's local save or delete of craft type
+/// @a craftType's generic deployment (AbortMissionState::btnOkClick -> SavedBattleGame::saveDummyCraftDeployment, the Ufopaedia's craft
+/// preview): the type's end-state (its positions, or none) goes to the host as craft_deployment, so both machines hold the same entry and
+/// reset the same crafts' own deployments (vanilla's invalidation). Either player, last save wins (W2-H20b A10's shared templates).
+void craftDeploymentSaved(Game* game, const std::string& craftType);
 /// W2-H20b (A11; aud-E1-11, AUD-A48): SHARED and a real base only - no-op otherwise; called right AFTER vanilla's template armor change
 /// (InventoryState::tryArmorChange) set @a soldier's armor (it wore armor type @a prevArmorType): an own soldier's change goes to the host as
 /// soldier_armor (both machines then wear and stock the same); a partner's soldier's change is put back at once (stores and armor).
