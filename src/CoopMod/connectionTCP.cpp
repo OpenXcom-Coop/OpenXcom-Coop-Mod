@@ -7677,6 +7677,12 @@ bool coopSkipClientPanic()
 	return true;
 }
 
+// coop W2-H22: see BattleAuthority.h - the predicate of coopSkipClientPanic() above, without its counter.
+bool coopSkipClientBattleStartCasualties()
+{
+	return isCoopBattle() && !coopBattleAuthority().hostSim;
+}
+
 // W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30; WV-D40 unchanged): the walk arm's
 // half of the gate above. See BattleAuthority.h for the full rationale - the
 // short version is that W1-P6's own comment at that call site says its second

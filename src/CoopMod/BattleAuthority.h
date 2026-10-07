@@ -699,6 +699,12 @@ bool coopClientBStateTripwire(const char* site, BattleState* bs = nullptr);
 /// unit - W2-P3 streams it. FALSE everywhere else.
 bool coopSkipClientPanic();
 
+/// coop W2-H22 (SCOPE-0, D128): the battle-start casualty pass (BattlescapeGame's constructor) on a co-op CLIENT. TRUE on a
+/// machine that is NOT the host sim inside an active co-op battle (coopClientBStateTripwire()'s predicate): the pass does not run
+/// there - the host settles every generation casualty (WV-D68) and its `death` ev's delta carries the result. FALSE everywhere
+/// else (the host, single player, any non-co-op battle), so vanilla is byte-identical there. No counter, no side effect.
+bool coopSkipClientBattleStartCasualties();
+
 /// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30, WV-D40 unchanged): the WALK ARM's
 /// entry gate, which is what W1-P6's `coopBlockLocalExecution()` call in
 /// BattlescapeGame::primaryAction's walk arm becomes now that the arm HAS a
