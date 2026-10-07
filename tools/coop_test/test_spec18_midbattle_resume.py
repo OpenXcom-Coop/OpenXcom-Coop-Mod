@@ -21,6 +21,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+from harness import shutdown_clients  # W2-U8f (F9056): _build_midbattle_save's cleanup
 import session
 
 SDLK_ESCAPE = 27
@@ -206,13 +207,19 @@ def _build_midbattle_save(tag, port_base):
     client_dir = make_user_dir(f"{tag}_client")
     host = GameClient("host", port_base, host_dir)
     client = GameClient("client", port_base + 1, client_dir)
-    host.spawn(); client.spawn(); host.connect(); client.connect()
-    session.bring_up_separate_guest_battle(host, client, port=str(port_base + 2))
-    before = set(session.save_files(host_dir))
-    host.ok({"cmd": "save_game_ui", "type": "quick_battle"})
-    new_files = _wait_new_save(host_dir, before, timeout=15)
-    assert len(new_files) == 1, f"quiescent save did not write exactly one file: {new_files}"
-    savepath = os.path.join(host_dir, next(iter(new_files)))
+    try:
+        host.spawn(); client.spawn(); host.connect(); client.connect()
+        session.bring_up_separate_guest_battle(host, client, port=str(port_base + 2))
+        before = set(session.save_files(host_dir))
+        host.ok({"cmd": "save_game_ui", "type": "quick_battle"})
+        new_files = _wait_new_save(host_dir, before, timeout=15)
+        assert len(new_files) == 1, f"quiescent save did not write exactly one file: {new_files}"
+        savepath = os.path.join(host_dir, next(iter(new_files)))
+    except BaseException:
+        # W2-U8f (F9056): no caller ever gets host / client (only the save's path), so a failed bring-up or save
+        # shuts down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
+        shutdown_clients(host, client)
+        raise
     host.shutdown(); client.shutdown()
     return savepath
 
