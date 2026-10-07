@@ -34558,7 +34558,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				// loadCoopProgress load drops the battleGame, so the geoscape adopt
 				// stays battle-free and the battle arrives fresh in phase two.
 				connectionTCP::session.resumeBattlePending =
-					(_game->getSavedGame()->getSavedBattle() != nullptr);
+					_game->getSavedGame()->coopHasRealBattle(); // coop W2-H21d (F9194): a practice battle is no battle to resume
 				if (connectionTCP::session.resumeBattlePending)
 				{
 					connectionTCP::session.resumeBattleEligible.insert(
@@ -34571,7 +34571,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			// battle live: after the geoscape world ack, stream the battle
 			// (F3 battle-save resume + F4 mid-battle rejoin share this)
-			connectionTCP::session.resumeBattlePending = (_game->getSavedGame()->getSavedBattle() != nullptr);
+			connectionTCP::session.resumeBattlePending = _game->getSavedGame()->coopHasRealBattle(); // coop W2-H21d (F9194): ditto
 
 			// PRD-09 C12: F3 battle-save resume in a fresh process. Unlike the
 			// live mission-start path (SEND_FILE_CLIENT_TRUE stashes
@@ -36870,7 +36870,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// battle  check
 		bool inBattle = false;
 
-		if (_game->getSavedGame()->getSavedBattle())
+		if (_game->getSavedGame()->coopHasRealBattle()) // coop W2-H21d (F9398): a practice battle is no battle (an equipment screen's has no BattlescapeState)
 		{
 			if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
 			{
@@ -36881,6 +36881,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (inBattle == false)
 		{
 			CoopState* coop = new CoopState(777);
+			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame()); // coop W2-H21d: the basehost snapshot without the practice battle
 			coop->loadWorld();
 		}
 
@@ -37002,7 +37003,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// IF BOTH ARE IN BATTLE AT THE SAME TIME, CREATE A SEPARATE SESSION
 		bool clientInBattle = false;
 
-		if (_game->getSavedGame()->getSavedBattle())
+		if (_game->getSavedGame()->coopHasRealBattle()) // coop W2-H21d (F9405): a practice battle is no battle (an equipment screen's has no BattlescapeState)
 		{
 			if (_game->getSavedGame()->getSavedBattle()->getBattleGame())
 			{
@@ -37021,6 +37022,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (clientInBattle == false)
 		{
 			CoopState* coop = new CoopState(777);
+			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame()); // coop W2-H21d: the basehost snapshot without the practice battle
 			coop->loadWorld();
 		}
 
