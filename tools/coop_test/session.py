@@ -1764,7 +1764,7 @@ def min_dist_to(aliens, tile):
     return None if best is None else best ** 0.5
 
 
-def region_is_contact_free(aliens, actor, dest, pad=1):
+def region_is_contact_free(aliens, actor, dest, pad=1, max_dist=MAX_VIEW_DISTANCE):
     """WV-D18's contact-free premise, applied to a candidate WALK rather than to
     the actor's starting tile: EVERY tile the walk could occupy must stay
     strictly outside session.MAX_VIEW_DISTANCE of every living non-player unit.
@@ -1777,18 +1777,21 @@ def region_is_contact_free(aliens, actor, dest, pad=1):
     a static per-tile check SOUND rather than merely likely.
 
     This is THE pin - see WALK_CONTACT_MARGIN's own comment for why the pin had
-    to move here from a static qualification margin."""
+    to move here from a static qualification margin. @a max_dist (default
+    MAX_VIEW_DISTANCE) is the distance a tile must stay strictly outside
+    (R-MGA-A1-G-1: MG-A's stage-2 walk passes a smaller one)."""
     x0, x1 = sorted((actor["x"], dest[0]))
     y0, y1 = sorted((actor["y"], dest[1]))
     for x in range(x0 - pad, x1 + pad + 1):
         for y in range(y0 - pad, y1 + pad + 1):
             d = min_dist_to(aliens, (x, y, dest[2]))
-            if d is not None and d <= MAX_VIEW_DISTANCE:
+            if d is not None and d <= max_dist:
                 return False
     return True
 
 
-def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10):
+def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10,
+                  min_alien_dist=MAX_VIEW_DISTANCE):
     """Candidate walk DESTINATIONS exactly @a length tiles away (Chebyshev) that
     are open ground and whose whole neighbourhood is contact-free. Returns a
     list of (dir_or_None, [dest]) so every call site keeps the shape it already
@@ -1828,7 +1831,7 @@ def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10):
                 if max(abs(dx), abs(dy)) != length:
                     continue
                 t = (actor["x"] + dx, actor["y"] + dy, z)
-                if not region_is_contact_free(aliens, actor, t):
+                if not region_is_contact_free(aliens, actor, t, max_dist=min_alien_dist):
                     continue
                 d = min_dist_to(aliens, t)
                 # same level first, then down, then up - a same-level walk is the
@@ -1954,7 +1957,7 @@ def richest(host, ids, n=1, exclude=()):
 
 
 def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
-                  require_unhalted=True, rounds=3):
+                  require_unhalted=True, rounds=3, min_alien_dist=MAX_VIEW_DISTANCE):
     """Order ONE walk for @a actor_id and settle it. Tries contact-free
     destinations at each radius in @a lengths, nearest radius first, and within a
     radius the destination FURTHEST from contact first; a candidate the
@@ -1966,6 +1969,9 @@ def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
     3-tile open run and was rejected by 15/15 generations, and a 1-tile version
     is rejected just as often for the same reason. Pathfinding routes around
     both, and nothing this file asserts needs a path the harness predicted.
+
+    @a min_alien_dist (default MAX_VIEW_DISTANCE, R-MGA-A1-G-1) is the contact-free
+    distance straight_runs() applies to every candidate's region.
 
     Returns (host lastWalk, client lastWalk) or None when nothing could be
     ordered."""
@@ -1981,7 +1987,7 @@ def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
         for radius in lengths:
             actor = unit_of(host, actor_id)
             occ = {pos_of(u) for u in battle_state(host)["units"] if not u.get("isOut")}
-            for _, dest in straight_runs(host, actor, occ, length=radius):
+            for _, dest in straight_runs(host, actor, occ, length=radius, min_alien_dist=min_alien_dist):
                 prev = walk_action_id(host)
                 resp = send_walk(client, actor_id, dest[0])
                 if not resp.get("iseq"):

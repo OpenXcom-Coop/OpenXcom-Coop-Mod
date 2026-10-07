@@ -345,7 +345,8 @@ def ms1_green(host, client, ctx):
         assert_hash_clean(host, client, full=True, what="stage 2 turn 1")
     except AssertionError as e:
         f.append(f"hash at stage-2 turn 1: {short(e, 500)}")
-    pw = session.pick_and_walk(host, client, WALKER, "MS1 stage-2 walk")
+    # R-MGA-A1-G-1 (F9991): the stage-2 aliens stand 14.2 tiles from WALKER at seed 1, inside the default 20
+    pw = session.pick_and_walk(host, client, WALKER, "MS1 stage-2 walk", min_alien_dist=10)
     hp, cp = bview(host).get("pos", {}).get(WALKER), bview(client).get("pos", {}).get(WALKER)
     ctx["walk"] = {"result": pw is not None, "from": hb.get("pos", {}).get(WALKER), "host": hp, "client": cp}
     if pw is None or hp != cp or hp == hb.get("pos", {}).get(WALKER):
