@@ -124,6 +124,11 @@ TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 # shared state: the per-slot machine lock and the s{slot}_ user-dir prefix. No
 # port bands, so K is no longer capped by the 65535 ceiling.
 HARNESS_SLOT = int(os.environ.get("OXC_HARNESS_SLOT", "0"))
+# W2-U8h (F9563): this lane's own crash folder. Every game spawn() starts writes its crash files (the co-op
+# CrashHandler's crash_*.log / crash_*.dmp) here, not in the <exe dir>/crashlogs every lane shares, so a crash in
+# one lane is never counted by another lane's test. The game reads OXC_CRASHLOG_DIR; a game started any other way
+# (a player, manual_session.py) keeps <exe dir>/crashlogs. One test runs per slot at a time (the slot lock below).
+CRASH_DIR = os.path.join(os.path.dirname(os.path.abspath(EXE)), "crashlogs", "s%d" % HARNESS_SLOT)
 
 # Coop bring-up commands whose response carries the host's actual (ephemeral)
 # bound port, and the join commands that must reuse it. cmd() bridges the two,
@@ -439,6 +444,9 @@ class GameClient:
         # Kept for the opt-in windowed path: harmless under the dummy driver,
         # and it is what the owner-smoke path wants when it is used.
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
+        # W2-U8h (F9563): the game writes its crash files into this lane's own folder.
+        os.makedirs(CRASH_DIR, exist_ok=True)
+        env["OXC_CRASHLOG_DIR"] = CRASH_DIR
         exe_dir = os.path.dirname(EXE) or "."
         if os.name == "nt":
             # Preserve the existing Windows launch path.
