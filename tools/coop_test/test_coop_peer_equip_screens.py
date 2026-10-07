@@ -207,9 +207,7 @@ def main():
         b, c = read_both_screens(host, cb, peer_craft, seat_peer, coop=True)
         assert_screens_agree(b, c, "Zzz", "peer base")
 
-        host.ok({"cmd": "leave_base"})
-        host.wait_for("back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.leave_base(host)
         print("TEST PASSED")
     finally:
         host.shutdown(); client.shutdown()

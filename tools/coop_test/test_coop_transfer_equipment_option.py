@@ -65,9 +65,7 @@ def run_mode(alt_on, label):
         layout = guest["layout"]
         print(f"{label}: visited guest '{guest['name']}' layout={layout}")
 
-        host.ok({"cmd": "leave_base"})
-        host.wait_for("back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.leave_base(host)
         return layout
     finally:
         host.shutdown(); client.shutdown()

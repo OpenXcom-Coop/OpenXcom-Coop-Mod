@@ -217,9 +217,7 @@ def bring_up_mixed_battle(host, client):
     client.ok({"cmd": "open_soldiers", "base": host_base_name})
     client.wait_for("client soldiers screen", lambda: has(client, "SoldiersState") or None, timeout=30)
     client.ok({"cmd": "soldiers_ok"})
-    client.ok({"cmd": "leave_base"})
-    client.wait_for("client back on geoscape",
-                    lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+    session.leave_base(client)
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest {guest_id} (coop==1)")
 
     # settle the host (the guest transfer popped a notice), spawn a site, fly there
