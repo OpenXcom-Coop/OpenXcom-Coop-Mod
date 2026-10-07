@@ -7174,6 +7174,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
+		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
@@ -7803,6 +7804,35 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// (silently cleared at the next teardown) if called with no offer ever
 		// following, or on a client (there is no outgoing blob there).
 		CoopHandshake::requestCorruptNextBlob();
+		resp["ok"] = true;
+	}
+	else if (cmd == "hold_blob_ack")
+	{
+		// R4-L6 (docs rewrite/prompts/r4l6_lifecycle_rows_lint.md, AMENDMENT R4-L6-1 M4; ruling Q5 (a)): TEST-ONLY, CLIENT.
+		// {on: true} arms it: while a battle-handshake blob is awaited the client withholds its per-chunk WAIT_MAP_SENDER
+		// ack, so the host's streamer waits after that chunk. {on: false} disarms it and, if an ack was withheld, sends ONE
+		// from here (the host's streamer waits for one ack per chunk). Without `on` it only reports. Response {ok, armed,
+		// held (acks withheld, not yet released), sent (this call released one)}. Inert unless armed.
+		bool sent = false;
+		if (req.isMember("on"))
+		{
+			const bool on = req.get("on", false).asBool();
+			const int cleared = coopTestHoldBlobAckArm(on);
+			if (!on && cleared > 0)
+			{
+				_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"WAIT_MAP_SENDER\"}");
+				sent = true;
+				Log(LOG_INFO) << "[coop-test] hold_blob_ack: released - one WAIT_MAP_SENDER ack sent (" << cleared
+					<< " withheld)";
+			}
+			else
+			{
+				Log(LOG_INFO) << "[coop-test] hold_blob_ack: " << (on ? "armed" : "released (nothing withheld)");
+			}
+		}
+		resp["armed"] = coopTestHoldBlobAckArmed();
+		resp["held"] = coopTestHoldBlobAckHeld();
+		resp["sent"] = sent;
 		resp["ok"] = true;
 	}
 	else if (cmd == "battle_intent")

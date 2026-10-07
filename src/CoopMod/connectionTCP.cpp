@@ -5909,6 +5909,32 @@ static bool coopTestHoldBattleReadyStash(const Json::Value& ready)
 	return true;
 }
 
+// ----- R4-L6 (docs rewrite/prompts/r4l6_lifecycle_rows_lint.md, AMENDMENT R4-L6-1 M4 / M5; ruling Q5 (a)): TEST-ONLY
+// hold_blob_ack, CLIENT. While armed AND a battle-handshake blob is awaited (CoopHandshake::awaitingBlob()), the client
+// withholds its per-chunk WAIT_MAP_SENDER ack (ONE guarded statement at the map_result_data send in onTCPMessage), so the
+// host's streamer waits after that chunk (row LH1: a leave during the stream). The TestServer lever's {on: false}
+// disarms it and sends ONE withheld ack itself. Inert unless armed: unarmed, the guarded statement sends at once and
+// logs nothing, and a world stream (no blob awaited) is never held. Never read by game logic; never reset by a battle
+// reset (the lever arms it before newbattle_ok).
+static std::atomic<bool> g_coopTestHoldBlobAckArmed{false};
+static std::atomic<int> g_coopTestHoldBlobAckHeld{0};
+
+int coopTestHoldBlobAckArm(bool on)
+{
+	g_coopTestHoldBlobAckArmed.store(on);
+	return on ? 0 : g_coopTestHoldBlobAckHeld.exchange(0);
+}
+
+bool coopTestHoldBlobAckArmed()
+{
+	return g_coopTestHoldBlobAckArmed.load();
+}
+
+int coopTestHoldBlobAckHeld()
+{
+	return g_coopTestHoldBlobAckHeld.load();
+}
+
 // ----- W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md, AMENDMENT P7-6 PR-11): TEST-ONLY world-stream holds.
 // hold_world_stream (HOST): while armed, the world streamer thread waits before its final MAP_RESULT_LOAD_PROGRESS
 // send (ONE guarded call in loopData; 10 ms sleeps, a 60 s safety cap that logs and proceeds), so sendFileClient
@@ -26939,6 +26965,14 @@ struct PendingClient
 };
 static PendingClient g_pendingClient;
 
+// R4-L6 (AMENDMENT R4-L6-1 M5): TEST-ONLY read for the hold_blob_ack guarded statement in connectionTCP::onTCPMessage -
+// true from onOffer() arming a battle-handshake blob transfer until onBlobChunkAppended() consumes it. Never read by game
+// logic.
+bool awaitingBlob()
+{
+	return g_pendingClient.awaitingBlob;
+}
+
 // TEST-ONLY STOPGAP (W1-P7 deliverable 6, RB-D26 family): when set, the NEXT
 // battle_offer is built WITHOUT the SS2.W1 `turnMode` key, so D-26's
 // "absent = parallel" degrade can be exercised over the real wire. One-shot.
@@ -36426,7 +36460,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				mapData += map_data;
 
 				std::string jsonData2 = "{\"state\" : \"WAIT_MAP_SENDER\"}";
-				sendTCPPacketData(jsonData2);
+				// R4-L6 (AMENDMENT R4-L6-1 M5): TEST-ONLY hold_blob_ack - the ack is withheld only while armed AND a
+				// battle-handshake blob is awaited; unarmed it is sent at once.
+				if (coopTestHoldBlobAckArmed() && CoopHandshake::awaitingBlob())
+				{
+					const int held = g_coopTestHoldBlobAckHeld.fetch_add(1) + 1;
+					Log(LOG_INFO) << "[coop-test] hold_blob_ack: WAIT_MAP_SENDER ack withheld (held=" << held << ")";
+				}
+				else
+				{
+					sendTCPPacketData(jsonData2);
+				}
 
 				// R4-P1 (SS2.7): if a battle-handshake blob transfer is in
 				// flight (CoopHandshake::onOffer() armed it after sending
