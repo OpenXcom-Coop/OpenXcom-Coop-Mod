@@ -894,4 +894,10 @@ bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article);
 /// Defined in connectionTCP.cpp.
 void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExitArea);
 
+/// MG-A S-A1 hook H (owner D158 = (a); AMENDMENT MG-A-1): the HOST's stage hand-off, ONE line after vanilla's
+/// bgen.nextStage() in BattlescapeState::finishBattle() (coopHostBattleEnd above sent `stage_end` there): nulls the
+/// stage-N battle screen pointer (freed next frame, F5081), resets the battle scope and offers the next stage as a
+/// fresh battle (`stageOf`). Self-guarded (host, co-op, hand-off armed). Defined in connectionTCP.cpp.
+void coopHostNextStage(Game* game, SavedBattleGame* save);
+
 } // namespace OpenXcom

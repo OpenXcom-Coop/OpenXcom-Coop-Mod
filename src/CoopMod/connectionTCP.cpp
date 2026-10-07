@@ -1349,11 +1349,11 @@ namespace
 // (1 = O_WESTWALL, 2 = O_NORTHWALL, 4 = O_FLOOR; Tile.cpp:207 - NOT the
 // makeDiscoveredScript order at Tile.cpp:1183, which is floor=1/west=2/north=4).
 //
-// TODO (RW-REVEAL-SYNC open risk 3 - MULTI-STAGE, POST-SPIKE): reveal is monotone
+// RW-REVEAL-SYNC open risk 3 (MULTI-STAGE; met by MG-A S-A1, F5091): reveal is monotone
 // only WITHIN one battle stage. SavedBattleGame::resetTiles() is the only path
 // that CLEARS discovered bits and it runs at a stage transition, after which this
 // bitmap is stale-HIGH and every later sparse `add` would under-report. The stage
-// atom MUST, in this order: (1) reset this bitmap against the new stage's tiles
+// hand-off's fresh offer does, in this order: (1) reset this bitmap against the new stage's tiles
 // (seedPublished()), and (2) ship a fresh ABSOLUTE `base` restate, because a
 // client NEVER clears a bit on its own (SS2.4a) and would otherwise keep the
 // previous stage's reveals forever.
@@ -2096,6 +2096,18 @@ static std::atomic<int> g_coopDrainDepth{0};
 // can run on the UDP-monitor thread.
 static std::atomic<bool> g_coopBattleEndTerminal{false};
 static std::atomic<bool> g_coopBattleEndTeardownLatch{false};
+// MG-A S-A1 (docs rewrite/prompts/mga_multistage_handoff.md DESIGN, AMENDMENT MG-A-1 section 3.10; owner D158 (a);
+// Q2 (a), Q3 (a)): the stage hand-off's state, main thread only, never cleared by a battle reset.
+//  - hand-off pending: HOST, armed by coopHostBattleEnd()'s stage branch, consumed by hook H (after nextStage()).
+//  - stage teardown latch: CLIENT, armed by the `stage_end` applier, consumed once at the RB-D5 pump point.
+//  - stageOf next: HOST, the ended battleId the stage offer carries as `stageOf` (0 = not a stage offer).
+//  - offer stash: CLIENT, a stage offer that overtook its `stage_end` (F5082); the stage teardown replays it.
+//  - kept research: CLIENT, its own research names kept at the stage teardown for the stage offer's accept (M1).
+static bool g_coopStageHandOffPending = false;
+static bool g_coopStageTeardownLatch = false;
+static std::uint32_t g_coopStageOfNext = 0;
+static Json::Value g_coopStageOfferStash;
+static Json::Value g_coopStageKeptResearch;
 // W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): set by the battle_end pump consumer
 // right before it replaces the stack with the display-only debrief; consumed
 // ONCE by that debrief's init() (connectionTCP::coopDebriefClientFill, vanilla
@@ -2853,6 +2865,15 @@ Json::Value stageRecord()
 	if (!g_stage.isObject())
 		g_stage = stageZeros();
 	return g_stage;
+}
+
+// MG-A S-A1.2: the stage record's one writer (main thread; g_stageMutex stays a leaf).
+static void stageRecordSet(const char* key, const Json::Value& value)
+{
+	std::lock_guard<std::mutex> lock(g_stageMutex);
+	if (!g_stage.isObject())
+		g_stage = stageZeros();
+	g_stage[key] = value;
 }
 
 void battleEndNoteSend(const Json::Value& ev)
@@ -6354,6 +6375,23 @@ int coopSeatResearchCount(int seat)
 		return 0;
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
 	return g_coopSeatResearch[seat] ? (int)g_coopSeatResearch[seat]->getDiscoveredResearch().size() : 0;
+}
+
+// MG-A S-A1 (M1, QA5 (a); owner D149, F5090): @a seat's stored research names (null when none is stored), kept by
+// the client's stage teardown so the stage offer's accept ships its own list, not the host's stage-N world's.
+static Json::Value coopSeatResearchNames(int seat)
+{
+	Json::Value names;
+	if (seat < 0 || seat >= 4)
+		return names;
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (g_coopSeatResearch[seat])
+	{
+		names = Json::Value(Json::arrayValue);
+		for (const RuleResearch* r : g_coopSeatResearch[seat]->getDiscoveredResearch())
+			names.append(r->getName());
+	}
+	return names;
 }
 
 int coopSeatResearchUnknown(int seat)
@@ -16704,6 +16742,34 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 		CoopDelta::battleEndRecordSet("stageSkips", CoopDelta::battleEndRecord()["stageSkips"].asInt() + 1);
 		Log(LOG_INFO) << "[coop-battle-end] host: stage transition to '" << nextStage
 			<< "' - not an end, no battle_end";
+		// MG-A S-A1 (D158 a; Q2 (a), F5080, F5081): the stage's own terminal envelope - `h` = the action-end buckets of
+		// the stage-N state before finishBattle mutates anything - then the session-lifetime stage record, phase Ended
+		// (every emit hook inert for the rest of finishBattle) and the hand-off armed for hook H, which runs right after
+		// vanilla's nextStage().
+		const std::uint32_t fromBattleId = coopBattleAuthority().battleId;
+		Json::Value ev = CoopWire::makeEv(0u, CoopArbiter::currentActionId(), "stage_end");
+		ev["payload"]["nextStage"] = nextStage;
+		ev["payload"]["inExitArea"] = inExitArea;
+		ev["payload"]["aborted"] = save->isAborted();
+		ev["payload"]["fromBattleId"] = fromBattleId;
+		ev["h"] = coopBuildActionEndHash(save);
+		Json::Value hBuckets(Json::arrayValue);
+		for (const auto& name : ev["h"].getMemberNames())
+			hBuckets.append(name);
+		const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
+		CoopEmit::sendEv(ev);
+		const std::uint32_t seq = CoopDelta::hostSeqOf("stage_end", seqBefore);
+		CoopDelta::stageRecordSet("emitted", CoopDelta::stageRecord()["emitted"].asInt() + 1);
+		CoopDelta::stageRecordSet("seq", seq);
+		CoopDelta::stageRecordSet("nextStage", nextStage);
+		CoopDelta::stageRecordSet("fromBattleId", fromBattleId);
+		CoopDelta::stageRecordSet("aborted", save->isAborted());
+		CoopDelta::stageRecordSet("inExitArea", inExitArea);
+		CoopDelta::stageRecordSet("hBuckets", hBuckets);
+		coopBattleAuthority().phase = CoopBattlePhase::Ended;
+		g_coopStageHandOffPending = true;
+		Log(LOG_INFO) << "[coop-battle-end] host: stage_end seq=" << seq << " fromBattleId=" << fromBattleId
+			<< " inExitArea=" << inExitArea << " - phase Ended, the next stage is offered after nextStage()";
 		return;
 	}
 
@@ -18263,6 +18329,21 @@ public:
 	}
 };
 
+// MG-A S-A1 (Q4 (a), M4, M5; veto line V1): CLIENT - the screen between its stage teardown and its next-stage load.
+// Invisible (_screen false, no surfaces, the battle palette): the frozen stage-N map (and any message box already on
+// it) stays on screen with no new text and takes no input. It never pops itself: the next stage's entry unwinds it
+// (coopUnwindToSafeState) or the leave teardown does.
+class CoopStageHold : public State
+{
+public:
+	explicit CoopStageHold(SavedBattleGame* save)
+	{
+		_screen = false;
+		if (save)
+			save->setPaletteByDepth(this);
+	}
+};
+
 bool coopFatalVoteArm(SavedBattleGame* /*save*/, int wounded, bool endTurnRequested)
 {
 	const BattleAuthority& a = coopBattleAuthority();
@@ -18909,6 +18990,22 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			<< " reason=" << p.get("reason", "").asString() << " skirmish=" << skirmish
 			<< (skirmish ? " - teardown latched" : campaignShared ? " - campaign SHARED - teardown latched"
 				: campaignCoop ? " - campaign SEPARATE - teardown latched" : " - terminal, return path unchanged (S-C)");
+		return;
+	}
+
+	if (kind == "stage_end")
+	{
+		// MG-A S-A1 (D158 a; Q2 (a), F5092): the host's stage-change envelope, the battle_end applier's shape - RECORD +
+		// ARM ONLY: no State op, no phase write (the `h` compare right after this still runs). The terminal flag stops
+		// the drain after it (an open inventory force-closes with the `battle_end` reason, M2); the stage teardown
+		// latch is consumed at the RB-D5 pump point in updateCoopTask().
+		CoopDelta::stageRecordSet("applied", CoopDelta::stageRecord()["applied"].asInt() + 1);
+		CoopDelta::stageRecordSet("seq", ev.get("seq", 0u).asUInt());
+		CoopDelta::stageRecordSet("latchedMs", SDL_GetTicks());
+		g_coopBattleEndTerminal = true;
+		g_coopStageTeardownLatch = true;
+		Log(LOG_INFO) << "[coop-battle-end] client: stage_end applied seq=" << ev.get("seq", 0u).asUInt() << " next='"
+			<< ev["payload"].get("nextStage", "").asString() << "' - stage teardown latched";
 		return;
 	}
 
@@ -25430,7 +25527,7 @@ void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev)
 	const std::string kind = ev.get("kind", "").asString();
 	const unsigned int seq = ev.get("seq", 0u).asUInt();
 	const Json::Value& p = ev["payload"];
-	if (kind == "battle_end")
+	if (kind == "battle_end" || kind == "stage_end")
 	{
 		// AMENDMENT P6-5 C-M4 (V2): the queue is dropped at the battle's end and nothing shows after it; a box
 		// already on top goes with the client's own teardown setState.
@@ -26245,6 +26342,38 @@ static void coopResetBattleScope()
 	}
 }
 
+// ===== MG-A S-A1 hook H (BattleAuthority.h; docs rewrite/prompts/mga_multistage_handoff.md DESIGN, AMENDMENT MG-A-1
+// section 3; owner D158 (a), Q2 (a), Q3 (a); F5081, F5083, F9815, F9826): the HOST's stage hand-off, one line after
+// vanilla's nextStage() in finishBattle, which then pops the stage-N battle screen and pushes the briefing. =====
+void coopHostNextStage(Game* game, SavedBattleGame* save)
+{
+	if (!g_coopStageHandOffPending || !game || !save || !connectionTCP::getServerOwner()
+		|| !connectionTCP::getCoopStatic())
+		return;
+	g_coopStageHandOffPending = false;
+	const std::uint32_t fromBattleId = coopBattleAuthority().battleId;
+	// (1) F5081, F9920, F9921: the popped screen is freed next frame - from here every getBattleState() reader reads
+	//     null, never a stale pointer (isBattlescapeStateLive(nullptr) is false), as before a fresh battle's screen.
+	save->setBattleState(nullptr);
+	// (2) phase Idle; the queued `stage_end` still leaves first (no network queue is touched, F9826).
+	coopResetBattleScope();
+	// F9990 (traced): nextStage() leaves the item lists in carry order, while every load sorts them by id
+	// (SavedBattleGame::load) - the order the partner's copy holds. Restored, so both saveBlob hashes agree.
+	for (std::vector<BattleItem*>* items : { save->getItems(), save->getGuaranteedRecoveredItems(),
+		save->getConditionalRecoveredItems() })
+		std::sort(items->begin(), items->end(),
+			[](const BattleItem* a, const BattleItem* b) { return a->getId() < b->getId(); });
+	// (3)-(5) the fresh-battle order (labels, then the offer): PREPARE + EMIT at turn 0, the equip phase open (D205 a,
+	//     D210 b); the offer carries `stageOf` so a partner still holding stage N stashes it (Q3 a).
+	CoopHandshake::mintMissionLabels(game, nullptr, nullptr);
+	g_coopStageOfNext = fromBattleId;
+	CoopHandshake::prepareBattleOffer(game, connectionTCP::_coopGamemode);
+	g_coopStageOfNext = 0;
+	CoopDelta::stageRecordSet("toBattleId", coopBattleAuthority().battleId.load());
+	Log(LOG_INFO) << "[coop-battle-end] host: stage hand-off - battle " << fromBattleId << " -> "
+		<< coopBattleAuthority().battleId.load() << " offered (stageOf)";
+}
+
 // W2-P7 S-B2.2 (AMENDMENT P7-4): the battle phase as the record names it (event_state's names).
 static const char* coopPhaseRecordName(CoopBattlePhase p)
 {
@@ -26987,6 +27116,8 @@ struct PendingClient
 	// W2-H14 (SM-2, F4012): the rejoin offer's END TURN side-phase counter; -1 = the key is absent (a fresh or a
 	// disk-resume offer), so nothing is seeded.
 	int endTurnPhase = -1;
+	// MG-A S-A1: the offer carried `stageOf` (the stage record's loadedMs / toBattleId are written at its load).
+	bool stage = false;
 };
 static PendingClient g_pendingClient;
 
@@ -27258,7 +27389,7 @@ bool freezePreBattleEquip(Game* game)
 	// a fresh co-op battle's equip phase is open (the offer went out at PREPARE, turn 0) - the host EQUIPS: select its
 	// first own soldier with an inventory (the generator's first soldier may be the partner's, F2771) and let vanilla
 	// push the pre-battle InventoryState; turn 1 starts at the barrier (coopEquipPump), not here. Without an equip
-	// phase (the next-stage briefing, D158) the freeze below is unchanged.
+	// phase (no known caller since MG-A re-offers a next stage, F5097) the freeze below is unchanged.
 	if (coopEquipOpen())
 	{
 		SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
@@ -27625,6 +27756,9 @@ void emitPreparedOffer(Game* game)
 	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 1, b12): additive `equip {pile, ready}` - the pre-battle equip
 	// phase is open (both players equip before turn 1); the host's own phase opens with it.
 	offer["equip"] = coopEquipOpenForOffer(battle);
+	// MG-A S-A1 (Q3 (a); additive, presence-gated, protocolVersion 1): a stage offer names the battle it continues.
+	if (g_coopStageOfNext != 0)
+		offer["stageOf"] = g_coopStageOfNext;
 
 	CoopEmit::sendBattle(offer);
 
@@ -27954,7 +28088,7 @@ void abandonPreparedOffer(Game* game)
 	// not this one's.
 	// W2-P8b S-E.2 (D210 b, F2759): the EMITTED case - a co-op host whose fresh battle already went out at turn 0
 	// (S-A b1), so the partner holds it: the battle ends for both players with the aliens-crashed battle_end. The equip
-	// phase is open only on a fresh co-op battle (never a next-stage briefing, D158; never single player).
+	// phase is open only on a fresh co-op battle (a next stage is one since MG-A; never single player).
 	if (connectionTCP::getServerOwner() && coopEquipOpen())
 	{
 		coopHostAliensCrashed(game);
@@ -27994,6 +28128,16 @@ void onOffer(Game* game, const Json::Value& offer)
 
 	if (coopBattleAuthority().phase != CoopBattlePhase::Idle)
 	{
+		// MG-A S-A1 (Q3 (a), F5082): a stage offer can overtake this machine's `stage_end` (the ev waits for the drain,
+		// the offer dispatches at once) - stashed, never refused; the stage teardown replays it.
+		if (offer.isMember("stageOf") && offer.get("stageOf", 0u).asUInt() == coopBattleAuthority().battleId.load())
+		{
+			g_coopStageOfferStash = offer;
+			CoopDelta::stageRecordSet("offerStashed", 1);
+			Log(LOG_INFO) << "[coop-handshake] battle_offer (battleId=" << battleId
+				<< ") stashed: the next stage of battle " << coopBattleAuthority().battleId.load();
+			return;
+		}
 		refuse("busy");
 		return;
 	}
@@ -28039,6 +28183,7 @@ void onOffer(Game* game, const Json::Value& offer)
 	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 2): presence-gated - an offer without `equip` has no equip phase.
 	g_pendingClient.equip = offer.isMember("equip") ? offer["equip"] : Json::Value();
 	g_pendingClient.endTurnPhase = offer.get("endTurnPhase", -1).asInt(); // W2-H14: presence-gated, -1 = absent
+	g_pendingClient.stage = offer.isMember("stageOf"); // MG-A S-A1: a stage offer (probe only)
 	// W2-P9 S-A (AMENDMENT P9-1 PR-8, F4733): presence-gated - the host's synced game options, a full-table re-assert
 	// (applies at a version >= the last one applied; heals a dropped set, N31).
 	const Json::Value hostRulesSO = offer.get("hostRules", Json::Value());
@@ -28064,6 +28209,14 @@ void onOffer(Game* game, const Json::Value& offer)
 		for (const RuleResearch* r : own->getDiscoveredResearch())
 			research.append(r->getName());
 	}
+	// MG-A S-A1 (M1, QA5 (a); owner D149, F5090): a stage offer's accept ships this machine's own list kept at its
+	// stage teardown - the live world here is the host's stage-N world. An offer without `stageOf` reads as before.
+	if (offer.isMember("stageOf") && g_coopStageKeptResearch.isArray())
+	{
+		research = g_coopStageKeptResearch;
+		CoopDelta::stageRecordSet("researchCarried", 1);
+	}
+	g_coopStageKeptResearch = Json::Value();
 	coopStoreSeatResearch(researchSeat, research, game->getMod());
 
 	Json::Value accept(Json::objectValue);
@@ -28396,6 +28549,11 @@ void onBlobChunkAppended(Game* game)
 	// main-menu-no-world teardown: nothing here touches the SavedGame -
 	// GoToMainMenuState remains the one and only world-teardown chokepoint.
 	coopUnwindToSafeState(game);
+	if (g_pendingClient.stage) // MG-A S-A1 (probe only): the next stage loaded, the frozen stage-N screens popped
+	{
+		CoopDelta::stageRecordSet("loadedMs", SDL_GetTicks());
+		CoopDelta::stageRecordSet("toBattleId", battleId);
+	}
 
 	Options::baseXResolution = Options::baseXBattlescape;
 	Options::baseYResolution = Options::baseYBattlescape;
@@ -31741,6 +31899,37 @@ void connectionTCP::updateCoopTask()
 				Log(LOG_INFO) << "[coop-battle-end] client: skirmish battle over - showing the host's debriefing";
 				_game->setState(new DebriefingState);
 			}
+		}
+	}
+
+	// MG-A S-A1 (D158 a; Q2 (a), Q4 (a), M3-M5, F9922): the CLIENT's stage teardown, consumed here - never from the
+	// apply path. The stage hash verify is snapshotted and this machine's own research list kept (M1) before the
+	// battle-scope reset; finishBattle's UI half; then the invisible hold over the frozen stage-N map until the next
+	// stage loads (V1), and a stage offer that overtook the `stage_end` replays (Q3 a). Never reads the debrief
+	// result (M3).
+	if (g_coopStageTeardownLatch)
+	{
+		g_coopStageTeardownLatch = false;
+		const std::uint32_t endedBattleId = coopBattleAuthority().battleId;
+		CoopDelta::stageRecordSet("hashVerify", CoopDelta::lastHashVerify());
+		CoopDelta::stageRecordSet("tornDownMs", SDL_GetTicks());
+		g_coopStageKeptResearch = coopSeatResearchNames(coopBattleAuthority().localSeat);
+		_game->getCursor()->setVisible(true);
+		SavedBattleGame* stageBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+		if (stageBattle && stageBattle->getAmbientSound() != Mod::NO_SOUND)
+			_game->getMod()->getSoundByDepth(0, stageBattle->getAmbientSound())->stopLoop();
+		_game->resetTouchButtonFlags();
+		coopBattleAuthority().phase = CoopBattlePhase::Ended;
+		coopResetBattleScope();
+		_game->pushState(new CoopStageHold(stageBattle));
+		Log(LOG_INFO) << "[coop-battle-end] client: stage over (battle " << endedBattleId
+			<< ") - the stage-N map stays frozen until the next stage loads";
+		Json::Value stash;
+		stash.swap(g_coopStageOfferStash);
+		if (stash.isObject() && stash.get("stageOf", 0u).asUInt() == endedBattleId)
+		{
+			CoopDelta::stageRecordSet("offerReplayed", 1);
+			CoopHandshake::onOffer(_game, stash);
 		}
 	}
 
