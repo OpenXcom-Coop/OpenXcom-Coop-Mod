@@ -875,6 +875,10 @@ class connectionTCP
 	/// updateCoopTask(): FALSE = assign the host's heartbeat time, months and days (any other machine, the baseline of a
 	/// world, a host counter restart, or a host clock that moved without stepping); TRUE = the client's own steps keep it.
 	bool coopClientKeepsOwnClock();
+	/// coop W2-H23 (R-H23-G-1): the month / year the monthly_report handler last wrote into such a client's clock
+	/// (setMonthCoop / setYearCoop); coopClientKeepsOwnClock() does not count them as a host jump. Month 0 = none.
+	static int _coopReportMonth;
+	static int _coopReportYear;
 
 	int _AIProgressCoop = -1;
 	bool _AISecondMoveCoop = false;
