@@ -36,6 +36,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
+from harness import shutdown_clients  # W2-U8g (F9215): run_mode's clean-up
 import session
 
 
@@ -179,7 +180,9 @@ def run_mode(mode, test_ports, coop_port):
         print(f"PASS {mode}: both players loaded {battles[0]['missionType']} "
               f"with identical Mars map fingerprint {battles[0]['mapFingerprint']}")
     finally:
-        host.shutdown(); client.shutdown()
+        # W2-U8g (F9215): main catches this raise and runs the next mode, so a failed host shutdown must not
+        # leave the client running beside it (shutdown_clients shuts every peer down before it raises)
+        shutdown_clients(host, client)
 
 
 def main():
