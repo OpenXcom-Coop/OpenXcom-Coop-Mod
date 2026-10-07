@@ -140,6 +140,8 @@ _EPHEMERAL_COOP_PORTS = {}
 # transport) and the GameClients that joined it. Process-global, like _EPHEMERAL_COOP_PORTS.
 _COOP_HOSTS = {}
 _COOP_JOINERS = {}
+# W2-U8g (F9068): every GameClient whose spawn() started a game in this process; _reap_spawned_games reads it.
+_SPAWNED = []
 # W2-U8e (F8376): the longest a join_tcp waits for its host's lobby listener, in seconds; then it FAILS with a dump.
 LISTEN_WAIT_S = 60
 # W2-U8e: the TestServer get_coop fields that say where a coop connection stands.
@@ -454,6 +456,8 @@ class GameClient:
             popen_kwargs["startupinfo"] = si
         self.proc = subprocess.Popen(
             args, env=env, cwd=exe_dir, **popen_kwargs)
+        if self not in _SPAWNED:  # W2-U8g (F9068): only spawn() registers, so hand-spawned games are never reaped
+            _SPAWNED.append(self)
         _port_file_event("spawned", user_dir=self.user_dir, game_pid=self.proc.pid)
 
     def _resolve_port(self, deadline):
@@ -679,6 +683,31 @@ def shutdown_clients(*clients):
             errors.append(exc)
     if errors:
         raise RuntimeError("peer shutdown failed: " + "; ".join(map(str, errors))) from errors[0]
+
+
+def _reap_spawned_games():
+    """W2-U8g (F9068): the process-exit backstop. A clean-up that stops at its first failed shutdown() (a
+    `host.shutdown(); client.shutdown()` chain) or never reaches a game would leave that game running after Python
+    exits. At exit, every game spawn() started in this process that is still running gets shutdown(): quit, the
+    15 s wait, and W2-U8e's minidump before the kill if it hangs. Games started any other way (manual_session.py,
+    repro74_setup.py) are never touched. One [harness-reap] line per game shut down; never raises; the exit code
+    is unchanged."""
+    for gc in list(_SPAWNED):
+        proc = gc.proc
+        if proc is None or proc.poll() is not None:
+            continue
+        line = {"name": gc.name, "pid": proc.pid}
+        try:
+            gc.shutdown()
+        except Exception as exc:
+            line["error"] = "%s: %s" % (type(exc).__name__, exc)
+        line["rc"] = proc.poll()
+        _port_file_event("reaped", user_dir=gc.user_dir, game_pid=proc.pid, game_returncode=line["rc"],
+                         error=line.get("error"))
+        print("[harness-reap] " + json.dumps(line, default=str), flush=True)
+
+
+atexit.register(_reap_spawned_games)  # W2-U8g: registered after _timelog_test_end's, so it runs first (LIFO)
 
 
 def _wait_host_listening(host, key, port, joiner):
