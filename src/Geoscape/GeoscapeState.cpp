@@ -5632,6 +5632,14 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
 		}
 	}
 
+	// coop W2-H21d (F9201): the partner's answer can arrive while the host is off its geoscape (its own copy of this prompt still
+	// queued) with a practice battle open - a preview or a base equipment screen. setBattleGame below frees that battle under the
+	// screen showing it, which the debriefing returns to; close the host's screens down to the geoscape first. A battle on the
+	// host's world here is always a practice one: a real battle's entry unwinds every other seat's prompt.
+	if (_game->getSavedGame()->getSavedBattle())
+		while (!_game->getStates().empty() && _game->getStates().back() != this)
+			_game->popState();
+
 	// Yes: generate the battle exactly as the host's own dialog would. Drive the
 	// REAL state rather than duplicating its logic - its SHARED branch stamps the
 	// ownership split onto the geoscape soldiers, runs the generator and ships
