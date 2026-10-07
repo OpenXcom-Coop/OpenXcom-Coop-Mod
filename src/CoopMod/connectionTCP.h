@@ -855,6 +855,27 @@ class connectionTCP
 	static int monthsPassed;
 	static int daysPassed;
 
+	// coop W2-H23 (F9871, F9874): the SEPARATE client's geoscape clock. The host counts the 5-second ticks its own
+	// timeAdvance() loop steps (_geoTicksStepped) and sends the count on its "time" heartbeat ("ticks"); a client
+	// whose own world runs the geoscape loops runs exactly those ticks, once each, from its own clock
+	// (_appliedHostGeoTicks of _hostGeoTicks, for the world _geoTickBase) instead of having its clock assigned past
+	// a boundary its own step has not processed. _hostGeoTicks -1 = the last heartbeat carried no count.
+	static long long _geoTicksStepped;
+	static long long _hostGeoTicks;
+	static long long _appliedHostGeoTicks;
+	static const SavedGame* _geoTickBase;
+	/// TRUE on a co-op client with time sync whose own world runs the geoscape loops (not a SHARED replica, not the
+	/// PvP alien side): GeoscapeState's time5Seconds..time1Day bodies run there.
+	bool coopClientOwnClock();
+	/// The host ticks such a client has not run yet (>= 0), or -1 when the old speed span applies (any other machine,
+	/// a heartbeat without a count, or no baseline for the current world).
+	int coopClientPendingGeoTicks();
+	/// Once per tick of GeoscapeState::timeAdvance(): the host counts its ticks; such a client counts the host ticks it ran.
+	void coopGeoTickDone();
+	/// updateCoopTask(): FALSE = assign the host's heartbeat time, months and days (any other machine, the baseline of a
+	/// world, a host counter restart, or a host clock that moved without stepping); TRUE = the client's own steps keep it.
+	bool coopClientKeepsOwnClock();
+
 	int _AIProgressCoop = -1;
 	bool _AISecondMoveCoop = false;
 	int _coopEnd = 0;

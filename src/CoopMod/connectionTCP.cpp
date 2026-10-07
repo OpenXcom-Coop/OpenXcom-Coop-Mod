@@ -466,6 +466,10 @@ void CoopSession::resetSession()
 	connectionTCP::_second = 0;
 	connectionTCP::monthsPassed = 0;
 	connectionTCP::daysPassed = 0;
+	connectionTCP::_geoTicksStepped = 0; // coop W2-H23: the next session's first heartbeat baselines the client clock
+	connectionTCP::_hostGeoTicks = -1;
+	connectionTCP::_appliedHostGeoTicks = 0;
+	connectionTCP::_geoTickBase = nullptr;
 
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
@@ -535,6 +539,11 @@ int connectionTCP::_second = 0;
 
 int connectionTCP::monthsPassed = 0;
 int connectionTCP::daysPassed = 0;
+
+long long connectionTCP::_geoTicksStepped = 0; // coop W2-H23
+long long connectionTCP::_hostGeoTicks = -1; // coop W2-H23
+long long connectionTCP::_appliedHostGeoTicks = 0; // coop W2-H23
+const SavedGame* connectionTCP::_geoTickBase = nullptr; // coop W2-H23
 
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesHost{};
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesClient{};
@@ -31079,7 +31088,11 @@ void connectionTCP::updateCoopTask()
 	// call site is just gone until then.
 
 	// time
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true && _year != 0)
+	// coop W2-H23 (F9871, F9874): a SEPARATE client's clock moves only by its own steps over the host's ticks
+	// (GeoscapeState::timeAdvance); coopClientKeepsOwnClock() lets this assignment run only for a baseline, a host
+	// counter restart or a host clock that moved without stepping. Every other client keeps the per-frame assignment.
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true && _year != 0
+		&& !coopClientKeepsOwnClock())
 	{
 
 		if (_game->getSavedGame())
@@ -34995,6 +35008,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			connectionTCP::monthsPassed = monthsPassed;
 			connectionTCP::daysPassed = daysPassed;
+			// coop W2-H23: the host's stepped-tick count (absent from a host without it: -1 keeps the old assignment)
+			connectionTCP::_hostGeoTicks = obj.isMember("ticks") ? obj["ticks"].asInt64() : -1;
 
 			// PRD-J04: verify the host's world checksum piggybacked on this
 			// heartbeat (funds + base count + research count). Log-only detect;
@@ -37862,6 +37877,51 @@ bool connectionTCP::isSharedCampaignStatic()
 bool connectionTCP::isSharedReplica()
 {
 	return isSharedCampaign() && !getHost();
+}
+
+// coop W2-H23 (F9871, F9874): see connectionTCP.h. The predicate mirrors GeoscapeState's time5Seconds..time1Day
+// returns (isSharedReplica(); no_bases on a non-host machine).
+bool connectionTCP::coopClientOwnClock()
+{
+	return getCoopStatic() && !getServerOwner() && _enable_time_sync && !isSharedReplica() && !(no_bases && !getHost());
+}
+
+int connectionTCP::coopClientPendingGeoTicks()
+{
+	if (!coopClientOwnClock() || _hostGeoTicks < 0 || !_game || _geoTickBase != _game->getSavedGame())
+		return -1;
+	const long long pending = _hostGeoTicks - _appliedHostGeoTicks;
+	return pending <= 0 ? 0 : (pending > 2147483647LL ? 2147483647 : (int)pending);
+}
+
+void connectionTCP::coopGeoTickDone()
+{
+	if (!getCoopStatic() || !_enable_time_sync)
+		return;
+	if (getServerOwner())
+		++_geoTicksStepped;
+	else if (coopClientPendingGeoTicks() > 0)
+		++_appliedHostGeoTicks;
+}
+
+bool connectionTCP::coopClientKeepsOwnClock()
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	if (!save || !coopClientOwnClock() || _hostGeoTicks < 0)
+		return false; // not such a client, or a heartbeat without a count: the old per-frame assignment
+	bool assign = _geoTickBase != save || _hostGeoTicks < _appliedHostGeoTicks; // a new world, or a host counter restart
+	if (!assign && _appliedHostGeoTicks == _hostGeoTicks)
+	{
+		// caught up: the clocks differ only when the host's clock moved without stepping (a load, the set_geo_day lever)
+		const GameTime* t = save->getTime();
+		assign = t->getSecond() != _second || t->getMinute() != _minute || t->getHour() != _hour
+			|| t->getDay() != _day || t->getMonth() != _month || t->getYear() != _year;
+	}
+	if (!assign)
+		return true;
+	_geoTickBase = save; // the caller assigns the host's time, months and days once; the pending count restarts at 0
+	_appliedHostGeoTicks = _hostGeoTicks;
+	return false;
 }
 
 // PRD-J02: hand the host's authoritative world to the single-client streamer.
