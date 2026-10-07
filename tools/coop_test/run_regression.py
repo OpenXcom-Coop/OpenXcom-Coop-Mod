@@ -187,11 +187,19 @@ def git_tip():
     return "%s (%s)" % (sha or "unknown", "clean" if not st else "dirty: %d files" % len(st))
 
 def crash_snapshot(exe_dir):
-    """{path: mtime} of <exe dir>/crashlogs/* plus every <exe dir>/**/*.dmp."""
+    """{path: mtime} of every file under <exe dir>/crashlogs (its root and each lane's s<slot> folder, W2-U8h) plus
+    every <exe dir>/**/*.dmp."""
     cdir = os.path.join(exe_dir, "crashlogs")
-    paths = [os.path.join(cdir, fn) for fn in (os.listdir(cdir) if os.path.isdir(cdir) else [])]
+    paths = [os.path.join(d, fn) for d, _, fs in os.walk(cdir) for fn in fs]
     paths += [os.path.join(d, fn) for d, _, fs in os.walk(exe_dir) for fn in fs if fn.lower().endswith(".dmp")]
     return {p: os.path.getmtime(p) for p in paths if os.path.isfile(p)}
+
+def crash_slot(path, exe_dir):
+    """W2-U8h (F9563): the harness slot whose games wrote `path` (a file in <exe dir>/crashlogs/s<slot>), else None."""
+    parent = os.path.dirname(os.path.abspath(path))
+    m = re.match(r"^s(\d+)$", os.path.basename(parent))
+    crashlogs = os.path.normcase(os.path.join(os.path.abspath(exe_dir), "crashlogs"))
+    return int(m.group(1)) if m and os.path.normcase(os.path.dirname(parent)) == crashlogs else None
 
 def first_line(path):
     """The first non-empty line after the crash header ('(minidump)' for a .dmp, '-' if unreadable)."""
@@ -401,8 +409,10 @@ class Run(object):
         for p in new:
             os.makedirs(os.path.join(self.out, "crash"), exist_ok=True)
             shutil.copy2(p, os.path.join(self.out, "crash", os.path.basename(p)))
-            m, line = after[p], first_line(p)
-            then = [(b, r["test"]) for b, r in tests if r["start_epoch"] - 2 <= m <= r["end_epoch"] + 2]
+            m, line, slot = after[p], first_line(p), crash_slot(p, self.exe_dir)
+            # W2-U8h: a file in a lane's s<slot> folder belongs to the test on that slot; a root file keeps the time window
+            then = [(b, r["test"]) for b, r in tests if r["start_epoch"] - 2 <= m <= r["end_epoch"] + 2
+                    and (slot is None or r.get("slot") == slot)]
             benign = line == H13_T1_LINE and any(t == "test_w2_udp_rejoin" for _, t in then)
             rows.append((p, os.path.getsize(p), m, line, then, "H13-T1 (known benign)" if benign else "-"))
         self.crash_rows = rows
