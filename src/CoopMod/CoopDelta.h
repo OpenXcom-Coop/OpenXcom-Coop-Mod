@@ -294,6 +294,10 @@ void battleEndRecordSet(const char* key, const Json::Value& value);
 /// by initBattleAuthority() only.
 void battleEndRecordReset();
 
+/// MG-A S-A1 [stage]: this machine's SESSION-LIFETIME stage record, every key present (zeros before any write);
+/// never reset, not by initBattleAuthority (F5092). Keys: connectionTCP.cpp stageZeros(). Test introspection only.
+Json::Value stageRecord();
+
 /// HOST, CoopEmit::sendEv() right after the seq stamp: the first envelope
 /// whose kind is `battle_end` records its stamped seq (`seq`); every envelope
 /// stamped after it (a trailing nested reveal included) bumps `evsAfter`.

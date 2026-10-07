@@ -81,8 +81,8 @@ phase Handshake (client2's battle_ready stashed).
        banner transitions during the cycle are recorded, not asserted. A
        construction step past its bound is a FIXTURE-STOP: one CAPTURE line
        (every machine's event_state, battle_state, dialog, stack).
-The EQUIP_FROZEN next-stage clear stays untested (no 2-stage REGRESSION
-fixture, P6-6 Q1).
+The EQUIP_FROZEN next-stage clear has no caller since MG-A (a stage change
+re-offers its equip phase, F5097).
 
 Every MR row asserts the exact new ring records (unit, key, owner, presenter;
 `queued` where pinned) on each machine, in order, and nothing else for the row.

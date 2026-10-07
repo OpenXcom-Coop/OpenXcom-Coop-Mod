@@ -32,7 +32,7 @@ AMENDMENT P8b-1 section 4 S-H): the freeze is GONE for a fresh co-op battle. The
 offer goes out at PREPARE at turn 0 (owner D210 b), each player equips its own
 soldiers on the vanilla pre-battle screen (D174 a), OK is a ready toggle and
 turn 1 starts on the host when every seat is ready (D206 c). The W1-P4 freeze
-survives only for the next-stage briefing (D158), which this file does not
+has no caller since MG-A (a stage change re-offers its equip phase), a path this file does not
 reach. This file is now the "no freeze" check, with each assertion re-pointed
 to the value this build measures:
 
