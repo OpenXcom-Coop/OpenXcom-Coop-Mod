@@ -2001,6 +2001,8 @@ void GeoscapeState::think()
 			// new !!!
 			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
+			// coop W2-H23 (F9871): the ticks this host's own loop has stepped, so a SEPARATE client runs exactly those, once each
+			root["ticks"] = Json::Int64(connectionTCP::_geoTicksStepped);
 
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
@@ -2414,12 +2416,19 @@ void GeoscapeState::timeAdvance()
 				timeSpan = 0;
 		}
 
+		// coop W2-H23 (F9871, F9874): a SEPARATE client's own loops run on the ticks the HOST stepped - each once, in
+		// order, as vanilla's 5-second walk below - instead of its own speed span from a clock the heartbeat moved.
+		const int coopPendingTicks = _game->getCoopMod()->coopClientPendingGeoTicks();
+		if (coopPendingTicks >= 0)
+			timeSpan = coopPendingTicks;
+
 	}
 
 	for (int i = 0; i < timeSpan && !_pause; ++i)
 	{
 		TimeTrigger trigger;
 		trigger = _game->getSavedGame()->getTime()->advance();
+		_game->getCoopMod()->coopGeoTickDone(); // coop W2-H23: the host counts its ticks; a SEPARATE client, the host ticks it ran
 		switch (trigger)
 		{
 		case TIME_1MONTH:
