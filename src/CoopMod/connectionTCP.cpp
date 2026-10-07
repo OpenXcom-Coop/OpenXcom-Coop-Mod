@@ -546,6 +546,8 @@ long long connectionTCP::_appliedHostGeoTicks = 0; // coop W2-H23
 const SavedGame* connectionTCP::_geoTickBase = nullptr; // coop W2-H23
 int connectionTCP::_coopReportMonth = 0; // coop W2-H23 (R-H23-G-1)
 int connectionTCP::_coopReportYear = 0; // coop W2-H23 (R-H23-G-1)
+int connectionTCP::_coopReportOwnMonth = 0; // coop W2-H23 (R-H23-G-2)
+int connectionTCP::_coopReportOwnYear = 0; // coop W2-H23 (R-H23-G-2)
 
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesHost{};
 std::unordered_map<std::string, std::string> OpenXcom::connectionTCP::coopFilesClient{};
@@ -35796,6 +35798,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		 }
 
+		 const int coopOwnMonth = _game->getSavedGame()->getTime()->getMonth(); // coop W2-H23 (R-H23-G-2): before the write
+		 const int coopOwnYear = _game->getSavedGame()->getTime()->getYear();
 		 // month
 		 int month = obj["month"].asInt();
 		 _game->getSavedGame()->getTime()->setMonthCoop(month);
@@ -35807,6 +35811,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		 {
 			 _coopReportMonth = month;
 			 _coopReportYear = year;
+			 _coopReportOwnMonth = coopOwnMonth;
+			 _coopReportOwnYear = coopOwnYear;
 		 }
 
 		 int fundingDiff = obj["fundingDiff"].asInt();
@@ -38267,6 +38273,18 @@ bool connectionTCP::coopClientKeepsOwnClock()
 	if (!save || !coopClientOwnClock() || _hostGeoTicks < 0)
 		return false; // not such a client, or a heartbeat without a count: the old per-frame assignment
 	bool assign = _geoTickBase != save || _hostGeoTicks < _appliedHostGeoTicks; // a new world, or a host counter restart
+	// coop W2-H23 (R-H23-G-2): once the report screen has read the host's month / year, the own clock gets back the ones
+	// the monthly_report handler replaced, so no invalid date (1999-02-31) is walked or shown after the report.
+	if (!assign && _coopReportMonth != 0 && !show_coop_monthly_report)
+	{
+		GameTime* own = save->getTime();
+		if (own->getMonth() == _coopReportMonth && own->getYear() == _coopReportYear)
+		{
+			own->setMonthCoop(_coopReportOwnMonth);
+			own->setYearCoop(_coopReportOwnYear);
+		}
+		_coopReportMonth = 0;
+	}
 	if (!assign && _appliedHostGeoTicks == _hostGeoTicks)
 	{
 		// caught up: the clocks differ only when the host's clock moved without stepping (a load, the set_geo_day lever)
