@@ -7364,6 +7364,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// resets of a skirmish end. Commit S-A.1 exposes its zeros; commit
 			// S-A.2's host hook, client applier and pump consumer write it.
 			resp["battleEnd"] = CoopDelta::battleEndRecord();
+			// MG-A S-A1.1 (AMENDMENT MG-A-1 section 5; F5092): the SESSION-LIFETIME stage record (CoopDelta.h), both
+			// machines, never reset. S-A1.1 exposes its zeros; S-A1.2's host stage hook and client applier write it.
+			resp["stage"] = CoopDelta::stageRecord();
 			// W2-P7 S-V-A.1 (AMENDMENT P7-5 section 4.2): the fatal-wounds vote's session-lifetime probe record
 			// (CoopArbiter.h), both machines; cleared only by initBattleAuthority(). S-V-A.1 exposes its zeros.
 			resp["fatalVote"] = coopFatalVoteProbe();

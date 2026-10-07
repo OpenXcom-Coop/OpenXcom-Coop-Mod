@@ -2830,6 +2830,31 @@ void battleEndRecordReset()
 	g_debriefCampaign = false; // W2-P7 S-C-A.2 (PR-2): so is the campaign flag
 }
 
+// ----- MG-A S-A1.1 (docs rewrite/prompts/mga_multistage_handoff.md (e), AMENDMENT MG-A-1 section 5; F5092): the stage record.
+// SESSION-LIFETIME, never reset (initBattleAuthority leaves it); probe only, never on the wire; S-A1.2's hooks write it. -----
+static std::mutex g_stageMutex; // a leaf, as g_battleEndMutex
+static Json::Value g_stage;     // null until first use, then stageZeros()
+
+static Json::Value stageZeros()
+{
+	Json::Value r(Json::objectValue);
+	// host: stage_end evs sent, seq, next deployment, ended / next battleId, abort, inExitArea, the hash's bucket names
+	r["emitted"] = 0; r["seq"] = 0u; r["nextStage"] = ""; r["fromBattleId"] = 0u; r["toBattleId"] = 0u;
+	r["aborted"] = false; r["inExitArea"] = 0; r["hBuckets"] = Json::Value(Json::arrayValue);
+	// client: applied, SDL_GetTicks() at the apply / teardown / next load, the offer stash, research carry, hash verify
+	r["applied"] = 0; r["latchedMs"] = 0u; r["tornDownMs"] = 0u; r["loadedMs"] = 0u;
+	r["offerStashed"] = 0; r["offerReplayed"] = 0; r["researchCarried"] = 0; r["hashVerify"] = Json::Value();
+	return r;
+}
+
+Json::Value stageRecord()
+{
+	std::lock_guard<std::mutex> lock(g_stageMutex);
+	if (!g_stage.isObject())
+		g_stage = stageZeros();
+	return g_stage;
+}
+
 void battleEndNoteSend(const Json::Value& ev)
 {
 	std::lock_guard<std::mutex> lock(g_battleEndMutex);
