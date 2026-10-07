@@ -200,7 +200,10 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parent
 	_debugPlay = false;
 
 	// WV-D68: generation casualties (killed AND stunned) settle synchronously inside UnitDieBState's ctor while isBeforeGame() - see UnitDieBState.cpp.
-	checkForCasualties(nullptr, BattleActionAttack{ }, true);
+	// coop W2-H22 (SCOPE-0, D128): a co-op second player never settles a casualty itself - the host settles it (WV-D68) and its
+	// `death` ev's delta carries the result. Self-guarded: false on the host, in single player and in any non-co-op battle.
+	if (!coopSkipClientBattleStartCasualties())
+		checkForCasualties(nullptr, BattleActionAttack{ }, true);
 	cancelCurrentAction();
 }
 
