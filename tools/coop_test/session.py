@@ -14,6 +14,8 @@ bootstrap code):
                                  NO_DISMISS_STATES note below.
   assert_client_zero_disk(dir) - the standing invariant: a co-op client never
                                  writes save data to disk. Call in teardown.
+  leave_base(gc)               - close the base screen and wait until this
+                                 machine's own world is loaded again.
 
 Ports/base coordinates match the old bootstrap defaults so migrated tests
 behave identically.
@@ -41,6 +43,23 @@ def has_state(gc, name):
 # straggler caller and for this module's own internal use below.
 _states = states
 _has_state = has_state
+
+
+def leave_base(gc, timeout=60):
+    """Close the base screen and wait until this machine's own world is back.
+
+    insideCoopBase alone is not enough. Leaving a peer's base clears that flag at
+    once (BasescapeState::btnGeoscapeClick), then reloads this machine's own
+    world through a LoadGameState that waits 10 frames before loading. Until it
+    does, the peer's world is still the loaded one, so on a slow runner the next
+    call sees the peer's bases (main CI run 37579947711: base_report "base not
+    found" straight after leaving).
+    """
+    gc.ok({"cmd": "leave_base"})
+    gc.wait_for("back in own world",
+                lambda: (not gc.cmd({"cmd": "get_coop"}).get("insideCoopBase")
+                         and not has_state(gc, "LoadGameState")) or None,
+                timeout=timeout, interval=0.1)
 
 
 def can_drive(state):
