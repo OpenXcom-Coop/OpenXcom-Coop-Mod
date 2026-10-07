@@ -6994,6 +6994,8 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 //   W2-H20c (A17): {op: craft_vehicles, craft_id, craft_type, base} (read-only) -> that craft's HWPs: vehicles {type: count}, order,
 //     vehicleAmmo, spaceUsed, spaceAvailable, customDeployment; {op: deploy_mark, ...} = the same after a TEST-ONLY saved-deployment entry
 //     (soldier id -1, this machine only; never start a battle after it) so a test sees a vehicle load's custom deployment reset.
+//   W2-H20d (F8551): {op: craft_deployment, craft_type} (read-only) -> THIS machine's generic deployment of that craft type: saved,
+//     positions [[x, y, z, dir], ...], crafts [{id, customDeployment}] (every craft of that type, any base).
 static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value& resp)
 {
 	const std::string op = req.get("op", "").asString();
@@ -7070,6 +7072,36 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		resp["spaceUsed"] = craft->getSpaceUsed();
 		resp["spaceAvailable"] = craft->getSpaceAvailable();
 		resp["customDeployment"] = craft->hasCustomDeployment();
+		resp["ok"] = true;
+		return;
+	}
+	if (op == "craft_deployment") // W2-H20d (F8551): one craft type's generic deployment on THIS machine (read-only)
+	{
+		const std::string ctype = req.get("craft_type", "").asString();
+		const RuleCraft* rule = game->getMod()->getCraft(ctype, false);
+		if (!rule) { resp["error"] = "base_screen_op: craft type not found"; return; }
+		const auto& data = sg->getCustomRuleCraftDeployments();
+		const auto it = data.find(ctype);
+		Json::Value positions(Json::arrayValue), crafts(Json::arrayValue);
+		if (it != data.end())
+			for (const auto& v : it->second)
+			{
+				Json::Value row(Json::arrayValue);
+				for (int c : v) row.append(c);
+				positions.append(row);
+			}
+		for (auto* b : *sg->getBases())
+			for (auto* c : *b->getCrafts())
+				if (c->getRules() == rule)
+				{
+					Json::Value e(Json::objectValue);
+					e["id"] = c->getId();
+					e["customDeployment"] = c->hasCustomDeployment();
+					crafts.append(e);
+				}
+		resp["saved"] = it != data.end();
+		resp["positions"] = positions;
+		resp["crafts"] = crafts;
 		resp["ok"] = true;
 		return;
 	}
