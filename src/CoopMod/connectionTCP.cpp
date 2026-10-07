@@ -1556,7 +1556,7 @@ bool hasUnpublishedSideLocked(SavedBattleGame* battle, CoopFog::Side side)
 /// Test-lever-only in the spike (the stage atom is its future real caller).
 /// MUST be called WITHOUT g_revealMutex held - it goes through CoopEmit::sendEv,
 /// which re-enters attachDelta().
-void emitBaseRestate(SavedBattleGame* battle, CoopFog::Side side, bool badN, const char* why)
+void emitBaseRestate(SavedBattleGame* battle, CoopFog::Side side, bool badN, const char* why, bool withUnitsStats = true)
 {
 	const int n = battle->getMapSizeXYZ();
 	if (n <= 0)
@@ -1583,7 +1583,10 @@ void emitBaseRestate(SavedBattleGame* battle, CoopFog::Side side, bool badN, con
 	Json::Value ev = CoopWire::makeEv(0u, 0u, "reveal");
 	// RB-D14. W2-P2 S-H (A5.4 H3): no `synced` - the baseline can be emitted
 	// nested before the outer envelope's delta has reached the client.
-	ev["h"] = coopBuildUnitsStatsHash(battle, /*withSynced=*/false);
+	// coop W2-H22 (R-H22-G-1): the SS2.W4 baseline passes false - nested ahead of the outer envelope's delta, its unitsStats
+	// would hash a battle-start settle the client has not received yet. Presence-gated: no `h`, nothing verified.
+	if (withUnitsStats)
+		ev["h"] = coopBuildUnitsStatsHash(battle, /*withSynced=*/false);
 	// Set BEFORE sendEv: attachDelta() leaves an envelope that already carries
 	// an explicit restate alone.
 	ev["reveal"] = delta;
@@ -1835,7 +1838,7 @@ bool emitPendingBaseline()
 
 	g_sideEmitReentry = true;
 	emitBaseRestate(battle, CoopFog::Side::Hostile, false,
-		"SS2.W4 BASELINE hostile restate (first ev after phase Active)");
+		"SS2.W4 BASELINE hostile restate (first ev after phase Active)", false);
 	g_sideEmitReentry = false;
 	return true;
 }
