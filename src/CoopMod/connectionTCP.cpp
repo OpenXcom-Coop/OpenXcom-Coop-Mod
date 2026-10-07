@@ -5147,6 +5147,10 @@ void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType)
 	// read after it ran: its instaFalling() leaves the unit out, the animated
 	// path leaves it standing.
 	p["instant"] = (damageType && !damageType->isDirect()) || unit->isOut() || (battle && battle->isBeforeGame());
+	// coop W2-H22: a battle-start settle (isBeforeGame()) - vanilla shows it with no scream and no message (UnitDieBState's
+	// _extraFrame 3 shortcut, BattlescapeGame's hiddenExplosion noSound). Presence-gated: absent on every other death.
+	if (battle && battle->isBeforeGame())
+		p["beforeGame"] = true;
 	// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-a; AMENDMENT P6b-1 ST1 (a)): the
 	// additive `front` - true when the host's live BattlescapeGame is not busy, so this death's UnitDieBState
 	// goes to the FRONT of the empty state stack and runs at once (statePushNext); false when it queues right
@@ -22614,7 +22618,9 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 		const int dt = p.get("damageType", (int)DT_NONE).asInt();
 		const RuleDamageType* dtRule = (save && dt >= 0 && dt < (int)DAMAGE_TYPES)
 			? save->getMod()->getDamageType((ItemDamageType)dt) : nullptr;
-		if (dead && unit && (unit->getStatus() != STATUS_UNCONSCIOUS || (dtRule && !dtRule->isDirect())))
+		// coop W2-H22: a battle-start settle is silent in vanilla (hiddenExplosion noSound, the _extraFrame 3 shortcut).
+		if (dead && unit && !p.get("beforeGame", false).asBool()
+			&& (unit->getStatus() != STATUS_UNCONSCIOUS || (dtRule && !dtRule->isDirect())))
 		{
 			sound = combatPickSound(unit->getDeathSounds());
 			if (Map* live = combatLiveMap())
@@ -25387,6 +25393,8 @@ void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev)
 		return;
 	if (kind == "death")
 	{
+		if (p.get("beforeGame", false).asBool())
+			return; // coop W2-H22: vanilla shows no message for a battle-start settle (UnitDieBState's _extraFrame 3 shortcut)
 		PendingDeath pd;
 		pd.damageType = p.get("damageType", 0).asInt();
 		pd.seq = seq;
