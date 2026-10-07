@@ -100,8 +100,14 @@ def main():
 
     host = GameClient("host", 48831, host_dir)
     client = GameClient("client", 48832, client_dir)
-    host.spawn(); host.connect()
-    client.spawn(); client.connect()
+    try:
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
+    except BaseException:
+        # W2-U8f (F9058): main's cleanup runs only after its try below, so a failed spawn or connect shuts
+        # down the games started here before the error propagates (shared_fixture.bring_up's form)
+        harness.shutdown_clients(host, client)
+        raise
 
     battle_reached = False
     handshake_ok = False
