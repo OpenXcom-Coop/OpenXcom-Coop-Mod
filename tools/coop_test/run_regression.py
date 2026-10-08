@@ -425,7 +425,7 @@ class Run(object):
         verdict = "none" if status != "COMPLETE" else (
             "PASS" if not nbad else "FAIL (%d of %d batches exit != 0)" % (nbad, len(self.batches)))
         res = [(b, r) for b in done for r in b.results()]
-        n = {"PASS": 0, "FAIL": 0, "SKIP": 0, "hung": 0, "over": 0}
+        n = {"PASS": 0, "FAIL": 0, "QUARANTINED": 0, "hung": 0, "over": 0}
         for _, r in res:
             key = "hung" if r.get("timed_out") else "over" if r.get("over_budget") else r.get("status")
             n[key] = n.get(key, 0) + 1
@@ -438,8 +438,8 @@ class Run(object):
              "mode: K=%d pairs [%s]; exclusive [%s]; started %s; ended %s; wall %s s" % (
                  2 * len(pairs), ", ".join(str(p) for p in pairs), ", ".join(self.exclusive), iso(self.started),
                  iso(self.ended), ("%.1f" % ((self.ended or time.time()) - self.started)) if self.started else "-"),
-             "totals: %d tests: %d passed, %d failed, %d skipped, %d hung, %d over budget%s" % (
-                 self.total, n["PASS"], n["FAIL"], n["SKIP"], n["hung"], n["over"],
+             "totals: %d tests: %d passed, %d failed, %d quarantined, %d hung, %d over budget%s" % (
+                 self.total, n["PASS"], n["FAIL"], n["QUARANTINED"], n["hung"], n["over"],
                  (", %d no result" % missing) if missing > 0 else ""),
              "walls (batch order): " + "/".join(self.wall(b) for b in self.batches),
              "| batch | tests | exit | wall s | slots | cpu pre % | cpu avg % | cpu max % | samples >50% "
@@ -458,7 +458,7 @@ class Run(object):
         L.append("## Failing tests")
         nfail = 0
         for b in done:
-            bad = [r for r in b.results() if r.get("status") != "PASS"] or ([None] if b.rc != 0 else [])
+            bad = [r for r in b.results() if r.get("status") not in ("PASS", "QUARANTINED")] or ([None] if b.rc != 0 else [])
             for r in bad:
                 nfail += 1
                 if r is None:  # run_parallel itself failed (no JSON, or no non-PASS result in it)
