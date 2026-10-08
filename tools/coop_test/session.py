@@ -1029,7 +1029,7 @@ def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, conta
        current facing when run_length == 0). Returns (unit_dict_after, tile, run_dir_or_None).
 
     Never re-rolls. No tile within scan_radius for any soldier => AssertionError prefixed
-    'FIXTURE:' (the caller maps it to exit 3). Rule (a) of the old qualifying rules ('nothing
+    'FIXTURE:' (a FAIL: the caller exits 2, D59). Rule (a) of the old qualifying rules ('nothing
     spotted at t=0') is deliberately NOT part of this: the lever does not recompute sight, so
     the visible list can be stale; (c) is what prevents a mid-chain abort (spotted-set GROWTH).
     """

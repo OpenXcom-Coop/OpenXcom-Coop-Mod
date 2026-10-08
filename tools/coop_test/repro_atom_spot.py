@@ -82,7 +82,7 @@ own hash-equality gate: the door's fixed geometry gives `near`/`far`/`far_ground
 the actor is placed on the deck at `near` facing out, one hostile is placed
 exactly `far_ground + 6*d_out` tiles away (inside view range once the actor steps
 through the door) and every other hostile is moved to the far corner. ONE boot,
-no retry of any kind. A `FIXTURE:`-prefixed staging failure SKIPs (exit 3);
+no retry of any kind. A `FIXTURE:`-prefixed staging failure is a FAIL (exit 2, D59);
 everything else is a real FAIL (exit 2). Everything else about the fixture is the
 shared helper set (bring_up_lobby / drive_to_battlescape / send_walk_outcome,
 imported from repro_atom_walk).
@@ -153,7 +153,7 @@ import repro_atom_walk as W
 COOP_SEAT_1 = 1
 FACTION_PLAYER = 0
 
-EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+EXIT_PASS, EXIT_FAIL = 0, 2
 
 
 # Seat-1 soldiers to stamp. Each one is an INDEPENDENT chance at a contact (its
@@ -1045,8 +1045,8 @@ if __name__ == "__main__":
         sys.exit(EXIT_FAIL)
     except AssertionError as e:
         if str(e).startswith("FIXTURE:"):
-            print(f"\nrepro_atom_spot: SKIP (fixture) - {e}")
-            sys.exit(EXIT_SKIP)
+            print(f"\nrepro_atom_spot: FAIL (fixture not constructed) - {e}")
+            sys.exit(EXIT_FAIL)
         print(f"\nrepro_atom_spot: FAIL\nAssertionError: {e}")
         #
         # The TRACEBACK is printed as well, and that is not cosmetic: this

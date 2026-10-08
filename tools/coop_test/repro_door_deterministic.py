@@ -11,7 +11,7 @@ DETERMINISTIC fixture (WV-D65): the SITUATION comes from the Lightning
 craft's own UFO door (WV-D87) plus place_deterministic's own hash-equality
 gate - bar is 3 CONSECUTIVE GREEN, not 10. SPEC 0e-2 (WV-D86) removes the
 map search entirely: ONE boot, no retry of any kind. A `FIXTURE:`-prefixed
-staging failure SKIPs (exit 3, WV-D72); anything else is a real FAIL (exit 2).
+staging failure is a FAIL (exit 2, D59); anything else is a real FAIL (exit 2).
 
 THE TRAP AVOIDED (WV-D77): `event_log`'s probe is a fixed-size POD (`seq`,
 `actionId`, `kind`, `h`, no `payload` - BattlePump.h:206-219 /
@@ -76,7 +76,7 @@ LEG_A_TU = 60
 # ("a refusal at the control step is evidence the RESERVE changed the outcome, not
 # that the actor was merely short on TU"). Same value, same reason.
 LEG_B_TU = 8
-EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+EXIT_PASS, EXIT_FAIL = 0, 2
 BASE_GAME_PORT = 47997
 BASE_TEST_PORT = 48997
 
@@ -1158,7 +1158,7 @@ def run_scenario(host, client, tag):
 
 def run_fixture(tag):
     """SPEC 0e-2 (WV-D86): one boot, no retry - a `FIXTURE:` staging failure
-    propagates straight to `__main__`'s is_fixture_error mapping (exit 3)
+    propagates straight to `__main__`'s is_fixture_error mapping (exit 2, D59)
     instead of being caught and retried here."""
     host, client = bring_up()
     try:
@@ -1183,8 +1183,8 @@ if __name__ == "__main__":
         sys.exit(EXIT_FAIL)
     except AssertionError as e:
         if is_fixture_error(e):
-            print(f"\nrepro_door_deterministic: SKIP (fixture) - {e}")
-            sys.exit(EXIT_SKIP)
+            print(f"\nrepro_door_deterministic: FAIL (fixture not constructed) - {e}")
+            sys.exit(EXIT_FAIL)
         print(f"\nrepro_door_deterministic: FAIL\nAssertionError: {e}")
         sys.exit(EXIT_FAIL)
     except TimeoutError as e:
