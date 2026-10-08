@@ -1,6 +1,6 @@
 # Runs the coop test suite headless (set SDL_VIDEODRIVER/SDL_AUDIODRIVER=dummy in the
 # caller's env). Exits nonzero if any non-quarantined test fails. Shared by both CI
-# workflows so the quarantine list and retry policy live in exactly one place.
+# workflows so the quarantine list and the one-attempt rule live in exactly one place.
 # Per-test durations go to the console and, on CI, to the run's Summary page
 # ($GITHUB_STEP_SUMMARY) as a slowest-first table.
 #
@@ -134,13 +134,9 @@ foreach ($t in $tests) {
   $hardMs   = [int][math]::Ceiling($budget * $hardKillMult * 1000.0)
 
   $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs
-  $attempts = 1
-  if ($r.Rc -ne 0 -and -not $r.TimedOut) {        # retry a real failure once (flake tolerance)
-    $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs   # never retry a hang - it just hangs again
-    $attempts = 2
-  }
-  $rc         = $r.Rc            # the LAST attempt's result/duration (a retry must
-  $secs       = $r.Seconds       # not inflate the weight the next plan uses)
+  $attempts = 1   # one attempt per test, never a retry: a rerun hides a flaky test (D61, WV-D101)
+  $rc         = $r.Rc
+  $secs       = $r.Seconds
   $timedOut   = $r.TimedOut
   $overBudget = ($rc -eq 0 -and -not $timedOut -and $secs -gt $budget)
 
@@ -165,7 +161,6 @@ foreach ($t in $tests) {
   else                              { $status = "FAIL"; $fail++ }
 
   $note = @()
-  if ($attempts -gt 1)          { $note += "retried" }
   if ($status -eq "KNOWN-FAIL") { $note += "quarantined" }
   if ($timedOut)                { $note += "HANG rc=124" }
   elseif ($rc -ne 0)            { $note += "rc=$rc" }
