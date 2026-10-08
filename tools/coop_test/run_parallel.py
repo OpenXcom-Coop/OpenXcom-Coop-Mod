@@ -29,12 +29,13 @@ serial lane - so contention from the other lanes never perturbs a clock- or
 dogfight-timing assertion. Everything else is greedy-LPT bin-packed across all K
 lanes by measured weight (tools/ci/test_weights.json, same table the CI shard
 planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy
-(A8-2 / WV-D74, amended by WV-D100/WV-D101): 0 = PASS, 2 = FAIL, 3 = SKIP - and a
-SKIP IS A FAILURE (WV-D100: every test must exercise its scenario 100% of the time;
-a test that cannot is rewritten with owner-supplied fixture steps, never re-run).
-NOTHING is ever retried (WV-D101: "reruns just hide flakiness"). The table and the
-summary still list SKIP separately from FAIL so a report says WHY a run is red.
-Exit 0 iff no test ended FAIL or SKIP.
+(WV-D100/WV-D101, D59): 0 = PASS, any other exit code = FAIL. There is no SKIP
+status: a fixture that cannot be built is a red (WV-D100: every test must exercise
+its scenario 100% of the time; a test that cannot is rewritten with owner-supplied
+fixture steps, never re-run). NOTHING is ever retried (WV-D101: "reruns just hide
+flakiness"). A file whose column-0 guard prints SKIP-PENDING and exits 0 (the
+W1_TRIAGE.md quarantine) is QUARANTINED (D62, D229): never counted as a pass,
+listed and counted apart, and it does not fail the run. Exit 0 iff no test ended FAIL.
 
 Headless is forced on every lane (SDL_VIDEODRIVER/AUDIODRIVER=dummy) unless
 OXC_HARNESS_WINDOWED=1 is exported for interactive debugging.
@@ -44,6 +45,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -208,6 +210,26 @@ def _copy_fail_dirs(name, slot, t0, fail_dir):
     return dest if os.path.isdir(dest) else None
 
 
+# D62 / D229: a quarantined file (W1_TRIAGE.md, RB-D21) carries a column-0 guard
+# `print("SKIP-PENDING..."); sys.exit(0)`; such a file that exits 0 is QUARANTINED,
+# never PASS. The guard is read from the source, so the status is the same with or
+# without --log-dir (this runner captures a test's stdout only with --log-dir).
+GUARD_RE = re.compile(r"""^print\(\s*["']SKIP-PENDING""")
+
+
+def quarantine_marker(name):
+    """The file's triage tag (its first line holding 'SKIP-PENDING(', stripped) when
+    it has a column-0 SKIP-PENDING guard print; else None."""
+    try:
+        with open(os.path.join(TESTDIR, name + ".py"), encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    if not any(GUARD_RE.match(ln) for ln in lines):
+        return None
+    return next((ln.strip() for ln in lines if "SKIP-PENDING(" in ln), "SKIP-PENDING")
+
+
 def _run_once(name, slot, base_env, hard_timeout, log_path=None):
     path = os.path.join(TESTDIR, name + ".py")
     env = dict(base_env)
@@ -247,7 +269,9 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
         attempts = len(rc_attempts)
         e0 = round(time.time() - run_start, 1)
         over_budget = (rc == 0 and not timed_out and secs > budget)
-        status = "SKIP" if (rc == 3 and not timed_out) else ("FAIL" if (timed_out or rc != 0 or over_budget) else "PASS")
+        quarantine = (quarantine_marker(name)
+                      if (rc == 0 and not timed_out and not over_budget) else None)
+        status = "FAIL" if (timed_out or rc != 0 or over_budget) else ("QUARANTINED" if quarantine else "PASS")
         reason = None
         if timed_out:
             reason = ("BUDGET HARD-KILL: %s still running after %.1fs (%gx its %gs "
@@ -257,27 +281,26 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
             reason = ("BUDGET EXCEEDED: %s took %.1fs > %gs budget - re-engineer the "
                       "test or add a justified exception" % (name, secs, budget))
         fail_copy = (_copy_fail_dirs(name, slot, start_epoch, fail_dir)
-                     if fail_dir and status != "PASS" else None)
+                     if fail_dir and status == "FAIL" else None)
         rec = {"test": name, "slot": slot, "status": status, "seconds": secs,
                "attempts": attempts, "rc": rc, "rc_attempts": rc_attempts,
                "timed_out": timed_out,
                "budget": budget, "over_budget": over_budget, "reason": reason,
                "start": s0, "end": e0, "start_epoch": round(start_epoch, 3),
-               "end_epoch": round(end_epoch, 3), "log": log_path, "fail_copy": fail_copy}
+               "end_epoch": round(end_epoch, 3), "log": log_path, "fail_copy": fail_copy,
+               "quarantine": quarantine}
         with lock:
             results.append(rec)
             if not quiet:
                 note = []
-                if attempts > 1:
-                    note.append("retried")
                 if timed_out:
                     note.append("HANG rc=124")
-                elif rc == 3:
-                    note.append("SKIP rc=3")
                 elif rc != 0:
                     note.append("rc=%d" % rc)
                 elif over_budget:
                     note.append("over %gs budget" % budget)
+                elif quarantine:
+                    note.append("quarantined")
                 suffix = " (%s)" % ", ".join(note) if note else ""
                 print("[slot %d] %-11s %8.1fs  %s%s"
                       % (slot, status, secs, name, suffix), flush=True)
@@ -376,10 +399,11 @@ def main():
     wall = round(time.time() - run_start, 1)
 
     results.sort(key=lambda r: r["seconds"], reverse=True)
-    # WV-D100: a SKIP is a FAILURE. It is still listed separately in the table
-    # and the summary, but it makes the runner's exit code nonzero.
-    fails = [r for r in results if r["status"] in ("FAIL", "SKIP")]
-    skips = [r for r in results if r["status"] == "SKIP"]
+    # D59 / WV-D100: any nonzero exit is a FAIL (exit 3 is no longer a separate SKIP).
+    # D62 / D229: a QUARANTINED file is listed and counted apart, never as a pass,
+    # and does not fail the run.
+    fails = [r for r in results if r["status"] == "FAIL"]
+    quars = [r for r in results if r["status"] == "QUARANTINED"]
     serial = round(sum(r["seconds"] for r in results), 1)
     lane_busy = [round(sum(r["seconds"] for r in results if r["slot"] == base + k), 1)
                  for k in range(args.slots)]
@@ -391,8 +415,8 @@ def main():
               % (r["test"], r["status"], r["seconds"], r["budget"], r["attempts"],
                  r["slot"], "  <-- FAIL" if r["status"] == "FAIL" else ""))
 
-    print("\n%d test(s): %d passed, %d skipped, %d failed" % (len(results),
-          len(results) - len(fails), len(skips), len(fails) - len(skips)))
+    print("\n%d test(s): %d passed, %d quarantined, %d failed" % (len(results),
+          len(results) - len(fails) - len(quars), len(quars), len(fails)))
     print("wall-clock %.1fs | serial-sum %.1fs | speedup %.2fx | lanes %s"
           % (wall, serial, (serial / wall if wall else 0),
              "/".join("%.0f" % b for b in lane_busy)))
@@ -401,6 +425,8 @@ def main():
         for r in fails:
             if r.get("reason"):
                 print("  !! %s" % r["reason"])
+    if quars:
+        print("QUARANTINED: %s" % ", ".join(r["test"] for r in quars))
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
