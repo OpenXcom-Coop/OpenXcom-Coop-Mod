@@ -85,11 +85,6 @@ STR_ORDER_SENT = "Order sent - waiting for the host"
 STR_BUSY = "Waiting - another action is in progress"
 STR_COST_CHANGED = "Order cancelled - cost changed"
 STR_TIMEOUT = "No answer from the host - action dropped"
-STR_END_TURN_HOST_ONLY = "Only the host can end the turn"
-# The value STR_COOP_TURN_OVER used to carry, and the text SS2.6's WIRE deny row
-# STR_COOP_DENY_TURN_OVER still carries. PHASE 5 asserts it is NOT what a client
-# END TURN press shows - that confusion is the bug SS2.W8 fixes.
-STR_WIRE_TURN_OVER = "The turn has already ended"
 WAIT_FOR = "Please wait for {0}'s action to finish"
 
 HOST_PLAYER = "HostPlayer"

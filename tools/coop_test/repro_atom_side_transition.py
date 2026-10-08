@@ -59,9 +59,9 @@ SCRIPT_RNG_MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "mods", "Coop_ScriptRng_Test")
 
 STR_TERRAIN_STOP = (
-    "terrain destroyed at the side boundary (fire burnout, "
-    "SavedBattleGame.cpp:2489-2516) - side_transition's frozen perTile "
-    "carries no terrain field")
+    "terrain changed at the side boundary in this hazard-free cycle (fire burnout, "
+    "SavedBattleGame::prepareNewTurn) - side_transition's frozen perTile carries no "
+    "terrain field; the whole-battle delta (D128 b) carries tile changes to the second player")
 
 
 def states(gc):
