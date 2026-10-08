@@ -360,9 +360,8 @@ Traps worth knowing before you write a BATTLESCAPE test:
 - Prefer a walk over a shot when asserting replication: a shot can legitimately
   miss, so an unchanged victim is ambiguous, while a position is not.
 
-Full suite (serial) is ~20 min; no test exceeds ~2 min. Known flakes, retry once:
-`test_ufo_notice`, `test_joint_manufacture`, `test_joint_commerce`,
-`test_joint_disconnect`, `test_joint_resync`.
+Full suite (serial) is ~20 min; no test exceeds ~2 min. Every test runs once and
+nothing is retried: a rerun hides a flaky test (WV-D101, D61).
 
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
 / `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
