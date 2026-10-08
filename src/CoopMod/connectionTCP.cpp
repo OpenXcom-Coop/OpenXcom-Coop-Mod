@@ -2106,6 +2106,8 @@ static std::atomic<bool> g_coopBattleEndTeardownLatch{false};
 static bool g_coopStageHandOffPending = false;
 static bool g_coopStageTeardownLatch = false;
 static std::uint32_t g_coopStageOfNext = 0;
+// coop W2-H24 (R-H24-G-1): HOST, set by hook H once its stage offer is out; while set the start in flight is a stage offer, not a fresh start.
+static bool g_coopStageOfferPending = false;
 static Json::Value g_coopStageOfferStash;
 static Json::Value g_coopStageKeptResearch;
 // W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): set by the battle_end pump consumer
@@ -26369,6 +26371,7 @@ void coopHostNextStage(Game* game, SavedBattleGame* save)
 	g_coopStageOfNext = fromBattleId;
 	CoopHandshake::prepareBattleOffer(game, connectionTCP::_coopGamemode);
 	g_coopStageOfNext = 0;
+	g_coopStageOfferPending = true; // coop W2-H24 (R-H24-G-1): this start is MG-A's stage offer
 	CoopDelta::stageRecordSet("toBattleId", coopBattleAuthority().battleId.load());
 	Log(LOG_INFO) << "[coop-battle-end] host: stage hand-off - battle " << fromBattleId << " -> "
 		<< coopBattleAuthority().battleId.load() << " offered (stageOf)";
@@ -27092,7 +27095,9 @@ static bool coopFailedStartInScope(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
 	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
-	return battle != nullptr && save->getMonthsPassed() != -1 && battle->getMissionType() != "STR_BASE_DEFENSE";
+	// coop W2-H24 (R-H24-G-1): a stage-2 offer is not a fresh start; MG-A's follow-up owns its failure.
+	return !g_coopStageOfferPending && battle != nullptr && save->getMonthsPassed() != -1
+		&& battle->getMissionType() != "STR_BASE_DEFENSE";
 }
 
 // coop W2-H24: the world half of a failed co-op battle start. The generator marked the battle's craft and target as in
@@ -27155,6 +27160,7 @@ static void coopUnwindFailedStart(Game* game, const char* why)
 
 	resetBattleAuthority();
 	g_pendingHost = PendingHost();
+	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): the start ended
 	Log(LOG_WARNING) << "[coop-handshake] W2-H24: failed battle start (" << why << ") unwound - battle marks cleared="
 		<< marks << ", crafts sent home=" << home;
 }
@@ -27679,6 +27685,7 @@ void prepareBattleOffer(Game* game, int gamemode)
 	// called later from BriefingState::btnOkClick's freeze branch AFTER
 	// startFirstTurn().
 	g_pendingHost = PendingHost();
+	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): a new start; hook H marks its own after this PREPARE
 	g_pendingHost.prepared = true;
 	g_pendingHost.battleId = battleId;
 	g_pendingHost.gamemode = gamemode;
@@ -28972,6 +28979,7 @@ void onReady(Game* game, const Json::Value& ready)
 		coopSession = true;
 	}
 	g_pendingHost = PendingHost();
+	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): the start is Active
 
 	// W2-P8b S-E.2 (P8b-1 RULINGS Q16 (a), F3126): the host closed its briefing on an all-aliens-dead start while
 	// still in phase Handshake - the held aliens-crashed battle_end is the first ev after Active, and the fresh-battle
@@ -29097,6 +29105,7 @@ void onReady(Game* game, const Json::Value& ready)
 void resetPendingState()
 {
 	g_pendingHost = PendingHost();
+	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): the session or battle scope reset
 	g_pendingClient = PendingClient();
 	g_coopCorruptNextBlobRequested = false; // R2-P11: don't leak a stale request into the next battle
 	// W1-P2 (SS2.W1): the mission identity is per-battle. Leaving it set would
