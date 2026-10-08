@@ -38,6 +38,7 @@
 
 #include "../Basescape/CraftSoldiersState.h"
 #include "../Mod/AlienDeployment.h"
+#include "../Mod/RuleVideo.h" // MG-A S-E: coopHostBattleEnd reads the ending video's winGame / loseGame
 #include "../Menu/CutsceneState.h"
 
 #include "../Savegame/AlienMission.h"
@@ -2750,6 +2751,7 @@ static Json::Value battleEndZeros()
 	r["reason"] = "";
 	r["aborted"] = false;
 	r["inExitArea"] = 0;
+	r["gameOver"] = false;        // MG-A S-E: a game-ending cutscene follows, no debrief result comes (both machines)
 	r["perSeatVerdict"] = Json::Value(Json::arrayValue);
 	Json::Value tally(Json::objectValue);
 	tally["liveAliens"] = 0;
@@ -16724,7 +16726,7 @@ bool coopSuppressReinforcements(const SavedBattleGame*)
 // W2-P8b S-E.2: coopHostBattleEnd's tail, extracted below it (shared with the aliens-crashed end). S-E.3 (SE-4):
 // the caller supplies `h`, so a battle_end held across the Handshake latch carries the hash taken at the latch.
 static void coopHostSendBattleEnd(const Json::Value& h, const std::string& reason, bool aborted, int inExitArea,
-	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t);
+	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t, bool gameOver = false);
 
 // ===== W2-P7 S-A.2: the host's battle_end (BattleAuthority.h) =====
 // Spec rewrite/prompts/w2p7_battle_end.md, owner ruling D129 = (a), AMENDMENT
@@ -16829,7 +16831,13 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	//    takes the complement, `win` on an abort (D157 (a)).
 	const char* xcomVerdict = abort ? "abort" : (inExitArea == 0 ? "lose" : "win");
 	const char* hostileVerdict = abort ? "win" : (inExitArea == 0 ? "win" : "lose");
-	coopHostSendBattleEnd(coopBuildActionEndHash(save), reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t);
+	// MG-A S-E (D239 a, V5; AMENDMENT MG-A-2, F10120): that cutscene ends the game when its video is winGame / loseGame
+	// (finishBattle sets END_WIN / END_LOSE); vanilla then pops its DebriefingState unshown: no debrief result follows.
+	const std::string cutscene = !ruleDeploy ? std::string() : abort ? ruleDeploy->getAbortCutscene()
+		: (inExitArea == 0 ? ruleDeploy->getLoseCutscene() : ruleDeploy->getWinCutscene());
+	const RuleVideo* video = cutscene.empty() ? nullptr : game->getMod()->getVideo(cutscene);
+	coopHostSendBattleEnd(coopBuildActionEndHash(save), reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t,
+		video && (video->getWinGame() || video->getLoseGame()));
 }
 
 // ===== W2-P8b S-E.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 S-E; owner D210 b;
@@ -16838,7 +16846,7 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 // send, phase Ended) is EXTRACTED into this helper so the aliens-crashed end below shares the one battle_end makeEv
 // (F3115). =====
 static void coopHostSendBattleEnd(const Json::Value& h, const std::string& reason, bool aborted, int inExitArea,
-	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t)
+	const char* xcomVerdict, const char* hostileVerdict, const BattlescapeTally& t, bool gameOver)
 {
 	Json::Value perSeatVerdict(Json::arrayValue);
 	for (int seat = 0; seat < 4; ++seat)
@@ -16872,6 +16880,8 @@ static void coopHostSendBattleEnd(const Json::Value& h, const std::string& reaso
 	tally["liveSoldiers"] = t.liveSoldiers;
 	tally["inExit"] = t.inExit;
 	p["tally"] = tally;
+	if (gameOver)
+		p["gameOver"] = true; // MG-A S-E: presence-gated - every other battle_end payload is byte-identical
 	ev["h"] = h;
 
 	Json::Value hBuckets(Json::arrayValue);
@@ -16886,13 +16896,14 @@ static void coopHostSendBattleEnd(const Json::Value& h, const std::string& reaso
 	CoopDelta::battleEndRecordSet("actionIdAtEmit", actionId);
 	CoopDelta::battleEndRecordSet("quiescentAtEmit", coopBattleQuiescent());
 	CoopDelta::battleEndRecordSet("hBuckets", hBuckets);
+	CoopDelta::battleEndRecordSet("gameOver", gameOver);
 
 	CoopEmit::sendEv(ev);
 	coopBattleAuthority().phase = CoopBattlePhase::Ended;
 
 	Log(LOG_INFO) << "[coop-battle-end] host: battle_end reason=" << reason << " aborted=" << aborted
 		<< " inExitArea=" << inExitArea << " tally={" << t.liveAliens << "," << t.liveSoldiers << ","
-		<< t.inExit << "} actionId=" << actionId << " - phase Ended";
+		<< t.inExit << "} actionId=" << actionId << " gameOver=" << gameOver << " - phase Ended";
 }
 
 // W2-P8b S-E.2: the named donor of BattlescapeGame::tallyUnits() (BattlescapeGame.cpp :3323-:3413) over
@@ -19007,6 +19018,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		CoopDelta::battleEndRecordSet("inExitArea", p.get("inExitArea", 0).asInt());
 		CoopDelta::battleEndRecordSet("perSeatVerdict", p.get("perSeatVerdict", Json::Value(Json::arrayValue)));
 		CoopDelta::battleEndRecordSet("tally", p.get("tally", Json::Value(Json::objectValue)));
+		CoopDelta::battleEndRecordSet("gameOver", p.get("gameOver", false).asBool()); // MG-A S-E: the consumer's branch
 		CoopDelta::battleEndRecordSet("latchedMs", SDL_GetTicks());
 		CoopDelta::battleEndRecordSet("skirmish", skirmish);
 		CoopDelta::battleEndRecordSet("campaign", campaignShared);
@@ -31978,7 +31990,28 @@ void connectionTCP::updateCoopTask()
 		}
 	}
 
-	if (g_coopBattleEndTeardownLatch.load())
+	// MG-A S-E (D239 a, V5; AMENDMENT MG-A-2; F10120, F10125): the host's battle ended in a game-ending cutscene, so
+	// no debrief result comes. The end screens are the `cutscene` relay's (W2-H17b); until it has replaced the battle
+	// screen only the ambient loop stops (finishBattle's order), then the latch is consumed without the debrief wait.
+	if (g_coopBattleEndTeardownLatch.load() && CoopDelta::battleEndRecord().get("gameOver", false).asBool())
+	{
+		SavedBattleGame* overBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+		if (overBattle && overBattle->getAmbientSound() != Mod::NO_SOUND)
+			_game->getMod()->getSoundByDepth(0, overBattle->getAmbientSound())->stopLoop();
+		if (!connectionTCP::isBattlescapeStateLive(overBattle ? overBattle->getBattleState() : nullptr))
+		{
+			g_coopBattleEndTeardownLatch = false;
+			if (overBattle)
+				overBattle->setBattleState(nullptr); // the relay popped it; freed after this pass (F5081, F9815)
+			CoopDelta::battleEndNoteTeardown();
+			_game->getCursor()->setVisible(true);
+			_game->resetTouchButtonFlags();
+			coopBattleAuthority().phase = CoopBattlePhase::Ended;
+			coopResetBattleScope();
+			Log(LOG_INFO) << "[coop-battle-end] client: game over - battle scope reset, no debriefing";
+		}
+	}
+	else if (g_coopBattleEndTeardownLatch.load())
 	{
 		if (!CoopDelta::debriefResultStored())
 		{
