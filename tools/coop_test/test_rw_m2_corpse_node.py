@@ -142,7 +142,7 @@ BASE_PROBE = 49400         # the TestServer control-socket port base
 # 0 = PASS, 2 = FAIL (a red - includes a WV-D91/WV-D92 known-flake banner), 3 =
 # SKIP (the ruleset does not offer the fixture mission, or a pinned seed's
 # fingerprint guard passed yet the casualty vanished - see FIXTURE: below).
-EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+EXIT_PASS, EXIT_FAIL = 0, 2
 
 RELEASE_LOG_RE = re.compile(r"released (\d+) AIModule\(s\)")
 SAVEBLOB_EQUAL_TEXT = "[coop-handshake] battle_ready saveBlob EQUAL"
@@ -493,8 +493,8 @@ if __name__ == "__main__":
         sys.exit(EXIT_FAIL)
     except AssertionError as e:
         if str(e).startswith("FIXTURE:"):
-            print(f"\ntest_rw_m2_corpse_node: SKIP (fixture) - {e}")
-            sys.exit(EXIT_SKIP)
+            print(f"\ntest_rw_m2_corpse_node: FAIL (fixture not constructed) - {e}")
+            sys.exit(EXIT_FAIL)
         print(f"\ntest_rw_m2_corpse_node: FAIL\nAssertionError: {e}")
         sys.exit(EXIT_FAIL)
     except TimeoutError as e:

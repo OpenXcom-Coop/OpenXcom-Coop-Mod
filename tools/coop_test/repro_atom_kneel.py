@@ -767,8 +767,8 @@ if __name__ == "__main__":
         sys.exit(2)
     except AssertionError as e:
         if str(e).startswith("FIXTURE:"):
-            print(f"\nrepro_atom_kneel: SKIP (fixture) - {e}")
-            sys.exit(3)
+            print(f"\nrepro_atom_kneel: FAIL (fixture not constructed) - {e}")
+            sys.exit(2)
         print(f"\nrepro_atom_kneel: FAIL\nAssertionError: {e}")
         sys.exit(2)
     except TimeoutError as e:

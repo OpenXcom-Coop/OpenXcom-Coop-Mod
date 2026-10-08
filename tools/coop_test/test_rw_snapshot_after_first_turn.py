@@ -40,8 +40,8 @@ the tripwire's compensating write would ALSO produce, silently).
 Run:  python tools/coop_test/test_rw_snapshot_after_first_turn.py
       (its own shell invocation - one harness run at a time, machine-wide.)
 
-EXIT CODES: 0 pass, 2 FAIL, 3 SKIP (this build's NEW BATTLE screen does not
-offer STR_BASE_DEFENSE - a fact about the loaded ruleset, never about FX-1).
+EXIT CODES: 0 pass, 2 FAIL (also when this build's NEW BATTLE screen does not
+offer STR_BASE_DEFENSE: a fixture that cannot be built is a red, D59).
 """
 
 import json
@@ -53,7 +53,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 
-EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+EXIT_PASS, EXIT_FAIL = 0, 2
 
 MISSION = "STR_BASE_DEFENSE"
 
@@ -139,9 +139,9 @@ def main():
         # === fixture gate: this build must offer STR_BASE_DEFENSE ============
         mr = host.cmd({"cmd": "newbattle_mission", "type": MISSION})
         if not mr.get("ok"):
-            print(f"SKIP: this build's NEW BATTLE screen does not offer {MISSION!r} - "
+            print(f"FAIL (fixture not constructed): this build's NEW BATTLE screen does not offer {MISSION!r} - "
                   f"offered: {mr.get('missionTypes')}")
-            sys.exit(EXIT_SKIP)
+            sys.exit(EXIT_FAIL)
         print(f"fixture: {MISSION} selected (offered types: {mr.get('missionTypes')})")
 
         # === generate the battle; host into BriefingState ====================

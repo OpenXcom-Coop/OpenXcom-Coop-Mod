@@ -84,7 +84,7 @@ FINGERPRINT_AGREED = 1.870118385057293e+18
 # EXIT CODES, matching the wave's shipped convention (2026-09-03 ruling):
 # 0 = PASS, 2 = FAIL (a red - includes a WV-D91/WV-D92 known-flake banner), 3 =
 # SKIP (the ruleset does not offer the fixture mission).
-EXIT_PASS, EXIT_FAIL, EXIT_SKIP = 0, 2, 3
+EXIT_PASS, EXIT_FAIL = 0, 2
 
 ADOPT_LOG_RE = re.compile(
     r"\[coop-itemid\] WV-D61: adopted coopItemIdCtr (\d+) \(derived (\d+)\)")
@@ -251,8 +251,8 @@ if __name__ == "__main__":
         sys.exit(EXIT_FAIL)
     except AssertionError as e:
         if str(e).startswith("FIXTURE:"):
-            print(f"\ntest_rw_item_id_ctr: SKIP (fixture) - {e}")
-            sys.exit(EXIT_SKIP)
+            print(f"\ntest_rw_item_id_ctr: FAIL (fixture not constructed) - {e}")
+            sys.exit(EXIT_FAIL)
         print(f"\ntest_rw_item_id_ctr: FAIL\nAssertionError: {e}")
         sys.exit(EXIT_FAIL)
     except TimeoutError as e:
