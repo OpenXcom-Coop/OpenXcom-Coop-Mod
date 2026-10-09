@@ -575,9 +575,9 @@ def _sync_mismatch_lines(sc, limit=6):
 # anything else, so "skip all dialogs" stays robust as new popups appear. Two
 # states must therefore never be handed to it while a co-op battle is live:
 #
-#   VoteMenu          - BattlescapeState::btnAbortClick no longer pushes
-#                       AbortMissionState in co-op; it opens an abandon-mission
-#                       VoteMenu, which dismiss_popup does not recognise.
+#   VoteMenu          - an AbortMissionState OK opens the abandon-mission
+#                       VoteMenu on both machines (R4-L1); dismiss_popup refuses
+#                       it: answer it with vote_cast / click_widget.
 #   BattlescapeState  - once the VoteMenu above it has been generic-popped, the
 #                       battlescape itself is the top state, and the next
 #                       dismiss_popup pops the running battle off the stack.
@@ -607,23 +607,49 @@ def drain_to_geoscape(gc, deadline, interval=0.4):
     return None
 
 
+def abort_vote_yes(host, voter, timeout=20):
+    """R4-L1 (design-D8, D231, D244): the partner's YES on the abort vote an AbortMissionState OK opened: wait
+    the vote open on `voter`, vote_cast {id, yes: true} (accepted), wait the host's vote finished + passed (or its
+    abortVote.passes grown: the host drops the abort vote once the battle ended). One `timeout` for both waits.
+    Raises TimeoutError("the partner's abort vote never opened ...") / AssertionError; a row appends str(e)."""
+    t0, v = time.time(), {}
+    while time.time() - t0 < timeout:
+        v = voter.cmd({"cmd": "vote_state"})
+        if v.get("active") and v.get("action") == "abandon_mission" and v.get("menuOpen"):
+            break
+        time.sleep(0.1)
+    else:
+        raise TimeoutError(f"the partner's abort vote never opened within {timeout}s ({voter.name} vote_state active="
+                           f"{v.get('active')} action={v.get('action')!r}; host top {(states(host) or ['?'])[-1]})")
+    passes0 = (event_state(host).get("abortVote") or {}).get("passes") or 0
+    r = voter.cmd({"cmd": "vote_cast", "id": v.get("id"), "yes": True})
+    if not r.get("accepted"):
+        raise AssertionError(f"the partner's abort YES was not accepted: {r}")
+    while time.time() - t0 < timeout:
+        h, a = host.cmd({"cmd": "vote_state"}), event_state(host).get("abortVote") or {}
+        if (h.get("finished") and h.get("passed")) or (a.get("passes") or 0) > passes0:
+            return {"voteId": v.get("id"), "secs": round(time.time() - t0, 2)}
+        time.sleep(0.1)
+    raise TimeoutError(f"the host's abort vote did not pass within {timeout}s of the partner's YES")
+
+
 def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
                       interval=0.4):
-    """End a live rewrite-era co-op battle via the host-authoritative ABORT
-    (owner ruling D8/WV-D14): the host's btnAbortClick pushes the vanilla
-    AbortMissionState (the CLIENT's press is refused), and confirming it
-    (dismiss_popup -> AbortMissionState::btnOkClick) runs setAborted()+
-    finishBattle() -> DebriefingState -> geoscape.
+    """End a live rewrite-era co-op battle through the abort vote (R4-L1;
+    owner design-D8, D231, D244): the host's btnAbortClick pushes the vanilla
+    AbortMissionState, its OK (dismiss_popup -> AbortMissionState::btnOkClick)
+    opens the unanimous abort vote with the host's YES counted, and the
+    partner's YES (abort_vote_yes) passes it; the host then runs vanilla's
+    setAborted() + finishBattle() -> DebriefingState -> geoscape.
 
-    SPEC 19 REV E.65 (F387, D114=a): the pre-rewrite abandon-mission VOTE this
-    helper used to drive is r4 T3 (a logging stub) and does NOT exist at this
-    tip, so it is not used. finishBattle is battle-wide and host-authoritative:
+    finishBattle is battle-wide and host-authoritative:
     in a SHARED battle it returns BOTH machines to the geoscape; in a SEPARATE
     battle it returns only the HOST (the client's clean return is r4 T2
     `debrief_result` - OUT of wave 1; call with expect_both=False, E65.1).
 
-    Raises AssertionError if the host's confirm was not AbortMissionState, and
-    TimeoutError (with both machines' top states) if an EXPECTED machine never
+    Raises AssertionError if the host's confirm was not AbortMissionState or
+    the partner's YES was refused, and TimeoutError if the vote never opened or
+    passed, or (with both machines' top states) if an EXPECTED machine never
     reaches the geoscape.
     """
     host.ok({"cmd": "battle_action", "action": "abort"})
@@ -633,6 +659,7 @@ def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
     r = host.cmd({"cmd": "dismiss_popup"})
     assert r.get("handled") == "AbortMissionState", \
         f"host abort confirm was not AbortMissionState::btnOkClick: {r}"
+    abort_vote_yes(host, client)  # R4-L1: the OK opened the vote; the partner's YES passes it
 
     deadline = time.time() + drain_timeout
     machines = ((host, "host"), (client, "client")) if expect_both else ((host, "host"),)

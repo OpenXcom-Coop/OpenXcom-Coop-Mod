@@ -331,6 +331,7 @@ public:
 	// and keep a local display deadline; vote_result remains authoritative.
 	static constexpr std::uint32_t DEFAULT_TIMEOUT_MS = 30000;
 	std::uint32_t deadlineTicks = 0;
+	bool noDeadline = false; // R4-L1 (D231): an abort vote has no deadline and no countdown (set by start(), R4-L1 S-A 2)
 
 	void clear()
 	{
@@ -347,6 +348,7 @@ public:
 		votes.clear();
 		playerNames.clear();
 		deadlineTicks = 0;
+		noDeadline = false;
 	}
 
 	void start(

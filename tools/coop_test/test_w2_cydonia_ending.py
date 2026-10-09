@@ -15,7 +15,8 @@ SEED_F, confirm_cydonia, the stage-1 spine, MAP_FP_F pinned, pin_ai_neutral, has
        client's stage-2 BriefingState within ENTRY_S; its `stage` record offerStashed 1, offerReplayed 1, applied 1;
        its log names the stash; after the spine both machines turn 1 on STR_MARS_THE_FINAL_ASSAULT, mapSizeXYZ 7200,
        mapFingerprint equal, battleId b2 > b1 equal; hash_now full all buckets EQUAL; desyncSeen false; both alive.
-  MS6  custom battle, stage 2: the host aborts with nobody on an exit (AbortMissionState "0 Units in Target Exit") ->
+  MS6  custom battle, stage 2: the host aborts and the partner votes YES (R4-L1) with nobody on an exit ("0 Units in
+       Target Exit") ->
        abortCutscene loseGame. Polled every POLL_S until both machines show the main menu (MENU_S bound), never a
        dismiss_popup (W2-H17b keep list). Cells: the partner applies `battle_end` (applied 1, reason abort, aborted,
        inExitArea 0, the host's seq) hash-clean (desyncSeen false; the teardown snapshot battleEnd.hashVerify, else
@@ -23,7 +24,8 @@ SEED_F, confirm_cydonia, the stage-1 spine, MAP_FP_F pinned, pin_ai_neutral, has
        play the host's ending (a SlideshowState on both); both reach the main menu; the partner alive, no new crash
        file; the partner's battle scope is reset: event_state phase not Active at SCOPE_T1 and
        battleEnd.resultWaitPasses equal at SCOPE_T1 and SCOPE_T2 (s after the OK).
-  MS7  SHARED campaign, stage 1: the host aborts with nobody on an END_POINT tile ("0 Units in Target Exit"; both
+  MS7  SHARED campaign, stage 1: the host aborts and the partner votes YES (R4-L1) with nobody on an END_POINT tile
+       ("0 Units in Target Exit"; both
        soldiers in the craft) -> loseGame. Polled until SCOPE_T2. Cells: ending_state ending END_LOSE and statistics
        on both; no DebriefingState at any poll; a SlideshowState on both; the partner applies `battle_end` hash-clean;
        the partner alive, no new crash file; the partner's battle scope reset (MS6's two cells).
@@ -342,10 +344,19 @@ def abort_ok(host, client, rid, ctx):
     if NO_EXIT not in texts:
         g.append(f"AbortMissionState texts {texts} (want {NO_EXIT!r}: nobody on an exit)")
         return g
-    ctx["t_ok"] = time.time()
     d = host.cmd({"cmd": "dismiss_popup"})
     if d.get("handled") != "AbortMissionState":
         g.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
+        return g
+    try:
+        session.abort_vote_yes(host, client)
+    except Exception as e:
+        g.append(str(e))
+        return g
+    ok, secs = wait_until(lambda: (event_state(host).get("abortVote") or {}).get("applies") == 1, 10, 0.1)
+    if not ok:
+        g.append(f"the host's abortVote.applies never reached 1 within {secs}s of the partner's YES")
+    ctx["t_ok"] = time.time()
     return g
 
 

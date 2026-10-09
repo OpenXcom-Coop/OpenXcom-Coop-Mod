@@ -6,6 +6,9 @@ WHAT WAS BROKEN (evidence F1/F2 of DESIGN-SESSION-2026-09-02-evidence.md).
 On a co-op CLIENT, all of these ran locally with nothing on the wire:
   * ABORT MISSION      -> AbortMissionState, ungated on either machine; the
                           strict-majority VOTE legacy used is an r4 T3 stub.
+                          (R4-L1 S-A, owner D231: either player's press now
+                          opens vanilla's dialog and its OK asks a unanimous
+                          vote - row (1) below.)
   * mid-battle INVENTORY -> a full re-equip of any unit, writing `items`.
                           (W2-P8 S-A, owner D130: the client now opens its
                           OWN soldiers' inventory and every placement is an
@@ -79,7 +82,8 @@ COOP_SEAT_1 = 1
 # bin/common/Language/en-US.yml, VERBATIM. Exact text, never non-emptiness
 # (SS1 WAVE-1 ADDITIONS / WV-D17: a raw STR_ key here means the deployed
 # bin/x64/Release/common/Language copy is stale relative to bin/common/).
-TXT_ABORT = "Only the host can abort the mission"
+TXT_ABORT = "Only the host can abort the mission"   # RETIRED by R4-L1 S-A (D231 vote): row (1)
+# names it only in its failure messages - the client's press now opens vanilla's abort dialog
 TXT_INVENTORY = "Only the host can open the inventory"   # RETIRED by W2-P8 S-A (Q10 a): row (2)
 # names it only in its failure message - the client now opens its own soldier's inventory
 TXT_ZERO_TU = "Only the host can expend a soldier's time units"
@@ -269,15 +273,30 @@ def main():
             print(f"  PASS {label}: {got!r}, no effect, all buckets EQUAL")
 
         # (1) ABORT --------------------------------------------------------
-        def abort_effect():
-            assert "AbortMissionState" not in states(client), (
-                "the client opened the abort dialog - AbortMissionState ends in "
-                f"setAborted() + finishBattle(): {states(client)}")
-
-        client_press_check(
-            "abort",
-            lambda: client.ok({"cmd": "battle_ui_press", "control": "abort"}),
-            TXT_ABORT, abort_effect)
+        # R4-L1 S-A (owner design-D8, D231, D244; chain rule A.10): no longer
+        # refused. The client's press opens vanilla's AbortMissionState (its
+        # counts read through the read-only donor, R2-M7; its OK asks the abort
+        # vote, test_r4_abort_vote.py), ESC closes it, and opening and closing
+        # it write nothing hashed (ALL BUCKETS EQUAL while it is open and after
+        # the ESC - the MINT-PROOF). No refusal banner.
+        client.ok({"cmd": "battle_ui_press", "control": "abort"})
+        time.sleep(0.6)
+        got = banner(client)
+        assert "AbortMissionState" in states(client), (
+            f"abort: the client's press did not open the abort dialog (banner {got!r}; "
+            f"the retired host-only refusal is {TXT_ABORT!r}): {states(client)}")
+        assert got != TXT_ABORT, f"abort: client banner {got!r} (the retired host-only refusal)"
+        session.assert_hash_clean(
+            host, client, full=True,
+            what="with the client's abort dialog open (MINT-PROOF)")
+        client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
+        client.wait_for("client abort dialog closed by ESC",
+                        lambda: ("AbortMissionState" not in states(client)) or None,
+                        timeout=15)
+        session.assert_hash_clean(
+            host, client, full=True,
+            what="after the client closed its abort dialog (MINT-PROOF)")
+        print("  PASS abort: the client's dialog opened and ESC closed it, all buckets EQUAL")
 
         # (2) MID-BATTLE INVENTORY ----------------------------------------
         # W2-P8 S-A (owner D130; spec rewrite/prompts/w2p8_inventory.md, plan
@@ -287,7 +306,7 @@ def main():
         # state is InventoryState, inventory_view names c_unit, and opening and
         # closing the screen write nothing hashed (ALL BUCKETS EQUAL while it is
         # open and after battle_close_inventory - the MINT-PROOF). No banner
-        # assertion: the banner keeps (1)'s TXT_ABORT, and (3) still sees its own
+        # assertion: the banner stays '' after (1) (R4-L1: no refusal), and (3) sees its own
         # text change. `inventory_move` is deliberately NOT used anywhere here:
         # it is a dead "rewrite-pending" stub, so any assertion through it is
         # vacuous.

@@ -758,6 +758,11 @@ bool coopFatalVoteHolds(const char* held = nullptr);
 /// deciding (busyOwnerSeat names it), or 0 when none is (the covered driver stands still on >= 0).
 int coopFatalVoteOpen();
 
+/// R4-L1 S-A (docs rewrite/prompts/r4l1_abort_vote.md P0; owner design-D8, D231, D244): TEST-ONLY - the abort vote's
+/// probe record (TestServer event_state `abortVote`, both machines). Session-lifetime and zero-valued until the vote
+/// writes it; cleared only by initBattleAuthority(). Never read by game logic, never on the wire. Body: connectionTCP.cpp.
+Json::Value coopAbortVoteProbe();
+
 /// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f): the
 /// THIN completion/abort hook UnitTurnBState::think() calls, once, at
 /// whichever branch actually pops its own state - never per 45-degree tick

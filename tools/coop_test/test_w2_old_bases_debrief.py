@@ -10,7 +10,7 @@ mirror, and the window offers the partner's base too (owner D201 = b).
 One boot, one row (spec rewrite/prompts/w2h8_old_bases.md (f)):
 
   Boot G  D2  a SEPARATE guest battle with HostBase2 built before the mission;
-              the host aborts, reaches its debriefing, opens page 3 (LOOT),
+              the host aborts (the guest votes YES, R4-L1), reaches its debriefing, opens page 3 (LOOT),
               TRANSFER, Cancel, then OK back to the geoscape. The base list is
               read at the three points (TransferBaseState, after Cancel, the
               geoscape) and the window's destination rows are read.
@@ -135,6 +135,10 @@ def row_d2(host, client):
                host, client, timeout=30)
     r = host.cmd({"cmd": "dismiss_popup"})
     precondition(r.get("handled") == "AbortMissionState", "abort confirm -> %s" % r, host, client)
+    try:  # R4-L1 (D231): the OK opened the abort vote; the guest's YES passes it
+        session.abort_vote_yes(host, client)
+    except Exception as e:
+        precondition(False, "abort vote: %s" % e, host, client)
     wait_top(host, "DebriefingState", host, client, timeout=120)
     hb = blist(host)
     precondition(hb == BASE0, "host bases at the debriefing %s != BASE0 %s" % (hb, BASE0), host, client)
