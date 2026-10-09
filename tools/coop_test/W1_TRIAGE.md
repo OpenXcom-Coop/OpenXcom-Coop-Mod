@@ -349,3 +349,33 @@ base-screen `inventory_move` / `inventory_unload` levers, and both files lose th
 |---|---|
 | `test_coop_peer_equip_screens.py` | run live since U6: the peer drags gear onto its own crew on the base equip screen, and the transferred soldier keeps its full loadout on both equip screens at its own base and at the peer base; the SEPARATE coopItems manifest asserts are deleted (D241 (a)) |
 | `test_unload_weapon_crash.py` | run live since U6: `inventory_unload` presses the base equip screen's UNLOAD on a loaded firearm at the host's base, the client's base and the client's base after a transfer, and the process stays alive |
+
+## Dispositions (R5-U9, post-Wave-2)
+
+Recorded by R5-U9 (docs `rewrite/prompts/r5u9_pvp_gm3_fixture.md`, owner D229 (a) + gate, D250). Every quarantined PvP file has an
+owner. "Covered" files stay SKIP-PENDING and are not edited here; RV-U5 deletes them once the named tests are green at its tip (D229).
+`test_pvp_skirmish_gamemode_selection.py` runs live from R5-U9 on.
+
+| test | disposition |
+|---|---|
+| `test_pvp_skirmish_gamemode_selection.py` | run live since R5-U9 (guard removed): lobby team -> gamemode 2 / 4 / 3 / 1 and both machines' team labels |
+| `test_pvp_skirmish_turn_control.py` | covered (RV-U5 deletes): which seat commands which side and a walk reaching both machines - gm2 by `test_rw_faction_setup.py` test_pvp_gm2, `repro_atom_side_begin.py` run_gm2 and `test_w2_client_pvp.py` C25 leg W; gm3 by `test_r5_pvp_gm3.py` G1, G2, G4. Its coopTurn / activeSync reads are rewrite stubs |
+| `test_pvp_skirmish_end_turn.py` | covered (RV-U5 deletes): END TURN hands the side over - gm2 by `repro_atom_side_begin.py` run_gm2; gm3 by `test_r5_pvp_gm3.py` G3 |
+| `test_pvp_skirmish_win_lose.py` | covered (RV-U5 deletes): the four PvP endings carry the right per-seat verdict in the battleEnd record (its pvpWin has no writer) - gm2 aliens down `test_w2_battle_end_rules.py` E6; gm2 X-COM down `test_r5_pvp_rejoin.py` RX; gm3 X-COM down `test_r5_pvp_gm3.py` G5; gm3 aliens down `test_r5_pvp_gm3.py` H1 |
+| `test_pvp_skirmish_rejoin.py` | covered (RV-U5 deletes): a gm2 alien player's drop and rejoin keeps gamemode, seat and command - `test_r5_pvp_rejoin.py` R1-R4 |
+| `test_pvp_skirmish_psi.py` | owned by R5-U3 (PvP mind control re-pointed to one canonical faction) |
+| `test_pvp_skirmish_census.py` | owned by R5-U3 (one grenade / launch row through the intent path) |
+| `test_coop_pvp_blaster.py` | owned by R5-U3 (the alien seat's blaster through a launch intent, D234 a) |
+| `test_pvp_skirmish_abort.py` | owned by R4-L1 (covered by `test_w2_battle_end_rules.py` E6b; QL1-14 a) |
+| `test_pvp_dogfight.py` | owned by D250-U (PvP campaigns green before the merge, D250); converts its class-P press (R-U7d-1) |
+| `test_pvp_duplicate_bases.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
+| `test_pvp_campaign_battle.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
+| `test_pvp_campaign_bringup.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
+| `test_pvp_campaign_geoscape.py` | owned by D250-U; reaches the pvp_fixture.start_pvp_campaign press D250-U converts (R-U7d-1) |
+| `test_pvp_campaign_month.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
+| `test_pvp_campaign_reconnect.py` | owned by D250-U; converts its two class-P presses (R-U7d-1) |
+| `test_pvp_campaign_resume.py` | owned by D250-U; reaches the pvp_fixture.start_pvp_campaign press (R-U7d-1) |
+| `test_pvp_campaign_ufo_spawn.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
+| `test_campaign_then_skirmish_debrief.py` | owned by RV-U5 (lifecycle: the skirmish debrief after a campaign returns to the main menu) |
+
+`test_skirmish_debrief_disconnect.py` (tag r4 T6) also boots a gm2 battle through pvp_fixture; its row is in "Dispositions (W2-P7 S-B2, wave 2)".
