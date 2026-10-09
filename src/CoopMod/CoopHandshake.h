@@ -428,6 +428,14 @@ void onReady(Game* game, const Json::Value& ready);
 /// disconnect cannot leak into the next session.
 void resetPendingState();
 
+/// coop W2-H24 S-B (QH24-3 (a), F9980): the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
+/// thread) calls latchFreshStartLostUdp() before its own clearNetworkSessionQueues() resets the authority and the pending
+/// offer; it records whether a FRESH co-op battle start (not a stage-2 offer) was in flight on the host.
+void latchFreshStartLostUdp();
+
+/// coop W2-H24 S-B: connectionTCP::disconnectTCP() (main thread) reads and clears that record, once per call.
+bool consumeFreshStartLostUdp();
+
 /// R2-P11 (RB-D26): test-only, one-shot corrupt-next-blob lever. HOST: sets a
 /// flag offerBattle() checks (and clears) right after it computes blobSha -
 /// flips byte 0 of the persisted coopFilesHost["battlehost"] blob AFTER that

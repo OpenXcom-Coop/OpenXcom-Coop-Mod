@@ -22,6 +22,8 @@
 // coopBattleAuthority()/isCoopBattle() for the mid-Active-battle peer-leave
 // gate - the same reason connectionTCP.cpp includes this header directly.
 #include "../BattleAuthority.h"
+// coop W2-H24 S-B (QH24-3 (a)): handleUdpRemotePeerLost() records a fresh battle start before its reset.
+#include "../CoopHandshake.h"
 
 #include <array>
 #include <atomic>
@@ -360,6 +362,15 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
 		// Give the old UDP socket time to close before opening a new one
 		// with the same local UDP port during relist.
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        // coop W2-H24 S-B (D259 (a), F10560): the host gave up its role in that second - a failed co-op skirmish start
+        // unwound to the main menu, whose init ended the session (MainMenuState::init: setServerOwner(false),
+        // disconnectTCP(true), resetSession()). The session is over: relist nothing (no re-host behind the main menu).
+        if (!connectionTCP::getServerOwner())
+        {
+            std::lock_guard<std::mutex> lock(g_relistMutex);
+            g_relistInProgress = false;
+            return;
+        }
         // The old full room/session cannot be listed again. Close it if it still
         // exists, then create a fresh listed room with a fresh rendezvous token.
         closeListedRoomNow();
@@ -656,6 +667,10 @@ void handleUdpRemotePeerLost()
                 coopBattleAuthority().peerLeftByChoice = true;
         }
     }
+    // coop W2-H24 S-B (QH24-3 (a), F9980): record a fresh co-op battle start in flight before the clear below resets
+    // it, so the main thread's disconnectTCP() still unwinds it as a failed start (the TCP path reads it before its reset).
+    if (connectionTCP::getServerOwner() && onConnect != -1)
+        CoopHandshake::latchFreshStartLostUdp();
     clearNetworkSessionQueues(!sparePeerAbsentUdp);
     if (sparePeerAbsentUdp)
     {
