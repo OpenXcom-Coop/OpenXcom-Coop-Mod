@@ -45,7 +45,8 @@ VoteMenu::VoteMenu(
 	  _finished(false),
 	  _locallyTimedOut(false),
 	  _deadlineTicks(SDL_GetTicks() + remainingMilliseconds),
-	  _lastDisplayedSeconds(-1)
+	  _lastDisplayedSeconds(-1),
+	  _noDeadline(remainingMilliseconds == VoteSession::NO_DEADLINE_MS)
 {
 	// The host sends a name snapshot together with vote_start. Copy it once so
 	// later save swaps or lobby teardown cannot turn the rows back into generic
@@ -142,7 +143,7 @@ void VoteMenu::think()
 {
 	State::think();
 
-	if (_finished)
+	if (_finished || _noDeadline) // R4-L1 (D231): no countdown, no local timeout
 	{
 		return;
 	}
@@ -272,14 +273,14 @@ void VoteMenu::refreshStatus()
 		_txtStatus->setText(
 			"VOTE SENT - YES: " + std::to_string(yesVotes) +
 			"  NO: " + std::to_string(noVotes) +
-			"  TIME: " + std::to_string(seconds) + "s");
+			(_noDeadline ? std::string() : "  TIME: " + std::to_string(seconds) + "s")); // R4-L1 (D231)
 	}
 	else
 	{
 		_txtStatus->setText(
 			"CAST VOTE - YES: " + std::to_string(yesVotes) +
 			"  NO: " + std::to_string(noVotes) +
-			"  TIME: " + std::to_string(seconds) + "s");
+			(_noDeadline ? std::string() : "  TIME: " + std::to_string(seconds) + "s")); // R4-L1 (D231)
 	}
 }
 
@@ -348,7 +349,7 @@ void VoteMenu::setVotes(const std::vector<int> &votes)
 
 void VoteMenu::setRemainingMilliseconds(std::uint32_t remainingMilliseconds)
 {
-	if (_finished)
+	if (_finished || _noDeadline) // R4-L1 (D231, F10404): the abort vote's 0 is no deadline, not a timeout
 	{
 		return;
 	}

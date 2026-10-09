@@ -87,11 +87,8 @@ namespace CoopBattleUi
  */
 enum class Control
 {
-	/// BattlescapeState::btnAbortClick -> AbortMissionState. Aborting is a
-	/// BATTLE-WIDE, host-authoritative decision (it ends in setAborted() +
-	/// finishBattle()); the multiplayer VOTE that used to arbitrate it is r4
-	/// T3, so until then only the simulating machine may open the dialog.
-	Abort,
+	// R4-L1 S-A (design-D8, D231; QL1-10 (a)): the ABORT value is RETIRED - either player opens vanilla's abort
+	// dialog and its OK asks the unanimous abort vote (coopAbortVoteRequest(), CoopArbiter.h).
 	// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 1,
 	// Q10 = (a)): the INVENTORY value is RETIRED - every player opens the
 	// inventory of the soldiers its seat commands and each placement is an
@@ -150,7 +147,7 @@ enum class Control
 ///      must also command it. Failing it shows SS2.6's existing
 ///      STR_COOP_DENY_NOT_YOUR_UNIT (same reason, same words as the wire deny;
 ///      no duplicate key is minted for it).
-/// @a u may be null for the side-level controls (Abort, QuickLoad), which skip
+/// @a u may be null for the side-level controls (QuickLoad), which skip
 /// term 2 entirely.
 ///
 /// SELF-GUARDED, exactly like isCoopBattle()/coopMayCommand(): outside an

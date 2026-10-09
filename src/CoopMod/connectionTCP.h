@@ -305,6 +305,7 @@ enum class VoteDecision
  *
  * Votes are indexed by the co-op seat id. A strict majority is required:
  * 2/3 players, 3/4 players, 3/5 players, and so on.
+ * R4-L1 (D231, D244): the abort action (isAbortAction) is the exception - unanimous, no deadline, no countdown.
  */
 class VoteSession
 {
@@ -330,6 +331,8 @@ public:
 	// The host owns the real deadline. Clients receive the remaining duration
 	// and keep a local display deadline; vote_result remains authoritative.
 	static constexpr std::uint32_t DEFAULT_TIMEOUT_MS = 30000;
+	static constexpr std::uint32_t NO_DEADLINE_MS = 0xFFFFFFFFu; // R4-L1: VoteMenu's "no countdown" value
+	static bool isAbortAction(const std::string &a) { return a == "abandon_mission"; } // R4-L1 (D231, D244)
 	std::uint32_t deadlineTicks = 0;
 	bool noDeadline = false; // R4-L1 (D231): an abort vote has no deadline and no countdown (set by start(), R4-L1 S-A 2)
 
@@ -370,6 +373,9 @@ public:
 		question = voteQuestion;
 		totalPlayers = std::max(1, playerCount);
 		requiredYesVotes = (totalPlayers / 2) + 1;
+		noDeadline = isAbortAction(voteAction); // R4-L1 (D231): the abort vote is unanimous, with no deadline
+		if (noDeadline)
+			requiredYesVotes = totalPlayers;
 		starterSeat = starter;
 		votes.assign(static_cast<std::size_t>(totalPlayers), NOT_VOTED);
 		playerNames.assign(static_cast<std::size_t>(totalPlayers), std::string());
@@ -378,7 +384,7 @@ public:
 		{
 			playerNames[i] = seatNames[i];
 		}
-		deadlineTicks = SDL_GetTicks() + std::max<std::uint32_t>(1, timeoutMs);
+		deadlineTicks = noDeadline ? 0 : SDL_GetTicks() + std::max<std::uint32_t>(1, timeoutMs);
 
 		// Starting a vote is itself a YES vote. This lets any player request
 		// the action without having to confirm it twice.
@@ -435,11 +441,15 @@ public:
 
 	bool timedOut(std::uint32_t nowTicks = SDL_GetTicks()) const
 	{
-		return active && remainingMilliseconds(nowTicks) == 0;
+		return active && !noDeadline && remainingMilliseconds(nowTicks) == 0;
 	}
 
 	void setRemainingMilliseconds(std::uint32_t remainingMs)
 	{
+		if (noDeadline)
+		{
+			return; // R4-L1 (D231): the abort vote keeps no deadline
+		}
 		deadlineTicks = SDL_GetTicks() + std::max<std::uint32_t>(1, remainingMs);
 	}
 
@@ -509,7 +519,7 @@ class connectionTCP
 	void openVoteMenu();
 	void updateVoteMenu();
 	bool beginVoteAsHost(const std::string& action, const std::string& title,
-		const std::string& question, int starterSeat);
+		const std::string& question, int starterSeat, bool abortOpen = false);
 	std::uint32_t voteStarterCooldownRemainingMs(int seat,
 		std::uint32_t nowTicks = SDL_GetTicks()) const;
 	void beginVoteStarterCooldown(int seat);
@@ -521,6 +531,7 @@ class connectionTCP
 	void evaluateVote();
 	void finishVote(bool passed);
 	void executeVoteAction(const std::string& action);
+	void abortVotePump(bool quiescent); // R4-L1 S-A (P6): updateCoopTask() only
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
 

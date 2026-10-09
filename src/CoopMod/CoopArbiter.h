@@ -36,6 +36,7 @@ class Game;             // W2-P8 S-C2.2: the covered-battle driver's parameter
 class SavedBattleGame;
 class RuleSkill; // W2-P4 S-E2: coopInterceptSkillUse()
 struct BattleAction;
+struct BattlescapeTally; // R4-L1 S-A: coopAbortDialogTally()'s result (BattlescapeGame.h)
 class Inventory;        // W2-P8 S-A.2: the inventory execution-point guards
 class BattlescapeButton; // W2-P8b S-A.2: the pre-battle OK button (the ready toggle)
 class BattleItem;
@@ -762,6 +763,22 @@ int coopFatalVoteOpen();
 /// probe record (TestServer event_state `abortVote`, both machines). Session-lifetime and zero-valued until the vote
 /// writes it; cleared only by initBattleAuthority(). Never read by game logic, never on the wire. Body: connectionTCP.cpp.
 Json::Value coopAbortVoteProbe();
+
+/// R4-L1 S-A (docs rewrite/prompts/r4l1_abort_vote.md P3 / P4; R2-M7): AbortMissionState's unit count. A co-op CLIENT
+/// counts through the read-only donor (its dialog is display-only: no tallyUnits(); the probe's dialogDonor); every
+/// other machine runs vanilla's tallyUnits(). Body: connectionTCP.cpp.
+BattlescapeTally coopAbortDialogTally(SavedBattleGame* save);
+
+/// R4-L1 S-A (P3 / P4; owner design-D8, D231, D244; r5-T10): AbortMissionState's OK, after its own popState. FALSE in
+/// single player, outside a co-op battle and in a preview (vanilla aborts). TRUE in a co-op battle: this machine asks
+/// the unanimous abort vote (#87's vote, action "abandon_mission") and aborts nothing itself; the host's pump applies a
+/// passed vote at quiescence (vanilla's setAborted + finishBattle).
+bool coopAbortVoteRequest(Game* game, SavedBattleGame* save);
+
+/// R4-L1 S-A (P4; QL1-4, VL-L1-2): HOST - TRUE while an abort vote is armed, open, passed, or failed with the host's
+/// vote screen still on top (the END TURN commit waits). @a held "commit" is counted in the probe's heldCommits;
+/// nullptr asks.
+bool coopAbortVoteHolds(const char* held = nullptr);
 
 /// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104/:116/:142 @911ca487f): the
 /// THIN completion/abort hook UnitTurnBState::think() calls, once, at

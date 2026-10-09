@@ -1650,16 +1650,6 @@ void BattlescapeState::btnAbortClick(Action *)
 		}
 	}
 
-	// W1-P5 (ruling D8 = WV-D14, evidence F1): ABORT MISSION ends in
-	// setAborted() + finishBattle() - a battle-wide, host-authoritative
-	// decision. The multiplayer VOTE that used to arbitrate it is r4 T3
-	// (executeVoteAction("abandon_mission") is still a logging stub), so until
-	// then a client may not even open the dialog. One guarded coop call.
-	if (CoopBattleUi::refuseControl(CoopBattleUi::Control::Abort, nullptr, _save))
-	{
-		return;
-	}
-
 	if (allowButtons())
 		_game->pushState(new AbortMissionState(_save, this));
 }
