@@ -98,6 +98,11 @@ private:
 	// this - NOT the replica's own local minimize - gates whether the world clock runs,
 	// so host and replica agree regardless of a replica's per-machine minimize choice.
 	bool _dfHostAnyOpen = true;
+	// coop W2-H24 S-C1 (D260 (b)): the index (SavedGame::getBases()) of the base whose co-op base defense waits for the
+	// partner after its start failed on a lost partner; -1 = none. think() starts it again once RESUME made this the top state.
+	int _coopRearmBase = -1;
+	/// coop W2-H24 S-C1: starts the waiting base defense again (host, partner back, no battle in flight).
+	void coopStartRearmedBaseDefense();
 	/// HOST: emit df_open on a membership change + one df_state frame per tick.
 	void sharedBroadcastDogfights();
 	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
@@ -130,6 +135,9 @@ public:
 	~GeoscapeState();
 	// coop
 	void startCoopMission();
+	/// coop W2-H24 S-C1 (D260 (b)): the start of this host's co-op base defense failed on a lost partner - put back what
+	/// it took from the base and wait for the partner (think() starts it again); returns the battle marks cleared.
+	int coopRearmBaseDefense();
 	/// Handle keypresses.
 	void handle(Action *action) override;
 	/// Updates the palette and timer.
