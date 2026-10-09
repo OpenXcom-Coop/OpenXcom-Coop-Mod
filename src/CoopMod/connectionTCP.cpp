@@ -28864,6 +28864,28 @@ void onAccept(Game* game, const Json::Value& accept)
 		<< ", researchUnknown=" << (researchStored ? coopSeatResearchUnknown(researchSeat) : 0);
 }
 
+// coop W2-H24 S-C2 (D261): a co-op CAMPAIGN base defense whose battle file the partner's game refused (onRefuse()), or
+// whose partner copy the host refused (onReady()'s saveBlob mismatch), ends the session ("disband the lobby") instead of
+// the unwind: the host's screens unwind as for any failed start, the battle and the authority are dropped, and the
+// release line's "ERROR: Out Of Sync" dialog (CoopState 999) goes up over the world map. Its constructor closes the
+// connection, so the partner gets "Server connection lost" (CoopState 21); each OK goes to the main menu
+// (GoToMainMenuState drops the world). Nothing of the world is restored. Returns false for every other start.
+static bool coopEndSessionOnRefusedBaseDefense(Game* game, const char* why)
+{
+	SavedGame* save = game->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!battle || save->getMonthsPassed() == -1 || battle->getMissionType() != "STR_BASE_DEFENSE")
+		return false;
+
+	coopUnwindToSafeState(game);
+	save->setBattleGame(0);
+	resetBattleAuthority();
+	g_pendingHost = PendingHost();
+	Log(LOG_WARNING) << "[coop-handshake] W2-H24: failed battle start (" << why << ") - a refused base defense ends the session";
+	game->pushState(new CoopState(999));
+	return true;
+}
+
 void onRefuse(Game* game, const Json::Value& refuse)
 {
 	if (!game || !connectionTCP::getServerOwner())
@@ -28901,7 +28923,8 @@ void onRefuse(Game* game, const Json::Value& refuse)
 	// pushed BriefingState unconditionally (see CoopHandshake.h's top doc
 	// comment), so the host may be sitting anywhere from BriefingState to
 	// mid-BattlescapeState by the time a refusal arrives.
-	coopUnwindFailedStart(game, "refused");
+	if (!coopEndSessionOnRefusedBaseDefense(game, "refused")) // coop W2-H24 S-C2 (D261)
+		coopUnwindFailedStart(game, "refused");
 }
 
 void onReady(Game* game, const Json::Value& ready)
@@ -28968,7 +28991,8 @@ void onReady(Game* game, const Json::Value& ready)
 			return;
 		}
 
-		coopUnwindFailedStart(game, "ready mismatch");
+		if (!coopEndSessionOnRefusedBaseDefense(game, "ready mismatch")) // coop W2-H24 S-C2 (D261)
+			coopUnwindFailedStart(game, "ready mismatch");
 		return;
 	}
 

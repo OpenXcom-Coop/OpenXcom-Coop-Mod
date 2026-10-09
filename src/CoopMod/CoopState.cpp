@@ -1374,7 +1374,8 @@ void CoopState::previous(Action *)
 	// be handed a solo game to carry on with. OK is an acknowledgement, and the
 	// acknowledgement is what takes the player out. (The teardown used to jump to
 	// the main menu on its own, wiping this message before it could be read.)
-	else if (global_state == 21)
+	// coop W2-H24 S-C2 (D261): "ERROR: Out Of Sync" over a refused co-op base defense ends the session the same way.
+	else if (global_state == 21 || global_state == 999)
 	{
 		_game->setState(new GoToMainMenuState(false));
 	}
