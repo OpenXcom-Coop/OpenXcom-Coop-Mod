@@ -14,9 +14,11 @@ craft shows the same message and starts nothing.
 
   H9-1  own landing blocked      client craft -> own site: refusal, craft home, no
                                  re-fire over 10 s of client clock, host untouched.
-  H9-2  the F2208 sequence       host holds its landing prompt; the client's own
-                                 craft arrives (refused); the host lands; the client
-                                 joins the host's battle from its geoscape.
+  H9-2  the F2208 sequence       the client's own craft arrives first (refused); then
+                                 the host's craft arrives and the host lands; the
+                                 client joins the host's battle from its geoscape.
+                                 (H23-VL1: the client's world stands still while the
+                                 host holds a popup, so the client flies first.)
   H9-6  own Cydonia blocked      client open_cydonia + confirm_cydonia: refusal,
                                  no BriefingState, craft untouched.
 
@@ -464,66 +466,37 @@ def row_h9_2():
         vacuity_guard(host, client, "H9-2")
         p0 = probe(client)
         check(p0 == (0, ""), "H9-2 probe baseline: client refused/last = %r, want (0, '')" % (p0,))
-        # 1) the host's craft arrives first; its prompt is HELD (d179 boot 2 steps).
+        # 1) both squads seated before any craft flies. H23-VL1: the client's world stands
+        #    still while the host holds a popup, so the client's craft flies first.
         hcid, _ = seat_three(host, "HOST")
         session.drain_host_coop_notice(host)
-        send_to_new_site(host, "HOST", hcid)
-        hpath = arrival_poll(host, "HOST", (client,))
-        check(hpath == "ConfirmLandingState",
-              "FIXTURE H9-2: host arrival reached %s, want its ConfirmLandingState" % hpath)
-        w1 = world(client)
-        log("H9-2 W1 (client, host prompt held): %s" % json.dumps(w1))
-        # 2) the client's own craft to its own site; never dismiss the host's prompt.
         ccid, _ = seat_three(client, "CLIENT")
+        w1 = world(client)
+        log("H9-2 W1 (client, before its craft leaves): %s" % json.dumps(w1))
+        # 2) the client's own craft to its own site; the host stays on its geoscape.
         send_to_new_site(client, "CLIENT", ccid)
         cpath = arrival_poll(client, "CLIENT", (host,))
-        check(session.has_state(host, "ConfirmLandingState"),
-              "FIXTURE H9-2: host prompt gone before the host landing: %s" % stack(host)[-3:])
 
         if cpath == "ConfirmLandingState":
-            # RED (commit 1): the client lands its own craft -> solo battle (F2201).
+            # RED (commit 1): the client lands its own craft -> solo battle (F2201). No host
+            # leg: the host's clock stands still while the client is off its geoscape.
             client.cmd({"cmd": "confirm_landing"})
             drive_solo_to_battlescape(client, "CLIENT")
             time.sleep(1.0)
             bs_c = client.cmd({"cmd": "battle_state"})
             es_c = client.cmd({"cmd": "event_state"})
             before = world(client)
-            log("RED-EVIDENCE H9-2 at host coop_mission_start: client inBattle=%s "
+            log("RED-EVIDENCE H9-2 after the client's own landing: client inBattle=%s "
                 "missionType=%s battleId=%s phase=%s; client funds/bases W1=%s/%s, "
                 "in its solo battle=%s/%s" % (
                     bs_c.get("inBattle"), bs_c.get("missionType"), es_c.get("battleId"),
                     es_c.get("phase"), w1["funds"], w1["ownBases"], before["funds"],
                     before["ownBases"]))
-            host.ok({"cmd": "coop_mission_start"})
-            host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"),
-                          timeout=60, interval=0.5)
-            host.cmd({"cmd": "close_briefing"})
-            both = session.drive_both_to_tactical(host, client)
-            time.sleep(5)
-            try:
-                client.wait_for("client phase Active",
-                                lambda: client.cmd({"cmd": "event_state"}).get("phase")
-                                == "Active" or None, timeout=30, interval=0.5)
-            except TimeoutError as e:
-                log("H9-2 RED: %s" % e)
-            es_c2 = client.cmd({"cmd": "event_state"})
-            after = world(client)
-            time.sleep(3)  # house log flush
-            brief = pushes(client, "BriefingState")
-            marker = log_count(client, F2201_MARKER)
-            named = (bs_c.get("inBattle") is True and es_c.get("battleId") == 0
-                     and brief == 2 and marker == 1)
-            log("RED-EVIDENCE H9-2 after the offer: drive_both_to_tactical=%s client phase=%s "
-                "battleId=%s; client BriefingState pushes=%d F2201-marker=%d; client funds "
-                "%s -> %s, own bases %s -> %s (F2207/F2208); as named=%s" % (
-                    both, es_c2.get("phase"), es_c2.get("battleId"), brief, marker,
-                    w1["funds"], after["funds"], w1["ownBases"], after["ownBases"], named))
-            raise RowFail("H9-2: the client was in its own battle when the host's offer "
-                          "arrived (inBattle=%s missionType=%s battleId=%s; BriefingState "
-                          "pushes %d; F2201 marker %d; funds %s -> %s)" % (
+            raise RowFail("H9-2: the client's own craft got the landing prompt and "
+                          "confirm_landing started its own battle (F2201; inBattle=%s "
+                          "missionType=%s battleId=%s; funds %s -> %s)" % (
                               bs_c.get("inBattle"), bs_c.get("missionType"),
-                              es_c.get("battleId"), brief, marker, w1["funds"],
-                              after["funds"]))
+                              es_c.get("battleId"), w1["funds"], before["funds"]))
 
         # GREEN (commit 2): refused; the client waits on its geoscape.
         check(cpath == "CraftErrorState", "H9-2: client arrival reached %s" % cpath)
@@ -539,6 +512,13 @@ def row_h9_2():
               % (ccid, json.dumps(w1), json.dumps(wc)))
         log("PASS H9-2 at the host's coop_mission_start: client on GeoscapeState, inBattle "
             "false, world == W1 except craft %d" % ccid)
+        # 3) the host's craft to its own site; its prompt is HELD until coop_mission_start.
+        send_to_new_site(host, "HOST", hcid)
+        hpath = arrival_poll(host, "HOST", (client,))
+        check(hpath == "ConfirmLandingState",
+              "FIXTURE H9-2: host arrival reached %s, want its ConfirmLandingState" % hpath)
+        check(session.has_state(host, "ConfirmLandingState"),
+              "FIXTURE H9-2: host prompt gone before the host landing: %s" % stack(host)[-3:])
         host.ok({"cmd": "coop_mission_start"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"),
                       timeout=60, interval=0.5)
