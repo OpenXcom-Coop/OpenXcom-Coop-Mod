@@ -1159,6 +1159,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		resp["starterSeat"] = vote.starterSeat;
 		resp["localSeat"] = connectionTCP::localSeat();
 		resp["remainingMs"] = Json::UInt(vote.remainingMilliseconds());
+		resp["noDeadline"] = vote.noDeadline; // R4-L1 (P8)
 		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
 		resp["votes"] = Json::arrayValue;
 		for (int value : vote.votes)
@@ -1275,10 +1276,11 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		}
 
 		VoteSession probe;
-		probe.start(1, "probe", "PROBE", "Probe?", players, names, starter);
+		probe.start(1, req.get("action", "probe").asString(), "PROBE", "Probe?", players, names, starter); // R4-L1 (P8)
 		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
 		resp["remainingMs"] = Json::UInt(probe.remainingMilliseconds());
 		resp["timedOutAtDeadline"] = probe.timedOut(probe.deadlineTicks);
+		resp["noDeadline"] = probe.noDeadline; // R4-L1 (P8)
 		resp["accepted"] = Json::arrayValue;
 		if (req.isMember("casts") && req["casts"].isArray())
 		{
@@ -7372,6 +7374,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// W2-P7 S-V-A.1 (AMENDMENT P7-5 section 4.2): the fatal-wounds vote's session-lifetime probe record
 			// (CoopArbiter.h), both machines; cleared only by initBattleAuthority(). S-V-A.1 exposes its zeros.
 			resp["fatalVote"] = coopFatalVoteProbe();
+			// R4-L1 S-A (P8): the abort vote's session-lifetime probe record (CoopArbiter.h), both machines; cleared only by
+			// initBattleAuthority(). Commit S-A 1 exposes its zeros.
+			resp["abortVote"] = coopAbortVoteProbe();
 		}
 		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
 		// order-feedback bookkeeping. `inFlight` null after a timeout is the

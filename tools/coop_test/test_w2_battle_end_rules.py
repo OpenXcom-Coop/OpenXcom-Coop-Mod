@@ -57,7 +57,7 @@ per boot); the Coop_TurnLimit_Test data mod is loaded on E4's boot only:
       battle_state.pvpWin (no writer, F1907).
   E6b PvP gm2 host abort (E6's boot; AMENDMENT P7-5 Q3 (a)). No staging; the
       host runs battle_action abort and confirms its AbortMissionState with
-      dismiss_popup (test_w2_battle_end.py end_e2, verbatim) ->
+      dismiss_popup (test_w2_battle_end.py end_e2, verbatim; R4-L1: + the alien player's YES) ->
       AbortMissionState::btnOkClick -> setAborted(true) + finishBattle(true,
       inExit). Expected record (E2's analog, pinned from the S-D2.1 R6
       capture): reason abort, aborted true, inExitArea 0, seat 0 abort and
@@ -464,9 +464,9 @@ def end_e6(host, client, ending):
 
 
 def end_e6b(host, client, ending):
-    """E6b ending (test_w2_battle_end.py end_e2, verbatim): the host's abort and
-    its confirm (AbortMissionState::btnOkClick -> setAborted(true) +
-    finishBattle(true, inExit)), on E6's gm2 boot."""
+    """E6b ending (test_w2_battle_end.py end_e2, verbatim): the host's abort, its
+    confirm and the alien player's YES (R4-L1: the confirm opens the abort vote; its
+    pass runs setAborted(true) + finishBattle(true, inExit)), on E6's gm2 boot."""
     try:
         host.ok({"cmd": "battle_action", "action": "abort"})
     except Exception as e:
@@ -477,6 +477,10 @@ def end_e6b(host, client, ending):
     d = host.cmd({"cmd": "dismiss_popup"})
     if d.get("handled") != "AbortMissionState":
         ending.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
+    try:
+        session.abort_vote_yes(host, client)
+    except Exception as e:
+        ending.append(str(e))
     return {"confirm": d}
 
 

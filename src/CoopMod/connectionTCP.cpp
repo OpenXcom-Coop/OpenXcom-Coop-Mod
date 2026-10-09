@@ -6097,6 +6097,43 @@ static void coopFatalVoteProbeReset()
 	g_fatalVoteProbe = fatalVoteProbeZeros();
 }
 
+// ----- R4-L1 S-A (docs rewrite/prompts/r4l1_abort_vote.md P0; owner design-D8, D231, D244): the abort vote's probe
+// record (CoopArbiter.h coopAbortVoteProbe(), TestServer event_state, both machines). TEST INTROSPECTION ONLY, never on
+// the wire; SESSION-LIFETIME: cleared only by coopAbortVoteProbeReset() (initBattleAuthority()). S-A 1 = zeros. -----
+static std::mutex g_abortVoteProbeMutex; // a leaf
+static Json::Value g_abortVoteProbe; // null until first use, then abortVoteProbeZeros()
+
+static Json::Value abortVoteProbeZeros()
+{
+	Json::Value r(Json::objectValue);
+	r["state"] = "Idle"; // Idle | Armed | Open | Passed | Applied | Failed
+	r["starterSeat"] = -1;
+	// counts: host (requests: both; dialogDonor, menuPopped: client)
+	for (const char* k : { "arms", "armsIgnored", "opens", "passes", "fails", "applies", "drops", "cancels",
+		"heldCommits", "waitPasses", "heldWhileFatal", "requests", "dialogDonor", "menuPopped" })
+		r[k] = 0;
+	r["dropReason"] = "";
+	for (const char* k : { "armedMs", "openedMs", "passedMs", "appliedMs", "actionIdAtPass" })
+		r[k] = 0u;
+	r["appliedInExit"] = -1; // host: vanilla's tallyUnits().inExit at the apply
+	r["quiescentAtApply"] = false;
+	return r;
+}
+
+Json::Value coopAbortVoteProbe()
+{
+	std::lock_guard<std::mutex> lock(g_abortVoteProbeMutex);
+	if (!g_abortVoteProbe.isObject())
+		g_abortVoteProbe = abortVoteProbeZeros();
+	return g_abortVoteProbe;
+}
+
+static void coopAbortVoteProbeReset()
+{
+	std::lock_guard<std::mutex> lock(g_abortVoteProbeMutex);
+	g_abortVoteProbe = abortVoteProbeZeros();
+}
+
 void initBattleAuthority(std::uint32_t battleId)
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -6114,6 +6151,8 @@ void initBattleAuthority(std::uint32_t battleId)
 	CoopDelta::battleEndRecordReset();
 	// W2-P7 S-V-A.1 (AMENDMENT P7-5 section 4.2): so is the fatal-wounds vote's probe record (session-lifetime).
 	coopFatalVoteProbeReset();
+	// R4-L1 S-A (P0): so is the abort vote's probe record (session-lifetime).
+	coopAbortVoteProbeReset();
 	// W2-P8 S-C1.1 (AMENDMENT P8-3a Q2 (a)): so are the inventory latch / force-close probes, never in
 	// resetBattleAuthority() (the client's battle_end teardown runs it before a test reads them, F2733).
 	CoopDelta::inventoryProbesReset();

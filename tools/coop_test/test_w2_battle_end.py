@@ -33,7 +33,7 @@ D156). Four rows, ONE boot each (one ending per boot):
       reason aliensDown, aborted false, inExitArea 7, verdict win for seats 0
       and 1, tally {liveAliens 0, liveSoldiers 7, inExit 0}.
   E2  T6, the host aborts. battle_action abort -> AbortMissionState ->
-      dismiss_popup (AbortMissionState::btnOkClick -> setAborted(true) +
+      dismiss_popup -> the partner's YES (R4-L1; the vote's pass runs setAborted(true) +
       finishBattle(true, inExit)). Expected record (T0-2, F1983): reason abort,
       aborted true, inExitArea 0, verdict abort for seats 0 and 1, tally
       {liveAliens 1, liveSoldiers 7, inExit 0}.
@@ -502,8 +502,9 @@ def stage_e2(host, client, pre):
 
 
 def end_e2(host, client, ending):
-    """E2 ending: the host's abort and its confirm (AbortMissionState::btnOkClick
-    -> setAborted(true) + finishBattle(true, inExit))."""
+    """E2 ending: the host's abort, its confirm and the partner's YES (R4-L1: the
+    confirm opens the abort vote; its pass runs setAborted(true) + finishBattle(true,
+    inExit)). A vote that never opens or never passes is an `ending` failure."""
     try:
         host.ok({"cmd": "battle_action", "action": "abort"})
     except Exception as e:
@@ -514,6 +515,10 @@ def end_e2(host, client, ending):
     d = host.cmd({"cmd": "dismiss_popup"})
     if d.get("handled") != "AbortMissionState":
         ending.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
+    try:
+        session.abort_vote_yes(host, client)
+    except Exception as e:
+        ending.append(str(e))
     return {"confirm": d}
 
 

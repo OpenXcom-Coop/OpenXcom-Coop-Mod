@@ -11,8 +11,8 @@ TWO boots, one per row, each shut down before the next:
        both machines: the END_POINT (13) tiles are the pinned EXIT_TILES_B (QA2; the exit area is END_POINT, never the
        craft's START_POINT, F9821). battle_teleport_unit (client soldiers first, each applied to the client, then
        the host) puts C1 (8) and the five host soldiers on EXIT_TARGETS_B; C2 (9) stays on its spawn, a START_POINT
-       tile. Hash clean. The host presses ABORT (battle_action abort) and confirms AbortMissionState (dismiss_popup ->
-       btnOkClick -> setAborted(true) + finishBattle(true, 6) -> vanilla's next-stage branch). Stage-entry cells as
+       tile. Hash clean. The host presses ABORT (battle_action abort), confirms AbortMissionState and the partner votes
+       YES (R4-L1; the pass runs setAborted(true) + finishBattle(true, 6) -> vanilla's next-stage branch). Entry cells as
        MS1: the client shows the stage-2 BriefingState within ENTRY_S of the host's confirm, its missionType is
        STR_MARS_THE_FINAL_ASSAULT, the client's `stage` record applied 1, the host's emitted 1 (read right after the
        confirm). Then the stage-2 spine (session.briefings_to_battlescape) and the green cells: the host's record
@@ -295,11 +295,20 @@ def ms2(host, client, ctx, crash0):
     ctx["abortDialog"] = texts
     if not r.get("ok") or not ok:
         g.append(f"host AbortMissionState not on top within {secs}s ({r}, stack {stack(host)})")
-    ctx["t_close"] = time.time()
     d = host.cmd({"cmd": "dismiss_popup"})
     if d.get("handled") != "AbortMissionState":
         g.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
-    ctx["hostStageAtClose"] = eview(host).get("stage")    # finishBattle ran inside dismiss_popup
+    # R4-L1 S-A (AMENDMENT R4-L1-1 section 4, chain rule A.10): the OK opens the abort vote; the partner's YES passes
+    # it and the host applies it at quiescence, so t_close and the two AtClose reads follow abortVote.applies 1.
+    try:
+        session.abort_vote_yes(host, client)
+        ok, secs = wait_until(lambda: (event_state(host).get("abortVote") or {}).get("applies") == 1, 10, 0.1)
+        if not ok:
+            g.append(f"the host's abortVote.applies never reached 1 within {secs}s of the partner's YES")
+    except Exception as e:
+        g.append(str(e))
+    ctx["t_close"] = time.time()
+    ctx["hostStageAtClose"] = eview(host).get("stage")    # finishBattle ran in the vote's apply
     ctx["hostRcAtClose"] = rc(host)
     if g:
         evidence("MS2", {"guards": g, "ctx": ctx})
