@@ -27114,15 +27114,16 @@ static void coopUnwindToSafeState(Game* game)
 }
 
 // coop W2-H24 (R2-m6 "refuse and tear down, not pause"; F5198, F5199): the starts whose failure W2-H24 unwinds on a lost
-// partner and whose world it restores - a campaign battle other than a base defense. A skirmish waits for D259 and a base
-// defense for OWNER? H24-1: both keep today's path (a skirmish has no world to keep; a base defense's stores stay as today).
+// partner and whose world it restores - a campaign battle other than a base defense - and, since S-B (D259 (a)), a skirmish,
+// whose world is not restored: a failed skirmish start lands on the main menu with the session ended, as a refused one does.
+// A campaign base defense keeps today's path until S-C (D260 (b), D261).
 static bool coopFailedStartInScope(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
 	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
 	// coop W2-H24 (R-H24-G-1): a stage-2 offer is not a fresh start; MG-A's follow-up owns its failure.
-	return !g_coopStageOfferPending && battle != nullptr && save->getMonthsPassed() != -1
-		&& battle->getMissionType() != "STR_BASE_DEFENSE";
+	return !g_coopStageOfferPending && battle != nullptr
+		&& (save->getMonthsPassed() == -1 || battle->getMissionType() != "STR_BASE_DEFENSE");
 }
 
 // coop W2-H24: the world half of a failed co-op battle start. The generator marked the battle's craft and target as in
@@ -27135,7 +27136,7 @@ static bool coopFailedStartInScope(Game* game)
 static int coopRestoreWorldAfterFailedStart(Game* game, int& home)
 {
 	home = 0;
-	if (!coopFailedStartInScope(game))
+	if (!coopFailedStartInScope(game) || game->getSavedGame()->getMonthsPassed() == -1) // S-B: a skirmish has no world to keep
 		return 0;
 	SavedGame* save = game->getSavedGame();
 	int marks = 0;
@@ -27197,6 +27198,24 @@ static bool coopHostFreshStartPending()
 	return connectionTCP::getServerOwner() && coopBattleAuthority().hostSim.load()
 		&& coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake
 		&& g_pendingHost.prepared && !g_pendingHost.resumed;
+}
+
+// coop W2-H24 S-B (QH24-3 (a), F9980): the UDP twin of the partner-loss read. handleUdpRemotePeerLost() (the UDP monitor
+// thread) resets the authority and the pending offer itself before the main thread's connectionTCP::disconnectTCP() runs,
+// so that read would find no start in flight. The UDP thread records the start here first; disconnectTCP() reads and
+// clears the record in every call, so it never outlives one teardown. A stage-2 offer is not recorded (R-H24-G-1): the
+// same reset clears g_coopStageOfferPending before the main thread could read it.
+static std::atomic<bool> g_coopFreshStartLostUdp{false};
+
+void latchFreshStartLostUdp()
+{
+	if (coopHostFreshStartPending() && !g_coopStageOfferPending)
+		g_coopFreshStartLostUdp.store(true);
+}
+
+bool consumeFreshStartLostUdp()
+{
+	return g_coopFreshStartLostUdp.exchange(false);
 }
 
 // ----- CLIENT pending state: set by onOffer() on accept, consumed by onBlobChunkAppended() -----
@@ -31559,8 +31578,20 @@ void connectionTCP::updateCoopTask()
 				Log(LOG_INFO) << "[coop] freeze dialog suppressed: the campaign "
 					"has ended; the peer has nothing left to reconnect for";
 			}
-			closeConnectingDialog();
-			_game->pushState(new CoopState(440));
+			// coop W2-H24 S-B (D259 (a)): the partner was lost on a failed send during a FRESH co-op skirmish start - it
+			// lands where a refused one lands: the unwind leaves the host on a fresh main menu, whose init ends the session.
+			// (CoopState(440) would pop the state under it - here that fresh main menu.)
+			if (CoopHandshake::coopHostFreshStartPending() && CoopHandshake::coopFailedStartInScope(_game))
+			{
+				CoopHandshake::coopUnwindFailedStart(_game, "partner lost");
+				connectionTCP::_coopGamemode = 0;
+				_game->getCoopMod()->disconnectTCP();
+			}
+			else
+			{
+				closeConnectingDialog();
+				_game->pushState(new CoopState(440));
+			}
 		}
 	}
 
@@ -39696,8 +39727,11 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// rejoin or a disk resume is not one). The start fails as a refused one does (after deleteAllCoopBases() below)
 		// instead of the wait dialog over a battle that never started, which no rejoin could resume (offerRejoinBattle()
 		// needs Active). Read here, before clearNetworkSessionQueues() resets the authority and the pending offer.
+		// coop W2-H24 S-B (QH24-3 (a), F9980): or the UDP monitor thread recorded the start before its own reset
+		// (handleUdpRemotePeerLost()); read and cleared in every call, so a record never outlives one teardown.
+		const bool startLostUdp = CoopHandshake::consumeFreshStartLostUdp();
 		const bool startLost = teardownAsHost && onConnect == -2
-			&& CoopHandshake::coopHostFreshStartPending() && CoopHandshake::coopFailedStartInScope(_game);
+			&& (CoopHandshake::coopHostFreshStartPending() || startLostUdp) && CoopHandshake::coopFailedStartInScope(_game);
 
 		// SPEC 16 (W1-P17) M4: a DELIBERATE client leave (isMain - the
 		// caller is already committed to the teardown, e.g.
@@ -39896,7 +39930,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 				}
 			}
 			else if (connectionTCP::session.lobbyClosed == true
-				&& !customBattleDebriefing)
+				&& !customBattleDebriefing
+				&& !startLost) // coop W2-H24 S-B (D259 (a)): a failed skirmish start lands on the main menu, the session ended
 			{
 				_game->pushState(new LobbyMenu);
 			}
