@@ -9,12 +9,18 @@ for <name>" over a briefing that can never start and a rejoin never reaches RESU
   C1-7 GUARD the site stays, C1-8 GUARD CRASH 0; C0-1 GUARD the start works, C0-2 GUARD the SPEC 16 pause, C0-3 GUARD CRASH 0; C2-1 RED
   UNWIND, C2-2 RED the host waits on the geoscape, C2-3 RED craft home, C2-4 RED MARKS 0, C2-5 RED the rejoin works (TASK 0 T0-2: the
   kill took the -2 path; today client2 gets the world but the host never reads resumeAck in 120 s), C2-6 GUARD CRASH 0.
+  Stage S-B (AMENDMENT H24-2 section 2, D259 (a); TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B1): boot C (key "48582",
+  w2h24_c_host / _client), row S1 a co-op SKIRMISH start that loses its partner: test_r4_handshake_teardown.drive_to_seated, the
+  client's hold_battle_ready, newbattle_ok, host Handshake + client held, client.kill(), observe W. Cells: S1-1 RED UNWIND, S1-2 RED
+  the host lands on a bare main menu with the session ended (as a refused skirmish start, D259 (a)), S1-3 RED no battle, S1-4 GUARD
+  CRASH 0. EVIDENCE names the loss path and the stale-heal line delta (recorded, never asserted, F5197).
 W = 15 s, POLL = 0.2 s. CAMP = r4l6 TASK 0 t0_2.py's head (session.bring_up_separate_guest_battle :2446-:2546 through the landing prompt,
 geoscape clock left at its speed). SKY = the host's geo_state entry of the craft. MARKS = host save_game, then the file's "inBattlescape:
 true" lines with their key paths. UNWIND = host log lines with "W2-H24: failed battle start (" since the row's baseline. CRASH =
 session._crash_log_snapshot() delta, read at the row's end in every case. A WAIT that times out (or a lever reply that is not ok) ends
 the row, its later cells "not reached". EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a
-failure; ONE run (WV-D95); exit 0 iff every cell passes, else 2. Red (commit 1): C1 FAIL C1-3..C1-6, C0 PASS, C2 FAIL C2-1..C2-5.
+failure; ONE run (WV-D95); exit 0 iff every cell passes, else 2. Red (S-A commit 1): C1 FAIL C1-3..C1-6, C0 PASS, C2 FAIL C2-1..C2-5.
+Red (S-B): C1, C0, C2 PASS; S1 FAIL S1-1..S1-3, S1-4 PASS.
 """
 import json
 import os
@@ -25,9 +31,11 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
+from test_r4_handshake_teardown import drive_to_seated  # noqa: E402
 
 W, POLL = 15.0, 0.2
-KEY_A, KEY_B = "48580", "48581"
+KEY_A, KEY_B, KEY_C = "48580", "48581", "48582"
+UNMARKED, STALE = "battle marks cleared=0, crafts sent home=0", "[exit] stale SavedGame reached the main menu"
 REFUSE, MISMATCH = "battle_refuse received (battleId=", "battle blob sha MISMATCH (battleId="
 CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "W2-H24: failed battle start ("
 REJOIN_GUARD, MARKED = "offerRejoinBattle() called while the battle is not ", "battle marks cleared=2, crafts sent home=1"
@@ -139,14 +147,15 @@ class Row:
             cap = {"stacks": {n: stack(gc) for n, gc in live}, "battle_state": {n: bstate(gc) for n, gc in live}, "MARKS": self.ctx.get("MARKS")}
             if x.host is not None:
                 hl = [ln.split("\t")[-1][:200] for ln in log(x.host) if "coop-handshake" in ln or "[coop]" in ln][-15:]
-                cap.update({"host get_coop": coop(x.host), "host coop_dialog_info": dlg(x.host), "SKY": sky(x.host, x.cid),
+                cap.update({"host get_coop": coop(x.host), "host coop_dialog_info": dlg(x.host), "SKY": sky(x.host, x.cid) if x.cid else None,
                             "UNWIND": since(x.host, self.ctx["n_h"], UNWIND), "HL": hl})
             print("CAPTURE %s: %s" % (self.rid, json.dumps(cap, sort_keys=True, default=str)), flush=True)
         results[self.rid] = not self.fails
         print(("PASS %s" % self.rid) if not self.fails else ("FAIL %s: %s" % (self.rid, " ".join(self.fails))), flush=True)
 
     def boot_miss(self, results, walls):
-        print("EVIDENCE %s boot: %s\nFAIL %s boot: CAMP did not reach the landing prompt" % (self.rid, self.x.err, self.rid), flush=True)
+        print("EVIDENCE %s boot: %s\nFAIL %s boot: the boot did not reach the row's start (CAMP: the landing prompt; boot C: BATTLE "
+              "SETTINGS seated)" % (self.rid, self.x.err, self.rid), flush=True)
         self.fails.append("boot")
         self.end(None, results, walls)
 
@@ -201,12 +210,16 @@ def camp(x, key):
     assert force_to_site(x).get("ok"), "craft_force failed"
     host.wait_for("host landing prompt", landing_prompt(host), timeout=120, interval=0.5)
 
-def boot(tag, key):
+def seated(x, key):
+    """boot C (S-B): R4-L6's skirmish drive - lobby -> BATTLE SETTINGS with seat 1 holding soldiers 0 and 1"""
+    x.seated = drive_to_seated(x.host, x.client, key)
+
+def boot(tag, key, up=camp):
     x = SimpleNamespace(tag=tag, host=None, client=None, client2=None, err=None, cid=None, site=None, b0=None)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(tag + "_host")), GameClient("client", 2, make_user_dir(tag + "_client"))
         x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
-        camp(x, key)
+        up(x, key)
     except Exception as e:
         x.err = short(e, 600)
     return x
@@ -354,12 +367,49 @@ def row_c2(x, results, walls):
         r.stop(e)
     r.end("C2-6", results, walls)
 
+def row_s1(x, results, walls):
+    r = Row("S1", ["S1-1", "S1-2", "S1-3"], x)
+    if x.err:
+        return r.boot_miss(results, walls)
+    h, c = x.host, x.client
+    try:
+        lever(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
+        n_h = r.ctx["n_h"] = len(log(h))
+        lever(h, {"cmd": "newbattle_ok"})
+        wait("host phase Handshake and client held", lambda: bstate(h)["phase"] == "Handshake"
+             and q(c, {"cmd": "hold_battle_ready"}).get("held") is True, 30.0)
+        c.kill()
+        tk, polls = time.time(), []
+        first = dict(bstate(h), t=round(time.time() - tk, 2))
+        while time.time() - tk < W:
+            polls.append((round(time.time() - tk, 2), stack(h)))
+            time.sleep(POLL)
+        hs, hb, d, hc, has_save = stack(h), bstate(h), dlg(h), coop(h), q(h, {"cmd": "world_state"}).get("has_save")
+        unw, stale = since(h, n_h, UNWIND), since(h, n_h, STALE)
+        why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
+        path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
+                "UNWIND reason": why, "stale-heal lines (recorded, never asserted, F5197)": stale}
+        r.cell("S1-1", "RED", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-B1)' % UNMARKED,
+               len(unw) == 1 and bool(why) and UNMARKED in unw[0], {"UNWIND": unw, "path": path})
+        lobby = [t for t, st in polls if "LobbyMenu" in st]
+        r.cell("S1-2", "RED", "the host lands on a bare main menu, the session ended (D259 (a)): at W stack ['MainMenuState'], has_save "
+               "false, coopSession false, onConnect -1, no coop dialog, LobbyMenu on no poll (red today: [BriefingState, CoopState] 62, "
+               "T0-B1)", hs == ["MainMenuState"] and has_save is False and hc["coopSession"] is False and hc["onConnect"] == -1
+               and d.get("present") is False and bool(polls) and not lobby,
+               {"stack": hs, "has_save": has_save, "get_coop": hc, "dialog": d, "LobbyMenu polls s": lobby[:3], "stacks": changes(polls)})
+        r.cell("S1-3", "RED", "no battle: host phase Idle, inBattle false, battleId 0 (red today: inBattle true, T0-B1)",
+               hb["phase"] == "Idle" and hb["inBattle"] is False and hb["battleId"] == 0, hb)
+    except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
+        r.stop(e)
+    r.end("S1-4", results, walls)
+
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
-    for tag, key, rows in (("w2h24_a", KEY_A, (row_c1, row_c0)), ("w2h24_b", KEY_B, (row_c2,))):
+    for tag, key, rows, up in (("w2h24_a", KEY_A, (row_c1, row_c0), camp), ("w2h24_b", KEY_B, (row_c2,), camp),
+                               ("w2h24_c", KEY_C, (row_s1,), seated)):
         tb = time.time()
-        x = boot(tag, key)
-        walls[tag + " CAMP"] = round(time.time() - tb, 1)
+        x = boot(tag, key, up)
+        walls[tag + (" CAMP" if up is camp else " seated")] = round(time.time() - tb, 1)
         for row in rows:
             row(x, results, walls)
         for gc in (x.client2, x.client, x.host):  # each boot shut down before the next (kill() already reaped a killed client)
@@ -370,7 +420,7 @@ def main():
                 print("FAIL %s shutdown (%s): %s" % (tag, gc.name, short(e, 300)), flush=True)
                 failed.append("%s shutdown %s" % (tag, gc.name))
         walls[tag] = round(time.time() - tb, 1)
-    rows = ("C1", "C0", "C2")
+    rows = ("C1", "C0", "C2", "S1")
     failed += [rid for rid in rows if not results.get(rid)]
     print("\ntest_w2_failed_battle_start: %d/%d rows passed (fail=%s) walls %s in %.1fs" % (
         sum(1 for rid in rows if results.get(rid)), len(rows), failed, json.dumps(walls), time.time() - t0), flush=True)
