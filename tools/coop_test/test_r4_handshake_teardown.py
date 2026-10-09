@@ -11,10 +11,10 @@ LH1 (key 48561): the same drive; the client arms hold_blob_ack (it withholds its
 waits after chunk 1), the host presses OK, and the client is killed mid-stream. The host must abandon the stream and
 tear the battle down (phase Idle, peerAbsent false), not enter the leave pause.
 
-HELD cells (T7 (3)): HS1 H6 (where both machines land) waits on the owner's D259; LH1 L4 (the host's end screen)
-follows W2-H24's green (R2-m6, F5199). Each is a commented block below beside TASK 0's measured values, enabled by
-uncommenting its one `cells[...] =` line. Neither is asserted here; each prints a HELD line and today's values go in
-the row's EVIDENCE line.
+HELD cells: none since W2-H24 S-B (AMENDMENT H24-2 section 2). Both formerly held cells are asserted: HS1 H6 (where
+both machines land) at TASK 0 T0-1's values, the owner's D259 (a) (keep today's landing); LH1 L4 (the host's end
+screen) at the ruled end, R2-m6 (b) under D259 (a): the host on a bare main menu with the session ended, as a refused
+skirmish start (F5199; red until W2-H24 S-B's green).
 
 One EVIDENCE line per row, then one line per cell, then the row verdict. Every row runs after a failure. Exit 0 only
 when every written cell passes, else 2.
@@ -43,7 +43,7 @@ N_ABORT = "[coop] streamer: connection torn down mid-transfer, abandoning stream
 N_STALE = "[exit] stale SavedGame reached the main menu"  # HS1: EVIDENCE only, never asserted (F5197)
 HOST_NEEDLES = (N_LEVER, N_REFUSE, N_ACCEPT, N_ABORT, N_STALE)
 CLIENT_NEEDLES = (N_MISMATCH, N_CLIENT_ACTIVE)
-HELD = {"H6": "D259", "L4": "W2-H24"}  # T7 (3): cells held out of the file until their ruling / unit lands
+HELD = {}  # T7 (3): cells held out of the file until their ruling / unit lands (none since W2-H24 S-B)
 
 
 def log_hits(gc, names):
@@ -197,13 +197,8 @@ def row_hs1():
                        and ec["inBattle"] is False and eh["battleId"] == 0,
                        f"phase {eh['phase']}/{ec['phase']}, inBattle {eh['inBattle']}/{ec['inBattle']} (want Idle, "
                        f"False on both), host battleId {eh['battleId']} (want 0)")
-        # HELD on D259 (T7 (3); the owner's Q9: where both machines land after a refused skirmish start). H6 end screens.
-        # TASK 0 T0-1 (CONSTANTS.md, boot hs11, CPU 20.1): host stack ['MainMenuState'], world_state.has_save False,
-        # get_coop onConnect -1 / coopSession False (the session ended), the host's stale-SavedGame heal line +1;
-        # client stack [MainMenuState, NewBattleState, ServerList, LobbyMenu, CoopState], coop_dialog_info code 21
-        # "Server connection lost". If D259 rules (a) (keep today's), enable H6 by uncommenting the next line, which
-        # pins these values; any other ruling re-points it to that ruling's measured end state.
-        # cells["H6"] = (eh["stack"] == ["MainMenuState"] and eh["has_save"] is False and ec["dialog"] == 21, f"host {eh['stack']} has_save {eh['has_save']} / client dialog {ec['dialog']} (want T0-1: ['MainMenuState'] / False / 21)")
+        # H6 end screens: D259 (a) (keep today's landing), at R4-L6 TASK 0 T0-1's values (CONSTANTS.md); asserted since W2-H24 S-B.
+        cells["H6"] = (eh["stack"] == ["MainMenuState"] and eh["has_save"] is False and ec["dialog"] == 21, f"host {eh['stack']} has_save {eh['has_save']} / client dialog {ec['dialog']} (want T0-1: ['MainMenuState'] / False / 21)")
     except Exception as e:
         ev["error"] = f"{type(e).__name__}: {str(e)[:600]}"
     finally:
@@ -269,13 +264,20 @@ def row_lh1():
         cells["L3"] = (eh["phase"] == "Idle" and eh["peerAbsent"] is False and eh["battleId"] == 0,
                        f"host phase {eh['phase']} (want Idle), peerAbsent {eh['peerAbsent']} (want False), "
                        f"battleId {eh['battleId']} (want 0), {ev.get('idleAt')} s after the kill")
-        # HELD on W2-H24 (T7 (3); R2-m6 "refuse and tear down, not pause" = Q8 (b); F5199's repair is W2-H24's). L4 end
-        # screen. TASK 0 T0-6 (CONSTANTS.md, commit 1's lever build, CPU 8.5) and T0-3 measured today's F5199 shape, not
-        # the ruled one: host stack [BriefingState, CoopState], coop_dialog_info code 62 "Waiting for ClientPlayer to
-        # reconnect..." (RESUME hidden), inBattle True, has_save True, get_coop coopSession False. The ruled (b) end
-        # (spec (f) L4): no CoopState 62, inBattle False. Enable after W2-H24's green by uncommenting the next line,
-        # re-pointed to W2-H24's measured end state.
-        # cells["L4"] = (eh["dialog"] != 62 and eh["inBattle"] is False, f"host stack {eh['stack']} dialog {eh['dialog']} inBattle {eh['inBattle']} (want R2-m6 (b): no CoopState 62, inBattle False)")
+        # W2-H24 S-B (D259 (a); R2-m6 = Q8 (b), F5199): the host's start unwinds and lands where a refused skirmish start
+        # lands - a bare main menu, the session ended (no CoopState 62, no battle). Bounded wait: the main menu's init (the
+        # world drop and the session teardown) runs a frame after the unwind.
+        try:
+            host.wait_for("host on a bare main menu", lambda: (stack(host) == ["MainMenuState"]
+                          and host.cmd({"cmd": "world_state"}).get("has_save") is False) or None, timeout=15, interval=0.2)
+        except TimeoutError as e:
+            ev.setdefault("timeouts", []).append(str(e)[:300])
+        eh = snap(host)
+        ev["endL4"] = eh
+        cells["L4"] = (eh["stack"] == ["MainMenuState"] and eh["has_save"] is False and eh["dialog"] is None
+                       and eh["inBattle"] is False and eh["coopSession"] is False,
+                       f"host stack {eh['stack']} has_save {eh['has_save']} dialog {eh['dialog']} inBattle {eh['inBattle']} "
+                       f"coopSession {eh['coopSession']} (want D259 (a): ['MainMenuState'], False, None, False, False)")
     except Exception as e:
         ev["error"] = f"{type(e).__name__}: {str(e)[:600]}"
     finally:

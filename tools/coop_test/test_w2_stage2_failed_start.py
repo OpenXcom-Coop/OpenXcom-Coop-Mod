@@ -30,6 +30,15 @@ session._crash_log_snapshot() delta at the row's end. A failed S2X-1 ends the ro
 verdict; a failed row prints ONE CAPTURE line; WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every
 cell passes, else 2. Red (commit A, the unchanged build): FAIL S2X-2 and S2X-4; S2X-1, S2X-3, S2X-5 pass.
 
+Boot M (W2-H24 S-B, AMENDMENT H24-2 section 2, F10183; TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B3), lobby key KEY_M,
+w2h24x_s2m_host / _client: MS1's SKIRMISH route (test_w2_multistage.py boot_a + ms1_trigger, imported as-is), the client's
+hold_battle_ready armed before the trigger, then client.kill() in the stage-2 Handshake window; the host is observed for W. S-B
+widens the failed-start scope to skirmishes, so this guards that a SKIRMISH stage-2 offer stays out (G-2's marker).
+  S2M  S2M-1 GUARD stage-2 offer out (precondition): ms1_trigger guards [], host phase Handshake battleId 2, the client's
+       battle_ready held, host log +1 "stage hand-off - battle 1 -> 2 offered (stageOf)"; a failure ends the row.
+       S2M-2 GUARD no failed-start unwind: UNWIND lines in W after the kill = 0. S2M-3 GUARD CRASH 0.
+A guard row: S2X and S2M pass on S-B's red and green (exit 0).
+
 Run:  python tools/coop_test/test_w2_stage2_failed_start.py
 """
 import json
@@ -42,9 +51,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 import test_w2_multistage_campaign as ms5  # noqa: E402
+import test_w2_multistage as ms1  # noqa: E402
 from test_w2_multistage_end import stage_guards, kill_all, close_end_turn  # noqa: E402
 
-KEY = "48586"
+KEY, KEY_M = "48586", "48585"
 W, POLL = 15.0, 0.2
 UNWIND = "W2-H24: failed battle start ("
 HANDOFF, OFFER2 = "stage hand-off - battle 1 -> 2 offered (stageOf)", "battle_offer sent (battleId=2,"
@@ -201,33 +211,94 @@ def row_s2x(host, client, crash0, ctx):
     return not r.fails
 
 
-def main():
-    t0 = time.time()
-    host = GameClient("host", 1, make_user_dir("w2h24x_s2x_host"))
-    client = GameClient("client", 2, make_user_dir("w2h24x_s2x_client"))
-    crash0, ctx, ok, failed = session._crash_log_snapshot(), {}, False, []
+def row_s2m(host, client, crash0, ctx):
+    r = Row("S2M", ["S2M-1", "S2M-2"])
     try:
-        ms5.PORT_D = KEY  # boot D on this file's own lobby key (an in-process key linking the host to its client)
+        ctx["hold"] = q(client, {"cmd": "hold_battle_ready", "on": True})
+        n_h = len(log(host))
+        g = ms1.ms1_trigger(host, client, ctx)
+        t1, held, he = time.time(), None, {}
+        while time.time() - t1 < 30.0:
+            he, held = ev(host), q(client, {"cmd": "hold_battle_ready"}).get("held")
+            if he.get("phase") == "Handshake" and he.get("battleId") == 2 and held is True:
+                break
+            time.sleep(POLL)
+        handoff = since(host, n_h, HANDOFF)
+        ok1 = (not g and ctx["hold"].get("armed") is True and len(handoff) == 1 and he.get("phase") == "Handshake"
+               and he.get("battleId") == 2 and held is True)
+        r.cell("S2M-1", "GUARD", "stage-2 offer out (skirmish): ms1_trigger guards [], host phase Handshake battleId 2, client "
+               "battle_ready held, host log +1 hand-off", ok1, {"guards": g, "hold": ctx["hold"], "handoff": handoff,
+                                                               "host": he, "held": held, "s to the window": round(time.time() - t1, 2)})
+        if not ok1:
+            raise RuntimeError("S2M-1 (precondition) failed")
+        n_k = len(log(host))
+        client.kill()
+        tk, polls = time.time(), []
+        first = dict({k: v for k, v in ev(host).items() if k != "stage"}, t=round(time.time() - tk, 2))
+        while time.time() - tk < W:
+            polls.append([round(time.time() - tk, 2), stack(host), ev(host).get("phase"), dlg(host).get("code")])
+            time.sleep(POLL)
+        unw = since(host, n_k, UNWIND)
+        r.cell("S2M-2", "GUARD", "no failed-start unwind: UNWIND lines in %.0f s after the kill = 0 (G-2's marker, TASK 0 T0-B3)" % W,
+               not unw, {"UNWIND": unw, "first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(
+                   first.get("phase"), "?"), "host after": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]]})
+    except Exception as e:  # the precondition, or a lever / kill() that raised: the row ends here
+        r.stop(short(e))
+    new = sorted(session._crash_log_snapshot() - crash0)
+    r.cell("S2M-3", "GUARD", "CRASH 0 (no new crash_*.log in this lane's crash folder since the row's baseline)", not new, new)
+    if r.fails:
+        live = [(gc.name, gc) for gc in (host, client) if gc.proc is not None and gc.proc.poll() is None]
+        cap = {"stacks": {n: stack(gc) for n, gc in live}, "event": {n: ev(gc) for n, gc in live}, "host rc": rc(host),
+               "HL": [ln.split("\t")[-1][:200] for ln in log(host) if "coop-handshake" in ln or "[coop" in ln][-15:]}
+        print("CAPTURE S2M: %s" % json.dumps(cap, sort_keys=True, default=str), flush=True)
+    print(("PASS S2M" if not r.fails else "FAIL S2M: %s" % " ".join(r.fails)), flush=True)
+    return not r.fails
+
+
+def boot_d(host, client):
+    ms5.PORT_D = KEY  # boot D on this file's own lobby key (an in-process key linking the host to its client)
+    return ms5.boot_d(host, client)
+
+
+def boot_m(host, client):
+    ms1.PORT_A = KEY_M  # boot M: MS1's boot A on this file's second lobby key
+    return ms1.boot_a(host, client)
+
+
+def run_boot(rid, tag, boot, row, failed):
+    """One boot, its row, then both machines shut down (kill() already reaped a killed client) -> the row passed."""
+    t0, ok, ctx = time.time(), False, {}
+    host = GameClient("host", 1, make_user_dir(tag + "_host"))
+    client = GameClient("client", 2, make_user_dir(tag + "_client"))
+    crash0 = session._crash_log_snapshot()
+    try:
         try:
-            info = ms5.boot_d(host, client)
-            print("[w2h24x] boot D ok: %s (%.1f s)" % (info, time.time() - t0), flush=True)
+            info = boot(host, client)
+            print("[w2h24x] %s boot ok: %s (%.1f s)" % (rid, info, time.time() - t0), flush=True)
         except Exception as e:
-            print("EVIDENCE S2X boot: %s\nFAIL S2X: boot (FIXTURE-STOP)" % short(e, 600), flush=True)
+            print("EVIDENCE %s boot: %s\nFAIL %s: boot (FIXTURE-STOP)" % (rid, short(e, 600), rid), flush=True)
             info = None
         if info is not None:
-            ok = row_s2x(host, client, crash0, ctx)
+            ok = row(host, client, crash0, ctx)
     finally:
-        for gc in (client, host):  # kill() already reaped a killed client
+        for gc in (client, host):
             try:
                 if gc.proc is not None and gc.proc.poll() is None:
                     gc.shutdown()
             except Exception as e:
-                print("FAIL S2X shutdown (%s): %s" % (gc.name, short(e, 300)), flush=True)
-                failed.append("shutdown " + gc.name)
-    ok = ok and not failed
-    print("\ntest_w2_stage2_failed_start: %d/1 rows passed (fail=%s) in %.1fs" % (1 if ok else 0, [] if ok else ["S2X"] + failed,
-                                                                                 time.time() - t0), flush=True)
-    return 0 if ok else 2
+                print("FAIL %s shutdown (%s): %s" % (rid, gc.name, short(e, 300)), flush=True)
+                failed.append("%s shutdown %s" % (rid, gc.name))
+    return ok
+
+
+def main():
+    t0, failed = time.time(), []
+    results = {"S2X": run_boot("S2X", "w2h24x_s2x", boot_d, row_s2x, failed),
+               "S2M": run_boot("S2M", "w2h24x_s2m", boot_m, row_s2m, failed)}
+    bad = [rid for rid, ok in results.items() if not ok] + failed
+    print("\ntest_w2_stage2_failed_start: %d/2 rows passed (fail=%s) in %.1fs" % (sum(results.values()), bad, time.time() - t0),
+          flush=True)
+    return 0 if not bad else 2
 
 
 if __name__ == "__main__":
