@@ -6649,6 +6649,11 @@ int invWarningWrites() { return g_coopInvWarningWrites.load(); }
 // has not closed it yet.
 enum CoopFatalVoteState : int { FV_IDLE = 0, FV_ARMED, FV_OPEN, FV_DECIDED, FV_CLOSED };
 static std::atomic<int> g_fatalVoteState{FV_IDLE};
+// R4-L1 S-A (P0): the abort vote's HOST state, an atomic like g_fatalVoteState; the other two: main thread only.
+enum CoopAbortVoteState : int { AV_IDLE = 0, AV_ARMED, AV_OPEN, AV_PASSED, AV_FAILED };
+static std::atomic<int> g_abortVoteState{AV_IDLE};
+static int g_abortVoteStarter = -1;       // HOST: the asker's seat
+static bool g_abortVoteClientPop = false; // CLIENT: a passed abort vote's screen the pump has not closed yet
 
 void resetBattleAuthority()
 {
@@ -6729,6 +6734,7 @@ void resetBattleAuthority()
 	// W2-P7 S-V-A.2 (AMENDMENT P7-5 Q5 (a)): the fatal-wounds vote is battle-scoped too - the atomic state only
 	// (its record is cleared at the next arm, main thread).
 	g_fatalVoteState = FV_IDLE;
+	g_abortVoteState = AV_IDLE; // R4-L1 S-A (P0): the abort vote is battle-scoped too (the atomic state only)
 }
 
 // ----- W1-P7 deliverable 6: turn mode (REV D, owner rulings D-19..D-27) -----
@@ -17955,7 +17961,7 @@ static void tryCommit(SavedBattleGame* save)
 		return;
 	// W2-P7 S-V-A.2 (SV-M12, F4330): no commit while the fatal-wounds vote is armed or open (both turn modes); the
 	// presses stay counted and the vote's continue step runs this once.
-	if (coopFatalVoteHolds("commit"))
+	if (coopFatalVoteHolds("commit") || coopAbortVoteHolds("commit")) // R4-L1 S-A (P5, QL1-4): nor an abort vote
 		return;
 
 	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional)
@@ -18509,6 +18515,128 @@ int coopFatalVoteOpen()
 			return v;
 	}
 	return 0;
+}
+
+// ----- R4-L1 S-A (docs rewrite/prompts/r4l1_abort_vote.md P4; owner design-D8, D231, D244; r4-T3, DES-2.3): the abort
+// vote - the #87 vote with the abort action; the host ARMS a request, its pump opens it and applies a pass. -----
+
+// The state (@a st >= 0; @a label overrides the probe's name for it) and the probe: @a note's fields, +1 to @a add.
+static void abortVoteNote(int st, const char* add = nullptr, Json::Value note = Json::Value(Json::objectValue),
+	const char* label = nullptr)
+{
+	if (st >= 0)
+	{
+		g_abortVoteState = st;
+		note["state"] = label ? label : st == AV_ARMED ? "Armed" : st == AV_OPEN ? "Open" : st == AV_PASSED ? "Passed"
+			: st == AV_FAILED ? "Failed" : "Idle";
+	}
+	std::lock_guard<std::mutex> lock(g_abortVoteProbeMutex);
+	if (!g_abortVoteProbe.isObject())
+		g_abortVoteProbe = abortVoteProbeZeros();
+	for (const std::string& k : note.getMemberNames())
+		g_abortVoteProbe[k] = note[k];
+	if (add)
+		g_abortVoteProbe[add] = g_abortVoteProbe[add].asInt() + 1;
+}
+
+BattlescapeTally coopAbortDialogTally(SavedBattleGame* save)
+{
+	if (connectionTCP::getCoopStatic() && coopBattleAuthority().phase.load() != CoopBattlePhase::Idle
+		&& !coopBattleAuthority().hostSim.load())
+	{
+		abortVoteNote(-1, "dialogDonor"); // R2-M7: the client's dialog is display-only (no tallyUnits())
+		return coopTallyUnitsDonor(save);
+	}
+	return save->getBattleGame()->tallyUnits(); // vanilla
+}
+
+bool coopAbortVoteRequest(Game* game, SavedBattleGame* save)
+{
+	if (!connectionTCP::getCoopStatic() || coopBattleAuthority().phase.load() == CoopBattlePhase::Idle || save->isPreview())
+		return false; // single player, a preview: vanilla aborts
+	abortVoteNote(-1, "requests");
+	Log(LOG_INFO) << "[coop-abort] seat " << coopBattleAuthority().localSeat.load() << ": ABORT confirmed - the abort vote";
+	game->getCoopMod()->requestVote("abandon_mission", game->getLanguage()->getString("STR_ABORT_MISSION"),
+		game->getLanguage()->getString("STR_ABORT_MISSION_QUESTION"));
+	return true; // never a local abort in a co-op battle
+}
+
+bool coopAbortVoteHolds(const char* held)
+{
+	const int st = g_abortVoteState.load();
+	if (!coopBattleAuthority().hostSim.load() || (st != AV_ARMED && st != AV_OPEN && st != AV_PASSED && st != AV_FAILED))
+		return false;
+	if (held)
+	{
+		abortVoteNote(-1, std::strcmp(held, "commit") == 0 ? "heldCommits" : nullptr);
+		Log(LOG_INFO) << "[coop-abort] host: " << held << " held - the abort vote is in progress (VL-L1-2)";
+	}
+	return true;
+}
+
+// HOST (beginVoteAsHost, an abort request): Idle -> Armed; a request while one is in progress is counted and ignored.
+static bool coopAbortVoteArm(int starterSeat)
+{
+	if (g_abortVoteState.load() != AV_IDLE)
+	{
+		abortVoteNote(-1, "armsIgnored");
+		return true;
+	}
+	g_abortVoteStarter = starterSeat;
+	Json::Value note(Json::objectValue);
+	note["starterSeat"] = starterSeat;
+	note["armedMs"] = Json::UInt(SDL_GetTicks());
+	abortVoteNote(AV_ARMED, "arms", note);
+	Log(LOG_INFO) << "[coop-abort] host: seat " << starterSeat << "'s abort request armed - it opens once the battle is quiet";
+	return true;
+}
+
+// HOST (executeVoteAction): Open -> Passed. Only ARMS the apply (DES-2.3); the pump ends the battle at quiescence.
+static void coopAbortVotePassed()
+{
+	if (g_abortVoteState.load() != AV_OPEN)
+		return;
+	Json::Value note(Json::objectValue);
+	note["passedMs"] = Json::UInt(SDL_GetTicks());
+	note["actionIdAtPass"] = Json::UInt(CoopArbiter::currentActionId());
+	abortVoteNote(AV_PASSED, "passes", note);
+	Log(LOG_INFO) << "[coop-abort] host: the abort vote passed (action id " << note["actionIdAtPass"].asUInt() << ")";
+}
+
+// HOST (finishVote): Open -> Failed. END TURN stays held until the host's vote screen is closed (the pump).
+static void coopAbortVoteFailed()
+{
+	if (g_abortVoteState.load() != AV_OPEN)
+		return;
+	abortVoteNote(AV_FAILED, "fails");
+	Log(LOG_INFO) << "[coop-abort] host: the abort vote failed - the battle goes on";
+}
+
+// disconnectTCP() (QL1-7, VL-L1-4): a drop cancels any abort vote in progress (the #87 cancel shows on the screen).
+static void coopAbortVoteCancel()
+{
+	if (g_abortVoteState.load() == AV_IDLE)
+		return;
+	abortVoteNote(AV_IDLE, "cancels");
+	Log(LOG_INFO) << "[coop-abort] the abort vote was cancelled by a disconnect";
+}
+
+// The pump: any non-Idle state -> Idle; an armed request or an unapplied pass counts a drop and its reason.
+static void coopAbortVoteDrop(const char* why)
+{
+	const int st = g_abortVoteState.load();
+	if (st == AV_IDLE)
+		return;
+	Json::Value note(Json::objectValue);
+	if (st == AV_ARMED || st == AV_PASSED)
+		note["dropReason"] = why;
+	abortVoteNote(AV_IDLE, note.isMember("dropReason") ? "drops" : nullptr, note);
+	Log(LOG_INFO) << "[coop-abort] host: the abort vote dropped (" << why << ")";
+}
+
+static void coopAbortVoteClientPassed() // CLIENT (vote_result, QL1-8): the pump closes the passed screen once on top
+{
+	g_abortVoteClientPop = true;
 }
 
 // HOST (design 2.3 / 2.4.4; the bt_equip_ready precedent, F4314): a client voter's answer from the battle lane.
@@ -25038,7 +25166,6 @@ const char* controlStrKey(Control c)
 {
 	switch (c)
 	{
-	case Control::Abort:        return "STR_COOP_ABORT_HOST_ONLY";
 	case Control::ZeroTu:       return "STR_COOP_ZERO_TU_HOST_ONLY";
 	case Control::HandReaction: return "STR_COOP_REACTIONS_HOST_ONLY";
 	case Control::LevelChange:  return "STR_COOP_LEVEL_CHANGE_HOST_ONLY";
@@ -31941,6 +32068,9 @@ void connectionTCP::updateCoopTask()
 	// shows / closes the client's question. Self-guarded (a vote in flight).
 	coopFatalVotePump(_game, coopQuiescentNow);
 
+	// R4-L1 S-A (P6; r4-T3, DES-2.3): the abort vote's pump, before the SPEC 18 / SPEC 16 latches. Self-guarded.
+	abortVotePump(coopQuiescentNow);
+
 	// SPEC 18 (r4 T4) M8: consumed FIRST when both latches are ready at one
 	// quiescence (the pause modal would otherwise sit over the
 	// SaveGameState) - re-push the SAME SaveGameState with the stored
@@ -33199,14 +33329,16 @@ void connectionTCP::openVoteMenu()
 		return;
 	}
 
+	// R4-L1 S-A (P5, QL1-9; AUD-A12, D231): the abort vote shows vanilla's texts in THIS machine's language, no countdown.
+	const bool abortVote = VoteSession::isAbortAction(_activeVote.action);
 	_game->pushState(new VoteMenu(
 		_activeVote.id,
-		_activeVote.title,
-		_activeVote.question,
+		abortVote ? std::string(_game->getLanguage()->getString("STR_ABORT_MISSION")) : _activeVote.title,
+		abortVote ? std::string(_game->getLanguage()->getString("STR_ABORT_MISSION_QUESTION")) : _activeVote.question,
 		_activeVote.totalPlayers,
 		_activeVote.requiredYesVotes,
 		_activeVote.playerNames,
-		_activeVote.remainingMilliseconds()));
+		_activeVote.noDeadline ? VoteSession::NO_DEADLINE_MS : _activeVote.remainingMilliseconds()));
 }
 
 std::vector<std::string> connectionTCP::buildVotePlayerNames(int totalPlayers) const
@@ -33398,7 +33530,7 @@ bool connectionTCP::requestVote(
 		}
 		_activeVote.clear();
 	}
-	if (_voteRequestPending)
+	if (_voteRequestPending && !VoteSession::isAbortAction(action)) // R4-L1 (QL1-12): an abort request is never swallowed
 	{
 		return true;
 	}
@@ -33457,7 +33589,8 @@ bool connectionTCP::beginVoteAsHost(
 	const std::string& action,
 	const std::string& title,
 	const std::string& question,
-	int starterSeat)
+	int starterSeat,
+	bool abortOpen)
 {
 	if (!getServerOwner() || _activeVote.active)
 	{
@@ -33470,7 +33603,11 @@ bool connectionTCP::beginVoteAsHost(
 		return false;
 	}
 
-	const std::uint32_t cooldownMs = voteStarterCooldownRemainingMs(starterSeat);
+	// R4-L1 S-A (P5; D231, D244, r4-T3): a request only ARMS (the pump opens it: abortOpen); no starter cooldown.
+	const bool abortVote = VoteSession::isAbortAction(action);
+	if (abortVote && !abortOpen)
+		return coopAbortVoteArm(starterSeat);
+	const std::uint32_t cooldownMs = abortVote ? 0u : voteStarterCooldownRemainingMs(starterSeat);
 	if (cooldownMs > 0)
 	{
 		// The host enforces the cooldown for every seat. A local host gets the
@@ -33499,7 +33636,8 @@ bool connectionTCP::beginVoteAsHost(
 	// Cooldown starts when the host accepts the request, not when the vote ends.
 	// The vote may remain open for 30 seconds, while the same starter must wait
 	// a full 60 seconds from acceptance before starting another vote.
-	beginVoteStarterCooldown(starterSeat);
+	if (!abortVote) // R4-L1 (D244): no wait before a new abort vote
+		beginVoteStarterCooldown(starterSeat);
 	_voteRequestPending = false;
 
 	openVoteMenu();
@@ -33656,31 +33794,107 @@ void connectionTCP::finishVote(bool passed)
 	{
 		executeVoteAction(action);
 	}
+	else if (VoteSession::isAbortAction(action))
+		coopAbortVoteFailed(); // R4-L1 S-A (P5): END TURN stays held until the host closes its vote screen
 }
 
 void connectionTCP::executeVoteAction(const std::string& action)
 {
-	if (action != "abandon_mission" || !_game)
+	// R4-L1 S-A (P5; DES-2.3): a pass only ARMS the apply - the pump ends the battle at quiescence, never this path.
+	if (VoteSession::isAbortAction(action))
+		coopAbortVotePassed();
+}
+
+// R4-L1 S-A (P6; r4-T3, DES-2.3): the abort vote's pump, called only by updateCoopTask() (never from drainApplyQueue,
+// F10207). HOST: opens, applies at quiescence; re-runs held END TURN presses. CLIENT: closes its passed vote screen.
+void connectionTCP::abortVotePump(bool quiescent)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	// 1. Not in an Active battle (both machines): no abort vote record outlives it (QL1-12).
+	if (a.phase.load() != CoopBattlePhase::Active)
 	{
+		if (VoteSession::isAbortAction(_activeVote.action))
+		{
+			_activeVote.clear();
+			_voteRequestPending = false;
+		}
+		g_abortVoteClientPop = false;
+		coopAbortVoteDrop("battle");
 		return;
 	}
-
-	for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+	SavedBattleGame* save = getStaticBattle();
+	// 2. CLIENT (QL1-8, VL-L1-5): its passed vote screen goes once it is the top state; a covered one waits.
+	if (!a.hostSim.load())
 	{
-		BattlescapeState* battlescape = dynamic_cast<BattlescapeState*>(*it);
-		if (battlescape)
+		VoteMenu* menu = g_abortVoteClientPop ? findVoteMenu(_activeVote.id) : nullptr;
+		if (!menu)
+			g_abortVoteClientPop = false;
+		else if (_game->getStates().back() == menu)
 		{
-			// R4-REWIRE: BattlescapeState::abortMissionByVote (donor cbff7951d)
-			// is battle-sim logic (cancels the active BState chain, tallies
-			// units, calls the private finishBattle) that the r1 vanilla
-			// restore (911ca487f, which predates it) does not have and this
-			// packet is not authorized to re-add. The vote itself still runs
-			// and broadcasts; only the local battle-abort application is
-			// pending until r4/r5 rebuild the abort path on the new turn-machine.
-			Log(LOG_INFO) << "[coop-vote] abandon_mission vote passed but the battle abort hook is rewrite-pending";
+			_game->popState();
+			g_abortVoteClientPop = false;
+			abortVoteNote(-1, "menuPopped");
+			Log(LOG_INFO) << "[coop-abort] client: the passed abort vote's screen closed";
+			// R-L1-1-3 (F10410): an inventory under it is the top state again after this pass's force-close ran.
+			if (save && isBattlescapeStateLive(save->getBattleState()) && dynamic_cast<InventoryState*>(_game->getStates().back()))
+				CoopDisplayQueue::coopClientInventoryForceClose(save);
+		}
+		return;
+	}
+	const int st = g_abortVoteState.load(); // 3. HOST
+	if (st == AV_IDLE || st == AV_OPEN)
+		return;
+	BattlescapeState* bs = save ? save->getBattleState() : nullptr;
+	if (!isBattlescapeStateLive(bs) || !save->getBattleGame())
+	{
+		coopAbortVoteDrop("no battle");
+		return;
+	}
+	if (st == AV_FAILED)
+	{
+		// VoteMenu's CLOSE pops the TOP state, so nothing may be pushed over the failed vote's screen first.
+		if (!_game->getStates().empty() && dynamic_cast<VoteMenu*>(_game->getStates().back()))
+		{
+			abortVoteNote(-1, "waitPasses");
 			return;
 		}
+		abortVoteNote(AV_IDLE);
+		Log(LOG_INFO) << "[coop-abort] host: the failed abort vote's screen is closed - held END TURN presses count now";
+		CoopEndTurn::tryCommit(save); // QL1-4 (VL-L1-2, SV-M12): the held presses are re-evaluated once
+		return;
 	}
+	if (!quiescent || a.peerAbsent.load())
+	{
+		abortVoteNote(-1, "waitPasses");
+		return;
+	}
+	if (st == AV_ARMED)
+	{
+		// 4. The open; a request whose asker's side is no longer the active side is dropped.
+		if (a.factionOf(g_abortVoteStarter) != (int)save->getSide())
+		{
+			coopAbortVoteDrop("side");
+			return;
+		}
+		Json::Value note(Json::objectValue);
+		note["openedMs"] = Json::UInt(SDL_GetTicks());
+		abortVoteNote(AV_OPEN, "opens", note);
+		Log(LOG_INFO) << "[coop-abort] host: seat " << g_abortVoteStarter << "'s abort vote opens";
+		if (!beginVoteAsHost("abandon_mission", _game->getLanguage()->getString("STR_ABORT_MISSION"),
+			_game->getLanguage()->getString("STR_ABORT_MISSION_QUESTION"), g_abortVoteStarter, true))
+			coopAbortVoteDrop("open refused");
+		return;
+	}
+	// 5. PASSED: the apply = vanilla's AbortMissionState OK (setAborted + finishBattle), at quiescence.
+	const BattlescapeTally t = save->getBattleGame()->tallyUnits();
+	Json::Value note(Json::objectValue);
+	note["appliedMs"] = Json::UInt(SDL_GetTicks());
+	note["quiescentAtApply"] = quiescent;
+	note["appliedInExit"] = t.inExit;
+	abortVoteNote(AV_IDLE, "applies", note, "Applied");
+	Log(LOG_INFO) << "[coop-abort] host: the passed abort vote ends the battle (inExit " << t.inExit << ")";
+	save->setAborted(true);
+	bs->finishBattle(true, t.inExit);
 }
 
 namespace
@@ -34115,6 +34329,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			readVoteSnapshot(obj);
 			const bool passed = obj.get("passed", false).asBool();
 			_activeVote.finish(passed);
+			if (passed && VoteSession::isAbortAction(_activeVote.action))
+				coopAbortVoteClientPassed(); // R4-L1 S-A (P5, QL1-8): the client's pump closes this screen
 			_voteRequestPending = false;
 			updateVoteMenu();
 		}
@@ -39772,6 +39988,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_activeVote.clear();
 		_voteRequestPending = false;
 		_voteStarterCooldownUntil.clear();
+		coopAbortVoteCancel(); // coop R4-L1 (QL1-7)
 
 		// Capture the machine role ONCE for this teardown - handlers used to
 		// mutate server_owner mid-flight and make the cleanup misclassify the

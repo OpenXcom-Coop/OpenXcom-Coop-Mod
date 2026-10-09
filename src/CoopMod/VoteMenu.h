@@ -63,6 +63,7 @@ private:
 	bool _locallyTimedOut;
 	std::uint32_t _deadlineTicks;
 	int _lastDisplayedSeconds;
+	bool _noDeadline; // R4-L1 (D231): the abort vote - no countdown, no local timeout
 
 	void submitVote(bool yes);
 	void refreshPlayerRows();

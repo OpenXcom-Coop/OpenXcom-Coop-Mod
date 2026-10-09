@@ -34,6 +34,7 @@
 #include "../Savegame/Craft.h"
 #include "../Savegame/Tile.h"
 #include "../CoopMod/SharedEcon.h" // coop W2-H20d (F8551)
+#include "../CoopMod/CoopArbiter.h" // coop R4-L1
 
 namespace OpenXcom
 {
@@ -107,7 +108,7 @@ AbortMissionState::AbortMissionState(SavedBattleGame *battleGame, BattlescapeSta
 	}
 
 	// Calculate values
-	BattlescapeTally tally = _battleGame->isPreview() ? _battleGame->tallyUnitsForPreview() : _battleGame->getBattleGame()->tallyUnits();
+	BattlescapeTally tally = _battleGame->isPreview() ? _battleGame->tallyUnitsForPreview() : coopAbortDialogTally(_battleGame); // coop R4-L1 (R2-M7): a co-op client's dialog counts read-only
 	_inEntrance = tally.inEntrance;
 	_inExit = tally.inExit;
 	_outside = tally.inField;
@@ -217,6 +218,7 @@ void AbortMissionState::btnOkClick(Action *)
 	}
 
 	_game->popState();
+	if (coopAbortVoteRequest(_game, _battleGame)) return; // coop R4-L1 (design-D8, D231, r5-T10): a co-op battle votes
 	_battleGame->setAborted(true);
 	_state->finishBattle(true, _inExit);
 }
