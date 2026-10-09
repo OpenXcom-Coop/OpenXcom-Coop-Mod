@@ -31367,6 +31367,26 @@ static bool coopBattleEndDebriefOnStack(Game* game)
 	return false;
 }
 
+// coop W2-H25 (F10500-F10505): this machine is already leaving for the main menu - a GoToMainMenuState is on the
+// stack (a skirmish ending's CutsceneState::init sets it under the ending's slideshow; a debriefing's or the
+// statistics screen's OK sets it), or the top is the MainMenuState that GoToMainMenuState::init pushed and whose own
+// init() (it ends the co-op session) has not run yet (Game::run calls updateCoopTask before init). A partner leaving
+// then opens nothing over that exit (issue #79, D156 (a), D239 (a)). Returns the state that says so, or null. Read
+// by the -3/-2 peer-leave branches only.
+static const char* coopLeavingForMainMenu(Game* game)
+{
+	if (!game || game->getStates().empty())
+		return nullptr;
+	if (dynamic_cast<MainMenuState*>(game->getStates().back()) != nullptr)
+		return "MainMenuState";
+	for (State* st : game->getStates())
+	{
+		if (dynamic_cast<GoToMainMenuState*>(st) != nullptr)
+			return "GoToMainMenuState";
+	}
+	return nullptr;
+}
+
 // W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-4): this client's display-only CAMPAIGN DebriefingState on the stack, or null.
 static DebriefingState* coopCampaignDisplayDebrief(Game* game)
 {
@@ -31558,7 +31578,16 @@ void connectionTCP::updateCoopTask()
 		//     is nothing left to reconnect for, so suppress the freeze and
 		//     fall through to teardown (matches the campaignEnded() gate at
 		//     the disconnectTCP drop site).
-		if (getServerOwner() == true
+		// coop W2-H25: this machine is already leaving for the main menu - the plain teardown, no dialog (the
+		// battle-end-debriefing branch's body below, without its D156 record).
+		if (const char* leavingVia = coopLeavingForMainMenu(_game))
+		{
+			Log(LOG_INFO) << "[coop] partner lost while this machine is leaving for the main menu (" << leavingVia
+				<< "): plain teardown, no dialog (W2-H25)";
+			connectionTCP::_coopGamemode = 0;
+			_game->getCoopMod()->disconnectTCP();
+		}
+		else if (getServerOwner() == true
 			&& connectionTCP::session.lobbyClosed
 			&& connectionTCP::session.lobbyMode != 0
 			&& !campaignEnded())
@@ -31645,7 +31674,9 @@ void connectionTCP::updateCoopTask()
 		// player's own OK leaves. Mid-battle (SPEC 16), lobby, geoscape and campaign leaves are unchanged: no battle-end
 		// debriefing is on the stack there.
 		const bool battleEndDebrief = coopBattleEndDebriefOnStack(_game);
-		if (allow_cutscene == true && !campaignEnded() && !battleEndDebrief)
+		// coop W2-H25: nor while this machine is already leaving for the main menu (no CoopState(20) / (21) over that
+		// exit; the plain teardown below runs).
+		if (allow_cutscene == true && !campaignEnded() && !battleEndDebrief && !coopLeavingForMainMenu(_game))
 		{
 			// Make sure it calls disconnectTCP, otherwise it may get stuck.
 			if (getServerOwner() == true)
@@ -39928,7 +39959,16 @@ void connectionTCP::disconnectTCP(bool isMain)
 			// battle away - while the campaign path already did the right thing.
 			// A drop with no battle running (host still on the NEW BATTLE setup
 			// screen) keeps re-opening the lobby: that IS where it belongs.
-			if ((connectionTCP::session.lobbyMode != 0 || coopBattleLive(_game))
+			// coop W2-H25 (F10501, F10502): ...unless the host is already leaving for the main menu (a game-ending
+			// slideshow, or the frame before MainMenuState::init ends the session): no lobby and no wait dialog over
+			// that exit (issue #79, D156 (a), D239 (a)).
+			const char* leavingVia = coopLeavingForMainMenu(_game);
+			if (leavingVia)
+			{
+				Log(LOG_INFO) << "[coop] partner left while the host is leaving for the main menu (" << leavingVia
+					<< "): no lobby, no wait dialog (W2-H25)";
+			}
+			else if ((connectionTCP::session.lobbyMode != 0 || coopBattleLive(_game))
 				&& connectionTCP::session.lobbyClosed == true)
 			{
 				// mid-session client drop: wait until they reconnect (D5). The
