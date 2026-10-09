@@ -27126,16 +27126,15 @@ static void coopUnwindToSafeState(Game* game)
 }
 
 // coop W2-H24 (R2-m6 "refuse and tear down, not pause"; F5198, F5199): the starts whose failure W2-H24 unwinds on a lost
-// partner and whose world it restores - a campaign battle other than a base defense - and, since S-B (D259 (a)), a skirmish,
-// whose world is not restored: a failed skirmish start lands on the main menu with the session ended, as a refused one does.
-// A campaign base defense keeps today's path until S-C (D260 (b), D261).
+// partner and whose world it restores - every fresh start: a campaign landing (S-A), a skirmish (S-B, D259 (a): it lands on
+// the main menu, its world not restored) and a campaign base defense (S-C1, D260 (b): a lost partner makes it wait for a
+// re-arm; S-C2, D261: a refused one ends the session before this unwind).
 static bool coopFailedStartInScope(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
 	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
 	// coop W2-H24 (R-H24-G-1): a stage-2 offer is not a fresh start; MG-A's follow-up owns its failure.
-	return !g_coopStageOfferPending && battle != nullptr
-		&& (save->getMonthsPassed() == -1 || battle->getMissionType() != "STR_BASE_DEFENSE");
+	return !g_coopStageOfferPending && battle != nullptr;
 }
 
 // coop W2-H24: the world half of a failed co-op battle start. The generator marked the battle's craft and target as in
@@ -27152,6 +27151,14 @@ static int coopRestoreWorldAfterFailedStart(Game* game, int& home)
 		return 0;
 	SavedGame* save = game->getSavedGame();
 	int marks = 0;
+	// coop W2-H24 S-C1 (D260 (b)): a campaign base defense whose start failed on a lost partner WAITS - the geoscape puts
+	// back what the start took from the base and starts the defense again for both once the partner is back and RESUME
+	// is pressed (GeoscapeState::coopRearmBaseDefense()). A refused one never gets here (S-C2, D261).
+	if (save->getSavedBattle()->getMissionType() == "STR_BASE_DEFENSE")
+	{
+		GeoscapeState* geo = game->getGeoscapeState();
+		return geo ? geo->coopRearmBaseDefense() : 0;
+	}
 	for (auto* base : *save->getBases())
 	{
 		for (auto* craft : *base->getCrafts())

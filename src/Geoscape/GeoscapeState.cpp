@@ -642,6 +642,83 @@ void GeoscapeState::startCoopMission()
 }
 
 /**
+ * coop W2-H24 S-C1 (D260 (b)): the partner's game was lost during the start of this host's co-op base defense, so the
+ * attack waits for the partner. Puts back what the start took from the base - the stores the battle generator moved
+ * into the battle (BattlescapeGenerator::deployXCOM keeps the pre-battle stores in getBaseStorageItems()) and the tanks
+ * Base::setupDefenses rolled out (vanilla's reclaim, Base::cleanupDefenses) - clears the base's battle mark and
+ * remembers the base; think() starts the defense again once the partner is back and RESUME is pressed. The unwind
+ * (connectionTCP.cpp, coopUnwindFailedStart()) calls it before the battle is dropped.
+ * @return The battle marks cleared (1: the base's; 0: no marked base).
+ */
+int GeoscapeState::coopRearmBaseDefense()
+{
+	SavedGame* save = _game->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!battle)
+		return 0;
+	for (size_t i = 0; i < save->getBases()->size(); ++i)
+	{
+		Base* base = save->getBases()->at(i);
+		if (!base->isInBattlescape())
+			continue;
+		for (const auto& pair : *battle->getBaseStorageItems()->getContents())
+		{
+			const int now = base->getStorageItems()->getItem(pair.first);
+			if (pair.second > now)
+			{
+				base->getStorageItems()->addItem(pair.first, pair.second - now);
+			}
+		}
+		base->cleanupDefenses(true);
+		base->setInBattlescape(false);
+		_coopRearmBase = (int)i;
+		return 1;
+	}
+	return 0;
+}
+
+/**
+ * coop W2-H24 S-C1 (D260 (b)): starts a co-op base defense that waited for the partner (coopRearmBaseDefense()) again,
+ * the way the attack first started it: the arrival's Base::setupDefenses (when the base has a retaliation mission),
+ * handleBaseDefense()'s co-op stamps, then the deferred start (startCoopMission()) on the snapshot the attack took.
+ * Only on the host, with the partner back (its world acknowledged: RESUME's own condition) and no battle in flight;
+ * otherwise the waiting attack is dropped.
+ */
+void GeoscapeState::coopStartRearmedBaseDefense()
+{
+	const int index = _coopRearmBase;
+	_coopRearmBase = -1;
+	SavedGame* save = _game->getSavedGame();
+	if (!save || !connectionTCP::getServerOwner() || !connectionTCP::session.resumeAck || save->getSavedBattle()
+		|| index < 0 || index >= (int)save->getBases()->size())
+	{
+		return;
+	}
+	Base* base = save->getBases()->at(index);
+	if (AlienMission* am = base->getRetaliationMission())
+	{
+		base->setupDefenses(am);
+	}
+	save->setSelectedBase(index);
+	_game->getCoopMod()->setGeoscapeState(this);
+	_game->getCoopMod()->_isMainCampaignBaseDefense = true;
+	_game->getCoopMod()->setHost(true);
+	for (auto* s : *base->getSoldiers())
+	{
+		int owner = s->getOwnerPlayerId();
+		s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+		s->setCoopBase(-1);
+	}
+	for (auto* v : *base->getVehicles())
+	{
+		v->setCoop(0);
+		v->setCoopBase(-1);
+	}
+	g_coopBaseDefense.pending = true;
+	startCoopMission();
+}
+
+/**
  * Handle blitting of Geoscape and Dogfights.
  */
 void GeoscapeState::blit()
@@ -1371,6 +1448,14 @@ void GeoscapeState::think()
 	_zoomInEffectTimer->think(this, 0);
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
+
+	// coop W2-H24 S-C1 (D260 (b)): a co-op base defense waiting for the partner starts again for both once the host's
+	// RESUME made this the top state again (only the top state thinks; the wait dialog pops itself on RESUME).
+	if (_coopRearmBase != -1)
+	{
+		coopStartRearmedBaseDefense();
+		return;
+	}
 
 	// coop
 	// research
