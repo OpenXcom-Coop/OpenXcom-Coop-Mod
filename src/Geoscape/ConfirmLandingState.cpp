@@ -305,7 +305,10 @@ void ConfirmLandingState::btnYesClick(Action *)
 			}
 			for (auto* v : *_craft->getVehicles())
 			{
-				v->setCoop(0);
+				// SeparateEcon assigns each physical vehicle to a player. Keep
+				// that selection when the shared world becomes a battle.
+				if (_game->getCoopMod()->isSharedCampaign())
+					v->setCoop(0);
 				v->setCoopBase(-1);
 			}
 			startCoopMission();

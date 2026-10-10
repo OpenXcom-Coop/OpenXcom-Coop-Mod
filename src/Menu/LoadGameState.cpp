@@ -285,7 +285,8 @@ void LoadGameState::think()
 				// desync repair completes. Clear the resync in-flight guard so a
 				// later drift can be repaired again (and so the "give up" latch is
 				// re-armed for the next window).
-				SharedEcon::notifyWorldAdopted();
+				if (_game->getCoopMod()->isSharedCampaign())
+					SharedEcon::notifyWorldAdopted();
 			}
 			if (_game->getSavedGame()->getEnding() != END_NONE)
 			{

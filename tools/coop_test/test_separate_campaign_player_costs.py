@@ -1,4 +1,4 @@
-"""Separate Base Info and Monthly Costs are scoped to the local player."""
+"""Separate uses full income, local maintenance display, and no player bonus."""
 
 import os
 import sys
@@ -33,15 +33,61 @@ def main():
 
         host_month = host.ok({"cmd": "month_report"})
         client_month = client.ok({"cmd": "month_report"})
-        assert (host_month["monthlyMaintenanceDisplay"]
-                + client_month["monthlyMaintenanceDisplay"]
-                == host_month["worldMaintenance"]), (host_month, client_month)
+        host_base = host.ok({"cmd": "base_report", "base": "HostBase"})
+        client_base = client.ok({"cmd": "base_report", "base": "ClientBase"})
+        player_count = 2
+        expected_host_funds = ((host_month["countryFunding"]
+                                - (host_base["monthlyMaintenance"]
+                                   - host_base["personnelMaintenance"]))
+                               // player_count)
+        expected_client_funds = ((client_month["countryFunding"]
+                                  - (client_base["monthlyMaintenance"]
+                                     - client_base["personnelMaintenance"]))
+                                 // player_count)
+        assert host_month["funds"] == expected_host_funds, (host_month, host_base)
+        assert client_month["funds"] == expected_client_funds, (client_month, client_base)
+        assert host_month["playerFunds"] == client_month["playerFunds"], (
+            "host and replica must persist every player wallet", host_month, client_month)
+        assert host_month["playerFunds"]["HostPlayer"] == expected_host_funds
+        assert host_month["playerFunds"]["ClientPlayer"] == expected_client_funds
+        for report in (host_month, client_month):
+            assert report["monthlyIncomeDisplay"] == report["countryFunding"], report
+            assert "monthlyPlayerBonus" not in report, report
         assert host_month["worldMaintenance"] == client_month["worldMaintenance"], (
             host_month, client_month)
+        assert (host_month["monthlyMaintenanceActual"]
+                + client_month["monthlyMaintenanceActual"]
+                == host_month["worldMaintenance"]), (host_month, client_month)
+        for report in (host_month, client_month):
+            assert report["monthlyMaintenanceDisplay"] == \
+                report["monthlyMaintenanceActual"], report
 
-        print("PASS Separate player costs: Monthly Costs and Monthly Report show "
-              "only each seat's bases, their sum equals world maintenance, and "
-              "Base Info exposes resident soldiers")
+        # A client purchase spends only the client's wallet, even when the host
+        # validates it. Both replicas must persist the same pair of balances.
+        before_wallets = dict(host_month["playerFunds"])
+        client.ok({"cmd": "buy", "item": "STR_RIFLE", "count": 1,
+                   "base": "ClientBase"})
+        host.wait_for(
+            "client purchase charged its own wallet",
+            lambda: (lambda report: report
+                     if report["playerFunds"]["ClientPlayer"]
+                     < before_wallets["ClientPlayer"] else None)(
+                         host.ok({"cmd": "month_report"})),
+            timeout=30, interval=0.5)
+        after_host = host.ok({"cmd": "month_report"})
+        after_client = client.ok({"cmd": "month_report"})
+        assert after_host["playerFunds"] == after_client["playerFunds"], (
+            after_host, after_client)
+        assert after_host["playerFunds"]["HostPlayer"] == \
+            before_wallets["HostPlayer"], after_host
+        assert after_host["playerFunds"]["ClientPlayer"] < \
+            before_wallets["ClientPlayer"], after_host
+        assert after_host["funds"] == before_wallets["HostPlayer"], after_host
+        assert after_client["funds"] == \
+            after_client["playerFunds"]["ClientPlayer"], after_client
+
+        print("PASS Separate economy: undivided single-player income, local-player "
+              "maintenance, private wallets, and player-count starting funds")
     finally:
         js.shutdown()
 

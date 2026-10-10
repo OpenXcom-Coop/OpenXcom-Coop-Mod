@@ -157,6 +157,11 @@ def main():
     adoption = load_game.split("connectionTCP::coop_save_owner_player_id = 1", 1)[1].split(
         "SharedEcon::notifyWorldAdopted", 1)[0]
     assert "refreshSeparateBaseOwnership();" in adoption
+    assert "if (_game->getCoopMod()->isSharedCampaign())" in adoption
+    shared_econ = source("src/CoopMod/SharedEcon.cpp")
+    verify_world = shared_econ.split("void verifyWorldChecksum", 1)[1].split(
+        "ResyncStats resyncStats", 1)[0]
+    assert "isSharedReplica()" in verify_world
 
     assert "merged bootstrap base(s)" in tcp
     assert "no client blob retained" in tcp
@@ -164,6 +169,9 @@ def main():
         "if (global_state == COOP_DLG_CLIENT_RESUME_HOLD)", 1)[0]
     assert "streamSharedWorldToClient();" not in wait_bases_release
     geoscape = source("src/Geoscape/GeoscapeState.cpp")
+    checksum_stamp = geoscape.split("SharedEcon::attachWorldChecksum", 1)[0]
+    assert "isSharedCampaign()" in checksum_stamp[-300:]
+    assert "isSeparateCampaign()" not in checksum_stamp[-300:]
     settled_start = geoscape.split("PRD-J02: host-authoritative campaign start", 1)[1].split(
         "void GeoscapeState::think", 1)[0]
     assert "isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()" in settled_start
@@ -180,18 +188,15 @@ def main():
     assert "setBattleOwnerPlayerName(battleOwner)" in landing
 
     country_funding = save.split("int SavedGame::getCountryFunding", 1)[1].split(
-        "int SavedGame::getPlayerIncomeShare", 1)[0]
+        "std::vector<Region*> *SavedGame::getRegions", 1)[0]
     assert "country->getFunding().back()" in country_funding
     assert "getPlayerIncomeShare" not in country_funding
-    income_share = save.split("int SavedGame::getPlayerIncomeShare", 1)[1].split(
-        "std::vector<Region*> *SavedGame::getRegions", 1)[0]
-    assert "_coopPlayers.size()" in income_share
-    assert "CoopCampaignType::Separate" in income_share
-    assert "globalIncome / players" in income_share
+    assert "getPlayerIncomeShare" not in save
     funding_ui = source("src/Geoscape/FundingState.cpp")
     assert "getPlayerIncomeShare" not in funding_ui
     monthly = source("src/Geoscape/MonthlyReportState.cpp")
-    assert "getPlayerIncomeShare(_game->getSavedGame()->getCountryFunding())" in monthly
+    assert "getPlayerIncomeShare" not in monthly
+    assert "getSavedGame()->getCountryFunding()" in monthly
     settled_start = source("src/Geoscape/GeoscapeState.cpp").split(
         "PRD-J02: host-authoritative campaign start", 1)[1].split(
         "void GeoscapeState::think", 1)[0]
@@ -264,7 +269,7 @@ def main():
     print("PASS: single-world SEPARATE battle authority stays on the server host")
     print("PASS: client landing answers use the broker; legacy blob merge is bypassed")
     print("PASS: battle ownership persists by the craft base owner's player name")
-    print("PASS: Monthly Report income is split while country funding stays unchanged")
+    print("PASS: Monthly Report shows full country funding to every Separate player")
     print("PASS: SEPARATE wire protocol and foreign-base command allow-list are isolated")
     print("PASS: the eight-base ceiling is global in UI and host validation")
     print("PASS: legacy per-player world/base/save packets are blocked in schema-3")

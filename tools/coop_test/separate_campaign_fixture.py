@@ -26,7 +26,12 @@ def soldiers_at(gc, base_name):
 
 def canonical_world(gc):
     dump = shared_fixture.world_dump(gc)
-    live = geo(gc)["bases"]
+    state = geo(gc)
+    live = state["bases"]
+    # `funds` is deliberately seat-local in Separate. Compare the complete
+    # persisted wallet map instead, which must be identical on both replicas.
+    dump.pop("funds", None)
+    dump["playerFunds"] = gc.ok({"cmd": "month_report"})["playerFunds"]
     for i, base in enumerate(dump["bases"]):
         base.pop("coopBase", None)
         base.pop("coopIcon", None)

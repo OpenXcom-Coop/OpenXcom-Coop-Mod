@@ -70,6 +70,145 @@ def main(parallel=False):
         assert not client_base_view["coopBase"], client_base_view
         craft = next(c for c in client_base["crafts"] if c["type"] == "STR_SKYRANGER")
 
+        # Vehicles use the same host-authoritative craft equipment lane as normal
+        # items. First reproduce a client equipping the host's foreign craft, then
+        # put a tank on the mission craft so battle generation is covered too.
+        # Free enough physical space for the later two-tank assertion: the fresh
+        # craft starts with eight soldiers, while those soldiers plus two 2x2
+        # tanks would correctly exceed the Skyranger's capacity of fourteen.
+        host_roster = [s for s in fixture.soldiers_at(host, "HostBase")
+                       if s.get("craftId") == 1]
+        for soldier in host_roster[-2:]:
+            host.ok({"cmd": "craft_assign", "base": "HostBase",
+                     "craft_id": 1, "soldier_id": soldier["id"], "on": False})
+        host.wait_for(
+            "host craft space freed for two physical tanks",
+            lambda: (lambda r: r if next(
+                c for c in r["crafts"] if c["id"] == 1
+            )["soldiers"] == 6 else None)(
+                host.ok({"cmd": "base_report", "base": "HostBase"})),
+            timeout=30, interval=0.3)
+        for base_name in ("HostBase", "ClientBase"):
+            for gc in (host, client):
+                gc.ok({"cmd": "give_items", "base": base_name,
+                       "item": "STR_TANK_CANNON", "count": 1})
+                gc.ok({"cmd": "give_items", "base": base_name,
+                       "item": "STR_HWP_CANNON_SHELLS", "count": 100})
+        host_craft = next(c for c in next(
+            b for b in world["bases"] if b["name"] == "HostBase")["crafts"]
+            if c["type"] == "STR_SKYRANGER")
+        host.ok({"cmd": "shared_reset_stats"})
+        client.ok({"cmd": "shared_reset_stats"})
+        client.ok({"cmd": "open_craft_equipment", "base": "HostBase",
+                   "craft_id": host_craft["id"]})
+        before_items = next(c for c in host.ok(
+            {"cmd": "base_report", "base": "HostBase"})["crafts"]
+            if c["id"] == host_craft["id"])["items"].get("STR_RIFLE", 0)
+        client.ok({"cmd": "craft_equip", "base": "HostBase",
+                   "craft_id": host_craft["id"],
+                   "item": "STR_RIFLE", "count": 1})
+        time.sleep(1.0)
+        after_items = next(c for c in host.ok(
+            {"cmd": "base_report", "base": "HostBase"})["crafts"]
+            if c["id"] == host_craft["id"])["items"].get("STR_RIFLE", 0)
+        assert after_items == before_items, (
+            "visitor changed ordinary equipment on the base owner's craft",
+            before_items, after_items)
+        foreign_tank = client.ok({"cmd": "craft_equip", "base": "HostBase",
+                                  "craft_id": host_craft["id"],
+                                  "item": "STR_TANK_CANNON", "count": 1})
+        assert foreign_tank["moved"], foreign_tank
+        try:
+            host.wait_for(
+                "client tank reaches host craft",
+                lambda: (lambda r: r if next(
+                    c for c in r["crafts"] if c["id"] == host_craft["id"]
+                )["vehicles"].get("STR_TANK_CANNON", 0) == 1 else None)(
+                    host.ok({"cmd": "base_report", "base": "HostBase"})),
+                timeout=30, interval=0.3)
+        except TimeoutError as exc:
+            raise AssertionError(
+                f"{exc}; host stats={host.ok({'cmd': 'shared_stats'})}; "
+                f"client stats={client.ok({'cmd': 'shared_stats'})}; "
+                f"host base={host.ok({'cmd': 'base_report', 'base': 'HostBase'})}"
+            ) from exc
+        client.wait_for(
+            "open foreign equipment screen refreshes tank quantity",
+            lambda: (lambda r: r if r.get("craft") == "1" else None)(
+                client.ok({"cmd": "craft_equipment_state",
+                           "item": "STR_TANK_CANNON"})),
+            timeout=30, interval=0.3)
+        client.ok({"cmd": "craft_equipment_ok"})
+        host.ok({"cmd": "open_craft_equipment", "base": "HostBase",
+                 "craft_id": host_craft["id"]})
+        host_tank_view = host.ok({"cmd": "craft_equipment_state",
+                                  "item": "STR_TANK_CANNON"})
+        assert host_tank_view["craft"] == "0", (
+            host_tank_view,
+            host.ok({"cmd": "base_report", "base": "HostBase"}),
+            client.ok({"cmd": "base_report", "base": "HostBase"}))
+        host.ok({"cmd": "craft_equipment_ok"})
+        owner_claim = host.ok({"cmd": "craft_equip", "base": "HostBase",
+                               "craft_id": host_craft["id"],
+                               "item": "STR_TANK_CANNON", "count": 1})
+        assert owner_claim["moved"], owner_claim
+        host.wait_for(
+            "host base owner takes priority on the only tank",
+            lambda: (lambda c: c if c["vehicleSeats"].get(
+                "STR_TANK_CANNON", [0, 0]) == [1, 0] else None)(next(
+                c for c in host.ok({"cmd": "base_report", "base": "HostBase"})["crafts"]
+                if c["id"] == host_craft["id"])),
+            timeout=30, interval=0.3)
+        # Once a second physical tank exists, the visitor can select it and both
+        # seats retain one independently controlled vehicle.
+        for gc in (host, client):
+            gc.ok({"cmd": "give_items", "base": "HostBase",
+                   "item": "STR_TANK_CANNON", "count": 1})
+        client.ok({"cmd": "craft_equip", "base": "HostBase",
+                   "craft_id": host_craft["id"],
+                   "item": "STR_TANK_CANNON", "count": 1})
+        try:
+            host.wait_for(
+                "two tanks satisfy host and client selections",
+                lambda: (lambda c: c if c["vehicleSeats"].get(
+                    "STR_TANK_CANNON", [0, 0]) == [1, 1] else None)(next(
+                    c for c in host.ok({"cmd": "base_report", "base": "HostBase"})["crafts"]
+                    if c["id"] == host_craft["id"])),
+                timeout=30, interval=0.3)
+        except TimeoutError as exc:
+            raise AssertionError(
+                f"{exc}; host stats={host.ok({'cmd': 'shared_stats'})}; "
+                f"client stats={client.ok({'cmd': 'shared_stats'})}; "
+                f"host base={host.ok({'cmd': 'base_report', 'base': 'HostBase'})}; "
+                f"client base={client.ok({'cmd': 'base_report', 'base': 'HostBase'})}"
+            ) from exc
+        # A 2x2 tank consumes four of the client's seven allocated places.
+        # Reduce its initially over-quota eight-person roster to three first.
+        client_roster = [s for s in fixture.soldiers_at(client, "ClientBase")
+                         if s.get("craftId") == craft["id"]]
+        for soldier in client_roster[3:]:
+            client.ok({"cmd": "craft_assign", "base": "ClientBase",
+                       "craft_id": craft["id"], "soldier_id": soldier["id"],
+                       "on": False})
+        host.wait_for(
+            "client mission craft has room in its player quota",
+            lambda: (lambda r: r if next(
+                c for c in r["crafts"] if c["id"] == craft["id"]
+            )["soldiers"] == 3 else None)(
+                host.ok({"cmd": "base_report", "base": "ClientBase"})),
+            timeout=30, interval=0.3)
+        mission_tank = client.ok({"cmd": "craft_equip", "base": "ClientBase",
+                                  "craft_id": craft["id"],
+                                  "item": "STR_TANK_CANNON", "count": 1})
+        assert mission_tank["moved"], mission_tank
+        host.wait_for(
+            "mission tank reaches authoritative craft",
+            lambda: (lambda r: r if next(
+                c for c in r["crafts"] if c["id"] == craft["id"]
+            )["vehicles"].get("STR_TANK_CANNON", 0) == 1 else None)(
+                host.ok({"cmd": "base_report", "base": "ClientBase"})),
+            timeout=30, interval=0.3)
+
         # A real Separate craft may carry both players' soldiers.  Preserve the
         # deployment rule the UI relies on (host crew occupies the outer craft
         # positions and host authority starts the battle), and prove that this
@@ -192,6 +331,8 @@ def main(parallel=False):
             gc.wait_for(f"{label} inventory",
                         lambda gc=gc: has_state(gc, "InventoryState") or None,
                         timeout=60, interval=0.5)
+            previous = gc.ok({"cmd": "battle_inventory", "action": "previous"})
+            assert previous["inventoryOpen"], (label, previous, states(gc))
             gc.ok({"cmd": "battle_inventory", "action": "ok"})
         drain_to_tactical(host, client)
 
@@ -199,6 +340,12 @@ def main(parallel=False):
         assert hb["host"] is True, hb
         assert cb["host"] is False, cb
         assert cb["battleInit"] is True, cb
+        for battle, label in ((hb, "host"), (cb, "client")):
+            assert any(u.get("faction") == 0 and not u.get("isPlayerSoldier")
+                       and u.get("weapon") == "STR_TANK_CANNON"
+                       and u.get("coop") == 1
+                       for u in battle["units"]), (
+                f"{label} battle omitted the synchronized tank", battle)
         assert hb.get("parallelActive") is parallel, hb
         assert cb.get("parallelActive") is parallel, cb
         if parallel:

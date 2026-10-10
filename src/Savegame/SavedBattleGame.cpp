@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <assert.h>
+#include <algorithm>
 #include <vector>
 #include "BattleItem.h"
 #include "ItemContainer.h"
@@ -1265,10 +1266,30 @@ int SavedBattleGame::getBughuntMinTurn() const
  */
 void SavedBattleGame::startFirstTurn()
 {
-	// this should be first tile with all items, even if unit is in reality on other tile.
-	Tile *inventoryTile = getSelectedUnit()->getTile();
+	// A co-op battle hand-off can contain a missing item reference while its tile
+	// inventory still loads. Purge it before scripts/revival walk the global item
+	// list; both paths assume every entry is a live BattleItem.
+	const auto oldItemCount = _items.size();
+	_items.erase(std::remove(_items.begin(), _items.end(), nullptr), _items.end());
+	if (_items.size() != oldItemCount)
+		Log(LOG_WARNING) << "Removed null BattleItem from deployment item list";
 
-	randomizeItemLocations(inventoryTile);
+	// A transferred co-op battle can briefly lack the serialized selection. Pick
+	// the first live player unit instead of dereferencing a null selection.
+	if (!getSelectedUnit())
+	{
+		for (BattleUnit* unit : _units)
+			if (unit && unit->getOriginalFaction() == FACTION_PLAYER && !unit->isOut())
+			{
+				setSelectedUnit(unit);
+				break;
+			}
+	}
+	// this should be first tile with all items, even if unit is in reality on other tile.
+	Tile *inventoryTile = getSelectedUnit() ? getSelectedUnit()->getTile() : nullptr;
+
+	if (inventoryTile)
+		randomizeItemLocations(inventoryTile);
 
 	resetUnitTiles();
 
@@ -1286,6 +1307,8 @@ void SavedBattleGame::startFirstTurn()
 	// initialize xcom units for battle
 	for (auto* bu : *getUnits())
 	{
+		if (!bu)
+			continue;
 		if (bu->getOriginalFaction() != FACTION_PLAYER || bu->isOut())
 		{
 			continue;
@@ -1343,6 +1366,10 @@ void SavedBattleGame::newTurnUpdateScripts()
 
 	for (auto* item : _items)
 	{
+		// Some co-op battle hand-offs contain a missing linked/built-in item. Do
+		// not pass a null object into mod script bindings (BattleItem::getUnit).
+		if (!item)
+			continue;
 		if (item->isOwnerIgnored())
 		{
 			continue;
@@ -1952,6 +1979,14 @@ void SavedBattleGame::randomizeItemLocations(Tile *t)
 		for (auto iter = t->getInventory()->begin(); iter != t->getInventory()->end();)
 		{
 			BattleItem* bi = (*iter);
+			if (!bi)
+			{
+				// A malformed co-op battle hand-off must not make the pre-battle
+				// Previous/Next buttons crash while starting the first turn.
+				Log(LOG_WARNING) << "Removed null BattleItem from deployment inventory";
+				iter = t->getInventory()->erase(iter);
+				continue;
+			}
 			if (bi->getSlot()->getType() == INV_GROUND)
 			{
 				getTile(_storageSpace.at(RNG::generate(0, _storageSpace.size() -1)))->addItem(bi, bi->getSlot());

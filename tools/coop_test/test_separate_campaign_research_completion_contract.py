@@ -22,9 +22,9 @@ def main():
     assert "selectGetOneFree(const RuleResearch* research, const Base* base)" in saved
     assert "selectGetOneFree(research, xbase)" in geo
     assert 'submitLocalCmd(game, "research_done", baseId, p)' in shared
-    separate = (ROOT / "src/CoopMod/SeparateCon.cpp").read_text(encoding="utf-8")
-    complete = separate[separate.index("bool SeparateCon::completeResearch("):]
-    complete = complete[:complete.index("bool SeparateCon::hasCompletedResearch")]
+    separate = (ROOT / "src/CoopMod/SeparateEcon.cpp").read_text(encoding="utf-8")
+    complete = separate[separate.index("bool CampaignData::completeResearch("):]
+    complete = complete[:complete.index("bool CampaignData::hasCompletedResearch")]
     assert "return addCompletedResearch(playerName, research);" in complete
     assert "applySharedResearchCompletion" not in shared
     print("PASS Separate completion is base-owner scoped and uses the replicated completion path")

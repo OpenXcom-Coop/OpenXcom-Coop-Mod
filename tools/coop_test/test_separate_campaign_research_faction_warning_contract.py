@@ -2,7 +2,7 @@
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 def main():
-    con = (ROOT / "src/CoopMod/SeparateCon.cpp").read_text(encoding="utf-8")
+    con = (ROOT / "src/CoopMod/SeparateEcon.cpp").read_text(encoding="utf-8")
     tcp = (ROOT / "src/CoopMod/connectionTCP.cpp").read_text(encoding="utf-8")
     coop = (ROOT / "src/CoopMod/CoopState.cpp").read_text(encoding="utf-8")
     warning = (ROOT / "src/CoopMod/SeparateResearchModeWarningState.cpp").read_text(encoding="utf-8")

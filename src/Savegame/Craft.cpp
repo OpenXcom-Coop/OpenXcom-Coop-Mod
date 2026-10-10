@@ -1707,6 +1707,9 @@ int Craft::getSpaceUsed() const
 int Craft::getSpaceUsedByOwner(int ownerSeat) const
 {
 	int used = 0;
+	for (const Vehicle* vehicle : _vehicles)
+		if (vehicle && vehicle->getCoop() == ownerSeat)
+			used += vehicle->getTotalSize();
 	for (const Soldier* soldier : *_base->getSoldiers())
 	{
 		if (soldier->getCraft() == this && soldier->getOwnerPlayerId() == ownerSeat)
@@ -2551,9 +2554,18 @@ CraftPlacementErrors Craft::validateAddingSoldier(int space, const Soldier* s) c
  * Validates craft space and craft constraints on adding vehicles to a craft.
  * @return Maximum allowed number of vehicles to add.
  */
-int Craft::validateAddingVehicles(int totalSize) const
+int Craft::validateAddingVehicles(int totalSize, int ownerSeat) const
 {
-	int maximumAllowed = getSpaceAvailable() / totalSize;
+	int available = getSpaceAvailable();
+	if (connectionTCP::isSeparateCampaignStatic() && ownerSeat >= 0)
+	{
+		const int capacity = getMaxUnitsClamped();
+		const int ownerAvailable = (capacity + 1) / 2
+			- getSpaceUsedByOwner(ownerSeat);
+		const int physicalAvailable = capacity - getSpaceUsed();
+		available = std::max(0, std::min(ownerAvailable, physicalAvailable));
+	}
+	int maximumAllowed = available / totalSize;
 
 	{
 		maximumAllowed = std::min(maximumAllowed, getMaxVehiclesAndLargeSoldiersClamped() - getNumVehiclesAndLargeSoldiers());

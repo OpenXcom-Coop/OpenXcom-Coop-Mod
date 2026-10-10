@@ -1390,6 +1390,9 @@ class connectionTCP
 	// monthly_report packet (SHARED). A replica overwrites its own recomputed tails
 	// with these in time1MonthCoop, so funds/maintenance never drift from the host.
 	bool sharedMonthlyPending = false;
+	bool separateMonthlyPending = false;
+	Json::Value separateMonthlyPlayerFunds;
+	Json::Value separateMonthlyPlayerCosts;
 	int64_t sharedMonthlyFunds = 0;
 	int64_t sharedMonthlyMaintenance = 0;
 	int64_t sharedMonthlyIncome = 0;

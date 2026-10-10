@@ -13,14 +13,32 @@ def main():
     try:
         fixture.assert_fresh_named_world(host, client)
         client.ok({"cmd": "open_screen", "screen": "basescape", "base": "ClientBase"})
+        wallets = client.ok({"cmd": "month_report"})["playerFunds"]
+        own_menu = client.ok({"cmd": "basescape_menu_state"})
+        assert own_menu["displayedFunds"] == wallets["ClientPlayer"], own_menu
+        assert own_menu["miniDisplaySlots"]["ClientBase"] == 0, own_menu
+        assert own_menu["miniDisplaySlots"]["HostBase"] == 1, own_menu
         client.ok({"cmd": "basescape_select_base", "base": "HostBase"})
         menu = client.ok({"cmd": "basescape_menu_state"})
         assert menu["foreign"] and menu["base"] == "HostBase", menu
-        for button in ("newBase", "facilities", "research", "manufacture",
+        assert menu["displayedFunds"] == wallets["HostPlayer"], menu
+        assert not menu["visible"]["newBase"], menu
+        assert menu["baseOwnerVisible"], menu
+        assert menu["baseOwnerText"] == "Owner: HostPlayer", menu
+        for button in ("facilities", "research", "manufacture",
                        "transfer", "sell"):
             assert not menu["visible"][button], menu
         assert menu["miniBorderColors"]["HostBase"] == 1, menu
-        client.ok({"cmd": "leave_base"})
+        host_costs = client.ok({"cmd": "base_report", "base": "HostBase"})
+        assert host_costs["ownerPlayerMaintenance"] == \
+            host_costs["monthlyMaintenance"], host_costs
+        client.ok({"cmd": "open_screen", "screen": "monthly_costs",
+                   "base": "HostBase"})
+        cost_screen = client.ok({"cmd": "screen_state"})
+        assert cost_screen["top"] == "monthly_costs", cost_screen
+        assert cost_screen["maintenance"] == \
+            host_costs["ownerPlayerMaintenance"], (cost_screen, host_costs)
+        client.ok({"cmd": "close_screens"})
 
         client.ok({"cmd": "globe_click_base", "base": "HostBase"})
         client.wait_for(

@@ -425,7 +425,6 @@ set ( savegame_src
   Savegame/SaveConverter.cpp
   Savegame/SavedBattleGame.cpp
   Savegame/SavedGame.cpp
-  CoopMod/SeparateCon.cpp
   Savegame/SerializationHelper.cpp
   Savegame/Soldier.cpp
   Savegame/SoldierAvatar.cpp

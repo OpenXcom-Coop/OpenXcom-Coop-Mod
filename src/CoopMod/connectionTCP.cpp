@@ -10427,8 +10427,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		 int year = obj["year"].asInt();
 		 _game->getSavedGame()->getTime()->setYearCoop(year);
 
-		 int fundingDiff = obj.isMember("globalFundingDiff") && _game->getSavedGame()
-			 ? _game->getSavedGame()->getPlayerIncomeShare(obj["globalFundingDiff"].asInt())
+		 int fundingDiff = obj.isMember("globalFundingDiff")
+			 ? obj["globalFundingDiff"].asInt()
 			 : obj["fundingDiff"].asInt();
 		 fundingDiffCoop = fundingDiff;
 
@@ -10504,6 +10504,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sharedMonthlyExpenditure = obj.get("sharedExpenditure", 0).asInt64();
 			sharedMonthlyResearchScore = obj.get("sharedResearchScore", 0).asInt();
 			sharedMonthlyPending = true;
+		}
+		if (obj.isMember("separatePlayerFunds") && isSeparateCampaign())
+		{
+			separateMonthlyPlayerFunds = obj["separatePlayerFunds"];
+			separateMonthlyPlayerCosts = obj.get("separatePlayerCosts", Json::Value(Json::objectValue));
+			separateMonthlyPending = true;
 		}
 
 		_game->getCoopMod()->show_coop_monthly_report = true;
@@ -16895,7 +16901,7 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		&& connectionTCP::session.lobbyMode == 1)
 	{
 		const std::string owner = _game->getCoopMod()->getCurrentClientName();
-		SeparateCon& separate = _game->getSavedGame()->getSeparateCampaign();
+		SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
 		const int hostDifficulty = static_cast<int>(_game->getSavedGame()->getDifficulty());
 		const int clientDifficulty = static_cast<int>(coopFile->getDifficulty());
 		separate.setFaction(connectionTCP::seatName(connectionTCP::localSeat()),
@@ -16919,7 +16925,7 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		// its selected faction at new-save creation. Import that private profile;
 		// factionResearch is mission-script metadata and does not drive the actual
 		// New Research list.
-		if (const SeparateCon::PlayerState* clientProfile =
+		if (const SeparateEcon::CampaignData::PlayerState* clientProfile =
 			coopFile->getSeparateCampaign().getPlayer(owner))
 		{
 			separate.replaceCompletedResearch(owner, clientProfile->completedResearch);

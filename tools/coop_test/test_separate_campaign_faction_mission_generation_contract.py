@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
-    con_h = (ROOT / "src/CoopMod/SeparateCon.h").read_text(encoding="utf-8")
-    con = (ROOT / "src/CoopMod/SeparateCon.cpp").read_text(encoding="utf-8")
+    con_h = (ROOT / "src/CoopMod/SeparateEcon.h").read_text(encoding="utf-8")
+    con = (ROOT / "src/CoopMod/SeparateEcon.cpp").read_text(encoding="utf-8")
     geo = (ROOT / "src/Geoscape/GeoscapeState.cpp").read_text(encoding="utf-8")
 
     assert "_missionOwnerCursor" in con_h

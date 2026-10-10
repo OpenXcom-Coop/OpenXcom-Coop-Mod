@@ -102,6 +102,7 @@
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Vehicle.h"
 #include "../Savegame/GameTime.h"
 #include "../Savegame/MissionSite.h"
 #include "../Savegame/ResearchProject.h"
@@ -162,6 +163,7 @@
 #include "PasswordCheckMenu.h"
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
+#include "../Basescape/MonthlyCostsState.h"
 #include "../Basescape/BuildFacilitiesState.h"
 #include "../Basescape/SoldiersState.h"
 #include "../Basescape/SoldierInfoState.h"
@@ -1029,6 +1031,11 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			_game->pushState(new BasescapeState(target, nullptr));
 			resp["ok"] = true;
 		}
+		else if (screen == "monthly_costs")
+		{
+			_game->pushState(new MonthlyCostsState(target));
+			resp["ok"] = true;
+		}
 		else if (screen == "build_facilities")
 		{
 			// Playtest B1: the small "build facilities" popup, ON TOP of a BasescapeState
@@ -1185,6 +1192,11 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			resp["top"] = "basescape";
 			resp["funds"] = bs->harnessFundsText();
 		}
+		else if (auto* mc = dynamic_cast<MonthlyCostsState*>(top))
+		{
+			resp["top"] = "monthly_costs";
+			resp["maintenance"] = mc->harnessDisplayedMaintenance();
+		}
 		else if (dynamic_cast<GeoscapeState*>(top))    resp["top"] = "geoscape";
 		else if (auto* cd = dynamic_cast<CoopState*>(top))
 		{
@@ -1330,6 +1342,12 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			resp["crew"] = ces->harnessDisplayedCrew();
 			resp["used"] = ces->harnessDisplayedSpaceUsed();
 			resp["available"] = ces->harnessDisplayedSpaceAvailable();
+			const std::string item = req.get("item", "").asString();
+			if (!item.empty())
+			{
+				resp["stores"] = ces->harnessDisplayedItem(1, item);
+				resp["craft"] = ces->harnessDisplayedItem(2, item);
+			}
 			resp["ok"] = true;
 		}
 	}
@@ -2358,6 +2376,14 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			for (Base* base : *_game->getSavedGame()->getBases())
 				borders[base->getName()] = state->harnessMiniBorderColor(base->getName());
 			resp["miniBorderColors"] = borders;
+			Json::Value slots(Json::objectValue);
+			for (Base* base : *_game->getSavedGame()->getBases())
+				slots[base->getName()] = state->harnessMiniDisplaySlot(base->getName());
+			resp["miniDisplaySlots"] = slots;
+			resp["fundsText"] = state->harnessFundsText();
+			resp["displayedFunds"] = Json::Int64(state->harnessDisplayedFunds());
+			resp["baseOwnerVisible"] = state->harnessBaseOwnerVisible();
+			resp["baseOwnerText"] = state->harnessBaseOwnerText();
 			resp["ok"] = true;
 		}
 	}
@@ -3902,7 +3928,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["error"] = "player is not in the campaign roster";
 		else
 		{
-			SeparateCon& state = sg->getSeparateCampaign();
+			SeparateEcon::CampaignData& state = sg->getSeparateCampaign();
 			if (req.isMember("faction"))
 				state.setFaction(playerName, req["faction"].asString());
 			if (req.isMember("research"))
@@ -3926,7 +3952,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			sg->getSeparateCampaign().save(writer);
 			YAML::YamlString yaml = writer.emit();
 			YAML::YamlRootNodeReader reader(yaml, "separateConHarness", false);
-			SeparateCon restored;
+			SeparateEcon::CampaignData restored;
 			restored.load(reader);
 			Json::Value players(Json::arrayValue);
 			for (const auto& entry : restored.getPlayers())
@@ -6302,9 +6328,16 @@ std::string TestServer::execute(const std::string& line)
 				// but each seat sees its equal share on the Monthly Report Income row.
 				const int countryFunding = sg->getCountryFunding();
 				resp["countryFunding"] = countryFunding;
-				resp["monthlyIncomeDisplay"] = sg->getPlayerIncomeShare(countryFunding);
+				resp["monthlyIncomeDisplay"] = countryFunding;
+				Json::Value playerFunds(Json::objectValue);
+				for (const auto& player : sg->getSeparateCampaign().getPlayers())
+					playerFunds[player.first] = Json::Value::Int64(
+						player.second.funds.empty() ? 0 : player.second.funds.back());
+				resp["playerFunds"] = playerFunds;
 				resp["worldMaintenance"] = sg->getBaseMaintenance();
+				resp["monthlyMaintenanceActual"] = SeparateEcon::localPlayerMaintenance(_game);
 				resp["monthlyMaintenanceDisplay"] = SeparateEcon::localPlayerMaintenance(_game);
+				resp["monthlyPlayerCosts"] = Json::Value::Int64(sg->getSeparatePlayerCosts());
 				Json::Value countries(Json::arrayValue);
 				for (auto* c : *sg->getCountries())
 				{
@@ -6575,6 +6608,13 @@ std::string TestServer::execute(const std::string& line)
 						inv->onAutoequip(nullptr);
 						inv->btnNextClick(nullptr);
 					}
+					resp["ok"] = true;
+				}
+				else if (act == "previous")
+				{
+					inv->btnPrevClick(nullptr);
+					resp["inventoryOpen"] =
+						(findState<InventoryState>(_game) != nullptr);
 					resp["ok"] = true;
 				}
 				else if (act == "ok")
@@ -8601,7 +8641,14 @@ std::string TestServer::execute(const std::string& line)
 				resp["availableStores"] = target->getAvailableStores();
 				resp["totalSoldiers"] = target->getTotalSoldiers();
 				resp["monthlyMaintenance"] = target->getMonthlyMaintenace();
+				resp["personnelMaintenance"] = target->getPersonnelMaintenance();
 				resp["localPlayerMaintenance"] = SeparateEcon::localPlayerMaintenance(_game);
+				resp["ownerPlayerMaintenance"] = target->getOwnerPlayerName().empty()
+					? SeparateEcon::localPlayerMaintenance(_game)
+					: SeparateEcon::playerMaintenance(_game, target->getOwnerPlayerName());
+				resp["ownerFunds"] = target->getOwnerPlayerName().empty()
+					? _game->getSavedGame()->getFunds()
+					: _game->getSavedGame()->getSeparatePlayerFunds(target->getOwnerPlayerName());
 				resp["coopQuarters"] = target->coop_quarters;
 				resp["coopSoldiers"] = target->coop_soldiers;
 				resp["coopGuests"] = target->coop_guests;
@@ -8633,6 +8680,25 @@ std::string TestServer::execute(const std::string& line)
 					for (const auto& pair : *c->getItems()->getContents())
 						citems[pair.first->getType()] = pair.second;
 					cj["items"] = citems;
+					Json::Value vehicles(Json::objectValue);
+					Json::Value vehicleSeats(Json::objectValue);
+					for (const Vehicle* vehicle : *c->getVehicles())
+						if (vehicle && vehicle->getRules())
+						{
+							vehicles[vehicle->getRules()->getType()] =
+								vehicles.get(vehicle->getRules()->getType(), 0).asInt() + 1;
+							Json::Value& seats = vehicleSeats[vehicle->getRules()->getType()];
+							if (!seats.isArray())
+							{
+								seats = Json::Value(Json::arrayValue);
+								seats.append(0);
+								seats.append(0);
+							}
+							const int vehicleSeat = vehicle->getCoop() == 1 ? 1 : 0;
+							seats[vehicleSeat] = seats[vehicleSeat].asInt() + 1;
+						}
+					cj["vehicles"] = vehicles;
+					cj["vehicleSeats"] = vehicleSeats;
 					// the co-op item manifest. BattlescapeGenerator::placeItemByLayout
 					// refuses to auto-place any base-inventory item matching an entry
 					// here, so a colliding entry silently strips a soldier's weapon

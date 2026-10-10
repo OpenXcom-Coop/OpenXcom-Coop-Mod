@@ -235,6 +235,7 @@ CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
  */
 CraftEquipmentState::~CraftEquipmentState()
 {
+	_sharedRefresh.unbind(this);
 	delete _timerLeft;
 	delete _timerRight;
 }
@@ -292,6 +293,7 @@ void CraftEquipmentState::init()
 	_firstInit = false;
 
 	touchComponentsRefresh();
+	_sharedRefresh.bind(_game, this, _base);
 }
 
 /**
@@ -359,7 +361,11 @@ void CraftEquipmentState::initList()
 		int cQty = 0;
 		if (isVehicle)
 		{
-			cQty = c->getVehicleCount(itemType);
+			cQty = _game->getCoopMod()
+				&& _game->getCoopMod()->isSeparateCampaign()
+				? SeparateEcon::vehicleSelectionCount(_game, c, itemType,
+					connectionTCP::localSeat())
+				: c->getVehicleCount(itemType);
 		}
 		else
 		{
@@ -525,6 +531,19 @@ void CraftEquipmentState::think()
 {
 	State::think();
 
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0
+			|| _craft >= _base->getCrafts()->size())
+		{
+			_game->popState();
+			return;
+		}
+		const size_t scroll = _lstEquipment->getScroll();
+		initList();
+		_lstEquipment->scrollTo(scroll);
+	}
+
 	_timerLeft->think(this, 0);
 	_timerRight->think(this, 0);
 }
@@ -660,7 +679,11 @@ void CraftEquipmentState::updateQuantity()
 	int cQty = 0;
 	if (item->getVehicleUnit())
 	{
-		cQty = c->getVehicleCount(_items[_sel]);
+		cQty = _game->getCoopMod()
+			&& _game->getCoopMod()->isSeparateCampaign()
+			? SeparateEcon::vehicleSelectionCount(_game, c, _items[_sel],
+				connectionTCP::localSeat())
+			: c->getVehicleCount(_items[_sel]);
 	}
 	else
 	{
@@ -765,7 +788,12 @@ void CraftEquipmentState::moveLeft()
 void CraftEquipmentState::submitSharedCraftEquip(const RuleItem* item, int signedChange)
 {
 	Craft* c = _base->getCrafts()->at(_craft);
-	int current = c->getItems()->getItem(item);
+	int current = item->getVehicleUnit()
+		? (_game->getCoopMod()->isSeparateCampaign()
+			? SeparateEcon::vehicleSelectionCount(_game, c, item->getType(),
+				connectionTCP::localSeat())
+			: c->getVehicleCount(item->getType()))
+		: c->getItems()->getItem(item);
 	int target;
 	if (signedChange >= INT_MAX)        // move everything the base holds onto the craft
 		target = current + _base->getStorageItems()->getItem(item);
@@ -788,11 +816,16 @@ void CraftEquipmentState::moveLeftByValue(int change)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	const RuleItem *item = _game->getMod()->getItem(_items[_sel], true);
-	// SHARED: base stores are shared + host-authoritative - route the move (never
-	// mutate locally on a replica). Vehicles are deferred; the local-batch loops
-	// (templates / alt-management inventory) keep their existing local behavior.
-	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
-		&& _game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()
+		&& _base->_isForeignBase && !item->getVehicleUnit())
+		return;
+	// Shared/Separate base stores are host-authoritative, so route normal items.
+	// Vehicles use this command lane only in Separate Campaign; Shared Campaign
+	// keeps its existing local behavior. Template/local-batch loops remain local.
+	if (!_isNewBattle && !_localBatch
+		&& _game->getCoopMod()
+		&& (!item->getVehicleUnit() || _game->getCoopMod()->isSeparateCampaign())
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		submitSharedCraftEquip(item, change <= 0 ? change : -change);
 		return;
@@ -887,10 +920,15 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	const RuleItem *item = _game->getMod()->getItem(_items[_sel], true);
-	// SHARED (PRD-J09 GAP-5): host-authoritative shared stores - route the move
-	// instead of mutating this replica locally (see moveLeftByValue).
-	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
-		&& _game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()
+		&& _base->_isForeignBase && !item->getVehicleUnit())
+		return;
+	// Route host-authoritative Shared/Separate stores instead of mutating a
+	// replica locally. Vehicle routing is enabled only for Separate Campaign.
+	if (!_isNewBattle && !_localBatch
+		&& _game->getCoopMod()
+		&& (!item->getVehicleUnit() || _game->getCoopMod()->isSeparateCampaign())
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		submitSharedCraftEquip(item, change);
 		return;
@@ -1048,6 +1086,15 @@ bool CraftEquipmentState::harnessMove(const std::string& itemType, int change)
 		}
 	}
 	return false;
+}
+
+std::string CraftEquipmentState::harnessDisplayedItem(
+	size_t column, const std::string& itemType) const
+{
+	for (size_t row = 0; row < _items.size(); ++row)
+		if (_items[row] == itemType)
+			return _lstEquipment->getCellText(row, column);
+	return std::string();
 }
 
 /**

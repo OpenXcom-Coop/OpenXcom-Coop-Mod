@@ -364,6 +364,8 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
 	reader.tryRead("funds", _funds);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	reader.tryRead("maintenance", _maintenance);
 	reader.tryRead("userNotes", _userNotes);
 	reader.tryRead("geoscapeDebugLog", _geoscapeDebugLog);
@@ -912,6 +914,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
 	reader.tryRead("funds", _funds);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	reader.tryRead("maintenance", _maintenance);
 	reader.tryRead("userNotes", _userNotes);
 	reader.tryRead("geoscapeDebugLog", _geoscapeDebugLog);
@@ -2168,7 +2172,47 @@ int64_t SavedGame::getFunds() const
 		return 1000;
 	}
 
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+	{
+		const std::string playerName = getSeparateFundsContextPlayer();
+		const std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(playerName);
+		if (playerFunds && !playerFunds->empty()) return playerFunds->back();
+	}
 	return _funds.back();
+}
+
+std::string SavedGame::getSeparateFundsContextPlayer() const
+{
+	if (!_separateFundsContext.empty()) return _separateFundsContext;
+	std::string playerName = connectionTCP::seatName(connectionTCP::localSeat());
+	if (!playerName.empty()) return playerName;
+	int seat = connectionTCP::coop_save_owner_player_id;
+	if (seat >= 0 && seat < static_cast<int>(_coopPlayers.size()))
+		return _coopPlayers[seat];
+	return _coopPlayers.empty() ? std::string() : _coopPlayers.front();
+}
+
+int64_t SavedGame::getSeparatePlayerFunds(const std::string& playerName) const
+{
+	const std::vector<int64_t>* funds = _separateCampaign.getPlayerFunds(playerName);
+	return funds && !funds->empty() ? funds->back() : (_funds.empty() ? 0 : _funds.back());
+}
+
+int64_t SavedGame::getSeparatePlayerCosts() const
+{
+	if (!_coop || _campaignType != CoopCampaignType::Separate) return 0;
+	return getSeparatePlayerCosts(getSeparateFundsContextPlayer());
+}
+
+int64_t SavedGame::getSeparatePlayerCosts(const std::string& playerName) const
+{
+	auto it = _separatePlayerCosts.find(playerName);
+	return it == _separatePlayerCosts.end() ? 0 : it->second;
+}
+
+void SavedGame::setSeparatePlayerCosts(const std::string& playerName, int64_t costs)
+{
+	if (!playerName.empty()) _separatePlayerCosts[playerName] = costs;
 }
 
 /**
@@ -2177,6 +2221,12 @@ int64_t SavedGame::getFunds() const
  */
 std::vector<int64_t> &SavedGame::getFundsList()
 {
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+	{
+		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
+			getSeparateFundsContextPlayer());
+		if (playerFunds && !playerFunds->empty()) return *playerFunds;
+	}
 	return _funds;
 }
 
@@ -2186,15 +2236,22 @@ std::vector<int64_t> &SavedGame::getFundsList()
  */
 void SavedGame::setFunds(int64_t funds)
 {
-	if (_funds.back() > funds)
+	std::vector<int64_t>* target = &_funds;
+	if (_coop && _campaignType == CoopCampaignType::Separate)
 	{
-		_expenditures.back() += _funds.back() - funds;
+		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
+			getSeparateFundsContextPlayer());
+		if (playerFunds && !playerFunds->empty()) target = playerFunds;
+	}
+	if (target->back() > funds)
+	{
+		_expenditures.back() += target->back() - funds;
 	}
 	else
 	{
-		_incomes.back() += funds - _funds.back();
+		_incomes.back() += funds - target->back();
 	}
-	_funds.back() = funds;
+	target->back() = funds;
 }
 
 /**
@@ -2206,12 +2263,23 @@ void SavedGame::setFunds(int64_t funds)
  * through many gross income AND expenditure events, so net-inference on the
  * replica drifts the Graphs->Finance series (GAP-9). The SHARED apply layer calls
  * this and then copies the host's authoritative _incomes/_expenditures tails
- * verbatim, keeping the replica's series exactly the host's. Never used by the
- * HOST or by SEPARATE campaigns (setFunds is unchanged there).
+ * verbatim, keeping the replica's series exactly the host's. A SEPARATE apply
+ * uses the same raw adoption while a temporary player context routes the value
+ * into the command initiator's private wallet.
  * @param funds New funds.
  */
 void SavedGame::setFundsRaw(int64_t funds)
 {
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+	{
+		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
+			getSeparateFundsContextPlayer());
+		if (playerFunds && !playerFunds->empty())
+		{
+			playerFunds->back() = funds;
+			return;
+		}
+	}
 	_funds.back() = funds;
 }
 
@@ -2275,7 +2343,53 @@ void SavedGame::setGlobeZoom(int zoom)
  */
 void SavedGame::monthlyFunding()
 {
-	int countryFunding = getCountryFunding();
+	int64_t countryFunding = getCountryFunding();
+	if (_coop && _campaignType == CoopCampaignType::Separate && !_coopPlayers.empty())
+	{
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
+		int totalMaintenance = 0;
+		int64_t totalBalanceDelta = 0;
+		int64_t totalPlayerCosts = 0;
+		for (const std::string& playerName : _coopPlayers)
+		{
+			int playerMaintenance = 0;
+			for (Base* base : _bases)
+				if (base && base->isOwnedByPlayer(playerName))
+					playerMaintenance += base->getMonthlyMaintenace();
+			totalMaintenance += playerMaintenance;
+
+			SeparateEcon::CampaignData::PlayerState* player = _separateCampaign.getPlayer(playerName);
+			if (!player || player->funds.empty()) continue;
+			const int64_t normalNet = countryFunding - playerMaintenance;
+			const int64_t balanceDelta = normalNet / static_cast<int64_t>(_coopPlayers.size());
+			const int64_t playerCosts = normalNet - balanceDelta;
+			_separatePlayerCosts[playerName] = playerCosts;
+			totalBalanceDelta += balanceDelta;
+			totalPlayerCosts += playerCosts;
+			std::vector<int64_t>* playerFunds = &player->funds;
+			playerFunds->back() += balanceDelta;
+			playerFunds->push_back(playerFunds->back());
+			if (playerFunds->size() > 12) playerFunds->erase(playerFunds->begin());
+		}
+
+		// Keep the legacy/global finance series as the sum of the independently
+		// settled player economies. Player-facing balances come from PlayerState.
+		const int64_t pooledIncome = countryFunding * static_cast<int64_t>(_coopPlayers.size());
+		_funds.back() += totalBalanceDelta;
+		_funds.push_back(_funds.back());
+		_maintenance.back() = totalMaintenance;
+		_maintenance.push_back(0);
+		_incomes.push_back(pooledIncome);
+		_expenditures.push_back(totalMaintenance + totalPlayerCosts);
+		_researchScores.push_back(0);
+
+		if (_incomes.size() > 12) _incomes.erase(_incomes.begin());
+		if (_expenditures.size() > 12) _expenditures.erase(_expenditures.begin());
+		if (_researchScores.size() > 12) _researchScores.erase(_researchScores.begin());
+		if (_funds.size() > 12) _funds.erase(_funds.begin());
+		if (_maintenance.size() > 12) _maintenance.erase(_maintenance.begin());
+		return;
+	}
 	int baseMaintenance = getBaseMaintenance();
 	_funds.back() += (countryFunding - baseMaintenance);
 	_funds.push_back(_funds.back());
@@ -2436,33 +2550,6 @@ int SavedGame::getCountryFunding() const
 		total += country->getFunding().back();
 	}
 	return total;
-}
-
-/**
- * Returns this player's share of the income shown in the Monthly Report.
- *
- * Separate players see equal portions whose sum is exactly the normal
- * single-player income. This is presentation only: country funding values,
- * monthlyFunding(), the finance graph and the one authoritative funds ledger
- * retain the full amount. Assign the integer remainder by roster seat so the
- * displayed shares also add up exactly without losing a currency unit.
- */
-int SavedGame::getPlayerIncomeShare(int globalIncome) const
-{
-	if (!_coop || _campaignType != CoopCampaignType::Separate || _coopPlayers.size() < 2)
-		return globalIncome;
-
-	const int players = static_cast<int>(_coopPlayers.size());
-	int seat = connectionTCP::coop_save_owner_player_id;
-	if (seat < 0 || seat >= players)
-		seat = 0;
-	const int quotient = globalIncome / players;
-	const int remainder = globalIncome % players;
-	if (remainder > 0 && seat < remainder)
-		return quotient + 1;
-	if (remainder < 0 && seat < -remainder)
-		return quotient - 1;
-	return quotient;
 }
 
 /**

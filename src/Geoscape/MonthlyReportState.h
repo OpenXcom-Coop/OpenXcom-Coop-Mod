@@ -41,7 +41,7 @@ private:
 	TextButton *_btnOk, *_btnBigOk;
 	Window *_window;
 	Text *_txtTitle, *_txtMonth, *_txtRating;
-	Text *_txtIncome, *_txtMaintenance, *_txtBalance, *_txtBonus;
+	Text *_txtIncome, *_txtMaintenance, *_txtBalance, *_txtBonus, *_txtPlayerCosts;
 	Text *_txtDesc, *_txtFailure;
 	int _gameOver;
 	int _ratingTotal, _fundingDiff, _lastMonthsRating;

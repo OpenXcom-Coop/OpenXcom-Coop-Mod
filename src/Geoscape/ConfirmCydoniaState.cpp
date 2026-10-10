@@ -115,7 +115,8 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 			}
 			for (auto* vehicle : *_craft->getVehicles())
 			{
-				vehicle->setCoop(0);
+				if (_game->getCoopMod()->isSharedCampaign())
+					vehicle->setCoop(0);
 				vehicle->setCoopBase(-1);
 			}
 			startCoopMission();

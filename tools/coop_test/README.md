@@ -296,7 +296,7 @@ finally:
 | `test_shared_world_equal.py` | the equality helper itself, **including a negative control** |
 | `test_shared_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_shared_month_run.py` | the long run: 2 month ends + a battle in one campaign |
-| `test_separate_campaign_core.py` | focused schema-3 Separate core: named unified world, Monthly Report income split, and the global eight-base cap |
+| `test_separate_campaign_core.py` | focused schema-3 Separate core: named unified world, full single-player Monthly Report income, and the global eight-base cap |
 | `test_separate_campaign_ui.py` | focused Separate UI: foreign-base permissions, purple mini-base border, direct globe navigation, and BASES selecting an own base |
 | `test_separate_campaign_soldiers.py` | focused Separate personnel: foreign-base arrival cleanup, owner-prefixed popup, and private Soldier List views |
 | `test_separate_campaign_craft.py` | focused Separate craft: owner-filtered crew icons/list and the two-player 7+7 Skyranger quota |

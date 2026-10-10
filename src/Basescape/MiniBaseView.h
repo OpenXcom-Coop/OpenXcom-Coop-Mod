@@ -37,10 +37,12 @@ private:
 	static const int MINI_SIZE = 14;
 
 	std::vector<Base*> *_bases;
+	std::vector<size_t> _displaySlots;
 	SurfaceSet *_texture;
 	size_t _base, _hoverBase;
 	Uint8 _red, _green, _blue;
 	Uint8 _foreignBorder;
+	void rebuildDisplaySlots();
 public:
 	static const size_t MAX_BASES = 8;
 	/// Creates a new mini base view at the specified position and size.
@@ -59,6 +61,8 @@ public:
 	void draw() override;
 	/// Returns the actual ownership/selection border color for a base slot.
 	Uint8 getBaseBorderColor(size_t base) const;
+	/// Returns the visible slot for a canonical SavedGame base index.
+	int getDisplaySlot(size_t base) const;
 	/// Special handling for mouse hovers.
 	void mouseOver(Action *action, State *state) override;
 	void setColor(Uint8 color) override;

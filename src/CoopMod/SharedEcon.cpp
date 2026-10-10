@@ -392,7 +392,7 @@ bool buyValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*
 		}
 		case TRANSFER_SOLDIER:
 		{
-			// PRD-J05: hired soldiers spend shared funds; the purchaser owns them
+			// PRD-J05: hired soldiers spend the command purchaser's funds; the purchaser owns them
 			// (setOwnerPlayerId at apply). The host GENERATES them (RNG) at apply
 			// time and serializes each into the shared_apply payload so replicas
 			// reconstruct rather than re-roll.
@@ -1948,26 +1948,40 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 //   { craftId, craftType, item, count }   baseId = the craft's home-base index.
 // count = the ABSOLUTE desired quantity of `item` loaded on the craft, so host
 // and replica converge regardless of arrival order (the J08/J09 last-write-wins
-// idiom). Items only; vehicles/ammo are deferred (like craft_assign's vehicle
-// variant - CraftEquipmentState still routes non-vehicle items only).
-bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+// idiom). Separate Campaign vehicles share this command envelope, but their
+// ownership and seat-priority rules live in SeparateEcon. Shared Campaign's
+// existing vehicle behavior is deliberately unchanged.
+bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                         int64_t& cost, std::string& failReason)
 {
 	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
 	if (!base) { failReason = "base not found"; return false; }
 	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	if (game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+		return SeparateEcon::validateCraftEquip(
+			game, payload, base, seat, cost, failReason);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
 	if (!item) { failReason = "unknown item"; return false; }
-	if (item->getVehicleUnit()) { failReason = "vehicles not routed"; return false; }
+	if (item->getVehicleUnit())
+	{
+		failReason = "vehicles not routed";
+		return false;
+	}
 	return true;
 }
 
-void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 {
 	if (!base) return;
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
-	if (!craft || !item || item->getVehicleUnit()) return;
+	if (!craft || !item) return;
+	if (item->getVehicleUnit())
+	{
+		if (game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+			SeparateEcon::applyVehicleEquip(game, payload, base, seat);
+		return;
+	}
 
 	ItemContainer* craftItems = craft->getItems();
 	ItemContainer* store = base->getStorageItems();
@@ -2736,11 +2750,17 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 			return;
 		}
 	}
+	SavedGame* save = game->getSavedGame();
+	const std::string fundsPlayer = pc.separateProtocol
+		? connectionTCP::seatName(pc.seat) : std::string();
+	if (pc.separateProtocol && save)
+		save->setSeparateFundsContext(fundsPlayer);
 	int64_t cost = 0;
 	std::string failReason;
 	++g_cmdN;
 	if (!hit->second.validate(game, pc.payload, base, pc.seat, cost, failReason))
 	{
+		if (pc.separateProtocol && save) save->clearSeparateFundsContext();
 		rejectHostCmd(game, pc, failReason.empty() ? "rejected" : failReason);
 		return;
 	}
@@ -2750,7 +2770,6 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// to the initiator. The applier gets a MUTABLE payload copy so it can resolve
 	// host-only RNG into it (e.g. buy serializes generated soldiers); the resolved
 	// payload is what we broadcast, so replicas reconstruct instead of re-rolling.
-	SavedGame* save = game->getSavedGame();
 	save->setFunds(save->getFunds() - cost);
 	Json::Value payload = pc.payload;
 	hit->second.apply(game, payload, base, pc.seat);
@@ -2764,6 +2783,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	apply["baseId"] = pc.baseId;
 	apply["payload"] = payload;
 	apply["funds"] = Json::Value::Int64(save->getFunds());
+	if (pc.separateProtocol) apply["fundsPlayer"] = fundsPlayer;
 	// GAP-9: carry the host's authoritative current-month income/expenditure tails
 	// (read AFTER apply, so they include any gross flow the applier booked, e.g. a
 	// prod_done that both sells and restarts a unit). The replica adopts these
@@ -2787,6 +2807,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 
 	// PRD-J10: the host's own open screens are as stale as a replica's after an
 	// apply (a client's buy moves the host's funds too), so both roles notify.
+	if (pc.separateProtocol && save) save->clearSeparateFundsContext();
 	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
 }
 
@@ -2794,6 +2815,14 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 void processApply(Game* game, const Json::Value& ap)
 {
 	SavedGame* save = game->getSavedGame();
+	const bool separateApply = ap.get("state", "").asString() == "separate_apply";
+	if (save && separateApply)
+	{
+		std::string fundsPlayer = ap.get("fundsPlayer", "").asString();
+		if (fundsPlayer.empty())
+			fundsPlayer = connectionTCP::seatName(ap.get("seat", 0).asInt());
+		save->setSeparateFundsContext(fundsPlayer);
+	}
 	// Funds are host-authoritative: adopt them from the packet no matter what, so
 	// the replica cannot drift even if the mutation itself cannot be reconstructed.
 	if (save && ap.isMember("funds"))
@@ -2827,13 +2856,18 @@ void processApply(Game* game, const Json::Value& ap)
 	// baseId=-1 (no existing base) and its applier ignores @a base; every OTHER
 	// applier already null-guards @a base itself (if (!base) return;), so passing a
 	// null base straight through is safe and keeps base creation working on replicas.
-	if (hit == reg.end()) return;
+	if (hit == reg.end())
+	{
+		if (save && separateApply) save->clearSeparateFundsContext();
+		return;
+	}
 
 	// Mutable copy for the applier signature; the replica only READS the resolved
 	// payload (host already resolved any RNG before broadcasting).
 	Json::Value payload = ap["payload"];
 	int seat = ap.get("seat", 0).asInt();
 	hit->second.apply(game, payload, base, seat);
+	if (save && separateApply) save->clearSeparateFundsContext();
 	++g_applyN;
 
 	// PRD-J10: tell the open screen its world just moved under it.
@@ -7009,7 +7043,11 @@ void notifyWorldAdopted()
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)
 {
-	if (!game || !game->getSavedGame()) return;
+	// Separate has one authoritative world but player-specific wallet views, so
+	// Shared's exact-funds checksum is invalid there. Separate synchronization
+	// uses its own command/world-stream protocol and must never enter this repair.
+	if (!game || !game->getSavedGame() || !game->getCoopMod()
+		|| !game->getCoopMod()->isSharedReplica()) return;
 	if (!msg.isMember("chkFunds")) return; // older/non-SHARED host
 	// PRD-P2 3a: the battle terms are compared on their OWN path and are deliberately
 	// NOT folded into the world condition below - that condition's repair is

@@ -67,7 +67,8 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtMaintenance = new Text(130, 9, 16, 40);
 	_txtBalance = new Text(160, 9, 146, 40);
 	_txtBonus = new Text(300, 9, 16, 48);
-	_txtDesc = new Text(280, 124, 16, 56);
+	_txtPlayerCosts = new Text(300, 9, 16, 48);
+	_txtDesc = new Text(280, 116, 16, 56);
 	_txtFailure = new Text(290, 160, 15, 10);
 
 	// Set palette
@@ -83,6 +84,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	add(_txtMaintenance, "text1", "monthlyReport");
 	add(_txtBalance, "text1", "monthlyReport");
 	add(_txtBonus, "text1", "monthlyReport");
+	add(_txtPlayerCosts, "text1", "monthlyReport");
 	add(_txtDesc, "text2", "monthlyReport");
 	add(_txtFailure, "text2", "monthlyReport");
 
@@ -206,7 +208,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 
 	std::ostringstream ss;
 	ss << tr("STR_INCOME") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(
-		_game->getSavedGame()->getPlayerIncomeShare(_game->getSavedGame()->getCountryFunding()));
+		_game->getSavedGame()->getCountryFunding());
 	ss << " (";
 	if (_fundingDiff > 0)
 		ss << '+';
@@ -218,6 +220,20 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		<< Unicode::formatFunding(SeparateEcon::localPlayerMaintenance(_game));
 	_txtMaintenance->setText(ss2.str());
 
+	const bool separate = _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign();
+	if (separate)
+	{
+		std::ostringstream playerCosts;
+		playerCosts << tr("STR_PLAYERS_COSTS") << "> " << Unicode::TOK_COLOR_FLIP
+			<< Unicode::formatFunding(_game->getSavedGame()->getSeparatePlayerCosts());
+		_txtPlayerCosts->setText(playerCosts.str());
+		_txtPlayerCosts->setY(49);
+	}
+	else
+	{
+		_txtPlayerCosts->setVisible(false);
+	}
+
 	int performanceBonus = _game->getMod()->getPerformanceBonus(_ratingTotal);
 	if (performanceBonus > 0)
 	{
@@ -227,18 +243,34 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		std::ostringstream ss4;
 		ss4 << tr("STR_PERFORMANCE_BONUS") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(performanceBonus);
 		_txtBonus->setText(ss4.str());
-		// shuffle the fields a bit for better overview
-		int upper = _txtMaintenance->getY();
-		int lower = _txtBonus->getY();
-		_txtMaintenance->setY(lower);
-		_txtBalance->setY(lower);
-		_txtBonus->setY(upper);
+		if (separate)
+		{
+			_txtBonus->setY(57);
+			_txtDesc->setY(65);
+			_txtDesc->setHeight(105);
+		}
+		else
+		{
+			// shuffle the fields a bit for the vanilla overview
+			int upper = _txtMaintenance->getY();
+			int lower = _txtBonus->getY();
+			_txtMaintenance->setY(lower);
+			_txtBalance->setY(lower);
+			_txtBonus->setY(upper);
+		}
 	}
 	else
 	{
-		// vanilla view
 		_txtBonus->setVisible(false);
-		_txtDesc->setY(_txtBonus->getY());
+		if (separate)
+		{
+			_txtDesc->setY(57);
+			_txtDesc->setHeight(115);
+		}
+		else
+		{
+			_txtDesc->setY(_txtBonus->getY());
+		}
 	}
 
 	std::ostringstream ss3;
@@ -508,10 +540,7 @@ void MonthlyReportState::calculateChanges()
 		}
 	}
 
-	// Separate shows each player an equal share of the Monthly Report income
-	// change. Country funding itself and the authoritative ledger stay global.
 	globalFundingDiff = _fundingDiff;
-	_fundingDiff = _game->getSavedGame()->getPlayerIncomeShare(globalFundingDiff);
 
 	//calculate total.
 	_ratingTotal = xcomTotal - alienTotal;
@@ -643,6 +672,22 @@ void MonthlyReportState::calculateChanges()
 			root["sharedExpenditure"] = Json::Value::Int64(
 				hostExpenditures.empty() ? 0 : hostExpenditures.back());
 			root["sharedResearchScore"] = 0; // new month starts at 0 (matches the roll)
+			if (_game->getCoopMod()->isSeparateCampaign())
+			{
+				Json::Value playerFunds(Json::objectValue);
+				Json::Value playerCosts(Json::objectValue);
+				for (const auto& player : _game->getSavedGame()->getSeparateCampaign().getPlayers())
+				{
+					Json::Value history(Json::arrayValue);
+					for (int64_t funds : player.second.funds)
+						history.append(Json::Value::Int64(funds));
+					playerFunds[player.first] = history;
+					playerCosts[player.first] = Json::Value::Int64(
+						_game->getSavedGame()->getSeparatePlayerCosts(player.first));
+				}
+				root["separatePlayerFunds"] = playerFunds;
+				root["separatePlayerCosts"] = playerCosts;
+			}
 		}
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

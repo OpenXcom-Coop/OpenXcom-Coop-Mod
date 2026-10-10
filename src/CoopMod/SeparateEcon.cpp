@@ -16,6 +16,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Ufo.h"
+#include "../Savegame/Vehicle.h"
 #include "../Savegame/AlienMission.h"
 #include "../Savegame/AlienBase.h"
 #include "../Savegame/MissionSite.h"
@@ -23,6 +24,8 @@
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleEvent.h"
 #include "../Mod/RuleResearch.h"
+#include "../Mod/RuleItem.h"
+#include "../Mod/Unit.h"
 #include "../Mod/Mod.h"
 #include "../Mod/Armor.h"
 
@@ -74,6 +77,35 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 	msg["craftId"] = craft ? craft->getId() : -1;
 	msg["craftType"] = craft ? craft->getRules()->getType() : "";
 	return msg;
+}
+
+std::string vehicleCraftKey(const Craft* craft)
+{
+	if (!craft || !craft->getBase()) return std::string();
+	return craft->getBase()->getOwnerPlayerName() + ":"
+		+ std::to_string(craft->getBase()->_coop_base_id) + ":"
+		+ craft->getRules()->getType() + ":" + std::to_string(craft->getId());
+}
+
+void rebuildVehicleSelections(Game* game, Craft* craft, const RuleItem* item)
+{
+	if (!game || !game->getSavedGame() || !craft || !item) return;
+	SavedGame* save = game->getSavedGame();
+	const std::string key = vehicleCraftKey(craft);
+	for (const std::string& player : save->getCoopPlayers())
+		save->getSeparateCampaign().setVehicleSelection(
+			player, key, item->getType(), 0);
+	std::map<int, int> counts;
+	for (Vehicle* vehicle : *craft->getVehicles())
+		if (vehicle && vehicle->getRules() == item)
+			++counts[vehicle->getCoop()];
+	for (const auto& count : counts)
+	{
+		const std::string player = connectionTCP::seatName(count.first);
+		if (!player.empty())
+			save->getSeparateCampaign().setVehicleSelection(
+				player, key, item->getType(), count.second);
+	}
 }
 }
 
@@ -140,6 +172,24 @@ int normalizeSoldierIds(Game* game)
 	return changed;
 }
 
+int playerMaintenance(Game* game, const std::string& playerName)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign())
+		return save ? save->getBaseMaintenance() : 0;
+
+	int total = 0;
+	for (Base* base : *save->getBases())
+	{
+		if (!base) continue;
+		if (!playerName.empty() && base->isOwnedByPlayer(playerName))
+		{
+			total += base->getMonthlyMaintenace();
+		}
+	}
+	return total;
+}
+
 int localPlayerMaintenance(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
@@ -147,18 +197,11 @@ int localPlayerMaintenance(Game* game)
 		return save ? save->getBaseMaintenance() : 0;
 
 	const std::string playerName = connectionTCP::seatName(connectionTCP::localSeat());
-	int total = 0;
+	int total = playerMaintenance(game, playerName);
+	// Ownerless bases only exist in legacy saves before their ownership upgrade.
 	for (Base* base : *save->getBases())
-	{
-		if (!base) continue;
-		// Persistent names are authoritative. The view flag is only a legacy
-		// fallback for an ownerless upgraded save.
-		if ((!playerName.empty() && base->isOwnedByPlayer(playerName))
-			|| (base->getOwnerPlayerName().empty() && !base->_isForeignBase))
-		{
+		if (base && base->getOwnerPlayerName().empty() && !base->_isForeignBase)
 			total += base->getMonthlyMaintenace();
-		}
-	}
 	return total;
 }
 
@@ -432,6 +475,155 @@ bool validateCraftAssign(Game* game, const Json::Value& payload, Base* base,
 	return true;
 }
 
+bool validateVehicleEquip(Game* game, const Json::Value& payload, Base* base,
+	int /*seat*/, int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!game || !base) { failReason = "base not found"; return false; }
+	const RuleItem* item = game->getMod()->getItem(
+		payload.get("item", "").asString(), false);
+	if (!item || !item->getVehicleUnit())
+		{ failReason = "unknown vehicle"; return false; }
+	return true;
+}
+
+bool validateCraftEquip(Game* game, const Json::Value& payload, Base* base,
+	int seat, int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!game || !base) { failReason = "base not found"; return false; }
+	const RuleItem* item = game->getMod()->getItem(
+		payload.get("item", "").asString(), false);
+	if (!item) { failReason = "unknown item"; return false; }
+	if (item->getVehicleUnit())
+		return validateVehicleEquip(game, payload, base, seat, cost, failReason);
+	if (!base->isOwnedByPlayer(connectionTCP::seatName(seat)))
+	{
+		failReason = "Only the base owner can change craft equipment";
+		return false;
+	}
+	return true;
+}
+
+int vehicleSelectionCount(Game* game, Craft* craft,
+	const std::string& itemType, int seat)
+{
+	if (!game || !game->getSavedGame() || !craft) return 0;
+	const std::string player = connectionTCP::seatName(seat);
+	CampaignData& profiles = game->getSavedGame()->getSeparateCampaign();
+	const std::string key = vehicleCraftKey(craft);
+	int selected = profiles.getVehicleSelection(player, key, itemType);
+	if (selected == 0)
+	{
+		// Safe upgrade for saves created before vehicleSelections: Vehicle::coop
+		// already persisted the controlling seat, so reconstruct the profile.
+		for (const Vehicle* vehicle : *craft->getVehicles())
+			if (vehicle && vehicle->getRules()->getType() == itemType
+				&& vehicle->getCoop() == seat)
+				++selected;
+		if (selected > 0)
+			profiles.setVehicleSelection(player, key, itemType, selected);
+	}
+	return selected;
+}
+
+void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!game || !base) return;
+	Craft* craft = nullptr;
+	const int craftId = payload.get("craftId", -1).asInt();
+	const std::string craftType = payload.get("craftType", "").asString();
+	for (Craft* candidate : *base->getCrafts())
+		if (candidate->getId() == craftId
+			&& candidate->getRules()->getType() == craftType)
+		{ craft = candidate; break; }
+	const RuleItem* item = game->getMod()->getItem(
+		payload.get("item", "").asString(), false);
+	if (!craft || !item || !item->getVehicleUnit()) return;
+
+	ItemContainer* store = base->getStorageItems();
+	const int current = vehicleSelectionCount(game, craft, item->getType(), seat);
+	int target = std::max(0, payload.get("count", 0).asInt());
+	int ownerSeat = base->isOwnedByPlayer(connectionTCP::seatName(1)) ? 1 : 0;
+	if (target > current)
+	{
+		const int requestedAdd = target - current;
+		int add = std::min(requestedAdd, store->getItem(item));
+		const int size = item->getVehicleUnit()->getArmor()->getTotalSize();
+		// The authoritative host must validate against the requesting player's
+		// quota, not against the host process's local seat.
+		add = std::min(add, craft->validateAddingVehicles(size, seat));
+		const RuleItem* ammo = item->getVehicleClipAmmo();
+		const int ammoPerVehicle = item->getVehicleClipsLoaded();
+		if (ammo && ammoPerVehicle > 0)
+			add = std::min(add, store->getItem(ammo) / ammoPerVehicle);
+		for (int i = 0; i < add; ++i)
+		{
+			store->removeItem(item, 1);
+			if (ammo && ammoPerVehicle > 0)
+				store->removeItem(ammo, ammoPerVehicle);
+			Vehicle* vehicle = new Vehicle(item, item->getVehicleClipSize(), size);
+			vehicle->setCoop(seat);
+			craft->getVehicles()->push_back(vehicle);
+		}
+		// A base owner has priority if both seats selected the only physical tank.
+		if (seat == ownerSeat && add < requestedAdd)
+		{
+			int claim = requestedAdd - add;
+			for (Vehicle* vehicle : *craft->getVehicles())
+				if (claim > 0 && vehicle && vehicle->getRules() == item
+					&& vehicle->getCoop() != ownerSeat)
+				{
+					vehicle->setCoop(ownerSeat);
+					--claim;
+				}
+		}
+	}
+	else if (target < current)
+	{
+		const int remove = current - target;
+		const RuleItem* ammo = item->getVehicleClipAmmo();
+		const int ammoPerVehicle = item->getVehicleClipsLoaded();
+		for (int i = 0; i < remove; ++i)
+		{
+			auto it = std::find_if(craft->getVehicles()->begin(),
+				craft->getVehicles()->end(), [item, seat](Vehicle* vehicle)
+				{
+					return vehicle && vehicle->getRules() == item
+						&& vehicle->getCoop() == seat;
+				});
+			if (it == craft->getVehicles()->end()) break;
+			delete *it;
+			craft->getVehicles()->erase(it);
+			store->addItem(item, 1);
+			if (ammo && ammoPerVehicle > 0)
+				store->addItem(ammo, ammoPerVehicle);
+		}
+	}
+	craft->resetCustomDeployment();
+	// Vehicle count alone cannot replicate an owner-priority claim because the
+	// count does not change. The host therefore appends the authoritative seat
+	// allocation, and replicas adopt it after applying the physical inventory.
+	if (connectionTCP::getHost())
+	{
+		Json::Value owners(Json::arrayValue);
+		for (Vehicle* vehicle : *craft->getVehicles())
+			if (vehicle && vehicle->getRules() == item)
+				owners.append(vehicle->getCoop());
+		payload["vehicleOwners"] = owners;
+	}
+	else if (payload["vehicleOwners"].isArray())
+	{
+		Json::ArrayIndex index = 0;
+		for (Vehicle* vehicle : *craft->getVehicles())
+			if (vehicle && vehicle->getRules() == item
+				&& index < payload["vehicleOwners"].size())
+				vehicle->setCoop(payload["vehicleOwners"][index++].asInt());
+	}
+	rebuildVehicleSelections(game, craft, item);
+	payload["count"] = vehicleSelectionCount(game, craft, item->getType(), seat);
+}
+
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType,
 	int desiredOnCraft)
 {
@@ -580,6 +772,270 @@ void hostGeoscapeEvent(Game* game, const std::string& eventName,
 			if (rule) discovered.append(rule->getName());
 	msg["discoveredResearch"] = discovered;
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+}
+void CampaignData::clear()
+{
+	_players.clear();
+	_loadedFromSave = false;
+	_missionOwnerCursor = 0;
+}
+
+void CampaignData::load(const YAML::YamlNodeReader& reader)
+{
+	clear();
+	if (!reader)
+		return;
+
+	_loadedFromSave = true;
+	reader.tryRead("missionOwnerCursor", _missionOwnerCursor);
+	for (const auto& playerReader : reader["players"].children())
+	{
+		const std::string name = playerReader["name"].readVal<std::string>("");
+		if (name.empty())
+			continue;
+
+		PlayerState& player = _players[name];
+		playerReader.tryRead("faction", player.faction);
+		std::vector<std::string> factionResearch;
+		playerReader.tryRead("factionResearch", factionResearch);
+		player.factionResearch.insert(factionResearch.begin(), factionResearch.end());
+		std::vector<std::string> completed;
+		playerReader.tryRead("completedResearch", completed);
+		player.completedResearch.insert(completed.begin(), completed.end());
+		playerReader.tryRead("funds", player.funds);
+		for (const auto& selection : playerReader["vehicleSelections"].children())
+		{
+			const std::string craft = selection["craft"].readVal<std::string>("");
+			const std::string item = selection["item"].readVal<std::string>("");
+			const int count = selection["count"].readVal<int>(0);
+			if (!craft.empty() && !item.empty() && count > 0)
+				player.vehicleSelections[craft][item] = count;
+		}
+
+	}
+}
+
+void CampaignData::save(YAML::YamlNodeWriter writer) const
+{
+	writer.setAsMap();
+	writer.write("version", 3);
+	if (_missionOwnerCursor != 0)
+		writer.write("missionOwnerCursor", _missionOwnerCursor);
+	auto playersWriter = writer["players"];
+	playersWriter.setAsSeq();
+	for (const auto& entry : _players)
+	{
+		auto playerWriter = playersWriter.write();
+		playerWriter.setAsMap();
+		playerWriter.write("name", entry.first);
+		if (!entry.second.faction.empty())
+			playerWriter.write("faction", entry.second.faction);
+		if (!entry.second.factionResearch.empty())
+		{
+			std::vector<std::string> factionResearch(
+				entry.second.factionResearch.begin(), entry.second.factionResearch.end());
+			playerWriter.write("factionResearch", factionResearch);
+		}
+		if (!entry.second.completedResearch.empty())
+		{
+			std::vector<std::string> completed(entry.second.completedResearch.begin(), entry.second.completedResearch.end());
+			playerWriter.write("completedResearch", completed);
+		}
+		if (!entry.second.funds.empty())
+			playerWriter.write("funds", entry.second.funds);
+		if (!entry.second.vehicleSelections.empty())
+		{
+			auto selections = playerWriter["vehicleSelections"];
+			selections.setAsSeq();
+			for (const auto& craft : entry.second.vehicleSelections)
+				for (const auto& item : craft.second)
+					if (item.second > 0)
+					{
+						auto selection = selections.write();
+						selection.setAsMap();
+						selection.write("craft", craft.first);
+						selection.write("item", item.first);
+						selection.write("count", item.second);
+					}
+		}
+	}
+}
+
+void CampaignData::ensurePlayers(const std::vector<std::string>& playerNames)
+{
+	for (const auto& name : playerNames)
+		if (!name.empty())
+			_players.emplace(name, PlayerState());
+}
+
+void CampaignData::ensurePlayerFunds(const std::vector<std::string>& playerNames,
+	const std::vector<int64_t>& legacyFunds)
+{
+	ensurePlayers(playerNames);
+	std::vector<int64_t> initial = legacyFunds;
+	if (initial.empty()) initial.push_back(0);
+	for (const auto& name : playerNames)
+		if (!name.empty() && _players[name].funds.empty())
+			_players[name].funds = initial;
+}
+
+std::vector<int64_t>* CampaignData::getPlayerFunds(const std::string& playerName)
+{
+	PlayerState* player = getPlayer(playerName);
+	return player ? &player->funds : nullptr;
+}
+
+const std::vector<int64_t>* CampaignData::getPlayerFunds(const std::string& playerName) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	return player ? &player->funds : nullptr;
+}
+
+void CampaignData::setResearchSharingEnabled(bool enabled)
+{
+	_researchSharingEnabled = enabled;
+}
+
+void CampaignData::migrateLegacyResearch(const std::vector<std::string>& playerNames,
+	const std::vector<std::string>& completedResearch)
+{
+	if (_loadedFromSave || playerNames.empty() || playerNames.front().empty())
+		return;
+	ensurePlayers(playerNames);
+	for (const auto& research : completedResearch)
+		addCompletedResearch(playerNames.front(), research);
+	_loadedFromSave = true;
+}
+
+CampaignData::PlayerState* CampaignData::getPlayer(const std::string& playerName)
+{
+	auto it = _players.find(playerName);
+	return it == _players.end() ? nullptr : &it->second;
+}
+
+const CampaignData::PlayerState* CampaignData::getPlayer(const std::string& playerName) const
+{
+	auto it = _players.find(playerName);
+	return it == _players.end() ? nullptr : &it->second;
+}
+
+void CampaignData::setFaction(const std::string& playerName, const std::string& faction)
+{
+	if (!playerName.empty())
+		_players[playerName].faction = faction;
+}
+
+void CampaignData::setFactionResearch(const std::string& playerName,
+	const std::vector<std::string>& research)
+{
+	if (playerName.empty()) return;
+	PlayerState& player = _players[playerName];
+	player.factionResearch.insert(research.begin(), research.end());
+}
+
+bool CampaignData::hasFactionResearch(const std::string& playerName,
+	const std::string& research) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	return player && player->factionResearch.find(research) != player->factionResearch.end();
+}
+
+bool CampaignData::addCompletedResearch(const std::string& playerName, const std::string& research)
+{
+	return !playerName.empty() && !research.empty()
+		&& _players[playerName].completedResearch.insert(research).second;
+}
+
+void CampaignData::replaceCompletedResearch(const std::string& playerName,
+	const std::set<std::string>& research)
+{
+	if (!playerName.empty())
+		_players[playerName].completedResearch = research;
+}
+
+bool CampaignData::removeCompletedResearch(const std::string& playerName, const std::string& research)
+{
+	PlayerState* player = getPlayer(playerName);
+	return player && player->completedResearch.erase(research) != 0;
+}
+
+bool CampaignData::completeResearch(const std::string& playerName, const std::string& research)
+{
+	// Profiles are exclusively the private-research store. Shared Research uses
+	// SavedGame::_discovered, exactly like Shared Campaign.
+	return addCompletedResearch(playerName, research);
+}
+
+bool CampaignData::hasCompletedResearch(const std::string& playerName, const std::string& research) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	return player && player->completedResearch.find(research) != player->completedResearch.end();
+}
+
+bool CampaignData::haveDifferentFactions() const
+{
+	std::string first;
+	for (const auto& entry : _players)
+		if (!entry.second.faction.empty())
+		{
+			if (first.empty()) first = entry.second.faction;
+			else if (entry.second.faction != first) return true;
+		}
+	return false;
+}
+
+std::string CampaignData::nextMissionOwner(const std::vector<std::string>& playerNames)
+{
+	std::vector<std::string> valid;
+	for (const auto& name : playerNames)
+		if (!name.empty() && getPlayer(name)) valid.push_back(name);
+	if (valid.empty()) return std::string();
+	const std::string owner = valid[_missionOwnerCursor % valid.size()];
+	_missionOwnerCursor = (_missionOwnerCursor + 1) % valid.size();
+	return owner;
+}
+
+int CampaignData::getFactionDifficulty(const std::string& playerName, int fallback) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	if (!player) return fallback;
+	const std::string prefix = "difficulty:";
+	if (player->faction.compare(0, prefix.size(), prefix) != 0) return fallback;
+	try
+	{
+		return std::stoi(player->faction.substr(prefix.size()));
+	}
+	catch (...)
+	{
+		return fallback;
+	}
+}
+
+int CampaignData::getVehicleSelection(const std::string& playerName,
+	const std::string& craftKey, const std::string& itemType) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	if (!player) return 0;
+	auto craft = player->vehicleSelections.find(craftKey);
+	if (craft == player->vehicleSelections.end()) return 0;
+	auto item = craft->second.find(itemType);
+	return item == craft->second.end() ? 0 : item->second;
+}
+
+void CampaignData::setVehicleSelection(const std::string& playerName,
+	const std::string& craftKey, const std::string& itemType, int count)
+{
+	if (playerName.empty() || craftKey.empty() || itemType.empty()) return;
+	PlayerState& player = _players[playerName];
+	if (count > 0)
+		player.vehicleSelections[craftKey][itemType] = count;
+	else
+	{
+		auto craft = player.vehicleSelections.find(craftKey);
+		if (craft == player.vehicleSelections.end()) return;
+		craft->second.erase(itemType);
+		if (craft->second.empty()) player.vehicleSelections.erase(craft);
+	}
 }
 }
 }

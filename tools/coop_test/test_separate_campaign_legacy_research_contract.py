@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
-    header = (ROOT / "src/CoopMod/SeparateCon.h").read_text(encoding="utf-8")
-    impl = (ROOT / "src/CoopMod/SeparateCon.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "src/CoopMod/SeparateEcon.h").read_text(encoding="utf-8")
+    impl = (ROOT / "src/CoopMod/SeparateEcon.cpp").read_text(encoding="utf-8")
     saved = (ROOT / "src/Savegame/SavedGame.cpp").read_text(encoding="utf-8")
 
     assert "migrateLegacyResearch" in header

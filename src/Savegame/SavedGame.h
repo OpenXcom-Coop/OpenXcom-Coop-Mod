@@ -32,7 +32,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../Engine/Script.h"
 #include "ResearchDiary.h"
-#include "../CoopMod/SeparateCon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -176,7 +176,13 @@ private:
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
-	SeparateCon _separateCampaign;
+	SeparateEcon::CampaignData _separateCampaign;
+	// Transient Monthly Report explanation. The actual reduction is already
+	// persisted in each player's funds history, so this display value is not saved.
+	std::map<std::string, int64_t> _separatePlayerCosts;
+	// Transient command-authority override. Empty means the local seat's wallet;
+	// host validation sets this to the command initiator before touching funds.
+	std::string _separateFundsContext;
 	GameTime *_time;
 	std::vector<std::string> _userNotes;
 	std::vector<std::string> _geoscapeDebugLog;
@@ -298,6 +304,7 @@ private:
 	{
 		_coopPlayers = players;
 		_separateCampaign.ensurePlayers(_coopPlayers);
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	}
 	void addCoopPlayer(const std::string &name)
 	{
@@ -306,14 +313,24 @@ private:
 				return;
 		_coopPlayers.push_back(name);
 		_separateCampaign.ensurePlayers(_coopPlayers);
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	}
-	SeparateCon& getSeparateCampaign() { return _separateCampaign; }
-	const SeparateCon& getSeparateCampaign() const { return _separateCampaign; }
+	SeparateEcon::CampaignData& getSeparateCampaign() { return _separateCampaign; }
+	const SeparateEcon::CampaignData& getSeparateCampaign() const { return _separateCampaign; }
 	/// Switch Separate between private player profiles and the ordinary global
 	/// research list without losing discoveries made before the switch.
 	void setSeparateResearchSharingEnabled(bool enabled, const Mod *mod);
 	/// Gets the current funds.
 	int64_t getFunds() const;
+	/// Select the Separate player wallet used during an authoritative command.
+	void setSeparateFundsContext(const std::string& playerName) { _separateFundsContext = playerName; }
+	void clearSeparateFundsContext() { _separateFundsContext.clear(); }
+	std::string getSeparateFundsContextPlayer() const;
+	int64_t getSeparatePlayerFunds(const std::string& playerName) const;
+	/// Latest player-count scaling expense shown on Separate's Monthly Report.
+	int64_t getSeparatePlayerCosts() const;
+	int64_t getSeparatePlayerCosts(const std::string& playerName) const;
+	void setSeparatePlayerCosts(const std::string& playerName, int64_t costs);
 	/// Gets the list of funds from previous months.
 	std::vector<int64_t> &getFundsList();
 	/// Sets new funds.
@@ -356,9 +373,6 @@ private:
 	std::vector<Country*> *getCountries();
 	/// Gets the total country funding.
 	int getCountryFunding() const;
-	/// Returns the local player's display share of Monthly Report income.
-	/// Country funding and the authoritative funds ledger remain unchanged.
-	int getPlayerIncomeShare(int globalIncome) const;
 	/// Gets the list of regions.
 	std::vector<Region*> *getRegions();
 	/// Gets the list of bases.

@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/TouchState.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include <map>
 #include <string>
@@ -70,6 +71,8 @@ private:
 	/// multi-step LOCAL loops (template load, alt-management inventory prep) whose
 	/// intermediate steps assume the base/craft mutate locally between calls.
 	bool _localBatch;
+	/// Refresh an open equipment list after the host applies a craft_equip command.
+	SharedEcon::ScreenRefresh _sharedRefresh;
 	/// SHARED (PRD-J09 GAP-5): route a base<->craft item move through craft_equip
 	/// (absolute desired-on-craft count) instead of mutating this replica's stores.
 	void submitSharedCraftEquip(const RuleItem* item, int signedChange);
@@ -137,6 +140,7 @@ public:
 	int harnessDisplayedCrew() const { return _displayedCrew; }
 	int harnessDisplayedSpaceUsed() const { return _displayedSpaceUsed; }
 	int harnessDisplayedSpaceAvailable() const { return _displayedSpaceAvailable; }
+	std::string harnessDisplayedItem(size_t column, const std::string& itemType) const;
 };
 
 }

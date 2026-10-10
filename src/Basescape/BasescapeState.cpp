@@ -111,6 +111,7 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	_edtBase = new TextEdit(this, 127, 17, 193, 0);
 	_txtLocation = new Text(126, 9, 194, 16);
 	_txtFunds = new Text(126, 9, 194, 24);
+	_txtBaseOwner = new Text(128, 12, 192, 58);
 	_btnNewBase = new TextButton(128, 12, 192, 58);
 	_btnBaseInfo = new TextButton(128, 12, 192, 71);
 	_btnSoldiers = new TextButton(128, 12, 192, 84);
@@ -132,6 +133,8 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	add(_edtBase, "text1", "basescape");
 	add(_txtLocation, "text2", "basescape");
 	add(_txtFunds, "text3", "basescape");
+	// Match the Funds label above, including mod-specific palette overrides.
+	add(_txtBaseOwner, "text3", "basescape");
 	add(_btnNewBase, "button", "basescape");
 	add(_btnBaseInfo, "button", "basescape");
 	add(_btnSoldiers, "button", "basescape");
@@ -183,6 +186,9 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	_btnNewBase->setText(tr("STR_BUILD_NEW_BASE_UC"));
 	_btnNewBase->onMouseClick((ActionHandler)&BasescapeState::btnNewBaseClick);
 	_btnNewBase->onKeyboardPress((ActionHandler)&BasescapeState::btnNewBaseClick, Options::keyBasescapeBuildNewBase);
+	_txtBaseOwner->setAlign(ALIGN_LEFT);
+	_txtBaseOwner->setVerticalAlign(ALIGN_MIDDLE);
+	_txtBaseOwner->setVisible(false);
 
 	_btnBaseInfo->setText(tr("STR_BASE_INFORMATION"));
 	_btnBaseInfo->onMouseClick((ActionHandler)&BasescapeState::btnBaseInfoClick);
@@ -310,7 +316,7 @@ void BasescapeState::init()
 		}
 	}
 
-	_txtFunds->setText(tr("STR_FUNDS").arg(Unicode::formatFunding(_game->getSavedGame()->getFunds())));
+	updateFundsLabel();
 
 	updateBaseAccessButtons();
 
@@ -495,7 +501,19 @@ void BasescapeState::sharedRefresh()
 	_view->setBase(_base);
 	_mini->draw();
 	_edtBase->setText(_base->getName());
-	_txtFunds->setText(tr("STR_FUNDS").arg(Unicode::formatFunding(_game->getSavedGame()->getFunds())));
+	updateFundsLabel();
+}
+
+void BasescapeState::updateFundsLabel()
+{
+	int64_t funds = _game->getSavedGame()->getFunds();
+	if (_base && _game->getCoopMod()->isSeparateCampaign()
+		&& !_base->getOwnerPlayerName().empty())
+	{
+		funds = _game->getSavedGame()->getSeparatePlayerFunds(
+			_base->getOwnerPlayerName());
+	}
+	_txtFunds->setText(tr("STR_FUNDS").arg(Unicode::formatFunding(funds)));
 }
 
 /**
@@ -573,7 +591,9 @@ void BasescapeState::updateBaseAccessButtons()
 
 	// Restore the normal own-base menu first. This is required when switching
 	// back from a foreign base in the same BasescapeState.
+	_btnNewBase->setText(tr("STR_BUILD_NEW_BASE_UC"));
 	_btnNewBase->setVisible(canBuildNew);
+	_txtBaseOwner->setVisible(false);
 	_btnBaseInfo->setVisible(true);
 	_btnSoldiers->setVisible(true);
 	_btnCrafts->setVisible(true);
@@ -589,7 +609,18 @@ void BasescapeState::updateBaseAccessButtons()
 		// Separate foreign bases retain the established limited management view:
 		// browsing, soldiers, craft equipment and purchasing are allowed, while
 		// construction, research, production, transfers and selling stay owner-only.
-		_btnNewBase->setVisible(false);
+		if (_game->getCoopMod()->isSeparateCampaign()
+			&& !_base->getOwnerPlayerName().empty())
+		{
+			// Replace the unavailable build button with a plain ownership label.
+			_btnNewBase->setVisible(false);
+			_txtBaseOwner->setText("Owner: " + _base->getOwnerPlayerName());
+			_txtBaseOwner->setVisible(true);
+		}
+		else
+		{
+			_btnNewBase->setVisible(false);
+		}
 		_btnFacilities->setVisible(false);
 		_btnResearch->setVisible(false);
 		_btnManufacture->setVisible(false);
@@ -1111,6 +1142,17 @@ std::string BasescapeState::harnessFundsText() const
 	return _txtFunds->getText();
 }
 
+int64_t BasescapeState::harnessDisplayedFunds() const
+{
+	if (_base && _game->getCoopMod()->isSeparateCampaign()
+		&& !_base->getOwnerPlayerName().empty())
+	{
+		return _game->getSavedGame()->getSeparatePlayerFunds(
+			_base->getOwnerPlayerName());
+	}
+	return _game->getSavedGame()->getFunds();
+}
+
 bool BasescapeState::harnessButtonVisible(const std::string &button) const
 {
 	if (button == "newBase") return _btnNewBase->getVisible();
@@ -1125,6 +1167,16 @@ bool BasescapeState::harnessButtonVisible(const std::string &button) const
 	if (button == "sell") return _btnSell->getVisible();
 	if (button == "geoscape") return _btnGeoscape->getVisible();
 	return false;
+}
+
+bool BasescapeState::harnessBaseOwnerVisible() const
+{
+	return _txtBaseOwner->getVisible();
+}
+
+std::string BasescapeState::harnessBaseOwnerText() const
+{
+	return _txtBaseOwner->getText();
 }
 
 std::string BasescapeState::harnessBaseName() const
@@ -1143,6 +1195,15 @@ int BasescapeState::harnessMiniBorderColor(const std::string &baseName) const
 	for (size_t i = 0; i < bases->size(); ++i)
 		if (bases->at(i)->getName() == baseName)
 			return _mini->getBaseBorderColor(i);
+	return -1;
+}
+
+int BasescapeState::harnessMiniDisplaySlot(const std::string &baseName) const
+{
+	const auto *bases = _game->getSavedGame()->getBases();
+	for (size_t i = 0; i < bases->size(); ++i)
+		if (bases->at(i)->getName() == baseName)
+			return _mini->getDisplaySlot(i);
 	return -1;
 }
 

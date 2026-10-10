@@ -751,7 +751,6 @@
     <ClCompile Include="Savegame\SaveConverter.cpp" />
     <ClCompile Include="Savegame\SavedBattleGame.cpp" />
     <ClCompile Include="Savegame\SavedGame.cpp" />
-    <ClCompile Include="CoopMod\SeparateCon.cpp" />
     <ClCompile Include="Savegame\Upgrade\SaveUpgrade.cpp">
       <ObjectFileName>$(IntDir)%(RelativeDir)</ObjectFileName>
     </ClCompile>
@@ -820,7 +819,6 @@
     <ClInclude Include="CoopMod\SharedEcon.h" />
     <ClInclude Include="CoopMod\SeparateEcon.h" />
     <ClInclude Include="CoopMod\SeparateResearchModeWarningState.h" />
-    <ClInclude Include="CoopMod\SeparateCon.h" />
     <ClInclude Include="CoopMod\TestServer.h" />
     <ClInclude Include="CoopMod\VoteMenu.h" />
     <ClInclude Include="CoopMod\connectionTCP.h" />

@@ -36,7 +36,10 @@ def canonical_bases(gc):
 def canonical_world(gc):
     """Full one-world invariant, ignoring only seat-local presentation flags."""
     dump = shared_fixture.world_dump(gc)
-    live = geo(gc)["bases"]
+    state = geo(gc)
+    live = state["bases"]
+    dump.pop("funds", None)
+    dump["playerFunds"] = gc.ok({"cmd": "month_report"})["playerFunds"]
     for i, base in enumerate(dump["bases"]):
         base.pop("coopBase", None)
         base.pop("coopIcon", None)
@@ -183,18 +186,15 @@ def main():
         assert_own_soldiers_visible(client, "ClientBase")
         initial_world = assert_same_world(host, client, "fresh Separate")
 
-        # Country funding remains the normal full value. Only the Monthly
-        # Report Income presentation is divided between the two seats, and the
-        # two integer shares must add back to the exact original total.
+        # Every seat sees the normal undivided single-player country income.
         host_month = host.ok({"cmd": "month_report"})
         client_month = client.ok({"cmd": "month_report"})
         assert host_month["countryFunding"] == client_month["countryFunding"]
         assert host_month["countryFunding"] == sum(
             c["funding"] for c in host_month["countries"])
-        assert (host_month["monthlyIncomeDisplay"]
-                + client_month["monthlyIncomeDisplay"]
-                == host_month["countryFunding"])
-        print("PASS income: full country funding, Monthly Report split exactly between players")
+        assert host_month["monthlyIncomeDisplay"] == host_month["countryFunding"]
+        assert client_month["monthlyIncomeDisplay"] == client_month["countryFunding"]
+        print("PASS income: both players see full single-player country funding")
 
         # Switching from the client's own base to the host's base must refresh
         # the existing BasescapeState permissions. Clicking the same foreign
@@ -462,6 +462,9 @@ def main():
         host.connect(); client.connect()
         session.resume_campaign(host, client, SAVE, port="48221")
         assert_unified(host, client)
+        resync = client.ok({"cmd": "shared_resync_stats"})
+        assert resync["mismatches"] == 0 and resync["requests"] == 0, resync
+        assert not resync["pending"] and not resync["gaveUp"], resync
         assert_own_soldiers_visible(host, "HostBase")
         assert_own_soldiers_visible(client, "ClientBase")
         resumed_world = assert_same_world(host, client, "resumed Separate")

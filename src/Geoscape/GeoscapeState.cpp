@@ -140,7 +140,7 @@
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/SeparateEcon.h"
-#include "../CoopMod/SeparateCon.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -1320,7 +1320,38 @@ void GeoscapeState::init()
 		_game->getSavedGame()->addMonth();
 		_game->getSavedGame()->increaseDaysPassed();
 		determineAlienMissions();
-		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - (_game->getSavedGame()->getBaseMaintenance() - _game->getSavedGame()->getBases()->front()->getPersonnelMaintenance()));
+		SavedGame* save = _game->getSavedGame();
+		Base* initialBase = save->getBases()->front();
+		int initialMaintenance = save->getBaseMaintenance();
+		if (_game->getCoopMod()->isSeparateCampaign())
+		{
+			// Each Separate player starts with an equal player-count share of their
+			// own vanilla opening balance: (full starting funds - that player's
+			// month-zero non-personnel base charge) / player count. Every later base
+			// owned by that player shares the same player wallet.
+			const int64_t playerCount = static_cast<int64_t>(save->getCoopPlayers().size());
+			for (const std::string& playerName : save->getCoopPlayers())
+			{
+				Base* playerBase = nullptr;
+				for (Base* base : *save->getBases())
+					if (base && base->isOwnedByPlayer(playerName))
+					{
+						playerBase = base;
+						break;
+					}
+				if (!playerBase) continue;
+				save->setSeparateFundsContext(playerName);
+				const int64_t ownInitialCosts = playerBase->getMonthlyMaintenace()
+					- playerBase->getPersonnelMaintenance();
+				save->setFunds((save->getFunds() - ownInitialCosts) / playerCount);
+			}
+			save->clearSeparateFundsContext();
+		}
+		else
+		{
+			save->setFunds(save->getFunds()
+				- (initialMaintenance - initialBase->getPersonnelMaintenance()));
+		}
 
 		// Private Separate research must still start identically for players who
 		// selected the same faction. Month-zero arc scripts have only now settled
@@ -1329,15 +1360,15 @@ void GeoscapeState::init()
 		if (_game->getCoopMod()->isSeparateCampaign()
 			&& !_game->getSavedGame()->getSeparateCampaign().isResearchSharingEnabled())
 		{
-			SeparateCon& separate = _game->getSavedGame()->getSeparateCampaign();
+			SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
 			const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
 			if (!players.empty())
 			{
-				const SeparateCon::PlayerState* hostProfile = separate.getPlayer(players.front());
+				const SeparateEcon::CampaignData::PlayerState* hostProfile = separate.getPlayer(players.front());
 				if (hostProfile)
 					for (size_t i = 1; i < players.size(); ++i)
 					{
-						const SeparateCon::PlayerState* peerProfile = separate.getPlayer(players[i]);
+						const SeparateEcon::CampaignData::PlayerState* peerProfile = separate.getPlayer(players[i]);
 						if (peerProfile && peerProfile->faction == hostProfile->faction)
 							separate.replaceCompletedResearch(players[i], hostProfile->completedResearch);
 					}
@@ -2027,7 +2058,7 @@ void GeoscapeState::think()
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
 			// time heartbeat. The replica logs a warning on mismatch; full desync
 			// repair is PRD-J10.
-			if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+			if (_game->getCoopMod()->isSharedCampaign())
 				SharedEcon::attachWorldChecksum(_game, root);
 
 		}
@@ -4880,7 +4911,9 @@ void GeoscapeState::time1MonthCoop()
 	// ONLY _funds.back() (no net-inference nudge of the graph series); the income/
 	// expenditure/maintenance tails are then set from the host's values directly, so
 	// the replica's Graphs->Finance series match the host across the month boundary.
-	if (_game->getCoopMod()->isSharedReplica() && _game->getCoopMod()->sharedMonthlyPending)
+	if (_game->getCoopMod()->isSharedCampaign()
+		&& _game->getCoopMod()->isSharedReplica()
+		&& _game->getCoopMod()->sharedMonthlyPending)
 	{
 		SavedGame* sg = _game->getSavedGame();
 		sg->setFundsRaw(_game->getCoopMod()->sharedMonthlyFunds);
@@ -4896,6 +4929,41 @@ void GeoscapeState::time1MonthCoop()
 			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
 		if (!sg->getResearchScores().empty())
 			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
+		_game->getCoopMod()->sharedMonthlyPending = false;
+	}
+	else if (_game->getCoopMod()->isSeparateCampaign()
+		&& !_game->getCoopMod()->getServerOwner()
+		&& _game->getCoopMod()->separateMonthlyPending)
+	{
+		// The client may reach the month boundary before adopting the host's final
+		// country funding changes. Replace every private wallet history with the
+		// authoritative host result after the client's local roll.
+		SavedGame* sg = _game->getSavedGame();
+		const Json::Value& wallets = _game->getCoopMod()->separateMonthlyPlayerFunds;
+		for (const std::string& playerName : sg->getCoopPlayers())
+		{
+			if (!wallets.isMember(playerName) || !wallets[playerName].isArray()) continue;
+			SeparateEcon::CampaignData::PlayerState* player = sg->getSeparateCampaign().getPlayer(playerName);
+			if (!player) continue;
+			player->funds.clear();
+			for (const Json::Value& value : wallets[playerName])
+				player->funds.push_back(value.asInt64());
+			const Json::Value& costs = _game->getCoopMod()->separateMonthlyPlayerCosts;
+			if (costs.isMember(playerName))
+				sg->setSeparatePlayerCosts(playerName, costs[playerName].asInt64());
+		}
+		auto& maint = sg->getMaintenances();
+		if (maint.size() >= 2) maint[maint.size() - 2] = _game->getCoopMod()->sharedMonthlyMaintenance;
+		else if (!maint.empty()) maint.back() = _game->getCoopMod()->sharedMonthlyMaintenance;
+		if (!sg->getIncomes().empty())
+			sg->getIncomes().back() = _game->getCoopMod()->sharedMonthlyIncome;
+		if (!sg->getExpenditures().empty())
+			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
+		if (!sg->getResearchScores().empty())
+			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
+		_game->getCoopMod()->separateMonthlyPlayerFunds = Json::Value();
+		_game->getCoopMod()->separateMonthlyPlayerCosts = Json::Value();
+		_game->getCoopMod()->separateMonthlyPending = false;
 		_game->getCoopMod()->sharedMonthlyPending = false;
 	}
 
@@ -6210,7 +6278,8 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					}
 					for (auto* v : *base->getVehicles())
 					{
-						v->setCoop(0);
+						if (_game->getCoopMod()->isSharedCampaign())
+							v->setCoop(0);
 						v->setCoopBase(-1);
 					}
 					startCoopMission();

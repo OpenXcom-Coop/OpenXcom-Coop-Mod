@@ -2,8 +2,8 @@
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 def main():
-    header = (ROOT / "src/CoopMod/SeparateCon.h").read_text(encoding="utf-8")
-    impl = (ROOT / "src/CoopMod/SeparateCon.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "src/CoopMod/SeparateEcon.h").read_text(encoding="utf-8")
+    impl = (ROOT / "src/CoopMod/SeparateEcon.cpp").read_text(encoding="utf-8")
     assert "std::map<std::string, PlayerState> _players" in header
     assert "bool _researchSharingEnabled = false" in header
     assert "completeResearch(const std::string& playerName" in header

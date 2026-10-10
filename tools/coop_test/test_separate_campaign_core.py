@@ -16,8 +16,8 @@ def main():
         hm = host.ok({"cmd": "month_report"})
         cm = client.ok({"cmd": "month_report"})
         assert hm["countryFunding"] == cm["countryFunding"]
-        assert hm["monthlyIncomeDisplay"] + cm["monthlyIncomeDisplay"] \
-            == hm["countryFunding"]
+        assert hm["monthlyIncomeDisplay"] == hm["countryFunding"]
+        assert cm["monthlyIncomeDisplay"] == cm["countryFunding"]
 
         for i in range(6):
             req = {"cmd": "add_base", "name": f"LimitBase{i}",
@@ -34,7 +34,7 @@ def main():
             timeout=30, interval=0.5)
         assert len(fixture.geo(host)["bases"]) == len(fixture.geo(client)["bases"]) == 8
         fixture.assert_same_world(host, client, "Separate core")
-        print("PASS Separate core: unified world, income split and global base cap")
+        print("PASS Separate core: unified world, full income and global base cap")
     finally:
         js.shutdown()
 

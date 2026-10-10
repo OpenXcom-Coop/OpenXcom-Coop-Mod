@@ -398,7 +398,7 @@ public:
 	/// Validates craft space and craft constraints on adding soldier to a craft.
 	CraftPlacementErrors validateAddingSoldier(int space, const Soldier* s) const;
 	/// Validates craft space and craft constraints on adding vehicles to a craft.
-	int validateAddingVehicles(int totalSize) const;
+	int validateAddingVehicles(int totalSize, int ownerSeat = -1) const;
 	// coop
 	bool coop = false;
 	int coop_total_vehicles = -1;
