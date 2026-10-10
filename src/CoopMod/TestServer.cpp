@@ -3830,6 +3830,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			ji["type"] = it->getRules()->getType();
 			ji["owner"] = it->getOwner() ? it->getOwner()->getId() : -1;
 			ji["slot"] = it->getSlot() ? it->getSlot()->getId() : "";
+			// the in-slot cell, which the sync-check items bucket hashes too
+			ji["slotX"] = it->getSlotX();
+			ji["slotY"] = it->getSlotY();
 			ji["isAmmo"] = it->isAmmo();
 			ji["qty"] = it->getAmmoQuantity();
 			ji["onTile"] = (it->getTile() != nullptr);
@@ -8398,6 +8401,13 @@ std::string TestServer::execute(const std::string& line)
 					{
 						inventory->harnessMoveItem(found, slot, 0, 0);
 						moved = true;
+						// ui=true: finish the drop the way the mouse path does
+						// (Inventory::mouseClick re-lays out the floor right after a
+						// ground drop), so the floor's slot positions match a real one.
+						if (req.get("ui", false).asBool())
+						{
+							inventory->arrangeGround();
+						}
 					}
 					else
 					{
