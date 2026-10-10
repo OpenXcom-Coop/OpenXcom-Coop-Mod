@@ -5450,10 +5450,29 @@ void connectionTCP::finishVote(bool passed)
 	}
 	sendTCPPacketData(root.toStyledString());
 
-	if (passed)
+	if (passed && runsVoteActionLocally())
 	{
 		executeVoteAction(action);
 	}
+}
+
+/**
+ * Says whether this machine carries out a passed vote's action.
+ * The host decides every vote, but only the BATTLE host (getHost()) can end a
+ * co-op battle for both players: its DebriefingState sends the "DebriefingState"
+ * packet that closes the battle on the peer. When the client starts a SEPARATE
+ * mission it becomes the battle host ("changeHost"), so the abandon-mission
+ * action must run on the client. PvP keeps the host: there each machine ends
+ * the battle on its own.
+ */
+bool connectionTCP::runsVoteActionLocally() const
+{
+	const int gamemode = getCoopGamemode();
+	if (gamemode == 2 || gamemode == 3)
+	{
+		return getServerOwner();
+	}
+	return getHost();
 }
 
 void connectionTCP::executeVoteAction(const std::string& action)
@@ -5487,7 +5506,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	//   vote_start:   the host assigns the id, majority rule and ordered names.
 	//   vote_cast:    a client submits one choice for its seat.
 	//   vote_update:  the host broadcasts the authoritative seat-by-seat snapshot.
-	//   vote_result:  the host announces pass/fail; only the host executes the action.
+	//   vote_result:  the host announces pass/fail; only the battle host executes the
+	//                 action (runsVoteActionLocally), which is the client when it
+	//                 started a SEPARATE mission.
 	//   vote_cooldown: the host rejects a requester that is still inside its 60s window.
 	// Every packet is tied to a vote id, and VoteSession::castVote rejects a
 	// second choice from the same seat. This keeps 2-4 player results deterministic.
@@ -5589,6 +5610,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_activeVote.finish(passed);
 			_voteRequestPending = false;
 			updateVoteMenu();
+			if (passed && runsVoteActionLocally())
+			{
+				executeVoteAction(_activeVote.action);
+			}
 		}
 		return;
 	}
