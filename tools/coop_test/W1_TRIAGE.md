@@ -379,3 +379,11 @@ owner. "Covered" files stay SKIP-PENDING and are not edited here; RV-U5 deletes 
 | `test_campaign_then_skirmish_debrief.py` | owned by RV-U5 (lifecycle: the skirmish debrief after a campaign returns to the main menu) |
 
 `test_skirmish_debrief_disconnect.py` (tag r4 T6) also boots a gm2 battle through pvp_fixture; its row is in "Dispositions (W2-P7 S-B2, wave 2)".
+
+## Dispositions (RV-U7, post-Wave-2)
+
+Recorded by RV-U7 (docs `rewrite/prompts/rvu7_autoend_crash_proof.md`; owner D123, D229 (a) + gate; POST-REWRITE-REVISIT row 18).
+
+| test | disposition |
+|---|---|
+| `test_shared_autoend_crashsite.py` | run live since RV-U7 (guard removed): the player's SHARED save resumes on the rewrite, the craft lands on the crashed UFO whose crew is dead at generation (the trigger in `rewrite/rvu7-task0/CONSTANTS.md`), and both machines leave through "all aliens killed" to their debriefings and the geoscape with no crash file. `main` fixed the original crash in #154 (`c93d1ad4d`); the rewrite has no battle screen that is set up but not shown |
