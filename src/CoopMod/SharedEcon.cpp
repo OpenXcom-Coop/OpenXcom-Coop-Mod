@@ -5541,8 +5541,14 @@ bool computeBattleHashes(Game* game, BattleHashSet& out)
 		h = mix(h, item->getOwner() ? item->getOwner()->getId() : -1);
 		h ^= fnv1a(item->getSlot() ? item->getSlot()->getId() : std::string("-"));
 		h *= FNV_PRIME;
-		h = mix(h, item->getSlotX());
-		h = mix(h, item->getSlotY());
+		// The in-slot cell only where it is game state: grid slots (belt, backpack).
+		// A hand has one cell, and the floor grid is per-machine layout -
+		// Inventory::arrangeGround re-lays it out on the machine whose player
+		// dropped or picked up an item, never on the peer, so hashing it alarmed
+		// on every pre-battle floor drop. BattleItem::save skips it for the same reason.
+		const bool cellIsState = item->getSlot() && item->getSlot()->getType() == INV_SLOT;
+		h = mix(h, cellIsState ? item->getSlotX() : 0);
+		h = mix(h, cellIsState ? item->getSlotY() : 0);
 		const Tile* t = item->getTile();
 		h = mix(h, t ? t->getPosition().x : -1);
 		h = mix(h, t ? t->getPosition().y : -1);
