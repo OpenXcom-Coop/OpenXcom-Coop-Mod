@@ -348,9 +348,12 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
-	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
-	// mid-battle resume comes back in the same mode it was played in.
-	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
+	// coop (PRD-P5): coop_parallel_turns is NOT read here. Every in-memory load
+	// is a world swapped inside a live session (often into a throwaway
+	// SavedGame), and the COOP_READY handshake already decided the session mode.
+	// A blob written before the handshake latched carries a stale false, so
+	// reading it switched parallel turns off for the rest of the session. Only
+	// the disk load (SavedGame::load, the resume path) restores the mode.
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
