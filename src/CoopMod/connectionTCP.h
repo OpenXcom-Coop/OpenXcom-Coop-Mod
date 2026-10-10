@@ -609,6 +609,7 @@ class connectionTCP
 	void broadcastVoteUpdate();
 	void evaluateVote();
 	void finishVote(bool passed);
+	bool runsVoteActionLocally() const;
 	void executeVoteAction(const std::string& action);
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
