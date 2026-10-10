@@ -609,8 +609,10 @@ def drain_to_geoscape(gc, deadline, interval=0.4):
 
 def abort_vote_yes(host, voter, timeout=20):
     """R4-L1 (design-D8, D231, D244): the partner's YES on the abort vote an AbortMissionState OK opened: wait
-    the vote open on `voter`, vote_cast {id, yes: true} (accepted), wait the host's vote finished + passed (or its
-    abortVote.passes grown: the host drops the abort vote once the battle ended). One `timeout` for both waits.
+    the vote open on `voter`, vote_cast {id, yes: true} (accepted), wait the host's pass: its vote finished + passed,
+    its abortVote.passes grown, or its stage / battleEnd record newly emitted with aborted true (the host drops the
+    vote once the battle ended, and a stage hand-off's initBattleAuthority clears the abortVote record: R-L1-A-3,
+    F10833). One `timeout` for both waits.
     Raises TimeoutError("the partner's abort vote never opened ...") / AssertionError; a row appends str(e)."""
     t0, v = time.time(), {}
     while time.time() - t0 < timeout:
@@ -621,13 +623,18 @@ def abort_vote_yes(host, voter, timeout=20):
     else:
         raise TimeoutError(f"the partner's abort vote never opened within {timeout}s ({voter.name} vote_state active="
                            f"{v.get('active')} action={v.get('action')!r}; host top {(states(host) or ['?'])[-1]})")
-    passes0 = (event_state(host).get("abortVote") or {}).get("passes") or 0
+    e0 = event_state(host)
+    passes0 = (e0.get("abortVote") or {}).get("passes") or 0
+    stage0, end0 = ((e0.get("stage") or {}).get("emitted") or 0), ((e0.get("battleEnd") or {}).get("emitted") or 0)
     r = voter.cmd({"cmd": "vote_cast", "id": v.get("id"), "yes": True})
     if not r.get("accepted"):
         raise AssertionError(f"the partner's abort YES was not accepted: {r}")
     while time.time() - t0 < timeout:
-        h, a = host.cmd({"cmd": "vote_state"}), event_state(host).get("abortVote") or {}
-        if (h.get("finished") and h.get("passed")) or (a.get("passes") or 0) > passes0:
+        h, e = host.cmd({"cmd": "vote_state"}), event_state(host)
+        a, st, be = e.get("abortVote") or {}, e.get("stage") or {}, e.get("battleEnd") or {}
+        if ((h.get("finished") and h.get("passed")) or (a.get("passes") or 0) > passes0
+                or ((st.get("emitted") or 0) > stage0 and st.get("aborted") is True)
+                or ((be.get("emitted") or 0) > end0 and be.get("aborted") is True)):
             return {"voteId": v.get("id"), "secs": round(time.time() - t0, 2)}
         time.sleep(0.1)
     raise TimeoutError(f"the host's abort vote did not pass within {timeout}s of the partner's YES")

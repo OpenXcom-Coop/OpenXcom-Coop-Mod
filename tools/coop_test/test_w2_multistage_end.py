@@ -299,12 +299,15 @@ def ms2(host, client, ctx, crash0):
     if d.get("handled") != "AbortMissionState":
         g.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
     # R4-L1 S-A (AMENDMENT R4-L1-1 section 4, chain rule A.10): the OK opens the abort vote; the partner's YES passes
-    # it and the host applies it at quiescence, so t_close and the two AtClose reads follow abortVote.applies 1.
+    # it and the host applies it at quiescence, so t_close and the two AtClose reads follow the host's stage record
+    # newly emitted with aborted true (R-L1-A-3, F10833: stage 2's initBattleAuthority clears the abortVote record).
     try:
+        st0 = (eview(host).get("stage") or {}).get("emitted") or 0
         session.abort_vote_yes(host, client)
-        ok, secs = wait_until(lambda: (event_state(host).get("abortVote") or {}).get("applies") == 1, 10, 0.1)
+        ok, secs = wait_until(lambda: ((eview(host).get("stage") or {}).get("emitted") or 0) > st0
+                              and (eview(host).get("stage") or {}).get("aborted") is True, 10, 0.1)
         if not ok:
-            g.append(f"the host's abortVote.applies never reached 1 within {secs}s of the partner's YES")
+            g.append(f"the host's stage record was not emitted with aborted true within {secs}s of the partner's YES")
     except Exception as e:
         g.append(str(e))
     ctx["t_close"] = time.time()
