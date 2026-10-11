@@ -259,7 +259,17 @@ def bring_up_battle(host, client, seed=None):
     (`seed + 1`). Both are pinned, so both machines are reproducible; but they roll
     from DIFFERENT streams, so an outcome-shipping regression that makes the client
     roll its own result cannot coincidentally match the host's and slip past a
-    same-seed comparison - the GAP tests exist precisely to catch that."""
+    same-seed comparison - the GAP tests exist precisely to catch that.
+
+    `seed` is applied twice. The first pin lands BEFORE the NEW BATTLE screen opens,
+    because NewBattleState::initSave rolls the squad there (soldier types, stats,
+    promotions) and the RNG otherwise starts from time(0) (RNG.cpp): pinned only at
+    newbattle_ok, every boot second got a different squad, so a fixed seed still
+    changed outcomes - e.g. whether the alien AI wiped the squad and ended the
+    battle at a side boundary. The second pin keeps the map exactly as before."""
+    if seed is not None:
+        host.ok({"cmd": "set_seed", "seed": seed})
+        client.ok({"cmd": "set_seed", "seed": seed + 1})
     SK.skirmish_host(host, PORT)
     SK.skirmish_client_at_browser(client)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": PORT,

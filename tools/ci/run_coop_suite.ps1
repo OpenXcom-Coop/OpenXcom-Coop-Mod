@@ -66,7 +66,6 @@ if ($ListOnly) { $tests; exit 0 }   # to stdout, so callers can diff the shard s
 $quarantine = @(
   "test_pvp_campaign_month",       # issue #171: month-roll geoscape assert can't drain MissionDetectedState/SaveGameState
   "test_crash_reporter",           # issue #172: marker-bundle 60s timeout, intermittent
-  "test_coop_debrief_sync",        # issue #204: mop-up/alien-side kill depends on AI movement, 12 of 47 runs retried or failed
   "test_parallel_pve2_turn_screen_gate", # issue #205: host drops to main menu, client connection resets, 7 of 22 runs retried or failed
   "test_parallel_sharedturn",      # issue #207: random skirmish battle can end at the side boundary, 4 of 50 runs retried or failed
   # A REPRO TOOL, not a guard - its own docstring says so, and its exit codes are
