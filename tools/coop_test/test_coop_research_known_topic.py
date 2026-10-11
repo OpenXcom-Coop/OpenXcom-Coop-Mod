@@ -17,10 +17,18 @@ Rows (vanilla rules, no external mod):
      rewards left, so research sync keeps the client's own project running); the
      host finishes first, sync marks it known on the client, then the client's
      own project finishes. RED: the client crashes.
+  C  SEPARATE (issue #187): both players research the same topic with no lookup
+     and no getOneFree (XCF's STR_MEDICINE in that player's dump); the host
+     finishes first. v2.0.6's research sync marked the topic known on the client
+     but kept the client's own project running, so it finished later with
+     newResearch == nullptr. RED (v2.0.6): the client crashes. The receiver now
+     removes that project; a project that still runs must finish without a crash.
   S  SHARED: the host re-researches a known topic. The SHARED path never sends
      the SEPARATE packet (and research_done already carries "" for a null
      newResearch), so this row is green before and after the fix; it guards the
      SHARED path against the same crash.
+
+Env (optional): COOP_RKT_ROWS = "A,B,C" subset of the SEPARATE rows.
 
   * PASS (exit 0): every row completes the project with both processes alive.
   * FAIL (exit 2): a game process crashed (the bug).
@@ -47,6 +55,7 @@ SHARED_PORTS = (48961, 48962, 47963)
 RELEASE_DIR = os.path.dirname(harness.EXE)
 TOPIC_A = "STR_MOTION_SCANNER"
 TOPIC_B = "STR_SECTOID_ENGINEER"  # getOneFree: 8 UFO topics; lookup STR_SECTOID
+TOPIC_C = "STR_LASER_WEAPONS"  # no lookup, no getOneFree, not repeatable
 TOPIC_S = "STR_MEDI_KIT"
 DAY = 26 * 60  # one daily tick plus slack, in game minutes
 
@@ -91,7 +100,7 @@ def advance_day(host, client, label):
     print(f"[{label}] advanced {r['game_minutes']} min, dismissed={r['dismissed']}")
 
 
-def separate_rows(host, client):
+def row_a(host, client):
     # Row A: the host completes a topic it already knows -> newResearch == nullptr.
     geo.slow_clock(host, client)
     host.ok({"cmd": "discover_research", "topic": TOPIC_A})
@@ -103,6 +112,8 @@ def separate_rows(host, client):
                     lambda: researched(client, TOPIC_A) or None, timeout=30, interval=0.5)
     print(f"PASS row A: host re-researched known {TOPIC_A}, sync reached the client")
 
+
+def row_b(host, client):
     # Row B: the host finishes first; sync marks the topic known on the client
     # while the client's own project is still running; then the client's finishes.
     geo.slow_clock(host, client)
@@ -122,6 +133,38 @@ def separate_rows(host, client):
     if TOPIC_B in research_names(client):
         raise Inconclusive(f"row B: client project {TOPIC_B} never completed")
     print(f"PASS row B: client completed {TOPIC_B} after sync had marked it known")
+
+
+def row_c(host, client):
+    # Row C (issue #187): as row B, with a topic that has nothing left to give once
+    # known. The receiver now removes the client's own project; if it still runs,
+    # it must finish without a crash.
+    geo.slow_clock(host, client)
+    host.ok({"cmd": "start_research", "topic": TOPIC_C, "cost": 1, "scientists": 1})
+    client.ok({"cmd": "start_research", "topic": TOPIC_C, "cost": 100000, "scientists": 1})
+    advance_day(host, client, "C1")
+    try:
+        client.wait_for("row C: client got the host's completion via research sync",
+                        lambda: researched(client, TOPIC_C) or None, timeout=30, interval=0.5)
+    except TimeoutError:
+        raise Inconclusive("row C: research sync never delivered the host's completion")
+    if TOPIC_C not in research_names(client):
+        print(f"PASS row C: research sync removed the client's own {TOPIC_C} project")
+        return
+    geo.slow_clock(host, client)
+    client.ok({"cmd": "set_research_cost", "topic": TOPIC_C, "cost": 1})
+    advance_day(host, client, "C2")
+    if TOPIC_C in research_names(client):
+        raise Inconclusive(f"row C: client project {TOPIC_C} never completed")
+    print(f"PASS row C: client completed {TOPIC_C} after sync had marked it known")
+
+
+SEPARATE_ROWS = {"A": row_a, "B": row_b, "C": row_c}
+
+
+def separate_rows(host, client):
+    for key in os.environ.get("COOP_RKT_ROWS", "A,B,C").split(","):
+        SEPARATE_ROWS[key.strip()](host, client)
 
 
 def shared_row(out):
