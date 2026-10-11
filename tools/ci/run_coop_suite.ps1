@@ -67,7 +67,6 @@ $quarantine = @(
   "test_pvp_campaign_month",       # issue #171: month-roll geoscape assert can't drain MissionDetectedState/SaveGameState
   "test_crash_reporter",           # issue #172: marker-bundle 60s timeout, intermittent
   "test_parallel_pve2_turn_screen_gate", # issue #205: host drops to main menu, client connection resets, 7 of 22 runs retried or failed
-  "test_parallel_sharedturn",      # issue #207: random skirmish battle can end at the side boundary, 4 of 50 runs retried or failed
   # A REPRO TOOL, not a guard - its own docstring says so, and its exit codes are
   # the reverse of what a gate assumes: exit 0 = "the heavy-alien-death desync
   # REPRODUCED", exit 3 = "every alien side stayed in census" (i.e. clean). Gating on
