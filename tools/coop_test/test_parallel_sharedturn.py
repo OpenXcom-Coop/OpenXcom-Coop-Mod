@@ -66,6 +66,7 @@ from harness import GameClient, make_user_dir
 import session
 import test_skirmish_flow as SK
 import test_battle_tripwire as TW
+import test_parallel_endturn as PE
 
 PORT = "47983"       # phase B (the battle)
 PORT_DEGRADE = "47984"  # phase A (lobby only)
@@ -530,6 +531,12 @@ def main():
                                          replication_candidates(client))
 
         # --- 4. the side boundary --------------------------------------------
+        # The skirmish fixture fields ONE alien. On a map that walks it into the
+        # squad's view, reaction fire killed it during the alien side (seeds 10 and
+        # 14 of 40), the host's NextTurnState tally read liveAliens == 0 and ended
+        # the battle, and both machines sat in DebriefingState instead of a new
+        # player side. A squad with no TU cannot react; TU come back next turn.
+        PE.hush(host, client)
         turn = cycle_side(host, client)
         assert turn, (
             f"the side never closed / never came back (turn="
