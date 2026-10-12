@@ -914,6 +914,10 @@ static bool coopTestResyncReadyMismatchTake()
 	return armed;
 }
 
+// coop R4-L3 S-B (QL3-6 (a); F10818): the last rejoin or repair offer was refused or its copy did not match (HOST). Cleared
+// by a later offer, a drop and a new battle. CoopState::waitSatisfied() withholds RESUME while it is set.
+static bool g_coopResumedOfferFailed = false;
+
 // SS2.8's mismatch path (freeze -> bt_desync -> bundle -> banner), factored out
 // of CoopHashCheck::verify() (this file) so the SS2.4a reveal `base` n-mismatch
 // raises the IDENTICAL desync through the IDENTICAL code. Latches on
@@ -6266,6 +6270,7 @@ void initBattleAuthority(std::uint32_t battleId)
 	// function with the same battleId); a battle with another id starts unseen.
 	if (battleId != g_coopDesyncSeenBattleId)
 		g_coopDesyncSeenBattleId = 0;
+	g_coopResumedOfferFailed = false; // coop R4-L3 S-B: a new battle starts with no failed offer
 	a.resetSeatFactions();
 	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the session-lifetime battleEnd
 	// record is cleared here and nowhere else (CoopDelta.h).
@@ -18804,8 +18809,43 @@ void coopResyncOnPeerDrop()
 	const bool anyRepairState = g_coopResyncPending || g_coopResyncInFlight || g_coopResyncDone || g_coopResyncHalted;
 	g_coopResyncPending = g_coopResyncInFlight = g_coopResyncDone = g_coopResyncHalted = false;
 	g_coopOfferIsResync = false;
+	g_coopResumedOfferFailed = false; // coop R4-L3 S-B: a drop clears it (the next rejoin answers afresh)
+
 	if (anyRepairState)
 		Log(LOG_INFO) << "[coop-resync] the partner dropped - the repair state is cleared (the pause is SPEC 16's)";
+}
+
+// ===== coop R4-L3 S-B (QL3-6 (a); F10818): a resumed offer (a rejoin or the automatic repair) that the second player
+// refused, or whose copy did not match. The pause stays (SPEC 16 M5's resumed branches); RESUME is withheld until a later
+// offer; a failed REPAIR ends repairs in this battle (no loop) and its waiting screen says so (O1). Message-handler
+// context: flags and the record only. =====
+static void coopResumedOfferFailedNote(const char* why)
+{
+	g_coopResumedOfferFailed = true;
+	if (g_coopResyncInFlight)
+	{
+		g_coopResyncInFlight = false;
+		g_coopResyncDone = false;
+		g_coopResyncHalted = true;
+		coopResyncCount("failed");
+		g_coopResyncRecord["lastFail"] = why;
+		Log(LOG_ERROR) << "[coop-resync] host: the automatic repair failed (" << why
+			<< ") - the battle stays paused, no further repair, no RESUME";
+	}
+	else
+	{
+		Log(LOG_WARNING) << "[coop-resync] host: a rejoin offer failed (" << why << ") - RESUME is withheld until a later offer";
+	}
+}
+
+bool coopResumedOfferFailed()
+{
+	return g_coopResumedOfferFailed;
+}
+
+int coopResyncTitleState()
+{
+	return g_coopResyncHalted ? 2 : (g_coopResyncInFlight ? 1 : 0);
 }
 
 bool coopFatalVoteArm(SavedBattleGame* /*save*/, int wounded, bool endTurnRequested)
@@ -28527,6 +28567,7 @@ void offerRejoinBattle(Game* game)
 	// assignSeatsAndFactions() for a battle being generated for the first
 	// time.
 	const std::uint32_t battleId = coopBattleAuthority().battleId;
+	g_coopResumedOfferFailed = false; // coop R4-L3 S-B (F10818): a new offer, a new answer
 
 	// Snapshot the LIVE battle exactly as it stands right now
 	// (emitPreparedOffer()'s precedent, F333) - the rejoiner gets the battle
@@ -29532,6 +29573,7 @@ void onRefuse(Game* game, const Json::Value& refuse)
 		// made, instead of tearing down the very battle M1 kept alive.
 		Log(LOG_WARNING) << "[coop-handshake] SPEC16 M5: rejoin refused (" << reason
 			<< ") - the host's paused battle is untouched; peerAbsent stays set";
+		coopResumedOfferFailedNote("refused"); // coop R4-L3 S-B (QL3-6 (a))
 		coopBattleAuthority().phase = CoopBattlePhase::Active;
 		g_pendingHost = PendingHost();
 		return;
@@ -29603,6 +29645,7 @@ void onReady(Game* game, const Json::Value& ready)
 			// mismatch discards the just-generated one.
 			Log(LOG_WARNING) << "[coop-handshake] SPEC16 M5: rejoin desync - the host's "
 				"paused battle is untouched; peerAbsent stays set for a further rejoin attempt";
+			coopResumedOfferFailedNote("ready mismatch"); // coop R4-L3 S-B (QL3-6 (a); F10818)
 			coopBattleAuthority().phase = CoopBattlePhase::Active;
 			g_pendingHost = PendingHost();
 			return;

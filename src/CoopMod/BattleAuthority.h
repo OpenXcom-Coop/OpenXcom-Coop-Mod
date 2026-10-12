@@ -438,6 +438,11 @@ bool coopBattleQuiescent();
 bool coopDesyncSeenLatched();
 /// coop R4-L3 S-A: a partner drop ends every repair state (the pause becomes SPEC 16's); from CoopSession::onClientDrop().
 void coopResyncOnPeerDrop();
+/// coop R4-L3 S-B (F10818, QL3-6 (a)): true after the last rejoin or repair offer was refused or its copy did not match,
+/// until a later offer, a drop or a new battle - CoopState::waitSatisfied() then withholds RESUME.
+bool coopResumedOfferFailed();
+/// coop R4-L3 S-B (owner O1): the host waiting screen's repair wording - 0 none, 1 a repair runs, 2 a repair failed.
+int coopResyncTitleState();
 
 /// SPEC 18 (r4 T4) M8: arm the deferred mid-battle coop save latch, called
 /// from SaveGameState::think() the moment it observes isCoopBattle() &&

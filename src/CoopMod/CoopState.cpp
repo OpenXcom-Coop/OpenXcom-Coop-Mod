@@ -1019,6 +1019,14 @@ std::string CoopState::waitingTitle() const
 		// one message, one look, two actors
 		return "Waiting for all players\nto place their bases...";
 	}
+	// coop R4-L3 S-B (O1 = D267 (a); R-L3-B-2): the repair's titles, above the lobby wording (the second player stays attached)
+	if (const int repair = coopResyncTitleState())
+	{
+		const std::string name = _game->getCoopMod()->getCurrentClientName();
+		if (repair == 1)
+			return name.empty() ? "Repairing the battle..." : "Repairing the battle with " + name + "...";
+		return "The battle could not be repaired.\nSave and quit, or abandon it.";
+	}
 	if (connectionTCP::session.clientInLobby)
 	{
 		return "Waiting for players to load...";
@@ -1069,7 +1077,8 @@ bool CoopState::waitSatisfied() const
 		return connectionTCP::hasCoopFile(
 			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
 	}
-	return connectionTCP::session.resumeAck;
+	// coop R4-L3 S-B (F10818, QL3-6 (a)): never RESUME over a refused or mismatched rejoin / repair - admission stays closed.
+	return connectionTCP::session.resumeAck && !coopResumedOfferFailed();
 }
 
 void CoopState::setWaitAction(bool ready)
