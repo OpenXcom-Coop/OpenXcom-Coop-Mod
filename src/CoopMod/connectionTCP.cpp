@@ -12418,6 +12418,14 @@ void onIntent(const Json::Value& intent)
 	// or a different skill / type / item clears the skill grant.
 	coopNoteOrderForSkillGrant(actor, kind, intent, save);
 
+	// R5-U8 (owner D233 (a), QU8-3 (a)): PvE2's opening - from the equip barrier until the next side transition
+	// the players' turn-1 side is already ending (CoopEndTurn::armPve2Opening()): every order is `turn_over`.
+	if (!equipPre && CoopEndTurn::pve2OpeningPending())
+	{
+		denyIntent(iseq, "turn_over", seat, kind);
+		return;
+	}
+
 	// turn_over (SS2.3/SS2.5). W2-P4 S-E4 (spec Q8 (a), N1 = F1068): the active
 	// side must be the INTENT seat's faction. mySideActive() compares the
 	// HOST's own seat faction, which in gm2 (the second player commands the
@@ -18537,6 +18545,9 @@ static bool g_liveUnitMaskSeen = false;
 // W2-H31 (L-H29-1): the side-phase counter at which onQuiescentPass() last asked a side with no live seat to end by
 // itself (-1 = none this battle), so it asks once per side-phase.
 static int g_selfEndPhase = -1;
+// R5-U8 (QU8-3 (a)): PvE2's opening - 0 none, 1 armed (the equip barrier), 2 requested (onQuiescentPass()). Both
+// non-zero states deny every order (pve2OpeningPending()) until the next side transition clears it.
+static int g_pve2Opening = 0;
 
 // Forward declaration: clearPresentationInert() is defined further down
 // this namespace, but reset() below must call it, so it needs an early
@@ -18562,6 +18573,7 @@ void reset()
 	g_liveUnitMask = 0;
 	g_liveUnitMaskSeen = false;
 	g_selfEndPhase = -1; // W2-H31: per-battle state too
+	g_pve2Opening = 0; // R5-U8: per-battle state too
 	// REV E.51 / E51.3 / D69 (F174): a battle-authority reset (the teardown
 	// chokepoint a peer drop reaches via resetBattleAuthority()) must not
 	// leave a stale painted END-TURN tally or an inverted button behind -
@@ -18968,6 +18980,7 @@ void onSideTransition(SavedBattleGame* save)
 	for (int i = 0; i < kMaxSeats; ++i)
 		g_hostReady[i] = false;
 	g_coopSkillGrant = CoopSkillGrant(); // W2-P4 S-E2.2 (C3-Q7 (a)): a side change clears the skill grant
+	g_pve2Opening = 0; // R5-U8: a side change (the opening's own, or any later one) lifts the order gate
 	// W1-P13c (D-23): every new side starts the baton search at seat 0 again;
 	// emitTally()'s own coopBatonResolve() call resolves the actual first LIVE
 	// seat in D-23 order.
@@ -19094,6 +19107,20 @@ void onQuiescentPass(SavedBattleGame* save, bool quiescent)
 	if (coopBattleAuthority().peerAbsent.load() || coopEquipOpen()
 		|| !connectionTCP::isBattlescapeStateLive(save->getBattleState()))
 		return;
+	// R5-U8 (owner D233 (a); docs rewrite/prompts/r5u8_pve2_gm4.md, QU8-3 (a)): PvE2's opening - the players'
+	// turn-1 side ends by itself so the AI-run X-COM side moves first, as the release line plays it (main
+	// BattlescapeState::think, pve2_init). Once per battle start, only with the host's battle screen on top
+	// (the host closed its Turn-1 screen, as on main), never while a vote holds commits.
+	if (g_pve2Opening == 1 && save->getSide() == FACTION_PLAYER && save->getTurn() == 1
+		&& save->getBattleState()->getGame()->getStates().back() == save->getBattleState()
+		&& !coopFatalVoteHolds() && !coopAbortVoteHolds())
+	{
+		g_pve2Opening = 2;
+		Log(LOG_INFO) << "[coop-endturn] R5-U8: PvE2 opening - the players' turn-1 side ends by itself, X-COM moves first";
+		if (BattlescapeGame* bg = save->getBattleGame())
+			bg->requestEndTurn(false);
+		return;
+	}
 	// W2-H31 (L-H29-1, F11676; design-D1 + D53 + QU8-1 on an EMPTY live set; vanilla BattlescapeGame::think(): a side
 	// with no unit to move ends at once): a side a human seat plays (a seat's faction is the active side - every co-op
 	// player side, gm2 / gm3's hostile side) on which no seat has a live commandable unit left - every one out, or held
@@ -19151,6 +19178,18 @@ void onQuiescentPass(SavedBattleGame* save, bool quiescent)
 	// remaining live seat pressed ends the side (D1, D53).
 	emitTally(save);
 	tryCommit(save);
+}
+
+// R5-U8: see CoopEndTurn.h.
+void armPve2Opening()
+{
+	if (coopBattleAuthority().hostSim)
+		g_pve2Opening = 1;
+}
+
+bool pve2OpeningPending()
+{
+	return g_pve2Opening != 0;
 }
 
 void toggleReady(BattlescapeState* bs)
@@ -31005,6 +31044,8 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 	g_equip.screen = nullptr;
 	g_equip.phase = (int)CoopEquipPhase::Ended;
 	g_equip.barrierDone = true;
+	if (connectionTCP::getCoopGamemode() == 4)
+		CoopEndTurn::armPve2Opening(); // R5-U8 (owner D233 (a), QU8-3 (a)): PvE2 opens with the X-COM side
 	Log(LOG_INFO) << "[coop-equip] host: barrier - every seat is ready, turn " << save->getTurn()
 		<< " started (vanilla close)";
 	Json::Value end(Json::objectValue);
