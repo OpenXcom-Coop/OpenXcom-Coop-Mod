@@ -482,6 +482,15 @@ void coopHostMedikit(BattleAction* action, BattleUnit* target, int medikitAction
 /// cue {actor, unit (= actor), item}.
 void coopHostScanner(BattleAction* action);
 
+/// W2-H30 (docs rewrite/prompts/w2h30_host_local_actions.md; W2-H28 QH-4 (a), lead L-1): the host's OWN mind
+/// probe as an INSTANT host action - coopHostScanner()'s shape (PR-Q5). ONE call in
+/// BattlescapeGame::primaryAction()'s BT_MINDPROBE branch, the first statement of its spendTU() success block
+/// (the host only: coopInterceptPsiConfirm() answered FALSE there). Mint, push {id,"host"} (context kind
+/// `mindprobe`, the partner's `use_item` order's kind), the `mindprobe` cue {actor, unit (the probed unit),
+/// item} whose delta carries the spent TU, then the close through onChainQuiesced() -> closeBaseContext(). The
+/// probe screen stays the host's own. Coop + hostSim only; a logged no-op while another action context is open.
+void coopHostMindProbe(BattleAction* action, BattleUnit* target);
+
 // ----- W2-P3 S-A, commit S-A.2: the `ai` and `endturn` action contexts -----
 // Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)1, (b)4-6; amendment B1
 // RQ5/RQ6. Each is ONE call at its BattlescapeGame.cpp site and a no-op unless

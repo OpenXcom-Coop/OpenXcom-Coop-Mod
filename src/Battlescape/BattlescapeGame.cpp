@@ -2069,6 +2069,7 @@ void BattlescapeGame::primaryAction(Position pos)
 					std::string error;
 					if (_currentAction.spendTU(&error))
 					{
+						coopHostMindProbe(&_currentAction, targetUnit); // coop W2-H30 (L-1): the host's own probe rides a `host` context's ev
 						_parentState->getGame()->getMod()->getSoundByDepth(_save->getDepth(), _currentAction.weapon->getRules()->getHitSound())->play(-1, getMap()->getSoundAngle(pos));
 						_parentState->getGame()->pushState (new UnitInfoState(targetUnit, _parentState, false, true));
 						cancelCurrentAction();
