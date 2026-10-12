@@ -519,6 +519,15 @@ bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// never writes BattleUnit::_visible and never feeds a hash bucket.
 bool coopUnitVisibleHere(const BattleUnit* u);
 
+/// R5-U1 S-A (docs rewrite/prompts/r5u1_pvp_fog_camera.md, QU1-1 (a); the PvP model's per-side fog, r5-T4, R5-V3): does
+/// @a faction's side see @a u now? FACTION_HOSTILE only, while a human seat commands it (gm2 / gm3): on the HOST the
+/// union of that side's live units' own visible lists (vanilla's TileEngine::calculateUnitsInFOV keeps them there); on
+/// a CLIENT the list the host's last envelope carried as `seen` (CoopEmit::sendEv), its own lists until the first
+/// one arrives. False for every other faction and outside an active co-op battle. PRESENTATION-ONLY (coopUnitVisibleHere()'s
+/// non-player branch and R5-U3's coopHumanKnowsTarget() read it): never a sim, serializer or hash read; in no hash
+/// bucket (PRD-D4).
+bool coopSideSeesUnit(int faction, const BattleUnit* u);
+
 /// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
 /// WV-D47, FINDING B-3 / D-6): the side-relative replacement for
 /// `getOriginalFaction() == FACTION_HOSTILE` at BattlescapeState::

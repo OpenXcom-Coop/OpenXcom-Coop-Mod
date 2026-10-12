@@ -5194,6 +5194,111 @@ void coopHitLogPartnerFiring(SavedBattleGame* save, const BattleAction& action)
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// R5-U1 S-A (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EA2, QU1-1 (a); owner design PvP model "fog is per side",
+// r5-T4, R5-V3): the units the human-commanded HOSTILE side (gm2 / gm3) sees now - the union of that side's live units'
+// own visible lists, which vanilla's TileEngine::calculateUnitsInFOV keeps on the HOST (a client refreshes them only for
+// an ev's acting unit, F12492). The HOST reads them live; CoopEmit::sendEv attaches them to every outermost envelope as
+// `seen` {hostile: [ids]} while a seat commands that side (absent otherwise: the classic / SHARED co-op wire is
+// unchanged); the CLIENT keeps the last applied list. PRESENTATION-ONLY: not serialized, in no hash bucket (PRD-D4),
+// never written to a unit. Main thread only; battle-scoped (cleared on the first use after CoopGhost::reset() bumps the
+// combat generation).
+// ---------------------------------------------------------------------------
+namespace
+{
+
+struct CoopSideSeenStore
+{
+	unsigned int gen = 0;
+	bool have = false;         // CLIENT: an envelope carrying `seen` was applied this battle
+	std::vector<int> hostile;  // CLIENT: the hostile side's ids as last applied, sorted
+};
+CoopSideSeenStore g_coopSideSeen;
+
+void coopSideSeenSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	if (g_coopSideSeen.gen != g)
+	{
+		g_coopSideSeen = CoopSideSeenStore();
+		g_coopSideSeen.gen = g;
+	}
+}
+
+/// The ids @a faction's live units see now by their own visible lists: sorted, unique, out units dropped.
+std::vector<int> coopSideSeenLive(SavedBattleGame* save, int faction)
+{
+	std::vector<int> ids;
+	if (!save)
+		return ids;
+	for (BattleUnit* v : *save->getUnits())
+	{
+		if (v->isOut() || (int)v->getFaction() != faction)
+			continue;
+		for (const BattleUnit* seen : *v->getVisibleUnits())
+		{
+			if (seen && !seen->isOut())
+				ids.push_back(seen->getId());
+		}
+	}
+	std::sort(ids.begin(), ids.end());
+	ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+	return ids;
+}
+
+/// HOST, CoopEmit::sendEv's outermost `hostAuthoring` call (beside the hit-log attach): while a human seat commands the
+/// hostile side, the side's live list rides THIS envelope as `seen` {hostile: [ids]}.
+void coopSideSeenAttach(Json::Value& ev)
+{
+	if (!coopFactionHumanCommanded((int)FACTION_HOSTILE))
+		return;
+	Json::Value list(Json::arrayValue);
+	for (int id : coopSideSeenLive(connectionTCP::getStaticBattle(), (int)FACTION_HOSTILE))
+		list.append(id);
+	Json::Value seen(Json::objectValue);
+	seen["hostile"] = list;
+	ev["seen"] = seen;
+}
+
+/// CLIENT, CoopDisplayQueue::onApplied() right after the hit-log apply: the envelope's `seen` list replaces the kept
+/// one. Presence-gated; a no-op on the host.
+void coopSideSeenApplyFrom(const Json::Value& ev)
+{
+	if (!ev.isObject() || !ev.isMember("seen") || coopBattleAuthority().hostSim)
+		return;
+	const Json::Value& list = ev["seen"]["hostile"];
+	if (!list.isArray())
+		return;
+	coopSideSeenSync();
+	std::vector<int> ids;
+	for (const Json::Value& id : list)
+		ids.push_back(id.asInt());
+	std::sort(ids.begin(), ids.end());
+	g_coopSideSeen.hostile = ids;
+	g_coopSideSeen.have = true;
+}
+
+} // namespace
+
+// R5-U1 S-A: see BattleAuthority.h and the block above.
+bool coopSideSeesUnit(int faction, const BattleUnit* u)
+{
+	if (!u || faction != (int)FACTION_HOSTILE || !isCoopBattle())
+		return false;
+	if (coopBattleAuthority().hostSim)
+	{
+		const std::vector<int> ids = coopSideSeenLive(connectionTCP::getStaticBattle(), faction);
+		return std::binary_search(ids.begin(), ids.end(), u->getId());
+	}
+	coopSideSeenSync();
+	if (!g_coopSideSeen.have) // before this battle's first `seen` (battle entry, a rejoin): this machine's own lists
+	{
+		const std::vector<int> ids = coopSideSeenLive(connectionTCP::getStaticBattle(), faction);
+		return std::binary_search(ids.begin(), ids.end(), u->getId());
+	}
+	return std::binary_search(g_coopSideSeen.hostile.begin(), g_coopSideSeen.hostile.end(), u->getId());
+}
+
 void coopHitLogNote(HitLogEntryType type, UnitFaction faction)
 {
 	if (!coopHitLogHostRecording())
@@ -5531,6 +5636,10 @@ void sendEv(Json::Value ev)
 	// ride this envelope as `hitLog` - the same host, outermost-call test as the delta (coopHitLogAttach()).
 	if (hostAuthoring && g_sendEvDepth == 1)
 		coopHitLogAttach(ev);
+	// R5-U1 S-A (QU1-1 (a)): the units the human-commanded hostile side sees now ride this envelope as `seen` (gm2 / gm3
+	// only; absent in classic / SHARED co-op) - the same host, outermost-call test as the delta (coopSideSeenAttach()).
+	if (hostAuthoring && g_sendEvDepth == 1)
+		coopSideSeenAttach(ev);
 
 	// R2-P11 (RB-D32): HOST-side event-ring record point - see BattlePump.h's
 	// CoopEventLog doc comment for why this (post seq-mint, every host emit
@@ -7780,9 +7889,14 @@ bool coopUnitVisibleHere(const BattleUnit* u)
 	// REV E.48 SS.F.2 (ii): the ONE reader of the rule switch.
 	if (!coopBattleAuthority().visibilityRuleOn.load())
 		return u->getVisible();
+	const int mine = coopBattleAuthority().factionOf(coopBattleAuthority().localSeat.load());
+	// R5-U1 S-A (QU1-1 (a); the PvP model's per-side fog, R5-V3): a seat commanding a non-player side (gm2's client, gm3's
+	// host) sees its own side's units, an always-visible armour and the units its side sees now - not X-COM's visible
+	// flag, which is true for every X-COM unit. A player-side seat is unchanged (the provable no-op above).
+	if (mine != (int)FACTION_PLAYER)
+		return (int)u->getFaction() == mine || u->getArmor()->isAlwaysVisible() || coopSideSeesUnit(mine, u);
 	return u->getVisible()
-		|| (int)u->getFaction() == coopBattleAuthority().factionOf(
-			coopBattleAuthority().localSeat.load());
+		|| (int)u->getFaction() == mine;
 }
 
 // FINDING B-3 / D-6: routing updateSoldierInfo's visibility read alone would
@@ -7985,16 +8099,10 @@ int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, cons
 	if (!actor || !target || !s || actor->getFaction() == FACTION_PLAYER
 		|| !coopFactionHumanCommanded((int)actor->getFaction()))
 		return -1;
-	// O1 (a) [the orchestrator pins the ruled body at dispatch; (b) is `return 1;`]:
-	for (BattleUnit* u : *const_cast<SavedBattleGame*>(s)->getUnits())
-	{
-		if (u->isOut() || u->getFaction() != actor->getFaction())
-			continue;
-		const std::vector<BattleUnit*>* seen = u->getVisibleUnits();
-		if (std::find(seen->begin(), seen->end(), target) != seen->end())
-			return 1;
-	}
-	return 0;
+	// O1 (a): a unit the attacker's side sees now. R5-U1 S-A (QU1-5 (a)): that side's sight as coopSideSeesUnit() keeps it -
+	// the host's live lists on the host (unchanged), the host's `seen` list on a client, whose own lists are refreshed only
+	// for an acting unit (F12492) - so the client's psi targeting agrees with the host's admission.
+	return coopSideSeesUnit((int)actor->getFaction(), target) ? 1 : 0;
 }
 
 // W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
@@ -25157,6 +25265,8 @@ void onApplied(const Json::Value& ev)
 	// W2-P6b S-L.2 (AMENDMENT P6-5 section 6; owner D172 (a)): the host's hit-log entries this envelope carries, in
 	// THIS machine's language, before the state branch (the pre-ev side = the host's side at the append). Presence-gated.
 	coopHitLogApplyFrom(save, ev);
+	// R5-U1 S-A (QU1-1 (a)): the hostile side's `seen` list this envelope carries replaces the kept one. Presence-gated.
+	coopSideSeenApplyFrom(ev);
 
 	const std::string state = ev.get("state", "").asString();
 
