@@ -37,6 +37,7 @@ from test_w2_failed_battle_start import (q, lever, stack, bstate, coop, dlg, log
                                          Row, Stop, short)
 
 W, POLL = 15.0, 0.2
+WATCH_CAP_S = 135  # RV-U13 S-C (R-C26-1): a start wait ends at both phase Active; >= max(120, 2.5 x 30.4 s), F11358
 KEY_B0, KEY_BD = "48587", "48588"
 CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "W2-H24: failed battle start ("
 REARMED, PREPARED = "battle marks cleared=1, crafts sent home=0", "battle offer PREPARED (battleId="
@@ -122,7 +123,8 @@ def row_b0(x, results, walls):
     try:
         n_c = trigger(r, x)
         t0 = time.time()
-        wait("both phase Active", lambda: bstate(h)["phase"] == "Active" and bstate(c)["phase"] == "Active", 30.0)
+        wait("both phase Active", lambda: bstate(h)["phase"] == "Active" and bstate(c)["phase"] == "Active",
+             WATCH_CAP_S)
         hb, cb, mt = bstate(h), bstate(c), q(h, {"cmd": "battle_state"}).get("missionType")
         act, unw = since(c, n_c, CLIENT_ACTIVE), since(h, r.ctx["n_h"], UNWIND)
         r.cell("B0-1", "GUARD", 'the start works: both phase Active, equal non-zero battleId, host missionType "STR_BASE_DEFENSE", '
@@ -182,7 +184,7 @@ def row_bd(x, results, walls):
         trigger(r, x)
         tt = time.time()
         wait("host phase Handshake and client held", lambda: bstate(h)["phase"] == "Handshake"
-             and q(c, {"cmd": "hold_battle_ready"}).get("held") is True, 30.0)
+             and q(c, {"cmd": "hold_battle_ready"}).get("held") is True, WATCH_CAP_S)
         win, u1 = {"s to the window": round(time.time() - tt, 2), "host stack": stack(h)}, units(h)
         c.kill()
         tk, polls = time.time(), []

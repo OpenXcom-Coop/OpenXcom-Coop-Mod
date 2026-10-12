@@ -52,6 +52,7 @@ import test_w2_battle_end as tbe
 
 KEY_A, KEY_B = "48612", "48613"
 W, POLL = 5.0, 0.1
+WATCH_CAP_S = 135  # RV-U13 S-C (R-C26-1): AV3's waits end at the debriefs; >= max(120, 2.5 x 31.9 s), F11357
 TITLE, QUESTION = "Abort Mission", "Abort Mission?"                   # en-US STR_ABORT_MISSION / _QUESTION
 RULE = "STRICT MAJORITY: 2 OF 2 YES VOTES"
 REFUSAL = "Only the host can abort the mission"                       # STR_COOP_ABORT_HOST_ONLY (retired)
@@ -438,8 +439,8 @@ def av3(host, client, r):
     r.wait("AV3-1", "the client's YES shown", lambda: btn_ready(client, "YES"), 5)
     t_yes = time.time()
     r.ev["yes"] = client.cmd({"cmd": "click_widget", "match": "YES"}).get("text")
-    hd, hsecs = wait_until(lambda: top(host) == "DebriefingState", 30)
-    cd, csecs = wait_until(lambda: top(client) in tbe.CLIENT_END_TOPS, 30)
+    hd, hsecs = wait_until(lambda: top(host) == "DebriefingState", WATCH_CAP_S)
+    cd, csecs = wait_until(lambda: top(client) in tbe.CLIENT_END_TOPS, WATCH_CAP_S)
     ha, ca, hb, cb = av(host), av(client), be(host), be(client)
     cover = (event_state(host).get("hostCovered") or {}).get("steps", 0) - cov0
     r.ev.update({"debrief": {"host": [hd, hsecs], "client": [cd, csecs], "fromYes": round(time.time() - t_yes, 2)},
