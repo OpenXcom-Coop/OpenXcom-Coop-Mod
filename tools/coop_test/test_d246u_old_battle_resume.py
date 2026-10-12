@@ -21,7 +21,7 @@ Boot RS (key 46610, dirs d246u_rs_*): the host gets the fixture, the client an E
   RS-click   the host's RESUME (CoopState 60 / 62); both tops BattlescapeState; no HostMenu / LobbyMenu
   RS-go      the client's turn order for its guest is refused not_your_go; the guest's facing unchanged on both
   RS-pass    the host's END TURN -> coopEndTurnTally.activeSeat 1 on both; side 0 and turn unchanged
-  RS-cmd     session.assert_t_cmd(RS_GUEST, RS_HOST0, host_check=False)
+  RS-cmd     own guest turn admitted: no deny with its iseq; a host turn delta, admitted +1; facings (R-D246-SA-1)
   RS-common  every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no save
 Boot L1 (host only, dir d246u_l1_host): the SEPARATE fixture with its ONE coop_parallel_turns line removed (the v2.0.6
 shape, line endings kept, asserted).
@@ -405,9 +405,20 @@ def row_rs(host, client, crash0, cells, ev):
     attempt(cells, "RS-pass", pas)
     need(cells, "RS-pass")
 
-    def cmd():
-        quiet(lambda: session.assert_t_cmd(host, client, RS_GUEST, RS_HOST0, host_check=False, what="RS"), ev, "rsCmd")
-        return True, f"client admitted on its guest {RS_GUEST}, not_your_unit on host soldier {RS_HOST0}, hash clean"
+    def cmd():  # R-D246-SA-1 (S32, F13380): lastDeny is battle-scoped (RS-go's deny stays): prove THIS order's outcome
+        d0 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
+        to, hs0, base = (d0[1] + 1) % 8, event_state(host), es(client, "lastSeqApplied") or 0
+        iseq = ev["rsCmd"] = session.send_turn(client, RS_GUEST, to).get("iseq")
+        session.wait_turn_settled(host, client, base)
+        deny, hs1 = es(client, "lastDeny") or {}, event_state(host)
+        (seq0, adm0), (seq1, adm1) = [(e.get("lastSeqEmitted", 0), ((e.get("intentsReceived") or {}).get("turn") or {})
+                                       .get("admitted", 0)) for e in (hs0, hs1)]
+        turns = [x.get("seq") for x in hs1.get("deltaRing") or [] if x.get("kind") == "turn" and x.get("seq", 0) > seq0]
+        d1 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
+        ev["rsCmd"] = detail = (f"own turn iseq {iseq}: client deny {deny} (want none with iseq {iseq}); host seq "
+                                f"{seq0} -> {seq1}, turn deltas {turns}, turn admitted {adm0} -> {adm1} (want +1); "
+                                f"facing {d0} -> {d1} (want {to} on both)")
+        return (iseq and deny.get("iseq") != iseq and turns and adm1 == adm0 + 1 and d1 == [to] * 2), detail
     attempt(cells, "RS-cmd", cmd, (host, client))
     cells["RS-common"] = common_cell(host, client, crash0, ev, "rs")
 
