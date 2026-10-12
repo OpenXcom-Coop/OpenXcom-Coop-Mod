@@ -268,8 +268,8 @@ CURSOR_AIM = 2                    # battle_state.cursorType CT_AIM
 RHAND_CENTRE = (RHAND_RECT[0] + RHAND_RECT[2] // 2, RHAND_RECT[1] + RHAND_RECT[3] // 2)
 POLL_S = 0.05
 SENT_WAIT_S = 2.0                 # how long a press gets to show as sent or refused
-ORDER_TIMEOUT_S = 45
 WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): F11103's loaded leg-2 order (R-C26-2)
+ORDER_TIMEOUT_S = WATCH_CAP_S     # RV-U13 S-C (R-C26-1, F11228): every order window, here and in the importers
 
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
 PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "coopLocalExecBlocked", "lastSeqEmitted",
