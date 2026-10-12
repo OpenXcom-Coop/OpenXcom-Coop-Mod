@@ -817,6 +817,39 @@ static Json::Value coopBuildActionEndHash(SavedBattleGame* save);
 // reset can call it alongside the walk atom's own counters.
 static void coopResetDoorState();
 
+// ===== coop R4-L3 (owner D232 (a); docs rewrite/prompts/r4l3_desync_resync.md): the automatic desync repair's probe
+// record and its TEST-ONLY hold lever. The record is process-lifetime (never reset: a repair runs initBattleAuthority() on
+// the second player's machine, so a battle-scoped record would lose the repair it describes); tests read deltas. Main
+// thread only. The hold, inert unless armed: while armed the HOST answers a desync report as before this unit (log only,
+// no repair), so a test whose subject is the detection itself keeps today's halt (QL3-5 (a)). =====
+static Json::Value g_coopResyncRecord(Json::objectValue);
+static bool g_coopResyncHoldArmed = false;
+
+static void coopResyncCount(const char* key)
+{
+	g_coopResyncRecord[key] = g_coopResyncRecord.get(key, 0).asInt() + 1;
+}
+
+Json::Value coopResyncRecord()
+{
+	Json::Value r = g_coopResyncRecord;
+	for (const char* k : { "desyncs", "offered", "held", "skipped", "teardowns", "loaded", "completed", "released", "failed", "notices" })
+	{
+		if (!r.isMember(k))
+			r[k] = 0;
+	}
+	r["holdArmed"] = g_coopResyncHoldArmed;
+	r["frozen"] = coopBattleAuthority().desyncFrozen.load();
+	return r;
+}
+
+bool coopResyncHoldArm(bool on)
+{
+	g_coopResyncHoldArmed = on;
+	Log(LOG_INFO) << "[coop-resync] TEST-ONLY resync_hold " << (on ? "ARMED" : "disarmed");
+	return g_coopResyncHoldArmed;
+}
+
 // SS2.8's mismatch path (freeze -> bt_desync -> bundle -> banner), factored out
 // of CoopHashCheck::verify() (this file) so the SS2.4a reveal `base` n-mismatch
 // raises the IDENTICAL desync through the IDENTICAL code. Latches on

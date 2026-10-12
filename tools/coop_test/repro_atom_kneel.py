@@ -81,7 +81,7 @@ SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
 # SS2.6's desync row, verbatim from bin/common/Language/en-US.yml. W1-P4 made the
 # banner assert below EXACT rather than "non-empty" (coop battle entry now raises
 # its own notice, so non-emptiness no longer proves showDesyncHalted() fired).
-STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted (rejoin arrives in a later build)"
+STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted"  # R4-L3 S-A (owner D232 a, r4-residue Q2 a)
 
 
 def states(gc):
@@ -660,6 +660,8 @@ def test_forced_mismatch():
     frozen forever, so this session is torn down (not reused) once done."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle(seat_count=1, tag="kneel_mismatch")
     try:
+        # R4-L3 S-A (QL3-5 a): this test's subject is the halt; the TEST-ONLY hold keeps the host from repairing it.
+        host.ok({"cmd": "resync_hold", "on": True})
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-corruption)")
 
         corrupted_id = corrupted_unit_id(host, client)
