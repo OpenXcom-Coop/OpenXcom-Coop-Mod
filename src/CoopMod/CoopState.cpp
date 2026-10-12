@@ -2067,6 +2067,14 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			{
 				unit->setOriginalFaction(FACTION_HOSTILE); // funnel (RB-D23)
 				unit->convertToFaction(FACTION_HOSTILE);
+				// R5-U8 A3 (owner D269 (a): the release line's re-skin, main BattlescapeGenerator :1189-:1204): an
+				// AI-side X-COM soldier is re-typed MALE_CIVILIAN / FEMALE_CIVILIAN by its gender - no rank on the
+				// unit-info screen, a blank name where an enemy's name shows (a soldier unit has no race), no fatal
+				// wounds unless the Alien Bleeding option is on (BattleUnit::isWoundable). Sprites (the armor) and
+				// the id are unchanged (SCOPE-6, QU8-A1-3); HWPs keep their type. coopLoadSoldierUnitRecord()
+				// carries the type through every document load (AMENDMENT U8-1).
+				if (Soldier* soldier = unit->getGeoscapeSoldier())
+					unit->setCoopType(soldier->getGender() == GENDER_FEMALE ? "FEMALE_CIVILIAN" : "MALE_CIVILIAN");
 				unit->setCoopSeat(COOP_SEAT_NONE);
 			}
 			else

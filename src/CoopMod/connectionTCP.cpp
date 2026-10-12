@@ -7292,6 +7292,9 @@ void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* u
 	const UnitFaction original = reader["originalFaction"].readVal(unit->getFaction());
 	if (original != unit->getOriginalFaction())
 		unit->setOriginalFaction(original); // funnel (RB-D23): the read-back of assignSeatsAndFactions()'s own write
+	const std::string type = reader["genUnitType"].readVal(unit->getType());
+	if (type != unit->getType())
+		unit->setCoopType(type); // R5-U8 A3 (owner D269 (a)): the PvE2 re-skin rides the record's genUnitType
 }
 
 // coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): see BattleAuthority.h.

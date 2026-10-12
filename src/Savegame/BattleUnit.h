@@ -759,6 +759,14 @@ public:
 	/// called from load()) is the read-back: it restores that pass's write on
 	/// a soldier-linked unit when a battle document is loaded.
 	void setOriginalFaction(UnitFaction f) { _originalFaction = f; }
+	/// R5-U8 A3 (owner D269 (a); docs rewrite/prompts/r5u8_pve2_gm4.md AMENDMENT
+	/// U8-1): sets the unit's type string. Thin setter, no logic - the release
+	/// line's PvE2 re-skin of an AI-side X-COM soldier (MALE_CIVILIAN /
+	/// FEMALE_CIVILIAN: no rank on the unit-info screen, a blank enemy name, no
+	/// fatal wounds unless the Alien Bleeding option is on) in
+	/// assignSeatsAndFactions(), and its read-back in
+	/// coopLoadSoldierUnitRecord(). Two callers.
+	void setCoopType(const std::string& type) { _type = type; }
 	/// Set health to 0
 	void kill();
 	/// Set health to 0 and set status dead
