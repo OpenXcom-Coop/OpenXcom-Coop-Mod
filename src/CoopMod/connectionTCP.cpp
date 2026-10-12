@@ -4880,7 +4880,8 @@ bool coopIsCueKind(const std::string& kind)
 {
 	static const char* const kCueKinds[] = { "shot", "hit", "explosion", "melee", "psi", "death", "corpse",
 		"prime", "sync", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner",
-		"skill" }; // W2-H28: the host's own skill use (coopHostSkill())
+		"skill", // W2-H28: the host's own skill use (coopHostSkill())
+		"mindprobe", "zero_tu" }; // W2-H30: the host's own mind probe / Zero TU press (coopHostMindProbe(), coopHostZeroTu())
 	for (const char* k : kCueKinds)
 	{
 		if (kind == k)
@@ -16497,6 +16498,46 @@ void coopHostSkill(BattleAction* action, const RuleSkill* skill)
 	p["unit"] = action->actor->getId();
 	p["skill"] = skill->getType();
 	coopEmitCue("skill", p);
+	CoopArbiter::endChainArming(!bg->isBusy());
+}
+
+// W2-H30 (docs rewrite/prompts/w2h30_host_local_actions.md; W2-H28 QH-4 (a), lead L-1): the host's OWN mind probe
+// as an INSTANT host action - coopHostScanner()'s shape above, called ONCE from BattlescapeGame::primaryAction()'s
+// BT_MINDPROBE branch right after its spendTU() succeeded. The `mindprobe` cue names the actor for the client's
+// bt_action_end and its delta carries the spent TU; the partner's twin is onIntent's `use_item` order (context
+// kind `mindprobe`, its one ev the bt_action_end: the ordering client knows its actor from the ack).
+void coopHostMindProbe(BattleAction* action, BattleUnit* target)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !action || !action->actor || !action->weapon || !target)
+		return;
+	BattlescapeGame* bg = nullptr;
+	if (!coopHostItemContextOpen(action->actor, "mindprobe", bg))
+		return;
+	CoopArbiter::beginChainArming();
+	Json::Value p(Json::objectValue);
+	p["actor"] = action->actor->getId();
+	p["unit"] = target->getId();
+	p["item"] = action->weapon->getId();
+	coopEmitCue("mindprobe", p);
+	CoopArbiter::endChainArming(!bg->isBusy());
+}
+
+// W2-H30 (lead L-4): the host's OWN Zero TU press as an INSTANT host action - the same shape, called ONCE from
+// BattlescapeState::btnZeroTUsClick() right after its clearTimeUnits(). The `zero_tu` cue {actor, unit (= actor)}
+// names the actor and its delta carries the zeroed TU. No partner twin: the second player's press stays refused
+// (CoopBattleUi::refuseControl(ZeroTu), W1-P5, design-D8).
+void coopHostZeroTu(BattleUnit* unit)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !unit)
+		return;
+	BattlescapeGame* bg = nullptr;
+	if (!coopHostItemContextOpen(unit, "zero_tu", bg))
+		return;
+	CoopArbiter::beginChainArming();
+	Json::Value p(Json::objectValue);
+	p["actor"] = unit->getId();
+	p["unit"] = unit->getId();
+	coopEmitCue("zero_tu", p);
 	CoopArbiter::endChainArming(!bg->isBusy());
 }
 
