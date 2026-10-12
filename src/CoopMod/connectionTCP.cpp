@@ -18009,6 +18009,9 @@ static int g_lastTallyActiveSeat = -1;
 // set = seat s has a unit that is not out on the active side. onQuiescentPass() re-counts when it changes.
 static unsigned g_liveUnitMask = 0;
 static bool g_liveUnitMaskSeen = false;
+// W2-H31 (L-H29-1): the side-phase counter at which onQuiescentPass() last asked a side with no live seat to end by
+// itself (-1 = none this battle), so it asks once per side-phase.
+static int g_selfEndPhase = -1;
 
 // Forward declaration: clearPresentationInert() is defined further down
 // this namespace, but reset() below must call it, so it needs an early
@@ -18033,6 +18036,7 @@ void reset()
 	// RV-U8: the live-set snapshot is per-battle state too.
 	g_liveUnitMask = 0;
 	g_liveUnitMaskSeen = false;
+	g_selfEndPhase = -1; // W2-H31: per-battle state too
 	// REV E.51 / E51.3 / D69 (F174): a battle-authority reset (the teardown
 	// chokepoint a peer drop reaches via resetBattleAuthority()) must not
 	// leave a stale painted END-TURN tally or an inverted button behind -
@@ -18565,6 +18569,27 @@ void onQuiescentPass(SavedBattleGame* save, bool quiescent)
 	if (coopBattleAuthority().peerAbsent.load() || coopEquipOpen()
 		|| !connectionTCP::isBattlescapeStateLive(save->getBattleState()))
 		return;
+	// W2-H31 (L-H29-1, F11676; design-D1 + D53 + QU8-1 on an EMPTY live set; vanilla BattlescapeGame::think(): a side
+	// with no unit to move ends at once): a side a human seat plays (a seat's faction is the active side - every co-op
+	// player side, gm2 / gm3's hostile side) on which no seat has a live commandable unit left - every one out, or held
+	// by the other side's mind control - ends by itself: nobody can press (D53 drops a spectator's press) and no AI
+	// runs it. Once per side-phase, only while the battle is on screen (the BattlescapeState on top: a turn screen, a box
+	// or a battle-end screen above it holds it, as only the top state thinks), never while a vote holds commits
+	// (tryCommit()'s holds); endTurn()'s battle-end checks then apply as after any END TURN.
+	bool humanSide = false;
+	for (int s = 0; s < kMaxSeats; ++s)
+		humanSide = humanSide || coopBattleAuthority().factionOf(s) == (int)save->getSide();
+	if (humanSide && g_selfEndPhase != g_turn && coopEndTurnComputeNeeded(save) == 0
+		&& save->getBattleState()->getGame()->getStates().back() == save->getBattleState()
+		&& !coopFatalVoteHolds() && !coopAbortVoteHolds())
+	{
+		g_selfEndPhase = g_turn;
+		Log(LOG_INFO) << "[coop-endturn] W2-H31: no seat has a live unit on the active side (side-phase " << g_turn
+			<< "): the side ends by itself";
+		if (BattlescapeGame* bg = save->getBattleGame())
+			bg->requestEndTurn(false);
+		return;
+	}
 	const unsigned mask = coopEndTurnLiveUnitMask(save);
 	if (!g_liveUnitMaskSeen)
 	{
