@@ -13159,6 +13159,7 @@ std::string TestServer::execute(const std::string& line)
 					// built-in weapons, pure reads. psiWeapon = getSpecialWeapon(BT_PSIAMP)'s
 					// id, -1 when none.
 					ju["originalFaction"] = (int)u->getOriginalFaction();
+					ju["hasAI"] = (u->getAIModule() != nullptr); // R5-U3 S-B.1 (QU3-4): a pure read
 					ju["spawnUnit"] = u->getSpawnUnit() ? u->getSpawnUnit()->getType() : std::string();
 					ju["respawn"] = u->getRespawn();
 					{
