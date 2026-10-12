@@ -191,6 +191,12 @@ static bool coopBattleLive(Game* game)
 		&& game->getSavedGame()->getSavedBattle() != nullptr;
 }
 
+// coop R4-L2 S-C (OQ-r4-1, D91): set by the host's TCP thread when it drops the partner on a failed send or a bad
+// frame (onConnect -3, the partner's socket closed); read and cleared once per -3 by updateCoopTask(), which then takes
+// the canonical drop path while a co-op battle is live. A -3 raised on the main thread (a message handler's exception)
+// leaves it false.
+static std::atomic<bool> g_coopHostDroppedPeerOnSend{false};
+
 // COOP VARIABLES
 // is the session created?
 bool coopSession = false;
@@ -31906,6 +31912,8 @@ void connectionTCP::updateCoopTask()
 	// server error!
 	if (onConnect == -3)
 	{
+		// coop R4-L2 S-C: read (and clear) once per -3 - did the host's TCP thread drop the partner (a failed send, a bad frame)?
+		const bool droppedOnSend = g_coopHostDroppedPeerOnSend.exchange(false);
 		// Mid-session during a campaign: treat this as a client drop.
 		// Push a freeze/WAIT_PLAYERS dialog so the host can wait for
 		// reconnection (instead of code 440 which tears down the server).
@@ -31925,6 +31933,18 @@ void connectionTCP::updateCoopTask()
 			Log(LOG_INFO) << "[coop] partner lost while this machine is leaving for the main menu (" << leavingVia
 				<< "): plain teardown, no dialog (W2-H25)";
 			connectionTCP::_coopGamemode = 0;
+			_game->getCoopMod()->disconnectTCP();
+		}
+		// coop R4-L2 S-C (OQ-r4-1, D91; W2-H24's lead "E4 outside a start"): the host's TCP thread dropped the partner on a
+		// failed send or a bad frame while a co-op battle is live - the same drop as a failed receive, so it takes the canonical
+		// drop path (disconnectTCP()'s SPEC 16 pause: the authority kept, peerAbsent set, the wait dialog at quiescence; a
+		// rejoin in flight keeps its pause, S-B) instead of a wait dialog no rejoin can clear (campaign) or CoopState(440)
+		// over the battle (skirmish).
+		else if (droppedOnSend && getServerOwner() == true && coopBattleLive(_game) && !campaignEnded()
+			&& (coopBattleAuthority().phase == CoopBattlePhase::Active || CoopHandshake::coopHostRejoinPending()))
+		{
+			Log(LOG_WARNING) << "[coop] R4-L2: the partner was lost on a failed send during the battle - the SPEC 16 pause";
+			onConnect = -2;
 			_game->getCoopMod()->disconnectTCP();
 		}
 		else if (getServerOwner() == true
@@ -33303,6 +33323,7 @@ void connectionTCP::startTCPHost()
 				if (coopTestForceSendFailureTake() || !sendAll(clientSock, out.data(), (int)out.size())) // coop R4-L2 S-C: TEST-ONLY lever
 				{
 					DebugLog("Host: send failed, drop client\n");
+					g_coopHostDroppedPeerOnSend.store(true); // coop R4-L2 S-C
 					onConnect = -3;
 					SDLNet_TCP_DelSocket(socketSet, clientSock);
 					SDLNet_TCP_Close(clientSock);
@@ -33345,6 +33366,7 @@ void connectionTCP::startTCPHost()
 				if (msgLen == 0 || msgLen > kMaxMsgLen)
 				{
 					DebugLog("Host: invalid message size, drop client\n");
+					g_coopHostDroppedPeerOnSend.store(true); // coop R4-L2 S-C
 					onConnect = -3;
 					SDLNet_TCP_DelSocket(socketSet, clientSock);
 					SDLNet_TCP_Close(clientSock);
