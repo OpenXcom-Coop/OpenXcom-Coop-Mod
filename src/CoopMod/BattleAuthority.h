@@ -149,6 +149,18 @@ void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* batt
 void coopSaveSpawnUnitFaction(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
 void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
+/// R5-U8 (AMENDMENT U8-1, F13361-F13366; docs rewrite/prompts/r5u8_pve2_gm4.md): the read-back of the record fields the
+/// Soldier constructor ignores. SavedBattleGame::load builds a unit whose id is a geoscape soldier's through the Soldier
+/// constructor (original faction FACTION_PLAYER, type "SOLDIER"); only the rules constructor takes the record's
+/// `originalFaction`, and BattleUnit::load reads neither it nor `genUnitType`. So the PvE2 (gamemode 4) X-COM soldiers
+/// assignSeatsAndFactions() turns FACTION_HOSTILE (and R5-U8 A3 re-types MALE_ / FEMALE_CIVILIAN) at generation would load
+/// as player-original SOLDIERs on every machine that builds the battle from a document: the client's offer, rejoin, repair
+/// and stage blobs, the host's own disk resume. Called from BattleUnit::load after the W2-H26 hook: on a soldier-linked unit
+/// it restores the record's original faction (SavedBattleGame::load's own default: the unit's faction) and, from A3 on, its
+/// type. No co-op guard and no new key: every save vanilla writes holds FACTION_PLAYER and "SOLDIER" for a soldier-linked
+/// unit (F13364), and co-op gamemodes 0-3 never change either, so the call changes nothing outside PvE2.
+void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* unit);
+
 /// coop D246-U (owner D246 = b, narrowing FW-7; docs rewrite/prompts/d246u_midbattle_save_convert.md): a mid-battle co-op
 /// save made by an OLDER version (no coopBattleProtocol in its header: the release line never writes one) resumes on this
 /// build. coopOlderBattleConvertible() is SavedGame::load()'s gate: true for the game modes the conversion handles

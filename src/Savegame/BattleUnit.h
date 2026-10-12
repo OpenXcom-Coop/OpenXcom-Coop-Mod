@@ -755,6 +755,9 @@ public:
 	/// mechanic) - CoopMod's CoopState.cpp::assignSeatsAndFactions() is the
 	/// ONE caller (RB-D23's "setOriginalFaction writes funneled through this
 	/// ONE pass").
+	/// R5-U8 (AMENDMENT U8-1): coopLoadSoldierUnitRecord() (BattleAuthority.h,
+	/// called from load()) is the read-back: it restores that pass's write on
+	/// a soldier-linked unit when a battle document is loaded.
 	void setOriginalFaction(UnitFaction f) { _originalFaction = f; }
 	/// Set health to 0
 	void kill();

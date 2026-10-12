@@ -2017,12 +2017,66 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 
 	if (gamemode == 4)
 	{
-		// RB-D16: PvE2 deferred to the r3 fan-out wave. Callers (connectionTCP.
-		// cpp's onOffer()) must keep refusing gm4 {reason:"unsupported"} at the
-		// handshake instead of reaching this function for it - this is a
-		// defensive fallback, not the refusal path itself.
-		Log(LOG_WARNING) << "[coop-battle-setup] assignSeatsAndFactions() called with "
-			"gamemode 4 (PvE2) - deferred (RB-D16), no-op";
+		// R5-U8 (owner D233 (a); docs rewrite/prompts/r5u8_pve2_gm4.md, QU8-1 (a), QU8-2 (a)): PvE2 - both
+		// seats command the generated ALIENS against an AI-run X-COM squad, as the release line plays it
+		// (main BriefingState::setupCoop's gm4 block), done ONCE here, host-side, before the blob snapshot
+		// (r5-T1, DES-1.2: one canonical assignment, identical on both machines). Every generated hostile
+		// unit becomes FACTION_PLAYER with no AI module, seated by D237 (b) / D245 (a)'s counts in v2.0.6's
+		// order (D237-V1): the first floor(N/2) aliens in unit-list order to the client seat, the rest to
+		// the host's seat 0. Every generated player-side unit (soldiers, tanks) becomes FACTION_HOSTILE and
+		// unseated: the host's alien-turn AI runs it (handleAI() gives it an AI module on its first move).
+		// Civilians stay as generated. Both seats map to FACTION_PLAYER (coopSeatCanonicalFaction()'s
+		// default arm, which the disk-resume seat rebuild reuses).
+		coopBattleAuthority().resetSeatFactions();
+		int clientSeat = (int)COOP_SEAT_NONE;
+		for (int seat : seats)
+		{
+			coopBattleAuthority().setSeatFaction(seat, (int)coopSeatCanonicalFaction(gamemode, seat));
+			if (seat != (int)COOP_SEAT_0 && (clientSeat == (int)COOP_SEAT_NONE || seat < clientSeat))
+				clientSeat = seat;
+		}
+		int aliens = 0;
+		for (auto* unit : *save->getUnits())
+		{
+			if (unit && unit->getOriginalFaction() == FACTION_HOSTILE)
+				++aliens;
+		}
+		const int clientAliens = (clientSeat == (int)COOP_SEAT_NONE) ? 0 : aliens / 2;
+		int toClient = clientAliens;
+		for (auto* unit : *save->getUnits())
+		{
+			if (!unit)
+				continue;
+			const UnitFaction orig = unit->getOriginalFaction();
+			if (orig == FACTION_HOSTILE)
+			{
+				unit->setOriginalFaction(FACTION_PLAYER); // funnel (RB-D23)
+				unit->convertToFaction(FACTION_PLAYER);
+				unit->setAIModule(nullptr);
+				if (toClient > 0)
+				{
+					unit->setCoopSeat((CoopSeat)clientSeat);
+					--toClient;
+				}
+				else
+				{
+					unit->setCoopSeat(COOP_SEAT_0);
+				}
+			}
+			else if (orig == FACTION_PLAYER)
+			{
+				unit->setOriginalFaction(FACTION_HOSTILE); // funnel (RB-D23)
+				unit->convertToFaction(FACTION_HOSTILE);
+				unit->setCoopSeat(COOP_SEAT_NONE);
+			}
+			else
+			{
+				unit->setCoopSeat(COOP_SEAT_NONE); // civilians never seated
+			}
+		}
+		Log(LOG_INFO) << "[coop-battle-setup] R5-U8 PvE2: " << aliens << " alien(s) to the players (seat 0: "
+			<< (aliens - clientAliens) << ", seat " << clientSeat << ": " << clientAliens
+			<< "); the X-COM side to the host's AI";
 		return;
 	}
 
