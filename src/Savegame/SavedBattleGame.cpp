@@ -56,6 +56,7 @@
 #include "../Engine/Language.h"
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopDelta.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
@@ -1385,7 +1386,7 @@ void SavedBattleGame::newTurnUpdateScripts()
 			continue;
 		}
 
-		ModScript::scriptCallback<ModScript::NewTurnUnit>(bu->getArmor(), bu, this, this->getTurn(), _side);
+		{ CoopScriptOwner coopOwner(bu); ModScript::scriptCallback<ModScript::NewTurnUnit>(bu->getArmor(), bu, this, this->getTurn(), _side); } // coop OF2
 	}
 
 	for (auto* item : _items)
@@ -1395,7 +1396,7 @@ void SavedBattleGame::newTurnUpdateScripts()
 			continue;
 		}
 
-		ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side);
+		{ CoopScriptOwner coopOwner(item->getOwner()); ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side); } // coop OF2
 	}
 
 	reviveUnconsciousUnits(false);
@@ -2113,13 +2114,13 @@ void SavedBattleGame::initUnit(BattleUnit *unit, size_t itemLevel)
 		}
 	}
 
-	ModScript::scriptCallback<ModScript::CreateUnit>(armor, unit, this, this->getTurn());
+	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateUnit>(armor, unit, this, this->getTurn()); } // coop OF2
 
 	if (auto* solder = unit->getGeoscapeSoldier())
 	{
 		for (const auto* bonus : *solder->getBonuses(nullptr))
 		{
-			ModScript::scriptCallback<ModScript::ApplySoldierBonuses>(bonus, unit, this, bonus);
+			{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::ApplySoldierBonuses>(bonus, unit, this, bonus); } // coop OF2
 		}
 	}
 }
@@ -2135,7 +2136,7 @@ void SavedBattleGame::initItem(BattleItem *item, BattleUnit *unit)
 		return;
 	}
 
-	ModScript::scriptCallback<ModScript::CreateItem>(item->getRules(), item, unit, this, this->getTurn());
+	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateItem>(item->getRules(), item, unit, this, this->getTurn()); } // coop OF2
 }
 
 /**
