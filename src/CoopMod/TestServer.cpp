@@ -6693,6 +6693,93 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 	resp["ok"] = true;
 }
 
+// ----- W2-H26 (docs rewrite/prompts/w2h26_conversion_spawn_faction.md, Q-H26-1 (a)): `synced_census` -----
+// TEST-ONLY, read-only. Every row the `synced` bucket mixes (SharedEcon.cpp computeBattleHashes) for every unit,
+// item, node, door tile (doorBits != 0, the bucket's own skip) and the battle, each read through field_poke's own
+// peek (coopFieldPoke() without `value`: nothing is written, nothing is hashed), in ONE reply - so a test diffs the
+// two machines field by field and recomputes the bucket. A field that does not read answers "ERROR <text>". Called
+// from field_poke's own branch of executeIntrospect13, so that chain gains no arm and no nesting level (C1061).
+static void coopSyncedCensus(const Mod* mod, SavedBattleGame* bg, Json::Value& resp)
+{
+	static const char* const kScUnit[] = { "onTile", "dir", "turretDir", "status", "floating", "armor",
+		"wantsToSurrender", "isSurrendering", "moraleRestored", "spawnUnit", "respawn", "spawnUnitFaction",
+		"alreadyRespawned", "reactPref", "reactOffLeft", "reactOffRight", "tags", "specialWeapons", "name", "rawName" };
+	static const char* const kScItem[] = { "previousOwner", "unit", "ammo", "fuseEnabled", "medikit",
+		"droppedOnAlienTurn", "xcomProperty", "tags" };
+	static const char* const kScBattle[] = { "objectivesDestroyed", "moduleMap", "bughuntMode", "turn", "side",
+		"tags", "reinforcementsMemory" };
+	auto peek = [mod, bg](const char* cls, const char* idKey, int id, const char* field) -> Json::Value
+	{
+		Json::Value q(Json::objectValue);
+		q["class"] = cls;
+		if (idKey)
+			q[idKey] = id;
+		q["field"] = field;
+		Json::Value r(Json::objectValue);
+		coopFieldPoke(mod, bg, q, r);
+		if (r.isMember("before"))
+			return r["before"];
+		return Json::Value("ERROR " + r.get("error", "").asString());
+	};
+	Json::Value units(Json::arrayValue);
+	for (BattleUnit* u : *bg->getUnits())
+	{
+		if (!u)
+			continue;
+		Json::Value e(Json::objectValue);
+		e["id"] = u->getId();
+		for (const char* f : kScUnit)
+			e[f] = peek("unit", "id", u->getId(), f);
+		units.append(e);
+	}
+	Json::Value items(Json::arrayValue);
+	for (BattleItem* it : *bg->getItems())
+	{
+		if (!it)
+			continue;
+		Json::Value e(Json::objectValue);
+		e["id"] = it->getId();
+		for (const char* f : kScItem)
+			e[f] = peek("item", "id", it->getId(), f);
+		items.append(e);
+	}
+	Json::Value nodes(Json::arrayValue);
+	if (std::vector<Node*>* all = bg->getNodes())
+	{
+		for (Node* n : *all)
+		{
+			if (!n)
+				continue;
+			Json::Value e(Json::objectValue);
+			e["id"] = n->getID();
+			e["type"] = peek("node", "id", n->getID(), "type");
+			nodes.append(e);
+		}
+	}
+	Json::Value tiles(Json::arrayValue);
+	for (int i = 0; i < bg->getMapSizeXYZ(); ++i)
+	{
+		if (!bg->getTile(i))
+			continue;
+		const Json::Value bits = peek("tile", "i", i, "doorBits");
+		if (bits.isInt() && bits.asInt() == 0)
+			continue;
+		Json::Value e(Json::objectValue);
+		e["i"] = i;
+		e["doorBits"] = bits;
+		tiles.append(e);
+	}
+	Json::Value battle(Json::objectValue);
+	for (const char* f : kScBattle)
+		battle[f] = peek("battle", nullptr, 0, f);
+	resp["units"] = units;
+	resp["items"] = items;
+	resp["nodes"] = nodes;
+	resp["tiles"] = tiles;
+	resp["battle"] = battle;
+	resp["ok"] = true;
+}
+
 // W2-P9 S-B.1 (AMENDMENT P9-1 PR-13; folds TASK 0 T0-4): read-only view of the topmost OptionsAdvancedState's list
 // for synced_options_state -> advanced:{open, scroll, visibleRows, rows:[{row,name,value,id,prefixed,line,visible,wx,wy}]}.
 // `id` = the OptionInfo whose tr(description), or whose "[Synced] "-prefixed form, equals the row name ("" header/blank,
@@ -7210,7 +7297,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_camera_center"
 		&& cmd != "path_probe"
 		&& cmd != "research_probe" // W2-H17 (F3262)
-		&& cmd != "field_poke"
+		&& cmd != "field_poke" && cmd != "synced_census" // W2-H26 (TEST-ONLY, read-only)
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
 		&& cmd != "clear_warning"
@@ -11505,13 +11592,15 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["ok"] = true;
 		}
 	}
-	else if (cmd == "field_poke")
+	else if (cmd == "field_poke" || cmd == "synced_census") // W2-H26: one branch, no new arm (C1061; the R4-L2 S-C shape)
 	{
 		// W2-P2 S-H.1 (amendment A5.5): see coopFieldPoke() above.
 		SavedGame* sgFP = _game->getSavedGame();
 		SavedBattleGame* bgFP = sgFP ? sgFP->getSavedBattle() : nullptr;
 		if (!bgFP)
 			resp["error"] = "field_poke: no live battle";
+		else if (cmd == "synced_census")
+			coopSyncedCensus(_game->getMod(), bgFP, resp); // W2-H26 (TEST-ONLY, read-only)
 		else
 			coopFieldPoke(_game->getMod(), bgFP, req, resp);
 	}
