@@ -29174,7 +29174,27 @@ void prepareBattleOffer(Game* game, int gamemode)
 	{
 		seats.push_back(s);
 	}
+	// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; D235-VL4: a gift lasts until the mission ends): a stage
+	// offer (MG-A's hand-off, g_coopStageOfNext set) re-runs the battle-start pass on the units it carries into the next
+	// stage; a classic / SHARED player-side unit whose live seat is a seat of this battle keeps it (a given tank or
+	// soldier) instead of the pass's soldier-owner / host default.
+	std::map<int, int> coopStageSeats;
+	if (g_coopStageOfNext != 0 && (gamemode == 0 || gamemode == 1))
+	{
+		for (BattleUnit* u : *battle->getUnits())
+		{
+			if (u && u->getOriginalFaction() == FACTION_PLAYER && (int)u->getCoopSeat() >= 0
+				&& (int)u->getCoopSeat() < (int)seats.size())
+				coopStageSeats[u->getId()] = (int)u->getCoopSeat();
+		}
+	}
 	assignSeatsAndFactions(battle, gamemode, seats);
+	for (BattleUnit* u : *battle->getUnits())
+	{
+		const auto kept = u ? coopStageSeats.find(u->getId()) : coopStageSeats.end();
+		if (kept != coopStageSeats.end())
+			u->setCoopSeat((CoopSeat)kept->second);
+	}
 
 	// FX-1 (WV-D56 / REV E.1 IR3-2): PREPARE ends here, and this is the ONLY
 	// function that resets g_pendingHost - moving this reset into
