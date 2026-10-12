@@ -143,7 +143,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_coop_resume_battle_control.py` | R4-P2 | mid-battle RESUME must restore split control, SEPARATE mode (battle resume) |
 | `test_coop_ufo_door_close.py` | r3 | UFO door-close sync at end-turn (battle-action e2e) |
 | `test_cydonia_coop_start.py` | R4-P2 | Cydonia mission start sync (explicit per packet) |
-| `test_pvp_campaign_battle.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
+| `test_pvp_campaign_battle.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - gm2 leg LIVE since D250-U S-B (guard removed, R-D250-SA-2 / R-D250-SB-1); gm3 leg SKIP-PENDING(D250-U S-C) |
 | `test_pvp_campaign_bringup.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_geoscape.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_month.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
