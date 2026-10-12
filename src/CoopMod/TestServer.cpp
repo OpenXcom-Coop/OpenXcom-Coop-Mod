@@ -7256,17 +7256,23 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 					if (!craft && c->getId() == cid && (ctype.empty() || c->getRules()->getType() == ctype)) craft = c;
 		if (!craft) { resp["error"] = "base_screen_op: craft not found"; return; }
 		if (op == "deploy_mark") craft->getCustomSoldierDeployment()[-1] = std::make_pair(Position(0, 0, 0), 0); // test-only: no soldier has id -1
-		Json::Value vehicles(Json::objectValue), order(Json::arrayValue), ammo(Json::arrayValue);
+		Json::Value vehicles(Json::objectValue), order(Json::arrayValue), ammo(Json::arrayValue), vcoop(Json::arrayValue); // + vcoop: D248-U
 		for (auto* v : *craft->getVehicles())
 		{
 			const std::string t = v->getRules()->getType();
 			vehicles[t] = vehicles.get(t, 0).asInt() + 1;
 			order.append(t);
 			ammo.append(v->getAmmo());
+			Json::Value vc(Json::arrayValue); // D248-U (test-only read): the vehicle's co-op parking tag, aligned with `order`
+			vc.append(v->getCoopBase());
+			vc.append(v->getCoopCraft());
+			vc.append(v->getCoopCraftType());
+			vcoop.append(vc);
 		}
 		resp["vehicles"] = vehicles;
 		resp["order"] = order;
 		resp["vehicleAmmo"] = ammo;
+		resp["vehicleCoop"] = vcoop; // D248-U: [coopBase, coopCraft, coopCraftType] per vehicle, aligned with `order`
 		resp["spaceUsed"] = craft->getSpaceUsed();
 		resp["spaceAvailable"] = craft->getSpaceAvailable();
 		resp["customDeployment"] = craft->hasCustomDeployment();
