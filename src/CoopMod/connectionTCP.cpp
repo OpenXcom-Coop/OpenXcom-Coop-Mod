@@ -34017,6 +34017,9 @@ void connectionTCP::abortVotePump(bool quiescent)
 			coopAbortVoteDrop("side");
 			return;
 		}
+		// R4-L1 S-B (P9; QL1-6, VL-L1-3; D214 a, SV-M12): a request waits for the fatal-wounds vote (its "end" drops it at 1.).
+		if (coopFatalVoteHolds())
+		{ abortVoteNote(-1, "heldWhileFatal"); return; }
 		Json::Value note(Json::objectValue);
 		note["openedMs"] = Json::UInt(SDL_GetTicks());
 		abortVoteNote(AV_OPEN, "opens", note);
