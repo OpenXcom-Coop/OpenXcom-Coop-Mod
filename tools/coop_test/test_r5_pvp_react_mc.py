@@ -36,6 +36,8 @@ staging (TILES; A's plasma pistol and S3's rifle by lever), the host's END TURN 
       M1 is the last row (A is the only alien; no END TURN after it, F10911).
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane
 crash folder. EVIDENCE only: host infoboxes (dismissed host-only), messages, camera, the client's warningText.
+After every mind-control order the client's own message box is waited out (its battle map back on top, capped at
+CLIENT_MAP_S; a cap hit fails the order's cell with the client's stack, R-U3-B-4).
 
 RED on the unchanged build (commit B1): M2-ui, M2-ctrl, M2-lever, R1-ai; every other cell PASS. One EVIDENCE line per
 row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints
@@ -82,6 +84,7 @@ CURSOR_TARGETING = (2, 3, 4, 5)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 UNSEEN_MIN = 21                   # S5's Chebyshev distance from every hostile unit
 STEP_S, ORDER_S = 30, 5           # step bound; the bounded wait for an order's context (ends early on green)
+CLIENT_MAP_S = 5                  # R-U3-B-4: the client's message box after an applied psi ev closes in 2.0 s
 ROWS = (("R2", ("R2-walk", "R2-react", "R2-alive", "R2-common")),
         ("M2", ("M2-sees", "M2-ui", "M2-ctrl", "M2-lever", "M2-unseen", "M2-common")),
         ("R1", ("R1-walk", "R1-react", "R1-alive", "R1-ai", "R1-common")),
@@ -258,20 +261,26 @@ def psi_press(gc, host, tile, seed, ev):
 
 def mc_order(host, client, ctx0, target, ev, timeout=ORDER_S):
     """After a mind-control press or lever: a bounded wait for a new host context and the host idle, host boxes
-    dismissed host-only. Returns the new contexts."""
+    dismissed host-only, then (R-U3-B-4) a wait capped at CLIENT_MAP_S for the client's battle map on top (its own
+    message box gone; stacks to EVIDENCE, a cap hit fails the order's cell). Returns the new contexts."""
     rec = {"hostBoxes": []}
     wait_until(lambda: (poll_host_box(host, rec, "mc") or True) and len(new_contexts(ctx0, ctxs(host))) >= 1
                and es(host, "busyOwnerSeat") == -1, timeout)
     settle(host, client, ev)
     poll_host_box(host, rec, "mc after")
+    st0 = G3F.stack(client)
+    ok, secs = wait_until(lambda: G3F.top(client) == "BattlescapeState", CLIENT_MAP_S, 0.1)
     new = new_contexts(ctx0, ctxs(host))
     ev.update(boxes=rec["hostBoxes"], newCtx=[cv(c) for c in new], target=[uv(host, target), uv(client, target)],
-              clientStack=G3F.stack(client))
+              clientStack=st0, clientMap=[ok, secs, G3F.stack(client)])
     return new
 
 
 def mc_cell(new, origin, actor, host, client, target, faction, ev, sent=None):
     bad = []
+    cm = ev.get("clientMap")
+    if cm and not cm[0]:
+        bad.append(f"the client's battle map not back on top within {CLIENT_MAP_S} s (R-U3-B-4): stack {cm[2]}")
     if len(new) != 1 or (new[0].get("origin"), new[0].get("kind"), new[0].get("actorId")) != (origin, "psi", actor):
         bad.append(f"new host contexts {[cv(c) for c in new]} (want exactly one {{{origin}, psi, {actor}}})")
     if sent is not None and sent != 1:
@@ -370,7 +379,7 @@ def row_m2(host, client, crash0):
         ui["pressError"] = str(e)[:300]
     new = mc_order(host, client, ctx0, S2_ID, ui)
     c1 = battle_state(client).get("cursorType")
-    if c1 in CURSOR_TARGETING:
+    if c1 in CURSOR_TARGETING and ui["clientMap"][0]:
         click_nth(client, RHAND_NTH)   # cancel the client's leftover targeting (TASK 0: 3 -> 1)
     ui.update(cancel=[c1, battle_state(client).get("cursorType")], warningText=battle_state(client).get("warningText"))
     sent = (es(client, "coopIntentsSent") or {}).get("psi", 0) - sent0.get("psi", 0)
