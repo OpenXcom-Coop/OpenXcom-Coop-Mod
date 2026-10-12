@@ -37,6 +37,7 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/CraftErrorState.h"
 #include "../Engine/Language.h"
+#include "../Engine/CrossPlatform.h" // coop R4-L3 S-C: CoopDesyncNoticeState's OPEN FOLDER / REPORT ON GITHUB
 #include "CoopState.h"
 
 #include "../Basescape/BasescapeState.h"
@@ -2283,6 +2284,140 @@ bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft)
 	Log(LOG_INFO) << "[coop-h9] SEPARATE client Cydonia launch refused (craft " << craft->getId()
 		<< ") - message shown, craft untouched";
 	return true;
+}
+
+// ---- coop R4-L3 S-C (D232-V2): CoopDesyncNoticeState, ported from `main` (CoopState.cpp :1883-:2027) ----------------
+
+std::string CoopDesyncNoticeState::s_lastHeadline;
+std::string CoopDesyncNoticeState::s_lastMessage;
+std::string CoopDesyncNoticeState::s_lastReportUrl;
+std::string CoopDesyncNoticeState::s_lastOpenTarget;
+std::string CoopDesyncNoticeState::s_lastZipPath;
+int CoopDesyncNoticeState::s_raiseCount = 0;
+
+CoopDesyncNoticeState::CoopDesyncNoticeState(const std::string &message,
+	const std::string &headline, const std::string &zipPath, const std::string &reportUrl)
+	: _headline(headline), _message(message), _zipPath(zipPath), _reportUrl(reportUrl)
+{
+	// OPEN FOLDER opens the DIRECTORY the zip lives in (the reports folder), through CrossPlatform::openExplorer.
+	size_t slash = zipPath.find_last_of("/\\");
+	_openTarget = (slash == std::string::npos) ? zipPath : zipPath.substr(0, slash);
+
+	s_lastHeadline = _headline;
+	s_lastMessage = _message;
+	s_lastReportUrl = _reportUrl;
+	s_lastOpenTarget = _openTarget;
+	s_lastZipPath = _zipPath;
+	++s_raiseCount;
+
+	buildLayout();
+}
+
+void CoopDesyncNoticeState::buildLayout()
+{
+	_screen = false;
+
+	// Roomier than the notice family's usual 256x88: a full path, a headline AND three buttons.
+	_window = new Window(this, 300, 172, 10, 14, POPUP_BOTH);
+	_txtHeadline = new Text(284, 18, 18, 22);
+	_txtMessage = new Text(284, 104, 18, 42);
+	_btnOk = new TextButton(84, 16, 20, 152);
+	_btnOpenFolder = new TextButton(94, 16, 112, 152);
+	_btnReport = new TextButton(88, 16, 214, 152);
+
+	std::string category = "sackSoldier";
+	std::string textElement = "text";
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+	{
+		// The co-op lobby's combination in battle: geoscape interface with alterPal, saveMenus colors, battle palette.
+		setInterface("geoscape", true, _game->getSavedGame()->getSavedBattle());
+		category = "saveMenus";
+	}
+	else
+	{
+		// Adopt the palette of the screen underneath (sibling notices skipped).
+		State* context = nullptr;
+		for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+		{
+			if (dynamic_cast<CoopDesyncNoticeState*>(*it) == nullptr)
+			{
+				context = *it;
+				break;
+			}
+		}
+		if (context)
+		{
+			setStatePalette(context->getPalette());
+			if (dynamic_cast<GeoscapeState*>(context))
+			{
+				category = "geoManufactureComplete";
+				textElement = "text1";
+			}
+		}
+	}
+
+	add(_window, "window", category);
+	add(_txtHeadline, textElement, category);
+	add(_txtMessage, textElement, category);
+	add(_btnOk, "button", category);
+	add(_btnOpenFolder, "button", category);
+	add(_btnReport, "button", category);
+
+	centerAllSurfaces();
+	setWindowBackground(_window, category);
+	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+	{
+		applyBattlescapeTheme(category);
+	}
+
+	_txtHeadline->setAlign(ALIGN_CENTER);
+	_txtHeadline->setWordWrap(true);
+	_txtHeadline->setText(_headline);
+
+	_txtMessage->setAlign(ALIGN_CENTER);
+	_txtMessage->setWordWrap(true);
+	_txtMessage->setText(_message);
+
+	_btnOk->setText(tr("STR_OK"));
+	_btnOk->onMouseClick((ActionHandler)&CoopDesyncNoticeState::btnOkClick);
+	_btnOk->onKeyboardPress((ActionHandler)&CoopDesyncNoticeState::btnOkClick, Options::keyOk);
+	_btnOk->onKeyboardPress((ActionHandler)&CoopDesyncNoticeState::btnOkClick, Options::keyCancel);
+
+	_btnOpenFolder->setText(tr("STR_COOP_DESYNC_OPEN_FOLDER"));
+	_btnOpenFolder->onMouseClick((ActionHandler)&CoopDesyncNoticeState::btnOpenFolderClick);
+
+	_btnReport->setText(tr("STR_COOP_DESYNC_REPORT_GITHUB"));
+	_btnReport->onMouseClick((ActionHandler)&CoopDesyncNoticeState::btnReportClick);
+}
+
+std::string CoopDesyncNoticeState::getMessageText() const
+{
+	return _txtMessage ? _txtMessage->getText() : std::string();
+}
+
+void CoopDesyncNoticeState::btnOkClick(Action *)
+{
+	_game->popState();
+}
+
+void CoopDesyncNoticeState::btnOpenFolderClick(Action *)
+{
+	// No upload - this only opens the local folder.
+	s_lastOpenTarget = _openTarget;
+	if (!_openTarget.empty())
+	{
+		CrossPlatform::openExplorer(_openTarget);
+	}
+}
+
+void CoopDesyncNoticeState::btnReportClick(Action *)
+{
+	// No upload - the player still attaches the zip by hand.
+	s_lastReportUrl = _reportUrl;
+	if (!_reportUrl.empty())
+	{
+		CrossPlatform::openExplorer(_reportUrl);
+	}
 }
 
 }

@@ -46,7 +46,7 @@ en-US:
   STR_COOP_END_TURN_TALLY: "END TURN {0}/{1}"
   # coop (PRD-P2 rider): battle desync auto-report bundle. {0} is the full path
   # of the zip, pre-wrapped onto dialog-width lines by the caller.
-  STR_COOP_DESYNC_REPORT_SAVED: "CO-OP DESYNC DETECTED{NEWLINE}The two games no longer agree. A diagnostic report (log, save and context) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can reproduce and fix it."
+  STR_COOP_DESYNC_REPORT_SAVED: "CO-OP DESYNC REPAIRED{NEWLINE}The two games disagreed and were repaired automatically: the host sent its battle again. A diagnostic report (log, battle data and context) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can reproduce and fix it."
   # coop (PRD-I4): desync auto-report one-click UX + attribution headline.
   STR_COOP_DESYNC_OPEN_FOLDER: "OPEN FOLDER"
   STR_COOP_DESYNC_REPORT_GITHUB: "REPORT ON GITHUB"
