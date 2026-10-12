@@ -896,6 +896,24 @@ static void coopResyncNoteLast(const std::string& bucket, std::uint32_t seq, con
 	g_coopResyncRecord["last"] = last;
 }
 
+// ===== coop R4-L3 S-B (TEST-ONLY `resync_ready_mismatch`, HOST): one-shot, consumed by the next automatic repair offer
+// (offerRejoinBattle()), which then expects a wrong copy hash, so the second player's battle_ready meets onReady()'s
+// resumed mismatch branch for real. Inert unless armed; never read by game logic. =====
+static bool g_coopTestResyncReadyMismatch = false;
+
+void coopTestResyncReadyMismatchArm()
+{
+	g_coopTestResyncReadyMismatch = true;
+	Log(LOG_INFO) << "[coop-resync] TEST-ONLY resync_ready_mismatch armed";
+}
+
+static bool coopTestResyncReadyMismatchTake()
+{
+	const bool armed = g_coopTestResyncReadyMismatch;
+	g_coopTestResyncReadyMismatch = false;
+	return armed;
+}
+
 // SS2.8's mismatch path (freeze -> bt_desync -> bundle -> banner), factored out
 // of CoopHashCheck::verify() (this file) so the SS2.4a reveal `base` n-mismatch
 // raises the IDENTICAL desync through the IDENTICAL code. Latches on
@@ -28532,6 +28550,19 @@ void offerRejoinBattle(Game* game)
 		blob = it->second;
 	}
 	const std::string sha = coopSha256Hex(blob); // IR-6
+	// coop R4-L3 S-B (TEST-ONLY, RB-D26 family): corrupt_next_blob is consumed by an automatic repair's offer too, after the
+	// sha (offerBattle()'s own flip), so the second player refuses it `corrupt`. Inert unless armed; never a rejoin offer.
+	if (g_coopOfferIsResync && g_coopCorruptNextBlobRequested)
+	{
+		g_coopCorruptNextBlobRequested = false;
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		auto corruptIt = connectionTCP::coopFilesHost.find("battlehost");
+		if (corruptIt != connectionTCP::coopFilesHost.end() && !corruptIt->second.empty())
+		{
+			corruptIt->second[0] = (char)((unsigned char)corruptIt->second[0] ^ 0xFF);
+			Log(LOG_WARNING) << "[coop-resync] TEST-ONLY corrupt_next_blob fired on the repair offer: byte 0 of the battle blob flipped after its sha";
+		}
+	}
 
 	std::vector<int> seats;
 	seats.reserve(connectionTCP::seatCount());
@@ -28554,6 +28585,12 @@ void offerRejoinBattle(Game* game)
 	g_pendingHost.seats = seats;
 	g_pendingHost.resumed = true;
 	g_pendingHost.saveBlobHex = coopComputeSaveBlobBucketHex(battle);
+	// coop R4-L3 S-B (TEST-ONLY `resync_ready_mismatch`, HOST): the repair offer expects a wrong copy hash. Inert unless armed.
+	if (g_coopOfferIsResync && coopTestResyncReadyMismatchTake())
+	{
+		g_pendingHost.saveBlobHex += "-mismatch";
+		Log(LOG_WARNING) << "[coop-resync] TEST-ONLY resync_ready_mismatch fired: the repair offer expects a wrong copy hash";
+	}
 
 	Json::Value offer(Json::objectValue);
 	offer["state"] = "battle_offer";

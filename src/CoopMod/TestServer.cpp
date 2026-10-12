@@ -2021,6 +2021,13 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		resp["armed"] = coopResyncRecord().get("holdArmed", false).asBool();
 		resp["ok"] = true;
 	}
+	else if (cmd == "resync_ready_mismatch")
+	{
+		// coop R4-L3 S-B (TEST-ONLY, HOST): one-shot - the next automatic repair offer expects a wrong copy hash. {ok, armed}.
+		coopTestResyncReadyMismatchArm();
+		resp["armed"] = true;
+		resp["ok"] = true;
+	}
 	else
 	{
 		return false;
