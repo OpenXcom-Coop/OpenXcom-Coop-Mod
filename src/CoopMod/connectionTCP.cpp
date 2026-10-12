@@ -32491,6 +32491,9 @@ bool connectionTCP::pushProgressToHostSilently()
 	// window before the own-world reload (GeoscapeState::init) has run. In all
 	// of those the live save is the PEER's world; uploading it would overwrite
 	// our own-world blob with the host's world and destroy our roster.
+	// coop D250-U S-B (R-D250-SB-2, F13791): a no_bases client (the PvP alien side) owns only a stub world, which the host rejects (994).
+	if (connectionTCP::no_bases && !getServerOwner())
+		return false;
 	// W2-P7 S-C-B1.2 (PR-14, MR12, F2510): nor while the live world is still the SEPARATE battle world.
 	if (coopSepBackgroundHeld(_game))
 		return false;

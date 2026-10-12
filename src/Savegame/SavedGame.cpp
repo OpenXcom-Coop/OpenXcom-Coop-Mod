@@ -353,7 +353,11 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
-		reader.tryRead("no_bases", connectionTCP::no_bases);
+		// coop D250-U S-B (QD-7 a; docs rewrite/prompts/d250u_pvp_campaigns.md): a client's PvP alien-side flag is its
+		// machine's role, not the loaded world's - the gm2 client is the alien side, every other client is not. Read from
+		// the blob, the gm2 alien client took the host world's false at a battle's blob load, wrote it into its own-world
+		// snapshot and came back from the battle with its own geoscape sim running.
+		connectionTCP::no_bases = (connectionTCP::_coopGamemode == 2);
 	}
 
 	reader.tryRead("daysPassed", _daysPassed);
