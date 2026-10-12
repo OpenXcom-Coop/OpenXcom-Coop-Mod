@@ -51,7 +51,7 @@ SEED_MAP, MAP_FP = 1, -4.48310638993e+18   # DC's map (CONSTANTS: 5 boots)
 H, H2, G = 10, 11, 8                       # the first / second host-seat soldier, the first seat-1 soldier
 G_TILE, G_DEST = (14, 19, 1), (14, 17, 0)  # G's start tile; the walk's measured end tile (R-L3-A-4, F11791: (14, 17, 1) has no floor)
 U, K4 = 8, 10                              # corrupt_bucket's unit (the first live unit) and the kneeler that does not restate it
-KIND_DR1, SEQ_OFF_DR1 = "?", 2             # a bt_action_end carries no `kind` (F11651); its seq = s0 + 2 (Ra, Rd, Re)
+KIND_DR1, SEQ_OFF_DR1 = "bt_action_end", 2  # R-L3-A-2: a bt_action_end (no `kind`, F11651) is named by its state; seq = s0 + 2 (Ra, Rd, Re)
 BUCKET_DR4, KIND_DR4 = "unitsStats", "kneel"
 BUCKET_DR2, KIND_DR2 = "saveBlob", "side_transition"
 POKE = 7
@@ -321,7 +321,8 @@ def kneel(x, uid):
         return None, {"kneeled": [None, None], "s0": None, "kneel s": round(time.time() - t, 2), "notes": ["TAB never selected %s" % uid]}
     k0, s0 = units(h).get(uid, {}).get("kneeled"), es(h).get("lastSeqEmitted") or 0
     h.ok({"cmd": "inject_input", "kind": "key", "key": hcv.SDLK_K})
-    kn = lambda gc: units(gc).get(uid, {}).get("kneeled")  # noqa: E731
+    bs_live = lambda st: st[-1:] == [BS] or st[-2:] == [BS, NOTICE]  # noqa: E731  R-L3-C-1 (F12303): BattlescapeState live under the notice
+    kn = lambda gc: (session.units_by_id(q(gc, {"cmd": "battle_state"})) if bs_live(stack(gc)) else {}).get(uid, {}).get("kneeled")  # noqa: E731
     try:
         wait("the kneel on both, the host idle", lambda: kn(h) not in (None, k0) and kn(c) == kn(h) and es(h).get("busyOwnerSeat") == -1, 20.0)
     except Stop as e:
