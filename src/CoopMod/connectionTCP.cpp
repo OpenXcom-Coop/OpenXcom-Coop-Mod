@@ -6011,6 +6011,20 @@ int coopTestHoldBlobAckHeld()
 	return g_coopTestHoldBlobAckHeld.load();
 }
 
+// ----- coop R4-L2 S-C (TEST-ONLY force_send_failure, HOST): one-shot, consumed by the host TCP thread's next send to
+// the partner, which then takes its real send-failure branch. Inert unless armed; never read by game logic.
+static std::atomic<bool> g_coopTestForceSendFailure{false};
+
+void coopTestForceSendFailureArm()
+{
+	g_coopTestForceSendFailure.store(true);
+}
+
+static bool coopTestForceSendFailureTake()
+{
+	return g_coopTestForceSendFailure.exchange(false);
+}
+
 // ----- W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md, AMENDMENT P7-6 PR-11): TEST-ONLY world-stream holds.
 // hold_world_stream (HOST): while armed, the world streamer thread waits before its final MAP_RESULT_LOAD_PROGRESS
 // send (ONE guarded call in loopData; 10 ms sleeps, a 60 s safety cap that logs and proceeds), so sendFileClient
@@ -33286,7 +33300,7 @@ void connectionTCP::startTCPHost()
 			drainSnapshotsInto(out);
 			if (!out.empty())
 			{
-				if (!sendAll(clientSock, out.data(), (int)out.size()))
+				if (coopTestForceSendFailureTake() || !sendAll(clientSock, out.data(), (int)out.size())) // coop R4-L2 S-C: TEST-ONLY lever
 				{
 					DebugLog("Host: send failed, drop client\n");
 					onConnect = -3;

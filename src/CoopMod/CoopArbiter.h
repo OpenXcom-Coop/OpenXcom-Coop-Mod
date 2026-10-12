@@ -705,6 +705,11 @@ int coopTestHoldBlobAckArm(bool on);
 bool coopTestHoldBlobAckArmed();
 int coopTestHoldBlobAckHeld();
 
+/// coop R4-L2 S-C (TEST-ONLY `force_send_failure`, HOST): arms a one-shot - the host's TCP thread takes its real
+/// send-failure branch at its next send to the partner (onConnect -3, the partner's socket closed). Inert unless armed.
+/// Never called by game logic.
+void coopTestForceSendFailureArm();
+
 /// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 5; owner D206 c, Q1 a):
 /// the ONE guarded statement in InventoryState::btnOkClick, right after its cursor refusal. TRUE (the caller returns)
 /// only on the pre-battle equip screen of a co-op battle whose equip phase is open (`!tu && parent && coopEquipOpen()`):
