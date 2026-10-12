@@ -658,6 +658,7 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 		reader.tryRead("spawnUnitFaction", _spawnUnitFaction);
 	}
 	coopLoadSpawnUnitFaction(reader, this); // coop W2-H26 (F11270): presence-gated counterpart of coopSaveSpawnUnitFaction (BattleAuthority.h)
+	coopLoadSoldierUnitRecord(reader, this); // coop R5-U8 (AMENDMENT U8-1, F13366): a soldier-linked unit's original faction and type from its record (BattleAuthority.h)
 	reader.tryRead("motionPoints", _motionPoints);
 	reader.tryRead("customMarker", _customMarker);
 	reader.tryRead("alreadyRespawned", _alreadyRespawned);

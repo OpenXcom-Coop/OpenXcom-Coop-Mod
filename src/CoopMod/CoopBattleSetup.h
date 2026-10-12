@@ -80,10 +80,14 @@ enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/Ru
  *     swapper, deferred by RB-D16, would need convertToFaction() to actually
  *     change a value).
  *
- *   4 (PvE2) - DEFERRED (RB-D16): logs a warning and no-ops if ever called
- *     with gamemode 4. Callers must keep refusing gm4 at the handshake
- *     (connectionTCP.cpp's onOffer()) instead of reaching this function for
- *     it - this is a defensive fallback, not the refusal path itself.
+ *   4 (PvE2) - R5-U8 (owner D233 (a)): both seats command the generated
+ *     aliens against an AI-run X-COM squad. Every FACTION_HOSTILE-original
+ *     unit becomes FACTION_PLAYER (AI module cleared), the first floor(N/2)
+ *     of them in unit-list order seated to the client seat and the rest to
+ *     seat 0 (D237 (b) / D245 (a) counts, D237-V1 order); every
+ *     FACTION_PLAYER-original unit becomes FACTION_HOSTILE and unseated (the
+ *     host's alien-turn AI runs it); civilians stay unseated. Both seats map
+ *     to FACTION_PLAYER.
  *
  * @a seats is the battle's active seat list (RB-D17 N-player guardrail - no
  * 2-seat assumption baked into the signature). The spike only ever calls

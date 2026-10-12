@@ -7298,6 +7298,21 @@ void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* un
 		unit->setSpawnUnitFaction(faction);
 }
 
+// ----- R5-U8 (AMENDMENT U8-1, F13366; docs rewrite/prompts/r5u8_pve2_gm4.md): a soldier-linked unit's original faction
+// (and, from A3 on, its type) rides its own record (BattleAuthority.h) -----
+
+void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* unit)
+{
+	// Only a unit the Soldier constructor built: the rules constructor already took the record's original faction and
+	// type. The default is SavedBattleGame::load's own (`faction`, which BattleUnit::load has just read): BattleUnit::save
+	// writes `originalFaction` only when it differs from `faction`.
+	if (!unit || !unit->getGeoscapeSoldier())
+		return;
+	const UnitFaction original = reader["originalFaction"].readVal(unit->getFaction());
+	if (original != unit->getOriginalFaction())
+		unit->setOriginalFaction(original); // funnel (RB-D23): the read-back of assignSeatsAndFactions()'s own write
+}
+
 // coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): see BattleAuthority.h.
 bool coopOlderBattleConvertible(int gamemode)
 {
@@ -29670,7 +29685,7 @@ void onOffer(Game* game, const Json::Value& offer)
 	}
 
 	const int gamemode = offer.get("gamemode", 0).asInt();
-	if (gamemode >= 4) // R5-P1 (RB-D23): gm2/gm3 now supported; gm4 (PvE2) stays deferred (RB-D16)
+	if (gamemode >= 5) // R5-P1 (RB-D23) gm2/gm3; R5-U8 (owner D233 (a); QU8-6 (a)) gm4 (PvE2) at every battle start; an unknown mode stays refused
 	{
 		refuse("unsupported");
 		return;
