@@ -12,7 +12,7 @@ Exit 0 = pass; 2 = failure.
 """
 
 import os, sys, time, shutil
-# RW-TRIAGE: SKIP-PENDING(fast-follow)
+# RW-TRIAGE: SKIP-PENDING(D250-U S-D) - its release-made mid-battle fixtures load after D246-U (R-D250-SA-2; F13086)
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

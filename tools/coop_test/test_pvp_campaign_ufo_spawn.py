@@ -25,7 +25,7 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(fast-follow)
+# RW-TRIAGE: SKIP-PENDING(D250-U S-A2) - capture-first stage for the gm2 set-check miss and the empty gm3 set (R-D250-SA-2; F13509, F13510, F13502)
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -78,6 +78,7 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
             gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
             gc.ok({"cmd":"profile_ok"})
         host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
+        host.wait_for("START CAMPAIGN shown (D250-U A1)", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
         ls = host.cmd({"cmd": "lobby_state"})
         names = ls.get("players", [])
@@ -94,11 +95,11 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
         session.start_campaign_via_button(host)
 
         xcom_gc = host if alien_player == "client" else client
+        xcom_gc.wait_for("XCOM base placement screen (D250-U S-A)", lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
         if _has(xcom_gc, "BuildNewBaseState"):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
         time.sleep(2)
-        if _has(host, "CoopState"):
-            host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
 
         for gc, label in ((host,"host"),(client,"client")):
             gc.wait_for(f"{label} geoscape",
@@ -164,19 +165,34 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
                 for u in _geo(gc).get("ufos", []):
                     seen.add(u["coopId"])
 
+        # D250-U A1 (QD-A1-2, F13245): each machine's own-sim UFO creation counter. research_probe's `ids` are
+        # SavedGame's id counters; AlienMission::spawnUfo takes one STR_UFO_UNIQUE id per UFO it creates and a
+        # peer's mirror takes none, so its rise is exact - a zero means no UFO was created, never a harvest
+        # that fell between two UFOs (one max-speed skip spans ~5 game days).
+        def _made(gc):
+            return gc.ok({"cmd": "research_probe", "names": [], "tail": 0}).get("ids", {}).get("STR_UFO_UNIQUE", 1)
+
+        made0 = {"host": _made(host), "client": _made(client)}
+        ufo_popup = geo.popup("UfoDetectedState")  # D250-U A1 (QD-A1-3): a detection holds the clock; harvest it
         _harvest()
         roll_mp = _geo(host).get("monthsPassed", 0)
         start_min = geo.game_minutes(host) or 0
         t0 = time.time()
         while time.time() - t0 < 240:
             try:
-                geo.skip_ingame_time(host, client, minutes=60 * 6,
-                                     speed_idx=5, real_timeout=30)
+                r = geo.skip_ingame_time(host, client, minutes=60 * 6,
+                                         speed_idx=5, real_timeout=30, interest=ufo_popup)
             except Exception:
                 break
             _harvest()
-            # Stop as soon as BOTH machines have observed a natural UFO.
-            if host_seen and client_seen:
+            if r.get("hit"):
+                # D250-U A1 (QD-A1-3): a UfoDetectedState held its machine's clock with the UFO (or its
+                # mirror) alive, so the harvest above saw it; close it on both and go on.
+                for gc in (host, client):
+                    geo.drain_popups(gc)
+            # Stop as soon as BOTH machines have a natural UFO (D250-U A1, QD-A1-2): the host's own sim
+            # created one, and the client observed one or its own sim created one.
+            if _made(host) > made0["host"] and (client_seen or _made(client) > made0["client"]):
                 break
             now_min = geo.game_minutes(host) or start_min
             # Hard caps so an unlucky seed still terminates AND we never sit long
@@ -188,18 +204,23 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
                 break
 
         hseen, cseen = len(host_seen), len(client_seen)
-        print(f"    UFO sightings accumulated: host={hseen} client={cseen}")
+        made = {"host": _made(host) - made0["host"], "client": _made(client) - made0["client"]}
+        print(f"    UFO sightings accumulated: host={hseen} client={cseen}; created by each own sim "
+              f"(STR_UFO_UNIQUE): host={made['host']} client={made['client']}")
 
-        if hseen > 0:
-            print(f"PASS {tag}: host observed natural UFO(s) at max time step "
-                  f"(ids={sorted(host_seen)})")
+        if made["host"] > 0:
+            print(f"PASS {tag}: host's own sim created {made['host']} natural UFO(s) at max time step "
+                  f"(seen ids={sorted(host_seen)})")
         else:
-            _fail(fails, f"{tag}: no natural UFOs ever observed on host over the window")
+            _fail(fails, f"{tag}: the host's own sim created no natural UFO over the window "
+                         f"(STR_UFO_UNIQUE {made0['host']} unchanged; seen ids={sorted(host_seen)})")
 
-        if cseen > 0:
-            print(f"PASS {tag}: client observed natural UFO(s) at max time step")
+        if cseen > 0 or made["client"] > 0:
+            print(f"PASS {tag}: client observed natural UFO(s) at max time step "
+                  f"(seen {cseen}, its own sim created {made['client']})")
         else:
-            _fail(fails, f"{tag}: no natural UFOs ever observed on client over the window")
+            _fail(fails, f"{tag}: no natural UFOs ever observed on client over the window "
+                         f"(seen 0, its own sim created 0)")
 
         # ---- P2/P7 desync gate: the role-aware no_bases guard must freeze only
         # the non-host alien machine. Identify the two machines by role:

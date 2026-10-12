@@ -168,6 +168,7 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
 
     host.wait_for("start eligible",
                   lambda: _lobby(host).get("startEligible") or None)
+    host.wait_for("START CAMPAIGN shown (D250-U A1)", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
     if alien_player == "client":
         row = row_for(host, "ClientPlayer")
@@ -187,6 +188,7 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
 
     # XCOM player places base via BuildNewBaseState.
     # The alien player (if host) enters COOP_DLG_WAIT_PLAYERS instead.
+    xcom_gc.wait_for("XCOM base placement screen (D250-U S-A)", lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
     if _has(xcom_gc, "BuildNewBaseState"):
         xcom_gc.wait_for(f"{alien_player} XCOM base placement",
                          lambda gc_=xcom_gc: _has(gc_, "BuildNewBaseState"))
@@ -202,9 +204,8 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
         pass
 
     # ---- host clicks BEGIN to release both machines to the geoscape ----
-    if _has(host, "CoopState"):
-        # WAIT_BASES/WAIT_PLAYERS always shows BEGIN (see CoopState::waitSatisfied).
-        host.ok({"cmd": "coop_dialog_back"})
+    # D250-U S-A (R-U7d-1, W2-U7d): press BEGIN once a player could - a hidden 60 / 62 press is refused.
+    session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))
 
     time.sleep(2)
     if _has(alien_gc if alien_player == "client" else host, "BuildNewBaseState"):
