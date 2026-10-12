@@ -27507,6 +27507,25 @@ bool consumeFreshStartLostUdp()
 	return g_coopFreshStartLostUdp.exchange(false);
 }
 
+// coop R4-L2 S-B (OQ-r4-1, D91; W2-H24 R-2, F9972): true on the host while an IN-MEMORY rejoin offer is in flight -
+// offerRejoinBattle() reopened the handshake (phase Handshake) over a SPEC 16 pause. A rejoiner lost in that window
+// must leave the pause as it was, as onRefuse()'s and onReady()'s resumed branches do, not take the full reset.
+bool coopHostRejoinPending()
+{
+	return connectionTCP::getServerOwner() && coopBattleAuthority().hostSim.load()
+		&& coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake
+		&& g_pendingHost.prepared && g_pendingHost.resumed && !g_pendingHost.fromDisk;
+}
+
+// coop R4-L2 S-B: the rejoiner was lost during its rejoin - back to the pause the rejoin started from: phase Active,
+// peerAbsent left set, the offer dropped, so the next rejoin is offered the same battle (offerRejoinBattle()'s guard).
+// No log line here: the UDP monitor thread calls it too; connectionTCP::disconnectTCP() logs the TCP case.
+void coopRestorePauseAfterLostRejoin()
+{
+	coopBattleAuthority().phase = CoopBattlePhase::Active;
+	g_pendingHost = PendingHost();
+}
+
 // ----- CLIENT pending state: set by onOffer() on accept, consumed by onBlobChunkAppended() -----
 struct PendingClient
 {
@@ -40153,6 +40172,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// spare gate needs it before that call runs, not after.
 		const bool teardownAsHost = (session.role == CoopRole::Host);
 
+		// coop R4-L2 S-B (OQ-r4-1, D91; W2-H24 R-2, F9972): a rejoiner lost during its in-memory rejoin handshake (phase
+		// Handshake, opened by offerRejoinBattle() over a SPEC 16 pause) keeps the pause as a refused or mismatched rejoin
+		// does: the spare below, then the phase back to Active - not the full reset that left the paused battle with no
+		// authority and refused every later rejoin. Read here, before clearNetworkSessionQueues().
+		const bool rejoinLost = teardownAsHost && onConnect == -2 && CoopHandshake::coopHostRejoinPending();
+
 		// SPEC 16 (W1-P17) M1 (F331 gate; owner-ruled mechanism, DECIDED (b)):
 		// a mid-`Active`-battle peer leave keeps the co-op battle authority
 		// ALIVE instead of tearing it down to Idle - the host survives, a
@@ -40166,7 +40191,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 			&& onConnect == -2
 			&& coopBattleLive(_game)
 			&& !campaignEnded()
-			&& coopBattleAuthority().phase == CoopBattlePhase::Active;
+			&& (coopBattleAuthority().phase == CoopBattlePhase::Active || rejoinLost);
 
 		// coop W2-H24 (R2-m6, F5199): the partner's game dropped during a FRESH co-op battle start (phase Handshake; a
 		// rejoin or a disk resume is not one). The start fails as a refused one does (after deleteAllCoopBases() below)
@@ -40261,6 +40286,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		if (spareAuthorityOnPeerAbsent)
 		{
 			coopBattleAuthority().peerAbsent = true;
+			if (rejoinLost) // coop R4-L2 S-B: back to the pause the lost rejoin started from
+			{
+				CoopHandshake::coopRestorePauseAfterLostRejoin();
+				Log(LOG_WARNING) << "[coop-handshake] R4-L2: the rejoiner was lost during the rejoin - the pause is kept (battleId="
+					<< coopBattleAuthority().battleId.load() << ")";
+			}
 		}
 
 		deleteAllCoopBases();

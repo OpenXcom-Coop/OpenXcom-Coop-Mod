@@ -436,6 +436,13 @@ void latchFreshStartLostUdp();
 /// coop W2-H24 S-B: connectionTCP::disconnectTCP() (main thread) reads and clears that record, once per call.
 bool consumeFreshStartLostUdp();
 
+/// coop R4-L2 S-B (W2-H24 R-2): true on the host while an in-memory rejoin offer (offerRejoinBattle()) is in flight.
+/// connectionTCP::disconnectTCP() and the UDP twin (handleUdpRemotePeerLost()) read it before their reset.
+bool coopHostRejoinPending();
+
+/// coop R4-L2 S-B: the rejoiner was lost during that rejoin - the pause is restored (phase Active, the offer dropped).
+void coopRestorePauseAfterLostRejoin();
+
 /// R2-P11 (RB-D26): test-only, one-shot corrupt-next-blob lever. HOST: sets a
 /// flag offerBattle() checks (and clears) right after it computes blobSha -
 /// flips byte 0 of the persisted coopFilesHost["battlehost"] blob AFTER that
