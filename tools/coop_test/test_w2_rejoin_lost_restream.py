@@ -9,7 +9,7 @@ phase Idle, battleId 0, peerAbsent false, dialog 62 kept (F10807, W2-H24 R-2); o
   true, battleId B0, inBattle true, dialog 62 backVisible false, LOST +1; EVIDENCE names the loss path); RL-4 RED client3's rejoin (OFFER +1
   more, GUARD +0, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both); RL-5 RED SPLIT(host) ==
   SPLIT(client3) == SPLIT0 and HASH(host, client3); RL-6 GUARD CRASH 0.
-Definitions (spec (f)): POLL 0.25 s; W 15 s (the host observed at 0.2 s); W_ACK 30 s (CONSTANTS: max(30 s, 3 x t_world 4.69 s)); PAUSE(host)
+Definitions (spec (f)): POLL 0.25 s; W 15 s (the host observed at 0.2 s); W_ACK = WATCH_CAP_S (RV-U13 S-D; was 30 s); PAUSE(host)
 within 30 s of the leave: phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState,
 CoopState]; SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both;
 REJOIN(client3) = a fresh client3 on its own dir, rejoin_skirmish, wait <= W_ACK for the host's resumeAck true AND peerAbsent false (profile_ok
@@ -30,7 +30,8 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 from test_skirmish_rejoin_battle import drop_client_mid_battle, rejoin_skirmish, start_skirmish_battle  # noqa: E402
 
-POLL, W, W_POLL, W_ACK, W_PAUSE, W_FLIGHT = 0.25, 15.0, 0.2, 30.0, 30.0, 60.0
+WATCH_CAP_S = 135  # RV-U13 S-D (R-C26-1): REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+POLL, W, W_POLL, W_ACK, W_PAUSE, W_FLIGHT = 0.25, 15.0, 0.2, WATCH_CAP_S, 30.0, 60.0
 KEY, TAG = "48601", "w2r4l2_l"
 BS, CS, PROFILE = "BattlescapeState", "CoopState", "Profile"
 OFFER, GUARD = "SPEC16 M5: rejoin battle_offer sent (battleId=", "offerRejoinBattle() called while the battle is not "
