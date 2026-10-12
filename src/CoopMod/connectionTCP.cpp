@@ -29143,6 +29143,37 @@ void selectOwnUnitAtEntry(Game* game)
 		return;
 	}
 
+	// W2-H36 (docs rewrite/prompts/w2h36_gm3_host_turn1_selection.md (e) E1 = R5-U2's UC5, QU2-7 (a); design-D6, R5-V4,
+	// F13701): a seat that commands a live unit of the OTHER side (a PvP seat at entry, while the side it does not play
+	// moves) is no spectator - no notice. D6 (a seat never holds a unit it does not command): a CLIENT selects its first
+	// own unit (the unit its first side_begin would select; W1-P6's entry auto-select), the HOST drops a selection it
+	// does not command (its later off-sides start with none, SavedBattleGame::endTurn).
+	BattleUnit* mine = nullptr;
+	for (auto* u : *battle->getUnits())
+	{
+		if (u && !u->isOut() && coopBattleAuthority().commandsUnit(u))
+		{
+			mine = u;
+			break;
+		}
+	}
+	if (mine)
+	{
+		if (!coopBattleAuthority().hostSim)
+		{
+			battle->setSelectedUnit(mine);
+			coopClientPairSelection(battle);
+		}
+		else if (current && !coopBattleAuthority().commandsUnit(current))
+		{
+			battle->setSelectedUnit(0);
+			if (BattlescapeGame* bgame = battle->getBattleGame())
+				bgame->getCurrentAction()->actor = nullptr;
+			bs->updateSoldierInfo(false);
+		}
+		return;
+	}
+
 	// SPECTATOR. Leave the selection where it is (legacy did the same - it
 	// showed the notice and did not clear it) so no vanilla consumer has to
 	// cope with a suddenly-null selection; every commanding arm is gated
