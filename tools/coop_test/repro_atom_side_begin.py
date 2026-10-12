@@ -123,18 +123,27 @@ def drive_side_change(host, client, want_side, want_turn_min=None, timeout=60):
     not stall on an un-dismissed banner."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        for gc in (host, client):
-            lw = gc.cmd({"cmd": "list_widgets"})
-            if "NextTurnState" in lw.get("state", ""):
-                gc.cmd({"cmd": "close_nextturn"})
+        # RV-U13 S-A (F11011): read both sides FIRST, then close. A machine pushes its NextTurnState in the frame
+        # its side changes (the host's BattlescapeGame::endTurn, a client's side_transition apply), and the host
+        # emits side_transition just before its own push, so once both reads match, every NextTurnState of that
+        # change is up for the close pass below. The pass closes every stacked one once (F11011 Ae: two) and stops
+        # when a close pops nothing (a held turn screen, NextTurnState::close, W2-P8b): no retry.
         hs = battle_state(host)
         cs = battle_state(client)
         host_ok = hs.get("side") == want_side and (
             want_turn_min is None or hs.get("turn", -1) >= want_turn_min)
         client_ok = cs.get("side") == want_side and (
             want_turn_min is None or cs.get("turn", -1) >= want_turn_min)
+        for gc in (host, client):
+            depth = None
+            while True:
+                st = gc.cmd({"cmd": "get_state"}).get("states") or []
+                if not st or "NextTurnState" not in st[-1] or (depth is not None and len(st) >= depth):
+                    break
+                depth = len(st)
+                gc.cmd({"cmd": "close_nextturn"})
         if host_ok and client_ok:
-            return hs, cs
+            return battle_state(host), battle_state(client)
         time.sleep(0.05)
     raise TimeoutError(
         f"repro_atom_side_begin: did not reach side={want_side} "

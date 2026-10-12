@@ -173,12 +173,22 @@ def drive_full_cycle(host, client, turn0, timeout=60):
     machines."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        dismiss_next_turn_if_present(host)
-        dismiss_next_turn_if_present(client)
+        # RV-U13 S-A (F11011): read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
+        # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
         cs = battle_state(client)
-        if (hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
-                and cs.get("side") == FACTION_PLAYER and cs.get("turn", -1) >= turn0 + 1):
+        done = (hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
+                and cs.get("side") == FACTION_PLAYER and cs.get("turn", -1) >= turn0 + 1)
+        for gc in (host, client):
+            depth = None
+            while True:
+                st = gc.cmd({"cmd": "get_state"}).get("states") or []
+                if not st or "NextTurnState" not in st[-1] or (depth is not None and len(st) >= depth):
+                    break
+                depth = len(st)
+                gc.cmd({"cmd": "close_nextturn"})
+        if done:
             return
         time.sleep(0.05)
     raise TimeoutError(

@@ -171,7 +171,20 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
     client_seen = False
     l10_evidence = None
     while time.time() < deadline:
-        dismiss_next_turn_if_present(host)  # M9a-5: never stall the host on its own banner
+        # RV-U13 S-A (F11011): read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
+        # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
+        hs = battle_state(host)
+        cs = battle_state(client)
+        done = (hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
+                and cs.get("side") == FACTION_PLAYER and cs.get("turn", -1) >= turn0 + 1)
+        depth = None  # M9a-5: never stall the host on its own banner
+        while True:
+            st = host.cmd({"cmd": "get_state"}).get("states") or []
+            if not st or "NextTurnState" not in st[-1] or (depth is not None and len(st) >= depth):
+                break
+            depth = len(st)
+            host.cmd({"cmd": "close_nextturn"})
 
         if top_state(client) and "NextTurnState" in top_state(client):
             if not capture_l10:
@@ -201,10 +214,15 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
             else:
                 dismiss_next_turn_if_present(client)
 
-        hs = battle_state(host)
-        cs = battle_state(client)
-        if (hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
-                and cs.get("side") == FACTION_PLAYER and cs.get("turn", -1) >= turn0 + 1):
+        if l10_evidence is not None or not capture_l10:  # never close the client's first screen before L10 proves it
+            depth = None  # RV-U13 S-A (F11011): a client NextTurnState stacked under the one just closed
+            while True:
+                st = client.cmd({"cmd": "get_state"}).get("states") or []
+                if not st or "NextTurnState" not in st[-1] or (depth is not None and len(st) >= depth):
+                    break
+                depth = len(st)
+                client.cmd({"cmd": "close_nextturn"})
+        if done:
             return client_seen, l10_evidence
         time.sleep(0.05)
     raise TimeoutError(
