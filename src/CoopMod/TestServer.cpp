@@ -7177,7 +7177,7 @@ static void coopTestOpenSelectDestination(Game* game, const Json::Value& req, Js
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
-		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob"
+		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure" // R4-L2 S-C
 		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
@@ -7807,13 +7807,22 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else
 			resp["ok"] = true;
 	}
-	else if (cmd == "corrupt_next_blob")
+	else if (cmd == "corrupt_next_blob" || cmd == "force_send_failure") // coop R4-L2 S-C: one branch, no new nesting level (C1061)
 	{
 		// RB-D26: test-only, one-shot; consumed by the NEXT offerBattle() call
 		// on the HOST machine (CoopHandshake.h's own doc comment). Harmless
 		// (silently cleared at the next teardown) if called with no offer ever
 		// following, or on a client (there is no outgoing blob there).
-		CoopHandshake::requestCorruptNextBlob();
+		if (cmd == "force_send_failure")
+		{
+			// coop R4-L2 S-C (TEST-ONLY, HOST): the host TCP thread's next send to the partner takes its real send-failure
+			// branch (onConnect -3, the partner's socket closed). One-shot; inert unless armed. Response {ok, armed}.
+			coopTestForceSendFailureArm();
+			Log(LOG_INFO) << "[coop-test] force_send_failure: armed";
+			resp["armed"] = true;
+		}
+		else
+			CoopHandshake::requestCorruptNextBlob();
 		resp["ok"] = true;
 	}
 	else if (cmd == "hold_blob_ack")
