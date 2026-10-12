@@ -929,6 +929,12 @@ const std::string& coopGuestContribSoldierYaml(int seat, int craftId, const std:
 /// the client-side half).
 int coopGuestContribLastSentCount();
 
+/// D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md): the CLIENT's own count of parked tanks in its last
+/// battle_roster_contrib census (TestServer `event_state.guestContrib.vehSent`), and the HOST's stored parked-tank count
+/// for @a seat over every destination (`guestContrib.vehicles[seat]`). Test / introspection only.
+int coopGuestContribLastSentVehicles();
+int coopGuestContribStoredVehicles(int seat);
+
 /// W2-P4r (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md
 /// (b)1): true when a research-based weapon check must read the unit OWNER's
 /// research - a live co-op battle (isCoopBattle(): single player is never

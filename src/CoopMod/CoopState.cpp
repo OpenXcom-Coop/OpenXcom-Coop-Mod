@@ -2254,6 +2254,8 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 			spaceAvailable--;
 		}
 	}
+	// D248-U (owner D248 (b)): then the partner's parked tanks for this craft (connectionTCP.cpp; CoopBattleSetup.h)
+	coopMergeGuestVehicles(game, craft);
 }
 
 // SPEC 19 (W1-P20) M1 (F358): see the doc comment in CoopBattleSetup.h.

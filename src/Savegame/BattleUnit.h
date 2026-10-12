@@ -144,6 +144,7 @@ private:
 	int _murdererId;	// used to credit the murderer with the kills that this unit got by blowing up on death
 	int _mindControllerID;	// used to credit the mind controller with the kills of the mind controllee
 	CoopSeat _coopSeat = COOP_SEAT_NONE;	// RB-D17: the battle seat currently controlling this unit
+	std::string _coopGuestTank;	// D248-U: a SEPARATE partner's tank on the host's craft (empty = none)
 	UnitSide _fatalShotSide;
 	UnitBodyPart _fatalShotBodyPart;
 	std::string _murdererWeapon, _murdererWeaponAmmo;
@@ -312,6 +313,11 @@ public:
 	CoopSeat getCoopSeat() const { return _coopSeat; }
 	/// Sets the coop seat currently controlling this unit (RB-D17).
 	void setCoopSeat(CoopSeat s) { _coopSeat = s; }
+	/// D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md): a SEPARATE partner's own tank on the host's craft -
+	/// "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>", empty for every other unit. Set once at
+	/// generation (coopTagGuestVehicleUnit), saved with the unit; read at the battle's end (the partner's tank goes home).
+	const std::string& getCoopGuestTank() const { return _coopGuestTank; }
+	void setCoopGuestTank(const std::string& tag) { _coopGuestTank = tag; }
 	/// Gets unit sprite recolors values.
 	const std::vector<std::pair<Uint8, Uint8> > &getRecolor() const;
 	/// Kneel down.
