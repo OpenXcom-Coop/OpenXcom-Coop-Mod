@@ -156,4 +156,50 @@ class CoopState : public State
 	void think() override;
 };
 
+/**
+ * coop R4-L3 S-C (owner D232 (a), D232-V2; docs rewrite/prompts/r4l3_desync_resync.md): the caught-and-repaired notice,
+ * ported from `main`'s CoopDesyncNoticeState (OK / OPEN FOLDER / REPORT ON GITHUB). Raised on each machine after the
+ * automatic desync repair, naming that machine's own report zip. Its own class rather than a CoopState code: it sits
+ * over a live battle, and it holds a full path plus a "where to send it" sentence. Palette handling as `main`: in battle
+ * the co-op lobby's geoscape / saveMenus combination under the battle palette. Nothing is captured here - the report is
+ * on disk before this is pushed.
+ */
+class CoopDesyncNoticeState : public State
+{
+  private:
+	Window *_window;
+	Text *_txtHeadline;
+	Text *_txtMessage;
+	TextButton *_btnOk;
+	TextButton *_btnOpenFolder;
+	TextButton *_btnReport;
+	std::string _headline;
+	std::string _message;
+	std::string _zipPath;     ///< the report zip
+	std::string _openTarget;  ///< the folder OPEN FOLDER opens (the reports dir)
+	std::string _reportUrl;   ///< the prefilled GitHub new-issue URL
+	void buildLayout();
+  public:
+	/// Message + attribution headline + one-click UX (open folder / prefilled GitHub issue). No upload; the buttons only
+	/// shell out to the OS helper.
+	CoopDesyncNoticeState(const std::string &message, const std::string &headline,
+						  const std::string &zipPath, const std::string &reportUrl);
+	/// Harness introspection: what this notice says / would open.
+	std::string getMessageText() const;
+	std::string getHeadlineText() const { return _headline; }
+	std::string getReportUrl() const { return _reportUrl; }
+	std::string getOpenFolderTarget() const { return _openTarget; }
+	std::string getZipPath() const { return _zipPath; }
+	void btnOkClick(Action *);
+	void btnOpenFolderClick(Action *);
+	void btnReportClick(Action *);
+	/// Test hook: the values the LAST-raised notice would open, kept after it is dismissed.
+	static std::string s_lastHeadline;
+	static std::string s_lastMessage;
+	static std::string s_lastReportUrl;
+	static std::string s_lastOpenTarget;
+	static std::string s_lastZipPath;
+	static int s_raiseCount;
+};
+
 }
