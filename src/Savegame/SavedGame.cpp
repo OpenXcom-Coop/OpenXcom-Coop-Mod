@@ -837,10 +837,22 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// (loadCoopSaveFromMemory(), the coop-orchestrated blob load, is a
 	// SEPARATE function and never reaches this gate - same discipline as the
 	// schema gate immediately below, which is menu-load-only too).
+	// coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): an UNSTAMPED mid-battle co-op save
+	// was made by an older version (the release line never writes coopBattleProtocol). One whose game mode the conversion
+	// handles loads on and is converted once its battle is loaded (the hook after the battleGame block below); any other
+	// unstamped one, and every stamp other than 1, still refuses (FW-7).
+	bool coopOlderBattle = false;
 	if (_coop && header["turn"])
 	{
 		int coopBattleProtocol = -1;
-		if (!header.tryRead("coopBattleProtocol", coopBattleProtocol) || coopBattleProtocol != 1)
+		const bool coopStamped = header.tryRead("coopBattleProtocol", coopBattleProtocol);
+		int coopOlderGamemode = 0;
+		documents[1].tryRead("coop_gamemode", coopOlderGamemode);
+		if (!coopStamped && coopOlderBattleConvertible(coopOlderGamemode))
+		{
+			coopOlderBattle = true;
+		}
+		else if (!coopStamped || coopBattleProtocol != 1)
 		{
 			throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it.");
 		}
@@ -1220,6 +1232,13 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	{
 		_battleGame = new SavedBattleGame(mod, lang);
 		_battleGame->load(battle, mod, this);
+	}
+
+	// coop D246-U (owner D246 = b): an older version's mid-battle co-op save (the gate above) - convert its battle, the
+	// partner worlds this load restored and the battle mirrors (BattleAuthority.h).
+	if (coopOlderBattle && _battleGame)
+	{
+		coopConvertOlderBattleSave(this, mod, reader);
 	}
 
 	_scriptValues.load(reader, mod->getScriptGlobal());
