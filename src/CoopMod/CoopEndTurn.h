@@ -155,6 +155,16 @@ void onSeatRejoined(SavedBattleGame* save);
 /// teardown path. A no-op with no live battle.
 void onSeatSetChanged(SavedBattleGame* save);
 
+/// RV-U8 (REV E.48 C.4, D53, RV-Vb): HOST-ONLY (self-guarded: isCoopBattle() && hostSim; inert while a seat is
+/// paused away (peerAbsent, D98), while the pre-battle equip phase is open, and without a live
+/// BattlescapeState). Called once per pump pass from connectionTCP::updateCoopTask() with that pass's
+/// coopBattleQuiescent(). When the unit half of the live-seat set changed since the last tally (a seat's last
+/// unit went out, or one came back), re-emits the tally and runs the commit check: parallel - every remaining
+/// live seat pressed ends the side; traditional - a holder whose last unit went out passes (D-23): the next
+/// live seat forward holds the baton, or, none forward, the side ends. A battle's first observation is a
+/// silent baseline (SPEC 10: no tally at t=0).
+void onQuiescentPass(SavedBattleGame* save, bool quiescent);
+
 /// BattlescapeState::btnEndTurnClick's (widened) coop guard, for BOTH the
 /// host's own press and a client's. Toggles THIS machine's own readiness bit
 /// (the inverse of @a bs's current getCoopEndTurnArmed()) and either applies

@@ -17663,6 +17663,10 @@ static std::vector<int> g_lastTallyReadySeats;
 // (the "honoured" mirror, written only when the tally's `turn` matches this
 // machine's own last APPLIED side_transition counter).
 static int g_lastTallyActiveSeat = -1;
+// RV-U8 (REV E.48 C.4, D53, RV-Vb): the unit half of the live-seat set when the last tally was emitted - bit s
+// set = seat s has a unit that is not out on the active side. onQuiescentPass() re-counts when it changes.
+static unsigned g_liveUnitMask = 0;
+static bool g_liveUnitMaskSeen = false;
 
 // Forward declaration: clearPresentationInert() is defined further down
 // this namespace, but reset() below must call it, so it needs an early
@@ -17684,6 +17688,9 @@ void reset()
 	g_lastTallyActiveSeat = -1;
 	// W1-P13c (WV-D55 / D-23): the baton is per-battle state too.
 	g_batonSeat = -1;
+	// RV-U8: the live-set snapshot is per-battle state too.
+	g_liveUnitMask = 0;
+	g_liveUnitMaskSeen = false;
 	// REV E.51 / E51.3 / D69 (F174): a battle-authority reset (the teardown
 	// chokepoint a peer drop reaches via resetBattleAuthority()) must not
 	// leave a stale painted END-TURN tally or an inverted button behind -
@@ -17735,9 +17742,10 @@ static bool coopEndTurnSeatConnected(int seat)
 // The unit half (REV E.48 C.4, quoted verbatim): at least one BattleUnit u
 // with (int)u->getCoopSeat() == seat, !u->isOut(), u->getFaction() ==
 // save->getSide().
-static bool coopEndTurnSeatLive(SavedBattleGame* save, int seat)
+// RV-U8: the unit half alone, so coopEndTurnLiveUnitMask() below reads the same predicate.
+static bool coopEndTurnSeatHasLiveUnit(SavedBattleGame* save, int seat)
 {
-	if (!save || !coopEndTurnSeatConnected(seat))
+	if (!save)
 		return false;
 	for (BattleUnit* u : *save->getUnits())
 	{
@@ -17746,6 +17754,25 @@ static bool coopEndTurnSeatLive(SavedBattleGame* save, int seat)
 			return true;
 	}
 	return false;
+}
+
+static bool coopEndTurnSeatLive(SavedBattleGame* save, int seat)
+{
+	return save && coopEndTurnSeatConnected(seat) && coopEndTurnSeatHasLiveUnit(save, seat);
+}
+
+// RV-U8 (REV E.48 C.4): the unit half for every seat that plays the active side, as a bit mask (bit s = seat
+// s). The connected half is onSeatSetChanged()'s. A seat of another side never counts: an AI side's tally is
+// INERT (IR2-4), so a soldier an alien mind-controls there re-counts nothing.
+static unsigned coopEndTurnLiveUnitMask(SavedBattleGame* save)
+{
+	unsigned mask = 0;
+	for (int s = 0; save && s < kMaxSeats; ++s)
+	{
+		if (coopBattleAuthority().factionOf(s) == (int)save->getSide() && coopEndTurnSeatHasLiveUnit(save, s))
+			mask |= 1u << s;
+	}
+	return mask;
 }
 
 static int coopEndTurnComputeNeeded(SavedBattleGame* save)
@@ -17891,6 +17918,8 @@ static void emitTally(SavedBattleGame* save)
 {
 	if (!save)
 		return;
+	g_liveUnitMask = coopEndTurnLiveUnitMask(save); // RV-U8: the live set this tally counts
+	g_liveUnitMaskSeen = true;
 
 	const bool traditional = coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional;
 	const std::string side = CoopHandshake::coopFactionToWireString((int)save->getSide());
@@ -18173,6 +18202,54 @@ void onSeatSetChanged(SavedBattleGame* save)
 			g_hostReady[s] = false;
 	}
 	emitTally(save);
+}
+
+// RV-U8 (REV E.48 C.4, D53, RV-Vb; QU8-1 (a), QU8-2 (a), QU8-3 (a)): see CoopEndTurn.h.
+void onQuiescentPass(SavedBattleGame* save, bool quiescent)
+{
+	if (!save || !quiescent || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	// D98: the tally freezes while a seat is paused away (the rejoin re-sends it, onSeatRejoined()); turn 1 has
+	// not started while the pre-battle equip phase is open; tryCommit() needs a live BattlescapeState.
+	if (coopBattleAuthority().peerAbsent.load() || coopEquipOpen()
+		|| !connectionTCP::isBattlescapeStateLive(save->getBattleState()))
+		return;
+	const unsigned mask = coopEndTurnLiveUnitMask(save);
+	if (!g_liveUnitMaskSeen)
+	{
+		// The battle's first observation is the baseline: parallel mode emits nothing at t=0 (SPEC 10).
+		g_liveUnitMask = mask;
+		g_liveUnitMaskSeen = true;
+		return;
+	}
+	if (mask == g_liveUnitMask)
+		return;
+	Log(LOG_INFO) << "[coop-endturn] RV-U8: a seat's live units changed at quiescence (mask " << g_liveUnitMask
+		<< " -> " << mask << "): the END TURN tally is re-counted";
+	g_liveUnitMask = mask;
+	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional && g_batonSeat >= 0
+		&& !coopEndTurnSeatLive(save, g_batonSeat))
+	{
+		// D-23 / D-24: the holder's last unit went out - its go is over, as a pass. The next live seat forward
+		// holds the baton; none forward - the LAST pass ends the side (tryCommit()'s chokepoint, its vote hold
+		// included).
+		const int next = coopBatonResolve(save, g_batonSeat + 1, /*wrap=*/false);
+		if (next >= 0)
+		{
+			g_batonSeat = next;
+			for (int i = 0; i < kMaxSeats; ++i)
+				g_hostReady[i] = false;
+			emitTally(save);
+			return;
+		}
+		g_hostReady[g_batonSeat] = true;
+		tryCommit(save);
+		return;
+	}
+	// Parallel (and a traditional re-count with the holder still live): re-emit, then the commit check - every
+	// remaining live seat pressed ends the side (D1, D53).
+	emitTally(save);
+	tryCommit(save);
 }
 
 void toggleReady(BattlescapeState* bs)
@@ -32205,6 +32282,11 @@ void connectionTCP::updateCoopTask()
 
 	// W2-P9 S-A (AMENDMENT P9-1 PR-6, V14, V16): the host applies queued synced-option changes between actions only.
 	coopSyncedOptionsPump(_game, coopQuiescentNow);
+
+	// RV-U8 (REV E.48 C.4, D53, RV-Vb): the END TURN tally re-counts when a seat's last unit goes out (or a unit
+	// comes back) - at this same quiescence, once the chain that changed it has ended. Self-guarded (host, active
+	// co-op battle, nobody paused away, turn 1 started).
+	CoopEndTurn::onQuiescentPass(getStaticBattle(), coopQuiescentNow);
 
 	// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)5-6, (b)9;
 	// AMENDMENT P7-1 ST1 (a), ST4 (a), ST8 (a); F1897, F1919): the skirmish
