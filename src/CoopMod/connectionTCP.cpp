@@ -25231,6 +25231,69 @@ static void coopRefreshAppliedHud()
 	bs->updateSoldierInfo(false);
 }
 
+// W2-H35 (DF-5; docs rewrite/prompts/w2h35_coop_client_alien_visibility.md (e) E1; R-R5U1-1 vanilla parity): the CLIENT's
+// mirror of vanilla's own writers of BattleUnit::_visible for the two moments a thin client runs no battle state for - an
+// applied walk step of a remote non-player walker and an applied side change. The flag decides whether this machine draws
+// a non-player unit (coopUnitVisibleHere for a player-side seat: map, minimap, camera) and feeds vanilla's psi / mind-probe
+// target checks and path preview. Vanilla writes it TRUE only from a FACTION_PLAYER viewer's TileEngine::calculateUnitsInFOV
+// and clears it at each finished step of a non-player walker (UnitWalkBState::think) and at each side change
+// (SavedBattleGame::endTurn), re-running X-COM's sight right after (UnitWalkBState's positional sight refresh with radius 2;
+// BattlescapeGame::endTurn's whole recalculation). A client ran only the TRUE writer, for acting units (df5-capture F12944).
+// These helpers run the same clears and re-run the sight of the FACTION_PLAYER viewers only - the units that write the flag
+// - so an alien is drawn here exactly while one of this machine's X-COM units sees it, as in single player. No other
+// faction's own visible list is touched (R5-U1 ships the PvP alien side's sight from the host, QU1-1 (a)); the tile half
+// stays the host's (SS2.4a: calculateUnitsInFOV writes no discovered bit). Machine-local, in no hash bucket (PRD-D4), no
+// wire. CLIENT only: a no-op on the host (its own UnitWalkBState / endTurn ran) and outside an active co-op battle.
+
+/// W2-H35 E1: an applied walk_step of @a walker (onApplied's A5 block, after this ev's light recompute and the walker's own
+/// sight): UnitWalkBState::think :244 (a non-player walker is hidden) and :250 (the positional refresh's range test and unit
+/// half with radius 2, for FACTION_PLAYER viewers). A FACTION_PLAYER walker returns: vanilla hides nothing for it.
+static void coopClientWalkStepSight(SavedBattleGame* save, BattleUnit* walker)
+{
+	if (!save || !walker || !isCoopBattle() || coopBattleAuthority().hostSim || walker->getFaction() == FACTION_PLAYER)
+		return;
+	TileEngine* te = save->getTileEngine();
+	if (!te)
+		return;
+	walker->setVisible(false);
+	const Position pos = walker->getPosition();
+	int updateRadius = te->getMaxViewDistance() + 2;
+	updateRadius *= updateRadius;
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		if (bu->getFaction() == FACTION_PLAYER && Position::distance2dSq(pos, bu->getPosition()) <= updateRadius)
+			te->calculateUnitsInFOV(bu, pos, 2);
+	}
+}
+
+/// W2-H35 E1: an applied side_transition (after its restate and this envelope's whole-map light, applyDelta):
+/// SavedBattleGame::endTurn's hide loop with the NEW side (its faction tests), then BattlescapeGame::endTurn's whole
+/// recalculation - unit half, for FACTION_PLAYER viewers on a tile (TileEngine::recalculateFOV's tile test).
+static void coopClientSideSight(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim || !save->getTileEngine())
+		return;
+	const UnitFaction side = save->getSide();
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		if (bu->isIgnored())
+			continue;
+		if (bu->getFaction() == FACTION_NEUTRAL && bu->getOriginalFaction() == FACTION_HOSTILE)
+		{
+			if (side != FACTION_PLAYER)
+				bu->setVisible(false);
+			continue;
+		}
+		if (bu->getFaction() != FACTION_PLAYER)
+			bu->setVisible(false);
+	}
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		if (bu->getTile() != 0 && bu->getFaction() == FACTION_PLAYER)
+			save->getTileEngine()->calculateUnitsInFOV(bu);
+	}
+}
+
 // R3-P1 (IR-16c's own "body is a no-op until R3-P1" marker, BattlePump.h):
 // the S3-instant display hook. Applies state (CoopApply.h) then "displays"
 // it - CoopApply::applyEvPayload()/applyActionEndFinal() write the unit's
@@ -25321,6 +25384,12 @@ void onApplied(const Json::Value& ev)
 		// W2-P8 S-C1.2 (Q9 (a); F2400, P8-3a C6): call site 2 - before the side_transition push below puts
 		// NextTurnState over an open inventory screen, see the force-close's own comment.
 		coopClientInventoryForceClose(save);
+
+		// W2-H35 (DF-5; (e) E2): a side change re-shows exactly what X-COM sees - vanilla's SavedBattleGame::endTurn hide
+		// loop and BattlescapeGame::endTurn's whole sight recalculation (unit half), after side_transition's restate and its
+		// whole-map light (applyDelta above). See coopClientSideSight's own comment.
+		if (ev.get("kind", "").asString() == "side_transition")
+			coopClientSideSight(save);
 
 		// W1-P13a (REV E.1 S-3): the client's own NextTurnState push. Vanilla
 		// only ever pushes this from BattlescapeGame::endTurn() (:729), which
@@ -25502,6 +25571,10 @@ void onApplied(const Json::Value& ev)
 		BattleUnit* unit = CoopIdMaps::unit(ev["payload"]["unit"].asInt());
 		if (unit)
 			save->getTileEngine()->calculateFOV(unit);
+		// W2-H35 (DF-5; (e) E3): a remote walker's finished step hides it and re-runs X-COM's sight of it, as vanilla's
+		// UnitWalkBState::think does on the host (after this ev's light recompute and the walker's own FOV above).
+		if (unit && ev.get("kind", "").asString() == "walk_step")
+			coopClientWalkStepSight(save, unit);
 	}
 
 	// R2-P7: info-cancel policy, evaluated LAST on the bt_ev path - after the
