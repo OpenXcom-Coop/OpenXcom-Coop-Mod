@@ -19,7 +19,8 @@ on both, turnMode parallel; every unit's reactions 0; X, 8, 9 placed on C_X, C_8
   C2  a partner whose soldiers are all down but who commands a mind-controlled alien keeps its END TURN (D53, MJ-8):
       8 (psi amp, psiSkill 100) takes X (SEED_C2); host kill_unit_real {coop_side 1}.
       C2-mc    (precondition) X faction 0, mcId 8 on both, read before the kill
-      C2-out   (precondition) 8 and 9 DEAD on both within 10 s; X not out, faction 0 on both
+      C2-out   (precondition) 8 and 9 DEAD on both; the wait ends at the observed deaths, capped at WATCH_CAP_S
+               (F12761, R-H31-3's pattern); X not out, faction 0 on both
       C2-hold  the host's press: host tally {count 1, needed 2, ready [0]} within PAINT_S, phase counter held HOLD_S
       C2-end   the client's press ends the side within SIDE_S
       C2-common every bucket EQUAL right before the host's press, desyncSeen false, no new crash file
@@ -54,7 +55,7 @@ TILES = {X_ID: ((15, 2, 0), 4), 8: ((14, 5, 0), 0), 9: ((16, 5, 0), 0)}   # C_X,
 X_TU = 54                         # R-H29-A-1: set_stat {X, tu, 54, refill} before each lever (the pin made its base 0)
 SEED_C1A, SEED_C1B, SEED_C2 = 1, 1, 2   # TASK 0 Ca / Cb (SEED_C2 1 fails the roll: hunt in rewrite/w2h29-task0)
 DEAD = 6
-OUT_S = 10
+WATCH_CAP_S = 135                 # F12761 (R-H31-3's pattern, R-C26-1): C2-out ends at the observed deaths
 RV_U8 = "[coop-endturn] RV-U8"
 C_ROWS = (("C1", ("C1-mc", "C1-end", "C1-back", "C1-end2", "C1-common")),
           ("C2", ("C2-mc", "C2-out", "C2-hold", "C2-end", "C2-common")))
@@ -223,14 +224,14 @@ def row_c2(host, client, crash0, rec):
         ok, s = BER.wait_until(lambda: (poll_box(host, rec, "C2 kill") or True) and (poll_box(client, rec, "C2 kill")
                                                                                      or True)
                                and all((units(gc).get(i) or {}).get("status") == DEAD for gc in (host, client)
-                                       for i in S1_IDS), OUT_S, 0.1)
+                                       for i in S1_IDS), WATCH_CAP_S, 0.1)
         settle(host, client, rec, "C2 kill")
         ev["rvu8After"] = rvu8(host)
         ev["tallyAfterKill"] = [tally_view(host), tally_view(client)]
         xs = [mcv(host, X_ID), mcv(client, X_ID)]
         good = ok and sorted(k.get("killed") or []) == S1_IDS and all(v[0] == FACTION_PLAYER and not v[3] for v in xs)
-        return good, (f"kill_unit_real coop_side 1 {k} (want killed {S1_IDS}); 8 / 9 DEAD on both within {OUT_S} s: "
-                      f"{ok} ({s} s); X host/client {xs} (want faction 0, not out)")
+        return good, (f"kill_unit_real coop_side 1 {k} (want killed {S1_IDS}); 8 / 9 DEAD on both (the wait capped at "
+                      f"{WATCH_CAP_S} s): {ok} ({s} s); X host/client {xs} (want faction 0, not out)")
 
     def c2_hold():
         ev["preHold"] = {"tally": [tally_view(host), tally_view(client)], "units": [unit_rows(host), unit_rows(client)],
