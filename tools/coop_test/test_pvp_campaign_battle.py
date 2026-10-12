@@ -8,8 +8,6 @@ Exit 0 = pass; 2 = failure.
 """
 
 import os, sys, time
-# RW-TRIAGE: SKIP-PENDING(D250-U S-B) - the gm2 battle entry through the W2-P8b spine (EA4) moves to S-B (R-D250-SA-2; F13503-F13505)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
@@ -115,15 +113,9 @@ def test_campaign_battle(fails, alien_player, expect_mode):
                         timeout=180, interval=1.0)
             print(f"    {gc.name} battle_state.inBattle=True")
 
-        # Wait for inventory screens
-        for gc in (host, client):
-            gc.wait_for("briefing", lambda gc=gc: _has(gc, "BriefingState") or None,
-                        timeout=120, interval=0.5)
-            gc.ok({"cmd": "close_briefing"})
-        for gc in (host, client):
-            gc.wait_for("inventory", lambda gc=gc: _has(gc, "InventoryState") or None,
-                        timeout=120, interval=0.5)
-            gc.ok({"cmd": "battle_inventory", "action": "ok"})
+        # D250-U S-A (W2-P8b spine; owner D210 b, D215 a, D206 c): both briefings at once, each seat equips its
+        # own soldiers (the PvP alien seat has nothing to equip and holds on the Turn-1 screen), turn 1 on both.
+        session.briefings_to_battlescape(host, client)
         for gc in (host, client):
             gc.wait_for("tactical", lambda gc=gc: _has(gc, "BattlescapeState") or None,
                         timeout=120, interval=0.5)
@@ -138,12 +130,14 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 def main():
     fails=[]
     test_campaign_battle(fails, "client", 2)
-    test_campaign_battle(fails, "host", 3)
+    # RW-TRIAGE: SKIP-PENDING(D250-U S-C) - the gm3 leg needs gm3 campaign battles (owner question O1 (a)); the gm2 leg
+    # runs live since D250-U S-B (R-D250-SA-2: EA4 moved to S-B's red).
+    print("  gm3 leg SKIP-PENDING(D250-U S-C): gm3 campaign battles are built in D250-U S-C")
     print("\n==== PvP campaign battle summary ====")
     if fails:
         for f in fails:print(f"  FAIL {f}")
         sys.exit(2)
-    print("  gm2 + gm3 campaign battle entry")
+    print("  gm2 campaign battle entry (gm3 leg SKIP-PENDING(D250-U S-C))")
     sys.exit(0)
 
 if __name__=="__main__":
