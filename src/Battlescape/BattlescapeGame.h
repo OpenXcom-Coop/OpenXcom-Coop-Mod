@@ -151,6 +151,8 @@ private:
 	void endTurn();
 	/// Picks the first soldier that is panicking.
 	bool handlePanickingPlayer();
+	/// coop R5-U3 (R5-V1): handlePanickingPlayer() for @a side, a side a human seat commands.
+	bool coopHandlePanickingSide(UnitFaction side);
 	/// Common function for handling panicking units.
 	bool handlePanickingUnit(BattleUnit *unit);
 	/// Determines whether there are any actions pending for the given unit.

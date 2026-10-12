@@ -782,6 +782,22 @@ int coopWalkIntentsFromClick();
 /// AI-only side.
 bool coopSuppressNonPlayerThink(const SavedBattleGame* s);
 
+/// R5-U3 (owner D234 = a, R5-V1; docs rewrite/prompts/r5u3_pvp_rules.md): true iff a human
+/// seat commands @a faction in this co-op battle - a seat 0..3 MAPPED to it in the seat->faction
+/// store (seatMapped(): an unmapped seat's FACTION_PLAYER default never counts), i.e. gm2 / gm3's
+/// hostile side and every co-op player side. False outside an active co-op battle, so single
+/// player and every AI side stay byte-identical. Read by R5-U3's guarded vanilla terms
+/// (SavedBattleGame::canUseWeapon()'s AI weapon-use delay: D234, a human seat's units skip only
+/// that term) and by coopHostArmsHumanSidePanic() below.
+bool coopFactionHumanCommanded(int faction);
+
+/// R5-U3 (R5-V1: the human hostile side's panicking / berserk units act out at that side's start,
+/// as X-COM's do): BattlescapeGame::init()'s second arm of the start-of-side panic check. True on
+/// the co-op HOST only (hostSim), while the active side is a non-player, non-neutral side a human
+/// seat commands (coopFactionHumanCommanded()) - from turn 1, since that side's units roll morale at
+/// every side start. A client never runs a panic (coopSkipClientPanic()). False everywhere else.
+bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
+
 /// SPEC 19 (W1-P20) M2 Branch B: the HOST's per-seat store of the latest
 /// battle_roster_contrib (BattleWire.h) received from that seat - test/
 /// introspection + CoopState.cpp's coopMergeGuestContributions() reads.

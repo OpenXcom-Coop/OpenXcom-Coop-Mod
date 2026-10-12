@@ -248,7 +248,18 @@ int BattlescapeGame::think()
 			// for the exact predicate; self-guarded, so SP and non-coop stay
 			// byte-identical.
 			if (coopSuppressNonPlayerThink(_save))
+			{
+				// coop R5-U3 (R5-V1): a side a human seat commands runs vanilla's
+				// start-of-side panic check exactly as the player side does (the
+				// player branch below): only the HOST arms it (init(),
+				// coopHostArmsHumanSidePanic()), and a client never runs it.
+				if (!_playerPanicHandled)
+				{
+					_playerPanicHandled = coopSkipClientPanic() ? true : coopHandlePanickingSide(_save->getSide());
+					_save->getBattleState()->updateSoldierInfo();
+				}
 				return ret;
+			}
 			auto sideBackup = _save->getSide();
 			_save->resetUnitHitStates();
 			if (!_debugPlay)
@@ -311,7 +322,8 @@ int BattlescapeGame::think()
  */
 void BattlescapeGame::init()
 {
-	if (_save->getSide() == FACTION_PLAYER && _save->getTurn() > 1)
+	if ((_save->getSide() == FACTION_PLAYER && _save->getTurn() > 1)
+		|| coopHostArmsHumanSidePanic(_save)) // coop R5-U3 (R5-V1): a human seat's hostile side, from turn 1
 	{
 		_playerPanicHandled = false;
 	}
@@ -1605,6 +1617,25 @@ bool BattlescapeGame::handlePanickingPlayer()
 	{
 		if (bu->getFaction() == FACTION_PLAYER &&
 			bu->getOriginalFaction() == FACTION_PLAYER &&
+			handlePanickingUnit(bu))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * coop R5-U3 (R5-V1): handlePanickingPlayer() for a side a human seat commands
+ * (gm2 / gm3's hostile side) - the same loop with that side's faction.
+ * @return True when all panicking is over.
+ */
+bool BattlescapeGame::coopHandlePanickingSide(UnitFaction side)
+{
+	for (auto* bu : *_save->getUnits())
+	{
+		if (bu->getFaction() == side &&
+			bu->getOriginalFaction() == side &&
 			handlePanickingUnit(bu))
 		{
 			return false;

@@ -1195,7 +1195,8 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 		ammoItem = nullptr;
 	}
 
-	if (unit->getFaction() == FACTION_HOSTILE && getTurn() < rule->getAIUseDelay(getMod()))
+	if (unit->getFaction() == FACTION_HOSTILE && getTurn() < rule->getAIUseDelay(getMod())
+		&& !coopFactionHumanCommanded(unit->getFaction())) // coop R5-U3 (owner D234 = a): a human seat's units skip only the AI's delay
 	{
 		return false;
 	}
