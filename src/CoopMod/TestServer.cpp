@@ -10985,6 +10985,19 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				r["currentStats"] = stats(s->getCurrentStats()); r["initialStats"] = stats(s->getInitStats());
 				r["dead"] = (s->getDeath() != nullptr);
 				r["armor"] = s->getArmor() ? s->getArmor()->getType() : ""; // W2-P7 S-C-B2.3.1 (F5553)
+				// coop OF2 S-C (owner D268 (b), extends D155 (a)): the soldier's mod script tags {name: value as saved}, read
+				// back from its own Soldier::save YAML (`tags`; absent when every tag is 0 -> {}). TEST INTROSPECTION, read-only.
+				Json::Value tagsSR(Json::objectValue);
+				{
+					YAML::YamlRootNodeWriter twSR;
+					twSR.setAsMap();
+					s->save(twSR["soldier"], _game->getMod()->getScriptGlobal());
+					YAML::YamlRootNodeReader trSR(twSR.emit(), "soldier_record_tags");
+					if (const YAML::YamlNodeReader& tSR = trSR["soldier"]["tags"])
+						for (const YAML::YamlNodeReader& tag : tSR.children())
+							tagsSR[tag.readKey<std::string>()] = tag.readVal<std::string>();
+				}
+				r["tags"] = tagsSR;
 				Json::Value death;
 				if (const SoldierDeath* d = s->getDeath())
 				{

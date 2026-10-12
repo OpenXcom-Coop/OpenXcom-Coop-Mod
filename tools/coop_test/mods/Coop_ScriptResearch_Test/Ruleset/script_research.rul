@@ -12,6 +12,8 @@
 #   damageUnitAmmo         -> attacker COOP_SR_AMMO   (only when the attacker exists)
 #   damageSpecialUnitAmmo  -> attacker COOP_SR_ASPEC  (only when the attacker exists)
 #   skill STR_COOP_TEST_SR_SKILL on every STR_SOLDIER: skillUseUnit -> actor COOP_SR_SKILL
+#   returnFromMissionUnit  -> soldier  COOP_SR_RET (a GeoscapeSoldier tag, the same number) and
+#                             recovery_time = 100 x it (OF2 S-C, owner D266 (c), D268 (b); AMENDMENT OF2-4)
 # All var declarations precede the first operation (OXCE y-script rule). The hitUnit parser has no
 # empty return: its scripts return power part side unchanged.
 extended:
@@ -25,6 +27,8 @@ extended:
       COOP_SR_AHIT: int
       COOP_SR_AMMO: int
       COOP_SR_ASPEC: int
+    GeoscapeSoldier:
+      COOP_SR_RET: int
   scripts:
     newTurnUnit:
       - offset: 1
@@ -115,6 +119,20 @@ extended:
           if neq attacker null;
             attacker.setTag Tag.COOP_SR_ASPEC r;
           end;
+          return;
+    returnFromMissionUnit:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          soldier.setTag Tag.COOP_SR_RET r;
+          mul r 100;
+          set recovery_time r;
           return;
 skills:
   - type: STR_COOP_TEST_SR_SKILL
