@@ -1970,6 +1970,29 @@ UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
 	}
 }
 
+// R5-U4 (owner D235 (a); D235-VL1, D235-VL2): see CoopBattleSetup.h.
+int coopSeatForUnownedUnit(int faction)
+{
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17: private, stays 4)
+	{
+		if (coopBattleAuthority().seatMapped(seat) && coopBattleAuthority().factionOf(seat) == faction)
+			return seat;
+	}
+	return (int)COOP_SEAT_NONE;
+}
+
+void coopStampSpawnedUnitSeat(BattleUnit* unit)
+{
+	if (!unit || unit->getCoopSeat() != COOP_SEAT_NONE)
+		return;
+	const int seat = coopSeatForUnownedUnit((int)unit->getOriginalFaction());
+	if (seat == (int)COOP_SEAT_NONE)
+		return; // an AI side (co-op aliens / civilians, PvP civilians): unseated, its AI module kept (vanilla)
+	unit->setCoopSeat((CoopSeat)seat);
+	if (unit->getOriginalFaction() != FACTION_PLAYER)
+		unit->setAIModule(nullptr); // a PvP side a seat commands: no AI module, as at generation (QU4-4)
+}
+
 // R5-P1 (SPIKE-RUNBOOK.md RB-D23): see CoopBattleSetup.h for the full
 // gamemode-by-gamemode contract this implements. HOST-ONLY, called once by
 // CoopHandshake::offerBattle() (connectionTCP.cpp) right after
@@ -2029,12 +2052,12 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			{
 				if (s == owner) { ownerValid = true; break; }
 			}
-			// HWPs (no Soldier owner to read - the "craft owner rule" this
-			// packet's spec text mentions is not wired to any
-			// BattleUnit-reachable API in the spike), civilians/aliens
-			// (already continued above), and stale/out-of-roster ownership
-			// all fall back to COOP_SEAT_NONE: nobody commands them.
-			unit->setCoopSeat(ownerValid ? (CoopSeat)owner : COOP_SEAT_NONE);
+			// R5-U4 (owner D235 (a), D235-VL2): a player-side unit no seat of
+			// this battle owns - an HWP (no Soldier owner to read), a soldier
+			// with stale / out-of-roster ownership - is the host's
+			// (coopSeatForUnownedUnit(FACTION_PLAYER) = seat 0, QU4-1);
+			// civilians and aliens were continued above and stay unseated.
+			unit->setCoopSeat(ownerValid ? (CoopSeat)owner : (CoopSeat)coopSeatForUnownedUnit((int)FACTION_PLAYER));
 		}
 		else // gamemode 2/3 (PvP)
 		{
