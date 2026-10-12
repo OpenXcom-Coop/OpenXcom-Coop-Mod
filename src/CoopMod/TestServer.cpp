@@ -14393,6 +14393,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["readyCoopBattle"] = coop->ready_coop_battle;
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
+			resp["noBases"] = connectionTCP::no_bases; // coop D250-U S-B (QD-7): this machine's PvP alien-side flag, a pure read
 			resp["gamemode"] = connectionTCP::getCoopGamemode();
 			{
 				CoopState* top = findState<CoopState>(_game);
