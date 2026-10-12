@@ -864,6 +864,7 @@ void ProjectileFlyBState::cancel()
 {
 	if (_parent->getMap()->getProjectile())
 	{
+		coopNoteProjectileSkip(); // coop R5-U1 S-C.1 (D222 gap 3): TEST-ONLY count of a skipped flight on the co-op host
 		_parent->getMap()->getProjectile()->skipTrajectory();
 		Position p = _parent->getMap()->getProjectile()->getPosition().toTile();
 		if (!_parent->getMap()->getCamera()->isOnScreen(p, false, 0, false))

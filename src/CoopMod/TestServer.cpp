@@ -7745,6 +7745,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();
+		// R5-U1 S-C.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): the HOST's skipped projectile flights (CoopDelta.h).
+		resp["projectileSkips"] = coopProjectileSkips();
 		// SPEC 17 (W1-P18): per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the

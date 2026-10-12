@@ -4997,6 +4997,20 @@ void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Proje
 	}
 }
 
+// R5-U1 S-C.1 (EC2; D222 gap 3, F4205): see CoopDelta.h.
+static std::atomic<unsigned int> g_coopProjectileSkips{0};
+
+void coopNoteProjectileSkip()
+{
+	if (isCoopBattle() && coopBattleAuthority().hostSim)
+		g_coopProjectileSkips.fetch_add(1u);
+}
+
+unsigned int coopProjectileSkips()
+{
+	return g_coopProjectileSkips.load();
+}
+
 Json::Value coopShotTrajectories()
 {
 	coopShotTrajSync();
