@@ -144,14 +144,14 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_coop_ufo_door_close.py` | r3 | UFO door-close sync at end-turn (battle-action e2e) |
 | `test_cydonia_coop_start.py` | R4-P2 | Cydonia mission start sync (explicit per packet) |
 | `test_pvp_campaign_battle.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
-| `test_pvp_campaign_bringup.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
-| `test_pvp_campaign_geoscape.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
-| `test_pvp_campaign_month.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
-| `test_pvp_campaign_reconnect.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
+| `test_pvp_campaign_bringup.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_campaign_geoscape.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_campaign_month.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_campaign_reconnect.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_resume.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
 | `test_pvp_campaign_ufo_spawn.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 |
-| `test_pvp_dogfight.py` | r5/W6 | issue #151 test_pvp_* battle suite |
-| `test_pvp_duplicate_bases.py` | r5/W6 | issue #151 test_pvp_* battle suite |
+| `test_pvp_dogfight.py` | r5/W6 | issue #151 test_pvp_* battle suite - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_duplicate_bases.py` | r5/W6 | issue #151 test_pvp_* battle suite - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_skirmish_abort.py` | r5/W6 | issue #151 test_pvp_* battle suite |
 | `test_pvp_skirmish_census.py` | r5/W6 | issue #151 test_pvp_* battle suite |
 | `test_pvp_skirmish_end_turn.py` | r5/W6 | issue #151 test_pvp_* battle suite |
@@ -367,13 +367,13 @@ owner. "Covered" files stay SKIP-PENDING and are not edited here; RV-U5 deletes 
 | `test_pvp_skirmish_census.py` | owned by R5-U3 (one grenade / launch row through the intent path) |
 | `test_coop_pvp_blaster.py` | owned by R5-U3 (the alien seat's blaster through a launch intent, D234 a) |
 | `test_pvp_skirmish_abort.py` | owned by R4-L1 (covered by `test_w2_battle_end_rules.py` E6b; QL1-14 a) |
-| `test_pvp_dogfight.py` | owned by D250-U (PvP campaigns green before the merge, D250); converts its class-P press (R-U7d-1) |
-| `test_pvp_duplicate_bases.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
+| `test_pvp_dogfight.py` | owned by D250-U (PvP campaigns green before the merge, D250); converts its class-P press (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_duplicate_bases.py` | owned by D250-U; converts its class-P press (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_battle.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
-| `test_pvp_campaign_bringup.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
-| `test_pvp_campaign_geoscape.py` | owned by D250-U; reaches the pvp_fixture.start_pvp_campaign press D250-U converts (R-U7d-1) |
-| `test_pvp_campaign_month.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
-| `test_pvp_campaign_reconnect.py` | owned by D250-U; converts its two class-P presses (R-U7d-1) |
+| `test_pvp_campaign_bringup.py` | owned by D250-U; converts its class-P press (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_campaign_geoscape.py` | owned by D250-U; reaches the pvp_fixture.start_pvp_campaign press D250-U converts (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_campaign_month.py` | owned by D250-U; converts its class-P press (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
+| `test_pvp_campaign_reconnect.py` | owned by D250-U; converts its two class-P presses (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_resume.py` | owned by D250-U; reaches the pvp_fixture.start_pvp_campaign press (R-U7d-1) |
 | `test_pvp_campaign_ufo_spawn.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
 | `test_campaign_then_skirmish_debrief.py` | owned by RV-U5 (lifecycle: the skirmish debrief after a campaign returns to the main menu) |
@@ -407,3 +407,23 @@ Recorded by RV-U9 (docs `rewrite/prompts/rvu9_crash_report_prompt.md`; owner D22
 | test | disposition |
 |---|---|
 | `test_crash_reporter.py` | run live since RV-U9 (guard removed; rewritten in the house format): `main`'s next-launch crash prompt (BUNDLE / NOT NOW / NEVER and the "CRASH REPORT BUNDLED" notice) from both crash sources, the crash marker in the user folder and an unseen crash dump in the lane's crash folder (`OXC_CRASHLOG_DIR`). The "PRD-I5 rebuild" unlock in the re-points section above is done |
+
+## Dispositions (D250-U S-A, post-Wave-2)
+
+Recorded by D250-U S-A (docs `rewrite/prompts/d250u_pvp_campaigns.md`; owner D250, D229 (a) + gate; R-U7d-1, QU9-3; R-D250-SA-2). The six
+files marked "run live" have their guard removed; every class-P press in the nine files and in `pvp_fixture.py` now waits for the shown
+button (`session.press_back_when_shown`, W2-U7d), the X-COM player's base screen and the lobby's START CAMPAIGN button are waited for,
+and each of the three guarded files names the stage that lifts it in its guard tag. This section supersedes the nine rows in
+"Dispositions (R5-U9, post-Wave-2)".
+
+| test | disposition |
+|---|---|
+| `test_pvp_campaign_bringup.py` | run live since D250-U S-A (guard removed): gm2 and gm3 bring-up; the alien side skips base placement; both machines reach the geoscape |
+| `test_pvp_campaign_geoscape.py` | run live since D250-U S-A: the alien side's stub funds, X-COM's starting funds, both machines open the basescape |
+| `test_pvp_campaign_month.py` | run live since D250-U S-A: the month rolls in gm2 and gm3 and both machines return to the geoscape (`main` issue #171) |
+| `test_pvp_campaign_reconnect.py` | run live since D250-U S-A: gm3, the X-COM client drops on the geoscape, rejoins, the host resumes, both on the geoscape |
+| `test_pvp_dogfight.py` | run live since D250-U S-A: the X-COM player intercepts, sets a stance and disengages while the alien side stays on its geoscape |
+| `test_pvp_duplicate_bases.py` | run live since D250-U S-A: two PvP campaigns in one process, one real X-COM base each |
+| `test_pvp_campaign_battle.py` | still guarded until D250-U S-B: its gm2 battle entry through the W2-P8b spine (EA4) moves there with the alien client's `no_bases` defect (F13503-F13505); its gm3 leg needs gm3 campaign battles (D250-U S-C, owner question O1) |
+| `test_pvp_campaign_ufo_spawn.py` | still guarded until D250-U S-A2 (capture-first): its gm2 set check once saw two UFOs on the X-COM machine only (F13509, F13510) and its gm3 set check compares two empty sets (F13502); the presses, waits and the own-sim UFO counter are converted |
+| `test_pvp_campaign_resume.py` | still guarded until D246-U S-C / D250-U S-D: its mid-battle legs load release-made saves the rewrite refuses until D246-U converts them |
