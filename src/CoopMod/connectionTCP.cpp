@@ -7784,8 +7784,23 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	// _endTurnRequested and handleAI() was never reached, i.e. NO enemy AI ran
 	// in any coop battle. The HOST is the executor of every seat-less unit's
 	// AI (hostSim), so it may select one; a client never may.
-	return u && u->getCoopSeat() == COOP_SEAT_NONE
-		&& coopBattleAuthority().hostSim;
+	if (!u || !coopBattleAuthority().hostSim)
+		return false;
+	if (u->getCoopSeat() == COOP_SEAT_NONE)
+		return true;
+	// W2-H32 (L-H29-2, F11677; vanilla: the alien AI acts with a soldier it mind-controlled - SavedBattleGame::
+	// selectPlayerUnit() takes any unit of the active faction and BattlescapeGame::handleAI() gives it an AI module;
+	// MJ-8): a mind-controlled unit whose controller carries no seat is commanded by NO seat, so it is the host AI's on
+	// its controller's side whatever its own seat tag. The tag stays its owner's and every rule that reads it is
+	// unchanged (END TURN counts the soldier for nobody while the aliens hold it, VL-H29-3).
+	if (u->getFaction() == u->getOriginalFaction())
+		return false;
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17: private, stays 4)
+	{
+		if (coopBattleAuthority().commandsUnit(u, seat))
+			return false;
+	}
+	return true;
 }
 
 // W2-H6 (spec rewrite/prompts/w2h6_client_selection_actor.md (b)1; F1170,
