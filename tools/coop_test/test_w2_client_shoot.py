@@ -103,6 +103,8 @@ Eight scenarios, ONE boot, in this order:
          set_seed SEED_C17, real-UI autoshot at C17_TARGET (~21 s, F1121):
          likewise no timeout while the slot is held, the order longer than the
          timeout option, three `shot` evs in one {intent, shoot, C} context.
+         C26-W (R-C26-1, R-C26-2): each leg's watch, and C17p's wait for the host
+         autoshot, ends at the order's end, capped at WATCH_CAP_S (was 45 s / 60 s).
 
 The order puts C16 first on the fresh boot, so it runs exactly on TASK 0's T0-1
 staging (lever rifle 96 / clip 97). Every later scenario keeps C on C_TILE with
@@ -267,6 +269,7 @@ RHAND_CENTRE = (RHAND_RECT[0] + RHAND_RECT[2] // 2, RHAND_RECT[1] + RHAND_RECT[3
 POLL_S = 0.05
 SENT_WAIT_S = 2.0                 # how long a press gets to show as sent or refused
 ORDER_TIMEOUT_S = 45
+WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): F11103's loaded leg-2 order (R-C26-2)
 
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
 PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "coopLocalExecBlocked", "lastSeqEmitted",
@@ -964,7 +967,7 @@ def c17p_pending(host, client, ctx):
         host.wait_for("the host autoshot's context closed",
                       lambda: mine(new_contexts(before["host"]["closedContexts"],
                                                 event_state(host).get("closedContexts")), "host", "shoot", H_ID)
-                      or None, timeout=60, interval=0.1)
+                      or None, timeout=WATCH_CAP_S, interval=0.1)
         tl["hostContextClosed"] = round(time.time() - t0, 3)
         if mid["denySeen"] or mid["pending"] or mid["inFlightSeen"]:
             client.wait_for("the held order's context closed",
@@ -985,8 +988,10 @@ def c17p_pending(host, client, ctx):
     ictx = mine(new, "intent", "shoot", C_ID)
     aid = ictx[0]["actionId"] if len(ictx) == 1 else None
     chain = chain_of(rec, aid)
+    ha = (f"{round(tl['hostContextClosed'] - tl['hostFire'][0], 3)}/{WATCH_CAP_S}s"
+          if "hostContextClosed" in tl and "hostFire" in tl else None)   # the host autoshot's span / its cap
     print(f"EVIDENCE C17p: dial={dial} staged H rifle={h_rifle} clip={h_clip} H={ph_} C rifle={rifle} clip={clip} "
-          f"C={pc_} stagedDiff={staged} aimCancel={aim0} press={pv} timeline={tl}; mid={mid}; "
+          f"C={pc_} stagedDiff={staged} aimCancel={aim0} press={pv} timeline={tl} hostAutoshot={ha}; mid={mid}; "
           f"{press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; hostContext={hctx} "
           f"intentContext={ictx} chain={[(e['seq'], e['kind']) for e in chain]}; host evs={ev_tuples(rec['hev'])} "
           f"client evs={ev_tuples(rec['cev'])}; C host={ubrief(rec['uh'].get(C_ID))} client="
@@ -1270,11 +1275,11 @@ def c26_timeout(host, client, ctx):
     if rw.get("ok"):
         s1 = watch(host, client, t0, lambda s: (s["clientWalk"][0] not in (None, cw0) and s["clientWalk"][1] is False
                                                 and s["clientWalk"][2] and s["hostBusy"] == -1),
-                   ORDER_TIMEOUT_S)
+                   WATCH_CAP_S)
     t_end1 = next((s["t"] for s in s1 if s["clientWalk"][0] not in (None, cw0) and s["clientWalk"][1] is False
                    and s["clientWalk"][2]), None)
     if rw.get("ok") and t_end1 is None:
-        notes.append(f"leg 1: the client never applied the walk's end within {ORDER_TIMEOUT_S} s")
+        notes.append(f"leg 1: the client never applied the walk's end within {WATCH_CAP_S} s")
     try:
         client.wait_for("leg 1 over", lambda: order_done(host, client) or None, timeout=30, interval=0.1)
         session.wait_host_idle(host, client, timeout=30)
@@ -1303,7 +1308,7 @@ def c26_timeout(host, client, ctx):
             if not sent["v"]:
                 return s["t"] > SENT_WAIT_S
             return s["inFlight"] is None and s["hostBusy"] == -1 and s["applied"] == s["emitted"]
-        s2 = watch(host, client, t2, done2, ORDER_TIMEOUT_S)
+        s2 = watch(host, client, t2, done2, WATCH_CAP_S)
         t_end2 = next((s["t"] for s in s2 if sent["v"] and s["inFlight"] is None
                        and any(x["inFlight"] for x in s2 if x["t"] < s["t"])), None)
         client.wait_for("leg 2 over", lambda: order_done(host, client) or None, timeout=30, interval=0.1)
@@ -1316,13 +1321,14 @@ def c26_timeout(host, client, ctx):
     hits2 = mine(new2, "intent", "shoot", C_ID)
     aid2 = hits2[0]["actionId"] if len(hits2) == 1 else None
     shots2 = shot_payloads(host, chain_of(rec2, aid2)) if rec2 else []
+    w1, w2 = (f"{s[-1]['t'] if s else None}/{WATCH_CAP_S}s" for s in (s1, s2))   # each watch's span / its cap
     print(f"EVIDENCE C26: timeoutOption={tmo} walkDial={dial1} staged rifle={rifle} clip={clip} C={pc_} "
           f"path_probe={ {k: pp.get(k) for k in ('reachable', 'steps', 'tuCost')} } camera={cam.get('ok')} "
-          f"stagedDiff={staged} aimCancel={aim0}; LEG1 walk intent={rw} tEnd={t_end1} slot={sv1} banners="
+          f"stagedDiff={staged} aimCancel={aim0}; LEG1 walk intent={rw} tEnd={t_end1} watched={w1} slot={sv1} banners="
           f"{banners(s1)} samples={len(s1)}; {press_view(before, rec1)}; newContexts={new1}; host lastWalk="
           f"{s1[-1]['hostWalk'] if s1 else None}; C host={ubrief(rec1['uh'].get(C_ID))} client="
           f"{ubrief(rec1['uc'].get(C_ID))}; diff={rec1['diff']} desync={rec1['dsc']}; LEG2 fireDial={dial2} C={pc2} "
-          f"press={pv2} tEnd={t_end2} slot={sv2} banners={banners(s2)} samples={len(s2)}; "
+          f"press={pv2} tEnd={t_end2} watched={w2} slot={sv2} banners={banners(s2)} samples={len(s2)}; "
           f"{press_view(before2, rec2) if (before2 and rec2) else None}; newContexts={new2}; shots="
           f"{shot_brief(shots2)}; diff={rec2['diff'] if rec2 else None}; notes={notes} notes2={notes2}", flush=True)
     fails = list(notes)
