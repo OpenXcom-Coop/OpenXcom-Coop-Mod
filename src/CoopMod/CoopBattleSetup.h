@@ -26,6 +26,7 @@ namespace OpenXcom
 {
 
 class SavedBattleGame;
+class BattleUnit;
 class Craft;
 class Game;
 class GeoscapeState;
@@ -117,6 +118,28 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
  * assignSeatsAndFactions().
  */
 UnitFaction coopSeatCanonicalFaction(int gamemode, int seat);
+
+/**
+ * R5-U4 (owner D235 (a), D235-VL1 / R5-V2, D235-VL2; docs rewrite/prompts/r5u4_ownerless_units.md): the
+ * seat that commands a unit NO player of this battle owns - an HWP (no Soldier owner), a unit created
+ * mid-battle, a soldier whose owner is not one of the battle's seats. It is the LOWEST seat the
+ * seat->faction store maps to @a faction (BattleAuthority::seatMapped() and factionOf()): classic / SHARED
+ * FACTION_PLAYER -> seat 0, the host; PvP gm2 FACTION_HOSTILE -> seat 1 and gm3 FACTION_HOSTILE -> seat 0,
+ * the player of that side; a faction no seat maps (co-op aliens and civilians, PvP civilians) ->
+ * COOP_SEAT_NONE, the AI's. Supersedes the 0/1 paragraph above for those units: assignSeatsAndFactions()
+ * seats them through this, no longer COOP_SEAT_NONE. Read-only.
+ */
+int coopSeatForUnownedUnit(int faction);
+
+/**
+ * R5-U4 (owner D235 (a); D235-VL1, D235-VL2): the HOST's seat stamp for a unit created mid-battle, called
+ * by the `spawn` cue hooks (connectionTCP.cpp coopCueSpawn() / coopCueSpawnAdded()) BEFORE the cue is
+ * sent, so the seat rides the unit's `unitsAdded` record (BattleUnit::save() writes `coop`). Seats @a unit
+ * with coopSeatForUnownedUnit() of its original faction; a non-player unit a seat now commands (a PvP
+ * side's) also loses its AI module, as assignSeatsAndFactions() does at generation. Null, an already
+ * seated unit and a unit of a faction no seat maps are left unchanged.
+ */
+void coopStampSpawnedUnitSeat(BattleUnit* unit);
 
 /**
  * SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp that F358 found present at
