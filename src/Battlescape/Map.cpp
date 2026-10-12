@@ -335,7 +335,7 @@ void Map::draw()
 	if (_projectile)
 	{
 		t = _save->getTile(_projectile->getPosition(0).toTile());
-		if (_save->getSide() == FACTION_PLAYER || (t && t->getVisible()))
+		if (coopSideIsMine(_save) || (t && coopTileSeenHere(t))) // coop R5-U1 S-B (D222 gap 1): the side this machine plays
 		{
 			_projectileInFOV = true;
 		}
@@ -351,7 +351,7 @@ void Map::draw()
 				break;
 			}
 			t = _save->getTile(explosion->getPosition().toTile());
-			if (t && t->getVisible())
+			if (t && coopTileSeenHere(t)) // coop R5-U1 S-B (D222 gap 1): the side this machine plays
 			{
 				_explosionInFOV = true;
 				break;

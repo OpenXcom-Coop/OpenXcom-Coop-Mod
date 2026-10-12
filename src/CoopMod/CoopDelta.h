@@ -714,4 +714,14 @@ bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const B
 /// An `endturn` base is never suppressed (OR5 (a)). Writes no battle state.
 bool coopHostPartnerCamera(const BattleUnit* actor, const char* what);
 
+// ----- R5-U1 S-B (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EB1; owner D222 (a) gap 2, design-D5 / WV-D11): the
+// side-relative replacements for vanilla's X-COM-literal camera terms (UnitWalkBState's off-screen walker centre,
+// ExplosionBState's melee / psi target centre, the client's hit_centre). Body: connectionTCP.cpp, before
+// coopMaySelectUnit(). Vanilla's literal outside an active co-op battle and on a player-side seat (classic / SHARED
+// co-op, gm2's host, gm3's partner), so single player and co-op are byte-identical. PRESENTATION-ONLY; nothing written.
+/// @a faction is the side THIS machine's seat commands (vanilla: `faction == FACTION_PLAYER`).
+bool coopFactionIsMine(int faction);
+/// The side now playing is THIS machine's opponent (vanilla: `getSide() == FACTION_HOSTILE`; never the neutral side).
+bool coopSideIsOpponents(const SavedBattleGame* s);
+
 } // namespace OpenXcom
