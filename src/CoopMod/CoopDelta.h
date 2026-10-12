@@ -429,6 +429,13 @@ void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Proje
 /// probe generation and this storage is cleared on its next main-thread use. Probe only.
 Json::Value coopShotTrajectories();
 
+/// R5-U1 S-C.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EC1, QU1-9 (a); D222 gap 3, F4205): TEST-ONLY probe of
+/// ProjectileFlyBState::cancel() skipping a flying projectile on the co-op HOST - coopNoteProjectileSkip() counts one
+/// (a no-op off the host and outside an active co-op battle), coopProjectileSkips() reads the count (event_state
+/// `projectileSkips`; never reset, tests read deltas). Probe only: nothing else reads it.
+void coopNoteProjectileSkip();
+unsigned int coopProjectileSkips();
+
 /// P2 (ProjectileFlyBState::think, after a shotgun pellet's TileEngine::hit):
 /// the pellet `hit` cue - {actor?, unit?, voxel, damageType, power, miss:false,
 /// pellet}.
