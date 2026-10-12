@@ -40,6 +40,7 @@ Boot B3 (key 48679): G3F.bring_up (gm3, STR_SMALL_SCOUT, map seed 1), every live
                 changed and equal on both
       M4 is the last row (no END TURN after it, F10911).
 Common cell after each row: every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
+Every mind-control order waits out the client's own message box (the shared mc_order, R-U3-B-4).
 
 RED on the unchanged build (commit B1): M3-ui, M3-ctrl, R3-ai; every other cell PASS. One EVIDENCE line per row, one
 PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
@@ -311,7 +312,7 @@ def row_m4(host, client, crash0):
         ui["pressError"] = str(e)[:300]
     new = RM.mc_order(host, client, ctx0, A_ID, ui)
     c1 = battle_state(client).get("cursorType")
-    if c1 in RM.CURSOR_TARGETING:
+    if c1 in RM.CURSOR_TARGETING and ui["clientMap"][0]:
         click_nth(client, RHAND_NTH)
     ui["cancel"] = [c1, battle_state(client).get("cursorType")]
     sent = (es(client, "coopIntentsSent") or {}).get("psi", 0) - sent0.get("psi", 0)
