@@ -13231,6 +13231,16 @@ std::string TestServer::execute(const std::string& line)
 					// id, -1 when none.
 					ju["originalFaction"] = (int)u->getOriginalFaction();
 					ju["hasAI"] = (u->getAIModule() != nullptr); // R5-U3 S-B.1 (QU3-4): a pure read
+					// R5-U1 S-A.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): pure reads - vanilla's own visible flag, the
+					// presentation predicate THIS machine's map and minimap draw a unit by, and the unit's own visible list.
+					ju["visible"] = u->getVisible();
+					ju["visibleHere"] = coopUnitVisibleHere(u);
+					{
+						Json::Value seenIds(Json::arrayValue);
+						for (const BattleUnit* v : *u->getVisibleUnits())
+							if (v) seenIds.append(v->getId());
+						ju["visibleUnits"] = seenIds;
+					}
 					ju["spawnUnit"] = u->getSpawnUnit() ? u->getSpawnUnit()->getType() : std::string();
 					ju["respawn"] = u->getRespawn();
 					{
