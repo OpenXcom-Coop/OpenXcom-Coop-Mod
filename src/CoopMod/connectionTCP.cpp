@@ -7924,6 +7924,78 @@ bool coopSideIsMine(const SavedBattleGame* s)
 	return coopBattleAuthority().mySideActive(s);
 }
 
+// R5-U1 S-B (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EB3; owner D222 (a), design-D5 / WV-D11): the side-relative
+// camera / sight reads - see CoopDelta.h and CoopFog.h. Each is vanilla's literal outside an active co-op battle and on a
+// player-side seat, so single player and classic / SHARED co-op are byte-identical.
+bool coopFactionIsMine(int faction)
+{
+	if (!isCoopBattle())
+		return faction == (int)FACTION_PLAYER;
+	return faction == coopBattleAuthority().factionOf(coopBattleAuthority().localSeat.load());
+}
+
+bool coopSideIsOpponents(const SavedBattleGame* s)
+{
+	if (!s)
+		return false;
+	if (!isCoopBattle())
+		return s->getSide() == FACTION_HOSTILE;
+	return s->getSide() != FACTION_NEUTRAL && !coopFactionIsMine((int)s->getSide());
+}
+
+bool coopTileSeenHere(const Tile* t)
+{
+	if (!t)
+		return false;
+	if (!isCoopBattle() || !coopBattleAuthority().visibilityRuleOn.load())
+		return t->getVisible() != 0;
+	const int mine = coopBattleAuthority().factionOf(coopBattleAuthority().localSeat.load());
+	if (mine == (int)FACTION_PLAYER)
+		return t->getVisible() != 0;
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	TileEngine* te = save ? save->getTileEngine() : nullptr;
+	if (!te)
+		return false;
+	// Vanilla's tile sight (TileEngine::calculateTilesInFOV) for ONE tile, per live unit of this side: the 2D view
+	// distance, the view sector, the eyes-above-the-floor bump and one bresenham line per eye, the blocked end dropped.
+	const Position target = t->getPosition();
+	std::vector<Position> trajectory;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (u->isOut() || !u->getTile() || (int)u->getFaction() != mine)
+			continue;
+		Position eye = u->getPosition();
+		if (Position::distance2dSq(eye, target) > te->getMaxViewDistanceSq())
+			continue;
+		const bool turret = Options::strafe && u->getTurretType() > -1;
+		if (!u->checkViewSector(target, turret))
+			continue;
+		Tile* eyeTile = save->getTile(eye);
+		if (eyeTile && (u->getHeight() + u->getFloatHeight() - eyeTile->getTerrainLevel()) >= 24 + 4)
+		{
+			Tile* above = save->getTile(eye + Position(0, 0, 1));
+			if (above && above->hasNoFloor(0))
+				++eye.z;
+		}
+		const int size = u->getArmor()->getSize();
+		for (int xo = 0; xo < size; ++xo)
+		{
+			for (int yo = 0; yo < size; ++yo)
+			{
+				const Position from = eye + Position(xo, yo, 0);
+				if (from == target)
+					return true;
+				trajectory.clear();
+				if (te->calculateLineTile(from, target, trajectory) > 127 && !trajectory.empty())
+					trajectory.pop_back();
+				if (!trajectory.empty() && trajectory.back() == target)
+					return true;
+			}
+		}
+	}
+	return false;
+}
+
 bool coopMaySelectUnit(const BattleUnit* u)
 {
 	if (!isCoopBattle() && !coopEquipOpen()) // W2-P8b S-A.2 (F3110, V3): the equip screen's PREV/NEXT in phase Handshake too
@@ -22438,7 +22510,7 @@ void cameraImpact(SavedBattleGame* save, Map* map, const Json::Value& ev, const 
 	const bool named = kind == "melee" || kind == "psi" || (hitItem && hitItem->getBattleType() == BT_PSIAMP);
 	// W2-G1 (AUD-A16): vanilla reads the faction after TileEngine::psiAttack, which turns a mind-controlled victim.
 	const bool turned = kind == "psi" && p.get("action", "").asString() == "mc" && p.get("success", false).asBool();
-	if (named && !turned && hitUnit && save->getSide() == FACTION_HOSTILE && hitUnit->getFaction() == FACTION_PLAYER)
+	if (named && !turned && hitUnit && coopSideIsOpponents(save) && coopFactionIsMine((int)hitUnit->getFaction())) // R5-U1 S-B (F4189): the side this machine plays
 		cameraCentre(map, seq, "hit_centre", hitId, voxel.toTile(), false);
 }
 

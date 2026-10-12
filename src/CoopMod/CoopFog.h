@@ -272,6 +272,14 @@ void lastPassStats(int& hostileUnits, int& candidates, int& swept);
 /// :110 :138 (item-6 FINDING A-2).
 bool coopTileDiscoveredHere(const Tile* tile, TilePart part);
 
+/// R5-U1 S-B (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EB2; owner D222 (a) gap 1, QU1-2 (a)): the side-relative
+/// replacement for `Tile::getVisible()` at Map::draw's projectile / explosion field-of-view tests. Vanilla's X-COM
+/// tile-sight count outside an active co-op battle, with the visibility rule lever off and on a player-side seat (so
+/// single player and co-op are byte-identical); for a seat commanding a non-player side, one of its side's live units
+/// sees the tile now by vanilla's tile-sight geometry for that one tile. PRESENTATION-ONLY: reads positions, facings
+/// and the terrain-blockage cache, writes nothing, never authors discovered bits.
+bool coopTileSeenHere(const Tile* t);
+
 /// SS2.W5 hook 1 - `BattlescapeState::updateSoldierInfo`'s `if (checkFOV)`
 /// branch. TRUE inside an active co-op battle: the selected unit's TILE FOV
 /// half is skipped, so no selection change can author shared fog. FALSE
