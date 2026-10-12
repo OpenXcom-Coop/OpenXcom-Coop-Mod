@@ -7681,6 +7681,27 @@ bool coopSuppressNonPlayerThink(const SavedBattleGame* s)
 	return false;
 }
 
+// R5-U3 (owner D234 = a, R5-V1): see BattleAuthority.h.
+bool coopFactionHumanCommanded(int faction)
+{
+	if (!isCoopBattle())
+		return false;
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (coopBattleAuthority().seatMapped(seat) && coopBattleAuthority().factionOf(seat) == faction)
+			return true;
+	}
+	return false;
+}
+
+bool coopHostArmsHumanSidePanic(const SavedBattleGame* s)
+{
+	if (!s || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return false;
+	const int side = (int)s->getSide();
+	return side != (int)FACTION_PLAYER && side != (int)FACTION_NEUTRAL && coopFactionHumanCommanded(side);
+}
+
 // W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
 // WR-2): the gate on BattlescapeGame::primaryAction's COMMANDING arms, plus
 // ONE test-only counter. See BattleAuthority.h for the full rationale.
