@@ -13231,6 +13231,7 @@ std::string TestServer::execute(const std::string& line)
 					// id, -1 when none.
 					ju["originalFaction"] = (int)u->getOriginalFaction();
 					ju["hasAI"] = (u->getAIModule() != nullptr); // R5-U3 S-B.1 (QU3-4): a pure read
+					ju["woundable"] = u->isWoundable(); // R5-U8 A1 (AMENDMENT U8-1; owner D269 (a)): a pure read - whether the unit takes fatal wounds (BattleUnit::isWoundable, the rule A3's re-skin changes)
 					// R5-U1 S-A.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): pure reads - vanilla's own visible flag, the
 					// presentation predicate THIS machine's map and minimap draw a unit by, and the unit's own visible list.
 					ju["visible"] = u->getVisible();
