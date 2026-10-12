@@ -90,6 +90,7 @@
 #include "../Savegame/MissionStatistics.h" // W2-P7 S-B1.2: the display-only debrief frees its unused MissionStatistics (F2046)
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
 #include "../Ufopaedia/Ufopaedia.h" // W2-P8 S-D1.2: vanilla's article check on a seat's research (coopSeatArticleAvailable)
+#include "CoopScriptOwner.h" // coop OF2: CoopScriptOwner / coopScriptIsResearched (defined below coopViewerArticleAvailable)
 
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
@@ -6660,6 +6661,44 @@ bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article)
 			return coopSeatArticleAvailable(bs->getGame(), coopBattleAuthority().localSeat.load(), article);
 	}
 	return Ufopaedia::isArticleAvailable(save, article);
+}
+
+// coop OF2 (owner D258 (b); spec rewrite/prompts/of2_mod_script_player_reads.md, QOF2-1 (a), D149, D146):
+// the seat whose research a battle mod script's isResearched reads. -1 = none (the live world). Set by
+// CoopScriptOwner around each battle hook that a unit owns (armor -> the wearer, weapon/ammo -> the
+// attacker, skill -> the actor, item -> its holder); nests. Main thread only (scripts run there).
+static thread_local int g_coopScriptOwnerSeat = -1;
+
+CoopScriptOwner::CoopScriptOwner(const BattleUnit* owner) : _prev(g_coopScriptOwnerSeat)
+{
+	g_coopScriptOwnerSeat = owner ? (int)owner->getCoopSeat() : -1;
+}
+
+CoopScriptOwner::~CoopScriptOwner()
+{
+	g_coopScriptOwnerSeat = _prev;
+}
+
+// coop OF2: isResearchedScript()'s routed answer. Routed (0/1) only for the live world of this machine's live
+// co-op battle in research-separate mode (coopResearchSeparate()), outside debug mode, for an owner seat 1..3
+// with a stored list - vanilla's own isResearched(rule, false) on that seat's research-only world, under
+// the store's mutex (a leaf). Every other case returns -1 and vanilla reads the world it was given.
+int coopScriptIsResearched(const SavedGame* sg, const RuleResearch* rule)
+{
+	const int seat = g_coopScriptOwnerSeat;
+	if (seat < 1 || seat > 3 || !sg || !rule || !isCoopBattle())
+		return -1;
+	SavedBattleGame* b = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = b ? b->getBattleState() : nullptr;
+	if (!connectionTCP::isBattlescapeStateLive(bs))
+		return -1;
+	Game* game = bs->getGame();
+	if (game->getSavedGame() != sg || sg->getDebugMode() || !coopResearchSeparate(game))
+		return -1;
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (!g_coopSeatResearch[seat])
+		return -1;
+	return g_coopSeatResearch[seat]->isResearched(rule, false) ? 1 : 0;
 }
 
 // W2-P1 (thin-client tripwire, commit 1 of 2): the storage behind

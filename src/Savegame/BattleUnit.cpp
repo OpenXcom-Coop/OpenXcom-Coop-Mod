@@ -53,6 +53,7 @@
 #include "BattleUnitStatistics.h"
 #include "../fmath.h"
 #include "../fallthrough.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
@@ -1672,7 +1673,7 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args);
 		}
 
-		work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args);
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args); } // coop OF2
 
 		damage = args.getFirst();
 		bodypart = (UnitBodyPart)args.getSecond();
@@ -1784,7 +1785,7 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args);
 		}
 
-		work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args);
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args); } // coop OF2
 
 		if (!_armor->getPainImmune() || type->IgnorePainImmunity)
 		{
@@ -1926,7 +1927,7 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args);
 		}
 
-		work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args);
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args); } // coop OF2
 
 
 		// update state

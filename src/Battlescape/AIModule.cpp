@@ -34,6 +34,7 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleItem.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
@@ -2966,6 +2967,7 @@ AIAttackWeight AIModule::getTargetAttackWeight(BattleUnit* target) const
 		weight = target->getAITargetWeightAsNeutral(_save->getMod());
 	}
 
+	CoopScriptOwner coopOwner(_unit); // coop OF2: the AI unit's armor script reads its owner's research (aliens: the live world)
 	weight = (AIAttackWeight)ModScript::scriptFunc2<ModScript::AiCalculateTargetWeight>(
 		_unit->getArmor(),
 		weight, weight,

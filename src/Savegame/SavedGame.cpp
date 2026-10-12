@@ -74,6 +74,7 @@
 
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
 #include "Upgrade/SaveUpgrade.h"
 #include "../version.h" // SAVE_SCHEMA_CURRENT
 
@@ -4916,6 +4917,14 @@ void isResearchedScript(const SavedGame* sg, int& val, const RuleResearch* name)
 {
 	if (sg)
 	{
+		// coop OF2 (owner D258 (b), QOF2-1 (a), D149): in a co-op battle with separate research a battle script run
+		// for a unit (CoopScriptOwner) answers from that unit's owner's research; -1 = not routed (vanilla below).
+		const int coopRouted = coopScriptIsResearched(sg, name);
+		if (coopRouted >= 0)
+		{
+			val = coopRouted;
+			return;
+		}
 		if (sg->isResearched(name, false))
 		{
 			val = 1;
