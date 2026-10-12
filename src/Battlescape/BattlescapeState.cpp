@@ -4180,6 +4180,7 @@ void BattlescapeState::btnZeroTUsClick(Action *action)
 		if (_battleGame->getSave()->getSelectedUnit())
 		{
 			_battleGame->getSave()->getSelectedUnit()->clearTimeUnits();
+			coopHostZeroTu(_battleGame->getSave()->getSelectedUnit()); // coop W2-H30 (L-4): the host's own press rides a `host` context's ev
 			updateSoldierInfo();
 		}
 	}

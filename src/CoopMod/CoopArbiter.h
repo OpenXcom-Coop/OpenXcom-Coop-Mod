@@ -1148,6 +1148,15 @@ bool coopInterceptSkillUse(BattleAction* action, const RuleSkill* skill);
 /// delta, coopHostPrime()'s rule).
 void coopHostSkill(BattleAction* action, const RuleSkill* skill);
 
+/// W2-H30 (docs rewrite/prompts/w2h30_host_local_actions.md; W2-H28 QH-4 (a), lead L-4): the HOST's OWN Zero TU
+/// press as an INSTANT host action - coopHostSkill()'s shape above. ONE call in
+/// BattlescapeState::btnZeroTUsClick(), on the line right AFTER its BattleUnit::clearTimeUnits() (the host only:
+/// CoopBattleUi::refuseControl(ZeroTu) refuses a client and a unit this seat does not command, design-D8):
+/// mint, push {id,"host"} (context kind `zero_tu`), the `zero_tu` cue {actor, unit (= actor)} whose delta
+/// carries the zeroed TU, then the close through onChainQuiesced() -> closeBaseContext(). No partner twin (the
+/// second player's press stays refused). Coop + hostSim only; a logged no-op while another context is open.
+void coopHostZeroTu(BattleUnit* unit);
+
 /// K10's onEndClick guard (MedikitState::onEndClick, its
 /// TileEngine::medikitRemoveIfEmpty() line): TRUE on a co-op CLIENT - the host
 /// removes an emptied consumable kit right after the use that emptied it
