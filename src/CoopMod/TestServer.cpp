@@ -4372,7 +4372,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		&& cmd != "battle_teleport" && cmd != "battle_open_inventory"
 		&& cmd != "battle_close_inventory" && cmd != "battle_drop"
 		&& cmd != "battle_prox" && cmd != "tile_info" && cmd != "map_tile_screen_pos"
-		&& cmd != "map_tile_click_pos"
+		&& cmd != "map_tile_click_pos" && cmd != "map_tile_click"
 		&& cmd != "find_doors" && cmd != "battle_close_ufo_doors"
 		&& cmd != "battle_ui_press" && cmd != "tile_census" && cmd != "inventory_view" && cmd != "inventory_click"
 		&& cmd != "inventory_cursor_clear" && cmd != "battle_arm_key" && cmd != "equip_layouts")
@@ -5484,6 +5484,42 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				resp["hitZ"] = got.z;
 				resp["verified"] = (got.x == tilePos.x && got.y == tilePos.y && got.z == tilePos.z);
 			}
+		}
+	}
+	else if (cmd == "map_tile_click")
+	{
+		// RV-U2 (docs rewrite/prompts/rvu2_one_shot_click.md; owner D60, POST-REWRITE-REVISIT rows 2 and 17):
+		// TEST-ONLY. map_tile_click_pos's own search (the arm above, unchanged) and, when it verifies, the
+		// click inject_input kind=click pushes (a real SDL button DOWN + UP at the verified window pixel),
+		// both on THIS pump pass. Game::run handles the pushed click in the event loop of the same frame
+		// (between them only updateCoopTask and a pending state init run), so the click resolves against
+		// the camera the pixel was computed for. A probe and a separate inject_input are two harness round
+		// trips apart, and a camera move between them sends the click to another tile (F316). Not verified
+		// = nothing pushed, `clicked` false. `button`: "left" (default), "right" or "middle", as inject_input.
+		executeBattle12("map_tile_click_pos", req, resp);
+		resp["clicked"] = false;
+		if (resp.get("verified", false).asBool())
+		{
+			const std::string clickButtonName = req.get("button", "left").asString();
+			const Uint8 clickButton = (clickButtonName == "right") ? SDL_BUTTON_RIGHT
+				: (clickButtonName == "middle") ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
+			const int clickX = resp["winX"].asInt();
+			const int clickY = resp["winY"].asInt();
+			SDL_Event clickEv;
+			memset(&clickEv, 0, sizeof(clickEv));
+			clickEv.type = SDL_MOUSEBUTTONDOWN;
+			clickEv.button.button = clickButton;
+			clickEv.button.state = SDL_PRESSED;
+			clickEv.button.x = (Uint16)clickX; clickEv.button.y = (Uint16)clickY;
+			SDL_PushEvent(&clickEv);
+			memset(&clickEv, 0, sizeof(clickEv));
+			clickEv.type = SDL_MOUSEBUTTONUP;
+			clickEv.button.button = clickButton;
+			clickEv.button.state = SDL_RELEASED;
+			clickEv.button.x = (Uint16)clickX; clickEv.button.y = (Uint16)clickY;
+			SDL_PushEvent(&clickEv);
+			resp["clicked"] = true;
+			resp["button"] = clickButtonName;
 		}
 	}
 	else if (cmd == "battle_fire")
