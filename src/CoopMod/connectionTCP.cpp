@@ -17967,7 +17967,10 @@ static bool coopEndTurnSeatHasLiveUnit(SavedBattleGame* save, int seat)
 		return false;
 	for (BattleUnit* u : *save->getUnits())
 	{
-		if (u && (int)u->getCoopSeat() == seat && !u->isOut()
+		// W2-H29 (R-U3-B-1; owner D53 "a live COMMANDABLE unit"; MJ-8): count the unit for the seat that commands it now, by
+		// the order gates' own rule, not for its stored seat tag - a mind-controlled unit counts for its controller's seat while
+		// controlled, and for its owner's seat again once it reverts. Identical to the tag compare for every other unit.
+		if (u && coopBattleAuthority().commandsUnit(u, seat) && !u->isOut()
 			&& u->getFaction() == save->getSide())
 			return true;
 	}
