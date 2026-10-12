@@ -1,0 +1,140 @@
+# Test-only mod for OF2 (owner D263 (a), D258 (b); spec rewrite/prompts/of2_mod_script_player_reads.md,
+# AMENDMENT OF2-1 section 6, QOF2-11 (a)). Data only. Each script writes ONE BattleUnit tag:
+#   tag = 1 + isResearched(STR_PLASMA_PISTOL), read through battle_game.getGeoscapeGame
+# so 0 = the hook never ran, 1 = not researched, 2 = researched. In the OF2 fixture the
+# second player researched STR_PLASMA_PISTOL and the host did not. No script changes
+# damage, TU or flow.
+#   newTurnUnit            -> unit     COOP_SR_TURN
+#   hitUnit                -> unit     COOP_SR_HIT
+#   damageUnit             -> unit     COOP_SR_DMG
+#   damageSpecialUnit      -> unit     COOP_SR_SPEC
+#   hitUnitAmmo            -> attacker COOP_SR_AHIT   (only when the attacker exists)
+#   damageUnitAmmo         -> attacker COOP_SR_AMMO   (only when the attacker exists)
+#   damageSpecialUnitAmmo  -> attacker COOP_SR_ASPEC  (only when the attacker exists)
+#   skill STR_COOP_TEST_SR_SKILL on every STR_SOLDIER: skillUseUnit -> actor COOP_SR_SKILL
+# All var declarations precede the first operation (OXCE y-script rule). The hitUnit parser has no
+# empty return: its scripts return power part side unchanged.
+extended:
+  tags:
+    BattleUnit:
+      COOP_SR_TURN: int
+      COOP_SR_SKILL: int
+      COOP_SR_HIT: int
+      COOP_SR_DMG: int
+      COOP_SR_SPEC: int
+      COOP_SR_AHIT: int
+      COOP_SR_AMMO: int
+      COOP_SR_ASPEC: int
+  scripts:
+    newTurnUnit:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          unit.setTag Tag.COOP_SR_TURN r;
+          return;
+    hitUnit:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          unit.setTag Tag.COOP_SR_HIT r;
+          return power part side;
+    damageUnit:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          unit.setTag Tag.COOP_SR_DMG r;
+          return;
+    damageSpecialUnit:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          unit.setTag Tag.COOP_SR_SPEC r;
+          return;
+    hitUnitAmmo:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          if neq attacker null;
+            attacker.setTag Tag.COOP_SR_AHIT r;
+          end;
+          return power part side;
+    damageUnitAmmo:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          if neq attacker null;
+            attacker.setTag Tag.COOP_SR_AMMO r;
+          end;
+          return;
+    damageSpecialUnitAmmo:
+      - offset: 1
+        code: |
+          var ptr RuleResearch res;
+          var ptr GeoscapeGame geo;
+          var int r;
+          rules.getRuleResearch res "STR_PLASMA_PISTOL";
+          battle_game.getGeoscapeGame geo;
+          geo.isResearched r res;
+          add r 1;
+          if neq attacker null;
+            attacker.setTag Tag.COOP_SR_ASPEC r;
+          end;
+          return;
+skills:
+  - type: STR_COOP_TEST_SR_SKILL
+    targetMode: 0
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        var ptr RuleResearch res;
+        var ptr GeoscapeGame geo;
+        var int r;
+        rules.getRuleResearch res "STR_PLASMA_PISTOL";
+        battle_game.getGeoscapeGame geo;
+        geo.isResearched r res;
+        add r 1;
+        actor.setTag Tag.COOP_SR_SKILL r;
+        set continue_action 0;
+        set spend_tu 0;
+        return;
+soldiers:
+  - type: STR_SOLDIER
+    skills:
+      - STR_COOP_TEST_SR_SKILL
