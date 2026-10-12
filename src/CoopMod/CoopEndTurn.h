@@ -123,6 +123,10 @@ void onBattleResumed(SavedBattleGame* save, int savedSeat);
 /// bt_end_turn_ready presses (SS2.W3: "the client stamps turn from the last
 /// APPLIED side_transition, never from a wire value it has not applied
 /// yet"). Never driven by an incoming bt_end_turn_tally.
+/// RV-U8b (R-U8-1): it also clears this machine's END TURN text and armed
+/// button when they still show an earlier side's tally (the host's own
+/// boundary clears its own in emitTally()'s INERT branch); a tally that
+/// arrived ahead of this restate is kept.
 void onClientAppliedSideTransition();
 
 /// W2-H14 (SM-2, F4012): the SPEC 16 in-memory rejoin's side-phase counter.

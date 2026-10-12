@@ -18159,6 +18159,12 @@ void onClientAppliedSideTransition()
 	if (!isCoopBattle() || coopBattleAuthority().hostSim)
 		return;
 	++g_turn;
+	// RV-U8b (R-U8-1, F10885 / F10963): the side whose tally this machine's END TURN text and armed button still
+	// show has ended - clear them, as the host's own boundary does (emitTally()'s INERT branch, or the new side's
+	// count-0 tally). A tally that arrived ahead of this restate (its turn already the new counter, REV E.57 / D78)
+	// belongs to the new side and is kept. Presentation only: the event_state snapshot and talliesSeen stay.
+	if (g_lastTallyTurn < g_turn)
+		clearPresentationInert();
 
 	// REV E.57 / D78 = (a): this is the exact point this machine's applied
 	// side_transition counter catches up, so it is where a tally that arrived
