@@ -22,7 +22,9 @@ staging (TILES; A's plasma pistol and S3's rifle by lever), the host's END TURN 
                 facing changed and equal on both
       M2-lever  the client's psi lever at S4: one new host context {intent, psi, A}; S4 faction 1 on both (E10)
       M2-unseen the client's psi lever at S5 (unseen): denied invalid_target, S5 unchanged (O1 (a))
-      After M2: S2 / S4 TU 0, reactions 0 (both).
+      After M2: S2 / S4 TU 0, reactions 0 (both); then (R-U3-B-5, F12279) both move by the hash-gated lever to
+      MOVE_AWAY, out of every later walk's sight (on green they stay mind-controlled, so R1's walk would halt on
+      `spot` at S's first turn step).
   R1  the alien reacts to the X-COM host's walk (side 0 turn 2): the client's END TURN; A's pistol back (lever); A
       reactions 100, firing 0, TU A_TU; host set_seed SEED_R1; the host's real-UI walk of S.
       R1-walk / R1-react / R1-alive   as R2 with W {host, walk, S} and the reaction by A; S not out
@@ -83,6 +85,8 @@ KEY_MC, CT_PSI, PSI_ROWS = 51, 3, 3   # MIND CONTROL key, its cursor, the amp's 
 CURSOR_TARGETING = (2, 3, 4, 5)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 UNSEEN_MIN = 21                   # S5's Chebyshev distance from every hostile unit
+MOVE_AWAY = {S2_ID: (4, 34, 0), S4_ID: (8, 34, 0)}   # R-U3-B-5 (TASK 0, 2 red + 2 green boots): open ground on both,
+FACE_AWAY = 4                     # Chebyshev 25 from every R1 / M1 walk tile and live unit; south, away from them
 STEP_S, ORDER_S = 30, 5           # step bound; the bounded wait for an order's context (ends early on green)
 CLIENT_MAP_S = 5                  # R-U3-B-4: the client's message box after an applied psi ev closes in 2.0 s
 ROWS = (("R2", ("R2-walk", "R2-react", "R2-alive", "R2-common")),
@@ -429,6 +433,9 @@ def row_m2(host, client, crash0):
 
 def row_r1(host, client, crash0):
     ev = {}
+    ev["moved"] = [r[0].get("to") for r in session.place_deterministic(host, client, [   # R-U3-B-5
+        {"lever": "battle_teleport_unit", "unit": uid, "x": t[0], "y": t[1], "z": t[2], "dir": FACE_AWAY}
+        for uid, t in MOVE_AWAY.items()], "R-U3-B-5")]
     side_change(host, client, client, FACTION_PLAYER, 2, ev)
     g = give_both(host, client, A_ID, PISTOL, CLIP)
     stat_both(host, client, A_ID, "reactions", 100)
