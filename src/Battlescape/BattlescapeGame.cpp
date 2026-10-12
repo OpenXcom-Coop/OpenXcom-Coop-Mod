@@ -2101,9 +2101,10 @@ void BattlescapeGame::primaryAction(Position pos)
 				{
 					if (targetFaction != FACTION_HOSTILE)
 					{
-						knowTarget = _currentAction.actor->getAIModule()
+						const int coopKnow = coopHumanKnowsTarget(_currentAction.actor, targetUnit, _save); // coop R5-U3 (O1)
+						knowTarget = coopKnow >= 0 ? coopKnow == 1 : (_currentAction.actor->getAIModule()
 							? _currentAction.actor->getAIModule()->validTarget(targetUnit, false, true) // different flags than AI used because AI consider strategy
-							: false;
+							: false);
 					}
 					else
 					{
