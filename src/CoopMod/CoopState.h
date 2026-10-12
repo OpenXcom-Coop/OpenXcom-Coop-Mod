@@ -202,4 +202,47 @@ class CoopDesyncNoticeState : public State
 	static int s_raiseCount;
 };
 
+// coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): ported unchanged from `main` CoopState.h :209-:249.
+/**
+ * PRD-I5: next-launch crash-report consent dialog. Raised once over the main menu
+ * when crash-pending.json names a dump + log that still exist. Three outcomes:
+ *  - BUNDLE:  zip the crash artifacts (SharedEcon::bundleCrashReportFromMarker),
+ *             which deletes the marker and raises the CoopDesyncNoticeState result;
+ *  - NOT NOW: keep the marker (asks again next launch);
+ *  - NEVER:   delete the marker for this crash without bundling.
+ * Palette handling mirrors CoopDesyncNoticeState: adopt the screen underneath (the
+ * main menu). It only ever fires at the boot main-menu altitude, never in battle.
+ */
+class CoopCrashPromptState : public State
+{
+  private:
+	Window *_window;
+	Text *_txtHeadline;
+	Text *_txtMessage;
+	TextButton *_btnBundle;
+	TextButton *_btnNotNow;
+	TextButton *_btnNever;
+	std::string _headline;
+	std::string _message;
+	std::string _markerPath; ///< classic crashDump marker (source 1); empty for a crashlog
+	std::string _dmpPath;    ///< issue #124 VEH crashlog dump (source 2); empty for a marker
+	std::string _logPath;    ///< the paired VEH crash log
+	void buildLayout();
+  public:
+	/// One of {markerPath} (classic) or {dmpPath,logPath} (VEH crashlog) is set.
+	CoopCrashPromptState(const std::string &message, const std::string &headline,
+						 const std::string &markerPath, const std::string &dmpPath,
+						 const std::string &logPath);
+	/// Harness introspection: what this prompt says.
+	std::string getMessageText() const;
+	std::string getHeadlineText() const { return _headline; }
+	void btnBundleClick(Action *);
+	void btnNotNowClick(Action *);
+	void btnNeverClick(Action *);
+	/// Harness introspection: how many prompts were raised this process, and the
+	/// choice the last-dismissed prompt took ("bundle" / "not_now" / "never").
+	static int s_raiseCount;
+	static std::string s_lastChoice;
+};
+
 }
