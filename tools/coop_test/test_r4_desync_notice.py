@@ -218,7 +218,8 @@ def kneel(x, uid):
         return None, {"kneeled": [None, None], "s0": None, "kneel s": round(time.time() - t, 2), "notes": ["TAB never selected %s" % uid]}
     k0, s0 = units(h).get(uid, {}).get("kneeled"), es(h).get("lastSeqEmitted") or 0
     h.ok({"cmd": "inject_input", "kind": "key", "key": hcv.SDLK_K})
-    kn = lambda gc: units(gc).get(uid, {}).get("kneeled")  # noqa: E731
+    bs_live = lambda st: st[-1:] == [BS] or st[-2:] == [BS, NOTICE]  # noqa: E731  R-L3-C-1 (F12303): BattlescapeState live under the notice
+    kn = lambda gc: (session.units_by_id(q(gc, {"cmd": "battle_state"})) if bs_live(stack(gc)) else {}).get(uid, {}).get("kneeled")  # noqa: E731
     try:
         wait("the kneel on both, the host idle", lambda: kn(h) not in (None, k0) and kn(c) == kn(h) and es(h).get("busyOwnerSeat") == -1, 20.0)
     except Stop as e:
