@@ -388,6 +388,8 @@ void ConfirmLandingState::btnYesClick(Action *)
 			// its blob snapshot (the SS2.W1 ORDERING TRAP - the BriefingState push
 			// two lines below is what mints them in vanilla). One of FOUR identical
 			// call sites; no-op off the coop host.
+			// D248-U (owner D248 (b)): the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
+			coopDropMergedGuestVehicles(_game);
 			CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
 			CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 		}

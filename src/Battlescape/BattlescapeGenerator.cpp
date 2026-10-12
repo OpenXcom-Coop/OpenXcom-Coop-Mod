@@ -62,6 +62,7 @@
 #include "../Mod/RuleBaseFacility.h"
 #include "../Mod/Texture.h"
 #include "Pathfinding.h"
+#include "../CoopMod/CoopBattleSetup.h" // coop D248-U: coopTagGuestVehicleUnit
 
 namespace OpenXcom
 {
@@ -1432,6 +1433,7 @@ BattleUnit *BattlescapeGenerator::addXCOMVehicle(Vehicle *v)
 	BattleUnit *unit = addXCOMUnit(_save->createTempUnit(rule, FACTION_PLAYER, _unitSequence++));
 	if (unit)
 	{
+		coopTagGuestVehicleUnit(v, unit); // coop D248-U: a SEPARATE partner's tank copy's unit is tagged; a no-op otherwise
 		if (!_save->isPreview())
 		{
 			_save->createItemForUnit(v->getRules(), unit, true);

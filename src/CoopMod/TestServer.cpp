@@ -7891,6 +7891,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			guestContrib["recvSeats"] = recvSeats;
 			guestContrib["soldiers"] = perSeatCounts;
+			// D248-U: THIS machine's last census count of its own parked tanks, and the HOST's stored count per seat.
+			guestContrib["vehSent"] = coopGuestContribLastSentVehicles();
+			Json::Value perSeatVehicles(Json::arrayValue);
+			for (int s = 0; s < 4; ++s)
+				perSeatVehicles.append(coopGuestContribStoredVehicles(s));
+			guestContrib["vehicles"] = perSeatVehicles;
 			resp["guestContrib"] = guestContrib;
 		}
 		// W2-P4r (spec rewrite/prompts/w2p4r_research_list.md (b)11, NEW,
@@ -13299,6 +13305,7 @@ std::string TestServer::execute(const std::string& line)
 					ju["mindControlled"] = (u->getMindControllerId() != 0);
 					ju["soldierId"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getId() : -1;
 					ju["owner"] = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getOwnerPlayerId() : -1;
+					ju["guestTank"] = u->getCoopGuestTank(); // D248-U: a SEPARATE partner's tank on the host's craft ("" = none)
 					BattleItem* w = u->getMainHandWeapon(false);
 					ju["weapon"] = w ? w->getRules()->getType() : "";
 					// REV E.48 SS.E.3 (SPEC 12): the ARMOR TYPE (Armor::getType(), the

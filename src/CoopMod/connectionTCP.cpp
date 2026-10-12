@@ -153,6 +153,9 @@
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/Tile.h"
 #include "../Savegame/BattleUnit.h"
+#include "../Savegame/Vehicle.h" // D248-U: a SEPARATE partner's parked tank (census, merge, return)
+#include "../Mod/Armor.h" // D248-U: a vehicle rule's size (as Craft::load)
+#include "../Mod/RuleStartingCondition.h" // D248-U: the generator's banned-vehicle credit (QD248-4)
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 // W2-P2 S-A: the delta core reads/writes node types, resolves tile parts the
@@ -6544,6 +6547,7 @@ struct CoopGuestContribEntry
 	int craftId = -1;
 	std::string craftType;
 	std::vector<std::string> soldiers; // each guest's Soldier::save() YAML
+	std::vector<std::string> vehicles; // D248-U: each parked tank's Vehicle::save() YAML (the destination's `vehicles`)
 	bool afterEnd = false; // W2-H19 (F6860): stored while this host's battle was Ended - kept for the NEXT landing (coopResetBattleScope)
 };
 // W2-H19b (F6989): one entry per destination (craftId + craftType) per seat - a client may seat guests on several host crafts.
@@ -6597,6 +6601,178 @@ const std::string& coopGuestContribSoldierYaml(int seat, int craftId, const std:
 // was resent this tick - see sendGuestRosterContrib()).
 static int g_guestContribLastSentCount = 0;
 int coopGuestContribLastSentCount() { return g_guestContribLastSentCount; }
+
+// ===== D248-U S-A (docs rewrite/prompts/d248u_client_tank_host_craft.md; owner D248 (b), D235, D235-VL2): a SEPARATE
+// partner's own tank parked on the host's craft enters the host's battle. The partner's census (sendGuestRosterContrib)
+// sends each of its parked Vehicles (Vehicle::save YAML) with its guest soldiers, the host stores them per destination
+// (CoopGuestContribEntry::vehicles), the landing merge puts a COPY on the landing craft (coopMergeGuestVehicles), the
+// generator tags the copy's battle unit (coopTagGuestVehicleUnit -> BattleUnit::setCoopGuestTank, saved with the unit)
+// and the copy leaves the craft right after generation (coopDropMergedGuestVehicles): the host's world never keeps it.
+// The battle seats the unit to the host like every ownerless player-side unit (R5-U4, D235-VL2). See CoopBattleSetup.h. =====
+static int g_guestContribLastSentVehicles = 0;
+int coopGuestContribLastSentVehicles() { return g_guestContribLastSentVehicles; }
+
+int coopGuestContribStoredVehicles(int seat)
+{
+	if (seat < 0 || seat >= 4)
+		return 0;
+	int count = 0; // over every destination of @a seat
+	for (const auto& entry : g_guestContrib[seat])
+		count += (int)entry.vehicles.size();
+	return count;
+}
+
+namespace
+{
+	// One guest Vehicle copy the landing merge put on @a craft, with the tag its battle unit gets; from
+	// coopMergeGuestVehicles() to coopDropMergedGuestVehicles() (one battle entry). Main thread only.
+	struct CoopGuestVehicleMerged
+	{
+		Vehicle* vehicle;
+		Craft* craft;
+		std::string tag;
+	};
+	std::vector<CoopGuestVehicleMerged> g_coopGuestVehiclesMerged;
+}
+
+void coopDropMergedGuestVehicles(Game* game)
+{
+	if (g_coopGuestVehiclesMerged.empty())
+		return;
+	SavedGame* sg = game ? game->getSavedGame() : nullptr;
+	SavedBattleGame* battle = sg ? sg->getSavedBattle() : nullptr;
+	const RuleStartingCondition* sc = battle ? battle->getStartingCondition() : nullptr;
+	int dropped = 0;
+	for (const CoopGuestVehicleMerged& m : g_coopGuestVehiclesMerged)
+	{
+		bool craftAlive = false;
+		if (sg)
+		{
+			for (auto* base : *sg->getBases())
+			{
+				for (auto* c : *base->getCrafts())
+				{
+					if (c == m.craft)
+						craftAlive = true;
+				}
+			}
+		}
+		if (!craftAlive)
+		{
+			Log(LOG_WARNING) << "[coop-guest-tank] host: merged copy " << m.tag << " - its craft is gone, left alone";
+			continue;
+		}
+		std::vector<Vehicle*>& list = *m.craft->getVehicles();
+		auto it = std::find(list.begin(), list.end(), m.vehicle);
+		if (it == list.end())
+		{
+			Log(LOG_WARNING) << "[coop-guest-tank] host: merged copy " << m.tag << " is no longer on its craft - left alone";
+			continue;
+		}
+		const RuleItem* rule = m.vehicle->getRules();
+		const RuleItem* ammo = rule->getVehicleClipAmmo();
+		if (sc && (!sc->isVehiclePermitted(rule->getType())
+			|| (ammo && !sc->isItemPermitted(ammo->getType(), game->getMod(), m.craft))))
+		{
+			// QD248-4 (a): BattlescapeGenerator::deployXCOM sent this banned copy "back to base" (its item and its clips into
+			// the host's stores); the partner's tank is not the host's, so the credit is taken back.
+			m.craft->getBase()->getStorageItems()->removeItem(rule, 1);
+			if (ammo)
+				m.craft->getBase()->getStorageItems()->removeItem(ammo, rule->getVehicleClipsLoaded());
+			Log(LOG_INFO) << "[coop-guest-tank] host: merged copy " << m.tag << " banned by the starting condition - "
+				"the generator's store credit taken back";
+		}
+		list.erase(it);
+		delete m.vehicle;
+		++dropped;
+	}
+	Log(LOG_INFO) << "[coop-guest-tank] host: " << dropped << " merged partner tank copy(ies) left the craft";
+	g_coopGuestVehiclesMerged.clear();
+}
+
+int coopMergeGuestVehicles(Game* game, Craft* craft)
+{
+	coopDropMergedGuestVehicles(game); // a copy an earlier entry left before its generation (never expected)
+	if (!game || !craft || !craft->getBase() || !connectionTCP::getServerOwner())
+		return 0;
+	Base* base = craft->getBase();
+	const std::string craftType = craft->getRules()->getType();
+	std::map<const RuleItem*, int> admitted;
+	int merged = 0;
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17: private, stays 4)
+	{
+		const CoopGuestContribEntry* entry = coopGuestContribFind(seat, craft->getId(), craftType);
+		if (!entry)
+			continue;
+		for (const std::string& yaml : entry->vehicles)
+		{
+			Vehicle* v = nullptr;
+			try
+			{
+				YAML::YamlRootNodeReader reader(YAML::YamlString{ yaml }, "battleRosterVehicle");
+				const auto vr = reader["vehicle"];
+				const RuleItem* vrule = game->getMod()->getItem(vr["type"].readVal<std::string>(), false);
+				if (vrule && vrule->getVehicleUnit())
+				{
+					v = new Vehicle(vrule, 0, vrule->getVehicleUnit()->getArmor()->getTotalSize()); // Craft::load's shape
+					v->load(vr);
+				}
+			}
+			catch (const std::exception& e)
+			{
+				Log(LOG_ERROR) << "[coop-guest-tank] host: seat " << seat << "'s parked vehicle unreadable: " << e.what();
+				delete v;
+				v = nullptr;
+			}
+			if (!v)
+			{
+				Log(LOG_WARNING) << "[coop-guest-tank] host: seat " << seat << "'s parked vehicle skipped (no vehicle rule)";
+				continue;
+			}
+			const RuleItem* rule = v->getRules();
+			// QD248-1 (a) (main CoopState.cpp :1626-:1628, counted): one spare of its type in the host's stores per partner tank
+			if (admitted[rule] >= base->getStorageItems()->getItem(rule))
+			{
+				Log(LOG_INFO) << "[coop-guest-tank] host: partner tank " << rule->getType() << " of seat " << seat
+					<< " left out: no spare in the host's stores";
+				delete v;
+				continue;
+			}
+			// QD248-2 (a): the craft's whole capacity (both players' halves) and a free vehicle slot
+			if (craft->getMaxUnitsClamped() - craft->getSpaceUsed() < v->getTotalSize()
+				|| craft->getNumVehiclesAndLargeSoldiers() >= craft->getMaxVehiclesAndLargeSoldiersClamped())
+			{
+				Log(LOG_INFO) << "[coop-guest-tank] host: partner tank " << rule->getType() << " of seat " << seat
+					<< " left out: no room on the craft";
+				delete v;
+				continue;
+			}
+			craft->makeCoopVehicle(v); // main's merge shape: coop 1, coopBase -1, onto the craft
+			++admitted[rule];
+			g_coopGuestVehiclesMerged.push_back(CoopGuestVehicleMerged{ v, craft, "coop-guest-tank:" + std::to_string(seat) + ":"
+				+ std::to_string(base->_coop_base_id) + ":" + std::to_string(craft->getId()) + ":" + craftType });
+			++merged;
+			Log(LOG_INFO) << "[coop-guest-tank] host: partner tank " << rule->getType() << " of seat " << seat
+				<< " merged onto craft " << craft->getId() << " (" << g_coopGuestVehiclesMerged.back().tag << ")";
+		}
+	}
+	return merged;
+}
+
+void coopTagGuestVehicleUnit(const Vehicle* v, BattleUnit* unit)
+{
+	if (!v || !unit || g_coopGuestVehiclesMerged.empty())
+		return;
+	for (const CoopGuestVehicleMerged& m : g_coopGuestVehiclesMerged)
+	{
+		if (m.vehicle == v)
+		{
+			unit->setCoopGuestTank(m.tag);
+			Log(LOG_INFO) << "[coop-guest-tank] host: battle unit " << unit->getId() << " is " << m.tag;
+			return;
+		}
+	}
+}
 
 // W2-H19 (F6860; Q3 a): raised by every resetBattleAuthority() (any thread), consumed on the main thread by
 // sendGuestRosterContrib(): after a battle-scope reset this machine resends its whole guest roster once.
@@ -32676,6 +32852,16 @@ static std::string coopSerializeGuestSoldier(Game* game, Soldier* soldier)
 	return writer.emit().yaml;
 }
 
+// D248-U: serialize one of this machine's parked Vehicles for the wire (Vehicle::save()'s YAML, which
+// coopMergeGuestVehicles() reads back with Vehicle::load(), as Craft::load does).
+static std::string coopSerializeGuestVehicle(const Vehicle* vehicle)
+{
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	vehicle->save(writer["vehicle"]);
+	return writer.emit().yaml;
+}
+
 // Last battle_roster_contrib payload actually put on the wire, per
 // destination key ("baseId:craftId:craftType") - mirrors _lastGuestCensus
 // above, one entry per destination instead of one for the whole machine.
@@ -32722,6 +32908,7 @@ void connectionTCP::sendGuestRosterContrib()
 		int craftId = -1;
 		std::string craftType;
 		std::vector<std::string> soldiers;
+		std::vector<std::string> vehicles; // D248-U: the destination's parked tanks (Vehicle::save YAML)
 	};
 	std::map<std::string, Group> groups; // "baseId:craftId:craftType" -> group
 
@@ -32743,12 +32930,34 @@ void connectionTCP::sendGuestRosterContrib()
 			g.craftType = craftType;
 			g.soldiers.push_back(coopSerializeGuestSoldier(_game, soldier));
 		}
+		// D248-U (owner D248 (b)): this machine's own tanks parked on a peer craft - CraftInfoState / SoldiersState OK in a
+		// visited base tag them coopbase / coopcraft / coopcrafttype on this world's first craft - grouped with the guests by
+		// the same destination.
+		for (auto* craftOwn : *base->getCrafts())
+		{
+			for (auto* vehicle : *craftOwn->getVehicles())
+			{
+				if (vehicle->getCoopBase() == -1 || vehicle->getCoopCraft() == -1)
+					continue;
+				const std::string vkey = std::to_string(vehicle->getCoopBase()) + ":" + std::to_string(vehicle->getCoopCraft())
+					+ ":" + vehicle->getCoopCraftType();
+				Group& vg = groups[vkey];
+				vg.baseId = vehicle->getCoopBase();
+				vg.craftId = vehicle->getCoopCraft();
+				vg.craftType = vehicle->getCoopCraftType();
+				vg.vehicles.push_back(coopSerializeGuestVehicle(vehicle));
+			}
+		}
 	}
 
 	int totalSent = 0;
 	for (const auto& kv : groups)
 		totalSent += (int)kv.second.soldiers.size();
 	g_guestContribLastSentCount = totalSent;
+	int vehiclesSent = 0; // D248-U: the parked tanks in this census
+	for (const auto& kv : groups)
+		vehiclesSent += (int)kv.second.vehicles.size();
+	g_guestContribLastSentVehicles = vehiclesSent;
 
 	const int seat = connectionTCP::localSeat();
 	// W2-H19 (F6986; Q2 a): a destination that left the census (its guest was unseated, or came back wounded - MR6) is
@@ -32786,6 +32995,14 @@ void connectionTCP::sendGuestRosterContrib()
 	{
 		const Group& g = kv.second;
 		Json::Value msg = CoopWire::makeRosterContrib(seat, g.baseId, g.craftId, g.craftType.c_str(), g.soldiers);
+		if (!g.vehicles.empty())
+		{
+			// D248-U: the destination's parked tanks (an absent key = none)
+			Json::Value parked(Json::arrayValue);
+			for (const auto& yaml : g.vehicles)
+				parked.append(yaml);
+			msg["vehicles"] = parked;
+		}
 		std::string payload = msg.toStyledString();
 		auto it = _lastRosterContribSent.find(kv.first);
 		if (it != _lastRosterContribSent.end() && it->second == payload)
@@ -35754,7 +35971,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					while (at < entries.size() && !(entries[at].craftId == craftId && entries[at].craftType == craftType))
 						++at;
 					const Json::Value& soldiers = obj["soldiers"];
-					if (!soldiers.isArray() || soldiers.empty())
+					const Json::Value& vehicles = obj["vehicles"]; // D248-U: the destination's parked tanks (absent = none)
+					if ((!soldiers.isArray() || soldiers.empty()) && (!vehicles.isArray() || vehicles.empty()))
 					{
 						if (at < entries.size())
 							entries.erase(entries.begin() + at);
@@ -35771,6 +35989,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						for (const auto& yaml : soldiers)
 						{
 							entry.soldiers.push_back(yaml.asString());
+						}
+						entry.vehicles.clear(); // D248-U
+						if (vehicles.isArray())
+						{
+							for (const auto& yaml : vehicles)
+								entry.vehicles.push_back(yaml.asString());
 						}
 					}
 				}

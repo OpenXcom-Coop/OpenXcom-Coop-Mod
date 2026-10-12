@@ -30,6 +30,7 @@ class BattleUnit;
 class Craft;
 class Game;
 class GeoscapeState;
+class Vehicle; // D248-U
 enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/RuleItem.h does
 
 /**
@@ -211,6 +212,26 @@ void coopStampCraftSeats(Craft* craft);
  * CoopState.cpp (RB-D23: no new .cpp).
  */
 void coopMergeGuestContributions(Game* game, Craft* craft);
+
+/**
+ * D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md; owner D248 (b), D235, D235-VL2): a SEPARATE partner's
+ * own tank parked on the host's craft (its world tags it coopbase / coopcraft / coopcrafttype; its census sends it as
+ * battle_roster_contrib `vehicles`). HOST-ONLY; the three bodies live in connectionTCP.cpp beside the guest store.
+ *
+ * coopMergeGuestVehicles(): the last step of coopMergeGuestContributions() (after the guest soldiers): every stored
+ * parked tank of every seat for @a craft gets a COPY on the craft (Craft::makeCoopVehicle, main's merge shape) when the
+ * host's stores hold a spare of its type for it (QD248-1 (a): main's gate, counted per tank) and the craft has room in
+ * its whole capacity and a free vehicle slot (QD248-2 (a)); returns how many. coopTagGuestVehicleUnit():
+ * BattlescapeGenerator::addXCOMVehicle's one coop line - a merged copy's battle unit gets the tag
+ * "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>" (BattleUnit::setCoopGuestTank, saved with the
+ * unit, so a rejoin, a mid-battle save and stage 2 keep it); a no-op for every other vehicle and outside a landing.
+ * coopDropMergedGuestVehicles(): ConfirmLandingState right after generation - every merged copy leaves its craft and
+ * is deleted (the host's world never keeps the partner's tank); a copy a mission's starting condition banned has the
+ * generator's store credit taken back (QD248-4 (a)).
+ */
+int coopMergeGuestVehicles(Game* game, Craft* craft);
+void coopTagGuestVehicleUnit(const Vehicle* v, BattleUnit* unit);
+void coopDropMergedGuestVehicles(Game* game);
 
 /**
  * W2-H9 (owner D199 = (a); D211/D212 working assumption (a)): the test-server

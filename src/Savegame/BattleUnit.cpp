@@ -682,6 +682,7 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 	}
 	reader.tryRead("mindControllerID", _mindControllerID);
 	reader.tryRead("coop", _coopSeat);
+	reader.tryRead("coopGuestTank", _coopGuestTank); // coop D248-U
 	reader.tryRead("summonedPlayerUnit", _summonedPlayerUnit);
 	reader.tryRead("resummonedFakeCivilian", _resummonedFakeCivilian);
 	reader.tryRead("pickUpWeaponsMoreActively", _pickUpWeaponsMoreActively);
@@ -823,6 +824,8 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 		writer.write("mindControllerID", _mindControllerID);
 	if (_coopSeat != COOP_SEAT_NONE)
 		writer.write("coop", (int)_coopSeat);
+	if (!_coopGuestTank.empty())
+		writer.write("coopGuestTank", _coopGuestTank); // coop D248-U
 	if (_summonedPlayerUnit)
 		writer.write("summonedPlayerUnit", _summonedPlayerUnit);
 	if (_resummonedFakeCivilian)
