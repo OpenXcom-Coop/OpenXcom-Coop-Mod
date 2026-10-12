@@ -427,3 +427,12 @@ and each of the three guarded files names the stage that lifts it in its guard t
 | `test_pvp_campaign_battle.py` | still guarded until D250-U S-B: its gm2 battle entry through the W2-P8b spine (EA4) moves there with the alien client's `no_bases` defect (F13503-F13505); its gm3 leg needs gm3 campaign battles (D250-U S-C, owner question O1) |
 | `test_pvp_campaign_ufo_spawn.py` | still guarded until D250-U S-A2 (capture-first): its gm2 set check once saw two UFOs on the X-COM machine only (F13509, F13510) and its gm3 set check compares two empty sets (F13502); the presses, waits and the own-sim UFO counter are converted |
 | `test_pvp_campaign_resume.py` | still guarded until D246-U S-C / D250-U S-D: its mid-battle legs load release-made saves the rewrite refuses until D246-U converts them |
+
+## Dispositions (R5-U5, post-Wave-2)
+
+Recorded by R5-U5 (docs `rewrite/prompts/r5u5_battle_gift_order.md`; owner D229 (a) + gate, D235, D240 (a); r5-T8 / issue #126).
+
+| test | disposition |
+|---|---|
+| `test_battlescape_soldier_gift.py` | covered (RV-U5 deletes; it stays SKIP-PENDING and is not edited): its ten live-gift behaviours on the rewrite's order path - `test_r5_battle_gift.py` G0 (the gift target at battle entry, after a click, after a TAB), G1 (the key, the menu, the receiver's notice and target, the giver's selection), G3 (a received unit given back at once, D240 (a)), G4 (a unit of another seat refused) and `test_r5_battle_gift_keep.py` K1 (a gift off the giver's go, traditional mode), K2 (the giver's last unit given on its go: its go ends). Its own setup (`test_coop_resume_battle_control.py`, quarantined R4-P2) and its legacy `coopTurn` / `playerTurn` reads do not exist in the rewrite |
+| `test_shared_soldier_gift_dup.py` | run live since R5-U5 S-B (guard removed, one one-way gift and its owner check added): issue #126's back-and-forth SHARED gift leaves both rosters unchanged with no duplicate id, and a one-way gift's soldier is the receiver's after the mission |
