@@ -29430,6 +29430,20 @@ void onBlobChunkAppended(Game* game)
 	bool sepSnapshotTaken = false;
 	if (sepGuestEntry)
 		sepSnapshotTaken = game->getCoopMod()->coopSepEntrySnapshot();
+	// coop W2-H34 (R-9B-6, F12512; docs rewrite/prompts/w2h34_separate_copy_refresh.md): a FIRST battle entry also refreshes
+	// the host's copy of this client's world from the snapshot just taken, as `main` refreshes it at every battle start
+	// (sendMissionFile -> MAP_RESULT_HOST -> writeHostMapFile; quarantined with SS2.D here), so a rejoin adopts the client's
+	// current world instead of its base-placement push. The save-progress round trip streams the STORED own-world blob
+	// (loopData's sendProgressSaveFileToHost key), never the live world, which setSavedGame() below replaces. Not for a
+	// resumed offer (a rejoin, resume or repair adopted the host's copy already); campaign only, with an own base (the host's
+	// blob check would reject a skirmish or a PvP no_bases world with CoopState 994).
+	if (sepSnapshotTaken && !g_pendingClient.resumed && game->getCoopMod()->getCoopCampaign() && connectionTCP::saveID != 0
+		&& !connectionTCP::no_bases)
+	{
+		Json::Value refresh(Json::objectValue);
+		refresh["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
+		game->getCoopMod()->sendTCPPacketData(refresh.toStyledString());
+	}
 
 	// PRD-J02 precedent (LoadGameState.cpp): a SHARED client adopts the
 	// host's streamed world as its own replica, then re-asserts its own seat
