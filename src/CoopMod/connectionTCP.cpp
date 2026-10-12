@@ -6907,6 +6907,35 @@ void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* batt
 int coopItemIdCtrAdopted() { return g_coopItemIdCtrAdopted.load(); }
 unsigned int coopItemIdCtrRefused() { return g_coopItemIdCtrRefused.load(); }
 
+// ----- W2-H26 (docs rewrite/prompts/w2h26_conversion_spawn_faction.md, F11270): a converted unit's
+// spawnUnitFaction rides its own unit record (BattleAuthority.h) -----
+
+void coopSaveSpawnUnitFaction(YAML::YamlNodeWriter& writer, const BattleUnit* unit)
+{
+	// Only a unit vanilla's save leaves without the key (no spawn unit) whose value the load default
+	// (FACTION_HOSTILE, BattleUnit.h) would not restore: SavedBattleGame::convertUnit copies the victim's value onto
+	// every new unit, a type without a spawn unit too. The coopSaveItemIdCtr guard: both machines, every co-op
+	// battle phase past Idle; SP and any non-coop battle write NOTHING, so an SP save is byte-identical.
+	if (!unit || unit->getSpawnUnit() || unit->getSpawnUnitFaction() == FACTION_HOSTILE)
+		return;
+	if (!connectionTCP::getCoopStatic())
+		return;
+	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Idle)
+		return;
+	writer.write("spawnUnitFaction", unit->getSpawnUnitFaction());
+}
+
+void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* unit)
+{
+	// Presence-gated: a record WITH a `spawnUnit` key is vanilla's own (its branch read the key, or ignored a bugged
+	// type); a record without `spawnUnitFaction` (every SP save) leaves the default untouched.
+	if (!unit || reader["spawnUnit"])
+		return;
+	UnitFaction faction = FACTION_HOSTILE;
+	if (reader.tryRead("spawnUnitFaction", faction))
+		unit->setSpawnUnitFaction(faction);
+}
+
 bool isCoopBattle()
 {
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;
