@@ -48,6 +48,7 @@
 #include "Tile.h"
 #include "SavedGame.h"
 #include "SavedBattleGame.h"
+#include "../CoopMod/BattleAuthority.h" // coop W2-H26: coopSaveSpawnUnitFaction / coopLoadSpawnUnitFaction
 #include "../Engine/ShaderDraw.h"
 #include "BattleUnitStatistics.h"
 #include "../fmath.h"
@@ -655,6 +656,7 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 		reader.tryRead("respawn", _respawn);
 		reader.tryRead("spawnUnitFaction", _spawnUnitFaction);
 	}
+	coopLoadSpawnUnitFaction(reader, this); // coop W2-H26 (F11270): presence-gated counterpart of coopSaveSpawnUnitFaction (BattleAuthority.h)
 	reader.tryRead("motionPoints", _motionPoints);
 	reader.tryRead("customMarker", _customMarker);
 	reader.tryRead("alreadyRespawned", _alreadyRespawned);
@@ -782,6 +784,7 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 		writer.write("respawn", _respawn);
 		writer.write("spawnUnitFaction", _spawnUnitFaction);
 	}
+	coopSaveSpawnUnitFaction(writer, this); // coop W2-H26 (F11270): spawnUnitFaction without a spawn unit, co-op only (BattleAuthority.h)
 	writer.write("motionPoints", _motionPoints);
 	if (_customMarker > 0)
 		writer.write("customMarker", _customMarker);

@@ -135,6 +135,20 @@ void coopLoadActiveSeat(const YAML::YamlNodeReader& reader);
 void coopSaveItemIdCtr(YAML::YamlNodeWriter& writer, const SavedBattleGame* battle);
 void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* battle);
 
+/// W2-H26 (docs rewrite/prompts/w2h26_conversion_spawn_faction.md, F11270): the unit-record hook pair for
+/// BattleUnit::_spawnUnitFaction on a unit WITHOUT a spawn unit. Vanilla's BattleUnit::save writes the key only
+/// inside `if (_spawnUnit)` and ::load reads it only there, so a machine that builds a unit from a record (the
+/// client's `unitsAdded` materialization, a rejoin, resume or repair blob) keeps the default FACTION_HOSTILE where
+/// the host holds the faction SavedBattleGame::convertUnit copied from the victim (a player-side conversion), and
+/// the `synced` bucket mixes it. coopSaveSpawnUnitFaction() (BattleUnit::save, after vanilla's spawn block) writes
+/// the key for such a unit only when its value is not FACTION_HOSTILE and only in a co-op battle past Idle (the
+/// coopSaveItemIdCtr guard: the offer blob is built at Handshake), so an SP save is byte-identical.
+/// coopLoadSpawnUnitFaction() (BattleUnit::load, after vanilla's spawn block) is presence-gated: it reads the key
+/// only from a record WITHOUT a `spawnUnit` key (otherwise vanilla's branch read it, or ignored a bugged type); an
+/// SP save never has the key there.
+void coopSaveSpawnUnitFaction(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
+void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* unit);
+
 /// WV-D61 test/introspection, the coopSpotEvsEmitted()/coopSpotEvsApplied()
 /// precedent (CoopArbiter.h): how many times THIS machine's coopLoadItemIdCtr
 /// actually adopted the carried counter (the last carried value stored
