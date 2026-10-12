@@ -2854,7 +2854,7 @@ bool TileEngine::tryReaction(ReactionScore *reaction, BattleUnit *target, const 
 		action.targeting = true;
 
 		// hostile units will go into an "aggro" state when they react.
-		if (unit->getFaction() == FACTION_HOSTILE)
+		if (unit->getFaction() == FACTION_HOSTILE && !coopFactionHumanCommanded(unit->getFaction())) // coop R5-U3 (QU3-4): a human seat's unit reacts as X-COM's do
 		{
 			AIModule *ai = unit->getAIModule();
 			if (ai == 0)

@@ -7895,6 +7895,23 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s)
 	return side != (int)FACTION_PLAYER && side != (int)FACTION_NEUTRAL && coopFactionHumanCommanded(side);
 }
 
+int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, const SavedBattleGame* s)
+{
+	if (!actor || !target || !s || actor->getFaction() == FACTION_PLAYER
+		|| !coopFactionHumanCommanded((int)actor->getFaction()))
+		return -1;
+	// O1 (a) [the orchestrator pins the ruled body at dispatch; (b) is `return 1;`]:
+	for (BattleUnit* u : *const_cast<SavedBattleGame*>(s)->getUnits())
+	{
+		if (u->isOut() || u->getFaction() != actor->getFaction())
+			continue;
+		const std::vector<BattleUnit*>* seen = u->getVisibleUnits();
+		if (std::find(seen->begin(), seen->end(), target) != seen->end())
+			return 1;
+	}
+	return 0;
+}
+
 // W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
 // WR-2): the gate on BattlescapeGame::primaryAction's COMMANDING arms, plus
 // ONE test-only counter. See BattleAuthority.h for the full rationale.
@@ -11279,7 +11296,9 @@ static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, Sav
 	}
 	else if (attackerFaction == FACTION_HOSTILE && targetFaction != FACTION_HOSTILE)
 	{
-		knowTarget = actor->getAIModule() ? actor->getAIModule()->validTarget(targetUnit, false, true) : false;
+		const int coopKnow = coopHumanKnowsTarget(actor, targetUnit, save); // R5-U3 (O1): BattlescapeGame's psi arm, mirrored
+		knowTarget = coopKnow >= 0 ? coopKnow == 1
+			: (actor->getAIModule() ? actor->getAIModule()->validTarget(targetUnit, false, true) : false);
 	}
 	bool psiTargetAllowed = knowTarget && weapon->getRules()->isTargetAllowed(targetFaction, attackerFaction);
 	if (type == BA_MINDCONTROL && attackerFaction == targetFaction)

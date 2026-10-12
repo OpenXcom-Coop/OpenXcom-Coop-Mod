@@ -824,6 +824,11 @@ bool coopFactionHumanCommanded(int faction);
 /// every side start. A client never runs a panic (coopSkipClientPanic()). False everywhere else.
 bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 
+/// R5-U3 S-B (owner O1): psi target knowledge for a human seat's non-player attacker. -1 = not
+/// such an attacker (vanilla's own term runs); otherwise 1 / 0 by O1's rule. Read by the psi arm of
+/// BattlescapeGame::primaryAction() and its host mirror validatePsi().
+int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, const SavedBattleGame* s);
+
 /// SPEC 19 (W1-P20) M2 Branch B: the HOST's per-seat store of the latest
 /// battle_roster_contrib (BattleWire.h) received from that seat - test/
 /// introspection + CoopState.cpp's coopMergeGuestContributions() reads.
