@@ -16500,6 +16500,11 @@ void coopHostMedikit(BattleAction* action, BattleUnit* target, int medikitAction
 	p["action"] = CoopArbiter::coopMedikitActionName(bma);
 	p["bodypart"] = part;
 	coopEmitCue("medikit", p);
+	// W2-H30 (lead L-2): the partner's `medikit` order's C3-Q12 (a) removal (onIntent) - an emptied CONSUMABLE kit
+	// leaves inside this context, after the cue (whose delta still carries its 0 charges), so the removal rides this
+	// context's bt_action_end. MedikitState::onEndClick()'s own removal then finds nothing (SavedBattleGame::
+	// removeItem() returns on an item no longer listed); a no-op for every other kit and at the one-click site.
+	bg->getTileEngine()->medikitRemoveIfEmpty(action);
 	CoopArbiter::endChainArming(!bg->isBusy());
 }
 
@@ -16525,7 +16530,7 @@ void coopHostScanner(BattleAction* action)
 // (tags, TU, stats) and names the actor for the client's bt_action_end; the partner's `skill` order is the
 // intent twin (onIntent's `skill` branch). Vanilla's own lines after skillUse() (the stop, STR_SKILL_NEEDS_ITEM,
 // the instant grenade's fuse write, the continuation) run after this context closed: a continuation is its own
-// action and context, and the fuse write rides that action's first ev.
+// action and context; the fuse write rides its own `prime` host context (W2-H30 L-5: SkillMenuState's coopHostPrime()).
 void coopHostSkill(BattleAction* action, const RuleSkill* skill)
 {
 	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !action || !action->actor || !skill)
