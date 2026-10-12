@@ -1670,7 +1670,7 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args);
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args); } // coop OF2
 		}
 
 		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args); } // coop OF2
@@ -1782,7 +1782,7 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args);
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args); } // coop OF2
 		}
 
 		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args); } // coop OF2
@@ -1924,7 +1924,7 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args);
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args); } // coop OF2
 		}
 
 		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args); } // coop OF2

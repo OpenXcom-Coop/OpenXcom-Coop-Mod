@@ -2885,7 +2885,7 @@ bool TileEngine::tryReaction(ReactionScore *reaction, BattleUnit *target, const 
 			ModScript::ReactionCommon::Worker worker{ target, unit, action.weapon, action.type, reaction->count, originalAction.weapon, originalAction.skillRules, originalAction.type, origTarg, moveType, arc, _save };
 			if (originalAction.weapon)
 			{
-				worker.execute(originalAction.weapon->getRules()->getScript<ModScript::ReactionWeaponAction>(), arg);
+				{ CoopScriptOwner coopOwner(originalAction.actor); worker.execute(originalAction.weapon->getRules()->getScript<ModScript::ReactionWeaponAction>(), arg); } // coop OF2
 			}
 
 			{ CoopScriptOwner coopOwner(target); worker.execute(target->getArmor()->getScript<ModScript::ReactionUnitAction>(), arg); } // coop OF2
@@ -4711,6 +4711,7 @@ int TileEngine::psiAttackCalculate(BattleActionAttack::ReadOnly attack, const Ba
 	auto rng = RNG::globalRandomState().subSequence();
 	int psiAttackResult = 0;
 
+	CoopScriptOwner coopOwnerItem(attacker); // coop OF2: the item script reads the attacker's owner's research
 	psiAttackResult = ModScript::scriptFunc1<ModScript::TryPsiAttackItem>(
 		weapon->getRules(),
 		psiAttackResult,
@@ -4878,6 +4879,7 @@ int TileEngine::meleeAttackCalculate(BattleActionAttack::ReadOnly attack, const 
 
 	int meleeAttackResult = 0;
 
+	CoopScriptOwner coopOwnerItem(attacker); // coop OF2: the item script reads the attacker's owner's research
 	meleeAttackResult = ModScript::scriptFunc1<ModScript::TryMeleeAttackItem>(
 		weapon->getRules(),
 		meleeAttackResult,
