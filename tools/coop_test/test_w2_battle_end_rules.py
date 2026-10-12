@@ -39,9 +39,11 @@ per boot); the Coop_TurnLimit_Test data mod is loaded on E4's boot only:
   E5  T3, all X-COM down (the default map, SEED_MAP 1). The host runs
       battle_action kill_unit_real {faction: 0} (all seven soldiers, the
       real UnitDieBState path; battleNotifyDeath is off, so no death box
-      opens on the host - T0-3), then battle_action end_turn (the direct
-      requestEndTurn(false) lever: no living soldier is left to press the
-      button), then closes its NextTurnState -> NextTurnState::close ->
+      opens on the host - T0-3); no living soldier is left to press the
+      button, so the side ends by itself (W2-H31: a side with no live seat
+      ends at host quiescence through requestEndTurn(false); no press, no
+      lever; spec rewrite/prompts/w2h31_mc_side_never_ends.md), and the
+      host closes its NextTurnState -> NextTurnState::close ->
       finishBattle(false, liveSoldiers 0). Expected record: reason
       soldiersDown, aborted false, inExitArea 0, verdict lose for seats 0 and
       1, tally {1, 0, 0}.
@@ -198,6 +200,7 @@ ROW_EXPECT = {
             "tally": {"liveAliens": 1, "liveSoldiers": 7, "inExit": 0}},
 }
 ROW_PORT = {"E4": "48776", "E5": "48777", "E6": "48778", "E6b": "48779"}
+SELF_END_S = 15      # E5: the host's NextTurnState with no press and no lever (W2-H31)
 
 # ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R5; as test_w2_battle_end.py) -----
 # The client's display-only debrief: the X-COM client (E4, E5, S-B1) and the PvP alien side (E6, E6b; D157 (a), S-D2).
@@ -355,6 +358,15 @@ def host_chain_done(host, dead_ids):
             and bs.get("pendingStates") == 0 and not bs.get("isBusy") and top(host) == "BattlescapeState")
 
 
+def host_dead_settled(host, dead_ids):
+    """HOST only: host_chain_done without its BattlescapeState-on-top term (W2-H31: the side may already have ended
+    by itself, its NextTurnState up): every unit in `dead_ids` is DEAD and no BState is queued or running."""
+    bs = battle_state(host)
+    ub = session.units_by_id(bs)
+    return (all((ub.get(u) or {}).get("status") == STATUS_DEAD for u in dead_ids)
+            and bs.get("pendingStates") == 0 and not bs.get("isBusy"))
+
+
 def host_next_turn_up(host):
     return "NextTurnState" in host.cmd({"cmd": "list_widgets"}).get("state", "")
 
@@ -402,10 +414,9 @@ def stage_e5(host, client, pre):
     r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "faction": FACTION_PLAYER})
     if not r.get("ok") or sorted(r.get("killed") or []) != XCOM_IDS:
         pre.append(f"kill_unit_real faction {FACTION_PLAYER} answered {r} (want ok, killed {XCOM_IDS})")
-    ok, secs = wait_until(lambda: host_chain_done(host, XCOM_IDS), 30, 0.1)
+    ok, secs = wait_until(lambda: host_dead_settled(host, XCOM_IDS), 30, 0.1)
     if not ok:
-        pre.append(f"host kill chain not finished (X-COM DEAD, no BState, BattlescapeState on top) within {secs}s: "
-                   f"host stack {stack(host)}")
+        pre.append(f"host kill chain not finished (X-COM DEAD, no BState) within {secs}s: host stack {stack(host)}")
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
@@ -414,15 +425,13 @@ def stage_e5(host, client, pre):
 
 
 def end_e5(host, client, ending):
-    """E5 ending: the host's end_turn lever (requestEndTurn(false)) and its
-    NextTurnState close (NextTurnState::close -> finishBattle(false, 0))."""
-    try:
-        host.ok({"cmd": "battle_action", "action": "end_turn"})
-    except Exception as e:
-        ending.append(f"host battle_action end_turn: {short(e)}")
-    ok, secs = wait_until(lambda: host_next_turn_up(host), 30, 0.1)
+    """E5 ending: no press and no lever - the side with no live seat ends by
+    itself (W2-H31); the host's NextTurnState close (NextTurnState::close ->
+    finishBattle(false, 0))."""
+    ok, secs = wait_until(lambda: host_next_turn_up(host), SELF_END_S, 0.1)
     if not ok:
-        ending.append(f"host NextTurnState not up within {secs}s after the end_turn lever")
+        ending.append(f"host NextTurnState not up within {secs}s with no press and no lever (W2-H31: a side with no "
+                      f"live seat ends by itself)")
     d = host.cmd({"cmd": "dismiss_popup"})
     if d.get("handled") != "NextTurnState->close":
         ending.append(f"host dismiss_popup answered {d} (want handled NextTurnState->close)")
