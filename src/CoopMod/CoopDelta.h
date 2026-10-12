@@ -632,6 +632,12 @@ void coopCueRevive(BattleUnit* unit);
 /// there. No side effect.
 bool coopIsRemoteIntentAction(const BattleAction& action);
 
+/// R5-U1 S-C (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EC6; D222 gap 3, F4205, F12699): the co-op HOST is
+/// running a partner's or opponent's order - the action-context stack's BASE entry is a client's admitted `intent`,
+/// whatever nested `reaction` / `prox` entries sit above it. False in single player, on a client and while no order
+/// runs. BattlescapeGame::popState()'s empty-selection block reads it (EC5). No side effect.
+bool coopRemoteOrderRunning();
+
 // ----- W2-P4 S-E1, commit S-E1.2: whose force-fire key a shot reads -----
 // Spec rewrite/prompts/w2p4_client_combat_intents.md (b)8 (F423, the per-player
 // half; R3.2 F1-F4). Body: connectionTCP.cpp, next to coopIsRemoteIntentAction().

@@ -1455,7 +1455,11 @@ void BattlescapeGame::popState()
 	// the currently selected unit died or became unconscious or disappeared inexplicably
 	if (_save->getSelectedUnit() == 0 || _save->getSelectedUnit()->isOut())
 	{
-		cancelCurrentAction();
+		// coop R5-U1 S-C (D222 gap 3, F4205; its reaction sibling F12699): a partner's or opponent's running order - its
+		// own states and the reactions it draws - is not this machine's selection: an empty selection (a PvP host off its
+		// own side) never cancels its front state. coopRemoteOrderRunning() is false in SP.
+		if (_states.empty() || !_states.front() || !coopRemoteOrderRunning())
+			cancelCurrentAction();
 		getMap()->setCursorType(CT_NORMAL, 1);
 		_parentState->getGame()->getCursor()->setVisible(true);
 		if (_save->getSide() == FACTION_PLAYER)
