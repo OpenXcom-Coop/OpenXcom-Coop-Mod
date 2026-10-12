@@ -24,6 +24,7 @@
 #include "CannotReequipState.h"
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../CoopMod/SharedEcon.h" // W2-H15 (F5602)
+#include "../CoopMod/CoopScriptOwner.h" // coop OF2 S-C: CoopScriptDebriefOwner around postMissionProcedures (D266 (c))
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
@@ -1587,7 +1588,7 @@ void DebriefingState::prepareDebriefing()
 					|| (aborted && bunit->isInExitArea(END_POINT)))
 				{ // so game is not aborted or aborted and unit is on exit area
 					StatAdjustment statIncrease;
-					bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease);
+					{ CoopScriptDebriefOwner coopOwner(_game, bunit); bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease); } // coop OF2 S-C
 					if (bunit->getGeoscapeSoldier())
 						_soldierStats.push_back(std::pair<std::string, UnitStats>(_game->getCoopMod()->coopDebriefSoldierName(this, bunit->getGeoscapeSoldier()), statIncrease.statGrowth)); // coop (W2-P7 S-C-C, D177)
 					playersInExitArea2++;

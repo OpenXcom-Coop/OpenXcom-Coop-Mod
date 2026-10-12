@@ -6718,6 +6718,10 @@ bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article)
 // CoopScriptOwner around each battle hook that a unit owns (armor -> the wearer, weapon/ammo -> the
 // attacker, skill -> the actor, item -> its holder); nests. Main thread only (scripts run there).
 static thread_local int g_coopScriptOwnerSeat = -1;
+// coop OF2 S-C (owner D266 (c)): the game whose HOST battle-end debriefing a CoopScriptDebriefOwner wraps
+// (BattleUnit::postMissionProcedures, the returnFromMissionUnit script); null = none. Set and restored with
+// the seat above; main thread only.
+static thread_local Game* g_coopScriptDebriefGame = nullptr;
 
 CoopScriptOwner::CoopScriptOwner(const BattleUnit* owner) : _prev(g_coopScriptOwnerSeat)
 {
@@ -6729,6 +6733,43 @@ CoopScriptOwner::~CoopScriptOwner()
 	g_coopScriptOwnerSeat = _prev;
 }
 
+CoopScriptDebriefOwner::CoopScriptDebriefOwner(Game* game, const BattleUnit* owner)
+	: _prevSeat(g_coopScriptOwnerSeat), _prevGame(g_coopScriptDebriefGame)
+{
+	g_coopScriptOwnerSeat = owner ? (int)owner->getCoopSeat() : -1;
+	g_coopScriptDebriefGame = game;
+}
+
+CoopScriptDebriefOwner::~CoopScriptDebriefOwner()
+{
+	g_coopScriptOwnerSeat = _prevSeat;
+	g_coopScriptDebriefGame = _prevGame;
+}
+
+// coop OF2 S-C (owner D266 (c), D263 (a), D149): isResearchedScript()'s routed answer inside a
+// CoopScriptDebriefOwner; the battle screen is gone there, so this never reads it. Routed (0/1) only on the HOST
+// (hostSim) of a connected co-op session whose battle phase is Ended (from coopHostBattleEnd's battle_end to the
+// debriefing's OK: coopDebriefOk -> coopResetBattleScope), for @a game's live world in a SEPARATE campaign with
+// research sync off, outside debug mode, for an owner seat 1..3 with a stored list - vanilla's own
+// isResearched(rule, false) on that seat's research-only world, under the store's mutex (a leaf). Every other
+// case returns -1 and vanilla reads the world it was given.
+static int coopScriptDebriefIsResearched(Game* game, const SavedGame* sg, const RuleResearch* rule, int seat)
+{
+	if (seat < 1 || seat > 3 || !game || !sg || !rule || !connectionTCP::getCoopStatic())
+		return -1;
+	const BattleAuthority& a = coopBattleAuthority();
+	if (!a.hostSim.load() || a.phase.load() != CoopBattlePhase::Ended)
+		return -1;
+	connectionTCP* coop = game->getCoopMod();
+	if (game->getSavedGame() != sg || sg->getDebugMode() || !coop || !coop->getCoopCampaign()
+		|| coop->isSharedCampaign() || coop->_enable_research_sync)
+		return -1;
+	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
+	if (!g_coopSeatResearch[seat])
+		return -1;
+	return g_coopSeatResearch[seat]->isResearched(rule, false) ? 1 : 0;
+}
+
 // coop OF2: isResearchedScript()'s routed answer. Routed (0/1) only for the live world of this machine's live
 // co-op battle in research-separate mode (coopResearchSeparate()), outside debug mode, for an owner seat 1..3
 // with a stored list - vanilla's own isResearched(rule, false) on that seat's research-only world, under
@@ -6736,6 +6777,8 @@ CoopScriptOwner::~CoopScriptOwner()
 int coopScriptIsResearched(const SavedGame* sg, const RuleResearch* rule)
 {
 	const int seat = g_coopScriptOwnerSeat;
+	if (g_coopScriptDebriefGame) // coop OF2 S-C (D266 (c)): the host's battle-end debriefing has its own gate
+		return coopScriptDebriefIsResearched(g_coopScriptDebriefGame, sg, rule, seat);
 	if (seat < 1 || seat > 3 || !sg || !rule || !isCoopBattle())
 		return -1;
 	SavedBattleGame* b = connectionTCP::getStaticBattle();
@@ -27291,7 +27334,7 @@ static std::string coopOverlayGuestRecord(const std::string& ownYaml, const std:
 	int newMissionId)
 {
 	static const char* const kKeys[] = { "name", "currentStats", "rank", "missions", "kills", "stuns",
-		"recovery", "manaMissing", "healthMissing", "improvement", "psiStrImprovement", "diary", "death" };
+		"recovery", "manaMissing", "healthMissing", "improvement", "psiStrImprovement", "diary", "death", "tags" }; // coop OF2 S-C (owner D268 (b)): + the soldier's mod script tags
 	auto ownTree = SaveUpgrade::yamlutil::parseMap(ownYaml);
 	auto copyTree = SaveUpgrade::yamlutil::parseMap(copyYaml);
 	ryml::NodeRef ownS = ownTree->rootref()["soldier"];
