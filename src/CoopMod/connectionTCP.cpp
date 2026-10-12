@@ -942,8 +942,19 @@ static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
 
 	g_battleFrozen.store(true); // halts the R2-P2 apply queue too (BattlePump.h)
 
+	// coop R4-L3 S-C (D232-V1): every desync's report carries this machine's own battle document, not only a `saveBlob`
+	// mismatch's (that one already holds it).
+	std::string ownYaml;
+	if (!saveBlobYaml)
+	{
+		std::uint64_t sbIgnored = 0;
+		if (SavedBattleGame* ownBattle = connectionTCP::getStaticBattle())
+			SharedEcon::computeSaveBlobHash(ownBattle, sbIgnored, &ownYaml);
+		saveBlobYaml = &ownYaml;
+	}
 	const std::string bundlePath = SharedEcon::writeDesyncBundle(bucket, expect, got, seq, kind,
 		saveBlobYaml);
+	g_coopResyncRecord["bundle"] = bundlePath; // coop R4-L3 S-C: the notice names this machine's own report
 
 	Json::Value rep = CoopWire::makeDesync(coopBattleAuthority().battleId.load(), seq,
 		bucket, expect, got);
@@ -2737,6 +2748,21 @@ static void writeHostSaveBlobText(std::uint32_t seq, const std::string& expect)
 		Log(LOG_ERROR) << "[coop-hash] saveBlob desync at seq " << seq << ": kept document hashes " << hex
 			<< ", the report's expect is " << expect;
 	SharedEcon::writeDesyncText("host-saveBlob-seq" + std::to_string(seq) + ".yaml", yaml);
+}
+
+// coop R4-L3 S-C (D232-V1): the kept document of @a seq for the host's own report; false when none is kept.
+static bool keptSaveBlobText(std::uint32_t seq, std::string& yaml)
+{
+	std::lock_guard<std::mutex> lock(g_saveBlobTextMutex);
+	for (auto it = g_saveBlobTexts.rbegin(); it != g_saveBlobTexts.rend(); ++it)
+	{
+		if (seq != 0 && it->seq == seq)
+		{
+			yaml = it->yaml;
+			return true;
+		}
+	}
+	return false;
 }
 
 void resetLightWindow()
@@ -18794,6 +18820,20 @@ static void coopHostOnPeerDesync(const Json::Value& report)
 	coopResyncCount("desyncs");
 	coopResyncNoteLast(report.get("bucket", "").asString(), report.get("seq", 0u).asUInt(),
 		report.get("kind", "").asString(), battleId);
+	// coop R4-L3 S-C (D232-V1): the host writes its own report too - the log tail, the report as context, its battle
+	// document (the kept one of the reported seq when kept, else the live one) and the second player's report path.
+	{
+		std::string hostYaml;
+		if (!CoopDelta::keptSaveBlobText(report.get("seq", 0u).asUInt(), hostYaml))
+		{
+			std::uint64_t sbIgnored = 0;
+			if (SavedBattleGame* hostBattle = connectionTCP::getStaticBattle())
+				SharedEcon::computeSaveBlobHash(hostBattle, sbIgnored, &hostYaml);
+		}
+		g_coopResyncRecord["bundle"] = SharedEcon::writeDesyncBundle(report.get("bucket", "").asString(),
+			report.get("expect", "").asString(), report.get("got", "").asString(), report.get("seq", 0u).asUInt(),
+			report.get("kind", "").asString(), &hostYaml, "host", report.get("bundlePath", "").asString());
+	}
 	const char* skip = nullptr;
 	if (a.phase.load() != CoopBattlePhase::Active)
 		skip = "phase";
@@ -18868,6 +18908,79 @@ bool coopResumedOfferFailed()
 int coopResyncTitleState()
 {
 	return g_coopResyncHalted ? 2 : (g_coopResyncInFlight ? 1 : 0);
+}
+
+// ===== coop R4-L3 S-C (owner D232 (a), D232-V2): the caught-and-repaired notice - `main`'s CoopDesyncNoticeState with its
+// text reworded (STR_COOP_DESYNC_REPORT_SAVED); each machine names its own report. Pushed by the handshake and the pump,
+// never from the apply path. No report on disk = no notice (QL3-13 (a)). =====
+static std::string coopDesyncWrapPath(const std::string& path)
+{
+	const size_t wrap = 44; // `main`'s DESYNC_PATH_WRAP
+	std::string out;
+	size_t start = 0;
+	while (path.size() - start > wrap)
+	{
+		size_t cut = path.find_last_of("/\\", start + wrap - 1);
+		if (cut == std::string::npos || cut <= start)
+			cut = start + wrap - 1;
+		if (!out.empty())
+			out += '\n';
+		out.append(path, start, cut - start + 1);
+		start = cut + 1;
+	}
+	if (start < path.size())
+	{
+		if (!out.empty())
+			out += '\n';
+		out.append(path, start, path.size() - start);
+	}
+	return out.empty() ? path : out;
+}
+
+static std::string coopDesyncUrlEncode(const std::string& s)
+{
+	static const char* hex = "0123456789ABCDEF";
+	std::string out;
+	out.reserve(s.size() * 3);
+	for (unsigned char c : s)
+	{
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
+			out += (char)c;
+		else
+		{
+			out += '%';
+			out += hex[c >> 4];
+			out += hex[c & 0xF];
+		}
+	}
+	return out;
+}
+
+static void coopPushDesyncNotice(Game* game)
+{
+	const std::string path = g_coopResyncRecord.get("bundle", "").asString();
+	if (!game || !game->getLanguage() || path.empty())
+	{
+		Log(LOG_WARNING) << "[coop-resync] no notice: no report was written on this machine";
+		return;
+	}
+	const Json::Value last = g_coopResyncRecord.get("last", Json::Value(Json::objectValue));
+	const std::string bucket = last.get("bucket", "").asString();
+	const std::string kind = last.get("kind", "").asString();
+	const int seq = (int)last.get("seq", 0u).asUInt();
+	const std::string headline = game->getLanguage()->getString("STR_COOP_DESYNC_HEADLINE_ACTION").arg(bucket).arg(seq).arg(kind);
+	std::ostringstream body;
+	body << "A co-op battle desync was detected and repaired automatically.\n\n";
+	body << "Attribution: " << headline << "\n";
+	body << "  bucket: " << bucket << "  seq: " << seq << "  kind: " << kind << "\n\n";
+	body << "Please ATTACH the diagnostic zip (do not paste it) to this issue:\n";
+	body << "  " << path << "\n\n";
+	body << "(auto-generated by the co-op desync reporter; log, battle data and context are in the zip)\n";
+	const std::string url = std::string("https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new?title=")
+		+ coopDesyncUrlEncode("[coop desync] " + headline) + "&body=" + coopDesyncUrlEncode(body.str());
+	game->pushState(new CoopDesyncNoticeState(
+		game->getLanguage()->getString("STR_COOP_DESYNC_REPORT_SAVED").arg(coopDesyncWrapPath(path)), headline, path, url));
+	coopResyncCount("notices");
 }
 
 bool coopFatalVoteArm(SavedBattleGame* /*save*/, int wounded, bool endTurnRequested)
@@ -29421,8 +29534,11 @@ void onBlobChunkAppended(Game* game)
 		// nothing set this true on ANY resume before M5. The r4 handshake's
 		// own success is the equivalent, reliable signal now.
 		coopSession = true;
-		if (g_pendingClient.resync) // coop R4-L3 S-A: the repair's battle is loaded; the hold releases on its own
-			coopResyncCount("loaded");
+		if (g_pendingClient.resync)
+		{
+			coopResyncCount("loaded"); // coop R4-L3 S-A: the repair's battle is loaded; the hold releases on its own
+			coopPushDesyncNotice(game); // coop R4-L3 S-C (D232-V2; QL3-13 (a)): under the hold, shown when it releases
+		}
 		game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 		Log(LOG_INFO) << "[coop-handshake] SPEC16 M5: rejoin - held on "
 			"COOP_DLG_CLIENT_RESUME_HOLD until the host RESUMEs";
@@ -30416,7 +30532,7 @@ void verify(const Json::Value& evOrEnd)
 		// `base` n-mismatch raises the IDENTICAL desync; the desyncFrozen latch
 		// (and the lost-race early return) lives inside it now.
 		const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
-		const std::string kind = evOrEnd.get("kind", "?").asString();
+		const std::string kind = evOrEnd.get("kind", evOrEnd.get("state", "?")).asString();
 		coopRaiseBattleDesync(bucketName.c_str(), expect, got, seq, kind);
 		return;
 	}
@@ -30432,7 +30548,7 @@ void verify(const Json::Value& evOrEnd)
 		if (expect != got)
 		{
 			const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
-			const std::string kind = evOrEnd.get("kind", "?").asString();
+			const std::string kind = evOrEnd.get("kind", evOrEnd.get("state", "?")).asString();
 			coopRaiseBattleDesync("synced", expect, got, seq, kind);
 			return;
 		}
@@ -30455,7 +30571,7 @@ void verify(const Json::Value& evOrEnd)
 		if (expect != got)
 		{
 			const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
-			const std::string kind = evOrEnd.get("kind", "?").asString();
+			const std::string kind = evOrEnd.get("kind", evOrEnd.get("state", "?")).asString();
 			coopRaiseBattleDesync("saveBlob", expect, got, seq, kind, &yaml);
 			return;
 		}
@@ -32803,6 +32919,7 @@ void connectionTCP::updateCoopTask()
 				_game->popState();
 			}
 			coopResyncCount("released");
+			coopPushDesyncNotice(_game); // coop R4-L3 S-C (D232-V2): the host's notice, over its repaired battle
 			Log(LOG_INFO) << "[coop-resync] host: the battle is repaired - the pause is released";
 		}
 	}

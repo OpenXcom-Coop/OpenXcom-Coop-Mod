@@ -2028,6 +2028,44 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		resp["armed"] = true;
 		resp["ok"] = true;
 	}
+	else if (cmd == "desync_dialog")
+	{
+		// coop R4-L3 S-C (`main` TS :7055-:7093's shape, kept for RV-U9's test_crash_reporter): the notice on top (live) and
+		// the statics of the last one raised (they survive its dismissal).
+		resp["ok"] = true;
+		State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		CoopDesyncNoticeState* dlg = dynamic_cast<CoopDesyncNoticeState*>(top);
+		resp["live"] = (dlg != nullptr);
+		if (dlg)
+		{
+			resp["headline"] = dlg->getHeadlineText();
+			resp["message"] = dlg->getMessageText();
+			resp["reportUrl"] = dlg->getReportUrl();
+			resp["openFolderTarget"] = dlg->getOpenFolderTarget();
+			resp["zipPath"] = dlg->getZipPath();
+			Json::Value btns(Json::arrayValue);
+			for (auto* s : dlg->getSurfaces())
+			{
+				if (auto* tb = dynamic_cast<TextButton*>(s))
+				{
+					Json::Value e;
+					e["text"] = tb->getText();
+					e["visible"] = tb->getVisible();
+					e["interactive"] = (dynamic_cast<InteractiveSurface*>(s) != nullptr);
+					btns.append(e);
+				}
+			}
+			resp["buttons"] = btns;
+		}
+		Json::Value st;
+		st["headline"] = CoopDesyncNoticeState::s_lastHeadline;
+		st["message"] = CoopDesyncNoticeState::s_lastMessage;
+		st["reportUrl"] = CoopDesyncNoticeState::s_lastReportUrl;
+		st["openFolderTarget"] = CoopDesyncNoticeState::s_lastOpenTarget;
+		st["zipPath"] = CoopDesyncNoticeState::s_lastZipPath;
+		st["raiseCount"] = CoopDesyncNoticeState::s_raiseCount;
+		resp["last"] = st;
+	}
 	else
 	{
 		return false;

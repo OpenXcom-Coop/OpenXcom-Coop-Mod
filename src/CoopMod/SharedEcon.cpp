@@ -7676,7 +7676,7 @@ bool writeZipArchive(const std::string& path,
 
 std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
 	const std::string& got, std::uint32_t seq, const std::string& kind,
-	const std::string* saveBlobYaml)
+	const std::string* saveBlobYaml, const char* role, const std::string& peerBundlePath)
 {
 	try
 	{
@@ -7697,6 +7697,9 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 		info["seq"] = seq;
 		info["kind"] = kind;
 		info["timestamp"] = desyncTimeString();
+		info["role"] = role ? role : "client"; // coop R4-L3 S-C (D232-V1)
+		if (!peerBundlePath.empty())
+			info["peerBundlePath"] = peerBundlePath;
 
 		std::vector<std::pair<std::string, std::string>> members;
 		members.push_back(std::make_pair(std::string("desync-info.json"), info.toStyledString()));
@@ -7706,7 +7709,7 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 		// W2-P2 S-H (Q-H6): a `saveBlob` mismatch names no field by itself;
 		// this machine's own battle document goes with the report.
 		if (saveBlobYaml && !saveBlobYaml->empty())
-			members.push_back(std::make_pair(std::string("saveBlob-client.yaml"), *saveBlobYaml));
+			members.push_back(std::make_pair(std::string("saveBlob-") + (role ? role : "client") + ".yaml", *saveBlobYaml));
 
 		if (!writeZipArchive(path, members))
 		{

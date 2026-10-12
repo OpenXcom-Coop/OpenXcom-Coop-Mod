@@ -751,9 +751,12 @@ bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::strin
 /// failure. W2-P2 S-H (Q-H6): a non-empty @a saveBlobYaml (the reporting
 /// machine's own battle document, on a `saveBlob` mismatch) is added to the
 /// zip as saveBlob-client.yaml.
+/// coop R4-L3 S-C (D232-V1): @a role ("client" | "host") names the machine in desync-info.json and the document member
+/// (`saveBlob-<role>.yaml`); a non-empty @a peerBundlePath (the host's copy of the second player's report path) rides
+/// desync-info.json as `peerBundlePath`. The defaults keep the second player's existing call unchanged.
 std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
 	const std::string& got, std::uint32_t seq, const std::string& kind,
-	const std::string* saveBlobYaml = nullptr);
+	const std::string* saveBlobYaml = nullptr, const char* role = "client", const std::string& peerBundlePath = std::string());
 
 /// W2-P2 S-H (Q-H6): writes @a text as <user folder>/desync-reports/
 /// desync-<timestamp>-<suffix> (the host's own `saveBlob` document for a
