@@ -11,7 +11,7 @@ resumeAck never true, the host waits on dialog 62 and the rejoiner on 68 for goo
   Boot C (key "48598", w2r4l2_c_host / _client): row CR3, SEPARATE, the host leaves (disconnect_to_menu; aud-I93, MJ-2). Cells: CR3-1
   GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s; CR3-2 GUARD still CoopState 8 s later;
   CR3-3 GUARD OK -> MainMenuState within 60 s, has_save false; CR3-4 GUARD CRASH 0 and client zero-disk.
-Definitions (spec (f)): POLL 0.25 s; W_ACK 30 s (CONSTANTS: max(30 s, 3 x t_world 6.41 s)); PAUSE(host) within 30 s of the leave:
+Definitions (spec (f)): POLL 0.25 s; W_ACK = WATCH_CAP_S (RV-U13 S-D; was max(30 s, 3 x t_world 6.41 s)); PAUSE(host) within 30 s of the leave:
 phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState];
 SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both;
 REJOIN = a fresh client2 on its own dir, join_tcp from the main menu, wait <= W_ACK for the host's resumeAck true AND peerAbsent false
@@ -33,7 +33,8 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-POLL, W_ACK, W_PAUSE = 0.25, 30.0, 30.0
+WATCH_CAP_S = 135  # RV-U13 S-D (R-C26-1): REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+POLL, W_ACK, W_PAUSE = 0.25, WATCH_CAP_S, 30.0
 KEY_H, KEY_C = "48597", "48598"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
 OFFER, REFUSED = "SPEC16 M5: rejoin battle_offer sent (battleId=", "offerResumedBattle() called outside a disk resume"
