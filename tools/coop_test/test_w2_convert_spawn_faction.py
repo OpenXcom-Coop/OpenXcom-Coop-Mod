@@ -134,6 +134,7 @@ def unit_row(u):
     y = _mix_tags(y, u["tags"])
     y = _mix_str(y, u["name"])
     y = _mix_str(y, u["rawName"])
+    y = _mix(y, u["seat"])  # R5-U5: the seat tag, right after the two names (SharedEcon.cpp computeBattleHashes)
     spec = sorted(u["specialWeapons"])
     y = _mix(y, len(spec))
     for s in spec:

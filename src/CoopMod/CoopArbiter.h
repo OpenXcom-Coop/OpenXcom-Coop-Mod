@@ -163,6 +163,9 @@ struct CoopCombatIntentArgs
 	// order's new name (the name field's whole text). Declared on commit S-R.1 because the
 	// battle_intent lever fills it; nothing reads it before S-R.2.
 	std::string name;
+	// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): the `gift` order's target seat. Declared on R5-U5's
+	// red commit because the battle_intent lever fills it; nothing reads it before the green.
+	int giftSeat = -1;
 	// W2-P8b S-C.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md AMENDMENT P8b-1 section 4 S-C): the
 	// `inv_bulk` plan. `action` carries the op (apply|clear|autoequip|save_personal|save_global); these
 	// carry its layout (`template`: apply and the two saves) and the global layout slot (`index`: save_global).

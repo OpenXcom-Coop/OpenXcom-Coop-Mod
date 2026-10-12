@@ -6387,6 +6387,13 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 				return "";
 			};
 		}
+		else if (field == "seat")
+		{
+			// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; FIELD-PARITY): the unit's seat tag, the delta's
+			// `seat`, with BattleUnit::setCoopSeat (-1 = COOP_SEAT_NONE).
+			read = [u]() { return Json::Value((int)u->getCoopSeat()); };
+			write = [u](const Json::Value& v) { u->setCoopSeat((CoopSeat)v.asInt()); return std::string(); };
+		}
 	}
 	else if (cls == "item")
 	{
@@ -6803,7 +6810,7 @@ static void coopSyncedCensus(const Mod* mod, SavedBattleGame* bg, Json::Value& r
 {
 	static const char* const kScUnit[] = { "onTile", "dir", "turretDir", "status", "floating", "armor",
 		"wantsToSurrender", "isSurrendering", "moraleRestored", "spawnUnit", "respawn", "spawnUnitFaction",
-		"alreadyRespawned", "reactPref", "reactOffLeft", "reactOffRight", "tags", "specialWeapons", "name", "rawName" };
+		"alreadyRespawned", "reactPref", "reactOffLeft", "reactOffRight", "tags", "specialWeapons", "name", "rawName", "seat" };
 	static const char* const kScItem[] = { "previousOwner", "unit", "ammo", "fuseEnabled", "medikit",
 		"droppedOnAlienTurn", "xcomProperty", "tags" };
 	static const char* const kScBattle[] = { "objectivesDestroyed", "moduleMap", "bughuntMode", "turn", "side",
@@ -8093,7 +8100,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			|| kind == "melee" || kind == "psi" || kind == "use_item" || kind == "medikit"
 			|| kind == "reload" || kind == "reaction_hands" || kind == "skill"
 			|| kind == "inv_move" // W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2)
-			|| kind == "rename"; // W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3)
+			|| kind == "rename" // W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3)
+			|| kind == "gift"; // R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): the gift order's target seat
 		CoopCombatIntentArgs combatArgs;
 		if (req.isMember("plan") && req["plan"].isObject())
 		{
@@ -8160,6 +8168,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// request's top-level `name`. Before S-R.2 sendClientIntent() drops the unknown kind (not sent).
 		if (kind == "rename")
 			combatArgs.name = req.get("name", "").asString();
+		// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): the `gift` order's target seat, the request's top-level
+		// `target`. Before R5-U5's green, sendClientIntent() drops the unknown kind (not sent).
+		if (kind == "gift")
+			combatArgs.giftSeat = req.get("target", -1).asInt();
 
 		const std::uint32_t iseq = CoopArbiter::sendClientIntent(
 			kind.c_str(), actor, toDir, turret, kneel, tuBasisOverride,
