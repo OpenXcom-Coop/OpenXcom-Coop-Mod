@@ -102,6 +102,7 @@
 #include "../Battlescape/Camera.h"
 #include "../Battlescape/Explosion.h" // W2-P6b S-E.1: display_rules constants HIT_FRAMES
 #include "../Battlescape/WarningMessage.h" // W2-P8b S-A.1: inventory_view lineText / lineVisible
+#include "../Interface/Cursor.h" // W2-H27 (test-only, QH27-3): battle_state cursorVisible
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -13040,6 +13041,10 @@ std::string TestServer::execute(const std::string& line)
 					BattlescapeState* bsForInput = bg->getBattleState();
 					resp["mouseOverIcons"] = bsForInput ? bsForInput->getMouseOverIcons() : false;
 					resp["cursorType"] = bsForInput ? (int)bsForInput->getMap()->getCursorType() : -1;
+					// W2-H27 (QH27-3; docs rewrite/prompts/w2h27_pvp_cursor_after_shot.md): the mouse pointer's visibility on
+					// THIS machine - the Game::getCursor() flag vanilla's popState() sets back with setVisible(true) beside
+					// setupCursor(). A pure read, test-only: no game state, nothing on the wire.
+					resp["cursorVisible"] = (_game && _game->getCursor()) ? _game->getCursor()->getVisible() : false;
 					// W1-P14 (REV E.48 SS.F.2 (i)): the Map::draw hidden-movement gate's
 					// own value on THIS machine. TRUE => the terrain is drawn; FALSE =>
 					// the HIDDEN MOVEMENT message is blitted instead. Read-only.
