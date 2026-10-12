@@ -49,7 +49,7 @@ from test_rw_turn_baton import dismiss_next_turn_if_present  # noqa: E402
 KEY, TAG = "48752", "r4l3_r"
 SEED_MAP, MAP_FP = 1, -4.48310638993e+18   # DC's map (CONSTANTS: 5 boots)
 H, H2, G = 10, 11, 8                       # the first / second host-seat soldier, the first seat-1 soldier
-G_TILE, G_DEST = (14, 19, 1), (14, 17, 1)  # G's start tile; path_probe 2 steps on both, Chebyshev 13 from the alien
+G_TILE, G_DEST = (14, 19, 1), (14, 17, 0)  # G's start tile; the walk's measured end tile (R-L3-A-4, F11791: (14, 17, 1) has no floor)
 U, K4 = 8, 10                              # corrupt_bucket's unit (the first live unit) and the kneeler that does not restate it
 KIND_DR1, SEQ_OFF_DR1 = "?", 2             # a bt_action_end carries no `kind` (F11651); its seq = s0 + 2 (Ra, Rd, Re)
 BUCKET_DR4, KIND_DR4 = "unitsStats", "kneel"
@@ -314,10 +314,19 @@ def capture(x):
 
 
 def kneel(x, uid):
-    """hcv.host_kneel(host, client, uid, notes, wait_client=False) -> (s0, evidence)"""
-    notes, t = [], time.time()
-    k0, k1, s0 = hcv.host_kneel(x.host, x.client, uid, notes, wait_client=False)
-    return s0, {"kneeled": [k0, k1], "s0": s0, "host_kneel s": round(time.time() - t, 2), "notes": notes}
+    """the host's real-UI kneel of uid (hcv.host_kneel's TAB-select + SDLK_K), reset-safe wait (R-L3-A-4, F11793): the kneel flipped on the
+    host, visible on both, the host idle (the repair's CoopPump::reset(false) can keep hcv's `lastSeqEmitted > s0` false) -> (s0, evidence)"""
+    h, c, notes, t = x.host, x.client, [], time.time()
+    if not hcv.tab_select(h, uid):
+        return None, {"kneeled": [None, None], "s0": None, "kneel s": round(time.time() - t, 2), "notes": ["TAB never selected %s" % uid]}
+    k0, s0 = units(h).get(uid, {}).get("kneeled"), es(h).get("lastSeqEmitted") or 0
+    h.ok({"cmd": "inject_input", "kind": "key", "key": hcv.SDLK_K})
+    kn = lambda gc: units(gc).get(uid, {}).get("kneeled")  # noqa: E731
+    try:
+        wait("the kneel on both, the host idle", lambda: kn(h) not in (None, k0) and kn(c) == kn(h) and es(h).get("busyOwnerSeat") == -1, 20.0)
+    except Stop as e:
+        notes.append(str(e))
+    return s0, {"kneeled": [k0, kn(h)], "s0": s0, "kneel s": round(time.time() - t, 2), "notes": notes}
 
 
 def row_dr1(x, results, walls):
