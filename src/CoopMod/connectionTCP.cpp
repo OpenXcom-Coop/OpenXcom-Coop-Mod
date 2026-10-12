@@ -27881,7 +27881,8 @@ struct PendingClient
 	bool stage = false;
 	// coop R4-L3 S-A: the offer carried `resync` (the host's automatic desync repair).
 	bool resync = false;
-	// coop R4-L3 S-A (R-L3-A-5, F11792): the side the repair's offer names (a faction); -1 = absent (every other offer).
+	// coop R4-L3 S-A (R-L3-A-5, F11792); W2-H33 (R-9B-4, F11800): the side a live offer names (a faction) - the repair's
+	// and every SPEC 16 rejoin's; -1 = absent (a fresh, stage or disk-resume offer).
 	int resyncSide = -1;
 };
 static PendingClient g_pendingClient;
@@ -28656,8 +28657,9 @@ void offerRejoinBattle(Game* game)
 		offer["resync"] = true;
 	// coop R4-L3 S-A (R-L3-A-5, F11792): the battle document carries no side (vanilla saves only on the player's turn), so
 	// the repair's offer names the side the host's battle is on; the second player's reload takes it before the release.
-	if (g_coopOfferIsResync)
-		offer["resyncSide"] = coopFactionToWireString((int)battle->getSide());
+	// coop W2-H33 (R-9B-4, F11800): every live offer names it - a SPEC 16 rejoin (skirmish or campaign) offered while the
+	// host's battle is on the alien side loaded the player's side on the returning player, as the repair once did.
+	offer["resyncSide"] = coopFactionToWireString((int)battle->getSide());
 
 	// W1-P2 (SS2.W1): the SAME mission identity this battle was offered
 	// with originally - still live on the battle object, never reset by M1.
@@ -29203,7 +29205,8 @@ void onBlobChunkAppended(Game* game)
 	}
 
 	// coop R4-L3 S-A (R-L3-A-5, F11792): the repair's battle takes the side the host's battle is on (the document has none).
-	if (g_pendingClient.resync && g_pendingClient.resyncSide >= 0)
+	// coop W2-H33 (R-9B-4, F11800): so does a rejoin's - every offer that names the side (the key is absent on the others).
+	if (g_pendingClient.resyncSide >= 0)
 		battle->coopSetSide((UnitFaction)g_pendingClient.resyncSide);
 
 	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 4, PR-13; F2509, T0-5): a SEPARATE guest's battle entry.
