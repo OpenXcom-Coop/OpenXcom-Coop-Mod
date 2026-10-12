@@ -149,6 +149,24 @@ void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* batt
 void coopSaveSpawnUnitFaction(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
 void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
+/// coop D246-U (owner D246 = b, narrowing FW-7; docs rewrite/prompts/d246u_midbattle_save_convert.md): a mid-battle co-op
+/// save made by an OLDER version (no coopBattleProtocol in its header: the release line never writes one) resumes on this
+/// build. coopOlderBattleConvertible() is SavedGame::load()'s gate: true for the game modes the conversion handles
+/// (classic and SHARED co-op, 0 / 1); every other unstamped battle save keeps FW-7's refusal. coopConvertOlderBattleSave()
+/// runs on the HOST's menu load right after the battle block loads (@a body = the save's body document):
+///  (0) every partner world the load restored (coopFilesHost "host_" entries): its battle snapshot stripped and its mirrors
+///      of the host's soldiers dropped, as the release line's save upgrader treats a legacy partner world (SchemaStep1to2);
+///  (1) seat tags - the release line writes `coop` 0 / 1 on EVERY unit, the key this build reads as the seat tag: a unit of
+///      another original faction is unseated, a player-side unit with a soldier keeps seat 0 / 1, any other player-side
+///      unit is the host's (D235-VL2, D248);
+///  (2) the turn mode it was played in (D-22), only when the battle block has no coopTurnMode: the campaign-block
+///      `coop_parallel_turns` true = parallel, false or absent = traditional (v2.0.x played alternating turns);
+///  (3) the mission deployment (D99), only when the battle block has no coopDeployment, resolved as
+///      CoopHandshake::mintMissionLabels() resolves it.
+/// One [coop-convert] log line. A save this build wrote carries the stamp and is never converted.
+bool coopOlderBattleConvertible(int gamemode);
+void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeReader& body);
+
 /// WV-D61 test/introspection, the coopSpotEvsEmitted()/coopSpotEvsApplied()
 /// precedent (CoopArbiter.h): how many times THIS machine's coopLoadItemIdCtr
 /// actually adopted the carried counter (the last carried value stored

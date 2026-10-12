@@ -7279,6 +7279,146 @@ void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* un
 		unit->setSpawnUnitFaction(faction);
 }
 
+// coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): see BattleAuthority.h.
+bool coopOlderBattleConvertible(int gamemode)
+{
+	return gamemode == 0 || gamemode == 1; // classic / SHARED; PvP (2 / 3) and PvE2 (4) are D246-U stage S-C's
+}
+
+void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeReader& body)
+{
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!battle || !mod)
+		return;
+	const YAML::YamlNodeReader block = body["battleGame"];
+
+	// (0) the partner worlds
+	int partnerBattles = 0, partnerMirrors = 0;
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		for (auto& kv : connectionTCP::coopFilesHost)
+		{
+			if (kv.first.compare(0, 5, "host_") != 0 || kv.second.empty())
+				continue;
+			try
+			{
+				SaveUpgrade::SaveWorld world;
+				world.ingestStream(kv.second);
+				ryml::NodeRef worldHeader = world.header();
+				ryml::NodeRef worldBody = world.body();
+				bool changed = false;
+				if (SaveUpgrade::yamlutil::hasKey(worldBody, ryml::to_csubstr("battleGame")))
+				{
+					SaveUpgrade::yamlutil::removeKey(worldBody, ryml::to_csubstr("battleGame"));
+					for (const char* key : { "mission", "target", "craftOrBase", "turn" })
+						SaveUpgrade::yamlutil::removeKey(worldHeader, ryml::to_csubstr(key));
+					partnerBattles++;
+					changed = true;
+				}
+				ryml::NodeRef bases = worldBody.find_child(ryml::to_csubstr("bases"));
+				if (!bases.invalid() && bases.is_seq())
+				{
+					for (ryml::NodeRef base : bases.children())
+					{
+						if (!base.is_map())
+							continue;
+						ryml::NodeRef soldiers = base.find_child(ryml::to_csubstr("soldiers"));
+						if (soldiers.invalid() || !soldiers.is_seq())
+							continue;
+						std::vector<size_t> mirrors;
+						for (ryml::NodeRef soldier : soldiers.children())
+						{
+							if (!soldier.is_map() || SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("coop"), 0) == 0)
+								continue;
+							const bool durableGuest = SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("ownerplayerid"), 999) != 999
+								&& SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("coopbase"), -1) != -1;
+							if (!durableGuest)
+								mirrors.push_back(soldier.id());
+						}
+						for (size_t id : mirrors)
+							soldiers.tree()->remove(id);
+						partnerMirrors += (int)mirrors.size();
+						changed = changed || !mirrors.empty();
+					}
+				}
+				if (changed)
+					kv.second = world.emit();
+			}
+			catch (...)
+			{
+				Log(LOG_ERROR) << "[coop-convert] D246: partner world '" << kv.first << "' could not be read - left as saved";
+			}
+		}
+	}
+
+	// (1) seat tags
+	int seated0 = 0, seated1 = 0, unseated = 0;
+	for (auto* unit : *battle->getUnits())
+	{
+		if (!unit)
+			continue;
+		if (unit->getOriginalFaction() != FACTION_PLAYER)
+		{
+			if (unit->getCoopSeat() != COOP_SEAT_NONE)
+				unseated++;
+			unit->setCoopSeat(COOP_SEAT_NONE);
+			continue;
+		}
+		const CoopSeat saved = unit->getCoopSeat();
+		const CoopSeat seat = (unit->getGeoscapeSoldier() && (saved == COOP_SEAT_0 || saved == COOP_SEAT_1)) ? saved : COOP_SEAT_0;
+		unit->setCoopSeat(seat);
+		if (seat == COOP_SEAT_1)
+			seated1++;
+		else
+			seated0++;
+	}
+
+	// (2) the turn mode it was played in (D-22)
+	if (!block["coopTurnMode"])
+	{
+		bool parallel = false;
+		body.tryRead("coop_parallel_turns", parallel);
+		coopBattleAuthority().turnMode = parallel ? CoopTurnMode::Parallel : CoopTurnMode::Traditional;
+	}
+
+	// (3) the mission deployment (D99), CoopHandshake::mintMissionLabels()'s resolution
+	std::string deploymentType = CoopHandshake::carriedDeploymentType();
+	if (!block["coopDeployment"])
+	{
+		const std::string mission = battle->getMissionType();
+		AlienDeployment* deployment = mod->getDeployment(mission);
+		if (mission == "STR_BASE_DEFENSE")
+		{
+			AlienDeployment* customDeployment = mod->getDeployment(battle->getAlienCustomDeploy());
+			if (customDeployment && !customDeployment->getBriefingData().desc.empty())
+				deployment = customDeployment;
+		}
+		else if (!deployment)
+		{
+			for (auto* base : *save->getBases())
+			{
+				for (auto* craft : *base->getCrafts())
+				{
+					Ufo* ufo = (!deployment && craft->isInBattlescape()) ? dynamic_cast<Ufo*>(craft->getDestination()) : nullptr;
+					if (!ufo)
+						continue;
+					std::string ufoMissionName = ufo->getRules()->getType();
+					if (!battle->getAlienCustomMission().empty())
+						ufoMissionName = battle->getAlienCustomMission(); // fake underwater UFO
+					deployment = mod->getDeployment(ufoMissionName);
+				}
+			}
+		}
+		deploymentType = deployment ? deployment->getType() : std::string();
+		if (!deploymentType.empty())
+			CoopHandshake::adoptCarriedDeployment(deploymentType);
+	}
+
+	Log(LOG_INFO) << "[coop-convert] D246: an older version's mid-battle co-op save converted - partner worlds: battle snapshots "
+		<< partnerBattles << ", mirrors " << partnerMirrors << "; seats 0/1 " << seated0 << "/" << seated1 << ", unseated "
+		<< unseated << "; turnMode " << coopTurnModeName(coopBattleAuthority().turnMode) << "; deployment \"" << deploymentType << "\"";
+}
+
 bool isCoopBattle()
 {
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;
