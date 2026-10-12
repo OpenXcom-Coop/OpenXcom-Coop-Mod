@@ -50,9 +50,12 @@ WHAT THIS ASSERTS.
     if these controls could not move a bucket in the first place (WR-27: do
     not ship an assertion that is true by construction). So the last thing
     this test does is let the HOST press ZERO TU and the hand-reaction toggle
-    for real, and asserts that `unitsStats` and `saveBlob` NOW DIFFER, naming
-    the fields that moved. No equality assertion runs after that point, and
-    nothing else happens in the battle, so nothing is left to freeze on it.
+    for real. ZERO TU must move the host's own `unitsStats` (W2-H30: the
+    host's press now reaches the client in one host action, so the two
+    machines are not compared for it); the hand toggle must make `saveBlob`
+    DIFFER, naming the fields that moved. No equality assertion runs after
+    that point, and nothing else happens in the battle, so nothing is left
+    to freeze on it.
 
 REACHABILITY, checked rather than assumed (WR-27 again). Every control here is
 genuinely pressable on a co-op client: allowButtons() needs
@@ -535,27 +538,27 @@ def main():
         h_before = units_by_id(battle_state(host))[h_unit]
         assert h_before["tu"] > 0, f"host unit {h_unit} already at 0 TU"
 
+        # W2-H30 (docs rewrite/prompts/w2h30_host_local_actions.md, QH30-5): the
+        # host's own ZERO TU press now reaches the client in one `host` action
+        # (coopHostZeroTu), so this control's non-vacuity is proved on the HOST
+        # alone - its own unitsStats moves with the press - and the two machines
+        # are not compared for it. The hand toggle below stays the deliberate
+        # divergence (W2-P8 Q7 (a), N29).
+        s0 = host.cmd({"cmd": "hash_now", "buckets": ["unitsStats"]})["h"]["unitsStats"]
         host.ok({"cmd": "battle_ui_press", "control": "zero_tu"})
         time.sleep(0.6)
         h_after = units_by_id(battle_state(host))[h_unit]
-        c_view = units_by_id(battle_state(client))[h_unit]
         assert h_after["tu"] == 0, (
             f"the HOST's zero-TU press did nothing ({h_before['tu']} -> "
             f"{h_after['tu']}) - phase 1's 'TU unchanged' assertion is then "
             "vacuous, because the control cannot zero TU at all")
-        assert c_view["tu"] == h_before["tu"], (
-            "the client's copy changed too - nothing on the wire carries this, "
-            f"so it should still read {h_before['tu']}, got {c_view['tu']}")
-        stats = {}
-        for gc, who in ((host, "host"), (client, "client")):
-            stats[who] = gc.cmd({"cmd": "hash_now", "buckets": ["unitsStats"]})["h"]
-        assert stats["host"]["unitsStats"] != stats["client"]["unitsStats"], (
-            "unitsStats is EQUAL after the host zeroed a unit's TU locally - "
+        s1 = host.cmd({"cmd": "hash_now", "buckets": ["unitsStats"]})["h"]["unitsStats"]
+        assert s1 != s0, (
+            "the host's unitsStats did not move when it zeroed a unit's TU - "
             "then the bucket does not cover this control and phase 1's "
             "mint-proof was vacuous for it")
         print(f"  PASS negative control (zero_tu): host TU {h_before['tu']} -> 0, "
-              f"client still {c_view['tu']}, unitsStats now DIFFERS "
-              f"({stats['host']['unitsStats']} vs {stats['client']['unitsStats']})")
+              f"host unitsStats moved ({s0} -> {s1})")
 
         host.ok({"cmd": "battle_ui_press", "control": "hand_reaction", "hand": "right"})
         time.sleep(0.6)
