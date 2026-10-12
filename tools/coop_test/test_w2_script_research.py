@@ -1,13 +1,14 @@
-"""OF2 S-A - a battle mod script on the second player's soldier reads the research of the player who owns it
-(owner D263 (a), D258 (b); spec docs rewrite/prompts/of2_mod_script_player_reads.md, AMENDMENT OF2-1 section 6;
-TASK 0 docs rewrite/of2-task0/sa/CONSTANTS.md; F1375, F11470-F11480, F11920-F11939).
+"""OF2 S-A / S-B - a battle mod script on the second player's soldier, or on the weapon and ammo it fires, reads the
+research of the player who owns it (owner D263 (a), D258 (b); spec docs rewrite/prompts/of2_mod_script_player_reads.md,
+AMENDMENT OF2-1 section 6; TASK 0 docs rewrite/of2-task0/sa/CONSTANTS.md and sb/CONSTANTS.md; F1375, F11470-F11480,
+F11920-F11939, F12175-F12194).
 In a SEPARATE campaign with research sync off each player has its own research. Every battle-rule mod script
 today reads the HOST's research, also for the second player's soldier. The test MOD Coop_ScriptResearch_Test
 (both machines) writes one BattleUnit tag per hook = 1 + isResearched(STR_PLASMA_PISTOL), read through
 battle_game.getGeoscapeGame: 0 = the hook never ran, 1 = the host's research (not researched), 2 = the second
 player's (researched). The client researched STR_PLASMA_PISTOL, the host did not (CR's boot).
 ONE boot (test_w2_client_research's research-separate guest battle, lobby key 48998, the MOD on both machines);
-four rows in this order:
+five rows in this order:
   SR0  after battle entry, before any order: SR0-G (G's COOP_SR_TURN == 2 on both machines: the host's equip
        barrier starts turn 1 after battle_accept stored the second player's research list, so G's first-turn
        newTurnUnit reads it; R-OF2-A-2, F11983), SR0-all (every other live unit's == 1 on both; 0 = the MOD did
@@ -17,13 +18,22 @@ four rows in this order:
   SR2  the client presses G's mod skill (TAB, SKILLS by rect, KEY_SKILL), then the host presses H's: SR2-G (G's
        COOP_SR_SKILL == 2 on both), SR2-H (H's == 1 on both), SR2-intent (the host's intentsReceivedLog holds G's
        skill), SR2-common.
+  SR4  G holds the plasma pistol + clip (give_both), the alien A (the lowest live hostile id, the same on both
+       machines) gets reactions 0 (F11033) and is teleported onto TGT_SR4 (G's tile + TGT_SR4_OFF, facing G), all
+       client first; the client's real-UI snap at A (CR.run_press, the host's set_seed SEED_SR4 right before the
+       click): SR4-guard (one admitted shoot order, the shot cue {actor G, weapon the pistol} and no other shot, A's
+       health dropped, >= 1 live hostile after, the battle running, the click outside the SKILLS rect: else the
+       fixture missed), SR4-ammo (G's COOP_SR_AHIT / AMMO / ASPEC == 2 on both: the weapon's ammo scripts read the
+       attacker's player's research, C1-C3), SR4-alien (A's COOP_SR_DMG == 1 on both: its armour reads the host's
+       world), SR4-common.
   SR3  LAST (it stuns G and H): host battle_action kill_unit_real {stun} on G, then on H: SR3-G (G's COOP_SR_HIT /
        DMG / SPEC == 2 on both), SR3-H (H's == 1 on both), SR3-state (both stunned, not dead, battle running),
        SR3-common.
 Common cell (every row): after wait_host_idle, test_w2_client_shoot.common_fails empty (hash_now full every bucket
 EQUAL, desyncSeen false on both, the client's coopClientBStatePushes unchanged and the host's 0), every live unit's
 tags equal on both machines (field_poke peek), and no crash file since the boot.
-RED (unchanged build): exactly SR0-G, SR1-G, SR2-G, SR3-G FAIL (G reads 1). GREEN (A2): every cell PASS.
+RED of S-A (A1): exactly SR0-G, SR1-G, SR2-G, SR3-G FAIL (G reads 1). RED of S-B (B1, on A2): exactly SR4-ammo FAILS
+(G's ammo tags read 1). GREEN (B2): every cell PASS.
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
@@ -41,9 +51,10 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral
 import test_w2_client_research as CR
-from test_w2_client_shoot import snap, common_fails, await_press, press, menu_rows
+from test_w2_client_shoot import (snap, common_fails, await_press, press, menu_rows, give_both, admitted_fails,
+                                  chain_of, shot_payloads, KEY_SNAP)
 from test_w2_client_grenade import cancel_client_targeting
-from test_w2_delta_core import end_turn_cycle, both, short
+from test_w2_delta_core import end_turn_cycle, both, short, tele_both
 from test_rw_turn_baton import click_nth
 from test_rw_seat_pacing import tab_select
 
@@ -56,9 +67,13 @@ SKILL = "STR_COOP_TEST_SR_SKILL"
 SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (28 / 29, F11478)
 KEY_SKILL = 49                    # the first (only) skill row
 # raw field_poke tag index = the MOD's definition order, equal on both machines (F11472)
-TAG_TURN, TAG_SKILL, TAG_HIT, TAG_DMG, TAG_SPEC = 0, 1, 2, 3, 4
+TAG_TURN, TAG_SKILL, TAG_HIT, TAG_DMG, TAG_SPEC, TAG_AHIT, TAG_AMMO, TAG_ASPEC = 0, 1, 2, 3, 4, 5, 6, 7
 TAG_NAMES = {TAG_TURN: "COOP_SR_TURN", TAG_SKILL: "COOP_SR_SKILL", TAG_HIT: "COOP_SR_HIT", TAG_DMG: "COOP_SR_DMG",
-             TAG_SPEC: "COOP_SR_SPEC"}
+             TAG_SPEC: "COOP_SR_SPEC", TAG_AHIT: "COOP_SR_AHIT", TAG_AMMO: "COOP_SR_AMMO", TAG_ASPEC: "COOP_SR_ASPEC"}
+SEED_SR4 = 1                      # the host's set_seed right before the click: the first hitting seed (T0-B3, 4 boots)
+TGT_SR4_OFF = (0, 2, 0)           # TGT_SR4 = G's tile + this, due south (CR TGT_OFF["TGT1"] shape; free on 5 boots)
+ALIEN_DIR = 0                     # A faces north, toward G (side FRONT)
+FACTION_HOSTILE = 1
 HOST_R, OWNER_R = 1, 2            # 1 + isResearched(STR_PLASMA_PISTOL): the host's research / the second player's
 MIN_LIVE_PLAYERS = 3              # SR3 stuns G and H; the battle must keep running (F11032)
 STATUS_UNCONSCIOUS = 7
@@ -69,6 +84,7 @@ POLL_S = 0.1
 MENU_S = 5.0
 CELLS = {"SR0": ("SR0-G", "SR0-all", "SR0-common"), "SR1": ("SR1-G", "SR1-H", "SR1-common"),
          "SR2": ("SR2-G", "SR2-H", "SR2-intent", "SR2-common"),
+         "SR4": ("SR4-guard", "SR4-ammo", "SR4-alien", "SR4-common"),
          "SR3": ("SR3-G", "SR3-H", "SR3-state", "SR3-common")}
 
 
@@ -98,6 +114,11 @@ def unit(gc, uid):
 
 def live_players(gc):
     return sorted(u["id"] for u in battle_state(gc).get("units", []) if u.get("isPlayerSoldier") and not u.get("isOut"))
+
+
+def hostiles(gc):
+    return sorted(u["id"] for u in battle_state(gc).get("units", []) if u.get("faction") == FACTION_HOSTILE
+                  and not u.get("isOut"))
 
 
 def log_lines(gc):
@@ -326,6 +347,73 @@ def row_sr2(ev, res, host, client, st):
     res["SR2-common"] = joined(common(host, client, before, "SR2", st["crash0"]))
 
 
+def row_sr4(ev, res, host, client, st):
+    G = st["G"]
+    before = snap(host, client)
+    hh, hc = hostiles(host), hostiles(client)
+    A = hh[0] if hh and hh == hc else None   # the alien: the lowest live hostile id, the same on both machines
+    gu = session.units_by_id(battle_state(host)).get(G) or {}
+    tgt = tuple((gu.get(k) or 0) + o for k, o in zip(("x", "y", "z"), TGT_SR4_OFF))
+    ev.update({"A": A, "liveHostiles": len(hh), "TGT_SR4": tgt})
+    miss = None if A is not None else f"live hostiles host {hh} client {hc} (want the same ids, >= 1)"
+    if not miss:   # staging: every lever client first (both / tele_both), the ids from the lever replies (S25)
+        try:
+            ev["pistol"] = wid, _ = give_both(host, client, G, CR.PISTOL, CR.PCLIP)
+            both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A, "stat": "reactions",
+                                "value": 0}, ("tu",))   # F11033: A never reacts
+            tele_both(host, client, A, tgt, ALIEN_DIR)
+        except AssertionError as e:
+            miss = f"staging: {short(e, 400)}"
+    if miss:
+        capture(host, client, "SR4")
+        res.update({c: f"construction: {miss}" for c in CELLS["SR4"]})
+        return
+    a0 = {n: unit(gc, A) for n, gc in pairs(host, client)}
+    b0, rec, pv, out, notes = CR.run_press(host, client, {"G": G}, KEY_SNAP, tgt, SEED_SR4)
+    t0 = time.time()
+    while time.time() - t0 < FOLLOW_S and (tags(client, G) != tags(host, G) or tags(client, A) != tags(host, A)):
+        time.sleep(POLL_S)
+    ev["tFollow"] = round(time.time() - t0, 2)
+    fails, cx = admitted_fails(b0, rec, "shoot", G)
+    aid = (cx or {}).get("actionId")
+    chain = chain_of(rec, aid)
+    shots = [((p or {}).get("actor"), (p or {}).get("weapon")) for _, p in shot_payloads(host, chain)]
+    other = [(e["seq"], e["actionId"]) for e in rec["hev"] if e["kind"] == "shot" and e["actionId"] != aid]
+    a1 = {n: unit(gc, A) for n, gc in pairs(host, client)}
+    live = {n: hostiles(gc) for n, gc in pairs(host, client)}
+    stack = {n: session.states_stripped(gc) for n, gc in pairs(host, client)}
+    cp = pv.get("clickPos") or {}
+    base = (cp["winX"] // 2, cp["winY"] // 2) if cp.get("verified") else None   # the 640x400 harness window is 2x
+    x, y, w, h = SKILLS_RECT
+    ev.update({"press": pv, "out": out, "notes": notes, "action": aid, "chain": [(e["seq"], e["kind"]) for e in chain],
+               "shots": shots, "otherShots": other, "A0": a0, "A1": a1, "stack": stack, "clickBase": base,
+               "liveAfter": {n: len(v) for n, v in live.items()}})
+    ev["G"] = gv = {n: tags(gc, G) for n, gc in pairs(host, client)}
+    ev["Atags"] = av = {n: tags(gc, A) for n, gc in pairs(host, client)}
+    f = list(notes) + fails
+    if out.get("state") != "sent":
+        f.append(f"the client's snap: await_press {out} (want state sent)")
+    if shots != [(G, wid)]:
+        f.append(f"`shot` cues (actor, weapon) {shots} (want exactly [({G}, {wid})])")
+    if other:
+        f.append(f"other `shot` evs (seq, actionId) {other} (want none: A never reacts, F11033)")
+    if not (a1["host"].get("health") or 0) < (a0["host"].get("health") or 0) or a1["host"] != a1["client"]:
+        f.append(f"A ({A}) before {a0} after {a1} (want its health dropped, equal on both)")
+    if not live["host"] or live["host"] != live["client"]:
+        f.append(f"live hostiles host {live['host']} client {live['client']} (want equal, >= 1)")
+    for n, s in stack.items():
+        if "BattlescapeState" not in s or "DebriefingState" in s:
+            f.append(f"{n} state stack {s} (want the battle running)")
+    if base is None or (x <= base[0] < x + w and y <= base[1] < y + h):
+        f.append(f"the click {cp} base {base} (want verified, outside SKILLS_RECT {SKILLS_RECT}, F1283)")
+    res["SR4-guard"] = joined(f)
+    if f:
+        capture(host, client, "SR4")
+    res["SR4-ammo"] = tag_cell("G", G, gv, (TAG_AHIT, TAG_AMMO, TAG_ASPEC), OWNER_R)
+    res["SR4-alien"] = tag_cell("A", A, av, (TAG_DMG,), HOST_R)
+    res["SR4-common"] = joined(common(host, client, before, "SR4", st["crash0"]))
+
+
 def stun(host, client, uid, rec):
     """Host kill_unit_real {stun} on `uid`, then the F11477 settle: host not busy with pendingStates 0, status
     STATUS_UNCONSCIOUS on both, wait_host_idle, the client's tags equal the host's. Returns a construction miss."""
@@ -384,7 +472,7 @@ def row_sr3(ev, res, host, client, st):
     res["SR3-common"] = joined(common(host, client, before, "SR3", st["crash0"]))
 
 
-ROWS = (("SR0", row_sr0), ("SR1", row_sr1), ("SR2", row_sr2), ("SR3", row_sr3))
+ROWS = (("SR0", row_sr0), ("SR1", row_sr1), ("SR2", row_sr2), ("SR4", row_sr4), ("SR3", row_sr3))
 
 
 def report(rid, ev, res):
