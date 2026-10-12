@@ -1332,8 +1332,20 @@ void BattlescapeState::think()
 
 			}
 
+			// coop (PRD-P5): is the parallel shared player side live? Both machines
+			// then hold isYourTurn == 2 for the whole side, which kills every
+			// "is it my turn" term below - the off-turn banners have nothing left to
+			// describe and would only squat on the warning widget (showCoopWarning
+			// posts a PERSISTENT message that is repainted every frame, so it blocks
+			// the deny/ready flashes P6/P8 put through the same widget).
+			const bool coopParallel = _game->getCoopMod()->parallelTurnActive();
+
 			// coop
 			// Alien Activity
+			// The AI-side banners stay in parallel mode. The player-side "Waiting for"
+			// one does not: NextTurnState raises _battleWindow before the player side
+			// starts, so it would be posted at every parallel side start and stay up
+			// until battle init finishes.
 			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->_battleWindow == true && _save->isPreview() == false)
 			{
 
@@ -1348,7 +1360,7 @@ void BattlescapeState::think()
 					{
 						showCoopWarning("XCOM Activity");
 					}
-					else
+					else if (!coopParallel)
 					{
 						showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
 					}
@@ -1365,7 +1377,7 @@ void BattlescapeState::think()
 					{
 						showCoopWarning("Alien Activity");
 					}
-					else
+					else if (!coopParallel)
 					{
 						showCoopWarning("Waiting for " + _game->getCoopMod()->getCurrentClientName());
 					}
@@ -1456,14 +1468,6 @@ void BattlescapeState::think()
 				_save->setSideCoop(0);
 				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
 			}
-
-			// coop (PRD-P5): is the parallel shared player side live? Both machines
-			// then hold isYourTurn == 2 for the whole side, which kills every
-			// "is it my turn" term below - the off-turn banners have nothing left to
-			// describe and would only squat on the warning widget (showCoopWarning
-			// posts a PERSISTENT message that is repainted every frame, so it blocks
-			// the deny/ready flashes P6/P8 put through the same widget).
-			const bool coopParallel = _game->getCoopMod()->parallelTurnActive();
 
 			// coop: off-turn "<peer>'s Turn" banner. Classic mode only - parallel mode
 			// has no off-turn side (both machines hold isYourTurn == 2), so coopParallel
