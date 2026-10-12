@@ -880,6 +880,7 @@ void BattlescapeState::init()
 			_battleGame->setupCursor();
 			_map->getCamera()->centerOnPosition(_save->getSelectedUnit()->getPosition());
 		}
+		coopGiftSelectionInit(_game, _save); // coop (R5-U5, PRD r5 T8.1; main BattlescapeState.cpp :1250-:1258): THIS machine's gift target
 		_firstInit = false;
 		_btnReserveNone->setGroup(&_reserve);
 		_btnReserveSnap->setGroup(&_reserve);
@@ -1146,6 +1147,16 @@ void BattlescapeState::mapClick(Action *action)
 	// don't handle mouseclicks over the buttons (it overlaps with map surface)
 	if (_mouseOverIcons) return;
 
+
+	// coop (R5-U5, PRD r5 T8.1; main BattlescapeState.cpp :2208-:2221): a left click on one of THIS machine's own units
+	// makes it the gift target (the give-unit key's unit), before the cursor / busy gate below, so a player who cannot
+	// act right now may still pick the unit to give. It never selects and never orders. False outside a co-op battle.
+	if (isCoopBattle() && _game->isLeftClick(action, true))
+	{
+		Position giftPos;
+		_map->getSelectorPosition(&giftPos);
+		coopGiftSelectAt(_game, _save, giftPos.x, giftPos.y, giftPos.z);
+	}
 
 	// don't accept leftclicks if there is no cursor or there is an action busy
 	if (_map->getCursorType() == CT_NONE || _battleGame->isBusy()) return;
@@ -2304,6 +2315,7 @@ void BattlescapeState::drawHandsItems()
  */
 void BattlescapeState::updateSoldierInfo(bool checkFOV)
 {
+	coopGiftFollowSelection(_game, _save); // coop (R5-U5, PRD r5 T8.1; main SavedBattleGame.cpp :877-:889): the gift target follows THIS machine's selection
 	BattleUnit *battleUnit = _save->getSelectedUnit();
 
 	for (int i = 0; i < VISIBLE_MAX; ++i)

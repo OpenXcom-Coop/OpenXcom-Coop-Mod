@@ -7312,6 +7312,8 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y *= FNV_PRIME;
 		y ^= fnv1a(unit->getGeoscapeSoldier() ? unit->getGeoscapeSoldier()->getName(false) : std::string());
 		y *= FNV_PRIME;
+		// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; FIELD-PARITY): captureUnit's seat tag, after the names.
+		y = mix(y, (int)unit->getCoopSeat());
 		// W2-P3 S-C.2 (B1 RQ9, F955): the unit's special-weapon link - the ids
 		// of the _items entries its own slots hold, ascending, as size then ids.
 		{

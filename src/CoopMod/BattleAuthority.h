@@ -580,6 +580,31 @@ bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// any coop battle (orch43c's F251, traced against a single-player control).
 bool coopMaySelectUnit(const BattleUnit* u);
 
+/// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; owner D235 (a), D240 (a); r5-T8 / issue #126; PRD r5 T8;
+/// D235-VL1..VL4): the in-battle gift as a host-checked order. coopGiftOrder() is the giver's entry (the gift menu,
+/// through connectionTCP::giftBattleUnit / giftSoldier): the host applies its own gift, a client sends the untracked
+/// `gift {target}` intent. coopApplyGift() is the HOST's check and apply (onIntent's `gift` branch, the host's own
+/// gift): it refuses silently (logged; counted as denied for an intent) a PvP battle, the pre-battle equipment phase, a
+/// bad target, a unit the giver does not own (its seat tag: a mind-controlled unit is not its controller's to give), a
+/// unit not alive on the player side and a unit acting in an open action context; otherwise it writes the seat tag
+/// (and, outside a SEPARATE campaign, the soldier's owner), sets the `gift` latch (the delta's `seat` reaches the
+/// partner in stream order) and records the change. coopGiftNoteSeatChange() records a seat change for the pump (the
+/// host's apply, the client's delta apply; no State op, RB-D5). coopGiftPump() (updateCoopTask, after the drain, both
+/// machines) moves the giver's selection off the given unit, gives the receiver the unit as its gift target (and its
+/// selection when it has none) and the notice "<giver> gave <unit> to you." (main's text, English as on main), and
+/// refills an empty gift target. The three selection hooks keep THIS machine's gift target - the unit the give-unit
+/// key gives (main BattlescapeState.cpp :1250-:1258, :2208-:2221, SavedBattleGame.cpp :877-:889):
+/// coopGiftSelectionInit() at the battle screen's first init, coopGiftSelectAt() on a left click (before the cursor /
+/// busy gate), coopGiftFollowSelection() when this machine's selected unit changes. Every function is a no-op outside
+/// a co-op battle (single player untouched).
+void coopGiftOrder(BattleUnit* unit, int target);
+bool coopApplyGift(BattleUnit* unit, int giverSeat, int target, std::uint32_t iseq);
+void coopGiftNoteSeatChange(int unitId, int fromSeat, int toSeat);
+void coopGiftPump(Game* game);
+void coopGiftSelectionInit(Game* game, SavedBattleGame* save);
+void coopGiftSelectAt(Game* game, SavedBattleGame* save, int x, int y, int z);
+void coopGiftFollowSelection(Game* game, SavedBattleGame* save);
+
 /// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
 /// WR-2): the INVERTED form of coopMayCommand() used by
 /// BattlescapeGame::primaryAction's COMMANDING arms, plus a test-only counter.
