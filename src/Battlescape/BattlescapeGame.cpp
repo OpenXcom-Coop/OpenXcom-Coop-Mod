@@ -1349,8 +1349,15 @@ void BattlescapeGame::popState()
 	// bt_action_end and reports the state as REMOTE, so the two host-screen side
 	// effects below (the warning, the throw/launch cancel) skip it. False in SP.
 	const bool coopRemoteAction = coopLatchActionResult(action);
-	if (!coopRemoteAction && action.actor && !action.result.empty() && action.actor->getFaction() == FACTION_PLAYER
-		&& _playerPanicHandled && (_save->getSide() == FACTION_PLAYER || _debugPlay))
+	// coop W2-H27 (owner design-D5 / WV-D11, side-relative UI; docs rewrite/prompts/w2h27_pvp_cursor_after_shot.md):
+	// an actor of the non-player side THIS machine's seat commands, during that side (gm3's host and its aliens),
+	// gets vanilla's PLAYER-side aftermath below: the failed-action warning, the throw / launch targeting cancel,
+	// the visible pointer and setupCursor. False in single player, in classic / SHARED co-op and on a gm2 host
+	// (there coopSideIsMine is the side == FACTION_PLAYER test); a client pushes no battle state at all.
+	const bool coopOwnSideActor = action.actor && action.actor->getFaction() != FACTION_PLAYER
+		&& action.actor->getFaction() == _save->getSide() && coopSideIsMine(_save);
+	if (!coopRemoteAction && action.actor && !action.result.empty() && (action.actor->getFaction() == FACTION_PLAYER || coopOwnSideActor)
+		&& _playerPanicHandled && (_save->getSide() == FACTION_PLAYER || _debugPlay || coopOwnSideActor))
 	{
 		_parentState->warning(action.result);
 		actionFailed = true;
@@ -1362,9 +1369,9 @@ void BattlescapeGame::popState()
 	// handle the end of this unit's actions
 	if (action.actor && noActionsPending(action.actor))
 	{
-		if (action.actor->getFaction() == FACTION_PLAYER)
+		if (action.actor->getFaction() == FACTION_PLAYER || coopOwnSideActor) // coop W2-H27 (design-D5): + this seat's own non-player side
 		{
-			if (_save->getSide() == FACTION_PLAYER)
+			if (_save->getSide() == FACTION_PLAYER || coopOwnSideActor)
 			{
 				// after throwing the cursor returns to default cursor, after shooting it stays in targeting mode and the player can shoot again in the same mode (autoshot,snap,aimed)
 				if (!coopRemoteAction && (action.type == BA_THROW || action.type == BA_LAUNCH) && !actionFailed)
