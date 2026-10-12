@@ -8,8 +8,10 @@ battle_game.getGeoscapeGame: 0 = the hook never ran, 1 = the host's research (no
 player's (researched). The client researched STR_PLASMA_PISTOL, the host did not (CR's boot).
 ONE boot (test_w2_client_research's research-separate guest battle, lobby key 48998, the MOD on both machines);
 four rows in this order:
-  SR0  after battle entry, before any order: SR0-all (every live unit's COOP_SR_TURN == 1 on both machines: the
-       first turn's newTurnUnit ran before the second player's research list was stored, VL-OF2-2), SR0-common.
+  SR0  after battle entry, before any order: SR0-G (G's COOP_SR_TURN == 2 on both machines: the host's equip
+       barrier starts turn 1 after battle_accept stored the second player's research list, so G's first-turn
+       newTurnUnit reads it; R-OF2-A-2, F11983), SR0-all (every other live unit's == 1 on both; 0 = the MOD did
+       not run), SR0-common.
   SR1  one turn round (test_w2_delta_core.end_turn_cycle, aliens under pin_ai_neutral): SR1-G (G's COOP_SR_TURN
        == 2 on both), SR1-H (H's == 1 on both), SR1-common.
   SR2  the client presses G's mod skill (TAB, SKILLS by rect, KEY_SKILL), then the host presses H's: SR2-G (G's
@@ -21,7 +23,7 @@ four rows in this order:
 Common cell (every row): after wait_host_idle, test_w2_client_shoot.common_fails empty (hash_now full every bucket
 EQUAL, desyncSeen false on both, the client's coopClientBStatePushes unchanged and the host's 0), every live unit's
 tags equal on both machines (field_poke peek), and no crash file since the boot.
-RED (commit A1, unchanged build): exactly SR1-G, SR2-G, SR3-G FAIL (G reads 1). GREEN (A2): every cell PASS.
+RED (unchanged build): exactly SR0-G, SR1-G, SR2-G, SR3-G FAIL (G reads 1). GREEN (A2): every cell PASS.
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
@@ -65,7 +67,7 @@ FOLLOW_S = 5.0                    # the client's tags follow the host's (TASK 0:
 STUN_FOLLOW_S = 10.0              # SR3 (TASK 0: 1.31 s after the lever)
 POLL_S = 0.1
 MENU_S = 5.0
-CELLS = {"SR0": ("SR0-all", "SR0-common"), "SR1": ("SR1-G", "SR1-H", "SR1-common"),
+CELLS = {"SR0": ("SR0-G", "SR0-all", "SR0-common"), "SR1": ("SR1-G", "SR1-H", "SR1-common"),
          "SR2": ("SR2-G", "SR2-H", "SR2-intent", "SR2-common"),
          "SR3": ("SR3-G", "SR3-H", "SR3-state", "SR3-common")}
 
@@ -217,8 +219,12 @@ def row_sr0(ev, res, host, client, st):
                      for n, t in (("host", th), ("client", tc))}
     ev["G"] = {"host": th.get(st["G"]), "client": tc.get(st["G"])}
     ev["H"] = {"host": th.get(st["H"]), "client": tc.get(st["H"])}
+    # R-OF2-A-2 (F11983): turn 1 starts at the host's equip barrier, after battle_accept stored seat 1's list, so
+    # G's first-turn newTurnUnit already reads G's owner's research; every other unit keeps the host's.
+    res["SR0-G"] = tag_cell("G", st["G"], ev["G"], (TAG_TURN,), OWNER_R)
     f = [f"{n} unit {uid} {TAG_NAMES[TAG_TURN]} {tag_val(v, TAG_TURN)} (want {HOST_R}; 0 = the MOD did not run)"
-         for n, t in (("host", th), ("client", tc)) for uid, v in sorted(t.items()) if tag_val(v, TAG_TURN) != HOST_R]
+         for n, t in (("host", th), ("client", tc)) for uid, v in sorted(t.items())
+         if uid != st["G"] and tag_val(v, TAG_TURN) != HOST_R]
     if not th:
         f.append("no live unit on the host")
     res["SR0-all"] = joined(f)
