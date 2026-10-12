@@ -2005,6 +2005,21 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			}
 		}
 	}
+	else if (cmd == "resync_state")
+	{
+		// coop R4-L3 (docs rewrite/prompts/r4l3_desync_resync.md): the automatic desync repair's probe record (read only).
+		resp["resync"] = coopResyncRecord();
+		resp["ok"] = true;
+	}
+	else if (cmd == "resync_hold")
+	{
+		// coop R4-L3 (QL3-5 (a); TEST-ONLY, HOST): {on: true|false} arms / disarms the repair hold; without `on` it only
+		// reports. Armed, a desync report is logged and not repaired (today's halt). Response {ok, armed}.
+		if (req.isMember("on"))
+			coopResyncHoldArm(req.get("on", false).asBool());
+		resp["armed"] = coopResyncRecord().get("holdArmed", false).asBool();
+		resp["ok"] = true;
+	}
 	else
 	{
 		return false;

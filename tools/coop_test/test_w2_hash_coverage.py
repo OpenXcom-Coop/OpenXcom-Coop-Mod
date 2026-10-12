@@ -471,6 +471,7 @@ def hc3(host, client, ctx):
     before = {"host": dc.probes(host), "client": dc.probes(client)}
     ch0 = hash_probes(client)
     r0 = dc.units(client)[H2_ID].get("reactions")
+    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A (QL3-5 a): HC3's PASS is the desync itself
     rs = client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": H2_ID, "stat": "reactions",
                      "value": (r0 or 0) + REACTIONS_POKE})
     r1c, r1h = dc.units(client)[H2_ID].get("reactions"), dc.units(host)[H2_ID].get("reactions")

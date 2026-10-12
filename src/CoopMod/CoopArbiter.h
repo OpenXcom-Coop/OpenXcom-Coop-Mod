@@ -1281,4 +1281,13 @@ BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u);
 /// out (renames.sent +1); TRUE either way - the client never writes a name itself.
 bool coopInterceptRename(BattleUnit* unit, const std::string& text);
 
+/// coop R4-L3 (owner D232 (a); docs rewrite/prompts/r4l3_desync_resync.md): the automatic desync repair's probe record,
+/// process-lifetime, read by TestServer's `resync_state`: counters desyncs, offered, held, skipped, teardowns, loaded,
+/// completed, released, failed, notices; last {bucket, seq, kind, battleId}; lastSkip / lastFail / lastOfferSide; bundle
+/// (this machine's last report zip); holdArmed; frozen (this machine's live desyncFrozen). Never read by game logic.
+Json::Value coopResyncRecord();
+/// coop R4-L3: TEST-ONLY `resync_hold` lever (HOST). Armed, a desync report is answered as before this unit: logged, no
+/// repair (today's halt). Inert unless armed. Returns the armed state.
+bool coopResyncHoldArm(bool on);
+
 } // namespace OpenXcom

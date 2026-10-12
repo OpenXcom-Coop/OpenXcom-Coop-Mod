@@ -124,7 +124,7 @@ TAB_STORM_PRESSES = 24
 
 # SS2.6's desync row, verbatim from bin/common/Language/en-US.yml (W1-P4: the
 # banner assert below is EXACT now, not "non-empty").
-STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted (rejoin arrives in a later build)"
+STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted"  # R4-L3 S-A (owner D232 a, r4-residue Q2 a)
 
 
 def states(gc):
@@ -608,6 +608,8 @@ def run_drop(host, client, actor, soldier_ids):
     one delta but never ships it. Because reveal is MONOTONE - a published bit is
     never re-sent - the client is behind FOREVER, which is exactly the failure
     class the old binTiles fog mask made invisible."""
+    # R4-L3 S-A (QL3-5 a): the divergence below must stay; the TEST-ONLY hold keeps the host from repairing it.
+    host.ok({"cmd": "resync_hold", "on": True})
     stage_on_roof(host, client, actor, "drop", 1)
     assert_reveal_parity(host, client, "before the drop")
     before_h, _ = assert_hash_clean(host, client, full=True, what="before the drop")
@@ -683,6 +685,7 @@ def run_badn(host, client, actor, soldier_ids):
     assert_reveal_parity(host, client, "before the bad-n restate")
     fog_before = client.cmd({"cmd": "reveal_state"})
 
+    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A (QL3-5 a): this proof is the halt itself
     host.ok({"cmd": "reveal_base", "bad_n": True})
 
     client.wait_for("client event_state.desyncSeen becomes true",
