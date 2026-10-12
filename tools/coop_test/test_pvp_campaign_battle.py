@@ -8,7 +8,7 @@ Exit 0 = pass; 2 = failure.
 """
 
 import os, sys, time
-# RW-TRIAGE: SKIP-PENDING(fast-follow)
+# RW-TRIAGE: SKIP-PENDING(D250-U S-B) - the gm2 battle entry through the W2-P8b spine (EA4) moves to S-B (R-D250-SA-2; F13503-F13505)
 print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +40,7 @@ def test_campaign_battle(fails, alien_player, expect_mode):
         client.wait_for('x',lambda:_has(client,'LobbyMenu'),timeout=120)
         for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'Profile'));g.ok({"cmd":"profile_ok"})
         host.wait_for('x',lambda:host.cmd({"cmd":"lobby_state"}).get("startEligible"))
+        host.wait_for('START CAMPAIGN shown (D250-U A1)',lambda:host.cmd({"cmd":"lobby_state"}).get("buttonVisible") or None,timeout=10)
         ls=host.cmd({"cmd":"lobby_state"})
         want='ClientPlayer' if alien_player=='client' else 'HostPlayer'
         for i,n in enumerate(ls.get('players',[])):
@@ -48,10 +49,11 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 
         session.start_campaign_via_button(host)
         xcom_gc=client if alien_player=='host' else host
+        xcom_gc.wait_for('XCOM base placement screen (D250-U S-A)', lambda: _has(xcom_gc, 'BuildNewBaseState') or None, timeout=60)
         if _has(xcom_gc,'BuildNewBaseState'):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XB"})
         time.sleep(2)
-        if _has(host,'CoopState'):host.ok({"cmd":"coop_dialog_back"})
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
         for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'GeoscapeState')and not _has(g,'CoopState'),timeout=120)
         print(f"PASS {tag}: both on geoscape")
 

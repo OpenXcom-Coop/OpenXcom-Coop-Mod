@@ -19,8 +19,6 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(fast-follow)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
@@ -62,6 +60,7 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
             gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
             gc.ok({"cmd":"profile_ok"})
         host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
+        host.wait_for("START CAMPAIGN shown (D250-U A1)", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
         ls = host.cmd({"cmd": "lobby_state"})
         names = ls.get("players", [])
@@ -82,6 +81,7 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
         alien_gc = client if alien_player == "client" else host
 
         # ---- XCOM player places base ----
+        xcom_gc.wait_for("XCOM base placement screen (D250-U S-A)", lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
         if _has(xcom_gc, "BuildNewBaseState"):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
             print(f"PASS {tag}: XCOM player placed base")
@@ -98,9 +98,7 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
             print(f"PASS {tag}: alien player skipped base")
 
         # ---- host clicks BEGIN to release both machines to the geoscape ----
-        if _has(host, "CoopState"):
-            # WAIT_BASES always shows BEGIN (see CoopState::waitSatisfied).
-            host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
 
         # ---- both reach geoscape ----
         for gc, label in ((host,"host"),(client,"client")):
