@@ -59,6 +59,9 @@ MAP_FP_C = -4.48310638993e+18             # both machines (Ca-Cd)
 TANK = 1000000                            # the tank's unit id (Ca-Cd)
 KEPT, C1, C2, H = [8, 9, 10], 8, 9, 10    # the crew kept (11-14 cut); C1 / C2 seat 1, H seat 0
 T_DEST = (14, 17, 1)                      # 2 tiles north of the tank (14,19,1): path_probe steps 2, tuCost 8 on both
+T_END = (14, 17, 0)                       # R-U4-A-8 (F11943): the walk's measured end on both machines - vanilla steps
+                                          # the tank down onto the Skyranger ramp; path_probe sums the path's directions
+                                          # and cannot see that step-down (F12005)
 STAGE_H, H_DIR = (20, 19, 0), 0           # R-U4-A-5 / R-U4-A-7: the victim, facing P_DEST
 STAGE_C1, C1_DIR = (24, 19, 0), 5         # R-U4-A-1: the shooter; a clear ray west to STAGE_H
 FLOOR_S = (28, 19, 0)                     # the FLOOR rule's target from STAGE_C1 (k 4, d 2)
@@ -183,16 +186,18 @@ def path_both(host, client, uid, t):
     return [{k: r.get(k) for k in ("reachable", "steps", "tuCost")} for r in rr]
 
 
-def host_walk(host, client, uid, dest, ev):
-    """The host's real click walk (the unit already selected): bounded until `uid` stands on `dest` on both machines with
-    the partner's order slot empty, or the host refuses it (coopLocalExecBlocked grows). Returns the walk cell."""
+def host_walk(host, client, uid, dest, ev, end=None):
+    """The host's real click walk (the unit already selected): bounded until `uid` stands on `end` (default `dest`, the
+    clicked tile) on both machines with the partner's order slot empty, or the host refuses it (coopLocalExecBlocked
+    grows). Returns the walk cell."""
+    end = dest if end is None else end
     ev["path"] = path_both(host, client, uid, dest)
     b0, ctx0 = blocked(host), es(host, "closedContexts") or []
     try:
         real_click_walk(host, dest)
     except AssertionError as e:
         return False, f"the host's click walk was never sent: {str(e)[:300]}"
-    ok, ev["walkS"] = wait_until(lambda: (pos(host, uid) == dest and pos(client, uid) == dest
+    ok, ev["walkS"] = wait_until(lambda: (pos(host, uid) == end and pos(client, uid) == end
                                           and es(client, "inFlight") is None) or blocked(host) > b0, STEP_S, 0.2)
     try:
         session.wait_host_idle(host, client, timeout=STEP_S)
@@ -202,8 +207,8 @@ def host_walk(host, client, uid, dest, ev):
     ps, b1 = [pos(host, uid), pos(client, uid)], blocked(host)
     ev.update(newCtx=new, blocked=[b0, b1], at=ps)
     c_ok, c_txt = ctx_cell(new, "host", "walk", uid)
-    return (c_ok and ps == [dest, dest],
-            f"{c_txt}; unit {uid} host/client {ps} (want {dest} on both; {ev['walkS']} s); host coopLocalExecBlocked "
+    return (c_ok and ps == [end, end],
+            f"{c_txt}; unit {uid} host/client {ps} (want {end} on both; {ev['walkS']} s); host coopLocalExecBlocked "
             f"{b0} -> {b1}; path_probe host/client {ev['path']}")
 
 
@@ -307,7 +312,7 @@ def row_t(host, client, crash0):
         cells["T-sel"] = (ev["sel"], f"tab_select(host, {TANK}) {ev['sel']}, selectedId "
                                      f"{battle_state(host).get('selectedId')} (want {TANK})")
         if cells["T-sel"][0]:
-            cells["T-walk"] = host_walk(host, client, TANK, T_DEST, ev.setdefault("walk", {}))
+            cells["T-walk"] = host_walk(host, client, TANK, T_DEST, ev.setdefault("walk", {}), end=T_END)
         else:
             not_reached(cells, ("T-walk",), "T-sel failed")
         to = ((units(client).get(TANK) or {}).get("direction", 0) + 2) % 8
