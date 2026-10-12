@@ -22,8 +22,9 @@ Boot C (classic co-op parallel, key 48787): MCC.boot_c (X 1000000 pinned AI-neut
 reactions 0, MCC.stage_c.
   CM   X holds the partner's 8 and 9 (the C1 recipe, R-H29-A-1), the host's five soldiers die mid-side:
        CM-mc      (precondition) 8 and 9 faction 1, mcId X, coop 1 on both
-       CM-out     (precondition) host kill_unit_real {coop_side 0}: killed [10..14], DEAD on both within OUT_S (boxes
-                  dismissed on their own machine; no turn screen closed, no settle)
+       CM-out     (precondition) host kill_unit_real {coop_side 0}: killed [10..14], DEAD on both; the wait ends at
+                  the observed deaths, capped at WATCH_CAP_S (R-H31-3; boxes dismissed on their own machine; no
+                  turn screen closed, no settle)
        CM-end     with no press the host's NextTurnState is up within SIDE_S of the kill, and exactly one W2-H31 line
        CM-ends    (R-H31-2) the alien side's turn screen: both machines on side 1 turn 1, 8 / 9 back at faction 0 (coop
                   1) on both, no battleEnd (emitted 0, applied 0 on both); the host's close runs vanilla's tally and the
@@ -59,11 +60,12 @@ import test_w2_mc_seat_tally as MCT  # noqa: E402
 from test_w2_mc_seat_tally import (mcv, poll_box, tally_view, unit_rows, turn_side, A_ID, S_ID,  # noqa: E402
                                    STEP_S, SIDE_S, HOLD_S, PAINT_S, FACTION_PLAYER, FACTION_HOSTILE)
 import test_w2_mc_seat_coop as MCC  # noqa: E402
-from test_w2_mc_seat_coop import X_ID, S0_IDS, S1_IDS, X_TU, DEAD, OUT_S  # noqa: E402
+from test_w2_mc_seat_coop import X_ID, S0_IDS, S1_IDS, X_TU, DEAD  # noqa: E402
 
 KEY_G, KEY_C = "48786", "48787"
 SEED_G3 = 1                       # TASK 0 Ga / Gb: the host lever psi_attack {8, 1000000} converts A with seed 1
 W2H31 = "[coop-endturn] W2-H31"   # the host's one log line per self-ended side (QH31-4 (a))
+WATCH_CAP_S = 135                 # R-H31-3 (R-C26-1): CM-out ends at the observed deaths; >= max(120, 2.5 x 7.26 s)
 G_ROWS = (("G3E", ("G3E-mc", "G3E-end", "G3E-skip", "G3E-back", "G3E-alien", "G3E-common")),)
 C_ROWS = (("CM", ("CM-mc", "CM-out", "CM-end", "CM-ends", "CM-common")),)
 
@@ -241,10 +243,11 @@ def row_cm(host, client, crash0, rec):
         k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": 0})
         ok, s = BER.wait_until(lambda: boxes(host, client, rec, "CM kill")
                                and all((units(gc).get(i) or {}).get("status") == DEAD
-                                       for gc in (host, client) for i in S0_IDS), OUT_S, 0.1)
+                                       for gc in (host, client) for i in S0_IDS), WATCH_CAP_S, 0.1)
         ev["kill"] = k
         return (ok and sorted(k.get("killed") or []) == S0_IDS,
-                f"kill_unit_real coop_side 0 {k} (want killed {S0_IDS}); DEAD on both within {OUT_S} s: {ok} ({s} s)")
+                f"kill_unit_real coop_side 0 {k} (want killed {S0_IDS}); DEAD on both (the wait capped at "
+                f"{WATCH_CAP_S} s): {ok} ({s} s)")
 
     def cm_end():
         tops = []
