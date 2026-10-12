@@ -14713,6 +14713,7 @@ void coopCueSpawn(BattleUnit* unit, const char* cause, const BattleUnit* from)
 {
 	if (!coopCueAuthoring() || !unit)
 		return;
+	coopStampSpawnedUnitSeat(unit); // R5-U4 (D235 (a), D235-VL1): before the cue, so the seat rides its unitsAdded record
 	Json::Value p(Json::objectValue);
 	p["unit"] = unit->getId();
 	p["cause"] = cause ? cause : "";
@@ -14728,6 +14729,8 @@ void coopCueSpawnAdded(SavedBattleGame* save, const char* cause)
 	// Spec (b)9: the list is taken BEFORE the first cue is sent - that cue's
 	// delta carries every one of these units in `unitsAdded`.
 	const std::vector<int> ids = CoopDelta::unknownUnitIds(save);
+	for (int id : ids) // R5-U4 (D235 (a), D235-VL1): seat every new unit BEFORE the first cue (its delta carries them all)
+		coopStampSpawnedUnitSeat(CoopArbiter::findUnitById(save, id));
 	for (int id : ids)
 	{
 		Json::Value p(Json::objectValue);
