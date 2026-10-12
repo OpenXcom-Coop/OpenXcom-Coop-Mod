@@ -17,10 +17,17 @@ turn 2), R1 (SEED_R1: A reacts to the host's real-UI walk of S), host END TURN (
       MA-common every bucket EQUAL after the row's last settled side change, desyncSeen false, no new crash file
 Boot X (gm2 traditional, key 48738): BER.boot_e6 with set_mode(host, traditional) after host.connect(), reactions 0,
 the B2 staging.
-  MX  X-COM's S mind-controls the alien seat's unit A through the host psi_attack lever (SEED_MX):
+  MX  X-COM's S mind-controls the alien seat's unit A through the host psi_attack lever (SEED_MX), continued by
+      W2-H31 (rewrite/prompts/w2h31_mc_side_never_ends.md; rewrite/w2h31-task0/CONSTANTS.md, boots Xa / Xb):
       MX-mode  (precondition) turnMode traditional and coopActiveSeat 0 on both before the lever
       MX-mc    (precondition) A faction 0, mcId S, coop 1 on both
-      MX-end   the host's END TURN alone ends X-COM's side (the baton's last pass): side 1 turn 1 within SIDE_S
+      MX-end   the host's END TURN alone ends X-COM's side (the baton's last pass): the host's side-phase counter +1
+               within SIDE_S (W2-H31 section A.10: the alien side, with no live seat, now passes at once)
+      MX-skip  with no further press both machines on side 0 turn 2 within SIDE_S, and exactly one
+               '[coop-endturn] W2-H31' host log line
+      MX-back  A faction 1, coop 1 on both at side 0 turn 2 (released at its controller side's start)
+      MX-alien the host's press: side 1 turn 2; host tally {needed 1, activeSeat 1} and coopActiveSeat 1 on both
+               within PAINT_S; the partner's press alone: side 0 turn 3
       MX-common every bucket EQUAL right before the press, desyncSeen false, no new crash file
 Every InfoboxState is dismissed on its own machine before any END TURN press (only the top state thinks, F11689).
 
@@ -42,7 +49,7 @@ import session  # noqa: E402
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean  # noqa: E402
 import test_w2_battle_end_rules as BER  # noqa: E402
 import test_r5_pvp_gm3 as G3F  # noqa: E402
-from test_r5_pvp_gm3 import Miss, units, pos, es, top, guarded, verdict, fail_all, shut  # noqa: E402
+from test_r5_pvp_gm3 import Miss, units, pos, es, top, guarded, verdict, fail_all, shut, log_count  # noqa: E402
 from repro_atom_side_begin import drive_side_change  # noqa: E402
 from test_w2_delta_core import both  # noqa: E402
 from test_w2_client_shoot import new_contexts, send_intent, set_tu_both, place, jt  # noqa: E402
@@ -63,7 +70,7 @@ STEP_S, SIDE_S, HOLD_S, PAINT_S = 30, 15, 3, 15
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 PRESS = {"cmd": "battle_action", "action": "end_turn_button"}
 MA_ROWS = (("MA", ("MA-mc", "MA-end", "MA-xcom", "MA-back", "MA-own", "MA-end2", "MA-common")),)
-MX_ROWS = (("MX", ("MX-mode", "MX-mc", "MX-end", "MX-common")),)
+MX_ROWS = (("MX", ("MX-mode", "MX-mc", "MX-end", "MX-skip", "MX-back", "MX-alien", "MX-common")),)
 
 
 # ===================== probes and boxes (shared with test_w2_mc_seat_coop) =====================
@@ -397,13 +404,58 @@ def row_mx(host, client, crash0, rec):
     ev["preEnd"] = {"tally": [tally_view(host), tally_view(client)], "units": [unit_rows(host), unit_rows(client)],
                     "msgs": [msgs(host), msgs(client)]}
     cells["MX-common"] = common(host, client, crash0, "right before the host's press")
-    if not (cells["MX-mode"][0] and cells["MX-mc"][0]):
-        cells["MX-end"] = (False, f"not reached ({'MX-mode' if not cells['MX-mode'][0] else 'MX-mc'} failed)")
-    else:
-        ok, s = press_to(host, client, host, FACTION_HOSTILE, 1, rec, SIDE_S)
-        ev["postEnd"] = {"ok": ok, "s": s, "tally": [tally_view(host), tally_view(client)]}
-        cells["MX-end"] = (ok, f"host END TURN alone -> side 1 turn 1: {ok} ({s}); host tally {tally_view(host)}; "
-                               f"coopActiveSeat host/client {[es(host, 'coopActiveSeat'), es(client, 'coopActiveSeat')]}")
+    first = None if cells["MX-mode"][0] and cells["MX-mc"][0] else ("MX-mode" if not cells["MX-mode"][0] else "MX-mc")
+    w2h31, pc = "[coop-endturn] W2-H31", lambda: es(host, "coopEndTurnPhaseCounter") or 0
+
+    def mx_end():   # W2-H31 (section A.10, F12376): the side-phase counter, as side 1 now passes at once
+        tops_ready((host, client), rec, "before MX-end press")
+        p0 = pc()
+        host.cmd(dict(PRESS))
+        ok, s = BER.wait_until(lambda: pc() >= p0 + 1, SIDE_S, 0.1)
+        ev["postEnd"] = {"ok": ok, "s": s, "tally": [tally_view(host), tally_view(client)],
+                         "tops": [top(host), top(client)]}
+        return ok, f"host END TURN alone: host side-phase counter {p0} -> {pc()} within {SIDE_S} s: {ok} ({s} s)"
+
+    def mx_skip():
+        t0 = time.time()
+        try:
+            drive_side_change(host, client, FACTION_PLAYER, want_turn_min=2, timeout=SIDE_S)
+            moved = round(time.time() - t0, 2)
+        except TimeoutError:
+            moved = None
+        BER.wait_until(lambda: log_count(host, w2h31) >= 1, HOLD_S, 0.25)
+        n = log_count(host, w2h31)
+        ev["skip"] = {"tally": [tally_view(host), tally_view(client)], "lines": n}
+        return moved is not None and n == 1, (f"no further press: both machines on side 0 turn 2 within {SIDE_S} s: "
+                                              f"{moved is not None} ({moved} s; (turn, side) host/client "
+                                              f"{[turn_side(host), turn_side(client)]}); host '{w2h31}' lines {n} "
+                                              f"(want exactly 1)")
+
+    def mx_back():
+        settle(host, client, rec, "MX side 0 turn 2")
+        v = [mcv(host, A_ID)[:3:2], mcv(client, A_ID)[:3:2]]
+        return v == [(FACTION_HOSTILE, 1)] * 2, f"A (faction, coop) at side 0 turn 2 host/client {v} (want (1, 1))"
+
+    def mx_alien():
+        want = {"needed": 1, "activeSeat": 1}
+        ok1, s1 = press_to(host, client, host, FACTION_HOSTILE, 2, rec, SIDE_S)
+        pt, sp = BER.wait_until(lambda: {k: (es(host, "coopEndTurnTally") or {}).get(k) for k in want} == want and
+                                es(host, "coopActiveSeat") == 1 == es(client, "coopActiveSeat"), PAINT_S, 0.1) \
+            if ok1 else (False, None)
+        ok2, s2 = press_to(host, client, client, FACTION_PLAYER, 3, rec, SIDE_S) if pt else (False, "not pressed")
+        return ok1 and pt and ok2, (f"host END TURN -> side 1 turn 2: {ok1} ({s1}); host tally {want} and "
+                                    f"coopActiveSeat 1 on both within {PAINT_S} s: {pt} ({sp} s; {tally_view(host)}); "
+                                    f"the partner's END TURN alone -> side 0 turn 3: {ok2} ({s2})")
+
+    for name, fn in (("MX-end", mx_end), ("MX-skip", mx_skip), ("MX-back", mx_back), ("MX-alien", mx_alien)):
+        if first:
+            cells[name] = (False, f"not reached ({first} failed)")
+            continue
+        try:
+            cells[name] = fn()
+        except Exception as e:
+            cells[name] = (False, f"{type(e).__name__}: {str(e)[:300]}")
+        first = None if cells[name][0] else name
     ev["boxes"] = rec.get("boxes")
     return cells, ev
 
