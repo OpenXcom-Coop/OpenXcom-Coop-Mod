@@ -16996,6 +16996,13 @@ bool coopIsRemoteIntentAction(const BattleAction& action)
 	return base.origin == "intent" && action.actor && action.actor->getId() == g_coopPendingChainActorId;
 }
 
+// R5-U1 S-C (EC7; D222 gap 3 and its reaction sibling, F12699): see CoopDelta.h.
+bool coopRemoteOrderRunning()
+{
+	return isCoopBattle() && coopBattleAuthority().hostSim && !g_coopActionContextStack.empty()
+		&& g_coopActionContextStack.front().origin == "intent";
+}
+
 // W2-P4 S-E1 (spec (b)8, F423 per-player half): see CoopDelta.h. Inside a
 // partner's `intent` base context the answer is that order's own shipped
 // forceFire (g_coopIntentForceFireActionId names the one context that carries
