@@ -3,13 +3,17 @@ VL-L3-7; TASK 0 rewrite/r4l3-task0/sd/CONSTANTS.md; orchestrator R-L3-D-1, R-L3-
 A client-only change to a host-seat soldier is found at the host's next action end, the host re-sends its live battle behind its waiting
 screen and play continues; in SEPARATE the second player's own campaign (its own-world snapshot) and its stored research are untouched.
   Boot C1 (SHARED, key 48756, dirs r4l3_c1_host / _client): shared_fixture.bring_up("r4l3_c1", (1, 2, 48756)) +
-  session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}); P = K = squad[0] (the one host-seat soldier), walker squad[1] (seat 1).
+  session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing = the host's set_seed SEED_C1); P = K = squad[0] (the one host-seat
+  soldier), walker squad[1] (seat 1).
   DR5 SHARED: B0, SPLIT0, HASH; the client-only set_stat reactions +7 on P; the host's real-UI kneel of K (its bt_action_end, saveBlob);
       REPAIRED. DR5-1 RS on both: desyncs +1, offered / completed / released +1 (host), teardowns / loaded +1 (client); DR5-2 HASH, SPLIT
       unchanged, battleId == B0; DR5-3 a client walk of squad[1] applies (walk_far, R-L3-D-1 = R-L2-A-1), HASH; DR5-4 CRASH 0, client zero-disk.
   Boot C2 (SEPARATE, key "48757", dirs r4l3_c2_host / _client): session.bring_up_separate_guest_battle(host, client, port="48757",
   pre_mission_start = the client's discover_research STR_PLASMA_PISTOL, a topic the host lacks: R-L3-D-2, so the seat-1 store check
-  discriminates); GID = the one faction-0 unit named "Guest" (coop 1); P = host_squad[1], K = host_squad[0], walker GID.
+  discriminates; pre_landing = the host's set_seed SEED_C2); GID = the one faction-0 unit named "Guest" (coop 1); P = host_squad[1],
+  K = host_squad[0], walker GID.
+  Both boots (R-L3-D-3, F12641; test_r4_desync_resync's boot order): mapFingerprint == MAP_FP_Cn on both machines, pin_ai_neutral (a live
+  alien's reaction shot during the kneel killed P in DR5 once), wait_host_idle; a miss = FIXTURE-STOP.
   DR6 SEPARATE: OWN0 (the client's coop_file_info {role own_world}: key, bytes, fnv1a64), RES0 (the host's event_state.researchMode
       seats[1] {stored, count, unknown}); the poke + the kneel; REPAIRED. DR6-1 RS as DR5-1; DR6-2 HASH, SPLIT unchanged (GID on seat 1);
       DR6-3 the own-world key's fnv == OWN0 (F11245); DR6-4 the host's seats[1] == RES0, RES0 holds the client's topic (count >= 1) and the
@@ -37,6 +41,8 @@ import test_w2_campaign_rejoin as CR  # noqa: E402  (main-guarded: walk_far, R-L
 
 KEY_C1, TAG_C1 = 48756, "r4l3_c1"
 KEY_C2, TAG_C2 = "48757", "r4l3_c2"
+SEED_C1, MAP_FP_C1 = 1, 5.690100025079999e+18   # R-L3-D-3 (F13020): the host's set_seed before the landing; seed 1 (the first of
+SEED_C2, MAP_FP_C2 = 1, 5.690100025079999e+18   # 1..40) gives this terror map on both machines in both boots, walk_far walks, 0 reactions
 POKE, TOPIC = 7, "STR_PLASMA_PISTOL"
 SEQ_OFF, KIND = r4.SEQ_OFF_DR1, "bt_action_end"   # the desync seq = host lastSeqEmitted before K + 2 (CONSTANTS: C1a-d, C2a-d)
 DELTAS = ("desyncs", "offered", "completed", "released", "teardowns", "loaded")
@@ -171,12 +177,23 @@ def baseline(x):
         "FIXTURE-STOP: B0 %s / %s, SPLIT0 %s / %s, P %s K %s walker %s" % (x.b0, bc, x.split0, sc, x.P, x.K, x.walker))
     hok, hev = r4.hash_ok(h, c, "boot " + x.name)
     assert hok, "FIXTURE-STOP: HASH at the boot: %s" % hev
-    print("[r4l3-c] boot %s ok: B0 %s, SPLIT0 %s, P %s, K %s, walker %s, pre %s" % (x.name, x.b0, x.split0, x.P, x.K, x.walker, r4.js(x.pre)),
-          flush=True)
+    print("[r4l3-c] boot %s ok: mapFingerprint %s, pinned %s, B0 %s, SPLIT0 %s, P %s, K %s, walker %s, pre %s" % (
+        x.name, x.fp, x.pinned, x.b0, x.split0, x.P, x.K, x.walker, r4.js(x.pre)), flush=True)
+
+
+def pin(x, seed, want_fp, tag):
+    """R-L3-D-3 (F12641), test_r4_desync_resync's boot order: the seeded map on both machines, pin_ai_neutral (no alien can react to the
+    kneel or the walk), the host idle"""
+    x.fp = [session.battle_state(x.host).get("mapFingerprint"), session.battle_state(x.client).get("mapFingerprint")]
+    assert x.fp == [want_fp, want_fp], "FIXTURE-STOP: mapFingerprint %s (want %r, seed %d)" % (x.fp, want_fp, seed)
+    x.pinned = session.pin_ai_neutral(x.host, x.client, tag=tag)
+    assert x.pinned, "FIXTURE-STOP: pin_ai_neutral pinned no NONE-seat non-player unit"
+    session.wait_host_idle(x.host, x.client, timeout=r4.W_IDLE)
 
 
 def new_x(name):
-    return SimpleNamespace(name=name, host=None, client=None, err=None, b0=None, split0=None, P=None, K=None, walker=None, pre={})
+    return SimpleNamespace(name=name, host=None, client=None, err=None, b0=None, split0=None, P=None, K=None, walker=None, pre={},
+                           fp=None, pinned=None)
 
 
 def boot_c1():
@@ -185,9 +202,10 @@ def boot_c1():
     try:
         js = shared_fixture.bring_up(TAG_C1, (1, 2, KEY_C1))
         x.host, x.client = js.host, js.client
-        _h, _c, squad = session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1})
+        _h, _c, squad = session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_C1}))
         x.P = x.K = squad[0]
         x.walker = squad[1]
+        pin(x, SEED_C1, MAP_FP_C1, TAG_C1)
         baseline(x)
     except Exception as e:
         x.err = r4.short(e, 800)
@@ -205,12 +223,14 @@ def boot_c2():
             x.pre["discover_research"] = r4.q(client, {"cmd": "discover_research", "topic": TOPIC})
             x.pre["client research"] = r4.q(client, {"cmd": "geo_state"}).get("discoveredResearch")
             x.pre["host research"] = r4.q(host, {"cmd": "geo_state"}).get("discoveredResearch")
-        hsq, _guest_local = session.bring_up_separate_guest_battle(x.host, x.client, port=KEY_C2, pre_mission_start=f)
+        hsq, _guest_local = session.bring_up_separate_guest_battle(x.host, x.client, port=KEY_C2, pre_mission_start=f,
+                                                                   pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_C2}))
         lever = x.pre.get("discover_research") or {}
         assert lever.get("ok") is True and lever.get("researched") is True, "FIXTURE-STOP: discover_research %s on the client: %s" % (TOPIC, lever)
         gids = [u.get("id") for u in r4.bs(x.host).get("units") or [] if u.get("faction") == 0 and "Guest" in str(u.get("name"))]
         assert len(gids) == 1, "FIXTURE-STOP: GID = exactly one faction-0 unit named \"Guest\": %s" % gids
         x.P, x.K, x.walker = hsq[1], hsq[0], gids[0]
+        pin(x, SEED_C2, MAP_FP_C2, TAG_C2)
         baseline(x)
     except Exception as e:
         x.err = r4.short(e, 800)
