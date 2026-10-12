@@ -7,7 +7,7 @@ resumeAck never true, the host waits on dialog 62 and the rejoiner on 68 for goo
   PAUSE, peerLeftByChoice true, title "has left the battle"; CR1-2 GUARD phase 1 served (SHARED_STREAM +1, a client2 poll on 68);
   CR1-3 RED the live offer (OFFER +1 reading battleId=B0, REFUSED +0); CR1-4 RED RESUME offered ("All players connected", within
   W_ACK) and pressed; CR1-5 RED the same battle on both; CR1-6 RED SPLIT; CR1-7 RED HASH; CR1-8 RED one client2 walk of squad[1]
-  applied, HASH again; CR1-9 GUARD CRASH 0 and client2 zero-disk.
+  applied (walk_far, R-L2-A-1), HASH again; CR1-9 GUARD CRASH 0 and client2 zero-disk.
   Boot C (key "48598", w2r4l2_c_host / _client): row CR3, SEPARATE, the host leaves (disconnect_to_menu; aud-I93, MJ-2). Cells: CR3-1
   GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s; CR3-2 GUARD still CoopState 8 s later;
   CR3-3 GUARD OK -> MainMenuState within 60 s, has_save false; CR3-4 GUARD CRASH 0 and client zero-disk.
@@ -15,7 +15,7 @@ Definitions (spec (f)): POLL 0.25 s; W_ACK 30 s (CONSTANTS: max(30 s, 3 x t_worl
 phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState];
 SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both;
 REJOIN = a fresh client2 on its own dir, join_tcp from the main menu, wait <= W_ACK for the host's resumeAck true AND peerAbsent false
-(profile_ok on any Profile on top, the host's and client2's own, as TASK 0 pressed them), press_back_when_shown(host, codes=(62,)),
+(profile_ok only on a top-state Profile; client2's only once its load wait 52 is gone, R-L2-A-2), press_back_when_shown(host, codes=(62,)),
 both tops BattlescapeState <= 60 s. battle_state is probed only with a BattlescapeState on the stack or no battle in the world
 (F10980: the probe dereferences a stale _battleState after a BattlescapeState pop and kills the process). Needles = host log since the
 row's baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's resumeAck wait:
@@ -203,8 +203,8 @@ def rejoin(x, key, ev):
     ev["join_tcp"] = q(c2, {"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": "ClientPlayer"})
 
     def acked():
-        for gc in (h, c2):
-            if top(gc) == PROFILE:
+        for gc in (h, c2):  # R-L2-A-2 (F11185): a press while client2's world loads pops the LoadGameState pushed over its Profile
+            if top(gc) == PROFILE and (gc is h or dlg(c2).get("code") != 52):
                 ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok"}).get("ok")])
         if ev["c2 on 68 s"] is None and dlg(c2).get("code") == 68:
             ev["c2 on 68 s"] = round(time.time() - t0, 2)
@@ -234,6 +234,22 @@ def resume(x, ev):
     except Exception as e:
         ev["RESUME"] = {"error": short(e, 300)}
     return (ev.get("RESUME") or {}).get("ok") is True
+
+def walk_far(h, c2, uid, wev):
+    """R-L2-A-1 (F11183): client2 walks uid to the free tile at radius 1-3 (its level, one down, one up) with the LARGEST minimum distance to
+    any living non-player, farthest first, the pathfinder judging reachability (no iseq = unroutable) -> the host's lastWalk ({}: none)"""
+    st = session.battle_state(h)
+    u, npc = session.units_by_id(st)[uid], session.living_non_players(st)
+    occ, prev = {session.pos_of(v) for v in st["units"] if not v.get("isOut")}, session.walk_action_id(h)
+    ring = sorted((-(session.min_dist_to(npc, t) or 0.0), t) for r in (1, 2, 3) for dz in (0, -1, 1) for dx in range(-r, r + 1)
+                  for dy in range(-r, r + 1) for t in [(u["x"] + dx, u["y"] + dy, u["z"] + dz)] if max(abs(dx), abs(dy)) == r and t[2] >= 0)
+    for nd, t in ring:
+        if session.tile_is_open_ground(h, t[0], t[1], t[2], occ) and session.send_walk(c2, uid, t).get("iseq"):
+            wev.update(dest=t, minDist=round(-nd, 2), npcs=len(npc))
+            session.wait_walk_settled(h, c2, prev)
+            session.settle_reveal(h, c2)
+            return session.last_walk(h)
+    return {}
 
 def rejoin_tail(r, x, rid, key, actor, cell2):
     """REJOIN + cells <rid>-2 (cell2(ev, n), the row's own) and <rid>-3 .. <rid>-8 (spec (f) CR1-3 .. CR1-8)"""
@@ -265,17 +281,18 @@ def rejoin_tail(r, x, rid, key, actor, cell2):
     r.cell(rid + "-6", "RED", "SPLIT(host) == SPLIT(client2) == SPLIT0", sh == sc == x.split0, {"host": sh, "client2": sc, "SPLIT0": x.split0})
     ok, hev = hash_ok(h, c2, rid + " after RESUME")
     r.cell(rid + "-7", "RED", "HASH(host, client2)", ok, hev)
-    wev = {"actor": actor}
+    wev = {"actor": actor, "start": pos(h, actor)}
     try:
-        pw = session.pick_and_walk(h, c2, actor, rid)
+        hw = walk_far(h, c2, actor, wev)
     except Exception as e:
-        pw, wev["error"] = None, short(e, 300)
-    steps = (pw[0].get("steps") or []) if pw else []
-    last = steps[-1].get("to") if steps else None
-    wev.update(steps=len(steps), last=last, host=pos(h, actor), client2=pos(c2, actor))
+        hw, wev["error"] = {}, short(e, 300)
+    steps = hw.get("steps") or []
+    last, halted = (steps[-1].get("to") if steps else None), bool((hw.get("restate") or {}).get("halted"))
+    wev.update(steps=len(steps), last=last, halted=halted, host=pos(h, actor), client2=pos(c2, actor))
     hok2, wev["HASH"] = hash_ok(h, c2, rid + " after the walk")
-    r.cell(rid + "-8", "RED", "one client2 walk of unit %s applied: >= 1 step, position equal on both and == the last step, HASH again" % actor,
-           bool(steps) and wev["host"] == wev["client2"] == (last.get("x"), last.get("y"), last.get("z")) and hok2, wev)
+    r.cell(rid + "-8", "RED", "one client2 walk of unit %s applied: >= 1 step, the final tile equal on both and != the start, == the last "
+           "step unless a reaction / spotting halted it (R-L2-A-1), HASH again" % actor, bool(steps) and wev["host"] is not None
+           and wev["host"] == wev["client2"] != wev["start"] and (halted or wev["host"] == (last["x"], last["y"], last["z"])) and hok2, wev)
 
 def row_cr1(x, results, walls):
     r = Row("CR1", ["CR1-%d" % i for i in range(1, 9)], x)
@@ -312,8 +329,9 @@ def row_cr3(x, results, walls):
         print("EVIDENCE CR3 host leave: %s" % json.dumps(q(h, {"cmd": "disconnect_to_menu"}), default=str), flush=True)
         seen = {}
 
-        def told():
-            seen.update(stack=stack(c), dialog=dlg(c))
+        def told():  # R-L2-A-3 (F11193): the dialog first, then the stack, so the stack judged is never older than the dialog
+            seen["dialog"] = dlg(c)
+            seen["stack"] = stack(c)
             return seen["dialog"].get("code") == 21
         try:
             seen["s"] = wait("the client's dialog 21", told, 120.0)
