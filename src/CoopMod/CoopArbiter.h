@@ -1132,6 +1132,17 @@ bool coopInterceptReactionHands(BattleUnit* unit, SavedBattleGame* save, bool ri
 /// active co-op battle.
 bool coopInterceptSkillUse(BattleAction* action, const RuleSkill* skill);
 
+/// W2-H28 (docs rewrite/prompts/w2h28_host_skill_use_ev.md; R-OF2-A-1, F11475): the HOST's OWN skill use as an
+/// INSTANT host action - W2-P4 PR-Q5's medi-kit / scanner shape (coopHostMedikit(), coopHostScanner(),
+/// CoopDelta.h) for the skill execution point above. ONE call in SkillMenuState::btnActionMenuItemClick(), on
+/// the line right AFTER its TileEngine::skillUse() (reached only when the guard above answered FALSE): mint,
+/// push {id,"host"}, the `skill` cue {actor, unit (= actor), skill} whose delta carries everything the skill's
+/// script changed (tags, TU, stats), then the close through onChainQuiesced() -> closeBaseContext() (its
+/// bt_action_end). Coop + hostSim only: a no-op in single player and on a client (whose press is a `skill`
+/// order); a logged no-op while another action context is open (the effect then rides that context's next
+/// delta, coopHostPrime()'s rule).
+void coopHostSkill(BattleAction* action, const RuleSkill* skill);
+
 /// K10's onEndClick guard (MedikitState::onEndClick, its
 /// TileEngine::medikitRemoveIfEmpty() line): TRUE on a co-op CLIENT - the host
 /// removes an emptied consumable kit right after the use that emptied it

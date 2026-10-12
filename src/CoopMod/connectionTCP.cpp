@@ -4773,7 +4773,8 @@ void coopShotTrajSync()
 bool coopIsCueKind(const std::string& kind)
 {
 	static const char* const kCueKinds[] = { "shot", "hit", "explosion", "melee", "psi", "death", "corpse",
-		"prime", "sync", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner" };
+		"prime", "sync", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner",
+		"skill" }; // W2-H28: the host's own skill use (coopHostSkill())
 	for (const char* k : kCueKinds)
 	{
 		if (kind == k)
@@ -15634,7 +15635,8 @@ bool coopInterceptSkillUse(BattleAction* action, const RuleSkill* skill)
 		return true;
 	}
 
-	// HOST: vanilla runs the skill (its script, the fuse write, the continuation).
+	// HOST: vanilla runs the skill (its script, the fuse write, the continuation); W2-H28: SkillMenuState then
+	// calls coopHostSkill() on its line after skillUse(), which wraps the script's effects in a `host` context.
 	if (coopBattleAuthority().hostSim)
 		return false;
 
@@ -16287,6 +16289,29 @@ void coopHostScanner(BattleAction* action)
 	p["unit"] = action->actor->getId();
 	p["item"] = action->weapon->getId();
 	coopEmitCue("scanner", p);
+	CoopArbiter::endChainArming(!bg->isBusy());
+}
+
+// W2-H28 (docs rewrite/prompts/w2h28_host_skill_use_ev.md; R-OF2-A-1, F11475): the host's OWN skill use as an
+// INSTANT host action - coopHostScanner()'s shape above (W2-P4 PR-Q5), called ONCE from SkillMenuState on the
+// line right after its TileEngine::skillUse(). The `skill` cue's delta carries everything the script changed
+// (tags, TU, stats) and names the actor for the client's bt_action_end; the partner's `skill` order is the
+// intent twin (onIntent's `skill` branch). Vanilla's own lines after skillUse() (the stop, STR_SKILL_NEEDS_ITEM,
+// the instant grenade's fuse write, the continuation) run after this context closed: a continuation is its own
+// action and context, and the fuse write rides that action's first ev.
+void coopHostSkill(BattleAction* action, const RuleSkill* skill)
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim || !action || !action->actor || !skill)
+		return;
+	BattlescapeGame* bg = nullptr;
+	if (!coopHostItemContextOpen(action->actor, "skill", bg))
+		return;
+	CoopArbiter::beginChainArming();
+	Json::Value p(Json::objectValue);
+	p["actor"] = action->actor->getId();
+	p["unit"] = action->actor->getId();
+	p["skill"] = skill->getType();
+	coopEmitCue("skill", p);
 	CoopArbiter::endChainArming(!bg->isBusy());
 }
 
