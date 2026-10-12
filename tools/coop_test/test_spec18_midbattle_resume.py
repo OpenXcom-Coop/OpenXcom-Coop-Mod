@@ -255,6 +255,34 @@ def _assert_refused(user_dir, port, savefile_basename, variant):
         h.shutdown()
 
 
+def _assert_converted(user_dir, port, savefile_basename, variant):
+    """D246-U (owner D246 (b), narrowing FW-7): a mid-battle co-op save WITHOUT the coopBattleProtocol stamp is an
+    older version's shape - the host's load converts it and reaches the host window; never the refusal."""
+    convert_line = "[coop-convert] D246: an older version's mid-battle co-op save converted"
+    h = GameClient("host", port, user_dir)
+    try:
+        h.spawn(); h.connect()
+        h.ok({"cmd": "load_save_menu", "file": savefile_basename})
+        h.wait_for(f"{variant}: HostMenu (converted, not refused)",
+                  lambda: session.has_state(h, "HostMenu") or None, timeout=60, interval=0.3)
+        assert not session.has_state(h, "ErrorMessageState"), (
+            f"{variant}: ErrorMessageState raised for an unstamped save: {session.states(h)}")
+        logp = os.path.join(user_dir, "openxcom.log")
+
+        def _logged():
+            if not os.path.exists(logp):
+                return None
+            with open(logp, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+            return text if convert_line in text else None
+
+        text = h.wait_for(f"{variant}: the conversion log line", _logged, timeout=10, interval=0.25)
+        assert "different version of the mod" not in text, f"{variant}: the refusal text is in the log ({logp})"
+        assert text.count(convert_line) == 1, f"{variant}: {text.count(convert_line)} conversion log lines (want 1)"
+        print(f"PASS S4 {variant}: converted (HostMenu, no refusal, one conversion log line)")
+    finally:
+        h.shutdown()
+
 def run_s4():
     print("\n===== SCENARIO S4: same-version refusal (M1) =====")
     savepath = _build_midbattle_save("s18mr_s4_src", 48940)
@@ -266,11 +294,11 @@ def run_s4():
     assert found, "coopBattleProtocol key not found in the source save to rewrite"
     _assert_refused(d1, 48945, savefile, "protocol=0")
 
-    # (ii) coopBattleProtocol key deleted
+    # (ii) coopBattleProtocol key deleted - an OLDER version's shape: it converts and loads (owner D246 (b); D246-U)
     d2 = make_user_dir("s18mr_s4_deleted")
     found = _rewrite_protocol(savepath, os.path.join(d2, "xcom1", savefile), "delete")
     assert found, "coopBattleProtocol key not found in the source save to delete"
-    _assert_refused(d2, 48946, savefile, "protocol-deleted")
+    _assert_converted(d2, 48946, savefile, "protocol-deleted")
 
     # (iii) CONTROL: a GEOSCAPE coop save (no battle) - unaffected, resumes as today
     ctl_host_dir = make_user_dir("s18mr_s4_ctl_host")
