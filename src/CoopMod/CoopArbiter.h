@@ -1289,5 +1289,8 @@ Json::Value coopResyncRecord();
 /// coop R4-L3: TEST-ONLY `resync_hold` lever (HOST). Armed, a desync report is answered as before this unit: logged, no
 /// repair (today's halt). Inert unless armed. Returns the armed state.
 bool coopResyncHoldArm(bool on);
+/// coop R4-L3 S-B: TEST-ONLY `resync_ready_mismatch` lever (HOST, one-shot): the next automatic repair offer expects a wrong
+/// copy hash, so onReady() takes its resumed mismatch branch. Inert unless armed.
+void coopTestResyncReadyMismatchArm();
 
 } // namespace OpenXcom
