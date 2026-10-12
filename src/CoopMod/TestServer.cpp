@@ -4416,7 +4416,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	// the process for a host parked in BriefingState (battle generated,
 	// BattlescapeState not yet pushed). `tile_info`, in particular, is legitimate
 	// introspection at exactly that moment.
-	BattlescapeState* bstate = sbg->getBattleState();
+	// RV-U13 S-B (F10980, F9920): getBattleState() keeps returning a screen that was popped and freed (a client's
+	// battle screen under "Server connection lost", a vanilla next-stage briefing), so only a screen still on the
+	// game's state stack counts (connectionTCP::isBattlescapeStateLive, W1-H1's check).
+	BattlescapeState* bstate = connectionTCP::isBattlescapeStateLive(sbg->getBattleState()) ? sbg->getBattleState() : nullptr;
 	BattlescapeGame* bg = bstate ? sbg->getBattleGame() : nullptr;
 
 	auto findUnit = [&](int id) -> BattleUnit*
@@ -8569,7 +8572,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			else
 			{
-				BattlescapeGame* bgameTS = bgTS->getBattleState() ? bgTS->getBattleGame() : nullptr;
+				BattlescapeGame* bgameTS = connectionTCP::isBattlescapeStateLive(bgTS->getBattleState())
+					? bgTS->getBattleGame() : nullptr; // RV-U13 S-B (F10980): a screen still on the state stack only
 				const bool wantPanic = req.get("panicPending", false).asBool();
 				const bool hasStatus = req.isMember("status");
 				const int statusArg = req.get("status", 0).asInt();
@@ -9289,7 +9293,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else if (actCU == "hit") typeCU = BA_HIT;
 		else if (actCU == "none") typeCU = BA_NONE;
 		else actOkCU = false;
-		if (!bgCU || !bgCU->getBattleState())
+		if (!bgCU || !connectionTCP::isBattlescapeStateLive(bgCU->getBattleState())) // RV-U13 S-B (F10980): a live screen only
 		{
 			resp["error"] = "can_use_weapon: no live battle";
 		}
@@ -11569,7 +11573,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// (read-only). A tile outside the map is refused and nothing changes.
 		SavedGame* sgCC = _game->getSavedGame();
 		SavedBattleGame* bgCC = sgCC ? sgCC->getSavedBattle() : nullptr;
-		BattlescapeState* bsCC = bgCC ? bgCC->getBattleState() : nullptr;
+		BattlescapeState* bsCC = (bgCC && connectionTCP::isBattlescapeStateLive(bgCC->getBattleState()))
+			? bgCC->getBattleState() : nullptr; // RV-U13 S-B (F10980): a screen still on the state stack only
 		const Position posCC(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
 		if (!bsCC)
 		{
@@ -13019,7 +13024,10 @@ std::string TestServer::execute(const std::string& line)
 				// and one `battle_state` probe there hard-killed the process.
 				// The null check belongs on getBattleState(), which really does
 				// return the pointer.
-				BattlescapeGame* bgame = bg->getBattleState() ? bg->getBattleGame() : nullptr;
+				// RV-U13 S-B (F10980, F9920): and only a screen still on the state stack - a popped one is freed memory
+				// (connectionTCP::isBattlescapeStateLive). Every BattlescapeState / BattlescapeGame read below uses bsLive.
+				BattlescapeState* bsLive = connectionTCP::isBattlescapeStateLive(bg->getBattleState()) ? bg->getBattleState() : nullptr;
+				BattlescapeGame* bgame = bsLive ? bg->getBattleGame() : nullptr;
 				resp["isBusy"] = bgame ? bgame->isBusy() : false;
 				resp["pendingStates"] = bgame ? (int)bgame->getStates().size() : 0; // WV-D68 (FX-4) settle proof (test-only probe)
 				resp["panicHandled"] = bgame ? bgame->getPanicHandled() : false;
@@ -13045,7 +13053,7 @@ std::string TestServer::execute(const std::string& line)
 				// reached primaryAction and was correctly refused - which is the
 				// difference W1-G1 criterion 4b turns on.
 				{
-					BattlescapeState* bsForInput = bg->getBattleState();
+					BattlescapeState* bsForInput = bsLive; // RV-U13 S-B (F10980)
 					resp["mouseOverIcons"] = bsForInput ? bsForInput->getMouseOverIcons() : false;
 					resp["cursorType"] = bsForInput ? (int)bsForInput->getMap()->getCursorType() : -1;
 					// W2-H27 (QH27-3; docs rewrite/prompts/w2h27_pvp_cursor_after_shot.md): the mouse pointer's visibility on
@@ -13062,7 +13070,7 @@ std::string TestServer::execute(const std::string& line)
 				// "banner shown" for the forced-mismatch repro (CoopBattleUi::
 				// showDesyncHalted() -> BattlescapeState::setCoopWaitText()).
 				{
-					BattlescapeState* bsForBanner = bg->getBattleState();
+					BattlescapeState* bsForBanner = bsLive; // RV-U13 S-B (F10980)
 					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
 					// W1-P7 (ruling D7 = WV-D13 item 4): the re-added DONOR END-TURN
 					// surface. DORMANT in this packet - W1-P13's readiness tally is its
