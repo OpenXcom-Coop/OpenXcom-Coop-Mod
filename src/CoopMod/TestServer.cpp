@@ -7401,7 +7401,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// lastDeny, IR-2) - the {iseq,reason} object from the most recent
 		// bt_deny this machine received this battle, or null if none yet.
 		resp["lastDeny"] = CoopArbiter::lastDeny();
-		resp["desyncSeen"] = a.desyncFrozen.load();
+		resp["desyncSeen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop R4-L3 S-A (QL3-4 (a)): a repaired desync stays seen
 		resp["txDrains"] = CoopEmit::txDrainEvents();
 		// W1-P6 (WAVE1-RUNBOOK.md WV-D40 / WR-2, and W1-G1 criterion 4b): how
 		// many times coopBlockLocalExecution() has refused a LOCAL execution in
@@ -12867,7 +12867,7 @@ std::string TestServer::execute(const std::string& line)
 				authority["hostSim"] = a.hostSim.load();
 				authority["localSeat"] = a.localSeat.load();
 				authority["battleId"] = a.battleId.load();
-				authority["desyncFrozen"] = a.desyncFrozen.load();
+				authority["desyncFrozen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop R4-L3 S-A (QL3-4 (a)); the live flag: resync_state.frozen
 				// SPEC 16 (W1-P17) M1, F337's NEW probe: latched on a mid-
 				// Active-battle peer leave that spared the authority reset
 				// (see connectionTCP::disconnectTCP), so a test can assert
