@@ -20247,6 +20247,28 @@ static void setBodyDirectionKeepTurret(BattleUnit* unit, int dir)
 	unit->setTurretDirection(turret);
 }
 
+// W2-H35b (DF-5 follow-up; docs rewrite/prompts/w2h35b_client_sight_events.md (e) E1; R-R5U1-1 vanilla parity): the
+// CLIENT's mirror of vanilla's positional sight refresh (TileEngine's position overload of its FOV update, without tiles:
+// its range test and its unit half) for FACTION_PLAYER viewers only - the units that write BattleUnit::_visible (W2-H35
+// QH-4 (a)) - at the events a thin client applies without running the vanilla code that refreshes sight there: a door
+// opening (E2), an AI unit's think (E3 / E4), a light-giving item moving (E5), a unit moving or going down (E6), a tile
+// change (E7). The tile half stays the host's (SS2.4a: no discovered bit is written here); per-unit `visible` and the
+// visible-unit lists are machine-local and in no hash bucket (PRD-D4); no wire. CLIENT only: a no-op on the host (vanilla
+// ran there) and outside an active co-op battle. @a eventRadius >= 0 (each caller passes vanilla's own radius).
+static void coopClientEventSight(SavedBattleGame* save, Position pos, int eventRadius)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim || !save->getTileEngine())
+		return;
+	TileEngine* te = save->getTileEngine();
+	int updateRadius = te->getMaxViewDistance() + (eventRadius > 0 ? eventRadius : 0);
+	updateRadius *= updateRadius;
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		if (bu->getFaction() == FACTION_PLAYER && Position::distance2dSq(pos, bu->getPosition()) <= updateRadius)
+			te->calculateUnitsInFOV(bu, pos, eventRadius);
+	}
+}
+
 void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!save)
@@ -20333,6 +20355,12 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			// own `reveal`.
 			if (save->getTileEngine())
 				save->getTileEngine()->calculateLighting(LL_FIRE, pos, 1, true);
+			// W2-H35b ((e) E2): vanilla refreshes sight through the doorway right after this light (TileEngine::unitOpensDoor
+			// :4240-:4242: the door centre, radius = the doors opened; one door tile = this tile, radius 1). Unit half only
+			// (E1); the door actor's own sight is A5's (onApplied). A close is not refreshed here: vanilla closes UFO doors only
+			// in BattlescapeGame::endTurn, whose sight W2-H35's side-change mirror re-runs.
+			if (open)
+				coopClientEventSight(save, pos, 1);
 		}
 		if (dp.isMember("unit") && dp.isMember("tuAfter"))
 		{
@@ -25887,6 +25915,27 @@ static void coopClientSideSight(SavedBattleGame* save)
 	}
 }
 
+// W2-H35b (DF-5 follow-up; docs rewrite/prompts/w2h35b_client_sight_events.md (e) E3; R-R5U1-1): the CLIENT's mirror of
+// vanilla's AI think (BattlescapeGame::handleAI :373-:375): before each AI action the host hides the acting unit and
+// refreshes sight around it, so an AI unit no X-COM soldier sees any more (its viewer died, was knocked out, turned away or
+// moved) disappears when it next acts. A thin client runs no handleAI; the first ev of each host action that an AI-run
+// unit takes on its own side is where that think ran (E4). Not for a unit a seat commands (a human plays it: no think),
+// not off its own side (reaction fire runs no think), not for a panic chain (handlePanickingUnit runs no think). X-COM
+// viewers only (E1; W2-H35 QH-4 (a)). CLIENT only.
+static void coopClientAiThinkSight(SavedBattleGame* save, BattleUnit* actor, const Json::Value& ev)
+{
+	if (!save || !actor || !isCoopBattle() || coopBattleAuthority().hostSim || actor->getFaction() == FACTION_PLAYER
+		|| actor->getFaction() != save->getSide() || ev.get("kind", "").asString() == "panic")
+		return;
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17), the W2-H32 seat-less test
+	{
+		if (coopBattleAuthority().commandsUnit(actor, seat))
+			return;
+	}
+	actor->setVisible(false);
+	CoopApply::coopClientEventSight(save, actor->getPosition(), 1);
+}
+
 // R3-P1 (IR-16c's own "body is a no-op until R3-P1" marker, BattlePump.h):
 // the S3-instant display hook. Applies state (CoopApply.h) then "displays"
 // it - CoopApply::applyEvPayload()/applyActionEndFinal() write the unit's
@@ -25956,6 +26005,9 @@ void onApplied(const Json::Value& ev)
 			{
 				g_coopClientActionActor[actionId] = payload.isMember("actor")
 					? payload["actor"].asInt() : payload["unit"].asInt();
+				// W2-H35b ((e) E4): the first ev of this action on this machine - an AI unit's think ran right before it on
+				// the host (BattlescapeGame::handleAI :373-:375). Before this ev applies, as vanilla's think precedes the action.
+				coopClientAiThinkSight(save, CoopIdMaps::unit(g_coopClientActionActor[actionId]), ev);
 			}
 		}
 		// RW-REPLAY-REGION-BEGIN
