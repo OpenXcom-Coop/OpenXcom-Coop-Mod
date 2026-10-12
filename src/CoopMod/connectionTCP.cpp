@@ -34744,7 +34744,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// Re-pointed onto the SAME r4 handshake offerRejoinBattle() (SPEC
 			// 16 M5) already uses for a live in-memory pause/rejoin - this is
 			// its disk-resume sibling.
-			CoopHandshake::offerResumedBattle(_game);
+			// coop R4-L2 (OQ-r4-1, D91; F4812): a LIVE pause - SPEC 16 M1 kept the battle Active with peerAbsent set - is an
+			// in-memory rejoin, the offer a skirmish rejoin gets (offerRejoinBattle()); only a battle loaded off disk (phase Idle,
+			// lobbyMode 2, SPEC 18) takes the disk-resume offer. Each offer refuses, with its own log line, outside its state.
+			if (coopBattleAuthority().phase.load() == CoopBattlePhase::Idle)
+				CoopHandshake::offerResumedBattle(_game);
+			else
+				CoopHandshake::offerRejoinBattle(_game);
 		}
 		else
 		{
