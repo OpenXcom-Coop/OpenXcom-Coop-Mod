@@ -18,8 +18,11 @@ than touch that guard - this test follows the same precedent).
       BOTH machines; since nothing in this flow ever calls Soldier::setCoop()
       (NewBattleState.cpp has no such call), every soldier's ownership stamp
       sits at its Soldier ctor default (_coop == 0) - so every soldier unit's
-      seat tag must be COOP_SEAT_0 on both machines, and every non-soldier
-      unit (HWPs/civilians/real mission aliens) must be COOP_SEAT_NONE (-1).
+      seat tag must be COOP_SEAT_0 on both machines; every player-side
+      non-soldier unit (an HWP, a summoned unit) must be COOP_SEAT_0 too (R5-U4,
+      owner D235 (a): the host commands every ownerless player-side unit), and
+      every other non-soldier unit (civilians/real mission aliens) must be
+      COOP_SEAT_NONE (-1).
 
   (b) test_pvp_gm2(): ClientPlayer set to the Alien team pre-battle
       (lobby_set_team -> gamemode 2, "PVP" - pvp_fixture.py's own
@@ -225,10 +228,14 @@ def test_classic():
                 assert u["coop"] == COOP_SEAT_0, \
                     f"soldier unit {uid} ({u['name']}) coop seat={u['coop']}, " \
                     f"expected COOP_SEAT_0 (Soldier::getCoop() ownership default)"
+            elif u["originalFaction"] == FACTION_PLAYER:
+                assert u["coop"] == COOP_SEAT_0, \
+                    f"player-side non-soldier unit {uid} ({u['name']}) coop seat={u['coop']}, " \
+                    f"expected COOP_SEAT_0 (R5-U4, owner D235 (a): the host commands it)"
             else:
                 assert u["coop"] == COOP_SEAT_NONE, \
                     f"non-soldier unit {uid} ({u['name']}) coop seat={u['coop']}, " \
-                    f"expected COOP_SEAT_NONE (HWP/civilian/alien - nobody commands it)"
+                    f"expected COOP_SEAT_NONE (civilian/alien - nobody commands it)"
         assert soldier_count > 0, "no isPlayerSoldier units in the generated battle - fixture is empty"
 
         assert_cross_machine_equal(host_units, client_units)
