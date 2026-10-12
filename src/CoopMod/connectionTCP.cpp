@@ -482,6 +482,7 @@ void CoopSession::resetSession()
 void CoopSession::onClientDrop()
 {
 	Log(LOG_INFO) << "[coop-session] onClientDrop";
+	coopResyncOnPeerDrop(); // coop R4-L3 S-A: a drop ends every repair state; the pause is SPEC 16's
 	SharedEcon::onPeerLeft(-1); // W2-P7 S-C-E2 (D203, P7-8 PR-48): the dropped seat leaves every shared screen
 	clientInLobby = false;
 	resumeAck = false;
@@ -850,6 +851,44 @@ bool coopResyncHoldArm(bool on)
 	return g_coopResyncHoldArmed;
 }
 
+// ===== coop R4-L3 S-A (owner D232 (a); QL3-1..QL3-4, QL3-8, QL3-10): the automatic desync repair's state. Main thread
+// only.
+// - seen latch (both machines): the battleId whose desync this machine saw (the second player raised it; the host got
+//   the report). Kept across the repair (the second player's teardown resets the authority), cleared only when a battle
+//   with another id starts (initBattleAuthority()). Read by coopDesyncSeenLatched() for the test probes (QL3-4 (a)).
+// - pending (HOST): a report to answer at the next quiescent pump pass. In flight (HOST): the repair offer is out and its
+//   release not done. Done (HOST): onReady() found the copy EQUAL; the pump releases the pause. Halted (HOST): a repair
+//   failed in this battle - no further repair (QL3-6 (a), S-B). A drop clears all four (coopResyncOnPeerDrop()).
+// - offer flag (HOST): set around the one offerRejoinBattle() call that is a repair, so the offer carries `resync`.
+// - teardown latch + offer stash + kept research (CLIENT): the repair offer, stashed by onOffer() while this battle is
+//   desync-frozen and replayed by the pump after the in-process teardown (QL3-2 (a)); its accept ships this machine's
+//   own research list (QL3-10 (a)). =====
+static std::uint32_t g_coopDesyncSeenBattleId = 0;
+static bool g_coopResyncPending = false;
+static bool g_coopResyncInFlight = false;
+static bool g_coopResyncDone = false;
+static bool g_coopResyncHalted = false;
+static bool g_coopOfferIsResync = false;
+static bool g_coopResyncTeardownLatch = false;
+static Json::Value g_coopResyncOfferStash;
+static Json::Value g_coopResyncKeptResearch;
+
+bool coopDesyncSeenLatched()
+{
+	return g_coopDesyncSeenBattleId != 0;
+}
+
+// coop R4-L3 S-A: the last desync this machine saw (the second player's raise or the host's report), on the record.
+static void coopResyncNoteLast(const std::string& bucket, std::uint32_t seq, const std::string& kind, std::uint32_t battleId)
+{
+	Json::Value last(Json::objectValue);
+	last["bucket"] = bucket;
+	last["seq"] = seq;
+	last["kind"] = kind;
+	last["battleId"] = battleId;
+	g_coopResyncRecord["last"] = last;
+}
+
 // SS2.8's mismatch path (freeze -> bt_desync -> bundle -> banner), factored out
 // of CoopHashCheck::verify() (this file) so the SS2.4a reveal `base` n-mismatch
 // raises the IDENTICAL desync through the IDENTICAL code. Latches on
@@ -863,6 +902,10 @@ static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
 {
 	if (coopBattleAuthority().desyncFrozen.exchange(true))
 		return; // already latched, or lost a race with another envelope this tick
+	// coop R4-L3 S-A (QL3-4 (a)): the seen latch and the record - both outlive the repair this desync starts.
+	g_coopDesyncSeenBattleId = coopBattleAuthority().battleId.load();
+	coopResyncCount("desyncs");
+	coopResyncNoteLast(bucket, seq, kind, g_coopDesyncSeenBattleId);
 
 	Log(LOG_ERROR) << "[coop-hash] DESYNC: bucket=" << bucket << " seq=" << seq
 		<< " kind=" << kind << " expect=" << expect << " got=" << got
@@ -875,6 +918,7 @@ static void coopRaiseBattleDesync(const char* bucket, const std::string& expect,
 
 	Json::Value rep = CoopWire::makeDesync(coopBattleAuthority().battleId.load(), seq,
 		bucket, expect, got);
+	rep["kind"] = kind;
 	if (!bundlePath.empty())
 		rep["bundlePath"] = bundlePath;
 	CoopEmit::sendBattle(rep);
@@ -6178,6 +6222,10 @@ void initBattleAuthority(std::uint32_t battleId)
 	a.phase = CoopBattlePhase::Handshake;
 	a.battleId = battleId;
 	a.desyncFrozen = false; // R2-P9: a fresh battle always starts unfrozen
+	// coop R4-L3 S-A (QL3-4 (a)): the seen latch outlives the repair of ITS battle (the second player's repair runs this
+	// function with the same battleId); a battle with another id starts unseen.
+	if (battleId != g_coopDesyncSeenBattleId)
+		g_coopDesyncSeenBattleId = 0;
 	a.resetSeatFactions();
 	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the session-lifetime battleEnd
 	// record is cleared here and nowhere else (CoopDelta.h).
@@ -18564,6 +18612,68 @@ public:
 	}
 };
 
+// ===== coop R4-L3 S-A (owner D232 (a); docs rewrite/prompts/r4l3_desync_resync.md): the HOST's answer to a desync report -
+// record it, then arm the automatic repair unless this battle cannot take one (QL3-8 (a)): not Active (a battle_end or a
+// stage_end already ended it - MG-A: a desync caught on `stage_end` is repaired by the stage-2 offer), a stage hand-off on
+// its way, the partner absent (a real leave owns the pause), a repair already pending or in flight, a failed repair in
+// this battle (QL3-6 (a)), or the TEST-ONLY hold (QL3-5 (a)). Message-handler context: flags and the record only (RB-D5). =====
+static void coopHostOnPeerDesync(const Json::Value& report)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	if (!connectionTCP::getServerOwner() || !a.hostSim.load())
+		return;
+	const std::uint32_t battleId = report.get("battleId", 0u).asUInt();
+	if (battleId == 0 || battleId != a.battleId.load())
+	{
+		Log(LOG_WARNING) << "[coop-resync] host: a desync report for battle " << battleId << " (this battle "
+			<< a.battleId.load() << ") - ignored";
+		return;
+	}
+	g_coopDesyncSeenBattleId = battleId;
+	coopResyncCount("desyncs");
+	coopResyncNoteLast(report.get("bucket", "").asString(), report.get("seq", 0u).asUInt(),
+		report.get("kind", "").asString(), battleId);
+	const char* skip = nullptr;
+	if (a.phase.load() != CoopBattlePhase::Active)
+		skip = "phase";
+	else if (g_coopStageHandOffPending || g_coopStageOfferPending)
+		skip = "stage";
+	else if (a.peerAbsent.load())
+		skip = "peerAbsent";
+	else if (g_coopResyncPending || g_coopResyncInFlight)
+		skip = "inFlight";
+	else if (g_coopResyncHalted)
+		skip = "halted";
+	if (!skip && g_coopResyncHoldArmed)
+	{
+		coopResyncCount("held");
+		Log(LOG_WARNING) << "[coop-resync] host: TEST-ONLY resync_hold armed - the desync is not repaired (battleId="
+			<< battleId << ")";
+		return;
+	}
+	if (skip)
+	{
+		coopResyncCount("skipped");
+		g_coopResyncRecord["lastSkip"] = skip;
+		Log(LOG_WARNING) << "[coop-resync] host: no automatic repair (" << skip << ", battleId=" << battleId << ")";
+		return;
+	}
+	g_coopResyncPending = true;
+	Log(LOG_INFO) << "[coop-resync] host: desync report (bucket=" << report.get("bucket", "").asString() << ", seq="
+		<< report.get("seq", 0u).asUInt() << ") - the automatic repair runs at the next quiescent pass";
+}
+
+// coop R4-L3 S-A: a partner drop ends every repair state - the pause becomes SPEC 16's (a later rejoin offer is not a
+// repair). From CoopSession::onClientDrop() (the host's drop path; harmless anywhere else).
+void coopResyncOnPeerDrop()
+{
+	const bool anyRepairState = g_coopResyncPending || g_coopResyncInFlight || g_coopResyncDone || g_coopResyncHalted;
+	g_coopResyncPending = g_coopResyncInFlight = g_coopResyncDone = g_coopResyncHalted = false;
+	g_coopOfferIsResync = false;
+	if (anyRepairState)
+		Log(LOG_INFO) << "[coop-resync] the partner dropped - the repair state is cleared (the pause is SPEC 16's)";
+}
+
 bool coopFatalVoteArm(SavedBattleGame* /*save*/, int wounded, bool endTurnRequested)
 {
 	const BattleAuthority& a = coopBattleAuthority();
@@ -27592,6 +27702,10 @@ struct PendingClient
 	int endTurnPhase = -1;
 	// MG-A S-A1: the offer carried `stageOf` (the stage record's loadedMs / toBattleId are written at its load).
 	bool stage = false;
+	// coop R4-L3 S-A: the offer carried `resync` (the host's automatic desync repair).
+	bool resync = false;
+	// coop R4-L3 S-A (R-L3-A-5, F11792): the side the repair's offer names (a faction); -1 = absent (every other offer).
+	int resyncSide = -1;
 };
 static PendingClient g_pendingClient;
 
@@ -28340,6 +28454,13 @@ void offerRejoinBattle(Game* game)
 	// W2-H14 (SM-2, F4012): the host's END TURN side-phase counter, kept through the pause (SPEC 16 M1); the
 	// rejoiner starts its own there (CoopEndTurn::seedRejoinPhase()). Additive key; protocolVersion stays 1.
 	offer["endTurnPhase"] = CoopEndTurn::rejoinPhase();
+	// coop R4-L3 S-A (QL3-1 (a)): the automatic desync repair's offer says so; a rejoin offer never carries the key.
+	if (g_coopOfferIsResync)
+		offer["resync"] = true;
+	// coop R4-L3 S-A (R-L3-A-5, F11792): the battle document carries no side (vanilla saves only on the player's turn), so
+	// the repair's offer names the side the host's battle is on; the second player's reload takes it before the release.
+	if (g_coopOfferIsResync)
+		offer["resyncSide"] = coopFactionToWireString((int)battle->getSide());
 
 	// W1-P2 (SS2.W1): the SAME mission identity this battle was offered
 	// with originally - still live on the battle object, never reset by M1.
@@ -28613,6 +28734,18 @@ void onOffer(Game* game, const Json::Value& offer)
 				<< ") stashed: the next stage of battle " << coopBattleAuthority().battleId.load();
 			return;
 		}
+		// coop R4-L3 S-A (owner D232 (a); QL3-2 (a)): the host's automatic repair offer for THIS battle while it is
+		// desync-frozen - stashed, never refused; the pump tears this battle down in process (never from here, RB-D5)
+		// and replays it, as MG-A's stage offer.
+		if (offer.get("resync", false).asBool() && offer.get("resumed", false).asBool()
+			&& battleId == coopBattleAuthority().battleId.load() && coopBattleAuthority().desyncFrozen.load())
+		{
+			g_coopResyncOfferStash = offer;
+			g_coopResyncTeardownLatch = true;
+			Log(LOG_INFO) << "[coop-resync] client: repair offer (battleId=" << battleId
+				<< ") stashed - this battle is torn down at the pump";
+			return;
+		}
 		refuse("busy");
 		return;
 	}
@@ -28659,6 +28792,8 @@ void onOffer(Game* game, const Json::Value& offer)
 	g_pendingClient.equip = offer.isMember("equip") ? offer["equip"] : Json::Value();
 	g_pendingClient.endTurnPhase = offer.get("endTurnPhase", -1).asInt(); // W2-H14: presence-gated, -1 = absent
 	g_pendingClient.stage = offer.isMember("stageOf"); // MG-A S-A1: a stage offer (probe only)
+	g_pendingClient.resync = offer.get("resync", false).asBool(); // coop R4-L3 S-A: the automatic repair's offer
+	g_pendingClient.resyncSide = offer.isMember("resyncSide") ? coopWireStringToFaction(offer["resyncSide"].asString()) : -1;
 	// W2-P9 S-A (AMENDMENT P9-1 PR-8, F4733): presence-gated - the host's synced game options, a full-table re-assert
 	// (applies at a version >= the last one applied; heals a dropped set, N31).
 	const Json::Value hostRulesSO = offer.get("hostRules", Json::Value());
@@ -28692,6 +28827,11 @@ void onOffer(Game* game, const Json::Value& offer)
 		CoopDelta::stageRecordSet("researchCarried", 1);
 	}
 	g_coopStageKeptResearch = Json::Value();
+	// coop R4-L3 S-A (QL3-10 (a); owner D149): a repair offer's accept ships this machine's own list kept at its repair
+	// teardown, as MG-A's stage offer does - the live world here is the host's battle world.
+	if (offer.get("resync", false).asBool() && g_coopResyncKeptResearch.isArray())
+		research = g_coopResyncKeptResearch;
+	g_coopResyncKeptResearch = Json::Value();
 	coopStoreSeatResearch(researchSeat, research, game->getMod());
 
 	Json::Value accept(Json::objectValue);
@@ -28864,6 +29004,10 @@ void onBlobChunkAppended(Game* game)
 		resetBattleAuthority();
 		return;
 	}
+
+	// coop R4-L3 S-A (R-L3-A-5, F11792): the repair's battle takes the side the host's battle is on (the document has none).
+	if (g_pendingClient.resync && g_pendingClient.resyncSide >= 0)
+		battle->coopSetSide((UnitFaction)g_pendingClient.resyncSide);
 
 	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 4, PR-13; F2509, T0-5): a SEPARATE guest's battle entry.
 	// Snapshot the client's live OWN world (the pre-mission funds/marker are in memory, the disk blob is stale) under
@@ -29058,6 +29202,8 @@ void onBlobChunkAppended(Game* game)
 		// nothing set this true on ANY resume before M5. The r4 handshake's
 		// own success is the equivalent, reliable signal now.
 		coopSession = true;
+		if (g_pendingClient.resync) // coop R4-L3 S-A: the repair's battle is loaded; the hold releases on its own
+			coopResyncCount("loaded");
 		game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 		Log(LOG_INFO) << "[coop-handshake] SPEC16 M5: rejoin - held on "
 			"COOP_DLG_CLIENT_RESUME_HOLD until the host RESUMEs";
@@ -29443,6 +29589,15 @@ void onReady(Game* game, const Json::Value& ready)
 		// W2-H14b (owner D221 (c), H14b-1): the returning player's END TURN press is dropped (it must press again)
 		// and both machines get the true tally; the pause kept it (D91/D98).
 		CoopEndTurn::onSeatRejoined(activeBattle);
+	}
+
+	// coop R4-L3 S-A (QL3-3 (a)): an in-memory offer that was the automatic repair's - the copy is EQUAL; the pump releases
+	// the pause once the second player's resume_ack is in. Flag only (a message handler, RB-D5).
+	if (wasResumed && !fromDisk && g_coopResyncInFlight)
+	{
+		g_coopResyncDone = true;
+		coopResyncCount("completed");
+		Log(LOG_INFO) << "[coop-resync] host: the repaired copy is EQUAL (battleId=" << battleId << ") - released at the pump";
 	}
 
 	// W2-P7 S-V-B.2 (design 2.7, AMENDMENT P7-5 4.4; owner D186, D223 (b) = P7-7, SV-M9): an in-memory rejoin during an
@@ -32335,6 +32490,88 @@ void connectionTCP::updateCoopTask()
 		}
 	}
 
+	// coop R4-L3 S-A (owner D232 (a); QL3-1 (a)): the HOST's automatic desync repair, at quiescence, after the SPEC 18 save
+	// and SPEC 16 pause latches above - SPEC 16's pause with nobody leaving: admission closed (peerAbsent), the leave's
+	// battle-side reset (the seq mint back to 1; the delta re-seeded by the offer; the chain state and the hostile set
+	// kept), the waiting screen, then the in-memory offer with `resync`. Re-checked here: a drop or an end since the report
+	// clears it.
+	if (g_coopResyncPending && coopQuiescentNow && getServerOwner())
+	{
+		g_coopResyncPending = false;
+		SavedBattleGame* resyncBattle = connectionTCP::getStaticBattle();
+		const BattleAuthority& ra = coopBattleAuthority();
+		if (!resyncBattle || ra.phase.load() != CoopBattlePhase::Active || ra.peerAbsent.load() || g_coopResyncHalted
+			|| g_coopStageHandOffPending || g_coopStageOfferPending)
+		{
+			coopResyncCount("skipped");
+			g_coopResyncRecord["lastSkip"] = "atPump";
+			Log(LOG_WARNING) << "[coop-resync] host: the repair is no longer possible at the pump - skipped";
+		}
+		else
+		{
+			bool resyncWaitDialog = false;
+			for (State* st : _game->getStates())
+			{
+				CoopState* cs = dynamic_cast<CoopState*>(st);
+				if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+				{
+					resyncWaitDialog = true;
+					break;
+				}
+			}
+			coopBattleAuthority().peerAbsent = true;
+			CoopPump::reset(false);
+			connectionTCP::session.resumeAck = false;
+			if (!resyncWaitDialog)
+			{
+				connectionTCP::session.freeze();
+				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			}
+			g_coopResyncInFlight = true;
+			g_coopResyncDone = false;
+			g_coopResyncRecord["lastOfferSide"] = (int)resyncBattle->getSide();
+			g_coopOfferIsResync = true;
+			CoopHandshake::offerRejoinBattle(_game);
+			g_coopOfferIsResync = false;
+			coopResyncCount("offered");
+			Log(LOG_INFO) << "[coop-resync] host: automatic repair offered (battleId=" << coopBattleAuthority().battleId.load()
+				<< ", side " << (int)resyncBattle->getSide() << ")";
+		}
+	}
+
+	// coop R4-L3 S-A (QL3-3 (a)): the automatic release - the repaired copy was EQUAL (onReady()) and the second player
+	// adopted it (resume_ack): what the host's RESUME press does (CoopState::previous(): sessionLive, campaign_begun, pop).
+	// Waits while another screen sits over the waiting screen; a RESUME pressed first already released it.
+	if (g_coopResyncDone && connectionTCP::session.resumeAck && getServerOwner())
+	{
+		bool releaseWaitDialog = false;
+		for (State* st : _game->getStates())
+		{
+			CoopState* cs = dynamic_cast<CoopState*>(st);
+			if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+			{
+				releaseWaitDialog = true;
+				break;
+			}
+		}
+		CoopState* releaseTop = _game->getStates().empty() ? nullptr : dynamic_cast<CoopState*>(_game->getStates().back());
+		if (!releaseWaitDialog || (releaseTop && releaseTop->getStateCode() == COOP_DLG_WAIT_PLAYERS))
+		{
+			g_coopResyncDone = false;
+			g_coopResyncInFlight = false;
+			if (releaseWaitDialog)
+			{
+				connectionTCP::session.sessionLive();
+				Json::Value begun;
+				begun["state"] = "campaign_begun";
+				sendTCPPacketData(begun.toStyledString());
+				_game->popState();
+			}
+			coopResyncCount("released");
+			Log(LOG_INFO) << "[coop-resync] host: the battle is repaired - the pause is released";
+		}
+	}
+
 	// W2-P9 S-A (AMENDMENT P9-1 PR-6, V14, V16): the host applies queued synced-option changes between actions only.
 	coopSyncedOptionsPump(_game, coopQuiescentNow);
 
@@ -32481,6 +32718,38 @@ void connectionTCP::updateCoopTask()
 			CoopDelta::stageRecordSet("offerReplayed", 1);
 			CoopHandshake::onOffer(_game, stash);
 		}
+	}
+
+	// coop R4-L3 S-A (owner D232 (a); QL3-2 (a), QL3-10 (a), QL3-11 (a)): the CLIENT's in-process repair teardown, consumed
+	// here - never from the apply path (RB-D5) - in MG-A's stage-teardown shape: every screen over this battle's map closes
+	// (the battle_end teardown's setState closes them the same way), this machine's own research list is kept for the
+	// accept, the battle-scoped reset, the invisible hold over the frozen map until the host's battle loads
+	// (onBlobChunkAppended() unwinds it), then the stashed repair offer replays.
+	if (g_coopResyncTeardownLatch && !getServerOwner())
+	{
+		g_coopResyncTeardownLatch = false;
+		const std::uint32_t frozenBattleId = coopBattleAuthority().battleId;
+		g_coopResyncKeptResearch = coopSeatResearchNames(coopBattleAuthority().localSeat);
+		SavedBattleGame* frozenBattle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
+		BattlescapeState* frozenBs = frozenBattle ? frozenBattle->getBattleState() : nullptr;
+		if (!connectionTCP::isBattlescapeStateLive(frozenBs))
+			frozenBs = nullptr;
+		for (int guard = 0; frozenBs && guard < 32 && !_game->getStates().empty() && _game->getStates().back() != frozenBs; ++guard)
+			_game->popState();
+		_game->getCursor()->setVisible(true);
+		if (frozenBattle && frozenBattle->getAmbientSound() != Mod::NO_SOUND)
+			_game->getMod()->getSoundByDepth(0, frozenBattle->getAmbientSound())->stopLoop();
+		_game->resetTouchButtonFlags();
+		coopBattleAuthority().phase = CoopBattlePhase::Ended;
+		coopResetBattleScope();
+		_game->pushState(new CoopStageHold(frozenBattle));
+		coopResyncCount("teardowns");
+		Log(LOG_INFO) << "[coop-resync] client: battle " << frozenBattleId
+			<< " torn down for the repair - the map stays frozen until the host's battle loads";
+		Json::Value stash;
+		stash.swap(g_coopResyncOfferStash);
+		if (stash.isObject() && stash.get("battleId", 0u).asUInt() == frozenBattleId)
+			CoopHandshake::onOffer(_game, stash);
 	}
 
 	// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 7, PR-4/PR-5/PR-7; MR1, F2527, F2530): the SHARED campaign CLIENT
@@ -34362,6 +34631,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// the document this host hashed for that seq next to the reports.
 			if (coopBattleAuthority().hostSim && obj.get("bucket", "").asString() == "saveBlob")
 				CoopDelta::writeHostSaveBlobText(obj.get("seq", 0u).asUInt(), obj.get("expect", "").asString());
+			// coop R4-L3 S-A (owner D232 (a); QL3-1 (a), QL3-8 (a)): answered by the automatic repair at the next
+			// quiescent pump pass (flags only here, RB-D5).
+			coopHostOnPeerDesync(obj);
 		}
 		else if (stateString == "bt_ack")
 		{

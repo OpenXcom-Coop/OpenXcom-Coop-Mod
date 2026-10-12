@@ -418,6 +418,13 @@ bool isCoopBattle();
 /// connectionTCP.cpp next to isCoopBattle().
 bool coopBattleQuiescent();
 
+/// coop R4-L3 S-A (owner D232 (a); docs rewrite/prompts/r4l3_desync_resync.md): true once this machine saw a desync in the
+/// battle it is in or was last in (the second player raised one; the host received a report) - kept across the
+/// automatic repair, cleared when a battle with another id starts. Read by TestServer's desync probes (QL3-4 (a)).
+bool coopDesyncSeenLatched();
+/// coop R4-L3 S-A: a partner drop ends every repair state (the pause becomes SPEC 16's); from CoopSession::onClientDrop().
+void coopResyncOnPeerDrop();
+
 /// SPEC 18 (r4 T4) M8: arm the deferred mid-battle coop save latch, called
 /// from SaveGameState::think() the moment it observes isCoopBattle() &&
 /// !coopBattleQuiescent() - i.e. every mid-battle coop save funnels through

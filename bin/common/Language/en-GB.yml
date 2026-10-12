@@ -107,7 +107,7 @@ en-GB:
   STR_COOP_HALT_PATH_BLOCKED: "Move stopped - path blocked"
   # coop (R2-P9, spike-runbook 2.8 mismatch-behavior note): sticky banner shown
   # once on a client-side hash-mismatch desync - never auto-cleared.
-  STR_COOP_DESYNC_HALTED: "Desync detected - battle halted (rejoin arrives in a later build)"
+  STR_COOP_DESYNC_HALTED: "Desync detected - battle halted"
   # coop (W1-P4, WAVE1-RUNBOOK.md ruling D3 = WV-D9/WV-D34): the pre-battle equip
   # freeze notice, raised on BOTH machines at battle entry through the same
   # _txtCoopWait presenter. Shown because the equip screen is SKIPPED, not because
