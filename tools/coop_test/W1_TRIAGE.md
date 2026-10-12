@@ -387,3 +387,15 @@ Recorded by RV-U7 (docs `rewrite/prompts/rvu7_autoend_crash_proof.md`; owner D12
 | test | disposition |
 |---|---|
 | `test_shared_autoend_crashsite.py` | run live since RV-U7 (guard removed): the player's SHARED save resumes on the rewrite, the craft lands on the crashed UFO whose crew is dead at generation (the trigger in `rewrite/rvu7-task0/CONSTANTS.md`), and both machines leave through "all aliens killed" to their debriefings and the geoscape with no crash file. `main` fixed the original crash in #154 (`c93d1ad4d`); the rewrite has no battle screen that is set up but not shown |
+
+## Dispositions (R5-U3, post-Wave-2)
+
+Recorded by R5-U3 (docs `rewrite/prompts/r5u3_pvp_rules.md`, owner D229 (a) + gate, D234 (a), R5-V1). The three PvP files R5-U9 left
+"owned by R5-U3" are covered by running R5-U3 rows; they stay SKIP-PENDING and are not edited here; RV-U5 deletes them once the named
+tests are green at its tip (D229). This section supersedes their rows in "Dispositions (R5-U9, post-Wave-2)".
+
+| test | disposition |
+|---|---|
+| `test_pvp_skirmish_psi.py` | covered (RV-U5 deletes): PvP mind control both ways on gm2 and gm3 with one canonical faction on both machines (its legacy inverted-faction asserts are wrong for the rewrite) - `test_r5_pvp_react_mc.py` M1, M2 and `test_r5_pvp_react_mc_gm3.py` M3, M4 |
+| `test_pvp_skirmish_census.py` | covered (RV-U5 deletes): a PvP weapon fired through the intent path leaves both machines with the same item census - `test_r5_pvp_rules.py` D2 (the alien seat's blaster launch) |
+| `test_coop_pvp_blaster.py` | covered (RV-U5 deletes): the alien seat fires a blaster launcher (issue #74) and both machines keep the same items, on turn 1 (D234 a) - `test_r5_pvp_rules.py` D2 |
