@@ -6,7 +6,7 @@ pause (F4812, F10801): REFUSED +1, resumeAck never true, the host waits on dialo
   soldiers + the client's "Guest Zzz" seated on the host's craft; f records OWN_BEFORE = the client's own "Guest Zzz" record and F0 =
   the client's funds, for S-D's CR4); GID = the host battle unit named "Guest" (coop 1); B0, SPLIT0, T0, HASH; ICON0 (the host's
   partner-base icons) and H0 (the host's copy of the client world, coop_file_info); client.kill() (the loss path in EVIDENCE: TASK 0
-  measured -2, peerAbsent true at the first poll); PAUSE; ICON1; REJOIN(client2, "48599", campaign); pick_and_walk(host, client2, GID).
+  measured -2, peerAbsent true at the first poll); PAUSE; ICON1; REJOIN(client2, "48599", campaign); walk_far(host, client2, GID).
   Cells: CR2-1 GUARD PAUSE; CR2-2 GUARD phase 1 served (a client2 poll on 68; EVIDENCE only, never asserted, QL2-4: RESTASH, ICON0 /
   ICON1, H0 == the host copy's fnv at the pause); CR2-3 RED the live offer (OFFER +1 reading battleId=B0, REFUSED +0); CR2-4 RED
   RESUME offered within W_ACK and pressed; CR2-5 RED the same battle on both; CR2-6 RED SPLIT (client2's holds GID on seat 1);
