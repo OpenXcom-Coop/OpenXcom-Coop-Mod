@@ -196,6 +196,10 @@ HC1_ROWS = (
     # no bucket.
     ("unit.name", "unit", "H", "name", lambda b, c: b + "x"),
     ("unit.rawName", "unit", "H", "rawName", lambda b, c: b + "x"),
+    # R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md (e) E12): the seat tag the gift order ships in the delta
+    # (`seat`, BattleUnit::setCoopSeat), poked from H's seat 0 to 1. RED (R5-U5's red commit A1): the poke moves no
+    # bucket.
+    ("unit.seat", "unit", "H", "seat", lambda b, c: 1 if b == 0 else 0),
 )
 
 
