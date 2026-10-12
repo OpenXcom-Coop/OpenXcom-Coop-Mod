@@ -7414,6 +7414,90 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 			CoopHandshake::adoptCarriedDeployment(deploymentType);
 	}
 
+	// (4) SEPARATE: the release line's battle copy of a partner's soldier (a host-world soldier with coop 1 and no owner,
+	// ownerplayerid 999) becomes a merged copy (W2-P7 S-C-B1.2's shape: coopName "coop-origin:<seat>:<owner's own id>",
+	// owner = seat, coopBase -1), so the battle's end returns its record to the owner's world and deletes the copy (F366,
+	// D155, D181). Its owner's soldier is the ONE soldier of the partner's world (converted by (0)) with the same key
+	// (coopname, else name) on the same craft (coopcraft, coopcrafttype); no match or several = unchanged, counted.
+	if (save->getCampaignType() != CoopCampaignType::Shared && save->getCoopPlayers().size() > 1)
+	{
+		std::string partnerBlob;
+		{
+			std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+			const std::string* found = connectionTCP::findHostClientBlob(save->getCoopPlayers()[1]);
+			if (found)
+				partnerBlob = *found;
+		}
+		struct PartnerSoldier { int id; std::string key; int coopCraft; std::string coopCraftType; };
+		std::vector<PartnerSoldier> partnerSoldiers;
+		if (!partnerBlob.empty())
+		{
+			try
+			{
+				SaveUpgrade::SaveWorld world;
+				world.ingestStream(partnerBlob);
+				const SaveUpgrade::SaveWorld& partnerWorld = world;
+				ryml::ConstNodeRef bases = partnerWorld.body().find_child(ryml::to_csubstr("bases"));
+				if (!bases.invalid() && bases.is_seq())
+				{
+					for (ryml::ConstNodeRef base : bases.children())
+					{
+						if (!base.is_map())
+							continue;
+						ryml::ConstNodeRef soldiers = base.find_child(ryml::to_csubstr("soldiers"));
+						if (soldiers.invalid() || !soldiers.is_seq())
+							continue;
+						for (ryml::ConstNodeRef soldier : soldiers.children())
+						{
+							if (!soldier.is_map())
+								continue;
+							std::string key = SaveUpgrade::yamlutil::getStr(soldier, ryml::to_csubstr("coopname"));
+							if (key.empty())
+								key = SaveUpgrade::yamlutil::getStr(soldier, ryml::to_csubstr("name"));
+							partnerSoldiers.push_back({ (int)SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("id"), -1), key,
+								(int)SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("coopcraft"), -1),
+								SaveUpgrade::yamlutil::getStr(soldier, ryml::to_csubstr("coopcrafttype")) });
+						}
+					}
+				}
+			}
+			catch (...)
+			{
+				partnerSoldiers.clear();
+			}
+		}
+		int copiesTagged = 0, copiesUnmatched = 0;
+		for (auto* base : *save->getBases())
+		{
+			for (auto* soldier : *base->getSoldiers())
+			{
+				if (!soldier || soldier->getCoop() != 1 || soldier->getOwnerPlayerId() != 999)
+					continue;
+				const std::string key = soldier->getCoopName().empty() ? soldier->getName() : soldier->getCoopName();
+				int matches = 0, ownerId = -1;
+				for (const auto& p : partnerSoldiers)
+				{
+					if (p.key == key && p.coopCraft == soldier->getCoopCraft() && p.coopCraftType == soldier->getCoopCraftType())
+					{
+						matches++;
+						ownerId = p.id;
+					}
+				}
+				if (matches != 1 || ownerId < 0)
+				{
+					copiesUnmatched++;
+					continue;
+				}
+				soldier->setCoopNameTag("coop-origin:1:" + std::to_string(ownerId));
+				soldier->setOwnerPlayerId(1);
+				soldier->setCoopBase(-1);
+				copiesTagged++;
+			}
+		}
+		Log(LOG_INFO) << "[coop-convert] D246: SEPARATE battle copies of the partner's soldiers - merged copies " << copiesTagged
+			<< ", unmatched " << copiesUnmatched;
+	}
+
 	Log(LOG_INFO) << "[coop-convert] D246: an older version's mid-battle co-op save converted - partner worlds: battle snapshots "
 		<< partnerBattles << ", mirrors " << partnerMirrors << "; seats 0/1 " << seated0 << "/" << seated1 << ", unseated "
 		<< unseated << "; turnMode " << coopTurnModeName(coopBattleAuthority().turnMode) << "; deployment \"" << deploymentType << "\"";
