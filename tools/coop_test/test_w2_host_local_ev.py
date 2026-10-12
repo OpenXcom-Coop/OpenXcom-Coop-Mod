@@ -1,8 +1,10 @@
 """W2-H30 - the host's own presses that change the battle on the host only reach the second player in one host
-action (spec docs rewrite/prompts/w2h30_host_local_actions.md (f); TASK 0 docs rewrite/w2h30-task0/sa/CONSTANTS.md;
-W2-H28 QH-4 (a); F12351, F12354, F11564). Before the fix the HOST's own mind probe (L-1) and its Zero TU key (L-4)
-spend / zero the soldier's time units on the host only and emit nothing, so the second player keeps the old value
-(and hash_now differs) until the host's next ev of any kind, which carries the change (the -next cells).
+action (spec docs rewrite/prompts/w2h30_host_local_actions.md (f); TASK 0 docs rewrite/w2h30-task0/sa/CONSTANTS.md and
+rewrite/w2h30-task0/sb/CONSTANTS.md; W2-H28 QH-4 (a); F12351, F12352, F12353, F12354, F12355, F11564). Before the fix
+the HOST's own mind probe (L-1), its Zero TU key (L-4), the last charge of its single-use medi-kit (L-2: the emptied
+kit leaves only at the screen's close) and its instant-grenade skill (L-5: the fuse write after the skill's context
+closed) change the battle on the host only and emit nothing, so the second player keeps the old value (and hash_now
+differs) until the host's next ev of any kind, which carries the change (the -next cells).
 ONE boot, test_w2_client_grenade's recipe (the roster-pinned terror map, SEED_MAP 1, the Coop_Spray_Test MOD on both,
 coopGhostStepper true), lobby key 48856; rows in this order:
   HS0  bring-up: HS0-mod (MOD line, 0 [ERROR] lines), HS0-units (H, A, C on both), HS0-common.
@@ -14,9 +16,20 @@ coopGhostStepper true), lobby key 48856; rows in this order:
   HZ   the host's Zero TU key (TAB to H, key 127): HZ-press (host H TU 0), HZ-ev ({host, zero_tu, H}, evs [zero_tu,
        bt_action_end], payload {actor H, unit H}), HZ-follow (client H TU 0 within FOLLOW_S), HZ-hash, HZ-common,
        HZ-next.
+  HK   the host's single-use kit (P wounded on P_TILE, the tile H faces; ONE_CHARGE in H's right hand; TAB to H, the
+       right-hand box, key 49, key 51 heals, key 27 closes): HK-open (MedikitState, charges [0, 1, 0] on both), HK-use
+       (one {host, medikit, H} context, evs [medikit, bt_action_end], P's wounds and H's TU on both), HK-inctx (the
+       emptied kit gone on both before the close), HK-close (the close and the BA_USE aftermath emit nothing: L-3),
+       HK-follow (the kit gone on both within FOLLOW_S of the close), HK-hash, HK-common, HK-next (the kit's presence).
+  HG   the host's instant-grenade skill, LAST (GRENADE in H's hand; TAB to H, SKILLS by SKILLS_RECT, key 51, then one
+       right-hand click cancels the throw): HG-press (throw targeting, the host's grenade (0, true), the cancel), HG-ev
+       ({host, skill, H} then {host, prime, H}, the prime context's evs [prime, bt_action_end], lastCue {actor H,
+       unit H, item g, fuse 0, unprime false}), HG-follow (the client's grenade (0, true) within FOLLOW_S), HG-hash,
+       HG-common.
 Common cell: after wait_host_idle, test_w2_client_shoot.common_fails minus its hash entry and no crash file since the
 boot; the -hash cell is that entry. RED (commit A1, unchanged build): exactly HP-ev, HP-follow, HP-hash, HZ-ev,
-HZ-follow, HZ-hash FAIL. GREEN (A2): every cell PASS.
+HZ-follow, HZ-hash FAIL. GREEN (A2): the 15 S-A cells PASS. RED (commit B1, S-A's green build): exactly HK-inctx,
+HK-follow, HK-hash, HG-ev, HG-follow, HG-hash FAIL. GREEN (B2): all 28 cells PASS.
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
@@ -42,6 +55,9 @@ from test_w2_host_skill_ev import log_lines, capture, common, joined, pairs
 from test_w2_client_melee_psi import visible
 from test_rw_turn_baton import RHAND_NTH, RHAND_RECT, click_nth
 from test_rw_seat_pacing import tab_select, SDLK_HOME
+from test_w2_client_items import items_of, charges, wounds_both
+from test_w2_delta_items import items_by_id
+from test_w2_host_skill_ev import skills_nth, SKILLS_RECT
 
 PORT = "48856"
 HOST_DIR, CLIENT_DIR = "w2h30_host_local_host", "w2h30_host_local_client"
@@ -64,7 +80,22 @@ POLL_S = 0.1
 HASH_FAIL = "hash_now full not clean"
 CELLS = {"HS0": ("HS0-mod", "HS0-units", "HS0-common"),
          "HP": ("HP-press", "HP-ev", "HP-follow", "HP-hash", "HP-common", "HP-next"),
-         "HZ": ("HZ-press", "HZ-ev", "HZ-follow", "HZ-hash", "HZ-common", "HZ-next")}
+         "HZ": ("HZ-press", "HZ-ev", "HZ-follow", "HZ-hash", "HZ-common", "HZ-next"),
+         "HK": ("HK-open", "HK-use", "HK-inctx", "HK-close", "HK-follow", "HK-hash", "HK-common", "HK-next"),
+         "HG": ("HG-press", "HG-ev", "HG-follow", "HG-hash", "HG-common")}
+# S-B rows HK, HG (docs rewrite/w2h30-task0/sb/CONSTANTS.md: boots Ka and Kb)
+P_ID = 11                                 # CONSTANTS.md: the second host-seat soldier (Ka, Kb)
+P_TILE, P_DIR = (12, 25, 0), 4            # the tile H faces from PROBE_H_TILE (direction 0)
+ONE_CHARGE = "STR_MEDI_KIT_ONE_CHARGE"    # the Spray MOD: consumable, 0 / 1 / 0, full screen
+GRENADE = "STR_GRENADE"
+WOUNDS, WOUNDS_HEALED = [0, 0, 2, 0, 0, 0], [0, 0, 1, 0, 0, 0]
+CHARGES_FULL = [0, 1, 0]
+KIT_TU = 10                               # the Spray MOD: tuUse 10, flatRate
+KIT_ROWS, SKILL_ROWS = 2, 3               # THROW + USE MEDI-KIT; the MOD's three soldier skills
+KEY_HEAL = 51                             # MedikitState's heal key
+KEY_SKILL_GRENADE = 51                    # the third skill row: STR_COOP_TEST_SKILL_GRENADE
+CURSOR_THROW = 5
+FUSE_OFF, FUSE_INSTANT = (-1, False), (0, True)
 
 
 def tu(gc, uid):
@@ -325,7 +356,218 @@ def row_hz(ev, res, host, client, st):
     res["HZ-next"] = heal(ev, host, client)
 
 
-ROWS = (("HS0", row_hs0), ("HP", row_hp), ("HZ", row_hz))
+def kit_on(gc, kit):
+    return kit in items_of(gc)
+
+
+def fuse_of(gc, gid):
+    it = items_by_id(gc).get(gid) or {}
+    return (it.get("fuse"), it.get("fuseEnabled"))
+
+
+def split_common(res, rid, host, client, before, st):
+    """<rid>-hash and <rid>-common: the common cell (after wait_host_idle), split on its hash entry."""
+    fails = common(host, client, before, rid, st["crash0"])
+    res[f"{rid}-hash"] = joined([x for x in fails if x.startswith(HASH_FAIL)])
+    res[f"{rid}-common"] = joined([x for x in fails if not x.startswith(HASH_FAIL)])
+
+
+def tail_ev(ev, host, client, kinds, nh, subject):
+    """EVIDENCE after a row: seqs, the subject on both, cueCounts of the row's kinds on both, contextsOpened.host,
+    the buckets that differ, the host's context / cue log lines of those kinds."""
+    eh, ec = event_state(host), event_state(client)
+    ev["after"] = {"hostLastSeqEmitted": eh.get("lastSeqEmitted"), "clientLastSeqApplied": ec.get("lastSeqApplied"),
+                   "subject": subject(),
+                   "cue": {k: [(e.get("cueCounts") or {}).get(k) for e in (eh, ec)] for k in kinds},
+                   "hostContextsOpenedHost": (eh.get("contextsOpened") or {}).get("host"),
+                   "diff": diff_buckets(host, client),
+                   "hostLog": [ln.split("\t")[-1] for ln in log_lines(host)[nh:]
+                               if any(f"[coop-ctx] host {k}" in ln or f"[coop-cue] {k}" in ln for k in kinds)]}
+
+
+def row_hk(ev, res, host, client, st):
+    miss = None
+    try:   # staging (levers, client first): P wounded on the tile H faces, the one-charge kit in H's right hand
+        ub = units(host)
+        ids = sorted(i for i, u in ub.items() if u.get("coop") == 0 and u.get("faction") == FACTION_PLAYER
+                     and not u.get("isOut"))
+        ev["P"] = ids[1] if len(ids) > 1 else None
+        assert ev["P"] == P_ID, f"second host-seat soldier {ev['P']} (baked P={P_ID})"
+        ev["placeH"] = place(host, client, H_ID, PROBE_H_TILE, PROBE_H_DIR)
+        ev["placeP"] = place(host, client, P_ID, P_TILE, P_DIR)
+        ev["wounds"] = wounds_both(host, client, P_ID, WOUNDS)
+        ev["kit"] = kit = give_both(host, client, H_ID, ONE_CHARGE)[0]
+        ev["tuMax"] = set_tu_both(host, client, H_ID, TU_MAX)
+        ev["tab"] = tab_select(host, H_ID)
+        ev["staged"] = staged = diff_buckets(host, client)
+        ev["charges"] = ch = {n: charges(items_of(gc), kit) for n, gc in pairs(host, client)}
+        r = click_nth(host, RHAND_NTH)
+        ev["rhand"] = (r.get("baseX"), r.get("baseY"))
+        ev["menu"] = wait_top(host, "ActionMenuState")
+        ev["rows"] = menu_rows(host)
+        if not ev["tab"] or ev["rhand"] != RHAND_CENTRE or not ev["menu"]:
+            miss = (f"tab {ev['tab']}, right-hand click {ev['rhand']} (want {RHAND_CENTRE}), ActionMenuState "
+                    f"{ev['menu']}")
+        else:
+            press(host, KEY_ITEM1)
+            ev["open"] = wait_top(host, "MedikitState")
+            if not ev["open"]:
+                miss = f"host top {top(host)} {MENU_S} s after key {KEY_ITEM1} (want MedikitState)"
+    except Exception as e:
+        miss = short(e, 500)
+    if miss:
+        capture(host, client, "HK")
+        res.update({c: f"construction: {miss}" for c in CELLS["HK"]})
+        return
+    pre = [f"buckets differ after the staging: {staged}"] if staged else []
+    if ch != {"host": CHARGES_FULL, "client": CHARGES_FULL}:
+        pre.append(f"kit {kit} charges {ch} (want {CHARGES_FULL} on both)")
+    if ev["rows"] != KIT_ROWS:
+        pre.append(f"host menu rows {ev['rows']} (want {KIT_ROWS})")
+    res["HK-open"] = joined(pre)
+    before = snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev["before"] = {"hostLastSeqEmitted": seq0, "clientLastSeqApplied": before["client"]["lastSeqApplied"],
+                    "kit": {n: kit_on(gc, kit) for n, gc in pairs(host, client)}}
+    nh = len(log_lines(host))
+    press(host, KEY_HEAL)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        ev["idle"] = short(e)
+    new = new_contexts(before["host"]["closedContexts"], event_state(host).get("closedContexts"))
+    ctx, hev = mine(new, "host", "medikit", H_ID), evs_since(host, seq0)
+    ev["use"] = u = {"newCtx": new, "hostEvs": hev, "top": top(host),
+                     "wounds": {n: (units(gc).get(P_ID) or {}).get("wounds") for n, gc in pairs(host, client)},
+                     "tu": {n: tu(gc, H_ID) for n, gc in pairs(host, client)}}
+    f = []
+    if len(new) != 1 or len(ctx) != 1:
+        f.append(f"new host closedContexts {new} (want exactly one {{origin host, kind medikit, actorId {H_ID}}})")
+    elif [e["kind"] for e in hev if e["actionId"] == ctx[0].get("actionId")] != ["medikit", "bt_action_end"]:
+        f.append(f"host evs since seq {seq0}: {hev} (want [medikit, bt_action_end] on the new context)")
+    if u["wounds"] != {"host": WOUNDS_HEALED, "client": WOUNDS_HEALED}:
+        f.append(f"P {P_ID} wounds {u['wounds']} (want {WOUNDS_HEALED} on both)")
+    if u["tu"] != {"host": H_TU_FULL - KIT_TU, "client": H_TU_FULL - KIT_TU}:
+        f.append(f"H TU {u['tu']} (want {H_TU_FULL - KIT_TU} on both)")
+    if u["top"] != "MedikitState":
+        f.append(f"host top {u['top']} after the heal (want MedikitState still open)")
+    res["HK-use"] = joined(f)
+    ev["inctx"] = on = {n: kit_on(gc, kit) for n, gc in pairs(host, client)}
+    res["HK-inctx"] = joined([f"kit {kit} listed {on} after the use that emptied it, before the close (want gone on "
+                              "both: the removal rides the medikit context)"] if any(on.values()) else [])
+    s1, t1, f = event_state(host).get("lastSeqEmitted"), time.time(), []
+    if top(host) == "MedikitState":   # never ESC on the battlescape itself (it opens the options screen)
+        press(host, KEY_CANCEL)
+    if not wait_top(host, "BattlescapeState"):
+        f.append(f"host top {top(host)} after key {KEY_CANCEL} (want BattlescapeState)")
+    gone = None
+    while time.time() - t1 < FOLLOW_S:
+        if gone is None and not kit_on(host, kit) and not kit_on(client, kit):
+            gone = round(time.time() - t1, 2)
+        time.sleep(POLL_S)
+    ev["close"] = {"s1": s1, "s2": event_state(host).get("lastSeqEmitted"), "gone": gone,
+                   "kit": {n: kit_on(gc, kit) for n, gc in pairs(host, client)}}
+    if ev["close"]["s2"] != s1:
+        f.append(f"host lastSeqEmitted {s1} -> {ev['close']['s2']} {FOLLOW_S} s after the close (want unchanged: the "
+                 "close and the BA_USE aftermath emit nothing, L-3)")
+    res["HK-close"] = joined(f)
+    res["HK-follow"] = joined([] if gone is not None else [f"kit {kit} listed {ev['close']['kit']} {FOLLOW_S} s after "
+                                                           "the close (want gone on both)"])
+    split_common(res, "HK", host, client, before, st)
+    tail_ev(ev, host, client, ("medikit",), nh, lambda: {n: kit_on(gc, kit) for n, gc in pairs(host, client)})
+    nf = heal(ev, host, client)
+    ev["next"]["kit"] = on = {n: kit_on(gc, kit) for n, gc in pairs(host, client)}
+    res["HK-next"] = joined(([nf] if nf else []) + ([f"kit {kit} listed {on} after the heal order (want gone on "
+                                                     "both)"] if any(on.values()) else []))
+
+
+def row_hg(ev, res, host, client, st):   # LAST: its red leaves the split and a primed grenade standing
+    miss = None
+    try:
+        ev["g"] = g = give_both(host, client, H_ID, GRENADE)[0]
+        ev["tuMax"] = set_tu_both(host, client, H_ID, TU_MAX)
+        ev["tab"] = tab_select(host, H_ID)
+        ev["staged"] = staged = diff_buckets(host, client)
+        ev["fuse0"] = fuse0 = {n: fuse_of(gc, g) for n, gc in pairs(host, client)}
+        ev["skillsNth"] = nth = skills_nth(host)
+        if not ev["tab"] or nth is None:
+            miss = f"tab {ev['tab']}, SKILLS nth {nth} (want a visible widget at {SKILLS_RECT})"
+        else:
+            r = click_nth(host, nth)
+            ev["skills"] = (r.get("baseX"), r.get("baseY"))
+            ev["menu"] = wait_top(host, "SkillMenuState")
+            ev["rows"] = menu_rows(host)
+            if not ev["menu"]:
+                miss = f"host top {top(host)} {MENU_S} s after the SKILLS click (want SkillMenuState)"
+    except Exception as e:
+        miss = short(e, 500)
+    if miss:
+        capture(host, client, "HG")
+        res.update({c: f"construction: {miss}" for c in CELLS["HG"]})
+        return
+    pre = [f"buckets differ after the staging: {staged}"] if staged else []
+    if fuse0 != {"host": FUSE_OFF, "client": FUSE_OFF}:
+        pre.append(f"grenade {g} (fuse, fuseEnabled) before {fuse0} (want {FUSE_OFF} on both)")
+    if ev["rows"] != SKILL_ROWS:
+        pre.append(f"host skill menu rows {ev['rows']} (want {SKILL_ROWS})")
+    before = snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    ev["before"] = {"hostLastSeqEmitted": seq0, "clientLastSeqApplied": before["client"]["lastSeqApplied"]}
+    nh, nc = len(log_lines(host)), len(log_lines(client))
+    t0, t_aim, t_fuse = time.time(), None, None
+    press(host, KEY_SKILL_GRENADE)
+    while time.time() - t0 < MENU_S and (t_aim is None or t_fuse is None):
+        if t_aim is None and top(host) == "BattlescapeState" and battle_state(host).get("cursorType") == CURSOR_THROW:
+            t_aim = round(time.time() - t0, 2)
+        if t_fuse is None and fuse_of(host, g) == FUSE_INSTANT:
+            t_fuse = round(time.time() - t0, 2)
+        time.sleep(POLL_S)
+    ev["press"] = {"tAim": t_aim, "tFuseHost": t_fuse, "cursor": battle_state(host).get("cursorType"), "top": top(host)}
+    if t_aim is None:
+        pre.append(f"host top {ev['press']['top']} cursorType {ev['press']['cursor']} {MENU_S} s after key "
+                   f"{KEY_SKILL_GRENADE} (want BattlescapeState, {CURSOR_THROW})")
+    if t_fuse is None or t_fuse > SCRIPT_S:
+        pre.append(f"host grenade {fuse_of(host, g)} at {t_fuse} s (want {FUSE_INSTANT} within {SCRIPT_S} s)")
+    seen = None   # HG-follow: poll the client's grenade, nothing else ordered meanwhile
+    while seen is None and time.time() - t0 < FOLLOW_S:
+        if fuse_of(client, g) == FUSE_INSTANT:
+            seen = round(time.time() - t0, 2)
+        else:
+            time.sleep(POLL_S)
+    ev["follow"] = fo = {"t": seen, "host": fuse_of(host, g), "client": fuse_of(client, g)}
+    res["HG-follow"] = joined([] if seen is not None else [f"client grenade {fo['client']}, host {fo['host']} "
+                                                           f"{FOLLOW_S} s after the key (want {FUSE_INSTANT} on both)"])
+    r, t2 = click_nth(host, RHAND_NTH), time.time()   # cancel the throw (F503: a hand click only cancels targeting)
+    while battle_state(host).get("cursorType") in CGR.CURSOR_TARGETING and time.time() - t2 < MENU_S:
+        time.sleep(POLL_S)
+    ev["cancel"] = {"click": (r.get("baseX"), r.get("baseY")), "cursor": battle_state(host).get("cursorType"),
+                    "top": top(host)}
+    if ev["cancel"]["cursor"] in CGR.CURSOR_TARGETING:
+        pre.append(f"host cursorType {ev['cancel']['cursor']} after the cancel click (want outside "
+                   f"{CGR.CURSOR_TARGETING})")
+    res["HG-press"] = joined(pre)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        ev["idle"] = short(e)
+    eh, ec = event_state(host), event_state(client)
+    new = sorted(new_contexts(before["host"]["closedContexts"], eh.get("closedContexts")),
+                 key=lambda c: c.get("actionId") or 0)
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    ev.update({"newCtx": new, "hostEvs": hev, "clientEvs": cev, "hostLastCue": eh.get("lastCue"),
+               "clientLastCue": ec.get("lastCue")})
+    got, want = [(c.get("origin"), c.get("kind"), c.get("actorId")) for c in new], [("host", "skill", H_ID),
+                                                                                    ("host", "prime", H_ID)]
+    f = [] if got == want else [f"new host closedContexts {got} (want exactly {want}, in actionId order)"]
+    f += ctx_fails("prime", H_ID, ["prime", "bt_action_end"],
+                   {"actor": H_ID, "unit": H_ID, "item": g, "fuse": 0, "unprime": False}, seq0,
+                   [c for c in new if c.get("kind") == "prime"], hev, cev, eh, ec, log_lines(client)[nc:])
+    res["HG-ev"] = joined(f)
+    split_common(res, "HG", host, client, before, st)
+    tail_ev(ev, host, client, ("skill", "prime"), nh, lambda: {n: fuse_of(gc, g) for n, gc in pairs(host, client)})
+
+
+ROWS = (("HS0", row_hs0), ("HP", row_hp), ("HZ", row_hz), ("HK", row_hk), ("HG", row_hg))
 
 
 def report(rid, ev, res):
