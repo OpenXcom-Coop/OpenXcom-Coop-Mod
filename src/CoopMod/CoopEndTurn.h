@@ -169,6 +169,18 @@ void onSeatSetChanged(SavedBattleGame* save);
 /// silent baseline (SPEC 10: no tally at t=0).
 void onQuiescentPass(SavedBattleGame* save, bool quiescent);
 
+/// R5-U8 (owner D233 (a); docs rewrite/prompts/r5u8_pve2_gm4.md, QU8-3 (a)): PvE2 (gamemode 4) opens with
+/// the AI-run X-COM side, as the release line plays it (main BattlescapeState::think's one-time pve2_init
+/// hand-off). HOST-ONLY: armed once per battle start by the pre-battle equip barrier (a resumed or rejoined
+/// battle has no equip phase, so it never arms); onQuiescentPass() then ends the players' turn-1 side by
+/// itself through requestEndTurn(false) once the host's battle screen is on top. Cleared by the next side
+/// transition and by reset().
+void armPve2Opening();
+
+/// R5-U8: true from armPve2Opening() until the next side transition - CoopArbiter::onIntent() denies every
+/// order `turn_over` meanwhile (the players' first side is already ending).
+bool pve2OpeningPending();
+
 /// BattlescapeState::btnEndTurnClick's (widened) coop guard, for BOTH the
 /// host's own press and a client's. Toggles THIS machine's own readiness bit
 /// (the inverse of @a bs's current getCoopEndTurnArmed()) and either applies
