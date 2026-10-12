@@ -764,6 +764,36 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 /// never throws, returns the path or an empty string.
 std::string writeDesyncText(const std::string& suffix, const std::string& text);
 
+/// coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): ported unchanged from `main` SharedEcon.h :647-:674.
+/// PRD-I5: next-launch crash reporter (Pattern A). The dying process only writes a
+/// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
+/// these run at the NEXT launch, from the main-menu altitude, to offer a one-click
+/// bundle of the previous crash. All best-effort: a broken reporter must never
+/// block startup, so every failure logs and continues. Reuses the I4 bundle
+/// plumbing (miniz heap zip writer, log tail reader, CoopDesyncNoticeState).
+///
+/// Reads <user folder>/crash-pending.json and, if it names a dump + log that both
+/// still exist, pushes the consent dialog over the main menu. A missing, corrupt,
+/// or stale marker (its files gone) is deleted and ignored. Never throws.
+void maybeReportPreviousCrash(Game* game);
+/// BUNDLE handler: re-reads + validates the marker at @a markerPath, zips the dump,
+/// the openxcom.log tail and a system-info json into <user folder>/crash-reports/
+/// crash-<ts>.zip, deletes the marker, and raises the result notice (path + OPEN
+/// FOLDER + REPORT ON GITHUB). Returns false and KEEPS the marker on any failure.
+bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath);
+/// NEVER (this crash) handler: delete the marker so this crash is never raised again.
+void deleteCrashMarkerFile(const std::string& markerPath);
+/// Option (b) dual-source discovery: the crashed process already writes
+/// crash_<ts>_<seq>.{dmp,log} to <exe>/crashlogs (issue #124 VEH, the robust
+/// catch-all crashDump misses). maybeReportPreviousCrash also scans that dir for
+/// an unseen entry (per-user crash-seen.json ledger dedups). These are the
+/// crashlog-source handlers the consent dialog dispatches to.
+bool bundleCrashReportFromCrashlog(Game* game, const std::string& dmpPath, const std::string& logPath);
+/// NEVER on the classic marker: delete it + mark its paired VEH crashlog seen.
+void declineCrashMarker(const std::string& markerPath);
+/// NEVER on a crashlog: record its .dmp basename in the seen ledger (no zip).
+void markCrashlogSeenPath(const std::string& dmpPath);
+
 } // namespace SharedEcon
 
 } // namespace OpenXcom

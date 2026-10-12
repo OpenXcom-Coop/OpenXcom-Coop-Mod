@@ -399,3 +399,11 @@ tests are green at its tip (D229). This section supersedes their rows in "Dispos
 | `test_pvp_skirmish_psi.py` | covered (RV-U5 deletes): PvP mind control both ways on gm2 and gm3 with one canonical faction on both machines (its legacy inverted-faction asserts are wrong for the rewrite) - `test_r5_pvp_react_mc.py` M1, M2 and `test_r5_pvp_react_mc_gm3.py` M3, M4 |
 | `test_pvp_skirmish_census.py` | covered (RV-U5 deletes): a PvP weapon fired through the intent path leaves both machines with the same item census - `test_r5_pvp_rules.py` D2 (the alien seat's blaster launch) |
 | `test_coop_pvp_blaster.py` | covered (RV-U5 deletes): the alien seat fires a blaster launcher (issue #74) and both machines keep the same items, on turn 1 (D234 a) - `test_r5_pvp_rules.py` D2 |
+
+## Dispositions (RV-U9, post-Wave-2)
+
+Recorded by RV-U9 (docs `rewrite/prompts/rvu9_crash_report_prompt.md`; owner D228 (a), D229 (a) + gate; POST-REWRITE-REVISIT row 10, PRD-I5).
+
+| test | disposition |
+|---|---|
+| `test_crash_reporter.py` | run live since RV-U9 (guard removed; rewritten in the house format): `main`'s next-launch crash prompt (BUNDLE / NOT NOW / NEVER and the "CRASH REPORT BUNDLED" notice) from both crash sources, the crash marker in the user folder and an unseen crash dump in the lane's crash folder (`OXC_CRASHLOG_DIR`). The "PRD-I5 rebuild" unlock in the re-points section above is done |
