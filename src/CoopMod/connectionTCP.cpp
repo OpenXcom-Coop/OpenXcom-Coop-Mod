@@ -3228,7 +3228,7 @@ static Json::Value hostInventoryLatchZeros()
 	Json::Value r(Json::objectValue);
 	r["pending"] = false;
 	Json::Value sets(Json::objectValue);
-	for (const char* k : { "move", "load", "unload", "reload", "close", "rename" }) // + rename: W2-P8 S-R.1 (R-4)
+	for (const char* k : { "move", "load", "unload", "reload", "close", "rename", "gift" }) // + rename: W2-P8 S-R.1 (R-4); + gift: R5-U5
 		sets[k] = 0;
 	r["sets"] = sets;
 	r["flushes"] = 0;
@@ -3535,6 +3535,9 @@ struct UnitSnap
 	/// exception to plan section 3.1's per-machine exclusion, made by D167 (c); hashed in `synced` (R-5).
 	std::string name;
 	std::string rawName;
+	/// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; FIELD-PARITY): the unit's seat tag (-1 = COOP_SEAT_NONE),
+	/// hashed in `synced`. A gift (coopApplyGift) is its one mid-battle writer.
+	int seat = -1;
 };
 
 /// Spec (b)1 `tiles[]`: one tile (index = SavedBattleGame::getTileIndex order,
@@ -3696,6 +3699,7 @@ UnitSnap captureUnit(const BattleUnit* u)
 	s.tags = stripTags(u->coopScriptValuesRaw());
 	s.name = u->getName(nullptr); // W2-P8 S-R.2 (R-M3): `_name` for a null language (BattleUnit.cpp getName)
 	s.rawName = u->getGeoscapeSoldier() ? u->getGeoscapeSoldier()->getName(false) : std::string();
+	s.seat = (int)u->getCoopSeat(); // R5-U5: the seat tag (a gift)
 	return s;
 }
 
@@ -3869,6 +3873,7 @@ bool diffUnit(const UnitSnap& w, const UnitSnap& n, Json::Value& e)
 	putIfChanged(e, "reactPref", w.reactPref, n.reactPref, any);
 	putIfChanged(e, "name", w.name, n.name, any);          // W2-P8 S-R.2 (R-M3)
 	putIfChanged(e, "rawName", w.rawName, n.rawName, any); // W2-P8 S-R.2 (R-M3)
+	putIfChanged(e, "seat", w.seat, n.seat, any); // R5-U5: the seat tag (a gift)
 	putIfChanged(e, "reactOffLeft", w.reactOffLeft, n.reactOffLeft, any);
 	putIfChanged(e, "reactOffRight", w.reactOffRight, n.reactOffRight, any);
 	if (w.tags != n.tags)
@@ -11927,6 +11932,17 @@ void onIntent(const Json::Value& intent)
 		return;
 	}
 
+	// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; owner D235 (a), D240 (a); r5-T8 / issue #126): the `gift
+	// {target}` order, untracked like `rename`. The term above proved the ordering seat commands the unit; coopApplyGift()
+	// checks the rest (ownership, target, PvP, the equip phase, a unit acting) and applies it, or refuses it silently
+	// (counted as denied, never answered). It never waits on turn_over / not_your_go / busy: a player may give a unit off
+	// its go, during another side or while another unit acts.
+	if (kind == "gift")
+	{
+		noteIntentReceived(kind, coopApplyGift(actor, seat, intent.get("target", -1).asInt(), iseq));
+		return;
+	}
+
 	// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 8; Q3 (a), Q5 (a); owner D205 a): the pre-battle equip phase's
 	// admission. Open: a placement (`inv_move`, S-C's `inv_bulk`) passes on to its executor once the host's own equip
 	// screen is open and its BattlescapeState is live - with no turn_over and no baton term (`equipPre`; nothing is
@@ -13353,6 +13369,24 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 		intent["name"] = combat->name;
 		CoopEmit::sendBattle(intent);
 		g_coopIntentsSent["rename"] = g_coopIntentsSent.get("rename", 0).asInt() + 1;
+		return iseq;
+	}
+
+	// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; owner D235 (a), D240 (a)): `gift {target}` is UNTRACKED like
+	// `rename` - no in-flight slot, no timeout, no answer; the host applies or refuses it and the seat comes back in its
+	// delta (never written here: the seat tag is hashed).
+	if (kindStr == "gift")
+	{
+		if (!combat || combat->giftSeat < 0)
+		{
+			Log(LOG_WARNING) << "[coop-arbiter] sendClientIntent('gift') with no target seat - dropped";
+			return 0u;
+		}
+		const std::uint32_t iseq = g_coopClientNextIseq++;
+		Json::Value intent = CoopWire::makeIntent(iseq, coopBattleAuthority().localSeat, actorId, "gift");
+		intent["target"] = combat->giftSeat;
+		CoopEmit::sendBattle(intent);
+		g_coopIntentsSent["gift"] = g_coopIntentsSent.get("gift", 0).asInt() + 1;
 		return iseq;
 	}
 
@@ -20891,6 +20925,15 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			{
 				if (Soldier* s = u->getGeoscapeSoldier())
 					s->setName(ue["rawName"].asString());
+				++fields;
+			}
+			// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): the host's seat tag - a gift, the one mid-battle
+			// seat write after a unit's first record. Recorded for coopGiftPump(); never a State op here (RB-D5).
+			if (ue.isMember("seat"))
+			{
+				const int was = (int)u->getCoopSeat();
+				u->setCoopSeat((CoopSeat)ue["seat"].asInt());
+				coopGiftNoteSeatChange(u->getId(), was, ue["seat"].asInt());
 				++fields;
 			}
 			if (placed)
@@ -31269,7 +31312,9 @@ bool connectionTCP::canGiftBattleUnit(const BattleUnit* unit) const
 		return false;
 	}
 
-	if (!getCoopStatic() || getCoopGamemode() == 2 || getCoopGamemode() == 3)
+	// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md, QU5-6 (a)): and only in an active co-op battle, never while
+	// the pre-battle equipment screens are open.
+	if (!getCoopStatic() || getCoopGamemode() == 2 || getCoopGamemode() == 3 || !isCoopBattle() || coopEquipOpen())
 	{
 		return false;
 	}
@@ -31416,57 +31461,230 @@ long long connectionTCP::nextGiftXferId()
 		+ (long long)time(0) * 1000LL + (++_giftSendCounter % 1000);
 }
 
-void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadcast)
+// ===== R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; owner D235 (a), D240 (a); r5-T8 / issue #126; PRD r5
+// T8; D235-VL1..VL4): the in-battle gift as a host-checked order on the battle stream - see BattleAuthority.h. =====
+namespace
 {
+	struct CoopGiftSeatChange
+	{
+		int unitId;
+		int from;
+		int to;
+	};
+	// Seat changes for coopGiftPump(): the host's apply and the client's delta apply record them, the pump consumes
+	// them. Main thread only.
+	std::vector<CoopGiftSeatChange> g_coopGiftSeatChanges;
+	// coopGiftFollowSelection()'s last seen selected unit (-2 = none seen since the battle screen's first init).
+	int g_coopGiftLastSelectedId = -2;
+}
+
+void coopGiftNoteSeatChange(int unitId, int fromSeat, int toSeat)
+{
+	if (fromSeat != toSeat)
+		g_coopGiftSeatChanges.push_back(CoopGiftSeatChange{ unitId, fromSeat, toSeat });
+}
+
+// D235S RK6: @a unitId acts in an open action context - an entry's own actor or trigger, or the pending chain actor.
+static bool coopGiftUnitActing(int unitId)
+{
+	if (g_coopActionContextStack.empty())
+		return false;
+	if (g_coopPendingChainActorId == unitId)
+		return true;
+	for (const CoopActionContextEntry& e : g_coopActionContextStack)
+	{
+		if (e.actorId == unitId || e.triggerId == unitId)
+			return true;
+	}
+	return false;
+}
+
+// The host's checks for a gift of @a unit by @a giverSeat to @a target; nullptr = admitted.
+static const char* coopGiftRefusal(const BattleUnit* unit, int giverSeat, int target)
+{
+	if (!unit || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return "no_battle";
+	const int gamemode = connectionTCP::getCoopGamemode();
+	if (gamemode == 2 || gamemode == 3)
+		return "pvp";
+	if (coopEquipOpen())
+		return "equip_phase";
+	if (target < 0 || target >= connectionTCP::seatCount() || target == giverSeat)
+		return "bad_target";
+	if ((int)unit->getCoopSeat() != giverSeat)
+		return "not_owner";
+	if (unit->getFaction() != FACTION_PLAYER || unit->isOut() || unit->getHealth() <= 0)
+		return "not_giftable";
+	if (coopGiftUnitActing(unit->getId()))
+		return "acting";
+	return nullptr;
+}
+
+bool coopApplyGift(BattleUnit* unit, int giverSeat, int target, std::uint32_t iseq)
+{
+	const char* reason = coopGiftRefusal(unit, giverSeat, target);
+	if (reason)
+	{
+		Log(LOG_WARNING) << "[coop-gift] host refused gift iseq " << iseq << " of unit " << (unit ? unit->getId() : -1)
+			<< " from seat " << giverSeat << " to seat " << target << ": " << reason;
+		return false;
+	}
+	const int from = (int)unit->getCoopSeat();
+	unit->setCoopSeat((CoopSeat)target);
+	Soldier* soldier = unit->getGeoscapeSoldier();
+	if (soldier && !(connectionTCP::_coopCampaign && !connectionTCP::isSharedCampaignStatic()))
+	{
+		// the soldier's owner (giftSoldier's battle branch wrote the same): a SHARED post-battle world carries it (issue
+		// #126: no physical hand-off), a skirmish discards it, MG-A's stage-2 pass re-seats soldiers by it. A SEPARATE
+		// campaign's soldier record moves only in stage S-C.
+		soldier->setOwnerPlayerId(target);
+		soldier->setCoop(target);
+	}
+	CoopDelta::noteHostInventoryChange("gift"); // the latch: a `sync` when quiescent, else the open context's next ev
+	coopGiftNoteSeatChange(unit->getId(), from, target);
+	Log(LOG_INFO) << "[coop-gift] host applied gift iseq " << iseq << ": unit " << unit->getId() << " seat " << from
+		<< " -> " << target;
+	return true;
+}
+
+void coopGiftOrder(BattleUnit* unit, int target)
+{
+	if (!unit || !isCoopBattle())
+		return;
+	if (coopBattleAuthority().hostSim)
+	{
+		coopApplyGift(unit, connectionTCP::localSeat(), target, 0u);
+		return;
+	}
+	CoopCombatIntentArgs args;
+	args.giftSeat = target;
+	const std::uint32_t iseq = CoopArbiter::sendClientIntent("gift", unit->getId(), -1, false, false, -1, nullptr, &args);
+	Log(LOG_INFO) << "[coop-gift] gift of unit " << unit->getId() << " to seat " << target << " sent as iseq " << iseq;
+}
+
+// THIS machine's gift target when it has none: its selected unit if it may give it, else the first unit it may give
+// (main's refreshBattleGiftControlState first-init rule).
+static void coopGiftRefill(connectionTCP* coop, SavedBattleGame* save)
+{
+	if (coop->getGiftSelectedBattleUnit())
+		return;
+	coop->setGiftSelectedBattleUnit(save->getSelectedUnit());
+	if (coop->getGiftSelectedBattleUnit())
+		return;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (coop->canGiftBattleUnit(u))
+		{
+			coop->setGiftSelectedBattleUnit(u);
+			return;
+		}
+	}
+}
+
+void coopGiftPump(Game* game)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!save || !coop || !isCoopBattle())
+	{
+		g_coopGiftSeatChanges.clear();
+		return;
+	}
+	std::vector<CoopGiftSeatChange> changes;
+	changes.swap(g_coopGiftSeatChanges);
+	const int local = connectionTCP::localSeat();
+	BattlescapeState* bs = save->getBattleState();
+	const bool live = connectionTCP::isBattlescapeStateLive(bs);
+	for (const CoopGiftSeatChange& c : changes)
+	{
+		BattleUnit* unit = nullptr;
+		for (BattleUnit* u : *save->getUnits())
+		{
+			if (u && u->getId() == c.unitId)
+			{
+				unit = u;
+				break;
+			}
+		}
+		if (!unit)
+			continue;
+		if (c.from == local && save->getSelectedUnit() == unit)
+		{
+			// the giver: its selection moves on to its next unit (the seat filter skips the given one), else none
+			save->selectNextPlayerUnit();
+			if (save->getSelectedUnit() == unit)
+				save->setSelectedUnit(nullptr);
+			coopClientPairSelection(save); // a no-op on the host
+			if (live)
+				bs->updateSoldierInfo(false);
+		}
+		if (c.to == local)
+		{
+			// the receiver: the unit is its gift target at once, its selection when it has none, and the notice
+			coop->setGiftSelectedBattleUnit(unit);
+			BattleUnit* sel = save->getSelectedUnit();
+			if (!sel || sel->isOut() || !coopBattleAuthority().commandsUnit(sel))
+			{
+				save->setSelectedUnit(unit);
+				coopClientPairSelection(save);
+				if (live)
+					bs->updateSoldierInfo(false);
+			}
+			std::string giver = connectionTCP::seatName(c.from);
+			if (giver.empty())
+				giver = "Another player";
+			const std::string name = unit->getGeoscapeSoldier() ? unit->getGeoscapeSoldier()->getName()
+				: unit->getName(game->getLanguage());
+			game->pushState(new GiftNoticeState(giver + " gave " + name + " to you."));
+		}
+	}
+	coopGiftRefill(coop, save);
+}
+
+void coopGiftSelectionInit(Game* game, SavedBattleGame* save)
+{
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!coop || !save || !connectionTCP::getCoopStatic())
+		return;
+	coop->clearGiftSelectedBattleUnit();
+	g_coopGiftLastSelectedId = -2;
+	if (isCoopBattle())
+		coopGiftRefill(coop, save);
+}
+
+void coopGiftSelectAt(Game* game, SavedBattleGame* save, int x, int y, int z)
+{
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!coop || !save || !isCoopBattle())
+		return;
+	const Position pos(x, y, z);
+	if (save->getTile(pos))
+		coop->setGiftSelectedBattleUnit(save->selectUnit(pos));
+}
+
+void coopGiftFollowSelection(Game* game, SavedBattleGame* save)
+{
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!coop || !save || !isCoopBattle())
+		return;
+	BattleUnit* sel = save->getSelectedUnit();
+	const int selId = sel ? sel->getId() : -1;
+	if (selId == g_coopGiftLastSelectedId)
+		return;
+	g_coopGiftLastSelectedId = selId;
+	coop->setGiftSelectedBattleUnit(sel); // validates: only a unit THIS machine may give
+}
+
+void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool /*broadcast*/)
+{
+	// R5-U5: every in-battle gift - a soldier, a tank, any player-side unit, in every mode - is the host-checked order
+	// (coopGiftOrder). The local flip and the legacy `giveUnit` packet (quarantined, dropped by the peer) are gone.
 	if (!canGiftBattleUnit(unit) || newOwnerId < 0 || newOwnerId >= seatCount() || newOwnerId == localSeat())
 	{
 		Log(LOG_WARNING) << "[coop-gift] rejected battle gift: invalid unit, owner, or target";
 		return;
 	}
-
-	if (unit->getGeoscapeSoldier())
-	{
-		giftSoldier(unit->getGeoscapeSoldier(), newOwnerId, broadcast);
-		return;
-	}
-
-	// Skirmish-only units have no persistent Soldier object. Their gift is only
-	// a live Battlescape control transfer, but it follows the same ownership,
-	// stale-packet and notification rules as campaign soldiers.
-	const int previousOwner = (int)unit->getCoopSeat();
-	unit->setCoopSeat((CoopSeat)newOwnerId);
-	if (_giftSelectedBattleUnitId == unit->getId())
-	{
-		clearGiftSelectedBattleUnit();
-	}
-
-	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
-	if (battle->getSelectedUnit() == unit && newOwnerId != localSeat())
-	{
-		battle->selectNextPlayerUnit();
-		coopClientPairSelection(battle); // W2-H6 H6-3 (F1208)
-	}
-
-	if (broadcast)
-	{
-		const long long giftEventId = nextGiftXferId();
-
-		// R4-REWIRE: "giveUnit" is a quarantined battle-sim message (R1-P3,
-		// inventory-wire-protocol.md section A) - its onTCPMessage receive handler
-		// is deleted, so this send now lands on the peer's legacyBattleMessageDropped
-		// catch-all. The battle-gift choreography itself is unchanged pending r4/r5.
-		Json::Value obj;
-		obj["state"] = "giveUnit";
-		obj["unit_id"] = unit->getId();
-		obj["coop"] = newOwnerId;
-		obj["previous_owner"] = previousOwner;
-		obj["giver_name"] = seatName(previousOwner);
-		obj["unit_name"] = unit->getName(_game->getLanguage());
-		obj["xfer_id"] = Json::Value::Int64(giftEventId);
-		sendTCPPacketData(obj.toStyledString());
-	}
-
-	refreshBattleGiftControlState();
+	coopGiftOrder(unit, newOwnerId);
 }
 
 void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast)
@@ -31501,95 +31719,19 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 
 	if (battle)
 	{
-		BattleUnit* battleUnit = nullptr;
+		// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): an in-battle gift of a soldier is its battle unit's
+		// order (giftBattleUnit -> coopGiftOrder); the soldier's owner is the host's write (coopApplyGift), never a local
+		// one, and no physical hand-off is queued here.
 		for (BattleUnit* unit : *battle->getUnits())
 		{
 			if (unit->getGeoscapeSoldier() == soldier)
 			{
-				battleUnit = unit;
-				break;
+				giftBattleUnit(unit, newOwnerId, broadcast);
+				return;
 			}
 		}
-
-		if (!canGiftBattleUnit(battleUnit)
-			|| newOwnerId < 0
-			|| newOwnerId >= seatCount()
-			|| newOwnerId == localPlayerId)
-		{
-			Log(LOG_WARNING) << "[coop-gift] rejected campaign battle gift for '" << soldier->getName()
-				<< "': local seat does not own the live unit or target is invalid";
-			return;
-		}
-
-		const int previousOwner = (int)battleUnit->getCoopSeat();
-		soldier->setOwnerPlayerId(newOwnerId);
-		soldier->setCoop(newOwnerId);
-		battleUnit->setCoopSeat((CoopSeat)newOwnerId);
-		if (_giftSelectedBattleUnitId == battleUnit->getId())
-		{
-			clearGiftSelectedBattleUnit();
-		}
-
-		Log(LOG_INFO) << "[coop-gift] battle gift '" << soldier->getName() << "' id=" << soldier->getId()
-			<< " previousOwner=" << previousOwner << " newOwner=" << newOwnerId
-			<< " localPlayer=" << localPlayerId << " broadcast=" << (broadcast ? 1 : 0);
-
-		if (battle->getSelectedUnit() == battleUnit && newOwnerId != localPlayerId)
-		{
-			battle->selectNextPlayerUnit();
-			coopClientPairSelection(battle); // W2-H6 H6-3 (F1208)
-		}
-
-		// A later gift-back supersedes an older pending physical transfer for the
-		// same Soldier. Keep at most one final post-mission destination.
-		_pendingSoldierGifts.erase(
-			std::remove_if(_pendingSoldierGifts.begin(), _pendingSoldierGifts.end(),
-				[soldier](const PendingSoldierGift& pending) { return pending.soldier == soldier; }),
-			_pendingSoldierGifts.end());
-		// Issue #126: never queue the SEPARATE physical hand-off in a SHARED
-		// campaign. SHARED is ONE host-authoritative world - the in-battle
-		// ownership flip above already moved the (shared) soldier on both battle
-		// replicas, and the host's post-battle whole-world restream carries that to
-		// both machines. Running the physical hand-off (sendSoldierGiftPacket +
-		// removeSoldierFromLocalBases, with the peer re-materialising the soldier
-		// via `new Soldier`) DUPLICATES the shared soldier when it is gifted back
-		// and forth, and LOSES it on a one-way gift. The live flip is sufficient.
-		if (broadcast && newOwnerId != localPlayerId && !isSharedCampaign())
-		{
-			int craftId = -1;
-			std::string craftType;
-
-			// Capture the craft identity now, while the in-battle Craft* still
-			// belongs to the live world. The battle/save hand-off may destroy or
-			// replace that Craft before processPendingSoldierGifts() runs, so the
-			// deferred transfer must never dereference soldier->getCraft().
-			if (Craft* craft = soldier->getCraft())
-			{
-				craftId = craft->getId();
-				craftType = craft->getType();
-			}
-
-			_pendingSoldierGifts.push_back(
-				PendingSoldierGift(soldier, newOwnerId, craftId, craftType));
-		}
-
-		if (broadcast)
-		{
-			const long long giftEventId = nextGiftXferId();
-
-			Json::Value obj;
-			obj["state"] = "giftSoldier";
-			obj["soldier_id"] = soldier->getId();
-			obj["owner"] = newOwnerId;
-			obj["unit_id"] = battleUnit->getId();
-			obj["previous_owner"] = previousOwner;
-			obj["giver_name"] = seatName(previousOwner);
-			obj["soldier_name"] = soldier->getName();
-			obj["xfer_id"] = Json::Value::Int64(giftEventId);
-			sendTCPPacketData(obj.toStyledString());
-		}
-
-		refreshBattleGiftControlState();
+		Log(LOG_WARNING) << "[coop-gift] rejected campaign battle gift for '" << soldier->getName()
+			<< "': no battle unit for the soldier";
 		return;
 	}
 
@@ -33074,6 +33216,10 @@ void connectionTCP::updateCoopTask()
 	// comes back) - at this same quiescence, once the chain that changed it has ended. Self-guarded (host, active
 	// co-op battle, nobody paused away, turn 1 started).
 	CoopEndTurn::onQuiescentPass(getStaticBattle(), coopQuiescentNow);
+
+	// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): gift seat changes (the host's apply, the client's delta
+	// apply) get their selection steps and the receiver's notice here, after the drain - never from the apply path (RB-D5).
+	coopGiftPump(_game);
 
 	// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)5-6, (b)9;
 	// AMENDMENT P7-1 ST1 (a), ST4 (a), ST8 (a); F1897, F1919): the skirmish
