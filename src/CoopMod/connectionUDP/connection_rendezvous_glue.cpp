@@ -630,6 +630,10 @@ void disconnectRendezvousUdp()
 
 void handleUdpRemotePeerLost()
 {
+    // coop R4-L2 S-B (W2-H24 R-2): a rejoiner lost during its in-memory rejoin handshake keeps the pause - the UDP twin
+    // of connectionTCP::disconnectTCP()'s rejoinLost (the spare below, then the pause restored). Read before the clear.
+    const bool udpRejoinLost = connectionTCP::getServerOwner() && onConnect != -1 && CoopHandshake::coopHostRejoinPending();
+
     // SPEC 16 (W1-P17) M1 (F331 gate) - the UDP twin of
     // connectionTCP::disconnectTCP()'s host branch: a mid-`Active`-battle
     // peer loss on the HOST keeps the co-op battle authority ALIVE instead
@@ -642,7 +646,7 @@ void handleUdpRemotePeerLost()
     const bool sparePeerAbsentUdp =
         connectionTCP::getServerOwner()
         && onConnect != -1
-        && isCoopBattle()
+        && (isCoopBattle() || udpRejoinLost)
         && !connectionTCP::campaignEnded();
 
     // Drop packets from the old peer before the host relists or the client
@@ -675,6 +679,8 @@ void handleUdpRemotePeerLost()
     if (sparePeerAbsentUdp)
     {
         coopBattleAuthority().peerAbsent = true;
+        if (udpRejoinLost)
+            CoopHandshake::coopRestorePauseAfterLostRejoin(); // coop R4-L2 S-B
     }
 
     // Called by connectionUDP glue when the UDP worker stops by itself. This
