@@ -7693,6 +7693,47 @@ void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* u
 		unit->setCoopType(type); // R5-U8 A3 (owner D269 (a)): the PvE2 re-skin rides the record's genUnitType
 }
 
+// ----- R5-U8b (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) R5; QU8-A1-2): the dark vision and maximum armor a unit was
+// built with ride its own record (BattleAuthority.h) -----
+
+void coopSaveBuiltValues(YAML::YamlNodeWriter& writer, const BattleUnit* unit)
+{
+	// Every unit not linked to a geoscape soldier (the Soldier constructor builds those the same way everywhere), with the
+	// coopSaveSpawnUnitFaction guard: a co-op battle past Idle only, so an SP save is byte-identical.
+	if (!unit || unit->getGeoscapeSoldier())
+		return;
+	if (!connectionTCP::getCoopStatic())
+		return;
+	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Idle)
+		return;
+	writer.write("coopDark", unit->getMaxViewDistanceAtDark(nullptr));
+	auto armorWriter = writer["coopMaxArmor"];
+	armorWriter.setAsSeq();
+	armorWriter.setFlowStyle();
+	for (int side = 0; side < (int)SIDE_MAX; ++side)
+		armorWriter.write(unit->getMaxArmor((UnitSide)side));
+}
+
+void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit)
+{
+	// Presence-gated: a record without the keys (every SP save, every save an older version wrote) keeps what the rules
+	// constructor built. The current armor (read before this call) never exceeds the maximum the host held.
+	if (!unit || unit->getGeoscapeSoldier())
+		return;
+	int dark = 0;
+	if (reader.tryRead("coopDark", dark) && dark > 0)
+		unit->coopSetMaxViewDistanceAtDark(dark);
+	if (const auto& armor = reader["coopMaxArmor"])
+	{
+		for (int side = 0; side < (int)SIDE_MAX; ++side)
+		{
+			int value = unit->getMaxArmor((UnitSide)side);
+			armor[side].tryReadVal(value);
+			unit->setMaxArmor(value, (UnitSide)side);
+		}
+	}
+}
+
 // coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): see BattleAuthority.h.
 bool coopOlderBattleConvertible(int gamemode)
 {
