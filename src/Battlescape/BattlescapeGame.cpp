@@ -1075,7 +1075,7 @@ void BattlescapeGame::checkForCasualties(const RuleDamageType *damageType, Battl
 	}
 
 	BattleUnit *bu = _save->getSelectedUnit();
-	if (_save->getSide() == FACTION_PLAYER)
+	if (coopSideIsMine(_save)) // coop R5-U2 S-B: the side this machine plays
 	{
 		_parentState->resetUiButton();
 
