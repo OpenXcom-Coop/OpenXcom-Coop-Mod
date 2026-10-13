@@ -43706,10 +43706,13 @@ void connectionTCP::coopPvpBorrowPump()
 	Ufo* u = craft ? dynamic_cast<Ufo*>(craft->getDestination()) : nullptr;
 	MissionSite* m = craft ? dynamic_cast<MissionSite*>(craft->getDestination()) : nullptr;
 	AlienBase* b = craft ? dynamic_cast<AlienBase*>(craft->getDestination()) : nullptr;
-	if (!craft || (!u && !m && !b)) { delete borrowed; return coopPvpRefuse(this, craft ? "target" : "craft"); }
-	const std::string targetKind = u ? "ufo" : (m ? "site" : "alienBase");
-	const int targetCoopId = u ? u->_coop_ufo_id : (m ? m->_coop_mission_id : b->_coop_alienbase_id);
-	const bool targetMirror = u ? u->getCoop() : (m ? m->_coop : b->_coop);
+	// coop D250-U S-C5b1 (owner D250, O1 (a); D239 (a)): a Cydonia hand-off (kind "cydonia") needs no target - vanilla's Cydonia
+	// generation reads the craft only (ConfirmCydoniaState::startCoopMission); its record names the kind.
+	const bool cydonia = g_coopPvpLand.kind == "cydonia";
+	if (!craft || (!cydonia && !u && !m && !b)) { delete borrowed; return coopPvpRefuse(this, craft ? "target" : "craft"); }
+	const std::string targetKind = cydonia ? "cydonia" : (u ? "ufo" : (m ? "site" : "alienBase"));
+	const int targetCoopId = cydonia ? 0 : (u ? u->_coop_ufo_id : (m ? m->_coop_mission_id : b->_coop_alienbase_id));
+	const bool targetMirror = cydonia ? false : (u ? u->getCoop() : (m ? m->_coop : b->_coop));
 	SavedGame* alien = _game->getSavedGame(); // (3) the parked (alien) world's view BEFORE the swap (getFunds() with no_bases true)
 	Json::Value parked, realBases(Json::arrayValue), ids(Json::objectValue), jb;
 	for (auto* base : *alien->getBases())
@@ -43737,9 +43740,22 @@ void connectionTCP::coopPvpBorrowPump()
 	Log(LOG_INFO) << "[coop-pvp] host: borrowed the X-COM world for craft " << g_coopPvpLand.craftType << "-" << g_coopPvpLand.craftId
 		<< " (target " << targetKind << " " << targetCoopId << ", mirror " << (targetMirror ? 1 : 0) << ") - generating";
 	// (7) vanilla's landing on the borrowed craft (QC-3): generation, the coop stamps, offerBattle (gm3 seats), the BriefingState.
-	ConfirmLandingState* cls = new ConfirmLandingState(craft, mt, gt, g_coopPvpLand.shade);
-	_game->pushState(cls);
-	cls->btnYesClick(nullptr);
+	if (cydonia)
+	{
+		// coop D250-U S-C5b1 (F13995): vanilla's Cydonia generation on the borrowed craft. ConfirmCydoniaState::btnYesClick pops two
+		// states (itself and the destination picker under it), which the host does not have, so its state goes after ONE pop, as
+		// vanilla's own pop-then-startCoopMission: generation, RV-21's guest merge (empty here), offerBattle (gm3 seats), the briefing.
+		ConfirmCydoniaState* ccs = new ConfirmCydoniaState(craft);
+		_game->pushState(ccs);
+		_game->popState();
+		ccs->startCoopMission();
+	}
+	else
+	{
+		ConfirmLandingState* cls = new ConfirmLandingState(craft, mt, gt, g_coopPvpLand.shade);
+		_game->pushState(cls);
+		cls->btnYesClick(nullptr);
+	}
 	if (!_game->getSavedGame()->getSavedBattle()) // (8) the host's checkStartingCondition refused: home, the X-COM player released
 	{
 		CoopHandshake::coopUnwindToSafeState(_game);
@@ -43907,6 +43923,35 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 	else if (autosave)
 		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, palette));
 	Log(LOG_INFO) << "[coop-pvp] host: battle over - home to its own world (target " << kind << " " << action << ")"; // (8)
+	return true;
+}
+
+// ===== coop D250-U S-C5b1 (owner D250, O1 (a); D239 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4): gm3 Cydonia in the X-COM client's borrowed world =====
+// CLIENT - the gm3 X-COM side hands Cydonia to the alien host (CoopHandshake.h): requestPvpLanding's hand-off, kind "cydonia".
+bool CoopHandshake::requestPvpCydonia(Game* game, Craft* craft)
+{
+	if (!(game && craft && connectionTCP::getCoopStatic() && !connectionTCP::getServerOwner() && connectionTCP::getCoopGamemode() == 3
+		&& game->getCoopMod()->getCoopCampaign() && game->getSavedGame() && game->getSavedGame()->getMonthsPassed() != -1))
+		return false;
+	const bool pushed = game->getCoopMod()->pushProgressToHostSilently();
+	g_coopPvpRec["sent"] = g_coopPvpRec["sent"].asInt() + 1;
+	if (pushed) g_coopPvpRec["pushed"] = g_coopPvpRec["pushed"].asInt() + 1;
+	const std::string type = craft->getRules()->getType(); const int id = craft->getId();
+	if (!pushed)
+	{
+		craft->returnToBase();
+		g_coopPvpRec["lastRefuseSeen"] = "push";
+		Log(LOG_WARNING) << "[coop-pvp] client: the Cydonia hand-off could not push this world - craft " << type << "-" << id << " sent home";
+		return true;
+	}
+	Json::Value msg;
+	msg["state"] = "pvp_land"; msg["kind"] = "cydonia"; msg["craftType"] = type; msg["craftId"] = id; msg["shade"] = 0;
+	msg["missionTex"] = Json::Value(); msg["globeTex"] = Json::Value();
+	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+	g_coopPvpClientCraftType = type; g_coopPvpClientCraftId = id;
+	game->pushState(new CoopState(3));
+	g_coopPvpRec["held"] = g_coopPvpRec["held"].asInt() + 1;
+	Log(LOG_INFO) << "[coop-pvp] client: Cydonia handed to the alien host (craft " << type << "-" << id << ") - holding";
 	return true;
 }
 

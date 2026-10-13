@@ -126,6 +126,11 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 
 	_game->popState();
 	_game->popState();
+	// coop D250-U S-C5b1 (owner D250, O1 (a); D239 (a)): a gm3 PvP campaign client (the X-COM side) hands Cydonia to the alien host,
+	// which runs it in this machine's world; this machine generates nothing (false on every other machine and mode). After the two
+	// pops, so the "Waiting for <host>" hold it pushes stays on top.
+	if (CoopHandshake::requestPvpCydonia(_game, _craft))
+		return;
 	startCoopMission();
 }
 
