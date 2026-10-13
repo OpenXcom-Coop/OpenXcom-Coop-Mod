@@ -697,6 +697,8 @@ class connectionTCP
 	void coopPvpLandRefusedReceived(const Json::Value& obj);  // CLIENT: `pvp_land_refused`
 	void coopPvpLandBlobStored(bool stored);                  // HOST: after MAP_RESULT_SAVE_PROGRESS's validation
 	void coopPvpBorrowPump();                                 // both: the borrow (host) / the hold release (client)
+	bool coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk);      // coop D250-U S-C2: HOST, the borrowed battle's OK
+	static void coopPvpClientLeave(Game* game, DebriefingState* db);        // coop D250-U S-C2: CLIENT, OK-time writes on its own base
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23/PR-25; D176, MR14): CLIENT - page 3 live on the adopted world (every adoption);
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);
