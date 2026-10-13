@@ -43588,7 +43588,7 @@ bool connectionTCP::coopWorldStreamBusy()
 // W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 7, PR-5; F2527, F2530): LoadGameState :250-279's world half for the
 // world held under @a key - sends nothing, pushes no state. False (the live world kept) when it is missing or fails.
 // ===== coop D250-U S-C1 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): gm3 PvP campaign battles in the X-COM client's borrowed world =====
-struct CoopPvpLand { bool pending = false, blobReady = false; std::string kind, craftType; int craftId = -1; bool missionTexNull = true, globeTexNull = true; int missionTex = 0, globeTex = 0, shade = 0; };
+struct CoopPvpLand { bool pending = false, blobReady = false; std::string kind, craftType; int craftId = -1; bool missionTexNull = true, globeTexNull = true; int missionTex = 0, globeTex = 0, shade = 0; int alienBaseCoopId = 0; }; // coop D250-U S-C5a: + the hand-off's alien base (L-D250-SC1-1)
 static CoopPvpLand g_coopPvpLand;             // coop D250-U S-C1: HOST - the request waiting for its world
 static SavedGame* g_coopPvpParked = nullptr;  // coop D250-U S-C1: HOST - the parked alien world
 static Json::Value g_coopPvpRec;              // coop D250-U S-C1: both - the process-lifetime record, never reset
@@ -43629,6 +43629,9 @@ bool CoopHandshake::requestPvpLanding(Game* game, Craft* craft, Texture* mission
 	msg["state"] = "pvp_land"; msg["kind"] = "landing"; msg["craftType"] = type; msg["craftId"] = id; msg["shade"] = shade;
 	msg["missionTex"] = missionNull ? Json::Value() : Json::Value(missionTex);
 	msg["globeTex"] = globeNull ? Json::Value() : Json::Value(globeTex);
+	// coop D250-U S-C5a (L-D250-SC1-1; F14321): an alien base keeps no coop id in the craft save, so the hand-off names it
+	if (AlienBase* ab = dynamic_cast<AlienBase*>(craft->getDestination()); ab && ab->_coop)
+		msg["alienBaseCoopId"] = ab->_coop_alienbase_id;
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 	g_coopPvpClientCraftType = type; g_coopPvpClientCraftId = id;
 	game->pushState(new CoopState(3));
@@ -43669,6 +43672,7 @@ void connectionTCP::coopPvpLandReceived(const Json::Value& obj) // coop D250-U S
 	land.missionTexNull = obj.get("missionTex", Json::Value()).isNull(); land.missionTex = land.missionTexNull ? 0 : obj["missionTex"].asInt();
 	land.globeTexNull = obj.get("globeTex", Json::Value()).isNull(); land.globeTex = land.globeTexNull ? 0 : obj["globeTex"].asInt();
 	land.shade = obj.get("shade", 0).asInt(); land.pending = true; land.blobReady = false;
+	land.alienBaseCoopId = obj.get("alienBaseCoopId", 0).asInt(); // coop D250-U S-C5a (L-D250-SC1-1): the hand-off's alien base, 0 = none
 	Log(LOG_INFO) << "[coop-pvp] host: landing request for craft " << land.craftType << "-" << land.craftId << " - waiting for its world";
 }
 
@@ -43773,6 +43777,26 @@ void connectionTCP::coopPvpBorrowPump()
 			ufo->setSecondsRemaining(100000000);
 		}
 		craft->relinkCoopDestination(borrowed);
+	}
+	// coop D250-U S-C5a (L-D250-SC1-1; F14321): the alien base the hand-off names (an alien base keeps no coop id in the craft save):
+	// its mirror is rebuilt in the borrowed world from the host's own live base, as the client mirror sync builds one (onTCPMessage
+	// "target_positions"), and the craft heads for it. No live base with that id = no mirror = refused "target" below.
+	if (craft && g_coopPvpLand.alienBaseCoopId != 0 && craft->getDestination() && craft->getDestination()->getType() == "STR_WAY_POINT")
+	{
+		for (auto* r : *_game->getSavedGame()->getAlienBases())
+		{
+			if (r->_coop || r->_coop_alienbase_id != g_coopPvpLand.alienBaseCoopId)
+				continue;
+			AlienBase* ab = new AlienBase(r->getDeployment(), r->getStartMonth());
+			ab->_coop_alienbase_id = r->_coop_alienbase_id;
+			ab->setId(borrowed->getId(r->getDeployment()->getMarkerName()));
+			borrowed->getAlienBases()->push_back(ab);
+			ab->setLongitude(r->getLongitude()); ab->setLatitude(r->getLatitude());
+			ab->setDiscovered(r->isDiscovered()); ab->setPactCountry(r->getPactCountry()); ab->setAlienRace(r->getAlienRace());
+			ab->_coop = true;
+			craft->setDestination(ab);
+			break;
+		}
 	}
 	Ufo* u = craft ? dynamic_cast<Ufo*>(craft->getDestination()) : nullptr;
 	MissionSite* m = craft ? dynamic_cast<MissionSite*>(craft->getDestination()) : nullptr;
@@ -43917,6 +43941,23 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 				present = true;
 		}
 	}
+	// coop D250-U S-C5a (QC-11 (a)): a UFO or an alien base target - is its mirror still on the post-battle world?
+	if (kind == "ufo")
+	{
+		for (auto* u : *_game->getSavedGame()->getUfos())
+		{
+			if (u->_coop && u->_coop_ufo_id == coopId)
+				present = true;
+		}
+	}
+	else if (kind == "alienBase")
+	{
+		for (auto* ab : *_game->getSavedGame()->getAlienBases())
+		{
+			if (ab->_coop && ab->_coop_alienbase_id == coopId)
+				present = true;
+		}
+	}
 	{
 		// (2) the host's copy of the X-COM player's world is the post-battle world stored at the debriefing (E4)
 		std::lock_guard<std::mutex> lock(coopFilesMutex);
@@ -43965,6 +44006,48 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 					break;
 				}
 			}
+		}
+	}
+	// coop D250-U S-C5a (QC-11 (a), VL-C-5): a UFO or an alien base on the alien world by vanilla's rule (DebriefingState::
+	// prepareDebriefing), read from its mirror's fate on the post-battle borrowed world: a UFO whose mirror is gone (X-COM won, or a
+	// crash site) disappears - a landed one interrupts its mission first; a landed UFO whose mirror stayed (X-COM did not secure the
+	// site) takes off; an alien base whose mirror is gone (destroyed) leaves with its links cleared, else it stays.
+	if (kind == "ufo")
+	{
+		action = !mirror ? "own" : (present ? "takeoff" : "deleted");
+		std::vector<Ufo*>* ufos = home->getUfos();
+		for (auto ufoIt = ufos->begin(); mirror && ufoIt != ufos->end(); ++ufoIt)
+		{
+			Ufo* ufo = *ufoIt;
+			if (ufo->_coop || ufo->_coop_ufo_id != coopId)
+				continue;
+			if (present)
+			{
+				ufo->setSecondsRemaining(5);
+			}
+			else
+			{
+				if (ufo->getStatus() == Ufo::LANDED && home->getMonthsPassed() > -1)
+					ufo->setDamage(ufo->getCraftStats().damageMax, _game->getMod());
+				delete ufo;
+				ufos->erase(ufoIt);
+			}
+			break;
+		}
+	}
+	else if (kind == "alienBase")
+	{
+		action = !mirror ? "own" : (present ? "kept" : "deleted");
+		std::vector<AlienBase*>* bases = home->getAlienBases();
+		for (auto abIt = bases->begin(); mirror && !present && abIt != bases->end(); ++abIt)
+		{
+			AlienBase* ab = *abIt;
+			if (ab->_coop || ab->_coop_alienbase_id != coopId)
+				continue;
+			home->clearLinksForAlienBase(ab, _game->getMod());
+			delete ab;
+			bases->erase(abIt);
+			break;
 		}
 	}
 	Json::Value fate;
