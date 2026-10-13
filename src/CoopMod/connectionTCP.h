@@ -687,6 +687,16 @@ class connectionTCP
 	bool coopTakePostBattleWorldSent();
 	static bool coopWorldStreamBusy();
 	bool coopAdoptWorldInPlace(const std::string& key);
+	// coop D250-U S-C1 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): gm3 PvP campaign battles in the
+	// X-COM client's borrowed world.
+	static Json::Value coopPvpBorrowRecord();                 // the process-lifetime record (TestServer get_coop.pvpBorrow)
+	static bool coopPvpBorrowActive();                        // HOST: the live world is the borrowed X-COM world
+	static SavedGame* coopPvpParkedWorld();                   // HOST: the parked alien world while borrowing, else null
+	static void coopPvpBorrowDrop();                          // the main-menu chokepoint: the parked world goes with the world
+	void coopPvpLandReceived(const Json::Value& obj);         // HOST: `pvp_land`
+	void coopPvpLandRefusedReceived(const Json::Value& obj);  // CLIENT: `pvp_land_refused`
+	void coopPvpLandBlobStored(bool stored);                  // HOST: after MAP_RESULT_SAVE_PROGRESS's validation
+	void coopPvpBorrowPump();                                 // both: the borrow (host) / the hold release (client)
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23/PR-25; D176, MR14): CLIENT - page 3 live on the adopted world (every adoption);
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);

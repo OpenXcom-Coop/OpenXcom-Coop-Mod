@@ -37,6 +37,7 @@
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
 #include "../CoopMod/SharedEcon.h" // coop RV-U9 (PRD-I5): next-launch crash reporter
+#include "../CoopMod/connectionTCP.h" // coop D250-U S-C1: the parked PvP world goes with the world
 #include <fstream>
 
 namespace OpenXcom
@@ -178,6 +179,7 @@ void GoToMainMenuState::init()
 	// already destroyed. Clearing in a constructor would delete the save out from under
 	// states that are still alive.
 	_game->setSavedGame(0);
+	connectionTCP::coopPvpBorrowDrop(); // coop D250-U S-C1 (owner D250, O1 (a)): a parked gm3 alien world goes with the world
 
 	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
 	_game->getScreen()->resetDisplay(false);

@@ -631,6 +631,19 @@ void Game::setSavedGame(SavedGame *save)
 }
 
 /**
+ * coop D250-U S-C1 (owner D250, O1 (a)): replaces the saved game without deleting the old one - the gm3 PvP alien host
+ * parks its own world while it runs a battle in the X-COM player's world.
+ * @param save The new saved game.
+ * @return The previous saved game (the caller owns it).
+ */
+SavedGame *Game::swapSavedGame(SavedGame *save)
+{
+	SavedGame *old = _save;
+	_save = save;
+	return old;
+}
+
+/**
  * Loads the mods specified in the game options.
  */
 void Game::loadMods()

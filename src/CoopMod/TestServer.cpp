@@ -14394,6 +14394,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
 			resp["noBases"] = connectionTCP::no_bases; // coop D250-U S-B (QD-7): this machine's PvP alien-side flag, a pure read
+			resp["pvpBorrow"] = connectionTCP::coopPvpBorrowRecord(); // coop D250-U S-C1: the gm3 hand-off / borrowed-world record, a pure read
 			resp["gamemode"] = connectionTCP::getCoopGamemode();
 			{
 				CoopState* top = findState<CoopState>(_game);
