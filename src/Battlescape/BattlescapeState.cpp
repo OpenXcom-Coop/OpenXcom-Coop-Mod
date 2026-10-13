@@ -2551,7 +2551,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 		for (auto* bu : *_save->getUnits())
 		{
 			if (j >= VISIBLE_MAX) break; // loop finished
-			if (bu->getFaction() == FACTION_PLAYER && bu->getStatus() != STATUS_DEAD && !bu->isIgnored() && bu->indicatorsAreEnabled())
+			if (coopFactionIsMine((int)bu->getFaction()) && bu->getStatus() != STATUS_DEAD && !bu->isIgnored() && bu->indicatorsAreEnabled()) // coop R5-U2 S-B: units of this machine's side
 			{
 				if (bu->getFatalWounds() > 0 || (Options::oxceShowBurningAsWounded && bu->getFire() > 0))
 				{
@@ -2573,7 +2573,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 		for (auto* bu : *_save->getUnits())
 		{
 			if (j >= VISIBLE_MAX) break; // loop finished
-			if (bu->getOriginalFaction() == FACTION_PLAYER && bu->getStatus() == STATUS_UNCONSCIOUS && bu->hasNegativeHealthRegen() && bu->indicatorsAreEnabled())
+			if (coopFactionIsMine((int)bu->getOriginalFaction()) && bu->getStatus() == STATUS_UNCONSCIOUS && bu->hasNegativeHealthRegen() && bu->indicatorsAreEnabled()) // coop R5-U2 S-B: units of this machine's side
 			{
 				_btnVisibleUnit[j]->setTooltip(_txtVisibleUnitTooltip[VISIBLE_MAX + 1]);
 				_btnVisibleUnit[j]->setVisible(true);
@@ -2587,7 +2587,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 		for (auto* bu : *_save->getUnits())
 		{
 			if (j >= VISIBLE_MAX) break; // loop finished
-			if (bu->getFaction() == FACTION_PLAYER && !(bu->isOut()) && bu->getHealth() > 0 && bu->indicatorsAreEnabled())
+			if (coopFactionIsMine((int)bu->getFaction()) && !(bu->isOut()) && bu->getHealth() > 0 && bu->indicatorsAreEnabled()) // coop R5-U2 S-B: units of this machine's side
 			{
 				if (bu->getStunlevel() * 100 / bu->getHealth() >= 75)
 				{

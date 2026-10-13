@@ -102,7 +102,7 @@ void UnitWalkBState::think()
 
 	bool unitSpotted = false;
 	int size = _unit->getArmor()->getSize() - 1;
-	bool onScreen = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false));
+	bool onScreen = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)); // coop R5-U2 S-B (QU1-6): seen by the side this machine plays
 	if (_unit->isKneeled())
 	{
 		if (_parent->kneel(_unit))
@@ -154,7 +154,7 @@ void UnitWalkBState::think()
 		if ((_parent->getSave()->getTile(_unit->getDestination())->getUnit() == 0) || // next tile must be not occupied
 			(_parent->getSave()->getTile(_unit->getDestination())->getUnit() == _unit))
 		{
-			bool onScreenBoundary = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true));
+			bool onScreenBoundary = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true)); // coop R5-U2 S-B (QU1-6)
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
 			playMovementSound();
 			if (_parent->getSave()->isPreview())
