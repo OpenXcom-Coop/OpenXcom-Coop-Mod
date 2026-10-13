@@ -36427,6 +36427,10 @@ bool connectionTCP::legacyBattleMessageDropped(const std::string& state)
 	return true;
 }
 
+// coop W2-H37 (docs rewrite/prompts/w2h37_borrowed_target_sweep.md): HOST - counts a position snapshot from the X-COM player that
+// arrived while its world is borrowed (onTCPMessage "target_positions", E1); defined beside D250-U S-C1's borrow record.
+static void coopPvpNotePositionsSkipped();
+
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
@@ -38876,7 +38880,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// PRD-J02: SEPARATE-only peer economy/craft mirror. A SHARED replica already
 		// holds every base/craft/fund as real data in the streamed world, so
 		// consuming the mirror snapshot would duplicate them. Fence it off.
-		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !isSharedCampaign())
+		// coop W2-H37 (docs rewrite/prompts/w2h37_borrowed_target_sweep.md; owner D250, O1 (a); R-D250-SC1-1): while the gm3 alien
+		// host runs a battle in the X-COM player's borrowed world, that player's position snapshot describes this very world - its
+		// own objects are real here, and the battle's target is the host's own mirror (D250-U S-C1's H4), which the snapshot never
+		// lists. None of it is applied then (no mirror made, moved or swept; the peer's funds / craft / base counts left as they
+		// are): the target and the craft on it stay as the landing left them. The first snapshot after the host is back on its own
+		// world applies as before.
+		const bool coopPvpBorrowedLive = coopPvpBorrowActive();
+		if (coopPvpBorrowedLive)
+			coopPvpNotePositionsSkipped();
+		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !isSharedCampaign() && !coopPvpBorrowedLive)
 		{
 
 			// funds
@@ -43291,6 +43304,11 @@ Json::Value connectionTCP::coopPvpBorrowRecord() // coop D250-U S-C1: the record
 // coop D250-U S-C1: HOST - the live world is the borrowed X-COM world / the parked alien world while borrowing (D149, QC-6).
 bool connectionTCP::coopPvpBorrowActive() { return getServerOwner() && g_coopPvpParked != nullptr; }
 SavedGame* connectionTCP::coopPvpParkedWorld() { return g_coopPvpParked; }
+
+static void coopPvpNotePositionsSkipped() // coop W2-H37: the borrow record's count (get_coop.pvpBorrow.positionsSkipped), nothing else
+{
+	g_coopPvpRec["positionsSkipped"] = g_coopPvpRec["positionsSkipped"].asInt() + 1;
+}
 
 void connectionTCP::coopPvpBorrowDrop() // coop D250-U S-C1: the main-menu chokepoint - a parked alien world goes with the world
 {
