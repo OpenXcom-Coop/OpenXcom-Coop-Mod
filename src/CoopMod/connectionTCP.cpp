@@ -14767,6 +14767,22 @@ int visibleHostileCount()
 	if (!save)
 		return 0;
 
+	// R5-U2 S-C (docs rewrite/prompts/r5u2_pvp_presentation.md (e) UC1; WR-30, QU2-9 (a); design-D5): a seat commanding a
+	// non-player side (gm2's client) counts the OPPONENT units its side sees now - R5-U1's coopSideSeesUnit(), i.e. the
+	// host's `seen` list - not FACTION_HOSTILE units, which are its own. A player seat is unchanged below.
+	const int mine = coopBattleAuthority().factionOf(coopBattleAuthority().localSeat.load());
+	if (isCoopBattle() && mine != (int)FACTION_PLAYER)
+	{
+		int opponents = 0;
+		for (BattleUnit* v : *save->getUnits())
+		{
+			if (v && !v->isOut() && (int)v->getFaction() != mine && v->getFaction() != FACTION_NEUTRAL
+				&& coopSideSeesUnit(mine, v))
+				++opponents;
+		}
+		return opponents;
+	}
+
 	const int mySeat = coopBattleAuthority().localSeat;
 	std::set<int> seen;
 	for (BattleUnit* u : *save->getUnits())
@@ -15010,8 +15026,16 @@ int busyOwnerSeat()
 				// because it had no admission model.
 				actor = findUnitById(save, g_coopPendingChainActorId);
 			}
+			// R5-U2 S-C (docs rewrite/prompts/r5u2_pvp_presentation.md (e) UC4; L-H29-3, L-H32-1; MJ-8; QU2-11 (a)): the seat that
+			// COMMANDS the actor - a mind-controlled actor's controller's seat (unresolved: seat 0, MJ-8's host/AI fallback), so
+			// the banner never names the owner of a unit someone else moves. Identical to the stored tag for every other actor.
 			if (actor)
-				g_coopBusyOwnerSeat = (int)actor->getCoopSeat();
+			{
+				const BattleUnit* commander = actor;
+				if (actor->getFaction() != actor->getOriginalFaction())
+					commander = findUnitById(save, actor->getMindControllerId());
+				g_coopBusyOwnerSeat = commander ? (int)commander->getCoopSeat() : 0;
+			}
 		}
 		return g_coopBusyOwnerSeat;
 	}
@@ -26120,6 +26144,14 @@ void onApplied(const Json::Value& ev)
 	if (!save)
 		return;
 
+	// R2-P7: the toggle-3 basis, sampled BEFORE any payload apply (and before the A5 targeted calculateFOV() those
+	// applies trigger) so onEvAppliedCancelCheck() below can see whether THIS ev gained this machine visibility. Skipped
+	// entirely when nothing is pending. R5-U2 S-C (UC2, WR-30): sampled before the envelope-level applies too, so a
+	// non-player seat's count (R5-U1's `seen` list, applied just below) compares before and after this envelope; the
+	// reveal and hit-log applies write no unit's visible list, so a player seat's value is unchanged.
+	const int visibleBefore = g_coopClientPending.active
+		? CoopArbiter::visibleHostileCount() : 0;
+
 	// RW-REVEAL-SYNC (SS2.4a): the envelope-level `reveal` field rides bt_ev of
 	// ANY kind AND bt_action_end, so it is applied HERE - before the state
 	// branch below, whose bt_action_end arm returns early. Presence-gated: a
@@ -26133,14 +26165,7 @@ void onApplied(const Json::Value& ev)
 
 	const std::string state = ev.get("state", "").asString();
 
-	// R2-P7: the toggle-3 basis, sampled BEFORE any payload apply (and before
-	// the A5 targeted calculateFOV() those applies trigger) so
-	// onEvAppliedCancelCheck() below can see whether THIS ev gained this
-	// machine local visibility. Skipped entirely when nothing is pending -
-	// the cancel policy has nothing to act on then, and this is on the
-	// per-event apply path.
-	const int visibleBefore = g_coopClientPending.active
-		? CoopArbiter::visibleHostileCount() : 0;
+	// R2-P7's toggle-3 basis `visibleBefore` is sampled at the top of this function (R5-U2 S-C, UC2).
 
 	if (state == "bt_ev")
 	{
@@ -33628,6 +33653,42 @@ static void coopNoteBattleEndLeaveSilent(int code)
 }
 
 // an endless loop that processes the sync-packet data: battlescape, tasks, remove targets, research, trading, disconnect, errors.
+// R5-U2 S-C (docs rewrite/prompts/r5u2_pvp_presentation.md (e) UC6; R5-V4, QU2-8 (a)): the mid-battle spectator notice. The
+// moment THIS seat goes from commanding at least one live unit to commanding none (deaths, unconsciousness, a mind
+// control, a gift), it gets the entry's own notice (CoopBattleUi::showSpectatorMode()). Edge-triggered per battleId (the
+// first tick of a battle only records the state, so a seat with no unit at entry gets only the entry notice). Main
+// thread, the RB-D5 pump point; a no-op outside an Active co-op battle and while the pre-battle equip phase is open.
+static void coopSpectatorWatch(Game* game)
+{
+	static std::uint32_t s_battleId = 0;
+	static bool s_had = false;
+	if (!game || !isCoopBattle() || coopEquipOpen())
+		return;
+	SavedGame* sg = game->getSavedGame();
+	SavedBattleGame* battle = sg ? sg->getSavedBattle() : nullptr;
+	if (!battle || !battle->getBattleState())
+		return;
+	bool live = false;
+	for (BattleUnit* u : *battle->getUnits())
+	{
+		if (u && !u->isOut() && coopBattleAuthority().commandsUnit(u))
+		{
+			live = true;
+			break;
+		}
+	}
+	const std::uint32_t battleId = coopBattleAuthority().battleId.load();
+	if (battleId != s_battleId)
+	{
+		s_battleId = battleId;
+		s_had = live;
+		return;
+	}
+	if (s_had && !live)
+		CoopBattleUi::showSpectatorMode();
+	s_had = live;
+}
+
 void connectionTCP::updateCoopTask()
 {
 	CoopSyncedOptions::tick(_game); // W2-P9 S-A (PR-3): the synced-options activation edge, main thread only
@@ -34123,6 +34184,8 @@ void connectionTCP::updateCoopTask()
 	// BriefingState::btnOkClick, after freezePreBattleEquip() - see
 	// CoopHandshake.h for the full placement argument.
 	CoopHandshake::selectOwnUnitAtEntry(_game);
+	// R5-U2 S-C (UC7; R5-V4): the mid-battle spectator notice (coopSpectatorWatch() above), right after the entry selection.
+	coopSpectatorWatch(_game);
 
 	// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 9, Q13 (a)): the
 	// pre-battle equip phase's steps - the host's screen record, announce and barrier, the client's entry, open and
