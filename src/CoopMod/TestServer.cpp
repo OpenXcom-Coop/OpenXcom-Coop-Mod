@@ -3566,7 +3566,25 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else
 		{
-			resp["error"] = "unknown option: " + name;
+			// D249-U red (docs rewrite/prompts/d249u_follow_teammate_camera.md (e) TB1): TEST-ONLY - any other REGISTERED
+			// bool option by id, with the round trip of the branches above ("value" optional, omit it for a pure read; the
+			// reply echoes the live global read back after the write, plus the option's description, category and owner;
+			// memory only, never Options::save). An id with no bool OptionInfo keeps the error.
+			const OptionInfo* infoD249 = nullptr;
+			for (const OptionInfo& info : Options::getOptionInfo())
+				if (info.id() == name && info.type() == OPTION_BOOL) { infoD249 = &info; break; }
+			if (infoD249)
+			{
+				if (req.isMember("value"))
+					*infoD249->asBool() = req["value"].asBool();
+				resp["value"] = *infoD249->asBool();
+				resp["description"] = infoD249->description();
+				resp["category"] = infoD249->category();
+				resp["owner"] = (int)infoD249->owner();
+				resp["ok"] = true;
+			}
+			else
+				resp["error"] = "unknown option: " + name;
 		}
 	}
 	else if (cmd == "set_seed")
