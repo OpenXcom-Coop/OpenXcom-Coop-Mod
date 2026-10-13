@@ -9494,7 +9494,10 @@ bool coopHiddenMovementActorTerm(const SavedBattleGame* s)
 {
 	const BattleUnit* sel = s ? s->getSelectedUnit() : nullptr;
 	const int gamemode = connectionTCP::getCoopGamemode();
-	if (!s || !isCoopBattle() || (gamemode != 2 && gamemode != 3) || coopBattleAuthority().mySideActive(s))
+	// R5-U2 S-E (docs rewrite/prompts/r5u2_pvp_presentation.md (e) UE1; R-R5U1-1, QU2-14 (a)): a classic / SHARED co-op
+	// CLIENT reads the acting unit too (its own soldier stays selected through the alien side, F1507); a co-op HOST keeps
+	// vanilla's term (its AI selects the acting alien).
+	if (!s || !isCoopBattle() || (gamemode != 2 && gamemode != 3 && coopBattleAuthority().hostSim) || coopBattleAuthority().mySideActive(s))
 		return sel && coopUnitVisibleHere(sel);
 	int actorId = -1;
 	if (coopBattleAuthority().hostSim)
