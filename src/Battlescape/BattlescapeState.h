@@ -280,6 +280,10 @@ public:
 	/// to read off _warning is the LOCAL VANILLA reserve refusal SS2.W2/WV-D48
 	/// requires when a client's own TU reserve stops a walk at step 1.
 	std::string getWarningText() const;
+	/// coop R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TB4; test introspection only): the unit ids behind
+	/// the visible-unit indicator buttons now shown, in button order, and the three section boundaries (directly seen,
+	/// enemies, wounded). Never read by game logic.
+	void coopHudUnits(std::vector<int>& ids, int& direct, int& enemies, int& wounded) const;
 	/// W1-P9 (test introspection only, WAVE1-RUNBOOK.md WV-D33): the four HUD
 	/// NUMBERS currently PAINTED on the map strip - the values the
 	/// NumberText widgets hold, not the values the model holds. The distinction

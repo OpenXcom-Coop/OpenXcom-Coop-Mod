@@ -2846,6 +2846,20 @@ std::string BattlescapeState::getWarningText() const
 	return _warning ? _warning->getMessageText() : std::string();
 }
 
+/// coop R5-U2 S-B.1 (test introspection only): see BattlescapeState.h.
+void BattlescapeState::coopHudUnits(std::vector<int>& ids, int& direct, int& enemies, int& wounded) const
+{
+	ids.clear();
+	for (int i = 0; i < VISIBLE_MAX; ++i)
+	{
+		if (_btnVisibleUnit[i] && _btnVisibleUnit[i]->getVisible() && _visibleUnit[i])
+			ids.push_back(_visibleUnit[i]->getId());
+	}
+	direct = _numberOfDirectlyVisibleUnits;
+	enemies = _numberOfEnemiesTotal;
+	wounded = _numberOfEnemiesTotalPlusWounded;
+}
+
 void BattlescapeState::warning(const std::string &message)
 {
 	_warning->showMessage(tr(message));

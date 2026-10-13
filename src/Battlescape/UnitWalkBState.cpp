@@ -308,6 +308,7 @@ void UnitWalkBState::think()
 			return;
 		}
 
+		coopNoteWalkPace(_unit, onScreen || _parent->getSave()->getDebugMode()); // coop R5-U2 S-B.1: TEST-ONLY walk-pace probe
 		if (onScreen || _parent->getSave()->getDebugMode())
 		{
 			setNormalWalkSpeed();
