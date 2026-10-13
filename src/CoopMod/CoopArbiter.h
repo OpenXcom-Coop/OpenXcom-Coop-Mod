@@ -1305,4 +1305,12 @@ bool coopResyncHoldArm(bool on);
 /// copy hash, so onReady() takes its resumed mismatch branch. Inert unless armed.
 void coopTestResyncReadyMismatchArm();
 
+/// R5-U6 S-A (owner D236 (b); docs rewrite/prompts/r5u6_pvp_options.md): "Enable Reaction Fire in PvP". TRUE on the co-op
+/// HOST in a PvP battle (gamemode 2 / 3) whose host had the option off when the battle started (initBattleAuthority()
+/// takes Options::EnableReactionFirePvp into connectionTCP::_enable_reaction_shoot): UnitWalkBState then skips its
+/// walk-step reaction check - the release line's one gated site (main UnitWalkBState.cpp :465). A client's own setting
+/// never applies; every other reaction trigger (kneel, shot, melee, fall) stays vanilla (QU6-1 (a)). FALSE in single
+/// player, on a client, in classic / SHARED / SEPARATE co-op and in PvE2.
+bool coopPvpWalkReactionOff();
+
 } // namespace OpenXcom

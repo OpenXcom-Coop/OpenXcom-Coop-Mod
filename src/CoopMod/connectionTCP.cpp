@@ -6429,6 +6429,10 @@ void initBattleAuthority(std::uint32_t battleId)
 	a.phase = CoopBattlePhase::Handshake;
 	a.battleId = battleId;
 	a.desyncFrozen = false; // R2-P9: a fresh battle always starts unfrozen
+	// R5-U6 S-A (owner D236 (b)): the HOST takes its "Enable Reaction Fire in PvP" option for this battle (read only in
+	// PvP, coopPvpWalkReactionOff()); the join handshake sets it only when the lobby is PvP at that moment (F14104).
+	if (a.hostSim)
+		connectionTCP::_enable_reaction_shoot = Options::EnableReactionFirePvp;
 	// coop R4-L3 S-A (QL3-4 (a)): the seen latch outlives the repair of ITS battle (the second player's repair runs this
 	// function with the same battleId); a battle with another id starts unseen.
 	if (battleId != g_coopDesyncSeenBattleId)
@@ -8610,6 +8614,15 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s)
 		return false;
 	const int side = (int)s->getSide();
 	return side != (int)FACTION_PLAYER && side != (int)FACTION_NEUTRAL && coopFactionHumanCommanded(side);
+}
+
+// R5-U6 S-A (owner D236 (b)): see CoopArbiter.h.
+bool coopPvpWalkReactionOff()
+{
+	if (!isCoopBattle() || !coopBattleAuthority().hostSim)
+		return false;
+	const int gamemode = connectionTCP::getCoopGamemode();
+	return (gamemode == 2 || gamemode == 3) && !connectionTCP::_enable_reaction_shoot;
 }
 
 int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, const SavedBattleGame* s)
