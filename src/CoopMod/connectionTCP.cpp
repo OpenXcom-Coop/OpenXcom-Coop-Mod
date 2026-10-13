@@ -8924,9 +8924,10 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s)
 }
 
 // W2-H39 (docs rewrite/prompts/w2h39_pvp_panic_selection.md (e) E2; design-D6, QU2-7 (a)'s host half): see BattleAuthority.h.
+// W2-H40 (docs rewrite/prompts/w2h40_coop_panic_selection.md (e) E2; design-D6, F15450): the host's own side re-selects.
 void coopHostDropOffSideSelection(SavedBattleGame* s)
 {
-	if (!s || !isCoopBattle() || !coopBattleAuthority().hostSim || coopBattleAuthority().mySideActive(s))
+	if (!s || !isCoopBattle() || !coopBattleAuthority().hostSim)
 		return;
 	BattlescapeState* bs = s->getBattleState();
 	BattlescapeGame* bg = bs ? s->getBattleGame() : nullptr;
@@ -8935,8 +8936,17 @@ void coopHostDropOffSideSelection(SavedBattleGame* s)
 	const BattleUnit* sel = s->getSelectedUnit();
 	if (!sel || coopBattleAuthority().commandsUnit(sel))
 		return;
-	s->setSelectedUnit(0);
-	bg->getCurrentAction()->actor = nullptr;
+	BattleUnit* next = nullptr;
+	if (coopBattleAuthority().mySideActive(s))
+	{
+		// W2-H40: vanilla's next-unit order, seat-filtered (the Tab key's cycle). With no live unit this host
+		// commands, the cycle comes back to the held unit (SavedBattleGame::selectPlayerUnit) and it holds none.
+		next = s->selectNextPlayerUnit();
+		if (next && !coopBattleAuthority().commandsUnit(next))
+			next = nullptr;
+	}
+	s->setSelectedUnit(next);
+	bg->getCurrentAction()->actor = next;
 	bs->updateSoldierInfo(false); // WV-D10: a co-op-driven HUD refresh never authors fog
 }
 

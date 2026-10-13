@@ -914,8 +914,13 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 /// handlePanickingUnit() left on a unit the host does not command is dropped with the action actor:
 /// the host then holds no unit, as that side's start gave it (SavedBattleGame::endTurn's seat-filtered
 /// restore). The panic itself still plays out on the host, the battle authority. Host-local UI state
-/// only: no hashed field, nothing on the wire. A no-op in single player, on a client, on the host's
-/// own side (classic / SHARED co-op, gm3's alien turn) and while a panic still plays out.
+/// only: no hashed field, nothing on the wire. A no-op in single player, on a client, while a panic
+/// still plays out and while the host holds a unit it commands.
+/// W2-H40 (design-D6; docs rewrite/prompts/w2h40_coop_panic_selection.md; F15450): on the host's OWN
+/// side (classic / SHARED co-op, gm4's player side), where the panic check leaves the host holding its
+/// partner's panicked unit, the host instead selects the next unit it commands in vanilla's next-unit
+/// order (SavedBattleGame::selectNextPlayerUnit(), the seat-filtered cycle the Tab key runs), with the
+/// action actor and a HUD refresh; with no live unit it commands, it holds none (as off its side).
 void coopHostDropOffSideSelection(SavedBattleGame* s);
 
 /// R5-U3 S-B (owner O1): psi target knowledge for a human seat's non-player attacker. -1 = not
