@@ -25,6 +25,7 @@
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../CoopMod/SharedEcon.h" // W2-H15 (F5602)
 #include "../CoopMod/CoopScriptOwner.h" // coop OF2 S-C: CoopScriptDebriefOwner around postMissionProcedures (D266 (c))
+#include "../CoopMod/CoopBattleSetup.h" // coop D248-U: coopGuestTankRecovered
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
@@ -1602,6 +1603,7 @@ void DebriefingState::prepareDebriefing()
 					}
 					else
 					{ // non soldier player = tank
+						if (coopGuestTankRecovered(bunit)) continue; // coop D248-U: a SEPARATE partner's tank goes home, not into these stores
 						addItemsToBaseStores(bunit->getType(), base, 1, false);
 
 						auto unloadWeapon = [&](BattleItem *weapon)

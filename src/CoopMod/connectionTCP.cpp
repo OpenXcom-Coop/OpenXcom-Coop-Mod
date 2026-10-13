@@ -6783,6 +6783,82 @@ void coopTagGuestVehicleUnit(const Vehicle* v, BattleUnit* unit)
 	}
 }
 
+// ===== D248-U S-B (docs rewrite/prompts/d248u_client_tank_host_craft.md; owner D248 (b) "the surviving tank returns to
+// the client's world"; D235: no lasting gift): the battle's end. coopGuestTanksScan() (coopHostBattleEnd, a real end)
+// lists the battle's partner tanks; coopGuestTankRecovered() is DebriefingState's tank credit (vanilla's own recovery
+// decision, QD248-6 (a)): a partner tank vanilla would put into the host's stores is marked survived and NOT credited
+// (nor its ammo); coopDebriefHostSend's guestTanks rows tell the partner which of its tanks were lost, and
+// coopSeparateReturn removes those from its own world. A gift never changes where a tank goes home. =====
+namespace
+{
+	struct CoopGuestTankRow
+	{
+		int unitId;
+		std::string type;
+		std::string tag;
+		bool survived;
+	};
+	// Main thread only: filled by coopGuestTanksScan() / coopGuestTankRecovered(), sent and cleared by coopDebriefHostSend().
+	std::vector<CoopGuestTankRow> g_coopGuestTankRows;
+}
+
+// "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>" (the type is the rest of the string).
+static bool coopParseGuestTankTag(const std::string& tag, int& seat, int& baseId, int& craftId, std::string& craftType)
+{
+	static const std::string prefix = "coop-guest-tank:";
+	if (tag.compare(0, prefix.size(), prefix) != 0)
+		return false;
+	size_t p = prefix.size();
+	int v[3] = { -1, -1, -1 };
+	for (int i = 0; i < 3; ++i)
+	{
+		const size_t c = tag.find(':', p);
+		if (c == std::string::npos)
+			return false;
+		v[i] = std::atoi(tag.substr(p, c - p).c_str());
+		p = c + 1;
+	}
+	seat = v[0];
+	baseId = v[1];
+	craftId = v[2];
+	craftType = tag.substr(p);
+	return seat >= 0 && !craftType.empty();
+}
+
+static void coopGuestTanksScan(SavedBattleGame* save)
+{
+	g_coopGuestTankRows.clear();
+	if (!save)
+		return;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (u && !u->getCoopGuestTank().empty())
+			g_coopGuestTankRows.push_back(CoopGuestTankRow{ u->getId(), u->getType(), u->getCoopGuestTank(), false });
+	}
+	if (!g_coopGuestTankRows.empty())
+		Log(LOG_INFO) << "[coop-guest-tank] host: battle end - " << g_coopGuestTankRows.size() << " partner tank(s) in the battle";
+}
+
+bool coopGuestTankRecovered(BattleUnit* unit)
+{
+	if (!unit || unit->getCoopGuestTank().empty() || !connectionTCP::getCoopStatic() || !connectionTCP::getServerOwner())
+		return false;
+	bool found = false;
+	for (CoopGuestTankRow& r : g_coopGuestTankRows)
+	{
+		if (r.unitId == unit->getId())
+		{
+			r.survived = true;
+			found = true;
+		}
+	}
+	if (!found)
+		g_coopGuestTankRows.push_back(CoopGuestTankRow{ unit->getId(), unit->getType(), unit->getCoopGuestTank(), true });
+	Log(LOG_INFO) << "[coop-guest-tank] host: partner tank unit " << unit->getId() << " survived - not credited to the host's "
+		"stores (" << unit->getCoopGuestTank() << ")";
+	return true;
+}
+
 // W2-H19 (F6860; Q3 a): raised by every resetBattleAuthority() (any thread), consumed on the main thread by
 // sendGuestRosterContrib(): after a battle-scope reset this machine resends its whole guest roster once.
 static std::atomic<bool> g_guestContribResendAll{false};
@@ -18010,6 +18086,9 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 		return;
 	}
 
+	// D248-U S-B (owner D248 (b)): the partner tanks of this battle, for the debrief's guestTanks rows (coopDebriefHostSend).
+	coopGuestTanksScan(save);
+
 	// 3. OR2 (a): vanilla's own tally (stock data writes nothing, N35).
 	BattlescapeState* bs = save->getBattleState();
 	BattlescapeGame* bg = connectionTCP::isBattlescapeStateLive(bs) ? save->getBattleGame() : nullptr;
@@ -18763,6 +18842,28 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		}
 		debrief["giftsIn"] = giftsIn;
 		debrief["guests"] = guests;
+		// D248-U S-B (owner D248 (b), D235): every partner tank of this battle - its owner seat, the host base / craft it was
+		// parked on, its type and whether it was lost (vanilla did not recover it: destroyed, or left behind on an abort).
+		Json::Value guestTanks(Json::arrayValue);
+		for (const CoopGuestTankRow& r : g_coopGuestTankRows)
+		{
+			int tseat = -1, tbase = -1, tcraft = -1;
+			std::string tcraftType;
+			if (!coopParseGuestTankTag(r.tag, tseat, tbase, tcraft, tcraftType))
+				continue;
+			Json::Value t(Json::objectValue);
+			t["ownerSeat"] = tseat;
+			t["baseId"] = tbase;
+			t["craftId"] = tcraft;
+			t["craftType"] = tcraftType;
+			t["type"] = r.type;
+			t["unitId"] = r.unitId;
+			t["lost"] = !r.survived;
+			guestTanks.append(t);
+		}
+		debrief["guestTanks"] = guestTanks;
+		CoopDelta::battleEndRecordSet("guestTanks", guestTanks);
+		g_coopGuestTankRows.clear();
 		if (db->_missionStatistics)
 		{
 			YAML::YamlRootNodeWriter mw;
@@ -28563,6 +28664,34 @@ static MissionStatistics* coopBuildMissionFromYaml(const std::string& yaml)
 	return ms.release();
 }
 
+// D248-U S-B (owner D248 (b)): remove ONE of this world's parked tanks whose vehicle unit is @a type (the battle unit's
+// type) and that waits at the peer base @a baseId on its craft @a craftId / @a craftType (CraftInfoState / SoldiersState OK
+// tag them on this world's crafts). True when one was removed.
+static bool coopRemoveParkedTank(SavedGame* own, int baseId, int craftId, const std::string& craftType, const std::string& type)
+{
+	for (auto* base : *own->getBases())
+	{
+		if (base->_coopBase || base->_coopIcon)
+			continue;
+		for (auto* craft : *base->getCrafts())
+		{
+			std::vector<Vehicle*>& list = *craft->getVehicles();
+			for (auto it = list.begin(); it != list.end(); ++it)
+			{
+				Vehicle* v = *it;
+				if (v->getCoopBase() == baseId && v->getCoopCraft() == craftId && v->getCoopCraftType() == craftType
+					&& v->getRules()->getVehicleUnit() && v->getRules()->getVehicleUnit()->getType() == type)
+				{
+					list.erase(it);
+					delete v;
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
 // W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 6; owner D155 (a), D156 (a), D178 (a); MR4, MR6; P7-6 Q1 (a); PR-15):
 // the SEPARATE campaign client's OK. Load its OWN world, apply each guest row's record (by the owner's own id) onto the
 // owner's soldier, return to its own geoscape IN PLACE (no CoopState / LoadGameState, P6-4), and push the updated own
@@ -28745,6 +28874,34 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 			++applied;
 		}
 	}
+	// D248-U S-B (owner D248 (b) "the surviving tank returns to the client's world"; D235: whoever held it at the end):
+	// this seat's tanks that fought on the host's craft. A lost one leaves this world; a surviving one needs nothing (the
+	// parked tank never left it, with the ammo it was parked with, QD248-3 (a)).
+	int tanksLost = 0, tanksMissing = 0;
+	const Json::Value& tanks = msg["debrief"]["guestTanks"];
+	if (tanks.isArray())
+	{
+		for (const Json::Value& t : tanks)
+		{
+			if (t.get("ownerSeat", -1).asInt() != seat || !t.get("lost", false).asBool())
+				continue;
+			if (coopRemoveParkedTank(own, t.get("baseId", -1).asInt(), t.get("craftId", -1).asInt(),
+				t.get("craftType", "").asString(), t.get("type", "").asString()))
+			{
+				++tanksLost;
+				Log(LOG_INFO) << "[coop-roster] SEPARATE return: parked tank " << t.get("type", "").asString() << " at peer base "
+					<< t.get("baseId", -1).asInt() << " craft " << t.get("craftId", -1).asInt() << " lost in the battle - removed";
+			}
+			else
+			{
+				++tanksMissing;
+				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - no parked tank " << t.get("type", "").asString()
+					<< " at peer base " << t.get("baseId", -1).asInt() << " craft " << t.get("craftId", -1).asInt();
+			}
+		}
+	}
+	sep["tanksLost"] = tanksLost;
+	sep["tanksMissing"] = tanksMissing;
 	sep["guestsApplied"] = applied;
 	sep["guestsMissing"] = missing;
 	sep["deadApplied"] = deadApplied;
