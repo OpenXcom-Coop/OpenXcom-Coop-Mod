@@ -108,6 +108,11 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmCydoniaState.h"
 #include "../Geoscape/Globe.h"
+#include "../Geoscape/ConfirmLandingState.h" // coop D250-U S-C1: the alien host runs vanilla's landing on the borrowed craft
+#include "../Mod/RuleGlobe.h" // coop D250-U S-C1: the landing's textures by id
+#include "../Mod/Texture.h" // coop D250-U S-C1
+#include "../Savegame/MissionSite.h" // coop D250-U S-C1: the borrowed target
+#include "../Savegame/AlienBase.h" // coop D250-U S-C1
 #include "../Geoscape/BaseNameState.h"
 #include "../Geoscape/BuildNewBaseState.h"
 #include "../Basescape/PlaceLiftState.h"
@@ -6804,6 +6809,7 @@ bool coopResearchSeparate(Game* game)
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleResearch*>& req)
 {
 	SavedGame* live = game->getSavedGame();
+	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop D250-U S-C1 (D149): the alien host's own research
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return live->isResearched(req);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -6826,6 +6832,7 @@ bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleRese
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& req)
 {
 	SavedGame* live = game->getSavedGame();
+	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop D250-U S-C1 (D149): the alien host's own research
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return live->isResearched(req);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -6845,6 +6852,7 @@ bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& 
 bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod)
 {
 	SavedGame* live = game->getSavedGame();
+	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop D250-U S-C1 (D149): the alien host's own research
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return live->isManaUnlocked(mod);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -6870,6 +6878,7 @@ bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod)
 bool coopSeatArticleAvailable(Game* game, int seat, ArticleDefinition* article)
 {
 	SavedGame* live = game->getSavedGame();
+	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop D250-U S-C1 (D149): the alien host's own research
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return Ufopaedia::isArticleAvailable(live, article);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -34546,6 +34555,8 @@ void connectionTCP::updateCoopTask()
 	// seat-attributed wait driver. Self-guarded and completely inert outside an
 	// active co-op battle, so it stays a single unconditional call at the same
 	// RB-D5 pump point the reveal flush and the entry auto-select already use.
+	coopPvpBorrowPump(); // coop D250-U S-C1 (owner D250, O1 (a)): the gm3 borrow (host) / the hold release (client), never from the receive path
+
 	CoopBattleUi::tick();
 
 	// coop
@@ -39337,7 +39348,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			// Install the freshest client blob. On validation failure (PRD-07)
 			// the store keeps the last-good blob, so the write below stays safe.
-			writeHostMapSaveProgressFile();
+			coopPvpLandBlobStored(writeHostMapSaveProgressFile()); // coop D250-U S-C1: a waiting gm3 landing arms on its world's arrival
 
 			// PRD-06/E1: the SaveGameState funnel deferred its write to here, so
 			// this is the single emit of the host .sav for this save cycle - and
@@ -40680,6 +40691,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->getSavedGame()->getBases()->push_back(CoopBase);
 		}
 	}
+
+	// coop D250-U S-C1 (owner D250, O1 (a)): the gm3 landing hand-off (host) and its refusal (client) - records and latches only.
+	if (stateString == "pvp_land")
+		coopPvpLandReceived(obj);
+	if (stateString == "pvp_land_refused")
+		coopPvpLandRefusedReceived(obj);
 
 	if (stateString == "SEND_FILE_HOST_TRUE_SAVE_PROGRESS")
 	{
@@ -42799,6 +42816,256 @@ bool connectionTCP::coopWorldStreamBusy()
 
 // W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 7, PR-5; F2527, F2530): LoadGameState :250-279's world half for the
 // world held under @a key - sends nothing, pushes no state. False (the live world kept) when it is missing or fails.
+// ===== coop D250-U S-C1 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): gm3 PvP campaign battles in the X-COM client's borrowed world =====
+struct CoopPvpLand { bool pending = false, blobReady = false; std::string kind, craftType; int craftId = -1; bool missionTexNull = true, globeTexNull = true; int missionTex = 0, globeTex = 0, shade = 0; };
+static CoopPvpLand g_coopPvpLand;             // coop D250-U S-C1: HOST - the request waiting for its world
+static SavedGame* g_coopPvpParked = nullptr;  // coop D250-U S-C1: HOST - the parked alien world
+static Json::Value g_coopPvpRec;              // coop D250-U S-C1: both - the process-lifetime record, never reset
+static bool g_coopPvpReleasePending = false;  // coop D250-U S-C1: CLIENT - a refusal arrived; the pump releases the hold
+static std::string g_coopPvpClientCraftType;  // coop D250-U S-C1: CLIENT - the handed-off craft
+static int g_coopPvpClientCraftId = -1;       // coop D250-U S-C1: CLIENT
+
+static int coopPvpTexId(Game* game, Texture* tex, bool& isNull) // coop D250-U S-C1: the key of @a tex in the globe's texture table
+{
+	isNull = (tex == nullptr);
+	for (const auto& kv : game->getMod()->getGlobe()->getTexturesRaw())
+		if (!isNull && kv.second == tex)
+			return kv.first;
+	isNull = true;
+	return 0;
+}
+
+// coop D250-U S-C1 (owner D250, O1 (a); QC-2): CLIENT - the gm3 X-COM side hands its landing to the alien host (CoopHandshake.h).
+bool CoopHandshake::requestPvpLanding(Game* game, Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade)
+{
+	if (!(game && craft && connectionTCP::getCoopStatic() && !connectionTCP::getServerOwner() && connectionTCP::getCoopGamemode() == 3
+		&& game->getCoopMod()->getCoopCampaign() && game->getSavedGame() && game->getSavedGame()->getMonthsPassed() != -1))
+		return false;
+	const bool pushed = game->getCoopMod()->pushProgressToHostSilently();
+	g_coopPvpRec["sent"] = g_coopPvpRec["sent"].asInt() + 1;
+	if (pushed) g_coopPvpRec["pushed"] = g_coopPvpRec["pushed"].asInt() + 1;
+	const std::string type = craft->getRules()->getType(); const int id = craft->getId();
+	if (!pushed)
+	{
+		craft->returnToBase();
+		g_coopPvpRec["lastRefuseSeen"] = "push";
+		Log(LOG_WARNING) << "[coop-pvp] client: the landing hand-off could not push this world - craft " << type << "-" << id << " sent home";
+		return true;
+	}
+	bool missionNull = true, globeNull = true;
+	const int missionTex = coopPvpTexId(game, missionTexture, missionNull), globeTex = coopPvpTexId(game, globeTexture, globeNull);
+	Json::Value msg;
+	msg["state"] = "pvp_land"; msg["kind"] = "landing"; msg["craftType"] = type; msg["craftId"] = id; msg["shade"] = shade;
+	msg["missionTex"] = missionNull ? Json::Value() : Json::Value(missionTex);
+	msg["globeTex"] = globeNull ? Json::Value() : Json::Value(globeTex);
+	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+	g_coopPvpClientCraftType = type; g_coopPvpClientCraftId = id;
+	game->pushState(new CoopState(3));
+	g_coopPvpRec["held"] = g_coopPvpRec["held"].asInt() + 1;
+	Log(LOG_INFO) << "[coop-pvp] client: landing handed to the alien host (craft " << type << "-" << id << ") - holding";
+	return true;
+}
+
+static void coopPvpRefuse(connectionTCP* tcp, const std::string& why) // coop D250-U S-C1: HOST - the X-COM player's hold is released
+{
+	g_coopPvpLand = CoopPvpLand();
+	Json::Value msg;
+	msg["state"] = "pvp_land_refused"; msg["reason"] = why;
+	tcp->sendTCPPacketData(msg.toStyledString());
+	g_coopPvpRec["refusedSent"] = g_coopPvpRec["refusedSent"].asInt() + 1; g_coopPvpRec["lastRefuse"] = why;
+	Log(LOG_WARNING) << "[coop-pvp] host: landing refused (" << why << ")";
+}
+
+static void coopPvpSwapBack(Game* game) // coop D250-U S-C1 (QC-1, QC-5): HOST - the parked alien world is live again
+{
+	if (!g_coopPvpParked) return;
+	delete game->swapSavedGame(g_coopPvpParked);
+	g_coopPvpParked = nullptr; connectionTCP::no_bases = true; connectionTCP::coop_save_owner_player_id = 0;
+	g_coopPvpRec["swappedBack"] = g_coopPvpRec["swappedBack"].asInt() + 1;
+	Log(LOG_INFO) << "[coop-pvp] host: back on its own world";
+}
+
+void connectionTCP::coopPvpLandReceived(const Json::Value& obj) // coop D250-U S-C1: HOST - records and latches only; the pump borrows
+{
+	if (!getServerOwner()) return;
+	g_coopPvpRec["requests"] = g_coopPvpRec["requests"].asInt() + 1;
+	if (getCoopGamemode() != 3 || !getCoopCampaign())
+		return coopPvpRefuse(this, "mode");
+	if (g_coopPvpParked || g_coopPvpLand.pending || coopBattleAuthority().phase.load() != CoopBattlePhase::Idle)
+		return coopPvpRefuse(this, "busy");
+	CoopPvpLand& land = g_coopPvpLand;
+	land.kind = obj.get("kind", "").asString(); land.craftType = obj.get("craftType", "").asString(); land.craftId = obj.get("craftId", -1).asInt();
+	land.missionTexNull = obj.get("missionTex", Json::Value()).isNull(); land.missionTex = land.missionTexNull ? 0 : obj["missionTex"].asInt();
+	land.globeTexNull = obj.get("globeTex", Json::Value()).isNull(); land.globeTex = land.globeTexNull ? 0 : obj["globeTex"].asInt();
+	land.shade = obj.get("shade", 0).asInt(); land.pending = true; land.blobReady = false;
+	Log(LOG_INFO) << "[coop-pvp] host: landing request for craft " << land.craftType << "-" << land.craftId << " - waiting for its world";
+}
+
+void connectionTCP::coopPvpLandRefusedReceived(const Json::Value& obj) // coop D250-U S-C1: CLIENT - records and latches only
+{
+	if (getServerOwner()) return;
+	g_coopPvpRec["refusedSeen"] = g_coopPvpRec["refusedSeen"].asInt() + 1;
+	g_coopPvpRec["lastRefuseSeen"] = obj["reason"];
+	g_coopPvpReleasePending = true;
+}
+
+void connectionTCP::coopPvpLandBlobStored(bool stored) // coop D250-U S-C1 (QC-2): HOST - a waiting landing arms on its world's arrival
+{
+	if (!getServerOwner() || !g_coopPvpLand.pending) return;
+	if (!stored) return coopPvpRefuse(this, "blob");
+	g_coopPvpLand.blobReady = true;
+	g_coopPvpRec["armed"] = g_coopPvpRec["armed"].asInt() + 1;
+}
+
+// coop D250-U S-C1 (QC-1, QC-3..QC-5): the main-thread pump - the borrow (HOST) / the hold release (CLIENT); never from the receive path.
+void connectionTCP::coopPvpBorrowPump()
+{
+	if (!getServerOwner())
+	{
+		if (!g_coopPvpReleasePending) return;
+		g_coopPvpReleasePending = false;
+		CoopState* hold = _game->getStates().empty() ? nullptr : dynamic_cast<CoopState*>(_game->getStates().back());
+		if (hold && hold->getStateCode() == 3) _game->popState();
+		if (SavedGame* own = _game->getSavedGame())
+			for (auto* base : *own->getBases())
+				for (auto* craft : *base->getCrafts())
+					if (!base->_coopBase && !base->_coopIcon && !craft->coop && craft->getRules()->getType() == g_coopPvpClientCraftType
+						&& craft->getId() == g_coopPvpClientCraftId)
+						craft->returnToBase();
+		g_coopPvpRec["released"] = g_coopPvpRec["released"].asInt() + 1;
+		Log(LOG_INFO) << "[coop-pvp] client: hold released - craft sent home";
+		return;
+	}
+	if (!(g_coopPvpLand.pending && g_coopPvpLand.blobReady && !g_coopPvpParked && getCoopGamemode() == 3 && getCoopCampaign()
+		&& coopBattleAuthority().phase.load() == CoopBattlePhase::Idle && seatCount() >= 2 && !_game->getStates().empty()
+		&& dynamic_cast<GeoscapeState*>(_game->getStates().back())))
+		return; // QC-4: only on the host's geoscape, no battle in flight, the client connected
+	const std::string key = hostBlobKey(getCurrentClientName()); // (1) the X-COM world, from the host's copy of the client's world
+	SavedGame* borrowed = new SavedGame();
+	try { borrowed->loadCoopSaveFromMemory(key, _game->getMod(), _game->getLanguage(), key); }
+	catch (const std::exception&) { delete borrowed; return coopPvpRefuse(this, "load"); }
+	Craft* craft = nullptr; // (2) the borrowed craft (the client's own, in one of its real bases) and its target
+	for (auto* base : *borrowed->getBases())
+		for (auto* c : *base->getCrafts())
+			if (!base->_coopBase && !base->_coopIcon && !c->coop && c->getRules()->getType() == g_coopPvpLand.craftType
+				&& c->getId() == g_coopPvpLand.craftId)
+				craft = c;
+	// R-D250-SC1-1 (F14321): the client's blob strips its mirrored targets, so the craft loaded on an issue-#28 waypoint. Rebuild the
+	// mirror in the borrowed world from the host's own live object with that coop id (the client mirror sync's construction,
+	// onTCPMessage "target_positions"), then relink. No live object = no mirror = refused "target" below.
+	if (craft && craft->getDestination() && craft->getDestination()->getType() == "STR_WAY_POINT"
+		&& (craft->getCoopDestMissionId() != 0 || craft->getCoopDestUfoId() != 0))
+	{
+		Mod* mod = _game->getMod();
+		for (auto* r : *_game->getSavedGame()->getMissionSites())
+		{
+			if (r->getCoop() || craft->getCoopDestMissionId() == 0 || r->_coop_mission_id != craft->getCoopDestMissionId())
+				continue;
+			AlienDeployment* deployment = mod->getDeployment(r->getDeployment()->getType(), true);
+			MissionSite* ms = new MissionSite(mod->getAlienMission(r->getRules()->getType(), true), deployment, nullptr);
+			ms->_coop_mission_id = r->_coop_mission_id;
+			ms->setId(borrowed->getId(deployment->getMarkerName()));
+			borrowed->getMissionSites()->push_back(ms);
+			ms->setLongitude(r->getLongitude()); ms->setLatitude(r->getLatitude());
+			ms->setSecondsRemaining(100000000); ms->setAlienRace(r->getAlienRace()); ms->setDetected(true); ms->setCity(r->getCity());
+			ms->setCoop(true);
+		}
+		for (auto* r : *_game->getSavedGame()->getUfos())
+		{
+			if (!r->getMission() || r->_coop || craft->getCoopDestUfoId() == 0 || r->_coop_ufo_id != craft->getCoopDestUfoId())
+				continue;
+			const int missionId = r->getMission()->getId(), wave = r->getMissionWaveNumber();
+			AlienMission* am = nullptr;
+			for (auto* x : borrowed->getAlienMissions())
+				if (x->getId() == missionId && x->_coop) am = x;
+			const RuleAlienMission* amRule = mod->getAlienMission(r->getMission()->getRules().getType(), false);
+			if (!am && amRule)
+			{
+				am = new AlienMission(*amRule, true);
+				am->setCoop(true); am->setRace(r->getMission()->getRace()); am->setId(missionId);
+				am->setRegion(r->getMission()->getRegion(), *mod);
+				borrowed->getAlienMissions().push_back(am);
+			}
+			RuleUfo* ufoRule = am ? mod->getUfo(wave < 0 ? r->getRules()->getType() : am->getRules().getWave(wave).ufoType, false) : nullptr;
+			if (!ufoRule)
+				continue;
+			Ufo* ufo = new Ufo(ufoRule, r->_coop_ufo_id);
+			ufo->setMissionInfo(am, mod->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true));
+			ufo->getMission()->setId(missionId);
+			ufo->setCoop(true); ufo->_coop_ufo_id = r->_coop_ufo_id;
+			borrowed->getUfos()->push_back(ufo);
+			ufo->setLatitude(r->getLatitude()); ufo->setLongitude(r->getLongitude());
+			ufo->setShield(r->getShield()); ufo->setHunterKiller(r->isHunterKiller()); ufo->setEscort(r->isEscort());
+			ufo->setHyperDetected(r->getHyperDetected()); ufo->setDetectedCoop(r->getDetected());
+			ufo->setStatusCoop(intToUfostatus(ufostatusToInt(r->getStatus()))); ufo->setAltitudeCoop(r->getAltitude());
+			ufo->setLandId(r->getLandId()); ufo->setCrashId(r->getCrashId()); ufo->setSpeed(r->getSpeed());
+			ufo->setSecondsRemaining(100000000);
+		}
+		craft->relinkCoopDestination(borrowed);
+	}
+	Ufo* u = craft ? dynamic_cast<Ufo*>(craft->getDestination()) : nullptr;
+	MissionSite* m = craft ? dynamic_cast<MissionSite*>(craft->getDestination()) : nullptr;
+	AlienBase* b = craft ? dynamic_cast<AlienBase*>(craft->getDestination()) : nullptr;
+	if (!craft || (!u && !m && !b)) { delete borrowed; return coopPvpRefuse(this, craft ? "target" : "craft"); }
+	const std::string targetKind = u ? "ufo" : (m ? "site" : "alienBase");
+	const int targetCoopId = u ? u->_coop_ufo_id : (m ? m->_coop_mission_id : b->_coop_alienbase_id);
+	const bool targetMirror = u ? u->getCoop() : (m ? m->_coop : b->_coop);
+	SavedGame* alien = _game->getSavedGame(); // (3) the parked (alien) world's view BEFORE the swap (getFunds() with no_bases true)
+	Json::Value parked, realBases(Json::arrayValue), ids(Json::objectValue), jb;
+	for (auto* base : *alien->getBases())
+		if (!base->_coopBase && !base->_coopIcon)
+		{
+			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
+			realBases.append(jb);
+		}
+	for (const auto& kv : alien->getAllIds())
+		ids[kv.first] = kv.second;
+	parked["funds"] = Json::Value::Int64(alien->getFunds()); parked["noBases"] = connectionTCP::no_bases;
+	parked["realBases"] = realBases; parked["ids"] = ids;
+	parked["daysPassed"] = alien->getDaysPassed(); parked["monthsPassed"] = alien->getMonthsPassed();
+	g_coopPvpRec["parked"] = parked;
+	g_coopPvpParked = _game->swapSavedGame(borrowed); // (4) the X-COM world live, the alien world parked (QC-1)
+	connectionTCP::coop_save_owner_player_id = 0; // F13986
+	connectionTCP::no_bases = false; // QC-5
+	g_coopPvpLand.pending = g_coopPvpLand.blobReady = false;
+	g_coopPvpRec["borrowed"] = g_coopPvpRec["borrowed"].asInt() + 1;
+	g_coopPvpRec["kind"] = g_coopPvpLand.kind; g_coopPvpRec["craftType"] = g_coopPvpLand.craftType; g_coopPvpRec["craftId"] = g_coopPvpLand.craftId;
+	g_coopPvpRec["targetKind"] = targetKind; g_coopPvpRec["targetCoopId"] = targetCoopId; g_coopPvpRec["targetMirror"] = targetMirror;
+	const RuleGlobe* globe = _game->getMod()->getGlobe(); // (5) the landing's textures by id
+	Texture* mt = g_coopPvpLand.missionTexNull ? nullptr : globe->getTexture(g_coopPvpLand.missionTex);
+	Texture* gt = g_coopPvpLand.globeTexNull ? nullptr : globe->getTexture(g_coopPvpLand.globeTex);
+	Log(LOG_INFO) << "[coop-pvp] host: borrowed the X-COM world for craft " << g_coopPvpLand.craftType << "-" << g_coopPvpLand.craftId
+		<< " (target " << targetKind << " " << targetCoopId << ", mirror " << (targetMirror ? 1 : 0) << ") - generating";
+	// (7) vanilla's landing on the borrowed craft (QC-3): generation, the coop stamps, offerBattle (gm3 seats), the BriefingState.
+	ConfirmLandingState* cls = new ConfirmLandingState(craft, mt, gt, g_coopPvpLand.shade);
+	_game->pushState(cls);
+	cls->btnYesClick(nullptr);
+	if (!_game->getSavedGame()->getSavedBattle()) // (8) the host's checkStartingCondition refused: home, the X-COM player released
+	{
+		CoopHandshake::coopUnwindToSafeState(_game);
+		coopPvpSwapBack(_game);
+		coopPvpRefuse(this, "start");
+	}
+}
+
+Json::Value connectionTCP::coopPvpBorrowRecord() // coop D250-U S-C1: the record plus the live state (get_coop.pvpBorrow), a pure read
+{
+	Json::Value rec = g_coopPvpRec;
+	rec["active"] = g_coopPvpParked != nullptr; rec["pending"] = g_coopPvpLand.pending;
+	return rec;
+}
+
+// coop D250-U S-C1: HOST - the live world is the borrowed X-COM world / the parked alien world while borrowing (D149, QC-6).
+bool connectionTCP::coopPvpBorrowActive() { return getServerOwner() && g_coopPvpParked != nullptr; }
+SavedGame* connectionTCP::coopPvpParkedWorld() { return g_coopPvpParked; }
+
+void connectionTCP::coopPvpBorrowDrop() // coop D250-U S-C1: the main-menu chokepoint - a parked alien world goes with the world
+{
+	if (g_coopPvpParked) g_coopPvpRec["dropped"] = g_coopPvpRec["dropped"].asInt() + 1;
+	delete g_coopPvpParked;
+	g_coopPvpParked = nullptr; g_coopPvpLand = CoopPvpLand(); g_coopPvpReleasePending = false;
+}
+
 bool connectionTCP::coopAdoptWorldInPlace(const std::string& key)
 {
 	{

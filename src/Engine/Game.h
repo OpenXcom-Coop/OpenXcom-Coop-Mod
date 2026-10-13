@@ -107,6 +107,8 @@ private:
 	SavedGame *getSavedGame() const { return _save; }
 	/// Sets a new saved game for the game.
 	void setSavedGame(SavedGame *save);
+	/// coop D250-U S-C1: sets a new saved game WITHOUT deleting the current one and returns it (the caller owns it).
+	SavedGame *swapSavedGame(SavedGame *save);
 	/// Gets the currently loaded mod.
 	Mod *getMod() const { return _mod; }
 	/// Loads the mods specified in the game options.
