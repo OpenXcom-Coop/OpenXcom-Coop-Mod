@@ -22449,6 +22449,10 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			{
 				const std::pair<Position, int> box = coopLightBox(litTiles);
 				coopClientLight(tileEngine, ev, partsChanged ? LL_AMBIENT : LL_FIRE, box.first, box.second + 1, true);
+				// W2-H35b ((e) E7): vanilla refreshes sight right after a tile change's light (TileEngine::hit :3330-:3336: the
+				// tile, radius 1, exact for one tile; TileEngine::explode :3552-:3553: the blast's centre and radius + 1, for which
+				// the box of its changed tiles + 1 stands in, QB-1). Unit half only (E1).
+				coopClientEventSight(save, box.first, box.second + 1);
 			}
 
 			// (8b) units whose light can move (the pre-pass list): a dead or
