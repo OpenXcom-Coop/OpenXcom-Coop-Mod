@@ -9716,6 +9716,14 @@ static CoopSkillGrant g_coopSkillGrant;
 // applies.
 static std::map<std::uint32_t, int> g_coopClientActionActor;
 
+// RV-U5 S-E (docs rewrite/prompts/rvu5_quarantine_gate.md AMENDMENT RV5-E; OW1 (b) by design-D7): CLIENT - the actions
+// this machine is applying, as the wait line reads them: actionId -> the unit named by the action's first ev that is
+// not a consequence cue (`actor` preferred over `unit`, first wins). A consequence cue (explosion, hit, death, corpse,
+// fall, revive, spawn) names a victim or a stray grenade's owner: the ev-level twin of getPrimaryBusyActor()'s skipped
+// consequence states. Written by CoopDisplayQueue::onApplied() (bt_ev), erased when the action's bt_action_end
+// applies, cleared at every side_transition and with the rest of the arbiter state. Read only by busyOwnerSeat().
+static std::map<std::uint32_t, int> g_coopClientOpenActor;
+
 // R5-U1 S-D (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) ED2; owner design PvP model "Off-turn: hidden-movement
 // screen except where own units have LOS (side-relative vanilla behavior)"): see BattleAuthority.h. Off its own side a
 // PvP machine has no acting unit selected (the host's selection is empty, a client keeps its own unit selected), so the
@@ -9923,6 +9931,7 @@ static void resetCoopArbiterState()
 	g_coopClientInFlight = CoopClientInFlight();
 	g_coopClientLastDeny = Json::Value();
 	g_coopClientActionActor.clear();
+	g_coopClientOpenActor.clear(); // RV-U5 S-E (AMENDMENT RV5-E)
 	// R2-P7: the pending slot is battle-scoped too.
 	g_coopClientPending = CoopClientPending();
 	g_coopInvSaveQueue.clear(); // W2-P8b S-C.3b (SC-6): the queued SHARED layout saves too
@@ -15450,6 +15459,30 @@ int busyOwnerSeat()
 	// the equivalent knowledge (see CoopArbiter.h for the full argument).
 	if (g_coopClientRunningActionId != 0)
 		return me;  // MY admitted action is what is running - not waiting on anyone
+
+	// RV-U5 S-E (docs rewrite/prompts/rvu5_quarantine_gate.md AMENDMENT RV5-E; OW1 (b) by design-D7, VL-RV5-1): in a
+	// co-op battle with parallel turns - the scope of `main`'s driver (parallelTurnActive(): never PvP, never the baton
+	// mode) - ANOTHER seat's action that this client is applying names that seat for as long as it runs here: the
+	// oldest open one (g_coopClientOpenActor, from its first non-consequence ev to its bt_action_end) whose unit a seat
+	// commands, by the HOST arm's commander rule above (MJ-8). A unit no seat commands (the AI's) names nobody; this
+	// seat's own units are skipped, so a held order keeps the bridge below.
+	const int gamemode = connectionTCP::getCoopGamemode();
+	if (gamemode != 2 && gamemode != 3 && coopBattleAuthority().turnMode.load() == CoopTurnMode::Parallel)
+	{
+		SavedBattleGame* save = connectionTCP::getStaticBattle();
+		for (const auto& rec : g_coopClientOpenActor)
+		{
+			const BattleUnit* actor = findUnitById(save, rec.second);
+			if (!actor)
+				continue;
+			const BattleUnit* commander = actor;
+			if (actor->getFaction() != actor->getOriginalFaction())
+				commander = findUnitById(save, actor->getMindControllerId());
+			const int seat = commander ? (int)commander->getCoopSeat() : 0;
+			if (seat >= 0 && seat != me)
+				return seat;
+		}
+	}
 
 	if (g_coopClientPending.active && connectionTCP::seatCount() == 2)
 	{
@@ -26757,6 +26790,16 @@ void onApplied(const Json::Value& ev)
 				coopClientAiThinkSight(save, CoopIdMaps::unit(g_coopClientActionActor[actionId]), ev);
 			}
 		}
+		// RV-U5 S-E (AMENDMENT RV5-E): the wait line's open-action record - the unit named by this action's first ev that
+		// is not a consequence cue (see g_coopClientOpenActor); erased with the action's bt_action_end below.
+		if (actionId != 0 && (payload.isMember("actor") || payload.isMember("unit"))
+			&& g_coopClientOpenActor.find(actionId) == g_coopClientOpenActor.end())
+		{
+			const std::string evKind = ev.get("kind", "").asString();
+			if (evKind != "explosion" && evKind != "hit" && evKind != "death" && evKind != "corpse"
+				&& evKind != "fall" && evKind != "revive" && evKind != "spawn")
+				g_coopClientOpenActor[actionId] = payload.isMember("actor") ? payload["actor"].asInt() : payload["unit"].asInt();
+		}
 		// RW-REPLAY-REGION-BEGIN
 		// W1-P12 (D-3/WV-D27): enqueue the ghost BEFORE CoopApply mutates the
 		// unit - a `kneel` ev's payload carries only the NEW value (SS2.4), so
@@ -26782,6 +26825,10 @@ void onApplied(const Json::Value& ev)
 		// whole-map light (applyDelta above). See coopClientSideSight's own comment.
 		if (ev.get("kind", "").asString() == "side_transition")
 			coopClientSideSight(save);
+		// RV-U5 S-E (AMENDMENT RV5-E): the host closes every action context before a side change (coopOnEndTurnEntry),
+		// so none is open here - the bound on a record whose bt_action_end never came (closeBaseContext's skipped end).
+		if (ev.get("kind", "").asString() == "side_transition")
+			g_coopClientOpenActor.clear();
 
 		// W1-P13a (REV E.1 S-3): the client's own NextTurnState push. Vanilla
 		// only ever pushes this from BattlescapeGame::endTurn() (:729), which
@@ -26894,6 +26941,7 @@ void onApplied(const Json::Value& ev)
 		CoopApply::applyDelta(save, ev); // W2-P2 S-A (spec (b)6): before the auto-retry reads local TU
 		// W2-P6a S-M.2 (P6a pinned stage text (b)2, OR2 (a)): every death still pending decides its message here.
 		CoopBattleUi::onMessageActionEndApplied(save, ev);
+		g_coopClientOpenActor.erase(actionId); // RV-U5 S-E (AMENDMENT RV5-E): the action's wait line ends with it
 		CoopArbiter::onActionEndApplied(actionId); // IR-2: clears this client's own lock
 		// R2-P7: THE auto-retry trigger. bt_action_end is emitted ONLY from
 		// the host's onChainQuiesced() (RB-D11), so applying one is the
@@ -27195,15 +27243,17 @@ std::string waitBannerText(BattlescapeState* bs)
 		return bs->getGame()->getLanguage()->getString("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(name);
 	}
 
-	// CLIENT: it is waiting exactly while it holds a busy-denied order.
-	if (!CoopArbiter::hasPendingIntent())
-		return std::string();
+	// CLIENT: it is waiting while ANOTHER seat's action runs here (RV-U5 S-E, AMENDMENT RV5-E: OW1 (b) by design-D7 -
+	// the seat-attributed line, as the host's branch above; busyOwnerSeat() names that seat) and while it holds a
+	// busy-denied order.
 	if (owner >= 0 && owner != me)
 	{
 		const std::string name = seatDisplayName(bs, owner);
 		if (!name.empty())
 			return bs->getGame()->getLanguage()->getString("STR_COOP_WAIT_FOR_PLAYER_ACTION").arg(name);
 	}
+	if (!CoopArbiter::hasPendingIntent())
+		return std::string();
 	// Blocked by our OWN still-running action, or by a seat we cannot name:
 	// SS2.6's busy row, which is exactly the right words for the held state and
 	// keeps ADDENDUM SS1.3(e)'s "never generic, never a new ad-hoc string" rule.
