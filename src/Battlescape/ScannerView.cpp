@@ -25,6 +25,7 @@
 #include "../Savegame/Tile.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../CoopMod/CoopArbiter.h" // coop R5-U6 S-C (R5-V5): the motion-scan mark is shared with the co-op partner
 
 namespace OpenXcom
 {
@@ -66,7 +67,7 @@ void ScannerView::draw()
 					int frame = (t->getUnit()->getMotionPoints() / 5);
 					if (frame >= 0)
 					{
-						t->getUnit()->setScannedTurn(_game->getSavedGame()->getSavedBattle()->getTurn());
+						coopNoteScannedUnit(t->getUnit(), _game->getSavedGame()->getSavedBattle()->getTurn()); // coop R5-U6 S-C (R5-V5): vanilla's setter, shared with the co-op partner
 						if (frame > 5) frame = 5;
 						surface = set->getFrame(frame + _frame);
 						surface->blitNShade(this, ((9+x)*8)-4, ((9+y)*8)-4, 0);

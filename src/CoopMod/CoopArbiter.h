@@ -1296,6 +1296,15 @@ bool coopInterceptInvReturn(Inventory* inv, BattleItem* item);
 /// inventory write may run on a thin client. FALSE on the host and in SP.
 bool coopInvLocalWriteRefused();
 
+/// R5-U6 S-C (orchestrator R5-V5; the release line's `motion_scan`, main ScannerView.cpp :72-:83): THIS machine's motion
+/// scanner marked @a unit for @a turn - vanilla's setScannedTurn(), the one ScannerView line it replaces. In a co-op
+/// battle a NEW mark (the unit's scanned turn was another) is shared once with the co-op partner - a mapped seat of THIS
+/// seat's side; never the PvP opponent - as an untracked `bt_scan_mark {battleId, unit, turn}`. coopOnScanMark() is
+/// the receiver (direct battle-lane dispatch): it marks its own copy of the unit for the current turn. The mark is
+/// display-only (`_scannedTurn` is never saved, hashed or streamed). Single player: vanilla's setter only.
+void coopNoteScannedUnit(BattleUnit* unit, int turn);
+void coopOnScanMark(const Json::Value& msg);
+
 /// Q6 (a): InventoryState's destructor gravity step. nullptr on a co-op CLIENT
 /// (the host runs gravity, light and FOV for the actor's tile inside every
 /// `inv_move` context; the client keeps its local light / FOV), @a u

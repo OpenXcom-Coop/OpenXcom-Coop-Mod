@@ -8919,6 +8919,53 @@ int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, cons
 	return coopSideSeesUnit((int)actor->getFaction(), target) ? 1 : 0;
 }
 
+// R5-U6 S-C (orchestrator R5-V5): see CoopArbiter.h. A same-side partner: a mapped seat other than this machine's, on
+// this machine's seat's side (classic / SHARED / SEPARATE co-op and PvE2: yes; PvP: no).
+static bool coopScanHasPartner()
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	if (me < 0 || me >= 4 || !a.seatMapped(me))
+		return false;
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (seat != me && a.seatMapped(seat) && a.factionOf(seat) == a.factionOf(me))
+			return true;
+	}
+	return false;
+}
+
+void coopNoteScannedUnit(BattleUnit* unit, int turn)
+{
+	if (!unit)
+		return;
+	const bool fresh = unit->getScannedTurn() != turn;
+	unit->setScannedTurn(turn);
+	if (!fresh || !isCoopBattle() || !coopScanHasPartner())
+		return; // single player, an old mark, or a PvP opponent (R5-V5)
+	Json::Value msg(Json::objectValue);
+	msg["state"] = "bt_scan_mark";
+	msg["battleId"] = coopBattleAuthority().battleId.load();
+	msg["unit"] = unit->getId();
+	msg["turn"] = turn;
+	CoopEmit::sendBattle(msg);
+}
+
+void coopOnScanMark(const Json::Value& msg)
+{
+	SavedBattleGame* save = connectionTCP::getStaticBattle();
+	const std::uint32_t battleId = msg.get("battleId", 0u).asUInt();
+	if (!save || !isCoopBattle() || battleId == 0 || battleId != coopBattleAuthority().battleId.load()
+		|| !coopScanHasPartner())
+	{
+		return;
+	}
+	BattleUnit* u = CoopArbiter::findUnitById(save, msg.get("unit", -1).asInt());
+	const int turn = msg.get("turn", -1).asInt();
+	if (u && turn == save->getTurn())
+		u->setScannedTurn(turn);
+}
+
 // W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
 // WR-2): the gate on BattlescapeGame::primaryAction's COMMANDING arms, plus
 // ONE test-only counter. See BattleAuthority.h for the full rationale.
@@ -36990,6 +37037,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// toggle (D206 c). Direct dispatch like bt_end_turn_ready; self-guarded (host, equip open, this battle,
 			// a mapped seat), anything else is logged and dropped.
 			coopEquipOnReadyMessage(obj);
+		}
+		else if (stateString == "bt_scan_mark")
+		{
+			// R5-U6 S-C (orchestrator R5-V5): either direction - the co-op partner's motion scanner marked a unit (display
+			// only, never hashed). Direct dispatch like bt_equip_ready; self-guarded (this battle, a same-side partner).
+			coopOnScanMark(obj);
 		}
 		else if (stateString == "bt_fatal_vote_answer")
 		{
