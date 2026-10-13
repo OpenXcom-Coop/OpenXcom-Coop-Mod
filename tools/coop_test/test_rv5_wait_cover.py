@@ -1,15 +1,19 @@
 """RV-U5 S-B rows WB-C and WB-H (boot W): the "Please wait for <player>'s action to finish" line on both machines in a
 classic co-op parallel-turns skirmish, the scenarios of the legacy test_coop_wait_banner (owner D229 (a) + hard gate;
-design-D7; QV5-1 (a), QV5-9 (a)). OW1 is ruled (b): WB4 stays HELD in this file and S-E's red enables it.
+design-D7; QV5-1 (a), QV5-9 (a)). OW1 is ruled (b) by design-D7: S-E's E1 enables WB4 with (b)'s value and adds
+WB4-seat and WB4-clear (QV5-17 (a)). RED at E1: WB4, WB4-seat, WB4-clear; GREEN at E2: every cell.
 
 Spec: docs repo rewrite/prompts/rvu5_quarantine_gate.md section (f) test_rv5_wait_cover.py, with the orchestrator ruling
-R-RV5-SB-1 (WB-C's camera step). Constants: rewrite/rvu5-task0/sb/CONSTANTS.md (TASK 0 boots Wa / Wb, re-dispatch).
+R-RV5-SB-1 (WB-C's camera step) and AMENDMENT RV5-E E.8 (WB4, WB4-seat, WB4-clear). Constants:
+rewrite/rvu5-task0/sb/CONSTANTS.md (TASK 0 boots Wa / Wb, re-dispatch) and rewrite/rvu5-task0/se/CONSTANTS.md (Ea / Eb).
 
 Boot W (key 49711, dirs rv5_w_host / rv5_w_client, both user dirs battleXcomSpeed WB_SPEED): MCC.boot_c
 (BER.boot_classic with the one alien pinned AI-neutral; seats S0 [10..14] host, S1 [8, 9] client; turnMode parallel on
 both). Sampling: the host's event_state.busyOwnerSeat and both machines' battle_state.coopWaitText every 0.1 s from the
-order until the walk's host context is in closedContexts, then 2 s more (bounded 30 s). "Inside" = a sample taken
-before the context closed; "the window" = every sample, the 2 s tail included.
+order until the walk's host context is in closedContexts, then 2 s more (bounded 30 s); WB-H also reads the client's
+event_state (busyOwnerSeat, lastSeqApplied) once per sample. "Inside" = a sample taken before the context closed; "the
+window" = every sample, the 2 s tail included. WB-H's record window = the samples whose client lastSeqApplied lies in
+[the walk's first walk_step seq, its bt_action_end seq) (host event_log; EVIDENCE only).
   WB-C  the client's walk: 8 placed on WB_C_TILE, TU 255 on both, the host's battle_camera_center on WB_C_TILE
         (R-RV5-SB-1: vanilla fast-forwards a walk off the host's screen), then the client's send_walk to WB_C_DEST.
         WB1-open   >= 3 host samples inside with busyOwnerSeat 1 (non-vacuity: the host runs the client's walk)
@@ -19,8 +23,10 @@ before the context closed; "the window" = every sample, the 2 s tail included.
   WB-H  the host's walk: 10 placed on WB_H_TILE, TU 255 on both, the host's TAB selection and one real-UI click.
         WB3-open   >= 3 host samples inside with the context {origin host, kind walk, actorId 10} open (non-vacuity)
         WB3-own    no host sample in the window starts with "Please wait for "
-        WB4        HELD (OW1 (b): >= 1 client sample inside == TEXT_WAIT_HOST, S-E's red enables it): the file prints
-                   "HELD WB4 (OW1)" with the client's samples as EVIDENCE; the cell does not count
+        WB4        >= 1 client sample inside == TEXT_WAIT_HOST (OW1 (b): the second player's line names the host)
+        WB4-seat   >= 1 client sample inside with the client's busyOwnerSeat 0 (the attribution as data)
+        WB4-clear  WB4's text seen inside, the client's text "" within 2 s after the context closed and in every later
+                   sample, and the last sample's client busyOwnerSeat -1 (close path C1)
 Staging per row: the walk's straight path open on both machines (floor, no wall, no object, equal per tile), no other
 live unit within 3 tiles of it, X 1000000 at Chebyshev >= 20 (the pin's rule); a miss fails the row "staging".
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new crash file.
@@ -46,17 +52,17 @@ from test_w2_client_shoot import place, set_tu_both, new_contexts  # noqa: E402
 from test_rw_seat_pacing import tab_select, real_click_walk  # noqa: E402
 
 W_KEY = "49711"
-WB_SPEED = 100                     # battleXcomSpeed on both (TASK 0 Wa / Wb: 33 / 32 samples inside at 100)
+WB_SPEED = 100                     # battleXcomSpeed on both (TASK 0 Wa / Wb 33 / 32 inside; Ea / Eb WB-H 24 / 25)
 X_ID = 1000000                     # the one alien, pinned AI-neutral
 WB_C_TILE, WB_C_DEST, WB_C_DIR = (0, 0, 0), (6, 0, 0), 2   # rule: open z 0, straight 6 steps (Wa = Wb)
 WB_H_TILE, WB_H_DEST, WB_H_DIR = (0, 0, 0), (0, 6, 0), 4   # same rule, 8 counted on WB_C_DEST (Wa = Wb)
 TEXT_WAIT_CLIENT = "Please wait for ClientPlayer's action to finish"   # TASK 0 Wa / Wb (raw.CLIENT_PLAYER)
-TEXT_WAIT_HOST = "Please wait for HostPlayer's action to finish"       # CANDIDATE (raw.HOST_PLAYER); WB4 only
+TEXT_WAIT_HOST = "Please wait for HostPlayer's action to finish"       # CANDIDATE (raw.HOST_PLAYER); WB4 cells
 WAIT_PREFIX = "Please wait for "
 NEAR, FAR_X = 3, 20                # no other unit within NEAR of the path; X at Chebyshev >= FAR_X
 SAMPLE_S, TAIL_S, WINDOW_S, STEP_S = 0.1, 2.0, 30.0, 30
 W_ROWS = (("WB-C", ("WB1-open", "WB1-text", "WB2-clear", "WB5-own", "WB-C-common")),
-          ("WB-H", ("WB3-open", "WB3-own", "WB-H-common")))
+          ("WB-H", ("WB3-open", "WB3-own", "WB4", "WB4-seat", "WB4-clear", "WB-H-common")))
 
 
 def cheb(a, b):
@@ -107,11 +113,13 @@ def stage(host, client, uid, tile, dest, d, camera):
     return ev
 
 
-def sample_walk(host, client, ctx0, origin, uid):
-    """Samples every SAMPLE_S from the order until the host context {origin, walk, uid} closed, then TAIL_S more."""
+def sample_walk(host, client, ctx0, origin, uid, ext=False):
+    """Samples every SAMPLE_S from the order until the host context {origin, walk, uid} closed, then TAIL_S more.
+    `ext` (WB-H): ONE client event_state read per sample (busyOwnerSeat, lastSeqApplied)."""
     samples, t0, closed_at = [], time.time(), None
     while time.time() - t0 < WINDOW_S:
         eh, bh, bc = event_state(host), battle_state(host), battle_state(client)
+        ec = event_state(client) if ext else None
         t = round(time.time() - t0, 3)
         hit = [c for c in new_contexts(ctx0, eh.get("closedContexts") or [])
                if (c.get("origin"), c.get("kind"), c.get("actorId")) == (origin, "walk", uid)]
@@ -119,6 +127,8 @@ def sample_walk(host, client, ctx0, origin, uid):
             closed_at = t
         samples.append({"t": t, "busy": eh.get("busyOwnerSeat"), "host": bh.get("coopWaitText"),
                         "client": bc.get("coopWaitText"), "closed": bool(hit)})
+        if ext:
+            samples[-1].update(cBusy=ec.get("busyOwnerSeat"), cSeq=ec.get("lastSeqApplied"))
         if closed_at is not None and t - closed_at >= TAIL_S:
             break
         time.sleep(max(0.0, SAMPLE_S * len(samples) - (time.time() - t0)))
@@ -132,12 +142,30 @@ def counts(samples, key):
     return out
 
 
-def walk(host, client, uid, origin, order, ev):
+def record_window(host, new, origin, uid, samples):
+    """WB-H EVIDENCE: the walk's first walk_step and bt_action_end seqs (host event_log), the count of samples whose
+    client lastSeqApplied lies in [first, end), and the client's distinct (t, text, busyOwnerSeat) values."""
+    aid = next((c.get("actionId") for c in new
+                if (c.get("origin"), c.get("kind"), c.get("actorId")) == (origin, "walk", uid)), None)
+    evs = [(e.get("seq"), e.get("kind")) for e in host.cmd({"cmd": "event_log", "tail": 200}).get("events", [])
+           if aid is not None and e.get("actionId") == aid]
+    first = next((s for s, k in evs if k == "walk_step"), None)
+    end = next((s for s, k in evs if k == "bt_action_end"), None)
+    rec = [s for s in samples if first is not None and end is not None and first <= (s["cSeq"] or 0) < end]
+    distinct, last = [], None
+    for s in samples:
+        if (s["client"], s["cBusy"]) != last:
+            last = (s["client"], s["cBusy"])
+            distinct.append((s["t"], s["client"], s["cBusy"]))
+    return {"actionId": aid, "walkSeqs": [first, end], "recordWindow": len(rec), "clientDistinct": distinct}
+
+
+def walk(host, client, uid, origin, order, ev, ext=False):
     """The order, the sampled window, the host idle; fills `ev`; returns (inside, tail, closed_at)."""
     ctx0 = es(host, "closedContexts") or []
     wp0 = [(es(gc, "walkPace") or {}).get(str(uid)) or {} for gc in (host, client)]
     ev["order"] = order()
-    samples, closed_at = sample_walk(host, client, ctx0, origin, uid)
+    samples, closed_at = sample_walk(host, client, ctx0, origin, uid, ext)
     try:
         session.wait_host_idle(host, client, timeout=STEP_S)
     except Exception as e:
@@ -153,13 +181,16 @@ def walk(host, client, uid, origin, order, ev):
               insideBusy=counts(inside, "busy"), insideHost=counts(inside, "host"),
               insideClient=counts(inside, "client"),
               tailHost=counts(tail, "host"), tailClient=counts(tail, "client"))
+    if ext:
+        ev.update(insideClientBusy=counts(inside, "cBusy"), tailClientBusy=counts(tail, "cBusy"),
+                  **record_window(host, ev["newCtx"], origin, uid, samples))
     return inside, tail, closed_at
 
 
-def cleared(tail, closed_at):
-    """WB2: the first tail sample from which every later host text is "", taken within TAIL_S of the close."""
+def cleared(tail, closed_at, key="host"):
+    """WB2 / WB4-clear: the first tail sample from which every later `key` text is "", within TAIL_S of the close."""
     k = len(tail)
-    while k > 0 and tail[k - 1]["host"] == "":
+    while k > 0 and tail[k - 1][key] == "":
         k -= 1
     at = round(tail[k]["t"] - closed_at, 3) if closed_at is not None and k < len(tail) else None
     return at is not None and at <= TAIL_S, at
@@ -183,7 +214,7 @@ def row_c(host, client, crash0, staged):
             "WB-C-common": common(host, client, crash0)}, ev
 
 
-def row_h(host, client, crash0, staged, held):
+def row_h(host, client, crash0, staged):
     ev = dict(staged)
 
     def order():
@@ -191,16 +222,25 @@ def row_h(host, client, crash0, staged, held):
         assert sel, f"the host's TAB never selected 10 (selectedId {battle_state(host).get('selectedId')})"
         real_click_walk(host, WB_H_DEST)
         return {"tabSelect": sel}
-    inside, tail, closed_at = walk(host, client, 10, "host", order, ev)
+    inside, tail, closed_at = walk(host, client, 10, "host", order, ev, ext=True)
     own = [s for s in inside + tail if (s["host"] or "").startswith(WAIT_PREFIX)]
     n_host = sum(1 for s in inside if s["client"] == TEXT_WAIT_HOST)
-    held.append(f"EVIDENCE client samples inside {[(s['t'], s['client']) for s in inside]}; == TEXT_WAIT_HOST "
-                f"{n_host} of {len(inside)}")
+    n_seat = sum(1 for s in inside if s["cBusy"] == 0)
+    ok_clear, at = cleared(tail, closed_at, "client")
+    last_seat = (inside + tail)[-1]["cBusy"] if inside or tail else None
     return {"WB3-open": (len(inside) >= 3 and closed_at is not None,
                          f"host samples inside with the context {{host, walk, 10}} open: {len(inside)} (want >= 3; "
                          f"closed at {closed_at} s)"),
             "WB3-own": (not own, f"host samples starting {WAIT_PREFIX!r}: {[(s['t'], s['host']) for s in own]} (want "
                                  f"none); host texts inside {ev['insideHost']}, tail {ev['tailHost']}"),
+            "WB4": (n_host >= 1, f"client samples inside == {TEXT_WAIT_HOST!r}: {n_host} of {len(inside)} (want >= 1); "
+                                 f"client texts inside {ev['insideClient']}"),
+            "WB4-seat": (n_seat >= 1, f"client samples inside with busyOwnerSeat 0: {n_seat} of {len(inside)} (want "
+                                      f">= 1); client seats inside {ev['insideClientBusy']}"),
+            "WB4-clear": (n_host >= 1 and ok_clear and last_seat == -1,
+                          f"WB4's text seen inside {n_host} (want >= 1); client text '' from {at} s after the close on "
+                          f"(want <= {TAIL_S} s and every later sample ''); last client busyOwnerSeat {last_seat} "
+                          f"(want -1); tail client texts {ev['tailClient']}, seats {ev['tailClientBusy']}"),
             "WB-H-common": common(host, client, crash0)}, ev
 
 
@@ -214,19 +254,15 @@ def boot_w():
             guarded("W", lambda: MCC.boot_c(host, client, W_KEY), (host, client))
         except Miss:
             return fail_all(W_ROWS, "boot (FIXTURE-STOP, see the CAPTURE W line)")
-        rows, fails, held = dict(W_ROWS), 0, []
+        rows, fails = dict(W_ROWS), 0
         for row, uid, tile, dest, d, fn in (("WB-C", 8, WB_C_TILE, WB_C_DEST, WB_C_DIR, row_c),
-                                            ("WB-H", 10, WB_H_TILE, WB_H_DEST, WB_H_DIR,
-                                             lambda h, c, c0, st: row_h(h, c, c0, st, held))):
+                                            ("WB-H", 10, WB_H_TILE, WB_H_DEST, WB_H_DIR, row_h)):
             try:
                 staged = stage(host, client, uid, tile, dest, d, row == "WB-C")
             except Miss:
                 fails += fail_all(((row, rows[row]),), "staging (see the CAPTURE W staging line)")
                 continue
             fails += run_row(row, rows[row], lambda: fn(host, client, crash0, staged))
-        print(f"HELD WB4 (OW1): not counted (S-E's red enables it with OW1 (b): >= 1 client sample inside the host's "
-              f"walk == {TEXT_WAIT_HOST!r}); {held[0] if held else 'no samples (WB-H did not reach its walk)'}",
-              flush=True)
         return fails
     finally:
         shut(host, client)
@@ -235,7 +271,7 @@ def boot_w():
 def main():
     t0 = time.time()
     fails = boot_w()
-    print("ALL ROWS PASS (WB4 HELD, OW1)" if not fails else f"FAILED: {fails} cell(s)", flush=True)
+    print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_rv5_wait_cover: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
 
