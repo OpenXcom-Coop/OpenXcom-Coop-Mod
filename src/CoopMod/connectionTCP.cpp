@@ -6463,6 +6463,28 @@ static void coopWalkSoundReset()
 	g_coopWalkSounds.clear();
 }
 
+// R5-U6 S-B (owner D236 (b)): see CoopArbiter.h.
+bool coopWalkSoundSilenced(const BattleUnit* walker, bool sneak, bool startVoice)
+{
+	if (!walker || !isCoopBattle())
+		return false;
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	const bool own = a.commandsUnit(walker);
+	bool other = false;
+	for (int seat = 0; seat < 4 && !own && !other; ++seat)
+	{
+		if (seat != me && a.seatMapped(seat) && a.commandsUnit(walker, seat))
+			other = true;
+	}
+	const int gamemode = connectionTCP::getCoopGamemode();
+	const bool optionSilences = other && (!connectionTCP::_enable_other_player_footsteps
+		|| (sneak && (gamemode == 2 || gamemode == 3)));
+	const bool silenced = startVoice ? (optionSilences || !(own || other)) : optionSilences;
+	coopNoteWalkSound(walker, startVoice, silenced);
+	return silenced;
+}
+
 void initBattleAuthority(std::uint32_t battleId)
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -13025,6 +13047,10 @@ void onIntent(const Json::Value& intent)
 			<< plan.size() << " step(s), tuBasis " << costTu << ", energy " << costEnergy;
 
 		bg->statePushBack(new UnitWalkBState(bg, action));
+		// R5-U6 S-B (owner D236 (b); main BattlescapeGame.cpp :339-:351): the watching host hears the partner's "start
+		// moving" voice under the other player's footsteps option - never an unseen walker's (R5-V3's sight rule).
+		if (coopUnitVisibleHere(actor) && !coopWalkSoundSilenced(actor, action.sneak, true))
+			bg->playUnitResponseSound(actor, 1);
 		return;
 	}
 
@@ -16056,7 +16082,7 @@ void coopCueRevive(BattleUnit* unit)
 // ===== W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D37 / WV-D38 / WV-D48):
 // the ATOM walk-core hooks. See CoopArbiter.h for each one's full contract. =====
 
-bool coopOnWalkStepFinished(BattleUnit* unit)
+bool coopOnWalkStepFinished(BattleUnit* unit, bool sneak)
 {
 	if (!isCoopBattle() || !unit)
 		return false;
@@ -16119,6 +16145,10 @@ bool coopOnWalkStepFinished(BattleUnit* unit)
 	ev["payload"]["to"] = CoopArbiter::coopPosJson(to);
 	ev["payload"]["tuAfter"] = rec.tuAfter;
 	ev["payload"]["enAfter"] = rec.enAfter;
+	// R5-U6 S-B (owner D236 (b)): a sneak walk says so (presence-gated, additive), so the watching client's ghost can
+	// silence the PvP opponent's steps (coopWalkSoundSilenced()).
+	if (sneak)
+		ev["payload"]["sneak"] = true;
 	// SS2.W2 rule 3 / RB-D14: per-step h:{unitsStats} is the POINT of the shape -
 	// a desync localises to the exact TILE, not to the whole walk.
 	ev["h"] = coopBuildUnitsStatsHash(save);
@@ -22744,6 +22774,8 @@ const std::uint32_t kKneelHoldMs = 100;
 struct GhostReplay
 {
 	std::string kind;   // "turn" | "kneel" | "walk_step" - onEvApplied()'s own gate
+	bool sneak = false; // R5-U6 S-B: a walk_step ev's `sneak` (the PvP opponent's sneak is silent, coopWalkSoundSilenced())
+	int soundStep = 0;  // R5-U6 S-B: the walk phases whose step sounds this ghost already handled (ghostStepSounds())
 	int unitId = 0;
 	Position fromPos;
 	Position toPos;
@@ -25478,6 +25510,15 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.fromPos = CoopArbiter::coopJsonPos(payload["from"]);
 		rec.toPos = CoopArbiter::coopJsonPos(payload["to"]);
 		rec.fromDir = rec.toDir = payload.get("dir", unit->getDirection()).asInt();
+		// R5-U6 S-B (owner D236 (b); SPEC 7 (6f)'s footstep rider): the walk's sneak (coopOnWalkStepFinished()), and the
+		// "start moving" voice at a walk's first step - the ordering player's own, or the other player's under its
+		// footsteps option (coopWalkSoundSilenced()), never an unseen walker's.
+		rec.sneak = payload.get("sneak", false).asBool();
+		if (payload.get("stepIndex", -1).asInt() == 0 && coopUnitVisibleHere(unit) && !coopWalkSoundSilenced(unit, rec.sneak, true))
+		{
+			if (BattlescapeState* bs = combatLiveState())
+				bs->getBattleGame()->playUnitResponseSound(unit, 1);
+		}
 		// W1-P9 follow-up (2026-09-03): a walk that began kneeled stands up -
 		// that stand-up's OWN `kneel` ev (if the host emitted one) already ran
 		// through this same function first, so by the time a walk_step ev
@@ -25527,6 +25568,63 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	}
 }
 
+// R5-U6 S-B (owner D236 (b); SPEC 7 (6f)'s deferred footstep rider): a walk_step ghost plays the step sounds vanilla's
+// UnitWalkBState::playMovementSound() plays for the same step - the unit's own move sound at phase 0 (the step's end),
+// the tile's two footsteps at phases 3 and 7, the flying sound at phase 1, then the armor's selectMoveSoundUnit script
+// - behind the same gates (visible here, on screen) and coopWalkSoundSilenced(). Phases 1 .. endphase-1 follow the
+// ghost's own clock (view()'s walkPhase), phase 0 sounds at its end. Sound only (A4): nothing is written but the
+// ghost's own soundStep.
+static void ghostStepSounds(SavedBattleGame* save, GhostReplay& g, std::uint32_t elapsed)
+{
+	BattleUnit* unit = CoopIdMaps::unit(g.unitId);
+	Map* map = combatLiveMap();
+	if (!save || !unit || !map)
+		return;
+	const int endphase = 8 + 8 * (g.toDir % 2); // vanilla's own value (view() below)
+	int k = g.durationMs > 0 ? (int)((float)elapsed / (float)g.durationMs * (float)endphase) : endphase;
+	if (k > endphase)
+		k = endphase;
+	const int size = unit->getArmor()->getSize() - 1;
+	const bool flying = unit->getMovementType() == MT_FLY && unit->isFloating();
+	for (int step = g.soundStep + 1; step <= k; ++step)
+	{
+		g.soundStep = step;
+		const int phase = step % endphase; // the last step is vanilla's phase 0 (the unit standing again)
+		const Position at = (phase == 0 || phase >= endphase / 2) ? g.toPos : g.fromPos;
+		if ((!coopUnitVisibleHere(unit) && !save->getDebugMode()) || !map->getCamera()->isOnScreen(at, true, size, false))
+			continue;
+		if (coopWalkSoundSilenced(unit, g.sneak, false))
+			continue;
+		Tile* tile = save->getTile(at);
+		if (!tile)
+			continue;
+		const int unitSound = unit->getMoveSound();
+		const int tileSoundOffset = tile->getFootstepSound(save->getBelowTile(tile));
+		int tileSound = Mod::NO_SOUND;
+		if (tileSoundOffset > -1 && (phase == 3 || phase == 7))
+			tileSound = Mod::WALK_OFFSET + (tileSoundOffset * 2) + (phase == 7 ? 1 : 0);
+		int sound = -1;
+		if (unitSound != Mod::NO_SOUND)
+		{
+			if (phase == 0)
+				sound = unitSound;
+		}
+		else if (!flying && phase != 0)
+		{
+			if (tileSound > Mod::NO_SOUND)
+				sound = tileSound;
+		}
+		else if (unit->getMovementType() == MT_FLY && phase == 1)
+		{
+			sound = Mod::FLYING_SOUND;
+		}
+		sound = ModScript::scriptFunc1<ModScript::SelectMoveSoundUnit>(unit->getArmor(), sound, unit, phase, unitSound,
+			tileSound, Mod::WALK_OFFSET, tileSoundOffset, Mod::FLYING_SOUND, (int)(g.sneak ? BAM_SNEAK : BAM_NORMAL));
+		if (sound >= 0)
+			combatPlay(save, sound, map->getSoundAngle(at));
+	}
+}
+
 void advance(SavedBattleGame* save, std::uint32_t nowMs)
 {
 	// W2-P5 S-A.2 (OQ3): the combat half always runs, whatever the option.
@@ -25567,6 +25665,8 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 					tg.poseShown = status;
 			}
 		}
+		if (it->second.kind == "walk_step")
+			ghostStepSounds(save, it->second, elapsed); // R5-U6 S-B (D236 b): the footstep rider, before a finished ghost pops
 		if (elapsed >= it->second.durationMs) // D111: fixed at enqueue, never recomputed
 		{
 			turnGhostEnded(it->second, "natural", nowMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
