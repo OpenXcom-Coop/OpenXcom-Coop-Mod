@@ -1708,7 +1708,7 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 
 	// show a little infobox with the name of the unit and "... is panicking"
 	Game *game = _parentState->getGame();
-	if (unit->getVisible() || !Options::noAlienPanicMessages)
+	if (coopUnitVisibleHere(unit) || !Options::noAlienPanicMessages) // coop R5-U2 S-D (QU1-7): seen by the side this machine plays
 	{
 		if (coopHostPartnerCamera(unit, "panic")) {} else // W2-P6a (D131)
 		getMap()->getCamera()->centerOnPosition(unit->getPosition());
@@ -2443,7 +2443,7 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 	if (victim)
 	{
 		Game *game = getSave()->getBattleState()->getGame();
-		if (attack.attacker->getFaction() == FACTION_HOSTILE)
+		if (attack.attacker->getFaction() != FACTION_NEUTRAL && !coopFactionIsMine((int)attack.attacker->getFaction())) // coop R5-U2 S-D (QU2-12): an opponent's attack (vanilla: FACTION_HOSTILE)
 		{
 			// show a little infobox with the name of the unit and "... is under alien control"
 			if (attack.type == BA_MINDCONTROL)
@@ -3477,7 +3477,7 @@ bool BattlescapeGame::convertInfected()
 		{
 			retVal = true;
 			bu->setRespawn(false);
-			if (Options::battleNotifyDeath && bu->getFaction() == FACTION_PLAYER)
+			if (Options::battleNotifyDeath && coopFactionIsMine((int)bu->getFaction())) // coop R5-U2 S-D (QU2-12): a unit of this machine's side
 			{
 				Game *game = _parentState->getGame();
 				if (coopHostDivertUnitMessage(bu, "STR_HAS_BEEN_KILLED", bu)) {} else // W2-P6a (D132)

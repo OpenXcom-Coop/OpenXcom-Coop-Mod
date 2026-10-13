@@ -93,7 +93,7 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 	}
 	else
 	{
-		if (_unit->getFaction() == FACTION_PLAYER)
+		if (coopFactionIsMine((int)_unit->getFaction())) // coop R5-U2 S-D: this machine's own unit dying lifts its hidden-movement screen
 		{
 			_parent->getMap()->setUnitDying(true);
 		}
@@ -209,7 +209,7 @@ void UnitDieBState::think()
 		_parent->getTileEngine()->calculateLighting(LL_ITEMS, _unit->getPosition(), _unit->getArmor()->getSize());
 		_parent->getTileEngine()->calculateFOV(_unit->getPosition(), _unit->getArmor()->getSize(), false); //Update FOV for anyone that can see me
 		_parent->popState();
-		if (_unit->getOriginalFaction() == FACTION_PLAYER)
+		if (coopFactionIsMine((int)_unit->getOriginalFaction())) // coop R5-U2 S-D (QU2-12): a unit of this machine's side
 		{
 			Game *game = _parent->getSave()->getBattleState()->getGame();
 			if (_unit->getStatus() == STATUS_DEAD)
