@@ -273,7 +273,7 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			if (!_falling && !_fallingWhenStopped)
+			if (!_falling && !_fallingWhenStopped && !coopPvpWalkReactionOff()) // coop R5-U6 S-A (D236 b): the host's PvP option
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
