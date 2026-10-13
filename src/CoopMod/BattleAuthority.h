@@ -635,6 +635,9 @@ bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// selectNextPlayerUnit() returned 0, BattlescapeGame::think() set
 /// _endTurnRequested, handleAI() was never reached and NO enemy AI ran in
 /// any coop battle (orch43c's F251, traced against a single-player control).
+/// W2-H41 (docs rewrite/prompts/w2h41_coop_selection_turnstart_mc.md; L-H40-3; owner D87 (b) as written): that host
+/// exception is for AI-run seat-less units only; a seat-less unit that is mind-controlled (faction != original faction)
+/// goes to W2-H32's controller test, so the host never selects an alien its partner controls.
 bool coopMaySelectUnit(const BattleUnit* u);
 
 /// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; owner D235 (a), D240 (a); r5-T8 / issue #126; PRD r5 T8;
