@@ -8773,7 +8773,11 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	// AI (hostSim), so it may select one; a client never may.
 	if (!u || !coopBattleAuthority().hostSim)
 		return false;
-	if (u->getCoopSeat() == COOP_SEAT_NONE)
+	// W2-H41 (docs rewrite/prompts/w2h41_coop_selection_turnstart_mc.md (e) E1; L-H40-3, F15786-F15791; owner D87 (b) as
+	// written, R-LH40-3): the seat-less exception is for AI-run units only. A seat-less unit that is mind-controlled goes on
+	// to W2-H32's controller test below: an alien the partner controls is never the host's, one an AI unit controls stays
+	// the host AI's, and one this machine's seat controls already passed commandsUnit above.
+	if (u->getCoopSeat() == COOP_SEAT_NONE && u->getFaction() == u->getOriginalFaction())
 		return true;
 	// W2-H32 (L-H29-2, F11677; vanilla: the alien AI acts with a soldier it mind-controlled - SavedBattleGame::
 	// selectPlayerUnit() takes any unit of the active faction and BattlescapeGame::handleAI() gives it an AI module;
