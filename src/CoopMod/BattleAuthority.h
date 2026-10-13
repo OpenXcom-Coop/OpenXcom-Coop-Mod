@@ -161,6 +161,17 @@ void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* un
 /// unit (F13364), and co-op gamemodes 0-3 never change either, so the call changes nothing outside PvE2.
 void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
+/// R5-U8b (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) R1; QU8-A1-2): the unit-record hook pair for the two values the
+/// rules constructor derives from the unit's ORIGINAL faction and never saves: the dark-vision distance
+/// (BattleUnit::updateArmorFromNonSoldier) and the maximum armor (the difficulty adjustment, BattleUnit::adjustStats).
+/// PvE2's swap (assignSeatsAndFactions) changes the original faction after the host built the unit, so a machine that builds
+/// it from a document (the client's offer, rejoin, repair and stage blobs, a `unitsAdded` record, the host's own resume)
+/// would rebuild other values. coopSaveBuiltValues() (BattleUnit::save, after the W2-H26 hook) writes both for every unit not
+/// linked to a geoscape soldier, only in a co-op battle past Idle (the coopSaveItemIdCtr guard), so an SP save is
+/// byte-identical; coopLoadBuiltValues() (BattleUnit::load, after the U8-1 hook) is presence-gated.
+void coopSaveBuiltValues(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
+void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit);
+
 /// coop D246-U (owner D246 = b, narrowing FW-7; docs rewrite/prompts/d246u_midbattle_save_convert.md): a mid-battle co-op
 /// save made by an OLDER version (no coopBattleProtocol in its header: the release line never writes one) resumes on this
 /// build. coopOlderBattleConvertible() is SavedGame::load()'s gate: true for the game modes the conversion handles

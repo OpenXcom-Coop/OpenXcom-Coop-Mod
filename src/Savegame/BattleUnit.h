@@ -773,6 +773,10 @@ public:
 	/// assignSeatsAndFactions(), and its read-back in
 	/// coopLoadSoldierUnitRecord(). Two callers.
 	void setCoopType(const std::string& type) { _type = type; }
+	/// R5-U8b (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) R4): sets the dark-vision distance in tiles and its square.
+	/// Thin setter, no logic - coopLoadBuiltValues() (BattleAuthority.h, called from load()) restores the value the unit was
+	/// built with, which updateArmorFromNonSoldier() derives from the ORIGINAL faction. One caller.
+	void coopSetMaxViewDistanceAtDark(int tiles) { _maxViewDistanceAtDark = tiles; _maxViewDistanceAtDarkSquared = tiles * tiles; }
 	/// Set health to 0
 	void kill();
 	/// Set health to 0 and set status dead
