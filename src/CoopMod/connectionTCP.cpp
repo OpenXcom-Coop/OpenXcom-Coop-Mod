@@ -29509,6 +29509,11 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 	return false;
 }
 
+// coop D250-U S-C3 (QC-13 (a)): the gm3 borrow's swap back and refusal, defined in the D250-U S-C1 block before
+// coopAdoptWorldInPlace; the failed-start unwind below (coopUnwindFailedStart) uses them.
+static void coopPvpRefuse(connectionTCP* tcp, const std::string& why);
+static void coopPvpSwapBack(Game* game);
+
 // ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
 // SPIKE-RUNBOOK.md SS2.7/RB-D18/RB-D23/IR-5/IR-6. Storage/helpers live here,
 // next to BattleAuthority/CoopArbiter/CoopIdMaps/CoopPump/CoopEmit above -
@@ -29761,6 +29766,16 @@ static void coopUnwindFailedStart(Game* game, const char* why)
 	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): the start ended
 	Log(LOG_WARNING) << "[coop-handshake] W2-H24: failed battle start (" << why << ") unwound - battle marks cleared="
 		<< marks << ", crafts sent home=" << home;
+	// coop D250-U S-C3 (QC-13 (a), QC3-1, VL-C-9; F13993, L-H38-1): a failed gm3 borrowed start - the alien host goes home to its
+	// own world (the borrowed one goes, its battle already dropped above). The X-COM player that refused the battle still holds
+	// on "Waiting for <host>": pvp_land_refused releases it and sends its craft home (S-C1's client release). A lost partner
+	// gets no message; after a ready mismatch the X-COM player is past its hold, as W2-H24 leaves every mismatch.
+	if (connectionTCP::coopPvpParkedWorld())
+	{
+		coopPvpSwapBack(game);
+		if (std::string(why) == "refused")
+			coopPvpRefuse(game->getCoopMod(), why);
+	}
 }
 
 // coop W2-H24: true on the host while a FRESH battle start is in flight (phase Handshake and a prepared offer that is
@@ -42966,7 +42981,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// the peer is expected back in the SAME battle, and the game mode
 		// (PVE/PVP/PVE2) decides which units each machine commands. Zeroing it
 		// here would hand a rejoining player the wrong side of its own battle.
-		if (!coopBattleLive(_game))
+		// coop D250-U S-C3 (QC-15 (a), QC3-3, VL-C-8; F13996, F15322): the alien host of a gm3 PvP campaign whose X-COM player dropped
+		// (the session goes on, D5) keeps the campaign's role - read here, before the resets below. A host's own leave (isMain) and
+		// every other teardown reset as before, so a single-player game after the session never inherits the alien role.
+		const bool coopPvpAlienHost = !isMain && onConnect == -2 && session.role == CoopRole::Host && connectionTCP::_coopCampaign
+			&& connectionTCP::_coopGamemode == 3;
+		if (!coopBattleLive(_game) && !coopPvpAlienHost) // coop D250-U S-C3 (QC3-3): a gm3 alien host's campaign stays gm3
 		{
 			connectionTCP::_coopGamemode = 0;
 		}
@@ -43116,12 +43136,22 @@ void connectionTCP::disconnectTCP(bool isMain)
 			}
 		}
 
-		deleteAllCoopBases();
+		// coop D250-U S-C3 (L-H37-1, QH37-2 (a); F14685): while the gm3 alien host runs a battle in the X-COM player's borrowed world, a
+		// drop clears nothing there: the battle's target (its mirror) and the craft on it stay for the rejoin, and the alien host's own
+		// world keeps its marks of that player until the player's first position snapshot after the battle. A failed borrowed start
+		// goes home first (coopUnwindFailedStart); the drop then clears the alien host's own world as every campaign drop does.
+		const bool coopPvpBorrowedAtDrop = teardownAsHost && coopPvpParkedWorld() != nullptr;
+		if (!coopPvpBorrowedAtDrop)
+			deleteAllCoopBases();
 
 		if (startLost)
 		{
 			CoopHandshake::coopUnwindFailedStart(_game, "partner dropped");
 		}
+		if (coopPvpBorrowedAtDrop && coopPvpParkedWorld() == nullptr)
+			deleteAllCoopBases();
+		if (teardownAsHost)
+			coopPvpPeerDropped(); // coop D250-U S-C3 (F15323): a landing request waiting for its world or the host's globe ends with the drop
 
 		// issue #93: when the host vanishes the client is TOLD, and leaves when it
 		// says so. CoopState(21) "Server connection lost" is pushed just before
@@ -43305,7 +43335,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 			connectionTCP::session.resetSession();
 		}
 
-		connectionTCP::no_bases = false;
+		connectionTCP::no_bases = coopPvpAlienHost && coopPvpParkedWorld() == nullptr; // coop D250-U S-C3 (QC-15 (a), VL-C-8): the gm3 alien host keeps its alien role across its partner's drop (false while it borrows the X-COM world, QC-5)
 		connectionTCP::isCoopBaseLoading = false;
 
 		gamePaused = 0;
@@ -43810,6 +43840,14 @@ void connectionTCP::coopPvpBorrowDrop() // coop D250-U S-C1: the main-menu choke
 	if (g_coopPvpParked) g_coopPvpRec["dropped"] = g_coopPvpRec["dropped"].asInt() + 1;
 	delete g_coopPvpParked;
 	g_coopPvpParked = nullptr; g_coopPvpLand = CoopPvpLand(); g_coopPvpReleasePending = false;
+}
+
+void connectionTCP::coopPvpPeerDropped() // coop D250-U S-C3 (F15323): HOST - a peer drop ends a landing request still waiting
+{
+	if (!g_coopPvpLand.pending) return; // nothing waits: a borrow clears the request at its swap (S-C1 step 4)
+	g_coopPvpLand = CoopPvpLand();
+	g_coopPvpRec["requestDropped"] = g_coopPvpRec["requestDropped"].asInt() + 1;
+	Log(LOG_WARNING) << "[coop-pvp] host: the X-COM player left - its waiting landing request is dropped";
 }
 
 // ===== coop D250-U S-C2 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): a gm3 borrowed battle's return =====

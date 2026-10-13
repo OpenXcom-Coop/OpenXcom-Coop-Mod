@@ -693,6 +693,7 @@ class connectionTCP
 	static bool coopPvpBorrowActive();                        // HOST: the live world is the borrowed X-COM world
 	static SavedGame* coopPvpParkedWorld();                   // HOST: the parked alien world while borrowing, else null
 	static void coopPvpBorrowDrop();                          // the main-menu chokepoint: the parked world goes with the world
+	static void coopPvpPeerDropped();                         // coop D250-U S-C3: HOST - a peer drop ends a waiting landing request
 	void coopPvpLandReceived(const Json::Value& obj);         // HOST: `pvp_land`
 	void coopPvpLandRefusedReceived(const Json::Value& obj);  // CLIENT: `pvp_land_refused`
 	void coopPvpLandBlobStored(bool stored);                  // HOST: after MAP_RESULT_SAVE_PROGRESS's validation
