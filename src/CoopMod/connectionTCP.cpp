@@ -39572,10 +39572,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// background pushes don't show the dialog; popping the screen under
 		// it would tear down the geoscape). The campaign wait dialogs
 		// (60/62/64/65) manage their own lifetime - never pop those.
+		// coop W2-H38 (docs rewrite/prompts/w2h38_borrow_hold_pop.md; owner D250, O1 (a); QC-4 (a), VL-C-1): nor the gm3
+		// X-COM player's landing hold, CoopState(3) "Waiting for <host>", pushed only by CoopHandshake::requestPvpLanding.
+		// This reply answers that hand-off's own world push and arrives while the alien host is still preparing the battle;
+		// the hold stays until the battle entry unwinds it (onBlobChunkAppended's coopUnwindToSafeState), the host's refusal
+		// releases it (coopPvpBorrowPump) or the player presses Disconnect.
 		if (!_game->getStates().empty())
 		{
 			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
-			if (top && !top->isCampaignWaitDialog())
+			if (top && !top->isCampaignWaitDialog() && top->getStateCode() != 3)
 			{
 				_game->popState();
 			}
