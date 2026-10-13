@@ -577,10 +577,15 @@ Json::Value pendingIntent();
 /// reason: there is no wire field that names a busy owner, so with 3+ seats this
 /// returns -1 and the presenter falls back to the generic SS2.6 busy row rather
 /// than guessing. NO new wire field is added for this (SS2.2/SS2.3 unchanged).
+/// RV-U5 S-E (docs rewrite/prompts/rvu5_quarantine_gate.md AMENDMENT RV5-E; OW1 (b) by design-D7): before that
+/// bridge, in a co-op battle with parallel turns (never PvP, never the baton mode), the oldest open action of
+/// ANOTHER seat that this client is applying - from its first non-consequence ev to its bt_action_end - names
+/// the seat that commands its unit (the HOST arm's rule, MJ-8); a unit no seat commands names nobody.
 int busyOwnerSeat();
 
 /// CLIENT: is a busy-denied intent currently HELD in the pending slot? Read by
-/// the wait-banner driver (a client is only 'waiting' while it holds one).
+/// the wait-banner driver (a client also waits while ANOTHER seat's action runs,
+/// busyOwnerSeat(); RV-U5 S-E).
 bool hasPendingIntent();
 
 /// CLIENT (WV-D24 = ruling D-11): the intent round-trip TIMEOUT tick. ONE
