@@ -218,7 +218,7 @@ void UnitWalkBState::think()
 			// true ONLY for the test-only battle_halt_walk latch, which stops
 			// the walk here through vanilla's own cancel path. No-op outside an
 			// active co-op battle and off the host sim, so SP is byte-identical.
-			if (coopOnWalkStepFinished(_unit))
+			if (coopOnWalkStepFinished(_unit, _action.sneak)) // coop R5-U6 S-B: the walk's sneak rides the step ev
 			{
 				return cancelCurentMove();
 			}
@@ -626,7 +626,7 @@ void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
 	if ((!coopUnitVisibleHere(_unit) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
-	coopNoteWalkSound(_unit, false, false); // coop R5-U6 S-B.1: TEST-ONLY walk-sound probe (a step sound past vanilla's gate)
+	if (coopWalkSoundSilenced(_unit, _action.sneak, false)) return; // coop R5-U6 S-B (D236 b): the other player's footsteps option
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

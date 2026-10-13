@@ -871,7 +871,7 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded);
 /// step boundary" - the vanilla call site turns that into its own
 /// `return cancelCurentMove();`, the same exit every real halt takes. FALSE in
 /// single player, off the host sim, and in every ordinary step.
-bool coopOnWalkStepFinished(BattleUnit* unit);
+bool coopOnWalkStepFinished(BattleUnit* unit, bool sneak = false); // coop R5-U6 S-B: @a sneak = the walk's own sneak, it rides the step ev
 
 /// R5-U6 S-B.1 (docs rewrite/prompts/r5u6_pvp_options.md (e) TB1-TB5): TEST-ONLY walk-sound probe. coopNoteWalkSound()
 /// records one walk-sound decision THIS machine made for @a walker - a step sound past vanilla's own visibility / screen
@@ -880,6 +880,17 @@ bool coopOnWalkStepFinished(BattleUnit* unit);
 /// initBattleAuthority(). No-op outside an active co-op battle. Never read by game logic.
 void coopNoteWalkSound(const BattleUnit* walker, bool startVoice, bool silenced);
 Json::Value coopWalkSoundProbe();
+
+/// R5-U6 S-B (owner D236 (b); the release line's "Enable Other Player Footstep Sounds", main UnitWalkBState.cpp :343 and
+/// BattlescapeGame.cpp :339-:351): a walk sound THIS machine is about to play for @a walker - a step sound (@a startVoice
+/// false; UnitWalkBState::playMovementSound() past vanilla's gate, the client's walk ghost) or the "start moving" voice
+/// (true; the host for a partner's admitted walk, the client's ghost at a walk's first step). TRUE (silenced) when
+/// another human seat commands the walker (the co-op partner, the PvP opponent) and the session's option is off (the
+/// host's value; the join handshake gives it to the client) or the walk is a PvP (gamemode 2 / 3) sneak (@a sneak); a
+/// "start moving" voice is also silenced for a unit no seat commands (vanilla plays it only for the ordering player).
+/// This machine's own units and every unit no seat commands keep their step sounds. Records the decision
+/// (coopNoteWalkSound()). FALSE outside an active co-op battle (single player byte-identical).
+bool coopWalkSoundSilenced(const BattleUnit* walker, bool sneak, bool startVoice);
 
 /// THIN HOOK 2/3 - the head of UnitWalkBState::think()'s own `cancelCurentMove`
 /// lambda, i.e. THE cancel path every mid-walk abort funnels through. Latches
