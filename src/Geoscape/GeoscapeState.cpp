@@ -719,6 +719,62 @@ void GeoscapeState::coopStartRearmedBaseDefense()
 }
 
 /**
+ * coop D250-U S-C5b2 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4): the gm3 alien host starts the
+ * X-COM player's base defence in the borrowed X-COM world (the live world while it borrows) from the attack the player's
+ * handleBaseDefense handed off. As the arrival and handleBaseDefense start it: the base's tanks rolled out with the attacking UFO's
+ * mission (Base::setupDefenses; the player reclaimed them before its world was pushed), the co-op stamps, the snapshot, then the
+ * deferred start (startCoopMission()).
+ * @param attack The `pvp_land` message: baseIndex, missionId, lon, lat, damage, deploy, race.
+ * @return True when the battle was generated (startCoopMission() pushed the BriefingState).
+ */
+bool GeoscapeState::coopStartBorrowedBaseDefense(const Json::Value& attack)
+{
+	SavedGame* save = _game->getSavedGame();
+	const int index = attack.get("baseIndex", -1).asInt();
+	if (!save || !connectionTCP::coopPvpBorrowActive() || save->getSavedBattle() || index < 0 || index >= (int)save->getBases()->size())
+	{
+		return false;
+	}
+	AlienMission* mission = nullptr;
+	for (auto* am : save->getAlienMissions())
+	{
+		if (!am->_coop && am->getId() == attack.get("missionId", -1).asInt())
+		{
+			mission = am;
+		}
+	}
+	if (!mission)
+	{
+		return false;
+	}
+	Base* base = save->getBases()->at(index);
+	base->setupDefenses(mission);
+	save->setSelectedBase(index);
+	_game->getCoopMod()->_isMainCampaignBaseDefense = true;
+	_game->getCoopMod()->setHost(true);
+	for (auto* s : *base->getSoldiers())
+	{
+		int owner = s->getOwnerPlayerId();
+		s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+		s->setCoopBase(-1);
+	}
+	for (auto* v : *base->getVehicles())
+	{
+		v->setCoop(0);
+		v->setCoopBase(-1);
+	}
+	g_coopBaseDefense.pending = true;
+	g_coopBaseDefense.coop = false;
+	g_coopBaseDefense.lon = attack.get("lon", base->getLongitude()).asDouble();
+	g_coopBaseDefense.lat = attack.get("lat", base->getLatitude()).asDouble();
+	g_coopBaseDefense.damagePercentage = attack.get("damage", 0).asInt();
+	g_coopBaseDefense.missionCustomDeploy = attack.get("deploy", "").asString();
+	g_coopBaseDefense.alienRace = attack.get("race", "").asString();
+	startCoopMission();
+	return save->getSavedBattle() != nullptr;
+}
+
+/**
  * Handle blitting of Geoscape and Dogfights.
  */
 void GeoscapeState::blit()
@@ -6257,6 +6313,9 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					// one-shot so the deferred startCoopMission() can never fire
 					// here, and await the host's offer (onOffer -> BattlescapeState).
 					g_coopBaseDefense.pending = false;
+					// coop D250-U S-C5b2 (owner D250, O1 (a); F13994): a gm3 PvP campaign client (the X-COM side) hands the defence of
+					// its base to the alien host, which runs it in this machine's world; a no-op on every other machine and mode.
+					CoopHandshake::requestPvpBaseDefense(_game, base, ufo);
 				}
 
 			}
