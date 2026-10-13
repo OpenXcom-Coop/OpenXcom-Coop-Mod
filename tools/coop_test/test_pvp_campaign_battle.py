@@ -130,14 +130,12 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 def main():
     fails=[]
     test_campaign_battle(fails, "client", 2)
-    # RW-TRIAGE: SKIP-PENDING(D250-U S-C) - the gm3 leg needs gm3 campaign battles (owner question O1 (a)); the gm2 leg
-    # runs live since D250-U S-B (R-D250-SA-2: EA4 moved to S-B's red).
-    print("  gm3 leg SKIP-PENDING(D250-U S-C): gm3 campaign battles are built in D250-U S-C")
+    test_campaign_battle(fails, "host", 3)  # D250-U S-C1 (owner D250, O1 (a)): the gm3 leg runs live
     print("\n==== PvP campaign battle summary ====")
     if fails:
         for f in fails:print(f"  FAIL {f}")
         sys.exit(2)
-    print("  gm2 campaign battle entry (gm3 leg SKIP-PENDING(D250-U S-C))")
+    print("  gm2 + gm3 campaign battle entry")
     sys.exit(0)
 
 if __name__=="__main__":
