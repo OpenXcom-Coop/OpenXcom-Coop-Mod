@@ -626,6 +626,7 @@ void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
 	if ((!coopUnitVisibleHere(_unit) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
+	coopNoteWalkSound(_unit, false, false); // coop R5-U6 S-B.1: TEST-ONLY walk-sound probe (a step sound past vanilla's gate)
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;
