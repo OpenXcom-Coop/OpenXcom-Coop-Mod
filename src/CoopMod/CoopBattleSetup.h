@@ -234,6 +234,14 @@ void coopTagGuestVehicleUnit(const Vehicle* v, BattleUnit* unit);
 void coopDropMergedGuestVehicles(Game* game);
 
 /**
+ * D248-U S-B (owner D248 (b)): DebriefingState's tank credit, on the HOST of a co-op session - true for a SEPARATE
+ * partner's tank (BattleUnit::getCoopGuestTank() not empty) that vanilla is about to recover: it is marked survived for
+ * the debrief payload's guestTanks rows and the caller skips vanilla's store credit (the tank and its ammo), because
+ * the tank goes home to the partner's world. False for every other unit (vanilla credits it). Body in connectionTCP.cpp.
+ */
+bool coopGuestTankRecovered(BattleUnit* unit);
+
+/**
  * W2-H9 (owner D199 = (a); D211/D212 working assumption (a)): the test-server
  * probes of the SEPARATE co-op client's own-craft battle refusal (TestServer
  * event_state `coopClientBattleRefused` / `coopClientBattleRefusedLast`).
