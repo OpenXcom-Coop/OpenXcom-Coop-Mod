@@ -6,7 +6,8 @@ anything on it, no refusal, the aliens' starting gear stays in their hands, and 
 the dropping unit's own tile.
 
 Spec: docs repo rewrite/prompts/r5u6_pvp_options.md AMENDMENT U6-1.5.6 (f') with U6-1.7's run-time rules and the orchestrator
-ruling R-U6-SD-1 (D-1: every drop on the pile goes to the first free ground cell in column-major order where the item fits;
+rulings R-U6-SD-1 / R-U6-SD-2 (D-1 as R-U6-SD-2 replaces it: every drop on the pile goes to the first free ground cell in
+column-major order where the item fits, across the WHOLE ground grid, the screen scrolled to that cell's page first;
 D-2: PISTOL = the first A_START item, right hand, left hand, then the rest by id, whose type is not on the pile; the U6-1.7
 swap: no STR_RIFLE on the pile, so RIFLE is the lowest-column pile item that fits BACKPACK_CELL). Constants: docs repo
 rewrite/r5u6-task0/sd/CONSTANTS.md (TASK 0 boots DAa, DAb, DAc, DAd on the unchanged build). No id is pinned (S25).
@@ -160,6 +161,7 @@ def sizes():
 
 SZ = sizes()
 SLOTS = {}
+PAGE = {}   # R-U6-SD-2: {machine name: the ground page its open pre-battle screen shows}; goto_page keeps it
 
 
 def foot(t, x, y):
@@ -183,22 +185,55 @@ def free_cell(gc, its, uid, itype, slot=BACK):
     return None
 
 
-def free_ground(gc, itype):
-    """R-U6-SD-1 D-1: the first free ground cell in column-major order (x, then y) on the ground page where it fits."""
+def ground_layout(gc):
+    """gc's laid-out ground [(id, x, y, type)]: the placed items (vanilla parks an item it does not place at x 1000000)."""
     its = IT(gc)
+    return [(g["id"], g.get("x"), g.get("y"), (its.get(g["id"]) or {}).get("type")) for g in iv(gc).get("ground") or []
+            if g.get("x") is not None and g.get("x") < 1000000]
+
+
+def x_max(lay):
+    """Inventory::arrangeGround's _xMax: the first column right of every placed item."""
+    return max([x + SZ.get(t, (1, 1))[0] for _, x, _, t in lay] or [0])
+
+
+def free_ground(gc, itype):
+    """R-U6-SD-2 (replaces R-U6-SD-1 D-1's page-0 search): the first free ground cell where the item fits, column-major
+    (x, then y) across the WHOLE ground grid (x past 19 = page 1, ...) on the pages the screen reaches (page p while the
+    layout reaches column 20 * p, vanilla's ground-scroll rule); an item never straddles two pages. Absolute (x, y)."""
+    lay = ground_layout(gc)
     occ = set()
-    for g in iv(gc).get("ground") or []:
-        occ |= foot((its.get(g["id"]) or {}).get("type"), g.get("x"), g.get("y"))
+    for _, x, y, t in lay:
+        occ |= foot(t, x, y)
     w, h = SZ.get(itype, (1, 1))
-    for x in range(COLS - w + 1):
+    for x in range(COLS * (x_max(lay) // COLS + 1)):
+        if x % COLS > COLS - w:
+            continue
         for y in range(GROUND_ROWS - h + 1):
             if not foot(itype, x, y) & occ:
                 return (x, y)
     return None
 
 
+def goto_page(gc, page, rec):
+    """R-U6-SD-2: scroll gc's pre-battle screen to ground page `page` with vanilla's ground-scroll key (keyBattleRight,
+    InventoryState.cpp :269 -> Inventory::arrangeGround(1)) from the page PAGE records (0 at the screen's open; a
+    re-layout keeps it): each press moves to the next page while the layout reaches past it, else back to page 0."""
+    cur, presses = PAGE.get(gc.name, 0), 0
+    xm = x_max(ground_layout(gc))
+    while cur != page and presses <= xm // COLS + 1:
+        gc.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_RIGHT})
+        time.sleep(0.2)
+        presses += 1
+        cur = cur + 1 if xm >= (cur + 1) * COLS else 0
+    PAGE[gc.name] = cur
+    rec.setdefault("scroll", []).append({"to": page, "presses": presses, "xMax": xm, "at": cur})
+    return cur == page
+
+
 def pick_ground(gc, iid, rec):
-    """U6-1.7 ground-page rule: column c >= 20 -> SDLK_RIGHT c // 20 times, then column c - 20 * (c // 20). Returns the id
+    """U6-1.7 ground-page rule with R-U6-SD-2's scroll: the screen to page c // 20 (goto_page, from the page it shows),
+    then column c - 20 * (c // 20). Returns the id
     the pick put on the cursor (the item or a same-type stack-mate), or None."""
     v = iv(gc)
     cell = PEQ.cell_of(v, iid)
@@ -208,9 +243,7 @@ def pick_ground(gc, iid, rec):
         return None
     pages = cell[0] // COLS
     rec.update(mates=PEQ.mates_at(v, cell), pages=pages)
-    for _ in range(pages):
-        gc.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_RIGHT})
-        time.sleep(0.2)
+    goto_page(gc, pages, rec)
     rec["click"] = PEQ.click(gc, slot=GROUND, x=cell[0] - COLS * pages, y=cell[1])
     wait_until(lambda: cursor(gc) not in (None, -1), CLICK_S)
     rec["picked"] = cursor(gc)
@@ -235,10 +268,14 @@ def drop_at(gc, slot, x, y, rec):
 
 
 def drop_ground(gc, its, rec):
-    """A drop on the pile at D-1's cell (R-U6-SD-1)."""
+    """A drop on the pile at R-U6-SD-2's cell: the screen scrolled to the cell's page first, then the cell's column on it."""
     cell = free_ground(gc, (its.get(cursor(gc)) or {}).get("type"))
     rec["groundCell"] = cell
-    return cell is not None and drop_at(gc, GROUND, cell[0], cell[1], rec)
+    if cell is None:
+        return False
+    page = cell[0] // COLS
+    rec["groundPage"] = page
+    return goto_page(gc, page, rec) and drop_at(gc, GROUND, cell[0] - COLS * page, cell[1], rec)
 
 
 def clear_cursor(gc, ev, key):
@@ -425,6 +462,7 @@ def drive(host, client):
 
 def bring_up(host, client, key, alien_player, tag, seat):
     """Spawn, the PvP lobby, the drive, both briefings, R0 on both (each before its own briefing closes)."""
+    PAGE.clear()   # R-U6-SD-2: every pre-battle screen of this boot opens on ground page 0
     m = (host, client)
     G3F.guarded(tag, lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
     G3F.guarded(tag, lambda: host.ok({"cmd": "set_seed", "seed": SEED}), m)
