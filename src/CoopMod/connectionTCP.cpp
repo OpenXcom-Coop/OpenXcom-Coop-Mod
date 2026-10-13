@@ -5927,6 +5927,45 @@ struct CoopEquipState
 
 static CoopEquipState g_equip;
 
+// ----- R5-U6 S-D (owner D236 (b), D274; orchestrator ruling R-U6-OF3; docs rewrite/prompts/r5u6_pvp_options.md
+// AMENDMENT U6-1): "Enable XCOM Equipment for Aliens in PVP". With the option on (the host's session value; the join
+// handshake gives it to the client) a PvP alien seat equips its own aliens that have an inventory on the pre-battle
+// equip screen, with the X-COM craft pile as their ground (the release line's BriefingState::loadCoop() equip link).
+// Owner D274: ONE pile for both sides - a drop from either side lands on it and either side may take anything on it,
+// with no refusal. The aliens' own gear starts in their hands; the equip end puts every unit back on its own tile
+// (startFirstTurn() / resetUnitTiles() on both machines). Off, or in any other game mode, every term below leaves
+// P8b's rule as it was.
+static bool coopPvpAlienEquip()
+{
+	const int gamemode = connectionTCP::getCoopGamemode();
+	return (gamemode == 2 || gamemode == 3) && connectionTCP::_enable_xcom_equipment_aliens_pvp;
+}
+
+// The faction whose units count as @a seat's own on the pre-battle screen: the player side, or with the option on the
+// seat's own side.
+static int coopEquipFaction(int seat)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	if (coopPvpAlienEquip() && seat >= 0 && seat < 4 && a.seatMapped(seat))
+		return a.factionOf(seat);
+	return (int)FACTION_PLAYER;
+}
+
+// A live non-player unit with an inventory that a mapped seat commands (the PvP alien seat's), with the option on. No
+// battle-phase term: the host's equip open (freezePreBattleEquip()) can run in phase Handshake (QU6-A1-1).
+static bool coopEquipAlienUnit(const BattleUnit* u)
+{
+	if (!u || !coopPvpAlienEquip() || u->isOut() || u->getOriginalFaction() == FACTION_PLAYER || !u->hasInventory())
+		return false;
+	const BattleAuthority& a = coopBattleAuthority();
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (a.seatMapped(seat) && a.commandsUnit(u, seat))
+			return true;
+	}
+	return false;
+}
+
 // The state's zeros (initBattleAuthority() and resetBattleAuthority()).
 static void coopEquipStateZeros()
 {
@@ -6010,7 +6049,7 @@ static void coopEquipComputeCounted(SavedBattleGame* save)
 		{
 			for (BattleUnit* u : *save->getUnits())
 			{
-				if (u && u->isSelectable(FACTION_PLAYER, false, true) && a.commandsUnit(u, s))
+				if (u && u->isSelectable((UnitFaction)coopEquipFaction(s), false, true) && a.commandsUnit(u, s)) // coop R5-U6 S-D
 				{
 					counted = true;
 					break;
@@ -16874,7 +16913,7 @@ static int coopInvGuardHead(Inventory* inv, BattleUnit* unit, BattleItem* item, 
 	// W2-P8b S-B.2 (AMENDMENT P8b-1 section 4 S-B, F3118): in the pre-battle equip phase the traditional baton does
 	// not gate a placement - ownership and the side still do (the host's onIntent skips its baton term there too).
 	const bool mayCommand = coopEquipOpen()
-		? (coopBattleAuthority().commandsUnit(unit) && coopBattleAuthority().mySideActive(save))
+		? (coopBattleAuthority().commandsUnit(unit) && (coopBattleAuthority().mySideActive(save) || coopEquipAlienUnit(unit))) // coop R5-U6 S-D
 		: coopMayCommand(unit, save);
 	if (!mayCommand)
 	{
@@ -29747,7 +29786,7 @@ bool freezePreBattleEquip(Game* game)
 			BattleUnit* own = nullptr;
 			for (BattleUnit* u : *battle->getUnits())
 			{
-				if (u->isSelectable(FACTION_PLAYER, false, true) && coopMaySelectUnit(u))
+				if (u->isSelectable((UnitFaction)coopEquipFaction(coopBattleAuthority().localSeat.load()), false, true) && coopMaySelectUnit(u)) // coop R5-U6 S-D
 				{
 					own = u;
 					break;
@@ -29756,6 +29795,15 @@ bool freezePreBattleEquip(Game* game)
 			// W2-P8b S-F (AMENDMENT P8b-1 section 4 S-F, D215 a): none - no selection, so the screen's init() closes it
 			// at once through the ready hook and the host waits on its Turn-1 screen.
 			battle->setSelectedUnit(own);
+			// coop R5-U6 S-D (R-U6-OF3): with "X-COM equipment for aliens" on, the PvP alien seat's units take the craft pile
+			// as their inventory ground for the equip phase (startFirstTurn()'s resetUnitTiles() puts them back).
+			Tile* alienGround = g_equip.havePile.load()
+				? battle->getTile(Position(g_equip.pileX.load(), g_equip.pileY.load(), g_equip.pileZ.load())) : nullptr;
+			for (BattleUnit* u : *battle->getUnits())
+			{
+				if (alienGround && coopEquipAlienUnit(u))
+					u->setInventoryTile(alienGround);
+			}
 		}
 		g_equip.hostOpen = true;
 		Log(LOG_INFO) << "[coop-equip] host: pre-battle equip OPEN - the host equips its own soldiers (selected "
@@ -31871,7 +31919,7 @@ static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
 	{
 		for (BattleUnit* u : *save->getUnits())
 		{
-			if (u->getOriginalFaction() == FACTION_PLAYER && !u->isOut())
+			if ((u->getOriginalFaction() == FACTION_PLAYER && !u->isOut()) || coopEquipAlienUnit(u)) // coop R5-U6 S-D
 				u->setInventoryTile(pile);
 		}
 	}
@@ -31879,7 +31927,7 @@ static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
 	BattleUnit* own = nullptr;
 	for (BattleUnit* u : *save->getUnits())
 	{
-		if (u->isSelectable(FACTION_PLAYER, false, true) && coopMaySelectUnit(u))
+		if (u->isSelectable((UnitFaction)coopEquipFaction(coopBattleAuthority().localSeat.load()), false, true) && coopMaySelectUnit(u)) // coop R5-U6 S-D
 		{
 			own = u;
 			break;
