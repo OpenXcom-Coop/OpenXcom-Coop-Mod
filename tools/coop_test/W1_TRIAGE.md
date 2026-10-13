@@ -143,7 +143,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_coop_resume_battle_control.py` | R4-P2 | mid-battle RESUME must restore split control, SEPARATE mode (battle resume) |
 | `test_coop_ufo_door_close.py` | r3 | UFO door-close sync at end-turn (battle-action e2e) |
 | `test_cydonia_coop_start.py` | R4-P2 | Cydonia mission start sync (explicit per packet) |
-| `test_pvp_campaign_battle.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - gm2 leg LIVE since D250-U S-B (guard removed, R-D250-SA-2 / R-D250-SB-1); gm3 leg SKIP-PENDING(D250-U S-C) |
+| `test_pvp_campaign_battle.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - gm2 leg LIVE since D250-U S-B (guard removed, R-D250-SA-2 / R-D250-SB-1); gm3 leg LIVE since D250-U S-C1 |
 | `test_pvp_campaign_bringup.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_geoscape.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_month.py` | fast-follow | test_pvp_campaign_* family, owner descope Section 1.1 - LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
@@ -424,7 +424,7 @@ and each of the three guarded files names the stage that lifts it in its guard t
 | `test_pvp_campaign_reconnect.py` | run live since D250-U S-A: gm3, the X-COM client drops on the geoscape, rejoins, the host resumes, both on the geoscape |
 | `test_pvp_dogfight.py` | run live since D250-U S-A: the X-COM player intercepts, sets a stance and disengages while the alien side stays on its geoscape |
 | `test_pvp_duplicate_bases.py` | run live since D250-U S-A: two PvP campaigns in one process, one real X-COM base each |
-| `test_pvp_campaign_battle.py` | still guarded until D250-U S-B: its gm2 battle entry through the W2-P8b spine (EA4) moves there with the alien client's `no_bases` defect (F13503-F13505); its gm3 leg needs gm3 campaign battles (D250-U S-C, owner question O1) |
+| `test_pvp_campaign_battle.py` | run live: its gm2 leg since D250-U S-B, its gm3 leg since D250-U S-C1 (gm3 campaign battles in the X-COM player's borrowed world, owner D250 / O1 (a)) |
 | `test_pvp_campaign_ufo_spawn.py` | still guarded until D250-U S-A2 (capture-first): its gm2 set check once saw two UFOs on the X-COM machine only (F13509, F13510) and its gm3 set check compares two empty sets (F13502); the presses, waits and the own-sim UFO counter are converted |
 | `test_pvp_campaign_resume.py` | still guarded until D246-U S-C / D250-U S-D: its mid-battle legs load release-made saves the rewrite refuses until D246-U converts them |
 
