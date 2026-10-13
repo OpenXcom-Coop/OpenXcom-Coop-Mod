@@ -1727,7 +1727,7 @@ void Map::drawTerrain(Surface *surface)
 	}
 
 	auto* selectedUnit = _save->getSelectedUnit();
-	if (selectedUnit && (_save->getSide() == FACTION_PLAYER || _save->getDebugMode()) && selectedUnit->getPosition().z <= _camera->getViewLevel())
+	if (selectedUnit && (coopSideIsMine(_save) || _save->getDebugMode()) && selectedUnit->getPosition().z <= _camera->getViewLevel()) // coop R5-U2 S-A (design-D5): the side this machine plays
 	{
 		_camera->convertMapToScreen(selectedUnit->getPosition(), &screenPosition);
 		screenPosition += _camera->getMapOffset();
@@ -1749,12 +1749,12 @@ void Map::drawTerrain(Surface *surface)
 	}
 
 	// Draw motion scanner arrows
-	if (_isAltPressed && _save->getSide() == FACTION_PLAYER && this->getCursorType() != CT_NONE)
+	if (_isAltPressed && coopSideIsMine(_save) && this->getCursorType() != CT_NONE) // coop R5-U2 S-A (design-D5): the side this machine plays
 	{
 		for (auto* myUnit : *_save->getUnits())
 		{
-			bool motionScan = myUnit->getScannedTurn() == _save->getTurn() && myUnit->getFaction() != FACTION_PLAYER && !myUnit->isOut();
-			bool customMarker = myUnit->getCustomMarker() > 0 && myUnit->getFaction() == FACTION_PLAYER && !myUnit->isOut();
+			bool motionScan = myUnit->getScannedTurn() == _save->getTurn() && !coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop R5-U2 S-A: not this machine's side
+			bool customMarker = myUnit->getCustomMarker() > 0 && coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop R5-U2 S-A: this machine's side
 			if (motionScan || customMarker)
 			{
 				coopDrawProbeMark(myUnit, motionScan); // coop R5-U2 S-A.1: TEST-ONLY draw probe (an Alt marker is drawn)

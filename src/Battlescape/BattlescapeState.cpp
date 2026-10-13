@@ -97,6 +97,7 @@
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/CoopEndTurn.h"
 #include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h" // coop R5-U2: coopFactionIsMine() (R5-U1 S-B)
 
 namespace OpenXcom
 {
@@ -1261,7 +1262,7 @@ void BattlescapeState::btnUnitDownClick(Action *)
  */
 void BattlescapeState::btnMapUpClick(Action *)
 {
-	if (_save->getSide() == FACTION_PLAYER || _save->getDebugMode())
+	if (coopSideIsMine(_save) || _save->getDebugMode()) // coop R5-U2 S-A (design-D5): the side this machine plays
 		_map->getCamera()->up();
 }
 
@@ -1271,7 +1272,7 @@ void BattlescapeState::btnMapUpClick(Action *)
  */
 void BattlescapeState::btnMapDownClick(Action *)
 {
-	if (_save->getSide() == FACTION_PLAYER || _save->getDebugMode())
+	if (coopSideIsMine(_save) || _save->getDebugMode()) // coop R5-U2 S-A (design-D5): the side this machine plays
 		_map->getCamera()->down();
 }
 
@@ -3130,7 +3131,7 @@ inline void BattlescapeState::handle(Action *action)
 				// "ctrl-f" - show fatal wounds
 				else if (key == SDLK_f && ctrlPressed)
 				{
-					if (_save->getSide() == FACTION_PLAYER)
+					if (coopSideIsMine(_save)) // coop R5-U2 S-A (design-D5): the side this machine plays
 					{
 						auto* bu = _save->getSelectedUnit();
 						if (bu)
@@ -3301,7 +3302,7 @@ inline void BattlescapeState::handle(Action *action)
 						}
 					}
 					// mark a friendly unit under the cursor
-					if (unitUnderTheCursor && unitUnderTheCursor->getFaction() == FACTION_PLAYER && !unitUnderTheCursor->isOut())
+					if (unitUnderTheCursor && coopFactionIsMine((int)unitUnderTheCursor->getFaction()) && !unitUnderTheCursor->isOut()) // coop R5-U2 S-A: a unit of this machine's side
 					{
 						unitUnderTheCursor->setCustomMarker((unitUnderTheCursor->getCustomMarker() + 1) % 5); // rotate 4 colors + turned off
 					}
