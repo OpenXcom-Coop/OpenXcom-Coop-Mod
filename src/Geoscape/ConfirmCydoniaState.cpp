@@ -145,6 +145,14 @@ void ConfirmCydoniaState::startCoopMission()
 		}
 	}
 	bgen.setCraft(_craft);
+	if (connectionTCP::getCoopStatic())
+	{
+		// RV-21 (docs rewrite/prompts/rv21_separate_guests_cydonia.md; PRR row 21, F5099): a SEPARATE partner's guests
+		// seated on this craft - and, since D248-U, its tanks parked on it - join Cydonia as they join every host-craft
+		// landing (ConfirmLandingState::btnYesClick): merged onto the craft BEFORE generation, so the generator deploys
+		// them. The store is the host's, so this is a no-op on any other machine and when nothing was contributed.
+		coopMergeGuestContributions(_game, _craft);
+	}
 	bgen.run();
 
 	if (connectionTCP::getCoopStatic())
@@ -182,6 +190,8 @@ void ConfirmCydoniaState::startCoopMission()
 		// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds its
 		// blob snapshot (the SS2.W1 ORDERING TRAP). One of FOUR identical call
 		// sites; no-op off the coop host.
+		// RV-21 (D248-U QD248-11 (a)): the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
+		coopDropMergedGuestVehicles(_game);
 		CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
 		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 	}
