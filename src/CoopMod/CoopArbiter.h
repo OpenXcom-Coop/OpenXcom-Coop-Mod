@@ -873,6 +873,14 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded);
 /// single player, off the host sim, and in every ordinary step.
 bool coopOnWalkStepFinished(BattleUnit* unit);
 
+/// R5-U6 S-B.1 (docs rewrite/prompts/r5u6_pvp_options.md (e) TB1-TB5): TEST-ONLY walk-sound probe. coopNoteWalkSound()
+/// records one walk-sound decision THIS machine made for @a walker - a step sound past vanilla's own visibility / screen
+/// gate (@a startVoice false) or a "start moving" voice (true), played or @a silenced; coopWalkSoundProbe() is
+/// TestServer's event_state `walkSounds` {walker id: {steps, stepsSilenced, voices, voicesSilenced}}, cleared by
+/// initBattleAuthority(). No-op outside an active co-op battle. Never read by game logic.
+void coopNoteWalkSound(const BattleUnit* walker, bool startVoice, bool silenced);
+Json::Value coopWalkSoundProbe();
+
 /// THIN HOOK 2/3 - the head of UnitWalkBState::think()'s own `cancelCurentMove`
 /// lambda, i.e. THE cancel path every mid-walk abort funnels through. Latches
 /// the SS2.W2 halt `reason` for the walk chain currently in flight; the first

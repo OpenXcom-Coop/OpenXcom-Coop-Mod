@@ -6418,6 +6418,51 @@ static void coopAbortVoteProbeReset()
 	g_abortVoteProbe = abortVoteProbeZeros();
 }
 
+// ----- R5-U6 S-B.1 (docs rewrite/prompts/r5u6_pvp_options.md (e) TB2): TEST-ONLY walk-sound probe (CoopArbiter.h). -----
+struct CoopWalkSoundCount
+{
+	int steps = 0;
+	int stepsSilenced = 0;
+	int voices = 0;
+	int voicesSilenced = 0;
+};
+static std::mutex g_coopWalkSoundMutex;
+static std::map<int, CoopWalkSoundCount> g_coopWalkSounds;
+
+void coopNoteWalkSound(const BattleUnit* walker, bool startVoice, bool silenced)
+{
+	if (!walker || !isCoopBattle())
+		return;
+	std::lock_guard<std::mutex> lock(g_coopWalkSoundMutex);
+	CoopWalkSoundCount& c = g_coopWalkSounds[walker->getId()];
+	if (startVoice)
+		++(silenced ? c.voicesSilenced : c.voices);
+	else
+		++(silenced ? c.stepsSilenced : c.steps);
+}
+
+Json::Value coopWalkSoundProbe()
+{
+	std::lock_guard<std::mutex> lock(g_coopWalkSoundMutex);
+	Json::Value r(Json::objectValue);
+	for (const auto& kv : g_coopWalkSounds)
+	{
+		Json::Value e(Json::objectValue);
+		e["steps"] = kv.second.steps;
+		e["stepsSilenced"] = kv.second.stepsSilenced;
+		e["voices"] = kv.second.voices;
+		e["voicesSilenced"] = kv.second.voicesSilenced;
+		r[std::to_string(kv.first)] = e;
+	}
+	return r;
+}
+
+static void coopWalkSoundReset()
+{
+	std::lock_guard<std::mutex> lock(g_coopWalkSoundMutex);
+	g_coopWalkSounds.clear();
+}
+
 void initBattleAuthority(std::uint32_t battleId)
 {
 	BattleAuthority& a = coopBattleAuthority();
@@ -6461,6 +6506,7 @@ void initBattleAuthority(std::uint32_t battleId)
 	// the counters are cleared here and nowhere else (F2733 rule).
 	coopEquipStateZeros();
 	coopEquipCounterZeros();
+	coopWalkSoundReset(); // R5-U6 S-B.1: the TEST-ONLY walk-sound probe is per battle
 }
 
 // SPEC 16 (W1-P17) M2: the deferred-pause-modal latch. Set by

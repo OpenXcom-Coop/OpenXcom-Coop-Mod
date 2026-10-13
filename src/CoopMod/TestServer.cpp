@@ -7764,6 +7764,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// CLIENT's camera-move records and the HOST's guard counters, both machines; S-C.1 writes only the camera
 		// reads (CoopGhost.h cameraProbe()).
 		resp["camera"] = CoopGhost::cameraProbe();
+		resp["walkSounds"] = coopWalkSoundProbe(); // R5-U6 S-B.1: TEST-ONLY walk-sound probe (CoopArbiter.h)
 		// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5;
 		// owner D172 (a)): the hit-log mirror probe - the HOST's noted / sent / pending entries, the CLIENT's applied
 		// and locally suppressed ones, the last 32 {seq, t, f, k}, both machines; S-L.1 writes nothing (CoopDelta.h
