@@ -129,6 +129,11 @@ void offerBattle(Game* game, int gamemode);
 /// nothing. False on every other machine and mode (the host, gm0 / gm1 / gm2 / gm4, a skirmish, single player).
 bool requestPvpLanding(Game* game, Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
 
+/// coop D250-U S-C5b1 (owner D250, O1 (a); D239 (a)): on a gm3 PvP campaign CLIENT (the X-COM side) only, hands Cydonia to the alien
+/// host, which runs it in this machine's world - requestPvpLanding's hand-off with kind "cydonia" (no target). True = handed off (or,
+/// if the push failed, the craft sent home): the caller generates nothing. False on every other machine and mode.
+bool requestPvpCydonia(Game* game, Craft* craft);
+
 // ----- FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): offerBattle() SPLIT into
 // PREPARE and EMIT halves, so the coop blob snapshot (and the battle_offer
 // that advertises it) can move to AFTER the host's SavedBattleGame::
