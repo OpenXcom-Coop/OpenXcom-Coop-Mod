@@ -20825,6 +20825,24 @@ static void coopClientEventSight(SavedBattleGame* save, Position pos, int eventR
 	}
 }
 
+// W2-H35c (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) G1; R-R5U1-1 vanilla parity): the CLIENT's mirror of vanilla's
+// FULL sight refresh at a position (TileEngine's position overload with its default radius: every unit within the maximum
+// view distance clears and rebuilds its visible-unit list, without tiles) for FACTION_PLAYER viewers only (W2-H35 QH-4 (a)).
+// Vanilla runs it where a unit appears or changes sides: SavedBattleGame::convertUnit and BattlescapeGame::spawnNewUnit
+// (G7), TileEngine::psiAttack's mind control (G18). The tile half stays the host's (SS2.4a); machine-local, in no hash
+// bucket (PRD-D4); no wire. CLIENT only: a no-op on the host (vanilla ran there) and outside an active co-op battle.
+static void coopClientFullSightAt(SavedBattleGame* save, Position pos)
+{
+	if (!save || !isCoopBattle() || coopBattleAuthority().hostSim || !save->getTileEngine())
+		return;
+	TileEngine* te = save->getTileEngine();
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		if (bu->getFaction() == FACTION_PLAYER && Position::distance2dSq(pos, bu->getPosition()) <= te->getMaxViewDistanceSq())
+			te->calculateUnitsInFOV(bu, pos, te->getMaxViewDistance());
+	}
+}
+
 void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!save)
@@ -21668,7 +21686,13 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
 			{
 				const int id = arr[k].get("id", -1).asInt();
-				if ((arr[k].isMember("tile") || arr[k].isMember("owner")) && CoopIdMaps::item(id))
+				// W2-H35c ((e) G6): a fuse change counts as a move here. A flare that glows only while primed starts or stops
+				// giving light where it is (BattlescapeGame :1148-:1149 / :1164-:1165 and the host's prime intent: light at
+				// the holder, then sight with the item's range), so step (8c) relights it and E5 re-runs the sight.
+				// fuseEnabled rides every fuse change (fuse then fuseEnabled); an item that gives no light before or after
+				// the apply adds no light call.
+				if ((arr[k].isMember("tile") || arr[k].isMember("owner") || arr[k].isMember("fuseEnabled"))
+					&& CoopIdMaps::item(id))
 					noteMoved(id);
 			}
 		}
@@ -26879,6 +26903,22 @@ void onApplied(const Json::Value& ev)
 		// UnitWalkBState::think does on the host (after this ev's light recompute and the walker's own FOV above).
 		if (unit && ev.get("kind", "").asString() == "walk_step")
 			coopClientWalkStepSight(save, unit);
+		// W2-H35c ((e) G3): a kneel or a stand-up changes who this body blocks; vanilla re-runs everyone's sight through the
+		// kneeler's tile right after it (BattlescapeGame::kneel :541, UnitTurnBState :155: the position, radius 1, without
+		// tiles). Unit half, X-COM viewers (E1); this unit's own sight is A5's call above.
+		if (unit && ev.get("kind", "").asString() == "kneel")
+			CoopApply::coopClientEventSight(save, unit->getPosition(), 1);
+		// W2-H35c ((e) G18): a mind control that took the victim to its controller's side, and vanilla's full sight refresh at
+		// the victim right after (TileEngine::psiAttack :4837-:4838; the `psi` cue's delta already holds the new faction:
+		// ExplosionBState :142 runs the attack before the cue at :368). A conversion to a civilian runs none. Unit half,
+		// X-COM viewers (G1).
+		if (unit && ev.get("kind", "").asString() == "psi" && ev["payload"].get("action", "").asString() == "mc"
+			&& ev["payload"].get("success", false).asBool())
+		{
+			const BattleUnit* attacker = CoopIdMaps::unit(ev["payload"].get("actor", -1).asInt());
+			if (attacker && attacker->getFaction() == unit->getFaction())
+				CoopApply::coopClientFullSightAt(save, unit->getPosition());
+		}
 	}
 
 	// R2-P7: info-cancel policy, evaluated LAST on the bt_ev path - after the
