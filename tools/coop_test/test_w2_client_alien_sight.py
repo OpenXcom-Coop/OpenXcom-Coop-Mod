@@ -15,7 +15,7 @@ cycle followed by closing the client's player-side turn screen. A mismatch with 
 
 Rows, in order (every row runs after a failure):
   A   alien_cycle(SEED_A): A walks into V's view during the alien turn; HOLD with the client's player-side turn
-      screen left up. A-pre (A on P0, vis false on both, client hiddenMovementShown true in every cycle sample, the
+      screen left up. A-pre (A on P0, vis false on both, client hiddenMovementShown true in every side-0 sample, the
       walk is A_PATH, >= 3 path samples), A-walk (here(client) true in every path sample), A-after (end of HOLD: vis
       and here true on both), A-list (A in V's visibleUnits on the client exactly as on the host, host [A]), A-close
       (after the client closes its turn screen, soldier 8 selected: here(client) true).
@@ -315,7 +315,7 @@ def row_a(host, client):
     rec = alien_cycle(host, client, SEED_A, HOLD)
     pre, post = rec["pre"], rec["post"]
     ps = rec["pathSamples"]
-    hms = sorted({str(r["c"]["hms"]) for r in rec["rows"]})
+    hms = sorted({str(r["c"]["hms"]) for r in rec["rows"] if r["c"]["side"] == 0})  # R5-U2 S-E (QU2-A1-2): own side
     here_c = [ua(r["c"]).get("here") for r in ps]
     ev(f"A: pre {fmt(pre)} | walk {rec['path']} | host samples per path tile {rec['hostByTile']} | client path "
        f"samples {len(ps)} here {here_c} | hms c {hms} | evs {[k for _, k in rec['hev']]} | client camera.moves "
