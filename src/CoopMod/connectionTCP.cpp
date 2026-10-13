@@ -8573,6 +8573,33 @@ Json::Value coopDrawProbe()
 	return r;
 }
 
+// R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TB2): the TEST-ONLY walk-pace probe - see CoopDelta.h. Main thread.
+static std::map<int, std::pair<unsigned int, unsigned int>> g_coopWalkPace; // unit id -> (animated, instant) step starts
+
+void coopNoteWalkPace(const BattleUnit* u, bool animated)
+{
+	if (!u)
+		return;
+	std::pair<unsigned int, unsigned int>& c = g_coopWalkPace[u->getId()];
+	if (animated)
+		++c.first;
+	else
+		++c.second;
+}
+
+Json::Value coopWalkPace()
+{
+	Json::Value r(Json::objectValue);
+	for (const auto& e : g_coopWalkPace)
+	{
+		Json::Value v(Json::objectValue);
+		v["animated"] = e.second.first;
+		v["instant"] = e.second.second;
+		r[std::to_string(e.first)] = v;
+	}
+	return r;
+}
+
 bool coopMaySelectUnit(const BattleUnit* u)
 {
 	if (!isCoopBattle() && !coopEquipOpen()) // W2-P8b S-A.2 (F3110, V3): the equip screen's PREV/NEXT in phase Handshake too

@@ -756,4 +756,10 @@ void coopDrawProbeArrow(const BattleUnit* u);
 void coopDrawProbeMark(const BattleUnit* u, bool motionScan);
 Json::Value coopDrawProbe();
 
+// ----- R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TB1): TEST-ONLY walk-pace probe. UnitWalkBState counts, per
+// walking unit, each step it starts animated (setNormalWalkSpeed) or instant (state interval 0); coopWalkPace() reads it
+// (event_state `walkPace` {id: {animated, instant}}). Probe storage only; never reset (cells read deltas).
+void coopNoteWalkPace(const BattleUnit* u, bool animated);
+Json::Value coopWalkPace();
+
 } // namespace OpenXcom

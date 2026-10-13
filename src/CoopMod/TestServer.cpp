@@ -7776,6 +7776,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["projectileSkips"] = coopProjectileSkips();
 		// R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the TEST-ONLY draw probe (CoopDelta.h).
 		resp["drawProbe"] = coopDrawProbe();
+		resp["walkPace"] = coopWalkPace(); // R5-U2 S-B.1: the TEST-ONLY walk-pace probe (CoopDelta.h)
 		// SPEC 17 (W1-P18): per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the
@@ -13194,6 +13195,23 @@ std::string TestServer::execute(const std::string& line)
 					// refusal shown when a client's own TU reserve stops a walk at
 					// step 1 ("Time Units reserved for Snap Shot").
 					resp["warningText"] = bsForBanner ? bsForBanner->getWarningText() : "";
+					// R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the visible-unit indicator buttons now
+					// shown (BattlescapeState::coopHudUnits; test introspection only).
+					if (bsForBanner)
+					{
+						std::vector<int> hudIds;
+						int hudDirect = 0, hudEnemies = 0, hudWounded = 0;
+						bsForBanner->coopHudUnits(hudIds, hudDirect, hudEnemies, hudWounded);
+						Json::Value hud(Json::objectValue);
+						Json::Value hudArr(Json::arrayValue);
+						for (int id : hudIds)
+							hudArr.append(id);
+						hud["ids"] = hudArr;
+						hud["direct"] = hudDirect;
+						hud["enemies"] = hudEnemies;
+						hud["wounded"] = hudWounded;
+						resp["hudUnits"] = hud;
+					}
 					// W1-P9 (WV-D33): the PAINTED HUD numbers, so the client-HUD-refresh
 					// acceptance asserts what is on the map strip rather than what the
 					// model holds - the two are exactly what could disagree before this
