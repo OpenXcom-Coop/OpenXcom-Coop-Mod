@@ -1,0 +1,16 @@
+# Test-only mod for W2-H35c (rewrite/prompts/w2h35c_r5u8b_captures.md, case C6).
+# BattleItem::getGlow: a BT_FLARE glows when its fuse type is none (every stock flare), or while its fuse is enabled and set.
+# fuseType -1 (BFT_SET) makes the flare primeable; the prime sets the fuse and enables it, the unprime clears it. power is
+# the glow range (BattleItem::getGlowRange), above a soldier's personal light of 15 (Armor.h default).
+items:
+  - type: STR_COOP_FUSE_FLARE
+    name: STR_ELECTRO_FLARE
+    size: 0.1
+    weight: 3
+    bigSprite: 55
+    floorSprite: 72
+    power: 22
+    battleType: 10
+    fuseType: -1
+    armor: 8
+    recover: false
