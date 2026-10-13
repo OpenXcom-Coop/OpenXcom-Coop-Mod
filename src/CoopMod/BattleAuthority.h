@@ -626,7 +626,7 @@ bool coopMaySelectUnit(const BattleUnit* u);
 /// gift): it refuses silently (logged; counted as denied for an intent) a PvP battle, the pre-battle equipment phase, a
 /// bad target, a unit the giver does not own (its seat tag: a mind-controlled unit is not its controller's to give), a
 /// unit not alive on the player side and a unit acting in an open action context; otherwise it writes the seat tag
-/// (and, outside a SEPARATE campaign, the soldier's owner), sets the `gift` latch (the delta's `seat` reaches the
+/// and the soldier's owner (in every mode since R5-U5 S-C), sets the `gift` latch (the delta's `seat` reaches the
 /// partner in stream order) and records the change. coopGiftNoteSeatChange() records a seat change for the pump (the
 /// host's apply, the client's delta apply; no State op, RB-D5). coopGiftPump() (updateCoopTask, after the drain, both
 /// machines) moves the giver's selection off the given unit, gives the receiver the unit as its gift target (and its

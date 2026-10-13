@@ -18154,6 +18154,30 @@ static std::string coopSerializeCommendedRecord(Game* game, Soldier* soldier)
 	return marked ? SaveUpgrade::yamlutil::emitNode(tree->rootref()) : yaml;
 }
 
+// R5-U5 S-C (docs rewrite/prompts/r5u5_battle_gift_order.md AMENDMENT R5U5-1): an id no soldier of @a save holds, from
+// the world's own counter (SavedGame::getId, vanilla's genSoldier source), skipping any id a living, travelling or dead
+// soldier already has (a merged copy's battle id, lastId + 1, never advanced the counter). For a soldier that changes
+// worlds after a SEPARATE battle (a kept copy on the host, a received soldier on the partner).
+static int coopFreshSoldierId(SavedGame* save)
+{
+	for (;;)
+	{
+		const int id = save->getId("STR_SOLDIER");
+		bool used = false;
+		for (auto* base : *save->getBases())
+		{
+			for (auto* s : *base->getSoldiers())
+				used = used || s->getId() == id;
+			for (auto* t : *base->getTransfers())
+				used = used || (t->getSoldier() && t->getSoldier()->getId() == id);
+		}
+		for (auto* s : *save->getDeadSoldiers())
+			used = used || s->getId() == id;
+		if (!used)
+			return id;
+	}
+}
+
 // W2-P7 S-C-C.2 (PR-C5, F2515, F5626): the host's page-2 name site (DebriefingState :1587) records each row's raw name,
 // seat (coopDebriefSeat) and soldier id, index-aligned with _soldierStats; V5 consumes the list first.
 struct CoopDebriefName { std::string rawName; int ownerSeat; int soldierId; };
@@ -18371,6 +18395,10 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 			g["dead"] = dead;
 			g["hostSoldierId"] = s->getId();
 			g["soldierYaml"] = coopSerializeSoldierRecord(_game, s); // W2-P7 S-C-B2.3.2 (F5554, V-C4): diaries forced on (PR-C4)
+			// R5-U5 S-C (AMENDMENT R5U5-1; aud-E1-13, VL-U5-6): a living copy given during the battle (coopApplyGift wrote
+			// the receiver into its owner) - its origin seat removes its own soldier at the return.
+			if (!dead && s->getOwnerPlayerId() != gseat && s->getOwnerPlayerId() >= 0 && s->getOwnerPlayerId() <= 3)
+				g["giftedTo"] = s->getOwnerPlayerId();
 			guests.append(g);
 		};
 		for (auto* base : *sg->getBases())
@@ -18380,6 +18408,72 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		}
 		for (auto* s : *sg->getDeadSoldiers())
 			addGuest(s, true);
+		// R5-U5 S-C (docs rewrite/prompts/r5u5_battle_gift_order.md AMENDMENT R5U5-1; owner aud-E1-13, VL-U5-6, QU5-8 (a)): a
+		// soldier given during this battle belongs to its receiver afterwards. coopApplyGift wrote the receiver into the
+		// soldier's owner, and GeoscapeState's post-battle cleanup sets coop = owner, keeps a soldier of the host's seat and
+		// deletes one of a partner seat (coopBase -1). (a) A living copy the host's seat owns now (giftedTo above) is adopted:
+		// no origin tag, no guest craft seat, an id from this world's counter, its injury entry of this mission re-keyed.
+		// (b) A living soldier a partner seat owns that is not that seat's own copy - exactly what the cleanup deletes
+		// beyond the copies whose records go home - goes to that seat as a giftsIn row: its record and its station (this
+		// base's co-op id, its craft). (c) A soldier who died after being given stays in the giver's memorial: a dead
+		// untagged soldier a partner seat owns (a host soldier) is the host's again.
+		Json::Value giftsIn(Json::arrayValue);
+		for (auto* base : *sg->getBases())
+		{
+			for (auto* s : *base->getSoldiers())
+			{
+				int oseat = -1, oid = -1;
+				const bool isCopy = coopParseOriginTag(s->getCoopName(), oseat, oid) && oseat != hostSeat;
+				const int owner = s->getOwnerPlayerId();
+				if (isCopy && owner == hostSeat)
+				{
+					const int oldId = s->getId();
+					s->setCoopNameTag(s->getName());
+					s->setCoopCraft(-1);
+					s->setCoopCraftType("");
+					s->setId(coopFreshSoldierId(sg));
+					if (db->_missionStatistics)
+					{
+						std::map<int, int>& injuries = db->_missionStatistics->injuryList;
+						auto inj = injuries.find(oldId);
+						if (inj != injuries.end())
+						{
+							const int days = inj->second;
+							injuries.erase(inj);
+							injuries[s->getId()] = days;
+						}
+					}
+					Log(LOG_INFO) << "[coop-gift] host: SEPARATE gift kept - soldier '" << s->getName() << "' (seat " << oseat
+						<< ", owner's id " << oid << ") is the host's now, id " << oldId << " -> " << s->getId();
+					continue;
+				}
+				if (owner < 1 || owner > 3 || owner == hostSeat || (isCopy && owner == oseat) || s->getCoopBase() != -1)
+					continue;
+				Json::Value r(Json::objectValue);
+				r["ownerSeat"] = owner;
+				r["fromSeat"] = isCopy ? oseat : hostSeat;
+				r["rawName"] = s->getName();
+				r["hostSoldierId"] = s->getId();
+				r["stationBaseId"] = base->_coop_base_id;
+				r["craftId"] = s->getCraft() ? s->getCraft()->getId() : -1;
+				r["craftType"] = s->getCraft() ? s->getCraft()->getRules()->getType() : std::string();
+				r["soldierYaml"] = coopSerializeSoldierRecord(_game, s);
+				giftsIn.append(r);
+				Log(LOG_INFO) << "[coop-gift] host: SEPARATE gift sent - soldier '" << s->getName() << "' id " << s->getId()
+					<< " goes to seat " << owner << " (a guest at base " << base->_coop_base_id << ")";
+			}
+		}
+		for (auto* s : *sg->getDeadSoldiers())
+		{
+			int oseat = -1, oid = -1;
+			const int owner = s->getOwnerPlayerId();
+			if (!coopParseOriginTag(s->getCoopName(), oseat, oid) && owner >= 1 && owner <= 3 && owner != hostSeat)
+			{
+				s->setOwnerPlayerId(999);
+				s->setCoop(0);
+			}
+		}
+		debrief["giftsIn"] = giftsIn;
 		debrief["guests"] = guests;
 		if (db->_missionStatistics)
 		{
@@ -28121,6 +28215,10 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	sep["pushed"] = 0;
 	sep["deadApplied"] = 0;   // W2-P7 S-C-B2.2: the object replaces the record's whole sepReturn, so B2's keys live here too
 	sep["missionCopied"] = 0;
+	sep["giftedAway"] = 0;     // R5-U5 S-C (AMENDMENT R5U5-1): own soldiers given away in the battle, removed here
+	sep["giftedIn"] = 0;       // R5-U5 S-C: soldiers given to this seat in the battle, added as guests at the host's base
+	sep["giftedInFailed"] = 0; // R5-U5 S-C: giftsIn rows of this seat not added (never expected)
+	int giftedAway = 0, giftedIn = 0, giftedInFailed = 0;
 	SavedGame* own = nullptr;
 	if (haveBlob)
 	{
@@ -28223,6 +28321,19 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 					<< " for guest seat=" << seat;
 				continue;
 			}
+			// R5-U5 S-C (AMENDMENT R5U5-1; aud-E1-13, VL-U5-6): this seat gave the soldier away during the battle - it is
+			// the receiver's now (the host kept its copy, or the receiving seat adds it from giftsIn), so it leaves here.
+			const int giftedTo = g.get("giftedTo", -1).asInt();
+			if (!dead && giftedTo >= 0 && giftedTo != seat)
+			{
+				vec->erase(vec->begin() + idx);
+				Log(LOG_INFO) << "[coop-roster] SEPARATE return: soldier " << ownS->getId() << " '" << ownS->getName()
+					<< "' given to seat " << giftedTo << " in the battle - removed from base " << baseIdx << " '"
+					<< ownBase->getName() << "'";
+				delete ownS;
+				++giftedAway;
+				continue;
+			}
 			const std::string ownSoldierYaml = coopSerializeGuestSoldier(_game, ownS);
 			const std::string merged = coopOverlayGuestRecord(ownSoldierYaml, g.get("soldierYaml", "").asString(),
 				hostMissionId, newMissionId);
@@ -28269,6 +28380,63 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	sep["guestsApplied"] = applied;
 	sep["guestsMissing"] = missing;
 	sep["deadApplied"] = deadApplied;
+	// R5-U5 S-C (docs rewrite/prompts/r5u5_battle_gift_order.md AMENDMENT R5U5-1; aud-E1-13, VL-U5-6; main's receive
+	// shape, the giftSoldier receive): every soldier given to this seat during the battle joins this world as a guest at
+	// the host's base - in the first own base, owner and coop this seat, coopBase its station, a fresh id from this
+	// world's counter, its seat on the host's craft kept unless it came back wounded (MR6).
+	const Json::Value& giftsIn = msg["debrief"]["giftsIn"];
+	Base* firstOwn = nullptr;
+	for (auto* base : *own->getBases())
+	{
+		if (!base->_coopBase && !base->_coopIcon)
+		{
+			firstOwn = base;
+			break;
+		}
+	}
+	if (giftsIn.isArray())
+	{
+		for (const Json::Value& r : giftsIn)
+		{
+			if (r.get("ownerSeat", -1).asInt() != seat)
+				continue;
+			Soldier* given = nullptr;
+			try
+			{
+				if (firstOwn)
+					given = coopBuildSoldierFromYaml(_game, own, r.get("soldierYaml", "").asString());
+			}
+			catch (const std::exception& e)
+			{
+				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - given soldier unreadable: " << e.what();
+			}
+			if (!given)
+			{
+				++giftedInFailed;
+				Log(LOG_ERROR) << "[coop-debrief] client: SEPARATE return - given soldier '" << r.get("rawName", "").asString()
+					<< "' not added (" << (firstOwn ? "no soldier built" : "no own base") << ")";
+				continue;
+			}
+			const int hostId = given->getId();
+			given->setId(coopFreshSoldierId(own));
+			given->setCoopNameTag(given->getName());
+			given->setOwnerPlayerId(seat);
+			given->setCoop(seat);
+			given->setCoopBase(r.get("stationBaseId", -1).asInt());
+			const bool seated = given->getWoundRecoveryInt() <= 0 && r.get("craftId", -1).asInt() >= 0;
+			given->setCoopCraft(seated ? r.get("craftId", -1).asInt() : -1);
+			given->setCoopCraftType(seated ? r.get("craftType", "").asString() : std::string());
+			given->calcStatString(_game->getMod()->getStatStrings(), false);
+			firstOwn->getSoldiers()->push_back(given);
+			++giftedIn;
+			Log(LOG_INFO) << "[coop-roster] SEPARATE return: soldier '" << given->getName() << "' given by seat "
+				<< r.get("fromSeat", -1).asInt() << " in the battle - added to base '" << firstOwn->getName() << "' as id "
+				<< given->getId() << " (host id " << hostId << "), a guest at peer base " << given->getCoopBase();
+		}
+	}
+	sep["giftedAway"] = giftedAway;
+	sep["giftedIn"] = giftedIn;
+	sep["giftedInFailed"] = giftedInFailed;
 
 	// Return to the own geoscape in place. coopMissionEnd = false makes the legacy SEPARATE mission-end reload (N13,
 	// GeoscapeState.cpp) dead for the returning client - the record is applied here, not by the old blob dance - and
@@ -32142,11 +32310,13 @@ bool coopApplyGift(BattleUnit* unit, int giverSeat, int target, std::uint32_t is
 	const int from = (int)unit->getCoopSeat();
 	unit->setCoopSeat((CoopSeat)target);
 	Soldier* soldier = unit->getGeoscapeSoldier();
-	if (soldier && !(connectionTCP::_coopCampaign && !connectionTCP::isSharedCampaignStatic()))
+	if (soldier)
 	{
 		// the soldier's owner (giftSoldier's battle branch wrote the same): a SHARED post-battle world carries it (issue
-		// #126: no physical hand-off), a skirmish discards it, MG-A's stage-2 pass re-seats soldiers by it. A SEPARATE
-		// campaign's soldier record moves only in stage S-C.
+		// #126: no physical hand-off), a skirmish discards it, MG-A's stage-2 pass re-seats soldiers by it. R5-U5 S-C
+		// (AMENDMENT R5U5-1; aud-E1-13, VL-U5-6): a SEPARATE campaign too - the host's debrief payload and its post-battle
+		// cleanup read it, so the soldier lives in its receiver's world after the battle (coopDebriefHostSend,
+		// coopSeparateReturn, GeoscapeState's cleanup).
 		soldier->setOwnerPlayerId(target);
 		soldier->setCoop(target);
 	}
