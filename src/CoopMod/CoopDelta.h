@@ -747,4 +747,13 @@ bool coopFactionIsMine(int faction);
 /// The side now playing is THIS machine's opponent (vanilla: `getSide() == FACTION_HOSTILE`; never the neutral side).
 bool coopSideIsOpponents(const SavedBattleGame* s);
 
+// ----- R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TA1; QU2-2 (a)): TEST-ONLY draw probe. Map::drawTerrain
+// counts its frames (coopDrawProbeFrame) and records the unit the selection arrow was drawn over (coopDrawProbeArrow) and
+// each unit an Alt marker was drawn over, with its kind (coopDrawProbeMark); coopDrawProbe() reads the record (event_state
+// `drawProbe`). Probe storage only: nothing but TestServer reads it; never reset (a cell reads "drawn in the latest frame").
+void coopDrawProbeFrame();
+void coopDrawProbeArrow(const BattleUnit* u);
+void coopDrawProbeMark(const BattleUnit* u, bool motionScan);
+Json::Value coopDrawProbe();
+
 } // namespace OpenXcom

@@ -7771,6 +7771,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["shotTrajectories"] = coopShotTrajectories();
 		// R5-U1 S-C.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): the HOST's skipped projectile flights (CoopDelta.h).
 		resp["projectileSkips"] = coopProjectileSkips();
+		// R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the TEST-ONLY draw probe (CoopDelta.h).
+		resp["drawProbe"] = coopDrawProbe();
 		// SPEC 17 (W1-P18): per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the
@@ -13280,6 +13282,7 @@ std::string TestServer::execute(const std::string& line)
 					// presentation predicate THIS machine's map and minimap draw a unit by, and the unit's own visible list.
 					ju["visible"] = u->getVisible();
 					ju["visibleHere"] = coopUnitVisibleHere(u);
+					ju["customMarker"] = u->getCustomMarker(); // R5-U2 S-A.1: a pure read (machine-local, hash-excluded)
 					{
 						Json::Value seenIds(Json::arrayValue);
 						for (const BattleUnit* v : *u->getVisibleUnits())
