@@ -3658,6 +3658,18 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 					for (auto* u : *sg->getUfos())
 						if (u->getId() == id) { craft->setDestination(u); break; }
 				}
+				else if (dest.rfind("ufoCoop:", 0) == 0) // coop D250-U S-C5a (TEST-ONLY): a coop mirror UFO by its coop id (a mirror's Target id is 0)
+				{
+					int coopId = std::atoi(dest.c_str() + 8);
+					for (auto* u : *sg->getUfos())
+						if (u->getCoop() && u->getCoopUfoId() == coopId) { craft->setDestination(u); break; }
+				}
+				else if (dest.rfind("alienBaseCoop:", 0) == 0) // coop D250-U S-C5a (TEST-ONLY): a coop mirror alien base by its coop id
+				{
+					int coopId = std::atoi(dest.c_str() + 14);
+					for (auto* ab : *sg->getAlienBases())
+						if (ab->_coop && ab->_coop_alienbase_id == coopId) { craft->setDestination(ab); break; }
+				}
 			}
 			if (req.get("checkup", false).asBool()) craft->checkup();
 			resp["craft_id"] = craft->getId();
@@ -3887,6 +3899,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			ab->setLongitude(req.get("lon", 0.0).asDouble());
 			ab->setLatitude(req.get("lat", 0.0).asDouble());
 			ab->setDiscovered(false);
+			if (req.isMember("race")) ab->setAlienRace(req["race"].asString()); // coop D250-U S-C5a (TEST-ONLY): a race the landing can generate with
 			sg->getAlienBases()->push_back(ab);
 			resp["alien_base_id"] = ab->getId();
 			resp["ok"] = true;
@@ -3902,6 +3915,10 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				Json::Value j;
 				j["id"] = ab->getId();
 				j["discovered"] = ab->isDiscovered();
+				j["coopId"] = ab->_coop_alienbase_id; // coop D250-U S-C5a: read-only probe fields
+				j["coop"] = ab->_coop;
+				j["race"] = ab->getAlienRace();
+				j["inBattlescape"] = ab->isInBattlescape();
 				arr.append(j);
 			}
 		resp["alienBases"] = arr;
