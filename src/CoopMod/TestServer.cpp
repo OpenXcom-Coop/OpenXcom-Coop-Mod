@@ -7649,6 +7649,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// (-1 = idle / cannot attribute) - the input to the seat-attributed wait
 		// banner, exposed so a test can prove the ATTRIBUTION, not just the text.
 		resp["busyOwnerSeat"] = CoopArbiter::busyOwnerSeat();
+		// R5-U2 S-C.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the CLIENT's new-contact count
+		// (CoopArbiter::visibleHostileCount, WR-30) - a pure read (the cancel policy's toggle-3 basis).
+		resp["visibleHostileCount"] = CoopArbiter::visibleHostileCount();
 		// W1-P7 deliverable 6 (REV D / WV-D55): THIS BATTLE's turn mode - the live
 		// BattleAuthority mirror, i.e. what the host stamped on battle_offer and
 		// the client mirrored. Reported so a test can prove the TRANSPORT (host
