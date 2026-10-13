@@ -63,7 +63,7 @@ X = 13                            # the partner's X-COM soldier staged to panic 
 TILES_D = {u: (t, d if u == A_ID else 4) for u, (t, d) in RM.TILES.items()}   # every X-COM unit faces 4 (Pa, Pb)
 SEED_X, STATUS_X, MODE_X = 1, 9, "berserk"     # host set_seed before the host's END TURN (Pa, Pb)
 SEED_O3, STATUS_O3, MODE_O3 = 1, 8, "flee"     # host set_seed before the PARTNER's END TURN (Pa, Pb)
-PARTNER_SEL3 = 9                  # the gm3 partner's selection and action actor after X's panic (Pa, Pb)
+PARTNER_SEL3 = 8                  # the gm3 partner's selection and action actor after X's panic (Pa, Pb)
 HOST_SEL2 = 8                     # the gm2 host's selection and action actor at entry and at side 0 turn 2 (Pc, Pd)
 TEXT_NOT_YOURS = "Not one of your soldiers"   # en-US :77 STR_COOP_DENY_NOT_YOUR_UNIT
 KEY_ZERO = 127                    # Delete: Zero TU (keyBattleZeroTUs)
