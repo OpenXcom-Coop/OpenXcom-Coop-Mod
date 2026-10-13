@@ -15193,10 +15193,17 @@ void coopThinkCoveredBattle(Game* game)
 // CoopDelta.h, whose doc comment carries the contract. The origin test is the covered driver's above: the context
 // stack's FRONT (base) entry, a lone nested `reaction` / `prox` entry counting by the base origin it carries.
 static const char* coopActorRelation(const BattleUnit* u); // defined before the replay regions below
+// D249-U (owner D249 (a); docs rewrite/prompts/d249u_follow_teammate_camera.md): see CoopDelta.h.
+bool coopCameraFollowsPartner(const BattleUnit* u)
+{
+	return Options::coopFollowPeerActions && u && isCoopBattle() && std::string(coopActorRelation(u)) == "partner";
+}
 bool coopHostPartnerCamera(const BattleUnit* actor, const char* what)
 {
 	if (!isCoopBattle() || !coopBattleAuthority().hostSim.load())
 		return false;
+	if (coopCameraFollowsPartner(actor))
+		return false; // D249-U (owner D249 (a)): the option on - the partner's unit moves this camera as an own unit does
 	std::string origin;
 	if (!g_coopActionContextStack.empty())
 	{
@@ -23083,7 +23090,8 @@ bool cameraClientOn()
 
 /// The camera term of an ACTING unit (OR4 (a), D171 (a)): "own" (this seat commands it); "enemy" (an `other` actor
 /// on its own side's turn); "reaction" (an `other` actor off its side's turn while this machine's own admitted order
-/// runs, g_coopClientRunningActionId); "" for a partner's unit and every other case (no camera move). Read at the
+/// runs, g_coopClientRunningActionId); "partner" (a partner's unit while coopCameraFollowsPartner(), D249-U); "" for a
+/// partner's unit otherwise and for every other case (no camera move). Read at the
 /// cue's apply.
 std::string cameraActorTerm(const SavedBattleGame* save, const BattleUnit* actor)
 {
@@ -23092,6 +23100,8 @@ std::string cameraActorTerm(const SavedBattleGame* save, const BattleUnit* actor
 	const std::string rel = coopActorRelation(actor);
 	if (rel == "own")
 		return "own";
+	if (coopCameraFollowsPartner(actor))
+		return "partner"; // D249-U (owner D249 (a)): the option on - the partner's unit gets the enemy-turn camera
 	if (rel != "other")
 		return std::string();
 	if (save->getSide() == actor->getFaction())
@@ -23192,7 +23202,8 @@ void cameraImpact(SavedBattleGame* save, Map* map, const Json::Value& ev, const 
 /// K5 / K6 (C-C5): at a `walk_step` ghost's enqueue - an enemy-turn walker: centre on its destination when it is
 /// visible here and off screen (walker_centre), then the view level of its destination, seen or not (walker_level,
 /// vanilla UnitWalkBState :202/:204); an own walker: the view level only (own_walker_level, D171 (a)); a partner's
-/// walker: nothing. A walker record carries its decision inputs `visible` and `onScreen`.
+/// walker: nothing - or, while coopCameraFollowsPartner() (D249-U), the enemy-turn walker's moves. A walker record carries
+/// its decision inputs `visible` and `onScreen`.
 void cameraWalker(SavedBattleGame* save, const BattleUnit* unit, std::uint32_t seq, const Position& toPos)
 {
 	if (!cameraClientOn() || !save || !unit)
@@ -23201,7 +23212,7 @@ void cameraWalker(SavedBattleGame* save, const BattleUnit* unit, std::uint32_t s
 	if (!map)
 		return;
 	const std::string term = cameraActorTerm(save, unit);
-	if (term == "enemy")
+	if (term == "enemy" || term == "partner") // D249-U (owner D249 (a)): the partner's walker, option on, as an enemy-turn one
 	{
 		const bool visible = coopUnitVisibleHere(unit);
 		const int size = unit->getArmor()->getSize() - 1;
@@ -23217,7 +23228,8 @@ void cameraWalker(SavedBattleGame* save, const BattleUnit* unit, std::uint32_t s
 }
 
 /// K7: at an applied `panic` of an own or other unit that vanilla shows (getVisible() || !noAlienPanicMessages,
-/// BattlescapeGame :1666-:1668): centre on the unit (panic_centre). A partner's unit: nothing. Read before the delta.
+/// BattlescapeGame :1666-:1668): centre on the unit (panic_centre). A partner's unit: nothing, unless
+/// coopCameraFollowsPartner() (D249-U). Read before the delta.
 void cameraPanic(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!cameraClientOn() || !save)
@@ -23225,7 +23237,7 @@ void cameraPanic(SavedBattleGame* save, const Json::Value& ev)
 	const int unitId = ev["payload"].get("unit", -1).asInt();
 	const BattleUnit* u = unitId >= 0 ? CoopIdMaps::unit(unitId) : nullptr;
 	Map* map = combatLiveMap();
-	if (!u || !map || std::string(coopActorRelation(u)) == "partner")
+	if (!u || !map || (std::string(coopActorRelation(u)) == "partner" && !coopCameraFollowsPartner(u))) // D249-U: the option on - the partner's unit too
 		return;
 	if (u->getVisible() || !Options::noAlienPanicMessages)
 		cameraCentre(map, ev.get("seq", 0u).asUInt(), "panic_centre", unitId, u->getPosition(), true);
@@ -23621,7 +23633,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1; OR4 (a), D171 (a)): the follow is decided at this apply - an alien
 	// on its own side's turn, an alien reaction shot while this machine's own order runs, this seat's own shot.
 	const std::string camTerm = cameraActorTerm(save, shooter);
-	g.camReason = camTerm == "enemy" ? "follow" : camTerm == "reaction" ? "reaction_follow"
+	g.camReason = (camTerm == "enemy" || camTerm == "partner") ? "follow" : camTerm == "reaction" ? "reaction_follow" // D249-U: a partner's shot as an enemy-turn one
 		: camTerm == "own" ? "own_follow" : "";
 	g.camSeq = ev.get("seq", 0u).asUInt();
 	if (held)

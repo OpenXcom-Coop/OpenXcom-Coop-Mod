@@ -727,6 +727,16 @@ bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const B
 /// An `endturn` base is never suppressed (OR5 (a)). Writes no battle state.
 bool coopHostPartnerCamera(const BattleUnit* actor, const char* what);
 
+/// D249-U (owner D249 (a), D131; docs rewrite/prompts/d249u_follow_teammate_camera.md): TRUE iff THIS machine's own
+/// Options::coopFollowPeerActions is on (a per-player option, never synced), a co-op battle is active and @a u is
+/// commanded by the partner's seat (another seat of this seat's faction: coopActorRelation() "partner"). Then the
+/// host's guard above answers FALSE for that unit (vanilla's five camera writes run, as for this machine's own units),
+/// UnitWalkBState centres on it when it walks off screen (as on an enemy walker), and the client camera policy gives
+/// it the enemy-turn term "partner" (cameraActorTerm). FALSE with the option off (D131: the partner never moves your
+/// camera), outside a co-op battle, in PvP (one seat per side, no partner) and for every other unit - an alien
+/// reacting to the partner's order included. Reads only; writes nothing.
+bool coopCameraFollowsPartner(const BattleUnit* u);
+
 // ----- R5-U1 S-B (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) EB1; owner D222 (a) gap 2, design-D5 / WV-D11): the
 // side-relative replacements for vanilla's X-COM-literal camera terms (UnitWalkBState's off-screen walker centre,
 // ExplosionBState's melee / psi target centre, the client's hit_centre). Body: connectionTCP.cpp, before
