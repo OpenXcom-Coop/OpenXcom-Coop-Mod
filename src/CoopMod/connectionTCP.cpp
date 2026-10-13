@@ -23284,7 +23284,7 @@ void cameraPanic(SavedBattleGame* save, const Json::Value& ev)
 	Map* map = combatLiveMap();
 	if (!u || !map || (std::string(coopActorRelation(u)) == "partner" && !coopCameraFollowsPartner(u))) // D249-U: the option on - the partner's unit too
 		return;
-	if (u->getVisible() || !Options::noAlienPanicMessages)
+	if (coopUnitVisibleHere(u) || !Options::noAlienPanicMessages) // R5-U2 S-D (QU1-7): seen by the side this machine plays
 		cameraCentre(map, ev.get("seq", 0u).asUInt(), "panic_centre", unitId, u->getPosition(), true);
 }
 
@@ -24606,7 +24606,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["sound"] = g.sound;
 	// The UnitDieBState constructor's intervals (:100/:103): DEFAULT_ANIM_SPEED, then / 3 when it must turn.
 	g_deathInterval = g.octants > 0 ? BattlescapeState::DEFAULT_ANIM_SPEED / 3 : BattlescapeState::DEFAULT_ANIM_SPEED;
-	if (unit->getFaction() == FACTION_PLAYER)
+	if (coopFactionIsMine((int)unit->getFaction())) // R5-U2 S-D: this machine's own unit dying lifts its hidden-movement screen
 	{
 		if (Map* live = combatLiveMap())
 		{
@@ -27317,7 +27317,7 @@ void decideDeath(int unitId, unsigned int seq, const std::string& kind)
 	const PendingDeath pd = it->second;
 	g_messages.pendingDeaths.erase(it);
 	const BattleUnit* u = CoopIdMaps::unit(unitId);
-	if (!u || u->getOriginalFaction() != FACTION_PLAYER)
+	if (!u || !coopFactionIsMine((int)u->getOriginalFaction())) // R5-U2 S-D (QU2-12): a unit of this machine's side (vanilla UnitDieBState :212)
 		return;
 	int& level = g_messages.notified[unitId];
 	if (u->getStatus() == STATUS_DEAD)
@@ -27416,7 +27416,7 @@ void onMessageEvPreApply(const SavedBattleGame* save, const Json::Value& ev)
 	// FACTION_PLAYER`, read before the conversion - here, before the spawn's delta.
 	const BattleUnit* from = CoopIdMaps::unit(p["from"].asInt());
 	g_messages.convertSeq = ev.get("seq", 0u).asUInt();
-	g_messages.convertFromPlayer = from != nullptr && from->getFaction() == FACTION_PLAYER;
+	g_messages.convertFromPlayer = from != nullptr && coopFactionIsMine((int)from->getFaction()); // R5-U2 S-D (QU2-12): this machine's side (vanilla BG :3476)
 }
 
 void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev)
@@ -27486,7 +27486,7 @@ void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev)
 		if (!u)
 			return;
 		const char* key = p.get("mode", "").asString() == "berserk" ? "STR_HAS_GONE_BERSERK" : "STR_HAS_PANICKED";
-		if (u->getVisible() || !Options::noAlienPanicMessages)
+		if (coopUnitVisibleHere(u) || !Options::noAlienPanicMessages) // R5-U2 S-D (QU1-7): seen by the side this machine plays
 			clientDecide(seq, kind, u, key, u, false);
 		return;
 	}
@@ -27500,7 +27500,7 @@ void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev)
 		const BattleUnit* victim = CoopIdMaps::unit(p.get("unit", -1).asInt());
 		if (!attacker || !victim)
 			return;
-		if (attacker->getFaction() == FACTION_HOSTILE)
+		if (attacker->getFaction() != FACTION_NEUTRAL && !coopFactionIsMine((int)attacker->getFaction())) // R5-U2 S-D (QU2-12): an opponent's attack
 		{
 			if (action == "mc")
 				clientDecide(seq, kind, victim, "STR_IS_UNDER_ALIEN_CONTROL", victim, false);
