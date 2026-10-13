@@ -30,6 +30,7 @@ class Craft;
 class Base;
 class SavedBattleGame;
 class AlienDeployment;
+class Texture;
 
 /**
  * R4-P1 (rewrite spike, SPIKE-RUNBOOK.md SS2.7, RB-D18, IR-5, IR-6): the
@@ -121,6 +122,12 @@ namespace CoopHandshake
 /// (SS2.1: battle_refuse is client->host only; a receiving CLIENT is what
 /// evaluates and sends "busy").
 void offerBattle(Game* game, int gamemode);
+
+/// coop D250-U S-C1 (owner D250, O1 (a)): on a gm3 PvP campaign CLIENT (the X-COM side) only, hands this landing to the alien
+/// host, which runs the battle in this machine's world: pushes this machine's live world to the host (pushProgressToHostSilently),
+/// sends `pvp_land` and holds on CoopState(3). True = handed off (or, if the push failed, the craft sent home): the caller generates
+/// nothing. False on every other machine and mode (the host, gm0 / gm1 / gm2 / gm4, a skirmish, single player).
+bool requestPvpLanding(Game* game, Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
 
 // ----- FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): offerBattle() SPLIT into
 // PREPARE and EMIT halves, so the coop blob snapshot (and the battle_offer
