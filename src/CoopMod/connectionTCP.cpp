@@ -2278,6 +2278,10 @@ static bool g_coopCampaignOkDeferred = false;
 // save (F4526). Identity, self-clearing: a guard read that sees a different live pointer clears it. Set at the battle
 // entry, cleared at the return's setSavedGame(own). Main thread only.
 static SavedGame* g_coopSepBattleWorld = nullptr;
+static bool g_coopPvpBorrowedReturn = false; // coop D250-U S-C2 (owner D250, O1 (a)): CLIENT - a borrowed battle's world return is armed
+static bool g_coopPvpWorldStored = false; // coop D250-U S-C2: HOST - the post-battle world was stored under "shared_world" at the debriefing
+static void coopPvpStorePostBattleWorld(Game* game); // coop D250-U S-C2: defined in the D250-U block before coopAdoptWorldInPlace
+static bool coopPvpTakeStoredWorld(); // coop D250-U S-C2
 
 namespace CoopPump
 {
@@ -6563,6 +6567,7 @@ void initBattleAuthority(std::uint32_t battleId)
 	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3/PR-4/PR-7): nor the SHARED return's push, restream skip, hold or deferred OK.
 	g_coopPostBattlePushPending = g_coopPostBattleWorldSent = false;
 	g_coopSharedReturnPending = g_coopPostBattleWorldReady = g_coopPostBattleWorldAdopted = g_coopCampaignOkDeferred = false;
+	g_coopPvpBorrowedReturn = g_coopPvpWorldStored = false; // coop D250-U S-C2: a new battle never inherits a borrowed return
 	// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 "Shared state"): the equip phase's state and its counters start clear;
 	// the counters are cleared here and nowhere else (F2733 rule).
 	coopEquipStateZeros();
@@ -18415,7 +18420,8 @@ static int coopDebriefSendResult(Json::Value& msg)
 	CoopDelta::battleEndRecordSet("resultBytes", bytes);
 	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3; MR1, MR2, F4521): a SHARED campaign's result arms the post-battle world push
 	// (the pump streams once the streamer is idle: an SE-4 release never clobbers a stream) and the restream skip.
-	if (msg.get("debrief", Json::Value()).get("mode", "").asString() == "shared")
+	const std::string coopMode = msg.get("debrief", Json::Value()).get("mode", "").asString(); // coop D250-U S-C2: "borrowed" pushes its world as "shared" does
+	if (coopMode == "shared" || coopMode == "borrowed")
 	{
 		g_coopPostBattlePushPending = true;
 		g_coopPostBattleWorldSent = true;
@@ -18812,7 +18818,10 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	// sends the world-bearing payload (mode "shared" + the PR-3 push); any other campaign (SEPARATE, PvP) sends a
 	// record-bearing payload (mode "separate" + guests[]). Only the pre-S-C skirmish path left the send untouched.
 	const bool campaign = sg->getMonthsPassed() != -1;
-	const bool separate = campaign && !isSharedCampaign();
+	// coop D250-U S-C2 (owner D250, O1 (a); D154, D180, D181): a gm3 battle in the X-COM player's borrowed world sends the world-bearing
+	// payload (mode "borrowed"): the post-battle world is the X-COM player's own and goes back to it whole.
+	const bool borrowed = campaign && coopPvpBorrowActive();
+	const bool separate = campaign && !isSharedCampaign() && !borrowed;
 	const Json::Value rec = CoopDelta::battleEndRecord();
 	if ((!held && rec.get("emitted", 0).asInt() != 1) || rec.get("resultSent", 0).asInt() != 0)
 		return;
@@ -18909,7 +18918,7 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	debrief["recovered"] = recovered;
 	// W2-P7 S-C-A.2 / S-C-B1.2 (AMENDMENT P7-6 PR-8): the payload's first S-C field. SHARED carries the world;
 	// SEPARATE / PvP carry the guests' record.
-	debrief["mode"] = !campaign ? "skirmish" : (separate ? "separate" : "shared");
+	debrief["mode"] = !campaign ? "skirmish" : (borrowed ? "borrowed" : (separate ? "separate" : "shared")); // coop D250-U S-C2
 	if (separate)
 	{
 		// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 3, PR-8; D155 (a)): every merged guest copy in the host's
@@ -19116,7 +19125,7 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 		}
 	}
 
-	if (campaign && isSharedCampaign())
+	if (campaign && (isSharedCampaign() || borrowed)) // coop D250-U S-C2 (D154): the X-COM player's page 3 and forced screens too
 	{
 		// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-22; D176): the SHARED second player's page 3 - the host's Sell/Transfer
 		// visibility, a destroyed base (vanilla's inert buttons) and the debriefing's base by index in the pushed world.
@@ -19143,6 +19152,13 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 			&& db->_base->storesOverfull(); // record only
 	}
 
+	// coop D250-U S-C2 (D154): the alien host never works the X-COM base's page 3 - its own Sell / Transfer stay hidden; the
+	// post-battle world is stored now, so the push streams it even if the host's OK comes first.
+	if (borrowed)
+	{
+		db->hideSellTransferButtons();
+		coopPvpStorePostBattleWorld(_game);
+	}
 	Json::Value msg = CoopWire::makeDebriefResult(a.battleId.load(), debrief);
 	if (held)
 	{
@@ -28700,6 +28716,8 @@ static void coopCampaignClientSharedLeave(Game* game, DebriefingState* db, const
 	CoopDelta::battleEndRecordSet("resetAtOk", 0);
 	Log(LOG_INFO) << "[coop-debrief] client: campaign debriefing OK - phaseAtOk=" << phaseAtOk
 		<< " - its own geoscape on the adopted world";
+	if (g_coopPvpBorrowedReturn)
+		connectionTCP::coopPvpClientLeave(game, db); // coop D250-U S-C2: vanilla's OK-time writes on the X-COM player's own base
 	game->setState(new GeoscapeState);
 	game->getCoopMod()->coopCampaignFollowupChain(db); // W2-P7 S-C-C.2 (PR-C6; D154): the after-battle screens
 	connectionTCP::coopSharedForcedScreens(game, db); // W2-P7 S-C-D2.2 (PR-29; D154, D175): LAST - the forced screens
@@ -28821,7 +28839,7 @@ void connectionTCP::coopCampaignFollowupChain(DebriefingState* db)
 {
 	const Json::Value msg = CoopDelta::debriefResultCopy();
 	const Json::Value& d = msg["debrief"];
-	const bool shared = d.get("mode", "").asString() == "shared";
+	const bool shared = d.get("mode", "").asString() == "shared" || d.get("mode", "").asString() == "borrowed"; // coop D250-U S-C2 (D154): the gm3 X-COM player's own base gets CannotReequipState too
 	SavedGame* save = _game->getSavedGame();
 	Json::Value chain(Json::arrayValue);
 	auto temps = [&](const Json::Value& rows, std::vector<Soldier*>& out) {
@@ -29283,7 +29301,7 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 	{
 		// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2 step 6, PR-1; D155 (a), D156 (a)): a SEPARATE campaign client (and
 		// a PvP one, P7-5 Q4 a) has no host world to adopt - it returns to its OWN world with the guests' record applied.
-		if (!isSharedCampaign())
+		if (!isSharedCampaign() && !g_coopPvpBorrowedReturn) // coop D250-U S-C2: the gm3 X-COM player adopts the post-battle world
 		{
 			coopSeparateReturn(db, phaseAtOk);
 			return true;
@@ -29303,6 +29321,8 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 		coopCampaignClientSharedLeave(_game, db, phaseAtOk);
 		return true;
 	}
+	if (campaign && host && coopPvpBorrowActive())
+		return coopPvpHostReturn(db, phaseAtOk); // coop D250-U S-C2 (owner D250, O1 (a)): the alien host goes home to its own world
 	if (campaign)
 	{
 		// SHARED: vanilla's wounded loop (DebriefingState :924-929, right after this returns false) is the one OK-time
@@ -36978,7 +36998,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				Log(LOG_INFO) << "[coop-debrief] client: debrief result stored battleId=" << battleId;
 				// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 5, PR-4; MR1): a SHARED campaign's result arms the
 				// in-place return - the host's post-battle world that follows is held, not loaded over the stack.
-				if (obj.get("debrief", Json::Value()).get("mode", "").asString() == "shared")
+				const std::string coopMode = obj.get("debrief", Json::Value()).get("mode", "").asString(); // coop D250-U S-C2
+				if (coopMode == "borrowed")
+					g_coopPvpBorrowedReturn = true; // the X-COM player's post-battle world comes back whole (the SHARED way)
+				if (coopMode == "shared" || coopMode == "borrowed")
 				{
 					g_coopSharedReturnPending = true;
 					CoopDelta::battleEndRecordSet("returnPending", 1);
@@ -39787,8 +39810,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// W2-P7 S-C-A.2 (AMENDMENT P7-6 section 4.1 step 6, PR-6; MR3, F2129, F2496): a SHARED client holds every
 		// shared_apply until this world is adopted (LoadGameState :279 or the in-place adoption: notifyWorldAdopted).
-		const bool sharedClient = !getServerOwner() && isSharedCampaign();
-		if (sharedClient)
+		const bool sharedClient = !getServerOwner() && (isSharedCampaign() || g_coopPvpBorrowedReturn); // coop D250-U S-C2: the gm3 X-COM player's world comes back the SHARED way
+		if (sharedClient && isSharedCampaign())
 			SharedEcon::setApplyHold(true);
 		// PR-4 (MR1, F4529): an armed SHARED return holds the world for the pump's in-place adoption (no CoopState(555)).
 		if (sharedClient && g_coopSharedReturnPending && coopReturnHoldStack(_game))
@@ -41437,8 +41460,11 @@ void connectionTCP::streamSharedWorldToClient()
 	}
 
 	const std::string key = "shared_world";
-	connectionTCP::saveError = false;
-	_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
+	if (!coopPvpTakeStoredWorld()) // coop D250-U S-C2: a borrowed battle's post-battle world was stored at the debriefing
+	{
+		connectionTCP::saveError = false;
+		_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
+	}
 
 	std::string blob;
 	{
@@ -43608,6 +43634,145 @@ void connectionTCP::coopPvpBorrowDrop() // coop D250-U S-C1: the main-menu choke
 	g_coopPvpParked = nullptr; g_coopPvpLand = CoopPvpLand(); g_coopPvpReleasePending = false;
 }
 
+// ===== coop D250-U S-C2 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): a gm3 borrowed battle's return =====
+// coop D250-U S-C2 (D154, D180, D181; QC-9; F14511): HOST - the post-battle X-COM world is stored at the debriefing for the push (E4).
+// The old entry goes first and the flag is set in every case, so the stream never sends a stale world or the (maybe alien) live one.
+static void coopPvpStorePostBattleWorld(Game* game)
+{
+	{
+		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+		connectionTCP::coopFilesHost.erase("shared_world");
+	}
+	connectionTCP::saveError = false;
+	game->getSavedGame()->saveCoopToMemory("shared_world", game->getMod(), "shared_world");
+	g_coopPvpWorldStored = true;
+	if (connectionTCP::saveError)
+	{
+		g_coopPvpRec["worldStoreFailed"] = g_coopPvpRec["worldStoreFailed"].asInt() + 1;
+		Log(LOG_WARNING) << "[coop-pvp] host: the post-battle world could not be stored - nothing will stream";
+		return;
+	}
+	g_coopPvpRec["worldStored"] = g_coopPvpRec["worldStored"].asInt() + 1;
+}
+
+// coop D250-U S-C2: HOST - true once after a store (E6 then streams the stored world instead of saving the live one).
+static bool coopPvpTakeStoredWorld()
+{
+	const bool stored = g_coopPvpWorldStored;
+	g_coopPvpWorldStored = false;
+	return stored;
+}
+
+// coop D250-U S-C2 (D154, D181; QC-9): CLIENT - from the SHARED leave (E10) on the adopted world: vanilla's OK-time writes on the X-COM
+// player's own base (DebriefingState::btnOkClick's wounded unassign) and the end of the borrowed return.
+void connectionTCP::coopPvpClientLeave(Game* game, DebriefingState* db)
+{
+	if (db->_base && !db->_destroyBase)
+	{
+		for (auto* soldier : *db->_base->getSoldiers())
+		{
+			if (soldier->getCraft() != nullptr && soldier->isWounded())
+				soldier->setCraftAndMoveEquipment(nullptr, db->_base, false);
+		}
+	}
+	game->getCoopMod()->coopMissionEnd = false; // as coopSeparateReturn
+	game->getCoopMod()->_coopEnd = 1;
+	g_coopSepBattleWorld = nullptr;
+	g_coopPvpBorrowedReturn = false;
+	CoopDelta::battleEndRecordSet("debriefOkBranch", "campaign-client-borrowed");
+	g_coopPvpRec["clientLeft"] = g_coopPvpRec["clientLeft"].asInt() + 1;
+	Log(LOG_INFO) << "[coop-pvp] client: back on its own geoscape with the battle's results";
+}
+
+// coop D250-U S-C2 (owner D250, O1 (a); QC-10, QC-11, QC2-A-1 (a)): HOST - the borrowed battle's OK (E12). The target's fate is read on
+// the live (borrowed, post-battle) world BEFORE the swap back and applied on the restored alien world AFTER it. Vanilla's exit never runs
+// here: its follow-up screens, event and forced screens belong to the X-COM player's world, which the swap back deletes.
+bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk)
+{
+	const std::string kind = g_coopPvpRec.get("targetKind", "").asString();
+	const int coopId = g_coopPvpRec.get("targetCoopId", 0).asInt();
+	const bool mirror = g_coopPvpRec.get("targetMirror", false).asBool();
+	bool present = false; // (1) the target (its mirror) still on the post-battle world; S-C2 acts on kind "site"
+	if (kind == "site")
+	{
+		for (auto* ms : *_game->getSavedGame()->getMissionSites())
+		{
+			if (ms->_coop && ms->_coop_mission_id == coopId)
+				present = true;
+		}
+	}
+	{
+		// (2) the host's copy of the X-COM player's world is the post-battle world stored at the debriefing (E4)
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		auto it = coopFilesHost.find("shared_world");
+		if (it != coopFilesHost.end())
+		{
+			const std::string& world = it->second;
+			coopFilesHost[hostBlobKey(getCurrentClientName())] = world;
+		}
+	}
+	SDL_Color* palette = db->_palette; // (3) captured before the swap back; the ironman flag is the restored world's (F14510)
+	const bool autosave = Options::autosave;
+	coopPvpSwapBack(_game);
+	SavedGame* home = _game->getSavedGame();
+	const bool ironman = home->isIronman();
+	// QC2-A-1 (a): the restored world's view, built as H4's `parked` (getFunds() with no_bases true again)
+	Json::Value homeRec, realBases(Json::arrayValue), ids(Json::objectValue), jb;
+	for (auto* base : *home->getBases())
+		if (!base->_coopBase && !base->_coopIcon)
+		{
+			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
+			realBases.append(jb);
+		}
+	for (const auto& kv : home->getAllIds())
+		ids[kv.first] = kv.second;
+	homeRec["funds"] = Json::Value::Int64(home->getFunds()); homeRec["noBases"] = connectionTCP::no_bases;
+	homeRec["realBases"] = realBases; homeRec["ids"] = ids;
+	homeRec["daysPassed"] = home->getDaysPassed(); homeRec["monthsPassed"] = home->getMonthsPassed();
+	g_coopPvpRec["home"] = homeRec;
+	std::string action = "untouched"; // (4) the target on the alien world (QC-11); kinds "ufo" / "alienBase" until S-C5a
+	if (kind == "site")
+	{
+		action = !mirror ? "own" : (present ? "kept" : "deleted");
+		if (mirror && !present)
+		{
+			std::vector<MissionSite*>* sites = home->getMissionSites();
+			for (auto msIt = sites->begin(); msIt != sites->end(); ++msIt)
+			{
+				MissionSite* ms = *msIt;
+				if (!ms->_coop && ms->_coop_mission_id == coopId) // vanilla's removal (DebriefingState::prepareDebriefing)
+				{
+					if (ms->getUfo())
+						ms->setUfo(nullptr);
+					delete ms;
+					sites->erase(msIt);
+					break;
+				}
+			}
+		}
+	}
+	Json::Value fate;
+	fate["kind"] = kind; fate["coopId"] = coopId; fate["action"] = action;
+	g_coopPvpRec["fate"] = fate;
+	coopMissionEnd = false; // (5) the mission end was the borrowed world's (DebriefingState::init)
+	coopResetBattleScope(); // (6)
+	CoopDelta::debriefReleaseToken(db);
+	CoopDelta::debriefClearCampaign();
+	CoopDelta::battleEndRecordSet("debriefOk", 1);
+	CoopDelta::battleEndRecordSet("debriefOkBranch", "campaign-host-borrowed");
+	CoopDelta::battleEndRecordSet("phaseAtOk", phaseAtOk);
+	CoopDelta::battleEndRecordSet("phaseAfterOk", coopPhaseRecordName(coopBattleAuthority().phase.load()));
+	CoopDelta::battleEndRecordSet("resetAtOk", 1);
+	g_coopPvpRec["restored"] = g_coopPvpRec["restored"].asInt() + 1;
+	_game->setState(new GeoscapeState); // (7) a fresh geoscape on the restored world, then vanilla's autosave (DebriefingState::btnOkClick)
+	if (ironman)
+		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN, palette));
+	else if (autosave)
+		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, palette));
+	Log(LOG_INFO) << "[coop-pvp] host: battle over - home to its own world (target " << kind << " " << action << ")"; // (8)
+	return true;
+}
+
 bool connectionTCP::coopAdoptWorldInPlace(const std::string& key)
 {
 	{
@@ -43633,6 +43798,8 @@ bool connectionTCP::coopAdoptWorldInPlace(const std::string& key)
 	_game->setSavedGame(s);
 	coop_save_owner_player_id = 1;
 	SharedEcon::notifyWorldAdopted();
+	if (g_coopPvpBorrowedReturn)
+		g_coopSepBattleWorld = nullptr; // coop D250-U S-C2: the battle world is gone (an address reuse must never re-arm the background hold)
 	return true;
 }
 
