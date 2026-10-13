@@ -2767,6 +2767,10 @@ def _t_cmd_adjacent_free_tile(gc, unit):
         t = (x + DIR_DX[d], y + DIR_DY[d], z)
         if t in occ:
             continue
+        # R-RV21-SA-2 (F14463): `occ` holds anchor tiles only; a multi-tile unit (a 2x2 tank)
+        # also covers other tiles, which tile_info reports as its `unit` - skip those too.
+        if gc.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]}).get("unit", -1) != -1:
+            continue
         if tile_walkable(gc, t, occ):
             return t
     raise AssertionError(
