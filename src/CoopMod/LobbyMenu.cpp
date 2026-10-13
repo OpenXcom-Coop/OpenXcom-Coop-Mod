@@ -549,6 +549,53 @@ public:
 	}
 };
 
+/**
+ * coop D250-U S-C6 (owner D270 (b), D275; docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4): the small dialog a NEW co-op
+ * campaign lobby opens when a team pick would put both players on the Alien team - there are no PvE2 (game mode 4) campaigns; PvE2
+ * stays a Custom Battle mode. One OK button closes it; the pick itself was refused (LobbyMenu::setPlayerTeam). File-local, as
+ * ConfirmStartCampaignState.
+ */
+class CampaignTeamRefusedState : public State
+{
+private:
+	Window *_window;
+	Text *_txtMessage;
+	TextButton *_btnOk;
+public:
+	CampaignTeamRefusedState()
+	{
+		_screen = false;
+
+		_window = new Window(this, 256, 100, 32, 50, POPUP_BOTH);
+		_txtMessage = new Text(240, 48, 40, 60);
+		_btnOk = new TextButton(100, 16, 110, 124);
+
+		setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+
+		add(_window, "window", "saveMenus");
+		add(_txtMessage, "text", "saveMenus");
+		add(_btnOk, "button", "saveMenus");
+
+		centerAllSurfaces();
+
+		setWindowBackground(_window, "saveMenus");
+
+		_txtMessage->setAlign(ALIGN_CENTER);
+		_txtMessage->setWordWrap(true);
+		_txtMessage->setText(tr("STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER"));
+
+		_btnOk->setText("OK");
+		_btnOk->onMouseClick((ActionHandler)&CampaignTeamRefusedState::btnOkClick);
+		_btnOk->onKeyboardPress((ActionHandler)&CampaignTeamRefusedState::btnOkClick, Options::keyOk);
+		_btnOk->onKeyboardPress((ActionHandler)&CampaignTeamRefusedState::btnOkClick, Options::keyCancel);
+	}
+
+	void btnOkClick(Action *)
+	{
+		_game->popState(); // back to the lobby
+	}
+};
+
 bool LobbyMenu::startEligible() const
 {
 	// >= 1 non-host client attached (D3); N=1 transport today. NOT
@@ -1268,6 +1315,16 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 		else if (isHostAlien == true && isClientAlien == false)
 		{
 			current_gamemode = 3;
+		}
+
+		// coop D250-U S-C6 (owner D270 (b), D275): no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
+		// both players on the Alien team: the row keeps its team, nothing is sent, and a small dialog says why. A Custom Battle lobby
+		// (lobbyMode 0) keeps PvE2; a resume lobby never re-derives the mode from the teams (below).
+		if (connectionTCP::session.lobbyMode == 1 && current_gamemode == 4)
+		{
+			Log(LOG_INFO) << "[coop] campaign lobby: the second Alien pick is refused (D270)";
+			_game->pushState(new CampaignTeamRefusedState());
+			return true;
 		}
 
 		// Resume lobbies: the gamemode was read from the loaded save
