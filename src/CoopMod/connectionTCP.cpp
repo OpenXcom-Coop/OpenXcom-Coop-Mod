@@ -31877,6 +31877,28 @@ void coopEquipApplyOkLook(BattlescapeButton* btnOk, bool tu, bool parent)
 	g_equip.okPressed = ready;
 }
 
+// R5-U6 S-E (R-U6-OF3): see CoopArbiter.h.
+bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int faction = coopEquipFaction(a.localSeat.load());
+	if (!save || !coopEquipOpen() || faction == (int)FACTION_PLAYER)
+		return false; // a player-side seat, single player: vanilla's PREV / NEXT
+	std::vector<BattleUnit*> own;
+	for (BattleUnit* u : *save->getUnits())
+	{
+		if (u->isSelectable((UnitFaction)faction, false, true) && a.commandsUnit(u))
+			own.push_back(u);
+	}
+	if (own.empty())
+		return false;
+	const auto at = std::find(own.begin(), own.end(), save->getSelectedUnit());
+	int i = at == own.end() ? 0 : (int)(at - own.begin()) + (dir < 0 ? -1 : 1);
+	i = (i + (int)own.size()) % (int)own.size();
+	save->setSelectedUnit(own[i]);
+	return true;
+}
+
 // HOST (b5, Q1 (a)): a client's `bt_equip_ready {battleId, seat, ready}`.
 static void coopEquipOnReadyMessage(const Json::Value& msg)
 {

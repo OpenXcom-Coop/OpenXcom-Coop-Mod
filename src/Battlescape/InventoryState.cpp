@@ -1202,6 +1202,7 @@ void InventoryState::btnPrevClick(Action *)
 		return;
 	}
 
+	if (coopEquipCycleOwnUnit(_battleGame, -1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
 	if (_parent)
 	{
 		_parent->selectPreviousPlayerUnit(false, false, true);
@@ -1223,6 +1224,7 @@ void InventoryState::btnNextClick(Action *)
 	{
 		return;
 	}
+	if (coopEquipCycleOwnUnit(_battleGame, 1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
 	if (_parent)
 	{
 		_parent->selectNextPlayerUnit(false, false, true);
