@@ -700,6 +700,8 @@ class connectionTCP
 	void coopPvpBorrowPump();                                 // both: the borrow (host) / the hold release (client)
 	bool coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk);      // coop D250-U S-C2: HOST, the borrowed battle's OK
 	static void coopPvpClientLeave(Game* game, DebriefingState* db);        // coop D250-U S-C2: CLIENT, OK-time writes on its own base
+	void coopPvpBorrowBaseDefense(SavedGame* borrowed);       // coop D250-U S-C5b2: HOST, the borrow for the X-COM player's base under attack
+	static bool coopPvpRearmBaseDefense();                    // coop D250-U S-C5b2 (D260 (b)): HOST, a failed borrowed base-defence start waits
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23/PR-25; D176, MR14): CLIENT - page 3 live on the adopted world (every adoption);
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);

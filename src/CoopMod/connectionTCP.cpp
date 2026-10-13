@@ -29787,6 +29787,11 @@ static int coopRestoreWorldAfterFailedStart(Game* game, int& home)
 	// is pressed (GeoscapeState::coopRearmBaseDefense()). A refused one never gets here (S-C2, D261).
 	if (save->getSavedBattle()->getMissionType() == "STR_BASE_DEFENSE")
 	{
+		// coop D250-U S-C5b2 (D260 (b); owner D250, O1 (a)): a gm3 borrowed base defence waits on the X-COM player's own request - the
+		// borrowed world goes with the swap back (coopUnwindFailedStart, D250-U S-C3) and the alien host's geoscape holds the alien world's
+		// bases, so it never re-arms it; the request borrows the X-COM world again once the player is back and RESUME is pressed.
+		if (connectionTCP::coopPvpParkedWorld())
+			return connectionTCP::coopPvpRearmBaseDefense() ? 1 : 0;
 		GeoscapeState* geo = game->getGeoscapeState();
 		return geo ? geo->coopRearmBaseDefense() : 0;
 	}
@@ -43663,6 +43668,7 @@ bool connectionTCP::coopWorldStreamBusy()
 // ===== coop D250-U S-C1 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): gm3 PvP campaign battles in the X-COM client's borrowed world =====
 struct CoopPvpLand { bool pending = false, blobReady = false; std::string kind, craftType; int craftId = -1; bool missionTexNull = true, globeTexNull = true; int missionTex = 0, globeTex = 0, shade = 0; int alienBaseCoopId = 0; }; // coop D250-U S-C5a: + the hand-off's alien base (L-D250-SC1-1)
 static CoopPvpLand g_coopPvpLand;             // coop D250-U S-C1: HOST - the request waiting for its world
+static Json::Value g_coopPvpLandMsg;          // coop D250-U S-C5b2: HOST - the request's whole message (a base defence: its base and attack)
 static SavedGame* g_coopPvpParked = nullptr;  // coop D250-U S-C1: HOST - the parked alien world
 static Json::Value g_coopPvpRec;              // coop D250-U S-C1: both - the process-lifetime record, never reset
 static bool g_coopPvpReleasePending = false;  // coop D250-U S-C1: CLIENT - a refusal arrived; the pump releases the hold
@@ -43745,6 +43751,7 @@ void connectionTCP::coopPvpLandReceived(const Json::Value& obj) // coop D250-U S
 	land.missionTexNull = obj.get("missionTex", Json::Value()).isNull(); land.missionTex = land.missionTexNull ? 0 : obj["missionTex"].asInt();
 	land.globeTexNull = obj.get("globeTex", Json::Value()).isNull(); land.globeTex = land.globeTexNull ? 0 : obj["globeTex"].asInt();
 	land.shade = obj.get("shade", 0).asInt(); land.pending = true; land.blobReady = false;
+	g_coopPvpLandMsg = obj; // coop D250-U S-C5b2: the kind's own fields (a base defence: its base and the attack)
 	land.alienBaseCoopId = obj.get("alienBaseCoopId", 0).asInt(); // coop D250-U S-C5a (L-D250-SC1-1): the hand-off's alien base, 0 = none
 	Log(LOG_INFO) << "[coop-pvp] host: landing request for craft " << land.craftType << "-" << land.craftId << " - waiting for its world";
 }
@@ -43792,6 +43799,8 @@ void connectionTCP::coopPvpBorrowPump()
 	SavedGame* borrowed = new SavedGame();
 	try { borrowed->loadCoopSaveFromMemory(key, _game->getMod(), _game->getLanguage(), key); }
 	catch (const std::exception&) { delete borrowed; return coopPvpRefuse(this, "load"); }
+	if (g_coopPvpLand.kind == "baseDefense") // coop D250-U S-C5b2 (owner D250, O1 (a)): the X-COM player's base under attack - no craft, no target
+		return coopPvpBorrowBaseDefense(borrowed);
 	Craft* craft = nullptr; // (2) the borrowed craft (the client's own, in one of its real bases) and its target
 	for (auto* base : *borrowed->getBases())
 		for (auto* c : *base->getCrafts())
@@ -43958,6 +43967,7 @@ void connectionTCP::coopPvpBorrowDrop() // coop D250-U S-C1: the main-menu choke
 void connectionTCP::coopPvpPeerDropped() // coop D250-U S-C3 (F15323): HOST - a peer drop ends a landing request still waiting
 {
 	if (!g_coopPvpLand.pending) return; // nothing waits: a borrow clears the request at its swap (S-C1 step 4)
+	if (g_coopPvpLand.kind == "baseDefense" && g_coopPvpLand.blobReady) return; // coop D250-U S-C5b2 (D260 (b)): an attack on the X-COM player's base waits for the player
 	g_coopPvpLand = CoopPvpLand();
 	g_coopPvpRec["requestDropped"] = g_coopPvpRec["requestDropped"].asInt() + 1;
 	Log(LOG_WARNING) << "[coop-pvp] host: the X-COM player left - its waiting landing request is dropped";
@@ -44187,6 +44197,103 @@ bool CoopHandshake::requestPvpCydonia(Game* game, Craft* craft)
 	game->pushState(new CoopState(3));
 	g_coopPvpRec["held"] = g_coopPvpRec["held"].asInt() + 1;
 	Log(LOG_INFO) << "[coop-pvp] client: Cydonia handed to the alien host (craft " << type << "-" << id << ") - holding";
+	return true;
+}
+
+// ===== coop D250-U S-C5b2 (owner D250, O1 (a); D260 (b); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4): the X-COM player's base under attack in a gm3 campaign =====
+// CLIENT - the gm3 X-COM side hands the defence of its base to the alien host (CoopHandshake.h); called by handleBaseDefense's peer branch.
+bool CoopHandshake::requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo)
+{
+	if (!(game && base && ufo && connectionTCP::getCoopStatic() && !connectionTCP::getServerOwner() && connectionTCP::getCoopGamemode() == 3
+		&& game->getCoopMod()->getCoopCampaign() && game->getSavedGame() && game->getSavedGame()->getMonthsPassed() != -1))
+		return false;
+	std::vector<Base*>* bases = game->getSavedGame()->getBases();
+	const int index = (int)(std::find(bases->begin(), bases->end(), base) - bases->begin());
+	base->cleanupDefenses(true); // the tanks Base::setupDefenses rolled out go back to the stores: a pushed world keeps no vehicle list
+	const bool pushed = game->getCoopMod()->pushProgressToHostSilently();
+	g_coopPvpRec["sent"] = g_coopPvpRec["sent"].asInt() + 1;
+	if (pushed) g_coopPvpRec["pushed"] = g_coopPvpRec["pushed"].asInt() + 1;
+	if (!pushed)
+	{
+		g_coopPvpRec["lastRefuseSeen"] = "push";
+		Log(LOG_WARNING) << "[coop-pvp] client: the base defence hand-off could not push this world - the attack on " << base->getName()
+			<< " is lost";
+		return true;
+	}
+	Json::Value msg;
+	msg["state"] = "pvp_land"; msg["kind"] = "baseDefense"; msg["craftType"] = ""; msg["craftId"] = -1; msg["shade"] = 0;
+	msg["missionTex"] = Json::Value(); msg["globeTex"] = Json::Value();
+	msg["baseIndex"] = index; msg["baseName"] = base->getName();
+	msg["missionId"] = ufo->getMission() ? ufo->getMission()->getId() : -1;
+	msg["lon"] = ufo->getLongitude(); msg["lat"] = ufo->getLatitude(); msg["damage"] = ufo->getDamagePercentage();
+	msg["deploy"] = ufo->getCraftStats().missionCustomDeploy; msg["race"] = ufo->getAlienRace();
+	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+	g_coopPvpClientCraftType.clear(); g_coopPvpClientCraftId = -1; // no craft: a refusal only releases the hold
+	game->pushState(new CoopState(3));
+	g_coopPvpRec["held"] = g_coopPvpRec["held"].asInt() + 1;
+	Log(LOG_INFO) << "[coop-pvp] client: the defence of base " << base->getName() << " handed to the alien host - holding";
+	return true;
+}
+
+// coop D250-U S-C5b2: H4 step (3)'s view of @a w (getFunds() as no_bases reads now: 1000 on the alien host before the swap).
+static Json::Value coopPvpWorldView(SavedGame* w)
+{
+	Json::Value view, realBases(Json::arrayValue), ids(Json::objectValue), jb;
+	for (auto* base : *w->getBases())
+		if (!base->_coopBase && !base->_coopIcon)
+		{
+			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
+			realBases.append(jb);
+		}
+	for (const auto& kv : w->getAllIds())
+		ids[kv.first] = kv.second;
+	view["funds"] = Json::Value::Int64(w->getFunds()); view["noBases"] = connectionTCP::no_bases;
+	view["realBases"] = realBases; view["ids"] = ids;
+	view["daysPassed"] = w->getDaysPassed(); view["monthsPassed"] = w->getMonthsPassed();
+	return view;
+}
+
+// coop D250-U S-C5b2 (owner D250, O1 (a)): HOST - the borrow for the X-COM player's base under attack (kind "baseDefense"; the pump's
+// step (1) loaded @a borrowed): the base by its index and name, the parked world's view, the swap, then the defence by vanilla's own start
+// (GeoscapeState::coopStartBorrowedBaseDefense). A start that generates nothing goes home and releases the player, as H4's step (8).
+void connectionTCP::coopPvpBorrowBaseDefense(SavedGame* borrowed)
+{
+	const int index = g_coopPvpLandMsg.get("baseIndex", -1).asInt();
+	Base* base = (index >= 0 && index < (int)borrowed->getBases()->size()) ? borrowed->getBases()->at(index) : nullptr;
+	if (!base || base->_coopBase || base->_coopIcon || base->getName() != g_coopPvpLandMsg.get("baseName", "").asString())
+	{
+		delete borrowed;
+		return coopPvpRefuse(this, "base");
+	}
+	GeoscapeState* geo = dynamic_cast<GeoscapeState*>(_game->getStates().back()); // the pump's precondition: the host's globe on top
+	g_coopPvpRec["parked"] = coopPvpWorldView(_game->getSavedGame()); // the parked (alien) world's view BEFORE the swap
+	g_coopPvpParked = _game->swapSavedGame(borrowed); // the X-COM world live, the alien world parked (QC-1)
+	connectionTCP::coop_save_owner_player_id = 0; // F13986
+	connectionTCP::no_bases = false; // QC-5
+	g_coopPvpLand.pending = g_coopPvpLand.blobReady = false;
+	g_coopPvpRec["borrowed"] = g_coopPvpRec["borrowed"].asInt() + 1;
+	g_coopPvpRec["kind"] = g_coopPvpLand.kind; g_coopPvpRec["craftType"] = ""; g_coopPvpRec["craftId"] = -1;
+	g_coopPvpRec["targetKind"] = "base"; g_coopPvpRec["targetCoopId"] = index; g_coopPvpRec["targetMirror"] = false;
+	Log(LOG_INFO) << "[coop-pvp] host: borrowed the X-COM world for the defence of base " << base->getName() << " - generating";
+	if (!geo || !geo->coopStartBorrowedBaseDefense(g_coopPvpLandMsg) || !_game->getSavedGame()->getSavedBattle())
+	{
+		CoopHandshake::coopUnwindToSafeState(_game);
+		coopPvpSwapBack(_game);
+		coopPvpRefuse(this, "start");
+	}
+}
+
+// coop D250-U S-C5b2 (D260 (b)): HOST - a failed borrowed base-defence start (coopRestoreWorldAfterFailedStart) re-arms its request, kept
+// in g_coopPvpLand / g_coopPvpLandMsg since the borrow: the pump borrows the X-COM world again from the host's copy once the player is
+// connected, the host is on its globe and no battle is in flight (after RESUME). False for every other kind.
+bool connectionTCP::coopPvpRearmBaseDefense()
+{
+	if (g_coopPvpLand.kind != "baseDefense")
+		return false;
+	g_coopPvpLand.pending = g_coopPvpLand.blobReady = true;
+	g_coopPvpRec["rearmed"] = g_coopPvpRec["rearmed"].asInt() + 1;
+	Log(LOG_WARNING) << "[coop-pvp] host: the defence of base " << g_coopPvpLandMsg.get("baseName", "").asString()
+		<< " waits for the X-COM player (D260)";
 	return true;
 }
 

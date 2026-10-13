@@ -138,6 +138,9 @@ public:
 	/// coop W2-H24 S-C1 (D260 (b)): the start of this host's co-op base defense failed on a lost partner - put back what
 	/// it took from the base and wait for the partner (think() starts it again); returns the battle marks cleared.
 	int coopRearmBaseDefense();
+	/// coop D250-U S-C5b2 (owner D250, O1 (a)): HOST, while it borrows the X-COM world - starts the X-COM player's base defence there
+	/// from the attack the player handed off (@a attack: its `pvp_land` message); true when the battle was generated.
+	bool coopStartBorrowedBaseDefense(const Json::Value& attack);
 	/// Handle keypresses.
 	void handle(Action *action) override;
 	/// Updates the palette and timer.

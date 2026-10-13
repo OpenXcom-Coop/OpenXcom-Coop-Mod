@@ -31,6 +31,7 @@ class Base;
 class SavedBattleGame;
 class AlienDeployment;
 class Texture;
+class Ufo;
 
 /**
  * R4-P1 (rewrite spike, SPIKE-RUNBOOK.md SS2.7, RB-D18, IR-5, IR-6): the
@@ -133,6 +134,12 @@ bool requestPvpLanding(Game* game, Craft* craft, Texture* missionTexture, Textur
 /// host, which runs it in this machine's world - requestPvpLanding's hand-off with kind "cydonia" (no target). True = handed off (or,
 /// if the push failed, the craft sent home): the caller generates nothing. False on every other machine and mode.
 bool requestPvpCydonia(Game* game, Craft* craft);
+
+/// coop D250-U S-C5b2 (owner D250, O1 (a); D260 (b)): on a gm3 PvP campaign CLIENT (the X-COM side) only, hands the defence of @a base,
+/// which @a ufo attacks, to the alien host, which runs it in this machine's world: the base's tanks go back to its stores first (a
+/// pushed world keeps no vehicle list), then the push, `pvp_land` (kind "baseDefense": the base and the attack, as handleBaseDefense
+/// snapshots it) and the CoopState(3) hold. True = handed off (or the push failed: the attack is lost, as before); false elsewhere.
+bool requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo);
 
 // ----- FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): offerBattle() SPLIT into
 // PREPARE and EMIT halves, so the coop blob snapshot (and the battle_offer
