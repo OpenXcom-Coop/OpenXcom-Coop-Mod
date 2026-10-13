@@ -9309,6 +9309,38 @@ static CoopSkillGrant g_coopSkillGrant;
 // applies.
 static std::map<std::uint32_t, int> g_coopClientActionActor;
 
+// R5-U1 S-D (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) ED2; owner design PvP model "Off-turn: hidden-movement
+// screen except where own units have LOS (side-relative vanilla behavior)"): see BattleAuthority.h. Off its own side a
+// PvP machine has no acting unit selected (the host's selection is empty, a client keeps its own unit selected), so the
+// acting unit is read from the running order: the HOST's action context (its base entry's actor), a CLIENT's open
+// action (the lowest actionId whose evs applied and whose bt_action_end has not).
+bool coopHiddenMovementActorTerm(const SavedBattleGame* s)
+{
+	const BattleUnit* sel = s ? s->getSelectedUnit() : nullptr;
+	const int gamemode = connectionTCP::getCoopGamemode();
+	if (!s || !isCoopBattle() || (gamemode != 2 && gamemode != 3) || coopBattleAuthority().mySideActive(s))
+		return sel && coopUnitVisibleHere(sel);
+	int actorId = -1;
+	if (coopBattleAuthority().hostSim)
+	{
+		if (!g_coopActionContextStack.empty())
+		{
+			actorId = g_coopActionContextStack.front().actorId;
+			if (actorId < 0)
+				actorId = g_coopPendingChainActorId; // R-U1-SD-1: intent / host base entries keep the actor here (F14184)
+		}
+		// R-U1-SD-1: the host has no CoopIdMaps (F14185); CoopArbiter::findUnitById is forward-declared above (TCP :5762)
+		const BattleUnit* hostActor = actorId >= 0 ? CoopArbiter::findUnitById(const_cast<SavedBattleGame*>(s), actorId) : nullptr;
+		return hostActor && coopUnitVisibleHere(hostActor);
+	}
+	else if (!g_coopClientActionActor.empty())
+	{
+		actorId = g_coopClientActionActor.begin()->second;
+	}
+	const BattleUnit* actor = actorId >= 0 ? CoopIdMaps::unit(actorId) : nullptr;
+	return actor && coopUnitVisibleHere(actor);
+}
+
 // W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30): WHICH VERB the chain named by
 // g_coopPendingChainActorId is running - "turn", "kneel" or "walk".
 //

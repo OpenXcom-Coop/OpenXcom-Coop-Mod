@@ -580,6 +580,13 @@ bool coopUnitIsSpottedEnemyHere(const BattleUnit* u);
 /// sim/serializer/hash read.
 bool coopSideIsMine(const SavedBattleGame* s);
 
+/// R5-U1 S-D (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) ED1; owner design PvP model "Off-turn: hidden-movement
+/// screen except where own units have LOS"): Map::hiddenMovementShown()'s first term. Vanilla's own term (the selected
+/// unit is visible here) outside an active co-op battle, in classic / SHARED co-op (gamemode not 2 / 3) and on this
+/// machine's own side; off its own side in PvP, the unit acting in the running order (the host's action context, a
+/// client's open action) is visible here. PRESENTATION-ONLY; nothing written.
+bool coopHiddenMovementActorTerm(const SavedBattleGame* s);
+
 /// W1-P13c (WV-D55 / D-23, mechanism E55.1): returns true when the caller
 /// must refuse - i.e. !coopMayCommand(u, s) - and, ONLY when the failing
 /// term is the new baton term (traditional mode, Active, activeSeat !=

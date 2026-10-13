@@ -377,7 +377,7 @@ void Map::draw()
  */
 bool Map::hiddenMovementShown() const
 {
-	return (_save->getSelectedUnit() && coopUnitVisibleHere(_save->getSelectedUnit())) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV;
+	return coopHiddenMovementActorTerm(_save) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV; // coop R5-U1 S-D: off a PvP side, the acting unit
 }
 
 void Map::refreshAIProgress(int progress)
