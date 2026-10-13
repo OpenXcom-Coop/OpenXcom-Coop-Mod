@@ -22183,17 +22183,23 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				}
 				const std::pair<Position, int> box = coopLightBox(ps);
 				coopClientLight(tileEngine, ev, LL_UNITS, box.first, box.second + 2, false);
+				coopClientEventSight(save, box.first, box.second + 2); // W2-H35b E6: the sight after the merged light
 			}
 			else
 			{
+				// W2-H35b ((e) E6): vanilla refreshes sight right after each of these lights, same place and radius:
+				// UnitDieBState :209-:210 (a unit going down, its armour size), UnitWalkBState :249-:250 and UnitFallBState
+				// :157-:158 (a unit that moved, radius 2). Unit half only (E1). The far-old light has no vanilla sight twin.
 				for (const LitUnit& lu : litUnits)
 				{
 					if (lu.down)
 					{
 						coopClientLight(tileEngine, ev, LL_ITEMS, lu.pos, lu.size, false);
+						coopClientEventSight(save, lu.pos, lu.size);
 						continue;
 					}
 					coopClientLight(tileEngine, ev, LL_UNITS, lu.pos, 2, false);
+					coopClientEventSight(save, lu.pos, 2);
 					if (lu.farOld)
 						coopClientLight(tileEngine, ev, LL_UNITS, lu.oldPos, 0, false);
 				}
@@ -22220,6 +22226,23 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			{
 				const std::pair<Position, int> box = coopLightBox(lightItemPos);
 				coopClientLight(tileEngine, ev, LL_ITEMS, box.first, box.second, false);
+				// W2-H35b ((e) E5): vanilla refreshes sight right after an item light change, around each place the light moved
+				// from or to, with the item's own range (BattleItem::getVisibilityUpdateRange: a flare's glow range, else 1):
+				// TileEngine::itemDrop :5213-:5214, ProjectileFlyBState :489-:490 (the throw), BattlescapeGame :2992-:2993 (a
+				// pick-up), :2769-:2770 (a spawned item). Unit half only (E1).
+				int sightRange = 1;
+				for (const std::pair<int, bool>& m : lightItemMoved)
+				{
+					if (const BattleItem* item = CoopIdMaps::item(m.first))
+						sightRange = std::max(sightRange, item->getVisibilityUpdateRange());
+				}
+				for (int id : lightItemMinted)
+				{
+					if (const BattleItem* item = CoopIdMaps::item(id))
+						sightRange = std::max(sightRange, item->getVisibilityUpdateRange());
+				}
+				for (const Position& q : lightItemPos)
+					coopClientEventSight(save, q, sightRange);
 			}
 		}
 		for (BattleUnit* u : fovUnits)
