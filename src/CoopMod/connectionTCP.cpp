@@ -21173,7 +21173,16 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// end of CoopDisplayQueue::onApplied(), same as every other kind.
 		if (coopBattleAuthority().mySideActive(save))
 		{
-			save->selectNextPlayerUnit();
+			// W2-H41 (docs rewrite/prompts/w2h41_coop_selection_turnstart_mc.md (e) E3; L-H40-1, F15780-F15785; R-LH40-1):
+			// vanilla's side-start selection (SavedBattleGame::endTurn, which this thin client never runs): on X-COM's side keep
+			// the unit held while it is still its own and selectable; else, and on any other side, the first such unit in order.
+			BattleUnit* held = save->getSelectedUnit();
+			if (save->getSide() != FACTION_PLAYER || !held || held->getOriginalFaction() != FACTION_PLAYER
+				|| !held->isSelectable(FACTION_PLAYER, false, false) || !coopMaySelectUnit(held))
+			{
+				save->setSelectedUnit(0);
+				save->selectNextPlayerUnit();
+			}
 			// W2-H6 H6-1 (F1200/F1203): the new selection gets the action actor
 			// and the cursor, as the host's own side start does (BattlescapeGame
 			// endTurn's setupCursor() on the player side).
