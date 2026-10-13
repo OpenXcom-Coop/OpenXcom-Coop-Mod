@@ -8882,6 +8882,23 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s)
 	return side != (int)FACTION_PLAYER && side != (int)FACTION_NEUTRAL && coopFactionHumanCommanded(side);
 }
 
+// W2-H39 (docs rewrite/prompts/w2h39_pvp_panic_selection.md (e) E2; design-D6, QU2-7 (a)'s host half): see BattleAuthority.h.
+void coopHostDropOffSideSelection(SavedBattleGame* s)
+{
+	if (!s || !isCoopBattle() || !coopBattleAuthority().hostSim || coopBattleAuthority().mySideActive(s))
+		return;
+	BattlescapeState* bs = s->getBattleState();
+	BattlescapeGame* bg = bs ? s->getBattleGame() : nullptr;
+	if (!bg || !bg->getPanicHandled())
+		return;
+	const BattleUnit* sel = s->getSelectedUnit();
+	if (!sel || coopBattleAuthority().commandsUnit(sel))
+		return;
+	s->setSelectedUnit(0);
+	bg->getCurrentAction()->actor = nullptr;
+	bs->updateSoldierInfo(false); // WV-D10: a co-op-driven HUD refresh never authors fog
+}
+
 // R5-U6 S-A (owner D236 (b)): see CoopArbiter.h.
 bool coopPvpWalkReactionOff()
 {

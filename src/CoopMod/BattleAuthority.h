@@ -895,6 +895,18 @@ bool coopFactionHumanCommanded(int faction);
 /// every side start. A client never runs a panic (coopSkipClientPanic()). False everywhere else.
 bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 
+/// W2-H39 (design-D6 = WV-D12: a seat never holds a unit it does not command; docs
+/// rewrite/prompts/w2h39_pvp_panic_selection.md; F14755, F14746): BattlescapeGame::think()'s two
+/// start-of-side panic checks (the player side's and R5-U3's human-side one) call this after each
+/// pass. Once the check is over (getPanicHandled()) on the co-op HOST, while the active side is one
+/// this host does not play (gm3's X-COM turn, gm2's alien turn), a selection that vanilla's
+/// handlePanickingUnit() left on a unit the host does not command is dropped with the action actor:
+/// the host then holds no unit, as that side's start gave it (SavedBattleGame::endTurn's seat-filtered
+/// restore). The panic itself still plays out on the host, the battle authority. Host-local UI state
+/// only: no hashed field, nothing on the wire. A no-op in single player, on a client, on the host's
+/// own side (classic / SHARED co-op, gm3's alien turn) and while a panic still plays out.
+void coopHostDropOffSideSelection(SavedBattleGame* s);
+
 /// R5-U3 S-B (owner O1): psi target knowledge for a human seat's non-player attacker. -1 = not
 /// such an attacker (vanilla's own term runs); otherwise 1 / 0 by O1's rule. Read by the psi arm of
 /// BattlescapeGame::primaryAction() and its host mirror validatePsi().

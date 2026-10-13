@@ -257,6 +257,7 @@ int BattlescapeGame::think()
 				{
 					_playerPanicHandled = coopSkipClientPanic() ? true : coopHandlePanickingSide(_save->getSide());
 					_save->getBattleState()->updateSoldierInfo();
+					coopHostDropOffSideSelection(_save); // coop W2-H39 (design-D6): a host never keeps an off-side unit the panic check selected
 				}
 				return ret;
 			}
@@ -310,6 +311,7 @@ int BattlescapeGame::think()
 			{
 				_playerPanicHandled = coopSkipClientPanic() ? true : handlePanickingPlayer();
 				_save->getBattleState()->updateSoldierInfo();
+				coopHostDropOffSideSelection(_save); // coop W2-H39 (design-D6): a host never keeps an off-side unit the panic check selected
 			}
 		}
 	}
