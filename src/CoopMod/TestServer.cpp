@@ -13422,6 +13422,56 @@ std::string TestServer::execute(const std::string& line)
 					// verify the SAME predicate rather than trusting the lever's
 					// error string.
 					ju["armorSize"] = u->getArmor()->getSize();
+					// R5-U8b TP1 (TEST-ONLY, pure reads; docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) TP1): the two fields
+					// the rules constructor derives from the ORIGINAL faction and never saves (the dark-vision distance, the
+					// maximum armor), the saved current armor, and the AI pick-up flag.
+					ju["darkVision"] = u->getMaxViewDistanceAtDark(nullptr);
+					{
+						Json::Value armorCur(Json::arrayValue), armorMax(Json::arrayValue);
+						for (int side = 0; side < (int)SIDE_MAX; ++side)
+						{
+							armorCur.append(u->getArmor((UnitSide)side));
+							armorMax.append(u->getMaxArmor((UnitSide)side));
+						}
+						ju["armorCur"] = armorCur;
+						ju["armorMax"] = armorMax;
+					}
+					ju["pickUpActively"] = u->getPickUpWeaponsMoreActively();
+					// R5-U8b TP1 (on request only, `reloadProbe`): what a document load builds for this unit - its own record
+					// read back exactly as SavedBattleGame::load's unit pass 1 builds a unit not linked to a geoscape soldier
+					// (the rules constructor with the record's original faction and this save's difficulty, then
+					// BattleUnit::load) into a throwaway unit that is never linked, registered or kept.
+					if (req.get("reloadProbe", false).asBool() && !u->getGeoscapeSoldier())
+					{
+						Mod* modR = _game->getMod();
+						YAML::YamlRootNodeWriter wR;
+						wR.setAsMap();
+						u->save(wR["unit"], modR->getScriptGlobal());
+						YAML::YamlRootNodeReader rR(wR.emit(), "r5u8b_reload_probe");
+						const YAML::YamlNodeReader& r = rR["unit"];
+						const std::string typeR = r["genUnitType"].readVal<std::string>("");
+						const std::string armorTypeR = r["genUnitArmor"].readVal<std::string>("");
+						const UnitFaction factionR = r["faction"].readVal<UnitFaction>();
+						const UnitFaction originalR = r["originalFaction"].readVal(factionR);
+						if (modR->getUnit(typeR) && modR->getArmor(armorTypeR))
+						{
+							// RW-MINT-WHITELIST-BEGIN: a test-only throwaway (RB-D25), deleted below, never in the battle
+							BattleUnit* t = new BattleUnit(modR, modR->getUnit(typeR), originalR, u->getId(), nullptr,
+								modR->getArmor(armorTypeR), modR->getStatAdjustment(sg->getDifficulty()), bg->getDepth(), nullptr);
+							// RW-MINT-WHITELIST-END
+							t->load(r, modR, modR->getScriptGlobal());
+							Json::Value maxR(Json::arrayValue), curR(Json::arrayValue);
+							for (int side = 0; side < (int)SIDE_MAX; ++side)
+							{
+								maxR.append(t->getMaxArmor((UnitSide)side));
+								curR.append(t->getArmor((UnitSide)side));
+							}
+							ju["reloadDarkVision"] = t->getMaxViewDistanceAtDark(nullptr);
+							ju["reloadArmorMax"] = maxR;
+							ju["reloadArmorCur"] = curR;
+							delete t;
+						}
+					}
 					if (u->getHealth() <= 0 && u->getAIModule() != nullptr) ++unitsDeadWithAI; // WV-D62 + correction: health<=0 = vanilla prepareHealth rule; meaningful pre/post the STATUS_DEAD flip
 					{
 						Json::Value spottedIds(Json::arrayValue);
