@@ -8756,6 +8756,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						for (int part = 0; part < (int)BODYPART_MAX; ++part)
 							unit->setFatalWound(woundsArg[part], (UnitBodyPart)part); // W2-P4 S-D.1: the C23b staging
 					}
+					if (req.isMember("motionPoints") && req["motionPoints"].asInt() >= 0)
+						unit->coopSetMotionPoints(req["motionPoints"].asInt()); // R5-U6 S-C.1: TEST-ONLY motion-scan staging (BOTH machines)
 					if (wantPanic)
 						bgameTS->init();
 					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
@@ -13369,6 +13371,7 @@ std::string TestServer::execute(const std::string& line)
 					// to drift on a mirrored step.
 					ju["energy"] = u->getEnergy();
 					ju["motionPoints"] = u->getMotionPoints();
+					ju["scannedTurn"] = u->getScannedTurn(); // R5-U6 S-C.1: a pure read (machine-local, never saved or hashed)
 					// RW-FIX-TURRET: the TURRET facing, additively alongside the
 					// body facing above. Serialized per unit
 					// (BattleUnit.cpp:717) but read by NO structured hash bucket
