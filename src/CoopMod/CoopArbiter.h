@@ -726,6 +726,13 @@ bool coopEquipReadyPress(BattlescapeButton* btnOk, bool tu, bool parent);
 /// the same predicate as coopEquipReadyPress(), the OK graphic shows this seat's ready flag (pressed in when ready).
 void coopEquipApplyOkLook(BattlescapeButton* btnOk, bool tu, bool parent);
 
+/// R5-U6 S-E (R-U6-OF3; docs rewrite/prompts/r5u6_pvp_options.md): the pre-battle equip screen's PREV / NEXT for a PvP
+/// alien seat with "X-COM equipment for aliens" on - the first guarded statement of InventoryState::btnPrevClick /
+/// btnNextClick. Vanilla's cycle selects units of the active side (turn 0: the player side) and allowButtons() is off
+/// the seat's side, so it never reaches the seat's aliens: this cycles THIS seat's own units with an inventory in unit
+/// order (@a dir -1 / +1, wrapping) and returns TRUE (the caller re-inits). FALSE (vanilla) everywhere else.
+bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir);
+
 /// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 9, Q13 a): the equip phase's pump step, ONE unconditional call at
 /// the RB-D5 pump point right after CoopHandshake::selectOwnUnitAtEntry(). In order: the host's screen record, the
 /// equip-open announce, the barrier; the client's entry, its open and end steps; the D216 waiting line (both). Inert
