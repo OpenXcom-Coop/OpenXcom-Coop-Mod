@@ -101,6 +101,13 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
+// D249-U (owner D249 (a), D131; docs rewrite/prompts/d249u_follow_teammate_camera.md): main's "Follow Teammate
+// Actions with Camera" (main Options.inc.h :104-107). On: this machine's camera follows the co-op partner's units
+// as it follows an alien on its own side's turn (coopCameraFollowsPartner(), CoopMod/CoopDelta.h). DEFAULT false
+// here (main: true), so D131 - the partner's actions never move your camera - stays the default. Per player: read
+// only on this machine, never on the wire, not in the synced table (CoopMod/CoopSyncedOptions.h); its row is on the
+// Multiplayer options screen (OPTION_OTHER, Battlescape group).
+OPT bool coopFollowPeerActions;
 
 // R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7 packet text, OWNER-1 resolved
 // 2026-08-31): the four CLIENT-SIDE auto-cancel toggles for a busy-held

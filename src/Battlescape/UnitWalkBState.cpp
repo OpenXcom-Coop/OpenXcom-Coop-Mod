@@ -199,7 +199,7 @@ void UnitWalkBState::think()
 				}
 			}
 
-			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && !coopFactionIsMine(_unit->getFaction()) && coopUnitVisibleHere(_unit)) // coop R5-U1 S-B (D222 gap 2): not this machine's side
+			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && (!coopFactionIsMine(_unit->getFaction()) || coopCameraFollowsPartner(_unit)) && coopUnitVisibleHere(_unit)) // coop R5-U1 S-B (D222 gap 2): not this machine's side; D249-U: or the partner's walker, option on
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
 			if (coopHostPartnerCamera(_unit, "walkLevel")) {} else // W2-P6a (D131)
