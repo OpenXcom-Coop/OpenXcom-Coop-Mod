@@ -8442,6 +8442,57 @@ bool coopTileSeenHere(const Tile* t)
 	return false;
 }
 
+// R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TA2): the TEST-ONLY draw probe - see CoopDelta.h. Main thread.
+namespace
+{
+
+struct CoopDrawProbe
+{
+	unsigned int frame = 0;
+	int arrowUnit = -1;
+	unsigned int arrowFrame = 0;
+	std::map<int, std::pair<bool, unsigned int>> marks; // unit id -> (motion scan, the frame it was drawn in)
+};
+CoopDrawProbe g_coopDrawProbe;
+
+} // namespace
+
+void coopDrawProbeFrame()
+{
+	++g_coopDrawProbe.frame;
+}
+
+void coopDrawProbeArrow(const BattleUnit* u)
+{
+	g_coopDrawProbe.arrowUnit = u ? u->getId() : -1;
+	g_coopDrawProbe.arrowFrame = g_coopDrawProbe.frame;
+}
+
+void coopDrawProbeMark(const BattleUnit* u, bool motionScan)
+{
+	if (u)
+		g_coopDrawProbe.marks[u->getId()] = std::make_pair(motionScan, g_coopDrawProbe.frame);
+}
+
+Json::Value coopDrawProbe()
+{
+	Json::Value r(Json::objectValue);
+	r["frame"] = g_coopDrawProbe.frame;
+	r["arrowUnit"] = g_coopDrawProbe.arrowUnit;
+	r["arrowFrame"] = g_coopDrawProbe.arrowFrame;
+	Json::Value marks(Json::arrayValue);
+	for (const auto& m : g_coopDrawProbe.marks)
+	{
+		Json::Value e(Json::objectValue);
+		e["unit"] = m.first;
+		e["kind"] = m.second.first ? "scan" : "custom";
+		e["frame"] = m.second.second;
+		marks.append(e);
+	}
+	r["marks"] = marks;
+	return r;
+}
+
 bool coopMaySelectUnit(const BattleUnit* u)
 {
 	if (!isCoopBattle() && !coopEquipOpen()) // W2-P8b S-A.2 (F3110, V3): the equip screen's PREV/NEXT in phase Handshake too

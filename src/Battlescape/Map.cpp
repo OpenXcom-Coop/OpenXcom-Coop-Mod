@@ -55,6 +55,7 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopDelta.h" // coop R5-U2: the S-A draw probe (TEST-ONLY) and coopFactionIsMine() (R5-U1 S-B)
 
 
 /*
@@ -764,6 +765,7 @@ void Map::drawTerrain(Surface *surface)
 {
 	_isAltPressed = _game->isAltPressed(true);
 	_isCtrlPressed = _game->isCtrlPressed(true);
+	coopDrawProbeFrame(); // coop R5-U2 S-A.1: TEST-ONLY draw probe (one drawTerrain frame)
 	int frameNumber = 0;
 	SurfaceRaw<const Uint8> tmpSurface;
 	Tile *tile;
@@ -1741,6 +1743,7 @@ void Map::drawTerrain(Surface *surface)
 		}
 		if (this->getCursorType() != CT_NONE)
 		{
+			coopDrawProbeArrow(selectedUnit); // coop R5-U2 S-A.1: TEST-ONLY draw probe (the selection arrow is drawn)
 			_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
 		}
 	}
@@ -1754,6 +1757,7 @@ void Map::drawTerrain(Surface *surface)
 			bool customMarker = myUnit->getCustomMarker() > 0 && myUnit->getFaction() == FACTION_PLAYER && !myUnit->isOut();
 			if (motionScan || customMarker)
 			{
+				coopDrawProbeMark(myUnit, motionScan); // coop R5-U2 S-A.1: TEST-ONLY draw probe (an Alt marker is drawn)
 				Position temp = myUnit->getPosition();
 				temp.z = _camera->getViewLevel();
 				_camera->convertMapToScreen(temp, &screenPosition);
