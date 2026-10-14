@@ -920,6 +920,9 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	connectionTCP::saveID = 0;
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+	// coop D283 (b) (owner 2026-10-13): the mode this save was played in, kept on the save itself - the host window resets the live
+	// mode of every resume that is not PvP to 1 (HostMenu::hostTCPGame), so LobbyMenu::resumeCampaign reads this, never the global.
+	reader.tryRead("coop_gamemode", _coopLoadedGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	// Single-authority: a host save embeds every client-world blob captured
 	// at save time. Restore them as the served copies (memory only - the
