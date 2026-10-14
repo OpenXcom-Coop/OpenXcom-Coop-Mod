@@ -13,14 +13,13 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(r5/W6)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from harness import GameClient, make_user_dir
 import pvp_fixture as PVP
 import session
+import test_w2_battle_end_rules as BER
 
 
 CAMPAIGN_PORT = "48024"
@@ -69,20 +68,52 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
                         timeout=60,
                         interval=0.5)
 
-        time.sleep(2)
-        gamemode = PVP.start_pvp_skirmish_battle(
-            host, client, SKIRMISH_PORT, alien_player="client")
-        assert gamemode == 2, f"expected PvP gamemode 2, got {gamemode}"
-
-        host_battle = host.ok({"cmd": "battle_state"})
-        executor = host if host_battle.get("coopTurn") == 2 else client
-        killed = executor.ok({
-            "cmd": "battle_action",
-            "action": "kill_unit",
-            "coop_side": 1,
-        }).get("killed", [])
-        assert killed, "the client side had no living unit to eliminate"
-        executor.ok({"cmd": "battle_action", "action": "end_turn_button"})
+        # RV-U5 S-D RP3 (W2-P8b spine; F10427, F10428): the PvP gm2 skirmish is
+        # test_w2_battle_end_rules.boot_e6's body after its spawn / connect lines,
+        # started from the main menu both machines reached; then BER.stage_e6 (the
+        # host kills the client's only alien) and BER.end_e6 (the host's END TURN,
+        # its NextTurnState closed).
+        host.ok({"cmd": "set_seed", "seed": BER.SEED_MAP})
+        BER.raw.skirmish_host(host, SKIRMISH_PORT)
+        BER.raw.skirmish_client_at_browser(client)
+        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": SKIRMISH_PORT,
+                   "player": BER.raw.CLIENT_PLAYER})
+        host.wait_for("host popup", lambda: session.has_state(host, "Profile"))
+        client.wait_for("client popup", lambda: session.has_state(client, "Profile"))
+        host.ok({"cmd": "profile_ok"})
+        client.ok({"cmd": "profile_ok"})
+        host.wait_for("start offered", lambda: BER.raw.lobby(host).get("buttonVisible") or None)
+        r = host.ok({"cmd": "lobby_set_team", "row": BER.gm2_row_for(host, BER.raw.CLIENT_PLAYER),
+                     "team": "Alien"})
+        assert r.get("gamemode") == BER.GAMEMODE_PVP, (
+            f"lobby_set_team Alien answered gamemode {r.get('gamemode')} (want {BER.GAMEMODE_PVP})")
+        time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative PHASE 0)
+        BER.drive_to_gm2_battlescape(host, client)
+        hs, cs = BER.battle_state(host), BER.battle_state(client)
+        assert hs.get("coopGamemode") == BER.GAMEMODE_PVP and cs.get("coopGamemode") == BER.GAMEMODE_PVP, (
+            f"coopGamemode host={hs.get('coopGamemode')} client={cs.get('coopGamemode')} "
+            f"(want {BER.GAMEMODE_PVP})")
+        assert hs.get("mapFingerprint") == BER.MAP_FP and cs.get("mapFingerprint") == BER.MAP_FP, (
+            f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
+            f"baked MAP_FP={BER.MAP_FP!r} (STR_SMALL_SCOUT, SEED_MAP {BER.SEED_MAP})")
+        ha, ca = hs.get("authority") or {}, cs.get("authority") or {}
+        assert (ha.get("localSeat"), ha.get("hostSim"), ca.get("localSeat"), ca.get("hostSim")) == (
+            0, True, 1, False), (
+            f"authority host={ha} client={ca} (want host seat 0 hostSim, client seat 1 not hostSim)")
+        a = session.units_by_id(hs).get(BER.A_ID) or {}
+        assert (a.get("faction"), a.get("coop"), a.get("isOut")) == (BER.FACTION_HOSTILE, 1, False), (
+            f"alien {BER.A_ID} at bring-up: faction {a.get('faction')} coop {a.get('coop')} "
+            f"isOut {a.get('isOut')} (want a live FACTION_HOSTILE unit of seat 1)")
+        pinned = BER.pin_ai_neutral(host, client, tag="w2p7-sd1-gm2")   # 0 is legal in gm2
+        session.wait_host_idle(host, client, timeout=30)
+        BER.assert_hash_clean(host, client, full=True, what="gm2 bring-up")
+        print(f"RP3 gm2 skirmish boot ok: mapFingerprint {hs.get('mapFingerprint')}, "
+              f"pinned {pinned}, authority host={ha} client={ca}", flush=True)
+        pre, ending = [], []
+        staging = BER.stage_e6(host, client, pre)
+        assert not pre, f"RP3 staging (BER.stage_e6) failed: {pre} (staging={staging})"
+        closed = BER.end_e6(host, client, ending)
+        assert not ending, f"RP3 ending (BER.end_e6) failed: {ending} (ending={closed})"
 
         for gc, label in ((host, "host"), (client, "client")):
             gc.wait_for(f"{label} Skirmish debriefing",
