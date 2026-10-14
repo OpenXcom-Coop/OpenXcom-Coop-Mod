@@ -19,6 +19,9 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+// D247-U S-C: the battle-save hook pair takes YAML nodes (forward-declared, as BattleAuthority.h does).
+namespace YAML { class YamlNodeReader; class YamlNodeWriter; }
+
 namespace OpenXcom
 {
 
@@ -103,5 +106,13 @@ struct CoopHotseatRealFactions
 	SavedBattleGame* _s;
 	bool _active;
 };
+
+/// D247-U S-C (OH4 (a)): the BATTLE-save hook pair, beside BattleAuthority.h's coopSaveActiveSeat /
+/// coopLoadActiveSeat in SavedBattleGame::save() / ::load(). A hotseat battle's save carries whose turn it
+/// is, the stashed explored map, player 2's last alien and the REACT FIRE toggle; loading one arms hotseat
+/// and resumes that turn. Outside hotseat nothing is written (an SP save stays byte-identical); loading a
+/// battle without the keys disarms an armed toggle.
+void coopSaveHotseat(YAML::YamlNodeWriter& writer);
+void coopLoadHotseat(const YAML::YamlNodeReader& reader);
 
 } // namespace OpenXcom
