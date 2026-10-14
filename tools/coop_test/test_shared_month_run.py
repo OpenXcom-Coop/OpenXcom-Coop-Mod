@@ -40,8 +40,6 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(r3)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
