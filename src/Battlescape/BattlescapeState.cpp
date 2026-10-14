@@ -96,6 +96,7 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/CoopEndTurn.h"
+#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
 #include "../CoopMod/CoopSpeed.h"
 #include "../CoopMod/CoopDelta.h" // coop R5-U2: coopFactionIsMine() (R5-U1 S-B)
 
@@ -776,6 +777,7 @@ BattlescapeState::BattlescapeState() :
 	_battleGame = new BattlescapeGame(_save, this);
 
 	_barHealthColor = _barHealth->getColor();
+	coopHotseatOnBattleStart(_save); // coop D247-U: a hotseat battle (or stage) starts on player 1's turn
 }
 
 
@@ -816,6 +818,7 @@ void BattlescapeState::resetPalettes()
  */
 void BattlescapeState::init()
 {
+	coopHotseatOnInit(this, _save); // coop D247-U (OH1 a): the aliens' turn screen closed - player 2's turn
 	if (_paletteResetRequested)
 	{
 		_paletteResetRequested = false;
@@ -3907,6 +3910,7 @@ void BattlescapeState::popup(State *state)
  */
 void BattlescapeState::finishBattle(bool abort, int inExitArea)
 {
+	coopHotseatOnFinishBattle(_save); // coop D247-U: real factions and X-COM's map back before the debriefing
 	coopHostBattleEnd(_game, _save, abort, inExitArea); // coop (W2-P7): battle_end; no-op outside a host coop battle
 	bool isPreview = _save->isPreview();
 

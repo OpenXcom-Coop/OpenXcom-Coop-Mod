@@ -54,6 +54,7 @@
 #include "../fmath.h"
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
+#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopDelta.h" // coop R5-U2: the S-A draw probe (TEST-ONLY) and coopFactionIsMine() (R5-U1 S-B)
 
@@ -378,6 +379,8 @@ void Map::draw()
  */
 bool Map::hiddenMovementShown() const
 {
+	if (coopHotseatHidesMap(_save)) // coop D247-U (OH1 a): off the player side both hotseat players see HIDDEN MOVEMENT
+		return false;
 	return coopHiddenMovementActorTerm(_save) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV; // coop R5-U1 S-D: off a PvP side, the acting unit
 }
 
