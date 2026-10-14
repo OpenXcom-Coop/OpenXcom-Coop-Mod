@@ -499,6 +499,40 @@ bool coopHotseatHidesMap(const SavedBattleGame* s)
 {
 	return s && !s->isPreview() && !s->getDebugMode() && coopHotseatBattle() && s->getSide() != FACTION_PLAYER;
 }
+// D247-U S-B (docs rewrite/prompts/d247u_hotseat_battle.md (e) EB2): see CoopHotseat.h.
+bool coopHotseatArmsPanic(const SavedBattleGame* s)
+{
+	return s && coopHotseatAlienTurn();
+}
+
+bool coopHotseatWalkReactionOff()
+{
+	return coopHotseatBattle() && !connectionTCP::_isHotseatReactionFireEnabled;
+}
+
+bool coopHotseatFactionHuman(int faction)
+{
+	return coopHotseatBattle() && (faction == (int)FACTION_PLAYER || faction == (int)FACTION_HOSTILE);
+}
+
+static bool g_coopHotseatRealWindow = false;
+
+CoopHotseatRealFactions::CoopHotseatRealFactions(SavedBattleGame* s) : _s(s), _active(false)
+{
+	if (!_s || g_coopHotseatRealWindow || !coopHotseatAlienTurn())
+		return;
+	coopHotseatSwapFactions(_s);
+	g_coopHotseatRealWindow = true;
+	_active = true;
+}
+
+CoopHotseatRealFactions::~CoopHotseatRealFactions()
+{
+	if (!_active)
+		return;
+	coopHotseatSwapFactions(_s);
+	g_coopHotseatRealWindow = false;
+}
 // ----- end of D247-U's hotseat block -----
 
 bool connectionTCP::show_inactive_player_inventory = false;
@@ -9122,7 +9156,7 @@ bool coopSuppressNonPlayerThink(const SavedBattleGame* s)
 bool coopFactionHumanCommanded(int faction)
 {
 	if (!isCoopBattle())
-		return false;
+		return coopHotseatFactionHuman(faction); // coop D247-U (QD247-9): both hotseat players are human; false in single player
 	for (int seat = 0; seat < 4; ++seat)
 	{
 		if (coopBattleAuthority().seatMapped(seat) && coopBattleAuthority().factionOf(seat) == faction)

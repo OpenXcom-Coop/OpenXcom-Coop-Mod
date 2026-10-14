@@ -310,7 +310,8 @@ int BattlescapeGame::think()
 			// it's a player side && we have not handled all panicking units
 			if (!_playerPanicHandled)
 			{
-				_playerPanicHandled = coopSkipClientPanic() ? true : handlePanickingPlayer();
+				_playerPanicHandled = coopSkipClientPanic() ? true
+					: (coopHotseatAlienTurn() ? coopHandlePanickingHotseat() : handlePanickingPlayer()); // coop D247-U: player 2's aliens too
 				_save->getBattleState()->updateSoldierInfo();
 				coopHostDropOffSideSelection(_save); // coop W2-H39 (design-D6): a host never keeps an off-side unit the panic check selected
 			}
@@ -327,6 +328,10 @@ void BattlescapeGame::init()
 {
 	if ((_save->getSide() == FACTION_PLAYER && _save->getTurn() > 1)
 		|| coopHostArmsHumanSidePanic(_save)) // coop R5-U3 (R5-V1): a human seat's hostile side, from turn 1
+	{
+		_playerPanicHandled = false;
+	}
+	if (coopHotseatArmsPanic(_save)) // coop D247-U (R5-V1's rule): player 2's aliens, from turn 1
 	{
 		_playerPanicHandled = false;
 	}
@@ -816,6 +821,7 @@ void BattlescapeGame::endTurn()
  */
 void BattlescapeGame::checkForCasualties(const RuleDamageType *damageType, BattleActionAttack attack, bool hiddenExplosion, bool terrainExplosion)
 {
+	CoopHotseatRealFactions coopHotseatFactions(_save); // coop D247-U (QD247-8): vanilla's kill accounting on player 2's turn
 	BattleUnit* origMurderer = attack.attacker;
 	// If the victim was killed by the murderer's death explosion, fetch who killed the murderer and make HIM the murderer!
 	if (origMurderer && (origMurderer->getSpecialAbility() == SPECAB_EXPLODEONDEATH || origMurderer->getSpecialAbility() == SPECAB_BURN_AND_EXPLODE)
@@ -1652,6 +1658,24 @@ bool BattlescapeGame::coopHandlePanickingSide(UnitFaction side)
 		if (bu->getFaction() == side &&
 			bu->getOriginalFaction() == side &&
 			handlePanickingUnit(bu))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
+ * coop D247-U (R5-V1's rule for a human alien side): handlePanickingPlayer() for player 2's turn in a
+ * hotseat battle - every unit of the active (swapped) player side, the aliens included (vanilla's loop
+ * skips units whose original faction is not FACTION_PLAYER).
+ * @return True when all panicking is over.
+ */
+bool BattlescapeGame::coopHandlePanickingHotseat()
+{
+	for (auto* bu : *_save->getUnits())
+	{
+		if (bu->getFaction() == FACTION_PLAYER && handlePanickingUnit(bu))
 		{
 			return false;
 		}
