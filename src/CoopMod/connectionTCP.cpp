@@ -7737,7 +7737,7 @@ void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit)
 // coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): see BattleAuthority.h.
 bool coopOlderBattleConvertible(int gamemode)
 {
-	return gamemode == 0 || gamemode == 1; // classic / SHARED; PvP (2 / 3) and PvE2 (4) are D246-U stage S-C's
+	return gamemode == 0 || gamemode == 1 || gamemode == 2 || gamemode == 4; // classic / SHARED / PvP gm2 convert; PvE2 (4) loads unconverted (D283 refuses its RESUME); gm3 is D246-U S-C2's
 }
 
 void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeReader& body)
@@ -7746,6 +7746,15 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 	if (!battle || !mod)
 		return;
 	const YAML::YamlNodeReader block = body["battleGame"];
+	// coop D246-U S-C (docs rewrite/prompts/d246u_sc_pvp_battle_convert.md): the save's own game mode (SavedGame::load read it
+	// before the battle block) picks the rules below. PvE2 (gm4) campaigns are never played (D270 b, D283 b): the save loads as
+	// it was saved and LobbyMenu::resumeCampaign refuses its RESUME.
+	const int gamemode = save->getCoopLoadedGamemode();
+	if (gamemode == 4)
+	{
+		Log(LOG_INFO) << "[coop-convert] D246: an older version's mid-battle PvE2 campaign save loaded unconverted - its RESUME is refused (D283)";
+		return;
+	}
 
 	// (0) the partner worlds
 	int partnerBattles = 0, partnerMirrors = 0;
@@ -7812,6 +7821,29 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 	{
 		if (!unit)
 			continue;
+		if (gamemode == 2)
+		{
+			// gm2 (PvP; assignSeatsAndFactions()' PvP arm, CoopState.cpp; r5-T1): the X-COM side (original FACTION_PLAYER) is the
+			// host's seat 0, the alien side (original FACTION_HOSTILE) the second player's seat 1 without its AI module (a seat
+			// commands it, as at generation), every other unit (civilians) nobody's. The current faction is kept.
+			const UnitFaction orig = unit->getOriginalFaction();
+			if (orig != FACTION_PLAYER && orig != FACTION_HOSTILE)
+			{
+				if (unit->getCoopSeat() != COOP_SEAT_NONE)
+					unseated++;
+				unit->setCoopSeat(COOP_SEAT_NONE);
+				continue;
+			}
+			unit->setCoopSeat(orig == FACTION_PLAYER ? COOP_SEAT_0 : COOP_SEAT_1);
+			if (orig == FACTION_PLAYER)
+			{
+				seated0++;
+				continue;
+			}
+			unit->setAIModule(nullptr);
+			seated1++;
+			continue;
+		}
 		if (unit->getOriginalFaction() != FACTION_PLAYER)
 		{
 			if (unit->getCoopSeat() != COOP_SEAT_NONE)
@@ -7874,7 +7906,7 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 	// owner = seat, coopBase -1), so the battle's end returns its record to the owner's world and deletes the copy (F366,
 	// D155, D181). Its owner's soldier is the ONE soldier of the partner's world (converted by (0)) with the same key
 	// (coopname, else name) on the same craft (coopcraft, coopcrafttype); no match or several = unchanged, counted.
-	if (save->getCampaignType() != CoopCampaignType::Shared && save->getCoopPlayers().size() > 1)
+	if ((gamemode == 0 || gamemode == 1) && save->getCampaignType() != CoopCampaignType::Shared && save->getCoopPlayers().size() > 1) // a PvP battle carries one player's craft: no guest copies (D246-U S-C)
 	{
 		std::string partnerBlob;
 		{
