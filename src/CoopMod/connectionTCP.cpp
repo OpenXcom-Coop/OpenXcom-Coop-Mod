@@ -418,9 +418,16 @@ bool coopHotseatAlienTurn()
 	return coopHotseatBattle() && g_coopHotseatPhase == CoopHotseatPhase::Player2;
 }
 
+static bool g_coopHotseatLoaded = false; // D247-U S-C: set by coopLoadHotseat(), consumed by the next battle start
+
 void coopHotseatOnBattleStart(SavedBattleGame* s)
 {
 	(void)s;
+	if (g_coopHotseatLoaded)
+	{
+		g_coopHotseatLoaded = false; // a loaded hotseat battle resumes its own turn and maps
+		return;
+	}
 	coopHotseatReset();
 }
 
@@ -533,6 +540,52 @@ CoopHotseatRealFactions::~CoopHotseatRealFactions()
 	coopHotseatSwapFactions(_s);
 	g_coopHotseatRealWindow = false;
 }
+// D247-U S-C (OH4 (a); docs rewrite/prompts/d247u_hotseat_battle.md (e) EC3): see CoopHotseat.h.
+void coopSaveHotseat(YAML::YamlNodeWriter& writer)
+{
+	if (!coopHotseatBattle())
+		return;
+	static const char hexDigits[] = "0123456789abcdef";
+	std::string stash = "h"; // a leading letter keeps an all-digit map a YAML string
+	stash.reserve(g_coopHotseatStash.size() * 2 + 1);
+	for (std::uint8_t b : g_coopHotseatStash)
+	{
+		stash.push_back(hexDigits[(b >> 4) & 15]);
+		stash.push_back(hexDigits[b & 15]);
+	}
+	writer.write("coopHotseatPhase", (int)g_coopHotseatPhase);
+	writer.write("coopHotseatStash", stash);
+	writer.write("coopHotseatLastAlien", g_coopHotseatLastAlien);
+	writer.write("coopHotseatReactionFire", connectionTCP::_isHotseatReactionFireEnabled);
+}
+
+void coopLoadHotseat(const YAML::YamlNodeReader& reader)
+{
+	if (!reader["coopHotseatPhase"])
+	{
+		if (connectionTCP::_isHotseatActive)
+		{
+			coopHotseatReset();
+			connectionTCP::_isHotseatActive = false; // a battle saved outside hotseat never loads as hotseat
+		}
+		return;
+	}
+	int phase = 0;
+	std::string stash;
+	reader.tryRead("coopHotseatPhase", phase);
+	reader.tryRead("coopHotseatStash", stash);
+	reader.tryRead("coopHotseatLastAlien", g_coopHotseatLastAlien);
+	reader.tryRead("coopHotseatReactionFire", connectionTCP::_isHotseatReactionFireEnabled);
+	g_coopHotseatPhase = phase == 1 ? CoopHotseatPhase::Player2
+		: phase == 2 ? CoopHotseatPhase::AfterPlayer2 : CoopHotseatPhase::Player1;
+	g_coopHotseatStash.clear();
+	auto nibble = [](char c) { return c >= 'a' ? c - 'a' + 10 : c - '0'; };
+	for (size_t i = 1; i + 1 < stash.size(); i += 2)
+		g_coopHotseatStash.push_back((std::uint8_t)((nibble(stash[i]) << 4) | nibble(stash[i + 1])));
+	connectionTCP::_isHotseatActive = true;
+	g_coopHotseatLoaded = true;
+}
+
 // ----- end of D247-U's hotseat block -----
 
 bool connectionTCP::show_inactive_player_inventory = false;

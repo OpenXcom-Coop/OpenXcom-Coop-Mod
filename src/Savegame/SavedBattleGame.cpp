@@ -55,6 +55,7 @@
 #include "../fmath.h"
 #include "../Engine/Language.h"
 #include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopHotseat.h" // D247-U S-C: the hotseat battle-save hook pair
 #include "../CoopMod/CoopDelta.h"
 #include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
 
@@ -161,6 +162,7 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	// before this reads nothing and changes nothing.
 	coopLoadDeployment(reader);
 	coopLoadActiveSeat(reader);
+	coopLoadHotseat(reader); // coop D247-U S-C (OH4 a): a hotseat battle resumes as hotseat; absent in every other save
 	if (reader["startingConditionType"])
 	{
 		std::string startingConditionType = reader["startingConditionType"].readVal<std::string>();
@@ -547,6 +549,7 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	// list so neither rides the hash.
 	coopSaveDeployment(writer);
 	coopSaveActiveSeat(writer);
+	coopSaveHotseat(writer); // coop D247-U S-C (OH4 a): nothing outside a hotseat battle (an SP save stays byte-identical)
 	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): the host's true _itemId,
 	// so the loading machine ADOPTS it instead of re-deriving max(id)+1 - see
 	// the matching ADOPT call in load() below and BattleAuthority.h. Self-
