@@ -2261,7 +2261,17 @@ void DebriefingState::reequipCraft(Base *base, Craft *craft, bool vehicleItemsCa
 	ItemContainer craftVehicles;
 	for (auto* vehicle : *craft->getVehicles())
 	{
-		craftVehicles.addItem(vehicle->getRules());
+		// coop D248-U S-C (owner OD248-B1 (b); main DebriefingState.cpp :2947-:2955): a tank THIS world parked at a co-op
+		// partner's base fought in this battle as the host's and now leaves the craft: it is not re-added, and one tank of its
+		// type leaves this base's stores (the one vanilla's recovery credited, or a spare when it was destroyed).
+		if (vehicle->getCoopCraft() == -1)
+		{
+			craftVehicles.addItem(vehicle->getRules());
+		}
+		else
+		{
+			base->getStorageItems()->removeItem(vehicle->getRules());
+		}
 	}
 
 	// Now we know how many vehicles (separated by types) we have to read
