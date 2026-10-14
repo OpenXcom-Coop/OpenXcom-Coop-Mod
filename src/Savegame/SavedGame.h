@@ -172,6 +172,9 @@ private:
 	// _coop permanently distinguishes co-op campaigns from solo; _coopPlayers
 	// is the locked player list (host first).
 	bool _coop;
+	// coop D283 (b): the game mode this loaded save was played in (its body's coop_gamemode, read by SavedGame::load); 0 for a world
+	// this process created or was served. Never written to a save.
+	int _coopLoadedGamemode = 0;
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
@@ -282,6 +285,8 @@ private:
 	/// Is this a co-op campaign save (permanent solo/co-op distinction)?
 	bool isCoopSave() const { return _coop; }
 	void setCoopSave(bool coop) { _coop = coop; }
+	/// coop D283 (b): the game mode this save was played in, as SavedGame::load read it (0 for a new or served world).
+	int getCoopLoadedGamemode() const { return _coopLoadedGamemode; }
 	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }

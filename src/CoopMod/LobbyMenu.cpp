@@ -554,6 +554,7 @@ public:
  * campaign lobby opens when a team pick would put both players on the Alien team - there are no PvE2 (game mode 4) campaigns; PvE2
  * stays a Custom Battle mode. One OK button closes it; the pick itself was refused (LobbyMenu::setPlayerTeam). File-local, as
  * ConfirmStartCampaignState.
+ * coop D283 (b): RESUME of a co-op campaign save played in PvE2 opens it too (LobbyMenu::resumeCampaign); OK returns to that lobby.
  */
 class CampaignTeamRefusedState : public State
 {
@@ -677,6 +678,17 @@ std::vector<std::string> LobbyMenu::missingPlayers() const
 
 void LobbyMenu::resumeCampaign()
 {
+
+	// coop D283 (b) (owner 2026-10-13; extends D270 (b), D275): there are no PvE2 (game mode 4) campaigns, so a co-op campaign save
+	// played in PvE2 - only the release line could write one - is not resumed: D275's dialog, nothing sent, the session and both
+	// lobbies as they were. The mode is the save's own (SavedGame::getCoopLoadedGamemode): the host window set the live one to 1. A
+	// Custom Battle save has no countries, so it is never a campaign context and PvE2 stays legal there.
+	if (_game->getCoopMod()->inCoopCampaignContext() && _game->getSavedGame()->getCoopLoadedGamemode() == 4)
+	{
+		Log(LOG_INFO) << "[coop] campaign RESUME refused: the save was played in PvE2 (game mode 4; D283)";
+		_game->pushState(new CampaignTeamRefusedState());
+		return;
+	}
 
 	connectionTCP::session.campaignStarted();
 	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a)): a gm3 battle the alien host saved while it borrowed the X-COM player's world is
