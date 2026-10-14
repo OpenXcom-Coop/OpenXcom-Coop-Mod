@@ -65,6 +65,7 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopSideTransition.h"
 #include "../CoopMod/CoopDoor.h"
+#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
 #include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
@@ -579,6 +580,7 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
  */
 void BattlescapeGame::endTurn()
 {
+	coopHotseatOnEndTurn(_save); // coop D247-U (OH1 a): player 2 ended the turn - hand the battle back first
 	// W2-P3 S-A (spec (b)6): ONE guarded coop call - on the co-op HOST, with the
 	// BState queue empty, every action context still open is closed here. No-op
 	// in single player and on a client.

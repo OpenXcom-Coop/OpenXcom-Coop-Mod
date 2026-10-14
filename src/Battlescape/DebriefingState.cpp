@@ -24,6 +24,7 @@
 #include "CannotReequipState.h"
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../CoopMod/SharedEcon.h" // W2-H15 (F5602)
+#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
 #include "../CoopMod/CoopScriptOwner.h" // coop OF2 S-C: CoopScriptDebriefOwner around postMissionProcedures (D266 (c))
 #include "../CoopMod/CoopBattleSetup.h" // coop D248-U: coopGuestTankRecovered
 #include "../Engine/Action.h"
@@ -298,6 +299,8 @@ DebriefingState::DebriefingState() :
 	_lstRecoveredItems->setColumns(2, firstColumnWidth, 18);
 	_lstRecoveredItems->setAlign(ALIGN_LEFT);
 	_lstRecoveredItems->setDot(true);
+
+	coopHotseatOnDebriefing(); // coop D247-U: hotseat is scoped to one skirmish (main DebriefingState :300-:314)
 
 	// coop (F389): this is the host's battle-end chokepoint (abort/win/lose all
 	// route through here via BattlescapeState::finishBattle before the geoscape

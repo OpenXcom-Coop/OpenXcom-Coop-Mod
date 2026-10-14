@@ -138,6 +138,7 @@
 #include "CoopApply.h"
 #include "CoopReveal.h"
 #include "CoopFog.h"
+#include "CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
 #include "CoopDoor.h"
 #include "CoopGhost.h"
 #include "CoopSideTransition.h"
@@ -320,6 +321,185 @@ bool connectionTCP::isCoopBaseLoading = false;
 bool connectionTCP::_isHotseatActive = false;
 
 bool connectionTCP::_isHotseatReactionFireEnabled = false;
+
+// ----- D247-U (owner D247 (a), OH1 (a); docs rewrite/prompts/d247u_hotseat_battle.md (e) EA3): the battle
+// half of the local hotseat mode, CoopHotseat.h. Local only: no wire, no hash. -----
+namespace
+{
+enum class CoopHotseatPhase { Player1, Player2, AfterPlayer2 };
+CoopHotseatPhase g_coopHotseatPhase = CoopHotseatPhase::Player1;
+std::vector<std::uint8_t> g_coopHotseatStash; // the explored map of the player not at the keyboard (empty = unexplored)
+int g_coopHotseatLastAlien = -1; // the alien player 2 had selected when its last turn ended
+
+/// Swaps the live explored map (the vanilla per-tile discovered bits) with the stash; an empty stash
+/// restores an unexplored map (player 2's first turn, as main's restore does).
+void coopHotseatSwapFog(SavedBattleGame* s)
+{
+	const int n = s->getMapSizeXYZ();
+	std::vector<std::uint8_t> live((size_t)n, 0);
+	for (int i = 0; i < n; ++i)
+	{
+		Tile* t = s->getTile(i);
+		if (!t)
+			continue;
+		live[(size_t)i] = (std::uint8_t)((t->isDiscovered(O_WESTWALL) ? 1 : 0)
+			| (t->isDiscovered(O_NORTHWALL) ? 2 : 0) | (t->isDiscovered(O_FLOOR) ? 4 : 0));
+		const std::uint8_t b = (size_t)i < g_coopHotseatStash.size() ? g_coopHotseatStash[(size_t)i] : 0;
+		t->setDiscovered(false, O_FLOOR);
+		t->setDiscovered(false, O_WESTWALL);
+		t->setDiscovered(false, O_NORTHWALL);
+		if (b & 1)
+			t->setDiscovered(true, O_WESTWALL);
+		if (b & 2)
+			t->setDiscovered(true, O_NORTHWALL);
+		if (b & 4)
+			t->setDiscovered(true, O_FLOOR);
+	}
+	g_coopHotseatStash.swap(live);
+}
+
+/// Swaps FACTION_PLAYER and FACTION_HOSTILE on every unit; original factions stay (QD247-2).
+void coopHotseatSwapFactions(SavedBattleGame* s)
+{
+	for (BattleUnit* u : *s->getUnits())
+	{
+		if (u->getFaction() == FACTION_PLAYER)
+			u->convertToFaction(FACTION_HOSTILE);
+		else if (u->getFaction() == FACTION_HOSTILE)
+			u->convertToFaction(FACTION_PLAYER);
+	}
+}
+
+/// One hand-over (QD247-4): the old side's sight goes, factions and explored maps swap, the side reads
+/// @a side, and the new player side's unit lighting and sight are computed from scratch.
+void coopHotseatHandOver(SavedBattleGame* s, UnitFaction side)
+{
+	for (BattleUnit* u : *s->getUnits())
+		u->clearVisibleTiles();
+	coopHotseatSwapFactions(s);
+	coopHotseatSwapFog(s);
+	for (BattleUnit* u : *s->getUnits())
+	{
+		if (u->getFaction() != FACTION_PLAYER)
+			u->setVisible(false);
+	}
+	s->coopSetSide(side); // QD247-7: the existing plain setter; hotseat is its second caller
+	if (TileEngine* te = s->getTileEngine())
+	{
+		te->calculateLighting(LL_UNITS);
+		te->recalculateFOV();
+	}
+}
+
+/// QD247-10: Options::EnableHotseatDebugMode (registered since main, read nowhere) logs one line per hand-over.
+void coopHotseatLog(const SavedBattleGame* s, const char* what)
+{
+	if (!Options::EnableHotseatDebugMode)
+		return;
+	Log(LOG_INFO) << "[hotseat] " << what << ": turn " << s->getTurn() << ", side " << (int)s->getSide()
+		<< ", stash " << g_coopHotseatStash.size() << " tiles";
+}
+
+void coopHotseatReset()
+{
+	g_coopHotseatPhase = CoopHotseatPhase::Player1;
+	g_coopHotseatStash.clear();
+	g_coopHotseatLastAlien = -1;
+}
+} // namespace
+
+bool coopHotseatBattle()
+{
+	return connectionTCP::_isHotseatActive && !connectionTCP::getCoopStatic();
+}
+
+bool coopHotseatAlienTurn()
+{
+	return coopHotseatBattle() && g_coopHotseatPhase == CoopHotseatPhase::Player2;
+}
+
+void coopHotseatOnBattleStart(SavedBattleGame* s)
+{
+	(void)s;
+	coopHotseatReset();
+}
+
+void coopHotseatOnInit(BattlescapeState* bs, SavedBattleGame* s)
+{
+	if (!bs || !s || s->isPreview() || !coopHotseatBattle())
+		return;
+	if (s->getSide() == FACTION_PLAYER && g_coopHotseatPhase == CoopHotseatPhase::AfterPlayer2)
+	{
+		g_coopHotseatPhase = CoopHotseatPhase::Player1; // player 1's turn screen closed
+		return;
+	}
+	if (s->getSide() != FACTION_HOSTILE || g_coopHotseatPhase != CoopHotseatPhase::Player1)
+		return;
+	// QD247-9: player 2's aliens play without the AI's modules, as a PvP human alien side does
+	// (CoopState.cpp's setAIModule(nullptr) at the PvP setup).
+	for (BattleUnit* u : *s->getUnits())
+	{
+		if (u->getFaction() == FACTION_HOSTILE && u->getAIModule())
+			u->setAIModule(nullptr);
+	}
+	coopHotseatHandOver(s, FACTION_PLAYER);
+	g_coopHotseatPhase = CoopHotseatPhase::Player2;
+	// QD247-6: player 2 starts on the alien it last commanded while that alien can still act
+	BattleUnit* sel = nullptr;
+	for (BattleUnit* u : *s->getUnits())
+	{
+		if (u->getId() == g_coopHotseatLastAlien && u->isSelectable(FACTION_PLAYER, false, false))
+			sel = u;
+	}
+	if (sel)
+	{
+		s->setSelectedUnit(sel);
+	}
+	else
+	{
+		s->setSelectedUnit(nullptr);
+		sel = s->selectNextPlayerUnit();
+	}
+	bs->getBattleGame()->setupCursor();
+	if (sel)
+		bs->getMap()->getCamera()->centerOnPosition(sel->getPosition());
+	coopHotseatLog(s, "player 2's turn");
+}
+
+void coopHotseatOnEndTurn(SavedBattleGame* s)
+{
+	if (!s || !coopHotseatAlienTurn())
+		return;
+	const BattleUnit* sel = s->getSelectedUnit();
+	g_coopHotseatLastAlien = (sel && sel->getFaction() == FACTION_PLAYER) ? sel->getId() : -1;
+	coopHotseatHandOver(s, FACTION_HOSTILE);
+	g_coopHotseatPhase = CoopHotseatPhase::AfterPlayer2;
+	coopHotseatLog(s, "player 2 ended the turn");
+}
+
+void coopHotseatOnFinishBattle(SavedBattleGame* s)
+{
+	if (s && coopHotseatAlienTurn())
+	{
+		coopHotseatHandOver(s, FACTION_HOSTILE);
+		coopHotseatLog(s, "the battle ends on player 2's turn");
+	}
+	coopHotseatReset();
+}
+
+void coopHotseatOnDebriefing()
+{
+	if (!connectionTCP::_isHotseatActive)
+		return;
+	coopHotseatReset();
+	connectionTCP::_isHotseatActive = false; // one skirmish (main DebriefingState :310-:312)
+}
+
+bool coopHotseatHidesMap(const SavedBattleGame* s)
+{
+	return s && !s->isPreview() && !s->getDebugMode() && coopHotseatBattle() && s->getSide() != FACTION_PLAYER;
+}
+// ----- end of D247-U's hotseat block -----
 
 bool connectionTCP::show_inactive_player_inventory = false;
 
