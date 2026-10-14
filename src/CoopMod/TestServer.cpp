@@ -11395,6 +11395,25 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["westwall"] = west;
 			resp["northwall"] = north;
 			resp["discoveredVoid"] = discoveredVoid;
+			// D247-U S-A.1 (docs rewrite/prompts/d247u_hotseat_battle.md (e) TA1; TEST-ONLY, read-only):
+			// {bits: true} adds the PLAYER-side explored map as hex, two characters per tile in linear
+			// tile-index order (1 = west wall, 2 = north wall, 4 = floor: CoopFog.h's byte), so a
+			// hotseat test compares the two players' maps tile by tile.
+			if (req.get("bits", false).asBool())
+			{
+				static const char hexDigits[] = "0123456789abcdef";
+				std::string bitsHex;
+				bitsHex.reserve((size_t)n * 2);
+				for (int i = 0; i < n; ++i)
+				{
+					Tile* t = bg->getTile(i);
+					const int b = !t ? 0 : ((t->isDiscovered(O_WESTWALL) ? 1 : 0)
+						| (t->isDiscovered(O_NORTHWALL) ? 2 : 0) | (t->isDiscovered(O_FLOOR) ? 4 : 0));
+					bitsHex.push_back(hexDigits[(b >> 4) & 15]);
+					bitsHex.push_back(hexDigits[b & 15]);
+				}
+				resp["playerBits"] = bitsHex;
+			}
 
 			// W1-P8 (SS2.W4 dual-set): the same census PER SIDE, so a test can
 			// assert both machines hold the SAME two sets rather than one merged
