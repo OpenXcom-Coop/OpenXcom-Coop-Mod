@@ -827,6 +827,27 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
 	}
 
+	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a)): a save the gm3 alien host wrote while it borrowed the X-COM player's world for a
+	// battle - the borrow's record, kept for the RESUME (connectionTCP::coopPvpResumeBorrow). Every menu load resets it first.
+	connectionTCP::coopPvpLoadedBorrow = Json::Value();
+	if (_coop && header["coopPvpBorrowed"])
+	{
+		const auto& borrowedReader = header["coopPvpBorrowed"];
+		std::string kind, craftType, targetKind;
+		int craftId = -1, targetCoopId = 0;
+		bool targetMirror = false;
+		borrowedReader.tryRead("kind", kind);
+		borrowedReader.tryRead("craftType", craftType);
+		borrowedReader.tryRead("craftId", craftId);
+		borrowedReader.tryRead("targetKind", targetKind);
+		borrowedReader.tryRead("targetCoopId", targetCoopId);
+		borrowedReader.tryRead("targetMirror", targetMirror);
+		Json::Value rec(Json::objectValue);
+		rec["kind"] = kind; rec["craftType"] = craftType; rec["craftId"] = craftId;
+		rec["targetKind"] = targetKind; rec["targetCoopId"] = targetCoopId; rec["targetMirror"] = targetMirror;
+		connectionTCP::coopPvpLoadedBorrow = rec;
+	}
+
 	// M1 (SPEC 18 r4 T4, owner ruling D92/D-22): a mid-battle coop save is
 	// stamped with the wire protocol it was written under (coopBattleProtocol,
 	// save()'s header write). A DIFFERENT BUILD (a full host restart on a
@@ -1843,6 +1864,29 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("coopPlayers", _coopPlayers);
 		// PRD-J01: economy model beside coop (int); mirror of the load read.
 		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
+	}
+
+	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a), QC4B-2 (a)): the gm3 alien host's save while it borrows the X-COM player's world
+	// for a battle (connectionTCP::coopPvpSaveWorld writes this world, the host's own, as the body): the borrow's record for the RESUME,
+	// and the battle's save-list keys and version stamp as every mid-battle co-op save carries them (the battle itself rides in the X-COM
+	// player's embedded world, coopClientSaves).
+	if (_coop && connectionTCP::coopPvpSaveMarker.isObject())
+	{
+		const Json::Value& m = connectionTCP::coopPvpSaveMarker;
+		auto borrowedWriter = headerWriter["coopPvpBorrowed"];
+		borrowedWriter.setAsMap();
+		borrowedWriter.write("kind", m.get("kind", "").asString());
+		borrowedWriter.write("craftType", m.get("craftType", "").asString());
+		borrowedWriter.write("craftId", m.get("craftId", -1).asInt());
+		borrowedWriter.write("targetKind", m.get("targetKind", "").asString());
+		borrowedWriter.write("targetCoopId", m.get("targetCoopId", 0).asInt());
+		borrowedWriter.write("targetMirror", m.get("targetMirror", false).asBool());
+		headerWriter.write("mission", m.get("mission", "").asString());
+		headerWriter.write("target", m.get("target", "").asString());
+		headerWriter.write("craftOrBase", m.get("craftOrBase", "").asString()).setAsQuotedAndEscaped();
+		headerWriter.write("turn", m.get("turn", 0).asInt());
+		headerWriter.write("coopBattleProtocol", 1);
+		headerWriter.write("coopBattleId", m.get("battleId", 0).asInt());
 	}
 
 	// M1 (SPEC 18 r4 T4, owner ruling D92/D-22): a mid-battle coop save is

@@ -679,6 +679,10 @@ void LobbyMenu::resumeCampaign()
 {
 
 	connectionTCP::session.campaignStarted();
+	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a)): a gm3 battle the alien host saved while it borrowed the X-COM player's world is
+	// borrowed again before the resume is armed, so it resumes as a battle; false (nothing changed) for every other save.
+	const bool coopPvpResumed = _game->getCoopMod()->coopPvpResumeBorrow();
+
 	// coop D250-U S-C4a (QC-16 (a); VL-C-10): a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
 	// for a new one - the session reset when hosting began (resetCoopState) cleared the flag the save carried. Not while it borrows
 	// the X-COM player's world for a resumed battle (QC-5).
@@ -745,6 +749,8 @@ void LobbyMenu::resumeCampaign()
 	// close the lobby (popping anything stacked above it) and hold until
 	// every player reports its world loaded
 	closeLobby();
+	if (coopPvpResumed)
+		_game->getCoopMod()->coopPvpShowResumedBattle(); // coop D250-U S-C4b: the resumed borrowed battle's screen, under the wait dialog
 
 	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 

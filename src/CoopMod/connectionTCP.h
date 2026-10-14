@@ -694,6 +694,14 @@ class connectionTCP
 	static SavedGame* coopPvpParkedWorld();                   // HOST: the parked alien world while borrowing, else null
 	static void coopPvpBorrowDrop();                          // the main-menu chokepoint: the parked world goes with the world
 	static void coopPvpPeerDropped();                         // coop D250-U S-C3: HOST - a peer drop ends a waiting landing request
+	// coop D250-U S-C4b (QC-14 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-5): a gm3 battle the alien host saves
+	// while it borrows the X-COM player's world, and its resume.
+	static Json::Value coopPvpSaveMarker;                     // set only while the parked world is written (SavedGame::save's header)
+	static Json::Value coopPvpLoadedBorrow;                   // the borrow record of the last menu-loaded save (SavedGame::load), else null
+	void coopPvpSaveWorld(const std::string& filename);       // HOST: every write of the live world to a save file
+	bool coopPvpResumeBorrow();                               // HOST, at RESUME: the saved battle's X-COM world borrowed again
+	void coopPvpShowResumedBattle();                          // HOST, at RESUME: the resumed borrowed battle's screen
+	void coopPvpRebuildTarget(SavedGame* borrowed, Craft* craft, int alienBaseCoopId); // HOST: the borrowed craft's target mirror
 	void coopPvpLandReceived(const Json::Value& obj);         // HOST: `pvp_land`
 	void coopPvpLandRefusedReceived(const Json::Value& obj);  // CLIENT: `pvp_land_refused`
 	void coopPvpLandBlobStored(bool stored);                  // HOST: after MAP_RESULT_SAVE_PROGRESS's validation
