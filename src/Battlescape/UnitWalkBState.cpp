@@ -35,6 +35,7 @@
 #include "UnitFallBState.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopDoor.h"
+#include "../CoopMod/CoopHotseat.h" // D247-U: the hotseat REACT FIRE toggle
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopSpeed.h"
 #include "../CoopMod/CoopDelta.h"
@@ -273,7 +274,7 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			if (!_falling && !_fallingWhenStopped && !coopPvpWalkReactionOff()) // coop R5-U6 S-A (D236 b): the host's PvP option
+			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop D247-U: the hotseat REACT FIRE toggle (main UnitWalkBState :465) */ && !coopPvpWalkReactionOff()) // coop R5-U6 S-A (D236 b): the host's PvP option
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{

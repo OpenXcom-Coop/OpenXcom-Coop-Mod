@@ -78,4 +78,30 @@ void coopHotseatOnDebriefing();
 /// non-player side (the end of player 2's turn, the civilians' turn) is hidden from both players.
 bool coopHotseatHidesMap(const SavedBattleGame* s);
 
+/// D247-U S-B (R5-V1's rule for a human alien side): BattlescapeGame::init() arms the start-of-turn
+/// panic check on player 2's turn from turn 1; think() then runs coopHandlePanickingHotseat().
+bool coopHotseatArmsPanic(const SavedBattleGame* s);
+
+/// D247-U S-B: UnitWalkBState's walk-step reaction check - true = no reaction fire on a walk step, i.e. a
+/// hotseat battle whose REACT FIRE toggle is off (main UnitWalkBState :465; the other triggers stay).
+bool coopHotseatWalkReactionOff();
+
+/// D247-U S-B: coopFactionHumanCommanded() outside a co-op battle - in a hotseat battle a human commands
+/// both FACTION_PLAYER and FACTION_HOSTILE (R5-U3's terms then skip the AI weapon-use delay and the AI
+/// "aggro" step of a reaction; QD247-9).
+bool coopHotseatFactionHuman(int faction);
+
+/// D247-U S-B (QD247-8): for its lifetime on player 2's turn the real factions are back, so
+/// BattlescapeGame::checkForCasualties() keeps vanilla's kill accounting (who killed whom, the killer's
+/// morale, the mind-control credit). Nest-safe: only the outermost guard swaps.
+struct CoopHotseatRealFactions
+{
+	explicit CoopHotseatRealFactions(SavedBattleGame* s);
+	~CoopHotseatRealFactions();
+	CoopHotseatRealFactions(const CoopHotseatRealFactions&) = delete;
+	CoopHotseatRealFactions& operator=(const CoopHotseatRealFactions&) = delete;
+	SavedBattleGame* _s;
+	bool _active;
+};
+
 } // namespace OpenXcom

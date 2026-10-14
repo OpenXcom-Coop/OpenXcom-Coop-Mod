@@ -153,6 +153,8 @@ private:
 	bool handlePanickingPlayer();
 	/// coop R5-U3 (R5-V1): handlePanickingPlayer() for @a side, a side a human seat commands.
 	bool coopHandlePanickingSide(UnitFaction side);
+	/// coop D247-U: handlePanickingPlayer() for player 2's turn in a hotseat battle.
+	bool coopHandlePanickingHotseat();
 	/// Common function for handling panicking units.
 	bool handlePanickingUnit(BattleUnit *unit);
 	/// Determines whether there are any actions pending for the given unit.

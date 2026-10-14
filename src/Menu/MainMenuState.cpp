@@ -441,6 +441,7 @@ void MainMenuState::init()
 	_game->getCoopMod()->disconnectTCP(true);
 
 	connectionTCP::_coopGamemode = 0;
+	connectionTCP::_isHotseatActive = false; // coop D247-U (QD247-11): back at the main menu no hotseat stays armed
 	connectionTCP::session.resetSession();
 	_game->getCoopMod()->coopMissionEnd = false;
 	_game->getCoopMod()->coopInventory = false;
