@@ -3010,7 +3010,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else
 		{
-			_game->getSavedGame()->save(file, _game->getMod());
+			coop->coopPvpSaveWorld(file); // coop D250-U S-C4b (QC-14 (a)): the save funnel (a borrowed gm3 battle writes the alien host's own world as the body)
 			resp["ok"] = true;
 		}
 	}
