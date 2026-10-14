@@ -532,7 +532,15 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	connectionTCP::_coopGamemode = 1;
+	// coop D250-U S-C4a (QC-16 (a), QC4A-1 (a); F5106; `main`'s preserveLoadedMode shape): a co-op campaign RESUME (lobbyMode 2,
+	// derived above from the save's locked roster) keeps the PvP mode the save was played in - PVP (2) or PVP2 (3) - so the lobby,
+	// the world service and every battle read it. Every other host starts as PVE (1), as before.
+	const bool coopKeepLoadedPvpMode = _game->getCoopMod()->inCoopCampaignContext() && connectionTCP::session.lobbyMode == 2
+		&& (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3);
+	if (!coopKeepLoadedPvpMode)
+	{
+		connectionTCP::_coopGamemode = 1;
+	}
 
 	_game->getCoopMod()->setCoopSession(false);
 

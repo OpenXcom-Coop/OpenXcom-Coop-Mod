@@ -38363,6 +38363,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				Log(LOG_INFO) << "[coop] F3 battle resume: stashed geoscape-only coop_geoscape_return for mission-end restore";
 			}
 
+			// coop D250-U S-C4a (QC3-4 (a), L-SC3-1; VL-C-10): the gm2 alien player never pushes a world of its own (no_bases), so its
+			// rejoin in a live campaign found none here and was answered with a NEW campaign (base placement on the alien side). Serve
+			// it the stub a resume serves (LobbyMenu::resumeCampaign, SavedGame::buildCoopStub): its alien role comes back with it.
+			if (connectionTCP::_coopGamemode == 2 && !hasCoopFile(hostBlobKey(_game->getCoopMod()->getCurrentClientName())))
+			{
+				try
+				{
+					std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
+					std::lock_guard<std::mutex> lk(coopFilesMutex);
+					coopFilesHost[hostBlobKey(_game->getCoopMod()->getCurrentClientName())] = std::move(stub);
+					Log(LOG_INFO) << "[coop] gm2 rejoin: stub no_bases blob for " << _game->getCoopMod()->getCurrentClientName();
+				}
+				catch (const std::exception& e)
+				{
+					Log(LOG_ERROR) << "[coop] gm2 rejoin stub build failed: " << e.what();
+				}
+			}
+
 			std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
 
 			bool blobFound = false;
@@ -43064,7 +43082,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// every other teardown reset as before, so a single-player game after the session never inherits the alien role.
 		const bool coopPvpAlienHost = !isMain && onConnect == -2 && session.role == CoopRole::Host && connectionTCP::_coopCampaign
 			&& connectionTCP::_coopGamemode == 3;
-		if (!coopBattleLive(_game) && !coopPvpAlienHost) // coop D250-U S-C3 (QC3-3): a gm3 alien host's campaign stays gm3
+		// coop D250-U S-C4a (QC3-4 (a), L-SC3-1; VL-C-10): the X-COM host of a gm2 PvP campaign whose alien player dropped keeps the
+		// campaign's mode too, so the rejoined alien player gets its alien side back (the world service and the lobby status carry the
+		// mode); its no_bases stays false (the no_bases reset below keys on the gm3 alien host only).
+		const bool coopPvpXcomHost = !isMain && onConnect == -2 && session.role == CoopRole::Host && connectionTCP::_coopCampaign
+			&& connectionTCP::_coopGamemode == 2;
+		if (!coopBattleLive(_game) && !coopPvpAlienHost && !coopPvpXcomHost) // coop D250-U S-C3 (QC3-3) / S-C4a (QC3-4): a PvP campaign host keeps its mode
 		{
 			connectionTCP::_coopGamemode = 0;
 		}

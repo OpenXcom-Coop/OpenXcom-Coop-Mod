@@ -679,6 +679,12 @@ void LobbyMenu::resumeCampaign()
 {
 
 	connectionTCP::session.campaignStarted();
+	// coop D250-U S-C4a (QC-16 (a); VL-C-10): a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
+	// for a new one - the session reset when hosting began (resetCoopState) cleared the flag the save carried. Not while it borrows
+	// the X-COM player's world for a resumed battle (QC-5).
+	if (connectionTCP::_coopGamemode == 3 && !connectionTCP::coopPvpParkedWorld())
+		connectionTCP::no_bases = true;
+
 	// battle save: after the geoscape world ack, stream the battle (2c)
 	connectionTCP::session.armResumeHandshake(_game->getSavedGame()->getSavedBattle() != nullptr);
 
