@@ -28543,6 +28543,21 @@ void clearEntryNotices(const SavedBattleGame* save)
 		setBanner(bs, std::string(), BannerClass::None);
 }
 
+// W2-H45 (docs rewrite/prompts/w2h45_gift_receiver_arm.md (e) E1; L-H43-2, R-H43-2, F16965): the spectator line
+// (STR_COOP_SPECTATOR_MODE, showSpectatorMode()) goes the moment THIS seat commands a live unit again - a gift received -
+// on any side: coopSpectatorWatch()'s rising edge, the twin of the falling edge that raised it (R5-U2 UC6). Clears only
+// a Notice-class banner with that text. No-op outside a co-op battle or with no live BattlescapeState.
+static void clearSpectatorNotice()
+{
+	if (!isCoopBattle())
+		return;
+	BattlescapeState* bs = activeBattlescapeState();
+	if (!connectionTCP::isBattlescapeStateLive(bs) || !bs->getGame() || g_bannerClass != BannerClass::Notice)
+		return;
+	if (bs->getCoopWaitText() == std::string(bs->getGame()->getLanguage()->getString("STR_COOP_SPECTATOR_MODE")))
+		setBanner(bs, std::string(), BannerClass::None);
+}
+
 // ---------------------------------------------------------------------------
 // W1-P13c (REV E.53 E53.1/E53.2): D-24b AMENDED - the off-baton gray bottom
 // bar. See CoopBattleUi.h's own doc comments for the contract; nothing here
@@ -33857,7 +33872,12 @@ void coopGiftPump(Game* game)
 			// the receiver: the unit is its gift target at once, its selection when it has none, and the notice
 			coop->setGiftSelectedBattleUnit(unit);
 			BattleUnit* sel = save->getSelectedUnit();
-			if (!sel || sel->isOut() || !coopBattleAuthority().commandsUnit(sel))
+			// W2-H45 (docs rewrite/prompts/w2h45_gift_receiver_arm.md (e) E2; L-H43-1, F17060-F17072; D87): the HOST takes
+			// the received unit as its selection only on its own active side. Off it the host's selection is the AI loop's
+			// (BattlescapeGame::think hands the selected unit to handleAI), so a soldier written there was run by the AI
+			// first; SavedBattleGame::endTurn selects at the host's next own side start. The client runs no AI: unchanged.
+			if ((!coopBattleAuthority().hostSim || coopBattleAuthority().mySideActive(save))
+				&& (!sel || sel->isOut() || !coopBattleAuthority().commandsUnit(sel)))
 			{
 				save->setSelectedUnit(unit);
 				coopClientPairSelection(save);
@@ -34824,6 +34844,10 @@ static void coopSpectatorWatch(Game* game)
 	}
 	if (s_had && !live)
 		CoopBattleUi::showSpectatorMode();
+	// W2-H45 (docs rewrite/prompts/w2h45_gift_receiver_arm.md (e) E3; L-H43-2, R-H43-2): the rising edge - a seat that
+	// commands a live unit again (a gift received) loses the spectator line at once, on any side (clearSpectatorNotice()).
+	if (!s_had && live)
+		CoopBattleUi::clearSpectatorNotice();
 	s_had = live;
 }
 
