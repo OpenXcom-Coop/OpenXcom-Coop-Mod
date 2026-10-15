@@ -436,3 +436,44 @@ Recorded by R5-U5 (docs `rewrite/prompts/r5u5_battle_gift_order.md`; owner D229 
 |---|---|
 | `test_battlescape_soldier_gift.py` | covered (RV-U5 deletes; it stays SKIP-PENDING and is not edited): its ten live-gift behaviours on the rewrite's order path - `test_r5_battle_gift.py` G0 (the gift target at battle entry, after a click, after a TAB), G1 (the key, the menu, the receiver's notice and target, the giver's selection), G3 (a received unit given back at once, D240 (a)), G4 (a unit of another seat refused) and `test_r5_battle_gift_keep.py` K1 (a gift off the giver's go, traditional mode), K2 (the giver's last unit given on its go: its go ends). Its own setup (`test_coop_resume_battle_control.py`, quarantined R4-P2) and its legacy `coopTurn` / `playerTurn` reads do not exist in the rewrite |
 | `test_shared_soldier_gift_dup.py` | run live since R5-U5 S-B (guard removed, one one-way gift and its owner check added): issue #126's back-and-forth SHARED gift leaves both rosters unchanged with no duplicate id, and a one-way gift's soldier is the receiver's after the mission |
+
+## Dispositions (RV-U5, post-Wave-2)
+
+Recorded by RV-U5 (docs `rewrite/prompts/rvu5_quarantine_gate.md`, stage S-G `rewrite/prompts/rvu5_sg_gate.md`; owner D229 (a) + gate,
+D250). The D229 gate over the 40 files the rewrite quarantined: 21 are deleted because running rewrite rows cover their scenario (git
+history keeps them), 19 run live or are held by a named unit. One guard remains: `test_pvp_campaign_resume.py`, held by D250-U S-D (its
+mid-battle legs resume through the host window after MG-B; its gm3 leg expects owner D284's refusal). `check_quarantine_gate.py` lists it
+in OWNED and fails without `--allow-owned` until that stage lifts the guard and deletes the row; it fails if any other guard or
+SKIP-PENDING print returns or if any row below stops holding. This section supersedes every earlier row and disposition for these 40 files.
+
+| test | disposition |
+|---|---|
+| `test_coop_debrief_sync.py` | deleted, covered: `test_w2_battle_end.py` E1, E2 |
+| `test_skirmish_end_main_menu.py` | deleted, covered: `test_w2_battle_end.py` E3, E3b |
+| `test_skirmish_debrief_disconnect.py` | deleted, covered: `test_w2_battle_end.py` E3 |
+| `test_pvp_skirmish_turn_control.py` | deleted, covered: `test_rw_faction_setup.py` test_pvp_gm2, `repro_atom_side_begin.py` run_gm2, `test_w2_client_pvp.py` C25, `test_r5_pvp_gm3.py` G1, G2, G4 |
+| `test_pvp_skirmish_end_turn.py` | deleted, covered: `repro_atom_side_begin.py` run_gm2, `test_r5_pvp_gm3.py` G3 |
+| `test_pvp_skirmish_win_lose.py` | deleted, covered: `test_w2_battle_end_rules.py` E6, `test_r5_pvp_rejoin.py` RX, `test_r5_pvp_gm3.py` G5, H1 |
+| `test_pvp_skirmish_rejoin.py` | deleted, covered: `test_r5_pvp_rejoin.py` R1-R4 |
+| `test_pvp_skirmish_psi.py` | deleted, covered: `test_r5_pvp_react_mc.py` M1, M2, `test_r5_pvp_react_mc_gm3.py` M3, M4 |
+| `test_pvp_skirmish_census.py` | deleted, covered: `test_r5_pvp_rules.py` D2 |
+| `test_coop_pvp_blaster.py` | deleted, covered: `test_r5_pvp_rules.py` D2 |
+| `test_battlescape_soldier_gift.py` | deleted, covered: `test_r5_battle_gift.py` G0, G1, G3, G4, `test_r5_battle_gift_keep.py` K1, K2 |
+| `test_vote_abort_battle.py` | deleted, covered: `test_r4_abort_vote.py` AV1-1, AV2-2, AV1-4, AV2-3, AV1-5, AV1-3, AV3-3 and `test_shared_battle.py` T-EXIT; its 30 s deadline was removed by owner D231 |
+| `test_pvp_skirmish_abort.py` | deleted, covered: gm2 `test_w2_battle_end_rules.py` E6b, gm3 `test_rv5_pvp_abort_cover.py` PA3 (pressed on the alien host's own side, R-RV5-SB-2) |
+| `test_coop_door_sync.py` | deleted, covered: `repro_door_deterministic.py` leg (b) b1 and phase B |
+| `test_coop_ufo_door_close.py` | deleted, covered: `repro_door_deterministic.py` phase D |
+| `test_coop_alien_launcher_item_loss.py` | deleted, covered: `test_rv5_item_cover.py` LC1R, LC1L; also `test_w2_client_grenade.py` C20, `test_w2_ai_origins.py` C6, C7 |
+| `test_coop_blast_item_damage.py` | deleted, covered: `test_rv5_item_cover.py` LC2; also `test_w2_host_combat_terrain.py` C4, `test_w2_delta_items.py` SB2 |
+| `test_coop_inventory_item_theft.py` | deleted, covered: `test_rv5_item_cover.py` LC3; also `test_w2_inventory.py` IV5, `test_w2_inventory_held.py` IH8 |
+| `test_coop_double_turn_tu.py` | deleted, covered: `test_rv5_item_cover.py` LC4H, LC4C; also `test_w2_client_grenade.py` C19 / C20 exact TU |
+| `test_coop_proximity_item_sweep.py` | deleted, covered: `test_rv5_item_cover.py` LC5; also `test_w2_reaction_prox.py` C11 |
+| `test_coop_wait_banner.py` | deleted, covered: `test_rv5_wait_cover.py` WB1, WB2, WB3, WB4, WB5; also `test_r5_pvp_notices.py` BO-text, `test_rw_feedback.py` PHASE 3 |
+| `test_shared_month_run.py`, `test_shared_base_defense.py` | run live since RV-U5 S-C (guard removed; both passed as written) |
+| `test_battlescape_exit_palette.py`, `test_campaign_then_skirmish_debrief.py` | run live since RV-U5 S-D (guard removed; the SHARED entry / the skirmish half re-pointed, RP5 / RP3) |
+| `test_pvp_campaign_ufo_spawn.py` | run live since D250-U S-A2 (both UFO sets compared on a settled clock, R-D250-SA2-1) |
+| `test_pvp_campaign_resume.py` | held by D250-U S-D (after D246-U S-C and MG-B): the gate's OWNED row; that stage lifts the guard, deletes the row and updates this line |
+| the other 13 (`test_coop_peer_equip_screens.py`, `test_unload_weapon_crash.py`, `test_pvp_skirmish_gamemode_selection.py`, `test_shared_autoend_crashsite.py`, `test_crash_reporter.py`, `test_pvp_campaign_{bringup, geoscape, month, reconnect, battle}.py`, `test_pvp_dogfight.py`, `test_pvp_duplicate_bases.py`, `test_shared_soldier_gift_dup.py`) | run live (U6, R5-U9, RV-U7, RV-U9, D250-U, R5-U5; their rows above) |
+
+Also removed: `repro74_setup.py` and `repro74_probe.py` (manual repro tools for the pre-rewrite issue #74, built on the deleted
+`test_coop_alien_launcher_item_loss.py`), and the dormant `SKIP_FULL_FLOW` branch of `test_skirmish_flow.py`.
