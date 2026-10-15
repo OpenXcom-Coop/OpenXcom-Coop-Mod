@@ -210,6 +210,11 @@ static bool coopBattleLive(Game* game)
 // leaves it false.
 static std::atomic<bool> g_coopHostDroppedPeerOnSend{false};
 
+// coop W2-H60 (docs rewrite/prompts/w2h60_rx_throw_drop.md (e) E1; L-H58-1, R-LT6-1): set by updateCoopTask()'s rx catch on a TCP
+// host when a handler throws (E2, which replaces the main-thread -3 named above); the host TCP thread then drops the partner as a
+// bad frame does (E3).
+static std::atomic<bool> g_coopHostDropPeerOnRxThrow{false};
+
 // COOP VARIABLES
 // is the session created?
 bool coopSession = false;
@@ -35479,12 +35484,18 @@ void connectionTCP::updateCoopTask()
 				// Write a crash-style log file into user/logs/crash_YYYY-MM-DD_HH-MM-SS.log
 				CRASH_LOG(msg);
 
-				// Put back to the *back* to avoid pinning the head.
-				{
-					std::lock_guard<std::mutex> lock(g_rxHoldMutex);
-					g_rxHold.emplace_back(std::move(jsonStr));
-				}
-				onConnect = -3;
+				// coop W2-H60 (docs rewrite/prompts/w2h60_rx_throw_drop.md (e) E2; L-H58-1, R-LT6-1): a message whose handler throws is
+				// a bad frame. It is dropped, never put back (it throws on every retry: a waiting window over a connected partner and
+				// ~400 crash logs a second, F18427). A host drops the partner: on TCP through its network thread (E1, E3: the canonical
+				// drop), on UDP by the canonical -2 (disconnectTCP() stops the UDP peer). A client keeps the -3 (440).
+				Log(LOG_WARNING) << "[coop] W2-H60: a message could not be handled - "
+					<< (getServerOwner() == true ? "the partner is dropped" : "the session ends");
+				if (getServerOwner() == true && OpenXcom::isConnectionUDPActive())
+					onConnect = -2;
+				else if (getServerOwner() == true)
+					g_coopHostDropPeerOnRxThrow.store(true);
+				else
+					onConnect = -3;
 				break;
 			}
 		}
@@ -36691,6 +36702,19 @@ void connectionTCP::startTCPHost()
 		{
 			clearAllReceivedPackets(clientSock, socketSet, recvBuffer);
 			break;
+		}
+
+		// coop W2-H60 (docs rewrite/prompts/w2h60_rx_throw_drop.md (e) E3): a message from the partner could not be handled (E2):
+		// drop the partner exactly as a bad frame does below (the flag, -3, its socket closed, the listener kept for a rejoin).
+		if (g_coopHostDropPeerOnRxThrow.exchange(false) && clientSock)
+		{
+			DebugLog("Host: a message from the client could not be handled, drop client\n");
+			g_coopHostDroppedPeerOnSend.store(true); // coop R4-L2 S-C
+			onConnect = -3;
+			SDLNet_TCP_DelSocket(socketSet, clientSock);
+			SDLNet_TCP_Close(clientSock);
+			clientSock = nullptr;
+			recvBuffer.clear();
 		}
 
 		// ---- Accept new client if we don't have one ----
