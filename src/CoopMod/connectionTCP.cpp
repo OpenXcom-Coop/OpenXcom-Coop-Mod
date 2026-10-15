@@ -6610,6 +6610,14 @@ static bool coopTestForceSendFailureTake()
 	return g_coopTestForceSendFailure.exchange(false);
 }
 
+// ----- coop W2-H59 (docs rewrite/prompts/w2h59_host_save_on_drop.md P1; TEST-ONLY force_server_error, HOST): the main thread's -3
+// with the partner's socket still open - the state a message handler's exception leaves (updateCoopTask's rx catch), without its
+// re-queue - so updateCoopTask's -3 campaign arm runs at the next pump. Never called by game logic.
+void coopTestForceServerError()
+{
+	onConnect = -3;
+}
+
 // ----- W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md, AMENDMENT P7-6 PR-11): TEST-ONLY world-stream holds.
 // hold_world_stream (HOST): while armed, the world streamer thread waits before its final MAP_RESULT_LOAD_PROGRESS
 // send (ONE guarded call in loopData; 10 ms sleeps, a 60 s safety cap that logs and proceeds), so sendFileClient

@@ -718,6 +718,10 @@ int coopTestHoldBlobAckHeld();
 /// Never called by game logic.
 void coopTestForceSendFailureArm();
 
+/// coop W2-H59 (TEST-ONLY `force_server_error`, HOST): onConnect -3 from the main thread with the partner's socket still open, the
+/// state a message handler's exception leaves; updateCoopTask's -3 campaign arm runs at the next pump. Never called by game logic.
+void coopTestForceServerError();
+
 /// W2-P8b S-A.2 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 5; owner D206 c, Q1 a):
 /// the ONE guarded statement in InventoryState::btnOkClick, right after its cursor refusal. TRUE (the caller returns)
 /// only on the pre-battle equip screen of a co-op battle whose equip phase is open (`!tu && parent && coopEquipOpen()`):

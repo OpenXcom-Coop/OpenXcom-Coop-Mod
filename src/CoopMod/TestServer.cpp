@@ -7413,6 +7413,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure" // R4-L2 S-C
+		&& cmd != "force_server_error" // coop W2-H59 (TEST-ONLY lever)
 		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
@@ -8057,7 +8058,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else
 			resp["ok"] = true;
 	}
-	else if (cmd == "corrupt_next_blob" || cmd == "force_send_failure") // coop R4-L2 S-C: one branch, no new nesting level (C1061)
+	else if (cmd == "corrupt_next_blob" || cmd == "force_send_failure" || cmd == "force_server_error") // coop R4-L2 S-C: one branch, no new nesting level (C1061)
 	{
 		// RB-D26: test-only, one-shot; consumed by the NEXT offerBattle() call
 		// on the HOST machine (CoopHandshake.h's own doc comment). Harmless
@@ -8070,6 +8071,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			coopTestForceSendFailureArm();
 			Log(LOG_INFO) << "[coop-test] force_send_failure: armed";
 			resp["armed"] = true;
+		}
+		else if (cmd == "force_server_error")
+		{
+			// coop W2-H59 (TEST-ONLY, HOST): onConnect -3 from the main thread with the partner's socket still open (a message
+			// handler's exception, without the re-queue); updateCoopTask's -3 campaign arm runs at the next pump. Response {ok}.
+			coopTestForceServerError();
+			Log(LOG_INFO) << "[coop-test] force_server_error: onConnect -3 (main thread)";
 		}
 		else
 			CoopHandshake::requestCorruptNextBlob();
