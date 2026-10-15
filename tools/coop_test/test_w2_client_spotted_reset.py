@@ -14,11 +14,14 @@ closes every NextTurnState); the walks are the client's real UI (Tab onto A, one
   L1  side 1 turn 1: L1-start (A on A0 on both, client selection A), L1-list (both lists [S1]), L1-probe (path_probe
       A -> W1 equal), L1-walk (the walk to W1 admitted), L1-common.
   L2  side 1 turn 2, S1 moved behind A at side 0 (the stale entry): L2-start, L2-host (host list []), L2-list (client
-      list == host list), L2-probe (path_probe A -> D1 on the client == the host's), L2-walk (the walk to D1 refused
-      path_changed on both builds, F17766; A unmoved, TU unspent), L2-common.
+      list == host list), L2-probe (path_probe A -> D1 on the client == the host's), L2-walk (the walk to D1 through
+      S1, a soldier A does not know: admitted, then halted by vanilla's walk interruption as L2_HALT says; W2-H52,
+      owner ruling ADD-1.3c, chain rule A.10 - refused path_changed before W2-H52, F17766), L2-common.
   L3  side 1 turn 3, S2 moved in front of A at side 0 (the refill after the clear), LAST: L3-start, L3-host (host
-      list [S2]), L3-list (client == host), L3-keep (every host id in the client's list), L3-probe, L3-common.
+      list = L3_HOST: what A sees from the facing L2's halt left it; W2-H52, chain rule A.10 - [S2] before),
+      L3-list (client == host), L3-keep (every host id in the client's list), L3-probe, L3-common.
 Red on the unchanged build (TASK 0 boots a, b): L2-list, L2-probe, L3-list, L3-probe (4 of 17).
+W2-H52 red (lead L-H50-1, owner ruling ADD-1.3c): L2-walk, L3-host (2 of 17).
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
 precondition (GUARD) miss ends its row and the later rows (cells "not reached"); a boot miss prints ONE CAPTURE line and
@@ -56,6 +59,8 @@ FAR = [(33, 33, 0), (34, 33, 0), (35, 33, 0), (36, 33, 0)]   # Chebyshev > 20 fr
 S1_BACK, D1 = (15, 7, 0), (15, 5, 0)             # W1 + 2 / + 4 on (A_DIR + 4) % 8: S1 behind A, L2's walk through it
 T2 = (15, 12, 0)                                 # W1 + 3 on A_DIR, in A's view, off the W1 -> D1 line
 WALK_S, SETTLE_S = 15, 5.0                       # a walk's answer bound / the read after the click (TASK 0: 0.4-1.1 s)
+L2_HALT = ("spot", 3)   # W2-H52 (A.10): L2's walk halt reason and A's TU spent (W2-H52 TASK 0)
+L3_HOST = ("S1", "S3")   # W2-H52 (A.10): the st names in the host's L3 list after that halt (W2-H52 TASK 0)
 VEC = {0: (0, -1), 1: (1, -1), 2: (1, 0), 3: (1, 1), 4: (0, 1), 5: (-1, 1), 6: (-1, 0), 7: (-1, -1)}
 ROWS = (("L1", ("L1-start", "L1-list", "L1-probe", "L1-walk", "L1-common")),
         ("L2", ("L2-start", "L2-host", "L2-list", "L2-probe", "L2-walk", "L2-common")),
@@ -219,12 +224,14 @@ def row_l2(host, client, crash0, st, cells, ev):
                          f"path_probe A -> {D1} (steps, tuCost) client {pv(p, 'client')[:2]} host {pv(p, 'host')[:2]} "
                          f"(want equal: the client's preview counts what the host counts)")
     w = ev["walk"] = client_walk(host, client, A, D1, st["A_TU"])
-    reason = (w["clientLastDeny"] or {}).get("reason")
-    cells["L2-walk"] = (w["clientDenyIsNew"] and reason == "path_changed" and w["pos"] == [W1, W1]
-                        and w["tu"] == [st["A_TU"]] * 2 and not w["hostLastWalkIsNew"],
-                        f"walk {D1}: new client lastDeny {w['clientDenyIsNew']} {w['clientLastDeny']} (want a new "
-                        f"path_changed); A {w['pos']} TU {w['tu']} (want {W1}, {st['A_TU']} on both); host lastWalk new "
-                        f"{w['hostLastWalkIsNew']} (want False)")
+    hw, tu_want = w["hostLastWalk"], st["A_TU"] - L2_HALT[1]   # W2-H52 (chain rule A.10): was a path_changed deny
+    cells["L2-walk"] = (not w["clientDenyIsNew"] and w["hostLastWalkIsNew"] and hw.get("unit") == A
+                        and hw.get("halted") is True and hw.get("reason") == L2_HALT[0] and w["pos"] == [W1, W1]
+                        and w["tu"] == [tu_want] * 2,
+                        f"walk {D1}: new client lastDeny {w['clientDenyIsNew']} {w['clientLastDeny']} (want none); "
+                        f"host lastWalk new {w['hostLastWalkIsNew']} {hw} (want a new walk of A halted "
+                        f"{L2_HALT[0]!r}: vanilla's walk interruption, W2-H52); A {w['pos']} TU {w['tu']} (want "
+                        f"{W1}, {tu_want} on both)")
     cells["L2-common"] = G3F.common(host, client, crash0)
 
 
@@ -237,7 +244,7 @@ def row_l3(host, client, crash0, st, cells, ev):
          f"side change {err or 'ok'}; (turn, side) {c['turnSide']} (want (3, 1)); A {c['A']['host']['pos']} / "
          f"{c['A']['client']['pos']} (want {W1}); S1 {c['S1']['host']['pos']} / {c['S1']['client']['pos']} (want "
          f"{S1_BACK}); S2 {c['S2']['host']['pos']} / {c['S2']['client']['pos']} (want {T2})")
-    lists_cells("L3", c, [S2], cells)
+    lists_cells("L3", c, sorted(st[n] for n in L3_HOST), cells)   # W2-H52 (chain rule A.10): was [S2]
     miss = sorted(set(c["listHost"]) - set(c["listClient"]))
     cells["L3-keep"] = (not miss, f"host ids missing from the client's list {miss} (want none: the refill keeps "
                                   f"what A sees now)")
