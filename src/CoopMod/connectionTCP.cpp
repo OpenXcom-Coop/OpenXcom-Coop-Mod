@@ -43891,6 +43891,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 			_game->setState(new GoToMainMenuState(false));
 		}
 
+		const bool h61HostDrop = teardownAsHost && onConnect == -2; // coop W2-H61 (QH61-1 (a)): read before the host arm sets onConnect = 1
 		// host
 		if (teardownAsHost && onConnect == -2)
 		{
@@ -44015,6 +44016,19 @@ void connectionTCP::disconnectTCP(bool isMain)
 		if (teardownAsHost)
 		{
 			connectionTCP::session.onClientDrop();
+			// coop W2-H61 (QH61-1 (a), R-H61-0; F18630): every wait dialog 62 on the stack reads the drop now. Its constructor and
+			// CoopState::think() (behind one 500 ms gate that every CoopState shares) read waitSatisfied() / waitingTitle(); the host arm
+			// above pushes the 62 before this bookkeeping, so it read the campaign start's resumeAck ("All players connected", RESUME)
+			// until that gate opened, and a 62 already up kept RESUME the same way.
+			if (h61HostDrop)
+			{
+				for (State* st : _game->getStates())
+				{
+					CoopState* cs = dynamic_cast<CoopState*>(st);
+					if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+						cs->setWaitAction(cs->waitSatisfied());
+				}
+			}
 			// W1-P13b (WR-20): a client leaving mid-battle changes the live
 			// -seat set - recompute `needed`, discard the departed seat's
 			// own stored ready, and re-emit the tally so the surviving
