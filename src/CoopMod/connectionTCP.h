@@ -200,6 +200,9 @@ class DebriefingState;
 class Soldier; // W2-P7 S-C-C.2 (PR-C10)
 class TextList; // W2-P7 S-C-C.2 (PR-C6)
 class MissionSite;
+class RuleResearch;
+class Base;
+class GeoscapeEvent;
 
 // ===== Coop session lifecycle state =====
 
@@ -255,6 +258,14 @@ struct CoopSession
 	// authoritative for the lifetime of this multiplayer session.
 	bool customBattleCraftLocked = false;
 	int customBattleCraftId = -1;
+	// A loaded Custom Battle is being re-hosted through a campaign-style lobby.
+	// The existing tactical world stays paused on the host and is streamed only
+	// after the host presses CONTINUE BATTLE.
+	bool customBattleResumePending = false;
+	// CONTINUE BATTLE was pressed and the saved battle is being adopted by the
+	// client. The host stays behind WAIT_PLAYERS until the post-load COOP_READY
+	// handshake re-arms battlescape roles/turns on both machines.
+	bool customBattleResumeLoading = false;
 	// issue #93: this client is rejoining a SKIRMISH (lobbyMode 0) session whose
 	// battle is already running, so the battle blob it is about to load is a
 	// REJOIN, not the start of a mission. One-shot: the load consumes it to send
@@ -277,6 +288,10 @@ struct CoopSession
 
 	// --- multi-field / cross-file lifecycle writes funnelled here (PRD-12) ---
 	void adoptResumeSave();          // a co-op save is loaded for resume (lobbyMode=2, unlock, clear ack)
+	void adoptCustomBattleResume();  // loaded Custom Battle -> HostMenu/lobby, wait for CONTINUE BATTLE
+	void finishCustomBattleResume(); // CONTINUE BATTLE accepted; future joins are live reconnects
+	void beginCustomBattleResumeLoad(); // map transfer begun; post-load COOP_READY is owed
+	void completeCustomBattleResumeLoad(); // post-load handshake reached its completion point
 	void armResumeHandshake(bool hasBattle); // resume/rejoin: clear ack, arm battle phase-two if a battle is loaded
 	void markLobbyOpen();            // the lobby UI opened (lobbyClosed=false)
 	void markLobbyClosed();          // the lobby UI dismissed (lobbyClosed=true)
@@ -864,6 +879,27 @@ class connectionTCP
 
 	bool _enable_research_sync = true;
 
+	// SEPARATE research sync: mirror one discovery to the other player (no-op unless
+	// this is a SEPARATE campaign with research sync on). ResearchCompleteState sends
+	// completed projects; GeoscapeEventState sends research an event granted.
+	void sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base);
+
+	// SEPARATE certain-event sync: a certain geoscape event (odds 100, one possible
+	// event) that both players spawn in the same roll fires on the host's timer.
+	// Each side announces its certain spawns ("certain_event": name, the month of the
+	// roll, the countdown it rolled); a spawn pairs with the other side's spawn of the
+	// same event in the same month. The pair is marked shared on both sides and the
+	// client adopts the host's countdown. Random events are never announced, so they
+	// stay independent.
+	struct CoopCertainSpawn { std::string name; int month; long long countdown; };
+	std::vector<CoopCertainSpawn> _ownCertainSpawns, _peerCertainSpawns;
+	void coopCertainEventSpawned(GeoscapeEvent* ev);
+	void coopPeerCertainEvent(const CoopCertainSpawn& peer);
+	void sendCertainEventTimer(GeoscapeEvent* paired, int month);
+	void coopCertainEventTimer(const std::string& name, long long countdown);
+	void sendCertainEventFire(GeoscapeEvent* ge);
+	void coopCertainEventFire(const std::string& name);
+
 	static bool _enable_time_sync;
 
 	static bool _enable_reaction_shoot;
@@ -976,6 +1012,11 @@ class connectionTCP
 	static const size_t kMaxCoopUfoAlerts = 16; // bound: drop oldest, never grow forever
 
 	bool show_coop_monthly_report = false;
+	// The host's monthsPassed for the pending monthly report (-1: an older host did
+	// not send it). time1MonthCoop rolls the client's month with this exact value:
+	// the time sync may already have copied it, so a plain addMonth() could run the
+	// client's mission/event scripts one month ahead.
+	int monthlyReportMonthsPassed = -1;
 
 	int fundingDiffCoop = -1;
 	int ratingTotalCoop = -1;

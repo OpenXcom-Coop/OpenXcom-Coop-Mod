@@ -58,12 +58,13 @@ private:
 	static const CoopEventPicks* _coopArmed;
 	/// coop W2-H15 (F3261): copies the armed picks and draws them in this machine's language; true = the replica path.
 	bool coopReplicaDisplay();
+	bool _coopShared; // coop SEPARATE: the other player gets this same event too
 
 	/// Helper performing event logic.
 	void eventLogic();
 public:
 	/// Creates the GeoscapeEventState.
-	GeoscapeEventState(const RuleEvent& eventRule);
+	GeoscapeEventState(const RuleEvent& eventRule, bool coopShared = false);
 	/// Cleans up the GeoscapeEventState.
 	~GeoscapeEventState();
 	/// Initializes the state.

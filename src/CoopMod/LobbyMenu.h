@@ -85,6 +85,8 @@ protected:
 	void closeLobby();
 	/// Host pressed BATTLE SETTINGS in the skirmish lobby (mode 0).
 	void openBattleSettings();
+	/// Host continues a loaded Custom Battle after both players reached the lobby.
+	void continueCustomBattle();
 	/// Is the client's local custom-battle craft ready to be opened safely?
 	bool canOpenEquipCraft() const;
 	/// Client pressed EQUIP CRAFT in the skirmish lobby (mode 0).

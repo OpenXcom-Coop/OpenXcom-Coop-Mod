@@ -546,7 +546,8 @@ void HostMenu::hostTCPGame(Action* action)
 	{
 		connectionTCP::_coopGamemode = coopLoadedMode;
 	}
-	if (!coopKeepLoadedPvpMode)
+	// coop MG-C (C14, R-MF210-1): `main` #181 also keeps the loaded mode for a saved Custom Battle co-op resume (MG-B).
+	if (!(coopKeepLoadedPvpMode || connectionTCP::session.customBattleResumePending))
 	{
 		connectionTCP::_coopGamemode = 1;
 	}
@@ -584,7 +585,8 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	if (_game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true
+		|| connectionTCP::session.customBattleResumePending)
 	{
 		convert = false;
 	}
@@ -648,7 +650,8 @@ void HostMenu::hostTCPGame(Action* action)
 	_game->getCoopMod()->setServerOwner(true);
 
 	// If the player has created a server or joined another player's game, close the ServerList and create the LobbyMenu
-	if (_game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->getCoopCampaign() == true
+		|| connectionTCP::session.customBattleResumePending)
 	{
 		_game->popState();
 

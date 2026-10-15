@@ -78,12 +78,23 @@ GREEN = {
     "test_crash_reporter": "RV-U9",
     "test_shared_autoend_crashsite": "RV-U7",
 }
-# Guards still held by a named later unit (GREEN rows only). That unit lifts the guard and deletes its row here in the
-# same commit; the gate without --allow-owned (MG-C, MG-R) needs this dict empty.
+# Guards still held by a named later unit: GREEN rows, and INCOMING = `main` files MG-C took in guarded (QSG-5). That
+# unit lifts the guard and deletes its row here in the same commit; the gate without --allow-owned (MG-R) needs this
+# dict empty.
+INCOMING = {"test_coop_event_sync", "test_coop_mission_research", "test_coop_research_known_topic", "test_coop_research_sync", "test_coop_client_mission_abort", "test_coop_battle_start_sync", "test_coop_parallel_turns_latch", "test_skirmish_saved_battle_join", "test_skirmish_saved_pve2_end_turn"}
 OWNED = {
     "test_pvp_campaign_resume": "D250-U S-D",
+    "test_coop_event_sync": "MG-F",
+    "test_coop_mission_research": "MG-F",
+    "test_coop_research_known_topic": "MG-F",
+    "test_coop_research_sync": "MG-F",
+    "test_coop_client_mission_abort": "MG-P1",
+    "test_coop_battle_start_sync": "MG-P1",
+    "test_coop_parallel_turns_latch": "MG-P1",
+    "test_skirmish_saved_battle_join": "MG-B",
+    "test_skirmish_saved_pve2_end_turn": "R5-U8 S-D",
 }
-assert len(DELETED) + len(GREEN) == 40 and not set(DELETED) & set(GREEN) and set(OWNED) <= set(GREEN)
+assert len(DELETED) + len(GREEN) == 40 and not set(DELETED) & set(GREEN) and set(OWNED) <= set(GREEN) | INCOMING
 
 
 def path_of(name):

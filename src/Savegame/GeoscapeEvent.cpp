@@ -23,7 +23,7 @@
 namespace OpenXcom
 {
 
-GeoscapeEvent::GeoscapeEvent(const RuleEvent &rule) : _rule(rule), _spawnCountdown(0), _over(false)
+GeoscapeEvent::GeoscapeEvent(const RuleEvent &rule) : _rule(rule), _spawnCountdown(0), _over(false), _coopShared(false)
 {
 	// Empty by design.
 }
@@ -41,6 +41,7 @@ void GeoscapeEvent::load(const YAML::YamlNodeReader& reader)
 {
 	reader.tryRead("spawnCountdown", _spawnCountdown);
 	reader.tryRead("over", _over);
+	reader.tryRead("coopShared", _coopShared);
 }
 
 /**
@@ -54,6 +55,8 @@ void GeoscapeEvent::save(YAML::YamlNodeWriter writer) const
 	writer.write("spawnCountdown", _spawnCountdown);
 	if (_over)
 		writer.write("over", _over);
+	if (_coopShared)
+		writer.write("coopShared", _coopShared);
 }
 
 /**

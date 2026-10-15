@@ -1522,7 +1522,9 @@ void GeoscapeState::think()
 
 	// coop
 	// research
-	if (_game->getCoopMod()->getCoopStatic() && !_game->getCoopMod()->waitedResearch.empty())
+	if (_game->getCoopMod()->getCoopStatic()
+		&& _game->getCoopMod()->_enable_research_sync
+		&& !_game->getCoopMod()->waitedResearch.empty())
 	{
 
 		if (_game->getSavedGame()->getSelectedBase())
@@ -1536,8 +1538,8 @@ void GeoscapeState::think()
 
 					auto& root_research = _game->getCoopMod()->waitedResearch[i];
 
-					// new!!!
-					std::string new_research_name = root_research["new_research_name"].asString();
+					// new_research_name (the sender's article decision) is not read:
+					// this player decides from what it already knew.
 					std::string research_name = root_research["research_name"].asString();
 					std::string bonus_name = root_research["bonus_name"].asString();
 
@@ -1556,28 +1558,55 @@ void GeoscapeState::think()
 						}
 					}
 
-					if (selected_base)
+					RuleResearch* research = research_name.empty() ? nullptr : _game->getMod()->getResearch(research_name);
+
+					if (selected_base && research)
 					{
+						// The peer's discovery is a discovery here too: apply it the way
+						// time1Day applies a local one - the getOneFree bonus and the topic,
+						// each with its lookup, then the vanilla side effects (obsolete
+						// projects removed, spawned events, counters) - except spawned items,
+						// which go only to the player who did the research (owner ruling).
+						// The article to offer depends on what THIS player already knew,
+						// as in time1Day.
+						Mod* mod = _game->getMod();
+						SavedGame* save = _game->getSavedGame();
+						Base* ownBase = save->getSelectedBase();
+						RuleResearch* bonus = bonus_name.empty() ? nullptr : mod->getResearch(bonus_name);
 
-						RuleResearch* newResearch = _game->getMod()->getResearch(new_research_name);
+						const std::string& articleTopic = research->getLookup().empty() ? research->getName() : research->getLookup();
+						const RuleResearch* newResearch = save->isResearched(articleTopic, false) ? nullptr : research;
 
-						RuleResearch* research = 0;
-
-						if (research_name != "")
+						bool learnedSomething = false;
+						auto discover = [&](const RuleResearch* r)
 						{
-							research = _game->getMod()->getResearch(research_name);
-						}
-
-						RuleResearch* bonus = 0;
-
-						if (bonus_name != "")
+							if (!r)
+								return;
+							if (!save->isResearched(r, false))
+								learnedSomething = true;
+							save->addFinishedResearch(r, mod, ownBase);
+						};
+						if (bonus)
 						{
-							bonus = _game->getMod()->getResearch(bonus_name);
+							discover(bonus);
+							if (!bonus->getLookup().empty())
+								discover(mod->getResearch(bonus->getLookup(), true));
 						}
+						discover(research);
+						if (!research->getLookup().empty())
+							discover(mod->getResearch(research->getLookup(), true));
 
-						 _game->getSavedGame()->addFinishedResearch(research, _game->getMod(), _game->getSavedGame()->getSelectedBase());
+						std::vector<const RuleResearch*> topicsToCheck = { research };
+						if (bonus)
+							topicsToCheck.push_back(bonus);
+						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase, false);
 
-						popup(new ResearchCompleteState(newResearch, bonus, research, selected_base, true));
+						// Nothing new to this player (e.g. its own copy of the project
+						// finished after the peer's): no popup.
+						if (learnedSomething)
+						{
+							popup(new ResearchCompleteState(newResearch, bonus, research, selected_base, true));
+						}
 
 					}
 
@@ -1587,6 +1616,13 @@ void GeoscapeState::think()
 				_game->getCoopMod()->waitedResearch.clear();
 			}
 		}
+	}
+	else if (!_game->getCoopMod()->_enable_research_sync
+		&& !_game->getCoopMod()->waitedResearch.empty())
+	{
+		// Never let completions received before/while research sync was disabled
+		// become active later if the option changes.
+		_game->getCoopMod()->waitedResearch.clear();
 	}
 
 	// coop
@@ -3631,7 +3667,13 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		const Json::Value h17cMark = SharedEcon::eventMark(_game); // coop W2-H17c (F7222): the despawn's research and counters, from here
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
-		_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment());
+		const RuleResearch* bonus = nullptr;
+		if (_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment(), &bonus))
+		{
+			// coop SEPARATE, shared research: the site lived in this world only; the
+			// other player learns the same topic and bonus.
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getBases()->front());
+		}
 
 		// Increase counters
 		_game->getSavedGame()->increaseCustomCounter(site->getDeployment()->getCounterDespawn());
@@ -3876,44 +3918,23 @@ void GeoscapeState::time30Minutes()
 	);
 
 	// Decrease event countdowns and pop up if needed
+	// coop SEPARATE: the client's copy of a shared certain event fires when the host's
+	// copy does (connectionTCP::coopCertainEventFire), not on its own countdown - the
+	// client clock can jump past 30-minute steps when the host time overwrites it.
+	const bool holdSharedEvents = _game->getCoopMod()->getCoopStatic() && !_game->getCoopMod()->getServerOwner()
+		&& !_game->getCoopMod()->isSharedCampaign();
 	for (auto* ge : _game->getSavedGame()->getGeoscapeEvents())
 	{
+		if (ge->isOver())
+			continue; // already fired outside this loop (coopCertainEventFire)
+		if (holdSharedEvents && ge->isCoopShared() && ge->getSpawnCountdown() <= 30)
+			continue; // waits for the host's copy
+
 		ge->think();
 
 		if (ge->isOver())
 		{
-			bool interrupted = false;
-			if (!ge->getRules().getInterruptResearch().empty())
-			{
-				if (_game->getSavedGame()->isResearched(ge->getRules().getInterruptResearch(), false))
-				{
-					interrupted = true;
-				}
-			}
-
-			// coop
-			// Interrupt Geoscape events if the player is an alien
-			if (_game->getCoopMod()->getCoopStatic() == true)
-			{
-
-				if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-				{
-					interrupted = true;
-				}
-				else if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
-				{
-					interrupted = true;
-				}
-
-			}
-
-			if (!interrupted)
-			{
-				timerReset();
-				const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261)
-				popup(new GeoscapeEventState(ge->getRules()));
-				SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
-			}
+			fireGeoscapeEvent(ge);
 		}
 	}
 
@@ -3925,6 +3946,53 @@ void GeoscapeState::time30Minutes()
 			return ge->isOver();
 		}
 	);
+}
+
+/**
+ * Pops up a geoscape event whose time has come, unless its interrupt research is
+ * known (or, in PvP, this player is the alien side).
+ * @param ge The event, already marked over.
+ */
+void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
+{
+	bool interrupted = false;
+	if (!ge->getRules().getInterruptResearch().empty())
+	{
+		if (_game->getSavedGame()->isResearched(ge->getRules().getInterruptResearch(), false))
+		{
+			interrupted = true;
+		}
+	}
+
+	// coop
+	// Interrupt Geoscape events if the player is an alien
+	if (_game->getCoopMod()->getCoopStatic() == true)
+	{
+
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+		{
+			interrupted = true;
+		}
+		else if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+		{
+			interrupted = true;
+		}
+
+	}
+
+	if (!interrupted)
+	{
+		timerReset();
+		const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261); MG-C K1 (C11)
+		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared()));
+		SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
+	}
+
+	// coop SEPARATE: the client's copy of a shared event fires with this one
+	if (ge->isCoopShared())
+	{
+		_game->getCoopMod()->sendCertainEventFire(ge);
+	}
 }
 
 /**
@@ -4956,6 +5024,13 @@ void GeoscapeState::time1Month()
 void GeoscapeState::time1MonthCoop()
 {
 	_game->getSavedGame()->addMonth();
+	// The time sync may already have copied the host's new monthsPassed, so the
+	// addMonth() above can overshoot by one; roll with the host's exact month.
+	if (_game->getCoopMod()->monthlyReportMonthsPassed >= 0)
+	{
+		_game->getSavedGame()->setMonthsPassed(_game->getCoopMod()->monthlyReportMonthsPassed);
+		_game->getCoopMod()->monthlyReportMonthsPassed = -1;
+	}
 
 	// PRD-J04: on a SHARED replica this is the monthly APPLY path (host's time1Month
 	// settled funding and broadcast monthly_report). Skip the host-only alien
@@ -6946,6 +7021,10 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 		for (auto& eventCommand : relevantEventScripts)
 		{
 			std::vector<const RuleEvent*> toBeGenerated;
+			// coop SEPARATE: which of them are certain (odds 100, one possible event), so
+			// both players' copies can share one timer (connectionTCP::coopCertainEventSpawned)
+			std::vector<bool> certain;
+			const bool sure = eventCommand->getExecutionOdds() >= 100;
 
 			// 1. sequentially generated one-time events (cannot repeat)
 			{
@@ -6959,6 +7038,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				{
 					auto* eventRules = mod->getEvent(possibleSeqEvents.front(), true); // take first
 					toBeGenerated.push_back(eventRules);
+					certain.push_back(sure);
 				}
 			}
 
@@ -6976,6 +7056,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				{
 					auto* eventRules = mod->getEvent(possibleRngEvents.choose(), true); // take random
 					toBeGenerated.push_back(eventRules);
+					certain.push_back(sure && tmp.getNames().size() == 1);
 				}
 			}
 
@@ -6985,13 +7066,18 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				if (eventRules)
 				{
 					toBeGenerated.push_back(eventRules);
+					WeightedOptions weights = *eventCommand->getEventWeights(save->getMonthsPassed()); // copy, because of getNames()
+					certain.push_back(sure && weights.getNames().size() == 1);
 				}
 			}
 
 			// 4. generate
-			for (auto* eventRules : toBeGenerated)
+			for (size_t i = 0; i < toBeGenerated.size(); ++i)
 			{
-				save->spawnEvent(eventRules);
+				if (save->spawnEvent(toBeGenerated[i]) && certain[i])
+				{
+					_game->getCoopMod()->coopCertainEventSpawned(save->getGeoscapeEvents().back());
+				}
 			}
 		}
 	}

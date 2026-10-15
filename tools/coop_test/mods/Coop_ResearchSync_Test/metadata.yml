@@ -1,0 +1,8 @@
+name: "Coop research-sync probe"
+version: 1.0
+description: "Test-only fixture for test_coop_research_sync.py: a research topic that
+  spawns an item (spawnedItem), so a test can check that research sync gives the
+  other player the topic but not the item."
+author: coop harness
+
+master: xcom1

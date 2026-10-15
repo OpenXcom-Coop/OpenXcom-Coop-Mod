@@ -1,0 +1,10 @@
+en-US:
+  STR_COOP_EV_CERTAIN: "Certain probe event"
+  STR_COOP_EV_CERTAIN_DESCRIPTION: "Test-only certain event."
+  STR_COOP_EV_RANDOM_A: "Random probe event A"
+  STR_COOP_EV_RANDOM_B: "Random probe event B"
+  STR_COOP_EV_RANDOM_DESCRIPTION: "Test-only random event."
+  STR_COOP_EV_COND: "Conditional probe event"
+  STR_COOP_EV_COND_HOST: "Host-only conditional probe event"
+  STR_COOP_EV_COND_DESCRIPTION: "Test-only conditional event."
+  STR_COOP_EV_ARTICLE_TEXT: "Test-only article."

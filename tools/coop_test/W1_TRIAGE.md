@@ -477,3 +477,21 @@ SKIP-PENDING print returns or if any row below stops holding. This section super
 
 Also removed: `repro74_setup.py` and `repro74_probe.py` (manual repro tools for the pre-rewrite issue #74, built on the deleted
 `test_coop_alien_launcher_item_loss.py`), and the dormant `SKIP_FULL_FLOW` branch of `test_skirmish_flow.py`.
+
+## Dispositions (MG-C, merge of `main` 651ae44ba)
+
+Recorded by MG-C (docs `rewrite/prompts/mgc_merge_main.md`; owner D252 (a), D226 (a); QSG-5, R-MF210-1, MG-A-T1, R5-U8 D1). The
+`main` test files the merge brought in or changed since the merge base `cbff7951d`:
+
+| test | disposition |
+|---|---|
+| `test_battle_tripwire.py`, `test_parallel_sharedturn.py` | stay deleted (removed with the #166 revert; `main` #209 / #210 changed them): they test the model the rewrite replaced; #210's banner check is an MG-P1 row |
+| `test_coop_debrief_sync.py`, `test_pvp_skirmish_end_turn.py` | stay deleted (RV-U5's DELETED rows; `main` #209 / #181 changed them) |
+| `test_coop_nextstage_crash.py`, `test_coop_nextstage_census.py`, with `tftd_common.py` and `fixtures/tftd_base_assault.sav` | deleted: MG-A's rows on UFO data cover them (`test_w2_multistage.py` MS1, MS3; MG-A-T1); no TFTD data is staged |
+| `test_parallel_pve2_turn_screen_gate.py` | deleted: covered by `test_r5_pve2_turns.py` T1-T3 (R5-U8 D1) |
+| `test_coop_event_sync.py`, `test_coop_mission_research.py`, `test_coop_research_known_topic.py`, `test_coop_research_sync.py` | held by MG-F (guard and the gate's OWNED row; MG-F re-points them on `rewrite/merge-main`) |
+| `test_coop_client_mission_abort.py`, `test_coop_battle_start_sync.py`, `test_coop_parallel_turns_latch.py` | held by MG-P1 (guard and OWNED row) |
+| `test_skirmish_saved_battle_join.py` | held by MG-B (guard and OWNED row; re-pointed to row CB1) |
+| `test_skirmish_saved_pve2_end_turn.py` | held by R5-U8 S-D (guard and OWNED row; after MG-B) |
+| `test_shared_sim.py` | runs live with `main` #197's `geo.slow_clock` line |
+| the nine `main` #199 `session.leave_base` call sites | the rewrite's `leave_base` command + `session.wait_back_on_geoscape` stay (W2-U7c); `main`'s helper is not taken |

@@ -33,6 +33,7 @@ private:
 	const RuleEvent &_rule;
 	size_t _spawnCountdown;
 	bool _over;
+	bool _coopShared; // coop SEPARATE: the other player has the same event, on the same timer
 public:
 	/// Creates a blank GeoscapeEvent.
 	GeoscapeEvent(const RuleEvent &rule);
@@ -51,6 +52,12 @@ public:
 
 	/// Is this event over?
 	bool isOver() const { return _over; }
+	/// Coop SEPARATE: does the other player have this same event, on the same timer?
+	bool isCoopShared() const { return _coopShared; }
+	/// Coop SEPARATE: marks this event as shared with the other player.
+	void setCoopShared(bool shared) { _coopShared = shared; }
+	/// Coop SEPARATE: the host's copy of this shared event fired, so this one fires now.
+	void setOver() { _over = true; }
 	/// Handle event spawning schedule.
 	void think();
 };
