@@ -260,6 +260,10 @@
 namespace OpenXcom
 {
 
+// coop W2-H58 S-B (docs rewrite/prompts/w2h58_sb_rx_buffer.md (e) EB0; F18489): connectionTCP.cpp's inbound blob buffer
+// (OpenXcom::mapData, TCP :229), read only by get_coop.rxBufferBytes below.
+extern std::string mapData;
+
 namespace {
 // PRD-13 S6: the state-stack scan `for (auto* s : game->getStates()) if (auto*
 // t = dynamic_cast<T*>(s)) found = t;` was pasted ~20x. These file-local helpers
@@ -14546,6 +14550,7 @@ std::string TestServer::execute(const std::string& line)
 			resp["localSeat"] = connectionTCP::localSeat();
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
 			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
+			resp["rxBufferBytes"] = (Json::UInt64)mapData.size(); // coop W2-H58 S-B (EB0): TEST INTROSPECTION, a pure read
 			// PRD-J09: post-battle / mission-lifecycle introspection.
 			resp["coopMissionEnd"] = coop->coopMissionEnd;
 			resp["readyCoopBattle"] = coop->ready_coop_battle;
