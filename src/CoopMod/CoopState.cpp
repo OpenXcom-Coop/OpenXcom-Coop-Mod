@@ -1371,7 +1371,15 @@ void CoopState::previous(Action *)
 		}
 
 		_game->getCoopMod()->disconnectTCP();
-		_game->popState();
+		// coop W2-H54 (docs rewrite/prompts/w2h54_client_disconnect_crash.md (e) E1; F18020-F18033, F18060-F18079): on a client that
+		// holds a campaign world, disconnectTCP() has already replaced the whole state stack, this dialog included, with
+		// GoToMainMenuState (its client branch, the issue #82 way out). A second pop here removed that state too, the stack was
+		// empty, and Game::run crashed reading it. Pop only while this dialog is still the top state: the host, and a client
+		// with no campaign world, close the dialog exactly as before.
+		if (!_game->getStates().empty() && _game->getStates().back() == this)
+		{
+			_game->popState();
+		}
 
 	}
 	// main menu
