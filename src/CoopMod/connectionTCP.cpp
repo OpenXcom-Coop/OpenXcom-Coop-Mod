@@ -43314,6 +43314,11 @@ void connectionTCP::deleteAllCoopBases()
 		sharedLiveSiteIdsValid = false;
 	}
 
+	// coop W2-H62 S-A (docs rewrite/prompts/w2h62_sa_client_ghost.md (e) EA1; F18567-F18569, F18708, F18820-F18839): the partner-base
+	// marker cache dies with the session, as the mirrors below do. Kept, it showed a player who left one SEPARATE campaign the previous
+	// host's base in the next one (the client "coopBase2" keeps the cache when the new host's reply carries no markers).
+	j_markers = "";
+
 	if (_game->getSavedGame() && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
