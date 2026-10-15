@@ -370,15 +370,11 @@ def test_failed_join_clears_connecting():
 #
 # Step 7's in_battle() predicate already accepted BriefingState, so the client
 # reaching its own briefing needs no test change either.
-SKIP_FULL_FLOW = False
+# RV-U5 (D229, QV5-6): the dormant SKIP_FULL_FLOW flag and its branch were removed; main() runs all three scenarios.
 
 
 def main():
-    if SKIP_FULL_FLOW:
-        print("SKIP-PENDING: rewrite "
-              "(test_skirmish_full_flow - W1-P3 client battle entry)")
-    else:
-        test_skirmish_full_flow()
+    test_skirmish_full_flow()
     test_campaign_join_popup_over_lobby()
     test_failed_join_clears_connecting()
     print("SKIRMISH FLOW: 3/3 scenarios PASSED")
