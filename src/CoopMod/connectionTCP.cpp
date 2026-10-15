@@ -21379,6 +21379,26 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 		const Json::Value& p = ev["payload"];
 
+		// W2-H47 (docs rewrite/prompts/w2h47_client_nextstop_reset.md (e) E1; L-H41-1, F17180-F17188, F17241-F17251):
+		// vanilla's two per-side resets that live only on this machine (SavedBattleGame::endTurn, which this thin client
+		// never runs). At every side change the undo unit goes (SavedBattleGame.cpp :1628, :1634, :1677), and every unit
+		// of the side about to move may be selected again (its per-side loop :1745-:1748 -> BattleUnit::prepareNewTurn,
+		// _dontReselect = false): a soldier marked done with NEXT STOP comes back to Tab, previous and NEXT STOP at its
+		// side's next turn, and a right click on NEXT STOP no longer reaches a soldier left in an earlier turn. The
+		// faction is read here, BEFORE perUnit writes the restated one, as vanilla reads it before prepareNewTurn hands a
+		// mind-controlled unit back. Both fields are machine-local and in no hash bucket (SharedEcon's saveBlob
+		// exclusions "undoUnit" / "dontReselect"); nothing on the wire, no message.
+		save->setUndoUnit(nullptr);
+		if (p.isMember("newSide"))
+		{
+			const int newSide = CoopHandshake::coopWireStringToFaction(p["newSide"].asString());
+			for (BattleUnit* bu : *save->getUnits())
+			{
+				if (!bu->isIgnored() && (int)bu->getFaction() == newSide)
+					bu->allowReselect();
+			}
+		}
+
 		// Apply order (STEP 4): (i) turret-reset above, (ii) perUnit - pos
 		// BEFORE floating, because setTile() recomputes _floating/
 		// _haveNoFloorBelow - (iii) perTile, (iv) perItem, (v) newTurn,
