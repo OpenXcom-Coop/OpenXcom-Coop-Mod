@@ -898,7 +898,8 @@ void BattlescapeState::init()
 	{
 		int currentTurn = _autosave;
 		_autosave = 0;
-		if (_game->getSavedGame()->isIronman())
+		// coop W2-H49 (F17602): the ironman rule of the world the save belongs to (the alien host's own in a gm3 borrowed battle)
+		if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman())
 		{
 			_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_IRONMAN, _palette));
 		}
@@ -3522,7 +3523,8 @@ inline void BattlescapeState::handle(Action *action)
 					}
 				}
 				// quick save and quick load
-				if (!_game->getSavedGame()->isIronman() && !_save->isPreview())
+				// coop W2-H49 (F17604): no quick save, insta save or quick load for an ironman world, a borrowed battle's owner included
+				if (!connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman() && !_save->isPreview())
 				{
 					if (key == Options::keyQuickSave)
 					{
@@ -4058,7 +4060,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
 			// Autosave if game is over
-			if (_game->getSavedGame()->getEnding() != END_NONE && _game->getSavedGame()->isIronman())
+			if (_game->getSavedGame()->getEnding() != END_NONE && connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop W2-H49
 			{
 				_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_IRONMAN, _palette));
 			}
