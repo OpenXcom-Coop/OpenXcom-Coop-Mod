@@ -25,9 +25,6 @@ import os
 import sys
 import time
 
-# RW-TRIAGE: SKIP-PENDING(D250-U S-A2) - capture-first stage for the gm2 set-check miss and the empty gm3 set (R-D250-SA-2; F13509, F13510, F13502)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
@@ -173,6 +170,30 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
             return gc.ok({"cmd": "research_probe", "names": [], "tail": 0}).get("ids", {}).get("STR_UFO_UNIQUE", 1)
 
         made0 = {"host": _made(host), "client": _made(client)}
+
+        # D250-U S-A2 (F16980-F16999): the set check runs after every skip, BEFORE the drain, while the host's
+        # sim is held: a kept UfoDetectedState on its top, or speed 0 (skip_ingame_time's settle). Sampled
+        # after the drain, both clocks run at speed 5 (settle cannot slow a machine under a popup) and the two
+        # reads land at different game times. The host's sim makes the UFOs in both modes (gm2 X-COM host,
+        # gm3 alien host), so its real UFOs must all be mirrored on the client; at least one check must see
+        # a live UFO (F13502: gm3's X-COM client creates none).
+        checked = {"nonempty": 0, "bad": None}
+
+        def _set_check():
+            deadline = time.time() + 5.0   # the snapshot's transit; the held host does not change
+            while True:
+                hreal = {u["coopId"] for u in _geo(host).get("ufos", []) if not u["coop"]}
+                cmir = {u["coopId"] for u in _geo(client).get("ufos", []) if u["coop"]}
+                if hreal == cmir or time.time() > deadline:
+                    break
+                time.sleep(0.25)
+            if hreal != cmir:
+                if checked["bad"] is None:
+                    checked["bad"] = (hreal, cmir)
+            elif hreal:
+                checked["nonempty"] += 1
+            print(f"    [S-A2] set check: host real {sorted(hreal)} client mirror {sorted(cmir)}")
+
         ufo_popup = geo.popup("UfoDetectedState")  # D250-U A1 (QD-A1-3): a detection holds the clock; harvest it
         _harvest()
         roll_mp = _geo(host).get("monthsPassed", 0)
@@ -185,14 +206,15 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
             except Exception:
                 break
             _harvest()
-            if r.get("hit"):
+            _set_check()
+            if r.get("hit") or r["settled"]["hit"]:   # D250-U S-A2: settle keeps a late popup (F13510)
                 # D250-U A1 (QD-A1-3): a UfoDetectedState held its machine's clock with the UFO (or its
                 # mirror) alive, so the harvest above saw it; close it on both and go on.
                 for gc in (host, client):
                     geo.drain_popups(gc)
             # Stop as soon as BOTH machines have a natural UFO (D250-U A1, QD-A1-2): the host's own sim
             # created one, and the client observed one or its own sim created one.
-            if _made(host) > made0["host"] and (client_seen or _made(client) > made0["client"]):
+            if _made(host) > made0["host"] and (client_seen or _made(client) > made0["client"]) and checked["nonempty"]:
                 break
             now_min = geo.game_minutes(host) or start_min
             # Hard caps so an unlucky seed still terminates AND we never sit long
@@ -227,7 +249,6 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
         #   gm2 -> alien = client (getHost false, frozen); xcom = host (runs)
         #   gm3 -> alien = host   (getHost true, runs);     xcom = client (runs)
         alien_gc = client if alien_player == "client" else host
-        xcom_gs = _geo(xcom_gc)
         alien_gs = _geo(alien_gc)
 
         # (1) gm2 only: the alien CLIENT (getHost==false) must self-generate ZERO
@@ -242,17 +263,16 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
             else:
                 print(f"PASS {tag}: alien client has zero self-generated UFOs")
 
-        # (2) both modes: every real UFO on the XCOM machine must be mirrored on
-        # the alien machine. Join on coopId (the shared cross-machine id); use the
-        # coop flag (not coopId) as the real/mirror selector. Set equality.
-        xcom_real = {u["coopId"] for u in xcom_gs.get("ufos", []) if not u["coop"]}
-        alien_mirror = {u["coopId"] for u in alien_gs.get("ufos", []) if u["coop"]}
-        if xcom_real == alien_mirror:
-            print(f"PASS {tag}: UFO sets match ({len(xcom_real)} real == mirror)")
+        # (2) both modes: every real UFO of the host's sim must be mirrored on the client. Checked in the loop
+        # above on a held host (_set_check, D250-U S-A2); joined on coopId, the coop flag selects real/mirror.
+        if checked["bad"] is not None:
+            hreal, cmir = checked["bad"]
+            _fail(fails, f"{tag}: UFO set mismatch on a held host: "
+                         f"host_only={hreal - cmir}, client_only={cmir - hreal}")
+        elif not checked["nonempty"]:
+            _fail(fails, f"{tag}: no set check saw a live UFO (vacuous)")
         else:
-            _fail(fails, f"{tag}: UFO set mismatch: "
-                         f"xcom_only={xcom_real - alien_mirror}, "
-                         f"alien_only={alien_mirror - xcom_real}")
+            print(f"PASS {tag}: UFO sets match on a held host ({checked['nonempty']} non-empty check(s))")
 
         # Check that host is still on geoscape (dismiss any alerts)
         for gc, label in ((host, "host"), (client, "client")):
