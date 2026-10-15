@@ -12081,14 +12081,37 @@ static bool coopWalkExpandPath(SavedBattleGame* save, BattleUnit* unit,
 	return true;
 }
 
+/// W2-H52 (docs rewrite/prompts/w2h52_client_walk_hidden_unit.md (e) E1; L-H50-1, owner ruling ADD-1.3c,
+/// F17940-F17959): whether the WALKER knows unit @a u, by the unit half of vanilla's
+/// Pathfinding::isBlocked(O_FLOOR) ("player know all visible units"): a player walker knows every
+/// visible unit, every walker knows its own faction, and a hostile walker knows the units on its own
+/// spotted-this-turn list. validateWalk's step 1 (this host's own Pathfinding::calculate) routes by the
+/// same rule, so this reads nothing step 1 does not already read.
+static bool coopWalkerKnowsUnit(const BattleUnit* walker, const BattleUnit* u)
+{
+	if (walker->getFaction() == FACTION_PLAYER && u->getVisible())
+		return true;
+	if (walker->getFaction() == u->getFaction())
+		return true;
+	if (walker->getFaction() == FACTION_HOSTILE)
+	{
+		const std::vector<BattleUnit*>& spotted = walker->getUnitsSpottedThisTurn();
+		return std::find(spotted.begin(), spotted.end(), u) != spotted.end();
+	}
+	return false;
+}
+
 /// SS2.W2's `path_changed` predicate: "a shipped path tile blocked/impassable
 /// under CANONICAL occupancy at execution only". Reproduces
 /// UnitWalkBState.cpp's own per-step occupancy loop over the unit's armour
 /// footprint (`getOverlappingUnit(save, TUO_IGNORE_SMALL)`, "can't walk into
 /// units in this tile, or on top of other units sticking their head into this
-/// tile") rather than inventing a second rule. Hidden-unit collision is
-/// deliberately NOT covered here - SS2.W2 leaves that to vanilla's own walk
-/// interruption.
+/// tile") rather than inventing a second rule. W2-H52: only a unit the walker
+/// KNOWS counts (coopWalkerKnowsUnit above). A unit it does not know is left
+/// to vanilla's own walk interruption (ADD-1.3c): UnitWalkBState stops the
+/// walk when the unit is spotted or blocks the next step, spending TU only for
+/// what was done, so the order is never refused up front and the refusal never
+/// tells the walker where a unit it cannot see is standing.
 static bool coopWalkTileOccupied(SavedBattleGame* save, BattleUnit* unit, Position at)
 {
 	const int size = unit->getArmor()->getSize() - 1;
@@ -12100,7 +12123,7 @@ static bool coopWalkTileOccupied(SavedBattleGame* save, BattleUnit* unit, Positi
 			if (!t)
 				return true; // off-map is "impassable" for this purpose
 			BattleUnit* inWay = t->getOverlappingUnit(save, TUO_IGNORE_SMALL);
-			if (inWay && inWay != unit)
+			if (inWay && inWay != unit && coopWalkerKnowsUnit(unit, inWay))
 				return true;
 		}
 	}
