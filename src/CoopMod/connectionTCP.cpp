@@ -35055,6 +35055,21 @@ void connectionTCP::updateCoopTask()
 			onConnect = -2;
 			_game->getCoopMod()->disconnectTCP();
 		}
+		// coop W2-H55 (docs rewrite/prompts/w2h55_host_drop_dialog_resumeack.md (e) E1; F18081, F18180-F18199): the same drop with
+		// no live battle - the host's TCP thread dropped the partner on a failed send or a bad frame during a co-op campaign. It
+		// takes the canonical drop path, as a failed receive does (disconnectTCP()'s host arm: the wait dialog 62, then
+		// CoopSession::onClientDrop(), which clears resumeAck). The arm below kept the campaign start's resumeAck, so its 62 read
+		// "All players connected" with RESUME and hid SAVE & QUIT / ABANDON GAME for a partner who is gone (issues #79 / #81).
+		// A main-thread -3 (a message handler's exception, the socket still open) still takes the arm below.
+		else if (droppedOnSend && getServerOwner() == true
+			&& connectionTCP::session.lobbyClosed
+			&& connectionTCP::session.lobbyMode != 0
+			&& !campaignEnded())
+		{
+			Log(LOG_WARNING) << "[coop] W2-H55: the partner was lost on a failed send - the canonical drop";
+			onConnect = -2;
+			_game->getCoopMod()->disconnectTCP();
+		}
 		else if (getServerOwner() == true
 			&& connectionTCP::session.lobbyClosed
 			&& connectionTCP::session.lobbyMode != 0
