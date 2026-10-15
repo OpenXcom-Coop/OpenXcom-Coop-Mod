@@ -109,6 +109,11 @@ private:
 	// coop W2-H48 (L-H44-1): the coop id of the mirrored alien base this craft is heading to (AlienBase::_coop_alienbase_id, kept
 	// across the owner's save by W2-H44), persisted so the destination is rebound after a reload as a UFO / site mirror is.
 	int _coopDestAlienBaseId = 0;
+	// coop W2-H51 (L-H48-1): the partner's craft mirror this craft is heading to - the coop id of the partner's base it belongs to
+	// (Base::_coop_base_id, kept across the owner's save) plus that craft's rule type and id; rebound after a reload like a UFO mirror.
+	int _coopDestCraftBaseId = 0;
+	int _coopDestCraftId = 0;
+	std::string _coopDestCraftType;
 	ItemContainer *_tempSoldierItems;
 	ItemContainer *_tempExtraItems;
 	std::vector<Vehicle*> _vehicles;
@@ -424,7 +429,7 @@ public:
 	int getCoopDestUfoId() const { return _coopDestUfoId; }
 	int getCoopDestMissionId() const { return _coopDestMissionId; }
 	int getCoopDestAlienBaseId() const { return _coopDestAlienBaseId; } // coop W2-H48
-	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; _coopDestAlienBaseId = 0; }
+	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; _coopDestAlienBaseId = 0; _coopDestCraftBaseId = 0; _coopDestCraftId = 0; _coopDestCraftType.clear(); } // W2-H51
 	/// Rebinds the destination to a live coop mirror UFO / mission site matching
 	/// the stored coop id (if any), replacing the interim waypoint. Returns true
 	/// if it re-linked. Called on the client after coop targets are re-synced.
