@@ -713,6 +713,10 @@ int coopTestHoldBlobAckArm(bool on);
 bool coopTestHoldBlobAckArmed();
 int coopTestHoldBlobAckHeld();
 
+/// coop W2-H60 (TEST-ONLY `throw_next_rx`, either machine, main thread): marks the next message the receive loop handles (of
+/// `state`, "" = any; `backHidden`: only under a back-hidden co-op dialog); it throws on every attempt. Never called by game logic.
+void coopTestThrowNextRxArm(const std::string& state, bool backHidden);
+
 /// coop R4-L2 S-C (TEST-ONLY `force_send_failure`, HOST): arms a one-shot - the host's TCP thread takes its real
 /// send-failure branch at its next send to the partner (onConnect -3, the partner's socket closed). Inert unless armed.
 /// Never called by game logic.
