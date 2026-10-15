@@ -106,6 +106,9 @@ private:
 	// persisted so the destination can be rebound after a client-world reload.
 	int _coopDestUfoId = 0;
 	int _coopDestMissionId = 0;
+	// coop W2-H48 (L-H44-1): the coop id of the mirrored alien base this craft is heading to (AlienBase::_coop_alienbase_id, kept
+	// across the owner's save by W2-H44), persisted so the destination is rebound after a reload as a UFO / site mirror is.
+	int _coopDestAlienBaseId = 0;
 	ItemContainer *_tempSoldierItems;
 	ItemContainer *_tempExtraItems;
 	std::vector<Vehicle*> _vehicles;
@@ -420,7 +423,8 @@ public:
 	/// live mirror once it re-syncs. 0 = no pending re-link.
 	int getCoopDestUfoId() const { return _coopDestUfoId; }
 	int getCoopDestMissionId() const { return _coopDestMissionId; }
-	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; }
+	int getCoopDestAlienBaseId() const { return _coopDestAlienBaseId; } // coop W2-H48
+	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; _coopDestAlienBaseId = 0; }
 	/// Rebinds the destination to a live coop mirror UFO / mission site matching
 	/// the stored coop id (if any), replacing the interim waypoint. Returns true
 	/// if it re-linked. Called on the client after coop targets are re-synced.
