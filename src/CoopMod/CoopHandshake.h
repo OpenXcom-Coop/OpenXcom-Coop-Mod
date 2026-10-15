@@ -449,7 +449,7 @@ void resetPendingState();
 
 /// coop W2-H24 S-B (QH24-3 (a), F9980): the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
 /// thread) calls latchFreshStartLostUdp() before its own clearNetworkSessionQueues() resets the authority and the pending
-/// offer; it records whether a FRESH co-op battle start (not a stage-2 offer) was in flight on the host.
+/// offer; it records whether a FRESH co-op battle start (a stage-2 offer included, MG-A-FS2) was in flight on the host.
 void latchFreshStartLostUdp();
 
 /// coop W2-H24 S-B: connectionTCP::disconnectTCP() (main thread) reads and clears that record, once per call.
