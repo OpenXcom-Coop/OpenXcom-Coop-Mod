@@ -62,6 +62,10 @@ void AlienBase::load(const YAML::YamlNodeReader& reader)
 	reader.tryRead("startMonth", _startMonth);
 	reader.tryRead("minutesSinceLastHuntMissionGeneration", _minutesSinceLastHuntMissionGeneration);
 	reader.tryRead("genMissionCount", _genMissionCount);
+	// coop W2-H44 (QC4B-4 (a); issue #28's pattern, as Ufo::load / MissionSite::load): keep the cross-instance coop id across a save
+	// and its reload, so a resumed battle at this base finds it again by that id (the borrow record's targetCoopId). A save without
+	// the key keeps the constructor's random id, as before.
+	reader.tryRead("coopAlienBaseId", _coop_alienbase_id);
 }
 
 /**
@@ -83,6 +87,8 @@ void AlienBase::save(YAML::YamlNodeWriter writer) const
 	writer.write("startMonth", _startMonth);
 	writer.write("minutesSinceLastHuntMissionGeneration", _minutesSinceLastHuntMissionGeneration);
 	writer.write("genMissionCount", _genMissionCount);
+	// coop W2-H44: persist the stable cross-instance coop id (see AlienBase::load).
+	writer.write("coopAlienBaseId", _coop_alienbase_id);
 }
 
 /**
