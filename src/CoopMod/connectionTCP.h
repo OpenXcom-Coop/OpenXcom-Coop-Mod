@@ -1073,6 +1073,9 @@ class connectionTCP
 	// CALLER MUST HOLD coopFilesMutex; the returned pointer is valid only while
 	// that lock is held.
 	static const std::string* findHostClientBlob(const std::string& clientName);
+	// coop W2-H58 S-A: a host save re-mints saveID; copy every host_<oldSaveID>_<name>.data blob to the current id (a blob already
+	// under the new id is kept). Takes coopFilesMutex itself.
+	static void rekeyHostClientBlobs(long long oldSaveID);
 	// Single authority: may this machine read/write local .sav files right now?
 	// Truth table: solo play -> yes; coop host -> yes; coop client -> no.
 	// Every local save/load gate and Load/Save button-visibility decision must

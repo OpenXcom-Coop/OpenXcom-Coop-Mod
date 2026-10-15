@@ -257,7 +257,9 @@ void SaveGameState::think()
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
 				{
+					const long long coopOldSaveID = connectionTCP::saveID; // coop W2-H58 S-A (w2h58_sa_rekey.md (e) EA3; F18420, F18430)
 					connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
+					connectionTCP::rekeyHostClientBlobs(coopOldSaveID); // a partner who drops before its fresh world lands keeps its world
 				}
 
 				// PRD-06/E1: arm the deferral and SKIP the immediate write. The
