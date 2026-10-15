@@ -2518,8 +2518,14 @@ static std::atomic<bool> g_coopBattleEndTeardownLatch{false};
 static bool g_coopStageHandOffPending = false;
 static bool g_coopStageTeardownLatch = false;
 static std::uint32_t g_coopStageOfNext = 0;
-// coop W2-H24 (R-H24-G-1): HOST, set by hook H once its stage offer is out; while set the start in flight is a stage offer, not a fresh start.
+// coop W2-H24 (R-H24-G-1): HOST, set by hook H once its stage offer is out; while set the start in flight is a stage offer (MG-A-FS2: a lost partner parks it).
 static bool g_coopStageOfferPending = false;
+// coop MG-A-FS2 (owner D282 (b); docs rewrite/prompts/fs2_sa_part2_rearm.md): HOST, main thread. Arm: the ended battleId hook H's
+// stage offer carries, set with the marker but kept through a drop's resets (disconnectTCP() resets before its unwind, the UDP
+// thread before the main thread reads), so coopUnwindFailedStart() can park a part 2 that lost its partner; cleared at Active, at
+// PREPARE and by the unwind. Parked: that battleId while part 2 waits for the partner; coopRearmParkedStage() consumes it.
+static std::uint32_t g_coopStageArm = 0;
+static std::uint32_t g_coopStageParked = 0;
 static Json::Value g_coopStageOfferStash;
 static Json::Value g_coopStageKeptResearch;
 // W2-P7 S-B1.2 (AMENDMENT P7-2 G3/G4): set by the battle_end pump consumer
@@ -29200,9 +29206,51 @@ void coopHostNextStage(Game* game, SavedBattleGame* save)
 	CoopHandshake::prepareBattleOffer(game, connectionTCP::_coopGamemode);
 	g_coopStageOfNext = 0;
 	g_coopStageOfferPending = true; // coop W2-H24 (R-H24-G-1): this start is MG-A's stage offer
+	g_coopStageArm = fromBattleId; // coop MG-A-FS2 (owner D282 (b)): a partner lost before part 2 starts parks it
 	CoopDelta::stageRecordSet("toBattleId", coopBattleAuthority().battleId.load());
 	Log(LOG_INFO) << "[coop-battle-end] host: stage hand-off - battle " << fromBattleId << " -> "
 		<< coopBattleAuthority().battleId.load() << " offered (stageOf)";
+}
+
+// coop MG-A-FS2 (owner D282 (b); docs rewrite/prompts/fs2_sa_part2_rearm.md): the HOST's part-2 re-arm. A part 2 whose partner was
+// lost during its offer WAITS (coopUnwindFailedStart() parked it: the host keeps its screens and the part-2 battle, part 1's results
+// in it). Once the partner is back (resumeAck: its world acknowledged, or a custom battle's rejoin request) and the host's RESUME
+// popped the wait dialog, part 2 is offered again as hook H offered it: the same battle and map, a new battleId, `stageOf` kept so
+// R5-U5's seat pass keeps given units. With no battle left (ABANDON GAME, SAVE & QUIT) the parked part 2 is forgotten. Main thread,
+// every frame (connectionTCP::updateCoopTask()).
+static void coopRearmParkedStage(Game* game)
+{
+	if (g_coopStageParked == 0)
+		return;
+	if (!connectionTCP::getServerOwner() || !coopBattleLive(game))
+	{
+		g_coopStageParked = 0;
+		return;
+	}
+	if (!connectionTCP::session.resumeAck || coopBattleAuthority().phase.load() != CoopBattlePhase::Idle)
+		return;
+	for (State* st : game->getStates())
+	{
+		CoopState* cs = dynamic_cast<CoopState*>(st);
+		if (cs && cs->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+			return; // RESUME not pressed yet
+	}
+	const std::uint32_t stageOf = g_coopStageParked;
+	g_coopStageParked = 0;
+	SavedBattleGame* save = game->getSavedGame()->getSavedBattle();
+	// F9990: the order every load sorts the items in, as hook H restores it (the partner's copy is a load).
+	for (std::vector<BattleItem*>* items : { save->getItems(), save->getGuaranteedRecoveredItems(),
+		save->getConditionalRecoveredItems() })
+		std::sort(items->begin(), items->end(),
+			[](const BattleItem* a, const BattleItem* b) { return a->getId() < b->getId(); });
+	g_coopStageOfNext = stageOf;
+	CoopHandshake::prepareBattleOffer(game, connectionTCP::_coopGamemode);
+	g_coopStageOfNext = 0;
+	g_coopStageOfferPending = true; // coop MG-A-FS2: the re-armed start is a stage offer again
+	g_coopStageArm = stageOf;
+	CoopDelta::stageRecordSet("toBattleId", coopBattleAuthority().battleId.load());
+	Log(LOG_INFO) << "[coop-battle-end] host: MG-A-FS2 - the waiting part 2 re-armed: battle "
+		<< coopBattleAuthority().battleId.load() << " offered (stageOf " << stageOf << ")";
 }
 
 // W2-P7 S-B2.2 (AMENDMENT P7-4): the battle phase as the record names it (event_state's names).
@@ -30063,8 +30111,8 @@ static bool coopFailedStartInScope(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
 	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
-	// coop W2-H24 (R-H24-G-1): a stage-2 offer is not a fresh start; MG-A's follow-up owns its failure.
-	return !g_coopStageOfferPending && battle != nullptr;
+	// coop MG-A-FS2 (owner D282 (b)): a stage-2 offer takes this path too; coopUnwindFailedStart() parks a lost partner's part 2.
+	return battle != nullptr;
 }
 
 // coop W2-H24: the world half of a failed co-op battle start. The generator marked the battle's craft and target as in
@@ -30132,6 +30180,23 @@ static int coopRestoreWorldAfterFailedStart(Game* game, int& home)
 // before (coopUnwindToSafeState), the world is restored, then the battle and the authority are dropped.
 static void coopUnwindFailedStart(Game* game, const char* why)
 {
+	// coop MG-A-FS2 (owner D282 (b)): a part 2 whose partner was lost during its offer WAITS instead - no unwind: the host keeps
+	// its screens and the part-2 battle (part 1's results in it), the authority and the offer are dropped, and
+	// coopRearmParkedStage() offers part 2 again once the partner is back and RESUME is pressed. A refused or mismatched part 2
+	// (bug-only, D262 (b)) and a gm3 borrowed one take the shared unwind below (D265 (a); QA-4).
+	const std::string reason(why);
+	if (g_coopStageArm != 0 && (reason == "partner dropped" || reason == "partner lost") && !connectionTCP::coopPvpParkedWorld())
+	{
+		g_coopStageParked = g_coopStageArm;
+		g_coopStageArm = 0;
+		resetBattleAuthority();
+		g_pendingHost = PendingHost();
+		g_coopStageOfferPending = false;
+		Log(LOG_WARNING) << "[coop-handshake] MG-A-FS2: part 2's start lost its partner (" << why
+			<< ") - part 2 waits for the partner (battle kept, stageOf " << g_coopStageParked << ")";
+		return;
+	}
+	g_coopStageArm = 0;
 	coopUnwindToSafeState(game);
 	int home = 0;
 	const int marks = coopRestoreWorldAfterFailedStart(game, home);
@@ -30167,13 +30232,13 @@ static bool coopHostFreshStartPending()
 // coop W2-H24 S-B (QH24-3 (a), F9980): the UDP twin of the partner-loss read. handleUdpRemotePeerLost() (the UDP monitor
 // thread) resets the authority and the pending offer itself before the main thread's connectionTCP::disconnectTCP() runs,
 // so that read would find no start in flight. The UDP thread records the start here first; disconnectTCP() reads and
-// clears the record in every call, so it never outlives one teardown. A stage-2 offer is not recorded (R-H24-G-1): the
-// same reset clears g_coopStageOfferPending before the main thread could read it.
+// clears the record in every call, so it never outlives one teardown. A stage-2 offer is recorded too (MG-A-FS2): the
+// unwind parks it by g_coopStageArm, which this reset leaves alone (owner D282 (b)).
 static std::atomic<bool> g_coopFreshStartLostUdp{false};
 
 void latchFreshStartLostUdp()
 {
-	if (coopHostFreshStartPending() && !g_coopStageOfferPending)
+	if (coopHostFreshStartPending())
 		g_coopFreshStartLostUdp.store(true);
 }
 
@@ -30778,6 +30843,8 @@ void prepareBattleOffer(Game* game, int gamemode)
 	// startFirstTurn().
 	g_pendingHost = PendingHost();
 	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): a new start; hook H marks its own after this PREPARE
+	g_coopStageArm = 0; // coop MG-A-FS2: a new start (hook H and the re-arm set their own after this PREPARE)
+	g_coopStageParked = 0;
 	g_pendingHost.prepared = true;
 	g_pendingHost.battleId = battleId;
 	g_pendingHost.gamemode = gamemode;
@@ -32145,6 +32212,7 @@ void onReady(Game* game, const Json::Value& ready)
 	}
 	g_pendingHost = PendingHost();
 	g_coopStageOfferPending = false; // coop W2-H24 (R-H24-G-1): the start is Active
+	g_coopStageArm = 0; // coop MG-A-FS2: part 2 started; nothing left to park
 
 	// W2-P8b S-E.2 (P8b-1 RULINGS Q16 (a), F3126): the host closed its briefing on an all-aliens-dead start while
 	// still in phase Handshake - the held aliens-crashed battle_end is the first ev after Active, and the fresh-battle
@@ -34865,6 +34933,8 @@ void connectionTCP::updateCoopTask()
 
 	// coop
 	// server error!
+	coopRearmParkedStage(_game); // coop MG-A-FS2 (owner D282 (b)): a waiting part 2 is offered again after the rejoin + RESUME
+
 	if (onConnect == -3)
 	{
 		// coop R4-L2 S-C: read (and clear) once per -3 - did the host's TCP thread drop the partner (a failed send, a bad frame)?
@@ -34961,7 +35031,14 @@ void connectionTCP::updateCoopTask()
 			// coop W2-H24 S-B (D259 (a)): the partner was lost on a failed send during a FRESH co-op skirmish start - it
 			// lands where a refused one lands: the unwind leaves the host on a fresh main menu, whose init ends the session.
 			// (CoopState(440) would pop the state under it - here that fresh main menu.)
-			if (CoopHandshake::coopHostFreshStartPending() && CoopHandshake::coopFailedStartInScope(_game))
+			// coop MG-A-FS2 (owner D282 (b)): a custom battle's part 2 lost its partner on a failed send - the canonical drop instead
+			// (disconnectTCP()'s -2 arm parks part 2 and waits for the partner, as after a failed receive; R4-L2 S-C's shape).
+			if (CoopHandshake::coopHostFreshStartPending() && g_coopStageArm != 0)
+			{
+				onConnect = -2;
+				_game->getCoopMod()->disconnectTCP();
+			}
+			else if (CoopHandshake::coopHostFreshStartPending() && CoopHandshake::coopFailedStartInScope(_game))
 			{
 				CoopHandshake::coopUnwindFailedStart(_game, "partner lost");
 				connectionTCP::_coopGamemode = 0;
@@ -37948,6 +38025,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string acker = _game->getCoopMod()->getCurrentClientName();
 		bool battleEligible = connectionTCP::session.resumeBattleEligible.count(acker) > 0;
 
+		// coop MG-A-FS2 (owner D282 (b)): a waiting part 2 is no battle to stream - this world ack opens RESUME, and RESUME
+		// re-arms part 2 (coopRearmParkedStage()).
+		if (g_coopStageParked != 0)
+			connectionTCP::session.resumeBattlePending = false;
 		if (connectionTCP::session.resumeBattlePending && battleEligible)
 		{
 			connectionTCP::session.resumeBattlePending = false;
@@ -38599,7 +38680,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (_game->getSavedGame() && !sendFileClient
 			&& _game->getCoopMod()->getCoopCampaign() == false && coopBattleLive(_game))
 		{
-			streamSkirmishBattleToClient();
+			// coop MG-A-FS2 (owner D282 (b)): a waiting part 2 is no battle to stream - the partner is back, so RESUME shows; RESUME
+			// re-arms part 2 (coopRearmParkedStage()).
+			if (g_coopStageParked != 0)
+				connectionTCP::session.resumeAck = true;
+			else
+				streamSkirmishBattleToClient();
 		}
 		else if (_game->getSavedGame() && !sendFileClient && isSharedCampaign())
 		{
