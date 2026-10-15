@@ -33241,6 +33241,28 @@ const std::string* connectionTCP::findHostClientBlob(const std::string& clientNa
 	return best;
 }
 
+// coop W2-H58 S-A (docs rewrite/prompts/w2h58_sa_rekey.md (e) EA1; F18420-F18421, F18430, F18480-F18499): a host manual or quick
+// save re-mints saveID (SaveGameState) before the partner's fresh world arrives. Each partner world stored under the old id is copied
+// to the new id, so every exact-key reader (the rejoin, the gm2 stub check, the gm3 PvP readers) still finds it when the partner drops
+// first; the partner's next blob replaces the copy and prunes the old key (eraseStaleBlobEntries), as before.
+void connectionTCP::rekeyHostClientBlobs(long long oldSaveID)
+{
+	if (oldSaveID == saveID)
+		return;
+	const std::string oldPrefix = "host_" + std::to_string(oldSaveID) + "_";
+	const std::string newPrefix = "host_" + std::to_string(saveID) + "_";
+	std::vector<std::pair<std::string, std::string>> copies;
+	std::lock_guard<std::mutex> lock(coopFilesMutex);
+	for (const auto& kv : coopFilesHost)
+	{
+		if (!kv.second.empty() && kv.first.compare(0, oldPrefix.size(), oldPrefix) == 0)
+			copies.emplace_back(newPrefix + kv.first.substr(oldPrefix.size()), kv.second);
+	}
+	for (auto& c : copies)
+		coopFilesHost.emplace(std::move(c.first), std::move(c.second)); // a blob already stored under the new id is kept
+	Log(LOG_INFO) << "[coop] W2-H58: " << copies.size() << " partner world(s) copied from saveID " << oldSaveID << " to " << saveID;
+}
+
 // One authority for the campaign_start packet (see header). Reads the player
 // roster from the save (host lobby start sets it just before calling this, so
 // save->getCoopPlayers() equals the freshly-built list).
