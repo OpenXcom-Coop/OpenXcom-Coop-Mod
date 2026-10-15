@@ -34712,6 +34712,24 @@ void connectionTCP::resetGiftSessionState()
 
 }
 
+// coop W2-H59 (docs rewrite/prompts/w2h59_host_save_on_drop.md (e) E1; L-H54-2, R-H59-0; F18260, F18400-F18419): the partner
+// dropped while the host's deferred save waited for its world (SaveGameState armed it and pushed CoopState 54 "Saving...").
+// CoopSession::onClientDrop() disarms that save unwritten, so write it now with the partner's last landed world (the store keeps
+// it across a drop, F18267) and close the 54, as the 54's CANCEL does (CoopState::previous). Only while the 54 is the top state
+// (W2-H54's rule); writePendingHostSave() keeps its battle / no-save guard. Called just before a drop's wait dialog is pushed.
+static void coopWriteArmedSaveOnPeerDrop(Game* game)
+{
+	if (connectionTCP::session.pendingHostSaveName.empty() || game->getStates().empty())
+		return;
+	CoopState* top = dynamic_cast<CoopState*>(game->getStates().back());
+	if (!top || top->getStateCode() != COOP_DLG_HOST_SAVE_WAIT)
+		return;
+	Log(LOG_INFO) << "[coop] W2-H59: the partner dropped during the host's deferred save - it is written now ("
+		<< connectionTCP::session.pendingHostSaveName << ")";
+	game->getCoopMod()->writePendingHostSave();
+	game->popState();
+}
+
 void connectionTCP::writePendingHostSave()
 {
 
@@ -35191,6 +35209,7 @@ void connectionTCP::updateCoopTask()
 			}
 			if (!waitDialogPresent)
 			{
+				coopWriteArmedSaveOnPeerDrop(_game); // coop W2-H59 (E3, R-H59-0): as at the canonical drop (disconnectTCP)
 				connectionTCP::session.freeze();
 				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 			}
@@ -44067,6 +44086,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 				}
 				else if (!waitDialogPresent)
 				{
+					coopWriteArmedSaveOnPeerDrop(_game); // coop W2-H59 (E2, R-H59-0): write the deferred save this drop disarms, close the 54
 					connectionTCP::session.freeze();
 					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
