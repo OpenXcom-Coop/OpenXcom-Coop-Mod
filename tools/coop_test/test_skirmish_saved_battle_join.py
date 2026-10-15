@@ -1,269 +1,417 @@
-"""Regression: joining a hosted custom-battle save must not wait for RESUME.
+"""MG-B S-A rows PG and CB1: a saved co-op Custom Battle hosted from the battle's pause menu continues for both players
+through CONTINUE BATTLE (owner D225 (a)); a loaded single-player Custom Battle's pause-menu CO-OP hides while an action
+runs (owner D238 (a)). Q283-5 (a)'s PvE2 cell is row CB2, test_skirmish_saved_pve2_continue.py (QMB2-1 (a)). Spec: docs
+repo rewrite/prompts/mgb2_common.md (rulings, R3, QMB2-1 .. QMB2-5 (a)), mgb2_sa_continue.md (this stage, (f)),
+mgb2_sb_convert.md (S-B); constants rewrite/mgb2-task0/sa/CONSTANTS.md (TASK 0 boots a .. g at dfe41388b). main #181's
+file of this name, re-pointed in place to rows PG + CB1 (QSG-5); lobby key 49207.
 
-A loaded skirmish save already has a SavedBattleGame before its new multiplayer
-session starts.  The join gate used to mistake that fact for a live-session
-reconnect: the client downloaded the map and reached BattlescapeState, then was
-parked forever in COOP_DLG_CLIENT_RESUME_HOLD even though the host had no
-reconnect dialog (and therefore no RESUME button capable of releasing it).
-
-This test creates a real co-op skirmish save, replaces both processes, loads the
-save on the new host, and opens COOP through the real Battlescape pause menu.
-Like a campaign resume, that must open HostMenu and put both players in a lobby;
-the map must not stream until the host presses CONTINUE BATTLE. The client must
-then enter it without dialog 68.  The existing
-test_skirmish_rejoin_battle.py covers the opposite half: a genuine mid-session
-reconnect still must hold until the host presses RESUME.
-
-Run:  python tools/coop_test/test_skirmish_saved_battle_join.py
-Exit 0 = pass; 2 = failure.
+PG (one solo boot, QMB2-5 (a)): a settled single-player New Battle (set_seed 1). P1 open_pause_coop (a real PauseState and
+its CO-OP click), pop its HostMenu: CO-OP visible. P2 WALK (the first soldier with TU >= 30 to the farthest open tile 6..12
+tiles away on a straight line, pendingStates > 0), then as P1: CO-OP hidden, as vanilla hides Save.
+CB1 (classic gm1): the seed pair (host CoopTurnMode traditional, seat 1 = squad index 0, 1) saves its settled battle; a
+fresh host (CoopTurnMode parallel) loads it, a clean client joins. G1 open_pause_coop: HostMenu, customBattleResumePending.
+G2 host_menu_host + the join: both in LobbyMenu, CONTINUE BATTLE offered. G3 CONTINUE BATTLE: both on the saved battle, no
+dialog 62 / 68, no LobbyMenu or BriefingState on the client (read 2 s later, V1). G4 phase Active, no desync, the
+disk-resume offer and MG-B's line once each. G5 units (coop, faction, isOut, x, y, z) host == client == P, seat counts.
+G6 (D-22 / D100) turnMode traditional under the host option parallel; holder == A0. G7 every bucket EQUAL. G8 host END
+TURN: holder 1; the client walks a staged seat-1 unit one tile; equal on both, every bucket EQUAL, no desync.
+RED on the unchanged product: P2 (CO-OP shows while an action runs), G3 (the client never gets the saved battle), G4-G8
+not reached (G3). GREEN (EA1-EA6): every cell PASS. One EVIDENCE line per row, one PASS / FAIL line per cell, the row
+verdict; every row runs after a failure. A precondition miss (G1, G2, G3, P2's walk, a cell that raised) ends its row:
+later cells FAIL "not reached (<cell>)". A boot step past its bound prints ONE CAPTURE line and fails every cell of that
+row "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+only when every cell passes, else 2.   Run:  python tools/coop_test/test_skirmish_saved_battle_join.py
 """
 
+import json
 import os
 import sys
-# RW-TRIAGE: SKIP-PENDING(MG-B) - main #181's test; MG-B re-points it to row CB1 on rewrite/merge-main (MG-C, QSG-5; the gate's OWNED row)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
-import session
-import test_skirmish_flow as skirmish_flow
-import pvp_fixture
+from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
+import session  # noqa: E402
+import test_skirmish_flow as SK  # noqa: E402
+
+KEY, SAVE = "49207", "mgb_cb1.sav"
+SEED, SEATED = 1, 2      # set_seed right before newbattle_ok (TASK 0 boots a, b, e, f); seat 1 = squad index 0, 1 (F5292)
+CLIENT_S, HOST_S, STEP_S, LOAD_S, BUSY_S = 120, 30, 30, 120, 5   # bounds (s); TASK 0 green: 1.0, 1.4, -, 1.5, 0.05
+TU_WALK, WALK_FAR, WALK_NEAR = 30, 12, 6
+N_REFUSE = "offerRejoinBattle() called while the battle is not paused"
+N_M2 = "SPEC18 M2: disk-resume battle_offer sent"
+N_MGB = "[coop] MG-B: CONTINUE BATTLE offers the loaded Custom Battle"
+DLG_WAIT_PLAYERS, DLG_RESUME_HOLD = 62, 68
+PG_CELLS, CB1_CELLS = ("P1", "P2"), ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
+stack, bs, es = session.states_stripped, session.battle_state, session.event_state
 
 
-SAVE = "skirmish_saved_battle_join.sav"
-PORT = "47998"
-CLIENT_RESUME_HOLD = 68
+class Miss(Exception):
+    """A boot step past its bound (its CAPTURE line is printed)."""
 
 
-def in_battle(gc):
-    return gc.cmd({"cmd": "battle_state"}).get("inBattle") or None
+def top(gc):
+    s = stack(gc)
+    return s[-1] if s else None
 
 
-def battle(gc):
-    return gc.cmd({"cmd": "battle_state"})
+def holder(gc):
+    e = es(gc)
+    return [e.get("coopActiveSeat"), (e.get("coopEndTurnTally") or {}).get("activeSeat")]
 
 
-def selectable(gc):
-    return sorted(u["id"] for u in battle(gc).get("units", [])
-                  if u.get("selectable") and not u.get("isOut"))
+def dialog(gc):
+    d = gc.cmd({"cmd": "coop_dialog_info"})
+    return d.get("code") if d.get("present") else None
 
 
-def end_turn(gc):
-    gc.ok({"cmd": "battle_action", "action": "end_turn_button"})
+def log_lines(gc):
+    p = os.path.join(gc.user_dir, "openxcom.log")
+    return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
+
+
+def log_count(gc, needle):
+    return sum(1 for line in log_lines(gc) if needle in line)
+
+
+def ptable(b):
+    return {str(u["id"]): [u.get("coop"), u.get("faction"), u.get("isOut"), u.get("x"), u.get("y"), u.get("z")]
+            for u in b.get("units", [])}
+
+
+def hash_cell(host, client, what):
+    try:
+        return bool(session.assert_hash_clean(host, client, full=True, what=what)), "all buckets EQUAL"
+    except AssertionError as e:
+        return False, "hash MISMATCH: " + str(e)[:500]
+
+
+def wait_until(pred, bound, interval=0.25):
+    t = time.time()
+    while time.time() - t < bound:
+        if pred():
+            return True, round(time.time() - t, 2)
+        time.sleep(interval)
+    return bool(pred()), round(time.time() - t, 2)
+
+
+PROBES = (("stack", stack), ("dialog", dialog), ("coop", lambda g: g.cmd({"cmd": "get_coop"})),
+          ("battle", lambda g: {k: bs(g).get(k) for k in ("inBattle", "side", "turn", "coopGamemode", "pendingStates")}),
+          ("es", lambda g: {k: es(g).get(k) for k in ("phase", "desyncSeen", "turnMode", "coopActiveSeat")}),
+          ("logTail", lambda g: log_lines(g)[-30:]))
+
+
+def capture(tag, err, machines):
+    """ONE CAPTURE line: each machine's stack, coop_dialog_info, get_coop, battle view, event_state picks, log tail."""
+    def probe(fn, gc):
+        try:
+            return fn(gc)
+        except Exception as e:
+            return f"probe failed: {type(e).__name__}: {e}"
+    cap = {gc.name: {k: probe(fn, gc) for k, fn in PROBES} for gc in machines}
+    print(f"CAPTURE {tag}: missed {err}; {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+
+
+def missed(tag, err, machines):
+    capture(tag, err, machines)
+    raise Miss(tag)
+
+
+def guarded(tag, fn, machines):
+    try:
+        return fn()
+    except Miss:
+        raise
+    except Exception as e:
+        missed(tag, f"{type(e).__name__}: {str(e)[:600]}", machines)
+
+
+def shut(*gcs):
+    try:
+        shutdown_clients(*gcs)
+    except RuntimeError as e:
+        print(f"[mgb] shutdown: {str(e)[:300]}", flush=True)
+
+
+def report(row, order, cells, ev):
+    print(f"EVIDENCE {row}: {json.dumps(ev, sort_keys=True, default=str)}", flush=True)
+    for name in order:
+        print(f"{'PASS' if cells[name][0] else 'FAIL'} {name}: {cells[name][1]}", flush=True)
+    fails = sum(1 for name in order if not cells[name][0])
+    print(f"{row} {'PASS' if not fails else 'FAIL'} ({fails} of {len(order)} cells failed)", flush=True)
+    return fails
+
+
+def boot_failed(row, order, why, ev):
+    return report(row, order, {c: (False, f"boot (see the CAPTURE {why} line)") for c in order}, ev)
+
+
+def run_cells(order, steps, ev):
+    """Cells in order; a gating cell that fails, or any cell that raises, ends the row (later: not reached)."""
+    cells, stop = {}, None
+    for name in order:
+        gating, fn = steps[name]
+        try:
+            cells[name] = (False, f"not reached ({stop})") if stop else fn(ev)
+        except Exception as e:
+            cells[name], stop = (False, f"raised {type(e).__name__}: {str(e)[:500]}"), name
+        stop = stop or (name if gating and not cells[name][0] else None)
+    return cells
+
+
+def join(host, client, key):
+    """The client's browser + join_tcp; profile_ok on both join popups (main #181's shape)."""
+    SK.skirmish_client_at_browser(client)
+    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": "ClientPlayer"})
+    for gc in (host, client):
+        gc.wait_for(f"{gc.name} join popup", lambda gc=gc: session.has_state(gc, "Profile"), timeout=60)
+        gc.ok({"cmd": "profile_ok"})
+
+
+def load_saved(host, client, save, tag):
+    """The resume pair's boot: spawn both; the host loads `save` through the real load menu, no locked session."""
+    def boot():
+        host.spawn(), client.spawn(), host.connect(), client.connect()
+        host.ok({"cmd": "load_save_menu", "file": save})
+        host.wait_for("the loaded battle", lambda: bs(host).get("inBattle") and top(host) == "BattlescapeState",
+                      timeout=LOAD_S, interval=0.3)
+    guarded(tag, boot, (host, client))
+    if host.cmd({"cmd": "get_coop"}).get("sessionLocked"):
+        missed(tag, "the freshly loaded battle already holds a locked session", (host, client))
+
+
+def continue_battle(host, client, ev, what):
+    """CONTINUE BATTLE, then G3's (and CB2's) arrival read 2 s after the client is in battle (V1)."""
+    t, c_at, h_at = time.time(), None, None
+    host.ok({"cmd": "lobby_action"})
+    while time.time() - t < CLIENT_S and (c_at is None or (h_at is None and time.time() - t < HOST_S)):
+        h_at = h_at if h_at is not None or top(host) != "BattlescapeState" else round(time.time() - t, 2)
+        c_at = c_at if c_at is not None or not bs(client).get("inBattle") else round(time.time() - t, 2)
+        time.sleep(0.25)
+    time.sleep(2)
+    r = ev["arrival"] = {"clientInBattleS": c_at, "hostBattleS": h_at, "host": stack(host), "client": stack(client),
+                         "hostDialog": dialog(host), "clientDialog": dialog(client), "refusal": log_count(host, N_REFUSE),
+                         "hostPhase": es(host).get("phase")}
+    ok = (c_at is not None and h_at is not None and h_at <= HOST_S and r["host"][-1] == "BattlescapeState"
+          and r["hostDialog"] != DLG_WAIT_PLAYERS and r["client"][-1] == "BattlescapeState"
+          and r["clientDialog"] != DLG_RESUME_HOLD and "LobbyMenu" not in r["client"] and "BriefingState" not in r["client"])
+    return ok, (f"{'' if c_at is not None else what + ': '}client in battle at {c_at} s (bound {CLIENT_S}); host battle on "
+                f"top at {h_at} s (bound {HOST_S}); host {r['host']} dialog {r['hostDialog']} (want no {DLG_WAIT_PLAYERS}); "
+                f"client {r['client']} dialog {r['clientDialog']} (want BattlescapeState on top, no {DLG_RESUME_HOLD}, "
+                f"LobbyMenu or BriefingState); host refusal lines {r['refusal']}, phase {r['hostPhase']}")
+
+
+def coop_cell(host, ev, key, want, at):
+    """open_pause_coop, pop the HostMenu it opened, read the PauseState's CO-OP TextButton `visible` (want `want`)."""
+    host.ok({"cmd": "open_pause_coop"})
+    lever = ev.setdefault(key, {})["lever"] = stack(host)
+    if lever[-1] != "HostMenu":
+        raise AssertionError(f"open_pause_coop left {lever} (want HostMenu on top)")
+    lw = host.ok({"cmd": "pop_state"}) and host.cmd({"cmd": "list_widgets"})
+    co = ev[key]["coop"] = [w for w in lw.get("widgets", []) if w.get("text") == "CO-OP"
+                            and "TextButton" in str(w.get("type"))]
+    if "PauseState" not in str(lw.get("state")) or len(co) != 1:
+        raise AssertionError(f"list_widgets on {lw.get('state')}: CO-OP buttons {co} (want one on the PauseState)")
+    vis = co[0].get("visible")
+    return vis is want, (f"{'CO-OP shows while an action runs: ' if vis and not want else ''}CO-OP visible {vis} {at} "
+                         f"(want {want}, D238 (a))")
+
+
+def pop_to_battle(host):
+    pops = []
+    while top(host) != "BattlescapeState" and len(pops) < 6:
+        pops.append((top(host), host.cmd({"cmd": "pop_state"}).get("ok")))
+    return pops
+
+
+def order_walk(host):
+    """WALK (spec PINNED SETUP VALUES; its own level, then the one below; a refused line moves on to the next)."""
+    units, tried = bs(host).get("units", []), []
+    occupied = {(u["x"], u["y"], u["z"]) for u in units if not u.get("isOut")}
+    for u in [u for u in units if u.get("faction") == 0 and not u.get("isOut") and (u.get("tu") or 0) >= TU_WALK]:
+        for z, d in [(z, d) for z in (u["z"], u["z"] - 1) if z >= 0 for d in range(8)]:
+            line = [(u["x"] + session.DIR_DX[d] * k, u["y"] + session.DIR_DY[d] * k, z)
+                    for k in range(WALK_FAR, WALK_NEAR - 1, -1)]
+            t = next((t for t in line if session.tile_walkable(host, t, occupied)), None)
+            if t is None:
+                continue
+            r = host.cmd({"cmd": "battle_action", "action": "move", "unit": u["id"], "x": t[0], "y": t[1], "z": t[2]})
+            if r.get("ok"):
+                return {"unit": u["id"], "from": (u["x"], u["y"], u["z"]), "tu": u.get("tu"), "dest": t, "refused": tried}
+            tried.append((u["id"], t, r.get("error")))
+    return {"unit": None, "refused": tried}
+
+
+def row_pg():
+    host = GameClient("host", 0, make_user_dir("mgb_pg_host"))
+    m, ev = (host,), {}
+
+    def boot():
+        host.spawn(), host.connect(), host.ok({"cmd": "open_new_battle"})
+        host.wait_for("NewBattleState", lambda: session.has_state(host, "NewBattleState"), timeout=60)
+        host.ok({"cmd": "set_seed", "seed": SEED}), host.ok({"cmd": "newbattle_ok"})
+        host.wait_for("SP battle", lambda: (session.has_state(host, "BriefingState") or session.has_state(
+            host, "InventoryState") or session.has_state(host, "BattlescapeState")), timeout=180, interval=0.5)
+        if session.has_state(host, "BriefingState"):
+            host.ok({"cmd": "close_briefing"})
+        host.wait_for("equip screen", lambda: session.has_state(host, "InventoryState"), timeout=STEP_S, interval=0.3)
+        session.dismiss_battle_start_overlays(host)
+        ok, secs = wait_until(lambda: top(host) == "BattlescapeState" and bs(host).get("pendingStates") == 0
+                              and bs(host).get("side") == 0, STEP_S)
+        if not ok:
+            missed("PG", f"settle: top BattlescapeState, pendingStates 0, side 0 not reached in {secs} s", m)
+
+    def p2(ev):
+        ev["p2Pops"] = pop_to_battle(host)
+        ev["walk"] = order_walk(host)
+        busy, ev["busyS"] = wait_until(lambda: (bs(host).get("pendingStates") or 0) > 0, BUSY_S, 0.05)
+        ev["pendingAtLever"] = bs(host).get("pendingStates")
+        if ev["walk"]["unit"] is None or not busy:
+            capture("PG walk", f"WALK: no walk reached pendingStates > 0 ({ev['walk']}) (FIXTURE)", m)
+            raise AssertionError("WALK: no walk reached pendingStates > 0 (FIXTURE; see the CAPTURE PG walk line)")
+        return coop_cell(host, ev, "p2", False, f"with pendingStates {ev['pendingAtLever']} at the lever")
+
+    try:
+        try:
+            guarded("PG", boot, m)
+        except Miss:
+            return boot_failed("PG", PG_CELLS, "PG", {"boot": "miss"})
+        ev["settled"] = {"stack": stack(host), "mapFingerprint": bs(host).get("mapFingerprint")}
+        cells = run_cells(PG_CELLS, {"P1": (False, lambda ev: coop_cell(host, ev, "p1", True, "at rest")),
+                                     "P2": (True, p2)}, ev)
+        ev["endPops"] = pop_to_battle(host)
+        return report("PG", PG_CELLS, cells, ev)
+    finally:
+        shut(host)
+
+
+def seed_pair():
+    """The CB1 seed pair; returns (save path, seed record) or raises Miss after ONE CAPTURE line."""
+    host_dir = make_user_dir("mgb_cb1s_host", options={"CoopTurnMode": "traditional"})
+    host, client = GameClient("host", 0, host_dir), GameClient("client", 0, make_user_dir("mgb_cb1s_client"))
+    m, seated = (host, client), {}
+
+    def boot():
+        host.spawn(), client.spawn(), host.connect(), client.connect()
+        SK.skirmish_host(host, KEY), join(host, client, KEY)
+        host.wait_for("BATTLE SETTINGS", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible"), timeout=STEP_S)
+        session.drive_to_battlescape(host, client, seated, seat_count=SEATED,
+                                     pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED}))
+        session.wait_host_idle(host, client, timeout=STEP_S)
+        session.assert_hash_clean(host, client, full=True, what="CB1 seed")
+
+    try:
+        guarded("CB1 seed", boot, m)
+        hb, cb = bs(host), bs(client)
+        units = hb.get("units", [])
+        rec = {"P": ptable(hb), "S1": sorted(u["id"] for u in units if u.get("coop") == 1), "fp": hb.get("mapFingerprint"),
+               "S0": sorted(u["id"] for u in units if u.get("coop") == 0), "A0": es(host).get("coopActiveSeat"),
+               "sideTurn": [[b.get("side"), b.get("turn")] for b in (hb, cb)], "seated": seated.get("soldierIds")}
+        alien = any(u.get("faction") == 1 and not u.get("isOut") for u in units)
+        if rec["sideTurn"] != [[0, 1], [0, 1]] or len(rec["S1"]) != SEATED or not alien or rec["P"] != ptable(cb):
+            missed("CB1 seed", f"seed precondition: {json.dumps(rec, default=str)}; alien alive {alien}; P equal on both "
+                               f"{rec['P'] == ptable(cb)} (want side 0 turn 1 on both, {SEATED} seat-1 units, an alien)", m)
+        guarded("CB1 seed", lambda: host.ok({"cmd": "save_game", "file": SAVE}), m)
+        path = os.path.join(host_dir, "xcom1", SAVE)
+        if not wait_until(lambda: os.path.exists(path), 10, 0.2)[0]:
+            missed("CB1 seed", f"save_game wrote no {path} in 10 s", m)
+        return path, rec
+    finally:
+        shut(host, client)
+
+
+def g8(host, client, ev):
+    s1 = [u.get("soldierId") for u in bs(host).get("units", []) if u.get("coop") == 1 and not u.get("isOut")]
+    host.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    ok, secs = wait_until(lambda: holder(host)[0] == 1 and holder(client)[0] == 1, STEP_S, 0.2)
+    if not ok:
+        return False, f"holder host/client {[holder(host), holder(client)]} {secs} s after END TURN (want 1 on both)"
+    after, tile, run_dir = session.stage_open_ground_actor(host, client, s1, tag="mgb-g8")
+    dest, prev = (tile[0] + session.DIR_DX[run_dir], tile[1] + session.DIR_DY[run_dir], tile[2]), session.walk_action_id(
+        host)
+    ev["g8Walk"] = {"unit": after["id"], "tile": tile, "dir": run_dir, "dest": dest,
+                    "resp": session.send_walk(client, after["id"], dest)}
+    session.wait_walk_settled(host, client, prev, timeout=STEP_S), session.wait_host_idle(host, client, timeout=STEP_S)
+    p = [(lambda u: (u["x"], u["y"], u["z"]))(session.unit_of(gc, after["id"])) for gc in (host, client)]
+    hok, hdetail = hash_cell(host, client, "CB1 G8")
+    ds = [es(host).get("desyncSeen"), es(client).get("desyncSeen")]
+    return (p[0] == p[1] == dest and hok and ds == [False, False],
+            f"holder 1 on both after END TURN ({secs} s); unit {after['id']} host/client {p} (want {dest} on both); "
+            f"{hdetail}; desyncSeen {ds} (want False/False)")
+
+
+def row_cb1():
+    try:
+        save, seed = seed_pair()
+    except Miss:
+        return boot_failed("CB1", CB1_CELLS, "CB1 seed", {"boot": "seed pair miss"})
+    host = GameClient("host", 0, make_user_dir("mgb_cb1r_host", saves=[save], options={"CoopTurnMode": "parallel"}))
+    client = GameClient("client", 0, make_user_dir("mgb_cb1r_client"))
+    ev = {"seed": seed}
+
+    def g1(ev):
+        host.ok({"cmd": "open_pause_coop"})
+        host.wait_for("HostMenu", lambda: session.has_state(host, "HostMenu"), timeout=STEP_S)
+        st, pend = ev["g1"] = stack(host), host.cmd({"cmd": "get_coop"}).get("customBattleResumePending")
+        return (st[-1] == "HostMenu" and "ServerList" not in st and pend is True,
+                f"host stack {st} (want HostMenu on top, no ServerList); customBattleResumePending {pend} (want True)")
+
+    def g2(ev):
+        host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "SavedBattle", "port": KEY, "player": "HostPlayer"})
+        host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"), timeout=STEP_S)
+        ls = (join(host, client, KEY), time.sleep(2), host.cmd({"cmd": "lobby_state"}))[2]
+        r = ev["g2"] = {"host": stack(host), "client": stack(client), "clientInBattle": bs(client).get("inBattle"),
+                        "button": [ls.get("buttonVisible"), ls.get("buttonText")]}
+        return ("LobbyMenu" in r["host"] and "LobbyMenu" in r["client"] and not r["clientInBattle"] and r["button"] == [
+            True, "CONTINUE BATTLE"], f"stacks host {r['host']} client {r['client']} (want LobbyMenu on both); client "
+                f"inBattle {r['clientInBattle']} (want False); host button {r['button']} (want visible CONTINUE BATTLE)")
+
+    def g4(ev):
+        eh, ec = es(host), es(client)
+        r = ev["g4"] = {"phase": [eh.get("phase"), ec.get("phase")], "desync": [eh.get("desyncSeen"), ec.get("desyncSeen")],
+                        "coopSession": client.cmd({"cmd": "get_coop"}).get("coopSession"),
+                        "m2": log_count(host, N_M2), "mgb": log_count(host, N_MGB)}
+        return (r["phase"] == ["Active", "Active"] and r["desync"] == [False, False] and r["coopSession"] is True
+                and r["m2"] == 1 and r["mgb"] == 1,
+                f"phase {r['phase']} (want Active on both); desyncSeen {r['desync']} (want False/False); client coopSession "
+                f"{r['coopSession']} (want True); host log '{N_M2}' {r['m2']}, '{N_MGB}' {r['mgb']} (want 1, 1)")
+
+    def g5(ev):
+        ph, pc, p = ptable(bs(host)), ptable(bs(client)), seed["P"]
+        s1, s0 = sum(1 for v in ph.values() if v[0] == 1), sum(1 for v in ph.values() if v[0] == 0)
+        diff = ev["g5"] = {k: [ph.get(k), pc.get(k), p.get(k)] for k in set(ph) | set(pc) | set(p)
+                           if not ph.get(k) == pc.get(k) == p.get(k)}
+        return (not diff and s1 == len(seed["S1"]) and s0 == len(seed["S0"]),
+                f"units differing host/client/P {diff} (want none); seat-1 / seat-0 {s1} / {s0} (want "
+                f"{len(seed['S1'])} / {len(seed['S0'])})")
+
+    def g6(ev):
+        eh, ec, a0 = es(host), es(client), seed["A0"]
+        r = ev["g6"] = {"turnMode": [eh.get("turnMode"), ec.get("turnMode")], "option": eh.get("optionTurnMode"),
+                        "holder": [holder(host), holder(client)]}
+        return (r["turnMode"] == ["traditional"] * 2 and r["option"] == "parallel" and r["holder"] == [[a0, a0]] * 2,
+                f"turnMode {r['turnMode']} (want traditional on both) with the host option {r['option']} (want parallel); "
+                f"holder [coopActiveSeat, tally.activeSeat] host/client {r['holder']} (want {a0} on both)")
+
+    try:
+        try:
+            load_saved(host, client, SAVE, "CB1 resume")
+        except Miss:
+            return boot_failed("CB1", CB1_CELLS, "CB1 resume", ev)
+        steps = {"G1": (True, g1), "G2": (True, g2),
+                 "G3": (True, lambda ev: continue_battle(host, client, ev, "the client never got the saved battle")),
+                 "G4": (False, g4), "G5": (False, g5), "G6": (False, g6),
+                 "G7": (False, lambda ev: hash_cell(host, client, "CB1 G7")), "G8": (False, lambda ev: g8(host, client, ev))}
+        return report("CB1", CB1_CELLS, run_cells(CB1_CELLS, steps, ev), ev)
+    finally:
+        shut(host, client)
 
 
 def main():
-    host_dir = make_user_dir(
-        "skirm_saved_join_host", options={"EnableCoopParallelTurns": True})
-    host = GameClient("host", 48820, host_dir)
-    client = GameClient(
-        "client", 48821, make_user_dir("skirm_saved_join_client_seed"))
-    fail = None
-
-    try:
-        # Produce the fixture through the real skirmish flow.  Only the host's
-        # local save survives; the joining client below starts with a clean dir.
-        host.spawn()
-        host.connect()
-        client.spawn()
-        client.connect()
-        gamemode = pvp_fixture.start_pvp_skirmish_battle(
-            host, client, PORT, alien_player="host")
-        assert gamemode == 3, f"fixture did not create PvP2 gamemode 3: {gamemode}"
-        host.wait_for("seed host in battle", lambda: in_battle(host), timeout=120)
-        host.wait_for("seed PvP battle initialized",
-                      lambda: battle(host).get("battleInit") or None, timeout=120)
-        host.ok({"cmd": "save_game", "file": SAVE})
-        save_path = os.path.join(host_dir, "xcom1", SAVE)
-        assert os.path.exists(save_path), f"host did not write {save_path}"
-        print(f"PASS fixture: wrote a real custom-battle save ({SAVE})")
-
-        host.shutdown()
-        client.shutdown()
-
-        # Fresh processes are important: no live-session/reconnect flags may
-        # leak from the session that produced the save.
-        host = GameClient("host", 48822, host_dir)
-        client = GameClient(
-            "client", 48823,
-            make_user_dir("skirm_saved_join_client_clean",
-                          options={"EnableCoopParallelTurns": False}))
-        host.spawn()
-        host.connect()
-        client.spawn()
-        client.connect()
-
-        # Use the real load-menu path.  The raw TestServer `load_save` helper
-        # always installs a GeoscapeState after parsing and is therefore invalid
-        # for an `_autobattle_.asav` custom-battle save (it can crash before the
-        # next RPC).  LoadGameState performs the production routing back into
-        # the restored battlescape; the host then uses its real pause-menu COOP
-        # action to open HostMenu.
-        host.ok({"cmd": "load_save_menu", "file": SAVE})
-        host.wait_for("host loaded saved battle", lambda: in_battle(host),
-                      timeout=120, interval=0.5)
-        before = host.ok({"cmd": "get_coop"})
-        assert not before.get("sessionLocked"), (
-            "a freshly loaded custom battle already looks like a live session: "
-            f"{before}")
-
-        host.ok({"cmd": "open_pause_coop"})
-        host.wait_for("loaded battle opened HostMenu",
-                      lambda: session.has_state(host, "HostMenu"), timeout=30)
-        assert not session.has_state(host, "ServerList"), (
-            "loaded Custom Battle COOP opened the server browser instead of "
-            f"HostMenu: {session.states(host)}")
-        assert host.ok({"cmd": "get_coop"}).get("customBattleResumePending"), (
-            "loaded Custom Battle did not arm its lobby-gated resume flow")
-
-        host.ok({"cmd": "host_menu_host", "visibility": 0,
-                 "server": "SavedBattle", "port": PORT,
-                 "player": "HostPlayer"})
-        host.wait_for("host entered continue-battle lobby",
-                      lambda: session.has_state(host, "LobbyMenu"), timeout=30)
-
-        skirmish_flow.skirmish_client_at_browser(client)
-        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": PORT,
-                   "player": "ClientPlayer"})
-
-        # Campaign-style gate: joining alone must put both players in the lobby.
-        # In particular it must not trigger Downloading map or adopt the battle.
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} join popup",
-                        lambda gc=gc: session.has_state(gc, "Profile"), timeout=60)
-            assert session.has_state(gc, "LobbyMenu"), (
-                f"{tag} did not wait in LobbyMenu: {session.states(gc)}")
-            gc.ok({"cmd": "profile_ok"})
-
-        time.sleep(2)
-        assert not in_battle(client), (
-            "client downloaded the saved map before the host pressed CONTINUE BATTLE")
-        action = host.ok({"cmd": "lobby_state"})
-        assert action.get("buttonVisible") and action.get("buttonText") == "CONTINUE BATTLE", (
-            f"host lobby did not offer CONTINUE BATTLE: {action}")
-        assert not client.ok({"cmd": "coop_dialog_info"}).get("present"), (
-            "client opened a download/hold dialog while it should still be in lobby")
-        print("PASS gate: HostMenu -> both in lobby; no map transfer before CONTINUE BATTLE")
-
-        host.ok({"cmd": "lobby_action"})
-        host.wait_for("host returned to loaded battle",
-                      lambda: (not session.has_state(host, "LobbyMenu")
-                               and not session.has_state(host, "PauseState")) or None,
-                      timeout=30)
-        assert session.has_state(host, "BattlescapeState"), (
-            f"host did not return to its loaded battle: {session.states(host)}")
-
-        # CONTINUE BATTLE is the sole map-transfer trigger.
-        client.wait_for("client downloaded the saved battle",
-                        lambda: in_battle(client), timeout=240, interval=0.5)
-        time.sleep(2)
-
-        dialog = client.ok({"cmd": "coop_dialog_info"})
-        assert not (dialog.get("present")
-                    and dialog.get("code") == CLIENT_RESUME_HOLD), (
-            "client reached the saved custom battle but was stranded on "
-            f"Waiting for host to resume: {dialog}; "
-            f"stack={session.states(client)}")
-        assert not session.has_state(client, "LobbyMenu"), (
-            "the saved battle was routed back through the pre-battle lobby: "
-            f"{session.states(client)}")
-        assert not session.has_state(client, "BriefingState"), (
-            "the saved battle incorrectly entered the new-mission briefing path: "
-            f"{session.states(client)}")
-        client_coop = client.ok({"cmd": "get_coop"})
-        assert client_coop.get("onConnect", 0) > 0 and client_coop.get("coopSession"), (
-            "client escaped the hold without a live multiplayer session: "
-            f"{client_coop}")
-
-        # Match campaign PvP battle resume: preserve gamemode 3 and its opposing
-        # turns. Parallel Turns is intentionally inactive in PvP even though the
-        # host option is enabled in this fixture.
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(
-                f"{tag} PvP battle initialized",
-                lambda gc=gc: (lambda b: b if (b.get("battleInit")
-                                                and b.get("coopGamemode") == 3)
-                               else None)(battle(gc)),
-                timeout=120, interval=0.5)
-
-        hb, cb = battle(host), battle(client)
-        assert not hb.get("parallelActive") and not cb.get("parallelActive"), (
-            f"PvP incorrectly entered Parallel Turns: host={hb}, client={cb}")
-        assert hb.get("coopTurn") == 1 and cb.get("coopTurn") == 2, (
-            "gamemode 3 must resume with client=XCOM on YOUR TURN and the alien "
-            f"host waiting: host={hb}, client={cb}")
-        assert hb.get("activeSync") is False and cb.get("activeSync") is True, (
-            f"PvP executor/turn ownership is wrong: host={hb}, client={cb}")
-        hp = host.ok({"cmd": "parallel_state"})
-        cp = client.ok({"cmd": "parallel_state"})
-        assert not hp.get("readySeats") and not hp.get("autoSeats"), (
-            f"PvP host displayed a Parallel END TURN tally: {hp}")
-        assert not cp.get("readySeats"), (
-            f"PvP client retained Parallel END TURN readiness: {cp}")
-
-        # Complete the exact reported PvP2 round: client XCOM ends, host Alien
-        # ends, then the Next Turn screen closes. Both seats are alive, so the
-        # battle must return to the client's XCOM turn instead of Debriefing.
-        end_turn(client)
-        host.wait_for("alien host received turn",
-                      lambda: selectable(host) or None, timeout=30)
-        end_turn(host)
-
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(
-                f"saved PvP2 {tag} neutral turn screen",
-                lambda gc=gc: (session.states(gc)[-1].endswith("NextTurnState")
-                               and battle(gc).get("side") == 2) or None,
-                timeout=30, interval=0.2)
-
-        # First click starts/runs NEUTRAL.  The client advances to PLAYER
-        # without retaining a second popup; the host displays PLAYER and needs
-        # the normal second click before control is released.
-        host.ok({"cmd": "dismiss_popup"})
-        host.wait_for(
-            "saved PvP2 host player turn screen",
-            lambda: (session.states(host)[-1].endswith("NextTurnState")
-                     and battle(host).get("side") == 0) or None,
-            timeout=30, interval=0.2)
-        client.wait_for(
-            "saved PvP2 client advanced to player side",
-            lambda: (not session.states(client)[-1].endswith("NextTurnState")
-                     and battle(client).get("side") == 0) or None,
-            timeout=30, interval=0.2)
-        host.ok({"cmd": "dismiss_popup"})
-        client.wait_for("saved PvP2 client XCOM control returned",
-                        lambda: selectable(client) or None,
-                        timeout=30, interval=0.2)
-
-        hb, cb = battle(host), battle(client)
-        assert hb.get("inBattle") and cb.get("inBattle"), (
-            "saved PvP2 battle falsely ended after the first complete round: "
-            f"host={hb}, client={cb}")
-        assert hb.get("pvpWin", 0) == 0 and cb.get("pvpWin", 0) == 0, (
-            f"saved PvP2 battle produced a false winner: host={hb}, client={cb}")
-        assert selectable(client) and not selectable(host), (
-            "saved PvP2 battle did not return control to client XCOM after the "
-            f"alien turn: host={hb}, client={cb}")
-
-        print("PASS regression: client downloaded the hosted custom-battle save "
-              "with gamemode 3, completed XCOM+alien turns, and battle continued")
-    except Exception as exc:
-        fail = exc
-        print(f"[FAIL] {exc}")
-        for tag, gc in (("host", host), ("client", client)):
-            try:
-                print(f"  {tag} stack: {session.states(gc)}")
-                print(f"  {tag} coop:  {gc.cmd({'cmd': 'get_coop'})}")
-            except Exception as debug_exc:
-                print(f"  {tag} debug failed: {debug_exc}")
-    finally:
-        host.shutdown()
-        client.shutdown()
-
-    if fail:
-        raise SystemExit(2)
-    print("ALL SAVED CUSTOM-BATTLE JOIN TESTS PASSED")
+    t0 = time.time()
+    fails = row_pg() + row_cb1()
+    print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
+    print(f"test_skirmish_saved_battle_join: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
+    sys.exit(0 if not fails else 2)
 
 
 if __name__ == "__main__":
