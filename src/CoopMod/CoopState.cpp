@@ -1406,6 +1406,15 @@ void CoopState::previous(Action *)
 		_game->getCoopMod()->writePendingHostSave();
 		_game->popState();
 	}
+	// coop W2-H56 (docs rewrite/prompts/w2h56_client_dialog_ok_crash.md (e) F1; F18240-F18250, F18320-F18339): the constructors of
+	// 440 / 444 / 16 / 1000 / 3000 run disconnectTCP() and then pop the state under them. On a client that holds a campaign world,
+	// disconnectTCP() has already replaced the whole stack with GoToMainMenuState (issue #82), so that pop removed it and the dialog
+	// became the only state. Popping it here emptied the stack and Game::run crashed reading it. The only state leaves through
+	// GoToMainMenuState instead, as 979 and 21 do; every other dialog pops exactly as before.
+	else if (_game->getStates().size() == 1 && _game->getStates().back() == this)
+	{
+		_game->setState(new GoToMainMenuState(false));
+	}
 	else
 	{
 		_game->popState();
