@@ -41509,6 +41509,41 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			double lon = std::stod(s_lon);
 			double lan = std::stod(s_lan);
 
+			// coop W2-H57 (docs rewrite/prompts/w2h57_client_base_mirror_dup.md (e) E1; F18280-F18292, F18380-F18399): after a
+			// resume the host's baseRequest is answered with "coopBase3" before the partner's once-per-connection "coopBase"
+			// arrives, so "coopBase3" built this mirror and this handler added a second copy of the partner's base. A base
+			// already mirrored here (same id and position) is refreshed in place, as "coopBase2" and "coopBase3" do.
+			// Check that the base does not already exist
+			bool alreadyExists = false;
+			for (Base* existingBase : *_game->getSavedGame()->getBases())
+			{
+				if (existingBase->_coop_base_id == coopbaseid &&
+					(existingBase->getLongitude() == lon && existingBase->getLatitude() == lan))
+				{
+
+					existingBase->setEngineers(getAvailableEngineers);
+					existingBase->coop_hangar = getAvailableHangars;
+					existingBase->coop_laboratory = getAvailableLaboratories;
+					existingBase->coop_quarters = getAvailableQuarters;
+					existingBase->coop_soldiers = getAvailableSoldiers;
+					existingBase->coop_stores = getAvailableStores;
+					existingBase->coop_training = getAvailableTraining;
+					existingBase->coop_workshop = getAvailableWorkshops;
+					existingBase->setScientists(getAvailableScientists);
+
+					// new !!!
+					existingBase->_facilitiesCoop = marker["facilities"];
+					double radar_range_coop = marker["radar_range_coop"].asDouble();
+					existingBase->_radar_range_coop = radar_range_coop;
+
+					alreadyExists = true;
+					break;
+				}
+			}
+
+			if (alreadyExists)
+				continue;
+
 			Base* CoopBase = new Base(_game->getMod());
 
 			CoopBase->setEngineers(getAvailableEngineers);
@@ -41651,6 +41686,40 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		double lon = std::stod(s_lon);
 		double lan = std::stod(s_lan);
+
+		// coop W2-H57 (docs rewrite/prompts/w2h57_client_base_mirror_dup.md (e) E2; F18380-F18399): a new base that
+		// "coopBase" / "coopBase2" / "coopBase3" already mirrored here (the partner's base list was sent while the base
+		// was being named or its lift placed) got a second copy. A base already mirrored (same id and position) keeps its
+		// one copy: the counts are refreshed in place (new_base carries no facilities, so _facilitiesCoop and
+		// _radar_range_coop stay) and the marker list grows as before.
+		// Check that the base does not already exist
+		for (Base* existingBase : *_game->getSavedGame()->getBases())
+		{
+			if (existingBase->_coop_base_id == coopbaseid &&
+				(existingBase->getLongitude() == lon && existingBase->getLatitude() == lan))
+			{
+
+				existingBase->setEngineers(getAvailableEngineers);
+				existingBase->coop_hangar = getAvailableHangars;
+				existingBase->coop_laboratory = getAvailableLaboratories;
+				existingBase->coop_quarters = getAvailableQuarters;
+				existingBase->coop_soldiers = getAvailableSoldiers;
+				existingBase->coop_stores = getAvailableStores;
+				existingBase->coop_training = getAvailableTraining;
+				existingBase->coop_workshop = getAvailableWorkshops;
+				existingBase->setScientists(getAvailableScientists);
+
+				// add to the list
+				Json::Value m_markers;
+				Json::Reader reader;
+				reader.parse(j_markers, m_markers);
+
+				m_markers.append(obj["markers"]);
+
+				j_markers = m_markers.toStyledString();
+				return;
+			}
+		}
 
 		Base* CoopBase = new Base(_game->getMod());
 
