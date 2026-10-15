@@ -12464,6 +12464,19 @@ std::string TestServer::execute(const std::string& line)
 						}
 						jc["destKind"] = destKind;
 						jc["destId"] = destId;
+						// W2-H51 (TEST-ONLY, pure reads; docs rewrite/prompts/w2h51_craft_peer_craft_target.md T1): the destination craft's
+						// identity, so a row tells a partner's craft mirror from the player's own craft of the same type and id
+						if (auto* dc = dynamic_cast<Craft*>(c->getDestination()))
+						{
+							Json::Value jd;
+							jd["type"] = dc->getRules()->getType();
+							jd["id"] = dc->getId();
+							jd["coop"] = dc->coop;
+							jd["self"] = (dc == c);
+							jd["coopBaseId"] = dc->getBase() ? dc->getBase()->_coop_base_id : -1;
+							jd["coopIcon"] = dc->getBase() ? dc->getBase()->_coopIcon : false;
+							jc["destCraft"] = jd;
+						}
 						// the exact string the geoscape UI would show (shared code
 						// path -> host and client must match)
 						jc["displayStatus"] = c->getDisplayStatus(_game->getLanguage());
