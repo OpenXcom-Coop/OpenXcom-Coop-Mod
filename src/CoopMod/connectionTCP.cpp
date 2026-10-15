@@ -30183,9 +30183,12 @@ static void coopUnwindFailedStart(Game* game, const char* why)
 	// coop MG-A-FS2 (owner D282 (b)): a part 2 whose partner was lost during its offer WAITS instead - no unwind: the host keeps
 	// its screens and the part-2 battle (part 1's results in it), the authority and the offer are dropped, and
 	// coopRearmParkedStage() offers part 2 again once the partner is back and RESUME is pressed. A refused or mismatched part 2
-	// (bug-only, D262 (b)) and a gm3 borrowed one take the shared unwind below (D265 (a); QA-4).
+	// (bug-only, D262 (b)) takes the shared unwind below (D265 (a)). coop FS2-G3 (QA-4 (b), VL-FS2A-4; docs
+	// rewrite/prompts/fs2g3_gm3_part2_rearm.md): a gm3 PvP part 2 waits too - the alien host keeps the borrowed X-COM world (the
+	// swap back below never runs for it), part 1's results stay in it, and the re-arm offers part 2 from it to the rejoined X-COM
+	// player (D250-U S-C5b2's request re-arm would borrow again the world the player pushed before part 1: part 1 lost).
 	const std::string reason(why);
-	if (g_coopStageArm != 0 && (reason == "partner dropped" || reason == "partner lost") && !connectionTCP::coopPvpParkedWorld())
+	if (g_coopStageArm != 0 && (reason == "partner dropped" || reason == "partner lost"))
 	{
 		g_coopStageParked = g_coopStageArm;
 		g_coopStageArm = 0;
@@ -43625,7 +43628,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// coop D250-U S-C3 (L-H37-1, QH37-2 (a); F14685): while the gm3 alien host runs a battle in the X-COM player's borrowed world, a
 		// drop clears nothing there: the battle's target (its mirror) and the craft on it stay for the rejoin, and the alien host's own
 		// world keeps its marks of that player until the player's first position snapshot after the battle. A failed borrowed start
-		// goes home first (coopUnwindFailedStart); the drop then clears the alien host's own world as every campaign drop does.
+		// goes home first (coopUnwindFailedStart); the drop then clears the alien host's own world as every campaign drop does. A
+		// part 2 waiting for that player keeps the borrow as a battle does (coop FS2-G3: coopUnwindFailedStart parks it, no swap back).
 		const bool coopPvpBorrowedAtDrop = teardownAsHost && coopPvpParkedWorld() != nullptr;
 		if (!coopPvpBorrowedAtDrop)
 			deleteAllCoopBases();
