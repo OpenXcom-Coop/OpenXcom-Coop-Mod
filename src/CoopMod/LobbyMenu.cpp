@@ -1063,9 +1063,8 @@ void LobbyMenu::continueCustomBattle()
 
 	connectionTCP::session.campaignStarted();
 
-	Json::Value start;
-	start["state"] = "custom_battle_continue";
-	_game->getCoopMod()->sendTCPPacketData(start.toStyledString());
+	// coop MG-B (owner D225 (a); Q5 (a), V2): no `custom_battle_continue` send - the rewrite's client has no receiver for it; the
+	// client leaves its lobby when the battle offer that follows loads (coopUnwindToSafeState), as at a fresh battle start.
 
 	closeLobby();
 	connectionTCP::session.finishCustomBattleResume();
@@ -1400,9 +1399,11 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 		// Resume lobbies: the gamemode was read from the loaded save
 		// and must not be recalculated from team flags (which both
 		// default to false → PVE=1).  Preserve it for mode-2 lobbies.
-		if (connectionTCP::session.lobbyMode == 2
+		// coop MG-B (V3, F5111): a CONTINUE BATTLE lobby (main #181) keeps the saved battle's mode too; seat 1's side comes from it.
+		if ((connectionTCP::session.lobbyMode == 2
 			&& _game->getSavedGame()
 			&& _game->getSavedGame()->isCoopSave())
+			|| connectionTCP::session.customBattleResumePending)
 		{
 			// _coopGamemode was already set from the save file.
 		}
