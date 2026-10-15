@@ -21396,6 +21396,15 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			{
 				if (!bu->isIgnored() && (int)bu->getFaction() == newSide)
 					bu->allowReselect();
+				// W2-H50 (docs rewrite/prompts/w2h50_client_spotted_reset.md (e) E1; L-H47-1, F17620-F17633, F17760-F17774):
+				// vanilla's third reset of the same units (BattleUnit::prepareNewTurn, _unitsSpottedThisTurn.clear()). This
+				// machine only ever added to the list, so a unit kept "knowing" an enemy it spotted in an earlier turn, and an
+				// alien's path preview (Pathfinding::isBlocked, a hostile mover's known-unit test) detoured around a soldier the
+				// host's alien no longer knows. The selected unit's list is refilled from its own sight when the turn screen
+				// closes (BattlescapeState::init -> updateSoldierInfo), as the host refills every list after its own clear.
+				// In no hash bucket and no serializer; nothing on the wire, no message.
+				if (!bu->isIgnored() && (int)bu->getFaction() == newSide)
+					bu->getUnitsSpottedThisTurn().clear();
 			}
 		}
 
