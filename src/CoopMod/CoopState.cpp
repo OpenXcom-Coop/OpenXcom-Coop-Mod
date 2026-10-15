@@ -1415,6 +1415,15 @@ void CoopState::previous(Action *)
  */
 void CoopState::btnSaveQuitClick(Action *)
 {
+	// coop W2-H53 (L-H49-2; R-H53-0 = O1, R-H49-0, aud-E1-05; F17868): a named ironman campaign has one file. Save to it and leave, as
+	// vanilla's SAVE AND ABANDON GAME does (no list: a typed name would start a second file). The world is the save's owner (the alien
+	// host's own while it borrows the X-COM player's world, W2-H49). An unnamed world (the campaign-start waits) keeps the list.
+	SavedGame* owner = connectionTCP::coopPvpSaveOwner(_game->getSavedGame());
+	if (owner && owner->isIronman() && !owner->getName().empty())
+	{
+		_game->pushState(new SaveGameState(_origin, SAVE_IRONMAN_END, _palette, 0, true));
+		return;
+	}
 	_game->pushState(new ListSaveState(_origin, true));
 }
 

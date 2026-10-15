@@ -1440,7 +1440,14 @@ void GeoscapeState::init()
 	_globe->draw();
 
 	// Pop up save screen if it's a new ironman game
-	if (_game->getSavedGame()->isIronman() && _game->getSavedGame()->getName().empty())
+	// coop W2-H53 (L-H49-1; R-H53-0 = O1, aud-E1-05; F17864, F17865): only a machine that may save is asked (a co-op client never
+	// saves), and the init that raises the SHARED start hold below queues none: the hold's own close inits again and queues it, so a
+	// SHARED host is asked twice, as solo and every other co-op host.
+	const bool coopSharedStartHoldInit = _game->getSavedGame()->getMonthsPassed() == -1 && !_game->getSavedGame()->getBases()->empty()
+		&& !_game->getSavedGame()->getBases()->front()->getName().empty() && _game->getCoopMod()->isSharedCampaign()
+		&& _game->getCoopMod()->getServerOwner() && connectionTCP::session.lobbyMode == 1;
+	if (_game->getSavedGame()->isIronman() && _game->getSavedGame()->getName().empty()
+		&& _game->getCoopMod()->localSavesAllowed() && !coopSharedStartHoldInit)
 	{
 		popup(new ListSaveState(OPT_GEOSCAPE));
 	}
