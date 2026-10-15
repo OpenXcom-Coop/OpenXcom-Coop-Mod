@@ -203,6 +203,23 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		_game->getCoopMod()->setCoopCampaign(false);
 	}
 
+	// coop MG-B (owner D238 (a)): a loaded single-player Custom Battle's CO-OP (btnCoopClick's first branch, main #181) shows only
+	// when vanilla would show Save: never during the enemy turn or while an action is still running (the guard above).
+	if (_origin == OPT_BATTLESCAPE
+		&& _game->getSavedGame()->getSavedBattle()
+		&& _game->getCoopMod()->getCoopCampaign() == false
+		&& _game->getCoopMod()->getServerOwner() == false
+		&& _game->getCoopMod()->isConnected() != 1)
+	{
+		const bool coopPlayerTurn = _game->getSavedGame()->getSavedBattle()->getSide() == FACTION_PLAYER;
+		const bool coopDebugMode = _game->getSavedGame()->getSavedBattle()->getDebugMode();
+		const bool coopBusy = !_game->getSavedGame()->getSavedBattle()->getBattleGame()->getStates().empty();
+		if ((!coopPlayerTurn && !coopDebugMode) || coopBusy)
+		{
+			_btnCoop->setVisible(false);
+		}
+	}
+
 }
 
 /**

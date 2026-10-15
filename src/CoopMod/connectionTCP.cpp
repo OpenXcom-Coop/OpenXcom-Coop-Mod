@@ -31333,7 +31333,10 @@ void offerResumedBattle(Game* game)
 	// moment (a fresh skirmish/campaign entry never sets it). A fresh join
 	// still goes through offerBattle()/prepareBattleOffer(); a live pause
 	// uses offerRejoinBattle() instead (phase==Active there, never Idle).
-	if (coopBattleAuthority().phase != CoopBattlePhase::Idle || connectionTCP::session.lobbyMode != 2)
+	// coop MG-B (owner D225 (a); Q3 (a), F5100): CONTINUE BATTLE on a loaded co-op Custom Battle (main #181's
+	// LobbyMenu::continueCustomBattle, lobbyMode 0) is a disk resume too: beginCustomBattleResumeLoad() marks it.
+	if (coopBattleAuthority().phase != CoopBattlePhase::Idle
+		|| (connectionTCP::session.lobbyMode != 2 && !connectionTCP::session.customBattleResumeLoading))
 	{
 		Log(LOG_WARNING) << "[coop-handshake] offerResumedBattle() called outside a disk resume (phase="
 			<< static_cast<int>(coopBattleAuthority().phase.load()) << ", lobbyMode="
@@ -32465,6 +32468,17 @@ void onReady(Game* game, const Json::Value& ready)
 			Log(LOG_INFO) << "[coop-fatal-vote] host: rejoin - vote open re-sent (seq " << seq << "), " << dropped
 				<< " answer(s) of the returning seat dropped (D223 b)";
 		}
+	}
+
+	// coop MG-B (owner D225 (a); Q4 (a), V1): a CONTINUE BATTLE resume has no host RESUME press (as main #181). The host's wait
+	// dialog (LobbyMenu::continueCustomBattle pushed it) closes here, so the second player's resume_ack, queued right behind its
+	// battle_ready, finds no host wait dialog and releases the player's hold (campaign_begun); the loading flag ends here.
+	if (fromDisk && connectionTCP::session.customBattleResumeLoading)
+	{
+		CoopState* waitDialog = game->getStates().empty() ? nullptr : dynamic_cast<CoopState*>(game->getStates().back());
+		if (waitDialog && waitDialog->getStateCode() == COOP_DLG_WAIT_PLAYERS)
+			game->popState();
+		connectionTCP::session.completeCustomBattleResumeLoad();
 	}
 
 	Log(LOG_INFO) << "[coop-handshake] HOST phase Active (battleId=" << battleId
@@ -42785,6 +42799,16 @@ void connectionTCP::streamSkirmishBattleToClient()
 
 	// the host owns the save (see sendMissionFile)
 	connectionTCP::coop_save_owner_player_id = 0;
+
+	// coop MG-B (owner D225 (a); Q3 (a)): CONTINUE BATTLE streams a battle loaded off disk with nothing offered yet (phase Idle):
+	// SPEC 18's disk-resume offer, not the in-memory rejoin below (that one needs a live paused battle, phase Active).
+	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Idle && connectionTCP::session.customBattleResumeLoading)
+	{
+		CoopHandshake::offerResumedBattle(_game);
+		Log(LOG_INFO) << "[coop] MG-B: CONTINUE BATTLE offers the loaded Custom Battle to "
+			<< _game->getCoopMod()->getCurrentClientName() << " (disk-resume offer)";
+		return;
+	}
 
 	CoopHandshake::offerRejoinBattle(_game);
 
