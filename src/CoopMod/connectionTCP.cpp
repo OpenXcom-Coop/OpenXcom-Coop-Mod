@@ -9129,6 +9129,31 @@ static void coopClientPairSelection(SavedBattleGame* save)
 	bg->setupCursor();
 }
 
+// W2-H43 (docs rewrite/prompts/w2h43_gift_actor_pairing.md (e) E1; L-H40-2, F16920-F16932, F16941-F16943): HOST - the
+// same pairing for coopGiftPump's two selection steps (the giver's next unit, the receiver's first unit). The pump writes
+// the host's selection with SavedBattleGame calls and the client helper above returns on the host, so the host's action
+// actor stayed on the unit it gave away: the hand keys opened the action menu for that soldier, an open aim stayed open,
+// and the shot click was refused silently (coopInterceptFireConfirm: not this seat's unit). Vanilla's three calls
+// (BattlescapeState::selectNextPlayerUnit, the Tab key): cancelAllActions() (an open aim ends), the actor = the new
+// selection (null included), setupCursor(). Only on this seat's own active side, where a Tab could make the same change;
+// otherwise BattlescapeGame::endTurn's setupCursor() pairs it at the next own side start. No FOV (the caller's
+// updateSoldierInfo(false), WV-D10) and no camera move (as the client's pairing). Host-local UI state only: no hashed
+// field, nothing on the wire. A no-op on a client, in single player, outside an active co-op battle and with no live
+// battlescape.
+static void coopHostPairSelection(SavedBattleGame* save)
+{
+	if (!save || !isCoopBattle() || !coopBattleAuthority().hostSim || !coopBattleAuthority().mySideActive(save))
+		return;
+	if (!connectionTCP::isBattlescapeStateLive(save->getBattleState()))
+		return;
+	BattlescapeGame* bg = save->getBattleGame();
+	if (!bg)
+		return;
+	bg->cancelAllActions();
+	bg->getCurrentAction()->actor = save->getSelectedUnit();
+	bg->setupCursor();
+}
+
 // W2-H6 H6-4 (spec (b)5, F1206): CLIENT - vanilla popState()'s "the currently
 // selected unit died or became unconscious" block (BattlescapeGame.cpp, the
 // `_save->getSelectedUnit()->isOut()` test before `_parentState->
@@ -33823,6 +33848,7 @@ void coopGiftPump(Game* game)
 			if (save->getSelectedUnit() == unit)
 				save->setSelectedUnit(nullptr);
 			coopClientPairSelection(save); // a no-op on the host
+			coopHostPairSelection(save); // W2-H43 (E2): the host's pairing (a no-op on a client)
 			if (live)
 				bs->updateSoldierInfo(false);
 		}
@@ -33835,6 +33861,7 @@ void coopGiftPump(Game* game)
 			{
 				save->setSelectedUnit(unit);
 				coopClientPairSelection(save);
+				coopHostPairSelection(save); // W2-H43 (E3): the host's pairing (a no-op on a client)
 				if (live)
 					bs->updateSoldierInfo(false);
 			}
