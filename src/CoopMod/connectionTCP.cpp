@@ -807,6 +807,9 @@ void CoopSession::onClientDrop()
 	resumeBattleEligible.clear();
 	campaignBegun = false;
 	pendingHostSaveName.clear();
+	// coop W2-H58 S-B (docs rewrite/prompts/w2h58_sb_rx_buffer.md (e) EB1; F18424-F18428, F18486-F18487): the inbound blob buffer can
+	// hold the dropped partner's half-sent upload; the rejoined partner's next upload would be appended to it and never parse.
+	mapData.clear();
 	// role/lobbyMode/sessionLocked/lobbyClosed survive: the campaign context
 	// outlives a peer drop (D5) - the freeze dialog or waiting lobby takes
 	// over. The legacy new-battle lobby (mode 0) instead restarts its ready
