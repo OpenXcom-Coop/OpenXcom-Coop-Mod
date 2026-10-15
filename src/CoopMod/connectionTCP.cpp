@@ -35498,7 +35498,7 @@ void connectionTCP::updateCoopTask()
 				_game->pushState(new SaveGameState(
 					static_cast<OptionsOrigin>(g_coopDeferredBattleSave.origin),
 					static_cast<SaveType>(g_coopDeferredBattleSave.saveType),
-					deferredBs->getPalette()));
+					deferredBs->getPalette(), 0, g_coopDeferredBattleSave.quitAfterSave)); // coop W2-H53: a quitting ironman save keeps its quit
 			}
 			else
 			{

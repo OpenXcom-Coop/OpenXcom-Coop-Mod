@@ -57,7 +57,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, const std::string &filename, 
  * @param type Type of auto-save being used.
  * @param palette Parent state palette.
  */
-SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(false)
+SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn, bool quitAfterSave) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(quitAfterSave) // coop W2-H53
 {
 	switch (type)
 	{
@@ -299,7 +299,9 @@ void SaveGameState::think()
 				throw Exception("Save backed up in " + backup);
 			}
 
-			if (_type == SAVE_IRONMAN_END)
+			// coop W2-H53 (QH53-3 (a)): a co-op ironman save that quits (a wait dialog's SAVE & QUIT, the borrowed battle's SAVE AND
+			// ABANDON) leaves through quitToMainMenu below, the session's own teardown, as issue #81's SAVE & QUIT does.
+			if (_type == SAVE_IRONMAN_END && !_quitAfterSave)
 			{
 				// issue #82: the rescale and the world teardown both live in
 				// GoToMainMenuState::init, which runs after the popped states are freed.
