@@ -372,20 +372,59 @@ void HostMenu::init()
 
 void HostMenu::convertUnits()
 {
-	// R1-P5/R4-REWIRE: legacy per-machine conversion of an already-in-progress
-	// SavedBattleGame into coop/PvP/PvE2 (BattleUnit::setCoop/setOriginalFaction,
-	// BattlescapeState::setCurrentTurn) died with the vanilla restore (911ca487f) -
-	// those coop-only battle-sim symbols no longer exist on vanilla BattleUnit/
-	// BattlescapeState. Mid-battle coop convert-and-host is quarantined pending the
-	// r4/r5 atomic-bundle rebuild (RB-D9). Every branch this used to run only ever
-	// fired when a battle was already in progress (see the getSavedBattle() guards
-	// below), so tell the player and bail instead of mutating a battle nothing can
-	// finish setting up. Identical stub to DirectConnect::convertUnits() (same
-	// dead-code shape on both call paths).
-	if (_game->getSavedGame()->getSavedBattle())
+	// coop MG-B S-B (owner D237 (b), D245 (a), D237-V1, D235 (a); V5; QMB2-3 (a)): a single-player Custom Battle hosted from the
+	// pause menu becomes a classic co-op battle before the lobby opens (the R1-P5 stub's silent refusal is gone, F5296). Soldiers
+	// split in unit-list order (v2.0.6's order): the second player (seat 1) takes the first floor(N/2), the host (seat 0) the rest -
+	// the extra one of an odd squad, a 1-soldier squad included. Every other original-PLAYER unit (a tank) is the host's; every
+	// other unit has no seat. Each soldier's owner follows its seat (as NewBattleState seats a fresh co-op battle). The battle
+	// plays in the host window's TURNS mode and the traditional baton opens at the first live seat (D-23); offerResumedBattle()
+	// rebuilds the seat->faction store from these tags.
+	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+	if (!battle)
 	{
-		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
+		return;
 	}
+	int soldiers = 0;
+	for (auto* unit : *battle->getUnits())
+	{
+		if (unit && unit->getOriginalFaction() == FACTION_PLAYER && unit->getGeoscapeSoldier())
+			++soldiers;
+	}
+	int toClient = soldiers / 2;
+	int seat0 = 0, seat1 = 0, others = 0, unseated = 0;
+	for (auto* unit : *battle->getUnits())
+	{
+		if (!unit)
+			continue;
+		if (unit->getOriginalFaction() != FACTION_PLAYER)
+		{
+			unit->setCoopSeat(COOP_SEAT_NONE);
+			++unseated;
+			continue;
+		}
+		Soldier* soldier = unit->getGeoscapeSoldier();
+		CoopSeat seat = COOP_SEAT_0;
+		if (soldier && toClient > 0)
+		{
+			seat = COOP_SEAT_1;
+			--toClient;
+		}
+		unit->setCoopSeat(seat);
+		if (soldier)
+			soldier->setCoop((int)seat);
+		if (seat == COOP_SEAT_1)
+			++seat1;
+		else if (soldier)
+			++seat0;
+		else
+			++others;
+	}
+	connectionTCP::_coopGamemode = 1;
+	coopBattleAuthority().turnMode = coopSessionTurnModeFromOptions();
+	coopBattleAuthority().activeSeat = -1;
+	Log(LOG_INFO) << "[coop] MG-B: the single-player Custom Battle is now co-op: " << soldiers << " soldier(s), seat 1: "
+		<< seat1 << ", seat 0: " << seat0 << " + " << others << " other unit(s), " << unseated << " unit(s) unseated, turn mode "
+		<< coopTurnModeName(coopBattleAuthority().turnMode.load());
 }
 
 void HostMenu::btnChatClick(Action* action)
@@ -585,8 +624,11 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
+	// coop MG-B S-B (owner D237 (b); QMB2-2 (a)): only a single-player Custom Battle hosted from the pause menu (main #181's
+	// CONTINUE BATTLE route, customBattleResumePending) converts, and only when no unit carries seat 1 yet (the scan above); a
+	// campaign never does, and every other host keeps its battle as it is.
 	if (_game->getCoopMod()->getCoopCampaign() == true
-		|| connectionTCP::session.customBattleResumePending)
+		|| !connectionTCP::session.customBattleResumePending)
 	{
 		convert = false;
 	}
