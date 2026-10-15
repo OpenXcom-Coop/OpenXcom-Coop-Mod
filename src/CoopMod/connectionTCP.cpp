@@ -34989,6 +34989,40 @@ static void coopSpectatorWatch(Game* game)
 	s_had = live;
 }
 
+// ----- coop W2-H60 (docs rewrite/prompts/w2h60_rx_throw_drop.md P1; TEST-ONLY throw_next_rx, either machine, main thread): the
+// next message the receive loop hands to its handler (of the state named or any; with backHidden only under a back-hidden co-op
+// dialog while the session is up) is marked and throws in the loop's try on every attempt. Inert unless armed; never game logic.
+static bool g_coopTestThrowNextRxArmed = false;
+static bool g_coopTestThrowNextRxBackHidden = false;
+static bool g_coopTestThrowNextRxUsed = false;
+static std::string g_coopTestThrowNextRxState;
+
+void coopTestThrowNextRxArm(const std::string& state, bool backHidden)
+{
+	g_coopTestThrowNextRxState = state;
+	g_coopTestThrowNextRxBackHidden = backHidden;
+	g_coopTestThrowNextRxArmed = true;
+}
+
+static void coopTestThrowNextRxCheck(Game* game, const std::string& state, Json::Value& obj, std::string& jsonStr)
+{
+	if (g_coopTestThrowNextRxArmed && (g_coopTestThrowNextRxState.empty() || state == g_coopTestThrowNextRxState))
+	{
+		CoopState* top = game->getStates().empty() ? nullptr : dynamic_cast<CoopState*>(game->getStates().back());
+		if (!g_coopTestThrowNextRxBackHidden || (top && !top->isBackVisible() && coopSession))
+		{
+			g_coopTestThrowNextRxArmed = false;
+			g_coopTestThrowNextRxUsed = true;
+			obj["coopTestThrowRx"] = true;
+			jsonStr = obj.toStyledString(); // the copy the catch puts back stays marked
+			Log(LOG_INFO) << "[coop-test] throw_next_rx: marked " << state << " (top code " << (top ? top->getStateCode() : -1)
+				<< ", back " << ((top && top->isBackVisible()) ? 1 : 0) << ")";
+		}
+	}
+	if (g_coopTestThrowNextRxUsed && obj.isMember("coopTestThrowRx"))
+		throw std::runtime_error("[coop-test] throw_next_rx: " + state);
+}
+
 void connectionTCP::updateCoopTask()
 {
 	CoopSyncedOptions::tick(_game); // W2-P9 S-A (PR-3): the synced-options activation edge, main thread only
@@ -35421,6 +35455,7 @@ void connectionTCP::updateCoopTask()
 
 				if (consumeNow)
 				{
+					coopTestThrowNextRxCheck(_game, stateString, obj, jsonStr); // coop W2-H60 P1: TEST-ONLY throw_next_rx (inert unless armed)
 					onTCPMessage(stateString, obj);
 					++consumedThisPass;
 				}

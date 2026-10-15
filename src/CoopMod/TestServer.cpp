@@ -7469,6 +7469,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure" // R4-L2 S-C
 		&& cmd != "force_server_error" // coop W2-H59 (TEST-ONLY lever)
 		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
+		&& cmd != "throw_next_rx" // coop W2-H60 (TEST-ONLY lever)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
@@ -11944,6 +11945,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "base_screen_op") { coopTestBaseScreenOp(_game, req, resp); } // W2-H20b (D255 a; spec (e), Q7 a)
 	else if (cmd == "open_select_destination") { coopTestOpenSelectDestination(_game, req, resp); } // W2-H21b (F8802)
+	else if (cmd == "throw_next_rx") // coop W2-H60 (docs rewrite/prompts/w2h60_rx_throw_drop.md P1): TEST-ONLY, either machine
+	{
+		// {state ("" = any), backHidden (default false)}: the next message the receive loop handles is marked and throws in the
+		// loop's try, and so does every retry of it. One-shot arm; inert unless armed. Response {ok, armed}.
+		const std::string rxState = req.get("state", "").asString();
+		const bool rxBackHidden = req.get("backHidden", false).asBool();
+		coopTestThrowNextRxArm(rxState, rxBackHidden);
+		Log(LOG_INFO) << "[coop-test] throw_next_rx: armed (state '" << rxState << "', backHidden " << (rxBackHidden ? 1 : 0) << ")";
+		resp["armed"] = true;
+		resp["ok"] = true;
+	}
 
 	return true;
 }
