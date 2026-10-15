@@ -44443,6 +44443,10 @@ Json::Value connectionTCP::coopPvpBorrowRecord() // coop D250-U S-C1: the record
 // coop D250-U S-C1: HOST - the live world is the borrowed X-COM world / the parked alien world while borrowing (D149, QC-6).
 bool connectionTCP::coopPvpBorrowActive() { return getServerOwner() && g_coopPvpParked != nullptr; }
 SavedGame* connectionTCP::coopPvpParkedWorld() { return g_coopPvpParked; }
+// coop W2-H49 (L-SC5-4; R-H49-0 = O1, aud-E1-05; F17600-F17609): the world a save belongs to. While the gm3 alien host borrows the
+// X-COM player's world for a battle, its saves write its own parked world (coopPvpSaveWorld), so the ironman rules and the ironman file
+// name are that world's, as in its own campaign; everywhere else (the client included) the live world, as before.
+SavedGame* connectionTCP::coopPvpSaveOwner(SavedGame* live) { return coopPvpBorrowActive() ? g_coopPvpParked : live; }
 
 static void coopPvpNotePositionsSkipped() // coop W2-H37: the borrow record's count (get_coop.pvpBorrow.positionsSkipped), nothing else
 {
@@ -44545,7 +44549,8 @@ void connectionTCP::coopPvpSaveWorld(const std::string& filename)
 			Log(LOG_WARNING) << "[coop-pvp] host: the borrowed X-COM world could not be stored for the save - its last copy is embedded";
 		}
 		coop_save_owner_player_id = 0; no_bases = true; // the alien host's own world, under the name the save was given
-		g_coopPvpParked->setName(live->getName());
+		if (!g_coopPvpParked->isIronman()) // coop W2-H49 (F17605): an ironman world keeps its campaign name, the name of its file
+			g_coopPvpParked->setName(live->getName());
 		coopPvpSaveMarker = marker;
 		g_coopPvpParked->save(filename, _game->getMod());
 	}

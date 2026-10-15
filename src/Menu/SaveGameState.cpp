@@ -95,7 +95,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *pal
 		break;
 	case SAVE_IRONMAN:
 	case SAVE_IRONMAN_END:
-		_filename = CrossPlatform::sanitizeFilename(_game->getSavedGame()->getName()) + ".sav";
+		_filename = CrossPlatform::sanitizeFilename(connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->getName()) + ".sav"; // coop W2-H49 (F17605)
 		break;
 	default:
 		break;

@@ -692,6 +692,7 @@ class connectionTCP
 	static Json::Value coopPvpBorrowRecord();                 // the process-lifetime record (TestServer get_coop.pvpBorrow)
 	static bool coopPvpBorrowActive();                        // HOST: the live world is the borrowed X-COM world
 	static SavedGame* coopPvpParkedWorld();                   // HOST: the parked alien world while borrowing, else null
+	static SavedGame* coopPvpSaveOwner(SavedGame* live);      // coop W2-H49: the world a save belongs to (the parked world while borrowing, else live)
 	static void coopPvpBorrowDrop();                          // the main-menu chokepoint: the parked world goes with the world
 	static void coopPvpPeerDropped();                         // coop D250-U S-C3: HOST - a peer drop ends a waiting landing request
 	// coop D250-U S-C4b (QC-14 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-5): a gm3 battle the alien host saves

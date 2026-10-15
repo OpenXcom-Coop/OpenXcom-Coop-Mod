@@ -137,7 +137,8 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		applyBattlescapeTheme("pauseMenu");
 	}
 
-	if (_game->getSavedGame()->isIronman())
+	// coop W2-H49 (F17603): the ironman rules of the world a save here writes (the alien host's own in a gm3 borrowed battle)
+	if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman())
 	{
 		_btnLoad->setVisible(false);
 		_btnSave->setVisible(false);
@@ -171,7 +172,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		{
 			_btnSave->setVisible(false); // non-ironman + ironman
 
-			if (_game->getSavedGame()->isIronman())
+			if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop W2-H49
 			{
 				_btnAbandon->setVisible(false); // ironman only
 			}
