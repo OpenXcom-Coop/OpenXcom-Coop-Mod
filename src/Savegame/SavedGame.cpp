@@ -879,6 +879,13 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		}
 		else if (!coopStamped || coopBattleProtocol != 1)
 		{
+			// coop D246-U S-C2 (owner D284 = c amended; docs rewrite/prompts/d246u_sc2_gm3_refusal_text.md): an UNSTAMPED gm3 PvP campaign
+			// battle save (the release line's: it holds no world of the alien player, so it is never converted) refuses with where to ask
+			// for a repair (VL-D284-1). Every other refusal here keeps the text below (VL-D284-2).
+			if (!coopStamped && coopOlderGamemode == 3)
+			{
+				throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it, or ask the developers to repair your save by opening an issue at https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues");
+			}
 			throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it.");
 		}
 	}
