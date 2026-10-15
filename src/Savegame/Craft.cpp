@@ -278,7 +278,9 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 		// (Target::saveId persists lon/lat) so the craft keeps heading where it was
 		// going. STR_BASE is already resolved above; STR_CRAFT is relinked later in
 		// finishLoading; both are excluded so their handling is untouched.
-		if (getDestination() == 0 && type != "STR_BASE" && type != "STR_CRAFT")
+		// coop W2-H51 (L-H48-1): a partner's craft mirror gets no interim waypoint - the craft holds with no destination (as a patrolling
+		// craft does) until relinkCoopDestination rebinds it, so it never flies to the stale point or reports reaching a waypoint.
+		if (getDestination() == 0 && type != "STR_BASE" && type != "STR_CRAFT" && !reader["coopDestCraftBaseId"])
 		{
 			Waypoint* w = new Waypoint();
 			w->setLongitude(dest["lon"].readVal<double>());
@@ -292,6 +294,12 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 	reader.tryRead("coopDestUfoId", _coopDestUfoId);
 	reader.tryRead("coopDestMissionId", _coopDestMissionId);
 	reader.tryRead("coopDestAlienBaseId", _coopDestAlienBaseId); // coop W2-H48 (L-H44-1): a mirrored alien-base destination
+	// coop W2-H51 (L-H48-1): a partner's craft mirror - its base's coop id; the craft's rule type and id are the saved dest's own
+	if (reader.tryRead("coopDestCraftBaseId", _coopDestCraftBaseId) && _coopDestCraftBaseId != 0 && reader["dest"])
+	{
+		_coopDestCraftType = reader["dest"]["type"].readVal<std::string>();
+		_coopDestCraftId = reader["dest"]["id"].readVal<int>();
+	}
 	reader.tryRead("takeoff", _takeoff);
 	reader.tryRead("inBattlescape", _inBattlescape);
 	reader.tryRead("isAutoPatrolling", _isAutoPatrolling);
@@ -320,6 +328,8 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
  */
 void Craft::finishLoading(const YAML::YamlNodeReader& reader, SavedGame *save)
 {
+	if (_coopDestCraftBaseId != 0)
+		return; // coop W2-H51 (L-H48-1): the dest is the partner's craft mirror (never saved here), rebound by relinkCoopDestination
 	if (const auto& dest = reader["dest"])
 	{
 		std::string type = dest["type"].readVal<std::string>();
@@ -355,7 +365,7 @@ void Craft::finishLoading(const YAML::YamlNodeReader& reader, SavedGame *save)
  */
 bool Craft::relinkCoopDestination(SavedGame* save)
 {
-	if (_coopDestUfoId == 0 && _coopDestMissionId == 0 && _coopDestAlienBaseId == 0)
+	if (_coopDestUfoId == 0 && _coopDestMissionId == 0 && _coopDestAlienBaseId == 0 && _coopDestCraftBaseId == 0)
 		return false;
 	// Only rebind while still on the interim waypoint fallback (or with no
 	// destination); never override a destination the player has since chosen.
@@ -396,6 +406,25 @@ bool Craft::relinkCoopDestination(SavedGame* save)
 				setDestination(ab);
 				clearCoopDestPending();
 				return true;
+			}
+		}
+	}
+	// coop W2-H51 (L-H48-1): the partner's craft mirror sits in the partner's coop-icon base (stripped from every serialized world);
+	// the target_positions mirror sync rebuilds it with the owner's base coop id, craft id and rule type before this runs.
+	if (_coopDestCraftBaseId != 0)
+	{
+		for (auto* b : *save->getBases())
+		{
+			if (!b->_coopIcon || b->_coop_base_id != _coopDestCraftBaseId)
+				continue;
+			for (auto* c : *b->getCrafts())
+			{
+				if (c->coop && c->getId() == _coopDestCraftId && c->getRules()->getType() == _coopDestCraftType)
+				{
+					setDestination(c);
+					clearCoopDestPending();
+					return true;
+				}
 			}
 		}
 	}
@@ -459,6 +488,8 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 			writer.write("coopDestMissionId", dm->getCoopMissionId());
 		else if (AlienBase* da = dynamic_cast<AlienBase*>(_dest); da && da->_coop) // coop W2-H48 (L-H44-1)
 			writer.write("coopDestAlienBaseId", da->_coop_alienbase_id);
+		else if (Craft* dc = dynamic_cast<Craft*>(_dest); dc && dc->coop && dc->getBase() && dc->getBase()->_coopIcon) // coop W2-H51
+			writer.write("coopDestCraftBaseId", dc->getBase()->_coop_base_id);
 	}
 	// coop
 	if (!_coopItems.empty() && _base)
