@@ -42236,6 +42236,36 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		Json::Value m_markers;
 		Json::Reader reader;
 
+		// coop W2-H62 S-B (docs rewrite/prompts/w2h62_sb_host_own_marker.md (e) EB1; F18702-F18706, F18820-F18839): a partner still on its
+		// debriefing answers this host's post-battle baseRequest from the battle world, i.e. with this host's OWN base. A marker with the id
+		// and position of one of this host's own bases is never a partner base: it is dropped before the cache and the mirror loop below, so a
+		// reply left with no markers keeps the cache (as before) and the partner's own "coopBase" still builds the partner's mirror.
+		if (obj.isMember("markers") && obj["markers"].isArray())
+		{
+			Json::Value partnerMarkers(Json::arrayValue);
+			for (const Json::Value& marker : obj["markers"])
+			{
+				const int markerBaseId = marker["coopbaseid"].asInt();
+				const double markerLon = std::stod(marker["lon"].asString());
+				const double markerLan = std::stod(marker["lan"].asString());
+				bool ownBase = false;
+				for (Base* hostBase : *_game->getSavedGame()->getBases())
+				{
+					if (hostBase->_coopIcon == false && hostBase->_coopBase == false && hostBase->_coop_base_id == markerBaseId &&
+						hostBase->getLongitude() == markerLon && hostBase->getLatitude() == markerLan)
+					{
+						ownBase = true;
+						break;
+					}
+				}
+				if (ownBase)
+					Log(LOG_INFO) << "[coop] W2-H62 S-B: coopBase3 marker " << markerBaseId << " is this host's own base - dropped";
+				else
+					partnerMarkers.append(marker);
+			}
+			obj["markers"] = partnerMarkers;
+		}
+
 		// if there are markers
 		if (obj["markers"].empty() == false && obj.isMember("markers") == true)
 		{
