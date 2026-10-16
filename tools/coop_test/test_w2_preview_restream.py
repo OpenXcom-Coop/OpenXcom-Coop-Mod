@@ -30,6 +30,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
+import session  # noqa: E402  (W2-U9: wait_widget_ready)
 import shared_fixture  # noqa: E402
 import test_w2_client_research as cr  # noqa: E402  (main-guarded: pd*, read_key)
 import test_w2_shared_base_equip as h20  # noqa: E402  (main-guarded)
@@ -123,7 +124,9 @@ def pv(gc, keys):
     if not (ok("P1 geoscape", stack(gc) == [GEO], stack(gc))
             and ok("P2 start", cr.pd_key(gc, keys["ufo"]) and cr.pd_wait_kind(gc, "start")[0], cr.pd_brief(cr.pd(gc)))):
         return False, ev
-    time.sleep(SETTLE)
+    # W2-U9 (F21000, R-H68-2 class): UfopaediaStartState's POPUP window hides its buttons while it opens and a hidden
+    # button drops the click; wait until "X-COM CRAFT" shows (was a fixed SETTLE).
+    session.wait_widget_ready(gc, "X-COM CRAFT")
     sec = q(gc, {"cmd": "click_widget", "match": "X-COM CRAFT"})
     cr.pd_wait_kind(gc, "select")
     p = cr.pd(gc)

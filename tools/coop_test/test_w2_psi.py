@@ -134,7 +134,7 @@ from test_w2_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up
 from test_w2_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs, panic_context_fails, c2_state_fails, c2_resolved)
 from test_w2_host_combat import effect_snap, impact_row
-from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet
+from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet, messages, msg_new
 
 # ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C14") -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
@@ -170,6 +170,7 @@ PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponT
 KEY_UNDER_ALIEN_CONTROL = "STR_IS_UNDER_ALIEN_CONTROL"
 KEY_PANICKED = "STR_HAS_PANICKED"
 Q_C14MC = True                   # PIN (T0a-3): the `psi` applied under the client's NextTurnState (queued)
+HOLD_C14MC_S = 30.0              # W2-U9 (F21067): bound of the client's held alien-side NextTurnState in cycle 1
 Q_C14P = True                    # PIN (T0a-3): C2's `panic` applied under the client's NextTurnState (queued)
 PAYLOAD_EXTRA = ("psi",)         # payloads read beyond test_w2_turn_cues.end()'s kinds
 UNIT_KEYS = ("type", "faction", "originalFaction", "mindControllerId", "mindControlled", "status", "isOut",
@@ -310,6 +311,31 @@ def mr5_fails(rec, mb, ma, uid, key, queued, quiet, what):
     return fails
 
 
+def hold_until_message(client, mb, uid, key, rec, what, bound):
+    """W2-U9 (R-U9-0 item 5 (c), F21067; S44): a cycle() client_hold predicate. While the client is on the alien
+    side (FACTION_HOSTILE) with a NextTurnState on top, keep that screen up until the client's messages ring holds
+    the new record about `uid` with `key` (the record MR5 reads, `queued` included), so the host AI's psi applies
+    under the screen however late the AI acts (F21001: under 98 % CPU it applied 135 ms after the close). Bounded:
+    after `bound` s it releases, notes it in rec["notes"], and MR5 judges as before. Never changes what MR5 reads."""
+    st = {"t0": None, "released": False}
+
+    def hold():
+        if st["released"] or battle_state(client).get("side") != FACTION_HOSTILE \
+                or session.top_state(client) != "NextTurnState":
+            return False
+        if any(r.get("unit") == uid and r.get("key") == key for r in msg_new(mb["client"], messages(client))):
+            st["released"] = True
+            return False
+        st["t0"] = st["t0"] or time.time()
+        if time.time() - st["t0"] > bound:
+            st["released"] = True
+            rec["notes"].append(f"{what}: the client's alien-side NextTurnState released after {bound} s with no "
+                                f"{key} record about {uid} in its messages ring")
+            return False
+        return True
+    return hold
+
+
 def c14_mc(host, client, ctx):
     rec = begin(host, client)
     sp = strip_both(host, client, P_ID)
@@ -327,7 +353,8 @@ def c14_mc(host, client, ctx):
               "C": uview(uh0.get(C_ID)), "C2": uview(uh0.get(C2_ID))}
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
-    cycle(host, client, SEED_C14, rec, "cycle 1")
+    cycle(host, client, SEED_C14, rec, "cycle 1",
+          client_hold=hold_until_message(client, mb, C_ID, KEY_UNDER_ALIEN_CONTROL, rec, "cycle 1", HOLD_C14MC_S))
     end(host, client, rec)
     ma = msg_snap(host, client)
     read_extra_payloads(host, rec)

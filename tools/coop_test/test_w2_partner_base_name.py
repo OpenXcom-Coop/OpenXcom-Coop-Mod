@@ -84,7 +84,9 @@ def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 def lines_since(gc, n0): return [ln.split("\t")[0][-13:-1] + " " + ln.split("\t")[-1][:300] for ln in logl(gc)[n0:] if any(n in ln for n in NEEDLES)]
-def cw(gc, match, settle=1.0):
+def cw(gc, match, settle=1.0, ready=False):
+    if ready:  # W2-U9 (F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
+        session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)
     return {"match": match, "ok": r.get("ok"), "err": r.get("error"), "base": [r.get("baseX"), r.get("baseY")],
@@ -185,7 +187,7 @@ def bring_up(b):
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
     for gc in (b.host, b.client):
-        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6))
+        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6, ready=True))
     h, c = census(b.host), census(b.client)
     ev.update({"aff": b.aff, "host": h, "client": c})
     ok = (h["stack"] == ["GeoscapeState"] and c["stack"] == ["GeoscapeState"] and len(own(h)) == 1 and len(mirrors(h)) == 1
@@ -206,7 +208,7 @@ def to_name_screen(b, r, gc, p):
     ev.update({"t": now(), "own": own(cc), "stack": cc["stack"]})
     r.need(top(gc) == "BaseNameState" and len(new) == 1, "%s: %s on BaseNameState with one own base named \"\" (%s)" % (p, gc.name, ev))
     return new[0][0]
-def cycle(gc): return [cw(gc, "INTERCEPT")["after"][-1:], cw(gc, "CANCEL")["after"][-1:]]
+def cycle(gc): return [cw(gc, "INTERCEPT")["after"][-1:], cw(gc, "CANCEL", ready=True)["after"][-1:]]
 def finish_name(b, r, gc, name, p):
     """NAME (key presses), OK -> PlaceLiftState, the lift tile (LIFT rule), GEOSCAPE"""
     for ch in name:

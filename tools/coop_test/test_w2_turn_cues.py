@@ -443,7 +443,7 @@ def settle_host(host, rec, extra=None, timeout=30, hold=0.6):
                        f"{bs.get('panicHandled')} pendingStates={bs.get('pendingStates')} isBusy={bs.get('isBusy')}")
 
 
-def cycle(host, client, seed, rec, what, extra=None, timeout=90):
+def cycle(host, client, seed, rec, what, extra=None, timeout=90, client_hold=None):
     """Both machines press END TURN (the client first; the host presses once it
     paints END TURN 1/2, with set_seed `seed` on the HOST right before its
     press when `seed` is not None), then the full side cycle back to the
@@ -451,7 +451,9 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90):
     machines, the host's own infoboxes dismissed (host only, F425), the host
     settled (settle_host with `extra`), the client on BattlescapeState, the
     host idle with the client caught up. Every wait is bounded; a timeout is
-    recorded in rec["notes"]. Appends the cycle's record to rec["cycles"]."""
+    recorded in rec["notes"]. Appends the cycle's record to rec["cycles"].
+    W2-U9 (F21067): `client_hold`, when given, is a predicate polled each round; while it returns True the
+    client's NextTurnState is left up (the caller bounds it; None = close it at once, as before)."""
     turn0 = battle_state(host).get("turn")
     seq_before = event_state(host).get("lastSeqEmitted") or 0
     try:
@@ -468,7 +470,8 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90):
                 rec["dismissed"].append((lw.split(">")[-1], host.cmd({"cmd": "dismiss_popup"}).get("handled")))
             if "NextTurnState" in lw:
                 dismiss_next_turn_if_present(host)
-            dismiss_next_turn_if_present(client)
+            if client_hold is None or not client_hold():
+                dismiss_next_turn_if_present(client)
             hs, cs = battle_state(host), battle_state(client)
             if (hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
                     and cs.get("side") == FACTION_PLAYER and cs.get("turn", -1) >= turn0 + 1):

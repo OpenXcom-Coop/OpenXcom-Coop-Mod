@@ -107,7 +107,9 @@ def first_after(gc, a, needle):
             return a + i
     return None
 def pushes(gc, a, b, cls): return [short(x) for x in logl(gc)[a:b] if "[coop-ui] push class OpenXcom::%s depth" % cls in x]
-def cw(gc, match, settle=1.0):
+def cw(gc, match, settle=1.0, ready=False):
+    if ready:  # W2-U9 (F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
+        session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)
     return {"match": match, "ok": r.get("ok"), "err": r.get("error"), "base": [r.get("baseX"), r.get("baseY")],
@@ -226,7 +228,7 @@ def bring_up(b):
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
     for gc in (b.host, b.client):
-        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6))
+        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6, ready=True))
     h, c = census(b.host), census(b.client)
     ev.update({"aff": b.aff, "host": h, "client": c})
     ok = h["stack"] == ["GeoscapeState"] and c["stack"] == ["GeoscapeState"] and len(own(h)) == 1 and len(own(c)) == 1
