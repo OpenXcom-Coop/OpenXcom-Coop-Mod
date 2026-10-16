@@ -36896,6 +36896,32 @@ static bool coopStreamIdle()
 	return !sendFileHost && !sendFileClient && !sendFileBase && !sendFileSave && !sendProgressSaveFileToHost;
 }
 
+// coop W2-H82 (docs rewrite/prompts/w2h82_sb_visit_during_save_push.md F1; R-LH78-1-1, VL-H82-2; lh78-1-cap F22296, F22302): on the partner,
+// a request that would set up a world stream while another one is set up or running here waits until the streamer is idle. loopData keeps
+// the key a stream started with, reads its end marker when it ends and then clears every flag: a base request set up during this machine's
+// save-progress stream ended that stream as MAP_RESULT_SAVE_PROGRESS and was cleared unanswered (the host's "Synchronizing bases..." kept
+// only Disconnect); a save-progress go-ahead during a base answer ended that answer as MAP_RESULT_SAVE_PROGRESS. A held base answer goes out
+// by EB4-R (the base answer first and alone, R-H66B-2), a held go-ahead by F4.
+static bool coopHoldBaseAnswerWhileStreaming(int role)
+{
+	if (coopStreamIdle())
+		return false;
+	g_coopBaseAnswerHeld = role;
+	Log(LOG_INFO) << "[coop-visit] base answer held: a world stream is in flight (role " << role << ")";
+	return true;
+}
+
+static bool g_coopProgressReplyHeld = false; // F2: a SEND_FILE_HOST_SAVE_PROGRESS go-ahead held while another world stream ran (partner)
+
+static bool coopHoldProgressReplyWhileStreaming()
+{
+	if (coopStreamIdle())
+		return false;
+	g_coopProgressReplyHeld = true;
+	Log(LOG_INFO) << "[coop-save] save-progress go-ahead held: a world stream is in flight";
+	return true;
+}
+
 // coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1b): TEST-ONLY, the hold_blob_ack predicate read at the map_result_data
 // ack (L1c). Scope 0 is R4-L6's predicate unchanged.
 static bool coopTestHoldBlobAckApplies(Game* game)
@@ -37004,6 +37030,17 @@ void connectionTCP::updateCoopTask()
 				pushProgressToHostSilently();
 			}
 		}
+	}
+
+	// coop W2-H82 (docs rewrite/prompts/w2h82_sb_visit_during_save_push.md F4; R-LH78-1-1, VL-H82-2): the host's save-progress go-ahead
+	// held by F2 starts this machine's progress stream once the streamer is idle (after a base answer EB4-R released above).
+	if (g_coopProgressReplyHeld && !getServerOwner() && coopStreamIdle())
+	{
+		g_coopProgressReplyHeld = false;
+		Log(LOG_INFO) << "[coop-save] held save-progress go-ahead released";
+		_game->getCoopMod()->load_state = "Saving";
+		sendFileHost = true;
+		sendProgressSaveFileToHost = true;
 	}
 
 	// coop W2-H66 (E2): the held answer to the host's save request (E3) goes out once the own new base is named (E1).
@@ -38273,6 +38310,7 @@ void resetCoopState(bool isHost)
 	g_coopSaveAnswerHeld = false; // coop W2-H66 (E4): a new connection starts with no held save answer
 	g_coopPushHeld = false;        // coop W2-H66 S-B (EB5): nor a held push
 	g_coopBaseAnswerHeld = 0;      // coop W2-H66 S-B (EB5): nor a held base answer
+	g_coopProgressReplyHeld = false; // coop W2-H82 F5: nor a held save-progress go-ahead
 
 	mapData.clear();
 
@@ -44546,7 +44584,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sendTCPPacketData(root.toStyledString());
 	}
 
-	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS")
+	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS" && !coopHoldProgressReplyWhileStreaming()) // coop W2-H82 F2
 	{
 
 		_game->getCoopMod()->load_state = "Saving";
@@ -44556,7 +44594,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 
 	// BASES
-	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false && !coopHoldBaseAnswer(_game, 1)) // coop W2-H66 S-B EB3 (C2)
+	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false && !coopHoldBaseAnswer(_game, 1) && !coopHoldBaseAnswerWhileStreaming(1)) // coop W2-H66 S-B EB3 (C2); W2-H82 F3
 	{
 
 		sendBaseFile();
