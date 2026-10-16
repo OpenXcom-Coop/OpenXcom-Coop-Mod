@@ -6723,6 +6723,22 @@ static std::atomic<int> g_recv{0};
 static std::atomic<int> g_dropped{0};
 }
 
+// ----- coop EQ-3 S-C (docs rewrite/prompts/eq3c_held.md, PINNED EDITS CT1; QEQ3-13 (a)): TEST-ONLY `base_held_defer`, either machine
+// - while on, this machine keeps its current mapping of the partner's held item on a base screen (coopBaseHeldMap() changes nothing);
+// the first pump pass after off maps it. Lets row H4 put both players' picks on the last item of a kind before either machine hides
+// the other's copy. Inert unless armed; never armed by game logic.
+static std::atomic<bool> g_coopTestBaseHeldDefer{false};
+
+void coopTestBaseHeldDefer(bool on)
+{
+	g_coopTestBaseHeldDefer.store(on);
+}
+
+bool coopTestBaseHeldDeferred()
+{
+	return g_coopTestBaseHeldDefer.load();
+}
+
 // coop EQ-3 S-B (B1): TRUE in a co-op campaign whose base inventory screens show the partner's pointer.
 static bool coopBasePresenceCampaign(Game* game)
 {
