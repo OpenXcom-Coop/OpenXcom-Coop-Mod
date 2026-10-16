@@ -53,6 +53,8 @@ screen shows C1; C1's TU is read on both machines before and after each row.
         STR_COOP_DENY_ITEM_MISSING's (invWarningWrites +1, lastDeny item_missing), Y
         still on the host's cursor and on the pile on both; then the host's right-click
         returns Y. RED: the host executes the order (Y on C1 on both).
+        R-EQ2-4 (EQ-2 S-B, F21270): the host's TEST-ONLY equip_holds_defer is on from
+        before the host's pick until the answer, so the client still lists Y (D291 b).
   T0-6  the pile holds (P8b-2's T0-6 ruling, STOP-IF 8): the host Ctrl-clicks a pile
         rifle clip onto its own soldier (a host equip placement at turn 0). GREEN (and
         at S-B.1: S-A built it): the clip on that H soldier on both, the client applied
@@ -1225,6 +1227,14 @@ def eq14_host_cursor_item(host, client, ctx):
         evidence("EQ14", ev)
         finish([f.replace("EQ14: ", "EQ14: precondition absent - ") for f in fails])
     y = y_host
+    # R-EQ2-4 (EQ-2 S-B, F21270): the host's pick reserves Y (D291 b) and its hold table would take Y off the client's
+    # pile within a pump pass; the TEST-ONLY equip_holds_defer keeps that table back (as EQH H6 does), so the client
+    # can still pick Y and the put-down race below is built. Off again once the answer is read.
+    r = host.cmd({"cmd": "equip_holds_defer", "on": True})
+    ev["deferOn"] = {k: r.get(k) for k in ("ok", "on", "error")}
+    if not (r.get("ok") and r.get("on") is True):
+        evidence("EQ14", ev)
+        finish([f"EQ14: precondition absent - equip_holds_defer on answered {ev['deferOn']}"])
     ev["hostPick"], ev["clientPick"] = {}, {}
     hp = pick_ground(host, y, ev["hostPick"])
     cp = pick_ground(client, y, ev["clientPick"]) if hp == y else None
@@ -1248,6 +1258,8 @@ def eq14_host_cursor_item(host, client, ctx):
                   "yHost": item_view(ih, y), "yClient": item_view(ic, y), "hostLine": inv_view(host).get("lineText"),
                   "hostCursorReturned": (es(host).get("hostScreens") or {}).get("cursorReturned")}
     ev["answer"] = answer
+    r = host.cmd({"cmd": "equip_holds_defer", "on": False})  # R-EQ2-4: the held-back table goes out now
+    ev["deferOff"] = {k: r.get(k) for k in ("ok", "on", "error")}
     # the host's cursor goes back (vanilla's right-click return; a pick is display only, the item never left the
     # pile). Only with an item on it: a right-click with an empty cursor on the pre-battle screen primes a grenade.
     if inv_view(host).get("selectedItem") != -1:
