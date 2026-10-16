@@ -1203,4 +1203,28 @@ bool BasescapeState::coopShowMirrors()
 	return true;
 }
 
+/**
+ * coop W2-H83 S-A (docs rewrite/prompts/w2h83_sa_delete_paths.md EA2; R-LBH3-1; lbh3-cap F22265): the partner removed its base
+ * @a coopBaseId (delete_base) while this stash held its mirror. That mirror is deleted here, so coopShowMirrors cannot put it back.
+ * @return The number of stashed mirrors deleted.
+ */
+int BasescapeState::coopDropStashedMirror(int coopBaseId)
+{
+	int dropped = 0;
+	for (auto it = s_coopHiddenMirrors.begin(); it != s_coopHiddenMirrors.end();)
+	{
+		if (it->second && it->second->_coop_base_id == coopBaseId)
+		{
+			delete it->second;
+			it = s_coopHiddenMirrors.erase(it);
+			++dropped;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	return dropped;
+}
+
 }
