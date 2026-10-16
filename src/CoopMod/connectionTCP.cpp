@@ -7032,6 +7032,39 @@ int coopTestHoldBlobAckHeld()
 	return g_coopTestHoldBlobAckHeld.load();
 }
 
+// coop W2-H82 (docs rewrite/prompts/w2h82_sb_visit_during_save_push.md L3a; R-LH78-1-1; lh78-1-cap F22302): TEST-ONLY hold_save_reply,
+// HOST. Armed, the host keeps its go-ahead for the partner's save-progress stream (the SEND_FILE_HOST_SAVE_PROGRESS reply to the partner's
+// SEND_FILE_HOST_TRUE_SAVE_PROGRESS) instead of sending it, so a base request can reach the partner first (row R-SPB). The TestServer
+// lever's {on: false} sends it. Inert unless armed; never read by game logic.
+static std::atomic<bool> g_coopTestHoldSaveReplyArmed{false};
+static std::atomic<bool> g_coopTestHoldSaveReplyHeld{false};
+
+bool coopTestHoldSaveReplyArm(bool on)
+{
+	g_coopTestHoldSaveReplyArmed.store(on);
+	return on ? false : g_coopTestHoldSaveReplyHeld.exchange(false);
+}
+
+bool coopTestHoldSaveReplyArmed()
+{
+	return g_coopTestHoldSaveReplyArmed.load();
+}
+
+bool coopTestHoldSaveReplyHeld()
+{
+	return g_coopTestHoldSaveReplyHeld.load();
+}
+
+// The guarded statement's call (L3b): true = armed, the go-ahead held (the caller does not send it).
+static bool coopTestHoldSaveReplyStash()
+{
+	if (!g_coopTestHoldSaveReplyArmed.load())
+		return false;
+	g_coopTestHoldSaveReplyHeld.store(true);
+	Log(LOG_INFO) << "[coop-test] hold_save_reply: SEND_FILE_HOST_SAVE_PROGRESS held - sent by the lever's release";
+	return true;
+}
+
 // coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1a; R-LH78-1-1; lh78-1-cap F22290, F22296): TEST-ONLY hold_blob_ack
 // scope, either machine. 0 "blob": only while a battle-handshake blob is awaited (R4-L6 as before); 1 "base": also while a CoopState 50
 // ("Synchronizing bases...") is on this machine's stack, so a base answer's chunk acks are held; 2 "save": also, on the host, while a save
@@ -44509,7 +44542,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		root["state"] = "SEND_FILE_HOST_SAVE_PROGRESS";
 
-		sendTCPPacketData(root.toStyledString());
+		if (!coopTestHoldSaveReplyStash()) // coop W2-H82 L3b (TEST-ONLY hold_save_reply; inert unless armed)
+			sendTCPPacketData(root.toStyledString());
 	}
 
 	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS")

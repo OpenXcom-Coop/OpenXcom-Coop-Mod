@@ -716,6 +716,13 @@ int coopTestHoldBlobAckArm(bool on);
 bool coopTestHoldBlobAckArmed();
 int coopTestHoldBlobAckHeld();
 
+/// coop W2-H82 (docs rewrite/prompts/w2h82_sb_visit_during_save_push.md L3a): TEST-ONLY `hold_save_reply`, HOST. Armed, the host keeps its
+/// SEND_FILE_HOST_SAVE_PROGRESS go-ahead; Arm(false) disarms it and returns whether one was held (the TestServer lever then sends it).
+/// Inert unless armed. Never called by game logic.
+bool coopTestHoldSaveReplyArm(bool on);
+bool coopTestHoldSaveReplyArmed();
+bool coopTestHoldSaveReplyHeld();
+
 /// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1a; R-LH78-1-1): TEST-ONLY `hold_blob_ack` scope: 0 "blob", 1 "base"
 /// (also while a CoopState 50 is on this machine's stack), 2 "save" (also while the host's save waits for the partner's world). Set by the
 /// TestServer lever only. Never called by game logic.
