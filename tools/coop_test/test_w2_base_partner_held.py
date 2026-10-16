@@ -41,10 +41,12 @@ Run:  python tools/coop_test/test_w2_base_partner_held.py
 
 import json
 import os
+import re
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import harness  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_w2_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screens, q / stack, layouts)
@@ -54,7 +56,7 @@ from test_w2_shared_base_equip import q, stack, open_soldier_screen  # noqa: E40
 TAG, PORTS = "eq3c_s", (49416, 49416, 49416)  # BPH_PORTS (pin pass: two inert labels and the rendezvous key)
 HB, GEO, INV = "HostBase", "GeoscapeState", "InventoryState"
 GROUND, BELT_SLOT, LEFT = "STR_GROUND", "STR_BELT", "STR_LEFT_HAND"
-PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PISTOL", (0, 0)  # pins (replacement rules: pick_types)
+PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PISTOL", (0, 0)  # pins (rules: pick_types, pick_belt)
 TEXT_ITEM_MISSING = "Order cancelled - item unavailable"  # STR_COOP_DENY_ITEM_MISSING (EQ-2's pre-battle refusal)
 HALF = (16, 24)                    # EQ-2 S-D: the held item's top-left = the pointer - (HAND_W * SLOT_W / 2, HAND_H * SLOT_H / 2)
 W_PTR, W, CYCLE_CAP, CLICK_W = 2.0, 10.0, 16, 2.0
@@ -237,13 +239,33 @@ def pick_types(x):
             "PILE_TYPE": [PILE_PIN, pile], "LAST_TYPE": [LAST_PIN, last], "pileCell": x.pile_cell, "lastCell": x.last_cell}
 
 
+def sizes():
+    """{type: [invWidth, invHeight]} from the ruleset the game reads (the Release deploy, F6757; test_r5_alien_equip's reader)."""
+    d, t = {}, None
+    with open(os.path.join(os.path.dirname(os.path.abspath(harness.EXE)), "standard", "xcom1", "items.rul"), encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r"^  - type: (\S+)", line)
+            if m:
+                t = m.group(1)
+                d[t] = [1, 1]
+                continue
+            m = re.match(r"^    inv(Width|Height): (\d+)", line)
+            if m and t:
+                d[t][0 if m.group(1) == "Width" else 1] = int(m.group(2))
+    return d
+
+
 def pick_belt(x):
-    """BELT: C's STR_BELT (0, 0) when empty on the client's screen, else the next empty belt cell (the slot's cell order)."""
-    cells = ((view(x.client).get("slots") or {}).get(BELT_SLOT) or {}).get("cells") or []
-    used = [[sx, sy] for (ty, ow, sl, sx, sy) in types(x.client).values() if ow == x.ids["C"] and sl == BELT_SLOT]
-    free = [c for c in cells if c not in used]
-    x.belt = list(BELT_PIN) if list(BELT_PIN) in free else (free[0] if free else None)
-    return {"cells": cells, "used": used, "BELT": [list(BELT_PIN), x.belt]}
+    """BELT: C's STR_BELT (0, 0) when PILE_TYPE fits there on the client's screen, else the next belt cell (the slot's cell order)
+    where it fits: every cell of its footprint a belt cell that no carried item's footprint covers (F21916: a 2 x 1 item)."""
+    sz = sizes()
+    foot = lambda t, a, b: {(a + i, b + j) for i in range(sz.get(t, [1, 1])[0]) for j in range(sz.get(t, [1, 1])[1])}  # noqa: E731
+    cells = [tuple(c) for c in ((view(x.client).get("slots") or {}).get(BELT_SLOT) or {}).get("cells") or []]
+    held = [(ty, sx, sy) for (ty, ow, sl, sx, sy) in types(x.client).values() if ow == x.ids["C"] and sl == BELT_SLOT]
+    used = set().union(*[foot(ty, sx, sy) for ty, sx, sy in held]) if held else set()
+    order = [tuple(BELT_PIN)] + [c for c in cells if c != tuple(BELT_PIN)]
+    x.belt = next((list(c) for c in order if c in cells and foot(x.pile, *c) <= set(cells) - used), None)
+    return {"cells": cells, "items": held, "used": sorted(used), "BELT": [list(BELT_PIN), x.belt]}
 
 
 def spine(x):
