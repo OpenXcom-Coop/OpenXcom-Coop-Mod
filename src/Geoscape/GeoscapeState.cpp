@@ -5618,6 +5618,69 @@ int GeoscapeState::harnessDanglingDogfights(bool pending) const
 }
 
 /**
+ * coop W2-H76 (R-BH4-1 fix (a); docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md): ends and deletes every dogfight - open,
+ * minimized or still waiting to start - whose UFO is @a ufo, before co-op code deletes that UFO (a partner's mirror: the
+ * partner's drop, connectionTCP::deleteAllCoopBases(), or the partner's position snapshot sweep). Vanilla does the same in
+ * time5Seconds() for a destroyed UFO; without it the next handleDogfights() reads and writes the freed UFO (F21435-F21443).
+ * The craft leaves the dogfight as in vanilla's interrupt (time5Seconds' hunter-killer start); the UFO's destructor then
+ * sends it home (Target::~Target). The geoscape is left as handleDogfights() leaves it after its last dogfight.
+ * @param ufo The UFO about to be deleted.
+ */
+void GeoscapeState::coopDropDogfightsFor(Ufo* ufo)
+{
+	if (!ufo)
+		return;
+	bool dropped = false;
+	for (auto it = _dogfights.begin(); it != _dogfights.end();)
+	{
+		if ((*it)->getUfo() == ufo)
+		{
+			if (Craft* craft = (*it)->getCraft())
+			{
+				craft->setInDogfight(false);
+				craft->setInterceptionOrder(0);
+			}
+			delete *it;
+			it = _dogfights.erase(it);
+			dropped = true;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	for (auto it = _dogfightsToBeStarted.begin(); it != _dogfightsToBeStarted.end();)
+	{
+		if ((*it)->getUfo() == ufo)
+		{
+			if (Craft* craft = (*it)->getCraft())
+			{
+				craft->setInDogfight(false);
+				craft->setInterceptionOrder(0);
+			}
+			delete *it;
+			it = _dogfightsToBeStarted.erase(it);
+			dropped = true;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	if (!dropped)
+		return;
+	_minimizedDogfights = minimizedDogfightsCount();
+	if (_dogfights.empty() && _dogfightsToBeStarted.empty())
+	{
+		// as handleDogfights() after the last dogfight: the dogfight timers stop and the globe zooms back out
+		_dogfightStartTimer->stop();
+		_zoomInEffectTimer->stop();
+		_dogfightTimer->stop();
+		_zoomOutEffectTimer->start();
+	}
+}
+
+/**
  * Dogfight logic. Moved here to have the code clean.
  */
 void GeoscapeState::handleDogfights()
