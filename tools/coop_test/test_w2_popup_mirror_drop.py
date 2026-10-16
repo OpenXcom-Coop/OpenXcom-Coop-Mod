@@ -14,7 +14,7 @@ dangling 0 was read right before. Each boot is fresh and shut down before the ne
   CD-top RED, CD-craft, CD-alive.
   Boot TI (dirs w2h81_ti_*): ... while the host's target-info window shows its UFO (D-TI). Cells TI-dangling RED, TI-held RED, TI-top RED, TI-alive.
   Boot DC (dirs w2h81_dc_*): ... while the host's popup shows the host's OWN UFO (the targeting guard). Cells DC-kept, DC-top, DC-cancel.
-Red (commit R1): exit 2, RED exactly on UD-dangling, UD-held, UD-top, CD-dangling, CD-held, CD-top, TI-dangling, TI-held, TI-top (9 of 19).
+Red (commit R1): exit 2, RED exactly on UD-dangling, UD-held, UD-top, CD-dangling, CD-held, CD-top, TI-dangling, TI-held, TI-top (9 of 18).
 A guard (G:) miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
 row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run.
 Run: python tools/coop_test/test_w2_popup_mirror_drop.py"""
@@ -490,7 +490,7 @@ def main():
     print("\ntest_w2_popup_mirror_drop: %d/%d cells pass (fail=%s%s) walls %s in %.1fs; CPU end %s" % (
         total - len(fails), total, fails, (" shutdown=%s" % shut_fails) if shut_fails else "", json.dumps(walls), time.time() - t0, cpu()),
         flush=True)
-    return 2 if fails or shut_fails or total != 19 else 0
+    return 2 if fails or shut_fails or total != 18 else 0
 
 if __name__ == "__main__":
     sys.exit(main())
