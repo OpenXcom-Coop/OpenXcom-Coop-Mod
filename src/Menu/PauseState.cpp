@@ -43,6 +43,13 @@ namespace OpenXcom
 
 GeoscapeState *_geostate;
 
+// coop W2-H67 (R-LT8-1): an ironman world (the save owner's rules, W2-H49) keeps vanilla's hidden Load and Save (the constructor's
+// ironman block), so the truly-solo re-show blocks below never run for one. Null-safe for an init() without a world.
+static bool coopIronmanWorld(SavedGame *save)
+{
+	return save && connectionTCP::coopPvpSaveOwner(save)->isIronman();
+}
+
 // coop W2-H63 (R-H63-0): vanilla's rule for Save in the battle pause menu (the constructor's "ENOUGH!" guard, OXCE 4a6ade5ef),
 // for the truly-solo re-show blocks below: Save stays hidden during the enemy turn (debug mode excepted) or while a battle action
 // is still running, so a single-player save never captures a half-applied action.
@@ -202,7 +209,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	// load/save to a client. Gating on localSavesAllowed() (which is false for a
 	// client) plus !host keeps the host's Load hidden (its policy is PRD-08) and
 	// preserves solo behavior exactly.
-	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false)
+	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false && !coopIronmanWorld(_game->getSavedGame())) // coop W2-H67 (R-LT8-1)
 	{
 		_btnLoad->setVisible(true);
 		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop W2-H63 (R-H63-0)
@@ -328,7 +335,7 @@ void PauseState::init()
 
 	// coop: re-show Load/Save only when truly solo (see init() note above);
 	// never re-expose a coop client to local load/save.
-	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false)
+	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false && !coopIronmanWorld(_game->getSavedGame())) // coop W2-H67 (R-LT8-1)
 	{
 		_btnLoad->setVisible(true);
 		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop W2-H63 (R-H63-0)
