@@ -14,7 +14,8 @@ whose top is one of them; poll = research_probe.allowCutscene every 0.2 s. A lat
 sits under the received cutscene (H17d-1 host, H17d-2 replica before its own OK, H17d-4 host); elsewhere
 GeoscapeState::init re-arms the latch and the counts carry the verdict. H17d-2 reads its first window's title at run
 time (events of one day fire in pointer order, F7730); X = the first window, Y = the other event.
-Boot A (SHARED): H17d-1; Boot B (SHARED): H17d-2; Boot C (SEPARATE): H17d-3; Boot D (SHARED): H17d-4.
+Boot A (SHARED): H17d-1; Boot B (SHARED): H17d-2; Boot C (SEPARATE, research sync off: W2-U9, R-B109-1): H17d-3;
+Boot D (SHARED): H17d-4.
 RED (commit 1): H17d-1, H17d-2, H17d-4 fail on their named cells, H17d-3 passes; GREEN: all pass. "G:" cells are
 guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; every row runs after a failure; exit 0 only if
 all pass, else 2.
@@ -35,7 +36,11 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Event_Cutscene_Test")
 BOOT_A = ("w2h17da", (49392, 49393, 47372))      # SHARED; lobby 47372 (F7731)
 BOOT_B = ("w2h17db", (49394, 49395, 47374))      # SHARED
-BOOT_C = ("w2h17dc", (49396, 49397, 47376))      # SEPARATE
+BOOT_C = ("w2h17dc", (49396, 49397, 47376))      # SEPARATE, research sync off (W2-U9, R-B109-1)
+# W2-U9 (R-B109-1, F21066; MG-F's H17c-3 precedent QMC-5 (a), a2a2d8acf): H17d-3 guards the SEPARATE relay with research
+# sync OFF. With sync on, main #197 (1f17a2b4a; PR197-O1, D226 (a)) makes the partner spawn the research's event itself;
+# that case is the hotfix unit W2-H75 (the relay double play), not this file.
+SYNC_OFF = {"EnableResearchSync": False}
 BOOT_D = ("w2h17dd", (49398, 49399, 47378))      # SHARED
 T_A, T_B = "STR_H17D_T_A", "STR_H17D_T_B"
 EV_A, EV_B = "STR_H17D_EV_A", "STR_H17D_EV_B"
@@ -294,8 +299,8 @@ def run_one(rid, fn, x, results):
 
 def boot_sep(tag, ports):
     hp, cp, lp = ports
-    host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
-    client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
+    host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,), options=SYNC_OFF))
+    client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,), options=SYNC_OFF))
     try:
         [f() for f in (host.spawn, client.spawn, host.connect, client.connect)]
         session.new_campaign(host, client, port=str(lp), campaign_mode="coop")
