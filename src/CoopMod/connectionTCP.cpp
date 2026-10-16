@@ -33417,8 +33417,14 @@ void connectionTCP::loopData()
 		}
 	};
 
+	// coop W2-H66 (E5, QH66-2 (c)): the last failure text of the stream in flight (E6 logs each failure once); cleared when idle.
+	std::string lastLoopError;
+
 	while (!_stop)
 	{
+		if (!sendFileClient && !sendFileHost)
+			lastLoopError.clear();
+
 		try
 		{
 			if (sendFileClient)
@@ -33667,15 +33673,25 @@ void connectionTCP::loopData()
 			// Build one message for both logError and crash.log
 			std::string msg = "Error in loopData: " + std::string(e.what());
 
-			logError(msg);
-			CRASH_LOG(msg);
+			// coop W2-H66 (E6, QH66-2 (c); F19208): a stream whose flags stay set retries every 10 ms. Log its failure once, not once per
+			// retry (5,060 crash files in 60 s, ltr6-1-cap C4b). The retry is kept: a blob that appears later still streams.
+			if (msg != lastLoopError)
+			{
+				lastLoopError = msg;
+				logError(msg);
+				CRASH_LOG(msg);
+			}
 		}
 		catch (...)
 		{
 			std::string msg = "Unknown error in loopData!";
 
-			logError(msg);
-			CRASH_LOG(msg);
+			if (msg != lastLoopError) // coop W2-H66 (E6)
+			{
+				lastLoopError = msg;
+				logError(msg);
+				CRASH_LOG(msg);
+			}
 		}
 
 		SDL_Delay(10); // Prevent 100% CPU usage when idle
@@ -34975,6 +34991,24 @@ static const char* coopLeavingForMainMenu(Game* game)
 	return nullptr;
 }
 
+// coop W2-H66 (docs rewrite/prompts/w2h66_save_during_naming.md E1; L-TR7-1, F19207, QH66-1 (a)): a client whose OWN world holds a
+// base the memory save refuses (SavedGame::saveCoopToMemory: an empty name or 0 / 0 coordinates, i.e. the new base while its
+// BaseNameState is open) holds its answer to the host's save request (sendSaveProgressFile, E3) and sends it as soon as the base
+// is named (updateCoopTask, E2). Partner-base mirrors (_coopBase) are not looked at here (QH66-3).
+static bool g_coopSaveAnswerHeld = false;
+
+static bool coopOwnBaseUnnamed(Game* game)
+{
+	if (!game || !game->getSavedGame())
+		return false;
+	for (Base* base : *game->getSavedGame()->getBases())
+	{
+		if (!base->_coopBase && (base->getName().empty() || (base->getLongitude() == 0 && base->getLatitude() == 0)))
+			return true;
+	}
+	return false;
+}
+
 // W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-4): this client's display-only CAMPAIGN DebriefingState on the stack, or null.
 static DebriefingState* coopCampaignDisplayDebrief(Game* game)
 {
@@ -35130,6 +35164,14 @@ void connectionTCP::updateCoopTask()
 		connectionTCP::saveError = false;
 		_game->pushState(new CoopState(995));
 
+	}
+
+	// coop W2-H66 (E2): the held answer to the host's save request (E3) goes out once the own new base is named (E1).
+	if (g_coopSaveAnswerHeld && !getServerOwner() && getCoopStatic() && !coopOwnBaseUnnamed(_game))
+	{
+		g_coopSaveAnswerHeld = false;
+		Log(LOG_INFO) << "[coop-save] held save answer released";
+		sendSaveProgressFile();
 	}
 
 	// R1-P4: the per-tick "run the Battlescape states in the background" pump
@@ -36358,6 +36400,7 @@ void resetCoopState(bool isHost)
 	sendFileBase = false;
 	sendFileHost = false;
 	sendFileSave = false;
+	g_coopSaveAnswerHeld = false; // coop W2-H66 (E4): a new connection starts with no held save answer
 
 	mapData.clear();
 
@@ -42998,6 +43041,13 @@ void connectionTCP::sendSaveProgressFile()
 		CoopState* coopWindow = new CoopState(67);
 		_game->pushState(coopWindow);
 			
+	}
+	else if (coopOwnBaseUnnamed(_game))
+	{
+		// coop W2-H66 (E3; F19207): the own new base is still unnamed, so its world would be refused (a false 995) and nothing
+		// would reach the host, whose "Saving..." would never close. Hold the answer; E2 sends it once the base is named.
+		g_coopSaveAnswerHeld = true;
+		Log(LOG_INFO) << "[coop-save] save request held: own base unnamed";
 	}
 	else
 	{
