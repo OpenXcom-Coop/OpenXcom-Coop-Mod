@@ -8,23 +8,27 @@ both machines, so the parallel sync check never ran). A battle the host's craft 
 re-latched the flag, and a resumed save kept it.
 
 Rows (each a fresh campaign, both machines enter the battle and settle on the map):
-  S1 SEPARATE, host and client both set parallel turns on, the CLIENT's craft lands.
-  S2 SEPARATE, both on, the HOST's craft lands.
-  S3 SEPARATE, host OFF and client on, the client's craft lands: the host's choice
-     (classic) must hold, not the client's.
-  H1 SHARED, both on, the host lands the shared craft.
-A row passes when parallelEnabled and parallelActive on BOTH machines equal the host's
-option once both are on the battlescape.
+  S2 SEPARATE, both parallel, the HOST's craft lands.
+  S3 SEPARATE, host traditional and client parallel, the HOST's craft lands: the host's
+     choice (traditional) must hold, not the client's.
+  H1 SHARED, both parallel, the host lands the shared craft (one host-owned and one
+     client-owned soldier).
+  B1 (on H1's battle, main #210): no turn / wait banner at a parallel side start on
+     either machine, sampled 8 s at turn 1 and again after one side boundary.
+A row passes when event_state.turnMode on BOTH machines equals the host's option once
+both are on the battlescape (the host stamps the mode on the battle offer and the client
+mirrors it, D-19b).
+MG-P1 (rewrite/merge-main, R-MF210-1): the option is CoopTurnMode ("parallel" /
+"traditional"); main's S1 and S3 landed the CLIENT's craft, which never starts a SEPARATE
+battle (owner D199 (a), W2-H9): S1 is dropped and S3 lands the host's craft.
 
-  * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 3: a precondition never held).
+  * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
+    never held; MG-P1).
 
-Env (optional): COOP_PTL_ROWS = "S1,S2,S3,H1" subset.
+Env (optional): COOP_PTL_ROWS = "S2,S3,H1" subset (B1 runs with H1).
 """
 import os
 import sys
-# RW-TRIAGE: SKIP-PENDING(MG-P1) - main #200-#202's test; MG-P1 re-points it on rewrite/merge-main (MG-C, QSG-5; the gate's OWNED row)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,11 +38,10 @@ sys.path.insert(0, HERE)
 import session  # noqa: E402
 import geo  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_parallel_campaign as SPC  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-ON = {"EnableCoopParallelTurns": True}
-OFF = {"EnableCoopParallelTurns": False}
+ON = {"CoopTurnMode": "parallel"}      # MG-P1: the rewrite's turn-mode option (Options.cpp CoopTurnMode)
+OFF = {"CoopTurnMode": "traditional"}
 
 
 class Inconclusive(Exception):
@@ -65,14 +68,16 @@ def base0(gc):
 
 
 def flags(gc):
-    """In-battle readout: the session flag and whether the parallel side is live."""
-    ps = gc.cmd({"cmd": "parallel_state"})
-    return {"enabled": bool(ps.get("parallelEnabled")), "active": bool(ps.get("parallelActive"))}
+    """In-battle readout (MG-P1): this battle's turn mode as the host stamped it on the
+    battle offer and this machine mirrors it (event_state.turnMode, D-19b), and this
+    machine's own option (event_state.optionTurnMode)."""
+    es = gc.cmd({"cmd": "event_state"})
+    return {"mode": es.get("turnMode"), "option": es.get("optionTurnMode")}
 
 
 def geo_flag(gc):
-    """The session flag on the geoscape (parallel_state answers only in a battle)."""
-    return gc.ok({"cmd": "get_coop"}).get("parallelEnabled")
+    """This machine's own turn-mode option, read on the geoscape (MG-P1)."""
+    return gc.cmd({"cmd": "event_state"}).get("optionTurnMode")
 
 
 # ---- battle entry --------------------------------------------------------------
@@ -106,41 +111,84 @@ def separate_landing(host, client, lander):
 
 
 def through_inventory(host, client):
-    """Both machines: briefing -> pre-battle inventory -> OK; settle on the tactical map."""
-    for gc in (host, client):
-        gc.wait_for(gc.name + " in battle",
-                    lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
-                    timeout=180, interval=1.0)
-    for gc in (host, client):
-        gc.wait_for(gc.name + " briefing", lambda gc=gc: has(gc, "BriefingState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "close_briefing"})
-    for gc in (host, client):
-        gc.wait_for(gc.name + " inventory", lambda gc=gc: has(gc, "InventoryState") or None,
-                    timeout=120, interval=0.5)
-    for gc in (host, client):
-        gc.ok({"cmd": "battle_inventory", "action": "ok"})
-    for _ in range(30):
-        if all(top(gc) == "BattlescapeState" for gc in (host, client)):
-            return
-        for gc in (host, client):
-            if top(gc) != "BattlescapeState":
-                gc.cmd({"cmd": "dismiss_popup"})
-        time.sleep(1.0)
-    raise Inconclusive("both machines never settled on the battlescape: "
-                       f"{[top(gc) for gc in (host, client)]}")
+    """MG-P1 (rewrite battle entry): the host enters, then session.drive_both_to_tactical
+    takes both machines through the briefings and the pre-battle equip screens together
+    (W2-P8b) and settles both on the tactical map."""
+    host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
+                  timeout=180, interval=1.0)
+    if not session.drive_both_to_tactical(host, client):
+        raise Inconclusive("both machines never settled on the battlescape: "
+                           f"{[top(gc) for gc in (host, client)]}")
 
 
 # ---- the verdict -----------------------------------------------------------------
 
 def verdict(host, client, expected, geo_flags):
+    """MG-P1: both machines run the battle in the HOST's turn mode (`expected`)."""
     got = {gc.name: flags(gc) for gc in (host, client)}
-    bs = {gc.name: bool(gc.cmd({"cmd": "battle_state"}).get("parallelEnabled")) for gc in (host, client)}
-    ok = all(f["enabled"] == expected and f["active"] == expected for f in got.values()) \
-        and all(v == expected for v in bs.values())
-    detail = (f"expected {expected}; battle parallel_state {got}; battle_state.parallelEnabled {bs}; "
-              f"geoscape after campaign start {geo_flags}")
+    ok = all(f["mode"] == expected for f in got.values())
+    detail = f"expected {expected}; battle event_state {got}; options on the geoscape {geo_flags}"
     return ok, detail
+
+
+# ---- B1 (main #210: test_parallel_sharedturn's banner check; MG-P1) ------------------
+
+FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # main's tokens, matched case-blind (QP1-2)
+END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (test_w2_battle_end_separate)
+
+
+def no_banners(host, client, seconds=8.0):
+    """Sampled, not one snapshot (main's assert_no_banners): the rewrite's turn / wait
+    banner is battle_state.coopWaitText. Returns (clean, every text each machine showed)."""
+    deadline = time.time() + seconds
+    seen = {"host": set(), "client": set()}
+    while time.time() < deadline:
+        for gc in (host, client):
+            w = gc.cmd({"cmd": "battle_state"}).get("coopWaitText") or ""
+            if w:
+                seen[gc.name].add(w)
+        time.sleep(0.5)
+    bad = [w for v in seen.values() for w in v if any(f in w.lower() for f in FORBIDDEN_BANNERS)]
+    return not bad, {k: sorted(v) for k, v in seen.items()}
+
+
+def cycle_side(host, client, timeout=240):
+    """One parallel side boundary: END TURN on both seats (the client first, then the host
+    once its END TURN reads 1/2, the readiness tally), then drain both machines (never a
+    BattlescapeState or a VoteMenu) until the player side is back on both. Returns the turn."""
+    start = host.cmd({"cmd": "battle_state"}).get("turn")
+    client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    host.wait_for("host " + END_TURN_HALF,
+                  lambda: host.cmd({"cmd": "battle_state"}).get("coopEndTurnText") == END_TURN_HALF or None,
+                  timeout=20, interval=0.25)
+    host.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        bs = {}
+        for gc in (host, client):
+            b = gc.cmd({"cmd": "battle_state"})
+            if not b.get("inBattle"):
+                raise Inconclusive(f"{gc.name} left the battle during the side boundary")
+            bs[gc.name] = b
+            if top(gc) not in ("BattlescapeState", "VoteMenu"):
+                gc.cmd({"cmd": "dismiss_popup"})
+        if (all((b.get("turn") or 0) > start and b.get("side") == 0 for b in bs.values())
+                and all(top(gc) == "BattlescapeState" for gc in (host, client))):
+            return bs["host"]["turn"]
+        time.sleep(1.0)
+    raise Inconclusive(f"the player side never came back: host={top(host)} client={top(client)}")
+
+
+def banner_row(results, host, client):
+    """B1: no turn / wait banner at a parallel side start on either machine, at turn 1
+    and after one side boundary (the non-player units pinned first, session.pin_ai_neutral,
+    so the alien side cannot act)."""
+    ok1, seen1 = no_banners(host, client)
+    session.pin_ai_neutral(host, client, tag="mgp1-b1")
+    turn = cycle_side(host, client)
+    ok2, seen2 = no_banners(host, client)
+    results["B1 SHARED parallel, no turn / wait banner at a side start (main #210)"] = (
+        ok1 and ok2, f"turn 1 showed {seen1}; turn {turn} showed {seen2}")
 
 
 # ---- rows --------------------------------------------------------------------------
@@ -154,10 +202,12 @@ def separate_row(results, row, lander_role, host_opts, tag, ports):
         session.new_campaign(host, client, port=ports[2])
         geo.wait_both_ready(host, client)
         geo_flags = {gc.name: geo_flag(gc) for gc in (host, client)}
+        if geo_flags != {"host": host_opts["CoopTurnMode"], "client": "parallel"}:
+            raise Inconclusive(f"the turn-mode options did not take: {geo_flags}")
         lander = client if lander_role == "client" else host
         separate_landing(host, client, lander)
         through_inventory(host, client)
-        results[row] = verdict(host, client, host_opts["EnableCoopParallelTurns"], geo_flags)
+        results[row] = verdict(host, client, host_opts["CoopTurnMode"], geo_flags)
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         for gc in (host, client):
@@ -174,10 +224,14 @@ def shared_row(results, row, tag, ports):
     host, client = js.host, js.client
     try:
         geo_flags = {gc.name: geo_flag(gc) for gc in (host, client)}
-        SPC.assign_and_fly(host, client)
-        host.ok({"cmd": "confirm_landing"})
-        through_inventory(host, client)
-        results[row] = verdict(host, client, True, geo_flags)
+        if geo_flags != {"host": "parallel", "client": "parallel"}:
+            raise Inconclusive(f"the turn-mode options did not take: {geo_flags}")
+        # MG-P1: main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
+        # bring-up (one host-owned and one client-owned soldier; the host confirms the
+        # landing; it drives both machines to the tactical map).
+        session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1})
+        results[row] = verdict(host, client, "parallel", geo_flags)
+        banner_row(results, host, client)
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         js.shutdown()
@@ -185,20 +239,17 @@ def shared_row(results, row, tag, ports):
 
 
 def main():
-    rows = os.environ.get("COOP_PTL_ROWS", "S1,S2,S3,H1").split(",")
+    rows = os.environ.get("COOP_PTL_ROWS", "S2,S3,H1").split(",")  # MG-P1: S1 dropped (D199 (a))
     results = {}
     note = None
     alive = True
     try:
-        if "S1" in rows:
-            alive = separate_row(results, "S1 SEPARATE fresh, both on, client's craft lands",
-                                 "client", ON, "ptl1", (49611, 49612, "49613")) and alive
         if "S2" in rows:
             alive = separate_row(results, "S2 SEPARATE fresh, both on, host's craft lands",
                                  "host", ON, "ptl2", (49614, 49615, "49616")) and alive
         if "S3" in rows:
-            alive = separate_row(results, "S3 SEPARATE fresh, host off / client on, client's craft lands",
-                                 "client", OFF, "ptl3", (49617, 49618, "49619")) and alive
+            alive = separate_row(results, "S3 SEPARATE fresh, host traditional / client parallel, host's craft lands",
+                                 "host", OFF, "ptl3", (49617, 49618, "49619")) and alive  # MG-P1: D199 (a)
         if "H1" in rows:
             alive = shared_row(results, "H1 SHARED, both on, host lands the shared craft",
                                "ptlh", (49620, 49621, 49622)) and alive
@@ -215,7 +266,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(3)
+        sys.exit(2)  # MG-P1: a precondition miss fails the run (WV-D99 / D100, RV-U1)
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: the host's parallel-turns choice holds in every battle")
