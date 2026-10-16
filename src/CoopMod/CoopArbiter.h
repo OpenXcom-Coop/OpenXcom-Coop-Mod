@@ -785,6 +785,15 @@ class State;
 /// A no-op for any other state and in single player.
 void coopEquipPresenceDetach(const State* st);
 
+/// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md, PINNED EDITS B7; owner D291 (b)): TRUE when @a item is in the pre-battle HOLD
+/// of a seat other than @a seat - an item on a co-op player's equip cursor is reserved: it is off every other screen's pile
+/// (Inventory::arrangeGround() parks it), the host refuses another seat's order for it and (S-C) no bulk tool takes it. Only while
+/// the equip phase is open with a same-side partner (never PvP, never in battle, never single player). Main thread.
+bool coopEquipHeldByOtherSeat(const BattleItem* item, int seat);
+
+/// coop EQ-2 S-B (B7): coopEquipHeldByOtherSeat() for THIS machine's seat (Inventory::arrangeGround()'s skip, B8).
+bool coopEquipHeldByOther(const BattleItem* item);
+
 /// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2, C2-4; owner D166 = B,
 /// D187, D188): the covered-battle driver, called by Game::run() once per frame right after the top state's
 /// think. HOST only, in an active co-op battle: while another screen covers the BattlescapeState and the base
