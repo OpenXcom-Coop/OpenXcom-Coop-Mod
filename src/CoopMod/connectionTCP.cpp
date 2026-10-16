@@ -6302,6 +6302,8 @@ static int g_pendingDenyItem = -1;
 
 // coop EQ-2 S-B (B1): the host's executor (B5, inside namespace CoopArbiter) ends the order's seat's hold; defined with B3.
 static void coopEquipHoldEndOrder(int seat, const BattleItem* item);
+// coop EQ-2 S-C (C0): the host's barrier (C2, coopEquipPumpHost) ends every hold; defined with C2b.
+static void coopEquipHoldsEndAll(const char* why);
 
 // coop EQ-2 S-A (A3): the presence state's zeros (coopEquipStateZeros(); @a counters also from coopEquipCounterZeros()). The
 // overlay's surfaces belong to their screen: only coopEquipPresenceDetach() forgets them.
@@ -11688,6 +11690,8 @@ static bool coopHostInvApplyTemplate(SavedBattleGame* save, BattleUnit* unit,
 		{
 			if (groundItem == hostCursor)
 				continue; // F3125: the host's own cursor item is not the client's to take
+			if (coopEquipHeldByOtherSeat(groundItem, (int)unit->getCoopSeat()))
+				continue; // coop EQ-2 S-C (C3c; owner D291 (b)): nor an item another seat holds (the actor is the order's seat's own unit)
 			bool skipAmmo = false; // the template's ammo, remembered for a weapon found with the wrong ammo
 			for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
 			{
@@ -11762,6 +11766,9 @@ static void coopHostInvClearOrAutoEquip(SavedBattleGame* save, BattleUnit* unit,
 	{
 		std::vector<BattleItem*> groundInv = *groundTile->getInventory();
 		groundInv.erase(std::remove(groundInv.begin(), groundInv.end(), hostCursor), groundInv.end()); // F3125
+		const int orderSeat = (int)unit->getCoopSeat(); // coop EQ-2 S-C (C3d; owner D291 (b)): nor an item another seat holds
+		groundInv.erase(std::remove_if(groundInv.begin(), groundInv.end(),
+			[orderSeat](const BattleItem* bi) { return coopEquipHeldByOtherSeat(bi, orderSeat); }), groundInv.end());
 		Mod* mod = save->getBattleState()->getGame()->getMod(); // the equip phase's admission: a live BattlescapeState
 		std::vector<BattleUnit*> units;
 		units.push_back(unit);
@@ -33117,6 +33124,7 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 			<< " goes back where it was (Q4 a)";
 		inv->setSelectedItem(0);
 	}
+	coopEquipHoldsEndAll("start"); // coop EQ-2 S-C (C2; P8b Q4 (a)): turn 1 - every pre-battle hold ends `start`, exactly once
 	// S-F (D215 a): the host had nothing to equip - no screen to close; turn 1 starts here.
 	if (!st && !coopEquipFirstTurnWithoutScreen(save))
 		return;
@@ -33198,6 +33206,14 @@ static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
 			Inventory* inv = coopEquipInventoryOf(st);
 			if (inv && inv->getSelectedItem())
 				inv->setSelectedItem(0);
+			{
+				// coop EQ-2 S-C (C2c): the equip end - the host's hold table and this machine's sample are dropped (the host counted
+				// every end `start`); nothing is sent (the phase is over).
+				std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+				for (int s = 0; s < 4; ++s)
+					CoopPresence::g_hold[s] = -1;
+				CoopPresence::g_localHeld = -1;
+			}
 			game->popState();
 			g_equip.screen = nullptr;
 			g_equip.closes.fetch_add(1);
@@ -33444,6 +33460,11 @@ static void coopEquipHoldsSend(int denySeat, int denyItem)
 		CoopPresence::g_pendingDenySeat = denySeat;
 		CoopPresence::g_pendingDenyItem = denyItem;
 	}
+	if (coopBattleAuthority().peerAbsent.load())
+	{
+		CoopPresence::g_holdsPending = true; // coop EQ-2 S-C (C1; owner D208 (a)): the partner left - the table waits for its rejoin
+		return;
+	}
 	if (coopTestEquipHoldsDeferred())
 	{
 		CoopPresence::g_holdsPending = true;
@@ -33581,7 +33602,20 @@ static void coopEquipHoldSample()
 	const int me = a.localSeat.load();
 	if (!isCoopBattle() || !coopEquipOpen() || !coopScanHasPartner() || me < 0 || me >= 4)
 		return;
-	if (a.hostSim && CoopPresence::g_holdsPending && !coopTestEquipHoldsDeferred())
+	if (a.hostSim && a.peerAbsent.load())
+	{
+		// coop EQ-2 S-C (C1b; owner D208 (a)): the partner left - every hold of another seat ends `leave` exactly once and the host's
+		// pile shows those items again at once; the table waits for the rejoin (coopEquipHoldsSend sends nothing meanwhile).
+		bool ended = false;
+		for (int s = 0; s < 4; ++s)
+			ended = (s != me && coopEquipHoldEnd(s, "leave")) || ended;
+		if (ended)
+		{
+			coopEquipHoldRelay();
+			CoopPresence::g_holdsPending = true;
+		}
+	}
+	if (a.hostSim && CoopPresence::g_holdsPending && !a.peerAbsent.load() && !coopTestEquipHoldsDeferred())
 		coopEquipHoldsSend(-1, -1);
 	const Inventory* inv = coopEquipScreenInventory();
 	const int cur = inv && inv->getSelectedItem() ? inv->getSelectedItem()->getId() : -1;
@@ -33613,6 +33647,18 @@ static void coopEquipHoldSample()
 	CoopEmit::sendBattle(msg);
 	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
 	++CoopPresence::g_holdSends;
+}
+
+// coop EQ-2 S-C (docs rewrite/prompts/eq2c_hold_ends.md, PINNED EDITS C2b; P8b Q4 (a)): HOST - the barrier (turn 1): every hold ends
+// with @a why exactly once (an empty seat counts nothing; a refused close retried at the next pass ends nothing twice) and the
+// host's pile is laid out again. No table: the client's own equip end drops its copy (C2c).
+static void coopEquipHoldsEndAll(const char* why)
+{
+	bool ended = false;
+	for (int s = 0; s < 4; ++s)
+		ended = coopEquipHoldEnd(s, why) || ended;
+	if (ended)
+		coopEquipHoldRelay();
 }
 
 // coop EQ-2 S-A (A7): BOTH, every coopEquipPump() pass (A8). (1) This machine's pointer to the partner while its pre-battle screen is

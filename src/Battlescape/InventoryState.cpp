@@ -1469,6 +1469,8 @@ void InventoryState::_applyInventoryTemplate(std::vector<EquipmentLayoutItem*> &
 
 		for (BattleItem* groundItem : *groundInv)
 		{
+			if (coopEquipHeldByOther(groundItem))
+				continue; // coop EQ-2 S-C (C3; owner D291 (b), QEQ2-10 (a)): the co-op partner holds it on its pre-battle cursor
 			// if we find the appropriate ammo, remember it for later for if we find
 			// the right weapon but with the wrong ammo
 			auto* groundItemRule = groundItem->getRules();
@@ -1776,6 +1778,7 @@ void InventoryState::onAutoequip(Action *)
 	BattleUnit               *unit          = _battleGame->getSelectedUnit();
 	Tile                     *groundTile    = unit->getTile();
 	std::vector<BattleItem*>  groundInv     = *groundTile->getInventory();
+	groundInv.erase(std::remove_if(groundInv.begin(), groundInv.end(), coopEquipHeldByOther), groundInv.end()); // coop EQ-2 S-C (C3b; QEQ2-10 (a)): the partner's held items are not on the ground for auto-equip
 	Mod                      *mod           = _game->getMod();
 	RuleInventory            *groundRuleInv = mod->getInventoryGround();
 	int                       worldShade    = _battleGame->getGlobalShade();
