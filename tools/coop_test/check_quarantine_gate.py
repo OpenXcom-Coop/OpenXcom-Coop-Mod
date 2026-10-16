@@ -83,7 +83,6 @@ GREEN = {
 # dict empty.
 INCOMING = {"test_coop_event_sync", "test_coop_mission_research", "test_coop_research_known_topic", "test_coop_research_sync", "test_coop_client_mission_abort", "test_coop_battle_start_sync", "test_coop_parallel_turns_latch", "test_skirmish_saved_battle_join", "test_skirmish_saved_pve2_end_turn"}
 OWNED = {
-    "test_pvp_campaign_resume": "D250-U S-D",
     "test_coop_event_sync": "MG-F",
     "test_coop_mission_research": "MG-F",
     "test_coop_research_known_topic": "MG-F",

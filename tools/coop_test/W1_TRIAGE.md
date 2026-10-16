@@ -472,7 +472,7 @@ SKIP-PENDING print returns or if any row below stops holding. This section super
 | `test_shared_month_run.py`, `test_shared_base_defense.py` | run live since RV-U5 S-C (guard removed; both passed as written) |
 | `test_battlescape_exit_palette.py`, `test_campaign_then_skirmish_debrief.py` | run live since RV-U5 S-D (guard removed; the SHARED entry / the skirmish half re-pointed, RP5 / RP3) |
 | `test_pvp_campaign_ufo_spawn.py` | run live since D250-U S-A2 (both UFO sets compared on a settled clock, R-D250-SA2-1) |
-| `test_pvp_campaign_resume.py` | held by D250-U S-D (after D246-U S-C and MG-B): the gate's OWNED row; that stage lifts the guard, deletes the row and updates this line |
+| `test_pvp_campaign_resume.py` | run live since D250-U S-D on `rewrite/merge-main` (guard and the gate's OWNED row removed): its gm2 leg resumes the release-made battle save through the host window (D246-U S-C1's conversion, R-D250-SC4A-1), its gm3 leg expects owner D284's refusal with the repair line (L-SC5-6), its geoscape leg runs as written |
 | the other 13 (`test_coop_peer_equip_screens.py`, `test_unload_weapon_crash.py`, `test_pvp_skirmish_gamemode_selection.py`, `test_shared_autoend_crashsite.py`, `test_crash_reporter.py`, `test_pvp_campaign_{bringup, geoscape, month, reconnect, battle}.py`, `test_pvp_dogfight.py`, `test_pvp_duplicate_bases.py`, `test_shared_soldier_gift_dup.py`) | run live (U6, R5-U9, RV-U7, RV-U9, D250-U, R5-U5; their rows above) |
 
 Also removed: `repro74_setup.py` and `repro74_probe.py` (manual repro tools for the pre-rewrite issue #74, built on the deleted
