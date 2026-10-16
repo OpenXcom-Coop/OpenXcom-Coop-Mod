@@ -16,6 +16,12 @@ orders are intents (session.send_walk, a battle_intent shoot lever).
       hiddenMovementShown False; its selectedId printed).
   H6  the alien host sees a seen X-COM soldier walk: the host camera staged on 9 (TASK 0: the lever staging leaves the
       host's sight lists stale at turn 1, so an off-screen walk runs in one frame); the partner's send_walk(9, H2_DEST).
+      W2-U9 re-point (R-U9-0, F21063): since R5-U2 S-B (58a185218, QU1-6) the alien host animates a walk only while
+      the aliens see the walker (an unseen enemy walks unanimated, as vanilla does for the player), and the staged
+      tile (18,6,0) is not in the aliens' sight lists, so the 2-tile walk ran unanimated in 50 ms and closed before the
+      first sample. Staging now starts the walk SEEN: the partner's one-tile send_walk(9, H6_START) first (a real
+      step recomputes the aliens' sight; staging precondition: 9 in the host's HU before the press, else the row
+      fails "staging"), then the 2-tile send_walk(9, H2_DEST) the cells sample. Every cell is unchanged.
       H6-during (>= 1 host sample True before the host chain closed), H6-after (every host sample False from LAG_S s
       after it closed).
   H9  an X-COM shot no alien sees keeps the alien host's screen (a guard: S-B's tile sight already keeps it): 13's rifle
@@ -53,6 +59,9 @@ KEY = "48957"
 A_ID = HM.A_ID                    # 1000000 on (15,2,0) facing 4: the host's alien (seat 0)
 S9, U13 = 9, 13
 H2_DEST, K1_TILE = HM.H2_DEST, HM.K1_TILE   # (16,8,0) two tiles from 9 inside A's view sector; (33,30,0)
+# W2-U9 (F21063): 9's seen start tile, one step S of its staged (18,6,0) and two tiles from H2_DEST. Replacement rule:
+# the nearest open-ground tile one step from (18,6,0) that is two tiles from H2_DEST and puts 9 in the host's HU.
+H6_START = (18, 7, 0)
 SEED_H9 = 1
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 ROWS = (("H5", ("H5-screen", "H5-common")),
@@ -80,6 +89,13 @@ def row_h5(host, client, crash0):
 
 def row_h6(host, client, crash0):
     ev, cells = {}, {}
+    # W2-U9 (F21063): start the H6 walk on a tile the aliens see (a real one-tile step refreshes their sight lists).
+    ev["pre"] = {"resp": session.send_walk(client, S9, H6_START)}
+    ev["pre"]["done"] = G3F.walk_done(host, client, S9, H6_START, ev["pre"])
+    ev["pre"].update(at=[pos(host, S9), pos(client, S9)], HU=K.hu(host))
+    if not ev["pre"]["done"] or S9 not in ev["pre"]["HU"]:
+        raise AssertionError(f"staging: 9's pre-walk to {H6_START} {ev['pre']} (want 9 on {H6_START} on both and in "
+                             f"the host's HU before the H6 press)")
     ev["staged"] = HC.cam_offset(HC.stage_camera(host, pos(host, S9)))
     ctx0, seq0 = ctxs(host), es(host, "lastSeqEmitted") or 0
     sent0 = dict(es(client, "coopIntentsSent") or {})
@@ -138,7 +154,7 @@ def boot_d3():
         except G3F.Miss:
             return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE D3 line)")
         try:
-            st = {"boot": boot, "placed": RM.stage_tiles(host, client, RM.TILES, (H2_DEST, K1_TILE)),
+            st = {"boot": boot, "placed": RM.stage_tiles(host, client, RM.TILES, (H2_DEST, K1_TILE, H6_START)),
                   "turnSide": [(G3F.bview(g).get("turn"), G3F.bview(g).get("side")) for g in m],
                   "hash": G3F.hash_now(host, client)}
         except G3F.Miss:
