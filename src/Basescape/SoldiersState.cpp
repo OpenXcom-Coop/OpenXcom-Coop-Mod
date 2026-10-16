@@ -726,6 +726,10 @@ void SoldiersState::btnOkClick(Action *)
 
 			for (auto* soldier : *_base->getSoldiers())
 			{
+				// coop W2-H70 S-B (spec docs rewrite/prompts/w2h70_sb_display_copy.md EB5; R-TR9-1; F20420, F20424): a received gift's display
+				// copy is never written to "basehost" (it carries the giver's id; the replay after the leave adds the soldier once).
+				if (connectionTCP::visitDisplayCopies.count(soldier))
+					continue;
 				if (soldier->getCraft())
 				{
 
