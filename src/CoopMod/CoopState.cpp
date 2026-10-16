@@ -1119,6 +1119,18 @@ void CoopState::think()
 
 	State::think();
 
+	// coop W2-H64 S-B (docs rewrite/prompts/w2h64_sb_close_unarmed.md (e) EB1; L-H59-1, R-H64-0; F19185, F19187, F19189): the host's
+	// "Saving..." (54) waits only while its save is armed (SaveGameState arms it before the push). A write that ran while another
+	// window covered the 54 (the partner's world landing, or the partner's drop, W2-H64 S-A) disarmed it but could not pop it: close
+	// it as soon as it is the top state again (W2-H54's rule: pop only the top state).
+	if (global_state == COOP_DLG_HOST_SAVE_WAIT && connectionTCP::session.pendingHostSaveName.empty()
+		&& !_game->getStates().empty() && _game->getStates().back() == this)
+	{
+		Log(LOG_INFO) << "[coop] W2-H64: the host's save wait (54) closes - nothing is armed";
+		_game->popState();
+		return;
+	}
+
 	static Uint32 lastUpdate = 0;
 	Uint32 now = SDL_GetTicks();
 
