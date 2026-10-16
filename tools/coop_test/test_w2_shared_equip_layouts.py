@@ -161,6 +161,7 @@ def brief(g):
 def stage(host, client, ctx):
     """Both briefings up, client first (F607): H and C stripped, then L1 to C and L2 to H (S25: staged items)."""
     c, h = ctx["C"], ctx["H"]
+    session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
     rec = {"stripped": {"C": strip_both(host, client, c), "H": strip_both(host, client, h)}, "ids": {}}
     for uid, give in ((c, L1_GIVE), (h, L2_GIVE)):
         for t, extra in give:

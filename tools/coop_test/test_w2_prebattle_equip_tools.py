@@ -313,6 +313,7 @@ def spine_stage(host, client, ctx):
     rec = {"ids": {}}
     ctx["staged"] = rec
     try:
+        session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
         rec["stripped"] = {uid: strip_both(host, client, uid) for uid in (C1, C2)}
         for uid, gives in ((C1, L1_GIVE), (C2, L2_GIVE)):
             for t, extra in gives:

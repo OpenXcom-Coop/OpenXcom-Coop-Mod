@@ -381,6 +381,7 @@ def spine_e1(host, client, ctx):
     rec.update({"clientBriefingWithin": d0 if g0 else None, "hostActiveWithin": d1 if g1 else None,
                 "clientClose": {k: c.get(k) for k in ("ok", "error")}, "clientScreenWithin": d2 if g2 else None})
     if g0 and g2:
+        session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
         stage_aliens(host, client, ctx)
     rec.update({"host": dump(host), "client": dump(client)})
     print(f"SPINE E1: {json.dumps(rec, sort_keys=True, default=str)}", flush=True)

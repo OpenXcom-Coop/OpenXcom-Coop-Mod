@@ -310,6 +310,7 @@ def boot_a(host, client):
     ok, ctx["boot"]["clientBriefingS"] = wait_until(lambda: has(client, "BriefingState") and in_battle(client), EQ1_WAIT_S, 0.1)
     if not ok:
         miss("A", f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
+    G3F.guarded("A", lambda: session.wait_seq_barrier(host, client), m)   # F21396: the host's first evs applied before staging (R-LT13-1)
     st = ctx["boot"]["staged"] = G3F.guarded("A", lambda: stage(host, client), m)
     if st["diff"]:
         miss("A", f"buckets differ after the staging: {st['diff']}", m)
