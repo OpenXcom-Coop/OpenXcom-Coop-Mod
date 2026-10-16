@@ -82,9 +82,9 @@ screen shows C1; C1's TU is read on both machines before and after each row.
   EQ9   END TURN in the window (b8), during EQ3's hold: the client's
         battle_end_turn_ready {ready: true}. GREEN: host alive, equip.endTurnIgnored 1,
         turn 0 on both.
-  EQ4   own units only: each machine inventory_click {widget: next} x its own count.
-        GREEN: the visited ids = the own set on each machine. RED: no client screen
-        (the freeze text on the banner).
+  EQ4   both players' units (EQ-1, owner D288 b): each machine inventory_click {widget: next} x len(H) + len(C).
+        GREEN: the visited ids = H u C on each machine (the partner's read-only). RED at EQ-1's R2: only the own
+        set (at S-A.1: no client screen, the freeze text on the banner).
   EQ5   ready toggle (D206 c, D216 c): client inventory_click {widget: ok} x3. GREEN:
         press 1 -> host equip.ready[1] true, client okPressed true, the client's screen
         still on top, turn 0, and at +1.5 s its line "Waiting for HostPlayer to finish
@@ -196,6 +196,7 @@ EQ1_WAIT_S = 30.0                  # EQ1 cell: "wait <= 30 s for the client's Br
 CLIENT_BATTLE_WAIT_S = 90.0        # the spine: the client's battle after the host's OK (drive_to_battlescape's 90 s)
 ENTRY_WAIT_S = 5.0                 # the client's equip screen after its briefing closes
 CLICK_WAIT_S = 2.0
+CYCLE_CAP = 16                     # EQ-1 (D288 b): goto_unit's press bound - the pre-battle cycle also visits the partner's soldiers
 ANSWER_WAIT_S = 3.0                # a held deny / a ready flag / a counter reaches the other machine
 LAND_WAIT_S = 10.0                 # EQ3 cell: "within 10 s the clip is on C1's belt on both"
 LINE_READ_S = 1.5                  # F3112: the line fades in 1.2 s; read 1.5 s after the event
@@ -370,12 +371,21 @@ def next_press(gc, rec_list):
 
 
 def goto_unit(gc, uid, own, rec_list):
-    """NEXT until the screen shows `uid` (at most len(own) presses). True when reached."""
-    if inv_view(gc).get("unitId") == uid:
+    """NEXT until the screen shows `uid`. EQ-1 (owner D288 b): the pre-battle PREV / NEXT also visit the partner's
+    soldiers (read-only), so the walk ends at `uid`, after one full cycle (back on its start unit after leaving it) or
+    after CYCLE_CAP presses - never after len(own). `own` stays for the callers. True when reached."""
+    start = inv_view(gc).get("unitId")
+    if start == uid:
         return True
-    for _ in range(len(own)):
-        if next_press(gc, rec_list) == uid:
+    left = False
+    for _ in range(max(len(own), CYCLE_CAP)):
+        after = next_press(gc, rec_list)
+        if after == uid:
             return True
+        if after != start:
+            left = True
+        elif left:
+            return False
     return False
 
 
@@ -796,15 +806,16 @@ def eq4_own_units(host, client, ctx):
     for gc, own in ((host, H_IDS), (client, C_IDS)):
         start = inv_view(gc).get("unitId")
         presses = []
-        for _ in range(len(own)):
+        for _ in range(len(H_IDS) + len(C_IDS)):   # EQ-1 (D288 b): the cycle visits both players' soldiers
             next_press(gc, presses)
         seen = [start] + [p["to"] for p in presses]
         ev[gc.name] = {"start": start, "presses": presses, "seen": seen}
     evidence("EQ4", ev)
     for gc, own in ((host, H_IDS), (client, C_IDS)):
         seen = ev[gc.name]["seen"]
-        if set(seen) != set(own):
-            fails.append(f"EQ4: {gc.name} NEXT x{len(own)} visited {seen} (want exactly its own set {own})")
+        if set(seen) != set(H_IDS + C_IDS):
+            fails.append(f"EQ4: {gc.name} NEXT x{len(H_IDS) + len(C_IDS)} visited {seen} (want every player-side soldier: "
+                         f"its own {own} and the partner's, EQ-1 / owner D288 b)")
     fails += tail_fails(host, client, "EQ4")
     finish(fails)
 
