@@ -348,7 +348,21 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("monthsPassed", _monthsPassed);
 
 	// coop
-	reader.tryRead("saveID", connectionTCP::saveID);
+	// coop W2-H79 (docs rewrite/prompts/w2h79_visit_saveid_rollback.md E1; L-H70C-2, R-LH70C-2-1; F21767-F21773, F21846-F21851): "basehost" is a
+	// machine's own world parked at its visit of the partner's base (CoopState 55), or the world it last streamed to a visiting partner
+	// (sendBaseFile); the blob carries the saveID of the moment it was written. A host save during the visit re-mints saveID on both machines,
+	// so this load (the leave's reload, a base screen's OK, a partner's base rename, a mission-end fallback) keeps the current saveID: the
+	// older id made the host store the partner's world under one key and look it up under another, and a partner who dropped and rejoined got
+	// a new campaign. Every other key sets saveID from the blob, as before.
+	{
+		long long blobSaveId = connectionTCP::saveID;
+		reader.tryRead("saveID", blobSaveId);
+		if (key != "basehost")
+			connectionTCP::saveID = blobSaveId;
+		else if (blobSaveId != connectionTCP::saveID)
+			Log(LOG_INFO) << "[coop] W2-H79: \"basehost\" loaded - saveID stays " << connectionTCP::saveID << " (the parked world's is "
+				<< blobSaveId << ")";
+	}
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
