@@ -79,6 +79,7 @@
 #include "../Savegame/EquipmentLayoutItem.h" // W2-P8b S-C.2: the `inv_bulk` layouts
 #include "../Battlescape/WarningMessage.h" // W2-P8b S-A.2: the pre-battle screen's message line (D216)
 #include "../Interface/BattlescapeButton.h" // W2-P8b S-A.2: the pre-battle OK button's pressed look (D206 c)
+#include "../Interface/Text.h" // coop EQ-1 (owner D288 b): the pre-battle screen's owner line over a partner's soldier
 #include "../Battlescape/ScannerState.h" // W2-P4 S-D.2: the scanner's screen at the client's own end
 #include "../Battlescape/SkillMenuState.h" // W2-P4 S-E2.2: chooseWeaponForSkill() + the skill continuation (ActionMenuState)
 #include "../Battlescape/PrimeGrenadeState.h" // W2-P8 S-C2.2: the host screen check closes a prime screen
@@ -6293,6 +6294,26 @@ static bool coopEquipAlienUnit(const BattleUnit* u)
 	return false;
 }
 
+// coop EQ-1 (docs rewrite/prompts/eq1_partner_soldiers_readonly.md E2; owner D288 (b), D289 (a), D293 (a)): see CoopArbiter.h.
+// g_equipViewCycle is true only inside coopEquipCycleView()'s one vanilla PREV / NEXT call (main thread).
+static bool g_equipViewCycle = false;
+
+bool coopEquipPartnerView(const BattleUnit* u)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	if (!u || !coopEquipOpen() || me < 0 || me >= 4 || a.factionOf(me) != (int)FACTION_PLAYER)
+		return false;
+	if (u->isOut() || !u->hasInventory() || u->getFaction() != FACTION_PLAYER || a.commandsUnit(u))
+		return false;
+	for (int seat = 0; seat < 4; ++seat)
+	{
+		if (seat != me && a.factionOf(seat) == (int)FACTION_PLAYER && a.commandsUnit(u, seat))
+			return true;
+	}
+	return false;
+}
+
 // The state's zeros (initBattleAuthority() and resetBattleAuthority()).
 static void coopEquipStateZeros()
 {
@@ -9257,6 +9278,10 @@ Json::Value coopWalkPace()
 bool coopMaySelectUnit(const BattleUnit* u)
 {
 	if (!isCoopBattle() && !coopEquipOpen()) // W2-P8b S-A.2 (F3110, V3): the equip screen's PREV/NEXT in phase Handshake too
+		return true;
+	// coop EQ-1 (E3; owner D288 b): inside coopEquipCycleView()'s vanilla PREV / NEXT only, a partner's soldier joins the
+	// cycle (shown read-only). Every other caller still selects this seat's own units only.
+	if (g_equipViewCycle && coopEquipPartnerView(u))
 		return true;
 	// W1-P13d (WAVE1-RUNBOOK.md SPEC 12, REV E.60 / owner ruling D87 = (b)):
 	// a unit this machine's seat COMMANDS is selectable exactly as before -
@@ -18177,6 +18202,8 @@ BattleUnit* coopInventoryCloseGravityUnit(BattleUnit* u)
 
 bool coopInterceptRename(BattleUnit* unit, const std::string& text)
 {
+	if (coopEquipPartnerView(unit))
+		return true; // coop EQ-1 (E4; owner D289 a): a partner's soldier is not renamed - nothing written, nothing sent
 	if (!isCoopBattle() || !unit)
 		return false; // SP and every non-co-op battle: vanilla
 	Soldier* s = unit->getGeoscapeSoldier();
@@ -26974,7 +27001,7 @@ static void coopClientInventoryForceClose(SavedBattleGame* save)
 	const char* reason = nullptr;
 	if (!unit || unit->isOut() || !unit->getTile())
 		reason = "unit_out";
-	else if (!coopBattleAuthority().commandsUnit(unit))
+	else if (!coopBattleAuthority().commandsUnit(unit) && !coopEquipPartnerView(unit)) // coop EQ-1 (E5): a partner's soldier on the pre-battle screen is a ruled read-only view (D288 b), never a close candidate
 		reason = "not_commanded";
 	else if (!coopBattleAuthority().mySideActive(save))
 		reason = "side";
@@ -32824,6 +32851,44 @@ bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir)
 	i = (i + (int)own.size()) % (int)own.size();
 	save->setSelectedUnit(own[i]);
 	return true;
+}
+
+// coop EQ-1 (E6; owner D288 b): see CoopArbiter.h.
+bool coopEquipCycleView(BattlescapeState* parent, bool tu, int dir)
+{
+	if (tu || !parent || !coopEquipOpen())
+		return false; // single player, a mid-battle inventory, a base screen, no equip phase: vanilla's PREV / NEXT
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	if (me < 0 || me >= 4 || a.factionOf(me) != (int)FACTION_PLAYER)
+		return false; // no seat, or a PvP alien seat (coopEquipCycleOwnUnit() ran first): as built
+	g_equipViewCycle = true;
+	if (dir < 0)
+		parent->selectPreviousPlayerUnit(false, false, true);
+	else
+		parent->selectNextPlayerUnit(false, false, true);
+	g_equipViewCycle = false;
+	return true;
+}
+
+// coop EQ-1 (E6; owner D288 b: the release line's look, InventoryState.cpp at 651ae44ba :586-:601): see CoopArbiter.h.
+void coopEquipApplyViewLook(Game* game, const BattleUnit* unit, bool tu, bool parent, Surface* unload,
+	Surface* createTemplate, Surface* applyTemplate, Text* ownerLine)
+{
+	if (tu || !parent || !game || !unit || !unload || !createTemplate || !applyTemplate || !ownerLine || !coopEquipOpen())
+		return; // single player, a mid-battle inventory, a base screen, no equip phase: vanilla's look
+	const bool view = coopEquipPartnerView(unit);
+	unload->setVisible(!view);
+	createTemplate->setVisible(!view);
+	applyTemplate->setVisible(!view);
+	ownerLine->setVisible(view);
+	if (!view)
+		return;
+	// the seat's roster name; a skirmish has no roster: the two-player bridge names the peer (coopSeatDisplayName's rule)
+	std::string name = connectionTCP::seatName((int)unit->getCoopSeat());
+	if (name.empty() && connectionTCP::seatCount() == 2 && game->getCoopMod())
+		name = game->getCoopMod()->getCurrentClientName();
+	ownerLine->setText(game->getLanguage()->getString("STR_COOP_EQUIP_OWNER").arg(name));
 }
 
 // HOST (b5, Q1 (a)): a client's `bt_equip_ready {battleId, seat, ready}`.
