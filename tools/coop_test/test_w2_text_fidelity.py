@@ -11,7 +11,8 @@ host's "PATROLLING". Rows in order, the battle last:
   A12b-2  rearm alert (B-12): host sells INTERCEPTOR-2's clips to 0, craft_force {craft_id 2, ammo 0, STR_REARMING};
           skip 180 game minutes (speed 4) to CraftErrorState on both; its Text captions: clientSentence == [FR_REARM]
           [RED], G:hostSentence == [EN_REARM]; then craft 2 STR_READY.
-  A12b-3  cannot-reequip (F6780): test_w2_campaign_followups' boot-1 sells, battle (SEED_S), strip squad[0], autoEnd,
+  A12b-3  cannot-reequip (F6780): test_w2_campaign_followups' boot-1 sells, squad[0] given the rifle-set layout on both
+          (W2-U9c, fu.RIFLE_SET), battle (SEED_S), strip squad[0], autoEnd,
           loadGamePushes0, kill_unit_real {faction 1}, ending, procedure; CannotReequipState rows sorted (R-C-1):
           clientCraft == 3 x "MERCURE-1" [RED]; G:hostRows == HOST_ROWS (Rifle Clip 3, R-A12b-T0-1); G:clientItems ==
           the French names; G:qty the client's (item key, qty) == the host's.
@@ -228,9 +229,11 @@ def row_reequip(js, ev):
     ok, secs = wait_until(lambda: all(fu.base_items(gc).get(t, 0) == 0 for gc in m for t in fu.LOADOUT_TYPES), STORES_S)
     if not ok:
         miss("A12b-3 sells", f"loadout stock not 0 on both after {secs}s ({ev['sells']})", m)
-    squad, uid = fu.battle(js, ctx, m)   # camp.capture (a CAPTURE line) + FixtureMiss on a miss
+    # W2-U9c (R-MGR2-1, F22806): squad[0] gets the rifle-set layout before the battle, so auto-equip never picks it
+    squad, uid = fu.battle(js, ctx, m, layouts={0: fu.RIFLE_SET})   # camp.capture (a CAPTURE line) + FixtureMiss
     rh, rc = b1.both(host, client, {"cmd": "battle_strip_unit", "unit": uid[squad[0]]})
     ev["squad"], ev["strip"] = squad, {"host": rh.get("deleted"), "client": rc.get("deleted")}
+    ev["rifleSet"] = ctx.get("rifleSet")
     if not (rh.get("ok") and rc.get("ok") and rh.get("deleted")
             and sorted(rh["deleted"]) == sorted(rc.get("deleted") or [])):
         camp.capture("A12b-3 strip", f"battle_strip_unit answered host {rh} client {rc}", m)
