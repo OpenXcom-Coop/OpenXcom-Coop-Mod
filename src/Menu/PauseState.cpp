@@ -43,6 +43,22 @@ namespace OpenXcom
 
 GeoscapeState *_geostate;
 
+// coop W2-H63 (R-H63-0): vanilla's rule for Save in the battle pause menu (the constructor's "ENOUGH!" guard, OXCE 4a6ade5ef),
+// for the truly-solo re-show blocks below: Save stays hidden during the enemy turn (debug mode excepted) or while a battle action
+// is still running, so a single-player save never captures a half-applied action.
+static bool coopVanillaHidesSave(SavedGame *save, OptionsOrigin origin)
+{
+	if (origin != OPT_BATTLESCAPE || !save || !save->getSavedBattle())
+	{
+		return false;
+	}
+	SavedBattleGame *battle = save->getSavedBattle();
+	bool playerTurn = battle->getSide() == FACTION_PLAYER;
+	bool debugMode = battle->getDebugMode();
+	bool busy = !battle->getBattleGame()->getStates().empty();
+	return (!playerTurn && !debugMode) || busy;
+}
+
 /**
  * Initializes all the elements in the Pause window.
  * @param game Pointer to the core game.
@@ -189,7 +205,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false)
 	{
 		_btnLoad->setVisible(true);
-		_btnSave->setVisible(true);
+		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop W2-H63 (R-H63-0)
 	}
 
 
@@ -315,7 +331,7 @@ void PauseState::init()
 	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false)
 	{
 		_btnLoad->setVisible(true);
-		_btnSave->setVisible(true);
+		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop W2-H63 (R-H63-0)
 	}
 
 }
