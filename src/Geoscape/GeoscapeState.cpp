@@ -5212,6 +5212,43 @@ bool GeoscapeState::coopHeldTargets(State* state, std::vector<Target*>& out)
 }
 
 /**
+ * coop W2-H81 (R-LH76-1-1 (e); docs rewrite/prompts/w2h81_popup_mirror_uaf.md): drops every queued popup (not yet shown) that holds
+ * one of @a doomed - co-op mirrors about to be deleted - so none opens later on a freed object. Pointers are compared, never
+ * dereferenced; a queued popup was never pushed, so it is deleted here (TestServer's "ufo_popup" lever deletes one the same way).
+ * @param doomed The objects about to be deleted.
+ * @return The number of queued popups dropped.
+ */
+int GeoscapeState::coopDropQueuedPopupsHolding(const std::vector<Target*>& doomed)
+{
+	int dropped = 0;
+	for (auto it = _popups.begin(); it != _popups.end();)
+	{
+		std::vector<Target*> held;
+		coopHeldTargets(*it, held);
+		bool hit = false;
+		for (Target* t : held)
+		{
+			if (std::find(doomed.begin(), doomed.end(), t) != doomed.end())
+			{
+				hit = true;
+				break;
+			}
+		}
+		if (hit)
+		{
+			delete *it;
+			it = _popups.erase(it);
+			++dropped;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	return dropped;
+}
+
+/**
  * Adds a new popup window to the queue
  * (this prevents popups from overlapping)
  * and pauses the game timer respectively.
