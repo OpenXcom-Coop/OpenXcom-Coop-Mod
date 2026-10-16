@@ -34744,12 +34744,26 @@ static void coopWriteArmedSaveOnPeerDrop(Game* game)
 	if (connectionTCP::session.pendingHostSaveName.empty() || game->getStates().empty())
 		return;
 	CoopState* top = dynamic_cast<CoopState*>(game->getStates().back());
-	if (!top || top->getStateCode() != COOP_DLG_HOST_SAVE_WAIT)
+	// coop W2-H64 S-A (docs rewrite/prompts/w2h64_sa_write_under.md (e) EA1; L-H59-1, R-H64-0; F19186, F19188): another window (a gift
+	// notice, "Items received") can cover the 54 while it waits, and the drop disarms the save all the same: write it wherever the 54
+	// is on the stack. Pop the 54 only while it is the top state (W2-H54's rule); a 54 under another window stays where it is.
+	bool saveWaitOnStack = false;
+	for (State* st : game->getStates())
+	{
+		CoopState* cs = dynamic_cast<CoopState*>(st);
+		if (cs && cs->getStateCode() == COOP_DLG_HOST_SAVE_WAIT)
+		{
+			saveWaitOnStack = true;
+			break;
+		}
+	}
+	if (!saveWaitOnStack)
 		return;
 	Log(LOG_INFO) << "[coop] W2-H59: the partner dropped during the host's deferred save - it is written now ("
 		<< connectionTCP::session.pendingHostSaveName << ")";
 	game->getCoopMod()->writePendingHostSave();
-	game->popState();
+	if (top && top->getStateCode() == COOP_DLG_HOST_SAVE_WAIT)
+		game->popState();
 }
 
 void connectionTCP::writePendingHostSave()
