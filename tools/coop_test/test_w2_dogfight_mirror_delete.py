@@ -167,7 +167,7 @@ def icpt(gc, cid):
 
 def bring_up(row):
     """SEPARATE campaign (session.new_campaign's flow, copied from the capture) with the client's base placed near the host's -> H, C"""
-    tag = "w2h76_" + row.lower()
+    tag = "w2h76_" + row.rid.lower()
     row.host = GameClient("host", None, make_user_dir(tag + "_host"))
     row.client = GameClient("client", None, make_user_dir(tag + "_client"))
     host, client = row.host, row.client
