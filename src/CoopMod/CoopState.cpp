@@ -1934,6 +1934,16 @@ void CoopState::loadWorld()
 							Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
 
 							newbase->getSoldiers()->push_back(deep_copied_soldier);
+							// coop W2-H85 S-B (docs rewrite/prompts/w2h85_sb_base_switch.md EB1; R-LH85-1; lh85-cap F23026): seat the guest on its partner craft in
+							// EVERY base of the view, so a base switch inside the view (keys 1-8, the mini bases, BASE INFORMATION) shows it on the craft.
+							for (auto* view_craft : *newbase->getCrafts())
+							{
+								if (deep_copied_soldier->getCoopCraft() == view_craft->getId() && deep_copied_soldier->getCoopCraftType() == view_craft->getRules()->getType())
+								{
+									deep_copied_soldier->setCraftAndMoveEquipment(view_craft, newbase, newsave->getMonthsPassed() == -1);
+									break;
+								}
+							}
 
 						}
 					}
