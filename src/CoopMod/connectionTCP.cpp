@@ -35732,6 +35732,20 @@ static bool coopHoldBaseAnswer(Game* game, int role)
 	return true;
 }
 
+// coop W2-H78 (docs rewrite/prompts/w2h78_visit_during_handoff.md E1; R-LH74-1-1, VL-H78-1; lh74-1-cap F21611-F21614): a partner's base
+// request that reaches the host while a co-op battle is being handed over (phase Handshake: from the host's YES, prepareBattleOffer(), to the
+// partner's battle_ready) is dropped. loopData streams one blob at a time and reads a stream's end marker when the stream ends, so a base answer
+// set up now would end the battle blob as a base result (the partner's 55 then pops its briefing for a stale view, or crashes with no stored
+// copy) or, before the accept, take the battle blob's stream. Nothing is answered later: the partner's "Synchronizing bases..." (CoopState 50)
+// is popped by its battle adoption (coopUnwindToSafeState). Ended and Idle answer as before.
+static bool coopDropBaseRequestInHandOff(int role)
+{
+	if (coopBattleAuthority().phase.load() != CoopBattlePhase::Handshake)
+		return false;
+	Log(LOG_INFO) << "[coop-visit] base request dropped: a battle hand-off is in flight (role " << role << ")";
+	return true;
+}
+
 bool connectionTCP::pushProgressToHostSilently()
 {
 
@@ -44072,7 +44086,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		sendFileBase = true;
 	}
 
-	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true && !coopHoldBaseAnswer(_game, 2)) // coop W2-H66 S-B EB3 (C2b)
+	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true && !coopDropBaseRequestInHandOff(2) && !coopHoldBaseAnswer(_game, 2)) // coop W2-H66 S-B EB3 (C2b); W2-H78 E2
 	{
 
 		sendBaseFile();
