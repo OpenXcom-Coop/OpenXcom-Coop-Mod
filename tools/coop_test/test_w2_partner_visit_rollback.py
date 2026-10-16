@@ -3,16 +3,17 @@
 rewrite/prompts/w2h65_sb_no_rollback.md (f) (stage S-B), bring-up B and the PINNED SETUP VALUES of rewrite/prompts/w2h65_sa_name_follows.md
 (f) (stage S-A), and the common file rewrite/prompts/w2h65_mirror_name_rollback.md (probe P0 globe_point); TASK 0 values in
 rewrite/w2h65-task0/sb/CONSTANTS.md.
-In a SEPARATE campaign the host's marker for a client base built while the client is still naming it keeps the name "". While it exists,
-saveCoopToMemory refuses every save of the host's own world (its check reads markers it never writes): the host's click on that marker
-(the visit) raises 995 "Save failed (MEMORY), please try again." and leaving the base reloads the session-start "basehost" snapshot.
+In a SEPARATE campaign the host's marker for a client base built while the client is still naming it has the name "" until the client
+places its lift (W2-H65 S-A EA2). While it exists, saveCoopToMemory refuses every save of the host's own world (its check reads markers it
+never writes): the visit raises 995 "Save failed (MEMORY), please try again." and leaving the base reloads the session-start "basehost".
 ONE boot (key K1). Bring-up B: spawn + connect both; session.new_campaign (host base at HOST_POS); geo.slow_clock; geo.drain_popups; the
 window mapping per machine from INTERCEPT + its CANCEL (real clicks); TS0 = the host geo_state time.
-  Row R-3  client BASES, BUILD NEW BASE, one globe click at PICK (globe_point), OK -> BaseNameState, own base N1 "" [P3-0]; host INTERCEPT +
-           CANCEL, WIN_S -> host marker N1 ""; client NAME1 (key presses), OK, lift tile LIFT, GEOSCAPE; READ_S -> host marker N1 still ""
-           [P3-1]; host time >= TS0 + GAP_MIN [P3-2]; PRE (F0 host funds, T0 host time, C0 client time, host own bases) on GeoscapeState;
-           the host's click on marker N1 (CLICK rule); DLG = every top state and CoopState code until BasescapeState + 3 s; a CoopState on
-           top closed by its own button; host GEOSCAPE; session.wait_back_on_geoscape; POST_S; POST (F1, T1, C1, host bases) on GeoscapeState.
+  Row R-3  host time >= TS0 + GAP_MIN, both on GeoscapeState [P3-2]; client BASES, BUILD NEW BASE, one globe click at PICK (globe_point),
+           OK -> BaseNameState, own base N1 "" [P3-0]; host INTERCEPT + CANCEL, WIN_S -> host marker N1 ""; client NAME1 (key presses), OK ->
+           PlaceLiftState; READ_S -> host marker N1 still "", the lift not placed [P3-1]; PRE (F0 host funds, T0 host time, C0 client time,
+           host own bases; host on GeoscapeState, client on PlaceLiftState); the host's click on marker N1 (CLICK rule); DLG = every top state
+           and CoopState code until BasescapeState + 3 s, the client still on PlaceLiftState then [P3-3]; a CoopState on top closed by its own
+           button; client LIFT, GEOSCAPE; host GEOSCAPE; session.wait_back_on_geoscape; POST_S; POST (F1, T1, C1, host bases) on GeoscapeState.
     R-3a (RED)   DLG holds no CoopState 995.
     R-3b (RED)   F1 == F0 (the host's funds kept).
     R-3c (RED)   T1 >= T0 (the host's clock never runs back).
@@ -246,6 +247,19 @@ def click_mirror(b, r, m):
 def row_r3(b, r):
     """R-3 (S-B stage file (f)): the client builds a base, the host visits its unnamed marker"""
     h, c, ev = b.host, b.client, r.ev
+    t0w, gap, stepped = time.time(), [], False  # P3-2 first, both on GeoscapeState: the clock holds while the client builds (F20792)
+    while time.time() - t0w < GAP_POLL_S + GAP_STEP_S:
+        gap.append([round(time.time() - t0w, 1), census(h)["time"]])
+        if gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN:
+            break
+        if not stepped and time.time() - t0w >= GAP_POLL_S:  # GAP_MIN's rule: one speed step up, back to the slow clock before the click
+            stepped = [q(gc, {"cmd": "geo_set_speed", "idx": 1}) for gc in (h, c)]
+            ev["swaps"].append("GAP_MIN not met at the slow clock in %.0f s -> speed idx 1" % GAP_POLL_S)
+        time.sleep(1.0)
+    if stepped:
+        geo.slow_clock(h, c)
+    ev["P3-2"] = {"TS0": b.ts0, "polls": len(gap), "last": gap[-1]}
+    r.need(gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN, "P3-2: host time %s < TS0 %s + GAP_MIN" % (gap[-1][1], b.ts0))
     ev["clientBases"], ev["clientNewBase"] = cw(c, "BASES")["after"], cw(c, "NEW BASE")["after"]
     r.need(top(c) == "BuildNewBaseState", "P3-0: client top %s after BUILD NEW BASE" % top(c))
     cc = census(c)
@@ -270,37 +284,15 @@ def row_r3(b, r):
     time.sleep(0.4)
     ev["nameOk"] = cw(c, "OK")["after"]
     r.need(top(c) == "PlaceLiftState", "client top %s after the name's OK" % top(c))
-    ev["lift"] = []
-    for tx, ty in LIFTS:
-        ev["lift"].append([tx, ty, click_px(c, tx * 32 + 16, 8 + ty * 32 + 16, b.aff["client"], "PlaceLiftState", offsets=((0, 0),))[-1]["top"]])
-        if top(c) != "PlaceLiftState":
-            break
-        ev["swaps"].append("LIFT (%d, %d) did not leave PlaceLiftState" % (tx, ty))
-    r.need(top(c) != "PlaceLiftState", "PlaceLiftState never left (%s)" % ev["lift"])
-    ev["clientGeo"] = cw(c, "GEOSCAPE")["after"]
-    r.need(top(c) == "GeoscapeState", "client not back on GeoscapeState (%s)" % stk(c))
-    settle(ev, "READ_S", lambda: n1m(h, n1), READ_S, STEP_CAP_S)
-    m = n1m(h, n1)
-    ev["P3-1"] = {"t": now(), "mirrorN1": m, "clientOwn": own(census(c))}
-    r.need(m == [[n1, ""]], "P3-1: host marker N1 still \"\" after the lift (%s)" % m)
-    t0w, gap, stepped = time.time(), [], False
-    while time.time() - t0w < GAP_POLL_S + GAP_STEP_S:
-        gap.append([round(time.time() - t0w, 1), census(h)["time"]])
-        if gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN:
-            break
-        if not stepped and time.time() - t0w >= GAP_POLL_S:  # GAP_MIN's rule: one speed step up, back to the slow clock before the click
-            stepped = [q(gc, {"cmd": "geo_set_speed", "idx": 1}) for gc in (h, c)]
-            ev["swaps"].append("GAP_MIN not met at the slow clock in %.0f s -> speed idx 1" % GAP_POLL_S)
-        time.sleep(1.0)
-    if stepped:
-        geo.slow_clock(h, c)
-    ev["P3-2"] = {"TS0": b.ts0, "polls": len(gap), "last": gap[-1]}
-    r.need(gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN, "P3-2: host time %s < TS0 %s + GAP_MIN" % (gap[-1][1], b.ts0))
+    settle(ev, "READ_S", lambda: n1m(h, n1), READ_S, STEP_CAP_S)  # S45 / F19891: the lift's marker names marker N1 (W2-H65 S-A EA2),
+    m = n1m(h, n1)                                                 # so the lift waits until the host's visit save has run (P3-3)
+    ev["P3-1"] = {"t": now(), "mirrorN1": m, "clientOwn": own(census(c)), "clientTop": top(c)}
+    r.need(m == [[n1, ""]] and top(c) == "PlaceLiftState", "P3-1: host marker N1 still \"\" after the name, lift not placed (%s)" % m)
     ph, pc = census(h), census(c)
     m = [x for x in ph["bases"] if x[0] == n1 and x[2]]
     ev["PRE"] = {"t": now(), "F0": ph["funds"], "T0": ph["time"], "C0": pc["time"], "hostOwn": own(ph), "hostMirrors": mirrors(ph),
                  "stacks": [ph["stack"], pc["stack"]]}
-    r.need(ph["stack"] == ["GeoscapeState"] and pc["stack"] == ["GeoscapeState"] and len(m) == 1, "PRE: both on GeoscapeState, marker N1 shown")
+    r.need(ph["stack"] == ["GeoscapeState"] and pc["stack"] == ["GeoscapeState", "PlaceLiftState"] and len(m) == 1 and m[0][1] == "", "PRE %s" % m)
     ev["click"] = click_mirror(b, r, [m[0][0], m[0][1], m[0][4], m[0][5]])
     trace, t1, bs_at = [], time.time(), None
     while time.time() - t1 < VISIT_S2 + 3.0:
@@ -309,7 +301,7 @@ def row_r3(b, r):
         if not trace or trace[-1][1:] != e:
             trace.append([round(time.time() - t1, 2)] + e)
         if bs_at is None and "BasescapeState" in st:
-            bs_at = time.time()
+            bs_at, ev["clientTopAtBs"] = time.time(), top(c)
         if (bs_at and time.time() - bs_at >= 3.0) or (bs_at is None and time.time() - t1 >= VISIT_S2):
             break
         time.sleep(0.1)
@@ -320,6 +312,7 @@ def row_r3(b, r):
     if bs_at and bs_at - t1 > VISIT_S:
         ev["swaps"].append("VISIT_S %.0f -> %.0f s" % (VISIT_S, VISIT_S2))
     r.need(bs_at is not None, "no BasescapeState within VISIT_S (%s)" % trace)
+    r.need(ev["clientTopAtBs"] == "PlaceLiftState", "P3-3: client top %s at the host's BasescapeState (want PlaceLiftState)" % ev["clientTopAtBs"])
     ev["close"] = []
     for _ in range(3):
         if top(h) != "CoopState":
@@ -327,6 +320,15 @@ def row_r3(b, r):
         d = dlg(h)
         r.need(d.get("backText"), "a CoopState on top without a button (%s)" % d)
         ev["close"].append([d.get("code"), d.get("backText"), cw(h, d["backText"])["after"]])
+    ev["lift"] = []
+    for tx, ty in LIFTS:
+        ev["lift"].append([tx, ty, click_px(c, tx * 32 + 16, 8 + ty * 32 + 16, b.aff["client"], "PlaceLiftState", offsets=((0, 0),))[-1]["top"]])
+        if top(c) != "PlaceLiftState":
+            break
+        ev["swaps"].append("LIFT (%d, %d) did not leave PlaceLiftState" % (tx, ty))
+    r.need(top(c) != "PlaceLiftState", "PlaceLiftState never left (%s)" % ev["lift"])
+    ev["clientGeo"] = cw(c, "GEOSCAPE")["after"]
+    r.need(top(c) == "GeoscapeState", "client not back on GeoscapeState (%s)" % stk(c))
     ev["hostGeo"] = cw(h, "GEOSCAPE")["after"]
     try:
         session.wait_back_on_geoscape(h, "host back on its own geoscape")
