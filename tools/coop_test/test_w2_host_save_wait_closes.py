@@ -19,11 +19,15 @@ R-GN / R-GR: poll POLL_S up to W_CLOSE after the notice's OK for back() (the hos
 (host log since B): H59LOG, CLEAR, FREEZE, DROP and CLOSE54 (EB1's log line). Cells (16): GN-pre / GR-pre / GW-pre GUARD (the
 preconditions, with reads W / D); GR-rejoin GUARD (read R); GN-close / GR-close RED (back() within W_CLOSE); GN-log / GR-log RED (CLOSE54
 1 at E); GN-once / GR-once GUARD (QUICK's mtime at E == at W / D; CLEAR 1); GW-hold GUARD (read H: the 54 on top, armed, CLEAR 0);
-GW-write GUARD; GW-log GUARD (CLOSE54 0 at H and E); X-common GUARD (host alive, no new crash_*.log since B).
+GW-write GUARD; GW-log GUARD (CLOSE54 0 at H and E); X-common GUARD (host alive; each new crash_*.log since B is the lever's miss, one per W2-H70 push).
 Red (commit R1, the HEAD build = S-A green): exit 2, RED exactly on GN-close, GN-log, GR-close, GR-log (4).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line
 per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one
 foreground run per invocation.
+W2-H70 T1 (docs rewrite/prompts/w2h70_t1_hsw_hsc_repoint.md; F20124): W2-H70's gift pushes the client's stored world; it lands about
+0.2 s after the notice and races the notice's CLEAR guard and R-GR's drop write. R-GN / R-GR arm the client's TEST-ONLY
+force_stream_key_miss just before the host's button (no client world lands) and wait until the lever's logged misses equal the client's
+W2-H70 pushes (0 without W2-H70, 1 with it); R-GN then releases it and waits until CLEAR equals that count before the leave.
 Run: python tools/coop_test/test_w2_host_save_wait_closes.py
 """
 import base64, glob, json, math, os, subprocess, sys, time  # noqa: E401
@@ -43,6 +47,9 @@ SDLK_KP2 = 258
 POLL_S, SEEN54_S, W_67, HOLD_PRE, W_UI, W_NOTICE, W_VISIT = 0.005, 10.0, 10.0, 1.0, 5.0, 10.0, 60.0
 HOLD_S, W_SAVE, STABLE_S, BOOT_S = 5.0, 30.0, 2.0, 60.0
 W_BACK, WAIT_W, W_CLOSE, JOIN_S, W_RESUME, HOLD_W = 60.0, 1.0, 2.0, 40.0, 15.0, 4.0
+W_LEVER = 5.0  # W2-H70 T1: the lever's miss follows the host's reply to the client's push (T0-6: the whole stream took 0.23 s)
+MISS = "Failed to read from hash map with key: client_%s_%s.data"  # loopData's miss of the client's own-world key (saveID, name)
+GIFT70 = "[coop-gift] W2-H70: the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored world at the gift
 RC_OK = (0, 3221226505)
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
@@ -101,6 +108,36 @@ def files(gc):
             st = os.stat(p)
             out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
     return out
+
+def misses(r, paths):
+    """W2-H70 T1: the names of the crash files among paths that hold the lever's miss r.miss (none before settle sets it)"""
+    out = []
+    for p in sorted(paths):
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            if getattr(r, "miss", None) and r.miss in fh.read():
+                out.append(os.path.basename(p))
+    return out
+
+def settle(r, x):
+    """W2-H70 T1: once the client's GiftSoldierMenu is gone (its handler, with any W2-H70 push, has run), n70 = the client's W2-H70
+    push lines; poll up to W_LEVER until the lever's misses since B number n70 (that push's stream failed on the lever) -> ev["lever"]"""
+    c = x.client
+    gone, _s = wait(lambda: "GiftSoldierMenu" not in stack(c), W_UI)
+    r.miss = MISS % (r.ev["at54"]["saveID"], r.ev["B"]["get_coop"].get("clientName"))
+    r.n70 = sum(1 for ln in log(c) if GIFT70 in ln)
+    v, s = wait(lambda: len(misses(r, session._crash_log_snapshot() - r.cr0)) == r.n70, W_LEVER, 0.02)
+    r.ev["lever"] = {"menu gone": bool(gone), "n70": r.n70, "misses": misses(r, session._crash_log_snapshot() - r.cr0), "s": s}
+    if not (gone and v and r.n70 <= 1):
+        raise Stop("the lever did not settle: %s" % r.ev["lever"])
+
+def release(r, x):
+    """W2-H70 T1 (R-GN): the lever off; poll up to W_SAVE until the host's CLEAR equals n70 (a W2-H70 push the lever held lands under
+    the notice and completes the save; without W2-H70 nothing lands before the leave) -> ev["release"]"""
+    off = q(x.client, {"cmd": "force_stream_key_miss", "on": False})
+    v, s = wait(lambda: counts(x.host, r.n_h)["CLEAR"] == r.n70, W_SAVE, 0.02)
+    r.ev["release"] = {"off": bool(off.get("ok") and off.get("on") is False), "CLEAR s": s if v else None}
+    if not (r.ev["release"]["off"] and v):
+        raise Stop("the lever's release: %s" % r.ev["release"])
 
 def cpu():
     """the machine's CPU load (Processor(_Total)) and any Wardogs* process (S24)"""
@@ -271,6 +308,10 @@ def gift(r, x):
     ev["gift"] = seq
     if not (seq["menu names the guest"] and hostbtn):
         raise Stop("the gift menu not reached: %s %s %s" % (seq, btns, stack(c)))
+    lv = q(c, {"cmd": "force_stream_key_miss", "on": True})  # W2-H70 T1: no client world lands before the drop / release
+    seq["lever on"] = bool(lv.get("ok") and lv.get("on") is True)
+    if not seq["lever on"]:
+        raise Stop("force_stream_key_miss not armed on the client: %s" % lv)
     tg = time.time()
     seq["host button"] = real_click(c, hostbtn, W_UI)
     while time.time() - tg < W_NOTICE:
@@ -328,6 +369,7 @@ def read(r, x):
           "new crash": sorted(session._crash_log_snapshot() - r.cr0)}
     a, b = rd["folder"].get(QUICK), r.ev["B"]["folder"].get(QUICK)
     rd["written"], rd["mtime"] = bool(a and (b is None or a[1] > b[1])), a and a[1]
+    rd["misses"] = misses(r, rd["new crash"])
     return rd
 
 def written(r, x):
@@ -393,6 +435,7 @@ def to_notice(r, x):
     n = ev["notice"]
     if n["stack"] != B["stack"] + ["CoopState", "GiftNoticeState"] or n["name"] != QUICK or n["CLEAR"] != 0:
         raise Stop("at the notice: %s" % n)
+    settle(r, x)
     return B, tn
 
 def guard(r, cid, label, fn):
@@ -416,7 +459,10 @@ def ok_and_close(r, x, p):
     return E
 
 def common_cell(r, p, E):
-    r.cell(p + "-common", "GUARD", "the host alive at E, no new crash_*.log since B", bool(E["alive"] and not E["new crash"]))
+    """W2-H70 T1: every crash_*.log new since B is the lever's miss, one per W2-H70 push (n70; R-GW arms no lever: 0)"""
+    n = getattr(r, "n70", 0)
+    r.cell(p + "-common", "GUARD", "the host alive at E; every crash_*.log new since B is the lever's miss %s, %d of them (W2-H70 T1)"
+           % (getattr(r, "miss", None), n), bool(E["alive"] and len(E["misses"]) == len(E["new crash"]) == n))
 
 def row_gn(x, results, walls):
     """R-GN (C2): the gift's notice over the 54; the client leaves the base; the write lands under the notice; the host's OK"""
@@ -428,6 +474,7 @@ def row_gn(x, results, walls):
 
     def pre():
         B, _tn = to_notice(r, x)
+        release(r, x)
         tg = leave_base(x, ev, "R-GN")
         v, _s = wait(lambda: written(r, x), W_SAVE, 0.02)
         ev["written s after GEOSCAPE"] = round(time.time() - tg, 3) if v else None
