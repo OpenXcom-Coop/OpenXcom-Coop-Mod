@@ -277,6 +277,11 @@ public:
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
 	/// Test-harness: dogfights queued but not yet started.
 	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
+	/// coop W2-H76 test-harness (R-BH4-1): the dogfights (@a pending: those queued to start) whose UFO pointer is not in the
+	/// saved game's UFO list - compared as pointers, never dereferenced.
+	int harnessDanglingDogfights(bool pending) const;
+	/// coop W2-H76 test-harness: how many such dogfights handleDogfights() has met since the game started (every GeoscapeState).
+	static int harnessDanglingDogfightsSeen();
 	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
 	/// current _dfEpoch it broadcasts; replica: _dfReplicaEpoch, the epoch of the last
 	/// df_open it applied). Lets a test assert host/replica epoch lock-step across an

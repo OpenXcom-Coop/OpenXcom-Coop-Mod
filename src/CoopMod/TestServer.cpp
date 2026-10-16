@@ -1186,6 +1186,33 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
+	// coop W2-H76 (docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md P4; R-BH4-1): TEST INTROSPECTION, read-only, safe after a dogfight's
+	// UFO was deleted: it never dereferences a dogfight's UFO ("dogfight_state" does). Response {ok, count, pending, minimized,
+	// dangling, danglingPending, danglingSeen} (GeoscapeState::harnessDanglingDogfights / harnessDanglingDogfightsSeen).
+	if (cmd == "dogfight_ufo_check")
+	{
+		GeoscapeState* gsD = findState<GeoscapeState>(_game);
+		if (!gsD)
+		{
+			resp["error"] = "no geoscape";
+			return true;
+		}
+		int minimizedD = 0;
+		for (auto* df : gsD->getDogfights())
+		{
+			if (df->isMinimized())
+				++minimizedD;
+		}
+		resp["count"] = (int)gsD->getDogfights().size();
+		resp["pending"] = (int)gsD->pendingDogfightCount();
+		resp["minimized"] = minimizedD;
+		resp["dangling"] = gsD->harnessDanglingDogfights(false);
+		resp["danglingPending"] = gsD->harnessDanglingDogfights(true);
+		resp["danglingSeen"] = GeoscapeState::harnessDanglingDogfightsSeen();
+		resp["ok"] = true;
+		return true;
+	}
+
 	// coop W2-H65 (docs rewrite/prompts/w2h65_mirror_name_rollback.md P0; F19214, F19340-F19359): TEST INTROSPECTION, read-only. The
 	// geoscape globe's view (centre, zoom, rectangle) and, for a lon / lat, its screen point (base coordinates) and whether it is land, so
 	// a test clicks a land point or a base marker as a player does. "centerLon" / "centerLat" move the view only, never the game state.

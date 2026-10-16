@@ -5581,12 +5581,44 @@ void GeoscapeState::zoomOutEffect()
 	}
 }
 
+// coop W2-H76 (test-harness counter, R-BH4-1; docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md): the dogfights handleDogfights()
+// met whose UFO pointer was no longer in the saved game; process-wide, read by TestServer "dogfight_ufo_check".
+static int g_coopDanglingDogfightsSeen = 0;
+
+int GeoscapeState::harnessDanglingDogfightsSeen()
+{
+	return g_coopDanglingDogfightsSeen;
+}
+
+/**
+ * coop W2-H76 test-harness: counts the dogfights (@a pending: those queued to start) whose UFO is not in the saved game's UFO
+ * list. Pointers are compared, never dereferenced, so a freed UFO is safe to count.
+ * @param pending true: _dogfightsToBeStarted; false: _dogfights.
+ * @return The number of such dogfights.
+ */
+int GeoscapeState::harnessDanglingDogfights(bool pending) const
+{
+	SavedGame* save = _game->getSavedGame();
+	if (!save)
+		return 0;
+	const std::vector<Ufo*>& ufos = *save->getUfos();
+	int n = 0;
+	for (auto* dfs : pending ? _dogfightsToBeStarted : _dogfights)
+	{
+		if (std::find(ufos.begin(), ufos.end(), dfs->getUfo()) == ufos.end())
+			++n;
+	}
+	return n;
+}
+
 /**
  * Dogfight logic. Moved here to have the code clean.
  */
 void GeoscapeState::handleDogfights()
 {
 	// Handle dogfights logic.
+	// coop W2-H76 (test-harness counter, R-BH4-1): a dogfight whose UFO has left the saved game (pointer compare, no read).
+	g_coopDanglingDogfightsSeen += harnessDanglingDogfights(false);
 	_minimizedDogfights = 0;
 
 	for (auto* dfs : _dogfights)
