@@ -41071,7 +41071,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (!_game->getStates().empty())
 		{
 			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
-			if (top && !top->isCampaignWaitDialog() && top->getStateCode() != 3)
+			// coop W2-H71 (docs rewrite/prompts/w2h71_visit_window_pops.md E1; R-H71-0 fix (c); L-LT8-1; F19766, F19768): this reply
+			// answers a world push, so it closes only the client's own "Saving..." (53). Any other window on top (a base visit's
+			// "Synchronizing bases." 50, a notice) closes by its own path; the campaign waits and the gm3 hold (3) are spared as before.
+			if (top && top->getStateCode() == 53)
 			{
 				_game->popState();
 			}
@@ -41188,7 +41191,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (!_game->getStates().empty())
 		{
 			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
-			if (top && !top->isCampaignWaitDialog())
+			// coop W2-H71 (docs rewrite/prompts/w2h71_visit_window_pops.md E2; R-H71-0 fix (c); L-H64-1, L-LT8-1; F19760, F19763,
+			// F19768): close only the host's own "Saving..." (54). Another window on top (the partner's "Items received" 150 over a
+			// covered 54, a base visit's "Synchronizing bases." 50) closes by its own path; a 54 left under it closes once it is on
+			// top again (W2-H64 S-B, CoopState::think).
+			if (top && top->getStateCode() == COOP_DLG_HOST_SAVE_WAIT)
 			{
 				_game->popState();
 			}
