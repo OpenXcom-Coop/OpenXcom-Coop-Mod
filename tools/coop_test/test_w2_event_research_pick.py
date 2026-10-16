@@ -3,7 +3,8 @@ event (coopShared) whose reward is one random research topic teaches BOTH player
 today each machine rolls its own (GE :453) and the sync skips a paired copy (GE :514). Spec docs
 rewrite/prompts/w2h77_event_research_pick.md (f); TASK 0 rewrite/w2h77-task0/sa/CONSTANTS.md. Mod Coop_Event_Pick_Test (spec
 Appendix C): topics STR_H77_P01..Z16; certain events EV_P, EV_Z (month 0), EV_W (every month from 1). One SEPARATE boot (key
-"49470"), EnableResearchSync on both, boot guard researchMode {shared false, sync true} on both. Every fire seeds both machines
+"49470"), EnableResearchSync on both, boot guard researchMode {shared false, sync true} on both, EV_Z's countdown pinned to
+EVZ_PIN on both right after the bring-up (W2-U9d, R-I63-1: its boot roll is unseeded). Every fire seeds both machines
 (SEEDS: host, client) right before the host's set_event_countdown; the client's copy fires on the host's packet (G:held). Picks
 are read at runtime, no topic is pinned: the host's draws before its pick vary per boot (R-H77-2, F21889-F21892).
 Collision (R-H77-2): the host's pick equals the client's own roll (its seed's one draw over its unknown topics, F21893): the row
@@ -35,6 +36,11 @@ EV_P, EV_W, EV_Z = "STR_H77_EV_P", "STR_H77_EV_W", "STR_H77_EV_Z"
 P, W, Z = (["STR_H77_%s%02d" % (k, i) for i in range(1, 17)] for k in "PWZ")
 SEEDS = {"EP-1": (11, 12), "EP-2": (21, 22), "EP-3": (31, 32)}   # TASK 0 (CONSTANTS.md): host, client
 COUNTDOWN, SKIP_MIN, PAIRED_S, HELD_MIN, RESEED = 60, 180, 10.0, 240, 2
+# W2-U9d (R-I63-1, F23567, F23600-F23602): EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any
+# set_seed) and EP-1 + EP-2 spend 1380-1560 game min (more under load) before EP-3's G:held, so a roll below ~1710 failed it.
+# Pinned on both machines: > HELD_MIN + EP-3's own spend before its fire (0) + 2 x the worst EP-1 + EP-2 spend (570 + 3 x 990,
+# a collision refire in each row) = 7320.
+EVZ_PIN = 7500
 MONTH_DAYS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 U64 = (1 << 64) - 1
 
@@ -336,12 +342,20 @@ def boot(tag, key, rows, results, walls):
         info = {gc.name: {"researchMode": rmode(gc), "geoEvents": geo_events(gc), "stack": stack(gc), "rngSeed": rng(gc),
                           "mod": [ln.split("\t")[-1] for ln in log_lines(gc) if "Coop_Event_Pick_Test" in ln][:2]}
                 for gc in (x.host, x.client)}
+        # W2-U9d: pin EV_Z on both machines (host first; each world keeps its own copy after the pairing)
+        info["evZPin"] = {gc.name: {"reply": gc.cmd({"cmd": "set_event_countdown", "name": EV_Z, "minutes": EVZ_PIN})}
+                          for gc in (x.host, x.client)}
+        for gc in (x.host, x.client):
+            info["evZPin"][gc.name]["after"] = geo_events(gc).get(EV_Z)
         info["startedAt"] = time.strftime("%H:%M:%S", time.localtime(t0))
         print(f"EVIDENCE boot {tag}: {json.dumps(info, sort_keys=True, default=str)}", flush=True)
         rm = {n: (info[n]["researchMode"].get("shared"), info[n]["researchMode"].get("sync")) for n in ("host", "client")}
         if rm != {"host": (False, True), "client": (False, True)}:
             raise RuntimeError(f"boot guard researchMode (shared, sync) {rm}: "
                                + json.dumps({gc.name: capture(gc, P) for gc in (x.host, x.client)}, default=str))
+        pin = {n: (info["evZPin"][n]["reply"].get("ok"), (info["evZPin"][n]["after"] or (None,))[0]) for n in ("host", "client")}
+        if not all(ok is True and cd is not None and EVZ_PIN - 30 <= cd <= EVZ_PIN for ok, cd in pin.values()):
+            raise RuntimeError(f"boot guard {EV_Z} pin {EVZ_PIN} (reply ok, countdown after) {pin}")
     except Exception as e:
         x = None
         print(f"CAPTURE {tag} (boot miss): {short(e, 6000)}", flush=True)
