@@ -118,6 +118,9 @@ public:
 	/// coop (W2-H8): puts the stashed mirrors back and empties the stash; true if it
 	/// held anything. A no-op in SP and SHARED (nothing is ever hidden there).
 	static bool coopShowMirrors();
+	/// coop W2-H83 (SEPARATE only): deletes every stashed mirror of the partner's base @a coopBaseId (the partner removed that base), so
+	/// leaving the view cannot put it back; returns how many it deleted.
+	static int coopDropStashedMirror(int coopBaseId);
 };
 
 }

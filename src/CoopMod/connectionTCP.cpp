@@ -105,6 +105,7 @@
 
 #include "../Menu/NewGameState.h"
 #include "../Menu/LoadGameState.h"
+#include "../Basescape/BasescapeState.h"
 #include "../Menu/SaveGameState.h"
 #include "../Menu/OptionsAdvancedState.h" // W2-P9 S-B (PR-12): the live refresh of an open Advanced options screen
 #include "../Geoscape/GeoscapeState.h"
@@ -40926,6 +40927,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		int base_id = obj["base_id"].asInt();
+
+		// coop W2-H83 S-A (docs rewrite/prompts/w2h83_sa_delete_paths.md EA4; R-LBH3-1, VL-H83-1; lbh3-cap F22265, F22277, F22278): the
+		// partner removed this base. Its marker also leaves the cached marker list (j_markers), so no later rebuild from that cache (the
+		// battle host's post-battle updateAllCoopBases, a reply with no markers) brings it back; and a mirror of it that this player's own
+		// base view moved into the stash is deleted with it, so leaving that view cannot put it back.
+		int cacheDropped = 0;
+		if (!j_markers.empty())
+		{
+			Json::Value cachedMarkers;
+			Json::Reader cacheReader;
+			if (cacheReader.parse(j_markers, cachedMarkers) && cachedMarkers.isArray())
+			{
+				Json::Value keptMarkers(Json::arrayValue);
+				for (const Json::Value& marker : cachedMarkers)
+				{
+					if (marker.isObject() && marker["coopbaseid"].asInt() == base_id)
+						++cacheDropped;
+					else
+						keptMarkers.append(marker);
+				}
+				if (cacheDropped > 0)
+					j_markers = keptMarkers.empty() ? std::string() : keptMarkers.toStyledString();
+			}
+		}
+		const int stashDropped = BasescapeState::coopDropStashedMirror(base_id);
+		Log(LOG_INFO) << "[coop] W2-H83: removed base id=" << base_id << " cache=" << cacheDropped << " stash=" << stashDropped;
 
 		if (_game->getSavedGame())
 		{
