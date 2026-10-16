@@ -82,6 +82,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_resetCustomDeploymentBackup(false), _reloadUnit(false), _globalLayoutIndex(-1)
 {
 	_battleGame = _game->getSavedGame()->getSavedBattle();
+	if (_base && !_tu) coopBaseInvScreen(this, _game); // coop EQ-3 S-A (owner D294 b): a SHARED base screen shows the partner's soldiers read-only
 
 	if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
 	{
@@ -366,6 +367,7 @@ InventoryState::~InventoryState()
 	coopEquipPresenceDetach(this); // coop EQ-2 S-A (A11): the partner pointer's overlay goes with this screen's surfaces
 	_clearInventoryTemplate(_curInventoryTemplate);
 	_clearInventoryTemplate(_tempInventoryTemplate);
+	coopBaseInvScreen(this, nullptr); // coop EQ-3 S-A: forgotten with this screen (before W2-H21's early return)
 
 	// coop W2-H21 (F8598): a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
 	// delete ran: touch none of it. The swap already set the display for the screen that replaced this one.
@@ -794,6 +796,7 @@ void InventoryState::saveEquipmentLayout()
  */
 void InventoryState::btnArmorClick(Action *action)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A (D294 b, D289 a): no armor screen for a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -849,6 +852,7 @@ void InventoryState::btnArmorClick(Action *action)
  */
 void InventoryState::btnArmorClickRight(Action *action)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A (D294 b, D289 a): no avatar screen for a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -1779,6 +1783,7 @@ void InventoryState::onClearInventory(Action *)
 
 void InventoryState::onAutoequip(Action *)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A (D289 a): the links menu's AUTO-EQUIP does nothing on a partner's soldier
 	// don't act when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
