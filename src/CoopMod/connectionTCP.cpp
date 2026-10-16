@@ -40730,6 +40730,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 		const int stashDropped = BasescapeState::coopDropStashedMirror(base_id);
 		Log(LOG_INFO) << "[coop] W2-H83: removed base id=" << base_id << " cache=" << cacheDropped << " stash=" << stashDropped;
+		// coop W2-H83 S-B (docs rewrite/prompts/w2h83_sb_open_views.md EB3; R-LBH3-1, VL-H83-1; lbh3-cap F22268-F22270): this player views
+		// the removed base inside the partner's world (coopLiveWorldIsPeerView; the view world's selected base is the base its screens show).
+		// It goes back to its own world first (BasescapeState::coopLeavePeerView). The base is not deleted here: LoadGameState discards the
+		// whole view world, so no screen reads it freed (the GEOSCAPE read BS :722 that once ended the campaign, F22269).
+		if (coopLiveWorldIsPeerView(_game))
+		{
+			SavedGame* viewWorld = _game->getSavedGame();
+			Base* shownBase = viewWorld->getBases()->empty() ? nullptr : viewWorld->getSelectedBase();
+			if (shownBase && shownBase->_coop_base_id == base_id)
+			{
+				Log(LOG_INFO) << "[coop] W2-H83: the partner removed the base this player views - its own world returns first";
+				BasescapeState::coopLeavePeerView();
+				return;
+			}
+		}
 
 		if (_game->getSavedGame())
 		{

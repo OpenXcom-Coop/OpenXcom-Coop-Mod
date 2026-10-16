@@ -121,6 +121,9 @@ public:
 	/// coop W2-H83 (SEPARATE only): deletes every stashed mirror of the partner's base @a coopBaseId (the partner removed that base), so
 	/// leaving the view cannot put it back; returns how many it deleted.
 	static int coopDropStashedMirror(int coopBaseId);
+	/// coop W2-H83 (SEPARATE only): this player views a base inside the partner's world that the partner just removed; back to its own world
+	/// exactly as GEOSCAPE does (LoadGameState "basehost" replaces the whole stack and the view world). Reads no Base.
+	static void coopLeavePeerView();
 };
 
 }

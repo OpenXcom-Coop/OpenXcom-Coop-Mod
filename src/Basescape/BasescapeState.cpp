@@ -1227,4 +1227,17 @@ int BasescapeState::coopDropStashedMirror(int coopBaseId)
 	return dropped;
 }
 
+/**
+ * coop W2-H83 S-B (docs rewrite/prompts/w2h83_sb_open_views.md EB2; R-LBH3-1, VL-H83-1; lbh3-cap F22268-F22270): the partner removed the
+ * base this player views inside the partner's world (CoopState 55's view). GEOSCAPE's coop steps (btnGeoscapeClick), then the own world
+ * returns; LoadGameState replaces the whole stack (every screen of the view closes, as R-TR9-2's drop does) and the view world with it.
+ */
+void BasescapeState::coopLeavePeerView()
+{
+	_coop_base_init = false;
+	_game->getCoopMod()->playerInsideCoopBase = false;
+	coopShowMirrors();
+	_game->pushState(new LoadGameState(OPT_GEOSCAPE, "basehost", _game->getStates().back()->getPalette(), "basehost"));
+}
+
 }
