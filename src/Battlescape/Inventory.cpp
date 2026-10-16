@@ -327,7 +327,7 @@ void Inventory::drawItems()
 		{
 			const Surface *frame = invItem->getBigSprite(texture, save, _animFrame);
 
-			if (invItem == _selItem || !frame)
+			if (invItem == _selItem || !frame || coopEquipHeldByOther(invItem)) // coop EQ-2 S-D (D2; owner D291 (c), QEQ2-8 (a)): the co-op partner holds it - drawn under its pointer instead
 				continue;
 
 			int x, y;
