@@ -23,7 +23,9 @@ Rows R2 / R3 / R4 (dirs d246sd2b_r<n>_host / _client; host option CoopTurnMode p
   Rn-mode   turnMode traditional on both under the host option parallel
   Rn-dep    battle_state.deployment partner == host == DEP
   Rn-play   the side to move presses END TURN (gm2 the host, gm3 the partner, gm4 the host then the partner): side 1 on
-            both; every hash bucket EQUAL before the press; desyncSeen false on both
+            both; every hash bucket EQUAL before the press; desyncSeen false on both. gm4 (R-D246D2-6, F20250): side 1 is
+            the host's X-COM AI side, which ends on its own: side 1 on both is drive_side_change's return, then side 0 of
+            turn 3 (G4_SETTLE) on both after wait_host_idle (the AI side crossed, test_skirmish_saved_pve2_end_turn SD2)
   (R3-save) host save_game RESAVE after R3-play's reads, the setup step of row V
 Row V (dir d246sd2b_v_host): the host loads RESAVE. V-load: no "[coop-convert]" line; seats == CD_SEAT[3], factions ==
   CD_FAC[3] (the aliens faction 1, X-COM faction 0).
@@ -65,6 +67,7 @@ CD_SUM = {2: (7, 1, 0), 3: (1, 7, 0), 4: (4, 5, 7)}            # summary line se
 DEP = {2: "STR_SMALL_SCOUT", 3: "STR_SMALL_SCOUT", 4: "STR_BATTLESHIP"}   # the in-battle craft's UFO (T0-7)
 PRESS = {2: ("host",), 3: ("client",), 4: ("host", "client")}  # the side to move; gm4: both seats, the host first (T0-6/7)
 SIDE_NEXT = 1                                                  # END TURN hands side 0 to side 1 in every mode
+G4_SETTLE = [0, 3]   # gm4: side 0 of the save's turn 2 + 1 once the X-COM AI side ends (R-D246D2-6, F20250; SD2's settle)
 LOAD_S, CLIENT_S, STEP_S = 120, 120, 30                        # bounds (s); TASK 0 measured times in CONSTANTS.md
 N_SD, N_SD2 = "[coop-convert] D246 S-D:", "[coop-convert] D246 S-D2:"
 N_SUM = "[coop-convert] D246: an older version's mid-battle co-op save converted"
@@ -295,17 +298,24 @@ def r_play(n, host, client, ev):
         p["press"].append([who, m[who].cmd({"cmd": "battle_action", "action": "end_turn_button"}),
                            [es(g).get("coopActiveSeat") for g in (host, client)]])
     try:
-        drive_side_change(host, client, SIDE_NEXT, timeout=STEP_S)
+        p["side1"] = [[s.get("side"), s.get("turn")] for s in drive_side_change(host, client, SIDE_NEXT, timeout=STEP_S)]
         session.wait_host_idle(host, client, timeout=STEP_S)
+        if n == 4:   # R-D246D2-6 (F20250): the host's X-COM AI side ends on its own; SD2's settle on side 0 of turn 3
+            drive_side_change(host, client, G4_SETTLE[0], want_turn_min=G4_SETTLE[1], timeout=STEP_S)
     except Exception as e:
         p["sideError"] = f"{type(e).__name__}: {str(e)[:300]}"
     side = p["after"] = [[bs(g).get("side"), bs(g).get("turn")] for g in (host, client)]
     ds = p["desync"] = [es(g).get("desyncSeen") for g in (host, client)]
-    ok = ("sideError" not in p and side[0][0] == side[1][0] == SIDE_NEXT and p["hash"] == "all buckets EQUAL"
-          and ds == [False, False])
+    if n == 4:
+        side_ok = [s[0] for s in p.get("side1", [[None], [None]])] == [SIDE_NEXT] * 2 and side == [G4_SETTLE] * 2
+        want = (f"want side {SIDE_NEXT} on both from drive_side_change: {p.get('side1')}; then {G4_SETTLE} on both, the X-COM "
+                f"AI side crossed")
+    else:
+        side_ok, want = side[0][0] == side[1][0] == SIDE_NEXT, f"want side {SIDE_NEXT} on both"
+    ok = "sideError" not in p and side_ok and p["hash"] == "all buckets EQUAL" and ds == [False, False]
     return ok, (f"{' then '.join(PRESS[n])} END TURN {[x[1].get('ok') for x in p['press']]}; "
-                f"{p.get('sideError') or 'side change reached'}; (side, turn) host/partner {p['before']} -> {side} (want side "
-                f"{SIDE_NEXT} on both); hash before the press {p['hash']} (want all buckets EQUAL); desyncSeen {ds} (want False)")
+                f"{p.get('sideError') or 'side change reached'}; (side, turn) host/partner {p['before']} -> {side} ({want}); "
+                f"hash before the press {p['hash']} (want all buckets EQUAL); desyncSeen {ds} (want False)")
 
 
 def row_r(n):
