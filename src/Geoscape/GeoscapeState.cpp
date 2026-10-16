@@ -108,6 +108,8 @@
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleRegion.h"
 #include "MissionDetectedState.h"
+#include "TargetInfoState.h" // coop W2-H81: GeoscapeState::coopHeldTargets
+#include "ConfirmDestinationState.h" // coop W2-H81
 #include "AlienBaseState.h"
 #include "../Savegame/Region.h"
 #include "../Savegame/Country.h"
@@ -5140,6 +5142,73 @@ void GeoscapeState::timerReset()
 	ev.button.button = SDL_BUTTON_LEFT;
 	Action act(&ev, _game->getScreen()->getXScale(), _game->getScreen()->getYScale(), _game->getScreen()->getCursorTopBlackBand(), _game->getScreen()->getCursorLeftBlackBand());
 	_btn5Secs->mousePress(&act, this);
+}
+
+/**
+ * coop W2-H81 (R-LH76-1-1; docs rewrite/prompts/w2h81_popup_mirror_uaf.md): the targets a geoscape popup holds as raw pointers.
+ * A co-op mirror (a partner's UFO, site, alien base, base or craft) can be deleted under them (lh76-1-cap F22185-F22193); the
+ * pointers are copied here, never dereferenced.
+ * @param state Any state.
+ * @param out Receives every non-null pointer the popup holds.
+ * @return true when @a state is one of the eight popups, even one that holds nothing.
+ */
+bool GeoscapeState::coopHeldTargets(State* state, std::vector<Target*>& out)
+{
+	if (auto* uds = dynamic_cast<UfoDetectedState*>(state))
+	{
+		if (uds->coopHeldUfo())
+			out.push_back(uds->coopHeldUfo());
+		return true;
+	}
+	if (auto* mds = dynamic_cast<MissionDetectedState*>(state))
+	{
+		if (mds->coopHeldSite())
+			out.push_back(mds->coopHeldSite());
+		return true;
+	}
+	if (auto* tis = dynamic_cast<TargetInfoState*>(state))
+	{
+		if (tis->coopHeldTarget())
+			out.push_back(tis->coopHeldTarget());
+		return true;
+	}
+	if (auto* ist = dynamic_cast<InterceptState*>(state))
+	{
+		if (ist->coopHeldTarget())
+			out.push_back(ist->coopHeldTarget());
+		return true;
+	}
+	if (auto* cds = dynamic_cast<ConfirmDestinationState*>(state))
+	{
+		if (cds->coopHeldTarget())
+			out.push_back(cds->coopHeldTarget());
+		return true;
+	}
+	if (auto* mts = dynamic_cast<MultipleTargetsState*>(state))
+	{
+		for (Target* t : mts->coopHeldTargets())
+		{
+			if (t)
+				out.push_back(t);
+		}
+		return true;
+	}
+	if (auto* uts = dynamic_cast<UfoTrackerState*>(state))
+	{
+		for (Target* t : uts->coopHeldTargets())
+		{
+			if (t)
+				out.push_back(t);
+		}
+		return true;
+	}
+	if (auto* gcs = dynamic_cast<GeoscapeCraftState*>(state))
+	{
+		if (gcs->coopHeldCraft())
+			out.push_back(gcs->coopHeldCraft());
+		return true;
+	}
+	return false;
 }
 
 /**

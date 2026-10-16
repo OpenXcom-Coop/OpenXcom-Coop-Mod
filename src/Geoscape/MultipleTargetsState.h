@@ -49,6 +49,8 @@ private:
 public:
 	/// Creates the Multiple Targets state.
 	MultipleTargetsState(std::vector<Target*> targets, std::vector<Craft*> crafts, GeoscapeState *state, bool useCustomSound);
+	/// coop W2-H81 (R-LH76-1-1): the targets this picker lists, for GeoscapeState::coopHeldTargets (never dereferenced there).
+	const std::vector<Target*>& coopHeldTargets() const { return _targets; }
 	/// Cleans up the Multiple Targets state.
 	~MultipleTargetsState();
 	/// Updates the window.

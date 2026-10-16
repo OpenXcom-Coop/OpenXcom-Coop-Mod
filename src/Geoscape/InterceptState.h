@@ -51,6 +51,8 @@ private:
 public:
 	/// Creates the Intercept state.
 	InterceptState(Globe *globe, bool useCustomSound, Base *base = 0, Target *target = 0);
+	/// coop W2-H81 (R-LH76-1-1): the target this list was opened for (0 from the geoscape button), for GeoscapeState::coopHeldTargets.
+	Target* coopHeldTarget() const { return _target; }
 	/// Cleans up the Intercept state.
 	~InterceptState();
 	/// Handler for clicking the Cancel button.
