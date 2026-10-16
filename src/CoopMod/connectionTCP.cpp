@@ -35615,6 +35615,24 @@ bool connectionTCP::liveWorldIsPeerView(Game* game)
 	return coopLiveWorldIsPeerView(game);
 }
 
+// coop W2-H87 (docs rewrite/prompts/w2h87_lost_first_base_revert.md ED5; R-LF23065-1, R-LBH2-1, VL-H87-2; h83c-red F23069): the ids of own bases
+// whose loss this machine already announced (delete_base) while their BaseDestroyedState waits for its OK (BaseDestroyedState.cpp ED2). The three
+// own-base marker lists below (coopBase, coopBase2, the baseRequest answer) leave them out (ED6-ED8): no mirror of a lost base comes back.
+class BaseDestroyedState;
+extern std::map<const BaseDestroyedState*, int> g_coopAnnouncedBaseLosses;
+
+static bool coopBaseLossAnnounced(const Base* base)
+{
+	for (const auto& entry : g_coopAnnouncedBaseLosses)
+	{
+		if (entry.second == base->_coop_base_id)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // coop W2-H70 (same spec (e) E1; F19742, F19743, F19745, F19746, F19922): a SEPARATE client's gift sent or received while its live
 // world is the partner's base view also changes its STORED own world, so a save, a leave, a reload or a rejoin finds the soldier on
 // exactly one roster. removeId >= 0 (sent, giftSoldier): drop that soldier from "basehost" (the own world the leave restores). coop W2-H70
@@ -43827,7 +43845,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
+				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop W2-H87 ED6
 				{
 
 					markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -44053,7 +44071,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
+			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop W2-H87 ED7
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -44256,7 +44274,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0))
+			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0) && !coopBaseLossAnnounced(base)) // coop W2-H87 ED8
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
