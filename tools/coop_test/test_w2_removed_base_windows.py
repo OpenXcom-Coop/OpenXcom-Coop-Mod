@@ -371,9 +371,12 @@ def row(b, r, st, rid):
     if rid in ("TB", "TS"):
         ev["window"]["rows"] = q(c, {"cmd": "screen_state"}).get("rows")
     r.need(w0["stack"][-len(SHAPE[rid]):] == SHAPE[rid], "the %s's stack %s, want ...%s" % (recv.name, w0["stack"], SHAPE[rid]))
-    r.need(rid not in ("CTL", "TB") or w0["selected"] == st["B0"], "the client's selectedBase %r, want %r" % (w0["selected"], st["B0"]))
-    r.need(rid != "TS" or w0["selected"] == st["CB"], "the client's selectedBase %r, want its own %r" % (w0["selected"], st["CB"]))
-    r.need(rid not in ("TB", "TS") or bn in (ev["window"]["rows"] or []), "%s not in the TRANSFER rows %s" % (bn, ev["window"]["rows"]))
+    if rid in ("CTL", "TB"):
+        r.need(w0["selected"] == st["B0"], "the client's selectedBase %r, want %r" % (w0["selected"], st["B0"]))
+    if rid == "TS":
+        r.need(w0["selected"] == st["CB"], "the client's selectedBase %r, want its own %r" % (w0["selected"], st["CB"]))
+    if rid in ("TB", "TS"):
+        r.need(bn in (ev["window"]["rows"] or []), "%s not in the TRANSFER rows %s" % (bn, ev["window"]["rows"]))
     if rid == "TS":
         mark = [len(logl(h)), len(logl(c))]  # TS-mark
     view = ("GeoscapeState", None) if rid == "IC" else ("BaseInfoState", st["B0"]) if rid == "CTL" else \
