@@ -31901,6 +31901,76 @@ static void coopClientMirrorFirstTurnCounter(SavedBattleGame* battle)
 	battle->setTurn(1);
 }
 
+// ----- coop W2-H74 (docs rewrite/prompts/w2h74_entry_from_visit.md E1; L-BH1, R-BH-2 fix (a); F20650-F20654, F20750-F20755): a SEPARATE
+// guest's battle entry while its live world is a view of the host's base. CoopState 55 parked the own world as "basehost" (its funds in the
+// coopFunds mirror) and made the host's world live, every base flagged _coopBase (a mirror carries _coopIcon too); an own world always holds a
+// base with _coopBase false. Not playerInsideCoopBase: the leave clears it before its reload, the 67 while the view stays. A practice screen
+// over the view (a craft inventory, a base preview) is no battle. The entry snapshot refused the view, so the return loaded an older own world
+// and the stale funds mirror (F20652).
+static bool coopSepEntryWorldIsPeerView(Game* game)
+{
+	SavedGame* live = game ? game->getSavedGame() : nullptr;
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!live || !coop || live->coopHasRealBattle() || connectionTCP::getServerOwner() || !coop->getCoopCampaign()
+		|| coop->isSharedCampaign() || coop->coopMissionEnd || connectionTCP::no_bases || !connectionTCP::hasCoopFile("basehost"))
+		return false;
+	bool peerBase = false;
+	for (Base* base : *live->getBases())
+	{
+		if (!base->_coopBase)
+			return false;
+		if (!base->_coopIcon)
+			peerBase = true;
+	}
+	return peerBase;
+}
+
+// The view ends as the base screen's GEOSCAPE ends it (BasescapeState::btnGeoscapeClick, the "basehost" reload, GeoscapeState::init's funds
+// restore), here at once, before the snapshot: the own world comes back from "basehost", takes the coopFunds mirror (the parked funds less a
+// purchase made at the host's base) and the visit flag clears. The load writes coop statics and the RNG seed, which the battle blob loaded just
+// before owns: they are put back. The view's screens stay on the stack until coopUnwindToSafeState() pops them below, before any frame, as every
+// entry pops its pre-battle screens. True = the own world is live. A failed load leaves the view (today's path).
+static bool coopSepEntryLeavePeerView(Game* game)
+{
+	if (!coopSepEntryWorldIsPeerView(game))
+		return false;
+	connectionTCP* coop = game->getCoopMod();
+	const long long saveId = connectionTCP::saveID;
+	const int gamemode = connectionTCP::_coopGamemode;
+	const int saveOwner = connectionTCP::coop_save_owner_player_id;
+	const bool noBases = connectionTCP::no_bases;
+	const uint64_t seed = RNG::getSeed();
+	SavedGame* own = new SavedGame();
+	bool loaded = true;
+	try
+	{
+		own->loadCoopSaveFromMemory("basehost", game->getMod(), game->getLanguage(), "basehost");
+	}
+	catch (const std::exception& e)
+	{
+		Log(LOG_ERROR) << "[coop] W2-H74: the own world (basehost) did not load at the battle entry: " << e.what();
+		loaded = false;
+	}
+	connectionTCP::saveID = saveId;
+	connectionTCP::_coopGamemode = gamemode;
+	connectionTCP::coop_save_owner_player_id = saveOwner;
+	connectionTCP::no_bases = noBases;
+	RNG::setSeed(seed);
+	if (!loaded || own->getBases()->empty())
+	{
+		delete own;
+		return false;
+	}
+	if (coop->coopFunds != 0)
+		own->setFunds(coop->coopFunds);
+	coop->coopFunds = 0;
+	connectionTCP::playerInsideCoopBase = false;
+	game->setSavedGame(own);
+	Log(LOG_INFO) << "[coop] W2-H74: battle entry from a view of the host's base - the own world is back before the snapshot (funds "
+		<< own->getFunds() << ")";
+	return true;
+}
+
 void onBlobChunkAppended(Game* game)
 {
 	if (!game || !g_pendingClient.awaitingBlob)
@@ -31992,7 +32062,10 @@ void onBlobChunkAppended(Game* game)
 	const bool sepGuestEntry = newSave->getCampaignType() == CoopCampaignType::Separate && !connectionTCP::getServerOwner();
 	bool sepSnapshotTaken = false;
 	if (sepGuestEntry)
+	{
+		coopSepEntryLeavePeerView(game); // coop W2-H74 (spec E2; R-BH-2 fix (a)): a view of the host's base ends first, as GEOSCAPE ends it
 		sepSnapshotTaken = game->getCoopMod()->coopSepEntrySnapshot();
+	}
 	// coop W2-H34 (R-9B-6, F12512; docs rewrite/prompts/w2h34_separate_copy_refresh.md): a FIRST battle entry also refreshes
 	// the host's copy of this client's world from the snapshot just taken, as `main` refreshes it at every battle start
 	// (sendMissionFile -> MAP_RESULT_HOST -> writeHostMapFile; quarantined with SS2.D here), so a rejoin adopts the client's
