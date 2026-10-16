@@ -14290,10 +14290,42 @@ std::string TestServer::execute(const std::string& line)
 				// BriefingState ctrl-B had just pushed (observed 2026-09-02).
 				resp["ok"] = true;
 			}
+			else if (kind == "motion")
+			{
+				// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A12): TEST-ONLY - ONE real SDL mouse-motion event at
+				// window pixel (x, y), consumed by Game::run like the click above: the game's Cursor and the top state's surfaces
+				// see a player's mouse move (no button held; xrel / yrel 0).
+				ev.type = SDL_MOUSEMOTION;
+				ev.motion.state = 0;
+				ev.motion.x = (Uint16)req.get("x", 160).asInt();
+				ev.motion.y = (Uint16)req.get("y", 100).asInt();
+				ev.motion.xrel = 0;
+				ev.motion.yrel = 0;
+				SDL_PushEvent(&ev);
+				resp["ok"] = true;
+			}
 			else
 			{
 				resp["error"] = "inject_input: unknown kind";
 			}
+		}
+		else if (cmd == "cursor_pos")
+		{
+			// coop EQ-2 S-A (A12): TEST-ONLY, read-only - the game Cursor's position in logical screen pixels (what a player's
+			// mouse moved last), and the top state's first Inventory surface's top-left (-1 with none).
+			resp["x"] = _game->getCursor() ? _game->getCursor()->getX() : -1;
+			resp["y"] = _game->getCursor() ? _game->getCursor()->getY() : -1;
+			int invX = -1, invY = -1;
+			if (!_game->getStates().empty())
+			{
+				for (auto* s : _game->getStates().back()->getSurfaces())
+				{
+					if (auto* i = dynamic_cast<Inventory*>(s)) { invX = i->getX(); invY = i->getY(); break; }
+				}
+			}
+			resp["invX"] = invX;
+			resp["invY"] = invY;
+			resp["ok"] = true;
 		}
 		else if (cmd == "list_widgets")
 		{
