@@ -83,6 +83,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 {
 	_battleGame = _game->getSavedGame()->getSavedBattle();
 	if (_base && !_tu) coopBaseInvScreen(this, _game); // coop EQ-3 S-A (owner D294 b): a SHARED base screen shows the partner's soldiers read-only
+	if (_base && !_tu) coopBasePresenceScreen(this, _game, _base, _noCraft); // coop EQ-3 S-B (VL-EQ3-1): the partner's pointer on this pile
 
 	if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
 	{
@@ -368,6 +369,7 @@ InventoryState::~InventoryState()
 	_clearInventoryTemplate(_curInventoryTemplate);
 	_clearInventoryTemplate(_tempInventoryTemplate);
 	coopBaseInvScreen(this, nullptr); // coop EQ-3 S-A: forgotten with this screen (before W2-H21's early return)
+	coopBasePresenceScreen(this, nullptr, nullptr, false); // coop EQ-3 S-B: and its pile key
 
 	// coop W2-H21 (F8598): a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
 	// delete ran: touch none of it. The swap already set the display for the screen that replaced this one.

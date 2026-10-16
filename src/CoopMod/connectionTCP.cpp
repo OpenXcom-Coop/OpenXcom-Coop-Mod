@@ -6695,6 +6695,100 @@ static void coopEquipRecordSync(const Json::Value& equip)
 		<< " seats)";
 }
 
+// ----- coop EQ-3 S-B (docs rewrite/prompts/eq3_base_screens.md, eq3b_pointer.md, PINNED EDITS B1; VL-EQ3-1, owner D290 (c),
+// D295 (a), QEQ3-7 (a), QEQ3-8 (a)): the co-op partner's pointer and name on a BASE inventory screen. Each machine sends
+// `base_equip_ptr {key, seat, x, y, on}` on EQ-2's SNAP_EQUIP_PTR conflation slot (last write wins: never the reliable FIFO, never an
+// ev, never hashed; a base screen and a pre-battle screen never coexist on one machine) while its registered base screen is the top
+// state. key = "<base>:<pile>": the SHARED base index (SharedEcon::baseIndex, the shared base key) and the pile (-1 = the Soldiers
+// inventory, else the crew's craft "<type>/<id>"). The receiver keeps the partner's position in EQ-2's CoopPresence::g_peer and draws
+// it with EQ-2's overlay only while the partner's fresh snapshot carries this screen's key (the same pile, QEQ3-7 (a)). Written on the
+// main thread under CoopPresence::g_mx (the probe reads under it); main-thread readers read without it.
+namespace CoopBasePresence
+{
+static const void* g_screen = nullptr;           // the registered base inventory screen (an identity key, never dereferenced)
+static std::string g_localKey;                   // its pile key ("" = none)
+static Json::Value g_last(Json::objectValue);    // the last snapshot this machine sent
+static Uint32 g_lastSentAt = 0;
+static Json::Value g_peerMsg(Json::objectValue); // the partner's latest snapshot (its position is also in CoopPresence::g_peer)
+static std::atomic<int> g_sent{0};
+static std::atomic<int> g_recv{0};
+static std::atomic<int> g_dropped{0};
+}
+
+// coop EQ-3 S-B (B1): TRUE in a co-op campaign whose base inventory screens show the partner's pointer.
+static bool coopBasePresenceCampaign(Game* game)
+{
+	const SavedGame* save = game ? game->getSavedGame() : nullptr;
+	return save && save->isCoopSave() && save->getCampaignType() == CoopCampaignType::Shared; // coop EQ-3 S-B: SHARED (VL-EQ3-1)
+}
+
+// coop EQ-3 S-B (B1; QEQ3-7 (a)): the pile key of a base inventory screen - "<base>:<pile>" with the SHARED base index and the pile:
+// -1 for the Soldiers inventory (@a noCraft), else the crew's craft "<type>/<id>" (the first unit whose geoscape soldier is on a
+// craft, as vanilla's Ctrl+Alt+X reads the craft). "" = no key (no base index, no craft).
+static std::string coopBasePileKey(Game* game, const Base* base, bool noCraft)
+{
+	const int index = SharedEcon::baseIndex(game, base);
+	if (index < 0)
+		return std::string();
+	std::string pile = "-1";
+	if (!noCraft)
+	{
+		SavedBattleGame* battle = game->getSavedGame() ? game->getSavedGame()->getSavedBattle() : nullptr;
+		if (!battle)
+			return std::string();
+		const Craft* craft = nullptr;
+		for (BattleUnit* u : *battle->getUnits())
+		{
+			const Soldier* s = u ? u->getGeoscapeSoldier() : nullptr;
+			if (s && s->getCraft())
+			{
+				craft = s->getCraft();
+				break;
+			}
+		}
+		if (!craft)
+			return std::string();
+		pile = craft->getRules()->getType() + "/" + std::to_string(craft->getId());
+	}
+	return std::to_string(index) + ":" + pile;
+}
+
+// coop EQ-3 S-B (B1): see CoopArbiter.h (B7).
+void coopBasePresenceScreen(const void* screen, Game* game, const Base* base, bool noCraft)
+{
+	if (game && screen && base && coopBasePresenceCampaign(game))
+	{
+		const std::string key = coopBasePileKey(game, base, noCraft);
+		Log(LOG_INFO) << "[coop-equip] base screen key " << key;
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		CoopBasePresence::g_screen = screen;
+		CoopBasePresence::g_localKey = key;
+	}
+	else if (!game && screen && CoopBasePresence::g_screen == screen)
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		CoopBasePresence::g_screen = nullptr;
+		CoopBasePresence::g_localKey.clear();
+	}
+}
+
+// coop EQ-3 S-B (B1): TEST-ONLY probe half - CoopDelta::equipProbe()'s `basePresence` (B6). What the overlay drew is EQ-2's
+// `presence.drawn` (one overlay per machine).
+static Json::Value coopBasePresenceProbe()
+{
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	Json::Value r(Json::objectValue);
+	r["screen"] = CoopBasePresence::g_screen != nullptr;
+	r["localKey"] = CoopBasePresence::g_localKey;
+	r["sent"] = CoopBasePresence::g_sent.load();
+	r["recv"] = CoopBasePresence::g_recv.load();
+	r["dropped"] = CoopBasePresence::g_dropped.load();
+	r["last"] = CoopBasePresence::g_last;
+	r["peer"] = CoopBasePresence::g_peerMsg;
+	r["peerAgeMs"] = CoopPresence::g_peer.seat >= 0 ? (int)(SDL_GetTicks() - CoopPresence::g_peer.heardAt) : -1;
+	return r; // coop EQ-3 S-B (B1): `basePresence`
+}
+
 namespace CoopDelta
 {
 Json::Value equipProbe()
@@ -6744,6 +6838,7 @@ Json::Value equipProbe()
 	r["heldTurnScreenPresses"] = g_equip.heldTurnScreenPresses.load();
 	r["gearRecords"] = g_equip.gearRecords.load(); // coop W2-H69 (E4)
 	r["presence"] = coopEquipPresenceProbe(); // coop EQ-2 S-A (A6)
+	r["basePresence"] = coopBasePresenceProbe(); // coop EQ-3 S-B (B6): the base screens' pointer lane
 	return r;
 }
 
@@ -33900,6 +33995,102 @@ void coopEquipPump(Game* game)
 	coopEquipPresencePump(game, save); // coop EQ-2 S-A (A8): the partner's pointer, both ways
 }
 
+// coop EQ-3 S-B (docs rewrite/prompts/eq3b_pointer.md, PINNED EDITS B2; QEQ3-8 (a)): BOTH - a `base_equip_ptr` from the partner
+// (onTCPMessage's geoscape chain, B4). Kept in a co-op campaign whose base screens show the pointer (coopBasePresenceCampaign),
+// outside a pre-battle equip phase (EQ-2 owns the pointer there), from another seat; anything else is dropped and counted. A key
+// that is not this screen's is kept too: it hides the pointer (the pile rule, QEQ3-7 (a)).
+static void coopBaseOnPeerPointer(Game* game, const Json::Value& msg)
+{
+	const int seat = msg.get("seat", -1).asInt();
+	if (!coopBasePresenceCampaign(game) || coopEquipOpen() || seat < 0 || seat >= 4 || seat == connectionTCP::localSeat())
+	{
+		CoopBasePresence::g_dropped.fetch_add(1);
+		return;
+	}
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	CoopPresence::g_peer.seat = seat;
+	CoopPresence::g_peer.on = msg.get("on", false).asBool();
+	CoopPresence::g_peer.x = msg.get("x", -1).asInt();
+	CoopPresence::g_peer.y = msg.get("y", -1).asInt();
+	CoopPresence::g_peer.heardAt = SDL_GetTicks();
+	CoopBasePresence::g_peerMsg = msg;
+	CoopBasePresence::g_recv.fetch_add(1);
+}
+
+// coop EQ-3 S-B (B2): the registered base screen when it is the TOP state; else nullptr.
+static InventoryState* coopBaseTopScreen(Game* game)
+{
+	if (!game || !CoopBasePresence::g_screen || game->getStates().empty() || game->getStates().back() != CoopBasePresence::g_screen)
+		return nullptr;
+	return dynamic_cast<InventoryState*>(game->getStates().back());
+}
+
+// coop EQ-3 S-B (B2; VL-EQ3-1, D290 (c), D295 (a)): BOTH, every updateCoopTask() pass (B3), right after coopEquipPump(). (1) This
+// machine's pointer to the partner while its registered base screen is the top state, the link is up and no equip phase is open:
+// EQ-2's rate (a change at most every kPtrMinMs, an unchanged pointer every kPtrKeepaliveMs) and ONE `on false` once it leaves (the
+// screen covered or closed). (2) The partner's pointer and name on this screen, drawn with EQ-2's overlay only while the partner's
+// fresh snapshot carries this screen's key (the same pile, QEQ3-7 (a)).
+static void coopBasePresencePump(Game* game)
+{
+	if (!game || !game->getCoopMod())
+		return;
+	InventoryState* st = coopBaseTopScreen(game);
+	Inventory* inv = coopEquipInventoryOf(st);
+	const std::string key = CoopBasePresence::g_localKey;
+	const bool live = st && inv && !key.empty() && connectionTCP::getCoopStatic() && coopBasePresenceCampaign(game) && !coopEquipOpen();
+	bool on = false;
+	int x = -1;
+	int y = -1;
+	if (live && game->getCursor())
+	{
+		x = game->getCursor()->getX() - inv->getX();
+		y = game->getCursor()->getY() - inv->getY();
+		on = x >= 0 && y >= 0 && x < inv->getWidth() && y < inv->getHeight();
+	}
+	if (!on)
+	{
+		x = -1;
+		y = -1;
+	}
+	Json::Value snap(Json::objectValue);
+	snap["state"] = "base_equip_ptr";
+	snap["key"] = on ? key : std::string();
+	snap["seat"] = connectionTCP::localSeat();
+	snap["x"] = x;
+	snap["y"] = y;
+	snap["on"] = on;
+	const Uint32 now = SDL_GetTicks();
+	bool send = false;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		const bool changed = snap != CoopBasePresence::g_last;
+		const Uint32 since = now - CoopBasePresence::g_lastSentAt;
+		send = (live || CoopBasePresence::g_last.get("on", false).asBool()) && connectionTCP::getCoopStatic()
+			&& ((changed && since >= (Uint32)CoopPresence::kPtrMinMs) || (on && since >= (Uint32)CoopPresence::kPtrKeepaliveMs));
+		if (send)
+		{
+			CoopBasePresence::g_last = snap;
+			CoopBasePresence::g_lastSentAt = now;
+		}
+	}
+	if (send)
+	{
+		game->getCoopMod()->sendCoopSnapshot(SNAP_EQUIP_PTR, snap.toStyledString());
+		CoopBasePresence::g_sent.fetch_add(1);
+	}
+	int seat = -1;
+	bool keyed = false;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		seat = CoopPresence::g_peer.seat;
+		keyed = !key.empty() && CoopBasePresence::g_peerMsg.get("key", "").asString() == key;
+	}
+	std::string name = seat >= 0 ? connectionTCP::seatName(seat) : std::string();
+	if (seat >= 0 && name.empty() && connectionTCP::seatCount() == 2)
+		name = game->getCoopMod()->getCurrentClientName(); // EQ-1's rule: no roster - the two-player bridge names the peer
+	coopEquipPresenceOverlay(game, st, inv, live && keyed, name);
+}
+
 // ===== R2-P9: client-side post-apply hash verify (BattlePump.h) =====
 // SPIKE-RUNBOOK.md SS2.8. The ONE call site for the whole mismatch path
 // (bucket compare -> freeze -> bt_desync -> bundle -> banner) - wired from
@@ -36926,6 +37117,7 @@ void connectionTCP::updateCoopTask()
 	// pre-battle equip phase's steps - the host's screen record, announce and barrier, the client's entry, open and
 	// end, the D216 waiting line. Self-guarded (an open equip phase, or an unconsumed end).
 	coopEquipPump(_game);
+	coopBasePresencePump(_game); // coop EQ-3 S-B (B3; VL-EQ3-1): the partner's pointer on a base inventory screen, both ways
 
 	// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; delete once real network
 	// latency/loss can be injected another way): defer_intents' release half.
@@ -40788,7 +40980,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 	}
 
-	if (stateString == "time")
+	if (stateString == "base_equip_ptr")
+	{
+		// coop EQ-3 S-B (docs rewrite/prompts/eq3b_pointer.md B4; VL-EQ3-1, QEQ3-8 (a)): either direction - the co-op partner's pointer
+		// on a base inventory screen (EQ-2's SNAP_EQUIP_PTR conflation slot; display only, never hashed). Self-guarded.
+		coopBaseOnPeerPointer(_game, obj);
+	}
+	else if (stateString == "time")
 	{
 
 		if (getServerOwner() == false)
