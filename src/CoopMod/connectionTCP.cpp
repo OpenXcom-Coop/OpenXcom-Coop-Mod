@@ -46692,7 +46692,20 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 	}
 
 	SavedGame* coopFile = new SavedGame();
+	// coop W2-H86 (docs rewrite/prompts/w2h86_upload_save_crossing.md E1; L-LT17-1, R-LLT17-1-1; F22900-F22915, F22980-F22997): this load only
+	// checks the partner's upload; it must not move the host's saveID. An upload the partner sends on its own (a gift follow-up, the held push
+	// after naming a base, a gm3 hand-off, the battle-entry refresh) carries the id it had when its stream started; a host quick or manual
+	// save during that stream re-mints the id (SaveGameState, W2-H58's copy), and taking the stream's older id here stored the world under one
+	// key and left the host on another, so a partner who dropped and rejoined got a new campaign. The host keeps its id (W2-H84 E1 is the
+	// partner-side twin: a partner's own-world load keeps the id the host sent); with no id yet (0) the upload's is taken, as before.
+	const long long hostSaveId = connectionTCP::saveID;
 	coopFile->loadCoopSaveFromMemory(scratchKey, _game->getMod(), _game->getLanguage(), scratchKey);
+	if (hostSaveId != 0 && connectionTCP::saveID != hostSaveId)
+	{
+		Log(LOG_INFO) << "[coop] W2-H86: partner upload validated - saveID stays " << hostSaveId << " (the upload's is "
+			<< connectionTCP::saveID << ")";
+		connectionTCP::saveID = hostSaveId;
+	}
 
 	bool error = false;
 	bool found = false;
