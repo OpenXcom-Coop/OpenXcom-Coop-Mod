@@ -34691,11 +34691,11 @@ bool connectionTCP::liveWorldIsPeerView(Game* game)
 
 // coop W2-H70 (same spec (e) E1; F19742, F19743, F19745, F19746, F19922): a SEPARATE client's gift sent or received while its live
 // world is the partner's base view also changes its STORED own world, so a save, a leave, a reload or a rejoin finds the soldier on
-// exactly one roster. removeId >= 0 (sent, giftSoldier): drop that soldier from "basehost" (the own world the leave restores) and store
-// the result as the own-world blob too. add (received and queued): add the soldier to the own-world blob only; "basehost" stays without
-// it and the replay after the leave adds it to the live world once. Then the host pulls the STORED blob (SEND_FILE_HOST_TRUE_SAVE_PROGRESS;
-// the stream reads the own-world key), never the live view. The scratch load writes coop statics and the RNG seed; they are put back.
-static void coopOwnWorldFollowGift(connectionTCP* coop, Game* game, int removeId, const Json::Value* add)
+// exactly one roster. removeId >= 0 (sent, giftSoldier): drop that soldier from "basehost" (the own world the leave restores). coop W2-H70
+// S-D (spec w2h70_sd_gift_back.md ED1-ED3; L-H70-3, R-H70D-0; F20715): the own-world blob is then "basehost" plus every gift still queued
+// (_pendingIncomingGifts, in order; never added to "basehost"), i.e. what the leave will produce, and the host pulls that STORED blob
+// (SEND_FILE_HOST_TRUE_SAVE_PROGRESS), never the live view. The scratch load writes coop statics and the RNG seed; they are put back.
+static void coopOwnWorldFollowGift(connectionTCP* coop, Game* game, int removeId, const std::vector<Json::Value>& queued)
 {
 	const long long saveId = connectionTCP::saveID;
 	const int gamemode = connectionTCP::_coopGamemode;
@@ -34733,15 +34733,15 @@ static void coopOwnWorldFollowGift(connectionTCP* coop, Game* game, int removeId
 		if (changed)
 			own->saveCoopToMemory("basehost", game->getMod(), "basehost");
 	}
-	if (add)
+	for (const Json::Value& entry : queued)
 	{
 		try
 		{
-			YAML::YamlRootNodeReader reader(YAML::YamlString{(*add)["soldier_yaml"].asString()}, "giftSoldier");
+			YAML::YamlRootNodeReader reader(YAML::YamlString{entry["soldier_yaml"].asString()}, "giftSoldier");
 			auto soldierReader = reader["soldier"];
 			const std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
-			const int stationBaseId = (*add)["station_base_id"].asInt();
-			const int owner = (*add)["owner"].asInt();
+			const int stationBaseId = entry["station_base_id"].asInt();
+			const int owner = entry["owner"].asInt();
 			Base* homeBase = nullptr;
 			Base* firstOwnBase = nullptr;
 			for (Base* base : *own->getBases())
@@ -34792,7 +34792,8 @@ static void coopOwnWorldFollowGift(connectionTCP* coop, Game* game, int removeId
 			Log(LOG_INFO) << "[coop-gift] W2-H70: the own-world copy of a queued gift failed: " << e.what();
 		}
 	}
-	if (changed)
+	// coop W2-H70 S-D (ED3; F20714): a display copy given back stores "basehost" plus what is still queued, also when nothing is.
+	if (changed || removeId < 0)
 	{
 		const std::string key = connectionTCP::clientBlobKey(coop->getHostName());
 		own->saveCoopToMemory(key, game->getMod(), key);
@@ -34873,11 +34874,31 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		sendSoldierGiftPacket(soldier, newOwnerId);
 		removeSoldierFromLocalBases(soldier);
 		_giftedSoldiers.push_back(soldier);
+		// coop W2-H70 S-D (spec docs rewrite/prompts/w2h70_sd_gift_back.md ED4; L-H70B-1, R-H70D-0; F20714, F20911): a received gift's
+		// display copy given back during the same visit (either machine) cancels the queued receive, so the soldier ends on the giver's
+		// roster only. The copy carries the giver's id, which one of our own soldiers may hold: nothing is erased or parked by that id.
+		// Only inside a view: the marks of an ended view name deleted soldiers until the next CoopState 55 clears them (S-B EB4).
+		if ((_game->getCoopMod()->playerInsideCoopBase == true || coopLiveWorldIsPeerView(_game)) && visitDisplayCopies.erase(soldier) != 0)
+		{
+			for (auto it = _pendingIncomingGifts.begin(); it != _pendingIncomingGifts.end(); ++it)
+			{
+				if (it->isMember("soldier_yaml") && (*it)["soldier_id"].asInt() == soldier->getId())
+				{
+					_pendingIncomingGifts.erase(it);
+					break;
+				}
+			}
+			Log(LOG_INFO) << "[coop-gift] W2-H70 S-D: a display copy given back during the visit; its queued receive is cancelled (id="
+				<< soldier->getId() << ", still queued " << _pendingIncomingGifts.size() << ")";
+			if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
+				coopOwnWorldFollowGift(this, _game, -1, _pendingIncomingGifts);
+			return;
+		}
 		_giftedAwaySoldierIds.insert(soldier->getId());
 		// coop W2-H70 (spec (e) E2; F19741, F19742, F19747): a SEPARATE client gifting from the partner's base view edits its stored own
 		// world and pushes that; the push below returns inside a base and, in the 67 window, serialises the view (refused, 995).
 		if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-			coopOwnWorldFollowGift(this, _game, soldier->getId(), nullptr);
+			coopOwnWorldFollowGift(this, _game, soldier->getId(), _pendingIncomingGifts);
 		else
 			pushProgressToHostSilently();
 	}
@@ -39425,8 +39446,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				_pendingIncomingGifts.push_back(obj);
 				// coop W2-H70 (spec (e) E3; F19743, F19746): the queued soldier also goes into the stored own world now.
+				// coop W2-H70 S-D (ED5; L-H70-3; F20715): with every gift still queued, so an earlier one stays in the stored own world.
 				if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-					coopOwnWorldFollowGift(this, _game, -1, &obj);
+					coopOwnWorldFollowGift(this, _game, -1, _pendingIncomingGifts);
 
 			}
 			else if (obj.isMember("soldier_yaml")
@@ -39505,8 +39527,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							Log(LOG_INFO) << "[coop-gift] RECV deferred (no own base in current save)";
 							_pendingIncomingGifts.push_back(obj);
 							// coop W2-H70 (spec (e) E4; F19926): the same while the 67 has cleared the visit flag in the view.
+							// coop W2-H70 S-D (ED6; L-H70-3; F20715): with every gift still queued (as ED5).
 							if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-								coopOwnWorldFollowGift(this, _game, -1, &obj);
+								coopOwnWorldFollowGift(this, _game, -1, _pendingIncomingGifts);
 						}
 						else
 						{
