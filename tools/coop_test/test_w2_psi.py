@@ -172,6 +172,7 @@ KEY_PANICKED = "STR_HAS_PANICKED"
 Q_C14MC = True                   # PIN (T0a-3): the `psi` applied under the client's NextTurnState (queued)
 HOLD_C14MC_S = 30.0              # W2-U9 (F21067): bound of the client's held alien-side NextTurnState in cycle 1
 Q_C14P = True                    # PIN (T0a-3): C2's `panic` applied under the client's NextTurnState (queued)
+HOLD_C14P_S = 30.0               # W2-U9c (R-MGR2-1): bound of the client's held player-side NextTurnState in cycle 2
 PAYLOAD_EXTRA = ("psi",)         # payloads read beyond test_w2_turn_cues.end()'s kinds
 UNIT_KEYS = ("type", "faction", "originalFaction", "mindControllerId", "mindControlled", "status", "isOut",
              "onTile", "x", "y", "z", "direction", "tu", "health", "morale", "psiWeapon", "specialWeapons")
@@ -311,16 +312,19 @@ def mr5_fails(rec, mb, ma, uid, key, queued, quiet, what):
     return fails
 
 
-def hold_until_message(client, mb, uid, key, rec, what, bound):
-    """W2-U9 (R-U9-0 item 5 (c), F21067; S44): a cycle() client_hold predicate. While the client is on the alien
-    side (FACTION_HOSTILE) with a NextTurnState on top, keep that screen up until the client's messages ring holds
-    the new record about `uid` with `key` (the record MR5 reads, `queued` included), so the host AI's psi applies
-    under the screen however late the AI acts (F21001: under 98 % CPU it applied 135 ms after the close). Bounded:
-    after `bound` s it releases, notes it in rec["notes"], and MR5 judges as before. Never changes what MR5 reads."""
+def hold_until_message(client, mb, uid, key, rec, what, bound, side=FACTION_HOSTILE):
+    """W2-U9 (R-U9-0 item 5 (c), F21067; S44): a cycle() client_hold predicate. While the client is on `side`
+    (default the alien side, FACTION_HOSTILE) with a NextTurnState on top, keep that screen up until the client's
+    messages ring holds the new record about `uid` with `key` (the record MR5 reads, `queued` included), so the host
+    AI's psi applies under the screen however late the AI acts (F21001: under 98 % CPU it applied 135 ms after the
+    close). W2-U9c (R-MGR2-1, F22801): `side` FACTION_PLAYER holds the client's player-side screen for the host's
+    panic, which the host emits only after its own player-side NextTurnState closes. Bounded: after `bound` s it
+    releases, notes it in rec["notes"], and MR5 judges as before. Never changes what MR5 reads."""
     st = {"t0": None, "released": False}
+    side_name = "alien" if side == FACTION_HOSTILE else "player"
 
     def hold():
-        if st["released"] or battle_state(client).get("side") != FACTION_HOSTILE \
+        if st["released"] or battle_state(client).get("side") != side \
                 or session.top_state(client) != "NextTurnState":
             return False
         if any(r.get("unit") == uid and r.get("key") == key for r in msg_new(mb["client"], messages(client))):
@@ -329,7 +333,7 @@ def hold_until_message(client, mb, uid, key, rec, what, bound):
         st["t0"] = st["t0"] or time.time()
         if time.time() - st["t0"] > bound:
             st["released"] = True
-            rec["notes"].append(f"{what}: the client's alien-side NextTurnState released after {bound} s with no "
+            rec["notes"].append(f"{what}: the client's {side_name}-side NextTurnState released after {bound} s with no "
                                 f"{key} record about {uid} in its messages ring")
             return False
         return True
@@ -406,7 +410,10 @@ def c14_panic(host, client, ctx):
     off = log_size(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
-    cycle(host, client, SEED_C14P, rec, "cycle 2", extra=c2_resolved)
+    # W2-U9c (R-MGR2-1, F22801): the client's player-side NextTurnState stays up until C2's panic record is in its ring
+    cycle(host, client, SEED_C14P, rec, "cycle 2", extra=c2_resolved,
+          client_hold=hold_until_message(client, mb, C2_ID, KEY_PANICKED, rec, "cycle 2", HOLD_C14P_S,
+                                         side=FACTION_PLAYER))
     end(host, client, rec)
     quiet = client_quiet(client)         # F1724: the client's 2 s box closed before the teardown
     ma = msg_snap(host, client)

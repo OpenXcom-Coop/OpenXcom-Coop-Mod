@@ -453,7 +453,11 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90, client_hold=Non
     host idle with the client caught up. Every wait is bounded; a timeout is
     recorded in rec["notes"]. Appends the cycle's record to rec["cycles"].
     W2-U9 (F21067): `client_hold`, when given, is a predicate polled each round; while it returns True the
-    client's NextTurnState is left up (the caller bounds it; None = close it at once, as before)."""
+    client's NextTurnState is left up (the caller bounds it; None = close it at once, as before).
+    W2-U9c (R-MGR2-1, F22881): with a `client_hold`, the hold is asked only once the round has seen the client's
+    NextTurnState up, and only that seen screen is closed (a screen that comes up after the read waits for the next
+    round's ask), and the cycle does not end while the hold holds (a player-side hold would otherwise end the
+    cycle at once and leave the screen to settle_on_battlescape)."""
     turn0 = battle_state(host).get("turn")
     seq_before = event_state(host).get("lastSeqEmitted") or 0
     try:
@@ -470,10 +474,15 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90, client_hold=Non
                 rec["dismissed"].append((lw.split(">")[-1], host.cmd({"cmd": "dismiss_popup"}).get("handled")))
             if "NextTurnState" in lw:
                 dismiss_next_turn_if_present(host)
-            if client_hold is None or not client_hold():
+            held = False
+            if client_hold is None:
                 dismiss_next_turn_if_present(client)
+            elif "NextTurnState" in client.cmd({"cmd": "list_widgets"}).get("state", ""):
+                held = client_hold()
+                if not held:
+                    dismiss_next_turn_if_present(client)
             hs, cs = battle_state(host), battle_state(client)
-            if (hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
+            if (not held and hs.get("side") == FACTION_PLAYER and hs.get("turn", -1) >= turn0 + 1
                     and cs.get("side") == FACTION_PLAYER and cs.get("turn", -1) >= turn0 + 1):
                 break
             if time.time() > deadline:
