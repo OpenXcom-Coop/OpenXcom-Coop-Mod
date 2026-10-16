@@ -726,6 +726,7 @@ bool coopTestHoldSaveReplyHeld();
 /// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1a; R-LH78-1-1): TEST-ONLY `hold_blob_ack` scope: 0 "blob", 1 "base"
 /// (also while a CoopState 50 is on this machine's stack), 2 "save" (also while the host's save waits for the partner's world). Set by the
 /// TestServer lever only. Never called by game logic.
+/// coop W2-H86 (docs rewrite/prompts/w2h86_upload_save_crossing.md L1d): scope 3 "upload" (on the host, every world chunk while armed).
 void coopTestHoldBlobAckSetScope(int scope);
 int coopTestHoldBlobAckScope();
 

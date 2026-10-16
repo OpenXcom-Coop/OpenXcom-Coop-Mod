@@ -8365,7 +8365,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1e): {on: true, scope: "blob" | "base" | "save"} (default
 			// "blob", as before; an unknown name is "blob"). {on: false} resets the scope to "blob".
 			const std::string scope = req.get("scope", "blob").asString();
-			coopTestHoldBlobAckSetScope(!on ? 0 : scope == "base" ? 1 : scope == "save" ? 2 : 0);
+			// coop W2-H86 (docs rewrite/prompts/w2h86_upload_save_crossing.md L1c): scope "upload" (3): on the host, every world chunk's ack.
+			coopTestHoldBlobAckSetScope(!on ? 0 : scope == "base" ? 1 : scope == "save" ? 2 : scope == "upload" ? 3 : 0);
 			const int cleared = coopTestHoldBlobAckArm(on);
 			if (!on && cleared > 0)
 			{
