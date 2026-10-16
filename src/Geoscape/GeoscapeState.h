@@ -275,6 +275,9 @@ public:
 	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
+	/// coop W2-H76 (R-BH4-1 fix (a)): ends and deletes every dogfight (open, minimized or waiting to start) on @a ufo; co-op code
+	/// calls it right before it deletes that UFO (a partner's mirror), as vanilla's time5Seconds() does for a destroyed UFO.
+	void coopDropDogfightsFor(Ufo* ufo);
 	/// Test-harness: dogfights queued but not yet started.
 	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
 	/// coop W2-H76 test-harness (R-BH4-1): the dogfights (@a pending: those queued to start) whose UFO pointer is not in the

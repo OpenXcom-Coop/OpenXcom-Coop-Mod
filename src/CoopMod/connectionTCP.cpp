@@ -39204,6 +39204,20 @@ bool connectionTCP::legacyBattleMessageDropped(const std::string& state)
 // arrived while its world is borrowed (onTCPMessage "target_positions", E1); defined beside D250-U S-C1's borrow record.
 static void coopPvpNotePositionsSkipped();
 
+// coop W2-H76 (R-BH4-1 fix (a); docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md): before co-op code deletes a UFO mirror, every
+// dogfight this machine's geoscape holds on it ends and is deleted (GeoscapeState::coopDropDogfightsFor), as vanilla does for a
+// destroyed UFO. The geoscape is found on the state stack; none (e.g. already at the main menu) = no dogfight to end.
+static void coopDropDogfightsForUfo(Game* game, Ufo* ufo)
+{
+	if (!game || !ufo)
+		return;
+	for (State* st : game->getStates())
+	{
+		if (GeoscapeState* geo = dynamic_cast<GeoscapeState*>(st))
+			geo->coopDropDogfightsFor(ufo);
+	}
+}
+
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
@@ -42264,6 +42278,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (u->_coop && keep_ufo.find(u->_coop_ufo_id) == keep_ufo.end())
 				{
 					// If SavedGame owns the UFOs, also free memory:
+					coopDropDogfightsForUfo(_game, u); // coop W2-H76 (R-BH4-1): no dogfight keeps the mirror past its delete
 					delete u; // <- omit if someone else owns them (e.g., smart pointers)
 					it = ufos.erase(it);
 				}
@@ -45072,7 +45087,7 @@ void connectionTCP::deleteAllCoopBases()
 			auto& ufos = *sg->getUfos();
 			for (auto it = ufos.begin(); it != ufos.end();)
 			{
-				if (*it && (*it)->_coop) { delete *it; it = ufos.erase(it); }
+				if (*it && (*it)->_coop) { coopDropDogfightsForUfo(_game, *it); delete *it; it = ufos.erase(it); } // coop W2-H76 (R-BH4-1)
 				else ++it;
 			}
 			auto& abases = *sg->getAlienBases();
