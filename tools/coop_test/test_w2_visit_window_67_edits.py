@@ -1,7 +1,7 @@
 """W2-H70 S-C (spec docs rewrite/prompts/w2h70_sc_window_67.md (f); TASK 0 rewrite/w2h70-task0/sc/CONSTANTS.md; lead L-H70-2, ruling
 R-H70-4; F20447, F20448, F20706): a change a co-op visitor makes on a base screen of the host's base after it pressed OK on the
 host's "Go to Geoscape to begin saving progress." (CoopState 67; the 67 window), SEPARATE co-op. Rows (one fresh boot pair each, key
-"49290", dirs w2h70c_<row>_host / _client; prefix P: the guest staged, the picker, the visit, B, K0; real presses only; the one lever is
+"49578", dirs w2h70c_<row>_host / _client; prefix P: the guest staged, the picker, the visit, B, K0; real presses only; the one lever is
 R15's rename_soldier, QH70C-5; no reload, no rejoin):
   R13 (W3 seat, CAP70 C3) EQUIP CRAFT, craft row 0, CREW; the window over CraftSoldiersState; B3 = the client's "basehost" fnv; the
       guest's crew row (its craft changes = the last precondition); OK, OK (CraftInfoState's), OK, the leave; HOLD_L; the re-visit:
@@ -21,7 +21,7 @@ Run: python tools/coop_test/test_w2_visit_window_67_edits.py
 import os, sys  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from w2h70c_helpers import *  # noqa: E402,F401,F403 (the helpers, run_row_c, main; R-H70-2)
-KEY = "49290"
+KEY = "49578"
 EQUIP, MOVE = "EQUIP CRAFT", "MOVE"
 
 def leave_hold(x, ev):
