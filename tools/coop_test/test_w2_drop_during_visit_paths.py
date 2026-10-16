@@ -7,7 +7,7 @@ Spec docs rewrite/prompts/w2h73_drop_during_visit.md (f) (QH73-1 .. QH73-5 (a), 
 lead L-TR9-2, capture rewrite/ltr9-2-cap (F20285-F20294).
 Row T (H5, E3; boot w2h73_t_*): VISIT, read I, B, the host's TEST-ONLY force_server_error (W2-H59), READ D at the first host top 62.
   T-pre (GUARD: read I inside the view; the lever ok; SERVER +1), T-stack (RED: [GeoscapeState, CoopState] 62), T-world (RED: the own base
-  with FUNDS, no view base), T-common (GUARD).
+  with FUNDS, no view base), T-inside (RED: insideCoopBase false at READ D and 1 s later; ruling R-H73-2), T-common (GUARD).
 Row S (a screen open inside the base; boot w2h73_s_*): VISIT, the host's real SOLDIERS click, SoldiersState on top (W_UI), B, kill, READ D.
   S-pre (GUARD), S-stack (RED), S-world (RED: exactly the own base, FUNDS, S0), S-common (GUARD).
 Row G (C1-ctl, the control; boot w2h73_g_*): no visit; B; kill; READ D; SAVE & QUIT -> list -> NAME_G -> SAVE GAME; the file.
@@ -17,7 +17,7 @@ Row I (ironman, T0-I reached it; boot w2h73_i_*): W2-H53 boot G's SEPARATE ironm
   B, kill, the 62, SAVE & QUIT; a ListSaveState is answered by list_save_confirm NAME_I2 (the red's way out).
   I-pre (GUARD), I-nolist (RED: no ListSaveState, MainMenuState), I-file (RED: NAME_I.sav rewritten with the host's base and S0, no
   NAME_I2.sav), I-common (GUARD).
-Red today: T-stack, T-world, S-stack, S-world, I-nolist, I-file FAIL; every other cell PASS. Green (E1-E4): all PASS.
+Red today: T-stack, T-world, T-inside, S-stack, S-world, I-nolist, I-file FAIL; every other cell PASS. Green (E1-E4): all PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
 row (later cells "not reached"); a boot miss fails the row's first cell with ONE CAPTURE line. Real presses only; staging: set_funds FUNDS;
 the TEST-ONLY lever force_server_error (row T). Helpers copied (never imported) from the capture's cap.py and test_w2_ironman_save_paths.py.
@@ -48,7 +48,7 @@ NEEDLES = {"UNWIND": "[coop] W2-H73: the partner dropped while the host views it
            "LGPUSH": "[coop-ui] push class OpenXcom::LoadGameState",
            "LISTPUSH": "[coop-ui] push class OpenXcom::ListSaveState",
            "SERVER": "[coop-test] force_server_error: onConnect -3 (main thread)"}
-CELLS = {"T": ["T-pre", "T-stack", "T-world", "T-common"], "S": ["S-pre", "S-stack", "S-world", "S-common"],
+CELLS = {"T": ["T-pre", "T-stack", "T-world", "T-inside", "T-common"], "S": ["S-pre", "S-stack", "S-world", "S-common"],
          "G": ["G-stack", "G-world", "G-log", "G-file", "G-common"], "I": ["I-pre", "I-nolist", "I-file", "I-common"]}
 T0 = time.time()
 RESULTS = []
@@ -433,6 +433,11 @@ def body_t(r, x):
     view = [b for b in D["bases"] if b[1] and not b[2]]
     r.cell("T-world", own and not view and D["funds"] == x.FUNDS,
            "READ D bases %s, funds %s (want own [%s, false, false], no [*, true, false], %s)" % (D["bases"], D["funds"], x.HB, x.FUNDS))
+    time.sleep(1.0)
+    i1 = r.ev["inside1s"] = [coop(x.host).get("insideCoopBase"), stack(x.host)]
+    r.cell("T-inside", D["coop"].get("insideCoopBase") is False and i1[0] is False,
+           "insideCoopBase at READ D %s, 1 s later %s over %s (want false, false: the host's own geoscape, R-H73-2)" % (
+               D["coop"].get("insideCoopBase"), i1[0], i1[1]))
     al = alive(x.host) and alive(x.client)
     common(r, "T-common", x, False, ["both alive %s" % al], al)
 
