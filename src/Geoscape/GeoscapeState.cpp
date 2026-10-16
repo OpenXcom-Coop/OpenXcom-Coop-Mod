@@ -1599,7 +1599,11 @@ void GeoscapeState::think()
 						std::vector<const RuleResearch*> topicsToCheck = { research };
 						if (bonus)
 							topicsToCheck.push_back(bonus);
+						const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop W2-H75
 						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase, false);
+						// coop W2-H75 (R-B109-1): the sender's world spawned these topics' events too (a project or an event's research;
+						// not a mission outcome, F21101), so each copy is a window both worlds hold
+						GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore, root_research.get("sender_side_effects", false).asBool());
 
 						// Nothing new to this player (e.g. its own copy of the project
 						// finished after the peer's): no popup.
@@ -3984,7 +3988,7 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	{
 		timerReset();
 		const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261); MG-C K1 (C11)
-		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared()));
+		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared(), ge->isCoopBothWorlds())); // coop W2-H75: the both-worlds mark
 		SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
 	}
 
@@ -4688,7 +4692,9 @@ void GeoscapeState::time1Day()
 			// 1. remove obsolete research projects from all bases
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
+			const size_t coopEventsBefore = saveGame->getGeoscapeEvents().size(); // coop W2-H75
 			saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+			GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore); // coop W2-H75 (R-B109-1): ResearchCompleteState synced these topics, so the other world spawns the same events
 			SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop W2-H17 (F3262): corpse, refunds, obsolete projects, spawned items and counters reach the replica
 		}
 

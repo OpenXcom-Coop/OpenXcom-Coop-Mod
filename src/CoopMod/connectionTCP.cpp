@@ -47275,7 +47275,7 @@ namespace OpenXcom
  * @param research The discovered topic.
  * @param base The sender's base it was discovered at.
  */
-void connectionTCP::sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base)
+void connectionTCP::sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base, bool senderSideEffects)
 {
 	if (!getCoopStatic() || isSharedCampaign() || !_enable_research_sync || !research || !base)
 		return;
@@ -47287,6 +47287,7 @@ void connectionTCP::sendResearchSync(const RuleResearch* newResearch, const Rule
 	root["bonus_name"] = bonus ? bonus->getName() : "";
 	root["base_lat"] = base->getLatitude();
 	root["base_lon"] = base->getLongitude();
+	root["sender_side_effects"] = senderSideEffects; // coop W2-H75 (R-B109-1): the receiver marks the events it spawns as both worlds' (GeoscapeState::think)
 	sendTCPPacketData(root.toStyledString());
 }
 

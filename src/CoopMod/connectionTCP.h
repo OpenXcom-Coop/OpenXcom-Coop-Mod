@@ -893,7 +893,9 @@ class connectionTCP
 	// SEPARATE research sync: mirror one discovery to the other player (no-op unless
 	// this is a SEPARATE campaign with research sync on). ResearchCompleteState sends
 	// completed projects; GeoscapeEventState sends research an event granted.
-	void sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base);
+	// coop W2-H75 (R-B109-1): senderSideEffects = this world ran the topics' side effects (spawned their events): true from
+	// ResearchCompleteState and GeoscapeEventState, false for a mission outcome (SavedGame::handleResearchUnlockedByMissions, F21101).
+	void sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base, bool senderSideEffects = false);
 
 	// SEPARATE certain-event sync: a certain geoscape event (odds 100, one possible
 	// event) that both players spawn in the same roll fires on the host's timer.

@@ -59,12 +59,13 @@ private:
 	/// coop W2-H15 (F3261): copies the armed picks and draws them in this machine's language; true = the replica path.
 	bool coopReplicaDisplay();
 	bool _coopShared; // coop SEPARATE: the other player gets this same event too
+	bool _coopBothWorlds; // coop W2-H75 (R-B109-1): SEPARATE, shared research - the other player's world holds this same event (main #197)
 
 	/// Helper performing event logic.
 	void eventLogic();
 public:
 	/// Creates the GeoscapeEventState.
-	GeoscapeEventState(const RuleEvent& eventRule, bool coopShared = false);
+	GeoscapeEventState(const RuleEvent& eventRule, bool coopShared = false, bool coopBothWorlds = false);
 	/// Cleans up the GeoscapeEventState.
 	~GeoscapeEventState();
 	/// Initializes the state.
@@ -79,6 +80,9 @@ public:
 	std::vector<std::string> coopTexts() const;
 	/// coop W2-H15 (F3261): arms the next GeoscapeEventState as a display-only replica window drawn from @a picks.
 	static void coopArmDisplay(const CoopEventPicks* picks);
+	/// coop W2-H75 (R-B109-1): SEPARATE co-op with shared research - marks every geoscape event spawned since index @a from as one both
+	/// worlds hold (the other player's world spawns it too). @a senderSideEffects false: the sender's world spawned nothing (a mission outcome).
+	static void coopMarkResearchEvents(Game* game, size_t from, bool senderSideEffects = true);
 };
 
 }
