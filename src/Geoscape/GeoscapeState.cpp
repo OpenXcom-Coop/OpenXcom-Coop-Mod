@@ -5491,6 +5491,22 @@ void GeoscapeState::btnBasesClick(Action *)
 			);
 			_game->getSavedGame()->setSelectedBase(xbaseSorting.front().first);
 		}
+		// coop W2-H87 (docs rewrite/prompts/w2h87_lost_first_base_revert.md EA; R-LF23065-1, VL-H87-1; lf23065-cap F23181-F23186): BASES never opens
+		// a partner's _coopIcon mirror (BasescapeState shows it as a visit and its GEOSCAPE reloads "basehost"). A lost base leaves the selected index
+		// on the mirror after it (BaseDestroyedState erases without re-pointing) and the nearest-base sort above can pick one: the first own base
+		// opens instead. With no own base left nothing changes.
+		if (_game->getSavedGame()->getSelectedBase()->_coopIcon == true)
+		{
+			std::vector<Base*>* coopBases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < coopBases->size(); ++i)
+			{
+				if (coopBases->at(i)->_coopIcon == false && coopBases->at(i)->_coopBase == false)
+				{
+					_game->getSavedGame()->setSelectedBase(i);
+					break;
+				}
+			}
+		}
 		_game->pushState(new BasescapeState(_game->getSavedGame()->getSelectedBase(), _globe));
 	}
 	else
