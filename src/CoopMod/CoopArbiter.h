@@ -43,6 +43,9 @@ class BattleItem;
 class RuleInventory;
 struct BattleActionCost;
 class EquipmentLayoutItem; // W2-P8b S-C.2: the pre-battle bulk tools' layouts
+class BattlescapeState; // coop EQ-1: coopEquipCycleView()'s vanilla PREV / NEXT
+class Surface;          // coop EQ-1: coopEquipApplyViewLook()'s buttons
+class Text;             // coop EQ-1: coopEquipApplyViewLook()'s owner line
 
 /**
  * W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / rulings D4+D-6 = WV-D29/WV-D30/WV-D38/
@@ -745,6 +748,25 @@ void coopEquipApplyOkLook(BattlescapeButton* btnOk, bool tu, bool parent);
 /// the seat's side, so it never reaches the seat's aliens: this cycles THIS seat's own units with an inventory in unit
 /// order (@a dir -1 / +1, wrapping) and returns TRUE (the caller re-inits). FALSE (vanilla) everywhere else.
 bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir);
+
+/// coop EQ-1 (docs rewrite/prompts/eq1_partner_soldiers_readonly.md; owner D288 (b), D289 (a), D293 (a)): TRUE when @a u is
+/// a PARTNER's soldier on the pre-battle equip screen - the equip phase is open, this seat is on the player side, and @a u is
+/// a live player-side unit with an inventory that this seat does not command and another player-side seat does. The screen
+/// shows it READ-ONLY (the release line's view): every inventory click, tool and rename on it does nothing. FALSE everywhere
+/// else (single player, mid-battle inventories, base screens, own units, PvP opponents).
+bool coopEquipPartnerView(const BattleUnit* u);
+
+/// coop EQ-1: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
+/// InventoryState::btnPrevClick / btnNextClick, after coopEquipCycleOwnUnit(). Runs vanilla's own
+/// BattlescapeState::selectPrevious / NextPlayerUnit with the partner's soldiers admitted (the release line's cycle: every
+/// player-side soldier with an inventory, in unit order) and returns TRUE (the caller re-inits). FALSE (vanilla) elsewhere.
+bool coopEquipCycleView(BattlescapeState* parent, bool tu, int dir);
+
+/// coop EQ-1: the ONE guarded statement in InventoryState::init() after coopEquipApplyOkLook(). On the pre-battle screen a
+/// partner's soldier hides UNLOAD, copy and paste and shows "Owner: <name>"; an own soldier shows the buttons and hides the
+/// line. A no-op everywhere else.
+void coopEquipApplyViewLook(Game* game, const BattleUnit* unit, bool tu, bool parent, Surface* unload,
+	Surface* createTemplate, Surface* applyTemplate, Text* ownerLine);
 
 /// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 9, Q13 a): the equip phase's pump step, ONE unconditional call at
 /// the RB-D5 pump point right after CoopHandshake::selectOwnUnitAtEntry(). In order: the host's screen record, the

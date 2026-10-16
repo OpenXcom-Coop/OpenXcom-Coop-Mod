@@ -693,6 +693,7 @@ void Inventory::mouseOver(Action *action, State *state)
  */
 void Inventory::mouseClick(Action *action, State *state)
 {
+	if (coopEquipPartnerView(_selUnit) && !_game->isMiddleClick(action)) return; // coop EQ-1 (D288 b, D289 a): a partner's soldier is read-only - the release line ignores every left / right click on it
 	if (_game->isLeftClick(action))
 	{
 		if (_selUnit == 0)

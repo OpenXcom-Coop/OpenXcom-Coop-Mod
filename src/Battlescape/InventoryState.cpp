@@ -114,6 +114,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtPosition = new Text(70, 9, 65, 95);
 	_txtNameStatic = new Text(210, 17, 28, 6);
 	_txtName = new TextEdit(this, 210, 17, 28, 6);
+	_txtCoopOwner = new Text(210, 17, 28, 18); // coop EQ-1: the release line's owner line (its rect)
 	_txtTus = new Text(40, 9, 245, 24);
 	_txtWeight = new Text(70, 9, 245, 24);
 	_txtStatLine1 = new Text(70, 9, 245, 32);
@@ -157,6 +158,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	add(_btnQuickSearch, "textItem", "inventory");
 	add(_txtNameStatic, "textName", "inventory", _bg);
 	add(_txtName, "textName", "inventory", _bg);
+	add(_txtCoopOwner, "textCoopOwner", "inventory", _bg); // coop EQ-1: the release line's interface id (no ruleset element)
 	add(_txtTus, "textTUs", "inventory", _bg);
 	add(_txtWeight, "textWeight", "inventory", _bg);
 	add(_txtStatLine1, "textStatLine1", "inventory", _bg);
@@ -196,6 +198,8 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtName->setHighContrast(true);
 	_txtName->onChange((ActionHandler)&InventoryState::edtSoldierChange);
 	_txtName->onMousePress((ActionHandler)&InventoryState::edtSoldierPress);
+	_txtCoopOwner->setHighContrast(true); // coop EQ-1: shown only over a partner's soldier (coopEquipApplyViewLook)
+	_txtCoopOwner->setVisible(false);
 
 	if (Options::oxceLinksDisableTextEdit)
 	{
@@ -471,6 +475,7 @@ void InventoryState::init()
 
 	_btnLinks->setVisible(Options::oxceLinks);
 	coopEquipApplyOkLook(_btnOk, _tu, _parent != 0); // W2-P8b
+	coopEquipApplyViewLook(_game, unit, _tu, _parent != 0, _btnUnload, _btnCreateTemplate, _btnApplyTemplate, _txtCoopOwner); // coop EQ-1 (D288 b)
 
 	bool resetGroundOffset = _tu;
 	if (unit->isSummonedPlayerUnit())
@@ -602,6 +607,7 @@ void InventoryState::init()
  */
 void InventoryState::edtSoldierPress(Action *action)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) { _txtName->setFocus(false); return; } // coop EQ-1 (D289 a): a partner's soldier is not renamed
 	if (_btnLinks->getVisible())
 	{
 		double mx = action->getAbsoluteXMouse();
@@ -1041,6 +1047,7 @@ bool InventoryState::tryArmorChange(const std::string& armorName)
 */
 void InventoryState::btnGlobalEquipmentLayoutClick(Action *action)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1105,6 +1112,7 @@ void InventoryState::btnGlobalEquipmentLayoutClick(Action *action)
 */
 void InventoryState::btnInventoryLoadClick(Action *)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1126,6 +1134,7 @@ void InventoryState::btnInventoryLoadClick(Action *)
 */
 void InventoryState::btnInventorySaveClick(Action *)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -1203,6 +1212,7 @@ void InventoryState::btnPrevClick(Action *)
 	}
 
 	if (coopEquipCycleOwnUnit(_battleGame, -1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
+	if (coopEquipCycleView(_parent, _tu, -1)) { init(); return; } // coop EQ-1 (D288 b): the partner's soldiers too, read-only
 	if (_parent)
 	{
 		_parent->selectPreviousPlayerUnit(false, false, true);
@@ -1225,6 +1235,7 @@ void InventoryState::btnNextClick(Action *)
 		return;
 	}
 	if (coopEquipCycleOwnUnit(_battleGame, 1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
+	if (coopEquipCycleView(_parent, _tu, 1)) { init(); return; } // coop EQ-1 (D288 b): the partner's soldiers too, read-only
 	if (_parent)
 	{
 		_parent->selectNextPlayerUnit(false, false, true);
@@ -1393,6 +1404,7 @@ void InventoryState::btnCreateTemplateClick(Action *)
 
 void InventoryState::btnCreatePersonalTemplateClick(Action *)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1657,6 +1669,7 @@ void InventoryState::btnApplyTemplateClick(Action *)
 
 void InventoryState::btnApplyPersonalTemplateClick(Action *)
 {
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
