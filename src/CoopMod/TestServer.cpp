@@ -7585,7 +7585,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure" // R4-L2 S-C
 		&& cmd != "force_server_error" // coop W2-H59 (TEST-ONLY lever)
 		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
-		&& cmd != "hold_battle_accept" // coop W2-H82 L2d (TEST-ONLY lever)
+		&& cmd != "hold_battle_accept" && cmd != "hold_save_reply" // coop W2-H82 L2d / L3e (TEST-ONLY levers)
 		&& cmd != "throw_next_rx" // coop W2-H60 (TEST-ONLY lever)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
@@ -8310,6 +8310,29 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		}
 		resp["armed"] = coopTestHoldBattleAcceptArmed();
 		resp["held"] = coopTestHoldBattleAcceptHeld();
+		resp["sent"] = sent;
+		resp["ok"] = true;
+	}
+	else if (cmd == "hold_save_reply")
+	{
+		// coop W2-H82 (docs rewrite/prompts/w2h82_sb_visit_during_save_push.md L3d; R-LH78-1-1): TEST-ONLY, HOST. {on: true} arms it: the
+		// host keeps its SEND_FILE_HOST_SAVE_PROGRESS go-ahead for the partner's save-progress stream. {on: false} disarms it and sends the
+		// held go-ahead, if any, from here. Without `on` it only reports. Response {ok, armed, held, sent}. Inert unless armed.
+		bool sent = false;
+		if (req.isMember("on"))
+		{
+			const bool on = req.get("on", false).asBool();
+			if (coopTestHoldSaveReplyArm(on))
+			{
+				Json::Value reply;
+				reply["state"] = "SEND_FILE_HOST_SAVE_PROGRESS";
+				_game->getCoopMod()->sendTCPPacketData(reply.toStyledString());
+				sent = true;
+				Log(LOG_INFO) << "[coop-test] hold_save_reply: released - SEND_FILE_HOST_SAVE_PROGRESS sent";
+			}
+		}
+		resp["armed"] = coopTestHoldSaveReplyArmed();
+		resp["held"] = coopTestHoldSaveReplyHeld();
 		resp["sent"] = sent;
 		resp["ok"] = true;
 	}
