@@ -34284,6 +34284,148 @@ void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool /*broa
 	coopGiftOrder(unit, newOwnerId);
 }
 
+// coop W2-H70 (docs rewrite/prompts/w2h70_gift_during_visit.md (e) E1; L-H64-2, R-H70-0; F19742, F19747, F19923): true while this
+// machine's live SEPARATE world is the partner's base view. CoopState 55 parks the own world as "basehost" and swaps in the partner's
+// world with every base flagged _coopBase; an own world always holds a base with _coopBase false, and a mirror carries both flags. Not
+// playerInsideCoopBase: the 67 clears it while the visitor is still inside, and only BasescapeState::init sets it again.
+static bool coopLiveWorldIsPeerView(Game* game)
+{
+	SavedGame* live = game ? game->getSavedGame() : nullptr;
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!live || !coop || live->getSavedBattle() || !connectionTCP::getCoopStatic() || !coop->getCoopCampaign()
+		|| coop->isSharedCampaign() || coop->coopMissionEnd || connectionTCP::no_bases || !connectionTCP::hasCoopFile("basehost"))
+		return false;
+	bool peerBase = false;
+	for (Base* base : *live->getBases())
+	{
+		if (!base->_coopBase)
+			return false;
+		if (!base->_coopIcon)
+			peerBase = true;
+	}
+	return peerBase;
+}
+
+// coop W2-H70 (same spec (e) E1; F19742, F19743, F19745, F19746, F19922): a SEPARATE client's gift sent or received while its live
+// world is the partner's base view also changes its STORED own world, so a save, a leave, a reload or a rejoin finds the soldier on
+// exactly one roster. removeId >= 0 (sent, giftSoldier): drop that soldier from "basehost" (the own world the leave restores) and store
+// the result as the own-world blob too. add (received and queued): add the soldier to the own-world blob only; "basehost" stays without
+// it and the replay after the leave adds it to the live world once. Then the host pulls the STORED blob (SEND_FILE_HOST_TRUE_SAVE_PROGRESS;
+// the stream reads the own-world key), never the live view. The scratch load writes coop statics and the RNG seed; they are put back.
+static void coopOwnWorldFollowGift(connectionTCP* coop, Game* game, int removeId, const Json::Value* add)
+{
+	const long long saveId = connectionTCP::saveID;
+	const int gamemode = connectionTCP::_coopGamemode;
+	const int saveOwner = connectionTCP::coop_save_owner_player_id;
+	const bool noBases = connectionTCP::no_bases;
+	const Json::Value borrow = connectionTCP::coopPvpLoadedBorrow;
+	const uint64_t seed = RNG::getSeed();
+	SavedGame* own = new SavedGame();
+	own->loadCoopSaveFromMemory("basehost", game->getMod(), game->getLanguage(), "basehost");
+	connectionTCP::saveID = saveId;
+	connectionTCP::_coopGamemode = gamemode;
+	connectionTCP::coop_save_owner_player_id = saveOwner;
+	connectionTCP::no_bases = noBases;
+	connectionTCP::coopPvpLoadedBorrow = borrow;
+	RNG::setSeed(seed);
+	bool changed = false;
+	if (removeId >= 0)
+	{
+		for (Base* base : *own->getBases())
+		{
+			for (auto it = base->getSoldiers()->begin(); it != base->getSoldiers()->end();)
+			{
+				if ((*it)->getId() == removeId)
+				{
+					delete *it;
+					it = base->getSoldiers()->erase(it);
+					changed = true;
+				}
+				else
+				{
+					++it;
+				}
+			}
+		}
+		if (changed)
+			own->saveCoopToMemory("basehost", game->getMod(), "basehost");
+	}
+	if (add)
+	{
+		try
+		{
+			YAML::YamlRootNodeReader reader(YAML::YamlString{(*add)["soldier_yaml"].asString()}, "giftSoldier");
+			auto soldierReader = reader["soldier"];
+			const std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
+			const int stationBaseId = (*add)["station_base_id"].asInt();
+			const int owner = (*add)["owner"].asInt();
+			Base* homeBase = nullptr;
+			Base* firstOwnBase = nullptr;
+			for (Base* base : *own->getBases())
+			{
+				if (base->_coopBase || base->_coopIcon)
+					continue;
+				if (!firstOwnBase)
+					firstOwnBase = base;
+				if (base->_coop_base_id == stationBaseId)
+				{
+					homeBase = base;
+					break;
+				}
+			}
+			Base* targetBase = homeBase ? homeBase : firstOwnBase;
+			if (targetBase && game->getMod()->getSoldier(type))
+			{
+				// the receive handler's rule: the incoming id unless it collides, then one above the highest (bases and dead)
+				Soldier* soldier = new Soldier(game->getMod()->getSoldier(type), 0, 0 /*nationality*/);
+				soldier->load(soldierReader, game->getMod(), own, game->getMod()->getScriptGlobal());
+				int maxId = soldier->getId();
+				bool collision = false;
+				for (Base* base : *own->getBases())
+				{
+					for (Soldier* s : *base->getSoldiers())
+					{
+						collision = collision || s->getId() == soldier->getId();
+						maxId = std::max(maxId, s->getId());
+					}
+				}
+				for (Soldier* s : *own->getDeadSoldiers())
+				{
+					collision = collision || s->getId() == soldier->getId();
+					maxId = std::max(maxId, s->getId());
+				}
+				if (collision)
+					soldier->setId(maxId + 1);
+				soldier->setCraft(0);
+				soldier->setCoopBase(homeBase ? -1 : stationBaseId);
+				soldier->setOwnerPlayerId(owner);
+				soldier->setCoop(owner);
+				targetBase->getSoldiers()->push_back(soldier);
+				changed = true;
+			}
+		}
+		catch (const std::exception& e)
+		{
+			Log(LOG_INFO) << "[coop-gift] W2-H70: the own-world copy of a queued gift failed: " << e.what();
+		}
+	}
+	if (changed)
+	{
+		const std::string key = connectionTCP::clientBlobKey(coop->getHostName());
+		own->saveCoopToMemory(key, game->getMod(), key);
+		{
+			std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
+			eraseStaleBlobEntries(connectionTCP::coopFilesClient, "client_", coop->getHostName(), key);
+		}
+		Json::Value push;
+		push["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
+		coop->sendTCPPacketData(push.toStyledString());
+		Log(LOG_INFO) << "[coop-gift] W2-H70: the stored own world follows a gift made during a base visit (" << key
+			<< (removeId >= 0 ? ", given away)" : ", received)");
+	}
+	delete own;
+}
+
 void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast)
 {
 	if (!soldier || !_game->getSavedGame())
@@ -34349,7 +34491,12 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		removeSoldierFromLocalBases(soldier);
 		_giftedSoldiers.push_back(soldier);
 		_giftedAwaySoldierIds.insert(soldier->getId());
-		pushProgressToHostSilently();
+		// coop W2-H70 (spec (e) E2; F19741, F19742, F19747): a SEPARATE client gifting from the partner's base view edits its stored own
+		// world and pushes that; the push below returns inside a base and, in the 67 window, serialises the view (refused, 995).
+		if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
+			coopOwnWorldFollowGift(this, _game, soldier->getId(), nullptr);
+		else
+			pushProgressToHostSilently();
 	}
 }
 
@@ -38753,6 +38900,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 
 				_pendingIncomingGifts.push_back(obj);
+				// coop W2-H70 (spec (e) E3; F19743, F19746): the queued soldier also goes into the stored own world now.
+				if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
+					coopOwnWorldFollowGift(this, _game, -1, &obj);
 
 			}
 			else if (obj.isMember("soldier_yaml")
@@ -38830,6 +38980,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						{
 							Log(LOG_INFO) << "[coop-gift] RECV deferred (no own base in current save)";
 							_pendingIncomingGifts.push_back(obj);
+							// coop W2-H70 (spec (e) E4; F19926): the same while the 67 has cleared the visit flag in the view.
+							if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
+								coopOwnWorldFollowGift(this, _game, -1, &obj);
 						}
 						else
 						{
