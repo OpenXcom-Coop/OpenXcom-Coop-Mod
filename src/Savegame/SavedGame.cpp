@@ -1462,6 +1462,13 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 
 	for (auto& base : _bases)
 	{
+		// coop W2-H65 S-B (docs rewrite/prompts/w2h65_sb_no_rollback.md EB1; F19204, F19205, F19340-F19359): a partner-base mirror is never
+		// written (the "bases" filter below), so its name cannot make this world invalid. A mirror built while the partner was still naming
+		// its base has the name "": it refused every save of this world and a visit then reloaded an older snapshot over the live world.
+		if (base->_coopIcon)
+		{
+			continue;
+		}
 
 		if (base->_coopBase == false)
 		{
