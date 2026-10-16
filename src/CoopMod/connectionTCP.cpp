@@ -8074,7 +8074,7 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 	// before the battle block) picks the rules below. PvE2 (gm4) campaigns are never played (D270 b, D283 b): the save loads as
 	// it was saved and LobbyMenu::resumeCampaign refuses its RESUME.
 	const int gamemode = save->getCoopLoadedGamemode();
-	if (gamemode == 4)
+	if (gamemode == 4 && save->isCoopSave()) // coop D246-U S-D2: a PvE2 CAMPAIGN save only; a gm4 Custom Battle converts in step (1)
 	{
 		Log(LOG_INFO) << "[coop-convert] D246: an older version's mid-battle PvE2 campaign save loaded unconverted - its RESUME is refused (D283)";
 		return;
@@ -8139,12 +8139,123 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 		}
 	}
 
+	// coop D246-U S-D2 (QD246D2-4 (a); docs rewrite/prompts/d246u_sd2b_release_pvp_cb_convert.md): the release line's gm3 host
+	// saved its battle in its own local swap (the X-COM soldiers HOSTILE, its aliens PLAYER, F19848); a soldier unit whose
+	// original faction is HOSTILE marks it. The swap is undone (faction and original faction, PLAYER <-> HOSTILE; civilians as
+	// saved), so step (1) seats the canonical gm3 sides.
+	int gm3Flipped = 0;
+	if (gamemode == 3)
+	{
+		bool swapped = false;
+		for (auto* unit : *battle->getUnits())
+		{
+			if (unit && unit->getGeoscapeSoldier() && unit->getOriginalFaction() == FACTION_HOSTILE)
+				swapped = true;
+		}
+		for (auto* unit : *battle->getUnits())
+		{
+			if (!swapped || !unit)
+				continue;
+			const UnitFaction orig = unit->getOriginalFaction();
+			const UnitFaction now = unit->getFaction();
+			if (orig == FACTION_PLAYER || orig == FACTION_HOSTILE)
+			{
+				unit->setOriginalFaction(orig == FACTION_PLAYER ? FACTION_HOSTILE : FACTION_PLAYER);
+				gm3Flipped++;
+			}
+			if (now == FACTION_PLAYER || now == FACTION_HOSTILE)
+				unit->convertToFaction(now == FACTION_PLAYER ? FACTION_HOSTILE : FACTION_PLAYER);
+		}
+	}
+	if (!save->isCoopSave() && gamemode >= 2)
+	{
+		Log(LOG_INFO) << "[coop-convert] D246 S-D2: an older version's PvP / PvE2 Custom Battle save, game mode " << gamemode
+			<< " - the release gm3 swap undone on " << gm3Flipped << " unit(s)";
+	}
+
 	// (1) seat tags
 	int seated0 = 0, seated1 = 0, unseated = 0;
 	for (auto* unit : *battle->getUnits())
 	{
 		if (!unit)
 			continue;
+		if (gamemode == 3)
+		{
+			// gm3 (D246-U S-D2; assignSeatsAndFactions()' PvP arm inverted, r5-T1): the alien side (original FACTION_HOSTILE once
+			// the swap above is undone) is the host's seat 0 without its AI module, the X-COM side the second player's seat 1,
+			// every other unit (civilians) nobody's. The current faction is kept.
+			const UnitFaction orig = unit->getOriginalFaction();
+			if (orig != FACTION_PLAYER && orig != FACTION_HOSTILE)
+			{
+				if (unit->getCoopSeat() != COOP_SEAT_NONE)
+					unseated++;
+				unit->setCoopSeat(COOP_SEAT_NONE);
+				continue;
+			}
+			unit->setCoopSeat(orig == FACTION_HOSTILE ? COOP_SEAT_0 : COOP_SEAT_1);
+			if (orig == FACTION_PLAYER)
+			{
+				seated1++;
+				continue;
+			}
+			unit->setAIModule(nullptr);
+			seated0++;
+			continue;
+		}
+		if (gamemode == 4)
+		{
+			// gm4 (a PvE2 Custom Battle, D270 (b); D246-U S-D2, QD246D2-5 (a)): the release line built it as assignSeatsAndFactions()'
+			// gm4 arm does (the aliens PLAYER without AI, the X-COM side HOSTILE). Each alien keeps the player it had (tag 1 = the
+			// second player's seat 1, else the host's seat 0); the X-COM side and civilians are nobody's (the host's AI); an X-COM
+			// soldier is re-typed MALE_ / FEMALE_CIVILIAN as at generation (D269 (a)).
+			// coop D246-U S-D2 E6 (R-D246D2-4 (a), F20049; docs rewrite/prompts/d246u_sd2b_release_pvp_cb_convert.md): the release
+			// line built its gm4 X-COM side with the Soldier constructor (the soldier's maximum armor), but its save reloads those
+			// units as rules units of original faction HOSTILE, whose maximum this build derives through the difficulty adjustment
+			// (BattleUnit::adjustStats), so the saved current armor can sit above it. coopLoadBuiltValues() applies the host's
+			// maximum on the partner and clamps the current armor there, and the two machines would differ. Every unit whose
+			// maximum rides that record (not linked to a geoscape soldier) gets max = max(built max, saved current) per side: the
+			// battle continues with the armor it was played with, on both machines. A unit whose current armor is within its
+			// maximum is unchanged.
+			if (!unit->getGeoscapeSoldier())
+			{
+				bool raised = false;
+				std::ostringstream builtMax, keptMax;
+				for (int side = 0; side < (int)SIDE_MAX; ++side)
+				{
+					const UnitSide s = (UnitSide)side;
+					builtMax << (side ? "/" : "") << unit->getMaxArmor(s);
+					if (unit->getArmor(s) > unit->getMaxArmor(s))
+					{
+						unit->setMaxArmor(unit->getArmor(s), s);
+						raised = true;
+					}
+					keptMax << (side ? "/" : "") << unit->getMaxArmor(s);
+				}
+				if (raised)
+				{
+					Log(LOG_INFO) << "[coop-convert] D246 S-D2 E6: unit " << unit->getId() << " - maximum armor " << builtMax.str()
+						<< " raised to its saved current armor " << keptMax.str();
+				}
+			}
+			if (unit->getOriginalFaction() != FACTION_PLAYER)
+			{
+				if (unit->getCoopSeat() != COOP_SEAT_NONE)
+					unseated++;
+				unit->setCoopSeat(COOP_SEAT_NONE);
+				Soldier* soldier = unit->getGeoscapeSoldier();
+				if (soldier && unit->getOriginalFaction() == FACTION_HOSTILE)
+					unit->setCoopType(soldier->getGender() == GENDER_FEMALE ? "FEMALE_CIVILIAN" : "MALE_CIVILIAN");
+				continue;
+			}
+			const CoopSeat seat = (unit->getCoopSeat() == COOP_SEAT_1) ? COOP_SEAT_1 : COOP_SEAT_0;
+			unit->setCoopSeat(seat);
+			unit->setAIModule(nullptr);
+			if (seat == COOP_SEAT_1)
+				seated1++;
+			else
+				seated0++;
+			continue;
+		}
 		if (gamemode == 2)
 		{
 			// gm2 (PvP; assignSeatsAndFactions()' PvP arm, CoopState.cpp; r5-T1): the X-COM side (original FACTION_PLAYER) is the
@@ -8322,8 +8433,8 @@ bool coopOlderCustomBattleSave(const YAML::YamlNodeReader& body)
 		return false; // no battle, or a co-op battle this build saved (both keys are written while it runs)
 	int gamemode = 0;
 	body.tryRead("coop_gamemode", gamemode);
-	if (gamemode != 0 && gamemode != 1)
-		return false; // classic only; PvP / PvE2 Custom Battle saves are D246-U S-D2's
+	if (gamemode < 0 || gamemode > 4)
+		return false; // classic (0 / 1), PvP (2 / 3) and PvE2 (4) Custom Battle saves convert (D246-U S-D2); any other mode loads as saved
 	bool otherFactionTagged = false, seatOneTagged = false;
 	for (const auto& unitReader : block["units"].children())
 	{
