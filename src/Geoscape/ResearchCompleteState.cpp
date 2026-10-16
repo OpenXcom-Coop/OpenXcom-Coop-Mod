@@ -95,7 +95,7 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	// first; sendResearchSync is a no-op in SHARED (PRD-J04) and with sync off.
 	if (_coop == false)
 	{
-		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base);
+		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base, true); // coop W2-H75: GeoscapeState::time1Day spawns the topics' events here too
 	}
 
 }

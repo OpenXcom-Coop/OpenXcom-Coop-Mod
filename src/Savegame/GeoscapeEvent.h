@@ -34,6 +34,7 @@ private:
 	size_t _spawnCountdown;
 	bool _over;
 	bool _coopShared; // coop SEPARATE: the other player has the same event, on the same timer
+	bool _coopBothWorlds = false; // coop W2-H75 (R-B109-1): SEPARATE, shared research - the other player's world spawned this same event (main #197), on its own timer
 public:
 	/// Creates a blank GeoscapeEvent.
 	GeoscapeEvent(const RuleEvent &rule);
@@ -56,6 +57,10 @@ public:
 	bool isCoopShared() const { return _coopShared; }
 	/// Coop SEPARATE: marks this event as shared with the other player.
 	void setCoopShared(bool shared) { _coopShared = shared; }
+	/// Coop W2-H75: does the other player's world hold this same event (spawned by research both players learned)?
+	bool isCoopBothWorlds() const { return _coopBothWorlds; }
+	/// Coop W2-H75: marks this event as one both worlds hold.
+	void setCoopBothWorlds(bool both) { _coopBothWorlds = both; }
 	/// Coop SEPARATE: the host's copy of this shared event fired, so this one fires now.
 	void setOver() { _over = true; }
 	/// Handle event spawning schedule.

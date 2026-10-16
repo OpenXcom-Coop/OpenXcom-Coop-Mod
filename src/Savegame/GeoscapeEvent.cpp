@@ -42,6 +42,7 @@ void GeoscapeEvent::load(const YAML::YamlNodeReader& reader)
 	reader.tryRead("spawnCountdown", _spawnCountdown);
 	reader.tryRead("over", _over);
 	reader.tryRead("coopShared", _coopShared);
+	reader.tryRead("coopBothWorlds", _coopBothWorlds); // coop W2-H75
 }
 
 /**
@@ -57,6 +58,8 @@ void GeoscapeEvent::save(YAML::YamlNodeWriter writer) const
 		writer.write("over", _over);
 	if (_coopShared)
 		writer.write("coopShared", _coopShared);
+	if (_coopBothWorlds) // coop W2-H75
+		writer.write("coopBothWorlds", _coopBothWorlds);
 }
 
 /**

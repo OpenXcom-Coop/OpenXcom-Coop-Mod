@@ -38,6 +38,7 @@
 #include "../Mod/RuleSoldier.h"
 #include "../Mod/RuleVideo.h"
 #include "../Savegame/Base.h"
+#include "../Savegame/GeoscapeEvent.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Region.h"
 #include "../Savegame/ResearchDiary.h"
@@ -53,7 +54,7 @@ namespace OpenXcom
  * Initializes all the elements in the Geoscape Event window.
  * @param geoEvent Pointer to the event.
  */
-GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule, bool coopShared) : _eventRule(eventRule), _coopShared(coopShared)
+GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule, bool coopShared, bool coopBothWorlds) : _eventRule(eventRule), _coopShared(coopShared), _coopBothWorlds(coopBothWorlds)
 {
 	_screen = false;
 
@@ -513,7 +514,7 @@ void GeoscapeEventState::eventLogic()
 		// reaches them like a completed project, so both players can read the report.
 		if (!_coopShared)
 		{
-			_game->getCoopMod()->sendResearchSync(alreadyResearched ? nullptr : eventResearch, syncBonus, eventResearch, hq);
+			_game->getCoopMod()->sendResearchSync(alreadyResearched ? nullptr : eventResearch, syncBonus, eventResearch, hq, true); // coop W2-H75: this world spawns the topics' events too (below)
 		}
 	}
 
@@ -521,7 +522,10 @@ void GeoscapeEventState::eventLogic()
 	// 1. remove obsolete research projects from all bases
 	// 2. handle items spawned by research
 	// 3. handle events spawned by research
+	const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop W2-H75
 	save->handlePrimaryResearchSideEffects(topicsToCheck, mod, hq);
+	if (!_coopShared) // coop W2-H75 (R-B109-1): the research sync above gives the other player these topics, so its world spawns the same events
+		coopMarkResearchEvents(_game, coopEventsBefore);
 
 	if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
 	{
@@ -570,9 +574,12 @@ void GeoscapeEventState::btnOkClick(Action *)
 			if (videoRule->getWinGame()) _game->getSavedGame()->setEnding(END_WIN);
 			if (videoRule->getLoseGame()) _game->getSavedGame()->setEnding(END_LOSE);
 		}
-		// coop W2-H17d (F7719-F7722): both SHARED machines show this window (W2-H15) and play its cutscene at their own OK;
-		// only an ending is relayed (the first OK ends both campaigns, R-H17b-1), so a story cutscene plays once on each
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()->getEnding() == END_NONE) // coop
+		// coop W2-H17d (F7719-F7722) + W2-H75 (R-B109-1, F21090-F21094): a window both machines show plays its cutscene at each player's own OK -
+		// SHARED (W2-H15), and in SEPARATE co-op (not PvP: the alien side shows no event) a paired certain event or an event spawned by shared
+		// research (main #197); only an ending is relayed (the first OK ends both campaigns, R-H17b-1); a private SEPARATE event keeps the relay
+		if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getEnding() == END_NONE // coop
+			&& (_game->getCoopMod()->isSharedCampaign() || ((_coopShared || _coopBothWorlds) // coop W2-H75
+				&& _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))) // coop W2-H75
 			_game->getCoopMod()->allow_cutscene = false; // coop: CutsceneState::init skips the relay; GeoscapeState::init re-arms the latch
 	}
 
@@ -643,6 +650,23 @@ std::vector<std::string> GeoscapeEventState::coopTexts() const
 // coop W2-H15 (F3261): a SHARED replica's window is drawn from the host's picks (ids), in this machine's own language.
 const CoopEventPicks* GeoscapeEventState::_coopArmed = nullptr;
 void GeoscapeEventState::coopArmDisplay(const CoopEventPicks* picks) { _coopArmed = picks; }
+
+// coop W2-H75 (R-B109-1; F21090, F21128-F21132): SEPARATE co-op with shared research. A topic both players learn spawns its event in
+// both worlds - the researcher's side effects (GeoscapeState::time1Day, eventLogic) and the other player's research sync receiver
+// (GeoscapeState::think, main #197) - each copy on its own timer. Marks the events spawned since `from` as windows both worlds hold,
+// so btnOkClick plays their cutscene at each player's own OK without the relay. Not SHARED (one world), not with separate research,
+// not PvP (the alien side never shows an event, GeoscapeState::fireGeoscapeEvent), not when the sender's world spawned nothing (F21101).
+void GeoscapeEventState::coopMarkResearchEvents(Game* game, size_t from, bool senderSideEffects)
+{
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!senderSideEffects || !coop || !save || !coop->getCoopStatic() || coop->isSharedCampaign() || !coop->_enable_research_sync
+		|| coop->getCoopGamemode() == 2 || coop->getCoopGamemode() == 3)
+		return;
+	std::vector<GeoscapeEvent*>& events = save->getGeoscapeEvents();
+	for (size_t i = from; i < events.size(); ++i)
+		events[i]->setCoopBothWorlds(true);
+}
 
 bool GeoscapeEventState::coopReplicaDisplay()
 {
