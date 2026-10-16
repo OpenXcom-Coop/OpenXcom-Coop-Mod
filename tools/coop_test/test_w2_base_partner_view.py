@@ -216,9 +216,29 @@ def ok_close(r, gc, n0, craft=False):
     return L[-1] if got and L else None
 
 
+def all_records(gc):
+    """gc's soldier_layouts record of every HostBase soldier: {id: compact record} (None when the probe gave no list)."""
+    L = q(gc, {"cmd": "soldier_layouts", "base": HB}).get("soldiers")
+    return None if L is None else {s.get("id"): h20.compact(s) for s in L}
+
+
 def baseline(gc, x, craft=False):
-    """R-EQ3-2 (3): a no-action open + OK of the same screen right before the row's own; its put-back M (F21256: the screen's re-save)."""
+    """R-EQ3-2 (3): a no-action open + OK of the same screen right before the row's own; its put-back M (F21256: the screen's re-save).
+    R-EQ3-5 (F21866, F21872): first wait until both machines hold the same soldier_layouts record for every HostBase soldier (the partner's
+    last OK has landed); if they never agree within W, a FIXTURE line with both records and no baseline M (the row's putback cell fails)."""
+    last = {}
+
+    def agree():
+        last["host"], last["client"] = all_records(x.host), all_records(x.client)
+        return bool(last["host"]) and last["host"] == last["client"]
+
+    same = sbw.converge(agree, W)
+    if not same[0]:
+        fx = dict(last, FIXTURE="the HostBase soldier_layouts records never agreed on both machines before the baseline", seconds=same[1])
+        print(f"FIXTURE baseline on {gc.name}: {json.dumps(fx, sort_keys=True, default=str)}", flush=True)
+        return None, fx
     n0, sh, r = len(putbacks(gc)), Shim(), Row("BV4")
+    r.ev["records agreed after s"] = same[1]
     if not (open_craft_screen(sh, x, gc) if craft else open_soldier_screen(sh, gc)):
         return None, sh.fails
     return ok_close(r, gc, n0, craft), r.ev
