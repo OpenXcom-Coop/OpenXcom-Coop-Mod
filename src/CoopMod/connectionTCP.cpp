@@ -6955,6 +6955,56 @@ static bool coopTestHoldBattleReadyStash(const Json::Value& ready)
 	return true;
 }
 
+// ----- coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L2a; R-LH78-1-1; lh78-1-cap F22301): TEST-ONLY
+// hold_battle_accept, CLIENT. Armed, onOffer stashes its battle_accept instead of sending it, so a base answer already streaming here ends
+// before the host reads the accept (row R-V2). The TestServer lever's {on: false} takes the stash and sends it. Inert unless armed; never
+// read by game logic.
+static std::mutex g_coopTestHoldBattleAcceptMutex;
+static bool g_coopTestHoldBattleAcceptArmed = false;
+static Json::Value g_coopTestHoldBattleAcceptStash;
+
+void coopTestHoldBattleAcceptArm(bool on)
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleAcceptMutex);
+	g_coopTestHoldBattleAcceptArmed = on;
+}
+
+bool coopTestHoldBattleAcceptArmed()
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleAcceptMutex);
+	return g_coopTestHoldBattleAcceptArmed;
+}
+
+bool coopTestHoldBattleAcceptHeld()
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleAcceptMutex);
+	return g_coopTestHoldBattleAcceptStash.isObject();
+}
+
+bool coopTestHoldBattleAcceptTake(Json::Value& out)
+{
+	std::lock_guard<std::mutex> lock(g_coopTestHoldBattleAcceptMutex);
+	if (!g_coopTestHoldBattleAcceptStash.isObject())
+		return false;
+	out = g_coopTestHoldBattleAcceptStash;
+	g_coopTestHoldBattleAcceptStash = Json::Value();
+	return true;
+}
+
+// The guarded statement's call (onOffer, L2b): true = armed, @a accept stashed (the caller does not send it).
+static bool coopTestHoldBattleAcceptStash(const Json::Value& accept)
+{
+	{
+		std::lock_guard<std::mutex> lock(g_coopTestHoldBattleAcceptMutex);
+		if (!g_coopTestHoldBattleAcceptArmed)
+			return false;
+		g_coopTestHoldBattleAcceptStash = accept;
+	}
+	Log(LOG_INFO) << "[coop-test] hold_battle_accept: battle_accept stashed (battleId="
+		<< accept.get("battleId", 0u).asUInt() << ") - sent by the lever's release";
+	return true;
+}
+
 // ----- R4-L6 (docs rewrite/prompts/r4l6_lifecycle_rows_lint.md, AMENDMENT R4-L6-1 M4 / M5; ruling Q5 (a)): TEST-ONLY
 // hold_blob_ack, CLIENT. While armed AND a battle-handshake blob is awaited (CoopHandshake::awaitingBlob()), the client
 // withholds its per-chunk WAIT_MAP_SENDER ack (ONE guarded statement at the map_result_data send in onTCPMessage), so the
@@ -6979,6 +7029,22 @@ bool coopTestHoldBlobAckArmed()
 int coopTestHoldBlobAckHeld()
 {
 	return g_coopTestHoldBlobAckHeld.load();
+}
+
+// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1a; R-LH78-1-1; lh78-1-cap F22290, F22296): TEST-ONLY hold_blob_ack
+// scope, either machine. 0 "blob": only while a battle-handshake blob is awaited (R4-L6 as before); 1 "base": also while a CoopState 50
+// ("Synchronizing bases...") is on this machine's stack, so a base answer's chunk acks are held; 2 "save": also, on the host, while a save
+// waits for the partner's world (session.pendingHostSaveName set), so a save-progress stream's are. Set by the lever; inert unless armed.
+static std::atomic<int> g_coopTestHoldBlobAckScope{0};
+
+void coopTestHoldBlobAckSetScope(int scope)
+{
+	g_coopTestHoldBlobAckScope.store(scope);
+}
+
+int coopTestHoldBlobAckScope()
+{
+	return g_coopTestHoldBlobAckScope.load();
 }
 
 // ----- coop R4-L2 S-C (TEST-ONLY force_send_failure, HOST): one-shot, consumed by the host TCP thread's next send to
@@ -32197,7 +32263,8 @@ void onOffer(Game* game, const Json::Value& offer)
 	accept["battleId"] = battleId;
 	accept["seat"] = researchSeat;
 	accept["research"] = research;
-	CoopEmit::sendBattle(accept);
+	if (!coopTestHoldBattleAcceptStash(accept)) // coop W2-H82 L2b (TEST-ONLY hold_battle_accept; inert unless armed)
+		CoopEmit::sendBattle(accept);
 
 	Log(LOG_INFO) << "[coop-handshake] battle_offer accepted (battleId=" << battleId
 		<< ", turnMode=" << coopTurnModeName(coopBattleAuthority().turnMode)
@@ -36745,6 +36812,25 @@ static bool coopTestHoldBaseResult()
 static bool coopStreamIdle()
 {
 	return !sendFileHost && !sendFileClient && !sendFileBase && !sendFileSave && !sendProgressSaveFileToHost;
+}
+
+// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1b): TEST-ONLY, the hold_blob_ack predicate read at the map_result_data
+// ack (L1c). Scope 0 is R4-L6's predicate unchanged.
+static bool coopTestHoldBlobAckApplies(Game* game)
+{
+	if (CoopHandshake::awaitingBlob())
+		return true;
+	const int scope = coopTestHoldBlobAckScope();
+	if (scope == 1 && game)
+	{
+		for (State* s : game->getStates())
+		{
+			CoopState* c = dynamic_cast<CoopState*>(s);
+			if (c && c->getStateCode() == 50)
+				return true;
+		}
+	}
+	return scope == 2 && connectionTCP::getServerOwner() && !connectionTCP::session.pendingHostSaveName.empty();
 }
 
 void connectionTCP::updateCoopTask()
@@ -42884,7 +42970,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				std::string jsonData2 = "{\"state\" : \"WAIT_MAP_SENDER\"}";
 				// R4-L6 (AMENDMENT R4-L6-1 M5): TEST-ONLY hold_blob_ack - the ack is withheld only while armed AND a
 				// battle-handshake blob is awaited; unarmed it is sent at once.
-				if (coopTestHoldBlobAckArmed() && CoopHandshake::awaitingBlob())
+				if (coopTestHoldBlobAckArmed() && coopTestHoldBlobAckApplies(_game)) // coop W2-H82 L1c: the lever's scope (L1a)
 				{
 					const int held = g_coopTestHoldBlobAckHeld.fetch_add(1) + 1;
 					Log(LOG_INFO) << "[coop-test] hold_blob_ack: WAIT_MAP_SENDER ack withheld (held=" << held << ")";
