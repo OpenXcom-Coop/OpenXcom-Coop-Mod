@@ -117,8 +117,7 @@ def ready(gc):  # R-H68-2 / F20003: no surface of the top state hidden (a POPUP 
 
 def press(gc, match, want):
     # F20003: a POPUP window (InterceptState) hides its buttons while it opens and a hidden button drops the click
-    wait_for(lambda: any(w.get("hidden") is False and w.get("visible") and match.upper() in (w.get("text") or "").upper()
-                         for w in widgets(gc) if w.get("type", "").endswith("::TextButton")))
+    session.wait_widget_ready(gc, match, timeout=POLL)   # W2-U9: the shared gate (same rule, same bound)
     r = q(gc, {"cmd": "click_widget", "match": match})
     if not r.get("ok") or not wait_for(lambda: top(gc) == want):
         raise Pre("%s %r -> %s, top %s (want %s)" % (gc.name, match, r.get("error") or "ok", stk(gc)[-1:], want))

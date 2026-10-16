@@ -1191,7 +1191,7 @@ def pd_list(gc, keys):
     ev = {"key": pd_key(gc, keys["ufo"])}
     ev["start"], ev["tStart"] = pd_wait_kind(gc, "start")
     if ev["start"]:
-        time.sleep(SETTLE)
+        session.wait_widget_ready(gc, SECTION)   # W2-U9 (R3, F21068): UfopaediaStartState's POPUP hides SECTION while it opens
         r = gc.cmd({"cmd": "click_widget", "match": SECTION})
         ev["section"] = {k: r.get(k) for k in ("ok", "text", "baseX", "baseY", "winX", "winY", "error")}
         ev["select"], ev["tSelect"] = pd_wait_kind(gc, "select")

@@ -38,6 +38,42 @@ def has_state(gc, name):
     return any(name in s for s in states(gc)) or None
 
 
+WIDGET_READY_S = 10.0   # W2-U9: bound of wait_widget_ready (a POPUP window opens in about 20 thinks)
+
+
+def wait_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S, interval=0.05):
+    """W2-U9 (R-U9-0 item 5; R-H68-2 / F20003, F20796, F20872, F21000): wait until the TextButton that
+    `click_widget {match, nth}` would pick (click_widget's own rule: the nth VISIBLE TextButton of the top state
+    whose caption contains `match`, case-insensitive) exists and is NOT hidden. A POPUP window (InterceptState,
+    UfopaediaStartState, ...) hides every surface of its state while it opens (Window::think -> State::hideAll), a
+    hidden InteractiveSurface drops the click, and click_widget (which checks only getVisible) still answers ok; under
+    load the state can also be pushed only after a click aimed at it. A fixed settle before the click loses both races.
+    Returns the seconds waited, or None when the button did not show within `timeout` (the caller then clicks as
+    before and its own check reports the miss). Read-only: list_widgets only; a probe error counts as not ready."""
+    t0, lc = time.time(), match.lower()
+    while True:
+        try:
+            tbs = [w for w in gc.cmd({"cmd": "list_widgets"}).get("widgets", [])
+                   if str(w.get("type", "")).endswith("::TextButton") and w.get("visible")
+                   and lc in str(w.get("text") or "").lower()]
+            if len(tbs) > nth and tbs[nth].get("hidden") is False:
+                return round(time.time() - t0, 3)
+        except Exception:  # noqa: BLE001 - a busy or dead probe is "not ready"; the bound below still holds
+            pass
+        if time.time() - t0 >= timeout:
+            return None
+        time.sleep(interval)
+
+
+def click_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S):
+    """W2-U9: wait_widget_ready, then click_widget {match, nth} (one click, whatever the wait gave). Returns
+    click_widget's reply with `readyS` (wait_widget_ready's result) added."""
+    ready = wait_widget_ready(gc, match, nth=nth, timeout=timeout)
+    r = dict(gc.cmd({"cmd": "click_widget", "match": match, "nth": nth}))
+    r["readyS"] = ready
+    return r
+
+
 # PRD-13 S7: public names; the underscore forms are kept as aliases for any
 # straggler caller and for this module's own internal use below.
 _states = states
