@@ -279,17 +279,17 @@ def reload_b(x, ev, key):
     finally:
         x.shutfail = shut(y)
 
-def cells_b(rid, ev, who, reloads):
+def cells_b(rid, ev, who, reloads, kind="RED"):
     """the row's cells after X-pre: live, ids, file (+ reload) for the receiver `who` ("client": R7, G7, R9, R10; "host": R8)"""
     lv, hv, rl = ev.get("live") or {}, ev.get("halves") or {}, ev.get("reload") or {}
     once = once_client if who == "client" else once_host
     clean = file_clean_client if who == "client" else file_clean_host
-    out = [(rid + "-live", "RED", "once_%s HOLD_L after the replay line: %s" % (who, lv.get(who)), "host" in lv and once(lv)),
-           (rid + "-ids", "RED", "ids_twice(%s) empty: %s" % (who, (lv.get("twice") or {}).get(who)), "twice" in lv and not lv["twice"][who]),
-           (rid + "-file", "RED", "file_clean_%s(QUICK): host %s client %s, ids twice host %s client %s" % (
+    out = [(rid + "-live", kind, "once_%s HOLD_L after the replay line: %s" % (who, lv.get(who)), "host" in lv and once(lv)),
+           (rid + "-ids", kind, "ids_twice(%s) empty: %s" % (who, (lv.get("twice") or {}).get(who)), "twice" in lv and not lv["twice"][who]),
+           (rid + "-file", kind, "file_clean_%s(QUICK): host %s client %s, ids twice host %s client %s" % (
                who, hv.get("host"), hv.get("client"), hv.get("hostTwice"), hv.get("clientTwice")), bool(hv) and clean(hv))]
     if reloads:
-        out.append((rid + "-reload", "RED", "once_%s and ids_twice(%s) empty after the reload: %s %s" % (
+        out.append((rid + "-reload", kind, "once_%s and ids_twice(%s) empty after the reload: %s %s" % (
             who, who, rl.get(who), (rl.get("twice") or {}).get(who)), "host" in rl and once(rl) and not rl["twice"][who]))
     return out
 
