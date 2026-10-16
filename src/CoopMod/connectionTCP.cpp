@@ -87,6 +87,7 @@
 #include "../Mod/RuleSoldier.h" // W2-P4 S-E2.2: a soldier's skill list (the skill menu's filter)
 #include "../Mod/RuleResearch.h" // W2-P4r S-R.2: the research list's names (battle_accept)
 #include "../Interface/Cursor.h" // W2-P4 S-A.2: the ordering client's cursor restore
+#include "../Interface/Text.h" // coop EQ-2 S-A (A2): the partner's name beside its pointer
 #include "../Interface/TextList.h" // W2-P7 S-B1.2: the display-only debrief's recovered-items page
 #include "../Savegame/MissionStatistics.h" // W2-P7 S-B1.2: the display-only debrief frees its unused MissionStatistics (F2046)
 #include "../Battlescape/AIModule.h" // W2-P3 S-C.2: a unitsAdded record's `AI` (load pass 1)
@@ -6255,6 +6256,89 @@ static CoopEquipState g_equip;
 // path (coopEquipRecordSync, E3), adopted and cleared by the pump's end step (coopEquipPumpClient, E8). Main thread only.
 static Json::Value g_equipEndGear;
 
+// ----- coop EQ-2 S-A (docs rewrite/prompts/eq2_partner_pointer.md, eq2a_pointer.md (e) A3; owner D290 (c), D295 (a), D292 (a),
+// D293 (a)): the co-op partner's mouse pointer on the PRE-BATTLE equip screen. An ephemeral lane: each machine sends `bt_equip_ptr
+// {battleId, seat, x, y, on}` on the SNAP_EQUIP_PTR conflation slot (last write wins: never the reliable FIFO, never an ev, never
+// hashed); x / y = the pointer on the 320x200 Inventory surface. Same-side partners only (coopScanHasPartner(): never a PvP
+// opponent). The receiver draws the game's own Cursor arrow and the partner's name on its own pre-battle screen
+// (coopEquipPresenceOverlay). EQ-3 seam: the sampler, the overlay and the staleness rule take a State and an Inventory and know
+// nothing of the battle; only the lane kind and its guards are battle-scoped.
+namespace CoopPresence
+{
+const int kPtrMinMs = 50;         // QEQ2-3: at most 20 snapshots a second while the pointer moves
+const int kPtrKeepaliveMs = 1000; // an unchanged pointer on the screen is re-sent once a second
+const int kPtrStaleMs = 3000;     // a partner pointer not heard for 3 s is hidden
+const int kNameDx = 10;           // QEQ2-4: the name's top-left, relative to the pointer's tip
+const int kNameDy = 4;
+struct Peer { int seat = -1; int x = -1; int y = -1; bool on = false; Uint32 heardAt = 0; };
+struct Drawn { bool ptr = false; int x = -1; int y = -1; bool nameShown = false; int nameX = -1; int nameY = -1; std::string name; };
+struct View { const State* owner = nullptr; Cursor* ptr = nullptr; Text* name = nullptr; };
+static std::mutex g_mx;           // g_peer, g_drawn and the g_last* fields (the probe may read them off the main thread)
+static Peer g_peer;
+static Drawn g_drawn;
+static View g_view;               // main thread only; the screen owns the surfaces (~State deletes them)
+static bool g_lastOn = false;
+static int g_lastX = -1;
+static int g_lastY = -1;
+static Uint32 g_lastSentAt = 0;
+static std::atomic<int> g_ptrSent{0};
+static std::atomic<int> g_ptrRecv{0};
+static std::atomic<int> g_ptrDropped{0};
+}
+
+// coop EQ-2 S-A (A3): the presence state's zeros (coopEquipStateZeros(); @a counters also from coopEquipCounterZeros()). The
+// overlay's surfaces belong to their screen: only coopEquipPresenceDetach() forgets them.
+static void coopEquipPresenceZeros(bool counters)
+{
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	CoopPresence::g_peer = CoopPresence::Peer();
+	CoopPresence::g_drawn = CoopPresence::Drawn();
+	CoopPresence::g_lastOn = false;
+	CoopPresence::g_lastX = -1;
+	CoopPresence::g_lastY = -1;
+	CoopPresence::g_lastSentAt = 0;
+	if (counters)
+	{
+		CoopPresence::g_ptrSent = 0;
+		CoopPresence::g_ptrRecv = 0;
+		CoopPresence::g_ptrDropped = 0;
+	}
+}
+
+// coop EQ-2 S-A (A3): TEST-ONLY probe half - CoopDelta::equipProbe()'s `presence`.
+static Json::Value coopEquipPresenceProbe()
+{
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	const CoopPresence::Peer& p = CoopPresence::g_peer;
+	const CoopPresence::Drawn& d = CoopPresence::g_drawn;
+	Json::Value r(Json::objectValue);
+	r["ptrSent"] = CoopPresence::g_ptrSent.load();
+	r["ptrRecv"] = CoopPresence::g_ptrRecv.load();
+	r["ptrDropped"] = CoopPresence::g_ptrDropped.load();
+	Json::Value sent(Json::objectValue);
+	sent["on"] = CoopPresence::g_lastOn;
+	sent["x"] = CoopPresence::g_lastX;
+	sent["y"] = CoopPresence::g_lastY;
+	r["sent"] = sent;
+	Json::Value peer(Json::objectValue);
+	peer["seat"] = p.seat;
+	peer["on"] = p.on;
+	peer["x"] = p.x;
+	peer["y"] = p.y;
+	peer["ageMs"] = p.seat >= 0 ? (int)(SDL_GetTicks() - p.heardAt) : -1;
+	r["peer"] = peer;
+	Json::Value drawn(Json::objectValue);
+	drawn["ptr"] = d.ptr;
+	drawn["x"] = d.x;
+	drawn["y"] = d.y;
+	drawn["nameShown"] = d.nameShown;
+	drawn["nameX"] = d.nameX;
+	drawn["nameY"] = d.nameY;
+	drawn["name"] = d.name;
+	r["drawn"] = drawn;
+	return r;
+}
+
 // ----- R5-U6 S-D (owner D236 (b), D274; orchestrator ruling R-U6-OF3; docs rewrite/prompts/r5u6_pvp_options.md
 // AMENDMENT U6-1): "Enable XCOM Equipment for Aliens in PVP". With the option on (the host's session value; the join
 // handshake gives it to the client) a PvP alien seat equips its own aliens that have an inventory on the pre-battle
@@ -6340,6 +6424,7 @@ static void coopEquipStateZeros()
 	g_equip.readySyncPending = false;
 	g_equip.endSyncPending = false;
 	g_equip.noScreen = false;
+	coopEquipPresenceZeros(false); // coop EQ-2 S-A (A4): the partner pointer is battle-scoped too
 }
 
 // The counters' zeros (initBattleAuthority() only).
@@ -6356,6 +6441,7 @@ static void coopEquipCounterZeros()
 	g_equip.forceCloseSkips = 0;
 	g_equip.heldTurnScreenPresses = 0;
 	g_equip.gearRecords = 0; // coop W2-H69 (E2)
+	coopEquipPresenceZeros(true); // coop EQ-2 S-A (A5): and its counters (initBattleAuthority() only)
 }
 
 // AMENDMENT P8b-1 section 4 "Shared state" (F3110): the equip phase is open on THIS machine - not isCoopBattle()
@@ -6575,6 +6661,7 @@ Json::Value equipProbe()
 	r["forceCloseSkips"] = g_equip.forceCloseSkips.load();
 	r["heldTurnScreenPresses"] = g_equip.heldTurnScreenPresses.load();
 	r["gearRecords"] = g_equip.gearRecords.load(); // coop W2-H69 (E4)
+	r["presence"] = coopEquipPresenceProbe(); // coop EQ-2 S-A (A6)
 	return r;
 }
 
@@ -33215,6 +33302,155 @@ static void coopEquipWaitLine(Game* game, SavedBattleGame* save)
 	}
 }
 
+// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A7): BOTH - a `bt_equip_ptr` from the partner (direct battle-lane dispatch,
+// onTCPMessage). Kept only for this battle, an open equip phase and a mapped same-side partner seat (D293 (a): a PvP opponent's is
+// dropped and counted).
+static void coopEquipOnPeerPointer(const Json::Value& msg)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	const int seat = msg.get("seat", -1).asInt();
+	const std::uint32_t battleId = msg.get("battleId", 0u).asUInt();
+	if (!isCoopBattle() || !coopEquipOpen() || !coopScanHasPartner() || battleId == 0 || battleId != a.battleId.load()
+		|| seat < 0 || seat >= 4 || seat == me || !a.seatMapped(seat) || a.factionOf(seat) != a.factionOf(me))
+	{
+		CoopPresence::g_ptrDropped.fetch_add(1);
+		return;
+	}
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	CoopPresence::g_peer.seat = seat;
+	CoopPresence::g_peer.on = msg.get("on", false).asBool();
+	CoopPresence::g_peer.x = msg.get("x", -1).asInt();
+	CoopPresence::g_peer.y = msg.get("y", -1).asInt();
+	CoopPresence::g_peer.heardAt = SDL_GetTicks();
+	CoopPresence::g_ptrRecv.fetch_add(1);
+}
+
+// coop EQ-2 S-A (A7): the partner's pointer drawn on @a st (a screen whose Inventory is @a inv; nullptr = not the top state): the
+// game's own Cursor arrow at the partner's position on the Inventory surface and the partner's name @a name (D295 (a)) beside it, in
+// the inventory interface's `weight` colour (QEQ2-4). Created on the first fresh pointer and added last to the screen's own surface
+// list (drawn over every widget); hidden when @a show is false or the pointer is off or stale. EQ-3 reuses it for base screens.
+static void coopEquipPresenceOverlay(Game* game, State* st, Inventory* inv, bool show, const std::string& name)
+{
+	CoopPresence::Peer p;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		p = CoopPresence::g_peer;
+	}
+	const bool fresh = show && p.on && p.seat >= 0 && p.x >= 0 && p.y >= 0
+		&& SDL_GetTicks() - p.heardAt <= (Uint32)CoopPresence::kPtrStaleMs;
+	if (!game || !st || !inv)
+		return;
+	CoopPresence::View& v = CoopPresence::g_view;
+	if (v.owner != st)
+	{
+		if (!fresh)
+			return;
+		const Element* weight = game->getMod()->getInterface("inventory")->getElement("weight");
+		const Uint8 color = weight ? (Uint8)weight->color : (Uint8)Mod::BATTLESCAPE_CURSOR;
+		v.owner = st;
+		v.ptr = new Cursor(9, 13);
+		v.name = new Text(80, 9, 0, 0);
+		st->add(v.ptr);
+		st->add(v.name);
+		v.ptr->setColor(color);
+		v.name->setSmall();
+		v.name->setColor(color);
+		v.name->setHighContrast(true);
+	}
+	const bool named = fresh && !name.empty();
+	v.ptr->setVisible(fresh);
+	v.name->setVisible(named);
+	if (fresh)
+	{
+		v.ptr->setX(inv->getX() + p.x);
+		v.ptr->setY(inv->getY() + p.y);
+		v.name->setX(inv->getX() + p.x + CoopPresence::kNameDx);
+		v.name->setY(inv->getY() + p.y + CoopPresence::kNameDy);
+		if (named && v.name->getText() != name)
+			v.name->setText(name);
+	}
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	CoopPresence::g_drawn.ptr = fresh;
+	CoopPresence::g_drawn.x = fresh ? v.ptr->getX() : -1;
+	CoopPresence::g_drawn.y = fresh ? v.ptr->getY() : -1;
+	CoopPresence::g_drawn.nameShown = named;
+	CoopPresence::g_drawn.nameX = named ? v.name->getX() : -1;
+	CoopPresence::g_drawn.nameY = named ? v.name->getY() : -1;
+	CoopPresence::g_drawn.name = named ? name : std::string();
+}
+
+// coop EQ-2 S-A (A7): the first statement of ~InventoryState (A11) - the overlay's two surfaces are deleted with the screen's own.
+void coopEquipPresenceDetach(const State* st)
+{
+	if (!st || CoopPresence::g_view.owner != st)
+		return;
+	CoopPresence::g_view = CoopPresence::View();
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	CoopPresence::g_drawn = CoopPresence::Drawn();
+}
+
+// coop EQ-2 S-A (A7): BOTH, every coopEquipPump() pass (A8). (1) This machine's pointer to the partner while its pre-battle screen is
+// the top state of an open equip phase with a same-side partner: a change at most every kPtrMinMs, an unchanged pointer every
+// kPtrKeepaliveMs, and ONE `on false` once it leaves (the screen covered or closed, the phase ended). (2) The partner's pointer on
+// this machine's screen, hidden while the partner is absent.
+static void coopEquipPresencePump(Game* game, SavedBattleGame* save)
+{
+	InventoryState* st = coopEquipTopScreen(game);
+	Inventory* inv = coopEquipInventoryOf(st);
+	const BattleAuthority& a = coopBattleAuthority();
+	const bool live = st && inv && coopEquipOpen() && isCoopBattle() && coopScanHasPartner();
+	bool on = false;
+	int x = -1;
+	int y = -1;
+	if (live && game->getCursor())
+	{
+		x = game->getCursor()->getX() - inv->getX();
+		y = game->getCursor()->getY() - inv->getY();
+		on = x >= 0 && y >= 0 && x < inv->getWidth() && y < inv->getHeight();
+	}
+	if (!on)
+	{
+		x = -1;
+		y = -1;
+	}
+	const Uint32 now = SDL_GetTicks();
+	bool send = false;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		const bool changed = on != CoopPresence::g_lastOn || x != CoopPresence::g_lastX || y != CoopPresence::g_lastY;
+		const Uint32 since = now - CoopPresence::g_lastSentAt;
+		send = (live || CoopPresence::g_lastOn)
+			&& ((changed && since >= (Uint32)CoopPresence::kPtrMinMs) || (on && since >= (Uint32)CoopPresence::kPtrKeepaliveMs));
+		if (send)
+		{
+			CoopPresence::g_lastOn = on;
+			CoopPresence::g_lastX = x;
+			CoopPresence::g_lastY = y;
+			CoopPresence::g_lastSentAt = now;
+		}
+	}
+	if (send)
+	{
+		Json::Value msg(Json::objectValue);
+		msg["state"] = "bt_equip_ptr";
+		msg["battleId"] = a.battleId.load();
+		msg["seat"] = a.localSeat.load();
+		msg["x"] = x;
+		msg["y"] = y;
+		msg["on"] = on;
+		game->getCoopMod()->sendCoopSnapshot(SNAP_EQUIP_PTR, msg.toStyledString());
+		CoopPresence::g_ptrSent.fetch_add(1);
+	}
+	int seat = -1;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		seat = CoopPresence::g_peer.seat;
+	}
+	const std::string name = seat >= 0 ? CoopBattleUi::seatDisplayName(save->getBattleState(), seat) : std::string();
+	coopEquipPresenceOverlay(game, st, inv, live && !a.peerAbsent.load(), name);
+}
+
 void coopEquipPump(Game* game)
 {
 	if (!game || !connectionTCP::getCoopStatic() || coopBattleAuthority().phase.load() == CoopBattlePhase::Idle)
@@ -33229,6 +33465,7 @@ void coopEquipPump(Game* game)
 	else
 		coopEquipPumpClient(game, save);
 	coopEquipWaitLine(game, save);
+	coopEquipPresencePump(game, save); // coop EQ-2 S-A (A8): the partner's pointer, both ways
 }
 
 // ===== R2-P9: client-side post-apply hash verify (BattlePump.h) =====
@@ -38519,6 +38756,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// toggle (D206 c). Direct dispatch like bt_end_turn_ready; self-guarded (host, equip open, this battle,
 			// a mapped seat), anything else is logged and dropped.
 			coopEquipOnReadyMessage(obj);
+		}
+		else if (stateString == "bt_equip_ptr")
+		{
+			// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A9; owner D290 (c)): either direction - the co-op partner's
+			// pointer on the pre-battle equip screen (the SNAP_EQUIP_PTR conflation slot; display only, never hashed). Direct
+			// dispatch like bt_scan_mark; self-guarded (this battle, an open equip phase, a same-side partner).
+			coopEquipOnPeerPointer(obj);
 		}
 		else if (stateString == "bt_scan_mark")
 		{

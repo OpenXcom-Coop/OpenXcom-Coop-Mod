@@ -155,7 +155,9 @@ extern std::atomic<uint64_t> g_txDropCount;
 // overflows on a slow link), each channel keeps a single overwrite slot; the
 // send thread emits the freshest one at whatever rate the link drains. Preserves
 // update rate (no throttle) while eliminating the backlog.
-enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_DOGFIGHT = 2, SNAP_COUNT };
+// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A1; owner D290 (c)): SNAP_EQUIP_PTR = the co-op partner's mouse pointer on
+// the pre-battle equip screen (`bt_equip_ptr`; last write wins, never the FIFO, never hashed).
+enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_DOGFIGHT = 2, SNAP_EQUIP_PTR = 3, SNAP_COUNT };
 
 // Overwrite the conflation slot with the newest snapshot (thread-safe).
 void enqueueSnapshot(CoopSnapSlot slot, std::string&& s);
