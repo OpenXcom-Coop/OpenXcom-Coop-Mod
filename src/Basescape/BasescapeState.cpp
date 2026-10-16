@@ -79,6 +79,24 @@ static std::vector<std::pair<size_t, Base*>> s_coopHiddenMirrors;
 static SavedGame *s_coopHiddenWorld = nullptr;
 static BasescapeState *s_coopMirrorOwner = nullptr;
 
+// coop W2-H68 (R-H68-0; docs rewrite/prompts/w2h68_selected_base_mirror.md E1): SavedGame::_selectedBase is an index into the live
+// base list, which the mirror hide / show below changes; this points it at the same base again (a base no longer listed leaves it as is).
+static void coopKeepSelected(SavedGame *save, Base *selected)
+{
+	if (!save || !selected)
+	{
+		return;
+	}
+	for (size_t i = 0; i < save->getBases()->size(); ++i)
+	{
+		if (save->getBases()->at(i) == selected)
+		{
+			save->setSelectedBase(i);
+			return;
+		}
+	}
+}
+
 /**
  * Initializes all the elements in the Basescape screen.
  * @param game Pointer to the core game.
@@ -1110,6 +1128,7 @@ bool BasescapeState::coopHideMirrors()
 		s_coopHiddenMirrors.clear();
 		s_coopHiddenWorld = save;
 	}
+	Base *selected = save->getBases()->empty() ? nullptr : save->getSelectedBase(); // coop W2-H68 E2: the base the index names before the hide
 	std::vector<Base*> kept;
 	bool hid = false;
 	for (size_t i = 0; i < save->getBases()->size(); ++i)
@@ -1126,6 +1145,7 @@ bool BasescapeState::coopHideMirrors()
 		}
 	}
 	*save->getBases() = kept;
+	coopKeepSelected(save, selected); // coop W2-H68 E2: the same base, at its index in the list without the mirrors
 	return hid;
 }
 
@@ -1147,6 +1167,7 @@ bool BasescapeState::coopShowMirrors()
 	if (save && save == s_coopHiddenWorld)
 	{
 		std::vector<Base*> *bases = save->getBases();
+		Base *selected = bases->empty() ? nullptr : save->getSelectedBase(); // coop W2-H68 E3: the base the index names before the show
 		for (const auto& entry : s_coopHiddenMirrors)
 		{
 			bool present = false;
@@ -1175,6 +1196,7 @@ bool BasescapeState::coopShowMirrors()
 			size_t at = entry.first < bases->size() ? entry.first : bases->size();
 			bases->insert(bases->begin() + at, entry.second);
 		}
+		coopKeepSelected(save, selected); // coop W2-H68 E3: the same base, at its index with the mirrors back
 	}
 	s_coopHiddenMirrors.clear();
 	s_coopHiddenWorld = nullptr;
