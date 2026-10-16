@@ -222,6 +222,7 @@ def s1_stage(host, client, ctx):
     ctx["s1"] = rec
     if not got:
         raise AssertionError(f"S1: both machines do not hold the battle with their briefings up ({rec})")
+    session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
     rec["stripped"] = {uid: strip_both(host, client, uid) for uid in (C1, H1)}
     ids = {}
     for name, uid, t, extra in (("rifle", H1, RIFLE_T, {"ammo": CLIP_T}),

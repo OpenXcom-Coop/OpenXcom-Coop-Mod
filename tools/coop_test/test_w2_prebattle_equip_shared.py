@@ -226,6 +226,7 @@ def spine_stage(host, client, ctx):
     rec = {"C": c, "ids": {}}
     ctx["staged"] = rec
     try:
+        session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
         rec["stripped"] = strip_both(host, client, c)
         for t, extra in L1_GIVE:
             req = {"cmd": "battle_give", "unit": c, "item": t}
