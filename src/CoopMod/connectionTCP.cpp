@@ -39472,6 +39472,90 @@ static void coopDropDogfightsForUfo(Game* game, Ufo* ufo)
 	}
 }
 
+// coop W2-H81 (R-LH76-1-1 (e); docs rewrite/prompts/w2h81_popup_mirror_uaf.md): before co-op code deletes a partner's mirror (a UFO,
+// mission site, alien base, base or craft), every geoscape popup that holds it closes as its CANCEL does and every queued popup that
+// holds it is dropped, so no popup reads or writes the freed object (lh76-1-cap F22185-F22193). The popups are popped from the top
+// down to the lowest state holding a doomed pointer, and only when every state from that one to the top is such a popup
+// (GeoscapeState::coopHeldTargets); otherwise nothing is popped and false is returned (the mirror sweep then keeps that object
+// until a later snapshot). Pointers are compared, never dereferenced. Returns true when no state holds a doomed pointer any more.
+static bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed)
+{
+	if (!game || doomed.empty())
+		return true;
+	for (State* st : game->getStates())
+	{
+		if (GeoscapeState* geo = dynamic_cast<GeoscapeState*>(st))
+			geo->coopDropQueuedPopupsHolding(doomed);
+	}
+	const std::list<State*>& states = game->getStates();
+	size_t index = 0;
+	size_t lowest = states.size();
+	for (State* st : states)
+	{
+		std::vector<Target*> held;
+		GeoscapeState::coopHeldTargets(st, held);
+		for (Target* t : held)
+		{
+			if (std::find(doomed.begin(), doomed.end(), t) != doomed.end())
+			{
+				lowest = index;
+				break;
+			}
+		}
+		if (lowest != states.size())
+			break;
+		++index;
+	}
+	if (lowest == states.size())
+		return true;
+	index = 0;
+	for (State* st : states)
+	{
+		std::vector<Target*> held;
+		if (index >= lowest && !GeoscapeState::coopHeldTargets(st, held))
+			return false; // a screen that is not such a popup sits above it: leave the stack as it is
+		++index;
+	}
+	for (size_t pops = states.size() - lowest; pops > 0; --pops)
+		game->popState();
+	return true;
+}
+
+// coop W2-H81 (R-LH76-1-1 (e)): the partner dropped from the host (connectionTCP::disconnectTCP) - every mirror deleteAllCoopBases()
+// deletes next (the partner's bases and their crafts, its mission sites, UFOs and alien bases) is doomed; their popups close first.
+static void coopCloseMirrorHoldersAtDrop(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save)
+		return;
+	std::vector<Target*> doomed;
+	for (Base* b : *save->getBases())
+	{
+		if (b && b->_coopIcon)
+		{
+			doomed.push_back(b);
+			for (Craft* c : *b->getCrafts())
+				doomed.push_back(c);
+		}
+	}
+	for (MissionSite* s : *save->getMissionSites())
+	{
+		if (s && s->_coop)
+			doomed.push_back(s);
+	}
+	for (Ufo* u : *save->getUfos())
+	{
+		if (u && u->_coop)
+			doomed.push_back(u);
+	}
+	for (AlienBase* ab : *save->getAlienBases())
+	{
+		if (ab && ab->_coop)
+			doomed.push_back(ab);
+	}
+	coopCloseMirrorHolders(game, doomed);
+}
+
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
@@ -42507,7 +42591,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 										   int id = c->getId(); // c->_coop_craft_id
 										   std::string rule = c->getRules()->getType();
 
-										   bool remove = (keep_craft.find(std::to_string(id) + "|" + rule) == keep_craft.end());
+										   bool remove = (keep_craft.find(std::to_string(id) + "|" + rule) == keep_craft.end())
+											   && coopCloseMirrorHolders(_game, std::vector<Target*>{ c }); // coop W2-H81 (R-LH76-1-1)
 										   if (remove)
 											   delete c; // remove this line if you use smart pointers / different ownership
 										   return remove;
@@ -42529,7 +42614,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto it = ufos.begin(); it != ufos.end();)
 			{
 				Ufo* u = *it;
-				if (u->_coop && keep_ufo.find(u->_coop_ufo_id) == keep_ufo.end())
+				if (u->_coop && keep_ufo.find(u->_coop_ufo_id) == keep_ufo.end()
+					&& coopCloseMirrorHolders(_game, std::vector<Target*>{ u })) // coop W2-H81 (R-LH76-1-1): its popups close first
 				{
 					// If SavedGame owns the UFOs, also free memory:
 					coopDropDogfightsForUfo(_game, u); // coop W2-H76 (R-BH4-1): no dogfight keeps the mirror past its delete
@@ -42555,7 +42641,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto it = sites.begin(); it != sites.end();)
 			{
 				MissionSite* s = *it;
-				if (s->_coop && keep_mission.find(s->_coop_mission_id) == keep_mission.end())
+				if (s->_coop && keep_mission.find(s->_coop_mission_id) == keep_mission.end()
+					&& coopCloseMirrorHolders(_game, std::vector<Target*>{ s })) // coop W2-H81 (R-LH76-1-1): its popups close first
 				{
 					// If SavedGame owns the UFOs, also free memory:
 					delete s; // <- omit if someone else owns them (e.g., smart pointers)
@@ -42581,7 +42668,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto it = alienbases.begin(); it != alienbases.end();)
 			{
 				AlienBase* ab = *it;
-				if (ab->_coop && keep_alienbase.find(ab->_coop_alienbase_id) == keep_alienbase.end())
+				if (ab->_coop && keep_alienbase.find(ab->_coop_alienbase_id) == keep_alienbase.end()
+					&& coopCloseMirrorHolders(_game, std::vector<Target*>{ ab })) // coop W2-H81 (R-LH76-1-1): its popups close first
 				{
 					// If SavedGame owns the UFOs, also free memory:
 					delete ab; // <- omit if someone else owns them (e.g., smart pointers)
@@ -45977,6 +46065,11 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// goes home first (coopUnwindFailedStart); the drop then clears the alien host's own world as every campaign drop does. A
 		// part 2 waiting for that player keeps the borrow as a battle does (coop FS2-G3: coopUnwindFailedStart parks it, no swap back).
 		const bool coopPvpBorrowedAtDrop = teardownAsHost && coopPvpParkedWorld() != nullptr;
+		// coop W2-H81 (R-LH76-1-1 (e); docs rewrite/prompts/w2h81_popup_mirror_uaf.md): the partner dropped from the host - every geoscape
+		// popup holding one of the mirrors deleteAllCoopBases() deletes below closes first, as its CANCEL does, so none reads or writes
+		// them after RESUME (lh76-1-cap F22185-F22187). Other teardowns leave for the main menu or pop their own states (F22315).
+		if (teardownAsHost && onConnect == -2 && !coopPvpBorrowedAtDrop)
+			coopCloseMirrorHoldersAtDrop(_game);
 		if (!coopPvpBorrowedAtDrop)
 			deleteAllCoopBases();
 
