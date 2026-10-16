@@ -2636,6 +2636,27 @@ const std::vector<Base*> *SavedGame::getBases() const
 }
 
 /**
+ * coop W2-H89 (docs rewrite/prompts/w2h89_event_hq_base.md H2; R-LH88-1-1 (a), VL-H89-1, VL-H89-2; lh88-1-cap F23450-F23455): the base
+ * the game treats as the player's HQ, vanilla's first base. A SEPARATE or PvP world lists the partner's base copies (_coopBase and
+ * _coopIcon true, never saved) after the bases it loaded, so after a player loses its first base the first base can be a copy; an
+ * event's rewards, its stores check and the research cascades then went there and were lost. Returns the first own base (both flags
+ * false); else the first base, as before (a partner's view world, where every base is _coopBase); nullptr with no base. SHARED, single
+ * player and skirmish worlds hold no copy, so this is their first base, as before.
+ * @return Pointer to the HQ base, or nullptr.
+ */
+Base *SavedGame::getCoopHqBase()
+{
+	for (Base* coopHqCandidate : _bases)
+	{
+		if (coopHqCandidate->_coopBase == false && coopHqCandidate->_coopIcon == false)
+		{
+			return coopHqCandidate;
+		}
+	}
+	return _bases.empty() ? nullptr : _bases.front();
+}
+
+/**
  * Adds up the monthly maintenance of all the bases.
  * @return Total maintenance.
  */
@@ -4737,7 +4758,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 	{
 		return false; // all bases lost, game over
 	}
-	Base* base = _bases.front();
+	Base* base = getCoopHqBase(); // coop W2-H89 H3 (R-LH88-1-1 (a)): a mission topic's cascade runs at the first own base, never a partner's base copy
 
 	auto addResearchDiaryEntryForMission = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const AlienDeployment* sourceMission, const RuleResearch* sourceResearch)
 	{

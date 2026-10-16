@@ -3681,7 +3681,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		{
 			// coop SEPARATE, shared research: the site lived in this world only; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getBases()->front());
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getCoopHqBase()); // coop W2-H89 H6 (R-LH88-1-1 (a)): the sender's first own base
 		}
 
 		// Increase counters
@@ -6916,7 +6916,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					}
 				}
 			}
-			Base* hq = save->getBases()->front();
+			Base* hq = save->getCoopHqBase(); // coop W2-H89 H7 (R-LH88-1-1 (a)): an arc topic's cascade runs at the first own base
 			bool canAddOneMore = arcCommand->getMaxArcs() == -1 || arcCommand->getMaxArcs() > arcsEnabled;
 			if (canAddOneMore && !disabledSeqArcs.empty())
 			{

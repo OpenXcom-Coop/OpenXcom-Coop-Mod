@@ -2214,7 +2214,7 @@ void DebriefingState::prepareDebriefing()
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getBases()->front());
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getCoopHqBase()); // coop W2-H89 H8 (R-LH88-1-1 (a)): the sender's first own base
 		}
 
 		// Increase counters
