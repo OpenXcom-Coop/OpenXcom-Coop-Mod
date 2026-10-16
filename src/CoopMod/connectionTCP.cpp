@@ -6720,6 +6720,10 @@ static Json::Value g_peerMsg(Json::objectValue); // the partner's latest snapsho
 static std::atomic<int> g_sent{0};
 static std::atomic<int> g_recv{0};
 static std::atomic<int> g_dropped{0};
+// coop EQ-3 S-C (docs rewrite/prompts/eq3c_held.md, PINNED EDITS C1; QEQ3-9 (a), QEQ3-10 (a)): the partner seat whose held item this
+// machine maps onto its own copy (CoopPresence::g_hold[that seat] = the copy's id; -1 = none), and the count of mapping changes.
+static int g_heldSeat = -1;
+static int g_heldMaps = 0;
 }
 
 // ----- coop EQ-3 S-C (docs rewrite/prompts/eq3c_held.md, PINNED EDITS CT1; QEQ3-13 (a)): TEST-ONLY `base_held_defer`, either machine
@@ -6786,12 +6790,18 @@ void coopBasePresenceScreen(const void* screen, Game* game, const Base* base, bo
 		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
 		CoopBasePresence::g_screen = screen;
 		CoopBasePresence::g_localKey = key;
+		if (CoopBasePresence::g_heldSeat >= 0)
+			CoopPresence::g_hold[CoopBasePresence::g_heldSeat] = -1; // coop EQ-3 S-C (C4): a mapping never outlives its screen
+		CoopBasePresence::g_heldSeat = -1;
 	}
 	else if (!game && screen && CoopBasePresence::g_screen == screen)
 	{
 		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
 		CoopBasePresence::g_screen = nullptr;
 		CoopBasePresence::g_localKey.clear();
+		if (CoopBasePresence::g_heldSeat >= 0)
+			CoopPresence::g_hold[CoopBasePresence::g_heldSeat] = -1; // coop EQ-3 S-C (C4b): a mapping never outlives its screen
+		CoopBasePresence::g_heldSeat = -1;
 	}
 }
 
@@ -6809,6 +6819,12 @@ static Json::Value coopBasePresenceProbe()
 	r["last"] = CoopBasePresence::g_last;
 	r["peer"] = CoopBasePresence::g_peerMsg;
 	r["peerAgeMs"] = CoopPresence::g_peer.seat >= 0 ? (int)(SDL_GetTicks() - CoopPresence::g_peer.heardAt) : -1;
+	Json::Value held(Json::objectValue); // coop EQ-3 S-C (C5): the partner's held item as this machine maps it
+	held["seat"] = CoopBasePresence::g_heldSeat;
+	held["local"] = CoopBasePresence::g_heldSeat >= 0 ? CoopPresence::g_hold[CoopBasePresence::g_heldSeat] : -1;
+	held["maps"] = CoopBasePresence::g_heldMaps;
+	held["defer"] = coopTestBaseHeldDeferred();
+	r["held"] = held;
 	return r; // coop EQ-3 S-B (B1): `basePresence`
 }
 
@@ -33761,6 +33777,8 @@ bool coopEquipHeldByOtherSeat(const BattleItem* item, int seat)
 
 bool coopEquipHeldByOther(const BattleItem* item)
 {
+	if (item && CoopBasePresence::g_heldSeat >= 0 && CoopPresence::g_hold[CoopBasePresence::g_heldSeat] == item->getId())
+		return true; // coop EQ-3 S-C (C3; QEQ3-9 (a), D291 (b)): the partner holds this machine's copy on the same base pile (display only)
 	return coopEquipHeldByOtherSeat(item, coopBattleAuthority().localSeat.load());
 }
 
@@ -34108,6 +34126,127 @@ static void coopBaseOnPeerPointer(Game* game, const Json::Value& msg)
 	CoopBasePresence::g_recv.fetch_add(1);
 }
 
+// coop EQ-3 S-C (C1c; QEQ3-10 (a)): the cursor item a base snapshot carries - its rule type and where it was lifted from: the ground,
+// or a soldier (its geoscape id) and the slot / x / y it still holds there (vanilla keeps a lifted item in place until it is put
+// down). Item ids are per machine (F20774): the partner maps it onto its own copy (coopBaseHeldLocalId).
+static Json::Value coopBaseHeldJson(const BattleItem* item)
+{
+	Json::Value held(Json::objectValue);
+	const BattleUnit* owner = item->getOwner();
+	const Soldier* soldier = owner ? owner->getGeoscapeSoldier() : nullptr;
+	held["type"] = item->getRules()->getType();
+	held["from"] = owner ? "soldier" : "ground";
+	held["soldier"] = soldier ? soldier->getId() : -1;
+	held["slot"] = owner && item->getSlot() ? item->getSlot()->getId() : std::string();
+	held["x"] = owner ? item->getSlotX() : -1;
+	held["y"] = owner ? item->getSlotY() : -1;
+	return held;
+}
+
+// coop EQ-3 S-C (C1c): the Inventory of the registered base screen while it is on the state stack (covered too: a Ufopaedia page or
+// the armor screen over it keeps its pile); else nullptr.
+static Inventory* coopBaseScreenInventory(Game* game)
+{
+	if (!game || !CoopBasePresence::g_screen)
+		return nullptr;
+	for (State* s : game->getStates())
+	{
+		if (s == CoopBasePresence::g_screen)
+			return coopEquipInventoryOf(dynamic_cast<InventoryState*>(s));
+	}
+	return nullptr;
+}
+
+// coop EQ-3 S-C (C1c; QEQ3-9 (a)): THIS machine's copy of the partner's held item @a held on the pile of @a inv - from a soldier: the
+// item at that soldier's slot / x / y with the same rule type; from the ground: the lowest-id ground item of that rule type that is
+// not this machine's own cursor item, else the cursor item itself (both players lifted the last one: both keep it, VL-EQ3-7).
+// -1 = none.
+static int coopBaseHeldLocalId(Inventory* inv, const Json::Value& held)
+{
+	BattleUnit* unit = inv ? inv->getSelectedUnit() : nullptr;
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	if (!unit || !unit->getTile() || !battle || !held.isObject())
+		return -1;
+	const std::string type = held.get("type", "").asString();
+	if (held.get("from", "").asString() == "soldier")
+	{
+		const int soldier = held.get("soldier", -1).asInt();
+		const std::string slot = held.get("slot", "").asString();
+		const int x = held.get("x", -1).asInt();
+		const int y = held.get("y", -1).asInt();
+		for (BattleUnit* u : *battle->getUnits())
+		{
+			const Soldier* s = u ? u->getGeoscapeSoldier() : nullptr;
+			if (!s || s->getId() != soldier)
+				continue;
+			for (BattleItem* bi : *u->getInventory())
+			{
+				if (bi && bi->getSlot() && bi->getSlot()->getId() == slot && bi->getSlotX() == x && bi->getSlotY() == y
+					&& bi->getRules()->getType() == type)
+					return bi->getId();
+			}
+			return -1;
+		}
+		return -1;
+	}
+	const BattleItem* cursor = inv->getSelectedItem();
+	const BattleItem* best = nullptr;
+	for (BattleItem* bi : *unit->getTile()->getInventory())
+	{
+		if (!bi || bi->getRules()->getType() != type)
+			continue;
+		if (!best || (best == cursor && bi != cursor) || ((bi == cursor) == (best == cursor) && bi->getId() < best->getId()))
+			best = bi;
+	}
+	return best ? best->getId() : -1;
+}
+
+// coop EQ-3 S-C (C1c; QEQ3-9 (a), D291 (b) + (c), VL-EQ3-7): BOTH, every coopBasePresencePump() pass before the overlay - the
+// partner's held item (its fresh, on, same-pile snapshot: @a keyed) mapped onto THIS machine's copy: CoopPresence::g_hold[partner
+// seat] = that copy's id, so coopEquipHeldByOther() (C3) takes it off this pile (Inventory::arrangeGround parks it, the paperdoll and
+// the bulk tools skip it) and EQ-2's overlay draws it under the partner's pointer. Nothing is arbitrated or refused: each machine's
+// base pile is its own copy (F20774). A change re-lays the pile once (a cursor item keeps its own count, F20617). While the TEST-ONLY
+// base_held_defer is on (CT1) the mapping stays as it is.
+static void coopBaseHeldMap(Game* game, bool keyed)
+{
+	if (coopTestBaseHeldDeferred())
+		return;
+	Inventory* inv = coopBaseScreenInventory(game);
+	CoopPresence::Peer p;
+	Json::Value held;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		p = CoopPresence::g_peer;
+		held = CoopBasePresence::g_peerMsg.get("held", Json::Value());
+	}
+	const bool fresh = keyed && inv && p.on && p.seat >= 0 && p.seat < 4 && connectionTCP::getCoopStatic()
+		&& SDL_GetTicks() - p.heardAt <= (Uint32)CoopPresence::kPtrStaleMs;
+	const int want = fresh ? coopBaseHeldLocalId(inv, held) : -1;
+	const int wantSeat = want >= 0 ? p.seat : -1;
+	const int seat = CoopBasePresence::g_heldSeat;
+	const int had = seat >= 0 ? CoopPresence::g_hold[seat] : -1;
+	if (want == had && wantSeat == seat)
+		return;
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		if (seat >= 0)
+			CoopPresence::g_hold[seat] = -1;
+		if (wantSeat >= 0)
+			CoopPresence::g_hold[wantSeat] = want;
+		CoopBasePresence::g_heldSeat = wantSeat;
+		++CoopBasePresence::g_heldMaps;
+	}
+	Log(LOG_INFO) << "[coop-equip] base: the partner's held item is this machine's item " << want << " (was " << had << ")";
+	BattleUnit* unit = inv ? inv->getSelectedUnit() : nullptr;
+	if (unit && unit->getTile())
+	{
+		BattleItem* cursor = inv->getSelectedItem();
+		inv->arrangeGround();
+		if (cursor)
+			inv->setSelectedItem(cursor);
+	}
+}
+
 // coop EQ-3 S-B (B2): the registered base screen when it is the TOP state; else nullptr.
 static InventoryState* coopBaseTopScreen(Game* game)
 {
@@ -34150,6 +34289,7 @@ static void coopBasePresencePump(Game* game)
 	snap["x"] = x;
 	snap["y"] = y;
 	snap["on"] = on;
+	snap["held"] = on && inv->getSelectedItem() ? coopBaseHeldJson(inv->getSelectedItem()) : Json::Value(); // coop EQ-3 S-C (C1b; QEQ3-10 (a))
 	const Uint32 now = SDL_GetTicks();
 	bool send = false;
 	{
@@ -34179,6 +34319,7 @@ static void coopBasePresencePump(Game* game)
 	std::string name = seat >= 0 ? connectionTCP::seatName(seat) : std::string();
 	if (seat >= 0 && name.empty() && connectionTCP::seatCount() == 2)
 		name = game->getCoopMod()->getCurrentClientName(); // EQ-1's rule: no roster - the two-player bridge names the peer
+	coopBaseHeldMap(game, keyed); // coop EQ-3 S-C (C2; QEQ3-9 (a)): the partner's held item off this pile, drawn under its pointer
 	coopEquipPresenceOverlay(game, st, inv, live && keyed, name);
 }
 
