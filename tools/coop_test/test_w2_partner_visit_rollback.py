@@ -91,7 +91,9 @@ def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 def lines_since(gc, n0): return [ln.split("\t")[0][-13:-1] + " " + ln.split("\t")[-1][:300] for ln in logl(gc)[n0:] if any(n in ln for n in NEEDLES)]
-def cw(gc, match, settle=1.0):
+def cw(gc, match, settle=1.0, ready=False):
+    if ready:  # W2-U9b (W2-U9 R3; F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
+        session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)
     return {"match": match, "ok": r.get("ok"), "err": r.get("error"), "base": [r.get("baseX"), r.get("baseY")],
@@ -203,7 +205,7 @@ def bring_up(b):
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
     for gc in (b.host, b.client):
-        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6))
+        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6, ready=True))
     h, c = census(b.host), census(b.client)
     b.ts0 = h["time"]
     ev.update({"aff": b.aff, "TS0": b.ts0, "host": h, "client": c})
@@ -273,7 +275,7 @@ def row_r3(b, r):
     ev["P3-0"] = {"t": now(), "clientOwn": own(cc), "stack": cc["stack"]}
     r.need(top(c) == "BaseNameState" and len(new) == 1, "P3-0: client on BaseNameState with one own base named \"\" (%s, %s)" % (top(c), own(cc)))
     n1 = ev["N1"] = new[0][0]
-    ev["hostCycle"] = [cw(h, "INTERCEPT")["after"][-1:], cw(h, "CANCEL")["after"][-1:]]
+    ev["hostCycle"] = [cw(h, "INTERCEPT")["after"][-1:], cw(h, "CANCEL", ready=True)["after"][-1:]]
     settle(ev, "WIN_S", lambda: n1m(h, n1), WIN_S, STEP_CAP_S)
     m = n1m(h, n1)
     ev["window"] = {"t": now(), "mirrorN1": m, "hostMirrors": mirrors(census(h))}
