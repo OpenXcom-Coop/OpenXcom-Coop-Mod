@@ -811,6 +811,10 @@ class connectionTCP
 	// write-backs to "basehost" (SoldiersState / CraftInfoState / SackSoldierState OK) skip them; CoopState 55 empties the set when it builds
 	// the next view. Identity tokens, never dereferenced.
 	static std::set<const Soldier*> visitDisplayCopies;
+	// coop W2-H70 S-C (docs rewrite/prompts/w2h70_sc_window_67.md EC1; L-H70-2, R-H70-4; F20442, F20447, F20448): true while this
+	// machine's live SEPARATE world is the partner's base view (connectionTCP.cpp coopLiveWorldIsPeerView), also after a "Go to Geoscape"
+	// prompt (CoopState 67) cleared the visit flag while the player stays on a base screen. Read by the base screens' OK.
+	static bool liveWorldIsPeerView(Game* game);
 	bool coopMissionEnd = false; // is the co-op mission completed?
 	// W2-P7 S-B1.2 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-2, Q1 (a)):
 	// the three DebriefingState hooks (vanilla V3/V4/V5; DebriefingState befriends

@@ -495,7 +495,9 @@ void CraftInfoState::btnOkClick(Action *)
 {
 
 	// coop campaign
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	// coop W2-H70 S-C (spec docs rewrite/prompts/w2h70_sc_window_67.md EC6; R-H70-4; F20447): also while the live world is the partner's
+	// base view after a 67 cleared the visit flag (a craft seat changed then is kept).
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		// save the other player's base (CLIENT only), e.g., soldiers, etc.

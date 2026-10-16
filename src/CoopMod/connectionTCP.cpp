@@ -34682,6 +34682,13 @@ static bool coopLiveWorldIsPeerView(Game* game)
 	return peerBase;
 }
 
+// coop W2-H70 S-C (spec w2h70_sc_window_67.md EC2; declared in connectionTCP.h EC1): the base screens' OK (SoldiersState, CraftInfoState,
+// SackSoldierState) read the same rule as this file.
+bool connectionTCP::liveWorldIsPeerView(Game* game)
+{
+	return coopLiveWorldIsPeerView(game);
+}
+
 // coop W2-H70 (same spec (e) E1; F19742, F19743, F19745, F19746, F19922): a SEPARATE client's gift sent or received while its live
 // world is the partner's base view also changes its STORED own world, so a save, a leave, a reload or a rejoin finds the soldier on
 // exactly one roster. removeId >= 0 (sent, giftSoldier): drop that soldier from "basehost" (the own world the leave restores) and store
@@ -43412,7 +43419,9 @@ void connectionTCP::sendBaseFile()
 {
 
 	// saving is not allowed if in battle and inside another player's base!
-	if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false)
+	// coop W2-H70 S-C (spec w2h70_sc_window_67.md EC4; R-H70-4; F20446): nor while the live world is the partner's base view after a 67
+	// (the save of the view is refused: a false 995); the stream then sends the parked own world "basehost", as during the visit.
+	if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false && !coopLiveWorldIsPeerView(_game))
 	{
 		if (_game->getCoopMod()->coopMissionEnd == false)
 		{
@@ -43907,7 +43916,10 @@ void connectionTCP::streamSkirmishBattleToClient()
 void connectionTCP::sendSaveProgressFile()
 {
 
-	if (_game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
+	// coop W2-H70 S-C (spec w2h70_sc_window_67.md EC3; L-H70-2, R-H70-4; F20442): also while the live world is still the partner's base
+	// view after an earlier 67 cleared the visit flag (the player stayed on a base screen): the 67 again and the answer at the geoscape,
+	// never the branch below, whose save of the view is refused and whose cleanup erases the stored own world.
+	if ((_game->getCoopMod()->playerInsideCoopBase == true || coopLiveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		// Go to the Geoscape to begin saving progress.
