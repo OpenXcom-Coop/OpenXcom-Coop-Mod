@@ -806,6 +806,11 @@ class connectionTCP
 	int64_t playersBases = 0; // Stores the bases of all players
 	void setHost(bool host);
 	static bool playerInsideCoopBase; // is the player really in another player's base?
+	// coop W2-H70 S-B (docs rewrite/prompts/w2h70_sb_display_copy.md EB1; L-TR9-1, R-TR9-1; F20420-F20426): the display-only copies the
+	// visit deferral of a received gift adds to the visited base's view (connectionTCP.cpp, "RECV deferred (viewing peer base)"). The view's
+	// write-backs to "basehost" (SoldiersState / CraftInfoState / SackSoldierState OK) skip them; CoopState 55 empties the set when it builds
+	// the next view. Identity tokens, never dereferenced.
+	static std::set<const Soldier*> visitDisplayCopies;
 	bool coopMissionEnd = false; // is the co-op mission completed?
 	// W2-P7 S-B1.2 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-2, Q1 (a)):
 	// the three DebriefingState hooks (vanilla V3/V4/V5; DebriefingState befriends

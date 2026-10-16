@@ -173,7 +173,10 @@ void SackSoldierState::btnOkClick(Action *)
 
 			soldier->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
 
-			target_soldiers.push_back(soldier);
+			// coop W2-H70 S-B (spec docs rewrite/prompts/w2h70_sb_display_copy.md EB7; R-TR9-1; F20573): a received gift's display copy is
+			// never written to "basehost"; it leaves the mark set here because it is deleted below.
+			if (connectionTCP::visitDisplayCopies.erase(soldier) == 0)
+				target_soldiers.push_back(soldier);
 
 			// save changes
 			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);

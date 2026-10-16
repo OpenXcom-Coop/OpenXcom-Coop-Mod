@@ -319,6 +319,7 @@ bool connectionTCP::_coopCampaign = false;
 bool connectionTCP::_battleInit = false;
 
 bool connectionTCP::playerInsideCoopBase = false;
+std::set<const Soldier*> connectionTCP::visitDisplayCopies; // coop W2-H70 S-B (spec w2h70_sb_display_copy.md EB2; declared in EB1)
 
 bool connectionTCP::coopInventory = false;
 
@@ -39397,6 +39398,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						copy->setOwnerPlayerId(owner);
 						copy->setCoop(owner);
 						visited->getSoldiers()->push_back(copy);
+						// coop W2-H70 S-B (spec w2h70_sb_display_copy.md EB3; L-TR9-1, R-TR9-1; F20420, F20421, F20424): marked, so no write-back of
+						// the view puts it into "basehost" (it carries the giver's id; the replay after the leave adds the soldier once).
+						visitDisplayCopies.insert(copy);
 					}
 
 					if (!obj.get("notified", false).asBool())

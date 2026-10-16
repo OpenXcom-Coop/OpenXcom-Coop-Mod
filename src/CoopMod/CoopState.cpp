@@ -1799,6 +1799,9 @@ void CoopState::loadWorld()
 			// write
 			_game->getCoopMod()->coopFunds = oldsave->getFunds();
 			oldsave->saveCoopToMemory("basehost", _game->getMod(), "basehost");
+			// coop W2-H70 S-B (spec w2h70_sb_display_copy.md EB4; R-TR9-1; F20572): a new view starts with no display copy marked; the marks
+			// of the previous view name soldiers deleted with it.
+			connectionTCP::visitDisplayCopies.clear();
 			filename = "baseclient"; 
 
 			std::vector<Soldier*> current_soldiers;

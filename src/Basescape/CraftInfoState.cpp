@@ -556,6 +556,10 @@ void CraftInfoState::btnOkClick(Action *)
 
 			for (auto* soldier : *_base->getSoldiers())
 			{
+				// coop W2-H70 S-B (spec docs rewrite/prompts/w2h70_sb_display_copy.md EB6; R-TR9-1; F20426): a received gift's display copy is
+				// never written to "basehost" (see SoldiersState::btnOkClick).
+				if (connectionTCP::visitDisplayCopies.count(soldier))
+					continue;
 				if (soldier->getCraft())
 				{
 
