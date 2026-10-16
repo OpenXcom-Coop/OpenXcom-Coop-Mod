@@ -17,7 +17,9 @@ Rows R2 / R3 / R4 (dirs d246sd2b_r<n>_host / _client; host option CoopTurnMode p
   Rn-cont   open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE BATTLE: both on the
             battle, no CoopState 62 / 68, phase Active, no desync (MG-B)
   Rn-seats  per unit (coop, faction, isOut, x, y, z) host == partner; seats == CD_SEAT, factions == CD_FAC (gm3: the aliens
-            faction 1 seat 0, X-COM faction 0 seat 1; gm4: X-COM nobody's, the aliens 0 / 1 as tagged)
+            faction 1 seat 0, X-COM faction 0 seat 1; gm4: X-COM nobody's, the aliens 0 / 1 as tagged); gm4 also: every
+            X-COM unit's armorCur AND armorMax per side == G4_X_ARMOR on BOTH machines at the resumed turn (the save's
+            turn 2; battle_state.units, the probe of the TASK 0 capture for F20049; QD246D2-9 (a), R-D246D2-5)
   Rn-mode   turnMode traditional on both under the host option parallel
   Rn-dep    battle_state.deployment partner == host == DEP
   Rn-play   the side to move presses END TURN (gm2 the host, gm3 the partner, gm4 the host then the partner): side 1 on
@@ -54,6 +56,7 @@ KEY, RESAVE, DIR = "49254", "d246sd2b_resave.sav", "d246sd2b"
 XCOM, ALIENS = (8, 9, 10, 11, 12, 13, 14), (1000000,)          # gm2 / gm3 battle unit ids (T0-4)
 G4_A1, G4_A0 = (1000000, 1000001, 1000002, 1000003, 1000004), (1000005, 1000006, 1000007, 1000008)   # gm4 aliens tagged 1 / 0
 G4_X = (2000008, 2000009, 2000010, 2000011, 2000012, 2000013, 2000014)                               # gm4 X-COM (MALE_CIVILIAN)
+G4_X_ARMOR = [12, 8, 8, 5, 2]   # gm4 X-COM armor as played, front/left/right/rear/under, cur AND max (T0-4, F20049; QD246D2-9)
 CD_SEAT = {2: {**{i: 0 for i in XCOM}, **{i: 1 for i in ALIENS}}, 3: {**{i: 1 for i in XCOM}, **{i: 0 for i in ALIENS}},
            4: {**{i: 1 for i in G4_A1}, **{i: 0 for i in G4_A0}, **{i: -1 for i in G4_X}}}   # (b) 2's rule (T0-4, T0-7)
 CD_FAC = {2: {**{i: 0 for i in XCOM}, **{i: 1 for i in ALIENS}}, 3: {**{i: 0 for i in XCOM}, **{i: 1 for i in ALIENS}},
@@ -251,8 +254,20 @@ def r_seats(n, host, client, ev):
     sh, dh = seat_check(n, uh)
     sc, _ = seat_check(n, uc)
     red = {3: "the release gm3 swap kept (factions swapped): ", 4: "the X-COM side carries the host's seat: "}.get(n, "")
-    ok = not diff and sh and sc
-    return ok, f"{'' if sh and sc else red}units differing host/partner {diff} (want none); host: {dh}; partner rule met {sc}"
+    armor_off, armor = {}, ""
+    if n == 4:   # QD246D2-9 (a): the X-COM side keeps its played armor (cur AND max) on both machines at the resumed turn
+        a = ev["armor"] = {gc.name: {k: [us[k].get("armorCur"), us[k].get("armorMax")] if k in us else None for k in G4_X}
+                           for gc, us in ((host, uh), (client, uc))}
+        ev["armorAt"] = [[bs(g).get("side"), bs(g).get("turn")] for g in (host, client)]
+        for m in a:
+            off = {k: v for k, v in a[m].items() if v != [G4_X_ARMOR, G4_X_ARMOR]}
+            if off:
+                armor_off[m] = off
+        armor = (f"; {'' if not armor_off else 'the X-COM side lost its played armor: '}X-COM (armorCur, armorMax) off "
+                 f"host/partner {armor_off} (want {G4_X_ARMOR} / {G4_X_ARMOR} on both) at (side, turn) {ev['armorAt']}")
+    ok = not diff and sh and sc and not armor_off
+    return ok, (f"{'' if sh and sc else red}units differing host/partner {diff} (want none); host: {dh}; partner rule met {sc}"
+                f"{armor}")
 
 
 def r_mode(host, client, ev):
