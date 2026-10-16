@@ -4355,6 +4355,52 @@ void processApply(Game* game, const Json::Value& ap)
 } // anonymous namespace
 
 // ---- Public API --------------------------------------------------------------
+
+// coop W2-H69 (docs rewrite/prompts/w2h69_shared_equip_layouts.md S1; R-H69-0, F19703, F19808): the SHARED pre-battle equip end's soldier
+// gear records (connectionTCP.cpp E5 / E8). H20's soldierEquipRecord / soldierEquipAdopt sit in the anonymous namespace above;
+// these two are their public seam. HOST: one record per battle unit with a geoscape soldier - id, layout, personal, personalArmor
+// (QH69-2 (a): no name).
+Json::Value equipEndGearRecords(SavedBattleGame* save)
+{
+	Json::Value out(Json::arrayValue);
+	if (!save)
+		return out;
+	for (BattleUnit* bu : *save->getUnits())
+	{
+		Soldier* s = bu ? bu->getGeoscapeSoldier() : nullptr;
+		if (!s)
+			continue;
+		Json::Value r = soldierEquipRecord(s);
+		r.removeMember("name"); // QH69-2 (a): the gear only
+		out.append(r);
+	}
+	return out;
+}
+
+// coop W2-H69 (S1): CLIENT - each record into the soldier of this machine's battle unit with that soldier id (H20's adopt: the
+// present fields only). Returns the records adopted; a record with no such unit is skipped.
+int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& records)
+{
+	int adopted = 0;
+	if (!game || !save || !records.isArray())
+		return adopted;
+	for (const auto& r : records)
+	{
+		const int id = r.get("id", -1).asInt();
+		for (BattleUnit* bu : *save->getUnits())
+		{
+			Soldier* s = bu ? bu->getGeoscapeSoldier() : nullptr;
+			if (s && s->getId() == id)
+			{
+				soldierEquipAdopt(game, s, r);
+				++adopted;
+				break;
+			}
+		}
+	}
+	return adopted;
+}
+
 void registerCmd(const std::string& cmd, CmdValidator validate, CmdApplier apply)
 {
 	registry()[cmd] = Handler{ std::move(validate), std::move(apply) };
