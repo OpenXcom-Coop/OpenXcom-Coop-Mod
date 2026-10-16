@@ -34388,6 +34388,24 @@ void connectionTCP::processPendingSoldierGifts()
 
 }
 
+// coop W2-H66 S-B (docs rewrite/prompts/w2h66_sb_hold_until_named.md EB1; L-H66-1, R-H66-2 (p), F19860-F19869): while this player's
+// OWN world holds a base the memory save refuses (E1 coopOwnBaseUnnamed: the new base while its BaseNameState is open), a
+// serialisation of that world for the partner waits until the base is named and then answers once (EB4): the silent push to
+// the host (EB2, e.g. after a host gift) and the answer to a base visit (EB3, either machine). Today both refuse: a false 995
+// and an older world (the stored blob) reaches the partner.
+static bool coopOwnBaseUnnamed(Game* game); // E1, defined below
+static bool g_coopPushHeld = false;         // EB2: a push held while the own base is unnamed
+static int g_coopBaseAnswerHeld = 0;        // EB3: a held base answer: 1 = to the host (client side), 2 = to the client (host side)
+
+static bool coopHoldBaseAnswer(Game* game, int role)
+{
+	if (!coopOwnBaseUnnamed(game))
+		return false;
+	g_coopBaseAnswerHeld = role;
+	Log(LOG_INFO) << "[coop-visit] base answer held: own base unnamed (role " << role << ")";
+	return true;
+}
+
 bool connectionTCP::pushProgressToHostSilently()
 {
 
@@ -34419,6 +34437,14 @@ bool connectionTCP::pushProgressToHostSilently()
 	    || _game->getCoopMod()->coopMissionEnd
 	    || (dynamic_cast<LoadGameState*>(topStatePush) != nullptr))
 	{
+		return false;
+	}
+	// coop W2-H66 S-B (EB2; C1, F19860, F19868): the own new base is unnamed, so this world would be refused (a false 995) and
+	// the host would keep an older copy. Hold the push; EB4 sends it once the base is named.
+	if (coopOwnBaseUnnamed(_game))
+	{
+		g_coopPushHeld = true;
+		Log(LOG_INFO) << "[coop-gift] push held: own base unnamed";
 		return false;
 	}
 
@@ -35124,6 +35150,16 @@ static void coopTestThrowNextRxCheck(Game* game, const std::string& state, Json:
 		throw std::runtime_error("[coop-test] throw_next_rx: " + state);
 }
 
+// coop W2-H66 S-B (docs rewrite/prompts/w2h66_sb_hold_until_named.md AMENDMENT EB4-R; R-H66B-2, F20194, F20270-F20272): true
+// when no world stream is set up or running on this machine. A handler or a release sets these flags on the main thread (a
+// base answer at once; a save-progress stream only when the host's reply arrives, one round trip after a push or a save
+// answer asked for it); loopData clears them only after it has queued the stream's end marker. loopData picks a stream's
+// key when the stream starts and its end marker when it ends, so a release while this is false can change both.
+static bool coopStreamIdle()
+{
+	return !sendFileHost && !sendFileClient && !sendFileBase && !sendFileSave && !sendProgressSaveFileToHost;
+}
+
 void connectionTCP::updateCoopTask()
 {
 	CoopSyncedOptions::tick(_game); // W2-P9 S-A (PR-3): the synced-options activation edge, main thread only
@@ -35166,8 +35202,44 @@ void connectionTCP::updateCoopTask()
 
 	}
 
+	// coop W2-H66 S-B (EB4; R-H66-2 (p)): a base answer (EB3) or a push (EB2) held while the own new base was unnamed goes out
+	// once it is named, once. EB4-R (R-H66B-2, F20194): one held item per frame and only while no world stream is set up or
+	// running here (coopStreamIdle): the base answer first and alone, the push on a later frame, after the base stream has
+	// queued its end marker. Released in one block, the push's save-progress stream took over the base stream's key and end
+	// marker, and the visitor never entered the base. A held push is covered by a held save answer that E2 releases just
+	// below (the same world, the same key), so it is dropped then instead of streaming the world twice.
+	if ((g_coopBaseAnswerHeld != 0 || g_coopPushHeld) && getCoopStatic() && !coopOwnBaseUnnamed(_game) && coopStreamIdle())
+	{
+		if (g_coopBaseAnswerHeld != 0)
+		{
+			const int heldRole = g_coopBaseAnswerHeld;
+			g_coopBaseAnswerHeld = 0;
+			Log(LOG_INFO) << "[coop-visit] held base answer released (role " << heldRole << ")";
+			sendBaseFile();
+			if (heldRole == 1)
+				sendFileHost = true;
+			else
+				sendFileClient = true;
+			sendFileBase = true;
+		}
+		else
+		{
+			g_coopPushHeld = false;
+			if (g_coopSaveAnswerHeld && !getServerOwner())
+			{
+				Log(LOG_INFO) << "[coop-gift] held push dropped: the held save answer carries the world";
+			}
+			else
+			{
+				Log(LOG_INFO) << "[coop-gift] held push released";
+				pushProgressToHostSilently();
+			}
+		}
+	}
+
 	// coop W2-H66 (E2): the held answer to the host's save request (E3) goes out once the own new base is named (E1).
-	if (g_coopSaveAnswerHeld && !getServerOwner() && getCoopStatic() && !coopOwnBaseUnnamed(_game))
+	if (g_coopSaveAnswerHeld && !getServerOwner() && getCoopStatic() && !coopOwnBaseUnnamed(_game)
+		&& coopStreamIdle()) // coop W2-H66 S-B EB4-R: after a released base answer's stream has ended (R-H66B-2)
 	{
 		g_coopSaveAnswerHeld = false;
 		Log(LOG_INFO) << "[coop-save] held save answer released";
@@ -36401,6 +36473,8 @@ void resetCoopState(bool isHost)
 	sendFileHost = false;
 	sendFileSave = false;
 	g_coopSaveAnswerHeld = false; // coop W2-H66 (E4): a new connection starts with no held save answer
+	g_coopPushHeld = false;        // coop W2-H66 S-B (EB5): nor a held push
+	g_coopBaseAnswerHeld = 0;      // coop W2-H66 S-B (EB5): nor a held base answer
 
 	mapData.clear();
 
@@ -42491,7 +42565,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 
 	// BASES
-	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false)
+	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false && !coopHoldBaseAnswer(_game, 1)) // coop W2-H66 S-B EB3 (C2)
 	{
 
 		sendBaseFile();
@@ -42500,7 +42574,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		sendFileBase = true;
 	}
 
-	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true)
+	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true && !coopHoldBaseAnswer(_game, 2)) // coop W2-H66 S-B EB3 (C2b)
 	{
 
 		sendBaseFile();
