@@ -145,7 +145,7 @@ void GeoscapeEventState::eventLogic()
 	}
 
 	SavedGame *save = _game->getSavedGame();
-	Base *hq = save->getBases()->front();
+	Base *hq = save->getCoopHqBase(); // coop W2-H89 H4 (R-LH88-1-1 (a); lh88-1-cap F23452): the rewards go to the first own base, never a partner's base copy
 	const Mod *mod = _game->getMod();
 	const RuleEvent &rule = _eventRule;
 
@@ -604,7 +604,7 @@ void GeoscapeEventState::btnOkClick(Action *)
 
 	if (_game->getSavedGame()->getEnding() == END_NONE)
 	{
-		Base* base = _game->getSavedGame()->getBases()->front();
+		Base* base = _game->getSavedGame()->getCoopHqBase(); // coop W2-H89 H5 (R-LH88-1-1 (a); F23453): the stores check reads the base the rewards went to
 		if (_game->getSavedGame()->getMonthsPassed() > -1 && Options::storageLimitsEnforced && base != 0 && base->storesOverfull())
 		{
 			_game->pushState(new SellState(base, 0));

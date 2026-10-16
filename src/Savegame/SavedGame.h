@@ -356,6 +356,9 @@ private:
 	std::vector<Base*> *getBases();
 	/// Gets the list of bases.
 	const std::vector<Base*> *getBases() const;
+	/// coop W2-H89 (docs rewrite/prompts/w2h89_event_hq_base.md H1; R-LH88-1-1 (a)): the game's HQ, the first own base (never a partner's
+	/// base copy); else the first base; nullptr with no base.
+	Base *getCoopHqBase();
 	/// Gets the total base maintenance.
 	int getBaseMaintenance() const;
 	/// Gets the list of UFOs.
