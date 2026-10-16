@@ -42233,6 +42233,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_training = getAvailableTraining;
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
+					// coop W2-H65 S-A (docs rewrite/prompts/w2h65_sa_name_follows.md EA1; F19201, F19340-F19359): the mirror takes the partner's current base name.
+					existingBase->setName(marker["base"].asString());
 
 					// new !!!
 					existingBase->_facilitiesCoop = marker["facilities"];
@@ -42411,6 +42413,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				existingBase->coop_training = getAvailableTraining;
 				existingBase->coop_workshop = getAvailableWorkshops;
 				existingBase->setScientists(getAvailableScientists);
+				// coop W2-H65 S-A (docs rewrite/prompts/w2h65_sa_name_follows.md EA2; F19200-F19210, F19340-F19359): a mirror built while the
+				// partner was still naming this base has the name ""; the lift's marker carries the name, so the mirror takes it here.
+				existingBase->setName(obj["markers"]["base"].asString());
 
 				// add to the list
 				Json::Value m_markers;
@@ -42629,6 +42634,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_training = getAvailableTraining;
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
+					// coop W2-H65 S-A (docs rewrite/prompts/w2h65_sa_name_follows.md EA3; F19206, F19340-F19359): the mirror takes the partner's current base name.
+					existingBase->setName(base_name);
 
 					// new !!!
 					existingBase->_facilitiesCoop = marker["facilities"];
@@ -42766,6 +42773,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_training = getAvailableTraining;
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
+					// coop W2-H65 S-A (docs rewrite/prompts/w2h65_sa_name_follows.md EA4; F19201, F19340-F19359): the mirror takes the partner's current base name.
+					existingBase->setName(base_name);
 
 					// new !!!
 					existingBase->_facilitiesCoop = marker["facilities"];
