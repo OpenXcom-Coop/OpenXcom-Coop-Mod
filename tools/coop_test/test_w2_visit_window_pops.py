@@ -171,9 +171,10 @@ def click_marker(gc, base, pk, fnv_host=None, fnv_reads=None):
             st = stack(gc)
             if st[-1:] == ["CoopState"]:
                 moved = True
-                c = dlg(gc).get("code")
-                codes.append(c)
-                t50 = t50 or (time.time() if c == 50 else None)
+                if fnv_host is None:  # R-H71-3 (F20152): R3 polls the host fnv and does not use the dialog codes
+                    c = dlg(gc).get("code")
+                    codes.append(c)
+                    t50 = t50 or (time.time() if c == 50 else None)
             elif st[-1:] not in ([GEO], ["MultipleTargetsState"]):
                 moved = True
             if moved and fnv_host is None:
