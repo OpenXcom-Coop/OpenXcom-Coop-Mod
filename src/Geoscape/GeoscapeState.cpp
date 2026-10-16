@@ -110,6 +110,9 @@
 #include "MissionDetectedState.h"
 #include "TargetInfoState.h" // coop W2-H81: GeoscapeState::coopHeldTargets
 #include "ConfirmDestinationState.h" // coop W2-H81
+#include "SelectDestinationState.h" // coop W2-H83 S-C: GeoscapeState::coopHeldCrafts
+#include "ConfirmCydoniaState.h" // coop W2-H83 S-C
+#include "CraftNotEnoughPilotsState.h" // coop W2-H83 S-C
 #include "AlienBaseState.h"
 #include "../Savegame/Region.h"
 #include "../Savegame/Country.h"
@@ -5212,6 +5215,51 @@ bool GeoscapeState::coopHeldTargets(State* state, std::vector<Target*>& out)
 }
 
 /**
+ * coop W2-H83 S-C (R-LT18-1; docs rewrite/prompts/w2h83_sc_holders.md EC9): the crafts a geoscape window or notice holds as raw pointers.
+ * In SHARED they are the crafts of every base, and base_destroyed deletes a base's crafts under them (leads-triage18 F22666); W2-H81's
+ * coopCloseMirrorHolders reads them beside coopHeldTargets. The pointers are copied here, never dereferenced.
+ * @param state Any state.
+ * @param out Receives every non-null craft pointer the window holds.
+ * @return true when @a state is one of the nine windows, even one that holds nothing.
+ */
+bool GeoscapeState::coopHeldCrafts(State* state, std::vector<Target*>& out)
+{
+	const std::vector<Craft*>* list = nullptr;
+	Craft* craft = nullptr;
+	if (auto* ist = dynamic_cast<InterceptState*>(state))
+		list = &ist->harnessListedCrafts(); // its rows (_selCrafts is a subset of them)
+	else if (auto* cds = dynamic_cast<ConfirmDestinationState*>(state))
+		list = &cds->coopHeldCrafts();
+	else if (auto* mts = dynamic_cast<MultipleTargetsState*>(state))
+		list = &mts->coopHeldCrafts();
+	else if (auto* sds = dynamic_cast<SelectDestinationState*>(state))
+		list = &sds->coopHeldCrafts();
+	else if (auto* cps = dynamic_cast<CraftPatrolState*>(state))
+		craft = cps->coopHeldCraft();
+	else if (auto* des = dynamic_cast<DogfightErrorState*>(state))
+		craft = des->coopHeldCraft();
+	else if (auto* cls = dynamic_cast<ConfirmLandingState*>(state))
+		craft = cls->coopHeldCraft();
+	else if (auto* ccs = dynamic_cast<ConfirmCydoniaState*>(state))
+		craft = ccs->coopHeldCraft();
+	else if (auto* nps = dynamic_cast<CraftNotEnoughPilotsState*>(state))
+		craft = nps->coopHeldCraft();
+	else
+		return false;
+	if (list)
+	{
+		for (Craft* c : *list)
+		{
+			if (c)
+				out.push_back(c);
+		}
+	}
+	if (craft)
+		out.push_back(craft);
+	return true;
+}
+
+/**
  * coop W2-H81 (R-LH76-1-1 (e); docs rewrite/prompts/w2h81_popup_mirror_uaf.md): drops every queued popup (not yet shown) that holds
  * one of @a doomed - co-op mirrors about to be deleted - so none opens later on a freed object. Pointers are compared, never
  * dereferenced; a queued popup was never pushed, so it is deleted here (TestServer's "ufo_popup" lever deletes one the same way).
@@ -5225,6 +5273,7 @@ int GeoscapeState::coopDropQueuedPopupsHolding(const std::vector<Target*>& doome
 	{
 		std::vector<Target*> held;
 		coopHeldTargets(*it, held);
+		coopHeldCrafts(*it, held); // coop W2-H83 S-C (R-LT18-1, EC10): a queued patrol, dogfight or landing notice on a doomed craft
 		bool hit = false;
 		for (Target* t : held)
 		{

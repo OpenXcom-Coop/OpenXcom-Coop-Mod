@@ -50,6 +50,7 @@ public:
 	ConfirmDestinationState(std::vector<Craft*> crafts, Target *target);
 	/// coop W2-H81 (R-LH76-1-1): the destination this popup holds, for GeoscapeState::coopHeldTargets (never dereferenced there).
 	Target* coopHeldTarget() const { return _target; }
+	const std::vector<Craft*>& coopHeldCrafts() const { return _crafts; } // coop W2-H83 S-C (R-LT18-1): for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Confirm Destination state.
 	~ConfirmDestinationState();
 	/// Handler for clicking the OK button.

@@ -153,6 +153,10 @@
 
 namespace OpenXcom
 {
+// coop W2-H83 S-C (docs rewrite/prompts/w2h83_sc_holders.md EC3; R-LT18-1): W2-H81's close of the geoscape windows that hold an object
+// about to be deleted (connectionTCP.cpp, EC4); SharedEcon's baseDestroyedApply calls it before it deletes a base and its crafts (EC2).
+bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed);
+
 namespace SharedEcon
 {
 
@@ -2022,6 +2026,13 @@ void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
 	std::string name = payload.get("name", base->getName()).asString();
+	// coop W2-H83 S-C (docs rewrite/prompts/w2h83_sc_holders.md EC2; R-LT18-1, R-LBH3-1, VL-H83-3): the geoscape windows that hold this
+	// base or one of its crafts (a craft's window, the INTERCEPT list, a destination pick, list or confirm, a patrol, dogfight, landing,
+	// Cydonia or pilots notice) close first, as their CANCEL does (W2-H81's coopCloseMirrorHolders, EC3); the base is deleted either way.
+	std::vector<Target*> doomedTargets{ base };
+	for (Craft* doomedCraft : *base->getCrafts())
+		doomedTargets.push_back(doomedCraft);
+	coopCloseMirrorHolders(game, doomedTargets);
 	auto* bases = save->getBases();
 	for (auto it = bases->begin(); it != bases->end(); ++it)
 		if (*it == base) { save->stopHuntingXcomCrafts(base); bases->erase(it); delete base; break; }
