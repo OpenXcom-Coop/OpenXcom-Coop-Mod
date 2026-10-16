@@ -37,12 +37,10 @@ Session 2 (research sync off):
   E8 the host-only event's research does not reach the client.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 3: a precondition never held).
+    FAIL (exit 2: a precondition never held; MG-F).
 """
 import os
 import sys
-# RW-TRIAGE: SKIP-PENDING(MG-F) - main #197's test; MG-F re-points it on rewrite/merge-main (MG-C, QSG-5; the gate's OWNED row)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -253,7 +251,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(3)
+        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: SEPARATE certain events are shared in time, random events stay random")

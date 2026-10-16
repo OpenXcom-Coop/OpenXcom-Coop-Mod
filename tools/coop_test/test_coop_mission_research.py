@@ -24,12 +24,10 @@ Rows (the host owns every site):
      topics and bonuses (guard).
 
   * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 3: a precondition never held).
+    FAIL (exit 2: a precondition never held; MG-F).
 """
 import os
 import sys
-# RW-TRIAGE: SKIP-PENDING(MG-F) - main #197's test; MG-F re-points it on rewrite/merge-main (MG-C, QSG-5; the gate's OWNED row)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -103,6 +101,9 @@ def abort_battle(host, client, shared):
     """Fly the host's Skyranger to a terror site, enter the coop battle on both
     machines, abort it (mission failure); returns what each machine learned."""
     b0 = base0(host)
+    # MG-F: read both machines' research on their own geoscapes; in a SEPARATE battle the client holds
+    # the host's world until its debriefing OK brings its own back.
+    before = {gc.name: known(gc) for gc in (host, client)}
     cid = next(c for c in b0["crafts"] if "SKYRANGER" in c["type"])["id"]
     site = spawn_site(host, 240)
     host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT", "lon": b0["lon"] + 0.34,
@@ -121,29 +122,13 @@ def abort_battle(host, client, shared):
 
     host.wait_for("landing prompt", landing, timeout=120, interval=0.5)
     host.ok({"cmd": "confirm_landing" if shared else "coop_mission_start"})
-    for gc in (host, client):
-        gc.wait_for(gc.name + " in battle",
-                    lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
-                    timeout=180, interval=1.0)
-    for gc in (host, client):
-        gc.wait_for(gc.name + " briefing", lambda gc=gc: has(gc, "BriefingState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "close_briefing"})
-    for gc in (host, client):
-        gc.wait_for(gc.name + " inventory", lambda gc=gc: has(gc, "InventoryState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "battle_inventory", "action": "ok"})
-    for _ in range(15):
-        if all(top(gc) == "BattlescapeState" for gc in (host, client)):
-            break
-        for gc in (host, client):
-            if top(gc) != "BattlescapeState":
-                gc.cmd({"cmd": "dismiss_popup"})
-        time.sleep(1.0)
-    host.wait_for("coop turn", lambda: (host.cmd({"cmd": "battle_state"}).get("coopTurn") == 2) or None,
-                  timeout=90, interval=1.0)
+    # MG-F (rewrite battle entry): the host enters, then session.drive_both_to_tactical takes both machines
+    # through the briefings and the pre-battle equip screens together; battle_state.coopTurn is a stub (-1).
+    host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
+                  timeout=180, interval=1.0)
+    if not session.drive_both_to_tactical(host, client):
+        raise Inconclusive(f"not both on the tactical map: host={top(host)} client={top(client)}")
     time.sleep(2)
-    before = {gc.name: known(gc) for gc in (host, client)}
     session.coop_abort_battle(host, client)
     time.sleep(3)
     for gc in (host, client):
@@ -224,7 +209,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(3)
+        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: mission-outcome research reaches the right players in every mode")

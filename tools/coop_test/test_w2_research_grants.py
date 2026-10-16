@@ -3,7 +3,7 @@ reaches the second player, and the monthly roll carries the ended month's resear
 rewrite/prompts/w2h17c_research_grants.md (e)-(f) + ORCHESTRATOR RULINGS; TASK 0 rewrite/w2h17c-task0/CONSTANTS.md
 (R-H17c-T0-1..3). Test mod Coop_ResearchGrant_Test. Boot A (SHARED): H17c-1 a host-only terror site (hours 1) despawns
 untouched (research + getOneFree, diary, counter, score, despawn event); H17c-2 the month-1 arc grants STR_H17C_ARC and
-opens its article, then the ended month's score after both rolled. Boot B (SEPARATE): H17c-3 (guard row). Row frame: S0
+opens its article, then the ended month's score after both rolled. Boot B (SEPARATE, research sync off: MG-F, QMC-5): H17c-3 (guard row). Row frame: S0
 (research_probe, geo_event_probe, requests R0); poll both every 0.25 s for 3 s while a host window is open (F7230); clean =
 settle + 60 game-min at speed 3 + 4 s: requests == R0, checksum equal. RED (commit 1): H17c-1/2 fail on their named cells,
 H17c-3 passes; "G:" cells are guards (CAPTURE on a miss). GREEN: all pass. EVIDENCE then PASS / FAIL per row; ONE run;
@@ -25,6 +25,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ResearchGrant_Test")
 BOOT_A = ("w2h17ca", (49370, 49371, 47360))      # SHARED; lobby 47360 (F7232)
 BOOT_B = ("w2h17cb", (49372, 49373, 47362))      # SEPARATE; lobby 47362
+SYNC_OFF = {"EnableResearchSync": False}  # MG-F (QMC-5, F10160): H17c-3 guards sync off; main #197 M1 covers sync on
 DESPAWN, FREE, ARC, CNT = "STR_H17C_DESPAWN", "STR_H17C_FREE", "STR_H17C_ARC", "STR_H17C_DESPAWN_CNT"
 NAMES = [DESPAWN, FREE, ARC]
 MISSION, FREE_FROM = 3, 1                        # research_probe diary sourceType
@@ -268,8 +269,8 @@ def boot_a():
 
 def boot_b():
     tag, (hp, cp, lp) = BOOT_B
-    host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
-    client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
+    host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,), options=SYNC_OFF))
+    client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,), options=SYNC_OFF))
     try:
         for f in (host.spawn, client.spawn, host.connect, client.connect):
             f()
