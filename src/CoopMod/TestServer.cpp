@@ -1197,6 +1197,102 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
+	// coop W2-H81 (docs rewrite/prompts/w2h81_popup_mirror_uaf.md P13; R-LH76-1-1): TEST INTROSPECTION, read-only, safe after a co-op
+	// mirror was deleted under a geoscape popup: every pointer a popup holds (GeoscapeState::coopHeldTargets) is compared with the live
+	// lists, never dereferenced. Response {ok, holders, dangling, mirror, queued, queuedDangling}: holders = states on the stack that hold
+	// a target; dangling = those holding one in no live list (UFOs, mission sites, alien bases, waypoints, bases and their crafts);
+	// mirror = those holding a live co-op mirror; queued / queuedDangling = the same two counts for GeoscapeState's queued popups.
+	if (cmd == "popup_mirror_check")
+	{
+		SavedGame* sgM = _game->getSavedGame();
+		if (!sgM)
+		{
+			resp["error"] = "no saved game";
+			return true;
+		}
+		std::vector<Target*> liveM, mirrorM;
+		for (auto* u : *sgM->getUfos())
+		{
+			liveM.push_back(u);
+			if (u->_coop)
+				mirrorM.push_back(u);
+		}
+		for (auto* s : *sgM->getMissionSites())
+		{
+			liveM.push_back(s);
+			if (s->_coop)
+				mirrorM.push_back(s);
+		}
+		for (auto* ab : *sgM->getAlienBases())
+		{
+			liveM.push_back(ab);
+			if (ab->_coop)
+				mirrorM.push_back(ab);
+		}
+		for (auto* w : *sgM->getWaypoints())
+			liveM.push_back(w);
+		for (auto* b : *sgM->getBases())
+		{
+			liveM.push_back(b);
+			if (b->_coopIcon)
+				mirrorM.push_back(b);
+			for (auto* c : *b->getCrafts())
+			{
+				liveM.push_back(c);
+				if (c->coop || b->_coopIcon)
+					mirrorM.push_back(c);
+			}
+		}
+		auto inM = [](const std::vector<Target*>& v, Target* t) { return std::find(v.begin(), v.end(), t) != v.end(); };
+		int holdersM = 0, danglingM = 0, mirrorHeldM = 0, queuedM = 0, queuedDanglingM = 0;
+		for (State* st : _game->getStates())
+		{
+			std::vector<Target*> heldM;
+			GeoscapeState::coopHeldTargets(st, heldM);
+			if (heldM.empty())
+				continue;
+			++holdersM;
+			bool goneM = false, mirM = false;
+			for (auto* t : heldM)
+			{
+				if (!inM(liveM, t))
+					goneM = true;
+				else if (inM(mirrorM, t))
+					mirM = true;
+			}
+			if (goneM)
+				++danglingM;
+			if (mirM)
+				++mirrorHeldM;
+		}
+		if (GeoscapeState* gsM = findState<GeoscapeState>(_game))
+		{
+			for (State* st : gsM->coopQueuedPopups())
+			{
+				std::vector<Target*> heldM;
+				GeoscapeState::coopHeldTargets(st, heldM);
+				if (heldM.empty())
+					continue;
+				++queuedM;
+				for (auto* t : heldM)
+				{
+					if (!inM(liveM, t))
+					{
+						++queuedDanglingM;
+						break;
+					}
+				}
+			}
+		}
+		resp["holders"] = holdersM;
+		resp["dangling"] = danglingM;
+		resp["mirror"] = mirrorHeldM;
+		resp["queued"] = queuedM;
+		resp["queuedDangling"] = queuedDanglingM;
+		resp["ok"] = true;
+		return true;
+	}
+
 	// coop W2-H76 (docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md P4; R-BH4-1): TEST INTROSPECTION, read-only, safe after a dogfight's
 	// UFO was deleted: it never dereferences a dogfight's UFO ("dogfight_state" does). Response {ok, count, pending, minimized,
 	// dangling, danglingPending, danglingSeen} (GeoscapeState::harnessDanglingDogfights / harnessDanglingDogfightsSeen).

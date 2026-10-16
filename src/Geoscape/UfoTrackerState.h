@@ -48,6 +48,8 @@ private:
 public:
 	/// Creates the UfoTracker state.
 	UfoTrackerState(GeoscapeState *state, Globe *globe);
+	/// coop W2-H81 (R-LH76-1-1): the objects this tracker lists, for GeoscapeState::coopHeldTargets (never dereferenced there).
+	const std::vector<Target*>& coopHeldTargets() const { return _objects; }
 	/// Cleans up the UfoTracker state.
 	~UfoTrackerState();
 	/// Handler for clicking the Cancel button.

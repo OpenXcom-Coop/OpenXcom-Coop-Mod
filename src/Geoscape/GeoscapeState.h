@@ -40,6 +40,7 @@ class DogfightState;
 class Craft;
 class Ufo;
 class MissionSite;
+class Target;
 class Base;
 class RuleMissionScript;
 class RuleEvent;
@@ -285,6 +286,12 @@ public:
 	int harnessDanglingDogfights(bool pending) const;
 	/// coop W2-H76 test-harness: how many such dogfights handleDogfights() has met since the game started (every GeoscapeState).
 	static int harnessDanglingDogfightsSeen();
+	/// coop W2-H81 (R-LH76-1-1): the pointers a geoscape popup (UfoDetectedState, MissionDetectedState, TargetInfoState, InterceptState,
+	/// ConfirmDestinationState, MultipleTargetsState, UfoTrackerState, GeoscapeCraftState) holds; copied, never dereferenced. Returns
+	/// true when @a state is such a popup, even one that holds nothing.
+	static bool coopHeldTargets(State* state, std::vector<Target*>& out);
+	/// coop W2-H81 test-harness: the popups queued to open (pushed one per think while the geoscape is on top).
+	const std::list<State*>& coopQueuedPopups() const { return _popups; }
 	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
 	/// current _dfEpoch it broadcasts; replica: _dfReplicaEpoch, the epoch of the last
 	/// df_open it applied). Lets a test assert host/replica epoch lock-step across an

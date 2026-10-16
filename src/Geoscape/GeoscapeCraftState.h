@@ -53,6 +53,8 @@ private:
 public:
 	/// Creates the Geoscape Craft state.
 	GeoscapeCraftState(Craft *craft, Globe *globe, Waypoint *waypoint, bool useCustomSound);
+	/// coop W2-H81 (R-LH76-1-1): the craft this window shows, for GeoscapeState::coopHeldTargets (never dereferenced there).
+	Craft* coopHeldCraft() const { return _craft; }
 	/// Cleans up the Geoscape Craft state.
 	~GeoscapeCraftState();
 	/// Handler for clicking the Return To Base button.

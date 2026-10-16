@@ -45,6 +45,8 @@ private:
 public:
 	/// Creates the Ufo Detected state.
 	UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave, bool coop = false);
+	/// coop W2-H81 (R-LH76-1-1): the UFO this popup holds, for GeoscapeState::coopHeldTargets (compared there, never dereferenced).
+	Ufo* coopHeldUfo() const { return _ufo; }
 	/// Cleans up the Ufo Detected state.
 	~UfoDetectedState();
 	/// Handler for clicking the Intercept button.
