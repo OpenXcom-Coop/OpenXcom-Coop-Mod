@@ -1,22 +1,13 @@
 """FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): the HOST INPUT FREEZE.
 
-AI-neutral: asserts only at t=0, before any side advances.
+AI-neutral: boot P pins every non-player unit neutral (pin_ai_neutral).
 
-WHY THIS EXISTS. WV-D56 moves the coop blob snapshot and the `battle_offer`
-that advertises it from `offerBattle()` (battle-generation time, before
-BriefingState even exists) to `CoopHandshake::emitPreparedOffer()`, called
-from `BriefingState::btnOkClick`'s freeze branch AFTER
-`SavedBattleGame::startFirstTurn()`. That branch has ALREADY pushed
-`BattlescapeState` (+ `NextTurnState` on top of it) by the time it calls
-`emitPreparedOffer()` - so the host now sits inside `BattlescapeState`,
-possibly with `NextTurnState` already dismissed, for the entire remainder of
-the handshake round trip (offer sent -> client accepts -> blob streams ->
-client loads -> `battle_ready` -> host `onReady()` -> phase Active). Every
-coop input gate that reads `isCoopBattle()` (`== phase Active`) is
-PERMISSIVE in that window, because phase is still `Handshake` - so without a
-freeze, the host could walk/turn/kneel units LOCALLY (a state mint with
-nothing on the wire) while the client is still loading its own copy of the
-world. `CoopBattleUi::freezeBattleInputUntilActive()`, hooked at the top of
+WHY THIS EXISTS. While the coop battle phase is `Handshake` every coop input
+gate that reads `isCoopBattle()` (`== phase Active`) is PERMISSIVE, so without
+a freeze a host sitting on an input-taking BattlescapeState could walk/turn/
+kneel units LOCALLY (a state mint with nothing on the wire) while the client
+is still loading its own copy of the world.
+`CoopBattleUi::freezeBattleInputUntilActive()`, hooked at the top of
 `BattlescapeState::handle`, closes that window.
 
 THE ESCAPE HATCH (REV E.1 S-4, the reason this file is not a one-line proof).
@@ -27,35 +18,44 @@ or abandon. The fix carries a PRE-DECIDED, narrow exemption: the
 `Options::keyBattleOptions` KEY (not a widget), gated on `!_save->isPreview()`
 exactly like vanilla's own `_btnHelp` binding. This file proves BOTH halves:
 the freeze actually freezes map input, AND the escape hatch actually opens
-Options without itself counting as (or breaking) the freeze.
+Options without itself counting as (or breaking) the freeze. No other file
+proves the hatch.
 
-FIXTURE. A normal 2-seat craft skirmish (test_rw_handshake.py's own lobby
-drive - `bring_up_lobby()`/`skirmish_host()`/`skirmish_client_at_browser()`,
-the same precedent-following inline copies every rewrite test in this
-directory carries). The CLIENT is deliberately held back: it connects far
-enough to make the host's own lobby-start flow eligible
-(`LobbyMenu::startEligible()` requires `session.clientInLobby`, so the client
-must at least `join_tcp` + confirm its `Profile` popup to reach `LobbyMenu`),
-and is then NEVER driven any further by this file - no `lobby_action`, no
-`NewBattleState` navigation, nothing. Its actual battle entry is 100%
-network-driven (`CoopHandshake::onOffer`/`onBlobChunkAppended`/`onReady`),
-never a test-issued click, so "the client is held back" is true in the only
-sense that matters here: it makes zero progress until the HOST'S OWN OK
-click on its briefing causes `emitPreparedOffer()` to actually send the
-offer - which, under WV-D56, is later than it has EVER been in this test
-suite (after `startFirstTurn()`, with `BattlescapeState`+`NextTurnState`
-already on the host's stack).
+FIXTURE (W2-U9b, R-U9-1 (a); W2-U9 F21060-F21062). Since W2-P8b a FRESH co-op
+start never gives the host an input-taking BattlescapeState in phase
+Handshake: the host reads its briefing, then its pre-battle equip
+InventoryState stays on top for the whole Handshake (owner D206 c / D210 b),
+so the freeze is unreachable from a fresh start. The one live window is the
+SPEC 16 rejoin RESUME handshake, which `test_w2_messages` row QR2r builds; this
+file copies QR2r's staging (test_w2_messages.qr2r_drive, steps boot..7):
+test_w2_rejoin_end_turn's parallel boot P (test_w2_death_side's default map)
+on this file's lobby PORT, one END TURN cycle, the client leaves (SPEC 16), a
+fresh process (client2) arms the test-only lever hold_battle_ready {on: true}
+(W2-P8b Q16 (a)) and rejoins, the host presses RESUME. The host's rejoin
+battle_offer reopened phase Handshake (`offerRejoinBattle`); client2's
+battle_ready is stashed, so the host sits on BattlescapeState in phase
+Handshake until THIS FILE releases the hold - the window is deterministic,
+not a race. Every construction step is bounded; a miss is a FIXTURE-STOP
+(test_w2_rejoin_end_turn.miss: one CAPTURE line of every machine, then raise).
+Before the client leaves, select_mover makes the actor a host soldier that can
+walk onto a neighbour tile in one step (the Active control's precondition;
+boot P's first selection, soldier 10 at (14,20,1), is boxed in by its squad
+and the craft hull, F21725), and the move-click tile is the first neighbour
+that passes the read-only path_probe.
 
-REV E.1 (IR3-3): NextTurnState MUST be dismissed via the `close_nextturn`
-lever (`NextTurnState::close()` called directly, TestServer.cpp) BEFORE any
-of the freeze assertions - `BriefingState::btnOkClick` pushes `NextTurnState`
-ABOVE `BattlescapeState`, and `Game::run()` dispatches input only to the TOP
-state, so `BattlescapeState::handle` (and therefore the freeze) is simply
-never reached while `NextTurnState` sits on top. That window is not what this
-file measures - it dismisses `NextTurnState` immediately (racing the
-handshake round trip, which needs a real TCP round trip + blob stream + hash
-compare to complete) and RE-ASSERTS `phase == "Handshake"` right after, so a
-too-slow dismissal fails loudly instead of silently testing nothing.
+Every cell of the fresh-start version is kept; the staging of two cells moved
+(W2-U9b report, docs rewrite/w2-resume-f087ac93/reports/w2-u9b.md):
+  cell 1 "Handshake with nothing completed by the peer": was "phase Handshake
+    after newbattle_ok, client still on LobbyMenu"; now "phase Handshake after
+    RESUME, client2's battle_ready stashed (held), never sent".
+  cell 2 "host on BattlescapeState, phase STILL Handshake": was "close the
+    NextTurnState the briefing OK pushed (close_nextturn), then top
+    BattlescapeState + Handshake"; now RESUME pops the reconnect dialog
+    straight onto BattlescapeState (no NextTurnState on the host's stack),
+    then top BattlescapeState + Handshake.
+  the post-PauseState re-check: was "run only if the round trip had not
+    completed meanwhile" (a NOTE branch otherwise); with the hold the window
+    cannot close, so the re-check always runs and the phase is asserted.
 
 Run:  python tools/coop_test/test_rw_host_input_freeze.py
       (its own shell invocation - one harness run at a time, machine-wide.)
@@ -68,8 +68,18 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
+import test_w2_rejoin_end_turn as rej
+from test_w2_death_side import FACTION_PLAYER
+from test_w2_delta_core import end_turn_cycle
+from test_skirmish_rejoin_battle import (drop_client_mid_battle, rejoin_skirmish, dialog, in_battle_save, has,
+                                         COOP_DLG_WAIT_PLAYERS, COOP_DLG_CLIENT_RESUME_HOLD)
 
 SDLK_ESCAPE = 27
+PORT = "47997"                   # this file's lobby key (unchanged)
+HOST_PORT, CLIENT_PORT = 48850, 48851    # GameClient labels (each instance writes its own port file)
+TEXT_WAITING_FOR_JOIN = "Waiting for the other player to join the battle"   # STR_COOP_WAITING_FOR_JOIN (en-US)
+HELD_S = 10.0                    # client2's battle_ready stashed after RESUME (bounded wait)
+ACTIVE_S = 60                    # phase Active on both after the release
 
 
 # ---------------------------------------------------------------- helpers ---
@@ -80,10 +90,6 @@ def states(gc):
 def top_state(gc):
     st = states(gc)
     return st[-1] if st else None
-
-
-def lobby(gc):
-    return gc.cmd({"cmd": "lobby_state"})
 
 
 def battle_state(gc):
@@ -107,6 +113,16 @@ def unit_by_id(bs, uid):
         if u.get("id") == uid:
             return u
     return None
+
+
+def hold(gc, **kw):
+    """test_w2_messages.hold (QR2r): the test-only client lever hold_battle_ready (W2-P8b Q16 (a)). {on: true}
+    arms it (the handshake stashes battle_ready), {on: false} disarms it and sends the stash; without `on` it only
+    reports."""
+    req = {"cmd": "hold_battle_ready"}
+    req.update(kw)
+    r = gc.cmd(req)
+    return {k: r.get(k) for k in ("ok", "error", "armed", "held", "sent")}
 
 
 # Direction -> (dx, dy) step table, 0=North clockwise - the same table every
@@ -134,9 +150,40 @@ def find_move_click(gc, actor):
         tx = actor["x"] + DIR_DX[d]
         ty = actor["y"] + DIR_DY[d]
         tz = actor["z"]
+        if not can_step_to(gc, actor["id"], (tx, ty, tz)):
+            continue
         pr = gc.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
         if pr.get("verified"):
             return pr["winX"], pr["winY"], (tx, ty, tz)
+    return None
+
+
+def can_step_to(gc, uid, tile):
+    """The move-click tile's precondition (W2-U9b, S54): unit `uid` reaches `tile` in ONE step (the read-only
+    path_probe: vanilla Pathfinding::calculate with the plain walk click's move type; an occupied tile, a missing
+    floor or a wall makes it unreachable)."""
+    tx, ty, tz = tile
+    pr = gc.cmd({"cmd": "path_probe", "unit": uid, "x": tx, "y": ty, "z": tz})
+    return bool(pr.get("reachable")) and pr.get("steps") == 1
+
+
+def select_mover(host):
+    """Staging, before the client leaves (phase Active): the host's selected unit is the actor of every cell, and
+    the Active control needs it to walk onto a neighbour. PIN-RULE (S54): keep the host's selection when one of its 8
+    neighbours passes can_step_to; else select the lowest-id live host-seat (coop 0) soldier that has one (the
+    nearest value meeting the precondition) with the test lever battle_action select. Returns (old id, actor id,
+    tile) or None when no host soldier has a one-step neighbour (a FIXTURE-STOP)."""
+    bs = battle_state(host)
+    sel = bs.get("selectedId")
+    own = [u for u in bs.get("units", []) if u.get("coop") == 0 and u.get("faction") == FACTION_PLAYER
+           and not u.get("isOut")]
+    for u in sorted(own, key=lambda u: (u["id"] != sel, u["id"])):
+        for d in range(8):
+            tile = (u["x"] + DIR_DX[d], u["y"] + DIR_DY[d], u["z"])
+            if can_step_to(host, u["id"], tile):
+                if u["id"] != sel:
+                    host.ok({"cmd": "battle_action", "action": "select", "unit": u["id"]})
+                return sel, u["id"], tile
     return None
 
 
@@ -154,48 +201,67 @@ def resolve_click_pixel(gc, tile):
     return None
 
 
-def skirmish_host(host, port, player="HostPlayer"):
-    host.ok({"cmd": "open_new_battle"})
-    host.wait_for("host new battle", lambda: session.has_state(host, "NewBattleState"))
-    host.ok({"cmd": "newbattle_coop"})
-    host.wait_for("host browser", lambda: session.has_state(host, "ServerList"))
-    host.ok({"cmd": "server_list_host"})
-    host.wait_for("host window", lambda: session.has_state(host, "HostMenu"))
-    host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv",
-             "port": port, "player": player})
-    host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"))
+def open_rejoin_window(host, client, m, options):
+    """QR2r's staging (test_w2_messages.qr2r_drive, boot R steps boot..7) on this file's PORT. Each step bounded; a
+    miss is a FIXTURE-STOP (rej.miss: one CAPTURE line of every machine in `m`). Returns client2 (appended to `m`)."""
+    rej.step("boot R (test_w2_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT, False), m)
+    pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
+    end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause (F4012)
+    post = {"host": rej.snap(host), "client": rej.snap(client)}
+    bad = [f"cycle notes {notes}"] if notes else []
+    for w in ("host", "client"):
+        a, b = pre[w], post[w]
+        if a["turn"] is None or b["turn"] != a["turn"] + 1 or b["side"] != FACTION_PLAYER or b[rej.PC] != rej.K_P \
+                or b["desyncSeen"]:
+            bad.append(f"{w} turn/side {a['turn']}/{a['side']} -> {b['turn']}/{b['side']} {rej.PC} {b[rej.PC]} "
+                       f"desyncSeen {b['desyncSeen']} (want +1, player, K_P = {rej.K_P}, false)")
+    rej.check("pre-leave END TURN cycle", bad, m)
+    mover = select_mover(host)
+    rej.check("a host soldier with a one-step neighbour (select_mover)", [] if mover else [
+        "no live host-seat soldier reaches any of its 8 neighbours in one step"], m)
+    sel = battle_state(host).get("selectedId")
+    rej.check("the host's selection is the mover", [] if sel == mover[1] else [
+        f"selectedId {sel} after select_mover {mover}"], m)
+    print(f"fixture: mover {mover} (old selection, actor, first one-step neighbour)"
+          + ("" if mover[0] == mover[1] else " - SWAP (S54): the old selection had no one-step neighbour"))
+    rej.step("1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
+    c2 = GameClient("rejoin", None, make_user_dir("rw_freeze_rejoin", options=options))
+    m.append(c2)
+    rej.step("3 client2 spawn and connect", lambda: (c2.spawn(), c2.connect()), m)
+    arm = hold(c2, on=True)
+    rej.check("hold_battle_ready {on: true} on client2", [] if (
+        arm["ok"] and arm["armed"] is True and not arm["held"]) else [f"arm {arm}"], m)
+    rej.step("4 rejoin_skirmish", lambda: rejoin_skirmish(c2, PORT), m)
 
+    def s5():
+        c2.wait_for("client2 back in the battle", lambda: in_battle_save(c2) or None, timeout=240)
+        c2.wait_for("client2 held on dialog 68 over BattlescapeState",
+                    lambda: (has(c2, "BattlescapeState")
+                             and dialog(c2).get("code") == COOP_DLG_CLIENT_RESUME_HOLD) or None,
+                    timeout=60, interval=0.5)
 
-def skirmish_client_at_browser(client):
-    client.ok({"cmd": "open_new_battle"})
-    client.wait_for("client new battle", lambda: session.has_state(client, "NewBattleState"))
-    client.ok({"cmd": "newbattle_coop"})
-    client.wait_for("client browser", lambda: session.has_state(client, "ServerList"))
+    def s6():
+        def offered():
+            if session.has_state(host, "Profile"):        # the join's popup sits over the dialog
+                return host.cmd({"cmd": "profile_ok"}) and None
+            return dialog(host).get("backVisible") or None
+        host.wait_for("host dialog offers RESUME", offered, timeout=120, interval=0.5)
+        d = dialog(host)
+        assert d.get("code") == COOP_DLG_WAIT_PLAYERS and d.get("backText") == "RESUME", f"host dialog {d}"
 
-
-def bring_up_lobby(host, client, port):
-    """test_rw_handshake.py's own lobby drive, the precedent every rewrite
-    test in this directory follows (repro_atom_turn.py's own docstring cites
-    it). The client reaches LobbyMenu here and is NEVER driven past it by
-    this file - see the module docstring's FIXTURE section for why that is
-    "held back" in the sense this packet's spec means."""
-    host.spawn(); host.connect()
-    client.spawn(); client.connect()
-
-    skirmish_host(host, port)
-    skirmish_client_at_browser(client)
-    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": "ClientPlayer"})
-
-    host.wait_for("host popup", lambda: session.has_state(host, "Profile"))
-    client.wait_for("client popup", lambda: session.has_state(client, "Profile"))
-    host.ok({"cmd": "profile_ok"})
-    client.ok({"cmd": "profile_ok"})
-    host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
+    def s7():
+        host.ok({"cmd": "coop_dialog_back"})
+        for gc in (host, c2):
+            gc.wait_for(f"{gc.name} top BattlescapeState",
+                        lambda gc=gc: (top_state(gc) == "BattlescapeState") or None, timeout=120, interval=0.5)
+    rej.step("5 client2 in the battle, held on dialog 68", s5, m)
+    rej.step("6 host offers RESUME", s6, m)
+    rej.step("7 RESUME, both tops BattlescapeState", s7, m)
+    return c2
 
 
 # ------------------------------------------------------------------- main ---
 def main():
-    port = "47997"
     # F109 hermetic camera: each instance boots with a dummy SDL mouse parked at
     # (0,0) - the top-left corner - which under battleEdgeScroll=SCROLL_AUTO arms a
     # continuous edge-scroll the moment the battlescape is interactive again (e.g.
@@ -204,68 +270,47 @@ def main():
     # click being consumed, so the click resolves one tile off and the move is
     # silently rejected. This test exercises input-freeze / Options hatch /
     # movement, NOT automatic edge scrolling, so pin a hermetic camera
-    # (battleEdgeScroll=0 / SCROLL_NONE) on both instances.
-    host_dir = make_user_dir("rw_freeze_host", options={"battleEdgeScroll": 0})
-    client_dir = make_user_dir("rw_freeze_client", options={"battleEdgeScroll": 0})
-    host = GameClient("host", 48850, host_dir)
-    client = GameClient("client", 48851, client_dir)
+    # (battleEdgeScroll=0 / SCROLL_NONE) on every instance (client2 included).
+    options = {"battleEdgeScroll": 0}
+    host = GameClient("host", HOST_PORT, make_user_dir("rw_freeze_host", options=options))
+    client = GameClient("client", CLIENT_PORT, make_user_dir("rw_freeze_client", options=options))
+    m = [host, client]
     try:
-        bring_up_lobby(host, client, port)
+        c2 = open_rejoin_window(host, client, m, options)
 
-        # === host alone into NEW BATTLE > OK; the client stays parked on ====
-        # === LobbyMenu, driven by nothing but the wire from here on. ========
-        host.ok({"cmd": "lobby_action"})
-        host.wait_for("host at battle settings",
-                      lambda: (not session.has_state(host, "LobbyMenu")) or None)
-        assert top_state(host) == "NewBattleState", \
-            f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
-
-        host.ok({"cmd": "newbattle_ok"})
-        host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"),
-                      timeout=30)
-
-        # WV-D56: prepareBattleOffer() has run (battleId minted, phase ->
-        # Handshake) but emitPreparedOffer() has NOT - the snapshot/offer are
-        # deferred to the freeze branch of btnOkClick, which the host has not
-        # clicked yet. Nothing has been sent; the client (still on LobbyMenu)
-        # has learned nothing about this battle.
+        # === cell 1: the handshake is open and the peer has completed nothing =
+        # The host's rejoin battle_offer reopened phase Handshake; client2's
+        # battle_ready is stashed by hold_battle_ready, so nothing completes the
+        # handshake until this file releases it.
+        try:
+            c2.wait_for("client2's battle_ready stashed", lambda: hold(c2).get("held") or None,
+                        timeout=HELD_S, interval=0.1)
+        except Exception as e:
+            print(f"NOTE: client2 stash wait: {e}")
         bs0 = battle_state(host)
+        h0 = hold(c2)
+        print(f"EVIDENCE cell 1: host phase {bs0.get('phase')!r} top {top_state(host)!r}; client2 hold {h0} "
+              f"phase {battle_state(c2).get('phase')!r} top {top_state(c2)!r}")
         assert bs0.get("phase") == "Handshake", (
-            f"host phase should be Handshake right after newbattle_ok, before the "
-            f"briefing OK click (prepareBattleOffer() ran, emitPreparedOffer() has "
-            f"not): {bs0}")
-        assert top_state(client) == "LobbyMenu", (
-            f"client should still be sitting on LobbyMenu, untouched by this file - "
-            f"got stack={states(client)}")
-        print("PASS: prepareBattleOffer() ran (phase=Handshake) with nothing sent - "
-              "client still parked on LobbyMenu, never driven")
+            f"host phase should be Handshake after RESUME (the rejoin battle_offer reopened it and client2's "
+            f"battle_ready is held): {bs0}")
+        assert h0.get("armed") is True and h0.get("held") is True, (
+            f"client2's battle_ready should be stashed by hold_battle_ready (armed, held), never sent: {h0}")
+        print("PASS: the rejoin handshake is open (phase=Handshake) with client2's battle_ready held - "
+              "nothing completes it until this file releases the hold")
 
-        # === dismiss BriefingState -> emitPreparedOffer() actually fires =====
-        host.ok({"cmd": "click_widget", "match": "ok"})
-
-        # REV E.1 (IR3-3): NextTurnState sits ABOVE BattlescapeState the instant
-        # btnOkClick pushes both, and Game::run() only dispatches to the TOP
-        # state - so BattlescapeState::handle (and the freeze) is unreachable
-        # until NextTurnState is gone. Race the handshake round trip: dismiss it
-        # via the real close() (not dismiss_popup, which only pops without
-        # running it) as fast as this process can issue the command.
-        host.wait_for("host has a NextTurnState to close",
-                      lambda: session.has_state(host, "NextTurnState"), timeout=15)
-        nt = host.ok({"cmd": "close_nextturn"})
-        assert nt.get("ok"), f"close_nextturn failed: {nt}"
-        assert top_state(host) == "BattlescapeState", (
-            f"host top state should be BattlescapeState right after closing "
-            f"NextTurnState, stack={states(host)}")
-
+        # === cell 2: the host is on BattlescapeState, phase STILL Handshake ====
+        # REV E.1 (IR3-3): Game::run() dispatches input only to the TOP state, so
+        # the freeze is observable only with BattlescapeState on top. RESUME pops
+        # the reconnect dialog straight onto it - no NextTurnState is pushed.
+        st1 = states(host)
+        assert top_state(host) == "BattlescapeState" and not any("NextTurnState" in s for s in st1), (
+            f"host top state should be BattlescapeState with no NextTurnState above it after RESUME, stack={st1}")
         bs1 = battle_state(host)
         assert bs1.get("phase") == "Handshake", (
-            f"host phase should STILL be Handshake immediately after dismissing "
-            f"NextTurnState (the handshake round trip - offer send, client accept, "
-            f"blob stream, battle_ready, onReady - has not had time to complete): "
-            f"{bs1}")
-        print("PASS (REV E.1 IR3-3): NextTurnState dismissed via close_nextturn, "
-              "host on BattlescapeState, phase STILL Handshake - the freeze window "
-              "is open and observable")
+            f"host phase should STILL be Handshake on BattlescapeState (client2's battle_ready is held): {bs1}")
+        print("PASS (REV E.1 IR3-3): host on BattlescapeState (no NextTurnState), phase STILL Handshake - the "
+              "freeze window is open and observable")
 
         # === the ordering seat's unit, for the before/after position+TU check ===
         actor = selected_unit(bs1)
@@ -286,10 +331,14 @@ def main():
             f"map_tile_click_pos - cannot resolve a real move-click for this "
             f"boot's map/camera state (actor at {(actor['x'], actor['y'], actor['z'])})")
         click_x, click_y, click_tile = click
-        print(f"fixture: move-click resolved to window ({click_x},{click_y}) -> "
+        print(f"fixture: actor {actor_id} at {before}; move-click resolved to window ({click_x},{click_y}) -> "
               f"tile {click_tile}")
 
         # === FROZEN: a ground click changes NOTHING ==========================
+        # find_move_click's HOME key is itself a frozen map input, so the
+        # refusal count is read again right before the click: the click's own
+        # refusal is proven by growth across it, besides the count being > 0.
+        r_pre_click = event_state(host)["coopHostInputFrozenRefusals"]
         host.ok({"cmd": "inject_input", "kind": "click", "x": click_x, "y": click_y})
         time.sleep(0.3)
 
@@ -301,19 +350,13 @@ def main():
             f"unit: before={before} after={after} - the host input freeze did not "
             "hold")
         es_after = event_state(host)
-        # NOTE (reveal-flush race RCA, orchestrator-traced): `lastSeqEmitted`
-        # is NOT click-specific here and must not be used as the freeze proof.
-        # Under WV-D56, `emitPreparedOffer()` (fired above, at the briefing OK
-        # click) calls `CoopReveal::seedPublished()`, which seeds fog-reveal
-        # evs the pump flushes ASYNCHRONOUSLY at a nondeterministic tick. When
-        # such a flush lands inside this ~0.3s window, `lastSeqEmitted` moves
-        # (e.g. 0->1) even though the click itself minted nothing - a NO-CLICK
-        # control reproduced the same seq bump 6/6 times, and `event_log`
-        # showed both bumped seqs are `kind='reveal'`, never an action. Assert
-        # CLICK-SPECIFICALLY instead: a frozen click never reaches the walk
-        # arm at all (repro_atom_walk.py / test_rw_input_gating.py's own
-        # `coopWalkArmEntered`-unchanged precedent), so the arm-entry counter
-        # must not move and no order may have left this machine.
+        # `lastSeqEmitted` is NOT click-specific and must not be used as the
+        # freeze proof (reveal-flush race RCA: fog-reveal evs flush at a
+        # nondeterministic tick). Assert CLICK-SPECIFICALLY instead: a frozen
+        # click never reaches the walk arm at all (repro_atom_walk.py /
+        # test_rw_input_gating.py's own `coopWalkArmEntered`-unchanged
+        # precedent), so the arm-entry counter must not move and no order may
+        # have left this machine.
         assert es_after["coopWalkArmEntered"] == es_before["coopWalkArmEntered"], (
             f"coopWalkArmEntered moved from {es_before['coopWalkArmEntered']} to "
             f"{es_after['coopWalkArmEntered']} while frozen - the click reached "
@@ -327,35 +370,22 @@ def main():
             "after a ground click during the freeze window - this is a POSITIVE "
             "delivery proof, not an absence, and it did not fire: "
             f"{es_after}")
+        assert es_after["coopHostInputFrozenRefusals"] > r_pre_click, (
+            f"coopHostInputFrozenRefusals did not grow across the ground click "
+            f"({r_pre_click} -> {es_after['coopHostInputFrozenRefusals']}) - the click itself was not refused")
         r_after_click = es_after["coopHostInputFrozenRefusals"]
         print(f"PASS: frozen ground click moved nothing (pos/tu unchanged: {before}), "
               f"coopWalkArmEntered unchanged ({es_after['coopWalkArmEntered']}), "
               f"coopWalkIntentsSent=0, "
-              f"coopHostInputFrozenRefusals={r_after_click} (> 0)")
+              f"coopHostInputFrozenRefusals={r_after_click} (> 0, {r_pre_click} before the click)")
 
         # === the deployed banner text, EXACT (WV-D17: never non-emptiness) ===
-        # Read HERE, guaranteed still inside the Handshake window (the frozen
-        # click above just proved it) - the round trip that follows can close
-        # that window at any moment (measured: well under a second once the
-        # client is already connected), so this is the last point this file can
-        # rely on phase still being Handshake.
-        assert bs2.get("coopWaitText") == "Waiting for the other player to join the battle", (
+        assert bs2.get("coopWaitText") == TEXT_WAITING_FOR_JOIN, (
             f"battle_state.coopWaitText should be the deployed STR_COOP_WAITING_FOR_JOIN "
             f"text exactly: {bs2.get('coopWaitText')!r}")
         print(f"PASS: battle_state.coopWaitText == {bs2['coopWaitText']!r} (exact)")
 
         # === REV E.1 (S-4): THE ESCAPE HATCH ==================================
-        # MEASURED (this file's own first runs): once the client is already
-        # connected and idle in the lobby (required for LobbyMenu::
-        # startEligible() to ever let the host past it), the handshake round
-        # trip - offer send, accept, ~140 KB blob stream, hash compare,
-        # onReady -> phase Active - completes in well under a second. Every
-        # assertion up to and including the escape-hatch open below is proven
-        # to land inside that window (this file's own PASS lines evidence it);
-        # what happens AFTER the PauseState round trip is NOT assumed - it is
-        # READ, once, and branched on. Neither branch below weakens an
-        # assertion: each is the correct, full-strength check for the phase
-        # actually observed.
         r0 = event_state(host)["coopHostInputFrozenRefusals"]
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         host.wait_for("host PauseState opened by the Options-key hatch",
@@ -385,60 +415,54 @@ def main():
         host.wait_for("host back on BattlescapeState after PauseState",
                       lambda: top_state(host) == "BattlescapeState", timeout=10)
 
+        # The window survives the PauseState round trip (client2's battle_ready
+        # is still held): prove the freeze is STILL ARMED (spec's own "one more
+        # ground click still moves nothing and the counter rises again" - the
+        # non-vacuity control for THIS half: a freeze that silently lifted during
+        # PauseState would also have let this click through).
         bs3 = battle_state(host)
-        if bs3.get("phase") == "Handshake":
-            # The window survived the PauseState round trip: prove the freeze
-            # is STILL ARMED (spec's own "one more ground click still moves
-            # nothing and the counter rises again" - the non-vacuity control
-            # for THIS half: a freeze that silently lifted during PauseState
-            # would also have let this click through).
-            actor3 = selected_unit(bs3)
-            before2 = (actor3["x"], actor3["y"], actor3["z"], actor3["tu"])
-            r2 = event_state(host)["coopHostInputFrozenRefusals"]
-            # Re-resolve the SAME tile's pixel: the PauseState open/close round
-            # trip can move the camera, so the Handshake pixel may no longer
-            # address click_tile. Same tile, fresh projection.
-            recheck = resolve_click_pixel(host, click_tile)
-            assert recheck is not None, (
-                f"FIXTURE: move-click tile {click_tile} no longer verifies through "
-                f"map_tile_click_pos after the PauseState round trip - cannot "
-                f"re-resolve the frozen re-check click for this boot's camera state")
-            recheck_x, recheck_y = recheck
-            host.ok({"cmd": "inject_input", "kind": "click", "x": recheck_x, "y": recheck_y})
-            time.sleep(0.3)
-            bs4 = battle_state(host)
-            actor4 = selected_unit(bs4)
-            after2 = (actor4["x"], actor4["y"], actor4["z"], actor4["tu"])
-            r3 = event_state(host)["coopHostInputFrozenRefusals"]
-            assert after2 == before2, (
-                f"a ground click after dismissing PauseState moved the unit: "
-                f"before={before2} after={after2} - the freeze did not survive the "
-                "PauseState round trip")
-            assert r3 > r2, (
-                f"coopHostInputFrozenRefusals did not rise after dismissing "
-                f"PauseState and clicking again ({r2} -> {r3}) - the freeze may "
-                "have been silently lifted by the PauseState round trip")
-            print(f"PASS: after dismissing PauseState the freeze is STILL armed "
-                  f"(pos/tu unchanged, coopHostInputFrozenRefusals {r2} -> {r3})")
-        else:
-            # The handshake completed WHILE this file was driving PauseState -
-            # legitimate under the measured sub-second round trip. Nothing to
-            # assert here (there is no "still Handshake" left to prove); the
-            # non-vacuity control below covers the same ground from the other
-            # side (freeze correctly LIFTED, not silently disabled).
-            print(f"NOTE: host phase is already {bs3.get('phase')!r} - the handshake "
-                  "completed during the PauseState round trip (measured sub-second "
-                  "once the client is pre-connected). Skipping the redundant "
-                  "'still Handshake' re-check; the Active-phase non-vacuity control "
-                  "below covers the freeze-lifted proof.")
+        assert bs3.get("phase") == "Handshake", (
+            f"host phase should still be Handshake after the PauseState round trip (client2's battle_ready is "
+            f"held: {hold(c2)}): {bs3}")
+        actor3 = selected_unit(bs3)
+        before2 = (actor3["x"], actor3["y"], actor3["z"], actor3["tu"])
+        r2 = event_state(host)["coopHostInputFrozenRefusals"]
+        # Re-resolve the SAME tile's pixel: the PauseState open/close round
+        # trip can move the camera, so the Handshake pixel may no longer
+        # address click_tile. Same tile, fresh projection.
+        recheck = resolve_click_pixel(host, click_tile)
+        assert recheck is not None, (
+            f"FIXTURE: move-click tile {click_tile} no longer verifies through "
+            f"map_tile_click_pos after the PauseState round trip - cannot "
+            f"re-resolve the frozen re-check click for this boot's camera state")
+        recheck_x, recheck_y = recheck
+        host.ok({"cmd": "inject_input", "kind": "click", "x": recheck_x, "y": recheck_y})
+        time.sleep(0.3)
+        bs4 = battle_state(host)
+        actor4 = selected_unit(bs4)
+        after2 = (actor4["x"], actor4["y"], actor4["z"], actor4["tu"])
+        r3 = event_state(host)["coopHostInputFrozenRefusals"]
+        assert after2 == before2, (
+            f"a ground click after dismissing PauseState moved the unit: "
+            f"before={before2} after={after2} - the freeze did not survive the "
+            "PauseState round trip")
+        assert r3 > r2, (
+            f"coopHostInputFrozenRefusals did not rise after dismissing "
+            f"PauseState and clicking again ({r2} -> {r3}) - the freeze may "
+            "have been silently lifted by the PauseState round trip")
+        print(f"PASS: after dismissing PauseState the freeze is STILL armed "
+              f"(phase Handshake, pos/tu unchanged, coopHostInputFrozenRefusals {r2} -> {r3})")
 
-        # === now make sure the client actually joins, and prove the freeze LIFTS ==
+        # === release client2's battle_ready, and prove the freeze LIFTS =======
+        rel = hold(c2, on=False)
+        assert rel.get("ok") and rel.get("sent") is True, (
+            f"hold_battle_ready {{on: false}} should send client2's stashed battle_ready: {rel}")
         host.wait_for("host phase reaches Active",
                       lambda: (battle_state(host).get("phase") == "Active") or None,
-                      timeout=60)
-        client.wait_for("client phase reaches Active",
-                        lambda: (battle_state(client).get("phase") == "Active") or None,
-                        timeout=60)
+                      timeout=ACTIVE_S)
+        c2.wait_for("client2 phase reaches Active",
+                    lambda: (battle_state(c2).get("phase") == "Active") or None,
+                    timeout=ACTIVE_S)
         print("PASS: both machines reached phase Active - the handshake completed")
 
         r4 = event_state(host)["coopHostInputFrozenRefusals"]
@@ -524,8 +548,11 @@ def main():
 
         print("ALL FX-1 HOST-INPUT-FREEZE CHECKS PASSED")
     finally:
-        host.shutdown()
-        client.shutdown()
+        for gc in m:
+            try:
+                gc.shutdown()
+            except Exception as e:
+                print(f"shutdown {gc.name}: {e}")
 
 
 if __name__ == "__main__":
