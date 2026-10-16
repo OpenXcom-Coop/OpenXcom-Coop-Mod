@@ -316,6 +316,7 @@ void Inventory::drawItems()
 
 	ScriptWorkerBlit work;
 	_items->clear();
+	_coopDrawnItems.clear(); // coop EQ-2 S-D (DT2): TEST-ONLY drawn record
 	Uint8 color = _game->getMod()->getInterface("inventory")->getElement("numStack")->color;
 	Uint8 color2 = _game->getMod()->getInterface("inventory")->getElement("numStack")->color2;
 	if (_selUnit != 0)
@@ -346,6 +347,7 @@ void Inventory::drawItems()
 			}
 			BattleItem::ScriptFill(&work, invItem, save, BODYPART_ITEM_INVENTORY, _animFrame, 0);
 			work.executeBlit(frame, _items, x, y, 0);
+			_coopDrawnItems.push_back(invItem->getId()); // coop EQ-2 S-D (DT2b): TEST-ONLY - drawn on the paperdoll
 
 			// two-handed indicator
 			if (invItem->getSlot()->getType() == INV_HAND)
