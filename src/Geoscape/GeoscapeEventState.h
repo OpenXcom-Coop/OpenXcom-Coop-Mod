@@ -49,6 +49,8 @@ private:
 	std::map<std::string, int> _itemsRemoved;
 	std::string _researchName;
 	std::string _bonusResearchName;
+	/// coop W2-H77 (R-LH75-3-1): the rule names of the research topic and getOneFree bonus eventLogic learned ("" = none); the host sends them with certain_event_fire
+	std::string _coopPickResearch, _coopPickBonus;
 	const RuleEvent &_eventRule;
 	/// coop W2-H15 (F3261): the region id, city index and item rows eventLogic picked (recorded, never read by vanilla).
 	std::string _coopRegion;
@@ -56,6 +58,8 @@ private:
 	std::vector<std::pair<std::string, int> > _coopRows;
 	/// coop W2-H15 (F3261): the picks the next window draws instead of running eventLogic (armed on a SHARED replica only).
 	static const CoopEventPicks* _coopArmed;
+	/// coop W2-H77 (R-LH75-3-1): the host's (research, bonus) rule names the next SEPARATE paired window learns instead of rolling its own
+	static const std::pair<std::string, std::string>* _coopHostPick;
 	/// coop W2-H15 (F3261): copies the armed picks and draws them in this machine's language; true = the replica path.
 	bool coopReplicaDisplay();
 	bool _coopShared; // coop SEPARATE: the other player gets this same event too
@@ -78,6 +82,10 @@ public:
 	CoopEventPicks coopPicks() const;
 	/// coop W2-H15 (F3261), probe only: title, message, then each row's two cells, as drawn.
 	std::vector<std::string> coopTexts() const;
+	/// coop W2-H77 (R-LH75-3-1): the rule names of the research topic and bonus this window learned ("" = none).
+	std::pair<std::string, std::string> coopResearchPick() const { return { _coopPickResearch, _coopPickBonus }; }
+	/// coop W2-H77 (R-LH75-3-1): arms the next window of a SEPARATE paired event (the client's copy) with the host's pick; nullptr disarms.
+	static void coopArmHostPick(const std::pair<std::string, std::string>* pick);
 	/// coop W2-H15 (F3261): arms the next GeoscapeEventState as a display-only replica window drawn from @a picks.
 	static void coopArmDisplay(const CoopEventPicks* picks);
 	/// coop W2-H75 (R-B109-1): SEPARATE co-op with shared research - marks every geoscape event spawned since index @a from as one both

@@ -910,8 +910,9 @@ class connectionTCP
 	void coopPeerCertainEvent(const CoopCertainSpawn& peer);
 	void sendCertainEventTimer(GeoscapeEvent* paired, int month);
 	void coopCertainEventTimer(const std::string& name, long long countdown);
-	void sendCertainEventFire(GeoscapeEvent* ge);
-	void coopCertainEventFire(const std::string& name);
+	// coop W2-H77 (R-LH75-3-1): researchPick = the host's copy showed its window; pick = the (research, bonus) rule names it learned ("" = none)
+	void sendCertainEventFire(GeoscapeEvent* ge, bool researchPick = false, const std::pair<std::string, std::string>& pick = std::pair<std::string, std::string>());
+	void coopCertainEventFire(const std::string& name, bool researchPick = false, const std::string& research = "", const std::string& bonus = "");
 
 	static bool _enable_time_sync;
 

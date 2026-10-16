@@ -157,6 +157,7 @@
 #include "../Mod/Mod.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/GeoscapeEvent.h"
+#include "../Geoscape/GeoscapeEventState.h" // coop W2-H77: coopArmHostPick
 #include "../Mod/RuleEvent.h"
 #include "../Mod/RuleResearch.h"
 #include "../Savegame/Soldier.h"
@@ -41163,7 +41164,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 	if (stateString == "certain_event_fire")
 	{
-		coopCertainEventFire(obj.get("name", "").asString());
+		coopCertainEventFire(obj.get("name", "").asString(), obj.get("research_pick", false).asBool(), obj.get("research", "").asString(), obj.get("bonus", "").asString()); // coop W2-H77
 	}
 
 	if (stateString == "research_sync_option" && !getServerOwner())
@@ -47426,13 +47427,19 @@ void connectionTCP::sendCertainEventTimer(GeoscapeEvent* paired, int month)
 /**
  * Host only: our copy of a shared event just fired; the client fires its copy now.
  */
-void connectionTCP::sendCertainEventFire(GeoscapeEvent* ge)
+void connectionTCP::sendCertainEventFire(GeoscapeEvent* ge, bool researchPick, const std::pair<std::string, std::string>& pick)
 {
 	if (!ge || !getCoopStatic() || !getServerOwner() || isSharedCampaign())
 		return;
 	Json::Value root;
 	root["state"] = "certain_event_fire";
 	root["name"] = ge->getRules().getName();
+	if (researchPick && _enable_research_sync) // coop W2-H77 (R-LH75-3-1): research is synced state, so the client's copy learns the host's pick
+	{
+		root["research_pick"] = true;
+		root["research"] = pick.first;
+		root["bonus"] = pick.second;
+	}
 	sendTCPPacketData(root.toStyledString());
 }
 
@@ -47440,7 +47447,7 @@ void connectionTCP::sendCertainEventFire(GeoscapeEvent* ge)
  * Client: the host's copy of a shared event fired, so ours fires now (it was held at
  * its last 30 minutes, see GeoscapeState::time30Minutes).
  */
-void connectionTCP::coopCertainEventFire(const std::string& name)
+void connectionTCP::coopCertainEventFire(const std::string& name, bool researchPick, const std::string& research, const std::string& bonus)
 {
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
 	GeoscapeState* geo = _game ? _game->getGeoscapeState() : nullptr;
@@ -47451,7 +47458,10 @@ void connectionTCP::coopCertainEventFire(const std::string& name)
 		if (!ge->isOver() && ge->isCoopShared() && ge->getRules().getName() == name)
 		{
 			ge->setOver();
+			const std::pair<std::string, std::string> coopPick(research, bonus); // coop W2-H77 (R-LH75-3-1)
+			GeoscapeEventState::coopArmHostPick(researchPick ? &coopPick : nullptr); // the window below takes it (GeoscapeEventState::eventLogic)
 			geo->fireGeoscapeEvent(ge);
+			GeoscapeEventState::coopArmHostPick(nullptr); // an interrupted copy shows no window: the arm never reaches a later one
 			return;
 		}
 	}
