@@ -345,8 +345,8 @@ def row_r3(b, r):
     r.cell("R-3d", post["C1"] is not None and pre["C0"] is not None and post["C1"] >= pre["C0"],
            "client time C0 %s -> C1 %s (want C1 >= C0)" % (pre["C0"], post["C1"]))
     r.cell("R-3e", post["hostOwn"] == pre["hostOwn"], "host own bases before %s, after %s (want equal)" % (pre["hostOwn"], post["hostOwn"]))
-    n1m = [x for x in post["hostMirrors"] if x[0] == n1]
-    r.cell("R-3f", len(n1m) == 1, "host markers with id N1 %s after: %s (want exactly one)" % (n1, n1m))
+    n1_after = [x for x in post["hostMirrors"] if x[0] == n1]
+    r.cell("R-3f", len(n1_after) == 1, "host markers with id N1 %s after: %s (want exactly one)" % (n1, n1_after))
 
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
