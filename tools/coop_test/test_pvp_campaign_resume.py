@@ -1,7 +1,11 @@
-"""PvP campaign resume:
-  - mid-battle: load the gm2+gm3 battle saves, resume, verify BOTH in battle
-    (also proves the battle-free buildCoopStub loads clean as the phase-one
-    geoscape without null-derefing on an empty roster).
+"""PvP campaign resume (D250-U S-D on rewrite/merge-main; docs rewrite/prompts/d250u_sd_merge_main.md):
+  - gm2 mid-battle: the release line's gm2 battle save (fixtures/pvp_gm2_battle.sav, made by `main`)
+    converts at the host's menu load (D246-U S-C1) and resumes through the real host window
+    (host_menu_host, R-D250-SC4A-1; L-SC5-6): verify BOTH in battle (also proves the battle-free
+    buildCoopStub loads clean as the phase-one geoscape without null-derefing on an empty roster).
+  - gm3 mid-battle: the release line's gm3 battle save holds no alien world, so the host's menu load
+    refuses it with the repair line (owner D284 (c) amended, VL-D284-1; L-SC5-6): D246-U S-C2's row G3
+    check (test_d246u_old_pvp_gm3_refused), host only.
   - geoscape [P4]: bring up a gm2 campaign, save it (embeds buildCoopStub as the
     alien client's blob), resume with fresh processes, and assert the client
     lands in the minimal unplaced/unnamed EMPTY stub - no host base name, no
@@ -12,21 +16,42 @@ Exit 0 = pass; 2 = failure.
 """
 
 import os, sys, time, shutil
-# RW-TRIAGE: SKIP-PENDING(D250-U S-D) - its release-made mid-battle fixtures load after D246-U (R-D250-SA-2; F13086)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 import pvp_fixture
+import test_d246u_old_pvp_gm3_refused as SC2  # the gm3 leg's refusal check (D246-U S-C2 row G3; D284 (c))
 
-PORT = "48003"
+PORT = "49229"  # D250-U S-D lobby key (was 48003, shared with three other PvP files)
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 
 def _states(gc):
     return [s.replace("class OpenXcom::", "") for s in gc.cmd({"cmd":"get_state"})["states"]]
 def _has(gc, name): return any(name in s for s in _states(gc))
 def _fail(fails, msg): print(f"  FAIL {msg}"); fails.append(msg)
+
+def resume_campaign_battle(host, client, save_file, port, host_name="HostPlayer", client_name="ClientPlayer", timeout=120,
+                           interval=2.0):
+    """session.resume_campaign_battle copied (D250-U S-D; R-D250-SC4A-1 (a), L-SC5-6) with ONE change: the host's START HOST
+    goes through the real host window (host_menu_host visibility 0 -> HostMenu::hostTCPGame), not the host_tcp lever, so the
+    resume passes the host window's PvP-mode keep (D250-U S-C4a, W2-H46). The same copy as test_d250_campaign_resume_gm2.py."""
+    host.ok({"cmd": "load_save_menu", "file": save_file})
+    host.wait_for("host window (battle resume)", lambda: session.has_state(host, "HostMenu"))
+    host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": port, "player": host_name})
+    host.wait_for("resume lobby", lambda: session.has_state(host, "LobbyMenu"))
+    ls = host.ok({"cmd": "lobby_state"})
+    assert ls["lobbyMode"] == 2, f"expected resume lobby, got {ls}"
+    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
+    client.wait_for("client resume lobby", lambda: session.has_state(client, "LobbyMenu"))
+    session.resume_campaign_via_button(host, client_name)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if host.cmd({"cmd": "battle_state"}).get("inBattle") and client.cmd({"cmd": "battle_state"}).get("inBattle"):
+            print("battle resume: BOTH machines report inBattle")
+            return
+        time.sleep(interval)
+    raise TimeoutError(f"battle resume: both machines did not enter the battle within {timeout}s: host {session.states(host)[-3:]} / "
+                       f"client {session.states(client)[-3:]}")
 
 def test_resume(fails, save_file, tag):
     print(f"\n--- resume {tag} ---")
@@ -41,9 +66,9 @@ def test_resume(fails, save_file, tag):
     client = GameClient("client", 49581, client_dir)
     try:
         host.spawn(); host.connect(); client.spawn(); client.connect()
-        session.resume_campaign_battle(host, client, save_file, port=PORT,
-                                       host_name="HostPlayer", client_name="ClientPlayer",
-                                       timeout=240)
+        resume_campaign_battle(host, client, save_file, port=PORT,
+                               host_name="HostPlayer", client_name="ClientPlayer",
+                               timeout=240)
         for gc, label in ((host, "host"), (client, "client")):
             bs = gc.ok({"cmd": "battle_state"})
             st = _states(gc)
@@ -57,7 +82,38 @@ def test_resume(fails, save_file, tag):
     finally:
         host.shutdown(); client.shutdown()
 
-REJOIN_PORT = "48009"
+def test_gm3_refused(fails):
+    """gm3 mid-battle leg (owner D284 (c) amended; L-SC5-6; QSC2-2 (a)): the release line's gm3 battle save carries no world of
+    the alien player, so the host's menu load refuses it and ONLY that refusal names where to ask for a repair (VL-D284-1). One
+    host, no client (the refusal comes before any session). The check is D246-U S-C2's row G3: SC2.load (ErrorMessageState the
+    top, no HostMenu / LobbyMenu / BattlescapeState, 1 refusal line, 0 convert lines), SC2.text_bad (the box and the log field
+    == SC2.TEXT_GM3), SC2.press_ok (the real OK -> MainMenuState)."""
+    tag = "gm3"
+    print(f"\n--- resume {tag}: the release-made gm3 battle save is refused at the menu load (D284 (c)) ---")
+    host_dir = make_user_dir(f"pvp_res_v2_{tag}_host")
+    dst_dir = os.path.join(host_dir, "xcom1")
+    os.makedirs(dst_dir, exist_ok=True)
+    shutil.copy2(os.path.join(FIXTURES, "pvp_gm3_battle.sav"), os.path.join(dst_dir, "pvp_gm3_battle.sav"))
+    host = GameClient("host", None, host_dir)
+    try:
+        host.spawn(); host.connect()
+        ev = {}
+        b, bad = SC2.load(host, "G3", ev)
+        bad += SC2.text_bad(b, ev["log"], SC2.TEXT_GM3)
+        if b is not None:
+            bad += SC2.press_ok(host, ev)
+        if bad:
+            _fail(fails, f"{tag}: " + "; ".join(bad))
+        else:
+            print(f"PASS {tag}: refused at the menu load with the repair line (box after {ev['boxS']} s; 1 refusal line, "
+                  f"0 convert lines); OK -> MainMenuState after {ev['ok']['s']} s")
+    except Exception as e:
+        print(f"[ERROR] {tag}: {e}")
+        _fail(fails, f"{tag}: {e}")
+    finally:
+        host.shutdown()
+
+REJOIN_PORT = "49230"  # D250-U S-D lobby key (was 48009)
 
 def _geo(gc):
     return gc.ok({"cmd": "geo_state"})
@@ -198,13 +254,14 @@ def test_rejoin_no_leak(fails):
 def main():
     fails=[]
     test_resume(fails, "pvp_gm2_battle.sav", "gm2")
-    test_resume(fails, "pvp_gm3_battle.sav", "gm3")
+    test_gm3_refused(fails)
     test_rejoin_no_leak(fails)
     print("\n==== PvP campaign resume summary ====")
     if fails:
         for f in fails:print(f"  FAIL {f}")
         sys.exit(2)
-    print("  gm2 + gm3 mid-battle resume PASS; gm2 client-rejoin stub (no host placed/named base leak) PASS")
+    print("  gm2 mid-battle resume PASS; gm3 release save refused with the repair line PASS; "
+          "gm2 client-rejoin stub (no host placed/named base leak) PASS")
     sys.exit(0)
 
 if __name__=="__main__":
