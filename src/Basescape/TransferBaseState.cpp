@@ -154,6 +154,19 @@ void TransferBaseState::btnCancelClick(Action *)
 }
 
 /**
+ * coop W2-H83 S-B2 (R-LBH3-1, R-H83-2; h83b-amend F22546): a listed base is gone. As CANCEL: the partner's mirror bases this screen showed
+ * (SEPARATE own base view, W2-H8) are hidden again, then the screen closes. The gone base is never read.
+ */
+void TransferBaseState::coopCloseGoneBase()
+{
+	if (_coopShown)
+	{
+		BasescapeState::coopHideMirrors();
+	}
+	_game->popState();
+}
+
+/**
  * Shows the Transfer screen for the selected base.
  * @param action Pointer to an action.
  */
