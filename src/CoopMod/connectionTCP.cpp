@@ -6383,8 +6383,40 @@ static bool coopEquipAlienUnit(const BattleUnit* u)
 // g_equipViewCycle is true only inside coopEquipCycleView()'s one vanilla PREV / NEXT call (main thread).
 static bool g_equipViewCycle = false;
 
+// coop EQ-3 S-A (docs rewrite/prompts/eq3a_readonly.md (e) A1; owner D294 (b), D289 (a)): see CoopArbiter.h. The SHARED base
+// inventory screen this machine shows (an InventoryState opened from a base's Soldiers list or a craft's Equipment screen) and its
+// Game. The screen is an identity key, never dereferenced; main thread.
+static const void* g_baseInvScreen = nullptr;
+static Game* g_baseInvGame = nullptr;
+
+void coopBaseInvScreen(const void* screen, Game* game)
+{
+	if (game && screen && connectionTCP::isSharedCampaignStatic())
+	{
+		g_baseInvScreen = screen;
+		g_baseInvGame = game;
+	}
+	else if (!game && screen && g_baseInvScreen == screen)
+	{
+		g_baseInvScreen = nullptr;
+		g_baseInvGame = nullptr;
+	}
+}
+
+// coop EQ-3 S-A: TRUE when @a u is a PARTNER's soldier on this machine's SHARED base inventory screen: its geoscape soldier is not
+// this seat's (SharedEcon::ownsSoldier(), the rule of every SHARED soldier list, aud-E1-11).
+static bool coopBasePartnerView(const BattleUnit* u)
+{
+	if (!g_baseInvScreen || !g_baseInvGame || !u)
+		return false;
+	const Soldier* s = u->getGeoscapeSoldier();
+	return s && !SharedEcon::ownsSoldier(g_baseInvGame, s);
+}
+
 bool coopEquipPartnerView(const BattleUnit* u)
 {
+	if (coopBasePartnerView(u))
+		return true; // coop EQ-3 S-A (D294 b): a partner's soldier on a SHARED base screen is read-only too
 	const BattleAuthority& a = coopBattleAuthority();
 	const int me = a.localSeat.load();
 	if (!u || !coopEquipOpen() || me < 0 || me >= 4 || a.factionOf(me) != (int)FACTION_PLAYER)
@@ -33036,8 +33068,9 @@ bool coopEquipCycleView(BattlescapeState* parent, bool tu, int dir)
 void coopEquipApplyViewLook(Game* game, const BattleUnit* unit, bool tu, bool parent, Surface* unload,
 	Surface* createTemplate, Surface* applyTemplate, Text* ownerLine)
 {
-	if (tu || !parent || !game || !unit || !unload || !createTemplate || !applyTemplate || !ownerLine || !coopEquipOpen())
-		return; // single player, a mid-battle inventory, a base screen, no equip phase: vanilla's look
+	if (tu || !game || !unit || !unload || !createTemplate || !applyTemplate || !ownerLine
+		|| (!(parent && coopEquipOpen()) && !g_baseInvScreen)) // coop EQ-3 S-A (D294 b): a SHARED base screen takes this look too
+		return; // single player, a mid-battle inventory, a SEPARATE / solo base screen, no equip phase: vanilla's look
 	const bool view = coopEquipPartnerView(unit);
 	unload->setVisible(!view);
 	createTemplate->setVisible(!view);
@@ -33046,7 +33079,8 @@ void coopEquipApplyViewLook(Game* game, const BattleUnit* unit, bool tu, bool pa
 	if (!view)
 		return;
 	// the seat's roster name; a skirmish has no roster: the two-player bridge names the peer (coopSeatDisplayName's rule)
-	std::string name = connectionTCP::seatName((int)unit->getCoopSeat());
+	const Soldier* owned = g_baseInvScreen ? unit->getGeoscapeSoldier() : nullptr; // coop EQ-3 S-A: a base screen names the owner seat
+	std::string name = connectionTCP::seatName(owned ? owned->getOwnerPlayerId() : (int)unit->getCoopSeat());
 	if (name.empty() && connectionTCP::seatCount() == 2 && game->getCoopMod())
 		name = game->getCoopMod()->getCurrentClientName();
 	ownerLine->setText(game->getLanguage()->getString("STR_COOP_EQUIP_OWNER").arg(name));

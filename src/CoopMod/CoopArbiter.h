@@ -753,8 +753,15 @@ bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir);
 /// a PARTNER's soldier on the pre-battle equip screen - the equip phase is open, this seat is on the player side, and @a u is
 /// a live player-side unit with an inventory that this seat does not command and another player-side seat does. The screen
 /// shows it READ-ONLY (the release line's view): every inventory click, tool and rename on it does nothing. FALSE everywhere
-/// else (single player, mid-battle inventories, base screens, own units, PvP opponents).
+/// else (single player, mid-battle inventories, own units, PvP opponents). coop EQ-3 S-A (owner D294 (b)): also TRUE for a
+/// partner's soldier on a SHARED base inventory screen (see coopBaseInvScreen()); the same gates make it read-only there.
 bool coopEquipPartnerView(const BattleUnit* u);
+
+/// coop EQ-3 S-A (docs rewrite/prompts/eq3a_readonly.md; owner D294 (b), D289 (a)): InventoryState's constructor registers a base
+/// screen (@a game non-null; kept only in a SHARED campaign) and its destructor forgets it (@a game null). While one is registered,
+/// coopEquipPartnerView() is TRUE for every soldier on it that this seat does not own (SharedEcon::ownsSoldier()). @a screen is an
+/// identity key, never dereferenced.
+void coopBaseInvScreen(const void* screen, Game* game);
 
 /// coop EQ-1: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
 /// InventoryState::btnPrevClick / btnNextClick, after coopEquipCycleOwnUnit(). Runs vanilla's own
