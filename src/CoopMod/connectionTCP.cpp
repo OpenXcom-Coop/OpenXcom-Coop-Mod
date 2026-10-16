@@ -7069,6 +7069,8 @@ static bool coopTestHoldSaveReplyStash()
 // scope, either machine. 0 "blob": only while a battle-handshake blob is awaited (R4-L6 as before); 1 "base": also while a CoopState 50
 // ("Synchronizing bases...") is on this machine's stack, so a base answer's chunk acks are held; 2 "save": also, on the host, while a save
 // waits for the partner's world (session.pendingHostSaveName set), so a save-progress stream's are. Set by the lever; inert unless armed.
+// coop W2-H86 (L1b; R-LLT17-1-1): 3 "upload": also, on the host, every world chunk while armed, so a partner's unasked upload parks after its
+// first chunk before a host save starts (row U1's crossing; "save" holds only once the save is pending, after that chunk).
 static std::atomic<int> g_coopTestHoldBlobAckScope{0};
 
 void coopTestHoldBlobAckSetScope(int scope)
@@ -36938,6 +36940,8 @@ static bool coopTestHoldBlobAckApplies(Game* game)
 				return true;
 		}
 	}
+	if (scope == 3) // coop W2-H86 (docs rewrite/prompts/w2h86_upload_save_crossing.md L1a; TEST-ONLY): "upload" - the host, every chunk while armed
+		return connectionTCP::getServerOwner();
 	return scope == 2 && connectionTCP::getServerOwner() && !connectionTCP::session.pendingHostSaveName.empty();
 }
 
