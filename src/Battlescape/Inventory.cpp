@@ -1552,6 +1552,8 @@ void Inventory::arrangeGround(int alterOffset)
 			bi->setSlot(ground);
 			bi->setSlotX(1000000);
 			bi->setSlotY(0);
+			if (coopEquipHeldByOther(bi))
+				continue; // coop EQ-2 S-B (B8; owner D291 (b)): another co-op seat holds it - parked off the pile: uncounted, unclickable
 
 			// Only handle visible items from this point on.
 			if (bi->getRules()->getInventoryWidth())

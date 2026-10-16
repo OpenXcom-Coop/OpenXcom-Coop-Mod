@@ -6283,7 +6283,25 @@ static Uint32 g_lastSentAt = 0;
 static std::atomic<int> g_ptrSent{0};
 static std::atomic<int> g_ptrRecv{0};
 static std::atomic<int> g_ptrDropped{0};
+// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md, PINNED EDITS B1; owner D291 (b), QEQ2-6 (a), QEQ2-12 (a)): the pre-battle HOLD
+// table - each seat's cursor item on its equip screen (-1 = none). The HOST's table is the authority (its own seat sampled, a
+// client's pick-up granted or refused); a client keeps the host's last table. Written on the main thread under g_mx; main-thread
+// readers (coopEquipHeldByOtherSeat) read it without the lock, the probe under it.
+static int g_hold[4] = { -1, -1, -1, -1 };
+static int g_localHeld = -1;           // this machine's own cursor item as last sampled (-1 = none)
+static std::string g_localWhy;         // CLIENT, main thread only: why the cursor last emptied ("answer" / "cancel" / "deny"; empty = "put")
+static int g_holdSends = 0;            // CLIENT: `bt_equip_hold` sent
+static int g_holdGrants = 0;           // HOST: client pick-ups granted
+static int g_holdDenies = 0;           // HOST: client pick-ups refused
+static int g_holdTables = 0;           // HOST: tables sent; CLIENT: tables applied
+static std::map<std::string, int> g_holdEnds; // HOST: holds ended, by reason (put, answer, cancel, deny, move; S-C: leave, start)
+static bool g_holdsPending = false;    // HOST, main thread only: a table the TEST-ONLY equip_holds_defer (BT1) held back
+static int g_pendingDenySeat = -1;     // HOST, main thread only: the refusal the next table carries (-1 = none)
+static int g_pendingDenyItem = -1;
 }
+
+// coop EQ-2 S-B (B1): the host's executor (B5, inside namespace CoopArbiter) ends the order's seat's hold; defined with B3.
+static void coopEquipHoldEndOrder(int seat, const BattleItem* item);
 
 // coop EQ-2 S-A (A3): the presence state's zeros (coopEquipStateZeros(); @a counters also from coopEquipCounterZeros()). The
 // overlay's surfaces belong to their screen: only coopEquipPresenceDetach() forgets them.
@@ -6296,11 +6314,23 @@ static void coopEquipPresenceZeros(bool counters)
 	CoopPresence::g_lastX = -1;
 	CoopPresence::g_lastY = -1;
 	CoopPresence::g_lastSentAt = 0;
+	for (int s = 0; s < 4; ++s)
+		CoopPresence::g_hold[s] = -1; // coop EQ-2 S-B (B1b): the hold table is battle-scoped too
+	CoopPresence::g_localHeld = -1;
+	CoopPresence::g_localWhy.clear();
+	CoopPresence::g_holdsPending = false;
+	CoopPresence::g_pendingDenySeat = -1;
+	CoopPresence::g_pendingDenyItem = -1;
 	if (counters)
 	{
 		CoopPresence::g_ptrSent = 0;
 		CoopPresence::g_ptrRecv = 0;
 		CoopPresence::g_ptrDropped = 0;
+		CoopPresence::g_holdSends = 0; // coop EQ-2 S-B (B1b): and the hold counters (initBattleAuthority() only)
+		CoopPresence::g_holdGrants = 0;
+		CoopPresence::g_holdDenies = 0;
+		CoopPresence::g_holdTables = 0;
+		CoopPresence::g_holdEnds.clear();
 	}
 }
 
@@ -6335,6 +6365,25 @@ static Json::Value coopEquipPresenceProbe()
 	drawn["nameY"] = d.nameY;
 	drawn["name"] = d.name;
 	r["drawn"] = drawn;
+	// coop EQ-2 S-B (B1c): the hold table and its counters
+	Json::Value holds(Json::objectValue);
+	Json::Value table(Json::arrayValue);
+	for (int s = 0; s < 4; ++s)
+		table.append(CoopPresence::g_hold[s]);
+	holds["table"] = table;
+	holds["localHeld"] = CoopPresence::g_localHeld;
+	holds["sends"] = CoopPresence::g_holdSends;
+	holds["grants"] = CoopPresence::g_holdGrants;
+	holds["denies"] = CoopPresence::g_holdDenies;
+	holds["tables"] = CoopPresence::g_holdTables;
+	Json::Value ends(Json::objectValue);
+	for (const char* why : { "put", "answer", "cancel", "deny", "move", "leave", "start" })
+	{
+		const auto it = CoopPresence::g_holdEnds.find(why);
+		ends[why] = it == CoopPresence::g_holdEnds.end() ? 0 : it->second;
+	}
+	holds["ends"] = ends;
+	r["holds"] = holds;
 	return r;
 }
 
@@ -11298,6 +11347,8 @@ static const char* validateInvMove(BattleUnit* actor, const Json::Value& intent,
 		const Inventory* hostInv = coopEquipScreenInventory();
 		if (hostInv && hostInv->getSelectedItem() == item)
 			return "item_missing";
+		if (coopEquipHeldByOtherSeat(item, intent.get("seat", -1).asInt()))
+			return "item_missing"; // coop EQ-2 S-B (B4; owner D291 (b)): another seat holds it on its pre-battle cursor
 	}
 	if (plan.action == "move")
 	{
@@ -11865,7 +11916,10 @@ static void coopClientInvAnswered(const CoopCombatIntentArgs& plan, int actorId,
 	}
 	const BattleItem* cursor = inv->getSelectedItem();
 	if (cursor && cursor->getId() == plan.weapon)
+	{
 		inv->setSelectedItem(0);
+		CoopPresence::g_localWhy = "answer"; // coop EQ-2 S-B (B6; owner D291 (b)): a pre-battle hold ends with its order's answer
+	}
 	std::string line = text;
 	if (ok)
 	{
@@ -14494,6 +14548,7 @@ void onIntent(const Json::Value& intent)
 			item->setFuseTimer(plan.fuse); // W2-P8b S-B.2 (F2760): vanilla's own pre-battle fuse write
 		else
 			coopHostInvMove(save, actor, item, order.slot, plan.invX, plan.invY, order.cost);
+		coopEquipHoldEndOrder(seat, item); // coop EQ-2 S-B (B5; owner D291 (b)): the order's seat put its held item down - the hold ends `move`
 		endChainArming(!bg->isBusy());
 		return;
 	}
@@ -18238,6 +18293,7 @@ bool coopInterceptInvReturn(Inventory* inv, BattleItem* item)
 	{
 		CoopArbiter::cancelPendingIntent();
 	}
+	CoopPresence::g_localWhy = "cancel"; // coop EQ-2 S-B (B6b; owner D291 (b)): vanilla returns the cursor item - a pre-battle hold ends `cancel`
 	return false;
 }
 
@@ -33325,6 +33381,240 @@ void coopEquipPresenceDetach(const State* st)
 	CoopPresence::g_drawn = CoopPresence::Drawn();
 }
 
+// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md, PINNED EDITS B3; owner D291 (b), D289 (a), QEQ2-6 (a), QEQ2-7 (a), QEQ2-12
+// (a)): the pre-battle HOLD - an item on a co-op player's equip cursor is reserved. See CoopArbiter.h (B7). Main thread (the pump,
+// the battle-lane dispatch, the inventory screens, the host's executor).
+bool coopEquipHeldByOtherSeat(const BattleItem* item, int seat)
+{
+	if (!item || !isCoopBattle() || !coopEquipOpen() || !coopScanHasPartner())
+		return false; // single player, a mid-battle inventory, a base screen, no equip phase, a PvP opponent (D293 a)
+	const int id = item->getId();
+	for (int s = 0; s < 4; ++s)
+	{
+		if (s != seat && CoopPresence::g_hold[s] == id)
+			return true;
+	}
+	return false;
+}
+
+bool coopEquipHeldByOther(const BattleItem* item)
+{
+	return coopEquipHeldByOtherSeat(item, coopBattleAuthority().localSeat.load());
+}
+
+// coop EQ-2 S-B (B3): BOTH - this machine's pre-battle pile laid out again after a hold began or ended: arrangeGround() parks every
+// item another seat holds off the pile (B8); a cursor item keeps its own count (setSelectedItem() again: a pick never leaves its
+// cell, F20617). The screen may be covered (coopEquipScreenInventory(), not only the top state).
+static void coopEquipHoldRelay()
+{
+	Inventory* inv = coopEquipScreenInventory();
+	BattleUnit* unit = inv ? inv->getSelectedUnit() : nullptr;
+	if (!unit || !unit->getTile())
+		return;
+	BattleItem* cursor = inv->getSelectedItem();
+	inv->arrangeGround();
+	if (cursor)
+		inv->setSelectedItem(cursor);
+}
+
+// coop EQ-2 S-B (B3): HOST - @a seat's hold ends with @a why (put / answer / cancel / deny / move; S-C: leave / start), EXACTLY ONCE:
+// counted and logged only when the seat held an item. No re-lay and no table: the caller does both once.
+static bool coopEquipHoldEnd(int seat, const std::string& why)
+{
+	if (seat < 0 || seat >= 4 || CoopPresence::g_hold[seat] < 0)
+		return false;
+	const int item = CoopPresence::g_hold[seat];
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		CoopPresence::g_hold[seat] = -1;
+		++CoopPresence::g_holdEnds[why];
+	}
+	Log(LOG_INFO) << "[coop-equip] hold ended item " << item << " seat " << seat << " (" << why << ")";
+	return true;
+}
+
+// coop EQ-2 S-B (B3; QEQ2-6 (a), QEQ2-7 (a)): HOST - after a hold changed: the host's pile re-laid and the whole table sent to the
+// partner on the reliable battle lane, `bt_equip_holds {battleId, holds[4], deny}` (@a denySeat / @a denyItem: a refused pick-up,
+// else -1; `deny` null). While the TEST-ONLY equip_holds_defer is on (BT1) the table waits and its refusal is kept.
+static void coopEquipHoldsSend(int denySeat, int denyItem)
+{
+	coopEquipHoldRelay();
+	if (denySeat >= 0)
+	{
+		CoopPresence::g_pendingDenySeat = denySeat;
+		CoopPresence::g_pendingDenyItem = denyItem;
+	}
+	if (coopTestEquipHoldsDeferred())
+	{
+		CoopPresence::g_holdsPending = true;
+		return;
+	}
+	CoopPresence::g_holdsPending = false;
+	Json::Value msg(Json::objectValue);
+	msg["state"] = "bt_equip_holds";
+	msg["battleId"] = coopBattleAuthority().battleId.load();
+	Json::Value holds(Json::arrayValue);
+	for (int s = 0; s < 4; ++s)
+		holds.append(CoopPresence::g_hold[s]);
+	msg["holds"] = holds;
+	Json::Value deny(Json::nullValue);
+	if (CoopPresence::g_pendingDenySeat >= 0)
+	{
+		deny = Json::Value(Json::objectValue);
+		deny["seat"] = CoopPresence::g_pendingDenySeat;
+		deny["item"] = CoopPresence::g_pendingDenyItem;
+	}
+	msg["deny"] = deny;
+	CoopPresence::g_pendingDenySeat = -1;
+	CoopPresence::g_pendingDenyItem = -1;
+	CoopEmit::sendBattle(msg);
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	++CoopPresence::g_holdTables;
+}
+
+// coop EQ-2 S-B (B3, B5): HOST - the admission's executor ran a client's order on @a item (CoopArbiter onIntent, inv_move): when the
+// order's @a seat held it (the put-down of its cursor item: a drop, a stack, a load) that hold ends `move` and the table goes out.
+// A no-op for any other order.
+static void coopEquipHoldEndOrder(int seat, const BattleItem* item)
+{
+	if (!item || !coopEquipOpen() || seat < 0 || seat >= 4 || CoopPresence::g_hold[seat] != item->getId())
+		return;
+	if (coopEquipHoldEnd(seat, "move"))
+		coopEquipHoldsSend(-1, -1);
+}
+
+// coop EQ-2 S-B (B3; D289 (a), QEQ2-7 (a)): HOST - a client's `bt_equip_hold {battleId, seat, item, why}` (direct battle-lane
+// dispatch, B3b). item -1: the seat's hold ends with `why` (answer / cancel / deny, else put; a no-op when the executor already ended
+// it `move`). item >= 0: the seat's earlier hold ends `put`, then the pick-up is GRANTED when the item resolves, lies on the ground
+// (no owner) or belongs to a unit that seat commands (D289 a), is not on the host's own cursor and is in no other seat's hold; else
+// REFUSED (the host was first): the table's `deny` empties that client's cursor. Either way the table goes out.
+static void coopEquipOnHold(const Json::Value& msg)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	const int seat = msg.get("seat", -1).asInt();
+	const int itemId = msg.get("item", -1).asInt();
+	const std::uint32_t battleId = msg.get("battleId", 0u).asUInt();
+	if (!connectionTCP::getServerOwner() || !a.hostSim || !isCoopBattle() || !coopEquipOpen() || !coopScanHasPartner()
+		|| battleId == 0 || battleId != a.battleId.load() || seat < 0 || seat >= 4 || seat == me || !a.seatMapped(seat)
+		|| a.factionOf(seat) != a.factionOf(me))
+	{
+		Log(LOG_WARNING) << "[coop-equip] bt_equip_hold (battleId " << battleId << ", seat " << seat << ", item " << itemId
+			<< ") dropped: not the host of this battle's open equip phase, or not a same-side partner's seat";
+		return;
+	}
+	if (itemId == CoopPresence::g_hold[seat])
+		return; // nothing changed (an end the executor already counted: `move`)
+	const std::string why = msg.get("why", "put").asString();
+	bool changed = coopEquipHoldEnd(seat, itemId < 0 && (why == "answer" || why == "cancel" || why == "deny") ? why : "put");
+	int denySeat = -1;
+	if (itemId >= 0)
+	{
+		BattleItem* item = CoopArbiter::findItemById(connectionTCP::getStaticBattle(), itemId);
+		const Inventory* hostInv = coopEquipScreenInventory();
+		const BattleUnit* owner = item ? item->getOwner() : nullptr;
+		const bool grant = item && ((!owner && item->getTile()) || (owner && a.commandsUnit(owner, seat)))
+			&& !(hostInv && hostInv->getSelectedItem() == item) && !coopEquipHeldByOtherSeat(item, seat);
+		{
+			std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+			if (grant)
+			{
+				CoopPresence::g_hold[seat] = itemId;
+				++CoopPresence::g_holdGrants;
+			}
+			else
+				++CoopPresence::g_holdDenies;
+		}
+		denySeat = grant ? -1 : seat;
+		changed = true;
+		Log(LOG_INFO) << "[coop-equip] host: seat " << seat << " pick-up of item " << itemId
+			<< (grant ? " - held (D291 b)" : " - refused: the host or another seat has it (QEQ2-7)");
+	}
+	if (changed)
+		coopEquipHoldsSend(denySeat, denySeat >= 0 ? itemId : -1);
+}
+
+// coop EQ-2 S-B (B3; QEQ2-7 (a)): CLIENT - the host's `bt_equip_holds {battleId, holds[4], deny}`: the table stored; a refused
+// pick-up still on this machine's cursor leaves it with the screen's own "Order cancelled - item unavailable" line (P8-4-M3's
+// text); then this machine's pile laid out again.
+static void coopEquipOnHolds(const Json::Value& msg)
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const std::uint32_t battleId = msg.get("battleId", 0u).asUInt();
+	const Json::Value& holds = msg["holds"];
+	if (a.hostSim || !isCoopBattle() || !coopEquipOpen() || !coopScanHasPartner() || battleId == 0
+		|| battleId != a.battleId.load() || !holds.isArray() || holds.size() != 4)
+	{
+		Log(LOG_WARNING) << "[coop-equip] bt_equip_holds (battleId " << battleId << ") dropped: not a client of this battle's "
+			"open equip phase with a same-side partner";
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		for (Json::ArrayIndex s = 0; s < 4; ++s)
+			CoopPresence::g_hold[s] = holds[s].asInt();
+		++CoopPresence::g_holdTables;
+	}
+	const Json::Value& deny = msg["deny"];
+	Inventory* inv = coopEquipScreenInventory();
+	const BattleItem* cursor = inv ? inv->getSelectedItem() : nullptr;
+	if (deny.isObject() && deny.get("seat", -1).asInt() == a.localSeat.load() && cursor
+		&& cursor->getId() == deny.get("item", -1).asInt())
+	{
+		const int itemId = cursor->getId();
+		inv->setSelectedItem(0);
+		CoopPresence::g_localWhy = "deny";
+		CoopArbiter::coopInvShowLine(inv, CoopBattleUi::inventoryLineText("item_missing"));
+		Log(LOG_INFO) << "[coop-equip] client: the pick-up of item " << itemId << " was refused - the host was first; the "
+			"cursor emptied (QEQ2-7)";
+	}
+	coopEquipHoldRelay();
+}
+
+// coop EQ-2 S-B (B2, B3; QEQ2-6 (a)): BOTH, every coopEquipPresencePump() pass - this machine's cursor item on its pre-battle screen
+// (covered too) while the equip phase is open with a same-side partner. HOST: a change is its own hold (the old one ends `put`) and
+// the table goes out; a table the TEST-ONLY equip_holds_defer held back goes out once it is off. CLIENT: a change goes to the host as
+// `bt_equip_hold {battleId, seat, item, why}` (why = the reason the cursor emptied: answer / cancel / deny, else put).
+static void coopEquipHoldSample()
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	const int me = a.localSeat.load();
+	if (!isCoopBattle() || !coopEquipOpen() || !coopScanHasPartner() || me < 0 || me >= 4)
+		return;
+	if (a.hostSim && CoopPresence::g_holdsPending && !coopTestEquipHoldsDeferred())
+		coopEquipHoldsSend(-1, -1);
+	const Inventory* inv = coopEquipScreenInventory();
+	const int cur = inv && inv->getSelectedItem() ? inv->getSelectedItem()->getId() : -1;
+	if (cur == CoopPresence::g_localHeld)
+		return;
+	const std::string why = cur < 0 && !CoopPresence::g_localWhy.empty() ? CoopPresence::g_localWhy : std::string("put");
+	CoopPresence::g_localWhy.clear();
+	{
+		std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+		CoopPresence::g_localHeld = cur;
+	}
+	if (a.hostSim)
+	{
+		coopEquipHoldEnd(me, "put");
+		if (cur >= 0)
+		{
+			std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+			CoopPresence::g_hold[me] = cur;
+		}
+		coopEquipHoldsSend(-1, -1);
+		return;
+	}
+	Json::Value msg(Json::objectValue);
+	msg["state"] = "bt_equip_hold";
+	msg["battleId"] = a.battleId.load();
+	msg["seat"] = me;
+	msg["item"] = cur;
+	msg["why"] = why;
+	CoopEmit::sendBattle(msg);
+	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
+	++CoopPresence::g_holdSends;
+}
+
 // coop EQ-2 S-A (A7): BOTH, every coopEquipPump() pass (A8). (1) This machine's pointer to the partner while its pre-battle screen is
 // the top state of an open equip phase with a same-side partner: a change at most every kPtrMinMs, an unchanged pointer every
 // kPtrKeepaliveMs, and ONE `on false` once it leaves (the screen covered or closed, the phase ended). (2) The partner's pointer on
@@ -33335,6 +33625,7 @@ static void coopEquipPresencePump(Game* game, SavedBattleGame* save)
 	Inventory* inv = coopEquipInventoryOf(st);
 	const BattleAuthority& a = coopBattleAuthority();
 	const bool live = st && inv && coopEquipOpen() && isCoopBattle() && coopScanHasPartner();
+	coopEquipHoldSample(); // coop EQ-2 S-B (B2): this machine's cursor item - its hold - before its pointer
 	bool on = false;
 	int x = -1;
 	int y = -1;
@@ -38435,6 +38726,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// pointer on the pre-battle equip screen (the SNAP_EQUIP_PTR conflation slot; display only, never hashed). Direct
 			// dispatch like bt_scan_mark; self-guarded (this battle, an open equip phase, a same-side partner).
 			coopEquipOnPeerPointer(obj);
+		}
+		else if (stateString == "bt_equip_hold")
+		{
+			// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md B3b; owner D291 (b), QEQ2-6 (a)): host-inbound - a client's pre-battle
+			// cursor item (an item id asks for the hold, -1 ends it). Direct dispatch like bt_equip_ready; self-guarded.
+			coopEquipOnHold(obj);
+		}
+		else if (stateString == "bt_equip_holds")
+		{
+			// coop EQ-2 S-B (B3b; QEQ2-6 (a), QEQ2-7 (a)): client-inbound - the host's whole hold table and a refused pick-up.
+			// Direct dispatch like bt_scan_mark; self-guarded.
+			coopEquipOnHolds(obj);
 		}
 		else if (stateString == "bt_scan_mark")
 		{
