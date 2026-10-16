@@ -5032,6 +5032,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			}
 		}
 		resp["ground"] = ground;
+		// coop EQ-2 S-D (docs rewrite/prompts/eq2d_held_drawn.md DT3): TEST-ONLY - drawnSlots = the soldier items the screen's last
+		// drawItems() pass drew on the paperdoll (Inventory::getCoopDrawnItems(): the cursor item and every skipped item absent).
+		Json::Value drawnSlots(Json::arrayValue);
+		if (invSurf)
+		{
+			for (int drawnId : invSurf->getCoopDrawnItems())
+				drawnSlots.append(drawnId);
+		}
+		resp["drawnSlots"] = drawnSlots;
 		// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, Q8 (a),
 		// Q15 (a)): preBattle = this screen is the pre-battle InventoryState the equip phase recorded; okPressed = the
 		// flag the co-op layer last applied to its OK button's look; lineText / lineVisible = the screen's own message
