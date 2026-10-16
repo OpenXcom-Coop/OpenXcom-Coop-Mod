@@ -215,6 +215,11 @@ void BuildFacilitiesState::think()
 	State::think();
 	if (_sharedRefresh.consume())
 	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // coop W2-H83 (R-LBH3-1, VL-H83-2): this base is gone, as the eleven other bound base screens do
+			return;
+		}
 		if (_state)
 			_state->init();
 		populateBuildList();

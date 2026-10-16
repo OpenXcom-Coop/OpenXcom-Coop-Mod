@@ -328,6 +328,11 @@ void ManageAlienContainmentState::think()
 	// is correct: it was quantities against a prison that no longer looks like that.
 	if (_sharedRefresh.consume())
 	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // coop W2-H83 (R-LBH3-1, VL-H83-2): this base is gone, as the eleven other bound base screens do
+			return;
+		}
 		resetListAndTotals();
 	}
 	_sharedSel.think(this); // coop (W2-P7 S-C-E2, D184, P7-8 PR-47): also re-applies the list after a rebuild in place
