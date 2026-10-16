@@ -24,14 +24,12 @@ Rows (vanilla rules, no external mod):
 
   * PASS (exit 0): every row completes the project with both processes alive.
   * FAIL (exit 2): a game process crashed (the bug).
-  * FAIL (exit 3): a precondition never held (e.g. sync never delivered the
+  * FAIL (exit 2, MG-F): a precondition never held (e.g. sync never delivered the
     host's completion); the test proved nothing.
 """
 import glob
 import os
 import sys
-# RW-TRIAGE: SKIP-PENDING(MG-F) - main #197's test; MG-F re-points it on rewrite/merge-main (MG-C, QSG-5; the gate's OWNED row)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -59,7 +57,7 @@ class Inconclusive(Exception):
 
 def crash_logs():
     hits = []
-    for root in (harness.TEST_ROOT, RELEASE_DIR):
+    for root in (harness.TEST_ROOT, harness.CRASH_DIR):  # MG-F: this lane's crash folder only (W2-U8h)
         hits += glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)
     return set(hits)
 
@@ -197,7 +195,7 @@ def main():
         sys.exit(2)
     if inconclusive or note:
         print("INCONCLUSIVE:", inconclusive or note)
-        sys.exit(3)
+        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
     print("PASS: research on an already-known topic completes without a crash (SEPARATE + SHARED)")
     sys.exit(0)
 

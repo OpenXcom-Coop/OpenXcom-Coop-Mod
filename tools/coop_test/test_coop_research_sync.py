@@ -32,12 +32,10 @@ Rows (vanilla rules, SEPARATE campaign, research sync on):
 
   * PASS (exit 0): every row holds.
   * FAIL (exit 2): a row failed (the bug) or a game process crashed.
-  * FAIL (exit 3): a precondition never held; the test proved nothing.
+  * FAIL (exit 2, MG-F): a precondition never held; the test proved nothing.
 """
 import os
 import sys
-# RW-TRIAGE: SKIP-PENDING(MG-F) - main #197's test; MG-F re-points it on rewrite/merge-main (MG-C, QSG-5; the gate's OWNED row)
-print("SKIP-PENDING: rewrite"); sys.exit(0)
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -222,7 +220,7 @@ def main():
     if not all(alive.values()) or (note and note.startswith("ERROR")):
         sys.exit(2)
     if note:
-        sys.exit(3)
+        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: research sync makes a discovery a discovery for both players")
