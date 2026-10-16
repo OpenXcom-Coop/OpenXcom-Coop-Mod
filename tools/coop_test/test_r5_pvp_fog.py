@@ -34,6 +34,11 @@ units at the read.
       SEED_F5, one click; one new host context {intent, psi, B}, coopIntentsSent.psi +1, its psi cue {actor B, unit W,
       action panic} applied on the client, W faction 0 on both). From F2 to the press nothing TABs, tab_selects or
       click-selects on the client and no client inventory opens (U1-2.1 W1-W8).
+      W2-U9 re-point (R-U9-0, F21064): since W2-H41 S-B (7eb33ec00; QH41-2 (a), QH41-3 (a), R-LH40-1) the gm2 client's
+      side_begin selects its FIRST alien A (vanilla's other-side rule), not B. F5-pre now reads the side-start
+      selection == A, then ONE real-UI tab_select(client, B) on the client (the single exception to the rule above;
+      U1-2.1 W2: it refreshes only B, the unit the ActionMenuState close refreshes anyway, W1), and checks the client's
+      selectedId == B and W in neither B list AFTER that TAB. Every other F5 check is unchanged.
   F4  the aliens' own turn hides what they stop seeing: A's TU; the client's battle_intent turn of A to dir 0
       (RM.turn_order). F4-turn, F4-pre (D = (HU before - HU after) & X-COM ids non-empty), F4-hide (VH(client, id)
       false for every id in D and every X-COM id not in HU), F4-agree (every live unit: VH(client, id) == own faction
@@ -298,6 +303,9 @@ def row_f5(host, client, crash0, sb):
     RM.stat_both(host, client, b, "psiSkill", 100)
     RM.stat_both(host, client, W_ID, "psiStrength", 0)
     ev["bTu"] = set_tu_both(host, client, b, A_TU)
+    # W2-U9 (F21064): the side start selects the first alien A (QH41-2 (a)); one real-UI TAB then selects B.
+    sel0 = ev["sideStartSel"] = battle_state(client).get("selectedId")
+    ev["tabB"] = tab_select(client, b) if sel0 == A_ID else None
     h, ls, sel = hu(host), lists(host, client, b), battle_state(client).get("selectedId")
     ev.update(amp=amp, HU=h, lists=ls, clientSel=sel, wTile=pos(host, W_ID))
     sp_ok, sp_txt = OU.spawn_cell(sb["new"], SHOOTER_B, sb["spawns"], b, VICTIM_B, host, client, WANT_B)
@@ -306,8 +314,10 @@ def row_f5(host, client, crash0, sb):
         bad.append(f"HU {h}, A's host visibleUnits {ls['hostA']} (want W {W_ID} in both)")
     if W_ID in ls["hostB"] or W_ID in ls["clientB"]:
         bad.append(f"B's visibleUnits host/client {ls['hostB']} / {ls['clientB']} (want W in neither)")
+    if sel0 != A_ID:
+        bad.append(f"the client's side-start selectedId {sel0} (want the first alien A {A_ID}, QH41-2 (a))")
     if sel != b:
-        bad.append(f"the client's selectedId {sel} (want B {b})")
+        bad.append(f"the client's selectedId {sel} after one tab_select (want B {b})")
     cells["F5-pre"] = (not bad, "; ".join(bad) or f"{sp_txt}; W in HU and A's host list, in neither B list; the "
                                                   f"client's selectedId {sel}")
     ui = ev["ui"] = {}
