@@ -6272,8 +6272,10 @@ const int kPtrStaleMs = 3000;     // a partner pointer not heard for 3 s is hidd
 const int kNameDx = 10;           // QEQ2-4: the name's top-left, relative to the pointer's tip
 const int kNameDy = 4;
 struct Peer { int seat = -1; int x = -1; int y = -1; bool on = false; Uint32 heardAt = 0; };
-struct Drawn { bool ptr = false; int x = -1; int y = -1; bool nameShown = false; int nameX = -1; int nameY = -1; std::string name; };
-struct View { const State* owner = nullptr; Cursor* ptr = nullptr; Text* name = nullptr; };
+struct Drawn { bool ptr = false; int x = -1; int y = -1; bool nameShown = false; int nameX = -1; int nameY = -1; std::string name;
+	int held = -1; int heldX = -1; int heldY = -1; }; // coop EQ-2 S-D (D1a): the partner's held item drawn (-1 = none)
+struct View { const State* owner = nullptr; Cursor* ptr = nullptr; Text* name = nullptr;
+	Surface* held = nullptr; int heldId = -1; }; // coop EQ-2 S-D (D1a): the held item's picture and the item it shows
 static std::mutex g_mx;           // g_peer, g_drawn and the g_last* fields (the probe may read them off the main thread)
 static Peer g_peer;
 static Drawn g_drawn;
@@ -6368,6 +6370,9 @@ static Json::Value coopEquipPresenceProbe()
 	drawn["nameX"] = d.nameX;
 	drawn["nameY"] = d.nameY;
 	drawn["name"] = d.name;
+	drawn["held"] = d.held; // coop EQ-2 S-D (D1e)
+	drawn["heldX"] = d.heldX;
+	drawn["heldY"] = d.heldY;
 	r["drawn"] = drawn;
 	// coop EQ-2 S-B (B1c): the hold table and its counters
 	Json::Value holds(Json::objectValue);
@@ -33528,10 +33533,13 @@ static void coopEquipPresenceOverlay(Game* game, State* st, Inventory* inv, bool
 		const Element* weight = game->getMod()->getInterface("inventory")->getElement("weight");
 		const Uint8 color = weight ? (Uint8)weight->color : (Uint8)Mod::BATTLESCAPE_CURSOR;
 		v.owner = st;
+		v.held = new Surface(RuleInventory::HAND_W * RuleInventory::SLOT_W, RuleInventory::HAND_H * RuleInventory::SLOT_H, 0, 0); // coop EQ-2 S-D (D1b): vanilla's _selection size
 		v.ptr = new Cursor(9, 13);
 		v.name = new Text(80, 9, 0, 0);
+		st->add(v.held); // coop EQ-2 S-D (D1b): added first - the arrow and the name stay on top
 		st->add(v.ptr);
 		st->add(v.name);
+		v.held->setVisible(false);
 		v.ptr->setColor(color);
 		v.name->setSmall();
 		v.name->setColor(color);
@@ -33549,6 +33557,24 @@ static void coopEquipPresenceOverlay(Game* game, State* st, Inventory* inv, bool
 		if (named && v.name->getText() != name)
 			v.name->setText(name);
 	}
+	// coop EQ-2 S-D (docs rewrite/prompts/eq2d_held_drawn.md D1c; owner D291 (c)): the partner's held item (S-B's table) drawn under
+	// its pointer, centred on it as vanilla centres its own cursor item (Inventory::mouseOver; Inventory::drawSelectedItem's
+	// drawHandSprite), below the arrow and the name; redrawn only when the item changes, hidden with a stale or absent pointer.
+	const int heldId = fresh && p.seat >= 0 && p.seat < 4 ? CoopPresence::g_hold[p.seat] : -1;
+	SavedBattleGame* heldSave = heldId >= 0 ? connectionTCP::getStaticBattle() : nullptr;
+	BattleItem* heldItem = heldSave ? CoopArbiter::findItemById(heldSave, heldId) : nullptr;
+	if (heldItem && heldId != v.heldId)
+	{
+		v.held->clear();
+		heldItem->getRules()->drawHandSprite(game->getMod()->getSurfaceSet("BIGOBS.PCK"), v.held, heldItem, heldSave, 0);
+	}
+	v.heldId = heldItem ? heldId : -1;
+	v.held->setVisible(heldItem != nullptr);
+	if (heldItem)
+	{
+		v.held->setX(inv->getX() + p.x - v.held->getWidth() / 2);
+		v.held->setY(inv->getY() + p.y - v.held->getHeight() / 2);
+	}
 	std::lock_guard<std::mutex> lk(CoopPresence::g_mx);
 	CoopPresence::g_drawn.ptr = fresh;
 	CoopPresence::g_drawn.x = fresh ? v.ptr->getX() : -1;
@@ -33557,6 +33583,9 @@ static void coopEquipPresenceOverlay(Game* game, State* st, Inventory* inv, bool
 	CoopPresence::g_drawn.nameX = named ? v.name->getX() : -1;
 	CoopPresence::g_drawn.nameY = named ? v.name->getY() : -1;
 	CoopPresence::g_drawn.name = named ? name : std::string();
+	CoopPresence::g_drawn.held = heldItem ? heldId : -1; // coop EQ-2 S-D (D1d)
+	CoopPresence::g_drawn.heldX = heldItem ? v.held->getX() : -1;
+	CoopPresence::g_drawn.heldY = heldItem ? v.held->getY() : -1;
 }
 
 // coop EQ-2 S-A (A7): the first statement of ~InventoryState (A11) - the overlay's two surfaces are deleted with the screen's own.
