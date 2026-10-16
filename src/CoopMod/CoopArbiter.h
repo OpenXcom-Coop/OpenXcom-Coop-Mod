@@ -717,6 +717,11 @@ int coopTestHoldBlobAckHeld();
 /// `state`, "" = any; `backHidden`: only under a back-hidden co-op dialog); it throws on every attempt. Never called by game logic.
 void coopTestThrowNextRxArm(const std::string& state, bool backHidden);
 
+/// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md BT2; QEQ2-13 (a); TEST-ONLY `equip_holds_defer`, HOST): while on, the host's
+/// pre-battle hold table waits (its newest refusal kept); off sends it at the next pump pass. Never called by game logic.
+void coopTestEquipHoldsDefer(bool on);
+bool coopTestEquipHoldsDeferred();
+
 /// coop R4-L2 S-C (TEST-ONLY `force_send_failure`, HOST): arms a one-shot - the host's TCP thread takes its real
 /// send-failure branch at its next send to the partner (onConnect -3, the partner's socket closed). Inert unless armed.
 /// Never called by game logic.

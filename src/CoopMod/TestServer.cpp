@@ -1165,6 +1165,16 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
+	// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md BT3; QEQ2-13 (a); TEST-ONLY lever, HOST): {"on": true | false} - while on, the
+	// host's pre-battle hold table waits (connectionTCP.cpp BT1); off sends the newest one at the next pump pass. Response {ok, on}.
+	if (cmd == "equip_holds_defer")
+	{
+		coopTestEquipHoldsDefer(req.get("on", false).asBool());
+		resp["on"] = coopTestEquipHoldsDeferred();
+		resp["ok"] = true;
+		return true;
+	}
+
 	// coop W2-H71 (P2b; TEST-ONLY lever, either machine): {"ms": 0..3000} holds this machine's next base view that long
 	// (connectionTCP.cpp P1a); 0 disarms. Response {ok, ms (the value armed, clamped)}.
 	if (cmd == "hold_base_result")
