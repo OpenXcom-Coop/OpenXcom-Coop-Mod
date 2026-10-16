@@ -1156,6 +1156,17 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 {
 	connectionTCP* coop = _game->getCoopMod();
 
+	// coop EQ-3 S-C (docs rewrite/prompts/eq3c_held.md CT3; QEQ3-13 (a); TEST-ONLY lever, either machine): {"on": true | false} -
+	// while on, this machine keeps its current mapping of the partner's held item on a base screen (connectionTCP.cpp CT1); off maps
+	// it at the next pump pass. Response {ok, on}.
+	if (cmd == "base_held_defer")
+	{
+		coopTestBaseHeldDefer(req.get("on", false).asBool());
+		resp["on"] = coopTestBaseHeldDeferred();
+		resp["ok"] = true;
+		return true;
+	}
+
 	// coop W2-H66 (P1d; TEST-ONLY lever, either machine): {"on": true | false} arms / disarms connectionTCP.cpp P1a.
 	if (cmd == "force_stream_key_miss")
 	{

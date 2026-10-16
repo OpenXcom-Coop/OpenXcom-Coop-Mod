@@ -776,6 +776,12 @@ class Base;
 /// @a screen is an identity key, never dereferenced.
 void coopBasePresenceScreen(const void* screen, Game* game, const Base* base, bool noCraft);
 
+/// coop EQ-3 S-C (docs rewrite/prompts/eq3c_held.md CT2; QEQ3-13 (a); TEST-ONLY `base_held_defer`, either machine): while on, this
+/// machine keeps its current mapping of the partner's held item on a base screen; off maps it at the next pump pass. Never called by
+/// game logic.
+void coopTestBaseHeldDefer(bool on);
+bool coopTestBaseHeldDeferred();
+
 /// coop EQ-1: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
 /// InventoryState::btnPrevClick / btnNextClick, after coopEquipCycleOwnUnit(). Runs vanilla's own
 /// BattlescapeState::selectPrevious / NextPlayerUnit with the partner's soldiers admitted (the release line's cycle: every
