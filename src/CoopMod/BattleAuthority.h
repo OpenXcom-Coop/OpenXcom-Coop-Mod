@@ -192,6 +192,14 @@ void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 bool coopOlderBattleConvertible(int gamemode);
 void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeReader& body);
 
+/// coop D246-U S-D (owner D246 = b; docs rewrite/prompts/d246u_sd_custom_battle_convert.md): true when @a body (a save's body
+/// document) is a classic co-op Custom Battle saved mid-battle by an OLDER version - a battle block without the keys this build
+/// writes in every co-op battle (coopTurnMode, coopItemIdCtr), game mode 0 / 1, a unit of another original faction carrying the
+/// `coop` key (the release line writes it on EVERY unit, this build only on a seated one) and a unit tagged 1 (the second
+/// player's). A Custom Battle save has no header `coop`, so SavedGame::load()'s campaign gate never sees it; the load then runs
+/// coopConvertOlderBattleSave() on it. A release single-player save and every PvP / PvE2 one (D246-U S-D2) load as saved.
+bool coopOlderCustomBattleSave(const YAML::YamlNodeReader& body);
+
 /// WV-D61 test/introspection, the coopSpotEvsEmitted()/coopSpotEvsApplied()
 /// precedent (CoopArbiter.h): how many times THIS machine's coopLoadItemIdCtr
 /// actually adopted the carried counter (the last carried value stored
