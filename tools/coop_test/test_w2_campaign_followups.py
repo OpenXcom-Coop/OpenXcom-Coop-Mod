@@ -9,7 +9,8 @@ the follow-up screens show on the host only (DebriefingState :905-921 run on the
 
 Boot 1 (port 47208) - rows F1 and F4. shared_fixture.bring_up; T0-S6 (iv)'s cannot-reequip staging (CONSTANTS
 rewrite/w2p7sc-task0/t0/CONSTANTS.md, TASK 0 t_reequip.py): the host `sell`s the base stock of every Skyranger loadout
-type to 0 before the battle; bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing = host set_seed SEED_S); the
+type to 0 before the battle; squad[0] gets the RIFLE_SET and squad[1] the RIFLE_SET_HANDS equipment layout on both
+machines (W2-U9c); bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing = host set_seed SEED_S); the
 host-owned soldier squad[0] stripped on both machines (battle_strip_unit, client first); host set_option battleAutoEnd
 true; the participant's-own-kill (the P7-6 TASK 0 ruling) = test_w2_battle_end_separate.guest_kill's recipe for the
 CLIENT-owned soldier squad[1] at SHOT_SEED_F1 -> KEEP dead, murdererId == the shooter -> the autoEnd ending (T0-6 (ii))
@@ -68,6 +69,14 @@ LOADOUT_TYPES = ("STR_GRENADE", "STR_HC_AP_AMMO", "STR_HC_HE_AMMO", "STR_HEAVY_C
                  "STR_PISTOL_CLIP", "STR_RIFLE", "STR_RIFLE_CLIP")   # CONSTANTS T0-S6 (iv) (TASK 0 t_reequip.py)
 REEQUIP_ROWS_F4 = [["Rifle", "1", "SKYRANGER-1"], ["Rifle Clip", "4", "SKYRANGER-1"],
                    ["Grenade", "1", "SKYRANGER-1"]]                  # the host's CannotReequipState rows, 4/4 red-build boots
+# W2-U9c (R-MGR2-1; F22805, F22806, F22883): auto-equip's rifle set (a rifle loaded with one clip, two belt clips, a
+# grenade) as equipment-layout entries (item, give_layout slot, qty). A give_layout entry carries no ammo and the
+# generator loads a layout-placed weapon only from its layout's ammo, so the rifle stays empty: the clip auto-equip
+# loads into it sits on the belt (RIFLE_SET: the strip deletes the same 1 rifle, 3 clips, 1 grenade) or, for a soldier
+# whose hands guest_kill's clear_hands deletes, in the left hand (RIFLE_SET_HANDS: the same rifle and clip deleted)
+RIFLE_SET = (("STR_RIFLE", "right", 1), ("STR_RIFLE_CLIP", "belt", 3), ("STR_GRENADE", "belt", 1))
+RIFLE_SET_HANDS = (("STR_RIFLE", "right", 1), ("STR_RIFLE_CLIP", "left", 1), ("STR_RIFLE_CLIP", "belt", 2),
+                   ("STR_GRENADE", "belt", 1))
 CHAIN_F1 = ["PromotionsState", "CannotReequipState"]                 # re-pin F1 (2) = the host's drains, 4/4
 CHAIN_F23 = ["CommendationLateState", "CommendationState"]           # re-pin F2/F3 = the host's drain (red-build capture)
 MEDAL_TYPE, MEDAL_TR = "STR_COOP_MEDAL_TEST", "Coop Medal Test"      # Coop_Medal_Test (PR-20) and its en-US string
@@ -144,8 +153,45 @@ def ending(host, client, ctx, m):
         camp.capture("host debriefing pin", "; ".join(bad), m)
 
 
-def battle(js, ctx, m):
-    """The SHARED battle on SEED_S, squad {0: 0, 1: 1}; the map pin. Returns (squad, {soldier id: unit id})."""
+def give_rifle_set(js, layouts, m):
+    """W2-U9c (R-MGR2-1; F22804-F22809, S25): OXCE creates the craft's battle items in RuleItem pointer order, which
+    differs per boot, and autoEquip gives the first rifle-class item to the first soldier without a layout
+    (HEAVY_CANNON counts as a rifle). Before the battle each squad slot in `layouts` ({slot: RIFLE_SET or
+    RIFLE_SET_HANDS}; squad = bring_up_shared_mixed_battle's, the host roster's two lowest ids) gets that equipment
+    layout on BOTH machines (F5151), so the generator places its loadout by layout and autoEquip never decides it.
+    Returns the evidence; a soldier not found once by name in its base, or a layout not given in full, is a
+    FIXTURE-STOP (camp.capture)."""
+    ids = sorted(s["id"] for b in js.host.ok({"cmd": "get_soldiers"})["bases"] for s in b["soldiers"])
+    out = []
+    for slot, entries in sorted(layouts.items()):
+        sid = ids[slot]
+        for gc in m:
+            bases = gc.ok({"cmd": "get_soldiers"})["bases"]
+            home = [i for i, b in enumerate(bases) if any(s["id"] == sid for s in b["soldiers"])]
+            base = bases[home[0]] if len(home) == 1 else None
+            name = next((s["name"] for s in base["soldiers"] if s["id"] == sid), None) if base else None
+            same = [s["id"] for s in base["soldiers"] if name and name in s["name"]] if base else []
+            first = [b["name"] for b in bases].index(base["name"]) if base else None
+            if base is None or same != [sid] or first != home[0]:
+                camp.capture("rifle-set layout", f"squad[{slot}] soldier {sid} on the {gc.name}: bases {home}, name "
+                             f"{name!r} matches {same}, first base named {base and base['name']!r} = {first}", m)
+            given = [(item, gc.cmd({"cmd": "give_layout", "base": base["name"], "item": item, "slot": where,
+                                    "qty": qty, "name": name})) for item, where, qty in entries]
+            out.append({"slot": slot, "soldier": sid, "machine": gc.name, "base": base["name"],
+                        "given": [(item, r.get("given"), r.get("entries")) for item, r in given]})
+            if any(not r.get("ok") or r.get("given") != 1 or r.get("entries") != qty
+                   for (_i, _w, qty), (_item, r) in zip(entries, given)):
+                camp.capture("rifle-set layout", f"give_layout for squad[{slot}] soldier {sid} on the {gc.name} "
+                             f"answered {given} (want ok, given 1, entries = qty for {entries})", m)
+    return out
+
+
+def battle(js, ctx, m, layouts=None):
+    """The SHARED battle on SEED_S, squad {0: 0, 1: 1}; the map pin. Returns (squad, {soldier id: unit id}).
+    W2-U9c (R-MGR2-1): `layouts` ({squad slot: RIFLE_SET or RIFLE_SET_HANDS}) are given before the battle by
+    give_rifle_set (default None: no layout, boot 2 unchanged)."""
+    if layouts:
+        ctx["rifleSet"] = give_rifle_set(js, layouts, m)
     try:
         _h, _c, squad = session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing=camp.seed_pin)
     except Exception as e:
@@ -170,7 +216,9 @@ def stage_boot1(js, ctx):
     ok, secs = wait_until(lambda: all(base_items(gc).get(t, 0) == 0 for gc in m for t in LOADOUT_TYPES), 30)
     if not ok:
         camp.capture("F4 sells", f"loadout stock not 0 on both after {secs}s: {ctx['sells']}", m)
-    squad, uid = battle(js, ctx, m)
+    # W2-U9c (R-MGR2-1, F22882): squad[0] (stripped) AND squad[1] (guest_kill's clear_hands deletes its hand weapon and
+    # that weapon's clip) both feed REEQUIP_ROWS_F4, so both get a rifle-set layout
+    squad, uid = battle(js, ctx, m, layouts={0: RIFLE_SET, 1: RIFLE_SET_HANDS})
     rh, rc = b1.both(host, client, {"cmd": "battle_strip_unit", "unit": uid[squad[0]]})
     ctx["strip"] = {"host": rh.get("deleted"), "client": rc.get("deleted")}
     # the same ids on both machines; the order may differ per machine (measured: host [17, 1, 3, 31], client [1, 3, 17, 31])
