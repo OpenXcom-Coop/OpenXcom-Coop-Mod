@@ -24,6 +24,18 @@
   "hard_kill_multiplier": 2.0,
   "max_budget_s": 900,
   "exceptions": {
+    "test_coop_parallel_turns_latch": {
+      "budget_s": 180,
+      "reason": "MG-P1 (QMF-2 (a)): main's multi-boot file re-pointed on rewrite/merge-main; K=2 wall 69.1s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
+    },
+    "test_coop_battle_start_sync": {
+      "budget_s": 180,
+      "reason": "MG-P1 (QMF-2 (a)): main's multi-boot file re-pointed on rewrite/merge-main; K=2 wall 36.6s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
+    },
+    "test_coop_client_mission_abort": {
+      "budget_s": 180,
+      "reason": "MG-P1 (QMF-2 (a)): main's multi-boot file re-pointed on rewrite/merge-main; K=2 wall 63.5s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
+    },
     "test_coop_debrief_sync": {
       "budget_s": 700,
       "reason": "CI 529.8s (run 31999655291, shard 2) -- heaviest test; full both-machine debrief handshake. Not in test_weights.json (new), so the shard planner under-weighted it and its shard hit the 25min wall."
