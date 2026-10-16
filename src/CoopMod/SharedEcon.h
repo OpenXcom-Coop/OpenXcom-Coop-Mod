@@ -738,6 +738,12 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out);
 /// taken over (the desync diagnostics' text; unchanged hash).
 bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut = nullptr);
 
+/// coop W2-H69 (docs rewrite/prompts/w2h69_shared_equip_layouts.md H1; R-H69-0): the SHARED pre-battle equip end's soldier gear
+/// records. HOST: one {id, layout, personal, personalArmor} per battle soldier (H20's vanilla-YAML record without its name). CLIENT:
+/// adopts each into the soldier of its battle unit with that id and returns the count. connectionTCP.cpp E5 / E8.
+Json::Value equipEndGearRecords(SavedBattleGame* save);
+int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& records);
+
 /// R2-P9 (RB-D20): minimal desync diagnostic bundle - a zip with
 /// desync-info.json (bucket/expect/got/seq/kind + timestamp) and a best-
 /// effort tail of openxcom.log, written to

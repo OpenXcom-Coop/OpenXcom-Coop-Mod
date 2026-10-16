@@ -6204,6 +6204,7 @@ void BattleAuthority::resetSeatFactions()
 //   waitLineShows  BOTH: times the D216 text was put on the pre-battle screen's message line (section 3)
 //   forceCloseSkips CLIENT: force-closes skipped because the topmost InventoryState was the pre-battle screen (F2757)
 //   heldTurnScreenPresses  BOTH: presses the held Turn-1 screen swallowed (S-F)
+//   gearRecords    coop W2-H69 (E1a): HOST: soldier gear records the equip.end `sync` carried (SHARED); CLIENT: records adopted
 enum class CoopEquipPhase : int
 {
 	None = 0,
@@ -6243,9 +6244,15 @@ struct CoopEquipState
 	std::atomic<int> waitLineShows{0};
 	std::atomic<int> forceCloseSkips{0};
 	std::atomic<int> heldTurnScreenPresses{0};
+	std::atomic<int> gearRecords{0}; // coop W2-H69 (E1)
 };
 
 static CoopEquipState g_equip;
+
+// coop W2-H69 (docs rewrite/prompts/w2h69_shared_equip_layouts.md E1; R-H69-0, F19703, F19704): CLIENT - the soldier gear records an applied
+// `sync`'s payload.equip carried with `end` (SHARED: one per battle soldier, SharedEcon::equipEndGearRecords). Recorded on the apply
+// path (coopEquipRecordSync, E3), adopted and cleared by the pump's end step (coopEquipPumpClient, E8). Main thread only.
+static Json::Value g_equipEndGear;
 
 // ----- R5-U6 S-D (owner D236 (b), D274; orchestrator ruling R-U6-OF3; docs rewrite/prompts/r5u6_pvp_options.md
 // AMENDMENT U6-1): "Enable XCOM Equipment for Aliens in PVP". With the option on (the host's session value; the join
@@ -6327,6 +6334,7 @@ static void coopEquipCounterZeros()
 	g_equip.waitLineShows = 0;
 	g_equip.forceCloseSkips = 0;
 	g_equip.heldTurnScreenPresses = 0;
+	g_equip.gearRecords = 0; // coop W2-H69 (E2)
 }
 
 // AMENDMENT P8b-1 section 4 "Shared state" (F3110): the equip phase is open on THIS machine - not isCoopBattle()
@@ -6490,6 +6498,7 @@ static void coopEquipRecordSync(const Json::Value& equip)
 	if (equip.get("end", false).asBool())
 	{
 		g_equip.endPending = true;
+		g_equipEndGear = equip.isMember("gear") ? equip["gear"] : Json::Value(); // coop W2-H69 (E3): adopted at the end step (E8)
 		g_equip.endSyncs.fetch_add(1);
 	}
 	Log(LOG_INFO) << "[coop-equip] client: applied sync carries equip (open " << equip.get("open", false).asBool()
@@ -6544,6 +6553,7 @@ Json::Value equipProbe()
 	r["waitLineShows"] = g_equip.waitLineShows.load();
 	r["forceCloseSkips"] = g_equip.forceCloseSkips.load();
 	r["heldTurnScreenPresses"] = g_equip.heldTurnScreenPresses.load();
+	r["gearRecords"] = g_equip.gearRecords.load(); // coop W2-H69 (E4)
 	return r;
 }
 
@@ -32581,6 +32591,23 @@ static bool coopEquipSendSync(const Json::Value& equip)
 	return CoopEmit::lastSeqEmitted() != before;
 }
 
+// coop W2-H69 (docs rewrite/prompts/w2h69_shared_equip_layouts.md E5; R-H69-0, F19703): HOST - the equip-end signal {end: true}. In a SHARED
+// campaign it also carries `gear`: one record per battle soldier (SharedEcon::equipEndGearRecords: the equipment layout vanilla's
+// close has just written, the personal layout and its armor), so the partner's copy of the soldiers holds them from turn 1 instead
+// of from the post-battle world (F19705). SEPARATE, skirmish and PvP: no `gear` (P8b Q9 (a), D209).
+static Json::Value coopEquipEndSignal(SavedBattleGame* save)
+{
+	Json::Value end(Json::objectValue);
+	end["end"] = true;
+	if (save && connectionTCP::isSharedCampaignStatic())
+	{
+		end["gear"] = SharedEcon::equipEndGearRecords(save);
+		Log(LOG_INFO) << "[coop-equip] host: the equip-end signal carries " << end["gear"].size()
+			<< " soldier gear record(s) (W2-H69)";
+	}
+	return end;
+}
+
 // HOST (b5): a seat's ready flag changed - after the announce, one forced `sync` {ready} carries every seat's flag to
 // the partner (retried at the next pump pass when it cannot go out now). Before the announce, the announce carries it.
 static void coopEquipHostReadyChanged()
@@ -32787,12 +32814,12 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 	// b6's end signal that could not go out when the barrier ran (the phase is already Ended).
 	if (g_equip.endSyncPending.load() && isCoopBattle())
 	{
-		Json::Value end(Json::objectValue);
-		end["end"] = true;
+		const Json::Value end = coopEquipEndSignal(save); // coop W2-H69 (E6): + the SHARED soldier gear records
 		if (coopEquipSendSync(end))
 		{
 			g_equip.endSyncPending = false;
 			g_equip.endSyncs.fetch_add(1);
+			g_equip.gearRecords = (int)end["gear"].size(); // coop W2-H69 (E6)
 			Log(LOG_INFO) << "[coop-equip] host: the equip-end sync went out (retried)";
 		}
 		return;
@@ -32856,10 +32883,12 @@ static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 		CoopEndTurn::armPve2Opening(); // R5-U8 (owner D233 (a), QU8-3 (a)): PvE2 opens with the X-COM side
 	Log(LOG_INFO) << "[coop-equip] host: barrier - every seat is ready, turn " << save->getTurn()
 		<< " started (vanilla close)";
-	Json::Value end(Json::objectValue);
-	end["end"] = true;
+	const Json::Value end = coopEquipEndSignal(save); // coop W2-H69 (E7): + the gear records vanilla's close just wrote (SHARED)
 	if (coopEquipSendSync(end))
+	{
 		g_equip.endSyncs.fetch_add(1);
+		g_equip.gearRecords = (int)end["gear"].size(); // coop W2-H69 (E7)
+	}
 	else
 		g_equip.endSyncPending = true;
 }
@@ -32880,6 +32909,17 @@ static void coopEquipPumpClient(Game* game, SavedBattleGame* save)
 		// same), the phase closed, a still-held pre-battle placement dropped.
 		save->resetUnitTiles();
 		g_equip.phase = (int)CoopEquipPhase::Ended;
+		// coop W2-H69 (E8; R-H69-0, F19704): the host's gear records for the battle soldiers (SHARED only; E3 recorded them) go into
+		// this machine's copy of those soldiers, so its saved loadouts equal the host's from turn 1 (no restream).
+		if (g_equipEndGear.isArray())
+		{
+			const int adopted = connectionTCP::isSharedCampaignStatic()
+				? SharedEcon::equipEndGearAdopt(game, save, g_equipEndGear) : 0;
+			g_equip.gearRecords = adopted;
+			Log(LOG_INFO) << "[coop-equip] client: equip end - " << adopted << " of " << g_equipEndGear.size()
+				<< " soldier gear record(s) adopted (W2-H69)";
+		}
+		g_equipEndGear = Json::Value();
 		if (g_coopClientPending.active && (g_coopClientPending.kind == "inv_move" || g_coopClientPending.kind == "inv_bulk"))
 			CoopArbiter::cancelPendingIntent();
 		if (!g_coopInvSaveQueue.empty())
