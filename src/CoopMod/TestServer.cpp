@@ -7585,6 +7585,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure" // R4-L2 S-C
 		&& cmd != "force_server_error" // coop W2-H59 (TEST-ONLY lever)
 		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
+		&& cmd != "hold_battle_accept" // coop W2-H82 L2d (TEST-ONLY lever)
 		&& cmd != "throw_next_rx" // coop W2-H60 (TEST-ONLY lever)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
 		&& cmd != "battle_intent" && cmd != "inject_ev"
@@ -8265,6 +8266,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		if (req.isMember("on"))
 		{
 			const bool on = req.get("on", false).asBool();
+			// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1e): {on: true, scope: "blob" | "base" | "save"} (default
+			// "blob", as before; an unknown name is "blob"). {on: false} resets the scope to "blob".
+			const std::string scope = req.get("scope", "blob").asString();
+			coopTestHoldBlobAckSetScope(!on ? 0 : scope == "base" ? 1 : scope == "save" ? 2 : 0);
 			const int cleared = coopTestHoldBlobAckArm(on);
 			if (!on && cleared > 0)
 			{
@@ -8280,6 +8285,31 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		}
 		resp["armed"] = coopTestHoldBlobAckArmed();
 		resp["held"] = coopTestHoldBlobAckHeld();
+		resp["scope"] = coopTestHoldBlobAckScope(); // coop W2-H82 L1f
+		resp["sent"] = sent;
+		resp["ok"] = true;
+	}
+	else if (cmd == "hold_battle_accept")
+	{
+		// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L2c; R-LH78-1-1): TEST-ONLY, CLIENT. {on: true} arms it: the
+		// client's onOffer then stashes its battle_accept instead of sending it. {on: false} disarms it and sends the stash, if any, from
+		// here. Without `on` it only reports. Response {ok, armed, held (a stash waits), sent (this call sent one)}. Inert unless armed.
+		bool sent = false;
+		if (req.isMember("on"))
+		{
+			const bool on = req.get("on", false).asBool();
+			coopTestHoldBattleAcceptArm(on);
+			Json::Value stash;
+			if (!on && coopTestHoldBattleAcceptTake(stash))
+			{
+				CoopEmit::sendBattle(stash);
+				sent = true;
+				Log(LOG_INFO) << "[coop-test] hold_battle_accept: released - battle_accept sent (battleId="
+					<< stash.get("battleId", 0u).asUInt() << ")";
+			}
+		}
+		resp["armed"] = coopTestHoldBattleAcceptArmed();
+		resp["held"] = coopTestHoldBattleAcceptHeld();
 		resp["sent"] = sent;
 		resp["ok"] = true;
 	}

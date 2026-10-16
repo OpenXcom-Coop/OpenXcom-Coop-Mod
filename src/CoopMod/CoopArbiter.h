@@ -716,6 +716,19 @@ int coopTestHoldBlobAckArm(bool on);
 bool coopTestHoldBlobAckArmed();
 int coopTestHoldBlobAckHeld();
 
+/// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1a; R-LH78-1-1): TEST-ONLY `hold_blob_ack` scope: 0 "blob", 1 "base"
+/// (also while a CoopState 50 is on this machine's stack), 2 "save" (also while the host's save waits for the partner's world). Set by the
+/// TestServer lever only. Never called by game logic.
+void coopTestHoldBlobAckSetScope(int scope);
+int coopTestHoldBlobAckScope();
+
+/// coop W2-H82 (L2a): TEST-ONLY `hold_battle_accept`, CLIENT. Armed, onOffer stashes its battle_accept; the TestServer lever's release takes
+/// the stash (coopTestHoldBattleAcceptTake) and sends it. Inert unless armed. Never called by game logic.
+void coopTestHoldBattleAcceptArm(bool on);
+bool coopTestHoldBattleAcceptArmed();
+bool coopTestHoldBattleAcceptHeld();
+bool coopTestHoldBattleAcceptTake(Json::Value& out);
+
 /// coop W2-H60 (TEST-ONLY `throw_next_rx`, either machine, main thread): marks the next message the receive loop handles (of
 /// `state`, "" = any; `backHidden`: only under a back-hidden co-op dialog); it throws on every attempt. Never called by game logic.
 void coopTestThrowNextRxArm(const std::string& state, bool backHidden);
