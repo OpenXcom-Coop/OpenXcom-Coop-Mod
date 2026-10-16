@@ -112,7 +112,13 @@ def wait_for(pred, cap=POLL):
         time.sleep(0.1)
     return bool(pred())
 
+def ready(gc):  # R-H68-2 / F20003: no surface of the top state hidden (a POPUP window hides them all while it opens)
+    return wait_for(lambda: not any(w.get("hidden") for w in widgets(gc)))
+
 def press(gc, match, want):
+    # F20003: a POPUP window (InterceptState) hides its buttons while it opens and a hidden button drops the click
+    wait_for(lambda: any(w.get("hidden") is False and w.get("visible") and match.upper() in (w.get("text") or "").upper()
+                         for w in widgets(gc) if w.get("type", "").endswith("::TextButton")))
     r = q(gc, {"cmd": "click_widget", "match": match})
     if not r.get("ok") or not wait_for(lambda: top(gc) == want):
         raise Pre("%s %r -> %s, top %s (want %s)" % (gc.name, match, r.get("error") or "ok", stk(gc)[-1:], want))
@@ -155,6 +161,7 @@ def build_base(x, gc, name, ev):
     pick = pick_point(gc, [(b[2], b[3]) for b in bl if not b[1]] + [(b[2], b[3]) for b in bl if b[1]])
     if not pick:
         raise Pre("%s: no land point for PICK" % gc.name)
+    ready(gc)
     for dx, dy in ((0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2)):
         click_px(gc, x.aff[gc.name], pick["x"] + dx, pick["y"] + dy)
         if wait_for(lambda: top(gc) != "BuildNewBaseState", 1.0):
@@ -173,6 +180,7 @@ def build_base(x, gc, name, ev):
         time.sleep(0.08)
     time.sleep(0.4)
     press(gc, "OK", "PlaceLiftState")
+    ready(gc)
     for tx, ty in LIFTS:
         click_px(gc, x.aff[gc.name], tx * 32 + 16, 8 + ty * 32 + 16)
         if wait_for(lambda: top(gc) != "PlaceLiftState", 1.0):
@@ -235,6 +243,7 @@ def transfer_pair(x, gc, new, rows_ok, ev):
     ev["shown"] = snap(gc)
     shown, fv = SEL(gc), five(gc)
     ev["five"] = fv
+    ready(gc)
     r = q(gc, {"cmd": "click_widget", "match": "TRANSFER"})
     on = wait_for(lambda: top(gc) == "TransferBaseState", TR_S)
     ss = q(gc, {"cmd": "screen_state"})
@@ -261,12 +270,14 @@ def row_h3(x, ev):
     h = x.host
     rs(x, h, ev)
     mx, my = rect(h, "MiniBaseView")
+    ready(h)
     click_px(h, x.aff["host"], mx + MINI1[0], my + MINI1[1])
     if not wait_for(lambda: SEL(h) == NAME2):
         raise Pre("base-strip click at %s: host %s (want sel %r)" % ((mx + MINI1[0], my + MINI1[1]), snap(h), NAME2))
     vx, vy = rect(h, "BaseView")
     lt = x.lift.get("host") or LIFTS[0]
     ev["liftpx"] = (vx + lt[0] * 32 + 16, vy + lt[1] * 32 + 16)
+    ready(h)
     click_px(h, x.aff["host"], ev["liftpx"][0], ev["liftpx"][1], button="right")
     if not wait_for(lambda: top(h) == "GeoscapeState"):
         raise Pre("right click on the lift %s: host %s (want GeoscapeState)" % (ev["liftpx"], snap(h)))
