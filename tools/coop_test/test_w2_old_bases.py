@@ -19,13 +19,13 @@ Six boots, nine rows (spec rewrite/prompts/w2h8_old_bases.md (f)):
   Boot B (S0)  R5b right-click on the access lift exits
                R6  dismantle the lift of a lift-only base, GEOSCAPE (last)
   Boot C (S0)  R1b mini-view click switches the base, GEOSCAPE
-  Boot D (S0)  R1d geoscape BASES on the index S0 leaves on a mirror
+  Boot D (S0)  R1d geoscape BASES on the second base S0 leaves selected
   Boot E (S0, storageLimitsEnforced) G3 forced "storage exceeded" TRANSFER
   Boot F       C1  SHARED control: nothing hidden, key switch + TRANSFER
 
 S0: SEPARATE campaign; the host builds HostBase2 through the real flow and
 leaves it through GEOSCAPE. Its preconditions are the base list BASE0 in that
-order and the selected-base index left on the mirror ClientBase.
+order and the selected base HostBase2 (W2-H68: no longer the mirror ClientBase).
 
 Named red on the pre-fix build (spec (f) + AMENDMENT H8-1):
   R7, C1        pass (controls).
@@ -260,7 +260,7 @@ def s0_separate(host, client, port):
     hb = blist(host)
     precondition(rid, hb == BASE0, "host bases %s != BASE0 %s" % (hb, BASE0), host, client)
     sel = selected(host)
-    precondition(rid, sel == "ClientBase", "host selectedBase %r != 'ClientBase'" % sel, host, client)
+    precondition(rid, sel == "HostBase2", "host selectedBase %r != 'HostBase2'" % sel, host, client)  # W2-H68
     print("S0 ready: host bases %s selected %r scale (%.2f, %.2f)" % (hb, sel, xs, ys), flush=True)
     return {"xs": xs, "ys": ys}
 
@@ -409,7 +409,7 @@ def row_r1b(host, client, ctx):
 def row_r1d(host, client, ctx):
     rid = "R1d"
     sel = selected(host)
-    precondition(rid, sel == "ClientBase", "selectedBase %r != 'ClientBase'" % sel, host, client)
+    precondition(rid, sel == "HostBase2", "selectedBase %r != 'HostBase2'" % sel, host, client)  # W2-H68
     click(rid, host, "BASES", host, client)
     wait_top(rid, host, "BasescapeState", host, client)
     w = host.cmd({"cmd": "list_widgets"})
