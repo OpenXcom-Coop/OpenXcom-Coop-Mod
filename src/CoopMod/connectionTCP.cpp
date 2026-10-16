@@ -35893,6 +35893,21 @@ static void coopTestThrowNextRxCheck(Game* game, const std::string& state, Json:
 		throw std::runtime_error("[coop-test] throw_next_rx: " + state);
 }
 
+// ----- coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md, PINNED EDITS BT1; QEQ2-13 (a)): TEST-ONLY `equip_holds_defer`, HOST - while
+// on, the host's pre-battle hold table is not sent (coopEquipHoldsSend() keeps its newest refusal); the first pump pass after off
+// sends it. Lets row H6 land the partner's click on an item the host already holds. Inert unless armed; never armed by game logic.
+static std::atomic<bool> g_coopTestHoldsDefer{false};
+
+void coopTestEquipHoldsDefer(bool on)
+{
+	g_coopTestHoldsDefer.store(on);
+}
+
+bool coopTestEquipHoldsDeferred()
+{
+	return g_coopTestHoldsDefer.load();
+}
+
 // ----- coop W2-H71 (docs rewrite/prompts/w2h71_visit_window_pops.md P1a; R-H71-0; TEST-ONLY hold_base_result, either machine):
 // armed with ms > 0, this machine's next base result (MAP_RESULT_HOST_BASE on the host, MAP_RESULT_CLIENT_BASE on the client)
 // stores the visited world as always but opens the base view (CoopState(55)) ms later, from updateCoopTask, so a test can land a
