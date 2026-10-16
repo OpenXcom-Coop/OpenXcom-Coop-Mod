@@ -6747,7 +6747,11 @@ bool coopTestBaseHeldDeferred()
 static bool coopBasePresenceCampaign(Game* game)
 {
 	const SavedGame* save = game ? game->getSavedGame() : nullptr;
-	return save && save->isCoopSave() && save->getCampaignType() == CoopCampaignType::Shared; // coop EQ-3 S-B: SHARED (VL-EQ3-1)
+	// coop EQ-3 S-D (docs rewrite/prompts/eq3d_separate.md, PINNED EDITS D1; VL-EQ3-1's SEPARATE clause, QEQ3-11 (a), D241): any co-op
+	// campaign, SHARED or SEPARATE (a skirmish's monthsPassed is -1, vanilla's new-battle test: no base screens, QEQ3-12 (a)). S-A's
+	// read-only register stays SHARED-only (D294 (b)): a SEPARATE base screen gets the pointer and the held item, never the read-only
+	// view.
+	return save && save->isCoopSave() && save->getMonthsPassed() != -1; // coop EQ-3 S-D: SHARED or SEPARATE
 }
 
 // coop EQ-3 S-B (B1; QEQ3-7 (a)): the pile key of a base inventory screen - "<base>:<pile>" with the SHARED base index and the pile:
@@ -6755,7 +6759,10 @@ static bool coopBasePresenceCampaign(Game* game)
 // craft, as vanilla's Ctrl+Alt+X reads the craft). "" = no key (no base index, no craft).
 static std::string coopBasePileKey(Game* game, const Base* base, bool noCraft)
 {
-	const int index = SharedEcon::baseIndex(game, base);
+	// coop EQ-3 S-D (D2; QEQ3-11 (a)): SEPARATE keys the base by its _coop_base_id - the owner's base and the visitor's mirror of it
+	// carry the same id (F20777, F20784), while the base indexes differ per machine. SHARED keeps the shared base index.
+	const bool shared = game->getSavedGame() && game->getSavedGame()->getCampaignType() == CoopCampaignType::Shared;
+	const int index = shared ? SharedEcon::baseIndex(game, base) : (base->_coop_base_id > 0 ? base->_coop_base_id : -1);
 	if (index < 0)
 		return std::string();
 	std::string pile = "-1";
