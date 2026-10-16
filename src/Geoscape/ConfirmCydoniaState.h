@@ -41,6 +41,7 @@ private:
 public:
 	/// Creates the Select Destination state.
 	ConfirmCydoniaState(Craft *craft);
+	Craft* coopHeldCraft() const { return _craft; } // coop W2-H83 S-C (R-LT18-1): for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Select Destination state.
 	~ConfirmCydoniaState();
 	/// Handler for clicking the Cancel button.

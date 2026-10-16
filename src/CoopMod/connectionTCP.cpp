@@ -39689,7 +39689,7 @@ static void coopDropDogfightsForUfo(Game* game, Ufo* ufo)
 // down to the lowest state holding a doomed pointer, and only when every state from that one to the top is such a popup
 // (GeoscapeState::coopHeldTargets); otherwise nothing is popped and false is returned (the mirror sweep then keeps that object
 // until a later snapshot). Pointers are compared, never dereferenced. Returns true when no state holds a doomed pointer any more.
-static bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed)
+bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed) // coop W2-H83 S-C (R-LT18-1, EC4): not static - SharedEcon.cpp calls it (EC3)
 {
 	if (!game || doomed.empty())
 		return true;
@@ -39705,6 +39705,7 @@ static bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doome
 	{
 		std::vector<Target*> held;
 		GeoscapeState::coopHeldTargets(st, held);
+		GeoscapeState::coopHeldCrafts(st, held); // coop W2-H83 S-C (R-LT18-1, EC5): and the crafts a window or notice holds (a SHARED base's)
 		for (Target* t : held)
 		{
 			if (std::find(doomed.begin(), doomed.end(), t) != doomed.end())
@@ -39723,7 +39724,7 @@ static bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doome
 	for (State* st : states)
 	{
 		std::vector<Target*> held;
-		if (index >= lowest && !GeoscapeState::coopHeldTargets(st, held))
+		if (index >= lowest && !GeoscapeState::coopHeldTargets(st, held) && !GeoscapeState::coopHeldCrafts(st, held)) // coop W2-H83 S-C (EC6)
 			return false; // a screen that is not such a popup sits above it: leave the stack as it is
 		++index;
 	}
@@ -41052,6 +41053,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					Base* b = *it;
 					if (b && b->_coop_base_id == base_id)
 					{
+						// coop W2-H83 S-C (docs rewrite/prompts/w2h83_sc_holders.md EC1; L-H81-2, R-LBH3-1, VL-H83-3): geoscape popups that hold
+						// this partner base or one of its crafts (a target list, a destination confirm, a craft's window) close first, as their
+						// CANCEL does (W2-H81's coopCloseMirrorHolders); the base is deleted either way (W2-H81's drop rule).
+						std::vector<Target*> doomedTargets{ b };
+						for (Craft* doomedCraft : *b->getCrafts())
+							doomedTargets.push_back(doomedCraft);
+						coopCloseMirrorHolders(_game, doomedTargets);
 						delete b;             // free memory permanently
 						it = bases.erase(it); // remove from the list; returns next iterator
 						break;

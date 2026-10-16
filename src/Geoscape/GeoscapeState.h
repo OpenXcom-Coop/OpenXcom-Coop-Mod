@@ -293,6 +293,10 @@ public:
 	/// ConfirmDestinationState, MultipleTargetsState, UfoTrackerState, GeoscapeCraftState) holds; copied, never dereferenced. Returns
 	/// true when @a state is such a popup, even one that holds nothing.
 	static bool coopHeldTargets(State* state, std::vector<Target*>& out);
+	/// coop W2-H83 S-C (R-LT18-1): the crafts a geoscape window or notice holds - the INTERCEPT list, a destination pick, list or confirm,
+	/// a patrol, dogfight, landing, Cydonia or pilots notice (in SHARED: the crafts of every base); copied, never dereferenced. Returns
+	/// true when @a state is one of those nine windows, even one that holds nothing.
+	static bool coopHeldCrafts(State* state, std::vector<Target*>& out);
 	/// coop W2-H81 test-harness: the popups queued to open (pushed one per think while the geoscape is on top).
 	const std::list<State*>& coopQueuedPopups() const { return _popups; }
 	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
