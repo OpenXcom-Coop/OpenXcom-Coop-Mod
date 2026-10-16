@@ -43693,6 +43693,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
+		// coop W2-H80 (docs rewrite/prompts/w2h80_lost_base_ghost.md E1; R-LBH2-1, VL-H80-1; lbh2-cap F21828): no answer while this
+		// machine's live world is still a SEPARATE co-op battle world (a guest on its display-only debriefing; PR-14's
+		// coopSepBackgroundHeld). That world is the battle host's: its own bases are the asker's, and a base the asker lost in the battle
+		// (its debriefing erased it) would come back to it as a partner marker. The asker keeps its cached markers and asks again at its
+		// next geoscape init, which this machine answers from its own world. A gm3 borrowed world is this player's own: answered as before.
+		if (!g_coopPvpBorrowedReturn && coopSepBackgroundHeld(_game))
+		{
+			Log(LOG_INFO) << "[coop] W2-H80: baseRequest not answered - the live world is the SEPARATE battle world";
+			return;
+		}
+
 		Json::Value markers;
 
 		int index = 0;
