@@ -64,6 +64,7 @@
 #include "../Engine/State.h"
 #include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/Globe.h" // W2-H65 P0: globe_point
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
@@ -1151,6 +1152,41 @@ static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
+
+	// coop W2-H65 (docs rewrite/prompts/w2h65_mirror_name_rollback.md P0; F19214, F19340-F19359): TEST INTROSPECTION, read-only. The
+	// geoscape globe's view (centre, zoom, rectangle) and, for a lon / lat, its screen point (base coordinates) and whether it is land, so
+	// a test clicks a land point or a base marker as a player does. "centerLon" / "centerLat" move the view only, never the game state.
+	if (cmd == "globe_point")
+	{
+		GeoscapeState* gsP = findState<GeoscapeState>(_game);
+		SavedGame* sgP = _game->getSavedGame();
+		if (!gsP || !sgP)
+		{
+			resp["error"] = "no geoscape";
+			return true;
+		}
+		Globe* gl = gsP->getGlobe();
+		if (req.isMember("centerLon") && req.isMember("centerLat"))
+			gl->center(req["centerLon"].asDouble(), req["centerLat"].asDouble());
+		resp["cenLon"] = sgP->getGlobeLongitude();
+		resp["cenLat"] = sgP->getGlobeLatitude();
+		resp["zoom"] = sgP->getGlobeZoom();
+		if (req.isMember("lon") && req.isMember("lat"))
+		{
+			const double lo = req["lon"].asDouble(), la = req["lat"].asDouble();
+			Sint16 px = 0, py = 0;
+			gl->polarToCart(lo, la, &px, &py);
+			resp["x"] = (int)px;
+			resp["y"] = (int)py;
+			resp["land"] = gl->insideLand(lo, la);
+		}
+		resp["globeX"] = gl->getX();
+		resp["globeY"] = gl->getY();
+		resp["globeW"] = gl->getWidth();
+		resp["globeH"] = gl->getHeight();
+		resp["ok"] = true;
+		return true;
+	}
 
 	// Vote regression hooks live in this shallow dispatcher because execute() is
 	// already at MSVC's nested-block limit. They drive the real connectionTCP /
