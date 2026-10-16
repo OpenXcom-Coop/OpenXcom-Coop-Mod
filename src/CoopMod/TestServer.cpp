@@ -1149,9 +1149,20 @@ static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
  * new commands go here rather than deepening it. Returns true if @a cmd was one of
  * ours (and @a resp was filled).
  */
+void coopTestStreamKeyMissSet(bool on); // coop W2-H66 P1d: connectionTCP.cpp P1a (TEST-ONLY lever)
+
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
+
+	// coop W2-H66 (P1d; TEST-ONLY lever, either machine): {"on": true | false} arms / disarms connectionTCP.cpp P1a.
+	if (cmd == "force_stream_key_miss")
+	{
+		coopTestStreamKeyMissSet(req.get("on", false).asBool());
+		resp["on"] = req.get("on", false).asBool();
+		resp["ok"] = true;
+		return true;
+	}
 
 	// coop W2-H65 (docs rewrite/prompts/w2h65_mirror_name_rollback.md P0; F19214, F19340-F19359): TEST INTROSPECTION, read-only. The
 	// geoscape globe's view (centre, zoom, rectangle) and, for a lon / lat, its screen point (base coordinates) and whether it is land, so
