@@ -1,0 +1,520 @@
+# W2-H77 (R-LH75-3-1) test fixture, written by mk_mod_h77.py (spec rewrite/prompts/w2h77_event_research_pick.md
+# Appendix C; never hand-edited). No language file (raw keys). Three certain events (odds 100, one possible event, so
+# both machines' copies pair): STR_H77_EV_P and STR_H77_EV_Z in month 0 (oneTimeSequentialEvents), STR_H77_EV_W from
+# month 1 (eventWeights, the X-Com Files STR_UNTANGLING_THE_RED_TAPE shape). Each reward = one of its own 16 topics.
+research:
+  - name: STR_H77_P01
+    cost: 10
+    points: 1
+  - name: STR_H77_P02
+    cost: 10
+    points: 1
+  - name: STR_H77_P03
+    cost: 10
+    points: 1
+  - name: STR_H77_P04
+    cost: 10
+    points: 1
+  - name: STR_H77_P05
+    cost: 10
+    points: 1
+  - name: STR_H77_P06
+    cost: 10
+    points: 1
+  - name: STR_H77_P07
+    cost: 10
+    points: 1
+  - name: STR_H77_P08
+    cost: 10
+    points: 1
+  - name: STR_H77_P09
+    cost: 10
+    points: 1
+  - name: STR_H77_P10
+    cost: 10
+    points: 1
+  - name: STR_H77_P11
+    cost: 10
+    points: 1
+  - name: STR_H77_P12
+    cost: 10
+    points: 1
+  - name: STR_H77_P13
+    cost: 10
+    points: 1
+  - name: STR_H77_P14
+    cost: 10
+    points: 1
+  - name: STR_H77_P15
+    cost: 10
+    points: 1
+  - name: STR_H77_P16
+    cost: 10
+    points: 1
+  - name: STR_H77_W01
+    cost: 10
+    points: 1
+  - name: STR_H77_W02
+    cost: 10
+    points: 1
+  - name: STR_H77_W03
+    cost: 10
+    points: 1
+  - name: STR_H77_W04
+    cost: 10
+    points: 1
+  - name: STR_H77_W05
+    cost: 10
+    points: 1
+  - name: STR_H77_W06
+    cost: 10
+    points: 1
+  - name: STR_H77_W07
+    cost: 10
+    points: 1
+  - name: STR_H77_W08
+    cost: 10
+    points: 1
+  - name: STR_H77_W09
+    cost: 10
+    points: 1
+  - name: STR_H77_W10
+    cost: 10
+    points: 1
+  - name: STR_H77_W11
+    cost: 10
+    points: 1
+  - name: STR_H77_W12
+    cost: 10
+    points: 1
+  - name: STR_H77_W13
+    cost: 10
+    points: 1
+  - name: STR_H77_W14
+    cost: 10
+    points: 1
+  - name: STR_H77_W15
+    cost: 10
+    points: 1
+  - name: STR_H77_W16
+    cost: 10
+    points: 1
+  - name: STR_H77_Z01
+    cost: 10
+    points: 1
+  - name: STR_H77_Z02
+    cost: 10
+    points: 1
+  - name: STR_H77_Z03
+    cost: 10
+    points: 1
+  - name: STR_H77_Z04
+    cost: 10
+    points: 1
+  - name: STR_H77_Z05
+    cost: 10
+    points: 1
+  - name: STR_H77_Z06
+    cost: 10
+    points: 1
+  - name: STR_H77_Z07
+    cost: 10
+    points: 1
+  - name: STR_H77_Z08
+    cost: 10
+    points: 1
+  - name: STR_H77_Z09
+    cost: 10
+    points: 1
+  - name: STR_H77_Z10
+    cost: 10
+    points: 1
+  - name: STR_H77_Z11
+    cost: 10
+    points: 1
+  - name: STR_H77_Z12
+    cost: 10
+    points: 1
+  - name: STR_H77_Z13
+    cost: 10
+    points: 1
+  - name: STR_H77_Z14
+    cost: 10
+    points: 1
+  - name: STR_H77_Z15
+    cost: 10
+    points: 1
+  - name: STR_H77_Z16
+    cost: 10
+    points: 1
+events:
+  - name: STR_H77_EV_P
+    description: STR_H77_EV_DESCRIPTION
+    researchList:
+      - STR_H77_P01
+      - STR_H77_P02
+      - STR_H77_P03
+      - STR_H77_P04
+      - STR_H77_P05
+      - STR_H77_P06
+      - STR_H77_P07
+      - STR_H77_P08
+      - STR_H77_P09
+      - STR_H77_P10
+      - STR_H77_P11
+      - STR_H77_P12
+      - STR_H77_P13
+      - STR_H77_P14
+      - STR_H77_P15
+      - STR_H77_P16
+    timer: 1440
+    timerRandom: 20000
+  - name: STR_H77_EV_W
+    description: STR_H77_EV_DESCRIPTION
+    researchList:
+      - STR_H77_W01
+      - STR_H77_W02
+      - STR_H77_W03
+      - STR_H77_W04
+      - STR_H77_W05
+      - STR_H77_W06
+      - STR_H77_W07
+      - STR_H77_W08
+      - STR_H77_W09
+      - STR_H77_W10
+      - STR_H77_W11
+      - STR_H77_W12
+      - STR_H77_W13
+      - STR_H77_W14
+      - STR_H77_W15
+      - STR_H77_W16
+    timer: 1440
+    timerRandom: 20000
+  - name: STR_H77_EV_Z
+    description: STR_H77_EV_DESCRIPTION
+    researchList:
+      - STR_H77_Z01
+      - STR_H77_Z02
+      - STR_H77_Z03
+      - STR_H77_Z04
+      - STR_H77_Z05
+      - STR_H77_Z06
+      - STR_H77_Z07
+      - STR_H77_Z08
+      - STR_H77_Z09
+      - STR_H77_Z10
+      - STR_H77_Z11
+      - STR_H77_Z12
+      - STR_H77_Z13
+      - STR_H77_Z14
+      - STR_H77_Z15
+      - STR_H77_Z16
+    timer: 1440
+    timerRandom: 20000
+eventScripts:
+  - type: STR_H77_SCRIPT_P
+    oneTimeSequentialEvents:
+      - STR_H77_EV_P
+    firstMonth: 0
+    lastMonth: 0
+    executionOdds: 100
+  - type: STR_H77_SCRIPT_Z
+    oneTimeSequentialEvents:
+      - STR_H77_EV_Z
+    firstMonth: 0
+    lastMonth: 0
+    executionOdds: 100
+  - type: STR_H77_SCRIPT_W
+    eventWeights:
+      0:
+        STR_H77_EV_W: 100
+    firstMonth: 1
+ufopaedia:
+  - id: STR_H77_P01
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P01
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P02
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P02
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P03
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P03
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P04
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P04
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P05
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P05
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P06
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P06
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P07
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P07
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P08
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P08
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P09
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P09
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P10
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P10
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P11
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P11
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P12
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P12
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P13
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P13
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P14
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P14
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P15
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P15
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_P16
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_P16
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W01
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W01
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W02
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W02
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W03
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W03
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W04
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W04
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W05
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W05
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W06
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W06
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W07
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W07
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W08
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W08
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W09
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W09
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W10
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W10
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W11
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W11
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W12
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W12
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W13
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W13
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W14
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W14
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W15
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W15
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_W16
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_W16
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z01
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z01
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z02
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z02
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z03
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z03
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z04
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z04
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z05
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z05
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z06
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z06
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z07
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z07
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z08
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z08
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z09
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z09
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z10
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z10
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z11
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z11
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z12
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z12
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z13
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z13
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z14
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z14
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z15
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z15
+    text: STR_H77_ARTICLE_TEXT
+  - id: STR_H77_Z16
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_H77_Z16
+    text: STR_H77_ARTICLE_TEXT
