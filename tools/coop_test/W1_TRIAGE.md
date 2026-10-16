@@ -492,6 +492,6 @@ Recorded by MG-C (docs `rewrite/prompts/mgc_merge_main.md`; owner D252 (a), D226
 | `test_coop_event_sync.py`, `test_coop_mission_research.py`, `test_coop_research_known_topic.py`, `test_coop_research_sync.py` | held by MG-F (guard and the gate's OWNED row; MG-F re-points them on `rewrite/merge-main`) |
 | `test_coop_client_mission_abort.py`, `test_coop_battle_start_sync.py`, `test_coop_parallel_turns_latch.py` | held by MG-P1 (guard and OWNED row) |
 | `test_skirmish_saved_battle_join.py` | held by MG-B (guard and OWNED row; re-pointed to row CB1) |
-| `test_skirmish_saved_pve2_end_turn.py` | held by R5-U8 S-D (guard and OWNED row; after MG-B) |
+| `test_skirmish_saved_pve2_end_turn.py` | re-pointed by R5-U8 S-D on `rewrite/merge-main` (rows SD1, SD2: a saved PvE2 Custom Battle continues through CONTINUE BATTLE and crosses the X-COM AI turn; QU8-5 (a)); runs live |
 | `test_shared_sim.py` | runs live with `main` #197's `geo.slow_clock` line |
 | the nine `main` #199 `session.leave_base` call sites | the rewrite's `leave_base` command + `session.wait_back_on_geoscape` stay (W2-U7c); `main`'s helper is not taken |
