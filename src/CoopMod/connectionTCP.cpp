@@ -34967,6 +34967,47 @@ static void coopWriteArmedSaveOnPeerDrop(Game* game)
 		game->popState();
 }
 
+// ----- coop W2-H73 (docs rewrite/prompts/w2h73_drop_during_visit.md E1; L-TR9-2, R-TR9-2 fix (m); F20285-F20290, F20360-F20364): the
+// partner dropped while this HOST views the partner's base. CoopState 55 parked the host's own world as "basehost" and made the partner's
+// world live, every base flagged _coopBase (a partner-base mirror carries _coopIcon too); an own world always holds a base with _coopBase
+// false. Not playerInsideCoopBase: the drop clears it while the view stays (F20288). The drop's wait dialog 62 over that view let SAVE &
+// QUIT write the partner's base as this host's world, and a rejoin + RESUME left the host on the view under a 995.
+static bool g_coopHostDropWaitAfterReload = false;
+
+static bool coopHostLiveWorldIsPeerView(Game* game)
+{
+	SavedGame* live = game ? game->getSavedGame() : nullptr;
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!live || !coop || live->getSavedBattle() || !connectionTCP::getServerOwner() || !coop->getCoopCampaign()
+		|| coop->isSharedCampaign() || !connectionTCP::hasCoopFile("basehost"))
+		return false;
+	bool peerBase = false;
+	for (Base* base : *live->getBases())
+	{
+		if (!base->_coopBase)
+			return false;
+		if (!base->_coopIcon)
+			peerBase = true;
+	}
+	return peerBase;
+}
+
+// Called where a host drop would push the 62 (disconnectTCP's host arm, updateCoopTask's -3 arm). A host viewing the partner's base goes
+// back to its own world first, exactly as the base screen's GEOSCAPE does (BasescapeState::btnGeoscapeClick). LoadGameState then replaces
+// the whole stack with a new GeoscapeState, so the 62 opens after it (updateCoopTask, E4). True = the caller pushes no 62 now.
+static bool coopHostDropLeavesPeerView(Game* game)
+{
+	if (g_coopHostDropWaitAfterReload)
+		return true;
+	if (!game || game->getStates().empty() || !coopHostLiveWorldIsPeerView(game))
+		return false;
+	Log(LOG_INFO) << "[coop] W2-H73: the partner dropped while the host views its base - the host's own world returns first";
+	g_coopHostDropWaitAfterReload = true;
+	game->getCoopMod()->playerInsideCoopBase = false; // coop W2-H73 R-H73-2 (F20553): as the leave does (BasescapeState::btnGeoscapeClick); the -3 arm keeps it
+	game->pushState(new LoadGameState(OPT_GEOSCAPE, "basehost", game->getStates().back()->getPalette(), "basehost"));
+	return true;
+}
+
 void connectionTCP::writePendingHostSave()
 {
 
@@ -35543,7 +35584,9 @@ void connectionTCP::updateCoopTask()
 			{
 				coopWriteArmedSaveOnPeerDrop(_game); // coop W2-H59 (E3, R-H59-0): as at the canonical drop (disconnectTCP)
 				connectionTCP::session.freeze();
-				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+				// coop W2-H73 (spec E3; R-TR9-2 fix (m)): as at the canonical drop (E2)
+				if (!coopHostDropLeavesPeerView(_game))
+					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 			}
 			// Don't let updateCoopTask re-fire this handler each cycle.
 			// The TCP thread will set onConnect=1 when a peer reconnects.
@@ -35595,6 +35638,20 @@ void connectionTCP::updateCoopTask()
 				closeConnectingDialog();
 				_game->pushState(new CoopState(440));
 			}
+		}
+	}
+
+	// coop W2-H73 (docs rewrite/prompts/w2h73_drop_during_visit.md E4; R-TR9-2 fix (m)): the drop's wait dialog 62, held by E2 / E3 while the
+	// host's own world reloads, opens once that world is back (LoadGameState left a new GeoscapeState alone on the stack; this runs before
+	// its first init / think). At the main menu (no world, issue #82) nothing is left to wait over.
+	if (g_coopHostDropWaitAfterReload && (_game->getSavedGame() == nullptr || (!_game->getStates().empty()
+		&& dynamic_cast<GeoscapeState*>(_game->getStates().back()) != nullptr && !coopHostLiveWorldIsPeerView(_game))))
+	{
+		g_coopHostDropWaitAfterReload = false;
+		if (_game->getSavedGame() != nullptr)
+		{
+			Log(LOG_INFO) << "[coop] W2-H73: the host's own world is back - the partner's wait dialog opens";
+			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 		}
 	}
 
@@ -44507,7 +44564,9 @@ void connectionTCP::disconnectTCP(bool isMain)
 				{
 					coopWriteArmedSaveOnPeerDrop(_game); // coop W2-H59 (E2, R-H59-0): write the deferred save this drop disarms, close the 54
 					connectionTCP::session.freeze();
-					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+					// coop W2-H73 (spec E2; R-TR9-2 fix (m)): a host viewing the partner's base returns to its own world first; E4 opens the 62
+					if (!coopHostDropLeavesPeerView(_game))
+						_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
 				else
 				{
