@@ -8314,6 +8314,30 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 		<< unseated << "; turnMode " << coopTurnModeName(coopBattleAuthority().turnMode) << "; deployment \"" << deploymentType << "\"";
 }
 
+// coop D246-U S-D (owner D246 = b; docs rewrite/prompts/d246u_sd_custom_battle_convert.md): see BattleAuthority.h.
+bool coopOlderCustomBattleSave(const YAML::YamlNodeReader& body)
+{
+	const YAML::YamlNodeReader block = body["battleGame"];
+	if (!block || !block["units"] || block["coopTurnMode"] || block["coopItemIdCtr"])
+		return false; // no battle, or a co-op battle this build saved (both keys are written while it runs)
+	int gamemode = 0;
+	body.tryRead("coop_gamemode", gamemode);
+	if (gamemode != 0 && gamemode != 1)
+		return false; // classic only; PvP / PvE2 Custom Battle saves are D246-U S-D2's
+	bool otherFactionTagged = false, seatOneTagged = false;
+	for (const auto& unitReader : block["units"].children())
+	{
+		if (!unitReader["coop"])
+			continue;
+		const int faction = unitReader["faction"].readVal<int>();
+		if (unitReader["originalFaction"].readVal(faction) != (int)FACTION_PLAYER)
+			otherFactionTagged = true;
+		if (unitReader["coop"].readVal<int>() == 1)
+			seatOneTagged = true;
+	}
+	return otherFactionTagged && seatOneTagged;
+}
+
 bool isCoopBattle()
 {
 	return connectionTCP::getCoopStatic() && coopBattleAuthority().phase == CoopBattlePhase::Active;

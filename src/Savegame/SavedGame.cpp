@@ -1269,6 +1269,16 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_battleGame->load(battle, mod, this);
 	}
 
+	// coop D246-U S-D (owner D246 = b; docs rewrite/prompts/d246u_sd_custom_battle_convert.md): a co-op Custom Battle saved
+	// mid-battle by an older version carries no header `coop`, so the gate above never sees it. It is converted the same way
+	// (seat tags, the turn mode it was played in, the mission deployment), so CONTINUE BATTLE (MG-B) resumes it with each player
+	// commanding its own soldiers and nobody the aliens. A save this build wrote is never converted (BattleAuthority.h).
+	if (!_coop && _battleGame && coopOlderCustomBattleSave(reader))
+	{
+		Log(LOG_INFO) << "[coop-convert] D246 S-D: an older version's co-op Custom Battle save - converted as a classic co-op battle";
+		coopOlderBattle = true;
+	}
+
 	// coop D246-U (owner D246 = b): an older version's mid-battle co-op save (the gate above) - convert its battle, the
 	// partner worlds this load restored and the battle mirrors (BattleAuthority.h).
 	if (coopOlderBattle && _battleGame)
