@@ -30658,6 +30658,8 @@ static bool coopNewBaseFlowOpen(Game* game)
 	return false;
 }
 
+static bool coopStreamIdle(); // coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md E1): defined above updateCoopTask (W2-H66 S-B EB4-R); onAccept (E3) reads it
+
 // ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
 // SPIKE-RUNBOOK.md SS2.7/RB-D18/RB-D23/IR-5/IR-6. Storage/helpers live here,
 // next to BattleAuthority/CoopArbiter/CoopIdMaps/CoopPump/CoopEmit above -
@@ -30789,6 +30791,10 @@ struct PendingHost
 	// baton survived M1's pause and the whole block stays skipped, exactly
 	// as SPEC 16 left it. Always false when `resumed` is false.
 	bool fromDisk = false;
+
+	// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md E2; R-LH78-1-1): onAccept() found a world stream to the partner
+	// still set up or running (a base answer asked for just before the YES) and left the blob to updateCoopTask (E4, E5).
+	bool blobDeferred = false;
 };
 static PendingHost g_pendingHost;
 
@@ -32855,15 +32861,43 @@ void onAccept(Game* game, const Json::Value& accept)
 	// its own thread) watches sendFileClient/sendFileBase and streams whatever
 	// is in coopFilesHost["battlehost"] (offerBattle() just populated it) as
 	// map_result_data 3KB chunks, gated on WAIT_MAP_SENDER acks.
-	isWaitMap = true;
-	sendFileBase = false;
-	sendFileClient = true;
+	// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md E3; R-LH78-1-1, VL-H82-1; lh78-1-cap F22290-F22293): loopData
+	// streams one world at a time; it picks a stream's key when the stream starts and its end marker when it ends, then clears every send
+	// flag. A base answer still streaming to the partner here (asked for just before this machine's YES) would end as MAP_RESULT_CLIENT and
+	// clear this blob's trigger with it (both machines then wait, no timeout), and isWaitMap set here sent its next chunk without the
+	// partner's ack (F22291). The blob waits for an idle streamer (E4, E5); the base answer ends with its own MAP_RESULT_CLIENT_BASE, which
+	// the partner drops in its hand-off (E6, E7).
+	if (!coopStreamIdle())
+	{
+		g_pendingHost.blobDeferred = true;
+		Log(LOG_INFO) << "[coop-handshake] battle blob deferred: a world stream to the partner is still running";
+	}
+	else
+	{
+		isWaitMap = true;
+		sendFileBase = false;
+		sendFileClient = true;
+	}
 
 	Log(LOG_INFO) << "[coop-handshake] battle_accept received (battleId=" << battleId
 		<< ") - streaming the battle blob"
 		<< ", researchSeat=" << researchSeat
 		<< ", researchTopics=" << (researchStored ? coopSeatResearchCount(researchSeat) : -1)
 		<< ", researchUnknown=" << (researchStored ? coopSeatResearchUnknown(researchSeat) : 0);
+}
+
+// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md E4; R-LH78-1-1): updateCoopTask's call (E5, main thread, only while
+// coopStreamIdle()): the blob onAccept() deferred (E3) streams now, after the earlier stream queued its end marker. Only while that offer
+// is still pending in phase Handshake (every teardown resets g_pendingHost).
+void coopStartDeferredBlob()
+{
+	if (!g_pendingHost.active || !g_pendingHost.blobDeferred || coopBattleAuthority().phase != CoopBattlePhase::Handshake)
+		return;
+	g_pendingHost.blobDeferred = false;
+	isWaitMap = true;
+	sendFileBase = false;
+	sendFileClient = true;
+	Log(LOG_INFO) << "[coop-handshake] deferred battle blob streaming (battleId=" << g_pendingHost.battleId << ")";
 }
 
 void onRefuse(Game* game, const Json::Value& refuse)
@@ -35978,6 +36012,20 @@ static bool coopDropBaseRequestInHandOff(int role)
 	return true;
 }
 
+// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md E6; R-LH78-1-1, VL-H82-1; lh78-1-cap F22292, F22301): a base answer
+// that ends while this machine is being handed a battle (phase Handshake: from its onOffer() to the adoption) was asked for before the
+// offer arrived. Its chunks after the offer sit in mapData, the battle blob's buffer, and all arrive before the blob's first chunk (the
+// host starts the blob only after this stream, E3). Dropped: mapData is cleared, nothing is stored as "baseclient", no view opens; the
+// partner's "Synchronizing bases..." (CoopState 50) is popped by the adoption (coopUnwindToSafeState), as W2-H78's dropped request.
+static bool coopDropBaseResultInHandOff()
+{
+	if (coopBattleAuthority().phase.load() != CoopBattlePhase::Handshake)
+		return false;
+	mapData.clear();
+	Log(LOG_INFO) << "[coop-visit] base answer dropped: a battle hand-off is in flight";
+	return true;
+}
+
 bool connectionTCP::pushProgressToHostSilently()
 {
 
@@ -36883,6 +36931,11 @@ void connectionTCP::updateCoopTask()
 		_game->pushState(new CoopState(995));
 
 	}
+
+	// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md E5; R-LH78-1-1): a battle blob onAccept() deferred (E3) starts on the
+	// first frame the streamer is idle, before EB4-R below can set up another world stream.
+	if (coopStreamIdle())
+		CoopHandshake::coopStartDeferredBlob();
 
 	// coop W2-H66 S-B (EB4; R-H66-2 (p)): a base answer (EB3) or a push (EB2) held while the own new base was unnamed goes out
 	// once it is named, once. EB4-R (R-H66B-2, F20194): one held item per frame and only while no world stream is set up or
@@ -44372,7 +44425,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		sendFileBase = true;
 	}
 
-	if (stateString == "MAP_RESULT_CLIENT_BASE" && onTcpHost == false)
+	if (stateString == "MAP_RESULT_CLIENT_BASE" && onTcpHost == false && !coopDropBaseResultInHandOff()) // coop W2-H82 E7
 	{
 
 		writeHostMapFile2();
