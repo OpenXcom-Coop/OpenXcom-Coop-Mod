@@ -1532,10 +1532,27 @@ void GeoscapeState::think()
 		&& !_game->getCoopMod()->waitedResearch.empty())
 	{
 
-		if (_game->getSavedGame()->getSelectedBase())
+		// coop W2-H88 (docs rewrite/prompts/w2h88_lost_base_research_wait.md E1; R-LH87-2-1 (b), VL-H68-2, VL-H88-1; lh87-2-cap F23318-F23321):
+		// the base a partner's finished research is learned at. The selected base, unless it is a partner's base (_coopBase true: losing the
+		// first base leaves the selected index on the partner's mirror after it, and no removal re-points it); then the first own base
+		// (_coopBase false). With none (the partner's view world: every base _coopBase) the queue holds as before. The index is not moved.
+		Base* coopResearchBase = _game->getSavedGame()->getBases()->empty() ? nullptr : _game->getSavedGame()->getSelectedBase();
+		if (coopResearchBase != nullptr && coopResearchBase->_coopBase == true)
+		{
+			coopResearchBase = nullptr;
+			for (Base* coopOwnCandidate : *_game->getSavedGame()->getBases())
+			{
+				if (coopOwnCandidate->_coopBase == false)
+				{
+					coopResearchBase = coopOwnCandidate;
+					break;
+				}
+			}
+		}
+		if (coopResearchBase != nullptr) // coop W2-H88 E1 (was: the selected base exists)
 		{
 
-			if (_game->getSavedGame()->getSelectedBase()->_coopBase == false)
+			if (coopResearchBase->_coopBase == false) // coop W2-H88 E2 (E1 picked an own base)
 			{
 
 				for (Json::Value::ArrayIndex i = 0; i < _game->getCoopMod()->waitedResearch.size(); ++i)
@@ -1551,7 +1568,7 @@ void GeoscapeState::think()
 					double base_lat = root_research["base_lat"].asDouble();
 					double base_lon = root_research["base_lon"].asDouble();
 
-					Base* selected_base = _game->getSavedGame()->getSelectedBase();
+					Base* selected_base = coopResearchBase; // coop W2-H88 E3 (E1; a partner base at the sender's coordinates still wins below)
 
 					for (auto &base : *_game->getSavedGame()->getBases())
 					{
@@ -1576,7 +1593,7 @@ void GeoscapeState::think()
 						// as in time1Day.
 						Mod* mod = _game->getMod();
 						SavedGame* save = _game->getSavedGame();
-						Base* ownBase = save->getSelectedBase();
+						Base* ownBase = coopResearchBase; // coop W2-H88 E4 (E1: the topics are learned at an own base)
 						RuleResearch* bonus = bonus_name.empty() ? nullptr : mod->getResearch(bonus_name);
 
 						const std::string& articleTopic = research->getLookup().empty() ? research->getName() : research->getLookup();
