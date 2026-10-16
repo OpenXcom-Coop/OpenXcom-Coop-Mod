@@ -763,6 +763,14 @@ bool coopEquipPartnerView(const BattleUnit* u);
 /// identity key, never dereferenced.
 void coopBaseInvScreen(const void* screen, Game* game);
 
+class Base;
+/// coop EQ-3 S-B (docs rewrite/prompts/eq3b_pointer.md; VL-EQ3-1, owner D290 (c), D295 (a), QEQ3-7 (a)): InventoryState's constructor
+/// registers a base screen and its pile (@a base, @a noCraft: the Soldiers inventory, else the crew's craft) for the co-op partner's
+/// pointer (@a game non-null; kept only in a co-op campaign whose base screens show it); its destructor forgets it (@a game null).
+/// While registered and the top state, the pump sends this machine's pointer and draws the partner's when both are on the same pile.
+/// @a screen is an identity key, never dereferenced.
+void coopBasePresenceScreen(const void* screen, Game* game, const Base* base, bool noCraft);
+
 /// coop EQ-1: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
 /// InventoryState::btnPrevClick / btnNextClick, after coopEquipCycleOwnUnit(). Runs vanilla's own
 /// BattlescapeState::selectPrevious / NextPlayerUnit with the partner's soldiers admitted (the release line's cycle: every
