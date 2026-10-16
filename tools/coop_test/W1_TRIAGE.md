@@ -441,9 +441,9 @@ Recorded by R5-U5 (docs `rewrite/prompts/r5u5_battle_gift_order.md`; owner D229 
 
 Recorded by RV-U5 (docs `rewrite/prompts/rvu5_quarantine_gate.md`, stage S-G `rewrite/prompts/rvu5_sg_gate.md`; owner D229 (a) + gate,
 D250). The D229 gate over the 40 files the rewrite quarantined: 21 are deleted because running rewrite rows cover their scenario (git
-history keeps them), 19 run live or are held by a named unit. One guard remains: `test_pvp_campaign_resume.py`, held by D250-U S-D (its
-mid-battle legs resume through the host window after MG-B; its gm3 leg expects owner D284's refusal). `check_quarantine_gate.py` lists it
-in OWNED and fails without `--allow-owned` until that stage lifts the guard and deletes the row; it fails if any other guard or
+history keeps them), 19 run live. The last guard, `test_pvp_campaign_resume.py`'s, was lifted by D250-U S-D on `rewrite/merge-main` (its
+row below), so `check_quarantine_gate.py` keeps OWNED empty and passes without `--allow-owned` (MG-C's incoming `main` files: the MG-C
+section below); it fails if any guard or
 SKIP-PENDING print returns or if any row below stops holding. This section supersedes every earlier row and disposition for these 40 files.
 
 | test | disposition |
@@ -487,11 +487,11 @@ Recorded by MG-C (docs `rewrite/prompts/mgc_merge_main.md`; owner D252 (a), D226
 |---|---|
 | `test_battle_tripwire.py`, `test_parallel_sharedturn.py` | stay deleted (removed with the #166 revert; `main` #209 / #210 changed them): they test the model the rewrite replaced; #210's banner check is an MG-P1 row |
 | `test_coop_debrief_sync.py`, `test_pvp_skirmish_end_turn.py` | stay deleted (RV-U5's DELETED rows; `main` #209 / #181 changed them) |
-| `test_coop_nextstage_crash.py`, `test_coop_nextstage_census.py`, with `tftd_common.py` and `fixtures/tftd_base_assault.sav` | deleted: MG-A's rows on UFO data cover them (`test_w2_multistage.py` MS1, MS3; MG-A-T1); no TFTD data is staged |
+| `test_coop_nextstage_crash.py`, `test_coop_nextstage_census.py`, with `tftd_common.py` and `fixtures/tftd_base_assault.sav` | deleted: MG-A's rows on UFO data cover them (`test_w2_multistage.py` MS1, `test_w2_multistage_end.py` MS3; MG-A-T1); no TFTD data is staged |
 | `test_parallel_pve2_turn_screen_gate.py` | deleted: covered by `test_r5_pve2_turns.py` T1-T3 (R5-U8 D1) |
-| `test_coop_event_sync.py`, `test_coop_mission_research.py`, `test_coop_research_known_topic.py`, `test_coop_research_sync.py` | held by MG-F (guard and the gate's OWNED row; MG-F re-points them on `rewrite/merge-main`) |
-| `test_coop_client_mission_abort.py`, `test_coop_battle_start_sync.py`, `test_coop_parallel_turns_latch.py` | held by MG-P1 (guard and OWNED row) |
-| `test_skirmish_saved_battle_join.py` | held by MG-B (guard and OWNED row; re-pointed to row CB1) |
+| `test_coop_event_sync.py`, `test_coop_mission_research.py`, `test_coop_research_known_topic.py`, `test_coop_research_sync.py` | run live since MG-F re-pointed them on `rewrite/merge-main` (guard and the gate's OWNED row removed) |
+| `test_coop_client_mission_abort.py`, `test_coop_battle_start_sync.py`, `test_coop_parallel_turns_latch.py` | run live since MG-P1 re-pointed them on `rewrite/merge-main` (guard and OWNED row removed) |
+| `test_skirmish_saved_battle_join.py` | run live since MG-B S-A re-pointed it to row CB1 (guard and OWNED row removed) |
 | `test_skirmish_saved_pve2_end_turn.py` | re-pointed by R5-U8 S-D on `rewrite/merge-main` (rows SD1, SD2: a saved PvE2 Custom Battle continues through CONTINUE BATTLE and crosses the X-COM AI turn; QU8-5 (a)); runs live |
 | `test_shared_sim.py` | runs live with `main` #197's `geo.slow_clock` line |
 | the nine `main` #199 `session.leave_base` call sites | the rewrite's `leave_base` command + `session.wait_back_on_geoscape` stay (W2-U7c); `main`'s helper is not taken |
