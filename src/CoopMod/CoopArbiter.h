@@ -752,6 +752,12 @@ bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir);
 /// in single player and in every battle without an equip phase.
 void coopEquipPump(Game* game);
 
+class State;
+/// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A10; owner D290 (c)): ~InventoryState's first statement - the co-op
+/// partner pointer's overlay (two surfaces the pump added to that screen) is forgotten before the screen deletes its surfaces.
+/// A no-op for any other state and in single player.
+void coopEquipPresenceDetach(const State* st);
+
 /// W2-P8 S-C2.2 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.2, C2-4; owner D166 = B,
 /// D187, D188): the covered-battle driver, called by Game::run() once per frame right after the top state's
 /// think. HOST only, in an active co-op battle: while another screen covers the BattlescapeState and the base

@@ -359,6 +359,7 @@ static void _clearInventoryTemplate(std::vector<EquipmentLayoutItem*> &inventory
  */
 InventoryState::~InventoryState()
 {
+	coopEquipPresenceDetach(this); // coop EQ-2 S-A (A11): the partner pointer's overlay goes with this screen's surfaces
 	_clearInventoryTemplate(_curInventoryTemplate);
 	_clearInventoryTemplate(_tempInventoryTemplate);
 
