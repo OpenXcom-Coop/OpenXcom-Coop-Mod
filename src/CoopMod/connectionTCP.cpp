@@ -30393,6 +30393,26 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 static void coopPvpRefuse(connectionTCP* tcp, const std::string& why);
 static void coopPvpSwapBack(Game* game);
 
+// coop W2-H72 (docs rewrite/prompts/w2h72_entry_waits_for_naming.md E1; owner D286 (a), L-H66-1 C3, F19866-F19867): a battle
+// offer that reaches a SEPARATE machine while it names the new base it has paid for (BaseNameState) or places that base's
+// access lift (PlaceLiftState) waits until both screens are closed (E2 holds it, E3 accepts it). The battle entry's unwind
+// would close them: unnamed, the own-world snapshot refuses the base (a 995) and the return loads the world from before the
+// build; without its lift, the base keeps no facility and the partner never gets its marker. Neither screen has a cancel:
+// their only exits are OK and the lift click. Main thread only (onOffer runs from updateCoopTask's pump, F20022).
+static Json::Value g_coopNamingOfferStash; // E2: the held battle_offer (null = none)
+
+static bool coopNewBaseFlowOpen(Game* game)
+{
+	if (!game || !game->getSavedGame() || game->getSavedGame()->getCampaignType() != CoopCampaignType::Separate)
+		return false;
+	for (State* st : game->getStates())
+	{
+		if (dynamic_cast<BaseNameState*>(st) || dynamic_cast<PlaceLiftState*>(st))
+			return true;
+	}
+	return false;
+}
+
 // ===== R4-P1: battle-start handshake (CoopHandshake.h) =====
 // SPIKE-RUNBOOK.md SS2.7/RB-D18/RB-D23/IR-5/IR-6. Storage/helpers live here,
 // next to BattleAuthority/CoopArbiter/CoopIdMaps/CoopPump/CoopEmit above -
@@ -31903,6 +31923,18 @@ void onOffer(Game* game, const Json::Value& offer)
 		return;
 	}
 
+	// coop W2-H72 (E2; D286 (a)): this machine names its new base or places its lift (E1). Accepting now would pull it into the
+	// battle and lose the base (F19866-F19867), so the offer is kept as it came and nothing else changes: no accept, phase Idle,
+	// the screens stay. The host's start waits meanwhile (phase Handshake: its briefing, its equip screen, turn 1 at the
+	// barrier). E3 accepts it once the screens are closed.
+	if (coopNewBaseFlowOpen(game))
+	{
+		g_coopNamingOfferStash = offer;
+		Log(LOG_INFO) << "[coop-handshake] battle_offer (battleId=" << battleId
+			<< ") held: this machine is naming its new base (W2-H72)";
+		return;
+	}
+
 	initBattleAuthority(battleId); // -> hostSim=false, localSeat, phase=Handshake, seat-faction store cleared
 	coopApplySeatMap(offer["seatMap"]);
 
@@ -32904,6 +32936,7 @@ void resetPendingState()
 	// unrelated (possibly single-player) BriefingState.
 	g_missionLabels = MissionLabels();
 	g_coopTurnMirrorFired = 0; // FX-1 (WV-D56): battle-scoped like everything else here
+	g_coopNamingOfferStash = Json::Value(); // coop W2-H72 (E4): a held offer never outlives its session or battle scope
 }
 
 } // namespace CoopHandshake
@@ -36328,6 +36361,18 @@ void connectionTCP::updateCoopTask()
 		g_coopSaveAnswerHeld = false;
 		Log(LOG_INFO) << "[coop-save] held save answer released";
 		sendSaveProgressFile();
+	}
+
+	// coop W2-H72 (E3; D286 (a)): the battle offer E2 held is accepted once this machine has named its new base and placed its
+	// lift (E1 false); the entry then runs as usual (snapshot, refresh, briefing). Independent of W2-H66's held answers: the
+	// offer sends only battle_accept (QH72-5).
+	if (g_coopNamingOfferStash.isObject() && !getServerOwner() && getCoopStatic() && !coopNewBaseFlowOpen(_game))
+	{
+		Json::Value heldOffer;
+		heldOffer.swap(g_coopNamingOfferStash);
+		Log(LOG_INFO) << "[coop-handshake] held battle_offer (battleId=" << heldOffer.get("battleId", 0u).asUInt()
+			<< ") released: the new base is named and placed (W2-H72)";
+		CoopHandshake::onOffer(_game, heldOffer);
 	}
 
 	// R1-P4: the per-tick "run the Battlescape states in the background" pump
