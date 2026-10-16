@@ -357,7 +357,19 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	{
 		long long blobSaveId = connectionTCP::saveID;
 		reader.tryRead("saveID", blobSaveId);
-		if (key != "basehost")
+		// coop W2-H84 (docs rewrite/prompts/w2h84_rejoin_join_id.md E1; L-H79-3, R-LH79-3-1; F22370-F22386, F22450-F22467): a "client_" key is
+		// this machine's own world (connectionTCP::clientBlobKey; only a client loads one): the world the host serves at a rejoin or a resume
+		// (CoopState 555), the battle-entry snapshot, the guest-craft sync, a SHARED adoption. The host may serve a stored world whose saveID
+		// is older than the one it sent at the join (W2-H58's copy after a drop during a host save; a resumed save's embedded world); taking
+		// it made this machine's next upload move the host's saveID back and erase the key a later rejoin looks up, and the partner got a new
+		// campaign. The id the host sent stays; with no id yet (0) the blob's is taken, as before.
+		if (key.compare(0, 7, "client_") == 0 && connectionTCP::saveID != 0)
+		{
+			if (blobSaveId != connectionTCP::saveID)
+				Log(LOG_INFO) << "[coop] W2-H84: own world \"" << key << "\" loaded - saveID stays " << connectionTCP::saveID
+					<< " (the blob's is " << blobSaveId << ")";
+		}
+		else if (key != "basehost")
 			connectionTCP::saveID = blobSaveId;
 		else if (blobSaveId != connectionTCP::saveID)
 			Log(LOG_INFO) << "[coop] W2-H79: \"basehost\" loaded - saveID stays " << connectionTCP::saveID << " (the parked world's is "
