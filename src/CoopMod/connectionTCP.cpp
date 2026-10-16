@@ -35124,8 +35124,43 @@ static void coopTestThrowNextRxCheck(Game* game, const std::string& state, Json:
 		throw std::runtime_error("[coop-test] throw_next_rx: " + state);
 }
 
+// ----- coop W2-H71 (docs rewrite/prompts/w2h71_visit_window_pops.md P1a; R-H71-0; TEST-ONLY hold_base_result, either machine):
+// armed with ms > 0, this machine's next base result (MAP_RESULT_HOST_BASE on the host, MAP_RESULT_CLIENT_BASE on the client)
+// stores the visited world as always but opens the base view (CoopState(55)) ms later, from updateCoopTask, so a test can land a
+// partner world inside the "Synchronizing bases." window (its natural length is 0.02-0.05 s, F19763). One shot; inert unless
+// armed; never armed by game logic.
+static std::atomic<int> g_coopTestHoldBaseResultMs{0};
+static bool g_coopTestHoldBaseResultDue = false;
+static Uint32 g_coopTestHoldBaseResultAt = 0;
+
+void coopTestHoldBaseResultSet(int ms)
+{
+	g_coopTestHoldBaseResultMs.store(ms < 0 ? 0 : (ms > 3000 ? 3000 : ms));
+}
+
+// The base-result handlers' guarded statement (main thread): true = held, the caller does not open the base view now.
+static bool coopTestHoldBaseResult()
+{
+	const int ms = g_coopTestHoldBaseResultMs.exchange(0);
+	if (ms <= 0)
+		return false;
+	g_coopTestHoldBaseResultDue = true;
+	g_coopTestHoldBaseResultAt = SDL_GetTicks() + (Uint32)ms;
+	Log(LOG_INFO) << "[coop-test] hold_base_result: the base view opens in " << ms << " ms";
+	return true;
+}
+
 void connectionTCP::updateCoopTask()
 {
+	// coop W2-H71 P1b (TEST-ONLY hold_base_result): a held base view opens once its time is due (main thread).
+	if (g_coopTestHoldBaseResultDue && (Sint32)(SDL_GetTicks() - g_coopTestHoldBaseResultAt) >= 0)
+	{
+		g_coopTestHoldBaseResultDue = false;
+		Log(LOG_INFO) << "[coop-test] hold_base_result: the held base view opens";
+		CoopState* coopWindow = new CoopState(55);
+		coopWindow->loadWorld();
+	}
+
 	CoopSyncedOptions::tick(_game); // W2-P9 S-A (PR-3): the synced-options activation edge, main thread only
 
 	// Voting deadlines are host-authoritative. The menu keeps its own display
@@ -42514,8 +42549,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		writeHostMapFile2();
 
-		CoopState* coopWindow = new CoopState(55);
-		coopWindow->loadWorld();
+		if (!coopTestHoldBaseResult()) // coop W2-H71 P1c (TEST-ONLY hold_base_result; inert unless armed)
+		{
+			CoopState* coopWindow = new CoopState(55);
+			coopWindow->loadWorld();
+		}
 
 	}
 
@@ -42524,8 +42562,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		writeHostMapFile2();
 
-		CoopState* coopWindow = new CoopState(55);
-		coopWindow->loadWorld();
+		if (!coopTestHoldBaseResult()) // coop W2-H71 P1c (TEST-ONLY hold_base_result; inert unless armed)
+		{
+			CoopState* coopWindow = new CoopState(55);
+			coopWindow->loadWorld();
+		}
 
 	}
 }

@@ -1150,6 +1150,7 @@ static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
  * ours (and @a resp was filled).
  */
 void coopTestStreamKeyMissSet(bool on); // coop W2-H66 P1d: connectionTCP.cpp P1a (TEST-ONLY lever)
+void coopTestHoldBaseResultSet(int ms); // coop W2-H71 P2a: connectionTCP.cpp P1a (TEST-ONLY lever)
 
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
@@ -1160,6 +1161,17 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 	{
 		coopTestStreamKeyMissSet(req.get("on", false).asBool());
 		resp["on"] = req.get("on", false).asBool();
+		resp["ok"] = true;
+		return true;
+	}
+
+	// coop W2-H71 (P2b; TEST-ONLY lever, either machine): {"ms": 0..3000} holds this machine's next base view that long
+	// (connectionTCP.cpp P1a); 0 disarms. Response {ok, ms (the value armed, clamped)}.
+	if (cmd == "hold_base_result")
+	{
+		const int ms = req.get("ms", 0).asInt();
+		coopTestHoldBaseResultSet(ms);
+		resp["ms"] = ms < 0 ? 0 : (ms > 3000 ? 3000 : ms);
 		resp["ok"] = true;
 		return true;
 	}
