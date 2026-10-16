@@ -201,6 +201,10 @@ void Game::run()
 			CRASH_LOG(msg);
 		}
 
+		// coop W2-H83 S-B2 (R-LBH3-1, R-H83-2): a removal the drain above applied closes the screens that still show that base, before
+		// any of them runs init(), handle() or think()
+		coopCloseGoneBaseHolders();
+
 		// Clean up states
 		while (!_deleted.empty())
 		{
@@ -441,6 +445,7 @@ void Game::run()
 		if (runningState != PAUSED)
 		{
 			// Process logic
+			coopCloseGoneBaseHolders(); // coop W2-H83 S-B2: a dialog closed above a screen whose base is gone - close it before its think()
 			_states.back()->think();
 			coopThinkCoveredBattle(this); // coop (W2-P8 S-C2, D166 B): a covered host battle keeps running the partner's action
 			_fpsCounter->think();
@@ -618,6 +623,67 @@ void Game::popState()
 	Log(LOG_INFO) << "[coop-ui] pop  " << typeid(*popped).name()
 		<< " depth=" << _states.size();
 	_init = false;
+}
+
+/**
+ * coop W2-H83 S-B2 (docs rewrite/prompts/w2h83_sb2_more_guards.md F4; R-LBH3-1, R-H83-2): in a co-op world, is @a base gone from the
+ * live base list? Pointers are compared, never dereferenced, so a freed base may be passed. Single player, no world, a null base: never.
+ */
+bool State::coopBaseGone(const Base *base)
+{
+	SavedGame *save = _game ? _game->getSavedGame() : nullptr;
+	if (!base || !save || !save->isCoopSave())
+	{
+		return false;
+	}
+	for (const Base *live : *save->getBases())
+	{
+		if (live == base)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// coop W2-H83 S-B2: coopBaseGone for any base of a list (a null entry is never gone).
+bool State::coopBasesGone(const std::vector<Base*> &bases)
+{
+	for (const Base *base : bases)
+	{
+		if (coopBaseGone(base))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// coop W2-H83 S-B2: the default close of a screen whose base is gone - a plain pop, as the eleven SHARED base screens do.
+void State::coopCloseGoneBase()
+{
+	_game->popState();
+}
+
+/**
+ * coop W2-H83 S-B2 (R-LBH3-1, R-H83-2; h83b-amend F22542-F22546): the other player removed a base (SHARED fac_dismantle or base_destroyed,
+ * SEPARATE delete_base), or a world reload replaced every base. Every screen on top that still shows such a base closes, top down, before
+ * it runs init(), handle() or think() again; the first screen that does not stops it (BasescapeState falls back to the first base itself, a
+ * co-op dialog stays). Called right after the co-op drain and right before think().
+ */
+void Game::coopCloseGoneBaseHolders()
+{
+	while (_states.size() > 1 && _states.back()->coopHoldsGoneBase())
+	{
+		State *top = _states.back();
+		const size_t before = _states.size();
+		Log(LOG_INFO) << "[coop] W2-H83: closed " << typeid(*top).name() << " - the base it shows is gone";
+		top->coopCloseGoneBase();
+		if (_states.size() >= before)
+		{
+			break; // the close did not pop: never loop
+		}
+	}
 }
 
 /**

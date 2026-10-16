@@ -44,6 +44,8 @@ private:
 	Text *_txtTitle, *_txtFunds, *_txtName, *_txtArea;
 	TextList *_lstBases;
 	std::vector<Base*> _bases;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base) || coopBasesGone(_bases); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
+	void coopCloseGoneBase() override; // coop W2-H83 S-B2: hides the SEPARATE mirrors it showed first, as CANCEL does
 	/// coop (W2-H8): true when the ctor put back mirrors a basescape underneath hid.
 	bool _coopShown = false;
 public:

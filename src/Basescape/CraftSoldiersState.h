@@ -49,6 +49,7 @@ private:
 	TextList *_lstSoldiers;
 
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
 	size_t _craft;
 	Uint8 _otherCraftColor;
 	std::vector<Soldier *> _origSoldierOrder;
