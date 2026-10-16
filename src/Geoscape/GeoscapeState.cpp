@@ -3995,7 +3995,9 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	// coop SEPARATE: the client's copy of a shared event fires with this one
 	if (ge->isCoopShared())
 	{
-		_game->getCoopMod()->sendCertainEventFire(ge);
+		// coop W2-H77 (R-LH75-3-1): the host's research pick rides the fire (its window, pushed above); none when this copy showed no window
+		const GeoscapeEventState* coopWindow = interrupted || _popups.empty() ? nullptr : dynamic_cast<GeoscapeEventState*>(_popups.back());
+		_game->getCoopMod()->sendCertainEventFire(ge, coopWindow != nullptr, coopWindow ? coopWindow->coopResearchPick() : std::pair<std::string, std::string>());
 	}
 }
 

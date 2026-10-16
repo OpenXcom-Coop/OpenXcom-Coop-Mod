@@ -448,11 +448,27 @@ void GeoscapeEventState::eventLogic()
 		}
 	}
 
+	// coop W2-H77 (R-LH75-3-1; F21550-F21552): the client's copy of a SEPARATE paired certain event (fired by the host's certain_event_fire with
+	// research sync on) learns the host's topic instead of rolling its own - the research sync below is skipped for a paired copy, so its own
+	// roll split the two players' research. The host's topic only if it is new to this player too; never a roll of its own.
+	const std::pair<std::string, std::string>* coopHostPick = _coopShared ? _coopHostPick : nullptr;
+	_coopHostPick = nullptr; // one window per arm
+	if (coopHostPick)
+	{
+		const RuleResearch* hostResearch = coopHostPick->first.empty() ? nullptr : mod->getResearch(coopHostPick->first, false);
+		bool hostTopicOpen = false;
+		for (auto* p : possibilities)
+			hostTopicOpen = hostTopicOpen || p == hostResearch;
+		possibilities.clear();
+		if (hostTopicOpen)
+			possibilities.push_back(hostResearch);
+	}
 	std::vector<const RuleResearch*> topicsToCheck;
 	if (!possibilities.empty())
 	{
 		size_t pickResearch = RNG::generate(0, possibilities.size() - 1);
 		const RuleResearch *eventResearch = possibilities.at(pickResearch);
+		_coopPickResearch = eventResearch->getName(); // coop W2-H77: the host sends it with certain_event_fire (GeoscapeState::fireGeoscapeEvent)
 
 		std::string name = eventResearch->getLookup().empty() ? eventResearch->getName() : eventResearch->getLookup();
 		bool alreadyResearched = save->isResearched(name, false); // we have seen the pedia article already, don't show it again
@@ -492,9 +508,12 @@ void GeoscapeEventState::eventLogic()
 		}
 
 		const RuleResearch *syncBonus = nullptr;
-		if (auto* bonus = save->selectGetOneFree(eventResearch))
+		// coop W2-H77 (R-LH75-3-1): with the host's pick, the host's bonus (when this player does not know it yet) instead of a roll of its own
+		const RuleResearch* coopHostBonus = coopHostPick && !coopHostPick->second.empty() ? mod->getResearch(coopHostPick->second, false) : nullptr;
+		if (auto* bonus = coopHostPick ? (coopHostBonus && !save->isResearched(coopHostBonus, false) ? coopHostBonus : nullptr) : save->selectGetOneFree(eventResearch))
 		{
 			syncBonus = bonus;
+			_coopPickBonus = bonus->getName(); // coop W2-H77: sent with certain_event_fire
 			addResearchDiaryEntryForEvent(bonus, DiscoverySourceType::FREE_FROM, nullptr, eventResearch);
 			save->addFinishedResearch(bonus, mod, hq, true);
 			topicsToCheck.push_back(bonus);
@@ -649,6 +668,8 @@ std::vector<std::string> GeoscapeEventState::coopTexts() const
 
 // coop W2-H15 (F3261): a SHARED replica's window is drawn from the host's picks (ids), in this machine's own language.
 const CoopEventPicks* GeoscapeEventState::_coopArmed = nullptr;
+const std::pair<std::string, std::string>* GeoscapeEventState::_coopHostPick = nullptr; // coop W2-H77 (R-LH75-3-1)
+void GeoscapeEventState::coopArmHostPick(const std::pair<std::string, std::string>* pick) { _coopHostPick = pick; }
 void GeoscapeEventState::coopArmDisplay(const CoopEventPicks* picks) { _coopArmed = picks; }
 
 // coop W2-H75 (R-B109-1; F21090, F21128-F21132): SEPARATE co-op with shared research. A topic both players learn spawns its event in
