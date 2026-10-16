@@ -202,6 +202,7 @@ CYCLE_CAP = 16                     # EQ-1 (D288 b): goto_unit's press bound - th
 ANSWER_WAIT_S = 3.0                # a held deny / a ready flag / a counter reaches the other machine
 LAND_WAIT_S = 10.0                 # EQ3 cell: "within 10 s the clip is on C1's belt on both"
 LINE_READ_S = 1.5                  # F3112: the line fades in 1.2 s; read 1.5 s after the event
+LINE_GONE_S = 3.0                  # W2-U9d (R-MGR1-1, F23583-F23584): the fade measured 1499-1512 ms; EQ5 press 2 polls, 2 x
 BARRIER_WAIT_S = 5.0
 DEFER_MS = 3000                    # EQ7b: defer_intents {ms 3000, count 1}
 LATE_READ_S = 3.5                  # EQ7 cell: "+3.5 s: lateDenied 1" (the first read)
@@ -833,14 +834,29 @@ def eq5_ready_toggle(host, client, ctx):
         t = time.time()
         c = ok_press(client)
         got, dt = wait_until(lambda: (equip(host).get("ready") or [None, None])[1] is want, ANSWER_WAIT_S)
-        rest = LINE_READ_S - (time.time() - t)
-        if rest > 0:
-            time.sleep(rest)
-        v = inv_view(client)
+        gone = last = None
+        if want:
+            rest = LINE_READ_S - (time.time() - t)
+            if rest > 0:
+                time.sleep(rest)
+            v = inv_view(client)
+        else:
+            # W2-U9d (R-MGR1-1): the line goes when its last show's fade ends (1499-1512 ms, F23583), so press 2 polls
+            # until it is not visible, bounded at LINE_GONE_S from the click, instead of one read at +LINE_READ_S
+            while True:
+                v = inv_view(client)
+                if v.get("lineVisible") is False or time.time() - t >= LINE_GONE_S:
+                    break
+                time.sleep(POLL_S)
+            last = round(time.time() - t, 3)
+            gone = last if v.get("lineVisible") is False else None
+            print(f"EQ5 press {n}: the client's line went at +{gone} s after the click (bound {LINE_GONE_S} s)", flush=True)
         p = {"n": n, "want": want, "click": c.get("error") or c.get("ok"), "hostReadyWithin": dt if got else None,
              "hostReady": equip(host).get("ready"), "clientReady": equip(client).get("ready"),
              "view": view_brief(v), "clientTop": top(client), "turn": [turn(host), turn(client)],
              "readAtS": round(time.time() - t, 3)}
+        if not want:
+            p["lineGoneAtS"], p["lineLastReadS"] = gone, last
         ev["presses"].append(p)
     evidence("EQ5", ev)
     for p in ev["presses"]:
@@ -857,8 +873,8 @@ def eq5_ready_toggle(host, client, ctx):
             fails.append(f"EQ5 press {n}: the client's line at +{LINE_READ_S} s {v.get('lineText')!r} visible="
                          f"{v.get('lineVisible')} (want {TEXT_WAIT_HOST!r} visible)")
         if not want and v.get("lineVisible") is not False:
-            fails.append(f"EQ5 press {n}: the client's line at +{LINE_READ_S} s visible={v.get('lineVisible')} "
-                         f"({v.get('lineText')!r}; want not visible)")
+            fails.append(f"EQ5 press {n}: the client's line still visible={v.get('lineVisible')} at +{p['lineLastReadS']} s "
+                         f"({v.get('lineText')!r}; want not visible within {LINE_GONE_S} s of the click)")
     fails += tail_fails(host, client, "EQ5")
     finish(fails)
 
