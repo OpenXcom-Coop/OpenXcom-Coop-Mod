@@ -33389,6 +33389,16 @@ struct StreamAbort {};
 }
 
 // in the loop, load the map file data between host and client
+// ----- coop W2-H66 (docs rewrite/prompts/w2h66_save_during_naming.md P1a; TEST-ONLY force_stream_key_miss, either machine): while
+// armed, loopData's host-bound stream finds no blob under its key (the state a refused memory save leaves), so the stream fails
+// and retries until the lever is turned off. Inert unless armed; never called by game logic.
+static std::atomic<bool> g_coopTestStreamKeyMiss{false};
+
+void coopTestStreamKeyMissSet(bool on)
+{
+	g_coopTestStreamKeyMiss.store(on);
+}
+
 void connectionTCP::loopData()
 {
 	// Wait for the client's map-chunk ack (isWaitMap), but bail out if the
@@ -33563,7 +33573,7 @@ void connectionTCP::loopData()
 												: connectionTCP::coopFilesClient;
 
 					auto it = coopFiles.find(coopKey);
-					if (it == coopFiles.end())
+					if (it == coopFiles.end() || g_coopTestStreamKeyMiss.load()) // coop W2-H66 P1b (TEST-ONLY lever)
 					{
 						throw std::runtime_error("Failed to read from hash map with key: " + coopKey);
 					}
