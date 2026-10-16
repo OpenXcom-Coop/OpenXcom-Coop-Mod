@@ -65,6 +65,8 @@ namespace OpenXcom
 {
 
 Globe *currentGlobe = 0;
+// coop W2-H85 (docs rewrite/prompts/w2h85_view_latch_seats.md E1; R-LH83-2-1): BasescapeState's guest-seat latch (BasescapeState.cpp :71); E2 clears it.
+extern bool _coop_base_init;
 
 namespace
 {
@@ -1957,6 +1959,9 @@ void CoopState::loadWorld()
 				}
 			}
 
+			// coop W2-H85 (E2; R-LH83-2-1, VL-H85-1; lh83-2-cap F22861-F22864): a view of the partner's base always runs BasescapeState::init's
+			// guest seat block, however the last base screen was left (BUILD NEW BASE, a lift right-click, W2-H73's drop, W2-H74, a mission start).
+			_coop_base_init = false;
 			_game->pushState(new BasescapeState(selected_base, currentGlobe));
 
 
