@@ -18,7 +18,8 @@ same way; S3 global slot 0 of both machines. A spine miss fails every row "spine
   BV5 host soldier screen, on C: reach, owner ("Owner: " + CLIENT_NAME), buttons, pick, armor, load, putback.
   BV6 client SKY craft screen, on HC: reach, owner, pick.
   BV7 host SKY craft screen opened with Ctrl+Alt (set_touch_modifiers after the push, R-EQ3-2, F21255; last: it empties HC's layout):
-      own (non-vacuity), partner (C's layout kept), putback (vs a no-action baseline OK), client.
+      own (non-vacuity), partner (C's layout kept), putback (vs a no-action baseline OK, less A: the client-owned SKY crew soldiers
+      with an EMPTY layout that the baseline's auto-equip fills; a Ctrl+Alt open never auto-equips, R-MGR2-2), client.
 RED (before EQ-3 S-A): 24 of 33 cells (spec (f) RED list). EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row
 runs after a failure; a row stopped early reports its later cells "not reached". ONE foreground run (WV-D95, WV-D99, WV-D100); exit 0
 iff every cell passes, else 2. TASK 0: boots a = b red (these 24), p (no A7-A9 / A11) red per gate, c green 33 / 33.
@@ -222,10 +223,11 @@ def all_records(gc):
     return None if L is None else {s.get("id"): h20.compact(s) for s in L}
 
 
-def baseline(gc, x, craft=False):
+def baseline(gc, x, craft=False, on_open=None):
     """R-EQ3-2 (3): a no-action open + OK of the same screen right before the row's own; its put-back M (F21256: the screen's re-save).
     R-EQ3-5 (F21866, F21872): first wait until both machines hold the same soldier_layouts record for every HostBase soldier (the partner's
-    last OK has landed); if they never agree within W, a FIXTURE line with both records and no baseline M (the row's putback cell fails)."""
+    last OK has landed); if they never agree within W, a FIXTURE line with both records and no baseline M (the row's putback cell fails).
+    `on_open(records)` (BV7 only, R-MGR2-2): called while the screen is open, before its OK, with the agreed records read above."""
     last = {}
 
     def agree():
@@ -241,6 +243,8 @@ def baseline(gc, x, craft=False):
     r.ev["records agreed after s"] = same[1]
     if not (open_craft_screen(sh, x, gc) if craft else open_soldier_screen(sh, gc)):
         return None, sh.fails
+    if on_open is not None:
+        on_open(last["host"])
     return ok_close(r, gc, n0, craft), r.ev
 
 
@@ -524,7 +528,18 @@ def bv7(x, r):
     if part is None:
         r.why = "FIXTURE: no client-owned SKY crew soldier"
         return
-    r.ev["baseline M"], r.ev["baseline"] = baseline(h, x, craft=True)
+    sky_partners, ea = [i for i, k in sorted(x.crew.items()) if k == x.sky and i not in x.host_ids], {}
+
+    def on_open(recs):
+        """R-MGR2-2 (F23669): E = the client-owned SKY crew soldiers whose agreed record has an EMPTY layout. The baseline's auto-equip
+        fills them on screen and its OK puts each filled one back (SharedEcon.cpp:5907 / :5912); the Ctrl+Alt open never auto-equips
+        (BattlescapeGenerator.cpp:82-86, :1400), so it cannot make those put-backs. A = the E units carrying items on this screen."""
+        ea["E"] = [i for i in sky_partners if recs.get(i) is not None and not recs[i]["layout"]]
+        ea["carried"] = {i: carried(h, i) for i in ea["E"]}
+
+    r.ev["baseline M"], r.ev["baseline"] = baseline(h, x, craft=True, on_open=on_open)
+    E, A = ea.get("E"), [i for i in ea.get("E") or [] if ea["carried"].get(i)]
+    r.ev["E / A"] = {"E": E, "A": A, "carried": ea.get("carried")}
     pre = record(h, part)
     n0 = len(putbacks(h))
     r.ev["open"] = q(h, {"cmd": "open_craft_equipment", "base": HB, "craft_id": x.sky})
@@ -542,7 +557,8 @@ def bv7(x, r):
     r.cell("BV7-partner", partner == pre and pre is not None, [partner, pre])
     m, mb = ok_close(r, h, n0, craft=True), r.ev["baseline M"]
     r.ev["M"] = m
-    r.cell("BV7-putback", None not in (m, mb) and m - mb == 0, {"M": m, "baseline M": mb, "lines": r.ev.get("putback lines")})
+    r.cell("BV7-putback", None not in (m, mb) and m == mb - len(A), {"M": m, "baseline M": mb, "E": E, "A": A,
+                                                                       "lines": r.ev.get("putback lines")})
     got = sbw.converge(lambda: record(c, part) == pre)
     r.cell("BV7-client", got[0], [record(c, part), pre, got[1]])
 
