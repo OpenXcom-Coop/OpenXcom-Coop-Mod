@@ -574,7 +574,11 @@ void UnitWalkBState::think()
 			// walk), which left a UFO door the host never crossed open until the side boundary
 			// (isUfoDoorOpen divergence, host closed / peer open); recording them here closes
 			// that seam. Their adjacent-tile run is re-derived on apply via checkAdjacentDoors.
-			bool coopReplayDoor = _parent->isCoop() && !_parent->getCoopMod()->_isActivePlayerSync;
+			// A preview is simulated locally on both machines. Treating the client
+			// preview as a passive network replay makes unitOpensDoor intentionally
+			// leave doors untouched while the walk continues through them.
+			bool coopReplayDoor = !_parent->getSave()->isPreview()
+				&& _parent->isCoop() && !_parent->getCoopMod()->_isActivePlayerSync;
 			Position openedPos;
 			int openedPart = -1;
 			int door = _terrain->unitOpensDoor(_unit, false, dir, false, coopReplayDoor,

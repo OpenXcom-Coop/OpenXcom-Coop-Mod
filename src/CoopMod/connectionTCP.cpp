@@ -13842,6 +13842,9 @@ void connectionTCP::refreshSeparateBaseOwnership()
 		{
 			SeparateEcon::normalizeSoldierIds(_game);
 		}
+		// Vehicle ownership is persisted by player name. Resolve that stable name
+		// to this connection's current seats after the lobby roster is available.
+		SeparateEcon::synchronizeVehicleOwners(_game);
 		const std::string localName = seatName(localSeat());
 		if (!localName.empty())
 		{
@@ -13880,6 +13883,7 @@ void connectionTCP::refreshSeparateBaseOwnership()
 				}
 			}
 		}
+		SeparateEcon::trimInitialCraftCrews(_game);
 	}
 }
 

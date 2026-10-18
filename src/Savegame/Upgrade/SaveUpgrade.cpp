@@ -687,15 +687,37 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		}
 		stampedOld = true; // s < CURRENT: an older stamped schema, resolve variant below
 	}
-	// 2. Unstamped host-authoritative save: current, re-stamped on next save.
-	else if (header["coop"].readVal(false))
+	// 2. Schema-2 embedded-world save. This intermediate Separate format already
+	// has coop:true and a locked roster, but still stores each client world in the
+	// coopClientSaves sequence. Some builds stamped these saves as schema 2 while
+	// others left them unstamped, so the sequence itself is authoritative for this
+	// variant. Detect it before both the strong-marker legacy scan and the generic
+	// unstamped host-authoritative rule; otherwise a stamped save can be mistaken
+	// for a schema-1 dual save and incorrectly request a separate client file.
+	YAML::YamlNodeReader embeddedWorlds = body["coopClientSaves"];
+	if (embeddedWorlds && embeddedWorlds.isSeq())
+	{
+		for (const YAML::YamlNodeReader& entry : embeddedWorlds.children())
+		{
+			if (entry["blob"])
+			{
+				d.kind = DetectedSchema::Legacy;
+				d.schema = 2;
+				d.variant = SchemaVariant::Embed;
+				return d;
+			}
+		}
+	}
+
+	// 3. Unstamped host-authoritative save: current, re-stamped on next save.
+	if (!schemaNode && header["coop"].readVal(false))
 	{
 		d.kind = DetectedSchema::Current;
 		d.schema = SAVE_SCHEMA_CURRENT;
 		return d;
 	}
 
-	// 3. Legacy embed: the client world is base64-embedded in the host body. Key on
+	// 4. Legacy embed: the client world is base64-embedded in the host body. Key on
 	//    the BLOB (the actual world ingest decodes), not coopClientSaveKey (the name
 	//    label): a save with a stray key but no blob has no recoverable client world,
 	//    so it must NOT be classified Embed (that dead-ended in a client-name prompt
@@ -709,7 +731,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 4. Legacy sidecar: a non-zero saveID WITH a matching host_<saveID>_*.data file
+	// 5. Legacy sidecar: a non-zero saveID WITH a matching host_<saveID>_*.data file
 	//    on disk. saveID alone (no sidecar) is NOT a co-op signal - it is only the
 	//    input to this lookup.
 	long long saveID = 0;
@@ -722,7 +744,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 5. A genuine coop-only, non-default per-object link anywhere in the body -> a
+	// 6. A genuine coop-only, non-default per-object link anywhere in the body -> a
 	//    real legacy co-op campaign (the case the fork's silent-solo trap missed).
 	if (scanReaderForStrongMarker(body, 0))
 	{
@@ -732,7 +754,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 6. A stamped older-schema save with no recognizable variant. Currently
+	// 7. A stamped older-schema save with no recognizable variant. Currently
 	//    UNREACHABLE: no build ever stamped a schema < CURRENT. Kept for the
 	//    framework's sake. NOTE: when a future schema step affects solo saves, this
 	//    branch must NOT force the dual client-picker onto a solo save - route
@@ -757,7 +779,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 7. No co-op trace at all: an ordinary solo save (gains the stamp on next save).
+	// 8. No co-op trace at all: an ordinary solo save (gains the stamp on next save).
 	d.kind = DetectedSchema::Solo;
 	d.schema = SAVE_SCHEMA_CURRENT;
 	return d;

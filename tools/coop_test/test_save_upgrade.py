@@ -86,6 +86,10 @@ def main():
             "solo_with_ufo.sav":    ("solo", "none", False),    # random coopUfoId/coopMissionId noise -> Solo
             "vanilla_solo.sav":     ("solo", "none", False),    # pure OXCE shape, zero coop keys
             "embed_host.sav":       ("legacy", "embed", True),
+            # Real intermediate saves are explicitly schema 2 and may also
+            # contain strong legacy links. The embedded sequence must win over
+            # the dual-save detector so no client-file picker is shown.
+            "embed_sequence_host.sav": ("legacy", "embed", True),
             "embed_no_blob.sav":    ("solo", "none", False),    # F2: key but no blob -> not a recoverable embed -> Solo
             "sidecar_host.sav":     ("legacy", "sidecar", True),
             "solo.sav":             ("solo", "none", False),
@@ -138,9 +142,13 @@ def main():
         assert by_name["HostBase"]["ownerplayername"] == "HostGuy"
         assert by_name["ClientBase"]["ownerplayername"] == "Carol"
         assert all(s["ownerplayerid"] == 1 for s in by_name["ClientBase"]["soldiers"])
+        funds_by_player = {
+            p["name"]: p["funds"] for p in ub["separateCampaign"]["players"]
+        }
+        assert funds_by_player == {"HostGuy": [1000000], "Carol": [500000]}, funds_by_player
         # re-detecting the upgraded file now reports current
         assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host.sav")})["kind"] == "current"
-        print("PASS dual e2e: original untouched, client base merged into unified host world")
+        print("PASS dual e2e: bases merged and independent player funds preserved")
 
         # Schema-3 compatibility rule: an old campaign may already exceed the new
         # global cap. Preserve every base, warn, and let runtime construction stay
@@ -176,6 +184,28 @@ def main():
         assert {b["ownerplayername"] for b in eb["bases"]} == {"HostGuy", "Bob"}
         assert any(b["name"] == "ClientBase" for b in eb["bases"])
         print("PASS embed recovery: client world merged and blob removed")
+
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "embed_sequence_host.sav",
+                   "hostName": "HostGuy"})
+        assert r["success"] is True, f"sequence embed upgrade failed: {r}"
+        qh, qb = two_docs(outp("embed_sequence_host.sav"))
+        assert qh["saveSchema"] == 3 and qh["coopCampaignType"] == 0
+        assert "coopClientSaves" not in qb
+        assert {b["ownerplayername"] for b in qb["bases"]} == {"HostGuy", "Bob"}
+        assert any(b["name"] == "ClientBase" for b in qb["bases"])
+        profiles = {p["name"]: p for p in qb["separateCampaign"]["players"]}
+        assert profiles["HostGuy"]["funds"] == [1000000], profiles
+        assert profiles["Bob"]["funds"] == [500000], profiles
+        assert profiles["HostGuy"]["funds"] != profiles["Bob"]["funds"], \
+            "migration must not initialize every player from the host funds"
+        assert profiles["HostGuy"]["faction"] == "difficulty:0", profiles
+        assert profiles["Bob"]["faction"] == "difficulty:3", profiles
+        assert profiles["HostGuy"]["ufopediaRuleStatus"] == {"STR_LASER_WEAPONS": 1}, profiles
+        assert profiles["Bob"]["ufopediaRuleStatus"] == {"STR_MEDI_KIT": 1}, profiles
+        assert profiles["Bob"]["completedResearch"] == ["STR_MEDI_KIT"], profiles
+        assert profiles["Bob"]["factionResearch"] == ["STR_MEDI_KIT"], profiles
+        print("PASS sequence embed recovery: independent player funds and factions preserved")
 
         reset_fixtures()
         r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav", "hostName": "HostGuy"})

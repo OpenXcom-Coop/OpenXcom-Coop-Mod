@@ -2832,7 +2832,10 @@ void BattlescapeGame::executeAction(BattleAction &action, bool calculatePath)
  */
 bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &kind)
 {
-	if (!connectionTCP::parallelTurnActive())
+	// Deployment previews are local sandboxes. In particular, a parallel-turn
+	// client must execute preview movement locally instead of sending an intent
+	// to the host's real battle arbiter (which correctly rejects it as turn_over).
+	if (_save->isPreview() || !connectionTCP::parallelTurnActive())
 	{
 		return false;
 	}

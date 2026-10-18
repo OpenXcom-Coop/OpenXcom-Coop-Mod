@@ -89,6 +89,8 @@ def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False, extra_sold
     lines += [
         "funds:",
         "  - 1000000",
+        "ufopediaRuleStatus:",
+        "  STR_LASER_WEAPONS: 1",
         "bases:",
         "  - name: HostBase",
         "    lon: 0.1",
@@ -115,9 +117,9 @@ def _host_body(*, gamemode=1, save_id=None, extra=None, strong=False, extra_sold
     return "\n".join(lines) + "\n"
 
 
-def _client_body(*, gamemode=1, save_id=None, extra=None):
+def _client_body(*, gamemode=1, save_id=None, extra=None, difficulty=0):
     """A standalone client world: own base, own soldier, funds, research."""
-    lines = ["difficulty: 0", "monthsPassed: 0"]
+    lines = ["difficulty: %d" % difficulty, "monthsPassed: 0"]
     if gamemode is not None:
         lines.append("coop_gamemode: %d" % gamemode)
     if save_id is not None:
@@ -127,6 +129,10 @@ def _client_body(*, gamemode=1, save_id=None, extra=None):
     lines += [
         "funds:",
         "  - 500000",
+        "ufopediaRuleStatus:",
+        "  STR_MEDI_KIT: 1",
+        "discovered:",
+        "  - STR_MEDI_KIT",
         "research:",
         "  - name: STR_MEDI_KIT",
         "    discovered: true",
@@ -146,10 +152,11 @@ def _stream(header, body):
     return header + "---\n" + body
 
 
-def client_stream(name="Carol", gamemode=1, save_id=None):
+def client_stream(name="Carol", gamemode=1, save_id=None, difficulty=0):
     """A full two-document client save stream (used raw for a sidecar .data
     file and base64-embedded for the embed variant)."""
-    return _stream(_header(name + "-client"), _client_body(gamemode=gamemode, save_id=save_id))
+    return _stream(_header(name + "-client"),
+                   _client_body(gamemode=gamemode, save_id=save_id, difficulty=difficulty))
 
 
 # ---- individual fixtures (name -> two-document text) --------------------------
@@ -234,6 +241,23 @@ def embed_host():
         "coopClientSaveBlob: %s" % blob,
     ]
     return _stream(_header("Embed Coop"),
+                   _host_body(gamemode=1, save_id=EMBED_SAVE_ID, extra=extra))
+
+
+def embed_sequence_host():
+    """The later legacy Separate format found in real saves: schema 2,
+    coop:true and a roster, with client worlds in a coopClientSaves sequence."""
+    blob = base64.b64encode(
+        client_stream(EMBED_CLIENT_NAME, gamemode=1, difficulty=3).encode("utf-8")
+    ).decode("ascii")
+    header = _header("Embed Sequence Coop", schema=2, coop=True).rstrip() + "\n" + \
+        "coopPlayers:\n  - HostGuy\n  - Bob\n"
+    extra = [
+        "coopClientSaves:",
+        "  - key: host_%d_%s.data" % (EMBED_SAVE_ID, EMBED_CLIENT_NAME),
+        "    blob: %s" % blob,
+    ]
+    return _stream(header,
                    _host_body(gamemode=1, save_id=EMBED_SAVE_ID, extra=extra))
 
 
@@ -489,6 +513,7 @@ FILES = {
     "solo_with_ufo.sav": solo_with_ufo,
     "vanilla_solo.sav": vanilla_solo,
     "embed_host.sav": embed_host,
+    "embed_sequence_host.sav": embed_sequence_host,
     "embed_no_blob.sav": embed_no_blob,
     "sidecar_host.sav": sidecar_host,
     "solo.sav": solo,

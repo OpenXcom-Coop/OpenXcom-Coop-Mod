@@ -12,6 +12,14 @@ def main():
     host, client = js.host, js.client
     try:
         fixture.assert_fresh_named_world(host, client)
+        # Vanilla assigns eight soldiers to the starting Skyranger. Separate's
+        # two-player quota is seven places per player and must be applied before
+        # the campaign starts, not only to later assignment clicks.
+        for gc, base_name in ((host, "HostBase"), (client, "ClientBase")):
+            report = gc.ok({"cmd": "base_report", "base": base_name})
+            transport = next(c for c in report["crafts"]
+                             if c["type"] == "STR_SKYRANGER")
+            assert transport["soldiers"] == 7, (gc.name, report)
         client.ok({"cmd": "open_screen", "screen": "basescape", "base": "ClientBase"})
         wallets = client.ok({"cmd": "month_report"})["playerFunds"]
         own_menu = client.ok({"cmd": "basescape_menu_state"})
@@ -40,7 +48,8 @@ def main():
             host_costs["ownerPlayerMaintenance"], (cost_screen, host_costs)
         client.ok({"cmd": "close_screens"})
 
-        client.ok({"cmd": "globe_click_base", "base": "HostBase"})
+        client.ok({"cmd": "globe_click_base", "base": "HostBase",
+                   "include_craft": True})
         client.wait_for(
             "foreign marker opens Basescape",
             lambda: (client.cmd({"cmd": "basescape_menu_state"}).get("base")
@@ -56,7 +65,7 @@ def main():
         assert not own["foreign"], own
         assert own["miniBorderColors"]["HostBase"] == 247, own
         client.ok({"cmd": "leave_base"})
-        print("PASS Separate UI: foreign restrictions, direct marker and own BASES selection")
+        print("PASS Separate UI: seven starting crew, foreign base/craft overlap, and own BASES selection")
     finally:
         js.shutdown()
 

@@ -134,17 +134,13 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 		if (dynamic_cast<BattlescapeState*>(s)) { battleRunning = true; }
 		else if (dynamic_cast<GeoscapeState*>(s)) { geoRunning = true; }
 	}
-	// ...but a mode-2 lobby is a RESUME-FROM-SAVE lobby: loading a mid-battle save
-	// leaves a BattlescapeState on the stack (the host's own battle) BEFORE the
-	// session is live and BEFORE any client has been served its world. Treating
-	// that as "return to the running game" makes RESUME pop the host straight into
-	// its battle and never serve the client - the client is stranded on the lobby.
-	// Such a lobby must always go through resumeCampaign(); it is never a
-	// resume-to-running-game. The mid-game coop menu (B7) and a mid-battle
-	// reconnect are never mode 2, so they are unaffected.
-	_resumeToGame = (battleRunning
-		|| (geoRunning && connectionTCP::session.sessionLocked))
-		&& connectionTCP::session.lobbyMode != 2
+	// A loaded mid-battle save also has BattlescapeState on the stack before the
+	// campaign has actually resumed. sessionLocked is the reliable distinction:
+	// it is false in that pre-game mode-2 lobby and true once a live campaign is
+	// running. lobbyMode itself remains 2 after a resumed Separate campaign, so
+	// using it here used to remove RESUME GAME from the in-battle pause lobby.
+	_resumeToGame = connectionTCP::session.sessionLocked
+		&& (battleRunning || geoRunning)
 		&& !connectionTCP::session.customBattleResumePending;
 
 	connectionTCP::session.markLobbyOpen();
@@ -609,6 +605,26 @@ std::string LobbyMenu::rowNameById(int id) const
 	return "";
 }
 
+std::string LobbyMenu::campaignSeatName(int seat) const
+{
+	if (_game->getSavedGame() && _game->getSavedGame()->isCoopSave())
+	{
+		const std::vector<std::string>& roster = _game->getSavedGame()->getCoopPlayers();
+		if (seat >= 0 && static_cast<size_t>(seat) < roster.size() && !roster[seat].empty())
+			return roster[seat];
+	}
+
+	// Before a new campaign locks its roster, these fields are intentionally
+	// machine-relative: getHostName() is local and getCurrentClientName() peer.
+	if (seat == 0)
+		return _game->getCoopMod()->getServerOwner()
+			? _game->getCoopMod()->getHostName()
+			: _game->getCoopMod()->getCurrentClientName();
+	return _game->getCoopMod()->getServerOwner()
+		? _game->getCoopMod()->getCurrentClientName()
+		: _game->getCoopMod()->getHostName();
+}
+
 std::vector<std::string> LobbyMenu::missingPlayers() const
 {
 	// registered players (minus the host) not currently connected
@@ -617,9 +633,9 @@ std::vector<std::string> LobbyMenu::missingPlayers() const
 	{
 		return missing;
 	}
-	std::string hostName = _game->getCoopMod()->getHostName();
+	std::string hostName = campaignSeatName(0);
 	std::string connectedClient = connectionTCP::session.clientInLobby
-									  ? _game->getCoopMod()->getCurrentClientName()
+									  ? campaignSeatName(1)
 									  : "";
 	for (const auto &p : _game->getSavedGame()->getCoopPlayers())
 	{
@@ -1423,9 +1439,7 @@ void LobbyMenu::think()
 			// getHostName() is machine-relative (the LOCAL player's name), so read it
 			// role-relative like the server-name title does - on a client machine the
 			// host's name is the peer, getCurrentClientName().
-			std::string hostRowName = _game->getCoopMod()->getServerOwner()
-			? _game->getCoopMod()->getHostName()
-			: _game->getCoopMod()->getCurrentClientName();
+			std::string hostRowName = campaignSeatName(0);
 			_connectedPlayers.push_back(playerInfo({hostId, hostRowName, "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
 			itHost = std::prev(_connectedPlayers.end());
 
@@ -1537,9 +1551,7 @@ void LobbyMenu::think()
 		std::string txtDetails = "Funds: " + std::to_string(funds) + " Bases: " + std::to_string(base_count) + " Crafts: " + std::to_string(craft_count);
 
 		// role-relative host name (see the host-row insert above): correct on both machines.
-		std::string hostRowName = _game->getCoopMod()->getServerOwner()
-			? _game->getCoopMod()->getHostName()
-			: _game->getCoopMod()->getCurrentClientName();
+		std::string hostRowName = campaignSeatName(0);
 		itHost->name = hostRowName + txtStatus;
 		itHost->team = txtTeam;
 		itHost->details = txtDetails;
@@ -1559,9 +1571,7 @@ void LobbyMenu::think()
 
 			// role-relative client name: the CLIENT player's name on both machines.
 			// On a client machine the local player IS the client, so read getHostName().
-			std::string clientName = _game->getCoopMod()->getServerOwner()
-				? _game->getCoopMod()->getCurrentClientName()
-				: _game->getCoopMod()->getHostName();
+			std::string clientName = campaignSeatName(1);
 			std::string ping = _game->getCoopMod()->getPing();
 
 			auto itClient = std::find_if(_connectedPlayers.begin(), _connectedPlayers.end(),

@@ -47,6 +47,7 @@ void Vehicle::load(const YAML::YamlNodeReader& reader)
 {
 	reader.tryRead("ammo", _ammo);
 	reader.tryRead("size", _size);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 	// coop
 	reader.tryRead("coopbase", _coopbase);
 	reader.tryRead("coopcraft", _coopcraft);
@@ -63,6 +64,8 @@ void Vehicle::save(YAML::YamlNodeWriter writer) const
 	writer.write("type", _rules->getType());
 	writer.write("ammo", _ammo);
 	writer.write("size", _size);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 	// coop
 	writer.write("coopbase", _coopbase);
 	writer.write("coopcraft", _coopcraft);
@@ -123,6 +126,16 @@ int Vehicle::getCoop() const
 	return _coop;
 }
 
+void Vehicle::setOwnerPlayerName(const std::string& ownerPlayerName)
+{
+	_ownerPlayerName = ownerPlayerName;
+}
+
+const std::string& Vehicle::getOwnerPlayerName() const
+{
+	return _ownerPlayerName;
+}
+
 void Vehicle::setCoopBase(int base)
 {
 	_coopbase = base;
@@ -157,6 +170,7 @@ Vehicle* Vehicle::clone() const
 {
 	Vehicle* copy = new Vehicle(_rules, _ammo, _size);
 	copy->_coop = _coop;
+	copy->_ownerPlayerName = _ownerPlayerName;
 	copy->_coopbase = _coopbase;
 	copy->_coopcraft = _coopcraft;
 	copy->_coopcraft_type = _coopcraft_type;

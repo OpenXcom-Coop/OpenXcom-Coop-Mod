@@ -280,6 +280,21 @@ def resume_campaign(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
+    for machine, who in ((host, "host"), (client, "client")):
+        machine.wait_for(
+            f"{who} resume lobby roster",
+            lambda m=machine: (
+                m.cmd({"cmd": "lobby_state"})
+                if (m.cmd({"cmd": "lobby_state"}).get("hostRowName", "").strip()
+                    and m.cmd({"cmd": "lobby_state"}).get("clientRowName", "").strip())
+                else None
+            ),
+            timeout=30,
+        )
+        roster = machine.ok({"cmd": "lobby_state"})
+        assert roster["hostRowName"].strip() == host_name, roster
+        assert roster["clientRowName"].strip() == client_name, roster
+
     # Press the REAL RESUME button (see helper) instead of the direct-call shortcut.
     resume_campaign_via_button(host, client_name)
 
@@ -330,6 +345,21 @@ def resume_campaign_battle(host, client, save_file, port="47900",
 
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
+
+    for machine, who in ((host, "host"), (client, "client")):
+        machine.wait_for(
+            f"{who} battle-resume lobby roster",
+            lambda m=machine: (
+                m.cmd({"cmd": "lobby_state"})
+                if (m.cmd({"cmd": "lobby_state"}).get("hostRowName", "").strip()
+                    and m.cmd({"cmd": "lobby_state"}).get("clientRowName", "").strip())
+                else None
+            ),
+            timeout=30,
+        )
+        roster = machine.ok({"cmd": "lobby_state"})
+        assert roster["hostRowName"].strip() == host_name, roster
+        assert roster["clientRowName"].strip() == client_name, roster
 
     # Press the REAL resume button (btnCancelClick). This is the branch where the
     # mid-battle-resume bug lived - the direct lobby_resume_campaign shortcut skips

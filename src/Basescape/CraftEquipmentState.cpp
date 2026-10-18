@@ -359,13 +359,15 @@ void CraftEquipmentState::initList()
 
 		Unit* isVehicle = rule->getVehicleUnit();
 		int cQty = 0;
+		int physicalVehicleQty = 0;
 		if (isVehicle)
 		{
+			physicalVehicleQty = c->getVehicleCount(itemType);
 			cQty = _game->getCoopMod()
 				&& _game->getCoopMod()->isSeparateCampaign()
 				? SeparateEcon::vehicleSelectionCount(_game, c, itemType,
 					connectionTCP::localSeat())
-				: c->getVehicleCount(itemType);
+				: physicalVehicleQty;
 		}
 		else
 		{
@@ -381,7 +383,7 @@ void CraftEquipmentState::initList()
 			reserved = c->getSoldierItems()->getItem(rule);
 		}
 		if ((isVehicle || rule->isInventoryItem()) && rule->canBeEquippedToCraftInventory() &&
-			(bQty > 0 || cQty > 0 || reserved > 0))
+			(bQty > 0 || cQty > 0 || physicalVehicleQty > 0 || reserved > 0))
 		{
 			// check research requirements
 			if (!_game->getSavedGame()->isResearched(rule->getRequirements()))

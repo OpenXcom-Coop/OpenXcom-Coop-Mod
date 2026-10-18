@@ -37,6 +37,7 @@ class ComboBox;
 class Timer;
 class DogfightState;
 class Craft;
+class Target;
 class Ufo;
 class MissionSite;
 class Base;
@@ -165,6 +166,8 @@ public:
 	Globe *getGlobe() const;
 	/// Handler for clicking the globe.
 	void globeClick(Action *action);
+	/// Route targets found under one globe click. Public for the co-op harness.
+	void openGlobeTargets(const std::vector<Target*>& targets);
 	/// Handler for clicking the Intercept button.
 	void btnInterceptClick(Action *action);
 	/// Handler for clicking the UFO Tracker button.

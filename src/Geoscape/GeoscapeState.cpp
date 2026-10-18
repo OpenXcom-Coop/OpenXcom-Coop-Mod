@@ -140,7 +140,6 @@
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/SeparateEcon.h"
-#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -4050,7 +4049,8 @@ void GeoscapeState::time1Hour()
 		{
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
-				popup(new ProductionCompleteState(xbase,  tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
+				if (SeparateEcon::showBaseNotification(_game, xbase))
+					popup(new ProductionCompleteState(xbase, tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
 				// PRD-J04: mirror the finished manufacture to SHARED replicas before the
 				// Production object is destroyed. GAP-6: broadcast the count the host
 				// ACTUALLY materialized, NOT the raw time-based getAmountProduced(), which
@@ -5042,26 +5042,7 @@ void GeoscapeState::globeClick(Action *action)
 	{
 		std::vector<Target*> v = _globe->getTargets(mouseX, mouseY, false, 0);
 		if (!v.empty())
-		{
-			// coop: report what the ally clicked. Only the OTHER player's base
-			// (_isForeignBase) -> Bases; your own base opens the intercept window, so it
-			// (like UFOs / craft / mission sites) -> Intercept.
-			int focus = 0; // INTERCEPT
-			for (Target* t : v)
-			{
-				Base* b = dynamic_cast<Base*>(t);
-				if (b && b->_isForeignBase)
-				{
-					focus = 1; // BASES
-					break;
-				}
-			}
-			sendCoopFocus(focus);
-
-			// Pass empty vector
-			std::vector<Craft*> crafts;
-			_game->pushState(new MultipleTargetsState(v, crafts, this, true));
-		}
+			openGlobeTargets(v);
 	}
 
 	if (_game->getSavedGame()->getDebugMode())
@@ -5078,6 +5059,35 @@ void GeoscapeState::globeClick(Action *action)
 
 		_txtDebug->setText(ss.str());
 	}
+}
+
+void GeoscapeState::openGlobeTargets(const std::vector<Target*>& targets)
+{
+	// A Separate foreign base is an explicit Basescape shortcut. Craft returning
+	// to that base can temporarily occupy the same globe point; it must not turn
+	// the click into a base/craft target chooser or expose the foreign craft menu.
+	if (_game->getCoopMod()->isSeparateCampaign())
+	{
+		for (Target* target : targets)
+		{
+			Base* base = dynamic_cast<Base*>(target);
+			if (!base || !base->_isForeignBase) continue;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+				if (bases->at(i) == base)
+				{
+					_game->getSavedGame()->setSelectedBase(i);
+					break;
+				}
+			sendCoopFocus(1); // BASES
+			_game->pushState(new BasescapeState(base, _globe));
+			return;
+		}
+	}
+
+	sendCoopFocus(0); // INTERCEPT
+	std::vector<Craft*> crafts;
+	_game->pushState(new MultipleTargetsState(targets, crafts, this, true));
 }
 
 /**

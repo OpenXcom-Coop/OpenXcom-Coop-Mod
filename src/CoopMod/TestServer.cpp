@@ -2409,10 +2409,13 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else if (!target) resp["error"] = "base not found: " + baseName;
 		else
 		{
-			// Exercise the real one-target globe popup routing used by globeClick.
+			// Exercise the same routing as a real globe click. Optionally include a
+			// craft on the marker to reproduce the post-mission overlap regression.
 			std::vector<Target*> targets(1, target);
-			std::vector<Craft*> crafts;
-			_game->pushState(new MultipleTargetsState(targets, crafts, geo, false));
+			if (req.get("include_craft", false).asBool()
+				&& !target->getCrafts()->empty())
+				targets.push_back(target->getCrafts()->front());
+			geo->openGlobeTargets(targets);
 			resp["ok"] = true;
 		}
 	}
@@ -3897,7 +3900,11 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "separate_profile_state")
 	{
 		SavedGame* sg = _game->getSavedGame();
-		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+		// Read the save's persisted campaign type, not the live network-session
+		// flag. load_raw intentionally creates no co-op connection, but migration
+		// tests still need to inspect the loaded Separate profiles.
+		if (!sg || !sg->isCoopSave()
+			|| sg->getCampaignType() != CoopCampaignType::Separate)
 			resp["error"] = "no Separate campaign";
 		else
 		{
@@ -3907,11 +3914,17 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				Json::Value player;
 				player["name"] = entry.first;
 				player["faction"] = entry.second.faction;
+				player["fundsCount"] = static_cast<int>(entry.second.funds.size());
+				player["funds"] = entry.second.funds.empty()
+					? Json::Value::Int64(0) : Json::Value::Int64(entry.second.funds.back());
+				for (const auto& status : entry.second.ufopediaRuleStatus)
+					player["ufopediaRuleStatus"][status.first] = status.second;
 				for (const auto& research : entry.second.completedResearch)
 					player["completedResearch"].append(research);
 				players.append(player);
 			}
 			resp["players"] = players;
+			resp["worldFundsCount"] = static_cast<int>(sg->getFundsList().size());
 			resp["researchSharingEnabled"] = sg->getSeparateCampaign().isResearchSharingEnabled();
 			resp["differentFactions"] = sg->getSeparateCampaign().haveDifferentFactions();
 			resp["ok"] = true;
@@ -3941,6 +3954,33 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "separate_ufopedia_status")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		const std::string rule = req.get("rule", "STR_MEDI_KIT").asString();
+		if (!sg || !sg->isCoopSave()
+			|| sg->getCampaignType() != CoopCampaignType::Separate)
+			resp["error"] = "no Separate campaign";
+		else
+		{
+			if (req.isMember("status"))
+				SeparateEcon::setUfopediaRuleStatus(
+					_game, rule, req["status"].asInt());
+			resp["localStatus"] = sg->getUfopediaRuleStatus(rule);
+			Json::Value players(Json::objectValue);
+			for (const auto& entry : sg->getSeparateCampaign().getPlayers())
+			{
+				int status = 0;
+				if (sg->getSeparateCampaign().getUfopediaRuleStatus(
+					entry.first, rule, status))
+					players[entry.first] = status;
+				else
+					players[entry.first] = Json::Value(Json::nullValue);
+			}
+			resp["players"] = players;
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "separate_profile_roundtrip")
 	{
 		SavedGame* sg = _game->getSavedGame();
@@ -3962,6 +4002,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				player["faction"] = entry.second.faction;
 				for (const auto& research : entry.second.completedResearch)
 					player["completedResearch"].append(research);
+				for (const auto& status : entry.second.ufopediaRuleStatus)
+					player["ufopediaRuleStatus"][status.first] = status.second;
 				players.append(player);
 			}
 			resp["players"] = players;
@@ -8682,6 +8724,7 @@ std::string TestServer::execute(const std::string& line)
 					cj["items"] = citems;
 					Json::Value vehicles(Json::objectValue);
 					Json::Value vehicleSeats(Json::objectValue);
+					Json::Value vehicleOwners(Json::objectValue);
 					for (const Vehicle* vehicle : *c->getVehicles())
 						if (vehicle && vehicle->getRules())
 						{
@@ -8696,9 +8739,13 @@ std::string TestServer::execute(const std::string& line)
 							}
 							const int vehicleSeat = vehicle->getCoop() == 1 ? 1 : 0;
 							seats[vehicleSeat] = seats[vehicleSeat].asInt() + 1;
+							Json::Value& owners = vehicleOwners[vehicle->getRules()->getType()];
+							if (!owners.isArray()) owners = Json::Value(Json::arrayValue);
+							owners.append(vehicle->getOwnerPlayerName());
 						}
 					cj["vehicles"] = vehicles;
 					cj["vehicleSeats"] = vehicleSeats;
+					cj["vehicleOwners"] = vehicleOwners;
 					// the co-op item manifest. BattlescapeGenerator::placeItemByLayout
 					// refuses to auto-place any base-inventory item matching an entry
 					// here, so a colliding entry silently strips a soldier's weapon

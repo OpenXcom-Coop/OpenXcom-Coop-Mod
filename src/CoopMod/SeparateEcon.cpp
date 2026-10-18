@@ -79,34 +79,93 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 	return msg;
 }
 
-std::string vehicleCraftKey(const Craft* craft)
+int seatForPlayerName(const std::string& playerName)
 {
-	if (!craft || !craft->getBase()) return std::string();
-	return craft->getBase()->getOwnerPlayerName() + ":"
-		+ std::to_string(craft->getBase()->_coop_base_id) + ":"
-		+ craft->getRules()->getType() + ":" + std::to_string(craft->getId());
+	if (playerName.empty()) return -1;
+	for (int seat = 0; seat < connectionTCP::seatCount(); ++seat)
+	{
+		const std::string name = connectionTCP::seatName(seat);
+		if (name == playerName) return seat;
+	}
+	return -1;
 }
 
-void rebuildVehicleSelections(Game* game, Craft* craft, const RuleItem* item)
+void reconcileVehicleOwners(Craft* craft)
 {
-	if (!game || !game->getSavedGame() || !craft || !item) return;
-	SavedGame* save = game->getSavedGame();
-	const std::string key = vehicleCraftKey(craft);
-	for (const std::string& player : save->getCoopPlayers())
-		save->getSeparateCampaign().setVehicleSelection(
-			player, key, item->getType(), 0);
-	std::map<int, int> counts;
+	if (!craft || !craft->getBase()) return;
+	const std::string baseOwner = craft->getBase()->getOwnerPlayerName();
 	for (Vehicle* vehicle : *craft->getVehicles())
-		if (vehicle && vehicle->getRules() == item)
-			++counts[vehicle->getCoop()];
-	for (const auto& count : counts)
 	{
-		const std::string player = connectionTCP::seatName(count.first);
-		if (!player.empty())
-			save->getSeparateCampaign().setVehicleSelection(
-				player, key, item->getType(), count.second);
+		if (!vehicle) continue;
+		if (vehicle->getOwnerPlayerName().empty())
+		{
+			// Vehicles from saves predating named ownership belong to the base
+			// owner. This is stable across reconnects, unlike the old seat value.
+			const std::string legacyOwner = !baseOwner.empty()
+				? baseOwner : connectionTCP::seatName(vehicle->getCoop());
+			vehicle->setOwnerPlayerName(legacyOwner);
+		}
+		const int seat = seatForPlayerName(vehicle->getOwnerPlayerName());
+		if (seat >= 0) vehicle->setCoop(seat);
 	}
 }
+}
+
+void synchronizeVehicleOwners(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !save->isCoopSave()
+		|| save->getCampaignType() != CoopCampaignType::Separate)
+	{
+		return;
+	}
+	for (Base* base : *save->getBases())
+		if (base)
+			for (Craft* craft : *base->getCrafts())
+				reconcileVehicleOwners(craft);
+}
+
+void trimInitialCraftCrews(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !save->isCoopSave()
+		|| save->getCampaignType() != CoopCampaignType::Separate
+		|| save->getMonthsPassed() != -1)
+	{
+		return;
+	}
+	const int playerCount = std::max(1,
+		static_cast<int>(save->getCoopPlayers().size()));
+	for (Base* base : *save->getBases())
+	{
+		if (!base || base->getOwnerPlayerName().empty()) continue;
+		const int ownerSeat = seatForPlayerName(base->getOwnerPlayerName());
+		if (ownerSeat < 0) continue;
+		for (Craft* craft : *base->getCrafts())
+		{
+			if (!craft || craft->getMaxUnitsClamped() <= 0) continue;
+			const int capacity = craft->getMaxUnitsClamped();
+			// Divide odd capacities without creating extra physical places: the
+			// first seats receive the remainder, all others receive the floor.
+			const int quota = capacity / playerCount
+				+ (ownerSeat < capacity % playerCount ? 1 : 0);
+			int used = craft->getSpaceUsedByOwner(ownerSeat);
+			if (used <= quota) continue;
+			for (auto it = base->getSoldiers()->rbegin();
+				it != base->getSoldiers()->rend() && used > quota; ++it)
+			{
+				Soldier* soldier = *it;
+				if (!soldier || soldier->getCraft() != craft
+					|| soldier->getOwnerPlayerId() != ownerSeat)
+				{
+					continue;
+				}
+				used -= soldier->getArmor()->getTotalSize();
+				soldier->setCraft(nullptr);
+			}
+			craft->resetCustomDeployment();
+		}
+	}
 }
 
 int normalizeSoldierIds(Game* game)
@@ -207,6 +266,20 @@ int localPlayerMaintenance(Game* game)
 
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
+	if (state == "separate_ufopedia_status")
+	{
+		if (game && game->getCoopMod() && game->getCoopMod()->getServerOwner()
+			&& game->getSavedGame())
+		{
+			const std::string rule = obj.get("rule", "").asString();
+			const int status = obj.get("status", 0).asInt();
+			const std::string player = game->getCoopMod()->getCurrentClientName();
+			if (!player.empty() && !rule.empty() && status >= 0 && status <= 2)
+				game->getSavedGame()->getSeparateCampaign().setUfopediaRuleStatus(
+					player, rule, status);
+		}
+		return true;
+	}
 	if (state == "separate_geoscape_event")
 	{
 		if (game && game->getCoopMod() && !game->getCoopMod()->getServerOwner()
@@ -311,6 +384,20 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 	return false;
 }
 
+void setUfopediaRuleStatus(Game* game, const std::string& rule, int status)
+{
+	if (!game || !game->getSavedGame() || rule.empty()) return;
+	game->getSavedGame()->setUfopediaRuleStatus(rule, status);
+	if (!game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign()
+		|| game->getCoopMod()->getServerOwner())
+		return;
+	Json::Value msg;
+	msg["state"] = "separate_ufopedia_status";
+	msg["rule"] = rule;
+	msg["status"] = status;
+	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+}
+
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	const Json::Value& payload)
 {
@@ -386,6 +473,18 @@ bool showResearchCompletion(Game* game, const Base* base)
 	// receive the same completion dialog as Shared Campaign. In private mode the
 	// host still simulates every base, but only that base's owner is notified.
 	return game->getCoopMod()->_enable_research_sync || !base->_isForeignBase;
+}
+
+bool showBaseNotification(Game* game, const Base* base)
+{
+	if (!game || !base || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign())
+		return true;
+	const std::string localName = connectionTCP::seatName(connectionTCP::localSeat());
+	const std::string ownerName = base->getOwnerPlayerName();
+	// Current Separate saves always have a persistent name. Keep _isForeignBase
+	// only as a safe fallback for an old save while it is being upgraded.
+	return ownerName.empty() ? !base->_isForeignBase : ownerName == localName;
 }
 
 bool consumeSharedResearchItem(Game* game, Base* projectBase,
@@ -510,20 +609,12 @@ int vehicleSelectionCount(Game* game, Craft* craft,
 {
 	if (!game || !game->getSavedGame() || !craft) return 0;
 	const std::string player = connectionTCP::seatName(seat);
-	CampaignData& profiles = game->getSavedGame()->getSeparateCampaign();
-	const std::string key = vehicleCraftKey(craft);
-	int selected = profiles.getVehicleSelection(player, key, itemType);
-	if (selected == 0)
-	{
-		// Safe upgrade for saves created before vehicleSelections: Vehicle::coop
-		// already persisted the controlling seat, so reconstruct the profile.
-		for (const Vehicle* vehicle : *craft->getVehicles())
-			if (vehicle && vehicle->getRules()->getType() == itemType
-				&& vehicle->getCoop() == seat)
-				++selected;
-		if (selected > 0)
-			profiles.setVehicleSelection(player, key, itemType, selected);
-	}
+	reconcileVehicleOwners(craft);
+	int selected = 0;
+	for (const Vehicle* vehicle : *craft->getVehicles())
+		if (vehicle && vehicle->getRules()->getType() == itemType
+			&& vehicle->getOwnerPlayerName() == player)
+			++selected;
 	return selected;
 }
 
@@ -543,8 +634,11 @@ void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
 
 	ItemContainer* store = base->getStorageItems();
 	const int current = vehicleSelectionCount(game, craft, item->getType(), seat);
+	const std::string playerName = connectionTCP::seatName(seat);
 	int target = std::max(0, payload.get("count", 0).asInt());
-	int ownerSeat = base->isOwnedByPlayer(connectionTCP::seatName(1)) ? 1 : 0;
+	const std::string ownerPlayerName = base->getOwnerPlayerName();
+	int ownerSeat = seatForPlayerName(ownerPlayerName);
+	if (ownerSeat < 0) ownerSeat = 0;
 	if (target > current)
 	{
 		const int requestedAdd = target - current;
@@ -563,6 +657,7 @@ void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
 			if (ammo && ammoPerVehicle > 0)
 				store->removeItem(ammo, ammoPerVehicle);
 			Vehicle* vehicle = new Vehicle(item, item->getVehicleClipSize(), size);
+			vehicle->setOwnerPlayerName(playerName);
 			vehicle->setCoop(seat);
 			craft->getVehicles()->push_back(vehicle);
 		}
@@ -572,8 +667,9 @@ void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
 			int claim = requestedAdd - add;
 			for (Vehicle* vehicle : *craft->getVehicles())
 				if (claim > 0 && vehicle && vehicle->getRules() == item
-					&& vehicle->getCoop() != ownerSeat)
+					&& vehicle->getOwnerPlayerName() != ownerPlayerName)
 				{
+					vehicle->setOwnerPlayerName(ownerPlayerName);
 					vehicle->setCoop(ownerSeat);
 					--claim;
 				}
@@ -587,10 +683,10 @@ void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
 		for (int i = 0; i < remove; ++i)
 		{
 			auto it = std::find_if(craft->getVehicles()->begin(),
-				craft->getVehicles()->end(), [item, seat](Vehicle* vehicle)
+				craft->getVehicles()->end(), [item, &playerName](Vehicle* vehicle)
 				{
 					return vehicle && vehicle->getRules() == item
-						&& vehicle->getCoop() == seat;
+						&& vehicle->getOwnerPlayerName() == playerName;
 				});
 			if (it == craft->getVehicles()->end()) break;
 			delete *it;
@@ -602,14 +698,14 @@ void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
 	}
 	craft->resetCustomDeployment();
 	// Vehicle count alone cannot replicate an owner-priority claim because the
-	// count does not change. The host therefore appends the authoritative seat
-	// allocation, and replicas adopt it after applying the physical inventory.
+	// count does not change. The host therefore appends persistent player names;
+	// replicas derive their current runtime seats from those names.
 	if (connectionTCP::getHost())
 	{
 		Json::Value owners(Json::arrayValue);
 		for (Vehicle* vehicle : *craft->getVehicles())
 			if (vehicle && vehicle->getRules() == item)
-				owners.append(vehicle->getCoop());
+				owners.append(vehicle->getOwnerPlayerName());
 		payload["vehicleOwners"] = owners;
 	}
 	else if (payload["vehicleOwners"].isArray())
@@ -618,9 +714,13 @@ void applyVehicleEquip(Game* game, Json::Value& payload, Base* base, int seat)
 		for (Vehicle* vehicle : *craft->getVehicles())
 			if (vehicle && vehicle->getRules() == item
 				&& index < payload["vehicleOwners"].size())
-				vehicle->setCoop(payload["vehicleOwners"][index++].asInt());
+			{
+				const std::string owner = payload["vehicleOwners"][index++].asString();
+				vehicle->setOwnerPlayerName(owner);
+				const int ownerSeat = seatForPlayerName(owner);
+				if (ownerSeat >= 0) vehicle->setCoop(ownerSeat);
+			}
 	}
-	rebuildVehicleSelections(game, craft, item);
 	payload["count"] = vehicleSelectionCount(game, craft, item->getType(), seat);
 }
 
@@ -803,15 +903,7 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 		playerReader.tryRead("completedResearch", completed);
 		player.completedResearch.insert(completed.begin(), completed.end());
 		playerReader.tryRead("funds", player.funds);
-		for (const auto& selection : playerReader["vehicleSelections"].children())
-		{
-			const std::string craft = selection["craft"].readVal<std::string>("");
-			const std::string item = selection["item"].readVal<std::string>("");
-			const int count = selection["count"].readVal<int>(0);
-			if (!craft.empty() && !item.empty() && count > 0)
-				player.vehicleSelections[craft][item] = count;
-		}
-
+		playerReader["ufopediaRuleStatus"].tryReadVal(player.ufopediaRuleStatus);
 	}
 }
 
@@ -843,21 +935,8 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 		}
 		if (!entry.second.funds.empty())
 			playerWriter.write("funds", entry.second.funds);
-		if (!entry.second.vehicleSelections.empty())
-		{
-			auto selections = playerWriter["vehicleSelections"];
-			selections.setAsSeq();
-			for (const auto& craft : entry.second.vehicleSelections)
-				for (const auto& item : craft.second)
-					if (item.second > 0)
-					{
-						auto selection = selections.write();
-						selection.setAsMap();
-						selection.write("craft", craft.first);
-						selection.write("item", item.first);
-						selection.write("count", item.second);
-					}
-		}
+		if (!entry.second.ufopediaRuleStatus.empty())
+			playerWriter.write("ufopediaRuleStatus", entry.second.ufopediaRuleStatus);
 	}
 }
 
@@ -875,8 +954,28 @@ void CampaignData::ensurePlayerFunds(const std::vector<std::string>& playerNames
 	std::vector<int64_t> initial = legacyFunds;
 	if (initial.empty()) initial.push_back(0);
 	for (const auto& name : playerNames)
-		if (!name.empty() && _players[name].funds.empty())
-			_players[name].funds = initial;
+	{
+		if (name.empty()) continue;
+		std::vector<int64_t>& funds = _players[name].funds;
+		if (funds.empty())
+		{
+			funds = initial;
+		}
+		else if (funds.size() > initial.size())
+		{
+			// Schema-2 player worlds could cross a month boundary at different
+			// times. Schema 3 has one region/country timeline, and GraphsState
+			// indexes those series with the local player's funds-history length.
+			// Keep the newest entries (especially the current balance) and align
+			// the history with the authoritative world's graph timeline.
+			funds.erase(funds.begin(), funds.begin() + (funds.size() - initial.size()));
+		}
+		else if (funds.size() < initial.size())
+		{
+			// Extend the unknown older edge only; never change the current balance.
+			funds.insert(funds.begin(), initial.size() - funds.size(), funds.front());
+		}
+	}
 }
 
 std::vector<int64_t>* CampaignData::getPlayerFunds(const std::string& playerName)
@@ -972,6 +1071,34 @@ bool CampaignData::hasCompletedResearch(const std::string& playerName, const std
 	return player && player->completedResearch.find(research) != player->completedResearch.end();
 }
 
+void CampaignData::setUfopediaRuleStatus(const std::string& playerName,
+	const std::string& rule, int status)
+{
+	if (!playerName.empty() && !rule.empty())
+		_players[playerName].ufopediaRuleStatus[rule] = status;
+}
+
+bool CampaignData::getUfopediaRuleStatus(const std::string& playerName,
+	const std::string& rule, int& status) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	if (!player) return false;
+	auto it = player->ufopediaRuleStatus.find(rule);
+	if (it == player->ufopediaRuleStatus.end()) return false;
+	status = it->second;
+	return true;
+}
+
+void CampaignData::migrateLegacyUfopediaStatus(
+	const std::vector<std::string>& playerNames,
+	const std::map<std::string, int>& status)
+{
+	if (playerNames.empty() || playerNames.front().empty()) return;
+	PlayerState& host = _players[playerNames.front()];
+	if (host.ufopediaRuleStatus.empty())
+		host.ufopediaRuleStatus = status;
+}
+
 bool CampaignData::haveDifferentFactions() const
 {
 	std::string first;
@@ -1011,31 +1138,5 @@ int CampaignData::getFactionDifficulty(const std::string& playerName, int fallba
 	}
 }
 
-int CampaignData::getVehicleSelection(const std::string& playerName,
-	const std::string& craftKey, const std::string& itemType) const
-{
-	const PlayerState* player = getPlayer(playerName);
-	if (!player) return 0;
-	auto craft = player->vehicleSelections.find(craftKey);
-	if (craft == player->vehicleSelections.end()) return 0;
-	auto item = craft->second.find(itemType);
-	return item == craft->second.end() ? 0 : item->second;
-}
-
-void CampaignData::setVehicleSelection(const std::string& playerName,
-	const std::string& craftKey, const std::string& itemType, int count)
-{
-	if (playerName.empty() || craftKey.empty() || itemType.empty()) return;
-	PlayerState& player = _players[playerName];
-	if (count > 0)
-		player.vehicleSelections[craftKey][itemType] = count;
-	else
-	{
-		auto craft = player.vehicleSelections.find(craftKey);
-		if (craft == player.vehicleSelections.end()) return;
-		craft->second.erase(itemType);
-		if (craft->second.empty()) player.vehicleSelections.erase(craft);
-	}
-}
 }
 }

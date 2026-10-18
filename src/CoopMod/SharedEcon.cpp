@@ -2539,7 +2539,7 @@ void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		{
 			fac->setBuildTime(0);
 			GeoscapeState* gs = findGeoState(game);
-			if (gs)
+			if (gs && SeparateEcon::showBaseNotification(game, base))
 				game->pushState(new ProductionCompleteState(
 					base, game->getLanguage()->getString(payload.get("type", "").asString()),
 					gs, PROGRESS_CONSTRUCTION));
@@ -2596,7 +2596,7 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		if (prod->getRules()->getName() == mName)
 		{
 			GeoscapeState* gs = findGeoState(game);
-			if (gs)
+			if (gs && SeparateEcon::showBaseNotification(game, base))
 				game->pushState(new ProductionCompleteState(
 					base, game->getLanguage()->getString(mName), gs,
 					(productionProgress_e)payload.get("progress", PROGRESS_COMPLETE).asInt(),

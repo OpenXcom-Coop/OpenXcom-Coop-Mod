@@ -27,6 +27,56 @@ int countBases(ryml::ConstNodeRef body)
 	return (!bases.invalid() && bases.is_seq()) ? static_cast<int>(bases.num_children()) : 0;
 }
 
+bool hasFunds(ryml::ConstNodeRef body)
+{
+	ryml::ConstNodeRef funds = body.find_child("funds");
+	return !funds.invalid() && funds.is_seq() && funds.num_children() != 0;
+}
+
+void copyScalarSequence(ryml::NodeRef destinationMap, ryml::csubstr destinationKey,
+	ryml::NodeRef sourceSequence)
+{
+	if (sourceSequence.invalid() || !sourceSequence.is_seq() || sourceSequence.num_children() == 0)
+		return;
+	ryml::NodeRef destination = yamlutil::mapChild(destinationMap, destinationKey);
+	destination |= ryml::SEQ;
+	for (ryml::NodeRef value : sourceSequence.children())
+		destination.append_child().set_val(
+			destination.tree()->to_arena(value.val()));
+}
+
+void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::NodeRef sourceBody)
+{
+	ryml::NodeRef player = players.append_child();
+	player |= ryml::MAP;
+	yamlutil::setStr(player, "name", name);
+	// Mod campaigns may use the difficulty selector as the player's faction.
+	// Schema 2 kept that selection in each player's independent world.
+	yamlutil::setStr(player, "faction", "difficulty:"
+		+ std::to_string(getInt(sourceBody, "difficulty", 0)));
+
+	// Preserve the complete history, not merely the current balance. SavedGame
+	// uses the last entry as current funds and the preceding entries in graphs.
+	ryml::NodeRef sourceFunds = sourceBody.find_child("funds");
+	const size_t after = player.num_children() ? player.last_child().id() : ryml::NONE;
+	player.tree()->duplicate(sourceFunds.tree(), sourceFunds.id(), player.id(), after);
+
+	// Old Separate worlds also held their own discovery lists. They provide both
+	// the private completed-research state and the faction snapshot used when
+	// deciding whether a scripted mission is faction-specific.
+	ryml::NodeRef discovered = sourceBody.find_child("discovered");
+	copyScalarSequence(player, "completedResearch", discovered);
+	copyScalarSequence(player, "factionResearch", discovered);
+	ryml::NodeRef pediaStatus = sourceBody.find_child("ufopediaRuleStatus");
+	if (!pediaStatus.invalid() && pediaStatus.is_map())
+	{
+		const size_t pediaAfter = player.num_children()
+			? player.last_child().id() : ryml::NONE;
+		player.tree()->duplicate(
+			pediaStatus.tree(), pediaStatus.id(), player.id(), pediaAfter);
+	}
+}
+
 void tagBaseTree(ryml::NodeRef base, const std::string& ownerName, int ownerSeat)
 {
 	yamlutil::setStr(base, "ownerplayername", ownerName);
@@ -89,6 +139,12 @@ public:
 		if (total > 8)
 			out.warnings.push_back("The separate campaign contains " + std::to_string(total)
 				+ " bases. They will all be preserved, but no new base can be built unless the total falls below 8.");
+		if (!hasFunds(set.host.body()))
+			out.errors.push_back("The host world has no funds history; refusing a lossy merge.");
+		for (const ClientWorld& client : set.clients)
+			if (!hasFunds(client.world.body()))
+				out.errors.push_back("The player world for " + client.name
+					+ " has no funds history; refusing a lossy merge.");
 
 		// A missing blob means part of the old separate campaign is unavailable.
 		// Refuse instead of silently producing a save which loses that player.
@@ -107,6 +163,11 @@ public:
 			set.report.push_back("Schema 3: SHARED campaign already uses one authoritative world.");
 			return;
 		}
+		// Some real intermediate embed saves predate the explicit campaign-type
+		// header even though their coopClientSaves sequence unambiguously identifies
+		// Separate. Stamp the current format instead of relying on a missing-key
+		// default that postflight and future loaders cannot distinguish.
+		setInt(header, "coopCampaignType", 0);
 
 		// Read the roster directly when this run began at schema 2.  A chained
 		// 1->2 run also populated SaveSet::roster in the preceding step.
@@ -150,6 +211,26 @@ public:
 			}
 		}
 
+		// Schema 2 stored a complete SavedGame per player. Schema 3 stores one
+		// strategic world, so retain each world's funds under its named player
+		// profile before the embedded worlds are discarded. Without this, the
+		// loader initializes every profile from the host world's legacy funds.
+		removeKey(hostBody, "separateCampaign");
+		ryml::NodeRef campaign = yamlutil::mapChild(hostBody, "separateCampaign");
+		campaign |= ryml::MAP;
+		setInt(campaign, "version", 3);
+		ryml::NodeRef players = yamlutil::mapChild(campaign, "players");
+		players |= ryml::SEQ;
+		appendPlayerFunds(players, hostName, hostBody);
+		for (size_t i = 0; i < set.clients.size(); ++i)
+		{
+			ClientWorld& client = set.clients[i];
+			const int owner = rosterSeat(set, client, i + 1);
+			const std::string ownerName = owner >= 0 && static_cast<size_t>(owner) < set.roster.size()
+				? set.roster[owner] : client.name;
+			appendPlayerFunds(players, ownerName, client.world.body());
+		}
+
 		removeKey(hostBody, "coopClientSaves");
 		setInt(hostBody, "coop_save_owner_player_id", 0);
 		set.clients.clear(); // emitter must never recreate schema-2 blobs
@@ -157,6 +238,7 @@ public:
 		set.report.push_back("Unified SEPARATE campaign into the host save; imported "
 			+ std::to_string(imported) + " client base(s).");
 		set.report.push_back("All bases now carry unique ownerplayername values; client-world blobs removed.");
+		set.report.push_back("Preserved each player's faction and independent funds history in the unified save.");
 		if (hostBases.num_children() > 8)
 			set.report.push_back("Grandfathered over-cap campaign: all "
 				+ std::to_string(hostBases.num_children())

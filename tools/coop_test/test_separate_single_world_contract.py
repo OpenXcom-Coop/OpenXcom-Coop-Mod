@@ -141,6 +141,8 @@ def main():
     assert "soldier->setOwnerPlayerId(ownerSeat)" in separate_ownership
     assert "seatName(seat) == base->getOwnerPlayerName()" in separate_ownership
     lobby = source("src/CoopMod/LobbyMenu.cpp")
+    assert "_resumeToGame = connectionTCP::session.sessionLocked" in lobby
+    assert "&& (battleRunning || geoRunning)" in lobby
     host_initial = lobby.split("setOwnerPlayerName(_game->getCoopMod()->getHostName())", 1)[1]
     assert "refreshSeparateBaseOwnership();" in host_initial
     saved_game = source("src/Savegame/SavedGame.cpp")

@@ -1707,8 +1707,12 @@ int Craft::getSpaceUsed() const
 int Craft::getSpaceUsedByOwner(int ownerSeat) const
 {
 	int used = 0;
+	const std::string ownerPlayerName = connectionTCP::seatName(ownerSeat);
 	for (const Vehicle* vehicle : _vehicles)
-		if (vehicle && vehicle->getCoop() == ownerSeat)
+		if (vehicle && ((!vehicle->getOwnerPlayerName().empty()
+			&& vehicle->getOwnerPlayerName() == ownerPlayerName)
+			|| (vehicle->getOwnerPlayerName().empty()
+				&& vehicle->getCoop() == ownerSeat)))
 			used += vehicle->getTotalSize();
 	for (const Soldier* soldier : *_base->getSoldiers())
 	{

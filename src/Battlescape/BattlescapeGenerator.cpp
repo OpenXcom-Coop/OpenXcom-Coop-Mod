@@ -777,6 +777,7 @@ void BattlescapeGenerator::run()
 	// Last safety gate before Soldier ids become BattleUnit ids. Lobby/load paths
 	// normally normalize earlier, but scripted mission starts can bypass them.
 	SeparateEcon::normalizeSoldierIds(_game);
+	SeparateEcon::synchronizeVehicleOwners(_game);
 
 	bool isPreview = _save->isPreview();
 

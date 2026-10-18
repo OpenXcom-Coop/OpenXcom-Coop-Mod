@@ -143,7 +143,8 @@ def main(parallel=False):
                  "craft_id": host_craft["id"]})
         host_tank_view = host.ok({"cmd": "craft_equipment_state",
                                   "item": "STR_TANK_CANNON"})
-        assert host_tank_view["craft"] == "0", (
+        # The list renders a zero quantity as an empty cell.
+        assert host_tank_view["craft"] in ("", "0"), (
             host_tank_view,
             host.ok({"cmd": "base_report", "base": "HostBase"}),
             client.ok({"cmd": "base_report", "base": "HostBase"}))
@@ -154,8 +155,11 @@ def main(parallel=False):
         assert owner_claim["moved"], owner_claim
         host.wait_for(
             "host base owner takes priority on the only tank",
-            lambda: (lambda c: c if c["vehicleSeats"].get(
-                "STR_TANK_CANNON", [0, 0]) == [1, 0] else None)(next(
+            lambda: (lambda c: c if (
+                c["vehicleSeats"].get("STR_TANK_CANNON", [0, 0]) == [1, 0]
+                and c["vehicleOwners"].get("STR_TANK_CANNON", [])
+                == ["HostPlayer"]
+            ) else None)(next(
                 c for c in host.ok({"cmd": "base_report", "base": "HostBase"})["crafts"]
                 if c["id"] == host_craft["id"])),
             timeout=30, interval=0.3)
@@ -170,8 +174,11 @@ def main(parallel=False):
         try:
             host.wait_for(
                 "two tanks satisfy host and client selections",
-                lambda: (lambda c: c if c["vehicleSeats"].get(
-                    "STR_TANK_CANNON", [0, 0]) == [1, 1] else None)(next(
+                lambda: (lambda c: c if (
+                    c["vehicleSeats"].get("STR_TANK_CANNON", [0, 0]) == [1, 1]
+                    and sorted(c["vehicleOwners"].get("STR_TANK_CANNON", []))
+                    == ["ClientPlayer", "HostPlayer"]
+                ) else None)(next(
                     c for c in host.ok({"cmd": "base_report", "base": "HostBase"})["crafts"]
                     if c["id"] == host_craft["id"])),
                 timeout=30, interval=0.3)

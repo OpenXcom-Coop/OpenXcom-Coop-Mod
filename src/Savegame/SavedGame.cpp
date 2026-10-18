@@ -573,6 +573,8 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 
 	reader.tryRead("generatedEvents", _generatedEvents);
 	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.migrateLegacyUfopediaStatus(_coopPlayers, _ufopediaRuleStatus);
 	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
 	reader.tryRead("researchRuleStatus", _researchRuleStatus);
 	reader.tryRead("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
@@ -1123,6 +1125,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	reader.tryRead("generatedEvents", _generatedEvents);
 	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+		_separateCampaign.migrateLegacyUfopediaStatus(_coopPlayers, _ufopediaRuleStatus);
 	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
 	reader.tryRead("researchRuleStatus", _researchRuleStatus);
 	reader.tryRead("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
@@ -2691,6 +2695,12 @@ void SavedGame::setBattleGame(SavedBattleGame *battleGame)
  */
 void SavedGame::setUfopediaRuleStatus(const std::string &ufopediaRule, int newStatus)
 {
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+	{
+		_separateCampaign.setUfopediaRuleStatus(
+			getSeparateFundsContextPlayer(), ufopediaRule, newStatus);
+		return;
+	}
 	_ufopediaRuleStatus[ufopediaRule] = newStatus;
 }
 
@@ -3497,6 +3507,18 @@ void SavedGame::getDependableFacilities(std::vector<RuleBaseFacility *> & depend
  */
 int SavedGame::getUfopediaRuleStatus(const std::string &ufopediaRule)
 {
+	if (_coop && _campaignType == CoopCampaignType::Separate)
+	{
+		int status = 0;
+		if (_separateCampaign.getUfopediaRuleStatus(
+			getSeparateFundsContextPlayer(), ufopediaRule, status))
+			return status;
+		// Rule-defined hidden entries are common policy. Legacy NORMAL entries,
+		// however, are host read marks and must not make the client see them read.
+		auto legacy = _ufopediaRuleStatus.find(ufopediaRule);
+		return legacy != _ufopediaRuleStatus.end() && legacy->second == 2
+			? legacy->second : 0;
+	}
 	return _ufopediaRuleStatus[ufopediaRule];
 }
 

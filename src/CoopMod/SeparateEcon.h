@@ -36,7 +36,7 @@ public:
 		std::set<std::string> factionResearch;
 		std::set<std::string> completedResearch;
 		std::vector<int64_t> funds;
-		std::map<std::string, std::map<std::string, int> > vehicleSelections;
+		std::map<std::string, int> ufopediaRuleStatus;
 	};
 private:
 	std::map<std::string, PlayerState> _players;
@@ -71,23 +71,33 @@ public:
 	bool removeCompletedResearch(const std::string& playerName, const std::string& research);
 	bool completeResearch(const std::string& playerName, const std::string& research);
 	bool hasCompletedResearch(const std::string& playerName, const std::string& research) const;
+	void setUfopediaRuleStatus(const std::string& playerName,
+		const std::string& rule, int status);
+	bool getUfopediaRuleStatus(const std::string& playerName,
+		const std::string& rule, int& status) const;
+	void migrateLegacyUfopediaStatus(const std::vector<std::string>& playerNames,
+		const std::map<std::string, int>& status);
 	bool haveDifferentFactions() const;
 	std::string nextMissionOwner(const std::vector<std::string>& playerNames);
 	int getFactionDifficulty(const std::string& playerName, int fallback) const;
-	int getVehicleSelection(const std::string& playerName,
-		const std::string& craftKey, const std::string& itemType) const;
-	void setVehicleSelection(const std::string& playerName,
-		const std::string& craftKey, const std::string& itemType, int count);
 };
 
 /// Give every live soldier in Separate's unified world a globally unique id.
 /// Returns the number of legacy/player-local collisions that were upgraded.
 int normalizeSoldierIds(Game* game);
+/// Resolve persistent vehicle player names to the current runtime seats.
+/// This must run after loading/rejoining and before a tactical deployment.
+void synchronizeVehicleOwners(Game* game);
+/// Apply Separate's per-player craft quota to template-assigned starting crews.
+/// Only acts while a newly created campaign is still at month -1.
+void trimInitialCraftCrews(Game* game);
 /// Sum monthly maintenance for bases owned by this local Separate player.
 int localPlayerMaintenance(Game* game);
 /// Sum monthly maintenance for bases owned by the named Separate player.
 int playerMaintenance(Game* game, const std::string& playerName);
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj);
+/// Store a local player's Ufopaedia mark and persist client changes on the host.
+void setUfopediaRuleStatus(Game* game, const std::string& rule, int status);
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	const Json::Value& payload);
 int baseIndex(Game* game, const Base* base);
@@ -102,6 +112,9 @@ bool showMissionTargetOwner(Game* game);
 /// Whether this local seat should see a completion popup for this base.
 /// Shared Research notifies both seats; private research only the base owner.
 bool showResearchCompletion(Game* game, const Base* base);
+/// Whether this local seat owns a base-scoped notification (production,
+/// construction, and owner-less legacy arrivals).
+bool showBaseNotification(Game* game, const Base* base);
 /// Consume a Shared Research prerequisite from whichever Separate base owns it.
 bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	const RuleResearch* research);

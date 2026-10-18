@@ -56,6 +56,9 @@ protected:
 	/// sits on the stack underneath). The action button becomes RESUME GAME and just
 	/// returns to the live game instead of leaving disconnect as the only option.
 	bool _resumeToGame = false;
+	/// Campaign seat names come from the locked save roster. The connection
+	/// name fields are machine-relative and are only a pre-roster fallback.
+	std::string campaignSeatName(int seat) const;
 	/// Playtest B7: pop the coop-menu states back down to the running game geoscape.
 	void returnToRunningGame();
 	int _countdown = 30; // seconds

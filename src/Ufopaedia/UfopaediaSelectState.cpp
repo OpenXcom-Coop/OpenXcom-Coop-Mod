@@ -33,6 +33,7 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
 #include "../Savegame/SavedGame.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -150,7 +151,7 @@ namespace OpenXcom
 			// only switch between hidden and not hidden
 			newState = (oldState == ArticleDefinition::PEDIA_STATUS_HIDDEN) ? ArticleDefinition::PEDIA_STATUS_NORMAL : ArticleDefinition::PEDIA_STATUS_HIDDEN;
 		}
-		_game->getSavedGame()->setUfopediaRuleStatus(rule, newState);
+		SeparateEcon::setUfopediaRuleStatus(_game, rule, newState);
 
 		if (newState == ArticleDefinition::PEDIA_STATUS_HIDDEN)
 		{
@@ -280,7 +281,8 @@ namespace OpenXcom
 			if (markAllAsSeen)
 			{
 				// remember all listed articles as seen/normal
-				_game->getSavedGame()->setUfopediaRuleStatus(articleDef->id, ArticleDefinition::PEDIA_STATUS_NORMAL);
+				SeparateEcon::setUfopediaRuleStatus(
+					_game, articleDef->id, ArticleDefinition::PEDIA_STATUS_NORMAL);
 			}
 			else
 			{

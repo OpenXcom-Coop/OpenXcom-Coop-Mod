@@ -893,10 +893,14 @@ BattlescapeState::BattlescapeState() :
 
 	}
 
-	// coop fix
+	// A deployment preview is a local inspection tool, not a network battle.
+	// Never inherit the client's previous/off-turn state: doing so hid the local
+	// soldier UI and rejected movement with STR_COOP_TURN_OVER. Both host and
+	// client must enter every base/craft preview as an immediately playable view.
 	if (_save->isPreview() == true && _game->getCoopMod()->getCoopStatic() == true)
 	{
-		_game->getCoopMod()->setPlayerTurn(2);
+		_game->getCoopMod()->setPlayerTurn(0);
+		_battleGame->isYourTurn = 0;
 	}
 
 }
@@ -2270,7 +2274,7 @@ void BattlescapeState::mapClick(Action *action)
 			// coop: PRD-P5's temporary parallel input gate is gone from here -
 			// PRD-P6 lets the click through and BattlescapeGame::secondaryAction
 			// turns it into an `action_intent` on the client instead of a turn.
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+			if (!_save->isPreview() && (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 			{
 				return;
 			}
@@ -2282,7 +2286,7 @@ void BattlescapeState::mapClick(Action *action)
 			// Off-turn left clicks must not call primaryAction, but the local gift
 			// selection above has still been updated. On our own turn the same click
 			// also proceeds through the normal unit/action selection path.
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+			if (!_save->isPreview() && (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 			{
 				return;
 			}
@@ -4045,6 +4049,11 @@ void BattlescapeState::btnNightVisionClick(Action *action)
  */
 bool BattlescapeState::playableUnitSelected()
 {
+	// Previews are local and deliberately do not participate in co-op ownership
+	// or active-turn arbitration. This also lets a client inspect either its own
+	// or another player's base using the standard preview soldier.
+	if (_save->isPreview())
+		return _save->getSelectedUnit() != 0 && allowButtons();
 
 	// coop
 	if (_save->getSelectedUnit())
@@ -4080,7 +4089,7 @@ void BattlescapeState::drawItem(BattleItem* item, Surface* hand, std::vector<Num
 	hand->clear();
 
 	// coop
-	if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+	if (!_save->isPreview() && (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 		return; // coop
 
 
