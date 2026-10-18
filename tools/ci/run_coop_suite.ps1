@@ -12,10 +12,16 @@
 #   ./tools/ci/run_coop_suite.ps1                                   # whole suite
 #   ./tools/ci/run_coop_suite.ps1 -PlanFile p.json -Shard 2         # one shard
 #   ./tools/ci/run_coop_suite.ps1 -PlanFile p.json -Shard 2 -ListOnly
+#
+# -LogDir <dir> (local runs, tools/ci/run_local_suite.ps1) also writes each test's stdout +
+# stderr to <dir>/<test>.log; without it the child inherits the console exactly as before.
+# -TimingsOut is rewritten after every test, so a shard cancelled mid-run (the CI job cap)
+# still leaves the PASS timings it measured.
 param(
   [string]$PlanFile,
   [int]$Shard,
   [string]$TimingsOut,
+  [string]$LogDir,
   [switch]$ListOnly
 )
 $ErrorActionPreference = "Stop"
@@ -126,6 +132,74 @@ function Invoke-BudgetedTest {
   return [pscustomobject]@{ Rc = 124; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); TimedOut = $true }
 }
 
+# -LogDir only: Invoke-BudgetedTest with the child's stdout / stderr read line by line and
+# written both to this console (stdout / stderr as before) and to $LogPath. Same budget,
+# hard-kill and result shape. After the test exits, a game it left running may still hold
+# the pipes open, so reading stops 10 s after the exit at the latest.
+function Invoke-LoggedTest {
+  param([string]$Exe, [string]$TestPath, [int]$HardKillMs, [string]$LogPath)
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName               = $Exe
+  $psi.Arguments              = '"' + $TestPath + '"'
+  $psi.UseShellExecute        = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError  = $true
+  $log = New-Object System.IO.StreamWriter($LogPath, $false, (New-Object System.Text.UTF8Encoding($false)))
+  $log.AutoFlush = $true
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  $p  = [System.Diagnostics.Process]::Start($psi)
+  $readers = @($p.StandardOutput, $p.StandardError)
+  $sinks   = @([Console]::Out, [Console]::Error)
+  $tasks   = @($readers[0].ReadLineAsync(), $readers[1].ReadLineAsync())
+  $exitAt  = $null
+  $killAt  = $null
+  try {
+    while ($true) {
+      $live = @(0, 1 | Where-Object { $null -ne $tasks[$_] })
+      if (-not $live.Count) { break }
+      [void][System.Threading.Tasks.Task]::WaitAny([System.Threading.Tasks.Task[]]@($live | ForEach-Object { $tasks[$_] }), 100)
+      foreach ($i in $live) {
+        if (-not $tasks[$i].IsCompleted) { continue }
+        $line = $tasks[$i].Result
+        if ($null -eq $line) { $tasks[$i] = $null; continue }
+        $sinks[$i].WriteLine($line)
+        $log.WriteLine($line)
+        $tasks[$i] = $readers[$i].ReadLineAsync()
+      }
+      if ($null -eq $exitAt -and $p.HasExited) { $exitAt = $sw.Elapsed }
+      if ($null -eq $exitAt -and $null -eq $killAt -and $sw.ElapsedMilliseconds -ge $HardKillMs) {
+        $killAt = $sw.Elapsed
+        if ($env:OS -eq "Windows_NT") {
+          & taskkill /F /T /PID $p.Id > $null 2>&1
+        } else {
+          try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch {}
+        }
+      }
+      if ($null -ne $exitAt -and ($sw.Elapsed - $exitAt).TotalSeconds -ge 10) { break }
+      if ($null -ne $killAt -and ($sw.Elapsed - $killAt).TotalSeconds -ge 15) { break }
+    }
+  } finally {
+    $log.Close()
+  }
+  if ($null -ne $killAt) {
+    try { $p.WaitForExit(15000) | Out-Null } catch {}
+    return [pscustomobject]@{ Rc = 124; Seconds = [math]::Round($killAt.TotalSeconds, 1); TimedOut = $true }
+  }
+  return [pscustomobject]@{ Rc = $p.ExitCode; Seconds = [math]::Round($exitAt.TotalSeconds, 1); TimedOut = $false }
+}
+
+# Feeds the next run's plan. PASSes only: a failing test bails out early and its
+# duration says nothing about how long the test actually takes. Written through a
+# temp file so a reader never sees half a file.
+function Write-ShardTimings {
+  $timings = [ordered]@{}
+  foreach ($r in ($results | Where-Object { $_.Status -eq "PASS" } | Sort-Object Test)) { $timings[$r.Test] = $r.Seconds }
+  $timings | ConvertTo-Json -Depth 2 | Set-Content "$TimingsOut.tmp" -Encoding utf8
+  Move-Item -LiteralPath "$TimingsOut.tmp" -Destination $TimingsOut -Force
+  return $timings.Count
+}
+if ($LogDir) { New-Item -ItemType Directory -Force $LogDir | Out-Null }
+
 $results = @()
 $fail = 0
 foreach ($t in $tests) {
@@ -133,7 +207,8 @@ foreach ($t in $tests) {
   $budget   = if ($budgetMap.ContainsKey($t)) { $budgetMap[$t] } else { $defaultBudget }
   $hardMs   = [int][math]::Ceiling($budget * $hardKillMult * 1000.0)
 
-  $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs
+  $r = if ($LogDir) { Invoke-LoggedTest $pythonExe $testPath $hardMs (Join-Path $LogDir "$t.log") }
+       else         { Invoke-BudgetedTest $pythonExe $testPath $hardMs }
   $attempts = 1   # one attempt per test, never a retry: a rerun hides a flaky test (D61, WV-D101)
   $rc         = $r.Rc
   $secs       = $r.Seconds
@@ -170,15 +245,12 @@ foreach ($t in $tests) {
   if ($reason -and $status -eq "FAIL") { Write-Host "::error::$reason" }
 
   $results += [pscustomobject]@{ Test = $t; Status = $status; Seconds = $secs; Attempts = $attempts; Rc = $rc; Budget = $budget; OverBudget = $overBudget; TimedOut = $timedOut }
+  if ($TimingsOut) { $null = Write-ShardTimings }
 }
 
-# Feeds the next run's plan. PASSes only: a failing test bails out early and its
-# duration says nothing about how long the test actually takes.
 if ($TimingsOut) {
-  $timings = [ordered]@{}
-  foreach ($r in ($results | Where-Object { $_.Status -eq "PASS" } | Sort-Object Test)) { $timings[$r.Test] = $r.Seconds }
-  $timings | ConvertTo-Json -Depth 2 | Set-Content $TimingsOut -Encoding utf8
-  Write-Host "wrote $($timings.Count) timing(s) to $TimingsOut"
+  $n = Write-ShardTimings
+  Write-Host "wrote $n timing(s) to $TimingsOut"
 }
 
 # Duration table on the Actions run Summary page, slowest first, so the tests
