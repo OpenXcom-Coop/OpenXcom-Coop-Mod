@@ -1,10 +1,11 @@
 # Splits the coop suite into N shards of roughly equal RUNTIME (not equal test count)
 # and writes the assignment to a JSON plan the shard jobs consume.
 #
-# Weights come from the previous CI run's measured durations, restored from the
-# Actions cache (-Timings); tools/ci/test_weights.json is the checked-in fallback for
-# a cold cache. A test with no recorded weight (i.e. one added since the last run)
-# gets the median, which is close enough - greedy LPT tolerates large weight error.
+# Weights: the checked-in tools/ci/test_weights.json, with the previous CI run's measured
+# durations (-Timings, restored from the Actions cache) laid on top: a cached time wins
+# for the tests it has, the checked-in weights fill the rest (a cache restored from
+# another branch lacks the tests this branch added). A test in neither file gets the
+# median, which is close enough - greedy LPT tolerates large weight error.
 #
 # The plan is computed ONCE per run, here, and handed to every shard, so all shards
 # agree on the split even if a concurrent run refreshes the cache mid-flight.
@@ -23,15 +24,15 @@ $tests = Get-ChildItem (Join-Path $testDir "boot_check.py"), (Join-Path $testDir
          Select-Object -ExpandProperty BaseName | Sort-Object
 
 $weights = @{}
-$source = "none"
-foreach ($f in @($Timings, (Join-Path (Get-Location) "tools/ci/test_weights.json"))) {
+$inputs = @()
+foreach ($f in @((Join-Path (Get-Location) "tools/ci/test_weights.json"), $Timings)) {
   if ($f -and (Test-Path $f)) {
     (Get-Content $f -Raw | ConvertFrom-Json).PSObject.Properties |
       ForEach-Object { $weights[$_.Name] = [double]$_.Value }
-    $source = $f
-    break
+    $inputs += $f
   }
 }
+$source = if ($inputs.Count) { $inputs -join " + " } else { "none" }
 
 $known = @($tests | Where-Object { $weights.ContainsKey($_) } | ForEach-Object { $weights[$_] })
 $median = if ($known.Count) { ($known | Sort-Object)[[int]($known.Count / 2)] } else { 10.0 }

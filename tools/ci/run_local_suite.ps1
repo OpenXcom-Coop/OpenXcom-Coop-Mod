@@ -11,9 +11,9 @@
 #   ./tools/ci/run_local_suite.ps1 -Out <dir> -Only test_a,test_b            # just these tests, planned the same way
 #   ./tools/ci/run_local_suite.ps1 -Out <dir> -Shards 2 -SlotBase 4 -Timings <json>
 #
-# -Timings is the planner's weights input (CI: the restored timings cache). Default: the newest
-# timings-merged.json in a sibling directory of -Out, else none, so plan_shards.ps1 falls back to
-# tools/ci/test_weights.json exactly as CI does on a cold cache. The merge uses the same file as
+# -Timings is the planner's measured-times input, laid over tools/ci/test_weights.json (CI: the
+# restored timings cache). Default: the newest timings-merged.json in a sibling directory of -Out,
+# else none, so plan_shards.ps1 uses tools/ci/test_weights.json alone exactly as CI does on a cold cache. The merge uses the same file as
 # its previous value (CI: -Prev .ci_timings/timings.json). An -Only run's timings-merged.json holds
 # only its own tests plus that previous value, so keep -Only runs out of a full run's parent dir
 # (or pass -Timings).
@@ -120,11 +120,15 @@ if (-not $onlyNames.Count) {
   foreach ($n in (@($onlyNames) + @("boot_check") | Sort-Object -Unique)) {
     New-Item -ItemType File -Force (Join-Path $stub "tools\coop_test\$n.py") | Out-Null
   }
-  # The weights the planner would read in the repo: the -Timings file if it exists, else test_weights.json.
-  $wSrc = if ($timingsUsable) { $Timings } else { Join-Path $repo "tools\ci\test_weights.json" }
+  # The weights the planner would read in the repo: test_weights.json with the -Timings file (if it
+  # exists) on top. boot_check's 0 goes into the file the planner reads last, so it wins.
+  $wRepo = Join-Path $repo "tools\ci\test_weights.json"
+  $wBase = Join-Path $stub "tools\ci\test_weights.json"
+  if ($timingsUsable -and (Test-Path -LiteralPath $wRepo)) { Copy-Item -LiteralPath $wRepo -Destination $wBase }
+  $wSrc = if ($timingsUsable) { $Timings } else { $wRepo }
   $w = Get-Content -LiteralPath $wSrc -Raw | ConvertFrom-Json
   if ($onlyNames -notcontains "boot_check") { $w | Add-Member -NotePropertyName "boot_check" -NotePropertyValue 0.0 -Force }
-  $wStub = if ($timingsUsable) { Join-Path $stub "weights.json" } else { Join-Path $stub "tools\ci\test_weights.json" }
+  $wStub = if ($timingsUsable) { Join-Path $stub "weights.json" } else { $wBase }
   $w | ConvertTo-Json -Depth 2 | Set-Content -LiteralPath $wStub -Encoding utf8
   $stubPlan = Join-Path $stub "plan.json"
   Invoke-Planner $stub $(if ($timingsUsable) { $wStub } else { "" }) $stubPlan
@@ -134,7 +138,7 @@ if (-not $onlyNames.Count) {
   $runShards["not-run"] = @($tests | Where-Object { $onlyNames -notcontains $_ })
   $runPlan = [ordered]@{
     of      = $Shards
-    source  = "$($sp.source) (-Only stub tree; the weights of $wSrc)"
+    source  = "$($sp.source) (-Only stub tree; the weights of $(if ($timingsUsable) { "$wRepo + $Timings" } else { $wRepo }))"
     median  = $sp.median
     unknown = @(@($sp.unknown) | Where-Object { $onlyNames -contains $_ })
     only    = $onlyNames
