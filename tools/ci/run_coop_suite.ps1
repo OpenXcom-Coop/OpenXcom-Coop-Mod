@@ -198,7 +198,11 @@ function Write-ShardTimings {
   Move-Item -LiteralPath "$TimingsOut.tmp" -Destination $TimingsOut -Force
   return $timings.Count
 }
-if ($LogDir) { New-Item -ItemType Directory -Force $LogDir | Out-Null }
+if ($LogDir) {
+  # Absolute, so the .NET StreamWriter (process cwd) and New-Item (PowerShell location) agree.
+  $LogDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogDir)
+  New-Item -ItemType Directory -Force $LogDir | Out-Null
+}
 
 $results = @()
 $fail = 0
