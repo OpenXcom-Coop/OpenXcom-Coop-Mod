@@ -13,7 +13,7 @@
 #   ./tools/ci/run_coop_suite.ps1 -PlanFile p.json -Shard 2         # one shard
 #   ./tools/ci/run_coop_suite.ps1 -PlanFile p.json -Shard 2 -ListOnly
 #
-# -LogDir <dir> (local runs, tools/ci/run_local_suite.ps1) also writes each test's stdout +
+# -LogDir <dir> (CI's shard step and tools/ci/run_local_suite.ps1) also writes each test's stdout +
 # stderr to <dir>/<test>.log; without it the child inherits the console exactly as before.
 # -TimingsOut is rewritten after every test, so a shard cancelled mid-run (the CI job cap)
 # still leaves the PASS timings it measured.
@@ -108,7 +108,7 @@ $pythonExe = (Get-Command $python).Source
 
 # Run one test with a hard-kill ceiling. Returns Rc / Seconds / TimedOut. The child
 # inherits our stdout/stderr (UseShellExecute=$false, no redirection) so test output
-# still streams into the CI log. On the ceiling we kill the whole process tree - on
+# still streams into the console (the path without -LogDir). On the ceiling we kill the whole process tree - on
 # Windows via taskkill /T (the python test spawns the game exe), elsewhere best-effort.
 function Invoke-BudgetedTest {
   param([string]$Exe, [string]$TestPath, [int]$HardKillMs)
