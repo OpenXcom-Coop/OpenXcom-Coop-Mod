@@ -37,7 +37,7 @@ NEEDLES = {"ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_re
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
 CELLS = {"R-C3": ["C3-pre", "C3-entry", "C3-brief", "C3-host", "C3-defer", "C3-drop", "C3-store", "C3-crash"],
          "G": ["G-pre", "G-brief", "G-host", "G-quiet"]}
-CRASH_GLOB = os.path.join(os.path.dirname(os.path.abspath(harness.EXE)), "crashlogs", "**", "crash_*")
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

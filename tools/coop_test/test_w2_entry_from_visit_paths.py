@@ -30,7 +30,7 @@ RC_OK = (0, 3221226505)
 FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
 NEEDLES = {"UNWIND": "[coop] W2-H74: battle entry from a view of the host's base", "SNAP": "SEPARATE battle-entry own-world snapshot taken"}
 CELLS = {"P": ["P-pre", "P-entry", "P-snap", "P-log", "P-own", "P-flag", "P-common"]}
-CRASH_GLOB = os.path.join(os.path.dirname(os.path.abspath(harness.EXE)), "crashlogs", "**", "crash_*")
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

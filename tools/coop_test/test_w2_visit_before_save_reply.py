@@ -35,7 +35,7 @@ NEEDLES = {"STREAMHOLD": "[coop-visit] base answer held: a world stream is in fl
            "REPLYSTASH": "[coop-test] hold_save_reply: SEND_FILE_HOST_SAVE_PROGRESS held"}
 HOST_NEEDLES = ("REPLYSTASH",)
 CELLS = {"R-SPB": ["SPB-pre", "SPB-view", "SPB-held", "SPB-copy", "SPB-crash"]}
-CRASH_GLOB = os.path.join(os.path.dirname(os.path.abspath(harness.EXE)), "crashlogs", "**", "crash_*")
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
