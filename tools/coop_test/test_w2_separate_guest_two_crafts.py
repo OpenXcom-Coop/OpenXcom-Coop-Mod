@@ -143,7 +143,8 @@ def battle1_two(h, c, ctx, port):
         ctx["battle1Prompt"] = {"host": gc_(hh), "client": gc_(cc)}
         hh.ok({"cmd": "set_seed", "seed": b1.SEED_P})
     ctx["hostSquad"], ctx["guestId"] = session.bring_up_separate_guest_battle(
-        h, c, port=port, pre_landing=pin, pre_mission_start=lambda hh, cc: second_guest(hh, cc, ctx))
+        h, c, port=port, pre_landing=pin, pre_mission_start=lambda hh, cc: second_guest(hh, cc, ctx),
+        staged=False)  # cit-p1a keep: H19b-1 reads the store at the landing prompt
     ctx["battle1"] = {"guests": h19.guests(h), "tops": (b1.top(h), b1.top(c)),
                       "mapFingerprint": (battle_state(h).get("mapFingerprint"), battle_state(c).get("mapFingerprint"))}
 

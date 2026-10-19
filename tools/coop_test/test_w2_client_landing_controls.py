@@ -255,7 +255,7 @@ def row_h9_3():
                 "gamemode=%s; host serverOwner=True" % cc.get("gamemode"))
 
         session.bring_up_separate_guest_battle(host, client, port="48485",
-                                               pre_mission_start=guard)
+                                               pre_mission_start=guard, staged=False)  # cit-p1a keep: reads the landing
         for gc in (host, client):
             check("BattlescapeState" in top_of(gc), "H9-3: %s top %s, want BattlescapeState"
                   % (gc.name, top_of(gc)))

@@ -2460,6 +2460,24 @@ def drain_host_coop_notice(host, rounds=15):
         time.sleep(0.4)
 
 
+def drain_host_coop_notice_staged(host, rounds=15):
+    """cit-p1a (F24102): drain_host_coop_notice's presses (a CoopState notice gets coop_dialog_back, any other popup
+    dismiss_popup, until GeoscapeState is on top; the same bound and the same silent return), with its fixed 0.4 s pause
+    after each press replaced by a bounded wait (<= 0.4 s, 0.02 s polls) for the host's stack to change. The guest
+    transfer's notice (CoopState 150 "Items received") closes on the first press."""
+    for _ in range(rounds):
+        st = states(host)
+        if "GeoscapeState" in st[-1]:
+            return
+        if "CoopState" in st[-1]:
+            host.cmd({"cmd": "coop_dialog_back"})
+        else:
+            host.cmd({"cmd": "dismiss_popup"})
+        until = time.time() + 0.4
+        while time.time() < until and states(host) == st:
+            time.sleep(0.02)
+
+
 def drive_both_to_tactical(host, client, timeout=240):
     """F355 fix (SPEC 18 R1(a), orch49; archived VERBATIM at rewrite/artifacts/
     spec19-fixtures/r1a_v2.py's drive_both_to_tactical): close both briefings
@@ -2590,7 +2608,7 @@ def press_back_when_shown(gc, what, codes=None, timeout=60):
     return gc.ok({"cmd": "coop_dialog_back"})
 
 
-def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None):
+def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None, staged=True):
     """SPEC 19 (W1-P20) S1 fixture: SEPARATE campaign, mixed-ownership squad -
     3 of the host's own soldiers plus a CLIENT guest seated on the host's
     craft (the client renames a spare soldier, transfers it to the host's coop
@@ -2614,6 +2632,16 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     `pre_landing` (W2-P7 S-C-A.1, AMENDMENT P7-6 section 4.1; additive): an
     optional `callable(host, client)` run right before `coop_mission_start`
     (e.g. the host's `set_seed` map pin). Default None, nothing runs.
+
+    `staged` (cit-p1a, default True; F24101-F24103): the same squad set-up (rename, transfer, visit, seat, soldiers
+    OK, leave: the product's own sync, unchanged) and the same entry; only the flight is staged. The host's notice is
+    drained without the fixed 0.4 s pauses (drain_host_coop_notice_staged) and `craft_force` starts the craft AT the
+    site, so the host's next 5-second geoscape step lands it (MovingTarget::move), instead of 0.01 rad away: in
+    co-op the clock runs fast only when both machines pick the same speed, so that flight took ~32 five-second steps
+    (~2.5 s) behind the host's geo_set_speed. The landing prompt is polled every 0.05 s with no geo_set_speed (a press
+    after the arrival's own speed reset left the host at speed 2, F24104). At the landing prompt both
+    machines hold the same values as the slow path except the geoscape clock (about 3 game minutes earlier). A caller
+    whose checks read the flight, the notice, the clock or the landing prompt passes staged=False (today's path).
 
     Returns (host_squad, guest_id): host_squad is the 3 host soldier ids
     (coop==0 in battle); guest_id is the CLIENT's own local soldier id for
@@ -2663,7 +2691,10 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     if pre_mission_start is not None:
         pre_mission_start(host, client)
 
-    drain_host_coop_notice(host)
+    if staged:
+        drain_host_coop_notice_staged(host)
+    else:
+        drain_host_coop_notice(host)
     b0 = _campaign_base0(host)
     site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
                     "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
@@ -2674,8 +2705,13 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
         lambda: any(s["id"] == site_id
                     for s in host.ok({"cmd": "geo_state"})["missionSites"]) or None,
         timeout=30)
+    if staged:
+        at = next(s for s in host.ok({"cmd": "geo_state"})["missionSites"] if s["id"] == site_id)
+        lon, lat = at["lon"], at["lat"]
+    else:
+        lon, lat = b0["lon"] + 0.34, b0["lat"] + 0.10
     host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
-             "lon": b0["lon"] + 0.34, "lat": b0["lat"] + 0.10, "dest": f"site:{site_id}",
+             "lon": lon, "lat": lat, "dest": f"site:{site_id}",
              "fuel": 999999, "lowFuel": False})
 
     def landing_prompt():
@@ -2686,10 +2722,11 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
             host.cmd({"cmd": "coop_dialog_back"})
         elif "GeoscapeState" not in top:
             host.cmd({"cmd": "dismiss_popup"})
-        host.cmd({"cmd": "geo_set_speed", "idx": 2})
+        if not staged:
+            host.cmd({"cmd": "geo_set_speed", "idx": 2})
         return None
 
-    host.wait_for("host landing prompt", landing_prompt, timeout=120, interval=0.5)
+    host.wait_for("host landing prompt", landing_prompt, timeout=120, interval=0.05 if staged else 0.5)
     if pre_landing is not None:
         pre_landing(host, client)
     ms = host.ok({"cmd": "coop_mission_start"})

@@ -235,7 +235,8 @@ def bring_a(host, client, ctx):
     ctx["t0"] = time.time()
     try:
         session.bring_up_separate_guest_battle(host, client, port="47224",
-                                               pre_mission_start=lambda h, c: probe(h, c, ctx))
+                                               pre_mission_start=lambda h, c: probe(h, c, ctx),
+                                               staged=False)  # cit-p1a keep: reads the leave (U7c-1)
     except Probed:
         pass
 def bring_b(host, client, ctx):
