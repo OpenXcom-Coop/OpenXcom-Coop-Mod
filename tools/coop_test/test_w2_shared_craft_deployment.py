@@ -267,11 +267,20 @@ def delete_row(x, r, presser, other, red):
     r.cell("the client asked for a world re-copy (reqs changed)", r.ev["reqs"][0] == r.ev["reqs"][1], r.ev["reqs"])
 
 
+def answers(x):
+    """the client's shared_ok + shared_fail count: it rises once the host has answered the client's shared_cmd (F23961)"""
+    r = q(x.client, {"cmd": "shared_stats"})
+    return (r.get("okCount") or 0) + (r.get("failCount") or 0)
+
+
 def raw(x, craft_type):
-    """the client's shared_cmd craft_deployment; until the client's failCount rises or both D hold RAW (W); the box closed"""
-    f0, t0, out = fails(x)[0], time.time(), {}
+    """the client's shared_cmd craft_deployment; the host's answer (W); until the client's failCount rises or both D hold RAW (W);
+    the box closed"""
+    f0, a0, t0, out = fails(x)[0], answers(x), time.time(), {}
     out["shared_cmd"] = q(x.client, {"cmd": "shared_cmd", "jcmd": "craft_deployment", "baseId": -1,
                                      "payload": {"craftType": craft_type, "saved": True, "positions": RAW}})
+    # F23961: the negative control's D already holds RAW (the green command's), so settled() reads only after the host's answer
+    out["answered s"] = round(time.time() - t0, 2) if wait_until(lambda: answers(x) > a0, W, POLL) else None
 
     def settled():
         f, why = fails(x)
