@@ -27,6 +27,7 @@ KEY, TAG = "49634", "w2h85_vls"                # lobby key (0 hits at the base);
 ZOOM_MIN, SYM_PLUS = 3, 43                     # real '+' presses until globe zoom >= 3 (CAP), at most 7
 VISIT, POP, LIFT_S, W62, ACK, HOME, BLOB, GUEST_S = 60.0, 10.0, 5.0, 15.0, 120.0, 30.0, 45.0, 40.0
 S_VIEW, S_SOLD, S_OK, S_RESUME, S_EXIT = 1.0, 0.6, 0.5, 3.0, 0.6
+NOTICE_S = 10.0  # bound: the host's items-received notice (CoopState 150) after the guest transfer (cap-save F23940: it lands 1-16 ms after the reply)
 RC_OK = (0, 3221226505)
 W2H73 = "[coop] W2-H73: the partner dropped while the host views its base"
 SYNC = "[coop-gift] synced guest craft assignments into own-world blob"
@@ -219,6 +220,11 @@ def seat(x, s):
         d["transfer"] = [s.name, s.VB, s.PB, tr.get("transferred")]
         if not tr.get("transferred"):
             raise Stop("transfer %s: %s" % (s.name, tr))
+        if s.P is x.host:  # SETUP-G: the guest goes to the host's base, so the host shows the notice
+            nt, tn = wait(lambda: q(x.host, {"cmd": "coop_dialog_info"}).get("code") == 150, NOTICE_S, 0.02)
+            d["notice"] = [bool(nt), tn]
+            if not nt:
+                raise Stop("transfer %s: no host items-received notice (CoopState 150) within %.0f s (stack %s)" % (s.name, NOTICE_S, stack(x.host)))
         session.drain_host_coop_notice(x.host)
     d["visitS"] = lever_visit(V, s.PB)
     rep, t = wait(lambda: (lambda r: r if guest(r.get("soldiers"), s.name) else None)(q(V, {"cmd": "base_report", "coop": True})), GUEST_S)
