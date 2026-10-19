@@ -294,6 +294,19 @@ def dead_cell(host, client, uid, ev):
     return got == [STATUS_DEAD] * 2, f"unit {uid} status host/client {got} (want {STATUS_DEAD} on both)"
 
 
+def host_drained(host, client, where):
+    """cap-battle (F23981, Y1-exposed read): S's bleed-out runs in the host's UnitDieBState after side_change()'s settle()
+    went quiet (quiet() does not read the host's BState queue); vanilla pushes the fatal-wound box, and with it the host's
+    ring record, when that state pops (UnitDieBState.cpp, _extraFrame 2), about 0.2 s after S reads DEAD. Bounded (STEP_S):
+    the host's BState queue empty (battle_state pendingStates 0, isBusy false), then settle() (that box closed host-only,
+    the client caught up). Returns ([ok, s], the settle's boxes)."""
+    ok = RM.wait_until(lambda: (battle_state(host).get("pendingStates") or 0) == 0
+                       and not battle_state(host).get("isBusy"), STEP_S, 0.05)
+    rec = {"hostBoxes": [], "clientBoxes": []}
+    settle(host, client, rec, where)
+    return list(ok), rec
+
+
 def death_records(client, uid):
     r = ((es(client, "displayTwo") or {}).get("death") or {}).get("ring") or []
     return [{k: x.get(k) for k in ("seq", "unit", "instant", "outcome", "unitDyingSet", "endedBy")} for x in r
@@ -425,6 +438,7 @@ def row_dm1(host, client, crash0):
     s0 = snap(host, client)
     ev["side"] = side_change(host, client, client, FACTION_PLAYER, 3, "DM1 client END TURN")
     dead = dead_cell(host, client, S_ID, ev)
+    ev["drain"], ev["after"] = host_drained(host, client, "DM1 after")   # cap-battle (F23981)
     rg = ring(s0, host, client)
     evidence(ev, host, client, rg)
     hr = has(rg["host"], unit=S_ID, key=K_FATAL, owner="own")
