@@ -270,11 +270,13 @@ def _locate_ufo_lift_column(host):
     3-level-tall lift/elevator shaft - use that instead of a door."""
     dr = host.cmd({"cmd": "find_doors", "limit": 1})
     mx, my = dr["mapSizeX"], dr["mapSizeY"]
+    # CIT-Y2: the z=0 level in bulk (session.tile_scan), read in the same x-then-y order as the old per-tile loop
+    rows = session.tile_scan(host, 0, mx - 1, 0, my - 1, 0, 0)
     counts = {}
     first_hit = {}
     for x in range(mx):
         for y in range(my):
-            ti = host.cmd({"cmd": "tile_info", "x": x, "y": y, "z": 0})
+            ti = rows[(x, y, 0)]
             if not ti.get("ok"):
                 continue
             for pname in ("floor", "westwall", "northwall", "object"):
@@ -285,12 +287,13 @@ def _locate_ufo_lift_column(host):
                     continue
                 counts[dsid] = counts.get(dsid, 0) + 1
                 if dsid not in first_hit and pname == "floor":
-                    first_hit[dsid] = (x, y, ti)
+                    first_hit[dsid] = (x, y)
     rare = sorted([k for k, v in counts.items() if v < UFO_LIFT_DATASET_RARE_MAX and k in first_hit])
     if not rare:
         return None, None, None, {"counts": counts}
     ds_id = rare[0]
-    x, y, ti = first_hit[ds_id]
+    x, y = first_hit[ds_id]
+    ti = host.cmd({"cmd": "tile_info", "x": x, "y": y, "z": 0})  # the chosen tile's full tile_info reply, as before
     return x, y, ds_id, {"counts": counts, "ground_tile": ti}
 
 
@@ -330,9 +333,14 @@ def _far_destinations(host, actor, alien_pos, occupied, length, want=5):
                 ring.append((abs(dz), -(d if d is not None else 1e9), t))
     ring.sort(key=lambda e: (e[0], e[1]))
 
+    # CIT-Y2: every ring tile in bulk (session.tile_scan of the ring's box, door flags from one find_doors), then
+    # tile_is_open_ground's predicate in the same ring order
+    zs = [t[2] for _, _, t in ring]
+    rows = session.tile_scan(host, actor["x"] - length, actor["x"] + length,
+                             actor["y"] - length, actor["y"] + length, min(zs), max(zs), doors=True)
     out = []
     for _, _, t in ring:
-        if session.tile_is_open_ground(host, t[0], t[1], t[2], occupied):
+        if session.scan_is_open_ground(rows, t, occupied):
             out.append((None, [t]))
             if len(out) >= want:
                 break

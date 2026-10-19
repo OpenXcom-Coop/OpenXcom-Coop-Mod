@@ -1817,6 +1817,77 @@ def tile_is_open_ground(gc, x, y, z, occupied):
     return True
 
 
+TILE_CENSUS_MAX = 4096    # TestServer tile_census: at most this many tiles per call
+FIND_DOORS_ALL = 1 << 20  # find_doors limit above any map's part count (4 parts per tile)
+
+
+def tile_scan(gc, x0, x1, y0, y1, z0, z1, doors=False):
+    """{(x, y, z): row} for EVERY position of the inclusive box, read in bulk
+    (CIT-Y2): one TestServer `tile_census` call per <= TILE_CENSUS_MAX tiles
+    instead of one `tile_info` round trip per tile. A row holds what the
+    per-tile loops read from tile_info, under tile_info's own key names and
+    getters: ok True, x / y / z, `parts` {floor, westwall, northwall, object}
+    -> {mapDataID, mapDataSetID} (-1 when the part is empty), fire, smoke
+    (and the census's `special`). A position with no tile (off the map:
+    tile_info answers "no such tile") is {"ok": False}. tile_census reports no
+    door flags: with @a doors, each existing row also gets `door` = some part
+    isDoor or isUfoDoor, read from ONE find_doors reply (it lists every part
+    where Tile::isUfoDoor or Tile::isDoor holds, the getters tile_info reports
+    per part). An empty box returns {}."""
+    rows = {}
+    if x1 < x0 or y1 < y0 or z1 < z0:
+        return rows
+    w, h = x1 - x0 + 1, y1 - y0 + 1
+    if w * h <= TILE_CENSUS_MAX:
+        zs = TILE_CENSUS_MAX // (w * h)
+        boxes = [(x0, x1, y0, y1, za, min(z1, za + zs - 1)) for za in range(z0, z1 + 1, zs)]
+    else:
+        xs = min(w, TILE_CENSUS_MAX)
+        ys = TILE_CENSUS_MAX // xs
+        boxes = [(xa, min(x1, xa + xs - 1), ya, min(y1, ya + ys - 1), z, z)
+                 for z in range(z0, z1 + 1) for ya in range(y0, y1 + 1, ys) for xa in range(x0, x1 + 1, xs)]
+    for bx0, bx1, by0, by1, bz0, bz1 in boxes:
+        r = gc.ok({"cmd": "tile_census", "x0": bx0, "x1": bx1, "y0": by0, "y1": by1, "z0": bz0, "z1": bz1})
+        tiles = r["tiles"]
+        n = (bx1 - bx0 + 1) * (by1 - by0 + 1) * (bz1 - bz0 + 1)
+        assert len(tiles) == n, f"{gc.name}: tile_census returned {len(tiles)} rows for a {n}-tile box"
+        i = 0
+        for z in range(bz0, bz1 + 1):          # the census's row order: z-, then y-, then x-major
+            for y in range(by0, by1 + 1):
+                for x in range(bx0, bx1 + 1):
+                    t = tiles[i]
+                    i += 1
+                    if t is None:
+                        rows[(x, y, z)] = {"ok": False}
+                        continue
+                    assert (t["x"], t["y"], t["z"]) == (x, y, z), f"{gc.name}: tile_census row {t} at {(x, y, z)}"
+                    t["ok"] = True
+                    rows[(x, y, z)] = t
+    if doors:
+        d = gc.ok({"cmd": "find_doors", "limit": FIND_DOORS_ALL})
+        assert d["count"] < FIND_DOORS_ALL, f"{gc.name}: find_doors hit its limit {FIND_DOORS_ALL}"
+        door_at = {(e["x"], e["y"], e["z"]) for e in d["doors"]}
+        for pos, row in rows.items():
+            if row["ok"]:
+                row["door"] = pos in door_at
+    return rows
+
+
+def scan_is_open_ground(rows, t, occupied):
+    """tile_is_open_ground's predicate read from a tile_scan(..., doors=True)
+    result instead of a tile_info round trip (CIT-Y2): @a t is not occupied,
+    its tile exists, it has a FLOOR part, and no part is a door. @a t must lie
+    inside the scanned box (KeyError otherwise)."""
+    if t in occupied:
+        return False
+    row = rows[t]
+    if not row["ok"]:
+        return False
+    if row["parts"]["floor"]["mapDataID"] < 0:
+        return False
+    return not row["door"]
+
+
 def living_non_players(battle_state_resp):
     return [(u["x"], u["y"], u["z"]) for u in battle_state_resp.get("units", [])
             if u.get("faction") != FACTION_PLAYER and not u.get("isOut")]

@@ -338,23 +338,24 @@ def _floor_of(r):
     return bool(r.get("ok")) and ((r.get("parts") or {}).get("floor") or {}).get("mapDataID", -1) >= 0
 
 
-def _has_floor(host, t):
-    return _floor_of(host.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]}))
-
-
 def _lightning_roof(host, walker):
     """W2-H3 AMENDMENT 3 step 1 (owner D143): the roof is the LIGHTNING's TOP
     surface. The walker starts inside the craft, so the roof level is the
     highest level above the walker's tile whose tile in the walker's column
-    has a floor part (read per boot from tile_info, never hard-coded; F626).
+    has a floor part (read per boot from tile_census, tile_info's getters, never hard-coded; F626).
     Flood-fill (4-neighbour) that level's tiles that have a floor part from
     that column. Returns (z, roof_tiles, bbox): bbox = (minx, miny, maxx,
     maxy). The roof is plane-shaped (F640), so its corners are chosen by
     _roof_corners, not taken from the bbox."""
     col = (walker["x"], walker["y"])
+    # CIT-Y2: every level above the walker in bulk (session.tile_scan), one tile past each map edge and past the
+    # top level, so every position the loops below read is in `rows` and an off-map one is the census's own
+    # "no tile" ({"ok": False}, tile_info's "no such tile")
+    size = host.cmd({"cmd": "find_doors", "limit": 1})
+    rows = session.tile_scan(host, -1, size["mapSizeX"], -1, size["mapSizeY"], walker["z"] + 1, size["mapSizeZ"])
     top, z = None, walker["z"] + 1
     while True:
-        r = host.cmd({"cmd": "tile_info", "x": col[0], "y": col[1], "z": z})
+        r = rows[(col[0], col[1], z)]
         if not r.get("ok"):
             break
         if _floor_of(r):
@@ -365,7 +366,7 @@ def _lightning_roof(host, walker):
     roof, todo, seen = set(), [seed], {seed}
     while todo:
         t = todo.pop()
-        if not _has_floor(host, t):
+        if not _floor_of(rows[t]):
             continue
         roof.add(t)
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -377,7 +378,7 @@ def _lightning_roof(host, walker):
     ys = [t[1] for t in roof]
     bbox = (min(xs), min(ys), max(xs), max(ys))
     above = [(x, y, top + 1) for x in range(bbox[0], bbox[2] + 1) for y in range(bbox[1], bbox[3] + 1)
-             if _has_floor(host, (x, y, top + 1))]
+             if _floor_of(rows[(x, y, top + 1)])]
     assert not above, f"S1-PRECOND: level {top} is not the craft's top - floor tiles above its bbox {bbox}: {above}"
     return top, roof, bbox
 
