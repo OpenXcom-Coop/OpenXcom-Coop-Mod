@@ -17,6 +17,7 @@ OFFSETS = ((0.06, 0.04), (-0.06, 0.04), (0.06, -0.04), (-0.06, -0.04), (0.12, 0.
 ZOOM_MIN, SYM_PLUS = 3, 43                         # real '+' presses until globe zoom >= 3 (CAP), at most 7
 VISIT, POP, BI, SW, MARK, BLOB, GUEST_S = 60.0, 10.0, 10.0, 2.0, 60.0, 45.0, 40.0
 S_VIEW, S_SOLD, S_OK, S_BI, S_BIOK, S_GEO = 1.0, 0.6, 0.5, 0.6, 1.0, 1.0
+NOTICE_S = 10.0  # bound: the host's items-received notice (CoopState 150) after the guest transfer (cap-save F23940: it lands 1-16 ms after the reply)
 RC_OK, SYNC = (0, 3221226505), "[coop-gift] synced guest craft assignments into own-world blob"
 CELLS = {"R2c": ["R2c-pre", "R2c-view", "R2c-ok", "R2c-own"], "R2": ["R2-pre", "R2-exit", "R2-view", "R2-ok", "R2-blob", "R2-own", "R2-next"],
          "R2i": ["R2i-pre", "R2i-exit", "R2i-view", "R2i-ok", "R2i-own"], "CRASH": ["CRASH"]}
@@ -199,6 +200,10 @@ def seat(x, s):
         d["transfer"] = [s.name, s.VB, s.PB, tr.get("transferred")]
         if not tr.get("transferred"):
             raise Stop("transfer %s: %s" % (s.name, tr))
+        nt, tn = wait(lambda: q(x.host, {"cmd": "coop_dialog_info"}).get("code") == 150, NOTICE_S, 0.02)
+        d["notice"] = [bool(nt), tn]
+        if not nt:
+            raise Stop("transfer %s: no host items-received notice (CoopState 150) within %.0f s (stack %s)" % (s.name, NOTICE_S, stack(x.host)))
         session.drain_host_coop_notice(x.host)
     d["visitS"] = lever_visit(V, s.PB)
     rep, t = need(lambda: (lambda r: r if guest(r.get("soldiers"), s.name) else None)(q(V, {"cmd": "base_report", "coop": True})), GUEST_S,
