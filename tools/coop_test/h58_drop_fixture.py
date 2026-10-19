@@ -5,7 +5,8 @@ keeps a half-sent world through the drop, F18425 / F18428). The shapes are copie
 imported): the drop at the host's FIRST sight of its "Saving..." (CoopState code 54, 5 ms polls) suspends the partner (NtSuspendProcess),
 reads, then kills it; the host's 62 follows. Every rejoiner is a NEW GameClient on a fresh dir that joins the same lobby key by name.
 Every function records what it saw in a dict it returns (the test prints it as EVIDENCE); none asserts or exits. Never dismiss_popup,
-coop_dialog_back, leave_base or a base placement: a fresh world is evidence, never built on. WV-D95: one foreground run per invocation."""
+coop_dialog_back, leave_base or a base placement: a fresh world is evidence, never built on. WV-D95: one foreground run per invocation.
+drop_at_54's optional ready(host) is waited for (at most ready_s) between the 54 sight and the suspend (cap-save F23943)."""
 import ctypes
 import glob
 import os
@@ -53,9 +54,17 @@ def key(gc, k):
     return _pick(q(gc, {"cmd": "coop_file_info", "key": k}), ("key", "present", "bytes", "fnv1a64", "error"))
 
 def files(gc):
-    """the machine's xcom1 save folder: {name: [size, mtime_ns]}"""
-    ps = [p for p in sorted(glob.glob(os.path.join(gc.user_dir, "xcom1", "*"))) if os.path.isfile(p)]
-    return {os.path.basename(p): [os.stat(p).st_size, os.stat(p).st_mtime_ns] for p in ps}
+    """the machine's xcom1 save folder: {name: [size, mtime_ns]}; a file renamed between the listing and its stat (the save's
+    .bak -> .asav move) is gone at this read and left out (cap-save F23944)"""
+    out = {}
+    for p in sorted(glob.glob(os.path.join(gc.user_dir, "xcom1", "*"))):
+        try:
+            if os.path.isfile(p):
+                st = os.stat(p)
+                out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
+        except FileNotFoundError:
+            pass
+    return out
 
 def crashes():
     return set(glob.glob(os.path.join(harness.CRASH_DIR, "crash_*")))
@@ -159,8 +168,9 @@ def wait_62(host, timeout=5.0):
         time.sleep(0.05)
     return {"ok": False, "timeout": now(t0), "hostStack": stk(host), "dialog": dlg(host), "coop": coop(host)}
 
-def drop_at_54(host, client, savetype, delay_ms=0, probe=None, seen_s=10.0, drop_s=5.0):
-    """save_game_ui {type}; at the host's first sight of its 54: suspend the client, probe(host), the at-54 reads; kill; the host's 62"""
+def drop_at_54(host, client, savetype, delay_ms=0, probe=None, seen_s=10.0, drop_s=5.0, ready=None, ready_s=2.0):
+    """save_game_ui {type}; at the host's first sight of its 54 (then ready(host) true, at most ready_s, when given): suspend the client,
+    probe(host), the at-54 reads; kill; the host's 62"""
     c = {"savetype": savetype, "filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host))}
     t0 = time.time()
     c["trigger"] = q(host, {"cmd": "save_game_ui", "type": savetype})
@@ -173,6 +183,12 @@ def drop_at_54(host, client, savetype, delay_ms=0, probe=None, seen_s=10.0, drop
             d = dlg(host)
             if d.get("code") == 54:
                 c["seen54"] = now(t0)
+                if ready is not None:
+                    t1, ok = time.time(), bool(ready(host))
+                    while not ok and time.time() - t1 < ready_s:
+                        time.sleep(0.002)
+                        ok = bool(ready(host))
+                    c["ready"] = {"ok": ok, "t": now(t0)}
                 if delay_ms > 0:
                     time.sleep(delay_ms / 1000.0)
                 c["suspend"] = {"t": now(t0), "rc": suspend(client), "delayMs": delay_ms}
