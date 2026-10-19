@@ -78,9 +78,12 @@ def files(gc):
     """the host's master save folder <user_dir>/xcom1: name -> [bytes, mtime_ns]"""
     out = {}
     for p in sorted(glob.glob(os.path.join(gc.user_dir, "xcom1", "*"))):
-        if os.path.isfile(p):
-            st = os.stat(p)
-            out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
+        try:
+            if os.path.isfile(p):
+                st = os.stat(p)
+                out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
+        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+            pass
     return out
 
 def crash():
