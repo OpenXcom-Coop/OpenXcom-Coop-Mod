@@ -182,7 +182,14 @@ def read_save(path):
             out["blobs"].append({"key": e.get("key"), "bytes": len(b), "bases": [[x.get("name"), x.get("coopbaseid")] for x in (w or {}).get("bases") or []]})
     return out
 def folder(gc):
-    return {os.path.basename(p): os.stat(p).st_mtime_ns for p in glob.glob(os.path.join(gc.user_dir, "xcom1", "*")) if os.path.isfile(p)}
+    out = {}
+    for p in glob.glob(os.path.join(gc.user_dir, "xcom1", "*")):
+        try:
+            if os.path.isfile(p):
+                out[os.path.basename(p)] = os.stat(p).st_mtime_ns
+        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+            pass
+    return out
 def newer(gc, before):
     f = folder(gc)
     return QK in f and (QK not in before or f[QK] > before[QK])
