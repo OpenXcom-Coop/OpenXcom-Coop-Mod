@@ -41,6 +41,11 @@ T_W, EV_W, CUT_W = "STR_H75_T_WIN", "STR_H75_EV_WIN", "STR_H75_WIN"
 EV, KEEP = "GeoscapeEventState", ("CutsceneState", "StatisticsState")
 PLAY = "cutscene definition empty: "
 FLUSH_S, POLL_I, LISTED_S, WINDOWS_S, PAIRED_S = 1.0, 0.2, 5.0, 5.0, 10.0   # TASK 0: every state within 0.1 s
+# F23963: ER-1 holds the host's EV_A copy HOLD_M game minutes until F's window is shown and OK'd (TASK 0's roles F = client,
+# O = host), then sets O's copy to RELEASE_M, TASK 0's measured O countdown, before skip2. Replacement rules: HOLD_M a multiple
+# of 30 far above what the host's clock runs before F's OK (a speed-5 tick runs a whole game day; up to 3210 minutes measured in
+# 4 runs, F23963); RELEASE_M a multiple of 30 inside skip2's one-day window.
+RC, HOLD_M, RELEASE_M = "ResearchCompleteState", 43200, 30
 SKIP_2D = 60 * 24 * 2
 
 
@@ -270,9 +275,29 @@ def row_er2(r, x):
     gcell(r, x, "firstOnce", pl["host"].get(CUT_C, 0) == 1, f"host {CUT_C} plays {pl['host'].get(CUT_C, 0)}")
 
 
+def hold(r, x):
+    """F23963 (ER-1's premise, TASK 0's F = client, O = host): skip until T_A's ResearchCompleteState shows, wait until both worlds
+    hold EV_A pending, stop both clocks (geo_set_speed 0 works under a popup, R-H18-1), hold the host's copy HOLD_M minutes, close
+    the research popups (never a GeoscapeEventState). Both copies count down from the same half hour, so without the hold both
+    windows open inside one skip pass once test-server calls take 2-3 ms (the 50 ms calls staggered the two clocks)."""
+    h, c = x.host, x.client
+    t = time.time()
+    sk = geo.skip_ingame_time(h, c, SKIP_2D, speed_idx=5, interest=geo.popup(RC, EV, *KEEP), real_timeout=150)
+    hit = sk.get("hit")
+    ok, w = wait_until(lambda: pending(h, EV_A) and pending(c, EV_A), WINDOWS_S)
+    ev = r.ev["hold"] = {"hit": hit, "skipS": round(time.time() - t, 2), "pendingS": w,
+                         "geoEvents": {gc.name: geo_events(gc) for gc in (h, c)}}
+    guard(r, x, "held", ok and hit is not None and RC in str(hit[1]), f"hold {ev}")
+    ev["stop"] = {gc.name: gc.cmd({"cmd": "geo_set_speed", "idx": 0}).get("ok") for gc in (h, c)}
+    ev["set"] = h.cmd({"cmd": "set_event_countdown", "name": EV_A, "minutes": HOLD_M})
+    guard(r, x, "holdSet", ev["set"].get("ok") is True and all(v is True for v in ev["stop"].values()), f"hold {ev}")
+    ev["drain"] = {gc.name: geo.drain_popups(gc, interest=geo.popup(EV, *KEEP))[0] for gc in (h, c)}
+
+
 def row_er1(r, x):
     """A research-spawned event (B1 + B3): F's window first, O's copy pending; O must not get F's video."""
     start_topic(r, x, T_A)
+    hold(r, x)
     name = skip(r, x, SKIP_2D, "skip")
     guard(r, x, "hit", name is not None, f"skip {r.ev['skip']}")
     F, O = roles(x, name)
@@ -289,6 +314,8 @@ def row_er1(r, x):
     omid = r.ev["otherMid"] = plays(O, cur[O.name])
     r.cell("otherMid", omid.get(CUT_A, 0) == 0, f"{O.name} played {CUT_A} {omid.get(CUT_A, 0)} time(s) before its own "
                                                 f"window ({F.name}'s relay, F20998)")
+    rel = r.ev["release"] = O.cmd({"cmd": "set_event_countdown", "name": EV_A, "minutes": RELEASE_M})  # F23963: the hold ends
+    guard(r, x, "release", rel.get("ok") is True, f"{O.name} set_event_countdown {rel}")
     name2 = skip(r, x, 60 * 24, "skip2", real_timeout=90)
     to = r.ev["otherTitle"] = title(O)
     guard(r, x, "otherWindow", name2 == O.name and to == EV_A, f"hit {r.ev['skip2']['hit']}, {O.name} title {to}")
