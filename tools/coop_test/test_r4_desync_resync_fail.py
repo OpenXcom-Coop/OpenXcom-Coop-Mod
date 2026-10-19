@@ -4,8 +4,8 @@ does not match leaves the battle paused for good: no further repair, no RESUME (
 waiting screen says the battle could not be repaired (D267 (a)). Two boots, one row each, each shut down before the next:
   DR3a (boot F1, key "48753", dirs r4l3_f1_host / _client) the re-sent battle is refused: the host arms the TEST-ONLY `corrupt_next_blob`,
       the client pokes H2's reactions (+7, client-only), the host's real-UI kneel of H raises the desync; wait <= 30 s for the host's
-      `SPEC16 M5: rejoin refused (corrupt)` line, then HOLD_S. DR3a-1 GUARD the repair was offered, the lever fired on it, the client refused
-      it (reason=corrupt), client phase Idle, client top CoopStageHold; DR3a-2 RED host RS failed +1, lastFail "refused"; DR3a-3 GUARD at
+      `SPEC16 M5: rejoin refused (corrupt)` line, <= W_TITLE for the 62 title to leave "Repairing the battle", then HOLD_S. DR3a-1 GUARD
+      the repair was offered, the lever fired on it, the client refused it (reason=corrupt), client phase Idle, client top CoopStageHold; DR3a-2 RED host RS failed +1, lastFail "refused"; DR3a-3 GUARD at
       every HOLD_S poll: host phase Active, peerAbsent true, 62 on top with back hidden and SAVE & QUIT / ABANDON shown, offered unchanged
       (no loop), client top unchanged, client desyncSeen true; DR3a-4 GUARD the escape: host ABANDON -> host MainMenuState <= 60 s, client
       code 21 <= 30 s, client OK -> MainMenuState <= 60 s; DR3a-5 RED (D267 (a)) the 62 title at every HOLD_S poll == TITLE_FAILED; DR3a-6
@@ -44,6 +44,7 @@ POKE, POLL, HOLD_S, W_FAIL = 7, 0.25, 20.0, 30.0
 W_HOST_MENU, W_CLIENT_21, W_CLIENT_MENU = 60.0, 30.0, 60.0
 BS, CSTATE, HOLD, MENU = "BattlescapeState", "CoopState", "CoopStageHold", "MainMenuState"
 TITLE_FAILED = "The battle could not be repaired.\nSave and quit, or abandon it."   # D267 (a)
+TITLE_REPAIRING, W_TITLE = "Repairing the battle", 5.0   # the 62's in-flight wording (CoopState::waitingTitle) and the settle bound (cap-r4)
 T0_TITLE = {"DR3a": "Waiting for players to load...", "DR3b": "All players connected"}  # TASK 0 at B1 (EVIDENCE only)
 OFFER = "SPEC16 M5: rejoin battle_offer sent (battleId="
 LEVER_F1 = "[coop-resync] TEST-ONLY corrupt_next_blob fired on the repair offer"
@@ -273,6 +274,10 @@ def row_dr3a(x, results, walls):
                delta(rh0, rh, "offered") == 1 and len(lev) == 1 and len(rr) == 1 and len(sm) == 1 and ec.get("phase") == "Idle"
                and cst[-1:] == [HOLD], {"offered": delta(rh0, rh, "offered"), "lever": lev, "host refuse": rr, "client sha": sm,
                                         "client phase": ec.get("phase"), "client top": cst[-1:]})
+        # cap-r4 (F23922): the 62 re-words its title on its own 500 ms think gate (CoopState::think), up to 500 ms after the REFUSED line;
+        # wait (bounded) until the title has left the repair-in-flight wording, then HOLD_S as written
+        tw = wait_t(lambda: not (dlg(h).get("title") or "").startswith(TITLE_REPAIRING), W_TITLE)
+        print("EVIDENCE DR3a title settle: %s" % js({"s": tw, "title": dlg(h).get("title")}), flush=True)
         polls = hold(x, rh0)
         rh = rs(h)
         r.cell("DR3a-2", "RED", "host RS failed +1, lastFail 'refused'", delta(rh0, rh, "failed") == 1 and rh.get("lastFail") == "refused",
