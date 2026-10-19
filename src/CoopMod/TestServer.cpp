@@ -14213,6 +14213,45 @@ std::string TestServer::execute(const std::string& line)
 				resp["killed"] = killed;
 				resp["ok"] = true;
 			}
+			else if (act == "kill_units_real")
+			{
+				// CIT-Y4 (R-Y4-1): TEST-ONLY batch form of kill_unit_real. {units: [id, ...], stun?} -> {ok, killed}.
+				// For each id in list order: the same overkill damage kill_unit_real applies, with its skip of out and
+				// neutral units (an id repeated in the list is applied once). Then ONE checkForCasualties, as
+				// kill_unit_real runs when several units match: every death starts in this host frame, like one
+				// explosion killing several. Same gating as kill_unit_real (in battlescape; send it to the host).
+				const Json::Value& ids = req["units"];
+				if (!ids.isArray())
+				{
+					resp["error"] = "units must be an array of unit ids";
+				}
+				else
+				{
+					const bool stun = req.get("stun", false).asBool();
+					const RuleDamageType* dt = _game->getMod()->getDamageType(stun ? DT_STUN : DT_AP);
+					Json::Value killed(Json::arrayValue);
+					std::set<int> applied;
+					for (const auto& value : ids)
+					{
+						const int killId = value.asInt();
+						if (!applied.insert(killId).second) continue;
+						for (auto* u : *sbg->getUnits())
+						{
+							if (u->getId() != killId) continue;
+							if (!u->isOut() && u->getFaction() != FACTION_NEUTRAL)
+							{
+								u->damage(Position(0, 0, 0), stun ? 1000 : u->getHealth() + 1000, dt, sbg, BattleActionAttack{});
+								killed.append(u->getId());
+							}
+							break;
+						}
+					}
+					// spawn the death states (UnitDieBState) + trigger autoEnd, once for the whole list
+					bg->checkForCasualties(dt, BattleActionAttack{}, false, false);
+					resp["killed"] = killed;
+					resp["ok"] = true;
+				}
+			}
 			else if (act == "death_apply_hold")
 			{
 				// W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798): TEST-ONLY lever, sent to the CLIENT. {on: true|false}
