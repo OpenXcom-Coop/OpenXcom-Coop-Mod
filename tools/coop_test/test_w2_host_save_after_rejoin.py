@@ -8,11 +8,11 @@ forever (crash logs, a 62 over a connected partner, the save never written) or d
 ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the controls first and the red row last:
   Row C0 (GUARD) C0-blob: the host stores the client's world under the campaign's id0 (present, bytes > 0).
   Row CB (control: no half-sent upload, then a second save) a quick save with the client running (id1), kill, client2 rejoins, RESUME,
-         then a second quick save with client2 (id2). CB-write1: the first _quick_.asav written, key(id1) present. CB-world: client2
+         then LIVE, a second quick save with client2 (id2). CB-write1: the first _quick_.asav written, key(id1) present. CB-world: client2
          never BuildNewBaseState, its [GeoscapeState, CoopState] code 68 within JOIN_S, own(client2) holds (CB_NAME, CB). CB-buf0:
          buf(host) 0 after RESUME. CB-write2: the second _quick_.asav written after its trigger, key(id2) present, no new crash file.
-  Row M1 (the red, LAST) an autosave drop of client2 at the host's first sight of its 54 with a half-sent upload buffered (b54 > 0,
-         precondition), client3 rejoins, RESUME, the stale 54 CANCELLED when it is on top (F18431, W2-H59's), then a host quick save
+  Row M1 (the red, LAST) an autosave drop of client2 at the host's first sight of its 54 once a half-sent upload is buffered (READY; b54 > 0,
+         precondition), client3 rejoins, RESUME, the stale 54 CANCELLED when it is on top (F18431, W2-H59's), LIVE, then a host quick save
          with client3 (t3) and a 0.1 s window until the save landed (_quick_.asav after t3, pending "", top GeoscapeState) or 1 s after
          the first new crash file (QH58-B2 (a)) or SAVE2_S. M1-world (GUARD) as CB-world for client3. M1-buf (RED) b1 = buf(host) at
          DROP_READ_S after the kill == 0. M1-write (RED) _quick_.asav mtime after t3. M1-crash (RED) no crash file new since t3.
@@ -41,6 +41,7 @@ K1 = "49195"
 K2 = "49196"  # reserved for the BOOT replacement rule (two boots, PINNED SETUP VALUES); unused while the one boot holds
 NAME = "ClientPlayer"
 STABLE_S, SEEN_S, DROP_S, JOIN_S, ACK_S, SAVE_S = 5.0, 10.0, 5.0, 10.0, 30.0, 20.0
+LIVE_S, READY_S = 10.0, 2.0  # bounds: the host's resume handshake after RESUME; a half-sent upload after the 54 sight (cap-save)
 SUSPEND_DELAY_MS, DROP_READ_S, SAVE2_S = 0, 1.0, 20.0
 ROWS = (("C0", ("C0-blob",)), ("CB", ("CB-write1", "CB-world", "CB-buf0", "CB-write2")),
         ("M1", ("M1-world", "M1-buf", "M1-write", "M1-crash", "M1-host", "M1-key", "PRE-CRASH")))
@@ -60,6 +61,18 @@ def kstr(r):
     return "%s %s %s" % ("present" if r.get("present") else "absent", r.get("bytes"), r.get("fnv1a64") or "-")
 
 
+def live(host):
+    """LIVE: the host's resume handshake is done (get_coop coopSession true). The host's deferred save (the 54, the saveID re-mint)
+    runs only while coopSession is true (SaveGameState.cpp:255); RESUME turns it true about 0.1 s later (cap-save F23941)"""
+    t0, r = time.time(), {}
+    while time.time() - t0 < LIVE_S:
+        r = F.q(host, {"cmd": "get_coop"})
+        if r.get("coopSession") is True:
+            return {"ok": True, "t": F.now(t0)}
+        time.sleep(0.02)
+    return {"ok": False, "t": F.now(t0), "coopSession": r.get("coopSession"), "error": r.get("error")}
+
+
 def kk(host, i):
     return F.key(host, "host_%s_%s.data" % (i, NAME))
 
@@ -67,6 +80,12 @@ def kk(host, i):
 def buf(gc):
     r = F.q(gc, {"cmd": "get_coop"})
     return r.get("rxBufferBytes", r.get("error", "missing"))
+
+
+def buffered(h):
+    """READY: the host holds a half-sent upload (buf > 0); its first chunk lands a few ms after the 54 is first seen (cap-save F23943)"""
+    b = buf(h)
+    return isinstance(b, int) and b > 0
 
 
 def own(gc):
@@ -191,6 +210,8 @@ def row_cb(x, r):
     r.need(rc["ok"], "RESUME / host GeoscapeState within 5 s: %s" % js(rc.get("end")))
     r.ev["bufAfterResume"] = b0 = buf(x.host)
     r.cell("CB-buf0", b0 == 0, "buf(host) after RESUME %s" % b0)
+    r.ev["live2"] = lv = live(x.host)
+    r.need(lv["ok"], "the host's session not live (get_coop coopSession) within %.0f s of RESUME: %s" % (LIVE_S, js(lv)))
     crash2, tq2 = F.crashes(), time.time_ns()
     r.ev["save2"] = s2 = F.quick_save(x.host, F.QUICK, SAVE_S)
     x.id2 = r.ev["id2"] = F.sid(x.host)
@@ -232,7 +253,7 @@ def row_m1(x, r):
     def probe(h):
         return {"buf": buf(h), "saveID": F.sid(h), "id2": kk(h, x.id2)}
     tcall = time.time()
-    r.ev["drop"] = d = F.drop_at_54(x.host, x.c2, "auto_geoscape", SUSPEND_DELAY_MS, probe, SEEN_S, DROP_S)
+    r.ev["drop"] = d = F.drop_at_54(x.host, x.c2, "auto_geoscape", SUSPEND_DELAY_MS, probe, SEEN_S, DROP_S, buffered, READY_S)
     tret = time.time()
     r.need("probe" in d, d.get("why"))
     p = d["probe"]
@@ -256,6 +277,8 @@ def row_m1(x, r):
     r.ev["bufAfterResume"] = buf(x.host)
     pre =sorted(F.crashes() - x.crash0)
     r.cell("PRE-CRASH", not pre, "crash files new since the boot start at t3: %d %s" % (len(pre), [os.path.basename(f) for f in pre[:3]]))
+    r.ev["live3"] = lv = live(x.host)
+    r.need(lv["ok"], "the host's session not live (get_coop coopSession) within %.0f s of RESUME: %s" % (LIVE_S, js(lv)))
     crash3, t3 = F.crashes(), time.time()
     r.ev["t3"] = F.now(x.t0)
     r.ev["trigger"] = F.q(x.host, {"cmd": "save_game_ui", "type": "quick"})
