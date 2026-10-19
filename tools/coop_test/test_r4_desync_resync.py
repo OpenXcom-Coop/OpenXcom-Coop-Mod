@@ -219,13 +219,16 @@ def live(x):
 
 
 def repaired(x, rh0, rc0, n, t_press, cycle=False):
-    """REPAIRED(host, client, B0, n) polled at POLL for <= W_REPAIR (cycle: NextTurnStates closed on both at every poll) -> (ok, evidence:
-    the host's stack + 62 title timeline, the values at the pass or the timeout, the repair wall)"""
+    """REPAIRED(host, client, B0, n) polled at POLL for <= W_REPAIR (cycle: NextTurnStates closed on both at every poll once the host RS
+    offered +n) -> (ok, evidence: the host's stack + 62 title timeline, the values at the pass or the timeout, the repair wall)"""
     h, c, seen, tl, last = x.host, x.client, {}, [], [None]
 
     def ok():
+        # cap-r4 (F23921): the client's desync report reaches the host ~30-50 ms after the side change; a NextTurnState closed before
+        # the host offered the repair moves the host on a side first (the repair then runs on the next one), so close only after it
+        offered = delta(rh0, rs(h), "offered") if cycle else 0
         for gc in (h, c):
-            if cycle:
+            if cycle and offered >= n:
                 try:
                     if dismiss_next_turn_if_present(gc):
                         seen.setdefault("nextturn closed", []).append([gc.name, round(time.time() - t_press, 2)])
