@@ -18,7 +18,9 @@ SEED_F, confirm_cydonia, the stage-1 spine, MAP_FP_F pinned, pin_ai_neutral, has
   MS6  custom battle, stage 2: the host aborts and the partner votes YES (R4-L1) with nobody on an exit ("0 Units in
        Target Exit") ->
        abortCutscene loseGame. Polled every POLL_S until both machines show the main menu (MENU_S bound), never a
-       dismiss_popup (W2-H17b keep list). Cells: the partner applies `battle_end` (applied 1, reason abort, aborted,
+       dismiss_popup (W2-H17b keep list). Once both tops are SlideshowState, at the first poll after the SCOPE_T2
+       read, a real Escape on the host then the client (owner D299 (b); test_w2_leave_for_menu's key: inject_input
+       key 27 -> SlideshowState::screenSkip). Cells: the partner applies `battle_end` (applied 1, reason abort, aborted,
        inExitArea 0, the host's seq) hash-clean (desyncSeen false; the teardown snapshot battleEnd.hashVerify, else
        lastHashVerify, is {kind battle_end, the host's seq}); no DebriefingState on either machine at any poll; both
        play the host's ending (a SlideshowState on both); both reach the main menu; the partner alive, no new crash
@@ -80,6 +82,7 @@ POLL_S = 0.5
 END_LOSE = 2
 NO_EXIT = "0 Units in Target Exit"
 END_STATES = ("CutsceneState", "StatisticsState", "SlideshowState", "VideoState")   # W2-H17b keep list
+KEY_CANCEL = 27         # Options::keyCancel default (SDLK_ESCAPE); MS6's slideshow skip (D299 (b))
 
 
 def bview(gc):
@@ -444,12 +447,24 @@ def ms6(host, client, ctx):
     if g:
         evidence("MS6", {"guards": g, "abortDialog": ctx.get("abortDialog")})
         return [f"guard: {m}" for m in g]
-    poll_end(host, client, ctx, lambda p: sorted(p["mainMenuS"]) == ["client", "host"])
+    def until(p):
+        # D299 (b): once both machines show the ending, a real Escape on each, host then client (the
+        # test_w2_leave_for_menu key). poll_end calls this only after the SCOPE_T2 read: both scope reads stay under
+        # the slideshow.
+        if "escape" not in ctx and sorted(p["slideshow"]) == ["client", "host"] and all(
+                isinstance(st, list) and st and st[-1] == "SlideshowState" for st in (stack(host), stack(client))):
+            t = round(time.time() - ctx["t_ok"], 2)
+            rh = host.cmd({"cmd": "inject_input", "kind": "key", "key": KEY_CANCEL})
+            rcl = client.cmd({"cmd": "inject_input", "kind": "key", "key": KEY_CANCEL})
+            ctx["escape"] = {"t": t, "host": rh, "client": rcl}
+        return sorted(p["mainMenuS"]) == ["client", "host"]
+    poll_end(host, client, ctx, until)
     f = end_cells(host, client, ctx, crash0)
     if sorted(ctx["poll"]["mainMenuS"]) != ["client", "host"]:
         f.append(f"both machines never reached the main menu within {MENU_S}s of the OK: main menu at "
                  f"{ctx['poll']['mainMenuS']}, stacks host {stack(host)} client {stack(client)}")
-    evidence("MS6", {"abortDialog": ctx.get("abortDialog"), "poll": ctx["poll"], "scope1": ctx.get("scope1"),
+    evidence("MS6", {"abortDialog": ctx.get("abortDialog"), "poll": ctx["poll"], "escape": ctx.get("escape"),
+                     "scope1": ctx.get("scope1"),
                      "scope2": ctx.get("scope2"), "end": {"host": stack(host), "client": stack(client)},
                      "newCrashFiles": ctx.get("newCrashFiles")})
     return f
