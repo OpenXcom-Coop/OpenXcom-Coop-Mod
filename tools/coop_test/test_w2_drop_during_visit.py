@@ -80,8 +80,11 @@ def needles(gc, n0):
 def files(gc):
     out = {}
     for p in glob.glob(os.path.join(gc.user_dir, "xcom1", "*")):
-        if os.path.isfile(p):
-            out[os.path.basename(p)] = [os.path.getsize(p), os.stat(p).st_mtime_ns]
+        try:
+            if os.path.isfile(p):
+                out[os.path.basename(p)] = [os.path.getsize(p), os.stat(p).st_mtime_ns]
+        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+            pass
     return out
 def cpu():
     ps = ("[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1); "
