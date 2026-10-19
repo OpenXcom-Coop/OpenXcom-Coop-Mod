@@ -82,6 +82,38 @@ if os.name == "nt":
         finally:
             if owns_handle and not _CloseHandle(handle):
                 raise ctypes.WinError(ctypes.get_last_error())
+
+    # CIT-P2 (F24080-F24083): about 20 s after a game starts, Windows 11 power throttling stops honouring the 1 ms timer
+    # period SDL requests for a process with no visible window, so the game loop's SDL_Delay(1) and the test server's
+    # 1 ms socket wait each take ~15.6 ms and every test-server call ~31 ms instead of ~3. Opting the game out of that
+    # throttling keeps SDL's 1 ms period for the whole run. Test harness only (players' games are untouched); best
+    # effort: an OS without the flag refuses the call and nothing changes.
+    class _PowerThrottlingState(ctypes.Structure):
+        _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+    _OpenProcess = _kernel32.OpenProcess
+    _OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _OpenProcess.restype = wintypes.HANDLE
+    _SetProcessInformation = _kernel32.SetProcessInformation
+    _SetProcessInformation.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
+    _SetProcessInformation.restype = wintypes.BOOL
+    _PROCESS_SET_INFORMATION = 0x0200
+    _PROCESS_POWER_THROTTLING = 4  # PROCESS_INFORMATION_CLASS ProcessPowerThrottling
+    _POWER_THROTTLING_IGNORE_TIMER_RESOLUTION = 0x4
+
+    def _keep_timer_resolution(pid):
+        """ControlMask IGNORE_TIMER_RESOLUTION with StateMask 0: the system always honours the game's timer
+        period. Returns 0, or the Windows error code."""
+        handle = _OpenProcess(_PROCESS_SET_INFORMATION, False, pid)
+        if not handle:
+            return ctypes.get_last_error() or -1
+        try:
+            state = _PowerThrottlingState(1, _POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, 0)
+            if not _SetProcessInformation(handle, _PROCESS_POWER_THROTTLING, ctypes.byref(state), ctypes.sizeof(state)):
+                return ctypes.get_last_error() or -1
+            return 0
+        finally:
+            _CloseHandle(handle)
 else:
     # Non-Windows: open(..., opener=None) is the default open, unchanged.
     _port_file_opener = None
@@ -467,6 +499,9 @@ class GameClient:
         if self not in _SPAWNED:  # W2-U8g (F9068): only spawn() registers, so hand-spawned games are never reaped
             _SPAWNED.append(self)
         _port_file_event("spawned", user_dir=self.user_dir, game_pid=self.proc.pid)
+        if os.name == "nt":
+            _port_file_event("timer_resolution_kept", game_pid=self.proc.pid,
+                             error=_keep_timer_resolution(self.proc.pid))
 
     def _resolve_port(self, deadline):
         """The control port to dial: the fixed one, or the ephemeral port the
