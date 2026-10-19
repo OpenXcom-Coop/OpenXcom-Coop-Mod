@@ -239,6 +239,20 @@ def hash_clean(r, phase, what):
         r.fail(phase, f"hash_now full {what}: {short(e)}")
 
 
+def wait_held_done(r, phase):
+    """R-Y1-2 (CIT-Y1 F23814): before a post-close hash in a row whose held order is resubmitted after the close, wait
+    (bounded, STEP_S) until no action is in flight: the client's held slot is empty (battle_state coopPendingIntent null:
+    the order went out again), the client's in-flight slot is empty (event_state inFlight null: its bt_action_end
+    applied) and the host runs nothing (event_state busyOwnerSeat -1). Checks nothing; the caller's settle() / wait and
+    hash follow unchanged."""
+    h, c = r.host, r.client
+    ok, secs = wait_until(lambda: (battle_state(c).get("coopPendingIntent") is None
+                                   and event_state(c).get("inFlight") is None
+                                   and event_state(h).get("busyOwnerSeat") == -1), STEP_S)
+    r.ev.setdefault("heldWait", {})[phase] = {"idle": ok, "secs": secs}
+    print(f"[w2p7-sv] {r.rid} {phase}: held-order wait {secs}s (idle={ok})", flush=True)
+
+
 def stage_v(r, wounded, seat_pins=((0, WS0), (1, WS1))):
     """Design section 4 staging: auto-end on, the seat pins, the wounds (client first), the pre-ending census and
     both machines' fatalVote zeros. Returns the census (b0)."""
@@ -391,8 +405,9 @@ def check_hold(r, n_answers):
     r.line("hold", "host fatalVote after its OK", mism(hs["fv"], {"state": "Open", "answers": n_answers}))
 
 
-def check_close(r, result, answers, client_want, host_want=None):
-    """The decision: both machines' records after the close; continue rows also both tops and the hash."""
+def check_close(r, result, answers, client_want, host_want=None, held=False):
+    """The decision: both machines' records after the close; continue rows also both tops and the hash.
+    `held`: the row's held order is resubmitted after the close (wait_held_done before settle, R-Y1-2)."""
     h, c = r.host, r.client
     cov_last = r.covered_last
     if cov_last != r.covered_open:
@@ -404,6 +419,8 @@ def check_close(r, result, answers, client_want, host_want=None):
             wait_until(lambda: top(h) == NEXT, STEP_S)
         else:
             wait_until(lambda: top(h) == MAP and top(c) == MAP, STEP_S)
+        if held:
+            wait_held_done(r, "close")
     settle(r, "close")
     hs, cs = snap(h), snap(c)
     r.ev["close"] = {"host": hs, "client": cs}
@@ -674,12 +691,13 @@ def row_v5(r):
     if not answer(r, r.host, "CANCEL", "answer"):
         r.ending = "the host's CANCEL was not pressed"
     check_close(r, "continue", {0: False}, {"answerSent": "", "questionPushed": 0, "questionClosedByClose": 0},
-                {"heldIntents": 1, "heldCommits": ("ge", 1)})
+                {"heldIntents": 1, "heldCommits": ("ge", 1)}, held=True)
     ok, secs = wait_until(lambda: (dir_c(r.host), dir_c(r.client)) == (to_dir, to_dir), STEP_S, 0.1)
     r.ev["resubmit"] = {"ok": ok, "secs": secs}
     if not ok:
         r.fail("after close", f"the held turn did not apply on both within {secs}s: C's direction host "
                               f"{dir_c(r.host)} client {dir_c(r.client)} (want {to_dir})")
+    wait_held_done(r, "after close")
     try:
         session.wait_host_idle(r.host, r.client, timeout=30)
     except Exception as e:
