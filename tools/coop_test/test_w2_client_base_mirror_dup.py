@@ -174,6 +174,8 @@ def click(gc, lon, lat, pk, row, label):
         trace, t4 = [], time.time()
         while time.time() - t4 < 0.9:
             st = stack(gc)
+            if st[-1:] == ["MultipleTargetsState"]:  # F23962: read once more, on a later frame: a one-target MultipleTargetsState
+                st = stack(gc)                       # closes itself in its first init() (vanilla); a picker stays on top
             e = {"t": now(), "top": st[-1] if st else None}
             if e["top"] == "CoopState":
                 e["dialog"] = [(d := gc.cmd({"cmd": "coop_dialog_info"})).get("code"), d.get("title")]
