@@ -167,7 +167,14 @@ def after(t, base): return round(t - base, 2) if t else None
 def tick(t0, k): time.sleep(max(0.0, t0 + k * POLL - time.time()))
 def crashes(): return set(glob.glob(os.path.join(harness.CRASH_DIR, "crash_*")))
 def folder(gc):
-    return {os.path.basename(p): os.stat(p).st_mtime_ns for p in glob.glob(os.path.join(gc.user_dir, "xcom1", "*")) if os.path.isfile(p)}
+    out = {}
+    for p in glob.glob(os.path.join(gc.user_dir, "xcom1", "*")):
+        try:
+            if os.path.isfile(p):
+                out[os.path.basename(p)] = os.stat(p).st_mtime_ns
+        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+            pass
+    return out
 def copyfnv(h): return q(h, {"cmd": "coop_file_info", "role": "host_copy_of_client"}).get("fnv1a64")
 def funds_text(gc):
     w = q(gc, {"cmd": "list_widgets"})
