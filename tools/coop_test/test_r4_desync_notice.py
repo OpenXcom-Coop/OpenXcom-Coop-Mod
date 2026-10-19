@@ -9,7 +9,8 @@ FIXTURE-STOP: ONE CAPTURE line, every row FAILs "boot"). Rows in order (N4 last:
      live, headline "saveBlob diverged at action <seq>: bt_action_end" (<seq> the DESYNC line's; R-L3-A-2: the spec names no kind string for
      a bt_action_end desync, so `bt_action_end`; the base records "?"), message "CO-OP DESYNC REPAIRED..." holding its zip, zipPath == RS
      bundle (written in this row in its own desync-reports), OPEN FOLDER target, GitHub URL, the three buttons. N1-2 RED the host, its own zip.
-     N1-3 RED raiseCount +1, RS notices +1 on each. N1-4 RED OK (click_widget) closes each; a client walk of G to G_DEST applies; HASH.
+     N1-3 RED raiseCount +1, RS notices +1 on each. N1-4 RED OK (click_widget once OK is shown) closes each; a client walk of G to
+     G_DEST applies; HASH.
   N2 (N1's reports) N2-1 RED the host's zip: role host, bucket / seq / kind == the client zip's (kind bt_action_end), peerBundlePath, its log,
      saveBlob-host.yaml. N2-2 GUARD the client's zip (saveBlob, log, saveBlob-client.yaml) and the host's seq text. N2-3 RED (R-L3-A-2) the
      client zip's kind and both RS last.kind == bt_action_end.
@@ -280,14 +281,19 @@ def notice_check(gc, d, rsx, want, new_names):
 
 
 def close_notices(x):
-    """OK on each notice (client first): click_widget {match OK} -> top BattlescapeState <= W_NOTICE -> (ok, evidence)"""
+    """OK on each notice (client first): click_widget {match OK} once OK is shown -> top BattlescapeState <= W_NOTICE -> (ok, evidence)"""
     ev = {}
     for gc in (x.client, x.host):
         if top(gc) != NOTICE:
             ev[gc.name] = {"top": top(gc), "click": "not clicked: no notice on top"}
             continue
-        r = q(gc, {"cmd": "click_widget", "match": "OK"})
-        ev[gc.name] = {"click": {k: r.get(k) for k in ("ok", "text", "error")}}
+        # cap-r4 (F23920): the notice's POPUP window hides its buttons while it opens (Window::think -> State::hideAll) and a hidden
+        # button drops the click while click_widget still answers ok; wait until OK is shown, then the same one click (W2-U9)
+        try:
+            r = session.click_widget_ready(gc, "OK")
+        except Exception as e:  # a dead or gone machine is a value
+            r = {"error": short(e, 200)}
+        ev[gc.name] = {"click": {k: r.get(k) for k in ("ok", "text", "error", "readyS")}}
         try:
             ev[gc.name]["bs s"] = wait("%s top BattlescapeState after OK" % gc.name, lambda: top(gc) == BS, W_NOTICE)
         except Stop as e:
