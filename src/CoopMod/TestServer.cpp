@@ -693,7 +693,8 @@ void TestServer::ioThread(int port)
 
 	while (_running.load())
 	{
-		SDLNet_CheckSockets(set, 50);
+		// CIT-Y1 (F23810): 1 ms, not 50: a queued reply is sent only after this wait returns, and the harness sends nothing while it waits for it.
+		SDLNet_CheckSockets(set, 1);
 
 		if (TCPsocket fresh = SDLNet_TCP_Accept(listening))
 		{
