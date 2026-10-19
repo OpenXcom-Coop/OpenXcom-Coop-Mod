@@ -223,7 +223,7 @@ from test_w2_host_combat import (evs_since, ev_tuples, cue_probes, cue_delta, op
 from test_w2_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta, ctx_of, ctx_view, sv, by_seq,
                                 bring_up_lobby_roster_pinned)
 from test_w2_unit_spawn import ring_of, ring_at, ring_view
-from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want
+from test_w2_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, messages, msg_new
 from test_w2_host_combat import (camera_of, cam_snap, cam_offset, cam_moves, mv, cam_suppressed_delta, cam_view)
 from test_w2_host_combat import sampled_list_fails  # W2-U8d (F6304)
 
@@ -294,6 +294,9 @@ FALL_LEVELS = 1                  # C10_TILE.z - C10_BELOW.z
 FALL_STARTED_TOP = "BattlescapeState"   # the ghost starts at the first advance() after the client's NextTurnState
                                         # closes (advance() runs only with BattlescapeState on top, BS :916-:919)
 FALL_ENDS = ("natural",)         # walkPhase past 7 on the trailing anchor; cut false
+FALL_END_S = 5.0                 # cap-battle (F23980): bound of fall_row's wait for the client's fall display to end (the
+                                 # ghost ends 8 x paceMs = 240 ms after its first advance; captured at the tip: ended
+                                 # 34-176 ms after the read). A bound, not a pace: replace it only by a larger value
 # TASK 0 T0E6-1 (the S-E6.1 build at 7da606d77; K=2 paired with test_w2_psi, F1786; the fall window inside the
 # partner's run): the `fall` is seq 29 and the landing `sync` seq 30 (+5 since the equip phase, F3914). At the
 # fall's apply the client's fall.seen shows unitAtFrom, fromNoFloor and belowExists true, top NextTurnState; the
@@ -307,6 +310,9 @@ KEY_PANICKED = "STR_HAS_PANICKED"
 KEY_BERSERK = "STR_HAS_GONE_BERSERK"
 Q_C13A = True                    # PIN (T0a-3): C2's panic applied under the client's NextTurnState (queued)
 Q_C13B = True
+HOLD_PLAYER_S = 30.0             # cap-battle (F23983, F23984): bound of the client's held player-side NextTurnState in
+                                 # cycles 2 / 3 / 4 (test_w2_psi.py HOLD_C14P_S, W2-U9c R-MGR2-1). A bound: replace it only
+                                 # by a larger value
 
 # ----- W2-P6a S-C row KR5 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5; T0a-4) -----
 KR5_HOST_TURN_CENTRE = (160, 8, 0)   # PIN (ruling SC-4 (a), F4160; chain rule section A.10): the host's camera offset
@@ -705,6 +711,20 @@ def panic_sound_row(host, client, rec, snap_e, mode, what):
     return fails
 
 
+def wait_fall_end(client, f0, timeout=FALL_END_S):
+    """cap-battle (F23980): bounded, until the client's displayTwo.effects.fall holds more enqueues than `f0` and
+    completed + cut == enqueued (every fall display ended). Returns [ok, s]."""
+    t0 = time.time()
+    while True:
+        f = effects_of(display_two(client)).get("fall") or {}
+        n = f.get("enqueued") or 0
+        if n > (f0.get("enqueued") or 0) and (f.get("completed") or 0) + (f.get("cut") or 0) == n:
+            return [True, round(time.time() - t0, 2)]
+        if time.time() - t0 >= timeout:
+            return [False, round(time.time() - t0, 2)]
+        time.sleep(0.02)
+
+
 def fall_row(host, client, rec, snap_e, fall):
     """Row E6 (P6b review section 2; AMENDMENT P6-5 section 5 E-f' for owner D173 (b), P6-5 Q2 (b)): the client's
     displayTwo.effects.fall enqueued +1 and exactly ONE record for the `fall` ev's seq {unit U, from C10_TILE, to
@@ -714,8 +734,13 @@ def fall_row(host, client, rec, snap_e, fall):
     client's top state at the fall's apply and at every applied ev after it up to the first delta-bearing one, with
     the advance() runs in between; the fall's own record adds unitAtFrom, fromNoFloor, belowExists - T0E6-1).
     Prints ONE "EVIDENCE E6:" line, returns fails."""
-    dt1 = {"host": display_two(host), "client": display_two(client)}
     f0 = effects_of(snap_e["dt"]["client"]).get("fall") or {}
+    # cap-battle (F23980, Y1-exposed read): the ghost starts at the client's first advance() after its NextTurnState
+    # closes and writes phasesShown / anchors / endedBy only when it ends (connectionTCP.cpp fallEnd); at 2-3 ms
+    # test-server calls the cycle's end reached this read before that. Wait, bounded, until the client's fall display
+    # holds a new enqueue and has ended (completed + cut == enqueued), then the same read and checks.
+    end_wait = wait_fall_end(client, f0)
+    dt1 = {"host": display_two(host), "client": display_two(client)}
     f1 = effects_of(dt1["client"]).get("fall") or {}
     s = fall["seq"] if fall else None
     recs = [r for r in (f1.get("ring") or []) if s is not None and r.get("seq") == s]
@@ -724,7 +749,7 @@ def fall_row(host, client, rec, snap_e, fall):
     print("EVIDENCE E6: " + json.dumps({
         "fallSeq": s, "records": recs, "clientFall": {"before": {k: f0.get(k) for k in ("enqueued", "completed", "cut")},
                                                       "after": {k: f1.get(k) for k in ("enqueued", "completed", "cut")}},
-        "seen": seen, "allSeen": f1.get("seen"), "clientFloorXcom": floor_x,
+        "seen": seen, "allSeen": f1.get("seen"), "clientFloorXcom": floor_x, "endWait": end_wait,
         "hostFall": effects_of(dt1["host"]).get("fall"),
         "rngClient": {"before": snap_e["rng"], "after": rng_of(client)}}, sort_keys=True, default=str), flush=True)
     fails = []
@@ -848,7 +873,9 @@ def c10_fall(host, client, ctx):
     ft = set_tile_both(host, client, C10_TILE, fire=1)
     staged_diff = diff_buckets(host, client)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E6
-    cycle(host, client, None, rec, "cycle 2")
+    cycle(host, client, None, rec, "cycle 2",   # cap-battle (F23984): T0E6-1's landing under the client's screen
+          client_hold=hold_player_screen(client, lambda: xyz(units(client).get(U_ID)) == C10_BELOW, rec, "cycle 2",
+                                         f"U {U_ID} on {C10_BELOW} (the landing `sync` applied)"))
     end(host, client, rec)
     hev = rec["hev"]
     t1h, t1c = tile(host, C10_TILE), tile(client, C10_TILE)
@@ -962,6 +989,37 @@ def tu_at_new_turn(turn_pl):
     return p["tuAfter"] + min(d, 8 - d) * C2_TURN_COST
 
 
+def hold_player_screen(client, done, rec, what, want, bound=HOLD_PLAYER_S):
+    """cap-battle (F23983, F23984; test_w2_psi.py hold_until_message's W2-U9c shape, R-MGR2-1, side FACTION_PLAYER): a
+    cycle() client_hold. The host emits a player-side-start ev (C2's panic, U's fall and its landing `sync`) only after
+    its own player-side NextTurnState closes; at 2-3 ms test-server calls the cycle closed the client's screen 1-6 ms
+    after the host's, before that ev applied, while the rows pin it applying under the client's NextTurnState (MR4
+    T0a-3 Q_C13A / Q_C13B; E6 T0E6-1). While the client is on the player side with a NextTurnState on top, keep that
+    screen up until done() (`want` names it). Bounded: after `bound` s it releases, notes it in rec["notes"], and the
+    rows judge as before. Never changes what a row reads."""
+    st = {"t0": None, "released": False}
+
+    def hold():
+        if st["released"] or battle_state(client).get("side") != FACTION_PLAYER \
+                or session.top_state(client) != "NextTurnState":
+            return False
+        if done():
+            st["released"] = True
+            return False
+        st["t0"] = st["t0"] or time.time()
+        if time.time() - st["t0"] > bound:
+            st["released"] = True
+            rec["notes"].append(f"{what}: the client's player-side NextTurnState released after {bound} s without {want}")
+            return False
+        return True
+    return hold
+
+
+def c2_message_seen(client, mb, key):
+    """MR4's record arrived: the client's messages ring holds a new record about C2 with `key` since `mb`."""
+    return lambda: any(r.get("unit") == C2_ID and r.get("key") == key for r in msg_new(mb["client"], messages(client)))
+
+
 def mr4_fails(rec, mb, ma, key, queued, what):
     """W2-P6a S-M row MR4 (P6a review section 2; owner D132): C2's panic message - a notice on the host (the
     partner's soldier: no host infobox in the cycle), vanilla's 2 s box on the client (its own soldier). Prints the
@@ -1022,7 +1080,9 @@ def c13a_flee(host, client, ctx):
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     mb = msg_snap(host, client)          # W2-P6a S-M row MR4
     cam0 = cam_snap(host, client)        # W2-P6a S-C row KR5
-    cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved)
+    cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved,   # cap-battle (F23983)
+          client_hold=hold_player_screen(client, c2_message_seen(client, mb, KEY_PANICKED), rec, "cycle 3",
+                                         f"a {KEY_PANICKED} record about {C2_ID} in its messages ring"))
     end(host, client, rec)
     ma = msg_snap(host, client)
     cam1 = cam_snap(host, client)
@@ -1096,7 +1156,9 @@ def c13b_berserk(host, client, ctx):
     uh0 = units(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     mb = msg_snap(host, client)          # W2-P6a S-M row MR4
-    cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved)
+    cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved,   # cap-battle (F23983)
+          client_hold=hold_player_screen(client, c2_message_seen(client, mb, KEY_BERSERK), rec, "cycle 4",
+                                         f"a {KEY_BERSERK} record about {C2_ID} in its messages ring"))
     end(host, client, rec)
     ma = msg_snap(host, client)
     pfails, pc, pevs = panic_context_fails(rec, "berserk", "C13b")
