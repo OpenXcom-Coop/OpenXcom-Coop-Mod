@@ -136,6 +136,9 @@ def row_dm4(host, client, crash0):
     s0 = M.snap(host, client)
     ev["side"] = M.side_change(host, client, host, FACTION_PLAYER, 3, "DM4 host END TURN")
     cells["DM4-dead"] = M.dead_cell(host, client, S_ID, ev)
+    # cap-tail (F24060, Y1-exposed read): S's bleed-out still runs in the host's UnitDieBState after side_change()'s
+    # settle() went quiet; read DM4-host only once that state pops, and close the client's OK box before PP3.
+    ev["drain"], ev["after"] = M.host_drained(host, client, "DM4 after")
     rg = M.ring(s0, host, client)
     M.evidence(ev, host, client, rg)
     cells["DM4-client"] = (bool(has(rg["client"], unit=S_ID, key=M.K_FATAL, owner="own")),
