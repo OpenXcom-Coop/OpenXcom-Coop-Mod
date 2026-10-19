@@ -10,8 +10,9 @@ Construction (CONSTANTS rewrite/w2p7sc-task0/t0/CONSTANTS.md T0-6 (iv), the gues
 the design body "the guest kills the last alien" and the TASK-0 pin, NOT the AMENDMENT 4.2 row-header's
 `kill_unit_real {faction:1}` shorthand - see FINDINGS F5445): SEPARATE, host set_seed SEED_P right before
 coop_mission_start (SEED_P re-hunted for 558349bc8, F5449/F5450: the terror map MAP_FP_P, guest battle unit id 9,
-15 hostiles 1000000-1000014); then host kill_unit_real {unit} for every hostile except KEEP (1000000, a Sectoid soldier far from
-every cyberdisc), the chain settled after each (F4665: isBusy false AND pendingStates 0); KEEP teleported onto a free
+15 hostiles 1000000-1000014); then every hostile except KEEP (1000000, a Sectoid soldier far from every cyberdisc) killed
+by ONE host kill_units_real {units} (CIT-Y4, R-Y4-1: kill_unit_real's damage per id, one casualty check), every chain
+settled once (F4665: isBusy false AND pendingStates 0); KEEP teleported onto a free
 tile adjacent to the guest (both machines, client first, F607), KEEP facing the guest; the guest faced to KEEP by
 single-octant turn intents (T-CMD's F394/F395 shape); KEEP health 1; the guest a rifle + clip and TU max; KEEP's TU
 zeroed so it cannot reaction-fire (orchestrator ruling, F5446); host set_seed SEED_P again; the CLIENT's battle_intent
@@ -367,13 +368,14 @@ def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, fixture_stop=True):
     at `shot_seed`; the seed re-hunt calls with fixture_stop=False to inspect every seed."""
     m = (host, client)
     con = ctx.setdefault("construction", {})
-    # 1. kill every hostile except KEEP, the chain settled after each
+    # 1. kill every hostile except KEEP in ONE host call (CIT-Y4, R-Y4-1: kill_units_real, the same ids in the same
+    #    order), then ONE wait for every death chain to settle (the per-kill condition; the per-kill budgets summed)
     others = [u["id"] for u in battle_state(host).get("units", [])
               if u.get("faction") == 1 and not u.get("isOut") and u["id"] != KEEP]
     con["others"] = others
-    for uid in others:
-        host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
-        chain_settled(host, client, stable=1.0, timeout=45, want_live=None)
+    if others:
+        host.cmd({"cmd": "battle_action", "action": "kill_units_real", "units": others})
+        chain_settled(host, client, stable=1.0, timeout=45 * len(others), want_live=None)
     live = sorted(u["id"] for u in battle_state(host).get("units", []) if u.get("faction") == 1 and not u.get("isOut"))
     gnow = unit(host, gid)
     con["afterKills"] = {"liveHostiles": live, "guestOut": gnow.get("isOut"), "guestPos": session.pos_of(gnow)
@@ -433,17 +435,18 @@ def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, fixture_stop=True):
 
 
 def kill_all_and_guest(host, client, gid, ctx):
-    """C28P-dead construction (AMENDMENT P7-6 section 4.3; seed-independent, no guest shot): kill EVERY hostile (the chain
-    settled after each, F4665), then kill the guest itself (host kill_unit_real {unit: <guest's battle unit id>}). The
+    """C28P-dead construction (AMENDMENT P7-6 section 4.3; seed-independent, no guest shot): kill EVERY hostile in ONE
+    host kill_units_real (CIT-Y4, R-Y4-1; every chain settled once, F4665), then kill the guest itself (host kill_unit_real
+    {unit: <guest's battle unit id>}, the chain settled). The
     guest's death then reaches the owner's world (D181); it needs no killer credit (F4536) and no seed."""
     m = (host, client)
     con = ctx.setdefault("construction", {})
     hostiles = [u["id"] for u in battle_state(host).get("units", [])
                 if u.get("faction") == 1 and not u.get("isOut")]
     con["hostiles"] = hostiles
-    for uid in hostiles:
-        host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
-        chain_settled(host, client, stable=1.0, timeout=45, want_live=None)
+    if hostiles:
+        host.cmd({"cmd": "battle_action", "action": "kill_units_real", "units": hostiles})
+        chain_settled(host, client, stable=1.0, timeout=45 * len(hostiles), want_live=None)
     host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": gid})
     chain_settled(host, client, stable=1.0, timeout=45, want_live=None)
     live = sorted(u["id"] for u in battle_state(host).get("units", []) if u.get("faction") == 1 and not u.get("isOut"))
