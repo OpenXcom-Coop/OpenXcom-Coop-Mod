@@ -5855,6 +5855,13 @@ void coopCueCorpse(const BattleUnit* unit)
 	coopEmitCue("corpse", p);
 }
 
+// coop W2-H90 (R-H90-1; follows W2-P4 C17p busy -> held -> resubmit and ADD-1.3a "admission at quiescence"): HOST -
+// a client order was denied `busy` by a running BState chain or an open action context and the client has not been
+// sent a release point since. Set by CoopArbiter::onIntent()'s busy deny; cleared by every bt_action_end sendEv() sends
+// (its apply resubmits the held order) and by the `quiesce` ev a context-less chain's end sends
+// (CoopArbiter::onChainQuiesced()). Main / pump thread only; battle-scoped (resetCoopArbiterState()).
+static bool g_coopBusyDenyUnreleased = false;
+
 namespace CoopEmit
 {
 
@@ -5972,6 +5979,9 @@ void sendEv(Json::Value ev)
 	}
 
 	ev["seq"] = nextSeq();
+	// coop W2-H90 (R-H90-1): a bt_action_end is the client's release point for a held order.
+	if (hostAuthoring && ev.get("state", "").asString() == "bt_action_end")
+		g_coopBusyDenyUnreleased = false;
 	// W2-P7 S-A.1 (AMENDMENT P7-1 ST4 (a)): the battleEnd record's evsAfter
 	// probe - the `battle_end` envelope's seq, then every envelope after it.
 	CoopDelta::battleEndNoteSend(ev);
@@ -10890,6 +10900,7 @@ static void resetCoopArbiterState()
 	g_coopActionIdMint = 1;
 	g_coopPendingChainActorId = -1;
 	g_coopLastDenyTick.clear();
+	g_coopBusyDenyUnreleased = false; // coop W2-H90
 	g_coopClientNextIseq = 1;
 	g_coopPendingTurnInfo = CoopPendingTurnInfo();
 	g_coopClientInFlight = CoopClientInFlight();
@@ -14083,6 +14094,9 @@ void onIntent(const Json::Value& intent)
 	// has not run yet). W2-P7 S-V-A.2 (D214 (a), design 2.5): OR the fatal-wounds vote is armed or open.
 	if (bg->isBusy() || currentActionId() != 0 || coopFatalVoteHolds("intent"))
 	{
+		// coop W2-H90 (R-H90-1): the client holds this order until the host's chain ends (the vote's close releases its own).
+		if (bg->isBusy() || currentActionId() != 0)
+			g_coopBusyDenyUnreleased = true;
 		denyIntent(iseq, "busy", seat, kind);
 		return;
 	}
@@ -15180,6 +15194,18 @@ void onChainQuiesced()
 		// reaction chains until W2-P3), ship it now as one `sync` ev. Host +
 		// armed + non-empty delta only; otherwise a no-op.
 		CoopDelta::flushSync();
+		// coop W2-H90 (R-H90-1): such a chain ends with no bt_action_end, so a client order denied busy during it was
+		// never released. One `quiesce` ev (actionId 0, empty payload, no h) follows the chain's evs; the client's apply
+		// resubmits the held order (onQuiescenceObserved()), as a bt_action_end's does. Sent only while such a deny is
+		// unreleased.
+		if (g_coopBusyDenyUnreleased && coopBattleAuthority().hostSim)
+		{
+			g_coopBusyDenyUnreleased = false;
+			const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
+			CoopEmit::sendEv(CoopWire::makeEv(0u, 0u, "quiesce"));
+			Log(LOG_INFO) << "[coop-arbiter] context-less chain quiesced with a busy deny unreleased - quiesce ev seq "
+				<< CoopDelta::hostSeqOf("quiesce", seqBefore) << " sent (W2-H90)";
+		}
 		return; // no coop action in flight - a foreign/AI popState, not ours
 	}
 
@@ -22345,6 +22371,14 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		return;
 	}
 
+	if (kind == "quiesce")
+	{
+		// coop W2-H90 (R-H90-1): the host's context-less chain ended - no state, no h. The held order's release runs
+		// in CoopDisplayQueue::onApplied() after this envelope's delta. A known kind, not an RW-UNSUPPORTED warning.
+		Log(LOG_INFO) << "[coop-apply] quiesce ev seq " << ev.get("seq", 0u).asUInt() << " applied";
+		return;
+	}
+
 	if (coopIsCueKind(kind))
 	{
 		// W2-P2 S-C.2 (spec (b)11, V2): a host combat cue (shot, hit, explosion,
@@ -27875,6 +27909,11 @@ void onApplied(const Json::Value& ev)
 			if (bs)
 				bs->getGame()->pushState(new NextTurnState(save, bs));
 		}
+
+		// coop W2-H90 (R-H90-1): a context-less chain's end is the release point of an order held during it, as a
+		// bt_action_end's apply is below: after this envelope's delta, before the info-cancel check.
+		if (ev.get("kind", "").asString() == "quiesce")
+			CoopArbiter::onQuiescenceObserved();
 	}
 	else if (state == "bt_action_end")
 	{
