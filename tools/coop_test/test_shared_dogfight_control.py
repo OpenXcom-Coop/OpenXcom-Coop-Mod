@@ -31,6 +31,9 @@ import geo
 
 # df_state wire enum: 0 standoff, 1 cautious, 2 standard, 3 aggressive, 4 disengage.
 STANDOFF, CAUTIOUS, STANDARD, AGGRESSIVE, DISENGAGE = 0, 1, 2, 3, 4
+ECHO_S = 5.0   # R-CAPGEO-1: bound of AC1's wait for the host's df_state echo on the client (traced 3-6 ms after the press at
+               # 2-3 ms test-server calls, inside the press call at 50 ms; cap-geo F23960). A bound, not a pace: replace it
+               # only by a larger value
 
 
 def _geo(gc):
@@ -131,11 +134,18 @@ def main():
         print("PASS setup: both opened; client is the commanding seat (full window)")
 
         # --- AC1: CLIENT issues aggressive -> host _mode changes; both converge. ------
-        # Optimistic echo: the client's own window flips immediately.
+        # The host's echo: a replica's stance button has no local flip (DogfightState.cpp btnAggressivePress
+        # `if (_isReplicaView) { emitDfCmd("aggressive"); return; }`; the playtest rule in
+        # test_shared_dogfight_shared.py:7-9), so the client's mode follows the host's next df_state frame.
+        # R-CAPGEO-1 (cap-geo F23960, cap-battle F23982): wait, bounded, for the client's own mode, then the same check.
         client.ok({"cmd": "dogfight_action", "action": "aggressive"})
+        deadline = time.time() + ECHO_S
         cd = _df_for(client, avenger_id, ufo_id)
+        while (cd is None or cd["mode"] != AGGRESSIVE) and time.time() < deadline:
+            time.sleep(0.02)
+            cd = _df_for(client, avenger_id, ufo_id)
         assert cd["mode"] == AGGRESSIVE, \
-            f"optimistic echo failed: client mode {cd['mode']} != aggressive"
+            f"host echo failed: client mode {cd['mode']} != aggressive"
         # The host applies the df_cmd (receive-order) and streams it back.
         _wait_mode(host, avenger_id, ufo_id, AGGRESSIVE,
                    "AC1 host aggressive", host, client)
