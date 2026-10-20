@@ -2214,9 +2214,7 @@ void DogfightState::harnessToggleWeapon(int idx)
 	if (idx < 0 || idx >= _weaponNum) return;
 	if (_isReplicaView)
 	{
-		_weaponEnabled[idx] = !_weaponEnabled[idx]; // optimistic echo
-		recolor(idx, _weaponEnabled[idx]);
-		emitDfCmd("weaponToggle", idx);
+		emitDfCmd("weaponToggle", idx); // D301 (b): request only; the icon follows the host's df_state (as weaponClick)
 	}
 	else
 	{
@@ -2632,16 +2630,15 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
-	// PRD-DF02 REPLICA: optimistically recolor the icon now (pure render) + emit
-	// df_cmd{weaponToggle,arg=i}; the next df_state confirms/corrects (applyFrame
-	// recolors to the host's authoritative _weaponEnabled).
+	// PRD-DF02 REPLICA (owner D301 (b)): the weapon icon is HOST-AUTHORITATIVE, like the
+	// stance buttons. A click only requests the toggle (df_cmd{weaponToggle,arg=i}); the
+	// icon never flips locally - it follows the host's df_state (applyFrame recolors to the
+	// host's _weaponEnabled on a change). No optimistic echo => no revert flicker.
 	if (_isReplicaView)
 	{
 		for (int i = 0; i < _weaponNum; ++i)
 			if (a->getSender() == _weapon[i])
 			{
-				_weaponEnabled[i] = !_weaponEnabled[i];
-				recolor(i, _weaponEnabled[i]);
 				emitDfCmd("weaponToggle", i);
 				return;
 			}
@@ -3270,8 +3267,9 @@ void DogfightState::applyFrame(const Json::Value& frame)
 		{
 			// PRD-DF02: adopt the host's authoritative weapon-enabled state AND recolor
 			// the icon on a change (recolor() is a relative offset, so only on change) -
-			// this confirms/corrects the optimistic weaponToggle echo and closes the
-			// DF01 gap where replica icons never tracked the disabled colour.
+			// a replica's weapon icon follows the host here (owner D301 (b): a click only
+			// sends weaponToggle, with no local flip); this also closes the DF01 gap where
+			// replica icons never tracked the disabled colour.
 			bool newEnabled = we[i].asBool();
 			if (newEnabled != _weaponEnabled[i])
 			{
