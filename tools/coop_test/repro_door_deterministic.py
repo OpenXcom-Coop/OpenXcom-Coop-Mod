@@ -1064,6 +1064,10 @@ def run_scenario(host, client, tag):
     # ---- re-arm: close it again, re-pin TU, only the reserve changes next ----
     rc = host.cmd({"cmd": "battle_close_ufo_doors"})
     assert rc.get("ok"), f"{tag}(b): re-close failed: {rc}"
+    # cap-door (F24230): pin_tu sets the CLIENT's TU first (F607). Wait until the client has applied the
+    # re-close's door ev (seq barrier) first: that ev's unitsStats hash carries the TU the baseline left, so a
+    # client TU write landing before it is a DESYNC and an automatic repair (the CIT-FULL5 red).
+    session.wait_seq_barrier(host, client)
     pin_tu(host, client, second_id, LEG_B_TU)
     d3 = session.door_lookup(host, door_at)
     assert d3 is not None and d3.get("isUfoDoorOpen") is False, (
