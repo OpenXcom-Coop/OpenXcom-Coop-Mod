@@ -12700,6 +12700,34 @@ std::string TestServer::execute(const std::string& line)
 				resp["path"] = path;
 			}
 		}
+		else if (cmd == "geo_clock")
+		{
+			// coop W2-H92 (TEST-ONLY, read-only; D304 (a)): THIS machine's geoscape clock to the second, the co-op clock counters
+			// and the top state in one light call, so a test can sample both machines every few ms.
+			SavedGame* sgGC = _game->getSavedGame();
+			const auto& stGC = _game->getStates();
+			resp["top"] = stGC.empty() ? std::string() : std::string(typeid(*stGC.back()).name());
+			if (!sgGC || !sgGC->getTime())
+				resp["error"] = "no saved game";
+			else
+			{
+				const GameTime* tGC = sgGC->getTime();
+				resp["year"] = tGC->getYear();
+				resp["month"] = tGC->getMonth();
+				resp["day"] = tGC->getDay();
+				resp["hour"] = tGC->getHour();
+				resp["minute"] = tGC->getMinute();
+				resp["second"] = tGC->getSecond();
+				connectionTCP* coopGC = _game->getCoopMod();
+				resp["stepped"] = Json::Int64(connectionTCP::_geoTicksStepped);
+				resp["hostTicks"] = Json::Int64(connectionTCP::_hostGeoTicks);
+				resp["applied"] = Json::Int64(connectionTCP::_appliedHostGeoTicks);
+				resp["pending"] = coopGC ? coopGC->coopClientPendingGeoTicks() : -1;
+				resp["peerAgeMs"] = coopGC ? (Json::UInt)(SDL_GetTicks() - coopGC->lastPeerTimePacketMs.load()) : 0u;
+				resp["peerSpeed"] = coopGC ? coopGC->peerTimeSpeedId : std::string();
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "geo_state")
 		{
 			// Read-only geoscape snapshot for the autonomous play driver:
