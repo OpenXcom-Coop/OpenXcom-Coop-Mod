@@ -1,6 +1,11 @@
 {
   "boot_check": 11.8,
+  "test_atom_kneel": 23.2,
   "test_atom_side_begin": 19.1,
+  "test_atom_side_transition": 14.4,
+  "test_atom_spot": 12.7,
+  "test_atom_turn": 12.1,
+  "test_atom_walk": 21.9,
   "test_battlescape_exit_palette": 18.0,
   "test_bug_fixes": 6.2,
   "test_campaign_then_skirmish_debrief": 15.9,
@@ -60,7 +65,9 @@
   "test_d250_campaign_resume_roles": 40.9,
   "test_d283_pve2_resume_refused": 54.1,
   "test_door_deterministic": 44.3,
+  "test_edge_pass": 13.3,
   "test_geoscape_sync": 22.9,
+  "test_ghost_stepper": 18.3,
   "test_gift_fresh": 4.0,
   "test_gift_rollback": 19.3,
   "test_harness_port_publication": 0.2,
@@ -81,6 +88,7 @@
   "test_pvp_campaign_ufo_spawn": 33.2,
   "test_pvp_dogfight": 45.4,
   "test_pvp_duplicate_bases": 24.6,
+  "test_pvp_side_relative": 17.8,
   "test_pvp_skirmish_gamemode_selection": 8.8,
   "test_r4_abort_vote": 45.9,
   "test_r4_abort_vote_edges": 31.7,
@@ -136,6 +144,7 @@
   "test_rejoin_flow": 7.1,
   "test_resume_flow": 12.1,
   "test_resume_game_in_battle": 26.0,
+  "test_reveal_sync": 57.2,
   "test_rv21_cydonia_guests": 32.3,
   "test_rv5_item_cover": 69.0,
   "test_rv5_pvp_abort_cover": 11.5,
@@ -501,5 +510,6 @@
   "test_w2_visit_window_67_edits": 78.9,
   "test_w2_visit_window_pops": 59.9,
   "test_w2_world_dump_fields": 10.1,
-  "test_w2_zombie": 26.0
+  "test_w2_zombie": 26.0,
+  "test_walk_zero_step": 9.9
 }
