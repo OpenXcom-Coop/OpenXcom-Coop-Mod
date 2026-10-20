@@ -41729,6 +41729,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// geoscape. The host's timeAdvance() freezes the shared clock when this goes
 		// stale, and both sides dim the ally marker to yellow when it does.
 		lastPeerTimePacketMs = SDL_GetTicks();
+		peerGeoHold = obj.get("hold", false).asBool(); // coop W2-H92 (D304 (a)): only a client's heartbeat carries it
 
 	}
 

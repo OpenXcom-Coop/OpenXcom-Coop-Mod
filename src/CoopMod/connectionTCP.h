@@ -995,6 +995,9 @@ class connectionTCP
 	// both sides use it to dim the ally marker to yellow. Written on the packet-handler
 	// thread, read on the main thread, hence atomic.
 	std::atomic<Uint32> lastPeerTimePacketMs{0};
+	// coop W2-H92 (D304 (a)): the client's last "time" heartbeat asked to hold the shared clock (a popup queued or shown, or closed
+	// before its geoscape ran a step since); the host's GeoscapeState::timeAdvance() holds while it is set.
+	std::atomic<bool> peerGeoHold{false};
 	// coop: which geoscape location the teammate is looking at, for the ally marker.
 	// -1 = on the geoscape (use peerTimeSpeedId); 0..5 = a toolbar sub-screen index
 	// (Intercept/Bases/Graphs/Ufopaedia/Options/Funding). Reset to -1 whenever a

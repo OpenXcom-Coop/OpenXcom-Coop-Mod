@@ -2256,6 +2256,12 @@ void GeoscapeState::think()
 		// freezing. Sub-screens stop these packets, so their dedicated geo_focus sticks.
 		bool inDogfight = _minimizedDogfights < _dogfights.size();
 		root["geo_focus"] = inDogfight ? 0 : -1;
+		// coop W2-H92 (D304 (a)): a client with a popup queued or shown asks the host to hold the shared clock at once; the
+		// host's 1000 ms grace stays the fallback for a lost heartbeat. A client whose own world walks the host's ticks (SEPARATE)
+		// keeps asking after the close until its geoscape has run a step (the catch-up, H23-VL1). An open dogfight window keeps
+		// time running, as above.
+		if (_game->getCoopMod()->getServerOwner() == false)
+			root["hold"] = !_popups.empty() || (_coopPopupHold && !inDogfight && _game->getCoopMod()->coopClientOwnClock());
 
 		// time/focus heartbeat via the conflation slot (last-write-wins).
 		_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_TIME, root.toStyledString());
@@ -2622,7 +2628,8 @@ void GeoscapeState::timeAdvance()
 		if (_game->getCoopMod()->getServerOwner())
 		{
 			const Uint32 grace = 1000; // ms; comfortably above the client's per-frame heartbeat gap
-			if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace)
+			if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace
+				|| _game->getCoopMod()->peerGeoHold.load()) // coop W2-H92 (D304 (a)): the client's heartbeat says it has a popup
 				timeSpan = 0;
 		}
 
@@ -2634,6 +2641,7 @@ void GeoscapeState::timeAdvance()
 
 	}
 
+	const bool coopPausedIn = _pause; // coop W2-H92
 	for (int i = 0; i < timeSpan && !_pause; ++i)
 	{
 		TimeTrigger trigger;
@@ -2660,6 +2668,11 @@ void GeoscapeState::timeAdvance()
 			time5Seconds();
 		}
 	}
+
+	// coop W2-H92 (D304 (a)): the popup hold ends with the first step that ran with no popup in the way (there a SEPARATE client
+	// walks the host ticks it missed, H23-VL1)
+	if (!coopPausedIn && _popups.empty())
+		_coopPopupHold = false;
 
 	_pause = !_dogfightsToBeStarted.empty() || _zoomInEffectTimer->isRunning() || _zoomOutEffectTimer->isRunning();
 
@@ -5323,6 +5336,7 @@ int GeoscapeState::coopDropQueuedPopupsHolding(const std::vector<Target*>& doome
 void GeoscapeState::popup(State *state)
 {
 	_pause = true;
+	_coopPopupHold = true; // coop W2-H92 (D304 (a))
 	_popups.push_back(state);
 }
 

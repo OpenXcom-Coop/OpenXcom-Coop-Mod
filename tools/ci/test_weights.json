@@ -364,6 +364,7 @@
   "test_w2_gift_twice_stored": 33.2,
   "test_w2_h90_held_resubmit": 17.4,
   "test_w2_h91_save_rename": 43.6,
+  "test_w2_h92_popup_clock": 12.7,
   "test_w2_handoff_base_marker": 33.7,
   "test_w2_handoff_base_stream": 62.5,
   "test_w2_harness_truth": 36.4,

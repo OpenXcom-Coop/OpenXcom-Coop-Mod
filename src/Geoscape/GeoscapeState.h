@@ -70,6 +70,9 @@ private:
 	Text *_peerScreenMarker[6];
 	Timer *_gameTimer, *_zoomInEffectTimer, *_zoomOutEffectTimer, *_dogfightStartTimer, *_dogfightTimer;
 	bool _pause, _zoomInEffectDone, _zoomOutEffectDone;
+	// coop W2-H92 (D304 (a)): set by popup(), cleared by the first timeAdvance() that runs with no popup in the way; a co-op
+	// client's "time" heartbeat asks the host to hold the shared clock while it is set (see think()).
+	bool _coopPopupHold = false;
 	Text *_txtDebug;
 	ComboBox *_cbxRegion, *_cbxZone, *_cbxArea, *_cbxCountry;
 	Text *_txtSlacking;
