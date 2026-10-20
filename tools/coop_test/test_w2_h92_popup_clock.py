@@ -21,8 +21,10 @@ Rows / cells (every sample reads the host first, then the client: a sampled lead
   P-P2 (P only): from the client's pop until both run again (the client has caught up the host's held clock and the host has stepped
        again), the host's lead over the client never exceeds one step (<= 1440 min). Red at the base: the stale credit's step, then a
        second credited step while the client's first step after the pop walks 0 ticks (F24249), before its catch-up.
+  S-P2 GUARD (S only): the host's clock runs again after the client's pop (the hold ends; passes at the base).
 Red at the base (0b8bee213 + this file's probe): exit 2, RED exactly on S-P1-adv (1441.0), S-P1-steps (13), P-P1-adv (1440.917 ..
-2880.917), P-P1-steps (12 .. 13), P-P2-lead (2881.0 .. 4320.917) (7 runs); every P0 and guard cell passes.
+2880.917), P-P1-steps (12 .. 13), P-P2-lead (2881.0 .. 4320.917) (7 runs); every P0 and guard cell passes (S-P2-run: 41.9 ..
+45.4 ms).
 EVIDENCE then PASS / FAIL per cell; ONE run; every row runs after a failure; exit 0 only if all pass, else 2 (WV-D99 / WV-D100).
 WV-D95: one foreground run per invocation.
 Run: py -3 tools/coop_test/test_w2_h92_popup_clock.py
@@ -206,12 +208,12 @@ def run_scenario(x, mode, trigger, popup_type, results):
            "clientChanges": [(ms(t, t_pop), round(m - h_held, 3)) for t, m in changes(win, "c")]}
     rid2 = f"{tag}-P2"
     print(f"EVIDENCE {rid2}: {json.dumps(ev2, sort_keys=True, default=str)}", flush=True)
+    r2 = Row(rid2)
+    r2.cell("run", done_i is not None and on_geo, f"both run again {ev2['bothRunMs']} ms after the pop (popped {d}, geoscape on top {on_geo})")
     if mode == "separate":
-        r2 = Row(rid2)
-        r2.cell("run", done_i is not None and on_geo, f"both run again {ev2['bothRunMs']} ms after the pop (popped {d}, geoscape on top {on_geo})")
         r2.cell("lead", peak[1] is not None and peak[1] <= STEP_MIN,
                 f"the host's peak lead over the client from the pop until both run again {ev2['peakLead']} game min (want <= {STEP_MIN})")
-        results[rid2] = not r2.fails
+    results[rid2] = not r2.fails
 
 
 def shared_trigger(x):
@@ -293,9 +295,9 @@ def body_p(x, results):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot("S", boot_s, body_s, ("S-P0", "S-P1"), results, walls)
+    boot("S", boot_s, body_s, ("S-P0", "S-P1", "S-P2"), results, walls)
     boot("P", boot_p, body_p, ("P-P0", "P-P1", "P-P2"), results, walls)
-    order = ("S-P0", "S-P1", "P-P0", "P-P1", "P-P2")
+    order = ("S-P0", "S-P1", "S-P2", "P-P0", "P-P1", "P-P2")
     failed = [rid for rid in order if not results.get(rid)]
     for rid in order:
         print(f"{'PASS' if results.get(rid) else 'FAIL'} {rid}", flush=True)
