@@ -36550,9 +36550,10 @@ static void coopWriteArmedSaveOnPeerDrop(Game* game)
 		return;
 	Log(LOG_INFO) << "[coop] W2-H59: the partner dropped during the host's deferred save - it is written now ("
 		<< connectionTCP::session.pendingHostSaveName << ")";
-	game->getCoopMod()->writePendingHostSave();
+	// coop W2-H91 (owner D303 (b)): the 54 closes first, so a save error that writePendingHostSave() opens stays on top.
 	if (top && top->getStateCode() == COOP_DLG_HOST_SAVE_WAIT)
 		game->popState();
+	game->getCoopMod()->writePendingHostSave();
 }
 
 // ----- coop W2-H73 (docs rewrite/prompts/w2h73_drop_during_visit.md E1; L-TR9-2, R-TR9-2 fix (m); F20285-F20290, F20360-F20364): the
@@ -36612,13 +36613,18 @@ void connectionTCP::writePendingHostSave()
 		return;
 	}
 
+	std::string failedBackup; // coop W2-H91 (owner D303 (b)): the rename failed, the save stays here
 	try
 	{
 		// same atomic dance as SaveGameState: backup, then rename
 		std::string backup = session.pendingHostSaveName + ".bak";
 		_game->getSavedGame()->save(backup, _game->getMod());
-		CrossPlatform::moveFile(Options::getMasterUserFolder() + backup,
-								Options::getMasterUserFolder() + session.pendingHostSaveName);
+		// coop W2-H91 (owner D303 (a)): retried while another process holds the file
+		if (!CrossPlatform::moveFileRetry(Options::getMasterUserFolder() + backup,
+										Options::getMasterUserFolder() + session.pendingHostSaveName))
+		{
+			failedBackup = backup;
+		}
 	}
 	catch (const std::exception& e)
 	{
@@ -36626,6 +36632,20 @@ void connectionTCP::writePendingHostSave()
 	}
 
 	session.clearDeferredSave();
+
+	// coop W2-H91 (owner D303 (b)): a rename that still failed shows vanilla's save error on the host, the box and text
+	// SaveGameState::error shows for a geoscape save (this write never runs in a battle). The partner sees nothing new.
+	if (!failedBackup.empty())
+	{
+		const std::string msg = "Save backed up in " + failedBackup;
+		Log(LOG_ERROR) << msg;
+		std::ostringstream error;
+		error << _game->getLanguage()->getString("STR_SAVE_UNSUCCESSFUL") << Unicode::TOK_NL_SMALL << msg;
+		SDL_Color* palette = _game->getStates().empty() ? _game->getScreen()->getPalette() : _game->getStates().back()->getPalette();
+		_game->pushState(new ErrorMessageState(error.str(), palette,
+			_game->getMod()->getInterface("errorMessages")->getElement("geoscapeColor")->color, "BACK01.SCR",
+			_game->getMod()->getInterface("errorMessages")->getElement("geoscapePalette")->color));
+	}
 
 }
 

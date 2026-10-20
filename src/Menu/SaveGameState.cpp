@@ -295,8 +295,11 @@ void SaveGameState::think()
 			std::string fullPath = Options::getMasterUserFolder() + _filename;
 			std::string bakPath = Options::getMasterUserFolder() + backup;
 
-			// coop
-			if (!CrossPlatform::moveFile(bakPath, fullPath) && _game->getCoopMod()->getCoopStatic() == false)
+			// coop W2-H91 (owner D303 (a) then (b)): a co-op save's rename retries while another process holds the file
+			// (CrossPlatform::moveFileRetry), and a rename that still fails is reported as vanilla reports it: the save stays in the
+			// backup. A vanilla save moves once, as before. Co-op = localSavesAllowed()'s own split (a session, or a connected player).
+			const bool coopSave = _game->getCoopMod()->isCoopSession() || _game->getCoopMod()->getCoopStatic();
+			if (!(coopSave ? CrossPlatform::moveFileRetry(bakPath, fullPath) : CrossPlatform::moveFile(bakPath, fullPath)))
 			{
 				throw Exception("Save backed up in " + backup);
 			}
