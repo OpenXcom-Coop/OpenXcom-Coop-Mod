@@ -34900,12 +34900,14 @@ void connectionTCP::loopData()
 	// sets _stop. coopSession is NOT a reliable "streaming" signal here - the
 	// redesigned resume/rejoin flows stream a world without the old ready
 	// handshake that sets it, so keying on it aborts legitimate streams.
+	// CIT-G3: the harness (OXC_TEST_PORT set) polls the ack every 1 ms instead of every 20 ms; players keep 20 ms.
+	static const Uint32 ackPollMs = std::getenv("OXC_TEST_PORT") ? 1 : 20;
 	auto waitForMapAck = [&]() {
 		while (!isWaitMap)
 		{
 			if (_stop || (!sendFileClient && !sendFileHost))
 				throw StreamAbort{};
-			SDL_Delay(20);
+			SDL_Delay(ackPollMs);
 		}
 	};
 
