@@ -603,6 +603,8 @@ class GameClient:
         # COPY is rewritten so a caller reusing the dict in a retry loop is
         # unaffected.
         name = obj.get("cmd")
+        if name in _COOP_JOIN_CMDS:
+            self._wait_menu_init()
         if name in _COOP_HOST_CMDS and str(obj.get("port", "")) != "":
             key = str(obj["port"])
             obj = dict(obj)
@@ -623,7 +625,8 @@ class GameClient:
             obj["port"] = _EPHEMERAL_COOP_PORTS.get(key, obj["port"])
             if "localport" in obj:
                 obj["localport"] = "0"
-            # W2-U8e (F8376, F8566): the client's connect thread makes ONE attempt (~1.1 s after this command) and
+            # W2-U8e (F8376, F8566): the client's connect thread makes ONE attempt (at once under the test server since
+            # CIT-G1; ~1.1 s after this command for players) and
             # never retries, while the host opens its listener on its own thread after host_tcp / host_menu_host
             # returned: never send join_tcp before the host reports that listener open.
             host = _COOP_HOSTS.get(key)
@@ -633,6 +636,17 @@ class GameClient:
                 _COOP_JOINERS[key].append(self)
             return self._send(obj)
         return self._send(obj)
+
+    def _wait_menu_init(self, timeout=10):
+        """CIT-G1 fix: the game pumps test commands BEFORE it inits a newly pushed state, so a join that lands before
+        MainMenuState::init is wiped by that init's disconnectTCP + resetSession (test_lobby_polish, 2 of 16 runs once
+        the client connected at once). Every join waits until get_state reports no main-menu init pending. A build
+        without the field reports nothing, so nothing waits."""
+        deadline = time.time() + timeout
+        while self._send({"cmd": "get_state"}).get("mainMenuInitPending"):
+            if time.time() > deadline:
+                raise TimeoutError(f"{self.name}: main menu init still pending after {timeout} s; join not sent")
+            time.sleep(0.005)
 
     def ok(self, obj):
         r = self.cmd(obj)

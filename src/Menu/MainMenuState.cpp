@@ -448,6 +448,7 @@ void MainMenuState::init()
 
 	// coop
 	_game->getCoopMod()->allow_cutscene = true;
+	_coopInitDone = true; // CIT-G1 fix: a join sent from here on is no longer wiped by the reset above
 }
 
 /**

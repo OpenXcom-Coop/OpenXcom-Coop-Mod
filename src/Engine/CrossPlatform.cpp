@@ -26,6 +26,7 @@
 #include <fstream>
 #include <string>
 #include <list>
+#include <mutex>
 #include <stdint.h>
 #include <time.h>
 #include <signal.h>
@@ -1771,6 +1772,9 @@ static bool logToFile(const std::string& filename, const std::string& data) {
 static const size_t LOG_BUFFER_LIMIT = 1<<10;
 static std::list<std::pair<int, std::string>> logBuffer;
 static std::string logFileName;
+// coop CIT-G3 fix: the co-op threads log too; one writer at a time, so two lines written in the same moment cannot overwrite
+// each other in the file. Recursive because the crash handler logs, and a crash can land inside log().
+static std::recursive_mutex logMutex;
 const std::string& getLogFileName() { return logFileName; }
 
 /**
@@ -1785,6 +1789,7 @@ void setLogFileName(const std::string& name) {
 	logFileName = name;
 }
 void log(int level, const std::ostringstream& baremsgstream) {
+	std::lock_guard<std::recursive_mutex> lock(logMutex);
 	std::ostringstream msgstream;
 	msgstream << "[" << CrossPlatform::nowMillis() << "]" << "\t"
 			  << "[" << Logger::toString(level) << "]" << "\t"

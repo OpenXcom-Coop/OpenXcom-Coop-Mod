@@ -12287,6 +12287,12 @@ std::string TestServer::execute(const std::string& line)
 				states.append(typeid(*s).name());
 			}
 			resp["states"] = states;
+			// CIT-G1 fix: true while the top state is a main menu whose init() has not run yet (or the GoToMainMenuState that
+			// pushes one). The game loop pumps test commands BEFORE it inits a newly pushed state, so a join sent now would be
+			// wiped by MainMenuState::init's disconnectTCP + resetSession. The harness waits for false before every join.
+			const State* topGS = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			const MainMenuState* menuGS = dynamic_cast<const MainMenuState*>(topGS);
+			resp["mainMenuInitPending"] = (menuGS && !menuGS->coopInitDone()) || dynamic_cast<const GoToMainMenuState*>(topGS) != nullptr;
 			resp["ok"] = true;
 		}
 		else if (cmd == "pedia_state")
