@@ -38532,12 +38532,16 @@ static inline void clearAllReceivedPackets(TCPsocket sock,
 void connectionTCP::startTCPClient()
 {
 
-	SDL_Delay(1000);
+	// CIT-G1: the harness (OXC_TEST_PORT set) skips the client's 1.1 s connect delay; players keep it.
+	const bool keepConnectDelay = std::getenv("OXC_TEST_PORT") == nullptr;
+	if (keepConnectDelay)
+		SDL_Delay(1000);
 	DebugLog("startTCPClient\n");
 	resetCoopState(false); // client
 
 #ifdef _WIN32
-	SDL_Delay(100); // tiny stagger; avoid long sleeps
+	if (keepConnectDelay)
+		SDL_Delay(100); // tiny stagger; avoid long sleeps
 #endif
 
 	if (SDLNet_Init() == -1)
