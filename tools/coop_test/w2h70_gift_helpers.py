@@ -133,6 +133,14 @@ def read_save(path):
                                    "globe": {k: w.get(k) for k in ("globeLon", "globeLat", "globeZoom")}})
     return out
 
+def probe_globe(path):
+    """CIT-SLEEP1 (F24288): the probe save's first entry globe once the file parses with every globe value set, else None"""
+    try:
+        g = ((read_save(path)["entries"]) or [{}])[0].get("globe") or {}
+    except Exception:  # a file still being written is a not-yet
+        return None
+    return g if g and None not in g.values() else None
+
 def halves(path, gift):
     """QUICK's halves: where GIFTNAME is (host half [base, id]; client entries [key, base, id])"""
     f = read_save(path)
@@ -302,17 +310,16 @@ def picker(x, ev):
     t0 = time.time()
     q(h, {"cmd": "save_game_ui", "type": "quick"})
     okq, sq = wait(lambda: os.path.exists(qpath) and os.path.getmtime(qpath) >= t0 - 1, W_SAVE, 0.2)
-    time.sleep(2.0)
+    wait(lambda: top(h) == "GeoscapeState", 2.0)   # CIT-SLEEP1 (F24288): the quick save's screens closed, at most the old 2.0 s
     hq = stack(h)
     q(h, {"cmd": "save_game", "file": PROBE})
     okn, _sn = wait(lambda: os.path.exists(spath) and os.path.getsize(spath) > 0, W_SAVE, 0.2)
-    time.sleep(1.0)
-    G = ((read_save(spath)["entries"] if okn else []) or [{}])[0].get("globe") or {}
+    G = (wait(lambda: probe_globe(spath), 2.0)[0] if okn else None) or {}   # CIT-SLEEP1 (F24288): was a fixed 1.0 s
     cr = next((k for k in (own_base(c) or {}).get("crafts", []) if not k.get("coop")), None)
     q(c, {"cmd": "open_select_destination", "craft_id": cr and cr["id"], "craft_type": cr and cr["type"]})
-    time.sleep(0.4)
+    session.wait_widget_ready(c, "CANCEL")   # CIT-SLEEP1 (F24288): was a fixed 0.4 s
     cw = q(c, {"cmd": "click_widget", "match": "CANCEL"})
-    time.sleep(0.5)
+    wait(lambda: top(c) == "GeoscapeState", 2.0)   # CIT-SLEEP1 (F24288): was a fixed 0.5 s
     x.pk = {"G": G, "geom": geometry(c), "scale": cw.get("baseX") and {"x": cw["winX"] / cw["baseX"], "y": cw["winY"] / cw["baseY"]}}
     ev["picker"] = {"quick s": sq if okq else None, "host": hq, "probe": bool(okn), "G": G, "scale": x.pk["scale"]}
     if not okq or hq[-1:] != ["GeoscapeState"] or not G or None in G.values() or not x.pk["scale"] or top(c) != "GeoscapeState":

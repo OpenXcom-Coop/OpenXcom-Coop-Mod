@@ -79,10 +79,15 @@ def start_pvp_skirmish_lobby(host, client, port, alien_player="client"):
     gamemode = r["gamemode"]
     assert gamemode in (2, 3), \
         f"expected a PvP mode (2 or 3), got gamemode {gamemode}"
-    time.sleep(1)
-
-    host_ls = _lobby(host)
-    client_ls = _lobby(client)
+    # CIT-SLEEP1 (F24288): until the host's roster shows the row Alien and the client's teams equal the host's (the
+    # change has reached it), at most the old fixed 1 s; the lobby views refresh on their own timer, so both are re-read
+    end = time.time() + 1.0
+    while True:
+        host_ls, client_ls = _lobby(host), _lobby(client)
+        ht = host_ls.get("playerTeams") or []
+        if (row < len(ht) and ht[row] == "Alien" and client_ls.get("playerTeams") == ht) or time.time() >= end:
+            break
+        time.sleep(0.02)
     return gamemode, host_ls, client_ls
 
 

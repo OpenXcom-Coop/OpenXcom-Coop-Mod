@@ -34,6 +34,17 @@ def states(gc):
     return gc.cmd({"cmd": "get_state"})["states"]
 
 
+def _wait_stacks_change(machines, seen, cap, interval=0.02):
+    """CIT-SLEEP1 (F24288): wait until a machine's screen stack differs from `seen` (one states() list per machine), at
+    most `cap` seconds (the fixed step it replaces). Returns True on a change, False at the cap."""
+    end = time.time() + cap
+    while time.time() < end:
+        if any(states(gc) != s for gc, s in zip(machines, seen)):
+            return True
+        time.sleep(interval)
+    return False
+
+
 def has_state(gc, name):
     return any(name in s for s in states(gc)) or None
 
@@ -126,9 +137,13 @@ def resume_campaign_via_button(host, client_name="ClientPlayer"):
     host.wait_for(
         "client registered in resume lobby",
         lambda: (host.cmd({"cmd": "get_coop"}).get("clientName") == client_name) or None,
-        timeout=60, interval=1.0,
+        timeout=60, interval=0.05,
     )
-    time.sleep(2)
+    # CIT-SLEEP1 (F24288): RESUME's own gate (LobbyMenu::btnCancelClick, mode 2: missingPlayers() empty and
+    # startEligible() = clientInLobby) instead of a fixed 2 s; at most the old 2 s, then the press as before
+    end = time.time() + 2.0
+    while time.time() < end and not host.cmd({"cmd": "lobby_state"}).get("startEligible"):
+        time.sleep(0.02)
     host.ok({"cmd": "lobby_action"})
 
 
@@ -1364,7 +1379,7 @@ def dismiss_battle_start_overlays(host, timeout=10):
                 f"open (ESC is the ready toggle there, F2755) - use equip_both_ready() first; "
                 f"stack={states(host)}")
         host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
-        time.sleep(0.3)
+        _wait_stacks_change((host,), (st,), 0.3)  # CIT-SLEEP1 (F24288): until the overlay closes, at most the old 0.3 s
     raise TimeoutError(f"{host.name}: battle-start overlays never cleared, stack={states(host)}")
 
 
@@ -2499,8 +2514,10 @@ def drive_both_to_tactical(host, client, timeout=240):
     deadline = time.time() + timeout
     while time.time() < deadline:
         done = True
+        seen = []
         for gc in (host, client):
             st = states(gc)
+            seen.append(st)
             top = st[-1] if st else ""
             if "BattlescapeState" in top:
                 continue
@@ -2528,7 +2545,9 @@ def drive_both_to_tactical(host, client, timeout=240):
                 if not moved:
                     break
             return True
-        time.sleep(1.0)
+        # CIT-SLEEP1 (F24288): the next round once either stack moves from what this round saw (a press landed or the
+        # partner moved on), at most the old fixed 1.0 s step
+        _wait_stacks_change((host, client), seen, 1.0)
     return False
 
 
