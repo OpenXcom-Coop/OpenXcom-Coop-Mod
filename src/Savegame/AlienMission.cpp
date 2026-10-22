@@ -1161,7 +1161,7 @@ void AlienMission::addScore(double lon, double lat, SavedGame &game) const
 {
 
 	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_enable_time_sync == true && (connectionTCP::getServerOwner() == false || (connectionTCP::getServerOwner() == true && _coop == true)))
+	if (connectionTCP::getCoopStatic() == true && (connectionTCP::getServerOwner() == false || (connectionTCP::getServerOwner() == true && _coop == true)))
 	{
 		return;
 	}

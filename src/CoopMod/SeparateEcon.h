@@ -36,6 +36,10 @@ public:
 		std::set<std::string> factionResearch;
 		std::set<std::string> completedResearch;
 		std::vector<int64_t> funds;
+		std::vector<int> factionScores;
+		std::set<std::string> generatedEvents;
+		std::map<std::string, int> missionRuns;
+		std::map<std::string, int> missionMarkers;
 		std::map<std::string, int> ufopediaRuleStatus;
 	};
 private:
@@ -50,6 +54,18 @@ public:
 	void ensurePlayers(const std::vector<std::string>& playerNames);
 	void ensurePlayerFunds(const std::vector<std::string>& playerNames,
 		const std::vector<int64_t>& legacyFunds);
+	void ensureFactionScores(const std::vector<std::string>& playerNames,
+		size_t historySize);
+	void newFactionScoreMonth(const std::vector<std::string>& playerNames,
+		size_t historySize);
+	void addFactionScore(const std::string& playerName, int score);
+	int getFactionScore(const std::string& playerName, size_t historyIndex) const;
+	bool wasEventGenerated(const std::string& playerName, const std::string& eventName) const;
+	void addGeneratedEvent(const std::string& playerName, const std::string& eventName);
+	int getMissionRuns(const std::string& playerName, const std::string& name) const;
+	void addMissionRun(const std::string& playerName, const std::string& name);
+	int getMissionMarkerCount(const std::string& playerName, const std::string& name) const;
+	void addMissionMarker(const std::string& playerName, const std::string& name);
 	std::vector<int64_t>* getPlayerFunds(const std::string& playerName);
 	const std::vector<int64_t>* getPlayerFunds(const std::string& playerName) const;
 	void migrateLegacyResearch(const std::vector<std::string>& playerNames,
@@ -95,6 +111,9 @@ void trimInitialCraftCrews(Game* game);
 int localPlayerMaintenance(Game* game);
 /// Sum monthly maintenance for bases owned by the named Separate player.
 int playerMaintenance(Game* game, const std::string& playerName);
+/// Private faction-event score for the local player at a monthly history index.
+/// Returns zero when all Separate players use the same faction.
+int localFactionScore(Game* game, size_t historyIndex);
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj);
 /// Store a local player's Ufopaedia mark and persist client changes on the host.
 void setUfopediaRuleStatus(Game* game, const std::string& rule, int status);

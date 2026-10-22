@@ -466,6 +466,15 @@ void ConfirmLandingState::startCoopMission()
 	// Mission ownership controls who may launch a faction-specific mission; the
 	// battle itself belongs to the player whose craft actually launched it.
 	bgame->setBattleOwnerPlayerName(battleOwner);
+	if (_game->getCoopMod()->isSeparateCampaign()
+		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+	{
+		std::string factionScoreOwner;
+		if (u && u->getMission()) factionScoreOwner = u->getMission()->getOwnerPlayerName();
+		else if (m) factionScoreOwner = m->getOwnerPlayerName();
+		else if (b) factionScoreOwner = b->getOwnerPlayerName();
+		bgame->setFactionScoreOwnerPlayerName(factionScoreOwner);
+	}
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen(_game);
 	bgen.setWorldTexture(_missionTexture, _globeTexture);

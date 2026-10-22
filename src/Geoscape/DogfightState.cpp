@@ -1763,7 +1763,7 @@ void DogfightState::update()
 				{
 
 					// coop
-					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+					if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 					{
 						for (auto* country : *_game->getSavedGame()->getCountries())
 						{
@@ -1796,7 +1796,7 @@ void DogfightState::update()
 					playDfSound(Mod::UFO_CRASH); //10
 
 					// coop
-					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+					if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 					{
 						for (auto* country : *_game->getSavedGame()->getCountries())
 						{
@@ -1903,7 +1903,7 @@ void DogfightState::update()
 				_destroyUfo = true;
 
 				// coop
-				if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+				if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 				{
 					for (auto* country : *_game->getSavedGame()->getCountries())
 					{

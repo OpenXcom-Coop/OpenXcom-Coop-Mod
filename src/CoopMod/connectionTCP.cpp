@@ -188,7 +188,6 @@ bool connectionTCP::_isActivePlayerSync = false;
 bool connectionTCP::_peerLeftCleanly = false; 
 
 
-bool connectionTCP::_enable_time_sync = true;
 
 bool connectionTCP::_enable_reaction_shoot = true;
 
@@ -1650,9 +1649,10 @@ Json::Value connectionTCP::buildCampaignStartPacket(const SavedGame* save)
 	root["saveID"] = static_cast<Json::Int64>(connectionTCP::saveID);
 	// PRD-J01: propagate the campaign economy model so the client adopts it.
 	root["campaignType"] = static_cast<int>(save->getCampaignType());
-	// PRD-P5: and the parallel-turns session mode, so a client that started its
-	// world from this packet (rather than from a streamed save) still agrees.
-	root["enable_parallel_turns"] = connectionTCP::_enable_parallel_turns;
+	// PRD-P5: and the parallel-turns session mode, so a client that starts its
+	// world before COOP_READY_HOST still receives the host's configured value.
+	// The runtime mirror may not have been initialized yet at this point.
+	root["enable_parallel_turns"] = Options::EnableCoopParallelTurns;
 	int idx = 0;
 	for (const auto& p : save->getCoopPlayers())
 	{
@@ -2964,7 +2964,7 @@ void connectionTCP::updateCoopTask()
 	}
 
 	// time
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true && _year != 0)
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && _year != 0)
 	{
 
 		if (_game->getSavedGame())
@@ -5831,6 +5831,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// (COOP_READY_HOST already set it; this keeps the two in step for a
 		// client whose world is built from this packet). Missing key = classic.
 		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
+		Options::EnableCoopParallelTurns = connectionTCP::_enable_parallel_turns;
 
 		const std::string activeMaster = Options::getActiveMaster();
 		const bool vanillaCampaign = activeMaster == "xcom1" || activeMaster == "xcom2";
@@ -12626,9 +12627,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 		root["enable_research_sync"] = _enable_research_sync;
 
-		// time option
-		connectionTCP::_enable_time_sync = Options::EnableTimeSync;
-		root["enable_time_sync"] = connectionTCP::_enable_time_sync;
+		// Time synchronization is mandatory for the host-authoritative campaign.
+		// Keep the legacy wire key true for compatibility with older peers.
+		root["enable_time_sync"] = true;
 
 		// Reaction-fire suppression is a PvP-only option.  Always reset the
 		// session value for non-PvP games so a disabled value from an earlier PvP
@@ -12777,33 +12778,38 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (_game->getSavedGame() && isSeparateCampaign())
 			_game->getSavedGame()->setSeparateResearchSharingEnabled(enable_research_sync, _game->getMod());
 
-		// time option
-		bool enable_time_sync = obj["enable_time_sync"].asBool();
-		connectionTCP::_enable_time_sync = enable_time_sync;
+		// The legacy time-sync wire key is intentionally ignored. All current
+		// multiplayer campaigns use the host-authoritative clock.
 
 		// reaction shoot option
 		bool enable_reaction_shoot = obj["enable_reaction_shoot"].asBool();
 		connectionTCP::_enable_reaction_shoot = enable_reaction_shoot;
+		Options::EnableReactionFirePvp = enable_reaction_shoot;
 
 		// other player footsteps sounds
 		bool enable_other_player_footsteps = obj["enable_other_player_footsteps"].asBool();
 		connectionTCP::_enable_other_player_footsteps = enable_other_player_footsteps;
+		Options::EnableOtherPlayerFootsteps = enable_other_player_footsteps;
 
 		// parallel battlescape turns (PRD-P5). get(..., false): an older host does
 		// not send the key at all, and the missing key must mean classic mode.
 		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
+		Options::EnableCoopParallelTurns = connectionTCP::_enable_parallel_turns;
 
 		// enable host only time speed
 		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
 		connectionTCP::_enable_host_only_time_speed = enable_host_only_time_speed;
+		Options::EnableHostOnlyTimeSpeed = enable_host_only_time_speed;
 
 		// enable XcomEquipmentAliensPVP
 		bool enable_xcom_equipment_aliens_pvp = obj["enable_xcom_equipment_aliens_pvp"].asBool();
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = enable_xcom_equipment_aliens_pvp;
+		Options::EnableXcomEquipmentAliensPVP = enable_xcom_equipment_aliens_pvp;
 
 		// UnbalancedCraftSoldiersLimit
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
+		Options::UnbalancedCraftSoldiersLimit = unbalanced_craft_soldiers_limit;
 
 		// CHECK IF THE CLIENT IS IN BATTLE; IF SO, INCLUDE THE HOST, OTHERWISE DO NOTHING
 		// IF BOTH ARE IN BATTLE AT THE SAME TIME, CREATE A SEPARATE SESSION

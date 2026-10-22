@@ -46,6 +46,10 @@ OptionsMultiplayerState::OptionsMultiplayerState(OptionsOrigin origin) : Options
 	// Create objects
 	_btnOTHER = new TextButton(70, 16, 242, 8);
 	_lstOptions = new TextList(200, 120, 94, 26);
+	// Keep multiplayer help beside the category buttons. The generic tooltip
+	// spans the full window and would otherwise cover the MULTIPLAYER button.
+	_txtTooltip->setX(94);
+	_txtTooltip->setWidth(218);
 
 	_owner = _btnOTHER;
 
@@ -422,6 +426,19 @@ void OptionsMultiplayerState::lstOptionsClick(Action* action)
 	if (setting->type() == OPTION_BOOL)
 	{
 		bool* b = setting->asBool();
+		const bool sessionFixed = b == &Options::EnableHostOnlyTimeSpeed
+			|| b == &Options::UnbalancedCraftSoldiersLimit
+			|| b == &Options::EnableReactionFirePvp
+			|| b == &Options::EnableOtherPlayerFootsteps
+			|| b == &Options::EnableXcomEquipmentAliensPVP
+			|| b == &Options::EnableCoopParallelTurns;
+		// These values are negotiated once by the host. Changing only the local
+		// Options value during a live session used to make the menu lie about the
+		// active rules. Shared Research is the sole live-changeable exception.
+		if (sessionFixed && _game->getCoopMod()->getCoopStatic())
+		{
+			return;
+		}
 		// Research sync is host-authoritative while connected.  The client sees
 		// the negotiated value but must not silently override it locally.
 		if (b == &Options::EnableResearchSync
@@ -613,6 +630,29 @@ void OptionsMultiplayerState::lstOptionsMouseOver(Action*)
 	if (setting)
 	{
 		desc = tr(setting->description() + "_DESC");
+		// Multiplayer option names predate language keys. Supply concise English
+		// help when a language pack has no translated description.
+		if (desc == setting->description() + "_DESC")
+		{
+			if (setting->id() == "EnableHostOnlyTimeSpeed")
+				desc = "Only the host may change geoscape time speed during multiplayer campaigns.";
+			else if (setting->id() == "EnableResearchSync")
+				desc = "Share completed research in separate campaigns. Off keeps each player's research independent.";
+			else if (setting->id() == "UnbalancedCraftSoldiersLimit")
+				desc = "Allow players to use unequal shares of a craft's soldier capacity without exceeding its total capacity.";
+			else if (setting->id() == "EnableReactionFirePvp")
+				desc = "Allow reaction fire between opposing players in PvP and PvP campaign battles. Cooperative campaigns are unaffected.";
+			else if (setting->id() == "EnableOtherPlayerFootsteps")
+				desc = "Play movement sounds made by the other player's soldiers in Battlescape.";
+			else if (setting->id() == "EnableXcomEquipmentAliensPVP")
+				desc = "Allow the alien-side player to use XCOM equipment in PvP battles. Campaign equipment is unaffected.";
+			else if (setting->id() == "EnableCoopParallelTurns")
+				desc = "Let both players control their own soldiers during the same player turn in cooperative Battlescape.";
+			else if (setting->id() == "keyChat")
+				desc = "Open or close the multiplayer chat window.";
+			else if (setting->id() == "giveUnit")
+				desc = "Give the selected soldier to another player in a cooperative campaign or battle.";
+		}
 	}
 	_txtTooltip->setText(desc);
 }

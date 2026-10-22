@@ -23,6 +23,7 @@
 #include "DebriefingState.h"
 #include "CannotReequipState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
@@ -617,12 +618,26 @@ void DebriefingState::init()
 	ss3 << total;
 	_lstTotal->addRow(2, tr("STR_TOTAL_UC").c_str(), ss3.str().c_str());
 
-	// add the points to our activity score
-	if (_region)
+	// A faction-specific target contributes only to its owner's progression.
+	// Common missions and same-faction campaigns retain vanilla activity scoring.
+	const std::string factionScoreOwner = _game->getSavedGame()->getSavedBattle()
+		? _game->getSavedGame()->getSavedBattle()->getFactionScoreOwnerPlayerName()
+		: std::string();
+	const bool privateFactionMissionScore = !factionScoreOwner.empty()
+		&& _game->getCoopMod()->isSeparateCampaign()
+		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
+	if (privateFactionMissionScore)
+	{
+		SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
+		separate.ensureFactionScores(_game->getSavedGame()->getCoopPlayers(),
+			_game->getSavedGame()->getResearchScores().size());
+		separate.addFactionScore(factionScoreOwner, total);
+	}
+	else if (_region)
 	{
 		_region->addActivityXcom(total);
 	}
-	if (_country)
+	if (!privateFactionMissionScore && _country)
 	{
 		_country->addActivityXcom(total);
 	}

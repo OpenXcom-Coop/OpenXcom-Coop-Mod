@@ -572,7 +572,6 @@ void createAdvancedOptionsOTHER()
 	// your fork's advanced options here
 
 	// coop
-	_info.push_back(OptionInfo(OPTION_OTHER, "EnableTimeSync", &EnableTimeSync, true, "Enable Time Sync", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHostOnlyTimeSpeed", &EnableHostOnlyTimeSpeed, false, "Only Host Can Change Time Speed", "STR_GEOSCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableResearchSync", &EnableResearchSync, false, "Shared Research (Separate)", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));

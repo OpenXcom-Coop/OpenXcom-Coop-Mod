@@ -115,7 +115,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtFailure->setVisible(false);
 
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 	{
 		calculateChanges();
 	}
@@ -158,6 +158,17 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	}
 	_txtMonth->setText(tr("STR_MONTH").arg(tr(m)).arg(year));
 
+	// Faction-owned events are private only when Separate players selected
+	// different factions. Show the local player's effective score while keeping
+	// council funding and game-over decisions on the common campaign score.
+	int displayedRatingTotal = _ratingTotal;
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+	{
+		const size_t scoreCount = _game->getSavedGame()->getResearchScores().size();
+		const size_t scoreIndex = scoreCount > 1 ? scoreCount - 2 : 0;
+		displayedRatingTotal += SeparateEcon::localFactionScore(_game, scoreIndex);
+	}
+
 	// Calculate rating
 	int difficulty_threshold = _game->getMod()->getDefeatScore() + 100 * _game->getSavedGame()->getDifficultyCoefficient();
 	{
@@ -173,19 +184,19 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		}
 	}
 	std::string rating = tr("STR_RATING_TERRIBLE");
-	if (_ratingTotal > difficulty_threshold - 300)
+	if (displayedRatingTotal > difficulty_threshold - 300)
 	{
 		rating = tr("STR_RATING_POOR");
 	}
-	if (_ratingTotal > difficulty_threshold)
+	if (displayedRatingTotal > difficulty_threshold)
 	{
 		rating = tr("STR_RATING_OK");
 	}
-	if (_ratingTotal > 0)
+	if (displayedRatingTotal > 0)
 	{
 		rating = tr("STR_RATING_GOOD");
 	}
-	if (_ratingTotal > 500)
+	if (displayedRatingTotal > 500)
 	{
 		rating = tr("STR_RATING_EXCELLENT");
 	}
@@ -196,7 +207,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		int temp = INT_MIN;
 		for (auto& pair : *_game->getMod()->getMonthlyRatings())
 		{
-			if (pair.first > temp && pair.first <= _ratingTotal)
+			if (pair.first > temp && pair.first <= displayedRatingTotal)
 			{
 				temp = pair.first;
 				rating = tr(pair.second);
@@ -204,7 +215,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		}
 	}
 
-	_txtRating->setText(tr("STR_MONTHLY_RATING").arg(_ratingTotal).arg(rating));
+	_txtRating->setText(tr("STR_MONTHLY_RATING").arg(displayedRatingTotal).arg(rating));
 
 	std::ostringstream ss;
 	ss << tr("STR_INCOME") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(
@@ -546,7 +557,7 @@ void MonthlyReportState::calculateChanges()
 	_ratingTotal = xcomTotal - alienTotal;
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->_enable_time_sync == true)
+	if (_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner())
 	{
 
 		Json::Value root;

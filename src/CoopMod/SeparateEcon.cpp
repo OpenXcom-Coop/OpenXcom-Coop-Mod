@@ -903,6 +903,12 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 		playerReader.tryRead("completedResearch", completed);
 		player.completedResearch.insert(completed.begin(), completed.end());
 		playerReader.tryRead("funds", player.funds);
+		playerReader.tryRead("factionScores", player.factionScores);
+		std::vector<std::string> generatedEvents;
+		playerReader.tryRead("generatedEvents", generatedEvents);
+		player.generatedEvents.insert(generatedEvents.begin(), generatedEvents.end());
+		playerReader["missionRuns"].tryReadVal(player.missionRuns);
+		playerReader["missionMarkers"].tryReadVal(player.missionMarkers);
 		playerReader["ufopediaRuleStatus"].tryReadVal(player.ufopediaRuleStatus);
 	}
 }
@@ -935,9 +941,114 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 		}
 		if (!entry.second.funds.empty())
 			playerWriter.write("funds", entry.second.funds);
+		if (!entry.second.factionScores.empty())
+			playerWriter.write("factionScores", entry.second.factionScores);
+		if (!entry.second.generatedEvents.empty())
+			playerWriter.write("generatedEvents", std::vector<std::string>(
+				entry.second.generatedEvents.begin(), entry.second.generatedEvents.end()));
+		if (!entry.second.missionRuns.empty())
+			playerWriter.write("missionRuns", entry.second.missionRuns);
+		if (!entry.second.missionMarkers.empty())
+			playerWriter.write("missionMarkers", entry.second.missionMarkers);
 		if (!entry.second.ufopediaRuleStatus.empty())
 			playerWriter.write("ufopediaRuleStatus", entry.second.ufopediaRuleStatus);
 	}
+}
+
+void CampaignData::ensureFactionScores(const std::vector<std::string>& playerNames,
+	size_t historySize)
+{
+	ensurePlayers(playerNames);
+	if (historySize == 0) historySize = 1;
+	for (const std::string& name : playerNames)
+	{
+		if (name.empty()) continue;
+		std::vector<int>& scores = _players[name].factionScores;
+		if (scores.size() > historySize)
+			scores.erase(scores.begin(), scores.begin() + (scores.size() - historySize));
+		else if (scores.size() < historySize)
+			scores.insert(scores.begin(), historySize - scores.size(), 0);
+	}
+}
+
+void CampaignData::newFactionScoreMonth(const std::vector<std::string>& playerNames,
+	size_t historySize)
+{
+	ensureFactionScores(playerNames, historySize > 0 ? historySize - 1 : 0);
+	for (const std::string& name : playerNames)
+	{
+		if (name.empty()) continue;
+		std::vector<int>& scores = _players[name].factionScores;
+		scores.push_back(0);
+		if (scores.size() > historySize)
+			scores.erase(scores.begin(), scores.begin() + (scores.size() - historySize));
+	}
+}
+
+void CampaignData::addFactionScore(const std::string& playerName, int score)
+{
+	if (playerName.empty()) return;
+	std::vector<int>& scores = _players[playerName].factionScores;
+	if (scores.empty()) scores.push_back(0);
+	scores.back() += score;
+}
+
+int CampaignData::getFactionScore(const std::string& playerName, size_t historyIndex) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	if (!player || historyIndex >= player->factionScores.size()) return 0;
+	return player->factionScores[historyIndex];
+}
+
+int localFactionScore(Game* game, size_t historyIndex)
+{
+	if (!game || !game->getSavedGame() || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign()) return 0;
+	const CampaignData& campaign = game->getSavedGame()->getSeparateCampaign();
+	if (!campaign.haveDifferentFactions()) return 0;
+	return campaign.getFactionScore(
+		connectionTCP::seatName(connectionTCP::localSeat()), historyIndex);
+}
+
+bool CampaignData::wasEventGenerated(const std::string& playerName,
+	const std::string& eventName) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	return player && player->generatedEvents.find(eventName) != player->generatedEvents.end();
+}
+
+void CampaignData::addGeneratedEvent(const std::string& playerName,
+	const std::string& eventName)
+{
+	if (!playerName.empty() && !eventName.empty())
+		_players[playerName].generatedEvents.insert(eventName);
+}
+
+int CampaignData::getMissionRuns(const std::string& playerName, const std::string& name) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	if (!player) return 0;
+	auto found = player->missionRuns.find(name);
+	return found == player->missionRuns.end() ? 0 : found->second;
+}
+
+void CampaignData::addMissionRun(const std::string& playerName, const std::string& name)
+{
+	if (!playerName.empty() && !name.empty()) ++_players[playerName].missionRuns[name];
+}
+
+int CampaignData::getMissionMarkerCount(const std::string& playerName,
+	const std::string& name) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	if (!player) return 0;
+	auto found = player->missionMarkers.find(name);
+	return found == player->missionMarkers.end() ? 0 : found->second;
+}
+
+void CampaignData::addMissionMarker(const std::string& playerName, const std::string& name)
+{
+	if (!playerName.empty() && !name.empty()) ++_players[playerName].missionMarkers[name];
 }
 
 void CampaignData::ensurePlayers(const std::vector<std::string>& playerNames)

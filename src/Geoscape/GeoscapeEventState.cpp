@@ -154,6 +154,9 @@ void GeoscapeEventState::eventLogic()
 			}
 	const Mod *mod = _game->getMod();
 	const RuleEvent &rule = _eventRule;
+	const bool playerFactionScore = !_ownerPlayerName.empty()
+		&& _game->getCoopMod()->isSeparateCampaign()
+		&& save->getSeparateCampaign().haveDifferentFactions();
 
 	RuleRegion *regionRule = nullptr;
 	City* city = nullptr;
@@ -197,7 +200,13 @@ void GeoscapeEventState::eventLogic()
 	}
 
 	// 1. give/take score points
-	if (regionRule)
+	if (playerFactionScore)
+	{
+		save->getSeparateCampaign().ensureFactionScores(
+			save->getCoopPlayers(), save->getResearchScores().size());
+		save->getSeparateCampaign().addFactionScore(_ownerPlayerName, rule.getPoints());
+	}
+	else if (regionRule)
 	{
 		for (auto* region : *_game->getSavedGame()->getRegions())
 		{

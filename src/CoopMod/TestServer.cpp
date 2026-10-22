@@ -3120,6 +3120,28 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["error"] = "unknown option: " + name;
 		}
 	}
+	else if (cmd == "multiplayer_options_state")
+	{
+		Json::Value runtime;
+		runtime["researchSync"] = _game->getCoopMod()->_enable_research_sync;
+		runtime["hostOnlyTimeSpeed"] = connectionTCP::_enable_host_only_time_speed;
+		runtime["reactionFirePvp"] = connectionTCP::_enable_reaction_shoot;
+		runtime["otherPlayerFootsteps"] = connectionTCP::_enable_other_player_footsteps;
+		runtime["xcomEquipmentAliensPvp"] = connectionTCP::_enable_xcom_equipment_aliens_pvp;
+		runtime["parallelTurns"] = connectionTCP::_enable_parallel_turns;
+		runtime["unbalancedCraftLimit"] = connectionTCP::_unbalanced_craft_soldiers_limit;
+		resp["runtime"] = runtime;
+		Json::Value configured;
+		configured["researchSync"] = Options::EnableResearchSync;
+		configured["hostOnlyTimeSpeed"] = Options::EnableHostOnlyTimeSpeed;
+		configured["reactionFirePvp"] = Options::EnableReactionFirePvp;
+		configured["otherPlayerFootsteps"] = Options::EnableOtherPlayerFootsteps;
+		configured["xcomEquipmentAliensPvp"] = Options::EnableXcomEquipmentAliensPVP;
+		configured["parallelTurns"] = Options::EnableCoopParallelTurns;
+		configured["unbalancedCraftLimit"] = Options::UnbalancedCraftSoldiersLimit;
+		resp["configured"] = configured;
+		resp["ok"] = true;
+	}
 	else if (cmd == "set_seed")
 	{
 		// Pin the RNG so a scenario's real-sim outcome is reproducible.
@@ -3921,6 +3943,14 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 					player["ufopediaRuleStatus"][status.first] = status.second;
 				for (const auto& research : entry.second.completedResearch)
 					player["completedResearch"].append(research);
+				for (int score : entry.second.factionScores)
+					player["factionScores"].append(score);
+				for (const std::string& event : entry.second.generatedEvents)
+					player["generatedEvents"].append(event);
+				for (const auto& counter : entry.second.missionRuns)
+					player["missionRuns"][counter.first] = counter.second;
+				for (const auto& counter : entry.second.missionMarkers)
+					player["missionMarkers"][counter.first] = counter.second;
 				players.append(player);
 			}
 			resp["players"] = players;
@@ -3951,6 +3981,17 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				const std::string topic = req["completedResearch"].asString();
 				resp["researchCompleted"] = state.completeResearch(playerName, topic);
 			}
+			if (req.isMember("factionScore"))
+			{
+				state.ensureFactionScores(sg->getCoopPlayers(), sg->getResearchScores().size());
+				state.addFactionScore(playerName, req["factionScore"].asInt());
+			}
+			if (req.isMember("generatedEvent"))
+				state.addGeneratedEvent(playerName, req["generatedEvent"].asString());
+			if (req.isMember("missionRun"))
+				state.addMissionRun(playerName, req["missionRun"].asString());
+			if (req.isMember("missionMarker"))
+				state.addMissionMarker(playerName, req["missionMarker"].asString());
 			resp["ok"] = true;
 		}
 	}
@@ -4004,6 +4045,14 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 					player["completedResearch"].append(research);
 				for (const auto& status : entry.second.ufopediaRuleStatus)
 					player["ufopediaRuleStatus"][status.first] = status.second;
+				for (int score : entry.second.factionScores)
+					player["factionScores"].append(score);
+				for (const std::string& event : entry.second.generatedEvents)
+					player["generatedEvents"].append(event);
+				for (const auto& counter : entry.second.missionRuns)
+					player["missionRuns"][counter.first] = counter.second;
+				for (const auto& counter : entry.second.missionMarkers)
+					player["missionMarkers"][counter.first] = counter.second;
 				players.append(player);
 			}
 			resp["players"] = players;

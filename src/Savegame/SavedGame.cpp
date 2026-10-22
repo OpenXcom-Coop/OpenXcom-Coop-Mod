@@ -2386,6 +2386,8 @@ void SavedGame::monthlyFunding()
 		_incomes.push_back(pooledIncome);
 		_expenditures.push_back(totalMaintenance + totalPlayerCosts);
 		_researchScores.push_back(0);
+		_separateCampaign.newFactionScoreMonth(
+			_coopPlayers, std::min<size_t>(_researchScores.size(), 12));
 
 		if (_incomes.size() > 12) _incomes.erase(_incomes.begin());
 		if (_expenditures.size() > 12) _expenditures.erase(_expenditures.begin());
@@ -4809,8 +4811,13 @@ bool SavedGame::spawnEvent(const RuleEvent* eventRules, const std::string& owner
 	newEvent->setSpawnCountdown(minutes);
 	_geoscapeEvents.push_back(newEvent);
 
-	// remember that it has been generated
-	addGeneratedEvent(eventRules);
+	// Faction events with identical rule IDs must remain independently available
+	// to each faction. Common and same-faction campaigns retain vanilla history.
+	if (_coop && _campaignType == CoopCampaignType::Separate
+		&& !ownerPlayerName.empty() && _separateCampaign.haveDifferentFactions())
+		_separateCampaign.addGeneratedEvent(ownerPlayerName, eventRules->getName());
+	else
+		addGeneratedEvent(eventRules);
 
 	if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
 	{

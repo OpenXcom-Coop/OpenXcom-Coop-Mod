@@ -73,18 +73,21 @@ def main(parallel=False):
         # Vehicles use the same host-authoritative craft equipment lane as normal
         # items. First reproduce a client equipping the host's foreign craft, then
         # put a tank on the mission craft so battle generation is covered too.
-        # Free enough physical space for the later two-tank assertion: the fresh
-        # craft starts with eight soldiers, while those soldiers plus two 2x2
+        # Free enough physical space for the later two-tank assertion: starting
+        # crew size is ruleset/configuration dependent, while six soldiers plus two 2x2
         # tanks would correctly exceed the Skyranger's capacity of fourteen.
+        host_craft = next(c for c in next(
+            b for b in world["bases"] if b["name"] == "HostBase")["crafts"]
+            if c["type"] == "STR_SKYRANGER")
         host_roster = [s for s in fixture.soldiers_at(host, "HostBase")
-                       if s.get("craftId") == 1]
-        for soldier in host_roster[-2:]:
+                       if s.get("craftId") == host_craft["id"]]
+        for soldier in host_roster[6:]:
             host.ok({"cmd": "craft_assign", "base": "HostBase",
-                     "craft_id": 1, "soldier_id": soldier["id"], "on": False})
+                     "craft_id": host_craft["id"], "soldier_id": soldier["id"], "on": False})
         host.wait_for(
             "host craft space freed for two physical tanks",
             lambda: (lambda r: r if next(
-                c for c in r["crafts"] if c["id"] == 1
+                c for c in r["crafts"] if c["id"] == host_craft["id"]
             )["soldiers"] == 6 else None)(
                 host.ok({"cmd": "base_report", "base": "HostBase"})),
             timeout=30, interval=0.3)
@@ -94,9 +97,6 @@ def main(parallel=False):
                        "item": "STR_TANK_CANNON", "count": 1})
                 gc.ok({"cmd": "give_items", "base": base_name,
                        "item": "STR_HWP_CANNON_SHELLS", "count": 100})
-        host_craft = next(c for c in next(
-            b for b in world["bases"] if b["name"] == "HostBase")["crafts"]
-            if c["type"] == "STR_SKYRANGER")
         host.ok({"cmd": "shared_reset_stats"})
         client.ok({"cmd": "shared_reset_stats"})
         client.ok({"cmd": "open_craft_equipment", "base": "HostBase",

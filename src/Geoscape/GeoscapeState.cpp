@@ -922,7 +922,7 @@ void GeoscapeState::init()
 	}
 
 	// Graph requests (co-op)
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_enable_time_sync == true
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false
 		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
@@ -2030,7 +2030,7 @@ void GeoscapeState::think()
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
-	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame() && _game->getSavedGame()->getTime())
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame() && _game->getSavedGame()->getTime())
 	{
 
 		GameTime* current_time = _game->getSavedGame()->getTime();
@@ -2216,7 +2216,7 @@ void GeoscapeState::updatePeerSpeedIndicators()
 	int screenCounts[6] = { 0, 0, 0, 0, 0, 0 };
 	bool speedBusy[6] = { false, false, false, false, false, false };
 
-	if (_game->getCoopMod()->getCoopStatic() && connectionTCP::_enable_time_sync)
+	if (_game->getCoopMod()->getCoopStatic())
 	{
 		// peerFocusScreen: -1 = on the geoscape (use the selected speed), else the
 		// 0..5 toolbar-button index the peer has navigated into.
@@ -2279,7 +2279,7 @@ void GeoscapeState::updatePeerSpeedIndicators()
  */
 void GeoscapeState::sendCoopFocus(int screen)
 {
-	if (!(_game->getCoopMod()->getCoopStatic() && connectionTCP::_enable_time_sync))
+	if (!_game->getCoopMod()->getCoopStatic())
 		return;
 
 	Json::Value root;
@@ -2377,7 +2377,7 @@ void GeoscapeState::timeAdvance()
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true)
+	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
 
 		timeSpan = 1;
@@ -2792,7 +2792,7 @@ void GeoscapeState::time5Seconds()
 			{
 
 				// coop
-				if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+				if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 				{
 					for (auto* country : *_game->getSavedGame()->getCountries())
 					{
@@ -3559,7 +3559,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 	int score = removeSite ? site->getDeployment()->getDespawnPenalty() : site->getDeployment()->getPoints();
 
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && site->getCoop() == false) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if ((_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner() && !site->getCoop()) || !_game->getCoopMod()->getCoopStatic())
 	{
 
 		Region* region = _game->getSavedGame()->locateRegion(*site);
@@ -3734,7 +3734,7 @@ void GeoscapeState::time30Minutes()
 		case Ufo::FLYING:
 
 			// coop
-			if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && ufo->getCoop() == false) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+			if ((_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner() && !ufo->getCoop()) || !_game->getCoopMod()->getCoopStatic())
 			{
 				// Get area
 				for (auto* region : *_game->getSavedGame()->getRegions())
@@ -4655,7 +4655,7 @@ void GeoscapeState::time1Day()
 
 	// handle regional and country points for alien bases
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 	{
 		for (auto* ab : *saveGame->getAlienBases())
 		{
@@ -4806,7 +4806,7 @@ void GeoscapeState::time1Month()
 	}
 
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 	{
 		// do nothing
 	}
@@ -6382,16 +6382,93 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	};
 	int month = _game->getSavedGame()->getMonthsPassed();
 	int currentScore = save->getCurrentScore(month); // _monthsPassed was already increased by 1
+	if (!missionOwner.empty() && save->getSeparateCampaign().haveDifferentFactions())
+	{
+		save->getSeparateCampaign().ensureFactionScores(
+			save->getCoopPlayers(), save->getResearchScores().size());
+		const size_t scoreIndex = save->getResearchScores().empty()
+			? 0 : save->getResearchScores().size() - 1;
+		currentScore += save->getSeparateCampaign().getFactionScore(
+			missionOwner, scoreIndex);
+	}
 	int performanceBonus = mod->getPerformanceBonus(currentScore);
 	if (performanceBonus < 0)
 	{
 		performanceBonus = 0; // bonus only, no malus
 	}
 	int64_t currentFunds = save->getFunds();
+	const bool playerFactionScripts = !missionOwner.empty()
+		&& save->getSeparateCampaign().haveDifferentFactions();
+	if (playerFactionScripts)
+	{
+		if (const auto* funds = save->getSeparateCampaign().getPlayerFunds(missionOwner))
+			if (!funds->empty()) currentFunds = funds->back();
+	}
 	if (isNewMonth)
 	{
-		currentFunds += save->getCountryFunding() + performanceBonus - save->getBaseMaintenance(); // peek into the next month
+		if (playerFactionScripts)
+		{
+			const int64_t normalNet = save->getCountryFunding()
+				- SeparateEcon::playerMaintenance(_game, missionOwner);
+			currentFunds += normalNet / static_cast<int64_t>(save->getCoopPlayers().size());
+		}
+		else
+		{
+			currentFunds += save->getCountryFunding() + performanceBonus
+				- save->getBaseMaintenance(); // peek into the next month
+		}
 	}
+	auto missionRuns = [&](const std::string& name)
+	{
+		return playerFactionScripts
+			? save->getSeparateCampaign().getMissionRuns(missionOwner, name)
+			: strategy.getMissionsRun(name);
+	};
+	auto missionMarkers = [&](const std::string& name)
+	{
+		return playerFactionScripts
+			? save->getSeparateCampaign().getMissionMarkerCount(missionOwner, name)
+			: save->getLastId(name);
+	};
+	auto itemObtained = [&](const std::string& type)
+	{
+		if (!playerFactionScripts) return save->isItemObtained(type, mod);
+		const RuleItem* item = mod->getItem(type);
+		if (!item) return false;
+		for (Base* base : *save->getBases())
+			if (base && base->isOwnedByPlayer(missionOwner))
+			{
+				if (base->getStorageItems()->getItem(item) > 0) return true;
+				for (Craft* craft : *base->getCrafts())
+					if (craft->getItems()->getItem(item) > 0) return true;
+			}
+		return false;
+	};
+	auto facilityBuilt = [&](const std::string& type)
+	{
+		if (!playerFactionScripts) return save->isFacilityBuilt(type);
+		for (Base* base : *save->getBases())
+			if (base && base->isOwnedByPlayer(missionOwner))
+				for (BaseFacility* facility : *base->getFacilities())
+					if (facility->getBuildTime() == 0
+						&& facility->getRules()->getType() == type) return true;
+		return false;
+	};
+	auto soldierHired = [&](const std::string& type)
+	{
+		if (!playerFactionScripts) return save->isSoldierTypeHired(type);
+		for (Base* base : *save->getBases())
+			if (base && base->isOwnedByPlayer(missionOwner))
+				for (Soldier* soldier : *base->getSoldiers())
+					if (soldier->getRules()->getType() == type) return true;
+		return false;
+	};
+	auto eventGenerated = [&](const std::string& name)
+	{
+		return playerFactionScripts
+			? save->getSeparateCampaign().wasEventGenerated(missionOwner, name)
+			: save->wasEventGenerated(name);
+	};
 	std::vector<RuleMissionScript*> availableMissions;
 	std::unordered_map<int, bool> conditions;
 
@@ -6400,6 +6477,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	std::unordered_set<std::string> pactCountries;
 	for (auto* xcomBase : *save->getBases())
 	{
+		if (playerFactionScripts && !xcomBase->isOwnedByPlayer(missionOwner)) continue;
 		auto* region = save->locateRegion(*xcomBase);
 		if (region)
 		{
@@ -6453,22 +6531,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// check counters
 					if (arcScript->getCounterMin() > 0)
 					{
-						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMin() > strategy.getMissionsRun(arcScript->getMissionVarName()))
+						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMin() > missionRuns(arcScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMin() > save->getLastId(arcScript->getMissionMarkerName()))
+						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMin() > missionMarkers(arcScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
 					}
 					if (triggerHappy && arcScript->getCounterMax() != -1)
 					{
-						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMax() < strategy.getMissionsRun(arcScript->getMissionVarName()))
+						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMax() < missionRuns(arcScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMax() < save->getLastId(arcScript->getMissionMarkerName()))
+						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMax() < missionMarkers(arcScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
@@ -6479,7 +6557,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// item requirements
 					for (auto& triggerItem : arcScript->getItemTriggers())
 					{
-						triggerHappy = (save->isItemObtained(triggerItem.first, mod) == triggerItem.second);
+						triggerHappy = (itemObtained(triggerItem.first) == triggerItem.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6489,7 +6567,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// facility requirements
 					for (auto& triggerFacility : arcScript->getFacilityTriggers())
 					{
-						triggerHappy = (save->isFacilityBuilt(triggerFacility.first) == triggerFacility.second);
+						triggerHappy = (facilityBuilt(triggerFacility.first) == triggerFacility.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6499,7 +6577,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// soldier type requirements
 					for (auto& triggerSoldierType : arcScript->getSoldierTypeTriggers())
 					{
-						triggerHappy = (save->isSoldierTypeHired(triggerSoldierType.first) == triggerSoldierType.second);
+						triggerHappy = (soldierHired(triggerSoldierType.first) == triggerSoldierType.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6557,7 +6635,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				for (auto& seqArc : arcCommand->getSequentialArcs())
 				{
-					if (save->isResearched(seqArc))
+					if (missionResearched(seqArc))
 						++arcsEnabled;
 					else
 						disabledSeqArcs.push_back(seqArc);
@@ -6566,7 +6644,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				disabledRngArcs = tmp; // copy for us to modify
 				for (auto& rngArc : tmp.getNames())
 				{
-					if (save->isResearched(rngArc))
+					if (missionResearched(rngArc))
 					{
 						++arcsEnabled;
 						disabledRngArcs.set(rngArc, 0); // delete
@@ -6574,6 +6652,13 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				}
 			}
 			Base* hq = save->getBases()->front();
+			if (playerFactionScripts)
+				for (Base* base : *save->getBases())
+					if (base && base->isOwnedByPlayer(missionOwner))
+					{
+						hq = base;
+						break;
+					}
 			bool canAddOneMore = arcCommand->getMaxArcs() == -1 || arcCommand->getMaxArcs() > arcsEnabled;
 			if (canAddOneMore && !disabledSeqArcs.empty())
 			{
@@ -6643,7 +6728,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 		if (command->getFirstMonth() <= month &&
 			(command->getLastMonth() >= month || command->getLastMonth() == -1) &&
 			// make sure we haven't hit our run limit, if we have one
-			(command->getMaxRuns() == -1 ||	command->getMaxRuns() > strategy.getMissionsRun(command->getVarName())) &&
+			(command->getMaxRuns() == -1 ||	command->getMaxRuns() > missionRuns(command->getVarName())) &&
 			// and make sure we satisfy the difficulty restrictions
 			(month < 1 || command->getMinScore() <= currentScore) &&
 			(month < 1 || command->getMaxScore() >= currentScore) &&
@@ -6665,22 +6750,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// check counters
 				if (command->getCounterMin() > 0)
 				{
-					if (!command->getMissionVarName().empty() && command->getCounterMin() > strategy.getMissionsRun(command->getMissionVarName()))
+					if (!command->getMissionVarName().empty() && command->getCounterMin() > missionRuns(command->getMissionVarName()))
 					{
 						triggerHappy = false;
 					}
-					if (!command->getMissionMarkerName().empty() && command->getCounterMin() > save->getLastId(command->getMissionMarkerName()))
+					if (!command->getMissionMarkerName().empty() && command->getCounterMin() > missionMarkers(command->getMissionMarkerName()))
 					{
 						triggerHappy = false;
 					}
 				}
 				if (triggerHappy && command->getCounterMax() != -1)
 				{
-					if (!command->getMissionVarName().empty() && command->getCounterMax() < strategy.getMissionsRun(command->getMissionVarName()))
+					if (!command->getMissionVarName().empty() && command->getCounterMax() < missionRuns(command->getMissionVarName()))
 					{
 						triggerHappy = false;
 					}
-					if (!command->getMissionMarkerName().empty() && command->getCounterMax() < save->getLastId(command->getMissionMarkerName()))
+					if (!command->getMissionMarkerName().empty() && command->getCounterMax() < missionMarkers(command->getMissionMarkerName()))
 					{
 						triggerHappy = false;
 					}
@@ -6691,7 +6776,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// item requirements
 				for (auto& triggerItem : command->getItemTriggers())
 				{
-					triggerHappy = (save->isItemObtained(triggerItem.first, mod) == triggerItem.second);
+					triggerHappy = (itemObtained(triggerItem.first) == triggerItem.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -6701,7 +6786,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// facility requirements
 				for (auto& triggerFacility : command->getFacilityTriggers())
 				{
-					triggerHappy = (save->isFacilityBuilt(triggerFacility.first) == triggerFacility.second);
+					triggerHappy = (facilityBuilt(triggerFacility.first) == triggerFacility.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -6711,7 +6796,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// soldier type requirements
 				for (auto& triggerSoldierType : command->getSoldierTypeTriggers())
 				{
-					triggerHappy = (save->isSoldierTypeHired(triggerSoldierType.first) == triggerSoldierType.second);
+					triggerHappy = (soldierHired(triggerSoldierType.first) == triggerSoldierType.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -6898,22 +6983,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// check counters
 					if (eventScript->getCounterMin() > 0)
 					{
-						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMin() > strategy.getMissionsRun(eventScript->getMissionVarName()))
+						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMin() > missionRuns(eventScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMin() > save->getLastId(eventScript->getMissionMarkerName()))
+						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMin() > missionMarkers(eventScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
 					}
 					if (triggerHappy && eventScript->getCounterMax() != -1)
 					{
-						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMax() < strategy.getMissionsRun(eventScript->getMissionVarName()))
+						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMax() < missionRuns(eventScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMax() < save->getLastId(eventScript->getMissionMarkerName()))
+						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMax() < missionMarkers(eventScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
@@ -6924,7 +7009,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// item requirements
 					for (auto& triggerItem : eventScript->getItemTriggers())
 					{
-						triggerHappy = (save->isItemObtained(triggerItem.first, mod) == triggerItem.second);
+						triggerHappy = (itemObtained(triggerItem.first) == triggerItem.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6934,7 +7019,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// facility requirements
 					for (auto& triggerFacility : eventScript->getFacilityTriggers())
 					{
-						triggerHappy = (save->isFacilityBuilt(triggerFacility.first) == triggerFacility.second);
+						triggerHappy = (facilityBuilt(triggerFacility.first) == triggerFacility.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6944,7 +7029,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// soldier type requirements
 					for (auto& triggerSoldierType : eventScript->getSoldierTypeTriggers())
 					{
-						triggerHappy = (save->isSoldierTypeHired(triggerSoldierType.first) == triggerSoldierType.second);
+						triggerHappy = (soldierHired(triggerSoldierType.first) == triggerSoldierType.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -7000,7 +7085,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				std::vector<std::string> possibleSeqEvents;
 				for (auto& seqEvent : eventCommand->getOneTimeSequentialEvents())
 				{
-					if (!save->wasEventGenerated(seqEvent))
+					if (!eventGenerated(seqEvent))
 						possibleSeqEvents.push_back(seqEvent); // insert
 				}
 				if (!possibleSeqEvents.empty())
@@ -7017,7 +7102,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				possibleRngEvents = tmp; // copy for us to modify
 				for (const auto& rngEvent : tmp.getNames())
 				{
-					if (save->wasEventGenerated(rngEvent))
+					if (eventGenerated(rngEvent))
 						possibleRngEvents.set(rngEvent, 0); // delete
 				}
 				if (!possibleRngEvents.empty())
@@ -7519,7 +7604,16 @@ bool GeoscapeState::processCommand(RuleMissionScript *command, const std::string
 	mission->setId(_game->getSavedGame()->getId("ALIEN_MISSIONS"));
 	mission->setRegion(targetRegion, *_game->getMod());
 	mission->setMissionSiteZoneArea(targetAreaNumber);
-	strategy.addMissionRun(command->getVarName());
+	if (!ownerPlayerName.empty() && save->getSeparateCampaign().haveDifferentFactions())
+	{
+		save->getSeparateCampaign().addMissionRun(ownerPlayerName, command->getVarName());
+		save->getSeparateCampaign().addMissionMarker(
+			ownerPlayerName, command->getMissionMarkerName());
+	}
+	else
+	{
+		strategy.addMissionRun(command->getVarName());
+	}
 	mission->start(*_game, *_globe, command->getDelay());
 	_game->getSavedGame()->getAlienMissions().push_back(mission);
 	// if this flag is set, we want to delete it from the table so it won't show up again until the schedule resets.

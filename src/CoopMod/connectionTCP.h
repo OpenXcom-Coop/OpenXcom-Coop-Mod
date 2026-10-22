@@ -1267,7 +1267,6 @@ class connectionTCP
 
 	bool _enable_research_sync = false;
 
-	static bool _enable_time_sync;
 
 	static bool _enable_reaction_shoot;
 

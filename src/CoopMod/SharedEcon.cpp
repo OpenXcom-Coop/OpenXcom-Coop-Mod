@@ -6078,10 +6078,14 @@ void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 	e.kind = kind;
 	e.compared = false;
 	if (!computeBattleHashes(game, e.h)) return; // no battle: nothing to remember
-	// PRD-I2: the save-derived hash is boundary-only. Per-action entries keep
-	// e.saveBlob at 0 and never ship the field, so it is compared only at
-	// boundaries; recorded here so the peer's boundary report has a match.
-	if (boundary) computeSaveBlobHash(game, e.saveBlob);
+	// PRD-I2: the save-derived hash is boundary-only. It remains useful for shared
+	// and legacy/PvP battles, where both peers are expected to hold an equivalent
+	// complete battle save. A separate campaign deliberately keeps player-specific
+	// state on each peer, so comparing whole save documents there is invalid. The
+	// structured battle buckets above remain active for separate campaigns.
+	const bool separateCampaign = game && game->getCoopMod()
+		&& game->getCoopMod()->isSeparateCampaign();
+	if (boundary && !separateCampaign) computeSaveBlobHash(game, e.saveBlob);
 	// PRD-I3 SEAM-7: stash this machine's full unitsStats field vector (opt-in), the
 	// SAME sample e.h was computed from, for a field-by-field mismatch diff later.
 	if (g_syncFieldCapture) unitStatsFullJson(game, e.statVec, -1);
@@ -6158,6 +6162,9 @@ void syncCheckAttachBoundary(Game* game, Json::Value& msg)
 	// The seven fast sweep buckets first (identical to a per-action report)...
 	syncCheckAttach(game, msg);
 	if (!msg.isMember("h")) return; // no live battle
+	// Separate campaigns no longer exchange or compare whole-save blobs. Their
+	// host-authoritative battle is checked by the structured buckets attached above.
+	if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()) return;
 	// ...then the boundary-only save-derived bucket. Its PRESENCE in the "h" map is
 	// what gates the host compare: a per-action report never carries it and an old
 	// peer never carries it, so both are skipped without any policy flag.

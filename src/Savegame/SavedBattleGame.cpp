@@ -152,6 +152,7 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	reader.tryRead("strTarget", _strTarget);
 	reader.tryRead("strCraftOrBase", _strCraftOrBase);
 	reader.tryRead("battleOwnerPlayerName", _battleOwnerPlayerName);
+	reader.tryRead("factionScoreOwnerPlayerName", _factionScoreOwnerPlayerName);
 	if (reader["startingConditionType"])
 	{
 		std::string startingConditionType = reader["startingConditionType"].readVal<std::string>();
@@ -520,6 +521,8 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	writer.write("strCraftOrBase", _strCraftOrBase).setAsQuotedAndEscaped();
 	if (!_battleOwnerPlayerName.empty())
 		writer.write("battleOwnerPlayerName", _battleOwnerPlayerName).setAsQuotedAndEscaped();
+	if (!_factionScoreOwnerPlayerName.empty())
+		writer.write("factionScoreOwnerPlayerName", _factionScoreOwnerPlayerName).setAsQuotedAndEscaped();
 	if (_startingCondition)
 	{
 		writer.write("startingConditionType", _startingCondition->getType());
