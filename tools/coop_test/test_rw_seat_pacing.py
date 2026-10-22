@@ -239,6 +239,10 @@ def host_turn_leg(host, client, soldier_id, tag):
         u2 = unit_of(host, unit["id"])
         return True if (u2 and u2["direction"] != before_dir) else None
     host.wait_for(f"{tag}: host unit turned", turned, timeout=15)
+    # F24292: `turned` holds from the first octant on; the facing read below is the LANDED one, so the host's turn state
+    # must have ended first (with the old 0.1 s wait_for poll it had, by poll slack only)
+    host.wait_for(f"{tag}: host turn landed", lambda: (lambda b: (b.get("isBusy") is False and b.get("pendingStates") == 0)
+                                                       or None)(session.battle_state(host)), timeout=15)
     settle_reveal(host, client)
 
     after_dir = unit_of(host, unit["id"])["direction"]
