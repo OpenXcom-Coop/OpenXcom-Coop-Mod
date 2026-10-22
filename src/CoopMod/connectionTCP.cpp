@@ -37215,7 +37215,13 @@ void connectionTCP::updateCoopTask()
 				CoopState* window = new CoopState(150);
 				_game->pushState(window);
 
+				// CIT-DIAG (F24293): the queued trade lands on this base now (syncTrade: timed Transfers, 0-hour items at once)
+				const size_t transfersBefore = currentBase->getTransfers()->size();
 				currentBase->syncTrade(waitedTrades[i].toStyledString().c_str(), _game->getSavedGame(), _game->getMod());
+				Log(LOG_INFO) << "[coop-trade] apply " << waitedTrades[i].get("state", "").asString() << " to base '" << current_base_name
+					<< "' id=" << base_id << ": items=" << waitedTrades[i].get("items", Json::Value(Json::arrayValue)).size()
+					<< " transfers " << transfersBefore << " -> " << currentBase->getTransfers()->size()
+					<< " soldiers=" << currentBase->getSoldiers()->size();
 
 				// Clear or mark element as empty
 				waitedTrades[i] = 0; // Set the element to null
@@ -41628,6 +41634,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 
+		// CIT-DIAG (F24293): what arrived and whether it is queued; updateCoopTask applies a queued trade later (its own line)
+		{
+			std::ostringstream items;
+			Json::ArrayIndex n = 0;
+			for (const auto& it : obj.get("items", Json::Value(Json::arrayValue)))
+			{
+				if (n++ < 10)
+					items << " t" << it.get("type", -1).asInt() << ":" << it.get("name", "").asString() << it.get("soldier_rule", "").asString()
+						<< it.get("craft_rule", "").asString() << "x" << it.get("amount", 0).asInt() << "@" << it.get("hour", 0).asInt() << "h";
+			}
+			Log(LOG_INFO) << "[coop-trade] RECV " << stateString << " base_to_id=" << base_to_id << " base_from_id="
+				<< obj.get("base_from_id", 0).asInt() << " alreadyApplied=" << obj.get("already_applied", false).asBool()
+				<< " items=" << n << (targetBase ? " -> queued" : " -> rejected (no local base with that id)") << ":" << items.str();
+		}
 		// Check whether the transfer or purchase data is valid.
 		if (targetBase &&
 			obj.isMember("items") &&

@@ -22,8 +22,10 @@ process is still alive.
 Run:  python tools/coop_test/test_unload_weapon_crash.py
 """
 
+import json
 import os
 import sys
+import time
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -100,7 +102,24 @@ def main():
         def client_sees():
             s = client.cmd({"cmd": "get_soldiers"})
             return any(x["name"] == soldier for b in s.get("bases", []) for x in b["soldiers"]) or None
-        client.wait_for("client sees transferred soldier", client_sees, timeout=30)
+        try:
+            client.wait_for("client sees transferred soldier", client_sees, timeout=30)
+        except TimeoutError:
+            # CIT-DIAG (F24293): once (full run, 0 / 86 since) the client opened its trade dialog yet never listed the
+            # soldier; record what each machine holds, which dialog is up, and whether the soldier shows up late
+            def roster(gc):
+                r = gc.cmd({"cmd": "get_soldiers"})
+                return [[b.get("name"), b.get("coopIcon"), b.get("coopBaseFlag"), [x.get("name") for x in b.get("soldiers", [])]]
+                        for b in r.get("bases", [])] or r
+            cap = {"soldier": soldier, "transfer": tr, "host": roster(host), "client": roster(client),
+                   "clientDialog": client.cmd({"cmd": "coop_dialog_info"}), "clientStack": session.states_stripped(client),
+                   "hostStack": session.states_stripped(host)}
+            t0 = time.time()
+            while time.time() - t0 < 10.0 and not client_sees():
+                time.sleep(0.25)
+            cap["seenWithin10sMore"] = bool(client_sees())
+            print(f"CAPTURE client-sees: {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+            raise
 
         unload_at_base(client, cb["name"], "C/client-transferred-base")
 

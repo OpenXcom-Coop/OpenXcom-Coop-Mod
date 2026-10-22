@@ -472,6 +472,20 @@ def main(tag=TAG, ports=PORTS, extra=None):
             if x is not None:
                 for g in (x.host, x.client):
                     cap[g.name] = {"stack": stack(g), "view": view(g), "basePresence": bpp.bp(g)}
+                # CIT-DIAG (F24295): the spine once missed on the two machines' ground piles differing at pin time; record
+                # whether the worlds differ (checksum, resync state) and whether the piles agree a moment later
+                def piles():
+                    try:
+                        return {g.name: {t: {f"{a},{b}": n for (a, b), n in v.items()} for t, v in kinds(g).items()}
+                                for g in (x.host, x.client)}
+                    except Exception as e2:  # noqa: BLE001 - the capture must not raise
+                        return h20.short(e2, 300)
+                cap["pilesNow"] = piles()
+                for g in (x.host, x.client):
+                    cap[g.name]["shared_checksum"] = q(g, {"cmd": "shared_checksum"})
+                    cap[g.name]["shared_resync_stats"] = q(g, {"cmd": "shared_resync_stats"})
+                time.sleep(2.0)
+                cap["pilesAfter2s"] = piles()
             print(f"CAPTURE spine: {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
             EV["spine"] = cap
             for rid in ORDER:

@@ -111,6 +111,8 @@ CoopState::CoopState(int state, int value) : _value(value)
 	_screen = false;
 
 	global_state = state;
+	// CIT-DIAG (F24293-F24294): the game's push line names the class only; several flakes turn on WHICH dialog was up
+	Log(LOG_INFO) << "[coop-dialog] open code=" << state << " value=" << value;
 
 	int x = 20;
 
