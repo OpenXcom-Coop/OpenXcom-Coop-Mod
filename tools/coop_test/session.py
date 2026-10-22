@@ -1367,11 +1367,26 @@ def dismiss_battle_start_overlays(host, timeout=10):
     Turn-1 screen (the client's since Q7 a), and this helper clears either one;
     called for the host and then for the client by drive_to_battlescape().
     """
-    deadline = time.time() + timeout
+    deadline, t_esc = time.time() + timeout, None
     while time.time() < deadline:
         st = states(host)
         if st and "BattlescapeState" in st[-1]:
+            # CIT-SLEEP1 (F24290): the Turn-1 screen's close arms a turn-start autosave that BattlescapeState::init()
+            # pushes in the NEXT loop pass, after the test server has answered this read; a second read lands in a later
+            # pass and shows its SaveGameState
+            if "BattlescapeState" not in (states(host) or [""])[-1]:
+                continue
+            # the old fixed 0.3 s after the LAST ESC stays as the floor: it also lets the battle's turn-start states end
+            # (isBusy; F24290: an END TURN pressed before that does nothing). Waiting for isBusy false instead would also
+            # wait out a generation casualty's collapse, which test_rw_m2_corpse_node reads for at this point.
+            if t_esc is not None and time.time() < t_esc + 0.3:
+                time.sleep(t_esc + 0.3 - time.time())
+                continue
             return
+        if st and "SaveGameState" in st[-1]:
+            # wait out a save in progress instead of pressing ESC into it (the old fixed 0.3 s step let it finish first)
+            _wait_stacks_change((host,), (st,), 0.3)
+            continue
         phase = (event_state(host).get("equip") or {}).get("phase")
         if phase == "open":
             raise AssertionError(
@@ -1379,6 +1394,7 @@ def dismiss_battle_start_overlays(host, timeout=10):
                 f"open (ESC is the ready toggle there, F2755) - use equip_both_ready() first; "
                 f"stack={states(host)}")
         host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
+        t_esc = time.time()
         _wait_stacks_change((host,), (st,), 0.3)  # CIT-SLEEP1 (F24288): until the overlay closes, at most the old 0.3 s
     raise TimeoutError(f"{host.name}: battle-start overlays never cleared, stack={states(host)}")
 
