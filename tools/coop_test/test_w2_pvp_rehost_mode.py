@@ -3,6 +3,7 @@
 saved on the geoscape, both processes end, the host loads the save through the real host window, presses START HOST, the REAL
 DISCONNECT button and START HOST again, a fresh client2 joins and the host presses RESUME: both machines must play the save's PvP mode
 with both roles, and the next host save must keep it. Row L5 is the gm2 mid-battle campaign rejoin (L-SC5-5), a control passing today.
+L5-phase1 reads client2's phase-one world while client2 holds its battle_accept (TEST-ONLY hold_battle_accept; F24289).
 Spec: docs rewrite/prompts/w2h46_pvp_rehost_mode.md ((f) rows D3, D2, L5; QH46-1 .. QH46-7 (a); F17080-F17089, F17200-F17215); TASK 0
 pins: docs rewrite/w2h46-task0/sa/CONSTANTS.md (boots a3, a2, a5 unchanged; c3, c2 with E1). Key "49122", dirs w2h46_<row>_host / _client /
 _client2; one boot per row. D rows (T0-2 (1)-(13)): bring-up (PF.start_pvp_campaign; mode and noBases pair are preconditions); save1
@@ -344,21 +345,36 @@ def row_l5(x, ev):
         client.shutdown()
         c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
         c2.spawn(); c2.connect()
+        # F24289: client2's world-without-battle phase lasts ~0.24 s since CIT-G3, shorter than one 0.25 s poll. client2 holds its
+        # battle_accept (TEST-ONLY hold_battle_accept, W2-H82 L2) so the host streams no battle until phase one is read, then releases it.
+        hold = {"arm": c2.cmd({"cmd": "hold_battle_accept", "on": True})}
         t_j, prof, bnb, p1 = time.time(), [], [], {}
         ev["join"] = c2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
-        def acked():
+        def sample():
             s2 = stack(c2)
             bnb.extend([] if "BuildNewBaseState" not in s2 or bnb else [round(time.time() - t_j, 2)])
             profile_press(host, c2, prof, t_j)
-            w = c2.cmd({"cmd": "world_state"})
-            if not p1 and w.get("has_save") and not w.get("has_battle") and "BattlescapeState" not in s2:    # client2's FIRST world
+            return s2
+        def phase_one():   # client2's FIRST world, read once its battle_accept is stashed (the offer is in, no battle streams)
+            s2 = sample()
+            w, held = c2.cmd({"cmd": "world_state"}), c2.cmd({"cmd": "hold_battle_accept"}).get("held")
+            if held and w.get("has_save") and not w.get("has_battle") and "BattlescapeState" not in s2:
                 v = soft_view(c2)                                                                        # (still no battle after the read)
                 p1.update(t=round(time.time() - t_j, 2), view=v, stack=s2) if not c2.cmd({"cmd": "world_state"}).get("has_battle") else None
+            return bool(p1)
+        try:
+            _ok, hold["phaseOneS"] = wait(phase_one, ACK_S)
+        finally:
+            hold["release"] = c2.cmd({"cmd": "hold_battle_accept", "on": False})
+        def acked():
+            sample()
             return CR.coop(host).get("resumeAck") is True and CR.auth(host).get("peerAbsent") is False
         acked_ok, s = wait(acked, ACK_S)
-        ev.update(ackS=s, profileOk=prof, phaseOne=p1, client2BuildNewBaseState=list(bnb))
+        ev.update(ackS=s, profileOk=prof, phaseOne=p1, client2BuildNewBaseState=list(bnb), hold=hold)
         v1 = p1.get("view") or {}
-        pbad = [] if p1 else ["no client2 sample with a world and no battle before the offer"]
+        pbad = [] if hold["arm"].get("armed") is True else [f"client2 hold_battle_accept not armed: {hold['arm']}"]
+        pbad += [] if p1 else ["no client2 sample with a world and no battle before the offer"]
+        pbad += [] if hold["release"].get("sent") is True else [f"client2 hold_battle_accept release sent no battle_accept: {hold['release']}"]
         pbad += [f"client2 {k} {v1.get(k)!r} (want {w!r})" for k, w in (("gamemode", 2), ("noBases", True), ("realBases", STUB), ("funds", STUB_FUNDS))
                  if p1 and v1.get(k) != w]
         pbad += [f"client2 BuildNewBaseState at {bnb} s"] if bnb else []
