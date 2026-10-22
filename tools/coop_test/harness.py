@@ -544,7 +544,7 @@ class GameClient:
                                         game_pid=self.proc.pid if self.proc else None,
                                         game_returncode=self.proc.poll() if self.proc else None)
                 raise
-            time.sleep(0.2)
+            time.sleep(0.02)  # CIT-SLEEP1 (F24291): was 0.2 s; a boot reports its port ~0.2-0.5 s after spawn
         exc = TimeoutError(
             f"{self.name}: game never reported its test-server port "
             f"(no {self._port_file})")
@@ -656,7 +656,7 @@ class GameClient:
 
     # SPEC 0c / WV-D82: measured 2026-09-06, 1.0 s rounding cost ~2.2 s per battle
     # setup; 0.1 s is the measured value, not a guess.
-    def wait_for(self, desc, predicate, timeout=90, interval=0.1):
+    def wait_for(self, desc, predicate, timeout=90, interval=0.02):  # CIT-SLEEP1 (F24291): default was 0.1 s
         deadline = time.time() + timeout
         last = None
         while time.time() < deadline:
