@@ -18,6 +18,7 @@
 #include "../connectionTCP.h"
 #include "connection_rendezvous_glue.h"
 #include "../BattleAuthority.h"
+#include "../../Engine/Logger.h"
 
 #include <array>
 #include <atomic>
@@ -307,11 +308,18 @@ bool startUdpPeer(const std::string& remoteHost,
 	cfg.log = [](const std::string& s)
 	{
 		DebugLog(("connectionUDP: " + s + "\n").c_str());
+		// CIT-DIAG (F24293): the transport logs only its few state changes (start failures, the authenticated / locked
+		// peer endpoint, a peer timeout) and a stall report; none reached openxcom.log before
+		Log(LOG_INFO) << "[coop-udp] " << s;
 	};
 
 	if (!s_connectionUDP->start(cfg))
 	{
 		DebugLog("connectionUDP: start failed\n");
+		// CIT-DIAG (F24293): the transport's own reason goes to DebugLog only; a failed start (e.g. the local port in use)
+		// sets onConnect -3 at once, which reads in openxcom.log as a partner lost with no cause
+		Log(LOG_INFO) << "[coop-udp] transport start failed: role=" << (isHost ? "host" : "client") << " localPort=" << localPort
+			<< " remote=" << remoteHost << ":" << remotePort << " sdl='" << SDLNet_GetError() << "'";
 
 		s_connectionUDP.reset();
 		s_udpEnabled = false;
@@ -320,6 +328,8 @@ bool startUdpPeer(const std::string& remoteHost,
 	}
 
 	DebugLog("connectionUDP: UDP peer object started\n");
+	Log(LOG_INFO) << "[coop-udp] transport started: role=" << (isHost ? "host" : "client") << " localPort=" << localPort
+		<< " remote=" << remoteHost << ":" << remotePort; // CIT-DIAG (F24293)
 
 	// Reuse existing connectionTCP/global state. Do not create duplicate UDP
 	// lobby variables.

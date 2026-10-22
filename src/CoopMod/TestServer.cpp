@@ -15485,6 +15485,13 @@ std::string TestServer::execute(const std::string& line)
 			std::string ipaddr = req.get("ip", "127.0.0.1").asString();
 			std::string port = req.get("port", "3000").asString();
 			std::string localport = req.get("localport", "3001").asString();
+			// CIT-DIAG (F24293): an ephemeral local port ("0", the harness's rewrite) binds an OS-assigned UDP port, as host_udp
+			// does for its port; the transport's own fallback for 0 is a fixed 3001, which two concurrent harness lanes share
+			if (localport == "0")
+			{
+				int p = probeEphemeralPort(SOCK_DGRAM);
+				if (p > 0) localport = std::to_string(p);
+			}
 			std::string player = req.get("player", "ClientPlayer").asString();
 			std::string password = req.get("password", "lan").asString();
 			connectionTCP::password = password;

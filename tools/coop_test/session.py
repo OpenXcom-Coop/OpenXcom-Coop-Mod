@@ -169,7 +169,10 @@ def new_campaign(host, client, port="47900",
     host.ok({"cmd": "newgame_ok"})
     host.wait_for("host window", lambda: _has_state(host, "HostMenu"))
 
-    udp_pw = "harness-lan"
+    # F24293: one session key per harness lane. The UDP client also dials its host's port +- a radius (NAT port guessing,
+    # connectionUDP::buildCandidates), and lanes on one machine get neighbouring ephemeral ports, so with one shared key
+    # a lane's client authenticated the next lane's host (captured: client :65343 -> host :65342, its own host :65341)
+    udp_pw = "harness-lan-s%s" % os.environ.get("OXC_HARNESS_SLOT", "0")
     client_udp_port = str(int(port) + 1)
 
     # host window -> lobby
