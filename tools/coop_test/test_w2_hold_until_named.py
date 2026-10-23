@@ -15,17 +15,19 @@ the lines of that machine's openxcom.log between two marks. Every row starts wit
   Row G  (C1) partner to BaseNameState; host BASES, SOLDIERS, GIFT_ROW click, GIVE_KEY, the partner's button; partner GiftNoticeState OK,
          names NAME_G.
     G-no995 (RED) partner log RECV -> PlaceLiftState push: no CoopState push.  G-named partner PlaceLiftState within 5 s of the OK.
-    G-lands (RED) within LANDS_S of the OK the host copy fnv differs from H0, no host save.  G-calm no CoopState push PlaceLiftState -> +LANDS_S.
+    G-lands (RED) within LANDS_S of the OK the host copy fnv differs from H0, no host save.  G-calm no CoopState push PlaceLiftState ->
+    the watch end (named and landed + TAIL_S, at most T_OK + LANDS_S; D306 O2).
   Row P  (C2) partner to BaseNameState; host visits PARTNER_BASE; both polled every POLL for WAIT_S; partner names NAME_P.
     P-wait (RED) host top CoopState 50 at +WAIT_S.  P-no995 (RED) no partner poll saw 995.  P-named partner PlaceLiftState within 5 s.
     P-live (RED) within ENTER_S of the OK host BasescapeState with FUNDS digits == partner funds.  P-home partner lift + GEOSCAPE; host
     GEOSCAPE: GeoscapeState within 5 s, funds == PRE.
   Row H  (C2b) row P with the roles swapped: the host names NAME_H, the partner visits HOST_BASE.  H-wait, H-no995, H-named, H-live, H-home.
   Row Q  (C1 + C2 in one naming) partner to BaseNameState; host gift (BASES, MINI0, SOLDIERS, ...); host visits PARTNER_BASE; WAIT_S polls;
-         H1 = host copy fnv; partner names NAME_Q; polled every POLL until T_OK + max(ENTER_S, LANDS_S).
-    Q-wait (RED) host CoopState 50 at +WAIT_S.  Q-no995 (RED) partner log RECV -> T_OK + LANDS_S: no CoopState push.  Q-named.
+         H1 = host copy fnv; partner names NAME_Q; polled every POLL until named, live and landed + TAIL_S (D306 O1 /
+         O2), at most T_OK + LANDS_S once live is seen, else T_OK + ENTER_S. The watch end = where that poll stops.
+    Q-wait (RED) host CoopState 50 at +WAIT_S.  Q-no995 (RED) partner log RECV -> the watch end: no CoopState push.  Q-named.
     Q-live (RED) within ENTER_S host BasescapeState, FUNDS digits == partner funds.  Q-lands (RED) within LANDS_S the host copy differs from
-    H1, save folder unchanged.  Q-stays host log OK -> T_OK + LANDS_S: no BasescapeState pop.  Q-home as P-home.
+    H1, save folder unchanged.  Q-stays host log OK -> the watch end: no BasescapeState pop.  Q-home as P-home.
   END    CRASH (GUARD) no new crash file in harness.CRASH_DIR since row V, both processes alive until their shutdown.
 Red today: the 12 RED cells FAIL, the 14 others PASS. Green (W2-H66 S-B G1: EB1-EB5 with EB4-R): all 26 PASS.
 Every press is a real click_widget or inject_input (no gift, visit, leave, dismiss or dialog-back lever). One EVIDENCE line per row, one
@@ -48,8 +50,10 @@ NAMES = {"G": "hnewg", "P": "hnewp", "H": "hnewh", "Q": "hnewq"}  # lowercase: i
 LIFT_TILE = (2, 2)                          # BaseView tile: base (80, 88)
 GIFT_ROW, GIVE_KEY = (68, 44), 258          # SoldiersState row 0 / Options::giveUnit (SDLK_KP2)
 MINI0 = (199, 49)                           # BasescapeState mini base slot 0 (MiniBaseView at (192, 41), 16 px a slot): HOST_BASE
-WAIT_S, ENTER_S, LANDS_S, GIFT_S, POLL = 5.0, 10.0, 8.0, 5.0, 0.25
-SETTLE, SETTLE_MENU = 0.5, 1.0              # before a click on a state just pushed (TASK 0 F20190: a menu click at +0.05 s was lost)
+WAIT_S, ENTER_S, LANDS_S, GIFT_S, POLL = 3.0, 10.0, 8.0, 5.0, 0.25   # WAIT_S 5 -> 3 (D306 O3: the spec's 3 s minimum)
+TAIL_S = 2.0                                # D306 O2: the watch after the last answer arrived (answers land ~0.26 s after the OK)
+CLICK_SETTLE = 0.25                         # D306 O4: after a click moved the stack, before the next press (was a fixed 0.5-1.0 s
+                                            # after every click, TASK 0 F20190); 15 runs, 0 lost clicks at 0.25 and 0.0 s, CPU to 100 %
 ROWS = (("V", ("V-enter", "V-live", "V-no995", "V-home")), ("G", ("G-no995", "G-named", "G-lands", "G-calm")),
         ("P", ("P-wait", "P-no995", "P-named", "P-live", "P-home")), ("H", ("H-wait", "H-no995", "H-named", "H-live", "H-home")),
         ("Q", ("Q-wait", "Q-no995", "Q-named", "Q-live", "Q-lands", "Q-stays", "Q-home")), ("END", ("CRASH",)))
@@ -107,11 +111,15 @@ def first_after(gc, a, needle):
             return a + i
     return None
 def pushes(gc, a, b, cls): return [short(x) for x in logl(gc)[a:b] if "[coop-ui] push class OpenXcom::%s depth" % cls in x]
-def cw(gc, match, settle=1.0, ready=False):
-    if ready:  # W2-U9 (F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
-        session.wait_widget_ready(gc, match)
+def cw(gc, match, settle=1.0):
+    """wait for the button (W2-U9, F20796 / F20872: a POPUP window drops a click on a hidden button), click it; with `settle`
+    wait up to `settle` s for the stack to move, then CLICK_SETTLE (D306 O4)"""
+    session.wait_widget_ready(gc, match)
+    s0 = stk(gc)
     r = q(gc, {"cmd": "click_widget", "match": match})
-    time.sleep(settle)
+    if settle:
+        until(lambda: stk(gc) != s0, time.time() + settle, 0.02)
+        time.sleep(CLICK_SETTLE)
     return {"match": match, "ok": r.get("ok"), "err": r.get("error"), "base": [r.get("baseX"), r.get("baseY")],
             "win": [r.get("winX"), r.get("winY")], "after": stk(gc)}
 def affine(r1, r2):
@@ -121,7 +129,8 @@ def affine(r1, r2):
     return (sc, r1["win"][0] - sc * r1["base"][0], sc, r1["win"][1] - sc * r1["base"][1])
 def key(gc, sym): return q(gc, {"cmd": "inject_input", "kind": "key", "key": sym})
 def click_px(gc, bx, by, sc, until_not, offsets=((0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2))):
-    """real clicks at base pixel (bx, by) + offsets through the window mapping until the top leaves `until_not`"""
+    """real clicks at base pixel (bx, by) + offsets through the window mapping until the top leaves `until_not`; each click is
+    watched up to 1 s and stops once the top left `until_not` (then CLICK_SETTLE; MINI0's "-" never matches: at once)"""
     tries = []
     for dx, dy in offsets:
         wx, wy = int(round(sc[0] * (bx + dx) + sc[1])), int(round(sc[2] * (by + dy) + sc[3]))
@@ -133,6 +142,9 @@ def click_px(gc, bx, by, sc, until_not, offsets=((0, 0), (1, 0), (0, 1), (-1, 0)
             e = [tp] + ([code(gc)] if tp == "CoopState" else [])
             if not seen or seen[-1][1:] != e:
                 seen.append([round(time.time() - t, 2)] + e)
+            if tp != until_not:
+                time.sleep(CLICK_SETTLE)
+                break
             time.sleep(0.05)
         tries.append({"base": [bx + dx, by + dy], "t": t, "seen": seen, "top": top(gc)})
         if tries[-1]["top"] != until_not:
@@ -235,7 +247,7 @@ def bring_up(b):
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
     for gc in (b.host, b.client):
-        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6, ready=True))
+        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6))
     h, c = census(b.host), census(b.client)
     ev.update({"aff": b.aff, "host": h, "client": c})
     ok = h["stack"] == ["GeoscapeState"] and c["stack"] == ["GeoscapeState"] and len(own(h)) == 1 and len(own(c)) == 1
@@ -270,7 +282,7 @@ def visit(b, r, v, okey):
     m = [x for x in census(v)["bases"] if x[2] and x[0] == b.base[okey][0]]
     r.need(m, "%s has no marker with coopBaseId %s" % (v.name, b.base[okey][0]))
     globe(v, centerLon=m[0][4], centerLat=m[0][5])
-    time.sleep(0.5)
+    time.sleep(CLICK_SETTLE)
     pr = globe(v, lon=m[0][4], lat=m[0][5])
     tries = click_px(v, pr["x"], pr["y"], b.aff[v.name], "GeoscapeState")
     ev.update({"marker": m[0][:2], "px": [pr.get("x"), pr.get("y")], "tries": [[t["base"], t["seen"]] for t in tries]})
@@ -298,11 +310,9 @@ def finish(b, r, gc):
     """LIFT_TILE click (top BasescapeState within 5 s), GEOSCAPE (top GeoscapeState within 5 s)"""
     click_px(gc, LIFT_TILE[0] * 32 + 16, 8 + LIFT_TILE[1] * 32 + 16, b.aff[gc.name], "PlaceLiftState", offsets=((0, 0),))
     r.need(until(lambda: top(gc) == "BasescapeState", time.time() + 5.0, 0.1), "%s top %s after the lift click" % (gc.name, top(gc)))
-    time.sleep(SETTLE)
     cw(gc, "GEOSCAPE", 0.0)
     r.need(until(lambda: top(gc) == "GeoscapeState", time.time() + 5.0, 0.1), "%s top %s after GEOSCAPE" % (gc.name, top(gc)))
 def home(gc):
-    time.sleep(SETTLE)
     t = time.time()
     cw(gc, "GEOSCAPE", 0.0)
     return after(until(lambda: top(gc) == "GeoscapeState", t + 5.0, 0.1), t)
@@ -330,7 +340,7 @@ def watch(owner, v, t0, secs, trace, codes):
         if not trace or trace[-1][1:] != e:
             trace.append([round(time.time() - t0, 2)] + e)
 def gift(b, r, mini=False):
-    """host: BASES, (MINI0,) SOLDIERS, GIFT_ROW click, GIVE_KEY, SETTLE_MENU, the partner's button; partner RECV within GIFT_S (returns its
+    """host: BASES, (MINI0,) SOLDIERS, GIFT_ROW click, GIVE_KEY, CANCEL ready, the partner's button; partner RECV within GIFT_S (returns its
     log line M1); host back by OK, OK, GEOSCAPE; partner GiftNoticeState OK -> BaseNameState"""
     h, c = b.host, b.client
     ev = r.ev["gift"] = {}
@@ -343,7 +353,7 @@ def gift(b, r, mini=False):
     r.need(top(h) == "SoldierInfoState", "host top %s after the GIFT_ROW click" % top(h))
     key(h, GIVE_KEY)
     r.need(until(lambda: top(h) == "GiftSoldierMenu", time.time() + 3.0, 0.05), "host top %s after GIVE_KEY" % top(h))
-    time.sleep(SETTLE_MENU)
+    session.wait_widget_ready(h, "CANCEL")   # D306 O4 (was a fixed 1 s): the popup shows every button at once
     w = [x.get("text") for x in q(h, {"cmd": "list_widgets"}).get("widgets", []) if x.get("text") and x.get("visible")]
     tgt = [t for t in w if t.upper() != "CANCEL" and not t.startswith("Gift ")]
     r.need(tgt, "no partner button in GiftSoldierMenu %s" % w)
@@ -385,7 +395,7 @@ def row_g(b, r):
     ev["H0"] = h0
     m1 = gift(b, r)
     t_ok = name(b, r, c, NAMES["G"])
-    seen, k = {}, 0
+    seen, k, t_in = {}, 0, None
     while time.time() - t_ok < LANDS_S:
         k += 1
         tick(t_ok, k)
@@ -394,6 +404,11 @@ def row_g(b, r):
         fv = copyfnv(h)
         if "lands" not in seen and fv and fv != h0:
             seen["lands"], seen["fnv"], seen["folderSame"] = round(time.time() - t_ok, 2), fv, folder(h) == f0
+        if t_in is None and "named" in seen and "lands" in seen:
+            t_in = time.time()
+        if t_in is not None and time.time() - t_in >= TAIL_S:   # D306 O2: the watch ends TAIL_S after the last answer
+            break
+    seen["watchEnd"] = round(time.time() - t_ok, 2)
     m2 = len(logl(c))
     ev["seen"], ev["partnerWin"] = seen, win(c, m1, m2)
     pl = first_after(c, m1, "[coop-ui] push class OpenXcom::PlaceLiftState depth")
@@ -403,7 +418,7 @@ def row_g(b, r):
     r.cell("G-lands", "lands" in seen and seen["folderSame"], "host copy %s -> %s at %s s after the OK, save folder unchanged %s (want a change within %s)"
            % (h0, seen.get("fnv"), seen.get("lands"), seen.get("folderSame"), LANDS_S))
     p2 = pushes(c, pl, m2, "CoopState") if pl is not None else ["no PlaceLiftState push"]
-    r.cell("G-calm", pl is not None and not p2, "partner log PlaceLiftState -> T_OK + LANDS_S CoopState pushes %s (want none)" % p2)
+    r.cell("G-calm", pl is not None and not p2, "partner log PlaceLiftState -> watch end (+%s s) CoopState pushes %s (want none)" % (seen["watchEnd"], p2))
     finish(b, r, c)
 def row_visit(b, r, owner, v, okey, nm):
     """rows P / H: OWNER names, VISITOR visits the owner's first base"""
@@ -448,7 +463,7 @@ def row_q(b, r):
     r.cell("Q-wait", ht == "CoopState" and hc == 50, "host top %s code %s at +WAIT_S (want CoopState 50)" % (ht, hc))
     mh = len(logl(h))
     t_ok = name(b, r, c, NAMES["Q"])
-    seen, trace2, k, marks = {}, [], 0, None
+    seen, trace2, k, marks, t_in = {}, [], 0, None, None
     while time.time() - t_ok < max(ENTER_S, LANDS_S):
         k += 1
         tick(t_ok, k)
@@ -467,18 +482,25 @@ def row_q(b, r):
             trace2.append([el] + e)
         if marks is None and el >= LANDS_S:
             marks = (len(logl(c)), len(logl(h)))
+        if t_in is None and all(x in seen for x in ("named", "live", "lands")):
+            t_in = time.time()
+        if t_in is not None and time.time() - t_in >= TAIL_S:   # D306 O2: the watch ends TAIL_S after the last answer
+            break
+        if el >= LANDS_S and "live" in seen:                     # D306 O1: past LANDS_S only a late Q-live is still read
+            break
+    seen["watchEnd"] = round(time.time() - t_ok, 2)
     marks = marks or (len(logl(c)), len(logl(h)))
     ev.update({"after": trace2, "seen": seen, "copyEnd": copyfnv(h), "folderSameEnd": folder(h) == f0, "endStacks": [stk(h)[-2:], stk(c)[-2:]],
                "partnerWin": win(c, m1, marks[0]), "hostWin": win(h, mh, marks[1])})
     p1 = pushes(c, m1, marks[0], "CoopState")
-    r.cell("Q-no995", not p1, "partner log RECV -> T_OK + LANDS_S CoopState pushes %s (want none)" % p1)
+    r.cell("Q-no995", not p1, "partner log RECV -> watch end (+%s s) CoopState pushes %s (want none)" % (seen["watchEnd"], p1))
     r.cell("Q-named", seen.get("named") is not None and seen["named"] <= 5.0, "partner top PlaceLiftState %s s after the OK (want <= 5)" % seen.get("named"))
     r.cell("Q-live", "live" in seen and seen["fundsDigits"] == seen["ownerFunds"], "host BasescapeState %s s after the OK, FUNDS %r digits %s vs partner funds %s"
            % (seen.get("live"), seen.get("fundsText"), seen.get("fundsDigits"), seen.get("ownerFunds")))
     r.cell("Q-lands", "lands" in seen and seen["folderSame"], "host copy H1 %s -> %s at %s s after the OK (H0 %s), save folder unchanged %s (want a change within %s)"
            % (h1, seen.get("fnv"), seen.get("lands"), h0, seen.get("folderSame"), LANDS_S))
     pops = [short(x) for x in logl(h)[mh:marks[1]] if "[coop-ui] pop  class OpenXcom::BasescapeState depth" in x]
-    r.cell("Q-stays", not pops, "host log OK -> T_OK + LANDS_S BasescapeState pops %s (want none)" % pops)
+    r.cell("Q-stays", not pops, "host log OK -> watch end (+%s s) BasescapeState pops %s (want none)" % (seen["watchEnd"], pops))
     finish(b, r, c)
     tg = home(h)
     hf = funds(h)
