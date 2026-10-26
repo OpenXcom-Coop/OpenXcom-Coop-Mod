@@ -20,11 +20,11 @@ its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE
 cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
 Run: python tools/coop_test/test_w2_drop_dialog_first_frame.py
 """
-import json, os, subprocess, sys, threading, time  # noqa: E401
+import json, os, sys, threading, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
-from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
+from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49203"
 POLL_S, SEEN_S, TRAIL_S, LATE_S, HOLD_S, READY_S, QUIET_S, N_CYCLES = 0.02, 10.0, 2.0, 2.0, 120.0, 10.0, 2.0, 3
@@ -77,12 +77,7 @@ def wait(desc, pred, timeout, interval=0.1):
     raise Stop("WAIT %s: timed out after %.0f s" % (desc, timeout))
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1)"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip()
-    except Exception as e:  # a value
-        return short(e, 100)
+    return cpu_text(cpu_load()["cpu"])
 
 def fresh(r):
     return WAITING in (r.get("title") or "") and r.get("back") is False and r.get("sq") is True and r.get("ab") is True

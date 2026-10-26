@@ -43,7 +43,7 @@ ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fail
 WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2. Helpers copied from docs
 rewrite/lh88-1-cap/cap.py (never imported; its [coop-lh88-1] instrumentation reads dropped).
 Run: python tools/coop_test/test_w2_lost_base_event_rewards.py   (OXC_HARNESS_SLOT selects the lane)"""
-import datetime, glob, json, os, subprocess, sys, time  # noqa: E401
+import datetime, glob, json, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session, geo  # noqa: E401,E402
@@ -124,13 +124,8 @@ def abs_min(t):
 
 
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return {"t": time.strftime("%H:%M:%S"), "cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:120]}
+    c = harness.cpu_load()
+    return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 
 
 def logl(gc):

@@ -39,7 +39,7 @@ PASS / FAIL line per cell, then the row verdict; a precondition miss ends its ro
 on; a boot miss fails its first row's -pre cell with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only
 when every cell passes, else 2.
 Run: python tools/coop_test/test_w2_removed_base_views.py   (OXC_HARNESS_SLOT selects the lane)"""
-import glob, json, os, subprocess, sys, time  # noqa: E401
+import glob, json, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
@@ -105,13 +105,8 @@ def own_names(c): return [b[1] for b in own(c)]
 def names(c): return [b[1] for b in c["bases"]]
 def both(b): return {"host": census(b.host), "client": census(b.client)}
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return {"t": time.strftime("%H:%M:%S"), "cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:120]}
+    c = harness.cpu_load()
+    return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []

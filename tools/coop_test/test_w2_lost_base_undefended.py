@@ -21,7 +21,7 @@ Every press is a real click_widget or inject_input except the logged levers name
 cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails R4-pre with ONE
 CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_w2_lost_base_undefended.py   (OXC_HARNESS_SLOT selects the lane)"""
-import glob, json, math, os, subprocess, sys, time  # noqa: E401
+import glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo, harness, session  # noqa: E401,E402
@@ -72,13 +72,8 @@ def mir_ids(c): return [m[0] for m in mirrors(c)]
 def ghost(c, st):
     return [m for m in mirrors(c) if m[0] == st["lost"] or (abs(m[2] - st["lostPos"][0]) <= POS_TOL and abs(m[3] - st["lostPos"][1]) <= POS_TOL)]
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return {"t": time.strftime("%H:%M:%S"), "cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:120]}
+    c = harness.cpu_load()
+    return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []

@@ -10,7 +10,6 @@ drop_at_54's optional ready(host) is waited for (at most ready_s) between the 54
 import ctypes
 import glob
 import os
-import subprocess
 import time
 
 import harness
@@ -79,14 +78,8 @@ def lines_since(gc, n0, needles=NEEDLES):
 
 def cpu():
     """\\Processor(_Total)\\% Processor Time (F4445) and any Wardogs* process (the owner's game)"""
-    ps = ("[int](Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue; "
-          "(Get-Process Wardogs* -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ','")
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30)
-        out = [x.strip() for x in r.stdout.splitlines()]
-        return {"t": time.strftime("%H:%M:%S"), "cpu": out[0] if out else None, "wardogs": out[1] if len(out) > 1 else ""}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:200]}
+    c = harness.cpu_load()
+    return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"], 0), "wardogs": ",".join(c["wardogs"])}
 
 _K32, _NT = ctypes.windll.kernel32, ctypes.windll.ntdll
 

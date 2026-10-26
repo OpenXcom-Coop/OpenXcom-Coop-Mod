@@ -18,7 +18,7 @@ EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row
 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
 Run: python tools/coop_test/test_w2_dogfight_mirror_delete.py
 """
-import json, math, os, subprocess, sys, time  # noqa: E401
+import json, math, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
 import session  # noqa: E402
@@ -81,12 +81,7 @@ def log_lines(gc):
 
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1)"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip()
-    except Exception as e:  # a value
-        return short(e, 100)
+    return harness.cpu_text(harness.cpu_load()["cpu"])
 
 
 AFF = {}

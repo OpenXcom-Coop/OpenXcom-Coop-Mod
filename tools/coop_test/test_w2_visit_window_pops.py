@@ -30,7 +30,7 @@ Red (commit R1, the R0 build): exit 2, RED exactly R1-notice, R1-ok, R2-stack, R
 A precondition miss ends its row ("not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line per row,
 one PASS / FAIL line per cell, the verdict; every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95.
 """
-import base64, datetime, glob, json, math, os, subprocess, sys, time  # noqa: E401
+import base64, datetime, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
@@ -103,13 +103,8 @@ def quick(gc):
     return os.stat(p).st_mtime_ns if os.path.exists(p) else None
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1); (Get-Process | Where-Object { $_.ProcessName "
-                            "-like 'Wardogs*' }).ProcessName -join ','"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip().replace("\n", " | ")
-    except Exception as e:  # a value
-        return short(e, 100)
+    c = harness.cpu_load()
+    return "%s%s" % (harness.cpu_text(c["cpu"]), " | " + ",".join(c["wardogs"]) if c["wardogs"] else "")
 
 def crashes():
     return set(glob.glob(CRASH_GLOB, recursive=True))

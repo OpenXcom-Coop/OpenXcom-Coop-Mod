@@ -7,7 +7,7 @@ ONE boot (key 49655): SETUP (levers: SEAT the client's guest G on HostBase's Sky
 real visit of HostBase), R2 (real visit of HostBase2, real key to HostBase, next visit), R2i (SEAT, real visit of HostBase2, real BASE INFORMATION,
 real key, its real OK), CRASH. Red today: R2-view/-ok/-blob/-own/-next, R2i-view/-ok/-own (8 of 17). WV-D95 / WV-D99 / WV-D100: ONE foreground run,
 no skip; exit 0 only when every cell passes, else 2.  Run: python tools/coop_test/test_w2_view_base_switch.py   (OXC_HARNESS_SLOT selects the lane)"""
-import contextlib, glob, json, os, subprocess, sys, time  # noqa: E401
+import contextlib, glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml, geo, harness, session  # noqa: E401,E402
@@ -46,13 +46,8 @@ def log(gc):
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if p and os.path.exists(p) else []
 def tail(gc, n=25): return [ln.split("\t")[-1][:220] for ln in log(gc)[-n:]]
 def cpu():
-    ps = ("[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1); "
-          "@(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30).stdout.split()
-        return {"cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": short(e, 100)}
+    c = harness.cpu_load()
+    return {"cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 def wait(pred, timeout, interval=0.1):
     t0 = time.time()
     while not (v := pred()) and time.time() - t0 < timeout:

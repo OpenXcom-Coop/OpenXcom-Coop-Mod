@@ -21,12 +21,11 @@ every row runs after a failure; exit 0 only when every cell passes, else 2. Run:
 import ctypes
 import json
 import os
-import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir  # noqa: E402
+from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 import session  # noqa: E402
 
 KEY = "49178"
@@ -81,15 +80,8 @@ def has_save(gc): return probe(lambda: gc.cmd({"cmd": "world_state"}).get("has_s
 
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command",
-                            "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue); "
-                            "(Get-Process Wardogs* -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ','"],
-                           capture_output=True, text=True, timeout=30)
-        out = [x.strip() for x in r.stdout.splitlines()]
-        return {"cpu": out[0] if out else None, "foreign": out[1] if len(out) > 1 else ""}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)}
+    c = cpu_load()
+    return {"cpu": cpu_text(c["cpu"], 0), "foreign": ",".join(c["wardogs"])}
 
 
 def disc(gc):

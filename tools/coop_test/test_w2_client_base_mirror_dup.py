@@ -14,7 +14,7 @@ R3-click, R1-30s, R2-click. GREEN (E1 + E2, TASK 0 c): 11/11. WV-D95 / WV-D99 / 
 Run:  python tools/coop_test/test_w2_client_base_mirror_dup.py
 """
 
-import base64, glob, json, math, os, subprocess, sys, time  # noqa: E401
+import base64, glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
@@ -50,15 +50,9 @@ def block(names, why):
     for n in [n for n in names if n not in {x[0] for x in RESULTS}]:
         cell(n, False, why)
 def load():
-    """CPU (Processor(_Total) % Processor Time, 2 samples) and the owner's game processes (S24, F4445)."""
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 2).CounterSamples | Measure-Object -Property CookedValue -Average).Average, 1); "
-                            "@(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count"],
-                           capture_output=True, text=True, timeout=60).stdout.split()
-        return {"cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:120]}
+    """CPU (Processor(_Total) % Processor Time, the last 2 s; harness.cpu_load, D307) and the owner's game processes (S24, F4445)."""
+    c = harness.cpu_load()
+    return {"cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 
 # ----- probes (CAP icons_of / own_base, H51T stack / texts) -----
 def gs(gc): return gc.ok({"cmd": "geo_state"})

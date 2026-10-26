@@ -25,7 +25,7 @@ set_soldier_dead, spawn_ufo and trigger_base_defense; read-only probes geo_state
 row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss
 fails SI-pre with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_w2_removed_base_holders_shared.py   (OXC_HARNESS_SLOT selects the lane)"""
-import glob, json, math, os, subprocess, sys, time  # noqa: E401
+import glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
@@ -72,13 +72,8 @@ def census(gc):
                                   for b in g.get("bases", [])], "stack": stk(gc), "funds": g.get("funds"), "error": g.get("error")}
 def names(c): return [b[1] for b in c["bases"]]
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return {"t": time.strftime("%H:%M:%S"), "cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:120]}
+    c = harness.cpu_load()
+    return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []

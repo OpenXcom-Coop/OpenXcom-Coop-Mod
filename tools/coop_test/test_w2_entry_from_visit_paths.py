@@ -14,7 +14,7 @@ with ONE CAPTURE line; a boot miss fails P-pre with ONE CAPTURE line. Real press
 WV-D95 (run to completion in the foreground), WV-D99 (one run; exit 0 only when every cell passes, else 2), WV-D100 (no SKIP, no exit 3).
 Helpers copied (never imported) from docs rewrite/lbh1-cap/cap.py (as in test_w2_entry_from_visit.py); the practice screen from
 test_w2_practice_battle_entry.py's P4."""
-import glob, json, os, subprocess, sys, time  # noqa: E401
+import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
 import session
@@ -72,13 +72,8 @@ def needles(gc, n0):
     ls = log(gc)[n0:]
     return {k: sum(1 for ln in ls if v in ln) for k, v in NEEDLES.items()}
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return "%s %% (Wardogs %s)" % (v[0] if v else None, v[1] if len(v) > 1 else None)
-    except Exception as e:  # noqa: BLE001 - a value
-        return short(e, 80)
+    c = harness.cpu_load()
+    return "%s %% (Wardogs %s)" % (harness.cpu_text(c["cpu"]), len(c["wardogs"]))
 def wait(pred, timeout, interval=0.25):
     t0 = time.time()
     while True:

@@ -19,7 +19,7 @@ a precondition miss ends its row and every later row (cells "not reached"); a bo
 WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_w2_client_base_ghost.py"""
 
-import glob, json, math, os, subprocess, sys, time  # noqa: E401
+import glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
@@ -83,14 +83,8 @@ def own(bl): return [(b[0], b[1]) for b in bl if not b[2] and not b[3]] if isins
 def crashes(): return set(glob.glob(os.path.join(harness.CRASH_DIR, "crash_*")))
 
 def cpu():  # the % Processor Time counter and any foreign game (S24)
-    ps = ("[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue); "
-          "(Get-Process Wardogs* -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ','")
-    try:
-        out = [x.strip() for x in subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
-                                                 timeout=30).stdout.splitlines()]
-    except Exception as e:  # noqa: BLE001
-        out = [unreachable(e)]
-    return {"cpu": out[0] if out else None, "foreign": out[1] if len(out) > 1 else ""}
+    c = harness.cpu_load()
+    return {"cpu": harness.cpu_text(c["cpu"], 0), "foreign": ",".join(c["wardogs"])}
 
 def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")

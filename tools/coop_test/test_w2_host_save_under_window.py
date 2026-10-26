@@ -28,13 +28,13 @@ client save stream, so no client world lands and the drop write runs on every bu
 equal the client's W2-H70 pushes (0 without W2-H70, 1 with it); X-common counts exactly those.
 Run: python tools/coop_test/test_w2_host_save_under_window.py
 """
-import base64, glob, json, math, os, subprocess, sys, time  # noqa: E401
+import base64, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
 import geo  # noqa: E402
 import session  # noqa: E402
-from harness import GameClient, make_user_dir  # noqa: E402
+from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49225"
 QUICK, PROBE = "_quick_.asav", "h64_probe.sav"
@@ -130,12 +130,7 @@ def settle(r, x):
         raise Stop("the lever did not settle: %s" % r.ev["lever"])
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1)"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip()
-    except Exception as e:  # a value
-        return short(e, 100)
+    return cpu_text(cpu_load()["cpu"])
 
 def fnv(b):
     """FNV-1a 64 (offset 1469598103934665603, prime 1099511628211, mod 2^64; TestServer coop_file_info), 16 hex digits"""

@@ -43,12 +43,11 @@ Run:  python tools/coop_test/test_w2_convert_spawn_faction.py
 
 import os
 import re
-import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir  # noqa: E402
+from harness import GameClient, make_user_dir, cpu_load  # noqa: E402
 import session  # noqa: E402
 from session import battle_state, event_state  # noqa: E402
 import repro_atom_walk as RAW  # noqa: E402
@@ -71,7 +70,6 @@ CHAIN_KINDS = ["turn", "shot", "hit", "spawn", "bt_action_end"]
 FACTION_PLAYER, STATUS_DEAD = 0, 6
 STEP_S, CLIENT_S, LOG_FLUSH_S = 30, 15, 3
 DESYNC_RE = re.compile(r"\[coop-hash\] DESYNC: bucket=(\S+) seq=(\d+) kind=(\S+) expect=([0-9a-f]+) got=([0-9a-f]+)")
-CPU_PS = r"(Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue"
 CELLS = ("CV-pre", "CV-chain", "CV-unit", "CV-faction", "CV-sync", "CV-census", "CV-explain", "CV-common")
 
 # ---- W2-H26 SYNCED_SUM (spec rewrite/prompts/w2h26_conversion_spawn_faction.md Appendix C; copied verbatim) ----
@@ -243,12 +241,8 @@ def wait_until(pred, timeout, interval):
 
 
 def cpu_pct():
-    """EVIDENCE: the machine's total CPU, one 1 s sample (S24); None when unreadable."""
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", CPU_PS], capture_output=True, text=True, timeout=20)
-        return round(float(r.stdout.strip().replace(",", ".")), 1)
-    except Exception:
-        return None
+    """EVIDENCE: the machine's total CPU over the last 2 s (S24; cpu_load, D307); None when unreadable."""
+    return cpu_load()["cpu"]
 
 
 def synced(gc):

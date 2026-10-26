@@ -25,12 +25,12 @@ its own clients (by their GameClient). The red writes thousands of crash_*.log f
 foreground run per invocation.
 Run: python tools/coop_test/test_w2_rx_throw_drop.py   (OXC_HARNESS_SLOT selects the lane)
 """
-import json, os, subprocess, sys, time  # noqa: E401
+import json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 import h58_drop_fixture as FIX  # noqa: E402
-from harness import GameClient, make_user_dir  # noqa: E402
+from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49201"
 POLL_S, W_MARK, W_21, W_21U, W_440, SEEN_S = 0.05, 10.0, 15.0, 25.0, 15.0, 15.0
@@ -119,12 +119,7 @@ def wait(pred, timeout, interval=POLL_S):
 
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1)"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip()
-    except Exception as e:  # noqa: BLE001 - a value
-        return short(e, 100)
+    return cpu_text(cpu_load()["cpu"])
 
 
 def buttons(gc):

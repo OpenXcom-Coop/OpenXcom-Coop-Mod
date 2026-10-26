@@ -6,7 +6,7 @@ imported). Every press is real (click_widget on a visible button, inject_input o
 TestServer command. A construction step that misses its precondition raises Stop (its row ends there); run_row prints one EVIDENCE line
 per row, one PASS / FAIL line per cell and the row verdict; main returns 0 only when every cell passed, else 2 (WV-D99 / WV-D100).
 WV-D95: one foreground run per invocation."""
-import base64, glob, json, math, os, subprocess, sys, time  # noqa: E401
+import base64, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
@@ -97,13 +97,8 @@ def crash_new(c0):
             "sample": [os.path.basename(p) for p in new[:3]]}
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1); (Get-Process | Where-Object { $_.ProcessName "
-                            "-like 'Wardogs*' }).ProcessName -join ','"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip().replace("\n", " | ")
-    except Exception as e:  # a value
-        return short(e, 100)
+    c = harness.cpu_load()
+    return "%s%s" % (harness.cpu_text(c["cpu"]), " | " + ",".join(c["wardogs"]) if c["wardogs"] else "")
 
 def fnv(b):
     """FNV-1a 64 (TestServer coop_file_info), 16 hex digits"""

@@ -11,7 +11,7 @@ click and is made only with its cell's named top shown and pmc dangling 0 read r
 Red (commit R1): exit 2, RED exactly on SA-dangling, SA-held, SA-top (3 of 7). A guard (G:) miss: ONE CAPTURE line, the row's remaining cells FAIL
 "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell
 passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run. Run: python tools/coop_test/test_w2_popup_mirror_sweep.py"""
-import json, math, os, subprocess, sys, time  # noqa: E401
+import json, math, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
 import session  # noqa: E402
@@ -61,11 +61,7 @@ def log_lines(gc):
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 
 def cpu():
-    try:
-        return subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                               "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1)"], capture_output=True, text=True, timeout=30).stdout.strip()
-    except Exception as e:  # a value
-        return short(e, 100)
+    return harness.cpu_text(harness.cpu_load()["cpu"])
 
 AFF = {}
 

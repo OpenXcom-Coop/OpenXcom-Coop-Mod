@@ -37,7 +37,7 @@ miss ends its row (later cells "not reached"); a boot miss fails every row of th
 counts every new crash file by kind (loopData, other, Unhandled, .dmp).
 WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_w2_save_during_naming.py   (OXC_HARNESS_SLOT selects the lane)"""
-import base64, glob, json, math, os, subprocess, sys, time  # noqa: E401
+import base64, glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
@@ -85,13 +85,8 @@ def census(gc):
     return {"bases": bl, "funds": g.get("funds"), "stack": stk(gc), "error": g.get("error")}
 def own(c): return [[b[0], b[1]] for b in c["bases"] if not b[2] and not b[3]]
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return {"t": time.strftime("%H:%M:%S"), "cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": repr(e)[:120]}
+    c = harness.cpu_load()
+    return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []

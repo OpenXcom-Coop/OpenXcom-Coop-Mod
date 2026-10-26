@@ -13,7 +13,7 @@ the real globe visit, READ-VIEW, real SOLDIERS / OK, READ-OK, real GEOSCAPE, REA
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a -pre / -exit miss ends its row with ONE CAPTURE line. WV-D95 / WV-D99 /
 WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_w2_view_latch_seats.py   (OXC_HARNESS_SLOT selects the lane)"""
-import glob, json, os, subprocess, sys, time  # noqa: E401
+import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -63,13 +63,8 @@ def log(gc):
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if p and os.path.exists(p) else []
 def tail(gc, n=25): return [ln.split("\t")[-1][:220] for ln in log(gc)[-n:]]
 def cpu():
-    ps = ("[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1); "
-          "@(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=30).stdout.split()
-        return {"cpu": v[0] if v else None, "wardogs": v[1] if len(v) > 1 else None}
-    except Exception as e:  # noqa: BLE001
-        return {"error": short(e, 100)}
+    c = harness.cpu_load()
+    return {"cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 def wait(pred, timeout, interval=0.1):
     t0 = time.time()
     while True:

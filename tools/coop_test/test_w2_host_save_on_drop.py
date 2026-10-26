@@ -23,12 +23,12 @@ row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell
 foreground run per invocation.
 Run: python tools/coop_test/test_w2_host_save_on_drop.py
 """
-import base64, ctypes, glob, json, os, subprocess, sys, time  # noqa: E401
+import base64, ctypes, glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
 import session  # noqa: E402
-from harness import GameClient, make_user_dir  # noqa: E402
+from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49197"
 QUICK, AUTO = "_quick_.asav", "_autogeo_.asav"
@@ -88,12 +88,7 @@ def wait(desc, pred, timeout, interval=POLL_S):
     raise Stop("WAIT %s: timed out after %.0f s" % (desc, timeout))
 
 def cpu():
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1)"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip()
-    except Exception as e:  # a value
-        return short(e, 100)
+    return cpu_text(cpu_load()["cpu"])
 
 def files(gc):
     """the host's master save folder <user_dir>/xcom1: name -> [bytes, mtime_ns]"""

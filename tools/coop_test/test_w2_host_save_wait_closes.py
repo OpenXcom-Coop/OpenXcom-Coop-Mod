@@ -30,13 +30,13 @@ force_stream_key_miss just before the host's button (no client world lands) and 
 W2-H70 pushes (0 without W2-H70, 1 with it); R-GN then releases it and waits until CLEAR equals that count before the leave.
 Run: python tools/coop_test/test_w2_host_save_wait_closes.py
 """
-import base64, glob, json, math, os, subprocess, sys, time  # noqa: E401
+import base64, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
 import geo  # noqa: E402
 import session  # noqa: E402
-from harness import GameClient, make_user_dir  # noqa: E402
+from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49227"
 QUICK, PROBE = "_quick_.asav", "h64_probe.sav"
@@ -144,13 +144,8 @@ def release(r, x):
 
 def cpu():
     """the machine's CPU load (Processor(_Total)) and any Wardogs* process (S24)"""
-    try:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", "[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time' "
-                            "-SampleInterval 1 -MaxSamples 1).CounterSamples[0].CookedValue, 1); (Get-Process | Where-Object { $_.ProcessName "
-                            "-like 'Wardogs*' }).ProcessName -join ','"], capture_output=True, text=True, timeout=30)
-        return r.stdout.strip().replace("\n", " | ")
-    except Exception as e:  # a value
-        return short(e, 100)
+    c = cpu_load()
+    return "%s%s" % (cpu_text(c["cpu"]), " | " + ",".join(c["wardogs"]) if c["wardogs"] else "")
 
 def probe_globe(path):
     """the named probe save's first embedded partner world's globe (PyYAML load_all, CSafeLoader when present; base64 or binary blob)"""

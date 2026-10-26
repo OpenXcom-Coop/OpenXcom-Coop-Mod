@@ -15,7 +15,7 @@ join_tcp (W2-U7c / W2-U7d). One EVIDENCE line per row, one PASS / FAIL line per 
 row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no
 skip path, every row runs after a failure; exit 0 only when every cell passes, else 2. Run: python tools/coop_test/<this file>"""
 
-import json, os, socket, subprocess, sys, time  # noqa: E401
+import json, os, socket, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
@@ -67,11 +67,8 @@ def coop(gc): return pick(gc, "get_coop", ("coopCampaign", "onConnect", "coopDia
 def has_save(gc): return probe(lambda: gc.cmd({"cmd": "world_state"}).get("has_save"), lambda u: u)
 
 def cpu():  # the % Processor Time counter and any foreign game (S24)
-    ps = ("[math]::Round((Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples[0].CookedValue); "
-          "(Get-Process Wardogs* -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ','")
-    out = probe(lambda: [x.strip() for x in subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True,
-                                                          text=True, timeout=30).stdout.splitlines()], lambda u: [u])
-    return {"cpu": out[0] if out else None, "foreign": out[1] if len(out) > 1 else ""}
+    c = harness.cpu_load()
+    return {"cpu": harness.cpu_text(c["cpu"], 0), "foreign": ",".join(c["wardogs"])}
 
 def read_text(p):
     with open(p, encoding="utf-8", errors="replace") as fh:

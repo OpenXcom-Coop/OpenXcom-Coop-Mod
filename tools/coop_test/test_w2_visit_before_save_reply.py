@@ -18,7 +18,7 @@ One EVIDENCE line, one PASS / FAIL line per cell, then the row verdict; a precon
 CAPTURE line; a boot miss fails SPB-pre with ONE CAPTURE line. WV-D95 (run to completion in the foreground), WV-D99 (one run; exit 0 only when
 every cell passes, else 2), WV-D100 (no SKIP, no exit 3). Helpers copied (never imported) from docs rewrite/lh78-1-cap/cap.py; LOCATE's CANCEL
 press waits for the button to be shown (F21950)."""
-import glob, json, os, subprocess, sys, time  # noqa: E401
+import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
 import session
@@ -72,13 +72,8 @@ def log(gc):
 def tail(gc, n=40): return [ln.split("\t")[-1][:300] for ln in log(gc)[-n:]]
 def count(gc, n0, key): return sum(1 for ln in log(gc)[n0:] if NEEDLES[key] in ln)
 def cpu():
-    ps = ("[math]::Round(((Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 2).CounterSamples | "
-          "Measure-Object -Property CookedValue -Average).Average, 1); @(Get-Process | Where-Object { $_.ProcessName -like 'Wardogs*' }).Count")
-    try:
-        v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.split()
-        return "%s %% (Wardogs %s)" % (v[0] if v else None, v[1] if len(v) > 1 else None)
-    except Exception as e:  # noqa: BLE001 - a value
-        return short(e, 80)
+    c = harness.cpu_load()
+    return "%s %% (Wardogs %s)" % (harness.cpu_text(c["cpu"]), len(c["wardogs"]))
 def wait(pred, timeout, interval=0.25):
     t0 = time.time()
     while True:

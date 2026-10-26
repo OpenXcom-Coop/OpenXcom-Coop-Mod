@@ -955,3 +955,108 @@ def find_soldier(soldier_lists, name):
             if name in s["name"]:
                 return base, s
     return None, None
+
+
+# ----- the machine's CPU load for EVIDENCE lines (D307 O5) -----
+# Tests record the machine's CPU load and any Wardogs* process (the owner's game, S24) beside their verdicts, to tell a
+# load-inflated red from a real one. Each test used to run its own PowerShell Get-Counter (1.6-2.8 s a call, up to 10 s
+# under load: 211 calls, 484.5 s over 58 tests). cpu_load() reads the same source in-process: GetSystemTimes busy time
+# over the window, which is '\Processor(_Total)\% Processor Time' (median 0.1 point apart on matched 2 s windows). A
+# background thread samples every _CPU_SAMPLE_S from the first call on, so a call costs a process-list scan, not a wait.
+_CPU_SAMPLE_S = 0.5
+_cpu_series = deque(maxlen=64)   # (monotonic s, idle, kernel, user) in 100 ns units; kernel time includes idle time
+_cpu_lock = threading.Lock()
+_cpu_thread = []
+
+if os.name == "nt":
+    _GetSystemTimes = _kernel32.GetSystemTimes
+    _GetSystemTimes.argtypes = (ctypes.POINTER(wintypes.FILETIME),) * 3
+    _GetSystemTimes.restype = wintypes.BOOL
+
+    class _ProcessEntry(ctypes.Structure):   # PROCESSENTRY32W
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    _CreateToolhelp32Snapshot = _kernel32.CreateToolhelp32Snapshot
+    _CreateToolhelp32Snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    _CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    _Process32FirstW = _kernel32.Process32FirstW
+    _Process32FirstW.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
+    _Process32FirstW.restype = wintypes.BOOL
+    _Process32NextW = _kernel32.Process32NextW
+    _Process32NextW.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
+    _Process32NextW.restype = wintypes.BOOL
+    _TH32CS_SNAPPROCESS = 0x2
+
+    def _system_times():
+        idle, kernel, user = wintypes.FILETIME(), wintypes.FILETIME(), wintypes.FILETIME()
+        if not _GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+        return (time.monotonic(),) + tuple((t.dwHighDateTime << 32) | t.dwLowDateTime for t in (idle, kernel, user))
+
+    def _process_names(prefix):
+        """Image names (no .exe) of the running processes whose name starts with `prefix`, any case (Get-Process -like)."""
+        snap = _CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
+        if snap is None or snap == _INVALID_HANDLE_VALUE:
+            return []
+        try:
+            entry, names = _ProcessEntry(), []
+            entry.dwSize = ctypes.sizeof(_ProcessEntry)
+            ok = _Process32FirstW(snap, ctypes.byref(entry))
+            while ok:
+                name = entry.szExeFile
+                if name.lower().startswith(prefix.lower()):
+                    names.append(name[:-4] if name.lower().endswith(".exe") else name)
+                ok = _Process32NextW(snap, ctypes.byref(entry))
+            return names
+        finally:
+            _CloseHandle(snap)
+
+
+def _cpu_sampler():
+    while True:
+        sample = _system_times()
+        if sample:
+            with _cpu_lock:
+                _cpu_series.append(sample)
+        time.sleep(_CPU_SAMPLE_S)
+
+
+def cpu_load(window=2.0):
+    """{"cpu": % of every core busy over about the last `window` s (None when unreadable), "wardogs": [the names of
+    the running Wardogs* processes]}. The first call in a process starts the sampler and measures a 0.25 s window."""
+    if os.name != "nt":
+        return {"cpu": None, "wardogs": []}
+    cpu = None
+    try:
+        if not _cpu_thread:
+            first = _system_times()
+            with _cpu_lock:
+                _cpu_series.append(first)
+            _cpu_thread.append(threading.Thread(target=_cpu_sampler, name="cpu-load-sampler", daemon=True))
+            _cpu_thread[0].start()
+            time.sleep(0.25)
+        now = _system_times()
+        with _cpu_lock:
+            older = [s for s in _cpu_series if s and s[0] <= now[0] - window]
+            base = older[-1] if older else _cpu_series[0]
+        total = (now[2] - base[2]) + (now[3] - base[3])
+        if total > 0:
+            cpu = round(100.0 * (total - (now[1] - base[1])) / total, 1)
+    except Exception:  # noqa: BLE001 - a diagnostic: unreadable is None, never a test failure
+        pass
+    try:
+        wardogs = _process_names("Wardogs")
+    except Exception:  # noqa: BLE001
+        wardogs = []
+    return {"cpu": cpu, "wardogs": wardogs}
+
+
+def cpu_text(cpu, digits=1):
+    """`cpu` as the old PowerShell probes printed it ([math]::Round(x, digits): '44.4', '44'); None stays None."""
+    if cpu is None:
+        return None
+    v = round(cpu, digits)
+    return "%d" % v if v == int(v) else "%.*f" % (digits, v)
