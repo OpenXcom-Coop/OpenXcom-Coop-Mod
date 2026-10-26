@@ -356,6 +356,7 @@ def trigger54(x, ev):
     """the host's save_game_ui quick; poll POLL_S for the 54 on top within SEEN54_S (name QUICK); the client's 67 within W_67"""
     h = x.host
     x.F0 = files(h)
+    ev["sessionS"] = session.wait_coop_session(h)   # F24296: the 54 needs the host's live session
     tt = time.time()
     q(h, {"cmd": "save_game_ui", "type": "quick"})
     while time.time() - tt < SEEN54_S:

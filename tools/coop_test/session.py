@@ -85,6 +85,23 @@ def click_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S):
     return r
 
 
+def wait_coop_session(gc, timeout=5.0, interval=0.02):
+    """F24296: wait until `gc`'s get_coop coopSession is true; returns the seconds waited, or None when it stayed false for
+    `timeout` (the caller goes on and its own check reports the miss). A host save shows its "Saving..." (CoopState 54) only
+    in a live session (SaveGameState's deferral needs isCoopSession()); after a rejoin the host logs sessionLive first and
+    sets the flag only when the partner's COOP_READY_CLIENT or the r4 handshake lands, so a save sent at once writes with no 54."""
+    t0 = time.time()
+    while True:
+        try:
+            if gc.cmd({"cmd": "get_coop"}).get("coopSession") is True:
+                return round(time.time() - t0, 3)
+        except Exception:  # noqa: BLE001 - a busy probe is "not yet"; the bound below still holds
+            pass
+        if time.time() - t0 >= timeout:
+            return None
+        time.sleep(interval)
+
+
 # PRD-13 S7: public names; the underscore forms are kept as aliases for any
 # straggler caller and for this module's own internal use below.
 _states = states

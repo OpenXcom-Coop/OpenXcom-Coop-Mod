@@ -138,7 +138,8 @@ def real_click(gc, text, timeout=15.0):
 def quick_save(host, name=QUICK, timeout=20.0):
     """save_game_ui {type: quick} with the partner running: the 54 seen, then gone; pending ""; `name` written after the trigger"""
     before = files(host).get(name)
-    c = {"filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host))}
+    session_s = session.wait_coop_session(host)   # F24296: the 54 needs the host's live session
+    c = {"filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host)), "sessionS": session_s}
     t0 = time.time()
     c["trigger"] = q(host, {"cmd": "save_game_ui", "type": "quick"})
     trail, seen = [], False
@@ -171,7 +172,9 @@ def wait_62(host, timeout=5.0):
 def drop_at_54(host, client, savetype, delay_ms=0, probe=None, seen_s=10.0, drop_s=5.0, ready=None, ready_s=2.0):
     """save_game_ui {type}; at the host's first sight of its 54 (then ready(host) true, at most ready_s, when given): suspend the client,
     probe(host), the at-54 reads; kill; the host's 62"""
-    c = {"savetype": savetype, "filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host))}
+    session_s = session.wait_coop_session(host)   # F24296: the 54 needs the host's live session
+    c = {"savetype": savetype, "filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host)),
+         "sessionS": session_s}
     t0 = time.time()
     c["trigger"] = q(host, {"cmd": "save_game_ui", "type": savetype})
     seen = []

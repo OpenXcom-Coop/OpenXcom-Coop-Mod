@@ -399,6 +399,7 @@ def row_r1(x, results):
     def pre():
         visit(x)
         baseline(x)
+        ev["sessionS"] = session.wait_coop_session(h)   # F24296: the 54 needs the host's live session
         q(h, {"cmd": "save_game_ui", "type": "quick"})
         ev["54 s"] = wait(lambda: top(h) == "CoopState" and dlg(h).get("code") == 54, W_54, 0.005)[1]
         if not wait(lambda: dlg(c).get("code") == 67, W_67, 0.02)[0] or top(h) != "CoopState":
