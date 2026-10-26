@@ -409,6 +409,9 @@ def row_r1(x, results):
             raise Stop("no PurchaseState row %s / TextList" % ITEM)
         sc = x.pkC["scale"]
         bx, by = tl["x"] + 227 + 5, tl["y"] + items.index(ITEM) * 8 + 4
+        tc = time.time()   # F24297: one red lost this click (amount 0); the client log's PurchaseState push time is comparable
+        ev["buyClick"] = {"at": "%s.%03d" % (time.strftime("%H-%M-%S", time.localtime(tc)), int(tc * 1000) % 1000),
+                          "tl": {k: tl.get(k) for k in ("visible", "hidden")}}
         q(c, {"cmd": "inject_input", "kind": "click", "x": int(bx * sc["x"] + 1), "y": int(by * sc["y"] + 1)})
         time.sleep(0.4)
         amts = {z.get("item"): (z.get("cells") or [None] * 4)[3] for z in q(c, {"cmd": "screen_rows"}).get("rows") or []}
