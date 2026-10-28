@@ -9,6 +9,7 @@ EVZ_PIN on both right after the bring-up (W2-U9d, R-I63-1: its boot roll is unse
 are read at runtime, no topic is pinned: the host's draws before its pick vary per boot (R-H77-2, F21889-F21892).
 Collision (R-H77-2): the host's pick equals the client's own roll (its seed's one draw over its unknown topics, F21893): the row
 prints COLLISION and fires once more on the next month's EV_W with host seed + RESEED; a second collision fails it "fixture".
+EP-3 cannot collide: before its fire the host learns the topic the client's seed will roll, so the host's pick always differs.
 Rows (8 cells):
   EP-1 month 0, EV_P: sameTopic (RED), sameArticle (RED), noPopup (GUARD cell)
   EP-2 roll_month, EV_W (the X-Com Files red-tape shape): sameTopic (RED), sameArticle (RED), noPopup (GUARD cell)
@@ -276,6 +277,13 @@ def row_ep3(r, x):
     rm = {gc.name: rmode(gc).get("sync") for gc in (h, c)}
     guard(r, x, "syncOff", all(v.get("ok") is True for v in so.values()) and rm == {"host": False, "client": False},
           f"set_research_sync {so}; researchMode.sync {rm}")
+    # The client's own roll is known before the fire (one draw at its seed over its unknown topics). The host learns that topic
+    # first, so the host's event can never pick it: the two rolls always differ, and the cell always tells "each kept its own"
+    # apart from "the client took the host's pick". With research sync off the host's discovery stays on the host.
+    own, _state = own_roll(SEEDS["EP-3"][1], [t for t in Z if not learned(c, t)])
+    pre = r.ev["hostLearnsClientRoll"] = {"topic": own, "reply": h.cmd({"cmd": "discover_research", "topic": own})}
+    pre["clientKnows"] = learned(c, own)
+    guard(r, x, "hostLearnsClientRoll", pre["reply"].get("researched") is True and pre["clientKnows"] is False, f"{pre}")
     p = picks(r, x, EV_Z, Z, SEEDS["EP-3"])
     fx = p.get("fixture")
     gcell(r, x, "ownTopics", not fx and len(p["client"]) == 1 and p["client"] != [p["host"]],
