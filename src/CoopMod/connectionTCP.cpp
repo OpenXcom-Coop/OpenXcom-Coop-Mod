@@ -36301,6 +36301,14 @@ void connectionTCP::sendGuestCensus(bool force)
 	// transit. Nothing to report.
 	if (isSharedCampaign())
 		return;
+	// While this machine visits a partner base, the live world is the
+	// partner's swapped-in copy and our own bases are parked, so none of our
+	// soldiers is in it: a census taken now would report no guests at all and
+	// the partner's base would stop counting them for the whole visit. Keep
+	// the last census standing; once our own world is live again the census
+	// is taken from it as usual.
+	if (coopLiveWorldIsPeerView(_game))
+		return;
 
 	std::map<int, int> guests; // peer base coop id -> headcount
 	for (auto* base : *_game->getSavedGame()->getBases())
