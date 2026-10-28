@@ -37,6 +37,7 @@
 #include "../Interface/ArrowButton.h"
 
 #include "HostMenu.h"
+#include "SeparateEcon.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Geoscape/Globe.h"
@@ -623,6 +624,19 @@ std::string LobbyMenu::campaignSeatName(int seat) const
 	return _game->getCoopMod()->getServerOwner()
 		? _game->getCoopMod()->getCurrentClientName()
 		: _game->getCoopMod()->getHostName();
+}
+
+std::string LobbyMenu::campaignSeatDisplayName(int seat) const
+{
+	const std::string playerName = campaignSeatName(seat);
+	SavedGame* save = _game->getSavedGame();
+	if (!save || save->getCampaignType() != CoopCampaignType::Separate
+		|| !save->getSeparateCampaign().haveDifferentFactions())
+		return playerName;
+
+	const std::string factionName = SeparateEcon::factionDisplayName(_game, playerName);
+	return factionName.empty() ? playerName
+		: playerName + " (" + factionName + ")";
 }
 
 std::vector<std::string> LobbyMenu::missingPlayers() const
@@ -1439,7 +1453,7 @@ void LobbyMenu::think()
 			// getHostName() is machine-relative (the LOCAL player's name), so read it
 			// role-relative like the server-name title does - on a client machine the
 			// host's name is the peer, getCurrentClientName().
-			std::string hostRowName = campaignSeatName(0);
+			std::string hostRowName = campaignSeatDisplayName(0);
 			_connectedPlayers.push_back(playerInfo({hostId, hostRowName, "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
 			itHost = std::prev(_connectedPlayers.end());
 
@@ -1551,7 +1565,7 @@ void LobbyMenu::think()
 		std::string txtDetails = "Funds: " + std::to_string(funds) + " Bases: " + std::to_string(base_count) + " Crafts: " + std::to_string(craft_count);
 
 		// role-relative host name (see the host-row insert above): correct on both machines.
-		std::string hostRowName = campaignSeatName(0);
+		std::string hostRowName = campaignSeatDisplayName(0);
 		itHost->name = hostRowName + txtStatus;
 		itHost->team = txtTeam;
 		itHost->details = txtDetails;
@@ -1571,7 +1585,7 @@ void LobbyMenu::think()
 
 			// role-relative client name: the CLIENT player's name on both machines.
 			// On a client machine the local player IS the client, so read getHostName().
-			std::string clientName = campaignSeatName(1);
+			std::string clientName = campaignSeatDisplayName(1);
 			std::string ping = _game->getCoopMod()->getPing();
 
 			auto itClient = std::find_if(_connectedPlayers.begin(), _connectedPlayers.end(),

@@ -2060,6 +2060,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		resp["campaignEnded"] = connectionTCP::campaignEnded();
 		resp["statistics"] = (findState<StatisticsState>(_game) != nullptr);
 		resp["mainMenu"] = (findState<MainMenuState>(_game) != nullptr);
+		resp["endingFaction"] = _game->getCoopMod()->getEndingFactionDisplayName();
+		resp["endingCutscene"] = _game->getCoopMod()->getEndingCutsceneId();
 		resp["ok"] = true;
 	}
 	else if (cmd == "statistics_ok")
@@ -3250,6 +3252,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			site->setId(sg->getId(deployment->getMarkerName()));
 			site->setSecondsRemaining((size_t)req.get("hours", 48).asInt() * 3600);
 			site->setAlienRace(req.get("race", "STR_SECTOID").asString());
+			site->setOwnerPlayerName(req.get("owner", "").asString());
 			if (req.isMember("city")) site->setCity(req["city"].asString());
 			// detected=false leaves the natural detection window open (the
 			// time30Minutes scan will detect + popup), for detection-parity tests.
@@ -3562,20 +3565,23 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "spawn_craft")
 	{
-		// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the first own base.
+		// Add a fully-armed craft (e.g. STR_INTERCEPTOR) to the requested base,
+		// or to the first own base when no base name is supplied.
 		// The coop start base only has an unarmed transport, so REARMING and
 		// UFO-interception status tests need a combat craft. Params: type
 		// (RuleCraft), weapon (RuleCraftWeapon to mount on every hardpoint).
 		SavedGame* sg = _game->getSavedGame();
 		Mod* mod = _game->getMod();
 		const RuleCraft* rule = mod->getCraft(req.get("type", "").asString(), false);
+		const std::string requestedBase = req.get("base", "").asString();
 		Base* base = nullptr;
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_isForeignBase) { base = b; break; }
+				if (requestedBase.empty() ? !b->_isForeignBase : b->getName() == requestedBase)
+				{ base = b; break; }
 		if (!sg) resp["error"] = "no saved game";
 		else if (!rule) resp["error"] = "unknown craft type";
-		else if (!base) resp["error"] = "no own base";
+		else if (!base) resp["error"] = requestedBase.empty() ? "no own base" : "base not found";
 		else
 		{
 			Craft* craft = new Craft(rule, base, sg->getId(rule->getType()));
@@ -3593,6 +3599,68 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			base->getCrafts()->push_back(craft);
 			resp["craft_id"] = craft->getId();
 			resp["weapons"] = (int)craft->getWeapons()->size();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "spawn_soldier")
+	{
+		// Deterministic test setup for campaigns whose starting faction has no
+		// roster yet. The caller invokes this on both peers; mission launch and
+		// battle resolution still use the real game paths.
+		SavedGame* sg = _game->getSavedGame();
+		Mod* mod = _game->getMod();
+		const std::string baseName = req.get("base", "").asString();
+		const std::string type = req.get("type", "").asString();
+		const int owner = req.get("owner", 0).asInt();
+		Base* base = nullptr;
+		if (sg)
+			for (auto* candidate : *sg->getBases())
+				if (candidate->getName() == baseName) { base = candidate; break; }
+		RuleSoldier* rule = mod ? mod->getSoldier(type, false) : nullptr;
+		if (!sg) resp["error"] = "no saved game";
+		else if (!base) resp["error"] = "base not found";
+		else if (!rule) resp["error"] = "unknown soldier type";
+		else
+		{
+			Soldier* soldier = mod->genSoldier(sg, rule, 0);
+			soldier->setOwnerPlayerId(owner);
+			soldier->setCoop(owner);
+			base->getSoldiers()->push_back(soldier);
+			resp["soldier_id"] = soldier->getId();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "force_soldier_craft")
+	{
+		// Lock-step fixture setup without opening CraftSoldiersState/CoopState.
+		// Use on both peers before exercising the real mission-entry path.
+		SavedGame* sg = _game->getSavedGame();
+		const std::string baseName = req.get("base", "").asString();
+		const std::string craftType = req.get("craft_type", "").asString();
+		const int craftId = req.get("craft_id", -1).asInt();
+		const int soldierId = req.get("soldier_id", -1).asInt();
+		Base* base = nullptr;
+		Craft* craft = nullptr;
+		Soldier* soldier = nullptr;
+		if (sg)
+			for (auto* candidate : *sg->getBases())
+				if (candidate->getName() == baseName) { base = candidate; break; }
+		if (base)
+		{
+			for (auto* candidate : *base->getCrafts())
+				if (candidate->getId() == craftId
+					&& (craftType.empty() || candidate->getRules()->getType() == craftType))
+				{ craft = candidate; break; }
+			for (auto* candidate : *base->getSoldiers())
+				if (candidate->getId() == soldierId) { soldier = candidate; break; }
+		}
+		if (!sg) resp["error"] = "no saved game";
+		else if (!base) resp["error"] = "base not found";
+		else if (!craft) resp["error"] = "craft not found";
+		else if (!soldier) resp["error"] = "soldier not found";
+		else
+		{
+			soldier->setCraft(craft);
 			resp["ok"] = true;
 		}
 	}
@@ -3957,8 +4025,72 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["worldFundsCount"] = static_cast<int>(sg->getFundsList().size());
 			resp["researchSharingEnabled"] = sg->getSeparateCampaign().isResearchSharingEnabled();
 			resp["differentFactions"] = sg->getSeparateCampaign().haveDifferentFactions();
+			for (const std::string& faction : sg->getSeparateCampaign().getCompletedFactions())
+				resp["completedFactions"].append(faction);
+			for (const std::string& owner : sg->getSeparateCampaign().getPendingFactionRechecks())
+				resp["pendingFactionRechecks"].append(owner);
 			resp["ok"] = true;
 		}
+	}
+	else if (cmd == "separate_final_outcome")
+	{
+		SavedGame* sg = _game->getSavedGame();
+		const std::string owner = req.get("owner", "").asString();
+		const bool victory = req.get("victory", false).asBool();
+		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+			resp["error"] = "no Separate campaign";
+		else
+		{
+			resp["factionDisplayName"] = SeparateEcon::factionDisplayName(_game, owner);
+			const bool globalEnding = SeparateEcon::resolveFactionFinalOutcome(
+				_game, owner, victory);
+			if (globalEnding)
+				sg->setEnding(victory ? END_WIN : END_LOSE);
+			resp["globalEnding"] = globalEnding;
+			resp["ending"] = static_cast<int>(sg->getEnding());
+			resp["showFactionVictoryNotice"] = victory && !globalEnding;
+			if (victory && !globalEnding
+				&& !sg->getSeparateCampaign().getPendingFactionRechecks().empty())
+				resp["nextMissionOwner"] =
+					sg->getSeparateCampaign().getPendingFactionRechecks().front();
+			for (const std::string& faction : sg->getSeparateCampaign().getCompletedFactions())
+				resp["completedFactions"].append(faction);
+			for (const std::string& pendingOwner :
+				sg->getSeparateCampaign().getPendingFactionRechecks())
+				resp["pendingFactionRechecks"].append(pendingOwner);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "separate_faction_completion_model")
+	{
+		// Pure three-seat regression model. This covers the future multiplayer
+		// roster case even while the normal fixture starts only two game clients.
+		SeparateEcon::CampaignData model;
+		std::vector<std::string> names;
+		for (Json::ArrayIndex i = 0; i < req["factions"].size(); ++i)
+		{
+			const std::string name = "Player" + std::to_string(i + 1);
+			names.push_back(name);
+			model.setFaction(name, req["factions"][i].asString());
+		}
+		for (size_t i = 0; i < names.size() + 1; ++i)
+			resp["ownerSequence"].append(model.nextMissionOwner(names));
+		for (Json::ArrayIndex i = 0; i < req["winners"].size(); ++i)
+		{
+			const int winner = req["winners"][i].asInt();
+			if (winner >= 0 && winner < static_cast<int>(names.size()))
+				model.completePlayerFaction(names[winner]);
+		}
+		model.queueUnfinishedFactionRechecks(names);
+		// Completing one faction must not strand the campaign on disabled scripts.
+		// Read the scheduler again after applying the victories to prove that only
+		// unfinished factions continue receiving mission-generation turns.
+		for (size_t i = 0; i < names.size() + 1; ++i)
+			resp["remainingOwnerSequence"].append(model.nextMissionOwner(names));
+		resp["allCompleted"] = model.allPlayerFactionsCompleted(names);
+		for (const std::string& faction : model.getCompletedFactions())
+			resp["completedFactions"].append(faction);
+		resp["ok"] = true;
 	}
 	else if (cmd == "separate_profile_set")
 	{
@@ -4056,6 +4188,10 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				players.append(player);
 			}
 			resp["players"] = players;
+			for (const std::string& faction : restored.getCompletedFactions())
+				resp["completedFactions"].append(faction);
+			for (const std::string& owner : restored.getPendingFactionRechecks())
+				resp["pendingFactionRechecks"].append(owner);
 			resp["serializedBytes"] = (int)yaml.yaml.size();
 			resp["ok"] = true;
 		}
@@ -7216,11 +7352,12 @@ std::string TestServer::execute(const std::string& line)
 			// Unified battlescape action driver. action = select|move|shoot|
 			// end_turn|end_turn_button|abort. Reaches the BattlescapeGame via the
 			// top BattlescapeState. All ops are on the main thread (race-free).
-			BattlescapeGame* bg = nullptr;
-			BattlescapeState* bstate = nullptr;
-			// PRD-13: left inline - assigns two vars + calls getBattleGame() per match, not pure find-last
-			for (auto* s : _game->getStates())
-				if (auto* bs = dynamic_cast<BattlescapeState*>(s)) { bstate = bs; bg = bs->getBattleGame(); }
+			// Actions are valid only while the tactical map itself is on top. During
+			// a multi-stage transition SavedBattleGame::_battleState and lower stack
+			// entries can still refer to the stage being deleted; never dereference
+			// either of those transitional pointers.
+			BattlescapeState* bstate = topState<BattlescapeState>(_game);
+			BattlescapeGame* bg = bstate ? bstate->getBattleGame() : nullptr;
 			SavedBattleGame* sbg = bg ? bg->getSave() : nullptr;
 			std::string act = req.get("action", "").asString();
 			if (!bg || !sbg)
@@ -7260,6 +7397,18 @@ std::string TestServer::execute(const std::string& line)
 				else
 					resp["error"] = "no BattlescapeState";
 			}
+			else if (act == "finish_victory")
+			{
+				// Drive the real BattlescapeState victory path. Final missions may
+				// advance to another stage; callers repeat this after each real stage.
+				if (bstate)
+				{
+					bstate->finishBattle(false, 1);
+					resp["ok"] = true;
+				}
+				else
+					resp["error"] = "no BattlescapeState";
+			}
 			else if (act == "kill_unit")
 			{
 				// Harness-only deterministic elimination for the PvP win/lose
@@ -7271,12 +7420,14 @@ std::string TestServer::execute(const std::string& line)
 				// whose end-turn scan reads the result (the executor).
 				int coopSide = req.get("coop_side", -1).asInt();
 				int killId = req.get("unit", -1).asInt();
+				int killFaction = req.get("faction", -1).asInt();
 				Json::Value killed(Json::arrayValue);
 				for (auto* u : *sbg->getUnits())
 				{
 					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
 					bool match = (coopSide >= 0 && u->getCoop() == coopSide)
-						|| (killId >= 0 && u->getId() == killId);
+						|| (killId >= 0 && u->getId() == killId)
+						|| (killFaction >= 0 && (int)u->getFaction() == killFaction);
 					if (match)
 					{
 						u->instaKill();
@@ -8953,6 +9104,7 @@ std::string TestServer::execute(const std::string& line)
 					item["id"] = base->getId();
 					item["type"] = base->getDeployment()->getType();
 					item["ownerPlayerName"] = base->getOwnerPlayerName();
+					item["discovered"] = base->isDiscovered();
 					bases.append(item);
 				}
 				resp["alienBases"] = bases;
@@ -9418,6 +9570,23 @@ std::string TestServer::execute(const std::string& line)
 				SellState* ss = new SellState(target, nullptr, OPT_GEOSCAPE);
 				_game->pushState(ss);
 				bool ok = ss->harnessSellItem(itemType, count); // btnOkClick -> popState
+				resp["sent"] = ok;
+				resp["ok"] = ok;
+				if (!ok) resp["error"] = "no sellable row for item: " + itemType;
+			}
+		}
+		else if (cmd == "sell_open_item")
+		{
+			// Exercise the SellState that is already open (for example a routed
+			// Separate storage-overflow dialog), preserving its original Base*.
+			SellState* ss = topState<SellState>(_game);
+			if (!ss)
+				resp["error"] = "sell state is not open";
+			else
+			{
+				const std::string itemType = req.get("item", "").asString();
+				const int count = req.get("count", 1).asInt();
+				const bool ok = ss->harnessSellItem(itemType, count);
 				resp["sent"] = ok;
 				resp["ok"] = ok;
 				if (!ok) resp["error"] = "no sellable row for item: " + itemType;

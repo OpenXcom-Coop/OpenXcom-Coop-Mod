@@ -44,6 +44,8 @@ public:
 	};
 private:
 	std::map<std::string, PlayerState> _players;
+	std::set<std::string> _completedFactions;
+	std::vector<std::string> _pendingFactionRechecks;
 	bool _loadedFromSave = false;
 	bool _researchSharingEnabled = false;
 	size_t _missionOwnerCursor = 0;
@@ -94,6 +96,14 @@ public:
 	void migrateLegacyUfopediaStatus(const std::vector<std::string>& playerNames,
 		const std::map<std::string, int>& status);
 	bool haveDifferentFactions() const;
+	std::string getPlayerFaction(const std::string& playerName) const;
+	bool isFactionCompleted(const std::string& faction) const;
+	bool isPlayerFactionCompleted(const std::string& playerName) const;
+	void completePlayerFaction(const std::string& playerName);
+	void queueUnfinishedFactionRechecks(const std::vector<std::string>& playerNames);
+	bool allPlayerFactionsCompleted(const std::vector<std::string>& playerNames) const;
+	const std::set<std::string>& getCompletedFactions() const { return _completedFactions; }
+	const std::vector<std::string>& getPendingFactionRechecks() const { return _pendingFactionRechecks; }
 	std::string nextMissionOwner(const std::vector<std::string>& playerNames);
 	int getFactionDifficulty(const std::string& playerName, int fallback) const;
 };
@@ -114,6 +124,17 @@ int playerMaintenance(Game* game, const std::string& playerName);
 /// Private faction-event score for the local player at a monthly history index.
 /// Returns zero when all Separate players use the same faction.
 int localFactionScore(Game* game, size_t historyIndex);
+/// Resolve a faction-owned final mission. Returns true only when the original
+/// global ending should continue. A loss keeps the mod's campaign-wide defeat,
+/// while a win becomes global only after every distinct faction has completed.
+bool resolveFactionFinalOutcome(Game* game, const std::string& ownerPlayerName,
+	bool victory);
+/// Return the localized New Game label for a player's difficulty-backed faction.
+/// Non-difficulty faction identifiers are returned as-is.
+std::string factionDisplayName(Game* game, const std::string& playerName);
+/// Whether a faction-owned script may still generate content. Common scripts
+/// and every non-Separate mode remain allowed.
+bool allowsFactionScript(Game* game, const std::string& ownerPlayerName);
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj);
 /// Store a local player's Ufopaedia mark and persist client changes on the host.
 void setUfopediaRuleStatus(Game* game, const std::string& rule, int status);

@@ -59,6 +59,9 @@ protected:
 	/// Campaign seat names come from the locked save roster. The connection
 	/// name fields are machine-relative and are only a pre-roster fallback.
 	std::string campaignSeatName(int seat) const;
+	/// Roster label shown in the lobby. Different-faction Separate campaigns
+	/// append the player's faction while same-faction games stay uncluttered.
+	std::string campaignSeatDisplayName(int seat) const;
 	/// Playtest B7: pop the coop-menu states back down to the running game geoscape.
 	void returnToRunningGame();
 	int _countdown = 30; // seconds

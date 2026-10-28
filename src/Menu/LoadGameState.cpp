@@ -151,6 +151,11 @@ void LoadGameState::buildUi(SDL_Color *palette)
 void LoadGameState::init()
 {
 	State::init();
+	// During a multi-stage transfer the modal CoopState underneath already says
+	// "Downloading map...".  Keep this transparent loader silent so that one
+	// continuous dialog remains visible until the new briefing replaces it.
+	if (!_coopKey.empty() && connectionTCP::nextStageBriefing)
+		_txtStatus->setVisible(false);
 
 	// Chokepoint gate: a machine that may not touch local saves (coop client)
 	// can only reach a plain local load through the pause menu / list / confirm
@@ -212,7 +217,13 @@ void LoadGameState::think()
 	}
 	else
 	{
-		_game->popState();
+		const bool keepNextStageLoader = !_coopKey.empty()
+			&& connectionTCP::nextStageBriefing;
+		// Ordinary loads remove this state before doing the synchronous work, as
+		// before. A next-stage load must remain modal: popping it here exposes the
+		// previous Battlescape between file receipt and the new briefing.
+		if (!keepNextStageLoader)
+			_game->popState();
 
 		// Remember for later (palette reset)
 		BattlescapeState *origBattleState = 0;
@@ -297,6 +308,20 @@ void LoadGameState::think()
 			}
 			else
 			{
+				// An authoritative campaign snapshot already contains its live
+				// SavedBattleGame. Resume it directly instead of discarding it and
+				// requesting the same battle in a second transfer.
+				const bool coopBattleResumeWorld = _loadCoopProgress
+					&& _game->getSavedGame()->getSavedBattle() != nullptr;
+				if (coopBattleResumeWorld
+					&& connectionTCP::session.lobbyMode != 0
+					&& _game->getCoopMod()->getServerOwner() == false)
+				{
+					// This is an already-running saved battle, not a newly dispatched
+					// mission. The removed phase-two transfer used to clear this flag;
+					// keep the combined path from reopening Briefing and Inventory.
+					_game->getCoopMod()->inventory_battle_window = false;
+				}
 				Options::baseXResolution = Options::baseXGeoscape;
 				Options::baseYResolution = Options::baseYGeoscape;
 				_game->getScreen()->resetDisplay(false);
@@ -310,11 +335,16 @@ void LoadGameState::think()
 				// coop fix
 				if (_loadCoopProgress == true)
 				{
-					_game->getSavedGame()->setBattleGame(0);
+					// A geoscape-only resume must not retain a stale tactical save.
+					// A combined battle resume deliberately keeps the battle embedded
+					// in this same authoritative snapshot.
+					if (!coopBattleResumeWorld)
+						_game->getSavedGame()->setBattleGame(0);
 
 					// resume/rejoin: report the loaded world to the host and
 					// hold with frozen time until it resumes (F3/F4/D5)
-					if (connectionTCP::session.lobbyMode != 0 && _game->getCoopMod()->getServerOwner() == false)
+					if (connectionTCP::session.lobbyMode != 0
+						&& _game->getCoopMod()->getServerOwner() == false)
 					{
 						Json::Value root;
 						root["state"] = "resume_ack";
@@ -325,11 +355,13 @@ void LoadGameState::think()
 						// (base naming, battle phase two), which hold nothing and must not
 						// be answered with a campaign_begun.
 						root["adoptedWorld"] = true;
+						root["combinedBattle"] = coopBattleResumeWorld;
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
-						// (in a battle resume the follow-up battle stream
-						// replaces the whole state stack, dialog included)
-						_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+						// A normal world resume waits for the host's release. A combined
+						// battle resume enters its Battlescape below without a second hold.
+						if (!coopBattleResumeWorld)
+							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 					}
 				}
 
@@ -342,7 +374,9 @@ void LoadGameState::think()
 					BattlescapeState *bs = new BattlescapeState;
 	
 					// COOP
-					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->inventory_battle_window == true))
+					if ((_game->getCoopMod()->getCoopStatic() == true
+						&& _game->getCoopMod()->inventory_battle_window == true
+						&& !connectionTCP::nextStageBriefing))
 					{
 		
 						Base *selected_base = _game->getSavedGame()->getSelectedBase();
@@ -509,6 +543,28 @@ void LoadGameState::think()
 					// Try to reactivate the touch buttons
 					bs->toggleTouchButtons(false, true);
 
+					// The campaign world and its live battle arrived in one snapshot.
+					// Complete the ready handshake here because GeoscapeState::init is
+					// not the final destination and must not send a later duplicate.
+					if (coopBattleResumeWorld
+						&& connectionTCP::session.lobbyMode != 0
+						&& _game->getCoopMod()->getServerOwner() == false)
+					{
+						_game->getCoopMod()->_isLoadProgress = false;
+						Json::Value done;
+						done["state"] = "close_load_progress";
+						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
+					}
+
+					// The host has already generated and started this next stage. Show
+					// only its ruleset briefing; OK reveals the loaded BattlescapeState
+					// underneath and must not create another battle or inventory screen.
+					if (connectionTCP::nextStageBriefing)
+					{
+						connectionTCP::nextStageBriefing = false;
+						_game->pushState(new BriefingState(0, 0, true));
+					}
+
 					// battle-save resume / mid-battle rejoin, phase two
 					// complete: report the loaded battle to the host (F3/F4).
 					//
@@ -617,10 +673,14 @@ void LoadGameState::think()
 		}
 		catch (Exception &e)
 		{
+			if (keepNextStageLoader && _game->isState(this))
+				_game->popState();
 			error(e.what(), s);
 		}
 		catch (YAML::Exception &e)
 		{
+			if (keepNextStageLoader && _game->isState(this))
+				_game->popState();
 			error(e.what(), s);
 		}
 		CrossPlatform::flashWindow();

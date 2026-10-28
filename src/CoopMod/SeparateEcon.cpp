@@ -3,6 +3,7 @@
 #include "connectionTCP.h"
 #include "SharedEcon.h"
 #include "../Engine/Game.h"
+#include "../Engine/Language.h"
 #include "../Engine/Logger.h"
 #include "../Engine/State.h"
 #include "../Geoscape/ConfirmLandingState.h"
@@ -876,6 +877,8 @@ void hostGeoscapeEvent(Game* game, const std::string& eventName,
 void CampaignData::clear()
 {
 	_players.clear();
+	_completedFactions.clear();
+	_pendingFactionRechecks.clear();
 	_loadedFromSave = false;
 	_missionOwnerCursor = 0;
 }
@@ -888,6 +891,10 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 
 	_loadedFromSave = true;
 	reader.tryRead("missionOwnerCursor", _missionOwnerCursor);
+	std::vector<std::string> completedFactions;
+	reader.tryRead("completedFactions", completedFactions);
+	_completedFactions.insert(completedFactions.begin(), completedFactions.end());
+	reader.tryRead("pendingFactionRechecks", _pendingFactionRechecks);
 	for (const auto& playerReader : reader["players"].children())
 	{
 		const std::string name = playerReader["name"].readVal<std::string>("");
@@ -919,6 +926,11 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 	writer.write("version", 3);
 	if (_missionOwnerCursor != 0)
 		writer.write("missionOwnerCursor", _missionOwnerCursor);
+	if (!_completedFactions.empty())
+		writer.write("completedFactions", std::vector<std::string>(
+			_completedFactions.begin(), _completedFactions.end()));
+	if (!_pendingFactionRechecks.empty())
+		writer.write("pendingFactionRechecks", _pendingFactionRechecks);
 	auto playersWriter = writer["players"];
 	playersWriter.setAsSeq();
 	for (const auto& entry : _players)
@@ -1222,11 +1234,81 @@ bool CampaignData::haveDifferentFactions() const
 	return false;
 }
 
+std::string CampaignData::getPlayerFaction(const std::string& playerName) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	return player ? player->faction : std::string();
+}
+
+bool CampaignData::isFactionCompleted(const std::string& faction) const
+{
+	return !faction.empty() && _completedFactions.count(faction) != 0;
+}
+
+bool CampaignData::isPlayerFactionCompleted(const std::string& playerName) const
+{
+	return isFactionCompleted(getPlayerFaction(playerName));
+}
+
+void CampaignData::completePlayerFaction(const std::string& playerName)
+{
+	const std::string faction = getPlayerFaction(playerName);
+	if (!faction.empty()) _completedFactions.insert(faction);
+}
+
+void CampaignData::queueUnfinishedFactionRechecks(
+	const std::vector<std::string>& playerNames)
+{
+	_pendingFactionRechecks.clear();
+	std::set<std::string> queuedFactions;
+	for (const std::string& name : playerNames)
+	{
+		const std::string faction = getPlayerFaction(name);
+		if (faction.empty() || isFactionCompleted(faction)
+			|| !queuedFactions.insert(faction).second)
+			continue;
+		_pendingFactionRechecks.push_back(name);
+	}
+}
+
+bool CampaignData::allPlayerFactionsCompleted(const std::vector<std::string>& playerNames) const
+{
+	std::set<std::string> required;
+	for (const std::string& name : playerNames)
+	{
+		const std::string faction = getPlayerFaction(name);
+		if (!faction.empty()) required.insert(faction);
+	}
+	if (required.empty()) return false;
+	for (const std::string& faction : required)
+		if (!isFactionCompleted(faction)) return false;
+	return true;
+}
+
 std::string CampaignData::nextMissionOwner(const std::vector<std::string>& playerNames)
 {
+	while (!_pendingFactionRechecks.empty())
+	{
+		const std::string owner = _pendingFactionRechecks.front();
+		_pendingFactionRechecks.erase(_pendingFactionRechecks.begin());
+		if (std::find(playerNames.begin(), playerNames.end(), owner) != playerNames.end()
+			&& !isPlayerFactionCompleted(owner))
+			return owner;
+	}
 	std::vector<std::string> valid;
+	std::set<std::string> seenFactions;
+	const bool distinctFactionCampaign = haveDifferentFactions();
 	for (const auto& name : playerNames)
-		if (!name.empty() && getPlayer(name)) valid.push_back(name);
+	{
+		const PlayerState* player = getPlayer(name);
+		if (name.empty() || !player || isPlayerFactionCompleted(name)) continue;
+		// A, B, B is a two-faction campaign. Give faction B one generation
+		// turn, not one turn per player, so its finale cannot be spawned twice.
+		if (distinctFactionCampaign && !player->faction.empty()
+			&& !seenFactions.insert(player->faction).second)
+			continue;
+		valid.push_back(name);
+	}
 	if (valid.empty()) return std::string();
 	const std::string owner = valid[_missionOwnerCursor % valid.size()];
 	_missionOwnerCursor = (_missionOwnerCursor + 1) % valid.size();
@@ -1247,6 +1329,53 @@ int CampaignData::getFactionDifficulty(const std::string& playerName, int fallba
 	{
 		return fallback;
 	}
+}
+
+bool resolveFactionFinalOutcome(Game* game, const std::string& ownerPlayerName,
+	bool victory)
+{
+	if (!game || !game->getSavedGame() || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign() || ownerPlayerName.empty())
+		return true;
+	CampaignData& campaign = game->getSavedGame()->getSeparateCampaign();
+	if (!campaign.haveDifferentFactions()) return true;
+	// Starting a faction finale is a campaign-wide risk. Preserve the mod's
+	// original loseGame behavior if that finale is lost or aborted.
+	if (!victory) return true;
+	campaign.completePlayerFaction(ownerPlayerName);
+	const bool allCompleted = campaign.allPlayerFactionsCompleted(
+		game->getSavedGame()->getCoopPlayers());
+	if (!allCompleted)
+		campaign.queueUnfinishedFactionRechecks(game->getSavedGame()->getCoopPlayers());
+	return allCompleted;
+}
+
+std::string factionDisplayName(Game* game, const std::string& playerName)
+{
+	if (!game || !game->getSavedGame()) return playerName;
+	const std::string faction = game->getSavedGame()->getSeparateCampaign()
+		.getPlayerFaction(playerName);
+	const std::string prefix = "difficulty:";
+	if (faction.compare(0, prefix.size(), prefix) != 0 || !game->getLanguage())
+		return faction.empty() ? playerName : faction;
+	static const char* labels[] = {
+		"STR_1_BEGINNER", "STR_2_EXPERIENCED", "STR_3_VETERAN",
+		"STR_4_GENIUS", "STR_5_SUPERHUMAN"
+	};
+	const int difficulty = game->getSavedGame()->getSeparateCampaign()
+		.getFactionDifficulty(playerName, -1);
+	if (difficulty < 0 || difficulty >= static_cast<int>(sizeof(labels) / sizeof(labels[0])))
+		return faction;
+	return game->getLanguage()->getString(labels[difficulty]);
+}
+
+bool allowsFactionScript(Game* game, const std::string& ownerPlayerName)
+{
+	if (!game || !game->getSavedGame() || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign() || ownerPlayerName.empty())
+		return true;
+	return !game->getSavedGame()->getSeparateCampaign()
+		.isPlayerFactionCompleted(ownerPlayerName);
 }
 
 }

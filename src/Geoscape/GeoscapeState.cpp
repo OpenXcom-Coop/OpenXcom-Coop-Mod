@@ -1403,6 +1403,11 @@ void GeoscapeState::init()
 void GeoscapeState::think()
 {
 	State::think();
+	// Covered Geoscape states continue receiving think calls. Finale readiness
+	// must only be announced after debriefing, storage checks and network holds
+	// have closed, otherwise a later dialog can replace an already-open vote.
+	if (!_game->getStates().empty() && _game->getStates().back() == this)
+		_game->getCoopMod()->factionFinaleGeoscapeReady();
 
 	_zoomInEffectTimer->think(this, 0);
 	_zoomOutEffectTimer->think(this, 0);
@@ -2452,21 +2457,27 @@ void GeoscapeState::timeAdvance()
 
 		_game->getCoopMod()->other_time_speed_coop = "";
 
-		// coop: freeze the authoritative host clock while the client is away from the
-		// geoscape (base, options, ufopaedia, intercept, popups, etc.). The client
-		// emits a "time" heartbeat every think() it spends on the geoscape; if the
-		// host hasn't seen one within the grace window, treat the client as paused.
+		// Freeze either local simulation while the peer is away from the geoscape
+		// (base, options, ufopaedia, intercept, popups, post-debrief screens, etc.).
+		// Both peers emit a "time" heartbeat from GeoscapeState::think; if that
+		// heartbeat goes stale, neither side may keep running private 5-second steps.
 		// Combined with the host's own implicit pause (its GeoscapeState stops
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
-		if (_game->getCoopMod()->getServerOwner())
-		{
-			const Uint32 grace = 1000; // ms; comfortably above the client's per-frame heartbeat gap
-			if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace)
-				timeSpan = 0;
-		}
+		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
+		if (_game->getCoopMod()->peerFocusScreen >= 0
+			|| SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace)
+			timeSpan = 0;
 
 	}
+
+	// Shared and the rewritten Separate campaign both use one
+	// host-authoritative world. A client only displays host snapshots and must
+	// never advance craft movement, events, research or economy on its own. This
+	// is deliberately outside getCoopStatic(): losing the host must keep the
+	// remaining host-derived world frozen until it is discarded or reconnected.
+	if (_game->getCoopMod()->isCampaignReplica())
+		timeSpan = 0;
 
 	for (int i = 0; i < timeSpan && !_pause; ++i)
 	{
@@ -2547,7 +2558,7 @@ void GeoscapeState::time5Seconds()
 	//   time1Month/   -> monthly funding settle -> replica adopts host funds/tails
 	//   time1MonthCoop   from the extended monthly_report (NOT frozen: it IS the
 	//                    replica's monthly apply path).
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -3211,7 +3222,7 @@ void GeoscapeState::time10Minutes()
 
 	// PRD-J04: replica simulation freeze (see time5Seconds). Fuel burn, base/HK
 	// detection and alien-base hunt-mission generation are host-only.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -3599,7 +3610,7 @@ void GeoscapeState::time30Minutes()
 	// PRD-J04: replica simulation freeze (see time5Seconds). Alien-mission
 	// countdowns, UFO detection, mission-site processing and geoscape events are
 	// host-only; the replica sees them via snapshots / mirrored popups.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -3620,10 +3631,14 @@ void GeoscapeState::time30Minutes()
 		if (abCount < _game->getSavedGame()->getAlienBases()->size())
 		{
 			AlienBase* newAlienBase = _game->getSavedGame()->getAlienBases()->back();
-			if (!newAlienBase->isDiscovered() && am->getRules().showAlienBase())
+			const bool ownedSeparateTarget = _game->getCoopMod()->isSeparateCampaign()
+				&& !newAlienBase->getOwnerPlayerName().empty();
+			if (!newAlienBase->isDiscovered()
+				&& (am->getRules().showAlienBase() || ownedSeparateTarget))
 			{
 				newAlienBase->setDiscovered(true);
 				popup(new AlienBaseState(newAlienBase, this));
+				SharedEcon::hostAlienBaseFound(_game, newAlienBase);
 			}
 		}
 
@@ -3915,7 +3930,7 @@ void GeoscapeState::time1Hour()
 	// repair/rearm/refuel, transfer arrival and production steps are host-only;
 	// the host mirrors transfer arrivals (transfer_arrived) and production
 	// completions (prod_done) to replicas below.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -4073,9 +4088,32 @@ void GeoscapeState::time1Hour()
 		{
 			if (xbase->storesOverfull())
 			{
-				timerReset();
-				popup(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(xbase->getName()), _palette, _game->getMod()->getInterface("geoscape")->getElement("errorMessage")->color, "BACK13.SCR", _game->getMod()->getInterface("geoscape")->getElement("errorPalette")->color));
-				popup(new SellState(xbase, 0));
+				if (_game->getCoopMod()->isSeparateCampaign())
+				{
+					// The host keeps simulating while a remote owner is in SellState.
+					// Send/open this overflow only once until the base becomes valid again;
+					// otherwise hourly ticks queue duplicate dialogs behind the first one.
+					if (_separateStorageAlerts.insert(xbase).second)
+					{
+						SharedEcon::hostAlert(_game, "SeparateStorageExceeded", "", xbase);
+						if (SeparateEcon::showBaseNotification(_game, xbase))
+						{
+							timerReset();
+							popup(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(xbase->getName()), _palette, _game->getMod()->getInterface("geoscape")->getElement("errorMessage")->color, "BACK13.SCR", _game->getMod()->getInterface("geoscape")->getElement("errorPalette")->color));
+							popup(new SellState(xbase, 0));
+						}
+					}
+				}
+				else if (SeparateEcon::showBaseNotification(_game, xbase))
+				{
+					timerReset();
+					popup(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(xbase->getName()), _palette, _game->getMod()->getInterface("geoscape")->getElement("errorMessage")->color, "BACK13.SCR", _game->getMod()->getInterface("geoscape")->getElement("errorPalette")->color));
+					popup(new SellState(xbase, 0));
+				}
+			}
+			else
+			{
+				_separateStorageAlerts.erase(xbase);
 			}
 			if (!_game->getSavedGame()->getAlienContainmentChecked())
 			{
@@ -4238,7 +4276,7 @@ void GeoscapeState::time1Day()
 	// soldier daily progress and the autosave are host-only; the host mirrors
 	// research completions, facility completions (fac_done) and soldier recovery
 	// (day_tick) to replicas below. A replica NEVER autosaves (it holds no disk save).
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -4794,7 +4832,7 @@ void GeoscapeState::time1Month()
 	// settles funding locally; it adopts the host's monthly result via the extended
 	// monthly_report packet (applied in time1MonthCoop). Redundant with the coop
 	// serverOwner gate below, but kept explicit.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -6366,11 +6404,28 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();
 	Mod *mod = _game->getMod();
+	// Arc scripts run before mission scripts and may grant research during this
+	// same monthly pass. Preserve the profiles as they were when mission
+	// selection began, otherwise a reward granted to multiple profiles can make
+	// a faction finale look common and strip its owner.
+	const auto initialSeparatePlayers = save->getSeparateCampaign().getPlayers();
 	std::string missionOwner;
+	bool forcedFactionRecheck = false;
 	GameDifficulty missionDifficulty = save->getDifficulty();
 	if (_game->getCoopMod()->isSeparateCampaign())
 	{
-		missionOwner = save->getSeparateCampaign().nextMissionOwner(save->getCoopPlayers());
+		// The host save is authoritative for Separate ownership.  A migrated save's
+		// persistent profile names can differ from the current lobby roster, so using
+		// the lobby list here can discard a valid pending faction owner.
+		std::vector<std::string> profileNames;
+		profileNames.reserve(initialSeparatePlayers.size());
+		for (const auto& player : initialSeparatePlayers)
+			profileNames.push_back(player.first);
+		const auto& pendingRechecks = save->getSeparateCampaign().getPendingFactionRechecks();
+		const std::string pendingOwner = pendingRechecks.empty()
+			? std::string() : pendingRechecks.front();
+		missionOwner = save->getSeparateCampaign().nextMissionOwner(profileNames);
+		forcedFactionRecheck = !pendingOwner.empty() && pendingOwner == missionOwner;
 		missionDifficulty = static_cast<GameDifficulty>(
 			save->getSeparateCampaign().getFactionDifficulty(
 				missionOwner, static_cast<int>(missionDifficulty)));
@@ -6707,6 +6762,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	for (auto& missionScriptName : *scriptList)
 	{
 		RuleMissionScript *command = isNewMonth ? mod->getMissionScript(missionScriptName) : mod->getAdhocScript(missionScriptName);
+		bool completedFactionAlreadyRan = false;
+		if (playerFactionScripts && command->getMaxRuns() > 0
+			&& !command->getVarName().empty())
+		{
+			for (const auto& player : initialSeparatePlayers)
+				if (save->getSeparateCampaign().isPlayerFactionCompleted(player.first)
+					&& player.second.missionRuns.count(command->getVarName()) != 0
+					&& player.second.missionRuns.at(command->getVarName()) >= command->getMaxRuns())
+				{
+					completedFactionAlreadyRan = true;
+					break;
+				}
+		}
+		// A completed faction's one-shot finale must not be generated again for
+		// the next faction merely because both profiles now expose its research.
+		if (completedFactionAlreadyRan) continue;
 
 		// level zero condition check: filter adhoc mission scripts by tags
 		if (!isNewMonth && eventRules)
@@ -6897,8 +6968,9 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// least one configured faction (mods such as Rosigma/XCOM Files use
 					// difficulty as their faction selector).
 					bool factionRestricted = false;
-					for (const auto& playerName : save->getCoopPlayers())
+					for (const auto& playerEntry : initialSeparatePlayers)
 					{
+						const std::string& playerName = playerEntry.first;
 						GameDifficulty playerDifficulty = static_cast<GameDifficulty>(
 							save->getSeparateCampaign().getFactionDifficulty(
 								playerName, static_cast<int>(save->getDifficulty())));
@@ -6909,12 +6981,15 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 							break;
 						}
 						for (const auto& trigger : command->getResearchTriggers())
-							if (save->isResearchedForPlayer(trigger.first, playerName, false)
-								!= trigger.second)
+						{
+							const bool initiallyResearched =
+								playerEntry.second.completedResearch.count(trigger.first) != 0;
+							if (initiallyResearched != trigger.second)
 							{
 								factionRestricted = true;
 								break;
 							}
+						}
 						if (factionRestricted) break;
 					}
 					if (!factionRestricted)
@@ -6922,16 +6997,24 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 						{
 							bool first = true;
 							bool expected = false;
-							for (const auto& playerName : save->getCoopPlayers())
+							for (const auto& playerEntry : initialSeparatePlayers)
 							{
 								bool present = save->getSeparateCampaign().hasFactionResearch(
-									playerName, trigger.first);
+									playerEntry.first, trigger.first);
 								if (first) { expected = present; first = false; }
 								else if (present != expected) { factionRestricted = true; break; }
 							}
 							if (factionRestricted) break;
 						}
-					if (factionRestricted) commandOwner = missionOwner;
+					// Winning one faction queues an immediate recheck for every unfinished
+					// faction.  Its one-shot research-gated finale remains owned by that
+					// queued player even if a mod arc has copied the trigger topics into
+					// another profile.  Ordinary repeatable/shared missions are unaffected.
+					const bool queuedFactionFinale = forcedFactionRecheck
+						&& command->getMaxRuns() > 0
+						&& !command->getVarName().empty()
+						&& !command->getResearchTriggers().empty();
+					if (factionRestricted || queuedFactionFinale) commandOwner = missionOwner;
 				}
 				success = processCommand(command, commandOwner);
 			}
@@ -7228,6 +7311,7 @@ bool GeoscapeState::attemptAlienRaceEvolution(int month, AlienBase* ab) const
 bool GeoscapeState::processCommand(RuleMissionScript *command, const std::string& ownerPlayerName)
 {
 	SavedGame *save = _game->getSavedGame();
+	if (!SeparateEcon::allowsFactionScript(_game, ownerPlayerName)) return false;
 	AlienStrategy &strategy = save->getAlienStrategy();
 	Mod *mod = _game->getMod();
 	int month = _game->getSavedGame()->getMonthsPassed();

@@ -5,7 +5,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import separate_campaign_fixture as fixture
+import shared_fixture
+from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
 
 
 def profiles(peer):
@@ -14,13 +15,16 @@ def profiles(peer):
 
 
 def main():
-    js = fixture.bring_up("sep_faction_score", (49170, 49171, 48470))
+    js = shared_fixture.bring_up(
+        "sep_rosigma_faction_score", (49170, 49171, 48470),
+        mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",
+        host_difficulty=0, client_difficulty=3, transport="tcp")
     host = js.host
     try:
         host.ok({"cmd": "separate_profile_set", "player": "HostPlayer",
-                 "faction": "difficulty:0", "factionScore": 125})
+                 "factionScore": 125})
         host.ok({"cmd": "separate_profile_set", "player": "ClientPlayer",
-                 "faction": "difficulty:3", "factionScore": -40})
+                 "factionScore": -40})
 
         current = profiles(host)
         assert current["HostPlayer"]["factionScores"][-1] == 125, current
@@ -30,7 +34,7 @@ def main():
         restored = {player["name"]: player for player in roundtrip["players"]}
         assert restored["HostPlayer"]["factionScores"][-1] == 125, restored
         assert restored["ClientPlayer"]["factionScores"][-1] == -40, restored
-        print("PASS Separate faction scores remain player-scoped and survive serialization")
+        print("PASS ROSIGMA Separate faction scores remain player-scoped and survive serialization")
     finally:
         js.shutdown()
 

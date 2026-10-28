@@ -20,6 +20,7 @@
 #include "../Engine/State.h"
 #include <list>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -76,6 +77,9 @@ private:
 	std::list<State*> _popups;
 	std::list<DogfightState*> _dogfights, _dogfightsToBeStarted;
 	std::vector<Craft*> _activeCrafts;
+	// Separate host-side guard: do not queue one storage dialog per simulated
+	// hour while the owner is already resolving the same overfull base.
+	std::set<const Base*> _separateStorageAlerts;
 	size_t _minimizedDogfights;
 	int _slowdownCounter;
 

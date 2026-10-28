@@ -410,19 +410,31 @@ def make_user_dir(name, saves=(), mods=(), options=None):
                     if match:
                         mod_id = match.group(1)
                         break
-        # Large total conversions (40K/ROSIGMA) are several gigabytes. The
-        # harness only reads staged mods, so same-volume hardlinks provide the
-        # required isolated directory tree without duplicating every asset.
-        # Fall back to an ordinary copy when source and TEMP are on different
-        # volumes or the filesystem does not support links.
+        destination = os.path.join(d, "mods", folder_id)
+        # Large total conversions (40K/ROSIGMA) are several gigabytes and are
+        # read-only to the game. On Windows, expose the original directory via a
+        # junction: unlike thousands of per-file hardlinks this cannot hit NTFS
+        # link-count or TEMP quota limits after many test sessions.
+        junction_created = False
+        if os.name == "nt":
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            result = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", destination,
+                 os.path.abspath(src)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                check=False)
+            junction_created = result.returncode == 0
+
+        # Non-Windows and unusual Windows filesystems retain the old hardlink
+        # staging, falling back to copies only when a particular link fails.
         def link_or_copy(source, destination):
             try:
                 os.link(source, destination)
                 return destination
             except OSError:
                 return shutil.copy2(source, destination)
-        shutil.copytree(src, os.path.join(d, "mods", folder_id),
-                        copy_function=link_or_copy)
+        if not junction_created:
+            shutil.copytree(src, destination, copy_function=link_or_copy)
         extra += "  - active: true\n    id: " + mod_id + "\n"
     opts = HERMETIC_OPTIONS
     if extra:

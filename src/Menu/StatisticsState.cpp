@@ -41,6 +41,8 @@
 #include "../Savegame/Country.h"
 #include "../Savegame/Region.h"
 #include "../Savegame/AlienBase.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -119,6 +121,19 @@ void StatisticsState::listStats()
 	else
 	{
 		ss << tr("STR_STATISTICS");
+	}
+	if (save->getCampaignType() == CoopCampaignType::Separate
+		&& save->getSeparateCampaign().haveDifferentFactions())
+	{
+		std::string factionName = _game->getCoopMod()->getEndingFactionDisplayName();
+		if (factionName.empty())
+		{
+			const int seat = connectionTCP::localSeat();
+			const auto& players = save->getCoopPlayers();
+			if (seat >= 0 && static_cast<std::size_t>(seat) < players.size())
+				factionName = SeparateEcon::factionDisplayName(_game, players[seat]);
+		}
+		if (!factionName.empty()) ss << " - " << factionName;
 	}
 	ss << Unicode::TOK_NL_SMALL << time->getDayString(_game->getLanguage()) << " " << tr(time->getMonthString()) << " " << time->getYear();
 	_txtTitle->setText(ss.str());

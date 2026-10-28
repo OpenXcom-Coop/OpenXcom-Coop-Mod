@@ -68,6 +68,7 @@
 #include "GiftNoticeState.h"
 #include "SharedEcon.h"
 #include "SeparateEcon.h"
+#include "../Menu/StatisticsState.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -508,6 +509,8 @@ bool connectionTCP::loadProgressBusy = false;
 bool connectionTCP::forceCloseCoopStateMenu = false;
 
 bool connectionTCP::forceClosePasswordCheckMenu = false;
+
+bool connectionTCP::nextStageBriefing = false;
 
 int connectionTCP::manuallyAddedServerRemoveID = -1;
 
@@ -3552,7 +3555,7 @@ void connectionTCP::updateCoopTask()
 						 && _game->getSavedGame()->getSavedBattle()->getSide() != FACTION_PLAYER;
 				const bool gateAllows =
 						 ((coopTaskCompleted() && !g_rxTestHold.load(std::memory_order_relaxed)) || chainCloser || coopDecoupledWorldCarrier ||
-					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving"
+					 stateString == "desync_report" || stateString == "action_intent" || stateString == "action_ack" || stateString == "action_deny" || stateString == "action_done" || stateString == "end_turn_ready" || stateString == "end_turn_tally" || stateString == "vote_request" || stateString == "vote_start" || stateString == "vote_cast" || stateString == "vote_update" || stateString == "vote_result" || stateString == "vote_cooldown" || stateString == "faction_finale_pending" || stateString == "faction_finale_ready" || stateString == "faction_campaign_end" || stateString == "custom_battle_craft_locked" || stateString == "close_event" || stateString == "click_close" || stateString == "minimap_data" || stateString == "AIProgress" || stateString == "update_progress" || stateString == "DebriefingState" || stateString == "endTurn" || stateString == "hit_tile" || stateString == "destroy_tile" || stateString == "set_explosive_tile" || (stateString == "set_fire_tile" && !boundaryHazardPacket) || (stateString == "set_smoke_tile" && !boundaryHazardPacket) || stateString == "unit_fire" || stateString == "calc_explode_fov" || stateString == "hasHitUnit" || stateString == "coop_leaving"
 					// coop (wire-order report alignment, Phase 2): under the lever, a
 					// wire-order-set carrier is admitted at RX arrival regardless of
 					// task-busy, same as the whitelist above - it no longer waits on
@@ -4980,6 +4983,7 @@ void connectionTCP::openVoteMenu()
 
 	_game->pushState(new VoteMenu(
 		_activeVote.id,
+		_activeVote.action,
 		_activeVote.title,
 		_activeVote.question,
 		_activeVote.totalPlayers,
@@ -5416,6 +5420,13 @@ void connectionTCP::finishVote(bool passed)
 	}
 
 	const std::string action = _activeVote.action;
+	const std::string factionContinuePrefix = "continue_faction_campaign|";
+	const bool factionFinaleVote = action.compare(
+		0, factionContinuePrefix.size(), factionContinuePrefix) == 0;
+	// Continuing extra faction finales is the action being voted on. Only a
+	// successful YES majority continues; a NO-blocked vote, a tie, no votes and
+	// a timeout all accept the faction victory already earned.
+	const bool endFactionCampaign = factionFinaleVote && !passed;
 	_activeVote.finish(passed);
 	updateVoteMenu();
 
@@ -5433,16 +5444,52 @@ void connectionTCP::finishVote(bool passed)
 
 	if (passed)
 	{
-		executeVoteAction(action);
+		if (factionFinaleVote)
+		{
+			_pendingFactionFinaleOwner.clear();
+			_factionFinaleReadySeats.clear();
+			_localFactionFinaleReady = false;
+			_factionFinaleReplicaSynced = false;
+		}
+		else
+			executeVoteAction(action);
+	}
+	else if (endFactionCampaign)
+	{
+		executeVoteAction("end_faction_campaign|"
+			+ action.substr(factionContinuePrefix.size()));
 	}
 }
 
 void connectionTCP::executeVoteAction(const std::string& action)
 {
-	if (action != "abandon_mission" || !_game)
+	if (!_game)
 	{
 		return;
 	}
+
+	const std::string factionEndPrefix = "end_faction_campaign|";
+	if (action.compare(0, factionEndPrefix.size(), factionEndPrefix) == 0)
+	{
+		prepareLocalEndingFactionDisplayName();
+		if (_game->getSavedGame())
+			_game->getSavedGame()->setEnding(END_WIN);
+
+		Json::Value root;
+		root["state"] = "faction_campaign_end";
+		root["victory"] = true;
+		_endingCutsceneId.clear();
+		sendTCPPacketData(root.toStyledString());
+		_game->setState(new StatisticsState);
+		_pendingFactionFinaleOwner.clear();
+		_factionFinaleReadySeats.clear();
+		_localFactionFinaleReady = false;
+		_factionFinaleReplicaSynced = false;
+		return;
+	}
+
+	if (action != "abandon_mission")
+		return;
 
 	for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 	{
@@ -5453,6 +5500,90 @@ void connectionTCP::executeVoteAction(const std::string& action)
 			return;
 		}
 	}
+}
+
+void connectionTCP::prepareLocalEndingFactionDisplayName()
+{
+	_endingFactionDisplayName.clear();
+	if (_game && _game->getSavedGame()
+		&& _game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+	{
+		const std::string player = seatName(localSeat());
+		if (!player.empty())
+			_endingFactionDisplayName = SeparateEcon::factionDisplayName(_game, player);
+	}
+}
+
+void connectionTCP::queueFactionFinaleVote(const std::string& ownerPlayerName)
+{
+	if (!_game || !_game->getSavedGame() || ownerPlayerName.empty()
+		|| !isSeparateCampaign()
+		|| !_game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+		return;
+
+	_pendingFactionFinaleOwner = ownerPlayerName;
+	_factionFinaleReadySeats.clear();
+	_localFactionFinaleReady = false;
+	_factionFinaleReplicaSynced = false;
+	if (getServerOwner())
+	{
+		Json::Value root;
+		root["state"] = "faction_finale_pending";
+		root["owner"] = ownerPlayerName;
+		sendTCPPacketData(root.toStyledString());
+	}
+}
+
+void connectionTCP::factionFinaleGeoscapeReady()
+{
+	if (_pendingFactionFinaleOwner.empty() || _localFactionFinaleReady
+		|| !_game || !_game->getSavedGame() || !getCoopStatic())
+		return;
+	if (!getServerOwner() && !_factionFinaleReplicaSynced)
+		return;
+
+	_localFactionFinaleReady = true;
+	const int seat = localSeat();
+	if (getServerOwner())
+	{
+		_factionFinaleReadySeats.insert(seat);
+		tryStartFactionFinaleVote();
+	}
+	else
+	{
+		Json::Value root;
+		root["state"] = "faction_finale_ready";
+		root["from"] = seat;
+		sendTCPPacketData(root.toStyledString());
+	}
+}
+
+void connectionTCP::tryStartFactionFinaleVote()
+{
+	if (!getServerOwner() || _pendingFactionFinaleOwner.empty()
+		|| static_cast<int>(_factionFinaleReadySeats.size()) < seatCount()
+		|| _activeVote.active)
+		return;
+
+	const int players = std::max(2, std::min(4, seatCount()));
+	const std::string factionName = SeparateEcon::factionDisplayName(
+		_game, _pendingFactionFinaleOwner);
+	const std::uint64_t now = static_cast<std::uint64_t>(getDateTimeCoop());
+	const std::uint64_t voteId = (now << 12) ^ (++_voteSequence & 0xFFFu);
+	const std::string action = std::string("continue_faction_campaign|")
+		+ _pendingFactionFinaleOwner;
+	const std::string question = std::string(
+		"Continue the campaign to complete the remaining faction finales? ")
+		+ "Vote NO to end with " + factionName + " victory.";
+	_activeVote.start(voteId,
+		action,
+		"FACTION FINALE COMPLETED",
+		question,
+		players, buildVotePlayerNames(players), -1);
+	openVoteMenu();
+	updateVoteMenu();
+	broadcastVoteStart();
+	broadcastVoteUpdate();
 }
 
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
@@ -5507,6 +5638,50 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	//   vote_cooldown: the host rejects a requester that is still inside its 60s window.
 	// Every packet is tied to a vote id, and VoteSession::castVote rejects a
 	// second choice from the same seat. This keeps 2-4 player results deterministic.
+	if (stateString == "faction_finale_pending")
+	{
+		if (!getServerOwner())
+		{
+			_pendingFactionFinaleOwner = obj.get("owner", "").asString();
+			_factionFinaleReadySeats.clear();
+			_localFactionFinaleReady = false;
+			_factionFinaleReplicaSynced = false;
+		}
+		return;
+	}
+
+	if (stateString == "faction_finale_ready")
+	{
+		if (getServerOwner() && !_pendingFactionFinaleOwner.empty())
+		{
+			_factionFinaleReadySeats.insert(obj.get("from", -1).asInt());
+			tryStartFactionFinaleVote();
+		}
+		return;
+	}
+
+	if (stateString == "faction_campaign_end")
+	{
+		if (!getServerOwner() && _game && _game->getSavedGame())
+		{
+			prepareLocalEndingFactionDisplayName();
+			_game->getSavedGame()->setEnding(
+				obj.get("victory", true).asBool() ? END_WIN : END_LOSE);
+			const std::string cutscene = obj.get("cutscene", "").asString();
+			_endingCutsceneId = cutscene;
+			if (!cutscene.empty())
+			{
+				allow_cutscene = false;
+				_game->setState(new CutsceneState(cutscene));
+			}
+			else
+			{
+				_game->setState(new StatisticsState);
+			}
+		}
+		return;
+	}
+
 	if (stateString == "vote_request")
 	{
 		if (getServerOwner())
@@ -5604,6 +5779,15 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			const bool passed = obj.get("passed", false).asBool();
 			_activeVote.finish(passed);
 			_voteRequestPending = false;
+			if (_activeVote.action.compare(0,
+				std::string("continue_faction_campaign|").size(),
+				"continue_faction_campaign|") == 0)
+			{
+				_pendingFactionFinaleOwner.clear();
+				_factionFinaleReadySeats.clear();
+				_localFactionFinaleReady = false;
+				_factionFinaleReplicaSynced = false;
+			}
 			updateVoteMenu();
 		}
 		return;
@@ -5913,12 +6097,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// (same wire flow as the classic Profile resume) (F3)
 	if (stateString == "campaign_resume" && getServerOwner() == false)
 	{
-
-		_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
-
-		Json::Value root;
-		root["state"] = "request_load_progress";
-		sendTCPPacketData(root.toStyledString());
+		bool reusedLoadDialog = false;
+		for (State* state : _game->getStates())
+		{
+			CoopState* coop = dynamic_cast<CoopState*>(state);
+			if (coop && coop->getStateCode() == COOP_DLG_CLIENT_LOAD_WAIT)
+			{
+				coop->requestCampaignWorld();
+				reusedLoadDialog = true;
+				break;
+			}
+		}
+		if (!reusedLoadDialog)
+		{
+			_game->pushState(new CoopState(COOP_DLG_WORLD_DOWNLOAD));
+		}
 
 	}
 
@@ -5935,11 +6128,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		connectionTCP::session.signalCampaignBegun();
 		connectionTCP::session.sessionLive();
+		if (!_pendingFactionFinaleOwner.empty())
+			_factionFinaleReplicaSynced = true;
 
 	}
 
-	// A resuming player finished loading its world (F3). For a battle save
-	// the geoscape ack triggers phase two: the battle stream.
+	// A resuming player finished loading its authoritative world (F3). Current
+	// campaign snapshots include a live battle in the same transfer. The old
+	// campaign_resume_battle packet remains below only as a legacy fallback.
 	if (stateString == "resume_ack")
 	{
 
@@ -5951,8 +6147,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// campaign-resume ack.
 		std::string acker = _game->getCoopMod()->getCurrentClientName();
 		bool battleEligible = connectionTCP::session.resumeBattleEligible.count(acker) > 0;
+		const bool combinedBattle = obj.get("combinedBattle", false).asBool();
 
-		if (connectionTCP::session.resumeBattlePending && battleEligible)
+		if (connectionTCP::session.resumeBattlePending && battleEligible && !combinedBattle)
 		{
 			connectionTCP::session.resumeBattlePending = false;
 			connectionTCP::session.resumeBattleEligible.clear();
@@ -5963,6 +6160,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 		else
 		{
+			if (combinedBattle)
+			{
+				connectionTCP::session.resumeBattlePending = false;
+				connectionTCP::session.resumeBattleEligible.erase(acker);
+			}
 			connectionTCP::session.resumeAck = true;
 
 			// issue #91: EVERY streamed world the client adopts parks it in
@@ -6025,18 +6227,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	}
 
-	// Phase two of a battle-save resume: fetch the battle from the host
-	// (same wire flow the legacy lobby used for a battle-hosting session)
+	// Legacy fallback for peers that still request a separate battle snapshot.
 	if (stateString == "campaign_resume_battle" && getServerOwner() == false)
 	{
 
 		_game->getCoopMod()->inventory_battle_window = false;
 
-		_game->pushState(new CoopState(1));
-
-		Json::Value root;
-		root["state"] = "SEND_FILE_CLIENT_SAVE";
-		sendTCPPacketData(root.toStyledString());
+		_game->pushState(new CoopState(COOP_DLG_SAVED_MAP_DOWNLOAD));
 
 	}
 
@@ -6726,15 +6923,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else
 			{
-				// P2/F3: SHARED mid-battle resume. The geoscape-phase world is now
-				// streaming; if the authoritative world carries a battle, ride the very
-				// same two-phase battle stream a SEPARATE resume uses. Arm the pending
-				// flag and mark this client eligible so its geoscape resume_ack fires
-				// campaign_resume_battle -> SEND_FILE_CLIENT_SAVE -> battlehost (the
-				// snapshot chain is mode-agnostic; the SHARED role is derived from
-				// getServerOwner() at BattlescapeState:1687). The client's phase-one
-				// loadCoopProgress load drops the battleGame, so the geoscape adopt
-				// stays battle-free and the battle arrives fresh in phase two.
+				// The authoritative snapshot includes its live SavedBattleGame. Track
+				// the pending battle until the client confirms that the combined world
+				// was adopted; no second battle-file transfer is needed.
 				connectionTCP::session.resumeBattlePending =
 					(_game->getSavedGame()->getSavedBattle() != nullptr);
 				if (connectionTCP::session.resumeBattlePending)
@@ -12045,10 +12236,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// P2/F1: a battle resume parks the host behind its resume lobby/wait
 		// dialogs - resumeCampaign() closes the lobby but leaves the HostMenu
-		// beneath the COOP_DLG_WAIT_PLAYERS it pushed, and on the battle path
-		// the host never gets a resumeAck (it emits campaign_resume_battle
-		// instead), so nothing ever pops them. The client has now finished
-		// loading the streamed battle (this packet), so return the host to its
+		// beneath the COOP_DLG_WAIT_PLAYERS it pushed. The client has now finished
+		// loading the battle included in the authoritative world (this packet),
+		// so return the host to its
 		// own BattlescapeState: pop everything above it so BattlescapeState::
 		// think() runs and re-arms the coop-init block (_battleInit / role /
 		// turn) once COOP_READY sets coopSession below. Gate strictly on the
@@ -12176,6 +12366,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		DebugLog("MAP_RESULT_CLIENT");
 
 		writeHostMapFile();
+		// The request was sent only after CoopState became active, so the previous
+		// Battlescape is already blocked behind the download dialog.
 		loadHostMap();
 
 		// if not save file
@@ -12314,11 +12506,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getCoopMod()->inventory_battle_window = false;
 			}
 
-			_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
-
-			Json::Value req;
-			req["state"] = "request_load_progress";
-			sendTCPPacketData(req.toStyledString());
+			_game->pushState(new CoopState(COOP_DLG_WORLD_DOWNLOAD));
 
 			_game->pushState(new Profile);
 		}
@@ -13382,6 +13570,24 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "SEND_FILE_CLIENT_TRUE" && onTcpHost == false)
 	{
+		const bool incomingNextStage = obj.get("nextStageBriefing", false).asBool();
+		const std::string incomingStageType = obj.get("nextStageType", "").asString();
+		const SavedBattleGame* currentBattle = _game->getSavedGame()
+			? _game->getSavedGame()->getSavedBattle() : nullptr;
+		// The next-stage announcement can be emitted again while the first map
+		// stream is being completed.  Accept it once: otherwise the second load
+		// replaces the first information briefing and makes the player press OK
+		// twice (with an interactive Battlescape frame between the two loads).
+		if (incomingNextStage
+			&& (nextStageBriefing
+				|| (currentBattle && !incomingStageType.empty()
+					&& currentBattle->getMissionType() == incomingStageType)))
+		{
+			return;
+		}
+		// A multi-stage battle is already fully generated in the incoming blob.
+		// Remember to show its briefing as information only after loading it.
+		nextStageBriefing = incomingNextStage;
 
 		_game->getCoopMod()->load_state = "Synchronization finished";
 
@@ -13436,14 +13642,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->getSavedGame()->saveCoopToMemory("coop_geoscape_return", _game->getMod(), "coop_geoscape_return");
 		}
 
-		CoopState* coopWindow = new CoopState(1);
+		CoopState* coopWindow = new CoopState(COOP_DLG_MAP_DOWNLOAD);
 		_game->pushState(coopWindow);
-
-		std::string jsonData = "{\"state\" : \"SEND_FILE_CLIENT\"}";
-
-		sendTCPPacketData(jsonData);
-
-		_game->getCoopMod()->load_state = "Requesting map data";
 
 	}
 
@@ -13462,15 +13662,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// HERE ON THE HOST, DISPLAY A NOTIFICATION AND SEND THE CLIENT INFORMATION ABOUT THE FILE TRANSFER
 		inventory_battle_window = false;
 
-		_game->pushState(new CoopState(1));
-
-		Json::Value root;
-
-		root["state"] = "SEND_FILE_CLIENT_SAVE_TRUE";
-
-		sendTCPPacketData(root.toStyledString().c_str());
-
-		setHost(false);
+		_game->pushState(new CoopState(COOP_DLG_REVERSE_MAP_DOWNLOAD));
 	}
 
 	if (stateString == "SEND_FILE_CLIENT_SAVE_TRUE" && onTcpHost == false)
@@ -13937,6 +14129,22 @@ bool connectionTCP::isSharedCampaignStatic()
 bool connectionTCP::isSharedReplica()
 {
 	return (isSharedCampaign() || isSeparateCampaign()) && !getServerOwner();
+}
+
+bool connectionTCP::isCampaignReplica()
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	if (!save || !save->isCoopSave()
+		|| (save->getCampaignType() != CoopCampaignType::Shared
+			&& save->getCampaignType() != CoopCampaignType::Separate))
+		return false;
+
+	// The streamed save records this machine's local seat. Keep treating a
+	// non-host seat as a replica even after the socket disappears and
+	// resetSession clears the transient Client role. The replica remains frozen
+	// until its host-derived SavedGame is discarded on the way to the main menu.
+	return session.role == CoopRole::Client
+		|| connectionTCP::coop_save_owner_player_id > 0;
 }
 
 bool connectionTCP::isSeparateCampaignStatic()
@@ -15518,13 +15726,25 @@ void connectionTCP::sendMissionFile()
 		Json::Value obj;
 		obj["state"] = "SEND_FILE_CLIENT_TRUE";
 		obj["target"] = false;
+		if (nextStageBriefing)
+		{
+			obj["nextStageBriefing"] = true;
+			if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+				obj["nextStageType"] =
+					_game->getSavedGame()->getSavedBattle()->getMissionType();
+		}
 
-		// Delete coop UFOs or missions
-		if (getSelectedCraft() && getCoopCampaign() == true)
+		// The target metadata is needed only when the initial battle leaves the
+		// Geoscape. During a multi-stage transition the battle snapshot already
+		// contains the next map and selectedCraft may still point at an object from
+		// the replaced stage/world. Dereferencing it here caused client-owned
+		// ROSIGMA finales to crash between stages.
+		Craft* selectedCraft = nextStageBriefing ? nullptr : getSelectedCraft();
+		if (selectedCraft && getCoopCampaign() == true)
 		{
 
-			Ufo* u = dynamic_cast<Ufo*>(getSelectedCraft()->getDestination());
-			MissionSite* m = dynamic_cast<MissionSite*>(getSelectedCraft()->getDestination());
+			Ufo* u = dynamic_cast<Ufo*>(selectedCraft->getDestination());
+			MissionSite* m = dynamic_cast<MissionSite*>(selectedCraft->getDestination());
 
 			if (u)
 			{

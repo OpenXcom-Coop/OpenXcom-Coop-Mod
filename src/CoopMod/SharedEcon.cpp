@@ -93,6 +93,7 @@
 
 #include <cmath>
 #include "../Basescape/BaseView.h"
+#include "../Basescape/SellState.h"
 #include "../Basescape/CraftWeaponsState.h" // issue #121: shared craft-weapon capacity gate
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmLandingState.h"
@@ -2304,7 +2305,9 @@ void baseDamagedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 	gs->popup(new BaseDestroyedState(base, ufo, true, true));
 }
 
-// alien_base_found payload: { alienBaseId }. Host-origin, replica-only apply.
+// alien_base_found payload carries the complete target.  A freshly spawned base
+// does not exist in a frozen replica yet, so discovery must be able to create it
+// before applying the flag and popup.
 // X-Com discovering an alien base is a shared-world MUTATION (setDiscovered), not just an
 // alert, so it must not be rolled twice. The replica's time1MonthCoop used to run its OWN
 // RNG::percent(chanceToDetectAlienBaseEachMonth) and pick its own base, so host and client
@@ -2317,16 +2320,33 @@ void alienBaseFoundApply(Game* game, Json::Value& payload, Base* /*base*/, int /
 	GeoscapeState* gs = findGeoState(game);
 	if (!save || !gs) return;
 	const int id = payload.get("alienBaseId", -1).asInt();
+	AlienBase* found = nullptr;
 	for (auto* ab : *save->getAlienBases())
 	{
 		if (ab->getId() == id)
 		{
-			if (!ab->isDiscovered())
-				ab->setDiscovered(true);
-			gs->popup(new AlienBaseState(ab, gs));
-			return;
+			found = ab;
+			break;
 		}
 	}
+	if (!found)
+	{
+		const std::string deploymentName = payload.get("deployment", "").asString();
+		AlienDeployment* deployment = game->getMod()->getDeployment(deploymentName, false);
+		if (!deployment) return;
+		found = new AlienBase(deployment, payload.get("startMonth", 0).asInt());
+		found->setId(id);
+		found->_coop_alienbase_id = payload.get("coopId", 0).asInt();
+		found->_coop = true;
+		save->getAlienBases()->push_back(found);
+	}
+	found->setLongitude(payload.get("lon", 0.0).asDouble());
+	found->setLatitude(payload.get("lat", 0.0).asDouble());
+	found->setPactCountry(payload.get("pactCountry", "").asString());
+	found->setAlienRace(payload.get("race", "").asString());
+	found->setOwnerPlayerName(payload.get("ownerPlayerName", "").asString());
+	found->setDiscovered(true);
+	gs->popup(new AlienBaseState(found, gs));
 }
 
 // ---- generic informational-alert replication --------------------------------
@@ -2416,6 +2436,20 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			}
 			if (!rows.empty()) gs->popup(new ItemsArrivingState(gs, rows));
 		}
+	}
+	else if (cls == "SeparateStorageExceeded")
+	{
+		// The host simulates storage for every Separate base, but only the base
+		// owner may receive and resolve this mandatory sell dialog.
+		if (!base || !game->getCoopMod()->isSeparateCampaign()
+			|| !SeparateEcon::showBaseNotification(game, base))
+			return;
+		auto* itf = mod->getInterface("geoscape");
+		gs->popup(new ErrorMessageState(
+			game->getLanguage()->getString("STR_STORAGE_EXCEEDED").arg(base->getName()),
+			game->getScreen()->getPalette(), itf->getElement("errorMessage")->color,
+			"BACK13.SCR", itf->getElement("errorPalette")->color));
+		gs->popup(new SellState(base, nullptr));
 	}
 	else if (cls == "ResearchRequiredState")
 	{
@@ -3529,6 +3563,14 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase)
 	if (!sharedHost(game) || !alienBase) return;
 	Json::Value p;
 	p["alienBaseId"] = alienBase->getId();
+	p["coopId"] = alienBase->_coop_alienbase_id;
+	p["deployment"] = alienBase->getDeployment()->getType();
+	p["startMonth"] = alienBase->getStartMonth();
+	p["lon"] = alienBase->getLongitude();
+	p["lat"] = alienBase->getLatitude();
+	p["pactCountry"] = alienBase->getPactCountry();
+	p["race"] = alienBase->getAlienRace();
+	p["ownerPlayerName"] = alienBase->getOwnerPlayerName();
 	submitLocalCmd(game, "alien_base_found", 0, p);
 }
 

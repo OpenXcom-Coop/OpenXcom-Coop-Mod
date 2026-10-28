@@ -315,8 +315,9 @@ struct CoopSession
 	bool lobbyClosed = true;
 	// resume handshake: a client reported its world loaded (CoopState 62/64)
 	bool resumeAck = false;
-	// battle-save resume is two-phase: geoscape world first, then the battle
-	// stream; set while phase two is still owed
+	// A resume snapshot may carry a live battle. Kept until the client confirms
+	// that it adopted the combined authoritative world; legacy peers may still
+	// use the separate battle-stream fallback.
 	bool resumeBattlePending = false;
 	// PRD-11 C8: names of clients that were actually SERVED a resume world blob
 	// this resume cycle. Only an eligible acker gets the battle stream; a
@@ -591,6 +592,17 @@ class connectionTCP
 	// 60-second deadline for that seat; other seats remain free to start votes.
 	static constexpr std::uint32_t VOTE_START_COOLDOWN_MS = 60000;
 	std::vector<std::uint32_t> _voteStarterCooldownUntil;
+	// Different-faction Separate finales wait until every player has closed the
+	// debriefing, then reuse VoteMenu for the continue/end-campaign decision.
+	std::string _pendingFactionFinaleOwner;
+	std::set<int> _factionFinaleReadySeats;
+	bool _localFactionFinaleReady = false;
+	// A Separate client may enter its old Geoscape before the host's post-battle
+	// world snapshot arrives. Do not open the finale vote until that snapshot has
+	// been adopted and the host has released the resume hold.
+	bool _factionFinaleReplicaSynced = false;
+	std::string _endingFactionDisplayName;
+	std::string _endingCutsceneId;
 	VoteMenu* findVoteMenu(std::uint64_t voteId) const;
 	void openVoteMenu();
 	void updateVoteMenu();
@@ -607,6 +619,7 @@ class connectionTCP
 	void evaluateVote();
 	void finishVote(bool passed);
 	void executeVoteAction(const std::string& action);
+	void tryStartFactionFinaleVote();
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
 
@@ -687,6 +700,16 @@ class connectionTCP
 	// and the requesting seat is automatically counted as YES.
 	bool requestVote(const std::string& action, const std::string& title,
 		const std::string& question);
+	/// Queue the different-faction finale choice and synchronize debrief closure.
+	void queueFactionFinaleVote(const std::string& ownerPlayerName);
+	/// Called only while GeoscapeState is actually thinking, after all
+	/// post-debrief screens have closed.
+	void factionFinaleGeoscapeReady();
+	const std::string& getEndingFactionDisplayName() const { return _endingFactionDisplayName; }
+	const std::string& getEndingCutsceneId() const { return _endingCutsceneId; }
+	void setEndingCutsceneId(const std::string& id) { _endingCutsceneId = id; }
+	/// Select the local player's faction for a Separate end-game statistics screen.
+	void prepareLocalEndingFactionDisplayName();
 	// Casts the local seat's vote. Duplicate votes are rejected.
 	bool castVote(std::uint64_t voteId, bool yes);
 	bool hasVoteInProgress() const { return _activeVote.active || _voteRequestPending; }
@@ -791,6 +814,9 @@ class connectionTCP
 	// Shared and Separate have different economy/permission rules, but neither
 	// client owns a second strategic world or writes a campaign save to disk.
 	bool isSharedReplica();
+	/// True when this machine displays a host-authoritative campaign world.
+	/// Shared and schema-3 Separate clients never simulate Geoscape time locally.
+	bool isCampaignReplica();
 	// PRD-J02: serialize the host's authoritative world fresh and hand it to the
 	// streamer (single-client resume-blob lane) so the connected client adopts
 	// it as its replica. Host only; used at SHARED campaign start and resume.
@@ -1548,6 +1574,9 @@ class connectionTCP
 	static bool loadProgressBusy;
 	static bool forceCloseCoopStateMenu;
 	static bool forceClosePasswordCheckMenu;
+	// One-shot marker carried with a streamed multi-stage battle. The receiver
+	// uses it to show the new stage's briefing without rebuilding the battle.
+	static bool nextStageBriefing;
 
 	// other
 	static int manuallyAddedServerRemoveID;

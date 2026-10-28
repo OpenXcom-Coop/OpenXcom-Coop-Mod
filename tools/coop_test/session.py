@@ -280,6 +280,12 @@ def resume_campaign(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
+    # Some modded resume flows leave the connection/profile acknowledgement
+    # above the lobby. Until it is closed LobbyMenu does not think, so neither
+    # machine receives a populated roster even though TCP is connected.
+    if _has_state(client, "Profile"):
+        client.ok({"cmd": "profile_ok"})
+
     for machine, who in ((host, "host"), (client, "client")):
         machine.wait_for(
             f"{who} resume lobby roster",
@@ -292,8 +298,11 @@ def resume_campaign(host, client, save_file, port="47900",
             timeout=30,
         )
         roster = machine.ok({"cmd": "lobby_state"})
-        assert roster["hostRowName"].strip() == host_name, roster
-        assert roster["clientRowName"].strip() == client_name, roster
+        # Different-faction Separate lobbies append " (Faction)" to the
+        # displayed row. Resume identity still compares the locked player name.
+        row_player = lambda value: value.strip().split(" (", 1)[0]
+        assert row_player(roster["hostRowName"]) == host_name, roster
+        assert row_player(roster["clientRowName"]) == client_name, roster
 
     # Press the REAL RESUME button (see helper) instead of the direct-call shortcut.
     resume_campaign_via_button(host, client_name)
@@ -320,14 +329,11 @@ def resume_campaign_battle(host, client, save_file, port="47900",
                            timeout=120, interval=2.0):
     """Resume a MID-BATTLE co-op save.
 
-    Like resume_campaign(), but the save carries a battleGame, so this must NOT
-    wait on the geoscape-resume `resumeAck` / BEGIN handshake: for a battle-
-    eligible client the host's resume_ack handler emits `campaign_resume_battle`
-    instead of setting resumeAck (connectionTCP.cpp), and the two-phase battle
-    stream (campaign_resume_battle -> SEND_FILE_CLIENT_SAVE ->
-    battlehost/battleclient) drives itself. We only drive the lobby up to the
-    host accepting the resume, then wait (BOUNDED - never hang) until BOTH
-    machines report battle_state.inBattle.
+    Like resume_campaign(), but the authoritative world snapshot also carries
+    its live battleGame. The client adopts both in one transfer and enters the
+    Battlescape directly. We only drive the lobby up to the host accepting the
+    resume, then wait (BOUNDED - never hang) until BOTH machines report
+    battle_state.inBattle.
 
     `host` must be freshly at the main menu with the save in its user dir;
     `client` freshly at the main menu (empty user dir). Raises TimeoutError with
@@ -346,6 +352,12 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
+    # The join notification Profile can cover either lobby. LobbyMenu cannot
+    # update its visible roster until that state closes.
+    for machine in (host, client):
+        if _has_state(machine, "Profile"):
+            machine.ok({"cmd": "profile_ok"})
+
     for machine, who in ((host, "host"), (client, "client")):
         machine.wait_for(
             f"{who} battle-resume lobby roster",
@@ -358,8 +370,12 @@ def resume_campaign_battle(host, client, save_file, port="47900",
             timeout=30,
         )
         roster = machine.ok({"cmd": "lobby_state"})
-        assert roster["hostRowName"].strip() == host_name, roster
-        assert roster["clientRowName"].strip() == client_name, roster
+        def lobby_name_matches(row, player):
+            row = row.strip()
+            return row == player or row.startswith(player + " (")
+
+        assert lobby_name_matches(roster["hostRowName"], host_name), roster
+        assert lobby_name_matches(roster["clientRowName"], client_name), roster
 
     # Press the REAL resume button (btnCancelClick). This is the branch where the
     # mid-battle-resume bug lived - the direct lobby_resume_campaign shortcut skips
@@ -372,6 +388,15 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     deadline = time.time() + timeout
     while time.time() < deadline:
         if _in_battle(host) and _in_battle(client):
+            time.sleep(1.0)
+            for machine, who in ((host, "host"), (client, "client")):
+                stack = states(machine)
+                unexpected = [s for s in stack
+                              if "BriefingState" in s or "InventoryState" in s]
+                if unexpected:
+                    raise AssertionError(
+                        f"{who} reopened pre-battle UI while resuming a saved "
+                        f"battle: {stack}")
             print("battle resume: BOTH machines report inBattle")
             return
         time.sleep(interval)

@@ -212,9 +212,9 @@ CoopState::CoopState(int state, int value) : _value(value)
 	_btnAbandon->onMouseClick((ActionHandler)&CoopState::btnAbandonClick);
 
 	// HostLoadProgress (client)
-	if (state == COOP_DLG_CLIENT_LOAD_WAIT)
+	if (isWorldDownloadDialog(state))
 	{
-		_game->getCoopMod()->load_state = "Loading";
+		_game->getCoopMod()->load_state = "Downloading map";
 
 		_txtTitle->setText(_game->getCoopMod()->load_state + "...");
 
@@ -589,7 +589,7 @@ CoopState::CoopState(int state, int value) : _value(value)
 	}
 
 	// DOWNLOAD MAP
-	if (state == 1)
+	if (state == 1 || isMapDownloadDialog(state))
 	{
 		_txtTitle->setText("Downloading map...");
 		_btnBack->setText("Disconnect");
@@ -875,6 +875,55 @@ CoopState::~CoopState()
 {
 }
 
+/**
+ * Activates the dialog.
+ */
+void CoopState::init()
+{
+	State::init();
+
+	// Open the download dialog first and only then ask the host for the map.
+	// This keeps the previous Battlescape from remaining interactive while a
+	// fast local transfer completes.
+	if (global_state == COOP_DLG_MAP_DOWNLOAD)
+	{
+		_game->getCoopMod()->load_state = "Requesting map data";
+		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT\"}");
+	}
+	else if (global_state == COOP_DLG_SAVED_MAP_DOWNLOAD)
+	{
+		_game->getCoopMod()->load_state = "Requesting saved battle";
+		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT_SAVE\"}");
+	}
+	else if (global_state == COOP_DLG_REVERSE_MAP_DOWNLOAD)
+	{
+		_game->getCoopMod()->load_state = "Requesting saved battle";
+		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT_SAVE_TRUE\"}");
+		_game->getCoopMod()->setHost(false);
+	}
+	else if (global_state == COOP_DLG_WORLD_DOWNLOAD)
+	{
+		_game->getCoopMod()->load_state = "Downloading map";
+		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"request_load_progress\"}");
+	}
+}
+
+void CoopState::requestSavedBattleMap()
+{
+	global_state = COOP_DLG_SAVED_MAP_DOWNLOAD;
+	_game->getCoopMod()->load_state = "Downloading map";
+	_txtTitle->setText("Downloading map...");
+	_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT_SAVE\"}");
+}
+
+void CoopState::requestCampaignWorld()
+{
+	global_state = COOP_DLG_WORLD_DOWNLOAD;
+	_game->getCoopMod()->load_state = "Downloading map";
+	_txtTitle->setText("Downloading map...");
+	_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"request_load_progress\"}");
+}
+
 std::string CoopState::getTitleText() const
 {
 	return _txtTitle ? _txtTitle->getText() : "";
@@ -1048,7 +1097,7 @@ void CoopState::think()
 		// request_load_progress. Without this the load-wait dialog (52) hangs
 		// forever (no timeout). On the busy signal, wait ~2s then re-send; after
 		// a bounded number of retries, fall back to the disconnect error UX.
-		if (global_state == COOP_DLG_CLIENT_LOAD_WAIT)
+		if (isWorldDownloadDialog(global_state))
 		{
 			const int kMaxLoadRetries = 15;
 			if (connectionTCP::loadProgressBusy)
@@ -1084,7 +1133,7 @@ void CoopState::think()
 	
 		}
 
-		if (global_state == 1)
+		if (global_state == 1 || isMapDownloadDialog(global_state))
 		{
 
 			if (state_counter == 0)
@@ -1104,7 +1153,7 @@ void CoopState::think()
 			}
 
 		}
-		else if (global_state == 4 || global_state == COOP_DLG_HOST_SAVE_WAIT || global_state == 53 || global_state == COOP_DLG_CLIENT_LOAD_WAIT)
+		else if (global_state == 4 || global_state == COOP_DLG_HOST_SAVE_WAIT || global_state == 53 || isWorldDownloadDialog(global_state))
 		{
 
 			if (state_counter == 0)
@@ -1273,7 +1322,7 @@ void CoopState::previous(Action *)
 	// PRD-11 C13: COOP_DLG_CLIENT_LOAD_WAIT (52) added - its "Disconnect" button
 	// must actually tear the connection down, not merely pop the dialog and leave
 	// the client half-attached.
-	if (global_state == 1 || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53 || global_state == COOP_DLG_CLIENT_LOAD_WAIT)
+	if (global_state == 1 || isMapDownloadDialog(global_state) || global_state == 88 || global_state == 3 || global_state == 4 || global_state == 15 || global_state == 53 || isWorldDownloadDialog(global_state))
 	{
 
 		if (global_state == 15)

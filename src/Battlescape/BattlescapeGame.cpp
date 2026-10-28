@@ -1639,7 +1639,7 @@ int BattlescapeGame::think()
 				{
 					if (_save->selectNextPlayerUnit(true, _AISecondMove) == 0)
 					{
-						if (!_save->getDebugMode())
+						if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 						{
 							_endTurnRequested = true;
 							statePushBack(0); // end AI turn
@@ -1769,7 +1769,7 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 	{
 		if (_save->selectNextPlayerUnit(true, _AISecondMove) == 0)
 		{
-			if (!_save->getDebugMode())
+			if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 			{
 				_endTurnRequested = true;
 				statePushBack(0); // end AI turn
@@ -1913,7 +1913,7 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 		_AIActionCounter = 0;
 		if (_save->selectNextPlayerUnit(true, _AISecondMove) == 0)
 		{
-			if (!_save->getDebugMode())
+			if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 			{
 				_endTurnRequested = true;
 				statePushBack(0); // end AI turn
@@ -3708,7 +3708,7 @@ void BattlescapeGame::popState()
 					_AIActionCounter = 0;
 					if (_states.empty() && _save->selectNextPlayerUnit(true) == 0)
 					{
-						if (!_save->getDebugMode())
+						if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 						{
 							_endTurnRequested = true;
 							statePushBack(0); // end AI turn
