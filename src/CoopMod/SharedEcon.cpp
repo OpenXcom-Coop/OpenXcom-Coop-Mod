@@ -2823,8 +2823,15 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 			// host keeps the security boundary. Tell the player who asked (the
 			// remote initiator gets separate_fail, the host's own command shows
 			// the fail dialog locally) instead of dropping it silently. The host
-			// diagnostic keeps its own text for the harness.
-			rejectHostCmd(game, pc, "STR_COOP_ACTION_REFUSED");
+			// diagnostic keeps its own text for the harness. A host simulation
+			// result (simAccept validator) is not a player action: no dialog.
+			using SimValidator = bool (*)(Game*, const Json::Value&, Base*, int,
+				int64_t&, std::string&);
+			const SimValidator* fn = hit->second.validate.target<SimValidator>();
+			if (fn && *fn == &simAccept)
+				++g_failN;
+			else
+				rejectHostCmd(game, pc, "STR_COOP_ACTION_REFUSED");
 			setLastFail("foreign base command rejected");
 			return;
 		}
