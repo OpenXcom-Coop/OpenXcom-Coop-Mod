@@ -14233,6 +14233,17 @@ void connectionTCP::setServerOwner(bool owner)
 	refreshSeparateBaseOwnership();
 }
 
+void connectionTCP::leaveSessionToMainMenu()
+{
+	// Role is cleared AFTER the teardown, never before: disconnectTCP branches
+	// on it, and clearing it early makes the host tear down as a client.
+	disconnectTCP(true);
+	setServerOwner(false);
+	session.resetSession();
+	// GoToMainMenuState::init drops the world once the popped states are freed.
+	_game->setState(new GoToMainMenuState(false));
+}
+
 void connectionTCP::refreshSeparateBaseOwnership()
 {
 	// A campaign save is loaded before HostMenu/Join has established this
