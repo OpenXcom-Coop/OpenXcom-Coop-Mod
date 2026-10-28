@@ -3086,7 +3086,7 @@ std::string BattlescapeGame::coopValidateIntent(const std::string &intentJson, i
 		warning = "STR_COOP_NOT_YOUR_SOLDIER";
 		return "faction";
 	}
-	if (unit->getCoop() != seat)
+	if (connectionTCP::unitSeat(unit) != seat)
 	{
 		warning = "STR_COOP_NOT_YOUR_SOLDIER";
 		return "ownership";

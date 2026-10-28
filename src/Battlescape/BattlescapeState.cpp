@@ -1692,7 +1692,7 @@ void BattlescapeState::think()
 
 						for (auto unit : *_save->getUnits())
 						{
-							if (unit->getCoop() == mySeat && unit->getHealth() > 0
+							if (connectionTCP::unitSeat(unit) == mySeat && unit->getHealth() > 0
 								&& unit->isOut() == false && unit->getFaction() == FACTION_PLAYER)
 							{
 								mine = unit;
@@ -3991,7 +3991,7 @@ bool BattlescapeState::playableUnitSelected()
 		// survives is ownership: is the selected soldier one of mine.
 		if (connectionTCP::parallelTurnActive())
 		{
-			return _save->getSelectedUnit()->getCoop() == connectionTCP::localSeat()
+			return connectionTCP::unitSeat(_save->getSelectedUnit()) == connectionTCP::localSeat()
 				&& allowButtons();
 		}
 
@@ -5313,7 +5313,7 @@ void BattlescapeState::updateCoopWaitBanner()
 				BattleUnit *actor = _battleGame->getPrimaryBusyActor();
 				if (actor)
 				{
-					_coopBusyOwnerSeat = actor->getCoop();
+					_coopBusyOwnerSeat = connectionTCP::unitSeat(actor);
 				}
 			}
 			owner = _coopBusyOwnerSeat;
