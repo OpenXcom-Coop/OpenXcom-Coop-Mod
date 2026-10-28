@@ -6098,11 +6098,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// (COOP_READY_HOST already set it; this keeps the two in step for a
 		// client whose world is built from this packet). Missing key = classic.
 		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
-		Options::EnableCoopParallelTurns = connectionTCP::_enable_parallel_turns;
+		Options::setSessionOverride(&Options::EnableCoopParallelTurns, connectionTCP::_enable_parallel_turns);
 
 		const std::string activeMaster = Options::getActiveMaster();
 		const bool vanillaCampaign = activeMaster == "xcom1" || activeMaster == "xcom2";
 		if (campaignType == CoopCampaignType::Separate && !connectionTCP::no_bases
+			&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3
 			&& !vanillaCampaign)
 		{
 			// Mod campaigns may use difficulty as a faction selector (for example
@@ -7710,7 +7711,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "research_sync_option" && !getServerOwner())
 	{
 		_enable_research_sync = obj.get("enabled", false).asBool();
-		Options::EnableResearchSync = _enable_research_sync;
+		Options::setSessionOverride(&Options::EnableResearchSync, _enable_research_sync);
 		if (!_enable_research_sync)
 		{
 			waitedResearch.clear();
@@ -13066,7 +13067,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Keep the multiplayer options page in sync with the host-authoritative
 		// session value.  Previously it continued to display the client's local
 		// default (YES), even when the host had sent NO.
-		Options::EnableResearchSync = enable_research_sync;
+		Options::setSessionOverride(&Options::EnableResearchSync, enable_research_sync);
 		if (_game->getSavedGame() && isSeparateCampaign())
 			_game->getSavedGame()->setSeparateResearchSharingEnabled(enable_research_sync, _game->getMod());
 
@@ -13076,32 +13077,32 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// reaction shoot option
 		bool enable_reaction_shoot = obj["enable_reaction_shoot"].asBool();
 		connectionTCP::_enable_reaction_shoot = enable_reaction_shoot;
-		Options::EnableReactionFirePvp = enable_reaction_shoot;
+		Options::setSessionOverride(&Options::EnableReactionFirePvp, enable_reaction_shoot);
 
 		// other player footsteps sounds
 		bool enable_other_player_footsteps = obj["enable_other_player_footsteps"].asBool();
 		connectionTCP::_enable_other_player_footsteps = enable_other_player_footsteps;
-		Options::EnableOtherPlayerFootsteps = enable_other_player_footsteps;
+		Options::setSessionOverride(&Options::EnableOtherPlayerFootsteps, enable_other_player_footsteps);
 
 		// parallel battlescape turns (PRD-P5). get(..., false): an older host does
 		// not send the key at all, and the missing key must mean classic mode.
 		connectionTCP::_enable_parallel_turns = obj.get("enable_parallel_turns", false).asBool();
-		Options::EnableCoopParallelTurns = connectionTCP::_enable_parallel_turns;
+		Options::setSessionOverride(&Options::EnableCoopParallelTurns, connectionTCP::_enable_parallel_turns);
 
 		// enable host only time speed
 		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
 		connectionTCP::_enable_host_only_time_speed = enable_host_only_time_speed;
-		Options::EnableHostOnlyTimeSpeed = enable_host_only_time_speed;
+		Options::setSessionOverride(&Options::EnableHostOnlyTimeSpeed, enable_host_only_time_speed);
 
 		// enable XcomEquipmentAliensPVP
 		bool enable_xcom_equipment_aliens_pvp = obj["enable_xcom_equipment_aliens_pvp"].asBool();
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = enable_xcom_equipment_aliens_pvp;
-		Options::EnableXcomEquipmentAliensPVP = enable_xcom_equipment_aliens_pvp;
+		Options::setSessionOverride(&Options::EnableXcomEquipmentAliensPVP, enable_xcom_equipment_aliens_pvp);
 
 		// UnbalancedCraftSoldiersLimit
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
-		Options::UnbalancedCraftSoldiersLimit = unbalanced_craft_soldiers_limit;
+		Options::setSessionOverride(&Options::UnbalancedCraftSoldiersLimit, unbalanced_craft_soldiers_limit);
 
 		// CHECK IF THE CLIENT IS IN BATTLE; IF SO, INCLUDE THE HOST, OTHERWISE DO NOTHING
 		// IF BOTH ARE IN BATTLE AT THE SAME TIME, CREATE A SEPARATE SESSION
