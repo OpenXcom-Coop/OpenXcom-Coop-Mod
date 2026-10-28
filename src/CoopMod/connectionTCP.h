@@ -1445,6 +1445,9 @@ class connectionTCP
 	// with these in time1MonthCoop, so funds/maintenance never drift from the host.
 	bool sharedMonthlyPending = false;
 	bool separateMonthlyPending = false;
+	// Separate: the host's debt verdict for the month (combined player funds).
+	bool separateMonthlyDebt = false;
+	bool separateMonthlyWarned = false;
 	Json::Value separateMonthlyPlayerFunds;
 	Json::Value separateMonthlyPlayerCosts;
 	int64_t sharedMonthlyFunds = 0;

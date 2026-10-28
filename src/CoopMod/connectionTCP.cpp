@@ -10757,6 +10757,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (obj.isMember("separatePlayerFunds") && isSeparateCampaign())
 		{
 			separateMonthlyPlayerFunds = obj["separatePlayerFunds"];
+			separateMonthlyDebt = obj.get("separateDebt", false).asBool();
+			separateMonthlyWarned = obj.get("separateWarned", false).asBool();
 			separateMonthlyPlayerCosts = obj.get("separatePlayerCosts", Json::Value(Json::objectValue));
 			separateMonthlyPending = true;
 		}

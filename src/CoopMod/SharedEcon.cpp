@@ -2216,6 +2216,11 @@ void landPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	{
 		return;
 	}
+	// Separate re-sends an unanswered prompt; keep the dialog that is already open.
+	for (State* state : game->getStates())
+		if (ConfirmLandingState* open = dynamic_cast<ConfirmLandingState*>(state))
+			if (open->getCraft() == craft)
+				return;
 	// Textures are null on purpose: this dialog only ASKS. It never runs
 	// checkStartingCondition or the battle generator (its broker branch submits
 	// land_reply instead), and the only thing it draws from the host's world is
@@ -2296,8 +2301,9 @@ void baseDamagedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 
 	// Same "base damaged but survived" dialog the host shows. Safe to pop the real one:
 	// its OK handler returns early for a partial destruction and never erases the base.
+	// Separate: only the base owner gets it.
 	GeoscapeState* gs = findGeoState(game);
-	if (!gs) return;
+	if (!gs || !SeparateEcon::showBaseNotification(game, base)) return;
 	Ufo* ufo = nullptr;
 	const int ufoId = payload.get("ufoId", -1).asInt();
 	for (auto* u : *save->getUfos())
@@ -2402,6 +2408,9 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 	else if (cls == "CraftErrorState")
 	{
+		// flag = a base-scoped error (rearm): Separate shows it to the base owner only.
+		if (payload.get("flag", false).asBool() && !SeparateEcon::showBaseNotification(game, base))
+			return;
 		gs->popup(new CraftErrorState(gs, msg));
 	}
 	else if (cls == "DogfightErrorState")
@@ -2493,7 +2502,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	{
 		std::vector<Soldier*> v;
 		const Json::Value& ids = payload["ids"];
-		if (base)
+		if (base && SeparateEcon::showBaseNotification(game, base))
 		{
 			for (Json::ArrayIndex i = 0; i < ids.size(); ++i)
 				for (auto* s : *base->getSoldiers())
@@ -2785,8 +2794,12 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		}
 	}
 	SavedGame* save = game->getSavedGame();
-	const std::string fundsPlayer = pc.separateProtocol
-		? connectionTCP::seatName(pc.seat) : std::string();
+	// A host simulation result (prod_done, research_done, ...) settles the base
+	// owner's wallet, so it reports that wallet to replicas, not the host seat's.
+	const std::string fundsPlayer = !pc.separateProtocol ? std::string()
+		: (!pc.remote && base && !base->getOwnerPlayerName().empty()
+			&& SeparateEcon::isHostSimulationResult(pc.cmd))
+			? base->getOwnerPlayerName() : connectionTCP::seatName(pc.seat);
 	if (pc.separateProtocol && save)
 		save->setSeparateFundsContext(fundsPlayer);
 	int64_t cost = 0;

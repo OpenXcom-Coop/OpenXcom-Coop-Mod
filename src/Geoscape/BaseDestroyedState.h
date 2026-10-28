@@ -49,6 +49,8 @@ public:
 	~BaseDestroyedState();
 	/// Handler for clicking the Cydonia mission button.
 	void btnOkClick(Action *action);
+	/// Removes the destroyed base from the world (what OK does for a full loss).
+	void removeBase();
 
 };
 

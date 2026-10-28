@@ -2254,12 +2254,27 @@ void DogfightState::btnMinimizeClick(Action *)
 	// PRD-DF02 REPLICA: minimize is per-machine VIEW state (README #6): minimize
 	// freely and locally. It never drives the world clock (the host's authoritative
 	// hostAnyOpen does, 4) and never touches the host-owned sim (no shield write).
+	// Separate: only this seat sees its own craft's fight, and the host holds an
+	// invisible copy that keeps the world clock frozen until it is minimized. The
+	// owner's minimize is therefore the host's minimize: ask the host and adopt
+	// its result from df_state.
 	if (_isReplicaView)
 	{
-		setMinimized(true);
+		if (_game->getCoopMod()->isSeparateCampaign())
+			emitDfCmd("minimize");
+		else
+			setMinimized(true);
 		return;
 	}
 
+	hostMinimize();
+}
+
+/**
+ * HOST: the vanilla minimize (standoff range only).
+ */
+void DogfightState::hostMinimize()
+{
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		if (_currentDist >= STANDOFF_DIST)
@@ -2791,6 +2806,11 @@ void DogfightState::btnMinimizedIconClick(Action *)
 		_state->popup(new DogfightErrorState(_craft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
 		setWaitForPoly(true);
 	}
+	else if (_isReplicaView && _game->getCoopMod()->isSeparateCampaign())
+	{
+		// Separate: restore the host's copy too (see btnMinimizeClick).
+		emitDfCmd("restore");
+	}
 	else
 	{
 		setMinimized(false);
@@ -3128,6 +3148,7 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
 	// 1=kamikaze-aggressive) so every player renders the same marker.
 	frame["ufoStance"] = _ufo ? _ufo->getHuntBehavior() : 0;
 	frame["statusText"] = _statusBase; // marker-free base; the replica re-adds the marker
+	frame["minimized"] = _minimized; // Separate: the owner's window follows the host's copy
 	frame["end"] = _end;
 	frame["endDogfight"] = _endDogfight;
 	frame["ufoBreakingOff"] = _ufoBreakingOff;
@@ -3199,6 +3220,11 @@ void DogfightState::playDfSound(int soundId)
 
 void DogfightState::applyFrame(const Json::Value& frame)
 {
+	if (_game->getCoopMod()->isSeparateCampaign() && frame.isMember("minimized")
+		&& frame["minimized"].asBool() != _minimized)
+	{
+		setMinimized(frame["minimized"].asBool());
+	}
 	_currentDist = frame.get("currentDist", _currentDist).asInt();
 	_targetDist = frame.get("targetDist", _targetDist).asInt();
 	if (_game->getMod()->getShowDogfightDistanceInKm())

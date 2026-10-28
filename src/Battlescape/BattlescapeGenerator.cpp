@@ -1002,12 +1002,17 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		deploymentSoldiers.assign(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
 		if (_craft && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
 		{
+			// Alternate over this craft's crew only. Garrison soldiers are filtered
+			// out of the deployment later, so counting them here would break the
+			// host/client alternation of the soldiers who actually board.
 			std::vector<Soldier*> hostSoldiers;
 			std::vector<Soldier*> clientSoldiers;
 			std::vector<Soldier*> otherSoldiers;
+			std::vector<Soldier*> notOnCraft;
 			for (Soldier* soldier : deploymentSoldiers)
 			{
-				if (soldier->getCoop() == 0) hostSoldiers.push_back(soldier);
+				if (soldier->getCraft() != _craft) notOnCraft.push_back(soldier);
+				else if (soldier->getCoop() == 0) hostSoldiers.push_back(soldier);
 				else if (soldier->getCoop() == 1) clientSoldiers.push_back(soldier);
 				else otherSoldiers.push_back(soldier);
 			}
@@ -1019,6 +1024,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				if (i < clientSoldiers.size()) deploymentSoldiers.push_back(clientSoldiers[i]);
 			}
 			deploymentSoldiers.insert(deploymentSoldiers.end(), otherSoldiers.begin(), otherSoldiers.end());
+			deploymentSoldiers.insert(deploymentSoldiers.end(), notOnCraft.begin(), notOnCraft.end());
 		}
 	}
 

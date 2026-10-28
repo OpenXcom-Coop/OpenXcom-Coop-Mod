@@ -131,6 +131,8 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		_pactList = _game->getCoopMod()->_pactListCoop;
 		_cancelPactList = _game->getCoopMod()->_cancelPactListCoop;
 
+		_separateDebt = _game->getCoopMod()->separateMonthlyDebt;
+		_separateWasWarned = _game->getCoopMod()->separateMonthlyWarned;
 	}
 
 	int month = _game->getSavedGame()->getTime()->getMonth() - 1, year = _game->getSavedGame()->getTime()->getYear();
@@ -246,10 +248,18 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	}
 
 	int performanceBonus = _game->getMod()->getPerformanceBonus(_ratingTotal);
+	if (separate && performanceBonus > 0)
+	{
+		// The host already credited every wallet with its share (settleSeparateMonth)
+		// and the client adopted those wallets. Show this player's share only.
+		const size_t players = std::max<size_t>(1, _game->getSavedGame()->getCoopPlayers().size());
+		performanceBonus = performanceBonus / static_cast<int>(players);
+	}
 	if (performanceBonus > 0)
 	{
 		// increase funds by performance bonus
-		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() + performanceBonus);
+		if (!separate)
+			_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() + performanceBonus);
 		// display
 		std::ostringstream ss4;
 		ss4 << tr("STR_PERFORMANCE_BONUS") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(performanceBonus);
@@ -317,9 +327,14 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 
 	if (!_gameOver)
 	{
-		if (_game->getSavedGame()->getFunds() <= _game->getMod()->getDefeatFunds())
+		// Separate judges the players' combined funds once, on the host, and both
+		// machines apply that verdict (RU2). Everyone else checks the local funds.
+		const bool inDebt = separate ? _separateDebt
+			: _game->getSavedGame()->getFunds() <= _game->getMod()->getDefeatFunds();
+		const bool wasWarned = separate ? _separateWasWarned : _game->getSavedGame()->getWarned();
+		if (inDebt)
 		{
-			if (_game->getSavedGame()->getWarned())
+			if (wasWarned)
 			{
 				ss5.str("");
 				ss5 << tr("STR_YOU_HAVE_NOT_SUCCEEDED");
@@ -556,6 +571,13 @@ void MonthlyReportState::calculateChanges()
 	//calculate total.
 	_ratingTotal = xcomTotal - alienTotal;
 
+	// Separate: settle the bonus and the debt verdict before the monthly packet,
+	// so the client adopts the same wallets and the same verdict.
+	if (_game->getCoopMod()->isSeparateCampaign() && _game->getCoopMod()->getServerOwner())
+	{
+		settleSeparateMonth();
+	}
+
 	// coop
 	if (_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner())
 	{
@@ -699,6 +721,8 @@ void MonthlyReportState::calculateChanges()
 				}
 				root["separatePlayerFunds"] = playerFunds;
 				root["separatePlayerCosts"] = playerCosts;
+				root["separateDebt"] = _separateDebt;
+				root["separateWarned"] = _separateWasWarned;
 			}
 		}
 
@@ -706,6 +730,35 @@ void MonthlyReportState::calculateChanges()
 	}
 
 
+}
+
+/**
+ * Separate host: each player's wallet gets an equal share of the performance
+ * bonus, like country funding (RU7). The campaign is in debt when the SUM of
+ * all players' funds is at or below the mod's defeat threshold (RU2); one
+ * player may stay negative while the combined total is above it.
+ */
+void MonthlyReportState::settleSeparateMonth()
+{
+	SavedGame* save = _game->getSavedGame();
+	const std::vector<std::string>& players = save->getCoopPlayers();
+	const int performanceBonus = _game->getMod()->getPerformanceBonus(_ratingTotal);
+	if (performanceBonus > 0 && !players.empty())
+	{
+		const int64_t share = performanceBonus / static_cast<int64_t>(players.size());
+		for (const std::string& playerName : players)
+		{
+			SeparateFundsScope wallet(save, playerName);
+			save->setFunds(save->getFunds() + share);
+		}
+	}
+	int64_t combined = 0;
+	for (const std::string& playerName : players)
+		combined += save->getSeparatePlayerFunds(playerName);
+	if (players.empty())
+		combined = save->getFunds();
+	_separateDebt = combined <= _game->getMod()->getDefeatFunds();
+	_separateWasWarned = save->getWarned();
 }
 
 /**

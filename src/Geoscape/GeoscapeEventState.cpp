@@ -54,7 +54,8 @@ namespace OpenXcom
  * @param geoEvent Pointer to the event.
  */
 GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
-	const std::string& ownerPlayerName, bool coopShared) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule), _coopShared(coopShared)
+	const std::string& ownerPlayerName, bool coopShared,
+	const GeoscapeEventDisplay* replicated) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule), _coopShared(coopShared)
 {
 	_screen = false;
 
@@ -115,7 +116,22 @@ GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
 	_lstTransfers->setBackground(_window);
 	_lstTransfers->setMargin(2);
 
-	eventLogic();
+	if (replicated)
+	{
+		// Display-only copy of the host's result: the authoritative host already
+		// applied this event (funds, transfers, missions, research and RNG).
+		if (!replicated->place.empty())
+		{
+			_txtTitle->setText(tr(_eventRule.getName()).arg(replicated->place));
+			_txtMessage->setText(tr(_eventRule.getDescription()).arg(replicated->place));
+		}
+		for (const auto& row : replicated->rows)
+			addTransferRow(row.first, row.second);
+	}
+	else
+	{
+		eventLogic();
+	}
 
 	_txtItem->setVisible(false);
 	_txtQuantity->setVisible(false);
@@ -130,6 +146,12 @@ GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
 		_btnOk->setX((_btnOk->getX() + _btnItemsArriving->getX()) / 2);
 		_btnItemsArriving->setVisible(false);
 	}
+}
+
+void GeoscapeEventState::addTransferRow(const std::string& itemType, const std::string& quantity)
+{
+	_lstTransfers->addRow(2, tr(itemType).c_str(), quantity.c_str());
+	_display.rows.push_back(std::make_pair(itemType, quantity));
 }
 
 /**
@@ -178,6 +200,7 @@ void GeoscapeEventState::eventLogic()
 			}
 		}
 
+		_display.place = place;
 		std::string titlePlus = tr(rule.getName()).arg(place);
 		_txtTitle->setText(titlePlus);
 
@@ -222,8 +245,12 @@ void GeoscapeEventState::eventLogic()
 		save->addResearchScore(rule.getPoints());
 	}
 
-	// 2. give/take funds
-	save->setFunds(save->getFunds() + rule.getFunds());
+	// 2. give/take funds (Separate: the event owner's wallet)
+	{
+		SeparateFundsScope wallet(save,
+			_game->getCoopMod()->isSeparateCampaign() ? _ownerPlayerName : std::string());
+		save->setFunds(save->getFunds() + rule.getFunds());
+	}
 
 	// 3. spawn/transfer persons (soldiers, engineers, scientists, ...)
 	const std::string& spawnedPersonType = rule.getSpawnedPersonType();
@@ -416,7 +443,7 @@ void GeoscapeEventState::eventLogic()
 
 			std::ostringstream ss;
 			ss << -removed;
-			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
+			addTransferRow(ti.first, ss.str());
 		}
 		else if (Options::oxceGeoscapeEventsInstantDelivery)
 		{
@@ -424,7 +451,7 @@ void GeoscapeEventState::eventLogic()
 
 			std::ostringstream ss;
 			ss << ti.second;
-			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
+			addTransferRow(ti.first, ss.str());
 		}
 		else
 		{

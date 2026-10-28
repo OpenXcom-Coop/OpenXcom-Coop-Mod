@@ -1599,7 +1599,29 @@ void DebriefingState::btnOkClick(Action *)
 			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _palette));
 		}
 
-		if (_eventToSpawn)
+		if (_eventToSpawn && _game->getCoopMod()->isSeparateCampaign())
+		{
+			// Separate: the host applies the mission's event to the battle owner
+			// (wallet, base, research) and only the owner sees the window. The
+			// client replica never runs it; it gets the host's result instead.
+			if (_game->getCoopMod()->getServerOwner()
+				&& _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn))
+			{
+				GeoscapeEventState* eventState = new GeoscapeEventState(
+					*_eventToSpawn, _eventOwnerPlayerName);
+				const std::string eventResearch = eventState->getResearchName();
+				const std::string eventBonus = eventState->getBonusResearchName();
+				const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
+				if (_eventOwnerPlayerName.empty()
+					|| _eventOwnerPlayerName == connectionTCP::seatName(connectionTCP::localSeat()))
+					_game->pushState(eventState);
+				else
+					delete eventState;
+				SeparateEcon::hostGeoscapeEvent(_game, _eventToSpawn->getName(),
+					eventResearch, eventBonus, _eventOwnerPlayerName, &eventDisplay);
+			}
+		}
+		else if (_eventToSpawn)
 		{
 			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn);
 			if (canSpawn)
@@ -2886,6 +2908,7 @@ void DebriefingState::prepareDebriefing()
 
 		// Generate a success event
 		_eventToSpawn = _game->getMod()->getEvent(ruleDeploy->chooseSuccessEvent());
+		_eventOwnerPlayerName = battle->getBattleOwnerPlayerName();
 	}
 	else if (!success && ruleDeploy)
 	{
@@ -2908,6 +2931,7 @@ void DebriefingState::prepareDebriefing()
 
 		// Generate a failure event
 		_eventToSpawn = _game->getMod()->getEvent(ruleDeploy->chooseFailureEvent());
+		_eventOwnerPlayerName = battle->getBattleOwnerPlayerName();
 	}
 
 	if (ignoredUfo)

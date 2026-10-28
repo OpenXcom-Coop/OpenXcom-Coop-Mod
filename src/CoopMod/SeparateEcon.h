@@ -17,6 +17,7 @@ class Soldier;
 class Ufo;
 class RuleResearch;
 class Target;
+struct GeoscapeEventDisplay;
 
 /** Host-authoritative protocol for the schema-3 SEPARATE campaign.
  *
@@ -152,6 +153,9 @@ bool showMissionTargetOwner(Game* game);
 /// Whether this local seat should see a completion popup for this base.
 /// Shared Research notifies both seats; private research only the base owner.
 bool showResearchCompletion(Game* game, const Base* base);
+/// Separate wallet that pays for host-simulated work at this base (its owner);
+/// empty outside Separate, so the caller keeps the ordinary funds.
+std::string baseWalletOwner(Game* game, const Base* base);
 /// Whether this local seat owns a base-scoped notification (production,
 /// construction, and owner-less legacy arrivals).
 bool showBaseNotification(Game* game, const Base* base);
@@ -160,6 +164,8 @@ bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	const RuleResearch* research);
 /// Separate-only host policy for commands targeting another player's base.
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote);
+/// Commands the host emits to mirror its own simulation (never player requests).
+bool isHostSimulationResult(const std::string& cmd);
 /// Separate-only craft assignment validation (ownership + per-seat half quota).
 bool validateCraftAssign(Game* game, const Json::Value& payload, Base* base,
 	int seat, int64_t& cost, std::string& failReason);
@@ -189,6 +195,7 @@ void requestCydonia(Game* game, Craft* craft);
 /// Replicate a mod geoscape event and its host-selected Shared Research result.
 void hostGeoscapeEvent(Game* game, const std::string& eventName,
 	const std::string& researchName, const std::string& bonusResearchName,
-	const std::string& ownerPlayerName = std::string());
+	const std::string& ownerPlayerName = std::string(),
+	const GeoscapeEventDisplay* display = nullptr);
 }
 }

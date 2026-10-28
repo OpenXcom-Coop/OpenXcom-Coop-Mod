@@ -45,6 +45,8 @@ private:
 	Text *_txtDesc, *_txtFailure;
 	int _gameOver;
 	int _ratingTotal, _fundingDiff, _lastMonthsRating;
+	/// Separate: the host's month-end debt verdict on the players' combined funds.
+	bool _separateDebt = false, _separateWasWarned = false;
 	std::vector<std::string> _happyList, _sadList, _pactList, _cancelPactList;
 	Globe *_globe;
 	std::vector<Soldier*> _soldiersMedalled;
@@ -59,6 +61,8 @@ public:
 	void btnOkClick(Action *action);
 	/// Calculate monthly scores.
 	void calculateChanges();
+	/// Separate host: split the performance bonus and judge the combined debt.
+	void settleSeparateMonth();
 };
 
 }

@@ -2610,8 +2610,11 @@ void GeoscapeState::time5Seconds()
 												 return b && !b->_isForeignBase;
 											 });
 
-	// Game over if there are no more bases.
-	if (_game->getSavedGame()->getBases()->empty() || (noNonCoopBases && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))
+	// Game over if there are no more bases. Separate is one world holding every
+	// player's bases: the campaign is lost only when no player has a base left
+	// (RU1). The host judges it; the lose cutscene carries the ending to the client.
+	const bool separateWorld = _game->getCoopMod()->isSeparateCampaign();
+	if (_game->getSavedGame()->getBases()->empty() || (!separateWorld && noNonCoopBases && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))
 	{
 		_game->getSavedGame()->setEnding(END_LOSE);
 	}
@@ -3085,7 +3088,9 @@ void GeoscapeState::time5Seconds()
 				}
 				else if (w != 0)
 				{
-					if (!xcraft->getIsAutoPatrolling())
+					// Separate: the craft owner gets the prompt (a client craft's
+					// owner receives it through patrol_prompt below).
+					if (!xcraft->getIsAutoPatrolling() && SeparateEcon::ownsCraft(_game, xcraft))
 					{
 						popup(new CraftPatrolState(xcraft, _globe));
 					}
@@ -3588,13 +3593,14 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 			GeoscapeEventState* eventState = new GeoscapeEventState(*eventRules, eventOwner);
 			const std::string eventResearch = eventState->getResearchName();
 			const std::string eventBonus = eventState->getBonusResearchName();
+			const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
 			if (eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat()))
 				popup(eventState);
 			else
 				delete eventState;
 			if (_game->getCoopMod()->isSeparateCampaign())
 				SeparateEcon::hostGeoscapeEvent(_game, eventRules->getName(),
-					eventResearch, eventBonus, eventOwner);
+					eventResearch, eventBonus, eventOwner, &eventDisplay);
 			else
 				SharedEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
 		}
@@ -3894,13 +3900,14 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 		GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner, ge->isCoopShared());
 		const std::string eventResearch = eventState->getResearchName();
 		const std::string eventBonus = eventState->getBonusResearchName();
+		const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
 		if (eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat()))
 			popup(eventState);
 		else
 			delete eventState;
 		if (_game->getCoopMod()->isSeparateCampaign())
 			SeparateEcon::hostGeoscapeEvent(_game, ge->getRules().getName(),
-				eventResearch, eventBonus, eventOwner);
+				eventResearch, eventBonus, eventOwner, &eventDisplay);
 		else
 			SharedEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
 	}
@@ -4026,8 +4033,9 @@ void GeoscapeState::time1Hour()
 									   .arg(tr(ammo->getType()))
 									   .arg(xcraft->getName(_game->getLanguage()))
 									   .arg(xbase->getName());
-					popup(new CraftErrorState(this, msg));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+					if (SeparateEcon::showBaseNotification(_game, xbase))
+						popup(new CraftErrorState(this, msg));
+					SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true);
 				}
 			}
 			if (xcraft->getShieldCapacity() > 0 && xcraft->getStatus() != "STR_OUT")
@@ -4050,8 +4058,9 @@ void GeoscapeState::time1Hour()
 					.arg(tr(ammo->getType()))
 					.arg(tr(facility->getRules()->getType()))
 					.arg(xbase->getName());
-				popup(new CraftErrorState(this, msg));
-				SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+				if (SeparateEcon::showBaseNotification(_game, xbase))
+					popup(new CraftErrorState(this, msg));
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true);
 			}
 		}
 	}
@@ -4115,9 +4124,15 @@ void GeoscapeState::time1Hour()
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		std::map<Production*, productionProgress_e> toRemove;
-		for (auto* prod : xbase->getProductions())
 		{
-			toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
+			// Separate: unit costs, the money check and sale proceeds belong to
+			// the base owner's wallet, not to the host seat's.
+			SeparateFundsScope wallet(_game->getSavedGame(),
+				SeparateEcon::baseWalletOwner(_game, xbase));
+			for (auto* prod : xbase->getProductions())
+			{
+				toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
+			}
 		}
 		for (const auto& pair : toRemove)
 		{
@@ -4399,8 +4414,12 @@ void GeoscapeState::time1Day()
 				}
 			}
 		}
+		// Separate: only the base owner gets the completion popup (the owner's
+		// replica raises its own from fac_done).
 		for (const auto& pair : finishedFacilities)
 		{
+			if (!SeparateEcon::showBaseNotification(_game, xbase))
+				break;
 			if (pair.second > 1)
 			{
 				std::ostringstream ssf;
@@ -4668,7 +4687,8 @@ void GeoscapeState::time1Day()
 		}
 		if (!trainingFinishedList.empty())
 		{
-			popup(new TrainingFinishedState(xbase, trainingFinishedList, false));
+			if (SeparateEcon::showBaseNotification(_game, xbase))
+				popup(new TrainingFinishedState(xbase, trainingFinishedList, false));
 			SharedEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, sharedAlertSoldierIds(trainingFinishedList), false);
 		}
 		// Handle psionic training
@@ -4687,7 +4707,8 @@ void GeoscapeState::time1Day()
 			}
 			if (!psiTrainingFinishedList.empty())
 			{
-				popup(new TrainingFinishedState(xbase, psiTrainingFinishedList, true));
+				if (SeparateEcon::showBaseNotification(_game, xbase))
+					popup(new TrainingFinishedState(xbase, psiTrainingFinishedList, true));
 				SharedEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, sharedAlertSoldierIds(psiTrainingFinishedList), true);
 			}
 		}
@@ -5792,10 +5813,25 @@ bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, T
 {
 	if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) || !_game->getCoopMod()->getServerOwner())
 		return false;
-	if (_sharedLandingPending.find(craft) != _sharedLandingPending.end())
-		return true; // already asked; still waiting for the answer
+	auto pending = _sharedLandingPending.find(craft);
+	if (pending != _sharedLandingPending.end())
+	{
+		// Already asked; still waiting for the answer. Separate: the host holds no
+		// copy of another player's prompt, and that player's replica drops it while
+		// it is off the Geoscape or has not replicated the target yet. Ask again
+		// every few seconds until the owner answers, so the craft cannot strand.
+		const Uint32 resendMs = 5000;
+		if (_game->getCoopMod()->isSeparateCampaign() && !SeparateEcon::ownsCraft(_game, craft)
+			&& SDL_GetTicks() - pending->second.sentTicks >= resendMs)
+		{
+			pending->second.sentTicks = SDL_GetTicks();
+			SeparateEcon::hostLandingPrompt(_game, craft,
+				SharedEcon::lastCraftOrderSeat(craft), pending->second.shade);
+		}
+		return true;
+	}
 
-	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade };
+	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade, SDL_GetTicks() };
 	_game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt
 	if (_game->getCoopMod()->isSeparateCampaign())
 	{
@@ -5842,7 +5878,10 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol,
 	// Playtest: the landing was answered by ONE seat. Close every OTHER seat's still-
 	// open broker prompt - mark it resolved locally (the host's own copy) and broadcast
 	// land_close so the clients close theirs (ConfirmLandingState::think consumes it).
-	_game->getCoopMod()->markLandingResolved(craft->getId());
+	// Separate: the host holds a copy only of its own crafts' prompts; marking
+	// another player's craft id would close a later host dialog that shares it.
+	if (!_game->getCoopMod()->isSeparateCampaign() || SeparateEcon::ownsCraft(_game, craft))
+		_game->getCoopMod()->markLandingResolved(craft->getId());
 	if (_game->getCoopMod()->isSharedCampaign())
 		SharedEcon::broadcastLandClose(_game, craft);
 	else
@@ -5850,10 +5889,12 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol,
 	// Close the host's OWN broker copy synchronously if it is on top (a client just
 	// answered). If the host answered its own dialog, that copy already popped itself.
 	// Do it before generating the battle so the stale dialog is not left underneath.
-	if (!hostDialogAnswered && !_game->getStates().empty()
-		&& dynamic_cast<ConfirmLandingState*>(_game->getStates().back()))
+	// Only this craft's dialog: the host may be asking about a different craft.
+	if (!hostDialogAnswered && !_game->getStates().empty())
 	{
-		_game->popState();
+		ConfirmLandingState* top = dynamic_cast<ConfirmLandingState*>(_game->getStates().back());
+		if (top && top->getCraft() == craft)
+			_game->popState();
 	}
 
 	if (!yes)
@@ -5914,7 +5955,8 @@ void GeoscapeState::clientCraftReachedWaypoint(Craft* craft)
 	Waypoint* wp = dynamic_cast<Waypoint*>(dest);
 	// Pop the same alert the host shows. Its ctor reads the destination name, so pop
 	// BEFORE clearing _dest; skip while auto-patrolling, matching the host's gate.
-	if (dest && !craft->getIsAutoPatrolling())
+	// Separate: only the craft owner is prompted.
+	if (dest && !craft->getIsAutoPatrolling() && SeparateEcon::ownsCraft(_game, craft))
 		popup(new CraftPatrolState(craft, _globe));
 	craft->setDestination(0);
 	// Prune the now-orphan waypoint (its last follower just left), mirroring the host's
@@ -6270,7 +6312,18 @@ bool GeoscapeState::sharedApplyDogfightCmd(int baseId, int craftId, int ufoId, c
 	else if (action == "disengage")    target->hostApplyStance(4);
 	else if (action == "weaponToggle") target->hostToggleWeapon(arg);
 	else if (action == "selfDestruct") target->hostSelfDestruct();
-	else if (action == "minimize")     { /* per-machine VIEW state (4): no host effect */ }
+	else if (action == "minimize" || action == "restore")
+	{
+		// SHARED: per-machine VIEW state (4), no host effect. Separate: the owner's
+		// window is the only visible one, so the owner's minimize/restore drives the
+		// host copy that the world clock counts.
+		if (_game->getCoopMod()->isSeparateCampaign() && !target->isLocallyVisible())
+		{
+			if (action == "minimize") target->hostMinimize();
+			else target->setMinimized(false);
+			_minimizedDogfights = minimizedDogfightsCount();
+		}
+	}
 	return true;
 }
 
@@ -6320,7 +6373,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 		if (ufo->getRules()->getMissilePower() < 0)
 		{
 			// It's a nuclear warhead... Skynet knows no mercy
-			popup(new BaseDestroyedState(base, ufo, true, false));
+			showBaseDestroyed(base, ufo, true);
 		}
 		else
 		{
@@ -6334,11 +6387,17 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 			base->cleanupDefenses(true);
 
 			// let the player know that some facilities were destroyed, but the base survived
-			popup(new BaseDestroyedState(base, ufo, true, true));
+			// (Separate: the base owner; a client owner's replica shows it from base_damaged)
+			if (SeparateEcon::showBaseNotification(_game, base))
+				popup(new BaseDestroyedState(base, ufo, true, true));
 			// The damage roll is host-only RNG. Send the absolute resulting layout so
 			// Shared and Separate replicas cannot retain facilities the host just lost.
-			SharedEcon::hostBaseDamaged(_game, base, ufo);
-			SeparateEcon::hostBaseDamaged(_game, base, ufo);
+			// One broadcast per mode: SharedEcon's also fires in Separate, which made
+			// the replica apply the layout and show the dialog twice.
+			if (_game->getCoopMod()->isSeparateCampaign())
+				SeparateEcon::hostBaseDamaged(_game, base, ufo);
+			else
+				SharedEcon::hostBaseDamaged(_game, base, ufo);
 		}
 	}
 	else if (base->getAvailableSoldiers(true, true) > 0 || !base->getVehicles()->empty())
@@ -6449,8 +6508,33 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 	else
 	{
 		// Please garrison your bases in future
-		popup(new BaseDestroyedState(base, ufo, false, false));
+		showBaseDestroyed(base, ufo, false);
 	}
+}
+
+/**
+ * A base was lost. Separate host: a base the host seat does not own is removed at
+ * once (its owner's replica gets base_destroyed and shows the loss), so the loss
+ * never waits for the host to click OK; the host gets the same notice a replica
+ * shows. Everyone else gets the vanilla dialog, which removes the base on OK.
+ */
+void GeoscapeState::showBaseDestroyed(Base* base, Ufo* ufo, bool missiles)
+{
+	if (_game->getCoopMod()->getServerOwner() && !SeparateEcon::showBaseNotification(_game, base))
+	{
+		const std::string baseName = base->getName();
+		BaseDestroyedState* destroyed = new BaseDestroyedState(base, ufo, missiles, false);
+		destroyed->removeBase();
+		delete destroyed;
+		const RuleInterface* itf = _game->getMod()->getInterface("geoscape");
+		popup(new ErrorMessageState(
+			tr(missiles ? "STR_ALIEN_MISSILES_HAVE_DESTROYED_OUR_BASE"
+				: "STR_THE_ALIENS_HAVE_DESTROYED_THE_UNDEFENDED_BASE").arg(baseName),
+			_palette, itf->getElement("genericWindow")->color, "BACK01.SCR",
+			itf->getElement("palette")->color));
+		return;
+	}
+	popup(new BaseDestroyedState(base, ufo, missiles, false));
 }
 
 /**
