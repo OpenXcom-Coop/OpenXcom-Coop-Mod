@@ -884,25 +884,34 @@ void CoopState::init()
 
 	// Open the download dialog first and only then ask the host for the map.
 	// This keeps the previous Battlescape from remaining interactive while a
-	// fast local transfer completes.
+	// fast local transfer completes. One request per dialog and download kind:
+	// a later init() is only the dialog coming back to the top of the stack.
+	if (_downloadRequestedState == global_state)
+	{
+		return;
+	}
 	if (global_state == COOP_DLG_MAP_DOWNLOAD)
 	{
+		_downloadRequestedState = global_state;
 		_game->getCoopMod()->load_state = "Requesting map data";
 		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT\"}");
 	}
 	else if (global_state == COOP_DLG_SAVED_MAP_DOWNLOAD)
 	{
+		_downloadRequestedState = global_state;
 		_game->getCoopMod()->load_state = "Requesting saved battle";
 		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT_SAVE\"}");
 	}
 	else if (global_state == COOP_DLG_REVERSE_MAP_DOWNLOAD)
 	{
+		_downloadRequestedState = global_state;
 		_game->getCoopMod()->load_state = "Requesting saved battle";
 		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT_SAVE_TRUE\"}");
 		_game->getCoopMod()->setHost(false);
 	}
 	else if (global_state == COOP_DLG_WORLD_DOWNLOAD)
 	{
+		_downloadRequestedState = global_state;
 		_game->getCoopMod()->load_state = "Downloading map";
 		_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"request_load_progress\"}");
 	}
@@ -911,6 +920,7 @@ void CoopState::init()
 void CoopState::requestSavedBattleMap()
 {
 	global_state = COOP_DLG_SAVED_MAP_DOWNLOAD;
+	_downloadRequestedState = global_state;
 	_game->getCoopMod()->load_state = "Downloading map";
 	_txtTitle->setText("Downloading map...");
 	_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"SEND_FILE_CLIENT_SAVE\"}");
@@ -919,6 +929,7 @@ void CoopState::requestSavedBattleMap()
 void CoopState::requestCampaignWorld()
 {
 	global_state = COOP_DLG_WORLD_DOWNLOAD;
+	_downloadRequestedState = global_state;
 	_game->getCoopMod()->load_state = "Downloading map";
 	_txtTitle->setText("Downloading map...");
 	_game->getCoopMod()->sendTCPPacketData("{\"state\" : \"request_load_progress\"}");
