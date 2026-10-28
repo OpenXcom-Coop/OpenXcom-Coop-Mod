@@ -856,6 +856,21 @@ bool TransferItemsState::harnessTransferItem(const std::string& itemType, int co
 	return false;
 }
 
+bool TransferItemsState::harnessTransferCraft(int craftId)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_CRAFT && row.rule
+			&& ((Craft*)row.rule)->getId() == craftId)
+		{
+			row.amount = 1;
+			submitSharedTransfer();
+			return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Completes the transfer between bases.
  *

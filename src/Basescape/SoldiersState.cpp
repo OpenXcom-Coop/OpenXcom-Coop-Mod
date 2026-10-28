@@ -865,6 +865,12 @@ void SoldiersState::lstSoldiersGiveUnitPress(Action *)
 /**
  * Test automation: the soldier ids this screen actually displays.
  */
+void SoldiersState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
 std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
 {
 	std::vector<int> ids;

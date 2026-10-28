@@ -69,6 +69,8 @@ public:
 	/// Test automation: the soldier ids this screen actually displays (the built
 	/// _filteredListOfSoldiers). In SHARED this is what each player SEES in the roster.
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation: pick sort option <index> and run the real sort handler.
+	void harnessSort(size_t index);
 	/// Applies a pending PRD-J10 live refresh.
 	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
