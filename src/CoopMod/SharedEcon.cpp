@@ -760,6 +760,10 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 
 	int64_t total = 0;
 	double storeAddTo = 0.0;
+	// Live aliens per prison type: the destination must hold them, exactly as
+	// the vanilla TransferItemsState gate does (any containment of that type
+	// without storage limits; free containment space with them).
+	std::map<int, int> incomingPrisoners;
 
 	const Json::Value& items = payload["items"];
 	if (items.isArray())
@@ -774,7 +778,18 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_TRANSFER"; return false; }
 			total += (int64_t)qty * itemCost;
 			storeAddTo += (double)qty * r->getSize();
+			if (r->isAlien())
+				incomingPrisoners[r->getPrisonType()] += qty;
 		}
+	for (const auto& prisoners : incomingPrisoners)
+	{
+		const int available = toBase->getAvailableContainment(prisoners.first);
+		const int room = Options::storageLimitsEnforced
+			? available - toBase->getUsedContainment(prisoners.first)
+			: (available > 0 ? prisoners.second : 0);
+		if (prisoners.second > room)
+			{ failReason = "STR_NO_ALIEN_CONTAINMENT_FOR_TRANSFER"; return false; }
+	}
 
 	// Living quarters: the base that HOUSES a soldier pays for it, and the
 	// destination reserves the space the moment the transfer is sent
@@ -795,6 +810,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			incomingPersonnel++;
 		}
 
+	int incomingCrafts = 0;
 	const Json::Value& crafts = payload["crafts"];
 	if (crafts.isArray())
 		for (const auto& jc : crafts)
@@ -802,6 +818,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			Craft* c = findCraft(fromBase, jc.get("id", -1).asInt(), jc.get("type", "").asString());
 			if (!c) { failReason = "craft not transferable"; return false; }
 			total += craftCost;
+			incomingCrafts++;
 			// the crew rides along (see transferApply) and must be housed too
 			for (auto* s : *fromBase->getSoldiers())
 				if (s->getCraft() == c) incomingPersonnel++;
@@ -819,6 +836,9 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 	if (save->getFunds() < total) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
 	if (Options::storageLimitsEnforced && toBase->storesOverfull(storeAddTo))
 		{ failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
+	if (incomingCrafts > 0
+		&& toBase->getAvailableHangars() - toBase->getUsedHangars() < incomingCrafts)
+		{ failReason = "STR_NO_FREE_HANGARS_FOR_TRANSFER"; return false; }
 	if (incomingPersonnel > 0
 		&& toBase->getAvailableQuarters() - toBase->getUsedQuarters() < incomingPersonnel)
 		{ failReason = "STR_NO_FREE_ACCOMODATION"; return false; }
