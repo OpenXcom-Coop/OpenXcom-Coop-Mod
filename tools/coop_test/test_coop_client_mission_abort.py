@@ -9,6 +9,11 @@ already on the geoscape.
 Each row starts a fresh campaign, enters one coop battle, has one player press
 ABORT, the other vote YES, and requires both machines to reach the geoscape.
 
+SEPARATE is one host-authoritative world: the host spawns the mission site and
+simulates the flight, so each SEPARATE row spawns the site on the host and forces
+the starter's craft en route on both machines (the starter is the craft owner,
+who alone gets the landing prompt).
+
   S1 SEPARATE, the CLIENT starts the mission, the CLIENT asks for the abort.
   S2 SEPARATE, the CLIENT starts the mission, the HOST asks for the abort.
   S3 SEPARATE, the HOST starts the mission, the CLIENT asks for the abort (guard).
@@ -30,10 +35,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
-import session  # noqa: E402
 import geo  # noqa: E402
 import shared_fixture  # noqa: E402
-from harness import GameClient, make_user_dir  # noqa: E402
+import separate_campaign_fixture  # noqa: E402
 
 CRAFT = os.environ.get("OXC_TEST_CRAFT", "STR_SKYRANGER")
 DRAIN_TIMEOUT = 90
@@ -75,24 +79,6 @@ def spawn_site(gc):
                   "deployment": "STR_TERROR_MISSION", "lon": b["lon"] + 0.35,
                   "lat": b["lat"] + 0.10, "race": "STR_SECTOID", "hours": 240})
     return site["site_id"], b
-
-
-def wait_landing_prompt(starter, other):
-    """Run both clocks until the starter's craft reaches the site and the landing
-    prompt opens on the starter."""
-    def landing():
-        if has(starter, "ConfirmLandingState"):
-            return True
-        for gc in (starter, other):
-            t = states(gc)[-1]
-            if "CoopState" in t:
-                gc.cmd({"cmd": "coop_dialog_back"})
-            elif "GeoscapeState" not in t:
-                gc.cmd({"cmd": "dismiss_popup"})
-            gc.cmd({"cmd": "geo_set_speed", "idx": 2})
-        return None
-
-    starter.wait_for(starter.name + " landing prompt", landing, timeout=120, interval=0.5)
 
 
 def enter_tactical(host, client):
@@ -203,22 +189,13 @@ def second_abort_probe(host, client):
 
 
 def separate_row(results, row, tag, ports, starter_is_client, asker_is_client):
-    host = GameClient("host", ports[0], make_user_dir(tag + "_host"))
-    client = GameClient("client", ports[1], make_user_dir(tag + "_client"))
-    host.spawn(); client.spawn()
-    host.connect(timeout=300); client.connect(timeout=300)
+    js = separate_campaign_fixture.bring_up(tag, ports)
+    host, client = js.host, js.client
     try:
-        session.new_campaign(host, client, port=str(ports[2]))
-        geo.wait_both_ready(host, client, timeout=120)
         geo.slow_clock(host, client)
-        starter, other = (client, host) if starter_is_client else (host, client)
-        site, b = spawn_site(starter)
-        cid = transport(starter)["id"]
-        starter.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
-                    "lon": b["lon"] + 0.34, "lat": b["lat"] + 0.10, "dest": f"site:{site}",
-                    "fuel": 999999, "lowFuel": False})
-        wait_landing_prompt(starter, other)
-        starter.ok({"cmd": "coop_mission_start"})
+        starter = client if starter_is_client else host
+        separate_campaign_fixture.fly_to_new_site(host, client, starter, CRAFT)
+        starter.ok({"cmd": "confirm_landing"})
         enter_tactical(host, client)
         asker, voter = (client, host) if asker_is_client else (host, client)
         vote_abort(asker, voter)
@@ -229,11 +206,7 @@ def separate_row(results, row, tag, ports, starter_is_client, asker_is_client):
             second_abort_probe(host, client)
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
-        for gc in (host, client):
-            try:
-                gc.shutdown()
-            except Exception:
-                pass
+        js.shutdown()
     return alive
 
 
