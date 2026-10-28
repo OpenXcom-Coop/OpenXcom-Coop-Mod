@@ -277,7 +277,7 @@ def main():
         print("PASS resumed state == post-drain snapshot on both machines; no walk replay")
 
         # PARALLEL mode reset-default tally (see test_coop_resume_battle_
-        # control.py's own note, cross-checked against test_rw_end_turn_
+        # control.py's own note, cross-checked against test_end_turn_
         # tally.py L1: "parallel emits NOTHING at entry").
         RESET_TALLY = {"turn": 0, "side": "", "count": 0, "needed": 0, "ready": [], "activeSeat": -1}
         for gc, tag in ((host2, "host"), (client2, "client")):

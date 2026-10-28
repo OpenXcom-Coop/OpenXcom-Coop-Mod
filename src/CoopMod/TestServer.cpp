@@ -5509,7 +5509,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "tile_census")
 	{
 		// W2-P4 acceptance (F1362): tile_info's census fields for EVERY tile of an
-		// inclusive box {x0,x1,y0,y1,z0,z1} in ONE reply - test_w2_client_grenade
+		// inclusive box {x0,x1,y0,y1,z0,z1} in ONE reply - test_client_grenade
 		// C20 read an 800-tile box with ~2,400 separate tile_info round trips (one
 		// pump frame each), ~160 s. Read-only, test-only, no new semantics: each
 		// row is the subset of tile_info's reply that census compares, read with
@@ -6331,7 +6331,7 @@ static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
 
 // ----- W2-P2 S-H.1 (amendment A5.5, owner ruling D138): `field_poke` -----
 // TEST-ONLY lever (T13 gate below), run on the CLIENT by
-// test_w2_hash_coverage.py's HC1: {class:"unit"|"item"|"tile"|"node"|"battle",
+// test_hash_coverage.py's HC1: {class:"unit"|"item"|"tile"|"node"|"battle",
 // id (unit/item/node) | i (tile index; or x/y/z), field:"<delta key>", value,
 // restore:true}. Writes ONE delta field with the setter CoopApply::applyDelta
 // uses, hashes every BattleHashSet bucket BY NAME (battleHashBucketName, so the
@@ -7785,7 +7785,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// W2-P1 (thin-client tripwire, commit 1 of 2): the second player's
 		// "never simulates" probes (BattleAuthority.h). Battle-scoped - reset
 		// by resetBattleAuthority(). Nothing increments them on commit 1; the
-		// S1-S7 test (test_w2_thin_client_tripwire.py) reads them there to prove
+		// S1-S7 test (test_thin_client_tripwire.py) reads them there to prove
 		// its red, and commit 2's coopClientBStateTripwire() /
 		// coopSkipClientPanic() are their only writers.
 		// coopClientBStateLastSite is "<site>:<dynamic type name>" of the last
@@ -8944,7 +8944,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    the call is refused with "no live BattlescapeGame" BEFORE anything
 		//    is written. Reported back as `panicPending` (= !getPanicHandled()
 		//    after the call) whenever a live BattlescapeGame exists.
-		// W2-P1's test_w2_thin_client_tripwire.py applies `status` to BOTH
+		// W2-P1's test_thin_client_tripwire.py applies `status` to BOTH
 		// machines and `panicPending` to the CLIENT only (its S6 panic case).
 		//  * `health` / `stun` (W2-P2 S-A, spec (b)16) - written through the
 		//    existing absolute setters BattleUnit::coopSetHealth() /
@@ -8955,7 +8955,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    otherwise derived from the armor). A value outside
 		//    SPECAB_NONE..SPECAB_BURN_AND_EXPLODE is refused and nothing changes.
 		//    Reported back as `specab`. Applied to BOTH machines by the harness
-		//    (test_w2_delta_core.py's burning-floor walker, specab 2).
+		//    (test_delta_core.py's burning-floor walker, specab 2).
 		//  * `spawnUnit` / `spawnUnitFaction` / `respawn` (W2-P3 S-C.1, spec
 		//    rewrite/prompts/w2p3_nonplayer_origins.md (b)13) - the conversion
 		//    staging of C12a: `spawnUnit` a unit type string ("" clears) written
@@ -13880,7 +13880,7 @@ std::string TestServer::execute(const std::string& line)
 						YAML::YamlRootNodeWriter wR;
 						wR.setAsMap();
 						u->save(wR["unit"], modR->getScriptGlobal());
-						YAML::YamlRootNodeReader rR(wR.emit(), "r5u8b_reload_probe");
+						YAML::YamlRootNodeReader rR(wR.emit(), "reload_probe");
 						const YAML::YamlNodeReader& r = rR["unit"];
 						const std::string typeR = r["genUnitType"].readVal<std::string>("");
 						const std::string armorTypeR = r["genUnitArmor"].readVal<std::string>("");

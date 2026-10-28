@@ -7,7 +7,7 @@ FIXTURE: same recipe/precedent as repro_atom_turn.py (R3-P1) - a live
 2-player skirmish through the harness lobby flow, the same SELECTION RULE +
 bounded re-roll loop (REVIEW4 IR-4), reused here via inline copy (this
 file's own precedent: repro_atom_turn.py; that file's own precedent:
-test_rw_faction_setup.py). Extended for R3-P2's burst/drain proof: TWO
+test_faction_setup.py). Extended for R3-P2's burst/drain proof: TWO
 client-owned soldiers (harnessSeatOneSoldier's new `index` param, added by
 this packet) so a mixed turn+kneel burst can drive two DIFFERENT actors
 back-to-back. A genuine host-side "busy" admission race was ATTEMPTED with
@@ -16,7 +16,7 @@ fired immediately after with no sleep) but could not be made to land - see
 run_burst_drain_proof()'s own doc comment for the diagnostic finding
 (BState think()-loop resolution in this harness is effectively
 un-throttled, faster than a second TestServer command's own round trip).
-SUPERSEDED (R2-P7, 2026-09-02; W2-P4 S-F): tools/coop_test/test_rw_retry_cancel.py
+SUPERSEDED (R2-P7, 2026-09-02; W2-P4 S-F): tools/coop_test/test_retry_cancel.py
 lands a LIVE deny("busy") deterministically behind a real long chain (the
 client's own autoshot) and fires it end-to-end (deny -> pending ->
 auto-resubmit). THIS file is deliberately left as-is: its burst proof is
@@ -75,7 +75,7 @@ COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 
-SDLK_TAB = 9    # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
+SDLK_TAB = 9    # Options::keyBattleNextUnit default (test_input_gating.py precedent)
 SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
 
 # SS2.6's desync row, verbatim from bin/common/Language/en-US.yml. W1-P4 made the
@@ -285,7 +285,7 @@ def run_ui_variant(host, client, actor_id, was_kneeled):
         time.sleep(0.1)
     assert selected == actor_id, (
         f"could not Tab-cycle the client's selection onto unit {actor_id} "
-        f"(last selectedId={selected}) - see test_rw_input_gating.py's own "
+        f"(last selectedId={selected}) - see test_input_gating.py's own "
         "'initial-selection' note on why a fresh load may start elsewhere")
 
     before_tu = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["tu"]
@@ -379,7 +379,7 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
     RESOLVED (R2-P7, then W2-P4 S-F): a real long chain - the client's own
     autoshot - keeps its action context open on the HOST, which keeps
     onIntent()'s `currentActionId() != 0` busy arm true for a measured window.
-    test_rw_retry_cancel.py owns that live-fire proof now; this function
+    test_retry_cancel.py owns that live-fire proof now; this function
     keeps its lever-free natural-race shape on purpose.
 
     Given deny()/recordDeny() (connectionTCP.cpp) updates the SAME
@@ -630,7 +630,7 @@ def select_away_from(host, avoid_id, max_tabs=12):
 
     SURPRISE (found while building this repro, not in the packet text): the
     battle's INHERITED initial selection (blob load, before any Tab press -
-    same "pre-filter" wording test_rw_input_gating.py's own NOTE uses for
+    same "pre-filter" wording test_input_gating.py's own NOTE uses for
     the client side) is NOT itself seat-filtered - it is very often the
     SAME soldier this fixture's own harnessSeatOneSoldier(index=0) just
     stamped to COOP_SEAT_1 (both pick "the first soldier on the craft"), so

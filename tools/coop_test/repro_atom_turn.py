@@ -5,10 +5,10 @@ vanilla -> bt_ev turn (+h) -> client applies -> hash-clean -> bt_action_end
 
 FIXTURE (REVIEW4 IR-4 - "by construction" made constructive): this file
 drives a real 2-player skirmish through the harness lobby flow (the SAME UI
-path test_rw_handshake.py/test_rw_faction_setup.py/test_rw_input_gating.py
+path test_handshake.py/test_faction_setup.py/test_input_gating.py
 already proved out - skirmish_host()/skirmish_client_at_browser()/
 bring_up_lobby() are the same precedent-following inline copies those files
-use, per test_rw_faction_setup.py's own stated precedent).
+use, per test_faction_setup.py's own stated precedent).
 
 DEVIATION FROM THE LITERAL RECIPE (disclosed, not silent - see this
 packet's final report): the runbook's recipe pins mission STR_UFO_CRASH_
@@ -26,7 +26,7 @@ re-roll has real teeth). The runbook's own words: "the two guards ARE the
 construction; terrain choice just makes them cheap" - so this file leans
 harder on the guards to compensate for skipping the terrain pin.
 
-FIXTURE-COVERAGE gap closed here (test_rw_input_gating.py's own note): a
+FIXTURE-COVERAGE gap closed here (test_input_gating.py's own note): a
 plain classic skirmish never calls Soldier::setCoop(), so every soldier
 defaults to seat 0 (host) - the CLIENT would have no real unit to drive a
 client-intent repro against. This packet adds the minimal debug lever that
@@ -65,7 +65,7 @@ WV-D18 and SS2.4a.
     computed or published, and turning back to it genuinely discovers tiles
     for the first time. The delta was CORRECTLY non-empty; SS2.4a was never
     broken. (Same root cause as the REVIEW4 REVEAL_SEQS_AT_T0 exact->range
-    relaxation W1-P6 had to make in test_rw_hash_now.py.)
+    relaxation W1-P6 had to make in test_hash_now.py.)
     FIX: the case no longer assumes any cone is published - it PUBLISHES one
     itself (turn to it, settle, wait for the host's quiescent flush), turns
     away, and only then measures the turn back. The assertion is unchanged
@@ -89,7 +89,7 @@ WV-D18 and SS2.4a.
     point and the point that actually selects a tile.
     FIX: migrated to W1-P6's `map_tile_click_pos` probe, which resolves all
     three and SELF-VERIFIES, with a bounded per-direction retry. Same shape
-    test_rw_input_gating.py and test_rw_feedback.py already use.
+    test_input_gating.py and test_feedback.py already use.
 
 (D) "timed out waiting for action settled" when this file is launched in the
     SAME shell invocation as a preceding harness run. Environment effect, not
@@ -116,7 +116,7 @@ COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 
-SDLK_TAB = 9  # Options::keyBattleNextUnit default (test_rw_input_gating.py precedent)
+SDLK_TAB = 9  # Options::keyBattleNextUnit default (test_input_gating.py precedent)
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 
 # SELECTION RULE (c)'s constants and predicate moved to session.py by the WV-D5
@@ -189,8 +189,8 @@ def bring_up_lobby(host, client, port):
 
 
 def drive_to_battlescape(host, client, seated_holder):
-    """Steps 5-7 of the skirmish lobby flow (test_rw_handshake.py/
-    test_rw_faction_setup.py precedent), extended with the R3-P1 fixture
+    """Steps 5-7 of the skirmish lobby flow (test_handshake.py/
+    test_faction_setup.py precedent), extended with the R3-P1 fixture
     seat stamp between reaching NewBattleState and clicking OK."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
@@ -387,7 +387,7 @@ def center_on_selection(gc):
 
 def tile_click(gc, tx, ty, tz, button="right"):
     """W1-P6's `map_tile_click_pos` recipe, verbatim in shape from
-    test_rw_input_gating.py (and reused by test_rw_feedback.py).
+    test_input_gating.py (and reused by test_feedback.py).
 
     SIGNATURE C FIX (2026-09-03). This used to be `map_tile_screen_pos` + a raw
     click, which W1-P6 documented as NOT A WORKING RECIPE: three real offsets
@@ -448,7 +448,7 @@ def run_ui_variant(host, client, actor_id, current_dir):
         time.sleep(0.1)
     assert selected == actor_id, (
         f"could not Tab-cycle the client's selection onto unit {actor_id} "
-        f"(last selectedId={selected}) - see test_rw_input_gating.py's own "
+        f"(last selectedId={selected}) - see test_input_gating.py's own "
         "'initial-selection' note on why a fresh load may start elsewhere")
 
     before_tu = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["tu"]
@@ -509,7 +509,7 @@ def settle_reveal(host, client, timeout=30):
     """Wait until the HOST has NOTHING unpublished and the client has caught up.
 
     Load-bearing for the no-reveal measurement below, and the reason is exactly
-    the one test_rw_retry_cancel.py's own settle_emits() gives: SS2.4a's
+    the one test_retry_cancel.py's own settle_emits() gives: SS2.4a's
     quiescent flush (CoopReveal::flushQuiescent, at the RB-D5 pump point) can
     publish a standalone `ev reveal` a tick or two AFTER an action settles. A
     measurement started before that flush would see the PREVIOUS action's

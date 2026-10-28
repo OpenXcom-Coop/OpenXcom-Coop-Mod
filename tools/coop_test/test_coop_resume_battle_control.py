@@ -46,7 +46,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-import test_spec16_pause_on_leave as s16
+import test_pause_on_leave as s16
 
 PORT = "47960"
 RESUME_PORT = "47961"
@@ -443,7 +443,7 @@ def _walker_to(host, client, walker_id, tile, what):
 
 
 def stage_alien_and_walk(host, client, walker_id):
-    """SPEC 16's proven staging (test_spec16_pause_on_leave.py): park the sole
+    """SPEC 16's proven staging (test_pause_on_leave.py): park the sole
     alien on the UFO's own ACCESS_LIFT column (LOS wall-blocked - no F394
     spot-halt). Then the owner's fixture steps (W2-H3 AMENDMENTS 2-4, D143):
     the walker walks the LIGHTNING's roof (the craft's top level) from one
@@ -758,15 +758,15 @@ def main():
               f"no walk event replayed on the client")
 
         # PARALLEL mode (this battle's turnMode, D-22-restored): CAPTURED
-        # (WV-D77, cross-checked against test_rw_end_turn_tally.py's own L1 -
+        # (WV-D77, cross-checked against test_end_turn_tally.py's own L1 -
         # "parallel emits NOTHING at entry... the raw tally is the reset()
         # default, not a live recompute") that coopEndTurnTally has NO end-
         # turn arm/tally concept until the first real END TURN press - a
         # PARALLEL battle (fresh entry OR resumed, neither ever pressed END
         # TURN here) reads the reset() default {turn:0,side:'',count:0,
         # needed:0,ready:[]}, not {count:0,needed:2} (that shape is
-        # TRADITIONAL mode's two-seat entry tally, test_rw_turn_baton.py/
-        # test_rw_end_turn_tally.py BOOT C - S3 exercises that mode).
+        # TRADITIONAL mode's two-seat entry tally, test_turn_baton.py/
+        # test_end_turn_tally.py BOOT C - S3 exercises that mode).
         RESET_TALLY = {"turn": 0, "side": "", "count": 0, "needed": 0, "ready": [], "activeSeat": -1}
         for gc, tag in ((host, "host"), (client, "client")):
             tally = session.event_state(gc).get("coopEndTurnTally", {})

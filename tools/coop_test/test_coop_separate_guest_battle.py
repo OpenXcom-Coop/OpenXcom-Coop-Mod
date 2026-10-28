@@ -32,7 +32,7 @@ T2 is implemented. (2) the CLIENT's own clean return to its geoscape after a
 SEPARATE host abort (was F387: the host's finishBattle returned only the host;
 the client was left in the battle) is now asserted HERE via expect_both=True.
 (1) the guest's post-battle RECORD (stats/rank/wounds/missions/kills/diary/death)
-returning to the CLIENT's own world is asserted by test_w2_battle_end_separate.py
+returning to the CLIENT's own world is asserted by test_battle_end_separate.py
 (row C28P), not here - S1 asserts the client's clean return and that the host's
 roster satisfies F366.
 

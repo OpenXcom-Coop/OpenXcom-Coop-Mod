@@ -1350,8 +1350,8 @@ def dismiss_battle_start_overlays(host, timeout=10):
 
     CONSOLIDATED HERE BY W1-P4 (WAVE1-RUNBOOK.md SS4 harness ripple, IR2-1).
     Five files carried a copy of this helper - repro_atom_turn.py,
-    repro_atom_kneel.py, repro_reveal_sync.py, test_rw_input_gating.py and
-    test_rw_retry_cancel.py - each documenting the same surprise in slightly
+    repro_atom_kneel.py, repro_reveal_sync.py, test_input_gating.py and
+    test_retry_cancel.py - each documenting the same surprise in slightly
     different words. W1-P4 changed what is actually on that stack, so keeping
     five copies in sync stopped being free; this follows W1-P3's own precedent
     (dismiss_client_briefing() below).
@@ -1398,7 +1398,7 @@ def dismiss_battle_start_overlays(host, timeout=10):
                 continue
             # the old fixed 0.3 s after the LAST ESC stays as the floor: it also lets the battle's turn-start states end
             # (isBusy; F24290: an END TURN pressed before that does nothing). Waiting for isBusy false instead would also
-            # wait out a generation casualty's collapse, which test_rw_m2_corpse_node reads for at this point.
+            # wait out a generation casualty's collapse, which test_corpse_node reads for at this point.
             if t_esc is not None and time.time() < t_esc + 0.3:
                 time.sleep(t_esc + 0.3 - time.time())
                 continue
@@ -1438,7 +1438,7 @@ def dismiss_client_briefing(client, timeout=20):
         assuming the battle probes work under it."
 
     Read-only PROBES (battle_state / event_state / hash_now / get_palettes) do
-    work under it - test_rw_client_briefing.py asserts exactly that - so this
+    work under it - test_client_briefing.py asserts exactly that - so this
     helper is about DRIVING, not probing.
 
     Idempotent and version-tolerant: a no-op when the client has no
@@ -3078,7 +3078,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
     """SPEC 19 (W1-P20) spec (f) common tail T-CMD.
 
     1. The CLIENT sends `battle_intent` (walk, ONE absolute step onto an
-       adjacent free tile - the test_rw_client_gates/repro_atom_walk
+       adjacent free tile - the test_client_gates/repro_atom_walk
        absolute-intent shape, no tile click) for its OWN seat-1 unit ->
        ADMITTED: lastDeny empty on the client, the unit's pos changed and
        EQUAL on both, hash clean.
@@ -3086,7 +3086,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
        SEAT-0 unit it does not own -> lastDeny.reason == "not_your_unit" on
        the client, no pos change on either machine.
     3. (host_check True) The HOST's click-select on the seat-1 unit's tile is
-       refused: the two-pass camera settle (test_rw_feedback/POST-REWRITE-
+       refused: the two-pass camera settle (test_feedback/POST-REWRITE-
        REVISIT row 17 pattern - a first settling pass, then a second pass
        asserted `centered is False`) verifies the click lands on the right
        tile; the refusal shows up in `battle_state.coopWaitText` (SS2.6's

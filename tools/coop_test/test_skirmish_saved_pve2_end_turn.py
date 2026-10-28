@@ -7,7 +7,7 @@ test_skirmish_saved_pve2_continue.py, owns the resume's arrival, whose reads are
 Spec: docs repo rewrite/prompts/r5u8_sd_merge_main.md (stage S-D, section (f); rulings QSD-1 .. QSD-6 (a)). Constants:
 rewrite/r5u8-task0/sd/CONSTANTS.md (TASK 0 boot pairs Da, Db at 0b5cdefb6). Lobby key 48864.
 
-Boot D1 (dirs r5u8_d_host / r5u8_d_client): R5-U8's gm4 bring-up (test_r5_pve2 / test_r5_pve2_turns): the host sets
+Boot D1 (dirs r5u8_d_host / r5u8_d_client): R5-U8's gm4 bring-up (test_pve2 / test_pve2_turns): the host sets
 SEED_ROSTER, the client on Alien (gamemode 2), the host's own row on Alien (gamemode 4); STR_MEDIUM_SCOUT on map seed SEED_MAP;
 both briefings and both pre-battle equip screens; pin_ai_neutral and every live unit's reactions 0; both Turn 1 screens closed
 (client first) and the stable settle on side 0 of turn SAVE_TURN (the opening ran once); C1 staged; the record P read on both
@@ -46,13 +46,13 @@ import session  # noqa: E402
 from session import battle_state  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_skirmish_flow as SK  # noqa: E402
-from test_w2_delta_core import both  # noqa: E402
-from test_w2_battle_end_rules import wait_until  # noqa: E402
-from test_w2_client_shoot import new_contexts  # noqa: E402
-from test_w2_host_combat import evs_since  # noqa: E402
-from test_r5_pvp_gm3 import (Miss, stack, top, log_lines, log_count, bview, pos, es, tele_both, reactions_zero,  # noqa: E402
+from test_delta_core import both  # noqa: E402
+from test_battle_end_rules import wait_until  # noqa: E402
+from test_client_shoot import new_contexts  # noqa: E402
+from test_host_combat import evs_since  # noqa: E402
+from test_pvp_gm3 import (Miss, stack, top, log_lines, log_count, bview, pos, es, tele_both, reactions_zero,  # noqa: E402
                              hash_now, common, ctx_cell, run_row, fail_all, shut)
-from test_r5_pve2_turns import side_turn, drive_to_side0, cut_kinds, walk_done, T4_KINDS  # noqa: E402
+from test_pve2_turns import side_turn, drive_to_side0, cut_kinds, walk_done, T4_KINDS  # noqa: E402
 
 KEY = "48864"
 HOST_DIR, CLIENT_DIR, CLIENT2_DIR = "r5u8_d_host", "r5u8_d_client", "r5u8_d_client2"

@@ -14,12 +14,12 @@ RES_KEYS = ("test", "slot", "status", "seconds", "attempts", "rc", "rc_attempts"
             "over_budget", "reason", "start", "end")
 QUIET = ["--cpu-wait-min", "0", "--allow-stale"]
 R130 = {  # REGRESSION-130 batches (REGRESSION-BATCHES.md + W2i's R-130 block), typed for U13-9
-    5: "test_w2_delta_core test_w2_delta_items test_w2_host_combat test_w2_host_combat_terrain test_w2_light_scope "
-       "test_w2_hash_coverage test_w2_death_side test_w2_host_screens_turn".split(),
-    9: "test_w2_client_research test_w2_inventory_baton test_w2_rejoin_reveal_rearm test_w2_soldier_removal_log".split(),
-    16: "test_w2_udp_rejoin test_w2_rejoin_end_turn_clear".split(),
-    18: "test_w2_battle_end_campaign test_w2_battle_end_campaign_fence test_w2_synced_options".split(),
-    19: "test_w2_synced_options_ui test_w2_synced_campaign_options test_w2_synced_campaign_options_sep".split(),
+    5: "test_delta_core test_delta_items test_host_combat test_host_combat_terrain test_light_scope "
+       "test_hash_coverage test_death_side test_host_screens_turn".split(),
+    9: "test_client_research test_inventory_baton test_rejoin_reveal_rearm test_soldier_removal_log".split(),
+    16: "test_udp_rejoin test_rejoin_end_turn_clear".split(),
+    18: "test_battle_end_campaign test_battle_end_campaign_fence test_synced_options".split(),
+    19: "test_synced_options_ui test_synced_campaign_options test_synced_campaign_options_sep".split(),
 }
 F3 = ("## REGRESSION-3 (fixture)\n- batch 3: regstub_fail regstub_pass_a\n"
       "## REGRESSION-2 (fixture)\n- batch 1 += regstub_pass_b\n"
@@ -221,7 +221,7 @@ def u13_6(row):
     row.cell("batches\\b01..b03.json exist", all(os.path.exists(os.path.join(out, "batches", "b0%d.json" % i)) for i in (1, 2, 3)))
 
 def u13_7(row):
-    mds = {"i": row.write("i.md", "## REGRESSION-1 (fixture)\n- batch 1: test_w2_inventory test_w2_host_screens\n"),
+    mds = {"i": row.write("i.md", "## REGRESSION-1 (fixture)\n- batch 1: test_inventory test_host_screens\n"),
            "ii": row.write("ii.md", "## REGRESSION-1 (fixture)\n- batch 1: regstub_missing\n"),
            "iii": row.write("iii.md", STUB_MD), "iv": row.write("iv.md", STUB_MD)}
     row.ev("run_regression.py exists: %s" % os.path.exists(RR))
@@ -293,13 +293,13 @@ def safe(f, *a):
         return f(*a)
     except Exception as exc:
         return "error %r" % exc
-for key, names in (("fam_inv", ["test_w2_inventory_held"]), ("fam_hs", ["test_w2_host_screens_turn", "x"]),
-                   ("fam_u6", ["test_coop_peer_equip_screens"]), ("fam_none", ["test_w2_client_shoot"]),
-                   ("fam_s16", ["test_w2_harness_truth"])):  # W2-G1 Q5 (F8463): spec16 S2's lobby 49970
+for key, names in (("fam_inv", ["test_inventory_held"]), ("fam_hs", ["test_host_screens_turn", "x"]),
+                   ("fam_u6", ["test_coop_peer_equip_screens"]), ("fam_none", ["test_client_shoot"]),
+                   ("fam_s16", ["test_harness_truth"])):  # W2-G1 Q5 (F8463): spec16 S2's lobby 49970
     out[key] = safe(lambda n: sorted(rr.families(n)), names)
 for key, x, y in (("c16_18", "16", "18"), ("c5_9", "5", "9"), ("c18_19", "18", "19")):
     out[key] = safe(rr.conflicts, R[x], R[y], getattr(rr, "EXCLUSIVE_TESTS", None))
-out["c_s16"] = safe(rr.conflicts, ["test_spec16_pause_on_leave_s2"], ["test_w2_harness_truth"])  # W2-G1 Q5 (F8463)
+out["c_s16"] = safe(rr.conflicts, ["test_pause_on_leave_alien_turn"], ["test_harness_truth"])  # W2-G1 Q5 (F8463)
 print("U13-9-JSON " + json.dumps(out, default=repr))
 """
 

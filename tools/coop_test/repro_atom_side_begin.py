@@ -67,7 +67,7 @@ def lobby(gc):
 
 
 def row_for(gc, name_substring):
-    """test_rw_faction_setup.py's row_for(): the _connectedPlayers index of
+    """test_faction_setup.py's row_for(): the _connectedPlayers index of
     the player whose name contains `name_substring`."""
     names = lobby(gc).get("players", [])
     for i, n in enumerate(names):
@@ -76,7 +76,7 @@ def row_for(gc, name_substring):
     raise AssertionError(f"could not find {name_substring!r} in roster: {names}")
 
 
-# ----- fixture bring-up (inline copy, test_rw_faction_setup.py / repro_atom_walk.py
+# ----- fixture bring-up (inline copy, test_faction_setup.py / repro_atom_walk.py
 # precedent) -----
 
 def skirmish_host(host, port, player="HostPlayer"):
@@ -279,7 +279,7 @@ def run_gm2():
         time.sleep(1)  # let the change_team broadcast settle on the client (pvp_fixture.py precedent)
 
         # gm2 assigns seat0/seat1 via assignSeatsAndFactions() automatically
-        # (test_rw_faction_setup.test_pvp_gm2's own precedent: no
+        # (test_faction_setup.test_pvp_gm2's own precedent: no
         # newbattle_seat_soldier call at all) - session.drive_to_battlescape's
         # seat_count loop is a CLASSIC-only mechanism (it asserts >= 2
         # stamped soldiers), so this scenario drives NewBattleState inline

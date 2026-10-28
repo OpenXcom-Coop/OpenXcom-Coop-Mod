@@ -132,7 +132,7 @@ Each file carries a 2-line header guard (RB-D21): `# RW-TRIAGE: SKIP-PENDING(<un
 | `test_battlescape_soldier_gift.py` | r3 | live in-battle soldier gift during active turns (battle-action e2e); shares mid-battle-resume setup |
 | `test_campaign_then_skirmish_debrief.py` | r5/W6 | drives a full PvP skirmish battle (gamemode 2) to debrief; groups with the PvP battle suite |
 | `test_coop_alien_launcher_item_loss.py` | r3 | issue #74 item-id lockstep after replicated shot (item/inventory-in-battle atom) |
-| `test_coop_basedef_temp_ufo_uaf.py` | W1-G3 re-point | **RE-POINTED 2026-09-08 (owner D25)** — R4-P2 had re-pointed it onto the offerBattle handshake and removed the guard without updating this row; since W1-P3 the client enters via a read-only BriefingState, not straight into BattlescapeState, so the test's BOTH-machines wait fails (exit 4; proven pre-existing at `1fc2470e0`, orch29c F34). Unlock = before W1-G3: re-point the client-side wait to BriefingState + `close_briefing` (the `test_rw_handshake` / `test_cydonia_coop_start` shape); the PR #111 UAF guard is untouched. |
+| `test_coop_basedef_temp_ufo_uaf.py` | W1-G3 re-point | **RE-POINTED 2026-09-08 (owner D25)** — R4-P2 had re-pointed it onto the offerBattle handshake and removed the guard without updating this row; since W1-P3 the client enters via a read-only BriefingState, not straight into BattlescapeState, so the test's BOTH-machines wait fails (exit 4; proven pre-existing at `1fc2470e0`, orch29c F34). Unlock = before W1-G3: re-point the client-side wait to BriefingState + `close_briefing` (the `test_handshake` / `test_cydonia_coop_start` shape); the PR #111 UAF guard is untouched. |
 | `test_coop_blast_item_damage.py` | r3 | issue #74 symmetric blast item destruction (explosions atom) |
 | `test_coop_door_sync.py` | r3 | issue #143 UFO door-open sync via UnitTurnBState (battle-action e2e) |
 | `test_coop_double_turn_tu.py` | r3 | double-TU-on-turn regression, directly overlaps the spike's own turn atom (battle-action e2e) |
@@ -286,7 +286,7 @@ this section is the audit trail. Every claim below was verified at
   and never reached the print.
 - **Scope of the blast radius, corrected:** **12** files under
   `tools/coop_test/` actually `import pvp_fixture` (not 14 - two more,
-  `test_rw_faction_setup.py` and `test_rw_input_gating.py`, only MENTION it in
+  `test_faction_setup.py` and `test_input_gating.py`, only MENTION it in
   prose and deliberately inline their own lobby helpers). All 12 currently
   carry their own SKIP-PENDING guard ABOVE their `import pvp_fixture` line, so
   today the breakage is MASKED: it is a landmine for the first unguarded PvP
@@ -322,7 +322,7 @@ client stack (e.g. `['MainMenuState', 'NewBattleState', 'ServerList',
   W1-P3 (client read-only `BriefingState` on entry) changed, so the
   BOTH-machines wait can never complete.
 - **What unlocks it:** before W1-G3, re-point the client-side wait to
-  BriefingState + `close_briefing` (the `test_rw_handshake` /
+  BriefingState + `close_briefing` (the `test_handshake` /
   `test_cydonia_coop_start` shape). The PR #111 `CoopBaseDefense` snapshot UAF
   guard is untouched and still needed - this is a real crash regression test.
 - **Guard added (owner D25 = (a)):** the 2-line SKIP-PENDING(W1-G3 re-point)
@@ -332,7 +332,7 @@ client stack (e.g. `['MainMenuState', 'NewBattleState', 'ServerList',
 ## Dispositions (W2-P7 S-B2, wave 2)
 
 Recorded by W2-P7 S-B2 (docs `rewrite/prompts/w2p7_battle_end.md`, AMENDMENT P7-4; Q12 (a)). The three files stay
-SKIP-PENDING and are not edited; their intent now runs on the rewrite in `test_w2_battle_end.py`.
+SKIP-PENDING and are not edited; their intent now runs on the rewrite in `test_battle_end.py`.
 
 | test | superseded by |
 |---|---|
@@ -359,14 +359,14 @@ owner. "Covered" files stay SKIP-PENDING and are not edited here; RV-U5 deletes 
 | test | disposition |
 |---|---|
 | `test_pvp_skirmish_gamemode_selection.py` | run live since R5-U9 (guard removed): lobby team -> gamemode 2 / 4 / 3 / 1 and both machines' team labels |
-| `test_pvp_skirmish_turn_control.py` | covered (RV-U5 deletes): which seat commands which side and a walk reaching both machines - gm2 by `test_rw_faction_setup.py` test_pvp_gm2, `repro_atom_side_begin.py` run_gm2 and `test_w2_client_pvp.py` C25 leg W; gm3 by `test_r5_pvp_gm3.py` G1, G2, G4. Its coopTurn / activeSync reads are rewrite stubs |
-| `test_pvp_skirmish_end_turn.py` | covered (RV-U5 deletes): END TURN hands the side over - gm2 by `repro_atom_side_begin.py` run_gm2; gm3 by `test_r5_pvp_gm3.py` G3 |
-| `test_pvp_skirmish_win_lose.py` | covered (RV-U5 deletes): the four PvP endings carry the right per-seat verdict in the battleEnd record (its pvpWin has no writer) - gm2 aliens down `test_w2_battle_end_rules.py` E6; gm2 X-COM down `test_r5_pvp_rejoin.py` RX; gm3 X-COM down `test_r5_pvp_gm3.py` G5; gm3 aliens down `test_r5_pvp_gm3.py` H1 |
-| `test_pvp_skirmish_rejoin.py` | covered (RV-U5 deletes): a gm2 alien player's drop and rejoin keeps gamemode, seat and command - `test_r5_pvp_rejoin.py` R1-R4 |
+| `test_pvp_skirmish_turn_control.py` | covered (RV-U5 deletes): which seat commands which side and a walk reaching both machines - gm2 by `test_faction_setup.py` test_pvp_gm2, `repro_atom_side_begin.py` run_gm2 and `test_client_pvp.py` C25 leg W; gm3 by `test_pvp_gm3.py` G1, G2, G4. Its coopTurn / activeSync reads are rewrite stubs |
+| `test_pvp_skirmish_end_turn.py` | covered (RV-U5 deletes): END TURN hands the side over - gm2 by `repro_atom_side_begin.py` run_gm2; gm3 by `test_pvp_gm3.py` G3 |
+| `test_pvp_skirmish_win_lose.py` | covered (RV-U5 deletes): the four PvP endings carry the right per-seat verdict in the battleEnd record (its pvpWin has no writer) - gm2 aliens down `test_battle_end_rules.py` E6; gm2 X-COM down `test_pvp_rejoin.py` RX; gm3 X-COM down `test_pvp_gm3.py` G5; gm3 aliens down `test_pvp_gm3.py` H1 |
+| `test_pvp_skirmish_rejoin.py` | covered (RV-U5 deletes): a gm2 alien player's drop and rejoin keeps gamemode, seat and command - `test_pvp_rejoin.py` R1-R4 |
 | `test_pvp_skirmish_psi.py` | owned by R5-U3 (PvP mind control re-pointed to one canonical faction) |
 | `test_pvp_skirmish_census.py` | owned by R5-U3 (one grenade / launch row through the intent path) |
 | `test_coop_pvp_blaster.py` | owned by R5-U3 (the alien seat's blaster through a launch intent, D234 a) |
-| `test_pvp_skirmish_abort.py` | owned by R4-L1 (covered by `test_w2_battle_end_rules.py` E6b; QL1-14 a) |
+| `test_pvp_skirmish_abort.py` | owned by R4-L1 (covered by `test_battle_end_rules.py` E6b; QL1-14 a) |
 | `test_pvp_dogfight.py` | owned by D250-U (PvP campaigns green before the merge, D250); converts its class-P press (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_duplicate_bases.py` | owned by D250-U; converts its class-P press (R-U7d-1); LIVE since D250-U S-A (guard removed, R-D250-SA-2) |
 | `test_pvp_campaign_battle.py` | owned by D250-U; converts its class-P press (R-U7d-1) |
@@ -396,9 +396,9 @@ tests are green at its tip (D229). This section supersedes their rows in "Dispos
 
 | test | disposition |
 |---|---|
-| `test_pvp_skirmish_psi.py` | covered (RV-U5 deletes): PvP mind control both ways on gm2 and gm3 with one canonical faction on both machines (its legacy inverted-faction asserts are wrong for the rewrite) - `test_r5_pvp_react_mc.py` M1, M2 and `test_r5_pvp_react_mc_gm3.py` M3, M4 |
-| `test_pvp_skirmish_census.py` | covered (RV-U5 deletes): a PvP weapon fired through the intent path leaves both machines with the same item census - `test_r5_pvp_rules.py` D2 (the alien seat's blaster launch) |
-| `test_coop_pvp_blaster.py` | covered (RV-U5 deletes): the alien seat fires a blaster launcher (issue #74) and both machines keep the same items, on turn 1 (D234 a) - `test_r5_pvp_rules.py` D2 |
+| `test_pvp_skirmish_psi.py` | covered (RV-U5 deletes): PvP mind control both ways on gm2 and gm3 with one canonical faction on both machines (its legacy inverted-faction asserts are wrong for the rewrite) - `test_pvp_react_mc.py` M1, M2 and `test_pvp_react_mc_gm3.py` M3, M4 |
+| `test_pvp_skirmish_census.py` | covered (RV-U5 deletes): a PvP weapon fired through the intent path leaves both machines with the same item census - `test_pvp_rules.py` D2 (the alien seat's blaster launch) |
+| `test_coop_pvp_blaster.py` | covered (RV-U5 deletes): the alien seat fires a blaster launcher (issue #74) and both machines keep the same items, on turn 1 (D234 a) - `test_pvp_rules.py` D2 |
 
 ## Dispositions (RV-U9, post-Wave-2)
 
@@ -434,7 +434,7 @@ Recorded by R5-U5 (docs `rewrite/prompts/r5u5_battle_gift_order.md`; owner D229 
 
 | test | disposition |
 |---|---|
-| `test_battlescape_soldier_gift.py` | covered (RV-U5 deletes; it stays SKIP-PENDING and is not edited): its ten live-gift behaviours on the rewrite's order path - `test_r5_battle_gift.py` G0 (the gift target at battle entry, after a click, after a TAB), G1 (the key, the menu, the receiver's notice and target, the giver's selection), G3 (a received unit given back at once, D240 (a)), G4 (a unit of another seat refused) and `test_r5_battle_gift_keep.py` K1 (a gift off the giver's go, traditional mode), K2 (the giver's last unit given on its go: its go ends). Its own setup (`test_coop_resume_battle_control.py`, quarantined R4-P2) and its legacy `coopTurn` / `playerTurn` reads do not exist in the rewrite |
+| `test_battlescape_soldier_gift.py` | covered (RV-U5 deletes; it stays SKIP-PENDING and is not edited): its ten live-gift behaviours on the rewrite's order path - `test_battle_gift.py` G0 (the gift target at battle entry, after a click, after a TAB), G1 (the key, the menu, the receiver's notice and target, the giver's selection), G3 (a received unit given back at once, D240 (a)), G4 (a unit of another seat refused) and `test_battle_gift_keep.py` K1 (a gift off the giver's go, traditional mode), K2 (the giver's last unit given on its go: its go ends). Its own setup (`test_coop_resume_battle_control.py`, quarantined R4-P2) and its legacy `coopTurn` / `playerTurn` reads do not exist in the rewrite |
 | `test_shared_soldier_gift_dup.py` | run live since R5-U5 S-B (guard removed, one one-way gift and its owner check added): issue #126's back-and-forth SHARED gift leaves both rosters unchanged with no duplicate id, and a one-way gift's soldier is the receiver's after the mission |
 
 ## Dispositions (RV-U5, post-Wave-2)
@@ -448,27 +448,27 @@ SKIP-PENDING print returns or if any row below stops holding. This section super
 
 | test | disposition |
 |---|---|
-| `test_coop_debrief_sync.py` | deleted, covered: `test_w2_battle_end.py` E1, E2 |
-| `test_skirmish_end_main_menu.py` | deleted, covered: `test_w2_battle_end.py` E3, E3b |
-| `test_skirmish_debrief_disconnect.py` | deleted, covered: `test_w2_battle_end.py` E3 |
-| `test_pvp_skirmish_turn_control.py` | deleted, covered: `test_rw_faction_setup.py` test_pvp_gm2, `repro_atom_side_begin.py` run_gm2, `test_w2_client_pvp.py` C25, `test_r5_pvp_gm3.py` G1, G2, G4 |
-| `test_pvp_skirmish_end_turn.py` | deleted, covered: `repro_atom_side_begin.py` run_gm2, `test_r5_pvp_gm3.py` G3 |
-| `test_pvp_skirmish_win_lose.py` | deleted, covered: `test_w2_battle_end_rules.py` E6, `test_r5_pvp_rejoin.py` RX, `test_r5_pvp_gm3.py` G5, H1 |
-| `test_pvp_skirmish_rejoin.py` | deleted, covered: `test_r5_pvp_rejoin.py` R1-R4 |
-| `test_pvp_skirmish_psi.py` | deleted, covered: `test_r5_pvp_react_mc.py` M1, M2, `test_r5_pvp_react_mc_gm3.py` M3, M4 |
-| `test_pvp_skirmish_census.py` | deleted, covered: `test_r5_pvp_rules.py` D2 |
-| `test_coop_pvp_blaster.py` | deleted, covered: `test_r5_pvp_rules.py` D2 |
-| `test_battlescape_soldier_gift.py` | deleted, covered: `test_r5_battle_gift.py` G0, G1, G3, G4, `test_r5_battle_gift_keep.py` K1, K2 |
-| `test_vote_abort_battle.py` | deleted, covered: `test_r4_abort_vote.py` AV1-1, AV2-2, AV1-4, AV2-3, AV1-5, AV1-3, AV3-3 and `test_shared_battle.py` T-EXIT; its 30 s deadline was removed by owner D231 |
-| `test_pvp_skirmish_abort.py` | deleted, covered: gm2 `test_w2_battle_end_rules.py` E6b, gm3 `test_rv5_pvp_abort_cover.py` PA3 (pressed on the alien host's own side, R-RV5-SB-2) |
+| `test_coop_debrief_sync.py` | deleted, covered: `test_battle_end.py` E1, E2 |
+| `test_skirmish_end_main_menu.py` | deleted, covered: `test_battle_end.py` E3, E3b |
+| `test_skirmish_debrief_disconnect.py` | deleted, covered: `test_battle_end.py` E3 |
+| `test_pvp_skirmish_turn_control.py` | deleted, covered: `test_faction_setup.py` test_pvp_gm2, `repro_atom_side_begin.py` run_gm2, `test_client_pvp.py` C25, `test_pvp_gm3.py` G1, G2, G4 |
+| `test_pvp_skirmish_end_turn.py` | deleted, covered: `repro_atom_side_begin.py` run_gm2, `test_pvp_gm3.py` G3 |
+| `test_pvp_skirmish_win_lose.py` | deleted, covered: `test_battle_end_rules.py` E6, `test_pvp_rejoin.py` RX, `test_pvp_gm3.py` G5, H1 |
+| `test_pvp_skirmish_rejoin.py` | deleted, covered: `test_pvp_rejoin.py` R1-R4 |
+| `test_pvp_skirmish_psi.py` | deleted, covered: `test_pvp_react_mc.py` M1, M2, `test_pvp_react_mc_gm3.py` M3, M4 |
+| `test_pvp_skirmish_census.py` | deleted, covered: `test_pvp_rules.py` D2 |
+| `test_coop_pvp_blaster.py` | deleted, covered: `test_pvp_rules.py` D2 |
+| `test_battlescape_soldier_gift.py` | deleted, covered: `test_battle_gift.py` G0, G1, G3, G4, `test_battle_gift_keep.py` K1, K2 |
+| `test_vote_abort_battle.py` | deleted, covered: `test_abort_vote.py` AV1-1, AV2-2, AV1-4, AV2-3, AV1-5, AV1-3, AV3-3 and `test_shared_battle.py` T-EXIT; its 30 s deadline was removed by owner D231 |
+| `test_pvp_skirmish_abort.py` | deleted, covered: gm2 `test_battle_end_rules.py` E6b, gm3 `test_pvp_abort_cover.py` PA3 (pressed on the alien host's own side, R-RV5-SB-2) |
 | `test_coop_door_sync.py` | deleted, covered: `repro_door_deterministic.py` leg (b) b1 and phase B |
 | `test_coop_ufo_door_close.py` | deleted, covered: `repro_door_deterministic.py` phase D |
-| `test_coop_alien_launcher_item_loss.py` | deleted, covered: `test_rv5_item_cover.py` LC1R, LC1L; also `test_w2_client_grenade.py` C20, `test_w2_ai_origins.py` C6, C7 |
-| `test_coop_blast_item_damage.py` | deleted, covered: `test_rv5_item_cover.py` LC2; also `test_w2_host_combat_terrain.py` C4, `test_w2_delta_items.py` SB2 |
-| `test_coop_inventory_item_theft.py` | deleted, covered: `test_rv5_item_cover.py` LC3; also `test_w2_inventory.py` IV5, `test_w2_inventory_held.py` IH8 |
-| `test_coop_double_turn_tu.py` | deleted, covered: `test_rv5_item_cover.py` LC4H, LC4C; also `test_w2_client_grenade.py` C19 / C20 exact TU |
-| `test_coop_proximity_item_sweep.py` | deleted, covered: `test_rv5_item_cover.py` LC5; also `test_w2_reaction_prox.py` C11 |
-| `test_coop_wait_banner.py` | deleted, covered: `test_rv5_wait_cover.py` WB1, WB2, WB3, WB4, WB5; also `test_r5_pvp_notices.py` BO-text, `test_rw_feedback.py` PHASE 3 |
+| `test_coop_alien_launcher_item_loss.py` | deleted, covered: `test_item_cover.py` LC1R, LC1L; also `test_client_grenade.py` C20, `test_ai_origins.py` C6, C7 |
+| `test_coop_blast_item_damage.py` | deleted, covered: `test_item_cover.py` LC2; also `test_host_combat_terrain.py` C4, `test_delta_items.py` SB2 |
+| `test_coop_inventory_item_theft.py` | deleted, covered: `test_item_cover.py` LC3; also `test_inventory.py` IV5, `test_inventory_held.py` IH8 |
+| `test_coop_double_turn_tu.py` | deleted, covered: `test_item_cover.py` LC4H, LC4C; also `test_client_grenade.py` C19 / C20 exact TU |
+| `test_coop_proximity_item_sweep.py` | deleted, covered: `test_item_cover.py` LC5; also `test_reaction_prox.py` C11 |
+| `test_coop_wait_banner.py` | deleted, covered: `test_wait_cover.py` WB1, WB2, WB3, WB4, WB5; also `test_pvp_notices.py` BO-text, `test_feedback.py` PHASE 3 |
 | `test_shared_month_run.py`, `test_shared_base_defense.py` | run live since RV-U5 S-C (guard removed; both passed as written) |
 | `test_battlescape_exit_palette.py`, `test_campaign_then_skirmish_debrief.py` | run live since RV-U5 S-D (guard removed; the SHARED entry / the skirmish half re-pointed, RP5 / RP3) |
 | `test_pvp_campaign_ufo_spawn.py` | run live since D250-U S-A2 (both UFO sets compared on a settled clock, R-D250-SA2-1) |
@@ -487,8 +487,8 @@ Recorded by MG-C (docs `rewrite/prompts/mgc_merge_main.md`; owner D252 (a), D226
 |---|---|
 | `test_battle_tripwire.py`, `test_parallel_sharedturn.py` | stay deleted (removed with the #166 revert; `main` #209 / #210 changed them): they test the model the rewrite replaced; #210's banner check is an MG-P1 row |
 | `test_coop_debrief_sync.py`, `test_pvp_skirmish_end_turn.py` | stay deleted (RV-U5's DELETED rows; `main` #209 / #181 changed them) |
-| `test_coop_nextstage_crash.py`, `test_coop_nextstage_census.py`, with `tftd_common.py` and `fixtures/tftd_base_assault.sav` | deleted: MG-A's rows on UFO data cover them (`test_w2_multistage.py` MS1, `test_w2_multistage_end.py` MS3; MG-A-T1); no TFTD data is staged |
-| `test_parallel_pve2_turn_screen_gate.py` | deleted: covered by `test_r5_pve2_turns.py` T1-T3 (R5-U8 D1) |
+| `test_coop_nextstage_crash.py`, `test_coop_nextstage_census.py`, with `tftd_common.py` and `fixtures/tftd_base_assault.sav` | deleted: MG-A's rows on UFO data cover them (`test_multistage.py` MS1, `test_multistage_end.py` MS3; MG-A-T1); no TFTD data is staged |
+| `test_parallel_pve2_turn_screen_gate.py` | deleted: covered by `test_pve2_turns.py` T1-T3 (R5-U8 D1) |
 | `test_coop_event_sync.py`, `test_coop_mission_research.py`, `test_coop_research_known_topic.py`, `test_coop_research_sync.py` | run live since MG-F re-pointed them on `rewrite/merge-main` (guard and the gate's OWNED row removed) |
 | `test_coop_client_mission_abort.py`, `test_coop_battle_start_sync.py`, `test_coop_parallel_turns_latch.py` | run live since MG-P1 re-pointed them on `rewrite/merge-main` (guard and OWNED row removed) |
 | `test_skirmish_saved_battle_join.py` | run live since MG-B S-A re-pointed it to row CB1 (guard and OWNED row removed) |

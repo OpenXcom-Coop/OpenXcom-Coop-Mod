@@ -135,7 +135,7 @@ public:
 	/// Test hook: arm/disarm local hotseat exactly as the on-screen toggle would.
 	void harnessSetHotseat(bool on);
 	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md R3-P1 packet text, "FIXTURE-
-	/// COVERAGE NOTE" in tools/coop_test/test_rw_input_gating.py): test hook -
+	/// COVERAGE NOTE" in tools/coop_test/test_input_gating.py): test hook -
 	/// stamp ONE soldier assigned to the currently selected craft with a coop
 	/// seat (Soldier::setCoop()), BEFORE OK generates the battle. A plain
 	/// NEW BATTLE > COOP classic skirmish never calls Soldier::setCoop(), so

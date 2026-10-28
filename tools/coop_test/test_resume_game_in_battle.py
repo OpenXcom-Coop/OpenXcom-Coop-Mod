@@ -6,7 +6,7 @@ GAME - and pressing it dropped the host on the GEOSCAPE with the battle gone.
 
 SPEC 18 (r4 T4) D97/R1(c) ROUTING (2026-09-21): this file used to also cover
 a client dropping mid-battle (FREEZE/STAY-FROZEN/ABANDON). Those scenarios are
-SPEC 16's (test_spec16_pause_on_leave.py's S1/S4, test_skirmish_rejoin_
+SPEC 16's (test_pause_on_leave.py's S1/S4, test_skirmish_rejoin_
 battle.py) and are REMOVED from this file - their bodies are deleted below;
 the helper functions SAVE-AND-QUIT still uses are kept. R1(c) ran every
 scenario in this file once at the SPEC 18 tip with the skip removed:
@@ -149,7 +149,7 @@ def drop_client_mid_battle(host, client):
 
 # ------------------------------------------------------- the drop itself ---
 # (FREEZE/STAY-FROZEN/ABANDON scenario BODIES removed per D97/R1(c): they are
-# SPEC 16's S1/S4, live in test_spec16_pause_on_leave.py/test_skirmish_
+# SPEC 16's S1/S4, live in test_pause_on_leave.py/test_skirmish_
 # rejoin_battle.py. drop_client_mid_battle/wait_peer_dropped above are KEPT -
 # scenario_save_and_quit below still uses them.)
 

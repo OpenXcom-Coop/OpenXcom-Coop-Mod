@@ -1721,7 +1721,7 @@ int authorSideBeginFov(SavedBattleGame* battle, int faction)
 	// GENERATION time, before startFirstTurn()'s resetUnitTiles() put them on
 	// their final tiles. Doing every unit of the side, rather than the selected
 	// one, is also what makes the bring-up reveal trajectory DETERMINISTIC -
-	// the coupling test_rw_hash_now.py's REVEAL_SEQS_AT_T0 had to be widened to
+	// the coupling test_hash_now.py's REVEAL_SEQS_AT_T0 had to be widened to
 	// a range for under W1-P6.
 	if (!battle || !battle->getTileEngine())
 		return 0;
@@ -3993,7 +3993,7 @@ std::vector<int> stripTags(const std::vector<int>& raw)
 // computeBattleHashes() hashes every field the four capture* functions below
 // read - in a legacy bucket or in `synced`, with these exact getters. A field
 // added to UnitSnap/TileSnap/ItemSnap/BattleSnap joins one of them in the same
-// commit (and test_w2_hash_coverage.py's HC1 table gains its row).
+// commit (and test_hash_coverage.py's HC1 table gains its row).
 UnitSnap captureUnit(const BattleUnit* u)
 {
 	UnitSnap s;
@@ -32685,7 +32685,7 @@ void onBlobChunkAppended(Game* game)
 	// identity BEFORE any state is pushed. strTarget/strCraftOrBase are the two
 	// BriefingState display labels and are saveBlob-HASH-excluded
 	// (SharedEcon.cpp:3974), so writing them here is hash-neutral by
-	// construction - which is exactly what test_rw_hash_now.py's all-buckets-
+	// construction - which is exactly what test_hash_now.py's all-buckets-
 	// EQUAL at t=0 proves. The client NEVER writes missionType (WR-10): it is a
 	// serialized top-level key that is NOT excluded, i.e. it IS hashed, and
 	// `deployment` is carried precisely so the client never has to touch it.
@@ -32843,7 +32843,7 @@ void onBlobChunkAppended(Game* game)
 	// WR-24 (palette/resolution): the ctor swaps to PAL_GEOSCAPE and the GEOSCAPE
 	// base resolution (:58-60) and btnOkClick swaps them back and resetDisplay()s
 	// (:297-300); over a live BattlescapeState that is a rendering hazard, not a
-	// no-op. test_rw_client_briefing.py asserts the screen palette, the base
+	// no-op. test_client_briefing.py asserts the screen palette, the base
 	// resolution and the map fingerprint after close_briefing, cross-checked
 	// against the host, rather than "no crash".
 	//

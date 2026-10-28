@@ -323,7 +323,7 @@ void adoptCarriedDeployment(const std::string& deployment);
 ///    "should never happen" branch (BriefingState.cpp:104-108).
 ///  - neither -> nullptr, i.e. vanilla's own outcome, unchanged.
 /// In a coop battle the outcome is LOGGED (VANILLA / CARRIED / NONE) - that
-/// line is how test_rw_mission_labels.py proves the generic fallback was not
+/// line is how test_mission_labels.py proves the generic fallback was not
 /// taken, independently of which of the two resolutions happened to win on the
 /// fixture. Silent and inert in SP.
 AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaResolved);
@@ -335,7 +335,7 @@ AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaR
 /// already ran, and the offer already told the client what it produced.
 ///
 /// WHY THE WHOLE BODY AND NOT JUST THE OPERATION-NAME BLOCK (traced by
-/// test_rw_mission_labels.py, 2026-09-02 - the packet text's narrower
+/// test_mission_labels.py, 2026-09-02 - the packet text's narrower
 /// "operation-name mint" wording does NOT achieve its own stated goal): the
 /// body writes strTarget TWICE. The craft branch at :156-160 writes
 /// craft->getDestination()->getName() ("LANDING SITE-0"), and the

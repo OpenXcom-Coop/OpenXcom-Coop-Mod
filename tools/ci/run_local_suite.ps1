@@ -24,7 +24,7 @@
 # <Out>: shard-plan.json, timings-<k>.json, timings-merged.json, logs\shard<k>\<test>.log,
 # shard<k>.console.log + shard<k>.stderr.log, crash\ (copies of new crash files) and SUMMARY.md.
 # Refused before anything runs (exit 4): -Out not empty, a shard slot reaching 50
-# (test_w2_crash_attribution's second game uses slot + 50), an -Only name that is no CI test,
+# (test_crash_attribution's second game uses slot + 50), an -Only name that is no CI test,
 # an exe older than the newest src file, bin\common / bin\standard not staged next to the exe,
 # or a used slot's harness lock held. Exit 0 = every shard exit 0; 1 = any shard non-zero.
 param(
@@ -71,7 +71,7 @@ if ($Shards -lt 1)   { Refuse @("-Shards $Shards`: give 1 or more") $false }
 if ($SlotBase -lt 0) { Refuse @("-SlotBase $SlotBase`: give 0 or more") $false }
 $slots = @(0..($Shards - 1) | ForEach-Object { $SlotBase + $_ })
 if ($slots[-1] -ge 50) {
-  Refuse @("slots $($slots -join ',') reach slot 50: test_w2_crash_attribution runs its second game on slot + 50; keep every shard slot below 50") $false
+  Refuse @("slots $($slots -join ',') reach slot 50: test_crash_attribution runs its second game on slot + 50; keep every shard slot below 50") $false
 }
 
 # Same discovery as plan_shards.ps1 and run_coop_suite.ps1.
@@ -242,7 +242,7 @@ function Get-Busy($a, $b) {   # total CPU % between two readings (kernel time in
 }
 
 # --- Crash files in the used slots' folders (harness.CRASH_DIR = <exe dir>\crashlogs\s<slot>;
-# test_w2_crash_attribution's second game writes to slot + 50) ---------------------------
+# test_crash_attribution's second game writes to slot + 50) ---------------------------
 $crashSlots = @($slots) + @($slots | ForEach-Object { $_ + 50 })
 function Get-CrashFiles {
   $h = @{}

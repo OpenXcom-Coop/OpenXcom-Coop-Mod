@@ -9,7 +9,7 @@ Blocks `## REGRESSION-<n>` hold deltas (`- batch N: names` defines, `- batch N +
 oldest (last in the file) -> newest up to --block (default: the first). Each batch = ONE `run_parallel.py
 -k 2 --slot-base <pair>` subprocess (per-test logs, S27 fail copies). With two pairs a free stream takes the
 lowest pending batch that conflicts() with no running batch (an EXCLUSIVE test on either side, or a family
-on both: s26 test_w2_inventory* / test_w2_host_screens*, s16s2 spec16_s2 / harness_truth, u6 test_coop_peer_equip_screens /
+on both: s26 test_inventory* / test_host_screens*, s16s2 spec16_s2 / harness_truth, u6 test_coop_peer_equip_screens /
 test_unload_weapon_crash). Refused before anything runs (exit 4): a missing test, two family members in a
 batch, bad --pairs, a non-empty --out, a busy slot; unless --allow-stale, an exe older than the newest src
 file or unstaged bin/common, bin/standard. --out gets SUMMARY.md (rewritten after preflight, every batch and
@@ -23,10 +23,10 @@ import argparse, datetime, json, os, re, shutil, subprocess, sys, time  # noqa: 
 TESTDIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTDIR))
 RUN_PARALLEL = os.path.join(TESTDIR, "run_parallel.py")
-EXCLUSIVE_TESTS = ("test_w2_udp_rejoin",)
-FAMILY_PREFIXES = {"s26": ("test_w2_inventory", "test_w2_host_screens")}  # S26 (F2912)
+EXCLUSIVE_TESTS = ("test_udp_rejoin",)
+FAMILY_PREFIXES = {"s26": ("test_inventory", "test_host_screens")}  # S26 (F2912)
 FAMILY_NAMES = {"u6": ("test_coop_peer_equip_screens", "test_unload_weapon_crash"),  # U6 Q5
-                "s16s2": ("test_spec16_pause_on_leave_s2", "test_w2_harness_truth")}  # W2-G1 Q5 (F8463): lobby 49970
+                "s16s2": ("test_pause_on_leave_alien_turn", "test_harness_truth")}  # W2-G1 Q5 (F8463): lobby 49970
 HEADING_RE = re.compile(r"^##\s+(REGRESSION-\d+)\b")
 BATCH_RE = re.compile(r"^-\s+batch\s+(\d+)\s*(\+=|:)\s*(.*)$")
 H13_T1_LINE = "std::terminate called (no active exception)."
@@ -413,7 +413,7 @@ class Run(object):
             # W2-U8h: a file in a lane's s<slot> folder belongs to the test on that slot; a root file keeps the time window
             then = [(b, r["test"]) for b, r in tests if r["start_epoch"] - 2 <= m <= r["end_epoch"] + 2
                     and (slot is None or r.get("slot") == slot)]
-            benign = line == H13_T1_LINE and any(t == "test_w2_udp_rejoin" for _, t in then)
+            benign = line == H13_T1_LINE and any(t == "test_udp_rejoin" for _, t in then)
             rows.append((p, os.path.getsize(p), m, line, then, "H13-T1 (known benign)" if benign else "-"))
         self.crash_rows = rows
         for b in self.batches:

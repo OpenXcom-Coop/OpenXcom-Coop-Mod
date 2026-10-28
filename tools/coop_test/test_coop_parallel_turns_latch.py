@@ -134,7 +134,7 @@ def verdict(host, client, expected, geo_flags):
 # ---- B1 (main #210: test_parallel_sharedturn's banner check; MG-P1) ------------------
 
 FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # main's tokens, matched case-blind (QP1-2)
-END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (test_w2_battle_end_separate)
+END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (test_battle_end_separate)
 
 
 def no_banners(host, client, seconds=8.0):

@@ -171,7 +171,7 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 	// operation-name block, because the craft branch below writes strTarget
 	// FIRST (the destination name) and the operation-name block then overwrites
 	// it - guarding only the second half lets the first half clobber the name
-	// the offer already shipped (traced by test_rw_mission_labels.py).
+	// the offer already shipped (traced by test_mission_labels.py).
 	// ONE guarded coop call; false in SP and for any battle with no coop
 	// mission identity, so vanilla is byte-identical.
 	if (!_infoOnly && !CoopHandshake::missionLabelsAlreadyMinted(battleSave))

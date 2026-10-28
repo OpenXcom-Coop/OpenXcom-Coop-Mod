@@ -4,7 +4,7 @@ description: "Test-only fixture for OF2 (owner D263 (a), D258 (b)). Data only. E
   battle-rule script it adds writes one BattleUnit tag = 1 + isResearched(STR_PLASMA_PISTOL)
   read through battle_game.getGeoscapeGame, so a test can see whose research a battle mod
   script read (0 = the hook never ran, 1 = not researched, 2 = researched). Used by
-  test_w2_script_research.py. Both machines in a co-op pair must load it."
+  test_script_research.py. Both machines in a co-op pair must load it."
 author: coop harness
 
 master: xcom1

@@ -77,7 +77,7 @@ def lobby(gc):
     return gc.cmd({"cmd": "lobby_state"})
 
 
-# ----- fixture bring-up (inline copy, test_rw_faction_setup.py / repro_atom_walk.py
+# ----- fixture bring-up (inline copy, test_faction_setup.py / repro_atom_walk.py
 # precedent - every coop test in this tree carries its own copy of the skirmish
 # lobby dance rather than sharing one, per those files' own stated convention).
 

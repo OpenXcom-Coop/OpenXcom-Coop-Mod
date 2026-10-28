@@ -1,0 +1,422 @@
+"""W2-H52 rows V1, V2, V3 (lead L-H50-1, orchestrator ruling R-H52-0, owner ruling ADD-1.3c): a walk into a unit the
+walker cannot see is left to vanilla's walk interruption. The walk starts, and stops when the unit is spotted or blocks
+the next step, with TU spent only for what was done. The host's own walks already do that; the second player's walk
+(the thin client's, checked by the host's validateWalk) must do the same instead of being refused up front with
+"Order cancelled - path blocked", which tells the walker where a unit it cannot see stands.
+Classic terror boot (test_client_shoot.boot: STR_TERROR_MISSION, map seed 1, client seats 8 / 9, host seat 10,
+pin_ai_neutral), its PORT set to lobby key 49155, dirs w2h52_s_host / w2h52_s_client, reactions 0 on both.
+
+Spec: docs repo rewrite/prompts/w2h52_client_walk_hidden_unit.md section (f) (ORCHESTRATOR RULINGS QH52-1 .. QH52-5 (a)).
+Constants: rewrite/w2h52-task0/sa/CONSTANTS.md (TASK 0 boots a, b red; c, d green; T swapped by its rule, S54).
+
+Staging (side 0 turn 1, by the battle_teleport_unit lever, which runs no FOV on either machine): the map census on both
+machines, the lane T..T+4d and the side line T+s..T+s+4d open on both, every live X-COM unit but H within 20 tiles of T
+parked >= 21 tiles from T and T+s, then H on T facing FACE (away from the lane) and U1 on T+2d. The HIDDEN set = live
+faction 1 units, armorSize 1, visible false on both, in no live X-COM unit's visibleUnits or spottedThisTurn on either
+machine; U1 / U2 / U3 = its lowest unused id, read at the start of each row. Every walk is real input: the host's
+(Tab onto H, one left click) and the client's (Tab onto C, one left click).
+  V1  the host's own walk T -> D through the hidden U1 (vanilla baseline): V1-start, V1-walk (one host walk context;
+      halted HALT, H unmoved, TU spent HALT[1], lastSpot {H, [U1]}), V1-common.
+  V2  the client's walk T -> D through the hidden U2 (the lead): V2-start, V2-admit (no deny; one intent walk context),
+      V2-halt (halted HALT as V1, C unmoved, TU spent HALT[1], lastSpot {C, [U2]}), V2-text (the halt banner), V2-common.
+  V3  the client's walk T+s -> D3 beside the hidden U3 (control), LAST: V3-start, V3-admit (any halt), V3-common.
+Red on the unchanged build (W2-H52 red): V2-admit, V2-halt, V2-text (3 of 11; the refusal path_changed, F17943).
+
+One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
+precondition (V*-start) miss ends its row and the later rows (cells "not reached"); a boot or staging miss prints ONE
+CAPTURE line and fails every row. Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file.
+Ids are read at run time (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result,
+no skip path; exit 0 only when every cell passes, else 2.
+
+Run:  python tools/coop_test/test_client_walk_hidden.py
+"""
+
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness import GameClient, make_user_dir  # noqa: E402
+import session  # noqa: E402
+from session import battle_state, event_state  # noqa: E402
+import test_client_shoot as CS  # noqa: E402
+import test_pvp_gm3 as G3F  # noqa: E402
+import test_pvp_react_mc as RM  # noqa: E402
+from test_seat_pacing import tab_select, real_click_walk  # noqa: E402
+
+KEY = "49155"
+FACTION_PLAYER, FACTION_HOSTILE = 0, 1
+T, D_DIR, FACE = (22, 26, 0), 2, 6               # the lane (TASK 0: spec pin (14,26,0) swapped by T's rule, S54)
+S_DIR = 4                                        # the side line T+s (y 27), open on both (TASK 0)
+HALT = ("spot", 3)                               # V1 / V2 halt reason and TU spent: 3 octants x turn cost 1 (TASK 0)
+TEXT = {"spot": "Order cancelled - enemy spotted", "blocked": "Move stopped - path blocked"}
+PARK_MIN, PARK_GAP, NEAR = 21, 2, 20             # PARK: Chebyshev >= 21 from T and T+s, >= 2 apart
+TU_MAX = 255                                     # battle_set_unit_state tu clamps to the unit's full TU
+WALK_S, SETTLE_S = 15, 5.0                       # a walk's answer bound / the read after the click (SSR's)
+VEC = {0: (0, -1), 1: (1, -1), 2: (1, 0), 3: (1, 1), 4: (0, 1), 5: (-1, 1), 6: (-1, 0), 7: (-1, -1)}
+ROWS = (("V1", ("V1-start", "V1-walk", "V1-common")),
+        ("V2", ("V2-start", "V2-admit", "V2-halt", "V2-text", "V2-common")),
+        ("V3", ("V3-start", "V3-admit", "V3-common")))
+
+
+class Precond(Exception):
+    """A V*-start (precondition) cell failed: the row ends, later cells and rows are "not reached"."""
+
+
+def add(p, d, k=1):   # copied from test_client_spotted_reset.py
+    return (p[0] + VEC[d][0] * k, p[1] + VEC[d][1] * k, p[2])
+
+
+def cheb(a, b):
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+D, U_TILE, TS = add(T, D_DIR, 4), add(T, D_DIR, 2), add(T, S_DIR)
+D3 = add(TS, D_DIR, 4)
+
+
+def units(gc):
+    return {u["id"]: u for u in battle_state(gc).get("units", [])}
+
+
+def upos(u):
+    return (u.get("x"), u.get("y"), u.get("z")) if u else None
+
+
+def uview(u):
+    return {"pos": upos(u), "dir": u.get("direction"), "tu": u.get("tu"), "visible": u.get("visible"),
+            "faction": u.get("faction"), "isOut": u.get("isOut")}
+
+
+def census(gc, sx, sy):
+    """{(x, y): (floor, west, north, object) (mapDataID, mapDataSetID)} at z 0, boxes of <= 4096 tiles."""
+    out, rows = {}, max(1, 4096 // sx)
+    for y0 in range(0, sy, rows):
+        r = gc.ok({"cmd": "tile_census", "x0": 0, "x1": sx - 1, "y0": y0, "y1": min(sy - 1, y0 + rows - 1),
+                   "z0": 0, "z1": 0})
+        for t in r["tiles"]:
+            if t:
+                out[(t["x"], t["y"])] = tuple((t["parts"][p]["mapDataID"], t["parts"][p]["mapDataSetID"])
+                                              for p in ("floor", "westwall", "northwall", "object"))
+    return out
+
+
+def occupied(host, client):
+    occ = set()
+    for gc in (host, client):
+        for u in battle_state(gc).get("units", []):
+            if not u.get("isOut") and u.get("x") is not None:
+                n = u.get("armorSize") or 1
+                occ.update((u["x"] + i, u["y"] + j, u["z"]) for i in range(n) for j in range(n))
+    return occ
+
+
+def open_both(th, tc, t, occ):   # SSR's open_both on the four parts
+    k = t[:2]
+    return (t[2] == 0 and k in th and th.get(k) == tc.get(k) and th[k][0][0] != -1 and th[k][3][0] == -1
+            and t not in occ)
+
+
+def hidden_set(host, client):
+    uh, uc = units(host), units(client)
+    seen = set()
+    for us in (uh, uc):
+        for u in us.values():
+            if u.get("faction") == FACTION_PLAYER and not u.get("isOut"):
+                seen.update(u.get("visibleUnits") or [])
+                seen.update(u.get("spottedThisTurn") or [])
+    return sorted(i for i, u in uh.items() if u.get("faction") == FACTION_HOSTILE and not u.get("isOut")
+                  and (u.get("armorSize") or 1) == 1 and u.get("visible") is False
+                  and (uc.get(i) or {}).get("visible") is False and i not in seen)
+
+
+def near_xcom(host, but):
+    return sorted(i for i, u in units(host).items() if u.get("faction") == FACTION_PLAYER and not u.get("isOut")
+                  and i != but and upos(u) and cheb(upos(u), T) <= NEAR)
+
+
+def probe(gc, uid, dest):   # copied from SSR
+    r = gc.cmd({"cmd": "path_probe", "unit": uid, "x": dest[0], "y": dest[1], "z": dest[2]})
+    return {k: r.get(k) for k in ("ok", "steps", "tuCost", "reachable", "error")}
+
+
+def straight(host, client, w, a, b):
+    """W on a: path_probe w -> b steps 4 on both, (steps, tuCost) equal, tuCost == 4 x w -> a+d's (F17958)."""
+    pb = {"host": probe(host, w, b), "client": probe(client, w, b)}
+    p1 = {m: probe(gc, w, add(a, D_DIR)) for m, gc in (("host", host), ("client", client))}
+    ok = all(pb[m].get("steps") == 4 and pb[m].get("reachable") and p1[m].get("tuCost") is not None
+             and pb[m].get("tuCost") == 4 * p1[m]["tuCost"] for m in pb)
+    ok = ok and (pb["host"]["steps"], pb["host"]["tuCost"]) == (pb["client"]["steps"], pb["client"]["tuCost"])
+    return ok, {"to": b, "probe": pb, "oneStep": {m: p1[m].get("tuCost") for m in p1}}
+
+
+def staged(host, client, ids):
+    uh, uc = units(host), units(client)
+    return {i: {"host": uview(uh.get(i) or {}), "client": uview(uc.get(i) or {})} for i in ids}
+
+
+def screen(host, client):
+    return {gc.name: {"turnSide": (battle_state(gc).get("turn"), battle_state(gc).get("side")),
+                      "selectedId": battle_state(gc).get("selectedId"), "top": G3F.top(gc)} for gc in (host, client)}
+
+
+def walkrec(host, client, w, u, ctx0):
+    hs = event_state(host)
+    uh, uc = units(host), units(client)
+    return {"pos": [upos(uh.get(w)), upos(uc.get(w))], "dir": [uh[w].get("direction"), uc[w].get("direction")],
+            "tu": [uh[w].get("tu"), uc[w].get("tu")], "hostLastWalk": hs.get("lastWalk") or {},
+            "hostLastSpot": hs.get("lastSpot") or {}, "uVisible": [uh[u].get("visible"), uc[u].get("visible")],
+            "coopWaitText": [battle_state(host).get("coopWaitText"), battle_state(client).get("coopWaitText")],
+            "newCtx": CS.new_contexts(ctx0, RM.ctxs(host))}
+
+
+def client_walk(host, client, uid, dest):
+    """(copied from SSR) the client's REAL-UI walk of uid to dest: set_tu_both, tab_select, one left click; the
+    outcome is the first of a new client lastDeny or a new inactive host lastWalk within WALK_S; reads at SETTLE_S."""
+    ev = {"dest": dest, "tuSet": CS.set_tu_both(host, client, uid, TU_MAX), "tab": tab_select(client, uid)}
+    hs0, cs0 = event_state(host), event_state(client)
+    prev_walk, deny0 = (hs0.get("lastWalk") or {}).get("actionId", 0), cs0.get("lastDeny")
+    t0 = time.time()
+    real_click_walk(client, dest)
+    ev["outcome"] = None
+    while time.time() - t0 < WALK_S:
+        d, hw = event_state(client).get("lastDeny"), event_state(host).get("lastWalk") or {}
+        if d and d != deny0:
+            ev["outcome"] = "deny"
+            break
+        if hw.get("actionId", 0) != prev_walk and hw.get("active") is False:
+            ev["outcome"] = "walk"
+            break
+        time.sleep(0.2)
+    ev["answerS"] = round(time.time() - t0, 2)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        ev["idleError"] = str(e)[:200]
+    rest = SETTLE_S - (time.time() - t0)
+    if rest > 0:
+        time.sleep(rest)
+    hw, cs = event_state(host).get("lastWalk") or {}, event_state(client)
+    ev["hostLastWalkIsNew"] = hw.get("actionId", 0) != prev_walk
+    ev["clientLastDeny"], ev["clientDenyIsNew"] = cs.get("lastDeny"), cs.get("lastDeny") != deny0
+    return ev
+
+
+def need(cells, name, ok, detail):
+    cells[name] = (bool(ok), detail)
+    if not ok:
+        raise Precond(f"precondition {name} failed: {detail}")
+
+
+def next_u(host, client, st):
+    """The lowest id of the HIDDEN set no earlier row used (the row's U), or None."""
+    free = [i for i in hidden_set(host, client) if i not in st["used"]]
+    if free:
+        st["used"].append(free[0])
+    return free[0] if free else None
+
+
+def start_cell(host, client, row, w, a, u, b, cells, ev, extra_ok=True, extra=""):
+    c = ev["start"] = {"staged": staged(host, client, [w] + ([u] if u else [])), "screen": screen(host, client),
+                       "hidden": hidden_set(host, client), "near": near_xcom(host, w)}
+    ok_s, ev["straight"] = straight(host, client, w, a, b) if u else (False, None)
+    s = c["staged"]
+    at = u is not None and all(s[w][m]["pos"] == a and s[w][m]["dir"] == FACE and s[u][m]["pos"] == U_TILE
+                               for m in ("host", "client"))
+    need(cells, f"{row}-start", at and u in c["hidden"] and (row == "V3" or not c["near"]) and ok_s and extra_ok,
+         f"walker {w} on {a} facing {FACE} and U {u} on {U_TILE} on both: {at} ({s}); hidden(U) {u in c['hidden']} "
+         f"(set {c['hidden']}); X-COM within {NEAR} of {T} {c['near']} (want none); straight {ok_s} "
+         f"({ev['straight']}){extra}")
+
+
+def halt_cells(row, w, u, full, rec):
+    hw, sp = rec["hostLastWalk"], rec["hostLastSpot"]
+    return (hw.get("halted") is True and hw.get("reason") == HALT[0] and rec["pos"] == [T, T]
+            and rec["tu"] == [full - HALT[1]] * 2 and sp.get("unit") == w and sp.get("seen") == [u]
+            and sp.get("actionId") == hw.get("actionId"),
+            f"host lastWalk halted {hw.get('halted')} reason {hw.get('reason')!r} (want True, {HALT[0]!r}); walker "
+            f"{w} {rec['pos']} TU {rec['tu']} (want {T}, {full - HALT[1]} on both); host lastSpot {sp} (want unit {w}, "
+            f"seen [{u}], this walk's actionId {hw.get('actionId')})")
+
+
+def row_v1(host, client, crash0, st, cells, ev):
+    H, U1 = CS.H_ID, st["U1"]
+    full = ev["tuFull"] = CS.set_tu_both(host, client, H, TU_MAX)
+    tab = ev["tab"] = tab_select(host, H)
+    tus = [units(host)[H].get("tu"), units(client)[H].get("tu")]
+    start_cell(host, client, "V1", H, T, U1, D, cells, ev, tab and tus == [full] * 2,
+               f"; H TU {tus} (want {full} on both); tab_select(host, H) {tab}")
+    ctx0 = RM.ctxs(host)
+    wev = ev["walk"] = {}
+    RM.host_walk(host, client, H, D, wev)
+    rec = ev["walkrec"] = walkrec(host, client, H, U1, ctx0)
+    hw = rec["hostLastWalk"]
+    ok_c = RM.ctx_ok(rec["newCtx"], "host", "walk", H)
+    ok_h, det = halt_cells("V1", H, U1, full, rec)
+    cells["V1-walk"] = (ok_c and hw.get("unit") == H and hw.get("origin") == "host" and ok_h,
+                        f"new host contexts {[RM.cv(c) for c in rec['newCtx']]} (want exactly one {{host, walk, {H}}}); "
+                        f"lastWalk unit {hw.get('unit')} origin {hw.get('origin')!r} (want {H}, 'host'); {det}")
+    cells["V1-common"] = G3F.common(host, client, crash0)
+
+
+def row_v2(host, client, crash0, st, cells, ev):
+    C, U2 = CS.C_ID, st["U2"]
+    start_cell(host, client, "V2", C, T, U2, D, cells, ev)
+    ctx0 = RM.ctxs(host)
+    w = ev["walk"] = client_walk(host, client, C, D)
+    rec = ev["walkrec"] = walkrec(host, client, C, U2, ctx0)
+    hw = rec["hostLastWalk"]
+    new_walk = w["hostLastWalkIsNew"] and hw.get("unit") == C
+    cells["V2-admit"] = (not w["clientDenyIsNew"] and new_walk and hw.get("origin") == "intent"
+                         and RM.ctx_ok(rec["newCtx"], "intent", "walk", C),
+                         f"walk {D}: outcome {w['outcome']} in {w['answerS']} s; new client lastDeny {w['clientDenyIsNew']} "
+                         f"{w['clientLastDeny']} (want none); host lastWalk new {w['hostLastWalkIsNew']} unit "
+                         f"{hw.get('unit')} origin {hw.get('origin')!r} (want a new walk of {C}, 'intent'); new host "
+                         f"contexts {[RM.cv(c) for c in rec['newCtx']]} (want exactly one {{intent, walk, {C}}})")
+    ok_h, det = halt_cells("V2", C, U2, w["tuSet"], rec)
+    cells["V2-halt"] = (new_walk and ok_h, f"new host walk of {C} {new_walk}; {det} (the host's own V1 outcome)")
+    want = TEXT[HALT[0]]
+    cells["V2-text"] = (rec["coopWaitText"][1] == want, f"client coopWaitText {rec['coopWaitText'][1]!r} (want {want!r})")
+    cells["V2-common"] = G3F.common(host, client, crash0)
+
+
+def row_v3(host, client, crash0, st, cells, ev):
+    C, U3 = CS.C_ID, st["U3"]
+    start_cell(host, client, "V3", C, TS, U3, D3, cells, ev)
+    ctx0 = RM.ctxs(host)
+    w = ev["walk"] = client_walk(host, client, C, D3)
+    rec = ev["walkrec"] = walkrec(host, client, C, U3, ctx0)
+    hw = rec["hostLastWalk"]
+    cells["V3-admit"] = (not w["clientDenyIsNew"] and w["hostLastWalkIsNew"] and hw.get("unit") == C
+                         and hw.get("origin") == "intent" and RM.ctx_ok(rec["newCtx"], "intent", "walk", C),
+                         f"walk {D3}: outcome {w['outcome']} in {w['answerS']} s; new client lastDeny "
+                         f"{w['clientDenyIsNew']} {w['clientLastDeny']} (want none); host lastWalk new "
+                         f"{w['hostLastWalkIsNew']} {({k: hw.get(k) for k in ('unit', 'origin', 'halted', 'reason')})} "
+                         f"(want a new walk of {C}, 'intent', any halt); new host contexts "
+                         f"{[RM.cv(c) for c in rec['newCtx']]} (want exactly one {{intent, walk, {C}}})")
+    cells["V3-common"] = G3F.common(host, client, crash0)
+
+
+def between(host, client, st, row):
+    """The staging between rows (spec (f)): park the previous row's units, place the next row's walker and U."""
+    rec = {}
+    if row == "V2":
+        for uid in (CS.H_ID, st["U1"]):
+            rec[uid] = CS.place(host, client, uid, st["park"].pop(0), 0)
+        st["U2"] = next_u(host, client, st)
+        if st["U2"] is not None:
+            rec[st["U2"]] = CS.place(host, client, st["U2"], U_TILE, FACE)
+        rec[CS.C_ID] = CS.place(host, client, CS.C_ID, T, FACE)
+    else:
+        rec[st["U2"]] = CS.place(host, client, st["U2"], st["park"].pop(0), 0)
+        rec[CS.C_ID] = CS.place(host, client, CS.C_ID, TS, FACE)
+        st["U3"] = next_u(host, client, st)
+        if st["U3"] is not None:
+            rec[st["U3"]] = CS.place(host, client, st["U3"], U_TILE, FACE)
+    return rec
+
+
+def stage(host, client, st):
+    """Map census, PARK by rule, the X-COM near T parked, the lane and side line open on both, H on T and U1 on
+    T+2d. Returns None, or the miss."""
+    fd = host.ok({"cmd": "find_doors"})
+    sx, sy = fd["mapSizeX"], fd["mapSizeY"]
+    th, tc = census(host, sx, sy), census(client, sx, sy)
+    occ = occupied(host, client)
+    near = near_xcom(host, CS.H_ID)
+    big = [i for i in near if (units(host)[i].get("armorSize") or 1) > 1]
+    cand = sorted((t for t in ((x, y, 0) for (x, y) in th) if open_both(th, tc, t, occ)
+                   and cheb(t, T) >= PARK_MIN and cheb(t, TS) >= PARK_MIN), key=lambda t: (-cheb(t, T), t[1], t[0]))
+    park = []
+    for t in cand:
+        if all(cheb(t, x) >= PARK_GAP for x in park):
+            park.append(t)
+    need_n = len(near) + 3
+    st["staging"] = {"map": [sx, sy], "censusEqual": th == tc, "near": near, "park": park[:need_n], "big": big}
+    if big or len(park) < need_n:
+        return f"near X-COM armorSize > 1 {big}; PARK tiles {len(park)} (want >= {need_n})"
+    st["park"] = park[:need_n]
+    st["parked"] = {i: CS.place(host, client, i, st["park"].pop(0), 0) for i in near}
+    occ = occupied(host, client)
+    lane = [add(T, D_DIR, k) for k in range(5)] + [add(TS, D_DIR, k) for k in range(5)]
+    shut_ = [t for t in lane if not open_both(th, tc, t, occ)]
+    st["staging"]["notOpen"] = shut_
+    if shut_:
+        return f"lane / side line tiles not open on both {shut_}"
+    st["used"] = []
+    st["U1"] = next_u(host, client, st)
+    if st["U1"] is None:
+        return f"no hidden hostile (HIDDEN set {hidden_set(host, client)})"
+    st["parked"][st["U1"]] = CS.place(host, client, st["U1"], U_TILE, FACE)
+    st["parked"][CS.H_ID] = CS.place(host, client, CS.H_ID, T, FACE)
+    st["lastParking"] = st["parked"]
+    return None
+
+
+def row(fn, host, client, crash0, st):
+    """(cells, ev) for G3F.run_row: cells set before an exception are kept; a precondition miss (or any other
+    exception, after which the fixture state is unknown) ends the later rows."""
+    def run():
+        cells, ev = {}, {"U": st.get("U" + fn.__name__[-1]), "parking": st.get("lastParking")}
+        try:
+            fn(host, client, crash0, st, cells, ev)
+        except Exception as e:
+            ev["error"] = f"{type(e).__name__}: {str(e)[:600]}"
+            st["stop"] = ev["error"]
+        return cells, ev
+    return run
+
+
+def run_all(host, client):
+    """Boot, staging, then V1, V2, V3; returns the failed cell count."""
+    rows, fails, st = dict(ROWS), 0, {}
+    try:
+        CS.PORT = KEY
+        CS.boot(host, client)
+        crash0 = session._crash_log_snapshot()
+        reactions = G3F.reactions_zero(host, client)
+        print(f"[w2h52] boot: reactions 0 on {len(reactions)} units; screen {json.dumps(screen(host, client))}",
+              flush=True)
+    except Exception as e:
+        G3F.capture("boot", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
+        return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE boot line)")
+    try:
+        miss = stage(host, client, st)
+    except Exception as e:
+        miss = f"{type(e).__name__}: {str(e)[:600]}"
+    print(f"[w2h52] staging: {json.dumps({k: st.get(k) for k in ('staging', 'parked', 'U1')}, default=str)}",
+          flush=True)
+    if miss:
+        G3F.capture("staging", miss, (host, client))
+        return G3F.fail_all(ROWS, f"staging: {miss[:300]}")
+    fails += G3F.run_row("V1", rows["V1"], row(row_v1, host, client, crash0, st))
+    for name, fn in (("V2", row_v2), ("V3", row_v3)):
+        if not st.get("stop"):
+            try:
+                st["lastParking"] = between(host, client, st, name)
+            except Exception as e:
+                st["stop"] = f"staging {name}: {type(e).__name__}: {str(e)[:300]}"
+        if st.get("stop"):
+            fails += G3F.verdict(name, rows[name], {}, {"error": f"an earlier step missed: {st['stop'][:300]}"})
+        else:
+            fails += G3F.run_row(name, rows[name], row(fn, host, client, crash0, st))
+    return fails
+
+
+def main():
+    t0 = time.time()
+    host = GameClient("host", None, make_user_dir("w2h52_s_host"))
+    client = GameClient("client", None, make_user_dir("w2h52_s_client"))
+    fails = 1
+    try:
+        fails = run_all(host, client)
+    finally:
+        G3F.shut(host, client)
+        print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
+        print(f"test_client_walk_hidden: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
+    sys.exit(0 if not fails else 2)
+
+
+if __name__ == "__main__":
+    main()

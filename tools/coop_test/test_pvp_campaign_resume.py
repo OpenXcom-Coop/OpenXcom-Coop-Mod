@@ -5,7 +5,7 @@
     buildCoopStub loads clean as the phase-one geoscape without null-derefing on an empty roster).
   - gm3 mid-battle: the release line's gm3 battle save holds no alien world, so the host's menu load
     refuses it with the repair line (owner D284 (c) amended, VL-D284-1; L-SC5-6): D246-U S-C2's row G3
-    check (test_d246u_old_pvp_gm3_refused), host only.
+    check (test_old_pvp_gm3_refused), host only.
   - geoscape [P4]: bring up a gm2 campaign, save it (embeds buildCoopStub as the
     alien client's blob), resume with fresh processes, and assert the client
     lands in the minimal unplaced/unnamed EMPTY stub - no host base name, no
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 import pvp_fixture
-import test_d246u_old_pvp_gm3_refused as SC2  # the gm3 leg's refusal check (D246-U S-C2 row G3; D284 (c))
+import test_old_pvp_gm3_refused as SC2  # the gm3 leg's refusal check (D246-U S-C2 row G3; D284 (c))
 
 PORT = "49229"  # D250-U S-D lobby key (was 48003, shared with three other PvP files)
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -34,7 +34,7 @@ def resume_campaign_battle(host, client, save_file, port, host_name="HostPlayer"
                            interval=2.0):
     """session.resume_campaign_battle copied (D250-U S-D; R-D250-SC4A-1 (a), L-SC5-6) with ONE change: the host's START HOST
     goes through the real host window (host_menu_host visibility 0 -> HostMenu::hostTCPGame), not the host_tcp lever, so the
-    resume passes the host window's PvP-mode keep (D250-U S-C4a, W2-H46). The same copy as test_d250_campaign_resume_gm2.py."""
+    resume passes the host window's PvP-mode keep (D250-U S-C4a, W2-H46). The same copy as test_campaign_resume_gm2.py."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (battle resume)", lambda: session.has_state(host, "HostMenu"))
     host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": port, "player": host_name})

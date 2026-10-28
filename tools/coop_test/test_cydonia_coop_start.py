@@ -16,9 +16,9 @@ FX-1 (WV-D56): the host must click its briefing OK BEFORE waiting for the
 client's battle entry. That click runs startFirstTurn() and emits the prepared
 battle offer. The client reaches BattlescapeState only after the streamed blob
 is verified and loaded, with a read-only entry briefing above it. Assertions mirror
-test_rw_handshake.py: phase-Active log lines on both machines + BattlescapeState
+test_handshake.py: phase-Active log lines on both machines + BattlescapeState
 in the state stack on both machines. The saveBlob hash comparison itself is
-SOFT-GATED pending R2-P9 (owner-approved 2026-09-01, see test_rw_handshake.py's
+SOFT-GATED pending R2-P9 (owner-approved 2026-09-01, see test_handshake.py's
 docstring for why) - this test does not assert saveBlob equality, only that
 onReady() ran to completion and phase reached Active regardless of outcome.
 The missionType/mapSizeXYZ/mapFingerprint equality checks are KEPT (not an
@@ -159,7 +159,7 @@ def run_mode(mode, test_ports, coop_port):
         assert client_active_lines, "client log missing 'CLIENT phase Active' line"
         # SOFT GATE (RW-TODO(R2-P9)): onReady() proceeds to phase Active whether
         # the raw saveBlob matched or (as is normal pre-R2-P9) differed on
-        # machine-local FOV/discovered state - see test_rw_handshake.py's
+        # machine-local FOV/discovered state - see test_handshake.py's
         # docstring for the full trace. Only require ONE of the two outcome
         # lines to prove onReady() ran to completion.
         assert host_active_lines, \

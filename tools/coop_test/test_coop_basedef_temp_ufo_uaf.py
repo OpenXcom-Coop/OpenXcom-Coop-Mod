@@ -37,11 +37,11 @@ CoopHandshake::onBlobChunkAppended (no client-side BriefingState - the
 LoadGameState.cpp "loaded save with a live battle" precedent), a single
 interest-fire no longer proves both sides actually completed the handshake.
 Assertions below explicitly wait for BOTH machines (mirroring
-test_rw_handshake.py / test_cydonia_coop_start.py): host reaches BriefingState
+test_handshake.py / test_cydonia_coop_start.py): host reaches BriefingState
 then BattlescapeState after an OK click, client reaches BattlescapeState
 directly, and the host+client "[coop-handshake] ... phase Active" log lines are
 both present. The saveBlob hash comparison itself stays SOFT-GATED pending
-R2-P9 (see test_rw_handshake.py's docstring) - only that onReady() ran to
+R2-P9 (see test_handshake.py's docstring) - only that onReady() ran to
 completion is asserted, not saveBlob equality.
 """
 import glob

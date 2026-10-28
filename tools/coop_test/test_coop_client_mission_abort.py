@@ -18,7 +18,7 @@ MG-P1 (rewrite/merge-main, R-MF210-1): ABORT opens vanilla's AbortMissionState a
 OK opens the vote (R4-L1, design-D8); the battle entry is session.drive_both_to_tactical
 (W2-P8b). main's S1 / S2 (the CLIENT's own craft starts a SEPARATE mission) are gone: a
 SEPARATE client never starts a battle from its own craft (owner D199 (a), W2-H9;
-test_w2_client_landing.py H9-1 / H9-2 cover the refusal).
+test_client_landing.py H9-1 / H9-2 cover the refusal).
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
     never held; MG-P1).

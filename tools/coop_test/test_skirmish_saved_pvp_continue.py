@@ -46,13 +46,13 @@ import pvp_fixture as PF  # noqa: E402
 import repro_pvp_side_relative as PSR  # noqa: E402
 import test_skirmish_flow as SK  # noqa: E402
 from repro_atom_side_begin import drive_side_change  # noqa: E402
-from test_w2_host_combat import evs_since  # noqa: E402
-from test_w2_battle_end_rules import wait_until  # noqa: E402
-from test_r5_pvp_gm3 import (Miss, stack, top, log_count, bview, hash_now, capture, guarded, common,  # noqa: E402
+from test_host_combat import evs_since  # noqa: E402
+from test_battle_end_rules import wait_until  # noqa: E402
+from test_pvp_gm3 import (Miss, stack, top, log_count, bview, hash_now, capture, guarded, common,  # noqa: E402
                              verdict, shut)
 
 KEY = "49253"
-SEED_ROSTER = 1                   # set_seed on the host before its lobby (test_r5_pvp_gm3 :52; TASK 0 boots a, b)
+SEED_ROSTER = 1                   # set_seed on the host before its lobby (test_pvp_gm3 :52; TASK 0 boots a, b)
 LOAD_S, CLIENT_S = 120, 120       # the menu load / the partner in battle after CONTINUE BATTLE (TASK 0: 0.1 s / 0.95 s)
 STEP_S, SETTLE_S = 30, 2          # each lever / side change (TASK 0: <= 3.7 s); the read delay after the arrival
 N_MGB = "[coop] MG-B: CONTINUE BATTLE offers the loaded Custom Battle"

@@ -759,7 +759,7 @@ int coopLocalExecutionBlocks();
 ///
 /// Commit 1 adds the storage, these read accessors and the probes ONLY -
 /// nothing increments them yet, so every value reads 0 / "" on its build (the
-/// red the S1-S7 test, test_w2_thin_client_tripwire.py, proves). Commit 2's
+/// red the S1-S7 test, test_thin_client_tripwire.py, proves). Commit 2's
 /// writers live in connectionTCP.cpp beside coopBlockLocalExecution() and write
 /// the storage directly:
 ///   * coopClientBStateTripwire(site, bs): `g_coopClientBStatePushes`

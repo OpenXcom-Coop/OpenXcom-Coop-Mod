@@ -375,7 +375,7 @@ LAND_LON, LAND_LAT = 0.7063353365604198, -0.5070346730015731
 # from the exe's own dir, so this runs on any machine with a built OpenXcom.exe.
 #
 # battleEdgeScroll: 0 (SCROLL_NONE, Options.h:30) - W2-H1 F447 (traced in
-# F456/F458/F459), the F109 precedent of test_rw_host_input_freeze.py made
+# F456/F458/F459), the F109 precedent of test_host_input_freeze.py made
 # harness-wide. Under the dummy SDL video driver the mouse sits at (0,0), and
 # Game::run replays that position as a synthetic mouse motion on every state
 # re-init. With the default SCROLL_AUTO (2), a re-init with a live battlescape

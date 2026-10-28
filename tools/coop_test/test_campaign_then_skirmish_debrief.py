@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import pvp_fixture as PVP
 import session
-import test_w2_battle_end_rules as BER
+import test_battle_end_rules as BER
 
 
 CAMPAIGN_PORT = "48024"
@@ -69,7 +69,7 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
                         interval=0.5)
 
         # RV-U5 S-D RP3 (W2-P8b spine; F10427, F10428): the PvP gm2 skirmish is
-        # test_w2_battle_end_rules.boot_e6's body after its spawn / connect lines,
+        # test_battle_end_rules.boot_e6's body after its spawn / connect lines,
         # started from the main menu both machines reached; then BER.stage_e6 (the
         # host kills the client's only alien) and BER.end_e6 (the host's END TURN,
         # its NextTurnState closed).

@@ -210,7 +210,7 @@ def set_reserve(gc, mode=None, kneel=None):
     return gc.ok(req)
 
 
-# ----- fixture bring-up (inline copy, test_rw_feedback.py precedent) -------
+# ----- fixture bring-up (inline copy, test_feedback.py precedent) -------
 
 def skirmish_host(host, port, player=HOST_PLAYER):
     host.ok({"cmd": "open_new_battle"})

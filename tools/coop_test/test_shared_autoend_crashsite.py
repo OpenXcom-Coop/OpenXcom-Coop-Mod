@@ -24,7 +24,7 @@ Cells (in order; a failed cell ends the row, later cells "not reached"):
   C2  the host's OK (handled AliensCrashState) -> its DebriefingState (<= 10 s); resultSent 1 (<= 5 s).
   C3  the client's top AliensCrashState within 20 s of the host's DebriefingState; its OK (handled AliensCrashState)
       -> its debriefing on top, display-only (<= 10 s); worldAdopted 1 (<= 15 s); shared_checksum chk* equal.
-  C4  both OKs (test_w2_battle_end_campaign's client_ok_clean / host_ok_drain) -> both on GeoscapeState, no CoopState.
+  C4  both OKs (test_battle_end_campaign's client_ok_clean / host_ok_drain) -> both on GeoscapeState, no CoopState.
 Guards: no new crash file (none with 0xC0000374 / finishBattle); both processes alive; host fatalVote.armed 0; the
 client zero-disk. Prints ONE "EVIDENCE R18:" line, then "PASS R18" or "FAIL R18: <message>". WV-D95: run in the
 foreground to completion. WV-D99 / WV-D100: ONE run, no skip path; exit 0 only when the row passes, 2 otherwise.
@@ -41,7 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, shutdown_clients
 import session
 from session import battle_state, event_state
-import test_w2_battle_end_campaign as camp
+import test_battle_end_campaign as camp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURE = os.path.join(HERE, "fixtures", "auto_end_crash.sav")
@@ -56,8 +56,8 @@ CLIENT_SCREEN = "InventoryState"    # the client's seat owns 5 soldiers aboard: 
 LAND_S = 66                         # P2: 32.68 s on A1 and A2, x 2
 
 ENTER_S, HOST_BRIEF_S = 180, 60     # P3: session.bring_up_shared_mixed_battle's bounds
-BRIEF_S, ACTIVE_S, SCREEN_S = 30, 30, 5   # P5: test_w2_prebattle_equip_end's EQ1 / ACTIVE / ENTRY waits
-CRASH_HOST_S, DEBRIEF_S, RESULT_S = 5, 10, 5   # C1 / C2: test_w2_prebattle_equip_end's CRASH / DEBRIEF / RESULT waits
+BRIEF_S, ACTIVE_S, SCREEN_S = 30, 30, 5   # P5: test_prebattle_equip_end's EQ1 / ACTIVE / ENTRY waits
+CRASH_HOST_S, DEBRIEF_S, RESULT_S = 5, 10, 5   # C1 / C2: test_prebattle_equip_end's CRASH / DEBRIEF / RESULT waits
 CRASH_S = 20                        # C3: the client's AliensCrashState after the host's DebriefingState (SCR row D1d)
 ADOPT_S = camp.ADOPT_S              # 15 s
 FACTION_HOSTILE = 1

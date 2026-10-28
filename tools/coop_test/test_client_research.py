@@ -1,0 +1,1613 @@
+"""W2-P4r S-R - test_client_research.py: in a SEPARATE campaign battle whose
+host has research sync OFF, every research-based weapon check reads the research
+of the unit's OWNER (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md
+section (f), as amended by PLAN REVIEW + AMENDMENT D1 (PR-R1 = ST1, PR-R2 = ST2,
+PR-R3 = ST3) and AMENDMENT D2 (F1400, F1402-F1405)).
+
+Before W2-P4r the second player's game swaps its own world for the host's at
+battle entry, so both machines only know the HOST's research during the battle
+(F1176): the guest G cannot fire the plasma pistol its player researched and
+can fire the heavy plasma only the host researched. After W2-P4r the client
+ships its own list on battle_accept and keeps a copy; each check routes by the
+unit's seat tag. Thirteen scenarios, ONE boot, in this order:
+
+  C16r-s  the store and the mode (no press). First the PR-R1 precondition:
+          event_state.researchMode {campaign true, shared false, sync false,
+          coopBattle true, separate true} on both machines and the client's
+          localSeat == G's coop == 1. Then: seats[1] {stored true, count Nc,
+          unknown 0} equal on both, seats[0].stored false; the client's
+          liveCount == Nh (the adopted host world, F1176); research_check
+          {seat0, seat1} on both: PISTOL, PCLIP, PSI {false, true} and HEAVY,
+          HCLIP {true, false} (the lists are told apart by NAME); is_researched
+          in battle HEAVY and HCLIP true, the other three false, on both.
+          W2-P8 S-D1 re-point (A.10, F2638): the boot's pre hook grew (below),
+          so Nc and Nh are read at run time, never baked (F3041).
+          RED: seats[1].stored false (no writer), research_check pistol seat 1
+          false.
+  C16r-u  the owner rule at canUseWeapon (Q-R2 (a)): can_use_weapon {G, item,
+          action} for snap, hit, auto with berserk true, and none - the calls
+          reaction fire, berserk and the AI make - on both machines, first with
+          the pistol, then with the heavy plasma. GREEN: pistol true x4, heavy
+          false x4 on both. RED: pistol false x4, heavy true x4.
+  C16r    the client-researched pistol through the client's REAL UI: TAB G,
+          the right-hand box, clear_warning, key 50. GREEN: the key starts
+          targeting (cursorType aim, warningText not RESEARCH_TEXT); HOME, host
+          set_seed SEED_R1, one click on TGT1 -> admitted {intent, shoot, G};
+          the `shot` cue {actor G, weapon pistol}; G TU = max - snap - 4 (the
+          first south shot turns G 0 -> 4, F1400) and the clip -1 on both.
+          RED: refused locally (cursorType 1, RESEARCH_TEXT, nothing sent).
+  C16r-f  the mode is read at each check (Q-R3 (a)). Leg 1: set_research_sync
+          true on both (client first) -> separate false on both, research_check
+          pistol seat 1 false -> the pistol press is refused locally with
+          RESEARCH_TEXT, nothing sent. Leg 2: set_research_sync false -> separate
+          true, seat 1 true -> the press starts targeting, SEED_R2, click TGT2
+          -> admitted, `shot` weapon pistol, G TU = max - snap (already facing
+          south). RED: leg 2 refused locally.
+  C16r-m  the host-only heavy plasma through the REAL UI (the mirror). GREEN:
+          refused locally (cursorType 1, BattlescapeState on top, RESEARCH_TEXT,
+          nothing sent, no click made). RED: the key starts targeting; SEED_R3,
+          click TGT3 -> sent and admitted.
+  C16r-h  the host's admission reads the owner's list (a modified client): host
+          set_seed SEED_R4, then the client's battle_intent shoot_req(G, snap,
+          heavy, clip, TGT3). GREEN: answered deny - lastDeny not_researched,
+          coopWaitText RESEARCH_TEXT, host intentsReceived.shoot.denied +1, host
+          lastSeqEmitted unchanged, G TU and clip unchanged on both. RED:
+          answered end (admitted and executed).
+  C16r-p1..p5  W2-P8 S-D2 (owner D168 = a, D213 = b, D217 = a; AMENDMENT
+          P8-4f, TASK 0 = P8-4g): the second player's in-battle Ufopaedia
+          lists and opens only what its OWN research unlocked (the VIEWER's
+          seat; the host is unchanged). Run before C16r-i (C16r-j's last step
+          changes the client's live research, P8-4f C3). Each row:
+          cancel_client_aim; pedia_state depth 0, BattlescapeState on top on
+          both at start and end; screens closed by depth (keyCancel never at
+          depth 0, F3090); nothing sent; rows compared by EXACT text.
+  C16r-p1 the list (U key, "ALIEN ARTIFACTS"), client then host; the host
+          clicks its "Heavy Plasma" row -> STR_HEAVY_PLASMA, the client its
+          "Plasma Pistol" row when listed. GREEN: the client lists Plasma
+          Pistol (+ Clip), Plasma Rifle, not Heavy Plasma (+ Clip), Plasma
+          Rifle Clip; its row opens STR_PLASMA_PISTOL. Host (both builds):
+          Heavy Plasma (+ Clip), Plasma Rifle (+ Clip), not Plasma Pistol.
+          RED: the client lists the host's research.
+  C16r-p2 middle click on the right-hand box: G pistol, G heavy; H heavy, H
+          pistol. GREEN: the client's pistol opens STR_PLASMA_PISTOL, its
+          heavy nothing; the host's heavy opens, its pistol not. RED: the
+          client like the host.
+  C16r-p3 the rifle article's ammo column (ArticleStateItem :398) on G and H.
+          GREEN: client "", host "80". RED: client "80".
+  C16r-p4 the mode at each list build (V3): leg 1 sync on (separate false)
+          Heavy Plasma, not Plasma Pistol; leg 2 sync off GREEN Plasma Pistol,
+          not Heavy Plasma. RED: leg 2 as leg 1.
+  C16r-p5 the Stats-for-Nerds ammo link (:386): the rifle article, U key,
+          the ammo combo's clip row. GREEN: nerds 1. RED: nerds 2. Recorded
+          code-only: ArticleStateTFTDItem :163, StatsForNerdsState :397, E3-E7.
+  C16r-i  W2-P8 S-D1 (owner D168 = a): the second player's inventory names
+          items by the research of the soldier's OWNER. Staging (both
+          machines, client first): G right pistol + PCLIP (clear_hands), left
+          heavy + HCLIP, a pistol and a heavy on G's tile; H (the first host
+          soldier) right heavy + HCLIP (clear_hands), left pistol + PCLIP, a
+          pistol and a heavy on H's tile. Client, G's inventory
+          (battle_open_inventory, 0.3 s): hover = inventory_click on the hand
+          with an empty cursor, read the _txtItem Text, one right-click
+          returns the item (F3025); Alt hover = the same click with mod alt,
+          then inject_input modstate none (F3029); the psi-strength line
+          (textStatLine4, a HIDDEN widget in battle: its text is asserted as
+          the only proof of that read, F3031); then, re-opened, quick search
+          (key 113, one letter per key 0.3 s apart, Enter applies, 113 clears;
+          ground stacks only, F3033): "pistol" and "artifact".
+          GREEN: hover pistol "Plasma Pistol [6]", heavy "Alien Artifact [11]";
+          Alt pistol "DAMAGE>\\x010-104", heavy "Alien Artifact"; psi line
+          "P.Str>\\x01<n>"; "pistol" shows the ground pistol and hides the
+          heavy, "artifact" hides the pistol and shows the heavy. Host control
+          (both builds): H hover heavy "Heavy Plasma [11]", pistol "Alien
+          Artifact [6]"; Alt heavy "DAMAGE>\\x010-230", pistol "Alien
+          Artifact". RED (the host's research on the client, TASK 0 F3025-
+          F3033): the client reads like the host (hover pistol "Alien Artifact
+          [6]", heavy "Heavy Plasma [11]", Alt pistol "Alien Artifact", heavy
+          "DAMAGE>\\x010-230", psi line "", "pistol" hides both, "artifact"
+          shows the pistol and hides the heavy). Recorded code-only (F3027,
+          F3028, F3030): the ammo-name read (no nameAsAmmo on stock data), the
+          category search (no categories) and the Alt tooltip's own article
+          reads (InventoryState :1843/:1851). The host cannot open a partner's
+          inventory (vanilla refusal, F3032): no host-views-G leg.
+  C16r-j  W2-P8 S-D1 (owner D213 = b): the displays outside the inventory
+          follow the owner's research too. Client: UnitInfoState on G (TAB G +
+          the stats button, ESC closes, F3035); the melee damage preview (TAB
+          G, 0.3 s, key 109 mod ctrl, the InfoboxState text read before its
+          ~1.9 s auto-close, F3037); host control the same on H. GREEN:
+          UnitInfoState "PSIONIC STRENGTH" and its value shown; melee
+          "Heavy Plasma\\n?-?\\n\\nPlasma Pistol\\n0-0"; host control (both
+          builds): H's psi line hidden, melee "Plasma Pistol\\n?-?\\n\\nHeavy
+          Plasma\\n0-0". RED: psi label and value hidden; melee
+          "Heavy Plasma\\n0-0\\n\\nPlasma Pistol\\n?-?". LAST STEP OF THE FILE
+          (it changes the client's live research, F3038/F3039): the Alt aiming
+          preview by a same-boot pixel check - G's pistol snap aim, HOME, the
+          selector parked on TGT1, screen_pixels of a 96x80 region without and
+          with the Alt latch; then discover_research PISTOL, PCLIP, PSI into
+          the client's LIVE (adopted host) world; re-aim and capture again.
+          The no-Alt captures must be equal (the capture is stable) and each
+          Alt capture must differ from its no-Alt one (the text drew). GREEN:
+          the two Alt captures are equal (G's display already read G's own
+          research). RED: they differ (TASK 0: 114 px; the display read the
+          live world). The mana reads are recorded code-only (no mana on stock
+          data, F3036).
+
+Common asserts (spec (f), after wait_host_idle, every row): hash_now {full:true}
+every bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes
+unchanged and host 0; the W2-P2 delta must-be-0 counters on both; every lever
+item created on both with equal ids (both()). An admitted order: host
+closedContexts gains exactly one {origin intent, kind shoot, actorId G}, its evs
+are in the client's log with the same seq and kind, one bt_action_end, client
+coopIntentsSent.shoot +1, inFlight null at the end. A refused press: nothing
+sent (client inFlight null and coopIntentsSent unchanged, host lastSeqEmitted
+and intentsReceived unchanged), G TU and clip unchanged on both. G's TU is set
+to its max on both (client first) before every firing row.
+
+PR-R2 / D2 (F1403): warningText stays set after a refusal, so every press sends
+clear_warning to the client right before the key and asserts the text AFTER the
+key: RESEARCH_TEXT for a refusal (plus cursorType 1 and BattlescapeState on top),
+not RESEARCH_TEXT for a key that starts targeting (cursorType aim). F1404: after
+an admitted shot the client stays in aim, so each later row first sends the F503
+cancel click.
+
+FIXTURE (TASK 0 T0-16, docs rewrite/w2p4r-task0/constants.md): the SEPARATE
+guest battle of test_coop_separate_guest_battle.py (session.
+bring_up_separate_guest_battle), the host's options.cfg EnableResearchSync false,
+pre_mission_start = client discover_research STR_PLASMA_PISTOL then host
+discover_research STR_HEAVY_PLASMA; pin_ai_neutral right after the battle
+starts. The map, the Skyranger's place, G's tile, max TU, firing and the item
+ids are rolled per boot (F1399): G is found by NAME, its tile, max TU and the
+item ids are read at run time, the snap cost is SNAP_PCT of the max TU
+(tuSnap 30 for both weapons, T0-16e). Only the target OFFSETS from G's
+deployment tile and the seeds are baked. G's firing is pinned to FIRING_PIN on
+both machines (client first) before any shot (D2 / F1405, WV-D86); the S-R red
+builder re-proved SEED_R1..R4 = 1 with the pin (3 boots each order, the same
+impact tile every boot: TGT1, TGT2, TGT3, TGT3).
+W2-P8 S-D1 boot extension (draft section 3.4; TASK 0 T0-D1..T0-D3, AMENDMENT
+P8-4e, docs rewrite/w2p8-task0/sd/): pre_mission_start = client
+discover_research STR_PLASMA_PISTOL, STR_PLASMA_PISTOL_CLIP, STR_PSI_LAB, then
+host STR_HEAVY_PLASMA, STR_HEAVY_PLASMA_CLIP; the client's options.cfg
+psiStrengthEval true; both machines' oxceShowAccuracyOnCrosshair 2 (the Alt
+aiming text, F3039). H = the first host soldier (coop 0, not out) by id order.
+No other row reads the added topics; C16r-s names them.
+W2-P8 S-D2 boot extension (P8-4f C2, T0-P5): then client STR_PLASMA_RIFLE,
+host STR_PLASMA_RIFLE, STR_PLASMA_RIFLE_CLIP (the host's DEP2 cascades: Nh 6,
+Nc 4, read at run time); only the p-rows read them.
+
+RED-THEN-GREEN (spec (d)). Commit S-R.1 (this file, the probes researchMode /
+research_check / can_use_weapon, the levers set_research_sync / clear_warning,
+the writer-less store) is run ONCE: exit 2, 0/6, each row with its RED. Commit
+S-R.2 is run ONCE with this file unchanged: exit 0, 6/6. W2-P8 S-D1.1 (the
+boot extension, the C16r-s re-point, C16r-i, C16r-j) is run ONCE: exit 2 on
+exactly C16r-i and C16r-j, 6/8; S-D1.2 with this file unchanged: exit 0, 8/8.
+W2-P8 S-D2.1 (the pedia_state probe, the rifle topics, C16r-p1..p5) is run
+ONCE: exit 2 on exactly C16r-p1..p5, 8/13; S-D2.2 with this file unchanged:
+exit 0, 13/13.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+BEFORE its green conditions are checked; main() runs every scenario even after
+an earlier one failed.
+
+WV-D99 / WV-D100: one run is the result. Exit 0 only when all thirteen scenarios
+pass, 2 otherwise (a bring-up failure is also 2). A pixel-check control
+failure in C16r-j is a failure, never retried. WV-D95: run in the foreground
+to completion.
+
+Run:  python tools/coop_test/test_client_research.py
+"""
+
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness import GameClient, make_user_dir
+import session
+from session import battle_state, event_state, pin_ai_neutral
+from test_turn_baton import RHAND_NTH, RHAND_RECT, click_nth
+from test_seat_pacing import tab_select, SDLK_HOME
+from test_inventory_held import read_key
+from test_delta_core import short, both
+from test_delta_items import items_by_id
+from test_client_shoot import (give_both, send_intent, shoot_req, await_press, press, menu_rows, snap, collect,
+                                  ctx_view, chain_of, admitted_fails, common_fails, finish, press_view, shot_payloads,
+                                  shot_brief, mine, count_of, recv_of, cancel_client_aim, ubrief, RHAND_CENTRE,
+                                  KEY_SNAP, CURSOR_AIM)
+from test_host_combat import ev_tuples
+
+# ----- bring-up (TASK 0 T0-16a/b) -----
+PORT = "48978"
+GUEST_NAME = "Guest Zzz"
+G_SEAT = 1
+PISTOL, PCLIP = "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"
+HEAVY, HCLIP = "STR_HEAVY_PLASMA", "STR_HEAVY_PLASMA_CLIP"
+PSI = "STR_PSI_LAB"               # the psi requirement on stock xcom1 (W2-P8 S-D1 T0 BOOT)
+CLIENT_TOPICS = (PISTOL, PCLIP, PSI)     # pre_mission_start on the client (W2-P8 S-D1 boot extension)
+HOST_TOPICS = (HEAVY, HCLIP)             # pre_mission_start on the host
+TOPICS = (PISTOL, PCLIP, HEAVY, HCLIP, PSI)
+MODE_WANT = {"campaign": True, "shared": False, "sync": False, "coopBattle": True, "separate": True}
+HOST_OPTIONS = {"EnableResearchSync": False, "oxceShowAccuracyOnCrosshair": 2}
+CLIENT_OPTIONS = {"psiStrengthEval": True, "oxceShowAccuracyOnCrosshair": 2}
+
+# ----- the construction (T0-16c/d/e; D2) -----
+TGT_OFF = {"TGT1": (0, 2, 0), "TGT2": (0, 3, 0), "TGT3": (0, 4, 0)}   # from G's deployment tile, due south
+SEED_R1 = 1                       # pistol snap -> TGT1, the first shot of a green run
+SEED_R2 = 1                       # pistol snap -> TGT2, after TGT1's shot
+SEED_R3 = 1                       # heavy snap -> TGT3, the red order (nothing fired before it)
+SEED_R4 = 1                       # heavy snap -> TGT3, right after SEED_R3's shot
+FIRING_PIN = 120                  # G's firing on both machines (D2 / F1405; the FIRING_120 precedent)
+TU_MAX = 255                      # battle_set_unit_state tu: clamped to the unit's max TU
+SNAP_PCT = 30                     # tuSnap of both weapons (xcom1 items.rul): snap = floor(max TU x 30 / 100)
+SOUTH = 4                         # every target is due south of G; G deploys facing 0
+RESEARCH_TEXT = "Unable to use alien artifact until researched!"   # STR_UNABLE_TO_USE_ALIEN_ARTIFACT_UNTIL_RESEARCHED (en-US)
+CURSOR_NORMAL = 1                 # battle_state.cursorType CT_NORMAL
+CAN_USE_CALLS = (("snap", False), ("hit", False), ("auto", True), ("none", False))   # (action, berserk)
+
+# ----- W2-P8 S-D1 (TASK 0 T0-D1..T0-D3 at 98d209f6c, AMENDMENT P8-4e, F3024-F3043) -----
+SETTLE = 0.3                      # a key injected right after a state opens is lost without it (F2888)
+TXT_ITEM = (128, 140, 160, 9)     # InventoryState _txtItem (T0-D1, F3025)
+TXT_AMMO = (254, 64, 66, 24)      # InventoryState _txtAmmo (recorded only)
+PSI_LINE = (245, 56, 70, 9)       # textStatLine4, the psi-strength line: hidden in battle, text asserted (F3031)
+QS_RECT = (244, 140, 40, 9)       # the quick-search TextEdit (T0-D2)
+STATS_RECT = (107, 177, 164, 23)  # the battlescape unit-stats button -> UnitInfoState (F3035)
+UI_PSI_LABEL = (8, 137, 140, 9)   # UnitInfoState "PSIONIC STRENGTH"
+UI_PSI_VALUE = (150, 137, 18, 9)  # UnitInfoState psi-strength number
+KEY_Q, KEY_ENTER, KEY_ESC, KEY_M = 113, 13, 27, 109   # quick search toggle, apply, close, ctrl-M melee preview
+HIDDEN_X = 1000000                # inventory_view ground x of an item the search hides (T0-D2)
+ARTIFACT = "Alien Artifact"       # STR_ALIEN_ARTIFACT (en-US)
+PISTOL_NAME, HEAVY_NAME = "Plasma Pistol", "Heavy Plasma"
+W_PISTOL, W_HEAVY = 6, 11         # getTotalWeight() with the clip loaded (T0 D1c/D1h "[6]" / "[11]")
+DMG_PISTOL = "DAMAGE>\x010-104"   # the Alt damage tooltip (T0 POS_D1D2c)
+DMG_HEAVY = "DAMAGE>\x010-230"    # (T0 D1c/D1h)
+PSI_LINE_RE = re.compile(r"P\.Str>\x01([0-9]+)")      # the green psi line shape (F3031)
+MELEE_G = f"{HEAVY_NAME}\n?-?\n\n{PISTOL_NAME}\n0-0"  # G (left heavy, right pistol) by G's owner: pistol only
+MELEE_G_RED = f"{HEAVY_NAME}\n0-0\n\n{PISTOL_NAME}\n?-?"   # by the host's research (T0 D3melee_c)
+MELEE_H = f"{PISTOL_NAME}\n?-?\n\n{HEAVY_NAME}\n0-0"  # H (left pistol, right heavy) by the host (T0 D3melee_h)
+MELEE_WAIT = 1.9                  # the melee InfoboxState auto-closes ~1.93 s after it opens (F3037)
+AIM_TILE = "TGT1"                 # the Alt aiming selector tile (T0 D3aim: G's deployment tile + (0, 2, 0))
+AIM_REGION = (-40, -40, 96, 80)   # screen_pixels region around the tile's screen position (T0 D3aim)
+
+# ----- W2-P8 S-D2 (AMENDMENT P8-4f 4f.5; TASK 0 T0-P1..T0-P5 = AMENDMENT P8-4g, F3134-F3144) -----
+RIFLE, RCLIP = "STR_PLASMA_RIFLE", "STR_PLASMA_RIFLE_CLIP"
+PEDIA_CLIENT_TOPICS = (RIFLE,)          # pre_mission_start on the client, after CLIENT_TOPICS (P8-4f C2)
+PEDIA_HOST_TOPICS = (RIFLE, RCLIP)      # on the host, after HOST_TOPICS (DEP2 cascade: Nh 3 -> 6, Nc 3 -> 4, F3135)
+PCLIP_NAME, HCLIP_NAME = "Plasma Pistol Clip", "Heavy Plasma Clip"   # en-US :844-:849; rows compared EXACTLY (F3095)
+RIFLE_NAME, RCLIP_NAME = "Plasma Rifle", "Plasma Rifle Clip"
+SECTION = "alien artifacts"       # click_widget match on UfopaediaStartState (T0-P1)
+AMMO0 = (194, 40, 82, 17)         # ArticleStateItem _txtAmmoDamage[0] (:334; T0-P3 red "80" on both, F3139)
+AMMO_TYPE0 = (194, 20, 82, 16)    # _txtAmmoType[0], recorded only (T0-P3 red "PLASMA BEAM")
+TITLE = (5, 24, 148, 32)          # ArticleStateItem _txtTitle, recorded only
+NERDS_COMBO = (164, 7, 148, 16)   # StatsForNerdsState _cbxRelatedStuff (T0-P4)
+NERDS_ARTICLE = (8, 24, 230, 9)   # StatsForNerdsState _txtArticle, recorded only
+COMBO_LIST = (166, 26, 131)       # the combo's dropdown TextList x, y, w (ComboBox.cpp :64-:72; T0-P4)
+COMBO_ROW_H, RCLIP_ROW = 8, 1     # row pitch; row 0 STR_COMPATIBLE_AMMO, row 1 the rifle clip (T0-P4 window (462, 76))
+OPEN_WAIT = 2.0                   # wait for a Ufopaedia screen; "nothing opens" is read after it (>= 1.0 s, F3138)
+NERDS_WAIT = 1.0                  # after the combo row click, then read nerds (P8-4f 4f.5)
+AVAIL_IDS = (PISTOL, HEAVY, RIFLE, RCLIP)   # pedia_state avail {live, seat} per row start (STOP-IF 6 instrument)
+
+
+# ===================== small probes =====================
+
+
+def top(gc):
+    return session.top_state(gc)
+
+
+def rmode(gc):
+    es = event_state(gc)
+    assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
+    return es.get("researchMode")
+
+
+def mode_view(m):
+    return {k: (m or {}).get(k) for k in ("campaign", "shared", "sync", "coopBattle", "separate", "liveCount")}
+
+
+def seat_entry(m, seat):
+    for e in (m or {}).get("seats") or []:
+        if e.get("seat") == seat:
+            return {k: e.get(k) for k in ("stored", "count", "unknown")}
+    return None
+
+
+def rcheck(gc, topic):
+    """research_check {topic} on one machine as {seat: researched} (+ the raw reply)."""
+    r = gc.cmd({"cmd": "research_check", "topic": topic})
+    seats = {e.get("seat"): e.get("researched") for e in (r.get("seats") or [])} if r.get("ok") else None
+    return {"seats": seats, "separate": r.get("separate"), "ok": r.get("ok"), "error": r.get("error")}
+
+
+def rcheck_both(host, client):
+    return {t: {"host": rcheck(host, t), "client": rcheck(client, t)} for t in TOPICS}
+
+
+def isr(gc, topic):
+    r = gc.cmd({"cmd": "is_researched", "topic": topic})
+    return r.get("researched") if r.get("ok") else f"error {r}"
+
+
+def isr_all(host, client):
+    return {n: {t: isr(gc, t) for t in TOPICS} for n, gc in (("host", host), ("client", client))}
+
+
+def sync_both(host, client, enabled):
+    """set_research_sync on both machines, client first (the two-machine lever rule)."""
+    rc = client.cmd({"cmd": "set_research_sync", "enabled": enabled})
+    rh = host.cmd({"cmd": "set_research_sync", "enabled": enabled})
+    assert rc.get("ok") and rh.get("ok"), f"set_research_sync {enabled} failed: host={rh} client={rc}"
+    return {"host": rh.get("sync"), "client": rc.get("sync")}
+
+
+def tu_max_both(host, client, uid):
+    return both(host, client, {"cmd": "battle_set_unit_state", "unit": uid, "tu": TU_MAX}, ("tu",))["tu"]
+
+
+def snap_cost(max_tu):
+    return max_tu * SNAP_PCT // 100
+
+
+def turn_cost(d):
+    """TU of G's pre-shot turn from facing `d` to SOUTH (1 TU per octant)."""
+    k = abs(d - SOUTH) % 8
+    return min(k, 8 - k)
+
+
+def g_now(host, client, ctx, wid, aid):
+    """G's TU, facing and the clip quantity on both machines."""
+    uh = session.units_by_id(battle_state(host)).get(ctx["G"]) or {}
+    uc = session.units_by_id(battle_state(client)).get(ctx["G"]) or {}
+    ih, ic = items_by_id(host), items_by_id(client)
+    return {"tu": (uh.get("tu"), uc.get("tu")), "dir": (uh.get("direction"), uc.get("direction")),
+            "clip": ((ih.get(aid) or {}).get("qty"), (ic.get(aid) or {}).get("qty")),
+            "weaponOwner": ((ih.get(wid) or {}).get("owner"), (ic.get(wid) or {}).get("owner"))}
+
+
+# ===================== the client's real-UI press =====================
+
+
+def ui_press(host, client, ctx, key, tile=None, before_click=None):
+    """The client's REAL-UI press (spec (f)): TAB-select G, the right-hand box
+    (ActionMenuState), clear_warning (D2), the row's key. When the key starts
+    targeting (cursorType aim) and `tile` is given: HOME and one self-verified
+    left click on `tile` (`before_click` runs right before the click). A key the
+    client refuses makes no click. Returns the evidence."""
+    G = ctx["G"]
+    ev = {"clicked": False}
+    ev["tab"] = tab_select(client, G)
+    assert ev["tab"], f"TAB never selected G on the client (selectedId {battle_state(client).get('selectedId')})"
+    if battle_state(client).get("cursorType") == CURSOR_AIM:
+        click_nth(client, RHAND_NTH)   # F503: this click only cancels the aim
+        ev["aimCancelled"] = battle_state(client).get("cursorType")
+    r = click_nth(client, RHAND_NTH)
+    assert (r.get("baseX"), r.get("baseY")) == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
+    client.wait_for("client ActionMenuState on top",
+                    lambda: client.cmd({"cmd": "list_widgets"}).get("state", "").endswith("ActionMenuState") or None,
+                    timeout=5)
+    ev["rows"] = menu_rows(client)
+    cw = client.ok({"cmd": "clear_warning"})
+    ev["warningCleared"] = cw.get("warningText")
+    press(client, key)
+    client.wait_for("client BattlescapeState on top after the row key",
+                    lambda: top(client) == "BattlescapeState" or None, timeout=5)
+    bs = battle_state(client)
+    ev["topAfterKey"] = top(client)
+    ev["cursorAfterKey"] = bs.get("cursorType")
+    ev["warningAfterKey"] = bs.get("warningText")
+    if ev["cursorAfterKey"] == CURSOR_AIM and tile is not None:
+        press(client, SDLK_HOME)
+        time.sleep(0.15)
+        pr = client.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
+        ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY")}
+        assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {tile} on the client: {pr}"
+        if before_click:
+            before_click()
+        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        ev["clicked"] = True
+    return ev
+
+
+def run_press(host, client, ctx, key, tile=None, seed=None):
+    """One real-UI press and its aftermath: the press, the wait for it to show as
+    sent (then its end) or quiet, wait_host_idle, the record. Returns
+    (before, rec, pv, outcome, notes)."""
+    notes = []
+    before = snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv = {}
+    before_click = (lambda: host.ok({"cmd": "set_seed", "seed": seed})) if seed is not None else None
+    try:
+        pv = ui_press(host, client, ctx, key, tile, before_click)
+    except Exception as e:
+        notes.append(f"real-UI press: {short(e)}")
+    out = await_press(host, client, before, notes)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle: {short(e)}")
+    rec = collect(host, client, seq0)
+    return before, rec, pv, out, notes
+
+
+def refused_fails(before, rec, pv, g0, g1, what):
+    """A press the client must refuse locally (PR-R2 / D2): cursorType 1 and
+    BattlescapeState on top right after the key, the warning changed from the
+    cleared "" to RESEARCH_TEXT, nothing sent, no click, G unchanged on both."""
+    fails = []
+    if pv.get("cursorAfterKey") != CURSOR_NORMAL or pv.get("topAfterKey") != "BattlescapeState":
+        fails.append(f"{what}: after the key cursorType {pv.get('cursorAfterKey')} top {pv.get('topAfterKey')} "
+                     f"(want {CURSOR_NORMAL} and BattlescapeState: refused locally)")
+    if pv.get("warningCleared") != "" or pv.get("warningAfterKey") != RESEARCH_TEXT:
+        fails.append(f"{what}: warningText {pv.get('warningCleared')!r} after clear_warning -> "
+                     f"{pv.get('warningAfterKey')!r} after the key (want '' -> {RESEARCH_TEXT!r})")
+    if pv.get("clicked"):
+        fails.append(f"{what}: a target click was made (want none)")
+    if rec["client"]["inFlight"] is not None or rec["client"]["coopIntentsSent"] != before["client"]["coopIntentsSent"]:
+        fails.append(f"{what}: client inFlight {rec['client']['inFlight']} coopIntentsSent "
+                     f"{before['client']['coopIntentsSent']}->{rec['client']['coopIntentsSent']} (want nothing sent)")
+    if (rec["host"]["lastSeqEmitted"] != before["host"]["lastSeqEmitted"]
+            or rec["host"]["intentsReceived"] != before["host"]["intentsReceived"]):
+        fails.append(f"{what}: host lastSeqEmitted {before['host']['lastSeqEmitted']}->{rec['host']['lastSeqEmitted']} "
+                     f"intentsReceived {before['host']['intentsReceived']}->{rec['host']['intentsReceived']} "
+                     f"(want unchanged)")
+    if g1["tu"] != g0["tu"] or g1["clip"] != g0["clip"] or g0["tu"][0] != g0["tu"][1] or g0["clip"][0] != g0["clip"][1]:
+        fails.append(f"{what}: G tu host/client {g0['tu']}->{g1['tu']} clip {g0['clip']}->{g1['clip']} "
+                     f"(want unchanged and equal on both)")
+    return fails
+
+
+def shot_fails(host, before, rec, pv, g0, g1, G, weapon, what):
+    """A press that must start targeting and become one admitted shot of
+    `weapon` by G; G pays the snap plus the turn to SOUTH, the clip -1."""
+    fails = []
+    if pv.get("cursorAfterKey") != CURSOR_AIM or pv.get("warningAfterKey") == RESEARCH_TEXT:
+        fails.append(f"{what}: after the key cursorType {pv.get('cursorAfterKey')} warningText "
+                     f"{pv.get('warningAfterKey')!r} (want {CURSOR_AIM} and not {RESEARCH_TEXT!r}: targeting starts)")
+    if not pv.get("clicked"):
+        fails.append(f"{what}: no target click was made")
+    f, cx = admitted_fails(before, rec, "shoot", G)
+    fails += [f"{what}: {m}" for m in f]
+    if cx:
+        shots = shot_payloads(host, chain_of(rec, cx.get("actionId")))
+        cues = [((p or {}).get("actor"), (p or {}).get("weapon")) for _, p in shots]
+        if cues != [(G, weapon)]:
+            fails.append(f"{what}: `shot` cues (actor, weapon) {cues} (want exactly [({G}, {weapon})])")
+    max_tu, d0 = g0["tu"][0], g0["dir"][0]
+    known = isinstance(max_tu, int) and isinstance(d0, int) and g0["dir"][0] == g0["dir"][1]
+    want_tu = max_tu - snap_cost(max_tu) - turn_cost(d0) if known else None
+    want_clip = g0["clip"][0] - 1 if isinstance(g0["clip"][0], int) else None
+    if not known or g1["tu"] != (want_tu, want_tu) or g0["tu"][0] != g0["tu"][1]:
+        fails.append(f"{what}: G tu host/client {g0['tu']}->{g1['tu']} (want {want_tu} on both: max - snap "
+                     f"{snap_cost(max_tu) if known else None} - turn {turn_cost(d0) if known else None} "
+                     f"from dir {g0['dir']})")
+    if g1["clip"] != (want_clip, want_clip) or g0["clip"][0] != g0["clip"][1]:
+        fails.append(f"{what}: clip host/client {g0['clip']}->{g1['clip']} (want {want_clip} on both)")
+    return fails
+
+
+def g_tile(ctx, name):
+    o = TGT_OFF[name]
+    g = ctx["gTile"]
+    return (g[0] + o[0], g[1] + o[1], g[2] + o[2])
+
+
+# ===================== scenarios =====================
+
+
+def c16r_s_store(host, client, ctx):
+    G = ctx["G"]
+    mh, mc = rmode(host), rmode(client)
+    ec = event_state(client)
+    uh = session.units_by_id(battle_state(host)).get(G) or {}
+    uc = session.units_by_id(battle_state(client)).get(G) or {}
+    before = snap(host, client)
+    rc = rcheck_both(host, client)
+    ib = isr_all(host, client)
+    seats = {n: {s: seat_entry(m, s) for s in range(4)} for n, m in (("host", mh), ("client", mc))}
+    print(f"EVIDENCE C16r-s: researchMode host={mode_view(mh)} client={mode_view(mc)}; seats host={seats['host']} "
+          f"client={seats['client']}; client localSeat={ec.get('localSeat')} G coop host={uh.get('coop')} "
+          f"client={uc.get('coop')}; pre-mission is_researched={ctx['preIsr']} liveCount Nh={ctx['Nh']} "
+          f"Nc={ctx['Nc']}; research_check={rc}; is_researched in battle={ib}", flush=True)
+    fails = []
+    # PR-R1 (ST1): the fixture precondition, asserted first in every run.
+    for n, m in (("host", mh), ("client", mc)):
+        got = {k: (m or {}).get(k) for k in MODE_WANT}
+        if got != MODE_WANT:
+            fails.append(f"precondition (PR-R1): {n} researchMode {got} (want {MODE_WANT})")
+    if not (ec.get("localSeat") == uh.get("coop") == uc.get("coop") == G_SEAT):
+        fails.append(f"precondition (PR-R1): client localSeat {ec.get('localSeat')} G coop host={uh.get('coop')} "
+                     f"client={uc.get('coop')} (want all {G_SEAT})")
+    want_pre = {"host": {t: t in HOST_TOPICS for t in TOPICS}, "client": {t: t in CLIENT_TOPICS for t in TOPICS}}
+    if ctx["preIsr"] != want_pre:
+        fails.append(f"precondition: is_researched at the end of pre_mission_start {ctx['preIsr']} (want {want_pre})")
+    # the store and the mode
+    want1 = {"stored": True, "count": ctx["Nc"], "unknown": 0}
+    for n in ("host", "client"):
+        if seats[n][G_SEAT] != want1:
+            fails.append(f"{n} researchMode.seats[{G_SEAT}] {seats[n][G_SEAT]} (want {want1})")
+        if (seats[n][0] or {}).get("stored") is not False:
+            fails.append(f"{n} researchMode.seats[0] {seats[n][0]} (want stored false: seat 0 is the live world)")
+    if (mc or {}).get("liveCount") != ctx["Nh"]:
+        fails.append(f"client liveCount {(mc or {}).get('liveCount')} (want Nh {ctx['Nh']}: the adopted host world)")
+    want_rc = {t: {0: t in HOST_TOPICS, G_SEAT: t in CLIENT_TOPICS} for t in TOPICS}
+    for t in TOPICS:
+        for n in ("host", "client"):
+            got = rc[t][n]["seats"] or {}
+            if {s: got.get(s) for s in (0, G_SEAT)} != want_rc[t]:
+                fails.append(f"{n} research_check {t} seats {got} (want {want_rc[t]})")
+    want_ib = {t: t in HOST_TOPICS for t in TOPICS}
+    for n in ("host", "client"):
+        if ib[n] != want_ib:
+            fails.append(f"{n} is_researched in battle {ib[n]} (want {want_ib}: the live world is the host's)")
+    fails += common_fails(host, client, before, "C16r-s")
+    finish(fails)
+
+
+def c16r_u_can_use(host, client, ctx):
+    G = ctx["G"]
+    before = snap(host, client)
+    ids, got = {}, {}
+    for label, item, ammo in (("pistol", PISTOL, PCLIP), ("heavy", HEAVY, HCLIP)):
+        wid, aid = give_both(host, client, G, item, ammo)
+        ids[label] = (wid, aid)
+        got[label] = {}
+        for action, berserk in CAN_USE_CALLS:
+            row = {}
+            for n, gc in (("host", host), ("client", client)):
+                r = gc.cmd({"cmd": "can_use_weapon", "unit": G, "item": wid, "action": action, "berserk": berserk})
+                row[n] = r.get("canUse") if r.get("ok") else f"error {r.get('error')}"
+                row[n + "Msg"] = r.get("message")
+            got[label][f"{action}{'/berserk' if berserk else ''}"] = row
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        got["notes"] = f"wait_host_idle: {short(e)}"
+    print(f"EVIDENCE C16r-u: items={ids} canUseWeapon={got}", flush=True)
+    fails = [got["notes"]] if "notes" in got else []
+    for label, want in (("pistol", True), ("heavy", False)):
+        for call, row in got[label].items():
+            if row["host"] is not want or row["client"] is not want:
+                fails.append(f"can_use_weapon {label} {call} host={row['host']} client={row['client']} "
+                             f"(want {want} on both)")
+    fails += common_fails(host, client, before, "C16r-u")
+    finish(fails)
+
+
+def c16r_pistol(host, client, ctx):
+    G = ctx["G"]
+    aim0 = cancel_client_aim(client)
+    pw, pc = give_both(host, client, G, PISTOL, PCLIP)
+    ctx["pistol"] = (pw, pc)
+    tmax = tu_max_both(host, client, G)
+    g0 = g_now(host, client, ctx, pw, pc)
+    tgt = g_tile(ctx, "TGT1")
+    before, rec, pv, out, notes = run_press(host, client, ctx, KEY_SNAP, tgt, SEED_R1)
+    g1 = g_now(host, client, ctx, pw, pc)
+    new = ctx_view(before, rec)
+    hits = mine(new, "intent", "shoot", G)
+    aid = hits[0]["actionId"] if len(hits) == 1 else None
+    chain = chain_of(rec, aid)
+    print(f"EVIDENCE C16r: pistol={pw} clip={pc} tuMax={tmax} snap={snap_cost(tmax)} target TGT1={tgt} "
+          f"aimCancel={aim0} press={pv} outcome={out}; {press_view(before, rec)}; newContexts={new}; action={aid} "
+          f"chain={[(e['seq'], e['kind']) for e in chain]}; shots={shot_brief(shot_payloads(host, chain))}; "
+          f"host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; G before={g0} after={g1}; "
+          f"G host={ubrief(rec['uh'].get(G))} client={ubrief(rec['uc'].get(G))}; diff={rec['diff']} "
+          f"desync={rec['dsc']}; notes={notes}", flush=True)
+    fails = list(notes)
+    fails += shot_fails(host, before, rec, pv, g0, g1, G, pw, "C16r")
+    fails += common_fails(host, client, before, "C16r")
+    finish(fails)
+
+
+def c16r_f_mode(host, client, ctx):
+    G = ctx["G"]
+    fails = []
+    assert "pistol" in ctx, "C16r gave G no pistol (its give failed), so this row has no weapon"
+    pw, pc = ctx["pistol"]
+    # ---- leg 1: research sync ON -> the check reads the live (host) world
+    aim0 = cancel_client_aim(client)
+    s1 = sync_both(host, client, True)
+    m1 = {"host": mode_view(rmode(host)), "client": mode_view(rmode(client))}
+    rc1 = {"host": rcheck(host, PISTOL), "client": rcheck(client, PISTOL)}
+    tmax1 = tu_max_both(host, client, G)
+    g0 = g_now(host, client, ctx, pw, pc)
+    b1, r1, pv1, o1, n1 = run_press(host, client, ctx, KEY_SNAP)
+    g1 = g_now(host, client, ctx, pw, pc)
+    # ---- leg 2: research sync OFF again -> the owner's list, read at this check
+    aim1 = cancel_client_aim(client)
+    s2 = sync_both(host, client, False)
+    m2 = {"host": mode_view(rmode(host)), "client": mode_view(rmode(client))}
+    rc2 = {"host": rcheck(host, PISTOL), "client": rcheck(client, PISTOL)}
+    tmax2 = tu_max_both(host, client, G)
+    g2 = g_now(host, client, ctx, pw, pc)
+    tgt = g_tile(ctx, "TGT2")
+    b2, r2, pv2, o2, n2 = run_press(host, client, ctx, KEY_SNAP, tgt, SEED_R2)
+    g3 = g_now(host, client, ctx, pw, pc)
+    new2 = ctx_view(b2, r2)
+    hits2 = mine(new2, "intent", "shoot", G)
+    aid2 = hits2[0]["actionId"] if len(hits2) == 1 else None
+    chain2 = chain_of(r2, aid2)
+    print(f"EVIDENCE C16r-f: pistol={pw} clip={pc}; LEG1 sync={s1} mode={m1} research_check={rc1} tuMax={tmax1} "
+          f"aimCancel={aim0} press={pv1} outcome={o1}; {press_view(b1, r1)}; G before={g0} after={g1}; "
+          f"diff={r1['diff']} notes={n1}; LEG2 sync={s2} mode={m2} research_check={rc2} tuMax={tmax2} "
+          f"aimCancel={aim1} target TGT2={tgt} press={pv2} outcome={o2}; {press_view(b2, r2)}; newContexts={new2}; "
+          f"action={aid2} chain={[(e['seq'], e['kind']) for e in chain2]}; "
+          f"shots={shot_brief(shot_payloads(host, chain2))}; G before={g2} after={g3}; diff={r2['diff']} "
+          f"desync={r2['dsc']}; notes={n2}", flush=True)
+    # leg 1
+    fails += [f"leg 1: {m}" for m in n1]
+    for n in ("host", "client"):
+        if s1[n] is not True or m1[n]["separate"] is not False:
+            fails.append(f"leg 1: {n} sync {s1[n]} separate {m1[n]['separate']} (want sync true, separate false)")
+        if (rc1[n]["seats"] or {}).get(G_SEAT) is not False:
+            fails.append(f"leg 1: {n} research_check {PISTOL} seats {rc1[n]['seats']} (want seat {G_SEAT} false)")
+    fails += refused_fails(b1, r1, pv1, g0, g1, "leg 1")
+    fails += [f"leg 1: {m}" for m in common_fails(host, client, b1, "C16r-f leg 1")]
+    # leg 2
+    fails += [f"leg 2: {m}" for m in n2]
+    for n in ("host", "client"):
+        if s2[n] is not False or m2[n]["separate"] is not True:
+            fails.append(f"leg 2: {n} sync {s2[n]} separate {m2[n]['separate']} (want sync false, separate true)")
+        if (rc2[n]["seats"] or {}).get(G_SEAT) is not True:
+            fails.append(f"leg 2: {n} research_check {PISTOL} seats {rc2[n]['seats']} (want seat {G_SEAT} true)")
+    fails += shot_fails(host, b2, r2, pv2, g2, g3, G, pw, "leg 2")
+    fails += [f"leg 2: {m}" for m in common_fails(host, client, b2, "C16r-f leg 2")]
+    finish(fails)
+
+
+def c16r_m_mirror(host, client, ctx):
+    G = ctx["G"]
+    aim0 = cancel_client_aim(client)
+    hw, hc = give_both(host, client, G, HEAVY, HCLIP)
+    ctx["heavy"] = (hw, hc)
+    tmax = tu_max_both(host, client, G)
+    g0 = g_now(host, client, ctx, hw, hc)
+    tgt = g_tile(ctx, "TGT3")
+    before, rec, pv, out, notes = run_press(host, client, ctx, KEY_SNAP, tgt, SEED_R3)
+    g1 = g_now(host, client, ctx, hw, hc)
+    new = ctx_view(before, rec)
+    hits = mine(new, "intent", "shoot", G)
+    aid = hits[0]["actionId"] if len(hits) == 1 else None
+    chain = chain_of(rec, aid)
+    print(f"EVIDENCE C16r-m: heavy={hw} clip={hc} tuMax={tmax} target TGT3={tgt} aimCancel={aim0} press={pv} "
+          f"outcome={out}; {press_view(before, rec)}; newContexts={new}; action={aid} "
+          f"chain={[(e['seq'], e['kind']) for e in chain]}; shots={shot_brief(shot_payloads(host, chain))}; "
+          f"host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; G before={g0} after={g1}; "
+          f"diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
+    fails = list(notes)
+    fails += refused_fails(before, rec, pv, g0, g1, "C16r-m")
+    if new:
+        fails.append(f"C16r-m: host closedContexts gained {new} (want none: nothing executed)")
+    fails += common_fails(host, client, before, "C16r-m")
+    finish(fails)
+
+
+def c16r_h_admission(host, client, ctx):
+    G = ctx["G"]
+    notes = []
+    aim0 = cancel_client_aim(client)
+    assert "heavy" in ctx, "C16r-m gave G no heavy plasma (its give failed), so this row has no weapon"
+    hw, hc = ctx["heavy"]
+    tmax = tu_max_both(host, client, G)
+    g0 = g_now(host, client, ctx, hw, hc)
+    tgt = g_tile(ctx, "TGT3")
+    before = snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    host.ok({"cmd": "set_seed", "seed": SEED_R4})
+    req = shoot_req(G, "snap", hw, hc, tgt)
+    si = send_intent(host, client, req, notes, timeout=30)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle: {short(e)}")
+    rec = collect(host, client, seq0)
+    g1 = g_now(host, client, ctx, hw, hc)
+    new = ctx_view(before, rec)
+    print(f"EVIDENCE C16r-h: heavy={hw} clip={hc} tuMax={tmax} target TGT3={tgt} aimCancel={aim0} request={req} "
+          f"intent={ {k: si[k] for k in ('sent', 'iseq', 'answer')} } resp={si['resp']}; {press_view(before, rec)}; "
+          f"banner={rec['clientUi']['banner']!r}; newContexts={new}; host evs={ev_tuples(rec['hev'])}; "
+          f"G before={g0} after={g1}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
+    fails = list(notes)
+    if not si["sent"]:
+        fails.append(f"battle_intent shoot answered {si['resp']} (want sent: an iseq)")
+    else:
+        if si["answer"] != "deny":
+            fails.append(f"the host answered {si['answer']!r} (want deny)")
+        ld = rec["client"]["lastDeny"] or {}
+        if ld.get("iseq") != si["iseq"] or ld.get("reason") != "not_researched":
+            fails.append(f"client lastDeny {rec['client']['lastDeny']} (want {{iseq {si['iseq']}, reason "
+                         f"not_researched}})")
+        if rec["clientUi"]["banner"] != RESEARCH_TEXT:
+            fails.append(f"client coopWaitText {rec['clientUi']['banner']!r} (want {RESEARCH_TEXT!r})")
+        sd = (count_of(rec["client"]["coopIntentsSent"], "shoot") - count_of(before["client"]["coopIntentsSent"],
+                                                                              "shoot"),
+              recv_of(rec["host"]["intentsReceived"], "shoot", "denied")
+              - recv_of(before["host"]["intentsReceived"], "shoot", "denied"),
+              recv_of(rec["host"]["intentsReceived"], "shoot", "admitted")
+              - recv_of(before["host"]["intentsReceived"], "shoot", "admitted"))
+        if sd != (1, 1, 0):
+            fails.append(f"client coopIntentsSent.shoot / host intentsReceived.shoot denied / admitted = +{sd} "
+                         f"(want +1 / +1 / +0)")
+    if rec["host"]["lastSeqEmitted"] != before["host"]["lastSeqEmitted"] or new:
+        fails.append(f"host lastSeqEmitted {before['host']['lastSeqEmitted']}->{rec['host']['lastSeqEmitted']} "
+                     f"newContexts={new} (want nothing executed)")
+    if rec["client"]["inFlight"] is not None:
+        fails.append(f"client inFlight at the end {rec['client']['inFlight']} (want null)")
+    if g1["tu"] != g0["tu"] or g1["clip"] != g0["clip"] or g0["tu"][0] != g0["tu"][1] or g0["clip"][0] != g0["clip"][1]:
+        fails.append(f"G tu host/client {g0['tu']}->{g1['tu']} clip {g0['clip']}->{g1['clip']} (want unchanged and "
+                     f"equal on both)")
+    fails += common_fails(host, client, before, "C16r-h")
+    finish(fails)
+
+
+# ===================== W2-P8 S-D1 helpers (the TASK 0 recipes, docs rewrite/w2p8-task0/sd/t0_sd.py) =====================
+
+
+def sd_lw(gc):
+    return gc.cmd({"cmd": "list_widgets"})
+
+
+def sd_rect(w):
+    return (w.get("x"), w.get("y"), w.get("w"), w.get("h"))
+
+
+def sd_at(r, rc):
+    """Every widget of the list_widgets reply `r` on rect `rc`, as [{v, t}]."""
+    return [{"v": w.get("visible"), "t": w.get("text")} for w in r.get("widgets", []) if sd_rect(w) == rc]
+
+
+def sd_text(r, rc):
+    """The text of the ONE widget on `rc` (None unless exactly one widget sits there)."""
+    hits = sd_at(r, rc)
+    return hits[0]["t"] if len(hits) == 1 else None
+
+
+def sd_inv(gc):
+    return gc.cmd({"cmd": "inventory_view"})
+
+
+def sd_wait(pred, timeout, interval=0.02):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if pred():
+            return True, round(time.time() - t0, 3)
+        time.sleep(interval)
+    return bool(pred()), round(time.time() - t0, 3)
+
+
+def sd_key(gc, k, mod=None):
+    req = {"cmd": "inject_input", "kind": "key", "key": k}
+    if mod:
+        req["mod"] = mod
+    return gc.cmd(req)
+
+
+def sd_modnone(gc):
+    return gc.cmd({"cmd": "inject_input", "kind": "modstate", "mod": "none"}).get("ok")
+
+
+def sd_stage(host, client, G, H):
+    """T0 STAGE: G right pistol + PCLIP (clear_hands), left heavy + HCLIP, a pistol and a heavy on G's tile;
+    H right heavy + HCLIP (clear_hands), left pistol + PCLIP, a pistol and a heavy on H's tile. Both machines,
+    client first, equal ids (both()). Returns {key: (weaponId, ammoId)}."""
+    wk, gk = ("weaponId", "ammoId", "weaponSlot"), ("weaponId",)
+    rows = (("gR", G, PISTOL, PCLIP, {"clear_hands": True}, wk), ("gL", G, HEAVY, HCLIP, {"slot": "left"}, wk),
+            ("gGp", G, PISTOL, None, {"slot": "ground"}, gk), ("gGh", G, HEAVY, None, {"slot": "ground"}, gk),
+            ("hR", H, HEAVY, HCLIP, {"clear_hands": True}, wk), ("hL", H, PISTOL, PCLIP, {"slot": "left"}, wk),
+            ("hGp", H, PISTOL, None, {"slot": "ground"}, gk), ("hGh", H, HEAVY, None, {"slot": "ground"}, gk))
+    ids = {}
+    for key, uid, item, ammo, extra, keys in rows:
+        req = dict({"cmd": "battle_give", "unit": uid, "item": item}, **extra)
+        if ammo:
+            req["ammo"] = ammo
+        r = both(host, client, req, keys)
+        ids[key] = (r.get("weaponId"), r.get("ammoId"))
+    return ids
+
+
+def sd_open(gc, uid):
+    r = gc.cmd({"cmd": "battle_open_inventory", "unit": uid})
+    time.sleep(SETTLE)
+    v = sd_inv(gc)
+    return {"ok": r.get("ok"), "error": r.get("error"), "open": v.get("open"), "top": v.get("top"),
+            "unitId": v.get("unitId")}
+
+
+def sd_opened(o, uid):
+    return bool(o.get("ok") and o.get("open") and o.get("top") and o.get("unitId") == uid)
+
+
+def sd_close(gc):
+    if not sd_inv(gc).get("open"):
+        return "not open"
+    r = gc.cmd({"cmd": "battle_close_inventory"})
+    got, dt = sd_wait(lambda: "InventoryState" not in session.states_stripped(gc), 3.0)
+    return {"ok": r.get("ok"), "closed": got, "t": dt}
+
+
+def sd_hover(gc, slot, want_id, mod=None):
+    """T0-D1 (F3025/F3029): a left click on `slot` with an empty cursor runs the mouse-over before the pick; read
+    _txtItem; (Alt: clear the latch); one right-click returns the item."""
+    ev = {"cursor0": sd_inv(gc).get("selectedItem")}
+    req = {"cmd": "inventory_click", "slot": slot}
+    if mod:
+        req["mod"] = mod
+    ev["click"] = gc.cmd(req).get("ok")
+    ev["picked"] = sd_wait(lambda: sd_inv(gc).get("selectedItem") == want_id, 2.0)[0]
+    w = sd_lw(gc)
+    ev["item"] = sd_text(w, TXT_ITEM)
+    ev["ammo"] = sd_text(w, TXT_AMMO)
+    if mod:
+        ev["modClear"] = sd_modnone(gc)
+    ev["rclick"] = gc.cmd({"cmd": "inventory_click", "slot": slot, "button": "right"}).get("ok")
+    ev["returned"] = sd_wait(lambda: sd_inv(gc).get("selectedItem") == -1, 2.0)[0]
+    return ev
+
+
+def sd_hover_ok(ev, alt):
+    return bool(ev.get("cursor0") == -1 and ev.get("click") and ev.get("picked") and ev.get("rclick")
+                and ev.get("returned") and (ev.get("modClear") if alt else True))
+
+
+def sd_ground_x(gc, ids):
+    g = {e.get("id"): e.get("x") for e in sd_inv(gc).get("ground", [])}
+    return {i: g.get(i) for i in ids}
+
+
+def sd_search(gc, word, ids):
+    """T0-D2 (F3033): key 113 opens the quick search, one letter per key 0.3 s apart, Enter applies; the ground
+    x of each staged item (HIDDEN_X = hidden); 113 again clears the search."""
+    ev = {"word": word, "before": sd_ground_x(gc, ids)}
+    sd_key(gc, KEY_Q)
+    time.sleep(SETTLE)
+    ev["field"] = [h["v"] for h in sd_at(sd_lw(gc), QS_RECT)]
+    for ch in word:
+        sd_key(gc, ord(ch))
+        time.sleep(SETTLE)
+    sd_key(gc, KEY_ENTER)
+    time.sleep(SETTLE)
+    ev["applied"] = sd_ground_x(gc, ids)
+    sd_key(gc, KEY_Q)
+    time.sleep(SETTLE)
+    ev["cleared"] = sd_ground_x(gc, ids)
+    ev["top"] = top(gc)
+    return ev
+
+
+def sd_unit_info(gc, uid):
+    """T0-D3 (F3035): TAB `uid`, the battlescape stats button (by rect), UnitInfoState's psi label + value, ESC."""
+    ev = {"tab": tab_select(gc, uid)}
+    vis = [w for w in sd_lw(gc).get("widgets", []) if w.get("interactive") and w.get("visible")]
+    nth = [i for i, w in enumerate(vis) if sd_rect(w) == STATS_RECT]
+    ev["statsNth"] = nth
+    if not ev["tab"] or len(nth) != 1:
+        return ev
+    gc.cmd({"cmd": "click_widget", "nth": nth[0]})
+    ev["opened"] = sd_wait(lambda: top(gc) == "UnitInfoState", 3.0)[0]
+    time.sleep(SETTLE)
+    w = sd_lw(gc)
+    ev["title"] = sd_text(w, (16, 4, 288, 17))
+    ev["label"] = sd_at(w, UI_PSI_LABEL)
+    ev["value"] = sd_at(w, UI_PSI_VALUE)
+    sd_key(gc, KEY_ESC)
+    ev["closed"] = sd_wait(lambda: top(gc) == "BattlescapeState", 3.0)[0]
+    return ev
+
+
+def sd_melee(gc, uid):
+    """T0-D3 (F3037): TAB `uid`, 0.3 s, ctrl-M; the InfoboxState text before its ~1.9 s auto-close."""
+    ev = {"tab": tab_select(gc, uid)}
+    time.sleep(SETTLE)
+    ev["key"] = sd_key(gc, KEY_M, mod="ctrl").get("ok")
+    ev["opened"], ev["openT"] = sd_wait(lambda: top(gc) == "InfoboxState", MELEE_WAIT)
+    ev["modClear"] = sd_modnone(gc)
+    w = sd_lw(gc)
+    ev["state"] = (w.get("state") or "").replace("class OpenXcom::", "")
+    ev["texts"] = [x.get("text") for x in w.get("widgets", []) if "text" in x]
+    ev["closed"] = sd_wait(lambda: top(gc) == "BattlescapeState", 4.0, 0.1)[0]
+    return ev
+
+
+def sd_diff(a, b):
+    """Differing pixels of two equal-length captures (None when either is missing or the lengths differ)."""
+    if not a or not b or len(a) != len(b):
+        return None
+    return sum(1 for x, y in zip(a, b) if x != y)
+
+
+def sd_aim_capture(client, G, tile):
+    """T0-D3 (F3039): TAB G, the right-hand box, key 50 (snap aim), HOME, map_tile_click_pos parks the selector on
+    `tile`, screen_pixels of the region without then with the Alt latch, latch cleared, one hand click cancels the
+    aim (F503). Returns (evidence, {noalt, alt})."""
+    ev = {"tab": tab_select(client, G)}
+    if battle_state(client).get("cursorType") == CURSOR_AIM:
+        click_nth(client, RHAND_NTH)   # F503: this click only cancels an earlier aim
+    r = click_nth(client, RHAND_NTH)
+    ev["rhand"] = (r.get("baseX"), r.get("baseY"))
+    ev["menu"] = sd_wait(lambda: top(client) == "ActionMenuState", 3.0)[0]
+    time.sleep(SETTLE)
+    press(client, KEY_SNAP)
+    sd_wait(lambda: top(client) == "BattlescapeState", 3.0)
+    ev["cursor"] = battle_state(client).get("cursorType")
+    px = {}
+    if ev["cursor"] != CURSOR_AIM:
+        return ev, px
+    press(client, SDLK_HOME)
+    time.sleep(SETTLE)
+    p = client.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
+    ev["verified"] = p.get("verified")
+    s = client.cmd({"cmd": "map_tile_screen_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
+    ev["screen"] = (s.get("screenX"), s.get("screenY"))
+    region = {"x": (s.get("screenX") or 0) + AIM_REGION[0], "y": (s.get("screenY") or 0) + AIM_REGION[1],
+              "w": AIM_REGION[2], "h": AIM_REGION[3]}
+    ev["region"] = region
+    time.sleep(SETTLE)
+    px["noalt"] = client.cmd(dict({"cmd": "screen_pixels"}, **region)).get("pixels")
+    client.cmd({"cmd": "inject_input", "kind": "modstate", "mod": "alt"})
+    time.sleep(0.5)
+    px["alt"] = client.cmd(dict({"cmd": "screen_pixels"}, **region)).get("pixels")
+    ev["modClear"] = sd_modnone(client)
+    time.sleep(0.3)
+    ev["len"] = (len(px["noalt"] or []), len(px["alt"] or []))
+    ev["altVsNoalt"] = sd_diff(px["noalt"], px["alt"])
+    click_nth(client, RHAND_NTH)   # F503: cancels the aim
+    ev["cursorAfterCancel"] = battle_state(client).get("cursorType")
+    return ev, px
+
+
+def sd_cleanup(host, client):
+    """Never leave an Alt latch or an open inventory behind a failed step."""
+    for gc in (client, host):
+        try:
+            sd_modnone(gc)
+            sd_close(gc)
+        except Exception:
+            pass
+
+
+def c16r_i_inventory(host, client, ctx):
+    G, H = ctx["G"], ctx["H"]
+    notes = []
+    aim0 = cancel_client_aim(client)
+    before = snap(host, client)
+    ids = sd_stage(host, client, G, H)
+    gP, gH, hHv, hP = ids["gR"][0], ids["gL"][0], ids["hR"][0], ids["hL"][0]
+    gGround = [ids["gGp"][0], ids["gGh"][0]]
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after staging: {short(e)}")
+    c, h = {}, {}
+    try:
+        c["open"] = sd_open(client, G)
+        if sd_opened(c["open"], G):
+            c["hoverPistol"] = sd_hover(client, "STR_RIGHT_HAND", gP)
+            c["hoverHeavy"] = sd_hover(client, "STR_LEFT_HAND", gH)
+            c["altPistol"] = sd_hover(client, "STR_RIGHT_HAND", gP, mod="alt")
+            c["altHeavy"] = sd_hover(client, "STR_LEFT_HAND", gH, mod="alt")
+            c["psiLine"] = sd_at(sd_lw(client), PSI_LINE)
+        c["close"] = sd_close(client)
+        c["open2"] = sd_open(client, G)
+        if sd_opened(c["open2"], G):
+            c["searchPistol"] = sd_search(client, "pistol", gGround)
+            c["searchArtifact"] = sd_search(client, "artifact", gGround)
+        c["close2"] = sd_close(client)
+        h["open"] = sd_open(host, H)
+        if sd_opened(h["open"], H):
+            h["hoverHeavy"] = sd_hover(host, "STR_RIGHT_HAND", hHv)
+            h["hoverPistol"] = sd_hover(host, "STR_LEFT_HAND", hP)
+            h["altHeavy"] = sd_hover(host, "STR_RIGHT_HAND", hHv, mod="alt")
+            h["altPistol"] = sd_hover(host, "STR_LEFT_HAND", hP, mod="alt")
+            h["psiLine"] = sd_at(sd_lw(host), PSI_LINE)
+        h["close"] = sd_close(host)
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    finally:
+        sd_cleanup(host, client)
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle: {short(e)}")
+    print(f"EVIDENCE C16r-i: G={G} H={H} aimCancel={aim0} ids={ids}; client(G)={c}; host(H)={h}; notes={notes}",
+          flush=True)
+    fails = list(notes)
+    # recipe preconditions (reached on both builds in TASK 0)
+    for who, d, uid, keys in (("client", c, G, ("open", "open2")), ("host", h, H, ("open",))):
+        for k in keys:
+            if not sd_opened(d.get(k) or {}, uid):
+                fails.append(f"precondition: {who} battle_open_inventory {uid} ({k}) {d.get(k)} (want open, on top)")
+        for k in [k for k in d if k.startswith(("hover", "alt"))]:
+            if not sd_hover_ok(d[k], k.startswith("alt")):
+                fails.append(f"precondition: {who} {k} pick/return {d[k]} (want picked from an empty cursor and "
+                             f"returned)")
+    for k in ("searchPistol", "searchArtifact"):
+        s = c.get(k) or {}
+        if (s.get("field") != [True] or s.get("top") != "InventoryState"
+                or any(x in (None, HIDDEN_X) for x in list((s.get("before") or {}).values())
+                       + list((s.get("cleared") or {}).values()))):
+            fails.append(f"precondition: client {k} {s} (want the field shown, both ground items shown before "
+                         f"and after the search, InventoryState on top)")
+    # GREEN: G's inventory reads G's owner's research (D168 a)
+    want_c = {"hoverPistol": f"{PISTOL_NAME} [{W_PISTOL}]", "hoverHeavy": f"{ARTIFACT} [{W_HEAVY}]",
+              "altPistol": DMG_PISTOL, "altHeavy": ARTIFACT}
+    for k, want in want_c.items():
+        got = (c.get(k) or {}).get("item")
+        if got != want:
+            fails.append(f"client G {k} text {got!r} (want {want!r}: G's owner's research)")
+    pl = c.get("psiLine") or []
+    if len(pl) != 1 or not PSI_LINE_RE.fullmatch(pl[0].get("t") or ""):
+        fails.append(f"client G psi-strength line (hidden widget) {pl} (want 'P.Str>\\x01<n>': G's owner has "
+                     f"{PSI})")
+    for k, shown, hidden in (("searchPistol", gGround[0], gGround[1]), ("searchArtifact", gGround[1], gGround[0])):
+        ap = (c.get(k) or {}).get("applied") or {}
+        if ap.get(shown) in (None, HIDDEN_X) or ap.get(hidden) != HIDDEN_X:
+            fails.append(f"client quick search {(c.get(k) or {}).get('word')!r} ground x {ap} (want {shown} shown, "
+                         f"{hidden} hidden: names by G's owner's research)")
+    # host control: H's views by the host's research, both builds
+    want_h = {"hoverHeavy": f"{HEAVY_NAME} [{W_HEAVY}]", "hoverPistol": f"{ARTIFACT} [{W_PISTOL}]",
+              "altHeavy": DMG_HEAVY, "altPistol": ARTIFACT}
+    for k, want in want_h.items():
+        got = (h.get(k) or {}).get("item")
+        if got != want:
+            fails.append(f"host control H {k} text {got!r} (want {want!r})")
+    fails += common_fails(host, client, before, "C16r-i")
+    finish(fails)
+
+
+def c16r_j_displays(host, client, ctx):
+    G, H = ctx["G"], ctx["H"]
+    notes = []
+    aim0 = cancel_client_aim(client)
+    tmax = tu_max_both(host, client, G)
+    before = snap(host, client)
+    ev, px1, px2 = {}, {}, {}
+    tile = g_tile(ctx, AIM_TILE)
+    try:
+        ev["uiC"] = sd_unit_info(client, G)
+        ev["uiH"] = sd_unit_info(host, H)
+        ev["meleeC"] = sd_melee(client, G)
+        ev["meleeH"] = sd_melee(host, H)
+        # LAST STEP OF THE FILE (F3039): capture, discover into the client's LIVE world, capture again
+        ev["aim1"], px1 = sd_aim_capture(client, G, tile)
+        ev["discover"] = [{k: r.get(k) for k in ("ok", "researched", "error")}
+                          for r in (client.cmd({"cmd": "discover_research", "topic": t}) for t in CLIENT_TOPICS)]
+        ev["aim2"], px2 = sd_aim_capture(client, G, tile)
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    finally:
+        sd_cleanup(host, client)
+    ev["noaltDiff"] = sd_diff(px1.get("noalt"), px2.get("noalt"))
+    ev["altDiff"] = sd_diff(px1.get("alt"), px2.get("alt"))
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle: {short(e)}")
+    print(f"EVIDENCE C16r-j: G={G} H={H} tuMax={tmax} aimCancel={aim0} aimTile={tile} {ev}; notes={notes}",
+          flush=True)
+    fails = list(notes)
+    # recipe preconditions (reached on both builds in TASK 0)
+    for k, uid in (("uiC", G), ("uiH", H)):
+        u = ev.get(k) or {}
+        if not (u.get("tab") and len(u.get("statsNth") or []) == 1 and u.get("opened") and u.get("closed")):
+            fails.append(f"precondition: {k} UnitInfoState on {uid} {u} (want TAB, one stats button, opened, closed)")
+        elif len(u.get("label") or []) != 1 or len(u.get("value") or []) != 1:
+            fails.append(f"precondition: {k} psi label/value widgets {u.get('label')} {u.get('value')} (want one each)")
+    for k in ("meleeC", "meleeH"):
+        m = ev.get(k) or {}
+        if not (m.get("tab") and m.get("key") and m.get("opened") and m.get("state") == "InfoboxState"
+                and m.get("closed")):
+            fails.append(f"precondition: {k} melee preview {m} (want TAB, ctrl-M, InfoboxState read, auto-closed)")
+    for k in ("aim1", "aim2"):
+        a = ev.get(k) or {}
+        if not (a.get("rhand") == RHAND_CENTRE and a.get("menu") and a.get("cursor") == CURSOR_AIM
+                and a.get("verified") and a.get("len") == (AIM_REGION[2] * AIM_REGION[3],) * 2
+                and a.get("modClear") and (a.get("altVsNoalt") or 0) > 0 and a.get("cursorAfterCancel") != CURSOR_AIM):
+            fails.append(f"precondition: {k} Alt aiming capture {a} (want the snap aim, the selector parked, "
+                         f"{AIM_REGION[2]}x{AIM_REGION[3]} px, the Alt text drawn, the aim cancelled)")
+    if (ev.get("aim1") or {}).get("region") != (ev.get("aim2") or {}).get("region"):
+        fails.append(f"precondition: capture regions differ {(ev.get('aim1') or {}).get('region')} vs "
+                     f"{(ev.get('aim2') or {}).get('region')}")
+    if ev.get("discover") != [{"ok": True, "researched": True, "error": None}] * len(CLIENT_TOPICS):
+        fails.append(f"precondition: client discover_research {CLIENT_TOPICS} {ev.get('discover')} (want researched)")
+    if ev["noaltDiff"] != 0:
+        fails.append(f"pixel control: the no-Alt captures differ by {ev['noaltDiff']} px (want 0: the capture is "
+                     f"stable; a flaky pixel result is a STOP, never a retry)")
+    # GREEN (D213 b): the displays read G's owner's research
+    u = ev.get("uiC") or {}
+    lab, val = (u.get("label") or [{}])[0], (u.get("value") or [{}])[0]
+    if not (lab.get("v") is True and val.get("v") is True and str(val.get("t") or "").isdigit()):
+        fails.append(f"client UnitInfoState on G psi label {u.get('label')} value {u.get('value')} (want both shown, "
+                     f"a number: G's owner has {PSI})")
+    got = (ev.get("meleeC") or {}).get("texts")
+    if got != [MELEE_G]:
+        fails.append(f"client melee preview on G {got!r} (want {[MELEE_G]!r}: G's owner researched the pistol only)")
+    if ev["altDiff"] != 0:
+        fails.append(f"client Alt aiming preview: the Alt captures before/after the live-world discovery differ by "
+                     f"{ev['altDiff']} px (want 0: G's display reads G's owner's research, not the live world)")
+    # host control: H's displays by the host's research, both builds
+    uh = ev.get("uiH") or {}
+    if any(x.get("v") is not False for x in (uh.get("label") or []) + (uh.get("value") or [])):
+        fails.append(f"host control H UnitInfoState psi label {uh.get('label')} value {uh.get('value')} (want hidden)")
+    got = (ev.get("meleeH") or {}).get("texts")
+    if got != [MELEE_H]:
+        fails.append(f"host control H melee preview {got!r} (want {[MELEE_H]!r})")
+    fails += common_fails(host, client, before, "C16r-j")
+    finish(fails)
+
+
+# ===================== W2-P8 S-D2 helpers (the TASK 0 recipes, docs rewrite/w2p8-task0/sd2/t0_sd2.py) =====================
+
+
+def pd(gc, ids=()):
+    """pedia_state (P8-4f 4f.3) on one machine; `top` without the class prefix."""
+    r = gc.cmd(dict({"cmd": "pedia_state"}, **({"ids": list(ids)} if ids else {})))
+    r["top"] = (r.get("top") or "").replace("class OpenXcom::", "")
+    return r
+
+
+def pd_brief(r):
+    return {k: r.get(k) for k in ("top", "kind", "depth", "nerds", "article")}
+
+
+def pd_frame(host, client):
+    """Both machines' pedia_state with localSeat, separate and avail {live, seat} for AVAIL_IDS (STOP-IF 6)."""
+    out = {}
+    for gc in (host, client):
+        r = pd(gc, AVAIL_IDS)
+        out[gc.name] = dict(pd_brief(r), localSeat=r.get("localSeat"), separate=r.get("separate"), avail=r.get("avail"))
+    return out
+
+
+def pd_keys(ctx, host, client):
+    """keyGeoUfopedia / keyCancel as each process wrote them (read_key, F3091; 117 / 27 in TASK 0)."""
+    if "pediaKeys" not in ctx:
+        ctx["pediaKeys"] = {gc.name: {"ufo": read_key(gc.user_dir, "keyGeoUfopedia"),
+                                      "cancel": read_key(gc.user_dir, "keyCancel")} for gc in (host, client)}
+    return ctx["pediaKeys"]
+
+
+def pd_key(gc, k):
+    time.sleep(SETTLE)   # a key injected right after a state opens is lost without it (F2888)
+    return sd_key(gc, k).get("ok")
+
+
+def pd_wait_kind(gc, kind, timeout=OPEN_WAIT):
+    return sd_wait(lambda: pd(gc).get("kind") == kind, timeout)
+
+
+def pd_nth(gc, rect):
+    """The click_widget nth of the visible interactive widget on `rect` (list_widgets at run time, F3141)."""
+    vis = [w for w in sd_lw(gc).get("widgets", []) if w.get("interactive") and w.get("visible")]
+    return [i for i, w in enumerate(vis) if sd_rect(w) == tuple(rect)]
+
+
+def pd_scale(r):
+    """(scale, band x, band y) from a click_widget reply (base -> window px; T0-P1: 2, 0, 0)."""
+    s = round(r["winX"] / r["baseX"])
+    return s, r["winX"] - r["baseX"] * s, r["winY"] - r["baseY"] * s
+
+
+def pd_list(gc, keys):
+    """list (4f.5): SETTLE, the U key, wait kind start, SETTLE, the section button, wait kind select; the
+    SelectState's pedia_state rows and geometry."""
+    ev = {"key": pd_key(gc, keys["ufo"])}
+    ev["start"], ev["tStart"] = pd_wait_kind(gc, "start")
+    if ev["start"]:
+        session.wait_widget_ready(gc, SECTION)   # W2-U9 (R3, F21068): UfopaediaStartState's POPUP hides SECTION while it opens
+        r = gc.cmd({"cmd": "click_widget", "match": SECTION})
+        ev["section"] = {k: r.get(k) for k in ("ok", "text", "baseX", "baseY", "winX", "winY", "error")}
+        ev["select"], ev["tSelect"] = pd_wait_kind(gc, "select")
+    p = pd(gc)
+    ev.update({"at": pd_brief(p), "lists": p.get("lists"), "rows": p.get("rows"), "rowY": p.get("rowY"),
+               "rowH": p.get("rowH"), "listRect": p.get("listRect"), "scroll": p.get("scroll")})
+    return ev
+
+
+def pd_list_ok(ev):
+    return bool(ev.get("key") and ev.get("start") and (ev.get("section") or {}).get("ok") and ev.get("select")
+                and ev.get("lists") == 1)
+
+
+def pd_row_click(gc, lev, name):
+    """Click the SelectState row whose text is exactly `name` (index from pedia_state.rows, P8-4g): base (list x +
+    w/2, rowY + rowH/2) x the section click's scale (T0-P1); wait kind article; the opened article id."""
+    rows = lev.get("rows") or []
+    ev = {"name": name, "idx": rows.index(name) if name in rows else None}
+    if ev["idx"] is None or not (lev.get("section") or {}).get("baseX") or not lev.get("listRect"):
+        return ev
+    s, bx, by = pd_scale(lev["section"])
+    lr, i = lev["listRect"], ev["idx"]
+    ev["base"] = (lr[0] + lr[2] // 2, lev["rowY"][i] + lev["rowH"][i] // 2)
+    ev["win"] = (ev["base"][0] * s + bx, ev["base"][1] * s + by)
+    time.sleep(SETTLE)
+    ev["click"] = gc.cmd({"cmd": "inject_input", "kind": "click", "x": ev["win"][0], "y": ev["win"][1]}).get("ok")
+    ev["opened"], ev["t"] = pd_wait_kind(gc, "article")
+    ev["at"] = pd_brief(pd(gc))
+    return ev
+
+
+def pd_close(gc, keys):
+    """close (4f.5, C6): while depth > 0: SETTLE, keyCancel, wait until the depth drops (2 s). Never a key at depth
+    0 (ESC there opens the battle options, F3090); a depth that does not drop ends the loop (STOP-IF 7)."""
+    steps = []
+    for _ in range(6):
+        d0 = pd(gc).get("depth")
+        if not d0:
+            break
+        ok = pd_key(gc, keys["cancel"])
+        dropped, t = sd_wait(lambda: (pd(gc).get("depth") or 0) < d0, OPEN_WAIT)
+        steps.append((d0, ok, dropped, t))
+        if not dropped:
+            break
+    return {"steps": steps, "end": pd_brief(pd(gc))}
+
+
+def pd_mid(gc, uid):
+    """mid (4f.5, T0-P2): TAB `uid`, SETTLE, a middle click on the right-hand box (nth by RHAND_RECT), wait kind
+    article (2 s); the article's title and ammo cells. Not opened = "nothing opens" when depth 0 and
+    BattlescapeState is on top after the wait (>= 1.0 s after the click)."""
+    ev = {"tab": tab_select(gc, uid), "nth": pd_nth(gc, RHAND_RECT)}
+    if len(ev["nth"]) != 1:
+        return ev
+    time.sleep(SETTLE)
+    r = gc.cmd({"cmd": "click_widget", "nth": ev["nth"][0], "button": "middle"})
+    ev["click"] = (r.get("ok"), r.get("baseX"), r.get("baseY"))
+    ev["opened"], ev["t"] = pd_wait_kind(gc, "article")
+    ev["at"] = pd_brief(pd(gc))
+    if ev["opened"]:
+        time.sleep(SETTLE)
+        w = sd_lw(gc)
+        ev["title"], ev["ammo0"], ev["ammoType0"] = sd_text(w, TITLE), sd_text(w, AMMO0), sd_text(w, AMMO_TYPE0)
+    return ev
+
+
+def pd_mid_ok(ev):
+    return bool(ev.get("tab") and len(ev.get("nth") or []) == 1 and ev.get("click") == (True,) + RHAND_CENTRE)
+
+
+def pd_opened(ev, article):
+    return bool(ev.get("opened") and (ev.get("at") or {}).get("article") == article)
+
+
+def pd_nothing(ev):
+    a = ev.get("at") or {}
+    return bool(not ev.get("opened") and a.get("depth") == 0 and a.get("top") == "BattlescapeState")
+
+
+def pd_end(host, client, before, notes):
+    """Each p-row's end record: both machines' pedia_state and the nothing-sent fields (refused_fails' fields;
+    host lastSeqEmitted printed, not asserted: the host's own middle clicks run vanilla cancelCurrentAction)."""
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle: {short(e)}")
+    rec = snap(host, client)
+    return {"at": {gc.name: pd_brief(pd(gc)) for gc in (host, client)},
+            "sent": {"clientInFlight": rec["client"]["inFlight"],
+                     "coopIntentsSent": (before["client"]["coopIntentsSent"], rec["client"]["coopIntentsSent"]),
+                     "hostIntentsReceived": (before["host"]["intentsReceived"], rec["host"]["intentsReceived"]),
+                     "hostLastSeqEmitted": (before["host"]["lastSeqEmitted"], rec["host"]["lastSeqEmitted"])}}
+
+
+def pd_end_fails(f0, end, what):
+    """depth 0 and BattlescapeState on top on both at the row's start and end (STOP-IF 7), nothing sent."""
+    fails = []
+    for n in ("host", "client"):
+        a0, a1 = f0[n], end["at"][n]
+        if (a0.get("depth"), a0.get("top"), a1.get("depth"), a1.get("top")) != (0, "BattlescapeState") * 2:
+            fails.append(f"{what}: {n} pedia_state at start {a0} / end {a1} (want depth 0 and BattlescapeState on top "
+                         f"at both: no Ufopaedia screen left open, STOP-IF 7)")
+    s = end["sent"]
+    if (s["clientInFlight"] is not None or s["coopIntentsSent"][0] != s["coopIntentsSent"][1]
+            or s["hostIntentsReceived"][0] != s["hostIntentsReceived"][1]):
+        fails.append(f"{what}: {s} (want client inFlight None, coopIntentsSent and host intentsReceived unchanged: "
+                     f"nothing sent)")
+    return fails
+
+
+def rows_fails(rows, want_in, want_out, what):
+    """EXACT-text membership of a SelectState's rows (F3095)."""
+    rows = rows or []
+    miss, extra = [x for x in want_in if x not in rows], [x for x in want_out if x in rows]
+    return [f"{what} rows {rows} (want {list(want_in)} listed, {list(want_out)} not; missing {miss}, "
+            f"present {extra})"] if miss or extra else []
+
+
+# ===================== W2-P8 S-D2 rows (owner D168 = a, D213 = b, D217 = a; AMENDMENT P8-4f 4f.5) =====================
+
+
+def c16r_p1_list(host, client, ctx):
+    keys = pd_keys(ctx, host, client)
+    aim0 = cancel_client_aim(client)
+    f0 = pd_frame(host, client)
+    before = snap(host, client)
+    c, h, notes = {}, {}, []
+    try:
+        c["list"] = pd_list(client, keys["client"])
+        if PISTOL_NAME in (c["list"].get("rows") or []):   # GREEN only: the RED client list has no pistol row
+            c["row"] = pd_row_click(client, c["list"], PISTOL_NAME)
+        c["close"] = pd_close(client, keys["client"])
+        h["list"] = pd_list(host, keys["host"])
+        h["row"] = pd_row_click(host, h["list"], HEAVY_NAME)
+        h["close"] = pd_close(host, keys["host"])
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    end = pd_end(host, client, before, notes)
+    print(f"EVIDENCE C16r-p1: keys={keys} aimCancel={aim0} start={f0}; client={c}; host={h}; end={end}; "
+          f"notes={notes}", flush=True)
+    fails = list(notes)
+    for n, d in (("client", c), ("host", h)):
+        if not pd_list_ok(d.get("list") or {}):
+            fails.append(f"precondition: {n} list recipe {d.get('list')} (want the U key -> UfopaediaStartState, "
+                         f"the section -> UfopaediaSelectState with lists 1)")
+    if not pd_opened(h.get("row") or {}, HEAVY):
+        fails.append(f"host row click {h.get('row')} (want article {HEAVY} opened from its row)")
+    fails += rows_fails((h.get("list") or {}).get("rows"), (HEAVY_NAME, HCLIP_NAME, RIFLE_NAME, RCLIP_NAME),
+                        (PISTOL_NAME,), "host control Ufopaedia list")
+    # GREEN (the viewer's own research); RED: the client lists the host's research
+    fails += rows_fails((c.get("list") or {}).get("rows"), (PISTOL_NAME, PCLIP_NAME, RIFLE_NAME),
+                        (HEAVY_NAME, HCLIP_NAME, RCLIP_NAME), "client Ufopaedia list (the viewer's own research)")
+    if not pd_opened(c.get("row") or {}, PISTOL):
+        fails.append(f"client row click {c.get('row')} (want article {PISTOL} opened from its {PISTOL_NAME!r} row)")
+    fails += pd_end_fails(f0, end, "C16r-p1")
+    fails += common_fails(host, client, before, "C16r-p1")
+    finish(fails)
+
+
+def c16r_p2_middle(host, client, ctx):
+    G, H = ctx["G"], ctx["H"]
+    keys = pd_keys(ctx, host, client)
+    aim0 = cancel_client_aim(client)
+    f0 = pd_frame(host, client)
+    before = snap(host, client)
+    ids, c, h, notes = {}, {}, {}, []
+    try:
+        for d, gc, uid, legs in ((c, client, G, (("pistol", PISTOL, PCLIP), ("heavy", HEAVY, HCLIP))),
+                                 (h, host, H, (("heavy", HEAVY, HCLIP), ("pistol", PISTOL, PCLIP)))):
+            for label, item, ammo in legs:
+                ids[f"{gc.name}-{label}"] = give_both(host, client, uid, item, ammo)
+                d[label] = pd_mid(gc, uid)
+                d[label + "Close"] = pd_close(gc, keys[gc.name])
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    end = pd_end(host, client, before, notes)
+    print(f"EVIDENCE C16r-p2: G={G} H={H} aimCancel={aim0} ids={ids} start={f0}; client(G)={c}; host(H)={h}; "
+          f"end={end}; notes={notes}", flush=True)
+    fails = list(notes)
+    for n, d in (("client", c), ("host", h)):
+        for label in ("pistol", "heavy"):
+            if not pd_mid_ok(d.get(label) or {}):
+                fails.append(f"precondition: {n} {label} middle click {d.get(label)} (want TAB, one right-hand box "
+                             f"at {RHAND_CENTRE}, clicked)")
+    if not pd_opened(h.get("heavy") or {}, HEAVY) or not pd_nothing(h.get("pistol") or {}):
+        fails.append(f"host control H heavy {(h.get('heavy') or {}).get('at')} pistol "
+                     f"{(h.get('pistol') or {}).get('at')} (want {HEAVY} opened, the pistol opens nothing)")
+    # GREEN (the viewer's own research); RED: pistol opens nothing, heavy opens STR_HEAVY_PLASMA
+    if not pd_opened(c.get("pistol") or {}, PISTOL):
+        fails.append(f"client G pistol middle click {(c.get('pistol') or {}).get('at')} (want article {PISTOL} "
+                     f"opened: the viewer researched it)")
+    if not pd_nothing(c.get("heavy") or {}):
+        fails.append(f"client G heavy middle click {(c.get('heavy') or {}).get('at')} (want nothing opened: the "
+                     f"viewer did not research {HEAVY})")
+    fails += pd_end_fails(f0, end, "C16r-p2")
+    fails += common_fails(host, client, before, "C16r-p2")
+    finish(fails)
+
+
+def c16r_p3_ammo(host, client, ctx):
+    G, H = ctx["G"], ctx["H"]
+    keys = pd_keys(ctx, host, client)
+    aim0 = cancel_client_aim(client)
+    ids = {"G": give_both(host, client, G, RIFLE, RCLIP), "H": give_both(host, client, H, RIFLE, RCLIP)}
+    f0 = pd_frame(host, client)
+    before = snap(host, client)
+    c, h, notes = {}, {}, []
+    try:
+        for d, gc, uid in ((c, client, G), (h, host, H)):
+            d["rifle"] = pd_mid(gc, uid)
+            d["close"] = pd_close(gc, keys[gc.name])
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    end = pd_end(host, client, before, notes)
+    print(f"EVIDENCE C16r-p3: G={G} H={H} aimCancel={aim0} ids={ids} start={f0}; client(G)={c}; host(H)={h}; "
+          f"end={end}; notes={notes}", flush=True)
+    fails = list(notes)
+    for n, d in (("client", c), ("host", h)):
+        r = d.get("rifle") or {}
+        if not pd_mid_ok(r) or not pd_opened(r, RIFLE):
+            fails.append(f"precondition: {n} rifle middle click {r} (want article {RIFLE} opened)")
+    if (h.get("rifle") or {}).get("ammo0") != "80":
+        fails.append(f"host control H rifle article ammo {(h.get('rifle') or {}).get('ammo0')!r} (want '80')")
+    # GREEN: the clip's column stays empty (the viewer did not research RCLIP); RED "80"
+    if (c.get("rifle") or {}).get("ammo0") != "":
+        fails.append(f"client G rifle article ammo {(c.get('rifle') or {}).get('ammo0')!r} (want '': the viewer did "
+                     f"not research {RCLIP})")
+    fails += pd_end_fails(f0, end, "C16r-p3")
+    fails += common_fails(host, client, before, "C16r-p3")
+    finish(fails)
+
+
+def c16r_p4_mode(host, client, ctx):
+    keys = pd_keys(ctx, host, client)
+    aim0 = cancel_client_aim(client)
+    f0 = pd_frame(host, client)
+    before = snap(host, client)
+    legs, notes = {}, []
+    try:
+        for leg, enabled in (("leg1", True), ("leg2", False)):
+            e = legs[leg] = {"sync": sync_both(host, client, enabled)}
+            e["mode"] = {"host": mode_view(rmode(host)), "client": mode_view(rmode(client))}
+            e["list"] = pd_list(client, keys["client"])
+            e["close"] = pd_close(client, keys["client"])
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    finally:
+        if "leg2" not in legs:   # never leave research sync on for the rows after this one
+            notes.append(f"sync restored after a failed leg: {sync_both(host, client, False)}")
+    end = pd_end(host, client, before, notes)
+    print(f"EVIDENCE C16r-p4: aimCancel={aim0} start={f0}; legs={legs}; end={end}; notes={notes}", flush=True)
+    fails = list(notes)
+    for leg, sync, sep in (("leg1", True, False), ("leg2", False, True)):
+        e = legs.get(leg) or {}
+        for n in ("host", "client"):
+            got = ((e.get("sync") or {}).get(n), ((e.get("mode") or {}).get(n) or {}).get("separate"))
+            if got[0] is not sync or got[1] is not sep:
+                fails.append(f"precondition: {leg} {n} sync, separate {got} (want {sync}, {sep})")
+        if not pd_list_ok(e.get("list") or {}):
+            fails.append(f"precondition: {leg} client list recipe {e.get('list')} (want start -> select, lists 1)")
+    fails += rows_fails(((legs.get("leg1") or {}).get("list") or {}).get("rows"), (HEAVY_NAME,), (PISTOL_NAME,),
+                        "leg1 (sync on: the live world) client Ufopaedia list")
+    # GREEN: sync off again -> the viewer's own research at this list build; RED: as leg 1
+    fails += rows_fails(((legs.get("leg2") or {}).get("list") or {}).get("rows"), (PISTOL_NAME,), (HEAVY_NAME,),
+                        "leg2 (sync off: the viewer's own research) client Ufopaedia list")
+    fails += pd_end_fails(f0, end, "C16r-p4")
+    fails += common_fails(host, client, before, "C16r-p4")
+    finish(fails)
+
+
+def c16r_p5_nerds(host, client, ctx):
+    G = ctx["G"]
+    keys = pd_keys(ctx, host, client)
+    aim0 = cancel_client_aim(client)
+    ids = give_both(host, client, G, RIFLE, RCLIP)
+    f0 = pd_frame(host, client)
+    before = snap(host, client)
+    c, notes = {}, []
+    try:
+        c["mid"] = pd_mid(client, G)
+        if c["mid"].get("opened"):
+            c["key"] = pd_key(client, keys["client"]["ufo"])
+            c["nerds1"], c["tNerds1"] = pd_wait_kind(client, "nerds")
+            c["at1"] = pd_brief(pd(client))
+            if c["nerds1"]:
+                time.sleep(SETTLE)
+                c["comboNth"] = pd_nth(client, NERDS_COMBO)
+                if len(c["comboNth"]) == 1:
+                    r = client.cmd({"cmd": "click_widget", "nth": c["comboNth"][0]})
+                    c["combo"] = {k: r.get(k) for k in ("ok", "baseX", "baseY", "winX", "winY", "error")}
+                    s, bx, by = pd_scale(r)
+                    base = (COMBO_LIST[0] + COMBO_LIST[2] // 2, COMBO_LIST[1] + RCLIP_ROW * COMBO_ROW_H + COMBO_ROW_H // 2)
+                    c["rowWin"] = (base[0] * s + bx, base[1] * s + by)
+                    time.sleep(SETTLE)
+                    c["rowClick"] = client.cmd({"cmd": "inject_input", "kind": "click", "x": c["rowWin"][0],
+                                                "y": c["rowWin"][1]}).get("ok")
+                    time.sleep(NERDS_WAIT)
+                    c["at2"] = pd_brief(pd(client))
+                    c["article2"] = sd_text(sd_lw(client), NERDS_ARTICLE)
+        c["close"] = pd_close(client, keys["client"])
+    except Exception as e:
+        notes.append(f"recipe: {type(e).__name__}: {short(e)}")
+    end = pd_end(host, client, before, notes)
+    print(f"EVIDENCE C16r-p5: G={G} aimCancel={aim0} ids={ids} start={f0}; client(G)={c}; end={end}; notes={notes}",
+          flush=True)
+    fails = list(notes)
+    if not (pd_mid_ok(c.get("mid") or {}) and pd_opened(c.get("mid") or {}, RIFLE) and c.get("key")
+            and c.get("nerds1") and (c.get("at1") or {}).get("nerds") == 1 and len(c.get("comboNth") or []) == 1
+            and (c.get("combo") or {}).get("ok") and c.get("rowClick")):
+        fails.append(f"precondition: client nerds recipe {c} (want the rifle article, the U key -> one "
+                     f"StatsForNerdsState, one ammo combo clicked, its clip row clicked)")
+    # GREEN: the clip link opens nothing (the viewer did not research RCLIP); RED: a second nerds screen
+    if (c.get("at2") or {}).get("nerds") != 1:
+        fails.append(f"client nerds after the {RCLIP} combo row {c.get('at2')} article {c.get('article2')!r} (want "
+                     f"nerds 1: the viewer did not research {RCLIP})")
+    fails += pd_end_fails(f0, end, "C16r-p5")
+    fails += common_fails(host, client, before, "C16r-p5")
+    finish(fails)
+
+
+SCENARIOS = (("C16r-s", c16r_s_store), ("C16r-u", c16r_u_can_use), ("C16r", c16r_pistol), ("C16r-f", c16r_f_mode),
+             ("C16r-m", c16r_m_mirror), ("C16r-h", c16r_h_admission), ("C16r-p1", c16r_p1_list),
+             ("C16r-p2", c16r_p2_middle), ("C16r-p3", c16r_p3_ammo), ("C16r-p4", c16r_p4_mode),
+             ("C16r-p5", c16r_p5_nerds), ("C16r-i", c16r_i_inventory), ("C16r-j", c16r_j_displays))
+
+
+# ===================== bring-up =====================
+
+
+def boot(host, client):
+    ctx = {}
+    pre_rec = {}
+
+    def pre(h, c):
+        for t in CLIENT_TOPICS:   # W2-P8 S-D1 boot extension: + PCLIP, PSI on the client
+            c.ok({"cmd": "discover_research", "topic": t})
+        for t in HOST_TOPICS:     # + HCLIP on the host
+            h.ok({"cmd": "discover_research", "topic": t})
+        for t in PEDIA_CLIENT_TOPICS:   # W2-P8 S-D2 boot extension (P8-4f C2): + RIFLE on the client
+            c.ok({"cmd": "discover_research", "topic": t})
+        for t in PEDIA_HOST_TOPICS:     # + RIFLE, RCLIP on the host
+            h.ok({"cmd": "discover_research", "topic": t})
+        pre_rec["isr"] = isr_all(h, c)
+        pre_rec["Nh"] = (rmode(h) or {}).get("liveCount")
+        pre_rec["Nc"] = (rmode(c) or {}).get("liveCount")
+
+    host.spawn()
+    host.connect()
+    client.spawn()
+    client.connect()
+    session.bring_up_separate_guest_battle(host, client, port=PORT, pre_mission_start=pre)
+    session.wait_host_idle(host, client, timeout=30)
+    ctx["preIsr"], ctx["Nh"], ctx["Nc"] = pre_rec.get("isr"), pre_rec.get("Nh"), pre_rec.get("Nc")
+    hs, cs = battle_state(host), battle_state(client)
+    gh = [u for u in hs.get("units", []) if u.get("name") == GUEST_NAME]
+    gc_ = [u for u in cs.get("units", []) if u.get("name") == GUEST_NAME]
+    assert len(gh) == 1 and len(gc_) == 1 and gh[0]["id"] == gc_[0]["id"], (
+        f"guest {GUEST_NAME!r} by name: host={[u.get('id') for u in gh]} client={[u.get('id') for u in gc_]} "
+        f"(want exactly one, the same id)")
+    g = gh[0]
+    ctx["G"] = g["id"]
+    ctx["gTile"] = (g["x"], g["y"], g["z"])
+    hsold = sorted(u["id"] for u in hs.get("units", []) if u.get("isPlayerSoldier") and u.get("coop") == 0
+                   and u.get("name") != GUEST_NAME and not u.get("isOut"))
+    assert hsold, "no host soldier (coop 0, not out) for the W2-P8 S-D1 host control H"
+    ctx["H"] = hsold[0]
+    pinned = pin_ai_neutral(host, client, tag="w2p4r-sr")
+    assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
+    fp = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": ctx["G"], "stat": "firing",
+                             "value": FIRING_PIN}, ("tu",))
+    for gc in (host, client):
+        es = event_state(gc)
+        assert isinstance(es.get("researchMode"), dict), (
+            f"{gc.name} event_state lacks researchMode: {es.get('researchMode')!r}")
+    session.wait_host_idle(host, client, timeout=30)
+    session.assert_hash_clean(host, client, full=True, what="bring-up")
+    print(f"[w2p4r-sr] boot ok: G={ctx['G']} H={ctx['H']} tile={ctx['gTile']} dir={g.get('direction')} coop={g.get('coop')} "
+          f"targets={ {k: g_tile(ctx, k) for k in TGT_OFF} } pinned={len(pinned)} firing={FIRING_PIN} ({fp.get('ok')}) "
+          f"pre is_researched={ctx['preIsr']} Nh={ctx['Nh']} Nc={ctx['Nc']} mapFP={hs.get('mapFingerprint')}",
+          flush=True)
+    return ctx
+
+
+def main():
+    t0 = time.time()
+    host = GameClient("host", 49886, make_user_dir("w2p4r_client_research_host", options=HOST_OPTIONS))
+    client = GameClient("client", 49887, make_user_dir("w2p4r_client_research_client", options=CLIENT_OPTIONS))
+    results = {}
+    try:
+        try:
+            ctx = boot(host, client)
+        except Exception as e:  # a bring-up failure fails the whole run
+            print(f"FAIL boot: {type(e).__name__}: {e}", flush=True)
+            return 2
+        for name, fn in SCENARIOS:
+            try:
+                fn(host, client, ctx)
+                results[name] = True
+                print(f"PASS {name}", flush=True)
+            except Exception as e:
+                results[name] = False
+                kind = "" if isinstance(e, AssertionError) else f"{type(e).__name__}: "
+                print(f"FAIL {name}: {kind}{e}", flush=True)
+    finally:
+        for gc in (host, client):
+            try:
+                gc.shutdown()
+            except Exception as e:
+                print(f"[w2p4r-sr] shutdown {gc.name}: {short(e)}", flush=True)
+    passed = [n for n, _ in SCENARIOS if results.get(n)]
+    failed = [n for n, _ in SCENARIOS if not results.get(n)]
+    print(f"\ntest_client_research: {len(passed)}/{len(SCENARIOS)} passed "
+          f"(pass={passed} fail={failed}) in {time.time() - t0:.1f}s", flush=True)
+    return 0 if not failed else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

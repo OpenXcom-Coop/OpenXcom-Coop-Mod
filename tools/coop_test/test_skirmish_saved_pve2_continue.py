@@ -8,7 +8,7 @@ Spec: docs repo rewrite/prompts/mgb2_common.md (rulings, R3, QMB2-1 .. QMB2-5 (a
 section (f) row CB2), mgb2_sb_convert.md (stage S-B). Constants: rewrite/mgb2-task0/sa/CONSTANTS.md (TASK 0 boots c, d, g
 at dfe41388b). Lobby key 49208.
 
-Seed pair: R5-U8's gm4 bring-up as test_r5_pve2_turns.bring_up does it (steps copied, not imported): the host's
+Seed pair: R5-U8's gm4 bring-up as test_pve2_turns.bring_up does it (steps copied, not imported): the host's
 set_seed SEED_ROSTER; the client on Alien (gamemode 2), then the host's own row on Alien (gamemode 4); STR_MEDIUM_SCOUT on
 map seed 1; both briefings and both pre-battle equip screens; pin_ai_neutral and every live unit's reactions 0; then the
 opening: the host closes its Turn 1 screen, every NextTurnState closes, both settle on side 0 of turn 2 (the host's "PvE2
@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
-from test_w2_delta_core import both  # noqa: E402
+from test_delta_core import both  # noqa: E402
 import test_skirmish_saved_battle_join as J  # noqa: E402
 
 KEY, SAVE2 = "49208", "mgb_cb2.sav"

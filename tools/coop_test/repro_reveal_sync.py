@@ -88,7 +88,7 @@ Seven sessions, each freshly booted (two of them deliberately break the battle):
 FIXTURE: the same live 2-player skirmish + SELECTION RULE + bounded re-roll loop
 repro_atom_turn.py/repro_atom_kneel.py use (REVIEW4 IR-4), reused here by inline
 copy - this file's own precedent is repro_atom_kneel.py, whose precedent is
-repro_atom_turn.py, whose precedent is test_rw_faction_setup.py. seat_count=2 so
+repro_atom_turn.py, whose precedent is test_faction_setup.py. seat_count=2 so
 the CLIENT owns two real units and the mixed burst can drive different actors.
 
 Run:  python tools/coop_test/repro_reveal_sync.py
@@ -991,7 +991,7 @@ def instance_c():
 
 
 def bring_up_gm2_lobby(host, client, port):
-    """test_rw_faction_setup.py's gm2 drive: the same skirmish lobby flow, with
+    """test_faction_setup.py's gm2 drive: the same skirmish lobby flow, with
     ClientPlayer moved to the Alien team BEFORE BATTLE SETTINGS, which is what
     makes assignSeatsAndFactions() produce gamemode 2 (host = X-Com at seat 0,
     client = the mission's real aliens at seat 1)."""

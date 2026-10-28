@@ -56,7 +56,7 @@ sectoid's plasma rifle killed the walker and the merge cell reported the
 death as "deleted post-battle (guest cleanup ran!)". Two changes, chain rule
 SS A.10: (1) the map is pinned - set_seed SEED_S2 on the host in
 bring_up_shared_mixed_battle's pre_landing window (the
-test_w2_battle_end_campaign seed_pin precedent), MAP_FP_S2 asserted on both
+test_battle_end_campaign seed_pin precedent), MAP_FP_S2 asserted on both
 machines; on this seed neither scenario's walk draws reaction fire. (2) the
 merge cell re-points to the true condition: a squad soldier missing from the
 roster passes only when soldier_record finds it on the DEAD list of both
@@ -76,7 +76,7 @@ import session
 import geo
 
 # W2-U8 (F6059): the pinned S2 terror map. U8 hunt (solo_client, seeds 1-40, one boot each): 39 seeds drew no
-# reaction fire on the T-CMD walk, seed 33 drew one snap that missed. Seed 1 = test_w2_battle_end_campaign's
+# reaction fire on the T-CMD walk, seed 33 drew one snap that missed. Seed 1 = test_battle_end_campaign's
 # SEED_S (same bring-up, same mapFingerprint).
 SEED_S2 = 1
 MAP_FP_S2 = 5.690100025079999e+18   # host battle_state.mapFingerprint on SEED_S2 (client equal)
