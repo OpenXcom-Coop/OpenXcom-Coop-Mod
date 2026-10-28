@@ -43,8 +43,8 @@ W_62, W_UI, W_VISIT, W_SAVE = 10.0, 10.0, 60.0, 60.0
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
 RC_OK = (0, 3221226505)
-NEEDLES = {"UNWIND": "[coop] W2-H73: the partner dropped while the host views its base",
-           "OPEN": "[coop] W2-H73: the host's own world is back",
+NEEDLES = {"UNWIND": "[coop] the partner dropped while the host views its base",
+           "OPEN": "[coop] the host's own world is back",
            "LGPUSH": "[coop-ui] push class OpenXcom::LoadGameState",
            "LISTPUSH": "[coop-ui] push class OpenXcom::ListSaveState",
            "SERVER": "[coop-test] force_server_error: onConnect -3 (main thread)"}

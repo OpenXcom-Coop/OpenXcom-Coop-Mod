@@ -227,7 +227,7 @@ def main():
         assert cstack, "the client's state stack must never be left empty"
         print(f"PASS 1 entry shape: client stack={cstack} (was {pre_entry})")
 
-        entry_log = grep(client_dir, "W1-P3: read-only BriefingState pushed over the")
+        entry_log = grep(client_dir, "read-only BriefingState pushed over the")
         assert entry_log, (
             "client log has no W1-P3 entry line - the read-only BriefingState was not "
             "pushed by the coop battle entry (someone else put it there?)")

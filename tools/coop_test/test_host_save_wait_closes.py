@@ -49,11 +49,11 @@ HOLD_S, W_SAVE, STABLE_S, BOOT_S = 5.0, 30.0, 2.0, 60.0
 W_BACK, WAIT_W, W_CLOSE, JOIN_S, W_RESUME, HOLD_W = 60.0, 1.0, 2.0, 40.0, 15.0, 4.0
 W_LEVER = 5.0  # W2-H70 T1: the lever's miss follows the host's reply to the client's push (T0-6: the whole stream took 0.23 s)
 MISS = "Failed to read from hash map with key: client_%s_%s.data"  # loopData's miss of the client's own-world key (saveID, name)
-GIFT70 = "[coop-gift] W2-H70: the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored world at the gift
+GIFT70 = "[coop-gift] the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored world at the gift
 RC_OK = (0, 3221226505)
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
-NEEDLES = {"H59LOG": "[coop] W2-H59: the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
+NEEDLES = {"H59LOG": "[coop] the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
            "FREEZE": "[coop-session] freeze (lobbyMode=", "DROP": "[coop-session] onClientDrop",
            "CLOSE54": "[coop] W2-H64: the host's save wait (54) closes"}
 PATH4 = ("H59LOG", "CLEAR", "FREEZE", "DROP")

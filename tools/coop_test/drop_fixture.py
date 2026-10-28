@@ -16,7 +16,7 @@ import harness
 import session
 
 QUICK, AUTO = "_quick_.asav", "_autogeo_.asav"
-NEEDLES = ("[coop-session]", "W2-H58", "onClientDrop", "campaign_start", "Network process exception")
+NEEDLES = ("[coop-session]", "partner world(s) copied", "onClientDrop", "campaign_start", "Network process exception")
 
 def now(t0):
     return round(time.time() - t0, 3)

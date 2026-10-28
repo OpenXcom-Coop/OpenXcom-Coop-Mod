@@ -38,9 +38,9 @@ SETTLE_S, HOLD_S, STABLE_S, W_GEO, SHOWN_S, CRASH_MAX = 2.0, 5.0, 2.0, 10.0, 10.
 RC_OK = (0, 3221226505)
 DEFAULT_NAME, WAITING = "ClientPlayer", "to reconnect"
 NEEDLES = {"ARMED": "[coop-test] throw_next_rx: armed", "MARKED": "[coop-test] throw_next_rx: marked",
-           "H60H": "[coop] W2-H60: a message could not be handled - the partner is dropped",
-           "H60C": "[coop] W2-H60: a message could not be handled - the session ends",
-           "LOSTGEO": "[coop] W2-H55: the partner was lost on a failed send - the canonical drop",
+           "H60H": "[coop] a message could not be handled - the partner is dropped",
+           "H60C": "[coop] a message could not be handled - the session ends",
+           "LOSTGEO": "[coop] the partner was lost on a failed send - the canonical drop",
            "FREEZE": "[coop-session] freeze (lobbyMode=", "DROP": "[coop-session] onClientDrop"}
 NAMES = ("RESUME", "SAVE & QUIT", "ABANDON GAME")
 CELLS = {"R-A": ("A-pre", "A-flood", "A-hatch", "A-drop", "A-name", "A-partner", "A-rejoin", "A-resume", "A-save", "A-common"),

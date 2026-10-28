@@ -34,9 +34,9 @@ KEY = "49197"
 QUICK, AUTO = "_quick_.asav", "_autogeo_.asav"
 POLL_S, POLL54_S, SEEN54_S, HOLD_S, W_LOST, W_62, W_SAVE, STABLE_S, BOOT_S = 0.1, 0.005, 10.0, 5.0, 5.0, 5.0, 10.0, 2.0, 60.0
 RC_OK = (0, 3221226505)
-NEEDLES = {"H59LOG": "[coop] W2-H59: the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
+NEEDLES = {"H59LOG": "[coop] the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
            "FREEZE": "[coop-session] freeze (lobbyMode=", "DROP": "[coop-session] onClientDrop", "ARMED": "[coop-test] force_send_failure: armed",
-           "SEND_LOST_GEO": "[coop] W2-H55: the partner was lost on a failed send - the canonical drop",
+           "SEND_LOST_GEO": "[coop] the partner was lost on a failed send - the canonical drop",
            "SERVER": "[coop-test] force_server_error: onConnect -3 (main thread)"}
 PATH4 = ("H59LOG", "CLEAR", "FREEZE", "DROP")
 

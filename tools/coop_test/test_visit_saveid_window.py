@@ -24,7 +24,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49465"
 KEPT = "[coop] W2-H79:"
-H58 = re.compile(r"\[coop\] W2-H58: (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
+H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 HOLD, HOLD_R, W_DROP, JOIN_S, ACK_S = 2.0, 3.0, 30.0, 10.0, 30.0
 
 
@@ -168,7 +168,7 @@ def drop54(x, ev):
         x.killed.append(d["kill"].get("returncode"))
         x.client = None
     ev["drop54"] = {k: d.get(k) for k in ("ok", "why", "seen54", "suspend", "probe", "kill", "after62", "saveIDBefore")}
-    ev["h58"] = [ln.split("\t")[-1][:240] for ln in G.log(h)[d.get("n0", 0):] if "[coop] W2-H58:" in ln]
+    ev["h58"] = [ln.split("\t")[-1][:240] for ln in G.log(h)[d.get("n0", 0):] if "partner world(s) copied from saveID" in ln]
     must(d.get("ok"), "drop_at_54: %s" % d.get("why"))
     ev["reached"].append("D")
 

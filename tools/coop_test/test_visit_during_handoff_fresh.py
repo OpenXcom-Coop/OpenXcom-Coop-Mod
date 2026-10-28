@@ -25,7 +25,7 @@ OBS_S, W_LEVER, W_HOLD, W_PROMPT, W_HELD, W_ENTRY, W_UI, W_SAVE, W_RESUME = 2.0,
 RC_OK = (0, 3221226505)
 NEEDLES = {"CLICKIGN": "[coop-visit] base click ignored: a battle hand-off is in flight",
            "DROP": "[coop-visit] base request dropped: a battle hand-off is in flight (role 2)",
-           "ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL"}
+           "ADOPT": "read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL"}
 CELLS = {"R2": ["R2-pre", "R2-click", "R2-alive", "R2-brief", "R2-host"], "R3": ["R3-pre", "R3-drop", "R3-alive", "R3-brief", "R3-host"]}
 CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()

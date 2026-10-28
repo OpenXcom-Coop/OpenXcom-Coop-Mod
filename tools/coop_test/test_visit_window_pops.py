@@ -56,7 +56,7 @@ NEEDLES = {"CLEAR": "[coop-session] clearDeferredSave", "CLOSE54": "[coop] W2-H6
            "HOLDFIRE": "[coop-test] hold_base_result: the held base view opens", "GEOPOP": "[coop-ui] pop  class OpenXcom::GeoscapeState",
            "BSPUSH": "[coop-ui] push class OpenXcom::BasescapeState depth="}
 PUSH50 = "[coop-ui] push class OpenXcom::CoopState depth=2"
-GIFT70 = "[coop-gift] W2-H70: the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored own world at the gift
+GIFT70 = "[coop-gift] the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored own world at the gift
 MISS = "Failed to read from hash map with key: client_"  # loopData's logged miss of the client's own-world key (W2-H66 lever)
 W_LEVER = 5.0  # the lever's miss follows the host's reply to the client's push (W2-H70 T1: the whole stream took 0.23 s)
 CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder

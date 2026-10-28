@@ -225,7 +225,7 @@ def end_row(x, crash0):
     new = sorted(F.crashes() - crash0)
     r.ev["newCrash"] = [os.path.basename(p) for p in new]
     r.ev["alive"] = {gc.name: alive(gc) for gc in x.procs()}
-    r.ev["w2h58Lines"] = [ln.split("\t")[-1] for ln in F.logl(x.host) if "W2-H58" in ln]
+    r.ev["w2h58Lines"] = [ln.split("\t")[-1] for ln in F.logl(x.host) if "partner world(s) copied" in ln]
     r.cell("CRASH", not new and alive(x.host), "new crash files %d %s; host alive %s" % (len(new), r.ev["newCrash"][:3], alive(x.host)))
     r.finish()
 

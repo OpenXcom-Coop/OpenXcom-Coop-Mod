@@ -23,7 +23,7 @@ import rejoin_helpers as RH  # noqa: E402
 
 W_HELD, W_REPLY, W_RESULT, HOLD_X = 10.0, 10.0, 15.0, 1.0
 NEEDLE = "[coop] W2-H86:"
-H58 = re.compile(r"\[coop\] W2-H58: (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
+H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 
 
 def kept_id_count(gc, n0=0):
@@ -67,7 +67,7 @@ def w58(lines):
 
 def world_copy_since(host, n0, secs=3.0):
     got = []
-    RH.until(lambda: got.append(w58(F.lines_since(host, n0, ("W2-H58",)))) or got[-1] is not None, time.time() + secs)
+    RH.until(lambda: got.append(w58(F.lines_since(host, n0, ("partner world(s) copied",)))) or got[-1] is not None, time.time() + secs)
     return got[-1]
 
 

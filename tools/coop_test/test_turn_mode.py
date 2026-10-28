@@ -464,7 +464,7 @@ def test_wire_default_and_absent():
             "the omit_turn_mode lever did not fire - the offer still carried the key, "
             "so the D-26 degrade below would be asserted against nothing")
         clog = log_lines(client)
-        assert any("key ABSENT - D-26 degrade" in l for l in clog), (
+        assert any("key ABSENT - parallel default" in l for l in clog), (
             "the client did not report an ABSENT turnMode key on the offer it accepted")
         assert live_mode(client) == PARALLEL, (
             f"with the key absent the client reports {live_mode(client)!r}, expected "

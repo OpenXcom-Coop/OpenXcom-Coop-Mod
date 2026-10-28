@@ -56,7 +56,7 @@ DEL_SETTLE, RT_SETTLE, W_END, W_BACK = 3.0, 3.0, 15.0, 30.0
 W_VISIT, BOOT_S = 20.0, 60.0
 NEEDLE_A = "[coop] W2-H83: removed base id=%s cache="
 LEAVE = "[coop] W2-H83: the partner removed the base this player views"
-LOGN = ("[coop] W2-H83", "[coop] W2-H62", "[coop] W2-H73", "[coop-session]", "coop-ui] push", "coop-ui] pop")
+LOGN = ("[coop] W2-H83", "[coop] W2-H62", "the host's own world", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ENDS = ("CutsceneState", "StatisticsState", "SlideshowState")
 WIN = {"BF": "BuildFacilitiesState", "AC": "ManageAlienContainmentState", "NR": "NewResearchListState"}
 ROWS = (("VC", ("VC-pre", "VC-stay", "VC-gone")), ("V", ("V-pre", "V-leave", "V-log", "V-mir", "V-end", "V-host")),

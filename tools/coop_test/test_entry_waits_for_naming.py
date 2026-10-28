@@ -146,7 +146,7 @@ def wait_until(pred, timeout, step=0.1):
             return round(time.time() - t, 2)
         time.sleep(step)
     return None
-def coopwin(lines): return [ln.split("\t")[-1][:160] for ln in lines if "[coop-handshake] battle_" in ln or "W2-H72" in ln or PUSH995 in ln]
+def coopwin(lines): return [ln.split("\t")[-1][:160] for ln in lines if "[coop-handshake] battle_" in ln or "held battle_offer" in ln or PUSH995 in ln]
 
 
 # ----- boot, rows -----

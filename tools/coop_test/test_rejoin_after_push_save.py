@@ -41,7 +41,7 @@ KEY = "49499"
 C2 = ("C2-pre", "C2-copied", "C2-key", "C2-rejoin", "C2-world", "C2-resume", "C2-common")
 X3 = ("X3-pre", "X3-sav", "X3-ids", "X3-log", "X3-host", "X3-rejoin", "X3-world", "X3-resume", "X3-common")
 RED = ("C2-copied", "C2-key", "C2-rejoin", "C2-world", "C2-resume", "X3-ids", "X3-log", "X3-host", "X3-rejoin", "X3-world", "X3-resume")
-H58 = re.compile(r"\[coop\] W2-H58: (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
+H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 
 
 def row_c2(r):
@@ -70,7 +70,7 @@ def row_c2(r):
     r.need(d2.get("ok"), "D2: %s" % d2.get("why"))
     p = d2["probe"]
     id3 = p["saveID"]
-    h58 = [ln for ln in F.lines_since(host, d2["n0"], ("W2-H58",)) if H58.search(ln)]
+    h58 = [ln for ln in F.lines_since(host, d2["n0"], ("partner world(s) copied",)) if H58.search(ln)]
     good = [ln for ln in h58 if int(H58.search(ln).group(1)) >= 1 and int(H58.search(ln).group(3)) == id3]
     r.cell("C2-copied", bool(good), "host W2-H58 lines since D2's trigger %s (id3 %s; host id before D2 %s)" % (h58, id3, hb))
     r.cell("C2-key", p["id3"].get("present") is True, "at D2's 54: host_<id3> %s; host_<%s> %s" % (p["id3"], hb, p["before"]))

@@ -31,7 +31,7 @@ SEED_P = 2
 ZOOM_MIN, SYM_PLUS = 3, 43
 W_CLICK50, W_HELD, W_ACC, W_MARK, W_ENTRY, W_HOLD, W_PROMPT, W_UI = 1.0, 15, 30, 10, 30, 10.0, 120, 10
 RC_OK = (0, 3221226505)
-NEEDLES = {"ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL",
+NEEDLES = {"ADOPT": "read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL",
            "DEFER": "[coop-handshake] battle blob deferred: a world stream to the partner is still running",
            "START": "[coop-handshake] deferred battle blob streaming (battleId=",
            "BASEDROP": "[coop-visit] base answer dropped: a battle hand-off is in flight",

@@ -29,7 +29,7 @@ ZOOM_MIN, SYM_PLUS = 3, 43
 W_UI, W_PROMPT, W_VISIT, W_ENTRY, W_END, W_RET, W_COPY, W_SAVE = 10, 120, 60, 25, 60, 15, 30, 20
 RC_OK = (0, 3221226505)
 FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
-NEEDLES = {"UNWIND": "[coop] W2-H74: battle entry from a view of the host's base", "SNAP": "SEPARATE battle-entry own-world snapshot taken"}
+NEEDLES = {"UNWIND": "[coop] battle entry from a view of the host's base", "SNAP": "SEPARATE battle-entry own-world snapshot taken"}
 CELLS = {"V": ["V-pre", "V-entry", "V-snap", "V-log", "V-marker", "V-funds", "V-exp", "V-inside", "V-pushed", "V-copy", "V-save", "V-return",
                "V-common"],
          "G": ["G-pre", "G-snap", "G-own", "G-copy", "G-common"]}

@@ -13,7 +13,7 @@ cell passes, else 2."""
 from gift_display_helpers import *  # noqa: F401,F403 (HB + GH: boot, picker, visit, baseline, host_gift, gift_from, own_ids, ids_twice, ...)
 
 W_PUSH, HOLD_P, W_REPLAY_D = 10.0, 0.5, 3.0
-CANCEL = "[coop-gift] W2-H70 S-D:"
+CANCEL = "[coop-gift] a display copy given back during the visit"
 
 
 def copy_fnv(x):

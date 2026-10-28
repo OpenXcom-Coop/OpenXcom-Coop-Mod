@@ -68,7 +68,7 @@ def log_msgs(gc, since=0):
 
 
 def keep(lines):
-    tags = ("[coop-ui]", "[coop-session]", "[coop] partner", "[coop] lobby", "W2-H25")
+    tags = ("[coop-ui]", "[coop-session]", "[coop] partner", "[coop] lobby", "leaving for the main menu (")
     return [ln for ln in lines if any(t in ln for t in tags) and "BattlescapeState" not in ln
             and "AbortMissionState" not in ln]
 

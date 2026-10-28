@@ -29,8 +29,8 @@ POLL_S, W_21, SEEN_S, SHOWN_S, SETTLE_S, HOLD_S, STABLE_S, BOOT_S = 0.1, 15.0, 1
 RC_OK = (0, 3221226505)
 READY, WAITING = "All players connected", "to reconnect"
 NEEDLES = {"ARMED": "[coop-test] force_send_failure: armed", "FREEZE": "[coop-session] freeze (lobbyMode=",
-           "DROP": "[coop-session] onClientDrop", "SEND_LOST_GEO": "[coop] W2-H55: the partner was lost on a failed send - the canonical drop",
-           "SEND_LOST": "R4-L2: the partner was lost on a failed send during the battle"}
+           "DROP": "[coop-session] onClientDrop", "SEND_LOST_GEO": "[coop] the partner was lost on a failed send - the canonical drop",
+           "SEND_LOST": "the partner was lost on a failed send during the battle"}
 NAMES = ("RESUME", "SAVE & QUIT", "ABANDON GAME")
 
 class Stop(Exception):

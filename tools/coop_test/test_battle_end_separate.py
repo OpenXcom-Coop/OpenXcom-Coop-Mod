@@ -81,7 +81,7 @@ STATUS_DEAD = 6                     # p7t0_common STATUS_DEAD
 # ----- this file's constants -----
 COOP_PORT = "47206"                 # AMENDMENT P7-6 section 4: B1/B2 = 47204-47206 (C28P)
 COOP_PORT_DEAD = "47205"            # C28P-dead's boot (same B1/B2 block; distinct so the two sequential boots never reuse a socket)
-PR16_LITERAL = "S-C-B2 SEPARATE return"   # PR-16/D218: each applied death + each removed host memorial copy logs one [coop-roster] line with this cause
+PR16_LITERAL = "cause SEPARATE return"   # PR-16/D218: each applied death + each removed host memorial copy logs one [coop-roster] line with this cause
 ROSTER_NAMES = ("HostPlayer", "ClientPlayer")     # session.new_campaign's defaults (PR-10's `[<roster name>] `)
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
 RECORD_FIELDS = ("currentStats", "rank", "recovery", "missions", "kills", "stuns", "name")
