@@ -1774,9 +1774,12 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["error"] = "no base";
 		else
 		{
+			// <base> optional: a named base (the host simulates every Separate base).
+			const std::string baseName = req.get("base", "").asString();
 			Base* base = nullptr;
 			for (auto* b : *sg->getBases())
-				if (!b->_isForeignBase && !b->_coopIcon) { base = b; break; }
+				if (baseName.empty() ? (!b->_isForeignBase && !b->_coopIcon) : b->getName() == baseName)
+				{ base = b; break; }
 			if (!base) base = sg->getBases()->front();
 			std::string topic = req.get("topic", "").asString();
 			int cost = req.get("cost", 1).asInt();
