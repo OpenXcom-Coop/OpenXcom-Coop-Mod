@@ -921,9 +921,10 @@ void GeoscapeState::init()
 
 	}
 
-	// Graph requests (co-op)
+	// Graph requests (co-op). SHARED keeps main's refresh of the country and
+	// region graph series (RU11); only the one-world Separate campaign skips it.
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false
-		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		&& !_game->getCoopMod()->isSeparateCampaign())
 	{
 
 		Json::Value root;

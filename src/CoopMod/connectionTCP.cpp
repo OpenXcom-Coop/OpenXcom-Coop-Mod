@@ -5786,7 +5786,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			"SEND_FILE_HOST_SAVE_PROGRESS",
 			"sendCraft", "craftSoldiers", "changeHost", "changeHost3", "changeHost4"
 		};
-		if (!bootstrapProgressPacket
+		// SHARED keeps main's graph refresh (RU11).
+		const bool sharedGraphPacket = isSharedCampaign()
+			&& (stateString == "graph_requests" || stateString == "update_graphs");
+		if (!bootstrapProgressPacket && !sharedGraphPacket
 			&& legacyWorldPackets.find(stateString) != legacyWorldPackets.end())
 			return;
 	}
