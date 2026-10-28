@@ -6742,10 +6742,16 @@ std::string TestServer::execute(const std::string& line)
 					if (found) break;
 				}
 			}
+			// SHARED keeps main's harness contract: either machine may seat any
+			// soldier at the base (mixed-owner squads are built from one machine,
+			// and the SHARED host does not owner-gate craft_assign). Separate
+			// Campaign gates on the local seat, as its host validator does.
+			const bool caOwnerGated = coop && coop->isSeparateCampaign();
 			Soldier* sol = nullptr;
 			if (base)
 				for (auto* s : *base->getSoldiers())
-					if (s->getId() == soldierId && SharedEcon::ownsSoldier(_game, s))
+					if (s->getId() == soldierId
+						&& (!caOwnerGated || SharedEcon::ownsSoldier(_game, s)))
 					{ sol = s; break; }
 			if (!found)
 				resp["error"] = "craft id not found";
