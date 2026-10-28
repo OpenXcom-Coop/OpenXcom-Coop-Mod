@@ -8,7 +8,7 @@ from harness import GameClient, make_user_dir
 import session
 import repro_atom_walk as W
 
-ADOPT_RE = re.compile(r"\[coop-itemid\] WV-D61: adopted coopItemIdCtr (\d+) \(derived (\d+)\)")
+ADOPT_RE = re.compile(r"\[coop-itemid\] adopted coopItemIdCtr (\d+) \(derived (\d+)\)")
 REFUSE_SIG = "battle_ready saveBlob MISMATCH"
 
 def log_text(gc):

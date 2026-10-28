@@ -46,7 +46,7 @@ a ruleset/product change shifted its behaviour, not something to roll past.
 
 POSITIVE CONTROL FIRST (an adopt that never happened cannot prove anything):
 every boot must show event_state.itemIdCtrAdopted > 0 (or the client's own
-log carrying the "[coop-itemid] WV-D61: adopted coopItemIdCtr" line) before
+log carrying the "[coop-itemid] adopted coopItemIdCtr" line) before
 any hash comparison is treated as meaningful. coopLoadItemIdCtr stores a
 value there on EVERY presence-gated load, whether or not carried and derived
 agreed, so this checks the mechanism actually RAN, not that it found a
@@ -87,7 +87,7 @@ FINGERPRINT_AGREED = 1.870118385057293e+18
 EXIT_PASS, EXIT_FAIL = 0, 2
 
 ADOPT_LOG_RE = re.compile(
-    r"\[coop-itemid\] WV-D61: adopted coopItemIdCtr (\d+) \(derived (\d+)\)")
+    r"\[coop-itemid\] adopted coopItemIdCtr (\d+) \(derived (\d+)\)")
 
 UNRELATED_MISMATCH_SIGNATURE = "battle_ready saveBlob MISMATCH"
 

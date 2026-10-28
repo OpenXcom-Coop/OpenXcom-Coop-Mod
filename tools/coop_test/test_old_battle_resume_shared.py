@@ -13,7 +13,7 @@ helpers are test_old_battle_resume.py's (the rc precedent).
 Boot RH (key 46611, dirs d246u_rh_*): the host gets the derived copy, the client an EMPTY dir.
   RH-load    host load_save_menu -> HostMenu within 60 s, no ErrorMessageState (red: ErrorMessageState and the refusal
              text "different version of the mod" in the host log, in EVIDENCE)
-  RH-log     exactly one "[coop-convert] D246: an older version's mid-battle co-op save converted" line: partner worlds
+  RH-log     exactly one "[coop-convert] an older version's mid-battle co-op save converted" line: partner worlds
              0 / 0, seats RH_SEATS, unseated RH_UNSEATED, turnMode parallel, deployment DEP_RH
   RH-resume  as RS-resume (key 46611)
   RH-hash    the host log has "battle_ready saveBlob EQUAL" and no MISMATCH; desyncSeen false on both

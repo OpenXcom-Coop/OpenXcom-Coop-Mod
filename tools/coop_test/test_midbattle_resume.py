@@ -258,7 +258,7 @@ def _assert_refused(user_dir, port, savefile_basename, variant):
 def _assert_converted(user_dir, port, savefile_basename, variant):
     """D246-U (owner D246 (b), narrowing FW-7): a mid-battle co-op save WITHOUT the coopBattleProtocol stamp is an
     older version's shape - the host's load converts it and reaches the host window; never the refusal."""
-    convert_line = "[coop-convert] D246: an older version's mid-battle co-op save converted"
+    convert_line = "[coop-convert] an older version's mid-battle co-op save converted"
     h = GameClient("host", port, user_dir)
     try:
         h.spawn(); h.connect()

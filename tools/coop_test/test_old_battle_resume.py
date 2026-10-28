@@ -10,7 +10,7 @@ test_coop_resume_battle_control.py on the main-check worktree (T0-3), committed 
 Boot RS (key 46610, dirs d246u_rs_*): the host gets the fixture, the client an EMPTY dir.
   RS-load    host load_save_menu -> HostMenu within 60 s, no ErrorMessageState (red: ErrorMessageState and the refusal
              text "different version of the mod" in the host log, in EVIDENCE)
-  RS-log     exactly one "[coop-convert] D246: an older version's mid-battle co-op save converted" line whose counts are
+  RS-log     exactly one "[coop-convert] an older version's mid-battle co-op save converted" line whose counts are
              RS_PB / RS_PM / RS_SEATS / RS_UNSEATED, turnMode traditional, deployment DEP_RS
   RS-resume  session.resume_campaign_battle's post-load steps on key 46610: both inBattle, phase Active,
              authority.battleId equal and non-zero
@@ -63,7 +63,7 @@ DEP_RS = "STR_TERROR_MISSION"
 TGT_RS, COB_RS = "TERROR SITE-1", "BASE> HostBase"
 RS_GUEST, RS_HOST0 = 9, 1         # the guest's battle unit / Erno Bartok's
 LOAD_S, LOG_S, RESUME_S, MODE_S, CLICK_S, DENY_S, PASS_S = 60, 10, 180, 10, 60, 15, 30
-CONVERT = "[coop-convert] D246: an older version's mid-battle co-op save converted"
+CONVERT = "[coop-convert] an older version's mid-battle co-op save converted"
 CONVERT_RE = re.compile(r"partner worlds: battle snapshots (\d+), mirrors (\d+); seats 0/1 (\d+)/(\d+), "
                         r"unseated (\d+); turnMode (\w+); deployment \"([^\"]*)\"")
 REFUSAL = "different version of the mod"
