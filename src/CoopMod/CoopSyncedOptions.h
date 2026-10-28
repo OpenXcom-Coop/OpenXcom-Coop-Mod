@@ -27,15 +27,14 @@ class Game;
 class OptionInfo;
 
 /**
- * W2-P9 (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-1..PR-7, PR-13; owner D134, D160 a, D161 a):
- * one set of battle rules per co-op session. The host's globals are the session table; every machine writes the
+ * One set of battle rules per co-op session. The host's globals are the session table; every machine writes the
  * shared value into its own in-memory option. Declarations only; bodies in connectionTCP.cpp. Main thread only.
  */
 namespace CoopSyncedOptions
 {
-/// PR-1: a row; type/pointer from Options::getOptionInfo() by id; step/min/max = vanilla's Advanced-screen rule.
+/// A row; type/pointer from Options::getOptionInfo() by id; step/min/max = vanilla's Advanced-screen rule.
 struct Row { const char *id; int step; int min; int max; };
-/// PR-1: THE ONLY LIST - 29 ids = 28 visible rows (20 OXC + 8 OXCE) + the hidden unload option (W2-P10 added 14).
+/// THE ONLY LIST - 29 ids = 28 visible rows (20 OXC + 8 OXCE) + the hidden unload option (14 of them are the campaign options).
 static const Row TABLE[] = {
 	{ "battleInstantGrenade", 1, 0, 1 },
 	{ "battleExplosionHeight", 1, 0, 3 },
@@ -52,7 +51,7 @@ static const Row TABLE[] = {
 	{ "battleUFOExtenderAccuracy", 1, 0, 1 },
 	{ "oxceReactionFireThreshold", 5, 0, 100 },
 	{ "oxceInventoryUnloadFixedWeapons", 1, 0, 1 },
-	// the 14 campaign options, scope A1..A14.
+	// the 14 campaign options.
 	{ "storageLimitsEnforced", 1, 0, 1 },
 	{ "canSellLiveAliens", 1, 0, 1 },
 	{ "fieldPromotions", 1, 0, 1 },
@@ -70,18 +69,18 @@ static const Row TABLE[] = {
 };
 static const int TABLE_SIZE = (int)(sizeof(TABLE) / sizeof(TABLE[0]));
 
-/// PR-3: true while the layer holds this machine's own values (session role != None).
+/// True while the layer holds this machine's own values (session role != None).
 bool active();
-/// PR-3: the main-thread activation edge; the FIRST statement of connectionTCP::updateCoopTask(). Binds @a game
+/// The main-thread activation edge; the FIRST statement of connectionTCP::updateCoopTask(). Binds @a game
 /// (submit, the client apply funnel and the chat line need it).
 void tick(Game *game);
-/// PR-3: activates now when the session role wants it (every submit / apply path calls it first).
+/// Activates now when the session role wants it (every submit / apply path calls it first).
 void ensureActive();
-/// PR-3: writes the own values back and drops them (CoopSession::resetSession()).
+/// Writes the own values back and drops them (CoopSession::resetSession()).
 void deactivate();
-/// PR-5: a change request (the Advanced-screen divert and the harness lever); false when inactive.
+/// A change request (the Advanced-screen divert and the harness test command); false when inactive.
 bool submit(const std::string &id, int value);
-/// PR-4: RAII guard, the first statement of Options::save / load / resetDefault; inert unless active().
+/// RAII guard, the first statement of Options::save / load / resetDefault; inert unless active().
 struct FileGuard
 {
 	enum Kind { SAVE, LOAD, RESET };
@@ -91,30 +90,30 @@ struct FileGuard
 	bool _armed;
 	int _stash[TABLE_SIZE];
 };
-/// PR-13: the test-only apply hold (lever synced_apply_hold), read by the host latch (PR-6).
+/// The test-only apply hold (test command synced_apply_hold), read by the host latch (coopSyncedOptionsPump()).
 void setHoldArmed(bool on);
 bool holdArmed();
-/// test-only lever shared_update_defer - defer THIS machine's
+/// Test-only command shared_update_defer - defer THIS machine's
 /// per-frame SharedEcon drain so the replica ordering window is deterministic; inert unless armed.
 void setTestSharedUpdateDeferred(bool on);
 bool testSharedUpdateDeferred();
 /// The 29 current globals {id: bool|int} (the probe, the join table, battle_offer.hostRules).
 Json::Value currentValues();
-/// PR-13: the layer's own fields of the synced_options_state probe (active, version, values, own, queue, ...).
+/// The layer's own fields of the synced_options_state probe (active, version, values, own, queue, ...).
 void stateView(Json::Value &out);
-/// PR-11 (S-B): the Advanced-screen row name - "[Synced] <desc>" for a table id while active(), else @a desc.
+/// The Advanced-screen row name - "[Synced] <desc>" for a table id while active(), else @a desc.
 std::string rowName(Game *game, const std::string &id, const std::string &desc);
-/// PR-11 (S-B): a synced-option click goes through the host (compute the new value with the table's step/range,
+/// A synced-option click goes through the host (compute the new value with the table's step/range,
 /// submit, keep the shared value until it lands); true = diverted, false = vanilla (inactive or no table row).
 bool divertLocalEdit(Game *game, OptionInfo *setting, int button);
 }
 
-/// PR-6: the host's between-actions apply latch, beside the SPEC 16 pause latch in updateCoopTask().
+/// The host's between-actions apply latch, beside the peer-leave pause latch in updateCoopTask().
 void coopSyncedOptionsPump(Game *game, bool quiescent);
-/// PR-7: the client apply funnel ("join" table, "offer" hostRules, "set" one id; @a player = a set's requester, for
+/// The client apply funnel ("join" table, "offer" hostRules, "set" one id; @a player = a set's requester, for
 /// its chat line).
 void coopSyncedApplyFromHost(const Json::Value &values, int version, const char *source,
 	const std::string &player = std::string());
-/// PR-12 (S-B, Q15 a): redraw every open OptionsAdvancedState, keeping its scroll (no vanilla method, F4734).
+/// Redraw every open OptionsAdvancedState, keeping its scroll (vanilla has no method for this).
 void coopSyncedRefreshAdvanced(Game *game);
 }

@@ -25,7 +25,7 @@ namespace OpenXcom
 class SavedBattleGame;
 
 /**
- * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): the ENGINE half of
+ * The ENGINE half of
  * `side_transition` + `side_begin` - both machines changing sides together
  * at a turn boundary.
  *
@@ -36,7 +36,7 @@ class SavedBattleGame;
  * only to tell every machine which seats are active for the new side.
  *
  * ALL LOGIC LIVES IN src/CoopMod (body: connectionTCP.cpp, next to the other
- * R2/R3-P1 scaffolding). The vanilla files get exactly FOUR thin guarded
+ * battle scaffolding). The vanilla files get exactly FOUR thin guarded
  * calls: BattlescapeGame::endTurn() (this header's coopEmitSideTransition()),
  * BattlescapeGame::think()'s non-player branch
  * (BattleAuthority.h's coopSuppressNonPlayerThink()), and two calls inside
@@ -57,13 +57,13 @@ class SavedBattleGame;
 /// (side, turn, activeSeats) once that has gone out. Flushes the coop
 /// hostile-vision bitmap (CoopFog::authorHostilePass) BEFORE computing `h`,
 /// so `h.revealHostile` cannot race CoopEmit::sendEv()'s own authoring pass
-/// for the same envelope (WV-D39 / SS2.W4).
+/// for the same envelope.
 void coopEmitSideTransition(SavedBattleGame* save);
 
 /// true iff NextTurnState's ctor must NOT run
 /// vanilla's checkBugHuntMode() on this machine. `_bughuntMode` is
 /// serialized and is NOT on saveBlobExcludedTopKey, so it rides the
-/// `saveBlob` bucket inside this packet's own boundary sweep - bughunt must
+/// `saveBlob` bucket inside side_transition's own boundary sweep - bughunt must
 /// therefore stay strictly host-authoritative. Self-guarded: false (vanilla
 /// runs normally) outside an active coop battle, and on the host itself;
 /// true only for a client inside an active coop battle.
@@ -76,14 +76,13 @@ bool coopSuppressBugHuntCheck(const SavedBattleGame* save);
 /// (cleanupDeleted() + popState(), both still run unconditionally by the
 /// caller before this is even checked). A coop CLIENT's own NextTurnState
 /// push carries no local authority to end the battle, convert units, or
-/// autosave - those stay host-authoritative until a later packet wires them
-/// across the wire. Self-guarded: false (vanilla runs normally) outside an
+/// autosave - those stay host-authoritative. Self-guarded: false (vanilla runs
+/// normally) outside an
 /// active coop battle, and on the host itself; true only for a client inside
 /// an active coop battle.
 bool coopSuppressNextTurnLifecycle(const SavedBattleGame* save);
 
-/// W2-P3 S-C.2 (docs rewrite/prompts/w2p3_nonplayer_origins.md (b)12,
-/// amendment B1 RQ2/RQ11; F541, N14): true iff NextTurnState's ctor must NOT
+/// true iff NextTurnState's ctor must NOT
 /// roll, spawn or mint reinforcements (determineReinforcements()) nor apply
 /// the environmental conditions (applyEnvironmentalConditionToFaction(): RNG +
 /// BattleUnit::damage) on this machine. Units the host spawns reach a client
@@ -93,8 +92,7 @@ bool coopSuppressNextTurnLifecycle(const SavedBattleGame* save);
 /// host itself; true only for a client inside an active coop battle.
 bool coopSuppressReinforcements(const SavedBattleGame* save);
 
-/// W2-P8b S-F (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
-/// section 4 S-F; owner D215 a): true iff NextTurnState::close() must keep the
+/// true iff NextTurnState::close() must keep the
 /// Turn-1 screen up - the pre-battle equip phase is still open on this machine
 /// (a player with nothing to equip waits there until the partner is ready).
 /// Counts every close() it swallows (event_state.equip.heldTurnScreenPresses).

@@ -682,13 +682,13 @@ std::vector<std::string> LobbyMenu::missingPlayers() const
 void LobbyMenu::resumeCampaign()
 {
 
-	// coop D283 (b) (owner 2026-10-13; extends D270 (b), D275): there are no PvE2 (game mode 4) campaigns, so a co-op campaign save
-	// played in PvE2 - only the release line could write one - is not resumed: D275's dialog, nothing sent, the session and both
+	// coop: there are no PvE2 (game mode 4) campaigns, so a co-op campaign save
+	// played in PvE2 - only the release line could write one - is not resumed: the team-refused dialog, nothing sent, the session and both
 	// lobbies as they were. The mode is the save's own (SavedGame::getCoopLoadedGamemode): the host window set the live one to 1. A
 	// Custom Battle save has no countries, so it is never a campaign context and PvE2 stays legal there.
 	if (_game->getCoopMod()->inCoopCampaignContext() && _game->getSavedGame()->getCoopLoadedGamemode() == 4)
 	{
-		Log(LOG_INFO) << "[coop] campaign RESUME refused: the save was played in PvE2 (game mode 4; D283)";
+		Log(LOG_INFO) << "[coop] campaign RESUME refused: the save was played in PvE2 (game mode 4)";
 		_game->pushState(new CampaignTeamRefusedState());
 		return;
 	}
@@ -1063,7 +1063,7 @@ void LobbyMenu::continueCustomBattle()
 
 	connectionTCP::session.campaignStarted();
 
-	// coop: no `custom_battle_continue` send - the rewrite's client has no receiver for it; the
+	// coop: no `custom_battle_continue` send - the client has no receiver for it; the
 	// client leaves its lobby when the battle offer that follows loads (coopUnwindToSafeState), as at a fresh battle start.
 
 	closeLobby();
@@ -1391,7 +1391,7 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 		// (lobbyMode 0) keeps PvE2; a resume lobby never re-derives the mode from the teams (below).
 		if (connectionTCP::session.lobbyMode == 1 && current_gamemode == 4)
 		{
-			Log(LOG_INFO) << "[coop] campaign lobby: the second Alien pick is refused (D270)";
+			Log(LOG_INFO) << "[coop] campaign lobby: the second Alien pick is refused";
 			_game->pushState(new CampaignTeamRefusedState());
 			return true;
 		}

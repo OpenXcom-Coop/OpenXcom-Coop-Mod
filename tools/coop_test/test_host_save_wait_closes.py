@@ -55,7 +55,7 @@ ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
 NEEDLES = {"H59LOG": "[coop] the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
            "FREEZE": "[coop-session] freeze (lobbyMode=", "DROP": "[coop-session] onClientDrop",
-           "CLOSE54": "[coop] W2-H64: the host's save wait (54) closes"}
+           "CLOSE54": "[coop] the host's save wait (54) closes"}
 PATH4 = ("H59LOG", "CLEAR", "FREEZE", "DROP")
 
 class Stop(Exception):

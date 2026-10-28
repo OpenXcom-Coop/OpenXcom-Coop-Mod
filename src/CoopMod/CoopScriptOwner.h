@@ -1,6 +1,6 @@
 #pragma once
 /*
- * coop OF2.
+ * coop: routes battle mod scripts' isResearched to a unit owner's seat research.
  * Declarations only; the definitions live in connectionTCP.cpp (the per-seat research store's file).
  * Not registered in the project files (CoopGhost.h / CoopSyncedOptions.h precedent: headers need no entry).
  */
@@ -27,7 +27,7 @@ public:
 	CoopScriptOwner& operator=(const CoopScriptOwner&) = delete;
 };
 
-/// coop OF2 S-C (owner D266 (c), extends D263 (a)): wraps the HOST's call of BattleUnit::postMissionProcedures
+/// coop: wraps the HOST's call of BattleUnit::postMissionProcedures
 /// in its battle-end debriefing (DebriefingState::prepareDebriefing), whose returnFromMissionUnit armor script
 /// runs after the battle screen is gone (battle phase Ended). While alive, that script's isResearched on
 /// @a game's live world answers from @a owner's seat research in research-separate mode (the store lives until

@@ -34,24 +34,24 @@ class Texture;
 class Ufo;
 
 /**
- * R4-P1 (rewrite spike, SPIKE-RUNBOOK.md SS2.7, RB-D18, IR-5, IR-6): the
+ * The
  * battle-start handshake - host offer -> client accept -> blob stream ->
  * client load -> ready -> hash-equal -> phase Active on BOTH machines.
  *
  * HOST sequence: offerBattle() is called once vanilla BattlescapeGenerator::
  * run() has produced the live battle save (classic/SHARED skirmish or
- * campaign mission-confirm entry, RB-D18's interim scope) - the SAME point
+ * campaign mission-confirm entry) - the SAME point
  * the vanilla SP path pushes BriefingState. It mints a battleId, snapshots
  * the battle via the existing SavedGame::saveCoopToMemory("battlehost", ...)
- * call shape, sha256s the blob (libsodium crypto_hash_sha256, IR-6 - never
+ * call shape, sha256s the blob (libsodium crypto_hash_sha256 - never
  * hand-rolled), and sends battle_offer.
  *
- * IMPORTANT (first-attempt finding, kept here so it is not re-discovered):
+ * IMPORTANT (kept here so it is not re-discovered):
  * offerBattle() touches ONLY BattleAuthority/CoopEmit/the coop file maps - it
  * deliberately does NOT touch the caller's state stack. The caller (NewBattle
  * State::btnOkClick / ConfirmLandingState::btnYesClick) still pushes
  * BriefingState immediately afterward, exactly like vanilla SP - an earlier
- * version of this packet tried to DEFER that push until battle_ready
+ * version tried to DEFER that push until battle_ready
  * succeeded (so a refused/corrupt handshake could never leave the host
  * "inside" a coop battle), but Game::popState() removes the popped state from
  * Game::_states IMMEDIATELY (only the C++ delete is deferred to the next
@@ -71,31 +71,30 @@ class Ufo;
  *
  * On battle_accept the blob streams over the KEPT sendMissionFile carrier
  * (map_result_data 3KB chunks + WAIT_MAP_SENDER ack). On battle_ready it
- * compares the saveBlob bucket (IR-5's interim, presence-gated compare -
- * R2-P9 upgrades this to the full SS2.8 sweep): a match flips phase to
+ * compares the saveBlob bucket (the saveBlob field alone; a populated "h" is
+ * logged, never compared, at the handshake): a match flips phase to
  * Active (the host's own BriefingState/BattlescapeState navigation is
- * whatever vanilla input already did with it - unaffected either way, RB-D10
- * "the host plays vanilla directly"); a mismatch tears down AND unwinds.
+ * whatever vanilla input already did with it - unaffected either way, since
+ * the host plays vanilla directly); a mismatch tears down AND unwinds.
  *
  * CLIENT sequence (the onOffer/finishLoad handlers below, called from the
- * connectionTCP.cpp battle-lane handshake dispatch this packet adds): verify
+ * connectionTCP.cpp battle-lane handshake dispatch): verify
  * protocolVersion/phase/gamemode (refuse version|busy|unsupported), accept;
  * receive chunks via the EXISTING generic "map_result_data" handler
- * (unmodified - this packet only adds a byte-count completion check next to
- * it, see the "R4-P1: blob transfer complete" marker in connectionTCP.cpp);
+ * (unmodified - only a byte-count completion check, onBlobChunkAppended(),
+ * sits next to it in connectionTCP.cpp);
  * once accumulated bytes reach the offered blobBytes, verify blobSha
  * (libsodium) BEFORE loading - a mismatch refuses {reason:"corrupt"} and
  * returns cleanly (nothing was ever loaded, so there is nothing to unwind);
  * on a match, load into a fresh SavedGame (the SavedGame::
  * loadCoopSaveFromMemory precedent at connectionTCP.cpp's writeHostMapFile()),
  * rebuild CoopIdMaps, stamp authority {hostSim:false, localSeat, phase:Active},
- * compute its own saveBlob bucket, and enter the battle the way W1-P3
- * pins it: unwind the client's
+ * compute its own saveBlob bucket, and enter the battle: unwind the client's
  * pre-battle MENU stack to the nearest safe state (coopUnwindToSafeState() -
  * the host pops its own menu stack at the same point, and setSavedGame() has
  * just deleted the world those menu states pointed into), push
  * BattlescapeState, then push a READ-ONLY BriefingState(0, 0, infoOnly=true)
- * OVER it - rendered from SS2.W1's carried labels + deployment, with
+ * OVER it - rendered from the offer's carried labels + deployment, with
  * cutscene/music suppressed and every host-sim branch of btnOkClick gated off
  * by _infoOnly. The client's state stack is never left empty (the unwind
  * helper is bounded and pushes a MainMenuState rather than return empty).
@@ -103,9 +102,9 @@ class Ufo;
  * stays the LAST statement of the handshake.
  *
  * Bodies live in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
- * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding
- * (R2-P1..P8). All four handshake sends go through CoopEmit::sendBattle()
- * (matching CoopArbiter's own deny()/ack() sends) so they get the MN-8
+ * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding.
+ * All four handshake sends go through CoopEmit::sendBattle()
+ * (matching CoopArbiter's own deny()/ack() sends) so they get the
  * TX-drain bypass battle-lane messages are entitled to.
  */
 namespace CoopHandshake
@@ -115,11 +114,11 @@ namespace CoopHandshake
 /// battle save (@a game->getSavedGame()->getSavedBattle() is non-null) - the
 /// SAME point the vanilla SP path pushes BriefingState; the caller still owns
 /// that push (see this header's top doc comment for why). @a gamemode is
-/// connectionTCP::_coopGamemode (RB-D23's gamemode source). No-op (logs) if
+/// connectionTCP::_coopGamemode (the gamemode source). No-op (logs) if
 /// this machine is not the coop host, if there is no live SavedBattleGame
 /// yet, or if a handshake/battle is already in flight (phase != Idle) - the
 /// last case is a local double-offer guard, not the wire "busy" refuse
-/// (SS2.1: battle_refuse is client->host only; a receiving CLIENT is what
+/// (battle_refuse is client->host only; a receiving CLIENT is what
 /// evaluates and sends "busy").
 void offerBattle(Game* game, int gamemode);
 
@@ -140,15 +139,15 @@ bool requestPvpCydonia(Game* game, Craft* craft);
 /// snapshots it) and the CoopState(3) hold. True = handed off (or the push failed: the attack is lost, as before); false elsewhere.
 bool requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo);
 
-// ----- FX-1: offerBattle() SPLIT into
+// ----- offerBattle() SPLIT into
 // PREPARE and EMIT halves, so the coop blob snapshot (and the battle_offer
 // that advertises it) can move to AFTER the host's SavedBattleGame::
 // startFirstTurn() call without reordering a single vanilla statement. See
 // this header's ORDERING TRAP note below for why the split exists and
 // connectionTCP.cpp's prepareBattleOffer()/emitPreparedOffer() for the exact
-// line-level provenance of each half. offerBattle() itself becomes a thin
+// line-level provenance of each half. offerBattle() itself is a thin
 // compatibility wrapper (`{ prepareBattleOffer(game, gamemode); }`) so all
-// FOUR existing call sites are unchanged.
+// FOUR call sites stay unchanged.
 
 /// HOST, PREPARE half. Everything offerBattle() used to do UP TO AND
 /// INCLUDING assignSeatsAndFactions() - the host/phase guards, the battleId
@@ -165,7 +164,7 @@ void prepareBattleOffer(Game* game, int gamemode);
 /// HOST, EMIT half. Everything offerBattle() used to do AFTER
 /// assignSeatsAndFactions(): the saveCoopToMemory("battlehost", ...) snapshot,
 /// CoopReveal::seedPublished(), the blob read + sha256, the corrupt_next_blob
-/// lever, the battle_offer JSON build (missionLabel/turnMode included,
+/// test hook, the battle_offer JSON build (missionLabel/turnMode included,
 /// UNCHANGED shape) and CoopEmit::sendBattle(). Called from ONE new line in
 /// BriefingState::btnOkClick's already coop-gated freeze branch, immediately
 /// after SavedBattleGame::startFirstTurn() - so the blob this snapshots
@@ -176,33 +175,32 @@ void prepareBattleOffer(Game* game, int gamemode);
 /// past Handshake.
 void emitPreparedOffer(Game* game);
 
-/// HOST, SPEC 16 M5: REJOIN-RESTREAM entry, called from
+/// HOST: REJOIN-RESTREAM entry, called from
 /// connectionTCP::streamSkirmishBattleToClient() (the re-targeted #93
-/// skirmish-rejoin path) once a client reconnects to a co-op battle M1 kept
-/// alive through a mid-`Active`-battle peer leave (`phase==Active &&
+/// skirmish-rejoin path) once a client reconnects to a co-op battle the host
+/// kept alive (paused) through a mid-`Active`-battle peer leave (`phase==Active &&
 /// peerAbsent==true`). Unlike prepareBattleOffer()/emitPreparedOffer(), this
 /// does NOT call initBattleAuthority() and does NOT mint a new battleId or
 /// re-run assignSeatsAndFactions() - the paused battle already carries every
 /// seat's faction/coop tag and BattleAuthority's own battleId/seat-faction
 /// store/turnMode from its original generation, all deliberately spared by
-/// M1's teardown-reset carve-out, so this reuses them verbatim (`resumed`
+/// the peer-leave teardown-reset carve-out, so this reuses them verbatim (`resumed`
 /// offers advertise the SAME battleId - "same battle, not a copy"). Sends a
 /// `battle_offer{resumed:true}` and moves phase back to Handshake (peerAbsent
 /// stays set until onReady() below actually succeeds). From onOffer() /
 /// onBlobChunkAppended() / onAccept() / onReady() onward this is the exact
-/// same r4 handshake a fresh battle start uses - ONE code path for
-/// join-fresh/resume/rejoin/desync-recover (F333/M5).
+/// same handshake a fresh battle start uses - ONE code path for
+/// join-fresh/resume/rejoin/desync-recover.
 ///
 /// No-op (logs) unless this machine is the host, has a live SavedBattleGame,
-/// and the battle is paused exactly the way M1 leaves it - a fresh join
+/// and the battle is paused exactly the way a peer leave leaves it - a fresh join
 /// (phase==Idle) still goes through offerBattle()/prepareBattleOffer(), and
-/// phase==Handshake/Ended ignore a rejoin offer (M5's idempotence guard).
+/// phase==Handshake/Ended ignore a rejoin offer (an idempotence guard).
 void offerRejoinBattle(Game* game);
 
-/// HOST, SPEC 18 (r4 T4) M2: DISK-RESUME entry, called from the host's
-/// resume_ack battle-eligible fork (connectionTCP.cpp) - the SAME fork that
-/// used to emit the dead, quarantined `campaign_resume_battle` this replaces
-/// - once a menu-loaded coop battle save (CoopSession::adoptResumeSave(),
+/// HOST: DISK-RESUME entry, called from the host's
+/// resume_ack battle-eligible fork (connectionTCP.cpp) once a menu-loaded coop
+/// battle save (CoopSession::adoptResumeSave(),
 /// lobbyMode==2) has hosted and reached its own resume lobby. Unlike
 /// offerRejoinBattle() above, the process just RESTARTED: BattleAuthority
 /// carries only what SavedBattleGame::load()'s coop hooks wrote into its
@@ -210,14 +208,14 @@ void offerRejoinBattle(Game* game);
 /// BattleAuthority.h) moments ago, so this DOES call initBattleAuthority()
 /// (mints a FRESH battleId, the SAME shared counter prepareBattleOffer()
 /// uses) and DOES rebuild the seat->faction store - from the loaded units'
-/// persisted seat tags (BattleUnit::getCoopSeat()) through the RB-D23
+/// persisted seat tags (BattleUnit::getCoopSeat()) through the
 /// canonical map (coopSeatCanonicalFaction(), CoopBattleSetup.h), never by
 /// re-running assignSeatsAndFactions() (a generation-time pass) and never
-/// from Soldier::getCoop() (E63.5/F378). Also pops the host's stale menu
+/// from Soldier::getCoop(). Also pops the host's stale menu
 /// stack down to BattlescapeState, keeping the top COOP_DLG_WAIT_PLAYERS(62)
-/// modal (M4/F401). Sends a `battle_offer{resumed:true}`; the CLIENT side
+/// modal. Sends a `battle_offer{resumed:true}`; the CLIENT side
 /// needs NO change - onOffer()/onBlobChunkAppended()/onAccept()/onReady()
-/// onward is the exact same r4 handshake offerRejoinBattle() already uses.
+/// onward is the exact same handshake offerRejoinBattle() already uses.
 ///
 /// No-op (logs) unless this machine is the host, phase==Idle (nothing
 /// offered yet this process) AND lobbyMode==2 (this IS a resume, not some
@@ -236,9 +234,7 @@ void offerResumedBattle(Game* game);
 /// while phase != Idle".
 void abandonPreparedOffer(Game* game);
 
-// ----- battle_offer mission identity (WAVE1-RUNBOOK.md SS2.W1, ruling
-// D-4 = shape (d); WV-D9 / WV-D28 / WV-D42; WR-8/WR-9/WR-10/WR-23/WR-27,
-// IR2-10) -----
+// ----- battle_offer mission identity -----
 //
 // THE PROBLEM. A thin client never runs BriefingState, so it never learns what
 // mission it is in: the two display labels vanilla mints inside BriefingState
@@ -248,7 +244,7 @@ void abandonPreparedOffer(Game* game);
 // 2841-2854) - finds nothing there either, so its BriefingState would drop into
 // the "should never happen" generic branch (BriefingState.cpp:104-108).
 //
-// THE ORDERING TRAP (SS2.W1, binding). offerBattle() snapshots the blob at
+// THE ORDERING TRAP. offerBattle() snapshots the blob at
 // generation time and the CALLER pushes BriefingState only AFTERWARDS
 // (ConfirmLandingState.cpp:369 vs :371). At offer-build time the labels are
 // therefore STILL EMPTY, and the operation name is minted later by RNG::seedless
@@ -262,17 +258,15 @@ void abandonPreparedOffer(Game* game);
 // Geoscape/ConfirmLandingState.cpp:369, Geoscape/ConfirmCydoniaState.cpp:179,
 // Geoscape/GeoscapeState.cpp:629 - never as a one-site fix.
 //
-// WV-D56 UPDATE (FX-1, 2026-09-04): mintMissionLabels() does NOT move - it
-// still runs one line above offerBattle() (now prepareBattleOffer(), via the
-// thin offerBattle() wrapper), still BEFORE the blob snapshot, which is all
-// this section requires. What DOES move is the snapshot itself: it no longer
-// happens inside offerBattle() at battle-generation time - it happens later,
-// from the explicit CoopHandshake::emitPreparedOffer(_game) call
+// SNAPSHOT TIMING. mintMissionLabels() still runs one line above offerBattle()
+// (now prepareBattleOffer(), via the thin offerBattle() wrapper), still BEFORE
+// the blob snapshot, which is all this section requires. The snapshot itself
+// does not happen inside offerBattle() at battle-generation time: it happens
+// later, from the explicit CoopHandshake::emitPreparedOffer(_game) call
 // BriefingState::btnOkClick's freeze branch makes immediately after
-// SavedBattleGame::startFirstTurn(), so this paragraph's "the CALLER pushes
-// BriefingState only AFTERWARDS" description of the ordering trap is now
-// PRE-WV-D56 history for the snapshot half specifically (the labels-before-
-// snapshot requirement it states is unaffected either way).
+// SavedBattleGame::startFirstTurn(). So the "the CALLER pushes BriefingState
+// only AFTERWARDS" ordering above no longer applies to the snapshot (the
+// labels-before-snapshot requirement it states is unaffected either way).
 
 /// HOST: mint the two BriefingState display labels into the live
 /// SavedBattleGame and resolve+remember this battle's AlienDeployment type,
@@ -281,7 +275,7 @@ void abandonPreparedOffer(Game* game);
 /// and BriefingState.cpp:151-188's !_infoOnly body (craft ->
 /// getDestination()->getName() + STR_CRAFT_; base -> STR_BASE_UC_; then the
 /// RNG::seedless operation name when the mod defines operationNames - which
-/// covers the BASE path too, IR2-10). RNG::seedless does not touch the synced
+/// covers the BASE path too). RNG::seedless does not touch the synced
 /// stream, so this is RNG-neutral. Self-guarding: a no-op unless this machine
 /// is the coop host with a live SavedBattleGame, so every SP path through the
 /// four call sites stays byte-identical (vanilla BriefingState still mints).
@@ -294,15 +288,15 @@ bool missionLabelsCarried();
 
 /// The RESOLVED AlienDeployment TYPE carried by battle_offer.missionLabel
 /// (empty when none resolved). Test/introspection accessor - TestServer's
-/// battle_state probe reports it (WR-23).
+/// battle_state probe reports it.
 const std::string& carriedDeploymentType();
 
-/// SPEC 18 (r4 T4) D99(a): adopt a deployment type carried in a loaded
+/// Adopt a deployment type carried in a loaded
 /// battle-save block (`coopDeployment`, SavedBattleGame::load's
 /// coopLoadDeployment hook, BattleAuthority.h) into this SAME process-local
 /// mission-identity mirror battle_offer.missionLabel already populates on a
 /// rejoin - so a disk-resumed battle's ctrl-B briefing
-/// (mayReopenBriefing()) and M2's resumed-offer stamp both see it exactly
+/// (mayReopenBriefing()) and offerResumedBattle()'s resumed-offer stamp both see it exactly
 /// as a rejoin's carried value would. Sets `carried` = true; the caller
 /// (coopLoadDeployment) is presence-gated, so an empty/absent key never
 /// reaches here.
@@ -323,19 +317,18 @@ void adoptCarriedDeployment(const std::string& deployment);
 ///  - neither -> nullptr, i.e. vanilla's own outcome, unchanged.
 /// In a coop battle the outcome is LOGGED (VANILLA / CARRIED / NONE) - that
 /// line is how test_mission_labels.py proves the generic fallback was not
-/// taken, independently of which of the two resolutions happened to win on the
-/// fixture. Silent and inert in SP.
+/// taken, independently of which of the two resolutions happened to win in
+/// that test. Silent and inert in SP.
 AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaResolved);
 
-/// BriefingState hook (SS2.W1 RE-MINT SUPPRESSION): true when this machine
+/// BriefingState hook (RE-MINT SUPPRESSION): true when this machine
 /// already minted the mission labels before the offer, so BriefingState's own
 /// UNCONDITIONAL `if (!_infoOnly)` label-write body (BriefingState.cpp:151-188)
 /// must be a no-op - mintMissionLabels() is a line-for-line replica of it and
 /// already ran, and the offer already told the client what it produced.
 ///
 /// WHY THE WHOLE BODY AND NOT JUST THE OPERATION-NAME BLOCK (traced by
-/// test_mission_labels.py, 2026-09-02 - the packet text's narrower
-/// "operation-name mint" wording does NOT achieve its own stated goal): the
+/// test_mission_labels.py): the
 /// body writes strTarget TWICE. The craft branch at :156-160 writes
 /// craft->getDestination()->getName() ("LANDING SITE-0"), and the
 /// operation-name block at :171-187 then OVERWRITES it with the random name
@@ -343,9 +336,9 @@ AlienDeployment* resolveBriefingDeployment(Game* game, AlienDeployment* vanillaR
 /// the second half leaves the first half free to clobber the operation name the
 /// offer already shipped, so the host ends up on "LANDING SITE-0" while the
 /// client shows "Dauntless Rampart" - the exact two-different-mission-names bug
-/// D-4 was ruled to fix, merely reached from the other direction. The frozen
-/// TRIGGER is unchanged (SS2.W1: "a no-op when battleSave->getMissionTarget()
-/// is already non-empty"); only the guarded EXTENT is the whole block.
+/// this suppression prevents, merely reached from the other direction. The
+/// TRIGGER is "a no-op when battleSave->getMissionTarget() is already
+/// non-empty"; only the guarded EXTENT is the whole block.
 ///
 /// False in SP and for any battle with no coop mission identity, so vanilla is
 /// byte-identical.
@@ -355,12 +348,11 @@ bool missionLabelsAlreadyMinted(const SavedBattleGame* battle);
 /// True in SP, outside a coop battle, and on the host (which owns the Craft the
 /// ctrl-B scan looks for). On a thin client: only once the offer's mission
 /// identity has arrived - without it the pushed BriefingState renders the
-/// generic fallback with empty labels (SS2.W1's "ctrl-B gated until labels
-/// exist").
+/// generic fallback with empty labels, so ctrl-B stays gated until the labels
+/// exist.
 bool mayReopenBriefing(Game* game);
 
-/// BriefingState hook (W1-P4; WAVE1-RUNBOOK.md ruling D3 = WV-D9 + WV-D34,
-/// MECHANISM PINNED by WV-D43): true when BriefingState::btnOkClick must SKIP
+/// BriefingState hook: true when BriefingState::btnOkClick must SKIP
 /// its `pushState(new InventoryState(false, bs, 0))` - i.e. when a coop battle
 /// is in flight on this machine and the pre-battle equip screen is FROZEN.
 ///
@@ -368,9 +360,8 @@ bool mayReopenBriefing(Game* game);
 /// GENERATION time (connectionTCP.cpp:3544) and the caller pushes BriefingState
 /// only afterwards, so the host's pre-battle equip runs strictly AFTER the
 /// client's copy was taken. Anything moved on that screen therefore diverges the
-/// items/saveBlob buckets silently, forever - the "HOST-EQUIP GAP" D3 names.
-/// Wave 1 closes it by freezing equip on BOTH machines rather than by re-staging
-/// the snapshot (the alternative is explicitly REJECTED for this wave); the
+/// items/saveBlob buckets silently, forever - the "HOST-EQUIP GAP". The freeze
+/// closes it on BOTH machines; the
 /// client is already frozen by construction, because its entry BriefingState is
 /// infoOnly and returns at BriefingState.cpp:302 before this site is reached.
 ///
@@ -389,7 +380,7 @@ bool mayReopenBriefing(Game* game);
 ///
 /// SIDE EFFECT, deliberate: when it returns true it also raises the player-
 /// visible refusal through the _txtCoopWait presenter
-/// (CoopBattleUi::showEquipFrozen(), SPIKE-RUNBOOK.md SS2.6) and logs the skip.
+/// (CoopBattleUi::showEquipFrozen()) and logs the skip.
 /// The skip suppresses a screen the player EXPECTED rather than refusing a
 /// button they pressed, so the banner is raised at the moment of the skip -
 /// there is no later user action to hang it on.
@@ -399,7 +390,7 @@ bool mayReopenBriefing(Game* game);
 /// dismiss its briefing before that lands. Same predicate
 /// resolveBriefingDeployment() uses, and false in SP, so vanilla is
 /// byte-identical.
-/// with the pre-battle equip phase open (a fresh co-op battle) it selects the host's
+/// With the pre-battle equip phase open (a fresh co-op battle) it selects the host's
 /// first own soldier with an inventory and returns false - vanilla pushes the equip screen; the freeze above stays
 /// for the next-stage briefing only.
 bool freezePreBattleEquip(Game* game);
@@ -408,7 +399,7 @@ bool freezePreBattleEquip(Game* game);
 // wired into the existing generic map_result_data handler) -----
 
 /// CLIENT: battle_offer received. Verifies protocolVersion/phase/gamemode
-/// (SS2.1/RB-D18) and answers battle_accept or battle_refuse.
+/// and answers battle_accept or battle_refuse.
 void onOffer(Game* game, const Json::Value& offer);
 
 /// CLIENT: called after EVERY "map_result_data" chunk append (the existing,
@@ -434,13 +425,13 @@ void onAccept(Game* game, const Json::Value& accept);
 void onRefuse(Game* game, const Json::Value& refuse);
 
 /// HOST: battle_ready received. Compares the client's saveBlob bucket
-/// against the host's own (computed once in offerBattle(), IR-5's interim
-/// presence-gated compare). On a match: phase -> Active. On a mismatch:
+/// against the host's own (computed once in offerBattle()).
+/// On a match: phase -> Active. On a mismatch:
 /// logs, tears down and unwinds exactly like onRefuse().
 void onReady(Game* game, const Json::Value& ready);
 
-/// Teardown chokepoint (R2-P8's clearNetworkSessionQueues() family, #82
-/// GoToMainMenuState invariant): clears every R4-P1 pending-handshake static
+/// Teardown chokepoint (the clearNetworkSessionQueues() family, #82
+/// GoToMainMenuState invariant): clears every pending-handshake static
 /// this header's functions maintain (the client's in-flight blob-expectation
 /// state, the host's pending saveBlob-hash state) so a mid-handshake
 /// disconnect cannot leak into the next session.
@@ -448,7 +439,7 @@ void resetPendingState();
 
 /// coop: the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
 /// thread) calls latchFreshStartLostUdp() before its own clearNetworkSessionQueues() resets the authority and the pending
-/// offer; it records whether a FRESH co-op battle start (a stage-2 offer included, MG-A-FS2) was in flight on the host.
+/// offer; it records whether a FRESH co-op battle start (a stage-2 offer included) was in flight on the host.
 void latchFreshStartLostUdp();
 
 /// coop: connectionTCP::disconnectTCP() (main thread) reads and clears that record, once per call.
@@ -461,46 +452,43 @@ bool coopHostRejoinPending();
 /// coop: the rejoiner was lost during that rejoin - the pause is restored (phase Active, the offer dropped).
 void coopRestorePauseAfterLostRejoin();
 
-/// R2-P11: test-only, one-shot corrupt-next-blob lever. HOST: sets a
+/// Test-only, one-shot corrupt-next-blob hook. HOST: sets a
 /// flag offerBattle() checks (and clears) right after it computes blobSha -
 /// flips byte 0 of the persisted coopFilesHost["battlehost"] blob AFTER that
 /// sha, so the client's post-stream blobSha verify (not offerBattle's own
 /// hashing) is what is expected to catch it and refuse {reason:"corrupt"}.
-/// Permanent replacement for the R4-P1 packet's temporary OXC_RW_CORRUPT_BLOB
-/// env-var lever (removed in that same packet, see its packet report). A
-/// request made with no offer in flight, or on a client (there is nothing to
+/// A request made with no offer in flight, or on a client (there is nothing to
 /// corrupt there), is silently consumed by the next offerBattle() call or
 /// cleared at teardown (resetPendingState()) - never carries across battles.
 void requestCorruptNextBlob();
 
-// TEST-ONLY STOPGAP (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D / WV-D55;
-// RB-D26 family, same discipline and the same removal expectation as
-// requestCorruptNextBlob() above): build the NEXT battle_offer WITHOUT the
-// SS2.W1 `turnMode` key. One-shot - the offer after it is normal again.
+// TEST-ONLY STOPGAP (same discipline as requestCorruptNextBlob() above): build
+// the NEXT battle_offer WITHOUT the `turnMode` key. One-shot - the offer after it
+// is normal again.
 //
-// It exists so ruling D-26's degrade ("an ABSENT `turnMode` means parallel") is
-// proven OVER THE REAL WIRE rather than by unit-testing the parser: a wave-1
+// It exists so the degrade rule ("an ABSENT `turnMode` means parallel") is
+// proven OVER THE REAL WIRE rather than by unit-testing the parser: a current
 // host ALWAYS sends the key, so the only real producer of an absent key is a
-// peer older than REV D, which nothing in this repo can be. Delete this lever
-// when an older-protocol peer can be simulated some other way.
+// peer from before the key existed, which nothing in this repo can be. Delete
+// this hook when an older-protocol peer can be simulated some other way.
 void requestOmitTurnMode(bool on);
 
-/// battle-entry SEAT-RELATIVE
+/// Battle-entry SEAT-RELATIVE
 /// selection - "the client auto-selects its first owned unit at entry"
 /// (legacy shape `1e0f9276f:BattlescapeState.cpp:1606-1653`), generalized to
-/// BOTH machines because the invariant D6 states is seat-relative, not
-/// client-specific: with a seat-1 soldier in the craft the HOST's own initial
-/// selection is minted at battle-generation time, before any seat tag exists,
-/// and lands on a unit the host does not command just as readily (W1-P1
-/// observed exactly that - both machines starting on unit 8, the client's).
+/// BOTH machines because the rule (a seat never STARTS on a unit it cannot
+/// command) is seat-relative, not client-specific: with a seat-1 soldier in the
+/// craft the HOST's own initial selection is minted at battle-generation time,
+/// before any seat tag exists, and lands on a unit the host does not command
+/// just as readily (both machines were seen starting on unit 8, the client's).
 ///
 /// One-shot per battleId. Self-guarded: no-op outside an active co-op battle,
 /// and a no-op when the current selection is ALREADY a unit this seat commands
-/// (vanilla's choice is kept - D6 only requires that a seat never STARTS on a
-/// unit it cannot command). When the seat commands nothing at all it leaves the
+/// (vanilla's choice is kept - the rule only requires that a seat never STARTS
+/// on a unit it cannot command). When the seat commands nothing at all it leaves the
 /// selection alone and raises CoopBattleUi::showSpectatorMode() instead.
 ///
-/// DRIVEN FROM THE RB-D5 PUMP POINT (connectionTCP::updateCoopTask), not from a
+/// DRIVEN FROM THE PUMP POINT (connectionTCP::updateCoopTask), not from a
 /// new vanilla hook, and that placement is load-bearing: on the HOST the
 /// selection is written LAST by SavedBattleGame::startFirstTurn()
 /// ("make sure we select the unit closest to the ramp",
@@ -512,7 +500,7 @@ void requestOmitTurnMode(bool on);
 ///
 /// HASH-FREE BY CONSTRUCTION: `selectedUnit` and `undoUnit` are
 /// saveBlob-hash-EXCLUDED (SharedEcon.cpp:3958), and the HUD refresh is issued
-/// with checkFOV=false (WV-D10's rule for a co-op-driven refresh) so a
+/// with checkFOV=false (the rule for every co-op-driven refresh) so a
 /// selection change can never author fog.
 void selectOwnUnitAtEntry(Game* game);
 

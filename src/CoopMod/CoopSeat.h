@@ -27,7 +27,7 @@ namespace OpenXcom
  * The battle-time seat a BattleUnit is currently controlled by.
  * Deliberately a small, dependency-free header: BattleUnit.h includes ONLY
  * this file for the coop seat tag, no Game.h/BattlescapeGame.h pollution.
- * NEVER a bool - N-player guardrail (see the runbook decisions ledger).
+ * NEVER a bool - N-player guardrail.
  */
 enum CoopSeat : int8_t
 {

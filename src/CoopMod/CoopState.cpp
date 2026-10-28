@@ -65,7 +65,7 @@ namespace OpenXcom
 {
 
 Globe *currentGlobe = 0;
-// coop: BasescapeState's guest-seat latch (BasescapeState.cpp :71); E2 clears it.
+// coop: BasescapeState's guest-seat latch (BasescapeState.cpp :71); cleared before each view of the partner's base.
 extern bool _coop_base_init;
 
 namespace
@@ -311,8 +311,7 @@ CoopState::CoopState(int state, int value) : _value(value)
 		_btnBack->setVisible(true);
 	}
 
-	// R1-P5/R4-REWIRE: coop battle-entry/battle-resume choreography is quarantined
-	// pending the r4/r5 atomic-bundle rebuild (RB-D9) - every stub site pushes this
+	// Quarantined coop battle-entry/battle-resume choreography: every stub site pushes this
 	// instead of starting/resuming a coop battle. OK falls through to the default
 	// _game->popState() in previous(), so the caller's own return (to geoscape or
 	// lobby) is what the player sees underneath.
@@ -755,7 +754,7 @@ CoopState::CoopState(int state, int value) : _value(value)
 
 	if (state == 21)
 	{
-		// SPEC 16 M6: captured BEFORE disconnectTCP()
+		// Captured BEFORE disconnectTCP()
 		// below - its own ctor-time call, per the comment at that function's
 		// top - tears the client's authority/session down. State 21 exists
 		// for exactly one reason (the host is gone), so any live battle
@@ -1038,7 +1037,7 @@ std::string CoopState::waitingTitle() const
 		return "Waiting for players to load...";
 	}
 	const std::string peer = _game->getCoopMod()->getCurrentClientName();
-	// SPEC 16 M4: a deliberate leave (battle_leave{reasonKey})
+	// A deliberate leave (battle_leave{reasonKey})
 	// names itself instead of reading as a silent connection loss. Keeps
 	// "to reconnect" in BOTH branches - existing dialog-wording assertions
 	// (test_lobby_dialogs.py, test_resume_game_in_battle.py) only check for
@@ -1123,14 +1122,13 @@ void CoopState::think()
 
 	State::think();
 
-	// coop W2-H64 S-B (docs rewrite/prompts/w2h64_sb_close_unarmed.md (e) EB1; L-H59-1, R-H64-0; F19185, F19187, F19189): the host's
-	// "Saving..." (54) waits only while its save is armed (SaveGameState arms it before the push). A write that ran while another
-	// window covered the 54 (the partner's world landing, or the partner's drop, W2-H64 S-A) disarmed it but could not pop it: close
-	// it as soon as it is the top state again (W2-H54's rule: pop only the top state).
+	// coop: the host's "Saving..." (54) waits only while its save is armed (SaveGameState arms it before the push). A write that
+	// ran while another window covered the 54 (the partner's world landing, or the partner's drop) disarmed it but could not pop
+	// it: close it as soon as it is the top state again (pop only the top state).
 	if (global_state == COOP_DLG_HOST_SAVE_WAIT && connectionTCP::session.pendingHostSaveName.empty()
 		&& !_game->getStates().empty() && _game->getStates().back() == this)
 	{
-		Log(LOG_INFO) << "[coop] W2-H64: the host's save wait (54) closes - nothing is armed";
+		Log(LOG_INFO) << "[coop] the host's save wait (54) closes - nothing is armed";
 		_game->popState();
 		return;
 	}
@@ -1449,9 +1447,9 @@ void CoopState::previous(Action *)
  */
 void CoopState::btnSaveQuitClick(Action *)
 {
-	// coop W2-H53 (L-H49-2; R-H53-0 = O1, R-H49-0, aud-E1-05; F17868): a named ironman campaign has one file. Save to it and leave, as
+	// coop: a named ironman campaign has one file. Save to it and leave, as
 	// vanilla's SAVE AND ABANDON GAME does (no list: a typed name would start a second file). The world is the save's owner (the alien
-	// host's own while it borrows the X-COM player's world, W2-H49). An unnamed world (the campaign-start waits) keeps the list.
+	// host's own while it borrows the X-COM player's world). An unnamed world (the campaign-start waits) keeps the list.
 	SavedGame* owner = connectionTCP::coopPvpSaveOwner(_game->getSavedGame());
 	if (owner && owner->isIronman() && !owner->getName().empty())
 	{
@@ -1470,14 +1468,13 @@ void CoopState::btnAbandonClick(Action *)
 {
 	_game->resetTouchButtonFlags();
 
-	// SPEC 16 M6: captured BEFORE disconnectTCP()
+	// Captured BEFORE disconnectTCP()
 	// below clears BattleAuthority::peerAbsent - that flag IS "this ABANDON
 	// is closing a mid-battle co-op pause" (as opposed to issue #81's
 	// original case, ABANDON on the host's own PRE-battle campaign wait,
-	// where nothing is paused and no battle is being ended). The wave-1 end
+	// where nothing is paused and no battle is being ended). This end
 	// control is a LOCAL teardown only (no `battle_end` wire atom, no
-	// debrief - that is r3b/T6, out of wave); `reason:"seatLeft"` is logged,
-	// never wired anywhere else.
+	// debrief); `reason:"seatLeft"` is logged, never wired anywhere else.
 	const bool seatLeftTeardown = coopBattleAuthority().peerAbsent;
 
 	// Tear the session down FIRST and as the "main" teardown: that path never
@@ -1937,7 +1934,7 @@ void CoopState::loadWorld()
 							Soldier* deep_copied_soldier = soldier->deepCopy(_game->getMod(), _game->getSavedGame());
 
 							newbase->getSoldiers()->push_back(deep_copied_soldier);
-							// coop W2-H85 S-B (docs rewrite/prompts/w2h85_sb_base_switch.md EB1; R-LH85-1; lh85-cap F23026): seat the guest on its partner craft in
+							// coop: seat the guest on its partner craft in
 							// EVERY base of the view, so a base switch inside the view (keys 1-8, the mini bases, BASE INFORMATION) shows it on the craft.
 							for (auto* view_craft : *newbase->getCrafts())
 							{
@@ -1972,8 +1969,8 @@ void CoopState::loadWorld()
 				}
 			}
 
-			// coop W2-H85 (E2; R-LH83-2-1, VL-H85-1; lh83-2-cap F22861-F22864): a view of the partner's base always runs BasescapeState::init's
-			// guest seat block, however the last base screen was left (BUILD NEW BASE, a lift right-click, W2-H73's drop, W2-H74, a mission start).
+			// coop: a view of the partner's base always runs BasescapeState::init's guest seat block, however the last base screen was
+			// left (BUILD NEW BASE, a lift right-click, a drop, a battle entry from the view, a mission start).
 			_coop_base_init = false;
 			_game->pushState(new BasescapeState(selected_base, currentGlobe));
 
@@ -2017,15 +2014,12 @@ void CoopState::loadCoop(Action *)
 // below AND (via coopBattleAuthority().setSeatFaction()) the seat->faction
 // store that the real battle_offer seatMap (connectionTCP.cpp) and
 // BattleAuthority::factionOf()/mySideActive()/commandsUnit()/isSpectator()
-// all read - replaces the RB-D18 interim map's flat "every seat is player"
-// template.
+// all read.
 //
-// SPEC 18 (r4 T4) E63.5/F378: given EXTERNAL linkage (moved out of the
-// anonymous namespace it lived in through SPEC 19) and declared in
-// CoopBattleSetup.h - CoopHandshake::offerResumedBattle() (connectionTCP.cpp,
-// a different translation unit) reuses this SAME canonical map for its
-// disk-resume seat-store rebuild, per that spec's explicit ruling ("reuse
-// coopSeatCanonicalFaction(), NOT assignSeatsAndFactions()"). Body unchanged.
+// EXTERNAL linkage, declared in CoopBattleSetup.h: CoopHandshake::offerResumedBattle()
+// (connectionTCP.cpp, a different translation unit) reuses this SAME canonical map
+// for its disk-resume seat-store rebuild (never assignSeatsAndFactions(), a
+// generation-time pass).
 UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
 {
 	switch (gamemode)
@@ -2034,16 +2028,15 @@ UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
 		return (seat == (int)COOP_SEAT_0) ? FACTION_PLAYER : FACTION_HOSTILE;
 	case 3: // PvP inverted
 		return (seat == (int)COOP_SEAT_0) ? FACTION_HOSTILE : FACTION_PLAYER;
-	default: // 0/1 classic/SHARED: every seated unit is player-side (RB-D18's
-		// interim invariant, carried forward unchanged by R5-P1)
+	default: // 0/1 classic/SHARED: every seated unit is player-side
 		return FACTION_PLAYER;
 	}
 }
 
-// R5-U4 (owner D235 (a); D235-VL1, D235-VL2): see CoopBattleSetup.h.
+// See CoopBattleSetup.h.
 int coopSeatForUnownedUnit(int faction)
 {
-	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17: private, stays 4)
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (private, stays 4)
 	{
 		if (coopBattleAuthority().seatMapped(seat) && coopBattleAuthority().factionOf(seat) == faction)
 			return seat;
@@ -2063,7 +2056,7 @@ void coopStampSpawnedUnitSeat(BattleUnit* unit)
 		unit->setAIModule(nullptr); // a PvP side a seat commands: no AI module, as at generation
 }
 
-// R5-P1: see CoopBattleSetup.h for the full
+// See CoopBattleSetup.h for the full
 // gamemode-by-gamemode contract this implements. HOST-ONLY, called once by
 // CoopHandshake::offerBattle() (connectionTCP.cpp) right after
 // BattlescapeGenerator::run() has produced @a save, before it is snapshotted
@@ -2079,9 +2072,9 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 		// PvE2 - both
 		// seats command the generated ALIENS against an AI-run X-COM squad, as the release line plays it
 		// (main BriefingState::setupCoop's gm4 block), done ONCE here, host-side, before the blob snapshot
-		// (r5-T1, DES-1.2: one canonical assignment, identical on both machines). Every generated hostile
-		// unit becomes FACTION_PLAYER with no AI module, seated by D237 (b) / D245 (a)'s counts in v2.0.6's
-		// order (D237-V1): the first floor(N/2) aliens in unit-list order to the client seat, the rest to
+		// (one canonical assignment, identical on both machines). Every generated hostile
+		// unit becomes FACTION_PLAYER with no AI module, seated in v2.0.6's order: the first
+		// floor(N/2) aliens in unit-list order to the client seat, the rest to
 		// the host's seat 0. Every generated player-side unit (soldiers, tanks) becomes FACTION_HOSTILE and
 		// unseated: the host's alien-turn AI runs it (handleAI() gives it an AI module on its first move).
 		// Civilians stay as generated. Both seats map to FACTION_PLAYER (coopSeatCanonicalFaction()'s
@@ -2126,11 +2119,11 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			{
 				unit->setOriginalFaction(FACTION_HOSTILE); // funnel
 				unit->convertToFaction(FACTION_HOSTILE);
-				// R5-U8 A3 (owner D269 (a): the release line's re-skin, main BattlescapeGenerator :1189-:1204): an
+				// The release line's re-skin (main BattlescapeGenerator :1189-:1204): an
 				// AI-side X-COM soldier is re-typed MALE_CIVILIAN / FEMALE_CIVILIAN by its gender - no rank on the
 				// unit-info screen, a blank name where an enemy's name shows (a soldier unit has no race), no fatal
 				// wounds unless the Alien Bleeding option is on (BattleUnit::isWoundable). Sprites (the armor) and
-				// the id are unchanged (SCOPE-6, QU8-A1-3); HWPs keep their type. coopLoadSoldierUnitRecord()
+				// the id are unchanged; HWPs keep their type. coopLoadSoldierUnitRecord()
 				// carries the type through every document load.
 				if (Soldier* soldier = unit->getGeoscapeSoldier())
 					unit->setCoopType(soldier->getGender() == GENDER_FEMALE ? "FEMALE_CIVILIAN" : "MALE_CIVILIAN");
@@ -2141,15 +2134,13 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 				unit->setCoopSeat(COOP_SEAT_NONE); // civilians never seated
 			}
 		}
-		Log(LOG_INFO) << "[coop-battle-setup] R5-U8 PvE2: " << aliens << " alien(s) to the players (seat 0: "
+		Log(LOG_INFO) << "[coop-battle-setup] PvE2 split: " << aliens << " alien(s) to the players (seat 0: "
 			<< (aliens - clientAliens) << ", seat " << clientSeat << ": " << clientAliens
 			<< "); the X-COM side to the host's AI";
 		return;
 	}
 
-	// Populate the BattleAuthority seat->faction store for every active seat -
-	// this REPLACES coopBuildInterimSeatMap()'s role (RB-D18's flat "every
-	// seat is player" placeholder) as of this packet.
+	// Populate the BattleAuthority seat->faction store for every active seat.
 	coopBattleAuthority().resetSeatFactions();
 	for (int seat : seats)
 	{
@@ -2184,10 +2175,10 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			{
 				if (s == owner) { ownerValid = true; break; }
 			}
-			// R5-U4 (owner D235 (a), D235-VL2): a player-side unit no seat of
+			// A player-side unit no seat of
 			// this battle owns - an HWP (no Soldier owner to read), a soldier
 			// with stale / out-of-roster ownership - is the host's
-			// (coopSeatForUnownedUnit(FACTION_PLAYER) = seat 0, QU4-1);
+			// (coopSeatForUnownedUnit(FACTION_PLAYER) = seat 0);
 			// civilians and aliens were continued above and stay unseated.
 			unit->setCoopSeat(ownerValid ? (CoopSeat)owner : (CoopSeat)coopSeatForUnownedUnit((int)FACTION_PLAYER));
 		}
@@ -2220,7 +2211,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 	}
 }
 
-// SPEC 19 M2 Branch B: deserialize a guest Soldier off the wire (the
+// Deserialize a guest Soldier off the wire (the
 // same Soldier::save()/YAML form connectionTCP.cpp's coopSerializeGuestSoldier()
 // produces). Returns nullptr on a malformed/unknown-type entry (never throws
 // into the caller's merge loop - a bad entry is skipped, not fatal to the
@@ -2240,7 +2231,7 @@ static Soldier* coopDeserializeGuestSoldier(Game* game, const std::string& yaml)
 	return soldier;
 }
 
-// SPEC 19 M2 Branch B: see the doc comment in CoopBattleSetup.h.
+// See the doc comment in CoopBattleSetup.h.
 void coopMergeGuestContributions(Game* game, Craft* craft)
 {
 	if (!game || !craft || !game->getSavedGame())
@@ -2253,7 +2244,7 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 	const std::string craftType = craft->getRules()->getType();
 	int spaceAvailable = craft->getSpaceAvailable();
 
-	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (RB-D17: private, stays 4)
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (private, stays 4)
 	{
 		if (!coopGuestContribCraftMatches(seat, craft->getId(), craftType))
 			continue;
@@ -2269,7 +2260,7 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 			if (!soldier)
 				continue;
 
-			// R1(b) sub-case: no coopOriginId field exists on Soldier, so a
+			// No coopOriginId field exists on Soldier, so a
 			// copy already merged by a prior call into this same battle
 			// entry is recognised by name + ownerPlayerId, not an id.
 			bool already = false;
@@ -2296,16 +2287,15 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 					lastId = existing->getId();
 			}
 
-			// tag
-			// the merged copy's coopName with the owner's SEAT and its OWN soldier id (soldier->getId() is still the
+			// Tag the merged copy's coopName with the owner's SEAT and its OWN soldier id (soldier->getId() is still the
 			// contributed id here, before setId below). The SEPARATE return reads the seat/id back out to match and
-			// apply the record to the owner's own soldier; the tag survives a SPEC 18 resume (coopname is saved).
+			// apply the record to the owner's own soldier; the tag survives a disk resume (coopname is saved).
 			const int originId = soldier->getId();
 			soldier->setCoopNameTag("coop-origin:" + std::to_string(seat) + ":" + std::to_string(originId));
 			soldier->setId(lastId + 1);
 			soldier->setCoop(seat);
 			soldier->setOwnerPlayerId(seat);
-			soldier->setCoopBase(-1); // merged COPY - F366 deletes it post-battle
+			soldier->setCoopBase(-1); // merged COPY - deleted post-battle
 			soldier->calcStatString(game->getMod()->getStatStrings(), false);
 			base->getSoldiers()->push_back(soldier);
 			soldier->setCraftAndMoveEquipment(craft, base, game->getSavedGame()->getMonthsPassed() == -1);
@@ -2317,7 +2307,7 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 	coopMergeGuestVehicles(game, craft);
 }
 
-// SPEC 19 M1: see the doc comment in CoopBattleSetup.h.
+// See the doc comment in CoopBattleSetup.h.
 void coopStampCraftSeats(Craft* craft)
 {
 	if (!craft)
@@ -2545,7 +2535,7 @@ void CoopDesyncNoticeState::btnReportClick(Action *)
 }
 
 // ---- CoopCrashPromptState (PRD-I5) ------------------------------------------
-// coop RV-U9: ported unchanged from `main` CoopState.cpp :2027-:2125.
+// coop: ported unchanged from `main` CoopState.cpp :2027-:2125.
 
 int CoopCrashPromptState::s_raiseCount = 0;
 std::string CoopCrashPromptState::s_lastChoice;

@@ -51,7 +51,7 @@ W_SAVE, W_VISIT, W_VIEW, BOOT_S = 30.0, 60.0, 10.0, 60.0
 RC_OK = (0, 3221226505)
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
-NEEDLES = {"CLEAR": "[coop-session] clearDeferredSave", "CLOSE54": "[coop] W2-H64: the host's save wait (54) closes",
+NEEDLES = {"CLEAR": "[coop-session] clearDeferredSave", "CLOSE54": "[coop] the host's save wait (54) closes",
            "PUSHED": "[coop-gift] pushed client progress to host", "HOLD": "[coop-test] hold_base_result: the base view opens in",
            "HOLDFIRE": "[coop-test] hold_base_result: the held base view opens", "GEOPOP": "[coop-ui] pop  class OpenXcom::GeoscapeState",
            "BSPUSH": "[coop-ui] push class OpenXcom::BasescapeState depth="}

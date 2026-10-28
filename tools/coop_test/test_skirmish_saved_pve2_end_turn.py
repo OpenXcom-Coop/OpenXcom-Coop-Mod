@@ -64,7 +64,7 @@ C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54  
 BOOT_S, LOAD_S, LOBBY_S, RESUME_S = 60, 60, 60, 120   # briefing <= 1.3 s, load 0.1 s, join 2.1 s, arrival 1.8 s
 STEP_S, SIDE_S, HOLD_S, HELD_S = 30, 60, 5, 2.0       # END TURN 1/2 0.05 s, walk 0.15 s, cycle 2.6 s
 DLG_WAIT_PLAYERS, DLG_RESUME_HOLD = 62, 68
-N_SPLIT = "R5-U8 PvE2:"                     # the host's split line (generation pass)
+N_SPLIT = "PvE2 split:"                     # the host's split line (generation pass)
 N_OPENING = "PvE2 opening"           # the host's opening line
 N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_REFUSE_RX = "battle_refuse received"

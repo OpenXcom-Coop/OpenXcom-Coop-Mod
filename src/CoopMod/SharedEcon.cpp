@@ -85,8 +85,8 @@
 #include "../Mod/RuleAlienMission.h"
 #include "../Mod/AlienRace.h"
 
-// R2-P9 (SPIKE-RUNBOOK.md SS2.8/RB-D20): battle hash region needs the four
-// battle serializers plus RuleInventory (item slot-type check, MJ-7) and the
+// The battle hash region needs the four
+// battle serializers plus RuleInventory (item slot-type check) and the
 // diagnostic-bundle helpers (CrossPlatform file I/O, miniz zip writer -
 // already a project dependency via Engine/FileMap.cpp, no new library).
 #include "../Savegame/BattleUnit.h"
@@ -133,7 +133,7 @@
 #include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
 #include "../Basescape/SellState.h"     // the SelectionBinder is a friend of the screen
-#include "../Basescape/PurchaseState.h" // W2-P7 S-C-E3 (P7-9 PR-59): ... and of the Purchase/Hire screen
+#include "../Basescape/PurchaseState.h" // ... and of the Purchase/Hire screen
 #include "../Battlescape/CannotReequipState.h" // the reequip decrement rides the apply
 #include <iomanip>                      // Purchase's space-used text, as the screen formats it
 #include <sstream>
@@ -142,9 +142,9 @@
 #include "../Engine/Unicode.h"
 #include "../Basescape/TransferItemsState.h"          // the binder on Transfer and
 #include "../Basescape/ManageAlienContainmentState.h" // Alien Containment (a friend of each screen)
-#include "../Interface/TextList.h"                    // S-C-E2: the highlight and the one-row-shorter list
+#include "../Interface/TextList.h"                    // the highlight and the one-row-shorter list
 #include "../Engine/Font.h"
-#include "../Savegame/EquipmentLayoutItem.h"          // S-C-E2 (PR-47): the transfer rewrite's gear port
+#include "../Savegame/EquipmentLayoutItem.h"          // the soldiers' gear as transfer item rows
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -153,8 +153,8 @@
 
 namespace OpenXcom
 {
-// coop: W2-H81's close of the geoscape windows that hold an object
-// about to be deleted (connectionTCP.cpp, EC4); SharedEcon's baseDestroyedApply calls it before it deletes a base and its crafts (EC2).
+// coop: the close of the geoscape windows that hold an object about to be deleted (coopCloseMirrorHolders,
+// connectionTCP.cpp); SharedEcon's baseDestroyedApply calls it before it deletes a base and its crafts.
 bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed);
 
 namespace SharedEcon
@@ -188,7 +188,7 @@ struct PendingCmd
 std::mutex g_mx;                     // guards the four queues below
 std::deque<PendingCmd>  g_cmdQ;      // host:      to validate+apply+broadcast
 std::deque<Json::Value> g_applyQ;    // replica:   shared_apply to apply
-std::deque<std::pair<std::string, int>> g_failQ; // initiator: shared_fail {reason, seq} to surface (seq: W2-P7 S-C-D2.2 PR-30)
+std::deque<std::pair<std::string, int>> g_failQ; // initiator: shared_fail {reason, seq} to surface (seq: the awaited confirm's)
 int g_resyncServeQ = 0;              // host:      pending shared_resync_requests
 bool g_applyHold = false;            // replica:   g_applyQ held until a streamed world's adoption
 
@@ -246,7 +246,7 @@ void setLastFail(const std::string& reason)
 // ---- the initiator's awaited confirms, by screen key ----------
 // A screen opened through the real UI registers its submitted seq (keepAfterSubmit); the answer is recorded here -
 // shared_ok on receipt, shared_fail when update() surfaces it, the host's own command at its apply / rejection - and
-// the screen's think() takes it. A seq nobody awaits (a harness lever, a forced screen, a cancelled one) is ignored.
+// the screen's think() takes it. A seq nobody awaits (a harness test command, a forced screen, a cancelled one) is ignored.
 std::mutex g_resMx;
 std::map<int, std::string> g_awaitBySeq;  // awaited seq -> screen key
 std::map<std::string, int> g_awaitByKey;  // screen key -> awaited seq
@@ -254,7 +254,7 @@ std::map<std::string, int> g_resultByKey; // screen key -> 1 ok / -1 failed, unt
 
 // ---- the shared selection store, by screen key ----------------------
 // The host's entry is the truth; a replica's is a mirror written only by the sel_* broadcasts and the confirm appliers
-// (PR-39 (v)). Main thread only. Row keys: i:<itemType>, s:<soldierId>, c:<craftId>:<craftType>, sci, eng.
+// (selConsume). Main thread only. Row keys: i:<itemType>, s:<soldierId>, c:<craftId>:<craftType>, sci, eng.
 struct SharedSel
 {
 	std::map<std::string, int> rows, editors, eseqs;
@@ -266,14 +266,14 @@ struct SharedSel
 };
 std::map<std::string, SharedSel> g_sel;
 // This machine's bookkeeping beside the store (never on the wire), per key: per row the highest eseq of its own edits
-// seen in the list (Q-P8-3 (a); a consume clears the list's eseqs, not this) and how many of its sel_open were answered.
+// seen in the list (a consume clears the list's eseqs, not this) and how many of its sel_open were answered.
 struct SelLocal { std::map<std::string, int> ownSeen; int openEchoes = 0; };
 std::map<std::string, SelLocal> g_selLocal;
 std::map<std::string, std::pair<bool, int>> g_selCarry; // carried-over key -> the old binder's {acked, open echo wanted}
 int g_selEseq = 0;                                      // this machine's edit sequence (sel_set eseq)
-std::string g_selConfirmKey;                            // host: the stamped confirm being applied (PR-39 (ii) -> (v))
+std::string g_selConfirmKey;                            // host: the stamped confirm being applied (selConfirmRules -> selConsume)
 uint64_t g_selConfirmHash = 0;                          // host: the hash of the rows that confirm applies
-void selConsume(Json::Value& payload);                  // PR-39 (v), with the sel_* appliers below
+void selConsume(Json::Value& payload);                  // with the sel_* appliers below
 
 void recordResult(int seq, int result)
 {
@@ -291,7 +291,7 @@ void recordResult(int seq, int result)
 	Log(LOG_INFO) << "[SHARED] confirm answered: " << key << " seq=" << seq << (result > 0 ? " ok" : " failed");
 }
 
-// PR-31: a forced screen's "solved" - vanilla's own over-the-limit gates (SellState :92 / :1362,
+// A forced screen's "solved" - vanilla's own over-the-limit gates (SellState :92 / :1362,
 // ManageAlienContainmentState :299-302).
 bool storageSolved(Base* base)
 {
@@ -305,7 +305,7 @@ bool containmentSolved(Base* base, int prisonType)
 	return !((availableContainment == 0 || Options::storageLimitsEnforced) && freeContainment < 0);
 }
 
-// PR-33: what a forced storage SellState lists for @a rule (SellState :257-275 at the post-battle
+// What a forced storage SellState lists for @a rule (SellState :257-275 at the post-battle
 // origin): base stock + item transfers + transfer crafts' and base crafts' items (their weapons and vehicles too when
 // the stores are critically over).
 int forcedSellAvailable(Base* base, const RuleItem* rule, bool critical)
@@ -323,7 +323,7 @@ int forcedSellAvailable(Base* base, const RuleItem* rule, bool critical)
 	return qty;
 }
 
-// PR-33 (MR15): SellState::btnOkClick's own removal of one sold item (:739-946, ported verbatim): the base stock, then
+// SellState::btnOkClick's own removal of one sold item (:739-946, ported verbatim): the base stock, then
 // each base craft's item container and then its weapons / vehicles (the launcher / clip remainders go to the stores),
 // then the transfers in list order (an item transfer shrinks or goes; a transfer craft is cleaned like a base craft).
 // Host and replica run it on identical worlds.
@@ -696,7 +696,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			Transfer* t = new Transfer(r->getTransferTime());
 			t->setItems(r, qty);
 			base->getTransfers()->push_back(t);
-			// W2-P7 S-C-E3 (P7-9 PR-61, Q-P9-3 (a)): a purchase from the "not enough equipment" screen lowers the missing
+			// A purchase from the "not enough equipment" screen lowers the missing
 			// counts of every such screen on this machine (screen state, not world state; vanilla PurchaseState :940-:944).
 			if (payload.get("reequip", false).asBool())
 				for (auto* st : game->getStates())
@@ -761,7 +761,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 						soldier->load(tReader.toBase(), mod, save, mod->getScriptGlobal(), true);
 						if (soldier->getNationality() != nationalityOrig) soldier->genName();
 					}
-					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // purchaser owns the hire; S-C-E3.3: a shared list's Soldier-row editor
+					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // purchaser owns the hire; a shared list's Soldier-row editor
 					Transfer* t = new Transfer(time);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
@@ -778,7 +778,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 				{
 					Soldier* soldier = deserializeSoldier(game, serialized[s].asString());
 					if (!soldier) continue;
-					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // belt-and-braces (also in YAML); S-C-E3.3
+					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // belt-and-braces (also in YAML)
 					Transfer* t = new Transfer(time);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
@@ -790,7 +790,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			break;
 		}
 	}
-	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E3 (P7-9 PR-56, P7-8 PR-39 (v)): the shared list is consumed
+	if (payload.isMember("selKey")) selConsume(payload); // the shared list is consumed
 }
 
 // ---- PRD-J05: "sell" ---------------------------------------------------------
@@ -804,7 +804,7 @@ bool sellValidate(Game* game, const Json::Value& payload, Base* base, int /*seat
                   int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
-	// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-32/PR-33; MR9, MR15, F2163, F2500): a forced storage confirm that arrives after
+	// A forced storage confirm that arrives after
 	// the base is back under its limit is dropped silently (checked FIRST); otherwise it may sell what the forced
 	// screen lists - the crafts' and in-transit items too, as vanilla.
 	const bool forced = payload.get("origin", "").asString() == "forced";
@@ -825,7 +825,7 @@ bool sellValidate(Game* game, const Json::Value& payload, Base* base, int /*seat
 			if (qty <= 0) continue;
 			RuleItem* r = mod->getItem(rule, false);
 			if (!r) { failReason = "unknown item: " + rule; return false; }
-			if (payload.get("capToStores", false).asBool()) qty = std::min(qty, base->getStorageItems()->getItem(r)); // W2-H16h (V-E1): sell what is left
+			if (payload.get("capToStores", false).asBool()) qty = std::min(qty, base->getStorageItems()->getItem(r)); // sell what is left
 			if ((forced ? forcedSellAvailable(base, r, critical) : base->getStorageItems()->getItem(r)) < qty)
 				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_SELL"; return false; }
 			credit += (int64_t)qty * r->getSellCostAdjusted(base, save);
@@ -866,7 +866,7 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	Mod* mod = game->getMod();
 	if (!mod) return;
 
-	// W2-H16h (V-E1, F7299): a capped sale (the random-production window) sells what the host's stores still hold; the host
+	// A capped sale (the random-production window) sells what the host's stores still hold; the host
 	// writes the count it sold into the broadcast payload, so every replica removes the same.
 	if (connectionTCP::getHost() && payload.get("capToStores", false).asBool())
 		for (Json::ArrayIndex i = 0; i < payload["items"].size(); ++i)
@@ -919,7 +919,7 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (eng > 0) base->setEngineers(base->getEngineers() - eng);
 	// a page-3 sale's bookkeeping (autosell marks, open debriefing counts).
 	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, true);
-	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E1 (P7-8 PR-39 (v)): the shared list is consumed
+	if (payload.isMember("selKey")) selConsume(payload); // the shared list is consumed
 }
 
 // ---- PRD-J05: "containment" --------------------------------------------------
@@ -988,7 +988,7 @@ void containmentApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 			}
 		}
 	}
-	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E2 (P7-8 PR-39 (v), PR-47): the shared list is consumed
+	if (payload.isMember("selKey")) selConsume(payload); // the shared list is consumed
 }
 
 // ---- PRD-J05: "transfer" (intra-world base -> base) --------------------------
@@ -1179,7 +1179,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	}
 	// a page-3 transfer's bookkeeping (the open debriefing's counts).
 	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, false);
-	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E2 (P7-8 PR-39 (v), PR-47): the shared list is consumed
+	if (payload.isMember("selKey")) selConsume(payload); // the shared list is consumed
 }
 
 // ---- PRD-J06: research start / allocate / cancel -----------------------------
@@ -1362,7 +1362,7 @@ void manStartApply(Game* game, Json::Value& payload, Base* base, int seat)
 	p->setAssignedEngineers(engineers);
 	p->setSellItems(payload.get("sell", false).asBool());
 	base->addProduction(p);
-	p->setCoopStarterSeat(seat); // W2-H16g (OC-H16g-1 a): the starter owns what it spawns
+	p->setCoopStarterSeat(seat); // the starter owns what it spawns
 	base->setEngineers(base->getEngineers() - engineers);
 	if (payload.get("fallback", false).asBool())
 	{
@@ -1766,10 +1766,10 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 }
 
 // ---- soldier_transform { rule, soldierId, dead, name } ------------------------------
-// Player-origin; own soldiers only (AUD-A48); vanilla's list / Start gates re-checked on the host; cost = the rule's cost.
-// HOST (Q1 a): vanilla's stores loop + its own retire() / performTransformation() on a never-pushed screen (the dice roll
-// once, here); the result rides the payload (Q3 a): out (retire | clone | self), hours (0 = no Transfer), soldier, history
-// and soldierCounter (clone), stores, craft (the source's former craft). Q5 a: the clone is the seat's. REPLICA: adopts.
+// Player-origin; own soldiers only; vanilla's list / Start gates re-checked on the host; cost = the rule's cost.
+// HOST: vanilla's stores loop + its own retire() / performTransformation() on a never-pushed screen (the dice roll
+// once, here); the result rides the payload: out (retire | clone | self), hours (0 = no Transfer), soldier, history
+// and soldierCounter (clone), stores, craft (the source's former craft). The clone is the seat's. REPLICA: adopts.
 Soldier* findTransformSource(Game* game, Base* base, const Json::Value& payload)
 {
 	int id = payload.get("soldierId", -1).asInt();
@@ -1793,7 +1793,7 @@ bool soldierTransformValidate(Game* game, const Json::Value& payload, Base* base
 		{ failReason = "transformation not available"; return false; }
 	Soldier* s = findTransformSource(game, base, payload);
 	if (!s) { failReason = "soldier not found"; return false; }
-	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // AUD-A48: own soldiers only
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // own soldiers only
 	// vanilla's gates: SoldiersState :458-463 (list), SoldierTransformationState::initTransformationData :191-232 (Start button)
 	if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT") { failReason = "craft out on mission"; return false; }
 	s->prepareStatsWithBonuses(mod);
@@ -1842,7 +1842,7 @@ void soldierTransformApply(Game* game, Json::Value& payload, Base* base, int sea
 			dst->setName(payload.get("name", dst->getName()).asString()); // vanilla's name box (STS :493 / :500)
 			if (rule->isCreatingClone())
 			{
-				dst->setOwnerPlayerId(seat); // Q5 a: the transforming player owns the clone
+				dst->setOwnerPlayerId(seat); // the transforming player owns the clone
 				payload["history"] = Json::Value(Json::objectValue);
 				for (const auto& kv : src->getPreviousTransformations()) payload["history"][kv.first] = kv.second;
 				const auto& ids = save->getAllIds();
@@ -1898,7 +1898,7 @@ void soldierTransformApply(Game* game, Json::Value& payload, Base* base, int sea
 		else if (it != home->end()) { *it = d; delete src; } // same slot; d is unseated, as transform left the host's
 		else delete d;
 	}
-	auto setItems = [&](ItemContainer* ic, const Json::Value& items) // absolute: the W2-H15 setItems idiom
+	auto setItems = [&](ItemContainer* ic, const Json::Value& items) // absolute: the setItems idiom
 	{
 		ic->clear();
 		for (const auto& k : items.getMemberNames())
@@ -2021,14 +2021,14 @@ void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/
 void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return; // host already removed it in BaseDestroyedState
-	g_sel.clear(); // W2-P7 S-C-E1 (P7-8 PR-49, Q-P8-5 (a)): base indices shift - every binder re-keys on its next think()
+	g_sel.clear(); // base indices shift - every binder re-keys on its next think()
 	if (!base) return;
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
 	std::string name = payload.get("name", base->getName()).asString();
 	// coop: the geoscape windows that hold this
 	// base or one of its crafts (a craft's window, the INTERCEPT list, a destination pick, list or confirm, a patrol, dogfight, landing,
-	// Cydonia or pilots notice) close first, as their CANCEL does (W2-H81's coopCloseMirrorHolders, EC3); the base is deleted either way.
+	// Cydonia or pilots notice) close first, as their CANCEL does (coopCloseMirrorHolders); the base is deleted either way.
 	std::vector<Target*> doomedTargets{ base };
 	for (Craft* doomedCraft : *base->getCrafts())
 		doomedTargets.push_back(doomedCraft);
@@ -2348,7 +2348,7 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 // ---- craft pilot picks ----------------------------------------------------------------
 // craft_pilots { craftId, craftType, op: "add" | "clear", soldierId (add) }, baseId = the craft's home base. Player-origin
 // from either seat. The host applies vanilla's rules to its own world (add: a free seat for a crew soldier able to fly, else
-// kept silently; clear: the seat's own pilots go, the partner's stay, aud-E1-11) and writes the resolved list as "pilots".
+// kept silently; clear: the seat's own pilots go, the partner's stay) and writes the resolved list as "pilots".
 bool craftPilotsValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                          int64_t& cost, std::string& failReason)
 {
@@ -2360,7 +2360,7 @@ bool craftPilotsValidate(Game* game, const Json::Value& payload, Base* base, int
 	if (op != "add") { failReason = "unknown pilot order"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
-	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // aud-E1-11: own soldiers only
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // own soldiers only
 	return true;
 }
 void craftPilotsApply(Game* game, Json::Value& payload, Base* base, int seat)
@@ -2376,7 +2376,7 @@ void craftPilotsApply(Game* game, Json::Value& payload, Base* base, int seat)
 		{
 			craft->removeAllPilots();
 			for (auto* p : list)
-				if (p->getOwnerPlayerId() != seat) craft->addPilot(p->getId()); // the partner's picks stay (aud-E1-11)
+				if (p->getOwnerPlayerId() != seat) craft->addPilot(p->getId()); // the partner's picks stay
 		}
 		else
 		{
@@ -2406,7 +2406,7 @@ void craftPilotsApply(Game* game, Json::Value& payload, Base* base, int seat)
 //   { craftId, craftType, item, count }   baseId = the craft's home-base index.
 // count = the ABSOLUTE desired quantity of `item` loaded on the craft, so host
 // and replica converge regardless of arrival order (the J08/J09 last-write-wins
-// idiom). A vehicle item (an HWP) counts whole vehicles with their clip ammo (craftEquipVehicles, W2-H20c);
+// idiom). A vehicle item (an HWP) counts whole vehicles with their clip ammo (craftEquipVehicles);
 // CraftEquipmentState routes an item move before vanilla's and an HWP move's end-state right after it.
 bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
                         int64_t& cost, std::string& failReason)
@@ -2585,7 +2585,7 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // absolute end-state. HOST: when the rank differs, re-run the vanilla openings rule against
 // the host's world and apply or keep it; ALWAYS write the resolved rank into the payload
 // (the buy idiom: the broadcast carries it). REPLICA (the initiator included): adopt the
-// payload's rank. A lost race for the last opening is undone by the host's result (V1).
+// payload's rank. A lost race for the last opening is undone by the host's result.
 bool soldierRankValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
                          int64_t& cost, std::string& failReason)
 {
@@ -2639,9 +2639,9 @@ void soldierNationalityApply(Game* /*game*/, Json::Value& payload, Base* base, i
 // soldier_training payload: { soldierId, training, rtwh }; soldier_psi_training payload: { soldierId, psi }.
 // a martial / psi allocation (AllocateTrainingState / AllocatePsiTrainingState)
 // keeps vanilla's local write and submits the soldier's flags as an absolute end-state. The host refuses a
-// soldier the sending seat does not own (AUD-A48). HOST: re-run vanilla's gates against the host's world,
+// soldier the sending seat does not own. HOST: re-run vanilla's gates against the host's world,
 // apply or keep, and ALWAYS write the resolved flags into the payload (the broadcast carries them).
-// REPLICA (the initiator included): adopt the payload's flags. A lost race for the last place is undone (V1).
+// REPLICA (the initiator included): adopt the payload's flags. A lost race for the last place is undone.
 bool soldierTrainingValidate(Game* /*game*/, const Json::Value& payload, Base* base, int seat,
                              int64_t& cost, std::string& failReason)
 {
@@ -2649,7 +2649,7 @@ bool soldierTrainingValidate(Game* /*game*/, const Json::Value& payload, Base* b
 	if (!base) { failReason = "base not found"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
-	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // W2-H16b A1 (AUD-A48): own soldiers only
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // own soldiers only
 	return true;
 }
 void soldierTrainingApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
@@ -2685,7 +2685,7 @@ bool soldierPsiTrainingValidate(Game* /*game*/, const Json::Value& payload, Base
 	if (!base) { failReason = "base not found"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
-	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // W2-H16b A1 (AUD-A48): own soldiers only
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // own soldiers only
 	return true;
 }
 void soldierPsiTrainingApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
@@ -2708,7 +2708,7 @@ void soldierPsiTrainingApply(Game* game, Json::Value& payload, Base* base, int /
 	{
 		s->setPsiTraining(psi);
 	}
-	// both roles: the stat string with THIS machine's psiStrengthEval (AllocatePsiTrainingState::btnOkClick, F6140)
+	// both roles: the stat string with THIS machine's psiStrengthEval (AllocatePsiTrainingState::btnOkClick)
 	if (game && game->getSavedGame())
 		s->calcStatString(game->getMod()->getStatStrings(), Options::psiStrengthEval &&
 			game->getSavedGame()->isResearched(game->getMod()->getPsiRequirements()));
@@ -2736,7 +2736,7 @@ bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, in
 	Craft* craft = s->getCraft();
 	if (craft && !craft->validateArmorChange(s->getArmor()->getSize(), next->getSize()))
 	{ failReason = "STR_NOT_ENOUGH_CRAFT_SPACE"; return false; }
-	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // W2-H20b (A13; AUD-A48, aud-E1-11): own soldiers only
+	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // own soldiers only
 	return true;
 }
 
@@ -2765,8 +2765,8 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 // payload: { soldiers: [{id, layout, personal, personalArmor}] }, baseId = the screen's base. layout / personal = the soldier's equipment
 // layout and personal layout as vanilla's own save writes them (Soldier.cpp :381-:386; EquipmentLayoutItem::save) under key "l";
 // personalArmor = the personal layout's armor type ("" = none). Player-origin from either seat at its base-screen OK: one entry per OWN
-// soldier whose record changed (aud-E1-11, D255 a). The host writes an entry only for a soldier the sending seat owns and broadcasts its
-// own record for any other entry (Q5 a); a replica adopts every entry. No stores move (option ON's craft moves: W2-H20b).
+// soldier whose record changed. The host writes an entry only for a soldier the sending seat owns and broadcasts its
+// own record for any other entry; a replica adopts every entry. No stores move here (option ON's craft moves are committed separately).
 Json::Value g_baseEquipMark(Json::nullValue); // the open base screen's records {base: index, soldiers: {"<id>": record}}
 
 std::string equipYaml(const std::vector<EquipmentLayoutItem*>& layout)
@@ -2839,21 +2839,21 @@ void soldierEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 		if (!s) continue; // not at this base (any more): left out of the broadcast
 		if (host && s->getOwnerPlayerId() != seat)
 		{
-			resolved.append(soldierEquipRecord(s)); // Q5 (a): not the sender's soldier - the host's record rides instead
+			resolved.append(soldierEquipRecord(s)); // not the sender's soldier - the host's record rides instead
 			++kept;
 			continue;
 		}
 		soldierEquipAdopt(game, s, r);
 		resolved.append(r);
 		++adopted;
-		if (marked) g_baseEquipMark["soldiers"][std::to_string(s->getId())] = soldierEquipRecord(s); // Q2 (a): an open screen keeps it
+		if (marked) g_baseEquipMark["soldiers"][std::to_string(s->getId())] = soldierEquipRecord(s); // an open screen keeps it
 	}
 	if (host) payload["soldiers"] = resolved;
 	Log(LOG_INFO) << "[SHARED] soldier_equip: " << adopted << " adopted, " << kept << " kept by the host, base " << bi;
 }
 
 // a rename applied while a base screen is open (the partner's soldier_rename) refreshes that soldier's name in the open
-// screen's mark, so the screen's OK does not put the old name back (H20 Q2 (a)'s refresh rule, the name field only).
+// screen's mark, so the screen's OK does not put the old name back (the open screen's refresh rule, the name field only).
 void baseEquipMarkName(Soldier* s)
 {
 	if (!s || !g_baseEquipMark.isObject()) return;
@@ -2864,7 +2864,7 @@ void baseEquipMarkName(Soldier* s)
 // ---- craft_deployment - a SHARED craft type's generic deployment (the Ufopaedia craft preview's save) ----------
 // payload: { craftType, saved, positions [[x, y, z, dir], ...] (saved only) }, baseId -1 (no base; base_new's precedent). Player-origin from
 // either seat right after vanilla's own local save or delete (SavedBattleGame::saveDummyCraftDeployment); both roles repeat vanilla's write:
-// every craft of that type loses its own custom deployment, then the type's entry is written or erased. Last write wins (H20b A10).
+// every craft of that type loses its own custom deployment, then the type's entry is written or erased. Last write wins.
 bool craftDeploymentValidate(Game* game, const Json::Value& payload, Base* /*base*/, int /*seat*/,
                              int64_t& cost, std::string& /*failReason*/)
 {
@@ -2897,7 +2897,7 @@ void craftDeploymentApply(Game* game, Json::Value& payload, Base* /*base*/, int 
 	Log(LOG_INFO) << "[SHARED] craft_deployment: " << rule->getType() << (saved ? " saved, " : " deleted, ") << positions.size() << " position(s)";
 }
 
-// ---- W2-H20b (A10; P8b Q9 a / D209, SC-5, SC-9 extended): equip_template - a SHARED template save ------------------------------------
+// ---- equip_template - a SHARED template save ------------------------------------
 // payload: { kind: "layout" | "loadout", index, name, layout + armor (kind layout: the slot's equipYaml and armor type) | items {type: count}
 // (kind loadout) }, baseId = the saving screen's base. Player-origin from either seat right after vanilla's own local save; the whole slot
 // travels and both roles write it, so the one shared world keeps ONE template set (last write wins). No store, soldier or craft is touched.
@@ -2942,7 +2942,7 @@ void equipTemplateApply(Game* game, Json::Value& payload, Base* /*base*/, int /*
 // notifyWorldAdopted / resetSessionQueues drop it; while it is open verifyWorldChecksum skips this machine's check.
 Json::Value g_craftStage(Json::nullValue);
 
-// W2-H16e fac_disable { x, y, disabled }, baseId = the base index: the host re-checks vanilla's gate, applies and broadcasts the resolved flag; a replica adopts it.
+// fac_disable { x, y, disabled }, baseId = the base index: the host re-checks vanilla's gate, applies and broadcasts the resolved flag; a replica adopts it.
 bool facDisableValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
                         int64_t& cost, std::string& failReason)
 {
@@ -2976,7 +2976,7 @@ void facDisableApply(Game* /*game*/, Json::Value& payload, Base* base, int /*sea
 	}
 }
 
-// W2-H16e craft_weapon_disable { craftId, craftType, slot, disabled }: as fac_disable; the host also decides the craft re-check, never for a craft that is out.
+// craft_weapon_disable { craftId, craftType, slot, disabled }: as fac_disable; the host also decides the craft re-check, never for a craft that is out.
 bool craftWeaponDisableValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
                                 int64_t& cost, std::string& failReason)
 {
@@ -3541,7 +3541,7 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 // research_fx payload (hostResearchFx): { removed [{base, name}], stores [{base,
 // items {itemType: qty}}], transfers [{base, item, qty, hours}], ids {name: value} } - the host's research-completion side
 // effects (3b corpse, 3j obsolete projects + refunds, 3k spawned items, 3m counters), adopted absolutely. Replica only:
-// it runs none of the host's side-effect code (no RNG, no spawned event; 3l stays host-only, Q2 a).
+// it runs none of the host's side-effect code (no RNG, no spawned event; 3l stays host-only).
 void researchFxApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
@@ -3716,7 +3716,7 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // prod_fx payload: { manufacture, transfers: [yaml], crafts: [yaml], craftsRemoved: [{type, id}], stores?, engineers?, assigned?,
 // ids: {counter: value}, score? }. host-origin after each Production::step that changed its
 // base - the replica adopts the host's result (new transfers / crafts are the host's own YAML: soldier, craft, names, ids, owner);
-// it never rolls. Funds ride the shared_apply. prod_done then only removes the production and shows the window (Q2 a).
+// it never rolls. Funds ride the shared_apply. prod_done then only removes the production and shows the window.
 void prodFxApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return; // the host's step wrote these
@@ -3912,8 +3912,8 @@ void craftLostApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	g_lostCrafts.push_back(std::make_pair(baseIndex(game, base), payload));
 }
 
-// unassign_wounded payload: { ids: [soldier id] } (baseId = the debriefing base). W2-P7 S-C-A.2 (P7-6 4.1 step 8; MR2,
-// F2494): host-origin at a SHARED campaign debriefing's OK - mirrors vanilla's host-only wounded loop (replicas only).
+// unassign_wounded payload: { ids: [soldier id] } (baseId = the debriefing base).
+// Host-origin at a SHARED campaign debriefing's OK - mirrors vanilla's host-only wounded loop (replicas only).
 void unassignWoundedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return; // the host's vanilla loop already did it
@@ -3932,7 +3932,7 @@ void unassignWoundedApply(Game* game, Json::Value& payload, Base* base, int /*se
 	Log(LOG_INFO) << "[SHARED] unassign_wounded: " << unassigned << " of " << ids.size() << " soldier(s) off their crafts";
 }
 
-// ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-38..PR-41; D184, D203, MR8): the sel_* commands and the host's confirm rules ----
+// ---- the sel_* commands and the host's confirm rules ----
 // Key "<screen>|<variant>|<baseIdx>|<extra>" (sellKey / xferKey / contKey).
 bool selParseKey(const std::string& key, std::string& screen, char& variant, int& baseIdx, std::string& extra)
 {
@@ -3941,12 +3941,12 @@ bool selParseKey(const std::string& key, std::string& screen, char& variant, int
 	if (c == std::string::npos || b != a + 2 || c == b + 1) return false;
 	screen = key.substr(0, a); variant = key[a + 1]; extra = key.substr(c + 1);
 	try { baseIdx = std::stoi(key.substr(b + 1, c - b - 1)); } catch (...) { return false; }
-	return screen == "sell" || screen == "xfer" || screen == "cont" || screen == "buy"; // S-C-E3: + buy
+	return screen == "sell" || screen == "xfer" || screen == "cont" || screen == "buy"; // + buy
 }
 
-// PR-40 (Q-P8-1 (a)): what the host's confirm validator would accept for @a row now. Sell (sellValidate's rules): i: =
-// base stock (forced: what the forced screen lists, PR-33); s: 1 iff that soldier is at the base off its craft; c: 1 iff
-// the craft is there and not out; sci / eng <= available. Unknown or negative -> 0 (erased). S-C-E2: Transfer the same
+// What the host's confirm validator would accept for @a row now. Sell (sellValidate's rules): i: =
+// base stock (forced: what the forced screen lists); s: 1 iff that soldier is at the base off its craft; c: 1 iff
+// the craft is there and not out; sci / eng <= available. Unknown or negative -> 0 (erased). Transfer the same
 // (transferValidate's, from the source; c: 1 iff the craft is there), containment i: = stock only (containmentValidate's).
 int selClamp(Game* game, const std::string& key, const std::string& row, int amount)
 {
@@ -3954,8 +3954,8 @@ int selClamp(Game* game, const std::string& key, const std::string& row, int amo
 	if (amount <= 0 || !selParseKey(key, screen, variant, idx, extra)) return 0;
 	Base* base = resolveBase(game, idx);
 	if (!base || (screen == "cont" && row.compare(0, 2, "i:") != 0)) return 0;
-	if (screen == "buy") // W2-P7 S-C-E3 (P7-9 PR-55, Q-P9-1 (a)): per row only - an unknown rule -> 0, else the (mods-only,
-	{                    // F6638) monthly limit; funds / stores / quarters / hangars / containment stay buyValidate's (V-P1)
+	if (screen == "buy") // per row only - an unknown rule -> 0, else the mods-only
+	{                    // monthly limit; funds / stores / quarters / hangars / containment stay buyValidate's
 		if (row == "sci" || row == "eng") return amount;
 		Mod* mod = game->getMod();
 		const bool item = row.compare(0, 2, "i:") == 0, hire = row.compare(0, 2, "h:") == 0, craft = row.compare(0, 3, "cr:") == 0;
@@ -3985,7 +3985,7 @@ int selClamp(Game* game, const std::string& key, const std::string& row, int amo
 	return 0;
 }
 
-// FNV-1a 64 over the sorted "row=amount;" pairs: the identity of a consumed selection (PR-39 (v), MR8).
+// FNV-1a 64 over the sorted "row=amount;" pairs: the identity of a consumed selection.
 uint64_t selHash(const std::map<std::string, int>& rows)
 {
 	uint64_t h = 1469598103934665603ULL;
@@ -4022,9 +4022,9 @@ Json::Value selStateJson(const std::string& key)
 	return st;
 }
 
-// PR-38: sel_open {key, seed} / sel_set {key, row, amount, eseq} / sel_close {key} / sel_sync {key} (host-origin, PR-41).
+// sel_open {key, seed} / sel_set {key, row, amount, eseq} / sel_close {key} / sel_sync {key} (host-origin).
 // The host applies the rule and resolves the list's full state into payload["state"]; a replica adopts it. Then this
-// machine notes its own open answered and its own edits seen (Q-P8-3 (a)). A malformed payload changes nothing (never a
+// machine notes its own open answered and its own edits seen. A malformed payload changes nothing (never a
 // reject: a reject would raise a fail box).
 void selApplyOp(Game* game, Json::Value& payload, int seat, const std::string& op)
 {
@@ -4039,7 +4039,7 @@ void selApplyOp(Game* game, Json::Value& payload, int seat, const std::string& o
 		{
 			SharedSel& s = g_sel[key];
 			s.viewers.erase(seat);
-			if (s.viewers.empty()) // a lone opener starts the list: at zero, or with its seed (Q-P8-2 (a))
+			if (s.viewers.empty()) // a lone opener starts the list: at zero, or with its seed
 			{
 				s.rows.clear(); s.editors.clear(); s.eseqs.clear();
 				for (const auto& r : selMapOf(payload.get("seed", Json::Value()), true))
@@ -4060,7 +4060,7 @@ void selApplyOp(Game* game, Json::Value& payload, int seat, const std::string& o
 		}
 		else if (op == "sel_close")
 			{ it->second.viewers.erase(seat); if (it->second.viewers.empty()) g_sel.erase(it); }
-		else // sel_sync: re-clamp to the world as it is now (PR-41)
+		else // sel_sync: re-clamp to the world as it is now
 		{
 			std::map<std::string, int> rows;
 			for (const auto& r : it->second.rows)
@@ -4092,7 +4092,7 @@ void selApplyOp(Game* game, Json::Value& payload, int seat, const std::string& o
 				loc.ownSeen[e.first] = std::max(loc.ownSeen[e.first], it->second.eseqs.at(e.first));
 }
 
-// PR-39 (v): a stamped confirm applied on a list - host: remember what was consumed (MR8), clear the list, rev++ and
+// A stamped confirm applied on a list - host: remember what was consumed, clear the list, rev++ and
 // stamp the new rev; replica: clear the mirror and adopt that rev. Every binder then shows zeros.
 void selConsume(Json::Value& payload)
 {
@@ -4107,17 +4107,17 @@ void selConsume(Json::Value& payload)
 	Log(LOG_INFO) << "[SHARED] sel: " << key << " consumed (rev " << s.rev << ")";
 }
 
-// PR-39 (E1: sell; E2 extends it), before the validate of a confirm stamped with a list the host holds: (i) the duplicate
-// of a consumed selection -> true = coop_sel_dup, a success (MR8); (ii) the row arrays are rebuilt from the host's clamped
-// list (D203: the host applies its current list, whatever rev the confirm saw; page 3 also capped by the stamped selCaps,
-// F6125), every other key stays the confirmer's; (iii) nothing left on a non-page-3 key -> true; (iv) a key the host does
-// not hold -> false, applied as sent. S-C-E2 (PR-47): "transfer" (+ the soldiers' gear) and "containment" alike.
+// Before the validate of a confirm stamped with a list the host holds: (i) the duplicate
+// of a consumed selection -> true = coop_sel_dup, a success; (ii) the row arrays are rebuilt from the host's clamped
+// list (the host applies its current list, whatever rev the confirm saw; page 3 also capped by the stamped selCaps),
+// every other key stays the confirmer's; (iii) nothing left on a non-page-3 key -> true; (iv) a key the host does
+// not hold -> false, applied as sent. "sell", "transfer" (+ the soldiers' gear), "containment" and "buy" alike.
 bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 {
 	g_selConfirmKey.clear();
 	const std::string key = cmdPayload.get("selKey", "").asString();
 	const std::string screen = pc.cmd == "sell" ? "sell|" : pc.cmd == "transfer" ? "xfer|" : pc.cmd == "containment" ? "cont|"
-		: pc.cmd == "buy" ? "buy|" : ""; // S-C-E3 (P7-9 PR-56): + buy
+		: pc.cmd == "buy" ? "buy|" : ""; // + buy
 	auto it = !screen.empty() && key.compare(0, screen.size(), screen) == 0 ? g_sel.find(key) : g_sel.end();
 	if (it == g_sel.end()) return false;
 	const SharedSel& s = it->second;
@@ -4133,7 +4133,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 		if (a > 0) rows[r.first] = a;
 	}
 	if (rows.empty() && !page3) return true;
-	if (pc.cmd == "buy") // S-C-E3 (P7-9 PR-56 (ii)): typed rows (Transfer.h: ITEM 0, CRAFT 1, SOLDIER 2, SCIENTIST 3, ENGINEER 4)
+	if (pc.cmd == "buy") // typed rows (Transfer.h: ITEM 0, CRAFT 1, SOLDIER 2, SCIENTIST 3, ENGINEER 4)
 	{                    // from the host's list; total (an estimate the validator ignores) and reequip stay the confirmer's
 		Json::Value buy(Json::arrayValue);
 		for (const auto& r : rows)
@@ -4144,7 +4144,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 				? TRANSFER_ITEM : r.first.compare(0, 3, "cr:") == 0 ? TRANSFER_CRAFT : TRANSFER_SOLDIER);
 			e["rule"] = staff ? std::string() : r.first.substr(r.first.find(':') + 1);
 			e["qty"] = r.second;
-			if (r.first.compare(0, 2, "h:") == 0 && s.editors.count(r.first)) e["owner"] = s.editors.at(r.first); // S-C-E3.3: the row's last editor owns its hires
+			if (r.first.compare(0, 2, "h:") == 0 && s.editors.count(r.first)) e["owner"] = s.editors.at(r.first); // the row's last editor owns its hires
 			buy.append(e);
 		}
 		cmdPayload["items"] = buy;
@@ -4161,7 +4161,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 		else if (r.first.compare(0, 2, "c:") == 0 && p != std::string::npos)
 			{ e["id"] = std::atoi(r.first.substr(2, p - 2).c_str()); e["type"] = r.first.substr(p + 1); crafts.append(e); }
 	}
-	// PR-47: the soldiers' alternate-equipment gear as item rows, TransferItemsState :784-:817's rule on this world.
+	// The soldiers' alternate-equipment gear as item rows, TransferItemsState :784-:817's rule on this world.
 	Base* from = pc.cmd == "transfer" ? resolveBase(game, pc.baseId) : nullptr;
 	if (from && Options::oxceAlternateCraftEquipmentManagement && !soldiers.empty())
 	{
@@ -4178,7 +4178,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 				}
 		for (const auto& g : gear) { Json::Value e; e["rule"] = g.first->getType(); e["qty"] = g.second; items.append(e); }
 	}
-	if (pc.cmd == "containment") cmdPayload["prisoners"] = items; // a containment list holds i: rows only (PR-40)
+	if (pc.cmd == "containment") cmdPayload["prisoners"] = items; // a containment list holds i: rows only
 	else
 	{
 		cmdPayload["items"] = items; cmdPayload["soldiers"] = soldiers; cmdPayload["crafts"] = crafts;
@@ -4191,7 +4191,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 
 void processHostCmd(Game* game, const PendingCmd& pc);
 
-// PR-41: after a world apply the host re-clamps every list it touched (its base; a transfer's destination and
+// After a world apply the host re-clamps every list it touched (its base; a transfer's destination and
 // every xfer key naming either; baseId < 0 = every list) and sel_syncs each changed one AT ONCE, never through g_cmdQ:
 // the apply's broadcast precedes the sel_sync's on the ordered lane, so no queued confirm sees an unclamped list.
 void selSyncTouched(Game* game, const PendingCmd& pc)
@@ -4236,7 +4236,7 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 		// surfaces a shared_fail received from the host (PRD-J10: one helper, one
 		// dialog, both roles).
 		showFail(game, reason);
-		recordResult(pc.seq, reason == "coop_sel_dup" ? 1 : -1); // the host's own awaiting screen stays under the box; S-C-E1 (PR-45): a duplicate confirm is a success
+		recordResult(pc.seq, reason == "coop_sel_dup" ? 1 : -1); // the host's own awaiting screen stays under the box; a duplicate confirm is a success
 	}
 }
 
@@ -4251,7 +4251,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		return;
 	}
 
-	// W2-P7 S-C-E1 (P7-8 PR-43 (6)): a screen's sel_close may be queued in the teardown frame before the world is dropped.
+	// A screen's sel_close may be queued in the teardown frame before the world is dropped.
 	if (!game->getSavedGame() && pc.cmd.compare(0, 4, "sel_") == 0) { Log(LOG_WARNING) << "[SHARED] " << pc.cmd << " dropped: no world"; return; }
 	Base* base = resolveBase(game, pc.baseId);
 	int64_t cost = 0;
@@ -4259,7 +4259,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	++g_cmdN;
 	// a stamped confirm is checked and rewritten from the host's list before the validate.
 	Json::Value cmdPayload = pc.payload;
-	if (selConfirmRules(game, pc, cmdPayload)) { rejectHostCmd(game, pc, "coop_sel_dup"); return; } // MR8 / PR-45: a success
+	if (selConfirmRules(game, pc, cmdPayload)) { rejectHostCmd(game, pc, "coop_sel_dup"); return; } // a success
 	if (!hit->second.validate(game, cmdPayload, base, pc.seat, cost, failReason))
 	{
 		rejectHostCmd(game, pc, failReason.empty() ? "rejected" : failReason);
@@ -4368,9 +4368,9 @@ void processApply(Game* game, const Json::Value& ap)
 // ---- Public API --------------------------------------------------------------
 
 // coop: the SHARED pre-battle equip end's soldier
-// gear records (connectionTCP.cpp E5 / E8). H20's soldierEquipRecord / soldierEquipAdopt sit in the anonymous namespace above;
+// gear records (both called from connectionTCP.cpp). soldierEquipRecord / soldierEquipAdopt sit in the anonymous namespace above;
 // these two are their public seam. HOST: one record per battle unit with a geoscape soldier - id, layout, personal, personalArmor
-// (QH69-2 (a): no name).
+// (no name).
 Json::Value equipEndGearRecords(SavedBattleGame* save)
 {
 	Json::Value out(Json::arrayValue);
@@ -4388,7 +4388,7 @@ Json::Value equipEndGearRecords(SavedBattleGame* save)
 	return out;
 }
 
-// coop: CLIENT - each record into the soldier of this machine's battle unit with that soldier id (H20's adopt: the
+// coop: CLIENT - each record into the soldier of this machine's battle unit with that soldier id (soldierEquipAdopt: the
 // present fields only). Returns the records adopted; a record with no such unit is skipped.
 int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& records)
 {
@@ -4462,7 +4462,7 @@ void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantPro
 		// player's half-entered order once per game-day because of it.
 		if (cmd.compare(0, 4, "sel_") == 0) return; // selection traffic never rebuilds a screen
 		if (!_wantProgress && cmd == "day_tick") return;
-		if (!_wantProgress && cmd == "soldier_fx") return; // per-day soldier bookkeeping, like day_tick (Q4)
+		if (!_wantProgress && cmd == "soldier_fx") return; // per-day soldier bookkeeping, like day_tick
 		// applyBaseId < 0 = world-scoped (funds-only, base creation, dogfights):
 		// always relevant. Otherwise only this screen's own base matters.
 		if (applyBaseId >= 0 && _base)
@@ -4605,7 +4605,7 @@ void init()
 	registerCmd("sel_open", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_open"); });
 	registerCmd("sel_set", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_set"); });
 	registerCmd("sel_close", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_close"); });
-	registerCmd("sel_sync", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_sync"); }); // host-origin (PR-41)
+	registerCmd("sel_sync", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_sync"); }); // host-origin
 }
 
 void broadcast(Game* game, const Json::Value& msg)
@@ -4717,7 +4717,7 @@ void update(Game* game)
 		processHostCmd(game, pc);
 	}
 
-	// 2) Replica: drain queued applies -> setFunds + apply (held while a streamed world awaits adoption, PR-6).
+	// 2) Replica: drain queued applies -> setFunds + apply (held while a streamed world awaits adoption).
 	for (; !g_applyHold;)
 	{
 		Json::Value ap;
@@ -4741,7 +4741,7 @@ void update(Game* game)
 		}
 		if (!have) break;
 		showFail(game, fail.first);
-		recordResult(fail.second, fail.first == "coop_sel_dup" ? 1 : -1); // the awaiting screen stays under the fail box; S-C-E1 (PR-45): a duplicate is a success
+		recordResult(fail.second, fail.first == "coop_sel_dup" ? 1 : -1); // the awaiting screen stays under the fail box; a duplicate is a success
 	}
 
 	// 4) Host: serve queued resync requests (PRD-J10). Re-stream the authoritative
@@ -4800,7 +4800,7 @@ int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	return seq;
 }
 
-// ---- W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30/PR-31; D175, MR9, MR10): screen keys, awaited answers, closing ----------
+// ---- screen keys, awaited answers, closing ----------
 namespace
 {
 std::string screenKey(const char* screen, char variant, int baseIdx, const std::string& extra)
@@ -4829,7 +4829,7 @@ std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrig
 	return screenKey("cont", battlescapeOrigin ? 'f' : 'n', baseIndex(game, base), "p" + std::to_string(prisonType));
 }
 
-// W2-P7 S-C-E3 (P7-9 PR-54, Q-P9-3 (a)): the Purchase/Hire screen; the one opened from "not enough equipment" has its own list.
+// The Purchase/Hire screen; the one opened from "not enough equipment" has its own list.
 std::string buyKey(Game* game, Base* base, bool reequip)
 {
 	return screenKey("buy", reequip ? 'r' : 'n', baseIndex(game, base), "");
@@ -4871,10 +4871,10 @@ void forgetResult(const std::string& key)
 
 bool keepAfterSubmit(Game* game, const std::string& key, int seq, bool bound)
 {
-	if (!bound || !sharedGame(game)) return false; // a harness lever never ran init(): today's immediate pop
-	if (key.find("|f|") != std::string::npos) return true; // a forced screen stays until solved (MR9)
+	if (!bound || !sharedGame(game)) return false; // a harness test command never ran init(): an immediate pop
+	if (key.find("|f|") != std::string::npos) return true; // a forced screen stays until solved
 	if (seq <= 0) return false;
-	awaitResult(key, seq); // MR10: the screen waits for the host's answer
+	awaitResult(key, seq); // the screen waits for the host's answer
 	return true;
 }
 
@@ -4898,7 +4898,7 @@ bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlesc
 	return takeResult(contKey(game, base, prisonType, battlescapeOrigin)) == 1;
 }
 
-// W2-P7 S-C-E3 (P7-9 PR-58, Q-P9-2 (a), MR10): a Purchase/Hire screen closes on its OK answer.
+// A Purchase/Hire screen closes on its OK answer.
 bool buyScreenShouldClose(Game* game, Base* base, bool reequip)
 {
 	return sharedGame(game) && baseIndex(game, base) >= 0 && takeResult(buyKey(game, base, reequip)) == 1;
@@ -4927,7 +4927,7 @@ void resetSessionQueues()
 	g_applyHold = false;
 	g_sel.clear(); g_selLocal.clear(); g_selCarry.clear(); // no shared list outlives its session
 	Log(LOG_INFO) << "[SHARED] session reset: dropped " << cmds << " command(s), " << applies << " apply(s), " << fails
-		<< " failure(s); apply hold was " << (held ? "on" : "off") << " (PR-34)";
+		<< " failure(s); apply hold was " << (held ? "on" : "off") << " (resetSessionQueues)";
 }
 
 // TestServer sel_state's read of the shared selection store (read-only).
@@ -4953,7 +4953,7 @@ void onPeerLeft(int seat)
 	Log(LOG_INFO) << "[SHARED] sel: seat " << seat << " left - " << dropped << " viewer(s) dropped, " << g_sel.size() << " list(s) left";
 }
 
-// ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-43; D184, D203, D204, MR7, Q-P8-2, Q-P8-3): the SelectionBinder on SellState ----
+// ---- the SelectionBinder on SellState ----
 namespace
 {
 std::string selRowKey(const TransferRow& row)
@@ -4983,8 +4983,8 @@ std::string buyRowKey(const TransferRow& row)
 	return "";
 }
 
-// ---- W2-P7 S-C-E2 (AMENDMENT P7-8 PR-47, PR-50; D203, D243, V-E4): Transfer and containment rows, label, highlight ----
-// Q-P8-3 (a): a row adopts min(list amount, its maximum) unless its own last edit is not answered yet. True = changed.
+// ---- Transfer and containment rows, label, highlight ----
+// A row adopts min(list amount, its maximum) unless its own last edit is not answered yet. True = changed.
 bool selAdopt(int& amount, const std::string& rk, int max, const SharedSel& m, const SelLocal& loc,
 	const std::map<std::string, int>& sent)
 {
@@ -5009,9 +5009,9 @@ uint64_t selSig(const std::vector<int>& v)
 	return h;
 }
 
-// D243 (owner 2026-10-05): in a SHARED campaign a Sell / Transfer list gives up its last text row for good (TextList::
+// In a SHARED campaign a Sell / Transfer list gives up its last text row for good (TextList::
 // setHeight re-places its down arrow and scrollbar and recounts its visible rows, TextList.cpp :542-549, :105-113,
-// :982-990); the label (State-owned, hidden while alone) takes the line above the buttons (containment: its gap, F6111).
+// :982-990); the label (State-owned, hidden while alone) takes the line above the buttons (containment: its gap).
 Text* selLayout(Game* game, State* screen, TextList* list, Surface* buttons, const char* cat, bool shrink)
 {
 	const Font* f = game->getMod()->getFont("FONT_SMALL");
@@ -5024,8 +5024,8 @@ Text* selLayout(Game* game, State* screen, TextList* list, Surface* buttons, con
 	return label;
 }
 
-// PR-50: the label names the other seats on the list; a visible row above 0 last edited by another seat is drawn in the
-// screen's button2 colour (F6112, V-E4), one that loses it goes back to the screen's updater; only on a rev / rows change.
+// The label names the other seats on the list; a visible row above 0 last edited by another seat is drawn in the
+// screen's button2 colour, one that loses it goes back to the screen's updater; only on a rev / rows change.
 void selPresent(Game* game, State* screen, const SharedSel& m, Text* label, std::string& shown, TextList* list,
 	const char* cat, uint64_t rowsSig, uint64_t& drawnSig, std::map<std::string, int>& lit,
 	const std::function<std::vector<std::string>()>& visibleKeys, const std::function<void(size_t)>& redraw)
@@ -5090,7 +5090,7 @@ void SelectionBinder::open(Game* game, SellState* screen, bool bound)
 	_game = game;
 	if (!bound || !sharedGame(game)) { _inert = true; return; }
 	_sell = screen; _opened = true;
-	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "sellMenu", true); // S-C-E2
+	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "sellMenu", true);
 	_key = keyOf(game, screen);
 	_baseIdx = baseIndex(game, screen->_base);
 	auto c = g_selCarry.find(_key);
@@ -5105,13 +5105,13 @@ void SelectionBinder::think(SellState* screen)
 	const int baseIdx = _opened ? baseIndex(_game, screen->_base) : -1;
 	if (baseIdx < 0) return; // inert, or the base is gone (the screen closes itself)
 	const std::string key = keyOf(_game, screen);
-	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // the indices shifted
 	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return; // keep the local (seeded) rows until answered
 	auto it = g_sel.find(_key);
-	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; } // dropped (PR-49)
+	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; } // dropped
 	_acked = true;
 	const SharedSel& m = it->second;
-	auto present = [&]() // W2-P7 S-C-E2 (P7-8 PR-50; D203, V-E4): the presence label and the highlight, after the rows
+	auto present = [&]() // the presence label and the highlight, after the rows
 	{
 		selPresent(_game, screen, m, _label, _labelShown, screen->_lstItems, "sellMenu", selSig(screen->_rows), _hlSig, _hlOn,
 			[&]() { return selVisible(screen->_items, screen->_rows); },
@@ -5120,8 +5120,8 @@ void SelectionBinder::think(SellState* screen)
 	};
 	if (_seen && m.rev == _seenRev) { present(); return; }
 	_seen = true; _seenRev = m.rev;
-	// Each row adopts min(list amount, its maximum), unless its own last edit is not answered yet (Q-P8-3 (a)); then the
-	// totals come from every row plus the list's rows this screen does not show (another seat's soldiers, MR7, F6124).
+	// Each row adopts min(list amount, its maximum), unless its own last edit is not answered yet; then the
+	// totals come from every row plus the list's rows this screen does not show (another seat's soldiers).
 	const SelLocal& loc = g_selLocal[_key];
 	std::set<std::string> shown;
 	std::vector<size_t> changed;
@@ -5197,12 +5197,12 @@ void SelectionBinder::carryOver()
 
 void SelectionBinder::stamp(Json::Value& payload)
 {
-	if (!_opened) return; // a harness lever never opened one: its confirm carries no selKey
+	if (!_opened) return; // a harness test command never opened one: its confirm carries no selKey
 	auto it = g_sel.find(_key);
 	payload["selKey"] = _key;
 	payload["selRev"] = Json::UInt(it == g_sel.end() ? 0 : it->second.rev);
-	payload["selRows"] = _sell ? rowsOf(_sell) : _xfer ? rowsOf(_xfer) : _buy ? rowsOf(_buy) : rowsOf(_cont); // S-C-E2/E3
-	if (_buy && _key.compare(0, 6, "buy|r|") == 0) payload["reequip"] = true; // S-C-E3 (P7-9 PR-59, PR-61)
+	payload["selRows"] = _sell ? rowsOf(_sell) : _xfer ? rowsOf(_xfer) : _buy ? rowsOf(_buy) : rowsOf(_cont);
+	if (_buy && _key.compare(0, 6, "buy|r|") == 0) payload["reequip"] = true;
 	if (_key.find("|d|") == std::string::npos || (!_sell && !_xfer)) return;
 	payload["selCaps"] = Json::Value(Json::objectValue); // page 3: each row's recovered count
 	for (const auto& row : _sell ? _sell->_items : _xfer->_items)
@@ -5265,7 +5265,7 @@ void SelectionBinder::think(TransferItemsState* screen)
 	const int baseIdx = _opened && baseIndex(_game, screen->_baseTo) >= 0 ? baseIndex(_game, screen->_baseFrom) : -1;
 	if (baseIdx < 0) return; // inert, or a base is gone (the screen leaves itself)
 	const std::string key = keyOf(_game, screen);
-	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // the indices shifted
 	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return;
 	auto it = g_sel.find(_key);
 	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; }
@@ -5315,7 +5315,7 @@ void SelectionBinder::think(ManageAlienContainmentState* screen)
 	const int baseIdx = _opened ? baseIndex(_game, screen->_base) : -1;
 	if (baseIdx < 0) return; // inert, or the base is gone
 	const std::string key = keyOf(_game, screen);
-	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // the indices shifted
 	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return;
 	auto it = g_sel.find(_key);
 	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; }
@@ -5369,7 +5369,7 @@ void SelectionBinder::localEdit(ManageAlienContainmentState* screen)
 }
 
 // ---- the binder on Purchase/Hire ----------
-// Both variants (normal buy|n|, reequip buy|r|); rows keyed by buyRowKey (a Purchase row holds a rule, F6622).
+// Both variants (normal buy|n|, reequip buy|r|); rows keyed by buyRowKey (a Purchase row holds a rule).
 std::string SelectionBinder::keyOf(Game* game, PurchaseState* screen)
 	{ return buyKey(game, screen->_base, screen->_parent != nullptr); }
 
@@ -5384,13 +5384,13 @@ Json::Value SelectionBinder::rowsOf(PurchaseState* screen)
 void SelectionBinder::open(Game* game, PurchaseState* screen, bool bound)
 {
 	if (_opened || _inert) return;
-	if (!bound || !sharedGame(game)) { _inert = true; return; } // the buy lever never runs init() (P9-6)
+	if (!bound || !sharedGame(game)) { _inert = true; return; } // the buy test command never runs init()
 	_game = game; _buy = screen; _opened = true;
-	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "buyMenu", true); // D243 by analogy (V-P4)
+	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "buyMenu", true); // the Sell / Transfer list layout, by analogy
 	_key = keyOf(game, screen); _baseIdx = baseIndex(game, screen->_base);
 	auto c = g_selCarry.find(_key);
 	if (c == g_selCarry.end()) { sendOpen(rowsOf(screen)); return; } // seed = the reequip pre-fill only
-	_acked = c->second.first; _openWant = c->second.second; // a refresh rebuild (F2161, V-P6): adopt the list, send nothing
+	_acked = c->second.first; _openWant = c->second.second; // a refresh rebuild: adopt the list, send nothing
 	g_selCarry.erase(c);
 }
 
@@ -5399,7 +5399,7 @@ void SelectionBinder::think(PurchaseState* screen)
 	const int baseIdx = _opened ? baseIndex(_game, screen->_base) : -1;
 	if (baseIdx < 0) return; // inert, or the base is gone (the screen leaves itself)
 	const std::string key = keyOf(_game, screen);
-	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // PR-49: the indices shifted
+	if (key != _key) { _key = key; _baseIdx = baseIdx; sendOpen(rowsOf(screen)); return; } // the indices shifted
 	if (!_acked && g_selLocal[_key].openEchoes < _openWant) return;
 	auto it = g_sel.find(_key);
 	if (it == g_sel.end() || !it->second.viewers.count(connectionTCP::localSeat())) { sendOpen(rowsOf(screen)); return; }
@@ -5408,7 +5408,7 @@ void SelectionBinder::think(PurchaseState* screen)
 	if (!_seen || m.rev != _seenRev)
 	{
 		// Each row adopts the list's amount with no local cap - qtySrc is the base's stock, not a maximum - unless its
-		// own last edit is unanswered (Q-P8-3 (a)). The five totals increaseByValue gates on come from every row, hidden or
+		// own last edit is unanswered. The five totals increaseByValue gates on come from every row, hidden or
 		// filtered too, plus the list's rows this screen does not build, at their rule's cost and size.
 		_seen = true; _seenRev = m.rev;
 		Mod* mod = _game->getMod();
@@ -5535,7 +5535,7 @@ void hostResearchDone(Game* game, int baseId, const std::string& research,
 // ---- research_fx - the host side ----------------------------------------------------
 // time1Day marks the world right before a base's completion block (3a) and diffs it right after
 // handlePrimaryResearchSideEffects (3j-3m): one synchronous chain, so the diff is exactly this base's completion effects,
-// incl. 3j removals and refunds in every base. 3l (spawned events) stays host-only (Q2 a).
+// incl. 3j removals and refunds in every base. 3l (spawned events) stays host-only.
 Json::Value researchFxMark(Game* game, bool armed)
 {
 	if (!armed || !sharedHost(game) || !game->getSavedGame()) return Json::Value(Json::nullValue);
@@ -5650,7 +5650,7 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived)
 void hostBaseDestroyed(Game* game, int baseId, const std::string& name, bool missiles)
 {
 	if (!sharedHost(game)) return;
-	g_sel.clear(); // W2-P7 S-C-E1 (P7-8 PR-49, Q-P8-5 (a)): base indices shift - every binder re-keys on its next think()
+	g_sel.clear(); // base indices shift - every binder re-keys on its next think()
 	Json::Value p;
 	p["name"] = name;
 	p["missiles"] = missiles;
@@ -5791,7 +5791,7 @@ bool removeOwnCraftPilots(Game* game, Craft* craft)
 	std::vector<Soldier*> list = craft->getPilotList(false, game->getMod());
 	craft->removeAllPilots();
 	for (auto* s : list)
-		if (!ownsSoldier(game, s)) craft->addPilot(s->getId()); // aud-E1-11: the partner's picks stay
+		if (!ownsSoldier(game, s)) craft->addPilot(s->getId()); // the partner's picks stay
 	Json::Value p;
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
@@ -5909,7 +5909,7 @@ void baseEquipOk(Game* game, Base* base)
 			soldiers.append(now);
 		else
 		{
-			soldierEquipAdopt(game, s, mark["soldiers"][key]); // Q2 (a): the partner's gear stays the partner's (aud-E1-11)
+			soldierEquipAdopt(game, s, mark["soldiers"][key]); // the partner's gear stays the partner's
 			++restored;
 		}
 	}
@@ -5972,7 +5972,7 @@ void craftDeploymentSaved(Game* game, const std::string& craftType)
 	submitLocalCmd(game, "craft_deployment", -1, p); // the end-state; the presser's own apply writes the same entry again
 }
 
-// W2-H20b (A11; aud-E1-11, AUD-A48): see SharedEcon.h.
+// See SharedEcon.h.
 void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType)
 {
 	if (!game || !base || !soldier || base->_coopBase || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
@@ -6010,11 +6010,11 @@ Json::Value craftItemsMark(Game* game, Base* base, Craft* craft)
 	return m;
 }
 
-// W2-H20b-B (A8, A12, the window's close; QB1 a, QB4 a): see SharedEcon.h.
+// See SharedEcon.h.
 void craftItemsCommit(Game* game, Base* base, Craft* craft, const Json::Value& mark, bool every)
 {
 	if (!game || !base || !craft || !mark.isObject()) return;
-	if (g_craftStage.isObject() && g_craftStage.get("base", -1).asInt() == baseIndex(game, base)) return; // QB4 (a): the close commits
+	if (g_craftStage.isObject() && g_craftStage.get("base", -1).asInt() == baseIndex(game, base)) return; // the close commits
 	const Json::Value now = craftItemsMark(game, base, craft);
 	if (!now.isObject()) return;
 	std::set<std::string> types;
@@ -6067,7 +6067,7 @@ void craftStageClose(Game* game, Base* base)
 {
 	if (!game || !base || !g_craftStage.isObject() || g_craftStage.get("base", -1).asInt() != baseIndex(game, base)) return;
 	Json::Value w = g_craftStage; // a copy: baseEquipOk's idiom
-	g_craftStage = Json::Value(Json::nullValue); // closed first, so the commits below are not deferred (QB4 a)
+	g_craftStage = Json::Value(Json::nullValue); // closed first, so the commits below are not deferred
 	std::set<Craft*> unseated;
 	for (auto* s : *base->getSoldiers())
 	{
@@ -6075,7 +6075,7 @@ void craftStageClose(Game* game, Base* base)
 		if (s->getCraft() || !w["seats"].isMember(key) || !w["seats"][key].isObject()) continue;
 		Craft* c = findCraft(base, w["seats"][key]["craftId"].asInt(), w["seats"][key]["craftType"].asString());
 		if (!c) continue;
-		submitCraftAssign(game, c, s, false); // QB3 (a): vanilla's capacity outcome here is the shared seat (the partner's soldier too)
+		submitCraftAssign(game, c, s, false); // vanilla's capacity outcome here is the shared seat (the partner's soldier too)
 		unseated.insert(c);
 	}
 	for (const auto& rec : w["crafts"])
@@ -6099,7 +6099,7 @@ bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Sol
 }
 
 // see SharedEcon.h. The random-production window's right-click sale goes through the host's "sell" (re-priced there
-// with the window's own formula; capped at the host's stores, V-E1); nothing is written locally.
+// with the window's own formula; capped at the host's stores); nothing is written locally.
 bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemType, int qty)
 {
 	if (!game || !base || base->_coopBase) return false;
@@ -6161,14 +6161,14 @@ void submitSoldierPsiTraining(Game* game, Base* base, Soldier* soldier)
 }
 
 // the crew screen's two "remove soldiers" keys in SHARED - craft_assign off for every
-// own soldier (A1) of @a base on a craft that is not OUT (only @a onlyCraft when non-null); true = handled.
+// own soldier of @a base on a craft that is not OUT (only @a onlyCraft when non-null); true = handled.
 bool submitCraftDeassign(Game* game, Base* base, Craft* onlyCraft)
 {
 	if (!game || !base || base->_coopBase) return false;
 	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return false;
 	for (auto* s : *base->getSoldiers())
 	{
-		if (!ownsSoldier(game, s)) continue; // W2-H16b A1 (AUD-A48): the hotkeys unseat only the local player's own soldiers
+		if (!ownsSoldier(game, s)) continue; // the hotkeys unseat only the local player's own soldiers
 		Craft* sc = s->getCraft();
 		if (!sc || sc->getStatus() == "STR_OUT") continue; // an OUT craft is locked (CraftSoldiersState :675-679, craftAssignValidate)
 		if (onlyCraft && sc != onlyCraft) continue;
@@ -6232,7 +6232,7 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase)
 	submitLocalCmd(game, "alien_base_found", 0, p);
 }
 
-// ---- W2-A12b (AUD-A12; F6780, F6783, F6784): text nodes - the sender ships a key and its pieces, never its own language ----
+// ---- text nodes - the sender ships a key and its pieces, never its own language ----
 Json::Value textKey(const std::string& key, std::initializer_list<Json::Value> args)
 {
 	Json::Value n(Json::objectValue);
@@ -6323,7 +6323,7 @@ void hostAlert(Game* game, const std::string& cls, const std::string& msg,
 	p["ids"] = ji;
 	if (rows.isArray() && !rows.empty())
 		p["rows"] = rows;
-	if (text.isObject()) p["text"] = text; // W2-A12b (AUD-A12): the replica renders it instead of msg
+	if (text.isObject()) p["text"] = text; // the replica renders it instead of msg
 	submitLocalCmd(game, "alert", base ? baseIndex(game, base) : 0, p);
 }
 
@@ -6573,7 +6573,7 @@ void hostProductionFx(Game* game, Base* base, const std::string& manufacture, co
 	{
 		Transfer* t = (*base->getTransfers())[i];
 		if (Soldier* s = t->getSoldier())
-			if (s->getOwnerPlayerId() == 999) s->setOwnerPlayerId(prod && prod->getCoopStarterSeat() >= 0 ? prod->getCoopStarterSeat() : s->getId() % 2); // OC-H16g-1 (a): the produced soldier's owner
+			if (s->getOwnerPlayerId() == 999) s->setOwnerPlayerId(prod && prod->getCoopStarterSeat() >= 0 ? prod->getCoopStarterSeat() : s->getId() % 2); // the produced soldier's owner
 		transfers.append(geoYaml([&](YAML::YamlNodeWriter w) { t->save(w, base, mod); }));
 	}
 	std::set<std::string> now;
@@ -6664,7 +6664,7 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base)
 	return out;
 }
 
-// W2-H16b A1 (AUD-A48): the roster index behind display row @a row of an own-only list
+// The roster index behind display row @a row of an own-only list
 // (AllocateTrainingState / AllocatePsiTrainingState); identity outside SHARED.
 size_t visibleRowToRosterIndex(Game* game, Base* base, size_t row)
 {
@@ -7071,13 +7071,13 @@ void resetResyncStats()
 	g_lastResyncGameMin = -1;
 }
 
-// ===== R2-P9: battle hash buckets =====
-// Minimal, spike-scoped port of donor cbff7951d's battle-hash region -
+// ===== battle hash buckets =====
+// A minimal port of donor cbff7951d's battle-hash region -
 // DEFINITIONS ONLY: mechanism (the FNV mixer, the tile-inclusion
 // test, the saveBlob node-tree walk + FOW bin-tiles masking) is reproduced
 // from the donor as a format reference; none of its ring/compare/side-gate/
-// promotion-table/boundary-persistence machinery is ported - this spike has
-// no host-side ring to compare against (host never compares, SS2.8).
+// promotion-table/boundary-persistence machinery is ported - there is
+// no host-side ring to compare against (the host never compares).
 
 namespace
 {
@@ -7164,11 +7164,11 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 	if (!battle)
 		return false;
 
-	// W2-P2 S-H (owner ruling D138, amendment A5.2): `synced` = every delta
+	// `synced` = every delta
 	// field no other bucket covers (33 rows), in the same sweep. Per entity an
 	// FNV that first mixes a kind tag (1 unit, 2 tile, 3 node, 4 item,
-	// 5 battle) and the id/index, then the fields in the A5.2 table order,
-	// summed like every other bucket (order-free, N12). FIELD-PARITY:
+	// 5 battle) and the id/index, then the fields in a fixed order,
+	// summed like every other bucket (order-free). FIELD-PARITY:
 	// connectionTCP.cpp's CoopDelta captureUnit/captureTile/captureItem/
 	// captureBattle read exactly these getters - a field added there joins a
 	// legacy bucket or this one in the same commit.
@@ -7221,7 +7221,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 			out.smoke += h;
 		}
 
-		// synced (A5.2 row 36): doorBits, captureTile's formula; tiles with
+		// synced: doorBits, captureTile's formula; tiles with
 		// every UFO-door part closed contribute nothing.
 		const int doorBits = (tile->isUfoDoorOpen(O_WESTWALL) ? 1 : 0)
 			| (tile->isUfoDoorOpen(O_NORTHWALL) ? 2 : 0)
@@ -7236,7 +7236,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		}
 	}
 
-	// W2-P3 S-C.2 (amendment B1 RQ9, F955): the unit-side special-weapon link
+	// The unit-side special-weapon link
 	// (BattleUnit::_specWeapon, written by addLoadedSpecialWeapon /
 	// coopDetachSpecialWeapon on the client) has no slot enumerator, so each
 	// unit's link is read as the _items entries x with
@@ -7247,8 +7247,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 	std::set<const BattleItem*> liveItems;
 
 	// --- items: the strict census -------------------------------------------
-	// D5 (SS2.8): adds ammoQty + fuse (fuse was already carried via
-	// getFuseTimer()). MJ-7 (SS2.8/cr1-field-audit.md sec 2b): ground-strip
+	// Includes ammoQty and fuse (getFuseTimer()). Ground-strip
 	// x/y is a pure client-local Inventory::arrangeGround() display recompute
 	// (never replicated) - only INV_SLOT items carry a meaningful x/y,
 	// exactly the guard vanilla's own BattleItem::save() already applies.
@@ -7267,7 +7266,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		const RuleInventory* slot = item->getSlot();
 		h ^= fnv1a(slot ? slot->getId() : std::string("-"));
 		h *= FNV_PRIME;
-		if (slot && slot->getType() == INV_SLOT) // MJ-7: ground/hand carry no x/y
+		if (slot && slot->getType() == INV_SLOT) // ground/hand carry no x/y
 		{
 			h = mix(h, item->getSlotX());
 			h = mix(h, item->getSlotY());
@@ -7277,10 +7276,10 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		h = mix(h, t ? t->getPosition().y : -1);
 		h = mix(h, t ? t->getPosition().z : -1);
 		h = mix(h, item->getFuseTimer());
-		h = mix(h, item->getAmmoQuantity()); // D5
+		h = mix(h, item->getAmmoQuantity()); // ammoQty
 		out.items += h;
 
-		// synced (A5.2 rows 40, 41, 45, 47-51), captureItem's getters.
+		// synced: captureItem's getters.
 		std::uint64_t y = FNV_OFFSET;
 		y = mix(y, 4);
 		y = mix(y, item->getId());
@@ -7302,7 +7301,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 	}
 
 	// --- units: core identity/liveness/position, then unitsStats ------------
-	// SS2.8: unitsStats is the RE-MERGED single bucket (legacy unitsCombat/
+	// unitsStats is the RE-MERGED single bucket (legacy unitsCombat/
 	// unitsRegen fold back in) - tu, energy, health, stun, morale, mana,
 	// fire, kneeling, mcId, wounds, motionPoints.
 	for (BattleUnit* unit : *battle->getUnits())
@@ -7336,7 +7335,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		s = mix(s, unit->getMotionPoints());
 		out.unitsStats += s;
 
-		// synced (A5.2 rows 2-4, 6, 15, 17, 20-30), captureUnit's getters;
+		// synced: captureUnit's getters;
 		// `status` raw, unitsCore keeps liveness.
 		std::uint64_t y = FNV_OFFSET;
 		y = mix(y, 1);
@@ -7362,14 +7361,13 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y = mix(y, unit->isLeftHandDisabledForReactions() ? 1 : 0);
 		y = mix(y, unit->isRightHandDisabledForReactions() ? 1 : 0);
 		y = mixSyncedTags(y, unit->coopScriptValuesRaw());
-		// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3 R-5; AMENDMENT P8-4c: T0-R1 found them equal on both machines at
-		// battle start, F2945): captureUnit's two names - the unit's own stored name and its geoscape Soldier's
+		// captureUnit's two names (equal on both machines at battle start) - the unit's own stored name and its geoscape Soldier's
 		// raw name ("" without one) - in this function's own string mix.
 		y ^= fnv1a(unit->getName(nullptr));
 		y *= FNV_PRIME;
 		y ^= fnv1a(unit->getGeoscapeSoldier() ? unit->getGeoscapeSoldier()->getName(false) : std::string());
 		y *= FNV_PRIME;
-		// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; FIELD-PARITY): captureUnit's seat tag, after the names.
+		// FIELD-PARITY: captureUnit's seat tag, after the names.
 		y = mix(y, (int)unit->getCoopSeat());
 		// the unit's special-weapon link - the ids
 		// of the _items entries its own slots hold, ascending, as size then ids.
@@ -7389,7 +7387,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		out.synced += y;
 	}
 
-	// synced (A5.2 row 37): every node's type.
+	// synced: every node's type.
 	if (std::vector<Node*>* nodes = battle->getNodes())
 	{
 		for (Node* node : *nodes)
@@ -7404,7 +7402,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		}
 	}
 
-	// synced (A5.2 rows 55-60): the battle as one entity, captureBattle's
+	// synced: the battle as one entity, captureBattle's
 	// getters; moduleMap cells x-major (x, y, first, second).
 	{
 		std::uint64_t y = FNV_OFFSET;
@@ -7426,7 +7424,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y = mix(y, battle->getTurn());
 		y = mix(y, (int)battle->getSide());
 		y = mixSyncedTags(y, battle->coopScriptValuesRaw());
-		// W2-P3 S-C.2 (B1 RQ2/RQ9): reinforcementsMemory, captureBattle's getter -
+		// reinforcementsMemory, captureBattle's getter -
 		// size, then each {wave type, count} in the map's own (key) order.
 		const std::map<std::string, int>& rm = battle->getReinforcementsMemory();
 		y = mix(y, (std::int64_t)rm.size());
@@ -7443,7 +7441,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 	return true;
 }
 
-// ----- SS2.8/cr1-field-audit.md: the saveBlob (whole-document) hash --------
+// ----- the saveBlob (whole-document) hash --------
 
 namespace
 {
@@ -7459,24 +7457,21 @@ bool saveBlobExcludedTopKey(std::string_view k)
 {
 	return k == "nameDisplay"
 		|| k == "selectedUnit" || k == "undoUnit"
-		// W1-P5 RATIFICATION (WAVE1-RUNBOOK.md ruling D8 = WV-D14: "RATIFY
-		// per-machine reserve settings ... contract, not code"; see also
-		// WV-D38/WV-D48 and SS2.W2's RESERVE block). These two exclusions are
+		// PER-MACHINE RESERVE SETTINGS (a contract, not code). These two exclusions are
 		// LOAD-BEARING, not housekeeping: they are what makes each player's TU/
 		// kneel reserve THEIR OWN. Because no bucket reads them, two machines
 		// may legitimately hold different values forever, which is why the
 		// reserve buttons are deliberately NOT coop-gated
 		// (BattlescapeState::btnReserveKneelClick carries the other half of this
 		// note) and why no `reserve` field goes on the wire. The knock-on rules
-		// are already ruled: the host does NOT apply its own reserve to a
-		// CLIENT-origin walk, and the client's intent builder enforces its own
-		// per step, because vanilla's sole enforcement point
+		// are fixed: the host does NOT apply its own reserve to a
+		// CLIENT-origin walk, and the client checks its own reserve per step when
+		// it builds the walk intent, because vanilla's sole enforcement point
 		// (UnitWalkBState.cpp:324) runs on the host - Pathfinding::previewPath
 		// only COLOURS tiles (Pathfinding.cpp:1269 -> :1303), it never refuses.
 		// Do not remove these two entries.
 		|| k == "tuReserved" || k == "kneelReserved"
-		// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-20/D-21
-		// revision "D.1" = WV-D55, and SS2.W1's HASH paragraph): the battle's
+		// The battle's
 		// TURN MODE. Session CONFIGURATION, not simulated state - both machines
 		// already agree on it because the host stamps it on battle_offer and the
 		// client mirrors it, so it must never ride the saveBlob hash. Same
@@ -7500,15 +7495,15 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		|| k == "vipsSaved" || k == "vipsSavedScore"
 		|| k == "vipsLost" || k == "vipsLostScore"
 		|| k == "vipsWaitingOutside" || k == "vipsWaitingOutsideScore"
-		// R2-P11 divergence hunt (orchestrator): at the time, the ONLY unexcluded
+		// Found by a divergence hunt: at the time, the ONLY unexcluded
 		// saveBlob divergence in a live coop battle. Both are DISPLAY-ONLY
 		// briefing/HUD labels ("LANDING SITE-0", "CRAFT> SKYRANGER-1"), written by
 		// BriefingState (BriefingState.cpp:151-188). The host ran BriefingState;
 		// the thin client loaded the streamed blob straight to BattlescapeState
 		// (no briefing), so they stayed empty on the client. No sim effect - same
-		// per-battle display class as the audit's sec-6 fields.
+		// per-battle display class as the excluded unit fields (saveBlobExcludedUnitKey).
 		//
-		// W1-P2 (WAVE1-RUNBOOK.md SS2.W1 / WV-D28) CLOSED the underlying gap: the
+		// The underlying gap is closed: the
 		// host now mints both labels BEFORE the offer and battle_offer.missionLabel
 		// carries them, so the two machines agree on them in real play. THE
 		// EXCLUSION STAYS, and is now load-bearing in the other direction: it is
@@ -7520,10 +7515,10 @@ bool saveBlobExcludedTopKey(std::string_view k)
 
 // ANY DEPTH, but only meaningful (and only ever reached) inside a "units"
 // array element (see the SbScope::Unit gate at the call site): legacy
-// kills/exp*/tempUnitStatistics, D4's visible/turnsSinceSpotted*, and
-// cr1-field-audit.md sec 6 items 1-12/14/15. Item 13 (previousOwner)
+// kills/exp*/tempUnitStatistics, the per-unit FOV fields visible/turnsSinceSpotted*,
+// and the other fields listed below. previousOwner
 // collides with BattleItem's OWN previousOwner field (which must stay
-// hashed per the CR-1 items disposition) - it is scope-gated separately at
+// hashed) - it is scope-gated separately at
 // the call site instead of listed here, so this function alone is never
 // depth-ambiguous.
 bool saveBlobExcludedUnitKey(std::string_view k)
@@ -7575,8 +7570,8 @@ bool saveBlobExcludedUnitKey(std::string_view k)
 // the allocated flag is skipped here; see below), or Other.
 //
 // SbScope::Node / nodes[].allocated: the pathfinding node the host's AI
-// reserved while it ran think(). A client runs no AI and SPEC 12
-// (e) forbids a new wire shape for it, so this flag is host-only by
+// reserved while it ran think(). A client runs no AI and no wire shape
+// carries it, so this flag is host-only by
 // construction and cannot be made to match. Every other node
 // field (id, position, segment, type, rank, flags, reserved, priority,
 // links) stays hashed.
@@ -7653,7 +7648,7 @@ bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::strin
 	return true;
 }
 
-// ----- R2-P9/RB-D20: minimal desync diagnostic bundle -----------------------
+// ----- minimal desync diagnostic bundle -----------------------
 
 namespace
 {
@@ -7689,7 +7684,7 @@ std::string readLogTail(size_t maxBytes)
 }
 
 // One zip from in-memory members (donor cbff7951d's writeZipArchive, format
-// reference only - RB-D20). Heap writer only.
+// reference only). Heap writer only.
 bool writeZipArchive(const std::string& path,
 	const std::vector<std::pair<std::string, std::string>>& members)
 {
@@ -7749,7 +7744,7 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 		info["seq"] = seq;
 		info["kind"] = kind;
 		info["timestamp"] = desyncTimeString();
-		info["role"] = role ? role : "client"; // coop R4-L3 S-C (D232-V1)
+		info["role"] = role ? role : "client"; // coop: the reporting machine's role
 		if (!peerBundlePath.empty())
 			info["peerBundlePath"] = peerBundlePath;
 
@@ -7816,11 +7811,11 @@ std::string writeDesyncText(const std::string& suffix, const std::string& text)
 	}
 }
 
-// ===== coop: `main`'s PRD-I5 next-launch crash reporter (Pattern A, aud-E1-26),
+// ===== coop: `main`'s next-launch crash reporter (Pattern A),
 // ported from `main` 651ae44ba SharedEcon.cpp :4025-:4065, :4067-:4103, :4272-:4308, :4332-:4570 and :4690-:4858.
 // Unchanged except: main's formatted desyncTimeString(const char*) is crashTimeString(const char*) here (this file's
 // anonymous namespace already holds a no-argument desyncTimeString()), and the zip goes through this file's
-// writeZipArchive() (R2-P9: the same miniz heap writer, the same signature). =====
+// writeZipArchive() (the same miniz heap writer, the same signature). =====
 namespace {
 
 // SAFETY / bounded work: the log is the only member that can grow without limit,

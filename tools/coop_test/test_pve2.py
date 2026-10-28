@@ -75,7 +75,7 @@ N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_MISMATCH = "[coop-handshake] battle_ready saveBlob MISMATCH"
 N_REFUSED = "refused: unsupported"          # the client's battle_offer refusal
 N_REFUSE_RX = "battle_refuse received"      # the host's unwind on it
-N_SPLIT = "R5-U8 PvE2:"                     # the host's split line (E2)
+N_SPLIT = "PvE2 split:"                     # the host's split line (E2)
 N_OPENING = "PvE2 opening"           # the host's opening line (the settle passes either way)
 ROWS = (("A1", ("A1-accept", "A1-mode", "A1-auth", "A1-factions", "A1-seats", "A1-ai", "A1-reskin", "A1-bleed",
                 "A1-common")),

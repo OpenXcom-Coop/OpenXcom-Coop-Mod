@@ -52,7 +52,7 @@ class SavedBattleGame;
  */
 
 /// True while a hotseat battle may run: the NEW BATTLE toggle is armed and this machine is in no co-op
-/// session (connectionTCP::getCoopStatic() false; QD247-5).
+/// session (connectionTCP::getCoopStatic() false).
 bool coopHotseatBattle();
 
 /// True during player 2's turn (factions swapped, the side reading FACTION_PLAYER).
@@ -81,7 +81,7 @@ void coopHotseatOnDebriefing();
 /// non-player side (the end of player 2's turn, the civilians' turn) is hidden from both players.
 bool coopHotseatHidesMap(const SavedBattleGame* s);
 
-/// D247-U S-B (R5-V1's rule for a human alien side): BattlescapeGame::init() arms the start-of-turn
+/// For a human alien side, BattlescapeGame::init() arms the start-of-turn
 /// panic check on player 2's turn from turn 1; think() then runs coopHandlePanickingHotseat().
 bool coopHotseatArmsPanic(const SavedBattleGame* s);
 
@@ -90,8 +90,8 @@ bool coopHotseatArmsPanic(const SavedBattleGame* s);
 bool coopHotseatWalkReactionOff();
 
 /// coopFactionHumanCommanded() outside a co-op battle - in a hotseat battle a human commands
-/// both FACTION_PLAYER and FACTION_HOSTILE (R5-U3's terms then skip the AI weapon-use delay and the AI
-/// "aggro" step of a reaction; QD247-9).
+/// both FACTION_PLAYER and FACTION_HOSTILE (the human-commanded checks then skip the AI weapon-use
+/// delay and the AI "aggro" step of a reaction).
 bool coopHotseatFactionHuman(int faction);
 
 /// for its lifetime on player 2's turn the real factions are back, so

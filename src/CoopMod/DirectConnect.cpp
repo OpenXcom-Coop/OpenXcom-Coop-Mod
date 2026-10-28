@@ -261,12 +261,11 @@ void DirectConnect::init()
 
 void DirectConnect::convertUnits()
 {
-	// R1-P5/R4-REWIRE: legacy per-machine conversion of an already-in-progress
-	// SavedBattleGame into coop/PvP/PvE2 (BattleUnit::setCoop/setOriginalFaction,
-	// BattlescapeState::setCurrentTurn) died with the vanilla restore (911ca487f) -
-	// those coop-only battle-sim symbols no longer exist on vanilla BattleUnit/
-	// BattlescapeState. Mid-battle coop convert-and-join is quarantined pending the
-	// r4/r5 atomic-bundle rebuild (RB-D9). Every branch this used to run only ever
+	// Mid-battle coop convert-and-join is not supported: the legacy per-machine conversion
+	// of an already-in-progress SavedBattleGame into coop/PvP/PvE2
+	// (BattleUnit::setCoop/setOriginalFaction, BattlescapeState::setCurrentTurn) needs
+	// coop-only battle-sim symbols that vanilla BattleUnit/BattlescapeState do not have.
+	// Every branch of that conversion only ever
 	// fired when a battle was already in progress (see the getSavedBattle() guards
 	// below), so tell the player and bail instead of mutating a battle nothing can
 	// finish setting up.

@@ -36,7 +36,7 @@ class SavedBattleGame;
  * `bt_ev{kind:"reveal"}` carrier for reveals that happen outside any action
  * context (bring-up, host-local reselection).
  *
- * Mechanism (Option A, owner-approved): the host keeps ONE "published" bitmap -
+ * Mechanism: the host keeps ONE "published" bitmap -
  * 1 byte per tile, bits in Tile::saveBinary's boolFields order (1 = O_WESTWALL,
  * 2 = O_NORTHWALL, 4 = O_FLOOR; Tile.cpp:207) - seeded from the live battle at
  * the moment the handshake blob is snapshotted (CoopHandshake::offerBattle).
@@ -46,7 +46,7 @@ class SavedBattleGame;
  * whether or not it belongs to an action - with zero per-atom code, which is why
  * attachment lives at the choke and never in an atom's own emit hook.
  *
- * Wire shape (SS2.4a, frozen):
+ * Wire shape (frozen):
  *   revealDelta := { "add":  [i0,b0, i1,b1, ...] }        # sparse delta
  *               |  { "base": "<base64>", "n": <int> }     # absolute restate
  * `add` is a FLAT array of 2*k integers: a tile's LINEAR INDEX (the
@@ -66,13 +66,13 @@ class SavedBattleGame;
  * hook in TileEngine::calculateTilesInFOV suppresses it on hostSim == false, so
  * a client's discovered set is exactly (handshake blob) UNION (applied deltas).
  * calculateUnitsInFOV is untouched (per-unit `visible` stays machine-local and
- * is D4-excluded from saveBlob).
+ * is excluded from saveBlob).
  *
  * With all of the above in force the saveBlob binTiles fog mask
  * (SharedEcon::saveBlobMaskFowBinTiles) is REMOVED: discovered bits are now
  * VERIFIED, synced state rather than a permanent hash carve-out.
  *
- * Storage (the published bitmap + the test levers' one-shot flags) lives in
+ * Storage (the published bitmap + the test hooks' one-shot flags) lives in
  * connectionTCP.cpp next to the other battle-scoped coop globals (CoopPump/
  * CoopEmit/BattleAuthority) - this header only declares the API.
  */
@@ -92,32 +92,32 @@ void seedPublished(SavedBattleGame* battle);
 /// but not yet published. Cheap (first-difference early-out) and side-effect
 /// free - it never publishes anything. The dirty half of flushQuiescent()'s
 /// predicate; also usable by test introspection.
-/// W1-P8 (SS2.W4): "unpublished" now means EITHER SIDE's set - the strongest
+/// "Unpublished" means EITHER SIDE's set - the strongest
 /// reading, and the one every "the host has nothing left to publish" assertion
 /// in the harness actually wants.
 bool hasUnpublished(SavedBattleGame* battle);
 
-/// HOST: the same question restricted to ONE side's set (SS2.W4 dual-set).
+/// HOST: the same question restricted to ONE side's set (one of the two per-side sets).
 bool hasUnpublishedSide(SavedBattleGame* battle, CoopFog::Side side);
 
 /// HOST: compute the live-vs-published delta for @a battle and, if non-empty,
-/// attach it to @a env as the SS2.4a `reveal` field, marking those bits
+/// attach it to @a env as the `reveal` field, marking those bits
 /// published. Returns true iff a field was attached. Called from
 /// CoopEmit::sendEv() - the single host emit choke - so bt_ev (every kind) and
 /// bt_action_end both get it with no per-atom code.
 bool attachDelta(SavedBattleGame* battle, Json::Value& env);
 
-/// HOST: the standalone quiescent flush (SS2.4a's `ev reveal`). Emits ONE
+/// HOST: the standalone quiescent flush. Emits ONE
 /// bt_ev{kind:"reveal"} through the real CoopEmit::sendEv() (real seq, delta
 /// attached by attachDelta() above) when, and only when, all of: this is an
 /// active coop battle, this machine is the host sim, no coop action context is
 /// open (CoopArbiter::currentActionId() == 0), the BState chain is quiescent,
 /// and there is something unpublished. Idempotent by construction - a second
 /// tick finds nothing unpublished and emits nothing. Called once per
-/// connectionTCP::updateCoopTask() tick (RB-D5's pump point).
+/// connectionTCP::updateCoopTask() tick (the pump point).
 void flushQuiescent();
 
-/// HOST, one-shot (SS2.W4 BASELINE / WR-1 / WV-D39): emits the side:"hostile"
+/// HOST, one-shot BASELINE: emits the side:"hostile"
 /// absolute `base` restate that gives a joining client the whole hostile set.
 /// The hostile bitmap is coop-owned storage with NO save representation, so
 /// unlike the player-side bits it cannot ride the handshake blob - hence the
@@ -128,13 +128,13 @@ void flushQuiescent();
 /// consumed) and re-entrancy guarded.
 bool emitPendingBaseline();
 
-/// HOST (SS2.W4/WR-5): ONE `reveal` per envelope - the ACTING side's - so every
+/// HOST: ONE `reveal` per envelope - the ACTING side's - so every
 /// OTHER side's pending bits ship as their own bt_ev{kind:"reveal"} emitted
 /// from the SAME choke immediately afterwards, in the same seq stream. Called
 /// by CoopEmit::sendEv() right after the envelope it follows, and by
 /// flushQuiescent() when only a non-acting side owes bits. Idempotent.
 ///
-/// This is also SS2.W4's FLUSH-BEFORE-ANY-SWEEP-THAT-HASHES-THE-SET rule in
+/// This is also the FLUSH-BEFORE-ANY-SWEEP-THAT-HASHES-THE-SET rule in
 /// practice: by the time an envelope has left this choke, BOTH sets' pending
 /// deltas are on the wire, so a boundary sweep whose `h` carries
 /// `revealHostile` can never race its own unpublished bits.
@@ -144,21 +144,21 @@ void emitPendingOtherSides();
 /// phase Active.
 void armHostileBaseline();
 
-/// CLIENT: apply @a env's `reveal` field (SS2.4a) to @a battle, if present.
-/// Handles both shapes: `add` (sparse, the only one the spike host emits) and
+/// CLIENT: apply @a env's `reveal` field to @a battle, if present.
+/// Handles both shapes: `add` (sparse delta) and
 /// `base` (absolute restate - `n` must equal getMapSizeXYZ() or this raises a
 /// desync and applies NOTHING). Safe to call for every applied envelope: a
 /// no-op when the field is absent. Called from CoopDisplayQueue::onApplied()
 /// BEFORE the state branch, so it covers bt_ev of any kind AND bt_action_end.
 void applyFrom(SavedBattleGame* battle, const Json::Value& env);
 
-/// Battle-teardown chokepoint: drops the published bitmap and both test-lever
+/// Battle-teardown chokepoint: drops the published bitmap and both test-hook
 /// flags. Called from CoopPump::reset() (BattlePump.h), the established single
 /// battle-scoped reset point. @a keepHostile (true only on
-/// SPEC 16's spare path) keeps CoopFog's hostile set and arms its base restate.
+/// the peer-leave spare path) keeps CoopFog's hostile set and arms its base restate.
 void reset(bool keepHostile = false);
 
-// ----- TEST LEVERS (RB-D26 discipline: deterministic, minimal, test-only) -----
+// ----- TEST HOOKS (deterministic, minimal, test-only) -----
 
 /// HOST, one-shot: make the NEXT attachDelta() compute and PUBLISH its delta but
 /// NOT attach it - i.e. drop exactly one reveal delta on the floor. The client
@@ -169,30 +169,30 @@ void requestDropNextDelta();
 
 /// HOST, one-shot: make the NEXT flushQuiescent() emit an ABSOLUTE `base`
 /// restate of the whole live bitmap instead of a sparse `add` delta, so the
-/// SS2.4a base path gets real coverage. @a badN advertises a deliberately wrong
+/// base path gets real coverage. @a badN advertises a deliberately wrong
 /// `n` (getMapSizeXYZ() + 1), which the client must treat as a DESYNC (freeze +
 /// bt_desync + bundle + banner) and never partially apply. Set by TestServer's
 /// `reveal_base` command; consumed by the next flushQuiescent(), which fires it
 /// even when nothing is unpublished (a base restate is meaningful regardless).
-/// @a side selects WHICH set is restated (SS2.W4). Defaults to the
+/// @a side selects WHICH set is restated. Defaults to the
 /// player side, so every existing caller and every existing test is unchanged.
 void requestBaseRestate(bool badN, CoopFog::Side side = CoopFog::Side::Player);
 
-/// HOST, RB-D26 test lever: forget what @a side has already published, so the
+/// HOST, test hook: forget what @a side has already published, so the
 /// NEXT emit re-ships that side's WHOLE live set as a sparse delta. It changes
 /// no live state on either machine - reveal is monotone, so the receiver
 /// re-applies bits it already holds and both sets (and therefore the hash) stay
 /// exactly where they were. Its only purpose is to make "this envelope has bits
-/// pending for a side" TRUE on demand, which is how a wave-1 fixture - with no
-/// alien turn to move an alien - arranges SS2.W4/WR-5's premise that ONE action
-/// reveals for BOTH sides.
+/// pending for a side" TRUE on demand, which is how a test with no alien turn
+/// to move an alien arranges the premise that ONE action reveals for BOTH
+/// sides.
 void republishSide(CoopFog::Side side);
 
-/// HOST, RB-D26 test lever: ARM republishSide(@a side) to fire inside the NEXT
+/// HOST, test hook: ARM republishSide(@a side) to fire inside the NEXT
 /// emit, at the choke, rather than now. That is the difference between "the
 /// next pump tick ships the bits on their own" and "the next ACTION's envelope
-/// is what makes them pending" - and only the second arranges SS2.W4/WR-5's
-/// premise, which is one action revealing for BOTH sides at once.
+/// is what makes them pending" - and only the second arranges the premise of
+/// one action revealing for BOTH sides at once.
 void armRepublish(CoopFog::Side side);
 
 /// Fires and clears any armRepublish(). Called only from the emit choke.

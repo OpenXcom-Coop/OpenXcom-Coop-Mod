@@ -28,7 +28,7 @@
 #include "Profile.h"
 #include "ChatMenu.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
-#include "BattleAuthority.h" // W1-P7 deliverable 6: coopTurnMode* helpers (D-19)
+#include "BattleAuthority.h" // coopTurnMode* helpers
 
 namespace OpenXcom
 {
@@ -52,7 +52,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	int x = 20;
 	
 	// Create objects
-	// coop (W1-P7 deliverable 6, D-19): DONOR GEOMETRY, byte-for-byte from
+	// coop: DONOR GEOMETRY, byte-for-byte from
 	// `cbff7951d:HostMenu.cpp:54-71` - the window is 18px taller than stock, the
 	// TURN MODE toggle takes the old button row (152) and START HOST / CANCEL
 	// move down to 172.
@@ -163,7 +163,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
 	_tcpButtonHost->setVisible(true);
 
-	// coop (W1-P7 deliverable 6, D-19): the TURN MODE toggle. Label + visibility
+	// coop: the TURN MODE toggle. Label + visibility
 	// are driven by updateTurnModeButton() - called here and after every one of
 	// the three places that flip the hosting controls' visibility, the same four
 	// call points the donor used.
@@ -256,7 +256,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_cbxRegions->setVisible(true);
 
 	}
-	updateTurnModeButton(); // coop (W1-P7 deliverable 6, D-19)
+	updateTurnModeButton(); // coop
 
 	// READ HOST ADDRESS
 
@@ -367,17 +367,17 @@ void HostMenu::init()
 		_cbxRegions->setVisible(true);
 
 	}
-	updateTurnModeButton(); // coop (W1-P7 deliverable 6, D-19)
+	updateTurnModeButton(); // coop
 }
 
 void HostMenu::convertUnits()
 {
 	// coop: a single-player Custom Battle hosted from the
-	// pause menu becomes a classic co-op battle before the lobby opens (the R1-P5 stub's silent refusal is gone, F5296). Soldiers
+	// pause menu becomes a classic co-op battle before the lobby opens. Soldiers
 	// split in unit-list order (v2.0.6's order): the second player (seat 1) takes the first floor(N/2), the host (seat 0) the rest -
 	// the extra one of an odd squad, a 1-soldier squad included. Every other original-PLAYER unit (a tank) is the host's; every
 	// other unit has no seat. Each soldier's owner follows its seat (as NewBattleState seats a fresh co-op battle). The battle
-	// plays in the host window's TURNS mode and the traditional baton opens at the first live seat (D-23); offerResumedBattle()
+	// plays in the host window's TURNS mode and the traditional baton opens at the first live seat; offerResumedBattle()
 	// rebuilds the seat->faction store from these tags.
 	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
 	if (!battle)
@@ -422,7 +422,7 @@ void HostMenu::convertUnits()
 	connectionTCP::_coopGamemode = 1;
 	coopBattleAuthority().turnMode = coopSessionTurnModeFromOptions();
 	coopBattleAuthority().activeSeat = -1;
-	Log(LOG_INFO) << "[coop] MG-B: the single-player Custom Battle is now co-op: " << soldiers << " soldier(s), seat 1: "
+	Log(LOG_INFO) << "[coop] the single-player Custom Battle is now co-op: " << soldiers << " soldier(s), seat 1: "
 		<< seat1 << ", seat 0: " << seat0 << " + " << others << " other unit(s), " << unseated << " unit(s) unseated, turn mode "
 		<< coopTurnModeName(coopBattleAuthority().turnMode.load());
 }
@@ -473,7 +473,7 @@ void HostMenu::cbxVisibilityChange(Action* action)
 		_isUDPconnection = false;
 	}
 
-	updateTurnModeButton(); // coop (W1-P7 deliverable 6, D-19)
+	updateTurnModeButton(); // coop
 }
 
 void HostMenu::cbxMaxPlayersChange(Action* action)
@@ -571,13 +571,12 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	// coop D250-U S-C4a (QC-16 (a), QC4A-1 (a); F5106; `main`'s preserveLoadedMode shape): a co-op campaign RESUME (lobbyMode 2,
-	// derived above from the save's locked roster) keeps the PvP mode the save was played in - PVP (2) or PVP2 (3) - so the lobby,
-	// the world service and every battle read it. Every other host starts as PVE (1), as before.
-	// coop W2-H46 (L-SC5-1; QC-16 (a), QC4A-1 (a), R-H46-0; F17080-F17085, F17203): the kept PvP mode is the save's own
-	// (SavedGame::getCoopLoadedGamemode, written only by SavedGame::load), not the live one: the host's own DISCONNECT in the
-	// resume lobby zeroes the live mode (disconnectTCP), so a second START HOST in the same session read 0 and resumed the
-	// PvP campaign as PVE (1) on both machines. Restored here; every other host starts as PVE (1) below, as before.
+	// coop: a co-op campaign RESUME (lobbyMode 2, derived above from the save's locked roster) keeps the PvP mode the save was
+	// played in - PVP (2) or PVP2 (3) - so the lobby, the world service and every battle read it (`main`'s preserveLoadedMode
+	// shape). The kept PvP mode is the save's own (SavedGame::getCoopLoadedGamemode, written only by SavedGame::load), not the
+	// live one: the host's own DISCONNECT in the resume lobby zeroes the live mode (disconnectTCP), so a second START HOST in
+	// the same session would read 0 and resume the PvP campaign as PVE (1) on both machines. Every other host starts as PVE (1)
+	// below.
 	const int coopLoadedMode = (_game->getCoopMod()->inCoopCampaignContext() && connectionTCP::session.lobbyMode == 2)
 		? _game->getSavedGame()->getCoopLoadedGamemode() : 0;
 	const bool coopKeepLoadedPvpMode = coopLoadedMode == 2 || coopLoadedMode == 3;
@@ -730,18 +729,17 @@ void HostMenu::testHostWithFields(int comboIndex, const std::string& server,
 }
 
 /**
- * coop (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D owner ruling D-19 = WV-D55):
- * the TURN MODE toggle. Flips the HOST's remembered preference between the two
- * models; the value is shipped to the client on every battle_offer (SS2.W1),
+ * coop: the TURN MODE toggle. Flips the HOST's remembered preference between the two
+ * models; the value is shipped to the client on every battle_offer,
  * so only the host's setting matters and only before a battle starts.
  *
  * Donor shape, `cbff7951d:HostMenu.cpp:812-834` (which flipped the old boolean
- * Options::EnableCoopParallelTurns). W1-P7 keeps the shape and changes the
- * value: REV D's option is a STRING carrying the SS2.W1 wire spelling, so there
+ * Options::EnableCoopParallelTurns). The shape is kept and the value changed:
+ * the option is a STRING carrying the wire spelling, so there
  * is no bool->enum->string translation anywhere in the path.
  *
- * NOTHING HERE BRANCHES BEHAVIOUR (REV D, binding): this writes a preference.
- * The baton logic that consumes it is W1-P13's.
+ * NOTHING HERE BRANCHES BEHAVIOUR: this writes a preference.
+ * The baton logic consumes it.
  */
 void HostMenu::btnTurnModeClick(Action*)
 {
@@ -753,14 +751,14 @@ void HostMenu::btnTurnModeClick(Action*)
 }
 
 /**
- * coop (W1-P7 deliverable 6, D-19): keeps the toggle's label in sync with the
+ * coop: keeps the toggle's label in sync with the
  * option and its visibility in sync with the rest of the hosting controls -
  * hidden once a session is live, exactly like START HOST. Donor shape
  * (`cbff7951d:HostMenu.cpp:826-834`).
  *
  * The label is read back through coopSessionTurnModeFromOptions() rather than
  * from the raw string, so a hand-edited options.cfg shows what the game will
- * ACTUALLY send (anything but "traditional" is parallel, D-26) instead of
+ * ACTUALLY send (anything but "traditional" is parallel) instead of
  * echoing a value that would never reach the wire.
  */
 void HostMenu::updateTurnModeButton()
