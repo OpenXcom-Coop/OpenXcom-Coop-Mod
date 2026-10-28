@@ -407,7 +407,8 @@ static PortFileNativeError portFileNativeError(int rc)
 #ifdef _WIN32
 	if (rc != 0)
 	{
-		error.captured = (_get_doserrno(&error.code) == 0);
+		error.code = _doserrno;
+		error.captured = true;
 	}
 #else
 	(void)rc;

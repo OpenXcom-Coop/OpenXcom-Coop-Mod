@@ -1047,20 +1047,20 @@ bool moveFileRetry(const std::string &src, const std::string &dest, int boundMs)
 #ifdef _WIN32
 	auto srcW = pathToWindows(src);
 	auto dstW = pathToWindows(dest);
-	const ULONGLONG start = GetTickCount64();
+	const DWORD start = GetTickCount();
 	for (int attempt = 1; ; ++attempt)
 	{
 		if (MoveFileExW(srcW.c_str(), dstW.c_str(), MOVEFILE_REPLACE_EXISTING) != 0)
 		{
 			Log(LOG_INFO) << "[coop] save rename moved " << src << " -> " << dest << " (attempt " << attempt << ", "
-				<< (GetTickCount64() - start) << " ms)";
+				<< (DWORD)(GetTickCount() - start) << " ms)";
 			return true;
 		}
 		const DWORD err = GetLastError();
-		const ULONGLONG elapsed = GetTickCount64() - start;
+		const DWORD elapsed = GetTickCount() - start;
 		Log(LOG_WARNING) << "[coop] save rename attempt " << attempt << " failed: error " << err << " at " << elapsed << " ms ("
 			<< src << " -> " << dest << ")";
-		if ((err != ERROR_ACCESS_DENIED && err != ERROR_SHARING_VIOLATION) || elapsed >= (ULONGLONG)boundMs)
+		if ((err != ERROR_ACCESS_DENIED && err != ERROR_SHARING_VIOLATION) || elapsed >= (DWORD)boundMs)
 		{
 			Log(LOG_ERROR) << "[coop] save rename failed after " << attempt << " attempt(s), " << elapsed << " ms: error " << err
 				<< " (" << src << " -> " << dest << ")";
