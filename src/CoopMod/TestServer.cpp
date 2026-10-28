@@ -6337,6 +6337,12 @@ std::string TestServer::execute(const std::string& line)
 				}
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
+				// The battlescape's own "may I act with the selected soldier" gate
+				// (action buttons, stats popup, right-click). Read-only.
+				if (BattlescapeState* pbs = bg->getBattleState())
+				{
+					resp["playableSelected"] = pbs->playableUnitSelected();
+				}
 				// PRD-P1: the two other things a replayed peer action used to steal
 				// from the local player - the camera and the singleton
 				// BattlescapeGame::_currentAction. Read-only; a decoupling test
