@@ -20,6 +20,8 @@
 
 #include "SharedEcon.h"
 #include "SeparateEcon.h"
+#include "../Mod/RuleVideo.h"
+#include "../Menu/CutsceneState.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2558,6 +2560,18 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	const RuleResearch* newResearch = nrName.empty() ? nullptr : mod->getResearch(nrName, false);
 	if (SeparateEcon::showResearchCompletion(game, base))
 		game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
+	// Separate: a non-ending research cutscene plays for the research owner only
+	// (the host plays its own; an ending arrives as faction_campaign_end).
+	if (game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& SeparateEcon::showBaseNotification(game, base))
+		for (const RuleResearch* topic : { research, bonus })
+		{
+			if (!topic || topic->getCutscene().empty()) continue;
+			const RuleVideo* video = mod->getVideo(topic->getCutscene(), false);
+			if (!video || video->getWinGame() || video->getLoseGame()) continue;
+			game->getCoopMod()->allow_cutscene = false;
+			game->pushState(new CutsceneState(topic->getCutscene()));
+		}
 }
 
 // fac_done payload: { x, y, type }.

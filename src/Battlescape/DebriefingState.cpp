@@ -1601,7 +1601,8 @@ void DebriefingState::btnOkClick(Action *)
 
 		if (_eventToSpawn)
 		{
-			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn);
+			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn,
+				_separateMissionOwner);
 			if (canSpawn)
 			{
 				_game->pushState(new GeoscapeEventState(*_eventToSpawn));
@@ -1708,6 +1709,8 @@ void DebriefingState::addStat(const std::string &name, int quantity, int score)
  */
 void DebriefingState::prepareDebriefing()
 {
+	if (_game->getSavedGame()->getSavedBattle())
+		_separateMissionOwner = _game->getSavedGame()->getSavedBattle()->getBattleOwnerPlayerName();
 	for (auto& itemType : _game->getMod()->getItemsList())
 	{
 		RuleItem *rule = _game->getMod()->getItem(itemType);
@@ -2854,7 +2857,8 @@ void DebriefingState::prepareDebriefing()
 		// Unlock research defined in alien deployment, if the mission was a success
 		const RuleResearch *research = _game->getMod()->getResearch(ruleDeploy->getUnlockedResearchOnSuccess());
 		const RuleResearch *bonus = nullptr;
-		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus))
+		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus,
+			_separateMissionOwner))
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
@@ -2892,7 +2896,8 @@ void DebriefingState::prepareDebriefing()
 		// Unlock research defined in alien deployment, if the mission was a failure
 		const RuleResearch* research = _game->getMod()->getResearch(ruleDeploy->getUnlockedResearchOnFailure());
 		const RuleResearch* bonus = nullptr;
-		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus))
+		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus,
+			_separateMissionOwner))
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.

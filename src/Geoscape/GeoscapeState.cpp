@@ -3562,11 +3562,15 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
 		const RuleResearch* bonus = nullptr;
-		if (_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment(), &bonus))
+		if (_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment(), &bonus,
+			site->getOwnerPlayerName()))
 		{
 			// coop SEPARATE, shared research: the site lived in this world only; the
 			// other player learns the same topic and bonus.
 			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getBases()->front());
+			// Separate's one world: the replica applies the host's exact result.
+			SeparateEcon::hostMissionResearch(_game, site->getDeployment(), research, bonus,
+				site->getOwnerPlayerName());
 		}
 
 		// Increase counters
@@ -3580,7 +3584,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 
 		// Generate a despawn event
 		auto* eventRules = _game->getMod()->getEvent(site->getDeployment()->chooseDespawnEvent());
-		bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(eventRules);
+		bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(eventRules, site->getOwnerPlayerName());
 		if (canSpawn)
 		{
 			timerReset();
@@ -3856,6 +3860,66 @@ void GeoscapeState::time30Minutes()
 }
 
 /**
+ * Plays a research-completion cutscene.
+ * Separate (RU6): a win/lose ending is that player's faction finale result. A win
+ * completes the faction and, while other factions remain, queues the continuation
+ * vote; a loss (or the last faction's win) ends the campaign for every player.
+ * A non-ending cutscene plays only for the research owner; the owner's replica
+ * plays it from the research_done mirror (SharedEcon::researchDoneApply).
+ */
+static void playResearchCutscene(Game* game, GeoscapeState* gs, const RuleResearch* topic, Base* base)
+{
+	if (!topic || topic->getCutscene().empty())
+		return;
+	SavedGame* saveGame = game->getSavedGame();
+	const std::string& cutscene = topic->getCutscene();
+	const RuleVideo* videoRule = game->getMod()->getVideo(cutscene, true);
+	const bool ending = videoRule->getWinGame() || videoRule->getLoseGame();
+	if (!game->getCoopMod()->isSeparateCampaign())
+	{
+		gs->popup(new CutsceneState(cutscene));
+		if (saveGame->getEnding() == END_NONE)
+		{
+			if (videoRule->getWinGame()) saveGame->setEnding(END_WIN);
+			if (videoRule->getLoseGame()) saveGame->setEnding(END_LOSE);
+		}
+		return;
+	}
+	if (!ending)
+	{
+		if (SeparateEcon::showBaseNotification(game, base))
+		{
+			game->getCoopMod()->allow_cutscene = false; // never mirrored to the other player
+			gs->popup(new CutsceneState(cutscene));
+		}
+		return;
+	}
+	if (saveGame->getEnding() != END_NONE)
+		return;
+	const std::string owner = base ? base->getOwnerPlayerName() : std::string();
+	if (!SeparateEcon::resolveFactionFinalOutcome(game, owner, videoRule->getWinGame()))
+	{
+		// This faction won, other factions still play: no ending, offer the vote.
+		game->getCoopMod()->queueFactionFinaleVote(owner);
+		return;
+	}
+	// Campaign-wide ending: the same verdict packet a faction finale battle sends.
+	game->getCoopMod()->allow_cutscene = false;
+	gs->popup(new CutsceneState(cutscene));
+	saveGame->setEnding(videoRule->getWinGame() ? END_WIN : END_LOSE);
+	if (game->getCoopMod()->getServerOwner())
+	{
+		game->getCoopMod()->prepareLocalEndingFactionDisplayName();
+		game->getCoopMod()->setEndingCutsceneId(cutscene);
+		Json::Value endingMsg;
+		endingMsg["state"] = "faction_campaign_end";
+		endingMsg["cutscene"] = cutscene;
+		endingMsg["victory"] = saveGame->getEnding() == END_WIN;
+		game->getCoopMod()->sendTCPPacketData(endingMsg.toStyledString());
+	}
+}
+
+/**
  * Pops up a geoscape event whose time has come, unless its interrupt research is
  * known (or, in PvP, this player is the alien side).
  * @param ge The event, already marked over.
@@ -3865,7 +3929,13 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	bool interrupted = false;
 	if (!ge->getRules().getInterruptResearch().empty())
 	{
-		if (_game->getSavedGame()->isResearched(ge->getRules().getInterruptResearch(), false))
+		// Private Separate research: the event owner's research (any player's
+		// for an event without an owner).
+		SavedGame* save = _game->getSavedGame();
+		SeparateResearchScope researchScope(save, ge->getOwnerPlayerName());
+		if (ge->getOwnerPlayerName().empty() && save->usesSeparatePrivateResearch()
+			? save->isResearchedByAnyPlayer(ge->getRules().getInterruptResearch())
+			: save->isResearched(ge->getRules().getInterruptResearch(), false))
 		{
 			interrupted = true;
 		}
@@ -4382,6 +4452,8 @@ void GeoscapeState::time1Day()
 
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+		// Private Separate research: every research check for this base is its owner's.
+		SeparateResearchScope researchScope(saveGame, xbase->getOwnerPlayerName());
 		// Handle facility construction
 		std::map<const RuleBaseFacility*, int> finishedFacilities;
 		for (auto* facility : *xbase->getFacilities())
@@ -4493,26 +4565,8 @@ void GeoscapeState::time1Day()
 				saveGame->addFinishedResearch(mod->getResearch(research->getLookup(), true), mod, xbase);
 			}
 			// 3e. handle cutscene
-			if (!research->getCutscene().empty())
-			{
-				popup(new CutsceneState(research->getCutscene()));
-				if (saveGame->getEnding() == END_NONE)
-				{
-					const RuleVideo* videoRule = _game->getMod()->getVideo(research->getCutscene(), true);
-					if (videoRule->getWinGame()) saveGame->setEnding(END_WIN);
-					if (videoRule->getLoseGame()) saveGame->setEnding(END_LOSE);
-				}
-			}
-			if (bonus && !bonus->getCutscene().empty())
-			{
-				popup(new CutsceneState(bonus->getCutscene()));
-				if (saveGame->getEnding() == END_NONE)
-				{
-					const RuleVideo* videoRule = _game->getMod()->getVideo(bonus->getCutscene(), true);
-					if (videoRule->getWinGame()) saveGame->setEnding(END_WIN);
-					if (videoRule->getLoseGame()) saveGame->setEnding(END_LOSE);
-				}
-			}
+			playResearchCutscene(_game, this, research, xbase);
+			playResearchCutscene(_game, this, bonus, xbase);
 			// 3e. handle research complete popup + ufopedia article popups (topic+bonus)
 			// In Separate the host simulates every base, but only the owner should
 			// receive that base's completion dialog. The authoritative completion is
@@ -4696,6 +4750,7 @@ void GeoscapeState::time1Day()
 	// check and remove disabled projects from ongoing research
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+		SeparateResearchScope researchScope(saveGame, xbase->getOwnerPlayerName());
 		std::vector<ResearchProject*> obsolete;
 		for (auto* proj : xbase->getResearch())
 		{
@@ -4717,7 +4772,12 @@ void GeoscapeState::time1Day()
 		if (!researchName.empty())
 		{
 			auto* research = mod->getResearch(researchName, true);
-			if (saveGame->isResearched(research, false)) // ignore debug mode
+			// Private Separate research: the mission owner's research (any
+			// player's for a mission without an owner).
+			SeparateResearchScope researchScope(saveGame, am->getOwnerPlayerName());
+			if (am->getOwnerPlayerName().empty() && saveGame->usesSeparatePrivateResearch()
+				? saveGame->isResearchedByAnyPlayer(researchName)
+				: saveGame->isResearched(research, false)) // ignore debug mode
 			{
 				am->setInterrupted(true);
 			}
@@ -4733,7 +4793,12 @@ void GeoscapeState::time1Day()
 		if (!selfDestructCode.empty())
 		{
 			auto* research = mod->getResearch(selfDestructCode, true);
-			if (saveGame->isResearched(research, false)) // ignore debug mode
+			// Private Separate research: the alien base owner's research, or any
+			// player's when the base has no owner (RU4).
+			SeparateResearchScope researchScope(saveGame, ab->getOwnerPlayerName());
+			if (ab->getOwnerPlayerName().empty() && saveGame->usesSeparatePrivateResearch()
+				? saveGame->isResearchedByAnyPlayer(selfDestructCode)
+				: saveGame->isResearched(research, false)) // ignore debug mode
 			{
 				saveGame->clearLinksForAlienBase(ab, _game->getMod());
 				delete ab;
@@ -6456,7 +6521,8 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 /**
  * Determine the alien missions to start this month.
  */
-void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules)
+void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules,
+	const std::string& eventOwnerPlayerName)
 {
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -6490,8 +6556,11 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 		const auto& pendingRechecks = save->getSeparateCampaign().getPendingFactionRechecks();
 		const std::string pendingOwner = pendingRechecks.empty()
 			? std::string() : pendingRechecks.front();
-		missionOwner = save->getSeparateCampaign().nextMissionOwner(profileNames);
-		forcedFactionRecheck = !pendingOwner.empty() && pendingOwner == missionOwner;
+		// An event's mission scripts belong to the event's owner. They take no turn
+		// in the monthly owner rotation and never consume a pending faction recheck.
+		missionOwner = eventRules ? eventOwnerPlayerName
+			: save->getSeparateCampaign().nextMissionOwner(profileNames);
+		forcedFactionRecheck = !eventRules && !pendingOwner.empty() && pendingOwner == missionOwner;
 		missionDifficulty = static_cast<GameDifficulty>(
 			save->getSeparateCampaign().getFactionDifficulty(
 				missionOwner, static_cast<int>(missionDifficulty)));

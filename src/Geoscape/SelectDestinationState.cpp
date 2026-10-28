@@ -132,6 +132,10 @@ SelectDestinationState::SelectDestinationState(std::vector<Craft*> crafts, Globe
 	_txtTitle->setVerticalAlign(ALIGN_MIDDLE);
 	_txtTitle->setWordWrap(true);
 
+	// Private Separate research: the final research is the craft owner's.
+	SeparateResearchScope researchScope(_game->getSavedGame(),
+		_crafts.size() == 1 && _crafts.front()->getBase()
+			? _crafts.front()->getBase()->getOwnerPlayerName() : std::string());
 	if (_crafts.size() != 1 ||
 		_crafts.front()->getFuelPercentage() < 100 ||
 		!_crafts.front()->getRules()->getSpacecraft() ||

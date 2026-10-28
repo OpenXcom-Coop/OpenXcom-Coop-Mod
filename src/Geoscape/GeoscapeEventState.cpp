@@ -140,7 +140,7 @@ void GeoscapeEventState::eventLogic()
 	if (!_eventRule.getAdhocMissionScriptTags().empty())
 	{
 		auto* geo = _game->getGeoscapeState();
-		geo->determineAlienMissions(false, &_eventRule);
+		geo->determineAlienMissions(false, &_eventRule, _ownerPlayerName);
 	}
 
 	SavedGame *save = _game->getSavedGame();

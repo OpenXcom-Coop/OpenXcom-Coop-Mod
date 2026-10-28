@@ -63,6 +63,8 @@ private:
 	typedef std::pair<std::string, UnitStats> SoldierStatsEntry;
 
 	RuleEvent *_eventToSpawn;
+	/// Separate: the player whose craft fought this battle (owns its mission research).
+	std::string _separateMissionOwner;
 	Region *_region;
 	Country *_country;
 	Base *_base;

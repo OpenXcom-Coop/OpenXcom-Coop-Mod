@@ -25,6 +25,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../Mod/RuleEvent.h"
 #include "../Mod/RuleResearch.h"
+#include "../Mod/AlienDeployment.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/Unit.h"
 #include "../Mod/Mod.h"
@@ -368,6 +369,25 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 			game->getCoopMod()->refreshSeparateBaseOwnership();
 		return false;
 	}
+	if (state == "separate_mission_research")
+	{
+		if (game && game->getCoopMod() && !game->getCoopMod()->getServerOwner()
+			&& game->getSavedGame() && game->getMod())
+		{
+			const RuleResearch* research = game->getMod()->getResearch(
+				obj.get("research", "").asString(), false);
+			const std::string bonusName = obj.get("bonus", "").asString();
+			const RuleResearch* bonus = bonusName.empty()
+				? nullptr : game->getMod()->getResearch(bonusName, false);
+			const AlienDeployment* deployment = game->getMod()->getDeployment(
+				obj.get("deployment", "").asString(), false);
+			if (research && deployment)
+				game->getSavedGame()->handleResearchUnlockedByMissions(research,
+					game->getMod(), deployment, nullptr,
+					obj.get("ownerPlayerName", "").asString(), &bonus);
+		}
+		return true;
+	}
 	if (state == "separate_cydonia_request")
 	{
 		if (game && game->getCoopMod() && game->getCoopMod()->getServerOwner())
@@ -501,10 +521,22 @@ bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	if (game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
 		&& game->getCoopMod()->_enable_research_sync)
 	{
+		// Shared Research lets an item in any base unlock the topic. Take it from
+		// the project's own base first, then from the same player's other bases,
+		// and only then from another player's base.
+		const RuleItem* needed = research->getNeededItem();
+		std::vector<Base*> sources{ projectBase };
 		for (Base* source : *save->getBases())
-			if (source->getStorageItems()->getItem(research->getNeededItem()) > 0)
+			if (source != projectBase
+				&& source->getOwnerPlayerName() == projectBase->getOwnerPlayerName())
+				sources.push_back(source);
+		for (Base* source : *save->getBases())
+			if (std::find(sources.begin(), sources.end(), source) == sources.end())
+				sources.push_back(source);
+		for (Base* source : sources)
+			if (source->getStorageItems()->getItem(needed) > 0)
 			{
-				source->getStorageItems()->removeItem(research->getNeededItem(), 1);
+				source->getStorageItems()->removeItem(needed, 1);
 				return true;
 			}
 		return false;
@@ -874,6 +906,23 @@ void hostGeoscapeEvent(Game* game, const std::string& eventName,
 	msg["discoveredResearch"] = discovered;
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 }
+void hostMissionResearch(Game* game, const AlienDeployment* deployment,
+	const RuleResearch* research, const RuleResearch* bonus,
+	const std::string& ownerPlayerName)
+{
+	if (!game || !research || !deployment || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign()
+		|| !game->getCoopMod()->getServerOwner())
+		return;
+	Json::Value msg;
+	msg["state"] = "separate_mission_research";
+	msg["deployment"] = deployment->getType();
+	msg["research"] = research->getName();
+	msg["bonus"] = bonus ? bonus->getName() : std::string();
+	msg["ownerPlayerName"] = ownerPlayerName;
+	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
+}
+
 void CampaignData::clear()
 {
 	_players.clear();
@@ -881,6 +930,8 @@ void CampaignData::clear()
 	_pendingFactionRechecks.clear();
 	_loadedFromSave = false;
 	_missionOwnerCursor = 0;
+	_researchSharingEnabled = false;
+	_researchModeKnown = false;
 }
 
 void CampaignData::load(const YAML::YamlNodeReader& reader)
@@ -890,6 +941,10 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 		return;
 
 	_loadedFromSave = true;
+	// The research mode the campaign last ran with. A save without the key
+	// predates it and is treated as private research, the default.
+	_researchModeKnown = true;
+	reader.tryRead("researchSharing", _researchSharingEnabled);
 	reader.tryRead("missionOwnerCursor", _missionOwnerCursor);
 	std::vector<std::string> completedFactions;
 	reader.tryRead("completedFactions", completedFactions);
@@ -909,6 +964,9 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 		std::vector<std::string> completed;
 		playerReader.tryRead("completedResearch", completed);
 		player.completedResearch.insert(completed.begin(), completed.end());
+		std::vector<std::string> disabled;
+		playerReader.tryRead("disabledResearch", disabled);
+		player.disabledResearch.insert(disabled.begin(), disabled.end());
 		playerReader.tryRead("funds", player.funds);
 		playerReader.tryRead("factionScores", player.factionScores);
 		std::vector<std::string> generatedEvents;
@@ -924,6 +982,7 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 {
 	writer.setAsMap();
 	writer.write("version", 3);
+	writer.write("researchSharing", _researchSharingEnabled);
 	if (_missionOwnerCursor != 0)
 		writer.write("missionOwnerCursor", _missionOwnerCursor);
 	if (!_completedFactions.empty())
@@ -951,6 +1010,9 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 			std::vector<std::string> completed(entry.second.completedResearch.begin(), entry.second.completedResearch.end());
 			playerWriter.write("completedResearch", completed);
 		}
+		if (!entry.second.disabledResearch.empty())
+			playerWriter.write("disabledResearch", std::vector<std::string>(
+				entry.second.disabledResearch.begin(), entry.second.disabledResearch.end()));
 		if (!entry.second.funds.empty())
 			playerWriter.write("funds", entry.second.funds);
 		if (!entry.second.factionScores.empty())
@@ -1116,6 +1178,25 @@ const std::vector<int64_t>* CampaignData::getPlayerFunds(const std::string& play
 void CampaignData::setResearchSharingEnabled(bool enabled)
 {
 	_researchSharingEnabled = enabled;
+	_researchModeKnown = true;
+}
+
+bool CampaignData::disableResearch(const std::string& playerName, const std::string& research)
+{
+	return !playerName.empty() && !research.empty()
+		&& _players[playerName].disabledResearch.insert(research).second;
+}
+
+bool CampaignData::enableResearch(const std::string& playerName, const std::string& research)
+{
+	PlayerState* player = getPlayer(playerName);
+	return player && player->disabledResearch.erase(research) != 0;
+}
+
+bool CampaignData::isResearchDisabled(const std::string& playerName, const std::string& research) const
+{
+	const PlayerState* player = getPlayer(playerName);
+	return player && player->disabledResearch.find(research) != player->disabledResearch.end();
 }
 
 void CampaignData::migrateLegacyResearch(const std::vector<std::string>& playerNames,

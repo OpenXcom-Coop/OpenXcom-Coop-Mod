@@ -183,6 +183,10 @@ private:
 	// Transient command-authority override. Empty means the local seat's wallet;
 	// host validation sets this to the command initiator before touching funds.
 	std::string _separateFundsContext;
+	// Transient research-authority override for private Separate research. Empty
+	// means the funds context, then the local seat. Mutable so const research
+	// queries can scope it to the player they are evaluating.
+	mutable std::string _separateResearchContext;
 	GameTime *_time;
 	std::vector<std::string> _userNotes;
 	std::vector<std::string> _geoscapeDebugLog;
@@ -320,6 +324,21 @@ private:
 	/// Switch Separate between private player profiles and the ordinary global
 	/// research list without losing discoveries made before the switch.
 	void setSeparateResearchSharingEnabled(bool enabled, const Mod *mod);
+	/// True in a one-world Separate campaign with private research: not PvP and
+	/// not Shared Research. The isResearched family then reads the research
+	/// context player's profile instead of the global list.
+	bool usesSeparatePrivateResearch() const;
+	/// The player whose private research the isResearched family reads: the
+	/// research context, else the funds context, else the local seat.
+	std::string getSeparateResearchContextPlayer() const;
+	void setSeparateResearchContext(const std::string& playerName) const { _separateResearchContext = playerName; }
+	const std::string& getSeparateResearchContext() const { return _separateResearchContext; }
+	/// Has any campaign player researched the topic (private research), or is it
+	/// researched (every other mode)?
+	bool isResearchedByAnyPlayer(const std::string &research) const;
+	/// The researched topics the isResearched family sees: the research context
+	/// player's profile with private research, else the global list.
+	std::vector<const RuleResearch*> getResearchedTopics(const Mod *mod) const;
 	/// Gets the current funds.
 	int64_t getFunds() const;
 	/// Select the Separate player wallet used during an authoritative command.
@@ -652,16 +671,42 @@ private:
 	/// Spawn a Geoscape event from the event rules.
 	bool spawnEvent(const RuleEvent* eventRules,
 		const std::string& ownerPlayerName = std::string());
-	/// Checks if an instant Geoscape event can be spawned.
-	bool canSpawnInstantEvent(const RuleEvent* eventRules);
+	/// Checks if an instant Geoscape event can be spawned. With private Separate
+	/// research the interrupt topic is checked against the event owner's research.
+	bool canSpawnInstantEvent(const RuleEvent* eventRules,
+		const std::string& ownerPlayerName = std::string());
 	/// Handles research unlocked by successful/failed missions and despawned mission sites.
-	bool handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut = nullptr);
+	/// With private Separate research the topics go to ownerPlayerName only (every
+	/// player when it is empty). A non-null forcedBonus replaces the getOneFree roll
+	/// (a replica applies the host's choice).
+	bool handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut = nullptr,
+		const std::string& ownerPlayerName = std::string(), const RuleResearch* const* forcedBonus = nullptr);
 	/// Handles research side effects for primary research sources.
 	void handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems = true);
 	/// Gets the list of user notes.
 	std::vector<std::string>& getUserNotes() { return _userNotes; }
 	/// Gets the list of geoscape debug log entries.
 	std::vector<std::string>& getGeoscapeDebugLog() { return _geoscapeDebugLog; }
+};
+
+/// Scopes the Separate research context to one player (see
+/// SavedGame::setSeparateResearchContext) and restores the previous context.
+class SeparateResearchScope
+{
+	const SavedGame* _save;
+	std::string _previous;
+public:
+	SeparateResearchScope(const SavedGame* save, const std::string& playerName)
+		: _save(save), _previous(save ? save->getSeparateResearchContext() : std::string())
+	{
+		if (_save) _save->setSeparateResearchContext(playerName);
+	}
+	~SeparateResearchScope()
+	{
+		if (_save) _save->setSeparateResearchContext(_previous);
+	}
+	SeparateResearchScope(const SeparateResearchScope&) = delete;
+	SeparateResearchScope& operator=(const SeparateResearchScope&) = delete;
 };
 
 }

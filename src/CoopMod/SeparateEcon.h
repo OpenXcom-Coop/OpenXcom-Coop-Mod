@@ -16,6 +16,7 @@ class Base;
 class Soldier;
 class Ufo;
 class RuleResearch;
+class AlienDeployment;
 class Target;
 
 /** Host-authoritative protocol for the schema-3 SEPARATE campaign.
@@ -35,6 +36,8 @@ public:
 		std::string faction;
 		std::set<std::string> factionResearch;
 		std::set<std::string> completedResearch;
+		/// Topics this player's own discoveries disabled (private research).
+		std::set<std::string> disabledResearch;
 		std::vector<int64_t> funds;
 		std::vector<int> factionScores;
 		std::set<std::string> generatedEvents;
@@ -48,6 +51,8 @@ private:
 	std::vector<std::string> _pendingFactionRechecks;
 	bool _loadedFromSave = false;
 	bool _researchSharingEnabled = false;
+	/// The research mode has been decided: loaded from a save, or applied once.
+	bool _researchModeKnown = false;
 	size_t _missionOwnerCursor = 0;
 public:
 	void clear();
@@ -75,6 +80,10 @@ public:
 	bool wasLoadedFromSave() const { return _loadedFromSave; }
 	bool isResearchSharingEnabled() const { return _researchSharingEnabled; }
 	void setResearchSharingEnabled(bool enabled);
+	bool isResearchModeKnown() const { return _researchModeKnown; }
+	bool disableResearch(const std::string& playerName, const std::string& research);
+	bool enableResearch(const std::string& playerName, const std::string& research);
+	bool isResearchDisabled(const std::string& playerName, const std::string& research) const;
 	const std::map<std::string, PlayerState>& getPlayers() const { return _players; }
 	PlayerState* getPlayer(const std::string& playerName);
 	const PlayerState* getPlayer(const std::string& playerName) const;
@@ -186,6 +195,11 @@ void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
 void broadcastLandClose(Game* game, Craft* craft);
 void requestCydonia(Game* game, Craft* craft);
+/// Replicate research unlocked by a mission-site expiry (host only): the replica
+/// applies the host's exact topic and getOneFree bonus to the same players.
+void hostMissionResearch(Game* game, const AlienDeployment* deployment,
+	const RuleResearch* research, const RuleResearch* bonus,
+	const std::string& ownerPlayerName);
 /// Replicate a mod geoscape event and its host-selected Shared Research result.
 void hostGeoscapeEvent(Game* game, const std::string& eventName,
 	const std::string& researchName, const std::string& bonusResearchName,

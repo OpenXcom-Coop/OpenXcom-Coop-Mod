@@ -2199,6 +2199,45 @@ std::string SavedGame::getSeparateFundsContextPlayer() const
 	return _coopPlayers.empty() ? std::string() : _coopPlayers.front();
 }
 
+bool SavedGame::usesSeparatePrivateResearch() const
+{
+	// The single place that decides whether research is private. PvP (coop
+	// game modes 2 and 3) keeps its two worlds and the global list.
+	if (!_coop || _campaignType != CoopCampaignType::Separate)
+		return false;
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
+		return false;
+	return !_separateCampaign.isResearchSharingEnabled();
+}
+
+std::string SavedGame::getSeparateResearchContextPlayer() const
+{
+	if (!_separateResearchContext.empty()) return _separateResearchContext;
+	return getSeparateFundsContextPlayer();
+}
+
+bool SavedGame::isResearchedByAnyPlayer(const std::string &research) const
+{
+	if (!usesSeparatePrivateResearch())
+		return isResearched(research, false);
+	for (const auto& player : _separateCampaign.getPlayers())
+		if (_separateCampaign.hasCompletedResearch(player.first, research))
+			return true;
+	return false;
+}
+
+std::vector<const RuleResearch*> SavedGame::getResearchedTopics(const Mod *mod) const
+{
+	if (!usesSeparatePrivateResearch() || !mod)
+		return _discovered;
+	std::vector<const RuleResearch*> topics;
+	if (const auto* player = _separateCampaign.getPlayer(getSeparateResearchContextPlayer()))
+		for (const auto& name : player->completedResearch)
+			if (const RuleResearch* rule = mod->getResearch(name, false))
+				topics.push_back(rule);
+	return topics;
+}
+
 int64_t SavedGame::getSeparatePlayerFunds(const std::string& playerName) const
 {
 	const std::vector<int64_t>* funds = _separateCampaign.getPlayerFunds(playerName);
@@ -2758,6 +2797,8 @@ const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research, co
 	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
+	// Disabled-topic checks below read the same player's private tree.
+	SeparateResearchScope researchScope(this, researchOwner);
 	auto researched = [&](const RuleResearch* topic)
 	{
 		return researchOwner.empty() ? isResearched(topic, false)
@@ -2852,6 +2893,12 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();
+	// Every research check below (disabled topics included) is this player's.
+	SeparateResearchScope researchScope(this, researchOwner);
+	if (playerScoped && isResearchRuleStatusDisabled(research->getName()))
+	{
+		return;
+	}
 	auto researched = [&](const RuleResearch* topic)
 	{
 		return playerScoped ? isResearchedForPlayer(topic->getName(), researchOwner, false)
@@ -2932,9 +2979,14 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 			for (const auto* dis : currentQueueItem->getDisabled())
 			{
 				if (playerScoped)
+				{
+					// Private research: one player's branch choice disables the
+					// topic for that player only.
 					_separateCampaign.removeCompletedResearch(researchOwner, dis->getName());
-				else
-					removeDiscoveredResearch(dis); // unresearch
+					_separateCampaign.disableResearch(researchOwner, dis->getName());
+					continue;
+				}
+				removeDiscoveredResearch(dis); // unresearch
 				setResearchRuleStatus(dis->getName(), RuleResearch::RESEARCH_STATUS_DISABLED); // mark as permanently disabled
 			}
 		}
@@ -2952,6 +3004,10 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		// process "re-enables": https://openxcom.org/forum/index.php?topic=12071.0
 		for (const auto* ree : currentQueueItem->getReenabled())
 		{
+			if (playerScoped && _separateCampaign.enableResearch(researchOwner, ree->getName()))
+			{
+				continue; // re-enabled for this player only
+			}
 			if (isResearchRuleStatusDisabled(ree->getName()))
 			{
 				setResearchRuleStatus(ree->getName(), RuleResearch::RESEARCH_STATUS_NEW); // reset status
@@ -3097,6 +3153,7 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();
+	SeparateResearchScope researchScope(this, researchOwner);
 	auto researched = [&](const std::string& topic, bool debug)
 	{
 		return playerScoped ? isResearchedForPlayer(topic, researchOwner, debug)
@@ -3315,6 +3372,7 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
 	const std::string researchOwner = (_coop && _campaignType == CoopCampaignType::Separate
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
+	SeparateResearchScope researchScope(this, researchOwner);
 	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
 	{
 		if (researchOwner.empty()) return isResearched(requirements);
@@ -3413,6 +3471,7 @@ void SavedGame::getAvailableTransformations (std::vector<RuleSoldierTransformati
 	}
 
 	RuleBaseFacilityFunctions baseFunc = base->getProvidedBaseFunc({});
+	SeparateResearchScope researchScope(this, base->getOwnerPlayerName());
 
 	for (const auto& transformType : list)
 	{
@@ -3544,6 +3603,11 @@ int SavedGame::getManufactureRuleStatus(const std::string &manufactureRule)
  */
 int SavedGame::getResearchRuleStatus(const std::string &researchRule) const
 {
+	if (usesSeparatePrivateResearch()
+		&& _separateCampaign.isResearchDisabled(getSeparateResearchContextPlayer(), researchRule))
+	{
+		return RuleResearch::RESEARCH_STATUS_DISABLED;
+	}
 	auto it = _researchRuleStatus.find(researchRule);
 	if (it != _researchRuleStatus.end())
 	{
@@ -3566,6 +3630,11 @@ bool SavedGame::isResearchRuleStatusDisabled(const std::string &researchRule) co
 		{
 			return true;
 		}
+	}
+	// Private research: a topic the research context player's own discoveries disabled.
+	if (usesSeparatePrivateResearch())
+	{
+		return _separateCampaign.isResearchDisabled(getSeparateResearchContextPlayer(), researchRule);
 	}
 	return false;
 }
@@ -3641,6 +3710,8 @@ bool SavedGame::isResearched(const std::string &research, bool considerDebugMode
 	//	return true;
 	if (considerDebugMode && _debug)
 		return true;
+	if (usesSeparatePrivateResearch())
+		return _separateCampaign.hasCompletedResearch(getSeparateResearchContextPlayer(), research);
 
 	return haveReserchVector(_discovered, research);
 }
@@ -3651,6 +3722,9 @@ bool SavedGame::isResearched(const RuleResearch *research, bool considerDebugMod
 	//	return true;
 	if (considerDebugMode && _debug)
 		return true;
+	if (usesSeparatePrivateResearch())
+		return research && _separateCampaign.hasCompletedResearch(
+			getSeparateResearchContextPlayer(), research->getName());
 
 	return haveReserchVector(_discovered, research);
 }
@@ -3664,7 +3738,7 @@ bool SavedGame::isResearched(const std::vector<std::string> &research, bool cons
 
 	for (const auto& res : research)
 	{
-		if (!haveReserchVector(_discovered, res))
+		if (!isResearched(res, false))
 		{
 			return false;
 		}
@@ -3690,24 +3764,38 @@ void SavedGame::setSeparateResearchSharingEnabled(bool enabled, const Mod *mod)
 		return;
 
 	_separateCampaign.ensurePlayers(_coopPlayers);
+	// The mode is saved with the campaign. Loads and option syncs re-apply the
+	// session value; only a real switch (or the first mode of a new campaign)
+	// moves research between the global list and the player profiles.
+	if (_separateCampaign.isResearchModeKnown()
+		&& _separateCampaign.isResearchSharingEnabled() == enabled)
+		return;
 	if (enabled)
 	{
 		// Shared Research has one canonical store. Preserve every discovery made
 		// privately before the option was enabled by promoting the union.
 		if (mod)
+		{
 			for (const auto& player : _separateCampaign.getPlayers())
 				for (const auto& name : player.second.completedResearch)
 					if (RuleResearch* rule = mod->getResearch(name, false))
 						if (!haveReserchVector(_discovered, rule))
 							_discovered.push_back(rule);
+			// A topic a private discovery disabled stays disabled in the one tree.
+			for (const auto& player : _separateCampaign.getPlayers())
+				for (const auto& name : player.second.disabledResearch)
+				{
+					if (RuleResearch* rule = mod->getResearch(name, false))
+						removeDiscoveredResearch(rule);
+					setResearchRuleStatus(name, RuleResearch::RESEARCH_STATUS_DISABLED);
+				}
+		}
 		sortReserchVector(_discovered);
 	}
 	else
 	{
-		// Disabling sharing starts both private trees with everything earned while
-		// it was shared. Run this even if the transient flag already says false:
-		// after loading a save the flag resets, while _discovered still contains
-		// the campaign's shared discoveries.
+		// Disabling sharing (or starting a new private campaign) starts every
+		// private tree with everything in the global list.
 		for (const auto* rule : _discovered)
 			if (rule)
 				for (const auto& player : _separateCampaign.getPlayers())
@@ -3760,7 +3848,7 @@ bool SavedGame::isResearched(const std::vector<const RuleResearch *> &research, 
 				continue;
 			}
 		}
-		if (!haveReserchVector(_discovered, res))
+		if (!isResearched(res, false))
 		{
 			return false;
 		}
@@ -4837,7 +4925,7 @@ bool SavedGame::spawnEvent(const RuleEvent* eventRules, const std::string& owner
 /**
  * Checks if an instant Geoscape event can be spawned.
  */
-bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
+bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules, const std::string& ownerPlayerName)
 {
 	if (!eventRules)
 	{
@@ -4847,7 +4935,10 @@ bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
 	bool interrupted = false;
 	if (!eventRules->getInterruptResearch().empty())
 	{
-		if (isResearched(eventRules->getInterruptResearch(), false))
+		SeparateResearchScope researchScope(this, ownerPlayerName);
+		if (ownerPlayerName.empty() && usesSeparatePrivateResearch()
+			? isResearchedByAnyPlayer(eventRules->getInterruptResearch())
+			: isResearched(eventRules->getInterruptResearch(), false))
 		{
 			interrupted = true;
 		}
@@ -4868,7 +4959,8 @@ bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
  * 2. Adds also getOneFree bonus and possible lookup(s). Also silently.
  * 3. Handles alien mission interruption.
  */
-bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut)
+bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut,
+	const std::string& ownerPlayerName, const RuleResearch* const* forcedBonus)
 {
 	if (!research)
 	{
@@ -4879,6 +4971,35 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 		return false; // all bases lost, game over
 	}
 	Base* base = _bases.front();
+
+	// Private Separate research: the topics belong to the mission owner (every
+	// player when the mission has no owner). addFinishedResearch credits the
+	// owner of the base it is given, so use one base per receiving player.
+	std::vector<Base*> researchBases{ base };
+	if (usesSeparatePrivateResearch())
+	{
+		researchBases.clear();
+		for (const std::string& player : _coopPlayers)
+		{
+			if (!ownerPlayerName.empty() && player != ownerPlayerName)
+				continue;
+			for (Base* candidate : _bases)
+				if (candidate && candidate->isOwnedByPlayer(player))
+				{
+					researchBases.push_back(candidate);
+					break;
+				}
+		}
+		if (researchBases.empty())
+			return false; // the owner has no base left
+		base = researchBases.front();
+	}
+	SeparateResearchScope researchScope(this, base->getOwnerPlayerName());
+	auto addFinishedResearchForOwners = [&](const RuleResearch* topic)
+	{
+		for (Base* researchBase : researchBases)
+			addFinishedResearch(topic, mod, researchBase, true);
+	};
 
 	auto addResearchDiaryEntryForMission = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const AlienDeployment* sourceMission, const RuleResearch* sourceResearch)
 	{
@@ -4904,26 +5025,26 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 	std::vector<const RuleResearch*> researchVec;
 	researchVec.push_back(research);
 	addResearchDiaryEntryForMission(research, DiscoverySourceType::MISSION, deployment, nullptr);
-	addFinishedResearch(research, mod, base, true);
+	addFinishedResearchForOwners(research);
 	if (!research->getLookup().empty())
 	{
 		researchVec.push_back(mod->getResearch(research->getLookup(), true));
 		addResearchDiaryEntryForMission(researchVec.back(), DiscoverySourceType::MISSION, deployment, nullptr);
-		addFinishedResearch(researchVec.back(), mod, base, true);
+		addFinishedResearchForOwners(researchVec.back());
 	}
 
-	if (auto* bonus = selectGetOneFree(research, base))
+	if (auto* bonus = forcedBonus ? *forcedBonus : selectGetOneFree(research, base))
 	{
 		if (bonusOut)
 			*bonusOut = bonus; // coop: research sync mirrors the same bonus
 		researchVec.push_back(bonus);
 		addResearchDiaryEntryForMission(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);
-		addFinishedResearch(bonus, mod, base, true);
+		addFinishedResearchForOwners(bonus);
 		if (!bonus->getLookup().empty())
 		{
 			researchVec.push_back(mod->getResearch(bonus->getLookup(), true));
 			addResearchDiaryEntryForMission(researchVec.back(), DiscoverySourceType::FREE_FROM, nullptr, research);
-			addFinishedResearch(researchVec.back(), mod, base, true);
+			addFinishedResearchForOwners(researchVec.back());
 		}
 	}
 
@@ -4954,6 +5075,7 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();
+	SeparateResearchScope researchScope(this, researchOwner);
 	auto researched = [&](const RuleResearch* topic)
 	{
 		return playerScoped ? isResearchedForPlayer(topic->getName(), researchOwner, false)
