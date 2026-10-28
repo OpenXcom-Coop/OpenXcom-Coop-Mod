@@ -1,0 +1,8 @@
+name: "Coop hit-frame probe"
+version: 1.0
+description: "Test-only fixture: a damageUnit script that stores the battlescape
+  animation frame in a per-unit tag, the way the X-Com Files HitFX script does
+  (LAST_HIT_FRAME). Used by test_coop_hit_frame_tag.py."
+author: coop harness
+
+master: xcom1

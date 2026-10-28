@@ -36125,6 +36125,14 @@ void connectionTCP::sendGuestCensus(bool force)
 	// transit. Nothing to report.
 	if (isSharedCampaign())
 		return;
+	// While this machine visits a partner base, the live world is the
+	// partner's swapped-in copy and our own bases are parked, so none of our
+	// soldiers is in it: a census taken now would report no guests at all and
+	// the partner's base would stop counting them for the whole visit. Keep
+	// the last census standing; once our own world is live again the census
+	// is taken from it as usual.
+	if (coopLiveWorldIsPeerView(_game))
+		return;
 
 	std::map<int, int> guests; // peer base coop id -> headcount
 	for (auto* base : *_game->getSavedGame()->getBases())
@@ -44166,6 +44174,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			return;
 		}
+
+		// COOP living quarters: the asker sends this from its geoscape init, so its world may have just been
+		// reloaded (back from a visit to one of our bases, from a battle, or a rejoin). Base::coop_guests is not
+		// saved, so every base of a reloaded world counts none of our guests, and sendGuestCensus() only puts a
+		// census on the wire when it changes. Forget the last one sent: the next tick sends it again, or, while
+		// this machine cannot take one (visiting a base, battle world), the first tick its own world is live.
+		_lastGuestCensus.clear();
 
 		// coop W2-H80 (docs rewrite/prompts/w2h80_lost_base_ghost.md E1; R-LBH2-1, VL-H80-1; lbh2-cap F21828): no answer while this
 		// machine's live world is still a SEPARATE co-op battle world (a guest on its display-only debriefing; PR-14's

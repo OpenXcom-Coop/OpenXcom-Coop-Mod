@@ -128,15 +128,29 @@ def drive_to_final_nextturn(gc, target_side, target_turn, timeout=60):
     client-side close() tail is presentation-only regardless of which
     transition a given instance nominally represents, so it does not matter
     which of several already-stacked instances ends up being the one left
-    standing)."""
+    standing).
+
+    Read order inside one poll: the top state FIRST, then side/turn, then
+    the count. Each read is a separate command, and the host can finish the
+    HOSTILE->NEUTRAL->PLAYER transition between two of them. With side/turn
+    read first, a poll could read side=NEUTRAL, then see the freshly pushed
+    PLAYER-side NextTurnState as the top state and close it, leaving none
+    to settle on (captured under CPU load: side=2/turn=1 read, the PLAYER
+    one pushed 40 ms later, then read as the top state and closed; the
+    driver then timed out at side=0/turn=2 with an empty stack). Read after
+    the top state, a side/turn short of the target proves the NextTurnState
+    seen on top is an earlier one: the host cannot advance while it stands,
+    and on the client a newer one can only stack above it, so a close never
+    leaves the target side/turn without a NextTurnState."""
     deadline = time.time() + timeout
     while time.time() < deadline:
+        top = top_state_of(gc)
         bs = battle_state(gc)
         reached = bs.get("side") == target_side and bs.get("turn") == target_turn
         n = count_nextturn(gc)
         if reached and n == 1:
             return
-        if "NextTurnState" in top_state_of(gc) and not (reached and n <= 1):
+        if "NextTurnState" in top and not (reached and n <= 1):
             r = gc.cmd({"cmd": "close_nextturn"})
             assert r.get("ok"), f"{gc.name}: close_nextturn failed: {r}"
         time.sleep(0.02)

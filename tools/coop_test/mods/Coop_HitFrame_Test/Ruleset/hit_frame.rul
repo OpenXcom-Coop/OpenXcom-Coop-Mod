@@ -1,0 +1,25 @@
+# Test-only mod. The damageUnit hook fires on every hit and copies the battlescape
+# animation frame (battle_game.getAnimFrame) into a per-unit tag, as the X-Com
+# Files HitFX script does with LAST_HIT_FRAME to time its hit flash. It also
+# stores a hit counter, so the test can tell "the script did not run here" from
+# "the script ran with a different frame".
+#   COOP_HIT_FRAME <- battle_game.getAnimFrame
+#   COOP_HIT_COUNT <- previous value + 1
+# All var declarations must precede the first operation (OXCE y-script rule).
+extended:
+  tags:
+    BattleUnit:
+      COOP_HIT_FRAME: int
+      COOP_HIT_COUNT: int
+  scripts:
+    damageUnit:
+      - offset: 20
+        code: |
+          var int frame;
+          var int count;
+          battle_game.getAnimFrame frame;
+          unit.setTag Tag.COOP_HIT_FRAME frame;
+          unit.getTag count Tag.COOP_HIT_COUNT;
+          add count 1;
+          unit.setTag Tag.COOP_HIT_COUNT count;
+          return;
