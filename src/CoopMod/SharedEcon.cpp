@@ -1486,13 +1486,30 @@ void baseRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*sea
 
 // sack payload: { soldierId }. Policy: ANY player may sack ANY soldier (shared
 // roster management, consistent with J05 sell). No refund (vanilla).
-bool sackValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+// Separate Campaign: a player acts only on their own soldiers, wherever they are
+// stationed (a visitor may sack or rename their own soldier at another player's
+// base, RU8). SHARED keeps its any-player roster policy.
+static bool separateSoldierOwnerOk(Game* game, const Soldier* s, int seat)
+{
+	if (!game || !game->getSavedGame()
+		|| game->getSavedGame()->getCampaignType() != CoopCampaignType::Separate)
+		return true;
+	return s->getOwnerPlayerId() == seat;
+}
+
+bool sackValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                   int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { cost = 0; return true; }
+		if (s->getId() == id)
+		{
+			if (!separateSoldierOwnerOk(game, s, seat))
+				{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+			cost = 0;
+			return true;
+		}
 	failReason = "soldier not found";
 	return false;
 }
@@ -1516,13 +1533,19 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 // local-only; in SHARED they ride the shared_cmd like base_rename (host applies +
 // broadcasts, last-write-wins). ANY player may rename ANY soldier (shared roster,
 // consistent with sack). The soldier is looked up by id at the command's base.
-bool soldierRenameValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+bool soldierRenameValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                            int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { cost = 0; return true; }
+		if (s->getId() == id)
+		{
+			if (!separateSoldierOwnerOk(game, s, seat))
+				{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+			cost = 0;
+			return true;
+		}
 	failReason = "soldier not found";
 	return false;
 }
@@ -2776,10 +2799,12 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 			pc.cmd, pc.remote);
 		if (foreign && !foreignAllowed)
 		{
-			// Normal Separate UI permissions prevent this action. Keep the host-side
-			// security boundary, but the obsolete per-player-world ownership dialog
-			// and its wire response no longer exist.
-			++g_failN;
+			// Normal Separate UI permissions prevent most of these actions; the
+			// host keeps the security boundary. Tell the player who asked (the
+			// remote initiator gets separate_fail, the host's own command shows
+			// the fail dialog locally) instead of dropping it silently. The host
+			// diagnostic keeps its own text for the harness.
+			rejectHostCmd(game, pc, "STR_COOP_ACTION_REFUSED");
 			setLastFail("foreign base command rejected");
 			return;
 		}

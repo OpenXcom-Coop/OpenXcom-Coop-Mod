@@ -81,12 +81,6 @@ SackSoldierState::SackSoldierState(Base *base, size_t soldierId) : _base(base), 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setText(tr("STR_SACK"));
 
-	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == true)
-	{
-		_txtTitle->setText("MOVE");
-	}
-
 	std::ostringstream ss;
 	ss << _base->getSoldiers()->at(_soldierId)->getName(true) << "?";
 
@@ -114,9 +108,10 @@ void SackSoldierState::btnOkClick(Action *)
 
 	// PRD-J07 SHARED: any player may sack any soldier (shared roster). Emit a sack
 	// shared_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
-	// validates + removes + broadcasts shared_apply (replaces all the SEPARATE
-	// peer-base save juggling below).
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
+	// validates + removes + broadcasts shared_apply. Separate routes the same way
+	// at every base: a visitor sacking their own soldier stationed at another
+	// player's base goes through the host too (RU8), which checks the owner.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();

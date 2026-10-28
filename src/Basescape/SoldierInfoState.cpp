@@ -324,15 +324,6 @@ SoldierInfoState::SoldierInfoState(Base *base, size_t soldierId, bool forceLimit
 
 	_btnSack->setText(tr("STR_SACK"));
 
-	// COOP
-	if (_base)
-	{
-		if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == true)
-		{
-			_btnSack->setText("MOVE");
-		}
-	}
-
 	_btnSack->onMouseClick((ActionHandler)&SoldierInfoState::btnSackClick);
 
 	_btnDiary->setText(tr("STR_DIARY"));
@@ -678,7 +669,9 @@ void SoldierInfoState::edtSoldierChange(Action *)
 	// applies + broadcasts, last-write-wins), exactly like base_rename. The local
 	// setName above stays for immediate UI feedback; the shared_apply re-asserts the
 	// winning name authoritatively on every machine.
-	if (_base != 0 && _base->_isForeignBase == false
+	// Separate routes it at every base, so a visitor's rename of their own soldier
+	// stationed at another player's base reaches the host too (RU8).
+	if (_base != 0
 		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		int baseId = 0;

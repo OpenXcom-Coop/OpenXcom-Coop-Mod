@@ -83,7 +83,7 @@ def main():
         "bool validateCraftAssign", 1)[0]
     assert 'cmd == "buy"' in separate_policy
     assert 'cmd == "craft_equip"' in separate_policy
-    assert 'cmd == "craft_rearm"' in separate_policy
+    assert 'cmd == "craft_rearm"' not in separate_policy  # RU8: visitors cannot rearm
     assert 'cmd == "craft_assign"' in separate_policy
     assert 'cmd == "transfer_arrived"' in separate_policy
     assert "!remote" in separate_policy
