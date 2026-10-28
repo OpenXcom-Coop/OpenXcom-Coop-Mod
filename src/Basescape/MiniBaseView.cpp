@@ -66,7 +66,9 @@ void MiniBaseView::rebuildDisplaySlots()
 	size_t slot = 0;
 	// Keep the strip compact: own bases fill the left-hand slots, then foreign
 	// bases follow immediately. This groups ownership without leaving empty gaps.
-	for (size_t i = 0; i < _bases->size() && i < MAX_BASES; ++i)
+	// Own bases come from the whole list: a migrated Separate save can hold more
+	// than MAX_BASES bases, and an own base past index 8 must still get a slot.
+	for (size_t i = 0; i < _bases->size() && slot < MAX_BASES; ++i)
 	{
 		if (_bases->at(i) && !_bases->at(i)->_isForeignBase)
 			_displaySlots[slot++] = i;
@@ -198,6 +200,13 @@ void MiniBaseView::mouseOver(Action *action, State *state)
 	_hoverBase = slot < _displaySlots.size() ? _displaySlots[slot]
 		: std::numeric_limits<size_t>::max();
 	InteractiveSurface::mouseOver(action, state);
+}
+
+size_t MiniBaseView::getBaseAtSlot(size_t slot)
+{
+	rebuildDisplaySlots();
+	return slot < _displaySlots.size() ? _displaySlots[slot]
+		: std::numeric_limits<size_t>::max();
 }
 
 int MiniBaseView::getDisplaySlot(size_t base) const
