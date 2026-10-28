@@ -315,6 +315,9 @@ finally:
 | `test_separate_campaign_mission.py` | owner-only landing prompt and crash-free client YES battle start |
 | `test_separate_single_world.py` | full end-to-end Separate integration, including save/resume; retained as the slower aggregate regression |
 | `test_separate_single_world_contract.py` | build-independent source guard for Separate host battle authority, wire isolation, ownership policy, funding and the global base cap |
+| `test_separate_visitor_actions.py` | a visitor at another player's base: sack/rename go through the host, no local reorder, destination capacity, rearm refused with a message, one base order, 9+ base mini strip |
+
+The 40K/ROSIGMA tests and `test_separate_campaign_parallel_resume_selection.py` (needs a SAVE argument) are local-only: `local_only_tests.json` keeps them out of every runner's discovery, and without their mods or save they exit non-zero with a "needs ... at <path>" message.
 
 #### Replicated SHARED dogfights (PRD-DF01..DF03)
 

@@ -13,6 +13,7 @@
     "with OXC_40K_MOD / OXC_ROSIGMA_MOD."
   ],
   "tests": {
+    "test_legacy_embedded_save_migration": "a legacy save path argument",
     "test_separate_campaign_all_factions": "40K + ROSIGMA mods",
     "test_separate_campaign_faction_finales": "40K + ROSIGMA mods",
     "test_separate_campaign_faction_score": "40K + ROSIGMA mods",
