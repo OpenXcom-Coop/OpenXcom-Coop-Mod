@@ -38,6 +38,27 @@ bool hasFunds(ryml::ConstNodeRef body)
 	return !funds.invalid() && funds.is_seq() && funds.num_children() != 0;
 }
 
+/// Tree::duplicate from another tree copies the node structure but leaves every
+/// key and value pointing into the SOURCE tree's arena. The client worlds are
+/// discarded before the host stream is emitted, so copy those strings into the
+/// destination tree's own arena right after the duplicate.
+void internalizeStrings(ryml::NodeRef node)
+{
+	ryml::Tree* tree = node.tree();
+	if (node.has_key() && !tree->in_arena(node.key()))
+	{
+		const std::string key(node.key().str, node.key().len);
+		node.set_key(tree->to_arena(ryml::to_csubstr(key)));
+	}
+	if (node.has_val() && !tree->in_arena(node.val()))
+	{
+		const std::string val(node.val().str, node.val().len);
+		node.set_val(tree->to_arena(ryml::to_csubstr(val)));
+	}
+	for (ryml::NodeRef child : node.children())
+		internalizeStrings(child);
+}
+
 void copyScalarSequence(ryml::NodeRef destinationMap, ryml::csubstr destinationKey,
 	ryml::NodeRef sourceSequence)
 {
@@ -46,8 +67,14 @@ void copyScalarSequence(ryml::NodeRef destinationMap, ryml::csubstr destinationK
 	ryml::NodeRef destination = yamlutil::mapChild(destinationMap, destinationKey);
 	destination |= ryml::SEQ;
 	for (ryml::NodeRef value : sourceSequence.children())
+	{
+		// The source may live in the destination tree's own arena (the host
+		// world copies its own lists), and to_arena can grow that arena while
+		// copying. Take the value out first.
+		const std::string text(value.val().str, value.val().len);
 		destination.append_child().set_val(
-			destination.tree()->to_arena(value.val()));
+			destination.tree()->to_arena(ryml::to_csubstr(text)));
+	}
 }
 
 void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::NodeRef sourceBody)
@@ -66,7 +93,8 @@ void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::Nod
 	if (!sourceFunds.invalid())
 	{
 		const size_t after = player.num_children() ? player.last_child().id() : ryml::NONE;
-		player.tree()->duplicate(sourceFunds.tree(), sourceFunds.id(), player.id(), after);
+		const size_t copy = player.tree()->duplicate(sourceFunds.tree(), sourceFunds.id(), player.id(), after);
+		internalizeStrings(player.tree()->ref(copy));
 	}
 
 	// Old Separate worlds also held their own discovery lists. They provide both
@@ -80,8 +108,9 @@ void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::Nod
 	{
 		const size_t pediaAfter = player.num_children()
 			? player.last_child().id() : ryml::NONE;
-		player.tree()->duplicate(
+		const size_t copy = player.tree()->duplicate(
 			pediaStatus.tree(), pediaStatus.id(), player.id(), pediaAfter);
+		internalizeStrings(player.tree()->ref(copy));
 	}
 }
 
@@ -93,7 +122,13 @@ void tagBaseTree(ryml::NodeRef base, const std::string& ownerName, int ownerSeat
 	ryml::NodeRef soldiers = base.find_child("soldiers");
 	if (!soldiers.invalid() && soldiers.is_seq())
 		for (ryml::NodeRef soldier : soldiers.children())
+		{
+			// A mid-battle peer mirror (coop != 0) is kept pristine by 1->2: its
+			// BattleUnit needs it, and the engine deletes it after the battle.
+			if (getInt(soldier, "coop", 0) != 0)
+				continue;
 			setInt(soldier, "ownerplayerid", ownerSeat);
+		}
 }
 
 using CraftKey = std::pair<std::string, long long>;
@@ -372,6 +407,7 @@ public:
 				const size_t after = hostBases.num_children() ? hostBases.last_child().id() : ryml::NONE;
 				size_t id = hostBases.tree()->duplicate(sourceBase.tree(), sourceBase.id(), hostBases.id(), after);
 				ryml::NodeRef importedBase = hostBases.tree()->ref(id);
+				internalizeStrings(importedBase);
 				tagBaseTree(importedBase, ownerName, owner);
 				craftsSentHome += sendImportedCraftsHome(importedBase);
 				craftsRenumbered += renumberImportedCrafts(importedBase, claimedCrafts, maxCraftId);
@@ -388,6 +424,7 @@ public:
 				{
 					const size_t deadAfter = hostDead.num_children() ? hostDead.last_child().id() : ryml::NONE;
 					size_t deadId = hostDead.tree()->duplicate(dead.tree(), dead.id(), hostDead.id(), deadAfter);
+					internalizeStrings(hostDead.tree()->ref(deadId));
 					setInt(hostDead.tree()->ref(deadId), "ownerplayerid", owner);
 					++deadImported;
 				}
