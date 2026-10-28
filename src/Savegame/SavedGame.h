@@ -325,6 +325,8 @@ private:
 	/// Select the Separate player wallet used during an authoritative command.
 	void setSeparateFundsContext(const std::string& playerName) { _separateFundsContext = playerName; }
 	void clearSeparateFundsContext() { _separateFundsContext.clear(); }
+	/// The explicitly selected wallet, or empty when the local seat's wallet is used.
+	const std::string& getSeparateFundsContext() const { return _separateFundsContext; }
 	std::string getSeparateFundsContextPlayer() const;
 	int64_t getSeparatePlayerFunds(const std::string& playerName) const;
 	/// Latest player-count scaling expense shown on Separate's Monthly Report.
@@ -662,6 +664,34 @@ private:
 	std::vector<std::string>& getUserNotes() { return _userNotes; }
 	/// Gets the list of geoscape debug log entries.
 	std::vector<std::string>& getGeoscapeDebugLog() { return _geoscapeDebugLog; }
+};
+
+/**
+ * Selects one Separate player's wallet for host simulation code that has no
+ * command initiator (hourly production, events, monthly bonus). An empty name
+ * keeps the current wallet. The previous selection is restored on exit.
+ */
+class SeparateFundsScope
+{
+	SavedGame* _save;
+	std::string _previous;
+	bool _active;
+public:
+	SeparateFundsScope(SavedGame* save, const std::string& playerName)
+		: _save(save), _active(save && !playerName.empty())
+	{
+		if (!_active) return;
+		_previous = _save->getSeparateFundsContext();
+		_save->setSeparateFundsContext(playerName);
+	}
+	~SeparateFundsScope()
+	{
+		if (!_active) return;
+		if (_previous.empty()) _save->clearSeparateFundsContext();
+		else _save->setSeparateFundsContext(_previous);
+	}
+	SeparateFundsScope(const SeparateFundsScope&) = delete;
+	SeparateFundsScope& operator=(const SeparateFundsScope&) = delete;
 };
 
 }
