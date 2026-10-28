@@ -118,7 +118,7 @@ void ProjectileFlyBState::init()
 	{
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
 		// target is dead: cancel the shot.
-		// W2-P3 S-B (owner ruling D145 = a, amendment B3): ONE guarded coop call - on the
+		// coop: ONE guarded coop call - on the
 		// co-op HOST the target must be the unit whose action triggered the reaction (a
 		// client's walker is never the host's selected unit); vanilla's selected unit
 		// everywhere else.
@@ -864,7 +864,7 @@ void ProjectileFlyBState::cancel()
 {
 	if (_parent->getMap()->getProjectile())
 	{
-		coopNoteProjectileSkip(); // coop R5-U1 S-C.1 (D222 gap 3): TEST-ONLY count of a skipped flight on the co-op host
+		coopNoteProjectileSkip(); // coop: TEST-ONLY count of a skipped flight on the co-op host
 		_parent->getMap()->getProjectile()->skipTrajectory();
 		Position p = _parent->getMap()->getProjectile()->getPosition().toTile();
 		if (!_parent->getMap()->getCamera()->isOnScreen(p, false, 0, false))

@@ -29,18 +29,16 @@ namespace OpenXcom
 {
 
 /**
- * R2-P2 (rewrite spike, SPIKE-RUNBOOK.md RB-D5/RB-D14, SS2.2): the battle
- * seq-ordered apply queue (client side) + the seq-mint/emit helpers (host
- * side). This is PLUMBING only - no real appliers yet (R3 fills the
- * "R3-P1 applies payload here" seam in connectionTCP.cpp's
- * CoopPump::drainApplyQueue()). Storage for all of this lives in
+  * coop: the battle seq-ordered apply queue (client side) + the seq-mint/emit
+  * helpers (host side). This header is PLUMBING only - the appliers run from
+  * CoopPump::drainApplyQueue() in connectionTCP.cpp. Storage for all of this lives in
  * connectionTCP.cpp, next to the other coop queue globals (g_txQ/g_rxQ/
  * g_rxHold) - this header only declares the API + the freeze flag.
  */
 
 /**
- * The client-side ordered apply queue for bt_ev / bt_action_end (SS2.1's
- * isSeqOrdered() kinds). RB-D5: drainApplyQueue() is called from
+  * The client-side ordered apply queue for bt_ev / bt_action_end (the
+  * isSeqOrdered() kinds). drainApplyQueue() is called from
  * connectionTCP::updateCoopTask() - the existing main-thread pump point,
  * which already runs even when modal states sit on top of BattlescapeState.
  * Appliers set flags only - drainApplyQueue() must never push/pop a State
@@ -50,26 +48,24 @@ namespace CoopPump
 {
 
 /// Enqueue one bt_ev / bt_action_end envelope (already parsed JSON) for
-/// in-order apply. Thread-safe (mutex-guarded) even though, as of R2-P2,
+/// in-order apply. Thread-safe (mutex-guarded) even though
 /// every real call site is already on the main/pump thread (the battle-lane
 /// RX branch in onTCPMessage, itself only ever reached from
 /// updateCoopTask()'s g_rxHold consume loop) - kept thread-safe defensively
-/// per the frozen R2-P2 contract, in case a future packet feeds it directly
+/// in case a future caller feeds it directly
 /// from a socket thread.
 void enqueue(const Json::Value& evOrEnd);
 
-/// Drain the queue in strict seq order (SS2.2: one monotonic stream,
-/// battle-wide, across all origins). Called from updateCoopTask() (RB-D5),
-/// gated on a live SavedBattleGame (the R2-P3 BattleAuthority phase gate
-/// will tighten this later - see the "// R2-P3 phase gate" marker at the
-/// call site). A GAP (next seq != lastSeqApplied()+1) is a protocol bug:
+/// Drain the queue in strict seq order (one monotonic stream, battle-wide,
+/// across all origins). Called from updateCoopTask(), gated on a live
+/// SavedBattleGame. A GAP (next seq != lastSeqApplied()+1) is a protocol bug:
 /// logs the gap and sets g_battleFrozen, then stops draining (the
 /// out-of-order entry is left queued, not discarded, in case a later
-/// packet's desync report wants it). Never calls pushState/popState or any
-/// BState op - appliers set flags only (RB-D5).
+/// desync report wants it). Never calls pushState/popState or any
+/// BState op - appliers set flags only.
 void drainApplyQueue();
 
-/// Highest seq successfully applied this battle (0 = none yet, SS2.2).
+/// Highest seq successfully applied this battle (0 = none yet).
 std::uint32_t lastSeqApplied();
 
 /// Number of envelopes currently queued (applied + gap-blocked entries not
@@ -77,11 +73,10 @@ std::uint32_t lastSeqApplied();
 std::uint32_t queueDepth();
 
 /// Teardown chokepoint: clears the queue, lastSeqApplied, the freeze flag,
-/// and (SS2.2 "reset by a new battle") CoopEmit's host seq-mint counter.
-/// R2-P8 wires the actual call site at the battle teardown chokepoint; this
-/// packet only implements the function.
+/// and CoopEmit's host seq-mint counter (a new battle starts its seq at 1).
+/// Called at the battle teardown chokepoint.
 ///
-/// SPEC 16 M2: @a resetChainState defaults to true (every existing
+/// @a resetChainState defaults to true (every existing
 /// caller keeps clearing CoopArbiter's action-context stack/actionId mint/
 /// pending-chain-actor bookkeeping via resetCoopArbiterState(), unchanged).
 /// connectionTCP::clearNetworkSessionQueues() is the ONLY caller that ever
@@ -96,30 +91,30 @@ std::uint32_t queueDepth();
 /// unconditional). Every other CoopPump::reset() effect (the apply queue,
 /// lastSeqApplied, g_battleFrozen, the seq-mint counter, CoopEventLog/
 /// CoopReveal/CoopGhost) is UNCHANGED by this parameter, with two exceptions:
-/// resetCoopArbiterState() is gated, and so is CoopReveal's hostile set (W2-H12b,
-/// D219 b: the spare path keeps it and arms its base restate).
+/// resetCoopArbiterState() is gated, and so is CoopReveal's hostile set (the
+/// spare path keeps it and arms its base restate).
 void reset(bool resetChainState = true);
 
 } // namespace CoopPump
 
 /**
  * Host-side seq mint + battle-lane emit helpers. Every message shipped
- * through CoopEmit is, by construction, a battle-lane kind (SS2.1) - so
- * every one of them gets the MN-8 TX-drain bypass (connectionTCP.cpp): on
+ * through CoopEmit is, by construction, a battle-lane kind - so
+ * every one of them gets the blocking TX-drain bypass (connectionTCP.cpp): on
  * g_txQ overflow the emitter blocks (bounded wait + watchdog log) instead
  * of dropping, unlike the default enqueueTx() drop-newest behavior. Socket
  * writes still happen only on the socket threads (their existing g_txQ.pop
- * + sendAll loops) - CoopEmit never calls sendAll itself (REVIEW3 F3).
+ * + sendAll loops) - CoopEmit never calls sendAll itself.
  */
 namespace CoopEmit
 {
 
 /// Host mint: uint32, starts at 1 per battle, monotonic, never reused
-/// within a battle (SS2.2). Main/pump-thread only (host-side emit sites are
-/// all reached from the main thread in this codebase, RB-D5).
+/// within a battle. Main/pump-thread only (host-side emit sites are
+/// all reached from the main thread in this codebase).
 std::uint32_t nextSeq();
 
-/// R2-P11: the highest seq nextSeq() has minted this battle (0 = none yet,
+/// The highest seq nextSeq() has minted this battle (0 = none yet,
 /// same "0 reserved" convention as CoopPump::lastSeqApplied()) - a read-only
 /// peek, unlike nextSeq() itself (which mints on every call). event_state's
 /// "lastSeqEmitted" field.
@@ -133,12 +128,10 @@ void sendBattle(Json::Value& msg);
 /// Stamps ev["seq"] = nextSeq() (overwriting whatever placeholder the
 /// caller passed, e.g. from CoopWire::makeEv(0, ...)) and ships it. Works
 /// mechanically for both bt_ev and bt_action_end (both carry a top-level
-/// "seq" field per SS2.3) - R2-P2 defines only this one sender; a later
-/// packet decides whether action_end reuses it or gets its own thin
-/// wrapper.
+/// "seq" field); action_end is sent through it too.
 void sendEv(Json::Value ev);
 
-/// R2-P11: how many battle-lane sends have hit the MN-8 g_txQ-overflow
+/// How many battle-lane sends have hit the g_txQ-overflow
 /// blocking-wait bypass at least once, this battle (event_state's
 /// "txDrains" field). 0 in the overwhelmingly common case (a battle-lane
 /// message only blocks when the socket thread falls behind).
@@ -147,11 +140,9 @@ std::uint32_t txDrainEvents();
 } // namespace CoopEmit
 
 /**
- * IR-16c: the S3 display-decouple hook. Declared here so
- * CoopPump::drainApplyQueue() has something to call once an envelope is
- * verified in-order; the body is a no-op until R3-P1 fills it in. Must stay
- * cheap and side-effect-free at the BState/State level for the same reason
- * drainApplyQueue() itself must (RB-D5).
+  * coop: the display-decouple hook. CoopPump::drainApplyQueue() calls it once
+  * an envelope is verified in-order. Must stay cheap and side-effect-free at
+  * the BState/State level for the same reason drainApplyQueue() itself must.
  */
 namespace CoopDisplayQueue
 {
@@ -160,39 +151,38 @@ void onApplied(const Json::Value& ev);
 
 } // namespace CoopDisplayQueue
 
-/// R2-P2: set (by CoopPump::drainApplyQueue()) the moment a seq gap is
+/// Set (by CoopPump::drainApplyQueue()) the moment a seq gap is
 /// detected on the client apply queue - a protocol bug, never expected in
 /// normal play (a single ordered TCP stream should never reorder). Battle
-/// input should be treated as frozen for as long as this is true. R2-P9's
-/// desync REPORT/bundle plumbing and BattleAuthority (R2-P3+) are the
-/// intended readers/clearers of this flag; R2-P2 only sets it and logs.
+/// input should be treated as frozen for as long as this is true. The
+/// hash-mismatch path (CoopHashCheck::verify) sets it too; the teardown
+/// (CoopPump::reset()) clears it.
 extern std::atomic<bool> g_battleFrozen;
 
 /**
- * R2-P9 (rewrite spike, SPIKE-RUNBOOK.md SS2.8): the client-side post-apply
- * hash verify. SS2.8's compare direction is one-way in the spike - "host
- * ships h in evs; CLIENT hashes post-apply, compares, hard-fails" (host
- * never compares) - so this is the ONE call site for the whole mismatch
- * path (bucket compare -> freeze -> bt_desync -> bundle -> banner).
+  * coop: the client-side post-apply hash verify. The compare is one-way - the
+  * host ships h in evs; the CLIENT hashes post-apply, compares and hard-fails
+  * (the host never compares) - so this is the ONE call site for the whole
+  * mismatch path (bucket compare -> freeze -> bt_desync -> bundle -> banner).
  *
  * Body lives in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
  * CoopPump/CoopEmit/CoopHandshake/CoopBattleUi - the established home for
- * this scaffolding (R2-P1..P9).
+ * this code.
  */
 namespace CoopHashCheck
 {
 
 /// Called from CoopPump::drainApplyQueue() immediately after
 /// CoopDisplayQueue::onApplied() for each bt_ev/bt_action_end, in strict seq
-/// order. Presence-gated (SS2.8, same as battle_ready.h pre-R2-P9): a no-op
+/// order. Presence-gated: a no-op
 /// if @a evOrEnd carries no non-empty "h" object. Otherwise recomputes every
 /// bucket @a evOrEnd names via SharedEcon::computeBattleHashes() against
 /// this machine's own live battle and compares hex-for-hex, in the order the
 /// carried buckets appear. On the FIRST mismatch: logs, sets
 /// BattleAuthority::desyncFrozen (+ g_battleFrozen, halting the apply queue
 /// too), sends bt_desync, writes SharedEcon::writeDesyncBundle(), and shows
-/// the sticky CoopBattleUi banner - then stops comparing (SS2.8: "NO partial
-/// repair"). Latches: a battle that already desynced does not re-report on
+/// the sticky CoopBattleUi banner - then stops comparing (NO partial
+/// repair). Latches: a battle that already desynced does not re-report on
 /// every later envelope. No-op outside an active coop battle or with no
 /// live SavedBattleGame.
 void verify(const Json::Value& evOrEnd);
@@ -200,7 +190,7 @@ void verify(const Json::Value& evOrEnd);
 } // namespace CoopHashCheck
 
 /**
- * R2-P11 (SPIKE-RUNBOOK.md RB-D32, DESIGN sec 6 journaling guardrail 6): the
+ * coop: the
  * flat preallocated event ring TestServer's `event_log` command reads from -
  * "crash-handler-dumpable" by construction (a fixed-size C array of a POD
  * struct, never a std::vector that could be mid-reallocation or a std::string
@@ -227,10 +217,10 @@ struct Entry
 	std::uint32_t actionId = 0;
 	/// bt_ev's own "kind" (turn/kneel/...) when present; otherwise the
 	/// envelope's "state" (e.g. "bt_action_end", which carries no "kind" of
-	/// its own, SS2.3) - always non-empty for anything record() was ever
-	/// called with. Fixed-size, truncated if longer (spike kinds are short).
+	/// its own) - always non-empty for anything record() was ever
+	/// called with. Fixed-size, truncated if longer (kinds are short).
 	char kind[24] = { 0 };
-	/// Whether this envelope carried a non-empty "h" object (SS2.8/RB-D14) -
+	/// Whether this envelope carried a non-empty "h" object -
 	/// event_log's own "h" field is this bool, not the hash values themselves
 	/// (use hash_now for actual bucket values).
 	bool hasHash = false;
@@ -253,9 +243,9 @@ std::size_t size();
 /// (callers are expected to bound their own loop against size()).
 const Entry& at(std::size_t indexFromOldest);
 
-/// Teardown chokepoint: clears the ring back to empty. R2-P8's
-/// CoopPump::reset() (this same header) is the established single
-/// battle-teardown reset chokepoint; R2-P11 extends its body to call this too.
+/// Teardown chokepoint: clears the ring back to empty. Called from
+/// CoopPump::reset() (this same header), the single battle-teardown reset
+/// chokepoint.
 void reset();
 
 } // namespace CoopEventLog

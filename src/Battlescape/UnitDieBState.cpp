@@ -52,7 +52,7 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 {
 	// don't show the "fall to death" animation when a unit is blasted with explosives or he is already unconscious
 	// ---------------------------------------------------------------------------
-	// DO NOT REVERT THIS CONDITION WHEN MERGING UPSTREAM OXCE (WV-D68, 2026-09-05).
+	// DO NOT REVERT THIS CONDITION WHEN MERGING UPSTREAM OXCE.
 	//
 	// Before the battle starts (isBeforeGame()), EVERY generation casualty - killed
 	// OR stunned by the crashed UFO's exploding power sources - is settled here,
@@ -66,7 +66,6 @@ UnitDieBState::UnitDieBState(BattlescapeGame *parent, BattleUnit *unit, const Ru
 	// map-node divergence that fails the co-op state hash. Settling everything
 	// before the first frame keeps both machines identical and is consistent with
 	// the "instant death from UFO power sources" intent in BattlescapeGame's ctor.
-	// Owner ruling: openxcom-coop-agent-docs rewrite/wave1-log.md, WV-D68.
 	// ---------------------------------------------------------------------------
 	if (!_damageType->isDirect() || _unit->getStatus() == STATUS_UNCONSCIOUS || _parent->getSave()->isBeforeGame())
 	{

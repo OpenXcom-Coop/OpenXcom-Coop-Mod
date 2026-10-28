@@ -100,7 +100,7 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 		}
 	}
 
-	// W1-P2 (WAVE1-RUNBOOK.md SS2.W1, WV-D9/WV-D28): a coop machine that did not
+	// coop: a coop machine that did not
 	// GENERATE this mission may have no Craft and no Ufo, so the
 	// craft->getDestination() fallback above cannot run and `deployment` stays
 	// null for every mission whose type is not itself a deployment name (the
@@ -160,7 +160,7 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 	_txtTarget->setBig();
 	_txtCraft->setBig();
 
-	// W1-P2 (SS2.W1 RE-MINT SUPPRESSION, WV-D28/WV-D42): on a coop host this
+	// coop (re-mint suppression): on a coop host this
 	// whole body already ran BEFORE the battle_offer was built -
 	// CoopHandshake::mintMissionLabels() is a line-for-line replica of it - and
 	// the offer told the client exactly what it produced. Re-running it here
@@ -316,9 +316,9 @@ void BriefingState::btnOkClick(Action *)
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
 			return;
 		}
-		// every co-op battle, a next stage included (MG-A re-offers it as a fresh battle), equips
-		// through W2-P8b (both players, OK is a ready toggle, turn 1 starts at the barrier); the freeze below has no known
-		// caller since MG-A. False in single player: the vanilla push below is unchanged.
+		// every co-op battle, a next stage included (it is re-offered as a fresh battle), equips
+		// through the shared pre-battle equip phase (both players, OK is a ready toggle, turn 1 starts at the barrier); the freeze below has no known
+		// caller. False in single player: the vanilla push below is unchanged.
 		if (CoopHandshake::freezePreBattleEquip(_game))
 		{
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();

@@ -29,28 +29,27 @@ namespace OpenXcom
 {
 
 /**
- * R2-P1 (rewrite spike, SPIKE-RUNBOOK.md SS2.1-SS2.3): the battle wire
- * envelope layer. Builders/parsers for the FROZEN battle-lane message
- * schemas, as inline functions over jsoncpp Json::Value - no consumers yet,
- * this is only the envelope layer + the routing predicate. Field names and
- * discriminator strings match SS2 EXACTLY; do not add/rename/drop fields
- * here without an SS2 update.
+  * coop: the battle wire envelope layer. Builders/parsers for the FROZEN
+  * battle-lane message schemas, as inline functions over jsoncpp Json::Value -
+  * the envelope layer + the routing predicate only. Field names and
+  * discriminator strings are the wire format: both machines must agree on
+  * them, so do not add/rename/drop fields here casually.
  *
  * Transport: existing framed reliable lane (appendFramed / g_txQ), same as
  * every other coop wire message - see connectionTCP.cpp. Battle kinds are
  * routed out of the legacy dispatch by isBattleKind() before the legacy
- * allowlist/hold-deque logic and the R1-P3 quarantine catch-all can see
- * them (RB-D per the routing rule in SS2.1).
+  * allowlist/hold-deque logic and the legacyBattleMessageDropped catch-all
+  * can see them.
  */
 namespace CoopWire
 {
 
-/// SS2.1 discriminator: state starts with "bt_", or is one of the
+/// Battle-lane discriminator: state starts with "bt_", or is one of the
 /// battle-handshake kinds (battle_offer/battle_accept/battle_refuse/
-/// battle_ready) or SPEC 16 M4's graceful-leave kind
-/// (battle_leave), or SPEC 19 M2 Branch B's guest-roster census kind
-/// (battle_roster_contrib), or SPEC 17 M3's per-seat animation-pacing
-/// kinds (battle_speed_report/battle_speed_seats - SESSION-LEVEL, G1: never
+/// battle_ready) or the graceful-leave kind
+/// (battle_leave), or the guest-roster census kind
+/// (battle_roster_contrib), or the per-seat animation-pacing
+/// kinds (battle_speed_report/battle_speed_seats - SESSION-LEVEL: never
 /// bt_ev, never seq-ordered, never hashed). bt_desync (client->host) is also
 /// a "bt_" kind and therefore routes to the battle lane.
 inline bool isBattleKind(const std::string& state)
@@ -66,7 +65,7 @@ inline bool isBattleKind(const std::string& state)
 		state == "battle_speed_report" || state == "battle_speed_seats";
 }
 
-/// SS2.1: bt_ev and bt_action_end are the seq-ordered apply-queue kinds;
+/// bt_ev and bt_action_end are the seq-ordered apply-queue kinds;
 /// everything else on the battle lane is handled directly by the lane
 /// dispatcher (still on the pump thread, never the socket thread).
 inline bool isSeqOrdered(const std::string& state)
@@ -75,8 +74,8 @@ inline bool isSeqOrdered(const std::string& state)
 }
 
 /// bt_intent {state, iseq, seat, actorId, kind, ...concrete-plan fields}
-/// (SS2.3). The caller adds the concrete-plan fields for @a kind (e.g.
-/// turn/kneel, SS2.3) after this returns.
+/// The caller adds the concrete-plan fields for @a kind (e.g.
+/// turn/kneel) after this returns.
 inline Json::Value makeIntent(uint32_t iseq, int seat, int actorId, const char* kind)
 {
 	Json::Value obj(Json::objectValue);
@@ -88,7 +87,7 @@ inline Json::Value makeIntent(uint32_t iseq, int seat, int actorId, const char* 
 	return obj;
 }
 
-/// bt_ack {state, iseq, actionId} (SS2.3).
+/// bt_ack {state, iseq, actionId}.
 inline Json::Value makeAck(uint32_t iseq, uint32_t actionId)
 {
 	Json::Value obj(Json::objectValue);
@@ -98,8 +97,8 @@ inline Json::Value makeAck(uint32_t iseq, uint32_t actionId)
 	return obj;
 }
 
-/// bt_deny {state, iseq, reason} (SS2.3). @a reason is one of the machine
-/// enum strings in SS2.2 (busy | path_changed | cost_changed |
+/// bt_deny {state, iseq, reason}. @a reason is one of the machine
+/// enum strings (busy | path_changed | cost_changed |
 /// target_moved | target_dead | weapon_missing | not_your_unit |
 /// turn_over) - the wire never carries STR_ keys.
 inline Json::Value makeDeny(uint32_t iseq, const char* reason)
@@ -111,9 +110,9 @@ inline Json::Value makeDeny(uint32_t iseq, const char* reason)
 	return obj;
 }
 
-/// bt_ev {state, seq, actionId, kind, payload:{...}, h?} (SS2.3). Returns
+/// bt_ev {state, seq, actionId, kind, payload:{...}, h?}. Returns
 /// with an EMPTY payload object already present; the caller fills payload
-/// (and, per RB-D14, the h:{unitsStats} bucket for the spike's turn/kneel
+/// (and the h:{unitsStats} bucket for the turn/kneel
 /// evs) before sending.
 inline Json::Value makeEv(uint32_t seq, uint32_t actionId, const char* kind)
 {
@@ -127,7 +126,7 @@ inline Json::Value makeEv(uint32_t seq, uint32_t actionId, const char* kind)
 }
 
 /// bt_action_end {state, seq, actionId, final:{...}, halted?:bool,
-/// reason?:string, h} (SS2.3). Only {state, seq, actionId} are set here;
+/// reason?:string, h}. Only {state, seq, actionId} are set here;
 /// the caller fills "final" (and h, halted, reason as applicable).
 inline Json::Value makeActionEnd(uint32_t seq, uint32_t actionId)
 {
@@ -139,8 +138,8 @@ inline Json::Value makeActionEnd(uint32_t seq, uint32_t actionId)
 }
 
 /// bt_desync {state, battleId, seq, bucket, expect, got, bundlePath?}
-/// (SS2.3, client->host). R2-P9: sent once per battle (CoopHashCheck::
-/// verify latches on the first mismatch, SS2.8 "NO partial repair") when the
+/// (client->host). Sent once per battle (CoopHashCheck::
+/// verify latches on the first mismatch: no partial repair) when the
 /// client's post-apply hash compare disagrees with a bucket the host
 /// carried in @a seq's ev/action_end. @a bundlePath is set by the caller
 /// only when SharedEcon::writeDesyncBundle() succeeded (best-effort, may be
@@ -160,9 +159,9 @@ inline Json::Value makeDesync(uint32_t battleId, uint32_t seq, const char* bucke
 
 /// battle_leave {state, seat, reasonKey}. Client->host,
 /// sent BEFORE the client's own teardown on a deliberate `disconnect_to_menu`
-/// so the host's pause dialog can name the reason (F341: NOT a latency
+/// so the host's pause dialog can name the reason (NOT a latency
 /// mechanism - liveness detection alone already raises the pause dialog in
-/// ~0.1s). @a reasonKey is wave-1's one value, "quit" - a deliberate leave;
+/// ~0.1s). @a reasonKey has one value, "quit" - a deliberate leave;
 /// anything else (kill/socket loss) never sends this message at all, and the
 /// host's own liveness detection is what pauses the battle instead.
 inline Json::Value makeLeave(int seat, const char* reasonKey)
@@ -175,7 +174,7 @@ inline Json::Value makeLeave(int seat, const char* reasonKey)
 }
 
 /// battle_roster_contrib {state, seat:int, baseId:int, craftId:int,
-/// craftType:string, soldiers:[string YAML]} (SPEC 19 W1-P20 M2 Branch B).
+/// craftType:string, soldiers:[string YAML]}.
 /// Client->host, battle lane, NOT seq-ordered (isSeqOrdered() above only
 /// lists bt_ev/bt_action_end), NEVER hashed. @a baseId/@a craftId/@a
 /// craftType name the PEER (host) base/craft the sender's guest soldiers are
@@ -216,7 +215,7 @@ inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const ch
 
 /// battle_speed_report {state, battleId:uint, seat:int, xcom:int, alien:int,
 /// fire:int}. Client->host, battle lane, NOT seq-ordered,
-/// NEVER hashed (G1: session-level only, nothing per-event). Sent from
+/// NEVER hashed (session-level only, nothing per-event). Sent from
 /// CoopSpeed::onLocalChanged() whenever this CLIENT's own
 /// battleXcomSpeed/battleAlienSpeed/battleFireSpeed dials change (or have
 /// never been reported yet this battle). @a seat is the sender's own seat.
@@ -251,15 +250,15 @@ inline Json::Value makeSpeedSeats(uint32_t battleId, uint32_t seq, const Json::V
 
 /// bt_debrief_result {state, battleId:uint, debrief:{titleKey:string,
 /// recoveryKey:string, stats:[{item, qty, score, recovery}], soldiers:[{name,
-/// stats:[12 ints]}], recovered:[{item, qty}]}} (W2-P7 S-B1, plan section 4
-/// `debrief_result`, Q1 (a)). Host->client, battle lane, NOT seq-ordered
+/// stats:[12 ints]}], recovered:[{item, qty}]}}.
+/// Host->client, battle lane, NOT seq-ordered
 /// (isSeqOrdered() above), NEVER hashed, never an ev. The display content the
 /// host's own vanilla debrief computed: `stats` = every DebriefingStat with a
 /// non-zero qty in order (`item` = the STR id), `soldiers` = the stat gains in
 /// UnitStats member order (tu, stamina, health, bravery, reactions, firing,
 /// throwing, strength, psiStrength, psiSkill, melee, mana), `recovered` = item
 /// type ids in the mod's item-list order; `titleKey` / `recoveryKey` are the keys
-/// the host's prepareDebriefing used; each machine renders them (AUD-A12). Total and rating are derived on the client.
+/// the host's prepareDebriefing used; each machine renders them in its own language. Total and rating are derived on the client.
 inline Json::Value makeDebriefResult(uint32_t battleId, const Json::Value& debrief)
 {
 	Json::Value obj(Json::objectValue);
@@ -269,8 +268,8 @@ inline Json::Value makeDebriefResult(uint32_t battleId, const Json::Value& debri
 	return obj;
 }
 
-/// bt_fatal_vote_answer {state, battleId:uint, voteId:uint, seat:int, yes:bool} (W2-P7 S-V, the design's section
-/// 2.3; AMENDMENT P7-5 section 4.3). Client->host, battle lane, NOT seq-ordered (isSeqOrdered() above), never hashed,
+/// bt_fatal_vote_answer {state, battleId:uint, voteId:uint, seat:int, yes:bool}. Client->host, battle lane, NOT
+/// seq-ordered (isSeqOrdered() above), never hashed,
 /// never an ev: one voter's answer to the fatal-wounds question (OK = yes; CANCEL, Esc, the abort key = no). The host
 /// takes it only for this battle's open vote from a voter seat still deciding; anything else is counted and dropped.
 inline Json::Value makeFatalVoteAnswer(uint32_t battleId, uint32_t voteId, int seat, bool yes)

@@ -65,9 +65,9 @@ private:
 	// every caller except Map::drawUnit's &view argument - the 4 accessors
 	// below are then SP-identical by construction (see their own bodies).
 	const CoopUnitDrawView *_coopView = nullptr;
-	/// W1-P12 motion-read accessors: `_coopView`'s field when a ghost is
+	/// coop motion-read accessors: `_coopView`'s field when a ghost is
 	/// live, `_unit`'s own getter otherwise - EXACTLY the expression each one
-	/// replaces (mechanical substitution, UnitSprite.cpp, WR-22).
+	/// replaces (a mechanical substitution in UnitSprite.cpp).
 	/// `uStatus()` returns int, not UnitStatus (Mod/Unit.h's enum): every one
 	/// of UnitSprite.cpp's 47 call sites only ever compares the result
 	/// against a STATUS_* constant, which an unscoped-enum-vs-int comparison
@@ -132,7 +132,7 @@ public:
 	/// Draws the unit.
 	/// `coopView` is a defaulted presentation read-switch (CoopMod/
 	/// CoopGhost.h) - null (the default) is byte-identical to the
-	/// pre-W1-P12 vanilla behaviour.
+	/// vanilla behaviour.
 	void draw(const BattleUnit* unit, int part, int x, int y, int shade, GraphSubset mask, bool drawFacingIndicator,
 	          const CoopUnitDrawView* coopView = nullptr);
 };

@@ -80,28 +80,23 @@ private:
 	Timer *_animTimer, *_gameTimer;
 	SavedBattleGame *_save;
 	Text *_txtDebug, *_txtTooltip;
-	// coop (R2-P6, ADDENDUM 1.3(f)): persistent deny/cancel banner in the map strip
+	// coop: persistent deny/cancel banner in the map strip
 	// above the toolbar, driven by the CoopBattleUi presenter (src/CoopMod/
 	// CoopBattleUi.h). Deliberately off the fading _warning surface - a deny/cancel
 	// message needs to stay up for as long as the presenter keeps it live.
 	Text *_txtCoopWait;
-	// coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13 item 4): the DONOR's
-	// SECOND coop surface, re-added byte-for-byte from
-	// `cbff7951d:BattlescapeState.cpp:266` / `:412-425`. Right-aligned so it ends
-	// flush with the END TURN button, on the tooltip's row (y - 10) - one row
-	// BELOW _txtCoopWait, so the two never overlap.
+	// coop: the SECOND coop surface, the END TURN readiness tally. Right-aligned
+	// so it ends flush with the END TURN button, on the tooltip's row (y - 10) -
+	// one row BELOW _txtCoopWait, so the two never overlap.
 	//
-	// DORMANT ON PURPOSE. W1-P7 restores the surface only; the readiness tally
-	// that drives it is D1 / SS2.W3 and lands with W1-P13. It is deliberately a
-	// plain TEXT surface with a text-only setter (setCoopEndTurnText below) and
-	// no policy of its own, so W1-P13 can drive it from EITHER turn model - the
-	// parallel same-side tally OR the traditional sequential baton - without
-	// touching this class (owner ruling 2026-09-02, dual turn models).
+	// It is deliberately a plain TEXT surface with a text-only setter
+	// (setCoopEndTurnText below) and no policy of its own, so the readiness tally
+	// (CoopEndTurn.h) can drive it from EITHER turn model - the parallel same-side
+	// tally OR the traditional sequential baton - without touching this class.
 	Text *_txtCoopEndTurn;
-	// coop (W1-P13b, REV E.50 D68/E50.3): this machine's OWN END-TURN arm bit,
-	// per the last tally applied by CoopEndTurn.h (src/CoopMod). Written only
-	// by setCoopEndTurnArmed() above, read only by getCoopEndTurnArmed() -
-	// F165's pinned resolution: the armed bit cannot be read off
+	// coop: this machine's OWN END-TURN arm bit, per the last tally applied by
+	// CoopEndTurn.h (src/CoopMod). Written only by setCoopEndTurnArmed() above,
+	// read only by getCoopEndTurnArmed(): the armed bit cannot be read off
 	// BattlescapeButton (no reader, private _inverted), so this class stores
 	// the same value its own repaint feeds _btnEndTurn->toggle().
 	bool _coopEndTurnArmed;
@@ -251,7 +246,7 @@ public:
 	void handleState();
 	/// Sets the state timer interval.
 	void setStateInterval(Uint32 interval);
-	void coopStepCovered(); // coop (W2-P8 S-C2, D166 B): one step of the battle's timer while another screen covers this state
+	void coopStepCovered(); // coop: one step of the battle's timer while another screen covers this state
 	/// Gets game.
 	Game *getGame() const;
 	/// Gets map.
@@ -266,50 +261,46 @@ public:
 	void warningRaw(const std::string &message);
 	/// Show warning message that stay longer on screen, no translation.
 	void warningLongRaw(const std::string &message);
-	/// coop (R2-P6): show/hide setter for the _txtCoopWait deny/cancel banner.
+	/// coop: show/hide setter for the _txtCoopWait deny/cancel banner.
 	/// Thin - just sets text + visibility. Driven only by CoopBattleUi.
 	void setCoopWaitText(const std::string &text);
-	/// coop (R3-P2): read-only getter for the _txtCoopWait banner's current
+	/// coop: read-only getter for the _txtCoopWait banner's current
 	/// text - test-only introspection (TestServer's "battle_state" command);
 	/// no production caller. Empty string means the banner is hidden.
 	std::string getCoopWaitText() const;
-	/// W1-P9 (test introspection only): the VANILLA warning surface's current
-	/// text. Distinct from getCoopWaitText() above on purpose - SS2.6 routes
-	/// every co-op message through _txtCoopWait and never through _warning, so
-	/// the two surfaces answer different questions. The one thing wave 1 needs
-	/// to read off _warning is the LOCAL VANILLA reserve refusal SS2.W2/WV-D48
-	/// requires when a client's own TU reserve stops a walk at step 1.
+	/// coop (test introspection only): the VANILLA warning surface's current
+	/// text. Distinct from getCoopWaitText() above on purpose - every co-op
+	/// message goes through _txtCoopWait and never through _warning, so the two
+	/// surfaces answer different questions. The one thing tests read off
+	/// _warning is the LOCAL VANILLA reserve refusal shown when a client's own
+	/// TU reserve stops a walk at step 1.
 	std::string getWarningText() const;
-	/// coop R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TB4; test introspection only): the unit ids behind
-	/// the visible-unit indicator buttons now shown, in button order, and the three section boundaries (directly seen,
-	/// enemies, wounded). Never read by game logic.
+	/// coop (test introspection only): the unit ids behind the visible-unit indicator buttons now shown, in button order,
+	/// and the three section boundaries (directly seen, enemies, wounded). Never read by game logic.
 	void coopHudUnits(std::vector<int>& ids, int& direct, int& enemies, int& wounded) const;
-	/// W1-P9 (test introspection only, WAVE1-RUNBOOK.md WV-D33): the four HUD
-	/// NUMBERS currently PAINTED on the map strip - the values the
-	/// NumberText widgets hold, not the values the model holds. The distinction
-	/// is the whole point of D4's client-HUD-refresh item: before W1-P9 nothing
-	/// on a thin client repainted them when an applied event changed the
-	/// selected unit's stats, so model and paint could disagree indefinitely.
-	/// Reading the widgets is what makes "the HUD moved" an assertion rather
-	/// than an inference. Never read by game logic.
+	/// coop (test introspection only): the four HUD NUMBERS currently PAINTED
+	/// on the map strip - the values the NumberText widgets hold, not the values
+	/// the model holds. On a thin client an applied event that changes the
+	/// selected unit's stats must repaint them, or model and paint disagree
+	/// indefinitely. Reading the widgets is what makes "the HUD moved" an
+	/// assertion rather than an inference. Never read by game logic.
 	void getHudNumbers(int& tu, int& energy, int& health, int& morale) const;
-	/// coop (W1-P7, ruling D7 = WV-D13 item 4): show/hide setter for the DORMANT
-	/// _txtCoopEndTurn surface. Thin and policy-free - sets text + visibility only,
-	/// exactly like setCoopWaitText above. Empty text hides the surface. NO caller
-	/// in W1-P7 by design: W1-P13's readiness tally (D1 / SS2.W3) is its driver, and
-	/// a text-only entry point is what lets W1-P13 drive it from either turn model.
+	/// coop: show/hide setter for the _txtCoopEndTurn surface. Thin and
+	/// policy-free - sets text + visibility only, exactly like setCoopWaitText
+	/// above. Empty text hides the surface. The readiness tally (CoopEndTurn.h)
+	/// drives it; a text-only entry point is what lets it be driven from either
+	/// turn model.
 	void setCoopEndTurnText(const std::string &text);
-	/// coop (W1-P13b, WAVE1-RUNBOOK.md SPEC 10 / REV E.48 SS.C item 4/5):
-	/// this machine's own END-TURN arm state - toggles the inverted button
-	/// surface (donor precedent `_btnEndTurn->toggle(mine)`) and records the
-	/// bit getCoopEndTurnArmed() below reports. Its OWN entry point, never
-	/// folded into setCoopEndTurnText() above: that setter stays text-only
-	/// by design (W1-P7's recorded intent), so the armed bit gets its own.
+	/// coop: this machine's own END-TURN arm state - toggles the inverted button
+	/// surface (`_btnEndTurn->toggle(mine)`) and records the bit
+	/// getCoopEndTurnArmed() below reports. Its OWN entry point, never folded
+	/// into setCoopEndTurnText() above: that setter stays text-only by design,
+	/// so the armed bit gets its own.
 	void setCoopEndTurnArmed(bool armed);
 	/// coop: read-only companion to setCoopEndTurnText, for test
 	/// introspection only (TestServer's "battle_state"). Empty means hidden.
 	std::string getCoopEndTurnText() const;
-	/// coop (W1-P13b, REV E.50 D68/E50.3): read-only probe for test
+	/// coop: read-only probe for test
 	/// introspection only - this machine's OWN seat armed per the last
 	/// applied tally, the same value the repaint feeds
 	/// setCoopEndTurnArmed()/_btnEndTurn->toggle().

@@ -259,13 +259,12 @@ BattlescapeState::BattlescapeState() :
 
 	_txtDebug = new Text(300, 10, 20, 0);
 	_txtTooltip = new Text(300, 10, x + 2, y - 10);
-	// coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13 item 4): the DONOR's
-	// readiness-tally surface, re-added byte-for-byte from
-	// `cbff7951d:BattlescapeState.cpp:266`. Right-aligned so it ends flush with
-	// the END TURN button (x + 240 .. x + 272). Same row as the tooltip, which is
-	// left-aligned from x + 2 and only visible on hover. DORMANT until W1-P13.
+	// coop: the co-op END TURN readiness-tally surface. Right-aligned so it ends
+	// flush with the END TURN button (x + 240 .. x + 272). Same row as the tooltip,
+	// which is left-aligned from x + 2 and only visible on hover. Hidden until the
+	// end-turn tally fills it (setCoopEndTurnText).
 	_txtCoopEndTurn = new Text(120, 9, x + 152, y - 10);
-	// coop (R2-P6, ADDENDUM 1.3(f)): the deny/cancel banner. Full map width,
+	// coop: the deny/cancel banner. Full map width,
 	// centered, one row above the toolbar (y - 20), in the map strip.
 	_txtCoopWait = new Text(screenWidth, 9, 0, y - 20);
 
@@ -401,15 +400,14 @@ BattlescapeState::BattlescapeState() :
 	add(_warning, "warning", "battlescape", _icons);
 	add(_txtDebug);
 	add(_txtTooltip, "textTooltip", "battlescape", _icons);
-	// coop (R2-P6, ADDENDUM 1.3(f)): borrow the tooltip element for font/skin, then
+	// coop: borrow the tooltip element for font/skin, then
 	// re-apply this widget's own geometry so add() does not park it on top of the
 	// tooltip. Same yellow + font as the toolbar warning widget (interface
 	// battlescape/warning color), centered; _warning itself is untouched.
-	// coop (W1-P7, ruling D7 = WV-D13 item 4): donor geometry, byte-for-byte from
-	// `cbff7951d:BattlescapeState.cpp:412-425`. Borrows the tooltip's interface
-	// element to get wired up at all - geometry is re-applied afterwards, because
-	// add() would otherwise move this text on top of the tooltip (the element
-	// carries x/y/w/h). Hidden until W1-P13's tally arms a seat.
+	// coop: the end-turn tally surface borrows the tooltip's interface element to
+	// get wired up at all - geometry is re-applied afterwards, because add() would
+	// otherwise move this text on top of the tooltip (the element carries x/y/w/h).
+	// Hidden until the end-turn tally fills it.
 	add(_txtCoopEndTurn, "textTooltip", "battlescape", _icons);
 	_txtCoopEndTurn->setWidth(120);
 	_txtCoopEndTurn->setHeight(9);
@@ -884,7 +882,7 @@ void BattlescapeState::init()
 			_battleGame->setupCursor();
 			_map->getCamera()->centerOnPosition(_save->getSelectedUnit()->getPosition());
 		}
-		coopGiftSelectionInit(_game, _save); // coop (R5-U5, PRD r5 T8.1; main BattlescapeState.cpp :1250-:1258): THIS machine's gift target
+		coopGiftSelectionInit(_game, _save); // coop: THIS machine's gift target
 		_firstInit = false;
 		_btnReserveNone->setGroup(&_reserve);
 		_btnReserveSnap->setGroup(&_reserve);
@@ -1153,7 +1151,7 @@ void BattlescapeState::mapClick(Action *action)
 	if (_mouseOverIcons) return;
 
 
-	// coop (R5-U5, PRD r5 T8.1; main BattlescapeState.cpp :2208-:2221): a left click on one of THIS machine's own units
+	// coop: a left click on one of THIS machine's own units
 	// makes it the gift target (the give-unit key's unit), before the cursor / busy gate below, so a player who cannot
 	// act right now may still pick the unit to give. It never selects and never orders. False outside a co-op battle.
 	if (isCoopBattle() && _game->isLeftClick(action, true))
@@ -1266,7 +1264,7 @@ void BattlescapeState::btnUnitDownClick(Action *)
  */
 void BattlescapeState::btnMapUpClick(Action *)
 {
-	if (coopSideIsMine(_save) || _save->getDebugMode()) // coop R5-U2 S-A (design-D5): the side this machine plays
+	if (coopSideIsMine(_save) || _save->getDebugMode()) // coop: the side this machine plays
 		_map->getCamera()->up();
 }
 
@@ -1276,7 +1274,7 @@ void BattlescapeState::btnMapUpClick(Action *)
  */
 void BattlescapeState::btnMapDownClick(Action *)
 {
-	if (coopSideIsMine(_save) || _save->getDebugMode()) // coop R5-U2 S-A (design-D5): the side this machine plays
+	if (coopSideIsMine(_save) || _save->getDebugMode()) // coop: the side this machine plays
 		_map->getCamera()->down();
 }
 
@@ -1314,22 +1312,18 @@ void BattlescapeState::btnKneelClick(Action *)
 		BattleUnit *bu = _save->getSelectedUnit();
 		if (bu)
 		{
-			// R5-P2 (SPIKE-RUNBOOK.md RB-D10, generalized to the full
-			// commandsUnit/mySideActive gate): suppress a coop client's
-			// kneel on a unit this machine's seat does not command, or
-			// when this machine's side isn't currently active. One
-			// guarded call, permissive outside coop.
+			// coop: suppress a co-op client's kneel on a unit this machine's seat
+			// does not command, or when this machine's side isn't currently active.
+			// One guarded call, permissive outside coop.
 			if (coopRefuseIfNotMayCommand(bu, _save))
 			{
 				return;
 			}
 
-			// R3-P2 (SPIKE-RUNBOOK.md RB-D10, generalized to kneel): a coop
-			// CLIENT sends an intent instead of running vanilla locally
-			// (SS2.5 "host-local player input never enters the intent
-			// path" - only the HOST ever calls BattlescapeGame::kneel()
-			// directly). coopMayCommand() above already proved this
-			// machine commands `bu` and its side is active.
+			// coop: a co-op CLIENT sends an intent instead of running vanilla locally
+			// (host-local player input never enters the intent path - only the HOST
+			// ever calls BattlescapeGame::kneel() directly). coopMayCommand() above
+			// already proved this machine commands `bu` and its side is active.
 			if (isCoopBattle() && !coopBattleAuthority().hostSim)
 			{
 				CoopArbiter::sendClientIntent("kneel", bu->getId(), -1, false, !bu->isKneeled());
@@ -1371,12 +1365,11 @@ void BattlescapeState::btnInventoryClick(Action *)
 	{
 		return;
 	}
-	// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14, evidence F2): the MID-battle
-	// inventory writes the hashed `items` bucket with nothing on the wire
-	// (`inventory_move` is not in wave 1, WV-D34), so a co-op client may not
+	// coop: the MID-battle inventory writes the hashed `items` bucket with nothing
+	// on the wire (there is no inventory_move message), so a co-op client may not
 	// open it. One guarded coop call; false and inert outside a coop battle.
-	// W1-P4 froze the PRE-battle screen, which is a different site
-	// (BriefingState::btnOkClick) and a different mechanism (a skipped push).
+	// The PRE-battle screen is a different site (BriefingState::btnOkClick) and a
+	// different mechanism (a skipped push).
 	if (CoopBattleUi::refuseInventoryOpen( // ownership only, the side first
 			_save->getSelectedUnit(), _save))
 	{
@@ -1471,7 +1464,7 @@ void BattlescapeState::btnNextStopRClick(Action *)
 	{
 		// OXCE: previous unit (last marked as don't reselect)
 		BattleUnit* candidate = _save->getUndoUnit();
-		// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12, NON-NEGOTIABLE): the
+		// coop: the
 		// FIRST of the three unfiltered selection paths - right-click UNDO
 		// writes _selectedUnit directly from _undoUnit, never going through
 		// selectPlayerUnit()'s seat filter. One guarded call, same predicate as
@@ -1609,21 +1602,16 @@ void BattlescapeState::btnEndTurnClick(Action *)
 {
 	if (allowButtons())
 	{
-		// W1-P13b (WAVE1-RUNBOOK.md SPEC 10 / SS2.W3, superseding R5-P2's
-		// client-only guard and W1-P7's SS2.W8 fix): END TURN no longer
-		// closes a parallel-mode side directly on EITHER machine - a press
-		// ARMS this machine's own seat in the readiness tally instead, and
-		// only the HOST's own commit (once every live seat has armed) still
-		// runs vanilla requestEndTurn() below. Both arms are folded through
-		// the SAME widened coop guard, so the SP path - the four statements
-		// after this whole if - is UNCHANGED (byte-identical) outside an
-		// active coop battle, exactly as the client-only guard always kept
-		// it.
+		// coop: END TURN never closes a parallel-mode side directly on EITHER
+		// machine - a press ARMS this machine's own seat in the readiness tally
+		// instead, and only the HOST's own commit (once every live seat has armed)
+		// still runs vanilla requestEndTurn() below. Both arms are folded through
+		// the SAME coop guard, so the SP path - the four statements after this
+		// whole if - is UNCHANGED (byte-identical) outside an active coop battle.
 		//
-		// W1-P13b (WR-3) also RETIRES the presenter entry W1-P7 built for the
-		// client's old refusal (CoopBattleUi::showEndTurnHostOnly(),
-		// STR_COOP_TURN_OVER): once a press ARMS instead of refusing, that
-		// entry has no reachable case. The .yml key stays, inert (RB-D3).
+		// A press ARMS instead of refusing, so the client has no "turn over"
+		// refusal here (CoopBattleUi::showEndTurnHostOnly(), STR_COOP_TURN_OVER, has
+		// no reachable case). The .yml key stays, inert.
 		if (isCoopBattle())
 		{
 			CoopEndTurn::toggleReady(this);
@@ -1733,17 +1721,16 @@ void BattlescapeState::btnLeftHandItemClick(Action *action)
 		bool rightClick = _game->isRightClick(action, true);
 		if (rightClick)
 		{
-			// W1-P5 (ruling D8 = WV-D14, evidence F2 "open-item-9 fields"):
+			// coop:
 			// toggleLeftHandForReactions writes preferredHandForReactions /
 			// reactionsDisabledForLeftHand, both SERIALIZED (BattleUnit.cpp:791-796)
 			// and both ABSENT from saveBlobExcludedUnitKey (SharedEcon.cpp), so a
 			// client toggle diverges the saveBlob bucket on the spot. One guarded
 			// coop call. NOT gated above this point on purpose: setActiveLeftHand()
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
-			// - machine-local display state, same class as the reserve settings
-			// ratified there.
-			// the refusal became the reaction-hands
-			// intercept - on a co-op client the press is an order the host runs.
+			// - machine-local display state, same class as the per-machine reserve
+			// settings. On a co-op client the press is an order the host runs (the
+			// reaction-hands intercept).
 			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, false))
 			{
 				return;
@@ -1797,17 +1784,16 @@ void BattlescapeState::btnRightHandItemClick(Action *action)
 		bool rightClick = _game->isRightClick(action, true);
 		if (rightClick)
 		{
-			// W1-P5 (ruling D8 = WV-D14, evidence F2 "open-item-9 fields"):
+			// coop:
 			// toggleRightHandForReactions writes preferredHandForReactions /
 			// reactionsDisabledForRightHand, both SERIALIZED (BattleUnit.cpp:791-796)
 			// and both ABSENT from saveBlobExcludedUnitKey (SharedEcon.cpp), so a
 			// client toggle diverges the saveBlob bucket on the spot. One guarded
 			// coop call. NOT gated above this point on purpose: setActiveRightHand()
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
-			// - machine-local display state, same class as the reserve settings
-			// ratified there.
-			// the refusal became the reaction-hands
-			// intercept - on a co-op client the press is an order the host runs.
+			// - machine-local display state, same class as the per-machine reserve
+			// settings. On a co-op client the press is an order the host runs (the
+			// reaction-hands intercept).
 			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, true))
 			{
 				return;
@@ -2320,7 +2306,7 @@ void BattlescapeState::drawHandsItems()
  */
 void BattlescapeState::updateSoldierInfo(bool checkFOV)
 {
-	coopGiftFollowSelection(_game, _save); // coop (R5-U5, PRD r5 T8.1; main SavedBattleGame.cpp :877-:889): the gift target follows THIS machine's selection
+	coopGiftFollowSelection(_game, _save); // coop: the gift target follows THIS machine's selection
 	BattleUnit *battleUnit = _save->getSelectedUnit();
 
 	for (int i = 0; i < VISIBLE_MAX; ++i)
@@ -2491,7 +2477,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 
 	if (checkFOV)
 	{
-		// SS2.W5: ONE guarded coop call.
+		// coop: ONE guarded coop call.
 		// Inside a co-op battle a SELECTION change must not author shared fog, so
 		// the TILE half of this recalc is suppressed here and the acting unit's
 		// tiles are authored EXPLICITLY at the action sites instead
@@ -2778,7 +2764,7 @@ void BattlescapeState::setStateInterval(Uint32 interval)
 	_gameTimer->setInterval(interval);
 }
 
-void BattlescapeState::coopStepCovered() // coop (W2-P8 S-C2, D166 B): coopThinkCoveredBattle's step (CoopArbiter.h)
+void BattlescapeState::coopStepCovered() // coop: coopThinkCoveredBattle's step (CoopArbiter.h)
 {
 	if (_gameTimer->isRunning()) _gameTimer->think(this, 0);
 }
@@ -2850,7 +2836,7 @@ std::string BattlescapeState::getWarningText() const
 	return _warning ? _warning->getMessageText() : std::string();
 }
 
-/// coop R5-U2 S-B.1 (test introspection only): see BattlescapeState.h.
+/// coop (test introspection only): see BattlescapeState.h.
 void BattlescapeState::coopHudUnits(std::vector<int>& ids, int& direct, int& enemies, int& wounded) const
 {
 	ids.clear();
@@ -2888,7 +2874,7 @@ void BattlescapeState::warningLongRaw(const std::string &message)
 }
 
 /**
- * coop (R2-P6, ADDENDUM 1.3(f)): show/hide setter for the persistent
+ * coop: show/hide setter for the persistent
  * deny/cancel banner. Thin - sets text + visibility only; all admission-model
  * driving logic (reason/cause -> STR_ lookup) lives in CoopBattleUi, never here.
  * Empty text hides the banner.
@@ -2901,7 +2887,7 @@ void BattlescapeState::setCoopWaitText(const std::string &text)
 }
 
 /**
- * coop (R3-P2): read-only companion to setCoopWaitText() above, added for
+ * coop: read-only companion to setCoopWaitText() above, added for
  * test introspection only (TestServer's "battle_state" command reads this
  * to prove the forced-mismatch desync banner is shown) - no production code
  * calls this. Empty string means the banner is hidden (setCoopWaitText's
@@ -2913,16 +2899,15 @@ std::string BattlescapeState::getCoopWaitText() const
 }
 
 /**
- * coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13 item 4): show/hide setter for
- * the DORMANT donor END-TURN surface. Thin - text + visibility only, exactly like
- * setCoopWaitText() above; all policy lives in src/CoopMod.
- *
- * W1-P7 restores the SURFACE, not a driver: the readiness tally that fills it is
- * D1 / SS2.W3 and lands with W1-P13. Keeping the entry point text-only (rather
- * than, say, a setTally(ready, needed) that bakes in "all seats on the side") is
- * deliberate - the owner's 2026-09-02 dual-turn-model ruling requires W1-P13 to
- * be able to drive this same surface from a TRADITIONAL sequential baton as well
- * as from the parallel same-side tally, and a plain string forecloses neither.
+  * coop: show/hide setter for the END-TURN readiness-tally surface. Thin -
+  * text + visibility only, exactly like setCoopWaitText() above; all policy
+  * lives in src/CoopMod.
+  *
+  * The readiness tally (CoopEndTurn.h) fills it. The entry point is kept
+  * text-only (rather than, say, a setTally(ready, needed) that bakes in "all
+  * seats on the side") so the same surface can be driven from a TRADITIONAL
+  * sequential baton as well as from the parallel same-side tally; a plain
+  * string forecloses neither.
  * @param text Already-translated text (empty = hide).
  */
 void BattlescapeState::setCoopEndTurnText(const std::string &text)
@@ -2932,15 +2917,13 @@ void BattlescapeState::setCoopEndTurnText(const std::string &text)
 }
 
 /**
- * coop (W1-P13b, WAVE1-RUNBOOK.md SPEC 10 / REV E.48 SS.C item 4/5): this
- * machine's own END-TURN arm state. Its OWN entry point - kept separate from
- * setCoopEndTurnText() above on purpose, so that setter stays exactly what
- * W1-P7 designed it to be (text + visibility only, no policy of its own).
- * Toggles the donor's inverted-button surface
- * (`_btnEndTurn->toggle(mine)`, `cbff7951d:BattlescapeState.cpp:5238`) and
- * records the same bit getCoopEndTurnArmed() below reports (F165: the bit
- * cannot be read back off BattlescapeButton, which exposes no reader for its
- * private _inverted).
+  * coop: this machine's own END-TURN arm state. Its OWN entry point - kept
+  * separate from setCoopEndTurnText() above on purpose, so that setter stays
+  * text + visibility only, with no policy of its own.
+  * Toggles the inverted END TURN button (`_btnEndTurn->toggle(mine)`) and
+  * records the same bit getCoopEndTurnArmed() below reports (the bit cannot
+  * be read back off BattlescapeButton, which exposes no reader for its
+  * private _inverted).
  * @param armed True when src/CoopMod's CoopEndTurn.h last applied a tally
  * naming this machine's own seat as ready.
  */
@@ -2961,7 +2944,7 @@ std::string BattlescapeState::getCoopEndTurnText() const
 }
 
 /**
- * coop (W1-P13b, REV E.50 D68/E50.3): read-only companion to
+ * coop: read-only companion to
  * setCoopEndTurnArmed() above, for test introspection only (TestServer's
  * "battle_state"). This machine's OWN seat armed per the last applied
  * tally - the same value the repaint feeds into the setter.
@@ -3041,7 +3024,7 @@ inline void BattlescapeState::handle(Action *action)
 	// until the handshake completes. Self-guarded: false in SP, on a client,
 	// and the instant phase reaches Active.
 	//
-	// THE ONE EXEMPTION (WV-D56 escape hatch): Options. This function calls
+	// THE ONE EXEMPTION (an escape hatch): Options. This function calls
 	// State::handle() below, which is the ONLY dispatch path to _btnHelp and
 	// _btnAbort, so an unconditional return would leave a waiting host with no
 	// way to save, load or abandon. The hatch is a KEY test, not a widget test,
@@ -3081,7 +3064,7 @@ inline void BattlescapeState::handle(Action *action)
 			if (action->getDetails()->type == SDL_KEYDOWN)
 			{
 				SDLKey key = action->getDetails()->key.keysym.sym;
-				// R2-P7 (SPIKE-RUNBOOK.md R2-P7): the ESC half of the
+				// coop: the ESC half of the
 				// pending-intent CANCEL CONTROL (right-click is the other, at
 				// BattlescapeGame::secondaryAction's coop-client branch). One
 				// guarded call - false, and completely inert, unless a
@@ -3124,7 +3107,7 @@ inline void BattlescapeState::handle(Action *action)
 						if (ycraft) break;
 					}
 
-					// W1-P2 (WAVE1-RUNBOOK.md SS2.W1, WV-D9/WV-D28): on a coop THIN
+					// coop: on a coop THIN
 					// CLIENT the scan above finds nothing (it never generated the
 					// mission, so no craft of its own isInBattlescape()), ycraft stays
 					// null, and the pushed BriefingState renders the generic "should
@@ -3149,7 +3132,7 @@ inline void BattlescapeState::handle(Action *action)
 				// "ctrl-f" - show fatal wounds
 				else if (key == SDLK_f && ctrlPressed)
 				{
-					if (coopSideIsMine(_save)) // coop R5-U2 S-A (design-D5): the side this machine plays
+					if (coopSideIsMine(_save)) // coop: the side this machine plays
 					{
 						auto* bu = _save->getSelectedUnit();
 						if (bu)
@@ -3218,13 +3201,12 @@ inline void BattlescapeState::handle(Action *action)
 				// "ctrl-s" - switch xcom unit speed to max and back
 				else if (key == SDLK_s && ctrlPressed)
 				{
-					// SPEC 17 M6: gated on the unit-less form of the
-					// input-command combinator (F373's quickModeAllowed()) -
-					// off-baton in traditional mode must not let this seat
-					// toggle the OTHER seat's dial out from under it. Vanilla
-					// body BYTE-IDENTICAL inside the else; SP/every non-coop
-					// battle takes it unconditionally (quickModeAllowed()
-					// is permissive there).
+					// coop: gated on the unit-less form of the input-command
+					// combinator (CoopSpeed::quickModeAllowed()) - off-baton in
+					// traditional mode must not let this seat toggle the OTHER
+					// seat's dial out from under it. Vanilla body BYTE-IDENTICAL
+					// inside the else; SP/every non-coop battle takes it
+					// unconditionally (quickModeAllowed() is permissive there).
 					if (!CoopSpeed::quickModeAllowed(_save))
 					{
 						CoopSpeed::noteQuickModeIgnored();
@@ -3523,7 +3505,7 @@ inline void BattlescapeState::handle(Action *action)
 					}
 				}
 				// quick save and quick load
-				// coop W2-H49: no quick save, insta save or quick load for an ironman world, a borrowed battle's owner included
+				// coop: no quick save, insta save or quick load for an ironman world, a borrowed battle's owner included
 				if (!connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman() && !_save->isPreview())
 				{
 					if (key == Options::keyQuickSave)
@@ -3536,14 +3518,10 @@ inline void BattlescapeState::handle(Action *action)
 					}
 					else if (key == Options::keyQuickLoad)
 					{
-						// W1-P5 (ruling D8 = WV-D14, evidence F1): the
-						// localLoadsAllowed() wrapper legacy carried here
-						// (1e0f9276f:BattlescapeState.cpp:5429-5435) was deleted by
-						// the rewrite - LoadGameState was pushed unconditionally and
-						// its own chokepoint refused SILENTLY (log-only,
-						// LoadGameState.cpp:159). Gate restored, refusal now visible.
-						// Session-scoped, so it refuses on the HOST too: a local load
-						// mid-session forks the served world.
+						// coop: LoadGameState's own chokepoint refuses a co-op load
+						// SILENTLY (log-only, LoadGameState.cpp:159), so the refusal is
+						// made here, where it is visible. Session-scoped, so it refuses
+						// on the HOST too: a local load mid-session forks the served world.
 						if (!CoopBattleUi::refuseControl(CoopBattleUi::Control::QuickLoad,
 								nullptr, _save))
 						{
@@ -4131,14 +4109,12 @@ bool BattlescapeState::getMouseOverIcons() const
  */
 bool BattlescapeState::allowButtons(bool allowSaving) const
 {
-	// W1-P5 (ruling D8 = WV-D14, evidence F1 "Chat-active suppression" / F-4):
-	// Game::run() feeds a keystroke to ChatMenu::handleEvent() AND still calls
+	// coop: Game::run() feeds a keystroke to ChatMenu::handleEvent() AND still calls
 	// _states.back()->handle() afterwards, so text typed into the co-op chat
-	// also fires battlescape hotkeys. Legacy suppressed that from exactly here
-	// (1e0f9276f:BattlescapeState.cpp:6132-6141); restored as one guarded coop
+	// would also fire battlescape hotkeys; this suppresses them. One guarded coop
 	// call, false in SP and in any session with no chat menu. The `allowSaving`
-	// escape deliberately does NOT bypass it - legacy's early return did not
-	// either, and a stray keystroke must not open a save dialog mid-sentence.
+	// escape deliberately does NOT bypass it: a stray keystroke must not open a
+	// save dialog mid-sentence.
 	if (CoopBattleUi::chatIsOpen(_game))
 	{
 		return false;
@@ -4150,18 +4126,16 @@ bool BattlescapeState::allowButtons(bool allowSaving) const
 		&& (_map->getProjectile() == 0 || CoopGhost::ownsProjectile(_map))); // a ghost's projectile does not lock input
 }
 
-// W1-P5 RATIFICATION (WAVE1-RUNBOOK.md ruling D8 = WV-D14's "RATIFY per-machine
-// reserve settings"; see also WV-D38/WV-D48 and SS2.W2's RESERVE block).
+// coop: per-machine reserve settings.
 // The reserve buttons in this region - btnReserveNone/Snap/Aimed/Auto/Kneel -
 // are deliberately NOT coop-gated, and that is a CONTRACT, not an oversight:
 // SavedBattleGame's `tuReserved` / `kneelReserved` are saveBlob-hash-EXCLUDED
 // (SharedEcon.cpp:3959), i.e. PER-MACHINE by design. Each player's reserve is
 // their own; it can never diverge the two machines because no bucket reads it.
-// The consequences are already ruled and live elsewhere: the host does NOT
-// apply its own reserve to a CLIENT-origin walk, and the client's own intent
-// builder enforces its reserve itself, because vanilla's only enforcement
-// point (UnitWalkBState.cpp:324) runs on the host (W1-P9 builds that half -
-// Pathfinding::previewPath only COLOURS tiles, it never truncates).
+// The consequences live elsewhere: the host does NOT apply its own reserve to
+// a CLIENT-origin walk, and the client's own intent code enforces its reserve
+// itself, because vanilla's only enforcement point (UnitWalkBState.cpp:324) runs
+// on the host (Pathfinding::previewPath only COLOURS tiles, it never truncates).
 // Do not "fix" this by gating these buttons or by putting reserve on the wire.
 /**
  * Reserves time units for kneeling.
@@ -4194,7 +4168,7 @@ void BattlescapeState::btnReserveKneelClick(Action *action)
  */
 void BattlescapeState::btnZeroTUsClick(Action *action)
 {
-	// W1-P5 (ruling D8 = WV-D14, evidence F2): clearTimeUnits() is a LOCAL
+	// coop: clearTimeUnits() is a LOCAL
 	// STATE MINT straight into the hashed `unitsStats` bucket, with nothing on
 	// the wire. One guarded coop call, above the button's own press animation
 	// so a refused press does not look like an accepted one.

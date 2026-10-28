@@ -28,35 +28,31 @@ class BattleUnit;
 class SavedBattleGame;
 
 /**
- * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md R3-P1 packet text, "S2-minimal"):
- * the client-side state applier for the turn/kneel atoms. Called from
+  * coop: the client-side state applier for the turn/kneel atoms. Called from
  * CoopDisplayQueue::onApplied() (BattlePump.h) - the seam
- * CoopPump::drainApplyQueue() (RB-D5) invokes, in strict seq order, for
+ * CoopPump::drainApplyQueue() invokes, in strict seq order, for
  * every bt_ev/bt_action_end AFTER the gap check and BEFORE
- * CoopHashCheck::verify()'s post-apply hash compare (SS2.8/R2-P9).
+ * CoopHashCheck::verify()'s post-apply hash compare.
  *
- * A1-A5 discipline (packet text): pump-only (never called off the main/pump
- * thread - true by construction, since drainApplyQueue() itself is
- * main-thread-only, RB-D5), payload-only writes (only the fields a payload/
- * final actually carries are touched), no pushState/popState/BState op
- * (RB-D5 - this never runs vanilla simulation, it copies already-decided
- * host state), and a targeted per-unit FOV refresh (A5) done by the CALLER
- * (CoopDisplayQueue::onApplied(), connectionTCP.cpp) immediately after each
- * apply - not in here, since this namespace never touches SavedBattleGame
- * beyond resolving the unit (CoopIdMaps::unit(), RB-D7).
+  * Rules: pump-only (never called off the main/pump thread - true by
+  * construction, since drainApplyQueue() itself is main-thread-only),
+  * payload-only writes (only the fields a payload/final actually carries are
+  * touched), no pushState/popState/BState op (this never runs vanilla
+  * simulation, it copies already-decided host state), and a targeted per-unit
+  * FOV refresh done by the CALLER (CoopDisplayQueue::onApplied(),
+  * connectionTCP.cpp) immediately after each apply - not in here, since this
+  * namespace never touches SavedBattleGame beyond resolving the unit
+  * (CoopIdMaps::unit()).
  *
- * Field subset this packet ever writes: direction, turret direction, time
- * units, the kneeled bit, and energy - "applyUnitDelta" in the packet text.
- * Position is deliberately EXCLUDED (turn/kneel never move a unit; syncing
- * position is the walk atom's job, not this one's). Resolution is
- * EXCLUSIVELY via CoopIdMaps (RB-D7) - this never mints a BattleUnit/
- * BattleItem; the .cpp body sits inside an
- * MINT-WHITELIST-BEGIN/END region even though nothing in it actually
- * mints, per the packet text's own instruction.
+  * Fields written: direction, turret direction, time units, the kneeled bit,
+  * and energy. Position is deliberately EXCLUDED (turn/kneel never move a
+  * unit; syncing position is the walk atom's job, not this one's). Resolution
+  * is EXCLUSIVELY via CoopIdMaps - this never mints a BattleUnit/BattleItem;
+  * the .cpp body sits inside a MINT-WHITELIST-BEGIN/END region even though
+  * nothing in it actually mints.
  *
  * Body lives in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
- * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding
- * (R2-P1..P9).
+  * CoopIdMaps/CoopPump/CoopEmit.
  */
 namespace CoopApply
 {
@@ -76,9 +72,9 @@ namespace CoopApply
 void applyEvPayload(SavedBattleGame* save, const Json::Value& ev);
 
 /// Applies one bt_action_end's "final" object ({pos, dir, tu, energy,
-/// kneeled} per SS2.4) to @a unit - EXCEPT "pos" (see this namespace's own
+/// kneeled}) to @a unit - EXCEPT "pos" (see this namespace's own
 /// doc comment: turn/kneel never move a unit, applying position is out of
-/// this packet's scope). No-op if @a unit is null (the caller's actionId
+/// this applier's scope). No-op if @a unit is null (the caller's actionId
 /// correlation - connectionTCP.cpp's CoopDisplayQueue::onApplied() - is
 /// what can produce a null here, e.g. a foreign actionId this machine never
 /// saw the opening bt_ev for).

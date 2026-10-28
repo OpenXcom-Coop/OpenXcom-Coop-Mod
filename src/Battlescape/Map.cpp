@@ -56,7 +56,7 @@
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/BattleAuthority.h"
-#include "../CoopMod/CoopDelta.h" // coop: the S-A draw probe (TEST-ONLY) and coopFactionIsMine()
+#include "../CoopMod/CoopDelta.h" // coop: the draw probe (TEST-ONLY) and coopFactionIsMine()
 
 
 /*
@@ -337,7 +337,7 @@ void Map::draw()
 	if (_projectile)
 	{
 		t = _save->getTile(_projectile->getPosition(0).toTile());
-		if (coopSideIsMine(_save) || (t && coopTileSeenHere(t))) // coop R5-U1 S-B (D222 gap 1): the side this machine plays
+		if (coopSideIsMine(_save) || (t && coopTileSeenHere(t))) // coop: the side this machine plays
 		{
 			_projectileInFOV = true;
 		}
@@ -353,7 +353,7 @@ void Map::draw()
 				break;
 			}
 			t = _save->getTile(explosion->getPosition().toTile());
-			if (t && coopTileSeenHere(t)) // coop R5-U1 S-B (D222 gap 1): the side this machine plays
+			if (t && coopTileSeenHere(t)) // coop: the side this machine plays
 			{
 				_explosionInFOV = true;
 				break;
@@ -372,8 +372,8 @@ void Map::draw()
 }
 
 /**
- * W1-P14 (REV E.48 SS.F.2 (i) / WV-D11 / SS2.W9 / audit row 1): the predicate
- * moved out of draw() VERBATIM apart from the two W1-P14 edits, so a test
+  * coop: draw()'s hidden-movement predicate in its own function (vanilla's
+  * test plus the co-op edits), so a test
  * probe can read the same value draw() acts on. Note the polarity: TRUE means
  * the terrain is drawn and the HIDDEN MOVEMENT message is NOT shown.
  */
@@ -430,7 +430,7 @@ void Map::refreshHiddenMovementBackground()
 int Map::getWallShade(TilePart part, Tile* tileFrot)
 {
 	int shade;
-	// SS2.W4 read-switch (W1-P8, audit item-6 row 1). Vanilla outside co-op and
+	// coop: the per-seat discovered read-switch (coopTileDiscoveredHere). Vanilla outside co-op and
 	// in classic co-op; only a non-player-side seat sees a different set.
 	if (coopTileDiscoveredHere(tileFrot, O_FLOOR))
 	{
@@ -442,7 +442,7 @@ int Map::getWallShade(TilePart part, Tile* tileFrot)
 	}
 	if (part)
 	{
-		// SS2.W4 read-switch (W1-P8, audit item-6 row 2)
+		// coop: the per-seat discovered read-switch
 		if ((tileFrot->isDoor(part) || tileFrot->isUfoDoor(part)) && coopTileDiscoveredHere(tileFrot, part))
 		{
 			Position offset =
@@ -518,7 +518,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		return;
 	}
 	BattleUnit* bu = unitTile->getOverlappingUnit(_save, TUO_ALWAYS);
-	if (!bu) bu = CoopGhost::trailingUnitOverTile(_save, unitTile); // W1-P12, no-op in SP
+	if (!bu) bu = CoopGhost::trailingUnitOverTile(_save, unitTile); // coop ghost, no-op in SP
 	Position unitOffset;
 	bool unitFromBelow = false;
 	bool unitFromAbove = false;
@@ -711,7 +711,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	//get shade helpers
 	auto getTileShade = [&](Tile* tile)
 	{
-		// SS2.W4 read-switch (W1-P8, audit item-6 row 3)
+		// coop: the per-seat discovered read-switch
 		return tile ? (coopTileDiscoveredHere(tile, O_FLOOR) ? reShade(tile) : 16) : 16;
 	};
 	auto getMixedTileShade = [&](Tile* tile, int heightOffset, bool below)
@@ -946,7 +946,7 @@ void Map::drawTerrain(Surface *surface)
 				{
 					bool isUnitMovingNearby = movingUnit && positionInRangeXY(movingUnitPosition, mapPosition, 2);
 
-					// SS2.W4 read-switch (W1-P8, audit item-6 row 4)
+					// coop: the per-seat discovered read-switch
 					if (coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						tileShade = reShade(tile);
@@ -1253,7 +1253,7 @@ void Map::drawTerrain(Surface *surface)
 					}
 
 					// Draw smoke/fire
-					// SS2.W4 read-switch (W1-P8, audit item-6 row 5)
+					// coop: the per-seat discovered read-switch
 					if (tile->getSmoke() && coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						frameNumber = 0;
@@ -1318,7 +1318,7 @@ void Map::drawTerrain(Surface *surface)
 					}
 
 					// Draw Path Preview
-					// SS2.W4 read-switch (W1-P8, audit item-6 row 6)
+					// coop: the per-seat discovered read-switch
 					if (_previewSettingArrows && tile->getPreview() != -1 && coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						if (itZ > 0 && tile->hasNoFloor(_save))
@@ -1653,7 +1653,7 @@ void Map::drawTerrain(Surface *surface)
 						screenPosition.y > -_spriteHeight && screenPosition.y < surface->getHeight() + _spriteHeight )
 					{
 						tile = _save->getTile(mapPosition);
-						// SS2.W4 read-switch (W1-P8, audit item-6 row 7)
+						// coop: the per-seat discovered read-switch
 						if (!tile || !coopTileDiscoveredHere(tile, O_FLOOR) || tile->getPreview() == -1)
 							continue;
 						int adjustment = -tile->getTerrainLevel();
@@ -1730,7 +1730,7 @@ void Map::drawTerrain(Surface *surface)
 	}
 
 	auto* selectedUnit = _save->getSelectedUnit();
-	if (selectedUnit && (coopSideIsMine(_save) || _save->getDebugMode()) && selectedUnit->getPosition().z <= _camera->getViewLevel()) // coop R5-U2 S-A (design-D5): the side this machine plays
+	if (selectedUnit && (coopSideIsMine(_save) || _save->getDebugMode()) && selectedUnit->getPosition().z <= _camera->getViewLevel()) // coop: the side this machine plays
 	{
 		_camera->convertMapToScreen(selectedUnit->getPosition(), &screenPosition);
 		screenPosition += _camera->getMapOffset();
@@ -1752,7 +1752,7 @@ void Map::drawTerrain(Surface *surface)
 	}
 
 	// Draw motion scanner arrows
-	if (_isAltPressed && coopSideIsMine(_save) && this->getCursorType() != CT_NONE) // coop R5-U2 S-A (design-D5): the side this machine plays
+	if (_isAltPressed && coopSideIsMine(_save) && this->getCursorType() != CT_NONE) // coop: the side this machine plays
 	{
 		for (auto* myUnit : *_save->getUnits())
 		{
@@ -2202,7 +2202,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const Coop
 	// identical vanilla behaviour then - the OTHER caller, :1720, never
 	// passes one). When non-null, every motion read below comes from it
 	// instead of `unit` - the ghost renders from ITS OWN interpolation
-	// state, never from BattleUnit (A4) - and with no live ghost `view`'s
+	// state, never from BattleUnit - and with no live ghost `view`'s
 	// fields are exactly what `fromUnit()` copied off `unit`, so the value
 	// is unchanged either way.
 	int phase = view ? ((view->walkPhase % 8) + (view->walkPhase / 8) * 8)
@@ -2228,7 +2228,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const Coop
 	}
 	if (view && view->ghostTrailing)
 	{
-		// W1-P12 (6c): a ghost-trailing WALK is behind the scenes on the
+		// coop: a ghost-trailing WALK is behind the scenes on the
 		// destination tile for its WHOLE sweep, not just the phase>=midphase
 		// half vanilla's own dual-branch below already handles - forcing
 		// midphase to 0 routes every phase through that branch, so the

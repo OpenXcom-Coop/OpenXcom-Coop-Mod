@@ -132,11 +132,11 @@ void UnitWalkBState::think()
 
 	auto cancelCurentMove = [&]
 	{
-		// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30): ONE guarded coop call, at THE
+		// coop: ONE guarded coop call, at THE
 		// cancel path every mid-walk abort funnels through. Latches the halt
 		// `reason` the completion bt_action_end will carry, mapping vanilla's own
 		// `_action.result` classification. First reason wins, so the reserve
-		// branch below (and W1-P11's spot halt later) can record ahead of it.
+		// branch below (and the spot halt later) can record ahead of it.
 		// No-op outside an active co-op battle, so SP is byte-identical.
 		coopNoteWalkHalt(_unit, _action.result);
 		if (_fallingWhenStopped && !_falling)
@@ -200,7 +200,7 @@ void UnitWalkBState::think()
 				}
 			}
 
-			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && (!coopFactionIsMine(_unit->getFaction()) || coopCameraFollowsPartner(_unit)) && coopUnitVisibleHere(_unit)) // coop R5-U1 S-B (D222 gap 2): not this machine's side; D249-U: or the partner's walker, option on
+			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && (!coopFactionIsMine(_unit->getFaction()) || coopCameraFollowsPartner(_unit)) && coopUnitVisibleHere(_unit)) // coop: not this machine's side, or the partner's walker with the option on
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
 			if (coopHostPartnerCamera(_unit, "walkLevel")) {} else
@@ -210,9 +210,9 @@ void UnitWalkBState::think()
 		// is the step finished?
 		if (_unit->getStatus() == STATUS_STANDING)
 		{
-			// W1-P9 (SS2.W2 / WV-D30 / WV-D37): ONE guarded coop call, at the
+			// coop: ONE guarded coop call, at the
 			// natural per-step hook. Authors the ACTING unit's own tile FOV
-			// (SS2.W5 - the updateSoldierInfo() below no longer does the tile
+			// (the updateSoldierInfo() below does not do the tile
 			// half in a co-op battle, and it would recalculate for the SELECTED
 			// unit, which an admitted remote walk's actor is not), then emits
 			// this step's own `bt_ev walk_step` with h:{unitsStats}. Returns
@@ -259,14 +259,13 @@ void UnitWalkBState::think()
 			}
 			if (unitSpotted)
 			{
-				// W1-P11 (WAVE1-RUNBOOK.md SS4 "ATOM spot" / SS2.W2 rule 6,
-				// WV-D26): ONE guarded coop call, at vanilla's own MID-WALK
-				// spotting halt - the first of the two LIVE sites prd-r3a
-				// names. It emits the `spot` ev in-stream at exactly this
-				// position (after the step ev this step already emitted, before
-				// the walk's completion restate) and latches SS2.W2's halt
-				// reason `spot` AHEAD of cancelCurentMove()'s catch-all, which
-				// maps this branch's EMPTY `_action.result` to `blocked`.
+				// coop: ONE guarded coop call, at vanilla's own MID-WALK
+				// spotting halt - the first of the two LIVE spot sites. It emits
+				// the `spot` ev in-stream at exactly this position (after the step
+				// ev this step already emitted, before the walk's completion
+				// restate) and latches the halt reason `spot` AHEAD of
+				// cancelCurentMove()'s catch-all, which maps this branch's EMPTY
+				// `_action.result` to `blocked`.
 				// No-op outside an active co-op battle, off the host sim, and
 				// for a walk this machine did not open a chain for - so single
 				// player is byte-identical.
@@ -361,14 +360,14 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 
-			// W1-P9 (SS2.W2 / WV-D38 / WV-D48): ONE guarded coop call REPLACING
+			// coop: ONE guarded coop call REPLACING
 			// the `_parent->checkReservedTU(_unit, tu, energy) == false`
 			// sub-expression. It is the vanilla predicate, with the vanilla
 			// arguments and the vanilla warning surface, EXCEPT for a
 			// CLIENT-ORIGIN walk in a co-op battle - where the host must not
 			// apply ITS OWN (machine-local, saveBlob-excluded) reserve to
 			// another seat's order; the ordering client enforces its own before
-			// the intent is even built. It also records SS2.W2's `no_tu` halt
+			// the intent is even built. It also records the `no_tu` halt
 			// reason, which this branch's empty `_action.result` cannot carry.
 			if (_parent->getPanicHandled() && !_falling
 				&& coopWalkReserveRefuses(_parent, _unit, tu, energy))
@@ -387,15 +386,14 @@ void UnitWalkBState::think()
 			// now open doors (if any)
 			if (dir < Pathfinding::DIR_UP)
 			{
-				// W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D26): ONE
-				// guarded coop call REPLACING the `_terrain->unitOpensDoor(...)`
-				// sub-expression (W1-P9's coopWalkReserveRefuses precedent).
-				// Outside a co-op battle, and off the simulating host, it IS
-				// that call and nothing else. On the host it emits the SS2.4
-				// `ev door` for whatever vanilla actually mutated - which lands
-				// in the seq stream exactly HERE, between the walk_step ev of
-				// the step before the doorway and the one after it (SS2.W2
-				// rule 6). All logic in src/CoopMod (CoopDoor.h).
+				// coop: ONE guarded coop call REPLACING the
+				// `_terrain->unitOpensDoor(...)` sub-expression (like
+				// coopWalkReserveRefuses). Outside a co-op battle, and off the
+				// simulating host, it IS that call and nothing else. On the host
+				// it emits the `ev door` for whatever vanilla actually mutated -
+				// which lands in the seq stream exactly HERE, between the
+				// walk_step ev of the step before the doorway and the one after
+				// it. All logic in src/CoopMod (CoopDoor.h).
 				int door = coopUnitOpensDoor(_terrain, _unit, false, dir);
 				if (door == 3)
 				{
@@ -483,7 +481,7 @@ void UnitWalkBState::think()
 
 		if (unitSpotted && !_action.desperate && !_unit->getCharging() && !_falling)
 		{
-			// W1-P11 (SS4 "ATOM spot" / SS2.W2 rule 6): the SECOND live spot
+			// coop: the SECOND live spot
 			// halt - a turn (including the PRE-FIRST-STEP facing turn) that
 			// brings a hostile into view, i.e. a walk that halts having executed
 			// ZERO steps.
@@ -494,7 +492,7 @@ void UnitWalkBState::think()
 			// or be positioned so its `h` matches what the client ALREADY holds -
 			// CoopHashCheck::verify() runs immediately after that ev's own apply
 			// (BattlePump.h), so nothing later gets a chance to converge it.
-			// `ev spot` carries no TU (SPIKE-RUNBOOK.md SS2.4, published), so it
+			// `ev spot` carries no TU (a published wire schema), so it
 			// takes the SECOND route: emitted here, BEFORE the _beforeFirstStep
 			// spend below, its h:{unitsStats} is the PRE-spend TU - exactly what
 			// the client holds, having applied nothing. The post-spend TU then
@@ -515,8 +513,8 @@ void UnitWalkBState::think()
 			// unreachable with the loaded mods and the `else` arm merely
 			// increments a counter. A MOD THAT SETS `turnBeforeFirstStep` WOULD
 			// REINTRODUCE THE MISMATCH, and at that point the fix has to become a
-			// payload change to `ev spot` - which is a published schema and
-			// therefore an owner ruling. repro_atom_spot.py asserts the premise
+			// payload change to `ev spot`, a published wire schema.
+			// repro_atom_spot.py asserts the premise
 			// so it fails loudly instead of silently desyncing.
 			coopNoteWalkSpot(_unit);
 			if (_beforeFirstStep)

@@ -77,7 +77,7 @@ void UnitTurnBState::init()
 		if (_action.type == BA_NONE)
 		{
 			// try to open a door
-			// W1-P10 (SS4 "ATOM door"): ONE guarded coop call REPLACING the
+			// coop: ONE guarded coop call REPLACING the
 			// `unitOpensDoor(...)` sub-expression - THE right-click door path
 			// the turn ev keeps a reserved `door` field for and never
 			// applies ("UNSUPPORTED door-in-turn"). The terrain now rides
@@ -112,7 +112,7 @@ void UnitTurnBState::think()
 	if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && !_action.targeting && !_parent->checkReservedTU(_unit, tu, 0))
 	{
 		_unit->abortTurn();
-		// R3-P1 (SPIKE-RUNBOOK.md UnitTurnBState.cpp:104 @911ca487f): THIN
+		// coop: THIN
 		// completion/abort hook - see CoopArbiter.h's coopOnUnitTurnFinished()
 		// doc comment for the full contract. No-op outside an active coop
 		// battle / a foreign unit's turn.
@@ -129,13 +129,13 @@ void UnitTurnBState::think()
 		if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && _action.type == BA_NONE && _unit->getUnitsSpottedThisTurn().size() > unitSpotted)
 		{
 			_unit->abortTurn();
-			// R3-P1 (UnitTurnBState.cpp:116 @911ca487f): see the :104 hook above.
+			// coop: see the completion/abort hook above.
 			coopOnUnitTurnFinished(_unit, true);
 			_parent->popState();
 		}
 		else if (_unit->getStatus() == STATUS_STANDING)
 		{
-			// R3-P1 (UnitTurnBState.cpp:116 @911ca487f, natural completion
+			// coop (natural completion
 			// branch): ONE ev at completion, never per 45-degree tick - this
 			// branch only executes once the FULL rotation has finished
 			// (getStatus() != STATUS_TURNING on every intermediate tick).
@@ -162,7 +162,7 @@ void UnitTurnBState::think()
 	{
 		_action.result = "STR_NOT_ENOUGH_TIME_UNITS";
 		_unit->abortTurn();
-		// R3-P1 (UnitTurnBState.cpp:142 @911ca487f): see the :104 hook above.
+		// coop: see the completion/abort hook above.
 		coopOnUnitTurnFinished(_unit, true);
 		_parent->popState();
 	}

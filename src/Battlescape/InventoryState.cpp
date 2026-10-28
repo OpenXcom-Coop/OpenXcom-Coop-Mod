@@ -368,7 +368,7 @@ InventoryState::~InventoryState()
 	coopEquipPresenceDetach(this); // coop: the partner pointer's overlay goes with this screen's surfaces
 	_clearInventoryTemplate(_curInventoryTemplate);
 	_clearInventoryTemplate(_tempInventoryTemplate);
-	coopBaseInvScreen(this, nullptr); // coop: forgotten with this screen (before W2-H21's early return)
+	coopBaseInvScreen(this, nullptr); // coop: forgotten with this screen (before the early return below)
 	coopBasePresenceScreen(this, nullptr, nullptr, false); // coop: and its pile key
 
 	// coop: a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
@@ -943,7 +943,7 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 	{
 		_game->getSavedGame()->setGlobalEquipmentLayoutArmor(index, std::string());
 	}
-	if (_base) SharedEcon::submitLayoutTemplate(_game, _base, index); // coop: the slot to the host (P8b Q9 a)
+	if (_base) SharedEcon::submitLayoutTemplate(_game, _base, index); // coop: the slot to the host
 }
 
 void InventoryState::loadGlobalLayout(int index)
@@ -1218,7 +1218,7 @@ void InventoryState::btnPrevClick(Action *)
 		return;
 	}
 
-	if (coopEquipCycleOwnUnit(_battleGame, -1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
+	if (coopEquipCycleOwnUnit(_battleGame, -1)) { init(); return; } // coop: the PvP alien seat's own units
 	if (coopEquipCycleView(_parent, _tu, -1)) { init(); return; } // coop: the partner's soldiers too, read-only
 	if (_parent)
 	{
@@ -1241,7 +1241,7 @@ void InventoryState::btnNextClick(Action *)
 	{
 		return;
 	}
-	if (coopEquipCycleOwnUnit(_battleGame, 1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
+	if (coopEquipCycleOwnUnit(_battleGame, 1)) { init(); return; } // coop: the PvP alien seat's own units
 	if (coopEquipCycleView(_parent, _tu, 1)) { init(); return; } // coop: the partner's soldiers too, read-only
 	if (_parent)
 	{
@@ -2114,7 +2114,7 @@ void InventoryState::onMoveGroundInventoryToBase(Action *)
 	Tile                     *groundTile = unit->getTile();
 	std::vector<BattleItem*> *groundInv = groundTile->getInventory();
 
-	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, c); // coop W2-H20b-B (A12)
+	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, c); // coop
 	// step 1: move stuff from craft to base
 	for (auto* bi : *groundInv)
 	{

@@ -51,12 +51,12 @@ public:
 	void setPalette(const SDL_Color *colors, int firstcolor = 0, int ncolors = 256) override;
 	/// Shows the warning message.
 	void showMessage(const std::string &msg, int time = 2);
-	/// W1-P9 (test introspection only, same family as
+	/// coop (test introspection only, same family as
 	/// BattlescapeState::getCoopWaitText): the message text currently held by
 	/// this surface, or "" if none was ever shown. Read-only; never read by game
-	/// logic. It exists because SS2.W2/WV-D48's step-1 reserve refusal is shown
-	/// on VANILLA's own warning surface - the local refusal the ruling requires -
-	/// and a wave-1 test must assert EXACT TEXT, never an absence.
+	/// logic. It exists because a client's step-1 reserve refusal is shown on
+	/// VANILLA's own warning surface (a local refusal), and a test must assert
+	/// EXACT TEXT, never an absence.
 	std::string getMessageText() const;
 	/// Handles the timers.
 	void think() override;

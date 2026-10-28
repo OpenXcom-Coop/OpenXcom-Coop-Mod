@@ -98,7 +98,7 @@ void MeleeAttackBState::init()
 	{
 		// no ammo or target is dead: give the time units back and cancel the shot.
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
-		// W2-P3 S-B (owner ruling D145 = a, amendment B3): ONE guarded coop call - on the
+		// coop: ONE guarded coop call - on the
 		// co-op HOST the target must be the unit whose action triggered the reaction (a
 		// client's walker is never the host's selected unit); vanilla's selected unit
 		// everywhere else.
@@ -205,7 +205,7 @@ void MeleeAttackBState::think()
 			_parent->getMap()->invalidate();
 		}
 
-		// W2-P4 S-C (amendment C1 PR-Q4): ONE guarded coop term - on the co-op HOST
+		// coop: ONE guarded coop term - on the co-op HOST
 		// a partner's admitted melee never resets the HOST player's own current
 		// action (its aim mode); false in SP, on a client and for the host's own.
 		if (_unit->getFaction() == _parent->getSave()->getSide() && !coopIsRemoteIntentAction(_action)) // not a reaction attack

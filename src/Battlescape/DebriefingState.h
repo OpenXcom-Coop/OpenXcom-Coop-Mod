@@ -61,7 +61,7 @@ class DebriefingState : public State
 {
 private:
 	friend class connectionTCP; // coop: the display-only client fill/finish and the host's bt_debrief_result serializer
-	std::string _coopTitleKey, _coopRecoveryKey; // coop (AUD-A12): the keys behind _txtTitle / _txtRecovery's prepareDebriefing text; the second player renders them in its own language
+	std::string _coopTitleKey, _coopRecoveryKey; // coop: the keys behind _txtTitle / _txtRecovery's prepareDebriefing text; the second player renders them in its own language
 	typedef std::pair<std::string, UnitStats> SoldierStatsEntry;
 
 	RuleEvent *_eventToSpawn;

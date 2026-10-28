@@ -109,7 +109,7 @@ void MiniMapView::draw()
 						if (s)
 						{
 							int shade = 16;
-							// SS2.W4 read-switch (W1-P8, audit item-6 row 8)
+							// coop: the per-seat discovered read-switch
 							if (coopTileDiscoveredHere(t, O_FLOOR))
 							{
 								shade = t->getShade();
@@ -138,7 +138,7 @@ void MiniMapView::draw()
 					}
 				}
 				// perhaps (at least one) item on this tile?
-				// SS2.W4 read-switch (W1-P8, audit item-6 row 9)
+				// coop: the per-seat discovered read-switch
 				if (coopTileDiscoveredHere(t, O_FLOOR) && !t->getInventory()->empty())
 				{
 					int frame = 9 + _frame;

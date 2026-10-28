@@ -25,7 +25,7 @@
 #include "../Geoscape/GeoscapeEventState.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
-#include "../CoopMod/CoopScriptOwner.h" // coop OF2 S-C: CoopScriptDebriefOwner around postMissionProcedures
+#include "../CoopMod/CoopScriptOwner.h" // coop: CoopScriptDebriefOwner around postMissionProcedures
 #include "../CoopMod/CoopBattleSetup.h" // coop: coopGuestTankRecovered
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
@@ -305,7 +305,7 @@ DebriefingState::DebriefingState() :
 	// coop: this is the host's battle-end chokepoint (abort/win/lose all
 	// route through here via BattlescapeState::finishBattle before the geoscape
 	// is shown). Mark the mission end so the GeoscapeState post-battle cleanup
-	// (F366 merged-guest deletion + processPendingSoldierGifts) runs. Host-only
+	// (merged-guest deletion + processPendingSoldierGifts) runs. Host-only
 	// and connected-session-only: never fires in single-player or on the client.
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
 	{
@@ -1353,7 +1353,7 @@ void DebriefingState::prepareDebriefing()
 				_missionStatistics->alienRace = ufo->getAlienRace();
 			}
 			_txtRecovery->setText(tr("STR_UFO_RECOVERY"));
-			_coopRecoveryKey = "STR_UFO_RECOVERY"; // coop (AUD-A12)
+			_coopRecoveryKey = "STR_UFO_RECOVERY"; // coop
 			ufo->setInBattlescape(false);
 			// if XCom failed to secure the landing zone, the UFO
 			// takes off immediately and proceeds according to its mission directive
@@ -1418,7 +1418,7 @@ void DebriefingState::prepareDebriefing()
 		if (ab->isInBattlescape())
 		{
 			_txtRecovery->setText(tr("STR_ALIEN_BASE_RECOVERY"));
-			_coopRecoveryKey = "STR_ALIEN_BASE_RECOVERY"; // coop (AUD-A12)
+			_coopRecoveryKey = "STR_ALIEN_BASE_RECOVERY"; // coop
 			bool destroyAlienBase = true;
 
 			if (aborted || playersSurvived == 0)
@@ -1592,7 +1592,7 @@ void DebriefingState::prepareDebriefing()
 					|| (aborted && bunit->isInExitArea(END_POINT)))
 				{ // so game is not aborted or aborted and unit is on exit area
 					StatAdjustment statIncrease;
-					{ CoopScriptDebriefOwner coopOwner(_game, bunit); bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease); } // coop OF2 S-C
+					{ CoopScriptDebriefOwner coopOwner(_game, bunit); bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease); } // coop
 					if (bunit->getGeoscapeSoldier())
 						_soldierStats.push_back(std::pair<std::string, UnitStats>(_game->getCoopMod()->coopDebriefSoldierName(this, bunit->getGeoscapeSoldier()), statIncrease.statGrowth)); // coop
 					playersInExitArea2++;
@@ -1810,22 +1810,22 @@ void DebriefingState::prepareDebriefing()
 		if (target == "STR_BASE")
 		{
 			_txtTitle->setText(tr("STR_BASE_IS_SAVED"));
-			_coopTitleKey = "STR_BASE_IS_SAVED"; // coop (AUD-A12)
+			_coopTitleKey = "STR_BASE_IS_SAVED"; // coop
 		}
 		else if (target == "STR_UFO")
 		{
 			_txtTitle->setText(tr("STR_UFO_IS_RECOVERED"));
-			_coopTitleKey = "STR_UFO_IS_RECOVERED"; // coop (AUD-A12)
+			_coopTitleKey = "STR_UFO_IS_RECOVERED"; // coop
 		}
 		else if (target == "STR_ALIEN_BASE")
 		{
 			_txtTitle->setText(tr("STR_ALIEN_BASE_DESTROYED"));
-			_coopTitleKey = "STR_ALIEN_BASE_DESTROYED"; // coop (AUD-A12)
+			_coopTitleKey = "STR_ALIEN_BASE_DESTROYED"; // coop
 		}
 		else
 		{
 			_txtTitle->setText(tr("STR_ALIENS_DEFEATED"));
-			_coopTitleKey = "STR_ALIENS_DEFEATED"; // coop (AUD-A12)
+			_coopTitleKey = "STR_ALIENS_DEFEATED"; // coop
 			if (!aborted && !savedEnoughVIPs)
 			{
 				// Special case: mission was NOT aborted, all enemies were neutralized, but we couldn't save enough VIPs...
@@ -1866,18 +1866,18 @@ void DebriefingState::prepareDebriefing()
 			if (!missionFailedText.empty())
 			{
 				_txtTitle->setText(tr(missionFailedText));
-				_coopTitleKey = missionFailedText; // coop (AUD-A12)
+				_coopTitleKey = missionFailedText; // coop
 			}
 			else
 			{
 				_txtTitle->setText(tr("STR_TERROR_CONTINUES"));
-				_coopTitleKey = "STR_TERROR_CONTINUES"; // coop (AUD-A12)
+				_coopTitleKey = "STR_TERROR_CONTINUES"; // coop
 			}
 		}
 		else if (!missionCompleteText.empty())
 		{
 			_txtTitle->setText(tr(missionCompleteText));
-			_coopTitleKey = missionCompleteText; // coop (AUD-A12)
+			_coopTitleKey = missionCompleteText; // coop
 		}
 
 		if (!aborted)
@@ -1923,28 +1923,28 @@ void DebriefingState::prepareDebriefing()
 		if (lostCraft)
 		{
 			_txtTitle->setText(tr("STR_CRAFT_IS_LOST"));
-			_coopTitleKey = "STR_CRAFT_IS_LOST"; // coop (AUD-A12)
+			_coopTitleKey = "STR_CRAFT_IS_LOST"; // coop
 		}
 		else if (target == "STR_BASE")
 		{
 			_txtTitle->setText(tr("STR_BASE_IS_LOST"));
-			_coopTitleKey = "STR_BASE_IS_LOST"; // coop (AUD-A12)
+			_coopTitleKey = "STR_BASE_IS_LOST"; // coop
 			_destroyBase = true;
 		}
 		else if (target == "STR_UFO")
 		{
 			_txtTitle->setText(tr("STR_UFO_IS_NOT_RECOVERED"));
-			_coopTitleKey = "STR_UFO_IS_NOT_RECOVERED"; // coop (AUD-A12)
+			_coopTitleKey = "STR_UFO_IS_NOT_RECOVERED"; // coop
 		}
 		else if (target == "STR_ALIEN_BASE")
 		{
 			_txtTitle->setText(tr("STR_ALIEN_BASE_STILL_INTACT"));
-			_coopTitleKey = "STR_ALIEN_BASE_STILL_INTACT"; // coop (AUD-A12)
+			_coopTitleKey = "STR_ALIEN_BASE_STILL_INTACT"; // coop
 		}
 		else
 		{
 			_txtTitle->setText(tr("STR_TERROR_CONTINUES"));
-			_coopTitleKey = "STR_TERROR_CONTINUES"; // coop (AUD-A12)
+			_coopTitleKey = "STR_TERROR_CONTINUES"; // coop
 			if (!objectiveFailedText.empty())
 			{
 				addStat(objectiveFailedText, 1, objectiveFailedScore);
@@ -1953,7 +1953,7 @@ void DebriefingState::prepareDebriefing()
 		if (!missionFailedText.empty())
 		{
 			_txtTitle->setText(tr(missionFailedText));
-			_coopTitleKey = missionFailedText; // coop (AUD-A12)
+			_coopTitleKey = missionFailedText; // coop
 		}
 
 		if (playersSurvived > 0 && !_destroyBase)
@@ -2214,7 +2214,7 @@ void DebriefingState::prepareDebriefing()
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getCoopHqBase()); // coop W2-H89 H8: the sender's first own base
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getCoopHqBase()); // coop: the sender's first own base
 		}
 
 		// Increase counters
@@ -2276,7 +2276,7 @@ void DebriefingState::reequipCraft(Base *base, Craft *craft, bool vehicleItemsCa
 	ItemContainer craftVehicles;
 	for (auto* vehicle : *craft->getVehicles())
 	{
-		// coop D248-U S-C (owner OD248-B1 (b); main DebriefingState.cpp :2947-:2955): a tank THIS world parked at a co-op
+		// coop: a tank THIS world parked at a co-op
 		// partner's base fought in this battle as the host's and now leaves the craft: it is not re-added, and one tank of its
 		// type leaves this base's stores (the one vanilla's recovery credited, or a spare when it was destroyed).
 		if (vehicle->getCoopCraft() == -1)

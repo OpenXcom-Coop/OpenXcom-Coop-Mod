@@ -320,7 +320,7 @@ void MedikitState::update()
 }
 
 /**
- * W2-P4 S-D (co-op, amendment C3 D148 / C3-Q11): on a co-op client the host runs
+ * co-op: on a co-op client the host runs
  * a button's use; when its answer arrives this runs the handler's own post-use
  * lines (the charges and wounds are already applied).
  * @param refreshPart True after a heal (the selected body part is refreshed).

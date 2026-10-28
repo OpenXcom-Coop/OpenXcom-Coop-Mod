@@ -40,7 +40,7 @@ class Timer;
 class Text;
 class Tile;
 class UnitSprite;
-struct CoopUnitDrawView; // W1-P12 (CoopMod/CoopGhost.h) - pointer-only here, thin
+struct CoopUnitDrawView; // coop (CoopMod/CoopGhost.h) - pointer-only here, thin
 
 enum CursorType { CT_NONE, CT_NORMAL, CT_AIM, CT_PSI, CT_WAYPOINT, CT_THROW };
 enum TilePart : int;
@@ -125,7 +125,7 @@ public:
 	void think() override;
 	/// Draws the surface.
 	void draw() override;
-	/// W1-P14 (REV E.48 SS.F.2 (i)): Map::draw's hidden-movement gate, extracted
+	/// coop: Map::draw's hidden-movement gate, extracted
 	/// verbatim so a test-only probe can read the same predicate draw() uses.
 	/// TRUE => drawTerrain(); FALSE => the HIDDEN MOVEMENT message.
 	bool hiddenMovementShown() const;
@@ -151,7 +151,7 @@ public:
 	void getSelectorPosition(Position *pos) const;
 	/// Calculates the offset of a soldier, when it is walking in the middle of 2 tiles.
 	/// `view` is a defaulted presentation read-switch (CoopMod/CoopGhost.h) -
-	/// null (the default) is byte-identical to the pre-W1-P12 vanilla behaviour.
+	/// null (the default) is byte-identical to vanilla.
 	UnitWalkingOffset calculateWalkingOffset(const BattleUnit *unit, const CoopUnitDrawView* view = nullptr) const;
 	/// Sets the 3D cursor type.
 	void setCursorType(CursorType type, int size = 1);

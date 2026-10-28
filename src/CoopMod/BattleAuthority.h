@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-// W1-P7 deliverable 6 (REV D / WV-D55): the battle-save hook pair below takes
+// coop: the battle-save hook pair below takes
 // YAML nodes. Forward-declared, never included - this header is deliberately
 // dependency-light (see the class comment) and the only two call sites
 // (SavedBattleGame::save/::load) already have the complete types.
@@ -43,34 +43,28 @@ class SavedBattleGame;
 class SavedGame;
 
 /**
- * W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-19..D-27 =
- * WV-D55): the session's TURN MODE. Chosen by the HOST, stamped onto every
- * battle_offer (SS2.W1) and MIRRORED by the client - a client's own setting is
- * irrelevant, exactly like the donor's session-decided-once shape.
+  * coop: the session's TURN MODE. Chosen by the HOST, stamped onto every
+  * battle_offer and MIRRORED by the client - a client's own setting is
+  * irrelevant: the mode is decided once per session.
  *
  * Parallel    - all seats on the active side act simultaneously, individual
- *               actions serialized through host admission (SS2.5). Everything
- *               REV A-C describes, and THE DEFAULT (D-26).
+  *               actions serialized through host admission. THE DEFAULT.
  * Traditional - one seat commands at a time; END TURN passes the baton to the
  *               next seat; the last pass closes the side.
  *
- * W1-P7 CARRIES, STORES AND REPORTS the mode and NOTHING ELSE. **No code may
- * branch behaviour on it in this packet** (REV D, binding) - the baton logic and
- * the off-baton presentation are W1-P13's, and hard-coding the parallel rule into
- * `needed` or into coopMayCommand() is exactly what that rule forbids.
+  * This type only carries, stores and reports the mode; code that branches on
+  * it reads BattleAuthority::turnMode.
  */
 enum class CoopTurnMode { Parallel, Traditional };
 
-/// The SS2.W1 wire spelling of @a m: "parallel" or "traditional". Never any
+/// The battle_offer wire spelling of @a m: "parallel" or "traditional". Never any
 /// other string - this is what goes on battle_offer.
 const char* coopTurnModeName(CoopTurnMode m);
 
-/// Parse an SS2.W1 wire value. ANY value other than "traditional" - including
-/// an empty string, i.e. an ABSENT key - is PARALLEL. That is D-26's free
+/// Parse a battle_offer wire value. ANY value other than "traditional" - including
+/// an empty string, i.e. an ABSENT key - is PARALLEL. That is a deliberate
 /// backwards-compatible degrade, not leniency: an older host sends no key at all
-/// and must be understood as the classic model (donor precedent
-/// `cbff7951d:connectionTCP.cpp:12716` [V], `get(..., false)` for the same
-/// reason).
+/// and must be understood as the classic model.
 CoopTurnMode coopTurnModeFromString(const std::string& s);
 
 /// The HOST's remembered preference, normalized: Options::CoopTurnMode run
@@ -78,7 +72,7 @@ CoopTurnMode coopTurnModeFromString(const std::string& s);
 /// builds an offer - never by a client, and never to decide behaviour.
 CoopTurnMode coopSessionTurnModeFromOptions();
 
-/// D.1 BATTLE-SAVE HOOK (owner revision to D-20/D-21, binding). The thin
+/// BATTLE-SAVE HOOK. The thin
 /// coop-gated pair `SavedBattleGame::save`/`::load` calls, so a battle save
 /// carries the mode it was PLAYED in and a mid-battle resume comes back in that
 /// mode even after a full host restart - which is why the engine never has to
@@ -86,16 +80,14 @@ CoopTurnMode coopSessionTurnModeFromOptions();
 ///
 /// SP AND NON-COOP STAY BYTE-IDENTICAL: coopSaveTurnMode() writes NOTHING unless
 /// this is an active co-op battle, so the key is simply ABSENT from every SP
-/// save. The CAMPAIGN save block is deliberately untouched - the donor's
-/// `SavedGame.cpp:1334`/`:1814` shape is NOT ported (D-21).
+/// save. The CAMPAIGN save block deliberately does not carry the mode.
 ///
 /// The key is on `SharedEcon.cpp`'s saveBlobExcludedTopKey list so session
 /// configuration never rides the saveBlob hash; both machines agree on the value
 /// via the offer anyway.
 ///
-/// W1-P7 only WRITES and READS the key. CONSUMING it on resume - putting it on a
-/// `resumed:true` offer instead of Options::CoopTurnMode (D-22) - is r4 T4's and
-/// is OUT OF WAVE.
+/// On a resume, the `resumed:true` offer carries the mode loaded here instead
+/// of Options::CoopTurnMode.
 void coopSaveTurnMode(YAML::YamlNodeWriter& writer);
 void coopLoadTurnMode(const YAML::YamlNodeReader& reader);
 
@@ -116,21 +108,21 @@ void coopLoadDeployment(const YAML::YamlNodeReader& reader);
 /// traditional-mode baton holder (CoopEndTurn::batonSeat(), HOST-only, -1 in
 /// parallel mode or before the entry tally). Presence-gated both ways; reads
 /// back into the BattleAuthority::activeSeat MIRROR only - restoring the
-/// live CoopEndTurn baton holder on a disk resume (with the D-23 degrade for
-/// an absent/invalid key) is CoopEndTurn::onBattleResumed()'s job (M3, a
-/// separate cycle). SP and parallel-mode saves write nothing meaningful in
+/// live CoopEndTurn baton holder on a disk resume (with a degrade for
+/// an absent/invalid key) is CoopEndTurn::onBattleResumed()'s job.
+/// SP and parallel-mode saves write nothing meaningful in
 /// practice (activeSeat is -1 there too), but the key is still written only
 /// inside a coop battle - byte-identical outside one. Hash-excluded, same
 /// list as coopTurnMode.
 void coopSaveActiveSeat(YAML::YamlNodeWriter& writer);
 void coopLoadActiveSeat(const YAML::YamlNodeReader& reader);
 
-/// WV-D61 (owner ruling R-B, 2026-09-04): the HOST's true
+/// coop: the HOST's true
 /// SavedBattleGame::_itemId, carried in the BATTLE save block so the machine
 /// that LOADS a coop blob adopts it verbatim instead of re-deriving
 /// max(item id)+1 - a derivation that is provably wrong whenever generation
-/// allocated an id that did not survive into the document (RB-D24's fallback,
-/// superseded here). Key `coopItemIdCtr`, on saveBlobExcludedTopKey so it
+/// allocated an id that did not survive into the document.
+/// Key `coopItemIdCtr`, on saveBlobExcludedTopKey so it
 /// never rides the saveBlob hash; the `itemIdCtr` BUCKET still compares it.
 void coopSaveItemIdCtr(YAML::YamlNodeWriter& writer, const SavedBattleGame* battle);
 void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* battle);
@@ -153,38 +145,38 @@ void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* un
 /// Soldier constructor ignores. SavedBattleGame::load builds a unit whose id is a geoscape soldier's through the Soldier
 /// constructor (original faction FACTION_PLAYER, type "SOLDIER"); only the rules constructor takes the record's
 /// `originalFaction`, and BattleUnit::load reads neither it nor `genUnitType`. So the PvE2 (gamemode 4) X-COM soldiers
-/// assignSeatsAndFactions() turns FACTION_HOSTILE (and R5-U8 A3 re-types MALE_ / FEMALE_CIVILIAN) at generation would load
+/// assignSeatsAndFactions() turns FACTION_HOSTILE (and re-types MALE_ / FEMALE_CIVILIAN) at generation would load
 /// as player-original SOLDIERs on every machine that builds the battle from a document: the client's offer, rejoin, repair
-/// and stage blobs, the host's own disk resume. Called from BattleUnit::load after the W2-H26 hook: on a soldier-linked unit
-/// it restores the record's original faction (SavedBattleGame::load's own default: the unit's faction) and, from A3 on, its
+/// and stage blobs, the host's own disk resume. Called from BattleUnit::load after coopLoadSpawnUnitFaction: on a soldier-linked unit
+/// it restores the record's original faction (SavedBattleGame::load's own default: the unit's faction) and its
 /// type. No co-op guard and no new key: every save vanilla writes holds FACTION_PLAYER and "SOLDIER" for a soldier-linked
 /// unit, and co-op gamemodes 0-3 never change either, so the call changes nothing outside PvE2.
 void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
-/// R5-U8b (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) R1; QU8-A1-2): the unit-record hook pair for the two values the
+/// coop: the unit-record hook pair for the two values the
 /// rules constructor derives from the unit's ORIGINAL faction and never saves: the dark-vision distance
 /// (BattleUnit::updateArmorFromNonSoldier) and the maximum armor (the difficulty adjustment, BattleUnit::adjustStats).
 /// PvE2's swap (assignSeatsAndFactions) changes the original faction after the host built the unit, so a machine that builds
 /// it from a document (the client's offer, rejoin, repair and stage blobs, a `unitsAdded` record, the host's own resume)
-/// would rebuild other values. coopSaveBuiltValues() (BattleUnit::save, after the W2-H26 hook) writes both for every unit not
+/// would rebuild other values. coopSaveBuiltValues() (BattleUnit::save, after coopSaveSpawnUnitFaction) writes both for every unit not
 /// linked to a geoscape soldier, only in a co-op battle past Idle (the coopSaveItemIdCtr guard), so an SP save is
-/// byte-identical; coopLoadBuiltValues() (BattleUnit::load, after the U8-1 hook) is presence-gated.
+/// byte-identical; coopLoadBuiltValues() (BattleUnit::load, after coopLoadSoldierUnitRecord) is presence-gated.
 void coopSaveBuiltValues(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
 void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
-/// coop D246-U (owner D246 = b, narrowing FW-7; docs rewrite/prompts/d246u_midbattle_save_convert.md): a mid-battle co-op
+/// coop: a mid-battle co-op
 /// save made by an OLDER version (no coopBattleProtocol in its header: the release line never writes one) resumes on this
 /// build. coopOlderBattleConvertible() is SavedGame::load()'s gate: true for the game modes the load accepts - classic and
-/// SHARED co-op (0 / 1) and PvP gm2 (2) are converted, a PvE2 (4) campaign save loads unconverted (D283 refuses its RESUME;
-/// D246-U S-C); every other unstamped battle save keeps FW-7's refusal. coopConvertOlderBattleSave()
+/// SHARED co-op (0 / 1) and PvP gm2 (2) are converted, a PvE2 (4) campaign save loads unconverted (its RESUME is refused);
+/// every other unstamped battle save is refused. coopConvertOlderBattleSave()
 /// runs on the HOST's menu load right after the battle block loads (@a body = the save's body document):
 ///  (0) every partner world the load restored (coopFilesHost "host_" entries): its battle snapshot stripped and its mirrors
 ///      of the host's soldiers dropped, as the release line's save upgrader treats a legacy partner world (SchemaStep1to2);
 ///  (1) seat tags - the release line writes `coop` 0 / 1 on EVERY unit, the key this build reads as the seat tag: a unit of
 ///      another original faction is unseated, a player-side unit with a soldier keeps seat 0 / 1, any other player-side
-///      unit is the host's (D235-VL2, D248);
+///      unit is the host's;
 ///      a PvP gm2 save: the X-COM side on seat 0, the alien side on seat 1 without its AI module, others unseated;
-///  (2) the turn mode it was played in (D-22), only when the battle block has no coopTurnMode: the campaign-block
+///  (2) the turn mode it was played in, only when the battle block has no coopTurnMode: the campaign-block
 ///      `coop_parallel_turns` true = parallel, false or absent = traditional (v2.0.x played alternating turns);
 ///  (3) the mission deployment, only when the battle block has no coopDeployment, resolved as
 ///      CoopHandshake::mintMissionLabels() resolves it.
@@ -197,52 +189,50 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 /// writes in every co-op battle (coopTurnMode, coopItemIdCtr), game mode 0 / 1, a unit of another original faction carrying the
 /// `coop` key (the release line writes it on EVERY unit, this build only on a seated one) and a unit tagged 1 (the second
 /// player's). A Custom Battle save has no header `coop`, so SavedGame::load()'s campaign gate never sees it; the load then runs
-/// coopConvertOlderBattleSave() on it. A release single-player save loads as saved. D246-U S-D2 (docs rewrite/prompts/
-/// d246u_sd2b_release_pvp_cb_convert.md) widened the game mode to 0-4: PvP (2 / 3) and PvE2 (4) saves convert by their mode's arm.
+/// coopConvertOlderBattleSave() on it. A release single-player save loads as saved. The game mode may be 0-4: PvP (2 / 3)
+/// and PvE2 (4) saves convert by their mode's arm.
 bool coopOlderCustomBattleSave(const YAML::YamlNodeReader& body);
 
-/// WV-D61 test/introspection, the coopSpotEvsEmitted()/coopSpotEvsApplied()
+/// coop test/introspection, like coopSpotEvsEmitted()/coopSpotEvsApplied()
 /// precedent (CoopArbiter.h): how many times THIS machine's coopLoadItemIdCtr
 /// actually adopted the carried counter (the last carried value stored
 /// through getCurrentItemId() - present whenever the key is present and
 /// carried >= derived, whether or not the two agreed), and how many times it
 /// REFUSED to (the carried < derived branch, which must never fire in a
-/// clean two-machine run - see SPEC 3 STOP-IF). "Adopted" is a VALUE, not a
+/// clean two-machine run). "Adopted" is a VALUE, not a
 /// boolean, so a positive-control test can see an adopt that never happened
 /// (value stays 0) as distinct from one that did.
 int coopItemIdCtrAdopted();
 unsigned int coopItemIdCtrRefused();
 
 /**
- * R2-P3 (rewrite spike, SPIKE-RUNBOOK.md RB-D6): the ONE battle-authority
+ * coop: the ONE battle-authority
  * object - kill-by-construction of the legacy getHost()/onTcpHost
  * turn-token tangle for battle logic. A single global instance is DEFINED
- * in connectionTCP.cpp (RB-D6); every battle-logic site is meant to read
- * coopBattleAuthority() instead of branching on getHost() (S3a N-player
+ * in connectionTCP.cpp; every battle-logic site is meant to read
+ * coopBattleAuthority() instead of branching on getHost() (N-player
  * guardrail: no new getHost() branches in battle logic).
  *
  * Deliberately dependency-light, same discipline as CoopSeat.h:
  * BattleUnit/SavedBattleGame are forward-declared only here - their full
  * definitions are only needed in the connectionTCP.cpp method bodies, which
  * already include both. This keeps the header safe to include from thin
- * hook sites in vanilla battle files later (R2-P5+) without dragging the
+ * hook sites in vanilla battle files without dragging the
  * net layer (connectionTCP.h/Game.h/BattlescapeGame.h) in - the same
- * "BattleUnit.h drags net layer" disease RB-D17 already refuses for the
+ * "BattleUnit.h drags net layer" problem CoopSeat.h already avoids for the
  * seat tag.
  *
- * R4-P1 CROSS-THREAD FIX (SPIKE-RUNBOOK.md R4-P1 packet text, "cross-thread
- * safety" watch item): handleUdpRemotePeerLost() (connectionUDP\
+  * CROSS-THREAD SAFETY: handleUdpRemotePeerLost() (connectionUDP\
  * connection_rendezvous_glue.cpp) can call clearNetworkSessionQueues() -> ...
  * -> resetBattleAuthority() from the UDP-monitor thread (its own doc comment:
  * "may run from the UDP monitor thread"), while the main/pump thread reads
- * and writes these same fields throughout CoopArbiter/CoopHandshake. Before
- * R4-P1 this was latent (nothing populated the fields mid-battle from the
- * main thread while a peer-lost teardown could race it); offerBattle()/
- * finishLoad() now do, making it a live data race. Fix: every field below
+  * and writes these same fields throughout CoopArbiter/CoopHandshake.
+  * offerBattle()/finishLoad() populate the fields mid-battle from the main
+  * thread while a peer-lost teardown can race them, so every field below
  * that crosses threads (hostSim/localSeat/phase/battleId, and the
  * _seatFaction store) is std::atomic. This is a mutex-free guard rather than
- * RB-D6's literal "add a mutex" suggestion because every existing read/write
- * call site (CoopArbiter, the R2-P3 self-test, this header's own doc
+ * a mutex because every existing read/write
+ * call site (CoopArbiter, the self-test, this header's own doc
  * examples) already uses plain `a.field = x` / `a.field == y` - std::atomic's
  * implicit conversion operator and operator= keep every one of those call
  * sites source-compatible (verified: no call site copies or value-assigns a
@@ -268,10 +258,10 @@ enum class CoopBattlePhase
 
 struct BattleAuthority
 {
-	/// IMMUTABLE per battle: set once by initBattleAuthority() below (R2-P3)
-	/// from connectionTCP::getServerOwner() (RB-D6). The mutable getHost()/
+	/// IMMUTABLE per battle: set once by initBattleAuthority() below
+	/// from connectionTCP::getServerOwner(). The mutable getHost()/
 	/// onTcpHost token is legacy-dead for battle logic - never branch battle
-	/// code on getHost(). std::atomic: see the R4-P1 cross-thread fix note
+	/// code on getHost(). std::atomic: see the cross-thread safety note
 	/// above the enum.
 	std::atomic<bool> hostSim{false};
 
@@ -279,29 +269,24 @@ struct BattleAuthority
 	/// connectionTCP::localSeat(). -1 (unset) at Idle.
 	std::atomic<int> localSeat{-1};
 
-	/// Battle lifecycle phase. Idle until R4-P1's handshake calls
+	/// Battle lifecycle phase. Idle until the handshake calls
 	/// initBattleAuthority() (-> Handshake) and later stamps Active on a
-	/// successful battle_ready; R2-P8 wires the real Ended -> teardown ->
-	/// Idle transition at the teardown chokepoint (resetBattleAuthority()
-	/// below provides the reset itself). Public field, not a setter: R4-P1/
-	/// R2-P8 transition it with a plain assignment.
+	/// successful battle_ready; the teardown chokepoint runs the Ended ->
+	/// teardown -> Idle transition (resetBattleAuthority() below provides the
+	/// reset itself). Public field, not a setter: the handshake and the
+	/// teardown transition it with a plain assignment.
 	std::atomic<CoopBattlePhase> phase{CoopBattlePhase::Idle};
 
-	/// Host-minted at battle_offer (SS2.2); 0 = none yet.
+	/// Host-minted at battle_offer; 0 = none yet.
 	std::atomic<std::uint32_t> battleId{0};
 
-	/// W1-P7 deliverable 6 (REV D / WV-D55): THIS BATTLE's turn mode - the
-	/// runtime mirror of the session choice, the same role the donor's
-	/// `connectionTCP::_enable_parallel_turns` played
-	/// (`cbff7951d:connectionTCP.cpp:12716` [V]). Set on the HOST when it builds
-	/// the offer and on the CLIENT from `battle_offer.turnMode`; reset to the
-	/// D-26 default by resetBattleAuthority(). It lives HERE rather than in a
-	/// bare static because it is battle-scoped state with a teardown reset, and
-	/// because every future reader (W1-P13's baton) already reads this object.
-	///
-	/// **NOTHING IN W1-P7 BRANCHES ON IT** (REV D, binding): it is carried,
-	/// stored and reported only. std::atomic for the same cross-thread reason as
-	/// the four fields above.
+	/// coop: THIS BATTLE's turn mode - the runtime mirror of the session
+	/// choice. Set on the HOST when it builds the offer and on the CLIENT from
+	/// `battle_offer.turnMode`; reset to the default (Parallel) by
+	/// resetBattleAuthority(). It lives HERE rather than in a bare static
+	/// because it is battle-scoped state with a teardown reset, and because
+	/// battle code already reads this object. std::atomic for the same
+	/// cross-thread reason as the four fields above.
 	std::atomic<CoopTurnMode> turnMode{CoopTurnMode::Parallel};
 
 	/// the seat that currently HOLDS THE BATON in
@@ -311,7 +296,7 @@ struct BattleAuthority
 	/// first tally of a side). Reset to -1 by resetBattleAuthority().
 	std::atomic<int> activeSeat{-1};
 
-	/// W1-P14 (REV E.48 SS.F.2 (ii) / WV-D47 / SS2.W9): the ON/OFF switch for the
+	/// coop: the ON/OFF switch for the
 	/// own-side visibility rule, behind the test-only `battle_visibility_rule`
 	/// lever. coopUnitVisibleHere() is its ONLY reader - it exists so a test can
 	/// prove the rule is hash-free by comparing every bucket with it ON and OFF.
@@ -323,7 +308,7 @@ struct BattleAuthority
 	/// the ONE pending tally. A
 	/// bt_end_turn_tally whose `turn` is AHEAD of this machine's last APPLIED
 	/// side_transition counter (the unordered battle lane beating the
-	/// seq-ordered apply queue - SPIKE-RUNBOOK.md SS2.3 / WR-4) is BUFFERED
+	/// seq-ordered apply queue) is BUFFERED
 	/// here as the pair (turn, activeSeat) instead of being dropped, and
 	/// honoured the moment onClientAppliedSideTransition() advances the
 	/// counter to it. A newer pending pair replaces an older one; a tally
@@ -333,60 +318,56 @@ struct BattleAuthority
 	std::atomic<int> pendingTallyTurn{-1};
 	std::atomic<int> pendingTallyActiveSeat{-1};
 
-	/// R2-P9 (SPIKE-RUNBOOK.md SS2.8): set the moment this machine's own
+	/// coop: set the moment this machine's own
 	/// hash-mismatch detector (CoopHashCheck::verify, BattlePump.h) latches a
-	/// desync - "freeze battle input" per SS2.8's mismatch-behavior note.
-	/// Distinct from BattlePump.h's g_battleFrozen (the R2-P2 seq-gap apply-
+	/// desync - "freeze battle input" on a mismatch.
+	/// Distinct from BattlePump.h's g_battleFrozen (the seq-gap apply-
 	/// queue halt, a low-level plumbing flag): this one is the
-	/// BattleAuthority-level signal higher gating code (the R3-P1 client
+	/// BattleAuthority-level signal higher gating code (the client
 	/// intent tracker/intercept sites) is meant to read. A hash mismatch
 	/// ALSO sets g_battleFrozen (halting the apply queue too) - the two flags
 	/// are set together on a mismatch, never independently, but kept
 	/// separate because they answer different questions ("is the low-level
 	/// apply queue paused" vs "has this battle desynced"). NO partial
-	/// repair, never cleared mid-battle (SS2.8): rejoin is post-spike.
+	/// repair, never cleared mid-battle.
 	std::atomic<bool> desyncFrozen{false};
 
-	/// SPEC 16 M1: latched when a mid-`Active`-battle peer LEAVE
+	/// coop: latched when a mid-`Active`-battle peer LEAVE
 	/// (graceful `disconnect_to_menu` or a liveness/socket-loss detection)
-	/// spares the F331 authority reset instead of tearing the battle down to
+	/// spares the authority reset instead of tearing the battle down to
 	/// Idle - the battle, `battleId`, seat map, `turnMode` and baton all
 	/// survive under it (see connectionTCP::disconnectTCP's host branch and
 	/// its UDP twin, handleUdpRemotePeerLost()). Cleared back to false by
 	/// resetBattleAuthority() (same discipline as desyncFrozen above) and by
-	/// a successful rejoin-restream (M5, a later cycle). Reported additively
+	/// a successful rejoin-restream. Reported additively
 	/// on `battle_state.authority.peerAbsent` (TestServer.cpp) so a test can
 	/// assert "paused, not torn down" without inferring it from the dialog
 	/// alone. std::atomic for the same cross-thread reason as desyncFrozen
 	/// (the UDP-monitor-thread race noted above the enum).
 	std::atomic<bool> peerAbsent{false};
 
-	/// SPEC 16 M4: true when the CURRENT peerAbsent pause was
+	/// coop: true when the CURRENT peerAbsent pause was
 	/// entered via a graceful `battle_leave{seat,reasonKey}` (the departing
 	/// seat's own deliberate `disconnect_to_menu`, sent to the host BEFORE
 	/// its transport goes down) rather than a bare liveness/socket-loss
-	/// detection. F341 (measured): this changes NOTHING about detection
+	/// detection. This changes NOTHING about detection
 	/// latency - both paths already raise the pause dialog in ~0.1s - its
-	/// only wave-1 value is letting CoopState::waitingTitle() NAME the
+	/// only value is letting CoopState::waitingTitle() NAME the
 	/// reason instead of always reading as a silent connection loss.
 	/// Cleared by resetBattleAuthority() (same discipline as peerAbsent
-	/// above) and by a successful rejoin-restream (M5's onReady), so a
+	/// above) and by a successful rejoin-restream's onReady, so a
 	/// later, separate pause on the same battle never inherits a stale
 	/// label. std::atomic for the same cross-thread reason as peerAbsent.
 	std::atomic<bool> peerLeftByChoice{false};
 
-	/// Seat -> FACTION_* lookup, backed by the private store below. R2-P3
-	/// interim: the store starts empty and factionOf() falls back
-	/// to FACTION_PLAYER for any unmapped/out-of-range seat - correct for
-	/// the spike's classic/SHARED-only fixtures, where every valid
-	/// seat is on the player side. setSeatFaction() lets R4-P1's handshake
-	/// init populate the real {0:player,1:player} map.
-	// R5-P1 real seatMap: gm2/gm3/gm4 repoint this store + factionOf(); not
-	// implemented here.
+	/// Seat -> FACTION_* lookup, backed by the private store below. The store
+	/// starts empty and factionOf() falls back to FACTION_PLAYER for any
+	/// unmapped/out-of-range seat (classic and SHARED co-op, where every valid
+	/// seat is on the player side). setSeatFaction() lets the handshake init
+	/// populate the real seat map.
 	int factionOf(int seat) const;
 
-	/// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, PINNED S-A host
-	/// hook step 5): true iff @a seat (0..3) has an entry in the seat->faction
+	/// coop: true iff @a seat (0..3) has an entry in the seat->faction
 	/// store. factionOf() cannot answer this - it falls back to FACTION_PLAYER
 	/// for an unmapped seat. Read-only.
 	bool seatMapped(int seat) const;
@@ -398,20 +379,19 @@ struct BattleAuthority
 
 	/// True iff this machine currently commands @a u: the unit's seat tag
 	/// (BattleUnit::getCoopSeat()) equals localSeat. False if @a u is null.
-	// R5-P2 mcId override (SPIKE-RUNBOOK.md ADDENDUM MJ-8, formula corrected
-	// by R2-M4): "controlled" is faction != originalFaction (NOT a raw mcId
+	// coop mcId override: "controlled" is faction != originalFaction (NOT a raw mcId
 	// check - mcId also gets set by a successful panic with no control
 	// transfer, TileEngine.cpp:4774, and is never cleared on revert). When
 	// controlled, the commanding seat is the seat of the getMindControllerId()
 	// unit; if that unit no longer resolves (dead/gone), ownership falls to
-	// host/AI (MJ-8's own "none/dead -> host/AI" fallback) - only seat 0
+	// host/AI - only seat 0
 	// commands it. A non-MC unit falls straight through to its own seat tag.
-	// Body in connectionTCP.cpp (RB-D6 pattern).
+	// Body in connectionTCP.cpp.
 	bool commandsUnit(const BattleUnit* u) const;
 
 	/// the same rule for an explicit
 	/// @a seat instead of this machine's localSeat - the HOST's admission of a
-	/// REMOTE seat's intent (onIntent's not_your_unit). MJ-8's controller rule
+	/// REMOTE seat's intent (onIntent's not_your_unit). The controller rule
 	/// unchanged: a mind-controlled unit is commanded by its controller's seat
 	/// (seat 0 when the controller no longer resolves). commandsUnit(u) is
 	/// commandsUnit(u, localSeat).
@@ -420,13 +400,12 @@ struct BattleAuthority
 	/// True iff this seat commands no player-side faction right now:
 	/// localSeat is unset (<0), or factionOf(localSeat) is not the player
 	/// side. Minimal by construction (this method takes no SavedBattleGame
-	/// parameter to check "currently active side" against) - under RB-D18's
-	/// interim map every valid seat is FACTION_PLAYER, so in the spike this
-	/// reduces to "localSeat < 0"; it stops being trivial once R5-P1's real
-	/// seatMap adds non-player-controlled seats.
+	/// parameter to check "currently active side" against) - in classic and
+	/// SHARED co-op every valid seat is FACTION_PLAYER, so this reduces to
+	/// "localSeat < 0"; a PvP seat map adds non-player-controlled seats.
 	bool isSpectator() const;
 
-	/// R2-P3: minimal interim seat->faction store backing factionOf()
+	/// coop: minimal seat->faction store backing factionOf()
 	/// Out-of-range seats are ignored (no-op).
 	void setSeatFaction(int seat, int faction);
 
@@ -435,32 +414,30 @@ struct BattleAuthority
 	void resetSeatFactions();
 
 private:
-	static const int kMaxSeats = 4; // COOP_SEAT_0..COOP_SEAT_3, RB-D17
+	static const int kMaxSeats = 4; // COOP_SEAT_0..COOP_SEAT_3
 	static const int kUnmapped = -1;
-	// R4-P1 cross-thread fix (see the note above the enum): std::atomic, same
+	// Cross-thread safety (see the note above the enum): std::atomic, same
 	// reasoning as hostSim/localSeat/phase/battleId above - resetSeatFactions()
 	// is reachable from resetBattleAuthority(), which the UDP-monitor thread
 	// can call via handleUdpRemotePeerLost().
 	std::atomic<int> _seatFaction[kMaxSeats] = { kUnmapped, kUnmapped, kUnmapped, kUnmapped };
 };
 
-/// The one global BattleAuthority instance (RB-D6). Defined in
+/// The one global BattleAuthority instance. Defined in
 /// connectionTCP.cpp.
 BattleAuthority& coopBattleAuthority();
 
-/// R4-P1 will call this at the real handshake transition; R2-P3 only
-/// provides the function. Sets hostSim (a ONE-TIME read of
+/// Called at the handshake transition. Sets hostSim (a ONE-TIME read of
 /// connectionTCP::getServerOwner() - hostSim itself stays immutable for the
 /// rest of the battle after this) and localSeat (from
 /// connectionTCP::localSeat()), stamps @a battleId, moves phase to
-/// Handshake, and clears the interim seat->faction store so the
+/// Handshake, and clears the seat->faction store so the
 /// caller can repopulate it via setSeatFaction().
 void initBattleAuthority(std::uint32_t battleId);
 
-/// R2-P8 will wire this at the real battle-teardown chokepoint; R2-P3 only
-/// provides the function. Resets the singleton back to its Idle default
+/// Called at the battle-teardown chokepoint. Resets the singleton back to its Idle default
 /// (hostSim=false, localSeat=-1, phase=Idle, battleId=0, seat->faction
-/// store cleared, turnMode=Parallel per D-26).
+/// store cleared, turnMode=Parallel).
 void resetBattleAuthority();
 
 /// connectionTCP::getCoopStatic() && phase == Active. Deliberately NOT
@@ -471,15 +448,15 @@ void resetBattleAuthority();
 /// coopBattleAuthority().
 bool isCoopBattle();
 
-/// SPEC 18 (r4 T4) M8, owner ruling D101 = (a) + drain-first: the ONE shared
+/// coop: the ONE shared
 /// quiescence predicate - "the host BState stack drains (!isBusy()) AND no
 /// pending origin-chain evs remain (CoopArbiter::currentActionId()==0)",
-/// WITH the F392 isBattlescapeStateLive() live-state guard around the
+/// WITH the isBattlescapeStateLive() live-state guard around the
 /// getBattleState()/getBattleGame()/isBusy() reads (an un-live state counts
 /// as "no live battle", i.e. quiescent - never re-derive a bare !isBusy(),
-/// F400). EXTRACTED from the SPEC 16 pause-modal consumer
+/// anywhere). EXTRACTED from the pause-modal consumer
 /// (connectionTCP.cpp, updateCoopTask()) so BOTH that latch
-/// (g_coopPauseModalPending) and the SPEC 18 deferred-battle-save latch
+/// (g_coopPauseModalPending) and the deferred-battle-save latch
 /// (g_coopDeferredBattleSave) read the SAME gate. Defined in
 /// connectionTCP.cpp next to isCoopBattle().
 bool coopBattleQuiescent();
@@ -488,7 +465,7 @@ bool coopBattleQuiescent();
 /// battle it is in or was last in (the second player raised one; the host received a report) - kept across the
 /// automatic repair, cleared when a battle with another id starts. Read by TestServer's desync probes.
 bool coopDesyncSeenLatched();
-/// coop: a partner drop ends every repair state (the pause becomes SPEC 16's); from CoopSession::onClientDrop().
+/// coop: a partner drop ends every repair state (the peer-leave pause takes over); from CoopSession::onClientDrop().
 void coopResyncOnPeerDrop();
 /// coop: true after the last rejoin or repair offer was refused or its copy did not match,
 /// until a later offer, a drop or a new battle - CoopState::waitSatisfied() then withholds RESUME.
@@ -496,27 +473,27 @@ bool coopResumedOfferFailed();
 /// coop: the host waiting screen's repair wording - 0 none, 1 a repair runs, 2 a repair failed.
 int coopResyncTitleState();
 
-/// SPEC 18 (r4 T4) M8: arm the deferred mid-battle coop save latch, called
+/// coop: arm the deferred mid-battle coop save latch, called
 /// from SaveGameState::think() the moment it observes isCoopBattle() &&
 /// !coopBattleQuiescent() - i.e. every mid-battle coop save funnels through
 /// this ONE chokepoint (quick-save/insta-save keys, the pause-menu Save,
-/// ListSave SAVE & QUIT, the M7 harness lever `save_game_ui type:
+/// ListSave SAVE & QUIT, the harness lever `save_game_ui type:
 /// "quick_battle"`), regardless of how busy-gated each trigger's own UI
 /// happens to be. `origin` is OptionsOrigin and `saveType` is SaveType
 /// (Menu/SaveGameState.h), both passed as their own underlying int so this
 /// header stays dependency-light exactly like isCoopBattle() above -
-/// connectionTCP.cpp casts them back at the ONE consume site (the RB-D5
-/// pump point, beside the SPEC 16 pause-modal consumer). `useTypeForm`
+/// connectionTCP.cpp casts them back at the ONE consume site (the
+/// pump point, beside the pause-modal consumer). `useTypeForm`
 /// selects which SaveGameState constructor the consumer re-invokes: false =
 /// the filename-form ctor (origin, filename, palette, quitAfterSave) - used
 /// by ListSave SAVE & QUIT; true = the type-form ctor (origin, SaveType,
-/// palette) - used by the quick-save/insta-save keys and the M7 lever. The
+/// palette) - used by the quick-save/insta-save keys and the harness lever. The
 /// palette is deliberately NOT stored (a stale SDL_Color* would dangle
 /// across the deferral): the consumer re-sources it from the live
 /// BattlescapeState at quiescence.
 void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std::string& filename, bool quitAfterSave);
 
-/// SPEC 18 (r4 T4) M8, NEW test/introspection accessor: true while the
+/// coop test/introspection accessor: true while the
 /// deferred-battle-save latch above is armed (a save was requested while
 /// the battle was busy and has not yet been consumed at quiescence) -
 /// TestServer's battle_state probe reports it as `coopSavePending` so a
@@ -524,10 +501,10 @@ void armDeferredBattleSave(int origin, bool useTypeForm, int saveType, const std
 /// quiescence.
 bool coopDeferredBattleSavePending();
 
-/// W2-H1 F448, test-only introspection: a BATTLE-scoped
+/// coop test-only introspection: a BATTLE-scoped
 /// record of the deferral above that a test reads instead of racing the
 /// latch's own window (a walk that drains within ~50 ms clears the latch
-/// before the test's first battle_state reply arrives - F448/F460). Reported
+/// before the test's first battle_state reply arrives). Reported
 /// by TestServer's `battle_state` next to `coopSavePending` as
 /// `coopSaveDeferrals` / `coopSaveDeferredAt` / `coopSaveDeferredWrittenAt`;
 /// never read by game logic. Reset with the latch by resetBattleAuthority().
@@ -543,9 +520,9 @@ std::uint32_t coopSaveDeferredAt();
 /// re-push at quiescence); 0 before any this battle.
 std::uint32_t coopSaveDeferredWrittenAt();
 
-/// R5-P2 input-gating combinator (SPIKE-RUNBOOK.md R5-P2 packet text: "ONE
-/// predicate for 'I may command this unit': my seat commands it AND my
-/// faction side is active"). Self-guarded like isCoopBattle() - returns
+/// coop input-gating combinator: ONE predicate for 'I may command this unit':
+/// my seat commands it AND my
+/// faction side is active. Self-guarded like isCoopBattle() - returns
 /// true (permissive) outside an active coop battle, so every thin vanilla
 /// hook site is a single unconditional call:
 /// `if (!coopMayCommand(unit, save)) return;`
@@ -557,9 +534,8 @@ std::uint32_t coopSaveDeferredWrittenAt();
 /// Defined in connectionTCP.cpp next to isCoopBattle().
 bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 
-/// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
-/// WV-D47): PRESENTATION-ONLY read helper consulted at the named call sites in
-/// SPEC 13's switched set (Map/MiniMapView/BattlescapeGame/BattlescapeState/
+/// coop: PRESENTATION-ONLY read helper consulted at the named call sites
+/// (Map/MiniMapView/BattlescapeGame/BattlescapeState/
 /// UnitWalkBState) in place of a bare BattleUnit::getVisible() read. Self-
 /// guarded outside an active coop battle (falls straight through to
 /// getVisible(), see connectionTCP.cpp for why that makes single player and
@@ -571,30 +547,28 @@ bool coopMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// never writes BattleUnit::_visible and never feeds a hash bucket.
 bool coopUnitVisibleHere(const BattleUnit* u);
 
-/// R5-U1 S-A (docs rewrite/prompts/r5u1_pvp_fog_camera.md, QU1-1 (a); the PvP model's per-side fog, r5-T4, R5-V3): does
+/// coop (the PvP model's per-side fog): does
 /// @a faction's side see @a u now? FACTION_HOSTILE only, while a human seat commands it (gm2 / gm3): on the HOST the
 /// union of that side's live units' own visible lists (vanilla's TileEngine::calculateUnitsInFOV keeps them there); on
 /// a CLIENT the list the host's last envelope carried as `seen` (CoopEmit::sendEv), its own lists until the first
 /// one arrives. False for every other faction and outside an active co-op battle. PRESENTATION-ONLY (coopUnitVisibleHere()'s
-/// non-player branch and R5-U3's coopHumanKnowsTarget() read it): never a sim, serializer or hash read; in no hash
+/// non-player branch and coopHumanKnowsTarget() read it): never a sim, serializer or hash read; in no hash
 /// bucket.
 bool coopSideSeesUnit(int faction, const BattleUnit* u);
 
-/// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
-/// WV-D47, FINDING B-3 / D-6): the side-relative replacement for
+/// coop: the side-relative replacement for
 /// `getOriginalFaction() == FACTION_HOSTILE` at BattlescapeState::
 /// updateSoldierInfo's spotted-enemy indicator. Routing that call site's
 /// visibility read through coopUnitVisibleHere() alone, without also routing
 /// this faction test, would make a gm2 client list its OWN aliens as spotted
-/// enemies - so the two changes must land together (this commit). Self-
+/// enemies - so the two must change together. Self-
 /// guarded the same way as coopUnitVisibleHere(): outside an active coop
 /// battle it is the vanilla FACTION_HOSTILE test. PRESENTATION-ONLY, never a
 /// sim/serializer/hash read.
 bool coopUnitIsSpottedEnemyHere(const BattleUnit* u);
 
-/// W1-P14 (SPEC 13 (d) / REV E.1 (IR3-5) / audit D-4 second shape / WV-D11 /
-/// WV-D47): the side-relative replacement for `getSide() == FACTION_PLAYER`
-/// at the WV-D11 gate sites (playableUnitSelected(), allowButtons(), and
+/// coop: the side-relative replacement for `getSide() == FACTION_PLAYER`
+/// at the side gate sites (playableUnitSelected(), allowButtons(), and
 /// Map::hiddenMovementShown()'s own faction term). Self-guarded like
 /// coopUnitVisibleHere(): outside an active coop battle it is the vanilla
 /// FACTION_PLAYER test; inside one it defers to
@@ -602,31 +576,30 @@ bool coopUnitIsSpottedEnemyHere(const BattleUnit* u);
 /// sim/serializer/hash read.
 bool coopSideIsMine(const SavedBattleGame* s);
 
-/// R5-U1 S-D (docs rewrite/prompts/r5u1_pvp_fog_camera.md (e) ED1; owner design PvP model "Off-turn: hidden-movement
-/// screen except where own units have LOS"): Map::hiddenMovementShown()'s first term. Vanilla's own term (the selected
+/// coop (PvP off-turn: the hidden-movement screen except where own units have LOS): Map::hiddenMovementShown()'s
+/// first term. Vanilla's own term (the selected
 /// unit is visible here) outside an active co-op battle, in classic / SHARED co-op (gamemode not 2 / 3) and on this
 /// machine's own side; off its own side in PvP, the unit acting in the running order (the host's action context, a
 /// client's open action) is visible here. PRESENTATION-ONLY; nothing written.
 bool coopHiddenMovementActorTerm(const SavedBattleGame* s);
 
-/// W1-P13c (WV-D55 / D-23, mechanism E55.1): returns true when the caller
+/// coop: returns true when the caller
 /// must refuse - i.e. !coopMayCommand(u, s) - and, ONLY when the failing
 /// term is the new baton term (traditional mode, Active, activeSeat !=
 /// localSeat), presents STR_COOP_DENY_NOT_YOUR_GO through
 /// CoopBattleUi::showDeny("not_your_go") (name from seatDisplayName()) and
 /// bumps coopLocalExecutionBlocks()'s counter; for every other refusal it
-/// stays SILENT exactly as before this packet. The direct replacement for
+/// stays SILENT. The direct replacement for
 /// BattlescapeState::btnKneelClick's bare `if (!coopMayCommand(bu, _save))
-/// return;` (E55.1), and also called by coopBlockLocalExecution() /
+/// return;`, and also called by coopBlockLocalExecution() /
 /// coopBlockWalkArm()'s existing refusal sites so the SAME presenter branch
 /// covers every command-gate refusal in the game. Defined in
 /// connectionTCP.cpp beside coopMayCommand().
 bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 
-/// R5-P2 selection-cycle predicate: the CoopMod half of the
-/// SavedBattleGame::selectPlayerUnit() filter call (RB-D10/R5-P2's
-/// "pass a CoopMod predicate through ONE guarded filter call so the
-/// selection cycle SKIPS units this machine's seat does not command").
+/// coop selection-cycle predicate: the CoopMod half of the
+/// SavedBattleGame::selectPlayerUnit() filter call (ONE guarded filter call
+/// so the selection cycle SKIPS units this machine's seat does not command).
 /// Self-guarded (true outside an active coop battle); inside one, equals
 /// coopBattleAuthority().commandsUnit(u). Deliberately does NOT also check
 /// mySideActive() - selectPlayerUnit() already restricts candidates to
@@ -636,34 +609,31 @@ bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// above), not to cycling among already-active-side candidates. Defined in
 /// connectionTCP.cpp next to isCoopBattle().
 /// commandsUnit(u) is evaluated FIRST, so a seat-tagged unit - and, through
-/// commandsUnit's own R5-P2 mcId override, a mind-controlled unit - behaves
+/// commandsUnit's own mcId override, a mind-controlled unit - behaves
 /// exactly as before. A unit with NO seat tag (COOP_SEAT_NONE - every
 /// AI-run alien, civilian and HWP) is additionally selectable on the HOST
 /// (hostSim) and NEVER on a client, because the host is the executor of
-/// every seat-less unit's AI. Before this, SavedBattleGame::
-/// selectPlayerUnit()'s cycle could never land on a non-player unit, so
-/// selectNextPlayerUnit() returned 0, BattlescapeGame::think() set
-/// _endTurnRequested, handleAI() was never reached and NO enemy AI ran in
-/// any coop battle (orch43c's F251, traced against a single-player control).
-/// W2-H41 (docs rewrite/prompts/w2h41_coop_selection_turnstart_mc.md; L-H40-3; owner D87 (b) as written): that host
-/// exception is for AI-run seat-less units only; a seat-less unit that is mind-controlled (faction != original faction)
-/// goes to W2-H32's controller test, so the host never selects an alien its partner controls.
+/// every seat-less unit's AI. Without it, SavedBattleGame::selectPlayerUnit()'s
+/// cycle could never land on a non-player unit, so selectNextPlayerUnit()
+/// returned 0, BattlescapeGame::think() set _endTurnRequested, handleAI() was
+/// never reached and NO enemy AI ran in any coop battle.
+/// That host exception is for AI-run seat-less units only; a seat-less unit that is mind-controlled (faction != original
+/// faction) goes to the controller test, so the host never selects an alien its partner controls.
 bool coopMaySelectUnit(const BattleUnit* u);
 
-/// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; owner D235 (a), D240 (a); r5-T8 / issue #126; PRD r5 T8;
-/// D235-VL1..VL4): the in-battle gift as a host-checked order. coopGiftOrder() is the giver's entry (the gift menu,
+/// coop (issue #126): the in-battle gift as a host-checked order. coopGiftOrder() is the giver's entry (the gift menu,
 /// through connectionTCP::giftBattleUnit / giftSoldier): the host applies its own gift, a client sends the untracked
 /// `gift {target}` intent. coopApplyGift() is the HOST's check and apply (onIntent's `gift` branch, the host's own
 /// gift): it refuses silently (logged; counted as denied for an intent) a PvP battle, the pre-battle equipment phase, a
 /// bad target, a unit the giver does not own (its seat tag: a mind-controlled unit is not its controller's to give), a
 /// unit not alive on the player side and a unit acting in an open action context; otherwise it writes the seat tag
-/// and the soldier's owner (in every mode since R5-U5 S-C), sets the `gift` latch (the delta's `seat` reaches the
+/// and the soldier's owner (in every mode), sets the `gift` latch (the delta's `seat` reaches the
 /// partner in stream order) and records the change. coopGiftNoteSeatChange() records a seat change for the pump (the
-/// host's apply, the client's delta apply; no State op, RB-D5). coopGiftPump() (updateCoopTask, after the drain, both
+/// host's apply, the client's delta apply; no State op). coopGiftPump() (updateCoopTask, after the drain, both
 /// machines) moves the giver's selection off the given unit, gives the receiver the unit as its gift target (and its
-/// selection when it has none) and the notice "<giver> gave <unit> to you." (main's text, English as on main), and
+/// selection when it has none) and the notice "<giver> gave <unit> to you." (English text), and
 /// refills an empty gift target. The three selection hooks keep THIS machine's gift target - the unit the give-unit
-/// key gives (main BattlescapeState.cpp :1250-:1258, :2208-:2221, SavedBattleGame.cpp :877-:889):
+/// key gives:
 /// coopGiftSelectionInit() at the battle screen's first init, coopGiftSelectAt() on a left click (before the cursor /
 /// busy gate), coopGiftFollowSelection() when this machine's selected unit changes. Every function is a no-op outside
 /// a co-op battle (single player untouched).
@@ -675,24 +645,19 @@ void coopGiftSelectionInit(Game* game, SavedBattleGame* save);
 void coopGiftSelectAt(Game* game, SavedBattleGame* save, int x, int y, int z);
 void coopGiftFollowSelection(Game* game, SavedBattleGame* save);
 
-/// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule WV-D40 /
-/// WR-2): the INVERTED form of coopMayCommand() used by
+/// coop: the INVERTED form of coopMayCommand() used by
 /// BattlescapeGame::primaryAction's COMMANDING arms, plus a test-only counter.
 ///
-/// W1-P6 moved primaryAction's single ENTRY guard off the top of the function
-/// and ONTO the two arms that actually execute something - the
-/// targeting/BA_LAUNCH/spray block and the walk-confirm arm - so that the
-/// SELECT-UNIT branch sitting between them can finally run on a co-op client
-/// for the units its own seat commands (D6's "a seat ... CAN select what it
-/// does command"; click-to-select was dead on a client before this packet).
-/// WV-D40 pins the exemption to exactly that one branch: every commanding arm
-/// stays gated, and a client ground-click must mint NOTHING for the whole of
-/// wave 1 - the walk ORDER arrives with W1-P9's intent path, and until then a
-/// locally-executed UnitWalkBState would be a guaranteed, permanent desync.
+/// The guard sits ON the two arms of primaryAction that actually execute
+/// something - the targeting/BA_LAUNCH/spray block and the walk-confirm arm -
+/// not at the top of the function, so that the SELECT-UNIT branch sitting
+/// between them runs on a co-op client for the units its own seat commands.
+/// Only that one branch is exempt: every commanding arm stays gated, and a
+/// client ground-click must mint NOTHING - a locally-executed UnitWalkBState
+/// would be a guaranteed, permanent desync.
 ///
 /// THE PREDICATE IS A CONJUNCTION, and NOT `!coopMayCommand(u, s)` alone -
-/// that shorthand provably cannot meet WV-D40's own requirement, and exactly
-/// the same correction is already on the record for W1-P5's D8 gates:
+/// that shorthand cannot meet the "mints NOTHING" requirement:
 /// `coopMayCommand(u, s)` is `commandsUnit(u) && mySideActive(s)`, i.e. TRUE
 /// for a client acting on its OWN unit during its OWN side - which is exactly
 /// when the walk arm fires. So the gate is, in this order:
@@ -700,47 +665,44 @@ void coopGiftFollowSelection(Game* game, SavedBattleGame* save);
 ///      an action that has no wire representation yet. THIS is the term that
 ///      makes "a client ground-click mints NOTHING" true.
 ///   2. `coopMayCommand(u, s)` - on the host, the seat must still command the
-///      unit and its side must be active (R5-P2's original entry-guard
-///      semantics, not weakened by this packet).
+///      unit and its side must be active.
 /// `BattlescapeState::btnKneelClick` is the shipped two-term house pattern
 /// (`coopMayCommand` then `isCoopBattle() && !hostSim`); kneel's second term
-/// SENDS an intent, primaryAction has no wire verb until W1-P9 so its second
+/// SENDS an intent; here the second
 /// term simply refuses. Self-guarded exactly like isCoopBattle()/
 /// coopMayCommand(): outside an ACTIVE co-op battle it returns false and
 /// vanilla - SP included - is byte-identical.
 ///
 /// The counter is the other half: each refusal bumps a value
-/// coopLocalExecutionBlocks() reports. That is what makes W1-G1 criterion 4b
+/// coopLocalExecutionBlocks() reports. That is what makes the no-mint check
 /// provable rather than inferable - "the client's ground click minted nothing"
 /// must not be satisfiable by a click that never reached primaryAction at all.
 /// Defined in connectionTCP.cpp next to coopMayCommand().
 bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s);
 
-/// W2-P4 S-A (docs rewrite/prompts/w2p4_client_combat_intents.md (b)5 K1, as
-/// amended by PR-Q1, PR-Q2 and PR-Q20): what W1-P6's coopBlockLocalExecution()
-/// call at the top of BattlescapeGame::primaryAction's TARGETING arm becomes -
-/// W1-P9's walk-arm gate split, generalised to the arm whose kinds now have a
-/// wire verb. Reads the kind off @a s's live BattlescapeGame::getCurrentAction().
-///   * A kind whose intercept EXISTS (S-A: the snap / aimed / auto shot - NOT
-///     the spray start, i.e. an autoshot with a `sprayWaypoints` weapon under
-///     Ctrl+Shift or an already-running spray targeting): OWNERSHIP + ACTIVE
-///     SIDE only, on BOTH machines (`commandsUnit(u) && mySideActive(s)`), a
-///     refusal bumping the same coopLocalExecBlocked counter. The hostSim term
-///     moves down to the execution point (coopInterceptFireConfirm(),
-///     CoopArbiter.h) and so does the baton term (PR-Q1: the local aiming
-///     bookkeeping - confirm-fire first click - stays allowed off-turn, E54.1).
-///     W2-P4 S-B adds the throw and the launcher (BA_THROW, BA_LAUNCH): the
-///     launcher's waypoint clicks are local display, its execution point is
-///     the launch button (launchAction's coopInterceptFireConfirm()).
-///     W2-P4 S-C adds the psi amp (BA_PANIC / BA_MINDCONTROL / BA_USE with a
-///     BT_PSIAMP item) and the mind probe (BA_USE with a BT_MINDPROBE item):
-///     their execution points are coopInterceptPsiConfirm() (CoopArbiter.h).
-///     W2-P4 S-E1 adds the spray (PR-Q20 ends): the spray start and its
-///     waypoint clicks are local display, its execution point is the spray-fire
-///     coopInterceptFireConfirm() (K2).
-///   * Every other targeting kind keeps
-///     coopBlockLocalExecution() exactly as before (PR-Q2): each later stage
-///     lifts its own kinds, so no build between S-A and S-E has a local-sim path.
+/// coop: the gate at the top of BattlescapeGame::primaryAction's TARGETING arm
+/// (in place of coopBlockLocalExecution()) - the walk-arm gate split,
+/// generalised to the arm whose kinds have a wire verb. Reads the kind off
+/// @a s's live BattlescapeGame::getCurrentAction().
+///   * A kind whose intercept EXISTS: OWNERSHIP + ACTIVE SIDE only, on BOTH
+///     machines (`commandsUnit(u) && mySideActive(s)`), a refusal bumping the
+///     same coopLocalExecBlocked counter. The hostSim term moves down to the
+///     execution point and so does the baton term (the local aiming
+///     bookkeeping - confirm-fire first click - stays allowed off-turn). The
+///     kinds and their execution points:
+///     - the snap / aimed / auto shot: coopInterceptFireConfirm() (CoopArbiter.h);
+///     - the throw and the launcher (BA_THROW, BA_LAUNCH): the launcher's
+///       waypoint clicks are local display, its execution point is the launch
+///       button (launchAction's coopInterceptFireConfirm());
+///     - the psi amp (BA_PANIC / BA_MINDCONTROL / BA_USE with a BT_PSIAMP item)
+///       and the mind probe (BA_USE with a BT_MINDPROBE item):
+///       coopInterceptPsiConfirm() (CoopArbiter.h);
+///     - the spray (an autoshot with a `sprayWaypoints` weapon under Ctrl+Shift,
+///       or an already-running spray targeting): the spray start and its
+///       waypoint clicks are local display, its execution point is the
+///       spray-fire coopInterceptFireConfirm().
+///   * Every other targeting kind keeps coopBlockLocalExecution(), so no kind
+///     has a local-sim path.
 /// Self-guarded: false outside an ACTIVE co-op battle, so SP is byte-identical.
 bool coopBlockTargetingArm(const BattleUnit* u, SavedBattleGame* s);
 
@@ -749,18 +711,15 @@ bool coopBlockTargetingArm(const BattleUnit* u, SavedBattleGame* s);
 /// `event_state` as `coopLocalExecBlocked`; never read by game logic.
 int coopLocalExecutionBlocks();
 
-/// W2-P1 (thin-client tripwire, commit 1 of 2): test-only introspection for
+/// coop (thin-client tripwire): test-only introspection for
 /// the second player's "never simulates" guarantee. Three BATTLE-scoped values
 /// (reset by resetBattleAuthority(), unlike coopLocalExecutionBlocks()'s
 /// process-lifetime counter above), reported by TestServer's `event_state` as
 /// `coopClientBStatePushes` / `coopClientBStateLastSite` /
 /// `coopClientPanicSkipped`; never read by game logic.
 ///
-/// Commit 1 adds the storage, these read accessors and the probes ONLY -
-/// nothing increments them yet, so every value reads 0 / "" on its build (the
-/// red the S1-S7 test, test_thin_client_tripwire.py, proves). Commit 2's
-/// writers live in connectionTCP.cpp beside coopBlockLocalExecution() and write
-/// the storage directly:
+/// The writers live in connectionTCP.cpp beside coopBlockLocalExecution() and
+/// write the storage directly (test_thin_client_tripwire.py reads them):
 ///   * coopClientBStateTripwire(site, bs): `g_coopClientBStatePushes`
 ///     (fetch_add) and `g_coopClientBStateLastSite`, set to
 ///     "<site>:<typeid(*bs).name()>" - or "<site>:endTurnRequest" when
@@ -769,7 +728,7 @@ int coopLocalExecutionBlocks();
 /// The storage is declared above resetBattleAuthority() in connectionTCP.cpp
 /// (the same placement rule as g_coopPauseModalPending) so the teardown can
 /// reset it; the string carries its own mutex because resetBattleAuthority()
-/// is reachable from the UDP-monitor thread (the R4-P1 note at the top of this
+/// is reachable from the UDP-monitor thread (the cross-thread note at the top of this
 /// header) while the pump thread reads it.
 ///
 /// How many BState pushes the tripwire has refused on this machine this battle.
@@ -781,7 +740,7 @@ std::string coopClientBStateLastSite();
 /// How many start-of-turn panic checks this machine has skipped this battle.
 int coopClientPanicSkipped();
 
-/// W2-P1 (thin-client tripwire, commit 2 of 2; plan F422/F432, SS3.6): the ONE
+/// coop (thin-client tripwire): the ONE
 /// guard at every place a battle state (BState) becomes live in
 /// BattlescapeGame - the first statement of the three helpers
 /// statePushFront/statePushNext/statePushBack (@a bs == nullptr on
@@ -802,7 +761,7 @@ int coopClientPanicSkipped();
 /// A DETECTOR FIRST: a refused state's constructor has already run, so the
 /// tripwire stops init()/think(), not constructor side effects. Every KNOWN
 /// client-local simulation path is refused, skipped or sent as an intent
-/// upstream (the action menu's item actions and the reload hotkey - W2-P4's
+/// upstream (the action menu's item actions and the reload hotkey - the
 /// intercepts in CoopArbiter.h - and the panic check, coopSkipClientPanic()),
 /// so a count here is a path nobody
 /// has found yet, surfacing as a counter instead of a desync. Defined in
@@ -817,37 +776,32 @@ bool coopClientBStateTripwire(const char* site, BattleState* bs = nullptr);
 /// TRUE, so the check is marked handled without running
 /// handlePanickingPlayer() (its RNG, dropItem and UnitWalkBState/
 /// UnitPanicBState pushes). The host keeps resolving panic for every player
-/// unit - W2-P3 streams it. FALSE everywhere else.
+/// unit and streams it. FALSE everywhere else.
 bool coopSkipClientPanic();
 
-/// coop W2-H22 (SCOPE-0, D128): the battle-start casualty pass (BattlescapeGame's constructor) on a co-op CLIENT. TRUE on a
+/// coop: the battle-start casualty pass (BattlescapeGame's constructor) on a co-op CLIENT. TRUE on a
 /// machine that is NOT the host sim inside an active co-op battle (coopClientBStateTripwire()'s predicate): the pass does not run
 /// there - the host settles every generation casualty and its `death` ev's delta carries the result. FALSE everywhere
 /// else (the host, single player, any non-co-op battle), so vanilla is byte-identical there. No counter, no side effect.
 bool coopSkipClientBattleStartCasualties();
 
-/// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30, WV-D40 unchanged): the WALK ARM's
-/// entry gate, which is what W1-P6's `coopBlockLocalExecution()` call in
-/// BattlescapeGame::primaryAction's walk arm becomes now that the arm HAS a
-/// wire verb.
+/// coop: the WALK ARM's entry gate in BattlescapeGame::primaryAction (in
+/// place of `coopBlockLocalExecution()`), since the arm HAS a wire verb.
 ///
-/// THE GATE SPLITS; IT IS NOT WEAKENED. W1-P6's own comment at that call site
-/// says the second term "simply refuses ... until W1-P9 turns it into a walk
-/// INTENT" - this is that packet, so:
+/// THE GATE SPLITS; IT IS NOT WEAKENED:
 ///   * THIS call keeps term 2 (OWNERSHIP + active side) and keeps it HERE, at
-///     the top of the arm, because D6's ownership wall forbids a seat even
+///     the top of the arm, because the ownership rule forbids a seat even
 ///     PREVIEWING a unit it does not command - and a co-op client now runs
 ///     vanilla's whole preview block (Pathfinding::calculate + previewPath,
 ///     both machine-local display scratch: `_path`/`_totalTUCost` are not
 ///     serialized and `Tile::_preview`/`_markerColor`/`_tuMarker` are not
-///     serialized either, the same class of state W1-P6's own note cleared
-///     `Map::resetObstacles()` on). A refusal bumps the SAME
-///     coopLocalExecutionBlocks() counter W1-P6 minted, so every existing
+///     serialized either). A refusal bumps the SAME
+///     coopLocalExecutionBlocks() counter as coopBlockLocalExecution(), so every existing
 ///     "delivered then refused" proof keeps working for the cases that still
 ///     refuse.
 ///   * term 1 (hostSim - "only the simulating machine may EXECUTE") moves DOWN
 ///     to `coopInterceptWalkConfirm()` (CoopArbiter.h), which sits immediately
-///     before `statePushBack(new UnitWalkBState(...))`. WV-D40 is enforced
+///     before `statePushBack(new UnitWalkBState(...))`. The no-mint rule is enforced
 ///     there and is not relaxed by one line: a co-op client still never reaches
 ///     that push. What changes is what happens INSTEAD - a `bt_intent walk`
 ///     rather than a bare refusal.
@@ -860,14 +814,11 @@ bool coopBlockWalkArm(const BattleUnit* u, const SavedBattleGame* s);
 /// anything, in a co-op battle only). Reported by TestServer's `event_state` as
 /// `coopWalkArmEntered`.
 ///
-/// It is the DELIVERY PROOF W1-G1 criterion 4b needs after this packet.
-/// Before W1-P9 that proof was "coopLocalExecBlocked went up", because a client
-/// ground click could only ever be refused; now a click on a unit the client
-/// DOES command is forwarded as an intent instead, and a click whose
+/// It is the DELIVERY PROOF for a client ground click: a click on a unit the
+/// client DOES command is forwarded as an intent, and a click whose
 /// pathfinder finds no route reaches the arm and legitimately does nothing at
-/// all. Neither of those moves the refusal counter, so without this one the
-/// "the click arrived" half of 4b would become unprovable - which is exactly
-/// the vacuity the criterion exists to exclude. Never read by game logic.
+/// all. Neither of those moves the refusal counter, so without this one "the
+/// click arrived" would be unprovable. Never read by game logic.
 int coopWalkArmEntries();
 
 /// test-only introspection - how many `bt_intent walk` envelopes this
@@ -895,8 +846,8 @@ int coopWalkIntentsFromClick();
 ///      or a client-local end-turn; that is entirely the host's job.
 ///   2. the currently active side (@a s->getSide()) has at least one HUMAN
 ///      seat mapped to it in the seat->faction store (iterate seats 0..3
-///      through the public factionOf() - kMaxSeats is private and, per
-///      RB-D17, is and stays 4) - an unmapped seat defaults to FACTION_PLAYER
+///      through the public factionOf() - kMaxSeats is private and stays
+///      4) - an unmapped seat defaults to FACTION_PLAYER
 ///      (BattleAuthority::factionOf()), so this can only be true for a
 ///      non-player side when gm2+ actually assigned a human to it.
 /// False (vanilla AI runs) in every other case - i.e. on the host, for an
@@ -907,21 +858,20 @@ bool coopSuppressNonPlayerThink(const SavedBattleGame* s);
 /// seat commands @a faction in this co-op battle - a seat 0..3 MAPPED to it in the seat->faction
 /// store (seatMapped(): an unmapped seat's FACTION_PLAYER default never counts), i.e. gm2 / gm3's
 /// hostile side and every co-op player side. False outside an active co-op battle, so single
-/// player and every AI side stay byte-identical. Read by R5-U3's guarded vanilla terms
-/// (SavedBattleGame::canUseWeapon()'s AI weapon-use delay: D234, a human seat's units skip only
+/// player and every AI side stay byte-identical. Read by the guarded vanilla terms
+/// (SavedBattleGame::canUseWeapon()'s AI weapon-use delay: a human seat's units skip only
 /// that term) and by coopHostArmsHumanSidePanic() below.
 bool coopFactionHumanCommanded(int faction);
 
-/// R5-U3 (R5-V1: the human hostile side's panicking / berserk units act out at that side's start,
+/// coop (the human hostile side's panicking / berserk units act out at that side's start,
 /// as X-COM's do): BattlescapeGame::init()'s second arm of the start-of-side panic check. True on
 /// the co-op HOST only (hostSim), while the active side is a non-player, non-neutral side a human
 /// seat commands (coopFactionHumanCommanded()) - from turn 1, since that side's units roll morale at
 /// every side start. A client never runs a panic (coopSkipClientPanic()). False everywhere else.
 bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 
-/// W2-H39 (design-D6 = WV-D12: a seat never holds a unit it does not command; docs
-/// rewrite/prompts/w2h39_pvp_panic_selection.md; F14755, F14746): BattlescapeGame::think()'s two
-/// start-of-side panic checks (the player side's and R5-U3's human-side one) call this after each
+/// coop (a seat never holds a unit it does not command): BattlescapeGame::think()'s two start-of-side panic checks
+/// (the player side's and the human-side one) call this after each
 /// pass. Once the check is over (getPanicHandled()) on the co-op HOST, while the active side is one
 /// this host does not play (gm3's X-COM turn, gm2's alien turn), a selection that vanilla's
 /// handlePanickingUnit() left on a unit the host does not command is dropped with the action actor:
@@ -929,7 +879,7 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 /// restore). The panic itself still plays out on the host, the battle authority. Host-local UI state
 /// only: no hashed field, nothing on the wire. A no-op in single player, on a client, while a panic
 /// still plays out and while the host holds a unit it commands.
-/// W2-H40 (design-D6; docs rewrite/prompts/w2h40_coop_panic_selection.md; F15450): on the host's OWN
+/// On the host's OWN
 /// side (classic / SHARED co-op, gm4's player side), where the panic check leaves the host holding its
 /// partner's panicked unit, the host instead selects the next unit it commands in vanilla's next-unit
 /// order (SavedBattleGame::selectNextPlayerUnit(), the seat-filtered cycle the Tab key runs), with the
@@ -937,20 +887,20 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 void coopHostDropOffSideSelection(SavedBattleGame* s);
 
 /// psi target knowledge for a human seat's non-player attacker. -1 = not
-/// such an attacker (vanilla's own term runs); otherwise 1 / 0 by O1's rule. Read by the psi arm of
+/// such an attacker (vanilla's own term runs); otherwise 1 / 0 by whether the attacker's side sees the target now (coopSideSeesUnit()). Read by the psi arm of
 /// BattlescapeGame::primaryAction() and its host mirror validatePsi().
 int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, const SavedBattleGame* s);
 
-/// SPEC 19 M2 Branch B: the HOST's per-seat store of the latest
+/// coop: the HOST's per-seat store of the latest
 /// battle_roster_contrib (BattleWire.h) received from that seat - test/
 /// introspection + CoopState.cpp's coopMergeGuestContributions() reads.
 /// Defined in connectionTCP.cpp beside the store itself; cleared by
-/// resetBattleAuthority(). @a seat is 0..3 (RB-D17: kMaxSeats is private and
+/// resetBattleAuthority(). @a seat is 0..3 (kMaxSeats is private and
 /// stays 4); out-of-range returns the empty/false/zero default.
 ///
 /// How many guest-soldier YAML entries are currently stored for @a seat.
 /// Reported by TestServer's `event_state` as `guestContrib.soldiers[seat]`
-/// (S1's vacuity guard: the roster actually travelled).
+/// (proof the roster actually travelled).
 /// the store keeps one entry per destination (craftId + craftType); this sums them.
 int coopGuestContribStoredCount(int seat);
 
@@ -973,7 +923,7 @@ const std::string& coopGuestContribSoldierYaml(int seat, int craftId, const std:
 /// The CLIENT's own count of guest soldiers in the last battle_roster_contrib
 /// census it computed (connectionTCP::sendGuestRosterContrib()) - 0 if none
 /// (host, SHARED campaign, or no SEPARATE guest waiting yet). Reported by
-/// TestServer's `event_state` as `guestContrib.sent` (S1's vacuity guard,
+/// TestServer's `event_state` as `guestContrib.sent` (proof the roster was sent,
 /// the client-side half).
 int coopGuestContribLastSentCount();
 
@@ -983,15 +933,14 @@ int coopGuestContribLastSentCount();
 int coopGuestContribLastSentVehicles();
 int coopGuestContribStoredVehicles(int seat);
 
-/// W2-P4r (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md
-/// (b)1): true when a research-based weapon check must read the unit OWNER's
+/// coop: true when a research-based weapon check must read the unit OWNER's
 /// research - a live co-op battle (isCoopBattle(): single player is never
 /// separate) in a campaign (NEW BATTLE sets it false) that is not SHARED,
 /// with the host's "Enable Research Sync (Separate)" OFF. Evaluated on EVERY
 /// call and never cached: the option can change mid-battle (#185).
 bool coopResearchSeparate(Game* game);
 
-/// W2-P4r (b)5: vanilla SavedGame::isResearched(@a req) answered from @a
+/// coop: vanilla SavedGame::isResearched(@a req) answered from @a
 /// seat's research. Outside coopResearchSeparate(), for a seat outside 1..3
 /// (seat 0 and seat-less units: the live world), in debug mode, or when no
 /// list is stored for the seat, it is the live world's answer - unchanged.
@@ -1001,33 +950,31 @@ bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleRese
 /// (the psi-strength lines pass Mod::getPsiRequirements(), a name list).
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& req);
 
-/// W2-P4r (b)5 + PR-R5: the same routing around vanilla
+/// coop: the same routing around vanilla
 /// SavedGame::isManaUnlocked(@a mod) (@a mod = the Mod* the vanilla site
 /// passes).
 bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod);
 
-/// W2-P8 S-D1 (owner D168 = (a), D213 = (b); AMENDMENT P8-4 D-1, P8-4d Q2
-/// (a)): the same routing around vanilla Ufopaedia::isArticleAvailable(
+/// coop: the same routing around vanilla Ufopaedia::isArticleAvailable(
 /// <world>, @a article) - the seat's research-only world under the store's
 /// mutex, the live world in every coopSeatIsResearched() fallback. The seat
-/// form, so the in-battle Ufopaedia (S-D2) can call it for the viewer's seat.
+/// form, so the in-battle Ufopaedia can call it for the viewer's seat.
 bool coopSeatArticleAvailable(Game* game, int seat, ArticleDefinition* article);
 
-/// W2-P4r (b)11 (test introspection; TestServer `event_state.researchMode`):
+/// coop (test introspection; TestServer `event_state.researchMode`):
 /// whether a research list is stored for @a seat (0..3; seat 0 never is),
 /// how many known topics it holds, and how many names it could not resolve.
-/// Each takes the store's mutex (PR-R8).
+/// Each takes the store's mutex.
 bool coopSeatResearchStored(int seat);
 int coopSeatResearchCount(int seat);
 int coopSeatResearchUnknown(int seat);
 
-/// W2-P4r S-R.2 (spec (b)6, Q-R6 (a); owner D149 "each soldier's owner's
-/// research"): coopSeatIsResearched() / coopSeatIsManaUnlocked() for @a
+/// coop (each soldier's owner's research): coopSeatIsResearched() / coopSeatIsManaUnlocked() for @a
 /// unit's OWNER - its seat tag (BattleUnit::getCoopSeat()), never the
 /// controller; a null or seat-less unit reads the live world. Called by the
 /// guarded vanilla terms (SavedBattleGame::canUseWeapon, ActionMenuState) and
 /// the host's admission (coopWeaponUseDeny); @a mod = the Mod* the vanilla
-/// site passes (PR-R5).
+/// site passes.
 bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<const RuleResearch*>& req);
 bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<std::string>& req);
 bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
@@ -1045,8 +992,7 @@ bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefiniti
 /// Called by the five guarded vanilla reads in src/Ufopaedia.
 bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article);
 
-/// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md, owner D129 = (a),
-/// AMENDMENT P7-1): the HOST's one battle-end chokepoint - the first statement
+/// coop: the HOST's one battle-end chokepoint - the first statement
 /// of BattlescapeState::finishBattle(), which every vanilla ending reaches.
 /// Emits the terminal `battle_end` bt_ev {reason, aborted, inExitArea,
 /// perSeatVerdict, tally, h} through CoopEmit::sendEv (`h` = the action-end
@@ -1058,9 +1004,9 @@ bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article);
 /// Defined in connectionTCP.cpp.
 void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExitArea);
 
-/// MG-A S-A1 hook H: the HOST's stage hand-off, ONE line after vanilla's
+/// coop: the HOST's stage hand-off, ONE line after vanilla's
 /// bgen.nextStage() in BattlescapeState::finishBattle() (coopHostBattleEnd above sent `stage_end` there): nulls the
-/// stage-N battle screen pointer (freed next frame, F5081), resets the battle scope and offers the next stage as a
+/// stage-N battle screen pointer (freed next frame), resets the battle scope and offers the next stage as a
 /// fresh battle (`stageOf`). Self-guarded (host, co-op, hand-off armed). Defined in connectionTCP.cpp.
 void coopHostNextStage(Game* game, SavedBattleGame* save);
 

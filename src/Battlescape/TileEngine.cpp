@@ -1576,7 +1576,7 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 	// per-unit refresh. Placed AFTER the isOut() branch above so that branch's
 	// vanilla clearVisibleTiles() bookkeeping still runs unchanged.
 	// calculateUnitsInFOV (unit visibility) is untouched - per-unit `visible`
-	// stays machine-local and is D4-excluded from saveBlob. Permissive outside a
+	// stays machine-local and is excluded from saveBlob. Permissive outside a
 	// coop battle and on the host sim, so single-player is bit-identical.
 	if (isCoopBattle() && !coopBattleAuthority().hostSim)
 	{
@@ -2894,7 +2894,7 @@ bool TileEngine::tryReaction(ReactionScore *reaction, BattleUnit *target, const 
 
 			if (RNG::percent(arg.getFirst()))
 			{
-				// W2-P3 S-B (spec (b)1/(b)2/(b)8, amendments B1 RQ4, B3 = D145, B4): ONE
+				// coop: ONE
 				// guarded coop call - on the co-op HOST the reaction runs in its own
 				// nested `reaction` context (one per checkReactionFire burst). No-op in
 				// single player and on a client.
