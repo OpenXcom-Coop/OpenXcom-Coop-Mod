@@ -5459,6 +5459,7 @@ void connectionTCP::finishVote(bool passed)
 		if (factionFinaleVote)
 		{
 			_pendingFactionFinaleOwner.clear();
+			storeFactionFinaleOwner(std::string());
 			_factionFinaleReadySeats.clear();
 			_localFactionFinaleReady = false;
 			_factionFinaleReplicaSynced = false;
@@ -5471,6 +5472,12 @@ void connectionTCP::finishVote(bool passed)
 		executeVoteAction("end_faction_campaign|"
 			+ action.substr(factionContinuePrefix.size()));
 	}
+
+	// Another vote held the finale back (tryStartFactionFinaleVote refuses
+	// while a vote is active). Re-arm readiness so both players re-announce it
+	// from the Geoscape once this vote's window is closed.
+	if (!factionFinaleVote && !_pendingFactionFinaleOwner.empty())
+		resetFactionFinaleReadiness();
 }
 
 /**
@@ -5513,6 +5520,7 @@ void connectionTCP::executeVoteAction(const std::string& action)
 		sendTCPPacketData(root.toStyledString());
 		_game->setState(new StatisticsState);
 		_pendingFactionFinaleOwner.clear();
+		storeFactionFinaleOwner(std::string());
 		_factionFinaleReadySeats.clear();
 		_localFactionFinaleReady = false;
 		_factionFinaleReplicaSynced = false;
@@ -5558,6 +5566,7 @@ void connectionTCP::queueFactionFinaleVote(const std::string& ownerPlayerName)
 	_factionFinaleReplicaSynced = false;
 	if (getServerOwner())
 	{
+		storeFactionFinaleOwner(ownerPlayerName);
 		Json::Value root;
 		root["state"] = "faction_finale_pending";
 		root["owner"] = ownerPlayerName;
@@ -5567,6 +5576,16 @@ void connectionTCP::queueFactionFinaleVote(const std::string& ownerPlayerName)
 
 void connectionTCP::factionFinaleGeoscapeReady()
 {
+	// A reloaded host save carries a finale whose vote never ran; a different
+	// world carries none. Either way the save, not this process, decides.
+	if (syncFactionFinaleFromSave() && !_pendingFactionFinaleOwner.empty()
+		&& getCoopStatic())
+	{
+		Json::Value root;
+		root["state"] = "faction_finale_pending";
+		root["owner"] = _pendingFactionFinaleOwner;
+		sendTCPPacketData(root.toStyledString());
+	}
 	if (_pendingFactionFinaleOwner.empty() || _localFactionFinaleReady
 		|| !_game || !_game->getSavedGame() || !getCoopStatic())
 		return;
@@ -5587,6 +5606,72 @@ void connectionTCP::factionFinaleGeoscapeReady()
 		root["from"] = seat;
 		sendTCPPacketData(root.toStyledString());
 	}
+}
+
+bool connectionTCP::syncFactionFinaleFromSave()
+{
+	if (!getServerOwner() || !_game || !_game->getSavedGame())
+		return false;
+	const std::string saved = isSeparateCampaign()
+		? _game->getSavedGame()->getSeparateCampaign().getPendingFactionFinaleOwner()
+		: std::string();
+	if (saved == _pendingFactionFinaleOwner)
+		return false;
+	_pendingFactionFinaleOwner = saved;
+	resetFactionFinaleReadiness();
+	return true;
+}
+
+void connectionTCP::storeFactionFinaleOwner(const std::string& owner)
+{
+	if (getServerOwner() && _game && _game->getSavedGame() && isSeparateCampaign())
+		_game->getSavedGame()->getSeparateCampaign().setPendingFactionFinaleOwner(owner);
+}
+
+void connectionTCP::resetFactionFinaleReadiness()
+{
+	_factionFinaleReadySeats.clear();
+	_localFactionFinaleReady = false;
+}
+
+void connectionTCP::sendPendingFactionFinale()
+{
+	if (!getServerOwner())
+		return;
+	syncFactionFinaleFromSave();
+	if (_pendingFactionFinaleOwner.empty())
+		return;
+	// The rejoining client must announce readiness again from its Geoscape.
+	_factionFinaleReadySeats.erase(1);
+	Json::Value root;
+	root["state"] = "faction_finale_pending";
+	root["owner"] = _pendingFactionFinaleOwner;
+	sendTCPPacketData(root.toStyledString());
+}
+
+void connectionTCP::clearFactionFinaleState()
+{
+	_pendingFactionFinaleOwner.clear();
+	_factionFinaleReadySeats.clear();
+	_localFactionFinaleReady = false;
+	_factionFinaleReplicaSynced = false;
+	_endingFactionDisplayName.clear();
+}
+
+Json::Value connectionTCP::factionFinaleStateForTest() const
+{
+	Json::Value state;
+	state["owner"] = _pendingFactionFinaleOwner;
+	state["localReady"] = _localFactionFinaleReady;
+	state["replicaSynced"] = _factionFinaleReplicaSynced;
+	state["readySeats"] = Json::arrayValue;
+	for (int seat : _factionFinaleReadySeats)
+		state["readySeats"].append(seat);
+	state["endingFactionDisplayName"] = _endingFactionDisplayName;
+	const SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	state["savedOwner"] = save
+		? save->getSeparateCampaign().getPendingFactionFinaleOwner() : std::string();
+	return state;
 }
 
 void connectionTCP::tryStartFactionFinaleVote()
@@ -5866,6 +5951,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_factionFinaleReadySeats.clear();
 				_localFactionFinaleReady = false;
 				_factionFinaleReplicaSynced = false;
+			}
+			else if (!_pendingFactionFinaleOwner.empty())
+			{
+				// The host re-arms the finale after any other vote; announce
+				// readiness again once this vote's window is closed.
+				resetFactionFinaleReadiness();
 			}
 			updateVoteMenu();
 			if (passed && runsVoteActionLocally())
@@ -6296,6 +6387,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					connectionTCP::session.sessionLive();
 
+					sendPendingFactionFinale();
 					Json::Value begun;
 					begun["state"] = "campaign_begun";
 					sendTCPPacketData(begun.toStyledString());
@@ -16883,6 +16975,16 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_activeVote.clear();
 		_voteRequestPending = false;
 		_voteStarterCooldownUntil.clear();
+		// A pending faction finale outlives a peer drop only on the host, which
+		// re-sends it on rejoin; both players must announce readiness again.
+		// A client's copy came from the host and is re-sent when it rejoins.
+		if (session.role == CoopRole::Host)
+		{
+			resetFactionFinaleReadiness();
+			_factionFinaleReplicaSynced = false;
+		}
+		else
+			clearFactionFinaleState();
 
 	    OpenXcom::disconnectRendezvousUdp();
 

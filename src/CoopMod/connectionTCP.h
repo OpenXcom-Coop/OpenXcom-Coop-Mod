@@ -624,6 +624,13 @@ class connectionTCP
 	bool runsVoteActionLocally() const;
 	void executeVoteAction(const std::string& action);
 	void tryStartFactionFinaleVote();
+	/// Host: adopt the pending finale persisted in the live save. Returns true
+	/// when the pending owner changed (a reload, or a world without one).
+	bool syncFactionFinaleFromSave();
+	/// Host: record the pending finale owner in the live save.
+	void storeFactionFinaleOwner(const std::string& owner);
+	/// Clear the per-session readiness so both players re-announce it.
+	void resetFactionFinaleReadiness();
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
 
@@ -709,6 +716,13 @@ class connectionTCP
 	/// Called only while GeoscapeState is actually thinking, after all
 	/// post-debrief screens have closed.
 	void factionFinaleGeoscapeReady();
+	/// Host: re-send a pending finale to a (re)joining client. Called right
+	/// before campaign_begun so the client holds it when it is released.
+	void sendPendingFactionFinale();
+	/// Forget every finale value (main-menu teardown and client teardown).
+	void clearFactionFinaleState();
+	/// Test hook: the finale state as JSON.
+	Json::Value factionFinaleStateForTest() const;
 	const std::string& getEndingFactionDisplayName() const { return _endingFactionDisplayName; }
 	const std::string& getEndingCutsceneId() const { return _endingCutsceneId; }
 	void setEndingCutsceneId(const std::string& id) { _endingCutsceneId = id; }

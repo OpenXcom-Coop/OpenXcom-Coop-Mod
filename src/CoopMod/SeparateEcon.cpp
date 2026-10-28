@@ -876,6 +876,7 @@ void CampaignData::clear()
 	_players.clear();
 	_completedFactions.clear();
 	_pendingFactionRechecks.clear();
+	_pendingFactionFinaleOwner.clear();
 	_loadedFromSave = false;
 	_missionOwnerCursor = 0;
 }
@@ -892,6 +893,7 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 	reader.tryRead("completedFactions", completedFactions);
 	_completedFactions.insert(completedFactions.begin(), completedFactions.end());
 	reader.tryRead("pendingFactionRechecks", _pendingFactionRechecks);
+	reader.tryRead("pendingFactionFinaleOwner", _pendingFactionFinaleOwner);
 	for (const auto& playerReader : reader["players"].children())
 	{
 		const std::string name = playerReader["name"].readVal<std::string>("");
@@ -928,6 +930,8 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 			_completedFactions.begin(), _completedFactions.end()));
 	if (!_pendingFactionRechecks.empty())
 		writer.write("pendingFactionRechecks", _pendingFactionRechecks);
+	if (!_pendingFactionFinaleOwner.empty())
+		writer.write("pendingFactionFinaleOwner", _pendingFactionFinaleOwner);
 	auto playersWriter = writer["players"];
 	playersWriter.setAsSeq();
 	for (const auto& entry : _players)

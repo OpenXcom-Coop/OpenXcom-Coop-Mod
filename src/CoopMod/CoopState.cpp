@@ -1292,6 +1292,8 @@ void CoopState::previous(Action *)
 		}
 		else
 		{
+			// A finale vote the client missed must reach it before the release.
+			_game->getCoopMod()->sendPendingFactionFinale();
 			Json::Value root;
 			root["state"] = "campaign_begun";
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

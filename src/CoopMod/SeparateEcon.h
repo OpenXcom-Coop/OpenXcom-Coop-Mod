@@ -46,6 +46,9 @@ private:
 	std::map<std::string, PlayerState> _players;
 	std::set<std::string> _completedFactions;
 	std::vector<std::string> _pendingFactionRechecks;
+	/// Owner of a finished faction finale whose continue/end vote has not run.
+	/// Persisted so a reload or a rejoin still holds the vote (PR #213 F11).
+	std::string _pendingFactionFinaleOwner;
 	bool _loadedFromSave = false;
 	bool _researchSharingEnabled = false;
 	size_t _missionOwnerCursor = 0;
@@ -104,6 +107,8 @@ public:
 	bool allPlayerFactionsCompleted(const std::vector<std::string>& playerNames) const;
 	const std::set<std::string>& getCompletedFactions() const { return _completedFactions; }
 	const std::vector<std::string>& getPendingFactionRechecks() const { return _pendingFactionRechecks; }
+	const std::string& getPendingFactionFinaleOwner() const { return _pendingFactionFinaleOwner; }
+	void setPendingFactionFinaleOwner(const std::string& owner) { _pendingFactionFinaleOwner = owner; }
 	std::string nextMissionOwner(const std::vector<std::string>& playerNames);
 	int getFactionDifficulty(const std::string& playerName, int fallback) const;
 };
