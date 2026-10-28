@@ -9635,6 +9635,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 										unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
 									}
 								}
+								// coop: the victim's post-hit script tags (hit_unit is the sole
+								// carrier of what a mod's hitUnit/damageUnit script wrote).
+								if (obj.isMember("tags"))
+								{
+									const Json::Value& tagArr = obj["tags"];
+									std::vector<int> tags;
+									for (Json::ArrayIndex i = 0; i < tagArr.size(); ++i)
+									{
+										tags.push_back(tagArr[i].asInt());
+									}
+									unit->setScriptValuesCoop(tags);
+								}
 								// coop (kill-credit fix): murdererId/killedBy can change on the
 								// host AFTER a unit is down (e.g. a later blast catches the downed
 								// body's tile, TileEngine.cpp:3281), but the thin client never runs
