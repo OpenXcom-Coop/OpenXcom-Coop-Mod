@@ -56,9 +56,7 @@ def enter_peer_base(gc, base_name):
 
 
 def leave_peer_base(gc):
-    gc.ok({"cmd": "leave_base"})
-    gc.wait_for("back on the geoscape",
-                lambda: (not gc.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+    session.leave_base(gc)
 
 
 def cycle_soldiers_screen(gc, base_name):

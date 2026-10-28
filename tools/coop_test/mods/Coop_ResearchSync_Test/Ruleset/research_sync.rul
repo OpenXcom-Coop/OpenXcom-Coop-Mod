@@ -1,0 +1,47 @@
+# Test-only mod for test_coop_research_sync.py row R6: completing this topic
+# spawns one medi-kit at the researching player's base (vanilla research side effect).
+research:
+  - name: STR_COOP_RS_SPAWNS_ITEM
+    cost: 10
+    points: 1
+    spawnedItem: STR_MEDI_KIT
+  # Q10 (mission-outcome research): unlocked when a terror site expires on its
+  # own, or when the battle there is lost; each has getOneFree bonuses, so a test
+  # can check both players got the SAME bonus.
+  - name: STR_COOP_RS_DESPAWN_TOPIC
+    cost: 10
+    points: 1
+    getOneFree:
+      - STR_COOP_RS_FREE_1
+      - STR_COOP_RS_FREE_2
+      - STR_COOP_RS_FREE_3
+      - STR_COOP_RS_FREE_4
+  - name: STR_COOP_RS_FAIL_TOPIC
+    cost: 10
+    points: 1
+    getOneFree:
+      - STR_COOP_RS_FREE_5
+      - STR_COOP_RS_FREE_6
+      - STR_COOP_RS_FREE_7
+      - STR_COOP_RS_FREE_8
+  - name: STR_COOP_RS_FREE_1
+    cost: 10
+  - name: STR_COOP_RS_FREE_2
+    cost: 10
+  - name: STR_COOP_RS_FREE_3
+    cost: 10
+  - name: STR_COOP_RS_FREE_4
+    cost: 10
+  - name: STR_COOP_RS_FREE_5
+    cost: 10
+  - name: STR_COOP_RS_FREE_6
+    cost: 10
+  - name: STR_COOP_RS_FREE_7
+    cost: 10
+  - name: STR_COOP_RS_FREE_8
+    cost: 10
+
+alienDeployments:
+  - type: STR_TERROR_MISSION
+    unlockedResearchOnDespawn: STR_COOP_RS_DESPAWN_TOPIC
+    unlockedResearchOnFailure: STR_COOP_RS_FAIL_TOPIC

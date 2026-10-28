@@ -50,13 +50,14 @@ private:
 	bool _replicatedResearchNames = false;
 	std::string _ownerPlayerName;
 	const RuleEvent &_eventRule;
+	bool _coopShared; // coop SEPARATE: the other player gets this same event too
 
 	/// Helper performing event logic.
 	void eventLogic();
 public:
 	/// Creates the GeoscapeEventState.
 	GeoscapeEventState(const RuleEvent& eventRule,
-		const std::string& ownerPlayerName = std::string());
+		const std::string& ownerPlayerName = std::string(), bool coopShared = false);
 	/// Cleans up the GeoscapeEventState.
 	~GeoscapeEventState();
 	/// Initializes the state.

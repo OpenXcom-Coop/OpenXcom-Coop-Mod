@@ -116,4 +116,21 @@ std::string RuleEventScript::generate(const size_t monthsPassed) const
 	return rw->second->choose();
 }
 
+/**
+ * Gets the repeatable event weights generate() picks from in the given month.
+ * @param monthsPassed The number of months that have passed in the game world.
+ * @return The weights, or nullptr if this command has none.
+ */
+const WeightedOptions *RuleEventScript::getEventWeights(const size_t monthsPassed) const
+{
+	if (_eventWeights.empty())
+		return nullptr;
+
+	std::vector<std::pair<size_t, WeightedOptions*> >::const_reverse_iterator rw;
+	rw = _eventWeights.rbegin();
+	while (monthsPassed < rw->first)
+		++rw;
+	return rw->second;
+}
+
 }

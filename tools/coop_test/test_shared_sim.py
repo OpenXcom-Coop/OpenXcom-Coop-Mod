@@ -143,6 +143,10 @@ def main():
         print("PASS AC2 fac_done: host completion drove the replica facility to 0")
 
         # ---- AC3: craft positions move on the replica ----------------------
+        # AC2's skip leaves both clocks at speed 5 (one game day per 80 ms step); stop
+        # them first, or days pass after the launch and the craft is already back
+        # at base by the check (seen as "replica craft not airborne: STR_READY").
+        geo.slow_clock(host, client)
         fcr = host.ok({"cmd": "fly_craft"})
         assert fcr.get("ok"), f"fly_craft failed: {fcr}"
         cid = fcr["craftId"]

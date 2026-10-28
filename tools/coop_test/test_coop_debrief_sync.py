@@ -66,8 +66,11 @@ NALIENS = 5
 # alien-side reaction kill needs an alien to walk into the armed squad's line of
 # fire. The host generates + ships the world, so its seed fixes the map, deployment
 # and stats; the client gets seed+1 (a DIFFERENT stream, so an attribution-ship
-# regression still diverges). Overridable for a seed search.
-SEED = int(os.environ.get("DEBRIEF_SEED", "424242"))
+# regression still diverges). Overridable for a seed search. Since bring_up_battle
+# also pins the squad (not just the map), a seed's outcome repeats: on 424242 no alien
+# ever died during an alien side (3 of 3 runs), on 4 alien 1000002 dies to reaction
+# fire on turn 2 in both scenarios (4 of 4 runs, ~145 s).
+SEED = int(os.environ.get("DEBRIEF_SEED", "4"))
 
 # STATUS_DEAD / FACTION_PLAYER as battle_state reports them.
 STATUS_DEAD = 6

@@ -54,7 +54,7 @@ namespace OpenXcom
  * @param geoEvent Pointer to the event.
  */
 GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
-	const std::string& ownerPlayerName) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule)
+	const std::string& ownerPlayerName, bool coopShared) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule), _coopShared(coopShared)
 {
 	_screen = false;
 
@@ -513,8 +513,10 @@ void GeoscapeEventState::eventLogic()
 			_researchName = alreadyResearched ? "" : lookupResearch->getName();
 		}
 
+		const RuleResearch *syncBonus = nullptr;
 		if (auto* bonus = save->selectGetOneFree(eventResearch, hq))
 		{
+			syncBonus = bonus;
 			addResearchDiaryEntryForEvent(bonus, DiscoverySourceType::FREE_FROM, nullptr, eventResearch);
 			save->addFinishedResearch(bonus, mod, hq, true);
 			topicsToCheck.push_back(bonus);
@@ -527,6 +529,14 @@ void GeoscapeEventState::eventLogic()
 				save->addFinishedResearch(bonusLookup, mod, hq, true);
 				_bonusResearchName = bonusLookup->getName();
 			}
+		}
+
+		// coop SEPARATE research sync: research from an event the other player does
+		// not also get (a random one, or a certain one they did not qualify for)
+		// reaches them like a completed project, so both players can read the report.
+		if (!_coopShared)
+		{
+			_game->getCoopMod()->sendResearchSync(alreadyResearched ? nullptr : eventResearch, syncBonus, eventResearch, hq);
 		}
 	}
 

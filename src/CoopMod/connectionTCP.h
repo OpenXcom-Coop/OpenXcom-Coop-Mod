@@ -276,6 +276,9 @@ class ConfirmCydoniaState;
 class NewBattleState;
 class GeoscapeState;
 class MissionSite;
+class RuleResearch;
+class Base;
+class GeoscapeEvent;
 
 // ===== Coop session lifecycle state =====
 
@@ -618,6 +621,7 @@ class connectionTCP
 	void broadcastVoteUpdate();
 	void evaluateVote();
 	void finishVote(bool passed);
+	bool runsVoteActionLocally() const;
 	void executeVoteAction(const std::string& action);
 	void tryStartFactionFinaleVote();
 	void readVoteSnapshot(const Json::Value& obj);
@@ -1293,6 +1297,26 @@ class connectionTCP
 
 	bool _enable_research_sync = false;
 
+	// SEPARATE research sync: mirror one discovery to the other player (no-op unless
+	// this is a SEPARATE campaign with research sync on). ResearchCompleteState sends
+	// completed projects; GeoscapeEventState sends research an event granted.
+	void sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base);
+
+	// SEPARATE certain-event sync: a certain geoscape event (odds 100, one possible
+	// event) that both players spawn in the same roll fires on the host's timer.
+	// Each side announces its certain spawns ("certain_event": name, the month of the
+	// roll, the countdown it rolled); a spawn pairs with the other side's spawn of the
+	// same event in the same month. The pair is marked shared on both sides and the
+	// client adopts the host's countdown. Random events are never announced, so they
+	// stay independent.
+	struct CoopCertainSpawn { std::string name; int month; long long countdown; };
+	std::vector<CoopCertainSpawn> _ownCertainSpawns, _peerCertainSpawns;
+	void coopCertainEventSpawned(GeoscapeEvent* ev);
+	void coopPeerCertainEvent(const CoopCertainSpawn& peer);
+	void sendCertainEventTimer(GeoscapeEvent* paired, int month);
+	void coopCertainEventTimer(const std::string& name, long long countdown);
+	void sendCertainEventFire(GeoscapeEvent* ge);
+	void coopCertainEventFire(const std::string& name);
 
 	static bool _enable_reaction_shoot;
 
@@ -1406,6 +1430,11 @@ class connectionTCP
 	static const size_t kMaxCoopUfoAlerts = 16; // bound: drop oldest, never grow forever
 
 	bool show_coop_monthly_report = false;
+	// The host's monthsPassed for the pending monthly report (-1: an older host did
+	// not send it). time1MonthCoop rolls the client's month with this exact value:
+	// the time sync may already have copied it, so a plain addMonth() could run the
+	// client's mission/event scripts one month ahead.
+	int monthlyReportMonthsPassed = -1;
 
 	int fundingDiffCoop = -1;
 	int ratingTotalCoop = -1;

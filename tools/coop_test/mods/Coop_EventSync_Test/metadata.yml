@@ -1,0 +1,10 @@
+name: "Coop event-sync probe"
+version: 1.0
+description: "Test-only fixture for test_coop_event_sync.py: geoscape event scripts in
+  the shape of the X-Com Files intro advisors. A certain month-0 event (odds 100, one
+  possible event) that grants a topic; a random month-0 pair; and two certain month-1
+  events gated on research triggers. Each granted topic has a text article, so a test
+  can check that both players can open the report."
+author: coop harness
+
+master: xcom1

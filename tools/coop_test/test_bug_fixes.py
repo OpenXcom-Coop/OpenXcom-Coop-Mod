@@ -118,8 +118,7 @@ def test_bug1b_mirror_open(host, client):
     client.wait_for("soldier visible inside visited base", visible_in_visited_world, timeout=15)
     client.ok({"cmd": "dismiss_notice"})
 
-    client.ok({"cmd": "leave_base"})
-    client.wait_for("back in own world", lambda: (not client.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+    session.leave_base(client)
 
     def present():
         r = client.cmd({"cmd": "get_mirror_soldiers", "coopBaseId": host_base_id})

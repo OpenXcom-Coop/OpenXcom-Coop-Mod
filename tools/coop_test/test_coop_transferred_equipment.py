@@ -194,9 +194,7 @@ def scenario_conservation():
         host.wait_for("host inside peer base",
                       lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
         host_all, host_gnd, host_car, host_units = equip_rocket_instances(host, cb["name"])
-        host.ok({"cmd": "leave_base"})
-        host.wait_for("host back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.leave_base(host)
 
         # client opens the equip screen for its own base (host idle)
         cli_all, cli_gnd, cli_car, cli_units = equip_rocket_instances(client, cb["name"])
@@ -359,9 +357,7 @@ def scenario_two_screens_agree():
             f"  craft   screen: {craft_g['all']}")
         print("PASS screens-agree-on-item-instances")
 
-        host.ok({"cmd": "leave_base"})
-        host.wait_for("host back home",
-                      lambda: (not host.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None, timeout=60)
+        session.leave_base(host)
     finally:
         host.shutdown(); client.shutdown()
 

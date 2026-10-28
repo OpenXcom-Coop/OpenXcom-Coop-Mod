@@ -98,10 +98,7 @@ def visiting_view_is_not_double_counted(visitor, peer_base, label):
         f"to a visited base too")
     print(f"PASS {label}: visited base counts its {len(guests)} guest(s) "
           f"(usedQuarters={rep['usedQuarters']})")
-    visitor.ok({"cmd": "leave_base"})
-    visitor.wait_for("back home",
-                     lambda: (not visitor.cmd({"cmd": "get_coop"}).get("insideCoopBase")) or None,
-                     timeout=60)
+    session.leave_base(visitor)
 
 
 def main():

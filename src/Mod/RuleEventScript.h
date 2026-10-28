@@ -62,6 +62,8 @@ public:
 	const std::vector<std::string> &getOneTimeSequentialEvents() const { return _oneTimeSequentialEvents; }
 	/// Gets the list of one time random events (with weights).
 	const WeightedOptions &getOneTimeRandomEvents() const { return _oneTimeRandomEvents; }
+	/// Gets the repeatable event weights in force for the given month (nullptr if none).
+	const WeightedOptions *getEventWeights(const size_t monthsPassed) const;
 	/// Gets the first month this command will run.
 	int getFirstMonth() const { return _firstMonth; }
 	/// Gets the last month this command will run.
