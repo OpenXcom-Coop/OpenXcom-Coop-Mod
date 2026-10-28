@@ -14342,10 +14342,13 @@ bool connectionTCP::isSharedReplica()
 
 bool connectionTCP::isCampaignReplica()
 {
-	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| (save->getCampaignType() != CoopCampaignType::Shared
-			&& save->getCampaignType() != CoopCampaignType::Separate))
+	// The server owner owns the authoritative world and is never a replica,
+	// whatever seat value a previous session or a loaded blob left behind.
+	if (getServerOwner())
+		return false;
+	// Only the single-world campaigns have replicas. PvP (game mode 2/3) keeps
+	// one independent world per player, which each machine simulates (main).
+	if (!isSharedCampaign() && !isSeparateCampaign())
 		return false;
 
 	// The streamed save records this machine's local seat. Keep treating a
@@ -14354,6 +14357,15 @@ bool connectionTCP::isCampaignReplica()
 	// until its host-derived SavedGame is discarded on the way to the main menu.
 	return session.role == CoopRole::Client
 		|| connectionTCP::coop_save_owner_player_id > 0;
+}
+
+int connectionTCP::loadedSaveOwnerId(int storedOwnerId, bool singleWorldCampaign)
+{
+	if (!singleWorldCampaign)
+		return storedOwnerId;
+	// One authoritative world: the host (and a solo or pre-host load) is seat 0,
+	// a connected client is seat 1 (LoadGameState re-asserts it after adoption).
+	return session.role == CoopRole::Client ? 1 : 0;
 }
 
 bool connectionTCP::isSeparateCampaignStatic()

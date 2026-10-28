@@ -340,7 +340,6 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	const auto& reader = documents[1].useIndex();
 	reader.tryRead("difficulty", _difficulty);
 	_separateCampaign.load(reader["separateCampaign"]);
-	_separateCampaign.ensurePlayers(_coopPlayers);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
@@ -349,7 +348,19 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	// coop
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
-	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	{
+		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
+		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
+		connectionTCP::coop_save_owner_player_id = connectionTCP::loadedSaveOwnerId(
+			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
+				|| isSeparateCoopCampaign()));
+	}
+	// Player profiles are the one-world Separate model; PvP keeps none (F3).
+	if (isSeparateCoopCampaign())
+	{
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
+		_separateCampaign.ensurePlayers(_coopPlayers);
+	}
 	// coop (PRD-P5): coop_parallel_turns is NOT read here. Every in-memory load
 	// is a world swapped inside a live session (often into a throwaway
 	// SavedGame), and the COOP_READY handshake already decided the session mode.
@@ -864,7 +875,6 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	reader.tryRead("difficulty", _difficulty);
 	_separateCampaign.load(reader["separateCampaign"]);
-	_separateCampaign.ensurePlayers(_coopPlayers);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
@@ -877,7 +887,19 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	connectionTCP::saveID = 0;
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
-	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	{
+		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
+		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
+		connectionTCP::coop_save_owner_player_id = connectionTCP::loadedSaveOwnerId(
+			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
+				|| isSeparateCoopCampaign()));
+	}
+	// Player profiles are the one-world Separate model; PvP keeps none (F3).
+	if (isSeparateCoopCampaign())
+	{
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
+		_separateCampaign.ensurePlayers(_coopPlayers);
+	}
 	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
 	// mid-battle resume comes back in the same mode it was played in.
 	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);

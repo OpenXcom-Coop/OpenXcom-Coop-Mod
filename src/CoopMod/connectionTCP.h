@@ -808,10 +808,18 @@ class connectionTCP
 	// Rebuild Separate's local purple/own-base presentation from persistent
 	// owner names after this process's seat is known or a streamed world lands.
 	void refreshSeparateBaseOwnership();
+	/// Leave the session from this machine and return to the main menu
+	/// (same teardown as Abandon / Save & Quit; the peer sees a player drop).
+	void leaveSessionToMainMenu();
 	static bool _coopCampaign;
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
-	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
+	static int coop_save_owner_player_id; // ID of the player who owns the co-op save
+	/// Value a just-loaded save may leave in coop_save_owner_player_id. In the
+	/// single-world campaigns the stored value is the writer's seat, not this
+	/// machine's, so it never overrides the local role (PR #213 F2). PvP and
+	/// custom battles keep main's rule: the loaded value names the battle host.
+	static int loadedSaveOwnerId(int storedOwnerId, bool singleWorldCampaign);
 	// PRD-J01: campaign economy model carried to a joining client during the
 	// lobby handshake (before its save exists) so the type label can render.
 	// 0 = Separate, 1 = Shared. Mirrors SavedGame::getCampaignType().
