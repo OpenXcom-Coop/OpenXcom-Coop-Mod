@@ -1141,7 +1141,7 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 {
-	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, _base->getCrafts()->at(_craft)); // coop W2-H20b-B (A8)
+	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, _base->getCrafts()->at(_craft)); // coop: SHARED - the craft's items before the template load
 	// temporarily turn off alternate craft equipment management to allow removing all items from the craft
 	bool backup = Options::oxceAlternateCraftEquipmentManagement;
 	Options::oxceAlternateCraftEquipmentManagement = false;

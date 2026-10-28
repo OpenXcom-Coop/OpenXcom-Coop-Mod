@@ -10,7 +10,7 @@ NAME (never a base placement: a fresh world is evidence); RESUME only after the 
   Row U1  (capture R-LT17-U1) CROSSING (CH: S1; ARM-A; GIFT; PUSH; HELD; ARM-B; S2; REPLY + read P; REL-A; RESULT1; read X1; REL-B;
           RESULT2; read X2); KILL; REJOIN; read R.
           U1-pre (GUARD) every CROSSING step met.  U1-host (RED) read X1: the host's saveID (both probes) == id2.
-          U1-log (RED) read X1: >= 1 "[coop] W2-H86:" line on the host since S2.
+          U1-log (RED) read X1: >= 1 "[coop] partner upload validated" line on the host since S2.
           U1-sav (RED) the QUICK .sav: saveID == id2 and exactly one entry, key host_<id2>_<NAME>.data.
           U1-key (RED) host_<the host's saveID> present at read X1 and at read X2.
           U1-ids (GUARD) read X2: the host's saveID == the partner's == id2.
@@ -21,7 +21,7 @@ NAME (never a base placement: a fresh world is evidence); RESUME only after the 
           KILL; REJOIN; read R.
           CTL-pre (GUARD) S1, GP (push key client_<id1>_<NAME>.data, the host's fnv change), NOTICE.
           CTL-save (GUARD) S2c ok, id2 != id1, W2-H58 "1 ... from id1 to id2".  CTL-ids (GUARD) read X: host == partner == id2, host_<id2>.
-          CTL-log (GUARD) 0 "[coop] W2-H86:" lines on the host since S1.  CTL-sav (GUARD) as U1-sav.
+          CTL-log (GUARD) 0 "[coop] partner upload validated" lines on the host since S1.  CTL-sav (GUARD) as U1-sav.
           CTL-rejoin, CTL-world, CTL-resume, CTL-common (GUARD) as U1's.
 Red today (no W2-H86 fix): U1-host, U1-log, U1-sav, U1-key, U1-rejoin, U1-world, U1-resume FAIL (7 of 19); every other cell PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its row (later cells "not reached",

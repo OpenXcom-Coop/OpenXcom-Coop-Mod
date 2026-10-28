@@ -36,7 +36,7 @@ SPARE = "SPARE"
 W_BDS, DEL_SETTLE, W_OK, BOOT_S = 2.0, 3.0, 2.0, 60.0
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",
        "trajectory": "P0", "state": "flying"}
-LOGN = ("[coop] W2-H83", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop", "shared_resync")
+LOGN = ("[coop] removed base: ", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop", "shared_resync")
 ROWS = (("SI", ("SI-pre", "SI-gone", "SI-closed", "SI-top")), ("END", ("CRASH",)))
 RED = ("SI-closed", "SI-top")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)

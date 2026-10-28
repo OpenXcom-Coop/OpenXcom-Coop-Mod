@@ -7,7 +7,7 @@ world was stored under the newer key, so a drop + rejoin got a new campaign.
 Holds the CROSSING (S1, ARM-A, GIFT, PUSH, HELD, ARM-B, S2, REPLY, REL-A, RESULT1, read X1, REL-B, RESULT2, HOLD 1 s, read X2) on the
 TEST-ONLY levers hold_blob_ack scope "upload" (W2-H86 L1: the host withholds every world chunk's ack while armed, so the push parks after
 its first chunk before the save starts) and hold_save_reply (W2-H82 L3: the host keeps its go-ahead to the partner's save answer, so the
-host is readable between the two checks); both released in a finally (levers_off). Reads: kept_id_count (the "[coop] W2-H86:" count), blobs
+host is readable between the two checks); both released in a finally (levers_off). Reads: kept_id_count (the "[coop] partner upload validated" count), blobs
 ({id: host_<id>_<NAME>.data}), w58 (the W2-H58 copy line). Every step is recorded in r.ev["X"]; a precondition miss fails the row's -pre
 cell and raises RH.Stop (later cells "not reached"). Imports drop_fixture (F) and rejoin_helpers (RH) unchanged. Never a base
 placement, never the 54's CANCEL (only F resume_and_clear after an ack CANCELs a stale 54). Polls 0.05 s.
@@ -22,12 +22,12 @@ import drop_fixture as F  # noqa: E402
 import rejoin_helpers as RH  # noqa: E402
 
 W_HELD, W_REPLY, W_RESULT, HOLD_X = 10.0, 10.0, 15.0, 1.0
-NEEDLE = "[coop] W2-H86:"
+NEEDLE = "[coop] partner upload validated - saveID stays"
 H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 
 
 def kept_id_count(gc, n0=0):
-    """the count of "[coop] W2-H86:" lines in the machine's log from line n0 (0 on a build without the fix)"""
+    """the count of "[coop] partner upload validated" lines in the machine's log from line n0 (0 on a build without the fix)"""
     return sum(1 for ln in F.logl(gc)[n0:] if NEEDLE in ln)
 
 

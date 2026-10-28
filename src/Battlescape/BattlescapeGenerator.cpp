@@ -2577,8 +2577,7 @@ void BattlescapeGenerator::explodePowerSources()
 // release the two machines disagree at t=0 on every crashed-UFO map whose
 // explosion killed crew, and the co-op handshake refuses to start the battle.
 //
-// Owner ruling (openxcom-coop-agent-docs rewrite/wave1-log.md, 2026-09-05,
-// WV-D62): fix it here, vanilla-wide, rather than hide it from the hash.
+// It is fixed here, vanilla-wide, rather than hidden from the hash.
 // Single-player behaviour is unchanged except that generation-killed units no
 // longer write an ignored `AI:` node into saves.
 // ---------------------------------------------------------------------------
@@ -2592,9 +2591,7 @@ void BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration()
 		// explodePowerSources() are getHealth() <= 0 but NOT yet STATUS_DEAD -- the status
 		// flip happens later, in BattlescapeGame::checkForCasualties (run from the
 		// BattlescapeGame ctor, after BattlescapeGenerator::run() returns). A
-		// getStatus()==STATUS_DEAD test would therefore match NOTHING here. WV-D62 +
-		// SUPERVISOR CORRECTION (openxcom-coop-agent-docs rewrite/wave1-log.md 2026-09-05,
-		// docs 199bf09).
+		// getStatus()==STATUS_DEAD test would therefore match NOTHING here.
 		if (bu->getHealth() <= 0 && bu->getAIModule() != nullptr)
 		{
 			bu->setAIModule(nullptr);

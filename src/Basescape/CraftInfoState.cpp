@@ -495,7 +495,7 @@ void CraftInfoState::btnOkClick(Action *)
 {
 
 	// coop campaign
-	// coop W2-H70 S-C: also while the live world is the partner's
+	// coop: also while the live world is the partner's
 	// base view after a 67 cleared the visit flag (a craft seat changed then is kept).
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{

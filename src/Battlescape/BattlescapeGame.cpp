@@ -201,7 +201,7 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parent
 	_debugPlay = false;
 
 	// generation casualties (killed AND stunned) settle synchronously inside UnitDieBState's ctor while isBeforeGame() - see UnitDieBState.cpp.
-	// coop W2-H22 (SCOPE-0, D128): a co-op second player never settles a casualty itself - the host settles it and its
+	// coop: a co-op second player never settles a casualty itself - the host settles it and its
 	// `death` ev's delta carries the result. Self-guarded: false on the host, in single player and in any non-co-op battle.
 	if (!coopSkipClientBattleStartCasualties())
 		checkForCasualties(nullptr, BattleActionAttack{ }, true);
@@ -258,7 +258,7 @@ int BattlescapeGame::think()
 				{
 					_playerPanicHandled = coopSkipClientPanic() ? true : coopHandlePanickingSide(_save->getSide());
 					_save->getBattleState()->updateSoldierInfo();
-					coopHostDropOffSideSelection(_save); // coop W2-H39 (design-D6): a host never keeps an off-side unit the panic check selected
+					coopHostDropOffSideSelection(_save); // coop: a host never keeps an off-side unit the panic check selected
 				}
 				return ret;
 			}
@@ -313,7 +313,7 @@ int BattlescapeGame::think()
 				_playerPanicHandled = coopSkipClientPanic() ? true
 					: (coopHotseatAlienTurn() ? coopHandlePanickingHotseat() : handlePanickingPlayer()); // coop: player 2's aliens too
 				_save->getBattleState()->updateSoldierInfo();
-				coopHostDropOffSideSelection(_save); // coop W2-H39 (design-D6): a host never keeps an off-side unit the panic check selected
+				coopHostDropOffSideSelection(_save); // coop: a host never keeps an off-side unit the panic check selected
 			}
 		}
 	}
@@ -331,7 +331,7 @@ void BattlescapeGame::init()
 	{
 		_playerPanicHandled = false;
 	}
-	if (coopHotseatArmsPanic(_save)) // coop D247-U (R5-V1's rule): player 2's aliens, from turn 1
+	if (coopHotseatArmsPanic(_save)) // coop: hotseat - player 2's side panics with its aliens included, from turn 1
 	{
 		_playerPanicHandled = false;
 	}
@@ -475,7 +475,7 @@ void BattlescapeGame::handleAI(BattleUnit *unit)
 		ss << "Attack type=" << action.type << " target="<< action.target << " weapon=" << action.weapon->getRules()->getType();
 		_parentState->debug(ss.str());
 		action.updateTU();
-		// W2-P3 S-A (spec (b)1/(b)4/(b)5): ONE guarded coop call - on the co-op
+		// ONE guarded coop call - on the co-op
 		// HOST the attack runs in its own `ai` action context (armed across the
 		// pushes below). No-op in single player and on a client.
 		coopBeginAiAttack(action.actor, action.type);
@@ -548,7 +548,7 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
 			// kneeling or standing up can reveal new terrain or units. I guess.
 			getTileEngine()->calculateFOV(bu->getPosition(), 1, false); //Update unit FOV for everyone through this position, skip tiles.
 			_parentState->updateSoldierInfo(); //This also updates the tile FOV of the unit, hence why it's skipped above.
-			// SS2.W5: ONE guarded coop call.
+			// ONE guarded coop call.
 			// In a co-op battle the line above no longer authors tile FOV (a
 			// selection change must not author shared fog), so the ACTING unit's
 			// own tiles are recalculated here - explicitly, and relative to the
@@ -559,7 +559,7 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
 			// co-op battle and off the host sim, so SP is bit-identical.
 			coopAuthorActingUnitFov(bu);
 			getTileEngine()->checkReactionFire(bu, kneel);
-			// R3-P2: THIN hook - see CoopArbiter.h's
+			// THIN hook - see CoopArbiter.h's
 			// coopOnKneelFinished() doc comment for the full contract. Fires
 			// for BOTH a coop HOST's own local kneel click and an admitted
 			// remote kneel intent (same call site, either origin) - no-op
@@ -572,7 +572,7 @@ bool BattlescapeGame::kneel(BattleUnit *bu)
 			_parentState->warning("STR_NOT_ENOUGH_TIME_UNITS");
 		}
 	}
-	// R3-P2: see the hook above - this exit covers
+	// See the hook above - this exit covers
 	// both the outer precondition failing and kneel.spendTU() failing above;
 	// see coopOnKneelFinished()'s own doc comment for why a coop-admitted
 	// kneel can rarely still take this branch.
@@ -602,9 +602,9 @@ void BattlescapeGame::endTurn()
 	if (_triggerProcessed.tryRun())
 	{
 		// the SAME sub-expression-replacement shape
-		// W1-P10 already uses at UnitWalkBState.cpp and UnitTurnBState.cpp. On
+		// UnitWalkBState.cpp and UnitTurnBState.cpp use. On
 		// the co-op HOST this emits ONE `door` ev per door it actually closes,
-		// through W1-P10's applier, on actionId 0 with no `unit` - in the seq
+		// through the door applier, on actionId 0 with no `unit` - in the seq
 		// stream immediately BEFORE side_transition, which endTurn() emits
 		// further down the same function. Byte-identical vanilla count in
 		// single player.
@@ -1142,7 +1142,7 @@ void BattlescapeGame::handleNonTargetAction()
 		// ONE guarded coop call at the non-targeting
 		// EXECUTION point - the baton check on both machines, and on a co-op
 		// CLIENT the completed prime / unprime ships as a `prime` intent (a
-		// melee as a `melee` intent, W2-P4 S-C) and
+		// melee as a `melee` intent) and
 		// TRUE comes back, so none of the branches below runs there. FALSE on
 		// the host (vanilla executes) and in single player.
 		else if (coopInterceptNonTargetAction(&_currentAction, _save))
@@ -1354,12 +1354,12 @@ void BattlescapeGame::popState()
 	auto* first = _states.front();
 	BattleAction action = first->getAction();
 
-	// W2-P4 S-A (spec (b)4, Q3 = (a), PR-Q4): ONE guarded coop call - on the
+	// ONE guarded coop call - on the
 	// co-op HOST it latches a partner's (intent) action result for its
 	// bt_action_end and reports the state as REMOTE, so the two host-screen side
 	// effects below (the warning, the throw/launch cancel) skip it. False in SP.
 	const bool coopRemoteAction = coopLatchActionResult(action);
-	// coop W2-H27 (owner design-D5 / WV-D11, side-relative UI; docs rewrite/prompts/w2h27_pvp_cursor_after_shot.md):
+	// coop (side-relative UI):
 	// an actor of the non-player side THIS machine's seat commands, during that side (gm3's host and its aliens),
 	// gets vanilla's PLAYER-side aftermath below: the failed-action warning, the throw / launch targeting cancel,
 	// the visible pointer and setupCursor. False in single player, in classic / SHARED co-op and on a gm2 host
@@ -1379,7 +1379,7 @@ void BattlescapeGame::popState()
 	// handle the end of this unit's actions
 	if (action.actor && noActionsPending(action.actor))
 	{
-		if (action.actor->getFaction() == FACTION_PLAYER || coopOwnSideActor) // coop W2-H27 (design-D5): + this seat's own non-player side
+		if (action.actor->getFaction() == FACTION_PLAYER || coopOwnSideActor) // coop: + this seat's own non-player side
 		{
 			if (_save->getSide() == FACTION_PLAYER || coopOwnSideActor)
 			{
@@ -1400,7 +1400,7 @@ void BattlescapeGame::popState()
 		}
 		else
 		{
-			// W2-P4 S-E4 (AMENDMENT C1 PR-Q8): ONE guarded term - a side a human
+			// ONE guarded term - a side a human
 			// seat commands (gm2's alien seat) runs no AI, so an action that seat
 			// ordered does not end the side here. False in SP.
 			if (_save->getSide() != FACTION_PLAYER && !_debugPlay && !coopSuppressNonPlayerThink(_save))
@@ -1465,9 +1465,8 @@ void BattlescapeGame::popState()
 	// the currently selected unit died or became unconscious or disappeared inexplicably
 	if (_save->getSelectedUnit() == 0 || _save->getSelectedUnit()->isOut())
 	{
-		// coop R5-U1 S-C (D222 gap 3, F4205; its reaction sibling F12699): a partner's or opponent's running order - its
-		// own states and the reactions it draws - is not this machine's selection: an empty selection (a PvP host off its
-		// own side) never cancels its front state. coopRemoteOrderRunning() is false in SP.
+		// coop: a partner's or opponent's running order - its own states and the reactions it draws - is not this machine's selection:
+		// an empty selection (a PvP host off its own side) never cancels its front state. coopRemoteOrderRunning() is false in SP.
 		if (_states.empty() || !_states.front() || !coopRemoteOrderRunning())
 			cancelCurrentAction();
 		getMap()->setCursorType(CT_NORMAL, 1);
@@ -1479,12 +1478,9 @@ void BattlescapeGame::popState()
 	}
 	_parentState->updateSoldierInfo();
 
-	// R2-P5 (rewrite spike, SPIKE-RUNBOOK.md RB-D11): thin coop admission
-	// hook, at the exact point the just-popped chain leaves _states empty.
-	// Guarded internally (coopOnChainQuiesced() no-ops outside an active
-	// coop battle) - this is the only logic this vanilla file gains for the
-	// spike (src/Battlescape is no longer byte-identical to vanilla from r2
-	// on, by design).
+	// Thin coop admission hook, at the exact point the just-popped chain leaves
+	// _states empty. Guarded internally (coopOnChainQuiesced() no-ops outside an
+	// active coop battle).
 	if (_states.empty())
 	{
 		coopOnChainQuiesced();
@@ -1666,7 +1662,7 @@ bool BattlescapeGame::coopHandlePanickingSide(UnitFaction side)
 }
 
 /**
- * coop D247-U (R5-V1's rule for a human alien side): handlePanickingPlayer() for player 2's turn in a
+ * coop (a human alien side): handlePanickingPlayer() for player 2's turn in a
  * hotseat battle - every unit of the active (swapped) player side, the aliens included (vanilla's loop
  * skips units whose original faction is not FACTION_PLAYER).
  * @return True when all panicking is over.
@@ -1802,8 +1798,8 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 			}
 		}
 	}
-	// W2-P3 S-D (spec (b)7/(b)9): ONE guarded coop call - on the co-op HOST the
-	// `panic` cue {unit, mode} opens the action (in the context V9 opened for a
+	// ONE guarded coop call - on the co-op HOST the
+	// `panic` cue {unit, mode} opens the action (in the context opened for a
 	// flee). No-op in single player and on a client.
 	coopCuePanic(unit, flee);
 	// Time units can only be reset after everything else occurs
@@ -1960,26 +1956,24 @@ BattleUnit *BattlescapeGame::getPrimaryBusyActor() const
  */
 void BattlescapeGame::primaryAction(Position pos)
 {
-	// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12; NON-NEGOTIABLE rule
-	// WV-D40 / WR-2): R5-P2's single ENTRY guard used to sit HERE, and it made
-	// click-to-select DEAD on a co-op client - the select-unit branch below is
-	// reached through this same function, so gating the whole function gated
-	// selection too, contradicting D6's "a seat ... CAN select what it does
-	// command". The guard has therefore MOVED ONTO THE COMMANDING ARMS: the
-	// targeting/BA_LAUNCH/spray block immediately below, and the walk-confirm
-	// arm further down. Exactly ONE branch is exempt - the select-unit branch -
-	// and that branch carries its OWN seat filter
+	// The co-op seat guard sits on the COMMANDING ARMS, not on this whole
+	// function: the select-unit branch below is reached through this same
+	// function, so gating the whole function would make click-to-select dead
+	// on a co-op client, and a seat CAN select what it commands. The guarded
+	// arms are the targeting/BA_LAUNCH/spray block immediately below and the
+	// walk-confirm arm further down. Exactly ONE branch is exempt - the
+	// select-unit branch - and that branch carries its OWN seat filter
 	// (CoopBattleUi::refuseSelectUnitClick), because vanilla gates it on
 	// `unit->getFaction() == _save->getSide()` and nothing else.
 	//
-	// WHY IT IS NOT SIMPLY DELETED (the trap this comment exists to keep shut):
+	// WHY THE WALK ARM KEEPS ITS GUARD (the trap this comment exists to keep shut):
 	// the walk arm is `else if (playableUnitSelected())`, and
 	// playableUnitSelected() is `getSelectedUnit() != 0 && (side ==
 	// FACTION_PLAYER || debug)` (:1146) - TRUE on a co-op client during the
 	// player side - and that arm ends in `statePushBack(new
-	// UnitWalkBState(...))`. Moving the guard wholesale would let a client
-	// execute walks LOCALLY until W1-P9's intent path intercepts them: a state
-	// mint and a guaranteed, permanent desync, live across the entire G1 gate.
+	// UnitWalkBState(...))`, a local state mint on a client. Its guard keeps
+	// ownership + active side, and coopInterceptWalkConfirm() turns a client's
+	// walk into an intent before that push (see the walk-confirm arm).
 	// Nothing above this point mints state: bPreviewed is a local,
 	// Map::resetObstacles() clears the display-only Tile::_obstacle bits (not
 	// serialized, not hashed), and _currentAction is machine-local scratch.
@@ -1991,7 +1985,7 @@ void BattlescapeGame::primaryAction(Position pos)
 	{
 		// COMMANDING ARM (targeting confirm / BA_LAUNCH + spray waypoints):
 		// stays gated, as the entry guard had it. ONE guarded call, permissive
-		// outside coop. the gate SPLITS like W1-P9's walk arm - a
+		// outside coop. the gate SPLITS like the walk arm below - a
 		// kind whose intercept exists keeps ownership + active side here and
 		// its hostSim/baton terms move down to its execution point; every
 		// other kind keeps the old hostSim AND coopMayCommand gate - see
@@ -2095,7 +2089,7 @@ void BattlescapeGame::primaryAction(Position pos)
 					// probe's EXECUTION point, after vanilla's own target checks -
 					// the baton check on both machines, and on a co-op CLIENT the
 					// probe ships as a `use_item` intent and TRUE comes back (the
-					// client opens UnitInfoState at its own order's end, Q14 = a).
+					// client opens UnitInfoState at its own order's end).
 					// FALSE on the host (vanilla executes) and in single player.
 					if (coopInterceptPsiConfirm(&_currentAction, targetUnit, _save)) return;
 					std::string error;
@@ -2134,7 +2128,7 @@ void BattlescapeGame::primaryAction(Position pos)
 				{
 					if (targetFaction != FACTION_HOSTILE)
 					{
-						const int coopKnow = coopHumanKnowsTarget(_currentAction.actor, targetUnit, _save); // coop R5-U3 (O1)
+						const int coopKnow = coopHumanKnowsTarget(_currentAction.actor, targetUnit, _save); // coop
 						knowTarget = coopKnow >= 0 ? coopKnow == 1 : (_currentAction.actor->getAIModule()
 							? _currentAction.actor->getAIModule()->validTarget(targetUnit, false, true) // different flags than AI used because AI consider strategy
 							: false);
@@ -2216,7 +2210,7 @@ void BattlescapeGame::primaryAction(Position pos)
 			// ONE guarded coop call at the shot's
 			// EXECUTION point - the baton check on both machines, and on a
 			// co-op CLIENT the completed action ships as a `shoot` intent (a
-			// throw as a `throw` intent, W2-P4 S-B) and
+			// throw as a `throw` intent) and
 			// TRUE comes back, so nothing below runs there. FALSE on the host
 			// (vanilla executes) and in single player.
 			if (coopInterceptFireConfirm(&_currentAction, _save)) return;
@@ -2242,7 +2236,7 @@ void BattlescapeGame::primaryAction(Position pos)
 				// THE seat filter for click-to-select.
 				// Vanilla's condition above is faction-only, so without this a
 				// co-op seat could select a soldier it does not command. One
-				// guarded call; it also puts SS2.6's "Not one of your soldiers"
+				// guarded call; it also puts "Not one of your soldiers"
 				// on the _txtCoopWait banner. Permissive outside coop, so SP
 				// click-to-select is byte-identical.
 				if (CoopBattleUi::refuseSelectUnitClick(unit))
@@ -2259,18 +2253,16 @@ void BattlescapeGame::primaryAction(Position pos)
 		}
 		else if (playableUnitSelected())
 		{
-			// COMMANDING ARM (walk confirm). W1-P9 (WAVE1-RUNBOOK.md SS2.W2 /
-			// WV-D30) is the packet W1-P6's own note here pointed at ("a client
-			// ground-click must mint NOTHING until W1-P9 turns it into a walk
-			// INTENT"), so the gate SPLITS - it is not weakened. ONE guarded
-			// call here keeps W1-P6's OWNERSHIP + active-side term, ahead of any
-			// preview, because D6's ownership wall forbids a seat even PREVIEWING
+			// COMMANDING ARM (walk confirm). A client ground-click mints nothing:
+			// it becomes a walk INTENT, so the gate SPLITS - it is not weakened. ONE
+			// guarded call here keeps the OWNERSHIP + active-side term, ahead of any
+			// preview, because the ownership wall forbids a seat even PREVIEWING
 			// a unit it does not command; refusals still bump the same
 			// coopLocalExecBlocked counter. The hostSim ("only the simulating
 			// machine may EXECUTE") term moves DOWN to coopInterceptWalkConfirm()
 			// immediately before the statePushBack below, where a co-op CLIENT
 			// now ships the previewed plan as a bt_intent instead of refusing -
-			// and still never reaches that push (WV-D40 intact, a G1 criterion).
+			// and still never reaches that push.
 			// Everything between here and there is machine-local display scratch:
 			// Pathfinding's `_path`/`_totalTUCost` and the preview's
 			// Tile::_preview/_markerColor/_tuMarker are not serialized and not
@@ -2333,9 +2325,9 @@ void BattlescapeGame::primaryAction(Position pos)
 			if (!bPreviewed && _save->getPathfinding()->getStartDirection() != -1)
 			{
 				//  -= start walking =-
-				// W1-P9 (SS2.W2 / WV-D30 / WV-D40): ONE guarded coop call at the
+				// ONE guarded coop call at the
 				// EXECUTION point. On a co-op CLIENT it ships the plan
-				// Pathfinding is holding as a `bt_intent walk` (through RB-D32's
+				// Pathfinding is holding as a `bt_intent walk` (through the
 				// one intent builder) and returns true, so the push below never
 				// runs on a thin client. On the co-op HOST it stamps this walk's
 				// action context and returns false so vanilla executes
@@ -2361,26 +2353,24 @@ void BattlescapeGame::primaryAction(Position pos)
  */
 void BattlescapeGame::secondaryAction(Position pos)
 {
-	// R5-P2 (SPIKE-RUNBOOK.md RB-D10, generalized to the full commandsUnit/
-	// mySideActive gate): suppress a coop client's secondary-click (turn/
-	// door) on a unit this machine's seat does not command, or when this
-	// machine's side isn't currently active. One guarded call, permissive
-	// outside coop.
+	// The full commandsUnit/mySideActive gate: suppress a coop client's
+	// secondary-click (turn/door) on a unit this machine's seat does not
+	// command, or when this machine's side isn't currently active. One guarded
+	// call, permissive outside coop.
 	BattleUnit* selected = _save->getSelectedUnit();
 	if (!coopMayCommand(selected, _save))
 	{
 		return;
 	}
 
-	// R3-P1 (RB-D10 generalized): a coop CLIENT commanding its own unit
-	// SENDS an intent instead of running vanilla locally - SS2.5's "host-
-	// local player input never enters the intent path" means only the HOST
-	// ever runs vanilla directly. coopMayCommand() above already proved this
-	// machine commands `selected` and its side is active; the only question
-	// left is which role this machine has.
+	// A coop CLIENT commanding its own unit SENDS an intent instead of running
+	// vanilla locally - host-local player input never enters the intent path,
+	// so only the HOST ever runs vanilla directly. coopMayCommand() above already
+	// proved this machine commands `selected` and its side is active; the only
+	// question left is which role this machine has.
 	if (isCoopBattle() && !coopBattleAuthority().hostSim)
 	{
-		// R2-P7 (SPIKE-RUNBOOK.md R2-P7): the right-click half of the
+		// The right-click half of the
 		// pending-intent CANCEL CONTROL. One guarded call - returns false (and
 		// does nothing) unless a busy-denied intent is actually being held, in
 		// which case this right-click CLEARS it instead of stacking a second
@@ -2522,10 +2512,10 @@ void BattlescapeGame::moveUpDown(BattleUnit *unit, int dir)
 		kneel(_save->getSelectedUnit());
 	}
 	_save->getPathfinding()->calculate(_currentAction.actor, _currentAction.target, _currentAction.getMoveType());
-	// W1-P13d (WV-D58 (ii)): host-origin level changes stream like any other
+	// Host-origin level changes stream like any other
 	// walk. A client never reaches here (the two buttons refuse above), and if
-	// it ever did this returns true and consumes the click - WV-D40 holds
-	// either way. Same 7-parameter call as the walk-confirm arm above
+	// it ever did this returns true and consumes the click - a client never
+	// runs the walk either way. Same 7-parameter call as the walk-confirm arm above
 	// (CoopArbiter.h), with the movement modifiers false: a level change is a
 	// plain walk.
 	if (coopInterceptWalkConfirm(_currentAction.actor, _currentAction.target,
@@ -3627,7 +3617,7 @@ int BattlescapeGame::checkForProximityGrenades(BattleUnit *unit)
 						if (ruleItem->getBattleType() == BT_GRENADE || ruleItem->getBattleType() == BT_PROXIMITYGRENADE)
 						{
 							Position p = t->getPosition().toVoxel() + Position(8, 8, t->getTerrainLevel());
-							// W2-P3 S-B (spec (b)1/(b)8/(b)9): ONE guarded coop call - on the
+							// ONE guarded coop call - on the
 							// co-op HOST the detonation runs in its own nested `prox` context,
 							// announced by the `prox_trigger` cue. No-op in single player and
 							// on a client.

@@ -322,7 +322,7 @@ void ManageAlienContainmentState::think()
 {
 	State::think();
 
-	if (SharedEcon::contScreenShouldClose(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop (W2-P7 S-C-D2, P7-7 PR-30/PR-31): answered / solved
+	if (SharedEcon::contScreenShouldClose(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop: answered / solved
 	// PRD-J10: a peer's shared_apply moved this base's prisoners/funds. This screen
 	// rebuilds in place (no pop-and-push) - the pending selection is cleared, which
 	// is correct: it was quantities against a prison that no longer looks like that.
@@ -407,7 +407,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
 			coopSeq = SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
 		}
-		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop (W2-P7 S-C-D2, PR-30, MR9/MR10): wait for the host
+		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop: wait for the host
 		_game->popState();
 		return;
 	}

@@ -120,7 +120,7 @@ private:
 	void fuelPowerSources();
 	/// Possibly explodes ufo power sources.
 	void explodePowerSources();
-	/// Releases the AIModule of any unit that died during map generation (co-op determinism, WV-D62).
+	/// Releases the AIModule of any unit that died during map generation (co-op determinism).
 	void releaseAIModulesOfUnitsKilledDuringGeneration();
 	void explodeOtherJunk();
 	/// Deploys the XCOM units on the mission.

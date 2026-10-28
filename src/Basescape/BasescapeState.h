@@ -112,16 +112,16 @@ public:
 	/// Test automation: the funds header text (a constructor/init-time cache; only
 	/// changes when the screen is rebuilt, so it proves a live SHARED refresh landed).
 	std::string harnessFundsText() const;
-	/// coop (W2-H8, SEPARATE only): hides the peer's mirror bases from the live base
+	/// coop (SEPARATE only): hides the peer's mirror bases from the live base
 	/// list into the one process-wide stash; true if any was hidden.
 	static bool coopHideMirrors();
 	/// coop: puts the stashed mirrors back and empties the stash; true if it
 	/// held anything. A no-op in SP and SHARED (nothing is ever hidden there).
 	static bool coopShowMirrors();
-	/// coop W2-H83 (SEPARATE only): deletes every stashed mirror of the partner's base @a coopBaseId (the partner removed that base), so
+	/// coop (SEPARATE only): deletes every stashed mirror of the partner's base @a coopBaseId (the partner removed that base), so
 	/// leaving the view cannot put it back; returns how many it deleted.
 	static int coopDropStashedMirror(int coopBaseId);
-	/// coop W2-H83 (SEPARATE only): this player views a base inside the partner's world that the partner just removed; back to its own world
+	/// coop (SEPARATE only): this player views a base inside the partner's world that the partner just removed; back to its own world
 	/// exactly as GEOSCAPE does (LoadGameState "basehost" replaces the whole stack and the view world). Reads no Base.
 	static void coopLeavePeerView();
 };

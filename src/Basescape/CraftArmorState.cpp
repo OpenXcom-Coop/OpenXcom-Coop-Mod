@@ -198,7 +198,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 			}
 		}
 
-		// coop W2-H16d (#65 playtest rule, the CraftSoldiersState fence): SHARED must not reorder the shared
+		// coop (issue #65, as in CraftSoldiersState): SHARED must not reorder the shared
 		// roster; keep the dynamic-stat column but skip the sort mutations.
 		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 		{
@@ -256,7 +256,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 	}
 	else
 	{
-		// coop W2-H16d (#65 playtest rule): in SHARED "original order" is the shared order - never re-append it.
+		// coop (issue #65): in SHARED "original order" is the shared order - never re-append it.
 		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 		{
 			initList(_lstSoldiers->getScroll());
@@ -656,7 +656,7 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
-		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16b A1 (aud-E1-11): SHARED resets only the local player's own soldiers
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED resets only the local player's own soldiers
 		if (!(soldier->getCraft() && soldier->getCraft()->getStatus() == "STR_OUT"))
 		{
 			Armor *a = soldier->getRules()->getDefaultArmor();
@@ -705,7 +705,7 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 	int row = 0;
 	for (auto* s : *_base->getSoldiers())
 	{
-		if (!SharedEcon::ownsSoldier(_game, s)) continue; // coop W2-H16b A1 (aud-E1-11): SHARED resets only the local player's own soldiers
+		if (!SharedEcon::ownsSoldier(_game, s)) continue; // coop: SHARED resets only the local player's own soldiers
 		if (s->getCraft() == c || s->getCraft() == 0)
 		{
 			Armor *a = s->getRules()->getDefaultArmor();

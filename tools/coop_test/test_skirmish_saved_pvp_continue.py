@@ -55,7 +55,7 @@ KEY = "49253"
 SEED_ROSTER = 1                   # set_seed on the host before its lobby (test_pvp_gm3 :52; TASK 0 boots a, b)
 LOAD_S, CLIENT_S = 120, 120       # the menu load / the partner in battle after CONTINUE BATTLE (TASK 0: 0.1 s / 0.95 s)
 STEP_S, SETTLE_S = 30, 2          # each lever / side change (TASK 0: <= 3.7 s); the read delay after the arrival
-N_MGB = "[coop] MG-B: CONTINUE BATTLE offers the loaded Custom Battle"
+N_MGB = "[coop] CONTINUE BATTLE offers the loaded Custom Battle"
 FACTION_PLAYER, FACTION_HOSTILE, FACTION_NEUTRAL = 0, 1, 2
 SIDE_ALIENS = 1                   # the side END TURN hands to (side 0 = X-COM moves first in both modes)
 KINDS = ("side_transition", "side_begin")

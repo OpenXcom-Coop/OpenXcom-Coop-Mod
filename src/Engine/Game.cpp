@@ -447,7 +447,7 @@ void Game::run()
 			// Process logic
 			coopCloseGoneBaseHolders(); // coop: a dialog closed above a screen whose base is gone - close it before its think()
 			_states.back()->think();
-			coopThinkCoveredBattle(this); // coop (W2-P8 S-C2, D166 B): a covered host battle keeps running the partner's action
+			coopThinkCoveredBattle(this); // coop: a covered host battle keeps running the partner's action
 			_fpsCounter->think();
 			if (Options::FPS > 0 && !(Options::useOpenGL && Options::vSyncForOpenGL))
 			{
@@ -666,7 +666,7 @@ void State::coopCloseGoneBase()
 }
 
 /**
- * coop W2-H83 S-B2 (R-LBH3-1, R-H83-2; h83b-amend F22542-F22546): the other player removed a base (SHARED fac_dismantle or base_destroyed,
+ * coop: the other player removed a base (SHARED fac_dismantle or base_destroyed,
  * SEPARATE delete_base), or a world reload replaced every base. Every screen on top that still shows such a base closes, top down, before
  * it runs init(), handle() or think() again; the first screen that does not stops it (BasescapeState falls back to the first base itself, a
  * co-op dialog stays). Called right after the co-op drain and right before think().
@@ -677,7 +677,7 @@ void Game::coopCloseGoneBaseHolders()
 	{
 		State *top = _states.back();
 		const size_t before = _states.size();
-		Log(LOG_INFO) << "[coop] W2-H83: closed " << typeid(*top).name() << " - the base it shows is gone";
+		Log(LOG_INFO) << "[coop] removed base: closed " << typeid(*top).name() << " - the base it shows is gone";
 		top->coopCloseGoneBase();
 		if (_states.size() >= before)
 		{

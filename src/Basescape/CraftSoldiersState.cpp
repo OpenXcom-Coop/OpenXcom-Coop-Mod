@@ -325,7 +325,7 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 	}
 	else
 	{
-		// coop W2-H16d (#65 playtest rule): in SHARED "original order" is the shared order - never re-append it.
+		// coop (issue #65): in SHARED "original order" is the shared order - never re-append it.
 		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 		{
 			initList(_lstSoldiers->getScroll());
@@ -834,7 +834,7 @@ void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
  */
 void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 {
-	if (SharedEcon::submitCraftDeassign(_game, _base, _base->getCrafts()->at(_craft))) return; // coop W2-H16b (S-9c)
+	if (SharedEcon::submitCraftDeassign(_game, _base, _base->getCrafts()->at(_craft))) return; // coop: SHARED - the host takes this player's soldiers off the craft
 	Craft *c = _base->getCrafts()->at(_craft);
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())

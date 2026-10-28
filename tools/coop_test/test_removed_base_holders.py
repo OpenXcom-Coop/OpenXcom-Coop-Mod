@@ -47,8 +47,8 @@ DEL_SETTLE, W_BDS, MIRROR_S, BOOT_S = 3.0, 5.0, 30.0, 60.0
 SITE = {"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "race": "STR_SECTOID", "hours": 240}
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",
        "trajectory": "P0", "state": "flying"}
-NEEDLE = "[coop] W2-H83: removed base id=%s cache="
-LOGN = ("[coop] W2-H83", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop")
+NEEDLE = "[coop] removed base: id=%s cache="
+LOGN = ("[coop] removed base: ", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ROWS = (("MT", ("MT-pre", "MT-dangle", "MT-closed")), ("GC", ("GC-pre", "GC-dangle", "GC-closed")), ("CD", ("CD-pre", "CD-dangle", "CD-closed")),
         ("END", ("CRASH",)))
 RED = ("MT-dangle", "MT-closed", "GC-dangle", "GC-closed", "CD-dangle", "CD-closed")

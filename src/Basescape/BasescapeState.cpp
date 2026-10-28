@@ -70,7 +70,7 @@ namespace OpenXcom
 
 bool _coop_base_init = false;
 
-// coop (W2-H8, D185; SEPARATE only): the peer's _coopIcon mirror bases hidden from
+// coop (SEPARATE only): the peer's _coopIcon mirror bases hidden from
 // the live base list while a basescape is open. ONE stash for the process, never a
 // Base field: a base switch, a redirect or a dismantled base cannot strand it. Only
 // mirrors are stored, with their index at hide time, so an untouched list comes
@@ -1007,7 +1007,7 @@ void BasescapeState::miniRightClick(Action *)
 		// only able to move the currently selected base
 		if (bases[baseIndex] == _base)
 		{
-			// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared base list (shared commands address a base by its index).
+			// coop (issue #65): SHARED must not reorder the shared base list (shared commands address a base by its index).
 			if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 			std::swap(bases[baseIndex], bases[baseIndex - 1]);
 			init();
@@ -1111,7 +1111,7 @@ std::string BasescapeState::harnessFundsText() const
 }
 
 /**
- * coop (W2-H8, SEPARATE only): moves every _coopIcon mirror base out of the live
+ * coop (SEPARATE only): moves every _coopIcon mirror base out of the live
  * base list into the process-wide stash, remembering its index. Own bases keep
  * their order. A stash left from another world is dropped first.
  * @return True if at least one mirror was hidden.
@@ -1128,7 +1128,7 @@ bool BasescapeState::coopHideMirrors()
 		s_coopHiddenMirrors.clear();
 		s_coopHiddenWorld = save;
 	}
-	Base *selected = save->getBases()->empty() ? nullptr : save->getSelectedBase(); // coop W2-H68 E2: the base the index names before the hide
+	Base *selected = save->getBases()->empty() ? nullptr : save->getSelectedBase(); // coop: the base the index names before the hide
 	std::vector<Base*> kept;
 	bool hid = false;
 	for (size_t i = 0; i < save->getBases()->size(); ++i)
@@ -1145,7 +1145,7 @@ bool BasescapeState::coopHideMirrors()
 		}
 	}
 	*save->getBases() = kept;
-	coopKeepSelected(save, selected); // coop W2-H68 E2: the same base, at its index in the list without the mirrors
+	coopKeepSelected(save, selected); // coop: the same base, at its index in the list without the mirrors
 	return hid;
 }
 
@@ -1167,7 +1167,7 @@ bool BasescapeState::coopShowMirrors()
 	if (save && save == s_coopHiddenWorld)
 	{
 		std::vector<Base*> *bases = save->getBases();
-		Base *selected = bases->empty() ? nullptr : save->getSelectedBase(); // coop W2-H68 E3: the base the index names before the show
+		Base *selected = bases->empty() ? nullptr : save->getSelectedBase(); // coop: the base the index names before the show
 		for (const auto& entry : s_coopHiddenMirrors)
 		{
 			bool present = false;
@@ -1196,7 +1196,7 @@ bool BasescapeState::coopShowMirrors()
 			size_t at = entry.first < bases->size() ? entry.first : bases->size();
 			bases->insert(bases->begin() + at, entry.second);
 		}
-		coopKeepSelected(save, selected); // coop W2-H68 E3: the same base, at its index with the mirrors back
+		coopKeepSelected(save, selected); // coop: the same base, at its index with the mirrors back
 	}
 	s_coopHiddenMirrors.clear();
 	s_coopHiddenWorld = nullptr;
@@ -1204,7 +1204,7 @@ bool BasescapeState::coopShowMirrors()
 }
 
 /**
- * coop W2-H83 S-A (docs rewrite/prompts/w2h83_sa_delete_paths.md EA2; R-LBH3-1; lbh3-cap F22265): the partner removed its base
+ * coop: the partner removed its base
  * @a coopBaseId (delete_base) while this stash held its mirror. That mirror is deleted here, so coopShowMirrors cannot put it back.
  * @return The number of stashed mirrors deleted.
  */
@@ -1228,9 +1228,9 @@ int BasescapeState::coopDropStashedMirror(int coopBaseId)
 }
 
 /**
- * coop W2-H83 S-B (docs rewrite/prompts/w2h83_sb_open_views.md EB2; R-LBH3-1, VL-H83-1; lbh3-cap F22268-F22270): the partner removed the
- * base this player views inside the partner's world (CoopState 55's view). GEOSCAPE's coop steps (btnGeoscapeClick), then the own world
- * returns; LoadGameState replaces the whole stack (every screen of the view closes, as R-TR9-2's drop does) and the view world with it.
+ * coop: the partner removed the base this player views inside the partner's world (CoopState 55's view). GEOSCAPE's coop steps
+ * (btnGeoscapeClick), then the own world returns; LoadGameState replaces the whole stack (every screen of the view closes, as on a
+ * partner drop) and the view world with it.
  */
 void BasescapeState::coopLeavePeerView()
 {

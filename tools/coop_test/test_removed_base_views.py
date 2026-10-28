@@ -33,7 +33,7 @@ S boot (dirs w2h83_s_*, campaign_mode "shared"): as V's bring-up; FB = the one s
 END       CRASH (GUARD): no new crash file in the lane's crash folder over both boots; every process alive until its shutdown.
 Red today: V-leave, V-log, V-mir, BF-pop, BF-view, AC-pop, AC-view, NR-pop, NR-view FAIL (9 of 19); every other cell PASS. Green (EB1-EB5):
 all 19 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon,
-coopBase, lon, lat]. LEAVE = engine-log lines holding "[coop] W2-H83: the partner removed the base this player views". Every press is a real
+coopBase, lon, lat]. LEAVE = engine-log lines holding "[coop] removed base: the partner removed the base this player views". Every press is a real
 click_widget or inject_input except the logged levers build_new_base, geo_set_speed, screen_push and set_funds. One EVIDENCE line per row, one
 PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes
 on; a boot miss fails its first row's -pre cell with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only
@@ -54,9 +54,9 @@ KEY_1, ZOOM_MIN, SYM_PLUS = 49, 3, 43
 W_LEAVE, W_POP = 5.0, 2.0
 DEL_SETTLE, RT_SETTLE, W_END, W_BACK = 3.0, 3.0, 15.0, 30.0
 W_VISIT, BOOT_S = 20.0, 60.0
-NEEDLE_A = "[coop] W2-H83: removed base id=%s cache="
-LEAVE = "[coop] W2-H83: the partner removed the base this player views"
-LOGN = ("[coop] W2-H83", "[coop] W2-H62", "the host's own world", "[coop-session]", "coop-ui] push", "coop-ui] pop")
+NEEDLE_A = "[coop] removed base: id=%s cache="
+LEAVE = "[coop] removed base: the partner removed the base this player views"
+LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "the host's own world", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ENDS = ("CutsceneState", "StatisticsState", "SlideshowState")
 WIN = {"BF": "BuildFacilitiesState", "AC": "ManageAlienContainmentState", "NR": "NewResearchListState"}
 ROWS = (("VC", ("VC-pre", "VC-stay", "VC-gone")), ("V", ("V-pre", "V-leave", "V-log", "V-mir", "V-end", "V-host")),

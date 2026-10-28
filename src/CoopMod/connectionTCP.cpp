@@ -45,7 +45,7 @@
 #include "../Mod/UfoTrajectory.h"
 #include "../Savegame/Ufo.h"
 #include "../Battlescape/DebriefingState.h"
-#include "../Battlescape/AliensCrashState.h" // the client's aliens-crashed end (Q10 a)
+#include "../Battlescape/AliensCrashState.h" // the client's aliens-crashed end
 #include "../Battlescape/PromotionsState.h" // coop: the client's after-battle follow-up chain
 #include "../Battlescape/CommendationState.h"
 #include "../Battlescape/CommendationLateState.h"
@@ -1587,7 +1587,7 @@ bool computeHash(std::uint64_t& out)
 	out = 0;
 	std::lock_guard<std::mutex> lock(g_fogMutex);
 	if (g_hostileReveal.empty())
-		return false; // WR-26: the caller OMITS the bucket - key absent, never zero
+		return false; // the caller OMITS the bucket - key absent, never zero
 	// FNV-1a 64, the same primitive every other hash bucket uses.
 	std::uint64_t h = 14695981039346656037ULL;
 	for (std::uint8_t b : g_hostileReveal)
@@ -2009,7 +2009,7 @@ bool hasUnpublishedSideLocked(SavedBattleGame* battle, CoopFog::Side side)
 }
 
 /// HOST: ship an ABSOLUTE `base` restate of the whole live bitmap.
-/// Test-lever-only in the spike (the stage atom is its future real caller).
+/// Called by the reveal_base test lever and the BASELINE hostile restate.
 /// MUST be called WITHOUT g_revealMutex held - it goes through CoopEmit::sendEv,
 /// which re-enters attachDelta().
 void emitBaseRestate(SavedBattleGame* battle, CoopFog::Side side, bool badN, const char* why, bool withUnitsStats = true)
@@ -2211,7 +2211,7 @@ void flushQuiescent()
 		return;
 
 	// The PLAYER-side battle-ENTRY restate - a SIDE-BEGIN,
-	// which D2 explicitly authorises as a reveal author. One-shot, and gated on
+	// which may author a reveal. One-shot, and gated on
 	// the host actually holding a BattlescapeState so it runs AFTER
 	// startFirstTurn() has put every unit on its final tile.
 	if (!g_entryRestateDone && battle->getBattleState() != nullptr)
@@ -2270,7 +2270,7 @@ void flushQuiescent()
 	}
 
 	// Nothing pending for the acting side, but another side may still owe bits:
-	// they ship as their own ev (WR-5). Idempotent - a second quiescent tick
+	// they ship as their own ev. Idempotent - a second quiescent tick
 	// finds nothing and emits nothing.
 	emitPendingOtherSides();
 }
@@ -2339,7 +2339,7 @@ void emitPendingOtherSides()
 			continue;
 		Log(LOG_INFO) << "[coop-reveal] attached reveal delta ("
 			<< (ev["reveal"]["add"].size() / 2u) << " tiles, side="
-			<< CoopFog::sideName(side) << ") to its OWN bt_ev{kind:\"reveal\"} (WR-5)";
+			<< CoopFog::sideName(side) << ") to its OWN bt_ev{kind:\"reveal\"}";
 		CoopEmit::sendEv(ev);
 	}
 	g_sideEmitReentry = false;
@@ -2990,7 +2990,7 @@ void noteHashVerifyBucket(const std::string& bucket)
 }
 
 // ----- the host's last 8 `saveBlob` documents -----
-// A `saveBlob` mismatch names no field by itself (R7). The host keeps the YAML
+// A `saveBlob` mismatch names no field by itself. The host keeps the YAML
 // text of each `saveBlob` it put in an `h` (coopAttachSaveBlob), bound to the
 // seq of the envelope that carried it (bindSaveBlobText, in sendEv), and writes
 // the matching one to its desync-reports folder when the client's
@@ -3187,7 +3187,7 @@ static const void* g_debriefHostBattleEndState = nullptr;
 // a payload that arrived before `battle_end` was applied.
 static Json::Value g_debriefResult;
 // this machine's battle-end debriefing is a CAMPAIGN one (session-lifetime
-// like the tokens; set at the host's V5 mark / the client fill of a non-skirmish payload; cleared at the campaign OK).
+// like the tokens; set at the host's mark at the end of DebriefingState::init / the client fill of a non-skirmish payload; cleared at the campaign OK).
 static bool g_debriefCampaign = false;
 
 static Json::Value battleEndZeros()
@@ -3889,7 +3889,7 @@ struct ItemSnap
 	int previousOwner = -1;
 	int unit = -1;        ///< the corpse / body link (BattleItem::getUnit)
 	std::string slot;     ///< inventory id, "" = none
-	bool invSlot = false; ///< slot type INV_SLOT: slotX/slotY are state only then (MJ-7)
+	bool invSlot = false; ///< slot type INV_SLOT: slotX/slotY are state only then
 	int slotX = 0;
 	int slotY = 0;
 	bool onTile = false;
@@ -3970,7 +3970,7 @@ std::vector<int> stripTags(const std::vector<int>& raw)
 // computeBattleHashes() hashes every field the four capture* functions below
 // read - in a legacy bucket or in `synced`, with these exact getters. A field
 // added to UnitSnap/TileSnap/ItemSnap/BattleSnap joins one of them in the same
-// commit (and test_hash_coverage.py's HC1 table gains its row).
+// commit (and test_hash_coverage.py's table gains its row).
 UnitSnap captureUnit(const BattleUnit* u)
 {
 	UnitSnap s;
@@ -4301,7 +4301,7 @@ bool diffItem(const ItemSnap& w, const ItemSnap& n, Json::Value& e, bool& unsupp
 	putIfChanged(e, "slot", w.slot, n.slot, any);
 	if (n.invSlot)
 	{
-		// MJ-7: x/y are state only in an INV_SLOT slot; on entering one, both
+		// x/y are state only in an INV_SLOT slot; on entering one, both
 		// ride (the client's stale ground/hand x/y is not the snapshot's).
 		if (!w.invSlot || w.slotX != n.slotX)
 		{
@@ -5131,7 +5131,7 @@ Json::Value coopCueVoxel(const Position& p)
 	return v;
 }
 
-/// PR1's note: the arc Projectile::calculateThrow() computed last (the
+/// The throw-arc note: the arc Projectile::calculateThrow() computed last (the
 /// `tries` loop's last write wins), consumed by the next coopCueShot().
 struct CoopThrowArcNote
 {
@@ -5241,7 +5241,7 @@ void coopNoteThrowArc(const Position& originVoxel, const Position& targetVoxel, 
 
 void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Projectile* projectile, int impact)
 {
-	// The PR1 note belongs to THIS createNewProjectile() call when it computed a
+	// The throw-arc note belongs to THIS createNewProjectile() call when it computed a
 	// throw / arcing shot; consumed either way so a stale arc never rides later.
 	const CoopThrowArcNote arc = g_coopThrowArc;
 	g_coopThrowArc = CoopThrowArcNote();
@@ -5344,7 +5344,7 @@ struct CoopHitLogMirrorStore
 	unsigned int noted = 0;            // HOST: entries recorded after vanilla's player-side check
 	unsigned int sent = 0;             // HOST: entries attached to an outermost emit (per entry)
 	unsigned int applied = 0;          // CLIENT: entries appended from an applied envelope
-	unsigned int localSuppressed = 0;  // CLIENT: its own ActionMenuState PLAYER_FIRING appends skipped (V7)
+	unsigned int localSuppressed = 0;  // CLIENT: its own ActionMenuState PLAYER_FIRING appends skipped
 	unsigned int dropped = 0;          // entries discarded before they were sent or applied
 	std::vector<Json::Value> pending;  // HOST: entries {t, f, k?} waiting for the next outermost emit
 	std::deque<Json::Value> last;      // the last kCoopHitLogLastCap entries sent (HOST) / applied (CLIENT) {seq, t, f, k?}
@@ -5498,7 +5498,7 @@ void coopHitLogApplyFrom(SavedBattleGame* save, const Json::Value& ev)
 	}
 }
 
-/// HOST, at the three partner-order executors that run an action vanilla's ActionMenuState logs (V6): the shoot /
+/// HOST, at the three partner-order executors that run an action vanilla's ActionMenuState logs: the shoot /
 /// throw / launch executor, melee (a unit target: `terrainMeleeTilePart == 0`, vanilla :493-:514) and psi, and the
 /// mind probe - right after the order's pushActionContext(actionId, "intent"). The entry vanilla :530-:532 makes on
 /// the ordering machine: the pending weapon key, then PLAYER_FIRING with the HOST's tr(the weapon type).
@@ -5652,7 +5652,7 @@ bool coopHitLogPlayerFiring(const std::string& weaponType)
 	}
 	if (isCoopBattle())
 	{
-		// a co-op CLIENT (hostSim false): the host's entry replaces this machine's own weapon line (V7)
+		// a co-op CLIENT (hostSim false): the host's entry replaces this machine's own weapon line
 		coopHitLogMirrorSync();
 		++g_coopHitLogMirror.localSuppressed;
 		return true;
@@ -5853,12 +5853,12 @@ uint32_t txDrainEvents()
 	return g_battleTxDrainEvents.load();
 }
 
-// MN-8: on g_txQ overflow for a battle message, BLOCK (bounded wait +
+// On g_txQ overflow for a battle message, BLOCK (bounded wait +
 // watchdog log) instead of dropping - bypasses enqueueTx()'s drop-newest
 // behavior (defined further below). Only ever pushes the raw (unframed)
 // payload into the SAME g_txQ the socket threads already drain via their
 // own g_txQ.pop + sendAll loops, so framing/sending stays exactly where it
-// already lives (REVIEW3 F3: never call sendAll from the pump/emit thread).
+// already lives (never call sendAll from the pump/emit thread).
 static void coopEmitBlockingPush(std::string payload)
 {
 	using namespace std::chrono;
@@ -5887,7 +5887,7 @@ static void coopEmitBlockingPush(std::string payload)
 		if (!warned && elapsedMs >= 250)
 		{
 			Log(LOG_WARNING) << "[coop-emit] TX queue full, battle emitter blocking"
-				" (MN-8 bypass) - waited " << elapsedMs << "ms so far";
+				" (blocking push) - waited " << elapsedMs << "ms so far";
 			warned = true;
 		}
 
@@ -6156,14 +6156,14 @@ void BattleAuthority::resetSeatFactions()
 // initBattleAuthority() (the client's battle_end teardown must not zero them before a test
 // reads them).
 //   phase          None (no equip phase this battle), Open, Ended
-//   hostOpen       HOST: its pre-battle InventoryState is open (freezePreBattleEquip opened it, b4)
+//   hostOpen       HOST: its pre-battle InventoryState is open (freezePreBattleEquip opened it)
 //   openAnnounced  HOST: the forced equip-open `sync` went out; CLIENT: it applied a `sync` whose
 //                  payload.equip.open is true
 //   ready[4]       per seat: the seat's OK is pressed into ready; a client stores every payload.equip.ready
-//   counted[4]     HOST: per seat, it commands >= 1 selectable unit with an inventory (b6; false = counts as ready)
+//   counted[4]     HOST: per seat, it commands >= 1 selectable unit with an inventory (false = counts as ready at the barrier)
 //   pile           the craft pile tile (the offer's equip.pile); havePile false = none
 //   entryDone      CLIENT: the equip entry ran for this blob load
-//   screen         the pre-battle InventoryState the phase recorded (b3 client push, b4 host push); identity only
+//   screen         the pre-battle InventoryState the phase recorded (the client's or the host's push); identity only
 //   passThrough    the barrier's one-shot: the next coopEquipReadyPress() returns false
 //   abortPending   HOST: the aliens-crashed battle_end waits for phase Active
 //   barrierDone    HOST: the barrier closed the phase
@@ -6178,8 +6178,8 @@ void BattleAuthority::resetSeatFactions()
 // COUNTERS:
 //   entries        CLIENT: equip-entry pushes
 //   closes         CLIENT: pre-battle screens the equip end popped
-//   heldUntilOpen  HOST: inv_move / inv_bulk denied `busy` because its equip screen was not open yet (b8, Q3 a)
-//   lateDenied     HOST: pre-battle orders (top-level `pre: true`) denied after the phase ended (b8, Q5 a)
+//   heldUntilOpen  HOST: inv_move / inv_bulk denied `busy` because its equip screen was not open yet
+//   lateDenied     HOST: pre-battle orders (top-level `pre: true`) denied after the phase ended
 //   endTurnIgnored HOST: bt_end_turn_ready messages ignored while the phase was open
 //   readySyncs     HOST: forced `sync` evs carrying a ready change
 //   endSyncs       HOST: forced `sync` evs carrying equip.end; CLIENT: applied `sync` evs carrying equip.end
@@ -6233,7 +6233,7 @@ static CoopEquipState g_equip;
 
 // coop: CLIENT - the soldier gear records an applied
 // `sync`'s payload.equip carried with `end` (SHARED: one per battle soldier, SharedEcon::equipEndGearRecords). Recorded on the apply
-// path (coopEquipRecordSync, E3), adopted and cleared by the pump's end step (coopEquipPumpClient, E8). Main thread only.
+// path (coopEquipRecordSync), adopted and cleared by the pump's end step (coopEquipPumpClient). Main thread only.
 static Json::Value g_equipEndGear;
 
 // ----- coop: the co-op partner's mouse pointer on the PRE-BATTLE equip screen. An ephemeral lane: each machine sends `bt_equip_ptr
@@ -6277,14 +6277,14 @@ static int g_holdGrants = 0;           // HOST: client pick-ups granted
 static int g_holdDenies = 0;           // HOST: client pick-ups refused
 static int g_holdTables = 0;           // HOST: tables sent; CLIENT: tables applied
 static std::map<std::string, int> g_holdEnds; // HOST: holds ended, by reason (put, answer, cancel, deny, move, leave, start)
-static bool g_holdsPending = false;    // HOST, main thread only: a table the TEST-ONLY equip_holds_defer (BT1) held back
+static bool g_holdsPending = false;    // HOST, main thread only: a table the TEST-ONLY equip_holds_defer held back
 static int g_pendingDenySeat = -1;     // HOST, main thread only: the refusal the next table carries (-1 = none)
 static int g_pendingDenyItem = -1;
 }
 
 // coop: the host's executor (inside namespace CoopArbiter) ends the order's seat's hold; defined further down.
 static void coopEquipHoldEndOrder(int seat, const BattleItem* item);
-// coop: the host's barrier (C2, coopEquipPumpHost) ends every hold; defined with C2b.
+// coop: the host's barrier (coopEquipPumpHost) ends every hold; defined further down.
 static void coopEquipHoldsEndAll(const char* why);
 
 // coop: the presence state's zeros (coopEquipStateZeros(); @a counters also from coopEquipCounterZeros()). The
@@ -6398,7 +6398,7 @@ static int coopEquipFaction(int seat)
 }
 
 // A live non-player unit with an inventory that a mapped seat commands (the PvP alien seat's), with the option on. No
-// battle-phase term: the host's equip open (freezePreBattleEquip()) can run in phase Handshake (QU6-A1-1).
+// battle-phase term: the host's equip open (freezePreBattleEquip()) can run in phase Handshake.
 static bool coopEquipAlienUnit(const BattleUnit* u)
 {
 	if (!u || !coopPvpAlienEquip() || u->isOut() || u->getOriginalFaction() == FACTION_PLAYER || !u->hasInventory())
@@ -6437,7 +6437,7 @@ void coopBaseInvScreen(const void* screen, Game* game)
 }
 
 // coop: TRUE when @a u is a PARTNER's soldier on this machine's SHARED base inventory screen: its geoscape soldier is not
-// this seat's (SharedEcon::ownsSoldier(), the rule of every SHARED soldier list, aud-E1-11).
+// this seat's (SharedEcon::ownsSoldier(), the rule of every SHARED soldier list).
 static bool coopBasePartnerView(const BattleUnit* u)
 {
 	if (!g_baseInvScreen || !g_baseInvGame || !u)
@@ -6567,7 +6567,7 @@ static bool coopEquipSeatPresent(int seat)
 	return seat == coopBattleAuthority().localSeat.load() || !coopBattleAuthority().peerAbsent.load();
 }
 
-// b6: every counted seat is ready and present.
+// The barrier's test: every counted seat is ready and present.
 static bool coopEquipAllReady()
 {
 	for (int s = 0; s < 4; ++s)
@@ -6671,7 +6671,7 @@ static void coopEquipRecordSync(const Json::Value& equip)
 	if (equip.get("end", false).asBool())
 	{
 		g_equip.endPending = true;
-		g_equipEndGear = equip.isMember("gear") ? equip["gear"] : Json::Value(); // coop: adopted at the end step (E8)
+		g_equipEndGear = equip.isMember("gear") ? equip["gear"] : Json::Value(); // coop: adopted at the end step
 		g_equip.endSyncs.fetch_add(1);
 	}
 	Log(LOG_INFO) << "[coop-equip] client: applied sync carries equip (open " << equip.get("open", false).asBool()
@@ -6932,7 +6932,7 @@ static bool coopTestHoldBattleReadyStash(const Json::Value& ready)
 
 // ----- coop: TEST-ONLY
 // hold_battle_accept, CLIENT. Armed, onOffer stashes its battle_accept instead of sending it, so a base answer already streaming here ends
-// before the host reads the accept (row R-V2). The TestServer lever's {on: false} takes the stash and sends it. Inert unless armed; never
+// before the host reads the accept. The TestServer lever's {on: false} takes the stash and sends it. Inert unless armed; never
 // read by game logic.
 static std::mutex g_coopTestHoldBattleAcceptMutex;
 static bool g_coopTestHoldBattleAcceptArmed = false;
@@ -6966,7 +6966,7 @@ bool coopTestHoldBattleAcceptTake(Json::Value& out)
 	return true;
 }
 
-// The guarded statement's call (onOffer, L2b): true = armed, @a accept stashed (the caller does not send it).
+// The guarded statement's call (onOffer): true = armed, @a accept stashed (the caller does not send it).
 static bool coopTestHoldBattleAcceptStash(const Json::Value& accept)
 {
 	{
@@ -6983,7 +6983,7 @@ static bool coopTestHoldBattleAcceptStash(const Json::Value& accept)
 // ----- TEST-ONLY
 // hold_blob_ack, CLIENT. While armed AND a battle-handshake blob is awaited (CoopHandshake::awaitingBlob()), the client
 // withholds its per-chunk WAIT_MAP_SENDER ack (ONE guarded statement at the map_result_data send in onTCPMessage), so the
-// host's streamer waits after that chunk (row LH1: a leave during the stream). The TestServer lever's {on: false}
+// host's streamer waits after that chunk (for a leave during the stream). The TestServer lever's {on: false}
 // disarms it and sends ONE withheld ack itself. Inert unless armed: unarmed, the guarded statement sends at once and
 // logs nothing, and a world stream (no blob awaited) is never held. Never read by game logic; never reset by a battle
 // reset (the lever arms it before newbattle_ok).
@@ -7008,7 +7008,7 @@ int coopTestHoldBlobAckHeld()
 
 // coop: TEST-ONLY hold_save_reply,
 // HOST. Armed, the host keeps its go-ahead for the partner's save-progress stream (the SEND_FILE_HOST_SAVE_PROGRESS reply to the partner's
-// SEND_FILE_HOST_TRUE_SAVE_PROGRESS) instead of sending it, so a base request can reach the partner first (row R-SPB). The TestServer
+// SEND_FILE_HOST_TRUE_SAVE_PROGRESS) instead of sending it, so a base request can reach the partner first. The TestServer
 // lever's {on: false} sends it. Inert unless armed; never read by game logic.
 static std::atomic<bool> g_coopTestHoldSaveReplyArmed{false};
 static std::atomic<bool> g_coopTestHoldSaveReplyHeld{false};
@@ -7029,7 +7029,7 @@ bool coopTestHoldSaveReplyHeld()
 	return g_coopTestHoldSaveReplyHeld.load();
 }
 
-// The guarded statement's call (L3b): true = armed, the go-ahead held (the caller does not send it).
+// The guarded statement's call: true = armed, the go-ahead held (the caller does not send it).
 static bool coopTestHoldSaveReplyStash()
 {
 	if (!g_coopTestHoldSaveReplyArmed.load())
@@ -8058,7 +8058,7 @@ static std::atomic<int> g_coopClientPanicSkipped{0};
 // presenter are their writers (coopInvNoteGuard() / coopInvNoteWarning()). The
 // mutex has the tripwire probes' reason above: resetBattleAuthority() can run on
 // the UDP-monitor thread while the pump thread reads them.
-//   g_coopInvLocalWrites   CLIENT: the moveItem calls the Q11 backstop refused
+//   g_coopInvLocalWrites   CLIENT: the moveItem calls the client backstop refused
 //   g_coopInvLastWarning   BOTH:   the last text the co-op layer put on the
 //                                  inventory's own message line ("" = none yet)
 //   g_coopInvGuard         BOTH:   the execution-point guard's decisions,
@@ -8221,7 +8221,7 @@ const char* coopTurnModeName(CoopTurnMode m)
 
 CoopTurnMode coopTurnModeFromString(const std::string& s)
 {
-	// D-26: ANY other value - including the empty string an ABSENT key yields -
+	// ANY other value - including the empty string an ABSENT key yields -
 	// is parallel. That is the free backwards-compatible degrade (an older host
 	// sends no key at all), and it also means a hand-edited options.cfg can never
 	// put a garbage mode on the wire.
@@ -8235,13 +8235,13 @@ CoopTurnMode coopSessionTurnModeFromOptions()
 
 void coopSaveTurnMode(YAML::YamlNodeWriter& writer)
 {
-	// D.1 (owner revision to D-20/D-21): the BATTLE save block carries the mode
+	// The BATTLE save block carries the mode
 	// the battle was PLAYED in, so a mid-battle save resumes in that mode even
 	// after a full host restart. SP and every non-coop battle write NOTHING - the
 	// key is simply ABSENT there and the SP save stays byte-identical.
 	//
 	// The value is the SESSION's mirror, never this machine's own
-	// Options::CoopTurnMode: a client's preference is irrelevant (D-19b) and
+	// Options::CoopTurnMode: a client's preference is irrelevant and
 	// writing it would make the two machines' battle blocks differ.
 	if (!isCoopBattle())
 		return;
@@ -8250,9 +8250,9 @@ void coopSaveTurnMode(YAML::YamlNodeWriter& writer)
 
 void coopLoadTurnMode(const YAML::YamlNodeReader& reader)
 {
-	// Presence-gated both ways: a save written before REV D has no key, and
+	// Presence-gated both ways: an older save has no key, and
 	// tryRead leaves the string empty, which coopTurnModeFromString() maps to
-	// PARALLEL (D-26 - "a battle whose block LACKS the key resumes as parallel").
+	// PARALLEL (a battle whose block LACKS the key resumes as parallel).
 	// An SP load reads nothing and touches nothing.
 	//
 	// Only READS the key here. CONSUMING it on resume - stamping it onto a
@@ -8305,8 +8305,8 @@ void coopSaveActiveSeat(YAML::YamlNodeWriter& writer)
 {
 	// the mid-battle save carries the traditional-mode baton's
 	// current HOST-ONLY holder (-1 in parallel mode) so a disk resume can
-	// restore the EXACT holder instead of re-seeding to the D-23 first live
-	// seat. SP and any non-coop battle write NOTHING - byte-identical.
+	// restore the EXACT holder instead of re-seeding to the first live seat in seat order
+	// (host first, then join order). SP and any non-coop battle write NOTHING - byte-identical.
 	if (!isCoopBattle())
 		return;
 	writer.write("coopActiveSeat", CoopEndTurn::batonSeat());
@@ -8316,8 +8316,8 @@ void coopLoadActiveSeat(const YAML::YamlNodeReader& reader)
 {
 	// Presence-gated: reads into the BattleAuthority activeSeat MIRROR only
 	// - restoring the live CoopEndTurn baton holder from this mirror (with
-	// the D-23 degrade for an absent/invalid key) is onBattleResumed()'s job
-	// (M3, a separate cycle), not this hook's.
+	// the first-live-seat default for an absent/invalid key) is onBattleResumed()'s
+	// job, not this hook's.
 	int seat = -1;
 	if (!reader.tryRead("coopActiveSeat", seat))
 		return;
@@ -8411,7 +8411,7 @@ void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* un
 }
 
 // ----- a soldier-linked unit's original faction
-// (and, from A3 on, its type) rides its own record (BattleAuthority.h) -----
+// (and its type) rides its own record (BattleAuthority.h) -----
 
 void coopLoadSoldierUnitRecord(const YAML::YamlNodeReader& reader, BattleUnit* unit)
 {
@@ -8706,7 +8706,7 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 			seated0++;
 	}
 
-	// (2) the turn mode it was played in (D-22)
+	// (2) the turn mode it was played in
 	if (!block["coopTurnMode"])
 	{
 		bool parallel = false;
@@ -8902,7 +8902,7 @@ struct CoopSyncedLayer
 	bool held = false;                     // own values captured (session role != None)
 	Json::Value own;                       // {id: bool|int} while held, null otherwise
 	int version = 0;                       // host: applies since activation; client: last applied (-1 = none)
-	std::vector<Json::Value> queue;        // host: {id, value, player, from, rid, arrivedWhileBusy, heldFrames} (V16)
+	std::vector<Json::Value> queue;        // host: {id, value, player, from, rid, arrivedWhileBusy, heldFrames}
 	std::map<std::string, int> inFlight;   // this machine's own requests: id -> rid
 	std::vector<Json::Value> applied;      // the last 16 host applies (a ring)
 	int noops = 0, rejected = 0, requestsSent = 0, clicksDiverted = 0, clicksIgnoredInFlight = 0;
@@ -9189,7 +9189,7 @@ bool CoopSyncedOptions::submit(const std::string& id, int value)
 	const OptionInfo* info = coopSyncedRow(id) ? coopSyncedInfo(id) : nullptr;
 	if (!info || info->description().empty())
 	{
-		++s.rejected; // not a table id, or the hidden unload option (VL3)
+		++s.rejected; // not a table id, or the hidden unload option
 		return true;
 	}
 	if (s.inFlight.count(id))
@@ -9380,7 +9380,7 @@ std::string CoopSyncedOptions::rowName(Game* game, const std::string& id, const 
 // Divert a synced-option click to the host. The new value is computed BEFORE vanilla's
 // write, from the current global with the table's step/range (bool flip; int +/- step with vanilla's wrap), so the
 // global and the row keep the shared value until the change lands. clicksDiverted counts only a fresh request (a
-// click ignored in flight, Q9 a, is counted by submit as clicksIgnoredInFlight). false = vanilla (inactive, or the
+// click ignored in flight is counted by submit as clicksIgnoredInFlight). false = vanilla (inactive, or the
 // id has no table row); a mod-fixed row never reaches here (OptionsAdvancedState :327).
 bool CoopSyncedOptions::divertLocalEdit(Game* game, OptionInfo* setting, int button)
 {
@@ -9478,9 +9478,8 @@ bool coopUnitVisibleHere(const BattleUnit* u)
 		|| (int)u->getFaction() == mine;
 }
 
-// FINDING B-3 / D-6: routing updateSoldierInfo's visibility read alone would
-// make a gm2 client list its OWN aliens as spotted enemies, so this faction
-// test is the side-relative partner that must switch in the same commit.
+// This faction test is side-relative like updateSoldierInfo's visibility read: routing that read alone would make a gm2
+// client list its OWN aliens as spotted enemies.
 bool coopUnitIsSpottedEnemyHere(const BattleUnit* u)
 {
 	if (!u)
@@ -9682,8 +9681,8 @@ bool coopMaySelectUnit(const BattleUnit* u)
 	if (u->getCoopSeat() == COOP_SEAT_NONE && u->getFaction() == u->getOriginalFaction())
 		return true;
 	// coop (vanilla: the alien AI acts with a soldier it mind-controlled - SavedBattleGame::
-	// selectPlayerUnit() takes any unit of the active faction and BattlescapeGame::handleAI() gives it an AI module;
-	// MJ-8): a mind-controlled unit whose controller carries no seat is commanded by NO seat, so it is the host AI's on
+	// selectPlayerUnit() takes any unit of the active faction and BattlescapeGame::handleAI() gives it an AI module):
+	// a mind-controlled unit whose controller carries no seat is commanded by NO seat, so it is the host AI's on
 	// its controller's side whatever its own seat tag. The tag stays its owner's and every rule that reads it is
 	// unchanged (END TURN counts the soldier for nobody while the aliens hold it).
 	if (u->getFaction() == u->getOriginalFaction())
@@ -9923,7 +9922,7 @@ void coopNoteScannedUnit(BattleUnit* unit, int turn)
 	const bool fresh = unit->getScannedTurn() != turn;
 	unit->setScannedTurn(turn);
 	if (!fresh || !isCoopBattle() || !coopScanHasPartner())
-		return; // single player, an old mark, or a PvP opponent (R5-V5)
+		return; // single player, an old mark, or a PvP opponent
 	Json::Value msg(Json::objectValue);
 	msg["state"] = "bt_scan_mark";
 	msg["battleId"] = coopBattleAuthority().battleId.load();
@@ -10011,7 +10010,7 @@ bool coopBlockLocalExecution(const BattleUnit* u, const SavedBattleGame* s)
 	}
 
 	// TERM 2 - OWNERSHIP, on the simulating machine. The host may not command a
-	// unit it does not own either (D6's ownership wall is seat-relative, not
+	// unit it does not own either (the ownership wall is seat-relative, not
 	// client-specific), and its side must be the active one - which is exactly
 	// what the entry guard checked and what this gate must not weaken.
 	if (!coopMayCommand(u, s))
@@ -10134,7 +10133,7 @@ bool coopBlockWalkArm(const BattleUnit* u, const SavedBattleGame* s)
 	// refuses it, forwards it as an intent, or finds no route and does nothing.
 	g_coopWalkArmEntered.fetch_add(1);
 
-	// TERM 2 - OWNERSHIP + ACTIVE SIDE, on EITHER machine. D6's ownership wall
+	// TERM 2 - OWNERSHIP + ACTIVE SIDE, on EITHER machine. The ownership wall
 	// forbids a seat even PREVIEWING a unit it does not command, and the whole
 	// vanilla preview block sits below this point, so this check cannot move
 	// down with term 1. Refusals bump the SAME counter as the primaryAction gate, so its
@@ -10195,7 +10194,7 @@ int coopClientPanicSkipped()
 // Cross-thread fix (see BattleAuthority.h's note above CoopBattlePhase):
 // handleUdpRemotePeerLost() can call CoopIdMaps::reset() from the UDP-monitor
 // thread while the main/pump thread reads/writes these maps (rebuildFrom() at
-// battle-blob load, forget()/registerUnit() etc. once R3's appliers land).
+// battle-blob load, forget()/registerUnit() etc.).
 // g_coopIdMapsMutex guards every CoopIdMaps:: function body below - since
 // g_coopUnitById/g_coopItemById are `static` (this TU only) and reached ONLY
 // through these functions, this closes the race for every existing and future
@@ -10315,11 +10314,10 @@ void reset()
 // Storage lives here, next to BattleAuthority/CoopIdMaps/CoopPump/
 // CoopEmit above - same file-scope-global pattern.
 
-// the action-context stack. In spike scope at most one entry is ever
+// the action-context stack. At most one entry is ever
 // on it at a time (the "busy" check below denies everything else while an
-// entry is present) - a real vector-backed stack anyway, matching the given
-// push/current API shape, so a later packet admitting overlapping actions
-// does not need a new data structure.
+// entry is present) - a real vector-backed stack anyway, matching the
+// push/current API shape.
 struct CoopActionContextEntry
 {
 	std::uint32_t actionId;
@@ -10375,10 +10373,10 @@ static int g_coopPendingChainActorId = -1;
 
 // Oldest-denied-seat-first bookkeeping: per-seat tick of the most
 // recent deny, written by CoopArbiter's deny() helper and consulted (read,
-// never reordered - the spike is deny-only, no host-side queue, see the
-// SEAM note in CoopArbiter.h) at CoopArbiter::onChainQuiesced(). A
-// ready-made fairness signal for a future post-v1 host-side queue; inert
-// today.
+// never reordered - admission is deny-only, no host-side queue, see the
+// namespace comment in CoopArbiter.h) at CoopArbiter::onChainQuiesced(). A
+// ready-made fairness signal for a host-side queue; nothing reads it
+// for ordering today.
 static std::map<int, std::uint32_t> g_coopLastDenyTick;
 
 // The CLIENT-side iseq mint sendClientIntent() uses - a
@@ -10444,13 +10442,13 @@ struct CoopClientInFlight
 	// CoopCombatIntentArgs), kept for the same two reasons as the walk inputs
 	// above - a busy deny moves it into the pending slot (the resubmit keeps it
 	// and recomputes only tuBasis), and the ordering client's own
-	// bt_action_end aftermath reads the kind back from here (Q14 note).
+	// bt_action_end aftermath reads the kind back from here.
 	bool hasCombat = false;
 	CoopCombatIntentArgs combat;
 	// SDL_GetTicks() at the moment the envelope went out - the
 	// basis of the intent round-trip timeout. Zero while the slot is empty.
 	// also zero once the host's bt_ack arrived -
-	// the timeout covers send -> ack only; the slot itself (and the IR-2 unit
+	// the timeout covers send -> ack only; the slot itself (and the unit
 	// lock) still lasts until the action's bt_action_end.
 	std::uint32_t sentTick = 0;
 };
@@ -10485,8 +10483,8 @@ static CoopClientPending g_coopClientPending;
 // CLIENT -
 // the SHARED layout saves this machine still owes the host, one per press (coopNoteInvLayoutSave()). The equip pump
 // sends the oldest once no order is in flight or held here (coopInvFlushSaves()): a save moves no item, so it QUEUES
-// behind the tracked order instead of being dropped by the IR-2 lock (SC-6), and it is sent after vanilla's armor
-// write that follows the note, read from this machine's own world as vanilla stored it (SC-5, SC-9). Battle-scoped.
+// behind the tracked order instead of being dropped by the unit lock, and it is sent after vanilla's armor
+// write that follows the note, read from this machine's own world as vanilla stored it. Battle-scoped.
 struct CoopInvSaveNote
 {
 	int actorId = -1;
@@ -10914,14 +10912,13 @@ static std::string coopHex64(std::uint64_t v)
 }
 
 // The `h:{unitsStats}` bucket every turn/kneel ev and
-// action_end carries. One bucket only (the rationale: "one cheap
-// bucket buys per-event divergence attribution during the calibration
-// spike" - walk/shot/etc. atoms are post-spike and may carry more). Built
+// action_end carries. One bucket only (one cheap bucket buys
+// per-event divergence attribution). Built
 // via SharedEcon::computeBattleHashes() - the ported hash sweep - never a
 // second hand-rolled hasher.
 static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save, bool withSynced)
 {
-	CoopDelta::HashTimer timer; // hashUsLast/Max, M1
+	CoopDelta::HashTimer timer; // hashUsLast/Max
 	Json::Value h(Json::objectValue);
 	SharedEcon::BattleHashSet buckets;
 	if (SharedEcon::computeBattleHashes(save, buckets))
@@ -12263,7 +12260,7 @@ static void coopClientInventoryRefresh(SavedBattleGame* save)
 // target mode, the weapon the order carried - recomputes the cost as vanilla's
 // row press did (updateTU()) and runs vanilla's own
 // ActionMenuState::handleAction(), i.e. exactly what SkillMenuState runs after
-// the script said continue (SK10): the research / canUseWeapon checks, the aim or
+// the script said continue: the research / canUseWeapon checks, the aim or
 // throw targeting, the prime screen, the medi-kit screen, the melee range check.
 // handleAction() pops this state on every path. The skill's script never runs
 // here (the host ran it). If the player moved on in the frame between the answer
@@ -12289,7 +12286,7 @@ public:
 			|| _action->type != BA_NONE || !weapon)
 		{
 			Log(LOG_INFO) << "[coop-arbiter] skill continuation for unit " << _actorId << " dropped: the player "
-				"moved on or the weapon " << _weaponId << " no longer resolves (C3-Q8)";
+				"moved on or the weapon " << _weaponId << " no longer resolves";
 			_game->popState();
 			return;
 		}
@@ -12326,7 +12323,7 @@ static void coopClientSkillAnswered(const CoopCombatIntentArgs& plan, int actorI
 		|| !findItemById(save, plan.weapon))
 	{
 		Log(LOG_INFO) << "[coop-arbiter] skill " << plan.skill << " continue for unit " << actorId
-			<< " dropped: the player moved on (C3-Q8)";
+			<< " dropped: the player moved on";
 		return;
 	}
 	bs->popup(new CoopSkillContinueState(bg->getCurrentAction(), actorId, skill, skill->getTargetMode(),
@@ -12437,7 +12434,7 @@ static void coopClientCombatAftermath(const std::string& kind, const CoopCombatI
 		{
 			// The probe's hit
 			// sound from the raw list without the sim RNG - RuleItem::getHitSound() draws RNG::generate,
-			// which advanced this client's rngSeed one step (V4). The combatPickSound() pattern: an empty list ->
+			// which advanced this client's rngSeed one step. The combatPickSound() pattern: an empty list ->
 			// -1 (getHitSound()'s own default), one id -> it, several -> RNG::seedless.
 			const std::vector<int>& hitIds = item->getRules()->getHitSoundRaw();
 			const int hitId = hitIds.empty() ? Mod::NO_SOUND
@@ -12695,7 +12692,7 @@ static bool coopWalkerKnowsUnit(const BattleUnit* walker, const BattleUnit* u)
 /// units in this tile, or on top of other units sticking their head into this
 /// tile") rather than inventing a second rule. only a unit the walker
 /// KNOWS counts (coopWalkerKnowsUnit above). A unit it does not know is left
-/// to vanilla's own walk interruption (ADD-1.3c): UnitWalkBState stops the
+/// to vanilla's own walk interruption: UnitWalkBState stops the
 /// walk when the unit is spotted or blocks the next step, spending TU only for
 /// what was done, so the order is never refused up front and the refusal never
 /// tells the walker where a unit it cannot see is standing.
@@ -13326,7 +13323,7 @@ static const char* validateMelee(BattleUnit* actor, const Json::Value& intent, S
 // tile, then a donor reproduction of primaryAction's own psi target
 // rules (BattlescapeGame.cpp, the BT_PSIAMP branch) composed from the same
 // public calls with the ACTOR's faction: a target the rules refuse is
-// `invalid_target` (vanilla shows nothing, Q1), a missing line of sight
+// `invalid_target` (vanilla shows nothing), a missing line of sight
 // `los_required`. On success @a out is the LOCAL BattleAction the executor runs
 // (targeting, as the click's own).
 static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
@@ -13422,7 +13419,7 @@ static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, Sav
 // the shipped target unit alive and where the ordering seat saw it, then a donor
 // reproduction of primaryAction's own BT_MINDPROBE target rules with
 // the ACTOR's faction: a target of the actor's own faction or not visible
-// is `invalid_target` (vanilla shows nothing, Q1), a missing line of sight
+// is `invalid_target` (vanilla shows nothing), a missing line of sight
 // `los_required`. On success @a out is the LOCAL BattleAction the executor
 // spends.
 static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent, SavedBattleGame* save,
@@ -13764,9 +13761,9 @@ static const char* coopSkillFollowUpDeny(BattleUnit* actor, const std::string& k
 }
 
 // The `rename` order's validator. The actor
-// has a geoscape Soldier (vanilla's edtSoldierChange writes nothing without one, R-3); `name` is a string of at
+// has a geoscape Soldier (vanilla's edtSoldierChange writes nothing without one); `name` is a string of at
 // most 128 bytes, well-formed UTF-8, with no byte below 0x20. The empty name is accepted (vanilla's ESC blanks
-// the name, R-M4). nullptr = valid, else the refusal reason (logged and counted, never answered).
+// the name). nullptr = valid, else the refusal reason (logged and counted, never answered).
 static const char* validateRename(const BattleUnit* actor, const Json::Value& intent)
 {
 	if (!actor || !actor->getGeoscapeSoldier())
@@ -13825,9 +13822,9 @@ void onIntent(const Json::Value& intent)
 	// latches peerAbsent - no NEW intent is admitted while the peer is
 	// gone, even though the authority itself survives the drop. This does
 	// not touch an ALREADY-in-flight chain: that keeps draining on its own
-	// (drain-first, M2) - this only refuses a brand-new bt_intent, which in
+	// (drain first) - this only refuses a brand-new bt_intent, which in
 	// practice cannot arrive from the departed peer anyway; it guards a race
-	// with a not-yet-cleared connection or a future rejoin (M5).
+	// with a not-yet-cleared connection or a rejoin.
 	if (coopBattleAuthority().peerAbsent)
 	{
 		Log(LOG_WARNING) << "[coop-arbiter] bt_intent received while peerAbsent - dropped";
@@ -13894,7 +13891,7 @@ void onIntent(const Json::Value& intent)
 
 	// not_your_unit. The
 	// INTENT seat must command the actor, through the seat-parametrised
-	// commandsUnit() - MJ-8's controller rule, so a unit the ordering seat
+	// commandsUnit() - the controller rule, so a unit the ordering seat
 	// mind-controlled is its own (the raw seat-tag compare this replaces
 	// refused it). commandsUnit(u) itself compares THIS machine's localSeat,
 	// the wrong seat for the host validating a REMOTE seat's intent.
@@ -13962,7 +13959,7 @@ void onIntent(const Json::Value& intent)
 			if (placement)
 				g_equip.heldUntilOpen.fetch_add(1);
 			Log(LOG_INFO) << "[coop-equip] " << kind << " iseq " << iseq << " (seat " << seat << ", actor " << actorId
-				<< ") denied busy: " << (placement ? "the host's equip screen is not open yet (held, Q3 a)"
+				<< ") denied busy: " << (placement ? "the host's equip screen is not open yet (held)"
 					: "only placements run in the pre-battle equip phase");
 			denyIntent(iseq, "busy", seat, kind);
 			return;
@@ -13972,7 +13969,7 @@ void onIntent(const Json::Value& intent)
 	{
 		g_equip.lateDenied.fetch_add(1);
 		Log(LOG_INFO) << "[coop-equip] " << kind << " iseq " << iseq << " (seat " << seat << ", actor " << actorId
-			<< ") from the pre-battle screen arrived after the equip phase closed - denied silently (Q5 a)";
+			<< ") from the pre-battle screen arrived after the equip phase closed - denied silently";
 		denyIntent(iseq, "invalid_target", seat, kind);
 		return;
 	}
@@ -14239,7 +14236,7 @@ void onIntent(const Json::Value& intent)
 		g_coopIntentResultLatched = false; // a fresh latch per context
 		g_coopIntentResultKey.clear();
 		// the ORDERING machine's own force-fire rides
-		// the `shoot` order; inside this context F1-F4 read it through
+		// the `shoot` order; inside this context the four vanilla force-fire reads go through
 		// coopForceFirePressed(), never the host's option and keys. A `throw`
 		// carries no forceFire: its context reads false.
 		const bool orderForceFire = kind == "shoot" && intent.get("forceFire", false).asBool();
@@ -14975,8 +14972,8 @@ static void closeBaseContext()
 	CoopDelta::noteContextClosed(actionId, closedOrigin, closedKind, closedActorId, 0u, endSeq, hasFinal);
 
 	// Oldest-denied-seat-first bookkeeping: consulted here (read-only
-	// - the spike is deny-only, see the SEAM note in CoopArbiter.h) so a
-	// future host-side queue has a ready-made fairness signal.
+	// - admission is deny-only, see the namespace comment in CoopArbiter.h) as a
+	// ready-made fairness signal for a host-side queue.
 	if (!g_coopLastDenyTick.empty())
 	{
 		auto oldest = std::min_element(g_coopLastDenyTick.begin(), g_coopLastDenyTick.end(),
@@ -16025,7 +16022,7 @@ void onDeny(const Json::Value& deny)
 
 		Log(LOG_INFO) << "[coop-arbiter] deny(busy) on iseq " << iseq << " ("
 			<< g_coopClientPending.kind << ", actor " << g_coopClientPending.actorId
-			<< ") - HELD pending, auto-resubmit at the next quiescence (R2-P7)";
+			<< ") - HELD pending, auto-resubmit at the next quiescence";
 		// The pending banner IS the busy row's own string
 		// (STR_COOP_DENY_BUSY, "Waiting - another action is in progress") -
 		// reason-specific, never collapsed into a generic message;
@@ -16088,7 +16085,7 @@ void onActionEndApplied(std::uint32_t actionId)
 		// being held, the admission banner has served its purpose - drop it.
 		// Without this an auto-retried intent that finally lands would leave
 		// showPending()'s "Waiting - another action is in progress" on screen
-		// forever (nothing else in the spike ever clears the banner). Guarded
+		// forever. Guarded
 		// on the pending slot so a SECOND unit's still-held order keeps its
 		// own waiting message up.
 		if (!g_coopClientPending.active)
@@ -16160,7 +16157,7 @@ bool cancelPendingIntent()
 
 	Log(LOG_INFO) << "[coop-arbiter] pending " << g_coopClientPending.kind
 		<< " intent for actor " << g_coopClientPending.actorId
-		<< " CANCELLED by the user (right-click/ESC cancel control, R2-P7)";
+		<< " CANCELLED by the user (right-click/ESC cancel control)";
 	const bool heldCombat = g_coopClientPending.hasCombat;
 	g_coopClientPending = CoopClientPending();
 	CoopBattleUi::clearPending();
@@ -16208,7 +16205,7 @@ void onQuiescenceObserved()
 		// nothing behind it.
 		Log(LOG_WARNING) << "[coop-arbiter] auto-resubmit of the pending "
 			<< held.kind << " intent for actor " << held.actorId
-			<< " could not be sent - pending dropped (R2-P7)";
+			<< " could not be sent - pending dropped";
 		CoopBattleUi::clearPending();
 		if (held.hasCombat)
 			coopClientRestoreCursor(); // the held combat order is gone
@@ -16217,7 +16214,7 @@ void onQuiescenceObserved()
 
 	Log(LOG_INFO) << "[coop-arbiter] quiescence observed - auto-resubmitted the pending "
 		<< held.kind << " intent for actor " << held.actorId << " as iseq " << iseq
-		<< " (R2-P7)";
+		<< " (recomputed on the current state)";
 	// Banner stays up: still waiting, just on a fresh iseq. A deny("busy")
 	// on this one re-enters the pending path above; an ack + bt_action_end
 	// clears it through onActionEndApplied() below.
@@ -16298,7 +16295,7 @@ void onEvAppliedCancelCheck(const Json::Value& ev, int visibleBefore)
 	Log(LOG_INFO) << "[coop-arbiter] pending " << g_coopClientPending.kind
 		<< " intent for actor " << g_coopClientPending.actorId
 		<< " CANCELLED by policy (cause='" << cause << "', ev kind='" << kind
-		<< "', R2-P7)";
+		<< "')";
 	const bool heldCombat = g_coopClientPending.hasCombat;
 	g_coopClientPending = CoopClientPending();
 	if (heldCombat)
@@ -17873,7 +17870,7 @@ bool coopInterceptMedikitPress(BattleAction* action, BattleUnit* target, int med
 				bs->warning("STR_THERE_IS_NO_ONE_THERE");
 			CoopDelta::noteHostScreenCounter("medikitRefused");
 			Log(LOG_INFO) << "[coop-screen] host medi-kit press of unit " << action->actor->getId() << " on unit "
-				<< target->getId() << " refused: its patient is no longer there (M5)";
+				<< target->getId() << " refused: its patient is no longer there";
 			return true;
 		}
 		return false;
@@ -18012,7 +18009,7 @@ bool coopInterceptReload(BattleUnit* unit, SavedBattleGame* save, bool playable)
 	}
 
 	// CLIENT: the key becomes a `reload` order: vanilla picks
-	// the clip on the host (H6), so the plan is empty. TRUE whether or not the
+	// the clip on the host, so the plan is empty. TRUE whether or not the
 	// envelope went out: reloadAmmo() never runs on a thin client.
 	CoopCombatIntentArgs args;
 	args.action = "reload";
@@ -18109,7 +18106,7 @@ static bool coopInvHeldRefused(Inventory* inv, const BattleUnit* unit, const Bat
 	coopInvNoteGuard(site, op, "held", item, unit);
 	Log(LOG_INFO) << "[coop-inv] " << site << " (" << op << ") of item " << (item ? item->getId() : -1)
 		<< " for unit " << unit->getId() << " refused: a " << g_coopClientPending.kind << " order for unit "
-		<< g_coopClientPending.actorId << " is held pending (V11)";
+		<< g_coopClientPending.actorId << " is held pending";
 	return true;
 }
 
@@ -18506,7 +18503,7 @@ bool coopInvLocalWriteRefused()
 	if (!isCoopBattle() || coopBattleAuthority().hostSim)
 		return false;
 	const int n = g_coopInvLocalWrites.fetch_add(1) + 1;
-	Log(LOG_ERROR) << "[coop-inv] Inventory::moveItem reached on a co-op CLIENT - refused (Q11 backstop, "
+	Log(LOG_ERROR) << "[coop-inv] Inventory::moveItem reached on a co-op CLIENT - refused (client backstop, "
 		"invLocalWrites " << n << "): an inventory execution point let vanilla through";
 	return true;
 }
@@ -19502,7 +19499,7 @@ static void coopHostAliensCrashed(Game* game, bool release = false)
 		g_equipHeldTally = coopTallyUnitsDonor(save);
 		g_equipHeldResult = Json::Value();
 		Log(LOG_INFO) << "[coop-battle-end] host: no live alien at the briefing OK in phase Handshake - the "
-			"aliens-crashed battle_end waits for Active (Q16)";
+			"aliens-crashed battle_end waits for Active";
 		return;
 	}
 	g_equip.abortPending = false;
@@ -19512,15 +19509,15 @@ static void coopHostAliensCrashed(Game* game, bool release = false)
 		coopTallyUnitsDonor(save));
 }
 
-// ===== the debrief hooks (connectionTCP.h; vanilla V3/V4/V5) =====
+// ===== the debrief hooks (connectionTCP.h), called from vanilla's DebriefingState =====
 // The host ships what its vanilla debrief computed; the client never runs
 // prepareDebriefing.
-// DebriefingState befriends connectionTCP (V2), so these read and fill its
+// DebriefingState befriends connectionTCP, so these read and fill its
 // members directly. Every hook is a no-op outside a coop skirmish end: the fill
 // needs the consumer's one-shot arm, the finish needs the display-only token,
 // and the send needs the host's phase Ended (set only by coopHostBattleEnd).
 
-// V3 (DebriefingState::init, in place of prepareDebriefing()). A skirmish
+// In DebriefingState::init, in place of prepareDebriefing(). A skirmish
 // client's display-only debrief: pages 1-3 from the stored bt_debrief_result.
 // Vanilla's own rendering (init :404-600) then builds page 2 from _soldierStats
 // and page 1 + total + rating from _stats; page 3 is rendered here exactly as
@@ -19652,7 +19649,7 @@ bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
 	return true;
 }
 
-// V4 (DebriefingState::init, right after the rating is rendered, before the
+// In DebriefingState::init, right after the rating is rendered, before the
 // world-write block). The display-only debrief's end of init: vanilla's
 // _positiveScore rule, the unused MissionStatistics freed (it is handed to the
 // SavedGame only at the push this skips), the battle dropped as init
@@ -19679,7 +19676,7 @@ bool connectionTCP::coopDebriefClientFinish(DebriefingState* db)
 }
 
 // the host tags every merged guest copy's coopName
-// "coop-origin:<ownerSeat>:<ownerId>" (CoopState.cpp's coopMergeGuestContributions). V5's SEPARATE payload reads the
+// "coop-origin:<ownerSeat>:<ownerId>" (CoopState.cpp's coopMergeGuestContributions). The SEPARATE payload sent at the end of DebriefingState::init reads the
 // seat and the owner's own id back out of it; the return matches the owner's soldier by that id. Serializing a guest
 // soldier for the wire is coopSerializeGuestSoldier (defined beside the census below; the same Soldier::save() YAML).
 static bool coopParseOriginTag(const std::string& tag, int& seat, int& id)
@@ -19713,7 +19710,7 @@ static std::string coopSerializeSoldierRecord(Game* game, Soldier* soldier)
 	return coopSerializeGuestSoldier(game, soldier);
 }
 
-// That record with `isNew: true` on each commendation still new at V5 (save drops it,
+// That record with `isNew: true` on each commendation still new at the end of DebriefingState::init (save drops it,
 // SoldierDiary.cpp :1353-1360; load reads it, :1346); the saved list's index i is the diary vector's index i.
 static std::string coopSerializeCommendedRecord(Game* game, Soldier* soldier)
 {
@@ -19763,7 +19760,7 @@ static int coopFreshSoldierId(SavedGame* save)
 }
 
 // The host's page-2 name site (DebriefingState :1587) records each row's raw name,
-// seat (coopDebriefSeat) and soldier id, index-aligned with _soldierStats; V5 consumes the list first.
+// seat (coopDebriefSeat) and soldier id, index-aligned with _soldierStats; the send at the end of DebriefingState::init consumes the list first.
 struct CoopDebriefName { std::string rawName; int ownerSeat; int soldierId; };
 static std::vector<CoopDebriefName> g_coopDebriefNames;
 static const DebriefingState* g_coopDebriefNamesOf = nullptr;
@@ -19833,7 +19830,7 @@ bool connectionTCP::coopPromotionRows(TextList* list)
 	return true;
 }
 
-// V5 (the last statement of DebriefingState::init). The host serializes what
+// The last statement of DebriefingState::init. The host serializes what
 // its own vanilla debrief computed and sends it once: skirmish and every
 // campaign, only after this battle's `battle_end` (phase Ended, record
 // emitted 1), when any partner seat is mapped (the PvP alien side too).
@@ -20205,7 +20202,7 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	if (held)
 	{
 		g_equipHeldResult = msg;
-		Log(LOG_INFO) << "[coop-debrief] host: bt_debrief_result held for the release (phase Handshake, SE-4)";
+		Log(LOG_INFO) << "[coop-debrief] host: bt_debrief_result held for the release (phase Handshake)";
 		return;
 	}
 	const int bytes = coopDebriefSendResult(msg);
@@ -21002,7 +20999,7 @@ int talliesSeen() { return g_talliesSeen; }
 struct CoopFatalVoteRecord
 {
 	std::uint32_t voteId = 0;
-	std::vector<int> voters;      // the owner seats of the bleeding units, fixed at the open (design 2.1)
+	std::vector<int> voters;      // the owner seats of the bleeding units, fixed at the open
 	int wounded = 0;              // vanilla's N at the open
 	std::map<int, bool> answers;  // HOST: seat -> yes; CLIENT: the open ev's answered seats
 	std::string result;           // "" | "end" | "continue"
@@ -21370,7 +21367,7 @@ bool coopFatalVoteAnswer(Game* game, bool yes)
 	std::string result;
 	if (!a.hostSim.load() && open && voteId != 0)
 	{
-		// CLIENT (design 2.4.3): the answer goes to the host; this machine ends nothing itself.
+		// CLIENT: the answer goes to the host; this machine ends nothing itself.
 		Json::Value msg = CoopWire::makeFatalVoteAnswer(a.battleId.load(), voteId, seat, yes);
 		CoopEmit::sendBattle(msg);
 		Json::Value note(Json::objectValue);
@@ -21386,13 +21383,13 @@ bool coopFatalVoteAnswer(Game* game, bool yes)
 	}
 	if (result.empty())
 	{
-		if (game) // HOST (design 2.4.3): a partner still decides - the hold
+		if (game) // HOST: a partner still decides - the hold
 			game->pushState(new CoopFatalVoteHold(connectionTCP::getStaticBattle()));
 		return true;
 	}
 	coopFatalVoteClose(result);
 	g_fatalVoteContinuePending = result != "end"; // a no: the held END TURN presses are re-evaluated once (pump)
-	return result != "end"; // all yes: vanilla's own OK runs requestEndTurn(false) (design 2.6)
+	return result != "end"; // all yes: vanilla's own OK runs requestEndTurn(false)
 }
 
 bool coopFatalVoteHolds(const char* held)
@@ -21632,7 +21629,7 @@ static void coopFatalVotePump(Game* game, bool quiescent)
 	}
 	else if (host && st == FV_ARMED && a.phase.load() == CoopBattlePhase::Active && quiescent && !dialogTop)
 	{
-		// The open (design 2.1): vanilla's own count; each counted unit's owner is its seat tag, never its controller
+		// The open: vanilla's own count; each counted unit's owner is its seat tag, never its controller
 		// ; a seat-less unit is the host's. The voter set and N are fixed here.
 		std::vector<int> voters;
 		int wounded = 0;
@@ -21686,7 +21683,7 @@ static void coopFatalVotePump(Game* game, bool quiescent)
 		game->popState();
 		coopFatalVoteClose(result);
 		if (result == "end")
-			bg->requestEndTurn(false); // vanilla's OK (design 2.6)
+			bg->requestEndTurn(false); // vanilla's OK
 		else
 			CoopEndTurn::tryCommit(save); // vanilla's CANCEL; the held END TURN presses are re-evaluated once
 	}
@@ -22232,7 +22229,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 	if (coopIsCueKind(kind))
 	{
 		// a host combat cue (shot, hit, explosion,
-		// melee, psi, death, corpse, prime; the P3/P4 kinds are frozen here too).
+		// melee, psi, death, corpse, prime and the other coopIsCueKind() kinds).
 		// Its WHOLE state effect is the envelope's `delta`, written by
 		// applyDelta() right after this returns (CoopDisplayQueue::onApplied);
 		// the payload is display data. Record the probe, nothing
@@ -25112,7 +25109,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	g.camSeq = ev.get("seq", 0u).asUInt();
 	if (held)
 	{
-		// wait for the shooter's turn ghost (seq turnSeq); advance() releases it (H2).
+		// wait for the shooter's turn ghost (seq turnSeq); advance() releases it.
 		g.startedAtMs = 0;
 		g.held = true;
 		g.afterTurnSeq = turnSeq;
@@ -26507,7 +26504,7 @@ bool combatAdvance(std::uint32_t nowMs)
 		if (it->held)
 		{
 			// a held ghost is not on the Map yet and does not step; only the
-			// Map and thrown-item check applies (it then ends by H4). combatReleaseHeld() starts it.
+			// Map and thrown-item check applies (if either is gone it ends at once). combatReleaseHeld() starts it.
 			if (gone)
 			{
 				CombatGhost done = *it;
@@ -33138,7 +33135,7 @@ bool coopEquipReadyPress(BattlescapeButton* btnOk, bool tu, bool parent)
 	if (tu || !parent || !coopEquipOpen())
 		return false; // single player, a mid-battle inventory, a base screen, no equip phase: vanilla's OK
 	if (g_equip.passThrough.exchange(false))
-		return false; // b6: the barrier's one-shot - vanilla's close, saveEquipmentLayout() and startFirstTurn() run
+		return false; // the barrier's one-shot - vanilla's close, saveEquipmentLayout() and startFirstTurn() run
 	// no selection, or one without an inventory (init()'s
 	// two closes) - nothing to equip. The pop only (turn 1 waits for the barrier); vanilla's Turn-1 screen under it
 	// is held (coopEquipHoldTurnScreen) and this seat counts as done.
@@ -33357,7 +33354,7 @@ static void coopEquipRecordHostScreen(Game* game)
 // HOST: the screen record, the equip-open announce, the barrier.
 static void coopEquipPumpHost(Game* game, SavedBattleGame* save)
 {
-	// b6's end signal that could not go out when the barrier ran (the phase is already Ended).
+	// The barrier's end signal that could not go out when the barrier ran (the phase is already Ended).
 	if (g_equip.endSyncPending.load() && isCoopBattle())
 	{
 		const Json::Value end = coopEquipEndSignal(save); // coop: + the SHARED soldier gear records
@@ -33761,7 +33758,7 @@ static bool coopEquipHoldEnd(int seat, const std::string& why)
 
 // coop: HOST - after a hold changed: the host's pile re-laid and the whole table sent to the
 // partner on the reliable battle lane, `bt_equip_holds {battleId, holds[4], deny}` (@a denySeat / @a denyItem: a refused pick-up,
-// else -1; `deny` null). While the TEST-ONLY equip_holds_defer is on (BT1) the table waits and its refusal is kept.
+// else -1; `deny` null). While the TEST-ONLY equip_holds_defer is on the table waits and its refusal is kept.
 static void coopEquipHoldsSend(int denySeat, int denyItem)
 {
 	coopEquipHoldRelay();
@@ -35162,7 +35159,7 @@ void coopGiftNoteSeatChange(int unitId, int fromSeat, int toSeat)
 		g_coopGiftSeatChanges.push_back(CoopGiftSeatChange{ unitId, fromSeat, toSeat });
 }
 
-// D235S RK6: @a unitId acts in an open action context - an entry's own actor or trigger, or the pending chain actor.
+// coop: @a unitId acts in an open action context - an entry's own actor or trigger, or the pending chain actor.
 static bool coopGiftUnitActing(int unitId)
 {
 	if (g_coopActionContextStack.empty())
@@ -35830,8 +35827,8 @@ void connectionTCP::processPendingSoldierGifts()
 // the host (e.g. after a host gift) and the answer to a base visit (either machine). Without the wait both would refuse: a
 // false 995, and an older world (the stored blob) would reach the partner.
 static bool coopOwnBaseUnnamed(Game* game); // defined below
-static bool g_coopPushHeld = false;         // EB2: a push held while the own base is unnamed
-static int g_coopBaseAnswerHeld = 0;        // EB3: a held base answer: 1 = to the host (client side), 2 = to the client (host side)
+static bool g_coopPushHeld = false;         // a push held while the own base is unnamed
+static int g_coopBaseAnswerHeld = 0;        // a held base answer: 1 = to the host (client side), 2 = to the client (host side)
 
 static bool coopHoldBaseAnswer(Game* game, int role)
 {
@@ -35904,7 +35901,7 @@ bool connectionTCP::pushProgressToHostSilently()
 		return false;
 	}
 	// coop: the own new base is unnamed, so this world would be refused (a false 995) and
-	// the host would keep an older copy. Hold the push; EB4 sends it once the base is named.
+	// the host would keep an older copy. Hold the push; updateCoopTask sends it once the base is named.
 	if (coopOwnBaseUnnamed(_game))
 	{
 		g_coopPushHeld = true;
@@ -39515,7 +39512,7 @@ static void coopDropDogfightsForUfo(Game* game, Ufo* ufo)
 // down to the lowest state holding a doomed pointer, and only when every state from that one to the top is such a popup
 // (GeoscapeState::coopHeldTargets); otherwise nothing is popped and false is returned (the mirror sweep then keeps that object
 // until a later snapshot). Pointers are compared, never dereferenced. Returns true when no state holds a doomed pointer any more.
-bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed) // coop: not static - SharedEcon.cpp calls it (EC3)
+bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed) // coop: not static - SharedEcon.cpp calls it
 {
 	if (!game || doomed.empty())
 		return true;
@@ -40816,9 +40813,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		int base_id = obj["base_id"].asInt();
 
-		// coop W2-H83 S-A (docs rewrite/prompts/w2h83_sa_delete_paths.md EA4; R-LBH3-1, VL-H83-1; lbh3-cap F22265, F22277, F22278): the
-		// partner removed this base. Its marker also leaves the cached marker list (j_markers), so no later rebuild from that cache (the
-		// battle host's post-battle updateAllCoopBases, a reply with no markers) brings it back; and a mirror of it that this player's own
+		// coop: the partner removed this base. Its marker also leaves the cached marker list (j_markers), so no later rebuild from that cache
+		// (the battle host's post-battle updateAllCoopBases, a reply with no markers) brings it back; and a mirror of it that this player's own
 		// base view moved into the stash is deleted with it, so leaving that view cannot put it back.
 		int cacheDropped = 0;
 		if (!j_markers.empty())
@@ -40840,18 +40836,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 		}
 		const int stashDropped = BasescapeState::coopDropStashedMirror(base_id);
-		Log(LOG_INFO) << "[coop] W2-H83: removed base id=" << base_id << " cache=" << cacheDropped << " stash=" << stashDropped;
-		// coop W2-H83 S-B (docs rewrite/prompts/w2h83_sb_open_views.md EB3; R-LBH3-1, VL-H83-1; lbh3-cap F22268-F22270): this player views
-		// the removed base inside the partner's world (coopLiveWorldIsPeerView; the view world's selected base is the base its screens show).
-		// It goes back to its own world first (BasescapeState::coopLeavePeerView). The base is not deleted here: LoadGameState discards the
-		// whole view world, so no screen reads it freed (the GEOSCAPE read BS :722 that once ended the campaign, F22269).
+		Log(LOG_INFO) << "[coop] removed base: id=" << base_id << " cache=" << cacheDropped << " stash=" << stashDropped;
+		// coop: this player views the removed base inside the partner's world (coopLiveWorldIsPeerView; the view world's selected base is the
+		// base its screens show). It goes back to its own world first (BasescapeState::coopLeavePeerView). The base is not deleted here:
+		// LoadGameState discards the whole view world, so no screen reads it freed.
 		if (coopLiveWorldIsPeerView(_game))
 		{
 			SavedGame* viewWorld = _game->getSavedGame();
 			Base* shownBase = viewWorld->getBases()->empty() ? nullptr : viewWorld->getSelectedBase();
 			if (shownBase && shownBase->_coop_base_id == base_id)
 			{
-				Log(LOG_INFO) << "[coop] W2-H83: the partner removed the base this player views - its own world returns first";
+				Log(LOG_INFO) << "[coop] removed base: the partner removed the base this player views - its own world returns first";
 				BasescapeState::coopLeavePeerView();
 				return;
 			}
@@ -40869,9 +40864,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					Base* b = *it;
 					if (b && b->_coop_base_id == base_id)
 					{
-						// coop W2-H83 S-C (docs rewrite/prompts/w2h83_sc_holders.md EC1; L-H81-2, R-LBH3-1, VL-H83-3): geoscape popups that hold
-						// this partner base or one of its crafts (a target list, a destination confirm, a craft's window) close first, as their
-						// CANCEL does (W2-H81's coopCloseMirrorHolders); the base is deleted either way (W2-H81's drop rule).
+						// coop: geoscape popups that hold this partner base or one of its crafts (a target list, a destination confirm, a craft's window)
+						// close first, as their CANCEL does (coopCloseMirrorHolders); the base is deleted either way.
 						std::vector<Target*> doomedTargets{ b };
 						for (Craft* doomedCraft : *b->getCrafts())
 							doomedTargets.push_back(doomedCraft);
@@ -40910,8 +40904,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		_game->pushState(new CutsceneState(cutsceneId));
 	}
 
-	// W2-P9 S-A (AMENDMENT P9-1 PR-6..PR-8): the synced game options' three non-battle kinds. A request is the
-	// host's (queued, applied between actions); a table or a set is a client's (the apply funnel).
+	// coop: the synced game options' three non-battle kinds. A request is the host's (queued, applied between actions); a table or a set
+	// is a client's (the apply funnel).
 	if (stateString == "synced_option_request")
 	{
 		if (getServerOwner())
@@ -41032,9 +41026,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				Log(LOG_INFO) << "[coop] F3 battle resume: stashed geoscape-only coop_geoscape_return for mission-end restore";
 			}
 
-			// coop D250-U S-C4a (QC3-4 (a), L-SC3-1; VL-C-10): the gm2 alien player never pushes a world of its own (no_bases), so its
-			// rejoin in a live campaign found none here and was answered with a NEW campaign (base placement on the alien side). Serve
-			// it the stub a resume serves (LobbyMenu::resumeCampaign, SavedGame::buildCoopStub): its alien role comes back with it.
+			// coop: the gm2 alien player never pushes a world of its own (no_bases), so without this its rejoin in a live campaign would find none
+			// here and be answered with a NEW campaign (base placement on the alien side). Serve it the stub a resume serves
+			// (LobbyMenu::resumeCampaign, SavedGame::buildCoopStub): its alien role comes back with it.
 			if (connectionTCP::_coopGamemode == 2 && !hasCoopFile(hostBlobKey(_game->getCoopMod()->getCurrentClientName())))
 			{
 				try
@@ -41425,7 +41419,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "base_equip_ptr")
 	{
 		// coop: either direction - the co-op partner's pointer
-		// on a base inventory screen (EQ-2's SNAP_EQUIP_PTR conflation slot; display only, never hashed). Self-guarded.
+		// on a base inventory screen (sent on the SNAP_EQUIP_PTR conflation slot; display only, never hashed). Self-guarded.
 		coopBaseOnPeerPointer(_game, obj);
 	}
 	else if (stateString == "time")
@@ -41553,11 +41547,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 	}
-
-	// R1-P3: this used to be a run of one-line dividers for medkit/info_box/
-	// info_box_ok/explode_items/hit_tile/unit_death/destroy_tile/hit_unit/
-	// next_turn - all quarantined battle-sim handlers (inventory-wire-
-	// protocol.md sections A-C), deleted along with their blocks.
 
 	// ufo damage
 	if (stateString == "ufo_damage")
@@ -42814,9 +42803,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (!_game->getStates().empty())
 		{
 			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
-			// coop W2-H71 (docs rewrite/prompts/w2h71_visit_window_pops.md E1; R-H71-0 fix (c); L-LT8-1; F19766, F19768): this reply
-			// answers a world push, so it closes only the client's own "Saving..." (53). Any other window on top (a base visit's
-			// "Synchronizing bases." 50, a notice) closes by its own path; the campaign waits and the gm3 hold (3) are spared as before.
+			// coop: this reply answers a world push, so it closes only the client's own "Saving..." (53). Any other window on top (a base visit's
+			// "Synchronizing bases." 50, a notice) closes by its own path; the campaign waits and the gm3 hold (3) are spared.
 			if (top && top->getStateCode() == 53)
 			{
 				_game->popState();
@@ -42835,7 +42823,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const bool sharedClient = !getServerOwner() && (isSharedCampaign() || g_coopPvpBorrowedReturn); // coop: the gm3 X-COM player's world comes back the SHARED way
 		if (sharedClient && isSharedCampaign())
 			SharedEcon::setApplyHold(true);
-		// PR-4 (MR1, F4529): an armed SHARED return holds the world for the pump's in-place adoption (no CoopState(555)).
+		// coop: an armed SHARED return holds the world for the pump's in-place adoption (no CoopState(555)).
 		if (sharedClient && g_coopSharedReturnPending && coopReturnHoldStack(_game))
 		{
 			g_coopPostBattleWorldReady = true;
@@ -42934,10 +42922,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (!_game->getStates().empty())
 		{
 			CoopState* top = dynamic_cast<CoopState*>(_game->getStates().back());
-			// coop W2-H71 (docs rewrite/prompts/w2h71_visit_window_pops.md E2; R-H71-0 fix (c); L-H64-1, L-LT8-1; F19760, F19763,
-			// F19768): close only the host's own "Saving..." (54). Another window on top (the partner's "Items received" 150 over a
-			// covered 54, a base visit's "Synchronizing bases." 50) closes by its own path; a 54 left under it closes once it is on
-			// top again (W2-H64 S-B, CoopState::think).
+			// coop: close only the host's own "Saving..." (54). Another window on top (the partner's "Items received" 150 over a covered 54, a
+			// base visit's "Synchronizing bases." 50) closes by its own path; a 54 left under it closes once it is on top again (CoopState::think).
 			if (top && top->getStateCode() == COOP_DLG_HOST_SAVE_WAIT)
 			{
 				_game->popState();
@@ -42973,9 +42959,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				mapData += map_data;
 
 				std::string jsonData2 = "{\"state\" : \"WAIT_MAP_SENDER\"}";
-				// R4-L6 (AMENDMENT R4-L6-1 M5): TEST-ONLY hold_blob_ack - the ack is withheld only while armed AND a
-				// battle-handshake blob is awaited; unarmed it is sent at once.
-				if (coopTestHoldBlobAckArmed() && coopTestHoldBlobAckApplies(_game)) // coop W2-H82 L1c: the lever's scope (L1a)
+				// TEST-ONLY hold_blob_ack - the ack is withheld only while armed AND the lever's scope applies (coopTestHoldBlobAckApplies: a
+				// battle-handshake blob is awaited, or the armed scope matches); unarmed it is sent at once.
+				if (coopTestHoldBlobAckArmed() && coopTestHoldBlobAckApplies(_game))
 				{
 					const int held = g_coopTestHoldBlobAckHeld.fetch_add(1) + 1;
 					Log(LOG_INFO) << "[coop-test] hold_blob_ack: WAIT_MAP_SENDER ack withheld (held=" << held << ")";
@@ -42985,13 +42971,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					sendTCPPacketData(jsonData2);
 				}
 
-				// R4-P1 (SS2.7): if a battle-handshake blob transfer is in
+				// If a battle-handshake blob transfer is in
 				// flight (CoopHandshake::onOffer() armed it after sending
 				// battle_accept), check whether the accumulated bytes now
 				// cover the offered blobBytes - a no-op otherwise. The
-				// quarantined MAP_RESULT_HOST/MAP_RESULT_CLIENT terminal
-				// markers this carrier used to end on are never relied on
-				// here (SS2.7's blobBytes field is the completion signal).
+				// MAP_RESULT_HOST/MAP_RESULT_CLIENT terminal markers are
+				// never relied on here (the offer's blobBytes field is the
+				// completion signal).
 				CoopHandshake::onBlobChunkAppended(_game);
 			}
 			else
@@ -43343,8 +43329,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		sendTCPPacketData(root.toStyledString());
 
-		// W2-P9 S-A (AMENDMENT P9-1 PR-8, F4736; V15 amended): the joiner takes the host's synced game options - the
-		// full table right after the reply (campaign, skirmish and the issue #93 rejoin alike), no chat line.
+		// coop: the joiner takes the host's synced game options - the full table right after the reply (campaign, skirmish and the issue #93
+		// rejoin alike), no chat line.
 		Json::Value syncedTable = coopSyncedRules();
 		syncedTable["state"] = "synced_options_table";
 		sendTCPPacketData(syncedTable.toStyledString());
@@ -43654,7 +43640,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop W2-H87 ED6
+				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop: no marker for a base whose loss was announced
 				{
 
 					markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -43880,7 +43866,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop W2-H87 ED7
+			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop: no marker for a base whose loss was announced
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -44073,14 +44059,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// this machine cannot take one (visiting a base, battle world), the first tick its own world is live.
 		_lastGuestCensus.clear();
 
-		// coop W2-H80 (docs rewrite/prompts/w2h80_lost_base_ghost.md E1; R-LBH2-1, VL-H80-1; lbh2-cap F21828): no answer while this
-		// machine's live world is still a SEPARATE co-op battle world (a guest on its display-only debriefing; PR-14's
+		// coop: no answer while this machine's live world is still a SEPARATE co-op battle world (a guest on its display-only debriefing;
 		// coopSepBackgroundHeld). That world is the battle host's: its own bases are the asker's, and a base the asker lost in the battle
 		// (its debriefing erased it) would come back to it as a partner marker. The asker keeps its cached markers and asks again at its
-		// next geoscape init, which this machine answers from its own world. A gm3 borrowed world is this player's own: answered as before.
+		// next geoscape init, which this machine answers from its own world. A gm3 borrowed world is this player's own: answered as usual.
 		if (!g_coopPvpBorrowedReturn && coopSepBackgroundHeld(_game))
 		{
-			Log(LOG_INFO) << "[coop] W2-H80: baseRequest not answered - the live world is the SEPARATE battle world";
+			Log(LOG_INFO) << "[coop] baseRequest not answered - the live world is the SEPARATE battle world";
 			return;
 		}
 
@@ -44090,7 +44075,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0) && !coopBaseLossAnnounced(base)) // coop W2-H87 ED8
+			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0) && !coopBaseLossAnnounced(base)) // coop: no marker for a base whose loss was announced
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -44325,7 +44310,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					}
 				}
 				if (ownBase)
-					Log(LOG_INFO) << "[coop] W2-H62 S-B: coopBase3 marker " << markerBaseId << " is this host's own base - dropped";
+					Log(LOG_INFO) << "[coop] coopBase3 marker " << markerBaseId << " is this host's own base - dropped";
 				else
 					partnerMarkers.append(marker);
 			}
@@ -44441,11 +44426,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		root["state"] = "SEND_FILE_HOST_SAVE_PROGRESS";
 
-		if (!coopTestHoldSaveReplyStash()) // coop W2-H82 L3b (TEST-ONLY hold_save_reply; inert unless armed)
+		if (!coopTestHoldSaveReplyStash()) // coop (TEST-ONLY hold_save_reply; inert unless armed)
 			sendTCPPacketData(root.toStyledString());
 	}
 
-	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS" && !coopHoldProgressReplyWhileStreaming()) // coop W2-H82 F2
+	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS" && !coopHoldProgressReplyWhileStreaming()) // coop: held while another world stream runs here
 	{
 
 		_game->getCoopMod()->load_state = "Saving";
@@ -44455,7 +44440,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	}
 
 	// BASES
-	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false && !coopHoldBaseAnswer(_game, 1) && !coopHoldBaseAnswerWhileStreaming(1)) // coop W2-H66 S-B EB3 (C2); W2-H82 F3
+	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false && !coopHoldBaseAnswer(_game, 1) && !coopHoldBaseAnswerWhileStreaming(1)) // coop: held while the own new base is unnamed or a world stream runs here
 	{
 
 		sendBaseFile();
@@ -44464,7 +44449,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		sendFileBase = true;
 	}
 
-	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true && !coopDropBaseRequestInHandOff(2) && !coopHoldBaseAnswer(_game, 2)) // coop W2-H66 S-B EB3 (C2b); W2-H78 E2
+	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true && !coopDropBaseRequestInHandOff(2) && !coopHoldBaseAnswer(_game, 2)) // coop: dropped during a battle hand-off, held while the own new base is unnamed
 	{
 
 		sendBaseFile();
@@ -44473,12 +44458,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		sendFileBase = true;
 	}
 
-	if (stateString == "MAP_RESULT_CLIENT_BASE" && onTcpHost == false && !coopDropBaseResultInHandOff()) // coop W2-H82 E7
+	if (stateString == "MAP_RESULT_CLIENT_BASE" && onTcpHost == false && !coopDropBaseResultInHandOff()) // coop: dropped while this machine is being handed a battle
 	{
 
 		writeHostMapFile2();
 
-		if (!coopTestHoldBaseResult()) // coop W2-H71 P1c (TEST-ONLY hold_base_result; inert unless armed)
+		if (!coopTestHoldBaseResult()) // coop (TEST-ONLY hold_base_result; inert unless armed)
 		{
 			CoopState* coopWindow = new CoopState(55);
 			coopWindow->loadWorld();
@@ -44491,7 +44476,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		writeHostMapFile2();
 
-		if (!coopTestHoldBaseResult()) // coop W2-H71 P1c (TEST-ONLY hold_base_result; inert unless armed)
+		if (!coopTestHoldBaseResult()) // coop (TEST-ONLY hold_base_result; inert unless armed)
 		{
 			CoopState* coopWindow = new CoopState(55);
 			coopWindow->loadWorld();
@@ -44884,11 +44869,9 @@ void connectionTCP::sendMissionFile()
 
 			_game->getCoopMod()->load_state = "Saving";
 
-			// R4-REWIRE: "SEND_FILE_HOST_TRUE" is quarantined (R1-P3,
-			// inventory-wire-protocol.md section D - bootstrap/host-token handoff/
-			// battle-save restream). sendMissionFile() itself SURVIVES (section F, the
-			// blob-stream carrier), but this receive handler is deleted; the
-			// choreography around it needs a versioned handshake pair in r4.
+			// "SEND_FILE_HOST_TRUE" has no receive handler: the peer's
+			// legacyBattleMessageDropped catch-all drops it. sendMissionFile()
+			// itself is the blob-stream carrier.
 			Json::Value obj;
 			obj["state"] = "SEND_FILE_HOST_TRUE";
 
@@ -44919,10 +44902,9 @@ void connectionTCP::sendMissionFile()
 			_game->getSavedGame()->saveCoopToMemory("battlehost", _game->getMod(), "battlehost");
 		}
 
-		// R4-REWIRE: "SEND_FILE_CLIENT_TRUE" is quarantined (R1-P3,
-		// inventory-wire-protocol.md section D). sendMissionFile() itself SURVIVES
-		// (section F, the blob-stream carrier), but this receive handler is deleted; the
-		// choreography around it needs a versioned handshake pair in r4.
+		// "SEND_FILE_CLIENT_TRUE" has no receive handler: the peer's
+		// legacyBattleMessageDropped catch-all drops it. sendMissionFile()
+		// itself is the blob-stream carrier.
 		Json::Value obj;
 		obj["state"] = "SEND_FILE_CLIENT_TRUE";
 		obj["target"] = false;
@@ -44960,8 +44942,8 @@ void connectionTCP::sendMissionFile()
 /**
  * Issue #93: hand a rejoining client the SKIRMISH battle that is running right now.
  *
- * SPEC 16 M5: re-targeted off the dead SEND_FILE_CLIENT_TRUE (its receive
- * handler was deleted by the r1 vanilla restore, R4-REWIRE) onto the r4 handshake -
+ * This runs the battle handshake, not SEND_FILE_CLIENT_TRUE (which has no receive
+ * handler):
  * CoopHandshake::offerRejoinBattle() snapshots the LIVE battle and sends it as a
  * battle_offer{resumed:true}, the SAME battle_accept/blob-stream/battle_ready pair a
  * fresh battle start uses. The snapshot is taken NOW, so the rejoiner gets the battle
@@ -44982,12 +44964,12 @@ void connectionTCP::streamSkirmishBattleToClient()
 	// the host owns the save (see sendMissionFile)
 	connectionTCP::coop_save_owner_player_id = 0;
 
-	// coop MG-B (owner D225 (a); Q3 (a)): CONTINUE BATTLE streams a battle loaded off disk with nothing offered yet (phase Idle):
-	// SPEC 18's disk-resume offer, not the in-memory rejoin below (that one needs a live paused battle, phase Active).
+	// coop: CONTINUE BATTLE streams a battle loaded off disk with nothing offered yet (phase Idle): the disk-resume offer, not the
+	// in-memory rejoin below (that one needs a live paused battle, phase Active).
 	if (coopBattleAuthority().phase.load() == CoopBattlePhase::Idle && connectionTCP::session.customBattleResumeLoading)
 	{
 		CoopHandshake::offerResumedBattle(_game);
-		Log(LOG_INFO) << "[coop] MG-B: CONTINUE BATTLE offers the loaded Custom Battle to "
+		Log(LOG_INFO) << "[coop] CONTINUE BATTLE offers the loaded Custom Battle to "
 			<< _game->getCoopMod()->getCurrentClientName() << " (disk-resume offer)";
 		return;
 	}
@@ -45001,9 +44983,9 @@ void connectionTCP::streamSkirmishBattleToClient()
 void connectionTCP::sendSaveProgressFile()
 {
 
-	// coop W2-H70 S-C (spec w2h70_sc_window_67.md EC3; L-H70-2, R-H70-4; F20442): also while the live world is still the partner's base
-	// view after an earlier 67 cleared the visit flag (the player stayed on a base screen): the 67 again and the answer at the geoscape,
-	// never the branch below, whose save of the view is refused and whose cleanup erases the stored own world.
+	// coop: also while the live world is still the partner's base view after an earlier 67 cleared the visit flag (the player stayed on
+	// a base screen): the 67 again and the answer at the geoscape, never the branch below, whose save of the view is refused and whose
+	// cleanup erases the stored own world.
 	if ((_game->getCoopMod()->playerInsideCoopBase == true || coopLiveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
@@ -45020,7 +45002,7 @@ void connectionTCP::sendSaveProgressFile()
 	else if (coopOwnBaseUnnamed(_game))
 	{
 		// coop: the own new base is still unnamed, so its world would be refused (a false 995) and nothing
-		// would reach the host, whose "Saving..." would never close. Hold the answer; E2 sends it once the base is named.
+		// would reach the host, whose "Saving..." would never close. Hold the answer; updateCoopTask sends it once the base is named.
 		g_coopSaveAnswerHeld = true;
 		Log(LOG_INFO) << "[coop-save] save request held: own base unnamed";
 	}
@@ -45057,11 +45039,8 @@ void connectionTCP::sendSaveProgressFile()
 
 int connectionTCP::getCurrentTurn()
 {
-	// R1-P4: this used to read the BattlescapeState::getCurrentTurn() mirror,
-	// a coop hook the r1 vanilla restore (911ca487f) stripped. No caller of
-	// this wrapper survives elsewhere in CoopMod (verified by grep), so stub
-	// to the existing "no battle" sentinel rather than re-adding the mirror.
-	// The real turn-machine returns with r2 (RB-D9/RB-D11).
+	// Always the "no battle" sentinel: no caller of this wrapper remains in
+	// CoopMod, and there is no BattlescapeState turn mirror for it to read.
 	return -1;
 }
 
@@ -45404,11 +45383,10 @@ bool connectionTCP::getServerOwner()
 	return session.role == CoopRole::Host;
 }
 
-// R2-P5 (rewrite spike, RB-D6 pattern): see the declaration's doc comment in
-// connectionTCP.h. Mirrors _staticGame's other static-accessor call sites
-// (e.g. connectionTCP::localSeat(), :1248/:8767 above) rather than adding a
-// new one - this is just the first one exposed as a public API surface for
-// CoopMod code outside the connectionTCP class (CoopArbiter::onIntent()).
+// See the declaration's doc comment in connectionTCP.h. Reads _staticGame
+// like the other static accessors (e.g. connectionTCP::localSeat()); exposed
+// as a public API for CoopMod code outside the connectionTCP class
+// (CoopArbiter::onIntent()).
 SavedBattleGame* connectionTCP::getStaticBattle()
 {
 	return (_staticGame && _staticGame->getSavedGame())
@@ -45416,8 +45394,7 @@ SavedBattleGame* connectionTCP::getStaticBattle()
 		: nullptr;
 }
 
-// W1-H1 (F391/F392, traced from crash_20260921_040305_510_0.log and
-// crash_20260921_034003_092_0.log): SavedBattleGame::getBattleState() keeps
+// SavedBattleGame::getBattleState() keeps
 // returning its cached BattlescapeState* after that state is popped+freed at
 // battle end (Game::~Game / a mid-run battle-to-menu transition), so a plain
 // non-null check on it derefs freed memory. Validate the cached pointer is
@@ -45998,17 +45975,17 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// the peer is expected back in the SAME battle, and the game mode
 		// (PVE/PVP/PVE2) decides which units each machine commands. Zeroing it
 		// here would hand a rejoining player the wrong side of its own battle.
-		// coop: the alien host of a gm3 PvP campaign whose X-COM player dropped
-		// (the session goes on, D5) keeps the campaign's role - read here, before the resets below. A host's own leave (isMain) and
-		// every other teardown reset as before, so a single-player game after the session never inherits the alien role.
+		// coop: the alien host of a gm3 PvP campaign whose X-COM player dropped (the session goes on) keeps the campaign's role - read here,
+		// before the resets below. A host's own leave (isMain) and every other teardown reset it, so a single-player game after the session
+		// never inherits the alien role.
 		const bool coopPvpAlienHost = !isMain && onConnect == -2 && session.role == CoopRole::Host && connectionTCP::_coopCampaign
 			&& connectionTCP::_coopGamemode == 3;
-		// coop D250-U S-C4a (QC3-4 (a), L-SC3-1; VL-C-10): the X-COM host of a gm2 PvP campaign whose alien player dropped keeps the
-		// campaign's mode too, so the rejoined alien player gets its alien side back (the world service and the lobby status carry the
-		// mode); its no_bases stays false (the no_bases reset below keys on the gm3 alien host only).
+		// coop: the X-COM host of a gm2 PvP campaign whose alien player dropped keeps the campaign's mode too, so the rejoined alien player
+		// gets its alien side back (the world service and the lobby status carry the mode); its no_bases stays false (the no_bases reset below
+		// keys on the gm3 alien host only).
 		const bool coopPvpXcomHost = !isMain && onConnect == -2 && session.role == CoopRole::Host && connectionTCP::_coopCampaign
 			&& connectionTCP::_coopGamemode == 2;
-		if (!coopBattleLive(_game) && !coopPvpAlienHost && !coopPvpXcomHost) // coop D250-U S-C3 / S-C4a: a PvP campaign host keeps its mode
+		if (!coopBattleLive(_game) && !coopPvpAlienHost && !coopPvpXcomHost) // coop: a PvP campaign host keeps its mode
 		{
 			connectionTCP::_coopGamemode = 0;
 		}
@@ -46036,20 +46013,18 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// spare gate needs it before that call runs, not after.
 		const bool teardownAsHost = (session.role == CoopRole::Host);
 
-		// coop: a rejoiner lost during its in-memory rejoin handshake (phase
-		// Handshake, opened by offerRejoinBattle() over a SPEC 16 pause) keeps the pause as a refused or mismatched rejoin
-		// does: the spare below, then the phase back to Active - not the full reset that left the paused battle with no
-		// authority and refused every later rejoin. Read here, before clearNetworkSessionQueues().
+		// coop: a rejoiner lost during its in-memory rejoin handshake (phase Handshake, opened by offerRejoinBattle() over a partner-drop
+		// pause) keeps the pause as a refused or mismatched rejoin does: the spare below, then the phase back to Active - not the full reset,
+		// which would leave the paused battle with no authority and refuse every later rejoin. Read here, before clearNetworkSessionQueues().
 		const bool rejoinLost = teardownAsHost && onConnect == -2 && CoopHandshake::coopHostRejoinPending();
 
-		// SPEC 16 M1 (F331 gate; owner-ruled mechanism, DECIDED (b)):
-		// a mid-`Active`-battle peer leave keeps the co-op battle authority
+		// A mid-`Active`-battle peer leave keeps the co-op battle authority
 		// ALIVE instead of tearing it down to Idle - the host survives, a
 		// client left, and a battle is actually live and Active right now.
 		// This is the ONLY site that ever passes resetAuthority=false to
 		// clearNetworkSessionQueues(); every other teardown (lobby, a
 		// handshake-phase leave, a full close, a leave once the campaign has
-		// ended) keeps the unconditional F331 reset unchanged.
+		// ended) keeps the unconditional authority reset.
 		const bool spareAuthorityOnPeerAbsent =
 			teardownAsHost
 			&& onConnect == -2
@@ -46057,7 +46032,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 			&& !campaignEnded()
 			&& (coopBattleAuthority().phase == CoopBattlePhase::Active || rejoinLost);
 
-		// coop W2-H24 (R2-m6, F5199): the partner's game dropped during a FRESH co-op battle start (phase Handshake; a
+		// coop: the partner's game dropped during a FRESH co-op battle start (phase Handshake; a
 		// rejoin or a disk resume is not one). The start fails as a refused one does (after deleteAllCoopBases() below)
 		// instead of the wait dialog over a battle that never started, which no rejoin could resume (offerRejoinBattle()
 		// needs Active). Read here, before clearNetworkSessionQueues() resets the authority and the pending offer.
@@ -46067,14 +46042,14 @@ void connectionTCP::disconnectTCP(bool isMain)
 		const bool startLost = teardownAsHost && onConnect == -2
 			&& (CoopHandshake::coopHostFreshStartPending() || startLostUdp) && CoopHandshake::coopFailedStartInScope(_game);
 
-		// SPEC 16 M4: a DELIBERATE client leave (isMain - the
+		// A DELIBERATE client leave (isMain - the
 		// caller is already committed to the teardown, e.g.
 		// disconnect_to_menu/ABANDON/SAVE&QUIT, as opposed to a passive
 		// disconnect this function discovers on its own) tells the host
 		// BEFORE the transport goes down, so the pause dialog can name the
 		// reason. Sent here, before clearNetworkSessionQueues() a few lines
 		// below would otherwise erase this very message from g_txQ out from
-		// under the socket thread's own drain of it (F341: this buys no
+		// under the socket thread's own drain of it (this buys no
 		// latency - liveness detection alone already raises the pause
 		// dialog in ~0.1s for a graceful quit or a kill() alike; its only
 		// value is the label).
@@ -46086,8 +46061,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 			// Best-effort bounded drain: give the socket sender thread (the
 			// SPSC consumer of g_txQ) a window to pop this message before it
 			// races clearNetworkSessionQueues()'s own drain-and-discard loop
-			// below. Same bounded-wait shape as coopEmitBlockingPush()'s
-			// MN-8 bypass; capped at 100ms so a dead transport (onConnect<0,
+			// below. Same bounded-wait shape as coopEmitBlockingPush()'s wait on
+			// a full g_txQ; capped at 100ms so a dead transport (onConnect<0,
 			// nothing will ever drain g_txQ again) cannot stall a
 			// deliberate quit.
 			for (int i = 0; i < 50 && !g_txQ.empty() && onConnect >= 0; ++i)
@@ -46098,8 +46073,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 	    OpenXcom::disconnectRendezvousUdp();
 
-		// SPEC 16 M4 (bugfix, WV-D77 traced via coop-DEBUG-M4
-		// instrumentation, 2026-09-17): a client's battle_leave can already
+		// A client's battle_leave can already
 		// be sitting in g_rxQ the instant this HOST-side reactive teardown
 		// runs - onConnect==-2 detection (above, in updateCoopTask()) and
 		// the client's own send race on the SAME tick, and THIS branch runs
@@ -46111,7 +46085,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// a battle_leave that DID arrive in time. Peek g_rxQ here, BEFORE it
 		// is wiped, and apply any battle_leave found exactly like
 		// onTCPMessage's own handler does. Scoped to spareAuthorityOnPeerAbsent:
-		// peerLeftByChoice is only ever read by the M1 pause it is about to
+		// peerLeftByChoice is only ever read by the partner-drop pause it is about to
 		// enter, so there is nothing to preserve on a full teardown.
 		if (spareAuthorityOnPeerAbsent)
 		{
@@ -46130,7 +46104,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 					coopBattleAuthority().peerLeftByChoice = true;
 				}
 				// every other queued message is stale for the paused battle
-				// - it resumes only via a fresh rejoin-restream (M5) - so
+				// - it resumes only via a fresh rejoin-restream - so
 				// dropping it here is the SAME "stale queues must still
 				// drop" call clearNetworkSessionQueues() makes a few lines
 				// below; this loop is that same drain, done one step
@@ -46140,7 +46114,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 		// Clear all shared TCP/UDP packet queues after the transport is stopped.
 		// This prevents stale packets from the previous session from affecting
-		// a newly hosted or joined session. SPEC 16 M1: on the mid-Active-battle
+		// a newly hosted or joined session. On the mid-Active-battle
 		// leave path this spares resetBattleAuthority()/CoopIdMaps::reset()/
 		// CoopHandshake::resetPendingState() so the battle, battleId, seat map,
 		// turnMode and baton survive; the queue clear itself (CoopPump::reset,
@@ -46153,20 +46127,20 @@ void connectionTCP::disconnectTCP(bool isMain)
 			if (rejoinLost) // coop: back to the pause the lost rejoin started from
 			{
 				CoopHandshake::coopRestorePauseAfterLostRejoin();
-				Log(LOG_WARNING) << "[coop-handshake] R4-L2: the rejoiner was lost during the rejoin - the pause is kept (battleId="
+				Log(LOG_WARNING) << "[coop-handshake] the rejoiner was lost during the rejoin - the pause is kept (battleId="
 					<< coopBattleAuthority().battleId.load() << ")";
 			}
 		}
 
-		// coop D250-U S-C3 (L-H37-1, QH37-2 (a); F14685): while the gm3 alien host runs a battle in the X-COM player's borrowed world, a
-		// drop clears nothing there: the battle's target (its mirror) and the craft on it stay for the rejoin, and the alien host's own
-		// world keeps its marks of that player until the player's first position snapshot after the battle. A failed borrowed start
-		// goes home first (coopUnwindFailedStart); the drop then clears the alien host's own world as every campaign drop does. A
-		// part 2 waiting for that player keeps the borrow as a battle does (coop FS2-G3: coopUnwindFailedStart parks it, no swap back).
+		// coop: while the gm3 alien host runs a battle in the X-COM player's borrowed world, a drop clears nothing there: the battle's target
+		// (its mirror) and the craft on it stay for the rejoin, and the alien host's own world keeps its marks of that player until the
+		// player's first position snapshot after the battle. A failed borrowed start goes home first (coopUnwindFailedStart); the drop then
+		// clears the alien host's own world as every campaign drop does. A part 2 waiting for that player keeps the borrow as a battle does
+		// (coopUnwindFailedStart parks it, no swap back).
 		const bool coopPvpBorrowedAtDrop = teardownAsHost && coopPvpParkedWorld() != nullptr;
 		// coop: the partner dropped from the host - every geoscape
 		// popup holding one of the mirrors deleteAllCoopBases() deletes below closes first, as its CANCEL does, so none reads or writes
-		// them after RESUME (lh76-1-cap F22185-F22187). Other teardowns leave for the main menu or pop their own states.
+		// them after RESUME. Other teardowns leave for the main menu or pop their own states.
 		if (teardownAsHost && onConnect == -2 && !coopPvpBorrowedAtDrop)
 			coopCloseMirrorHoldersAtDrop(_game);
 		if (!coopPvpBorrowedAtDrop)
@@ -46230,7 +46204,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 			// screen) keeps re-opening the lobby: that IS where it belongs.
 			// coop: ...unless the host is already leaving for the main menu (a game-ending
 			// slideshow, or the frame before MainMenuState::init ends the session): no lobby and no wait dialog over
-			// that exit (issue #79, D156 (a), D239 (a)).
+			// that exit (issue #79).
 			const char* leavingVia = coopLeavingForMainMenu(_game);
 			if (leavingVia)
 			{
@@ -46268,16 +46242,16 @@ void connectionTCP::disconnectTCP(bool isMain)
 				}
 				else if (spareAuthorityOnPeerAbsent)
 				{
-					// SPEC 16 M2 (drain-first): the co-op battle authority
-					// survives this leave (M1), so the host's in-flight
+					// Drain first: the co-op battle authority
+					// survives this leave, so the host's in-flight
 					// BState chain (a walk, a turn, an AI/endturn side) must
 					// be allowed to drain to its own boundary (action_end /
 					// side_begin) before the pause modal steals the top of
 					// the state stack - pushing it here, synchronously, would
 					// freeze the battlescape's think() mid-chain, since only
-					// the TOP state thinks. Defer to the RB-D5 pump point's
-					// quiescence check (connectionTCP::updateCoopTask())
-					// instead; it consumes g_coopPauseModalPending the moment
+					// the TOP state thinks. Defer to the pump's quiescence
+					// check (connectionTCP::updateCoopTask()) instead; it
+					// consumes g_coopPauseModalPending the moment
 					// CoopArbiter::currentActionId() reads 0.
 					if (!waitDialogPresent)
 					{
@@ -46288,7 +46262,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 				{
 					coopWriteArmedSaveOnPeerDrop(_game); // coop: write the deferred save this drop disarms, close the 54
 					connectionTCP::session.freeze();
-					// coop W2-H73 (spec E2; R-TR9-2 fix (m)): a host viewing the partner's base returns to its own world first; E4 opens the 62
+					// coop: a host viewing the partner's base returns to its own world first; the 62 then opens after the reload (updateCoopTask)
 					if (!coopHostDropLeavesPeerView(_game))
 						_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
@@ -46362,12 +46336,12 @@ void connectionTCP::disconnectTCP(bool isMain)
 			// && hostSim inside); a no-op here whenever the battle already
 			// ended or never started (getStaticBattle() null).
 			//
-			// NOT on the M1 mid-Active pause path
+			// NOT on the mid-Active partner-drop pause path
 			// (spareAuthorityOnPeerAbsent). The absent seat there is
 			// PAUSED-and-coming-back, not gone - recomputing `needed` down
 			// to the surviving seat count would leave the host armed to
-			// close the side SOLO (a "END TURN 1/1" state), which D91
-			// forbids. The tally must freeze at its pre-drop value; a
+			// close the side SOLO (a "END TURN 1/1" state) without the paused
+			// seat. The tally must freeze at its pre-drop value; a
 			// rejoin re-streams the live seat set and any subsequent real
 			// teardown still calls onSeatSetChanged() below, unguarded.
 			if (!spareAuthorityOnPeerAbsent)
@@ -46380,7 +46354,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 			connectionTCP::session.resetSession();
 		}
 
-		connectionTCP::no_bases = coopPvpAlienHost && coopPvpParkedWorld() == nullptr; // coop: the gm3 alien host keeps its alien role across its partner's drop (false while it borrows the X-COM world, QC-5)
+		connectionTCP::no_bases = coopPvpAlienHost && coopPvpParkedWorld() == nullptr; // coop: the gm3 alien host keeps its alien role across its partner's drop (false while it borrows the X-COM world)
 		connectionTCP::isCoopBaseLoading = false;
 
 		gamePaused = 0;
@@ -46417,10 +46391,9 @@ void connectionTCP::disconnectTCP(bool isMain)
 
 		coopInventory = false;
 
-		// R1-P4: the BattlescapeState::setCurrentTurn(2) mirror write that used
-		// to run here is gone - a coop hook the r1 vanilla restore stripped.
 		// setPlayerTurn(2) above (connectionTCP's own tracked state) is the
-		// surviving source of truth; the mirror returns with r2 (RB-D9/RB-D11).
+		// source of truth for the turn; there is no BattlescapeState turn
+		// mirror to reset.
 }
 
 std::string connectionTCP::getCurrentClientName()
@@ -46526,17 +46499,17 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 	}
 
 	SavedGame* coopFile = new SavedGame();
-	// coop W2-H86 (docs rewrite/prompts/w2h86_upload_save_crossing.md E1; L-LT17-1, R-LLT17-1-1; F22900-F22915, F22980-F22997): this load only
-	// checks the partner's upload; it must not move the host's saveID. An upload the partner sends on its own (a gift follow-up, the held push
-	// after naming a base, a gm3 hand-off, the battle-entry refresh) carries the id it had when its stream started; a host quick or manual
-	// save during that stream re-mints the id (SaveGameState, W2-H58's copy), and taking the stream's older id here stored the world under one
-	// key and left the host on another, so a partner who dropped and rejoined got a new campaign. The host keeps its id (W2-H84 E1 is the
-	// partner-side twin: a partner's own-world load keeps the id the host sent); with no id yet (0) the upload's is taken, as before.
+	// coop: this load only checks the partner's upload; it must not move the host's saveID. An upload the partner sends on its own (a gift
+	// follow-up, the held push after naming a base, a gm3 hand-off, the battle-entry refresh) carries the id it had when its stream started;
+	// a host quick or manual save during that stream re-mints the id (SaveGameState; the partner worlds are copied to the new id), and
+	// taking the stream's older id here would store the world under one key and leave the host on another, so a partner who dropped and
+	// rejoined would get a new campaign. The host keeps its id (a partner's own-world load likewise keeps the id the host sent); with no id
+	// yet (0) the upload's is taken.
 	const long long hostSaveId = connectionTCP::saveID;
 	coopFile->loadCoopSaveFromMemory(scratchKey, _game->getMod(), _game->getLanguage(), scratchKey);
 	if (hostSaveId != 0 && connectionTCP::saveID != hostSaveId)
 	{
-		Log(LOG_INFO) << "[coop] W2-H86: partner upload validated - saveID stays " << hostSaveId << " (the upload's is "
+		Log(LOG_INFO) << "[coop] partner upload validated - saveID stays " << hostSaveId << " (the upload's is "
 			<< connectionTCP::saveID << ")";
 		connectionTCP::saveID = hostSaveId;
 	}
@@ -46651,7 +46624,7 @@ bool connectionTCP::coopWorldStreamBusy()
 // LoadGameState :250-279's world half for the
 // world held under @a key - sends nothing, pushes no state. False (the live world kept) when it is missing or fails.
 // ===== coop: gm3 PvP campaign battles in the X-COM client's borrowed world =====
-struct CoopPvpLand { bool pending = false, blobReady = false; std::string kind, craftType; int craftId = -1; bool missionTexNull = true, globeTexNull = true; int missionTex = 0, globeTex = 0, shade = 0; int alienBaseCoopId = 0; }; // coop: + the hand-off's alien base (L-D250-SC1-1)
+struct CoopPvpLand { bool pending = false, blobReady = false; std::string kind, craftType; int craftId = -1; bool missionTexNull = true, globeTexNull = true; int missionTex = 0, globeTex = 0, shade = 0; int alienBaseCoopId = 0; }; // coop: + the hand-off's alien base
 static CoopPvpLand g_coopPvpLand;             // coop: HOST - the request waiting for its world
 static Json::Value g_coopPvpLandMsg;          // coop: HOST - the request's whole message (a base defence: its base and attack)
 static SavedGame* g_coopPvpParked = nullptr;  // coop: HOST - the parked alien world
@@ -46693,7 +46666,7 @@ bool CoopHandshake::requestPvpLanding(Game* game, Craft* craft, Texture* mission
 	msg["state"] = "pvp_land"; msg["kind"] = "landing"; msg["craftType"] = type; msg["craftId"] = id; msg["shade"] = shade;
 	msg["missionTex"] = missionNull ? Json::Value() : Json::Value(missionTex);
 	msg["globeTex"] = globeNull ? Json::Value() : Json::Value(globeTex);
-	// coop D250-U S-C5a (L-D250-SC1-1; F14321): an alien base keeps no coop id in the craft save, so the hand-off names it
+	// coop: an alien base keeps no coop id in the craft save, so the hand-off names it
 	if (AlienBase* ab = dynamic_cast<AlienBase*>(craft->getDestination()); ab && ab->_coop)
 		msg["alienBaseCoopId"] = ab->_coop_alienbase_id;
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
@@ -46737,7 +46710,7 @@ void connectionTCP::coopPvpLandReceived(const Json::Value& obj) // coop: HOST - 
 	land.globeTexNull = obj.get("globeTex", Json::Value()).isNull(); land.globeTex = land.globeTexNull ? 0 : obj["globeTex"].asInt();
 	land.shade = obj.get("shade", 0).asInt(); land.pending = true; land.blobReady = false;
 	g_coopPvpLandMsg = obj; // coop: the kind's own fields (a base defence: its base and the attack)
-	land.alienBaseCoopId = obj.get("alienBaseCoopId", 0).asInt(); // coop D250-U S-C5a (L-D250-SC1-1): the hand-off's alien base, 0 = none
+	land.alienBaseCoopId = obj.get("alienBaseCoopId", 0).asInt(); // coop: the hand-off's alien base, 0 = none
 	Log(LOG_INFO) << "[coop-pvp] host: landing request for craft " << land.craftType << "-" << land.craftId << " - waiting for its world";
 }
 
@@ -46816,7 +46789,7 @@ void connectionTCP::coopPvpRebuildTarget(SavedGame* borrowed, Craft* craft, int 
 		}
 		craft->relinkCoopDestination(borrowed);
 	}
-	// coop D250-U S-C5a (L-D250-SC1-1; F14321): the alien base the hand-off names (an alien base keeps no coop id in the craft save):
+	// coop: the alien base the hand-off names (an alien base keeps no coop id in the craft save):
 	// its mirror is rebuilt in the borrowed world from the host's own live base, as the client mirror sync builds one (onTCPMessage
 	// "target_positions"), and the craft heads for it. No live base with that id = no mirror = refused "target" below.
 	if (craft && alienBaseCoopId != 0 && craft->getDestination() && craft->getDestination()->getType() == "STR_WAY_POINT")
@@ -46838,7 +46811,7 @@ void connectionTCP::coopPvpRebuildTarget(SavedGame* borrowed, Craft* craft, int 
 	}
 }
 
-// coop D250-U S-C1 (QC-1, QC-3..QC-5): the main-thread pump - the borrow (HOST) / the hold release (CLIENT); never from the receive path.
+// coop: the main-thread pump - the borrow (HOST) / the hold release (CLIENT); never from the receive path.
 void connectionTCP::coopPvpBorrowPump()
 {
 	if (!getServerOwner())
@@ -46915,7 +46888,7 @@ void connectionTCP::coopPvpBorrowPump()
 	{
 		// coop: vanilla's Cydonia generation on the borrowed craft. ConfirmCydoniaState::btnYesClick pops two
 		// states (itself and the destination picker under it), which the host does not have, so its state goes after ONE pop, as
-		// vanilla's own pop-then-startCoopMission: generation, RV-21's guest merge (empty here), offerBattle (gm3 seats), the briefing.
+		// vanilla's own pop-then-startCoopMission: generation, the guest merge (empty here), offerBattle (gm3 seats), the briefing.
 		ConfirmCydoniaState* ccs = new ConfirmCydoniaState(craft);
 		_game->pushState(ccs);
 		_game->popState();
@@ -46945,9 +46918,9 @@ Json::Value connectionTCP::coopPvpBorrowRecord() // coop: the record plus the li
 // coop: HOST - the live world is the borrowed X-COM world / the parked alien world while borrowing.
 bool connectionTCP::coopPvpBorrowActive() { return getServerOwner() && g_coopPvpParked != nullptr; }
 SavedGame* connectionTCP::coopPvpParkedWorld() { return g_coopPvpParked; }
-// coop W2-H49 (L-SC5-4; R-H49-0 = O1, aud-E1-05; F17600-F17609): the world a save belongs to. While the gm3 alien host borrows the
-// X-COM player's world for a battle, its saves write its own parked world (coopPvpSaveWorld), so the ironman rules and the ironman file
-// name are that world's, as in its own campaign; everywhere else (the client included) the live world, as before.
+// coop: the world a save belongs to. While the gm3 alien host borrows the X-COM player's world for a battle, its saves write its own
+// parked world (coopPvpSaveWorld), so the ironman rules and the ironman file name are that world's, as in its own campaign; everywhere
+// else (the client included) the live world.
 SavedGame* connectionTCP::coopPvpSaveOwner(SavedGame* live) { return coopPvpBorrowActive() ? g_coopPvpParked : live; }
 
 static void coopPvpNotePositionsSkipped() // coop: the borrow record's count (get_coop.pvpBorrow.positionsSkipped), nothing else
@@ -46965,7 +46938,7 @@ void connectionTCP::coopPvpBorrowDrop() // coop: the main-menu chokepoint - a pa
 
 void connectionTCP::coopPvpPeerDropped() // coop: HOST - a peer drop ends a landing request still waiting
 {
-	if (!g_coopPvpLand.pending) return; // nothing waits: a borrow clears the request at its swap (S-C1 step 4)
+	if (!g_coopPvpLand.pending) return; // nothing waits: a borrow clears the request at its swap (coopPvpBorrowPump's step (4))
 	if (g_coopPvpLand.kind == "baseDefense" && g_coopPvpLand.blobReady) return; // coop: an attack on the X-COM player's base waits for the player
 	g_coopPvpLand = CoopPvpLand();
 	g_coopPvpRec["requestDropped"] = g_coopPvpRec["requestDropped"].asInt() + 1;
@@ -46976,7 +46949,7 @@ void connectionTCP::coopPvpPeerDropped() // coop: HOST - a peer drop ends a land
 Json::Value connectionTCP::coopPvpSaveMarker;   // coop: set only while the parked world is written (SavedGame::save's header)
 Json::Value connectionTCP::coopPvpLoadedBorrow; // coop: the borrow record of the last menu-loaded save (SavedGame::load)
 
-// coop: H4 step (3)'s view of @a w (getFunds() as no_bases reads at the call).
+// coop: the view of @a w that coopPvpBorrowPump's step (3) records (getFunds() as no_bases reads at the call).
 static Json::Value coopPvpResumeView(SavedGame* w)
 {
 	Json::Value view, realBases(Json::arrayValue), ids(Json::objectValue), jb;
@@ -47158,7 +47131,7 @@ void connectionTCP::coopPvpShowResumedBattle()
 }
 
 // ===== coop: a gm3 borrowed battle's return =====
-// coop D250-U S-C2: HOST - the post-battle X-COM world is stored at the debriefing for the push (E4).
+// coop: HOST - the post-battle X-COM world is stored at the debriefing for the push.
 // The old entry goes first and the flag is set in every case, so the stream never sends a stale world or the (maybe alien) live one.
 static void coopPvpStorePostBattleWorld(Game* game)
 {
@@ -47178,7 +47151,7 @@ static void coopPvpStorePostBattleWorld(Game* game)
 	g_coopPvpRec["worldStored"] = g_coopPvpRec["worldStored"].asInt() + 1;
 }
 
-// coop: HOST - true once after a store (E6 then streams the stored world instead of saving the live one).
+// coop: HOST - true once after a store (the world stream then sends the stored world instead of saving the live one).
 static bool coopPvpTakeStoredWorld()
 {
 	const bool stored = g_coopPvpWorldStored;
@@ -47186,7 +47159,7 @@ static bool coopPvpTakeStoredWorld()
 	return stored;
 }
 
-// coop: CLIENT - from the SHARED leave (E10) on the adopted world: vanilla's OK-time writes on the X-COM
+// coop: CLIENT - from the SHARED leave on the adopted world: vanilla's OK-time writes on the X-COM
 // player's own base (DebriefingState::btnOkClick's wounded unassign) and the end of the borrowed return.
 void connectionTCP::coopPvpClientLeave(Game* game, DebriefingState* db)
 {
@@ -47207,7 +47180,7 @@ void connectionTCP::coopPvpClientLeave(Game* game, DebriefingState* db)
 	Log(LOG_INFO) << "[coop-pvp] client: back on its own geoscape with the battle's results";
 }
 
-// coop D250-U S-C2 (owner D250, O1 (a); QC-10, QC-11, QC2-A-1 (a)): HOST - the borrowed battle's OK (E12). The target's fate is read on
+// coop: HOST - the borrowed battle's OK. The target's fate is read on
 // the live (borrowed, post-battle) world BEFORE the swap back and applied on the restored alien world AFTER it. Vanilla's exit never runs
 // here: its follow-up screens, event and forced screens belong to the X-COM player's world, which the swap back deletes.
 bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk)
@@ -47215,7 +47188,7 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 	const std::string kind = g_coopPvpRec.get("targetKind", "").asString();
 	const int coopId = g_coopPvpRec.get("targetCoopId", 0).asInt();
 	const bool mirror = g_coopPvpRec.get("targetMirror", false).asBool();
-	bool present = false; // (1) the target (its mirror) still on the post-battle world; S-C2 acts on kind "site"
+	bool present = false; // (1) the target (its mirror) still on the post-battle world
 	if (kind == "site")
 	{
 		for (auto* ms : *_game->getSavedGame()->getMissionSites())
@@ -47242,7 +47215,7 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 		}
 	}
 	{
-		// (2) the host's copy of the X-COM player's world is the post-battle world stored at the debriefing (E4)
+		// (2) the host's copy of the X-COM player's world is the post-battle world stored at the debriefing
 		std::lock_guard<std::mutex> lock(coopFilesMutex);
 		auto it = coopFilesHost.find("shared_world");
 		if (it != coopFilesHost.end())
@@ -47256,7 +47229,7 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 	coopPvpSwapBack(_game);
 	SavedGame* home = _game->getSavedGame();
 	const bool ironman = home->isIronman();
-	// QC2-A-1 (a): the restored world's view, built as H4's `parked` (getFunds() with no_bases true again)
+	// the restored world's view, built as the `parked` record is (getFunds() with no_bases true again)
 	Json::Value homeRec, realBases(Json::arrayValue), ids(Json::objectValue), jb;
 	for (auto* base : *home->getBases())
 		if (!base->_coopBase && !base->_coopIcon)
@@ -47270,7 +47243,7 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 	homeRec["realBases"] = realBases; homeRec["ids"] = ids;
 	homeRec["daysPassed"] = home->getDaysPassed(); homeRec["monthsPassed"] = home->getMonthsPassed();
 	g_coopPvpRec["home"] = homeRec;
-	std::string action = "untouched"; // (4) the target on the alien world; kinds "ufo" / "alienBase" until S-C5a
+	std::string action = "untouched"; // (4) the target on the alien world
 	if (kind == "site")
 	{
 		action = !mirror ? "own" : (present ? "kept" : "deleted");
@@ -47419,7 +47392,7 @@ bool CoopHandshake::requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo)
 	return true;
 }
 
-// coop: H4 step (3)'s view of @a w (getFunds() as no_bases reads now: 1000 on the alien host before the swap).
+// coop: the view of @a w that coopPvpBorrowPump's step (3) records (getFunds() as no_bases reads now: 1000 on the alien host before the swap).
 static Json::Value coopPvpWorldView(SavedGame* w)
 {
 	Json::Value view, realBases(Json::arrayValue), ids(Json::objectValue), jb;
@@ -47439,7 +47412,7 @@ static Json::Value coopPvpWorldView(SavedGame* w)
 
 // coop: HOST - the borrow for the X-COM player's base under attack (kind "baseDefense"; the pump's
 // step (1) loaded @a borrowed): the base by its index and name, the parked world's view, the swap, then the defence by vanilla's own start
-// (GeoscapeState::coopStartBorrowedBaseDefense). A start that generates nothing goes home and releases the player, as H4's step (8).
+// (GeoscapeState::coopStartBorrowedBaseDefense). A start that generates nothing goes home and releases the player, as coopPvpBorrowPump's step (8) does.
 void connectionTCP::coopPvpBorrowBaseDefense(SavedGame* borrowed)
 {
 	const int index = g_coopPvpLandMsg.get("baseIndex", -1).asInt();
@@ -47477,7 +47450,7 @@ bool connectionTCP::coopPvpRearmBaseDefense()
 	g_coopPvpLand.pending = g_coopPvpLand.blobReady = true;
 	g_coopPvpRec["rearmed"] = g_coopPvpRec["rearmed"].asInt() + 1;
 	Log(LOG_WARNING) << "[coop-pvp] host: the defence of base " << g_coopPvpLandMsg.get("baseName", "").asString()
-		<< " waits for the X-COM player (D260)";
+		<< " waits for the X-COM player";
 	return true;
 }
 

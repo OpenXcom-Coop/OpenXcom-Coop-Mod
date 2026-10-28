@@ -20,7 +20,7 @@
 #include "../Engine/TouchState.h"
 #include <vector>
 #include "SoldierSortUtil.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H16b (PRD-J10 live refresh)
+#include "../CoopMod/SharedEcon.h" // coop: SHARED soldier lists and live refresh
 
 namespace OpenXcom
 {

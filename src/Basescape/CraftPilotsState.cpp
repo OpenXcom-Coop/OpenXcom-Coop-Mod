@@ -247,7 +247,7 @@ void CraftPilotsState::btnRemoveAllClick(Action *)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 
-	if (SharedEcon::removeOwnCraftPilots(_game, c)) { updateUI(); return; } // coop W2-H16f (aud-E1-11): SHARED - your own pilots only; the host applies it
+	if (SharedEcon::removeOwnCraftPilots(_game, c)) { updateUI(); return; } // coop: SHARED - your own pilots only; the host applies it
 	c->removeAllPilots();
 
 	updateUI();

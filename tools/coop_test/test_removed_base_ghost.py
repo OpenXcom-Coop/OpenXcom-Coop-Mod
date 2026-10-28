@@ -22,7 +22,7 @@ per machine (real INTERCEPT + CANCEL). HB_ID = the host's first base id (mir(cli
   END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
 Red today: G-a, G-rt, G-open, G-stash FAIL (4 of 9); every other cell PASS. Green (EA1-EA4): all 9 PASS.
 mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon, coopBase,
-lon, lat]. LINE(id) = engine-log lines holding "[coop] W2-H83: removed base id=<id> cache=". Every press is a real click_widget or
+lon, lat]. LINE(id) = engine-log lines holding "[coop] removed base: id=<id> cache=". Every press is a real click_widget or
 inject_input except the logged levers build_new_base and geo_set_speed. One EVIDENCE line per row, one PASS / FAIL line per cell, then the
 row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes on; a boot miss fails G-pre with
 ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
@@ -40,8 +40,8 @@ LIFT = (80, 80)                             # build_new_base's lift (2, 2), Base
 KEY_1, KEY_2, ZOOM_MIN, SYM_PLUS = 49, 50, 3, 43
 DEL_SETTLE, RT_SETTLE, GONE_S = 3.0, 3.0, 2.0
 W_OPEN, BOOT_S = 20.0, 60.0
-NEEDLE = "[coop] W2-H83: removed base id=%s cache="
-LOGN = ("[coop] W2-H83", "[coop] W2-H62", "[coop-session]", "coop-ui] push", "coop-ui] pop")
+NEEDLE = "[coop] removed base: id=%s cache="
+LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ROWS = (("G", ("G-pre", "G-a", "G-rt", "G-open", "G-stash", "G-mir")), ("C", ("C-pre", "C-gone")), ("END", ("CRASH",)))
 RED = ("G-a", "G-rt", "G-open", "G-stash")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)

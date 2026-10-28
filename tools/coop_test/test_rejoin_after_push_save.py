@@ -9,7 +9,7 @@ placement: a fresh world is evidence); RESUME only after the host's ack (resume_
   Row C2 (capture "extra c2") BOOT; S1; D1; REJOIN(2) + RESUME; GIFT (the host's real presses) + PUSH (client2's unasked upload); D2 =
           client2 dropped at the host's first 54 of the next quick save (probe: id3, host_<id3>, host_<host id before D2>); REJOIN(3); read R.
           C2-pre (GUARD) S1, D1, REJOIN(2) ack + RESUME, GIFT + PUSH, D2 (54 seen, 62 after the kill).
-          C2-copied (RED) the host's log since D2's trigger: "[coop] W2-H58: N partner world(s) copied from saveID A to id3" with N >= 1.
+          C2-copied (RED) the host's log since D2's trigger: "[coop] N partner world(s) copied from saveID A to id3" with N >= 1.
           C2-key (RED) at D2's 54: host_<id3> present.  C2-rejoin (RED) REJOIN(3): no BuildNewBaseState, 68 within JOIN_S, ack within ACK_S.
           C2-world (RED) read R: client3's own bases == MARKER's and its soldiers hold the gifted one.
           C2-resume (RED) resume_and_clear ok and both tops GeoscapeState.  C2-common (GUARD) host + client3 alive, no new crash file.

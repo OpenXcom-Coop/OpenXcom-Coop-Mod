@@ -405,7 +405,7 @@ void SellState::think()
 {
 	State::think();
 
-	if (SharedEcon::sellScreenShouldClose(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop (W2-P7 S-C-D2, P7-7 PR-30/PR-31): answered / solved
+	if (SharedEcon::sellScreenShouldClose(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop: answered / solved
 	// PRD-J10: same pop-and-rebuild the _reset path above already uses (this screen
 	// treats "construct again" as its refresh).
 	if (_sharedRefresh.consume())
@@ -725,7 +725,7 @@ void SellState::btnOkClick(Action *)
 			}
 		}
 		int coopSeq = 0; // coop: the submitted command's seq
-		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState || _sharedSel.listed()) // coop (W2-P7 S-C-E2, F6341, V-E3): the shared list's hidden rows
+		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState || _sharedSel.listed()) // coop: the shared list's hidden rows
 		{
 			Json::Value payload;
 			payload["items"] = items;
@@ -734,7 +734,7 @@ void SellState::btnOkClick(Action *)
 			payload["scientists"] = scientists;
 			payload["engineers"] = engineers;
 			if (_debriefingState) payload["debrief"] = true; // coop: page 3 rides the apply
-			if (_debriefingState == 0 && _origin == OPT_BATTLESCAPE) payload["origin"] = "forced"; // coop (W2-P7 S-C-D2, PR-32/PR-33, MR15)
+			if (_debriefingState == 0 && _origin == OPT_BATTLESCAPE) payload["origin"] = "forced"; // coop: a forced sell from the battle (no debriefing)
 			_sharedSel.stamp(payload); // coop
 			for (const auto& row : _items)
 				if (_debriefingState && row.type == TRANSFER_ITEM)
@@ -745,7 +745,7 @@ void SellState::btnOkClick(Action *)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
 			coopSeq = SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
 		}
-		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop (W2-P7 S-C-D2, PR-30, MR9/MR10): wait for the host
+		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop: wait for the host
 		_game->popState();
 		return;
 	}

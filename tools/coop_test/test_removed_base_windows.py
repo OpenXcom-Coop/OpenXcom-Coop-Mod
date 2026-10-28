@@ -4,7 +4,7 @@ Spec docs rewrite/prompts/w2h83_removed_base_views.md (common) + rewrite/prompts
 amendment); TASK 0 values in rewrite/w2h83-task0/sb2/CONSTANTS.md. Today a window opened on a base keeps it after the other player removes
 that base (DISMANTLE, TRANSFER base list, INTERCEPT, MONTHLY COSTS over BASE INFORMATION, the SEPARATE TRANSFER list of shown mirrors), and
 BASE INFORMATION under STORES re-reads the freed base (it killed the client in both TASK 0 red boots). The green (F1-F9) closes every such
-screen top down right after the co-op drain, one engine line per screen: "[coop] W2-H83: closed <class> - the base it shows is gone".
+screen top down right after the co-op drain, one engine line per screen: "[coop] removed base: closed <class> - the base it shows is gone".
 TWO boots, each shut down before the next (key KEY). The window mapping per machine: real INTERCEPT + CANCEL.
 SHARED boot (dirs w2h83_w_*, campaign_mode "shared"): spawn + connect; session.new_campaign; geo_set_speed idx 0 both; B0 = the one base; the
   host's build_new_base SharedBase2 .. SharedBase7 at P1 .. P6, each on both lists before the next (set_funds on BOTH machines only if the
@@ -38,7 +38,7 @@ END       CRASH (GUARD): no new crash file in the lane's crash folder over both 
 Red today: DF / TB / IC / MC / ST -pop -view -log and TS -pop -view -hide -log FAIL (19 of 28), plus CRASH when the client died inside ST;
 every other cell PASS. Green (F1-F9): all 28 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false;
 census rows [coopBaseId, name, coopIcon, coopBase, lon, lat]. CLOSED(gc, since) = the class names of the engine-log lines holding
-"[coop] W2-H83: closed " since the mark, top first. Every press is a real click_widget or inject_input except the logged levers
+"[coop] removed base: closed " since the mark, top first. Every press is a real click_widget or inject_input except the logged levers
 build_new_base, geo_set_speed, set_funds and fac_dismantle (ST only). One EVIDENCE line per row, one PASS / FAIL line per cell, then the row
 verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes on; a boot miss fails its first row's
 -pre cell with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
@@ -54,8 +54,8 @@ P = [(LAND_LON + 0.03 * k, LAND_LAT + 0.03) for k in range(1, 6)] + [(LAND_LON +
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_1, ZOOM_MIN, SYM_PLUS = 49, 3, 43
 W_POP, RT_SETTLE, BOOT_S = 2.0, 3.0, 60.0
-CLOSED = "[coop] W2-H83: closed "
-LOGN = ("[coop] W2-H83", "[coop-session]", "coop-ui] push", "coop-ui] pop", "shared_resync")
+CLOSED = "[coop] removed base: closed "
+LOGN = ("[coop] removed base: ", "[coop-session]", "coop-ui] push", "coop-ui] pop", "shared_resync")
 WIN = {"CTL": ["BaseInfoState"], "DF": ["DismantleFacilityState"], "TB": ["TransferBaseState"], "IC": ["InterceptState"],
        "MC": ["MonthlyCostsState", "BaseInfoState"], "ST": ["StoresState", "BaseInfoState"], "TS": ["TransferBaseState"]}
 SHAPE = {"CTL": ["BasescapeState", "BaseInfoState"], "DF": ["BasescapeState", "DismantleFacilityState"],
@@ -120,7 +120,7 @@ def logl(gc):
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 def lines_since(gc, n0): return [ln.split("\t")[0][-13:-1] + " " + ln.split("\t")[-1][:200] for ln in logl(gc)[n0:] if any(n in ln for n in LOGN)]
 def closed(gc, n0):
-    """CLOSED(gc, since): the class names of the '[coop] W2-H83: closed ' lines since the mark, in log order (top first)"""
+    """CLOSED(gc, since): the class names of the '[coop] removed base: closed ' lines since the mark, in log order (top first)"""
     return [ln.split(CLOSED, 1)[1].split(" - ")[0].replace("class ", "").replace("OpenXcom::", "").strip() for ln in logl(gc)[n0:] if CLOSED in ln]
 def wait(pred, timeout, interval=0.05):
     t0 = time.time()

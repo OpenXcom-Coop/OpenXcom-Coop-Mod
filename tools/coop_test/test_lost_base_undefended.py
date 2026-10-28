@@ -34,8 +34,8 @@ LIFTS = ((2, 2), (3, 2), (2, 3), (3, 3))    # the lift tile, then its replacemen
 RT_SETTLE, PLUS10_S, GONE_S, W_BDS, POS_TOL, BOOT_S = 3.0, 10.0, 1.0, 2.0, 1e-4, 240.0
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
-SKIP_N = "[coop] W2-H80: baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (the green's log line)
-NEEDLES = ("W2-H80", "W2-H62", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
+SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (the green's log line)
+NEEDLES = ("baseRequest not answered", "coopBase3 marker", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
 ROWS = (("R4", ("R4-pre", "R4-gone", "R4-host", "R4-skip0")), ("END", ("CRASH",)))
 RED = ()
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)

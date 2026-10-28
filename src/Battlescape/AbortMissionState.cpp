@@ -218,7 +218,7 @@ void AbortMissionState::btnOkClick(Action *)
 	}
 
 	_game->popState();
-	if (coopAbortVoteRequest(_game, _battleGame)) return; // coop R4-L1 (design-D8, D231, r5-T10): a co-op battle votes
+	if (coopAbortVoteRequest(_game, _battleGame)) return; // coop: a co-op battle votes
 	_battleGame->setAborted(true);
 	_state->finishBattle(true, _inExit);
 }

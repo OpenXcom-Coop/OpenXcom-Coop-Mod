@@ -52,7 +52,7 @@ UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESE
 W_LAND, W_WATCH, ADV_CAP, W_BDS, OTHER_HAS, BOOT_S = 5.0, 10.0, 150.0, 6.0, 30.0, 60.0
 S_LOSS, S_BUILD, SPEED = 2.0, 1.0, 4
 RCP = "[coop-ui] push class OpenXcom::ResearchCompleteState"
-LOGN = ("[coop-ui]", "W2-H83", "basehost", "delete_base", "LoadGameState")
+LOGN = ("[coop-ui]", "[coop] removed base: ", "basehost", "delete_base", "LoadGameState")
 ROWS = (("RL3", ("RL3-pre", "RL3-land", "RL3-popup")), ("RL1", ("RL1-pre", "RL1-land", "RL1-popup", "RL1-index")),
         ("RL2", ("RL2-pre", "RL2-land", "RL2-popup", "RL2-index")), ("END", ("CRASH",)))
 RED = ("RL1-land", "RL1-popup", "RL2-land", "RL2-popup")

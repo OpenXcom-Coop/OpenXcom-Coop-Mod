@@ -309,7 +309,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 			_dynGetter = compFunc->getGetter();
 		}
 
-		// coop W2-H16d (#65 playtest rule, the CraftSoldiersState fence): SHARED must not reorder the shared
+		// coop (issue #65, as in CraftSoldiersState): SHARED must not reorder the shared
 		// roster; keep the dynamic-stat column but skip the sort mutations.
 		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 		{
@@ -367,7 +367,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 	}
 	else
 	{
-		// coop W2-H16d (#65 playtest rule): in SHARED "original order" is the shared order - never re-append it.
+		// coop (issue #65): in SHARED "original order" is the shared order - never re-append it.
 		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
 		{
 			initList(_lstSoldiers->getScroll());
@@ -473,7 +473,7 @@ void SoldiersState::initList(size_t scrl)
 					// soldiers outside of the base are not eligible
 					continue;
 				}
-				if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists own soldiers only (aud-E1-11)
+				if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists own soldiers only
 				if (soldier->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(soldier);
@@ -665,7 +665,7 @@ void SoldiersState::btnOkClick(Action *)
 {
 
 	// coop campaign
-	// coop W2-H70 S-C: also while the live world is the partner's
+	// coop: also while the live world is the partner's
 	// base view after a 67 cleared the visit flag, so a change made then reaches "basehost" and survives the leave.
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{

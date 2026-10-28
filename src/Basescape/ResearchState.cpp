@@ -328,7 +328,7 @@ void ResearchState::lstResearchLeftArrowClick(Action* action)
  */
 void ResearchState::moveTopicUp(Action* action, unsigned int row, bool max)
 {
-	// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared research list.
+	// coop (issue #65): SHARED must not reorder the shared research list.
 	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	auto& topics = _base->getResearch();
 	if (max)
@@ -381,7 +381,7 @@ void ResearchState::lstResearchRightArrowClick(Action* action)
  */
 void ResearchState::moveTopicDown(Action* action, unsigned int row, bool max)
 {
-	// coop W2-H16d (#65 playtest rule): SHARED must not reorder the shared research list.
+	// coop (issue #65): SHARED must not reorder the shared research list.
 	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
 	auto& topics = _base->getResearch();
 	if (max)

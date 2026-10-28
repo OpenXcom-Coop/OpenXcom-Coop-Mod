@@ -10,7 +10,7 @@ client on a fresh dir joining by NAME (never a base placement: a fresh world is 
 (resume_and_clear CANCELs a stale 54, F18431).
   Row U2  (capture U2, the heal) CROSSING (CH); NOTICE; S3 = a quick save with the partner running; HOLD; read H; KILL; REJOIN; read R.
           U2-pre (GUARD) every CROSSING step met; NOTICE ok.
-          U2-copied (RED) S3's "[coop] W2-H58: N partner world(s) copied from saveID <id2> to <id3>" with N >= 1.
+          U2-copied (RED) S3's "[coop] N partner world(s) copied from saveID <id2> to <id3>" with N >= 1.
           U2-heal (GUARD) S3 ok, id3 != id2; read H: host == partner == id3 and host_<id3> present.
           U2-rejoin, U2-world, U2-resume, U2-common (GUARD) as UXC's U1 cells (the completed heal save restores the own world).
   Row U2D (the heal-save gap, F22906) CROSSING (CH); NOTICE; D3 = the partner dropped at the host's first 54 of the next quick save

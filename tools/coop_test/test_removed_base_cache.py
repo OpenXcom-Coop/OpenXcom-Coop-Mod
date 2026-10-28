@@ -26,7 +26,7 @@ click on its marker, watch W_OPEN, then (if a view opened) the host's real GEOSC
           shutdown.
 Red today: HA-a0, HA-rt, HA-open, HA-cache, HB-a0, HB-rt, HB-open, HB-cache FAIL (8 of 13); every other cell PASS. Green (EA1-EA4): all
 13 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon,
-coopBase, lon, lat]. LINE(id) = engine-log lines holding "[coop] W2-H83: removed base id=<id> cache=". Every press is a real click_widget
+coopBase, lon, lat]. LINE(id) = engine-log lines holding "[coop] removed base: id=<id> cache=". Every press is a real click_widget
 or inject_input except the logged levers build_new_base, geo_set_speed, the seat levers, drain_host_coop_notice, spawn_mission_site,
 craft_force, set_seed, battle_action abort and drive_both_to_tactical's briefing / equip levers. One EVIDENCE line per row, one PASS / FAIL
 line per cell, then the row verdict; a boot or precondition miss ends its row (ONE CAPTURE line, later cells "not reached") and the file
@@ -46,8 +46,8 @@ LIFT = (80, 80)                             # build_new_base's lift (2, 2), Base
 KEY_2, ZOOM_MIN, SYM_PLUS, SEED = 50, 3, 43, 7
 OK_GAP_S, RT_SETTLE = 4.0, 3.0
 W_OPEN, W_LAND, W_BATTLE, W_DEBRIEF, BOOT_S = 20.0, 60.0, 120.0, 120.0, 60.0
-NEEDLE = "[coop] W2-H83: removed base id=%s cache="
-LOGN = ("[coop] W2-H83", "[coop] W2-H62", "[coop-session]", "coop-ui] push", "coop-ui] pop")
+NEEDLE = "[coop] removed base: id=%s cache="
+LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ROWS = (("HA", ("HA-pre", "HA-a0", "HA-rt", "HA-open", "HA-cache", "HA-cb")),
         ("HB", ("HB-pre", "HB-a0", "HB-rt", "HB-open", "HB-cache", "HB-cb")), ("END", ("CRASH",)))
 RED = ("HA-a0", "HA-rt", "HA-open", "HA-cache", "HB-a0", "HB-rt", "HB-open", "HB-cache")

@@ -62,7 +62,7 @@ UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESE
 SKIP_IDX, EV_CAP, ARRIVE_CAP, SKIP_REAL = 4, 4320, 4317, 150   # ARRIVE_CAP = 3 x TASK 0's 1,439 game min (CONSTANTS.md swap)
 W_OK, W_BDS, OTHER_HAS, W_SAVE, BOOT_S = 10.0, 6.0, 30.0, 5.0, 60.0
 S_LOSS, S_BUILD, S_EVOK, S_ARROK = 2.0, 1.0, 1.5, 0.8
-LOGN = ("[coop-ui]", "W2-H83", "delete_base", "LoadGameState")
+LOGN = ("[coop-ui]", "[coop] removed base: ", "delete_base", "LoadGameState")
 ROWS = (("CTL", ("CTL-pre", "CTL-land")),
         ("HR", ("HR-pre", "HR-items", "HR-craft", "HR-xfer", "HR-arrive", "HR-save")),
         ("CR", ("CR-pre", "CR-items", "CR-craft", "CR-xfer", "CR-arrive", "CR-save")), ("END", ("CRASH",)))

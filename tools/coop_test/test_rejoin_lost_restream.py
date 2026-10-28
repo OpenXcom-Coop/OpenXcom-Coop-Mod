@@ -35,7 +35,7 @@ POLL, W, W_POLL, W_ACK, W_PAUSE, W_FLIGHT = 0.25, 15.0, 0.2, WATCH_CAP_S, 30.0, 
 KEY, TAG = "48601", "w2r4l2_l"
 BS, CS, PROFILE = "BattlescapeState", "CoopState", "Profile"
 OFFER, GUARD = "rejoin battle_offer sent (battleId=", "offerRejoinBattle() called while the battle is not "
-LOST = "R4-L2: the rejoiner was lost during the rejoin - the pause is kept"
+LOST = "the rejoiner was lost during the rejoin - the pause is kept"
 FREEZE, DROP, CLIENT_ACTIVE = "[coop-session] freeze (lobbyMode=", "[coop-session] onClientDrop", "CLIENT phase Active (battleId="
 NEEDLES = {"OFFER": OFFER, "GUARD": GUARD, "LOST": LOST, "FREEZE": FREEZE, "DROP": DROP}
 

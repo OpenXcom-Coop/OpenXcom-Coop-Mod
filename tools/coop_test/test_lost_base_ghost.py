@@ -5,7 +5,7 @@ In a SEPARATE campaign the host owns HB (garrisoned, its first base) and SPARE; 
 host's debriefing erases HB and sends nothing. The HOST presses OK first; its geoscape init asks the client for its bases while the client is
 still on its display-only debriefing in the battle world (the host's world), which answers [HB, SPARE]; W2-H62 EB1 drops SPARE, not HB, so
 the host builds a partner-style marker of its own lost base. Green (E1, TCP): the client does not answer while its live world is the SEPARATE
-battle world (`[coop] W2-H80: baseRequest not answered ...`).
+battle world (`[coop] baseRequest not answered ...`).
 ONE boot (key KEY, dirs w2h80_g_*). Bring-up: spawn + connect both; session.new_campaign (HB at HOST_POS); geo.slow_clock; geo.drain_popups;
 the window mapping per machine from INTERCEPT + CANCEL (real clicks). SPARE: BASES, BUILD NEW BASE, one globe click at PICK, OK, the name keys,
 OK, LIFTS, GEOSCAPE (real clicks). P0: client INTERCEPT + CANCEL, 3 s: host own [HB, SPARE], host mirrors [CB], client mirrors {HB, SPARE}.
@@ -42,10 +42,10 @@ BOOT_S, W_BATTLE, W_DEBRIEF = 240.0, 180.0, 150.0
 ZOOM_MIN, SYM_PLUS, SYM_ESC = 3, 43, 27
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
-SKIP_N = "[coop] W2-H80: baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (client)
-EB1_N = "[coop] W2-H62 S-B: coopBase3 marker"                                                       # host, EVIDENCE only
+SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (client)
+EB1_N = "[coop] coopBase3 marker"                                                       # host, EVIDENCE only
 RETURN_N = "SEPARATE return - own world loaded"                                                      # client
-NEEDLES = ("W2-H80", "W2-H62", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
+NEEDLES = ("baseRequest not answered", "coopBase3 marker", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
 ROWS = (("R1", ("R1-pre", "R1-A0", "R1-RT", "R1-10", "R1-cb", "R1-skip", "R1-own")), ("R2", ("R2-open",)), ("R3", ("R3-mir",)),
         ("END", ("CRASH",)))
 RED = ("R1-A0", "R1-RT", "R1-10", "R1-skip", "R2-open")

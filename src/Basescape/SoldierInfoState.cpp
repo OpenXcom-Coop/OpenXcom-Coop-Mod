@@ -416,7 +416,7 @@ void SoldierInfoState::init()
 		_soldierId = 0;
 	}
 	_soldier = _list->at(_soldierId);
-	_coopShownId = _soldier->getId(); // coop W2-H16c (Q4)
+	_coopShownId = _soldier->getId(); // coop: coopRecheckSoldier finds this soldier again by id
 	_edtSoldier->setBig();
 	_edtSoldier->setText(_soldier->getName());
 	const UnitStats *initial = _soldier->getInitStats();

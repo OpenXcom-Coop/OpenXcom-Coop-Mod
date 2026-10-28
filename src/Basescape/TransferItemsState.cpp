@@ -774,7 +774,7 @@ bool TransferItemsState::submitSharedTransfer()
 		case TRANSFER_ENGINEER:  engineers  += row.amount; break;
 		}
 	}
-	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers && !_sharedSel.listed()) // coop (W2-P7 S-C-E2, F6341, V-E3): the shared list's hidden rows
+	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers && !_sharedSel.listed()) // coop: the shared list's hidden rows
 		return false;
 
 	// A transferred soldier's gear travels with it when "alternate craft equipment
@@ -836,7 +836,7 @@ bool TransferItemsState::submitSharedTransfer()
 	if (_debriefingState) payload["debrief"] = true; // coop: page 3 rides the apply
 	_sharedSel.stamp(payload); // coop
 	const int coopSeq = SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload); // coop
-	return SharedEcon::keepAfterSubmit(_game, SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0), coopSeq, _sharedRefresh.bound()); // MR10: wait for the host
+	return SharedEcon::keepAfterSubmit(_game, SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0), coopSeq, _sharedRefresh.bound()); // coop: wait for the host
 }
 
 /**
