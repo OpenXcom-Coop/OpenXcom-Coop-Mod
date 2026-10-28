@@ -231,6 +231,7 @@ def scenario_conservation():
         print(f"PASS no-world-duplication: world rockets still {world_rockets_after}")
 
         # (2) host visits the client base (client idle) and opens the equip screen
+        session.wait_peer_base_shown(host, cb["name"])
         host.ok({"cmd": "visit_coop_base", "base": cb["name"]})
         host.wait_for("host inside peer base",
                       lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
@@ -338,6 +339,7 @@ def scenario_two_screens_agree():
         assert_transfer_confirms_cleanly(host, client)
 
         # 3. the host visits the peer base and seats the soldier on the peer craft
+        session.wait_peer_base_shown(host, cb["name"])
         host.ok({"cmd": "visit_coop_base", "base": cb["name"]})
         host.wait_for("host inside peer base",
                       lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)

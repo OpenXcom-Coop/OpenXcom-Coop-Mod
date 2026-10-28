@@ -93,6 +93,7 @@ def assert_visited_no_leak(owner_report, visited_report, label):
 
 def run_visited_case(visitor, owner, owner_base_name, label):
     owner_report = owner.ok({"cmd": "base_report"})
+    session.wait_peer_base_shown(visitor, owner_base_name)
     visitor.ok({"cmd": "visit_coop_base", "base": owner_base_name})
     visitor.wait_for("inside peer base",
                      lambda: visitor.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)

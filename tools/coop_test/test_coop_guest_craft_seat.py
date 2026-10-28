@@ -49,20 +49,8 @@ def own_base(gc):
                 if not b["coopBaseFlag"] and not b["coopIcon"] and b["soldiers"])
 
 
-def peer_base_shown(gc, base_name):
-    """Is the partner's base on this machine's geoscape? The same match
-    visit_coop_base makes: a co-op base with that name."""
-    return any(b["name"] == base_name and (b["coopBaseFlag"] or b["coopIcon"])
-               for b in gc.ok({"cmd": "get_soldiers"})["bases"])
-
-
 def enter_peer_base(gc, base_name):
-    # A partner's base marker is never saved, so the own world reloaded when
-    # this machine leaves a partner's base has none until the partner answers
-    # the base request the geoscape sends on init (a few ms, longer under
-    # load). Visit only once the marker is back, as a player clicks it.
-    gc.wait_for(f"{base_name} on the geoscape",
-                lambda: peer_base_shown(gc, base_name) or None, timeout=30)
+    session.wait_peer_base_shown(gc, base_name)
     gc.ok({"cmd": "visit_coop_base", "base": base_name})
     gc.wait_for("inside peer base",
                 lambda: gc.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
