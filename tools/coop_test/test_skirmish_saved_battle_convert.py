@@ -35,7 +35,7 @@ import test_skirmish_flow as SK  # noqa: E402
 KEY3, SEED3 = "49209", 1        # TASK 0 boots a, b, c: N 14 (ids 1-14), T 0, one alien, every seat -1 before the host
 CLIENT_S, STEP_S = 120, 30      # bounds (s); TASK 0: the client in battle 1.16 s after CONTINUE BATTLE (red and green)
 N_CONV = "[coop] MG-B: the single-player Custom Battle is now co-op"
-N_H31 = "W2-H31: no seat has a live unit on the active side"
+N_H31 = "no seat has a live unit on the active side"
 DLG_RESUME_HOLD = 68
 CELLS = ("C1", "C2", "C3", "C4")
 stack, bs, es = session.states_stripped, session.battle_state, session.event_state

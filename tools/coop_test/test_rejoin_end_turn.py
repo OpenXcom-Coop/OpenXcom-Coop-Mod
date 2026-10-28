@@ -29,7 +29,7 @@ PORT_P, PORT_T = "48514", "48523"   # this file's lobby ports (unused by every o
 # TASK 0 (ledger `## W2-H14 TASK 0 DONE`, docs rewrite/w2h14-task0/CONSTANTS.md; 2/2 boots each, identical)
 K_P = 3                             # parallel: both counters after one END TURN cycle (the host keeps it at the pause)
 K_T = 3                             # traditional: baton 0 -> 1 -> 0 -> 1; both counters after the cycle
-SEED_RE = re.compile(r"W2-H14: rejoin END TURN side-phase counter seeded to (-?\d+)")
+SEED_RE = re.compile(r"rejoin END TURN side-phase counter seeded to (-?\d+)")
 BATON_NEEDLE = "[coop-baton] battle save carried coopActiveSeat=1"    # F4058; keep the =1 suffix
 OFFER_NEEDLE = "SPEC16 M5: rejoin battle_offer sent"
 IDLE_S, CYCLE_S, SEAT_S, LOG_FLUSH_S = 30, 60, 15, 3
@@ -58,7 +58,7 @@ def log_count(gc, needle):
 def seeded(gc):
     return [int(m.group(1)) for m in (SEED_RE.search(ln) for ln in log_lines(gc)) if m]
 
-DROP_RE = re.compile(r"W2-H14b: rejoin dropped (\d+) END TURN press")    # W2-H14b's host line (spec w2h14b (e))
+DROP_RE = re.compile(r"rejoin dropped (\d+) END TURN press")    # the host's drop line
 
 def dropped(gc):
     return [int(m.group(1)) for m in (DROP_RE.search(ln) for ln in log_lines(gc)) if m]
@@ -305,11 +305,11 @@ def h14b_3(host, c2, ctx):
     ht, ct = ([(x["coopEndTurnTally"] or {}).get(k) for k in H14B_TK] for x in (h0, c0))
     evidence("H14b-3", {"hostTally": ht, "client2Tally": ct, "hostDropped": drops, "pauseTalliesSeen": p[TS],
                         "host": {k: h0[k] for k in H14B_SK}, "client2": {k: c0[k] for k in H14B_SK}})
-    f = [f"no tally rode the rejoin (client2 {TS} 0; host W2-H14b drop lines {drops})"] if c0[TS] == 0 else []
+    f = [f"no tally rode the rejoin (client2 {TS} 0; host drop lines {drops})"] if c0[TS] == 0 else []
     if c0[TS] not in (0, 1):
         f.append(f"client2 {TS} {c0[TS]} (want 1)")
     if drops != [0]:
-        f.append(f"host 'W2-H14b: rejoin dropped' counts {drops} (want exactly [0])")
+        f.append(f"host 'rejoin dropped' counts {drops} (want exactly [0])")
     if ht != [K_T, "player", 0, 1, [], 1]:
         f.append(f"host tally {H14B_TK} {ht} (want {[K_T, 'player', 0, 1, [], 1]})")
     if ct != ht:

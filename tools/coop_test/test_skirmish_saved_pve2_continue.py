@@ -45,7 +45,7 @@ SEED_ROSTER, SEED, MISSION2 = 1, 1, "STR_MEDIUM_SCOUT"   # R5-U8 boot B's consta
 GM_PVE2 = 4
 BRIEF_S = 60             # each briefing (TASK 0: <= 1 s)
 OPENING_S = 60           # side 0 of turn 2 on both after the host's Turn 1 close (TASK 0: 3.2 s)
-N_OPEN = "R5-U8: PvE2 opening"
+N_OPEN = "PvE2 opening"
 CELLS = ("CB2",)
 top, bs, es = J.top, J.bs, J.es
 

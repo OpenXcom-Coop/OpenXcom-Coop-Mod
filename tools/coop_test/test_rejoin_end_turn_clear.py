@@ -129,7 +129,7 @@ def s0_cells(ctx, drops, n):
     """The S0 GREEN cells both rows share: one host drop line of n, client2's tally == the host's, client2 not armed,
     client2 talliesSeen 1, host talliesSeen == pause + 1."""
     h0, c0, p = ctx["S0"]["host"], ctx["S0"]["client2"], ctx["pause"]
-    f = [f"host 'W2-H14b: rejoin dropped' counts {drops} (want exactly [{n}])"] if drops != [n] else []
+    f = [f"host 'rejoin dropped' counts {drops} (want exactly [{n}])"] if drops != [n] else []
     if tally(c0) != tally(h0):
         f.append(f"S0 client2 tally {TK} {tally(c0)} != host's {tally(h0)}")
     if c0["coopEndTurnArmed"] is not False:

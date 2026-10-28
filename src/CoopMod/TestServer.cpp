@@ -4911,7 +4911,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			else if (!slotId.empty() && slotId != "right")
 				dest = _game->getMod()->getInventory(slotId, false) ? _game->getMod()->getInventory(slotId, false) : dest;
 
-			// RW-MINT-WHITELIST-BEGIN: sanctioned test-harness mint.
+			// MINT-WHITELIST-BEGIN: sanctioned test-harness mint.
 			// battle_give is a TestServer-only debug/test command that hands a
 			// weapon directly to a unit for repro/fixture setup on BOTH
 			// machines (test harness convenience, never real gameplay) - it is
@@ -4919,7 +4919,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			// sessions. tools/ci/lint_no_client_mint.py whitelists everything
 			// between this marker and its matching END below.
 			BattleItem* w = new BattleItem(wrule, sbg->getCurrentItemId());
-			// RW-MINT-WHITELIST-END
+			// MINT-WHITELIST-END
 			w->moveToOwner(unit);
 			w->setSlot(dest);
 			w->setSlotX(req.get("slotX", 0).asInt());
@@ -4941,11 +4941,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				const RuleItem* arule = _game->getMod()->getItem(ammoType);
 				if (arule)
 				{
-					// RW-MINT-WHITELIST-BEGIN: sanctioned test-harness mint
+					// MINT-WHITELIST-BEGIN: sanctioned test-harness mint
 					// - same battle_give command as above, minting the
 					// requested ammo item for the just-given weapon.
 					BattleItem* a = new BattleItem(arule, sbg->getCurrentItemId());
-					// RW-MINT-WHITELIST-END
+					// MINT-WHITELIST-END
 					a->setXCOMProperty(unit->getFaction() == FACTION_PLAYER);
 					sbg->getItems()->push_back(a);
 					sbg->initItem(a, unit);
@@ -13886,10 +13886,10 @@ std::string TestServer::execute(const std::string& line)
 						const UnitFaction originalR = r["originalFaction"].readVal(factionR);
 						if (modR->getUnit(typeR) && modR->getArmor(armorTypeR))
 						{
-							// RW-MINT-WHITELIST-BEGIN: a test-only throwaway, deleted below, never in the battle
+							// MINT-WHITELIST-BEGIN: a test-only throwaway, deleted below, never in the battle
 							BattleUnit* t = new BattleUnit(modR, modR->getUnit(typeR), originalR, u->getId(), nullptr,
 								modR->getArmor(armorTypeR), modR->getStatAdjustment(sg->getDifficulty()), bg->getDepth(), nullptr);
-							// RW-MINT-WHITELIST-END
+							// MINT-WHITELIST-END
 							t->load(r, modR, modR->getScriptGlobal());
 							Json::Value maxR(Json::arrayValue), curR(Json::arrayValue);
 							for (int side = 0; side < (int)SIDE_MAX; ++side)

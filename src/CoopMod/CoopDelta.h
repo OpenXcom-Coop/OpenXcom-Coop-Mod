@@ -655,7 +655,7 @@ bool coopForceFirePressed(const SavedBattleGame* save);
 
 // ----- W2-P6b S-L, commit S-L.1: the hit-log mirror probe -----
 // Spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5 and ruling SL-1. Body:
-// connectionTCP.cpp, right after coopShotTrajectories() (the probe storage, outside every RW-REPLAY-REGION).
+// connectionTCP.cpp, right after coopShotTrajectories() (the probe storage, outside every REPLAY-REGION).
 
 /// [hitLogMirror] the event_state probe of THIS machine: {noted, sent, applied, localSuppressed, pending, dropped,
 /// last: [the last 32 entries {seq, t, f, k?}]}. HOST: `noted` = hit-log entries recorded after vanilla's player-side
@@ -671,7 +671,7 @@ Json::Value coopHitLogMirrorProbe();
 // ----- W2-P6b S-L, commit S-L.2: the hit log on both machines -----
 // Spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6 (the five vanilla lines; Q3 (a) the envelope
 // carrier, Q4 (a) the client's appendToHitLog), AMENDMENT P6-6 section 5 (Q2 (a)). Body: connectionTCP.cpp, right
-// after coopHitLogMirrorProbe() (outside every RW-REPLAY-REGION). The host's sendEv attaches the pending list as the
+// after coopHitLogMirrorProbe() (outside every REPLAY-REGION). The host's sendEv attaches the pending list as the
 // envelope field `hitLog`; the client applies it right after CoopReveal::applyFrom() in CoopDisplayQueue::onApplied().
 
 enum HitLogEntryType : int; // Savegame/HitLog.h

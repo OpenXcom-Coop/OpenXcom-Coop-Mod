@@ -1481,7 +1481,7 @@ def dismiss_client_briefing(client, timeout=20):
 # aborts a BA_NONE turn mid-chain the moment getUnitsSpottedThisTurn() grows
 # (UnitTurnBState.cpp:117), leaving the unit on an intermediate facing - and
 # the engine itself calls that a FIXTURE failure, logging "[coop-turn] ...
-# ABORTED mid-chain - the RB-D15/REVIEW4 IR-4 fixture guards ... should have
+# ABORTED mid-chain - the turn fixture guards ... should have
 # prevented this".
 #
 # It is a PIN on the selection rule (the IR-4 treatment), never a relaxation of

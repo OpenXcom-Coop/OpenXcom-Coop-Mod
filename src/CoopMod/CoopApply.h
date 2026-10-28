@@ -51,7 +51,7 @@ class SavedBattleGame;
  * position is the walk atom's job, not this one's). Resolution is
  * EXCLUSIVELY via CoopIdMaps (RB-D7) - this never mints a BattleUnit/
  * BattleItem; the .cpp body sits inside an
- * RW-MINT-WHITELIST-BEGIN/END region even though nothing in it actually
+ * MINT-WHITELIST-BEGIN/END region even though nothing in it actually
  * mints, per the packet text's own instruction.
  *
  * Body lives in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/

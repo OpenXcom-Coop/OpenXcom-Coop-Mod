@@ -74,7 +74,7 @@ WV-D18 and SS2.4a.
 
 (B) The vanilla `unitSpotted` mid-chain abort - the host's own log line
     "[coop-turn] unit N's coop-admitted turn ABORTED mid-chain - the
-    RB-D15/REVIEW4 IR-4 fixture guards ... should have prevented this".
+    turn fixture guards ... should have prevented this".
     ROOT CAUSE: rules (a)+(b) did not implement RB-D15's THIRD requirement.
     RB-D15/WV-D18 ask for "open-ground, no-door, NO-ENEMY-LOS"; rule (a) only
     asked whether a hostile was ALREADY spotted at t=0, which says nothing
@@ -246,7 +246,7 @@ def qualifying_actor(host, soldier_id):
     that abort leaves the unit on an intermediate facing - which is exactly the
     red this rule exists to stop ("the admitted turn itself never completed on
     the host"), and which the engine itself flags as a FIXTURE failure:
-    "[coop-turn] ... ABORTED mid-chain - the RB-D15/REVIEW4 IR-4 fixture guards
+    "[coop-turn] ... ABORTED mid-chain - the turn fixture guards
     ... should have prevented this".
 
     The predicate is deliberately a conservative SUPERSET of vanilla's: no

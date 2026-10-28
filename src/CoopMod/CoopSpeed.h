@@ -42,7 +42,7 @@ class SavedBattleGame;
  * NOT bt_ev, NOT seq-ordered, and never hashed (BattleWire.h).
  *
  * Storage lives in connectionTCP.cpp (namespace CoopSpeed, OUTSIDE the
- * RW-REPLAY-REGION markers - this mechanism reads/writes real state, unlike
+ * REPLAY-REGION markers - this mechanism reads/writes real state, unlike
  * that region's display-only replay); this header only declares the API.
  */
 namespace CoopSpeed

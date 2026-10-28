@@ -77,7 +77,7 @@ SELF_END_S = 15                   # E2: the host's NextTurnState with no press (
 N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_REFUSED = "refused: unsupported"          # the client's battle_offer refusal (S-A's red shape)
 N_REFUSE_RX = "battle_refuse received"      # the host's unwind on it
-N_OPENING = "R5-U8: PvE2 opening"           # the host's opening line (E3e)
+N_OPENING = "PvE2 opening"           # the host's opening line
 ROWS = (("T2", ("T2-hold", "T2-deny", "T2-common")),
         ("T1", ("T1-once", "T1-order", "T1-ai", "T1-back", "T1-common")),
         ("T3", ("T3-turn", "T3-walk", "T3-common")),

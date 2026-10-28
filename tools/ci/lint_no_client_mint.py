@@ -20,9 +20,9 @@ Whitelist:
         src/Battlescape/**
         src/Savegame/**
   (b) Explicit region markers, anywhere else in src/:
-        // RW-MINT-WHITELIST-BEGIN
+        // MINT-WHITELIST-BEGIN
         ... sanctioned mint(s) ...
-        // RW-MINT-WHITELIST-END
+        // MINT-WHITELIST-END
       A mint between a BEGIN and its matching END is sanctioned. R2-P4 uses
       this to wrap the two test-harness mints in TestServer.cpp's
       battle_give command (not a vanilla dir, but not an S2 applier either -
@@ -50,8 +50,8 @@ import sys
 # but never a different identifier - deliberately narrow.
 MINT_RE = re.compile(r"new\s+(BattleItem|BattleUnit)\s*\(")
 
-BEGIN_MARK = "RW-MINT-WHITELIST-BEGIN"
-END_MARK = "RW-MINT-WHITELIST-END"
+BEGIN_MARK = "MINT-WHITELIST-BEGIN"
+END_MARK = "MINT-WHITELIST-END"
 
 # Vanilla directories (RB-D25 whitelist (a)), as path segments directly
 # under the scanned src root.
@@ -135,7 +135,7 @@ def main():
 
     print("lint_no_client_mint: OK - %d file(s) scanned under %s, "
           "no unwhitelisted \"new BattleItem(\"/\"new BattleUnit(\" found "
-          "(RB-D25)." % (scanned, src_root))
+          "in any file." % (scanned, src_root))
     return 0
 
 

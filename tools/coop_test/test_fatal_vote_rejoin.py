@@ -72,7 +72,7 @@ LOG_FLUSH_S = 3    # the H14 seed line reaches client2's log (H14's LOG_FLUSH_S)
 # client2 applies the rejoin's evs while still held on dialog 68 (its log: seqs 1-3 applied ~1.2 s before the host's
 # RESUME press), so the resent open waits under the co-op dialog (P7-5 Q6 (b)) for at least one pump pass.
 COVER_WAIT = ("ge", 1)
-SEED_RE = re.compile(r"W2-H14: rejoin END TURN side-phase counter seeded to (-?\d+)")
+SEED_RE = re.compile(r"rejoin END TURN side-phase counter seeded to (-?\d+)")
 DIALOG_KEYS = ("present", "code", "title", "backVisible", "backText", "saveQuitVisible", "abandonVisible")
 
 

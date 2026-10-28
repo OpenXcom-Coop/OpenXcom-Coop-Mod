@@ -65,7 +65,7 @@ BOOT_S, LOAD_S, LOBBY_S, RESUME_S = 60, 60, 60, 120   # briefing <= 1.3 s, load 
 STEP_S, SIDE_S, HOLD_S, HELD_S = 30, 60, 5, 2.0       # END TURN 1/2 0.05 s, walk 0.15 s, cycle 2.6 s
 DLG_WAIT_PLAYERS, DLG_RESUME_HOLD = 62, 68
 N_SPLIT = "R5-U8 PvE2:"                     # the host's split line (generation pass)
-N_OPENING = "R5-U8: PvE2 opening"           # the host's opening line
+N_OPENING = "PvE2 opening"           # the host's opening line
 N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_REFUSE_RX = "battle_refuse received"
 FIELDS = ("faction", "originalFaction", "coop", "type", "isOut", "x", "y", "z", "direction", "darkVision", "armorMax",

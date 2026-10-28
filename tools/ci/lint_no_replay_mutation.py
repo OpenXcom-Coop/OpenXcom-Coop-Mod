@@ -15,7 +15,7 @@ BattleUnit/BattleItem CONSTRUCTOR calls, a completely different failure mode.
 This is the SECOND, SCOPED lint step 2 of the W1-P12 packet text asks for,
 written BEFORE the stepper itself so it is a constraint, not a rubber stamp.
 
-Mechanism: scan src/ for the RW-REPLAY-REGION-BEGIN/END markers (the region
+Mechanism: scan src/ for the REPLAY-REGION-BEGIN/END markers (the region
 every line of ghost-stepper code lives inside, per step 1 of the packet) and
 fail on any occurrence, INSIDE such a region, of one of the FORBIDDEN TOKENS
 below.
@@ -63,8 +63,8 @@ import os
 import re
 import sys
 
-BEGIN_MARK = "RW-REPLAY-REGION-BEGIN"
-END_MARK = "RW-REPLAY-REGION-END"
+BEGIN_MARK = "REPLAY-REGION-BEGIN"
+END_MARK = "REPLAY-REGION-END"
 
 # The step-2 forbidden MUTATOR METHOD NAMES, verbatim - flagged unconditionally,
 # bare word-boundary match, regardless of receiver.
@@ -157,14 +157,14 @@ def main():
 
     if all_offenders:
         print("lint_no_replay_mutation: FAIL - %d forbidden token occurrence(s) "
-              "found inside an RW-REPLAY-REGION:" % len(all_offenders))
+              "found inside a REPLAY-REGION:" % len(all_offenders))
         for path, line_no, line_text in all_offenders:
             print("%s:%d: %s" % (path, line_no, line_text))
         return 1
 
     print("lint_no_replay_mutation: OK - %d file(s) scanned under %s, no forbidden "
           "SavedBattleGame/BattleUnit/Tile mutation token found inside any "
-          "RW-REPLAY-REGION (W1-P12 A4)." % (scanned, src_root))
+          "REPLAY-REGION." % (scanned, src_root))
     return 0
 
 

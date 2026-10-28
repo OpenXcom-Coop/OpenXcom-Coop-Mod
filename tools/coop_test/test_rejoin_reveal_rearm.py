@@ -37,7 +37,7 @@ T1, D1 = (9, 31, 0), 1        # A_ID's first teleport, facing the map centre: ho
 T1_FLOOR = 1081               # the T1 bar: the hostile floor TASK 0 measured at T1 (host = client)
 T2, D2 = (31, 9, 0), 5        # H12-2's teleport: hostile floor -> 1724
 G2 = 643                      # the measured T2 growth (H12-2's bar)
-L0_NEEDLE = "SS2.W4 BASELINE hostile restate (first ev after phase Active): absolute base restate sent (side=hostile"
+L0_NEEDLE = "BASELINE hostile restate (first ev after phase Active): absolute base restate sent (side=hostile"
 EMPTY_NEEDLE = "[coop-fog] hostile reveal set allocated EMPTY ("
 BASE_RE = re.compile(r"\[coop-reveal\] applied base restate at seq \d+ \(side=hostile, ")
 ADD_RE = re.compile(r"\[coop-reveal\] applied add delta at seq \d+ \(side=hostile, \d+ tiles, [1-9]\d* parts "
