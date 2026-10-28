@@ -806,6 +806,10 @@ class connectionTCP
 	static int localSeat();                 // this machine's seat
 	static int seatCount();                 // active roster size
 	static std::string seatName(int seat);  // player name for a seat
+	// A battle unit's _coop counts from the battle host, not from seat 0. These
+	// convert between the two (see unitSeat in connectionTCP.cpp).
+	static int unitSeat(const BattleUnit* unit); // seat that commands the unit
+	static int seatCoop(int seat);               // _coop value of that seat's units
 	// no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
 	static int getCoopGamemode();
 	/// coop (PRD-P5): is the parallel shared player side live right now?

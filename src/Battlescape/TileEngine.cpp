@@ -3352,6 +3352,18 @@ bool TileEngine::hitUnit(BattleActionAttack attack, BattleUnit *target, const Po
 			}
 			root["armor"] = armorArray;
 
+			// coop: the victim's post-hit script tags. A mod's hitUnit/damageUnit
+			// script runs only here (the thin client does not replay damage()), so a
+			// tag it writes - e.g. X-Com Files' HitFX LAST_HIT_FRAME - never reached
+			// the client and the saveBlob compare alarmed at the next side start.
+			// Additive; an older peer ignores the field.
+			Json::Value tagArray(Json::arrayValue);
+			for (int value : target->getScriptValuesCoop())
+			{
+				tagArray.append(value);
+			}
+			root["tags"] = tagArray;
+
 			// coop (kill-credit fix): murdererId/killedBy can change on the host AFTER a
 			// unit is down (e.g. a later blast catches the downed body's tile, see
 			// setMurdererId above), but the thin client never runs damage() itself - ship

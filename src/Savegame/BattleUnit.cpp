@@ -2382,6 +2382,19 @@ void BattleUnit::setFatalWoundCoop(int bodyPart, int value)
 	_fatalWounds[bodyPart] = value;
 }
 
+/**
+ * coop: adopt the executor's script tag values (raw, index = tag - 1). A tag past
+ * the end of `values` is reset to 0, the value an unset tag reads as.
+ */
+void BattleUnit::setScriptValuesCoop(const std::vector<int>& values)
+{
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+	{
+		_scriptValues.set(ScriptValues<BattleUnit>::Tag::make(i + 1), i < values.size() ? values[i] : 0);
+	}
+}
+
 void BattleUnit::setOriginalFaction(UnitFaction faction)
 {
 	_originalFaction = faction;
