@@ -167,6 +167,7 @@ def seat(h, c, ctx, on):
     -> leave_base; then the client's guestContrib.sent == (1 if on else 0) within SENT_S (0 during the visit, F6983)."""
     s = ctx.setdefault("seat", {"on": on})
     base = session._campaign_own_roster_base(h)["name"]
+    session.wait_peer_base_shown(c, base)
     c.ok({"cmd": "visit_coop_base", "base": base})
     c.wait_for("client inside host base", lambda: c.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
     rep = c.wait_for("guest visible at host base",

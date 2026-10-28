@@ -103,6 +103,7 @@ def settle(r, gc, ev):
     ev["settle"] = {"stack": stk(gc), "s": secs}
     r.guard("%s settles to [GeoscapeState]" % gc.name, ok, ev["settle"])
 def visit(r, gc, peer, ev):
+    session.wait_peer_base_shown(gc, peer)
     v = gc.cmd({"cmd": "visit_coop_base", "base": peer})
     ok, secs = until(lambda: inside(gc) is True, 60)
     ev["inside"] = {"visit": v, "s": secs, "stack": stk(gc)}

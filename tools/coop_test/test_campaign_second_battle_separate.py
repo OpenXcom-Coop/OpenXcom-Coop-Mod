@@ -251,6 +251,7 @@ def separate_battle_again(host, client, ctx):
         cid = session._campaign_skyranger(host)["id"]
         con["host"] = {"base": host_base_name, "craft": cid,
                        "aboard": sorted(s["id"] for s in hb["soldiers"] if s.get("craftId") == cid)}
+        session.wait_peer_base_shown(client, host_base_name)
         client.ok({"cmd": "visit_coop_base", "base": host_base_name})
         client.wait_for("client inside host base",
                         lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)

@@ -50,6 +50,7 @@ def own_base(gc):
 
 
 def enter_peer_base(gc, base_name):
+    session.wait_peer_base_shown(gc, base_name)
     gc.ok({"cmd": "visit_coop_base", "base": base_name})
     gc.wait_for("inside peer base",
                 lambda: gc.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)

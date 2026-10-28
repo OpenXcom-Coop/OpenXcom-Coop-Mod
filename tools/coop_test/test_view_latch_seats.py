@@ -162,6 +162,7 @@ def click_marker(gc, sc, lon, lat, name):
 def visit_real(s, ev):
     """the visitor's real click on the partner's base marker; inside + BasescapeState within VISIT"""
     V = s.V
+    session.wait_peer_base_shown(V, s.PB)
     pb = next((b for b in gs(V).get("bases", []) if b.get("name") == s.PB), None)
     if not pb:
         raise Stop("no %s marker in the visitor's geo_state" % s.PB)
@@ -172,6 +173,7 @@ def visit_real(s, ev):
         raise Stop("real visit: not inside %s within %.0f s (stack %s)" % (s.PB, VISIT, stack(V)))
     time.sleep(S_VIEW)
 def lever_visit(V, pb):
+    session.wait_peer_base_shown(V, pb)
     q(V, {"cmd": "visit_coop_base", "base": pb})
     v, t = wait(lambda: inside(V) is True and top(V) == "BasescapeState", VISIT)
     if not v:

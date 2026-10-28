@@ -2636,6 +2636,28 @@ def wait_back_on_geoscape(gc, what="back on geoscape", timeout=60):
                            f"stack={seen.get('stack')!r}") from e
 
 
+def wait_peer_base_shown(gc, base_name, timeout=30):
+    """Wait (bounded) until the partner's base `base_name` is on this machine's geoscape: the base visit_coop_base looks
+    for (a co-op base with that name; any co-op base when base_name is empty). A partner's base marker is never saved, so a
+    world this machine has just loaded (back from a visit to a partner's base, from a battle, a rejoin, a new session) has
+    none until the partner sends its base list again (its answer to the base request the geoscape sends on init). Call it
+    before visit_coop_base or before reading the marker for a real click. Returns the base; a timeout raises with the bases
+    this machine last listed."""
+    seen = {}
+
+    def shown():
+        bases = gc.cmd({"cmd": "get_soldiers"}).get("bases") or []
+        seen["bases"] = [(b.get("name"), b.get("coopBaseFlag"), b.get("coopIcon")) for b in bases]
+        return next((b for b in bases if (b.get("coopBaseFlag") or b.get("coopIcon"))
+                     and (not base_name or b.get("name") == base_name)), None)
+
+    try:
+        return gc.wait_for("%s on the geoscape" % (base_name or "a partner base"), shown, timeout=timeout)
+    except TimeoutError as e:
+        raise TimeoutError("%s: partner base %r not on this machine's geoscape within %s s; bases (name, coopBase, "
+                           "coopIcon): %r" % (gc.name, base_name, timeout, seen.get("bases"))) from e
+
+
 def press_back_when_shown(gc, what, codes=None, timeout=60):
     """press the top co-op dialog's BEGIN / RESUME / OK only once a player could: wait
     (bounded) until the top state is a CoopState whose back button coop_dialog_info reports shown (and whose code is in

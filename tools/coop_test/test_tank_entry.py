@@ -176,6 +176,7 @@ def bring_up_tank_battle(host, client, port, host_soldiers=3, host_tank_on_craft
     client.ok({"cmd": "rename_soldier", "name": spare, "newName": GUEST})
     tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest", "toBase": host_base_name})
     assert tr.get("transferred"), f"guest transfer failed: {tr}"
+    session.wait_peer_base_shown(client, host_base_name)
     client.ok({"cmd": "visit_coop_base", "base": host_base_name})
     client.wait_for("client inside host base", lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
     rep = client.wait_for("guest visible at host base", lambda: (lambda r: r if any(

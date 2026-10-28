@@ -71,6 +71,7 @@ def station(sender, receiver, send_base, recv_base, label):
 
 
 def visit_and_leave(visitor, peer_base, label):
+    session.wait_peer_base_shown(visitor, peer_base)
     visitor.ok({"cmd": "visit_coop_base", "base": peer_base})
     visitor.wait_for(f"{label}: inside {peer_base}",
                      lambda: visitor.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None,

@@ -56,6 +56,7 @@ def run_mode(alt_on, label):
         r = host.ok({"cmd": "transfer_to_coop_base", "name": "Zzz", "toBase": cb["name"]})
         assert r.get("transferred"), f"{label}: transfer failed: {r}"
 
+        session.wait_peer_base_shown(host, cb["name"])
         host.ok({"cmd": "visit_coop_base", "base": cb["name"]})
         host.wait_for("inside peer base",
                       lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
