@@ -55,7 +55,7 @@ void CutsceneState::init()
 	{ // coop
 		Json::Value root; // coop
 		root["state"] = "cutscene"; // coop
-		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed(); // coop (wire unchanged; the receiver ignores it, Q2)
+		root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed(); // coop (wire unchanged; the receiver ignores it)
 		root["daysPassed"] = _game->getSavedGame()->getDaysPassed(); // coop
 		root["cutsceneId"] = _cutsceneId; // coop
 		root["ending"] = (int)_game->getSavedGame()->getEnding(); // coop

@@ -2,7 +2,7 @@
 """
 lint_no_replay_mutation.py
 
-WAVE1-RUNBOOK.md SPEC 7, ruling A4: the S3 ghost stepper is
+The ghost stepper (CoopGhost.h) is
 DISPLAY-ONLY - it may write animation/camera/sound/UI and NOTHING else. It
 must never read or write SavedBattleGame/BattleUnit/Tile for anything but
 drawing, and it must never call any of the mutator methods that actually
@@ -10,32 +10,29 @@ change battle state (setPosition/setDirection/spendTimeUnits/startWalking/
 keepWalking/setTimeUnits/setEnergy/setKneeled/setTile/setMapData/addItem/
 removeItem).
 
-lint_no_client_mint.py does NOT prove this (WR-22): it only greps for the two
+lint_no_client_mint.py does NOT prove this: it only greps for the two
 BattleUnit/BattleItem CONSTRUCTOR calls, a completely different failure mode.
-This is the SECOND, SCOPED lint step 2 of the W1-P12 packet text asks for,
-written BEFORE the stepper itself so it is a constraint, not a rubber stamp.
+This is the second, scoped lint.
 
 Mechanism: scan src/ for the REPLAY-REGION-BEGIN/END markers (the region
-every line of ghost-stepper code lives inside, per step 1 of the packet) and
+every line of ghost-stepper code lives inside) and
 fail on any occurrence, INSIDE such a region, of one of the FORBIDDEN TOKENS
 below.
 
-FORBIDDEN TOKENS (step 2's own list, verbatim):
+FORBIDDEN TOKENS:
     SavedBattleGame, BattleUnit, Tile, setPosition, setDirection,
     spendTimeUnits, startWalking, keepWalking, setTimeUnits, setEnergy,
     setKneeled, setTile, setMapData, addItem, removeItem
 
-BUILDER NOTE ON THE THREE CLASS-NAME TOKENS (recorded so this is a disclosed
-judgment call, not a silent relaxation - report this if you disagree): the
-packet's OWN step 6a/6b pseudocode requires the stepper to declare exactly
+WHY THE THREE CLASS-NAME TOKENS ARE MATCHED NARROWLY: the stepper declares
 `const BattleUnit*` / `SavedBattleGame*` / `const Tile*` READ-ONLY pointer
 parameters (CoopGhost.h's coopGhostView/coopGhostUnitTrailingOverTile/
 onEvApplied/advance), and CoopIdMaps::unit() resolution legitimately produces
 `BattleUnit*` locals - a blind substring match on the bare class name would
-therefore ALSO fail on the packet's own mandated, read-only API shape, and on
+therefore ALSO fail on that read-only API shape, and on
 every doc comment that so much as NAMES one of these classes in prose (this
 region's comments do, constantly - the same style the rest of CoopMod already
-writes in). A lint that cannot pass on the spec's own required, non-mutating
+writes in). A lint that cannot pass on required, non-mutating
 code is not a meaningful gate. So: the three CLASS NAMES are flagged only for
 the two patterns that are UNAMBIGUOUSLY a mutation risk regardless of
 context - constructing one (`new SavedBattleGame`/`new BattleUnit`/`new
@@ -45,10 +42,9 @@ qualified static/member-function call through the class name
 (`SavedBattleGame::`/`BattleUnit::`/`Tile::`). A bare pointer-typed parameter,
 return type, or local variable (`BattleUnit* u`, `const Tile* tile`, `Tile*
 t = ...`) is the sanctioned read-only-handle shape and is NOT flagged. The
-twelve MUTATOR METHOD NAMES are flagged unconditionally, bare-word, exactly
-as the packet text says - those are unambiguous regardless of receiver, and
-the DONE-WHEN 2 non-vacuity proof (`unit->setDirection(3);`) exercises
-exactly this half.
+twelve MUTATOR METHOD NAMES are flagged unconditionally, bare-word - those
+are unambiguous regardless of receiver (a `unit->setDirection(3);` inside a
+region fails the lint).
 
 Usage:
     python tools/ci/lint_no_replay_mutation.py [SRC_DIR]
@@ -66,7 +62,7 @@ import sys
 BEGIN_MARK = "REPLAY-REGION-BEGIN"
 END_MARK = "REPLAY-REGION-END"
 
-# The step-2 forbidden MUTATOR METHOD NAMES, verbatim - flagged unconditionally,
+# The forbidden MUTATOR METHOD NAMES - flagged unconditionally,
 # bare word-boundary match, regardless of receiver.
 FORBIDDEN_METHODS = (
     "setPosition",
@@ -83,10 +79,11 @@ FORBIDDEN_METHODS = (
     "removeItem",
 )
 
-# The step-2 forbidden CLASS NAMES, verbatim - see the module docstring's
-# "BUILDER NOTE" for why these are matched only in a construct/qualified-call
-# shape rather than as a bare substring (which would also flag the packet's
-# own mandated read-only pointer-parameter API and this region's own prose).
+# The forbidden CLASS NAMES - see the module docstring's "WHY THE THREE
+# CLASS-NAME TOKENS ARE MATCHED NARROWLY" for why these are matched only in a
+# construct/qualified-call shape rather than as a bare substring (which would
+# also flag the stepper's read-only pointer-parameter API and this region's
+# own prose).
 FORBIDDEN_CLASSES = ("SavedBattleGame", "BattleUnit", "Tile")
 
 METHOD_RE = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(t) for t in FORBIDDEN_METHODS))
@@ -106,7 +103,7 @@ def scan_file(path):
     offenders = []
 
     # Read leniently: several coop .cpp files in this tree are ISO-8859-1,
-    # not UTF-8 (see the ENVIRONMENT PREAMBLE encoding rule) - decoding as
+    # not UTF-8 - decoding as
     # latin-1 never raises (every byte value is a valid latin-1 code point)
     # and this script only ever matches plain-ASCII tokens, so no meaning is
     # lost for the purpose of this check (lint_no_client_mint.py precedent).

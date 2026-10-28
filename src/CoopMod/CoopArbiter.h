@@ -62,7 +62,7 @@ class Text;             // coop: coopEquipApplyViewLook()'s owner line
  * then names that prefix's own endpoint so the plan stays self-consistent.
  * `pathOverride`, when non-empty, REPLACES the client's own previewed path -
  * it exists only for the `battle_intent` lever's `path` argument, which is how
- * the acceptance ships a deliberately-blocked plan for the `path_changed`
+ * a test ships a deliberately-blocked plan for the `path_changed`
  * deny. Nothing in the game ever sets it.
  */
 struct CoopWalkIntentArgs

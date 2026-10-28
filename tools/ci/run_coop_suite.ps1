@@ -213,7 +213,7 @@ foreach ($t in $tests) {
 
   $r = if ($LogDir) { Invoke-LoggedTest $pythonExe $testPath $hardMs (Join-Path $LogDir "$t.log") }
        else         { Invoke-BudgetedTest $pythonExe $testPath $hardMs }
-  $attempts = 1   # one attempt per test, never a retry: a rerun hides a flaky test (D61, WV-D101)
+  $attempts = 1   # one attempt per test, never a retry: a rerun hides a flaky test
   $rc         = $r.Rc
   $secs       = $r.Seconds
   $timedOut   = $r.TimedOut

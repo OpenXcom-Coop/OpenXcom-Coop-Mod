@@ -293,7 +293,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 	{
 		// checkBugHuntMode() is a hashed write (it can
 		// set _battleGame->setBughuntMode(true), which is serialized and
-		// rides the saveBlob bucket) that reads bu->getVisible() - a D4
+		// rides the saveBlob bucket) that reads bu->getVisible() - a
 		// machine-local input - so it must stay strictly host-authoritative.
 		// See coopSuppressBugHuntCheck()'s own comment (CoopSideTransition.h).
 		if (!coopSuppressBugHuntCheck(_battleGame))

@@ -487,7 +487,7 @@ void UnitWalkBState::think()
 			// ZERO steps.
 			//
 			// PLACED FIRST IN THE BRANCH, AND THE POSITION IS LOAD-BEARING
-			// (traced 2026-09-04, 1 red in 43 runs). Every ev that carries `h`
+			// (traced 2026-09-04: it failed 1 run in 43). Every ev that carries `h`
 			// must either carry the absolute state `h` covers in its own payload,
 			// or be positioned so its `h` matches what the client ALREADY holds -
 			// CoopHashCheck::verify() runs immediately after that ev's own apply

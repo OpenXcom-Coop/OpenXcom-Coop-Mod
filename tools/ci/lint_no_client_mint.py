@@ -2,11 +2,11 @@
 """
 lint_no_client_mint.py
 
-SPIKE-RUNBOOK.md RB-D25 (rewrite spike, R2-P4): mint-discipline enforcement.
+Mint-discipline enforcement.
 
-Coop battle identity is host-minted (RB-D7/RB-D24): only the host creates
+Coop battle identity is host-minted: only the host creates
 new BattleUnit/BattleItem objects during a coop battle; clients apply
-S2-applier events that mirror the host's ids, they never mint their own.
+events that mirror the host's ids, they never mint their own.
 This script is a cheap static guard against that discipline eroding: it
 greps src/ for the two constructor call patterns ("new BattleItem(" /
 "new BattleUnit(") and fails (non-zero exit, one line per offender) for any
@@ -23,11 +23,12 @@ Whitelist:
         // MINT-WHITELIST-BEGIN
         ... sanctioned mint(s) ...
         // MINT-WHITELIST-END
-      A mint between a BEGIN and its matching END is sanctioned. R2-P4 uses
-      this to wrap the two test-harness mints in TestServer.cpp's
-      battle_give command (not a vanilla dir, but not an S2 applier either -
-      a test-only debug helper). R3's S2 appliers are expected to sit
-      inside a region like this too.
+      A mint between a BEGIN and its matching END is sanctioned.
+      TestServer.cpp's test-harness mints (the battle_give command and the
+      reload probe's throwaway unit: not a vanilla dir, but not a client
+      event applier either - test-only debug helpers) sit inside such
+      regions; the client-side state applier (CoopApply, in connectionTCP.cpp)
+      is marked as one too, although nothing in it mints.
 
 Usage:
     python tools/ci/lint_no_client_mint.py [SRC_DIR]
@@ -37,8 +38,7 @@ run this from the repo/worktree root). Exits 0 with a summary line if
 nothing outside the whitelist is found; exits 1 and prints one
 "path:line: matched-text" line per offender otherwise.
 
-Not wired into a CI shard yet (that lands later, per the R2-P4 packet) -
-this script only needs to exist and be runnable by hand for now.
+Not wired into a CI shard: run it by hand.
 """
 
 import os
@@ -53,7 +53,7 @@ MINT_RE = re.compile(r"new\s+(BattleItem|BattleUnit)\s*\(")
 BEGIN_MARK = "MINT-WHITELIST-BEGIN"
 END_MARK = "MINT-WHITELIST-END"
 
-# Vanilla directories (RB-D25 whitelist (a)), as path segments directly
+# Vanilla directories (whitelist (a)), as path segments directly
 # under the scanned src root.
 VANILLA_DIRS = ("Battlescape", "Savegame")
 
@@ -77,7 +77,7 @@ def scan_file(path, rel_path):
         return offenders  # whitelist (a): vanilla dirs are never scanned
 
     # Read leniently: several coop .cpp files in this tree are ISO-8859-1,
-    # not UTF-8 (see the ENVIRONMENT PREAMBLE encoding rule) - decoding as
+    # not UTF-8 - decoding as
     # latin-1 never raises (every byte value is a valid latin-1 code point)
     # and this script only ever matches plain-ASCII patterns, so no meaning
     # is lost for the purpose of this check.

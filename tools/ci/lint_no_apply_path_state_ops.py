@@ -2,35 +2,34 @@
 """
 lint_no_apply_path_state_ops.py
 
-R4-L6 (PRD r4 T6.2 / T6.4; docs rewrite/prompts/r4l6_lifecycle_rows_lint.md section (g), rulings Q1 b, Q2 c, Q3 b,
-Q4 a): the second player's event-apply path must not open, close or replace a screen, nor end the battle, except at
-the six ruled sites below. BattlePump.h: "Appliers set flags only - drainApplyQueue() must never push/pop a State".
+The second player's event-apply path must not open, close or replace a screen, nor end the battle, except at the six
+whitelisted sites below. BattlePump.h: "Appliers set flags only - drainApplyQueue() must never push/pop a State".
 
-Mechanism (Q1 b): read src/CoopMod/connectionTCP.cpp only (where the co-op battle apply code lives), latin-1,
+Mechanism: read src/CoopMod/connectionTCP.cpp only (where the co-op battle apply code lives), latin-1,
 CRLF-tolerant; blank out comments, string / char literals and preprocessor lines (line numbers kept); split the file
 into its top-level brace-matched function bodies (namespace / class bodies are entered, initializer blocks are not),
 each named by its short name. From the root `drainApplyQueue` (exactly one definition) walk breadth-first over every
 `name(` call in a reachable body that names a definition in the file (every definition with that short name).
 
-Flagged tokens in a reachable body (Q2 c): the State ops pushState( popState( setState( finishBattle( and the vanilla
+Flagged tokens in a reachable body: the State ops pushState( popState( setState( finishBattle( and the vanilla
 calls that push or pop one: btnOkClick( btnCancelClick( coopAnswered( onEndClick( popup(. Plus, anywhere in SRC_DIR
-outside comments and strings: EndCoopBattle, EndCoopTurn (T6.4: the legacy battle-end paths stay dead).
+outside comments and strings: EndCoopBattle, EndCoopTurn (the legacy battle-end paths stay dead).
 
 Whitelist (exact; each entry must match exactly one hit; a missing entry fails as STALE; an entry matching more than
-one hit is a structural error). Each is a site an earlier unit ruled; all act on the top screen the client's own
-order opened, or show vanilla's next-turn screen:
-    W1 (A1) onApplied                     pushState(     NextTurnState          W1-P13a: the client's next-turn screen
-    W2 (A2) coopClientCombatAftermath     pushState(     ScannerState           W2-P4 S-D.2, Q14 a: the scanner screen
-    W3 (A3) coopClientCombatAftermath     pushState(     UnitInfoState          W2-P4 S-D.2: the mind-probe screen
-    W4 (A4) coopClientMedikitAnswered     coopAnswered(  ms->                   W2-P4 S-D.2, C3 D148: the medi-kit close
-    W5 (A5) coopClientSkillAnswered       popup(         CoopSkillContinueState W2-P4 S-E2.2: the skill continue screen
-    W6 (A6) coopClientInventoryForceClose btnOkClick(    st->                   W2-P8 S-C1.2: the inventory force-close
-A new reachable site is a finding: never add it here without a ruling.
+one hit is a structural error). Each site acts on the top screen the client's own order opened, or shows vanilla's
+next-turn screen:
+    next_turn_screen      onApplied                     pushState(     NextTurnState          the client's next-turn screen
+    scanner_screen        coopClientCombatAftermath     pushState(     ScannerState           the scanner screen
+    mind_probe_screen     coopClientCombatAftermath     pushState(     UnitInfoState          the mind-probe screen
+    medikit_close         coopClientMedikitAnswered     coopAnswered(  ms->                   the medi-kit close
+    skill_continue_screen coopClientSkillAnswered       popup(         CoopSkillContinueState the skill continue screen
+    inventory_force_close coopClientInventoryForceClose btnOkClick(    st->                   the inventory force-close
+A new reachable site is a finding: never add it here before it has been reviewed and judged safe.
 
 Usage:
     python tools/ci/lint_no_apply_path_state_ops.py [SRC_DIR]
 
-SRC_DIR defaults to the src directory of the tree this script lives in (Q3 b), never the current directory.
+SRC_DIR defaults to the src directory of the tree this script lives in, never the current directory.
 Exit 0 with one summary line; exit 1 with one "path:line: [chain] text" line per offender (and one line per STALE
 whitelist entry or banned name); exit 2 on a structural error (root not found exactly once, a whitelist entry
 matched more than once, unbalanced braces).
@@ -49,12 +48,12 @@ FLAGGED = ("pushState", "popState", "setState", "finishBattle",
 FLAGGED_RE = re.compile(r"\b(" + "|".join(FLAGGED) + r")\s*\(")
 BANNED_RE = re.compile(r"\b(EndCoopBattle|EndCoopTurn)\b")
 WHITELIST = (
-    ("W1", "onApplied", "pushState", "NextTurnState"),
-    ("W2", "coopClientCombatAftermath", "pushState", "ScannerState"),
-    ("W3", "coopClientCombatAftermath", "pushState", "UnitInfoState"),
-    ("W4", "coopClientMedikitAnswered", "coopAnswered", "ms->"),
-    ("W5", "coopClientSkillAnswered", "popup", "CoopSkillContinueState"),
-    ("W6", "coopClientInventoryForceClose", "btnOkClick", "st->"),
+    ("next_turn_screen", "onApplied", "pushState", "NextTurnState"),
+    ("scanner_screen", "coopClientCombatAftermath", "pushState", "ScannerState"),
+    ("mind_probe_screen", "coopClientCombatAftermath", "pushState", "UnitInfoState"),
+    ("medikit_close", "coopClientMedikitAnswered", "coopAnswered", "ms->"),
+    ("skill_continue_screen", "coopClientSkillAnswered", "popup", "CoopSkillContinueState"),
+    ("inventory_force_close", "coopClientInventoryForceClose", "btnOkClick", "st->"),
 )
 CALL_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 NOT_CALLS = frozenset(("if", "while", "for", "switch", "return", "sizeof", "catch", "alignof", "decltype",
@@ -274,7 +273,7 @@ def main():
                   % (code_id, fn, tok, text, len(match), [h[2] for h in match]))
             return 2
         if not match:
-            failures.append("%s: STALE %s - no reachable %s( with %r in %s (the ruled site moved or is gone)"
+            failures.append("%s: STALE %s - no reachable %s( with %r in %s (the whitelisted site moved or is gone)"
                             % (tcp_disp, code_id, tok, text, fn))
         else:
             whitelisted.add(match[0])
@@ -298,11 +297,11 @@ def main():
             for k, line in enumerate(stripped.split("\n"), 1):
                 m = BANNED_RE.search(line)
                 if m:
-                    failures.append("%s:%d: [src-wide ban, T6.4] %s - %s"
+                    failures.append("%s:%d: [src-wide ban] %s - %s"
                                     % (path.replace(os.sep, "/"), k, m.group(1), lines[k - 1].strip()))
 
     if failures:
-        print("lint_no_apply_path_state_ops: FAIL - %d problem(s) (State ops reachable from %s beyond the ruled "
+        print("lint_no_apply_path_state_ops: FAIL - %d problem(s) (State ops reachable from %s beyond the "
               "whitelist, a STALE whitelist entry, or a banned legacy battle-end name):" % (len(failures), ROOT))
         for f in failures:
             print(f)

@@ -2,16 +2,14 @@
 """
 lint_coop_strings.py
 
-WAVE1-RUNBOOK.md **WV-D41** (wave 1, minted by W1-P7): assert **zero
-UNACCOUNTED `STR_COOP_*` keys**.
+Assert **zero UNACCOUNTED `STR_COOP_*` keys**.
 
-WV-D41's exact wording matters and this script implements it literally: the
+The exact wording matters and this script implements it literally: the
 assert is "zero UNACCOUNTED", **not** "zero orphaned". An ORPHANED key (present
 in the .yml files, referenced from nowhere in src/) is perfectly legal as long
-as it has a row in the whitelist saying so and naming who owns it - the owner
-ruled on 2026-09-02 that the 11 R1-P3 quarantine orphans STAY as accounted
-placeholders, and `STR_COOP_END_TURN_TALLY` is deliberately reserved for
-W1-P13. The hard zero-orphan assert lands at W1-G3, not here.
+as it has a row in the whitelist saying so and naming who owns it - the
+reserved placeholder keys stay in the whitelist as accounted orphans. This
+script does not assert zero orphans.
 
 THE WHITELIST is `tools/coop_test/COOP_STRING_DISPOSITIONS.md`, whose own
 "Parse contract" section defines the format this script reads:
@@ -25,17 +23,17 @@ THE WHITELIST is `tools/coop_test/COOP_STRING_DISPOSITIONS.md`, whose own
 
 WHAT IT CHECKS
   1. UNACCOUNTED - a `STR_COOP_*` key defined in a language file with no
-     whitelist row. This is WV-D41's assert.
+     whitelist row. This is the main assert.
   2. STALE ROW - a whitelist row for a key that no longer exists in the
-     language files. The disposition table is a LIVING document (IR2-11): a
-     packet that deletes a key deletes its row in the same commit.
+     language files. The disposition table is a LIVING document: a
+     change that deletes a key deletes its row in the same commit.
   3. DUPLICATE ROW - two rows for one key ("exactly one row per key").
   4. LANGUAGE SKEW - a key present in en-US.yml but not en-GB.yml or vice
-     versa. Keys live in BOTH files; a packet that changes one changes both.
+     versa. Keys live in BOTH files; a change to one changes both.
 
 It deliberately does NOT check the deployed copy under bin/x64/Release/** -
-that is a gitignored deploy artifact, and the WV-D17 robocopy is a harness
-step, not a source-of-truth question.
+that is a gitignored deploy artifact, and the robocopy that stages it is a
+harness step, not a source-of-truth question.
 
 Usage:
     python tools/ci/lint_coop_strings.py [REPO_ROOT]
@@ -118,19 +116,19 @@ def main():
     for _rel, keys in per_file:
         defined.update(keys)
 
-    # 1. UNACCOUNTED - WV-D41's assert.
+    # 1. UNACCOUNTED - the main assert.
     for key in sorted(defined):
         if key not in rows:
             problems.append("UNACCOUNTED: %s is defined in the language files but has "
                             "no row in %s - add one in the SAME commit that minted it "
-                            "(WV-D41; see HOW TO APPEND A ROW)" % (key, WHITELIST_REL))
+                            "(see HOW TO APPEND A ROW)" % (key, WHITELIST_REL))
 
     # 2. STALE ROW.
     for key in rows:
         if key not in defined:
             problems.append("STALE ROW: %s has a whitelist row but is not defined in "
-                            "either language file - a packet that deletes a key deletes "
-                            "its row in the same commit (IR2-11)" % key)
+                            "either language file - a change that deletes a key deletes "
+                            "its row in the same commit" % key)
 
     # 4. LANGUAGE SKEW.
     us_rel, us_keys = per_file[0]
@@ -148,7 +146,7 @@ def main():
         return 1
 
     print("lint_coop_strings: OK - %d STR_COOP_* keys, %d whitelist rows, "
-          "zero UNACCOUNTED (WV-D41)" % (len(defined), len(rows)))
+          "zero UNACCOUNTED" % (len(defined), len(rows)))
     return 0
 
 

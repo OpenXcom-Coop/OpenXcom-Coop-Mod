@@ -7451,8 +7451,8 @@ namespace
 enum class SbScope { Other, Unit, Item, Node };
 
 // TOP-LEVEL of the battle document only (SavedBattleGame-scoped, per-seat UI/
-// display/audio-transient/battle-end-adjacent fields) - cr1-field-audit.md
-// sec 6 items 16-23, PLUS the two BriefingState display labels (see below).
+// display/audio-transient/battle-end-adjacent fields), PLUS the two
+// BriefingState display labels (see below).
 bool saveBlobExcludedTopKey(std::string_view k)
 {
 	return k == "nameDisplay"
@@ -7508,7 +7508,7 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		// carries them, so the two machines agree on them in real play. THE
 		// EXCLUSION STAYS, and is now load-bearing in the other direction: it is
 		// what makes carrying the labels hash-neutral by construction, so a future
-		// label change can never red a bucket. Do not "clean it up" now that the
+		// label change can never make a bucket differ. Do not "clean it up" now that the
 		// values happen to match.
 		|| k == "strTarget" || k == "strCraftOrBase";
 }

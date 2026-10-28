@@ -962,7 +962,7 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 		if (s3 != 1u) { fail("nextSeq reset"); ok = false; }
 		CoopPump::reset(); // also rewinds the mint counter back to 1 for the enqueue test below
 
-		// Enqueue OUT OF ORDER: seq 1, then 3, then 2 (acceptance item 4's exact case).
+		// Enqueue OUT OF ORDER: seq 1, then 3, then 2.
 		CoopPump::enqueue(CoopWire::makeEv(1u, 201u, "turn"));
 		CoopPump::enqueue(CoopWire::makeEv(3u, 203u, "turn"));
 		CoopPump::enqueue(CoopWire::makeEv(2u, 202u, "turn"));
@@ -990,7 +990,7 @@ connectionTCP::connectionTCP(Game* game) : _game(game)
 	}
 
 	// Self-test: prove the BattleAuthority
-	// singleton's init/reset round-trip and the interim seat->faction store
+	// singleton's init/reset round-trip and the seat->faction store
 	// behave as designed, without needing a live battle. Same OXC_TEST_PORT
 	// gate, kept as its own block for the same reason as the CoopWire/
 	// CoopPump blocks above - an unambiguous failure signal per layer.
@@ -3957,7 +3957,7 @@ struct SaveBlobVerifyTimer
 	~SaveBlobVerifyTimer() { noteLastMax(g_saveBlobVerifyUsLast, g_saveBlobVerifyUsMax, usSince(t0)); }
 };
 
-/// `tags`: the raw script-value vector with trailing zeros stripped ((b)1).
+/// `tags`: the raw script-value vector with trailing zeros stripped.
 std::vector<int> stripTags(const std::vector<int>& raw)
 {
 	std::vector<int> v(raw);
@@ -4205,7 +4205,7 @@ bool diffTile(const TileSnap& w, const TileSnap& n, Json::Value& e)
 	}
 	if (partsChanged)
 	{
-		// All four parts, O_FLOOR..O_OBJECT, as [id, setId] ((b)1).
+		// All four parts, O_FLOOR..O_OBJECT, as [id, setId].
 		Json::Value parts(Json::arrayValue);
 		for (int part = 0; part < (int)O_MAX; ++part)
 		{
@@ -4403,7 +4403,7 @@ void noteUnsupported(const std::string& what)
 
 /// Diffs @a b against the snapshot. @a out == nullptr is a DRY RUN: it returns
 /// at the first difference and changes, logs and counts nothing (flushSync's
-/// emptiness probe). Otherwise *out receives every non-empty (b)1 class and,
+/// emptiness probe). Otherwise *out receives every non-empty class and,
 /// with @a commit, every shipped value is written back into the snapshot.
 /// Returns true iff something differs. ASSUMES g_snapMutex is held.
 bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
@@ -4649,7 +4649,7 @@ bool computeLocked(SavedBattleGame* b, Json::Value* out, bool commit)
 	return any;
 }
 
-/// `lastDelta` ((b)16): the class counts of one delta.
+/// `lastDelta`: the class counts of one delta.
 Json::Value summarize(std::uint32_t seq, const std::string& kind, const Json::Value& d)
 {
 	Json::Value s(Json::objectValue);
@@ -4701,7 +4701,7 @@ std::string envKind(const Json::Value& env)
 	return env.isMember("kind") ? env["kind"].asString() : env.get("state", "").asString();
 }
 
-/// CLIENT (CoopApply::applyDelta): one applied delta's probes ((b)16).
+/// CLIENT (CoopApply::applyDelta): one applied delta's probes.
 void noteClientApplied(const Json::Value& env, int fields, int unresolved, long long us)
 {
 	g_deltaEvsApplied.fetch_add(1);
@@ -5817,7 +5817,7 @@ void coopCueCorpse(const BattleUnit* unit)
 			corpses.append(bi->getId());
 	}
 	if (corpses.empty())
-		return; // (b)11: only when >= 1 (a unit converted by convertUnit() leaves none)
+		return; // only when >= 1 (a unit converted by convertUnit() leaves none)
 	Json::Value p(Json::objectValue);
 	p["unit"] = unit->getId();
 	p["pos"] = coopCueVoxel(unit->getPosition());
@@ -6878,7 +6878,7 @@ bool equipOkPressed()
 // ----- TEST-ONLY hold_battle_ready, CLIENT.
 // While armed, the client's handshake stashes its battle_ready instead of sending it (ONE guarded statement at the
 // send in CoopHandshake::onBlobChunkAppended); the TestServer lever's release takes the stash and sends it itself,
-// so this file's count of battle-lane sends is unchanged. Inert unless armed (STOP-IF 16): unarmed, the stash call
+// so this file's count of battle-lane sends is unchanged. Inert unless armed: unarmed, the stash call
 // returns false at once and logs nothing. Never read by game logic; never reset by a battle reset (the lever arms it
 // before newbattle_ok and releases it).
 static std::mutex g_coopTestHoldBattleReadyMutex;
@@ -7114,7 +7114,7 @@ static void coopTestHoldWorldStreamWait()
 // ----- the fatal-wounds vote's probe record (CoopArbiter.h coopFatalVoteProbe(),
 // TestServer event_state `fatalVote`, both machines). TEST INTROSPECTION ONLY: never read by game logic, never on the
 // wire. SESSION-LIFETIME like the battleEnd record: cleared only by coopFatalVoteProbeReset(), which
-// initBattleAuthority() calls, so a battle-end teardown leaves it readable. One record per machine with the pinned field
+// initBattleAuthority() calls, so a battle-end teardown leaves it readable. One record per machine with this field
 // set - host: state .. resends; client: state, voteId, voters, wounded, answered .. questionClosedByClose.
 // It starts as zeros. The mutex is a leaf (nothing that takes another lock runs under
 // it). -----
@@ -9963,7 +9963,7 @@ static std::atomic<int> g_coopWalkIntentsFromClick{0};
 // map refusers below on a not_your_go refusal. Presents
 // STR_COOP_DENY_NOT_YOUR_GO (name from seatDisplayName()) and bumps the SAME
 // coopLocalExecBlocked counter ONLY when the baton term is the failure;
-// every other refusal stays silent exactly as before this packet.
+// every other refusal stays silent.
 bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s)
 {
 	if (coopMayCommand(u, s))
@@ -10210,7 +10210,7 @@ namespace CoopIdMaps
 // load path (the battle_ready sequence, after sha verify
 // and the blob is loaded into a live SavedBattleGame) where the client's
 // SavedBattleGame first becomes valid, immediately before the authority
-// {hostSim:false, localSeat, phase:Active} stamp. Landed this packet -
+// {hostSim:false, localSeat, phase:Active} stamp.
 // CoopHandshake::onBlobChunkAppended()'s finishLoad step (connectionTCP.cpp,
 // CoopHandshake implementation below) is that call site.
 void rebuildFrom(SavedBattleGame* save)
@@ -10422,7 +10422,7 @@ struct CoopClientInFlight
 	bool active = false;
 	// The concrete PLAN fields, added so a busy deny can move
 	// this intent into the pending slot below and resubmit it later. Only the
-	// plan is kept - never tuBasis: the packet text requires a resubmit to
+	// plan is kept - never tuBasis: a resubmit must
 	// RECOMPUTE the preview + basis against current client state, which
 	// sendClientIntent() already does whenever no override is passed.
 	int toDir = -1;
@@ -10678,9 +10678,9 @@ bool coopHiddenMovementActorTerm(const SavedBattleGame* s)
 // WHICH VERB the chain named by
 // g_coopPendingChainActorId is running - "turn", "kneel" or "walk".
 //
-// It is not cosmetic. Before this packet the two completion hooks
-// (coopOnUnitTurnFinished / coopOnKneelFinished) recognised "their" chain by
-// actor id alone, which was sufficient while the only chain-ful verb was turn.
+// It is not cosmetic. Matching "their" chain by actor id alone in the two
+// completion hooks (coopOnUnitTurnFinished / coopOnKneelFinished) is enough
+// only while turn is the only chain-ful verb.
 // A WALK breaks that: UnitWalkBState::think()'s FIRST act on a kneeled unit is
 // `_parent->kneel(_unit)` to stand it up (UnitWalkBState.cpp), and
 // BattlescapeGame::kneel() carries the coopOnKneelFinished hook - which
@@ -12516,7 +12516,7 @@ const char* validateTurn(const BattleUnit* unit, int toDir, bool turret, int tuB
 	// alive, not falling; toDir in 0..7). None of these has a dedicated
 	// deny reason of its own - mapped to cost_changed, the closest
 	// existing enum meaning ("the intent's basis no longer matches host
-	// reality") - see this packet's final report for the gap.
+	// reality").
 	if (!unit)
 		return "cost_changed";
 	if (unit->isOut())
@@ -12558,9 +12558,9 @@ const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis)
 	// BattlescapeGame::kneel()'s own gate (BattlescapeGame.cpp:485) - only
 	// the "can this unit kneel at all" half. The TU-reservation half of that
 	// same vanilla condition ((!isKneeled && kneelReserved) ||
-	// checkReservedTU(...)) is deliberately NOT replicated (see this
-	// packet's final report): tuBasis/getTimeUnits() below already cover
-	// the TU-sufficiency question this packet's validators own.
+	// checkReservedTU(...)) is deliberately NOT replicated: tuBasis /
+	// getTimeUnits() below already cover the TU-sufficiency question these
+	// validators own.
 	if (!unit->getArmor()->allowsKneeling(unit->getType() == "SOLDIER") || unit->isFloating())
 		return "cost_changed";
 
@@ -22210,7 +22210,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// A known kind, deliberately not an UNSUPPORTED warning.
 		CoopDelta::noteSyncApplied();
 		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(),
-			ev["payload"]); // `sync` is one of the 16 cue kinds ((b)11/(b)16)
+			ev["payload"]); // `sync` is one of the 16 cue kinds
 		// the pre-battle equip phase's open / ready / end signal -
 		// RECORDED only (the apply path); the pump's equip steps act on it.
 		if (ev["payload"].isMember("equip"))
@@ -22364,7 +22364,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		//   * `floating` / `_haveNoFloorBelow`, recomputed by setTile();
 		//   * `motionPoints`, which keepWalking() adds at step completion and
 		//     which is inside the HASHED unitsStats bucket - a hand-
-		//     written applier would red the per-step hash on step one.
+		//     written applier would make the per-step hash differ on step one.
 		const Position from = CoopArbiter::coopJsonPos(payload["from"]);
 		const Position to = CoopArbiter::coopJsonPos(payload["to"]);
 		const int dir = payload.get("dir", -1).asInt();
@@ -23046,7 +23046,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			}
 			if (ue.isMember("pos") || ue.isMember("onTile"))
 			{
-				// Either half may ride alone ((b)1: a field rides iff it
+				// Either half may ride alone (a field rides iff it
 				// changed); the other half is this machine's own, unchanged value.
 				const Position pos = ue.isMember("pos") ? CoopArbiter::coopJsonPos(ue["pos"]) : u->getPosition();
 				const bool onTile = ue.isMember("onTile") ? ue["onTile"].asBool() : (u->getTile() != nullptr);
@@ -23942,7 +23942,7 @@ namespace
 const std::uint32_t kKneelHoldMs = 100;
 
 /// One running (or just-completed-and-not-yet-popped) ghost. IDs and
-/// geometry only - NEVER a pointer to BattleUnit (step 3's own instruction:
+/// geometry only - NEVER a pointer to BattleUnit (
 /// this queue must survive the pointer it was built from going stale, and
 /// must never be used to resolve one either - CoopIdMaps::unit() does that,
 /// fresh, every time a caller needs the live unit).
@@ -24539,7 +24539,7 @@ void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t now
 		g_combatProbe.turnRing.pop_front();
 }
 
-// ----- the combat ghosts (spec rewrite/prompts/w2p5_display_ghosts.md (b)1-11 for `shot`) -----
+// ----- the combat ghosts -----
 
 /// Vanilla's projectile state tick (ProjectileFlyBState setStateInterval(1000/60)).
 const std::uint32_t kCombatTickMs = 16;
@@ -32152,7 +32152,7 @@ unsigned int coopTurnMirrorFired() { return g_coopTurnMirrorFired.load(); }
 /**
  * Mirror the turn counter that vanilla's host-only battle-start chain sets.
  *
- * RCA: the host's pre-battle equip screen (InventoryState::btnOkClick,
+ * Root cause: the host's pre-battle equip screen (InventoryState::btnOkClick,
  * InventoryState.cpp:1174 - or BriefingState.cpp:290 on the preview path)
  * calls SavedBattleGame::startFirstTurn(), which ends with `_turn = 1`
  * (SavedBattleGame.cpp). The coop thin client never runs the Briefing/

@@ -36,7 +36,7 @@ class SavedBattleGame;
  * to the LOCAL option value - a client set to 30 must still see the HOST
  * simulate that client's own unit at 30, not the host's 10.
  *
- * G1 (DP2 guardrail, binding): this is a SESSION-LEVEL mechanism only. No
+ * Guardrail: this is a SESSION-LEVEL mechanism only. No
  * per-event timing, cadence, frame count or animation duration is ever put on
  * the wire; the two new kinds (battle_speed_report/battle_speed_seats) are
  * NOT bt_ev, NOT seq-ordered, and never hashed (BattleWire.h).
@@ -83,7 +83,7 @@ const int kMaxSeats = 4;
 Triple localTriple();
 
 /// The slowest-wins Triple over every CONNECTED seat with a valid table
-/// entry (MAX xcom, MAX alien, MIN fire - R1 measured: slower is a HIGHER
+/// entry (MAX xcom, MAX alien, MIN fire - measured: slower is a HIGHER
 /// xcom/alien speed value but a LOWER fire speed value). Falls back to
 /// localTriple() when no connected seat has a valid entry yet.
 Triple floor();
@@ -120,12 +120,12 @@ void reset();
 /// The exact unit-less form of coopMayCommand(u, s)'s two non-unit terms:
 /// TRUE outside a coop battle; inside one, TRUE only when @a s's
 /// side is this seat's AND (parallel mode, or this seat holds the
-/// traditional baton). The Ctrl-S quick-mode toggle (M6) has no single
+/// traditional baton). The Ctrl-S quick-mode toggle has no single
 /// acting unit, so it gates on this instead of coopMayCommand().
 bool quickModeAllowed(const SavedBattleGame* s);
 
 /// Bumps the quickModeIgnored() counter - called wherever quickModeAllowed()
-/// gated a press away (M6).
+/// gated a press away.
 void noteQuickModeIgnored();
 
 // ----- probe accessors (TestServer.cpp event_state) - test introspection
@@ -165,7 +165,7 @@ unsigned quickModeIgnored();
 /// equals localTriple() - i.e. nothing this machine would report is stale.
 bool synced();
 
-// ----- M3 wire plumbing (connectionTCP.cpp onTCPMessage/onBlobChunkAppended) -
+// ----- Wire plumbing (connectionTCP.cpp onTCPMessage/onBlobChunkAppended) -
 // not part of the read-site/probe API above; called only from the message
 // dispatch and the client's Active-transition site. -----------------------
 
@@ -177,19 +177,19 @@ bool synced();
 /// before the first battle_speed_seats round-trip completes.
 void onClientActive();
 
-/// HOST-inbound (M3): stores seat @a seat's reported Triple and marks it
+/// HOST-inbound: stores seat @a seat's reported Triple and marks it
 /// valid. The battle_speed_report handler (connectionTCP.cpp onTCPMessage)
 /// calls tableChanged() itself right after.
 void applyReport(int seat, const Triple& t);
 
-/// CLIENT-inbound (M3): replaces the whole table with the host's
+/// CLIENT-inbound: replaces the whole table with the host's
 /// battle_speed_seats broadcast (@a seats is the wire array of
 /// {seat,xcom,alien,fire} objects - only the seats the host considered
 /// connected+valid), bumps the sequence number to @a seqIn, and counts the
 /// accept (tablesRecv()).
 void applySeats(std::uint32_t seqIn, const Json::Value& seats);
 
-/// HOST-inbound (M3) drop path: TRUE (and latches) the FIRST time this is
+/// HOST-inbound drop path: TRUE (and latches) the FIRST time this is
 /// called this battle; FALSE (already warned) every call after, so the
 /// battle_speed_report handler logs an unexpected battleId/phase drop ONCE
 /// per battle instead of once per message.
