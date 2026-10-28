@@ -27,6 +27,21 @@ MOD_40K = os.environ.get("OXC_40K_MOD", os.path.join(DEFAULT_MOD_ROOT, "40k"))
 MOD_ROSIGMA = os.environ.get("OXC_ROSIGMA_MOD", os.path.join(DEFAULT_MOD_ROOT, "rosigma"))
 
 
+def require_mods(*files):
+    """Stop with a clear, non-zero error when a required mod folder (or one of
+    the (label, path) files) is missing. The 40K/ROSIGMA tests are local-only:
+    tools/coop_test/local_only_tests.json keeps them out of CI discovery, and
+    run without the mods they must fail, never SKIP-pass."""
+    for label, path, env in (("40K", MOD_40K, "OXC_40K_MOD"),
+                             ("ROSIGMA", MOD_ROSIGMA, "OXC_ROSIGMA_MOD")):
+        if not os.path.isdir(path):
+            raise SystemExit(f"FAIL: needs the {label} mod at {path} "
+                             f"(set {env}); this test is local-only")
+    for label, path in files:
+        if not os.path.isfile(path):
+            raise SystemExit(f"FAIL: needs {label} at {path}; this test is local-only")
+
+
 def snapshot(gc):
     return gc.ok({"cmd": "separate_faction_mission_state"})
 

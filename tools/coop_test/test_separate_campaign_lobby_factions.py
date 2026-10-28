@@ -7,7 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import session
 import shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 def lobby_rows(machine, who):
@@ -29,6 +30,7 @@ def lobby_rows(machine, who):
 
 
 def main():
+    require_mods()
     js = shared_fixture.bring_up(
         "sep_rosigma_lobby_factions", (49610, 49611, 48910),
         mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",

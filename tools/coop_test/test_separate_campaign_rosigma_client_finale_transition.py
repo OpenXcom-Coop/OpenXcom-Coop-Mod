@@ -7,13 +7,15 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 from test_separate_campaign_rosigma_faction_finales import (
     prepare_faction_force, start_finale, top, has,
 )
 
 
 def main():
+    require_mods()
     js = shared_fixture.bring_up(
         "sep_rosigma_client_finale_transition", (49620, 49621, 48920),
         mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",

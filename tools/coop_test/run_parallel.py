@@ -39,6 +39,7 @@ TESTDIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTDIR))
 WEIGHTS_FILE = os.path.join(REPO, "tools", "ci", "test_weights.json")
 BUDGET_FILE = os.path.join(TESTDIR, "slow_test_exceptions.json")
+LOCAL_ONLY_FILE = os.path.join(TESTDIR, "local_only_tests.json")
 
 # Per-test time budgets (seconds), the same ones tools/ci/run_coop_suite.ps1 enforces
 # in CI (both read slow_test_exceptions.json). A test that FINISHES over its budget
@@ -89,15 +90,27 @@ PINNED = frozenset((
 MAX_SAFE_SLOTS = 4
 
 
+def local_only():
+    """Tests excluded from discovery (local_only_tests.json): they need a mod
+    install, a private save or a command-line argument."""
+    try:
+        with open(LOCAL_ONLY_FILE, encoding="utf-8") as f:
+            return set(json.load(f).get("tests", {}))
+    except (OSError, ValueError):
+        return set()
+
+
 def discover():
-    """boot_check + every test_*.py, by basename, sorted. Same discovery as
-    tools/ci/run_coop_suite.ps1 so the two runners can never disagree."""
+    """boot_check + every test_*.py, by basename, sorted, minus the local-only
+    list. Same discovery as tools/ci/run_coop_suite.ps1 so the two runners can
+    never disagree."""
     names = []
     boot = os.path.join(TESTDIR, "boot_check.py")
     if os.path.exists(boot):
         names.append("boot_check")
+    skip = local_only()
     for fn in sorted(os.listdir(TESTDIR)):
-        if fn.startswith("test_") and fn.endswith(".py"):
+        if fn.startswith("test_") and fn.endswith(".py") and fn[:-3] not in skip:
             names.append(fn[:-3])
     return names
 

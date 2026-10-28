@@ -5,7 +5,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 END_NONE = 0
@@ -94,6 +95,7 @@ def test_duplicate_faction_needs_one_finale():
 
 
 def main():
+    require_mods()
     test_loss_is_campaign_wide()
     test_wins_wait_for_every_distinct_faction()
     test_duplicate_faction_needs_one_finale()
