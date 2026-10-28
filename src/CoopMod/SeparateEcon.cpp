@@ -250,7 +250,11 @@ int playerMaintenance(Game* game, const std::string& playerName)
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		if (!playerName.empty() && base->isOwnedByPlayer(playerName))
+		// An ownerless (legacy) base is the host's: billed once (PR #213 F13).
+		const bool billed = base->getOwnerPlayerName().empty()
+			? !save->getCoopPlayers().empty() && playerName == save->getCoopPlayers().front()
+			: base->isOwnedByPlayer(playerName);
+		if (!playerName.empty() && billed)
 		{
 			total += base->getMonthlyMaintenace();
 		}

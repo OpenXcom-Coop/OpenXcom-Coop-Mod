@@ -2391,7 +2391,11 @@ void SavedGame::monthlyFunding()
 		{
 			int playerMaintenance = 0;
 			for (Base* base : _bases)
-				if (base && base->isOwnedByPlayer(playerName))
+				// An ownerless (legacy) base came from the host world: bill it once,
+				// to the host, never to every player (PR #213 F13).
+				if (base && (base->getOwnerPlayerName().empty()
+					? playerName == _coopPlayers.front()
+					: base->isOwnedByPlayer(playerName)))
 					playerMaintenance += base->getMonthlyMaintenace();
 			totalMaintenance += playerMaintenance;
 
