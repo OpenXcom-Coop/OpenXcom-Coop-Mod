@@ -1,4 +1,4 @@
-"""W2-H28 S-A - the host's own soldier-skill press reaches the second player in one host action (spec docs
+"""the host's own soldier-skill press reaches the second player in one host action (spec docs
 rewrite/prompts/w2h28_host_skill_use_ev.md (f); TASK 0 docs rewrite/w2h28-task0/CONSTANTS.md; R-OF2-A-1; F11475,
 F11561, F11564). The HOST's own press runs the skill's script on the host only and emits nothing, so the second
 player keeps the soldier's old values (and hash_now differs) until the host's next ev of any kind.

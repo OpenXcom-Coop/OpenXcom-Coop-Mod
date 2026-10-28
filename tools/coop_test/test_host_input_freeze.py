@@ -1,4 +1,4 @@
-"""FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): the HOST INPUT FREEZE.
+"""FX-1: the HOST INPUT FREEZE.
 
 AI-neutral: boot P pins every non-player unit neutral (pin_ai_neutral).
 
@@ -31,7 +31,7 @@ file copies QR2r's staging (test_messages.qr2r_drive, steps boot..7):
 test_rejoin_end_turn's parallel boot P (test_death_side's default map)
 on this file's lobby PORT, one END TURN cycle, the client leaves, a
 fresh process (client2) arms the test-only lever hold_battle_ready {on: true}
-(W2-P8b Q16 (a)) and rejoins, the host presses RESUME. The host's rejoin
+and rejoins, the host presses RESUME. The host's rejoin
 battle_offer reopened phase Handshake (`offerRejoinBattle`); client2's
 battle_ready is stashed, so the host sits on BattlescapeState in phase
 Handshake until THIS FILE releases the hold - the window is deterministic,
@@ -116,7 +116,7 @@ def unit_by_id(bs, uid):
 
 
 def hold(gc, **kw):
-    """test_messages.hold (QR2r): the test-only client lever hold_battle_ready (W2-P8b Q16 (a)). {on: true}
+    """test_messages.hold (QR2r): the test-only client lever hold_battle_ready. {on: true}
     arms it (the handshake stashes battle_ready), {on: false} disarms it and sends the stash; without `on` it only
     reports."""
     req = {"cmd": "hold_battle_ready"}
@@ -385,7 +385,7 @@ def main():
             f"text exactly: {bs2.get('coopWaitText')!r}")
         print(f"PASS: battle_state.coopWaitText == {bs2['coopWaitText']!r} (exact)")
 
-        # === REV E.1 (S-4): THE ESCAPE HATCH ==================================
+        # === THE ESCAPE HATCH ==================================
         r0 = event_state(host)["coopHostInputFrozenRefusals"]
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         host.wait_for("host PauseState opened by the Options-key hatch",

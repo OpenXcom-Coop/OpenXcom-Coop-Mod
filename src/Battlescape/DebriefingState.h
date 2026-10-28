@@ -60,7 +60,7 @@ struct RecoveryItem { std::string name; int value; };
 class DebriefingState : public State
 {
 private:
-	friend class connectionTCP; // coop (W2-P7 S-B1): the display-only client fill/finish and the host's bt_debrief_result serializer
+	friend class connectionTCP; // coop: the display-only client fill/finish and the host's bt_debrief_result serializer
 	std::string _coopTitleKey, _coopRecoveryKey; // coop (AUD-A12): the keys behind _txtTitle / _txtRecovery's prepareDebriefing text; the second player renders them in its own language
 	typedef std::pair<std::string, UnitStats> SoldierStatsEntry;
 

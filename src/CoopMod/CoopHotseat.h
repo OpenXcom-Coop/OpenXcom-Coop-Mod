@@ -19,7 +19,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// D247-U S-C: the battle-save hook pair takes YAML nodes (forward-declared, as BattleAuthority.h does).
+// the battle-save hook pair takes YAML nodes (forward-declared, as BattleAuthority.h does).
 namespace YAML { class YamlNodeReader; class YamlNodeWriter; }
 
 namespace OpenXcom
@@ -29,7 +29,7 @@ class BattlescapeState;
 class SavedBattleGame;
 
 /**
- * D247-U (owner D247 (a), OH1 (a); docs rewrite/prompts/d247u_hotseat_battle.md): the battle half of
+ * the battle half of
  * the local HOTSEAT mode the NEW BATTLE screen arms (connectionTCP::_isHotseatActive, issue #136).
  * Player 1 commands X-COM on vanilla's player side; player 2 commands the aliens on vanilla's alien
  * side. One battle round is one vanilla round (X-COM, aliens, civilians): the turn counter, time units,
@@ -85,16 +85,16 @@ bool coopHotseatHidesMap(const SavedBattleGame* s);
 /// panic check on player 2's turn from turn 1; think() then runs coopHandlePanickingHotseat().
 bool coopHotseatArmsPanic(const SavedBattleGame* s);
 
-/// D247-U S-B: UnitWalkBState's walk-step reaction check - true = no reaction fire on a walk step, i.e. a
+/// UnitWalkBState's walk-step reaction check - true = no reaction fire on a walk step, i.e. a
 /// hotseat battle whose REACT FIRE toggle is off (main UnitWalkBState :465; the other triggers stay).
 bool coopHotseatWalkReactionOff();
 
-/// D247-U S-B: coopFactionHumanCommanded() outside a co-op battle - in a hotseat battle a human commands
+/// coopFactionHumanCommanded() outside a co-op battle - in a hotseat battle a human commands
 /// both FACTION_PLAYER and FACTION_HOSTILE (R5-U3's terms then skip the AI weapon-use delay and the AI
 /// "aggro" step of a reaction; QD247-9).
 bool coopHotseatFactionHuman(int faction);
 
-/// D247-U S-B: for its lifetime on player 2's turn the real factions are back, so
+/// for its lifetime on player 2's turn the real factions are back, so
 /// BattlescapeGame::checkForCasualties() keeps vanilla's kill accounting (who killed whom, the killer's
 /// morale, the mind-control credit). Nest-safe: only the outermost guard swaps.
 struct CoopHotseatRealFactions
@@ -107,7 +107,7 @@ struct CoopHotseatRealFactions
 	bool _active;
 };
 
-/// D247-U S-C (OH4 (a)): the BATTLE-save hook pair, beside BattleAuthority.h's coopSaveActiveSeat /
+/// the BATTLE-save hook pair, beside BattleAuthority.h's coopSaveActiveSeat /
 /// coopLoadActiveSeat in SavedBattleGame::save() / ::load(). A hotseat battle's save carries whose turn it
 /// is, the stashed explored map, player 2's last alien and the REACT FIRE toggle; loading one arms hotseat
 /// and resumes that turn. Outside hotseat nothing is written (an SP save stays byte-identical); loading a

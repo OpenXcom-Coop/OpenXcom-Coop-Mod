@@ -90,7 +90,7 @@ class Ufo;
  * loadCoopSaveFromMemory precedent at connectionTCP.cpp's writeHostMapFile()),
  * rebuild CoopIdMaps, stamp authority {hostSim:false, localSeat, phase:Active},
  * compute its own saveBlob bucket, and enter the battle the way W1-P3
- * (WAVE1-RUNBOOK.md SS4, ruling D3 = WV-D9) pins it: unwind the client's
+ * pins it: unwind the client's
  * pre-battle MENU stack to the nearest safe state (coopUnwindToSafeState() -
  * the host pops its own menu stack at the same point, and setSavedGame() has
  * just deleted the world those menu states pointed into), push
@@ -124,24 +124,24 @@ namespace CoopHandshake
 /// evaluates and sends "busy").
 void offerBattle(Game* game, int gamemode);
 
-/// coop D250-U S-C1 (owner D250, O1 (a)): on a gm3 PvP campaign CLIENT (the X-COM side) only, hands this landing to the alien
+/// coop: on a gm3 PvP campaign CLIENT (the X-COM side) only, hands this landing to the alien
 /// host, which runs the battle in this machine's world: pushes this machine's live world to the host (pushProgressToHostSilently),
 /// sends `pvp_land` and holds on CoopState(3). True = handed off (or, if the push failed, the craft sent home): the caller generates
 /// nothing. False on every other machine and mode (the host, gm0 / gm1 / gm2 / gm4, a skirmish, single player).
 bool requestPvpLanding(Game* game, Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade);
 
-/// coop D250-U S-C5b1 (owner D250, O1 (a); D239 (a)): on a gm3 PvP campaign CLIENT (the X-COM side) only, hands Cydonia to the alien
+/// coop: on a gm3 PvP campaign CLIENT (the X-COM side) only, hands Cydonia to the alien
 /// host, which runs it in this machine's world - requestPvpLanding's hand-off with kind "cydonia" (no target). True = handed off (or,
 /// if the push failed, the craft sent home): the caller generates nothing. False on every other machine and mode.
 bool requestPvpCydonia(Game* game, Craft* craft);
 
-/// coop D250-U S-C5b2 (owner D250, O1 (a); D260 (b)): on a gm3 PvP campaign CLIENT (the X-COM side) only, hands the defence of @a base,
+/// coop: on a gm3 PvP campaign CLIENT (the X-COM side) only, hands the defence of @a base,
 /// which @a ufo attacks, to the alien host, which runs it in this machine's world: the base's tanks go back to its stores first (a
 /// pushed world keeps no vehicle list), then the push, `pvp_land` (kind "baseDefense": the base and the attack, as handleBaseDefense
 /// snapshots it) and the CoopState(3) hold. True = handed off (or the push failed: the attack is lost, as before); false elsewhere.
 bool requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo);
 
-// ----- FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): offerBattle() SPLIT into
+// ----- FX-1: offerBattle() SPLIT into
 // PREPARE and EMIT halves, so the coop blob snapshot (and the battle_offer
 // that advertises it) can move to AFTER the host's SavedBattleGame::
 // startFirstTurn() call without reordering a single vanilla statement. See
@@ -159,7 +159,7 @@ bool requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo);
 /// and snapshots NOTHING - phase is Handshake when this returns, but no
 /// battle_offer has gone out yet, which is exactly the window
 /// CoopBattleUi::freezeBattleInputUntilActive() exists to freeze.
-/// W2-P8b S-A.2: its LAST statement now calls emitPreparedOffer() - the snapshot and the offer
+/// its LAST statement now calls emitPreparedOffer() - the snapshot and the offer
 /// (with its `equip` object) go out at turn 0, before the host's briefing is pushed.
 void prepareBattleOffer(Game* game, int gamemode);
 
@@ -237,7 +237,7 @@ void offerResumedBattle(Game* game);
 /// while phase != Idle".
 void abandonPreparedOffer(Game* game);
 
-// ----- W1-P2: battle_offer mission identity (WAVE1-RUNBOOK.md SS2.W1, ruling
+// ----- battle_offer mission identity (WAVE1-RUNBOOK.md SS2.W1, ruling
 // D-4 = shape (d); WV-D9 / WV-D28 / WV-D42; WR-8/WR-9/WR-10/WR-23/WR-27,
 // IR2-10) -----
 //
@@ -400,7 +400,7 @@ bool mayReopenBriefing(Game* game);
 /// dismiss its briefing before that lands. Same predicate
 /// resolveBriefingDeployment() uses, and false in SP, so vanilla is
 /// byte-identical.
-/// W2-P8b S-A.2: with the pre-battle equip phase open (a fresh co-op battle) it selects the host's
+/// with the pre-battle equip phase open (a fresh co-op battle) it selects the host's
 /// first own soldier with an inventory and returns false - vanilla pushes the equip screen; the freeze above stays
 /// for the next-stage briefing only.
 bool freezePreBattleEquip(Game* game);
@@ -447,19 +447,19 @@ void onReady(Game* game, const Json::Value& ready);
 /// disconnect cannot leak into the next session.
 void resetPendingState();
 
-/// coop W2-H24 S-B: the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
+/// coop: the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
 /// thread) calls latchFreshStartLostUdp() before its own clearNetworkSessionQueues() resets the authority and the pending
 /// offer; it records whether a FRESH co-op battle start (a stage-2 offer included, MG-A-FS2) was in flight on the host.
 void latchFreshStartLostUdp();
 
-/// coop W2-H24 S-B: connectionTCP::disconnectTCP() (main thread) reads and clears that record, once per call.
+/// coop: connectionTCP::disconnectTCP() (main thread) reads and clears that record, once per call.
 bool consumeFreshStartLostUdp();
 
-/// coop R4-L2 S-B (W2-H24 R-2): true on the host while an in-memory rejoin offer (offerRejoinBattle()) is in flight.
+/// coop: true on the host while an in-memory rejoin offer (offerRejoinBattle()) is in flight.
 /// connectionTCP::disconnectTCP() and the UDP twin (handleUdpRemotePeerLost()) read it before their reset.
 bool coopHostRejoinPending();
 
-/// coop R4-L2 S-B: the rejoiner was lost during that rejoin - the pause is restored (phase Active, the offer dropped).
+/// coop: the rejoiner was lost during that rejoin - the pause is restored (phase Active, the offer dropped).
 void coopRestorePauseAfterLostRejoin();
 
 /// R2-P11: test-only, one-shot corrupt-next-blob lever. HOST: sets a
@@ -486,7 +486,7 @@ void requestCorruptNextBlob();
 // when an older-protocol peer can be simulated some other way.
 void requestOmitTurnMode(bool on);
 
-/// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): battle-entry SEAT-RELATIVE
+/// battle-entry SEAT-RELATIVE
 /// selection - "the client auto-selects its first owned unit at entry"
 /// (legacy shape `1e0f9276f:BattlescapeState.cpp:1606-1653`), generalized to
 /// BOTH machines because the invariant D6 states is seat-relative, not

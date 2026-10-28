@@ -1,4 +1,4 @@
-"""W2-H82 S-A - test_handoff_base_stream.py (HBS): a SEPARATE partner clicks the host's base just before the host presses YES on a landing;
+"""test_handoff_base_stream.py (HBS): a SEPARATE partner clicks the host's base just before the host presses YES on a landing;
 the host's base answer is still streaming when the partner's battle_accept arrives. The battle still starts: the partner reaches its briefing,
 the cut base answer is dropped, the host's battle starts.
 
@@ -37,7 +37,7 @@ NEEDLES = {"ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_re
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
 CELLS = {"R-C3": ["C3-pre", "C3-entry", "C3-brief", "C3-host", "C3-defer", "C3-drop", "C3-store", "C3-crash"],
          "G": ["G-pre", "G-brief", "G-host", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -288,7 +288,7 @@ def prompt(r, x):
     r.ev["promptS"] = round(time.time() - t, 2)
     time.sleep(1.0)
 def arm(r, x):
-    """ARM = the client's hold_blob_ack {on: true, scope: "base"} (W2-H82 L1)"""
+    """ARM = the client's hold_blob_ack {on: true, scope: "base"}"""
     a = q(x.client, {"cmd": "hold_blob_ack", "on": True, "scope": "base"})
     r.ev["arm"] = pick(a, ("ok", "armed", "scope"))
     if not (a.get("ok") and a.get("armed") and a.get("scope") == 1):

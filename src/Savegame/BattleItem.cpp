@@ -1272,7 +1272,7 @@ bool BattleItem::isAmmo() const
 }
 
 /**
- * W2-P2 S-B: the raw script-value vector.
+ * the raw script-value vector.
  * @return values (element i = tag index i + 1)
  */
 const std::vector<int>& BattleItem::coopScriptValuesRaw() const
@@ -1281,7 +1281,7 @@ const std::vector<int>& BattleItem::coopScriptValuesRaw() const
 }
 
 /**
- * W2-P2 S-B: absolute raw script-value set; every index past @a values is
+ * absolute raw script-value set; every index past @a values is
  * zeroed. Runs no script and draws no RNG.
  * @param values new values (element i = tag index i + 1)
  */

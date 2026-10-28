@@ -1,4 +1,4 @@
-"""W2-H35b S-A - test_client_sight_events.py: on the co-op second player's machine an alien's `visible` flag and
+"""test_client_sight_events.py: on the co-op second player's machine an alien's `visible` flag and
 each X-COM soldier's list of seen units follow vanilla when another soldier opens a door (K1) and when an AI unit
 thinks during its own turn (K4) (spec rewrite/prompts/w2h35b_client_sight_events.md (f); rulings R-R5U1-1: the second
 player's off-turn view follows vanilla; D171: hidden aliens stay hidden; W2-H35 QH-3 (a): capture first).

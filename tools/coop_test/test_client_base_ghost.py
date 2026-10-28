@@ -1,4 +1,4 @@
-"""W2-H62 S-A - test_client_base_ghost.py (L-H56-1, R-H62-0; captures lh56-1-cap F18567 / F18568 and lh56-1b-cap F18708; docs
+"""test_client_base_ghost.py (L-H56-1, R-H62-0; captures lh56-1-cap F18567 / F18568 and lh56-1b-cap F18708; docs
 rewrite/prompts/w2h62_sa_client_ghost.md (f) and the common file rewrite/prompts/w2h62_base_marker_cache.md; TASK 0
 rewrite/w2h62-task0/sa/CONSTANTS.md). In a SEPARATE campaign each machine shows the partner's bases as marker bases built from ONE
 process-wide cache (j_markers, connectionTCP.cpp). The cache outlives the session: a client that leaves campaign A and joins campaign B in

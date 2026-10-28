@@ -39,7 +39,7 @@ class CannotReequipState : public State
 private:
 	std::vector<ReequipStat> _missingItems;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 
 	TextButton *_btnOk, *_btnManufacture, *_btnPurchase;
 	Window *_window;

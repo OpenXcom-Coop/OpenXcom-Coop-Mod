@@ -108,7 +108,7 @@ drain; desyncSeen false on both; the client's turnMirrorFired 0; coopClientBStat
 on both; the client's pre-battle ground ids = its own PILE ids (STOP-IF 8: the screen
 shows the pile) and the PILE ids equal on both machines.
 
-Constants (AMENDMENT P8b-2 / docs rewrite/w2p8b-task0/t0/logs, F3326): SEED_ROSTER 1,
+Constants: SEED_ROSTER 1,
 SEED_MAP 1, MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) - imported from
 test_prebattle_equip.py (Boot A's bring-up, the same seed).
 

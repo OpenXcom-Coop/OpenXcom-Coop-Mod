@@ -12,7 +12,7 @@ ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the con
          never BuildNewBaseState, its [GeoscapeState, CoopState] code 68 within JOIN_S, own(client2) holds (CB_NAME, CB). CB-buf0:
          buf(host) 0 after RESUME. CB-write2: the second _quick_.asav written after its trigger, key(id2) present, no new crash file.
   Row M1 (the red, LAST) an autosave drop of client2 at the host's first sight of its 54 once a half-sent upload is buffered (READY; b54 > 0,
-         precondition), client3 rejoins, RESUME, the stale 54 CANCELLED when it is on top (F18431, W2-H59's), LIVE, then a host quick save
+         precondition), client3 rejoins, RESUME, the stale 54 CANCELLED when it is on top, LIVE, then a host quick save
          with client3 (t3) and a 0.1 s window until the save landed (_quick_.asav after t3, pending "", top GeoscapeState) or 1 s after
          the first new crash file (QH58-B2 (a)) or SAVE2_S. M1-world (GUARD) as CB-world for client3. M1-buf (RED) b1 = buf(host) at
          DROP_READ_S after the kill == 0. M1-write (RED) _quick_.asav mtime after t3. M1-crash (RED) no crash file new since t3.
@@ -226,7 +226,7 @@ def row_cb(x, r):
 
 
 def window(x, t3, crash3):
-    """M1's save window (QH58-B2 (a), R-H58-B-1): until the save landed, or 1 s after the first new crash file, or SAVE2_S"""
+    """M1's save window: until the save landed, or 1 s after the first new crash file, or SAVE2_S"""
     w, t3ns = {"trail": [], "tCrash": None, "tDone": None}, int(t3 * 1e9)
     while time.time() - t3 < SAVE2_S:
         cp = F.coop(x.host)

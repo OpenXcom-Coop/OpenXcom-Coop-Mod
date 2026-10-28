@@ -304,7 +304,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 		}
 
 		_game->popState();
-		// coop D250-U S-C1 (owner D250, O1 (a)): a gm3 PvP campaign client (the X-COM side) hands this landing to the alien
+		// coop: a gm3 PvP campaign client (the X-COM side) hands this landing to the alien
 		// host, which runs the battle in this machine's world; this machine generates nothing (false everywhere else).
 		if (coopLanding && CoopHandshake::requestPvpLanding(_game, _craft, _missionTexture, _globeTexture, _shade))
 			return;

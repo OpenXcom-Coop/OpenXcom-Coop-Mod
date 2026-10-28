@@ -46,7 +46,7 @@ class SellState : public TouchState
 {
 private:
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	DebriefingState *_debriefingState;
 	TextButton *_btnOk, *_btnCancel, *_btnTransfer;
 	TextEdit *_btnQuickSearch;
@@ -70,8 +70,8 @@ private:
 	TransferSortDirection _previousSort, _currentSort;
 	/// PRD-J10: live refresh when another player's shared_apply moves this base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
-	SharedEcon::SelectionBinder _sharedSel; // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
-	friend class SharedEcon::SelectionBinder; // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+	SharedEcon::SelectionBinder _sharedSel; // coop
+	friend class SharedEcon::SelectionBinder; // coop
 
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;
@@ -135,7 +135,7 @@ public:
 	/// SEPARATE/solo -> the vanilla local sell). Returns false if no sellable ITEM
 	/// row matches. Main thread only.
 	bool harnessSellItem(const std::string& itemType, int count);
-	void harnessSelectRow(size_t row) { _sel = row; } // coop (W2-P7 S-C-D1, P7-7 PR-28): test lever row select
+	void harnessSelectRow(size_t row) { _sel = row; } // coop: test lever row select
 };
 
 }

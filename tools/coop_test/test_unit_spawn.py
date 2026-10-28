@@ -1,4 +1,4 @@
-"""W2-P3 S-C - test_unit_spawn.py: a unit the host creates mid-battle (a
+"""test_unit_spawn.py: a unit the host creates mid-battle (a
 conversion) appears on the second player's machine with the host's id, built
 from the host's own saved record, together with its special built-in weapon -
 and a special weapon the host removes is removed there too (spec

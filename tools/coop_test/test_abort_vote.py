@@ -1,4 +1,4 @@
-"""R4-L1 S-A - test_abort_vote.py: either player's ABORT opens vanilla's abort screen, its OK opens ONE abort vote
+"""test_abort_vote.py: either player's ABORT opens vanilla's abort screen, its OK opens ONE abort vote
 on both machines (the asker's YES counted), the vote is unanimous with no deadline, no countdown and no starter
 cooldown, one NO fails it and the battle goes on, END TURN waits while it is open, and all YES ends the battle for both
 through the host's battle-end path once any running action has finished (owner design-D8, D231, D244; spec docs
@@ -52,7 +52,7 @@ import test_battle_end as tbe
 
 KEY_A, KEY_B = "48612", "48613"
 W, POLL = 5.0, 0.1
-WATCH_CAP_S = 135  # RV-U13 S-C: AV3's waits end at the debriefs; >= max(120, 2.5 x 31.9 s), F11357
+WATCH_CAP_S = 135  # AV3's waits end at the debriefs; >= max(120, 2.5 x 31.9 s), F11357
 TITLE, QUESTION = "Abort Mission", "Abort Mission?"                   # en-US STR_ABORT_MISSION / _QUESTION
 RULE = "STRICT MAJORITY: 2 OF 2 YES VOTES"
 REFUSAL = "Only the host can abort the mission"                       # STR_COOP_ABORT_HOST_ONLY (retired)

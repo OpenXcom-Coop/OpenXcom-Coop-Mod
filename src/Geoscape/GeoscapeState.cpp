@@ -110,9 +110,9 @@
 #include "MissionDetectedState.h"
 #include "TargetInfoState.h" // coop: GeoscapeState::coopHeldTargets
 #include "ConfirmDestinationState.h" // coop
-#include "SelectDestinationState.h" // coop W2-H83 S-C: GeoscapeState::coopHeldCrafts
-#include "ConfirmCydoniaState.h" // coop W2-H83 S-C
-#include "CraftNotEnoughPilotsState.h" // coop W2-H83 S-C
+#include "SelectDestinationState.h" // coop: GeoscapeState::coopHeldCrafts
+#include "ConfirmCydoniaState.h" // coop
+#include "CraftNotEnoughPilotsState.h" // coop
 #include "AlienBaseState.h"
 #include "../Savegame/Region.h"
 #include "../Savegame/Country.h"
@@ -624,7 +624,7 @@ void GeoscapeState::startCoopMission()
 		bgen.run();
 		_pause = true;
 
-		// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): BriefingState::
+		// R4-P2: BriefingState::
 		// setupCoop() died with the vanilla restore (911ca487f) - the deferred
 		// base-defense battle now rides the SAME offer/accept/stream/ready
 		// handshake R4-P1 built for the skirmish and mission-confirm entry
@@ -647,7 +647,7 @@ void GeoscapeState::startCoopMission()
 }
 
 /**
- * coop W2-H24 S-C1: the partner's game was lost during the start of this host's co-op base defense, so the
+ * coop: the partner's game was lost during the start of this host's co-op base defense, so the
  * attack waits for the partner. Puts back what the start took from the base - the stores the battle generator moved
  * into the battle (BattlescapeGenerator::deployXCOM keeps the pre-battle stores in getBaseStorageItems()) and the tanks
  * Base::setupDefenses rolled out (vanilla's reclaim, Base::cleanupDefenses) - clears the base's battle mark and
@@ -683,7 +683,7 @@ int GeoscapeState::coopRearmBaseDefense()
 }
 
 /**
- * coop W2-H24 S-C1: starts a co-op base defense that waited for the partner (coopRearmBaseDefense()) again,
+ * coop: starts a co-op base defense that waited for the partner (coopRearmBaseDefense()) again,
  * the way the attack first started it: the arrival's Base::setupDefenses (when the base has a retaliation mission),
  * handleBaseDefense()'s co-op stamps, then the deferred start (startCoopMission()) on the snapshot the attack took.
  * Only on the host, with the partner back (its world acknowledged: RESUME's own condition) and no battle in flight;
@@ -724,7 +724,7 @@ void GeoscapeState::coopStartRearmedBaseDefense()
 }
 
 /**
- * coop D250-U S-C5b2 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4): the gm3 alien host starts the
+ * coop: the gm3 alien host starts the
  * X-COM player's base defence in the borrowed X-COM world (the live world while it borrows) from the attack the player's
  * handleBaseDefense handed off. As the arrival and handleBaseDefense start it: the base's tanks rolled out with the attacking UFO's
  * mission (Base::setupDefenses; the player reclaimed them before its world was pushed), the co-op stamps, the snapshot, then the
@@ -1148,7 +1148,7 @@ void GeoscapeState::init()
 
 		}
 
-		if (!_game->getCoopMod()->isSharedCampaign()) _game->getCoopMod()->coopRemoveGuestMemorialCopies(); // coop (W2-P7 S-C-B2, D181)
+		if (!_game->getCoopMod()->isSharedCampaign()) _game->getCoopMod()->coopRemoveGuestMemorialCopies(); // coop
 		_game->getCoopMod()->coopMissionEnd = false;
 
 		if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
@@ -1165,7 +1165,7 @@ void GeoscapeState::init()
 		// replica is byte-identical and the frozen-replica relationship resumes -
 		// same bootstrap channel as J02 (streamSharedWorldToClient -> resume-blob
 		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
-		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true && !_game->getCoopMod()->coopTakePostBattleWorldSent()) // coop (W2-P7 S-C-A.2, MR2): skipped once the post-battle world went out at the debriefing
+		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true && !_game->getCoopMod()->coopTakePostBattleWorldSent()) // coop: skipped once the post-battle world went out at the debriefing
 		{
 			// The client's automatic resume-hold (pushed by LoadGameState whenever a
 			// streamed world is adopted) is released by the resume_ack handler: after
@@ -1517,7 +1517,7 @@ void GeoscapeState::think()
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
 
-	// coop W2-H24 S-C1: a co-op base defense waiting for the partner starts again for both once the host's
+	// coop: a co-op base defense waiting for the partner starts again for both once the host's
 	// RESUME made this the top state again (only the top state thinks; the wait dialog pops itself on RESUME).
 	if (_coopRearmBase != -1)
 	{
@@ -4022,7 +4022,7 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	if (!interrupted)
 	{
 		timerReset();
-		const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15; MG-C K1 (C11)
+		const Json::Value h15Mark = SharedEcon::eventMark(_game);
 		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared(), ge->isCoopBothWorlds())); // coop: the both-worlds mark
 		SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // the reward's result rides geo_event
 	}
@@ -5178,7 +5178,7 @@ void GeoscapeState::timerReset()
 }
 
 /**
- * coop W2-H81 (R-LH76-1-1; docs rewrite/prompts/w2h81_popup_mirror_uaf.md): the targets a geoscape popup holds as raw pointers.
+ * coop: the targets a geoscape popup holds as raw pointers.
  * A co-op mirror (a partner's UFO, site, alien base, base or craft) can be deleted under them (lh76-1-cap F22185-F22193); the
  * pointers are copied here, never dereferenced.
  * @param state Any state.
@@ -5245,7 +5245,7 @@ bool GeoscapeState::coopHeldTargets(State* state, std::vector<Target*>& out)
 }
 
 /**
- * coop W2-H83 S-C (R-LT18-1; docs rewrite/prompts/w2h83_sc_holders.md EC9): the crafts a geoscape window or notice holds as raw pointers.
+ * coop: the crafts a geoscape window or notice holds as raw pointers.
  * In SHARED they are the crafts of every base, and base_destroyed deletes a base's crafts under them (leads-triage18 F22666); W2-H81's
  * coopCloseMirrorHolders reads them beside coopHeldTargets. The pointers are copied here, never dereferenced.
  * @param state Any state.
@@ -5290,7 +5290,7 @@ bool GeoscapeState::coopHeldCrafts(State* state, std::vector<Target*>& out)
 }
 
 /**
- * coop W2-H81 (R-LH76-1-1 (e); docs rewrite/prompts/w2h81_popup_mirror_uaf.md): drops every queued popup (not yet shown) that holds
+ * coop: drops every queued popup (not yet shown) that holds
  * one of @a doomed - co-op mirrors about to be deleted - so none opens later on a freed object. Pointers are compared, never
  * dereferenced; a queued popup was never pushed, so it is deleted here (TestServer's "ufo_popup" lever deletes one the same way).
  * @param doomed The objects about to be deleted.
@@ -5303,7 +5303,7 @@ int GeoscapeState::coopDropQueuedPopupsHolding(const std::vector<Target*>& doome
 	{
 		std::vector<Target*> held;
 		coopHeldTargets(*it, held);
-		coopHeldCrafts(*it, held); // coop W2-H83 S-C (R-LT18-1, EC10): a queued patrol, dogfight or landing notice on a doomed craft
+		coopHeldCrafts(*it, held); // coop: a queued patrol, dogfight or landing notice on a doomed craft
 		bool hit = false;
 		for (Target* t : held)
 		{
@@ -6665,7 +6665,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					return;
 				}
 
-				// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): SEPARATE-campaign
+				// R4-P2: SEPARATE-campaign
 				// base defense now rides the SAME host-builds-and-ships handshake as
 				// every other battle entry (skirmish/mission/Cydonia). Only the coop
 				// server owner (the immutable battle host) generates and offers the
@@ -6700,7 +6700,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					// one-shot so the deferred startCoopMission() can never fire
 					// here, and await the host's offer (onOffer -> BattlescapeState).
 					g_coopBaseDefense.pending = false;
-					// coop D250-U S-C5b2 (owner D250, O1 (a); F13994): a gm3 PvP campaign client (the X-COM side) hands the defence of
+					// coop: a gm3 PvP campaign client (the X-COM side) hands the defence of
 					// its base to the alien host, which runs it in this machine's world; a no-op on every other machine and mode.
 					CoopHandshake::requestPvpBaseDefense(_game, base, ufo);
 				}
@@ -6953,7 +6953,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				auto* ruleResearchSeq = mod->getResearch(disabledSeqArcs.front(), true); // take first
 				save->addFinishedResearch(ruleResearchSeq, mod, hq, true);
-				SharedEcon::noteGrantArticle(_game, ruleResearchSeq); // coop W2-H17c (Q2 a): the article vanilla opens below
+				SharedEcon::noteGrantArticle(_game, ruleResearchSeq); // coop: the article vanilla opens below
 				++arcsEnabled;
 				if (ruleResearchSeq)
 				{
@@ -6973,7 +6973,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				auto* ruleResearchRng = mod->getResearch(disabledRngArcs.choose(), true); // take random
 				save->addFinishedResearch(ruleResearchRng, mod, hq, true);
-				SharedEcon::noteGrantArticle(_game, ruleResearchRng); // coop W2-H17c (Q2 a): the article vanilla opens below
+				SharedEcon::noteGrantArticle(_game, ruleResearchRng); // coop: the article vanilla opens below
 				++arcsEnabled; // for good measure :)
 				if (ruleResearchRng)
 				{
@@ -6989,7 +6989,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				}
 			}
 		}
-		SharedEcon::hostResearchGrant(_game, h17cArcMark, "arc", false); // coop W2-H17c (Q3 a): no score - the monthly roll carries the ended month
+		SharedEcon::hostResearchGrant(_game, h17cArcMark, "arc", false); // coop: no score - the monthly roll carries the ended month
 	}
 
 	// well, here it is, ladies and gents, the nuts and bolts behind the geoscape mission scheduling.

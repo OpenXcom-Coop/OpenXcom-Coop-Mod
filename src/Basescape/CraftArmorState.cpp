@@ -498,7 +498,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 				Craft* c = _base->getCrafts()->at(_craft);
 				if (s->getCraft() == c)
 				{
-					if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, false); return; } // coop W2-H16b (S-9): the host unseats (craft_assign); the refresh redraws
+					if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, false); return; } // coop: the host unseats (craft_assign); the refresh redraws
 					s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
 					_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, tr("STR_NONE_UC"));
 					_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getColor());
@@ -509,7 +509,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 					CraftPlacementErrors err = c->validateAddingSoldier(space, s);
 					if (err == CPE_None)
 					{
-						if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, true); return; } // coop W2-H16b (S-9): the host seats (craft_assign); the refresh redraws
+						if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, true); return; } // coop: the host seats (craft_assign); the refresh redraws
 						s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
 						_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, c->getName(_game->getLanguage()));
 						_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getSecondaryColor());

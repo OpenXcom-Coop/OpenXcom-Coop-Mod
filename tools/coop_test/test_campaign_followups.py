@@ -1,4 +1,4 @@
-"""W2-P7 S-C-C - test_campaign_followups.py: in a SHARED campaign the second player sees every after-battle screen
+"""test_campaign_followups.py: in a SHARED campaign the second player sees every after-battle screen
 the host sees (promotions, medals, late medals, cannot-reequip), and every co-op campaign debrief and follow-up screen
 names the other player's soldiers `[Player] Name` (docs rewrite/prompts/w2p7_sc_design.md section 3.4, AMENDMENT P7-6
 section 4.4, the P7-6 C re-pin at 2e177ff39 section 4 rows F1, F4, F2/F3, PR-C1..PR-C10; owner D154, D177 (a); MR5,
@@ -154,7 +154,7 @@ def ending(host, client, ctx, m):
 
 
 def give_rifle_set(js, layouts, m):
-    """W2-U9c (R-MGR2-1; F22804-F22809, S25): OXCE creates the craft's battle items in RuleItem pointer order, which
+    """OXCE creates the craft's battle items in RuleItem pointer order, which
     differs per boot, and autoEquip gives the first rifle-class item to the first soldier without a layout
     (HEAVY_CANNON counts as a rifle). Before the battle each squad slot in `layouts` ({slot: RIFLE_SET or
     RIFLE_SET_HANDS}; squad = bring_up_shared_mixed_battle's, the host roster's two lowest ids) gets that equipment

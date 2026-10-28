@@ -41,7 +41,7 @@ private:
 	TextButton *_btnOk;
 	TextList *_lstDestroyedFacilities;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	bool _missiles, _partialDestruction;
 public:
 	/// Creates the Select Destination state.

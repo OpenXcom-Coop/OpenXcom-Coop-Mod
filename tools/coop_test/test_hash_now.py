@@ -167,7 +167,7 @@ import session
 #   seq 3  side:"player" delta - the host's BattlescapeState entry FOV at its
 #          briefing OK (57 tiles), no longer coalesced with seq 2 because the
 #          host now reaches Active while still in its briefing.
-#   seq 4  `sync` equip {open} - the equip-open announce (W2-P8b b4).
+#   seq 4  `sync` equip {open} - the equip-open announce.
 #   seq 5  `sync` equip {ready} - the host's own ready press (b5; this
 #          fixture's client owns no soldier, so it never readies).
 #   seq 6  `sync` equip {end} - the barrier's turn-1 sync (b6).
@@ -231,7 +231,7 @@ def main():
 
         host.ok({"cmd": "newbattle_ok"})
 
-        # W2-P8b S-H: the coop blob snapshot and the battle_offer
+        # the coop blob snapshot and the battle_offer
         # now go out at PREPARE (newbattle_ok), at turn 0, so both briefings are
         # up at once; the shared entry spine passes both briefings, both
         # pre-battle equip screens (D174 a / D206 c; turn 1 starts on the host
@@ -358,7 +358,7 @@ def main():
         assert "revealHostile" in host_h, (
             f"hash_now full did not carry the revealHostile bucket ({sorted(host_h)}) - "
             "the hostile reveal storage was unallocated, so WR-26 omitted it")
-        # SPEC 3 (FX-2, WV-D61): itemIdCtr must not silently disappear from the
+        # itemIdCtr must not silently disappear from the
         # sweep - it stays a compared bucket even after the ADOPT hook makes it
         # agree by construction (RB-D24's max(id)+1 fallback is superseded, the
         # bucket itself is not dropped - see test_item_id_ctr.py).

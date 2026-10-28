@@ -13,7 +13,7 @@ fresh host (CoopTurnMode parallel) loads it, a clean client joins. G1 open_pause
 G2 host_menu_host + the join: both in LobbyMenu, CONTINUE BATTLE offered. G3 CONTINUE BATTLE: both on the saved battle, no
 dialog 62 / 68, no LobbyMenu or BriefingState on the client (read 2 s later, V1). G4 phase Active, no desync, the
 disk-resume offer and MG-B's line once each. G5 units (coop, faction, isOut, x, y, z) host == client == P, seat counts.
-G6 (D-22 / D100) turnMode traditional under the host option parallel; holder == A0. G7 every bucket EQUAL. G8 host END
+G6 turnMode traditional under the host option parallel; holder == A0. G7 every bucket EQUAL. G8 host END
 TURN: holder 1; the client walks a staged seat-1 unit one tile; equal on both, every bucket EQUAL, no desync.
 RED on the unchanged product: P2 (CO-OP shows while an action runs), G3 (the client never gets the saved battle), G4-G8
 not reached (G3). GREEN (EA1-EA6): every cell PASS. One EVIDENCE line per row, one PASS / FAIL line per cell, the row

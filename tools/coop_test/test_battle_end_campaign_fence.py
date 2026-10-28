@@ -1,4 +1,4 @@
-"""W2-P7 S-C-A - test_battle_end_campaign_fence.py: the stream fence (MR3, F2129, F2496). A shared command the
+"""test_battle_end_campaign_fence.py: the stream fence. A shared command the
 host submits while its post-battle world streams to the second player is neither lost nor doubled: the host defers
 it until the stream's completion message has left (the fence's HOST half, T0-S1 CONFIRMED F4760/F4761), the client
 holds the resulting shared_apply until it has adopted the streamed world in place, then applies it onto that world
@@ -6,13 +6,13 @@ holds the resulting shared_apply until it has adopted the streamed world in plac
 P7-6 TASK 0 RULINGS; owner D156 (a), D176; MR1, MR3).
 
 Fixture (one boot; the C28S fixture of test_battle_end_campaign.py, imported): the SHARED battle on SEED_S, then,
-before the ending, the two TEST-ONLY holds (AMENDMENT P7-6 PR-11): host hold_world_stream {on: true} (the streamer
+before the ending, the two TEST-ONLY holds: host hold_world_stream {on: true} (the streamer
 parks before its final MAP_RESULT_LOAD_PROGRESS, so sendFileClient stays set and the host log says "[coop-test]
 hold_world_stream: holding"), client hold_world_adopt {on: true} (S-C-A.2's adoption step skips). The item is T0-6's
 recovered SELL_ITEM ("Plasma Pistol", 8 recovered: CONSTANTS T0-6 (ii) / HOST_DEBRIEF) - base 0 holds none before the
 battle, so its count at the host's debriefing is the debriefing's own (DEBRIEF_QTY, checked pre-cell).
 
-Row C28S-f (AMENDMENT P7-6 section 4.1). GREEN cells, in order; a failed cell ends the row ("not reached" after it):
+Row C28S-f. GREEN cells, in order; a failed cell ends the row ("not reached" after it):
   (1) both debrief_state equal (PR-10 stripped); the client's shown, on top and display-only (as C28S (1)).
   (2) the host's stream is parked (the hold line in the host log within ADOPT_S); the host's `sell {SELL_ITEM, 1}`
       from a base screen; host battleEnd.fenceDeferredPasses >= 1 within FENCE_S while the host's count stays

@@ -1,4 +1,4 @@
-"""D247-U S-A - hotseat's turn hand-over and one explored map per player (owner D247 (a), OH1 (a) = D276 (a)).
+"""hotseat's turn hand-over and one explored map per player.
 
 Spec: docs rewrite/prompts/d247u_hotseat_battle.md, (f) `test_hotseat_turns.py`, with the orchestrator rulings of
 session 42155bc1 (R-D247-SA-1..3, docs rewrite/w2-resume-42155bc1/ruling-d247ua.md). Pins: docs

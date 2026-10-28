@@ -1,4 +1,4 @@
-"""EQ-2 S-D - test_equip_held_drawn.py (EQD): on the pre-battle equip screen the co-op partner's held item is drawn under the
+"""test_equip_held_drawn.py (EQD): on the pre-battle equip screen the co-op partner's held item is drawn under the
 partner's pointer, centred on it as vanilla centres its own cursor item, and an item the partner lifts from its own soldier is not
 drawn on that soldier's paperdoll in the read-only view while it is held. Owner D291 (c), QEQ2-8 (a) (veto VL-EQ2-6),
 D290 (c) / D295 (a) (S-A's pointer), D291 (b) (S-B's hold table), D288 (b) (EQ-1's partner view). Spec: docs repo

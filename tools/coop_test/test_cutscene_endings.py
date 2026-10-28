@@ -268,7 +268,7 @@ def row_h17b_4(r, x):
                                        f"{r.ev['end']['client']['stack']}")
 
 def row_h17b_5(r, x):
-    """SEPARATE: the client's own research ending ends the host's campaign too (V1, D239 a); the host keeps its months."""
+    """SEPARATE: the client's own research ending ends the host's campaign too; the host keeps its months."""
     p, s0, rk = ending_row(r, x, x.client, T_WIN, False, KEEP, 1, "STR_H17B_WIN")
     m0 = s0["host"]["research_probe"]["monthsPassed"]
     r.cell("hostEnds", any(s["h"]["ending"] == 1 and s["h"]["statistics"] for s in p),

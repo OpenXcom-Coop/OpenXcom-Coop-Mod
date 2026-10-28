@@ -101,7 +101,7 @@ private:
 	void pushState(State *state);
 	/// Pops the last state from the state stack.
 	void popState();
-	/// coop W2-H83 S-B2: closes, top down, every screen on top whose base is gone (State::coopHoldsGoneBase).
+	/// coop: closes, top down, every screen on top whose base is gone (State::coopHoldsGoneBase).
 	void coopCloseGoneBaseHolders();
 	/// Gets the currently loaded language.
 	Language *getLanguage() const { return _lang; }
@@ -109,7 +109,7 @@ private:
 	SavedGame *getSavedGame() const { return _save; }
 	/// Sets a new saved game for the game.
 	void setSavedGame(SavedGame *save);
-	/// coop D250-U S-C1: sets a new saved game WITHOUT deleting the current one and returns it (the caller owns it).
+	/// coop: sets a new saved game WITHOUT deleting the current one and returns it (the caller owns it).
 	SavedGame *swapSavedGame(SavedGame *save);
 	/// Gets the currently loaded mod.
 	Mod *getMod() const { return _mod; }

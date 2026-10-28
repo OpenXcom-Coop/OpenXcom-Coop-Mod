@@ -1,4 +1,4 @@
-"""W2-H35b S-C - test_client_sight_fire.py: at night, on the co-op second player's machine an X-COM soldier's list of
+"""test_client_sight_fire.py: at night, on the co-op second player's machine an X-COM soldier's list of
 seen units follows vanilla after an incendiary blast's fire lights a dark alien (K2) (spec
 rewrite/prompts/w2h35b_client_sight_events.md (f); rulings R-R5U1-1: the second player's off-turn view follows vanilla;
 hidden aliens stay hidden; W2-H35 QH-3 (a): capture first; fixture rulings R-H35B-SB-1 (darkness D-1, staging S-1),
@@ -28,7 +28,7 @@ tu 255}; bt_action_end, wait_host_idle, seq barrier.
   K2-list   list(client, V) equal to list(host, V).
   K2-common hash_now full (every bucket EQUAL); event_state.desyncSeen false on both; 0 new crash files.
 "vis(gc)" = A's battle_state units[].visible; "list(gc, U)" = U's units[].visibleUnits (R5-U1 S-A's T1 probe).
-RED at the red commit (unchanged build): K2-list FAILS; every other cell PASS. GREEN (W2-H35b E1, E7): every cell PASS.
+RED at the red commit (unchanged build): K2-list FAILS; every other cell PASS. GREEN: every cell PASS.
 
 One "EVIDENCE K2:" line, one PASS / FAIL line per cell, "ROW K2: PASS|FAIL". A bring-up failure prints ONE "CAPTURE boot:"
 line and fails every cell "boot". one run is the result; no skip, no second boot, no other fixture;

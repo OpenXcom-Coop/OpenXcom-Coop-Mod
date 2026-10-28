@@ -133,7 +133,7 @@ void MultipleTargetsState::popupTarget(Target *target)
 			if (_game->getCoopMod()->getCoopStatic() == true && b->_coopBase == true)
 			{
 
-				// coop W2-H78 (docs rewrite/prompts/w2h78_visit_during_handoff.md E4; R-LH74-1-1, VL-H78-1): while a co-op battle is being
+				// coop: while a co-op battle is being
 				// handed to this machine (phase Handshake: its battle_offer accepted, the battle blob streaming; lh74-1-cap F21617) a click on
 				// the partner's base does nothing; the briefing follows. MultipleTargetsState is already popped (:122).
 				if (coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake)

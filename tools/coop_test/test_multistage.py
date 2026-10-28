@@ -1,4 +1,4 @@
-"""MG-A S-A1 - test_multistage.py: a co-op stage change hands the next stage to both players (owner D158 (a),
+"""test_multistage.py: a co-op stage change hands the next stage to both players (owner D158 (a),
 D226 (a); spec docs rewrite/prompts/mga_multistage_handoff.md (f) rows MS1 and MS4 as AMENDMENT MG-A-1 section 5
 restates them for stage S-A1; TASK 0 constants docs rewrite/mga-task0/a1/CONSTANTS.md).
 

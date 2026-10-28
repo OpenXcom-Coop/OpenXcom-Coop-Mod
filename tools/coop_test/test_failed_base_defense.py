@@ -1,4 +1,4 @@
-"""W2-H24 stages S-C2 and S-C1 (spec rewrite/prompts/w2h24_failed_battle_start.md AMENDMENT H24-2 sections 3 and 4): a co-op CAMPAIGN
+"""W2-H24 stages S-C2 and S-C1: a co-op CAMPAIGN
 base defence whose start fails. W2-H24-R (owner D265 (a), reverses D261) removed S-C2's row BR (a refused base defence ended the
 session): a refused base defence now takes S-A's shared unwind like every other failed start, and D262 (b) leaves that path unasserted.
   Boot B0 (lobby key "48587", w2h24_f_host / _client; S-C2, TASK 0 rewrite/w2h24-task0/sc2/CONSTANTS.md): B0 the negative control, a
@@ -21,7 +21,7 @@ U = the host's battle_state.units soldierIds (faction 0, soldierId != -1).
 W = 15 s, POLL = 0.2 s. MARKS / UNWIND / CRASH, the flow rule, the EVIDENCE / CAPTURE lines and the row bookkeeping are
 test_failed_battle_start's (imported, unchanged). A WAIT that times out (or a lever reply that is not ok) ends the row, its later
 cells "not reached"; a boot miss fails its row "boot"; every row runs after a failure; ONE run; exit 0 iff every cell passes,
-else 2. Red (TASK 0 T0-R1): B0 PASS, BR FAIL BR-2..BR-5. Red (S-C1, T0-D1): B0, BR PASS; BD FAIL BD-1..BD-5, BD-6 PASS.
+else 2. Red: B0 PASS, BR FAIL BR-2..BR-5. Red (S-C1, T0-D1): B0, BR PASS; BD FAIL BD-1..BD-5, BD-6 PASS.
 W2-H24-R (D265 (a), reverses D261): row BR, its boot and its constants removed; B0, BD PASS.
 """
 import json
@@ -37,7 +37,7 @@ from test_failed_battle_start import (q, lever, stack, bstate, coop, dlg, log, s
                                          Row, Stop, short)
 
 W, POLL = 15.0, 0.2
-WATCH_CAP_S = 135  # RV-U13 S-C: a start wait ends at both phase Active; >= max(120, 2.5 x 30.4 s), F11358
+WATCH_CAP_S = 135  # a start wait ends at both phase Active; >= max(120, 2.5 x 30.4 s), F11358
 KEY_B0, KEY_BD = "48587", "48588"
 CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "W2-H24: failed battle start ("
 REARMED, PREPARED = "battle marks cleared=1, crafts sent home=0", "battle offer PREPARED (battleId="

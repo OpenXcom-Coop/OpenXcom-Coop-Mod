@@ -43,7 +43,7 @@ private:
 	TextList *_lstResearch;
 
 	std::vector<Base*> _bases;
-	bool coopHoldsGoneBase() const override { return coopBasesGone(_bases); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBasesGone(_bases); } // coop
 	std::vector<const RuleResearch*> _topics;
 	bool _openedFromBasescape;
 public:

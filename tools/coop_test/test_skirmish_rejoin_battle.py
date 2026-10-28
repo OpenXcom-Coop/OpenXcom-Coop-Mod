@@ -90,7 +90,7 @@ def settle_on_tactical(machines, timeout=180):
     """Walk briefing / pre-battle inventory / popups until the tactical map is
     the top state, exactly as a player would.
 
-    W2-P8b S-H: BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
+    BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
     host's pre-battle equip screen now waits for the client's ready (owner
     D206 c) and the client's briefing is up at once, so settling one
     machine at a time never finishes. `battle_inventory ok` is the idempotent
@@ -152,7 +152,7 @@ def start_skirmish_battle(host, client, port):
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} in the battle",
                     lambda gc=gc: in_battle_save(gc) or None, timeout=180, interval=1.0)
-    settle_on_tactical(((host, "host"), (client, "client")))  # W2-P8b S-H: one joint loop
+    settle_on_tactical(((host, "host"), (client, "client")))  # one joint loop
 
 
 def drop_client_mid_battle(host, client):
@@ -442,7 +442,7 @@ def _fly_shared_squad_into_a_battle(js):
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} entered the battle",
                     lambda gc=gc: in_battle_save(gc) or None, timeout=240, interval=1.0)
-    settle_on_tactical(((host, "host"), (client, "client")))  # W2-P8b S-H: one joint loop
+    settle_on_tactical(((host, "host"), (client, "client")))  # one joint loop
 
 
 def scenario_host_leaves_campaign_battle():

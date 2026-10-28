@@ -43,7 +43,7 @@ private:
 	Text* _txtCaveat;
 	TextButton *_btnManufacture, *_btnOk;
 	Base * _base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 public:
 	/// Creates the NewPossibleManufacture state.
 	NewPossibleManufactureState(Base * base, const std::vector<RuleManufacture *> & possibilities);

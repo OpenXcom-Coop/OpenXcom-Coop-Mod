@@ -289,7 +289,7 @@ void CraftEquipmentState::init()
 		}
 		initList();
 	}
-	SharedEcon::craftStageClose(_game, _base); // coop W2-H20b-B (A4, A6): after the excess removal (no-op unless staged)
+	SharedEcon::craftStageClose(_game, _base); // coop: after the excess removal (no-op unless staged)
 	_reload = true;
 	_returningFromGlobalTemplates = false;
 	_returningFromInventory = false;
@@ -770,7 +770,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 		submitSharedCraftEquip(item, change <= 0 ? change : -change);
 		return;
 	}
-	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop W2-H20c (A17): vanilla moves an HWP locally below; its end-state follows
+	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop: vanilla moves an HWP locally below; its end-state follows
 	int cQty = 0;
 	if (item->getVehicleUnit()) cQty = c->getVehicleCount(_items[_sel]);
 	else cQty = c->getItems()->getItem(item);
@@ -839,7 +839,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 			_base->getStorageItems()->addItem(item, change);
 		}
 	}
-	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop W2-H20c (A17): the HWP end-state to the host
+	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop: the HWP end-state to the host
 	updateQuantity();
 }
 
@@ -870,7 +870,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 		submitSharedCraftEquip(item, change);
 		return;
 	}
-	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop W2-H20c (A17): vanilla moves an HWP locally below; its end-state follows
+	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop: vanilla moves an HWP locally below; its end-state follows
 	int bqty = _base->getStorageItems()->getItem(item);
 	if (_isNewBattle)
 	{
@@ -983,7 +983,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 			_base->getStorageItems()->removeItem(item, change);
 		}
 	}
-	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop W2-H20c (A17): the HWP end-state to the host
+	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop: the HWP end-state to the host
 	updateQuantity();
 }
 
@@ -1062,7 +1062,7 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 			// Note: the current implementation assumes no limit to the number or size of items a craft can hold.
 			//       If the craft has limited space, then we just won't have all the base items available on the inventory screen.
 
-			SharedEcon::craftStageOpen(_game, _base); // coop W2-H20b-B (A4): the staging window before the load-all
+			SharedEcon::craftStageOpen(_game, _base); // coop: the staging window before the load-all
 			auto& extras = *craft->getExtraItems();
 			extras.clear();
 
@@ -1136,7 +1136,7 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 			tmpl->addItem(item, cQty);
 		}
 	}
-	SharedEcon::submitLoadoutTemplate(_game, _base, index); // coop W2-H20b (A10): the slot to the host
+	SharedEcon::submitLoadoutTemplate(_game, _base, index); // coop: the slot to the host
 }
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
@@ -1242,7 +1242,7 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 	// turn back the original setting
 	Options::oxceAlternateCraftEquipmentManagement = backup;
 	_localBatch = false;
-	SharedEcon::craftItemsCommit(_game, _base, _base->getCrafts()->at(_craft), coopCraftMark); // coop W2-H20b-B (A8): the end-state to the host
+	SharedEcon::craftItemsCommit(_game, _base, _base->getCrafts()->at(_craft), coopCraftMark); // coop: the end-state to the host
 }
 
 /**

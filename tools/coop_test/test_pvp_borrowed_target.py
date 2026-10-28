@@ -1,5 +1,5 @@
 """test_pvp_borrowed_target.py: a gm3 PvP campaign battle keeps its target. While the alien host runs the battle in the
-X-COM client's borrowed world (D250-U S-C1), the borrowed Skyranger keeps heading for the battle's mission site (the mirror H4 rebuilt)
+X-COM client's borrowed world, the borrowed Skyranger keeps heading for the battle's mission site (the mirror H4 rebuilt)
 and that site stays in the borrowed world from the X-COM player's YES through the battle start; a won battle's debriefing is the
 mission site's on both machines, not a base defence.
 

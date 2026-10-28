@@ -108,7 +108,7 @@ def first_after(gc, a, needle):
 def pushes(gc, a, b, cls): return [short(x) for x in logl(gc)[a:b] if "[coop-ui] push class OpenXcom::%s depth" % cls in x]
 def cw(gc, match, settle=1.0):
     """wait for the button (W2-U9, F20796 / F20872: a POPUP window drops a click on a hidden button), click it; with `settle`
-    wait up to `settle` s for the stack to move, then CLICK_SETTLE (D306 O4)"""
+    wait up to `settle` s for the stack to move, then CLICK_SETTLE"""
     session.wait_widget_ready(gc, match)
     s0 = stk(gc)
     r = q(gc, {"cmd": "click_widget", "match": match})

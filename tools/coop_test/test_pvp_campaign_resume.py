@@ -1,6 +1,6 @@
 """PvP campaign resume (D250-U S-D on rewrite/merge-main; docs rewrite/prompts/d250u_sd_merge_main.md):
   - gm2 mid-battle: the release line's gm2 battle save (fixtures/pvp_gm2_battle.sav, made by `main`)
-    converts at the host's menu load (D246-U S-C1) and resumes through the real host window
+    converts at the host's menu load and resumes through the real host window
     (host_menu_host, R-D250-SC4A-1; L-SC5-6): verify BOTH in battle (also proves the battle-free
     buildCoopStub loads clean as the phase-one geoscape without null-derefing on an empty roster).
   - gm3 mid-battle: the release line's gm3 battle save holds no alien world, so the host's menu load
@@ -34,7 +34,7 @@ def resume_campaign_battle(host, client, save_file, port, host_name="HostPlayer"
                            interval=2.0):
     """session.resume_campaign_battle copied (D250-U S-D; R-D250-SC4A-1 (a), L-SC5-6) with ONE change: the host's START HOST
     goes through the real host window (host_menu_host visibility 0 -> HostMenu::hostTCPGame), not the host_tcp lever, so the
-    resume passes the host window's PvP-mode keep (D250-U S-C4a, W2-H46). The same copy as test_campaign_resume_gm2.py."""
+    resume passes the host window's PvP-mode keep. The same copy as test_campaign_resume_gm2.py."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (battle resume)", lambda: session.has_state(host, "HostMenu"))
     host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": port, "player": host_name})

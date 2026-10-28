@@ -99,7 +99,7 @@ CoopTurnMode coopSessionTurnModeFromOptions();
 void coopSaveTurnMode(YAML::YamlNodeWriter& writer);
 void coopLoadTurnMode(const YAML::YamlNodeReader& reader);
 
-/// SPEC 18 (r4 T4, owner ruling D99=(a)): the BATTLE-SAVE hook pair for the
+/// the BATTLE-SAVE hook pair for the
 /// resolved mission deployment type, same shape and guard as the turn-mode
 /// pair above - SavedBattleGame::save/::load call these beside
 /// coopSaveTurnMode/coopLoadTurnMode. A thin client cannot re-derive
@@ -112,7 +112,7 @@ void coopLoadTurnMode(const YAML::YamlNodeReader& reader);
 void coopSaveDeployment(YAML::YamlNodeWriter& writer);
 void coopLoadDeployment(const YAML::YamlNodeReader& reader);
 
-/// SPEC 18 (r4 T4, owner ruling D100=(b)): the BATTLE-SAVE hook pair for the
+/// the BATTLE-SAVE hook pair for the
 /// traditional-mode baton holder (CoopEndTurn::batonSeat(), HOST-only, -1 in
 /// parallel mode or before the entry tally). Presence-gated both ways; reads
 /// back into the BattleAuthority::activeSeat MIRROR only - restoring the
@@ -135,7 +135,7 @@ void coopLoadActiveSeat(const YAML::YamlNodeReader& reader);
 void coopSaveItemIdCtr(YAML::YamlNodeWriter& writer, const SavedBattleGame* battle);
 void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* battle);
 
-/// W2-H26 (docs rewrite/prompts/w2h26_conversion_spawn_faction.md, F11270): the unit-record hook pair for
+/// the unit-record hook pair for
 /// BattleUnit::_spawnUnitFaction on a unit WITHOUT a spawn unit. Vanilla's BattleUnit::save writes the key only
 /// inside `if (_spawnUnit)` and ::load reads it only there, so a machine that builds a unit from a record (the
 /// client's `unitsAdded` materialization, a rejoin, resume or repair blob) keeps the default FACTION_HOSTILE where
@@ -149,7 +149,7 @@ void coopLoadItemIdCtr(const YAML::YamlNodeReader& reader, SavedBattleGame* batt
 void coopSaveSpawnUnitFaction(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
 void coopLoadSpawnUnitFaction(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
-/// R5-U8 (AMENDMENT U8-1, F13361-F13366; docs rewrite/prompts/r5u8_pve2_gm4.md): the read-back of the record fields the
+/// the read-back of the record fields the
 /// Soldier constructor ignores. SavedBattleGame::load builds a unit whose id is a geoscape soldier's through the Soldier
 /// constructor (original faction FACTION_PLAYER, type "SOLDIER"); only the rules constructor takes the record's
 /// `originalFaction`, and BattleUnit::load reads neither it nor `genUnitType`. So the PvE2 (gamemode 4) X-COM soldiers
@@ -183,7 +183,7 @@ void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 ///  (1) seat tags - the release line writes `coop` 0 / 1 on EVERY unit, the key this build reads as the seat tag: a unit of
 ///      another original faction is unseated, a player-side unit with a soldier keeps seat 0 / 1, any other player-side
 ///      unit is the host's (D235-VL2, D248);
-///      a PvP gm2 save (D246-U S-C): the X-COM side on seat 0, the alien side on seat 1 without its AI module, others unseated;
+///      a PvP gm2 save: the X-COM side on seat 0, the alien side on seat 1 without its AI module, others unseated;
 ///  (2) the turn mode it was played in (D-22), only when the battle block has no coopTurnMode: the campaign-block
 ///      `coop_parallel_turns` true = parallel, false or absent = traditional (v2.0.x played alternating turns);
 ///  (3) the mission deployment, only when the battle block has no coopDeployment, resolved as
@@ -192,7 +192,7 @@ void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 bool coopOlderBattleConvertible(int gamemode);
 void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeReader& body);
 
-/// coop D246-U S-D (owner D246 = b; docs rewrite/prompts/d246u_sd_custom_battle_convert.md): true when @a body (a save's body
+/// coop: true when @a body (a save's body
 /// document) is a classic co-op Custom Battle saved mid-battle by an OLDER version - a battle block without the keys this build
 /// writes in every co-op battle (coopTurnMode, coopItemIdCtr), game mode 0 / 1, a unit of another original faction carrying the
 /// `coop` key (the release line writes it on EVERY unit, this build only on a seated one) and a unit tagged 1 (the second
@@ -304,7 +304,7 @@ struct BattleAuthority
 	/// the four fields above.
 	std::atomic<CoopTurnMode> turnMode{CoopTurnMode::Parallel};
 
-	/// W1-P13c (WV-D55 / D-23): the seat that currently HOLDS THE BATON in
+	/// the seat that currently HOLDS THE BATON in
 	/// traditional mode, as last HONOURED by this machine - i.e. the activeSeat
 	/// of a bt_end_turn_tally whose `turn` matched this machine's last APPLIED
 	/// side_transition counter. -1 = no baton (parallel mode, or before the
@@ -409,7 +409,7 @@ struct BattleAuthority
 	// Body in connectionTCP.cpp (RB-D6 pattern).
 	bool commandsUnit(const BattleUnit* u) const;
 
-	/// W2-P4 S-E4 (spec Q8 (a), N2 = F1036): the same rule for an explicit
+	/// the same rule for an explicit
 	/// @a seat instead of this machine's localSeat - the HOST's admission of a
 	/// REMOTE seat's intent (onIntent's not_your_unit). MJ-8's controller rule
 	/// unchanged: a mind-controlled unit is commanded by its controller's seat
@@ -484,16 +484,16 @@ bool isCoopBattle();
 /// connectionTCP.cpp next to isCoopBattle().
 bool coopBattleQuiescent();
 
-/// coop R4-L3 S-A (owner D232 (a); docs rewrite/prompts/r4l3_desync_resync.md): true once this machine saw a desync in the
+/// coop: true once this machine saw a desync in the
 /// battle it is in or was last in (the second player raised one; the host received a report) - kept across the
 /// automatic repair, cleared when a battle with another id starts. Read by TestServer's desync probes.
 bool coopDesyncSeenLatched();
-/// coop R4-L3 S-A: a partner drop ends every repair state (the pause becomes SPEC 16's); from CoopSession::onClientDrop().
+/// coop: a partner drop ends every repair state (the pause becomes SPEC 16's); from CoopSession::onClientDrop().
 void coopResyncOnPeerDrop();
-/// coop R4-L3 S-B: true after the last rejoin or repair offer was refused or its copy did not match,
+/// coop: true after the last rejoin or repair offer was refused or its copy did not match,
 /// until a later offer, a drop or a new battle - CoopState::waitSatisfied() then withholds RESUME.
 bool coopResumedOfferFailed();
-/// coop R4-L3 S-B (owner O1): the host waiting screen's repair wording - 0 none, 1 a repair runs, 2 a repair failed.
+/// coop: the host waiting screen's repair wording - 0 none, 1 a repair runs, 2 a repair failed.
 int coopResyncTitleState();
 
 /// SPEC 18 (r4 T4) M8: arm the deferred mid-battle coop save latch, called
@@ -635,7 +635,6 @@ bool coopRefuseIfNotMayCommand(const BattleUnit* u, const SavedBattleGame* s);
 /// active-side check belongs to the action-gating hooks (coopMayCommand()
 /// above), not to cycling among already-active-side candidates. Defined in
 /// connectionTCP.cpp next to isCoopBattle().
-/// W1-P13d (WAVE1-RUNBOOK.md SPEC 12, REV E.60 / owner ruling D87 = (b)):
 /// commandsUnit(u) is evaluated FIRST, so a seat-tagged unit - and, through
 /// commandsUnit's own R5-P2 mcId override, a mind-controlled unit - behaves
 /// exactly as before. A unit with NO seat tag (COOP_SEAT_NONE - every
@@ -880,7 +879,7 @@ int coopWalkArmEntries();
 /// wire verb. Never read by game logic.
 int coopWalkIntentsFromClick();
 
-/// W1-P13a (WAVE1-RUNBOOK.md SPEC 9 / D48): the think() guard. ONE guarded
+/// the think() guard. ONE guarded
 /// early return, `if (coopSuppressNonPlayerThink(_save)) return ret;`, as the
 /// FIRST statement inside BattlescapeGame::think()'s
 /// `if (_save->getSide() != FACTION_PLAYER)` branch (BattlescapeGame.cpp:233) -
@@ -904,7 +903,7 @@ int coopWalkIntentsFromClick();
 /// AI-only side.
 bool coopSuppressNonPlayerThink(const SavedBattleGame* s);
 
-/// R5-U3 (owner D234 = a, R5-V1; docs rewrite/prompts/r5u3_pvp_rules.md): true iff a human
+/// true iff a human
 /// seat commands @a faction in this co-op battle - a seat 0..3 MAPPED to it in the seat->faction
 /// store (seatMapped(): an unmapped seat's FACTION_PLAYER default never counts), i.e. gm2 / gm3's
 /// hostile side and every co-op player side. False outside an active co-op battle, so single
@@ -937,7 +936,7 @@ bool coopHostArmsHumanSidePanic(const SavedBattleGame* s);
 /// action actor and a HUD refresh; with no live unit it commands, it holds none (as off its side).
 void coopHostDropOffSideSelection(SavedBattleGame* s);
 
-/// R5-U3 S-B (owner O1): psi target knowledge for a human seat's non-player attacker. -1 = not
+/// psi target knowledge for a human seat's non-player attacker. -1 = not
 /// such an attacker (vanilla's own term runs); otherwise 1 / 0 by O1's rule. Read by the psi arm of
 /// BattlescapeGame::primaryAction() and its host mirror validatePsi().
 int coopHumanKnowsTarget(const BattleUnit* actor, const BattleUnit* target, const SavedBattleGame* s);
@@ -978,7 +977,7 @@ const std::string& coopGuestContribSoldierYaml(int seat, int craftId, const std:
 /// the client-side half).
 int coopGuestContribLastSentCount();
 
-/// D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md): the CLIENT's own count of parked tanks in its last
+/// the CLIENT's own count of parked tanks in its last
 /// battle_roster_contrib census (TestServer `event_state.guestContrib.vehSent`), and the HOST's stored parked-tank count
 /// for @a seat over every destination (`guestContrib.vehicles[seat]`). Test / introspection only.
 int coopGuestContribLastSentVehicles();
@@ -998,7 +997,7 @@ bool coopResearchSeparate(Game* game);
 /// list is stored for the seat, it is the live world's answer - unchanged.
 /// Otherwise vanilla's own function on the seat's research-only world.
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleResearch*>& req);
-/// W2-P8 S-D1: the same routing around vanilla's string-list overload
+/// the same routing around vanilla's string-list overload
 /// (the psi-strength lines pass Mod::getPsiRequirements(), a name list).
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& req);
 
@@ -1030,17 +1029,16 @@ int coopSeatResearchUnknown(int seat);
 /// the host's admission (coopWeaponUseDeny); @a mod = the Mod* the vanilla
 /// site passes (PR-R5).
 bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<const RuleResearch*>& req);
-bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<std::string>& req); // W2-P8 S-D1
+bool coopIsResearchedFor(Game* game, const BattleUnit* unit, const std::vector<std::string>& req);
 bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
 
-/// W2-P8 S-D1: coopSeatArticleAvailable() for
+/// coopSeatArticleAvailable() for
 /// @a unit's OWNER (its seat tag; a null or seat-less unit reads the live
 /// world). Called by the guarded vanilla reads of the inventory (category
 /// search, Alt damage tooltip), the melee damage preview and the Alt aiming
 /// damage preview (Map).
 bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefinition* article);
 
-/// W2-P8 S-D2.2 (owner D168 = (a), D213 = (b), D217 = (a); AMENDMENT P8-4f):
 /// the in-battle Ufopaedia's article check for the VIEWER (localSeat), never
 /// a unit's seat: the seat donor above while this machine's live battle
 /// screen holds @a save, vanilla Ufopaedia::isArticleAvailable otherwise.

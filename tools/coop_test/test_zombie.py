@@ -1,4 +1,4 @@
-"""W2-P3 S-E - test_zombie.py: a chryssalid's AI melee turns the second
+"""test_zombie.py: a chryssalid's AI melee turns the second
 player's soldier into a zombie, and the new unit appears on both machines with
 the host's id - the whole chain one named `ai` action (spec
 rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_zombie.py (S-E;
@@ -333,7 +333,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-D: coopGhostStepper pinned true in both instances (row D5 needs the client's death ghost)
+    # coopGhostStepper pinned true in both instances (row D5 needs the client's death ghost)
     host = GameClient("host", 49862, make_user_dir("w2p3_zombie_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49863, make_user_dir("w2p3_zombie_client", options={"coopGhostStepper": True}))
     results = {}

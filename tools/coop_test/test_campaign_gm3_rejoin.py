@@ -1,4 +1,4 @@
-"""D250-U S-C3 - test_campaign_gm3_rejoin.py: gm3 PvP campaign battles (host = the aliens, client = X-COM) when the alien host is
+"""test_campaign_gm3_rejoin.py: gm3 PvP campaign battles (host = the aliens, client = X-COM) when the alien host is
 off its globe, when the X-COM player drops mid-battle and rejoins, and when a borrowed battle start is refused.
 
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-3 (SC3-3 "Stage S-C3", SC3-5 file A, SC3-6 FX3-1 .. FX3-19) and its

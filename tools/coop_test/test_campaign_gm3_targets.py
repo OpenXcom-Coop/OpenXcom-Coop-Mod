@@ -1,4 +1,4 @@
-"""D250-U S-C5a - test_campaign_gm3_targets.py: gm3 PvP campaign battles at a UFO and at an alien base (host = the aliens, client =
+"""test_campaign_gm3_targets.py: gm3 PvP campaign battles at a UFO and at an alien base (host = the aliens, client =
 X-COM). In ONE gm3 campaign the X-COM player wins at a crashed UFO, aborts at a landed UFO and destroys an alien base, each the alien
 host's own object reached through its mirror; after each battle the target leaves the alien host's world by vanilla's rule:
 the crashed UFO disappears, the landed UFO takes off, the destroyed base goes with its links cleared.

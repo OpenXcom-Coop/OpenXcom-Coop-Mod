@@ -1,5 +1,5 @@
 """R5-U2 S-C rows WG, SP1 (boot S1) and SP2 (boot S2), classic co-op: a co-op player who loses its last soldier mid-battle
-is told "You command no soldiers - spectator mode" at once (R5-V4, QU2-8 (a); VL-U2-4), the host as well as the second
+is told "You command no soldiers - spectator mode" at once, the host as well as the second
 player; and the second player's new-contact count is unchanged (WR-30 guard).
 
 Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_coop_spectator.py, with AMENDMENT U2-1 (U2-1.5,

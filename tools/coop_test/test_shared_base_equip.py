@@ -45,7 +45,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 TAG_A, PORTS_A = "w2h20a", (48704, 48705, 47922)
 TAG_B, LABELS_B, LOBBY_B = "w2h20b", (48706, 48707), "47923"
 HB, CB, OPT, ITEM = "HostBase", "ClientBase", "oxceAlternateCraftEquipmentManagement", "STR_PISTOL"
-STAGE = "STR_GRENADE"  # R-H20-G-1 (S25): H20-5 stages this craft-pile item on C so C keeps an item after the drop
+STAGE = "STR_GRENADE"  # H20-5 stages this craft-pile item on C so C keeps an item after the drop
 W, POLL, GEO = 10.0, 0.25, "GeoscapeState"
 FORGED = "l:\n  - {itemType: STR_PISTOL, slot: STR_LEFT_HAND}\n"
 UNKNOWN = "unknown command: soldier_equip"

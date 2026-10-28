@@ -31,7 +31,7 @@ A held turn screen: NextTurnState::close returns before its popState under the W
 
 Spec: docs repo rewrite/prompts/rvu13_harness_hardening.md, sections (d) Stage S-A and (f).
 docs repo rewrite/rvu13-task0/sa/CONSTANTS.md (the model check, the Ae push / pop times).
-WV-D95: run to completion in the foreground. ONE run per bar.
+run to completion in the foreground. ONE run per bar.
 exit 0 only when every cell passes, else 2; no SKIP; every cell runs after a failure.
 
 Run:  python tools/coop_test/test_side_driver_race.py

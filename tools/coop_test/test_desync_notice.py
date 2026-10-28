@@ -52,7 +52,7 @@ KIND_END, SEQ_OFF_N1 = "bt_action_end", 2  # R-L3-A-2 (the base records "?", F11
 BUCKET_N3, POKE = "unitsStats", 7
 POLL, W_REPAIR, W_NOTICE, W_HELD, W_WALK, W_IDLE = 0.25, 45.0, 10.0, 30.0, 30.0, 30.0
 BS, NOTICE = "BattlescapeState", "CoopDesyncNoticeState"
-REPAIRED_TEXT = "CO-OP DESYNC REPAIRED"      # B59 (D232-V2, VL-L3-5)
+REPAIRED_TEXT = "CO-OP DESYNC REPAIRED"      # B59
 HALTED = "Desync detected - battle halted"   # B30 (Q2 (a))
 ISSUE_URL = "https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new?title="
 BUTTONS = ["OK", "OPEN FOLDER", "REPORT ON GITHUB"]

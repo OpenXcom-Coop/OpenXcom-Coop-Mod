@@ -1,4 +1,4 @@
-"""W2-P4 S-C - test_client_melee_psi.py: the second player hits with its own
+"""test_client_melee_psi.py: the second player hits with its own
 stun rod, psi-attacks with its own psi amp and uses its own mind probe; the host
 checks and runs every one of them (spec rewrite/prompts/w2p4_client_combat_intents.md
 section (f) "test_client_melee_psi.py (S-C)", sections (b)1-6, as amended by
@@ -169,7 +169,7 @@ goes to the CLIENT first. Item ids are read at run time from the lever
 replies or by unitLink, never baked. The seeds were found with HOST
 stand-ins that run the executor's states for C (SEED_C21: S-C.1's battle_fire
 {mode melee}; SEED_C22P / SEED_C22M: battle_action psi_attack): S-C's executor
-build proves them again (N18 = F1085).
+build proves them again.
 
 RED-THEN-GREEN (spec (d) row S-C). Commit S-C.1 (this file and the battle_fire
 melee / use stand-ins) is run ONCE and every scenario must FAIL with its RED
@@ -342,7 +342,7 @@ def set_stat_both(host, client, uid, stat, value):
 
 
 def fov_stage(host, client, notes):
-    """C on FOV_C_TILE facing A with A spotted on both (T0b, F1131): C and A are
+    """C on FOV_C_TILE facing A with A spotted on both: C and A are
     placed (kept when already there), then - unless C already faces
     FOV_C_DIR on both - one client `turn` intent toward A, which halts on
     spotting A. Returns the evidence."""
@@ -435,7 +435,7 @@ def dismiss_host_infobox(host, box):
 
 
 def l7_fails(what, s, weapon):
-    """W2-P6b S-L row L7 (AMENDMENT P6-5 section 6; owner D172 (a), V6): after one of the second player's own orders
+    """W2-P6b S-L row L7: after one of the second player's own orders
     (the host runs it at the order's executor), both machines in English: the client's hitLog.text == the host's and
     the host's text starts with the English weapon name (the partner's weapon line the host now logs, its first line).
     `s` = hl_snap() after the order settled. Prints one "EVIDENCE L7 <what>:" line."""
@@ -556,7 +556,7 @@ def c23d_probe(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    rng0 = rng_of(client)   # W2-P6b S-E (AMENDMENT P6b-1, F1750 / P6b-2 F1762, F1763): the mind-probe rngSeed guard
+    rng0 = rng_of(client)   # the mind-probe rngSeed guard
     pv = {}
     try:
         target_order(client, pv, KEY_PROBE, CURSOR_PSI, A_TILE)
@@ -583,7 +583,7 @@ def c23d_probe(host, client, ctx):
     l7 = l7_fails("C23d", hl23, MIND_PROBE)   # W2-P6b S-L row L7
     fails = list(notes)
     # W2-P6b S-E (AMENDMENT P6b-1: F1750 folded into S-E; P6b-2: F1762 TRACE, F1763): the client's own mind-probe
-    # aftermath plays the probe's hit sound; it must never draw the sim RNG (V4, F1512). At the S-E.1 red the client
+    # aftermath plays the probe's hit sound; it must never draw the sim RNG. At the S-E.1 red the client
     # draws RuleItem::getHitSound() (one xorshift step, T0b-7); S-E.2 picks from the raw list with RNG::seedless.
     if rng0 is None or rng1 != rng0:
         fails.append(f"client rngSeed {rng0} -> {rng1} across the mind probe (want unchanged: V4 - the aftermath's hit "
@@ -861,7 +861,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-E: coopGhostStepper pinned true in both instances (rows E1 / E2 need the client's melee / psi ghosts)
+    # coopGhostStepper pinned true in both instances (rows E1 / E2 need the client's melee / psi ghosts)
     host = GameClient("host", 49874, make_user_dir("w2p4_client_melee_psi_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49875, make_user_dir("w2p4_client_melee_psi_client",
                                                        options={"coopGhostStepper": True}))

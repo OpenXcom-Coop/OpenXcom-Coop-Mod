@@ -1,4 +1,4 @@
-"""W2-H56 S-A - test_client_dialog_ok_crash.py (L-H54-1, R-H56-0; capture lh54-1-cap F18240-F18250; docs
+"""test_client_dialog_ok_crash.py (L-H54-1, R-H56-0; capture lh54-1-cap F18240-F18250; docs
 rewrite/prompts/w2h56_client_dialog_ok_crash.md (f); TASK 0 rewrite/w2h56-task0/sa/CONSTANTS.md). The second player of a co-op
 campaign presses OPTIONS > CO-OP > DISCONNECT: its teardown sets GoToMainMenuState, but the lobby pushes the server browser over it
 and the world stays loaded (the trap). A Direct Connect from there that fails (16 "Cannot connect") or reaches a NEW BATTLE host

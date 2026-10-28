@@ -1,4 +1,4 @@
-"""D250-U S-C4a - test_campaign_resume_roles.py: a resumed PvP campaign keeps its mode and both roles. A gm3 campaign (host =
+"""test_campaign_resume_roles.py: a resumed PvP campaign keeps its mode and both roles. A gm3 campaign (host =
 the aliens, client = X-COM) and a gm2 campaign (host = X-COM, client = the aliens) are each saved on the geoscape, both processes end,
 and a fresh pair resumes the save: the resumed campaign plays its own PvP mode, each side keeps its role, and the next landing starts a
 PvP battle with that mode's seats.

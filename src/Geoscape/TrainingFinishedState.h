@@ -42,7 +42,7 @@ private:
 	TextList * _lstPossibilities;
 	TextButton *_btnOpen, *_btnOk;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	bool _psi;
 public:
 	/// Creates the TrainingFinishedState state.

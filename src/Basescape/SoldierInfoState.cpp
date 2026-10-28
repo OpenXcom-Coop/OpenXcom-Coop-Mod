@@ -631,7 +631,7 @@ void SoldierInfoState::init()
  */
 void SoldierInfoState::handle(Action* action)
 {
-	if (coopRecheckSoldier()) return; // coop W2-H16c (Q4): the event was aimed at a soldier that is gone
+	if (coopRecheckSoldier()) return; // coop: the event was aimed at a soldier that is gone
 	State::handle(action);
 
 	if (Options::oxceThumbButtons && action->getDetails()->type == SDL_MOUSEBUTTONDOWN)
@@ -704,7 +704,7 @@ void SoldierInfoState::harnessRename(const std::string &name)
 }
 
 /**
- * coop W2-H16c (Q4): in SHARED a host-resolved command (soldier_transform, sack) can replace or delete this screen's soldier on a
+ * coop: in SHARED a host-resolved command (soldier_transform, sack) can replace or delete this screen's soldier on a
  * replica after init() ran. Compare the slot's pointer (never dereference the cached one); when it changed, find the soldier
  * init() showed by its id (a replaced soldier keeps it) and re-run vanilla's init() (index clamp; pop on an empty list).
  * @return true when the screen was re-initialised.
@@ -722,7 +722,7 @@ bool SoldierInfoState::coopRecheckSoldier()
 }
 
 /**
- * coop W2-H16c (Q4): see coopRecheckSoldier.
+ * coop: see coopRecheckSoldier.
  */
 void SoldierInfoState::think()
 {

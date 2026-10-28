@@ -291,7 +291,7 @@ void ProjectileFlyBState::init()
 	}
 
 	bool forceEnableObstacles = false;
-	// W2-P4 S-E1 (F423 F1): ONE guarded coop call for the force-fire key - a partner's order carries its own.
+	// ONE guarded coop call for the force-fire key - a partner's order carries its own.
 	if (_action.type == BA_LAUNCH || (coopForceFirePressed(_parent->getSave()) && isPlayer) || !_parent->getPanicHandled())
 	{
 		// target nothing, targets the middle of the tile

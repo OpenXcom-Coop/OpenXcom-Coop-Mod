@@ -27,7 +27,7 @@
 #include "BattlescapeState.h"
 #include "BattlescapeGame.h"
 #include "../Engine/Options.h"
-#include "../CoopMod/CoopArbiter.h" // coop (W2-P7 S-V)
+#include "../CoopMod/CoopArbiter.h" // coop
 
 namespace OpenXcom
 {
@@ -103,7 +103,7 @@ ConfirmEndMissionState::~ConfirmEndMissionState()
 void ConfirmEndMissionState::btnOkClick(Action *)
 {
 	_game->popState();
-	if (!coopFatalVoteAnswer(_game, true)) _parent->requestEndTurn(false); // coop (W2-P7 S-V, D159): one voter's yes
+	if (!coopFatalVoteAnswer(_game, true)) _parent->requestEndTurn(false); // coop: one voter's yes
 }
 
 /**
@@ -113,7 +113,7 @@ void ConfirmEndMissionState::btnOkClick(Action *)
 void ConfirmEndMissionState::btnCancelClick(Action *)
 {
 	_game->popState();
-	coopFatalVoteAnswer(_game, false); // coop (W2-P7 S-V, D159): one voter's no
+	coopFatalVoteAnswer(_game, false); // coop: one voter's no
 }
 
 

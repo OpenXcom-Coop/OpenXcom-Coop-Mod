@@ -1,4 +1,4 @@
-"""W2-P7 S-C-D1 - test_shared_page3.py: the SHARED second player's debriefing page 3 (the recovered items) has live
+"""test_shared_page3.py: the SHARED second player's debriefing page 3 (the recovered items) has live
 Sell and Transfer buttons on the world it adopted in place, and the page-3 counts, the autosell marks and the hidden
 buttons stay in step on both machines whoever sells (docs rewrite/prompts/w2p7_sc_design.md section 3.5, AMENDMENT
 P7-7 sections 2-4: PR-22..PR-28, P7-7 Q2 (a); owner D154, D176; mechanism rulings MR1, MR14).
@@ -24,7 +24,7 @@ Probes and levers (PR-28): screen_rows (the top Sell / Transfer screen's rows; {
 autosell marks; {recovered: [types]} the topmost debriefing's page-3 remaining counts, getRecoveredItemCount - the
 debriefing's own list widget is drawn once at init and never re-rendered, vanilla included, F5687), screen_set_amount,
 screen_pick_base; every button press is a real click_widget on its caption (SELL, TRANSFER, Sell/Sack, Transfer, OK,
-Cancel). "recovered[X]" below = screen_rows {recovered: [X]} (P7-7 RULINGS R-D1-1); "page-3 rows" = every type whose
+Cancel). "recovered[X]" below = screen_rows {recovered: [X]}; "page-3 rows" = every type whose
 recovered count is > 0, with that count; debrief_state.recovered (the widget) is compared nowhere.
 
 Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
@@ -74,7 +74,7 @@ T_QTY, U_QTY = 10, 8                                   # camp.HOST_DEBRIEF recov
 RECOVERED_TYPES = ["STR_PLASMA_RIFLE", "STR_PLASMA_RIFLE_CLIP", "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP",
                    "STR_SMALL_LAUNCHER", "STR_STUN_BOMB", "STR_ALIEN_GRENADE", "STR_SECTOID_CORPSE"]  # HOST_DEBRIEF's 8 rows
 D1A_SELL, D1B_SELL, D1C_XFER = 3, 2, 4                 # P7-7 section 3.1's amounts
-BOOT_PORT = {"B1": "47250", "B2": "47251"}             # P7-7 section 3 (S26, F5582): D1 = 47250-47252
+BOOT_PORT = {"B1": "47250", "B2": "47251"}             # P7-7 section 3: D1 = 47250-47252
 SECOND_BASE, LIFT_X, LIFT_Y = "Second Base", 3, 3      # FX-B: test_shared_equip_transfer :109's call
 STORES, STORES_X, STORES_Y = "STR_GENERAL_STORES", 4, 3  # next to the lift (3, 3); pinned by the D1 red's capture
 ADOPT_S = camp.ADOPT_S  # 15 s (CONSTANTS T0-S2)

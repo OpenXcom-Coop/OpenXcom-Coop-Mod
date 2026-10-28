@@ -1,4 +1,4 @@
-"""W2-P6b S-L - test_hit_log.py: the battle's hit log (Ctrl-H) on both machines,
+"""test_hit_log.py: the battle's hit log (Ctrl-H) on both machines,
 the same log as the host's, each machine in its own language -
 spec docs rewrite/prompts/w2p6_display_two.md: AMENDMENT P6-5 section 6 (the
 pinned stage text, rows L1-L4; P6-5 Q3 (a) the envelope carrier, Q4 (a) the
@@ -68,10 +68,10 @@ TASK 0 (T0L-1) DONE`, F4235-F4244, 3/3 runs); the German strings are T0L-2's
 the running German client itself, "=> " and "Treffer" read from the language
 file that client loads, bin/x64/Release/common/Language/OXCE/de.yml).
 
-Ports (AMENDMENT P6-5 section 6, P6-6 section 3, F3205): GameClient 49992 /
+Ports: GameClient 49992 /
 49993 (labels only), lobby PORT 48659.
 
-RED-THEN-GREEN (AMENDMENT P6-5 section 6). Commit S-L.1 is run ONCE: exit 2
+RED-THEN-GREEN. Commit S-L.1 is run ONCE: exit 2
 with exactly L1, L2 and L4 failing (each on its RED above) and L3 passing.
 Commit S-L.2 is run ONCE: all four pass. Each row prints ONE "EVIDENCE <id>:"
 line before its conditions are checked; main() runs every row even after an

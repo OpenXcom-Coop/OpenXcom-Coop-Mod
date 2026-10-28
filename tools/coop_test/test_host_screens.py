@@ -1,4 +1,4 @@
-"""W2-P8 S-C2 - test_host_screens.py: parallel mode, the second player's actions keep
+"""test_host_screens.py: parallel mode, the second player's actions keep
 running while the host sits in any screen (its inventory, the Esc menu, an info
 screen, the medi-kit screen, a message box); the host's screens refresh, return a
 lost cursor item and close themselves when their soldier goes down; a covered
@@ -22,7 +22,7 @@ restages (HS3, HS3b and HS3c knock out H, H2 and H3, so they come last):
         as HS1 with PauseState on top throughout; the host closes it after.
   HS2b  the same walk under the host's UnitInfoState on H (TAB H, the
         battlescape stats button by rect); GREEN as HS1 under UnitInfoState.
-  HS7   (F2335, M5) the host's MedikitState on C (H adjacent, a medi-kit in H's
+  HS7   the host's MedikitState on C (H adjacent, a medi-kit in H's
         right hand; C one fatal wound); client walk order C two tiles away; then
         the host presses HEAL. RED: the walk frozen; the heal applies to C.
         GREEN: the walk ends under MedikitState; the heal press closes it: host
@@ -34,7 +34,7 @@ restages (HS3, HS3b and HS3c knock out H, H2 and H3, so they come last):
         clip still C's). GREEN: while the screen is open the clip lies on H's tile
         on both and in the host's inventory_view.ground, hostScreens.refreshes
         +>= 1; EQUAL.
-  HS5   (F2325, M3) instant grenades on both; host opens H's inventory on
+  HS5   instant grenades on both; host opens H's inventory on
         (12,20,0) and picks the rifle clip lying on H's tile; client throws a
         primed grenade (fuse 0) at (12,22,0) (T0-S4, seed 2). RED: the throw
         frozen; the clip still on the host's cursor. GREEN: while the screen is
@@ -506,7 +506,7 @@ def walk_row(host, client, name, open_screen, screen, close_screen, restage=Fals
     elif not admitted:
         fails.append(f"precondition ({name}): the client's walk was not admitted ({order})")
     else:
-        # the RED cell (S-C2.1): admitted and frozen under the host's screen; GREEN (S-C2.2, D166 = B)
+        # the RED cell (S-C2.1): admitted and frozen under the host's screen; GREEN
         if not under.get("done"):
             fails.append(f"{name}: the walk did not end under the host's {screen} within {HS_WALK_UNDER_S} s "
                          f"({under.get('frozen')})")

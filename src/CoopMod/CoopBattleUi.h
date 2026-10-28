@@ -21,12 +21,12 @@
 
 #include <string>
 
-// W1-P13c (E53.2): forward-declared at GLOBAL scope (SDL_Surface is not an
+// forward-declared at GLOBAL scope (SDL_Surface is not an
 // OpenXcom type) so this lightweight header does not need to pull in <SDL.h>
 // just for a pointer parameter.
 struct SDL_Surface;
 
-// W2-P6a S-M.1: forward-declared at GLOBAL scope (the DogfightState.h /
+// forward-declared at GLOBAL scope (the DogfightState.h /
 // GeoscapeState.h precedent) so this lightweight header does not pull in
 // <json/json.h> for the message probe's return type below.
 namespace Json { class Value; }
@@ -76,7 +76,7 @@ namespace CoopBattleUi
 {
 
 /**
- * W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14): the LOCAL battlescape controls
+ * the LOCAL battlescape controls
  * that a co-op CLIENT must never run. Each control is its OWN enum value
  * because ADDENDUM 2026-08-31 SS1.3(e) forbids collapsing distinct refusals
  * into one generic message ("Action refused" is exactly the shape it names) -
@@ -113,7 +113,7 @@ enum class Control
 	/// The battlescape quick-load hotkey (BattlescapeState::handle) and
 	/// LoadGameState's own chokepoint. NOT battle-scoped and NOT
 	/// client-only: connectionTCP::localLoadsAllowed() forbids a local load
-	/// for EVERY machine in a live co-op session (PRD-08 C7), host included -
+	/// for EVERY machine in a live co-op session, host included -
 	/// loading mid-session forks the served world silently.
 	QuickLoad
 	// W2-P1's interim ItemAction and Reload values (the action menu's
@@ -168,7 +168,7 @@ bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s);
 /// opens to LOOK and every placement is refused at its execution point.
 bool refuseInventoryOpen(const BattleUnit* u, const SavedBattleGame* s);
 
-/// W2-P8 S-A.2 (section 8.1 step 7, F1962; AMENDMENT P8-1 OR1 (a)): the text
+/// the text
 /// the co-op layer puts on the INVENTORY's own message line, which is exactly
 /// what the battlescape banner (hidden under the inventory screen) would show
 /// for the same answer: @a reason "busy" -> showPending()'s seat-attributed
@@ -317,7 +317,7 @@ void showDesyncHalted();
 /// No-op outside an active coop battle (no live BattlescapeState to reach).
 void showEquipFrozen();
 
-/// FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): TRUE while THIS machine is the
+/// FX-1: TRUE while THIS machine is the
 /// coop HOST and the battle handshake has not reached phase Active - i.e. the
 /// client does not hold the blob yet. Deliberately NOT isCoopBattle() (that
 /// requires phase Active, so it is false in exactly the window this guards).
@@ -343,7 +343,7 @@ bool freezeBattleInputUntilActive();
 /// of the banner-class bookkeeping at teardown.
 unsigned int coopHostInputFrozenRefusals();
 
-/// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12): the SEAT FILTER on
+/// the SEAT FILTER on
 /// BattlescapeGame::primaryAction's click-to-select branch. Returns TRUE when
 /// the click must be REFUSED, having already put the refusal on screen.
 /// The thin vanilla hook is therefore a single unconditional call:
@@ -366,7 +366,7 @@ unsigned int coopHostInputFrozenRefusals();
 /// SP click-to-select is byte-identical.
 bool refuseSelectUnitClick(const BattleUnit* target);
 
-/// W1-P6 (ruling D6 = WV-D12): the SPECTATOR notice - this machine's seat
+/// the SPECTATOR notice - this machine's seat
 /// commands no unit in this battle, so battle entry could not auto-select one
 /// for it (STR_COOP_SPECTATOR_MODE). Legacy raised the same notice from its own
 /// client unit selector (`1e0f9276f:BattlescapeState.cpp:1627-1631`, "You are
@@ -381,7 +381,7 @@ bool refuseSelectUnitClick(const BattleUnit* target);
 void showSpectatorMode();
 
 // ---------------------------------------------------------------------------
-// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13): order feedback.
+// W1-P7: order feedback.
 //
 // BANNER CLASSES. Every entry point above and below writes the ONE _txtCoopWait
 // surface, so this packet gives each message a CLASS and one arbitration rule,
@@ -444,7 +444,7 @@ void showIntentTimeout();
 ///      "Please wait for {0}'s action to finish" driver
 ///      (`cbff7951d:BattlescapeState.cpp:5292-5370`), re-homed from a vanilla
 ///      per-frame method into CoopMod and fed by CoopArbiter::busyOwnerSeat().
-/// W2-P6a S-M.2 (OR7 (a)): right after the live-state check, the CLIENT's
+/// right after the live-state check, the CLIENT's
 /// battle-message drain (onMessageEvApplied() below decides, this shows).
 void tick();
 
@@ -477,7 +477,7 @@ static const unsigned int kCoopBannerDwellMs = 6000u;
 /// draws unmodified.
 void coopGrayBottomBar(SDL_Surface* surface, int x, int y, int w, int h);
 
-/// Test-only introspection (REV E.48 SS.A.6 / E53.2): TRUE exactly when
+/// Test-only introspection: TRUE exactly when
 /// coopGrayBottomBar() above would currently act (the same gate it evaluates
 /// internally). Backs `battle_state.coopOffBatonGray`. Never read by game
 /// logic.
@@ -530,7 +530,7 @@ void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
 ///   queueDepth  the client's decided-but-not-yet-shown entries.
 ///   seen    CLIENT only: noteMessageEvSeen()'s records, the last 32.
 /// Battle-scoped: the storage starts over on the first main-thread use after
-/// CoopGhost::reset() bumps the combat generation (W2-P5 OQ4) and whenever the
+/// CoopGhost::reset() bumps the combat generation and whenever the
 /// live BattlescapeState changes. Every count is 0 and ring/seen are empty
 /// outside a co-op battle.
 Json::Value messagesProbe();

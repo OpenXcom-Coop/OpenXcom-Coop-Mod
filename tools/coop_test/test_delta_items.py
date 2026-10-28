@@ -1,4 +1,4 @@
-"""W2-P2 S-B - test_delta_items.py: every host event carries the item state
+"""test_delta_items.py: every host event carries the item state
 that changed since the previous event, including items the host created and
 items it destroyed (spec rewrite/prompts/w2p2_delta_core.md section (f)
 "test_delta_items.py (S-B)", sections (b)1, (b)7, (b)8, (b)16; orchestrator

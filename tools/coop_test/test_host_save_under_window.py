@@ -22,7 +22,7 @@ Red (commit R1): exit 2, RED exactly on GD-file, GD-blob, GD-path, GT-file, GT-b
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
 row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
-W2-H70 T1 (docs rewrite/prompts/w2h70_t1_hsw_hsc_repoint.md; F20123): W2-H70's gift pushes the client's stored world, which would
+W2-H70 T1: W2-H70's gift pushes the client's stored world, which would
 complete the save before the drop. The client's TEST-ONLY force_stream_key_miss, armed just before the host's button, fails every
 client save stream, so no client world lands and the drop write runs on every build. The drop waits until the lever's logged misses
 equal the client's W2-H70 pushes (0 without W2-H70, 1 with it); X-common counts exactly those.

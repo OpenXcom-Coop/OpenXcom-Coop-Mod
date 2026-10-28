@@ -52,7 +52,7 @@ static const Row TABLE[] = {
 	{ "battleUFOExtenderAccuracy", 1, 0, 1 },
 	{ "oxceReactionFireThreshold", 5, 0, 100 },
 	{ "oxceInventoryUnloadFixedWeapons", 1, 0, 1 },
-	// W2-P10 (AMENDMENT P10-1 PX-1; D134, D162 a, D163 a, D200 a, P10-V1, P10-V7): the 14 campaign options, scope A1..A14.
+	// the 14 campaign options, scope A1..A14.
 	{ "storageLimitsEnforced", 1, 0, 1 },
 	{ "canSellLiveAliens", 1, 0, 1 },
 	{ "fieldPromotions", 1, 0, 1 },
@@ -94,7 +94,7 @@ struct FileGuard
 /// PR-13: the test-only apply hold (lever synced_apply_hold), read by the host latch (PR-6).
 void setHoldArmed(bool on);
 bool holdArmed();
-/// W2-P10 S-A (AMENDMENT P10-1 PX-4, F3258): test-only lever shared_update_defer - defer THIS machine's
+/// test-only lever shared_update_defer - defer THIS machine's
 /// per-frame SharedEcon drain so the replica ordering window is deterministic; inert unless armed.
 void setTestSharedUpdateDeferred(bool on);
 bool testSharedUpdateDeferred();

@@ -82,8 +82,8 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_resetCustomDeploymentBackup(false), _reloadUnit(false), _globalLayoutIndex(-1)
 {
 	_battleGame = _game->getSavedGame()->getSavedBattle();
-	if (_base && !_tu) coopBaseInvScreen(this, _game); // coop EQ-3 S-A: a SHARED base screen shows the partner's soldiers read-only
-	if (_base && !_tu) coopBasePresenceScreen(this, _game, _base, _noCraft); // coop EQ-3 S-B: the partner's pointer on this pile
+	if (_base && !_tu) coopBaseInvScreen(this, _game); // coop: a SHARED base screen shows the partner's soldiers read-only
+	if (_base && !_tu) coopBasePresenceScreen(this, _game, _base, _noCraft); // coop: the partner's pointer on this pile
 
 	if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
 	{
@@ -365,11 +365,11 @@ static void _clearInventoryTemplate(std::vector<EquipmentLayoutItem*> &inventory
  */
 InventoryState::~InventoryState()
 {
-	coopEquipPresenceDetach(this); // coop EQ-2 S-A (A11): the partner pointer's overlay goes with this screen's surfaces
+	coopEquipPresenceDetach(this); // coop: the partner pointer's overlay goes with this screen's surfaces
 	_clearInventoryTemplate(_curInventoryTemplate);
 	_clearInventoryTemplate(_tempInventoryTemplate);
-	coopBaseInvScreen(this, nullptr); // coop EQ-3 S-A: forgotten with this screen (before W2-H21's early return)
-	coopBasePresenceScreen(this, nullptr, nullptr, false); // coop EQ-3 S-B: and its pile key
+	coopBaseInvScreen(this, nullptr); // coop: forgotten with this screen (before W2-H21's early return)
+	coopBasePresenceScreen(this, nullptr, nullptr, false); // coop: and its pile key
 
 	// coop: a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
 	// delete ran: touch none of it. The swap already set the display for the screen that replaced this one.
@@ -798,7 +798,7 @@ void InventoryState::saveEquipmentLayout()
  */
 void InventoryState::btnArmorClick(Action *action)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A: no armor screen for a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no armor screen for a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -854,7 +854,7 @@ void InventoryState::btnArmorClick(Action *action)
  */
 void InventoryState::btnArmorClickRight(Action *action)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A: no avatar screen for a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no avatar screen for a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -943,7 +943,7 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 	{
 		_game->getSavedGame()->setGlobalEquipmentLayoutArmor(index, std::string());
 	}
-	if (_base) SharedEcon::submitLayoutTemplate(_game, _base, index); // coop W2-H20b (A10): the slot to the host (P8b Q9 a)
+	if (_base) SharedEcon::submitLayoutTemplate(_game, _base, index); // coop: the slot to the host (P8b Q9 a)
 }
 
 void InventoryState::loadGlobalLayout(int index)
@@ -1041,7 +1041,7 @@ bool InventoryState::tryArmorChange(const std::string& armorName)
 			_resetCustomDeploymentBackup = true;
 		}
 		soldier->setArmor(next, true);
-		SharedEcon::baseArmorChanged(_game, _base, soldier, prev->getType()); // coop W2-H20b (A11): own -> soldier_armor, the partner's put back
+		SharedEcon::baseArmorChanged(_game, _base, soldier, prev->getType()); // coop: own -> soldier_armor, the partner's put back
 		armorChanged = true;
 	}
 
@@ -1199,7 +1199,7 @@ void InventoryState::btnOkClick(Action *)
 				}
 			}
 		}
-		if (_base && _noCraft) SharedEcon::craftStageClose(_game, _base); // coop W2-H20b-B (A3): the screen's craft end-state to the host
+		if (_base && _noCraft) SharedEcon::craftStageClose(_game, _base); // coop: the screen's craft end-state to the host
 		if (_parent)
 		{
 			_battleGame->startFirstTurn();
@@ -1488,7 +1488,7 @@ void InventoryState::_applyInventoryTemplate(std::vector<EquipmentLayoutItem*> &
 		for (BattleItem* groundItem : *groundInv)
 		{
 			if (coopEquipHeldByOther(groundItem))
-				continue; // coop EQ-2 S-C (C3; owner D291 (b), QEQ2-10 (a)): the co-op partner holds it on its pre-battle cursor
+				continue; // coop: the co-op partner holds it on its pre-battle cursor
 			// if we find the appropriate ammo, remember it for later for if we find
 			// the right weapon but with the wrong ammo
 			auto* groundItemRule = groundItem->getRules();
@@ -1787,7 +1787,7 @@ void InventoryState::onClearInventory(Action *)
 
 void InventoryState::onAutoequip(Action *)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A: the links menu's AUTO-EQUIP does nothing on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: the links menu's AUTO-EQUIP does nothing on a partner's soldier
 	// don't act when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -1798,7 +1798,7 @@ void InventoryState::onAutoequip(Action *)
 	BattleUnit               *unit          = _battleGame->getSelectedUnit();
 	Tile                     *groundTile    = unit->getTile();
 	std::vector<BattleItem*>  groundInv     = *groundTile->getInventory();
-	groundInv.erase(std::remove_if(groundInv.begin(), groundInv.end(), coopEquipHeldByOther), groundInv.end()); // coop EQ-2 S-C (C3b; QEQ2-10 (a)): the partner's held items are not on the ground for auto-equip
+	groundInv.erase(std::remove_if(groundInv.begin(), groundInv.end(), coopEquipHeldByOther), groundInv.end()); // coop: the partner's held items are not on the ground for auto-equip
 	Mod                      *mod           = _game->getMod();
 	RuleInventory            *groundRuleInv = mod->getInventoryGround();
 	int                       worldShade    = _battleGame->getGlobalShade();
@@ -2138,7 +2138,7 @@ void InventoryState::onMoveGroundInventoryToBase(Action *)
 		_base->getStorageItems()->addItem(weaponType);
 	}
 
-	SharedEcon::craftItemsCommit(_game, _base, c, coopCraftMark); // coop W2-H20b-B (A12): the end-state to the host
+	SharedEcon::craftItemsCommit(_game, _base, c, coopCraftMark); // coop: the end-state to the host
 	// step 2: clear ground
 	for (auto itemIt = groundInv->begin(); itemIt != groundInv->end(); )
 	{

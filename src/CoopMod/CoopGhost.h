@@ -91,7 +91,7 @@ struct CoopUnitDrawView
 	int  walkPhase         = 0; // raw, same domain as BattleUnit::_walkPhase
 	int  verticalDirection = 0; // copied straight through; W2-P6b S-E6.2: a fall ghost draws DIR_DOWN (9)
 	int  status            = 0; // UnitStatus as int
-	int  fallPhase         = 0; // W2-P6b S-D.2: the collapse frame (a death ghost's, else the unit's own)
+	int  fallPhase         = 0; // the collapse frame (a death ghost's, else the unit's own)
 	bool kneeled           = false;
 	bool ghostTrailing     = false; // see CoopGhost::view()'s walk branch and its fall ghost's trailing anchor
 
@@ -160,7 +160,7 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// or other unit centres. Every move is a camera write on the live Map recorded in `camera.moves`; no state write.
 void onEvApplied(SavedBattleGame* save, const Json::Value& ev);
 
-/// W2-P5 S-A.2 (spec (b)2, Q1 (b)): the combat completion rule for an applied `bt_action_end` - every running
+/// the combat completion rule for an applied `bt_action_end` - every running
 /// combat ghost ends (cut when early) before the end's delta applies. Called from
 /// CoopDisplayQueue::onApplied()'s bt_action_end branch on the line before its CoopApply::applyDelta(). Never
 /// gated by the option (OQ3); a no-op on the host and outside a coop battle.
@@ -169,7 +169,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev);
 /// shot and records {restore} (option-gated, Q16 (a)).
 void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev);
 
-/// W2-P5 S-A.2 (Q3 = b): TRUE when @a map's projectile is a combat ghost's own display object on this
+/// TRUE when @a map's projectile is a combat ghost's own display object on this
 /// machine, so BattlescapeState::allowButtons() does not lock the watching player's input during a
 /// partner's or an alien's shot. FALSE in single player, on the host and whenever the Map shows no ghost
 /// projectile. Reads only (a pointer compare).
@@ -184,7 +184,7 @@ bool ownsProjectile(const Map* map);
 /// (never strands) whatever is already queued even with the option off, so a
 /// mid-flight toggle cannot leave a ghost stuck forever.
 ///
-/// W2-P5 S-A.2: also steps every combat ghost's projectile to its index at
+/// also steps every combat ghost's projectile to its index at
 /// @a nowMs (vanilla's 16 ms tick, `speed` points a tick) and ends it when its
 /// fixed duration elapsed, the Map it was drawn on is no longer the live one,
 /// or a thrown item no longer resolves to the pointer captured at enqueue
@@ -272,7 +272,7 @@ Json::Value turnGhostProbe();
 /// headStartedAtEnqueue (S-D.3: the queue head had started at this record's enqueue)}. Probe
 /// storage only at S-D.1: nothing writes it (the S-D.2 death ghosts do, on a coop client only). Kept apart from
 /// the SPEC 7 counters and the combat ghosts; main thread only, cleared with the combat probe storage.
-/// W2-P6b S-E.1 (section 9 S-E.1): the probe gains effects:{medikit:{count, ring}, prime:{count, ring},
+/// the probe gains effects:{medikit:{count, ring}, prime:{count, ring},
 /// panic:{count, ring}, fall:{enqueued, completed, cut, ring, seen}} - the S-E.2 records, one per applied cue
 /// (a coop client only; the host plays vanilla's and records none): medikit {seq, actionId, actor, unit, item,
 /// itemType, sound}; prime (the ordering client's own aftermath, no seq) {itemType, unprime, sound};
@@ -280,7 +280,7 @@ Json::Value turnGhostProbe();
 /// "moved" | ...), cut}. `sound` = the id picked from the rule's raw list (-1 = none). `fall.seen` (written at
 /// S-E.1, T0b-4): {seq, kind, fallSeq, top, ms, msSinceFall, advances, delta} for an applied `fall` and every
 /// applied ev after it up to and including the first that carries a delta.
-/// W2-P6b S-E6.1 (AMENDMENT P6-5 section 5, owner D173 (b)): the fall record (written by S-E6.2) also carries
+/// the fall record (written by S-E6.2) also carries
 /// landedAtStart (the unit was canonically below `from` at the ghost's start), waitMs (enqueue -> start),
 /// startedTop (the top state at the start), anchors (the anchors drawn, in order: "source", "trailing"), levels
 /// (`from`.z - the canonical z when landed) and maxGapMs (the largest advance() gap while it was live); endedBy is
@@ -328,7 +328,7 @@ void onOwnCombatEnd(SavedBattleGame* save, const Json::Value& ev, int actorId, c
 /// waits until the unit's collapse has ended. Main thread only; reads only.
 bool deathGhostActive(int unitId);
 
-/// W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798): TEST-ONLY - the `death_apply_hold` lever (TestServer battle_action,
+/// TEST-ONLY - the `death_apply_hold` lever (TestServer battle_action,
 /// sent to the coop client). While on, an applied `death` first runs ONE death-queue advance when the queue head is
 /// enqueued but not started (the head starts before the later death is enqueued; never a deferred apply). Off in
 /// every game; battle-scoped (cleared with the combat probe storage). Returns the value now held. Main thread only.
@@ -337,7 +337,7 @@ bool setDeathApplyHold(bool on);
 /// W2-P6b S-E.2 (spec rewrite/prompts/w2p6_display_two.md section 9 E-e; Q14 (a), F1230, F1751): the ORDERING
 /// client's own prime / unprime aftermath (coopClientCombatAftermath, right after vanilla's message) plays vanilla's
 /// prime / unprime sound (BattlescapeGame :1132 / :1148, playSound(int): no angle) - picked from the item type's
-/// raw primeSound / unprimeSound list without the sim RNG (F1512, V4) - and writes one displayTwo.effects.prime
+/// raw primeSound / unprimeSound list without the sim RNG - and writes one displayTwo.effects.prime
 /// record {itemType, unprime, sound, unresolved}. Not option-gated (OR3 (a): own-order feedback beside the ungated
 /// message). A coop client only; main thread only.
 void onPrimeAftermath(const SavedBattleGame* save, const std::string& itemType, bool unprime);

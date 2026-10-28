@@ -37,7 +37,7 @@
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/CraftErrorState.h"
 #include "../Engine/Language.h"
-#include "../Engine/CrossPlatform.h" // coop R4-L3 S-C: CoopDesyncNoticeState's OPEN FOLDER / REPORT ON GITHUB
+#include "../Engine/CrossPlatform.h" // coop: CoopDesyncNoticeState's OPEN FOLDER / REPORT ON GITHUB
 #include "CoopState.h"
 #include "SharedEcon.h" // coop: the crash prompt's BUNDLE / NEVER handlers
 
@@ -65,7 +65,7 @@ namespace OpenXcom
 {
 
 Globe *currentGlobe = 0;
-// coop W2-H85 (docs rewrite/prompts/w2h85_view_latch_seats.md E1; R-LH83-2-1): BasescapeState's guest-seat latch (BasescapeState.cpp :71); E2 clears it.
+// coop: BasescapeState's guest-seat latch (BasescapeState.cpp :71); E2 clears it.
 extern bool _coop_base_init;
 
 namespace
@@ -755,7 +755,7 @@ CoopState::CoopState(int state, int value) : _value(value)
 
 	if (state == 21)
 	{
-		// SPEC 16 M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
+		// SPEC 16 M6: captured BEFORE disconnectTCP()
 		// below - its own ctor-time call, per the comment at that function's
 		// top - tears the client's authority/session down. State 21 exists
 		// for exactly one reason (the host is gone), so any live battle
@@ -1025,7 +1025,7 @@ std::string CoopState::waitingTitle() const
 		// one message, one look, two actors
 		return "Waiting for all players\nto place their bases...";
 	}
-	// coop R4-L3 S-B (O1 = D267 (a); R-L3-B-2): the repair's titles, above the lobby wording (the second player stays attached)
+	// coop: the repair's titles, above the lobby wording (the second player stays attached)
 	if (const int repair = coopResyncTitleState())
 	{
 		const std::string name = _game->getCoopMod()->getCurrentClientName();
@@ -1083,7 +1083,7 @@ bool CoopState::waitSatisfied() const
 		return connectionTCP::hasCoopFile(
 			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
 	}
-	// coop R4-L3 S-B: never RESUME over a refused or mismatched rejoin / repair - admission stays closed.
+	// coop: never RESUME over a refused or mismatched rejoin / repair - admission stays closed.
 	return connectionTCP::session.resumeAck && !coopResumedOfferFailed();
 }
 
@@ -1387,7 +1387,7 @@ void CoopState::previous(Action *)
 		}
 
 		_game->getCoopMod()->disconnectTCP();
-		// coop W2-H54 (docs rewrite/prompts/w2h54_client_disconnect_crash.md (e) E1; F18020-F18033, F18060-F18079): on a client that
+		// coop: on a client that
 		// holds a campaign world, disconnectTCP() has already replaced the whole state stack, this dialog included, with
 		// GoToMainMenuState (its client branch, the issue #82 way out). A second pop here removed that state too, the stack was
 		// empty, and Game::run crashed reading it. Pop only while this dialog is still the top state: the host, and a client
@@ -1423,7 +1423,7 @@ void CoopState::previous(Action *)
 		_game->popState();
 		_game->getCoopMod()->writePendingHostSave();
 	}
-	// coop W2-H56 (docs rewrite/prompts/w2h56_client_dialog_ok_crash.md (e) F1; F18240-F18250, F18320-F18339): the constructors of
+	// coop: the constructors of
 	// 440 / 444 / 16 / 1000 / 3000 run disconnectTCP() and then pop the state under them. On a client that holds a campaign world,
 	// disconnectTCP() has already replaced the whole stack with GoToMainMenuState (issue #82), so that pop removed it and the dialog
 	// became the only state. Popping it here emptied the stack and Game::run crashed reading it. The only state leaves through
@@ -1470,7 +1470,7 @@ void CoopState::btnAbandonClick(Action *)
 {
 	_game->resetTouchButtonFlags();
 
-	// SPEC 16 M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
+	// SPEC 16 M6: captured BEFORE disconnectTCP()
 	// below clears BattleAuthority::peerAbsent - that flag IS "this ABANDON
 	// is closing a mid-battle co-op pause" (as opposed to issue #81's
 	// original case, ABANDON on the host's own PRE-battle campaign wait,
@@ -1804,7 +1804,7 @@ void CoopState::loadWorld()
 			// write
 			_game->getCoopMod()->coopFunds = oldsave->getFunds();
 			oldsave->saveCoopToMemory("basehost", _game->getMod(), "basehost");
-			// coop W2-H70 S-B (spec w2h70_sb_display_copy.md EB4; R-TR9-1; F20572): a new view starts with no display copy marked; the marks
+			// coop: a new view starts with no display copy marked; the marks
 			// of the previous view name soldiers deleted with it.
 			connectionTCP::visitDisplayCopies.clear();
 			filename = "baseclient"; 
@@ -2063,7 +2063,7 @@ void coopStampSpawnedUnitSeat(BattleUnit* unit)
 		unit->setAIModule(nullptr); // a PvP side a seat commands: no AI module, as at generation
 }
 
-// R5-P1 (SPIKE-RUNBOOK.md RB-D23): see CoopBattleSetup.h for the full
+// R5-P1: see CoopBattleSetup.h for the full
 // gamemode-by-gamemode contract this implements. HOST-ONLY, called once by
 // CoopHandshake::offerBattle() (connectionTCP.cpp) right after
 // BattlescapeGenerator::run() has produced @a save, before it is snapshotted
@@ -2076,7 +2076,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 
 	if (gamemode == 4)
 	{
-		// R5-U8 (owner D233 (a); docs rewrite/prompts/r5u8_pve2_gm4.md, QU8-1 (a), QU8-2 (a)): PvE2 - both
+		// PvE2 - both
 		// seats command the generated ALIENS against an AI-run X-COM squad, as the release line plays it
 		// (main BriefingState::setupCoop's gm4 block), done ONCE here, host-side, before the blob snapshot
 		// (r5-T1, DES-1.2: one canonical assignment, identical on both machines). Every generated hostile
@@ -2296,7 +2296,7 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 					lastId = existing->getId();
 			}
 
-			// W2-P7 S-C-B1.2 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.2, PR-12; MR4, F4524): tag
+			// tag
 			// the merged copy's coopName with the owner's SEAT and its OWN soldier id (soldier->getId() is still the
 			// contributed id here, before setId below). The SEPARATE return reads the seat/id back out to match and
 			// apply the record to the owner's own soldier; the tag survives a SPEC 18 resume (coopname is saved).
@@ -2410,7 +2410,7 @@ bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft)
 	return true;
 }
 
-// ---- coop R4-L3 S-C (D232-V2): CoopDesyncNoticeState, ported from `main` (CoopState.cpp :1883-:2027) ----------------
+// ---- coop: CoopDesyncNoticeState, ported from `main` (CoopState.cpp :1883-:2027) ----------------
 
 std::string CoopDesyncNoticeState::s_lastHeadline;
 std::string CoopDesyncNoticeState::s_lastMessage;
@@ -2545,7 +2545,7 @@ void CoopDesyncNoticeState::btnReportClick(Action *)
 }
 
 // ---- CoopCrashPromptState (PRD-I5) ------------------------------------------
-// coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): ported unchanged from `main` CoopState.cpp :2027-:2125.
+// coop RV-U9: ported unchanged from `main` CoopState.cpp :2027-:2125.
 
 int CoopCrashPromptState::s_raiseCount = 0;
 std::string CoopCrashPromptState::s_lastChoice;

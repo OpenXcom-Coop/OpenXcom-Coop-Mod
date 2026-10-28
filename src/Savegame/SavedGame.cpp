@@ -379,7 +379,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
 	{
-		// coop D250-U S-B (QD-7 a; docs rewrite/prompts/d250u_pvp_campaigns.md): a client's PvP alien-side flag is its
+		// coop: a client's PvP alien-side flag is its
 		// machine's role, not the loaded world's - the gm2 client is the alien side, every other client is not. Read from
 		// the blob, the gm2 alien client took the host world's false at a battle's blob load, wrote it into its own-world
 		// snapshot and came back from the battle with its own geoscape sim running.
@@ -853,7 +853,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
 	}
 
-	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a)): a save the gm3 alien host wrote while it borrowed the X-COM player's world for a
+	// coop: a save the gm3 alien host wrote while it borrowed the X-COM player's world for a
 	// battle - the borrow's record, kept for the RESUME (connectionTCP::coopPvpResumeBorrow). Every menu load resets it first.
 	connectionTCP::coopPvpLoadedBorrow = Json::Value();
 	if (_coop && header["coopPvpBorrowed"])
@@ -888,7 +888,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// (loadCoopSaveFromMemory(), the coop-orchestrated blob load, is a
 	// SEPARATE function and never reaches this gate - same discipline as the
 	// schema gate immediately below, which is menu-load-only too).
-	// coop D246-U (owner D246 = b; docs rewrite/prompts/d246u_midbattle_save_convert.md): an UNSTAMPED mid-battle co-op save
+	// coop: an UNSTAMPED mid-battle co-op save
 	// was made by an older version (the release line never writes coopBattleProtocol). One whose game mode the conversion
 	// handles loads on and is converted once its battle is loaded (the hook after the battleGame block below); any other
 	// unstamped one, and every stamp other than 1, still refuses (FW-7).
@@ -1295,7 +1295,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_battleGame->load(battle, mod, this);
 	}
 
-	// coop D246-U S-D (owner D246 = b; docs rewrite/prompts/d246u_sd_custom_battle_convert.md): a co-op Custom Battle saved
+	// coop: a co-op Custom Battle saved
 	// mid-battle by an older version carries no header `coop`, so the gate above never sees it. It is converted the same way
 	// (seat tags, the turn mode it was played in, the mission deployment), so CONTINUE BATTLE resumes it with each player
 	// commanding its own soldiers and nobody the aliens. A save this build wrote is never converted (BattleAuthority.h).
@@ -1488,7 +1488,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 
 	for (auto& base : _bases)
 	{
-		// coop W2-H65 S-B (docs rewrite/prompts/w2h65_sb_no_rollback.md EB1; F19204, F19205, F19340-F19359): a partner-base mirror is never
+		// coop: a partner-base mirror is never
 		// written (the "bases" filter below), so its name cannot make this world invalid. A mirror built while the partner was still naming
 		// its base has the name "": it refused every save of this world and a visit then reloaded an older snapshot over the live world.
 		if (base->_coopIcon)
@@ -1919,7 +1919,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
 	}
 
-	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a), QC4B-2 (a)): the gm3 alien host's save while it borrows the X-COM player's world
+	// coop: the gm3 alien host's save while it borrows the X-COM player's world
 	// for a battle (connectionTCP::coopPvpSaveWorld writes this world, the host's own, as the body): the borrow's record for the RESUME,
 	// and the battle's save-list keys and version stamp as every mid-battle co-op save carries them (the battle itself rides in the X-COM
 	// player's embedded world, coopClientSaves).

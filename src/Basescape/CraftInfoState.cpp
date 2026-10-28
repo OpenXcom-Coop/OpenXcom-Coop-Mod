@@ -495,7 +495,7 @@ void CraftInfoState::btnOkClick(Action *)
 {
 
 	// coop campaign
-	// coop W2-H70 S-C (spec docs rewrite/prompts/w2h70_sc_window_67.md EC6; R-H70-4; F20447): also while the live world is the partner's
+	// coop W2-H70 S-C: also while the live world is the partner's
 	// base view after a 67 cleared the visit flag (a craft seat changed then is kept).
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{
@@ -558,7 +558,7 @@ void CraftInfoState::btnOkClick(Action *)
 
 			for (auto* soldier : *_base->getSoldiers())
 			{
-				// coop W2-H70 S-B (spec docs rewrite/prompts/w2h70_sb_display_copy.md EB6; R-TR9-1; F20426): a received gift's display copy is
+				// coop: a received gift's display copy is
 				// never written to "basehost" (see SoldiersState::btnOkClick).
 				if (connectionTCP::visitDisplayCopies.count(soldier))
 					continue;

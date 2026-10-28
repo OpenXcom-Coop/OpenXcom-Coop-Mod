@@ -1,4 +1,4 @@
-"""EQ-2 S-C - test_equip_hold_ends.py (EQE): a reservation on the pre-battle equip screen also ends when its holder leaves or
+"""test_equip_hold_ends.py (EQE): a reservation on the pre-battle equip screen also ends when its holder leaves or
 turn 1 starts, and no bulk tool takes a reserved item. Owner D291 (b), D208 (a) (a leave during equip), P8b Q4 (a) (turn 1 puts
 every cursor item back), D207 (a) / QEQ2-10 (a) (the host's own template and auto-equip skip a held item; F3125 for a client's
 order). Spec: docs repo rewrite/prompts/eq2c_hold_ends.md (f) + PIN-PASS AMENDMENTS, common rewrite/prompts/eq2_partner_pointer.md;

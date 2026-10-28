@@ -1,4 +1,4 @@
-"""D247-U S-B - panic, kills and reactions on hotseat player 2's turn (owner D247 (a); OH1 (a) = D276 (a); R5-V1; QD247-8,
+"""panic, kills and reactions on hotseat player 2's turn (owner D247 (a); OH1 (a) = D276 (a); R5-V1; QD247-8,
 QD247-9 (a)). Boot B1: REACT FIRE on.
 
 Spec: docs rewrite/prompts/d247u_hotseat_battle.md, (d) Stage S-B and (f) `test_hotseat_rules.py`. Pins: docs

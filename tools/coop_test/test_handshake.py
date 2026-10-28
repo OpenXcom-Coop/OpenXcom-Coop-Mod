@@ -135,7 +135,7 @@ def main():
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
-        # W2-P8b S-H: the coop blob snapshot and the
+        # the coop blob snapshot and the
         # battle_offer now go out at PREPARE (newbattle_ok), at turn 0, so both
         # briefings are up at once; the shared entry spine then passes both
         # briefings, both pre-battle equip screens and both

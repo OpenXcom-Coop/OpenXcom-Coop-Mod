@@ -405,7 +405,7 @@ def row_rs(host, client, crash0, cells, ev):
     attempt(cells, "RS-pass", pas)
     need(cells, "RS-pass")
 
-    def cmd():  # R-D246-SA-1 (S32, F13380): lastDeny is battle-scoped (RS-go's deny stays): prove THIS order's outcome
+    def cmd():  # lastDeny is battle-scoped (RS-go's deny stays): prove THIS order's outcome
         d0 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
         to, hs0, base = (d0[1] + 1) % 8, event_state(host), es(client, "lastSeqApplied") or 0
         iseq = ev["rsCmd"] = session.send_turn(client, RS_GUEST, to).get("iseq")

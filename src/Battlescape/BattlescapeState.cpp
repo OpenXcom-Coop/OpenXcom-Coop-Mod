@@ -98,7 +98,7 @@
 #include "../CoopMod/CoopEndTurn.h"
 #include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/CoopSpeed.h"
-#include "../CoopMod/CoopDelta.h" // coop: coopFactionIsMine() (R5-U1 S-B)
+#include "../CoopMod/CoopDelta.h" // coop: coopFactionIsMine()
 
 namespace OpenXcom
 {
@@ -818,7 +818,7 @@ void BattlescapeState::resetPalettes()
  */
 void BattlescapeState::init()
 {
-	coopHotseatOnInit(this, _save); // coop D247-U (OH1 a): the aliens' turn screen closed - player 2's turn
+	coopHotseatOnInit(this, _save); // coop: the aliens' turn screen closed - player 2's turn
 	if (_paletteResetRequested)
 	{
 		_paletteResetRequested = false;
@@ -948,7 +948,7 @@ void BattlescapeState::think()
 }
 
 /**
- * W1-P13c (REV E.53 E53.2, D-24b AMENDED): off-baton in traditional-mode
+ * off-baton in traditional-mode
  * coop, the bottom bar is grayed rather than hidden - every widget stays
  * visible and interactive. This override carries no logic of its own;
  * CoopBattleUi::coopGrayBottomBar() decides for itself whether to act (it is
@@ -1377,7 +1377,7 @@ void BattlescapeState::btnInventoryClick(Action *)
 	// open it. One guarded coop call; false and inert outside a coop battle.
 	// W1-P4 froze the PRE-battle screen, which is a different site
 	// (BriefingState::btnOkClick) and a different mechanism (a skipped push).
-	if (CoopBattleUi::refuseInventoryOpen( // W2-P8 (Q10 a): ownership only, the side first
+	if (CoopBattleUi::refuseInventoryOpen( // ownership only, the side first
 			_save->getSelectedUnit(), _save))
 	{
 		return;
@@ -1742,7 +1742,7 @@ void BattlescapeState::btnLeftHandItemClick(Action *action)
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
 			// - machine-local display state, same class as the reserve settings
 			// ratified there.
-			// W2-P4 S-D: the refusal became the reaction-hands
+			// the refusal became the reaction-hands
 			// intercept - on a co-op client the press is an order the host runs.
 			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, false))
 			{
@@ -1806,7 +1806,7 @@ void BattlescapeState::btnRightHandItemClick(Action *action)
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
 			// - machine-local display state, same class as the reserve settings
 			// ratified there.
-			// W2-P4 S-D: the refusal became the reaction-hands
+			// the refusal became the reaction-hands
 			// intercept - on a co-op client the press is an order the host runs.
 			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, true))
 			{
@@ -2491,7 +2491,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 
 	if (checkFOV)
 	{
-		// SS2.W5 (WAVE1-RUNBOOK.md ruling D2 = WV-D8): ONE guarded coop call.
+		// SS2.W5: ONE guarded coop call.
 		// Inside a co-op battle a SELECTION change must not author shared fog, so
 		// the TILE half of this recalc is suppressed here and the acting unit's
 		// tiles are authored EXPLICITLY at the action sites instead
@@ -2555,7 +2555,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 		for (auto* bu : *_save->getUnits())
 		{
 			if (j >= VISIBLE_MAX) break; // loop finished
-			if (coopFactionIsMine((int)bu->getFaction()) && bu->getStatus() != STATUS_DEAD && !bu->isIgnored() && bu->indicatorsAreEnabled()) // coop R5-U2 S-B: units of this machine's side
+			if (coopFactionIsMine((int)bu->getFaction()) && bu->getStatus() != STATUS_DEAD && !bu->isIgnored() && bu->indicatorsAreEnabled()) // coop: units of this machine's side
 			{
 				if (bu->getFatalWounds() > 0 || (Options::oxceShowBurningAsWounded && bu->getFire() > 0))
 				{
@@ -2577,7 +2577,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 		for (auto* bu : *_save->getUnits())
 		{
 			if (j >= VISIBLE_MAX) break; // loop finished
-			if (coopFactionIsMine((int)bu->getOriginalFaction()) && bu->getStatus() == STATUS_UNCONSCIOUS && bu->hasNegativeHealthRegen() && bu->indicatorsAreEnabled()) // coop R5-U2 S-B: units of this machine's side
+			if (coopFactionIsMine((int)bu->getOriginalFaction()) && bu->getStatus() == STATUS_UNCONSCIOUS && bu->hasNegativeHealthRegen() && bu->indicatorsAreEnabled()) // coop: units of this machine's side
 			{
 				_btnVisibleUnit[j]->setTooltip(_txtVisibleUnitTooltip[VISIBLE_MAX + 1]);
 				_btnVisibleUnit[j]->setVisible(true);
@@ -2591,7 +2591,7 @@ void BattlescapeState::updateSoldierInfo(bool checkFOV)
 		for (auto* bu : *_save->getUnits())
 		{
 			if (j >= VISIBLE_MAX) break; // loop finished
-			if (coopFactionIsMine((int)bu->getFaction()) && !(bu->isOut()) && bu->getHealth() > 0 && bu->indicatorsAreEnabled()) // coop R5-U2 S-B: units of this machine's side
+			if (coopFactionIsMine((int)bu->getFaction()) && !(bu->isOut()) && bu->getHealth() > 0 && bu->indicatorsAreEnabled()) // coop: units of this machine's side
 			{
 				if (bu->getStunlevel() * 100 / bu->getHealth() >= 75)
 				{
@@ -3320,7 +3320,7 @@ inline void BattlescapeState::handle(Action *action)
 						}
 					}
 					// mark a friendly unit under the cursor
-					if (unitUnderTheCursor && coopFactionIsMine((int)unitUnderTheCursor->getFaction()) && !unitUnderTheCursor->isOut()) // coop R5-U2 S-A: a unit of this machine's side
+					if (unitUnderTheCursor && coopFactionIsMine((int)unitUnderTheCursor->getFaction()) && !unitUnderTheCursor->isOut()) // coop: a unit of this machine's side
 					{
 						unitUnderTheCursor->setCustomMarker((unitUnderTheCursor->getCustomMarker() + 1) % 5); // rotate 4 colors + turned off
 					}
@@ -3543,7 +3543,7 @@ inline void BattlescapeState::handle(Action *action)
 						// its own chokepoint refused SILENTLY (log-only,
 						// LoadGameState.cpp:159). Gate restored, refusal now visible.
 						// Session-scoped, so it refuses on the HOST too: a local load
-						// mid-session forks the served world (PRD-08 C7).
+						// mid-session forks the served world.
 						if (!CoopBattleUi::refuseControl(CoopBattleUi::Control::QuickLoad,
 								nullptr, _save))
 						{
@@ -4147,7 +4147,7 @@ bool BattlescapeState::allowButtons(bool allowSaving) const
 	return ((allowSaving || coopSideIsMine(_save) || _save->getDebugMode())
 		&& (_battleGame->getPanicHandled() || _firstInit )
 		&& (allowSaving || !_battleGame->isBusy() || _firstInit)
-		&& (_map->getProjectile() == 0 || CoopGhost::ownsProjectile(_map))); // W2-P5 S-A.2 (Q3 = b): a ghost's projectile does not lock input
+		&& (_map->getProjectile() == 0 || CoopGhost::ownsProjectile(_map))); // a ghost's projectile does not lock input
 }
 
 // W1-P5 RATIFICATION (WAVE1-RUNBOOK.md ruling D8 = WV-D14's "RATIFY per-machine
@@ -4213,7 +4213,7 @@ void BattlescapeState::btnZeroTUsClick(Action *action)
 		if (_battleGame->getSave()->getSelectedUnit())
 		{
 			_battleGame->getSave()->getSelectedUnit()->clearTimeUnits();
-			coopHostZeroTu(_battleGame->getSave()->getSelectedUnit()); // coop W2-H30 (L-4): the host's own press rides a `host` context's ev
+			coopHostZeroTu(_battleGame->getSave()->getSelectedUnit()); // coop: the host's own press rides a `host` context's ev
 			updateSoldierInfo();
 		}
 	}

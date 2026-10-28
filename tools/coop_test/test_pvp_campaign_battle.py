@@ -130,7 +130,7 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 def main():
     fails=[]
     test_campaign_battle(fails, "client", 2)
-    test_campaign_battle(fails, "host", 3)  # D250-U S-C1 (owner D250, O1 (a)): the gm3 leg runs live
+    test_campaign_battle(fails, "host", 3)  # the gm3 leg runs live
     print("\n==== PvP campaign battle summary ====")
     if fails:
         for f in fails:print(f"  FAIL {f}")

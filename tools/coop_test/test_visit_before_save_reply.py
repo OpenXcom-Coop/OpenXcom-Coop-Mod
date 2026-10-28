@@ -1,4 +1,4 @@
-"""W2-H82 S-B - test_visit_before_save_reply.py (VSR): the SEPARATE host saves; its click on the partner's base reaches the partner before the
+"""test_visit_before_save_reply.py (VSR): the SEPARATE host saves; its click on the partner's base reaches the partner before the
 host's go-ahead for the partner's save-progress stream (the go-ahead arrives while the partner's base answer is streaming). The host gets the base
 view, its "Synchronizing bases..." closes, and the partner's save progress still reaches the host after the view opened.
 
@@ -35,7 +35,7 @@ NEEDLES = {"STREAMHOLD": "[coop-visit] base answer held: a world stream is in fl
            "REPLYSTASH": "[coop-test] hold_save_reply: SEND_FILE_HOST_SAVE_PROGRESS held"}
 HOST_NEEDLES = ("REPLYSTASH",)
 CELLS = {"R-SPB": ["SPB-pre", "SPB-view", "SPB-held", "SPB-copy", "SPB-crash"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -282,7 +282,7 @@ def save(r, x):
     if not v:
         raise Stop("SAVE: the host's CoopState 54 not on top within %d s: %s %s" % (W_54, stack(h), js(dlg(h))))
 def arm_reply(r, x):
-    """the host's hold_save_reply {on: true} (W2-H82 L3)"""
+    """the host's hold_save_reply {on: true}"""
     a = q(x.host, {"cmd": "hold_save_reply", "on": True})
     r.ev["arm_reply"] = pick(a, ("ok", "armed", "held"))
     if not (a.get("ok") and a.get("armed")):

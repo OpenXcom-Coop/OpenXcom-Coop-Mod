@@ -1,4 +1,4 @@
-"""W2-P3 S-D - test_turn_cues.py: the turn machine's own chains reach the
+"""test_turn_cues.py: the turn machine's own chains reach the
 second player as named cues - a unit that wakes up at a side change
 (`revive`), a unit whose floor burns away under it (`fall`), a soldier who
 panics or goes berserk at the start of the player side (a `panic` action with
@@ -53,7 +53,7 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        so morale 0 = a 100% panic chance, F866); SEED_C13A picks panic (not
        berserk) and a flee with a path. The host shows its own panic infobox:
        the host dismisses it (dismiss_popup, host only) when it is on
-       top. W2-H10.2 (F3299, H10-R4): C2 is stripped first (battle_strip_unit,
+       top. W2-H10.2: C2 is stripped first (battle_strip_unit,
        BOTH) - the flee walk stops when a step costs more TU than C2 has;
        before the flee C2 carries the rifle and clip only (weight <=
        C2_STRENGTH on both machines).
@@ -127,7 +127,7 @@ the P6b review's section 2 rows E5 / E6; AMENDMENTS P6b-1..P6b-3): the
 watching machine plays the panic / berserk sound and the fall. E5 (C13a flee,
 C13b berserk): the client's displayTwo.effects.panic.count +1 with ONE record
 for the `panic` ev's seq {unit C2, mode} whose sound is picked from C2's
-panicSounds / berserkSounds - [] on both machines (T0b-3, F1782), so -1. E6
+panicSounds / berserkSounds - [] on both machines, so -1. E6
 (C10; owner D173 (b), AMENDMENT P6-5 section 5 with P6-5 Q2 (b), AMENDMENT
 P6-6): the second player's fall animation waits for its next-turn screen to
 close, then plays in full. C10's landing `sync` applies ~0.3 s after the
@@ -1105,7 +1105,7 @@ def c13a_flee(host, client, ctx):
         fails.append(f"precondition: battle turn {turn_at} at the staging (want player turn 2 reached)")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    # W2-H10.2 (F3299, H10-R4): before the flee C2 is not encumbered (no TU check here: C13b checks the formula)
+    # W2-H10.2: before the flee C2 is not encumbered (no TU check here: C13b checks the formula)
     for name, ld in load.items():
         if ld["weight"] is None or ld["weight"] > C2_STRENGTH:
             fails.append(f"C13a: C2's carried weight on the {name} {ld['weight']} (armor {ld['armor']}, carried "
@@ -1208,7 +1208,7 @@ def c13b_berserk(host, client, ctx):
             fails.append(f"C13b: C2's rifle {C13B_RIFLE_ID} on the {name} {iview(it)} (want still owned by C2)")
     fails += pfails
     if pc:
-        # W2-P5 S-T (E3.1 ST3 = (a)): the berserk turns are `turn` evs in the panic context (T0-S5's exact list).
+        # the berserk turns are `turn` evs in the panic context (T0-S5's exact list).
         kinds = [e["kind"] for e in pevs]
         if kinds != C13B_KINDS or len(turns) != C13B_TURNS:
             fails.append(f"C13b: the panic context {pc.get('actionId')} evs {sv(pevs)} carry {len(turns)} `turn` "
@@ -1375,7 +1375,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-E: coopGhostStepper pinned true in both instances (rows E5 / E6 need the client's effect displays)
+    # coopGhostStepper pinned true in both instances (rows E5 / E6 need the client's effect displays)
     host = GameClient("host", 49858, make_user_dir("w2p3_turn_cues_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49859, make_user_dir("w2p3_turn_cues_client", options={"coopGhostStepper": True}))
     results = {}

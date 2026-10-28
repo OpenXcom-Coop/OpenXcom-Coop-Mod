@@ -1,4 +1,4 @@
-"""W2-P7 S-C-D2 - test_shared_forced_storage.py: after a SHARED battle that leaves the base over its storage limit,
+"""test_shared_forced_storage.py: after a SHARED battle that leaves the base over its storage limit,
 the second player gets the forced storage screen too, every SHARED sell confirm waits for the host's answer, and a
 forced screen closes itself once the base is back under its limit (docs rewrite/prompts/w2p7_sc_design.md section
 3.6, AMENDMENT P7-7 sections 2-4: PR-29..PR-35; owner D154, D175; mechanism rulings MR9, MR10, MR15).
@@ -91,10 +91,10 @@ import test_shared_page3 as p3
 OPTS_ST = {"storageLimitsEnforced": True, "canSellLiveAliens": True}  # CONSTANTS T0-S3 (ii) / F5429 (both user dirs)
 RIFLE, RIFLE_FILL = "STR_RIFLE", 300     # CONSTANTS T0-S3 (ii): "give_items STR_RIFLE 300 to base 0 on both"
 RIFLE_SIZE = 0.2                         # CONSTANTS T0-S3 (ii): "(rifle size 0.2)"
-T = "STR_SECTOID_CORPSE"                 # FX-S's T (AMENDMENT P7-7 section 3)
+T = "STR_SECTOID_CORPSE"                 # FX-S's T
 T_QTY = 10                               # FX-ST boot 2: T's page-3 count and the host's stock at its debriefing (pinned
                                          # by this file's first construction, EVIDENCE D2e pre.fxST.counts / stockT)
-BOOT_PORT = {"ST1": "47256", "ST2": "47257"}  # AMENDMENT P7-7 section 3 (S26, F5582): D2 = 47254-47258
+BOOT_PORT = {"ST1": "47256", "ST2": "47257"}  # AMENDMENT P7-7 section 3: D2 = 47254-47258
 HOSTILES = camp.HOSTILES                 # CONSTANTS (part 1) T0-6 (i): 1000000-1000014
 STORAGE_MARK = "STORAGE SPACE EXCEEDED"  # en-US STR_STORAGE_EXCEEDED's head (bin/standard/xcom1/Language/en-US.yml)
 SELL_OK = "Sell/Sack"                    # SellState's OK caption (STR_SELL_SACK, F5572)
@@ -637,7 +637,7 @@ def d2d_cells(host, client, ctx):
         ctx["backToDebrief"] = {gc.name: p3.back_to_debrief(gc) for gc in (host, client)}  # a Sell screen D2e left up
         f = both_oks_forced(host, client, ctx, "c1", "SellState", STORAGE_MARK, storage_record)
         return f or boxes_to_screens(host, client, ctx, "boxes", "SellState")
-    # S-C-E1.1 (AMENDMENT P7-8 PR-52, F6106): cells 2-3 (a stale-stock rejection on a bound forced Sell screen) deleted.
+    # S-C-E1.1: cells 2-3 (a stale-stock rejection on a bound forced Sell screen) deleted.
     return [
         ("1 both OKs: both forced SellStates up", c1),
     ]

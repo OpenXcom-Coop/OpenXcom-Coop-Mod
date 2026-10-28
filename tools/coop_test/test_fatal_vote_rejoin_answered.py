@@ -1,4 +1,4 @@
-"""W2-P7 S-V-B - test_fatal_vote_rejoin_answered.py: a voter who answered, then left and rejoined, is asked again
+"""test_fatal_vote_rejoin_answered.py: a voter who answered, then left and rejoined, is asked again
 (owner D223 (b), docs rewrite/prompts/w2p7_battle_end.md ### P7-7, row V7b). Spec, staging, the drop, the rejoin and
 the shared assertions: test_fatal_vote_rejoin.py (whose helpers this file runs), and through it
 test_fatal_vote.py. The split from test_fatal_vote_rejoin.py is SV-T1's pattern (P7-7: the file stays <= 150 s
@@ -7,7 +7,7 @@ solo; V7, V8 and V7b together ran 153.3 s at red).
   V7b WS0 + WS1 wounded; the vote opens with the host's own question and the client's. The client answers OK while
       the host's question is still unanswered (host answers {1: yes}, host top the question, client top the map); the
       client drops (dialog 62 over the host's question, the vote Open, {1: yes} kept); client2 rejoins; the host's
-      RESUME. Green (S-V-B.2 + D223 (b)): the host drops the rejoining seat's stored answer before the resend, so
+      RESUME. Green: the host drops the rejoining seat's stored answer before the resend, so
       after the rejoin the host's answers are {} and client2's answered [] (resends 1); client2 shows the question
       (N 2); client2 OK (host answers {1: yes}), then the host's OK -> close end {0: yes, 1: yes} -> NextTurnState ->
       battle_end with test_battle_end's E1 set over client2.

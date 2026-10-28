@@ -45,7 +45,7 @@ private:
 	TextList *_lstCrafts;
 	Globe *_globe;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	Target *_target;
 	std::vector<Craft*> _crafts;
 	std::vector<Craft*> _selCrafts;

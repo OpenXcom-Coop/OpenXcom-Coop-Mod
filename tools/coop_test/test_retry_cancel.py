@@ -194,7 +194,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=2):
     seated_holder["soldierId"] = soldier_ids[0]
 
     host.ok({"cmd": "newbattle_ok"})
-    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # the shared battle-entry spine (both briefings, both pre-battle
     # equip screens, both Turn-1 screens).
     session.briefings_to_battlescape(host, client)
     time.sleep(3)  # let both logs flush the handshake lines
@@ -512,7 +512,7 @@ def test_option_round_trip():
         print(f"PASS test_option_round_trip: all four names round-trip through set_option "
               f"({', '.join(CANCEL_OPTIONS)})")
 
-        # 3. W1-P7 (WV-D24 = ruling D-11): the intent timeout is behind the SAME
+        # 3. the intent timeout is behind the SAME
         #    kind of real user option, not a static. WR-25 makes that a hard
         #    requirement - a static would be unpersisted, invisible to the player
         #    and untouchable from this lever.
@@ -708,7 +708,7 @@ def set_cancel_options(gc, value_map):
 
 
 def make_pending(host, client, blocker, actor_b):
-    """Blocker autoshot by A (W2-P4 S-F) + kneel intent on B -> a live pending
+    """Blocker autoshot by A + kneel intent on B -> a live pending
     slot. Returns (blocker actionId, iseq_b, want_kneeled)."""
     aid = start_autoshot_blocker(host, client, blocker)
     b_before = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]

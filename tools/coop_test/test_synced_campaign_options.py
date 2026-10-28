@@ -1,4 +1,4 @@
-"""W2-P10 S-A - test_synced_campaign_options.py (SHARED): 14 campaign options join W2-P9's synced set.
+"""test_synced_campaign_options.py (SHARED): 14 campaign options join W2-P9's synced set.
 
 Spec docs rewrite/prompts/w2p10_campaign_options_scope.md as
 re-pinned by AMENDMENT P10-1 (section 3 PX-1..PX-8, section 4.1 S-A, section 5). Constants:
@@ -90,7 +90,7 @@ LAYOUT_SLOT = "belt"
 # C5 A7 fixture pin.
 GRID = "STR_LIVING_QUARTERS"
 
-# C7 Advanced prefix sets (T0-3 / F5158): after P10 S-A green, 20 OXC + 8 OXCE prefixed rows.
+# C7 Advanced prefix sets: after P10 S-A green, 20 OXC + 8 OXCE prefixed rows.
 P9_OXC = {"alienBleeding", "allowPsiStrengthImprovement", "allowPsionicCapture", "battleAutoEnd",
           "battleExplosionHeight", "battleInstantGrenade", "battleUFOExtenderAccuracy", "disableAutoEquip",
           "includePrimeStateInSavedLayout", "sneakyAI", "weaponSelfDestruction"}

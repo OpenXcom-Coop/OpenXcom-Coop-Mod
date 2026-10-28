@@ -55,7 +55,7 @@
 #include "../fmath.h"
 #include "../Engine/Language.h"
 #include "../CoopMod/BattleAuthority.h"
-#include "../CoopMod/CoopHotseat.h" // D247-U S-C: the hotseat battle-save hook pair
+#include "../CoopMod/CoopHotseat.h" // the hotseat battle-save hook pair
 #include "../CoopMod/CoopDelta.h"
 #include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 
@@ -155,14 +155,14 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	// any save written before REV D read nothing and change nothing (D-26: no key
 	// = parallel). W1-P7 only READS the key - CONSUMING it on resume is r4 T4.
 	coopLoadTurnMode(reader);
-	// SPEC 18 (r4 T4, owner rulings D99=(a)/D100=(b)): the mission deployment
+	// the mission deployment
 	// label and the traditional-mode baton holder, same thin guarded shape
 	// and presence-gating as coopLoadTurnMode above; all logic lives in
 	// src/CoopMod (BattleAuthority.h). An SP load and any save written
 	// before this reads nothing and changes nothing.
 	coopLoadDeployment(reader);
 	coopLoadActiveSeat(reader);
-	coopLoadHotseat(reader); // coop D247-U S-C (OH4 a): a hotseat battle resumes as hotseat; absent in every other save
+	coopLoadHotseat(reader); // coop: a hotseat battle resumes as hotseat; absent in every other save
 	if (reader["startingConditionType"])
 	{
 		std::string startingConditionType = reader["startingConditionType"].readVal<std::string>();
@@ -542,14 +542,14 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	// SavedGame.cpp:1334/:1814 shape is NOT ported), and the key is on
 	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
 	coopSaveTurnMode(writer);
-	// SPEC 18 (r4 T4, owner rulings D99=(a)/D100=(b)): the mission deployment
+	// the mission deployment
 	// label and the traditional-mode baton holder, same guarded shape as
 	// coopSaveTurnMode above (see load()'s matching calls and
 	// BattleAuthority.h); both keys are on SharedEcon's saveBlobExcludedTopKey
 	// list so neither rides the hash.
 	coopSaveDeployment(writer);
 	coopSaveActiveSeat(writer);
-	coopSaveHotseat(writer); // coop D247-U S-C (OH4 a): nothing outside a hotseat battle (an SP save stays byte-identical)
+	coopSaveHotseat(writer); // coop: nothing outside a hotseat battle (an SP save stays byte-identical)
 	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): the host's true _itemId,
 	// so the loading machine ADOPTS it instead of re-deriving max(id)+1 - see
 	// the matching ADOPT call in load() below and BattleAuthority.h. Self-
@@ -1279,7 +1279,7 @@ void SavedBattleGame::coopSetSide(UnitFaction side)
 }
 
 /**
- * W2-P2 S-A (spec (b)1, R3.7): the destroyed-objective counter.
+ * the destroyed-objective counter.
  * @return objectives destroyed
  */
 int SavedBattleGame::coopGetObjectivesDestroyed() const
@@ -1288,7 +1288,7 @@ int SavedBattleGame::coopGetObjectivesDestroyed() const
 }
 
 /**
- * W2-P2 S-A: absolute destroyed-objective set for the delta applier. Plain
+ * absolute destroyed-objective set for the delta applier. Plain
  * assignment - no autoEndBattle() cascade (that is addDestroyedObjective()'s).
  * @param objectivesDestroyed new counter
  */
@@ -1298,7 +1298,7 @@ void SavedBattleGame::coopSetObjectivesDestroyed(int objectivesDestroyed)
 }
 
 /**
- * W2-P2 S-A: the raw battle script-value vector.
+ * the raw battle script-value vector.
  * @return values (element i = tag index i + 1)
  */
 const std::vector<int>& SavedBattleGame::coopScriptValuesRaw() const
@@ -1307,7 +1307,7 @@ const std::vector<int>& SavedBattleGame::coopScriptValuesRaw() const
 }
 
 /**
- * W2-P2 S-A: absolute raw battle script-value set; every index past
+ * absolute raw battle script-value set; every index past
  * @a values is zeroed. Runs no script and draws no RNG.
  * @param values new values (element i = tag index i + 1)
  */
@@ -2734,7 +2734,7 @@ void SavedBattleGame::reviveUnconsciousUnits(bool noTU)
 						}
 					}
 					removeUnconsciousBodyItem(bu);
-					// W2-P3 S-D (spec (b)9, V15): ONE guarded coop call - on the
+					// ONE guarded coop call - on the
 					// co-op HOST the `revive` cue {unit, pos}. No-op in single
 					// player and on a client.
 					coopCueRevive(bu);
@@ -3546,7 +3546,7 @@ void SavedBattleGame::appendToHitLog(HitLogEntryType type, UnitFaction faction)
 {
 	if (_side != FACTION_PLAYER) return;
 	_hitLog->appendToHitLog(type, faction);
-	coopHitLogNote(type, faction); // coop (W2-P6b S-L, D172): the host mirrors the entry; a no-op elsewhere
+	coopHitLogNote(type, faction); // coop: the host mirrors the entry; a no-op elsewhere
 }
 
 /**
@@ -3556,7 +3556,7 @@ void SavedBattleGame::appendToHitLog(HitLogEntryType type, UnitFaction faction, 
 {
 	if (_side != FACTION_PLAYER) return;
 	_hitLog->appendToHitLog(type, faction, text);
-	coopHitLogNote(type, faction); // coop (W2-P6b S-L, D172): the host mirrors the entry; a no-op elsewhere
+	coopHitLogNote(type, faction); // coop: the host mirrors the entry; a no-op elsewhere
 }
 
 /**

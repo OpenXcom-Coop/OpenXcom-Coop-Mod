@@ -1,4 +1,4 @@
-"""W2-P9 S-B - test_synced_options_ui.py: the Advanced options screen marks and diverts synced options,
+"""test_synced_options_ui.py: the Advanced options screen marks and diverts synced options,
 refreshes live and announces changes in chat. Spec: docs
 rewrite/prompts/w2p9_synced_options.md as re-pinned by AMENDMENT P9-1 (section 3 PR-11, PR-12, PR-13 `advanced`,
 PR-10 prefix key; section 4.2 S-B; section 5) and its P9-1 RULINGS (T0-1 SAFE -> U6 stays). Constants: docs
@@ -244,7 +244,7 @@ def open_advanced_battle(gc, ev, tag):
 
 
 def close_advanced_battle(gc, ev, tag):
-    """OptionsAdvancedState -Cancel-> PauseState -Cancel-> BattlescapeState (T0-1 F4987)."""
+    """OptionsAdvancedState -Cancel-> PauseState -Cancel-> BattlescapeState."""
     if not top_is(gc, "OptionsAdvancedState"):
         return top_is(gc, "BattlescapeState")
     click_exact(gc, "CANCEL", ev)
@@ -676,7 +676,7 @@ def main():
             host.ok({"cmd": "profile_ok"})
             client.ok({"cmd": "profile_ok"})
             host.wait_for("start offered", lambda: raw.lobby(host).get("buttonVisible") or None)
-            x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}    # OWN_FILE (F4983, PR-14)
+            x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}    # OWN_FILE
             print(f"[w2p9-sb-ui] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
             session.drive_to_battlescape(host, client, x.seated, seat_count=2)
             x.bstate0 = event_state(client).get("coopClientBStatePushes")

@@ -1,4 +1,4 @@
-"""D250-U S-C5b2 - test_campaign_gm3_basedef_rejoin.py: an attack on the X-COM player's own base in a gm3 PvP campaign whose borrowed
+"""test_campaign_gm3_basedef_rejoin.py: an attack on the X-COM player's own base in a gm3 PvP campaign whose borrowed
 start is interrupted by the X-COM player's lost game (host = the aliens, client = X-COM). the alien host goes home to its own
 world and the attack waits; once the player is back and RESUME is pressed, the defence starts again for both, in the X-COM player's world,
 and ends through S-C2's return.

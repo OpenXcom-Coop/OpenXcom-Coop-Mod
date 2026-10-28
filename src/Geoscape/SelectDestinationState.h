@@ -47,7 +47,7 @@ private:
 public:
 	/// Creates the Select Destination state.
 	SelectDestinationState(std::vector<Craft*> crafts, Globe *globe);
-	const std::vector<Craft*>& coopHeldCrafts() const { return _crafts; } // coop W2-H83 S-C: for GeoscapeState::coopHeldCrafts
+	const std::vector<Craft*>& coopHeldCrafts() const { return _crafts; } // coop: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Select Destination state.
 	~SelectDestinationState();
 	/// Resets globe.

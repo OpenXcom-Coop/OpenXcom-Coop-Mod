@@ -26,7 +26,7 @@ client's own soldier id guest_id kept), then four rows in this order:
        tags.COOP_SR_RET present, != "0" and == COPY's (D268 (b): the tag reached the owner's world).
 RED (C1, the base): exactly SD1-G, SD1-tag, SD3-own, SD3-tag FAIL (COPY 100 / "1", the client's own 100 / no tag).
 GREEN (C2): every cell PASS (7/7).
-Tags are read through soldier_record's read-only `tags` field (AMENDMENT OF2-4 ED1). Each row prints ONE
+Tags are read through soldier_record's read-only `tags` field. Each row prints ONE
 "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a failure. A boot failure
 or an SD0 guard miss prints ONE "CAPTURE <what>:" line and fails every later row.
 ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
@@ -107,7 +107,7 @@ def joined(fails):
     return "; ".join(fails) or None
 
 
-def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT; guest_id kept (AMENDMENT OF2-2 section 5)
+def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT; guest_id kept
     ctx, pre_rec = {}, {}
 
     def pre(h, c):

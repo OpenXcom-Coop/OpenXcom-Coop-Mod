@@ -33,7 +33,7 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-WATCH_CAP_S = 135  # RV-U13 S-D: REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
 POLL, W_ACK, W_PAUSE = 0.25, WATCH_CAP_S, 30.0
 KEY_H, KEY_C = "48597", "48598"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"

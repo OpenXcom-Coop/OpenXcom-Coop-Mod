@@ -125,7 +125,7 @@ import repro_atom_walk as W
 MISSION = "STR_SUPPLY_SHIP"
 FACTION_PLAYER = 0
 STATUS_DEAD = 6
-STATUS_UNCONSCIOUS = 7  # WV-D68 (FX-4): a stunned generation casualty qualifies too
+STATUS_UNCONSCIOUS = 7  # a stunned generation casualty qualifies too
 
 # PINNED (SPEC 0e-4, owner D11): found ONCE by hunt_seed.py, never re-rolled.
 # pinned 2026-09-07 by hunt_seed.py at 29536ea95
@@ -179,7 +179,7 @@ def dead_non_player_units(st):
 
 
 def stunned_non_player_units(st):
-    """WV-D68 (FX-4): the OTHER generation-casualty kind - a non-player unit
+    """the OTHER generation-casualty kind - a non-player unit
     STATUS_UNCONSCIOUS (stunned) rather than STATUS_DEAD (killed) at t=0."""
     return [u for u in st.get("units", [])
             if u.get("status") == STATUS_UNCONSCIOUS and u.get("faction") != FACTION_PLAYER]

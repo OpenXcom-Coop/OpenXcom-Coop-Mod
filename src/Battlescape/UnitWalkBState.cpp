@@ -103,7 +103,7 @@ void UnitWalkBState::think()
 
 	bool unitSpotted = false;
 	int size = _unit->getArmor()->getSize() - 1;
-	bool onScreen = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)); // coop R5-U2 S-B: seen by the side this machine plays
+	bool onScreen = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)); // coop: seen by the side this machine plays
 	if (_unit->isKneeled())
 	{
 		if (_parent->kneel(_unit))
@@ -155,7 +155,7 @@ void UnitWalkBState::think()
 		if ((_parent->getSave()->getTile(_unit->getDestination())->getUnit() == 0) || // next tile must be not occupied
 			(_parent->getSave()->getTile(_unit->getDestination())->getUnit() == _unit))
 		{
-			bool onScreenBoundary = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true)); // coop R5-U2 S-B
+			bool onScreenBoundary = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true)); // coop
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
 			playMovementSound();
 			if (_parent->getSave()->isPreview())
@@ -219,7 +219,7 @@ void UnitWalkBState::think()
 			// true ONLY for the test-only battle_halt_walk latch, which stops
 			// the walk here through vanilla's own cancel path. No-op outside an
 			// active co-op battle and off the host sim, so SP is byte-identical.
-			if (coopOnWalkStepFinished(_unit, _action.sneak)) // coop R5-U6 S-B: the walk's sneak rides the step ev
+			if (coopOnWalkStepFinished(_unit, _action.sneak)) // coop: the walk's sneak rides the step ev
 			{
 				return cancelCurentMove();
 			}
@@ -274,7 +274,7 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop: the hotseat REACT FIRE toggle (main UnitWalkBState :465) */ && !coopPvpWalkReactionOff()) // coop R5-U6 S-A: the host's PvP option
+			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop: the hotseat REACT FIRE toggle (main UnitWalkBState :465) */ && !coopPvpWalkReactionOff()) // coop: the host's PvP option
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
@@ -309,7 +309,7 @@ void UnitWalkBState::think()
 			return;
 		}
 
-		coopNoteWalkPace(_unit, onScreen || _parent->getSave()->getDebugMode()); // coop R5-U2 S-B.1: TEST-ONLY walk-pace probe
+		coopNoteWalkPace(_unit, onScreen || _parent->getSave()->getDebugMode()); // coop: TEST-ONLY walk-pace probe
 		if (onScreen || _parent->getSave()->getDebugMode())
 		{
 			setNormalWalkSpeed();
@@ -627,7 +627,7 @@ void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
 	if ((!coopUnitVisibleHere(_unit) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
-	if (coopWalkSoundSilenced(_unit, _action.sneak, false)) return; // coop R5-U6 S-B: the other player's footsteps option
+	if (coopWalkSoundSilenced(_unit, _action.sneak, false)) return; // coop: the other player's footsteps option
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

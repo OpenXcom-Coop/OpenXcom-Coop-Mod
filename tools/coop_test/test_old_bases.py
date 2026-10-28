@@ -32,7 +32,7 @@ Named red on the pre-fix build (spec (f) + AMENDMENT H8-1):
   R5a, R5b      host bases [HostBase, HostBase2, ClientBase], ending 0: the
                 exit leaves the list filtered, then the geoscape's
                 baseRequest reply re-creates the ClientBase mirror as a NEW
-                object at the end of the list (H8-1 Q1, F2649).
+                object at the end of the list.
   R1, R1b, R1d, R6  host bases [], ending 2 on both machines.
   G3            rows [] and host bases [] at TransferBaseState, [] after
                 Cancel, ending 2. The step after close_screens is its own stop

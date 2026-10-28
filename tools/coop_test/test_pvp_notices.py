@@ -1,6 +1,6 @@
 """R5-U2 S-C rows WR, BO (boot N2, gm2: the client plays the aliens, seat 1; the host the seven X-COM soldiers, seat 0):
 the alien player's new-contact count (WR-30) counts the X-COM soldiers its side sees, and while the alien player moves a
-mind-controlled X-COM soldier the host's "please wait" banner names the alien player (MJ-8; VL-U2-5, VL-U2-6).
+mind-controlled X-COM soldier the host's "please wait" banner names the alien player.
 
 Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_pvp_notices.py, with AMENDMENT U2-1 (U2-1.5:
 rows EN / EN3 and boot N3 are W2-H36's, test_pvp_entry_selection; U2-1.8) and the orchestrator rulings (QU2-1 ..
@@ -23,7 +23,7 @@ turn 1 (the alien seat's own turn).
       BO-walk   one new host context {intent, walk, S2}
       BO-seat   at least one host sample with event_state.busyOwnerSeat == 1 (the alien player's seat)
       BO-text   at least one host sample with coopWaitText == TEXT_WAIT
-VH(gc, id) = battle_state(gc).units[id].visibleHere (R5-U1 T1). event_state.visibleHostileCount is the C1 TEST-ONLY read
+VH(gc, id) = battle_state(gc).units[id].visibleHere. event_state.visibleHostileCount is the C1 TEST-ONLY read
 of WR-30's count (TC1). Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no
 new file in the lane crash folder.
 

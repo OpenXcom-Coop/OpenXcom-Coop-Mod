@@ -1,4 +1,4 @@
-"""W2-P7 S-C-E1 - test_shared_selection.py: in a SHARED campaign both players on the same Sell screen edit ONE
+"""test_shared_selection.py: in a SHARED campaign both players on the same Sell screen edit ONE
 shared list of pending amounts; the host holds the list and applies its current list at whoever's
 confirm (D203: a confirm racing an edit is let through), a second confirm of the same selection counts as done (MR8),
 the other player's screen stays open, rebuilt with the new stock and zero amounts, a world change on the
@@ -10,7 +10,7 @@ Before S-C-E1 (design section 4, F2161, F6106): each machine's Sell screen keeps
 never sees them, a confirm sends the confirmer's own list, a rebuild after any world change resets every amount to 0,
 and the store probe sel_state is an empty stub.
 
-Fixtures (AMENDMENT P7-8 section 4.1):
+Fixtures:
   SEL  = shared_fixture.bring_up(tag, (0, 0, "47260")), geoscape only; X = STR_RIFLE, Y = STR_PISTOL; pre-cell (a
          failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot FAILs "pre-cell"): the first get_soldiers
          soldier of base 0 owned by seat 1 (the client), taken off its craft by the host's craft_assign {on: false}
@@ -103,7 +103,7 @@ STAGE = 10                               # each SEL row's give_items {X, Y} on b
 SEL_KEY = "sell|n|0|"                    # SharedEcon::sellKey of base 0, normal (P7-7 PR-30 key format, P7-8 PR-37)
 PAGE3_KEY = "sell|d|0|"                  # base 0's page-3 Sell
 FORCED_KEY = "sell|f|0|"                 # base 0's forced storage Sell
-BOOT_PORT = {"SEL": "47260", "FXST": "47261"}   # AMENDMENT P7-8 section 4 (S26, F6118): E1 = 47260 (SEL), 47261 (FXST)
+BOOT_PORT = {"SEL": "47260", "FXST": "47261"}   # AMENDMENT P7-8 section 4: E1 = 47260 (SEL), 47261 (FXST)
 OPTS_FXST = {"storageLimitsEnforced": True, "canSellLiveAliens": True, "oxceAutoSell": True}  # P7-8 section 4.1 FXST
 T, T_QTY = fst.T, fst.T_QTY              # FX-ST boot 2: STR_SECTOID_CORPSE, page-3 count 10 (the D2 file's pins)
 RIFLE, RIFLE_SIZE = fst.RIFLE, fst.RIFLE_SIZE   # CONSTANTS T0-S3 (ii): STR_RIFLE, size 0.2

@@ -1,4 +1,4 @@
-"""D246-U stage S-C2 - test_old_pvp_gm3_refused.py: a gm3 PvP campaign (the host plays the aliens, the second player X-COM)
+"""test_old_pvp_gm3_refused.py: a gm3 PvP campaign (the host plays the aliens, the second player X-COM)
 that an OLDER version (the release line v2.0.x, unstamped) saved mid-battle keeps refusing at the host's menu load, and ONLY that
 refusal's text gains where to ask for a repair (owner D284 (c) amended; VL-D284-1). Every other save that reaches the same refusal keeps
 today's text: a battle save stamped by a newer rewrite build, and an unstamped save of a mode with no conversion.

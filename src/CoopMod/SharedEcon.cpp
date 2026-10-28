@@ -73,10 +73,10 @@
 #include "../Savegame/Target.h"
 #include "../Savegame/AlienMission.h"
 #include "../Savegame/CraftWeapon.h"
-#include "../Savegame/Vehicle.h"       // W2-P7 S-C-D2.2 (PR-33): the forced storage sale's craft cleanup
-#include "../Engine/Collections.h"     // W2-P7 S-C-D2.2 (PR-33): vanilla's vehicle deleteIf
-#include <climits>                     // W2-P7 S-C-D2.2 (PR-33): INT_MAX
-#include <cstdlib>                     // W2-P7 S-C-E1: std::atoi (selection row keys)
+#include "../Savegame/Vehicle.h"       // the forced storage sale's craft cleanup
+#include "../Engine/Collections.h"     // vanilla's vehicle deleteIf
+#include <climits>                     // INT_MAX
+#include <cstdlib>                     // std::atoi (selection row keys)
 #include "../Savegame/Country.h"
 #include "../Savegame/WeightedOptions.h"
 #include "../Mod/RuleUfo.h"
@@ -93,7 +93,7 @@
 #include "../Savegame/BattleItem.h"
 #include "../Savegame/Tile.h"
 #include "../Savegame/SavedBattleGame.h"
-#include "../Savegame/Node.h" // W2-P2 S-H: the `synced` bucket's node types
+#include "../Savegame/Node.h" // the `synced` bucket's node types
 #include "../Mod/RuleInventory.h"
 #include "../Engine/CrossPlatform.h"
 #include "../../libs/miniz/miniz.h"
@@ -101,7 +101,7 @@
 #include <cmath>
 #include "../Basescape/BaseView.h"
 #include "../Basescape/CraftWeaponsState.h" // issue #121: shared craft-weapon capacity gate
-#include "../Basescape/SoldierTransformationState.h" // W2-H16c (Q1 a)
+#include "../Basescape/SoldierTransformationState.h"
 #include "../Mod/RuleSoldierTransformation.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/DogfightState.h" // the replica's lost-craft guard
@@ -132,28 +132,28 @@
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleEvent.h"
 #include "../Menu/ErrorMessageState.h"
-#include "../Basescape/SellState.h"     // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder is a friend of the screen
+#include "../Basescape/SellState.h"     // the SelectionBinder is a friend of the screen
 #include "../Basescape/PurchaseState.h" // W2-P7 S-C-E3 (P7-9 PR-59): ... and of the Purchase/Hire screen
-#include "../Battlescape/CannotReequipState.h" // W2-P7 S-C-E3 (P7-9 PR-61): the reequip decrement rides the apply
-#include <iomanip>                      // W2-P7 S-C-E3 (P7-9 PR-59): Purchase's space-used text, as the screen formats it
+#include "../Battlescape/CannotReequipState.h" // the reequip decrement rides the apply
+#include <iomanip>                      // Purchase's space-used text, as the screen formats it
 #include <sstream>
-#include "../Interface/Text.h"          // W2-P7 S-C-E1: the binder's totals redraw
+#include "../Interface/Text.h"          // the binder's totals redraw
 #include "../Interface/TextButton.h"
 #include "../Engine/Unicode.h"
-#include "../Basescape/TransferItemsState.h"          // W2-P7 S-C-E2 (P7-8 PR-47): the binder on Transfer and
+#include "../Basescape/TransferItemsState.h"          // the binder on Transfer and
 #include "../Basescape/ManageAlienContainmentState.h" // Alien Containment (a friend of each screen)
-#include "../Interface/TextList.h"                    // S-C-E2 (PR-50, D243): the highlight and the one-row-shorter list
+#include "../Interface/TextList.h"                    // S-C-E2: the highlight and the one-row-shorter list
 #include "../Engine/Font.h"
 #include "../Savegame/EquipmentLayoutItem.h"          // S-C-E2 (PR-47): the transfer rewrite's gear port
 
 #include "connectionTCP.h"
 #include "CoopState.h"
-#include "CoopDelta.h" // W2-P7 S-C-A.2: the battleEnd record's fenceDeferredPasses
+#include "CoopDelta.h" // the battleEnd record's fenceDeferredPasses
 #include "../version.h" // coop: the crash report's build fields
 
 namespace OpenXcom
 {
-// coop W2-H83 S-C (docs rewrite/prompts/w2h83_sc_holders.md EC3; R-LT18-1): W2-H81's close of the geoscape windows that hold an object
+// coop: W2-H81's close of the geoscape windows that hold an object
 // about to be deleted (connectionTCP.cpp, EC4); SharedEcon's baseDestroyedApply calls it before it deletes a base and its crafts (EC2).
 bool coopCloseMirrorHolders(Game* game, const std::vector<Target*>& doomed);
 
@@ -190,7 +190,7 @@ std::deque<PendingCmd>  g_cmdQ;      // host:      to validate+apply+broadcast
 std::deque<Json::Value> g_applyQ;    // replica:   shared_apply to apply
 std::deque<std::pair<std::string, int>> g_failQ; // initiator: shared_fail {reason, seq} to surface (seq: W2-P7 S-C-D2.2 PR-30)
 int g_resyncServeQ = 0;              // host:      pending shared_resync_requests
-bool g_applyHold = false;            // replica:   g_applyQ held until a streamed world's adoption (W2-P7 S-C-A.2 PR-6)
+bool g_applyHold = false;            // replica:   g_applyQ held until a streamed world's adoption
 
 // Per-machine monotonic command sequence stamp (protocol `seq`).
 std::atomic<int> g_seqCounter{0};
@@ -243,7 +243,7 @@ void setLastFail(const std::string& reason)
 	g_lastFail = reason;
 }
 
-// ---- W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30, MR10, F2526): the initiator's awaited confirms, by screen key ----------
+// ---- the initiator's awaited confirms, by screen key ----------
 // A screen opened through the real UI registers its submitted seq (keepAfterSubmit); the answer is recorded here -
 // shared_ok on receipt, shared_fail when update() surfaces it, the host's own command at its apply / rejection - and
 // the screen's think() takes it. A seq nobody awaits (a harness lever, a forced screen, a cancelled one) is ignored.
@@ -252,7 +252,7 @@ std::map<int, std::string> g_awaitBySeq;  // awaited seq -> screen key
 std::map<std::string, int> g_awaitByKey;  // screen key -> awaited seq
 std::map<std::string, int> g_resultByKey; // screen key -> 1 ok / -1 failed, until taken
 
-// ---- W2-P7 S-C-E1 (AMENDMENT P7-8 PR-37; D184, D203): the shared selection store, by screen key ----------------------
+// ---- the shared selection store, by screen key ----------------------
 // The host's entry is the truth; a replica's is a mirror written only by the sel_* broadcasts and the confirm appliers
 // (PR-39 (v)). Main thread only. Row keys: i:<itemType>, s:<soldierId>, c:<craftId>:<craftType>, sci, eng.
 struct SharedSel
@@ -291,7 +291,7 @@ void recordResult(int seq, int result)
 	Log(LOG_INFO) << "[SHARED] confirm answered: " << key << " seq=" << seq << (result > 0 ? " ok" : " failed");
 }
 
-// PR-31 (D175, MR9): a forced screen's "solved" - vanilla's own over-the-limit gates (SellState :92 / :1362,
+// PR-31: a forced screen's "solved" - vanilla's own over-the-limit gates (SellState :92 / :1362,
 // ManageAlienContainmentState :299-302).
 bool storageSolved(Base* base)
 {
@@ -305,7 +305,7 @@ bool containmentSolved(Base* base, int prisonType)
 	return !((availableContainment == 0 || Options::storageLimitsEnforced) && freeContainment < 0);
 }
 
-// PR-33 (MR15, F2500): what a forced storage SellState lists for @a rule (SellState :257-275 at the post-battle
+// PR-33: what a forced storage SellState lists for @a rule (SellState :257-275 at the post-battle
 // origin): base stock + item transfers + transfer crafts' and base crafts' items (their weapons and vehicles too when
 // the stores are critically over).
 int forcedSellAvailable(Base* base, const RuleItem* rule, bool critical)
@@ -761,7 +761,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 						soldier->load(tReader.toBase(), mod, save, mod->getScriptGlobal(), true);
 						if (soldier->getNationality() != nationalityOrig) soldier->genName();
 					}
-					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // purchaser owns the hire; S-C-E3.3 (D254 b, PR-57): a shared list's Soldier-row editor
+					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // purchaser owns the hire; S-C-E3.3: a shared list's Soldier-row editor
 					Transfer* t = new Transfer(time);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
@@ -778,7 +778,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 				{
 					Soldier* soldier = deserializeSoldier(game, serialized[s].asString());
 					if (!soldier) continue;
-					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // belt-and-braces (also in YAML); S-C-E3.3 (D254 b, PR-57, F6640)
+					soldier->setOwnerPlayerId(it.get("owner", seat).asInt()); // belt-and-braces (also in YAML); S-C-E3.3
 					Transfer* t = new Transfer(time);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
@@ -874,7 +874,7 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 				payload["items"][i]["qty"] = std::min(payload["items"][i].get("qty", 0).asInt(), base->getStorageItems()->getItem(r));
 	// ORDER (items -> soldiers -> crafts -> scientists -> engineers) is fixed and
 	// identical on host and replica, so both worlds mutate the same way.
-	// W2-P7 S-C-D2.2 (PR-33, MR15): a forced storage sale removes in vanilla's order (stock, crafts, transfers).
+	// a forced storage sale removes in vanilla's order (stock, crafts, transfers).
 	const bool forced = payload.get("origin", "").asString() == "forced";
 	const Json::Value& items = payload["items"];
 	if (items.isArray())
@@ -917,7 +917,7 @@ void sellApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	int eng = payload.get("engineers", 0).asInt();
 	if (sci > 0) base->setScientists(base->getScientists() - sci);
 	if (eng > 0) base->setEngineers(base->getEngineers() - eng);
-	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25, MR14): a page-3 sale's bookkeeping (autosell marks, open debriefing counts).
+	// a page-3 sale's bookkeeping (autosell marks, open debriefing counts).
 	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, true);
 	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E1 (P7-8 PR-39 (v)): the shared list is consumed
 }
@@ -932,7 +932,7 @@ bool containmentValidate(Game* game, const Json::Value& payload, Base* base, int
                          int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
-	// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-32; MR9, F2163): a forced containment confirm that arrives after the prison is
+	// a forced containment confirm that arrives after the prison is
 	// back under its limit is dropped silently (checked FIRST).
 	if (payload.get("origin", "").asString() == "forced" && containmentSolved(base, payload.get("prisonType", 0).asInt()))
 		{ failReason = "coop_forced_resolved"; return false; }
@@ -1177,7 +1177,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 		t->setEngineers(eng);
 		toBase->getTransfers()->push_back(t);
 	}
-	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-25, MR14): a page-3 transfer's bookkeeping (the open debriefing's counts).
+	// a page-3 transfer's bookkeeping (the open debriefing's counts).
 	if (payload.get("debrief", false).asBool()) connectionTCP::coopDebriefRecoveredSold(game, payload, false);
 	if (payload.isMember("selKey")) selConsume(payload); // W2-P7 S-C-E2 (P7-8 PR-39 (v), PR-47): the shared list is consumed
 }
@@ -1765,7 +1765,7 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
-// ---- W2-H16c (S-12, F6688; D226 a): soldier_transform { rule, soldierId, dead, name } ------------------------------
+// ---- soldier_transform { rule, soldierId, dead, name } ------------------------------
 // Player-origin; own soldiers only (AUD-A48); vanilla's list / Start gates re-checked on the host; cost = the rule's cost.
 // HOST (Q1 a): vanilla's stores loop + its own retire() / performTransformation() on a never-pushed screen (the dice roll
 // once, here); the result rides the payload (Q3 a): out (retire | clone | self), hours (0 = no Transfer), soldier, history
@@ -1924,14 +1924,14 @@ bool soldierRenameValidate(Game* /*game*/, const Json::Value& payload, Base* bas
 	failReason = "soldier not found";
 	return false;
 }
-void baseEquipMarkName(Soldier* s); // W2-H20b (A14): defined after soldierEquipApply
+void baseEquipMarkName(Soldier* s); // defined after soldierEquipApply
 void soldierRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (!base) return;
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
 		if (s->getId() == id) { s->setName(payload.get("name", s->getName()).asString()); break; }
-	baseEquipMarkName(findSoldier(base, id)); // W2-H20b (A14): an open base screen's mark keeps this rename (no put-back at its OK)
+	baseEquipMarkName(findSoldier(base, id)); // an open base screen's mark keeps this rename (no put-back at its OK)
 }
 
 // soldier_gift payload: { soldierId, newOwner }. Playtest: gifting (give-unit) a
@@ -2026,7 +2026,7 @@ void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
 	std::string name = payload.get("name", base->getName()).asString();
-	// coop W2-H83 S-C (docs rewrite/prompts/w2h83_sc_holders.md EC2; R-LT18-1, R-LBH3-1, VL-H83-3): the geoscape windows that hold this
+	// coop: the geoscape windows that hold this
 	// base or one of its crafts (a craft's window, the INTERCEPT list, a destination pick, list or confirm, a patrol, dogfight, landing,
 	// Cydonia or pilots notice) close first, as their CANCEL does (W2-H81's coopCloseMirrorHolders, EC3); the base is deleted either way.
 	std::vector<Target*> doomedTargets{ base };
@@ -2345,7 +2345,7 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 		s->setCraftAndMoveEquipment(0, base, newBattle);
 }
 
-// ---- W2-H16f: craft pilot picks ----------------------------------------------------------------
+// ---- craft pilot picks ----------------------------------------------------------------
 // craft_pilots { craftId, craftType, op: "add" | "clear", soldierId (add) }, baseId = the craft's home base. Player-origin
 // from either seat. The host applies vanilla's rules to its own world (add: a free seat for a crew soldier able to fly, else
 // kept silently; clear: the seat's own pilots go, the partner's stay, aud-E1-11) and writes the resolved list as "pilots".
@@ -2419,7 +2419,7 @@ bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int 
 	return true;
 }
 
-// W2-H20c (A17, F8261): the HWP branch of craft_equip. `count` = the ABSOLUTE number of vehicles of type `item` on the craft, resolved
+// the HWP branch of craft_equip. `count` = the ABSOLUTE number of vehicles of type `item` on the craft, resolved
 // with vanilla's CraftEquipmentState rules (moveRightByValue / moveLeftByValue): a vehicle leaves the stores with its clip ammo while the
 // craft has room and enters with full ammo (each one resets a custom craft deployment); an unloaded one returns with its clips. The host
 // writes its resolved count into the payload, so the replica ends on the host's result; the presser already holds it (a no-op).
@@ -2461,7 +2461,7 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (!base) return;
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
-	if (craft && item && item->getVehicleUnit()) { craftEquipVehicles(payload, base, craft, item); return; } // W2-H20c (A17): HWPs
+	if (craft && item && item->getVehicleUnit()) { craftEquipVehicles(payload, base, craft, item); return; } // HWPs
 	if (!craft || !item || item->getVehicleUnit()) return;
 
 	ItemContainer* craftItems = craft->getItems();
@@ -2637,7 +2637,7 @@ void soldierNationalityApply(Game* /*game*/, Json::Value& payload, Base* base, i
 }
 
 // soldier_training payload: { soldierId, training, rtwh }; soldier_psi_training payload: { soldierId, psi }.
-// W2-H16b (S-10, S-11; D226 a): a martial / psi allocation (AllocateTrainingState / AllocatePsiTrainingState)
+// a martial / psi allocation (AllocateTrainingState / AllocatePsiTrainingState)
 // keeps vanilla's local write and submits the soldier's flags as an absolute end-state. The host refuses a
 // soldier the sending seat does not own (AUD-A48). HOST: re-run vanilla's gates against the host's world,
 // apply or keep, and ALWAYS write the resolved flags into the payload (the broadcast carries them).
@@ -2757,11 +2757,11 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 		if (next->getStoreItem()) base->getStorageItems()->removeItem(next->getStoreItem());
 	}
 	s->setArmor(next, true);
-	if (payload.get("tmpl", false).asBool()) return; // W2-H20b (A11): a template's armor change leaves the last-selected armor (vanilla)
+	if (payload.get("tmpl", false).asBool()) return; // a template's armor change leaves the last-selected armor (vanilla)
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
-// ---- W2-H20: soldier_equip - a SHARED base equipment screen's OK --------------------------------------------------------
+// ---- soldier_equip - a SHARED base equipment screen's OK --------------------------------------------------------
 // payload: { soldiers: [{id, layout, personal, personalArmor}] }, baseId = the screen's base. layout / personal = the soldier's equipment
 // layout and personal layout as vanilla's own save writes them (Soldier.cpp :381-:386; EquipmentLayoutItem::save) under key "l";
 // personalArmor = the personal layout's armor type ("" = none). Player-origin from either seat at its base-screen OK: one entry per OWN
@@ -2803,7 +2803,7 @@ Json::Value soldierEquipRecord(Soldier* s)
 	r["layout"] = equipYaml(*s->getEquipmentLayout());
 	r["personal"] = equipYaml(*s->getPersonalEquipmentLayout());
 	r["personalArmor"] = s->getPersonalEquipmentArmor() ? s->getPersonalEquipmentArmor()->getType() : std::string();
-	r["name"] = s->getName(); // W2-H20b (A14): a rename typed on the base screen rides the record (D167 c, P8b-1 V2)
+	r["name"] = s->getName(); // a rename typed on the base screen rides the record
 	return r;
 }
 
@@ -2813,7 +2813,7 @@ void soldierEquipAdopt(Game* game, Soldier* s, const Json::Value& r)
 	if (r.isMember("layout")) equipFromYaml(game, r["layout"].asString(), *s->getEquipmentLayout());
 	if (r.isMember("personal")) equipFromYaml(game, r["personal"].asString(), *s->getPersonalEquipmentLayout());
 	if (r.isMember("personalArmor")) s->setPersonalEquipmentArmor(game->getMod()->getArmor(r["personalArmor"].asString(), false));
-	if (r.isMember("name")) s->setName(r["name"].asString()); // W2-H20b (A14)
+	if (r.isMember("name")) s->setName(r["name"].asString());
 }
 
 bool soldierEquipValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
@@ -2852,7 +2852,7 @@ void soldierEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 	Log(LOG_INFO) << "[SHARED] soldier_equip: " << adopted << " adopted, " << kept << " kept by the host, base " << bi;
 }
 
-// W2-H20b (A14): a rename applied while a base screen is open (the partner's soldier_rename) refreshes that soldier's name in the open
+// a rename applied while a base screen is open (the partner's soldier_rename) refreshes that soldier's name in the open
 // screen's mark, so the screen's OK does not put the old name back (H20 Q2 (a)'s refresh rule, the name field only).
 void baseEquipMarkName(Soldier* s)
 {
@@ -2861,7 +2861,7 @@ void baseEquipMarkName(Soldier* s)
 	if (g_baseEquipMark["soldiers"].isMember(key)) g_baseEquipMark["soldiers"][key]["name"] = s->getName();
 }
 
-// ---- W2-H20d: craft_deployment - a SHARED craft type's generic deployment (the Ufopaedia craft preview's save) ----------
+// ---- craft_deployment - a SHARED craft type's generic deployment (the Ufopaedia craft preview's save) ----------
 // payload: { craftType, saved, positions [[x, y, z, dir], ...] (saved only) }, baseId -1 (no base; base_new's precedent). Player-origin from
 // either seat right after vanilla's own local save or delete (SavedBattleGame::saveDummyCraftDeployment); both roles repeat vanilla's write:
 // every craft of that type loses its own custom deployment, then the type's entry is written or erased. Last write wins (H20b A10).
@@ -2937,7 +2937,7 @@ void equipTemplateApply(Game* game, Json::Value& payload, Base* /*base*/, int /*
 	Log(LOG_INFO) << "[SHARED] equip_template: " << kind << " " << index << " written";
 }
 
-// W2-H20b-B (QB2 a): THIS machine's open option-ON staging window, null = closed: {base: index, crafts: [{craftId, craftType, items
+// THIS machine's open option-ON staging window, null = closed: {base: index, crafts: [{craftId, craftType, items
 // {type: count}}], seats {"<soldier id>": {craftId, craftType} or null}}. craftStageOpen opens it, craftStageClose commits and closes it,
 // notifyWorldAdopted / resetSessionQueues drop it; while it is open verifyWorldChecksum skips this machine's check.
 Json::Value g_craftStage(Json::nullValue);
@@ -3328,7 +3328,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
-// ---- W2-H15: geo_event - the replica side ------------------------------------------------------
+// ---- geo_event - the replica side ------------------------------------------------------
 // A GeoscapeEventState's ctor runs eventLogic, which writes the world with the host's dice. Only the host runs it; the
 // host-origin geo_event carries its exact result (hostGeoEvent) and the window's picks as ids. The replica adopts the
 // result absolutely and draws a display-only window in its own language - it never re-runs eventLogic.
@@ -3474,7 +3474,7 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (!research) return;
 	const std::string bName = payload.get("bonus", "").asString();
 	RuleResearch* bonus = bName.empty() ? nullptr : mod->getResearch(bName, false);
-	// W2-H17 (F3262, Q4 a): the BASE / FREE_FROM diary lines exactly as the host's time1Day writes them (GeoscapeState
+	// the BASE / FREE_FROM diary lines exactly as the host's time1Day writes them (GeoscapeState
 	// addResearchDiaryEntryForBase), interleaved with the adds below in the host's order.
 	const size_t h17Diary0 = save->getResearchDiary().size();
 	auto h17Diary = [&](const RuleResearch* discovered, DiscoverySourceType sourceType, const RuleResearch* sourceResearch)
@@ -3505,12 +3505,12 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	// Add the discovered topic(s). The host already selected the getOneFree
 	// (RNG) and passed it as `bonus`; addFinishedResearch itself is deterministic,
 	// so applying the host's exact choices keeps the replica identical.
-	h17Diary(research, DiscoverySourceType::BASE, nullptr); // W2-H17 (Q4 a): GS 3bb, the topic and its lookup
+	h17Diary(research, DiscoverySourceType::BASE, nullptr); // GS 3bb, the topic and its lookup
 	if (RuleResearch* lr = mod->getResearch(research->getLookup(), true))
 		h17Diary(lr, DiscoverySourceType::BASE, nullptr);
 	if (bonus)
 	{
-		h17Diary(bonus, DiscoverySourceType::FREE_FROM, research); // W2-H17 (Q4 a): GS 3c, the bonus and its lookup
+		h17Diary(bonus, DiscoverySourceType::FREE_FROM, research); // GS 3c, the bonus and its lookup
 		save->addFinishedResearch(bonus, mod, base);
 		if (!bonus->getLookup().empty())
 		{
@@ -3521,7 +3521,7 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	save->addFinishedResearch(research, mod, base);
 	if (!research->getLookup().empty())
 		save->addFinishedResearch(mod->getResearch(research->getLookup(), true), mod, base);
-	// W2-H17 (Q4 a, F5763): every diary line this apply appended (BASE, FREE_FROM, addFinishedResearch's FREE_AFTER)
+	// every diary line this apply appended (BASE, FREE_FROM, addFinishedResearch's FREE_AFTER)
 	// carries the host's date, so a replica clock behind the host's midnight cannot date them differently.
 	const Json::Value h17Date = payload.get("date", Json::Value());
 	if (h17Date.isArray() && h17Date.size() == 3)
@@ -3538,7 +3538,7 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
 }
 
-// W2-H17 (F3262, D226 a; Q1 a, Q3 a): research_fx payload (hostResearchFx): { removed [{base, name}], stores [{base,
+// research_fx payload (hostResearchFx): { removed [{base, name}], stores [{base,
 // items {itemType: qty}}], transfers [{base, item, qty, hours}], ids {name: value} } - the host's research-completion side
 // effects (3b corpse, 3j obsolete projects + refunds, 3k spawned items, 3m counters), adopted absolutely. Replica only:
 // it runs none of the host's side-effect code (no RNG, no spawned event; 3l stays host-only, Q2 a).
@@ -3590,7 +3590,7 @@ void researchFxApply(Game* game, Json::Value& payload, Base* /*base*/, int /*sea
 	}
 }
 
-// W2-H17c (F7222; Q1 a, Q2 a, Q4 a): research_grant (hostResearchGrant): { source, research {added / removed [{name, popped}], status
+// research_grant (hostResearchGrant): { source, research {added / removed [{name, popped}], status
 // {name: value}, diary [yaml], projects [{base, names}]}, score?, ids {name: value}, articles [id] } - adopted absolutely (geoEventApply step 1's twin), then the host's arc articles open in order. Replica only; no RNG, no mission interruption.
 void researchGrantApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 {
@@ -3941,7 +3941,7 @@ bool selParseKey(const std::string& key, std::string& screen, char& variant, int
 	if (c == std::string::npos || b != a + 2 || c == b + 1) return false;
 	screen = key.substr(0, a); variant = key[a + 1]; extra = key.substr(c + 1);
 	try { baseIdx = std::stoi(key.substr(b + 1, c - b - 1)); } catch (...) { return false; }
-	return screen == "sell" || screen == "xfer" || screen == "cont" || screen == "buy"; // S-C-E3 (P7-9 PR-54, F6623): + buy
+	return screen == "sell" || screen == "xfer" || screen == "cont" || screen == "buy"; // S-C-E3: + buy
 }
 
 // PR-40 (Q-P8-1 (a)): what the host's confirm validator would accept for @a row now. Sell (sellValidate's rules): i: =
@@ -4144,7 +4144,7 @@ bool selConfirmRules(Game* game, const PendingCmd& pc, Json::Value& cmdPayload)
 				? TRANSFER_ITEM : r.first.compare(0, 3, "cr:") == 0 ? TRANSFER_CRAFT : TRANSFER_SOLDIER);
 			e["rule"] = staff ? std::string() : r.first.substr(r.first.find(':') + 1);
 			e["qty"] = r.second;
-			if (r.first.compare(0, 2, "h:") == 0 && s.editors.count(r.first)) e["owner"] = s.editors.at(r.first); // S-C-E3.3 (D254 b, PR-57): the row's last editor owns its hires
+			if (r.first.compare(0, 2, "h:") == 0 && s.editors.count(r.first)) e["owner"] = s.editors.at(r.first); // S-C-E3.3: the row's last editor owns its hires
 			buy.append(e);
 		}
 		cmdPayload["items"] = buy;
@@ -4236,7 +4236,7 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 		// surfaces a shared_fail received from the host (PRD-J10: one helper, one
 		// dialog, both roles).
 		showFail(game, reason);
-		recordResult(pc.seq, reason == "coop_sel_dup" ? 1 : -1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen stays under the box; S-C-E1 (PR-45): a duplicate confirm is a success
+		recordResult(pc.seq, reason == "coop_sel_dup" ? 1 : -1); // the host's own awaiting screen stays under the box; S-C-E1 (PR-45): a duplicate confirm is a success
 	}
 }
 
@@ -4257,7 +4257,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	int64_t cost = 0;
 	std::string failReason;
 	++g_cmdN;
-	// W2-P7 S-C-E1 (P7-8 PR-39, F6104): a stamped confirm is checked and rewritten from the host's list before the validate.
+	// a stamped confirm is checked and rewritten from the host's list before the validate.
 	Json::Value cmdPayload = pc.payload;
 	if (selConfirmRules(game, pc, cmdPayload)) { rejectHostCmd(game, pc, "coop_sel_dup"); return; } // MR8 / PR-45: a success
 	if (!hit->second.validate(game, cmdPayload, base, pc.seat, cost, failReason))
@@ -4309,8 +4309,8 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// PRD-J10: the host's own open screens are as stale as a replica's after an
 	// apply (a client's buy moves the host's funds too), so both roles notify.
 	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
-	if (!pc.remote) recordResult(pc.seq, 1); // W2-P7 S-C-D2.2 (PR-30): the host's own awaiting screen closes
-	if (pc.cmd.compare(0, 4, "sel_") != 0) selSyncTouched(game, pc); // W2-P7 S-C-E1 (P7-8 PR-41): re-clamp the touched lists now
+	if (!pc.remote) recordResult(pc.seq, 1); // the host's own awaiting screen closes
+	if (pc.cmd.compare(0, 4, "sel_") != 0) selSyncTouched(game, pc); // re-clamp the touched lists now
 }
 
 // ---- Replica-side apply (main thread) ----------------------------------------
@@ -4367,7 +4367,7 @@ void processApply(Game* game, const Json::Value& ap)
 
 // ---- Public API --------------------------------------------------------------
 
-// coop W2-H69 (docs rewrite/prompts/w2h69_shared_equip_layouts.md S1; R-H69-0, F19703, F19808): the SHARED pre-battle equip end's soldier
+// coop: the SHARED pre-battle equip end's soldier
 // gear records (connectionTCP.cpp E5 / E8). H20's soldierEquipRecord / soldierEquipAdopt sit in the anonymous namespace above;
 // these two are their public seam. HOST: one record per battle unit with a geoscape soldier - id, layout, personal, personalArmor
 // (QH69-2 (a): no name).
@@ -4388,7 +4388,7 @@ Json::Value equipEndGearRecords(SavedBattleGame* save)
 	return out;
 }
 
-// coop W2-H69 (S1): CLIENT - each record into the soldier of this machine's battle unit with that soldier id (H20's adopt: the
+// coop: CLIENT - each record into the soldier of this machine's battle unit with that soldier id (H20's adopt: the
 // present fields only). Returns the records adopted; a record with no such unit is skipped.
 int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& records)
 {
@@ -4460,7 +4460,7 @@ void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantPro
 		// day_tick is pure progress bookkeeping (wound recovery, research/production
 		// "days left"). List views want it; a command screen must NOT throw away the
 		// player's half-entered order once per game-day because of it.
-		if (cmd.compare(0, 4, "sel_") == 0) return; // W2-P7 S-C-E1 (P7-8 PR-42, F2502): selection traffic never rebuilds a screen
+		if (cmd.compare(0, 4, "sel_") == 0) return; // selection traffic never rebuilds a screen
 		if (!_wantProgress && cmd == "day_tick") return;
 		if (!_wantProgress && cmd == "soldier_fx") return; // per-day soldier bookkeeping, like day_tick (Q4)
 		// applyBaseId < 0 = world-scoped (funds-only, base creation, dogfights):
@@ -4490,8 +4490,8 @@ bool ScreenRefresh::consume()
 void showFail(Game* game, const std::string& reason)
 {
 	if (!game) return;
-	if (reason == "coop_forced_resolved") return; // W2-P7 S-C-D2.2 (PR-32): no box - the forced screen closes itself
-	if (reason == "coop_sel_dup") return; // W2-P7 S-C-E1 (P7-8 PR-45, MR8): a duplicate confirm is a success - no box
+	if (reason == "coop_forced_resolved") return; // no box - the forced screen closes itself
+	if (reason == "coop_sel_dup") return; // a duplicate confirm is a success - no box
 	// The reason is the host validator's own string: an STR_ id where the vanilla
 	// rule already had one (STR_NOT_ENOUGH_MONEY, STR_NOT_ENOUGH_CRAFT_SPACE, ...),
 	// a plain sentence otherwise. Language::getString returns the id unchanged when
@@ -4529,7 +4529,7 @@ void init()
 	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
 	registerCmd("soldier_rename", &soldierRenameValidate, &soldierRenameApply);
 	registerCmd("soldier_gift",   &soldierGiftValidate,   &soldierGiftApply);
-	// W2-H16c (S-12): soldier transformation (player-origin; the host runs it)
+	// soldier transformation (player-origin; the host runs it)
 	registerCmd("soldier_transform", &soldierTransformValidate, &soldierTransformApply);
 	registerCmd("sack",          &sackValidate,         &sackApply);
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
@@ -4553,12 +4553,12 @@ void init()
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
 	registerCmd("soldier_equip",  &soldierEquipValidate, &soldierEquipApply); // base-screen OK, player-origin, owner-gated
-	registerCmd("equip_template", &equipTemplateValidate, &equipTemplateApply); // W2-H20b (A10): a template save, player-origin, last write wins
+	registerCmd("equip_template", &equipTemplateValidate, &equipTemplateApply); // a template save, player-origin, last write wins
 	registerCmd("craft_deployment", &craftDeploymentValidate, &craftDeploymentApply); // a craft type's generic deployment, player-origin, last write wins
 	// manual promotion and nationality (player-origin from either seat; the host resolves the rank).
 	registerCmd("soldier_rank",   &soldierRankValidate,   &soldierRankApply);
 	registerCmd("soldier_nationality", &soldierNationalityValidate, &soldierNationalityApply);
-	// W2-H16b (S-10, S-11): martial / psi training allocations (player-origin; own soldiers only, the host resolves the flags).
+	// martial / psi training allocations (player-origin; own soldiers only, the host resolves the flags).
 	registerCmd("soldier_training",     &soldierTrainingValidate,    &soldierTrainingApply);
 	registerCmd("soldier_psi_training", &soldierPsiTrainingValidate, &soldierPsiTrainingApply);
 	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
@@ -4599,9 +4599,9 @@ void init()
 	registerCmd("prod_fx",          &simAccept, &prodFxApply); // host-origin, replica-only
 	registerCmd("day_tick",         &simAccept, &dayTickApply);
 	registerCmd("soldier_fx",       &simAccept, &soldierFxApply); // host-origin, replica-only
-	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // W2-P7 S-C-A.2 (MR2): host-origin, replica-only
+	registerCmd("unassign_wounded", &simAccept, &unassignWoundedApply); // host-origin, replica-only
 	registerCmd("craft_lost",       &simAccept, &craftLostApply); // host-origin, replica-only (applied from the replica's geoscape)
-	// W2-P7 S-C-E1 (P7-8 PR-38, D184): the shared selection - the host resolves the list's state, replicas adopt it.
+	// the shared selection - the host resolves the list's state, replicas adopt it.
 	registerCmd("sel_open", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_open"); });
 	registerCmd("sel_set", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_set"); });
 	registerCmd("sel_close", &simAccept, [](Game* g, Json::Value& p, Base*, int seat) { selApplyOp(g, p, seat, "sel_close"); });
@@ -4661,7 +4661,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 	if (state == "shared_ok")
 	{
 		++g_okN; // informational: the mutation self-applies from shared_apply
-		recordResult(obj.get("seq", 0).asInt(), 1); // W2-P7 S-C-D2.2 (PR-30): an awaiting screen closes on it
+		recordResult(obj.get("seq", 0).asInt(), 1); // an awaiting screen closes on it
 		return true;
 	}
 	if (state == "shared_fail")
@@ -4693,7 +4693,7 @@ void update(Game* game)
 	if (!game) return;
 
 	// 1) Host: drain queued commands -> validate, debit, apply, broadcast.
-	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-6; MR3, F2129, F4760/F4761): the host fence - nothing is applied or broadcast while a
+	// the host fence - nothing is applied or broadcast while a
 	// world streams (the client would discard it); the queue runs in order once the completion message has left.
 	const bool fenced = isHost() && connectionTCP::coopWorldStreamBusy();
 	if (fenced)
@@ -4741,7 +4741,7 @@ void update(Game* game)
 		}
 		if (!have) break;
 		showFail(game, fail.first);
-		recordResult(fail.second, fail.first == "coop_sel_dup" ? 1 : -1); // W2-P7 S-C-D2.2 (PR-30): the awaiting screen stays under the fail box; S-C-E1 (PR-45): a duplicate is a success
+		recordResult(fail.second, fail.first == "coop_sel_dup" ? 1 : -1); // the awaiting screen stays under the fail box; S-C-E1 (PR-45): a duplicate is a success
 	}
 
 	// 4) Host: serve queued resync requests (PRD-J10). Re-stream the authoritative
@@ -4906,7 +4906,7 @@ bool buyScreenShouldClose(Game* game, Base* base, bool reequip)
 
 void resetSessionQueues()
 {
-	g_craftStage = Json::Value(Json::nullValue); // W2-H20b-B (QB2 a): no staging window outlives its session
+	g_craftStage = Json::Value(Json::nullValue); // no staging window outlives its session
 	size_t cmds = 0, applies = 0, fails = 0;
 	{
 		std::lock_guard<std::mutex> lk(g_mx);
@@ -4925,12 +4925,12 @@ void resetSessionQueues()
 	}
 	const bool held = g_applyHold;
 	g_applyHold = false;
-	g_sel.clear(); g_selLocal.clear(); g_selCarry.clear(); // W2-P7 S-C-E1 (P7-8 PR-37): no shared list outlives its session
+	g_sel.clear(); g_selLocal.clear(); g_selCarry.clear(); // no shared list outlives its session
 	Log(LOG_INFO) << "[SHARED] session reset: dropped " << cmds << " command(s), " << applies << " apply(s), " << fails
 		<< " failure(s); apply hold was " << (held ? "on" : "off") << " (PR-34)";
 }
 
-// W2-P7 S-C-E1.1 (AMENDMENT P7-8 PR-46): TestServer sel_state's read of the shared selection store (read-only).
+// TestServer sel_state's read of the shared selection store (read-only).
 Json::Value selectionSnapshot()
 {
 	Json::Value out(Json::objectValue);
@@ -4938,7 +4938,7 @@ Json::Value selectionSnapshot()
 	return out;
 }
 
-// W2-P7 S-C-E2 (P7-8 PR-48; D203): the host's seat-leave chokepoint (CoopSession::onClientDrop). The seat (< 0: every
+// the host's seat-leave chokepoint (CoopSession::onClientDrop). The seat (< 0: every
 // other seat, the transport is 1:1) leaves every list; an unviewed list is erased; nothing is broadcast (the peer is gone).
 void onPeerLeft(int seat)
 {
@@ -4969,7 +4969,7 @@ std::string selRowKey(const TransferRow& row)
 	return "";
 }
 
-// W2-P7 S-C-E3 (P7-9 PR-54, F6622): a Purchase row holds a rule, never a Soldier / Craft - its own row key.
+// a Purchase row holds a rule, never a Soldier / Craft - its own row key.
 std::string buyRowKey(const TransferRow& row)
 {
 	switch (row.type)
@@ -5090,7 +5090,7 @@ void SelectionBinder::open(Game* game, SellState* screen, bool bound)
 	_game = game;
 	if (!bound || !sharedGame(game)) { _inert = true; return; }
 	_sell = screen; _opened = true;
-	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "sellMenu", true); // S-C-E2 (PR-50, D243)
+	_label = selLayout(game, screen, screen->_lstItems, screen->_btnCancel, "sellMenu", true); // S-C-E2
 	_key = keyOf(game, screen);
 	_baseIdx = baseIndex(game, screen->_base);
 	auto c = g_selCarry.find(_key);
@@ -5197,7 +5197,7 @@ void SelectionBinder::carryOver()
 
 void SelectionBinder::stamp(Json::Value& payload)
 {
-	if (!_opened) return; // a harness lever never opened one: its confirm carries no selKey (P8-6, F6126)
+	if (!_opened) return; // a harness lever never opened one: its confirm carries no selKey
 	auto it = g_sel.find(_key);
 	payload["selKey"] = _key;
 	payload["selRev"] = Json::UInt(it == g_sel.end() ? 0 : it->second.rev);
@@ -5215,7 +5215,7 @@ bool SelectionBinder::listed() const
 	return it != g_sel.end() && !it->second.rows.empty();
 }
 
-// ---- W2-P7 S-C-E2 (AMENDMENT P7-8 PR-47, PR-49, PR-50; D184, D203, MR7, MR10): the binder on Transfer and containment ----
+// ---- the binder on Transfer and containment ----
 std::string SelectionBinder::keyOf(Game* game, TransferItemsState* screen)
 	{ return xferKey(game, screen->_baseFrom, screen->_baseTo, screen->_debriefingState != 0); }
 std::string SelectionBinder::keyOf(Game* game, ManageAlienContainmentState* screen)
@@ -5273,7 +5273,7 @@ void SelectionBinder::think(TransferItemsState* screen)
 	const SharedSel& m = it->second;
 	if (!_seen || m.rev != _seenRev)
 	{
-		// The rows adopt the list; totals as increase/decreaseByValue keep them (:1386-:1546), + hidden rows (MR7, F6124).
+		// The rows adopt the list; totals as increase/decreaseByValue keep them (:1386-:1546), + hidden rows.
 		_seen = true; _seenRev = m.rev;
 		std::set<std::string> shown; std::vector<size_t> changed;
 		int total = 0, pQty = 0, cQty = 0, aQty = 0; double iQty = 0;
@@ -5368,7 +5368,7 @@ void SelectionBinder::localEdit(ManageAlienContainmentState* screen)
 	_contSig = selSig(screen->_qtys); // the screen's own edit, not a rebuild
 }
 
-// ---- W2-P7 S-C-E3 (AMENDMENT P7-9 PR-59; D242 (b), D184, D203, D243, MR8, MR10): the binder on Purchase/Hire ----------
+// ---- the binder on Purchase/Hire ----------
 // Both variants (normal buy|n|, reequip buy|r|); rows keyed by buyRowKey (a Purchase row holds a rule, F6622).
 std::string SelectionBinder::keyOf(Game* game, PurchaseState* screen)
 	{ return buyKey(game, screen->_base, screen->_parent != nullptr); }
@@ -5496,9 +5496,9 @@ std::string lastFailReason()
 	return g_lastFail;
 }
 
-// W2-P7 S-C-A.1 (P7-6 section 4.1): read-only, TestServer shared_stats.applyQueued.
+// read-only, TestServer shared_stats.applyQueued.
 int applyQueueDepth() { std::lock_guard<std::mutex> lk(g_mx); return (int)g_applyQ.size(); }
-bool applyHoldOn() { return g_applyHold; } // W2-P7 S-C-D2.1 (P7-7 PR-35): read-only, TestServer shared_stats.applyHold
+bool applyHoldOn() { return g_applyHold; } // read-only, TestServer shared_stats.applyHold
 
 void resetStats()
 {
@@ -5526,13 +5526,13 @@ void hostResearchDone(Game* game, int baseId, const std::string& research,
 	p["research"] = research;
 	p["bonus"] = bonus;
 	p["newResearch"] = newResearch;
-	const GameTime* h17Time = game->getSavedGame()->getTime(); // W2-H17 (F3262, Q4 a): the host's date stamps the replica's diary
+	const GameTime* h17Time = game->getSavedGame()->getTime(); // the host's date stamps the replica's diary
 	Json::Value h17Date(Json::arrayValue); h17Date.append(h17Time->getYear()); h17Date.append(h17Time->getMonth()); h17Date.append(h17Time->getDay());
 	p["date"] = h17Date;
 	submitLocalCmd(game, "research_done", baseId, p);
 }
 
-// ---- W2-H17 (F3262, D226 a; Q1 a): research_fx - the host side ----------------------------------------------------
+// ---- research_fx - the host side ----------------------------------------------------
 // time1Day marks the world right before a base's completion block (3a) and diffs it right after
 // handlePrimaryResearchSideEffects (3j-3m): one synchronous chain, so the diff is exactly this base's completion effects,
 // incl. 3j removals and refunds in every base. 3l (spawned events) stays host-only (Q2 a).
@@ -5822,7 +5822,7 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
 }
 
-// W2-H20c (A17, F8261): see SharedEcon.h.
+// see SharedEcon.h.
 void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before)
 {
 	if (!game || !base || !craft || base->_coopBase || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
@@ -5888,7 +5888,7 @@ void baseEquipOpen(Game* game, Base* base)
 	for (auto* s : *base->getSoldiers())
 		m["soldiers"][std::to_string(s->getId())] = soldierEquipRecord(s);
 	g_baseEquipMark = m;
-	craftStageOpen(game, base); // W2-H20b-B (A3): the soldier screen's de-assign follows (the craft screen opened it before its staging)
+	craftStageOpen(game, base); // the soldier screen's de-assign follows (the craft screen opened it before its staging)
 }
 
 void baseEquipOk(Game* game, Base* base)
@@ -5921,7 +5921,7 @@ void baseEquipOk(Game* game, Base* base)
 	submitLocalCmd(game, "soldier_equip", baseIndex(game, base), p);
 }
 
-// W2-H20b (A10): see SharedEcon.h.
+// see SharedEcon.h.
 void submitLayoutTemplate(Game* game, Base* base, int index)
 {
 	if (!game || !base || base->_coopBase || !game->getSavedGame() || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
@@ -5999,7 +5999,7 @@ void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::strin
 	Log(LOG_INFO) << "[SHARED] base armor change on the partner's soldier " << soldier->getId() << " put back, base " << baseIndex(game, base);
 }
 
-// W2-H20b-B (A8, A12; QB1 a): see SharedEcon.h.
+// see SharedEcon.h.
 Json::Value craftItemsMark(Game* game, Base* base, Craft* craft)
 {
 	if (!game || !base || !craft || base->_coopBase || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
@@ -6034,7 +6034,7 @@ void craftItemsCommit(Game* game, Base* base, Craft* craft, const Json::Value& m
 		Log(LOG_INFO) << "[SHARED] craft items commit: " << (down.size() + up.size()) << " type(s), craft " << craft->getId() << ", base " << baseIndex(game, base);
 }
 
-// W2-H20b-B (A3, A4; QB2 a): see SharedEcon.h.
+// see SharedEcon.h.
 void craftStageOpen(Game* game, Base* base)
 {
 	if (!game || !base || base->_coopBase || !Options::oxceAlternateCraftEquipmentManagement || !game->getSavedGame()
@@ -6062,7 +6062,7 @@ void craftStageOpen(Game* game, Base* base)
 	Log(LOG_INFO) << "[SHARED] craft staging window opened, base " << w["base"].asInt();
 }
 
-// W2-H20b-B (A3, A4, A6; QB1 a, QB3 a): see SharedEcon.h.
+// see SharedEcon.h.
 void craftStageClose(Game* game, Base* base)
 {
 	if (!game || !base || !g_craftStage.isObject() || g_craftStage.get("base", -1).asInt() != baseIndex(game, base)) return;
@@ -6084,7 +6084,7 @@ void craftStageClose(Game* game, Base* base)
 	Log(LOG_INFO) << "[SHARED] craft staging window closed, base " << w["base"].asInt() << ", " << unseated.size() << " craft(s) lost a seat";
 }
 
-// W2-H16c (S-12): see SharedEcon.h. The rule travels by name; the host resolves the rest.
+// see SharedEcon.h. The rule travels by name; the host resolves the rest.
 bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier, const std::string& name)
 {
 	if (!game || !base || !soldier || base->_coopBase) return false;
@@ -6137,7 +6137,7 @@ void submitSoldierNationality(Game* game, Base* base, Soldier* soldier)
 	submitLocalCmd(game, "soldier_nationality", baseIndex(game, base), p);
 }
 
-// W2-H16b (S-10, S-11): SHARED and a real base only; vanilla's local write already ran. The host
+// SHARED and a real base only; vanilla's local write already ran. The host
 // re-checks the gym / psi-lab rules and resolves the flags both worlds hold.
 void submitSoldierTraining(Game* game, Base* base, Soldier* soldier)
 {
@@ -6160,7 +6160,7 @@ void submitSoldierPsiTraining(Game* game, Base* base, Soldier* soldier)
 	submitLocalCmd(game, "soldier_psi_training", baseIndex(game, base), p);
 }
 
-// W2-H16b (S-9b / S-9c): the crew screen's two "remove soldiers" keys in SHARED - craft_assign off for every
+// the crew screen's two "remove soldiers" keys in SHARED - craft_assign off for every
 // own soldier (A1) of @a base on a craft that is not OUT (only @a onlyCraft when non-null); true = handled.
 bool submitCraftDeassign(Game* game, Base* base, Craft* onlyCraft)
 {
@@ -6332,7 +6332,7 @@ void hostAlertText(Game* game, const std::string& cls, const Json::Value& text, 
 	hostAlert(game, cls, "", base, craftId, {}, {}, false, Json::Value(), text);
 }
 
-// ---- W2-H15: geo_event - the host side ------------------------------------------------------------
+// ---- geo_event - the host side ------------------------------------------------------------
 namespace {
 Json::Value geoItemMap(const ItemContainer* ic)
 {
@@ -6476,7 +6476,7 @@ void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, St
 	submitLocalCmd(game, "geo_event", 0, p);
 }
 
-namespace { // ---- W2-H17c: research_grant - the host side ---------------------------------------------
+namespace { // ---- research_grant - the host side ---------------------------------------------
 std::vector<std::string> g_grantArticles; // host: the arc articles vanilla opened since the last research_grant
 }
 void noteGrantArticle(Game* game, const RuleResearch* research)
@@ -6539,7 +6539,7 @@ void hostResearchGrant(Game* game, const Json::Value& mark, const char* source, 
 	submitLocalCmd(game, "research_grant", 0, p);
 }
 
-// ---- W2-H16g: prod_fx - the host side --------------------------------------------------------------
+// ---- prod_fx - the host side --------------------------------------------------------------
 Json::Value productionFxMark(Game* game, Base* base)
 {
 	if (!sharedHost(game) || !base || !game->getSavedGame()) return Json::Value(Json::nullValue);
@@ -6748,7 +6748,7 @@ void hostSoldierFx(Game* game, const Json::Value& mark)
 	}
 }
 
-// ---- W2-H18b: craft_lost ----------------------------------------------------------------------------
+// ---- craft_lost ----------------------------------------------------------------------------
 Json::Value craftLostMark(Game* game, Base* base, Craft* craft)
 {
 	if (!sharedHost(game) || !base || !craft || !game->getSavedGame()) return Json::Value(Json::nullValue);
@@ -6933,8 +6933,8 @@ void notifyWorldAdopted()
 	// mismatch that reappears within the window is still treated as unrepairable.
 	g_resyncPending = false;
 	g_resyncGaveUp = false;
-	g_applyHold = false; // W2-P7 S-C-A.2 (PR-6): the held shared applies drain onto the adopted world
-	g_craftStage = Json::Value(Json::nullValue); // W2-H20b-B (QB2 a): an adopted world ends any open staging window
+	g_applyHold = false; // the held shared applies drain onto the adopted world
+	g_craftStage = Json::Value(Json::nullValue); // an adopted world ends any open staging window
 }
 
 void setApplyHold(bool on)
@@ -6946,7 +6946,7 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
 	if (!msg.isMember("chkFunds")) return; // older/non-SHARED host
-	if (g_craftStage.isObject()) { g_mismatchSinceMs = -1; return; } // W2-H20b-B (QB2 a): this machine's own option-ON staging moves its stores until the screen closes
+	if (g_craftStage.isObject()) { g_mismatchSinceMs = -1; return; } // this machine's own option-ON staging moves its stores until the screen closes
 	SavedGame* save = game->getSavedGame();
 	int64_t hostFunds = msg["chkFunds"].asInt64();
 	int hostBases = msg.get("chkBases", -1).asInt();
@@ -7071,7 +7071,7 @@ void resetResyncStats()
 	g_lastResyncGameMin = -1;
 }
 
-// ===== R2-P9 (SPIKE-RUNBOOK.md SS2.8, RB-D20): battle hash buckets =====
+// ===== R2-P9: battle hash buckets =====
 // Minimal, spike-scoped port of donor cbff7951d's battle-hash region -
 // DEFINITIONS ONLY: mechanism (the FNV mixer, the tile-inclusion
 // test, the saveBlob node-tree walk + FOW bin-tiles masking) is reproduced
@@ -7115,7 +7115,7 @@ int unitLiveness(const BattleUnit* unit)
 	}
 }
 
-// W2-P2 S-H (A5.2): the `synced` bucket's script-tag form - the raw
+// the `synced` bucket's script-tag form - the raw
 // script-value vector with trailing zeros stripped, exactly as the delta's
 // `tags` ships it (CoopDelta's stripTags), mixed as size then values.
 std::uint64_t mixSyncedTags(std::uint64_t h, std::vector<int> tags)
@@ -7135,7 +7135,7 @@ const char* battleHashBucketName(int i)
 	static const char* const kNames[BATTLE_HASH_BUCKETS] =
 	{
 		"terrain", "fire", "smoke", "items", "unitsCore", "unitsStats", "itemIdCtr",
-		"synced", // W2-P2 S-H (D138, A5.2)
+		"synced",
 	};
 	return (i >= 0 && i < BATTLE_HASH_BUCKETS) ? kNames[i] : "?";
 }
@@ -7151,7 +7151,7 @@ std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i)
 	case 4: return h.unitsCore;
 	case 5: return h.unitsStats;
 	case 6: return h.itemIdCtr;
-	case 7: return h.synced; // W2-P2 S-H (D138, A5.2)
+	case 7: return h.synced;
 	default: return 0;
 	}
 }
@@ -7160,7 +7160,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 {
 	out.terrain = out.fire = out.smoke = out.items = 0;
 	out.unitsCore = out.unitsStats = out.itemIdCtr = 0;
-	out.synced = 0; // W2-P2 S-H
+	out.synced = 0;
 	if (!battle)
 		return false;
 
@@ -7256,7 +7256,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 	{
 		if (!item)
 			continue;
-		liveItems.insert(item); // W2-P3 S-C.2
+		liveItems.insert(item);
 		if (item->getRules())
 			specRules.insert(item->getRules());
 		std::uint64_t h = FNV_OFFSET;
@@ -7337,7 +7337,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		out.unitsStats += s;
 
 		// synced (A5.2 rows 2-4, 6, 15, 17, 20-30), captureUnit's getters;
-		// `status` raw (Q-H5 = (a), F608), unitsCore keeps liveness.
+		// `status` raw, unitsCore keeps liveness.
 		std::uint64_t y = FNV_OFFSET;
 		y = mix(y, 1);
 		y = mix(y, unit->getId());
@@ -7371,7 +7371,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)
 		y *= FNV_PRIME;
 		// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; FIELD-PARITY): captureUnit's seat tag, after the names.
 		y = mix(y, (int)unit->getCoopSeat());
-		// W2-P3 S-C.2 (B1 RQ9, F955): the unit's special-weapon link - the ids
+		// the unit's special-weapon link - the ids
 		// of the _items entries its own slots hold, ascending, as size then ids.
 		{
 			std::vector<int> spec;
@@ -7482,13 +7482,13 @@ bool saveBlobExcludedTopKey(std::string_view k)
 		// client mirrors it, so it must never ride the saveBlob hash. Same
 		// treatment, and the same reason, as the two BriefingState labels below.
 		|| k == "coopTurnMode"
-		// SPEC 18 (r4 T4, owner rulings D99=(a)/D100=(b)): the mission
+		// the mission
 		// deployment label and the traditional-mode baton holder - both
 		// machines already agree on the value via the offer (a disk resume
 		// carries it in the battle block instead), same treatment as
 		// coopTurnMode above.
 		|| k == "coopDeployment" || k == "coopActiveSeat"
-		// SPEC 3 (FX-2, WV-D61): the host's carried item-id counter. Both
+		// the host's carried item-id counter. Both
 		// machines write the same value once the adopt works, so this is
 		// belt-and-braces - but it also keeps a legitimately different value
 		// from redding saveBlob instead of the itemIdCtr bucket that is
@@ -7654,7 +7654,7 @@ bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::strin
 		saveBlobHashTree(reader["battle"], h, true, SbScope::Other);
 		out = h;
 	}
-	// W2-P2 S-H (Q-H6): the hashed document for the desync diagnostics. The
+	// the hashed document for the desync diagnostics. The
 	// reader parsed into its own arena and is gone, so the text can move out.
 	if (yamlOut)
 		*yamlOut = std::move(text.yaml);
@@ -7766,7 +7766,7 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 		const std::string logTail = readLogTail(256 * 1024);
 		if (!logTail.empty())
 			members.push_back(std::make_pair(std::string("openxcom.log"), logTail));
-		// W2-P2 S-H (Q-H6): a `saveBlob` mismatch names no field by itself;
+		// a `saveBlob` mismatch names no field by itself;
 		// this machine's own battle document goes with the report.
 		if (saveBlobYaml && !saveBlobYaml->empty())
 			members.push_back(std::make_pair(std::string("saveBlob-") + (role ? role : "client") + ".yaml", *saveBlobYaml));
@@ -7824,7 +7824,7 @@ std::string writeDesyncText(const std::string& suffix, const std::string& text)
 	}
 }
 
-// ===== coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): `main`'s PRD-I5 next-launch crash reporter (Pattern A, aud-E1-26),
+// ===== coop: `main`'s PRD-I5 next-launch crash reporter (Pattern A, aud-E1-26),
 // ported from `main` 651ae44ba SharedEcon.cpp :4025-:4065, :4067-:4103, :4272-:4308, :4332-:4570 and :4690-:4858.
 // Unchanged except: main's formatted desyncTimeString(const char*) is crashTimeString(const char*) here (this file's
 // anonymous namespace already holds a no-argument desyncTimeString()), and the zip goes through this file's
@@ -8191,7 +8191,7 @@ bool emitCrashBundle(Game* game, const std::vector<std::pair<std::string, std::s
 
 } // namespace
 
-// ---- PRD-I5: next-launch crash reporter (Pattern A) -------------------------
+// ---- next-launch crash reporter (Pattern A) -------------------------
 // The dying process wrote only a marker (CrossPlatform::crashDump). These run at
 // the NEXT launch from the main-menu altitude. Best-effort by contract: every
 // path logs and continues, and only a SUCCESSFUL bundle deletes the marker.

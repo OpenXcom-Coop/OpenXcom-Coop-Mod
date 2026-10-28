@@ -1,4 +1,4 @@
-"""W2-P7 S-C-E2 - test_shared_selection_screens.py: in a SHARED campaign the Transfer and Alien Containment screens
+"""test_shared_selection_screens.py: in a SHARED campaign the Transfer and Alien Containment screens
 share ONE list of pending amounts per screen, as the Sell screen does since S-C-E1 (owner D184 (a), D203; MR7, MR9,
 MR10, MR16): an amount either player sets shows on the other player's screen with a label naming that player, a
 rejected Transfer keeps the list and the screen (MR10), the other player's screen stays open after a confirm, rebuilt
@@ -122,7 +122,7 @@ XFER_OK, CONFIRM_OK, CANCEL = "Transfer", "OK", "Cancel"   # TransferItemsState 
 CONT_OK = fct.CONT_OK                    # "Remove Selected" (2-button layout: canSellLiveAliens off)
 MACS = "ManageAlienContainmentState"
 SHARED_FAIL = 556                        # CoopState COOP_DLG_SHARED_FAIL (CoopState.h :56)
-BOOT_PORT = {"XFER": "47262", "CONT": "47263"}   # AMENDMENT P7-8 section 4 (S26, F6118): E2 = 47262 (XFER), 47263 (CONT)
+BOOT_PORT = {"XFER": "47262", "CONT": "47263"}   # AMENDMENT P7-8 section 4: E2 = 47262 (XFER), 47263 (CONT)
 SEL_S = e1.SEL_S                         # 3 s: a cross-machine amount (P7-8 section 4)
 PAGE_S = e1.PAGE_S                       # 5 s: a screen push / close after a real click
 SCREEN_S = e1.SCREEN_S                   # 10 s

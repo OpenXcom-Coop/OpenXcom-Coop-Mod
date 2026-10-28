@@ -1,4 +1,4 @@
-"""W2-P4 S-D - test_client_items.py: the second player uses its own medi-kit,
+"""test_client_items.py: the second player uses its own medi-kit,
 motion scanner, reload key and reaction-fire hand buttons; the host checks and
 runs every one of them (spec rewrite/prompts/w2p4_client_combat_intents.md
 section (f) "test_client_items.py (S-D)", sections (b)1-6, (b)9, as amended by
@@ -581,7 +581,7 @@ def c23b_medikit(host, client, ctx):
           + f" | CANCEL close={ev.get('close')} before={cb} after={ca}; end: {press_view(b0, rec_end)}; "
           f"ui={ui_view(b0, rec_end)}; diff={rec_end['diff']}; notes={notes}", flush=True)
     # W2-P6b S-E row E3 (review section 2; section 9 E-c, Q14 (a)): one medikit sound record per applied `medikit`
-    # cue on the client, the kit resolved before the cue's delta (N43 = F1692), its sound picked from the kit's raw
+    # cue on the client, the kit resolved before the cue's delta, its sound picked from the kit's raw
     # hit-sound list; none on the host (it plays vanilla's own, TileEngine :5019).
     rules, rfails = effect_rules(host, client, [MEDIKIT])
     kit_sounds = ((rules.get(MEDIKIT) or {}).get("soundLists") or {}).get("hitSound") or []
@@ -1267,7 +1267,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-E: coopGhostStepper pinned true in both instances (row E3 needs the client's effect displays)
+    # coopGhostStepper pinned true in both instances (row E3 needs the client's effect displays)
     host = GameClient("host", 49876, make_user_dir("w2p4_client_items_host", mods=[MOD_DIR],
                                                    options={"coopGhostStepper": True}))
     client = GameClient("client", 49877, make_user_dir("w2p4_client_items_client", mods=[MOD_DIR],

@@ -378,7 +378,7 @@ def boot_e6_mode(host, client, port, mode):
         f"authority host={ha} client={ca}")
     a = session.units_by_id(hs).get(A_ID) or {}
     assert (a.get("faction"), a.get("coop"), a.get("isOut")) == (FACTION_HOSTILE, 1, False), f"alien at bring-up {a}"
-    pinned = pin_ai_neutral(host, client, tag="w2h29-gm2-mode")   # 0 is legal in gm2 (REV E.48 SS.B.4)
+    pinned = pin_ai_neutral(host, client, tag="w2h29-gm2-mode")   # 0 is legal in gm2
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="gm2 bring-up")
     return {"mode": mode, "pinned": pinned}

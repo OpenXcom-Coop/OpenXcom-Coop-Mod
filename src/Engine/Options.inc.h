@@ -101,7 +101,7 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
-// D249-U (owner D249 (a), D131; docs rewrite/prompts/d249u_follow_teammate_camera.md): main's "Follow Teammate
+// main's "Follow Teammate
 // Actions with Camera" (main Options.inc.h :104-107). On: this machine's camera follows the co-op partner's units
 // as it follows an alien on its own side's turn (coopCameraFollowsPartner(), CoopMod/CoopDelta.h). DEFAULT false
 // here (main: true), so D131 - the partner's actions never move your camera - stays the default. Per player: read
@@ -146,7 +146,7 @@ OPT int coopIntentTimeoutSeconds;
 // below carries no description or category.
 OPT std::string CoopTurnMode;
 
-// W1-P12 (WAVE1-RUNBOOK.md ruling D-3 = WV-D27/WV-D49): the S3 GHOST STEPPER -
+// the S3 GHOST STEPPER -
 // a partner's turn/kneel/walk ANIMATES on the observing machine instead of
 // snapping, display-only (A4: never SavedBattleGame/BattleUnit/Tile - see
 // CoopMod/CoopGhost.h). A real user option (WR-25: an OptionInfo

@@ -1,4 +1,4 @@
-"""W2-P7 S-C-B2 - test_battle_end_separate_diary.py: a SEPARATE campaign guest's diary and medals reach the owner's
+"""test_battle_end_separate_diary.py: a SEPARATE campaign guest's diary and medals reach the owner's
 world. This mission's statistics record is copied into the owner's world with its own id; the guest's diary mission ids
 and kills are remapped onto it; the host's awarded commendations ride the YAML and the owner's world records them as the
 host awarded them (docs rewrite/prompts/w2p7_sc_design.md section 3.3, AMENDMENT P7-6 section 4.3; owner D155 (a),

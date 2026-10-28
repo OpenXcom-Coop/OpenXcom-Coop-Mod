@@ -1,4 +1,4 @@
-"""MG-A S-E - test_cydonia_ending.py: Cydonia's game-ending end on both machines (owner D239 (a), V5; D158 (a),
+"""test_cydonia_ending.py: Cydonia's game-ending end on both machines (owner D239 (a), V5; D158 (a),
 D226 (a)) and the stage offer that overtakes its stage_end. Spec docs rewrite/prompts/mga_multistage_handoff.md
 (f), AMENDMENT MG-A-1 section 5 stage S-E (rows MS6, MS7) plus the F9992 row MS8 (orchestrator ruling, R3); TASK 0
 constants docs rewrite/mga-task0/e/CONSTANTS.md (pins, the D239 (a) cell table, the walls).

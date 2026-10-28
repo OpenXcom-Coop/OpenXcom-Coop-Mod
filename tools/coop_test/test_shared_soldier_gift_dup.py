@@ -193,7 +193,7 @@ def main():
             f"CLIENT roster changed after the mission: pre={pre} post={sorted(cl)}"
         print(f"PASS no-dup: rosters unchanged ({len(pre)} soldiers), no duplicate ids on either machine")
 
-        # R5-U5 S-B: the owners after the mission, on both machines - the bounced soldier is the host's again and the
+        # the owners after the mission, on both machines - the bounced soldier is the host's again and the
         # one-way gift is the host's now.
         for gc, tag in ((host, "host"), (client, "client")):
             owners_after = {s["id"]: s["owner"] for s in B._roster(gc)}

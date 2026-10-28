@@ -1,7 +1,7 @@
 """MG-B S-B row CB3: a single-player Custom Battle hosted from the battle's pause menu (CO-OP, host, CONTINUE BATTLE) becomes a
 classic co-op battle before the lobby opens: the soldiers split evenly in unit-list order, the second player (seat 1) takes the
 first floor(N/2), the host (seat 0) the rest (the odd one included) and every other original-PLAYER unit, and the battle plays in
-the host window's TURNS mode (owner D237 (b), D245 (a), D237-V1, D235 (a); QMB2-2 (a), QMB2-3 (a); V5). Spec: docs repo
+the host window's TURNS mode. Spec: docs repo
 rewrite/prompts/mgb2_common.md (rulings, R3, QMB2-1 .. QMB2-5 (a)), mgb2_sb_convert.md (this stage, (f)), mgb2_sa_continue.md
 (S-A, whose CONTINUE BATTLE route this rides); constants rewrite/mgb2-task0/sb/CONSTANTS.md (TASK 0 boots a, b, c at efd5389ac);
 orchestrator ruling R-MGBB-1 (a) (C1's red value). Lobby key 49209.

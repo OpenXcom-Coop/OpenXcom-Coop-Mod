@@ -1,4 +1,4 @@
-"""D250-U S-B - test_campaign_battle_gm2.py: a gm2 PvP campaign battle end to end (host = X-COM, client = the aliens):
+"""test_campaign_battle_gm2.py: a gm2 PvP campaign battle end to end (host = X-COM, client = the aliens):
 entry with the right seats, the alien player moves an alien, an X-COM win and an X-COM loss, and after each the alien player sees
 the host's debriefing and returns to its own geoscape with its alien-side role intact (no bases, stub budget 1000, no sim of its own).
 

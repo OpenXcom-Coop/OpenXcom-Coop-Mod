@@ -25,7 +25,7 @@ LIVE, CORPSE, LOOKUP = "STR_SECTOID_SOLDIER", "STR_SECTOID_CORPSE", "STR_SECTOID
 A, B, PISTOL, COUNTER = "STR_H17_A", "STR_H17_B", "STR_PISTOL", "STR_H17_COUNTER"
 NAMES, ITEMS = [LIVE, LOOKUP, A, B], [LIVE, CORPSE, B, PISTOL]
 WINDOW_S, CADENCE_S = 3.0, 0.5      # C3: ~0.5 s per both-machine sample
-CLEAN_S = 4.0                       # > the 3000 ms mismatch debounce (P10 F5510) and H15 F5709's 3.27 s worst case
+CLEAN_S = 4.0                       # > the 3000 ms mismatch debounce and H15 F5709's 3.27 s worst case
 PENDING_S, BETWEEN_S = 10.0, 30.0   # C2 bound; between triggers
 
 class GuardMiss(Exception):

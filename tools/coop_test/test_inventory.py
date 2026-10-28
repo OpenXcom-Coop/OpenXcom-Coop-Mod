@@ -7,7 +7,7 @@ constants and rulings F2090-F2093, F2097); AMENDMENT P8-3 (the re-pin at 63324d6
 
 Before S-A the second player cannot open the inventory at all: the INVENTORY key
 and battle_open_inventory are refused with "Only the host can open the inventory"
-and no InventoryState opens (TASK 0 T0-8, F2096). After S-A the screen opens on
+and no InventoryState opens. After S-A the screen opens on
 the client for a soldier its seat commands. Picking an item up is local (it rides
 the cursor only). Every placement is an `inv_move` intent (op move) that the host
 admits with vanilla's own checks and performs with vanilla's own effect and time
@@ -100,7 +100,7 @@ and both players see it; AMENDMENT P8-4 section 4.3 (R-1..R-5), the draft
 rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6, AMENDMENT P8-4c (the S-R TASK 0
 pins and rulings 1-3, F2944-F2952)). RN0 runs FIRST (at battle start); RN1-RN4 run
 after IV11b, in this order. Only RN4 stages (typing needs no kit; C and H stay where
-the earlier rows left them). The typing recipe (P8-4c T0-R2, F2949):
+the earlier rows left them). The typing recipe:
 battle_open_inventory <unit>; 0.3 s; ONE inject_input click at (266, 29) (the name
 TextEdit (28,6,210,17) centre x 2); 0.3 s; each letter one inject_input key, 0.3 s
 between; the screen closes only through battle_close_inventory (ruling 2, F2951: ESC
@@ -214,7 +214,7 @@ ROW_TILE = {"IV1": (0, 33, 0), "IV2": (0, 34, 0), "IV3": (49, 25, 0), "IV4": (1,
 STAGE_H = (48, 24, 0)             # P8-2 T0-1 STAGE_H
 ROW_DIR = 2                       # section 8.2: tele_both(C, <row tile>, 2)
 
-# ----- T0-1b host-vanilla costs on H (P8-2, F2089) -----
+# ----- T0-1b host-vanilla costs on H -----
 TU_BELT_TO_HAND = 4               # op1 belt (1,0) -> LH
 TU_GROUND_TO_BELT = 12            # op2 ground rifle clip -> belt (2,0)
 TU_HAND_TO_GROUND = 2             # op3 LH -> ground
@@ -1617,7 +1617,7 @@ def iv11b_load_unload_denies(host, client, ctx):
     finish(fails)
 
 
-# ===================== S-R rows (AMENDMENT P8-4 section 4.3, AMENDMENT P8-4c) =====================
+# ===================== S-R rows =====================
 
 
 def probes_rn(gc):
@@ -1817,7 +1817,7 @@ def rn1_client_rename(host, client, ctx):
     ready = open_name_field(client, C_ID, ev)
     if ready:
         type_letters(client, C_ID, RN_LETTERS, ev)
-        # P8-4c ruling 3 (F2952, Q3 a): End runs the change handler but changes no text
+        # P8-4c ruling 3: End runs the change handler but changes no text
         e0 = probes_rn(client)
         end["before"] = {"sent": rn_of(e0, "sent"), "rename": count_of(e0["coopIntentsSent"], "rename"),
                          "names": names_of(client, C_ID)}

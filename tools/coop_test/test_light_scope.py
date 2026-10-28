@@ -1,4 +1,4 @@
-"""W2-P2 S-L - test_light_scope.py: the second player's light recompute
+"""test_light_scope.py: the second player's light recompute
 mirrors vanilla's scope (owner ruling M6, 2026-09-24; spec
 rewrite/prompts/w2p2_delta_core.md AMENDMENT A4, section A4.5; orchestrator
 rulings Q-L1 = (a), Q-L2 = (a), Q-L4 = (a)).
@@ -29,7 +29,7 @@ tile.
        light (baseline census equal), then the host walks H to C15_WALK_DEST
        with a real-UI click. GREEN: census equal; client lightLocalCalls
        delta >= 2 (one per walk_step); lightWholeCalls delta 0.
-  LS2  turn end, no tile change; stages its own stale light (A6, F606): after
+  LS2  turn end, no tile change; stages its own stale light: after
        LS1 (and its classifier), TU refilled and light_recompute on BOTH
        machines (baseline census equal), then the host walks H back along the
        C15 path to C15_H_TILE with a real-UI click (moves H's personal light;
@@ -130,7 +130,7 @@ PORT = "48624"
 # master user folder (Options::getMasterUserFolder() = <user dir>/xcom1/).
 DARKNESS = 15
 NEW_BATTLE_CFG = os.path.join("xcom1", "battle.cfg")
-# LS2's walk back along the C15 path (A6 / F606): from C15_WALK_DEST to C15_H_TILE.
+# LS2's walk back along the C15 path: from C15_WALK_DEST to C15_H_TILE.
 C15_BACK_DEST = C15_H_TILE
 C15_BACK_PATH = [(2, 6, 0), (1, 6, 0)]
 # LS3's client apply-cost bar in microseconds (A4.5 BAR_L). Set by owner

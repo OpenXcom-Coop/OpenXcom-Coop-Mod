@@ -1,4 +1,4 @@
-"""W2-P3 S-E - test_psi.py: a sectoid leader's AI psi attacks on the
+"""test_psi.py: a sectoid leader's AI psi attacks on the
 second player's soldiers each run as a named `ai` action - a mind control that
 turns C hostile (and reverts at the next hostile side start), then a psi panic
 whose panic at the next player side start runs as its own `panic` action -
@@ -525,7 +525,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-E: coopGhostStepper pinned true in both instances (row E2 needs the client's psi ghosts)
+    # coopGhostStepper pinned true in both instances (row E2 needs the client's psi ghosts)
     host = GameClient("host", 49864, make_user_dir("w2p3_psi_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49865, make_user_dir("w2p3_psi_client", options={"coopGhostStepper": True}))
     results = {}

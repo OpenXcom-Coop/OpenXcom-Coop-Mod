@@ -58,7 +58,7 @@ KEY, RESAVE, DIR = "49254", "d246sd2b_resave.sav", "d246sd2b"
 XCOM, ALIENS = (8, 9, 10, 11, 12, 13, 14), (1000000,)          # gm2 / gm3 battle unit ids (T0-4)
 G4_A1, G4_A0 = (1000000, 1000001, 1000002, 1000003, 1000004), (1000005, 1000006, 1000007, 1000008)   # gm4 aliens tagged 1 / 0
 G4_X = (2000008, 2000009, 2000010, 2000011, 2000012, 2000013, 2000014)                               # gm4 X-COM (MALE_CIVILIAN)
-G4_X_ARMOR = [12, 8, 8, 5, 2]   # gm4 X-COM armor as played, front/left/right/rear/under, cur AND max (T0-4, F20049; QD246D2-9)
+G4_X_ARMOR = [12, 8, 8, 5, 2]   # gm4 X-COM armor as played, front/left/right/rear/under, cur AND max
 CD_SEAT = {2: {**{i: 0 for i in XCOM}, **{i: 1 for i in ALIENS}}, 3: {**{i: 1 for i in XCOM}, **{i: 0 for i in ALIENS}},
            4: {**{i: 1 for i in G4_A1}, **{i: 0 for i in G4_A0}, **{i: -1 for i in G4_X}}}   # (b) 2's rule (T0-4, T0-7)
 CD_FAC = {2: {**{i: 0 for i in XCOM}, **{i: 1 for i in ALIENS}}, 3: {**{i: 0 for i in XCOM}, **{i: 1 for i in ALIENS}},

@@ -155,7 +155,7 @@ extern std::atomic<uint64_t> g_txDropCount;
 // overflows on a slow link), each channel keeps a single overwrite slot; the
 // send thread emits the freshest one at whatever rate the link drains. Preserves
 // update rate (no throttle) while eliminating the backlog.
-// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A1; owner D290 (c)): SNAP_EQUIP_PTR = the co-op partner's mouse pointer on
+// coop: SNAP_EQUIP_PTR = the co-op partner's mouse pointer on
 // the pre-battle equip screen (`bt_equip_ptr`; last write wins, never the FIFO, never hashed).
 enum CoopSnapSlot { SNAP_GEO_POSITIONS = 0, SNAP_GEO_TIME = 1, SNAP_DOGFIGHT = 2, SNAP_EQUIP_PTR = 3, SNAP_COUNT };
 
@@ -548,7 +548,7 @@ class connectionTCP
 	void evaluateVote();
 	void finishVote(bool passed);
 	void executeVoteAction(const std::string& action);
-	void abortVotePump(bool quiescent); // R4-L1 S-A (P6): updateCoopTask() only
+	void abortVotePump(bool quiescent); // updateCoopTask() only
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
 
@@ -704,15 +704,15 @@ class connectionTCP
 	bool coopTakePostBattleWorldSent();
 	static bool coopWorldStreamBusy();
 	bool coopAdoptWorldInPlace(const std::string& key);
-	// coop D250-U S-C1 (owner D250, O1 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md): gm3 PvP campaign battles in the
+	// coop: gm3 PvP campaign battles in the
 	// X-COM client's borrowed world.
 	static Json::Value coopPvpBorrowRecord();                 // the process-lifetime record (TestServer get_coop.pvpBorrow)
 	static bool coopPvpBorrowActive();                        // HOST: the live world is the borrowed X-COM world
 	static SavedGame* coopPvpParkedWorld();                   // HOST: the parked alien world while borrowing, else null
 	static SavedGame* coopPvpSaveOwner(SavedGame* live);      // coop: the world a save belongs to (the parked world while borrowing, else live)
 	static void coopPvpBorrowDrop();                          // the main-menu chokepoint: the parked world goes with the world
-	static void coopPvpPeerDropped();                         // coop D250-U S-C3: HOST - a peer drop ends a waiting landing request
-	// coop D250-U S-C4b (QC-14 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-5): a gm3 battle the alien host saves
+	static void coopPvpPeerDropped();                         // coop: HOST - a peer drop ends a waiting landing request
+	// coop: a gm3 battle the alien host saves
 	// while it borrows the X-COM player's world, and its resume.
 	static Json::Value coopPvpSaveMarker;                     // set only while the parked world is written (SavedGame::save's header)
 	static Json::Value coopPvpLoadedBorrow;                   // the borrow record of the last menu-loaded save (SavedGame::load), else null
@@ -724,15 +724,15 @@ class connectionTCP
 	void coopPvpLandRefusedReceived(const Json::Value& obj);  // CLIENT: `pvp_land_refused`
 	void coopPvpLandBlobStored(bool stored);                  // HOST: after MAP_RESULT_SAVE_PROGRESS's validation
 	void coopPvpBorrowPump();                                 // both: the borrow (host) / the hold release (client)
-	bool coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk);      // coop D250-U S-C2: HOST, the borrowed battle's OK
-	static void coopPvpClientLeave(Game* game, DebriefingState* db);        // coop D250-U S-C2: CLIENT, OK-time writes on its own base
-	void coopPvpBorrowBaseDefense(SavedGame* borrowed);       // coop D250-U S-C5b2: HOST, the borrow for the X-COM player's base under attack
-	static bool coopPvpRearmBaseDefense();                    // coop D250-U S-C5b2: HOST, a failed borrowed base-defence start waits
+	bool coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk);      // coop: HOST, the borrowed battle's OK
+	static void coopPvpClientLeave(Game* game, DebriefingState* db);        // coop: CLIENT, OK-time writes on its own base
+	void coopPvpBorrowBaseDefense(SavedGame* borrowed);       // coop: HOST, the borrow for the X-COM player's base under attack
+	static bool coopPvpRearmBaseDefense();                    // coop: HOST, a failed borrowed base-defence start waits
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23/PR-25; D176, MR14): CLIENT - page 3 live on the adopted world (every adoption);
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);
 	static void coopDebriefRecoveredSold(Game* game, const Json::Value& payload, bool sell);
-	// W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-29; D154, D175): CLIENT, SHARED - the campaign OK's last step: vanilla's forced
+	// CLIENT, SHARED - the campaign OK's last step: vanilla's forced
 	// containment / storage screens on the adopted world for whatever is still over its limit.
 	static void coopSharedForcedScreens(Game* game, DebriefingState* db);
 	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2, PR-13/PR-15; D155 (a), D156 (a), MR4, MR6): CLIENT - snapshot the live
@@ -748,7 +748,7 @@ class connectionTCP
 	std::string coopDebriefSoldierName(DebriefingState* db, Soldier* soldier);
 	bool coopPromotionRows(TextList* list);
 	void coopCampaignFollowupChain(DebriefingState* db);
-	// W2-P7 S-C-B2.2 (AMENDMENT P7-6 section 4.3 step 5; D181 (a), PR-16): HOST - after its post-battle chain, delete the
+	// HOST - after its post-battle chain, delete the
 	// memorial's SEPARATE guest copies (coopName "coop-origin:"); each guest's death lives in its owner's world.
 	void coopRemoveGuestMemorialCopies();
 	// PRD-J10: serve a replica's shared_resync_request - stream the authoritative
@@ -816,7 +816,6 @@ class connectionTCP
 	// prompt (CoopState 67) cleared the visit flag while the player stays on a base screen. Read by the base screens' OK.
 	static bool liveWorldIsPeerView(Game* game);
 	bool coopMissionEnd = false; // is the co-op mission completed?
-	// W2-P7 S-B1.2 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-2, Q1 (a)):
 	// the three DebriefingState hooks (vanilla V3/V4/V5; DebriefingState befriends
 	// this class). coopDebriefClientFill: a skirmish client's display-only debrief
 	// fills its pages from the host's stored bt_debrief_result instead of running
@@ -828,7 +827,7 @@ class connectionTCP
 	bool coopDebriefClientFill(DebriefingState* db);
 	bool coopDebriefClientFinish(DebriefingState* db);
 	void coopDebriefHostSend(DebriefingState* db);
-	// W2-P7 S-B2.2: vanilla V6, the first statement of DebriefingState::btnOkClick - a co-op skirmish
+	// vanilla V6, the first statement of DebriefingState::btnOkClick - a co-op skirmish
 	// battle-end debriefing's OK (the client leaves via GoToMainMenuState: true = handled; the host resets its battle
 	// scope: false = vanilla's own exit). A no-op returning false for any other debriefing.
 	bool coopDebriefOk(DebriefingState* db);
@@ -1131,7 +1130,7 @@ class connectionTCP
 	// CALLER MUST HOLD coopFilesMutex; the returned pointer is valid only while
 	// that lock is held.
 	static const std::string* findHostClientBlob(const std::string& clientName);
-	// coop W2-H58 S-A: a host save re-mints saveID; copy every host_<oldSaveID>_<name>.data blob to the current id (a blob already
+	// coop: a host save re-mints saveID; copy every host_<oldSaveID>_<name>.data blob to the current id (a blob already
 	// under the new id is kept). Takes coopFilesMutex itself.
 	static void rekeyHostClientBlobs(long long oldSaveID);
 	// Single authority: may this machine read/write local .sav files right now?
@@ -1287,7 +1286,7 @@ class connectionTCP
 	// restores BOTH players' rosters; the client re-fetches its world from
 	// the host on reconnect. To keep the embedded blob fresh, the client
 	// silently pushes its progress to the host after every soldier gift.
-	// W2-P7 S-C-B1.2: returns true iff it actually serialized and sent (the SEPARATE return reports `pushed`).
+	// returns true iff it actually serialized and sent (the SEPARATE return reports `pushed`).
 	bool pushProgressToHostSilently();
 	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
 	// host craft via the mirror-base UI, the assignment is written only into the

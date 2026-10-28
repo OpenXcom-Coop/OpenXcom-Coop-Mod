@@ -91,14 +91,14 @@ protected:
 	virtual void handle(Action *action);
 	/// Runs state functionality every cycle.
 	virtual void think();
-	/// coop W2-H83 S-B2: true when this screen shows a base that is gone from the live base list (the other player
+	/// coop: true when this screen shows a base that is gone from the live base list (the other player
 	/// removed it, or a world reload replaced it). Game::coopCloseGoneBaseHolders then closes it before it reads that base again.
 	virtual bool coopHoldsGoneBase() const { return false; }
-	/// coop W2-H83 S-B2: closes this screen for coopHoldsGoneBase (a plain pop; a screen with a close-time step overrides it).
+	/// coop: closes this screen for coopHoldsGoneBase (a plain pop; a screen with a close-time step overrides it).
 	virtual void coopCloseGoneBase();
-	/// coop W2-H83 S-B2: in a co-op world, @a base is not in the live base list (pointers compared, never dereferenced); null: never.
+	/// coop: in a co-op world, @a base is not in the live base list (pointers compared, never dereferenced); null: never.
 	static bool coopBaseGone(const Base *base);
-	/// coop W2-H83 S-B2: coopBaseGone for any base of a list.
+	/// coop: coopBaseGone for any base of a list.
 	static bool coopBasesGone(const std::vector<Base*> &bases);
 	/// Blits the state to the screen.
 	virtual void blit();

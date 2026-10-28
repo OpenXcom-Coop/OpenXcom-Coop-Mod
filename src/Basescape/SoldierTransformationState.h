@@ -40,7 +40,7 @@ class SoldierTransformationState : public State
 private:
 	RuleSoldierTransformation *_transformationRule;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	Soldier *_sourceSoldier;
 	std::vector<Soldier *> *_filteredListOfSoldiers;
 	Window *_window;

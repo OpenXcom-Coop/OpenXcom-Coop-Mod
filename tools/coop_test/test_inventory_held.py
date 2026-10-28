@@ -1,4 +1,4 @@
-"""W2-P8 S-C1 - test_inventory_held.py: parallel mode, the in-battle inventory
+"""test_inventory_held.py: parallel mode, the in-battle inventory
 while an action runs (held placements, V11), the host's own inventory changes
 reaching the second player at once (the host `sync`, Q7 (a)), and the client's
 inventory screen closing by itself when its soldier goes down, when the side
@@ -69,12 +69,12 @@ C2 and IH7 ends the battle, so IH7 is last):
         test_turn_baton.drive_full_cycle (P8-3b ruling 2); EQUAL. The red
         run's cleanup (ruling 3) acts on the rebound screen: inventory_cursor_clear,
         then battle_close_inventory (a no-op at green: the screen is gone).
-  IH2   host placement sync (Q7 a; F1133). (a) the host opens and closes H's
+  IH2   host placement sync. (a) the host opens and closes H's
         inventory with no placement: RED sets.close +0; GREEN sets.close +1,
         emptyFlushes +1, host syncEvsEmitted +0. (b) the host moves H's grenade
         belt (1,0) -> STR_LEFT_HAND with real clicks and both machines are sampled
         with the host's screen open: RED host syncEvsEmitted +0 and the client's H
-        grenade still STR_BELT (1,0) (T0-3, F2088); GREEN sets.move +1, host
+        grenade still STR_BELT (1,0); GREEN sets.move +1, host
         syncEvsEmitted +1, client syncEvsApplied +1, H's grenade STR_LEFT_HAND and
         H TU 58 - 4 on both while the screen is open. The heal step; EQUAL.
   IH3   host reload key. H: rifle (no clip) STR_RIGHT_HAND, clip belt
@@ -83,7 +83,7 @@ C2 and IH7 ends the battle, so IH7 is last):
         [clip, r, r, r]. GREEN: sets.reload +1, host syncEvsEmitted +1,
         rifle ammo [clip, r, r, r] and H's TU equal on both before any other host
         ev. The heal step; EQUAL.
-  IH7   battle end with the client's screen open (F1972, F2398, F2399; T0-9).
+  IH7   battle end with the client's screen open.
         The client opens C's inventory and picks the grenade; the host aborts
         (test_battle_end.end_e2). RED: client
         battleEnd.inventoryOpenAtTeardown true, invForcedCloses.byReason.battle_end
@@ -93,7 +93,7 @@ C2 and IH7 ends the battle, so IH7 is last):
         client `[coop-ui] pop ... InventoryState` line. Never reads inventory_view
         after the teardown (ruling 5).
 Boot 2 (P8-3b ruling 1, F2802):
-  IH6   unit out under an open screen (N21 = F1940; T0-6). C2 on (4,32,0),
+  IH6   unit out under an open screen. C2 on (4,32,0),
         stripped, a grenade belt (1,0); the client opens C2's inventory and picks
         the grenade; host battle_action kill_unit_real {C2}. No click (J2). RED:
         the client dies within 5 s (a new crash log, the client process gone) -
@@ -1000,7 +1000,7 @@ def ih8_open_context_gate(host, client, ctx):
         held_ints = [h for h in held_open if isinstance(h, int)]
         if not held_ints or max(held_ints) <= 0:
             fails.append(f"IH8: host invHostDirty.heldByGate while the walk's context was open {held_open} (want > 0)")
-        # the RED cell (S-C2.1, D166 today): the walk frozen under the host's screen; GREEN (S-C2.2, D166 = B): it
+        # the RED cell (S-C2.1, D166 today): the walk frozen under the host's screen; GREEN: it
         # runs to its end while the host's screen is open, and its evs carry H's change
         if done is None:
             last = samples[-1] if samples else {}
@@ -1268,7 +1268,7 @@ def ih2_host_placement_sync(host, client, ctx):
     if (dc, de, dsa) != (1, 1, 0):
         fails.append(f"IH2 (a): host invHostDirty.sets.close +{dc}, emptyFlushes +{de}, syncEvsEmitted +{dsa} (want "
                      f"+1 / +1 / +0: the close latched, its flush found an empty delta)")
-    # (b) the RED cell (S-C1.1): no sync, the client's H lags (T0-3, F2088)
+    # (b) the RED cell (S-C1.1): no sync, the client's H lags
     if not b_open:
         fails.append(f"IH2 (b): the host's inventory did not open on H ({ev['bOpen']})")
     elif not (picked and dropped):
@@ -1530,7 +1530,7 @@ def ih6_unit_out(host, client, ctx):
         fails.append(f"IH6: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
                      f"(want C2's grenade {g2})")
     elif died is not None:
-        # the RED cell (S-C1.1, F2802)
+        # the RED cell
         fails.append(f"IH6: the client DIED {died['afterS']} s after the host's kill_unit_real {{C2}} with its "
                      f"inventory open (exit code {died.get('exitCode')}; new crash file(s) {out['newCrashFiles']}; "
                      f"exception {out['crashLines']})")
@@ -1563,7 +1563,7 @@ def ih6_unit_out(host, client, ctx):
 
 
 def ih9_covered_unit_out(host, client, ctx):
-    """W2-P8 S-C2 (AMENDMENT P8-4 C2-3, P8-4 RULINGS Q1 (a); P8-4b T0-S9 row, F2884): the client's inventory is
+    """the client's inventory is
     covered by another screen when its soldier dies; the crash comes when the cover closes."""
     notes = []
     leftover = ensure_closed_safe(client, notes)
@@ -1660,7 +1660,7 @@ def ih9_covered_unit_out(host, client, ctx):
     elif not covered:
         fails.append(f"FIXTURE-STOP (P8-4b T0-S9): the client's {COVER_KEY} did not cover its inventory ({cov})")
     elif died is not None:
-        # the RED cell (S-C2.1, F2856 = F2884): the covered screen thinks before the next pump pass and draws a
+        # the RED cell: the covered screen thinks before the next pump pass and draws a
         # tileless unit (Inventory.cpp:378)
         fails.append(f"IH9: the client DIED at {died.get('at')} ({died}) with its inventory covered and C2 dead "
                      f"(new crash file(s) {out['newCrashFiles']}; exception {out['crashLines']}; invForcedCloses while "

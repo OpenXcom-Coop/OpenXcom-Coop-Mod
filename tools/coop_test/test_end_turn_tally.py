@@ -205,7 +205,7 @@ def drive_full_cycle(host, client, turn0, timeout=60):
     TimeoutError if the full cycle never completes on both machines."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # RV-U13 S-A: read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
         # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
         # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
@@ -665,7 +665,7 @@ def run_boot_b():
               "armed=False; no side advance")
 
         # ----- the HOST's press ALONE advances the side: measured via
-        # counters taken AFTER the full cycle (REV E.51 E51.4). orch41b
+        # counters taken AFTER the full cycle. orch41b
         # found this driver racing a transient phase: with zero human seats
         # on the hostile and neutral phases, the whole three-transition
         # cycle completes in ~0.35s, so a poll for side==FACTION_HOSTILE
@@ -673,7 +673,7 @@ def run_boot_b():
         # gone before the first poll lands. The hostile/neutral phases'
         # inertness is proven by the counter deltas below, never by
         # catching the transient phase mid-flight - a poll for it is a
-        # STOP-IF (REV E.48 SS.A.8), not something to slow down or retry.
+        # STOP-IF, not something to slow down or retry.
         host_counter_before = event_state(host).get("coopEndTurnPhaseCounter")
         client_counter_before = event_state(client).get("coopEndTurnPhaseCounter")
         # Baseline is 1, not 0: the spectator's own press above already

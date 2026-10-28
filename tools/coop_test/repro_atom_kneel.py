@@ -157,7 +157,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
 
     host.ok({"cmd": "newbattle_ok"})
 
-    # W2-P8b S-H: the shared battle-entry spine - both briefings (the offer goes
+    # the shared battle-entry spine - both briefings (the offer goes
     # out at PREPARE, D210 b), both pre-battle equip screens,
     # both Turn-1 screens (Q7 a).
     session.briefings_to_battlescape(host, client)
@@ -660,7 +660,7 @@ def test_forced_mismatch():
     frozen forever, so this session is torn down (not reused) once done."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle(seat_count=1, tag="kneel_mismatch")
     try:
-        # R4-L3 S-A: this test's subject is the halt; the TEST-ONLY hold keeps the host from repairing it.
+        # this test's subject is the halt; the TEST-ONLY hold keeps the host from repairing it.
         host.ok({"cmd": "resync_hold", "on": True})
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-corruption)")
 

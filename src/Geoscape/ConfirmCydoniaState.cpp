@@ -95,7 +95,7 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 	if (coopRefuseSeparateClientCydonia(_game, _craft)) return;
 	if (connectionTCP::getCoopStatic())
 	{
-		// R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18, RB-D23): Cydonia now rides the
+		// R4-P2: Cydonia now rides the
 		// SAME battle-start handshake R4-P1 built for the skirmish and mission-
 		// confirm entry points (NewBattleState::btnOkClick, ConfirmLandingState::
 		// btnYesClick) - vanilla generates the battle exactly like SP below, then
@@ -126,7 +126,7 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 
 	_game->popState();
 	_game->popState();
-	// coop D250-U S-C5b1 (owner D250, O1 (a); D239 (a)): a gm3 PvP campaign client (the X-COM side) hands Cydonia to the alien host,
+	// coop: a gm3 PvP campaign client (the X-COM side) hands Cydonia to the alien host,
 	// which runs it in this machine's world; this machine generates nothing (false on every other machine and mode). After the two
 	// pops, so the "Waiting for <host>" hold it pushes stays on top.
 	if (CoopHandshake::requestPvpCydonia(_game, _craft))
@@ -152,7 +152,7 @@ void ConfirmCydoniaState::startCoopMission()
 	bgen.setCraft(_craft);
 	if (connectionTCP::getCoopStatic())
 	{
-		// RV-21 (docs rewrite/prompts/rv21_separate_guests_cydonia.md; PRR row 21, F5099): a SEPARATE partner's guests
+		// a SEPARATE partner's guests
 		// seated on this craft - and, since D248-U, its tanks parked on it - join Cydonia as they join every host-craft
 		// landing (ConfirmLandingState::btnYesClick): merged onto the craft BEFORE generation, so the generator deploys
 		// them. The store is the host's, so this is a no-op on any other machine and when nothing was contributed.

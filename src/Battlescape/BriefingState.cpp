@@ -322,7 +322,7 @@ void BriefingState::btnOkClick(Action *)
 		if (CoopHandshake::freezePreBattleEquip(_game))
 		{
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
-			// WV-D56 (FX-1): the blob the client loads is snapshotted HERE, after
+			// the blob the client loads is snapshotted HERE, after
 			// startFirstTurn() has run randomizeItemLocations()/resetUnitTiles()/
 			// per-unit prepareNewTurn()/newTurnUpdateScripts() and set _turn = 1 -
 			// not inside offerBattle()/prepareBattleOffer() at battle-generation

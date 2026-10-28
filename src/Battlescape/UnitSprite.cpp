@@ -27,7 +27,7 @@
 #include "../Mod/RuleInventory.h"
 #include "../Mod/Mod.h"
 #include "../Engine/Exception.h"
-#include "../CoopMod/CoopDelta.h" // coop: coopFactionIsMine() (R5-U1 S-B)
+#include "../CoopMod/CoopDelta.h" // coop: coopFactionIsMine()
 
 namespace OpenXcom
 {
@@ -268,13 +268,13 @@ void UnitSprite::draw(const BattleUnit* unit, int part, int x, int y, int shade,
 	{
 		// draw unit facing indicator
 		auto* tmpSurface = _facingArrowSurface->getFrame(7 + ((unit->getDirection() + 1) % 8));
-		if (coopFactionIsMine((int)unit->getOriginalFaction())) // coop R5-U2 S-A: this machine's side (vanilla: FACTION_PLAYER)
+		if (coopFactionIsMine((int)unit->getOriginalFaction())) // coop: this machine's side (vanilla: FACTION_PLAYER)
 		{
 			tmpSurface->blitNShade(_dest, _x, _y, 0);
 		}
 		else
 		{
-			Surface::blitRaw(_dest, tmpSurface, _x, _y, 0, false, unit->getOriginalFaction() == FACTION_NEUTRAL ? _red : _blue); // coop R5-U2 S-A: the opponent blue, civilians red (vanilla's two colours)
+			Surface::blitRaw(_dest, tmpSurface, _x, _y, 0, false, unit->getOriginalFaction() == FACTION_NEUTRAL ? _red : _blue); // coop: the opponent blue, civilians red (vanilla's two colours)
 		}
 	}
 }

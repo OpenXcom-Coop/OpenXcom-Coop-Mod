@@ -46,7 +46,7 @@ class TransferItemsState : public TouchState
 {
 private:
 	Base *_baseFrom, *_baseTo;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_baseFrom) || coopBaseGone(_baseTo); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_baseFrom) || coopBaseGone(_baseTo); } // coop
 	DebriefingState *_debriefingState;
 	TextButton *_btnOk, *_btnCancel;
 	TextEdit *_btnQuickSearch;
@@ -62,8 +62,8 @@ private:
 	int _total, _pQty, _cQty, _aQty;
 	/// PRD-J10: live refresh when a peer's shared_apply moves either base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
-	SharedEcon::SelectionBinder _sharedSel; // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
-	friend class SharedEcon::SelectionBinder; // coop (W2-P7 S-C-E2, D184, P7-8 PR-47)
+	SharedEcon::SelectionBinder _sharedSel; // coop
+	friend class SharedEcon::SelectionBinder; // coop
 	double _iQty;
 	double _distance;
 	Uint8 _ammoColor;
@@ -104,11 +104,11 @@ public:
 	/// COOP SHARED (PRD-J05): emit the intra-world base->base "transfer" shared_cmd
 	/// from the current selection and mutate NOTHING locally. The host validates
 	/// space + funds, creates the Transfers on the destination, and broadcasts.
-	bool submitSharedTransfer(); // coop (W2-P7 S-C-D2, PR-30): true = this screen waits for the host's answer
+	bool submitSharedTransfer(); // coop: true = this screen waits for the host's answer
 	/// Test-harness hook (PRD-J05): set the transfer amount for ITEM <itemType> to
 	/// <count> then submit the SHARED transfer. Returns false if no matching row.
 	bool harnessTransferItem(const std::string& itemType, int count);
-	void harnessSelectRow(size_t row) { _sel = row; } // coop (W2-P7 S-C-D1, P7-7 PR-28): test lever row select
+	void harnessSelectRow(size_t row) { _sel = row; } // coop: test lever row select
 	/// Programmatic single-soldier transfer (test-harness hook): sets that
 	/// soldier's row amount to 1 and completes the transfer. Returns false if
 	/// the soldier is not a transferable row.

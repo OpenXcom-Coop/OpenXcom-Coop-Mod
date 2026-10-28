@@ -230,7 +230,7 @@ void lastPassStats(int& hostileUnits, int& candidates, int& swept);
 
 } // namespace CoopFog
 
-// ===== SS2.W5 (D2 / WV-D8): G-2 action-only reveals =========================
+// ===== SS2.W5: G-2 action-only reveals =========================
 //
 // CONTRACT, not schema: shared fog is authored by ACTIONS and side-begin
 // restates ONLY. A selection change - TAB, click-select, right-click undo, the

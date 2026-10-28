@@ -842,7 +842,7 @@ void Tile::coopSetSmokeAbsolute(int smoke)
 }
 
 /**
- * W2-P2 S-A (spec (b)1, R3.7): absolute UFO-door open state for the delta
+ * absolute UFO-door open state for the delta
  * applier - the frame openDoor() starts an opening door on (1) or the one
  * closeUfoDoor() writes (0), plus the sprite refresh both of them do. No RNG.
  * @param part the tile part

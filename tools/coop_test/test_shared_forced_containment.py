@@ -1,4 +1,4 @@
-"""W2-P7 S-C-D2 - test_shared_forced_containment.py: after a SHARED battle that leaves the base's alien containment
+"""test_shared_forced_containment.py: after a SHARED battle that leaves the base's alien containment
 over its limit, the second player gets the forced containment screen too, and each forced screen closes itself once
 the shared base is back under the limit - also when it was covered by a box while the other player solved it (docs
 rewrite/prompts/w2p7_sc_design.md section 3.6, AMENDMENT P7-7 sections 2-4: PR-29..PR-35; owner D154, D175; MR9,
@@ -76,7 +76,7 @@ CONT_MARK = "ALIEN CONTAINMENT LIMITS EXCEEDED"   # en-US STR_CONTAINMENT_EXCEED
 CONT_OK = "Remove Selected"                  # STR_REMOVE_SELECTED (2-button layout: canSellLiveAliens off)
 MACS = "ManageAlienContainmentState"
 LIVE_ROW = "LIVE ALIENS RECOVERED"           # the host debriefing's row (STR_LIVE_ALIENS_RECOVERED)
-BOOT_PORT = {"CTA": "47254", "CTB": "47255"}  # AMENDMENT P7-7 section 3 (S26, F5582)
+BOOT_PORT = {"CTA": "47254", "CTB": "47255"}
 UNCOVER_S = 1.0                              # P7-7 section 3.2 D2b (4): "closes within 1 s" once uncovered
 SCREEN_S = fst.SCREEN_S
 PAGE_S = fst.PAGE_S

@@ -1,4 +1,4 @@
-"""EQ-3 stage S-C - test_base_partner_held.py (BPH): the co-op partner's held item on a SHARED base inventory screen leaves your
+"""test_base_partner_held.py (BPH): the co-op partner's held item on a SHARED base inventory screen leaves your
 pile while it is held (you cannot pick that copy) and is drawn under the partner's pointer; it comes back when the partner puts it
 down, cancels or leaves the screen (VL-EQ3-1; owner D291 (b) + (c) on base screens; QEQ3-9 (a): display-level, each machine maps the
 partner's held item onto its OWN copy, no host arbitration and no refusal; QEQ3-10 (a): the held item rides S-B's `base_equip_ptr`
@@ -58,7 +58,7 @@ HB, GEO, INV = "HostBase", "GeoscapeState", "InventoryState"
 GROUND, BELT_SLOT, LEFT = "STR_GROUND", "STR_BELT", "STR_LEFT_HAND"
 PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PISTOL", (0, 0)  # pins (rules: pick_types, pick_belt)
 TEXT_ITEM_MISSING = "Order cancelled - item unavailable"  # STR_COOP_DENY_ITEM_MISSING (EQ-2's pre-battle refusal)
-HALF = (16, 24)                    # EQ-2 S-D: the held item's top-left = the pointer - (HAND_W * SLOT_W / 2, HAND_H * SLOT_H / 2)
+HALF = (16, 24)                    # the held item's top-left = the pointer - (HAND_W * SLOT_W / 2, HAND_H * SLOT_H / 2)
 W_PTR, W, CYCLE_CAP, CLICK_W = 2.0, 10.0, 16, 2.0
 POLL, PAGE = 0.05, 1000000         # a parked ground item sits at x PAGE
 CELLS = {

@@ -1,4 +1,4 @@
-"""W2-H54 S-A - test_client_disconnect_crash.py: the second player's Disconnect on a co-op wait window (F17875, R-H54-0; docs
+"""test_client_disconnect_crash.py: the second player's Disconnect on a co-op wait window (F17875, R-H54-0; docs
 rewrite/prompts/w2h54_client_disconnect_crash.md (f); TASK 0 rewrite/w2h54-task0/sa/CONSTANTS.md). CoopState::previous runs
 disconnectTCP(); popState();. On a client that holds a campaign world, disconnectTCP has already replaced the whole stack with
 GoToMainMenuState (issue #82), the second pop empties it, and Game::run reads the empty stack (Game.cpp :444, exit 3, a crash log).

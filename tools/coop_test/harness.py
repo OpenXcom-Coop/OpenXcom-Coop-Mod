@@ -957,7 +957,7 @@ def find_soldier(soldier_lists, name):
     return None, None
 
 
-# ----- the machine's CPU load for EVIDENCE lines (D307 O5) -----
+# ----- the machine's CPU load for EVIDENCE lines -----
 # Tests record the machine's CPU load and any Wardogs* process (the owner's game, S24) beside their verdicts, to tell a
 # load-inflated red from a real one. Each test used to run its own PowerShell Get-Counter (1.6-2.8 s a call, up to 10 s
 # under load: 211 calls, 484.5 s over 58 tests). cpu_load() reads the same source in-process: GetSystemTimes busy time

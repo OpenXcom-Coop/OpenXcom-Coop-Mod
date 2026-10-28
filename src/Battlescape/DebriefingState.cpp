@@ -405,7 +405,7 @@ void DebriefingState::init()
 	}
 	_initDone = true;
 
-	if (!_game->getCoopMod()->coopDebriefClientFill(this)) prepareDebriefing(); // coop (W2-P7 S-B1): a display-only client fills from the host's bt_debrief_result
+	if (!_game->getCoopMod()->coopDebriefClientFill(this)) prepareDebriefing(); // coop: a display-only client fills from the host's bt_debrief_result
 
 	for (const auto& sse : _soldierStats)
 	{
@@ -604,7 +604,7 @@ void DebriefingState::init()
 	_missionStatistics->rating = rating;
 	_missionStatistics->score = total;
 	_txtRating->setText(tr("STR_RATING").arg(tr(rating)));
-	if (_game->getCoopMod()->coopDebriefClientFinish(this)) return; // coop (W2-P7 S-B1): display-only client - no world write, no save; drops the battle as :803 does
+	if (_game->getCoopMod()->coopDebriefClientFinish(this)) return; // coop: display-only client - no world write, no save; drops the battle as :803 does
 
 	SavedGame *save = _game->getSavedGame();
 	SavedBattleGame *battle = save->getSavedBattle();
@@ -817,7 +817,7 @@ void DebriefingState::init()
 	{
 		_game->getMod()->playMusic(Mod::DEBRIEF_MUSIC_BAD);
 	}
-	_game->getCoopMod()->coopDebriefHostSend(this); // coop (W2-P7 S-B1): the host sends bt_debrief_result
+	_game->getCoopMod()->coopDebriefHostSend(this); // coop: the host sends bt_debrief_result
 }
 
 /**
@@ -882,7 +882,7 @@ void DebriefingState::btnTransferClick(Action *)
  */
 void DebriefingState::btnOkClick(Action *)
 {
-	if (_game->getCoopMod()->coopDebriefOk(this)) return; // coop (W2-P7 S-B2): a display-only client leaves via GoToMainMenuState; the host's battle-end debriefing resets its co-op battle scope first
+	if (_game->getCoopMod()->coopDebriefOk(this)) return; // coop: a display-only client leaves via GoToMainMenuState; the host's battle-end debriefing resets its co-op battle scope first
 	_game->popState();
 	if (_game->getSavedGame()->getMonthsPassed() == -1)
 	{
@@ -1594,7 +1594,7 @@ void DebriefingState::prepareDebriefing()
 					StatAdjustment statIncrease;
 					{ CoopScriptDebriefOwner coopOwner(_game, bunit); bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease); } // coop OF2 S-C
 					if (bunit->getGeoscapeSoldier())
-						_soldierStats.push_back(std::pair<std::string, UnitStats>(_game->getCoopMod()->coopDebriefSoldierName(this, bunit->getGeoscapeSoldier()), statIncrease.statGrowth)); // coop (W2-P7 S-C-C, D177)
+						_soldierStats.push_back(std::pair<std::string, UnitStats>(_game->getCoopMod()->coopDebriefSoldierName(this, bunit->getGeoscapeSoldier()), statIncrease.statGrowth)); // coop
 					playersInExitArea2++;
 
 					recoverItems(bunit->getInventory(), base, craft);

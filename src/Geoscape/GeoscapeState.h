@@ -103,10 +103,10 @@ private:
 	// this - NOT the replica's own local minimize - gates whether the world clock runs,
 	// so host and replica agree regardless of a replica's per-machine minimize choice.
 	bool _dfHostAnyOpen = true;
-	// coop W2-H24 S-C1: the index (SavedGame::getBases()) of the base whose co-op base defense waits for the
+	// coop: the index (SavedGame::getBases()) of the base whose co-op base defense waits for the
 	// partner after its start failed on a lost partner; -1 = none. think() starts it again once RESUME made this the top state.
 	int _coopRearmBase = -1;
-	/// coop W2-H24 S-C1: starts the waiting base defense again (host, partner back, no battle in flight).
+	/// coop: starts the waiting base defense again (host, partner back, no battle in flight).
 	void coopStartRearmedBaseDefense();
 	/// HOST: emit df_open on a membership change + one df_state frame per tick.
 	void sharedBroadcastDogfights();
@@ -140,10 +140,10 @@ public:
 	~GeoscapeState();
 	// coop
 	void startCoopMission();
-	/// coop W2-H24 S-C1: the start of this host's co-op base defense failed on a lost partner - put back what
+	/// coop: the start of this host's co-op base defense failed on a lost partner - put back what
 	/// it took from the base and wait for the partner (think() starts it again); returns the battle marks cleared.
 	int coopRearmBaseDefense();
-	/// coop D250-U S-C5b2 (owner D250, O1 (a)): HOST, while it borrows the X-COM world - starts the X-COM player's base defence there
+	/// coop: HOST, while it borrows the X-COM world - starts the X-COM player's base defence there
 	/// from the attack the player handed off (@a attack: its `pvp_land` message); true when the battle was generated.
 	bool coopStartBorrowedBaseDefense(const Json::Value& attack);
 	/// Handle keypresses.
@@ -296,7 +296,7 @@ public:
 	/// ConfirmDestinationState, MultipleTargetsState, UfoTrackerState, GeoscapeCraftState) holds; copied, never dereferenced. Returns
 	/// true when @a state is such a popup, even one that holds nothing.
 	static bool coopHeldTargets(State* state, std::vector<Target*>& out);
-	/// coop W2-H83 S-C: the crafts a geoscape window or notice holds - the INTERCEPT list, a destination pick, list or confirm,
+	/// coop: the crafts a geoscape window or notice holds - the INTERCEPT list, a destination pick, list or confirm,
 	/// a patrol, dogfight, landing, Cydonia or pilots notice (in SHARED: the crafts of every base); copied, never dereferenced. Returns
 	/// true when @a state is one of those nine windows, even one that holds nothing.
 	static bool coopHeldCrafts(State* state, std::vector<Target*>& out);

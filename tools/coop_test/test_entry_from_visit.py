@@ -33,7 +33,7 @@ NEEDLES = {"UNWIND": "[coop] W2-H74: battle entry from a view of the host's base
 CELLS = {"V": ["V-pre", "V-entry", "V-snap", "V-log", "V-marker", "V-funds", "V-exp", "V-inside", "V-pushed", "V-copy", "V-save", "V-return",
                "V-common"],
          "G": ["G-pre", "G-snap", "G-own", "G-copy", "G-common"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

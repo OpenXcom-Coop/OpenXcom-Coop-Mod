@@ -58,7 +58,7 @@ private:
 	int _depth, _groundSlotsX, _groundSlotsY;
 	int _xMax;
 	RuleInventory *_inventorySlotRightHand = nullptr;
-	std::vector<int> _coopDrawnItems; // coop EQ-2 S-D (DT1): TEST-ONLY - the soldier items the last drawItems() pass drew
+	std::vector<int> _coopDrawnItems; // coop: TEST-ONLY - the soldier items the last drawItems() pass drew
 	RuleInventory *_inventorySlotLeftHand = nullptr;
 	RuleInventory *_inventorySlotBackPack = nullptr;
 	RuleInventory *_inventorySlotBelt = nullptr;
@@ -129,8 +129,8 @@ public:
 	static bool overlapItems(BattleUnit *unit, BattleItem *item, const RuleInventory *slot, int x = 0, int y = 0);
 	/// Shows a warning message.
 	void showWarning(const std::string &msg);
-	WarningMessage* getWarning() const { return _warning; } // W2-P8b S-A.1 (Q15 a): read-only, the message line
-	/// coop EQ-2 S-D (docs rewrite/prompts/eq2d_held_drawn.md DT1b): TEST-ONLY, read-only - the ids of the soldier items the last
+	WarningMessage* getWarning() const { return _warning; } // read-only, the message line
+	/// coop: TEST-ONLY, read-only - the ids of the soldier items the last
 	/// drawItems() pass drew on the paperdoll (TestServer inventory_view `drawnSlots`). Never read by game logic.
 	const std::vector<int>& getCoopDrawnItems() const { return _coopDrawnItems; }
 	/// Animate surface.

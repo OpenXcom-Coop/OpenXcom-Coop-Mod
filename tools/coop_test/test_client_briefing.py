@@ -1,4 +1,4 @@
-"""W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9): the client runs a
+"""the client runs a
 READ-ONLY BriefingState on battle entry, so its flow converges on the host's -
 briefing -> map.
 

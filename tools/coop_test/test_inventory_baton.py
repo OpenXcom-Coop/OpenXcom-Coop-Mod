@@ -1,4 +1,4 @@
-"""W2-P8 S-C1 - test_inventory_baton.py: traditional mode, the in-battle
+"""test_inventory_baton.py: traditional mode, the in-battle
 inventory and the baton (owner D130: the baton holder moves items in its own
 soldiers' inventory; the other player may open its own soldiers' inventory to
 LOOK, and every placement is refused with "Not your turn - waiting for <name>",
@@ -93,7 +93,7 @@ IB4_TILE = (0, 34, 0)             # P8-2 T0-1 IV2 tile
 IB2_TILE = (1, 33, 0)             # P8-2 T0-1 IV4 tile
 IB3_H_TILE = STAGE_H              # P8-2 T0-1 STAGE_H (48,24,0)
 H_TU_MAX = 58
-IB5_LETTERS = (("x", 120),)       # W2-P8 S-R: draft section 2.6 IB5 "types one letter" (T0-R2's first letter)
+IB5_LETTERS = (("x", 120),)       # draft section 2.6 IB5 "types one letter" (T0-R2's first letter)
 PASS_WAIT_S = 10.0               # T0-5: the baton 0 -> 1 on both within 0.1 s of the host's END TURN
 CLICK_WAIT_S = 2.0
 ORDER_TIMEOUT_S = 20

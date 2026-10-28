@@ -120,9 +120,9 @@ void TransferConfirmState::btnOkClick(Action *)
 	// runs in SHARED.
 	if (_game->getCoopMod()->isSharedCampaign())
 	{
-		const bool coopKeep = _state->submitSharedTransfer(); // coop (W2-P7 S-C-D2, P7-7 PR-30, MR10)
+		const bool coopKeep = _state->submitSharedTransfer(); // coop
 		_game->popState();
-		if (coopKeep) return; // coop (W2-P7 S-C-D2, PR-30): the Transfer screen waits for the host's answer
+		if (coopKeep) return; // coop: the Transfer screen waits for the host's answer
 		_game->popState();
 		_game->popState();
 		return;

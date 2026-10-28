@@ -1,4 +1,4 @@
-"""W2-P2 S-A - test_delta_core.py: every host event carries the tile state
+"""test_delta_core.py: every host event carries the tile state
 that changed since the previous event (spec rewrite/prompts/w2p2_delta_core.md
 section (f) "test_delta_core.py (S-A)", orchestrator rulings Q1 = (c) and
 Q4 = (b), amendment A1; owner ruling D128 = (b)).
@@ -472,7 +472,7 @@ def sa_drop(host, client, ctx):
     before = {"host": probes(host), "client": probes(client)}
     st = set_tile_both(host, client, C15_FIRE_TILE_2, fire=1)
     t0h, t0c = tile(host, C15_FIRE_TILE_2), tile(client, C15_FIRE_TILE_2)
-    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: SA-DROP's PASS is the desync itself
+    host.ok({"cmd": "resync_hold", "on": True})  # SA-DROP's PASS is the desync itself
     rd = host.cmd({"cmd": "delta_drop_next", "class": "tiles"})
     if not rd.get("ok"):
         notes.append(f"delta_drop_next on the host: {rd}")

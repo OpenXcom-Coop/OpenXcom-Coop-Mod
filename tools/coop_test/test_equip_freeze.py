@@ -193,7 +193,7 @@ def main():
         # synthetic shortcut - which is the whole point: the equip entry lives
         # inside it.
         #
-        # W2-P8b S-H: the coop blob snapshot and the battle_offer
+        # the coop blob snapshot and the battle_offer
         # now go out at PREPARE (newbattle_ok), at turn 0, so the client's own
         # entry briefing is up BEFORE the host closes its briefing.
         client.wait_for("client entry briefing (both briefings at once, D210 b)",

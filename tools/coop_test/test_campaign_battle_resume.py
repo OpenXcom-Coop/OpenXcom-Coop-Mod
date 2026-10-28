@@ -1,4 +1,4 @@
-"""D250-U S-C4b - test_campaign_battle_resume.py: a gm3 PvP campaign battle (host = the aliens, client = X-COM) that the alien host
+"""test_campaign_battle_resume.py: a gm3 PvP campaign battle (host = the aliens, client = X-COM) that the alien host
 saves while it borrows the X-COM player's world. The save is the alien host's own campaign with the X-COM world and its battle embedded
 (a header record of the borrow), and its resume borrows the X-COM world again: both players are back in the battle, the X-COM win
 returns the results to the X-COM player's world and takes the alien host home to its own world, as after an unsaved battle.

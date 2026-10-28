@@ -1,4 +1,4 @@
-"""D249-U S-A - test_follow_camera.py: `main`'s per-player option "Follow Teammate Actions with Camera"
+"""test_follow_camera.py: `main`'s per-player option "Follow Teammate Actions with Camera"
 (`coopFollowPeerActions`) comes back, default OFF (D131 stays the default); with it ON a machine's camera follows the
 co-op partner's soldiers as it follows an alien in the alien turn (owner D249 (a); D171 (a); QD249-1..9 (a)).
 

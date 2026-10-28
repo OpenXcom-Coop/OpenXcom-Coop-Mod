@@ -1,5 +1,5 @@
-"""D247-U S-B - hotseat with REACT FIRE off (the default): no walk draws reaction fire, on either player's turn, and the
-main menu disarms HOTSEAT (owner D247 (a); OH1 (a) = D276 (a); QD247-11, QD247-12 (a); VL-D247-3, VL-D247-7). Boot B2.
+"""hotseat with REACT FIRE off (the default): no walk draws reaction fire, on either player's turn, and the
+main menu disarms HOTSEAT. Boot B2.
 
 Spec: docs rewrite/prompts/d247u_hotseat_battle.md, (d) Stage S-B and (f) `test_hotseat_react_off.py`. Pins: docs
 rewrite/d247u-task0/sb/CONSTANTS.md (TASK 0 boots Bc / Bd on the S-A green build; every S54 swap is logged there).

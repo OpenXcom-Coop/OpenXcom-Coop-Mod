@@ -48,7 +48,7 @@ private:
 	TextList *_lstSoldiers;
 
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _craft, _savedScrollPosition;
 	std::vector<Soldier *> _origSoldierOrder;
 	/// Playtest: soldiers this player may SEE (SHARED: own only), non-destructive copy.

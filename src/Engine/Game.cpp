@@ -51,7 +51,7 @@
 #include "../CoopMod/CrashHandler.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/TestServer.h" // coop test automation
-#include "../CoopMod/CoopArbiter.h" // coop (W2-P8 S-C2): the covered-battle driver
+#include "../CoopMod/CoopArbiter.h" // coop: the covered-battle driver
 #include "../CoopMod/connectionUDP/connection_udp_glue.h" // coop UDP transport (shutdown)
 
 namespace OpenXcom
@@ -201,7 +201,7 @@ void Game::run()
 			CRASH_LOG(msg);
 		}
 
-		// coop W2-H83 S-B2: a removal the drain above applied closes the screens that still show that base, before
+		// coop: a removal the drain above applied closes the screens that still show that base, before
 		// any of them runs init(), handle() or think()
 		coopCloseGoneBaseHolders();
 
@@ -445,7 +445,7 @@ void Game::run()
 		if (runningState != PAUSED)
 		{
 			// Process logic
-			coopCloseGoneBaseHolders(); // coop W2-H83 S-B2: a dialog closed above a screen whose base is gone - close it before its think()
+			coopCloseGoneBaseHolders(); // coop: a dialog closed above a screen whose base is gone - close it before its think()
 			_states.back()->think();
 			coopThinkCoveredBattle(this); // coop (W2-P8 S-C2, D166 B): a covered host battle keeps running the partner's action
 			_fpsCounter->think();
@@ -626,7 +626,7 @@ void Game::popState()
 }
 
 /**
- * coop W2-H83 S-B2 (docs rewrite/prompts/w2h83_sb2_more_guards.md F4; R-LBH3-1, R-H83-2): in a co-op world, is @a base gone from the
+ * coop: in a co-op world, is @a base gone from the
  * live base list? Pointers are compared, never dereferenced, so a freed base may be passed. Single player, no world, a null base: never.
  */
 bool State::coopBaseGone(const Base *base)
@@ -646,7 +646,7 @@ bool State::coopBaseGone(const Base *base)
 	return true;
 }
 
-/// coop W2-H83 S-B2: coopBaseGone for any base of a list (a null entry is never gone).
+/// coop: coopBaseGone for any base of a list (a null entry is never gone).
 bool State::coopBasesGone(const std::vector<Base*> &bases)
 {
 	for (const Base *base : bases)
@@ -659,7 +659,7 @@ bool State::coopBasesGone(const std::vector<Base*> &bases)
 	return false;
 }
 
-/// coop W2-H83 S-B2: the default close of a screen whose base is gone - a plain pop, as the eleven SHARED base screens do.
+/// coop: the default close of a screen whose base is gone - a plain pop, as the eleven SHARED base screens do.
 void State::coopCloseGoneBase()
 {
 	_game->popState();
@@ -697,7 +697,7 @@ void Game::setSavedGame(SavedGame *save)
 }
 
 /**
- * coop D250-U S-C1 (owner D250, O1 (a)): replaces the saved game without deleting the old one - the gm3 PvP alien host
+ * coop: replaces the saved game without deleting the old one - the gm3 PvP alien host
  * parks its own world while it runs a battle in the X-COM player's world.
  * @param save The new saved game.
  * @return The previous saved game (the caller owns it).

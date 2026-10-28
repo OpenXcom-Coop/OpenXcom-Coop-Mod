@@ -1,4 +1,4 @@
-"""W2-P2 S-C - test_host_combat.py: the host's own combat runs as proper
+"""test_host_combat.py: the host's own combat runs as proper
 actions with cue events, so the second player sees a clean start and end
 (spec rewrite/prompts/w2p2_delta_core.md section (f) "test_host_combat.py
 (S-C)", sections (b)11-14 and (b)16; orchestrator rulings Q2 = (a) and
@@ -49,7 +49,7 @@ ONE boot, in this order:
       The lever runs on an empty host state stack, so C's UnitDieBState is the
       host's front state and C2's queues behind it (TASK 0b T0b-2: host evs
       exactly D3_EVS, the D3_DEATHS / D3_CORPSES payloads, 6 runs identical).
-      W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798/F1800): the CLIENT's test-only
+      the CLIENT's test-only
       battle_action death_apply_hold {on: true} before the lever ({on: false}
       after the row) forces the race order - C's ghost has started when C2's
       death is enqueued - in every run, and seq 21's record (seq 16 before
@@ -122,7 +122,7 @@ too: set_seed SEED_ROSTER on the HOST immediately before its open_new_battle
 raw.bring_up_lobby unchanged - then session.drive_to_battlescape with the
 mission pin and set_seed SEED_MAP right before newbattle_ok, the baked MAP_FP
 asserted on both, session.pin_ai_neutral. Every lever pair applies to the
-CLIENT first, then the HOST (F607, S-H.1a), with the responses asserted equal;
+CLIENT first, then the HOST, with the responses asserted equal;
 every item a lever creates is created on both machines with ids asserted
 equal. set_seed on the HOST immediately before each action.
 every lever pair ends with staging_settled() - the client has applied every ev
@@ -205,8 +205,8 @@ DEATH_F = 3                      # deathFrames of SECTOID_ARMOR0 and STR_NONE_UC
                                  # machines, terror seed 1 and the default map; F1768)
 SECTOID_DEATH_SOUNDS = [10]      # battle_state deathSounds of A and A2 (T0b-3, equal on both machines)
 SOLDIER_DEATH_SOUNDS = [41, 42, 43]   # every soldier of the pinned roster: C, C2, H, U (T0b-3, both machines)
-NO_SOUND = -1                    # a stun's record sound: the host plays none (N6 = F1655)
-OVERKILL_NONE = 0                # getOverKillDamage() after C1, C5 and the D3 lever deaths (T0b-1, T0b-3, F1767)
+NO_SOUND = -1                    # a stun's record sound: the host plays none
+OVERKILL_NONE = 0                # getOverKillDamage() after C1, C5 and the D3 lever deaths
 DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (D1, D2)
 PHASES_ALL = list(range(DEATH_F))        # [0, 1, 2]: every collapse frame drawn
 C1_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # T0b-1 (seq 7; 12 since S-A)
@@ -248,7 +248,7 @@ CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targe
 CUE_KINDS = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse", "prime", "sync", "fall",
              "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
 COMBAT_CUES = tuple(k for k in CUE_KINDS if k != "sync")
-C1_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-shot turn
+C1_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
 C5_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
 LOG_TAIL = 256                   # CoopEventLog::kCapacity
 
@@ -437,7 +437,7 @@ def cue_delta(before, after):
     return {k: (after.get(k) or 0) - (before.get(k) or 0) for k in keys if (after.get(k) or 0) != (before.get(k) or 0)}
 
 
-# ===================== W2-P6b S-D: the death records =====================
+# ===================== the death records =====================
 
 # The host's own coopEmitCue log line (connectionTCP.cpp): `[coop-cue] <kind> seq <n> actionId <a>: <payload>`.
 CUE_RE = re.compile(r"\[coop-cue\] (\S+) seq (\d+) actionId (\d+): (\{.*\})\s*$", re.M)
@@ -469,7 +469,7 @@ def cue_payloads(host, seqs, timeout=5.0):
 
 
 def display_two(gc):
-    """event_state displayTwo (W2-P6b S-D.1) of this machine ({} when absent)."""
+    """event_state displayTwo of this machine ({} when absent)."""
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
     return es.get("displayTwo") or {}
@@ -686,7 +686,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
     return fails
 
 
-# ===================== W2-P6b S-E: the effect records =====================
+# ===================== the effect records =====================
 # Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows E1-E6, as ruled by
 # AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (E1 on C5), test_client_melee_psi (E1 on C21, E2 on
 # C22, the C23d rngSeed guard), test_psi (E2), test_client_items (E3), test_client_grenade (E4) and
@@ -759,7 +759,7 @@ def effect_rules(host, client, types):
 
 
 def pick_ok(got, ids):
-    """A sound picked from the raw list `ids` (F1512 / V4): -1 for an empty list (vanilla plays none), the id for a
+    """A sound picked from the raw list `ids`: -1 for an empty list (vanilla plays none), the id for a
     one-id list, one of the ids otherwise."""
     if not ids:
         return got == NO_SOUND
@@ -959,7 +959,7 @@ def sound_row(tag, host, client, snap0, kind, wants, extra=None):
     return fails
 
 
-# ===================== W2-P6a S-C: the camera probe (rows KR1-KR6, KR1h) =====================
+# ===================== the camera probe (rows KR1-KR6, KR1h) =====================
 # Spec rewrite/prompts/w2p6_display_two.md, P6a pinned stage text (c) as corrected by AMENDMENTS P6-5 section 4 and
 # P6-6 section 5. event_state `camera` (commit S-C.1, both machines): {offset {x, y, z} (the
 # live Map's Camera::getMapOffset, z = the view level), viewLevel, follow, moves [the CLIENT's camera-move records
@@ -1331,7 +1331,7 @@ def d3_burst(host, client, ctx):
     interval C's pirouette left (Is 100). Client: V1 = C {startedAfterSeq 0, Is 33, 7 octants}, V2 = C2
     {startedAfterSeq = V1's seq, Is 100, 2 octants}; both set the Map's dying flag (player victims), V1's release
     clears it (V2's then finds it cleared); both end "out" at their own corpse ev.
-    W2-P6b S-D.3 (AMENDMENT P6b-4, F1798/F1800): the client's death_apply_hold lever is on from before the kill
+    the client's death_apply_hold lever is on from before the kill
     lever to the end of the row, so V1 has started when V2 is enqueued in every run (the race order);
     V2's record headStartedAtEnqueue must be true."""
     notes = []
@@ -1349,7 +1349,7 @@ def d3_burst(host, client, ctx):
     snap_d = death_snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     tops0 = (top(host), top(client))
-    # S-D.3 (AMENDMENT P6b-4): the client's test-only hold, on before the kill lever
+    # S-D.3: the client's test-only hold, on before the kill lever
     hold_on = client.cmd({"cmd": "battle_action", "action": "death_apply_hold", "on": True})
     k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": 1})
     try:
@@ -1389,7 +1389,7 @@ def d3_burst(host, client, ctx):
              "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": s1, "overKill": OVERKILL_NONE, "endedBy": "out",
              "unitDyingSet": True, "unitDyingCleared": False, "headStartedAtEnqueue": True}])
     finally:
-        # S-D.3 (AMENDMENT P6b-4): the client's hold off after the row
+        # S-D.3: the client's hold off after the row
         hold_off = client.cmd({"cmd": "battle_action", "action": "death_apply_hold", "on": False})
     fails = list(notes)
     if hold_on.get("ok") is not True or hold_on.get("on") is not True:
@@ -1483,7 +1483,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-D: coopGhostStepper pinned true in both instances (the D rows need the client's death ghosts)
+    # coopGhostStepper pinned true in both instances (the D rows need the client's death ghosts)
     host = GameClient("host", 49846, make_user_dir("w2p2_host_combat_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49847, make_user_dir("w2p2_host_combat_client",
                                                        options={"coopGhostStepper": True}))

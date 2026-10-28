@@ -1,4 +1,4 @@
-"""W2-P4 S-E4 - test_client_pvp.py (C25): in a PvP battle (gm2, the second
+"""test_client_pvp.py (C25): in a PvP battle (gm2, the second
 player on the Alien team) the second player orders its own alien on its own
 (hostile) side, and the host checks and runs the order (spec
 rewrite/prompts/w2p4_client_combat_intents.md section (f)
@@ -327,7 +327,7 @@ def leg_walk(host, client, notes):
 
 def leg_shot(host, client, notes):
     """Leg S: the client's real-UI snap of A at S."""
-    # W2-P6a S-C.3 row KR7s (ruling SC3-2, F4209): A back on A_TILE facing S (both machines, client first; only when
+    # W2-P6a S-C.3 row KR7s: A back on A_TILE facing S (both machines, client first; only when
     # leg W moved it, never onto its own tile), so the snap needs no turn
     a = units(host).get(A_ID) or {}
     reface = (tele_both(host, client, A_ID, A_TILE, A_DIR) if upos(a) != A_TILE
@@ -395,7 +395,7 @@ def c25_pvp(host, client, ctx):
     if fails:
         print(f"EVIDENCE C25: entry={ctx['entry']} stage={stage} notes={notes}", flush=True)
         finish(fails)
-    # W2-P6a S-M row QR1 (F1219, OR6 (a)): the client's banner on its own side, read before leg W's order
+    # W2-P6a S-M row QR1: the client's banner on its own side, read before leg W's order
     qr1 = stage["sides"]["client"]["banner"]
     # ---- leg W: the negative control ----
     notes_w = []
@@ -424,9 +424,9 @@ def c25_pvp(host, client, ctx):
           f"client={ubrief(rs['uc'].get(A_ID))}; soldier host={ubrief(rs['uh'].get(S_ID))} "
           f"client={ubrief(rs['uc'].get(S_ID))}; after={s['after']} sideTransitions={s['st']}; diff={rs['diff']} "
           f"desync={rs['dsc']}; notes={notes_s}", flush=True)
-    kr7 = kr7_fails(w, s, shots)   # W2-P6a S-C.3 row KR7 (SC-5, F4163; owner D131)
+    kr7 = kr7_fails(w, s, shots)   # W2-P6a S-C.3 row KR7
     fails = []
-    # W2-P6a S-M row QR1 (F1219, OR6 (a)): no stale entry notice once the seat commands a selected unit
+    # W2-P6a S-M row QR1: no stale entry notice once the seat commands a selected unit
     if qr1 != "":
         fails.append(f"QR1: the client's coopWaitText {qr1!r} on its own side with A selected (want '': the "
                      f"spectator entry notice clears at the seat's first own-side side_begin, F1219 / OR6 (a))")

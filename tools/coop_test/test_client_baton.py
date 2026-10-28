@@ -1,4 +1,4 @@
-"""W2-P4 S-E3 - test_client_baton.py (C24): the turn check (the baton) on
+"""test_client_baton.py (C24): the turn check (the baton) on
 every combat order the second player gives, on its own machine AND on the host
 (spec rewrite/prompts/w2p4_client_combat_intents.md section (f)
 "test_client_baton.py (S-E; traditional)", sections (b)10 and Q2, as amended

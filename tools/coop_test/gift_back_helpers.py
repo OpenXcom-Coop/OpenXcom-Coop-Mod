@@ -1,6 +1,6 @@
 """Shared helpers of the W2-H70 stage S-D tests test_gift_back.py (rows R16, R16H) and test_gift_twice_stored.py (row R17); spec docs
 rewrite/prompts/w2h70_sd_gift_back.md (f) and Appendix B; TASK 0 rewrite/w2h70-task0/sd/CONSTANTS.md; leads L-H70B-1 and L-H70-3;
-ruling R-H70D-0, QH70D-1 .. QH70D-8 (a); R-H70-2 (one non-test helper module); the tests' dirs w2h70d_<row>_*. W2-H70 stage S-D:
+ruling R-H70D-0, QH70D-1 .. QH70D-8 (a); R-H70-2 (one non-test helper module); the tests' dirs w2h70d_<row>_*.
 in a SEPARATE co-op campaign a soldier received while viewing the giver's base and given straight back before the leave ends with its giver
 only, and the host's stored copy of the visiting client's world holds every soldier the client received. Imports gift_display_helpers.py (HB,
 which imports gift_helpers.py, GH)

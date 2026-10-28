@@ -92,7 +92,7 @@ def drive_to_gm2_battlescape(host, client):
         f"offered: {r.get('missionTypes')}")
 
     host.ok({"cmd": "newbattle_ok"})
-    # W2-P8b S-H: the shared battle-entry spine (both briefings, the host's
+    # the shared battle-entry spine (both briefings, the host's
     # pre-battle equip screen - the alien seat has nothing to equip - and both
     # Turn-1 screens).
     session.briefings_to_battlescape(host, client)

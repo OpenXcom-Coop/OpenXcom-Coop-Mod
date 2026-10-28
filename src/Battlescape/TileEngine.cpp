@@ -1968,7 +1968,7 @@ bool TileEngine::isTileInLOS(BattleAction *action, Tile *tile, bool drawing)
 	std::vector<Position> _trajectory;
 	bool seen = false;
 
-	bool forceFire = coopForceFirePressed(_save) && _save->getSide() == FACTION_PLAYER; // W2-P4 S-E1 (F423 F4): a partner's order carries its own key
+	bool forceFire = coopForceFirePressed(_save) && _save->getSide() == FACTION_PLAYER; // a partner's order carries its own key
 
 	// Primary LOF check
 	if (forceFire)

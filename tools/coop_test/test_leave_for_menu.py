@@ -9,7 +9,7 @@ SLIDESHOW_S is a guard. Both stacks are polled every POLL_S from the OK to the r
 A main-menu cell is a bare ['MainMenuState'] read that is still bare SETTLE_S later (every poll between, F10505). A
 keyCancel is a real SDL key (inject_input key 27 -> SlideshowState::screenSkip).
 
-  LM1  the partner leaves during the host's ending (C1, F10501). +SKIP_AT_S after the OK: client keyCancel. Cells: the
+  LM1  the partner leaves during the host's ending. +SKIP_AT_S after the OK: client keyCancel. Cells: the
        client on a bare main menu; at +CHECK_AT_S the host's top is SlideshowState; no LobbyMenu on the host at any
        poll; the host log has the W2-H25 line naming GoToMainMenuState; then host keyCancel -> the host on a bare
        main menu; no new crash file; both alive.

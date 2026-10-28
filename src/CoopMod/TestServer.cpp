@@ -76,7 +76,7 @@
 #include "../Geoscape/CraftPatrolState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Ufopaedia/ArticleState.h"
-#include "../Ufopaedia/Ufopaedia.h" // W2-P8 S-D2: the pedia_state probe
+#include "../Ufopaedia/Ufopaedia.h" // the pedia_state probe
 #include "../Ufopaedia/UfopaediaStartState.h"
 #include "../Ufopaedia/UfopaediaSelectState.h"
 #include "../Ufopaedia/StatsForNerdsState.h"
@@ -90,21 +90,21 @@
 #include "../Battlescape/AbortMissionState.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../Battlescape/AliensCrashState.h"
-#include "../Battlescape/PromotionsState.h"       // W2-P7 S-C-C.1: followup_state
-#include "../Battlescape/CommendationState.h"     // W2-P7 S-C-C.1: followup_state
-#include "../Battlescape/CommendationLateState.h" // W2-P7 S-C-C.1: followup_state
-#include "../Battlescape/CannotReequipState.h"    // W2-P7 S-C-C.1: followup_state
+#include "../Battlescape/PromotionsState.h"       // followup_state
+#include "../Battlescape/CommendationState.h"     // followup_state
+#include "../Battlescape/CommendationLateState.h" // followup_state
+#include "../Battlescape/CannotReequipState.h"    // followup_state
 #include "../Battlescape/Pathfinding.h"
 #include "../Battlescape/UnitWalkBState.h"
 #include "../Battlescape/UnitTurnBState.h"
 #include "../Battlescape/ProjectileFlyBState.h"
 #include "../Battlescape/PsiAttackBState.h"
-#include "../Battlescape/MeleeAttackBState.h" // W2-P4 S-C.1: battle_fire mode melee
+#include "../Battlescape/MeleeAttackBState.h" // battle_fire mode melee
 #include "../Battlescape/Position.h"
 #include "../Battlescape/Map.h"
 #include "../Battlescape/Camera.h"
-#include "../Battlescape/Explosion.h" // W2-P6b S-E.1: display_rules constants HIT_FRAMES
-#include "../Battlescape/WarningMessage.h" // W2-P8b S-A.1: inventory_view lineText / lineVisible
+#include "../Battlescape/Explosion.h" // display_rules constants HIT_FRAMES
+#include "../Battlescape/WarningMessage.h" // inventory_view lineText / lineVisible
 #include "../Interface/Cursor.h" // W2-H27 (test-only, QH27-3): battle_state cursorVisible
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
@@ -124,7 +124,7 @@
 #include "../Savegame/ResearchProject.h"
 #include "../Savegame/Production.h"
 #include "../Savegame/SavedBattleGame.h"
-#include "../Savegame/HitLog.h" // W2-P6b S-L.1: battle_state `hitLog` reads the battle's HitLog
+#include "../Savegame/HitLog.h" // battle_state `hitLog` reads the battle's HitLog
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/GeoscapeEvent.h"
 #include "../Mod/RuleEvent.h"
@@ -134,15 +134,15 @@
 #include "../Savegame/Region.h" // geo_event_probe
 #include "../Mod/RuleRegion.h"  // geo_event_probe
 #include "../Mod/City.h"        // geo_event_probe
-#include "../Mod/RuleInterface.h" // W2-P7 S-C-E2.1: screen_rows highlightColor (P7-8 PR-51)
-#include "../Savegame/SoldierDiary.h"         // W2-P7 S-C-A.1: soldier_record
-#include "../Savegame/SoldierDeath.h"         // W2-P7 S-C-A.1: soldier_record
-#include "../Savegame/MissionStatistics.h"    // W2-P7 S-C-A.1: soldier_record
-#include "../Savegame/BattleUnitStatistics.h" // W2-P7 S-C-A.1: soldier_record
+#include "../Mod/RuleInterface.h" // screen_rows highlightColor (P7-8 PR-51)
+#include "../Savegame/SoldierDiary.h"         // soldier_record
+#include "../Savegame/SoldierDeath.h"         // soldier_record
+#include "../Savegame/MissionStatistics.h"    // soldier_record
+#include "../Savegame/BattleUnitStatistics.h" // soldier_record
 #include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/Tile.h"
-#include "../Savegame/Node.h" // W2-P2 S-H.1: field_poke's node `type` row
+#include "../Savegame/Node.h" // field_poke's node `type` row
 #include "../Battlescape/TileEngine.h"
 // R2-P11: corrupt_bucket's terrain-bucket poke needs a MapData* to install
 // via Tile::setMapData - the same SavedBattleGame::load()-precedent lookup
@@ -233,7 +233,7 @@
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
 #include "CoopState.h"
-// R2-P11 (SPIKE-RUNBOOK.md RB-D26/RB-D32): the rewrite-spike battle-lane
+// R2-P11: the rewrite-spike battle-lane
 // introspection surface below needs the real APIs it reports on.
 #include "BattleAuthority.h"
 #include "BattlePump.h"
@@ -247,25 +247,25 @@
 #include "CoopGhost.h" // event_state's ghostEnqueued/ghostCompleted/ghostQueueDepth
 #include "CoopEndTurn.h" // battle_end_turn_ready lever + event_state's coopEndTurn* fields
 #include "CoopSpeed.h" // event_state's speed + three set_option arms
-#include "CoopDelta.h" // W2-P2 S-A: event_state's delta probes + the delta_drop_next lever
-#include "CoopIdMaps.h" // W2-P2 S-B: item levers register/forget their ids (spec (b)15)
+#include "CoopDelta.h" // event_state's delta probes + the delta_drop_next lever
+#include "CoopIdMaps.h" // item levers register/forget their ids (spec (b)15)
 #include "CoopBattleSetup.h"
-#include "CoopSyncedOptions.h" // W2-P9 S-A.1: synced_options_state + the three synced-option levers
+#include "CoopSyncedOptions.h" // synced_options_state + the three synced-option levers
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
 #include "../Interface/DisableableComboBox.h"
 #include "../Interface/Text.h"
-#include "../Interface/TextList.h" // W2-P7 S-B1.1: the debrief_state probe reads the DebriefingState lists
+#include "../Interface/TextList.h" // the debrief_state probe reads the DebriefingState lists
 #include "../Interface/TextButton.h"
-#include "../Menu/OptionsAdvancedState.h" // W2-P9 S-B.1: the `advanced` view of synced_options_state (PR-13)
-#include "../Interface/BattlescapeButton.h" // W2-P4 S-E2.1b: map_tile_click_pos special-action buttons
+#include "../Menu/OptionsAdvancedState.h" // the `advanced` view of synced_options_state (PR-13)
+#include "../Interface/BattlescapeButton.h" // map_tile_click_pos special-action buttons
 #include "../Engine/InteractiveSurface.h"
 
 namespace OpenXcom
 {
 
-// coop W2-H58 S-B (docs rewrite/prompts/w2h58_sb_rx_buffer.md (e) EB0; F18489): connectionTCP.cpp's inbound blob buffer
+// coop: connectionTCP.cpp's inbound blob buffer
 // (OpenXcom::mapData, TCP :229), read only by get_coop.rxBufferBytes below.
 extern std::string mapData;
 
@@ -960,7 +960,7 @@ void TestServer::pump()
 			_outbox.push_back(resp);
 		}
 	}
-	armKeyTick(_game); // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key, see its own comment
+	armKeyTick(_game); // TEST-ONLY battle_arm_key, see its own comment
 	if (g_u7ArmArmed) // TEST-ONLY dismiss_arm, see its comment above pump()
 	{
 		const State* u7Top = _game->getStates().empty() ? nullptr : _game->getStates().back();
@@ -1116,7 +1116,7 @@ static Json::Value soldierToJson(Soldier* s)
 }
 
 // set_soldier_owner's not-found diag - every base roster in order, the dead list and the
-// battle's player units. Read-only; file-static so execute() gains one nesting level only (C1061, F3573).
+// battle's player units. Read-only; file-static so execute() gains one nesting level only.
 static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
 {
 	std::ostringstream ss;
@@ -1199,7 +1199,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop W2-H81 (docs rewrite/prompts/w2h81_popup_mirror_uaf.md P13; R-LH76-1-1): TEST INTROSPECTION, read-only, safe after a co-op
+	// coop: TEST INTROSPECTION, read-only, safe after a co-op
 	// mirror was deleted under a geoscape popup: every pointer a popup holds (GeoscapeState::coopHeldTargets) is compared with the live
 	// lists, never dereferenced. Response {ok, holders, dangling, mirror, queued, queuedDangling}: holders = states on the stack that hold
 	// a target; dangling = those holding one in no live list (UFOs, mission sites, alien bases, waypoints, bases and their crafts);
@@ -1295,7 +1295,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop W2-H76 (docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md P4; R-BH4-1): TEST INTROSPECTION, read-only, safe after a dogfight's
+	// coop: TEST INTROSPECTION, read-only, safe after a dogfight's
 	// UFO was deleted: it never dereferences a dogfight's UFO ("dogfight_state" does). Response {ok, count, pending, minimized,
 	// dangling, danglingPending, danglingSeen} (GeoscapeState::harnessDanglingDogfights / harnessDanglingDogfightsSeen).
 	if (cmd == "dogfight_ufo_check")
@@ -1322,7 +1322,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop W2-H65 (docs rewrite/prompts/w2h65_mirror_name_rollback.md P0; F19214, F19340-F19359): TEST INTROSPECTION, read-only. The
+	// coop: TEST INTROSPECTION, read-only. The
 	// geoscape globe's view (centre, zoom, rectangle) and, for a lon / lat, its screen point (base coordinates) and whether it is land, so
 	// a test clicks a land point or a base marker as a player does. "centerLon" / "centerLat" move the view only, never the game state.
 	if (cmd == "globe_point")
@@ -1373,7 +1373,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		resp["starterSeat"] = vote.starterSeat;
 		resp["localSeat"] = connectionTCP::localSeat();
 		resp["remainingMs"] = Json::UInt(vote.remainingMilliseconds());
-		resp["noDeadline"] = vote.noDeadline; // R4-L1 (P8)
+		resp["noDeadline"] = vote.noDeadline;
 		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
 		resp["votes"] = Json::arrayValue;
 		for (int value : vote.votes)
@@ -1490,11 +1490,11 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		}
 
 		VoteSession probe;
-		probe.start(1, req.get("action", "probe").asString(), "PROBE", "Probe?", players, names, starter); // R4-L1 (P8)
+		probe.start(1, req.get("action", "probe").asString(), "PROBE", "Probe?", players, names, starter);
 		resp["defaultTimeoutMs"] = Json::UInt(VoteSession::DEFAULT_TIMEOUT_MS);
 		resp["remainingMs"] = Json::UInt(probe.remainingMilliseconds());
 		resp["timedOutAtDeadline"] = probe.timedOut(probe.deadlineTicks);
-		resp["noDeadline"] = probe.noDeadline; // R4-L1 (P8)
+		resp["noDeadline"] = probe.noDeadline;
 		resp["accepted"] = Json::arrayValue;
 		if (req.isMember("casts") && req["casts"].isArray())
 		{
@@ -2221,7 +2221,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "resync_state")
 	{
-		// coop R4-L3 (docs rewrite/prompts/r4l3_desync_resync.md): the automatic desync repair's probe record (read only).
+		// coop: the automatic desync repair's probe record (read only).
 		resp["resync"] = coopResyncRecord();
 		resp["ok"] = true;
 	}
@@ -2376,8 +2376,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		resp["applyCount"] = Json::Value::UInt64(st.apply);
 		resp["unknownCount"] = Json::Value::UInt64(st.unknown);
 		resp["lastFail"] = SharedEcon::lastFailReason();
-		resp["applyQueued"] = SharedEcon::applyQueueDepth(); // W2-P7 S-C-A.1 (P7-6): the replica's queued shared_apply count
-		resp["applyHold"] = SharedEcon::applyHoldOn(); // W2-P7 S-C-D2.1 (P7-7 PR-35): the replica's PR-6 apply hold
+		resp["applyQueued"] = SharedEcon::applyQueueDepth(); // the replica's queued shared_apply count
+		resp["applyHold"] = SharedEcon::applyHoldOn(); // the replica's PR-6 apply hold
 		resp["ok"] = true;
 	}
 	else if (cmd == "shared_reset_stats")
@@ -3260,7 +3260,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else
 		{
-			coop->coopPvpSaveWorld(file); // coop D250-U S-C4b: the save funnel (a borrowed gm3 battle writes the alien host's own world as the body)
+			coop->coopPvpSaveWorld(file); // coop: the save funnel (a borrowed gm3 battle writes the alien host's own world as the body)
 			resp["ok"] = true;
 		}
 	}
@@ -3801,7 +3801,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (name == "coopGhostStepper")
 		{
-			// W1-P12 (ruling D-3 = WV-D27/WV-D49): the S3 ghost stepper toggle.
+			// the S3 ghost stepper toggle.
 			// Same round-trip shape as every lever above - "value" is OPTIONAL
 			// (omit it for a pure read) and the response echoes the LIVE
 			// Options:: global read back AFTER the (possible) write.
@@ -4174,7 +4174,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				Json::Value j;
 				j["id"] = ab->getId();
 				j["discovered"] = ab->isDiscovered();
-				j["coopId"] = ab->_coop_alienbase_id; // coop D250-U S-C5a: read-only probe fields
+				j["coopId"] = ab->_coop_alienbase_id; // coop: read-only probe fields
 				j["coop"] = ab->_coop;
 				j["race"] = ab->getAlienRace();
 				j["inBattlescape"] = ab->isInBattlescape();
@@ -4671,7 +4671,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
-// W2-P2 S-B (spec (b)15): a TEST LEVER created or wrote @a item on THIS machine
+// a TEST LEVER created or wrote @a item on THIS machine
 // (the harness applies item levers to BOTH machines). HOST: absorbed into the
 // delta snapshot, so the lever write never rides a delta (no mint race, a
 // one-machine poke stays hash-detectable). BOTH: registered in CoopIdMaps -
@@ -4687,7 +4687,7 @@ static void coopLeverItemWritten(BattleItem* item)
 	CoopIdMaps::registerItem(item);
 }
 
-// W2-P2 S-B (spec (b)15): the ids SavedBattleGame::removeItem(@a item) will
+// the ids SavedBattleGame::removeItem(@a item) will
 // purge - the item and each ammo item loaded in it (self-references excluded).
 // Read BEFORE the removal.
 static std::vector<int> coopLeverRemovalIds(BattleItem* item)
@@ -4705,7 +4705,7 @@ static std::vector<int> coopLeverRemovalIds(BattleItem* item)
 	return ids;
 }
 
-// W2-P2 S-B (spec (b)15): a TEST LEVER removed these item ids on THIS machine.
+// a TEST LEVER removed these item ids on THIS machine.
 // HOST: dropped from the delta snapshot (the removal never rides a delta).
 // BOTH: forgotten by CoopIdMaps (the id is gone).
 static void coopLeverItemsRemoved(const std::vector<int>& ids)
@@ -4748,7 +4748,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	// the process for a host parked in BriefingState (battle generated,
 	// BattlescapeState not yet pushed). `tile_info`, in particular, is legitimate
 	// introspection at exactly that moment.
-	// RV-U13 S-B: getBattleState() keeps returning a screen that was popped and freed (a client's
+	// getBattleState() keeps returning a screen that was popped and freed (a client's
 	// battle screen under "Server connection lost", a vanilla next-stage briefing), so only a screen still on the
 	// game's state stack counts (connectionTCP::isBattlescapeStateLive, W1-H1's check).
 	BattlescapeState* bstate = connectionTCP::isBattlescapeStateLive(sbg->getBattleState()) ? sbg->getBattleState() : nullptr;
@@ -4790,7 +4790,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				ji["tz"] = tp.z;
 			}
 			ji["fuse"] = it->getFuseTimer();
-			// W2-P2 S-B (spec (b)16): the item fields the delta carries, read-only.
+			// the item fields the delta carries, read-only.
 			// previousOwner / unitLink (a corpse's or body's unit) as ids, -1 when
 			// none. slotX/slotY only for an INV_SLOT slot: the items bucket hashes
 			// them there alone (MJ-7), so a ground or hand item's stale x/y is
@@ -4803,7 +4803,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				ji["slotY"] = it->getSlotY();
 			}
 			ji["fuseEnabled"] = it->isFuseEnabled();
-			// W2-P3 S-C.1 (spec (b)13): a special built-in weapon (an owner and
+			// a special built-in weapon (an owner and
 			// no inventory slot, BattleItem::isSpecialWeapon), read-only.
 			ji["special"] = it->isSpecialWeapon();
 			Json::Value am(Json::arrayValue);
@@ -4894,10 +4894,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				resp["weaponSlot"] = "STR_GROUND";
 				resp["ammoId"] = -1;
 				resp["ok"] = true;
-				// W2-P2 S-A (spec (b)15): the item counter this mint advanced
+				// the item counter this mint advanced
 				// never rides a delta (both machines mint the same ids).
 				CoopDelta::absorbBattle(sbg);
-				coopLeverItemWritten(g); // W2-P2 S-B (spec (b)15): the minted item
+				coopLeverItemWritten(g); // the minted item
 				return true;
 			}
 
@@ -4951,12 +4951,12 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 					sbg->initItem(a, unit);
 					w->setAmmoForSlot(0, a);
 					resp["ammoId"] = a->getId();
-					coopLeverItemWritten(a); // W2-P2 S-B (spec (b)15): the minted ammo, as loaded
+					coopLeverItemWritten(a); // the minted ammo, as loaded
 				}
 			}
 			resp["ok"] = true;
-			CoopDelta::absorbBattle(sbg); // W2-P2 S-A (spec (b)15): the item counter
-			coopLeverItemWritten(w); // W2-P2 S-B (spec (b)15): the minted item, as placed
+			CoopDelta::absorbBattle(sbg); // the item counter
+			coopLeverItemWritten(w); // the minted item, as placed
 		}
 	}
 	else if (cmd == "battle_open_inventory")
@@ -4979,7 +4979,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "battle_ui_press")
 	{
-		// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14): press one of the
+		// press one of the
 		// battlescape controls this packet hard-gates, THROUGH ITS REAL HANDLER -
 		// the same shape battle_open_inventory above already uses for
 		// btnInventoryClick, so the gate under test is the one a mouse click
@@ -5048,7 +5048,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "inventory_cursor_clear")
 	{
-		// W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-3a Q4 (a)): TEST-ONLY red-run
+		// TEST-ONLY red-run
 		// cleanup. The item on the cursor of the topmost InventoryState on the stack (on top or not) goes back
 		// where it was through the force-close's own step, Inventory::setSelectedItem(0) - a pick-up is local
 		// display only, the item never left its slot. No click: no Inventory::invClick() and no
@@ -5102,7 +5102,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "inventory_view")
 	{
-		// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2, F1975):
 		// READ-ONLY view of the mid-battle InventoryState, test-only. The Inventory
 		// surface is found through the state's own surface list (getSurfaces() +
 		// dynamic_cast), never a vanilla accessor. `open` = an InventoryState is on
@@ -5168,7 +5167,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			}
 		}
 		resp["ground"] = ground;
-		// coop EQ-2 S-D (docs rewrite/prompts/eq2d_held_drawn.md DT3): TEST-ONLY - drawnSlots = the soldier items the screen's last
+		// coop: TEST-ONLY - drawnSlots = the soldier items the screen's last
 		// drawItems() pass drew on the paperdoll (Inventory::getCoopDrawnItems(): the cursor item and every skipped item absent).
 		Json::Value drawnSlots(Json::arrayValue);
 		if (invSurf)
@@ -5226,7 +5225,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["index"] = index;
 		resp["global"] = layoutJson(*sg->getGlobalEquipmentLayout(index));
 		resp["globalArmor"] = sg->getGlobalEquipmentLayoutArmor(index);
-		resp["globalName"] = sg->getGlobalEquipmentLayoutName(index); // W2-P8b S-C.3a (P8b-2d SC-9): the slot's name, read-only
+		resp["globalName"] = sg->getGlobalEquipmentLayoutName(index); // the slot's name, read-only
 		if (req.isMember("unit"))
 		{
 			BattleUnit* u = findUnit(req.get("unit", -1).asInt());
@@ -5244,7 +5243,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		keys["keyInvSavePersonalEquipment"] = (int)Options::keyInvSavePersonalEquipment;
 		keys["keyInvLoadPersonalEquipment"] = (int)Options::keyInvLoadPersonalEquipment;
 		resp["keys"] = keys;
-		// W2-P8b S-C.3a (docs rewrite/prompts/w2p8b_prebattle_equip.md, P8b-2c S-C RULINGS SC-5): TEST-ONLY, read-only - the
+		// TEST-ONLY, read-only - the
 		// live Options THIS machine's layout saves read: vanilla's personal-save armor option (btnCreatePersonalTemplateClick
 		// keeps the unit's armor with the layout when it is on) and the key that opens the save dialog (InventorySaveState,
 		// whose SAVE+ button is the one global save WITH armor). Outside `keys`: those six are the bulk tools' keys.
@@ -5297,7 +5296,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			{
 				rx = 288; ry = 32; rw = 32; rh = 25;
 			}
-			// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, F3119):
 			// the ctor rects of InventoryState's OK, PREV, NEXT and the two template buttons (InventoryState.cpp :124-:126,
 			// :131-:132 with _templateBtnX 288, _createTemplateBtnY 90, _applyTemplateBtnY 113; xcom1's `inventory`
 			// interface overrides none of them). A real click, the same recipe as above.
@@ -5426,11 +5424,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 					bi->setFuseEnabled(true);
 				}
 				ids.append(bi->getId());
-				coopLeverItemWritten(bi); // W2-P2 S-B (spec (b)15): each minted item
+				coopLeverItemWritten(bi); // each minted item
 			}
 			resp["ids"] = ids;
 			resp["ok"] = true;
-			CoopDelta::absorbBattle(sbg); // W2-P2 S-A (spec (b)15): the item counter
+			CoopDelta::absorbBattle(sbg); // the item counter
 		}
 	}
 	else if (cmd == "battle_prox")
@@ -5554,7 +5552,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 						}
 						row["fire"] = t->getFire();
 						row["smoke"] = t->getSmoke();
-						// coop MG-A S-A2 (Q6 a, F9821): the floor part's special tile type; END_POINT 13 (MapData.h) = the exit area
+						// coop: the floor part's special tile type; END_POINT 13 (MapData.h) = the exit area
 						row["special"] = (int)t->getFloorSpecialTileType();
 						tiles.append(row);
 					}
@@ -5726,7 +5724,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			const int iconLeft = baseW / 2 - iconW / 2;
 			const int iconTop = baseH - iconH;
 
-			// W2-P4 S-E2.1b: the VISIBLE special-action buttons at the
+			// the VISIBLE special-action buttons at the
 			// screen's right edge swallow a click the same way the icons panel
 			// does (a click there presses the button: T0-17 saw a throw click
 			// open the skill menu). They are BattlescapeState's _btnLaunch
@@ -5793,7 +5791,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 							}
 						}
 						if (onSpecial)
-							continue; // W2-P4 S-E2.1b: the click would press a special-action button
+							continue; // the click would press a special-action button
 						const int d = dx * dx + dy * dy;
 						if (d >= bestD)
 							continue;
@@ -6134,7 +6132,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["tuHave"] = unit->getTimeUnits();
 		resp["weaponId"] = w->getId();
 		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
-		// W2-P2 S-C.2 (spec (b)13, F475): this lever bypasses primaryAction, so it
+		// this lever bypasses primaryAction, so it
 		// mirrors the click's host-local combat context itself. Amendment A3:
 		// the context is ARMED across the two pushes - on an empty queue
 		// the turn push runs UnitTurnBState::init(), which pops at once when the
@@ -6216,7 +6214,7 @@ static bool coopCorruptUnitsStatsBucket(SavedBattleGame* battle)
 		const int cur = u->getTimeUnits();
 		const int next = (cur < u->getBaseStats()->tu) ? (cur + 1) : (cur - 1);
 		u->setTimeUnits(next);
-		// W2-P2 S-A (spec (b)15): a one-machine poke must stay a divergence the
+		// a one-machine poke must stay a divergence the
 		// hash detects - never healed by the host's next delta.
 		CoopDelta::absorbUnit(u);
 		return true;
@@ -6238,7 +6236,7 @@ static bool coopCorruptUnitsCoreBucket(SavedBattleGame* battle)
 		// tile-occupancy bookkeeping) - deliberate, same "bypassing emit"
 		// spirit as the unitsStats poke above; test-only and short-lived.
 		u->setPosition(np);
-		CoopDelta::absorbUnit(u); // W2-P2 S-A (spec (b)15)
+		CoopDelta::absorbUnit(u);
 		return true;
 	}
 	return false;
@@ -6250,7 +6248,7 @@ static bool coopCorruptItemsBucket(SavedBattleGame* battle)
 	{
 		if (!it) continue;
 		it->setAmmoQuantity(it->getAmmoQuantity() + 1); // D5 bucket field
-		CoopDelta::absorbItem(it); // W2-P2 S-B (spec (b)15): a one-machine poke stays a divergence
+		CoopDelta::absorbItem(it); // a one-machine poke stays a divergence
 		return true;
 	}
 	return false;
@@ -6261,7 +6259,7 @@ static bool coopCorruptFireBucket(SavedBattleGame* battle)
 	Tile* t = coopTestFirstTile(battle);
 	if (!t) return false;
 	t->setFire(t->getFire() + 1);
-	CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15)
+	CoopDelta::absorbTile(t);
 	return true;
 }
 
@@ -6270,7 +6268,7 @@ static bool coopCorruptSmokeBucket(SavedBattleGame* battle)
 	Tile* t = coopTestFirstTile(battle);
 	if (!t) return false;
 	t->setSmoke(t->getSmoke() + 1);
-	CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15)
+	CoopDelta::absorbTile(t);
 	return true;
 }
 
@@ -6295,7 +6293,7 @@ static bool coopCorruptTerrainBucket(SavedBattleGame* battle)
 		if (!floorData)
 			continue;
 		t->setMapData(floorData, floorId, floorSet, O_OBJECT);
-		CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15)
+		CoopDelta::absorbTile(t);
 		return true;
 	}
 	return false;
@@ -6306,7 +6304,7 @@ static bool coopCorruptItemIdCtrBucket(SavedBattleGame* battle)
 	int* ctr = battle->getCurrentItemId();
 	if (!ctr) return false;
 	++(*ctr);
-	CoopDelta::absorbBattle(battle); // W2-P2 S-A (spec (b)15)
+	CoopDelta::absorbBattle(battle);
 	return true;
 }
 
@@ -6675,7 +6673,7 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 		}
 		else if (field == "rawName")
 		{
-			// W2-P8 S-R.1 (R-5): the geoscape Soldier's raw name, the delta's `rawName`, with
+			// the geoscape Soldier's raw name, the delta's `rawName`, with
 			// Soldier::setName; "" and the write refused for a unit without a Soldier.
 			read = [u]()
 			{
@@ -7283,7 +7281,7 @@ static void coopSyncedAdvancedView(Game* game, Json::Value& out)
 	out["advanced"] = adv;
 }
 
-// U6 (owner D241 (a); docs rewrite/prompts/u6_base_inventory_levers.md, Q2 (b), Q3 (a)): TEST-ONLY levers on the
+// U6: TEST-ONLY levers on the
 // BASE equip screens (Bases > Soldiers > Inventory and the craft's equip screen, i.e. soldiers_inventory /
 // craft_inventory). They act on the TOP InventoryState through the vanilla public methods real input reaches:
 // Inventory::fitItem (the Ctrl-click), Inventory::quickDrop (the paper-doll drop) and InventoryState::btnUnloadClick
@@ -7483,7 +7481,7 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 	resp["ok"] = true;
 }
 
-// W2-H20b (owner D255 a, D226 a; docs rewrite/prompts/w2h20b_shared_base_writes.md (e), Q7 (a)): TEST-ONLY base_screen_op on ONE
+// TEST-ONLY base_screen_op on ONE
 // machine, never forwarded, never read by game logic. Ops:
 //   {op: read, index} (read-only, any screen) -> SavedGame craft loadout `index` {type: count}, loadoutName, lastSelectedArmor
 //   {op: loadout_save, index} -> the TOP CraftEquipmentState's public saveGlobalLoadout (CraftEquipmentSaveState's call), then read
@@ -7492,7 +7490,7 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 //     (the quick search is 40 px) and calls its onChange handler edtSoldierChange -> soldierName = the Soldier's name read back.
 //   {op: loadout_load, index, addOnTop} -> the TOP CraftEquipmentState's loadGlobalLoadout (A8); {op: ground_to_base}
 //     -> the TOP base InventoryState's onMoveGroundInventoryToBase (A12), reply craftId + the craft's items before / after.
-//   W2-H20c (A17): {op: craft_vehicles, craft_id, craft_type, base} (read-only) -> that craft's HWPs: vehicles {type: count}, order,
+//   {op: craft_vehicles, craft_id, craft_type, base} (read-only) -> that craft's HWPs: vehicles {type: count}, order,
 //     vehicleAmmo, spaceUsed, spaceAvailable, customDeployment; {op: deploy_mark, ...} = the same after a TEST-ONLY saved-deployment entry
 //     (soldier id -1, this machine only; never start a battle after it) so a test sees a vehicle load's custom deployment reset.
 //   {op: craft_deployment, craft_type} (read-only) -> THIS machine's generic deployment of that craft type: saved,
@@ -7522,7 +7520,7 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		resp["ok"] = true;
 		return;
 	}
-	if (op == "loadout_load") // W2-H20b-B (A8): the TOP CraftEquipmentState's public loadGlobalLoadout (CraftEquipmentLoadState :126's call)
+	if (op == "loadout_load") // the TOP CraftEquipmentState's public loadGlobalLoadout (CraftEquipmentLoadState :126's call)
 	{
 		const int index = req.get("index", 0).asInt();
 		CraftEquipmentState* ces = topState<CraftEquipmentState>(game);
@@ -7531,7 +7529,7 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		else { ces->loadGlobalLoadout(index, req.get("addOnTop", false).asBool()); resp["ok"] = true; }
 		return;
 	}
-	if (op == "ground_to_base") // W2-H20b-B (A12): the TOP base InventoryState's public onMoveGroundInventoryToBase (Ctrl+Alt+keyInvClear)
+	if (op == "ground_to_base") // the TOP base InventoryState's public onMoveGroundInventoryToBase (Ctrl+Alt+keyInvClear)
 	{
 		InventoryState* inv = topState<InventoryState>(game);
 		SavedBattleGame* sbg = sg->getSavedBattle();
@@ -7548,7 +7546,7 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		resp["ok"] = true;
 		return;
 	}
-	if (op == "craft_vehicles" || op == "deploy_mark") // W2-H20c (A17): one craft's HWPs on THIS machine (deploy_mark: test-only write first)
+	if (op == "craft_vehicles" || op == "deploy_mark") // one craft's HWPs on THIS machine (deploy_mark: test-only write first)
 	{
 		const std::string bname = req.get("base", "").asString(), ctype = req.get("craft_type", "").asString();
 		const int cid = req.get("craft_id", -1).asInt();
@@ -7647,7 +7645,7 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 	resp["ok"] = true;
 }
 
-// W2-H21b (F8671, F8802; docs rewrite/prompts/w2h21b_select_destination_recopy.md (e)): TEST-ONLY open_select_destination on ONE
+// TEST-ONLY open_select_destination on ONE
 // machine, never forwarded, never read by game logic. Pushes the REAL destination picker for one own craft and LEAVES IT OPEN: the push
 // GeoscapeCraftState::btnTargetClick makes after it pops itself (SelectDestinationState({craft}, the geoscape's globe)); no other lever
 // opens it (craft_order drives ConfirmDestinationState directly). {craft_id, craft_type (default STR_SKYRANGER)} -> {ok, depth}.
@@ -7680,12 +7678,12 @@ static void coopTestOpenSelectDestination(Game* game, const Json::Value& req, Js
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
-		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure" // R4-L2 S-C
+		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure"
 		&& cmd != "force_server_error" // coop W2-H59 (TEST-ONLY lever)
-		&& cmd != "hold_blob_ack" // R4-L6 (AMENDMENT R4-L6-1 M4)
+		&& cmd != "hold_blob_ack"
 		&& cmd != "hold_battle_accept" && cmd != "hold_save_reply" // coop W2-H82 L2d / L3e (TEST-ONLY levers)
 		&& cmd != "throw_next_rx" // coop W2-H60 (TEST-ONLY lever)
-		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe" // W2-H16c (S-12, F6605)
+		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe"
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
 		&& cmd != "reveal_hostile_pass"
@@ -7704,11 +7702,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "open_soldier_info" && cmd != "set_soldier_rank" && cmd != "soldier_attr_probe"
 		&& cmd != "open_alloc_screen" && cmd != "alloc_screen_probe" && cmd != "set_soldier_recovery"
 		&& cmd != "synced_options_state" && cmd != "synced_option_request" && cmd != "options_save" && cmd != "synced_apply_hold"
-		&& cmd != "option_values" && cmd != "shared_update_defer" // W2-P10 S-A.1 (PX-3, PX-4)
+		&& cmd != "option_values" && cmd != "shared_update_defer"
 		&& cmd != "battle_end_turn_ready"
-		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base" // W2-P7 S-C-D1.1 (P7-7 PR-28)
+		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base"
 		&& cmd != "followup_state" // W2-P7 S-C-C.1 (P7-6 C re-pin PR-C9)
-		&& cmd != "mission_stats_pad" // W2-P7 S-C-B2.3.1
+		&& cmd != "mission_stats_pad"
 		&& cmd != "prod_fx_probe"
 		&& cmd != "prodwin_probe"
 		&& cmd != "battle_visibility_rule"
@@ -7725,13 +7723,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "slow_top"
 		&& cmd != "display_rules" && cmd != "debrief_state"
 		&& cmd != "geo_event_probe"
-		&& cmd != "sel_state" && cmd != "set_autosell" // W2-P7 S-C-E1.1 (P7-8 PR-46)
-		&& cmd != "screen_push" // W2-P7 S-C-E2.1 (P7-8 PR-51)
+		&& cmd != "sel_state" && cmd != "set_autosell"
+		&& cmd != "screen_push"
 		&& cmd != "inventory_move" && cmd != "inventory_unload" // U6
 		&& cmd != "soldier_layouts"
 		&& cmd != "base_screen_op"
 		&& cmd != "open_select_destination"
-		&& cmd != "soldier_record" && cmd != "coop_file_info") // W2-P7 S-C-A.1
+		&& cmd != "soldier_record" && cmd != "coop_file_info")
 	{
 		return false;
 	}
@@ -7769,7 +7767,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// lastDeny, IR-2) - the {iseq,reason} object from the most recent
 		// bt_deny this machine received this battle, or null if none yet.
 		resp["lastDeny"] = CoopArbiter::lastDeny();
-		resp["desyncSeen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop R4-L3 S-A: a repaired desync stays seen
+		resp["desyncSeen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop: a repaired desync stays seen
 		resp["txDrains"] = CoopEmit::txDrainEvents();
 		// W1-P6 (WAVE1-RUNBOOK.md WV-D40 / WR-2, and W1-G1 criterion 4b): how
 		// many times coopBlockLocalExecution() has refused a LOCAL execution in
@@ -7835,7 +7833,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["lightWholeCalls"] = dp.lightWholeCalls;
 			resp["lightUsMax"] = dp.lightUsMax;
 			resp["lastLight"] = CoopDelta::lastLight();
-			// W2-P2 S-C (spec (b)16): the host-local combat context count
+			// the host-local combat context count
 			// (host) and the cue probes (host emitted / client applied),
 			// battle-scoped, same reset. Commit S-C.1 exposes them; commit
 			// S-C.2's contexts, cue hooks and client cue-kind branch write them.
@@ -7874,13 +7872,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			// resets of a skirmish end. Commit S-A.1 exposes its zeros; commit
 			// S-A.2's host hook, client applier and pump consumer write it.
 			resp["battleEnd"] = CoopDelta::battleEndRecord();
-			// MG-A S-A1.1 (AMENDMENT MG-A-1 section 5; F5092): the SESSION-LIFETIME stage record (CoopDelta.h), both
+			// the SESSION-LIFETIME stage record (CoopDelta.h), both
 			// machines, never reset. S-A1.1 exposes its zeros; S-A1.2's host stage hook and client applier write it.
 			resp["stage"] = CoopDelta::stageRecord();
-			// W2-P7 S-V-A.1 (AMENDMENT P7-5 section 4.2): the fatal-wounds vote's session-lifetime probe record
+			// the fatal-wounds vote's session-lifetime probe record
 			// (CoopArbiter.h), both machines; cleared only by initBattleAuthority(). S-V-A.1 exposes its zeros.
 			resp["fatalVote"] = coopFatalVoteProbe();
-			// R4-L1 S-A (P8): the abort vote's session-lifetime probe record (CoopArbiter.h), both machines; cleared only by
+			// the abort vote's session-lifetime probe record (CoopArbiter.h), both machines; cleared only by
 			// initBattleAuthority(). Commit S-A 1 exposes its zeros.
 			resp["abortVote"] = coopAbortVoteProbe();
 		}
@@ -7902,7 +7900,6 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["intentsReceived"] = CoopArbiter::intentsReceived();
 		resp["lastActionHalt"] = CoopArbiter::lastActionHalt();
 		resp["lastAftermath"] = CoopArbiter::lastAftermath();
-		// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 12):
 		// the in-battle inventory probes (CoopArbiter.h), battle-scoped. Commit
 		// S-A.1 exposes them; nothing writes them until S-A.2.
 		resp["invLocalWrites"] = CoopArbiter::invLocalWrites();
@@ -7916,17 +7913,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["invHostDirty"] = CoopDelta::hostInventoryLatchProbe();
 		resp["invForcedCloses"] = CoopDelta::inventoryForceCloseProbe();
 		resp["invWarningWrites"] = CoopDelta::invWarningWrites();
-		// W2-P8 S-C2.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.2, C2-5): the HOST's
+		// the HOST's
 		// covered-battle driver and host screen check probes (CoopDelta.h; zeroed and reset with the S-C1 probes
 		// above by initBattleAuthority() only). Commit S-C2.1 exposes their zeros; commit S-C2.2 writes them.
 		resp["hostCovered"] = CoopDelta::hostCoveredProbe();
 		resp["hostScreens"] = CoopDelta::hostScreensProbe();
-		// W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.3 R-4): the rename order's
+		// the rename order's
 		// probe (CoopArbiter.h; zeroed and reset with the probes above). Commit S-R.1 exposes its zeros; commit
 		// S-R.2's client send and host apply write it.
 		resp["renames"] = CoopArbiter::renamesProbe();
-		resp["armKey"] = g_armKey; // W2-P8 S-C2.3 (F2924, SC2-G1): TEST-ONLY battle_arm_key's record
-		// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10): the
+		resp["armKey"] = g_armKey; // TEST-ONLY battle_arm_key's record
+		// the
 		// pre-battle equip phase's state and counters (CoopDelta.h equipProbe; the state resets with the battle, the
 		// counters only in initBattleAuthority()). Commit S-A.1 exposes their zeros; commit S-A.2 writes them.
 		resp["equip"] = CoopDelta::equipProbe();
@@ -8000,7 +7997,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["lastSpot"] = CoopArbiter::lastSpot();
 		resp["coopSpotEvsEmitted"] = coopSpotEvsEmitted();
 		resp["coopSpotEvsApplied"] = coopSpotEvsApplied();
-		// SPEC 3 (FX-2, WV-D61): the last carried coopItemIdCtr value THIS
+		// the last carried coopItemIdCtr value THIS
 		// machine's coopLoadItemIdCtr actually stored (0 if the adopt hook
 		// never ran - SP, no key, or not a coop battle), and how many times it
 		// refused to lower the counter (must be 0 in a clean two-machine run).
@@ -8040,7 +8037,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["combatGhost"] = CoopGhost::combatProbe();
 		// W2-P5 S-T.1 (amendment E3 section E3.6): the SPEC 7 `turn` ghost ends (counts + ring), both machines.
 		resp["turnGhost"] = CoopGhost::turnGhostProbe();
-		// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8): the display-II probe (death ghost
+		// the display-II probe (death ghost
 		// counts, queue depth and records), both machines; nothing writes it until S-D.2.
 		resp["displayTwo"] = CoopGhost::displayTwoProbe();
 		// W2-P6a S-M.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (b), AMENDMENT P6-5 section 3):
@@ -8052,7 +8049,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// CLIENT's camera-move records and the HOST's guard counters, both machines; S-C.1 writes only the camera
 		// reads (CoopGhost.h cameraProbe()).
 		resp["camera"] = CoopGhost::cameraProbe();
-		resp["walkSounds"] = coopWalkSoundProbe(); // R5-U6 S-B.1: TEST-ONLY walk-sound probe (CoopArbiter.h)
+		resp["walkSounds"] = coopWalkSoundProbe(); // TEST-ONLY walk-sound probe (CoopArbiter.h)
 		// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5;
 		// owner D172 (a)): the hit-log mirror probe - the HOST's noted / sent / pending entries, the CLIENT's applied
 		// and locally suppressed ones, the last 32 {seq, t, f, k}, both machines; S-L.1 writes nothing (CoopDelta.h
@@ -8065,7 +8062,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["projectileSkips"] = coopProjectileSkips();
 		// R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the TEST-ONLY draw probe (CoopDelta.h).
 		resp["drawProbe"] = coopDrawProbe();
-		resp["walkPace"] = coopWalkPace(); // R5-U2 S-B.1: the TEST-ONLY walk-pace probe (CoopDelta.h)
+		resp["walkPace"] = coopWalkPace(); // the TEST-ONLY walk-pace probe (CoopDelta.h)
 		// per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the
@@ -8167,7 +8164,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["coopEndTurnTally"] = tally;
 		}
 		resp["coopEndTurnTalliesSeen"] = CoopEndTurn::talliesSeen();
-		// W1-P13c (REV E.1 S-9 / D-23): the traditional baton's HONOURED
+		// the traditional baton's HONOURED
 		// value on BattleAuthority - the same field coopMayCommand() reads
 		// and nothing else. NOT the wire echo of the last tally that
 		// arrived: applyTallySnapshot() writes this only when a tally's
@@ -8328,7 +8325,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else
 			resp["ok"] = true;
 	}
-	else if (cmd == "corrupt_next_blob" || cmd == "force_send_failure" || cmd == "force_server_error") // coop R4-L2 S-C: one branch, no new nesting level (C1061)
+	else if (cmd == "corrupt_next_blob" || cmd == "force_send_failure" || cmd == "force_server_error") // coop: one branch, no new nesting level (C1061)
 	{
 		// test-only, one-shot; consumed by the NEXT offerBattle() call
 		// on the HOST machine (CoopHandshake.h's own doc comment). Harmless
@@ -8355,7 +8352,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "hold_blob_ack")
 	{
-		// R4-L6 (docs rewrite/prompts/r4l6_lifecycle_rows_lint.md, AMENDMENT R4-L6-1 M4; ruling Q5 (a)): TEST-ONLY, CLIENT.
+		// TEST-ONLY, CLIENT.
 		// {on: true} arms it: while a battle-handshake blob is awaited the client withholds its per-chunk WAIT_MAP_SENDER
 		// ack, so the host's streamer waits after that chunk. {on: false} disarms it and, if an ack was withheld, sends ONE
 		// from here (the host's streamer waits for one ack per chunk). Without `on` it only reports. Response {ok, armed,
@@ -8364,10 +8361,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		if (req.isMember("on"))
 		{
 			const bool on = req.get("on", false).asBool();
-			// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L1e): {on: true, scope: "blob" | "base" | "save"} (default
+			// coop: {on: true, scope: "blob" | "base" | "save"} (default
 			// "blob", as before; an unknown name is "blob"). {on: false} resets the scope to "blob".
 			const std::string scope = req.get("scope", "blob").asString();
-			// coop W2-H86 (docs rewrite/prompts/w2h86_upload_save_crossing.md L1c): scope "upload" (3): on the host, every world chunk's ack.
+			// coop: scope "upload" (3): on the host, every world chunk's ack.
 			coopTestHoldBlobAckSetScope(!on ? 0 : scope == "base" ? 1 : scope == "save" ? 2 : scope == "upload" ? 3 : 0);
 			const int cleared = coopTestHoldBlobAckArm(on);
 			if (!on && cleared > 0)
@@ -8390,7 +8387,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "hold_battle_accept")
 	{
-		// coop W2-H82 (docs rewrite/prompts/w2h82_sa_handoff_base_stream.md L2c; R-LH78-1-1): TEST-ONLY, CLIENT. {on: true} arms it: the
+		// coop: TEST-ONLY, CLIENT. {on: true} arms it: the
 		// client's onOffer then stashes its battle_accept instead of sending it. {on: false} disarms it and sends the stash, if any, from
 		// here. Without `on` it only reports. Response {ok, armed, held (a stash waits), sent (this call sent one)}. Inert unless armed.
 		bool sent = false;
@@ -8414,7 +8411,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "hold_save_reply")
 	{
-		// coop W2-H82 (docs rewrite/prompts/w2h82_sb_visit_during_save_push.md L3d; R-LH78-1-1): TEST-ONLY, HOST. {on: true} arms it: the
+		// coop: TEST-ONLY, HOST. {on: true} arms it: the
 		// host keeps its SEND_FILE_HOST_SAVE_PROGRESS go-ahead for the partner's save-progress stream. {on: false} disarms it and sends the
 		// held go-ahead, if any, from here. Without `on` it only reports. Response {ok, armed, held, sent}. Inert unless armed.
 		bool sent = false;
@@ -8475,7 +8472,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// forceFire, never this machine's keys); tuBasis is computed by
 		// sendClientIntent() exactly as for the real UI unless tuBasisOverride
 		// is given.
-		// W2-P4 S-E3.1: the plan of EVERY combat kind of spec (b)1,
+		// the plan of EVERY combat kind of spec (b)1,
 		// passed through under its frozen payload names - `item` (throw, prime,
 		// use_item, medikit) or `weapon`; `action` (shoot, psi, medikit); `hand` and
 		// `ctrl` (reaction_hands); `fuse` and `unprime` (prime); `terrainPart`
@@ -8486,9 +8483,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		const bool combatKind = kind == "shoot" || kind == "throw" || kind == "prime"
 			|| kind == "melee" || kind == "psi" || kind == "use_item" || kind == "medikit"
 			|| kind == "reload" || kind == "reaction_hands" || kind == "skill"
-			|| kind == "inv_move" // W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2)
-			|| kind == "rename" // W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3)
-			|| kind == "gift"; // R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): the gift order's target seat
+			|| kind == "inv_move"
+			|| kind == "rename"
+			|| kind == "gift"; // the gift order's target seat
 		CoopCombatIntentArgs combatArgs;
 		if (req.isMember("plan") && req["plan"].isObject())
 		{
@@ -8516,7 +8513,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			combatArgs.terrainPart = pl.get("terrainPart", 0).asInt();
 			combatArgs.bodypart = pl.get("bodypart", -1).asInt();
 			combatArgs.skill = pl.get("skill", "").asString();
-			// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2): the
+			// the
 			// `inv_move` plan {op, item, to {slot, x, y}, weapon, swap}: `action` =
 			// op, `weapon` = item (the `item` override above), the target section and
 			// cell, the load's weapon read separately, the Shift quick-swap flag.
@@ -8555,7 +8552,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// request's top-level `name`. Before S-R.2 sendClientIntent() drops the unknown kind (not sent).
 		if (kind == "rename")
 			combatArgs.name = req.get("name", "").asString();
-		// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md): the `gift` order's target seat, the request's top-level
+		// the `gift` order's target seat, the request's top-level
 		// `target`. Before R5-U5's green, sendClientIntent() drops the unknown kind (not sent).
 		if (kind == "gift")
 			combatArgs.giftSeat = req.get("target", -1).asInt();
@@ -8702,7 +8699,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const Position from = unit->getPosition();
 					bgTU->setUnitPosition(unit, pos);   // setTile clears the old footprint, marks the new one
 					if (req.isMember("dir")) unit->setDirection(req["dir"].asInt());
-					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
+					CoopDelta::absorbUnit(unit); // a lever write never rides a delta
 					resp["ok"] = true; resp["unit"] = unit->getId(); resp["size"] = size;
 					const Position to = unit->getPosition();
 					Json::Value fromJ, toJ;
@@ -8889,7 +8886,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 							const Position from = unit->getPosition();
 							bgTA->setUnitPosition(unit, plannedPos[i]);   // setTile clears the old footprint, marks the new one
 							unit->setDirection(facing);
-							CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15)
+							CoopDelta::absorbUnit(unit);
 							const Position to = unit->getPosition();
 							Json::Value mv;
 							mv["unit"] = unit->getId();
@@ -8947,11 +8944,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    after the call) whenever a live BattlescapeGame exists.
 		// W2-P1's test_thin_client_tripwire.py applies `status` to BOTH
 		// machines and `panicPending` to the CLIENT only (its S6 panic case).
-		//  * `health` / `stun` (W2-P2 S-A, spec (b)16) - written through the
+		//  * `health` / `stun` - written through the
 		//    existing absolute setters BattleUnit::coopSetHealth() /
 		//    coopSetStunlevel() (the side_transition restate's own); reported
 		//    back as `health` / `stun`. Applied to BOTH machines by the harness.
-		//  * `specab` (W2-P2 S-A, Q1 = c) - an int SpecialAbility written through
+		//  * `specab` - an int SpecialAbility written through
 		//    BattleUnit::coopSetSpecialAbility() (test lever only; _specab is
 		//    otherwise derived from the armor). A value outside
 		//    SPECAB_NONE..SPECAB_BURN_AND_EXPLODE is refused and nothing changes.
@@ -9010,20 +9007,20 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			else
 			{
 				BattlescapeGame* bgameTS = connectionTCP::isBattlescapeStateLive(bgTS->getBattleState())
-					? bgTS->getBattleGame() : nullptr; // RV-U13 S-B: a screen still on the state stack only
+					? bgTS->getBattleGame() : nullptr; // a screen still on the state stack only
 				const bool wantPanic = req.get("panicPending", false).asBool();
 				const bool hasStatus = req.isMember("status");
 				const int statusArg = req.get("status", 0).asInt();
 				const bool hasSpecab = req.isMember("specab");
 				const int specabArg = req.get("specab", 0).asInt();
-				// W2-P3 S-C.1 (spec (b)13): the conversion staging fields.
+				// the conversion staging fields.
 				const bool hasSpawnUnit = req.isMember("spawnUnit");
 				const std::string spawnUnitArg = req.get("spawnUnit", "").asString();
 				const Unit* spawnRule = (hasSpawnUnit && !spawnUnitArg.empty())
 					? _game->getMod()->getUnit(spawnUnitArg) : nullptr;
 				const bool hasSpawnFaction = req.isMember("spawnUnitFaction");
 				const int spawnFactionArg = req.get("spawnUnitFaction", 0).asInt();
-				// W2-P3 S-D.1 (spec (b)13): the C13 morale staging field.
+				// the C13 morale staging field.
 				const bool hasMorale = req.isMember("morale");
 				const int moraleArg = req.get("morale", 0).asInt();
 				// W2-P4 S-D.1 (C1 PR-Q9): the C23b fatal-wound staging field.
@@ -9092,23 +9089,23 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					if (hasSpecab)
 						unit->coopSetSpecialAbility(specabArg);
 					if (hasSpawnUnit)
-						unit->setSpawnUnit(spawnRule); // W2-P3 S-C.1: "" clears (nullptr)
+						unit->setSpawnUnit(spawnRule); // "" clears (nullptr)
 					if (hasSpawnFaction)
 						unit->setSpawnUnitFaction((UnitFaction)spawnFactionArg);
 					if (req.isMember("respawn"))
 						unit->setRespawn(req["respawn"].asBool());
 					if (hasMorale)
-						unit->coopSetMorale(moraleArg); // W2-P3 S-D.1: the C13 panic staging
+						unit->coopSetMorale(moraleArg); // the C13 panic staging
 					if (hasWounds)
 					{
 						for (int part = 0; part < (int)BODYPART_MAX; ++part)
-							unit->setFatalWound(woundsArg[part], (UnitBodyPart)part); // W2-P4 S-D.1: the C23b staging
+							unit->setFatalWound(woundsArg[part], (UnitBodyPart)part); // the C23b staging
 					}
 					if (req.isMember("motionPoints") && req["motionPoints"].asInt() >= 0)
-						unit->coopSetMotionPoints(req["motionPoints"].asInt()); // R5-U6 S-C.1: TEST-ONLY motion-scan staging (BOTH machines)
+						unit->coopSetMotionPoints(req["motionPoints"].asInt()); // TEST-ONLY motion-scan staging (BOTH machines)
 					if (wantPanic)
 						bgameTS->init();
-					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): a lever write never rides a delta
+					CoopDelta::absorbUnit(unit); // a lever write never rides a delta
 					resp["ok"] = true;
 					resp["unit"] = unit->getId();
 					resp["tu"] = unit->getTimeUnits();
@@ -9177,7 +9174,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					t->coopSetTileFireAbsolute(req["fire"].asInt());
 				if (req.isMember("smoke"))
 					t->coopSetSmokeAbsolute(req["smoke"].asInt());
-				CoopDelta::absorbTile(t); // W2-P2 S-A (spec (b)15): the host absorbs its own lever write
+				CoopDelta::absorbTile(t); // the host absorbs its own lever write
 				resp["ok"] = true;
 				resp["x"] = pos.x;
 				resp["y"] = pos.y;
@@ -9535,7 +9532,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					deleted.append(biId);
 					coopLeverItemsRemoved(goneIds); // W2-P2 S-B (spec (b)15), incl. its ammo ids
 				}
-				// W2-P2 S-A (spec (b)15): the battle counters as this lever left
+				// the battle counters as this lever left
 				// them (the removed item ids are absorbed per item above, S-B).
 				CoopDelta::absorbBattle(bgSU);
 				resp["ok"] = true;
@@ -9732,7 +9729,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		else if (actCU == "hit") typeCU = BA_HIT;
 		else if (actCU == "none") typeCU = BA_NONE;
 		else actOkCU = false;
-		if (!bgCU || !connectionTCP::isBattlescapeStateLive(bgCU->getBattleState())) // RV-U13 S-B: a live screen only
+		if (!bgCU || !connectionTCP::isBattlescapeStateLive(bgCU->getBattleState())) // a live screen only
 		{
 			resp["error"] = "can_use_weapon: no live battle";
 		}
@@ -9784,7 +9781,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "synced_options_state")
 	{
-		// W2-P9 S-A.1 (spec rewrite/prompts/w2p9_synced_options.md, AMENDMENT P9-1 PR-13): read-only - the
+		// read-only - the
 		// synced-options layer on THIS machine: {active, role, localName, localSeat, version, values:{15},
 		// own:{15}|null, pending, inFlight, applied (last 16), noops, rejected, requestsSent, clicksDiverted,
 		// clicksIgnoredInFlight, tablesApplied, setsApplied, lastTableFrom, holdArmed, chatMenuExists,
@@ -9809,12 +9806,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["chat"].append(jm);
 			}
 		}
-		coopSyncedAdvancedView(_game, resp); // W2-P9 S-B.1 (PR-13): the Advanced-screen view
+		coopSyncedAdvancedView(_game, resp); // the Advanced-screen view
 		resp["ok"] = true;
 	}
 	else if (cmd == "synced_option_request")
 	{
-		// W2-P9 S-A.1 (PR-13, PR-5): TEST lever - {id, value: bool|int} through the SAME submit the
+		// TEST lever - {id, value: bool|int} through the SAME submit the
 		// Advanced-screen click uses (a stub returning false until S-A.2). Reply {ok, consumed}.
 		if (!req.isMember("id") || !req.isMember("value"))
 		{
@@ -9830,14 +9827,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "options_save")
 	{
-		// W2-P9 S-A.1 (PR-13): TEST lever - a plain call of vanilla Options::save() (proves the save guard
+		// TEST lever - a plain call of vanilla Options::save() (proves the save guard
 		// without the OK path's restart). Reply {ok, saved}.
 		resp["saved"] = Options::save();
 		resp["ok"] = true;
 	}
 	else if (cmd == "synced_apply_hold")
 	{
-		// W2-P9 S-A.1 (PR-13): TEST lever - {on} holds the host's synced-option apply latch (inert until the
+		// TEST lever - {on} holds the host's synced-option apply latch (inert until the
 		// S-A.2 latch reads it; the hold_battle_ready precedent). Reply {ok, holdArmed}.
 		CoopSyncedOptions::setHoldArmed(req.get("on", false).asBool());
 		resp["holdArmed"] = CoopSyncedOptions::holdArmed();
@@ -9845,7 +9842,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "option_values")
 	{
-		// W2-P10 S-A.1 (AMENDMENT P10-1 PX-3): READ-ONLY lever - the raw Options globals on THIS machine for each
+		// READ-ONLY lever - the raw Options globals on THIS machine for each
 		// id in {ids:[...]}, independent of the synced table (so C1/C2/C8 have a negative control at red and the
 		// per-player controls are readable). Reply {ok, values:{id: bool|int|string|null (unknown id)}}.
 		Json::Value valsOV(Json::objectValue);
@@ -10061,7 +10058,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "shared_update_defer")
 	{
-		// W2-P10 S-A.1 (AMENDMENT P10-1 PX-4, F3258): TEST lever - {on} defers THIS machine's per-frame SharedEcon
+		// TEST lever - {on} defers THIS machine's per-frame SharedEcon
 		// drain (CoopSyncedOptions::testSharedUpdateDeferred gates the one updateCoopTask call), so an arrived
 		// shared_apply stays queued until the funnel's set-time drain (green) or the release; the replica ordering
 		// window becomes deterministic. Inert unless armed. Reply {ok, deferred}.
@@ -10327,7 +10324,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			lists["hitSound"] = listOf(r->getHitSoundRaw());
 			lists["hitMissSound"] = listOf(r->getHitMissSoundRaw());
 			lists["explosionHitSound"] = listOf(r->getExplosionHitSoundRaw());
-			// W2-P6b S-E.1 (section 9 S-E.1): the melee / psi / prime sound lists, raw (never the RNG getters).
+			// the melee / psi / prime sound lists, raw (never the RNG getters).
 			lists["meleeSound"] = listOf(r->getMeleeSoundRaw());
 			lists["meleeMissSound"] = listOf(r->getMeleeMissSoundRaw());
 			lists["meleeHitSound"] = listOf(r->getMeleeHitSoundRaw());
@@ -10344,14 +10341,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		k["LARGE_EXPLOSION"] = Mod::LARGE_EXPLOSION;
 		k["ITEM_THROW"] = Mod::ITEM_THROW;
 		k["ITEM_DROP"] = Mod::ITEM_DROP;
-		k["HIT_FRAMES"] = Explosion::HIT_FRAMES; // W2-P6b S-E.1 (section 9): a melee / psi sprite's default frames
+		k["HIT_FRAMES"] = Explosion::HIT_FRAMES; // a melee / psi sprite's default frames
 		resp["items"] = items;
 		resp["constants"] = k;
 		resp["ok"] = true;
 	}
 	else if (cmd == "screen_rows" || cmd == "screen_set_amount")
 	{
-		// W2-P7 S-C-D1.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-7 PR-28): TEST ONLY, public API only. The
+		// TEST ONLY, public API only. The
 		// TOP state when it is a SellState / TransferItemsState (its widgets exist once its init() ran - poll screen_rows
 		// first, F5573). screen_rows (READ-ONLY): its first TextList's rows as stripped cells (4 columns; debrief_state's
 		// strip plus leading/trailing spaces - ammo rows are indented), each row's `item` (the item type whose tr() equals
@@ -10362,7 +10359,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// stripped column 0 equals tr(item); harnessSelectRow(row), then the screen's own change function by the delta
 		// (SellState changeByValue(|d|, sign); TransferItemsState increaseByValue(d) / decreaseByValue(-d)).
 		// Reply {ok, row, name, before, after, okVisible, topAfter}.
-		// W2-P7 S-C-D2.1 (P7-7 PR-35): also a top ManageAlienContainmentState - 5 columns (the amount is column 3,
+		// also a top ManageAlienContainmentState - 5 columns (the amount is column 3,
 		// ManageAlienContainmentState::updateStrings), its OK is its SECOND TextButton (_btnSell is added first, :97-98),
 		// change functions increaseByValue(d) / decreaseByValue(-d) after harnessSelectRow(row).
 		// W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): also a top PurchaseState (name, cost, stock, amount = column 3; OK = its first
@@ -10392,7 +10389,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		TextList* listSR = nullptr;
 		TextButton* okSR = nullptr;
 		Json::Value buttonsSR(Json::arrayValue), textsSR(Json::arrayValue), rowsSR(Json::arrayValue);
-		Json::Value textItemsSR(Json::arrayValue); // W2-P7 S-C-E2.1 (P7-8 PR-51, F6116): every Text {text, visible}
+		Json::Value textItemsSR(Json::arrayValue); // every Text {text, visible}
 		if (sellSR || xferSR || macSR || buySR)
 		{
 			for (auto* s : topSR->getSurfaces())
@@ -10413,7 +10410,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				else if (auto* tx = dynamic_cast<Text*>(s))
 				{
 					textsSR.append(stripSR(tx->getText()));
-					Json::Value ti(Json::objectValue); // W2-P7 S-C-E2.1 (P7-8 PR-51)
+					Json::Value ti(Json::objectValue);
 					ti["text"] = stripSR(tx->getText());
 					ti["visible"] = tx->getVisible();
 					textItemsSR.append(ti);
@@ -10445,7 +10442,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			row["cells"] = cells;
 			const auto it = trToTypeSR.find(cells[0u].asString());
 			row["item"] = it == trToTypeSR.end() ? std::string() : it->second;
-			row["color"] = (int)listSR->harnessCellColor(r, 0); // W2-P7 S-C-E2.1 (P7-8 PR-51): the row's drawn colour
+			row["color"] = (int)listSR->harnessCellColor(r, 0); // the row's drawn colour
 			rowsSR.append(row);
 		}
 		if (cmd == "screen_set_amount")
@@ -10550,7 +10547,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "screen_pick_base")
 	{
-		// W2-P7 S-C-D1.1 (AMENDMENT P7-7 PR-28): TEST lever. On a top TransferBaseState, TransferBaseState :162's own body:
+		// TEST lever. On a top TransferBaseState, TransferBaseState :162's own body:
 		// push new TransferItemsState(bases[from], bases[to], <the DebriefingState directly below it, else null>).
 		// Reply {ok, from, to, debrief}.
 		const auto& stPB = _game->getStates();
@@ -10579,7 +10576,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "research_probe")
 	{
-		// W2-H17 (F3262; spec rewrite/prompts/w2h17_research_side_effects.md (e)): TEST INTROSPECTION ONLY - read-only,
+		// TEST INTROSPECTION ONLY - read-only,
 		// public API only. {names[], tail}: `diary` {size, tail [{name, sourceType (int: 0 BASE, 1 FREE_FROM, 2 FREE_AFTER,
 		// 3 MISSION, 4 EVENT), sourceName, date [y, m, d]}]} (the last `tail` entries, default 12), `researched` per name
 		// (isResearched(name, false)), `ids` (the custom counters, getAllIds()), `ending` (int). Reply {ok, ...}.
@@ -10632,7 +10629,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// row counts are bounds-checked; the column indices read are the ones
 		// vanilla's own addRow calls create for each list (3, 3, 2, 13, 2) - TextList
 		// has no public column-count getter. Both machines' answers are compared for
-		// "the same debrief" (W2-P7 S-B1). strip() drops the colour-flip and
+		// "the same debrief". strip() drops the colour-flip and
 		// small-font tokens, then trims the leading and trailing '.' runs (every
 		// debrief list is setDot(true), and TextList::addRow pads every column but
 		// the last with '.', TextList.cpp :347-364 - layout, not content; AMENDMENT
@@ -10863,7 +10860,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_transformation")
 	{
-		// W2-H16c (S-12, F6697): TEST lever - push the REAL SoldierTransformationState on THIS machine, exactly as the direct
+		// TEST lever - push the REAL SoldierTransformationState on THIS machine, exactly as the direct
 		// route does (SoldierTransformState :258: no list, so the arrows stay hidden). {rule, soldierId, dead?, base?}: the base
 		// as open_screen finds it (by name, else the first base with _coopBase and _coopIcon false); the soldier by id from the
 		// save's dead list when {dead}, else from that base's roster; the rule by getSoldierTransformation(rule, false). The
@@ -10926,7 +10923,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "transform_probe")
 	{
-		// W2-H16c (S-12, F6697): TEST INTROSPECTION ONLY - read-only. {base?} (found as open_transformation finds it): funds;
+		// TEST INTROSPECTION ONLY - read-only. {base?} (found as open_transformation finds it): funds;
 		// soldierCounter (getAllIds "STR_SOLDIER", 0 when absent); transformations (the names getAvailableTransformations
 		// offers at the base); stores (the base's whole store map); transfers [{hours, kind soldier|item|other, soldierId,
 		// item, qty}] in list order; soldiers [{id, where base|transfer|dead, type (rule type), owner, name, nationality,
@@ -11239,7 +11236,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_alloc_screen")
 	{
-		// W2-H16b (S-10, S-11): TEST lever - push the REAL AllocateTrainingState {kind: martial} / AllocatePsiTrainingState {psi}
+		// TEST lever - push the REAL AllocateTrainingState {kind: martial} / AllocatePsiTrainingState {psi}
 		// on THIS machine; the base as open_screen finds it. The screen inits on the next frame. Reply {ok, baseIndex}.
 		const std::string kindOA = req.get("kind", "").asString(), nameOA = req.get("base", "").asString();
 		Base* baseOA = nullptr; int biOA = 0;
@@ -11342,7 +11339,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "soldier_record")
 	{
-		// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-6 section 4.1, F2520): TEST INTROSPECTION
+		// TEST INTROSPECTION
 		// ONLY - read-only. Every soldier of this machine's world whose id == {id} (or, without `id`, whose raw name ==
 		// {name}), searched in the bases in index order, their incoming transfers, then the dead list. Response {ok, count,
 		// records: [{where base|transfer|dead, baseIndex (-1 dead), id, name, coopName, owner, coop, craftId, coopCraft,
@@ -11385,7 +11382,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				r["psiStrImprovement"] = s->getPsiStrImprovement();
 				r["currentStats"] = stats(s->getCurrentStats()); r["initialStats"] = stats(s->getInitStats());
 				r["dead"] = (s->getDeath() != nullptr);
-				r["armor"] = s->getArmor() ? s->getArmor()->getType() : ""; // W2-P7 S-C-B2.3.1
+				r["armor"] = s->getArmor() ? s->getArmor()->getType() : "";
 				// coop OF2 S-C (owner D268 (b), extends D155 (a)): the soldier's mod script tags {name: value as saved}, read
 				// back from its own Soldier::save YAML (`tags`; absent when every tag is 0 -> {}). TEST INTROSPECTION, read-only.
 				Json::Value tagsSR(Json::objectValue);
@@ -11453,7 +11450,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "sel_state")
 	{
-		// W2-P7 S-C-E1.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-8 PR-46, D184): TEST INTROSPECTION ONLY -
+		// TEST INTROSPECTION ONLY -
 		// read-only. THIS machine's shared selection store (the host's truth / a replica's mirror):
 		// {ok, localSeat, keys: {"<screen>|<variant>|<baseIdx>|<extra>": {rows, editors, eseqs, rev, viewers}}}.
 		resp["localSeat"] = connectionTCP::localSeat();
@@ -11485,7 +11482,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "screen_push")
 	{
-		// W2-P7 S-C-E2.1 (docs rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-8 PR-51, F6114): TEST lever. Pushes the REAL
+		// TEST lever. Pushes the REAL
 		// screen a player opens from the basescape, so its init() runs on the next frame (ScreenRefresh and the shared
 		// selection bind there, unlike the sell / containment / shared_transfer levers, F6126): {screen: "transfer_base"} =
 		// BasescapeState :686's new TransferBaseState(base, nullptr) (then screen_pick_base); {screen: "containment"} =
@@ -11765,7 +11762,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			hostile["northwall"] = hn;
 			resp["hostile"] = hostile;
 
-			// SS2.W5 (D2 / WV-D8): the POLARITY of the selection-FOV gate on THIS
+			// SS2.W5: the POLARITY of the selection-FOV gate on THIS
 			// machine, reported so a test can prove the guard directly instead of
 			// only inferring it from behaviour. TRUE inside an active co-op battle
 			// (a selection change authors no shared fog); FALSE in single player,
@@ -12045,7 +12042,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		SavedGame* sgCC = _game->getSavedGame();
 		SavedBattleGame* bgCC = sgCC ? sgCC->getSavedBattle() : nullptr;
 		BattlescapeState* bsCC = (bgCC && connectionTCP::isBattlescapeStateLive(bgCC->getBattleState()))
-			? bgCC->getBattleState() : nullptr; // RV-U13 S-B: a screen still on the state stack only
+			? bgCC->getBattleState() : nullptr; // a screen still on the state stack only
 		const Position posCC(req.get("x", -1).asInt(), req.get("y", -1).asInt(), req.get("z", -1).asInt());
 		if (!bsCC)
 		{
@@ -12150,17 +12147,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "inventory_move")
 	{
-		// U6 (D241 a, Q2 b, Q3 a): the base-screen lever; see coopTestBaseInventoryMove() above.
+		// U6: the base-screen lever; see coopTestBaseInventoryMove() above.
 		coopTestBaseInventoryMove(_game, req, resp);
 	}
 	else if (cmd == "inventory_unload")
 	{
-		// U6 (D241 a, Q2 b, Q3 a): the base-screen lever; see coopTestBaseInventoryUnload() above.
+		// U6: the base-screen lever; see coopTestBaseInventoryUnload() above.
 		coopTestBaseInventoryUnload(_game, req, resp);
 	}
 	else if (cmd == "soldier_layouts")
 	{
-		// W2-H20 (owner D255 a; docs rewrite/prompts/w2h20_shared_base_equip_sync.md (e), Q7 (a)): TEST-ONLY, read-only - every
+		// TEST-ONLY, read-only - every
 		// soldier of a base (`base` = its name; default the first own base) in roster order with its whole gear record:
 		// the equipment layout, the personal layout and the personal layout's armor ("" = none). Each layout item
 		// {type, slot, x, y, fuse, fixed, ammo: [the loaded ammo types]} in stored order (the equip_layouts shape).
@@ -12213,7 +12210,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "base_screen_op") { coopTestBaseScreenOp(_game, req, resp); } // W2-H20b (D255 a; spec (e), Q7 a)
 	else if (cmd == "open_select_destination") { coopTestOpenSelectDestination(_game, req, resp); }
-	else if (cmd == "throw_next_rx") // coop W2-H60 (docs rewrite/prompts/w2h60_rx_throw_drop.md P1): TEST-ONLY, either machine
+	else if (cmd == "throw_next_rx") // coop: TEST-ONLY, either machine
 	{
 		// {state ("" = any), backHidden (default false)}: the next message the receive loop handles is marked and throws in the
 		// loop's try, and so does every retry of it. One-shot arm; inert unless armed. Response {ok, armed}.
@@ -13319,7 +13316,7 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else if (act == "unready")
 				{
-					// W2-P8b S-A.1 (Q11 (a)): the other half - one OK press takes this seat's ready back when it is
+					// the other half - one OK press takes this seat's ready back when it is
 					// ready on the pre-battle screen with the equip phase open; otherwise nothing (noop).
 					const bool preBattle = coopEquipOpen() && CoopDelta::equipIsScreen(inv);
 					if (preBattle && coopEquipLocalReady())
@@ -13364,7 +13361,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "hold_world_stream" || cmd == "hold_world_adopt")
 		{
-			// W2-P7 S-C-A.1 (docs rewrite/prompts/w2p7_sc_design.md, AMENDMENT P7-6 PR-11): TEST-ONLY, one branch for
+			// TEST-ONLY, one branch for
 			// both levers (C1061: execute() gains one nesting level). hold_world_stream (HOST) {on: true} arms it: the
 			// world streamer then waits before its final MAP_RESULT_LOAD_PROGRESS send (10 ms sleeps, 60 s safety cap;
 			// the host log says "[coop-test] hold_world_stream: holding" while it waits). hold_world_adopt (CLIENT)
@@ -13452,7 +13449,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["inBattle"] = true;
 				resp["turn"] = bg->getTurn();
 				resp["side"] = (int)bg->getSide();
-				// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6; owner D172 (a)): the
+				// the
 				// battle's hit log as this machine renders it, read-only - the Ctrl-H text (HitLog::getHitLogText) and the
 				// Ctrl-Alt-H turn diary (HitLog::getTurnDiary). Neither is serialized nor hashed.
 				{
@@ -13553,7 +13550,7 @@ std::string TestServer::execute(const std::string& line)
 				// and one `battle_state` probe there hard-killed the process.
 				// The null check belongs on getBattleState(), which really does
 				// return the pointer.
-				// RV-U13 S-B: and only a screen still on the state stack - a popped one is freed memory
+				// and only a screen still on the state stack - a popped one is freed memory
 				// (connectionTCP::isBattlescapeStateLive). Every BattlescapeState / BattlescapeGame read below uses bsLive.
 				BattlescapeState* bsLive = connectionTCP::isBattlescapeStateLive(bg->getBattleState()) ? bg->getBattleState() : nullptr;
 				BattlescapeGame* bgame = bsLive ? bg->getBattleGame() : nullptr;
@@ -13588,10 +13585,10 @@ std::string TestServer::execute(const std::string& line)
 				// reached primaryAction and was correctly refused - which is the
 				// difference W1-G1 criterion 4b turns on.
 				{
-					BattlescapeState* bsForInput = bsLive; // RV-U13 S-B
+					BattlescapeState* bsForInput = bsLive;
 					resp["mouseOverIcons"] = bsForInput ? bsForInput->getMouseOverIcons() : false;
 					resp["cursorType"] = bsForInput ? (int)bsForInput->getMap()->getCursorType() : -1;
-					// W2-H27 (QH27-3; docs rewrite/prompts/w2h27_pvp_cursor_after_shot.md): the mouse pointer's visibility on
+					// the mouse pointer's visibility on
 					// THIS machine - the Game::getCursor() flag vanilla's popState() sets back with setVisible(true) beside
 					// setupCursor(). A pure read, test-only: no game state, nothing on the wire.
 					resp["cursorVisible"] = (_game && _game->getCursor()) ? _game->getCursor()->getVisible() : false;
@@ -13605,7 +13602,7 @@ std::string TestServer::execute(const std::string& line)
 				// "banner shown" for the forced-mismatch repro (CoopBattleUi::
 				// showDesyncHalted() -> BattlescapeState::setCoopWaitText()).
 				{
-					BattlescapeState* bsForBanner = bsLive; // RV-U13 S-B
+					BattlescapeState* bsForBanner = bsLive;
 					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
 					// W1-P7 (ruling D7 = WV-D13 item 4): the re-added DONOR END-TURN
 					// surface. DORMANT in this packet - W1-P13's readiness tally is its
@@ -13690,12 +13687,12 @@ std::string TestServer::execute(const std::string& line)
 				const BattleUnit* giftSel = coop->getGiftSelectedBattleUnit();
 				resp["giftSelectedId"] = giftSel ? giftSel->getId() : -1;
 				Json::Value units(Json::arrayValue);
-				// WV-D62 (FX-3b): count of units whose health was driven <=0 that still
+				// count of units whose health was driven <=0 that still
 				// carry a non-null AIModule - should be 0 on both machines once the
 				// generator releases gen-killed units' modules (BattlescapeGenerator::
 				// releaseAIModulesOfUnitsKilledDuringGeneration).
 				int unitsDeadWithAI = 0;
-				// W2-P3 S-C.1 (spec (b)13): each unit's `specialWeapons` = the ids
+				// each unit's `specialWeapons` = the ids
 				// of the _items entries with isSpecialWeapon() it owns, in _items
 				// order (a pure read).
 				std::map<int, Json::Value> specialIdsByOwner;
@@ -13727,17 +13724,17 @@ std::string TestServer::execute(const std::string& line)
 					ju["unitFire"] = u->getFire();
 					// W2-P3 S-A.1 (amendment B1 RQ7): the unit's rules type (a pure read).
 					ju["type"] = u->getType();
-					// W2-P3 S-C.1 (spec (b)13): the conversion fields and the special
+					// the conversion fields and the special
 					// built-in weapons, pure reads. psiWeapon = getSpecialWeapon(BT_PSIAMP)'s
 					// id, -1 when none.
 					ju["originalFaction"] = (int)u->getOriginalFaction();
-					ju["hasAI"] = (u->getAIModule() != nullptr); // R5-U3 S-B.1: a pure read
+					ju["hasAI"] = (u->getAIModule() != nullptr); // a pure read
 					ju["woundable"] = u->isWoundable(); // R5-U8 A1: a pure read - whether the unit takes fatal wounds (BattleUnit::isWoundable, the rule A3's re-skin changes)
 					// R5-U1 S-A.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): pure reads - vanilla's own visible flag, the
 					// presentation predicate THIS machine's map and minimap draw a unit by, and the unit's own visible list.
 					ju["visible"] = u->getVisible();
 					ju["visibleHere"] = coopUnitVisibleHere(u);
-					ju["customMarker"] = u->getCustomMarker(); // R5-U2 S-A.1: a pure read (machine-local, hash-excluded)
+					ju["customMarker"] = u->getCustomMarker(); // a pure read (machine-local, hash-excluded)
 					{
 						Json::Value seenIds(Json::arrayValue);
 						for (const BattleUnit* v : *u->getVisibleUnits())
@@ -13802,7 +13799,7 @@ std::string TestServer::execute(const std::string& line)
 					// to drift on a mirrored step.
 					ju["energy"] = u->getEnergy();
 					ju["motionPoints"] = u->getMotionPoints();
-					ju["scannedTurn"] = u->getScannedTurn(); // R5-U6 S-C.1: a pure read (machine-local, never saved or hashed)
+					ju["scannedTurn"] = u->getScannedTurn(); // a pure read (machine-local, never saved or hashed)
 					// RW-FIX-TURRET: the TURRET facing, additively alongside the
 					// body facing above. Serialized per unit
 					// (BattleUnit.cpp:717) but read by NO structured hash bucket
@@ -14228,7 +14225,7 @@ std::string TestServer::execute(const std::string& line)
 				int coopSide = req.get("coop_side", -1).asInt();
 				int killId = req.get("unit", -1).asInt();
 				int killFaction = req.get("faction", -1).asInt();
-				const bool stun = req.get("stun", false).asBool(); // W2-P7 S-C-D2.1 (P7-7 PR-35): vanilla's debug stun (BattlescapeState :3423)
+				const bool stun = req.get("stun", false).asBool(); // vanilla's debug stun (BattlescapeState :3423)
 				const RuleDamageType* dt = _game->getMod()->getDamageType(stun ? DT_STUN : DT_AP);
 				Json::Value killed(Json::arrayValue);
 				for (auto* u : *sbg->getUnits())
@@ -14289,7 +14286,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else if (act == "death_apply_hold")
 			{
-				// W2-P6b S-D.3 (AMENDMENT P6b-4, F1793/F1798): TEST-ONLY lever, sent to the CLIENT. {on: true|false}
+				// TEST-ONLY lever, sent to the CLIENT. {on: true|false}
 				// -> {ok, on}. While on, the client's watcher runs ONE death-queue advance before a `death`
 				// enqueue when the queue head has not started (CoopGhost::setDeathApplyHold), so a two-victim
 				// burst's second death is enqueued behind a started head in every run. Battle-scoped.
@@ -14440,7 +14437,7 @@ std::string TestServer::execute(const std::string& line)
 					if (req.isMember("visible"))     unit->setVisible(req["visible"].asBool());
 					if (req.get("refill", false).asBool())
 						unit->setTimeUnits(bs->tu);
-					CoopDelta::absorbUnit(unit); // W2-P2 S-A (spec (b)15): `refill` writes TU
+					CoopDelta::absorbUnit(unit); // `refill` writes TU
 					resp["psiSkill"] = bs->psiSkill;
 					resp["psiStrength"] = bs->psiStrength;
 					resp["visible"] = unit->getVisible();
@@ -14531,14 +14528,14 @@ std::string TestServer::execute(const std::string& line)
 			memset(&ev, 0, sizeof(ev));
 			if (kind == "key")
 			{
-				testServerPushKey(req.get("key", (int)Options::keyOk).asInt()); // W2-P8 S-C2.3: shared with battle_arm_key
+				testServerPushKey(req.get("key", (int)Options::keyOk).asInt()); // shared with battle_arm_key
 				resp["ok"] = true;
 			}
 			else if (kind == "click")
 			{
 				int x = req.get("x", 160).asInt();
 				int y = req.get("y", 100).asInt();
-				// RB-D32 (R2-P11): optional "button" (default "left") - "right"
+				// optional "button" (default "left") - "right"
 				// drives SDL_BUTTON_RIGHT, needed by the RB-D10 secondaryAction
 				// intercept's faithful-UI repro variant (right-click = turn/door
 				// in vanilla battlescape input). The surviving @1e0f9276f body
@@ -14574,7 +14571,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else if (kind == "motion")
 			{
-				// coop EQ-2 S-A (docs rewrite/prompts/eq2a_pointer.md (e) A12): TEST-ONLY - ONE real SDL mouse-motion event at
+				// coop: TEST-ONLY - ONE real SDL mouse-motion event at
 				// window pixel (x, y), consumed by Game::run like the click above: the game's Cursor and the top state's surfaces
 				// see a player's mouse move (no button held; xrel / yrel 0).
 				ev.type = SDL_MOUSEMOTION;
@@ -14593,7 +14590,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "cursor_pos")
 		{
-			// coop EQ-2 S-A (A12): TEST-ONLY, read-only - the game Cursor's position in logical screen pixels (what a player's
+			// coop: TEST-ONLY, read-only - the game Cursor's position in logical screen pixels (what a player's
 			// mouse moved last), and the top state's first Inventory surface's top-left (-1 with none).
 			resp["x"] = _game->getCursor() ? _game->getCursor()->getX() : -1;
 			resp["y"] = _game->getCursor() ? _game->getCursor()->getY() : -1;
@@ -14629,7 +14626,7 @@ std::string TestServer::execute(const std::string& line)
 					e["visible"] = s->getVisible();
 					e["x"] = s->getX(); e["y"] = s->getY();
 					e["w"] = s->getWidth(); e["h"] = s->getHeight();
-					// W2-P8b S-C.3a (P8b-2d SC-7): read-only - a POPUP window's state hides every surface until its popup ends
+					// read-only - a POPUP window's state hides every surface until its popup ends
 					// (Window::think -> State::hideAll) and a hidden InteractiveSurface ignores input; `visible` does not show it.
 					e["hidden"] = s->getHidden();
 					if (auto* tb = dynamic_cast<TextButton*>(s)) e["text"] = tb->getText();
@@ -15013,14 +15010,14 @@ std::string TestServer::execute(const std::string& line)
 			resp["localSeat"] = connectionTCP::localSeat();
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
 			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
-			resp["rxBufferBytes"] = (Json::UInt64)mapData.size(); // coop W2-H58 S-B (EB0): TEST INTROSPECTION, a pure read
+			resp["rxBufferBytes"] = (Json::UInt64)mapData.size(); // coop: TEST INTROSPECTION, a pure read
 			// PRD-J09: post-battle / mission-lifecycle introspection.
 			resp["coopMissionEnd"] = coop->coopMissionEnd;
 			resp["readyCoopBattle"] = coop->ready_coop_battle;
 			resp["isLoadProgress"] = coop->_isLoadProgress;
 			resp["shared"] = coop->isSharedCampaign();
-			resp["noBases"] = connectionTCP::no_bases; // coop D250-U S-B: this machine's PvP alien-side flag, a pure read
-			resp["pvpBorrow"] = connectionTCP::coopPvpBorrowRecord(); // coop D250-U S-C1: the gm3 hand-off / borrowed-world record, a pure read
+			resp["noBases"] = connectionTCP::no_bases; // coop: this machine's PvP alien-side flag, a pure read
+			resp["pvpBorrow"] = connectionTCP::coopPvpBorrowRecord(); // coop: the gm3 hand-off / borrowed-world record, a pure read
 			resp["gamemode"] = connectionTCP::getCoopGamemode();
 			{
 				CoopState* top = findState<CoopState>(_game);
@@ -15507,7 +15504,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "join_rendezvous")
 		{
-			// W2-H13 (D220 b, Q5 a): join a listed rendezvous room by id exactly as
+			// join a listed rendezvous room by id exactly as
 			// ServerList::lstServerPress's listed-room branch does: join_tcp's own setup,
 			// the seven connection flags, the CoopState(15) connecting popup, async join.
 			std::string room = req.get("room", "").asString();

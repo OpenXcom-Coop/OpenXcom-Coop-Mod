@@ -1,4 +1,4 @@
-"""W2-P4r S-R - test_client_research.py: in a SEPARATE campaign battle whose
+"""test_client_research.py: in a SEPARATE campaign battle whose
 host has research sync OFF, every research-based weapon check reads the research
 of the unit's OWNER (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md
 section (f), as amended by PLAN REVIEW + AMENDMENT D1 (PR-R1 = ST1, PR-R2 = ST2,
@@ -149,7 +149,7 @@ not RESEARCH_TEXT for a key that starts targeting (cursorType aim). after
 an admitted shot the client stays in aim, so each later row first sends the F503
 cancel click.
 
-FIXTURE (TASK 0 T0-16, docs rewrite/w2p4r-task0/constants.md): the SEPARATE
+FIXTURE: the SEPARATE
 guest battle of test_coop_separate_guest_battle.py (session.
 bring_up_separate_guest_battle), the host's options.cfg EnableResearchSync false,
 pre_mission_start = client discover_research STR_PLASMA_PISTOL then host
@@ -159,7 +159,7 @@ ids are rolled per boot: G is found by NAME, its tile, max TU and the
 item ids are read at run time, the snap cost is SNAP_PCT of the max TU
 (tuSnap 30 for both weapons, T0-16e). Only the target OFFSETS from G's
 deployment tile and the seeds are baked. G's firing is pinned to FIRING_PIN on
-both machines (client first) before any shot (D2 / F1405, WV-D86); the S-R red
+both machines (client first) before any shot; the S-R red
 builder re-proved SEED_R1..R4 = 1 with the pin (3 boots each order, the same
 impact tile every boot: TGT1, TGT2, TGT3, TGT3).
 W2-P8 S-D1 boot extension (draft section 3.4; TASK 0 T0-D1..T0-D3, AMENDMENT
@@ -244,7 +244,7 @@ CAN_USE_CALLS = (("snap", False), ("hit", False), ("auto", True), ("none", False
 
 # ----- W2-P8 S-D1 (TASK 0 T0-D1..T0-D3 at 98d209f6c, AMENDMENT P8-4e, F3024-F3043) -----
 SETTLE = 0.3                      # a key injected right after a state opens is lost without it
-TXT_ITEM = (128, 140, 160, 9)     # InventoryState _txtItem (T0-D1, F3025)
+TXT_ITEM = (128, 140, 160, 9)     # InventoryState _txtItem
 TXT_AMMO = (254, 64, 66, 24)      # InventoryState _txtAmmo (recorded only)
 PSI_LINE = (245, 56, 70, 9)       # textStatLine4, the psi-strength line: hidden in battle, text asserted
 QS_RECT = (244, 140, 40, 9)       # the quick-search TextEdit (T0-D2)
@@ -1191,7 +1191,7 @@ def pd_list(gc, keys):
     ev = {"key": pd_key(gc, keys["ufo"])}
     ev["start"], ev["tStart"] = pd_wait_kind(gc, "start")
     if ev["start"]:
-        session.wait_widget_ready(gc, SECTION)   # W2-U9 (R3, F21068): UfopaediaStartState's POPUP hides SECTION while it opens
+        session.wait_widget_ready(gc, SECTION)   # UfopaediaStartState's POPUP hides SECTION while it opens
         r = gc.cmd({"cmd": "click_widget", "match": SECTION})
         ev["section"] = {k: r.get(k) for k in ("ok", "text", "baseX", "baseY", "winX", "winY", "error")}
         ev["select"], ev["tSelect"] = pd_wait_kind(gc, "select")

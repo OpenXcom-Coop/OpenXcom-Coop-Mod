@@ -40,7 +40,7 @@ Row:
 test_client_sight_more.py.
 
 RED at the red commit (unchanged build): C6-light, C6-here, C6-list, C6u-light, C6u-list FAIL; every other cell PASS.
-GREEN (W2-H35c G6): every cell PASS.
+GREEN: every cell PASS.
 
 The row prints one "EVIDENCE C6:" line, one PASS / FAIL line per cell and "ROW C6: PASS|FAIL". A bring-up failure
 prints ONE "CAPTURE boot:" line and fails every cell "boot". one run is the result; no skip, no
@@ -77,7 +77,7 @@ A_N, A_N_DIR = (20, 18, 0), 5
 V_ID, T_ID = 9, 8                               # V watches (client seat), T holds the flare (client seat)
 V_N, V_N_DIR0, V_N_DIR = (31, 18, 0), 5, 6
 PARK = ((8, (10, 13, 0)), (12, (11, 13, 0)), (13, (10, 14, 0)), (14, (10, 15, 0)), (10, (10, 16, 0)),
-        (11, (10, 17, 0)))                      # SAN's PARK, 8 included (S-1; F15397); facing kept
+        (11, (10, 17, 0)))                      # SAN's PARK, 8 included; facing kept
 T6, T6_DIR = (20, 29, 0), 4                     # T6 oracle's first candidate: Round(distance) 11 from A_N, facing away
 FLARE, FUSE = "STR_COOP_FUSE_FLARE", 5
 MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_FuseFlare_Test")

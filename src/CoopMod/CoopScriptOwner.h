@@ -1,6 +1,6 @@
 #pragma once
 /*
- * coop OF2 (owner D258 (b); spec rewrite/prompts/of2_mod_script_player_reads.md, QOF2-1 (a), D149, D146).
+ * coop OF2.
  * Declarations only; the definitions live in connectionTCP.cpp (the per-seat research store's file).
  * Not registered in the project files (CoopGhost.h / CoopSyncedOptions.h precedent: headers need no entry).
  */

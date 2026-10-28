@@ -890,7 +890,7 @@ def place_deterministic(host, client, moves, what=""):
         move = dict(move)
         lever = move.pop("lever")
         req = {"cmd": lever, **move}
-        # F607 (W2-P2 S-H.1a): CLIENT first, then HOST. The host's per-tick
+        # CLIENT first, then HOST. The host's per-tick
         # reveal flush stamps `h` from host state, so a host-first lever let
         # it ship an ev the client could not match yet.
         cr = client.cmd(req)
@@ -1445,7 +1445,7 @@ def dismiss_client_briefing(client, timeout=20):
     BriefingState on its stack (a resume entry, or any pre-W1-P3 build), so it
     is safe to call unconditionally at the end of every drive_to_battlescape().
 
-    W2-P8b S-H (AMENDMENT P8b-1 section 4 S-H): in a fresh co-op battle the
+    in a fresh co-op battle the
     client's equip entry (a pump step once its briefing has closed) pushes
     vanilla's Turn-1 screen and then its pre-battle equip screen, so the landing
     top is InventoryState, NextTurnState or BattlescapeState (the entry not yet
@@ -1539,7 +1539,7 @@ def actor_is_contact_free(battle_state_resp, unit, tag):
     return True
 
 
-# ===== SPEC 6g: primitives relocated from repro_atom_door.py ==
+# ===== primitives relocated from repro_atom_door.py ==
 # That file was 2113 lines of map-ROLLED door search whose coverage now lives in
 # repro_door_deterministic.py (SPEC 6d/6e/6f), and it was a proven flake. These
 # helpers were shared, so they move here VERBATIM; the file itself is deleted.
@@ -2374,7 +2374,7 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
     if pre_ok is not None:
         pre_ok(host)
     host.ok({"cmd": "newbattle_ok"})
-    # W2-P8b S-H: the steps above are bring_up_to_briefings()'s (with this helper's
+    # the steps above are bring_up_to_briefings()'s (with this helper's
     # mission / pre_seat / seat_client options); the rest is the shared entry spine.
     briefings_to_battlescape(host, client)
 
@@ -2444,7 +2444,7 @@ def briefings_to_battlescape(host, client):
 
 
 def equip_both_ready(host, client, timeout=90):
-    """W2-P8b S-H (AMENDMENT P8b-1 section 4 S-H, Q11 a): pass both pre-battle
+    """pass both pre-battle
     equip screens. Each machine whose top state is an InventoryState gets ONE
     `battle_inventory {action: ok}` - the idempotent ready lever (it only SETS
     this seat's ready, a no-op when it already is), never ESC. The client's
@@ -2481,7 +2481,7 @@ def equip_both_ready(host, client, timeout=90):
           f"wall={time.time() - t0:.2f}s", flush=True)
 
 
-# ===== SPEC 19: campaign co-op battle entry, client-owned units =====
+# ===== campaign co-op battle entry, client-owned units =====
 #
 # Two additive campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
 # battle) plus the F355 briefing-ordering drain they both need, and the
@@ -2536,7 +2536,7 @@ def drive_both_to_tactical(host, client, timeout=240):
     both briefings are up at once - and drain both machines through Briefing/
     Inventory/CoopState popups until BOTH machines sit on BattlescapeState. The
     pre-battle equip screens' `battle_inventory ok` is the idempotent ready
-    lever (W2-P8b Q11 a), so pressing it every second never flaps a seat's ready;
+    lever, so pressing it every second never flaps a seat's ready;
     turn 1 starts once every seat is ready.
 
     A campaign bring-up that settles ONE machine at a time hangs: the host's

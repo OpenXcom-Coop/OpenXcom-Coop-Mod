@@ -390,11 +390,11 @@ void SellState::init()
 	// rebuild when a peer's shared_apply moves this base. The post-battle
 	// (debriefing) variant is excluded: it belongs to DebriefingState's lifecycle
 	// and the J09 world restream heals it wholesale.
-	// coop (W2-P7 S-C-D1, P7-7 PR-24): in SHARED page 3 refreshes too - the rebuild re-reads the debriefing's counts.
+	// coop: in SHARED page 3 refreshes too - the rebuild re-reads the debriefing's counts.
 	if (!_debriefingState || _game->getCoopMod()->isSharedCampaign())
 	{
 		_sharedRefresh.bind(_game, this, _base);
-		_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+		_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop
 	}
 }
 
@@ -413,12 +413,12 @@ void SellState::think()
 		_game->popState();
 		if (SharedEcon::baseIndex(_game, _base) >= 0)
 		{
-			_sharedSel.carryOver(); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+			_sharedSel.carryOver(); // coop
 			_game->pushState(new SellState(_base, _debriefingState, _origin));
 		}
 		return; // `this` is now queued for deletion - touch nothing else
 	}
-	_sharedSel.think(this); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+	_sharedSel.think(this); // coop
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -689,7 +689,7 @@ void SellState::btnOkClick(Action *)
 	// OK button). SEPARATE/solo path below is untouched.
 	if (_game->getCoopMod()->isSharedCampaign())
 	{
-		if (SharedEcon::awaiting(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE))) return; // coop (W2-P7 S-C-D2, PR-30, MR10): one confirm at a time
+		if (SharedEcon::awaiting(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE))) return; // coop: one confirm at a time
 		Json::Value items(Json::arrayValue);
 		Json::Value soldiers(Json::arrayValue);
 		Json::Value crafts(Json::arrayValue);
@@ -724,7 +724,7 @@ void SellState::btnOkClick(Action *)
 			case TRANSFER_ENGINEER:  engineers  += row.amount; break;
 			}
 		}
-		int coopSeq = 0; // coop (W2-P7 S-C-D2, PR-30): the submitted command's seq
+		int coopSeq = 0; // coop: the submitted command's seq
 		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState || _sharedSel.listed()) // coop (W2-P7 S-C-E2, F6341, V-E3): the shared list's hidden rows
 		{
 			Json::Value payload;
@@ -733,9 +733,9 @@ void SellState::btnOkClick(Action *)
 			payload["crafts"] = crafts;
 			payload["scientists"] = scientists;
 			payload["engineers"] = engineers;
-			if (_debriefingState) payload["debrief"] = true; // coop (W2-P7 S-C-D1, P7-7 PR-25, MR14): page 3 rides the apply
+			if (_debriefingState) payload["debrief"] = true; // coop: page 3 rides the apply
 			if (_debriefingState == 0 && _origin == OPT_BATTLESCAPE) payload["origin"] = "forced"; // coop (W2-P7 S-C-D2, PR-32/PR-33, MR15)
-			_sharedSel.stamp(payload); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+			_sharedSel.stamp(payload); // coop
 			for (const auto& row : _items)
 				if (_debriefingState && row.type == TRANSFER_ITEM)
 					payload["autosell"][((RuleItem*)row.rule)->getType()] = (row.amount == row.qtySrc);
@@ -963,7 +963,7 @@ void SellState::btnOkClick(Action *)
  */
 void SellState::btnCancelClick(Action *)
 {
-	SharedEcon::forgetResult(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE)); // coop (W2-P7 S-C-D2, PR-30)
+	SharedEcon::forgetResult(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE)); // coop
 	_game->popState();
 }
 
@@ -1340,7 +1340,7 @@ void SellState::decrease()
  */
 void SellState::updateItemStrings()
 {
-	_sharedSel.localEdit(this); // coop (W2-P7 S-C-E1, D184, P7-8 PR-44)
+	_sharedSel.localEdit(this); // coop
 	std::ostringstream ss, ss2, ss3;
 	ss << getRow().amount;
 	_lstItems->setCellText(_sel, 2, ss.str());

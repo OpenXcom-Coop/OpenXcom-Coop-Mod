@@ -1,11 +1,11 @@
-"""W2-H82 S-A - test_handoff_base_marker.py (HBM): a SEPARATE partner clicks the host's base just before the host presses YES on a landing,
+"""test_handoff_base_marker.py (HBM): a SEPARATE partner clicks the host's base just before the host presses YES on a landing,
 and the host's base answer ends AFTER the battle offer reached the partner and BEFORE the host read the partner's battle_accept. The partner
 drops that cut answer in its hand-off and reaches its briefing; nothing from the cut answer is stored or opened.
 
 Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sa_handoff_base_stream.md (f) row R-V2 (CANDIDATE
 F22301, proven by TASK 0); TASK 0 constants: docs rewrite/w2h82-task0/sa/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap), ruling R-LH78-1-1
 (REG :1431), mechanism R-H82-1 (QH82-1 .. QH82-7 (a)). Lobby key "49517", dirs w2h82_v2_*. The sibling HBS (test_handoff_base_stream.py)
-holds rows R-C3 and G. TEST-ONLY levers: hold_blob_ack {on: true, scope: "base"} (W2-H82 L1) and hold_battle_accept (W2-H82 L2: the client's
+holds rows R-C3 and G. TEST-ONLY levers: hold_blob_ack {on: true, scope: "base"} and hold_battle_accept (W2-H82 L2: the client's
 onOffer stashes its battle_accept; {on: false} sends it).
 Row R-V2: seat_guest, LOCATE, PRE ("baseclient" present, PRE_F), PROMPT, ARM, the client's hold_battle_accept {on: true}, CLICK (a real globe
     click on the host base and the "HostBase" target; the client's CoopState 50 on top within 1 s), HELD, YES (set_seed 2, the host's real YES),
@@ -39,7 +39,7 @@ NEEDLES = {"ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_re
            "STASH": "[coop-test] hold_battle_accept: battle_accept stashed"}
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
 CELLS = {"R-V2": ["V2-pre", "V2-drop", "V2-store", "V2-entry", "V2-brief", "V2-host", "V2-crash"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -275,7 +275,7 @@ def prompt(r, x):
     r.ev["promptS"] = round(time.time() - t, 2)
     time.sleep(1.0)
 def arm(r, x):
-    """ARM = the client's hold_blob_ack {on: true, scope: "base"} (W2-H82 L1)"""
+    """ARM = the client's hold_blob_ack {on: true, scope: "base"}"""
     a = q(x.client, {"cmd": "hold_blob_ack", "on": True, "scope": "base"})
     r.ev["arm"] = pick(a, ("ok", "armed", "scope"))
     if not (a.get("ok") and a.get("armed") and a.get("scope") == 1):

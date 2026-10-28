@@ -810,7 +810,7 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
  */
 void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
 {
-	if (SharedEcon::submitCraftDeassign(_game, _base, nullptr)) return; // coop W2-H16b (S-9b): SHARED - the host unseats them
+	if (SharedEcon::submitCraftDeassign(_game, _base, nullptr)) return; // coop: SHARED - the host unseats them
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{

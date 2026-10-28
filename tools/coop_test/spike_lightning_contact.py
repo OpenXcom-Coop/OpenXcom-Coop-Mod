@@ -1,4 +1,4 @@
-"""SPEC 0e-1 (WV-D87/WV-D88, WAVE1-RUNBOOK.md REV E.17): the Lightning-contact
+"""SPEC 0e-1: the Lightning-contact
 SPIKE. MEASURES the two staging designs the owner chose - WV-D87 (the door
 atom and the spot atom stage on the LIGHTNING craft's own UFO door) and
 WV-D88 (non-UFO door coverage and the 2x2 proof stage on STR_TERROR_MISSION +
@@ -48,7 +48,7 @@ FACTION_PLAYER = session.FACTION_PLAYER
 FACTION_HOSTILE = session.FACTION_HOSTILE
 FACTION_NEUTRAL = 2  # session.py's own comment: standard UnitFaction enum (PLAYER=0, HOSTILE=1, NEUTRAL=2)
 
-# WV-D88 (B3): OpenXcom's MAX_VIEW_DISTANCE is 20 tiles - "the sight cap + 1"
+# OpenXcom's MAX_VIEW_DISTANCE is 20 tiles - "the sight cap + 1"
 # is the smallest Chebyshev distance that guarantees a unit standing at a door
 # cannot see a unit standing at the other.
 SIGHT_CAP_PLUS_ONE = 21

@@ -63,7 +63,7 @@
 #include "../Mod/Texture.h"
 #include "Pathfinding.h"
 #include "../CoopMod/CoopBattleSetup.h" // coop: coopTagGuestVehicleUnit
-#include "../CoopMod/SharedEcon.h" // coop EQ-3 S-A: SharedEcon::ownsSoldier (a SHARED base screen's Ctrl+Alt open)
+#include "../CoopMod/SharedEcon.h" // coop: SharedEcon::ownsSoldier (a SHARED base screen's Ctrl+Alt open)
 
 namespace OpenXcom
 {
@@ -1115,7 +1115,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				(_craft == 0 && (soldier->hasFullHealth() || soldier->canDefendBase()) && (soldier->getCraft() == 0 || soldier->getCraft()->getStatus() != "STR_OUT")))
 			{
 				// clear the soldier's equipment layout, we want to start fresh
-				if (_game->getSavedGame()->getDisableSoldierEquipment() && (!_baseInventory || SharedEcon::ownsSoldier(_game, soldier))) // coop EQ-3 S-A: a SHARED base screen keeps the partner's layouts
+				if (_game->getSavedGame()->getDisableSoldierEquipment() && (!_baseInventory || SharedEcon::ownsSoldier(_game, soldier))) // coop: a SHARED base screen keeps the partner's layouts
 				{
 					soldier->clearEquipmentLayout();
 				}
@@ -1176,7 +1176,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				(_craft == 0 && (soldier->hasFullHealth() || soldier->canDefendBase()) && (soldier->getCraft() == 0 || soldier->getCraft()->getStatus() != "STR_OUT")))
 			{
 				// clear the soldier's equipment layout, we want to start fresh
-				if (_game->getSavedGame()->getDisableSoldierEquipment() && (!_baseInventory || SharedEcon::ownsSoldier(_game, soldier))) // coop EQ-3 S-A: a SHARED base screen keeps the partner's layouts
+				if (_game->getSavedGame()->getDisableSoldierEquipment() && (!_baseInventory || SharedEcon::ownsSoldier(_game, soldier))) // coop: a SHARED base screen keeps the partner's layouts
 				{
 					soldier->clearEquipmentLayout();
 				}

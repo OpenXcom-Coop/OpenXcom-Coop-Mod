@@ -1,4 +1,4 @@
-"""MG-A S-A2 - test_multistage_end.py: a co-op stage change through the abort route, and a final stage that ends
+"""test_multistage_end.py: a co-op stage change through the abort route, and a final stage that ends
 with both debriefs (owner D158 (a), D226 (a), D156 (a); spec docs rewrite/prompts/mga_multistage_handoff.md (f) rows
 MS2 and MS3 as AMENDMENT MG-A-1 section 5 restates them for stage S-A2, Q5 (a), Q6 (a), QA2; TASK 0 constants docs
 rewrite/mga-task0/a2/CONSTANTS.md).
@@ -398,7 +398,7 @@ def final_debriefs(host, client, ctx, f):
         if debrief_view(cdeb).get(k) != debrief_view(hdeb).get(k):
             f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
     leave = {}
-    for name, gc in (("client", client), ("host", host)):   # the client leaves first (W2-P7 E3)
+    for name, gc in (("client", client), ("host", host)):   # the client leaves first
         ok = press_ok(gc)
         menu, secs = wait_until(lambda gc=gc: left_menu(gc), OK_LEAVE_S, 0.1) if ok.get("pressed") else (False, 0)
         leave[name] = {"ok": ok, "mainMenu": menu, "secs": secs, "stack": stack(gc)}

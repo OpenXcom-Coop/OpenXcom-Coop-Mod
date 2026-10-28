@@ -14,7 +14,7 @@ the geoscape.
   H1 SHARED, the CLIENT commands the landing, the CLIENT asks for the abort (guard).
   H2 SHARED, the CLIENT commands the landing, the HOST asks for the abort (guard).
 
-MG-P1 (rewrite/merge-main, R-MF210-1): ABORT opens vanilla's AbortMissionState and its
+ABORT opens vanilla's AbortMissionState and its
 OK opens the vote (R4-L1, design-D8); the battle entry is session.drive_both_to_tactical.
 main's S1 / S2 (the CLIENT's own craft starts a SEPARATE mission) are gone: a
 SEPARATE client never starts a battle from its own craft (owner D199 (a), W2-H9;

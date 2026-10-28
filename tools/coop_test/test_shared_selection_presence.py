@@ -1,4 +1,4 @@
-"""W2-P7 S-C-E2 - test_shared_selection_presence.py: on a SHARED Sell screen each player sees "Also on this screen:
+"""test_shared_selection_presence.py: on a SHARED Sell screen each player sees "Also on this screen:
 <the other player>" while both have it open, the rows the other player changed last are drawn in the screen's second
 button colour, a confirm whose confirmer sees none of the list's rows (the other player's soldier row, MR7) still
 applies the list, a player who disconnects leaves the list, and the forced Alien Containment screen is shared by both
@@ -98,7 +98,7 @@ LIVE_RECOVERED = 2                       # CT2 pre-cell: the host debriefing's L
 PRISONERS_AFTER = LIVE_FILL + LIVE_RECOVERED - 2   # E2-cf (3): "prisoners 10 on both"
 E2CF_CLIENT, E2CF_HOST = 1, 2            # P7-8 section 4.2 E2-cf's amounts
 MACS, CONT_OK, CONT_MARK = fct.MACS, fct.CONT_OK, fct.CONT_MARK
-BOOT_PORT = {"PRES": "47265", "CT2": "47264"}    # AMENDMENT P7-8 section 4 (S26, F6118): E2 = 47264 (CT2), 47265 (PRES)
+BOOT_PORT = {"PRES": "47265", "CT2": "47264"}    # AMENDMENT P7-8 section 4: E2 = 47264 (CT2), 47265 (PRES)
 SEL_S, PAGE_S, SCREEN_S, EQUAL_S = e1.SEL_S, e1.PAGE_S, e1.SCREEN_S, e1.EQUAL_S
 DROP_S = 10                              # P7-8 section 4.2 E-g (2): "within 10 s"
 BUSY_S, UNIT_S = fct.BUSY_S, fct.UNIT_S  # 30 s / 10 s (F4665; status 7 on both)

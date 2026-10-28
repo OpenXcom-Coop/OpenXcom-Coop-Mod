@@ -30,7 +30,7 @@ row. The perTile smoke/fire and perUnit fire/stun/health APPLY paths ship in
 SPEC 9 as specified but UNEXERCISED in wave 1 (documented here, not silently
 dropped).
 
-D64 (REV E.49 E49.2.1) COVERAGE NOTE: the fire/smoke-unchanged check at L3
+D64 COVERAGE NOTE: the fire/smoke-unchanged check at L3
 below is the outcome assertion of record for tiles, REPLACING B.3's
 `perTile == []` wording above - "the host emits only tiles that changed"
 is a sender-discipline property no outcome check can reach, and stays
@@ -171,7 +171,7 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
     client_seen = False
     l10_evidence = None
     while time.time() < deadline:
-        # RV-U13 S-A: read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
         # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
         # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
@@ -215,7 +215,7 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
                 dismiss_next_turn_if_present(client)
 
         if l10_evidence is not None or not capture_l10:  # never close the client's first screen before L10 proves it
-            depth = None  # RV-U13 S-A: a client NextTurnState stacked under the one just closed
+            depth = None  # a client NextTurnState stacked under the one just closed
             while True:
                 st = client.cmd({"cmd": "get_state"}).get("states") or []
                 if not st or "NextTurnState" not in st[-1] or (depth is not None and len(st) >= depth):
@@ -373,7 +373,7 @@ def run_hazard_free_cycle():
         seqs = [e["seq"] for e in boundary]
         assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs), (
             f"boundary envelopes are not strictly seq-ordered: {boundary}")
-        # D64 (E49.2.3): h present on every side_transition entry.
+        # h present on every side_transition entry.
         for e in transitions:
             assert e.get("h"), (
                 f"side_transition seq={e['seq']} carried an EMPTY h "
@@ -394,7 +394,7 @@ def run_hazard_free_cycle():
         # literal per-envelope read of the frozen wire field.
         post_hazard = host.cmd({"cmd": "hash_now", "buckets": ["fire", "smoke"]})
         assert post_hazard.get("ok"), f"hash_now(fire,smoke) failed post-cycle: {post_hazard}"
-        # D64 (E49.2.1): host fire/smoke buckets unchanged - assertion of
+        # host fire/smoke buckets unchanged - assertion of
         # record for tiles, replacing B.3's `perTile == []` wording.
         assert pre_hazard["h"] == post_hazard["h"], (
             f"L3: the host's fire/smoke buckets changed across a HAZARD-FREE "

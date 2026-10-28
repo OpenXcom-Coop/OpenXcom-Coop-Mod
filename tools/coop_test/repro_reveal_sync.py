@@ -197,7 +197,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=3):
 
     host.ok({"cmd": "newbattle_ok"})
 
-    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # the shared battle-entry spine (both briefings, both pre-battle
     # equip screens, both Turn-1 screens).
     session.briefings_to_battlescape(host, client)
     time.sleep(3)
@@ -608,7 +608,7 @@ def run_drop(host, client, actor, soldier_ids):
     one delta but never ships it. Because reveal is MONOTONE - a published bit is
     never re-sent - the client is behind FOREVER, which is exactly the failure
     class the old binTiles fog mask made invisible."""
-    # R4-L3 S-A: the divergence below must stay; the TEST-ONLY hold keeps the host from repairing it.
+    # the divergence below must stay; the TEST-ONLY hold keeps the host from repairing it.
     host.ok({"cmd": "resync_hold", "on": True})
     stage_on_roof(host, client, actor, "drop", 1)
     assert_reveal_parity(host, client, "before the drop")
@@ -685,7 +685,7 @@ def run_badn(host, client, actor, soldier_ids):
     assert_reveal_parity(host, client, "before the bad-n restate")
     fog_before = client.cmd({"cmd": "reveal_state"})
 
-    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: this proof is the halt itself
+    host.ok({"cmd": "resync_hold", "on": True})  # this proof is the halt itself
     host.ok({"cmd": "reveal_base", "bad_n": True})
 
     client.wait_for("client event_state.desyncSeen becomes true",
@@ -1024,7 +1024,7 @@ def test_reveal_hostile_gm2():
         host.wait_for("host at battle settings",
                       lambda: (not session.has_state(host, "LobbyMenu")) or None)
         host.ok({"cmd": "newbattle_ok"})
-        # W2-P8b S-H: the shared battle-entry spine (both briefings, the host's
+        # the shared battle-entry spine (both briefings, the host's
         # pre-battle equip screen - the alien seat has nothing to equip - and both
         # Turn-1 screens).
         session.briefings_to_battlescape(host, client)

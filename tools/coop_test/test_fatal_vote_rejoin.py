@@ -1,4 +1,4 @@
-"""W2-P7 S-V-B - test_fatal_vote_rejoin.py: the fatal-wounds vote across a voter's drop and rejoin (owner D159;
+"""test_fatal_vote_rejoin.py: the fatal-wounds vote across a voter's drop and rejoin (owner D159;
 no timeout, D186; the vote pauses everyone, D214 (a); SV-M9 as re-ruled by owner D223 (b)). Spec: docs
 rewrite/prompts/w2p7_sv_fatal_vote_design.md 2.7 and section 4 (V7, V8) as re-pinned by rewrite/prompts/
 w2p7_battle_end.md AMENDMENT P7-5 4.4 (P7-5 RULINGS Q9 (a), Q10 (a), Q11 (a); P7-5b SV-T1, SV-T4) and ### P7-7 (D223

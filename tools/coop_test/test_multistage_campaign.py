@@ -1,6 +1,6 @@
-"""MG-A S-A2 - test_multistage_campaign.py: a SHARED co-op campaign's Cydonia stage change hands stage 2 to both
+"""test_multistage_campaign.py: a SHARED co-op campaign's Cydonia stage change hands stage 2 to both
 players (owner D158 (a), D226 (a); spec docs rewrite/prompts/mga_multistage_handoff.md (f) row MS5 as AMENDMENT
-MG-A-1 section 5 restates it for stage S-A2, with the M1 research cell (section 3.10, D149); TASK 0 constants docs
+MG-A-1 section 5 restates it for stage S-A2, with the M1 research cell; TASK 0 constants docs
 rewrite/mga-task0/a2/CONSTANTS.md).
 
 ONE boot (boot D): test_cydonia_coop_start.py's SHARED bring-up - session.new_campaign(campaign_mode="shared") on

@@ -1,4 +1,4 @@
-"""W2-P9 S-A - test_synced_options.py: one set of battle rules per co-op session (owner D134; D160 a, D161 a,
+"""test_synced_options.py: one set of battle rules per co-op session (owner D134; D160 a, D161 a,
 D163 a, D165 a). Spec: docs rewrite/prompts/w2p9_synced_options.md as re-pinned by AMENDMENT P9-1 (section 3
 PR-1..PR-14, section 4.1 S-A, section 5) and its P9-1 RULINGS. Constants: docs rewrite/w2p9-task0/CONSTANTS.md
 (TASK 0 `w2p9-t0`, F4980-F4989).
@@ -462,7 +462,7 @@ def main():
     try:
         try:
             raw.bring_up_lobby(host, client, LOBBY_PORT)
-            x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}   # OWN_FILE (F4983, PR-14)
+            x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}   # OWN_FILE
             print(f"[w2p9-sa] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
         except Exception as e:
             for rid in order:

@@ -56,7 +56,7 @@
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/BattleAuthority.h"
-#include "../CoopMod/CoopDelta.h" // coop: the S-A draw probe (TEST-ONLY) and coopFactionIsMine() (R5-U1 S-B)
+#include "../CoopMod/CoopDelta.h" // coop: the S-A draw probe (TEST-ONLY) and coopFactionIsMine()
 
 
 /*
@@ -379,9 +379,9 @@ void Map::draw()
  */
 bool Map::hiddenMovementShown() const
 {
-	if (coopHotseatHidesMap(_save)) // coop D247-U (OH1 a): off the player side both hotseat players see HIDDEN MOVEMENT
+	if (coopHotseatHidesMap(_save)) // coop: off the player side both hotseat players see HIDDEN MOVEMENT
 		return false;
-	return coopHiddenMovementActorTerm(_save) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV; // coop R5-U1 S-D: off a PvP side, the acting unit
+	return coopHiddenMovementActorTerm(_save) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV; // coop: off a PvP side, the acting unit
 }
 
 void Map::refreshAIProgress(int progress)
@@ -768,7 +768,7 @@ void Map::drawTerrain(Surface *surface)
 {
 	_isAltPressed = _game->isAltPressed(true);
 	_isCtrlPressed = _game->isCtrlPressed(true);
-	coopDrawProbeFrame(); // coop R5-U2 S-A.1: TEST-ONLY draw probe (one drawTerrain frame)
+	coopDrawProbeFrame(); // coop: TEST-ONLY draw probe (one drawTerrain frame)
 	int frameNumber = 0;
 	SurfaceRaw<const Uint8> tmpSurface;
 	Tile *tile;
@@ -1746,7 +1746,7 @@ void Map::drawTerrain(Surface *surface)
 		}
 		if (this->getCursorType() != CT_NONE)
 		{
-			coopDrawProbeArrow(selectedUnit); // coop R5-U2 S-A.1: TEST-ONLY draw probe (the selection arrow is drawn)
+			coopDrawProbeArrow(selectedUnit); // coop: TEST-ONLY draw probe (the selection arrow is drawn)
 			_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
 		}
 	}
@@ -1756,11 +1756,11 @@ void Map::drawTerrain(Surface *surface)
 	{
 		for (auto* myUnit : *_save->getUnits())
 		{
-			bool motionScan = myUnit->getScannedTurn() == _save->getTurn() && !coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop R5-U2 S-A: not this machine's side
-			bool customMarker = myUnit->getCustomMarker() > 0 && coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop R5-U2 S-A: this machine's side
+			bool motionScan = myUnit->getScannedTurn() == _save->getTurn() && !coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop: not this machine's side
+			bool customMarker = myUnit->getCustomMarker() > 0 && coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop: this machine's side
 			if (motionScan || customMarker)
 			{
-				coopDrawProbeMark(myUnit, motionScan); // coop R5-U2 S-A.1: TEST-ONLY draw probe (an Alt marker is drawn)
+				coopDrawProbeMark(myUnit, motionScan); // coop: TEST-ONLY draw probe (an Alt marker is drawn)
 				Position temp = myUnit->getPosition();
 				temp.z = _camera->getViewLevel();
 				_camera->convertMapToScreen(temp, &screenPosition);
@@ -2255,7 +2255,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const Coop
 			result.ScreenOffset.y = - (phase - endphase) * offsetY[dir];
 		}
 	}
-	if (view && view->ghostTrailing) midphase = 0; // coop (W2-P6b S-E6, D173): a trailing vertical ghost keeps the whole-sweep branch
+	if (view && view->ghostTrailing) midphase = 0; // coop: a trailing vertical ghost keeps the whole-sweep branch
 
 	result.NormalizedMovePhase = endphase == 16 ? phase : phase * 2;
 

@@ -1,4 +1,4 @@
-"""W2-P7 S-V-A - test_fatal_vote_partner.py: the fatal-wounds vote after a partner's kill (V9) and in PvP (E6v).
+"""test_fatal_vote_partner.py: the fatal-wounds vote after a partner's kill (V9) and in PvP (E6v).
 Spec, rulings, staging, answers, Q11 and the shared assertions: test_fatal_vote.py (whose helpers this file runs);
 the split is SV-T1 (P7-5b): V9 on test_client_shoot's C16 terror bring-up, E6v on test_battle_end_rules'
 gm2 boot_e6.
@@ -44,7 +44,7 @@ import test_fatal_vote as fvt
 ROW_PORT = {"V9": "48547", "E6v": "48548"}
 FACTION_HOSTILE = 1
 STATUS_DEAD = 6
-HOSTILES_C16 = list(range(1000000, 1000013))   # the terror map's 13 hostiles at boot (TASK 0 T0-3)
+HOSTILES_C16 = list(range(1000000, 1000013))   # the terror map's 13 hostiles at boot
 GM2_WS0 = 8                                     # gm2: X-COM [8..14] all seat 0 (TASK 0 CONSTANTS)
 
 

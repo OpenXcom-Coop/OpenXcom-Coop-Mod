@@ -31,7 +31,7 @@ M_END (read 3 s after the first poll that saw it entered; no entry seen: at the 
     U-calm  (GUARD) the partner's log window holds no "push class OpenXcom::CoopState".
   END    CRASH (GUARD) no crash file new in harness.CRASH_DIR since the bring-up; both processes alive until their shutdown (row U's battle is
          left at its briefing).
-Red today: the 8 RED cells FAIL; N-hostline, U-enter, U-calm, CRASH PASS. Green (W2-H72 E1-E4): all 12 PASS.
+Red today: the 8 RED cells FAIL; N-hostline, U-enter, U-calm, CRASH PASS. Green: all 12 PASS.
 Every subject press is a real click_widget / inject_input; no dismiss_popup or coop_dialog_back reaches the partner while it names. One
 EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached"); a
 boot miss fails every row "boot" with ONE CAPTURE line.

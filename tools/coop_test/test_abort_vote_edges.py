@@ -1,4 +1,4 @@
-"""R4-L1 S-B - test_abort_vote_edges.py: the abort vote's two edges. A player's drop during an open abort vote
+"""test_abort_vote_edges.py: the abort vote's two edges. A player's drop during an open abort vote
 cancels it (the #87 cancel, as on the release line) and after the rejoin either player can ask again at once; an abort
 request made while the fatal-wounds vote is open waits for it and opens once that question is cancelled (owner
 design-D8, D231, D244; D214 (a) / SV-M12 for the wait; VL-L1-3, VL-L1-4). Spec: docs rewrite/prompts/r4l1_abort_vote.md

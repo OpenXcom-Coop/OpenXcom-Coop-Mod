@@ -1,4 +1,4 @@
-"""W2-P6a S-M - test_messages.py: the battle messages on both machines (owner
+"""test_messages.py: the battle messages on both machines (owner
 D132: you get vanilla's boxes for your own soldiers; a message about your
 partner's soldier is a short notice that fades by itself, and the host no longer
 pauses the shared battle for it; D170 (a): vanilla boxes on both machines for a
@@ -186,7 +186,7 @@ MR2B_EVS = [("death", 0), ("corpse", 0)]
 MR7_KINDS = ["side_transition", "side_begin", "panic", "bt_action_end", "side_transition", "side_begin",
              "side_transition", "side_begin"]
 
-# ----- QR2r (AMENDMENT P6-6 Q1 (b); SM-1, SM-2; W2-H14): boot R -----
+# ----- QR2r: boot R -----
 PORT_QR2R = "48649"              # boot R's lobby port (0 uses in tools/coop_test at 3a69eab19)
 TEXT_WAITING_FOR_JOIN = "Waiting for the other player to join the battle"   # STR_COOP_WAITING_FOR_JOIN (en-US)
 SDLK_HOME = 278                  # Options::keyBattleCenterUnit default: the ONE real host map input
@@ -697,11 +697,11 @@ def mr2b_killed(host, client, ctx):
     finish(fails)
 
 
-# ===================== QR2r: boot R (AMENDMENT P6-6 Q1 (b)) =====================
+# ===================== QR2r: boot R =====================
 
 
 def hold(gc, **kw):
-    """The test-only client lever hold_battle_ready (W2-P8b Q16 (a)): {on: true} arms it (the handshake stashes
+    """The test-only client lever hold_battle_ready: {on: true} arms it (the handshake stashes
     battle_ready), {on: false} disarms it and sends the stash; without `on` it only reports."""
     req = {"cmd": "hold_battle_ready"}
     req.update(kw)
@@ -982,7 +982,7 @@ def main():
                 gc.shutdown()
             except Exception as e:
                 print(f"[w2p6a-sm] shutdown {gc.name}: {short(e)}", flush=True)
-    # QR2r: boot R, after boot M's instances are shut down (AMENDMENT P6-6 Q1 (b))
+    # QR2r: boot R, after boot M's instances are shut down
     try:
         qr2r_resume_entry()
         results["QR2r"] = True

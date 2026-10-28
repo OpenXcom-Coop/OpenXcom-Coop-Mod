@@ -38,7 +38,7 @@ class PlaceFacilityState : public State
 {
 protected:
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	const RuleBaseFacility *_rule;
 	BaseFacility *_origFac;
 

@@ -1,4 +1,4 @@
-"""D250-U S-C3 - test_campaign_gm3_drop.py: gm3 PvP campaign drops (host = the aliens, client = X-COM): the X-COM player drops
+"""test_campaign_gm3_drop.py: gm3 PvP campaign drops (host = the aliens, client = X-COM): the X-COM player drops
 while its landing waits and rejoins on the geoscape, the alien host leaves a borrowed battle, and the X-COM player drops during the
 borrowed battle's start.
 

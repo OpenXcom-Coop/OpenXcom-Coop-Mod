@@ -7,7 +7,7 @@ AMENDMENT U1-1 (here A-4: row H8, an X-COM shot no alien sees keeps the alien pl
 Constants: rewrite/r5u1-task0/sd/CONSTANTS.md (TASK 0 boots De, Df; every pin equal).
 
 Probe polarity: battle_state.hiddenMovementShown TRUE = the map is drawn; FALSE = the HIDDEN MOVEMENT screen is shown.
-The sampler (TASK 0 T0-2): from right after the press, every POLL_S s, the watching machine's hiddenMovementShown, until
+The sampler: from right after the press, every POLL_S s, the watching machine's hiddenMovementShown, until
 the order's host context has closed (host free) AND the watching client applied that context's bt_action_end (or, for
 the host, the chain is idle), then TAIL_S s more. A window that never closes (bounded) fails the row's sample cells.
 

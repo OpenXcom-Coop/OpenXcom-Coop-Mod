@@ -16,7 +16,7 @@ on both, turnMode parallel; every unit's reactions 0; X, 8, 9 placed on C_X, C_8
                PAINT_S and the phase counter held HOLD_S
       C1-end2  the client's press ends the side within SIDE_S; the cycle to side 0 turn 3
       C1-common every bucket EQUAL after C1-end2's cycle, desyncSeen false, no new crash file
-  C2  a partner whose soldiers are all down but who commands a mind-controlled alien keeps its END TURN (D53, MJ-8):
+  C2  a partner whose soldiers are all down but who commands a mind-controlled alien keeps its END TURN:
       8 (psi amp, psiSkill 100) takes X (SEED_C2); host kill_unit_real {coop_side 1}.
       C2-mc    (precondition) X faction 0, mcId 8 on both, read before the kill
       C2-out   (precondition) 8 and 9 DEAD on both; the wait ends at the observed deaths, capped at WATCH_CAP_S

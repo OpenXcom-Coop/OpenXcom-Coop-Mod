@@ -246,7 +246,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=2):
     seated_holder["soldierIds"] = soldier_ids
     seated_holder["soldierId"] = soldier_ids[0]
     host.ok({"cmd": "newbattle_ok"})
-    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # the shared battle-entry spine (both briefings, both pre-battle
     # equip screens, both Turn-1 screens; turnMode is still resolved at PREPARE).
     session.briefings_to_battlescape(host, client)
     time.sleep(3)

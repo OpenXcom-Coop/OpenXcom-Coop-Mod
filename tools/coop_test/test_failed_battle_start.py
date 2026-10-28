@@ -1,4 +1,4 @@
-"""W2-H24 stage S-A (spec rewrite/prompts/w2h24_failed_battle_start.md (f), QH24-5 a; TASK 0 rewrite/w2h24-task0/CONSTANTS.md): a failed
+"""a failed
 or refused co-op CAMPAIGN battle start. Refused: the host's craft stays "in battle" at its target, the landing question pops up again
 and the .sav keeps inBattlescape for the craft and the site. The partner lost during the ~1 s start: the host sits on "Waiting
 for <name>" over a briefing that can never start and a rejoin never reaches RESUME.

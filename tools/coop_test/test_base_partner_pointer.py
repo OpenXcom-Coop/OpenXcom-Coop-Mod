@@ -1,4 +1,4 @@
-"""EQ-3 stage S-B - test_base_partner_pointer.py (BPP): the co-op partner's pointer and name on a SHARED base inventory
+"""test_base_partner_pointer.py (BPP): the co-op partner's pointer and name on a SHARED base inventory
 screen (VL-EQ3-1; owner D290 (c): the partner's pointer anywhere on the screen, D295 (a): its name beside it; QEQ3-7 (a): only
 while both players are on the same pile, QEQ3-8 (a): a `base_equip_ptr {key, seat, x, y, on}` snapshot on EQ-2's SNAP_EQUIP_PTR
 slot, QEQ3-12 (a): a SHARED boot; R-EQ3-1; R-EQ2-1 (QEQ2-1 .. -5 (a): raw position on the 320x200 Inventory surface, 50 ms rate,

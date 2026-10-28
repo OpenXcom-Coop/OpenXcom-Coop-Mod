@@ -111,7 +111,7 @@ pre-battle screen is open, its ground ids = the host's pile ids (STOP-IF 8). The
 always released at the end of EQ1b (recorded), so a failed row never leaves the host in
 phase Handshake.
 
-Constants (AMENDMENT P8b-2 / docs rewrite/w2p8b-task0/t0/logs, F3326): SEED_ROSTER 1,
+Constants: SEED_ROSTER 1,
 SEED_MAP 1, MAP_FP (tseed_traditional.log: the same fingerprint as the parallel boot),
 C [8, 9], H [10..14], PILE (14, 19, 1) (tseed_traditional.log "[seed] pile=[14, 19, 1]
 C=[8, 9] H=[10, 11, 12, 13, 14]").

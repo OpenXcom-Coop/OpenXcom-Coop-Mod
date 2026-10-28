@@ -1,4 +1,4 @@
-"""W2-P7 S-C-E3 - test_shared_selection_purchase.py: in a SHARED campaign the Purchase/Hire screen joins the shared
+"""test_shared_selection_purchase.py: in a SHARED campaign the Purchase/Hire screen joins the shared
 selection the Sell, Transfer and Alien Containment screens use since S-C-E1 / S-C-E2 (owner D242 (b), D184 (a), D203,
 D204 (a), D243; MR8, MR10): two players on the Purchase screen of the same base edit ONE list of pending amounts, the
 label naming the other player sits above OK/Cancel and the rows the other player changed last are drawn in the
@@ -8,7 +8,7 @@ player's purchase no longer wipes an order being built, and the Purchase screen 
 re-equip" shares its own list whose purchase lowers the missing counts on both machines (docs
 rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-9: PR-54..PR-63; Q-P9-1..Q-P9-3 (a)).
 
-Before S-C-E3 (P7-9 F6619, F6623, F6626, F6628): each machine's Purchase screen keeps its own amounts - the other
+Before S-C-E3: each machine's Purchase screen keeps its own amounts - the other
 player never sees them, the store (sel_state) holds no buy key, a confirm sends the confirmer's own list and closes
 the screen before the host answers, a rebuild after any world change resets every amount to 0, and the SHARED
 reequip Purchase never lowers the missing counts.
@@ -114,12 +114,12 @@ import test_shared_selection as e1
 import test_shared_selection_screens as scr
 import test_shared_selection_presence as pres
 
-# ----- pins (AMENDMENT P7-9 section 4) -----
+# ----- pins -----
 X, Y, S = "STR_RIFLE", "STR_PISTOL", "STR_SOLDIER"   # xcom1 costBuy 3000 / 800 / 40000 (items.rul, soldiers.rul)
 GRENADE = "STR_GRENADE"                  # P-e's lever purchase (xcom1 costBuy 300)
 BUY_KEY = "buy|n|0|"                     # SharedEcon::buyKey(base 0, normal) (P7-9 PR-54)
 REQ_KEY = "buy|r|0|"                     # SharedEcon::buyKey(base 0, reequip) (P7-9 PR-54, PR-61)
-BOOT_PORT = {"BUY": "47321", "REQ": "47322"}   # AMENDMENT P7-9 section 4 (S26, F6635)
+BOOT_PORT = {"BUY": "47321", "REQ": "47322"}
 OK, CANCEL = "OK", "Cancel"              # PurchaseState's captions (xcom1 en-US STR_OK / STR_CANCEL)
 PURCHASE_RECRUIT = "PURCHASE/RECRUIT"    # CannotReequipState's button (xcom1 en-US STR_PURCHASE_RECRUIT, F6641)
 P_C_CLIENT, P_C_HOST = 1, 5              # P7-9 section 4 P-c's amounts

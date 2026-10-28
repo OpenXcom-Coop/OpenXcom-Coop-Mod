@@ -142,8 +142,8 @@ import repro_atom_walk as raw
 from test_turn_baton import (RHAND_NTH, RHAND_RECT, ACTION_MENU_STATE,
                                 click_nth, drive_full_cycle, dismiss_next_turn_if_present)
 from test_seat_pacing import tab_select
-from test_host_combat import evs_since           # W2-P4 S-C: the S4 re-point's chain
-from test_ai_origins import host_payloads        # W2-P4 S-C: the S4 re-point's `melee` cue
+from test_host_combat import evs_since           # the S4 re-point's chain
+from test_ai_origins import host_payloads        # the S4 re-point's `melee` cue
 
 # ----- baked fixture constants (scratch precalc boot on SEED, A1.5) -----
 SEED = 1
@@ -484,7 +484,7 @@ def intent_contexts(host, ctx0, kind):
 
 
 def wait_intent_done(host, client, ctx0, kind, timeout=15):
-    """W2-P4 S-D: wait (bounded) until C's `kind` intent context has closed on the
+    """wait (bounded) until C's `kind` intent context has closed on the
     host and the client has applied everything the host emitted (the client's
     own bt_action_end included). Returns "" or the wait's failure text."""
     try:

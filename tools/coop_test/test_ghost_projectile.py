@@ -1,4 +1,4 @@
-"""W2-P5 S-A - test_ghost_projectile.py: the watching machine shows the
+"""test_ghost_projectile.py: the watching machine shows the
 projectile of a shot it did not execute - display only (spec
 rewrite/prompts/w2p5_display_ghosts.md section (f) "test_ghost_projectile.py
 (S-A)", sections (b)1-6 and (b)8-11 for `shot`, as amended by PLAN REVIEW +
@@ -186,7 +186,7 @@ CLIENT_FIRE_DIAL = 4              # client battleFireSpeed (seat 1)
 FLOOR_FIRE = min(HOST_FIRE_DIAL, CLIENT_FIRE_DIAL)   # an unowned shooter flies at the slowest seat's dial
 TICK_MS = 16                      # vanilla ProjectileFlyBState setStateInterval(1000/60)
 
-# ----- the lane (TASK 0 T0-1 / T0-7) -----
+# ----- the lane -----
 # T0-7 (S-A.1 build, 3 boots + K=2, identical): every lane shot starts at origin voxel (207,424,18).
 LANE_TILE, LANE_DIR = (12, 26, 0), 2      # open road; faces east
 LANE_TARGET = (32, 26, 0)                 # empty road floor tile, 20 tiles east
@@ -569,7 +569,7 @@ def finish(fails):
 
 
 def host_ui_snap(host, pv, target, seed):
-    """The host's real-UI snap (W2-P2 A2.3): TAB-select H and open its right-hand menu, key 50, HOME, one verified
+    """The host's real-UI snap: TAB-select H and open its right-hand menu, key 50, HOME, one verified
     click on `target` with the host's set_seed `seed` right before it. Fills `pv` as it goes; raises on a failed
     step."""
     pv["cursor"] = open_hand_menu_host(host)

@@ -1,4 +1,4 @@
-"""W2-P4 S-E - test_client_rules.py: the second player's spray autoshot and
+"""test_client_rules.py: the second player's spray autoshot and
 its own force-fire key (spec rewrite/prompts/w2p4_client_combat_intents.md
 section (f) "test_client_rules.py (S-E)", sections (b)1 (the `shoot` kind's
 `spray` and `forceFire` fields), (b)5 (K2) and (b)8 (F423, the per-player
@@ -63,7 +63,7 @@ C16f first, in this order:
          both with the host's Ctrl ON (the value follows the ordering player's
          key, not the host's); each leg one {intent, shoot, C} context with
          C16F_CHAIN, C TU C16F_TU_AFTER on both. A survives both legs in either
-         order (T0-9f: health 30 -> 19 -> 7, standing). Leg 3 (S-E1.1b, F1268):
+         order (T0-9f: health 30 -> 19 -> 7, standing). Leg 3:
          the HOST's touch Ctrl OFF, A's health restored to its pre-leg-1 value
          and C TU max (both), the same snap with the client's own touch Ctrl ON.
          RED: the host's Ctrl OFF gives the UNFORCED value. GREEN: C16F_FORCED
@@ -309,7 +309,7 @@ C23S1_CLIP_AFTER = 19
 C23S3_C_TILE, C23S3_C_DIR = (12, 27, 0), 2   # C19's thrower tile, facing east (the throw tile is north, F490)
 C23S3_TILE = (12, 22, 0)          # T0-17: base (256,60) at HOME; C19's (12,20,0) is (288,44), under SKILLS
 SEED_C23S3 = 2                    # SEED_C19; the rule stand-in's throw at this seed landed on C23S3_TILE
-C23S3_CHAIN = ["turn", "shot", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-throw turn
+C23S3_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
 C23S3_TU_AFTER = C_TU_FULL - SKILL_TU - 2   # 56: the skill's cost + two octants of pre-throw turn
 DEFER_C23S2_MS = 3000             # the in-window checks take ~0.3 s (T0-17); < coopIntentTimeoutSeconds 10 s
 C23S2_TU_AFTER = C_TU_FULL - SKILL_TU   # 58
@@ -656,7 +656,7 @@ def c16f_force_fire(host, client, ctx):
     finish(fails)
 
 
-# ===================== the skill rows (S-E2, D147) =====================
+# ===================== the skill rows =====================
 
 
 def rlog(host):

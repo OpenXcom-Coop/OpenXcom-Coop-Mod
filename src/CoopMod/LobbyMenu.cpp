@@ -553,7 +553,7 @@ public:
 };
 
 /**
- * coop D250-U S-C6 (owner D270 (b), D275; docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4): the small dialog a NEW co-op
+ * coop: the small dialog a NEW co-op
  * campaign lobby opens when a team pick would put both players on the Alien team - there are no PvE2 (game mode 4) campaigns; PvE2
  * stays a Custom Battle mode. One OK button closes it; the pick itself was refused (LobbyMenu::setPlayerTeam). File-local, as
  * ConfirmStartCampaignState.
@@ -694,11 +694,11 @@ void LobbyMenu::resumeCampaign()
 	}
 
 	connectionTCP::session.campaignStarted();
-	// coop D250-U S-C4b (owner D250, O1 (a); QC-14 (a)): a gm3 battle the alien host saved while it borrowed the X-COM player's world is
+	// coop: a gm3 battle the alien host saved while it borrowed the X-COM player's world is
 	// borrowed again before the resume is armed, so it resumes as a battle; false (nothing changed) for every other save.
 	const bool coopPvpResumed = _game->getCoopMod()->coopPvpResumeBorrow();
 
-	// coop D250-U S-C4a: a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
+	// coop: a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
 	// for a new one - the session reset when hosting began (resetCoopState) cleared the flag the save carried. Not while it borrows
 	// the X-COM player's world for a resumed battle.
 	if (connectionTCP::_coopGamemode == 3 && !connectionTCP::coopPvpParkedWorld())
@@ -765,7 +765,7 @@ void LobbyMenu::resumeCampaign()
 	// every player reports its world loaded
 	closeLobby();
 	if (coopPvpResumed)
-		_game->getCoopMod()->coopPvpShowResumedBattle(); // coop D250-U S-C4b: the resumed borrowed battle's screen, under the wait dialog
+		_game->getCoopMod()->coopPvpShowResumedBattle(); // coop: the resumed borrowed battle's screen, under the wait dialog
 
 	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 
@@ -1063,7 +1063,7 @@ void LobbyMenu::continueCustomBattle()
 
 	connectionTCP::session.campaignStarted();
 
-	// coop MG-B (owner D225 (a); Q5 (a), V2): no `custom_battle_continue` send - the rewrite's client has no receiver for it; the
+	// coop: no `custom_battle_continue` send - the rewrite's client has no receiver for it; the
 	// client leaves its lobby when the battle offer that follows loads (coopUnwindToSafeState), as at a fresh battle start.
 
 	closeLobby();
@@ -1386,7 +1386,7 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 			current_gamemode = 3;
 		}
 
-		// coop D250-U S-C6: no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
+		// coop: no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
 		// both players on the Alien team: the row keeps its team, nothing is sent, and a small dialog says why. A Custom Battle lobby
 		// (lobbyMode 0) keeps PvE2; a resume lobby never re-derives the mode from the teams (below).
 		if (connectionTCP::session.lobbyMode == 1 && current_gamemode == 4)
@@ -1399,7 +1399,7 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 		// Resume lobbies: the gamemode was read from the loaded save
 		// and must not be recalculated from team flags (which both
 		// default to false → PVE=1).  Preserve it for mode-2 lobbies.
-		// coop MG-B (V3, F5111): a CONTINUE BATTLE lobby (main #181) keeps the saved battle's mode too; seat 1's side comes from it.
+		// coop: a CONTINUE BATTLE lobby (main #181) keeps the saved battle's mode too; seat 1's side comes from it.
 		if ((connectionTCP::session.lobbyMode == 2
 			&& _game->getSavedGame()
 			&& _game->getSavedGame()->isCoopSave())

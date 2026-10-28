@@ -10,7 +10,7 @@ on an EMPTY dir, session.resume_campaign, T = its return; R1 R1-5s, R1-crafts (T
 on the patrolling partner craft, between the R1 reads) R3-click; R2 (a real click on the partner's base marker, LAST) R2-click, R2-back,
 CRASH. Real presses only: inject_input clicks at the projected pixel, Esc on a list, click_widget GEOSCAPE in a peer base; no popup drain
 inside a peer base, never leave_base / coop_dialog_back / dismiss_popup. RED (TASK 0 a, b): exit 2, FAIL R1-5s, R1-crafts,
-R3-click, R1-30s, R2-click. GREEN (E1 + E2, TASK 0 c): 11/11. ONE run, no skip; exit 0 only if all pass, else 2.
+R3-click, R1-30s, R2-click. GREEN: 11/11. ONE run, no skip; exit 0 only if all pass, else 2.
 Run:  python tools/coop_test/test_client_base_mirror_dup.py
 """
 
@@ -50,7 +50,7 @@ def block(names, why):
     for n in [n for n in names if n not in {x[0] for x in RESULTS}]:
         cell(n, False, why)
 def load():
-    """CPU (Processor(_Total) % Processor Time, the last 2 s; harness.cpu_load, D307) and the owner's game processes (S24, F4445)."""
+    """CPU (Processor(_Total) % Processor Time, the last 2 s; harness.cpu_load, D307) and the owner's game processes."""
     c = harness.cpu_load()
     return {"cpu": harness.cpu_text(c["cpu"]), "wardogs": str(len(c["wardogs"]))}
 

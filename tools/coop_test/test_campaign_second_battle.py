@@ -1,4 +1,4 @@
-"""W2-P7 S-C-F - test_campaign_second_battle.py: a SHARED campaign plays a SECOND battle in the same session after
+"""test_campaign_second_battle.py: a SHARED campaign plays a SECOND battle in the same session after
 its first battle's return - entry, one ending and the return again, with the per-battle record reset (docs
 rewrite/prompts/w2p7_sc_design.md section 3.8, AMENDMENT P7-8 section 4.3 row C28S-2, PR-53; N29/F1340; owner D156 (a),
 D175, D176; mechanism rulings MR1-MR3).
@@ -49,7 +49,7 @@ import session
 from session import battle_state, event_state
 import test_battle_end_campaign as camp
 
-PORT = "47266"                       # AMENDMENT P7-8 section 4 (S26, F6118): F = 47266 (S2), 47267 (P2)
+PORT = "47266"                       # AMENDMENT P7-8 section 4: F = 47266 (S2), 47267 (P2)
 TAG = "w2p7scf_s2"
 ADOPT_S = camp.ADOPT_S               # 15 s (CONSTANTS T0-S2)
 DEBRIEF_S = camp.DEBRIEF_S           # 60 s: the host's DebriefingState after the kill

@@ -2,7 +2,7 @@
 rewrite/r4l2-task0/sb/CONSTANTS.md): a rejoiner lost during its rejoin leaves the paused battle with no co-op state. A skirmish client leaves
 (drop_client_mid_battle), a fresh client2 rejoins with hold_battle_ready armed (its battle_ready stashed, so the host stays in phase Handshake
 under offerRejoinBattle()), and client2 is killed there. disconnectTCP()'s SPEC 16 spare needs phase Active, so the host takes the full reset:
-phase Idle, battleId 0, peerAbsent false, dialog 62 kept (F10807, W2-H24 R-2); offerRejoinBattle()'s guard then refuses every later rejoin
+phase Idle, battleId 0, peerAbsent false, dialog 62 kept; offerRejoinBattle()'s guard then refuses every later rejoin
 (GUARD +1, client3 on 52 for good). TASK 0 T0-L measured it 2/2, the kill on the -2 path both times.
   Boot L (key "48601", w2r4l2_l_host / _client / _client2 / _client3): row RL. Cells: RL-1 GUARD PAUSE; RL-2 GUARD the rejoin in flight (host
   phase Handshake, client2 held, OFFER +1 reading battleId=B0, client2 CLIENT_ACTIVE +1); RL-3 RED the pause kept at W (phase Active, peerAbsent
@@ -30,7 +30,7 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 from test_skirmish_rejoin_battle import drop_client_mid_battle, rejoin_skirmish, start_skirmish_battle  # noqa: E402
 
-WATCH_CAP_S = 135  # RV-U13 S-D: REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
 POLL, W, W_POLL, W_ACK, W_PAUSE, W_FLIGHT = 0.25, 15.0, 0.2, WATCH_CAP_S, 30.0, 60.0
 KEY, TAG = "48601", "w2r4l2_l"
 BS, CS, PROFILE = "BattlescapeState", "CoopState", "Profile"

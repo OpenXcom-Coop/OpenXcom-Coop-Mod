@@ -34,7 +34,7 @@
 #include "Pathfinding.h"
 #include "TileEngine.h"
 #include "../CoopMod/CoopArbiter.h"
-#include "../CoopMod/CoopDelta.h" // coop W2-H30 (L-5): coopHostPrime()
+#include "../CoopMod/CoopDelta.h" // coop: coopHostPrime()
 
 namespace OpenXcom
 {
@@ -219,7 +219,7 @@ void SkillMenuState::btnActionMenuItemClick(Action *action)
 			// instant grenades
 			_action->weapon->setFuseTimer(0);
 			_action->weapon->setFuseEnabled(true);
-			coopHostPrime(_action->actor, _action->weapon, false); // coop W2-H30 (L-5): the fuse rides a `host` prime context
+			coopHostPrime(_action->actor, _action->weapon, false); // coop: the fuse rides a `host` prime context
 		}
 		else if (_action->type == BA_PRIME || _action->type == BA_UNPRIME)
 		{

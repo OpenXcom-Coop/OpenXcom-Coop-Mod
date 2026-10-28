@@ -157,7 +157,7 @@ class CoopState : public State
 };
 
 /**
- * coop R4-L3 S-C (owner D232 (a), D232-V2; docs rewrite/prompts/r4l3_desync_resync.md): the caught-and-repaired notice,
+ * coop: the caught-and-repaired notice,
  * ported from `main`'s CoopDesyncNoticeState (OK / OPEN FOLDER / REPORT ON GITHUB). Raised on each machine after the
  * automatic desync repair, naming that machine's own report zip. Its own class rather than a CoopState code: it sits
  * over a live battle, and it holds a full path plus a "where to send it" sentence. Palette handling as `main`: in battle
@@ -202,7 +202,7 @@ class CoopDesyncNoticeState : public State
 	static int s_raiseCount;
 };
 
-// coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): ported unchanged from `main` CoopState.h :209-:249.
+// coop: ported unchanged from `main` CoopState.h :209-:249.
 /**
  * PRD-I5: next-launch crash-report consent dialog. Raised once over the main menu
  * when crash-pending.json names a dump + log that still exist. Three outcomes:

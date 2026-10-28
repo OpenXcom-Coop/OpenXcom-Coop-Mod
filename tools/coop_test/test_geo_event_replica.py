@@ -35,7 +35,7 @@ REGION_T_DE = "H15 Regionsereignis: {}"                             # the mod's 
 BIG, SMALL = 1000000, 1000                                          # the events' funds
 EVENT_IDS = ("STR_SOLDIER", "STR_SKYRANGER", "STR_INTERCEPTOR")    # eventLogic's getId: genSoldier, the spawned craft
 POLL_S, POLL_I, BETWEEN_S = 3.0, 0.1, 30
-CLEAN_S = 4.0         # > the 3000 ms mismatch debounce (P10 F5510) and the measured 3.27 s worst case
+CLEAN_S = 4.0         # > the 3000 ms mismatch debounce and the measured 3.27 s worst case
 
 class GuardMiss(Exception):
     """A guard failed: the row ends after its CAPTURE line."""

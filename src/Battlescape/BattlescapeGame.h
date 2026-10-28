@@ -151,7 +151,7 @@ private:
 	void endTurn();
 	/// Picks the first soldier that is panicking.
 	bool handlePanickingPlayer();
-	/// coop R5-U3 (R5-V1): handlePanickingPlayer() for @a side, a side a human seat commands.
+	/// coop: handlePanickingPlayer() for @a side, a side a human seat commands.
 	bool coopHandlePanickingSide(UnitFaction side);
 	/// coop: handlePanickingPlayer() for player 2's turn in a hotseat battle.
 	bool coopHandlePanickingHotseat();
@@ -222,7 +222,7 @@ public:
 	BattleAction *getCurrentAction();
 	/// Determines whether there is an action currently going on.
 	bool isBusy() const;
-	/// coop (W1-P7, WAVE1-RUNBOOK.md ruling D7 = WV-D13): the OWNER unit of the
+	/// coop: the OWNER unit of the
 	/// action chain currently running, ignoring consequence states. Donor
 	/// restore, `cbff7951d:BattlescapeGame.cpp:4272`; its only caller is the
 	/// seat-attributed wait-banner driver in src/CoopMod (CoopBattleUi).

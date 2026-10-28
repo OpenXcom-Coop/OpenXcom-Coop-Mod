@@ -22,7 +22,7 @@ The fixture is a SEPARATE campaign attack on the HOST's own base (donor commit
 
 RED before the fix (crashes ~every run, verified), GREEN after.
 
-R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18): GeoscapeState::startCoopMission() (the
+R4-P2: GeoscapeState::startCoopMission() (the
 deferred battle-start this snapshot feeds) now rides the SAME handshake R4-P1
 built (CoopHandshake::offerBattle) instead of the R1-P5 "coop battles
 unavailable" popup - the CoopBaseDefense snapshot struct + the UAF fix itself

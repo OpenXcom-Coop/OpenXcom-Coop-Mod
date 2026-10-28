@@ -316,7 +316,7 @@ void Inventory::drawItems()
 
 	ScriptWorkerBlit work;
 	_items->clear();
-	_coopDrawnItems.clear(); // coop EQ-2 S-D (DT2): TEST-ONLY drawn record
+	_coopDrawnItems.clear(); // coop: TEST-ONLY drawn record
 	Uint8 color = _game->getMod()->getInterface("inventory")->getElement("numStack")->color;
 	Uint8 color2 = _game->getMod()->getInterface("inventory")->getElement("numStack")->color2;
 	if (_selUnit != 0)
@@ -327,7 +327,7 @@ void Inventory::drawItems()
 		{
 			const Surface *frame = invItem->getBigSprite(texture, save, _animFrame);
 
-			if (invItem == _selItem || !frame || coopEquipHeldByOther(invItem)) // coop EQ-2 S-D (D2; owner D291 (c), QEQ2-8 (a)): the co-op partner holds it - drawn under its pointer instead
+			if (invItem == _selItem || !frame || coopEquipHeldByOther(invItem)) // coop: the co-op partner holds it - drawn under its pointer instead
 				continue;
 
 			int x, y;
@@ -347,7 +347,7 @@ void Inventory::drawItems()
 			}
 			BattleItem::ScriptFill(&work, invItem, save, BODYPART_ITEM_INVENTORY, _animFrame, 0);
 			work.executeBlit(frame, _items, x, y, 0);
-			_coopDrawnItems.push_back(invItem->getId()); // coop EQ-2 S-D (DT2b): TEST-ONLY - drawn on the paperdoll
+			_coopDrawnItems.push_back(invItem->getId()); // coop: TEST-ONLY - drawn on the paperdoll
 
 			// two-handed indicator
 			if (invItem->getSlot()->getType() == INV_HAND)
@@ -509,7 +509,7 @@ std::vector<std::vector<char>>* Inventory::clearOccupiedSlotsCache()
  */
 void Inventory::moveItem(BattleItem *item, const RuleInventory *slot, int x, int y)
 {
-	if (coopInvLocalWriteRefused()) return; // W2-P8 Q11
+	if (coopInvLocalWriteRefused()) return;
 	_game->getSavedGame()->getSavedBattle()->getTileEngine()->itemMoveInventory(_selUnit->getTile(), _selUnit, item, slot, x, y);
 }
 
@@ -1556,7 +1556,7 @@ void Inventory::arrangeGround(int alterOffset)
 			bi->setSlotX(1000000);
 			bi->setSlotY(0);
 			if (coopEquipHeldByOther(bi))
-				continue; // coop EQ-2 S-B (B8; owner D291 (b)): another co-op seat holds it - parked off the pile: uncounted, unclickable
+				continue; // coop: another co-op seat holds it - parked off the pile: uncounted, unclickable
 
 			// Only handle visible items from this point on.
 			if (bi->getRules()->getInventoryWidth())

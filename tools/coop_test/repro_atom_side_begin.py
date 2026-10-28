@@ -29,7 +29,7 @@ seat's side is active - via `battle_state.selectedId` plus each unit's
 `coop` field, and separately proves the ENVELOPE COUNT (3 side_begin per
 full cycle, M9a-4) via event_log.
 
-D64 (REV E.49 E49.2.2): this own-seat `selectedId` check (WR-18, below) is
+this own-seat `selectedId` check (WR-18, below) is
 the OWNER-RULED assertion of record REPLACING (f).2's `activeSeats ==
 [0,1]` wording - not a substitution the builder chose. `event_log` entries
 carry only {seq, actionId, kind, h} and no payload, so `activeSeats` itself
@@ -123,7 +123,7 @@ def drive_side_change(host, client, want_side, want_turn_min=None, timeout=60):
     not stall on an un-dismissed banner."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # RV-U13 S-A: read both sides FIRST, then close. A machine pushes its NextTurnState in the frame
+        # read both sides FIRST, then close. A machine pushes its NextTurnState in the frame
         # its side changes (the host's BattlescapeGame::endTurn, a client's side_transition apply), and the host
         # emits side_transition just before its own push, so once both reads match, every NextTurnState of that
         # change is up for the close pass below. The pass closes every stacked one once (F11011 Ae: two) and stops
@@ -296,7 +296,7 @@ def run_gm2():
             f"in gm2 - offered: {r.get('missionTypes')}")
 
         host.ok({"cmd": "newbattle_ok"})
-        # W2-P8b S-H: the shared battle-entry spine (both briefings, the host's
+        # the shared battle-entry spine (both briefings, the host's
         # pre-battle equip screen - the alien seat has nothing to equip - and both
         # Turn-1 screens).
         session.briefings_to_battlescape(host, client)

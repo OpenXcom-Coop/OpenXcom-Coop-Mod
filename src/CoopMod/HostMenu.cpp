@@ -372,7 +372,7 @@ void HostMenu::init()
 
 void HostMenu::convertUnits()
 {
-	// coop MG-B S-B (owner D237 (b), D245 (a), D237-V1, D235 (a); V5; QMB2-3 (a)): a single-player Custom Battle hosted from the
+	// coop: a single-player Custom Battle hosted from the
 	// pause menu becomes a classic co-op battle before the lobby opens (the R1-P5 stub's silent refusal is gone, F5296). Soldiers
 	// split in unit-list order (v2.0.6's order): the second player (seat 1) takes the first floor(N/2), the host (seat 0) the rest -
 	// the extra one of an odd squad, a 1-soldier squad included. Every other original-PLAYER unit (a tank) is the host's; every
@@ -585,7 +585,7 @@ void HostMenu::hostTCPGame(Action* action)
 	{
 		connectionTCP::_coopGamemode = coopLoadedMode;
 	}
-	// coop MG-C (C14, R-MF210-1): `main` #181 also keeps the loaded mode for a saved Custom Battle co-op resume.
+	// coop: `main` #181 also keeps the loaded mode for a saved Custom Battle co-op resume.
 	if (!(coopKeepLoadedPvpMode || connectionTCP::session.customBattleResumePending))
 	{
 		connectionTCP::_coopGamemode = 1;
@@ -624,7 +624,7 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	// coop MG-B S-B: only a single-player Custom Battle hosted from the pause menu (main #181's
+	// coop: only a single-player Custom Battle hosted from the pause menu (main #181's
 	// CONTINUE BATTLE route, customBattleResumePending) converts, and only when no unit carries seat 1 yet (the scan above); a
 	// campaign never does, and every other host keeps its battle as it is.
 	if (_game->getCoopMod()->getCoopCampaign() == true

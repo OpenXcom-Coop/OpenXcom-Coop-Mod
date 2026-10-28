@@ -133,7 +133,7 @@ Json::Value lastDelta();
 /// and before the first attach. Probe only.
 Json::Value deltaRing();
 
-/// [lastLight] (W2-P2 S-L, A4.5) the last light recompute the client's delta
+/// [lastLight] the last light recompute the client's delta
 /// applier made, as {seq, kind, layer, x, y, z, radius, terrain, whole, us}
 /// (x/y/z = -1 and whole = true for a whole-map pass) - or null when there
 /// has been none this battle.
@@ -150,12 +150,12 @@ void resetLightWindow();
 /// (client) are the writers.
 Json::Value cueCounts();
 
-/// [lastCue] (W2-P2 S-C, spec (b)16) the last cue ev this machine emitted
+/// [lastCue] the last cue ev this machine emitted
 /// (host) or applied (client), as {kind, seq, actionId, payload} - or null
 /// when there has been none this battle. Same writers as cueCounts().
 Json::Value lastCue();
 
-/// [contextsOpened] (W2-P3 S-A, spec (b)13) host: the action contexts pushed
+/// [contextsOpened] host: the action contexts pushed
 /// this battle per origin, every origin including wave 1's ("intent", "host",
 /// "ai", "endturn", ...), as {origin: count} (an empty object when there has
 /// been none). Commit S-A.1 (the RED commit) adds the storage and this reader
@@ -178,7 +178,7 @@ Json::Value closedContexts();
 /// compared, so it is not counted.
 Json::Value hashVerifyCounts();
 
-/// [lastHashVerify] (W2-P2 S-H, A5.5) client: the last verify() call that
+/// [lastHashVerify] client: the last verify() call that
 /// reached its compare loop, as {seq, kind, buckets:[the names it compared,
 /// in order]} (`kind` = the ev's kind, else the envelope's state) - or null
 /// when there has been none this battle.
@@ -231,12 +231,12 @@ bool attach(SavedBattleGame* battle, Json::Value& env);
 /// action context; the caller checks CoopEmit::lastSeqEmitted() to learn whether it went out.
 void flushSync(const Json::Value* equip = nullptr);
 
-/// W2-P8 S-C1.2 (Q7 (a); AMENDMENT P8-3a Q1 (a)): HOST, co-op battle only - the host's own in-battle
+/// HOST, co-op battle only - the host's own in-battle
 /// inventory change at @a site ("move", "load", "unload", "reload", "close") latches one `sync`. A no-op
 /// in single player and on the client. Writes the invHostDirty probe's `pending` and `sets`.
 void noteHostInventoryChange(const char* site);
 
-/// W2-P8 S-C1.2 (Q7 (a), F2329): HOST, once per pump pass (updateCoopTask, after the reveal flush) - the
+/// HOST, once per pump pass (updateCoopTask, after the reveal flush) - the
 /// latch's consumer: kept while the battle is not quiescent (`heldByGate`), else cleared and flushSync()
 /// runs (`flushes` when it sent a `sync`, `emptyFlushes` when the delta was empty).
 void flushHostInventoryLatch();
@@ -310,10 +310,10 @@ void battleEndNoteSend(const Json::Value& ev);
 /// lastSeqApplied and hashVerify (lastHashVerify()).
 void battleEndNoteTeardown();
 
-/// TEST INTROSPECTION + S-B1.2's finish (AMENDMENT P7-2 R2): true iff @a state is the display-only DebriefingState (identity compare, never dereferenced).
+/// TEST INTROSPECTION + S-B1.2's finish: true iff @a state is the display-only DebriefingState (identity compare, never dereferenced).
 bool debriefIsDisplayOnly(const void* state);
 
-/// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-2): true while this machine's battle-end debriefing is a campaign one (set at the
+/// true while this machine's battle-end debriefing is a campaign one (set at the
 /// host's V5 mark / the client's fill of a non-skirmish payload; cleared at the campaign OK and by
 /// battleEndRecordReset()).
 bool debriefIsCampaign();
@@ -350,7 +350,7 @@ int invWarningWrites();
 
 // ----- W2-P8 S-C2.1 (the RED commit): the host screen probes -----
 // Spec docs rewrite/prompts/w2p8_inventory.md, AMENDMENT P8-4 section 4.2 and
-// C2-5 (owner D166 = B, D187-D191). TEST INTROSPECTION ONLY (TestServer
+// C2-5. TEST INTROSPECTION ONLY (TestServer
 // event_state), never read by game logic, never on the wire. Bodies:
 // connectionTCP.cpp. Zeroed and reset by inventoryProbesReset() above (C2-5,
 // never by resetBattleAuthority()). Commit S-C2.1 adds the storage, the zeros,
@@ -391,7 +391,7 @@ bool equipOkPressed();
 
 } // namespace CoopDelta
 
-// W2-P7 S-C-A.1 (AMENDMENT P7-6 PR-11): TEST-ONLY world-stream holds (TestServer hold_world_stream / hold_world_adopt),
+// TEST-ONLY world-stream holds (TestServer hold_world_stream / hold_world_adopt),
 // inert unless armed; bodies: connectionTCP.cpp beside hold_battle_ready. Never read by game logic before S-C-A.2.
 void coopTestHoldWorldStreamArm(bool on);
 bool coopTestHoldWorldStreamArmed();
@@ -489,7 +489,7 @@ void coopHostMedikit(BattleAction* action, BattleUnit* target, int medikitAction
 /// cue {actor, unit (= actor), item}.
 void coopHostScanner(BattleAction* action);
 
-/// W2-H30 (docs rewrite/prompts/w2h30_host_local_actions.md; W2-H28 QH-4 (a), lead L-1): the host's OWN mind
+/// the host's OWN mind
 /// probe as an INSTANT host action - coopHostScanner()'s shape (PR-Q5). ONE call in
 /// BattlescapeGame::primaryAction()'s BT_MINDPROBE branch, the first statement of its spendTU() success block
 /// (the host only: coopInterceptPsiConfirm() answered FALSE there). Mint, push {id,"host"} (context kind
@@ -727,7 +727,7 @@ bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const B
 /// An `endturn` base is never suppressed (OR5 (a)). Writes no battle state.
 bool coopHostPartnerCamera(const BattleUnit* actor, const char* what);
 
-/// D249-U (owner D249 (a), D131; docs rewrite/prompts/d249u_follow_teammate_camera.md): TRUE iff THIS machine's own
+/// TRUE iff THIS machine's own
 /// Options::coopFollowPeerActions is on (a per-player option, never synced), a co-op battle is active and @a u is
 /// commanded by the partner's seat (another seat of this seat's faction: coopActorRelation() "partner"). Then the
 /// host's guard above answers FALSE for that unit (vanilla's five camera writes run, as for this machine's own units),
@@ -747,7 +747,7 @@ bool coopFactionIsMine(int faction);
 /// The side now playing is THIS machine's opponent (vanilla: `getSide() == FACTION_HOSTILE`; never the neutral side).
 bool coopSideIsOpponents(const SavedBattleGame* s);
 
-// ----- R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TA1; QU2-2 (a)): TEST-ONLY draw probe. Map::drawTerrain
+// ----- TEST-ONLY draw probe. Map::drawTerrain
 // counts its frames (coopDrawProbeFrame) and records the unit the selection arrow was drawn over (coopDrawProbeArrow) and
 // each unit an Alt marker was drawn over, with its kind (coopDrawProbeMark); coopDrawProbe() reads the record (event_state
 // `drawProbe`). Probe storage only: nothing but TestServer reads it; never reset (a cell reads "drawn in the latest frame").
@@ -756,7 +756,7 @@ void coopDrawProbeArrow(const BattleUnit* u);
 void coopDrawProbeMark(const BattleUnit* u, bool motionScan);
 Json::Value coopDrawProbe();
 
-// ----- R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md (e) TB1): TEST-ONLY walk-pace probe. UnitWalkBState counts, per
+// ----- TEST-ONLY walk-pace probe. UnitWalkBState counts, per
 // walking unit, each step it starts animated (setNormalWalkSpeed) or instant (state interval 0); coopWalkPace() reads it
 // (event_state `walkPace` {id: {animated, instant}}). Probe storage only; never reset (cells read deltas).
 void coopNoteWalkPace(const BattleUnit* u, bool animated);

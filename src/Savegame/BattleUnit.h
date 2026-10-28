@@ -313,7 +313,7 @@ public:
 	CoopSeat getCoopSeat() const { return _coopSeat; }
 	/// Sets the coop seat currently controlling this unit.
 	void setCoopSeat(CoopSeat s) { _coopSeat = s; }
-	/// D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md): a SEPARATE partner's own tank on the host's craft -
+	/// a SEPARATE partner's own tank on the host's craft -
 	/// "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>", empty for every other unit. Set once at
 	/// generation (coopTagGuestVehicleUnit), saved with the unit; read at the battle's end (the partner's tank goes home).
 	const std::string& getCoopGuestTank() const { return _coopGuestTank; }
@@ -342,7 +342,7 @@ public:
 	/// Clamped to [0, stamina] the same way vanilla's own internal energy
 	/// mutations are.
 	void setEnergy(int energy);
-	/// W1-P13a (WAVE1-RUNBOOK.md SPEC 9): absolute health set - the coop
+	/// absolute health set - the coop
 	/// client-apply counterpart for the `side_transition` restate. A plain
 	/// assignment, deliberately with NO regen/clamp cascade: prepareHealth()/
 	/// heal() are deltas and kill()/instaKill() are not restates, so none of
@@ -388,24 +388,24 @@ public:
 	/// the same path BattleUnit::load uses for the "tags" key. Runs no script
 	/// and draws no RNG.
 	void coopSetScriptValues(const std::vector<std::pair<std::string, int>>& tags, const ScriptGlobal* shared);
-	/// W2-P2 (Q1 = c): absolute special-ability set - TEST LEVER ONLY
+	/// absolute special-ability set - TEST LEVER ONLY
 	/// (TestServer battle_set_unit_state {specab}). _specab is otherwise
 	/// derived from the armor/unit rules and has no setter. Plain assignment.
 	void coopSetSpecialAbility(int specab);
-	/// W2-P2 S-A (spec (b)1, R3.7): absolute motion-points set for the delta
+	/// absolute motion-points set for the delta
 	/// applier. keepWalking() only adds and prepareNewTurn() only zeroes.
 	void coopSetMotionPoints(int motionPoints);
-	/// W2-P2 S-A: absolute wants-to-surrender set (serialized, hashed).
+	/// absolute wants-to-surrender set (serialized, hashed).
 	void coopSetWantsToSurrender(bool wantsToSurrender);
-	/// W2-P2 S-A: the serialized morale-restored counter (no vanilla getter).
+	/// the serialized morale-restored counter (no vanilla getter).
 	int coopGetMoraleRestored() const;
-	/// W2-P2 S-A: absolute morale-restored set.
+	/// absolute morale-restored set.
 	void coopSetMoraleRestored(int moraleRestored);
-	/// W2-P2 S-A: absolute reaction-hand state (the two UI toggles are deltas).
+	/// absolute reaction-hand state (the two UI toggles are deltas).
 	void coopSetReactionHands(const std::string& preferredHand, bool disabledLeft, bool disabledRight);
-	/// W2-P2 S-A: the raw script-value vector (element i = tag index i + 1).
+	/// the raw script-value vector (element i = tag index i + 1).
 	const std::vector<int>& coopScriptValuesRaw() const;
-	/// W2-P2 S-A: absolute raw script-value set; entries past @a values are
+	/// absolute raw script-value set; entries past @a values are
 	/// zeroed. Runs no script and draws no RNG.
 	void coopSetScriptValuesRaw(const std::vector<int>& values);
 	/// Gets the unit's health.
@@ -773,7 +773,7 @@ public:
 	/// assignSeatsAndFactions(), and its read-back in
 	/// coopLoadSoldierUnitRecord(). Two callers.
 	void setCoopType(const std::string& type) { _type = type; }
-	/// R5-U8b (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) R4): sets the dark-vision distance in tiles and its square.
+	/// sets the dark-vision distance in tiles and its square.
 	/// Thin setter, no logic - coopLoadBuiltValues() (BattleAuthority.h, called from load()) restores the value the unit was
 	/// built with, which updateArmorFromNonSoldier() derives from the ORIGINAL faction. One caller.
 	void coopSetMaxViewDistanceAtDark(int tiles) { _maxViewDistanceAtDark = tiles; _maxViewDistanceAtDarkSquared = tiles * tiles; }
@@ -900,7 +900,7 @@ public:
 	void addLoadedSpecialWeapon(BattleItem* item);
 	/// Remove all special weapons.
 	void removeSpecialWeapons(SavedBattleGame *save);
-	/// W2-P3 (MJ-5): the coop client's removal of ONE special weapon - nulls the
+	/// the coop client's removal of ONE special weapon - nulls the
 	/// slot holding @a item, then clears its owner (removeSpecialWeapons' two
 	/// writes for that item), so SavedBattleGame::removeItem() can remove it.
 	/// Returns true when a slot held it. No RNG.

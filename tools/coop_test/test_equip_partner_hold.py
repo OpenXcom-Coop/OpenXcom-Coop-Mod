@@ -1,4 +1,4 @@
-"""EQ-2 S-B - test_equip_partner_hold.py (EQH): an item the co-op partner picks up on the pre-battle equip screen is reserved
+"""test_equip_partner_hold.py (EQH): an item the co-op partner picks up on the pre-battle equip screen is reserved
 at once. the pile count drops at pick-up and nobody else can take it; the reservation ends when the holder puts it
 down or cancels; D289 (a), D293 (a): never between PvP opponents. Spec: docs repo rewrite/prompts/eq2b_hold.md (f) with its PIN-PASS
 AMENDMENTS, the common file rewrite/prompts/eq2_partner_pointer.md; rulings QEQ2-6 (a), QEQ2-7 (a), QEQ2-12 (a), QEQ2-13 (a) (the

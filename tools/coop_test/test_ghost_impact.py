@@ -1,4 +1,4 @@
-"""W2-P5 S-B - test_ghost_impact.py: the watching machine shows the hit
+"""test_ghost_impact.py: the watching machine shows the hit
 spark and the explosion of an action it did not execute - display only (spec
 rewrite/prompts/w2p5_display_ghosts.md section (f) "test_ghost_impact.py
 (S-B)", sections (b)3, (b)5, (b)7 and (b)11 for `hit` and `explosion`, ruling
@@ -12,8 +12,8 @@ amendments E3 / E3.1 (stage S-T): H2's throw follows its pre-action `turn`, so
 the Q1 (b) hold applies to its projectile ghost).
 
 Before S-B the second player's machine shows no hit and no explosion: every
-applied `hit` / `explosion` cue only counts in cueCounts and the state snaps
-(TASK 0 T0-6). After S-B every applied `hit` / `explosion` cue starts one
+applied `hit` / `explosion` cue only counts in cueCounts and the state snaps.
+After S-B every applied `hit` / `explosion` cue starts one
 display-only combat ghost on the client (vanilla Explosion sprites on the
 client's Map, frame timing and sounds from the loaded rules; the explosion
 scatter from RNG::seedless), a pellet `hit` joins the running hit ghost, and
@@ -33,7 +33,7 @@ TURN last, the terrain-changing rockets before it):
       intervalMs == max(1, 50 - 10 x explosionSpeed) (50), ms == frames x
       intervalMs (500), sprites == 1, sound == hitSound(STR_RIFLE_CLIP); the
       hit payload's weaponType STR_RIFLE, itemType STR_RIFLE_CLIP.
-  H4  pellets (TASK 0 T0-5). H stays on H1_H_TILE facing H1_H_DIR (never
+  H4  pellets. H stays on H1_H_TILE facing H1_H_DIR (never
       teleported onto its own tile, S2); H gets STR_PISTOL + the mod's
       STR_COOP_PELLET_CLIP (clear_hands, BOTH); host set_seed SEED_H4 and
       battle_fire {snap, H4_TARGET}. RED: shot +1, hit +1 +H4_PELLETS, hit

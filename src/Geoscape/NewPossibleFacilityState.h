@@ -44,7 +44,7 @@ private:
 	Text* _txtCaveat;
 	TextButton *_btnOpen, *_btnOk;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	Globe *_globe;
 public:
 	/// Creates the NewPossibleFacilityState state.

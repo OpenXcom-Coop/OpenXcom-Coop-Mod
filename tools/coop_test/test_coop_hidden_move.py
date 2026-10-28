@@ -1,4 +1,4 @@
-"""R5-U2 S-E - test_coop_hidden_move.py: in a classic co-op battle the second player's machine (the client) shows
+"""test_coop_hidden_move.py: in a classic co-op battle the second player's machine (the client) shows
 vanilla's HIDDEN MOVEMENT screen during the alien turn, lifted while an alien its side sees acts; the host's screen is
 unchanged (R-R5U1-1; QU2-14 (a); spec rewrite/prompts/r5u2_pvp_presentation.md AMENDMENT U2-1 U2-1.7.4, which
 replaces (f)'s old S-E file; TASK 0 pins: docs rewrite/r5u2-task0/se/CONSTANTS.md, boots Ea / Eb unchanged, Ec / Ed the

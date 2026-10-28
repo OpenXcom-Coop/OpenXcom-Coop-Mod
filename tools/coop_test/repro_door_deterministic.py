@@ -713,7 +713,7 @@ def phase_boundary_close(host, client, tag):
     host reports (never a hard-coded key - which doors are open is measured),
     press through the boundary, and prove each of THOSE doors shut.
 
-    RE-POINT (REV E.48 SS.A.10): the old STOP-IF "the lever reports ok but
+    RE-POINT: the old STOP-IF "the lever reports ok but
     closed=0" cannot fire any more - there is no lever reply for a real
     end-of-turn press - so it becomes "no door ev reached the client within
     30s" (`wait_door_fired`, already present) plus the door-state assertion
@@ -752,8 +752,8 @@ def phase_boundary_close(host, client, tag):
     side0 = session.battle_state(host)["side"]
 
     # ---- the real end-of-turn button press(es), REPLACING
-    # battle_close_ufo_doors: seat 0 (host) is measured live or not FIRST
-    # (REV E.48 SS.C.4), never assumed - the client always arms through its
+    # battle_close_ufo_doors: seat 0 (host) is measured live or not FIRST,
+    # never assumed - the client always arms through its
     # own real button; the host additionally presses ONLY when it holds a
     # live seat (the F236/D66=(a) pair), since a host press with no live
     # seat would never be counted toward `needed` in the first place. ----

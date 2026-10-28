@@ -405,7 +405,7 @@ void PurchaseState::init()
 	{
 		_sharedRefresh.bind(_game, this, _base);
 	}
-	_sharedSel.open(_game, this, _sharedRefresh.bound() || _parent != nullptr); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+	_sharedSel.open(_game, this, _sharedRefresh.bound() || _parent != nullptr); // coop
 }
 
 /**
@@ -419,13 +419,13 @@ void PurchaseState::think()
 	// the constructor IS the refresh (rows, prices, funds, space). Nothing is
 	// mutated, so an in-progress order is the only casualty, and it was about to be
 	// priced against a world that no longer exists.
-	if (SharedEcon::buyScreenShouldClose(_game, _base, _parent != nullptr)) { _game->popState(); return; } // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+	if (SharedEcon::buyScreenShouldClose(_game, _base, _parent != nullptr)) { _game->popState(); return; } // coop
 	if (_sharedRefresh.consume())
 	{
 		if (SharedEcon::baseIndex(_game, _base) >= 0)
 		{
 			_game->popState();
-			_sharedSel.carryOver(); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+			_sharedSel.carryOver(); // coop
 			_game->pushState(new PurchaseState(_base));
 			return; // `this` is now queued for deletion - touch nothing else
 		}
@@ -434,7 +434,7 @@ void PurchaseState::think()
 		_game->popState();
 		return;
 	}
-	_sharedSel.think(this); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+	_sharedSel.think(this); // coop
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -819,7 +819,7 @@ void PurchaseState::btnOkClick(Action *)
 	// SHARED world has no _coopBase mirror bases, so it never fires here anyway).
 	if (_game->getCoopMod()->isSharedCampaign())
 	{
-		if (SharedEcon::awaiting(SharedEcon::buyKey(_game, _base, _parent != nullptr))) return; // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+		if (SharedEcon::awaiting(SharedEcon::buyKey(_game, _base, _parent != nullptr))) return; // coop
 		Json::Value items(Json::arrayValue);
 		int64_t estTotal = 0;
 		for (const auto& row : _items)
@@ -840,13 +840,13 @@ void PurchaseState::btnOkClick(Action *)
 			items.append(entry);
 			estTotal += (int64_t)row.amount * row.cost;
 		}
-		int coopSeq = 0; // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+		int coopSeq = 0; // coop
 		if (!items.empty())
 		{
 			Json::Value payload;
 			payload["items"] = items;
 			payload["total"] = Json::Value::Int64(estTotal); // client estimate; host recomputes
-			_sharedSel.stamp(payload); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+			_sharedSel.stamp(payload); // coop
 			// baseId = index into SavedGame::getBases() (the SHARED shared key; see
 			// SharedEcon::resolveBase). Host and replica hold the same base list.
 			int baseId = 0;
@@ -855,9 +855,9 @@ void PurchaseState::btnOkClick(Action *)
 			{
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
 			}
-			coopSeq = SharedEcon::submitLocalCmd(_game, "buy", baseId, payload); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+			coopSeq = SharedEcon::submitLocalCmd(_game, "buy", baseId, payload); // coop
 		}
-		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::buyKey(_game, _base, _parent != nullptr), coopSeq, _sharedSel.opened())) return; // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::buyKey(_game, _base, _parent != nullptr), coopSeq, _sharedSel.opened())) return; // coop
 		_game->popState();
 		return;
 	}
@@ -1094,7 +1094,7 @@ int PurchaseState::harnessRowStock(const std::string& itemType) const
  */
 void PurchaseState::btnCancelClick(Action *)
 {
-	SharedEcon::forgetResult(SharedEcon::buyKey(_game, _base, _parent != nullptr)); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+	SharedEcon::forgetResult(SharedEcon::buyKey(_game, _base, _parent != nullptr)); // coop
 	_game->popState();
 }
 
@@ -1503,7 +1503,7 @@ void PurchaseState::decreaseByValue(int change)
  */
 void PurchaseState::updateItemStrings()
 {
-	_sharedSel.localEdit(this); // coop (W2-P7 S-C-E3, D242, P7-9 PR-60)
+	_sharedSel.localEdit(this); // coop
 	_txtPurchases->setText(tr("STR_COST_OF_PURCHASES").arg(Unicode::formatFunding(_total)));
 	std::ostringstream ss, ss5;
 	ss << getRow().amount;

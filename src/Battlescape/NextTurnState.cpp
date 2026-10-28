@@ -234,7 +234,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 			{
 				_txtMessage2->setColor(friendly.color);
 				message = tr(friendly.message);
-				coopHitLogMessageKeys(friendly.message, std::string()); // coop (W2-P6b S-L, D172)
+				coopHitLogMessageKeys(friendly.message, std::string()); // coop
 				_txtMessage2->setText(message);
 			}
 		}
@@ -274,7 +274,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 					ss.clear();
 					ss << tr(hostile.message) << tr(neutral.message);
 					message = ss.str();
-					coopHitLogMessageKeys(hostile.message, neutral.message); // coop (W2-P6b S-L, D172)
+					coopHitLogMessageKeys(hostile.message, neutral.message); // coop
 				}
 			}
 		}
@@ -291,7 +291,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	if (_battleGame->getSide() == FACTION_PLAYER)
 	{
-		// W1-P13a (REV E.1 D-5): checkBugHuntMode() is a hashed write (it can
+		// checkBugHuntMode() is a hashed write (it can
 		// set _battleGame->setBughuntMode(true), which is serialized and
 		// rides the saveBlob bucket) that reads bu->getVisible() - a D4
 		// machine-local input - so it must stay strictly host-authoritative.
@@ -537,7 +537,7 @@ void NextTurnState::close()
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
 
-	// W1-P13a (REV E.1 S-3 / WV-D51): presentation-only dismissal on a coop
+	// presentation-only dismissal on a coop
 	// CLIENT. Everything above this point (cleanupDeleted + popState) is the
 	// dismissal itself and always runs; everything below is vanilla's own
 	// post-dismissal battle-lifecycle work (tally, the mind-control

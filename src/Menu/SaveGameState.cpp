@@ -257,7 +257,7 @@ void SaveGameState::think()
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
 				{
-					const long long coopOldSaveID = connectionTCP::saveID; // coop W2-H58 S-A (w2h58_sa_rekey.md (e) EA3; F18420, F18430)
+					const long long coopOldSaveID = connectionTCP::saveID; // coop
 					connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
 					connectionTCP::rekeyHostClientBlobs(coopOldSaveID); // a partner who drops before its fresh world lands keeps its world
 				}
@@ -291,7 +291,7 @@ void SaveGameState::think()
 			// coop: a co-op wait dialog's SAVE & QUIT reaches this write with a practice screen open (a preview, a base
 			// equipment screen - vanilla has no save path there): write the world as vanilla holds it once that screen is closed.
 			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame());
-			_game->getCoopMod()->coopPvpSaveWorld(backup); // coop D250-U S-C4b: the live world; while the gm3 alien host borrows, its own world with the X-COM world embedded
+			_game->getCoopMod()->coopPvpSaveWorld(backup); // coop: the live world; while the gm3 alien host borrows, its own world with the X-COM world embedded
 			std::string fullPath = Options::getMasterUserFolder() + _filename;
 			std::string bakPath = Options::getMasterUserFolder() + backup;
 
@@ -357,7 +357,7 @@ void SaveGameState::quitToMainMenu()
 {
 	_game->resetTouchButtonFlags();
 
-	// SPEC 16 M6 (DP1, D94=(a)): same capture-before-teardown as
+	// SPEC 16 M6: same capture-before-teardown as
 	// CoopState::btnAbandonClick - SAVE & QUIT's own end-control path onto
 	// the identical GoToMainMenuState chokepoint. peerAbsent is true only
 	// when this SAVE & QUIT is closing a mid-battle co-op pause (M1), never

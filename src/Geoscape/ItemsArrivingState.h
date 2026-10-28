@@ -51,7 +51,7 @@ class ItemsArrivingState : public State
 private:
 	GeoscapeState *_state;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	TextButton *_btnOk, *_btnGotoBase;
 	Window *_window;
 	Text *_txtTitle, *_txtItem, *_txtQuantity, *_txtDestination;

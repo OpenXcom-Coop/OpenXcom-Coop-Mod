@@ -4,7 +4,7 @@ rewrite/prompts/w2h65_sb_no_rollback.md (f) (stage S-B), bring-up B and the PINN
 (f) (stage S-A), and the common file rewrite/prompts/w2h65_mirror_name_rollback.md (probe P0 globe_point); TASK 0 values in
 rewrite/w2h65-task0/sb/CONSTANTS.md.
 In a SEPARATE campaign the host's marker for a client base built while the client is still naming it has the name "" until the client
-places its lift (W2-H65 S-A EA2). While it exists, saveCoopToMemory refuses every save of the host's own world (its check reads markers it
+places its lift. While it exists, saveCoopToMemory refuses every save of the host's own world (its check reads markers it
 never writes): the visit raises 995 "Save failed (MEMORY), please try again." and leaving the base reloads the session-start "basehost".
 ONE boot (key K1). Bring-up B: spawn + connect both; session.new_campaign (host base at HOST_POS); geo.slow_clock; geo.drain_popups; the
 window mapping per machine from INTERCEPT + its CANCEL (real clicks); TS0 = the host geo_state time.
@@ -87,7 +87,7 @@ def logl(gc):
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 def lines_since(gc, n0): return [ln.split("\t")[0][-13:-1] + " " + ln.split("\t")[-1][:300] for ln in logl(gc)[n0:] if any(n in ln for n in NEEDLES)]
 def cw(gc, match, settle=1.0, ready=False):
-    if ready:  # W2-U9b (W2-U9 R3; F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
+    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button
         session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)
@@ -281,7 +281,7 @@ def row_r3(b, r):
     time.sleep(0.4)
     ev["nameOk"] = cw(c, "OK")["after"]
     r.need(top(c) == "PlaceLiftState", "client top %s after the name's OK" % top(c))
-    settle(ev, "READ_S", lambda: n1m(h, n1), READ_S, STEP_CAP_S)  # S45 / F19891: the lift's marker names marker N1 (W2-H65 S-A EA2),
+    settle(ev, "READ_S", lambda: n1m(h, n1), READ_S, STEP_CAP_S)  # S45 / F19891: the lift's marker names marker N1,
     m = n1m(h, n1)                                                 # so the lift waits until the host's visit save has run (P3-3)
     ev["P3-1"] = {"t": now(), "mirrorN1": m, "clientOwn": own(census(c)), "clientTop": top(c)}
     r.need(m == [[n1, ""]] and top(c) == "PlaceLiftState", "P3-1: host marker N1 still \"\" after the name, lift not placed (%s)" % m)

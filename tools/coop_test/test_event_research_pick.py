@@ -34,7 +34,7 @@ MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Eve
 KEY = "49470"
 EV_P, EV_W, EV_Z = "STR_H77_EV_P", "STR_H77_EV_W", "STR_H77_EV_Z"
 P, W, Z = (["STR_H77_%s%02d" % (k, i) for i in range(1, 17)] for k in "PWZ")
-SEEDS = {"EP-1": (11, 12), "EP-2": (21, 22), "EP-3": (31, 32)}   # TASK 0 (CONSTANTS.md): host, client
+SEEDS = {"EP-1": (11, 12), "EP-2": (21, 22), "EP-3": (31, 32)}   # host, client
 COUNTDOWN, SKIP_MIN, PAIRED_S, HELD_MIN, RESEED = 60, 180, 10.0, 240, 2
 # EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any
 # set_seed) and EP-1 + EP-2 spend 1380-1560 game min (more under load) before EP-3's G:held, so a roll below ~1710 failed it.

@@ -67,7 +67,7 @@ per boot); the Coop_TurnLimit_Test data mod is loaded on E4's boot only:
       {1, 7, 0}. The alien seat ends on the host's debriefing as in E6.
 
 The `battleEnd` record (event_state.battleEnd, CoopDelta.h) is SESSION-
-LIFETIME (ST4 (a), F1895): still readable after both machines' disconnect
+LIFETIME: still readable after both machines' disconnect
 resets at a skirmish end.
 
 Pre-ending checks (every row; a failure here is a bring-up or staging failure,
@@ -108,10 +108,10 @@ E1/E2):
           resultDropped 0, debriefDisplayOnly 1; debrief_state shown, on top,
           display-only, the same widget census, page 0, parseErrors 0, and
           every content field equal to the host's. E6 and E6b assert these
-          on the PvP alien seat (D157 (a), S-D2).
+          on the PvP alien seat.
   both    no client save file (assert_client_zero_disk), no new crash log.
 
-The HOST_DEBRIEF pins (AMENDMENT P7-2 R6, P7-3) are each E4/E5 host
+The HOST_DEBRIEF pins are each E4/E5 host
 debrief_state, copied verbatim from one capture run on the S-B1.1 build, with
 `soldiers` pinned as each row's deltas in order (names are compared
 host-to-client only, G10) and E4's `rows` pinned as [] (no page-1 row, G11;
@@ -122,7 +122,7 @@ compares both machines' scores and totals. The S-B1.1 red run:
 E4 and E5 fail on exactly the S-B1 red (as test_battle_end.py E1/E2,
 without the page walk); E6 passes. The E6 and E6b pins (and E6b's reason,
 aborted, inExitArea and tally) are copied verbatim from one R6 capture run on
-the S-D2.1 build (AMENDMENT P7-5 section 3). The S-D2.1 red run: E4 and E5
+the S-D2.1 build. The S-D2.1 red run: E4 and E5
 pass; E6 and E6b fail on exactly the S-D2 red cells - the alien client's top
 MainMenuState (want DebriefingState) and has_save false (want true), the
 host's resultSent 0 and the client's resultReceived 0 / debriefDisplayOnly 0
@@ -164,7 +164,7 @@ STATUS_DEAD = 6                  # src/Mod/Unit.h enum UnitStatus
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 GAMEMODE_PVP = 2
 
-# ----- E4: the Coop_TurnLimit_Test data mod (TASK 0 T0-4) -----
+# ----- E4: the Coop_TurnLimit_Test data mod -----
 MOD_NAME = "Coop_TurnLimit_Test"
 MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_NAME)
 MOD_ACTIVE_LINE = "- Coop_TurnLimit_Test v1.0"
@@ -192,7 +192,7 @@ ROW_EXPECT = {
     "E6": {"reason": "aliensDown", "aborted": False, "inExitArea": 7,
            "verdicts": [(0, "win"), (1, "lose")],
            "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
-    # S-D2 (AMENDMENT P7-5 Q3 (a)): finishBattle(true, inExit) from AbortMissionState::btnOkClick in gm2; the
+    # S-D2: finishBattle(true, inExit) from AbortMissionState::btnOkClick in gm2; the
     # verdict pair is D157 (a) (the hostile seat takes `win` on an abort); reason / aborted / inExitArea / tally
     # from the R6 capture (E2's analog, F4334).
     "E6b": {"reason": "abort", "aborted": True, "inExitArea": 0,
@@ -530,12 +530,12 @@ def census_view(c):
 
 def pin_fields(rid):
     """The DEBRIEF_FIELDS a row's host pin holds: all seven, less `total` on
-    ROSTER_SCORED_ROWS (AMENDMENT P7-3 G14)."""
+    ROSTER_SCORED_ROWS."""
     return tuple(k for k in DEBRIEF_FIELDS if not (rid in ROSTER_SCORED_ROWS and k == "total"))
 
 
 def pin_view(deb, rid):
-    """The pinned form of a debrief_state (AMENDMENT P7-3 G10, F2030): the seven
+    """The pinned form of a debrief_state: the seven
     content fields, with `soldiers` reduced to each row's deltas in order (the
     row count and the stat gains) - soldier names change per boot, so they are
     compared host-to-client only (row j), never pinned. G14: on
@@ -862,7 +862,7 @@ def boot_e6(host, client, port):
     assert (a.get("faction"), a.get("coop"), a.get("isOut")) == (FACTION_HOSTILE, 1, False), (
         f"alien {A_ID} at bring-up: faction {a.get('faction')} coop {a.get('coop')} isOut {a.get('isOut')} "
         f"(want a live FACTION_HOSTILE unit of seat 1)")
-    pinned = pin_ai_neutral(host, client, tag="w2p7-sd1-gm2")   # 0 is legal in gm2 (REV E.48 SS.B.4)
+    pinned = pin_ai_neutral(host, client, tag="w2p7-sd1-gm2")   # 0 is legal in gm2
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="gm2 bring-up")
     info = {"mission": "STR_SMALL_SCOUT gm2", "mapFingerprint": hs.get("mapFingerprint"), "pinned": pinned,

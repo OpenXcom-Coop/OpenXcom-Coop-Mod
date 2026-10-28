@@ -10,7 +10,7 @@ AMENDMENT P7-4's PINNED S-B2 text with its gaps H1-H3; owner rulings
 D129 = (a), D156 = (a)).
 
 Before W2-P7 only the host left: the host reached its DebriefingState and the
-client stayed on the battle map (F387, F431; TASK 0 T0-1 = F1980/F1981).
+client stayed on the battle map.
 Stage S-A: the host's one hook at the top of BattlescapeState::finishBattle
 emits `battle_end` {reason, aborted, inExitArea, perSeatVerdict, tally, h}
 through CoopEmit::sendEv; the client's applier only records it and arms a
@@ -29,12 +29,12 @@ D156). Four rows, ONE boot each (one ending per boot):
       battle_action kill_unit_real on A (the default map's only alien; ST7 (a),
       the W2-P2 SB1 lever), then END TURN client then host, then the host
       closes its NextTurnState (dismiss_popup -> NextTurnState::close ->
-      finishBattle(false, liveSoldiers)). Expected record (T0-2, F1982):
+      finishBattle(false, liveSoldiers)). Expected record:
       reason aliensDown, aborted false, inExitArea 7, verdict win for seats 0
       and 1, tally {liveAliens 0, liveSoldiers 7, inExit 0}.
   E2  T6, the host aborts. battle_action abort -> AbortMissionState ->
       dismiss_popup -> the partner's YES (R4-L1; the vote's pass runs setAborted(true) +
-      finishBattle(true, inExit)). Expected record (T0-2, F1983): reason abort,
+      finishBattle(true, inExit)). Expected record: reason abort,
       aborted true, inExitArea 0, verdict abort for seats 0 and 1, tally
       {liveAliens 1, liveSoldiers 7, inExit 0}.
   E3  S-B2, the client leaves first: E2's ending (the host abort) on its own
@@ -50,7 +50,7 @@ D156). Four rows, ONE boot each (one ending per boot):
   a screen.
 
 The `battleEnd` record (event_state.battleEnd, CoopDelta.h) is SESSION-
-LIFETIME (ST4 (a), F1895): cleared only by initBattleAuthority(), so it is
+LIFETIME: cleared only by initBattleAuthority(), so it is
 still readable after both machines' disconnect resets at a skirmish end.
 
 Pre-ending checks (every row; a failure here is a bring-up or staging failure,
@@ -139,7 +139,7 @@ debrief_state, both OK responses and waits, S's hold, the stale-save counts
 before -> after for both machines) before its verdict. The host's stale-save
 delta is evidence only (vanilla's own skirmish exit heals the host, F2183).
 
-The HOST_DEBRIEF pins (R6, AMENDMENT P7-3): each row's host debrief_state
+The HOST_DEBRIEF pins: each row's host debrief_state
 content, copied verbatim from one capture run on the S-B1.1 build, with
 `soldiers` pinned as each row's deltas in order (the row count and the stat
 gains; soldier names change per boot and are compared host-to-client only,
@@ -225,7 +225,7 @@ ROW_EXPECT = {
 ROW_PORT = {"E1": "48766", "E2": "48767", "E3": "48768", "E3b": "48769"}
 IN_BATTLE_TOPS = ("BattlescapeState", "NextTurnState")
 
-# ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R4) -----
+# ----- W2-P7 S-B1 constants -----
 CLIENT_END_TOPS = ("DebriefingState", "MainMenuState")   # the client wait ends on either; the row asserts DebriefingState
 HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state
 PAGE_S = 10           # each STATS / LOOT page change of E1's page walk
@@ -270,7 +270,7 @@ HOST_DEBRIEF = {
 # host's CoopState(20) before the host's page walk.
 HOST_E1_PAGE2_TRANSFER = False
 
-# ----- W2-P7 S-B2 constants (AMENDMENT P7-4 R2) -----
+# ----- W2-P7 S-B2 constants -----
 # E3 / E3b replay E2's / E1's ending on their own boot (the same pins), then press the two OKs in order.
 ROW_EXPECT["E3"] = ROW_EXPECT["E2"]
 ROW_EXPECT["E3b"] = ROW_EXPECT["E1"]
@@ -278,7 +278,7 @@ HOST_DEBRIEF["E3"] = HOST_DEBRIEF["E2"]
 HOST_DEBRIEF["E3b"] = HOST_DEBRIEF["E1"]
 LEAVE_FIRST = {"E3": "client", "E3b": "host"}   # who presses OK first
 # The battle phase each machine's OK reads before any reset. E3's host: Idle - the client's leave already reset its
-# battle scope (F2182, H2 (a)). E3b's host: Ended - its own OK's reset clears it (Q10 (a)).
+# battle scope. E3b's host: Ended - its own OK's reset clears it (Q10 (a)).
 PHASE_AT_OK = {"E3": {"client": "Idle", "host": "Idle"}, "E3b": {"host": "Ended", "client": "Idle"}}
 SUPPRESSED_CODE = {"host": 20, "client": 21}     # the dialog each machine would have pushed on the peer's leave
 OK_LEAVE_S = 10   # a machine's main menu (top MainMenuState AND coopStatic false) after its own OK
@@ -558,7 +558,7 @@ def census_view(c):
 
 
 def pin_view(deb):
-    """The pinned form of a debrief_state (AMENDMENT P7-3 G10, F2030): the seven
+    """The pinned form of a debrief_state: the seven
     content fields, with `soldiers` reduced to each row's deltas in order (the
     row count and the stat gains) - soldier names change per boot, so they are
     compared host-to-client only (row j), never pinned."""
@@ -572,7 +572,7 @@ SEAT_PREFIXES = tuple(f"[{n}] " for n in (raw.HOST_PLAYER, raw.CLIENT_PLAYER))  
 
 
 def debrief_view(deb):
-    """Row j's view (W2-A0712 Q5 a, PR-10): DEBRIEF_FIELDS, each page-2 name's leading SEAT_PREFIXES entry removed."""
+    """Row j's view: DEBRIEF_FIELDS, each page-2 name's leading SEAT_PREFIXES entry removed."""
     def bare(n):
         return next((n[len(p):] for p in SEAT_PREFIXES if isinstance(n, str) and n.startswith(p)), n)
     out = {k: (deb if isinstance(deb, dict) else {}).get(k) for k in DEBRIEF_FIELDS}

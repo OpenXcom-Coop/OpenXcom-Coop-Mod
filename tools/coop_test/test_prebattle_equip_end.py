@@ -17,7 +17,7 @@ Before S-E.2 (product untouched, commit S-E.1) the host's battle file is already
 when its briefing OK finds no live alien (the offer goes out at PREPARE, S-A), and
 `abandonPreparedOffer` is a no-op once the offer was emitted: the host shows vanilla's
 "all aliens killed" screen and nothing reaches the second player, which stays on its
-pre-battle equip screen (T0-5, F3323; F2759).
+pre-battle equip screen.
 
 Staging (T0-5's lever, F3323; a FIXTURE note, F3640): battle_set_unit_state {unit,
 status: STATUS_DEAD} for every live alien. T0-5 applied it to the host only; the lever
@@ -35,7 +35,7 @@ H), set_seed SEED_MAP right before newbattle_ok, the host's mapFingerprint = MAP
 Spine: the client's BriefingState (<= 30 s, D210 b); the host in phase Active (the
 client's battle_ready arrived); the client's close_briefing -> its pre-battle screen;
 the staging. Then:
-  EQ24  (S-E, D210 b, Q10 a) the host's close_briefing with no live alien. GREEN: the
+  EQ24  the host's close_briefing with no live alien. GREEN: the
         host's top AliensCrashState (vanilla); the host's battleEnd record emitted 1,
         reason aliensCrashed, aborted false, inExitArea 1, perSeatVerdict win for seats
         0 and 1, tally liveAliens 0, hBuckets = the 9 action-end buckets; the client
@@ -68,7 +68,7 @@ other bucket EQUAL). Then:
 Boot E3 (ONE boot; stage S-E.3, P8b-2i ruling SE-4, F3684): Boot E2's bring-up and spine
 on its own lobby port (the client's battle_ready held, the host in phase Handshake, the
 client on its pre-battle screen, the aliens staged on both machines per SE-1). Then:
-  EQ24c (S-E.3, D210 b, SE-4) the host's close_briefing in phase Handshake, then the
+  EQ24c the host's close_briefing in phase Handshake, then the
         host's OK on its AliensCrashState (dismiss_popup = the real btnOkClick) -> its
         DebriefingState while still in Handshake; snapshot A; then the client's
         hold_battle_ready {on: false}; the host's debriefing OK is never pressed.
@@ -89,7 +89,7 @@ Boot F1 (ONE boot; stage S-F): Boot E1's bring-up with NO soldier seated to the 
 (seat_count 0 = drive_to_battlescape's seat_client=False: a spectator); the host keeps
 every craft soldier (ALL_IDS). Spine (spine_f): both briefings (the client's <= 30 s,
 D210 b), the host in phase Active, turn 0 on both; nothing closed. Then:
-  EQ25  (S-F, D215 a) the client's close_briefing while the host still reads its
+  EQ25  the client's close_briefing while the host still reads its
         briefing. GREEN: the client's top is vanilla's Turn-1 screen (NextTurnState)
         at once, no equip screen on its stack, turn 0 on both; ONE real key
         (inject_input SDLK_RETURN) and then the close_nextturn lever (the real
@@ -106,7 +106,7 @@ D210 b), the host in phase Active, turn 0 on both; nothing closed. Then:
 Boot F2 (ONE boot; stage S-F): Boot E1's bring-up with EVERY craft soldier seated to
 the client (P8b-2 T0-9's recipe: seat until newbattle_seat_soldier refuses - SEAT_ALL
 seated, index SEAT_ALL refused); the host commands no soldier. Spine: spine_f. Then:
-  EQ26  (S-F, D215 a) the host's close_briefing while the client still reads its
+  EQ26  the host's close_briefing while the client still reads its
         briefing. GREEN: the host's top is its Turn-1 screen, no InventoryState on its
         stack, turn 0 on both; ONE real key and then close_nextturn each leave it on
         top (turn 0, heldTurnScreenPresses +1 each); the client's close_briefing -> its
@@ -127,7 +127,7 @@ ground ids = the host's pile ids (STOP-IF 8); both battleEnd records at emitted 
 applied 0. After the ending the battle is gone on both machines, so the client's
 teardown record (hashVerify, desyncAtTeardown, bstatePushesAtTeardown) carries them.
 
-Constants (AMENDMENT P8b-2 / docs rewrite/w2p8b-task0/t0/logs): SEED_ROSTER 1, SEED_MAP 1,
+Constants: SEED_ROSTER 1, SEED_MAP 1,
 MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) (tseed_parallel.log, F3326, through
 test_prebattle_equip.py); ALIEN_IDS [1000000] (t05.log: "[T0-5] host live aliens
 before staging: [(1000000, 'STR_SECTOID_SOLDIER', 0)]"); the battle_end payload values
@@ -184,7 +184,7 @@ COOP_SEAT_1 = 1
 TURN_SCREEN = "NextTurnState"      # vanilla's "Turn 1" screen
 KEY_WAIT_S = 3.0                   # one real key closes a released Turn-1 screen (EQ8's bound)
 
-# ----- the aliens-crashed battle_end (AMENDMENT P8b-1 section 4 S-E) -----
+# ----- the aliens-crashed battle_end -----
 REASON = "aliensCrashed"
 ABORTED = False
 IN_EXIT_AREA = 1
@@ -697,7 +697,7 @@ def eq24b_no_aliens_in_handshake(host, client, ctx):
 
 
 def eq24c_host_ok_in_handshake(host, client, ctx):
-    """EQ24c (S-E.3, SE-4, F3684): the host dismisses 'all aliens killed' while still in phase Handshake; the
+    """EQ24c: the host dismisses 'all aliens killed' while still in phase Handshake; the
     battle end must still reach the second player once its game has loaded (the release)."""
     ev = {"arm": ctx.get("arm")}
     released = False

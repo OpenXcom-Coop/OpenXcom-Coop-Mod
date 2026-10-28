@@ -158,7 +158,7 @@ inline Json::Value makeDesync(uint32_t battleId, uint32_t seq, const char* bucke
 	return obj;
 }
 
-/// battle_leave {state, seat, reasonKey} (SPEC 16 W1-P17 M4). Client->host,
+/// battle_leave {state, seat, reasonKey}. Client->host,
 /// sent BEFORE the client's own teardown on a deliberate `disconnect_to_menu`
 /// so the host's pause dialog can name the reason (F341: NOT a latency
 /// mechanism - liveness detection alone already raises the pause dialog in
@@ -215,7 +215,7 @@ inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const ch
 }
 
 /// battle_speed_report {state, battleId:uint, seat:int, xcom:int, alien:int,
-/// fire:int} (SPEC 17 W1-P18 M3). Client->host, battle lane, NOT seq-ordered,
+/// fire:int}. Client->host, battle lane, NOT seq-ordered,
 /// NEVER hashed (G1: session-level only, nothing per-event). Sent from
 /// CoopSpeed::onLocalChanged() whenever this CLIENT's own
 /// battleXcomSpeed/battleAlienSpeed/battleFireSpeed dials change (or have
@@ -233,7 +233,7 @@ inline Json::Value makeSpeedReport(uint32_t battleId, int seat, int xcom, int al
 }
 
 /// battle_speed_seats {state, battleId:uint, seq:uint,
-/// seats:[{seat:int,xcom:int,alien:int,fire:int}...]} (SPEC 17 W1-P18 M3).
+/// seats:[{seat:int,xcom:int,alien:int,fire:int}...]}.
 /// Host->client(s), battle lane, NOT seq-ordered, NEVER hashed. The FULL
 /// table of every seat CoopSpeed considers connected+valid right now
 /// (including the reporting client's own entry mirrored straight back).

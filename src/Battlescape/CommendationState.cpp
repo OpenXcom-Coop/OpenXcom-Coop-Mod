@@ -115,7 +115,7 @@ CommendationState::CommendationState(std::vector<Soldier*> soldiersMedalled)
 					// Soldier name
 					std::ostringstream wssName;
 					wssName << "   ";
-					wssName << _game->getCoopMod()->coopSoldierDisplayName(soldier); // coop (W2-P7 S-C-C, D177)
+					wssName << _game->getCoopMod()->coopSoldierDisplayName(soldier); // coop
 					// Decoration level name
 					int skipCounter = 0;
 					int lastInt = -2;

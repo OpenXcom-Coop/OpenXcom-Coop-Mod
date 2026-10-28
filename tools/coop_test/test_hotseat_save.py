@@ -1,4 +1,4 @@
-"""D247-U S-C - a saved hotseat battle loads back as hotseat (owner D247 (a), OH4 (a) = D279 (a)).
+"""a saved hotseat battle loads back as hotseat.
 
 Spec: docs rewrite/prompts/d247u_hotseat_battle.md, (f) `test_hotseat_save.py`, with the orchestrator rulings of session
 42155bc1 (R-D247-SC-1..2, docs rewrite/w2-resume-42155bc1/ruling-d247uc.md). Pins and the load route: docs

@@ -1,4 +1,4 @@
-"""R4-L6 row SV1 (PRD r4 T4.6, D92, D101, D136 (b)): a quick-save during the host's own autoshot waits for the shots,
+"""R4-L6 row SV1: a quick-save during the host's own autoshot waits for the shots,
 and the resumed battle holds the after-shot state.
 
 Spec: docs repo rewrite/prompts/r4l6_lifecycle_rows_lint.md section (f) SV1, with AMENDMENT R4-L6-1 M1 (RESUME through

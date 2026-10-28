@@ -324,7 +324,7 @@ def r0(gc, seat):
 
 
 def reads(ctx, host, xgc):
-    """PISTOL (R-U6-SD-1 D-2), RIFLE (U6-1.7 swap rule), BACKPACK_CELL, the X-COM unit's cell for PISTOL (H1 / C1_CELL)."""
+    """PISTOL, RIFLE (U6-1.7 swap rule), BACKPACK_CELL, the X-COM unit's cell for PISTOL (H1 / C1_CELL)."""
     ih, A = IT(host), ctx["A"]
     ast = ctx["R0"]["host"]["A_START"]
     ptypes = {(ih.get(i) or {}).get("type") for i in ctx["PILE_IDS"]}

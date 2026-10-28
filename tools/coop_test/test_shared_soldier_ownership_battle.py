@@ -52,7 +52,7 @@ def _roster(gc):
 
 
 def _f3384_dump(host, client, when):
-    """W2-P8b S-H.2: ONE evidence block on a failure of T-CMD or
+    """ONE evidence block on a failure of T-CMD or
     of the on-load-migration set_soldier_owner loop - both machines' player
     units and base rosters, from the existing battle_state / get_soldiers
     probes. Never raises: the caller re-raises the original failure."""
@@ -131,7 +131,7 @@ def main():
         # units. The per-unit coop split asserted above is the only SHARED-specific input
         # that path needs, so validating it here guards #3 against ownership regressions.
 
-        # ---- SPEC 19: T-SPLIT / T-CMD (mid-battle, before T-EXIT) --
+        # ---- T-SPLIT / T-CMD (mid-battle, before T-EXIT) --
         session.assert_t_split(host, client, want_coop, what="S3 bootstrap ownership")
         seat1_actor = next(sid for sid in squad if want_coop[sid] == 1)
         seat0_actor = next(sid for sid in squad if want_coop[sid] == 0)

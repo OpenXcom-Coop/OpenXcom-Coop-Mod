@@ -1,4 +1,4 @@
-"""D250-U S-C5b1 - test_campaign_gm3_cydonia.py: a gm3 PvP campaign's Cydonia from the X-COM player's craft (host = the aliens,
+"""test_campaign_gm3_cydonia.py: a gm3 PvP campaign's Cydonia from the X-COM player's craft (host = the aliens,
 client = X-COM). The X-COM player's YES on Cydonia (real play's stack: the destination picker under the confirmation) hands it to the
 alien host, which runs both stages in the X-COM player's borrowed world; both play both stages; the X-COM player's stage-2 abort with the
 alien host's YES ends the campaign as vanilla on both machines (no debriefing, the ending, the statistics); both reach the main menu.

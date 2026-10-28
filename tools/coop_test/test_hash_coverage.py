@@ -1,4 +1,4 @@
-"""W2-P2 S-H - test_hash_coverage.py: every synced field is in a hash
+"""test_hash_coverage.py: every synced field is in a hash
 bucket, and the second player checks the whole-save hash (spec
 rewrite/prompts/w2p2_delta_core.md amendments A5 (A5.2, A5.5), A7 and A8;
 owner rulings D138 and D144 = (a); Q-H5 = (a) raw status, F608).
@@ -121,7 +121,7 @@ HC2_WALK_PATH = [(8, 0, 0), (7, 0, 0)]
 FUSE_ITEM = "STR_GRENADE"        # the fuseEnabled row's item (given to H2's left hand, fuse 20)
 FUSE_TURNS = 20
 REACTIONS_POKE = 7               # HC3: client-only reactions = current + 7
-HC_WAVE = "HC1_WAVE"             # W2-P3 S-C: the reinforcementsMemory row's wave key (any string; no stock wave)
+HC_WAVE = "HC1_WAVE"             # the reinforcementsMemory row's wave key (any string; no stock wave)
 
 PORT = "48627"
 FACTION_PLAYER = 0
@@ -196,7 +196,7 @@ HC1_ROWS = (
     # no bucket.
     ("unit.name", "unit", "H", "name", lambda b, c: b + "x"),
     ("unit.rawName", "unit", "H", "rawName", lambda b, c: b + "x"),
-    # R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md (e) E12): the seat tag the gift order ships in the delta
+    # the seat tag the gift order ships in the delta
     # (`seat`, BattleUnit::setCoopSeat), poked from H's seat 0 to 1. RED (R5-U5's red commit A1): the poke moves no
     # bucket.
     ("unit.seat", "unit", "H", "seat", lambda b, c: 1 if b == 0 else 0),
@@ -333,7 +333,7 @@ def hc1(host, client, ctx):
         if not r.get("ok"):
             rec["err"] = f"poke: {r.get('error')}"
         # Recorded for every row, a refused or failed poke included: the lever
-        # always restores (S-H.1b, F747), so restoredValue shows a failed restore.
+        # always restores, so restoredValue shows a failed restore.
         bk = r.get("buckets") or {}
         b0, b1, b2 = bk.get("before") or {}, bk.get("poked") or {}, bk.get("restored") or {}
         sb = r.get("saveBlob") or {}
@@ -475,7 +475,7 @@ def hc3(host, client, ctx):
     before = {"host": dc.probes(host), "client": dc.probes(client)}
     ch0 = hash_probes(client)
     r0 = dc.units(client)[H2_ID].get("reactions")
-    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: HC3's PASS is the desync itself
+    host.ok({"cmd": "resync_hold", "on": True})  # HC3's PASS is the desync itself
     rs = client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": H2_ID, "stat": "reactions",
                      "value": (r0 or 0) + REACTIONS_POKE})
     r1c, r1h = dc.units(client)[H2_ID].get("reactions"), dc.units(host)[H2_ID].get("reactions")

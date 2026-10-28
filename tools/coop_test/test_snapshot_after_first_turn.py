@@ -1,4 +1,4 @@
-"""FX-1 (WAVE1-RUNBOOK.md REV E.1, WV-D56): the coop blob SNAPSHOT + the
+"""FX-1: the coop blob SNAPSHOT + the
 `battle_offer` that advertises it move to AFTER `SavedBattleGame::
 startFirstTurn()`, so the blob the client loads already carries `_turn == 1`
 and the POST-`randomizeItemLocations()` item positions - not the pre-turn-1

@@ -1,4 +1,4 @@
-"""W2-H35 S-A - test_client_alien_sight.py: on the co-op second player's machine an alien's `visible` flag follows
+"""test_client_alien_sight.py: on the co-op second player's machine an alien's `visible` flag follows
 vanilla at an applied walk step of that alien and at an applied side change - hidden, then shown again exactly if one
 of this machine's X-COM units sees it (DF-5; spec rewrite/prompts/w2h35_coop_client_alien_visibility.md (f); ruling
 R-R5U1-1: the second player's off-turn view follows vanilla; D171).
@@ -37,7 +37,7 @@ A "path sample" = a client sample of the cycle (battle_state polled host then cl
 GameClient) whose A position is a tile of the walk (the client's event_state.lastWalk steps[].to; equal to the host's).
 
 RED at the red commit (unchanged build): A-walk, A-after, A-list, A-close, B-walk, B-after, B-list, B-close, C2-agree,
-D-side, D-after FAIL; every other cell PASS. GREEN (W2-H35 E1-E3): every cell PASS.
+D-side, D-after FAIL; every other cell PASS. GREEN: every cell PASS.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up failure
 prints ONE "CAPTURE boot:" line and fails every row "boot". one run is the result; no skip, no second
@@ -375,7 +375,7 @@ def row_b(host, client):
     n, s = close_client_screen(host, client)
     ev(f"B-close: closed {n}; {fmt(s)}")
     sel, here = s["c"]["sel"], ua(s["c"]).get("here")
-    # the client keeps soldier 8 at each X-COM side start (W2-H41 S-B, R-LH40-1), not V.
+    # the client keeps soldier 8 at each X-COM side start, not V.
     cell("B-close", sel == SEATED[0] and here is False,
          f"client selected {sel} (staging: want {SEATED[0]}, the kept soldier), here(client) {here} (want False)")
     common(host, client, "B")

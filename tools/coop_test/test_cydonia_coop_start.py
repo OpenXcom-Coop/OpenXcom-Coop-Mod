@@ -4,7 +4,7 @@ ConfirmCydoniaState is a separate final-mission entry point; it does not pass
 through ConfirmLandingState. Cover both campaign models so this path cannot
 silently fall back to a host-only battle again.
 
-R4-P2 (SPIKE-RUNBOOK.md SS2.7, RB-D18): re-pointed onto the SAME battle-start
+R4-P2: re-pointed onto the SAME battle-start
 handshake R4-P1 built (CoopHandshake::offerBattle) - ConfirmCydoniaState no
 longer runs the legacy SEPARATE changeHost hand-off / CoopState(88) wait
 dialog (deleted, no restored carrier); vanilla generates the battle exactly

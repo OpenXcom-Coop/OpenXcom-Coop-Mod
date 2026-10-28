@@ -1,4 +1,4 @@
-"""W2-P4 S-B - test_client_grenade.py: the second player primes, unprimes and
+"""test_client_grenade.py: the second player primes, unprimes and
 throws its own grenades and fires its own blaster launcher; the host checks and
 runs every one of them (spec rewrite/prompts/w2p4_client_combat_intents.md
 section (f) "test_client_grenade.py (S-B)", sections (b)1-6, as amended by
@@ -117,7 +117,7 @@ before newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
 asserted (SEATED), pin_ai_neutral, the mod active on both. Every lever
 pair goes to the CLIENT first. Item ids are read at run time from the
 lever replies, never baked. The seeds were found with the HOST stand-in
-(battle_fire for C): S-B's executor build proves them again (N18 = F1085).
+(battle_fire for C): S-B's executor build proves them again.
 
 RED-THEN-GREEN (spec (d) row S-B). Commit S-B.1 (this file and the mod) is run
 ONCE and every scenario must FAIL with its RED evidence. Commit S-B.2 is run
@@ -187,7 +187,7 @@ C19_ROWS = 2                      # primed with the mod: THROW + UNPRIME
 SEED_C19 = 2                      # seed 1 landed on (11,21,0)
 BLAST_BOX_C19 = 5                 # the grenade's blast radius (tiles): no unit may stand this close
 C19_TU_AFTER = 46                 # 64 - 16 throw - 2 (two octants of pre-throw turn)
-C19_CHAIN = ["turn", "shot", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-throw turn
+C19_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
 
 # ----- C20 (T0c, the C20 redo: F1169) -----
 C20_C_TILE, C20_C_DIR = (28, 25, 0), 6       # faces west, away from the waypoints
@@ -195,7 +195,7 @@ C20_W = (46, 25, 0)               # both waypoints (vanilla's dive, PR-Q16)
 C20_CAMERA = (41, 24, 0)          # client camera before the waypoint clicks
 SEED_C20 = 1
 C20_TU_AFTER = 18                 # 64 - 42 launch - 4 (four octants of pre-launch turn)
-C20_CHAIN = ["turn", "shot", "shot", "explosion", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-launch turn
+C20_CHAIN = ["turn", "shot", "shot", "explosion", "bt_action_end"]   # the pre-launch turn
 C20_POWER, C20_RADIUS = 200, 10
 C20_BOX = (range(34, 50), range(13, 38), range(0, 2))   # T0c's census box (x, y), z 0-1
 C20_TILES_CHANGED = 285
@@ -850,7 +850,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # W2-P6b S-E: coopGhostStepper pinned true in both instances (the S-E precedent; E4's sound is not gated, OR3)
+    # coopGhostStepper pinned true in both instances (the S-E precedent; E4's sound is not gated, OR3)
     host = GameClient("host", 49872, make_user_dir("w2p4_client_grenade_host", mods=[MOD_DIR],
                                                    options={"coopGhostStepper": True}))
     client = GameClient("client", 49873, make_user_dir("w2p4_client_grenade_client", mods=[MOD_DIR],

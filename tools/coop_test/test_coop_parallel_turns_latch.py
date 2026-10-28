@@ -18,7 +18,7 @@ Rows (each a fresh campaign, both machines enter the battle and settle on the ma
 A row passes when event_state.turnMode on BOTH machines equals the host's option once
 both are on the battlescape (the host stamps the mode on the battle offer and the client
 mirrors it, D-19b).
-MG-P1 (rewrite/merge-main, R-MF210-1): the option is CoopTurnMode ("parallel" /
+the option is CoopTurnMode ("parallel" /
 "traditional"); main's S1 and S3 landed the CLIENT's craft, which never starts a SEPARATE
 battle: S1 is dropped and S3 lands the host's craft.
 

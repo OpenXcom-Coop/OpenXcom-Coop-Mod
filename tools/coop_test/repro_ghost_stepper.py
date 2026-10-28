@@ -642,7 +642,7 @@ def test_desync_lever_still_detects():
         assert read_ghost_option(client) is True, "coopGhostStepper must default to ON for this proof"
         assert_hash_clean(host, client, full=True, what="at t=0 (pre-corruption)")
 
-        host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: this proof is the halt itself
+        host.ok({"cmd": "resync_hold", "on": True})  # this proof is the halt itself
         corrupted_id = corrupted_unit_id(host, client)
 
         # A KNEEL on a DIFFERENT unit via the HOST's own local keypress

@@ -1,7 +1,7 @@
-"""W2-H13 (D220 b; spec rewrite/prompts/w2h13_udp_rejoin_spare.md (f); F3701, F3702). Boot UB: rendezvous_stub.py
+"""Boot UB: rendezvous_stub.py
 carries a HOST > PUBLIC skirmish over UDP; the client joins via join_rendezvous. U1: the client leaves, the host
 keeps the paused battle and re-lists. U2: client2 joins the re-listed room, RESUME, equal state. FIXTURE-STOP on a
-staging miss. Verdicts follow the teardown (H13-T1, F4565). ONE run; exit 0 only all PASS, else 2.
+staging miss. Verdicts follow the teardown. ONE run; exit 0 only all PASS, else 2.
 U3 (W2-H24 S-B, docs rewrite/prompts/w2h24_failed_battle_start.md AMENDMENT H24-2 section 2, D259 (a), QH24-3 (a), F9980;
 TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B2): its own boot after U1 / U2's teardown on the same stub (key 48583,
 w2h24_u3_host / _client): the client's hold_battle_ready keeps the host in Handshake, the client is killed, the host is
@@ -324,7 +324,7 @@ def crash_set():
     return set(os.listdir(CRASH_DIR)) if os.path.isdir(CRASH_DIR) else set()
 
 def u3_verdict(o):
-    """U3's EVIDENCE, cell lines and verdict, after U3's own teardown (H13-T1, F4565). Returns the failed cells."""
+    """U3's EVIDENCE, cell lines and verdict, after U3's own teardown. Returns the failed cells."""
     trec, tf = o.get("teardown", ({}, ["no U3 teardown"]))
     evidence("U3", dict(o.get("ev", {}), staging=o.get("staging"), error=o.get("error"), crashRow=o.get("crashRow"),
                         teardown={"rc": trec, "failures": tf}))
@@ -368,7 +368,7 @@ def main():
                     results[rid] = [f"{type(e).__name__}: {short(e, 600)}"]
         finally:
             rec, tfails = teardown(host, client, ctx.get("client2"))
-        cr3 = crash_set()                                   # W2-H24 S-B: U3 on its own boot, same stub
+        cr3 = crash_set()                                   # U3 on its own boot, same stub
         try:
             u3(stub, u3o)
         except FixtureMiss as e:

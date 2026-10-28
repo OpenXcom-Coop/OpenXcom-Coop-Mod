@@ -43,7 +43,7 @@ private:
 	Text* _txtCaveat;
 	TextButton *_btnPurchase, *_btnOk;
 	Base * _base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 public:
 	/// Creates the NewPossibleCraftState state.
 	NewPossibleCraftState(Base * base, const std::vector<RuleCraft *> & possibilities);

@@ -53,7 +53,7 @@ screen shows C1; C1's TU is read on both machines before and after each row.
         STR_COOP_DENY_ITEM_MISSING's (invWarningWrites +1, lastDeny item_missing), Y
         still on the host's cursor and on the pile on both; then the host's right-click
         returns Y. RED: the host executes the order (Y on C1 on both).
-        R-EQ2-4 (EQ-2 S-B, F21270): the host's TEST-ONLY equip_holds_defer is on from
+        the host's TEST-ONLY equip_holds_defer is on from
         before the host's pick until the answer, so the client still lists Y.
   T0-6  the pile holds (P8b-2's T0-6 ruling, STOP-IF 8): the host Ctrl-clicks a pile
         rifle clip onto its own soldier (a host equip placement at turn 0). GREEN (and
@@ -123,7 +123,7 @@ turnMirrorFired 0; coopClientBStatePushes 0 on both; the client's invLocalWrites
 while the client's pre-battle screen is open, its ground ids = the host's pile ids
 (STOP-IF 8).
 
-Constants (AMENDMENT P8b-2 / docs rewrite/w2p8b-task0/t0/logs, F3326): SEED_ROSTER 1,
+Constants: SEED_ROSTER 1,
 SEED_MAP 1 (tseed.py), MAP_FP (tseed_parallel.log / t01_default.log), C [8, 9], H
 [10..14], PILE (14, 19, 1) (tseed_parallel.log "[seed] pile=[14, 19, 1] C=[8, 9]
 H=[10, 11, 12, 13, 14]"), the texts (en-US; exact text).
@@ -151,7 +151,7 @@ from test_delta_items import items_by_id
 from test_host_combat import bring_up_lobby_roster_pinned
 from test_client_items import strip_both
 
-# ----- bring-up (AMENDMENT P8b-2 / TASK 0, F3326) -----
+# ----- bring-up -----
 PORT = "48791"                     # this file's lobby port (unused by every other test file)
 SEED_MAP = 1                       # set_seed right before newbattle_ok (tseed.py)
 MAP_FP = -4.48310638993e+18        # host = client mapFingerprint at SEED_MAP 1 (tseed_parallel.log)
@@ -1243,7 +1243,7 @@ def eq14_host_cursor_item(host, client, ctx):
         evidence("EQ14", ev)
         finish([f.replace("EQ14: ", "EQ14: precondition absent - ") for f in fails])
     y = y_host
-    # R-EQ2-4 (EQ-2 S-B, F21270): the host's pick reserves Y and its hold table would take Y off the client's
+    # the host's pick reserves Y and its hold table would take Y off the client's
     # pile within a pump pass; the TEST-ONLY equip_holds_defer keeps that table back (as EQH H6 does), so the client
     # can still pick Y and the put-down race below is built. Off again once the answer is read.
     r = host.cmd({"cmd": "equip_holds_defer", "on": True})

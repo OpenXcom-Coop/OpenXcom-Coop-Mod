@@ -1,4 +1,4 @@
-"""W2-H82 S-B - test_visit_during_save_push.py (VSP): the SEPARATE host saves, presses CANCEL on "Saving...", and clicks the partner's base
+"""test_visit_during_save_push.py (VSP): the SEPARATE host saves, presses CANCEL on "Saving...", and clicks the partner's base
 while the partner's save-progress stream is still running. The host gets the base view once that stream has ended, its "Synchronizing bases..."
 closes, and the partner's save progress still reaches the host.
 
@@ -36,7 +36,7 @@ NEEDLES = {"STREAMHOLD": "[coop-visit] base answer held: a world stream is in fl
            "REPLYSTASH": "[coop-test] hold_save_reply: SEND_FILE_HOST_SAVE_PROGRESS held"}
 HOST_NEEDLES = ("REPLYSTASH",)
 CELLS = {"R-SP": ["SP-pre", "SP-copy", "SP-view", "SP-held", "SP-crash"], "G": ["G-pre", "G-copy", "G-view", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

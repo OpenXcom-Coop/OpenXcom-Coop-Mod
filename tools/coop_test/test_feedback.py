@@ -19,7 +19,7 @@ of bin/common into bin/x64/Release/common was skipped):
            donor's suppression rule is checked too: when the blocker is the
            CLIENT'S OWN action it must NOT name a peer (that case lives in
            test_retry_cancel.py, which asserts the generic busy row).
-  PHASE 4  the INTENT TIMEOUT (WV-D24 = ruling D-11), the NON-NEGOTIABLE half of
+  PHASE 4  the INTENT TIMEOUT, the NON-NEGOTIABLE half of
            D7. 10 s by default, behind a REAL user option
            (`Options::coopIntentTimeoutSeconds`, an Options.inc.h declaration +
            an Options.cpp OptionInfo registration per WR-25). On fire it shows
@@ -197,7 +197,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=2):
     seated_holder["soldierId"] = soldier_ids[0]
 
     host.ok({"cmd": "newbattle_ok"})
-    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # the shared battle-entry spine (both briefings, both pre-battle
     # equip screens, both Turn-1 screens).
     session.briefings_to_battlescape(host, client)
     time.sleep(3)
@@ -805,7 +805,7 @@ def test_end_turn_refusal():
                                       what="after the client's END TURN arm")
         print(f"PASS PHASE 5: {len(post_h)} buckets EQUAL after the client's arm")
 
-        # RE-POINTED, not removed (REV E.50 E50.2 / D67 = (a)): the surface
+        # RE-POINTED, not removed: the surface
         # became REACHABLE once W1-P13b landed, so it is asserted at its exact
         # rendered value (WR-3's LIFETIME rule) instead of the old dormant ""
         # this leg used to check at the end of a real battle.
@@ -813,7 +813,7 @@ def test_end_turn_refusal():
             assert end_turn_surface_of(gc) == "END TURN 1/2", (
                 f"{who}: _txtCoopEndTurn did not show the W1-P13b tally after "
                 f"the client's arm, got {end_turn_surface_of(gc)!r}")
-        # ADDED (REV E.50 E50.3 / D68 = (a)): the button-inversion probe -
+        # ADDED: the button-inversion probe -
         # THIS machine's own armed bit, a different observable from the text
         # (count across seats vs this machine's own bit).
         assert client.cmd({"cmd": "battle_state"}).get("coopEndTurnArmed") is True, (

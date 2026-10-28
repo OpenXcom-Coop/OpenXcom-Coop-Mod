@@ -1,4 +1,4 @@
-"""W2-P7 S-C-F - test_campaign_second_battle_separate.py: in a SEPARATE campaign the loot, score and funds of a
+"""test_campaign_second_battle_separate.py: in a SEPARATE campaign the loot, score and funds of a
 battle land in the HOST's world, and the same session plays a SECOND battle after the first return
 (docs rewrite/prompts/w2p7_sc_design.md section 3.8, AMENDMENT P7-8 section 4.3 rows L1 and C28P-2, PR-53; N29/F1340;
 owner D155 (a), D156 (a), D180 (a), D181; mechanism rulings MR4, MR6, MR12, MR13).
@@ -58,7 +58,7 @@ from session import battle_state, event_state
 from harness import GameClient, make_user_dir
 import test_battle_end_separate as b1
 
-PORT = "47267"                     # AMENDMENT P7-8 section 4 (S26, F6118): F = 47266 (S2), 47267 (P2)
+PORT = "47267"                     # AMENDMENT P7-8 section 4: F = 47266 (S2), 47267 (P2)
 TAG = "w2p7scf_p2"
 SCORE_EXTRA = 0                    # A.10: host score delta - its debriefing's total, two equal measurements
 DEBRIEF_S = b1.DEBRIEF_S           # 60 s: the host's DebriefingState after the ending

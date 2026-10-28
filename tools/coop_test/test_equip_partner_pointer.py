@@ -1,4 +1,4 @@
-"""EQ-2 S-A - test_equip_partner_pointer.py (EQP): the co-op partner's mouse pointer and name on the pre-battle equip
+"""test_equip_partner_pointer.py (EQP): the co-op partner's mouse pointer and name on the pre-battle equip
 screen. each player sees the partner's pointer anywhere on the screen; D295 (a): the partner's name in small
 text beside it; D293 (a): never between PvP opponents; D292 (a): never in battle. Spec: docs repo
 rewrite/prompts/eq2a_pointer.md (f) and the common file rewrite/prompts/eq2_partner_pointer.md; rulings QEQ2-1 .. QEQ2-5 (a)

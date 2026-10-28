@@ -1,4 +1,4 @@
-"""D246-U stage S-C1 - test_old_pvp_battle_resume.py: a PvP campaign saved mid-battle by an OLDER version (the release line,
+"""test_old_pvp_battle_resume.py: a PvP campaign saved mid-battle by an OLDER version (the release line,
 `main` 651ae44ba) on the rewrite's host. A gm2 save (the host plays X-COM, the second player the aliens) converts on the host's menu
 load into the rewrite's gm2 seats and resumes for both players through RESUME CAMPAIGN, then ends as a rewrite gm2 battle ends; a gm4
 (PvE2) save loads unconverted and RESUME CAMPAIGN shows D275's dialog (owner D246 (b); QD246-6 (a); Q283-4 (a); D283 (b); r5-T1).

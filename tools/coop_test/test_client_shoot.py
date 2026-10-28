@@ -1,4 +1,4 @@
-"""W2-P4 S-A - test_client_shoot.py: the second player's own shots become
+"""test_client_shoot.py: the second player's own shots become
 orders the host checks and fires (spec rewrite/prompts/w2p4_client_combat_intents.md
 section (f) "test_client_shoot.py (S-A)", sections (b)1-5, (b)7 and (b)13, as
 amended by AMENDMENT C1 (PR-Q2: K1 keeps refusing every kind S-A does not build;
@@ -40,7 +40,7 @@ Eight scenarios, ONE boot, in this order:
          staged on K_HOSTFAR_TERROR (view level 1) before the press. GREEN:
          host camera.suppressed.follow +1 and the host offset still the staged
          one. C16's own-move client half is not asserted: D4 switches the
-         client's coopGhostStepper off for this order (SC-1, F4141); KR3's
+         client's coopGhostStepper off for this order; KR3's
          client half is C17's. RED (commit S-C.1): the counter +0, the host
          offset moved. One "EVIDENCE KR3 C16:" line.
   C16h   the halt. C's TU = the snap cost SNAP_TU (both); C faces dir 0 (the
@@ -85,7 +85,7 @@ Eight scenarios, ONE boot, in this order:
          sent". GREEN: each variant answers with its deny on the client
          (lastDeny {iseq, reason}) and its text on the banner; the host emits
          nothing and closes no context; C TU unchanged on both.
-  C16d-r the research-combined deny (D146, C3). Host-only forget_research
+  C16d-r the research-combined deny. Host-only forget_research
          STR_PLASMA_PISTOL, then a plasma pistol + clip on C (both) and a
          lever snap at FLOOR_TARGET. RED: "not sent". GREEN: lastDeny reason
          not_researched with vanilla's "Unable to use alien artifact until
@@ -148,7 +148,7 @@ newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
 asserted (SEATED), pin_ai_neutral. Every lever pair goes to the CLIENT first.
 Item ids are read at run time from the lever replies or by owner + slot,
 never baked. The seeds were found with HOST stand-ins (battle_fire for
-C): S-A's executor build proves them again (N18 = F1085).
+C): S-A's executor build proves them again.
 
 RED-THEN-GREEN (spec (d) row S-A). Commit S-A.1 (this file, the probes, the
 set_touch_modifiers and forget_research levers) is run ONCE and every scenario
@@ -203,7 +203,7 @@ TU_MAX = 255                      # battle_set_unit_state tu: clamped to the uni
 C_TU_FULL = 64                    # C's max TU with SEED_ROSTER 1
 FIRING_120 = 120
 
-# ----- C16 (T0-1, F1106) -----
+# ----- C16 -----
 C_TILE = (12, 26, 0)              # open road
 C16_C_DIR = 1                     # one octant off A
 A_TILE, A_DIR = (12, 23, 0), 4
@@ -212,17 +212,17 @@ A_CORPSE = "STR_SECTOID_CORPSE"
 SEED_C16 = 1
 SNAP_TU = 16                      # C's rifle snap cost (the stand-in's tuCost)
 CLIP_FULL = 20
-C16_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-shot turn
+C16_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
 C16_TU_AFTER = 47                 # 64 - 16 snap - 1 for the one-octant turn
 C16_CLIP_AFTER = 19
 
-# ----- C16h (T0-2, F1109) -----
+# ----- C16h -----
 C16H_TARGET = (16, 26, 0)         # floor tile due east of C_TILE: two octants from dir 0
 C16H_TU_AFTER = 14                # 16 - 2 octants x 1 TU; the shot never fires
 HALT_NO_TU = "no_tu"
 TEXT_NO_TU = "Not Enough Time Units!"                 # xcom1 STR_NOT_ENOUGH_TIME_UNITS (en-US)
 
-# ----- C17 (T0-3, F1111) -----
+# ----- C17 -----
 C17_TARGET = (32, 26, 0)          # empty road floor tile, 20 tiles east
 SEED_C17 = 1
 AUTO_TU = 22
@@ -230,7 +230,7 @@ C17_TU_AFTER = 42                 # 64 - 22
 C17_CLIP_AFTER = 17
 C17_SHOTS = 3
 
-# ----- C17p (T0-4 a, F1113) -----
+# ----- C17p -----
 C17P_HOST_FIRE_DIAL = 1
 C17P_H_TILE, C17P_H_DIR = (14, 24, 0), 2
 C17P_H_TARGET = (34, 24, 0)       # empty road floor tile
@@ -253,7 +253,7 @@ TEXT_DENY = {                     # en-US: bin/common STR_COOP_DENY_* / xcom1 va
     "not_researched": "Unable to use alien artifact until researched!",
 }
 
-# ----- C26 (T0-5, F1118-F1121) -----
+# ----- C26 -----
 C26_XCOM_DIAL = 200               # client battleXcomSpeed: seat 1 walk dial
 C26_WALK_DEST = (20, 26, 0)
 C26_WALK_STEPS = 8
@@ -269,7 +269,7 @@ RHAND_CENTRE = (RHAND_RECT[0] + RHAND_RECT[2] // 2, RHAND_RECT[1] + RHAND_RECT[3
 POLL_S = 0.05
 SENT_WAIT_S = 2.0                 # how long a press gets to show as sent or refused
 WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): F11103's loaded leg-2 order
-ORDER_TIMEOUT_S = WATCH_CAP_S     # RV-U13 S-C: every order window, here and in the importers
+ORDER_TIMEOUT_S = WATCH_CAP_S     # every order window, here and in the importers
 
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
 PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "coopLocalExecBlocked", "lastSeqEmitted",
@@ -684,7 +684,7 @@ def kr3_host_fails(chain, seq0, staged, cam0, cam1):
 
 
 def kr3_client_fails(chain, seq0, at_click, cam0, cam1):
-    """W2-P6a S-C row KR3, client half (ruling SC-1 (a); owner D171 (a)): C17 is the client's own real-UI autoshot
+    """W2-P6a S-C row KR3, client half: C17 is the client's own real-UI autoshot
     with coopGhostStepper on - the client's camera.moves hold {own_follow} at each shot seq and {own_restore} at the
     order's bt_action_end seq whose `after` equals the client offset read right before the click. Prints one
     "EVIDENCE KR3 C17:" line."""

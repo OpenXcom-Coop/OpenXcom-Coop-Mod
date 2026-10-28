@@ -1,4 +1,4 @@
-"""W2-P7 S-V-A - test_fatal_vote.py: the fatal-wounds question becomes a vote of every player who owns a bleeding
+"""test_fatal_vote.py: the fatal-wounds question becomes a vote of every player who owns a bleeding
 soldier (owner D159; no timeout, D186; the vote pauses everyone, D214 (a)). Spec: docs
 rewrite/prompts/w2p7_sv_fatal_vote_design.md (sections 2 and 4, ORCHESTRATOR RULINGS Q1-Q9 (a), SV-M1..SV-M13) as
 re-pinned by rewrite/prompts/w2p7_battle_end.md AMENDMENT P7-5 section 4.2 (P7-5 RULINGS Q5-Q11 (a); P7-5b SV-T1..SV-T4).

@@ -7,7 +7,7 @@ follows vanilla; D171: hidden aliens stay hidden; QH35C-1 .. QH35C-7 (a)).
 Vanilla re-runs everyone's sight through the kneeler's tile right after a kneel or a stand-up
 (BattlescapeGame::kneel, radius 1) and clears and rebuilds every list within the maximum view distance right after a
 successful mind control (TileEngine::psiAttack). The second player's machine refreshes only the kneeler at a `kneel`
-ev and only adds hostiles around the victim at a mind control (W2-H35b E6), so a now-friendly alien stays listed.
+ev and only adds hostiles around the victim at a mind control, so a now-friendly alien stays listed.
 
 TASK 0 verdicts (docs rewrite/w2h35c-task0/CONSTANTS.md, capture boots Da and Db equal, S28): C3 CONFIRMED (kneel: the
 host's V lists A, the client's does not and A stays undrawn there; stand-up: the host's V drops A, the client's keeps
@@ -40,8 +40,8 @@ Rows, in order (every row runs after a failure):
 "vis(gc)" / "here(gc)" = A's battle_state units[].visible / visibleHere on that machine; "list(gc, U)" = U's
 units[].visibleUnits (R5-U1 S-A's T1 probe).
 
-RED at the red commit (unchanged build): C3-here, C3-list, C3s-list, C18-list FAIL; every other cell PASS. GREEN
-(W2-H35c G3, G1 + G18): every cell PASS.
+RED at the red commit (unchanged build): C3-here, C3-list, C3s-list, C18-list FAIL; every other cell PASS. GREEN:
+every cell PASS.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up
 failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a staging miss fails that row's cells "staging".

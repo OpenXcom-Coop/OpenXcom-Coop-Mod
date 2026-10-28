@@ -79,7 +79,7 @@ static std::vector<std::pair<size_t, Base*>> s_coopHiddenMirrors;
 static SavedGame *s_coopHiddenWorld = nullptr;
 static BasescapeState *s_coopMirrorOwner = nullptr;
 
-// coop W2-H68 (R-H68-0; docs rewrite/prompts/w2h68_selected_base_mirror.md E1): SavedGame::_selectedBase is an index into the live
+// coop: SavedGame::_selectedBase is an index into the live
 // base list, which the mirror hide / show below changes; this points it at the same base again (a base no longer listed leaves it as is).
 static void coopKeepSelected(SavedGame *save, Base *selected)
 {
@@ -1154,7 +1154,7 @@ bool BasescapeState::coopHideMirrors()
  * to the end of the list; one already in the list is skipped), only into the world
  * it was hidden from, and empties the stash. A stashed mirror whose peer base id is
  * already live (a fresh mirror of it arrived while it was hidden) is dropped and
- * deleted; the live list keeps the fresh one (AMENDMENT H8-1 Q4).
+ * deleted; the live list keeps the fresh one.
  * @return True if the stash held anything.
  */
 bool BasescapeState::coopShowMirrors()

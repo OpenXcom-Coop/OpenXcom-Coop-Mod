@@ -17,7 +17,7 @@ Rows (parallel turns on, the player's setting):
   H1 SHARED, the host's craft lands; each player drops one of their own soldiers' items.
 Each row passes when, at turn 1 with both event queues drained, neither machine latched
 a desync (event_state.desyncSeen) and a full hash_now snapshot is equal on both machines.
-MG-P1 (rewrite/merge-main, R-MF210-1): the rewrite has no sidestart compare; the client
+the rewrite has no sidestart compare; the client
 checks the host's hashes on every event it applies, and the floor cell of a ground item
 is not hashed (MJ-7, OQ-r3-1). The drop is two real clicks on the pre-battle equip
 screen (inventory_click: the hand, then a ground cell). main's S1 (the client's craft

@@ -60,7 +60,7 @@ class BattlescapeState;
  * itself (getCoopEndTurnArmed() / the paired arming setter) - see that
  * class's own doc comments.
  *
- * `turn` here is the HOST-MINTED SIDE-PHASE COUNTER (IR2-4 / WV-D46) -
+ * `turn` here is the HOST-MINTED SIDE-PHASE COUNTER -
  * incremented once per APPLIED side_transition, NEVER read from or written
  * to SavedBattleGame::_turn. `needed` is the count of LIVE seats (WR-20 /
  * REV E.48 C.4): a CONNECTED seat with at least one live commandable unit on
@@ -86,7 +86,7 @@ void reset();
 /// (no wire message; the counter still advanced).
 void onSideTransition(SavedBattleGame* save);
 
-/// W1-P13c (WAVE1-RUNBOOK.md REV E.52 E52.1 / D71): the TRADITIONAL baton's
+/// the TRADITIONAL baton's
 /// entry initialiser. HOST-ONLY (self-guarded exactly like onSideTransition()
 /// above), and additionally a no-op in parallel mode. Called ONCE, from the
 /// host-side point where coopBattleAuthority().phase becomes Active (after
@@ -129,7 +129,7 @@ void onBattleResumed(SavedBattleGame* save, int savedSeat);
 /// arrived ahead of this restate is kept.
 void onClientAppliedSideTransition();
 
-/// W2-H14 (SM-2, F4012): the SPEC 16 in-memory rejoin's side-phase counter.
+/// the SPEC 16 in-memory rejoin's side-phase counter.
 /// HOST-ONLY read: offerRejoinBattle() writes it into the rejoin battle_offer's
 /// additive `endTurnPhase` key. The rejoiner's own counter restarts at 0 (its
 /// leave ran reset(), or it is a fresh process) while the host's survives the
@@ -143,7 +143,7 @@ int rejoinPhase();
 /// rejoin blob carries coopActiveSeat (coopLoadActiveSeat()).
 void seedRejoinPhase(int phase);
 
-/// W2-H14b (owner D221 (c), ruling H14b-1): HOST-ONLY (self-guarded:
+/// HOST-ONLY (self-guarded:
 /// isCoopBattle() && hostSim). Called ONCE per SPEC 16 in-memory rejoin, from
 /// onReady()'s in-memory branch (connectionTCP.cpp), after phase Active, while
 /// the rejoiner's BattlescapeState is live. The pause kept every stored press;
@@ -169,7 +169,7 @@ void onSeatSetChanged(SavedBattleGame* save);
 /// silent baseline (SPEC 10: no tally at t=0).
 void onQuiescentPass(SavedBattleGame* save, bool quiescent);
 
-/// R5-U8 (owner D233 (a); docs rewrite/prompts/r5u8_pve2_gm4.md, QU8-3 (a)): PvE2 (gamemode 4) opens with
+/// PvE2 (gamemode 4) opens with
 /// the AI-run X-COM side, as the release line plays it (main BattlescapeState::think's one-time pve2_init
 /// hand-off). HOST-ONLY: armed once per battle start by the pre-battle equip barrier (a resumed or rejoined
 /// battle has no equip phase, so it never arms); onQuiescentPass() then ends the players' turn-1 side by

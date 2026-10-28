@@ -1,4 +1,4 @@
-"""D250-U S-C5b2 - test_campaign_gm3_basedef.py: an attack on the X-COM player's own base in a gm3 PvP campaign (host = the aliens,
+"""test_campaign_gm3_basedef.py: an attack on the X-COM player's own base in a gm3 PvP campaign (host = the aliens,
 client = X-COM). The X-COM player's base defence is handed to the alien host, which runs it in the X-COM player's borrowed world; both play
 it; X-COM wins; the X-COM player's world keeps the result (S-C2's return) and the alien host goes home to its own world.
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4 (SC4-6, SC4-7, SC4-8 file A row B1, FX5B-2, FX5B-11 .. FX5B-15) and its

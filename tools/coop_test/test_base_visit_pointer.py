@@ -1,4 +1,4 @@
-"""EQ-3 stage S-D - test_base_visit_pointer.py (BVP): in a SEPARATE campaign, while the base's owner and a visiting partner are both
+"""test_base_visit_pointer.py (BVP): in a SEPARATE campaign, while the base's owner and a visiting partner are both
 on that base's Soldiers inventory, each sees the other's pointer and name, and the visitor's held pile item leaves the owner's pile
 and is drawn under the visitor's pointer, exactly as S-B / S-C draw them in SHARED (VL-EQ3-1's SEPARATE clause; owner D290 (c),
 D291 (b) + (c), D295 (a); QEQ3-7 (a): the same pile, QEQ3-11 (a): the key is the base's _coop_base_id (the owner's base and the
@@ -144,7 +144,7 @@ def spine(x):
     for gc in (h, c):
         x.seats[gc.name] = q(gc, {"cmd": "get_coop"}).get("localSeat")
     t0 = time.time()
-    session.wait_seq_barrier(h, c)  # F21396 (EQ-2 S-C): settle before staging
+    session.wait_seq_barrier(h, c)  # settle before staging
     sp["S0 barrier (s)"] = round(time.time() - t0, 2)
     sol = q(h, {"cmd": "base_report", "base": HB}).get("soldiers") or []
     g = next((s for s in sol if s.get("craft") == -1), sol[0] if sol else {})

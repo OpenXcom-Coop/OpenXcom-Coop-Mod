@@ -1,4 +1,4 @@
-"""D250-U S-C6 - test_campaign_gm4_refused.py: a NEW co-op campaign lobby refuses the team pick that would put both players
+"""test_campaign_gm4_refused.py: a NEW co-op campaign lobby refuses the team pick that would put both players
 on the Alien team (no PvE2 / game mode 4 campaigns; PvE2 stays a Custom Battle mode) and opens D275's small dialog with one OK
 button that closes it; the campaign still starts afterwards.
 

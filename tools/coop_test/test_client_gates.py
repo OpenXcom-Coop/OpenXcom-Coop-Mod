@@ -1,4 +1,4 @@
-"""W1-P5 (WAVE1-RUNBOOK.md SS4 / ruling D8 = WV-D14): CLIENT HARD GATES on the
+"""CLIENT HARD GATES on the
 battlescape controls that were still pure vanilla in the rewrite, plus the
 deleted quick-load gate and the chat-open `allowButtons` guard.
 
@@ -30,7 +30,7 @@ WHAT THIS ASSERTS.
     of the effect (no dialog / no InventoryState / TU unchanged / reaction
     flags unchanged / no LoadGameState), and `hash_now full` ALL BUCKETS EQUAL
     after every single press. That last one is the MINT-PROOF.
-    W2-P4 S-D: row (4), the hand-reaction toggle, is no longer
+    row (4), the hand-reaction toggle, is no longer
     refused - the press is a `reaction_hands` intent the HOST runs with
     vanilla's own toggle; the row asserts the order (one host intent context,
     the client's intent counter), vanilla's resulting flags on BOTH machines
@@ -202,7 +202,7 @@ def bring_up(host, client, port):
     seat = host.ok({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1})
 
     host.ok({"cmd": "newbattle_ok"})
-    # W2-P8b S-H: the shared battle-entry spine (both briefings, both pre-battle
+    # the shared battle-entry spine (both briefings, both pre-battle
     # equip screens, both Turn-1 screens).
     session.briefings_to_battlescape(host, client)
     time.sleep(1)
@@ -538,12 +538,12 @@ def main():
         h_before = units_by_id(battle_state(host))[h_unit]
         assert h_before["tu"] > 0, f"host unit {h_unit} already at 0 TU"
 
-        # W2-H30 (docs rewrite/prompts/w2h30_host_local_actions.md, QH30-5): the
+        # the
         # host's own ZERO TU press now reaches the client in one `host` action
         # (coopHostZeroTu), so this control's non-vacuity is proved on the HOST
         # alone - its own unitsStats moves with the press - and the two machines
         # are not compared for it. The hand toggle below stays the deliberate
-        # divergence (W2-P8 Q7 (a), N29).
+        # divergence.
         s0 = host.cmd({"cmd": "hash_now", "buckets": ["unitsStats"]})["h"]["unitsStats"]
         host.ok({"cmd": "battle_ui_press", "control": "zero_tu"})
         time.sleep(0.6)

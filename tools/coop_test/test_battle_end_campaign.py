@@ -1,4 +1,4 @@
-"""W2-P7 S-C-A - test_battle_end_campaign.py: a SHARED campaign's second player ends on its own display-only
+"""test_battle_end_campaign.py: a SHARED campaign's second player ends on its own display-only
 debriefing, takes the host's post-battle world in place under it (MR1), and each player leaves its own debriefing
 with its own OK (docs rewrite/prompts/w2p7_sc_design.md section 3.1, AMENDMENT P7-6 section 4.1 rows C28S / C28S-b,
 PR-1..PR-11, the P7-6 TASK 0 RULINGS; owner D156 (a), D175, D176; mechanism rulings MR1-MR3; P7-5 Q4 (a)).
@@ -15,7 +15,7 @@ autoEnd NextTurnState is closed with dismiss_popup -> the host's DebriefingState
 wounds the host-owned soldier aboard (T0-6 (v): battle_set_unit_state {unit, health: start - WOUND_HP} on both
 machines, client first; F4541). No END TURN is pressed (the autoEnd ends the battle), so F4665's wait never applies.
 
-Rows (AMENDMENT P7-6 section 4.1). The GREEN cells are numbered and checked in order; a failed cell ends its row (every
+Rows. The GREEN cells are numbered and checked in order; a failed cell ends its row (every
 later cell depends on it) and the rest are reported "not reached":
   C28S   (1) both debrief_state equal on the seven content fields with page-2 names prefix-stripped (PR-10); the
              client's shown, on top and display-only within CLIENT_DEBRIEF_S of the host's DebriefingState.

@@ -298,7 +298,7 @@ H14B_TK = ("turn", "side", "count", "needed", "ready", "activeSeat")
 H14B_SK = (TS, "coopEndTurnText", "coopEndTurnArmed", "coopActiveSeat", "coopPendingTallyTurn")
 
 def h14b_3(host, c2, ctx):
-    """W2-H14b (D221 c, H14b-1, Q2 (a)): traditional, display only, on boot T's S0 before H14-2 (no new step).
+    """traditional, display only, on boot T's S0 before H14-2 (no new step).
     RED cell: no tally rode the rejoin (client2 talliesSeen 0). GREEN: client2's tally equals the host's."""
     s0, p, drops = ctx["S0"], ctx["pause"], dropped(host)
     h0, c0 = s0["host"], s0["client2"]

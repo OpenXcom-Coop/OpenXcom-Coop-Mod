@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the whole REGRESSION suite unattended and keep ONE summary file current (W2-U13, owner E5 + P2).
+"""Run the whole REGRESSION suite unattended and keep ONE summary file current.
 
     python tools/coop_test/run_regression.py --batches <docs>/rewrite/REGRESSION-BATCHES.md --out <dir>
     python tools/coop_test/run_regression.py --batches <md> --pairs 0,2 --out <dir>   # K=4: two K=2 streams

@@ -42,9 +42,9 @@ class RuleEvent;
 class RuleResearch;
 class State;
 class GeoscapeState;
-class SellState; // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder's screen
-class TransferItemsState; class ManageAlienContainmentState; class Text; // W2-P7 S-C-E2 (P7-8 PR-47, PR-50)
-class PurchaseState; // W2-P7 S-C-E3 (D242, P7-9 PR-59): the binder on the Purchase/Hire screen
+class SellState; // the SelectionBinder's screen
+class TransferItemsState; class ManageAlienContainmentState; class Text;
+class PurchaseState; // the binder on the Purchase/Hire screen
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -202,7 +202,7 @@ public:
 	void carryOver();
 	/// Confirm: selKey, selRev (the list's rev), selRows (the local rows), on page 3 selCaps (each row's maximum).
 	void stamp(Json::Value& payload);
-	// W2-P7 S-C-E2 (P7-8 PR-47, PR-49): Transfer and Alien Containment on the same binder (containment rebuilds in place).
+	// Transfer and Alien Containment on the same binder (containment rebuilds in place).
 	void open(Game* game, TransferItemsState* screen, bool bound);
 	void open(Game* game, ManageAlienContainmentState* screen, bool bound);
 	void think(TransferItemsState* screen);
@@ -211,7 +211,7 @@ public:
 	void localEdit(ManageAlienContainmentState* screen);
 	/// F6341 (V-E3): the shared list holds a row - a confirm that sees none of them (MR7) still submits the list.
 	bool listed() const;
-	// W2-P7 S-C-E3 (D242, P7-9 PR-59): Purchase/Hire (key buy|n| or, opened from "not enough equipment", buy|r|).
+	// Purchase/Hire (key buy|n| or, opened from "not enough equipment", buy|r|).
 	void open(Game* game, PurchaseState* screen, bool bound);
 	void think(PurchaseState* screen);
 	void localEdit(PurchaseState* screen);
@@ -254,7 +254,7 @@ void update(Game* game);
 
 /// UI entry point (main thread). On the HOST: queues the command for local
 /// validate+apply+broadcast. On a REPLICA: emits a shared_cmd to the host and
-/// mutates nothing locally. W2-P7 S-C-D2.2 (AMENDMENT P7-7 PR-30, F2526): returns the command's seq.
+/// mutates nothing locally. returns the command's seq.
 int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload);
 
@@ -264,7 +264,7 @@ int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 std::string sellKey(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
 std::string xferKey(Game* game, Base* from, Base* to, bool debrief);
 std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
-std::string buyKey(Game* game, Base* base, bool reequip); // W2-P7 S-C-E3 (P7-9 PR-54): buy|n|<base>| / buy|r|<base>|
+std::string buyKey(Game* game, Base* base, bool reequip); // buy|n|<base>| / buy|r|<base>|
 /// The initiator's answer for an awaited confirm: awaitResult registers @a seq under @a key; awaiting() holds until
 /// the answer lands; takeResult() consumes it (1 ok, -1 failed, 0 none yet); forgetResult() drops both (Cancel).
 void awaitResult(const std::string& key, int seq);
@@ -280,10 +280,10 @@ bool sellScreenShouldClose(Game* game, Base* base, bool debrief, bool battlescap
 bool xferScreenShouldClose(Game* game, Base* from, Base* to, bool debrief);
 bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
 bool buyScreenShouldClose(Game* game, Base* base, bool reequip); // W2-P7 S-C-E3 (P7-9 PR-58, Q-P9-2 (a)): answered
-/// PR-34 (SK3; F5237, F5576): a session reset drops the queued commands / applies / failures, answers and apply hold.
+/// PR-34: a session reset drops the queued commands / applies / failures, answers and apply hold.
 void resetSessionQueues();
-Json::Value selectionSnapshot(); // W2-P7 S-C-E1.1 (P7-8 PR-46): the shared selection store {key: {rows, editors, eseqs, rev, viewers}} for TestServer sel_state
-void onPeerLeft(int seat); // W2-P7 S-C-E2 (P7-8 PR-48): host - the seat (< 0: every other seat) leaves every shared list
+Json::Value selectionSnapshot(); // the shared selection store {key: {rows, editors, eseqs, rev, viewers}} for TestServer sel_state
+void onPeerLeft(int seat); // host - the seat (< 0: every other seat) leaves every shared list
 
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
@@ -401,7 +401,7 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// only here; an HWP's count goes through craftVehiclesMoved.
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
-/// W2-H20c (A17, F8261): SHARED, a live campaign and a real base only - no-op otherwise; called right AFTER vanilla's own move in
+/// SHARED, a live campaign and a real base only - no-op otherwise; called right AFTER vanilla's own move in
 /// CraftEquipmentState::moveLeftByValue / moveRightByValue: when @a craft's count of vehicle type @a itemType differs from @a before,
 /// that absolute count goes to the host as craft_equip (its HWP branch); a non-vehicle type is a no-op (items route before vanilla).
 void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before);
@@ -437,11 +437,11 @@ void baseEquipOpen(Game* game, Base* base);
 /// (aud-E1-11); the changed records of this player's own soldiers go to the host as one soldier_equip. No-op unless @a base is marked.
 void baseEquipOk(Game* game, Base* base);
 
-/// W2-H20b (A10; P8b Q9 a / D209): SHARED and a real base only - no-op otherwise; called right AFTER vanilla's local save of global equipment
+/// SHARED and a real base only - no-op otherwise; called right AFTER vanilla's local save of global equipment
 /// layout template @a index on a base screen (InventoryState::saveGlobalLayout): the whole slot (layout, armor, name) goes to the host as
 /// equip_template, so both machines hold the same slot (one shared template set, the last save wins).
 void submitLayoutTemplate(Game* game, Base* base, int index);
-/// W2-H20b (A10): the same for craft loadout template @a index, right after CraftEquipmentState::saveGlobalLoadout.
+/// the same for craft loadout template @a index, right after CraftEquipmentState::saveGlobalLoadout.
 void submitLoadoutTemplate(Game* game, Base* base, int index);
 /// SHARED and a live campaign only - no-op otherwise; called right AFTER vanilla's local save or delete of craft type
 /// @a craftType's generic deployment (AbortMissionState::btnOkClick -> SavedBattleGame::saveDummyCraftDeployment, the Ufopaedia's craft
@@ -453,23 +453,23 @@ void craftDeploymentSaved(Game* game, const std::string& craftType);
 /// soldier_armor (both machines then wear and stock the same); a partner's soldier's change is put back at once (stores and armor).
 void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType);
 
-/// W2-H20b-B (A8, A12; QB1 a): SHARED and a real base of a live campaign only - null otherwise: the {type: count} of @a craft's items,
+/// SHARED and a real base of a live campaign only - null otherwise: the {type: count} of @a craft's items,
 /// taken right BEFORE a vanilla local batch that moves items between @a craft and @a base's stores (a template load, move-ground-to-base).
 Json::Value craftItemsMark(Game* game, Base* base, Craft* craft);
-/// W2-H20b-B (QB1 a, QB4 a): right AFTER that batch: each item type whose count on @a craft differs from @a mark (@a every: each type of
+/// right AFTER that batch: each item type whose count on @a craft differs from @a mark (@a every: each type of
 /// either) goes to the host as craft_equip with its absolute count, decreases first; the host clamps, both machines apply, the stores
 /// follow. No-op for a null mark, or while @a base's staging window is open (its close commits).
 void craftItemsCommit(Game* game, Base* base, Craft* craft, const Json::Value& mark, bool every = false);
-/// W2-H20b-B (A3, A4; QB2 a): SHARED, a live campaign, alternate craft equipment ON and a real base only - no-op otherwise or while
+/// SHARED, a live campaign, alternate craft equipment ON and a real base only - no-op otherwise or while
 /// @a base's window is open: opens the staging window before vanilla's option-ON inventory staging (the soldier screen's de-assign, the
 /// craft screen's load-all), recording each craft's items and each soldier's craft; this machine's checksum check pauses while it is open.
 void craftStageOpen(Game* game, Base* base);
-/// W2-H20b-B (A3, A4, A6; QB1 a, QB3 a): no-op unless @a base's window is open: closes it after vanilla's re-assign (soldier screen OK) or
+/// no-op unless @a base's window is open: closes it after vanilla's re-assign (soldier screen OK) or
 /// excess removal (craft screen return); a soldier vanilla could not seat again leaves its craft on both machines (craft_assign off, the
 /// partner's soldier too), then each recorded craft's item end-state goes to the host (craftItemsCommit; every type for a craft that lost a seat).
 void craftStageClose(Game* game, Base* base);
 
-/// W2-H16c (S-12): SHARED and a real base only - returns false otherwise (vanilla runs). Submits soldier_transform
+/// SHARED and a real base only - returns false otherwise (vanilla runs). Submits soldier_transform
 /// for @a soldier (alive, or dead in the memorial) with the name box's text; writes nothing locally: the host runs
 /// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).
 bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier, const std::string& name);
@@ -490,12 +490,12 @@ void submitSoldierRank(Game* game, Base* base, Soldier* soldier);
 /// absolute end-state, last-write-wins (soldier_nationality).
 void submitSoldierNationality(Game* game, Base* base, Soldier* soldier);
 
-/// W2-H16b (S-10): SHARED and a real base only - no-op otherwise; called AFTER vanilla's local write
+/// SHARED and a real base only - no-op otherwise; called AFTER vanilla's local write
 /// (AllocateTrainingState); submits the soldier's training + rtwh as an absolute end-state. The host
 /// re-checks the gym rules and broadcasts the flags both worlds hold (soldier_training).
 void submitSoldierTraining(Game* game, Base* base, Soldier* soldier);
 
-/// W2-H16b (S-11): the same for psi training (AllocatePsiTrainingState; the psi-lab rules;
+/// the same for psi training (AllocatePsiTrainingState; the psi-lab rules;
 /// soldier_psi_training).
 void submitSoldierPsiTraining(Game* game, Base* base, Soldier* soldier);
 
@@ -640,11 +640,11 @@ bool requestResync(Game* game, const std::string& why, bool force = false);
 /// A streamed SHARED world was adopted (LoadGameState): clear the in-flight resync
 /// guard so a later drift can be repaired again.
 void notifyWorldAdopted();
-/// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-6, MR3): CLIENT - hold update()'s shared_apply drain (step 2) from a streamed
+/// CLIENT - hold update()'s shared_apply drain (step 2) from a streamed
 /// world's arrival (MAP_RESULT_LOAD_PROGRESS) until notifyWorldAdopted() clears it, so no apply lands on the world
 /// about to be discarded.
 void setApplyHold(bool on);
-bool applyHoldOn(); // W2-P7 S-C-D2.1 (P7-7 PR-35): read-only, TestServer shared_stats.applyHold
+bool applyHoldOn(); // read-only, TestServer shared_stats.applyHold
 
 /// Harness/diagnostics: auto-resync bookkeeping on this machine.
 struct ResyncStats
@@ -671,7 +671,7 @@ struct Stats
 Stats stats();
 std::string lastFailReason();
 void resetStats();
-/// W2-P7 S-C-A.1 (P7-6 section 4.1): the replica's queued shared_apply count (update() step 2's queue). Read-only.
+/// the replica's queued shared_apply count (update() step 2's queue). Read-only.
 int applyQueueDepth();
 
 /**
@@ -738,7 +738,7 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out);
 /// taken over (the desync diagnostics' text; unchanged hash).
 bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut = nullptr);
 
-/// coop W2-H69 (docs rewrite/prompts/w2h69_shared_equip_layouts.md H1; R-H69-0): the SHARED pre-battle equip end's soldier gear
+/// coop: the SHARED pre-battle equip end's soldier gear
 /// records. HOST: one {id, layout, personal, personalArmor} per battle soldier (H20's vanilla-YAML record without its name). CLIENT:
 /// adopts each into the soldier of its battle unit with that id and returns the count. connectionTCP.cpp E5 / E8.
 Json::Value equipEndGearRecords(SavedBattleGame* save);
@@ -757,20 +757,20 @@ int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& reco
 /// failure. W2-P2 S-H (Q-H6): a non-empty @a saveBlobYaml (the reporting
 /// machine's own battle document, on a `saveBlob` mismatch) is added to the
 /// zip as saveBlob-client.yaml.
-/// coop R4-L3 S-C (D232-V1): @a role ("client" | "host") names the machine in desync-info.json and the document member
+/// coop: @a role ("client" | "host") names the machine in desync-info.json and the document member
 /// (`saveBlob-<role>.yaml`); a non-empty @a peerBundlePath (the host's copy of the second player's report path) rides
 /// desync-info.json as `peerBundlePath`. The defaults keep the second player's existing call unchanged.
 std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
 	const std::string& got, std::uint32_t seq, const std::string& kind,
 	const std::string* saveBlobYaml = nullptr, const char* role = "client", const std::string& peerBundlePath = std::string());
 
-/// W2-P2 S-H (Q-H6): writes @a text as <user folder>/desync-reports/
+/// writes @a text as <user folder>/desync-reports/
 /// desync-<timestamp>-<suffix> (the host's own `saveBlob` document for a
 /// peer's `saveBlob` desync report). Best-effort like writeDesyncBundle():
 /// never throws, returns the path or an empty string.
 std::string writeDesyncText(const std::string& suffix, const std::string& text);
 
-/// coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): ported unchanged from `main` SharedEcon.h :647-:674.
+/// coop: ported unchanged from `main` SharedEcon.h :647-:674.
 /// next-launch crash reporter (Pattern A). The dying process only writes a
 /// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
 /// these run at the NEXT launch, from the main-menu altitude, to offer a one-click

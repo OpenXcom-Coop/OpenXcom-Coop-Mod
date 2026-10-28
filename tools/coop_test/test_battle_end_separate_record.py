@@ -1,4 +1,4 @@
-"""W2-P7 S-C-B2.3 - test_battle_end_separate_record.py: a SEPARATE guest's record follow-ups - the mission-id remap
+"""test_battle_end_separate_record.py: a SEPARATE guest's record follow-ups - the mission-id remap
 when the owner's world already holds a mission and the owner's diary under a host with diaries off
 (docs rewrite/prompts/w2p7_sc_design.md: the P7-6 C re-pin section 5 (Q-C1 a) and the P7-6 B2.3 pin section 5, PB-4..PB-8;
 veto V-C4; owner D155 (a), D202 (a)).

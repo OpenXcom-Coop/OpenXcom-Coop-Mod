@@ -39,15 +39,15 @@ class SoldierInfoState : public State
 {
 private:
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _soldierId;
 	bool _forceLimits;
 	bool _readOnly;
 	bool _noTransformations;
 	Soldier *_soldier;
 	std::vector<Soldier*> *_list;
-	int _coopShownId = -1; // coop W2-H16c (Q4): the soldier id init() showed
-	/// coop W2-H16c (Q4): see SoldierInfoState.cpp.
+	int _coopShownId = -1; // coop: the soldier id init() showed
+	/// coop: see SoldierInfoState.cpp.
 	bool coopRecheckSoldier();
 
 	Surface *_bg;
@@ -69,7 +69,7 @@ public:
 	~SoldierInfoState();
 	/// Updates the soldier info.
 	void init() override;
-	/// coop W2-H16c (Q4): re-reads a soldier a shared change replaced or removed.
+	/// coop: re-reads a soldier a shared change replaced or removed.
 	void think() override;
 	/// Handles keypresses.
 	void handle(Action* action) override;

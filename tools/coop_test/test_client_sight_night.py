@@ -1,4 +1,4 @@
-"""W2-H35b S-B - test_client_sight_night.py: at night, on the co-op second player's machine each X-COM soldier's list
+"""test_client_sight_night.py: at night, on the co-op second player's machine each X-COM soldier's list
 of seen units follows vanilla when a soldier's personal light moves away from a lit alien (K6) and when a thrown flare
 lands next to a dark alien (K5) (spec rewrite/prompts/w2h35b_client_sight_events.md (f); rulings R-R5U1-1: the second
 player's off-turn view follows vanilla; D171: hidden aliens stay hidden; W2-H35 QH-3 (a): capture first; fixture rulings
@@ -39,7 +39,7 @@ Rows, in order (every row runs after a failure):
   Every row: <row>-common (hash_now full: every bucket EQUAL; event_state.desyncSeen false on both; 0 new crash files).
 "vis(gc)" = A's battle_state units[].visible; "list(gc, U)" = U's units[].visibleUnits (R5-U1 S-A's T1 probe).
 
-RED at the red commit (unchanged build): K6-list, K5-list FAIL; every other cell PASS. GREEN (W2-H35b E1, E5, E6): every
+RED at the red commit (unchanged build): K6-list, K5-list FAIL; every other cell PASS. GREEN: every
 cell PASS.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up

@@ -1,4 +1,4 @@
-"""W2-P3 S-B - test_reaction_prox.py: reaction fire at the second player's
+"""test_reaction_prox.py: reaction fire at the second player's
 walking soldier, and a proximity mine going off under that walker, each run as
 its own named action NESTED inside the walk (spec
 rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_reaction_prox.py
@@ -179,7 +179,7 @@ KR2_WALKLEVEL_PER_STEP = 2             # ruling SC-3 (a), F4143: with the host c
                                        # so UnitWalkBState runs keepWalking(..., false) (end = 2) and writes the view level
                                        # (:204) on both calls of each step - traced over 4 steps (C8, C8k, C11); the guard
                                        # counts every write it suppresses (no dedupe)
-# W2-P6b S-L row L5 (AMENDMENT P6-5 section 6, ruling SL-1; owner D172 (a)): TASK 0 T0L-1
+# W2-P6b S-L row L5: TASK 0 T0L-1
 L5_ENTRIES = 10                        # from the quiescent point after C8's END TURN cycle to the walk's end the host
                                        # sends the cycle's pending NEW_TURN + 9 chain entries (REACTION_FIRE x4,
                                        # NEW_SHOT, NEW_SHOT, BIG_DAMAGE, NEW_SHOT, NO_DAMAGE) on 6 evs, counted per entry
@@ -490,7 +490,7 @@ def outcome_fails(rec, health, what):
 def kr2_fails(rec, staged, cam0, cam1):
     """W2-P6a S-C row KR2 (P6a review section 2; owner D131, D171 (a); Q9 (a) as pinned by OR4 (a)): reaction fire
     at the client's walker. HOST (the walk W is the partner's order, R is nested in it): camera.suppressed.follow ==
-    R's `shot` count, suppressed.walkLevel == KR2_WALKLEVEL_PER_STEP x W's `walk_step` count (SC-3 (a), F4143), the
+    R's `shot` count, suppressed.walkLevel == KR2_WALKLEVEL_PER_STEP x W's `walk_step` count, the
     offset still the staged one and the view level 1. CLIENT: {reaction_follow} at each R shot seq; {restore} at R's bt_action_end seq whose `after` equals
     the `before` of the reaction_follow record at R's first shot (the offset K2 stores there); {own_walker_level} at
     each W walk_step seq. Prints one "EVIDENCE KR2:" line."""
@@ -533,7 +533,7 @@ def kr2_fails(rec, staged, cam0, cam1):
 
 
 def l5_fails(hl_a, hl_q, hl_b):
-    """W2-P6b S-L row L5 (AMENDMENT P6-5 section 6; ruling SL-1; owner D172 (a)): the reaction fire at the client's
+    """W2-P6b S-L row L5: the reaction fire at the client's
     walker in the hit log, both machines in English. At the quiescent point after C8's END TURN cycle (before C8's
     staging): the host holds exactly L5_PENDING_AT_QUIET pending entry (the cycle's NEW_TURN, SL-1 / F4239) and both
     logs render equal (L-S1). After the walk: the client's hitLog text and diary == the host's, the host's text holds

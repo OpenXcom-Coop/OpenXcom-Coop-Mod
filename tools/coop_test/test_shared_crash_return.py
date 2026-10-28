@@ -1,4 +1,4 @@
-"""W2-P7 S-C-D1 - test_shared_crash_return.py: a SHARED campaign battle that ends with no live alien (the
+"""test_shared_crash_return.py: a SHARED campaign battle that ends with no live alien (the
 aliens-crashed ending, P8b SE-2) still takes the host's post-battle world IN PLACE on the second player while its
 AliensCrashState is up, never through today's CoopState(555) -> LoadGameState path (docs
 rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-7 PR-27, row D1d = SK2; carried F5236; owner D154, D156 + MR1, D176).
@@ -46,7 +46,7 @@ import shared_fixture
 import test_battle_end_campaign as camp
 import test_prebattle_equip_end as pe
 
-PORT = "47252"            # AMENDMENT P7-7 section 3 (S26, F5582): D1 = 47250-47252
+PORT = "47252"            # AMENDMENT P7-7 section 3: D1 = 47250-47252
 TAG = "w2p7scd1_x"
 SEED_S = camp.SEED_S      # 1 (CONSTANTS T0-6 (i))
 BRIEF_S = 30              # the client's BriefingState after the host's (P8b EQ1_WAIT_S)

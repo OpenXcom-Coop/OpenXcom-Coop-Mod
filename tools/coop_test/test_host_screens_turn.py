@@ -1,4 +1,4 @@
-"""W2-P8 S-C2 - test_host_screens_turn.py: parallel mode, the host's screens across a
+"""test_host_screens_turn.py: parallel mode, the host's screens across a
 side change and a battle end: the partner's END TURN flips the side under the host's
 screen, the host's inventory closes itself when the side changes, the enemy AI waits
 behind the host's Esc menu, a hot-grenade end turn runs under the host's screen, and a
@@ -44,7 +44,7 @@ it is LAST:
         host's inventory with the side flipped; after close_nextturn
         hostScreens.closes.byReason.side +1; turn + 1 on both; EQUAL. The grenade
         explodes under the host's screen in both builds: never asserted.
-  HS10  (F2641 / F2642, T0-S7) every alien but the lowest id killed
+  HS10  every alien but the lowest id killed
         (kill_unit_real, context-less); battleAutoEnd on both; the last alien on
         (24,23,0) health 5, C on (24,24,0) facing it with a stun rod; the host
         opens H's inventory and picks the grenade; client stun-rod melee (seed 1).
@@ -260,7 +260,7 @@ def hs8_side_change(host, client, ctx):
     elif flip is None or "InventoryState" not in (flip.get("stack") or []) or flip["stack"][-1] != "NextTurnState":
         fails.append(f"precondition (T0-S6): the side flip with NextTurnState over the host's inventory ({flip})")
     else:
-        # the RED cell (S-C2.1, F2894): the screen re-inits on an alien, no side close; GREEN (J1): closed at the
+        # the RED cell: the screen re-inits on an alien, no side close; GREEN (J1): closed at the
         # first pump after the NextTurnState, before any host input
         ds = dnum(hclose(before["host"], "byReason", "side"), hclose(after_nts, "byReason", "side"))
         di = dnum(hclose(before["host"], "byScreen", "inventory"), hclose(after_nts, "byScreen", "inventory"))

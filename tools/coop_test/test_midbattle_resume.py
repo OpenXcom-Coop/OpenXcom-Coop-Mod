@@ -1,4 +1,4 @@
-"""SPEC 18 (r4 T4) - S3 (D-22 mode fidelity + D100(b) exact baton + degrades),
+"""S3 (D-22 mode fidelity + D100(b) exact baton + degrades),
 S4 (same-version refusal, M1) and S5 (client Save disabled in battle, M6).
 
 S3, S4 and S5 each build their OWN small live battle (S3: traditional-mode

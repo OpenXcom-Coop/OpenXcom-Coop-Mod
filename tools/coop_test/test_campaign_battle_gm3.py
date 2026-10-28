@@ -1,4 +1,4 @@
-"""D250-U S-C1 - test_campaign_battle_gm3.py: a gm3 PvP campaign battle's entry (host = the aliens, client = X-COM). The X-COM
+"""test_campaign_battle_gm3.py: a gm3 PvP campaign battle's entry (host = the aliens, client = X-COM). The X-COM
 client's landing at a mission site mirrored from the alien world starts ONE battle on both machines, run by the alien host in the
 X-COM client's borrowed world; the seats are gm3's; the X-COM player moves a soldier and the alien host moves an alien through its
 own UI; the alien seat reads its own research; the alien world sits parked and untouched.

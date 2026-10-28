@@ -1,4 +1,4 @@
-"""D250-U S-C2 - test_campaign_battle_gm3_end.py: a gm3 PvP campaign battle's end (host = the aliens, client = X-COM). In ONE
+"""test_campaign_battle_gm3_end.py: a gm3 PvP campaign battle's end (host = the aliens, client = X-COM). In ONE
 gm3 campaign a won, an aborted and a lost battle each end with both debriefings; the X-COM player's world carries the battle's
 results (missions, deaths, the craft's fate), the X-COM player's page 3 is live and the alien host's hidden, and the alien host is
 back in its exact parked world with the battle's mission site gone from both globes.

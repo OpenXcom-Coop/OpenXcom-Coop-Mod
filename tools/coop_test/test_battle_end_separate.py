@@ -1,4 +1,4 @@
-"""W2-P7 S-C-B1 - test_battle_end_separate.py: a SEPARATE campaign's second player ends on its own display-only
+"""test_battle_end_separate.py: a SEPARATE campaign's second player ends on its own display-only
 debriefing and, at its own OK, returns to ITS OWN world with its guest soldier's full record applied by origin id
 (docs rewrite/prompts/w2p7_sc_design.md section 3.2, AMENDMENT P7-6 section 4.2 row C28P, PR-1/PR-12..PR-15,
 P7-6 Q1 (a); owner D155 (a), D156 (a), D178 (a), D199 (a); mechanism rulings MR4, MR6, MR12).
@@ -44,7 +44,7 @@ RED (commit S-C-B1.1: probes/record zeros and the row, product untouched): C28P 
 never shows a DebriefingState (it stays on the battle map, F387). GREEN (commit S-C-B1.2): C28P passes.
 ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
-W2-P7 S-C-B2.1 (D181, AMENDMENT P7-6 section 4.3) adds a second boot C28P-dead: every hostile and the guest killed
+W2-P7 S-C-B2.1 adds a second boot C28P-dead: every hostile and the guest killed
 (seed-independent, host kill_unit_real), so the guest is a casualty. GREEN (commit S-C-B2.2): the death reaches the
 client's own world - "Guest Zzz" is in the client's MEMORIAL with a death, its base no longer lists it
 (sepReturn.deadApplied 1, one PR-16 [coop-roster] line), and the host's merged memorial copy is removed at its OK
@@ -683,7 +683,7 @@ def c28p_cells(host, client, ctx):
     ]
 
 
-# ===================== C28P-dead cells (W2-P7 S-C-B2.1, D181) =====================
+# ===================== C28P-dead cells =====================
 
 
 def cell_dead_return(host, client, ctx):
@@ -821,7 +821,7 @@ def run_row(rid, host, client, results, walls, stage_fn, cells_fn):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    # Two sequential boots (fresh host/client each): C28P (the B1 alive-return row) then C28P-dead (W2-P7 S-C-B2.1, D181).
+    # Two sequential boots (fresh host/client each): C28P (the B1 alive-return row) then C28P-dead.
     boots = [("C28P", stage, c28p_cells), ("C28P-dead", stage_dead, c28p_dead_cells)]
     for rid, stage_fn, cells_fn in boots:
         slug = rid.lower().replace("-", "_")

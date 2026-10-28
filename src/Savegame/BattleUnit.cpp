@@ -4913,7 +4913,7 @@ void BattleUnit::coopSetScriptValues(const std::vector<std::pair<std::string, in
 }
 
 /**
- * W2-P2 (Q1 = c): absolute special-ability set, for the test-only
+ * absolute special-ability set, for the test-only
  * battle_set_unit_state {specab} lever (test_delta_core.py's burning-floor
  * walker). _specab is otherwise derived from the armor/unit rules. Plain
  * assignment - no RNG, no rules evaluation.
@@ -4925,7 +4925,7 @@ void BattleUnit::coopSetSpecialAbility(int specab)
 }
 
 /**
- * W2-P2 S-A (spec (b)1, R3.7): absolute motion-points set for the delta
+ * absolute motion-points set for the delta
  * applier. Plain assignment - no RNG, no rules evaluation.
  * @param motionPoints new motion points
  */
@@ -4935,7 +4935,7 @@ void BattleUnit::coopSetMotionPoints(int motionPoints)
 }
 
 /**
- * W2-P2 S-A: absolute wants-to-surrender set. Plain assignment.
+ * absolute wants-to-surrender set. Plain assignment.
  * @param wantsToSurrender new flag
  */
 void BattleUnit::coopSetWantsToSurrender(bool wantsToSurrender)
@@ -4944,7 +4944,7 @@ void BattleUnit::coopSetWantsToSurrender(bool wantsToSurrender)
 }
 
 /**
- * W2-P2 S-A: the serialized morale-restored counter.
+ * the serialized morale-restored counter.
  * @return morale restored
  */
 int BattleUnit::coopGetMoraleRestored() const
@@ -4953,7 +4953,7 @@ int BattleUnit::coopGetMoraleRestored() const
 }
 
 /**
- * W2-P2 S-A: absolute morale-restored set. Plain assignment.
+ * absolute morale-restored set. Plain assignment.
  * @param moraleRestored new counter
  */
 void BattleUnit::coopSetMoraleRestored(int moraleRestored)
@@ -4962,7 +4962,7 @@ void BattleUnit::coopSetMoraleRestored(int moraleRestored)
 }
 
 /**
- * W2-P2 S-A: absolute reaction-hand state. Plain assignments.
+ * absolute reaction-hand state. Plain assignments.
  * @param preferredHand "STR_RIGHT_HAND", "STR_LEFT_HAND" or ""
  * @param disabledLeft reactions disabled for the left hand
  * @param disabledRight reactions disabled for the right hand
@@ -4975,7 +4975,7 @@ void BattleUnit::coopSetReactionHands(const std::string& preferredHand, bool dis
 }
 
 /**
- * W2-P2 S-A: the raw script-value vector.
+ * the raw script-value vector.
  * @return values (element i = tag index i + 1)
  */
 const std::vector<int>& BattleUnit::coopScriptValuesRaw() const
@@ -4984,7 +4984,7 @@ const std::vector<int>& BattleUnit::coopScriptValuesRaw() const
 }
 
 /**
- * W2-P2 S-A: absolute raw script-value set; every index past @a values is
+ * absolute raw script-value set; every index past @a values is
  * zeroed. Runs no script and draws no RNG.
  * @param values new values (element i = tag index i + 1)
  */
@@ -5705,7 +5705,7 @@ void BattleUnit::removeSpecialWeapons(SavedBattleGame *save)
 }
 
 /**
- * W2-P3 (MJ-5): detach one special weapon - null the slot holding it, then
+ * detach one special weapon - null the slot holding it, then
  * clear its owner (removeSpecialWeapons' two writes for that one item).
  * @return True when a slot held the item.
  */

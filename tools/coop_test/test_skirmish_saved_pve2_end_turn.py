@@ -15,7 +15,7 @@ machines; every bucket EQUAL; the host saves, then the host exits, then the clie
 Boot D2 (the host reuses boot D1's dir, never re-made: make_user_dir would delete the save; a clean client r5u8_d_client2):
 the host's load_save_menu, open_pause_coop, host_menu_host; the client joins; CONTINUE BATTLE; both phase Active and both tops
 BattlescapeState, no dialog 62 / 68, held 2 s (MG-B's arrival: a miss is CAPTURE D2).
-  SD1  SD1-record  every unit's (originalFaction, type, direction) host == client == P (D269 (a), U8-1)
+  SD1  SD1-record  every unit's (originalFaction, type, direction) host == client == P
        SD1-built   every alien's darkVision and armorMax host == client == P
        SD1-hold    the resumed host's split line 0; side / turn unchanged on both for HOLD_S with no press
        SD1-order   the client's walk for its alien C1 runs at once (one intent context, no deny, C1 on C1_DEST on both)

@@ -71,7 +71,7 @@ def seats(host, client):
 
 
 def entry_mode(host, client, ev, tag):
-    """Traditional mode with the host's go on both (D100 / D-23), bounded rs.MODE_S."""
+    """Traditional mode with the host's go on both, bounded rs.MODE_S."""
     def ok():
         return [rs.es(gc, "turnMode") for gc in (host, client)] == ["traditional"] * 2 and seats(host, client) == [0, 0]
     _, s = rs.wait_until(ok, rs.MODE_S)

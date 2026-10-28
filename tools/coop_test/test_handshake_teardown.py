@@ -11,7 +11,7 @@ LH1 (key 48561): the same drive; the client arms hold_blob_ack (it withholds its
 waits after chunk 1), the host presses OK, and the client is killed mid-stream. The host must abandon the stream and
 tear the battle down (phase Idle, peerAbsent false), not enter the leave pause.
 
-HELD cells: none since W2-H24 S-B (AMENDMENT H24-2 section 2). Both formerly held cells are asserted: HS1 H6 (where
+HELD cells: none since W2-H24 S-B. Both formerly held cells are asserted: HS1 H6 (where
 both machines land) at TASK 0 T0-1's values, the owner's D259 (a) (keep today's landing); LH1 L4 (the host's end
 screen) at the ruled end, R2-m6 (b) under D259 (a): the host on a bare main menu with the session ended, as a refused
 skirmish start (F5199; red until W2-H24 S-B's green).

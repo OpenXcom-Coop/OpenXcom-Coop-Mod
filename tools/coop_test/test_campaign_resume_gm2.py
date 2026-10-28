@@ -1,4 +1,4 @@
-"""D250-U S-C4a - test_campaign_resume_gm2.py: a gm2 PvP campaign (host = X-COM, client = the aliens) across a mid-battle save
+"""test_campaign_resume_gm2.py: a gm2 PvP campaign (host = X-COM, client = the aliens) across a mid-battle save
 and its resume, and across the alien player's drop on the globe and its rejoin. The resumed battle keeps gm2's mode and seats and
 ends with the X-COM win as an unsaved battle does; the rejoining alien player is back on its alien side (no base placement) and the
 host keeps the campaign's mode.

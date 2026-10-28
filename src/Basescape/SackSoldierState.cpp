@@ -129,7 +129,7 @@ void SackSoldierState::btnOkClick(Action *)
 	}
 
 	// coop campaign
-	// coop W2-H70 S-C (spec docs rewrite/prompts/w2h70_sc_window_67.md EC7; R-H70-4; F20448): also while the live world is the partner's
+	// coop W2-H70 S-C: also while the live world is the partner's
 	// base view after a 67 cleared the visit flag (a soldier moved home then stays home).
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
 	{
@@ -175,7 +175,7 @@ void SackSoldierState::btnOkClick(Action *)
 
 			soldier->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
 
-			// coop W2-H70 S-B (spec docs rewrite/prompts/w2h70_sb_display_copy.md EB7; R-TR9-1; F20573): a received gift's display copy is
+			// coop: a received gift's display copy is
 			// never written to "basehost"; it leaves the mark set here because it is deleted below.
 			if (connectionTCP::visitDisplayCopies.erase(soldier) == 0)
 				target_soldiers.push_back(soldier);

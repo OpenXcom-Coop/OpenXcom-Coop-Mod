@@ -1,4 +1,4 @@
-"""W2-P3 S-A - test_ai_origins.py: an alien's attack and the grenades that
+"""test_ai_origins.py: an alien's attack and the grenades that
 go off when a side ends each run as a named action - with its own action
 context, its own `bt_action_end`, and (for a ranged or thrown AI attack) the
 alien's turn toward its target sent as a normal `turn` event first (spec
@@ -42,8 +42,8 @@ Four scenarios, ONE boot, in this order (the W2-P3 TASK 0a one-boot order, then 
        re-pinned (tu 0 + refill, BOTH). Then A is stripped (battle_strip_unit,
        BOTH, deleted ids compared as SETS - F882) and given a STR_GRENADE on
        its belt (battle_give, BOTH), A/C/C2 staged (BOTH), A tu base A_TU
-       (BOTH); host set_seed SEED_C7 right before its END TURN press. GREEN
-       (B2.1 / F808): the first `ai` context on the alien side is {kind throw,
+       (BOTH); host set_seed SEED_C7 right before its END TURN press. GREEN:
+       the first `ai` context on the alien side is {kind throw,
        actorId A, hasFinal true} and its evs are exactly turn (unit A,
        fromDir C7_A_DIR, toDir C7_TURN_TO) -> shot (action throw, `arc`
        present, actor A, the grenade) -> bt_action_end; the grenade explodes
@@ -81,7 +81,7 @@ are written by S-C.2):
        per shot of A, {hit_level} per hit of A (never {hit_centre} on a bullet
        hit: W2-G1, AUD-A16), {walker_level} per A
        walk_step plus {walker_centre} iff that record is visible and off
-       screen, and {side_start} at the player side_begin (K9, D171 (a)); the
+       screen, and {side_start} at the player side_begin; the
        client offset moved; host suppressed all +0. RED: no move, offset
        unchanged. One "EVIDENCE KR1:" line.
   KR1-off (checked in C7, on cycle 3; Q16 (a)) the client's coopGhostStepper
@@ -173,7 +173,7 @@ C6_A_TILE, C6_A_DIR = (15, 3, 0), 3
 C6_C_TILE, C6_C_DIR = (15, 8, 0), 4    # C faces away from A
 C6_TURN_TO = 4                   # the direction A (15,3) -> C (15,8); A turns 3 -> 4 before its first snap
 SEED_C6 = 15                     # host set_seed right before its END TURN press (after the client's press)
-C6_AI_KINDS = ["shoot", "shoot", "walk"]   # snap + hit, snap + hit, a one-step AI walk (B2.2 / F812)
+C6_AI_KINDS = ["shoot", "shoot", "walk"]   # snap + hit, snap + hit, a one-step AI walk
 
 # ----- C7: cycle 2 (turn 2, plain) + cycle 3 (turn 3) -----
 C7_A_TILE, C7_A_DIR = (15, 2, 0), 3

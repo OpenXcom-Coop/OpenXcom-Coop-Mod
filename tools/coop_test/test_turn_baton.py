@@ -24,7 +24,7 @@ BOOT A (two seated seats, seat_count=2): host seat 0 holds the baton first
 sees the WHOLE battlescape exactly as the on-baton machine does (REV E.53
 E53.1 - the old D-24b HIDDEN-widget list is RETIRED; NOTHING is hidden
 anymore), with two differences: the bottom `_icons` bar is rendered through
-a gray lookup (REV E.53 E53.2), and a persistent `STR_COOP_WAIT_TURN` banner
+a gray lookup, and a persistent `STR_COOP_WAIT_TURN` banner
 names the baton holder. Every action that changes the shared
 battle (move, kneel, turn, END TURN) is refused with the rendered
 `STR_COOP_DENY_NOT_YOUR_GO` text; opening the hand-item ACTION MENU is
@@ -173,7 +173,7 @@ def drive_full_cycle(host, client, turn0, timeout=60):
     machines."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # RV-U13 S-A: read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
         # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
         # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
@@ -243,13 +243,12 @@ def run_boot_a():
     order - the deny banner has a 6000 ms Terminal dwell
     (kCoopBannerDwellMs, CoopBattleUi.h:399) - running them in any other
     order makes an "unchanged"/"changed" comparison vacuous:
-      A1  entry tally (REV E.52 E52.1)
+      A1  entry tally
       A2  banner BEFORE the pass (REV E.56 E56.2)
       A3  nothing hidden - full list_widgets parity except the two banner
           surfaces (REV E.53 E53.3); the post-pass half runs after A9
       A4  gray, whole rect, zero tolerance (REV E.53 E53.3)
       A5  the action menu is ALLOWED off-baton, mints/paints nothing
-          (REV E.54 E54.3)
       A6  kneel is REFUSED off-baton, BEFORE -> AFTER (REV E.54 E54.2 /
           REV E.55 E55.1-E55.2) - the negative control is quoted in this
           function's own docstring above (module level)
@@ -294,7 +293,7 @@ def run_boot_a():
         assert seat0_units, "boot A: seat 0 (host) has no live player unit"
         assert seat1_units, "boot A: seat 1 (client) has no live player unit"
 
-        # ----- A1: ENTRY (REV E.52 E52.1) -----
+        # ----- A1: ENTRY -----
         for gc, who in ((host, "host"), (client, "client")):
             es = event_state(gc)
             assert es.get("coopActiveSeat") == 0, (
@@ -392,7 +391,7 @@ def run_boot_a():
               f"(whole {ICONS_RECT[2]}x{ICONS_RECT[3]} rect); host own-go "
               f"mode=off/outside={outside_h}")
 
-        # ----- A5: ACTION MENU (REV E.54 E54.3) -----
+        # ----- A5: ACTION MENU -----
         before_a5 = battle_state(client).get("coopWaitText")
         blocked_a5_0 = event_state(client).get("coopLocalExecBlocked")
         seq_a5_0 = event_state(client).get("lastSeqEmitted")
@@ -439,7 +438,7 @@ def run_boot_a():
               f"{blocked_a5_0}), banner unchanged ({before_a5!r}); dismissed "
               "back to BattlescapeState (87 surfaces)")
 
-        # ----- A6: KNEEL REFUSAL (REV E.54 E54.2 / REV E.55 E55.1) -----
+        # ----- A6: KNEEL REFUSAL -----
         before_a6 = battle_state(client).get("coopWaitText")
         blocked_a6_0 = event_state(client).get("coopLocalExecBlocked")
         seq_a6_0 = event_state(client).get("lastSeqEmitted")

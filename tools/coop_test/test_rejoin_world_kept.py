@@ -10,7 +10,7 @@ ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the con
            K2i-key: the save written, id1 != id0, key(id1) present, key(id0) pruned. K2i-world: client2 never BuildNewBaseState, its
            [GeoscapeState, CoopState] code 68 within JOIN_S, own(client2) holds (CB_NAME, CB).
   Row K2ii (control: an autosave drop, F18423) client2 dropped at the host's first sight of its 54, client3 rejoins, RESUME, the stale 54
-           CANCELLED when it is on top (F18431, W2-H59's). K2ii-id: at the 54 saveID == id1, key(id1) with K2i's end fnv.
+           CANCELLED when it is on top. K2ii-id: at the 54 saveID == id1, key(id1) with K2i's end fnv.
            K2ii-world: as K2i-world for client3.
   Row RK1  (the red, LAST) a quick save, client3 dropped at its 54 (id2 = the re-minted id), client4 rejoins. RK1-key (RED): key(id2)
            present at the 54 with key(id1)'s bytes and fnv1a64. RK1-world (RED): client4 never BuildNewBaseState and its 68 within JOIN_S.

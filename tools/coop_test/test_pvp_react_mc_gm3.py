@@ -1,6 +1,6 @@
 """R5-U3 S-B rows R4, M3, R3, P2, M4 (boot B3, gm3: the HOST plays the aliens, seat 0; the partner the seven X-COM
 soldiers, seat 1): reaction fire and mind control both ways and the host's own alien side panicking at its start, the
-human alien side playing by the player-side rules vanilla gives X-COM (R5-V1, QU3-4 (a), QU3-7 (a); O1 (a)).
+human alien side playing by the player-side rules vanilla gives X-COM.
 
 Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_react_mc_gm3.py; the host's real-UI orders
 after its own alien acted use W2-H27's reset (R-H27-A-1: one right click on NEXT-SOLDIER, one TAB, tab_select) while

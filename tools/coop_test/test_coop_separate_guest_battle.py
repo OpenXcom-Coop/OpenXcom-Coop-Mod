@@ -11,7 +11,7 @@ r1a_v2.bring_up_fixed recipe, R1(b)'s own measured fixture) must, at the tip:
   * let the CLIENT command its own guest through the real intent path
     (admitted), refuse it on a host soldier (not_your_unit), and refuse the
     HOST's click-select on the guest's own tile;
-  * leave the battle cleanly via the host-authoritative abort (D114=a / E65.1):
+  * leave the battle cleanly via the host-authoritative abort:
     the HOST reaches the geoscape (AbortMissionState -> finishBattle) with NO
     crash and NO desyncSeen on EITHER machine - expect_both=True (re-pointed by
     W2-P7 S-C-B1, AMENDMENT P7-6 section 4.2, chain rule A.10): the SEPARATE
@@ -27,7 +27,7 @@ per-seat stored count for seat 1 must already be >= 1 - proof the
 `battle_roster_contrib` census actually reached the host, not just an absence
 any unrelated bring-up failure would also produce.
 
-IN-WAVE NOW (W2-P7 S-C-B1, AMENDMENT P7-6 section 4.2): what SPEC 19 left as r4
+IN-WAVE NOW: what SPEC 19 left as r4
 T2 is implemented. (2) the CLIENT's own clean return to its geoscape after a
 SEPARATE host abort (was F387: the host's finishBattle returned only the host;
 the client was left in the battle) is now asserted HERE via expect_both=True.
@@ -133,7 +133,7 @@ def main():
         session.assert_t_exit(host, client, what="S1 separate guest battle",
                               expect_both=True)
 
-        # ---- F366: post-battle roster consumers ------------------------------
+        # ---- post-battle roster consumers ------------------------------
         assert not _guest_present(host), (
             "F366: the host's get_soldiers STILL lists a 'Guest' soldier after "
             "the battle - the merged copy (Branch B, coopBase==-1) was not "

@@ -24,7 +24,7 @@ Red (commit R1, the HEAD build = S-A green): exit 2, RED exactly on GN-close, GN
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line
 per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
-W2-H70 T1 (docs rewrite/prompts/w2h70_t1_hsw_hsc_repoint.md; F20124): W2-H70's gift pushes the client's stored world; it lands about
+W2-H70 T1: W2-H70's gift pushes the client's stored world; it lands about
 0.2 s after the notice and races the notice's CLEAR guard and R-GR's drop write. R-GN / R-GR arm the client's TEST-ONLY
 force_stream_key_miss just before the host's button (no client world lands) and wait until the lever's logged misses equal the client's
 W2-H70 pushes (0 without W2-H70, 1 with it); R-GN then releases it and waits until CLEAR equals that count before the leave.

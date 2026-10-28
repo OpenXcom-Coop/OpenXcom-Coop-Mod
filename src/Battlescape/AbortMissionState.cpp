@@ -108,7 +108,7 @@ AbortMissionState::AbortMissionState(SavedBattleGame *battleGame, BattlescapeSta
 	}
 
 	// Calculate values
-	BattlescapeTally tally = _battleGame->isPreview() ? _battleGame->tallyUnitsForPreview() : coopAbortDialogTally(_battleGame); // coop R4-L1 (R2-M7): a co-op client's dialog counts read-only
+	BattlescapeTally tally = _battleGame->isPreview() ? _battleGame->tallyUnitsForPreview() : coopAbortDialogTally(_battleGame); // coop: a co-op client's dialog counts read-only
 	_inEntrance = tally.inEntrance;
 	_inExit = tally.inExit;
 	_outside = tally.inField;

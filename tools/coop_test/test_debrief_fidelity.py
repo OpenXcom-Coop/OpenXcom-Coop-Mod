@@ -51,7 +51,7 @@ import repro_atom_walk as raw
 import test_battle_end as tbe
 
 DE = {"language": "de"}
-# TASK 0 (CONSTANTS.md): rendered by a running German machine, else the deployed de.yml (sha256 ce1779f3..., equal to
+# rendered by a running German machine, else the deployed de.yml (sha256 ce1779f3..., equal to
 # bin\standard).
 DE_UFO_RECOVERED = "UFO wurde geborgen"             # STR_UFO_IS_RECOVERED, de.yml :206
 DE_UFO_RECOVERY = "UFO-BERGUNG"                     # STR_UFO_RECOVERY, de.yml :226

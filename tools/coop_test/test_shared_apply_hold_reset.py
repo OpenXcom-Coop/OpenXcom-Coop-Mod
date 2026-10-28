@@ -1,4 +1,4 @@
-"""W2-P7 S-C-D2 - test_shared_apply_hold_reset.py: a SHARED second player that leaves the session while it holds
+"""test_shared_apply_hold_reset.py: a SHARED second player that leaves the session while it holds
 shared applies (its post-battle world not yet adopted) drops them and the apply hold at the session reset, so they can
 never drain into the next session's world (docs rewrite/prompts/w2p7_sc_design.md section 3.6, AMENDMENT P7-7
 sections 2-4: PR-34 = SK3, F5237, F5576; MR3).
@@ -9,7 +9,7 @@ LoadGameState notifyWorldAdopted().
 
 Fixture (AMENDMENT P7-7 section 3.2 D2g): FX-S with test_battle_end_campaign.stage(..., holds=True) - C28S-f's
 construction: the SHARED battle on SEED_S, the host's hold_world_stream and the client's hold_world_adopt armed before
-the ending (AMENDMENT P7-6 PR-11), the 15 hostiles killed, the host's debriefing == HOST_DEBRIEF. Pre-cell
+the ending, the 15 hostiles killed, the host's debriefing == HOST_DEBRIEF. Pre-cell
 (FIXTURE-STOP: one CAPTURE line, the row FAILs "pre-cell"): stage() and the client's display-only DebriefingState on
 top within CLIENT_DEBRIEF_S.
 
@@ -51,9 +51,9 @@ import test_shared_forced_storage as fst
 from test_shared_forced_storage import (FixtureMiss, stack, top, wait_until, record, sstats, capture,
                                            run_boot)
 
-T = "STR_SECTOID_CORPSE"           # FX-S's T (AMENDMENT P7-7 section 3)
+T = "STR_SECTOID_CORPSE"           # FX-S's T
 BASE = "HostBase"                  # shared_fixture.bring_up's host_base (base 0)
-PORT = "47258"                     # AMENDMENT P7-7 section 3 (S26, F5582)
+PORT = "47258"
 TAG = "w2p7scd2_g"
 HOLD_LINE = "[coop-test] hold_world_stream: holding"   # S-C-A's host stream hold line (test_battle_end_campaign_fence)
 ADOPT_S = camp.ADOPT_S             # 15 s (CONSTANTS T0-S2)

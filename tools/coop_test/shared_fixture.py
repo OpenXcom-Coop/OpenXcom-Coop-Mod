@@ -93,7 +93,7 @@ def world_dump(gc):
     """
     g = gc.ok({"cmd": "geo_state"})
     roster = gc.ok({"cmd": "get_soldiers"})["bases"]
-    # W2-G1 (F7951, F8265; Q3 a): soldier_layouts reads a base by NAME, so a duplicate name would compare the wrong base.
+    # soldier_layouts reads a base by NAME, so a duplicate name would compare the wrong base.
     names = [b["name"] for b in g["bases"]]
     if len(set(names)) != len(names):
         raise AssertionError(f"world_dump: duplicate base names {names} on {gc.name} (soldier_layouts reads a base by name)")
@@ -101,7 +101,7 @@ def world_dump(gc):
     bases = []
     for i, b in enumerate(g["bases"]):
         soldiers = roster[i]["soldiers"] if i < len(roster) else []
-        # W2-G1 (F7951, F8265; Q3 a, Q4 a): each soldier's gear - armor (get_soldiers), equipment layout, personal layout and
+        # each soldier's gear - armor (get_soldiers), equipment layout, personal layout and
         # its armor (soldier_layouts, items in stored order). Craft items join with W2-H20b stage B.
         armor = {s["id"]: s.get("armor") for s in soldiers}
         gear = gc.ok({"cmd": "soldier_layouts", "base": b["name"]})["soldiers"]

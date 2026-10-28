@@ -1,4 +1,4 @@
-"""W2-P10 S-A - test_synced_campaign_options_sep.py (SEPARATE): row C2, the join takes the host's 14.
+"""test_synced_campaign_options_sep.py (SEPARATE): row C2, the join takes the host's 14.
 
 Owner D134, D162 a, D163 a, D165 a, D200 a; P10-V1 (one table for every session kind, SEPARATE included: the
 host's value at join governs both players' own worlds for the session). Spec docs

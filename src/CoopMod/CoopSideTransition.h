@@ -60,7 +60,7 @@ class SavedBattleGame;
 /// for the same envelope (WV-D39 / SS2.W4).
 void coopEmitSideTransition(SavedBattleGame* save);
 
-/// W1-P13a (REV E.1 D-5): true iff NextTurnState's ctor must NOT run
+/// true iff NextTurnState's ctor must NOT run
 /// vanilla's checkBugHuntMode() on this machine. `_bughuntMode` is
 /// serialized and is NOT on saveBlobExcludedTopKey, so it rides the
 /// `saveBlob` bucket inside this packet's own boundary sweep - bughunt must
@@ -69,7 +69,7 @@ void coopEmitSideTransition(SavedBattleGame* save);
 /// true only for a client inside an active coop battle.
 bool coopSuppressBugHuntCheck(const SavedBattleGame* save);
 
-/// W1-P13a (REV E.1 S-3 / WV-D51): true iff NextTurnState::close() must skip
+/// true iff NextTurnState::close() must skip
 /// vanilla's post-dismissal battle-lifecycle work (the tally, the
 /// areAllEnemiesNeutralized() mind-control conversion, finishBattle(), the
 /// autosave) and perform ONLY the presentation-layer dismissal

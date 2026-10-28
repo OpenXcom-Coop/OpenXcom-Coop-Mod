@@ -1,4 +1,4 @@
-"""W2-P2 S-D - test_host_combat_terrain.py: the host's own combat that
+"""test_host_combat_terrain.py: the host's own combat that
 changes TERRAIN runs as proper actions with cue events, and the second player
 ends every one of them with the host's exact state (spec
 rewrite/prompts/w2p2_delta_core.md section (f) "test_host_combat_terrain.py
@@ -94,7 +94,7 @@ open_new_battle (names and stats repeat, amendment A2.2 / F501; C3's throw
 distance depends on the throwing stat, F502) - a local bring-up helper - then
 session.drive_to_battlescape with the mission pin and set_seed SEED_MAP right
 before newbattle_ok, the baked MAP_FP asserted on both, session.pin_ai_neutral.
-Every lever pair applies to the CLIENT first, then the HOST (F607, S-H.1a),
+Every lever pair applies to the CLIENT first, then the HOST,
 with the responses asserted equal; every item a lever creates is created on
 both machines with ids asserted equal. set_seed on the HOST immediately before
 each action.
@@ -183,7 +183,7 @@ V_NORTHWALL = 2                  # src/Mod/MapData.h enum VoxelType
 VOXEL = (16, 16, 24)             # voxels per tile (x, y, z)
 C2_CHAIN = ["shot", "hit", "bt_action_end"]
 C3_PRIME_CHAIN = ["prime", "bt_action_end"]
-C3_THROW_CHAIN = ["turn", "shot", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-throw turn
+C3_THROW_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
 # coopEmitCue's host log line (connectionTCP.cpp): one per cue the host sends.
 CUE_RE = re.compile(r"\[coop-cue\] (\S+) seq (\d+) actionId (\d+): (\{.*\})\s*$", re.M)
 

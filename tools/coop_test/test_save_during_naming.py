@@ -30,7 +30,7 @@ whose text holds "Error in loopData" (each file read once).
     F-once (RED) growth in F_WINDOW is exactly 1.   F-wait (GUARD) at +F_WINDOW the host's top is CoopState 54.
     F-heal (GUARD) within DONE_S of the lever off the host's top is GeoscapeState, _quick_.asav newer than the trigger, no client CoopState.
     F-calm (RED) growth over the whole row is exactly 1.
-Red today: the 11 RED cells FAIL; the 7 GUARD cells PASS. Green (W2-H66 E1-E6): all 18 PASS.
+Red today: the 11 RED cells FAIL; the 7 GUARD cells PASS. Green: all 18 PASS.
 Every press is a real click_widget or inject_input; only the save trigger and the lever are commands; the client's Disconnect is never
 pressed; the lever is off before shutdown. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
 miss ends its row (later cells "not reached"); a boot miss fails every row of that boot "boot" with ONE CAPTURE line. The END line
@@ -91,7 +91,7 @@ def logl(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 def cw(gc, match, settle=1.0, ready=False):
-    if ready:  # W2-U9b (W2-U9 R3; F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
+    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button
         session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)

@@ -1,4 +1,4 @@
-"""W2-P7 S-C-C - test_campaign_followups_separate.py: in a SEPARATE campaign the second player, after its own OK and
+"""test_campaign_followups_separate.py: in a SEPARATE campaign the second player, after its own OK and
 its return to its own world, sees the host's after-battle screens (promotions, medals) with the host's soldiers named
 `[HostPlayer] Name` and its own guest plain; the host names the guest `[ClientPlayer] Guest Zzz` (docs
 rewrite/prompts/w2p7_sc_design.md section 3.4, AMENDMENT P7-6 section 4.4, the P7-6 C re-pin at 2e177ff39 section 4
