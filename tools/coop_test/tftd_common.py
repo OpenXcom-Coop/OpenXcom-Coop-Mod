@@ -42,6 +42,7 @@ def make_tftd_user_dir(name, saves=(), options=None, mods=TFTD_MODS):
     name = "s%d_%s" % (harness.HARNESS_SLOT, name)
     d = os.path.join(harness.TEST_ROOT, name)
     if os.path.exists(d):
+        harness.remove_links(d)  # never follow a junctioned mod into its source
         shutil.rmtree(d)
     os.makedirs(os.path.join(d, "xcom2"))
     modblock = "".join("  - active: true\n    id: %s\n" % m for m in mods)
