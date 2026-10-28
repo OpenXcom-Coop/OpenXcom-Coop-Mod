@@ -243,8 +243,9 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 			_dynGetter = compFunc->getGetter();
 		}
 		// Playtest: SHARED must not reorder the shared host-authoritative roster; keep the
-		// dynamic-stat column but skip the sort/restore mutations.
-		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
+		// dynamic-stat column but skip the sort/restore mutations. Separate likewise,
+		// at own and foreign bases alike (RU8: a visitor never reorders the host's roster).
+		if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 		{
 			initList(_lstSoldiers->getScroll());
 			return;
@@ -538,7 +539,10 @@ void CraftSoldiersState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftSoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally: there is no reorder command, and the row is an index into
+	// the owner-filtered list, not into _base->getSoldiers().
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -592,7 +596,10 @@ void CraftSoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void CraftSoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally: there is no reorder command, and the row is an index into
+	// the owner-filtered list, not into _base->getSoldiers().
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{

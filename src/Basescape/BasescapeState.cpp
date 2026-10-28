@@ -1029,8 +1029,16 @@ void BasescapeState::miniLeftClick(Action *)
  */
 void BasescapeState::miniRightClick(Action *)
 {
-	size_t baseIndex = _mini->getHoveredBase();
+	moveBaseLeft(_mini->getHoveredBase());
+}
 
+void BasescapeState::moveBaseLeft(size_t baseIndex)
+{
+	// SHARED and Separate commands address a base by its index in getBases(), so
+	// both machines must keep one order: a local swap would send a later buy or
+	// transfer to another base (RU8). There is no host command for it.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+		return;
 	if (baseIndex > 0 && baseIndex < _game->getSavedGame()->getBases()->size())
 	{
 		auto& bases = *_game->getSavedGame()->getBases();

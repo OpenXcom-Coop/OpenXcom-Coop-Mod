@@ -108,6 +108,9 @@ public:
 	void miniLeftClick(Action *action);
 	/// Handler for clicking the mini base view (right button).
 	void miniRightClick(Action *action);
+	/// Moves the base at <baseIndex> one place left in the base list (the
+	/// mini-base strip's right-click action).
+	void moveBaseLeft(size_t baseIndex);
 	/// Handler for changing the text on the Name edit.
 	void edtBaseChange(Action *action);
 	/// Handler for pressing a base selection hotkey.
