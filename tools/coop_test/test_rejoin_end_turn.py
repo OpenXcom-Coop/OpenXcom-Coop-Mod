@@ -31,7 +31,7 @@ K_P = 3                             # parallel: both counters after one END TURN
 K_T = 3                             # traditional: baton 0 -> 1 -> 0 -> 1; both counters after the cycle
 SEED_RE = re.compile(r"rejoin END TURN side-phase counter seeded to (-?\d+)")
 BATON_NEEDLE = "[coop-baton] battle save carried coopActiveSeat=1"    # F4058; keep the =1 suffix
-OFFER_NEEDLE = "SPEC16 M5: rejoin battle_offer sent"
+OFFER_NEEDLE = "rejoin battle_offer sent"
 IDLE_S, CYCLE_S, SEAT_S, LOG_FLUSH_S = 30, 60, 15, 3
 PC, TS = "coopEndTurnPhaseCounter", "coopEndTurnTalliesSeen"
 EK = (PC, TS, "coopEndTurnTally", "coopActiveSeat", "coopPendingTallyTurn", "turnMode", "desyncSeen")

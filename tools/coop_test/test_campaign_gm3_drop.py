@@ -59,7 +59,7 @@ POINT = {"F3": (0.35, 0.10), "F6": (0.35, 0.10)}            # FX3-3: X + point (
 CRAFT_AT = {"F3": (0.34, 0.10), "F6": (0.34, 0.10)}         # FX3-5
 SQUAD = 2
 ARRIVAL = ("ConfirmLandingState", "CraftErrorState")        # the screen client2's Skyranger's arrival pushes
-UNWIND = "W2-H24: failed battle start ("
+UNWIND = "failed battle start ("
 # ----- bounds -----
 MIRROR_S = 30
 LANDING_S = 180

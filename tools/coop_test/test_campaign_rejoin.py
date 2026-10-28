@@ -37,7 +37,7 @@ WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the load
 POLL, W_ACK, W_PAUSE = 0.25, WATCH_CAP_S, 30.0
 KEY_H, KEY_C = "48597", "48598"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
-OFFER, REFUSED = "SPEC16 M5: rejoin battle_offer sent (battleId=", "offerResumedBattle() called outside a disk resume"
+OFFER, REFUSED = "rejoin battle_offer sent (battleId=", "offerResumedBattle() called outside a disk resume"
 GUARD, RELEASE = "offerRejoinBattle() called while the battle is not ", "restream adopted; released the client hold"
 RESTASH = "F3 battle resume: stashed geoscape-only coop_geoscape_return"
 SHARED_STREAM, CLIENT_ACTIVE = "[coop-shared] streaming authoritative world to client (", "CLIENT phase Active (battleId="

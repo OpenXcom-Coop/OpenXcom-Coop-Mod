@@ -59,7 +59,7 @@ UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESE
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}     # FX5B-12 fallback (QC5B-7 (b), W2-H24's arguments)
 MISSION = "STR_BASE_DEFENSE"
 TITLE_B = "Base is saved"                    # FX5B-15 (Bb, Rb)
-UNWIND = "W2-H24: failed battle start ("
+UNWIND = "failed battle start ("
 KEEP = ("CoopState", "BriefingState", "BattlescapeState", "BaseDefenseState", "DebriefingState", "ConfirmLandingState", "Profile")
 # ----- bounds (s; TASK 0 Rb: hand-off 0.35, window 1.36, resumeAck 1.56, second borrow 0.05 and both Active 2.16 after RESUME) -----
 ARRIVE_S, WATCH_S, W_S, W_POLL, RESUME_ACK_S, AGAIN_S = 30, 135, 15.0, 0.2, 60, 60

@@ -57,7 +57,7 @@ BUCKET_DR2, KIND_DR2 = "saveBlob", "side_transition"
 POKE = 7
 POLL, W_REPAIR, W_NOTICE, W_TURN, W_WALK, W_IDLE = 0.25, 45.0, 10.0, 90.0, 30.0, 30.0
 BS, CSTATE, NOTICE = "BattlescapeState", "CoopState", "CoopDesyncNoticeState"
-OFFER = "SPEC16 M5: rejoin battle_offer sent (battleId="
+OFFER = "rejoin battle_offer sent (battleId="
 RESYNC = "[coop-resync] host: automatic repair offered"
 RELEASED = "[coop-resync] host: the battle is repaired - the pause is released"
 CLIENT_ACTIVE = "CLIENT phase Active (battleId="

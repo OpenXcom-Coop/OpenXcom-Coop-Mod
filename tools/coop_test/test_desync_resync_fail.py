@@ -4,7 +4,7 @@ does not match leaves the battle paused for good: no further repair, no RESUME, 
 waiting screen says the battle could not be repaired. Two boots, one row each, each shut down before the next:
   DR3a (boot F1, key "48753", dirs r4l3_f1_host / _client) the re-sent battle is refused: the host arms the TEST-ONLY `corrupt_next_blob`,
       the client pokes H2's reactions (+7, client-only), the host's real-UI kneel of H raises the desync; wait <= 30 s for the host's
-      `SPEC16 M5: rejoin refused (corrupt)` line, <= W_TITLE for the 62 title to leave "Repairing the battle", then HOLD_S. DR3a-1 GUARD
+      `rejoin refused (corrupt)` line, <= W_TITLE for the 62 title to leave "Repairing the battle", then HOLD_S. DR3a-1 GUARD
       the repair was offered, the lever fired on it, the client refused it (reason=corrupt), client phase Idle, client top CoopStageHold; DR3a-2 RED host RS failed +1, lastFail "refused"; DR3a-3 GUARD at
       every HOLD_S poll: host phase Active, peerAbsent true, 62 on top with back hidden and SAVE & QUIT / ABANDON shown, offered unchanged
       (no loop), client top unchanged, client desyncSeen true; DR3a-4 GUARD the escape: host ABANDON -> host MainMenuState <= 60 s, client
@@ -13,7 +13,7 @@ waiting screen says the battle could not be repaired. Two boots, one row each, e
   DR3b (boot F2, key "48754", dirs r4l3_f2_host / _client) the re-sent copy does not match: the host arms the TEST-ONLY
       `resync_ready_mismatch`, the same chain; wait <= 30 s for the host's `battle_ready saveBlob MISMATCH` line, <= W_TITLE for the 62 title
       to leave "Repairing the battle", then HOLD_S. DR3b-1 GUARD
-      offered +1, client RS loaded +1, host `SPEC16 M5: rejoin desync` +1, client top CoopState 68; DR3b-2 RED no RESUME: back hidden at
+      offered +1, client RS loaded +1, host `rejoin desync` +1, client top CoopState 68; DR3b-2 RED no RESUME: back hidden at
       every HOLD_S poll (red: shown, "All players connected", F10818); DR3b-3 RED host RS failed +1, lastFail "ready mismatch"; DR3b-4 GUARD
       no second offer, host peerAbsent true, the client still on 68 at every poll; DR3b-5 RED as DR3a-5; DR3b-6 RED at B1
       the escape as DR3a-4 - on the red build 62 shows RESUME and hides ABANDON, so a refused ABANDON fails the cell at
@@ -47,14 +47,14 @@ BS, CSTATE, HOLD, MENU = "BattlescapeState", "CoopState", "CoopStageHold", "Main
 TITLE_FAILED = "The battle could not be repaired.\nSave and quit, or abandon it."
 TITLE_REPAIRING, W_TITLE = "Repairing the battle", 5.0   # the 62's in-flight wording (CoopState::waitingTitle) and the settle bound (cap-r4)
 T0_TITLE = {"DR3a": "Waiting for players to load...", "DR3b": "All players connected"}  # TASK 0 at B1 (EVIDENCE only)
-OFFER = "SPEC16 M5: rejoin battle_offer sent (battleId="
+OFFER = "rejoin battle_offer sent (battleId="
 LEVER_F1 = "[coop-resync] TEST-ONLY corrupt_next_blob fired on the repair offer"
 LEVER_F2 = "[coop-resync] TEST-ONLY resync_ready_mismatch fired"
 REFUSE_RECV = "battle_refuse received (battleId=%s, reason=corrupt)"
 SHA_MISMATCH = "battle blob sha MISMATCH (battleId=%s,"
-REFUSED = "SPEC16 M5: rejoin refused (corrupt)"
+REFUSED = "rejoin refused (corrupt)"
 READY_MISMATCH = "battle_ready saveBlob MISMATCH (battleId=%s,"
-REJOIN_DESYNC = "SPEC16 M5: rejoin desync"
+REJOIN_DESYNC = "rejoin desync"
 CLIENT_ACTIVE = "CLIENT phase Active (battleId=%s,"
 LOG_TAGS = ("[coop-resync]", "[coop-handshake]", "[coop-hash]", "[coop-pump]", "coop-session")
 

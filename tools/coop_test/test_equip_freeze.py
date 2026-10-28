@@ -223,9 +223,9 @@ def main():
             f"pre-battle equip screen (BriefingState::btnOkClick's push order). stack={post}")
 
         # NON-VACUITY: the freeze did NOT fire, and the equip phase opened.
-        froze = grep(host_dir, "W1-P4: pre-battle equip FROZEN")
+        froze = grep(host_dir, "pre-battle equip FROZEN")
         assert not froze, (
-            "host log has a '[coop-handshake] W1-P4: pre-battle equip FROZEN' line - the "
+            "host log has a '[coop-handshake] pre-battle equip FROZEN' line - the "
             f"fresh co-op battle took the freeze branch: {froze[-1]}")
         opened = grep(host_dir, "[coop-equip] host: pre-battle equip OPEN")
         assert opened, (

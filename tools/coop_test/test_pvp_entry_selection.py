@@ -69,7 +69,7 @@ ZERO_READ_S = 1.0                 # TASK 0 DWELL 5.95 s (kCoopBannerDwellMs 6000
 KEY_GAP_S = 0.5
 SCREEN_READS = (0.5, 1.5)         # V3-screen: seconds after the walk's context closed
 STEP_S = G3F.STEP_S
-ENTRY_LINE = "[coop-select] W1-P6 entry selection"
+ENTRY_LINE = "[coop-select] entry selection"
 E3_ROWS = (("S3", ("S3-turn", "S3-sel", "S3-actor", "S3-text", "S3-partner", "S3-common")),
            ("I3", ("I3-zero", "I3-tu", "I3-keys", "I3-common")),
            ("V3", ("V3-walk", "V3-seen", "V3-screen", "V3-sel", "V3-common")),

@@ -70,7 +70,7 @@ DLG_WAIT, DLG_HOLD = 62, 68
 BS, NTS, CS = "BattlescapeState", "NextTurnState", "CoopState"
 BELOW_62 = {"p": [BS, NTS], "t": [BS, NTS], "v": [BS]}      # CONSTANTS: the host's stack right below its first 62
 TOP_AFTER_RESUME = {"p": NTS, "t": NTS, "v": BS}            # CONSTANTS: the host's top after RESUME
-OFFER = "SPEC16 M5: rejoin battle_offer sent (battleId="
+OFFER = "rejoin battle_offer sent (battleId="
 RS_KEYS = ("desyncs", "held", "offered")
 TS_RE = re.compile(r"^\[(\d\d)-(\d\d)-(\d{4})_(\d\d)-(\d\d)-(\d\d)\.(\d{3})\]")
 

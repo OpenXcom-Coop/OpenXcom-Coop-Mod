@@ -40,8 +40,8 @@ import test_skirmish_flow as SK  # noqa: E402
 
 KEY = "48585"
 W, POLL, RJ = 15.0, 0.2, 60.0
-UNWIND, PARK = "W2-H24: failed battle start (", "part 2 waits for the partner"
-REARM, OFFER = "MG-A-FS2 - the waiting part 2 re-armed", "battle_offer sent (battleId="
+UNWIND, PARK = "failed battle start (", "part 2 waits for the partner"
+REARM, OFFER = "the waiting part 2 re-armed", "battle_offer sent (battleId="
 HANDOFF = "stage hand-off - battle 1 -> 2 offered (stageOf)"
 REJOIN_GUARD = "offerRejoinBattle() called while the battle is not"
 MT2 = "STR_MARS_THE_FINAL_ASSAULT"

@@ -32,7 +32,7 @@ COOP_KEYS = ("udpActive", "rendezvousActive", "onConnect", "coopSession", "inBat
 IDLE_S = 30
 U3_KEY = "48583"               # W2-H24 S-B row U3's lobby key (in-process only)
 W_U = 35.0                     # U3's window: TASK 0 T0-B2 read the UDP loss at 17.4 s after the kill; + 15 s, up to 5 s
-UNWIND, UNMARKED = "W2-H24: failed battle start (", "battle marks cleared=0, crafts sent home=0"
+UNWIND, UNMARKED = "failed battle start (", "battle marks cleared=0, crafts sent home=0"
 
 class FixtureMiss(Exception):
     pass

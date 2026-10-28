@@ -62,7 +62,7 @@ SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race
 POINT = {"F5": (0.35, 0.10), "F1": (-0.35, 0.10)}           # FX3-3: X + point (no swap needed, TASK 0)
 CRAFT_AT = {"F5": (0.34, 0.10), "F1": (-0.34, 0.10)}        # FX3-5: 0.01 rad short in longitude, toward X
 SQUAD = 2
-REFUSE, MISMATCH, UNWIND = "battle_refuse received (battleId=", "battle blob sha MISMATCH (battleId=", "W2-H24: failed battle start ("
+REFUSE, MISMATCH, UNWIND = "battle_refuse received (battleId=", "battle blob sha MISMATCH (battleId=", "failed battle start ("
 # ----- bounds -----
 HOLD_S, HOLD_POLL = 3.0, 0.25
 MIRROR_S = 30

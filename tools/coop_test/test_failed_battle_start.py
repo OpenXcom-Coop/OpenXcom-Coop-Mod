@@ -16,7 +16,7 @@ for <name>" over a briefing that can never start and a rejoin never reaches RESU
   CRASH 0. EVIDENCE names the loss path and the stale-heal line delta (recorded, never asserted, F5197).
 W = 15 s, POLL = 0.2 s. CAMP = r4l6 TASK 0 t0_2.py's head (session.bring_up_separate_guest_battle :2446-:2546 through the landing prompt,
 geoscape clock left at its speed). SKY = the host's geo_state entry of the craft. MARKS = host save_game, then the file's "inBattlescape:
-true" lines with their key paths. UNWIND = host log lines with "W2-H24: failed battle start (" since the row's baseline. CRASH =
+true" lines with their key paths. UNWIND = host log lines with "failed battle start (" since the row's baseline. CRASH =
 session._crash_log_snapshot() delta, read at the row's end in every case. A WAIT that times out (or a lever reply that is not ok) ends
 the row, its later cells "not reached". EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a
 failure; ONE run; exit 0 iff every cell passes, else 2. Red (S-A commit 1): C1 FAIL C1-3..C1-6, C0 PASS, C2 FAIL C2-1..C2-5.
@@ -37,7 +37,7 @@ W, POLL = 15.0, 0.2
 KEY_A, KEY_B, KEY_C = "48580", "48581", "48582"
 UNMARKED, STALE = "battle marks cleared=0, crafts sent home=0", "[exit] stale SavedGame reached the main menu"
 REFUSE, MISMATCH = "battle_refuse received (battleId=", "battle blob sha MISMATCH (battleId="
-CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "W2-H24: failed battle start ("
+CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "failed battle start ("
 REJOIN_GUARD, MARKED = "offerRejoinBattle() called while the battle is not ", "battle marks cleared=2, crafts sent home=1"
 CLS, GEO, BRF, BS, COOP = "ConfirmLandingState", "GeoscapeState", "BriefingState", "BattlescapeState", "CoopState"
 

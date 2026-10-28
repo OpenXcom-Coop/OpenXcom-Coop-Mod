@@ -39,7 +39,7 @@ from test_failed_battle_start import (q, lever, stack, bstate, coop, dlg, log, s
 W, POLL = 15.0, 0.2
 WATCH_CAP_S = 135  # a start wait ends at both phase Active; >= max(120, 2.5 x 30.4 s), F11358
 KEY_B0, KEY_BD = "48587", "48588"
-CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "W2-H24: failed battle start ("
+CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "failed battle start ("
 REARMED, PREPARED = "battle marks cleared=1, crafts sent home=0", "battle offer PREPARED (battleId="
 RESUMED_GUARD = "offerResumedBattle() called outside a disk resume (phase="
 BASE_MARK = "bases/inBattlescape"

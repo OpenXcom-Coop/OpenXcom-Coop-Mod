@@ -36,7 +36,7 @@ from test_skirmish_rejoin_battle import rejoin_skirmish, start_skirmish_battle  
 POLL, W, W_POLL, W_21, W_ACK = 0.25, 15.0, 0.2, 15.0, 30.0
 KEY_X1, KEY_X2 = "48602", "48603"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
-OFFER, GUARD = "SPEC16 M5: rejoin battle_offer sent (battleId=", "offerRejoinBattle() called while the battle is not "
+OFFER, GUARD = "rejoin battle_offer sent (battleId=", "offerRejoinBattle() called while the battle is not "
 ARMED, SEND_LOST = "[coop-test] force_send_failure: armed", "R4-L2: the partner was lost on a failed send during the battle"
 FREEZE, DROP, CLIENT_ACTIVE = "[coop-session] freeze (lobbyMode=", "[coop-session] onClientDrop", "CLIENT phase Active (battleId="
 NEEDLES = {"OFFER": OFFER, "GUARD": GUARD, "ARMED": ARMED, "SEND_LOST": SEND_LOST, "FREEZE": FREEZE, "DROP": DROP}
