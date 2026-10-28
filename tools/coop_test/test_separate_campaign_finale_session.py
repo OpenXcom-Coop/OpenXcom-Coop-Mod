@@ -107,7 +107,11 @@ def main():
             host.ok({"cmd": "profile_ok"})
             time.sleep(0.5)
         host.ok({"cmd": "coop_dialog_back"})
-        client.wait_for("client back on the Geoscape", lambda: top_is_geoscape(client) or None,
+        # The finale vote may open the moment the client reaches the Geoscape,
+        # so its VoteMenu can already be on top.
+        client.wait_for("client back on the Geoscape",
+                        lambda: (top_is_geoscape(client)
+                                 or "VoteMenu" in session.states(client)[-1]) or None,
                         timeout=120)
         print(f"rejoined client finale: {finale(client)}")
         print(f"host finale: {finale(host)}")
