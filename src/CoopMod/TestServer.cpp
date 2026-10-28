@@ -6403,6 +6403,7 @@ std::string TestServer::execute(const std::string& line)
 					// unlike SEPARATE, where each side rolls its own.
 					jb["coopBaseId"] = b->_coop_base_id;
 					jb["ownerPlayerName"] = b->getOwnerPlayerName();
+					jb["radarRangeCoop"] = b->_radar_range_coop; // PvP mirror radar (F3)
 					Json::Value crafts(Json::arrayValue);
 					for (auto* c : *b->getCrafts())
 					{

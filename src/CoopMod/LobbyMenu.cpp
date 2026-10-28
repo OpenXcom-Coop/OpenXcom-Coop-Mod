@@ -630,7 +630,7 @@ std::string LobbyMenu::campaignSeatDisplayName(int seat) const
 {
 	const std::string playerName = campaignSeatName(seat);
 	SavedGame* save = _game->getSavedGame();
-	if (!save || save->getCampaignType() != CoopCampaignType::Separate
+	if (!save || !save->isSeparateCoopCampaign()
 		|| !save->getSeparateCampaign().haveDifferentFactions())
 		return playerName;
 
@@ -845,7 +845,9 @@ void LobbyMenu::startCampaign()
 
 	if (!connectionTCP::no_bases)
 	{
-		_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(_game->getCoopMod()->getHostName());
+		const int gamemode = _game->getCoopMod()->getCoopGamemode();
+		if (gamemode != 2 && gamemode != 3)
+			_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(_game->getCoopMod()->getHostName());
 		_game->getCoopMod()->refreshSeparateBaseOwnership();
 		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 	}

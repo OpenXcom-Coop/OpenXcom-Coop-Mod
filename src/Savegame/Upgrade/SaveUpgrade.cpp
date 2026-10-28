@@ -458,12 +458,14 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			return false;
 		}
 		ryml::ConstNodeRef seq = body.find_child("coopClientSaves");
-		if (campaignType == 0 && !seq.invalid() && seq.num_children() != 0)
+		const long long gamemode = yamlutil::getInt(body, "coop_gamemode", 0);
+		const bool separateWorld = campaignType == 0 && gamemode != 2 && gamemode != 3;
+		if (separateWorld && !seq.invalid() && seq.num_children() != 0)
 		{
 			why = "schema-3 SEPARATE save still contains client-world blobs";
 			return false;
 		}
-		if (campaignType == 0)
+		if (separateWorld)
 		{
 			ryml::ConstNodeRef bases = body.find_child("bases");
 			if (bases.invalid() || !bases.is_seq() || bases.num_children() == 0)
@@ -686,6 +688,16 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			return d;
 		}
 		stampedOld = true; // s < CURRENT: an older stamped schema, resolve variant below
+		// PvP (game mode 2/3) keeps one world per player. Schema 2 is main's
+		// current PvP layout, coopClientSaves included, and 2->3 only unifies
+		// the cooperative Separate campaign. Load it as it is (PR #213 F3).
+		const int gamemode = body["coop_gamemode"].readVal<int>(0);
+		if (s == 2 && (gamemode == 2 || gamemode == 3))
+		{
+			d.kind = DetectedSchema::Current;
+			d.schema = SAVE_SCHEMA_CURRENT;
+			return d;
+		}
 	}
 	// 2. Schema-2 embedded-world save. This intermediate Separate format already
 	// has coop:true and a locked roster, but still stores each client world in the

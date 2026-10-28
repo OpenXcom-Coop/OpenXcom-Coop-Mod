@@ -91,6 +91,10 @@ def main():
             # the dual-save detector so no client-file picker is shown.
             "embed_sequence_host.sav": ("legacy", "embed", True),
             "embed_no_blob.sav":    ("solo", "none", False),    # F2: key but no blob -> not a recoverable embed -> Solo
+            # PR #213 F3: a PvP save written by main keeps two worlds. Its
+            # coopClientSaves sequence is the PvP format, not a Separate
+            # schema-2 intermediate, so it must load as current.
+            "pvp_embed_host.sav":   ("current", "none", False),
             "sidecar_host.sav":     ("legacy", "sidecar", True),
             "solo.sav":             ("solo", "none", False),
             "current.sav":          ("current", "none", False),

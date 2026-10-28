@@ -5537,7 +5537,7 @@ void connectionTCP::prepareLocalEndingFactionDisplayName()
 {
 	_endingFactionDisplayName.clear();
 	if (_game && _game->getSavedGame()
-		&& _game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+		&& _game->getSavedGame()->isSeparateCoopCampaign())
 	{
 		const std::string player = seatName(localSeat());
 		if (!player.empty())
@@ -5615,6 +5615,52 @@ void connectionTCP::tryStartFactionFinaleVote()
 	updateVoteMenu();
 	broadcastVoteStart();
 	broadcastVoteUpdate();
+}
+
+// PvP marker sync (main): a mirror base has no facilities, so the owner's
+// radar data rides its base marker. Main sends the per-facility list only
+// from the client and the circle range from both machines; kept as is.
+static void writeMirrorRadar(Json::Value& marker, const Base* base, bool serverOwner)
+{
+	int facilitiesIndex = 0;
+	double radarRangeCoop = 0;
+	int mindShields = 0; // main carries the last shield power forward
+	for (const auto* fac : *const_cast<Base*>(base)->getFacilities())
+	{
+		if (fac->getBuildTime() != 0 || !fac->getRules())
+			continue;
+		const double range = fac->getRules()->getRadarRange();
+		if (range < 10000 && range > radarRangeCoop)
+			radarRangeCoop = range;
+		if (!serverOwner)
+		{
+			Json::Value& entry = marker["facilities"][facilitiesIndex++];
+			entry["radar_chance_coop"] = fac->getRules()->getRadarChance();
+			entry["hyperwave_coop"] = fac->getRules()->isHyperwave();
+			entry["radar_range_coop"] = fac->getRules()->getRadarRange();
+			entry["completedFacilities"] = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+			if (fac->getRules()->isMindShield() && !fac->getDisabled())
+				mindShields = fac->getRules()->getMindShieldPower();
+			entry["mindShields"] = mindShields;
+		}
+	}
+	marker["radar_range_coop"] = radarRangeCoop;
+}
+
+static void readMirrorRadar(Base* base, const Json::Value& marker)
+{
+	base->_facilitiesCoop.clear();
+	for (const Json::Value& entry : marker["facilities"])
+	{
+		Base::MirrorFacility fac;
+		fac.radarChance = entry["radar_chance_coop"].asInt();
+		fac.radarRange = entry["radar_range_coop"].asInt();
+		fac.hyperwave = entry["hyperwave_coop"].asBool();
+		fac.completedFacilities = entry["completedFacilities"].asInt();
+		fac.mindShields = entry["mindShields"].asInt();
+		base->_facilitiesCoop.push_back(fac);
+	}
+	base->_radar_range_coop = marker["radar_range_coop"].asDouble();
 }
 
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
@@ -6099,7 +6145,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			if (!connectionTCP::no_bases)
 			{
-				_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+				if (isSeparateCampaign())
+					_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
 				refreshSeparateBaseOwnership();
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 			}
@@ -13138,6 +13185,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					markers["markers"][index]["base"] = base->getName().c_str();
 					markers["markers"][index]["lon"] = base->getLongitude();
 					markers["markers"][index]["lan"] = base->getLatitude();
+					writeMirrorRadar(markers["markers"][index], base, getServerOwner());
 
 					markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
 					markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
@@ -13246,6 +13294,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
+			readMirrorRadar(CoopBase, marker);
+
 			std::string base_name = marker["base"].asString();
 			CoopBase->setName(base_name);
 
@@ -13286,6 +13336,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
+				writeMirrorRadar(markers["markers"][index], base, getServerOwner());
 
 				index++;
 			}
@@ -13394,6 +13445,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
+				writeMirrorRadar(markers["markers"][index], base, getServerOwner());
 
 				index++;
 			}
@@ -13484,6 +13536,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
 
+					readMirrorRadar(existingBase, marker);
+
 					alreadyExists = true;
 					break;
 				}
@@ -13505,6 +13559,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->setScientists(getAvailableScientists);
 
 			CoopBase->_coop_base_id = coopbaseid;
+
+			readMirrorRadar(CoopBase, marker);
 
 			CoopBase->setName(base_name);
 
@@ -13581,6 +13637,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->coop_workshop = getAvailableWorkshops;
 					existingBase->setScientists(getAvailableScientists);
 
+					readMirrorRadar(existingBase, marker);
+
 					alreadyExists = true;
 					break;
 				}
@@ -13602,6 +13660,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			CoopBase->setScientists(getAvailableScientists);
 
 			CoopBase->_coop_base_id = coopbaseid;
+
+			readMirrorRadar(CoopBase, marker);
 
 			CoopBase->setName(base_name);
 
@@ -14087,8 +14147,7 @@ void connectionTCP::refreshSeparateBaseOwnership()
 	// for Separate's local presentation flag. Re-derive it once the role is known;
 	// ownerPlayerName remains the persistent truth in the one shared world.
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
-	if (save && save->isCoopSave()
-		&& save->getCampaignType() == CoopCampaignType::Separate)
+	if (save && isSeparateCampaign())
 	{
 		// Schema-3 is one world, so player-local soldier ids must be upgraded
 		// before a BattleUnit inherits them. This is deterministic on replicas and

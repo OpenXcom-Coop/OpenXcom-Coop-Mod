@@ -367,7 +367,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
 	reader.tryRead("funds", _funds);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	reader.tryRead("maintenance", _maintenance);
 	reader.tryRead("userNotes", _userNotes);
@@ -550,7 +550,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 	sortReserchVector(_discovered);
-	if (_coop && _campaignType == CoopCampaignType::Separate && !_separateCampaign.wasLoadedFromSave())
+	if (isSeparateCoopCampaign() && !_separateCampaign.wasLoadedFromSave())
 	{
 		std::vector<std::string> legacyResearch;
 		for (const auto* research : _discovered)
@@ -576,7 +576,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 
 	reader.tryRead("generatedEvents", _generatedEvents);
 	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.migrateLegacyUfopediaStatus(_coopPlayers, _ufopediaRuleStatus);
 	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
 	reader.tryRead("researchRuleStatus", _researchRuleStatus);
@@ -919,7 +919,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
 	reader.tryRead("funds", _funds);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	reader.tryRead("maintenance", _maintenance);
 	reader.tryRead("userNotes", _userNotes);
@@ -1102,7 +1102,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		}
 	}
 	sortReserchVector(_discovered);
-	if (_coop && _campaignType == CoopCampaignType::Separate && !_separateCampaign.wasLoadedFromSave())
+	if (isSeparateCoopCampaign() && !_separateCampaign.wasLoadedFromSave())
 	{
 		std::vector<std::string> legacyResearch;
 		for (const auto* research : _discovered)
@@ -1128,7 +1128,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	reader.tryRead("generatedEvents", _generatedEvents);
 	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.migrateLegacyUfopediaStatus(_coopPlayers, _ufopediaRuleStatus);
 	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
 	reader.tryRead("researchRuleStatus", _researchRuleStatus);
@@ -1348,7 +1348,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.save(writer["separateCampaign"]);
 
 	// coop
@@ -1407,7 +1407,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 		// the current seat's foreign-base UI flag and may still reflect the seat
 		// used while the disk save was loaded, before hosting/joining starts.
 		if (base->_isForeignBase == false
-			|| (_campaignType == CoopCampaignType::Separate
+			|| (isSeparateCoopCampaign()
 				&& !base->getOwnerPlayerName().empty()))
 		{
 			found = true;
@@ -1613,7 +1613,7 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.save(writer["separateCampaign"]);
 
 	if (_coop)
@@ -1837,7 +1837,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 		_separateCampaign.save(writer["separateCampaign"]);
 
 	// coop
@@ -2179,13 +2179,21 @@ int64_t SavedGame::getFunds() const
 		return 1000;
 	}
 
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 	{
 		const std::string playerName = getSeparateFundsContextPlayer();
 		const std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(playerName);
 		if (playerFunds && !playerFunds->empty()) return playerFunds->back();
 	}
 	return _funds.back();
+}
+
+bool SavedGame::isSeparateCoopCampaign() const
+{
+	// PvP (game mode 2/3) is stored with the Separate type but keeps main's
+	// two-world rules: one wallet, global research, no named-owner profiles.
+	return _coop && _campaignType == CoopCampaignType::Separate
+		&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3;
 }
 
 std::string SavedGame::getSeparateFundsContextPlayer() const
@@ -2207,7 +2215,7 @@ int64_t SavedGame::getSeparatePlayerFunds(const std::string& playerName) const
 
 int64_t SavedGame::getSeparatePlayerCosts() const
 {
-	if (!_coop || _campaignType != CoopCampaignType::Separate) return 0;
+	if (!isSeparateCoopCampaign()) return 0;
 	return getSeparatePlayerCosts(getSeparateFundsContextPlayer());
 }
 
@@ -2228,7 +2236,7 @@ void SavedGame::setSeparatePlayerCosts(const std::string& playerName, int64_t co
  */
 std::vector<int64_t> &SavedGame::getFundsList()
 {
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 	{
 		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
 			getSeparateFundsContextPlayer());
@@ -2244,7 +2252,7 @@ std::vector<int64_t> &SavedGame::getFundsList()
 void SavedGame::setFunds(int64_t funds)
 {
 	std::vector<int64_t>* target = &_funds;
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 	{
 		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
 			getSeparateFundsContextPlayer());
@@ -2277,7 +2285,7 @@ void SavedGame::setFunds(int64_t funds)
  */
 void SavedGame::setFundsRaw(int64_t funds)
 {
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 	{
 		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
 			getSeparateFundsContextPlayer());
@@ -2351,7 +2359,7 @@ void SavedGame::setGlobeZoom(int zoom)
 void SavedGame::monthlyFunding()
 {
 	int64_t countryFunding = getCountryFunding();
-	if (_coop && _campaignType == CoopCampaignType::Separate && !_coopPlayers.empty())
+	if (isSeparateCoopCampaign() && !_coopPlayers.empty())
 	{
 		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 		int totalMaintenance = 0;
@@ -2700,7 +2708,7 @@ void SavedGame::setBattleGame(SavedBattleGame *battleGame)
  */
 void SavedGame::setUfopediaRuleStatus(const std::string &ufopediaRule, int newStatus)
 {
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 	{
 		_separateCampaign.setUfopediaRuleStatus(
 			getSeparateFundsContextPlayer(), ufopediaRule, newStatus);
@@ -2755,7 +2763,7 @@ const std::map<std::string, bool> &SavedGame::getHiddenPurchaseItems()
  */
 const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research, const Base* base)
 {
-	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	auto researched = [&](const RuleResearch* topic)
@@ -2848,7 +2856,7 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		return;
 	}
 
-	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();
@@ -3090,10 +3098,9 @@ bool SavedGame::isResearchable(const RuleItem* item, const Mod* mod) const
  */
 void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projects, const Mod *mod, Base *base, bool considerDebugMode) const
 {
-	const bool sharedSeparateResearch = _coop
-		&& _campaignType == CoopCampaignType::Separate
+	const bool sharedSeparateResearch = isSeparateCoopCampaign()
 		&& _separateCampaign.isResearchSharingEnabled();
-	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();
@@ -3312,7 +3319,7 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
 {
 	const auto& baseProductions = base->getProductions();
 	RuleBaseFacilityFunctions baseFunc = base->getProvidedBaseFunc({});
-	const std::string researchOwner = (_coop && _campaignType == CoopCampaignType::Separate
+	const std::string researchOwner = (isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
@@ -3368,7 +3375,7 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
  */
 void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & dependables, const RuleResearch *research, const Mod * mod, Base *base) const
 {
-	const std::string researchOwner = (base && _coop && _campaignType == CoopCampaignType::Separate
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
@@ -3512,7 +3519,7 @@ void SavedGame::getDependableFacilities(std::vector<RuleBaseFacility *> & depend
  */
 int SavedGame::getUfopediaRuleStatus(const std::string &ufopediaRule)
 {
-	if (_coop && _campaignType == CoopCampaignType::Separate)
+	if (isSeparateCoopCampaign())
 	{
 		int status = 0;
 		if (_separateCampaign.getUfopediaRuleStatus(
@@ -3678,7 +3685,7 @@ bool SavedGame::isResearchedForPlayer(const std::string &research,
 {
 	if (considerDebugMode && _debug)
 		return true;
-	if (!_coop || _campaignType != CoopCampaignType::Separate || playerName.empty()
+	if (!isSeparateCoopCampaign() || playerName.empty()
 		|| _separateCampaign.isResearchSharingEnabled())
 		return isResearched(research, false);
 	return _separateCampaign.hasCompletedResearch(playerName, research);
@@ -3686,7 +3693,7 @@ bool SavedGame::isResearchedForPlayer(const std::string &research,
 
 void SavedGame::setSeparateResearchSharingEnabled(bool enabled, const Mod *mod)
 {
-	if (_campaignType != CoopCampaignType::Separate)
+	if (!isSeparateCoopCampaign())
 		return;
 
 	_separateCampaign.ensurePlayers(_coopPlayers);
@@ -4816,7 +4823,7 @@ bool SavedGame::spawnEvent(const RuleEvent* eventRules, const std::string& owner
 
 	// Faction events with identical rule IDs must remain independently available
 	// to each faction. Common and same-faction campaigns retain vanilla history.
-	if (_coop && _campaignType == CoopCampaignType::Separate
+	if (isSeparateCoopCampaign()
 		&& !ownerPlayerName.empty() && _separateCampaign.haveDifferentFactions())
 		_separateCampaign.addGeneratedEvent(ownerPlayerName, eventRules->getName());
 	else
@@ -4949,8 +4956,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
  */
 void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems)
 {
-	const std::string researchOwner = (base && _coop
-		&& _campaignType == CoopCampaignType::Separate
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();

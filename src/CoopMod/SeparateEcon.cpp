@@ -115,8 +115,7 @@ void reconcileVehicleOwners(Craft* craft)
 void synchronizeVehicleOwners(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| save->getCampaignType() != CoopCampaignType::Separate)
+	if (!save || !save->isSeparateCoopCampaign())
 	{
 		return;
 	}
@@ -129,8 +128,7 @@ void synchronizeVehicleOwners(Game* game)
 void trimInitialCraftCrews(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| save->getCampaignType() != CoopCampaignType::Separate
+	if (!save || !save->isSeparateCoopCampaign()
 		|| save->getMonthsPassed() != -1)
 	{
 		return;
@@ -172,8 +170,7 @@ void trimInitialCraftCrews(Game* game)
 int normalizeSoldierIds(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| save->getCampaignType() != CoopCampaignType::Separate)
+	if (!save || !save->isSeparateCoopCampaign())
 	{
 		return 0;
 	}

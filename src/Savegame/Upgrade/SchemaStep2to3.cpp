@@ -117,6 +117,8 @@ public:
 		const int campaignType = static_cast<int>(getInt(set.host.header(), "coopCampaignType", 0));
 		if (campaignType == 1)
 			return; // SHARED already is one world; only its schema stamp changes.
+		if (isPvp(set))
+			return; // PvP keeps one world per player; only the stamp changes.
 		std::set<std::string> playerNames;
 		ryml::ConstNodeRef roster = set.host.header().find_child("coopPlayers");
 		if (!roster.invalid() && roster.is_seq())
@@ -161,6 +163,15 @@ public:
 		if (getInt(header, "coopCampaignType", 0) == 1)
 		{
 			set.report.push_back("Schema 3: SHARED campaign already uses one authoritative world.");
+			return;
+		}
+		if (isPvp(set))
+		{
+			// PvP keeps main's two worlds: the client world stays embedded.
+			for (ClientWorld& client : set.clients)
+				setInt(client.world.header(), "saveSchema", 3);
+			set.schema = 3;
+			set.report.push_back("Schema 3: PvP campaign keeps one world per player.");
 			return;
 		}
 		// Some real intermediate embed saves predate the explicit campaign-type
