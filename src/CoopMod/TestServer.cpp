@@ -7405,7 +7405,19 @@ std::string TestServer::execute(const std::string& line)
 			// a multi-stage transition SavedBattleGame::_battleState and lower stack
 			// entries can still refer to the stage being deleted; never dereference
 			// either of those transitional pointers.
-			BattlescapeState* bstate = topState<BattlescapeState>(_game);
+			// The turn screen and the vote menu are modal overlays of the live
+			// battlescape directly below them, never of a transitional stage, so
+			// reach through them as main's driver did: the abort-vote tests act
+			// while the turn-1 screen is still up, and repeat ABORT while the
+			// abandon-mission vote is open.
+			BattlescapeState* bstate = nullptr;
+			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+			{
+				if (dynamic_cast<NextTurnState*>(*it) || dynamic_cast<VoteMenu*>(*it))
+					continue;
+				bstate = dynamic_cast<BattlescapeState*>(*it);
+				break;
+			}
 			BattlescapeGame* bg = bstate ? bstate->getBattleGame() : nullptr;
 			SavedBattleGame* sbg = bg ? bg->getSave() : nullptr;
 			std::string act = req.get("action", "").asString();
