@@ -3,23 +3,25 @@
 An alien deployment can unlock research when its mission site expires on its own
 (unlockedResearchOnDespawn) or when the battle there is won or lost
 (unlockedResearch / unlockedResearchOnFailure); SavedGame::handleResearchUnlockedByMissions
-adds the topic, its lookup and a random getOneFree bonus. Only the world that owns
-the mission runs it. Owner rules (2026-10-06):
+adds the topic, its lookup and a random getOneFree bonus. Both campaign types are one
+host-owned world: the host runs the mission and its outcome, and the client replica
+adopts the host's exact result. Owner rules (2026-10-06, RU5):
   * SEPARATE campaign, shared research (research sync on): both players learn the
     same research item, bonus included, and can read the report.
-  * SEPARATE campaign, separate research (sync off): only the owning player learns it.
+  * SEPARATE campaign, private research (sync off): only the mission owner learns it.
   * SHARED campaign: one world; both machines hold the same research.
 
 Fixture mod Coop_ResearchSync_Test makes STR_TERROR_MISSION unlock
 STR_COOP_RS_DESPAWN_TOPIC on expiry and STR_COOP_RS_FAIL_TOPIC on failure, each with
 four getOneFree bonuses (STR_COOP_RS_FREE_1..8).
 
-Rows (the host owns every site):
-  M1 SEPARATE, shared research: a site expires -> the client learns the topic and
-     the host's bonus.
+Rows (the host player owns every site and craft):
+  M1 SEPARATE, shared research: a site expires on the host -> the client learns the
+     topic and the host's bonus.
   M2 SEPARATE, shared research: a coop battle there is aborted (mission failure) ->
      the client learns the topic and the host's bonus.
-  M3 SEPARATE, separate research: a site expires -> the client learns nothing (guard).
+  M3 SEPARATE, private research: a host-owned site expires -> the host player learns
+     the topic and a bonus on both machines; the client player learns nothing.
   M4 SHARED: a site expires, then a battle is aborted -> both machines hold the same
      topics and bonuses (guard).
 
@@ -67,44 +69,76 @@ def base0(gc):
     raise Inconclusive("no own base")
 
 
-def known(gc):
-    return set(gc.ok({"cmd": "geo_state"})["discoveredResearch"])
+def known(gc, player=None):
+    """The global research list, or one player's private profile on this machine."""
+    if player is None:
+        return set(gc.ok({"cmd": "geo_state"})["discoveredResearch"])
+    for p in gc.ok({"cmd": "separate_profile_state"})["players"]:
+        if p["name"] == player:
+            return set(p.get("completedResearch", []))
+    raise Inconclusive(f"{gc.name}: no Separate profile for {player}")
 
 
-def gained(gc, before, topic):
-    """The topic and the bonus this machine learned since `before`."""
-    new = known(gc) - before
+def gained(gc, before, topic, player=None):
+    """The topic and the bonus learned since `before` (globally, or by `player`)."""
+    new = known(gc, player) - before
     return (topic in new, sorted(new & FREE))
 
 
-def spawn_site(host, hours):
+def spawn_site(host, hours, owner=""):
     b = base0(host)
     return host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
                     "deployment": "STR_TERROR_MISSION", "lon": b["lon"] + 0.35,
-                    "lat": b["lat"] + 0.10, "race": "STR_SECTOID", "hours": hours})["site_id"]
+                    "lat": b["lat"] + 0.10, "race": "STR_SECTOID", "hours": hours,
+                    "owner": owner})["site_id"]
 
 
-def expire_site(host, client):
-    """A 1-hour site expires on its own; returns what each machine learned."""
+def expire_site(host, client, players=(None,)):
+    """A host-owned 1-hour site expires on its own. Returns what each machine
+    learned, per player (None = the global list)."""
     geo.slow_clock(host, client)
-    before = {gc.name: known(gc) for gc in (host, client)}
-    spawn_site(host, 1)
+    before = {(gc.name, p): known(gc, p) for gc in (host, client) for p in players}
+    spawn_site(host, 1, owner="HostPlayer")
     geo.skip_ingame_time(host, client, minutes=4 * 60, speed_idx=4, real_timeout=90, stuck_timeout=40)
     geo.slow_clock(host, client)
     time.sleep(3)
     for gc in (host, client):
         geo.drain_popups(gc)
-    return {gc.name: gained(gc, before[gc.name], DESPAWN) for gc in (host, client)}
+
+    def learned():
+        return {(gc.name, p): gained(gc, before[(gc.name, p)], DESPAWN, p)
+                for gc in (host, client) for p in players}
+    # The replica adopts the host's result asynchronously (Separate: a direct
+    # message; SHARED: the world-checksum resync, which waits 3 s before asking).
+    try:
+        client.wait_for("client replica matches the host",
+                        lambda: all(r[(client.name, p)] == r[(host.name, p)] for p in players)
+                        or None if (r := learned()) else None,
+                        timeout=20, interval=0.5)
+    except Exception:
+        pass  # the row reports the difference
+    return learned()
 
 
 def abort_battle(host, client, shared):
     """Fly the host's Skyranger to a terror site, enter the coop battle on both
     machines, abort it (mission failure); returns what each machine learned."""
     b0 = base0(host)
-    cid = next(c for c in b0["crafts"] if "SKYRANGER" in c["type"])["id"]
-    site = spawn_site(host, 240)
-    host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT", "lon": b0["lon"] + 0.34,
-             "lat": b0["lat"] + 0.10, "dest": f"site:{site}", "fuel": 999999, "lowFuel": False})
+    craft = next(c for c in b0["crafts"] if "SKYRANGER" in c["type"])
+    cid = craft["id"]
+    site = spawn_site(host, 240, owner="HostPlayer")
+    if not shared:
+        # Separate's one world: the site lives on the host; wait for the replica.
+        client.wait_for("site replicated",
+                        lambda: any(s["id"] == site for s in
+                                    client.ok({"cmd": "geo_state"})["missionSites"]) or None,
+                        timeout=30, interval=0.3)
+    # Force the craft en route on both machines (as test_separate_campaign_mission).
+    for gc in ((host,) if shared else (client, host)):
+        gc.ok({"cmd": "craft_force", "base": b0["name"], "craft_id": cid,
+               "craft_type": craft["type"], "status": "STR_OUT", "lon": b0["lon"] + 0.34,
+               "lat": b0["lat"] + 0.10, "dest": f"site:{site}", "fuel": 999999,
+               "lowFuel": False})
 
     def landing():
         if has(host, "ConfirmLandingState"):
@@ -118,7 +152,7 @@ def abort_battle(host, client, shared):
         return None
 
     host.wait_for("landing prompt", landing, timeout=120, interval=0.5)
-    host.ok({"cmd": "confirm_landing" if shared else "coop_mission_start"})
+    host.ok({"cmd": "confirm_landing"})
     for gc in (host, client):
         gc.wait_for(gc.name + " in battle",
                     lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
@@ -146,11 +180,11 @@ def abort_battle(host, client, shared):
     time.sleep(3)
     for gc in (host, client):
         geo.drain_popups(gc)
-    return {gc.name: gained(gc, before[gc.name], FAIL) for gc in (host, client)}
+    return {(gc.name, None): gained(gc, before[gc.name], FAIL) for gc in (host, client)}
 
 
 def same_for_both(r, host, client, what):
-    h, c = r[host.name], r[client.name]
+    h, c = r[(host.name, None)], r[(client.name, None)]
     if not h[0] or len(h[1]) != 1:
         raise Inconclusive(f"{what}: the host did not learn the topic with one bonus: {h}")
     return h == c, f"host={h} client={c}"
@@ -166,16 +200,20 @@ def separate_session(results, sync):
     try:
         session.new_campaign(host, client, port="47623" if sync else "47624")
         geo.wait_both_ready(host, client)
-        r = expire_site(host, client)
         if sync:
+            r = expire_site(host, client)
             results["M1 SEPARATE shared research, site expiry"] = same_for_both(r, host, client, "M1")
             r = abort_battle(host, client, shared=False)
             results["M2 SEPARATE shared research, battle lost"] = same_for_both(r, host, client, "M2")
         else:
-            if not r[host.name][0]:
-                raise Inconclusive(f"M3: the host did not learn the topic: {r}")
-            results["M3 SEPARATE separate research, site expiry"] = (
-                r[client.name] == (False, []), f"host={r[host.name]} client={r[client.name]}")
+            r = expire_site(host, client, players=("HostPlayer", "ClientPlayer"))
+            h = r[(host.name, "HostPlayer")]
+            if not h[0] or len(h[1]) != 1:
+                raise Inconclusive(f"M3: the host player did not learn the topic: {r}")
+            ok = (r[(client.name, "HostPlayer")] == h
+                  and r[(host.name, "ClientPlayer")] == (False, [])
+                  and r[(client.name, "ClientPlayer")] == (False, []))
+            results["M3 SEPARATE private research, site expiry"] = (ok, f"{r}")
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         for gc in (host, client):
