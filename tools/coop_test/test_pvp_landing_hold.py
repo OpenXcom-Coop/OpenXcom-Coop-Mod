@@ -13,7 +13,7 @@ noBases true, client noBases false, the client's real base X, its non-coop Skyra
 Staging: G3C1.stage_landing (the landing prompt on the client). A bring-up or staging miss is a FIXTURE-STOP: ONE "CAPTURE L:" line (or
 G3C1's "CAPTURE C:" line) and every cell FAILs "boot".
 Row H1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked"):
-  the client's log cursor; client set_seed 1 + confirm_landing; every 0.1 s until both battle_state.inBattle (<= 60 s) one sample
+  the client's log cursor; client set_seed 1 + confirm_landing; every 0.02 s until both battle_state.inBattle (<= 60 s) one sample
   (client coop_dialog_info, its stack, the host's pvpBorrow.borrowed; F15127); session.briefings_to_battlescape; H1-common; the client
   log's "CLIENT phase Active" line (<= 5 s); the screen record ([coop-ui] lines after the cursor; WIN = the events strictly between the
   hand-off line HAND and the first BattlescapeState push after it, ENTRY); both pvpBorrow records.
@@ -46,7 +46,7 @@ import test_campaign_battle_gm3 as G3C1  # noqa: E402
 KEY = "48046"
 SEED_L = 1                    # set on the X-COM CLIENT right before its confirm_landing (as G3C1 and W2-H37)
 SQUAD = 2
-POLL_S = 0.1
+POLL_S = 0.02                 # a sample every ~0.03 s: the host's borrow to the client's battle entry takes ~0.2-0.3 s
 BOTH_IN_S = 60
 LOG_S = 5
 HAND = "[coop-pvp] client: landing handed to the alien host"
