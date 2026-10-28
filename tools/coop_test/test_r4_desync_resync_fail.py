@@ -11,7 +11,8 @@ waiting screen says the battle could not be repaired (D267 (a)). Two boots, one 
       code 21 <= 30 s, client OK -> MainMenuState <= 60 s; DR3a-5 RED (D267 (a)) the 62 title at every HOLD_S poll == TITLE_FAILED; DR3a-6
       GUARD CRASH 0.
   DR3b (boot F2, key "48754", dirs r4l3_f2_host / _client) the re-sent copy does not match: the host arms the TEST-ONLY
-      `resync_ready_mismatch`, the same chain; wait <= 30 s for the host's `battle_ready saveBlob MISMATCH` line, then HOLD_S. DR3b-1 GUARD
+      `resync_ready_mismatch`, the same chain; wait <= 30 s for the host's `battle_ready saveBlob MISMATCH` line, <= W_TITLE for the 62 title
+      to leave "Repairing the battle", then HOLD_S. DR3b-1 GUARD
       offered +1, client RS loaded +1, host `SPEC16 M5: rejoin desync` +1, client top CoopState 68; DR3b-2 RED no RESUME: back hidden at
       every HOLD_S poll (red: shown, "All players connected", F10818); DR3b-3 RED host RS failed +1, lastFail "ready mismatch"; DR3b-4 GUARD
       no second offer, host peerAbsent true, the client still on 68 at every poll; DR3b-5 RED (D267 (a)) as DR3a-5; DR3b-6 RED at B1
@@ -317,6 +318,10 @@ def row_dr3b(x, results, walls):
                delta(rh0, rh, "offered") == 1 and delta(rc0, rc, "loaded") == 1 and len(rd) == 1 and cst[-1:] == [CSTATE]
                and cd.get("code") == 68, {"offered": delta(rh0, rh, "offered"), "loaded": delta(rc0, rc, "loaded"), "rejoin desync": rd,
                                           "client top": cst[-1:], "client dialog": cd})
+        # as in DR3a: the 62 re-words its title on its own 500 ms think gate (CoopState::think), up to 500 ms after the mismatch
+        # line; wait (bounded) until the title has left the repair-in-flight wording, then HOLD_S as written
+        tw = wait_t(lambda: not (dlg(h).get("title") or "").startswith(TITLE_REPAIRING), W_TITLE)
+        print("EVIDENCE DR3b title settle: %s" % js({"s": tw, "title": dlg(h).get("title")}), flush=True)
         polls = hold(x, rh0)
         rh = rs(h)
         r.cell("DR3b-2", "RED", "no RESUME: at every HOLD_S poll the host's 62 has backVisible false (red: true, 'All players connected', F10818)",
