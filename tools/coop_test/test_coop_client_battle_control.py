@@ -32,8 +32,15 @@ Checks per row ("owner" = the player whose craft landed, "other" = the peer):
     FAIL (exit 3: a precondition never held).
 
 Env: OXC_TEST_CRAFT - the craft type to fly (default STR_SKYRANGER).
+     OXC_TEST_SITE  - "mission,deployment,race" of the spawned site (default
+                      STR_ALIEN_TERROR,STR_TERROR_MISSION,STR_SECTOID).
      COOP_CBC_ROWS  - subset, e.g. "S1" (R1 always follows S1).
+With X-Com Files loaded through the harness's OXC_TEST_EXTRA_MOD (it deletes the
+Skyranger and STR_ALIEN_TERROR), use OXC_TEST_CRAFT=STR_CIVILIAN_CAR and e.g.
+OXC_TEST_SITE=STR_CULT_APPREHENSION_ZSRR,STR_CULT_APPREHENSION_ZSRR,STR_ZSRR (the
+report's mission).
 """
+import glob
 import os
 import sys
 import time
@@ -52,6 +59,8 @@ SAVE = "coop_client_battle_control.sav"
 ON = {"EnableCoopParallelTurns": True}
 SEED = 7
 NOT_YOURS = "STR_COOP_NOT_YOUR_SOLDIER"
+SITE = os.environ.get("OXC_TEST_SITE",
+                      "STR_ALIEN_TERROR,STR_TERROR_MISSION,STR_SECTOID").split(",")
 
 
 class Inconclusive(Exception):
@@ -204,7 +213,10 @@ def check_split(owner, other, phase, errs):
 def land(host, client, lander):
     """Fly the lander's first transport to a fresh site and start the coop mission."""
     other = host if lander is client else client
-    site, b = CAB.spawn_site(lander)
+    b = CAB.base0(lander)
+    site = lander.ok({"cmd": "spawn_mission_site", "mission": SITE[0], "deployment": SITE[1],
+                      "lon": b["lon"] + 0.35, "lat": b["lat"] + 0.10, "race": SITE[2],
+                      "hours": 240})["site_id"]
     cid = CAB.transport(lander)["id"]
     lander.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
                "lon": b["lon"] + 0.34, "lat": b["lat"] + 0.10, "dest": f"site:{site}",
@@ -250,7 +262,8 @@ def row_client_lands(errs, sfx, resume=True):
         if not wait_idle(client, host):
             raise Inconclusive("S1: the battle never went idle before the save")
         host.ok({"cmd": "save_game", "file": SAVE})
-        if not os.path.exists(os.path.join(host_dir, "xcom1", SAVE)):
+        # the save lands in the active master's folder (xcom1/, x-com-files/, ...)
+        if not glob.glob(os.path.join(host_dir, "*", SAVE)):
             raise Inconclusive("S1: the host's mid-battle save is not on disk")
     finally:
         alive = shutdown(host, client)

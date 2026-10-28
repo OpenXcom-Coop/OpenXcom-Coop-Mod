@@ -21,6 +21,13 @@ Steps (skirmish, parallel turns on, a pinned seed):
      not have alarmed at the turn-2 side start.
 
   * PASS (exit 0) / FAIL (exit 2) / FAIL (exit 3: a precondition never held).
+
+Env: HIT_FRAME_XCF=1 runs the report's own setup instead: X-Com Files (loaded through
+the harness's OXC_TEST_EXTRA_MOD) with its HitFX tags, a fresh SEPARATE campaign in
+which the HOST's craft lands at the site test_coop_client_battle_control spawns
+(OXC_TEST_CRAFT / OXC_TEST_SITE, e.g. STR_CIVILIAN_CAR and
+STR_CULT_APPREHENSION_CHURCH_OF_DAGON,STR_CULT_APPREHENSION_CHURCH_OF_DAGON,
+STR_CHURCH_OF_DAGON), and a host soldier swings the X-Com Files stun rod.
 """
 import os
 import re
@@ -32,6 +39,8 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
 import session  # noqa: E402
+import geo  # noqa: E402
+import test_coop_client_battle_control as CBC  # noqa: E402
 import test_battle_tripwire as TW  # noqa: E402
 import test_parallel_intents as PI  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
@@ -39,6 +48,10 @@ from harness import GameClient, make_user_dir  # noqa: E402
 MOD = os.path.join(HERE, "mods", "Coop_HitFrame_Test")
 SEED = int(os.environ.get("HIT_FRAME_SEED", "8031"))
 SWINGS = 8
+XCF = os.environ.get("HIT_FRAME_XCF") == "1"
+TAGS = (("LAST_HIT_FRAME", "LAST_HIT_TYPE", "LAST_HIT_POWER") if XCF
+        else ("COOP_HIT_FRAME", "COOP_HIT_COUNT"))
+ROD = "STR_STUN_ROD_2" if XCF else "STR_STUN_ROD"
 
 
 class Inconclusive(Exception):
@@ -46,19 +59,19 @@ class Inconclusive(Exception):
 
 
 def hit_tags(gc):
-    """{unit_id: (COOP_HIT_FRAME, COOP_HIT_COUNT)} from this machine's saveBlob text.
-    A tag is tied to the nearest preceding `id:` line (units serialize `id:` before
-    their `tags:` map). A zero value is not serialized, so None means 0."""
+    """{unit_id: (TAGS values)} from this machine's saveBlob text. A tag is tied to
+    the nearest preceding `id:` line (units serialize `id:` before their `tags:`
+    map). A zero value is not serialized, so None means 0."""
     text = gc.cmd({"cmd": "save_blob", "text": True}).get("text", "")
     out, cur = {}, None
     for line in text.splitlines():
         m = re.match(r"\s+id:\s*(\d+)\s*$", line)
         if m:
             cur = int(m.group(1))
-        for i, key in enumerate(("COOP_HIT_FRAME", "COOP_HIT_COUNT")):
+        for i, key in enumerate(TAGS):
             mt = re.search(key + r":\s*(-?\d+)", line)
             if mt and cur is not None:
-                out.setdefault(cur, [None, None])[i] = int(mt.group(1))
+                out.setdefault(cur, [None] * len(TAGS))[i] = int(mt.group(1))
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -68,45 +81,71 @@ def save_blob_alarms(host):
     return b.get("mismatchCount", 0), b.get("compares", 0), sc.get("mismatches", [])
 
 
+def swing(host, client, attacker, mover, wid, epos):
+    if attacker is client:
+        # the client's order travels as an intent; the hit runs on the host
+        PI.drive(host, client, "melee", action="melee", unit=mover, weapon_id=wid,
+                 x=epos[0], y=epos[1], z=epos[2])
+        return
+    # the host's own soldier: the order runs on the host, as a click there would
+    r = host.ok({"cmd": "battle_intent", "action": "melee", "unit": mover,
+                 "weapon_id": wid, "x": epos[0], "y": epos[1], "z": epos[2]})
+    if r.get("routed"):
+        raise Inconclusive("the host's melee order was not executed: %s" % r)
+    if not PI.idle(host, 30):
+        raise Inconclusive("the host's melee never finished")
+
+
 def main():
     opts = {"battleXcomSpeed": 2, "battleAlienSpeed": 2}
+    mods = [] if XCF else [MOD]
     host = GameClient("host", 49253, make_user_dir(
-        "hitframe_host", mods=[MOD],
+        "hitframe_host", mods=mods,
         options=dict(opts, skipNextTurnScreen=True, EnableCoopParallelTurns=True)))
     client = GameClient("client", 49254, make_user_dir(
-        "hitframe_client", mods=[MOD],
+        "hitframe_client", mods=mods,
         options=dict(opts, EnableCoopParallelTurns=True)))
     errs = []
     try:
-        for gc in (host, client):
-            TW.write_battle_fixture(gc.user_dir)
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        TW.PORT = "49284"
-        TW.bring_up_battle(host, client, seed=SEED)
+        if XCF:
+            host.spawn(); client.spawn()
+            host.connect(timeout=300); client.connect(timeout=300)
+            session.new_campaign(host, client, port="49284")
+            geo.wait_both_ready(host, client, timeout=120)
+            geo.slow_clock(host, client)
+            CBC.land(host, client, host)
+            CBC.settle(host, client)
+            attacker = host
+        else:
+            for gc in (host, client):
+                TW.write_battle_fixture(gc.user_dir)
+            host.spawn(); host.connect()
+            client.spawn(); client.connect()
+            TW.PORT = "49284"
+            TW.bring_up_battle(host, client, seed=SEED)
+            attacker = client
         for gc in (host, client):
             if not TW.battle(gc).get("parallelActive"):
                 raise Inconclusive(gc.name + ": parallel turns are not live")
 
-        # 1. a client soldier hits a hostile until the host's script has run
-        seat = client.ok({"cmd": "get_coop"})["localSeat"]
-        mover = PI.pick_driver(host, client, seat, "client")
+        # 1. a soldier hits a hostile until the host's script has run
+        seat = attacker.ok({"cmd": "get_coop"})["localSeat"]
+        mover = PI.pick_driver(host, client, seat, attacker.name)
         enemy = PI.alive_enemy(TW.battle(host))
         if not enemy:
             raise Inconclusive("no live hostile")
         victim = enemy["id"]
         epos = (enemy["x"], enemy["y"], enemy["z"])
-        wid = PI.give_both(host, client, mover, "STR_STUN_ROD")
+        wid = PI.give_both(host, client, mover, ROD)
         if not PI.place_adjacent(host, client, mover, epos):
             raise Inconclusive("no free tile next to hostile %d" % victim)
         hit = False
-        for swing in range(SWINGS):
+        for n in range(SWINGS):
             PI.top_up(host, client, mover)
-            PI.drive(host, client, "melee", action="melee", unit=mover, weapon_id=wid,
-                     x=epos[0], y=epos[1], z=epos[2])
-            if (hit_tags(host).get(victim, (None, None))[1] or 0) >= 1:
+            swing(host, client, attacker, mover, wid, epos)
+            if any(v is not None for v in hit_tags(host).get(victim, ())):
                 hit = True
-                print("hostile %d hit on swing %d" % (victim, swing + 1))
+                print("hostile %d hit on swing %d" % (victim, n + 1))
                 break
         if not hit:
             raise Inconclusive("the stun rod never hit hostile %d in %d swings" % (victim, SWINGS))
@@ -115,9 +154,9 @@ def main():
 
         # 2. the victim's tags on both machines
         ht, ct = hit_tags(host).get(victim), hit_tags(client).get(victim)
-        print("victim %d tags (frame, count): host=%s client=%s" % (victim, ht, ct))
+        print("victim %d tags %s: host=%s client=%s" % (victim, TAGS, ht, ct))
         if ht != ct:
-            errs.append("victim %d tags differ: host (frame, count)=%s client=%s" % (victim, ht, ct))
+            errs.append("victim %d tags %s differ: host=%s client=%s" % (victim, TAGS, ht, ct))
 
         # 3. one full turn; the turn-2 side start compares the whole save
         before = save_blob_alarms(host)
