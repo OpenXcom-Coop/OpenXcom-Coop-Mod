@@ -16,6 +16,7 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Transfer.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/Vehicle.h"
 #include "../Savegame/AlienMission.h"
@@ -182,10 +183,20 @@ int normalizeSoldierIds(Game* game)
 	// long-running or heavily modded campaigns.
 	int nextId = 1;
 	std::set<int> reserved;
+	// Soldiers in transit are live soldiers too: a transfer can still hold a
+	// player-local id from an imported world (PR #213 F12).
+	auto livingSoldiers = [](Base* base)
+	{
+		std::vector<Soldier*> soldiers(base->getSoldiers()->begin(), base->getSoldiers()->end());
+		for (Transfer* transfer : *base->getTransfers())
+			if (transfer && transfer->getSoldier())
+				soldiers.push_back(transfer->getSoldier());
+		return soldiers;
+	};
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		for (Soldier* soldier : *base->getSoldiers())
+		for (Soldier* soldier : livingSoldiers(base))
 			if (soldier) reserved.insert(soldier->getId());
 	}
 	for (Soldier* soldier : *save->getDeadSoldiers())
@@ -196,7 +207,7 @@ int normalizeSoldierIds(Game* game)
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		for (Soldier* soldier : *base->getSoldiers())
+		for (Soldier* soldier : livingSoldiers(base))
 		{
 			if (!soldier) continue;
 			const int oldId = soldier->getId();

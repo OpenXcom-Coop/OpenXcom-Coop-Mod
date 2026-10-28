@@ -664,6 +664,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 												 const std::string& masterUserFolder)
 {
 	DetectedSchema d;
+	d.gamemode = body["coop_gamemode"].readVal<int>(0);
 
 	// Detector v2.3 (PRD 3.1): a save is CO-OP iff a POSITIVE signal holds. There is
 	// no ambiguous/weak tier and no bare coop_gamemode/saveID rule - the fork build
