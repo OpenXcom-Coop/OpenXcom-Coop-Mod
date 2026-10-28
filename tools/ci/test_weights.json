@@ -70,6 +70,7 @@
   "test_ghost_stepper": 18.3,
   "test_gift_fresh": 4.0,
   "test_gift_rollback": 19.3,
+  "test_guest_census_after_visit": 2.3,
   "test_harness_port_publication": 0.2,
   "test_harness_shutdown": 0.8,
   "test_host_save_client_craft_out": 26.7,

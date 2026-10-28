@@ -44351,6 +44351,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
+		// COOP living quarters: the asker sends this from its geoscape init, so its world may have just been
+		// reloaded (back from a visit to one of our bases, from a battle, or a rejoin). Base::coop_guests is not
+		// saved, so every base of a reloaded world counts none of our guests, and sendGuestCensus() only puts a
+		// census on the wire when it changes. Forget the last one sent: the next tick sends it again, or, while
+		// this machine cannot take one (visiting a base, battle world), the first tick its own world is live.
+		_lastGuestCensus.clear();
+
 		// coop W2-H80 (docs rewrite/prompts/w2h80_lost_base_ghost.md E1; R-LBH2-1, VL-H80-1; lbh2-cap F21828): no answer while this
 		// machine's live world is still a SEPARATE co-op battle world (a guest on its display-only debriefing; PR-14's
 		// coopSepBackgroundHeld). That world is the battle host's: its own bases are the asker's, and a base the asker lost in the battle
