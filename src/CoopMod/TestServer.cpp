@@ -73,6 +73,7 @@
 #include "../Geoscape/CraftPatrolState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Ufopaedia/ArticleState.h"
+#include "../Ufopaedia/Ufopaedia.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BriefingState.h"
@@ -4148,6 +4149,9 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				state.setFaction(playerName, req["faction"].asString());
 			if (req.isMember("research"))
 				resp["researchAdded"] = state.addCompletedResearch(playerName, req["research"].asString());
+			if (req.isMember("removeResearch"))
+				resp["researchRemoved"] = state.removeCompletedResearch(
+					playerName, req["removeResearch"].asString());
 			if (req.isMember("completedResearch"))
 			{
 				const std::string topic = req["completedResearch"].asString();
@@ -4233,6 +4237,29 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			for (const std::string& owner : restored.getPendingFactionRechecks())
 				resp["pendingFactionRechecks"].append(owner);
 			resp["serializedBytes"] = (int)yaml.yaml.size();
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "research_gates")
+	{
+		// The research checks the player-facing screens use on THIS machine:
+		// SavedGame::isResearched (purchase, facility, armor and other UI gates) and
+		// the real Ufopaedia article availability.
+		SavedGame* sg = _game->getSavedGame();
+		const std::string topic = req.get("topic", "").asString();
+		const std::string articleName = req.get("article", topic).asString();
+		if (!sg)
+			resp["error"] = "no world";
+		else
+		{
+			if (!topic.empty())
+				resp["researched"] = sg->isResearched(topic);
+			if (!articleName.empty())
+			{
+				ArticleDefinition* article = _game->getMod()->getUfopaediaArticle(articleName, false);
+				resp["articleExists"] = article != nullptr;
+				resp["articleAvailable"] = article ? Ufopaedia::isArticleAvailable(sg, article) : false;
+			}
 			resp["ok"] = true;
 		}
 	}
