@@ -145,7 +145,7 @@ void GeoscapeEventState::eventLogic()
 	}
 
 	SavedGame *save = _game->getSavedGame();
-	Base *hq = save->getCoopHqBase(); // coop W2-H89 H4 (R-LH88-1-1 (a); lh88-1-cap F23452): the rewards go to the first own base, never a partner's base copy
+	Base *hq = save->getCoopHqBase(); // coop: the rewards go to the first own base, never a partner's base copy
 	const Mod *mod = _game->getMod();
 	const RuleEvent &rule = _eventRule;
 
@@ -595,7 +595,7 @@ void GeoscapeEventState::btnOkClick(Action *)
 		}
 		// coop: a window both machines show plays its cutscene at each player's own OK -
 		// SHARED, and in SEPARATE co-op (not PvP: the alien side shows no event) a paired certain event or an event spawned by shared
-		// research (main #197); only an ending is relayed (the first OK ends both campaigns, R-H17b-1); a private SEPARATE event keeps the relay
+		// research (main #197); only an ending is relayed (the first OK ends both campaigns); a private SEPARATE event keeps the relay
 		if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getEnding() == END_NONE // coop
 			&& (_game->getCoopMod()->isSharedCampaign() || ((_coopShared || _coopBothWorlds) // coop
 				&& _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))) // coop
@@ -604,7 +604,7 @@ void GeoscapeEventState::btnOkClick(Action *)
 
 	if (_game->getSavedGame()->getEnding() == END_NONE)
 	{
-		Base* base = _game->getSavedGame()->getCoopHqBase(); // coop W2-H89 H5: the stores check reads the base the rewards went to
+		Base* base = _game->getSavedGame()->getCoopHqBase(); // coop: the stores check reads the base the rewards went to
 		if (_game->getSavedGame()->getMonthsPassed() > -1 && Options::storageLimitsEnforced && base != 0 && base->storesOverfull())
 		{
 			_game->pushState(new SellState(base, 0));

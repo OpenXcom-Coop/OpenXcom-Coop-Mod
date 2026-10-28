@@ -95,20 +95,18 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 	if (coopRefuseSeparateClientCydonia(_game, _craft)) return;
 	if (connectionTCP::getCoopStatic())
 	{
-		// R4-P2: Cydonia now rides the
-		// SAME battle-start handshake R4-P1 built for the skirmish and mission-
-		// confirm entry points (NewBattleState::btnOkClick, ConfirmLandingState::
-		// btnYesClick) - vanilla generates the battle exactly like SP below, then
-		// CoopHandshake::offerBattle() ships it. The per-soldier/vehicle seat-tag
-		// pass this branch already ran (donor cbff7951d:96-102, PRD-J09 SHARED
-		// path) is PRESERVED so Soldier::getCoop() carries fresh ownership before
-		// generation; startCoopMission() below reads it back off each generated
-		// BattleUnit's geoscape soldier to stamp the RB-D17 battle-time tag
-		// (BattleUnit::setCoopSeat()) offerBattle()/the admission arbiter expect.
-		// The legacy SEPARATE-campaign changeHost hand-off + CoopState(88) wait-
-		// dialog choreography (donor :113-128) is DELETED - it predates the
-		// handshake, has no restored carrier, and the interim handshake
-		// already covers both campaign types under gamemode 0/1.
+		// Cydonia rides the SAME battle-start handshake as the skirmish and
+		// mission-confirm entry points (NewBattleState::btnOkClick,
+		// ConfirmLandingState::btnYesClick) - vanilla generates the battle exactly
+		// like SP below, then CoopHandshake::offerBattle() ships it. The
+		// per-soldier/vehicle seat-tag pass this branch runs (from
+		// cbff7951d:96-102, the SHARED path) keeps Soldier::getCoop() carrying
+		// fresh ownership before generation; startCoopMission() below reads it
+		// back off each generated BattleUnit's geoscape soldier to stamp the
+		// battle-time seat tag (BattleUnit::setCoopSeat()) offerBattle()/the
+		// admission arbiter expect. The handshake covers both campaign types
+		// under gamemode 0/1, so no changeHost hand-off or CoopState(88) wait
+		// dialog runs here.
 		for (auto* soldier : *_craft->getBase()->getSoldiers())
 		{
 			if (soldier->getCraft() != _craft)
@@ -153,7 +151,7 @@ void ConfirmCydoniaState::startCoopMission()
 	if (connectionTCP::getCoopStatic())
 	{
 		// a SEPARATE partner's guests
-		// seated on this craft - and, since D248-U, its tanks parked on it - join Cydonia as they join every host-craft
+		// seated on this craft - and its tanks parked on it - join Cydonia as they join every host-craft
 		// landing (ConfirmLandingState::btnYesClick): merged onto the craft BEFORE generation, so the generator deploys
 		// them. The store is the host's, so this is a no-op on any other machine and when nothing was contributed.
 		coopMergeGuestContributions(_game, _craft);
@@ -162,20 +160,17 @@ void ConfirmCydoniaState::startCoopMission()
 
 	if (connectionTCP::getCoopStatic())
 	{
-		// R4-P2: stamp each generated BattleUnit's RB-D17 seat tag from the
+		// Stamp each generated BattleUnit's seat tag from the
 		// Soldier::getCoop() ownership btnYesClick just refreshed - the
 		// admission arbiter's not_your_unit check (connectionTCP.cpp) reads
 		// BattleUnit::getCoopSeat(), not the geoscape Soldier.
-		// R5-P1 NOTE: CoopHandshake::offerBattle() below now runs
+		// CoopHandshake::offerBattle() below also runs
 		// assignSeatsAndFactions() (CoopState.cpp) on the HOST machine, which
 		// does this exact stamp itself (plus the canonical-faction funnel and
-		// the out-of-roster validity check) - this loop is redundant on the
-		// host path since that call. Left in place rather than removed
-		// (RB-D23 packet text's "else leave it and note it" - no dedicated
-		// Cydonia coverage rode with this packet's acceptance to verify a
-		// removal is safe here). Harmless: assignSeatsAndFactions()
-		// overwrites whatever this loop set, with the identical value, a few
-		// lines later.
+		// the out-of-roster validity check), so this loop is redundant on the
+		// host path. It is left in place: no Cydonia test covers its removal.
+		// Harmless: assignSeatsAndFactions() overwrites whatever this loop set,
+		// with the identical value, a few lines later.
 		for (auto* unit : *bgame->getUnits())
 		{
 			Soldier* soldier = unit->getGeoscapeSoldier();
@@ -185,15 +180,15 @@ void ConfirmCydoniaState::startCoopMission()
 			}
 		}
 
-		// R4-P2 (SS2.7): offerBattle() is a pure network side effect - it never
+		// offerBattle() is a pure network side effect - it never
 		// touches the state stack (see CoopHandshake.h's top doc comment for
 		// the crash that taught this). BriefingState is pushed exactly like
 		// vanilla SP, unconditionally; a refused/corrupt handshake unwinds it
 		// via coopUnwindToSafeState() instead (connectionTCP.cpp). offerBattle()
-		// itself no-ops (logs) on a non-host machine (RB-D18 interim: only the
+		// itself no-ops (logs) on a non-host machine (only the
 		// coop-session's server owner drives Cydonia generation).
-		// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds its
-		// blob snapshot (the SS2.W1 ORDERING TRAP). One of FOUR identical call
+		// Labels + deployment BEFORE the offer builds its
+		// blob snapshot (the ORDERING TRAP in CoopHandshake.h). One of FOUR identical call
 		// sites; no-op off the coop host.
 		// the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
 		coopDropMergedGuestVehicles(_game);

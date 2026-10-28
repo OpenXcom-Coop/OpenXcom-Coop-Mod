@@ -56,7 +56,7 @@ WHAT THIS ASSERTS (in order).
       screens and turn 1 (the host-equip gap regression).
 
 WHAT THIS DELIBERATELY DOES NOT USE.
-  * `inventory_move` - a dead R1-P4 stub that answers "rewrite-pending", so any
+  * `inventory_move` - a dead R1-P4 stub that answers "unsupported", so any
     "it changed nothing" assertion through it would be true by construction.
   * `battle_open_inventory` - that drives bstate->btnInventoryClick, the
     MID-BATTLE inventory. Gating that one is W1-P5's packet, not this one.

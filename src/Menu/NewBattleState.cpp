@@ -695,16 +695,12 @@ void NewBattleState::btnOkClick(Action *)
 
 	}
 
-	// R4-P1/R4-REWIRE (SPIKE-RUNBOOK.md SS2.7): the R1-P5 stub above (a
-	// pre-generation early-return) is replaced by the SS2.7 handshake -
-	// classic/SHARED skirmish co-op now runs the SAME vanilla generation as
-	// SP below and hands the result to CoopHandshake::offerBattle() instead
-	// of a dead-end popup. The PvP/PvE2 changeHost4 handoff and
-	// BriefingState::setupCoop() dispatch this comment used to describe stay
-	// quarantined (RB-D9) - real gm2/gm3/gm4 seat/faction assignment is
-	// R5-P1's job; offerBattle()'s own client-side gamemode check refuses
-	// those until then. This guard is false on every SP click, so
-	// the SP battle-generation path below is byte-for-byte untouched.
+	// Classic/SHARED skirmish co-op runs the SAME vanilla generation as SP
+	// below and hands the result to CoopHandshake::offerBattle() (the
+	// battle-start handshake). The legacy PvP/PvE2 changeHost4 handoff and
+	// BriefingState::setupCoop() dispatch stay quarantined. This guard is
+	// false on every SP click, so the SP battle-generation path below is
+	// byte-for-byte untouched.
 	const bool coopSkirmish = _game->getCoopMod()->getCoopStatic() == true;
 
 	if (_craft)
@@ -798,7 +794,7 @@ void NewBattleState::btnOkClick(Action *)
 	_game->popState();
 	_game->popState();
 
-	// R4-P1 (SS2.7): offerBattle() is a pure network side effect - it never
+	// offerBattle() is a pure network side effect - it never
 	// touches the state stack (see CoopHandshake.h's top doc comment for why
 	// a first attempt that deferred this push crashed Game::run() with an
 	// empty state stack). BriefingState is pushed exactly like vanilla SP,
@@ -806,9 +802,9 @@ void NewBattleState::btnOkClick(Action *)
 	// coopUnwindToSafeState() instead (connectionTCP.cpp).
 	if (coopSkirmish)
 	{
-		// W1-P2 (SS2.W1 / WV-D42): mint the two BriefingState display labels and
+		// Mint the two BriefingState display labels and
 		// resolve this battle's deployment BEFORE offerBattle() snapshots the blob
-		// and builds the offer - the SS2.W1 ORDERING TRAP. One of FOUR identical
+		// and builds the offer - the ORDERING TRAP in CoopHandshake.h. One of FOUR identical
 		// call sites; no-op off the coop host.
 		CoopHandshake::mintMissionLabels(_game, _craft, base);
 		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
@@ -859,13 +855,13 @@ void NewBattleState::harnessSetHotseat(bool on)
 }
 
 /**
- * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md R3-P1 packet text): stamp the first
+ * Stamp the first
  * soldier assigned to the currently selected craft with a coop seat, before
  * OK generates the battle. See this method's own header doc comment for why
  * a plain classic skirmish otherwise leaves the harness with no non-host-
  * owned unit to drive a client-intent repro against.
  *
- * R3-P2 extension: @a index (default 0, R3-P1's original behavior unchanged)
+ * @a index (default 0: the first soldier)
  * selects the Nth soldier assigned to the craft instead of always the first,
  * so a second call with a different index can stamp a SECOND, DIFFERENT
  * soldier to the same seat - needed by repro_atom_kneel.py's burst/drain
@@ -897,7 +893,7 @@ int NewBattleState::harnessSeatOneSoldier(int seat, int index)
 }
 
 /**
- * W1-P10 (rewrite wave 1, WAVE1-RUNBOOK.md SS4 "ATOM door"): see this method's
+ * See this method's
  * declaration for why the door atom's fixture needs it. Drives the SAME two
  * calls the combo box's own change handler does - setSelected() then
  * cbxMissionChange(), which is what rebuilds _terrainTypes and re-selects a
@@ -919,7 +915,7 @@ bool NewBattleState::harnessSelectMission(const std::string& type)
 }
 
 /**
- * SPEC 0e-1: see this method's declaration for why the Lightning-
+ * See this method's declaration for why the Lightning-
  * contact fixtures need it. Drives the SAME two calls the combo box's own
  * change handler does - setSelected() then cbxCraftChange(), which re-seats
  * the soldiers and, in coop, sends the existing craft_list/selected_craft_id
@@ -941,7 +937,7 @@ bool NewBattleState::harnessSelectCraft(const std::string& type)
 }
 
 /**
- * SPEC 0e-1: see this method's declaration for why the Lightning-
+ * See this method's declaration for why the Lightning-
  * contact fixtures need it. No change handler exists for this combo - the
  * race is read at generation - so this only moves the selection. Call after
  * harnessSelectMission(), which is what rebuilds _alienRaces for the current
@@ -1538,11 +1534,10 @@ void NewBattleState::btnQuickSearchApply(Action *)
 // coop pve
 void NewBattleState::startCoopMission()
 {
-	// R1-P5/R4-REWIRE: skirmish coop battle-start choreography, reached
+	// Legacy skirmish coop battle-start choreography, reached
 	// asynchronously from connectionTCP::setClientSoldiers() ("coop battle (pve)"
-	// branch) once the host-transfer handshake finishes. Quarantined pending the
-	// r4/r5 atomic-bundle rebuild (RB-D9) - BriefingState::setupCoop() died with
-	// the vanilla restore (911ca487f). btnOkClick's coop branch already popups and
+	// branch) once the host-transfer handshake finishes. Quarantined: there is no
+	// BriefingState::setupCoop() to drive. btnOkClick's coop branch already popups and
 	// returns before setting up the callback target this drives from, so this body
 	// is defense in depth for any caller that still reaches it.
 	_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));

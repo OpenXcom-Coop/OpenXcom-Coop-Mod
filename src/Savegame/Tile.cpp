@@ -388,7 +388,7 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 		setMapData(_objects[part]->getDataset()->getObject(_objects[part]->getAltMCD()), _objects[part]->getAltMCD(), _mapData->SetID[part],
 				   _objects[part]->getDataset()->getObject(_objects[part]->getAltMCD())->getObjectType());
 		setMapData(0, -1, -1, part);
-		// W1-P10 (WAVE1-RUNBOOK.md SS4 "ATOM door" / WV-D50): ONE guarded coop
+		// ONE guarded coop
 		// call, at the point the NORMAL-door mutation has actually happened.
 		// See CoopDoor.h for why the journal sits here and not at
 		// TileEngine::unitOpensDoor's return. No-op outside an armed capture
@@ -778,7 +778,7 @@ void Tile::setFire(int fire)
 }
 
 /**
- * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute tile-fire set
+ * Absolute tile-fire set
  * for the `side_transition` restate's perTile applier. Same clamp as
  * setFire() above, but no RNG::generate() roll - _animationOffset is
  * cosmetic (not serialized) and the restate applier must never call RNG.
@@ -830,7 +830,7 @@ void Tile::setSmoke(int smoke)
 }
 
 /**
- * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute tile-smoke set
+ * Absolute tile-smoke set
  * for the `side_transition` restate's perTile applier. Same clamp as
  * setSmoke() above, but no RNG::generate() roll - see
  * coopSetTileFireAbsolute()'s comment for why.

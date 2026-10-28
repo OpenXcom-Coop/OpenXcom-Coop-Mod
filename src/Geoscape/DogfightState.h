@@ -265,7 +265,7 @@ public:
 	/// rebuilt the host's projectile set from df_state (frame agreement).
 	int harnessProjectileCount() const { return (int)_projectiles.size(); }
 	/// toggle weapon @a idx via the correct role lane (replica: df_cmd only, the
-	/// icon follows the host, D301 (b); host: apply directly) - a harness affordance (weaponClick needs a
+	/// icon follows the host; host: apply directly) - a harness affordance (weaponClick needs a
 	/// widget sender the harness cannot synthesize).
 	void harnessToggleWeapon(int idx);
 	/// PRD-DF03 GAP-7 (HOST): deterministically award dogfight XP to this fight's crew

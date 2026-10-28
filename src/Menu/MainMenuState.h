@@ -75,7 +75,7 @@ public:
 	/// Update the resolution settings, we just resized the window.
 	void resize(int &dX, int &dY) override;
 	void init() override;
-	/// coop CIT-G1 fix: whether init() has run (its co-op disconnect and session reset are done); the test server reports it.
+	/// coop: whether init() has run (its co-op disconnect and session reset are done); the test server reports it.
 	bool coopInitDone() const { return _coopInitDone; }
 };
 

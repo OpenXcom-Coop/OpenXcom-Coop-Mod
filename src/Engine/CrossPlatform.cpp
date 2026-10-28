@@ -1531,7 +1531,7 @@ std::string now()
 
 /**
  * Generates a timestamp of the current time, to the millisecond.
- * the same shape now() returns plus ".mmm", for log lines only. now()
+ * The same shape now() returns plus ".mmm", for log lines only. now()
  * itself is UNCHANGED because three of its callers build FILENAMES, and a
  * wider timestamp would rename the files they build.
  * @return String in D-M-Y_H-M-S.mmm format.
@@ -1743,7 +1743,7 @@ bool openExplorer(const std::string &url)
 
 /**
  * Appends a file, logs nothing to avoid recursion.
- * the append must PERMIT SHARED READING. SDL1's Windows RWops opens
+ * The append must PERMIT SHARED READING. SDL1's Windows RWops opens
  * the file for writing with dwShareMode 0, i.e. exclusively, so the WRITER was
  * denying every reader - and a reader's own open in turn made this append FAIL
  * (measured: 84 sharing violations in 3000 reader opens and 21 lost game
@@ -1772,7 +1772,7 @@ static bool logToFile(const std::string& filename, const std::string& data) {
 static const size_t LOG_BUFFER_LIMIT = 1<<10;
 static std::list<std::pair<int, std::string>> logBuffer;
 static std::string logFileName;
-// coop CIT-G3 fix: the co-op threads log too; one writer at a time, so two lines written in the same moment cannot overwrite
+// coop: the co-op threads log too; one writer at a time, so two lines written in the same moment cannot overwrite
 // each other in the file. Recursive because the crash handler logs, and a crash can land inside log().
 static std::recursive_mutex logMutex;
 const std::string& getLogFileName() { return logFileName; }

@@ -279,7 +279,7 @@ public:
 	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
-	/// coop W2-H76 (R-BH4-1 fix (a)): ends and deletes every dogfight (open, minimized or waiting to start) on @a ufo; co-op code
+	/// coop: ends and deletes every dogfight (open, minimized or waiting to start) on @a ufo; co-op code
 	/// calls it right before it deletes that UFO (a partner's mirror), as vanilla's time5Seconds() does for a destroyed UFO.
 	void coopDropDogfightsFor(Ufo* ufo);
 	/// coop: drops (deletes) every queued popup that holds one of @a doomed - co-op mirrors about to be
@@ -287,10 +287,10 @@ public:
 	int coopDropQueuedPopupsHolding(const std::vector<Target*>& doomed);
 	/// Test-harness: dogfights queued but not yet started.
 	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
-	/// coop W2-H76 test-harness: the dogfights (@a pending: those queued to start) whose UFO pointer is not in the
+	/// coop test-harness: the dogfights (@a pending: those queued to start) whose UFO pointer is not in the
 	/// saved game's UFO list - compared as pointers, never dereferenced.
 	int harnessDanglingDogfights(bool pending) const;
-	/// coop W2-H76 test-harness: how many such dogfights handleDogfights() has met since the game started (every GeoscapeState).
+	/// coop test-harness: how many such dogfights handleDogfights() has met since the game started (every GeoscapeState).
 	static int harnessDanglingDogfightsSeen();
 	/// coop: the pointers a geoscape popup (UfoDetectedState, MissionDetectedState, TargetInfoState, InterceptState,
 	/// ConfirmDestinationState, MultipleTargetsState, UfoTrackerState, GeoscapeCraftState) holds; copied, never dereferenced. Returns
@@ -300,7 +300,7 @@ public:
 	/// a patrol, dogfight, landing, Cydonia or pilots notice (in SHARED: the crafts of every base); copied, never dereferenced. Returns
 	/// true when @a state is one of those nine windows, even one that holds nothing.
 	static bool coopHeldCrafts(State* state, std::vector<Target*>& out);
-	/// coop W2-H81 test-harness: the popups queued to open (pushed one per think while the geoscape is on top).
+	/// coop test-harness: the popups queued to open (pushed one per think while the geoscape is on top).
 	const std::list<State*>& coopQueuedPopups() const { return _popups; }
 	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
 	/// current _dfEpoch it broadcasts; replica: _dfReplicaEpoch, the epoch of the last

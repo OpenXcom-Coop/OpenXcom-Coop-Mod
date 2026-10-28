@@ -160,19 +160,19 @@ void SaveGameState::think()
 	{
 		_game->popState();
 
-		// SPEC 18 (r4 T4) M8, owner ruling D101 = (a) + drain-first: every
+		// Drain first: every
 		// mid-battle coop save funnels here - the quick-save/insta-save
 		// keys (BattlescapeState.cpp, vanilla-gated on ironman/preview only,
 		// NOT on busy), the pause-menu Save (vanilla-gated on !busy
-		// already), ListSave SAVE & QUIT, and the M7 harness lever
+		// already), ListSave SAVE & QUIT, and the harness's test command
 		// (save_game_ui type:"quick_battle") - so ONE shared gate here,
 		// before any write, covers all of them regardless of how busy-gated
 		// each trigger's own UI happens to be (a client-origin action can
 		// start executing on the host between "Save is enabled" and the
 		// click). If a coop battle is live and NOT quiescent, defer: arm
 		// the latch with exactly the constructor arguments needed to
-		// re-push this SAME SaveGameState once the battle drains (F400:
-		// coopBattleQuiescent() preserves W1-H1's isBattlescapeStateLive
+		// re-push this SAME SaveGameState once the battle drains (
+		// coopBattleQuiescent() preserves the isBattlescapeStateLive
 		// guard), and return without writing - the deferred re-push runs
 		// the vanilla backup+move exactly once, never duplicated.
 		if (isCoopBattle() && !coopBattleQuiescent())
@@ -295,7 +295,7 @@ void SaveGameState::think()
 			std::string fullPath = Options::getMasterUserFolder() + _filename;
 			std::string bakPath = Options::getMasterUserFolder() + backup;
 
-			// coop W2-H91 (owner D303 (a) then (b)): a co-op save's rename retries while another process holds the file
+			// coop: a co-op save's rename retries while another process holds the file
 			// (CrossPlatform::moveFileRetry), and a rename that still fails is reported as vanilla reports it: the save stays in the
 			// backup. A vanilla save moves once, as before. Co-op = localSavesAllowed()'s own split (a session, or a connected player).
 			const bool coopSave = _game->getCoopMod()->isCoopSession() || _game->getCoopMod()->getCoopStatic();
@@ -357,10 +357,10 @@ void SaveGameState::quitToMainMenu()
 {
 	_game->resetTouchButtonFlags();
 
-	// SPEC 16 M6: same capture-before-teardown as
+	// Same capture-before-teardown as
 	// CoopState::btnAbandonClick - SAVE & QUIT's own end-control path onto
 	// the identical GoToMainMenuState chokepoint. peerAbsent is true only
-	// when this SAVE & QUIT is closing a mid-battle co-op pause (M1), never
+	// when this SAVE & QUIT is closing a mid-battle co-op pause, never
 	// for issue #81's original pre-battle campaign-wait case.
 	const bool seatLeftTeardown = coopBattleAuthority().peerAbsent;
 

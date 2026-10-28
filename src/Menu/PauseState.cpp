@@ -43,7 +43,7 @@ namespace OpenXcom
 
 GeoscapeState *_geostate;
 
-// coop: an ironman world (the save owner's rules, W2-H49) keeps vanilla's hidden Load and Save (the constructor's
+// coop: an ironman world (the save owner's rules) keeps vanilla's hidden Load and Save (the constructor's
 // ironman block), so the truly-solo re-show blocks below never run for one. Null-safe for an init() without a world.
 static bool coopIronmanWorld(SavedGame *save)
 {

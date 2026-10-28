@@ -106,10 +106,10 @@ private:
 	// persisted so the destination can be rebound after a client-world reload.
 	int _coopDestUfoId = 0;
 	int _coopDestMissionId = 0;
-	// coop W2-H48 (L-H44-1): the coop id of the mirrored alien base this craft is heading to (AlienBase::_coop_alienbase_id, kept
-	// across the owner's save by W2-H44), persisted so the destination is rebound after a reload as a UFO / site mirror is.
+	// coop: the coop id of the mirrored alien base this craft is heading to (AlienBase::_coop_alienbase_id, kept
+	// across the owner's save), persisted so the destination is rebound after a reload as a UFO / site mirror is.
 	int _coopDestAlienBaseId = 0;
-	// coop W2-H51 (L-H48-1): the partner's craft mirror this craft is heading to - the coop id of the partner's base it belongs to
+	// coop: the partner's craft mirror this craft is heading to - the coop id of the partner's base it belongs to
 	// (Base::_coop_base_id, kept across the owner's save) plus that craft's rule type and id; rebound after a reload like a UFO mirror.
 	int _coopDestCraftBaseId = 0;
 	int _coopDestCraftId = 0;

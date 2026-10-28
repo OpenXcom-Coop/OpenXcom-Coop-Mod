@@ -185,7 +185,7 @@ void GoToMainMenuState::init()
 	_game->getScreen()->resetDisplay(false);
 	_game->setState(new MainMenuState(_updateCheck));
 
-	// coop RV-U9, ported from `main` :185-:195. next-launch crash reporter. Fires only on the fresh-boot transition
+	// coop, ported from `main` :185-:195: the next-launch crash reporter. Fires only on the fresh-boot transition
 	// (StartState -> GoToMainMenuState(true)), i.e. once per launch, at the main-menu
 	// altitude (world already torn down by setSavedGame(0) above) - the same
 	// "before the main menu" altitude the save-upgrade flow lives at. Best-effort
@@ -448,7 +448,7 @@ void MainMenuState::init()
 
 	// coop
 	_game->getCoopMod()->allow_cutscene = true;
-	_coopInitDone = true; // CIT-G1 fix: a join sent from here on is no longer wiped by the reset above
+	_coopInitDone = true; // a join sent from here on is no longer wiped by the reset above
 }
 
 /**

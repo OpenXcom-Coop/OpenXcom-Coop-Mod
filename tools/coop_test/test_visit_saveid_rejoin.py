@@ -11,7 +11,7 @@ keyinfo, ok67 over BasescapeState, leave and drop_now copied from the capture's 
       the rejoin; read R.
 Cells (21): C1-pre GUARD, C1-ids RED, C1-key RED, C1-log RED, C1-rejoin RED, C1-world RED, C1-resume RED, C1-common GUARD; C4-pre, C4-id,
 C4-key, C4-world, C4-common GUARD; CTL-pre, CTL-ids, CTL-key, CTL-log, CTL-rejoin, CTL-world, CTL-resume, CTL-common GUARD. Red (commit R1):
-RED exactly C1-ids, C1-key, C1-log, C1-rejoin, C1-world, C1-resume (6 of 21). KEPT = '[coop] W2-H79:' lines in the client's log since read B.
+RED exactly C1-ids, C1-key, C1-log, C1-rejoin, C1-world, C1-resume (6 of 21). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B.
 ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row
 (later cells "not reached"); a boot or construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info,
 get_coop, the last 40 log lines of each machine); exit 0 only when every cell passes, else 2. one foreground run
@@ -26,7 +26,7 @@ import harness  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49464"
-KEPT = "[coop] W2-H79:"
+KEPT = '[coop] "basehost" loaded - saveID stays'
 HOLD, HOLD_R, W_DROP, JOIN_S, ACK_S = 2.0, 3.0, 30.0, 10.0, 30.0
 C1 = {}  # C1's read T, MARKER and QUICK copy (C4's source)
 

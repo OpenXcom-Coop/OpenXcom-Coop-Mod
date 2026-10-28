@@ -590,7 +590,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHotseatDebugMode", &EnableHotseatDebugMode, false, "Enable Hotseat Debug Mode", "STR_AI"));
 
-	// R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7, OWNER-1 resolved): auto-cancel
+	// Auto-cancel
 	// policy for a busy-held pending co-op intent. Defaults = the narrowed scope
 	// (first three ON, the broad any-partner-action toggle OFF).
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnEnemySpotted", &coopCancelOnEnemySpotted, true, "Co-op: Cancel Held Order When an Enemy is Spotted", "STR_BATTLESCAPE"));
@@ -598,26 +598,24 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnVisibilityGain", &coopCancelOnVisibilityGain, true, "Co-op: Cancel Held Order on New Contact", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnAnyPartnerAction", &coopCancelOnAnyPartnerAction, false, "Co-op: Cancel Held Order on Any Partner Action", "STR_BATTLESCAPE"));
 
-	// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13; parameters WV-D24 = D-11): the
-	// client-side intent round-trip timeout, in SECONDS. WV-D24 fixes the DEFAULT
+	// The client-side intent round-trip timeout, in SECONDS. The DEFAULT is
 	// at 10 s; the option exists so real-network play can tune it (and so the
 	// harness can shorten it) without a rebuild. <= 0 disables the timeout.
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopIntentTimeoutSeconds", &coopIntentTimeoutSeconds, 10, "Co-op: Seconds Before an Unanswered Order Times Out", "STR_BATTLESCAPE"));
 
-	// W1-P7 deliverable 6 (REV D, owner rulings D-19..D-21/D-26 = WV-D55): the
-	// HOST's remembered turn mode, default PARALLEL (D-26). A real OptionInfo, so
-	// it is persisted in options.cfg and survives a restart (WR-25 forbids a
+	// The HOST's remembered turn mode, default PARALLEL. A real OptionInfo, so
+	// it is persisted in options.cfg and survives a restart (never a
 	// connectionTCP static here). Deliberately NO description and NO category: the
 	// advanced-options list only renders OPTION_BOOL and OPTION_INT
 	// (OptionsAdvancedState.cpp:254-262) and only picks up the five named
 	// categories (:123-141), so a described STRING option would show as a dead row
-	// with an empty value. Its control is the HOST/lobby toggle (D-19).
+	// with an empty value. Its control is the HOST/lobby toggle.
 	_info.push_back(OptionInfo(OPTION_OTHER, "CoopTurnMode", &CoopTurnMode, "parallel"));
 
-	// the S3 ghost stepper - display-only
+	// The ghost stepper - display-only
 	// replay of a partner's turn/kneel/walk. Default ON. Literal English
 	// description (the coopCancelOnAnyPartnerAction precedent, :596 above),
-	// never a STR_ key (WV-D5's lint_coop_strings orphan count stays put).
+	// never a STR_ key (lint_coop_strings' orphan count stays put).
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopGhostStepper", &coopGhostStepper, true, "Co-op: Animate Partner Actions (Ghost Stepper)", "STR_BATTLESCAPE"));
 
 }

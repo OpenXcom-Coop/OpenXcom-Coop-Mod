@@ -66,7 +66,7 @@
 #include "BaseFacility.h"
 #include "MissionStatistics.h"
 #include "SoldierDeath.h"
-#include "BattleUnitStatistics.h" // BattleUnitKills fields in the D218 log line
+#include "BattleUnitStatistics.h" // BattleUnitKills fields in the [coop-roster] killSoldier log line
 #include "SoldierDiary.h"
 #include "ResearchDiary.h"
 #include "../Mod/AlienRace.h"
@@ -348,7 +348,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("monthsPassed", _monthsPassed);
 
 	// coop
-	// coop W2-H79 (docs rewrite/prompts/w2h79_visit_saveid_rollback.md E1; L-H70C-2, R-LH70C-2-1; F21767-F21773, F21846-F21851): "basehost" is a
+	// coop: "basehost" is a
 	// machine's own world parked at its visit of the partner's base (CoopState 55), or the world it last streamed to a visiting partner
 	// (sendBaseFile); the blob carries the saveID of the moment it was written. A host save during the visit re-mints saveID on both machines,
 	// so this load (the leave's reload, a base screen's OK, a partner's base rename, a mission-end fallback) keeps the current saveID: the
@@ -357,22 +357,22 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	{
 		long long blobSaveId = connectionTCP::saveID;
 		reader.tryRead("saveID", blobSaveId);
-		// coop W2-H84 (docs rewrite/prompts/w2h84_rejoin_join_id.md E1; L-H79-3, R-LH79-3-1; F22370-F22386, F22450-F22467): a "client_" key is
+		// coop: a "client_" key is
 		// this machine's own world (connectionTCP::clientBlobKey; only a client loads one): the world the host serves at a rejoin or a resume
 		// (CoopState 555), the battle-entry snapshot, the guest-craft sync, a SHARED adoption. The host may serve a stored world whose saveID
-		// is older than the one it sent at the join (W2-H58's copy after a drop during a host save; a resumed save's embedded world); taking
+		// is older than the one it sent at the join (the host's stored copy after a drop during a host save; a resumed save's embedded world); taking
 		// it made this machine's next upload move the host's saveID back and erase the key a later rejoin looks up, and the partner got a new
 		// campaign. The id the host sent stays; with no id yet (0) the blob's is taken, as before.
 		if (key.compare(0, 7, "client_") == 0 && connectionTCP::saveID != 0)
 		{
 			if (blobSaveId != connectionTCP::saveID)
-				Log(LOG_INFO) << "[coop] W2-H84: own world \"" << key << "\" loaded - saveID stays " << connectionTCP::saveID
+				Log(LOG_INFO) << "[coop] own world \"" << key << "\" loaded - saveID stays " << connectionTCP::saveID
 					<< " (the blob's is " << blobSaveId << ")";
 		}
 		else if (key != "basehost")
 			connectionTCP::saveID = blobSaveId;
 		else if (blobSaveId != connectionTCP::saveID)
-			Log(LOG_INFO) << "[coop] W2-H79: \"basehost\" loaded - saveID stays " << connectionTCP::saveID << " (the parked world's is "
+			Log(LOG_INFO) << "[coop] \"basehost\" loaded - saveID stays " << connectionTCP::saveID << " (the parked world's is "
 				<< blobSaveId << ")";
 	}
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
@@ -874,7 +874,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		connectionTCP::coopPvpLoadedBorrow = rec;
 	}
 
-	// M1 (SPEC 18 r4 T4, owner ruling D92/D-22): a mid-battle coop save is
+	// A mid-battle coop save is
 	// stamped with the wire protocol it was written under (coopBattleProtocol,
 	// save()'s header write). A DIFFERENT BUILD (a full host restart on a
 	// newer/older version) resuming a save whose body carries a battle
@@ -891,7 +891,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// coop: an UNSTAMPED mid-battle co-op save
 	// was made by an older version (the release line never writes coopBattleProtocol). One whose game mode the conversion
 	// handles loads on and is converted once its battle is loaded (the hook after the battleGame block below); any other
-	// unstamped one, and every stamp other than 1, still refuses (FW-7).
+	// unstamped one, and every stamp other than 1, still refuses.
 	bool coopOlderBattle = false;
 	if (_coop && header["turn"])
 	{
@@ -905,7 +905,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		}
 		else if (!coopStamped || coopBattleProtocol != 1)
 		{
-			// coop D246-U S-C2 (owner D284 = c amended; docs rewrite/prompts/d246u_sc2_gm3_refusal_text.md): an UNSTAMPED gm3 PvP campaign
+			// coop: an UNSTAMPED gm3 PvP campaign
 			// battle save (the release line's: it holds no world of the alien player, so it is never converted) refuses with where to ask
 			// for a repair. Every other refusal here keeps the text below.
 			if (!coopStamped && coopOlderGamemode == 3)
@@ -953,7 +953,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	connectionTCP::saveID = 0;
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
-	// coop D283 (b) (owner 2026-10-13): the mode this save was played in, kept on the save itself - the host window resets the live
+	// coop: the mode this save was played in, kept on the save itself - the host window resets the live
 	// mode of every resume that is not PvP to 1 (HostMenu::hostTCPGame), so LobbyMenu::resumeCampaign reads this, never the global.
 	reader.tryRead("coop_gamemode", _coopLoadedGamemode);
 	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
@@ -1301,7 +1301,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// commanding its own soldiers and nobody the aliens. A save this build wrote is never converted (BattleAuthority.h).
 	if (!_coop && _battleGame && coopOlderCustomBattleSave(reader))
 	{
-		Log(LOG_INFO) << "[coop-convert] D246 S-D: an older version's co-op Custom Battle save - converted as a classic co-op battle";
+		Log(LOG_INFO) << "[coop-convert] an older version's co-op Custom Battle save - converted as a classic co-op battle";
 		coopOlderBattle = true;
 	}
 
@@ -1942,7 +1942,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("coopBattleId", m.get("battleId", 0).asInt());
 	}
 
-	// M1 (SPEC 18 r4 T4, owner ruling D92/D-22): a mid-battle coop save is
+	// A mid-battle coop save is
 	// resumed by a DIFFERENT process (a full host restart) that must reject
 	// an incompatible wire protocol before it ever tries to rebuild the
 	// battle authority/seat store from this file's body - so the stamp
@@ -2636,7 +2636,7 @@ const std::vector<Base*> *SavedGame::getBases() const
 }
 
 /**
- * coop W2-H89 (docs rewrite/prompts/w2h89_event_hq_base.md H2; R-LH88-1-1 (a), VL-H89-1, VL-H89-2; lh88-1-cap F23450-F23455): the base
+ * coop: the base
  * the game treats as the player's HQ, vanilla's first base. A SEPARATE or PvP world lists the partner's base copies (_coopBase and
  * _coopIcon true, never saved) after the bases it loaded, so after a player loses its first base the first base can be a copy; an
  * event's rewards, its stores check and the research cascades then went there and were lost. Returns the first own base (both flags
@@ -4758,7 +4758,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 	{
 		return false; // all bases lost, game over
 	}
-	Base* base = getCoopHqBase(); // coop W2-H89 H3: a mission topic's cascade runs at the first own base, never a partner's base copy
+	Base* base = getCoopHqBase(); // coop: a mission topic's cascade runs at the first own base, never a partner's base copy
 
 	auto addResearchDiaryEntryForMission = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const AlienDeployment* sourceMission, const RuleResearch* sourceResearch)
 	{

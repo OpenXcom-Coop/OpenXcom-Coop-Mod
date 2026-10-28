@@ -18,7 +18,7 @@ placement: a fresh world is evidence); RESUME only after the host's ack (resume_
           real RESUME); read M; GIFT (host2 -> the resumed client) + PUSH; read G; KILL; REJOIN(3) on host2; read R.
           X3-pre (GUARD) S1, D1, QUICK's mtime after D1's trigger, BOOT2 both GeoscapeState stable.
           X3-sav (GUARD) SAV saveID == id2; exactly one coopClientSaves entry, key host_<id2>_<NAME>.data, its blob saveID == id1 != id2.
-          X3-ids (RED) read M: the resumed client's saveID == host2's == id2.  X3-log (RED) read M: its log holds >= 1 "[coop] W2-H84:" line.
+          X3-ids (RED) read M: the resumed client's saveID == host2's == id2.  X3-log (RED) read M: its log holds >= 1 '[coop] own world "' line.
           X3-host (RED) read G: host2's saveID == id2 and the push line's key == client_<id2>_<NAME>.data.
           X3-rejoin, X3-world, X3-resume (RED) as C2's for client3 on host2.  X3-common (GUARD) host2 + client3 alive, no new crash file.
 Red today (no W2-H84 fix): C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, X3-ids, X3-log, X3-host, X3-rejoin, X3-world, X3-resume

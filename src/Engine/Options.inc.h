@@ -104,15 +104,14 @@ OPT bool EnableHotseatDebugMode;
 // main's "Follow Teammate
 // Actions with Camera" (main Options.inc.h :104-107). On: this machine's camera follows the co-op partner's units
 // as it follows an alien on its own side's turn (coopCameraFollowsPartner(), CoopMod/CoopDelta.h). DEFAULT false
-// here (main: true), so D131 - the partner's actions never move your camera - stays the default. Per player: read
+// here (main: true), so by default the partner's actions never move your camera. Per player: read
 // only on this machine, never on the wire, not in the synced table (CoopMod/CoopSyncedOptions.h); its row is on the
 // Multiplayer options screen (OPTION_OTHER, Battlescape group).
 OPT bool coopFollowPeerActions;
 
-// R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7 packet text, OWNER-1 resolved
-// 2026-08-31): the four CLIENT-SIDE auto-cancel toggles for a busy-held
+// The four CLIENT-SIDE auto-cancel toggles for a busy-held
 // pending battle intent. Per-machine, read LIVE at each evaluation, zero
-// wire/hash impact - cancel policy never touches the protocol. REVIEW4 IR-9:
+// wire/hash impact - cancel policy never touches the protocol. They are
 // real user options with OptionInfo registrations (Options.cpp), never bare
 // statics. All four OFF = pure auto-retry, still safe (plan-validation is not
 // optional).
@@ -121,37 +120,36 @@ OPT bool coopCancelOnOwnUnitHit;
 OPT bool coopCancelOnVisibilityGain;
 OPT bool coopCancelOnAnyPartnerAction;
 
-// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13, parameters WV-D24 / D-11): how
+// How
 // long a co-op CLIENT waits for the host's answer to a battle intent before it
-// gives up, shows STR_COOP_ACTION_TIMEOUT and releases the IR-2 one-slot input
+// gives up, shows STR_COOP_ACTION_TIMEOUT and releases the one-slot input
 // lock. SECONDS; <= 0 disables the timeout entirely. Behind a real user option
-// (SS1 WAVE-1 ADDITIONS / WR-25: an OptionInfo registration, never a
+// (an OptionInfo registration, never a
 // connectionTCP static) so real-network play can tune it without a rebuild.
 OPT int coopIntentTimeoutSeconds;
 
-// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings D-19..D-27 =
-// WV-D55): the HOST's remembered TURN MODE for co-op battles.
+// The HOST's remembered TURN MODE for co-op battles.
 //   "parallel"    - all seats on the active side act simultaneously, actions
-//                   serialized through host admission (SS2.5). THE DEFAULT (D-26).
+//                   serialized through host admission. THE DEFAULT.
 //   "traditional" - one seat commands at a time; END TURN passes the baton.
-// A STRING so it maps 1:1 onto the SS2.W1 wire value with no translation layer.
+// A STRING so it maps 1:1 onto the wire value with no translation layer.
 // Anything other than "traditional" is normalized to parallel, so a hand-edited
 // options.cfg can never put a garbage value on the wire
 // (coopSessionTurnModeFromOptions(), CoopMod/BattleAuthority.h).
 //
 // HOST-ONLY by design: a client's own setting is irrelevant - the host stamps the
-// session's mode onto every battle_offer and the client MIRRORS it (D-19b), the
+// session's mode onto every battle_offer and the client MIRRORS it, the
 // donor's session-decided-once shape. Its user-facing control is the HOST/lobby
-// toggle (D-19), NOT the advanced-options list, which is why the registration
+// toggle, NOT the advanced-options list, which is why the registration
 // below carries no description or category.
 OPT std::string CoopTurnMode;
 
-// the S3 GHOST STEPPER -
+// The GHOST STEPPER -
 // a partner's turn/kneel/walk ANIMATES on the observing machine instead of
-// snapping, display-only (A4: never SavedBattleGame/BattleUnit/Tile - see
-// CoopMod/CoopGhost.h). A real user option (WR-25: an OptionInfo
+// snapping, display-only (never SavedBattleGame/BattleUnit/Tile - see
+// CoopMod/CoopGhost.h). A real user option (an OptionInfo
 // registration, the coopCancelOnAnyPartnerAction precedent above), never a
-// connectionTCP static, so the harness's set_option lever can toggle it.
+// connectionTCP static, so the harness's set_option test command can toggle it.
 // DEFAULT true. Turning it off enqueues nothing (CoopDisplayQueue::
 // onApplied() still applies every ev exactly the same - the option only
 // gates the DISPLAY side) and moves no hash bucket either way.

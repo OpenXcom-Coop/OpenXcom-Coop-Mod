@@ -180,7 +180,7 @@ bool enqueueTx(std::string&& s);
 
 // Clears shared TCP/UDP transport queues and the updateCoopTask hold queue.
 // Call this when leaving a multiplayer session before starting a new one.
-// SPEC 16 M1: @a resetAuthority defaults to true (the full F331
+// @a resetAuthority defaults to true (the full
 // reset, unchanged for every existing caller); connectionTCP::disconnectTCP's
 // host branch and its UDP twin (handleUdpRemotePeerLost) are the ONLY
 // callers that ever pass false, on the one mid-`Active`-battle peer-leave
@@ -199,8 +199,8 @@ class ConfirmCydoniaState;
 class NewBattleState;
 class GeoscapeState;
 class DebriefingState;
-class Soldier; // W2-P7 S-C-C.2 (PR-C10)
-class TextList; // W2-P7 S-C-C.2 (PR-C6)
+class Soldier;
+class TextList;
 class MissionSite;
 class RuleResearch;
 class Base;
@@ -351,7 +351,7 @@ public:
 	static constexpr std::uint32_t NO_DEADLINE_MS = 0xFFFFFFFFu; // VoteMenu's "no countdown" value
 	static bool isAbortAction(const std::string &a) { return a == "abandon_mission"; }
 	std::uint32_t deadlineTicks = 0;
-	bool noDeadline = false; // an abort vote has no deadline and no countdown (set by start(), R4-L1 S-A 2)
+	bool noDeadline = false; // an abort vote has no deadline and no countdown (set by start())
 
 	void clear()
 	{
@@ -602,9 +602,9 @@ class connectionTCP
 	void joinDirectLanUDP(std::string ipaddress, std::string port, std::string localport,
 	                      std::string player, std::string password);
 	void onTCPMessage(std::string data, Json::Value obj);
-	/// R1-P3 quarantine catch-all: true (and drops/logs) if `state` names one of
-	/// the battle-sim wire messages deleted by the vanilla restore
-	/// (inventory-wire-protocol.md sections A-E). See connectionTCP.cpp.
+	/// Quarantine catch-all: true (and drops/logs) if `state` names one of
+	/// the retired battle-sim wire messages
+	/// (see connectionTCP.cpp).
 	static bool legacyBattleMessageDropped(const std::string& state);
 	void sendBaseFile();
 	void sendMissionFile();
@@ -698,7 +698,7 @@ class connectionTCP
 	// streamer (single-client resume-blob lane) so the connected client adopts
 	// it as its replica. Host only; used at SHARED campaign start and resume.
 	void streamSharedWorldToClient();
-	// W2-P7 S-C-A.2 (AMENDMENT P7-6 PR-3/PR-5/PR-6; MR1-MR3): HOST - true once (then cleared) when this battle's SHARED
+	// HOST - true once (then cleared) when this battle's SHARED
 	// post-battle world went out at the debriefing (GeoscapeState's restream is skipped); the world streamer is busy
 	// (SharedEcon's command fence). CLIENT - adopt the streamed world held under @a key in place (false = nothing).
 	bool coopTakePostBattleWorldSent();
@@ -728,20 +728,20 @@ class connectionTCP
 	static void coopPvpClientLeave(Game* game, DebriefingState* db);        // coop: CLIENT, OK-time writes on its own base
 	void coopPvpBorrowBaseDefense(SavedGame* borrowed);       // coop: HOST, the borrow for the X-COM player's base under attack
 	static bool coopPvpRearmBaseDefense();                    // coop: HOST, a failed borrowed base-defence start waits
-	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23/PR-25; D176, MR14): CLIENT - page 3 live on the adopted world (every adoption);
+	// CLIENT - page 3 live on the adopted world (every adoption);
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);
 	static void coopDebriefRecoveredSold(Game* game, const Json::Value& payload, bool sell);
 	// CLIENT, SHARED - the campaign OK's last step: vanilla's forced
 	// containment / storage screens on the adopted world for whatever is still over its limit.
 	static void coopSharedForcedScreens(Game* game, DebriefingState* db);
-	// W2-P7 S-C-B1.2 (AMENDMENT P7-6 section 4.2, PR-13/PR-15; D155 (a), D156 (a), MR4, MR6): CLIENT - snapshot the live
+	// CLIENT - snapshot the live
 	// own world at a SEPARATE battle entry (true iff taken), and at the OK load it, apply each guest row's record by the
 	// owner's own id, return to the own geoscape in place and push the own world to the host (false blob -> main menu).
 	bool coopSepEntrySnapshot();
 	bool coopSeparateReturn(DebriefingState* db, const char* phaseAtOk);
-	// W2-P7 S-C-C.2 (P7-6 C re-pin PR-C5/PR-C6/PR-C10; D154, D177 (a)): `[Player] Name` for another seat's soldier
-	// on every co-op debrief (AUD-A07; else the plain name); the host's page-2 name site; PromotionsState's row hook (the client's
+	// `[Player] Name` for another seat's soldier
+	// on every co-op debrief (else the plain name); the host's page-2 name site; PromotionsState's row hook (the client's
 	// chain only, true = rows filled); CLIENT - the after-battle follow-up screens at its campaign OK.
 	static std::string coopSeatDisplayName(int seat, const std::string& rawName);
 	static std::string coopSoldierDisplayName(Soldier* soldier);
@@ -780,10 +780,10 @@ class connectionTCP
 	void writePendingHostSave();
 	bool inventory_battle_window = true; // Do not use inventory if another player joins a saved game
 	static bool getServerOwner();
-	// R2-P5 (rewrite spike, RB-D6 pattern): minimal static accessor to the
+	// Minimal static accessor to the
 	// live SavedBattleGame, mirroring localSeat()/getServerOwner()'s existing
 	// static-accessor shape. CoopArbiter::onIntent() has no save/game
-	// parameter in its frozen signature (SPIKE-RUNBOOK.md ss5, R2-P5), so it
+	// parameter in its signature, so it
 	// needs this to reach the battle without touching the private _staticGame
 	// directly. Returns nullptr if no battle (or no game) is live.
 	static SavedBattleGame* getStaticBattle();
@@ -806,17 +806,17 @@ class connectionTCP
 	int64_t playersBases = 0; // Stores the bases of all players
 	void setHost(bool host);
 	static bool playerInsideCoopBase; // is the player really in another player's base?
-	// coop W2-H70 S-B (docs rewrite/prompts/w2h70_sb_display_copy.md EB1; L-TR9-1, R-TR9-1; F20420-F20426): the display-only copies the
+	// coop: the display-only copies the
 	// visit deferral of a received gift adds to the visited base's view (connectionTCP.cpp, "RECV deferred (viewing peer base)"). The view's
 	// write-backs to "basehost" (SoldiersState / CraftInfoState / SackSoldierState OK) skip them; CoopState 55 empties the set when it builds
 	// the next view. Identity tokens, never dereferenced.
 	static std::set<const Soldier*> visitDisplayCopies;
-	// coop W2-H70 S-C (docs rewrite/prompts/w2h70_sc_window_67.md EC1; L-H70-2, R-H70-4; F20442, F20447, F20448): true while this
+	// coop: true while this
 	// machine's live SEPARATE world is the partner's base view (connectionTCP.cpp coopLiveWorldIsPeerView), also after a "Go to Geoscape"
 	// prompt (CoopState 67) cleared the visit flag while the player stays on a base screen. Read by the base screens' OK.
 	static bool liveWorldIsPeerView(Game* game);
 	bool coopMissionEnd = false; // is the co-op mission completed?
-	// the three DebriefingState hooks (vanilla V3/V4/V5; DebriefingState befriends
+	// The three DebriefingState hooks (DebriefingState befriends
 	// this class). coopDebriefClientFill: a skirmish client's display-only debrief
 	// fills its pages from the host's stored bt_debrief_result instead of running
 	// prepareDebriefing() (true = handled). coopDebriefClientFinish: that
@@ -827,7 +827,7 @@ class connectionTCP
 	bool coopDebriefClientFill(DebriefingState* db);
 	bool coopDebriefClientFinish(DebriefingState* db);
 	void coopDebriefHostSend(DebriefingState* db);
-	// vanilla V6, the first statement of DebriefingState::btnOkClick - a co-op skirmish
+	// Called as the first statement of DebriefingState::btnOkClick - a co-op skirmish
 	// battle-end debriefing's OK (the client leaves via GoToMainMenuState: true = handled; the host resets its battle
 	// scope: false = vanilla's own exit). A no-op returning false for any other debriefing.
 	bool coopDebriefOk(DebriefingState* db);
@@ -893,7 +893,7 @@ class connectionTCP
 	// this is a SEPARATE campaign with research sync on). ResearchCompleteState sends
 	// completed projects; GeoscapeEventState sends research an event granted.
 	// coop: senderSideEffects = this world ran the topics' side effects (spawned their events): true from
-	// ResearchCompleteState and GeoscapeEventState, false for a mission outcome (SavedGame::handleResearchUnlockedByMissions, F21101).
+	// ResearchCompleteState and GeoscapeEventState, false for a mission outcome (SavedGame::handleResearchUnlockedByMissions).
 	void sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base, bool senderSideEffects = false);
 
 	// SEPARATE certain-event sync: a certain geoscape event (odds 100, one possible
@@ -1308,7 +1308,7 @@ class connectionTCP
 	// per peer base so the base that HOUSES a soldier is the one that pays for
 	// it. Sends only when the tally actually changed; call freely.
 	void sendGuestCensus(bool force = false);
-	// SPEC 19 M2 Branch B: per-tick census of THIS machine's guest
+	// Per-tick census of THIS machine's guest
 	// soldiers seated on a peer craft (getCoopBase()/getCoopCraft() both set),
 	// grouped by destination (baseId/craftId/craftType) and sent as
 	// battle_roster_contrib (BattleWire.h) so the host can materialise them at

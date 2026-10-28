@@ -147,7 +147,7 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				ArrivalRow row;
 				row.type = transfer->getType();
 				row.name = transfer->getName(_game->getLanguage());
-				// coop W2-A12b (AUD-A12): what a SHARED replica renders the name from in its own language - an item or personnel
+				// coop: what a SHARED replica renders the name from in its own language - an item or personnel
 				// key; a craft's type + id while it keeps its default name; "" for a soldier or a custom craft name
 				row.nameKey = transfer->getType() == TRANSFER_ITEM ? transfer->getItems()->getType()
 					: transfer->getType() == TRANSFER_SCIENTIST ? std::string("STR_SCIENTISTS")

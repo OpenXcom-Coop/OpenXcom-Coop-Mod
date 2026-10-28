@@ -278,7 +278,7 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 		// (Target::saveId persists lon/lat) so the craft keeps heading where it was
 		// going. STR_BASE is already resolved above; STR_CRAFT is relinked later in
 		// finishLoading; both are excluded so their handling is untouched.
-		// coop W2-H51 (L-H48-1): a partner's craft mirror gets no interim waypoint - the craft holds with no destination (as a patrolling
+		// coop: a partner's craft mirror gets no interim waypoint - the craft holds with no destination (as a patrolling
 		// craft does) until relinkCoopDestination rebinds it, so it never flies to the stale point or reports reaching a waypoint.
 		if (getDestination() == 0 && type != "STR_BASE" && type != "STR_CRAFT" && !reader["coopDestCraftBaseId"])
 		{
@@ -293,8 +293,8 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 	// coop (issue #28): pending re-link ids for a stripped shared destination.
 	reader.tryRead("coopDestUfoId", _coopDestUfoId);
 	reader.tryRead("coopDestMissionId", _coopDestMissionId);
-	reader.tryRead("coopDestAlienBaseId", _coopDestAlienBaseId); // coop W2-H48 (L-H44-1): a mirrored alien-base destination
-	// coop W2-H51 (L-H48-1): a partner's craft mirror - its base's coop id; the craft's rule type and id are the saved dest's own
+	reader.tryRead("coopDestAlienBaseId", _coopDestAlienBaseId); // coop: a mirrored alien-base destination
+	// coop: a partner's craft mirror - its base's coop id; the craft's rule type and id are the saved dest's own
 	if (reader.tryRead("coopDestCraftBaseId", _coopDestCraftBaseId) && _coopDestCraftBaseId != 0 && reader["dest"])
 	{
 		_coopDestCraftType = reader["dest"]["type"].readVal<std::string>();
@@ -329,7 +329,7 @@ void Craft::load(const YAML::YamlNodeReader& node, const ScriptGlobal *shared, c
 void Craft::finishLoading(const YAML::YamlNodeReader& reader, SavedGame *save)
 {
 	if (_coopDestCraftBaseId != 0)
-		return; // coop W2-H51 (L-H48-1): the dest is the partner's craft mirror (never saved here), rebound by relinkCoopDestination
+		return; // coop: the dest is the partner's craft mirror (never saved here), rebound by relinkCoopDestination
 	if (const auto& dest = reader["dest"])
 	{
 		std::string type = dest["type"].readVal<std::string>();
@@ -395,8 +395,8 @@ bool Craft::relinkCoopDestination(SavedGame* save)
 			}
 		}
 	}
-	// coop W2-H48 (L-H44-1): a mirrored alien base, stripped from every serialized world like a UFO / site mirror, found by the
-	// owner's coop id (kept across the owner's save by W2-H44); the mirror sync rebuilds it with that id before this runs.
+	// coop: a mirrored alien base, stripped from every serialized world like a UFO / site mirror, found by the
+	// owner's coop id (kept across the owner's save); the mirror sync rebuilds it with that id before this runs.
 	if (_coopDestAlienBaseId != 0)
 	{
 		for (auto* ab : *save->getAlienBases())
@@ -409,7 +409,7 @@ bool Craft::relinkCoopDestination(SavedGame* save)
 			}
 		}
 	}
-	// coop W2-H51 (L-H48-1): the partner's craft mirror sits in the partner's coop-icon base (stripped from every serialized world);
+	// coop: the partner's craft mirror sits in the partner's coop-icon base (stripped from every serialized world);
 	// the target_positions mirror sync rebuilds it with the owner's base coop id, craft id and rule type before this runs.
 	if (_coopDestCraftBaseId != 0)
 	{
@@ -486,7 +486,7 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 			writer.write("coopDestUfoId", du->getCoopUfoId());
 		else if (MissionSite* dm = dynamic_cast<MissionSite*>(_dest); dm && dm->getCoop())
 			writer.write("coopDestMissionId", dm->getCoopMissionId());
-		else if (AlienBase* da = dynamic_cast<AlienBase*>(_dest); da && da->_coop) // coop W2-H48 (L-H44-1)
+		else if (AlienBase* da = dynamic_cast<AlienBase*>(_dest); da && da->_coop) // coop
 			writer.write("coopDestAlienBaseId", da->_coop_alienbase_id);
 		else if (Craft* dc = dynamic_cast<Craft*>(_dest); dc && dc->coop && dc->getBase() && dc->getBase()->_coopIcon) // coop
 			writer.write("coopDestCraftBaseId", dc->getBase()->_coop_base_id);

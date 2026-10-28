@@ -23,7 +23,7 @@ OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 GIFT_ROW, GIVE_KEY, SETTLE_MENU = (68, 44), 258, 1.0   # SoldiersState row 0 / Options::giveUnit (SDLK_KP2) / HUN's menu settle
 STABLE_S, BOOT_S, SAVE_S, SEEN_S, DROP_S, JOIN_S, ACK_S = 5.0, 90.0, 20.0, 10.0, 5.0, 10.0, 30.0
 GIFT_S, W_PUSH, W_STORE, HOLD, HOLD_R = 10.0, 10.0, 10.0, 2.0, 3.0
-PUSH, KEPT = "[coop-gift] pushed client progress to host (", "[coop] W2-H84:"
+PUSH, KEPT = "[coop-gift] pushed client progress to host (", '[coop] own world "'
 
 class Stop(Exception):
     """a precondition missed: the row ends here"""
@@ -170,7 +170,7 @@ def own(gc):  # ----- reads ----- geo_state bases with coopIcon false as [name, 
 
 ownsold = soldier_names  # the machine's own soldiers' names (CAP soldier_names)
 
-def kept(gc):  # the count of "[coop] W2-H84:" lines in the machine's log (0 on a build without E1)
+def kept(gc):  # the count of '[coop] own world "' lines in the machine's log (0 on a build without E1)
     return sum(1 for ln in F.logl(gc) if KEPT in ln)
 
 def ids(host, gc):  # [get_coop.saveID, save_markers.saveID] of both machines

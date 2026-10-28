@@ -16,7 +16,7 @@ beyond MAX_VIEW_DISTANCE) and is also confirmed empirically
 While that walk is in flight (>=2 steps still pending), the client
 disconnects. This exact fixture was measured REPRODUCIBLE 3/3 at tip
 bb2a14dae before any M1/M2 code existed. WV-D77 evidence folded in:
-battle_teleport is a dead "rewrite-pending" stub (TestServer.cpp) - the live
+battle_teleport is a dead "unsupported" stub (TestServer.cpp) - the live
 lever is battle_teleport_unit; the runtime set_option command has no case
 for battleXcomSpeed - the live lever is the boot-time options.cfg field via
 make_user_dir(options=...); the New Battle levers are newbattle_mission/

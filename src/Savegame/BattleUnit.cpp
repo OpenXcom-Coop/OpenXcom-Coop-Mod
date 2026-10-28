@@ -1004,7 +1004,7 @@ void BattleUnit::setDirection(int direction)
 }
 
 /**
- * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): instant turret-only
+ * Instant turret-only
  * direction set. Mirrors setDirection() above but never touches the body's
  * own _direction/_toDirection - used by the coop client applier for a
  * turretOnly bt_ev turn, where the body facing did not change.
@@ -2718,7 +2718,7 @@ void BattleUnit::prepareHealth(int health)
 
 	// if unit is dead, AI state should be gone
 	// See BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration() for the
-	// generation-time counterpart (co-op determinism, WV-D62).
+	// generation-time counterpart (co-op determinism).
 	if (_health <= 0 && _currentAIState)
 	{
 		delete _currentAIState;
@@ -4763,9 +4763,9 @@ void BattleUnit::setTimeUnits(int tu)
 }
 
 /**
- * R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): absolute energy set -
+ * Absolute energy set -
  * the coop client-apply counterpart of setTimeUnits() above. Turn/kneel
- * never actually change energy in vanilla, but SS2.4's action_end.final
+ * never actually change energy in vanilla, but action_end.final
  * carries it unconditionally as part of the unit's full post-action state;
  * clamped to [0, stamina] via the same setValueMax() delta-to-target trick
  * vanilla's own internal energy mutations use.
@@ -4777,7 +4777,7 @@ void BattleUnit::setEnergy(int energy)
 }
 
 /**
- * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute health set for
+ * Absolute health set for
  * the `side_transition` restate applier. Plain assignment - no regen/clamp
  * cascade, unlike the delta-based prepareHealth()/heal() or the special-cased
  * kill()/instaKill().
@@ -4884,7 +4884,7 @@ void BattleUnit::coopSetBodyDirection(int dir)
  * ABSOLUTE overwrite, half two: decode the wire map through the identical
  * path BattleUnit::load uses for the "tags" key - a one-node YAML document
  * {tags: {...}} handed to _scriptValues.load(reader, shared).
- * Runs no script and draws no RNG (A2).
+ * Runs no script and draws no RNG.
  * @param tags wire-decoded tag name -> script value pairs
  * @param shared the mod's ScriptGlobal (same pointer BattleUnit::load/save use)
  */
@@ -4914,7 +4914,7 @@ void BattleUnit::coopSetScriptValues(const std::vector<std::pair<std::string, in
 
 /**
  * absolute special-ability set, for the test-only
- * battle_set_unit_state {specab} lever (test_delta_core.py's burning-floor
+ * battle_set_unit_state {specab} test command (test_delta_core.py's burning-floor
  * walker). _specab is otherwise derived from the armor/unit rules. Plain
  * assignment - no RNG, no rules evaluation.
  * @param specab new SpecialAbility value

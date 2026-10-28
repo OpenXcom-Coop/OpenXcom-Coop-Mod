@@ -64,7 +64,7 @@
 #include "../Engine/State.h"
 #include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
-#include "../Geoscape/Globe.h" // W2-H65 P0: globe_point
+#include "../Geoscape/Globe.h" // globe_point
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
@@ -84,7 +84,7 @@
 #include "../Battlescape/BattlescapeGame.h"
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/InventoryState.h"
-#include "../Interface/TextEdit.h" // W2-H20b (test-only)
+#include "../Interface/TextEdit.h" // (test-only)
 #include "../Battlescape/Inventory.h"
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/AbortMissionState.h"
@@ -105,7 +105,7 @@
 #include "../Battlescape/Camera.h"
 #include "../Battlescape/Explosion.h" // display_rules constants HIT_FRAMES
 #include "../Battlescape/WarningMessage.h" // inventory_view lineText / lineVisible
-#include "../Interface/Cursor.h" // W2-H27 (test-only, QH27-3): battle_state cursorVisible
+#include "../Interface/Cursor.h" // (test-only): battle_state cursorVisible
 #include "../Savegame/BattleItem.h"
 #include "../Mod/RuleItem.h"
 #include "../Mod/RuleInventory.h"
@@ -118,7 +118,7 @@
 #include "../Savegame/Country.h"
 #include "../Mod/RuleCountry.h"
 #include "../Savegame/Craft.h"
-#include "../Savegame/Vehicle.h" // W2-H20c (test-only)
+#include "../Savegame/Vehicle.h" // (test-only)
 #include "../Savegame/GameTime.h"
 #include "../Savegame/MissionSite.h"
 #include "../Savegame/ResearchProject.h"
@@ -134,7 +134,7 @@
 #include "../Savegame/Region.h" // geo_event_probe
 #include "../Mod/RuleRegion.h"  // geo_event_probe
 #include "../Mod/City.h"        // geo_event_probe
-#include "../Mod/RuleInterface.h" // screen_rows highlightColor (P7-8 PR-51)
+#include "../Mod/RuleInterface.h" // screen_rows highlightColor
 #include "../Savegame/SoldierDiary.h"         // soldier_record
 #include "../Savegame/SoldierDeath.h"         // soldier_record
 #include "../Savegame/MissionStatistics.h"    // soldier_record
@@ -144,7 +144,7 @@
 #include "../Savegame/Tile.h"
 #include "../Savegame/Node.h" // field_poke's node `type` row
 #include "../Battlescape/TileEngine.h"
-// R2-P11: corrupt_bucket's terrain-bucket poke needs a MapData* to install
+// corrupt_bucket's terrain-bucket poke needs a MapData* to install
 // via Tile::setMapData - the same SavedBattleGame::load()-precedent lookup
 // (getMapDataSets()->at(setId)->getObject(id)).
 #include "../Mod/MapData.h"
@@ -233,24 +233,23 @@
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
 #include "CoopState.h"
-// R2-P11: the rewrite-spike battle-lane
-// introspection surface below needs the real APIs it reports on.
+// The battle-lane introspection surface below needs the real APIs it reports on.
 #include "BattleAuthority.h"
 #include "BattlePump.h"
 #include "BattleWire.h"
 #include "CoopArbiter.h"
 #include "CoopHandshake.h"
-#include "CoopBattleUi.h" // FX-1: coopHostInputFrozenRefusals()
+#include "CoopBattleUi.h" // coopHostInputFrozenRefusals()
 #include "CoopReveal.h"
 #include "CoopFog.h"
 #include "CoopDoor.h"
 #include "CoopGhost.h" // event_state's ghostEnqueued/ghostCompleted/ghostQueueDepth
-#include "CoopEndTurn.h" // battle_end_turn_ready lever + event_state's coopEndTurn* fields
+#include "CoopEndTurn.h" // battle_end_turn_ready test command + event_state's coopEndTurn* fields
 #include "CoopSpeed.h" // event_state's speed + three set_option arms
-#include "CoopDelta.h" // event_state's delta probes + the delta_drop_next lever
-#include "CoopIdMaps.h" // item levers register/forget their ids (spec (b)15)
+#include "CoopDelta.h" // event_state's delta probes + the delta_drop_next test command
+#include "CoopIdMaps.h" // item test commands register/forget their ids
 #include "CoopBattleSetup.h"
-#include "CoopSyncedOptions.h" // synced_options_state + the three synced-option levers
+#include "CoopSyncedOptions.h" // synced_options_state + the three synced-option test commands
 #include "GiftNoticeState.h"
 #include "GiftSoldierMenu.h"
 #include "VoteMenu.h"
@@ -258,7 +257,7 @@
 #include "../Interface/Text.h"
 #include "../Interface/TextList.h" // the debrief_state probe reads the DebriefingState lists
 #include "../Interface/TextButton.h"
-#include "../Menu/OptionsAdvancedState.h" // the `advanced` view of synced_options_state (PR-13)
+#include "../Menu/OptionsAdvancedState.h" // the `advanced` view of synced_options_state
 #include "../Interface/BattlescapeButton.h" // map_tile_click_pos special-action buttons
 #include "../Engine/InteractiveSurface.h"
 
@@ -755,8 +754,8 @@ void TestServer::ioThread(int port)
 	SDLNet_FreeSocketSet(set);
 }
 
-// W2-P8 S-C2.3 (F2924, orchestrator ruling SC2-G1): TEST-ONLY. A key pressed from the harness reaches the game
-// two TCP round trips after the harness decides to press it; an enemy side of ~80 ms (the pinned-neutral aliens)
+// TEST-ONLY. A key pressed from the harness reaches the game
+// two TCP round trips after the harness decides to press it; an enemy side of ~80 ms (aliens a test set neutral)
 // is over before that. `battle_arm_key {key, side, timeoutMs}` arms the press here, in the game thread: on the
 // first pump pass where the battle's side is `side` AND the top state is a BattlescapeState, the key goes into
 // SDL's queue ONCE through inject_input's own key path (testServerPushKey), so this frame's event loop handles it.
@@ -890,7 +889,7 @@ static Uint32 g_u7ArmDeadline = 0;
 
 // TEST-ONLY frame stand-in for a loaded machine. `slow_top {type, ms, timeoutMs}` arms it: on every pump pass
 // whose top state's name contains `type`, pump sleeps `ms` (1..100) after its own work, so that state lives that much longer per frame
-// (W2i F7704: the client's own-world LoadGameState took 247 ms at 100 % CPU vs ~25 ms quiet). {off: true} disarms; neither only reports.
+// (the client's own-world LoadGameState took 247 ms at 100 % CPU vs ~25 ms quiet). {off: true} disarms; neither only reports.
 static Json::Value g_u7cSlow(Json::objectValue);
 static bool g_u7cSlowArmed = false;
 static std::string g_u7cSlowType;
@@ -1151,15 +1150,15 @@ static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
  * new commands go here rather than deepening it. Returns true if @a cmd was one of
  * ours (and @a resp was filled).
  */
-void coopTestStreamKeyMissSet(bool on); // coop W2-H66 P1d: connectionTCP.cpp P1a (TEST-ONLY lever)
-void coopTestHoldBaseResultSet(int ms); // coop W2-H71 P2a: connectionTCP.cpp P1a (TEST-ONLY lever)
+void coopTestStreamKeyMissSet(bool on); // coop: connectionTCP.cpp (TEST-ONLY hook)
+void coopTestHoldBaseResultSet(int ms); // coop: connectionTCP.cpp (TEST-ONLY hook)
 
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
 
-	// coop EQ-3 S-C (docs rewrite/prompts/eq3c_held.md CT3; QEQ3-13 (a); TEST-ONLY lever, either machine): {"on": true | false} -
-	// while on, this machine keeps its current mapping of the partner's held item on a base screen (connectionTCP.cpp CT1); off maps
+	// coop (TEST-ONLY hook, either machine): {"on": true | false} -
+	// while on, this machine keeps its current mapping of the partner's held item on a base screen (connectionTCP.cpp coopTestBaseHeldDefer); off maps
 	// it at the next pump pass. Response {ok, on}.
 	if (cmd == "base_held_defer")
 	{
@@ -1169,7 +1168,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop W2-H66 (P1d; TEST-ONLY lever, either machine): {"on": true | false} arms / disarms connectionTCP.cpp P1a.
+	// coop (TEST-ONLY hook, either machine): {"on": true | false} arms / disarms connectionTCP.cpp's forced stream-key miss.
 	if (cmd == "force_stream_key_miss")
 	{
 		coopTestStreamKeyMissSet(req.get("on", false).asBool());
@@ -1178,8 +1177,8 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop EQ-2 S-B (docs rewrite/prompts/eq2b_hold.md BT3; QEQ2-13 (a); TEST-ONLY lever, HOST): {"on": true | false} - while on, the
-	// host's pre-battle hold table waits (connectionTCP.cpp BT1); off sends the newest one at the next pump pass. Response {ok, on}.
+	// coop (TEST-ONLY hook, HOST): {"on": true | false} - while on, the
+	// host's pre-battle hold table waits (connectionTCP.cpp coopTestEquipHoldsDefer); off sends the newest one at the next pump pass. Response {ok, on}.
 	if (cmd == "equip_holds_defer")
 	{
 		coopTestEquipHoldsDefer(req.get("on", false).asBool());
@@ -1188,8 +1187,8 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop W2-H71 (P2b; TEST-ONLY lever, either machine): {"ms": 0..3000} holds this machine's next base view that long
-	// (connectionTCP.cpp P1a); 0 disarms. Response {ok, ms (the value armed, clamped)}.
+	// coop (TEST-ONLY hook, either machine): {"ms": 0..3000} holds this machine's next base view that long
+	// (connectionTCP.cpp coopTestHoldBaseResult); 0 disarms. Response {ok, ms (the value armed, clamped)}.
 	if (cmd == "hold_base_result")
 	{
 		const int ms = req.get("ms", 0).asInt();
@@ -2227,8 +2226,8 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "resync_hold")
 	{
-		// coop R4-L3 (QL3-5 (a); TEST-ONLY, HOST): {on: true|false} arms / disarms the repair hold; without `on` it only
-		// reports. Armed, a desync report is logged and not repaired (today's halt). Response {ok, armed}.
+		// coop (TEST-ONLY, HOST): {on: true|false} arms / disarms the repair hold; without `on` it only
+		// reports. Armed, a desync report is logged and not repaired. Response {ok, armed}.
 		if (req.isMember("on"))
 			coopResyncHoldArm(req.get("on", false).asBool());
 		resp["armed"] = coopResyncRecord().get("holdArmed", false).asBool();
@@ -2236,14 +2235,14 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "resync_ready_mismatch")
 	{
-		// coop R4-L3 S-B (TEST-ONLY, HOST): one-shot - the next automatic repair offer expects a wrong copy hash. {ok, armed}.
+		// coop (TEST-ONLY, HOST): one-shot - the next automatic repair offer expects a wrong copy hash. {ok, armed}.
 		coopTestResyncReadyMismatchArm();
 		resp["armed"] = true;
 		resp["ok"] = true;
 	}
 	else if (cmd == "desync_dialog")
 	{
-		// coop R4-L3 S-C (`main` TS :7055-:7093's shape, kept for RV-U9's test_crash_reporter): the notice on top (live) and
+		// coop (the reply shape of `main`'s desync_dialog, kept for test_crash_reporter): the notice on top (live) and
 		// the statics of the last one raised (they survive its dismissal).
 		resp["ok"] = true;
 		State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
@@ -2377,7 +2376,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		resp["unknownCount"] = Json::Value::UInt64(st.unknown);
 		resp["lastFail"] = SharedEcon::lastFailReason();
 		resp["applyQueued"] = SharedEcon::applyQueueDepth(); // the replica's queued shared_apply count
-		resp["applyHold"] = SharedEcon::applyHoldOn(); // the replica's PR-6 apply hold
+		resp["applyHold"] = SharedEcon::applyHoldOn(); // the replica's apply hold
 		resp["ok"] = true;
 	}
 	else if (cmd == "shared_reset_stats")
@@ -3183,16 +3182,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			states.append(e);
 		}
 		resp["states"] = states;
-		// W1-P3 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / WR-24), ADDITIVE - the
-		// per-state "colors" above report each State's OWN stored _palette, which
-		// a BriefingState round trip never touches, so a before/after compare on it
-		// alone is VACUOUS for the trap WR-24 actually names. What BriefingState
-		// really moves is the SCREEN: its ctor sets the GEOSCAPE base resolution +
-		// resetDisplay() and setStandardPalette("PAL_GEOSCAPE", ...)
+		// ADDITIVE - the per-state "colors" above report each State's OWN stored
+		// _palette, which a BriefingState round trip never touches, so a
+		// before/after compare on it alone is VACUOUS for the screen trap. What
+		// BriefingState really moves is the SCREEN: its ctor sets the GEOSCAPE base
+		// resolution + resetDisplay() and setStandardPalette("PAL_GEOSCAPE", ...)
 		// (BriefingState.cpp:58-60), and btnOkClick sets the BATTLESCAPE values back
-		// (:297-300). W1-P3 pushes that state OVER a live BattlescapeState on the
-		// client, so these three are what make "the map still renders correctly
-		// afterwards" a real assertion instead of "no crash".
+		// (:297-300). The client pushes that state OVER a live BattlescapeState, so
+		// these three are what make "the map still renders correctly afterwards" a
+		// real assertion instead of "no crash".
 		{
 			Json::Value screen(Json::objectValue);
 			screen["baseXResolution"] = Options::baseXResolution;
@@ -3300,7 +3298,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			// live battle still reads on every frame (Tile::animate ->
 			// Tile::updateSprite -> MapData::getDataset()->getSurfaceset(), a freed
 			// MapDataSet*). Same borrowed-pointer family as issue #124 and the
-			// turn_mode_save_roundtrip lever above. Detach `fresh`'s copy of the
+			// turn_mode_save_roundtrip test command above. Detach `fresh`'s copy of the
 			// vector before deleting it so its dtor has nothing to unload; Mod
 			// still owns (and keeps using) the real objects.
 			if (fresh->getSavedBattle())
@@ -3313,15 +3311,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "turn_mode_save_roundtrip")
 	{
-		// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D owner rulings D-20/D-21
-		// revision "D.1" = WV-D55; test-lever discipline RB-D26): prove the
+		// TEST-ONLY: prove the turn-mode
 		// BATTLE-SAVE hook pair END TO END - SavedBattleGame::save writes the key
-		// and the D.1 READER reads it back to the same value - without disturbing
+		// and the READER (coopLoadTurnMode) reads it back to the same value -
+		// without disturbing
 		// the live co-op session.
 		//
-		// ===== WHY THIS DOES NOT LOAD A THROWAWAY SavedGame (fix, WV-D5) =====
-		// The first version of this lever copied reload_save_roundtrip's shape:
-		// `new SavedGame()` -> `load()` -> `delete`. That KILLED THE HOST PROCESS
+		// ===== WHY THIS DOES NOT LOAD A THROWAWAY SavedGame =====
+		// Copying reload_save_roundtrip's shape here -
+		// `new SavedGame()` -> `load()` -> `delete` - kills the host process
 		// about one run in three, and the mechanism is structural, not a race in
 		// this command:
 		//   * SavedBattleGame::load() populates _mapDataSets from
@@ -3342,8 +3340,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		// is parsed as data and `coopLoadTurnMode()` (the exact function
 		// SavedBattleGame::load calls, at SavedBattleGame.cpp's own hook site) is
 		// handed the exact `battleGame` node it would have been handed. The
-		// PRODUCT hooks are untouched; only the lever's method of proving them
-		// changed.
+		// PRODUCT hooks run unmodified; only their input (a detached node) is
+		// the test's own.
 		//
 		// coopLoadTurnMode() writes the ONE global BattleAuthority mirror, so the
 		// live value is snapshotted, deliberately POISONED to the opposite value,
@@ -3420,10 +3418,10 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (type == "quick_battle")
 		{
-			// SPEC 18 (r4 T4) M7: the real F5/quick-save path
-			// (BattlescapeState.cpp) for a MID-BATTLE coop save, so S1-S3's
-			// host save goes through SaveGameState (M8's chokepoint) rather
-			// than the direct save_game lever. Unlike save_game_ui's other
+			// The real F5/quick-save path
+			// (BattlescapeState.cpp) for a MID-BATTLE coop save, so a test's
+			// host save goes through SaveGameState rather than the direct
+			// save_game test command. Unlike save_game_ui's other
 			// types this one is OPT_BATTLESCAPE - the same call shape as the
 			// real F5 key.
 			_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_QUICK, _game->getScreen()->getPalette()));
@@ -3725,7 +3723,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (name == "battleXcomSpeed")
 		{
-			// a fixture's per-machine dial. MEMORY ONLY
+			// a test's per-machine dial. MEMORY ONLY
 			// (never Options::save) - CoopSpeed::onLocalChanged() (per-tick
 			// pump) picks the new value up and reports/republishes it.
 			Options::battleXcomSpeed = req.get("value", Options::battleXcomSpeed).asInt();
@@ -3744,7 +3742,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else if (name == "coopCancelOnEnemySpotted" || name == "coopCancelOnOwnUnitHit"
 			|| name == "coopCancelOnVisibilityGain" || name == "coopCancelOnAnyPartnerAction")
 		{
-			// R2-P7 (SPIKE-RUNBOOK.md R2-P7, OWNER-1): the four CLIENT-SIDE
+			// The four CLIENT-SIDE
 			// auto-cancel toggles. Per-machine, so a test sets them on
 			// whichever instance it is driving. Extending the existing
 			// set_option dispatcher (never a second command).
@@ -3766,17 +3764,16 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (name == "CoopTurnMode")
 		{
-			// W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D, owner rulings
-			// D-19..D-21/D-26 = WV-D55): the HOST's remembered TURN MODE. A real
-			// OptionInfo in options.cfg (WR-25), which is precisely what lets this
-			// lever exist - and it EXTENDS this dispatcher rather than adding a
-			// second command (R2-P7 shape).
+			// The HOST's remembered TURN MODE. A real
+			// OptionInfo in options.cfg, which is precisely what lets this
+			// test command exist - and it EXTENDS this dispatcher rather than adding a
+			// second command (the toggles' shape above).
 			//
 			// Same round-trip contract as the toggles above: "value" is OPTIONAL
 			// (omit it for a pure read) and the response echoes the LIVE
 			// Options:: global AFTER the write. `normalized` is what the game will
 			// ACTUALLY put on the wire - anything but "traditional" is parallel
-			// (D-26) - so a test can tell a stored garbage value apart from the
+			// - so a test can tell a stored garbage value apart from the
 			// mode it degrades to.
 			if (req.isMember("value"))
 				Options::CoopTurnMode = req["value"].asString();
@@ -3786,11 +3783,9 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (name == "coopIntentTimeoutSeconds")
 		{
-			// W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13, parameters WV-D24): the
-			// client-side intent round-trip timeout, in SECONDS. A REAL user option
+			// The client-side intent round-trip timeout, in SECONDS. A REAL user option
 			// (Options.inc.h + an Options.cpp OptionInfo registration), never a
-			// connectionTCP static - SS1 WAVE-1 ADDITIONS / WR-25 makes that a hard
-			// requirement, precisely so this lever can exist. Same round-trip shape
+			// connectionTCP static, precisely so this test command can exist. Same round-trip shape
 			// as the four bool toggles above: "value" is OPTIONAL (omit it for a pure
 			// read) and the response always echoes the LIVE Options:: global read
 			// back AFTER the write.
@@ -3801,8 +3796,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (name == "coopGhostStepper")
 		{
-			// the S3 ghost stepper toggle.
-			// Same round-trip shape as every lever above - "value" is OPTIONAL
+			// the ghost stepper toggle (Options::coopGhostStepper).
+			// Same round-trip shape as every test command above - "value" is OPTIONAL
 			// (omit it for a pure read) and the response echoes the LIVE
 			// Options:: global read back AFTER the (possible) write.
 			if (req.isMember("value"))
@@ -3812,10 +3807,9 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else if (name == "battleAutoEnd")
 		{
-			// W2-P7 S-A.1 (spec rewrite/prompts/w2p7_battle_end.md R3.5, N6 =
-			// F1855): vanilla's auto-end option (Options.cpp "battleAutoEnd",
-			// default false) - the lever C28S's autoEnd path needs. Same round-trip
-			// shape as every lever above: "value" is OPTIONAL (omit it for a pure
+			// Vanilla's auto-end option (Options.cpp "battleAutoEnd",
+			// default false), for a test of the auto-end path. Same round-trip
+			// shape as every test command above: "value" is OPTIONAL (omit it for a pure
 			// read) and the response echoes the LIVE Options:: global read back
 			// AFTER the (possible) write. Memory only, never Options::save.
 			if (req.isMember("value"))
@@ -3825,7 +3819,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		}
 		else
 		{
-			// D249-U red (docs rewrite/prompts/d249u_follow_teammate_camera.md (e) TB1): TEST-ONLY - any other REGISTERED
+			// TEST-ONLY - any other REGISTERED
 			// bool option by id, with the round trip of the branches above ("value" optional, omit it for a pure read; the
 			// reply echoes the live global read back after the write, plus the option's description, category and owner;
 			// memory only, never Options::save). An id with no bool OptionInfo keeps the error.
@@ -3917,13 +3911,13 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 					for (auto* u : *sg->getUfos())
 						if (u->getId() == id) { craft->setDestination(u); break; }
 				}
-				else if (dest.rfind("ufoCoop:", 0) == 0) // coop D250-U S-C5a (TEST-ONLY): a coop mirror UFO by its coop id (a mirror's Target id is 0)
+				else if (dest.rfind("ufoCoop:", 0) == 0) // coop (TEST-ONLY): a coop mirror UFO by its coop id (a mirror's Target id is 0)
 				{
 					int coopId = std::atoi(dest.c_str() + 8);
 					for (auto* u : *sg->getUfos())
 						if (u->getCoop() && u->getCoopUfoId() == coopId) { craft->setDestination(u); break; }
 				}
-				else if (dest.rfind("alienBaseCoop:", 0) == 0) // coop D250-U S-C5a (TEST-ONLY): a coop mirror alien base by its coop id
+				else if (dest.rfind("alienBaseCoop:", 0) == 0) // coop (TEST-ONLY): a coop mirror alien base by its coop id
 				{
 					int coopId = std::atoi(dest.c_str() + 14);
 					for (auto* ab : *sg->getAlienBases())
@@ -4158,7 +4152,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			ab->setLongitude(req.get("lon", 0.0).asDouble());
 			ab->setLatitude(req.get("lat", 0.0).asDouble());
 			ab->setDiscovered(false);
-			if (req.isMember("race")) ab->setAlienRace(req["race"].asString()); // coop D250-U S-C5a (TEST-ONLY): a race the landing can generate with
+			if (req.isMember("race")) ab->setAlienRace(req["race"].asString()); // coop (TEST-ONLY): a race the landing can generate with
 			sg->getAlienBases()->push_back(ab);
 			resp["alien_base_id"] = ab->getId();
 			resp["ok"] = true;
@@ -4671,12 +4665,12 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
-// a TEST LEVER created or wrote @a item on THIS machine
-// (the harness applies item levers to BOTH machines). HOST: absorbed into the
-// delta snapshot, so the lever write never rides a delta (no mint race, a
+// a TEST COMMAND created or wrote @a item on THIS machine
+// (the harness applies item test commands to BOTH machines). HOST: absorbed into the
+// delta snapshot, so the test write never rides a delta (no mint race, a
 // one-machine poke stays hash-detectable). BOTH: registered in CoopIdMaps -
 // a product item reaches the client's id map through the battle-blob load or
-// the delta's own materialization, and a lever mint bypasses both, so without
+// the delta's own materialization, and a test-command mint bypasses both, so without
 // this a later delta naming the id (a field change, its removal) could not
 // resolve on the client.
 static void coopLeverItemWritten(BattleItem* item)
@@ -4750,7 +4744,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	// introspection at exactly that moment.
 	// getBattleState() keeps returning a screen that was popped and freed (a client's
 	// battle screen under "Server connection lost", a vanilla next-stage briefing), so only a screen still on the
-	// game's state stack counts (connectionTCP::isBattlescapeStateLive, W1-H1's check).
+	// game's state stack counts (connectionTCP::isBattlescapeStateLive).
 	BattlescapeState* bstate = connectionTCP::isBattlescapeStateLive(sbg->getBattleState()) ? sbg->getBattleState() : nullptr;
 	BattlescapeGame* bg = bstate ? sbg->getBattleGame() : nullptr;
 
@@ -4793,7 +4787,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			// the item fields the delta carries, read-only.
 			// previousOwner / unitLink (a corpse's or body's unit) as ids, -1 when
 			// none. slotX/slotY only for an INV_SLOT slot: the items bucket hashes
-			// them there alone (MJ-7), so a ground or hand item's stale x/y is
+			// them there alone, so a ground or hand item's stale x/y is
 			// not state and is not reported.
 			ji["previousOwner"] = it->getPreviousOwner() ? it->getPreviousOwner()->getId() : -1;
 			ji["unitLink"] = it->getUnit() ? it->getUnit()->getId() : -1;
@@ -4813,11 +4807,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				if (a) am.append(a->getId());
 			}
 			ji["ammo"] = am;
-			// W2-P4 S-D.1 (spec rewrite/prompts/w2p4_client_combat_intents.md
-			// (b)13, review N29 = F1096): a medi-kit's three charges, read-only,
+			// A medi-kit's three charges, read-only,
 			// as [painKiller, heal, stimulant] (field_poke `medikit`'s order), on
 			// BT_MEDIKIT items only. The delta carries them and the items bucket
-			// hashes them; no probe showed them before (C23b, C23b2, C23b3).
+			// hashes them.
 			if (it->getRules()->getBattleType() == BT_MEDIKIT)
 			{
 				Json::Value mk(Json::arrayValue);
@@ -4861,7 +4854,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				{
 					const std::vector<int> goneIds = coopLeverRemovalIds(bi);
 					sbg->removeItem(bi);
-					coopLeverItemsRemoved(goneIds); // W2-P2 S-B (spec (b)15), incl. its ammo ids
+					coopLeverItemsRemoved(goneIds); // incl. its ammo ids
 				}
 			}
 			// slot=ground: drop the item straight onto the unit's tile instead of
@@ -4915,7 +4908,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 			// battle_give is a TestServer-only debug/test command that hands a
 			// weapon directly to a unit for repro/fixture setup on BOTH
 			// machines (test harness convenience, never real gameplay) - it is
-			// not an S2 applier and never runs outside OXC_TEST_PORT test
+			// not a client event applier and never runs outside OXC_TEST_PORT test
 			// sessions. tools/ci/lint_no_client_mint.py whitelists everything
 			// between this marker and its matching END below.
 			BattleItem* w = new BattleItem(wrule, sbg->getCurrentItemId());
@@ -4980,10 +4973,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "battle_ui_press")
 	{
 		// press one of the
-		// battlescape controls this packet hard-gates, THROUGH ITS REAL HANDLER -
+		// battlescape controls that are hard-gated, THROUGH ITS REAL HANDLER -
 		// the same shape battle_open_inventory above already uses for
 		// btnInventoryClick, so the gate under test is the one a mouse click
-		// would hit, not a synthetic shortcut. Test-only (RB-D26 discipline).
+		// would hit, not a synthetic shortcut. Test-only.
 		//
 		// Two of the three handlers dereference their Action, which is why this
 		// synthesizes a real one instead of passing nullptr:
@@ -5048,7 +5041,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "inventory_cursor_clear")
 	{
-		// TEST-ONLY red-run
+		// TEST-ONLY failed-run
 		// cleanup. The item on the cursor of the topmost InventoryState on the stack (on top or not) goes back
 		// where it was through the force-close's own step, Inventory::setSelectedItem(0) - a pick-up is local
 		// display only, the item never left its slot. No click: no Inventory::invClick() and no
@@ -5079,7 +5072,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "battle_arm_key")
 	{
-		// W2-P8 S-C2.3 (F2924, orchestrator ruling SC2-G1): TEST-ONLY - arm ONE in-game key press for the first
+		// TEST-ONLY - arm ONE in-game key press for the first
 		// pump pass where the battle's side is `side` and the top state is a BattlescapeState (armKeyTick, above
 		// TestServer::pump). {key (SDL sym), side (faction int), timeoutMs (default 10000)}. Re-arming replaces
 		// the record. Response: {ok, armed, frame (the pump pass count now)}; the record is event_state `armKey`.
@@ -5110,7 +5103,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		// Inventory surface; slots = every inventory section of the mod as {x, y,
 		// type slot|hand|ground, cells [[x, y]...]}; ground = the items on the
 		// screen unit's tile with their laid-out column/row (getSlotX/Y: the
-		// ground offset is 0 after an open, F1975, and no row scrolls the ground).
+		// ground offset is 0 after an open, and no row scrolls the ground).
 		InventoryState* invState = findState<InventoryState>(_game);
 		Inventory* invSurf = nullptr;
 		if (invState)
@@ -5176,11 +5169,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				drawnSlots.append(drawnId);
 		}
 		resp["drawnSlots"] = drawnSlots;
-		// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, Q8 (a),
-		// Q15 (a)): preBattle = this screen is the pre-battle InventoryState the equip phase recorded; okPressed = the
+		// preBattle = this screen is the pre-battle InventoryState the equip phase recorded; okPressed = the
 		// flag the co-op layer last applied to its OK button's look; lineText / lineVisible = the screen's own message
-		// line (the Inventory's WarningMessage, Q15 (a)'s accessor): the text it holds and whether it is shown (it
-		// fades 1.2 s after a show, F3112).
+		// line (the Inventory's WarningMessage): the text it holds and whether it is shown (it
+		// fades 1.2 s after a show).
 		resp["preBattle"] = CoopDelta::equipIsScreen(invState);
 		resp["okPressed"] = CoopDelta::equipOkPressed();
 		WarningMessage* line = invSurf ? invSurf->getWarning() : nullptr;
@@ -5190,8 +5182,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "equip_layouts")
 	{
-		// W2-P8b S-C.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 sections 4 S-C and 5; Q9 (a),
-		// owner D209): TEST-ONLY, read-only - the saved equipment layouts THIS machine's pre-battle bulk tools read and
+		// TEST-ONLY, read-only - the saved equipment layouts THIS machine's pre-battle bulk tools read and
 		// write: the SavedGame global layout `index` (default 0; Ctrl+digit saves it, the digit applies it) and, with
 		// `unit`, that unit's Soldier personal layout (keyInvSavePersonalEquipment saves it, keyInvLoadPersonalEquipment
 		// applies it; null without a geoscape soldier), plus the live Options keys the screen binds to the tools. Each
@@ -5253,8 +5244,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "inventory_click")
 	{
-		// W2-P8 S-A.1 (docs rewrite/prompts/w2p8_inventory.md section 8.2; the
-		// recipe F1936 / F2087): a REAL click on the TOP InventoryState, test-only -
+		// A REAL click on the TOP InventoryState, test-only -
 		// click_widget's recipe (SDL down/up through Game::run; window px = base x
 		// scale + black band) at a point computed from the inventory rules:
 		//   {slot, x, y}: an INV_SLOT / INV_GROUND cell at slot.x + x*16 + w*8,
@@ -5448,11 +5438,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "battle_teleport")
 	{
-		// R1-P4 stub: BattlescapeGame::teleport() was removed by the r1
-		// vanilla restore (911ca487f). The command name stays registered
-		// (harness compatibility) but its body is dead until r4/r5 rebuild an
-		// equivalent hook.
-		resp["error"] = "rewrite-pending";
+		// Stub: there is no BattlescapeGame::teleport() hook (vanilla has
+		// none). The command name stays registered (harness compatibility),
+		// but it only answers with an error.
+		resp["error"] = "unsupported";
 	}
 	else if (cmd == "tile_info")
 	{
@@ -5491,7 +5480,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["mapDataSetID"] = dsid;
 				resp["parts"][partNames[p]] = part;
 			}
-			// W2-P2 S-A (spec (b)16/(e)): the tile's own synced state the delta
+			// The tile's own synced state the delta
 			// carries - fire and smoke turns, and the pending explosive power
 			// and damage type (Tile::setExplosive). Plain getters.
 			resp["fire"] = t->getFire();
@@ -5507,10 +5496,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "tile_census")
 	{
-		// W2-P4 acceptance: tile_info's census fields for EVERY tile of an
-		// inclusive box {x0,x1,y0,y1,z0,z1} in ONE reply - test_client_grenade
-		// C20 read an 800-tile box with ~2,400 separate tile_info round trips (one
-		// pump frame each), ~160 s. Read-only, test-only, no new semantics: each
+		// tile_info's census fields for EVERY tile of an
+		// inclusive box {x0,x1,y0,y1,z0,z1} in ONE reply - reading
+		// an 800-tile box with ~2,400 separate tile_info round trips (one
+		// pump frame each) took ~160 s. Read-only, test-only, no new semantics: each
 		// row is the subset of tile_info's reply that census compares, read with
 		// the SAME getters and defaults as tile_info above (the four parts'
 		// Tile::getMapData ids, -1 when empty, Tile::getFire/getSmoke) under the
@@ -5563,14 +5552,13 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "find_doors")
 	{
-		// W1-P10 (RB-D26 discipline: minimal, deterministic, test-only): every
+		// Minimal, deterministic, test-only: every
 		// DOOR part on the map, in linear tile order. `tile_info` can already
 		// report a door, but only one tile per round trip - locating a door by
 		// scanning is ~6400 round trips, i.e. a fixture that cannot be built.
-		// This is the same "the harness cannot otherwise SEE it" justification
-		// W1-P9's lastWalk carries.
+		// The harness cannot otherwise SEE it.
 		//
-		// SAFE UNDER BriefingState (the WAVE-1 ADDITIONS trap): it touches only
+		// SAFE UNDER BriefingState (battle generated, BattlescapeState not yet pushed): it touches only
 		// `sbg`, never `bg`/`bstate`, which is exactly why the guard above
 		// leaves both nullable.
 		const int cap = req.get("limit", 512).asInt();
@@ -5599,8 +5587,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				int did = -1, dsid = -1;
 				t->getMapData(&did, &dsid, tp);
 				jd["mapDataID"] = did;
-				// SPEC 0e-1: the door's map-DATASET name (e.g. "LIGHTNIN"),
-				// not just its raw record id - the Lightning-contact spike needs to
+				// The door's map-DATASET name (e.g. "LIGHTNIN"),
+				// not just its raw record id - a Lightning test needs to
 				// find "the craft's own UFO door" without hard-coding a dataset index
 				// that a mod could renumber. MapDataSet::getName() (MapDataSet.h:52).
 				jd["dataSet"] = (dsid >= 0 && sbg->getMapDataSets() && dsid < (int)sbg->getMapDataSets()->size())
@@ -5626,8 +5614,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "battle_close_ufo_doors")
 	{
 		// drives the BOUNDARY-CALLABLE half of the
-		// door atom - coopCloseUfoDoors(), the function W1-P13 will call from
-		// BattlescapeGame::endTurn (BattlescapeGame.cpp:549) instead of
+		// door atom - coopCloseUfoDoors(), the function
+		// BattlescapeGame::endTurn (BattlescapeGame.cpp) calls instead of
 		// _save->getTileEngine()->closeUfoDoors(). Shipping the function
 		// without a way to RUN it would make "callable outside a walk" a claim
 		// about code nobody executed; this makes it a tested property.
@@ -5648,7 +5636,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "map_tile_screen_pos")
 	{
-		// R3-P1 (SPIKE-RUNBOOK.md R3-P1 packet text): the faithful-UI repro
+		// The faithful-UI repro
 		// variant needs a REAL on-screen pixel to feed inject_input's
 		// kind="click" - this converts a tile position to the actual
 		// window-pixel coordinate the live Camera would place it at right
@@ -5676,11 +5664,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "map_tile_click_pos")
 	{
-		// W1-P6 (test-only): the exact WINDOW pixel to feed
+		// Test-only: the exact WINDOW pixel to feed
 		// `inject_input kind=click` so that BattlescapeState::mapClick lands on
 		// the REQUESTED tile. map_tile_screen_pos alone is not enough, and the
-		// three reasons are all real - each was observed while building W1-P6's
-		// acceptance, and each made a naive click silently hit the wrong tile,
+		// three reasons are all real - each was observed in a test run,
+		// and each made a naive click silently hit the wrong tile,
 		// which is exactly the vacuity a "nothing happened" assertion must not
 		// be allowed to inherit:
 		//   1. mapClick does NOT project the click itself - it reads
@@ -5726,7 +5714,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 
 			// the VISIBLE special-action buttons at the
 			// screen's right edge swallow a click the same way the icons panel
-			// does (a click there presses the button: T0-17 saw a throw click
+			// does (a click there presses the button: a throw click was seen to
 			// open the skill menu). They are BattlescapeState's _btnLaunch
 			// (screenWidth - 32, 0) and _btnSpecial / _btnSkills / _btnPsi, each
 			// placed at one of the SPECIAL_BUTTONS_MAX (3) slots
@@ -5853,7 +5841,6 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "map_tile_click")
 	{
-		// RV-U2 (docs rewrite/prompts/rvu2_one_shot_click.md; owner D60, POST-REWRITE-REVISIT rows 2 and 17):
 		// TEST-ONLY. map_tile_click_pos's own search (the arm above, unchanged) and, when it verifies, the
 		// click inject_input kind=click pushes (a real SDL button DOWN + UP at the verified window pixel),
 		// both on THIS pump pass. Game::run handles the pushed click in the event loop of the same frame
@@ -5890,8 +5877,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "battle_fire")
 	{
 		// Fire <weapon_id> (or the main hand weapon) from <unit>. mode =
-		// snap|aimed|auto|launch|throw, or melee|use (W2-P4 S-C.1: the melee /
-		// mind-probe stand-ins below), or spray (W2-P4 S-E1.1: the spray
+		// snap|aimed|auto|launch|throw, or melee|use (the melee /
+		// mind-probe stand-ins below), or spray (the spray
 		// stand-in below). launch takes <waypoints> (a list of x/y/z) -
 		// exactly what a blaster launcher does. <hand> stamps
 		// BattlescapeState::_hand, which is what the coop packet reports as the
@@ -5937,17 +5924,15 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		{
 			unit->setTimeUnits(req["tu"].asInt());
 		}
-		// R1-P4 stub: BattlescapeState::_hand (the coop firing-hand stamp) was
-		// removed by the r1 vanilla restore. The <hand> param is accepted but
-		// no longer has anywhere to land until r4/r5 rebuild the hook.
+		// BattlescapeState has no coop firing-hand stamp (_hand), so the <hand>
+		// param is accepted but has nowhere to land.
 
 		if (mode == "melee" || mode == "use")
 		{
-			// W2-P4 S-C.1 (docs rewrite/prompts/w2p4_client_combat_intents.md
-			// (b)13 and TASK 0): HOST stand-ins for a second player's melee and
+			// HOST stand-ins for a second player's melee and
 			// mind probe, for seed hunts. They run what the intent executor
-			// ((b)3) runs, in its order, on a LOCAL BattleAction (never the
-			// host's _currentAction, N4 = F1038; no selection change, F1122):
+			// runs, in its order, on a LOCAL BattleAction (never the
+			// host's _currentAction; no selection change):
 			// melee = the target tile vanilla's own validMeleeRange (or
 			// validTerrainMeleeRange) gives from the actor's CURRENT position
 			// and facing (ActionMenuState::handleAction's BA_HIT branch), then
@@ -6011,12 +5996,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 
 		if (mode == "spray")
 		{
-			// W2-P4 S-E1.1 (docs rewrite/prompts/w2p4_client_combat_intents.md (b)1
-			// spray, TASK 0 T0-10 / AMENDMENT C4 F1168): HOST stand-in for a second
-			// player's spray autoshot, for the SEED_C18 hunt - no existing lever
-			// can start a spray. It runs what the intent executor ((b)3) runs, in
-			// its order, on a LOCAL BattleAction (never the host's _currentAction,
-			// N4 = F1038; no selection change, F1122): BA_AUTOSHOT with
+			// HOST stand-in for a second
+			// player's spray autoshot, for seed hunts - no other test command
+			// can start a spray. It runs what the intent executor runs, in
+			// its order, on a LOCAL BattleAction (never the host's _currentAction;
+			// no selection change): BA_AUTOSHOT with
 			// sprayTargeting set and the waypoint VOXELS of vanilla's own spread,
 			// then UnitTurnBState + ProjectileFlyBState inside one host-local
 			// combat context armed across the two pushes (the `auto` mode's
@@ -6090,7 +6074,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		else if (mode == "launch") bt = BA_LAUNCH;
 		else if (mode == "throw") bt = BA_THROW;
 
-		// W2-P5 S-A.1 (amendment E1 PR-E1): <keepSelection> true leaves the host's selected unit as it
+		// <keepSelection> true leaves the host's selected unit as it
 		// is, so an alien stand-in's shot at that unit is vanilla's reaction branch with the selected unit
 		// as its trigger (ProjectileFlyBState::init) instead of being popped.
 		if (!req.get("keepSelection", false).asBool())
@@ -6132,9 +6116,9 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["tuHave"] = unit->getTimeUnits();
 		resp["weaponId"] = w->getId();
 		resp["ammoId"] = w->getAmmoForAction(bt) ? w->getAmmoForAction(bt)->getId() : -1;
-		// this lever bypasses primaryAction, so it
-		// mirrors the click's host-local combat context itself. Amendment A3:
-		// the context is ARMED across the two pushes - on an empty queue
+		// this test command bypasses primaryAction, so it
+		// mirrors the click's host-local combat context itself.
+		// The context is ARMED across the two pushes - on an empty queue
 		// the turn push runs UnitTurnBState::init(), which pops at once when the
 		// unit already faces the target, and that quiescence must not close the
 		// context before the shot state exists.
@@ -6148,8 +6132,8 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
-// ===== R2-P11: rewrite-spike battle-lane introspection (SPIKE-RUNBOOK.md
-// RB-D26/RB-D32) - event_log/event_state/hash_now/corrupt_bucket/
+// ===== Battle-lane introspection
+// - event_log/event_state/hash_now/corrupt_bucket/
 // corrupt_next_blob/battle_intent/inject_ev. Own sub-dispatcher, same reason
 // as executeShared10/11/executeBattle12 above (MSVC C1061 nested-block limit)
 // and the same convention (a cmd whitelist gate up front, real bodies below).
@@ -6184,14 +6168,14 @@ static Tile* coopTestFirstTile(SavedBattleGame* battle)
 	return nullptr;
 }
 
-// ----- RB-D26 corrupt_bucket: one minimal, deterministic, test-only poke per
-// bucket, bypassing emit entirely (a raw field mutation, exactly like the
-// spec's own "unitsStats: +1 TU to first live unit"). Each returns false
+// ----- corrupt_bucket: one minimal, deterministic, test-only poke per
+// bucket, bypassing emit entirely (a raw field mutation, such as
+// "unitsStats: +1 TU to first live unit"). Each returns false
 // (nothing to corrupt - e.g. no items/units in the battle) rather than
 // touching anything. Deliberately AVOID Tile::_explosive for the terrain
 // bucket: TileEngine::checkForTerrainExplosions() (called from
 // BattlescapeGame's own endTurn machinery) sweeps for nonzero explosive and
-// triggers a REAL chain detonation - not a safe poke for a lever meant to
+// triggers a REAL chain detonation - not a safe poke for a test command meant to
 // leave everything else undisturbed. Terrain is corrupted instead by cloning
 // an existing (already-loaded, already-valid) floor MapData* onto that same
 // tile's currently-empty O_OBJECT slot - the exact getMapDataSets()->
@@ -6203,10 +6187,10 @@ static bool coopCorruptUnitsStatsBucket(SavedBattleGame* battle)
 	for (BattleUnit* u : *battle->getUnits())
 	{
 		if (!u || u->isOut()) continue;
-		// RB-D26's own example poke is "+1 TU", but BattleUnit::setTimeUnits()
+		// The obvious poke is "+1 TU", but BattleUnit::setTimeUnits()
 		// clamps to [0, max] (BattleUnit.cpp:4735-4738) and a fresh battle's
 		// units sit at full TU - a blind "+1" silently no-ops (clamped right
-		// back to the same max), which would make this lever undetectable at
+		// back to the same max), which would make this test command undetectable at
 		// the exact moment (right after handshake) a test is most likely to
 		// reach for it. Subtract instead when already at/above max TU (i.e.
 		// whenever a plain +1 would be absorbed by the clamp) so the poke is
@@ -6247,7 +6231,7 @@ static bool coopCorruptItemsBucket(SavedBattleGame* battle)
 	for (BattleItem* it : *battle->getItems())
 	{
 		if (!it) continue;
-		it->setAmmoQuantity(it->getAmmoQuantity() + 1); // D5 bucket field
+		it->setAmmoQuantity(it->getAmmoQuantity() + 1); // an items-bucket field
 		CoopDelta::absorbItem(it); // a one-machine poke stays a divergence
 		return true;
 	}
@@ -6318,9 +6302,9 @@ static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
 	if (name == "smoke")      return coopCorruptSmokeBucket(battle);
 	if (name == "terrain")    return coopCorruptTerrainBucket(battle);
 	if (name == "itemIdCtr")  return coopCorruptItemIdCtrBucket(battle);
-	// W1-P8 (SS2.W4 / WV-D31): the NINTH bucket. It is not a BattleHashSet
+	// The NINTH bucket (fog). It is not a BattleHashSet
 	// member and lives in coop-owned storage, so its poke goes straight into
-	// CoopFog's bitmap, bypassing the emit path entirely (RB-D26 discipline:
+	// CoopFog's bitmap, bypassing the emit path entirely (
 	// deterministic, minimal, test-only). Prefer poking the CLIENT: on the HOST
 	// the corrupted bits become "live but unpublished" and the very next delta
 	// would ship them and heal the divergence.
@@ -6328,26 +6312,26 @@ static bool coopCorruptBucket(SavedBattleGame* battle, const std::string& name)
 	return false;
 }
 
-// ----- W2-P2 S-H.1 (amendment A5.5, owner ruling D138): `field_poke` -----
-// TEST-ONLY lever (T13 gate below), run on the CLIENT by
-// test_hash_coverage.py's HC1: {class:"unit"|"item"|"tile"|"node"|"battle",
+// ----- `field_poke` -----
+// TEST-ONLY test command, run on the CLIENT by
+// test_hash_coverage.py's per-field coverage check: {class:"unit"|"item"|"tile"|"node"|"battle",
 // id (unit/item/node) | i (tile index; or x/y/z), field:"<delta key>", value,
 // restore:true}. Writes ONE delta field with the setter CoopApply::applyDelta
 // uses, hashes every BattleHashSet bucket BY NAME (battleHashBucketName, so the
-// lever carries whatever buckets this build has) plus saveBlob, restores the
+// test command carries whatever buckets this build has) plus saveBlob, restores the
 // prior value with the same setter and hashes again - all inside this one
 // command, so no frame ever runs with the poked value. Without `value` it is a
 // read-only peek ({before} only). Nothing is emitted and nothing is absorbed.
-// Values use the delta's own shapes (spec (b)1): factions as RB-D31 wire
+// Values use the delta's own shapes: factions as wire
 // strings, `tags` as the stripped raw script-value vector, `ammo` as one id per
-// ammo slot (the item's own id = a self-reference, F530), `moduleMap` as one
+// ammo slot (the item's own id = a self-reference), `moduleMap` as one
 // cell [x,y,first,second] - an existing cell is set, a cell one past the end
 // of a column (or the first cell of a new column) is pushed and popped again
-// on restore (Q-H7).
-// S-H.1b: exception-safe. The poke, every bucket hash and the
+// on restore.
+// Exception-safe. The poke, every bucket hash and the
 // saveBlob hash run inside try/catch; the restore ALWAYS runs (also after an
 // exception or a refused write) and the post-restore hashes follow it. A hash
-// that throws (e.g. saveBlob's re-parse of an unregistered script tag, F746)
+// that throws (e.g. saveBlob's re-parse of an unregistered script tag)
 // is reported as "unserializable", its exception text in `errors`.
 
 static const char* coopFieldPokeFactionWire(int f)
@@ -6383,7 +6367,7 @@ static std::vector<int> coopFieldPokeTagsFrom(const Json::Value& a)
 	return v;
 }
 
-/// W2-P3 S-C.1 (amendment B1 RQ9): the unit-side special-weapon link
+/// The unit-side special-weapon link
 /// (BattleUnit::_specWeapon, the slots addLoadedSpecialWeapon fills) as the
 /// _items entries the unit's own getSpecialWeapon(rules) resolves to, in
 /// _items order. getSpecialWeapon() scans the slots up to the first empty one.
@@ -6612,13 +6596,13 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 		}
 		else if (field == "specialWeapons")
 		{
-			// W2-P3 S-C.1 (amendment B1 RQ9): the unit's special-weapon ids as its
+			// The unit's special-weapon ids as its
 			// own slots hold them (coopFieldPokeSpecialSlots), a list of item
-			// ids. The write uses the client applier's two setters (spec (b)11):
+			// ids. The write uses the client applier's two setters:
 			// BattleUnit::addLoadedSpecialWeapon() links a listed item, and
 			// BattleUnit::coopDetachSpecialWeapon() unlinks a slot item that is
 			// not listed. coopDetachSpecialWeapon() also clears the item's owner
-			// (the removal path's second write); this lever moves ONLY the unit's
+			// (the removal path's second write); this test command moves ONLY the unit's
 			// link, so the item's owner and previousOwner are put back at once.
 			read = [u, bg]()
 			{
@@ -6666,8 +6650,7 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 		}
 		else if (field == "name")
 		{
-			// W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3 R-5; AMENDMENT P8-4c: T0-R1 proved the names equal, so
-			// they are hashed): the unit's own stored name, the delta's `name`, with BattleUnit::setName.
+			// The unit's own stored name (hashed: both machines hold equal names), the delta's `name`, with BattleUnit::setName.
 			read = [u]() { return Json::Value(u->getName(nullptr)); };
 			write = [u](const Json::Value& v) { u->setName(v.asString()); return std::string(); };
 		}
@@ -6690,7 +6673,7 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 		}
 		else if (field == "seat")
 		{
-			// R5-U5 (docs rewrite/prompts/r5u5_battle_gift_order.md; FIELD-PARITY): the unit's seat tag, the delta's
+			// The unit's seat tag, the delta's
 			// `seat`, with BattleUnit::setCoopSeat (-1 = COOP_SEAT_NONE).
 			read = [u]() { return Json::Value((int)u->getCoopSeat()); };
 			write = [u](const Json::Value& v) { u->setCoopSeat((CoopSeat)v.asInt()); return std::string(); };
@@ -6976,9 +6959,9 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 		}
 		else if (field == "reinforcementsMemory")
 		{
-			// W2-P3 S-C.1 (amendment B1 RQ2/RQ9): {"<wave type>": count}, written
-			// absolutely into getReinforcementsMemory() - the write spec (b)12
-			// gives the client applier.
+			// {"<wave type>": count}, written
+			// absolutely into getReinforcementsMemory() - the client applier's
+			// own write.
 			read = [bg]()
 			{
 				Json::Value o(Json::objectValue);
@@ -7101,7 +7084,7 @@ static void coopFieldPoke(const Mod* mod, SavedBattleGame* bg, const Json::Value
 	resp["ok"] = true;
 }
 
-// ----- W2-H26 (docs rewrite/prompts/w2h26_conversion_spawn_faction.md, Q-H26-1 (a)): `synced_census` -----
+// ----- `synced_census` -----
 // TEST-ONLY, read-only. Every row the `synced` bucket mixes (SharedEcon.cpp computeBattleHashes) for every unit,
 // item, node, door tile (doorBits != 0, the bucket's own skip) and the battle, each read through field_poke's own
 // peek (coopFieldPoke() without `value`: nothing is written, nothing is hashed), in ONE reply - so a test diffs the
@@ -7188,11 +7171,11 @@ static void coopSyncedCensus(const Mod* mod, SavedBattleGame* bg, Json::Value& r
 	resp["ok"] = true;
 }
 
-// W2-P9 S-B.1 (AMENDMENT P9-1 PR-13; folds TASK 0 T0-4): read-only view of the topmost OptionsAdvancedState's list
+// Read-only view of the topmost OptionsAdvancedState's list
 // for synced_options_state -> advanced:{open, scroll, visibleRows, rows:[{row,name,value,id,prefixed,line,visible,wx,wy}]}.
 // `id` = the OptionInfo whose tr(description), or whose "[Synced] "-prefixed form, equals the row name ("" header/blank,
-// "?" a collision). `prefixed` = the name is the prefixed form; inert at S-B.1 (the key/prefix are S-B.2, so every row
-// reads false - U2's RED cell). `line` = sum of getNumTextLines of the earlier rows; `visible` = scroll <= line <
+// "?" a collision). `prefixed` = the name is the prefixed form.
+// `line` = sum of getNumTextLines of the earlier rows; `visible` = scroll <= line <
 // scroll+visibleRows. `wx`/`wy` = the row's first-line centre in window pixels (click_widget's conversion),
 // set only when visible (getRowY valid only for drawn rows). No vanilla edit: every accessor is public.
 static void coopSyncedAdvancedView(Game* game, Json::Value& out)
@@ -7281,7 +7264,7 @@ static void coopSyncedAdvancedView(Game* game, Json::Value& out)
 	out["advanced"] = adv;
 }
 
-// U6: TEST-ONLY levers on the
+// TEST-ONLY test commands on the
 // BASE equip screens (Bases > Soldiers > Inventory and the craft's equip screen, i.e. soldiers_inventory /
 // craft_inventory). They act on the TOP InventoryState through the vanilla public methods real input reaches:
 // Inventory::fitItem (the Ctrl-click), Inventory::quickDrop (the paper-doll drop) and InventoryState::btnUnloadClick
@@ -7312,7 +7295,7 @@ static void coopTestBaseInventoryMove(Game* game, const Json::Value& req, Json::
 	}
 	if (bg->getBattleState() != nullptr)
 	{
-		resp["error"] = "inventory_move: base screens only - a battle's inventory uses inventory_click (W2-P8)";
+		resp["error"] = "inventory_move: base screens only - a battle's inventory uses inventory_click";
 		return;
 	}
 
@@ -7377,7 +7360,7 @@ static void coopTestBaseInventoryMove(Game* game, const Json::Value& req, Json::
 	}
 }
 
-// U6: inventory_unload {} -> {ok, unloaded, weapon} on the BASE equip screen (see coopTestBaseInventoryMove above).
+// inventory_unload {} -> {ok, unloaded, weapon} on the BASE equip screen (see coopTestBaseInventoryMove above).
 // The screen's selected soldier gets empty hands (to the ground) and a built, loaded hand-holdable firearm in the
 // right hand, so the UNLOAD button's own handler always reaches the unload path. `unloaded` = no ammo slot of the
 // weapon holds the built ammo afterwards.
@@ -7402,7 +7385,7 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 	}
 	if (bg->getBattleState() != nullptr)
 	{
-		resp["error"] = "inventory_unload: base screens only - a battle's inventory uses inventory_click (W2-P8)";
+		resp["error"] = "inventory_unload: base screens only - a battle's inventory uses inventory_click";
 		return;
 	}
 
@@ -7485,11 +7468,11 @@ static void coopTestBaseInventoryUnload(Game* game, const Json::Value& req, Json
 // machine, never forwarded, never read by game logic. Ops:
 //   {op: read, index} (read-only, any screen) -> SavedGame craft loadout `index` {type: count}, loadoutName, lastSelectedArmor
 //   {op: loadout_save, index} -> the TOP CraftEquipmentState's public saveGlobalLoadout (CraftEquipmentSaveState's call), then read
-//   {op: select, name} / {op: rename, name, text} on the TOP base InventoryState (a battle's inventory refused, as U6's levers):
+//   {op: select, name} / {op: rename, name, text} on the TOP base InventoryState (a battle's inventory refused, as by inventory_move):
 //     btnNextClick until the selected unit's soldier name contains `name` -> {selected, id}; rename then sets the 210-px name field
 //     (the quick search is 40 px) and calls its onChange handler edtSoldierChange -> soldierName = the Soldier's name read back.
-//   {op: loadout_load, index, addOnTop} -> the TOP CraftEquipmentState's loadGlobalLoadout (A8); {op: ground_to_base}
-//     -> the TOP base InventoryState's onMoveGroundInventoryToBase (A12), reply craftId + the craft's items before / after.
+//   {op: loadout_load, index, addOnTop} -> the TOP CraftEquipmentState's loadGlobalLoadout; {op: ground_to_base}
+//     -> the TOP base InventoryState's onMoveGroundInventoryToBase, reply craftId + the craft's items before / after.
 //   {op: craft_vehicles, craft_id, craft_type, base} (read-only) -> that craft's HWPs: vehicles {type: count}, order,
 //     vehicleAmmo, spaceUsed, spaceAvailable, customDeployment; {op: deploy_mark, ...} = the same after a TEST-ONLY saved-deployment entry
 //     (soldier id -1, this machine only; never start a battle after it) so a test sees a vehicle load's custom deployment reset.
@@ -7557,14 +7540,14 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 					if (!craft && c->getId() == cid && (ctype.empty() || c->getRules()->getType() == ctype)) craft = c;
 		if (!craft) { resp["error"] = "base_screen_op: craft not found"; return; }
 		if (op == "deploy_mark") craft->getCustomSoldierDeployment()[-1] = std::make_pair(Position(0, 0, 0), 0); // test-only: no soldier has id -1
-		Json::Value vehicles(Json::objectValue), order(Json::arrayValue), ammo(Json::arrayValue), vcoop(Json::arrayValue); // + vcoop: D248-U
+		Json::Value vehicles(Json::objectValue), order(Json::arrayValue), ammo(Json::arrayValue), vcoop(Json::arrayValue); // + vcoop: the co-op parking tags
 		for (auto* v : *craft->getVehicles())
 		{
 			const std::string t = v->getRules()->getType();
 			vehicles[t] = vehicles.get(t, 0).asInt() + 1;
 			order.append(t);
 			ammo.append(v->getAmmo());
-			Json::Value vc(Json::arrayValue); // D248-U (test-only read): the vehicle's co-op parking tag, aligned with `order`
+			Json::Value vc(Json::arrayValue); // (test-only read): the vehicle's co-op parking tag, aligned with `order`
 			vc.append(v->getCoopBase());
 			vc.append(v->getCoopCraft());
 			vc.append(v->getCoopCraftType());
@@ -7617,7 +7600,7 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 	else if (!invState || !bg)
 		resp["error"] = "base_screen_op: no base inventory screen on top (soldiers_inventory / craft_inventory first)";
 	else if (bg->getBattleState() != nullptr)
-		resp["error"] = "base_screen_op: base screens only - a battle's inventory uses inventory_click (W2-P8)";
+		resp["error"] = "base_screen_op: base screens only - a battle's inventory uses inventory_click";
 	if (resp.isMember("error")) return;
 	const std::string who = req.get("name", "").asString();
 	Soldier* s = nullptr;
@@ -7647,7 +7630,7 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 
 // TEST-ONLY open_select_destination on ONE
 // machine, never forwarded, never read by game logic. Pushes the REAL destination picker for one own craft and LEAVES IT OPEN: the push
-// GeoscapeCraftState::btnTargetClick makes after it pops itself (SelectDestinationState({craft}, the geoscape's globe)); no other lever
+// GeoscapeCraftState::btnTargetClick makes after it pops itself (SelectDestinationState({craft}, the geoscape's globe)); no other test command
 // opens it (craft_order drives ConfirmDestinationState directly). {craft_id, craft_type (default STR_SKYRANGER)} -> {ok, depth}.
 static void coopTestOpenSelectDestination(Game* game, const Json::Value& req, Json::Value& resp)
 {
@@ -7679,10 +7662,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 {
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure"
-		&& cmd != "force_server_error" // coop W2-H59 (TEST-ONLY lever)
+		&& cmd != "force_server_error" // coop (TEST-ONLY hook)
 		&& cmd != "hold_blob_ack"
-		&& cmd != "hold_battle_accept" && cmd != "hold_save_reply" // coop W2-H82 L2d / L3e (TEST-ONLY levers)
-		&& cmd != "throw_next_rx" // coop W2-H60 (TEST-ONLY lever)
+		&& cmd != "hold_battle_accept" && cmd != "hold_save_reply" // coop (TEST-ONLY hooks)
+		&& cmd != "throw_next_rx" // coop (TEST-ONLY hook)
 		&& cmd != "open_transformation" && cmd != "set_soldier_dead" && cmd != "transform_probe"
 		&& cmd != "battle_intent" && cmd != "inject_ev"
 		&& cmd != "reveal_state" && cmd != "reveal_drop" && cmd != "reveal_base"
@@ -7705,7 +7688,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "option_values" && cmd != "shared_update_defer"
 		&& cmd != "battle_end_turn_ready"
 		&& cmd != "screen_rows" && cmd != "screen_set_amount" && cmd != "screen_pick_base"
-		&& cmd != "followup_state" // W2-P7 S-C-C.1 (P7-6 C re-pin PR-C9)
+		&& cmd != "followup_state"
 		&& cmd != "mission_stats_pad"
 		&& cmd != "prod_fx_probe"
 		&& cmd != "prodwin_probe"
@@ -7714,7 +7697,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "battle_camera_center"
 		&& cmd != "path_probe"
 		&& cmd != "research_probe"
-		&& cmd != "field_poke" && cmd != "synced_census" // W2-H26 (TEST-ONLY, read-only)
+		&& cmd != "field_poke" && cmd != "synced_census" // (TEST-ONLY, read-only)
 		&& cmd != "set_touch_modifiers" && cmd != "forget_research"
 		&& cmd != "research_check" && cmd != "can_use_weapon" && cmd != "set_research_sync"
 		&& cmd != "clear_warning"
@@ -7725,7 +7708,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		&& cmd != "geo_event_probe"
 		&& cmd != "sel_state" && cmd != "set_autosell"
 		&& cmd != "screen_push"
-		&& cmd != "inventory_move" && cmd != "inventory_unload" // U6
+		&& cmd != "inventory_move" && cmd != "inventory_unload"
 		&& cmd != "soldier_layouts"
 		&& cmd != "base_screen_op"
 		&& cmd != "open_select_destination"
@@ -7763,13 +7746,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["hostSim"] = a.hostSim.load();
 		resp["localSeat"] = a.localSeat.load();
 		resp["battleId"] = a.battleId.load();
-		// R3-P1: the client intent tracker's own state (ClientIntentState.
-		// lastDeny, IR-2) - the {iseq,reason} object from the most recent
+		// The client intent tracker's own state (ClientIntentState.
+		// lastDeny) - the {iseq,reason} object from the most recent
 		// bt_deny this machine received this battle, or null if none yet.
 		resp["lastDeny"] = CoopArbiter::lastDeny();
 		resp["desyncSeen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop: a repaired desync stays seen
 		resp["txDrains"] = CoopEmit::txDrainEvents();
-		// W1-P6 (WAVE1-RUNBOOK.md WV-D40 / WR-2, and W1-G1 criterion 4b): how
+		// How
 		// many times coopBlockLocalExecution() has refused a LOCAL execution in
 		// BattlescapeGame::primaryAction on this machine. Test introspection
 		// only - never read by game logic.
@@ -7781,12 +7764,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// all - a broken injection recipe, a modal swallowing the event, the
 		// wrong viewport. This counter says the click ARRIVED and was refused.
 		resp["coopLocalExecBlocked"] = coopLocalExecutionBlocks();
-		// W2-P1 (thin-client tripwire, commit 1 of 2): the second player's
+		// The thin-client tripwire: the second player's
 		// "never simulates" probes (BattleAuthority.h). Battle-scoped - reset
-		// by resetBattleAuthority(). Nothing increments them on commit 1; the
-		// S1-S7 test (test_thin_client_tripwire.py) reads them there to prove
-		// its red, and commit 2's coopClientBStateTripwire() /
-		// coopSkipClientPanic() are their only writers.
+		// by resetBattleAuthority(). test_thin_client_tripwire.py reads them;
+		// coopClientBStateTripwire() / coopSkipClientPanic() are their only writers.
 		// coopClientBStateLastSite is "<site>:<dynamic type name>" of the last
 		// refused push ("<site>:endTurnRequest" for the null end-turn marker),
 		// "" before any refusal.
@@ -7798,11 +7779,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// refusal, else "landing:<craftId>" / "cydonia:<craftId>" of the last one.
 		resp["coopClientBattleRefused"] = coopClientBattleRefused();
 		resp["coopClientBattleRefusedLast"] = coopClientBattleRefusedLast();
-		// W2-P2 S-A (spec rewrite/prompts/w2p2_delta_core.md (b)16): the
+		// The
 		// delta core's probes (CoopDelta.h), battle-scoped, reset by
-		// resetBattleAuthority(). Written by the S-A.2 delta core (host:
+		// resetBattleAuthority(). Written by the delta core (host:
 		// seed/attach/absorb/flushSync; client: CoopApply::applyDelta).
-		// Timings are this machine's own measurements, never on the wire (G1).
+		// Timings are this machine's own measurements, never on the wire.
 		{
 			const CoopDelta::Probes dp = CoopDelta::probes();
 			resp["deltaArmed"] = dp.armed;
@@ -7827,130 +7808,120 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["deltaApplyUsMax"] = dp.applyUsMax;
 			resp["syncEvsEmitted"] = dp.syncEvsEmitted;
 			resp["syncEvsApplied"] = dp.syncEvsApplied;
-			// W2-P2 S-L (amendment A4.5): the client delta applier's light
+			// The client delta applier's light
 			// recomputes (CoopDelta.h), battle-scoped, same reset.
 			resp["lightLocalCalls"] = dp.lightLocalCalls;
 			resp["lightWholeCalls"] = dp.lightWholeCalls;
 			resp["lightUsMax"] = dp.lightUsMax;
 			resp["lastLight"] = CoopDelta::lastLight();
-			// the host-local combat context count
+			// The host-local combat context count
 			// (host) and the cue probes (host emitted / client applied),
-			// battle-scoped, same reset. Commit S-C.1 exposes them; commit
-			// S-C.2's contexts, cue hooks and client cue-kind branch write them.
+			// battle-scoped, same reset. The contexts, cue hooks and client cue-kind
+			// branch write them.
 			resp["hostCombatContexts"] = dp.hostCombatContexts;
 			resp["cueCounts"] = CoopDelta::cueCounts();
 			resp["lastCue"] = CoopDelta::lastCue();
-			// W2-P2 S-C.2 (amendment A3, F690): quiescences the arming guard
+			// Quiescences the arming guard
 			// deferred (host).
 			resp["armingDeferrals"] = dp.armingDeferrals;
-			// W2-P2 S-H.1 (amendment A5.5, owner ruling D138): the hash-
+			// The hash-
 			// coverage probes, battle-scoped, same reset. Client: how often
 			// CoopHashCheck::verify compared each bucket, and the last verify's
-			// bucket list; host / client: the saveBlob timings (N19).
+			// bucket list; host / client: the saveBlob timings.
 			resp["hashVerifyCounts"] = CoopDelta::hashVerifyCounts();
 			resp["lastHashVerify"] = CoopDelta::lastHashVerify();
 			resp["saveBlobUsLast"] = dp.saveBlobUsLast;
 			resp["saveBlobUsMax"] = dp.saveBlobUsMax;
 			resp["saveBlobVerifyUsLast"] = dp.saveBlobVerifyUsLast;
 			resp["saveBlobVerifyUsMax"] = dp.saveBlobVerifyUsMax;
-			// W2-P3 S-A.1 (spec rewrite/prompts/w2p3_nonplayer_origins.md
-			// (b)13, amendment B1 RQ5/RQ7): the host's action-context probes,
+			// The host's action-context probes,
 			// battle-scoped, same reset (a client reports its own empty values).
-			// Commit S-A.1 exposes them; commit S-A.2's context begin and close
-			// paths write them. contextsClosedAtEndTurn is a diagnostic (RQ5).
+			// The context begin and close paths write them.
+			// contextsClosedAtEndTurn is a diagnostic.
 			resp["contextsOpened"] = CoopDelta::contextsOpened();
 			resp["closedContexts"] = CoopDelta::closedContexts();
 			resp["contextsClosedAtEndTurn"] = dp.contextsClosedAtEndTurn;
 			resp["contextBeginRefused"] = dp.contextBeginRefused;
-			// W2-P3 S-C.1 (amendment B1 RQ7): the host's ring of the last 32
+			// The host's ring of the last 32
 			// attached deltas by seq, each with its added/removed ids per class
 			// (a client reports its own empty ring). Same reset.
 			resp["deltaRing"] = CoopDelta::deltaRing();
-			// W2-P7 S-A.1 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT
-			// P7-1 ST4 (a)): the SESSION-LIFETIME battleEnd record (CoopDelta.h) -
+			// The SESSION-LIFETIME battleEnd record (CoopDelta.h) -
 			// cleared only by initBattleAuthority(), so it survives the disconnect
-			// resets of a skirmish end. Commit S-A.1 exposes its zeros; commit
-			// S-A.2's host hook, client applier and pump consumer write it.
+			// resets of a skirmish end. The host hook, client applier and pump
+			// consumer write it.
 			resp["battleEnd"] = CoopDelta::battleEndRecord();
-			// the SESSION-LIFETIME stage record (CoopDelta.h), both
-			// machines, never reset. S-A1.1 exposes its zeros; S-A1.2's host stage hook and client applier write it.
+			// The SESSION-LIFETIME stage record (CoopDelta.h), both
+			// machines, never reset. The host stage hook and client applier write it.
 			resp["stage"] = CoopDelta::stageRecord();
-			// the fatal-wounds vote's session-lifetime probe record
-			// (CoopArbiter.h), both machines; cleared only by initBattleAuthority(). S-V-A.1 exposes its zeros.
+			// The fatal-wounds vote's session-lifetime probe record
+			// (CoopArbiter.h), both machines; cleared only by initBattleAuthority().
 			resp["fatalVote"] = coopFatalVoteProbe();
-			// the abort vote's session-lifetime probe record (CoopArbiter.h), both machines; cleared only by
-			// initBattleAuthority(). Commit S-A 1 exposes its zeros.
+			// The abort vote's session-lifetime probe record (CoopArbiter.h), both machines; cleared only by
+			// initBattleAuthority().
 			resp["abortVote"] = coopAbortVoteProbe();
 		}
-		// W1-P7 (ruling D7 = WV-D13; timeout parameters WV-D24): the CLIENT's
-		// order-feedback bookkeeping. `inFlight` null after a timeout is the
-		// observable proof the IR-2 one-slot lock was RELEASED (before this packet
-		// a lost intent locked its unit for the rest of the battle), and
-		// `lateAnswersIgnored` is what makes "a late ack/deny changes nothing" a
-		// DELIVERED-then-ignored assertion instead of an absence - the same
-		// non-vacuity discipline W1-P6's coopLocalExecBlocked counter follows.
+		// The CLIENT's order-feedback bookkeeping. `inFlight` null after a
+		// timeout is the observable proof the one-slot intent lock was RELEASED
+		// (without the timeout, a lost intent would lock its unit for the rest of
+		// the battle), and `lateAnswersIgnored` is what makes "a late ack/deny
+		// changes nothing" a DELIVERED-then-ignored assertion instead of an
+		// absence - the same non-vacuity rule the coopLocalExecBlocked counter
+		// follows.
 		resp["inFlight"] = CoopArbiter::inFlightIntent();
 		resp["intentTimeouts"] = CoopArbiter::intentTimeouts();
 		resp["lastTimedOutIseq"] = CoopArbiter::lastTimedOutIseq();
 		resp["lateAnswersIgnored"] = CoopArbiter::lateAnswersIgnored();
-		// W2-P4 S-A.1 (spec rewrite/prompts/w2p4_client_combat_intents.md (b)13):
-		// the combat-intent probes (CoopArbiter.h), battle-scoped. Commit S-A.1
-		// exposes them; nothing writes them until S-A.2.
+		// The combat-intent probes (CoopArbiter.h), battle-scoped.
 		resp["coopIntentsSent"] = CoopArbiter::intentsSent();
 		resp["intentsReceived"] = CoopArbiter::intentsReceived();
 		resp["lastActionHalt"] = CoopArbiter::lastActionHalt();
 		resp["lastAftermath"] = CoopArbiter::lastAftermath();
-		// the in-battle inventory probes (CoopArbiter.h), battle-scoped. Commit
-		// S-A.1 exposes them; nothing writes them until S-A.2.
+		// The in-battle inventory probes (CoopArbiter.h), battle-scoped.
 		resp["invLocalWrites"] = CoopArbiter::invLocalWrites();
 		resp["invLastWarning"] = CoopArbiter::invLastWarning();
 		resp["invGuard"] = CoopArbiter::invGuard();
-		// W2-P8 S-C1.1 (docs rewrite/prompts/w2p8_inventory.md, S-C1 PINNED STAGE TEXT; AMENDMENT P8-3a Q2 (a),
-		// Q3 (a)): the host's own-inventory sync latch and the client's inventory force-close (CoopDelta.h; reset
+		// The host's own-inventory sync latch and the client's inventory force-close (CoopDelta.h; reset
 		// only by initBattleAuthority(), so they survive the client's battle_end teardown), and the count of texts
-		// put on the inventory's own message line (battle-scoped with the probes above). Commit S-C1.1 exposes
-		// their zeros; commit S-C1.2's latch, pump consumer and force-close write the first two.
+		// put on the inventory's own message line (battle-scoped with the probes above). The latch, pump consumer
+		// and force-close write the first two.
 		resp["invHostDirty"] = CoopDelta::hostInventoryLatchProbe();
 		resp["invForcedCloses"] = CoopDelta::inventoryForceCloseProbe();
 		resp["invWarningWrites"] = CoopDelta::invWarningWrites();
-		// the HOST's
-		// covered-battle driver and host screen check probes (CoopDelta.h; zeroed and reset with the S-C1 probes
-		// above by initBattleAuthority() only). Commit S-C2.1 exposes their zeros; commit S-C2.2 writes them.
+		// The HOST's covered-battle driver and host screen check probes (CoopDelta.h; zeroed and reset with the
+		// inventory probes above by initBattleAuthority() only).
 		resp["hostCovered"] = CoopDelta::hostCoveredProbe();
 		resp["hostScreens"] = CoopDelta::hostScreensProbe();
-		// the rename order's
-		// probe (CoopArbiter.h; zeroed and reset with the probes above). Commit S-R.1 exposes its zeros; commit
-		// S-R.2's client send and host apply write it.
+		// The rename order's probe (CoopArbiter.h; zeroed and reset with the probes above). The client send and
+		// host apply write it.
 		resp["renames"] = CoopArbiter::renamesProbe();
 		resp["armKey"] = g_armKey; // TEST-ONLY battle_arm_key's record
-		// the
-		// pre-battle equip phase's state and counters (CoopDelta.h equipProbe; the state resets with the battle, the
-		// counters only in initBattleAuthority()). Commit S-A.1 exposes their zeros; commit S-A.2 writes them.
+		// The pre-battle equip phase's state and counters (CoopDelta.h equipProbe; the state resets with the battle,
+		// the counters only in initBattleAuthority()).
 		resp["equip"] = CoopDelta::equipProbe();
-		// W2-P4 S-E2.1 (amendment C3 D147 section 3): HOST - the envelopes onIntent
+		// HOST - the envelopes onIntent
 		// took into its checks, {iseq, kind, actorId, skill} (the wire `skill` field).
 		resp["intentsReceivedLog"] = CoopArbiter::intentsReceivedLog();
 		// The seat this machine believes owns the host's execution slot right now
 		// (-1 = idle / cannot attribute) - the input to the seat-attributed wait
 		// banner, exposed so a test can prove the ATTRIBUTION, not just the text.
 		resp["busyOwnerSeat"] = CoopArbiter::busyOwnerSeat();
-		// R5-U2 S-C.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the CLIENT's new-contact count
-		// (CoopArbiter::visibleHostileCount, WR-30) - a pure read (the cancel policy's toggle-3 basis).
+		// The CLIENT's new-contact count
+		// (CoopArbiter::visibleHostileCount) - a pure read (the cancel policy's toggle-3 basis).
 		resp["visibleHostileCount"] = CoopArbiter::visibleHostileCount();
-		// W1-P7 deliverable 6 (REV D / WV-D55): THIS BATTLE's turn mode - the live
+		// THIS BATTLE's turn mode - the live
 		// BattleAuthority mirror, i.e. what the host stamped on battle_offer and
 		// the client mirrored. Reported so a test can prove the TRANSPORT (host
-		// stamps -> client mirrors) rather than inferring it from behaviour, which
-		// would be impossible anyway: NOTHING in this packet branches on the mode.
+		// stamps -> client mirrors) rather than inferring it from behaviour.
 		resp["turnMode"] = coopTurnModeName(coopBattleAuthority().turnMode);
 		// ...and this machine's own remembered preference, which on a CLIENT is
-		// deliberately IRRELEVANT (D-19b) - asserting that the two can differ is
+		// deliberately IRRELEVANT - asserting that the two can differ is
 		// how the mirror is proven to come off the wire.
 		resp["optionTurnMode"] = Options::CoopTurnMode;
-		// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D30 / WV-D48): walk-atom
+		// Walk-atom
 		// introspection.
 		//
-		// `lastWalk` is the ONLY window a test has onto SS2.W2's per-step
+		// `lastWalk` is the ONLY window a test has onto the walk's per-step
 		// PAYLOAD - CoopEventLog is a fixed POD ring and deliberately carries
 		// none (BattlePump.h), so `event_log` can prove the KINDS and the seq
 		// order but never that stepIndex increases or that the completion
@@ -7959,7 +7930,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// walk instead of trusting one.
 		resp["lastWalk"] = CoopArbiter::lastWalk();
 		// The two walk-arm counters. `coopWalkArmEntered` is the DELIVERY PROOF
-		// W1-G1 criterion 4b needs now that a client ground click can legitimately
+		// a test needs now that a client ground click can legitimately
 		// be FORWARDED instead of refused (so coopLocalExecBlocked above no longer
 		// moves for it), and `coopWalkIntentsSent` separates "the click became an
 		// ORDER" from "the click reached the arm and the pathfinder found no route".
@@ -7970,29 +7941,29 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// which any unrelated failure also produces.
 		resp["coopWalkReserveRefusals"] = CoopArbiter::walkReserveRefusals();
 		resp["coopWalkReserveTruncations"] = CoopArbiter::walkReserveTruncations();
-		// W1-P10 (SS4 "ATOM door"): the door atom's three counters. Emitted and
+		// The door atom's three counters. Emitted and
 		// applied are what turn "the door is open on both machines" from a
 		// coincidence into a DELIVERY proof (a door that never crossed the wire
 		// and a door that did both end with the same tile_info reading if the
 		// client happened to open it locally - which is exactly the hybrid-
-		// authority bug class this rewrite exists to kill).
-		// `coopDoorInTurnUnsupported` is the RETIRED SS2.4 fallback, kept as a
+		// authority bug class the host-authoritative battle prevents).
+		// `coopDoorInTurnUnsupported` is a RETIRED fallback's counter, kept as a
 		// tripwire and asserted at zero.
 		resp["coopDoorEvsEmitted"] = coopDoorEvsEmitted();
 		resp["coopDoorEvsApplied"] = coopDoorEvsApplied();
 		resp["coopDoorInTurnUnsupported"] = coopDoorInTurnUnsupported();
-		// SPEC 6 (P10-ACCEPT, WV-D59): the door TU-reserve fairness waive
+		// The door TU-reserve fairness waive
 		// counter - the positive control that the host's own reserve was
 		// neutralised for a CLIENT-ORIGIN door open, not just coincidentally
 		// absent.
 		resp["coopDoorReserveWaived"] = coopDoorReserveWaived();
-		// W1-P11 (SS4 "ATOM spot"): the spot atom's payload window and its two
+		// The spot atom's payload window and its two
 		// delivery counters, exactly the lastWalk / door-counter precedents
 		// above. `lastSpot` is the only place `seen` and `haltStep` are visible
 		// at all (CoopEventLog is a payload-free POD ring), and the counters are
 		// what separate "the client APPLIED a spot ev" from "the client happened
 		// to compute the same set itself" - a client still runs its own
-		// calculateUnitsInFOV (SS2.4a suppresses only the TILE half), so the set
+		// calculateUnitsInFOV (only its TILE half is suppressed), so the set
 		// alone proves nothing. MEASURED with a control build, not argued.
 		resp["lastSpot"] = CoopArbiter::lastSpot();
 		resp["coopSpotEvsEmitted"] = coopSpotEvsEmitted();
@@ -8008,7 +7979,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// coop battle in flight.
 		resp["coopHostInputFrozenRefusals"] = CoopBattleUi::coopHostInputFrozenRefusals();
 		resp["turnMirrorFired"] = CoopHandshake::coopTurnMirrorFired();
-		// W1-P12 (ghost stepper): display-only replay counters. `ghostEnqueued`/
+		// Ghost stepper: display-only replay counters. `ghostEnqueued`/
 		// `ghostCompleted` are the DELIVERY proof (an ev applied -> a ghost
 		// queued -> it ran its interpolation to completion) rather than an
 		// absence any unrelated failure could also produce; `ghostQueueDepth`
@@ -8017,9 +7988,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["ghostEnqueued"] = (int)CoopGhost::enqueuedCount();
 		resp["ghostCompleted"] = (int)CoopGhost::completedCount();
 		resp["ghostQueueDepth"] = (int)CoopGhost::queueDepth();
-		// SPEC 17 M4: the last ghost this machine enqueued - kind/
+		// The last ghost this machine enqueued - kind/
 		// frames/fixed-duration/owning-seat, proving the per-seat pacing
-		// derivation delivered (control (ii)'s own red-then-green evidence)
+		// derivation delivered
 		// rather than only that a ghost ran, which the counters above prove.
 		{
 			const CoopGhost::GhostLastView gl = CoopGhost::lastGhost();
@@ -8030,45 +8001,41 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			ghostLastJ["seat"] = gl.seat;
 			resp["ghostLast"] = ghostLastJ;
 		}
-		// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 PR-E2): the combat
-		// display probes. combatGhost (both machines; nothing writes it until S-A.2), derivedPaths (CLIENT:
-		// the probe-only path re-derivation of each applied `shot`), rngSeed (the sim RNG state, read only:
-		// the V4 bar), shotTrajectories (HOST: the last 16 shots' trajectory length and speed).
+		// The combat
+		// display probes. combatGhost (both machines), derivedPaths (CLIENT:
+		// the probe-only path re-derivation of each applied `shot`), rngSeed (the sim RNG state, read only),
+		// shotTrajectories (HOST: the last 16 shots' trajectory length and speed).
 		resp["combatGhost"] = CoopGhost::combatProbe();
-		// W2-P5 S-T.1 (amendment E3 section E3.6): the SPEC 7 `turn` ghost ends (counts + ring), both machines.
+		// The `turn` ghost ends (counts + ring), both machines.
 		resp["turnGhost"] = CoopGhost::turnGhostProbe();
-		// the display-II probe (death ghost
-		// counts, queue depth and records), both machines; nothing writes it until S-D.2.
+		// The death ghost probe (
+		// counts, queue depth and records), both machines.
 		resp["displayTwo"] = CoopGhost::displayTwoProbe();
-		// W2-P6a S-M.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (b), AMENDMENT P6-5 section 3):
-		// the battle-message probe - counts, queueDepth, the decided-message ring and the CLIENT's `seen` list (applied
-		// message cues with the top state), both machines; S-M.1 writes only `seen` (CoopBattleUi.h messagesProbe()).
+		// The battle-message probe - counts, queueDepth, the decided-message ring and the CLIENT's `seen` list (applied
+		// message cues with the top state), both machines (CoopBattleUi.h messagesProbe()).
 		resp["messages"] = CoopBattleUi::messagesProbe();
-		// W2-P6a S-C.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c), AMENDMENTS P6-5 section 4 and
-		// P6-6 section 5): the camera probe - this machine's live camera offset, view level and follow flag, the
-		// CLIENT's camera-move records and the HOST's guard counters, both machines; S-C.1 writes only the camera
-		// reads (CoopGhost.h cameraProbe()).
+		// The camera probe - this machine's live camera offset, view level and follow flag, the
+		// CLIENT's camera-move records and the HOST's guard counters, both machines (CoopGhost.h cameraProbe()).
 		resp["camera"] = CoopGhost::cameraProbe();
 		resp["walkSounds"] = coopWalkSoundProbe(); // TEST-ONLY walk-sound probe (CoopArbiter.h)
-		// W2-P6b S-L.1 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5;
-		// owner D172 (a)): the hit-log mirror probe - the HOST's noted / sent / pending entries, the CLIENT's applied
-		// and locally suppressed ones, the last 32 {seq, t, f, k}, both machines; S-L.1 writes nothing (CoopDelta.h
+		// The hit-log mirror probe - the HOST's noted / sent / pending entries, the CLIENT's applied
+		// and locally suppressed ones, the last 32 {seq, t, f, k}, both machines (CoopDelta.h
 		// coopHitLogMirrorProbe()).
 		resp["hitLogMirror"] = coopHitLogMirrorProbe();
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();
-		// R5-U1 S-C.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): the HOST's skipped projectile flights (CoopDelta.h).
+		// The HOST's skipped projectile flights (CoopDelta.h).
 		resp["projectileSkips"] = coopProjectileSkips();
-		// R5-U2 S-A.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the TEST-ONLY draw probe (CoopDelta.h).
+		// The TEST-ONLY draw probe (CoopDelta.h).
 		resp["drawProbe"] = coopDrawProbe();
 		resp["walkPace"] = coopWalkPace(); // the TEST-ONLY walk-pace probe (CoopDelta.h)
-		// per-seat animation-pacing introspection. `local`
+		// Per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
 		// view of the table (connected+valid seats only); `floor` is the
 		// slowest-wins fallback (null outside a coop battle, since floor()
 		// would be meaningless there); `lastRead` proves WHICH dial the most
-		// recent speedFor() call actually used and for whom (M2's delivery
+		// recent speedFor() call actually used and for whom (the delivery
 		// proof, the coopWalkArmEntered precedent).
 		{
 			auto whichName = [](int w) -> const char*
@@ -8128,22 +8095,22 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["speed"] = speed;
 		}
 		// This machine's own (machine-local, saveBlob-EXCLUDED) reserve settings -
-		// the values WV-D14 ratifies as per-machine and WV-D48 makes the client
-		// enforce for itself.
+		// per-machine values, which the client
+		// enforces for itself.
 		{
 			SavedGame* sgR = _game->getSavedGame();
 			SavedBattleGame* bgR = sgR ? sgR->getSavedBattle() : nullptr;
 			resp["tuReserved"] = bgR ? (int)bgR->getTUReserved() : -1;
 			resp["kneelReserved"] = bgR ? bgR->getKneelReserved() : false;
 		}
-		// W1-P13b (REV E.48 SPEC 10 SS.C.2/F171, E50.3): the readiness
+		// The readiness
 		// tally. The raw side-phase counter is reported SEPARATELY from the
 		// last APPLIED-or-EMITTED tally's own `turn` - the latter stays
 		// frozen through the two INERT phases of a full cycle (hostile,
-		// neutral in the classic fixture), so SPEC 10 (f)'s "3 vs 1" and
+		// neutral in the classic fixture), so a test's "3 vs 1" and
 		// "the tally-applied counter advances exactly once per cycle"
 		// assertions both need to tell the two apart.
-		// `coopEndTurnTalliesSeen` is the "+1" C.2 asserts on a genuine
+		// `coopEndTurnTalliesSeen` is the "+1" a test asserts on a genuine
 		// (non-inert) tally application; it does NOT move on an inert
 		// boundary.
 		resp["coopEndTurnPhaseCounter"] = CoopEndTurn::phaseCounter();
@@ -8157,7 +8124,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			for (int s : CoopEndTurn::tallyReadySeats())
 				readySeats.append(s);
 			tally["ready"] = readySeats;
-			// SPEC 18 (r4 T4) D100(b), NEW (additive): the last tally
+			// The last tally
 			// MESSAGE's own activeSeat field (the wire echo) - distinct from
 			// the top-level coopActiveSeat below (the "honoured" mirror).
 			tally["activeSeat"] = CoopEndTurn::tallyActiveSeat();
@@ -8179,8 +8146,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// the honoured value deterministic across a side boundary. Read-only,
 		// test-only, never forwarded on the wire.
 		resp["coopPendingTallyTurn"] = coopBattleAuthority().pendingTallyTurn.load();
-		// SPEC 19 M2 Branch B, NEW (additive): the guest-roster
-		// census vacuity guard (S1) - proof the battle_roster_contrib roster
+		// The guest-roster
+		// census vacuity guard - proof the battle_roster_contrib roster
 		// actually travelled, not just an absence any unrelated failure could
 		// also produce. `sent` is THIS machine's own last-computed census
 		// count (client: >= 1 once it has a guest seated on a peer craft;
@@ -8209,12 +8176,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			guestContrib["vehicles"] = perSeatVehicles;
 			resp["guestContrib"] = guestContrib;
 		}
-		// W2-P4r (spec rewrite/prompts/w2p4r_research_list.md (b)11, NEW,
-		// additive; closes F1177 - the session flag was write-only): THIS
-		// machine's research-mode inputs and the per-seat research store.
+		// THIS machine's research-mode inputs and the per-seat research store.
 		// `separate` = coopResearchSeparate(); `liveCount` = the live world's
 		// discovered-topic count (-1 when there is no world: event_state
-		// answers before one exists, N24); `seats[s]` for s 0..3 =
+		// answers before one exists); `seats[s]` for s 0..3 =
 		// {seat, stored, count, unknown} (coopSeatResearchStored/Count/Unknown).
 		// Read-only, test-only.
 		{
@@ -8259,7 +8224,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				for (int i = 0; i < SharedEcon::BATTLE_HASH_BUCKETS; ++i)
 					want.insert(SharedEcon::battleHashBucketName(i));
 				want.insert("saveBlob");
-				// W1-P8 (SS2.W4 / WV-D31 / WR-26): the sweep goes 8 -> 9. The
+				// The ninth (fog) bucket. The
 				// bucket is asked for unconditionally here and OMITTED below when
 				// there is no coop hostile storage to hash (SP, non-coop battle,
 				// unallocated) - key ABSENT, never a zero.
@@ -8298,7 +8263,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			if (want.count("revealHostile"))
 			{
-				// SS2.W4/WR-26: computed OUT OF BAND (W1-P15 item-7 R-5) because
+				// Computed OUT OF BAND because
 				// its source is CoopMod storage, not the battle document, so
 				// computeBattleHashes() cannot see it. computeHash() returns false
 				// exactly when there is nothing allocated - SP, any non-coop
@@ -8333,7 +8298,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// following, or on a client (there is no outgoing blob there).
 		if (cmd == "force_send_failure")
 		{
-			// coop R4-L2 S-C (TEST-ONLY, HOST): the host TCP thread's next send to the partner takes its real send-failure
+			// coop (TEST-ONLY, HOST): the host TCP thread's next send to the partner takes its real send-failure
 			// branch (onConnect -3, the partner's socket closed). One-shot; inert unless armed. Response {ok, armed}.
 			coopTestForceSendFailureArm();
 			Log(LOG_INFO) << "[coop-test] force_send_failure: armed";
@@ -8341,7 +8306,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		}
 		else if (cmd == "force_server_error")
 		{
-			// coop W2-H59 (TEST-ONLY, HOST): onConnect -3 from the main thread with the partner's socket still open (a message
+			// coop (TEST-ONLY, HOST): onConnect -3 from the main thread with the partner's socket still open (a message
 			// handler's exception, without the re-queue); updateCoopTask's -3 campaign arm runs at the next pump. Response {ok}.
 			coopTestForceServerError();
 			Log(LOG_INFO) << "[coop-test] force_server_error: onConnect -3 (main thread)";
@@ -8381,7 +8346,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		}
 		resp["armed"] = coopTestHoldBlobAckArmed();
 		resp["held"] = coopTestHoldBlobAckHeld();
-		resp["scope"] = coopTestHoldBlobAckScope(); // coop W2-H82 L1f
+		resp["scope"] = coopTestHoldBlobAckScope(); // coop
 		resp["sent"] = sent;
 		resp["ok"] = true;
 	}
@@ -8441,10 +8406,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		const bool kneel = req.get("kneel", false).asBool();
 		const int tuBasisOverride = req.isMember("tuBasisOverride") ? req["tuBasisOverride"].asInt() : -1;
 
-		// W1-P9 (WR-11, RB-D32's "extend the signature, never fork it"): the WALK
+		// The WALK
 		// plan. `dest` is the tile the ordering seat would have clicked; `path` is
 		// an OPTIONAL explicit override that ships a literal plan the client would
-		// never build itself - the only way to drive SS2.W2's `path_changed` deny
+		// never build itself - the only way to drive the walk's `path_changed` deny
 		// (a path through an occupied tile). The three movement-mode bools ride the
 		// intent exactly as the real UI path's do.
 		CoopWalkIntentArgs walkArgs;
@@ -8466,13 +8431,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 		}
 
-		// W2-P4 S-A.2 (spec rewrite/prompts/w2p4_client_combat_intents.md (b)13,
-		// F1185): the COMBAT plan - `plan` {action, weapon, ammo, target,
+		// The COMBAT plan - `plan` {action, weapon, ammo, target,
 		// targetUnit, targetPos?, forceFire} passed through verbatim (a literal
 		// forceFire, never this machine's keys); tuBasis is computed by
 		// sendClientIntent() exactly as for the real UI unless tuBasisOverride
 		// is given.
-		// the plan of EVERY combat kind of spec (b)1,
+		// The plan of EVERY combat kind,
 		// passed through under its frozen payload names - `item` (throw, prime,
 		// use_item, medikit) or `weapon`; `action` (shoot, psi, medikit); `hand` and
 		// `ctrl` (reaction_hands); `fuse` and `unprime` (prime); `terrainPart`
@@ -8547,13 +8511,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 		}
 
-		// W2-P8 S-R.1 (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3; the draft
-		// rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6 RN3): the `rename` order's new name, the
-		// request's top-level `name`. Before S-R.2 sendClientIntent() drops the unknown kind (not sent).
+		// The `rename` order's new name, the request's top-level `name`.
 		if (kind == "rename")
 			combatArgs.name = req.get("name", "").asString();
-		// the `gift` order's target seat, the request's top-level
-		// `target`. Before R5-U5's green, sendClientIntent() drops the unknown kind (not sent).
+		// The `gift` order's target seat, the request's top-level `target`.
 		if (kind == "gift")
 			combatArgs.giftSeat = req.get("target", -1).asInt();
 
@@ -8574,7 +8535,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "inject_ev")
 	{
-		// HOST-side spike test lever. actionId 0 (SS2.2: never a
+		// HOST-side test command. actionId 0 (never a
 		// minted actionId, so 0 doubles as "not part of any action chain") -
 		// correct here, since a synthetic spot/etc. ev is not admitted through
 		// CoopArbiter and belongs to no turn/kneel action context. This is
@@ -8598,7 +8559,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_halt_walk_before_step")
 	{
-		// TEST-ONLY (W1-P9 follow-up, RB-D26). HOST lever: arm a ONE-SHOT latch
+		// TEST-ONLY. HOST test command: arm a ONE-SHOT latch
 		// consumed BEFORE the next walk's first step, so the walk executes ZERO
 		// steps. battle_halt_walk below cannot do this - it is consumed at a
 		// COMPLETED step - and a zero-step walk is the one case in which no
@@ -8609,8 +8570,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_halt_walk")
 	{
-		// TEST-ONLY (W1-P9, RB-D26 discipline: minimal, deterministic, test-only).
-		// HOST lever: arm a ONE-SHOT latch consumed at the next completed walk
+		// TEST-ONLY (minimal, deterministic).
+		// HOST test command: arm a ONE-SHOT latch consumed at the next completed walk
 		// step, halting the walk through vanilla's own cancel path. Without it a
 		// mid-walk halt is not drivable at all - walk-core's fixtures are door-
 		// and contact-free by construction and its own TU/energy halts
@@ -8620,7 +8581,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_teleport_unit")
 	{
-		// TEST-ONLY (WV-D63, RB-D26 discipline: same family as corrupt_bucket /
+		// TEST-ONLY (same family as corrupt_bucket /
 		// newbattle_seat_soldier / battle_halt_walk). Applied by the HARNESS to
 		// EACH machine separately with the SAME absolute arguments; it never
 		// forwards anything to the peer - no wire message, nothing emitted. It
@@ -8639,8 +8600,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// Tile::_unit and links the NEW tile's, so the explicit
 		// oldTile->setUnit(nullptr) below is belt-and-braces, not load-bearing.
 		//
-		// It never recomputes FOV/LOS: on the CLIENT the SS2.4a suppression
-		// stays untouched, and on the HOST this lever does not call
+		// It never recomputes FOV/LOS: on the CLIENT the FOV suppression
+		// stays untouched, and on the HOST this test command does not call
 		// calculateFOV either - the fixture's first real action recomputes FOV
 		// through the normal hooked path.
 		SavedGame* sgTU = _game->getSavedGame();
@@ -8667,13 +8628,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			else if (unit->getStatus() != STATUS_STANDING)
 			{
-				// STEPS asks the lever to "set _status to STATUS_STANDING", but
+				// This test command cannot "set _status to STATUS_STANDING":
 				// BattleUnit exposes no public status setter (verified:
 				// BattleUnit.h has none besides markAsResummonedFakeCivilian's
-				// inline one-off, BattleUnit.h:892). This lever runs at fixture
+				// inline one-off, BattleUnit.h:892). This test command runs at fixture
 				// SETUP, before any BState chain has run, so a live unit that is
 				// not already STANDING is mid-animation/mid-panic - refusing
-				// (change nothing) is the RB-D26-consistent answer rather than
+				// (change nothing) is the minimal answer rather than
 				// reaching into private state to force it.
 				resp["error"] = "battle_teleport_unit: unit " + std::to_string(unitId) + " is not STATUS_STANDING";
 			}
@@ -8699,7 +8660,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const Position from = unit->getPosition();
 					bgTU->setUnitPosition(unit, pos);   // setTile clears the old footprint, marks the new one
 					if (req.isMember("dir")) unit->setDirection(req["dir"].asInt());
-					CoopDelta::absorbUnit(unit); // a lever write never rides a delta
+					CoopDelta::absorbUnit(unit); // a test write never rides a delta
 					resp["ok"] = true; resp["unit"] = unit->getId(); resp["size"] = size;
 					const Position to = unit->getPosition();
 					Json::Value fromJ, toJ;
@@ -8718,14 +8679,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_teleport_all")
 	{
-		// TEST-ONLY (WV-D63, RB-D26 discipline; see battle_teleport_unit above -
-		// same "applied per-machine, no wire traffic, never call from product
-		// code" contract). Moves EVERY live 1x1 unit of <faction> onto free
-		// standable tiles scanned inward from <corner>, in unit-id order, all
-		// facing <facing>. Refuses (change NOTHING) if the faction has ANY live
-		// 2x2+ unit, or if there are fewer free standable tiles than units to
-		// move - "never partially moves one"; the fixture then
-		// re-picks a different generated map.
+		// TEST-ONLY (see battle_teleport_unit above - same "applied per-machine,
+		// no wire traffic, never call from product code" contract). Moves EVERY
+		// live unit of <faction> onto free standable tiles scanned inward from
+		// <corner>, in the order below, all facing <facing>. Refuses (change
+		// NOTHING) if there are fewer free standable tiles than units to move -
+		// "never partially moves one"; the test then re-picks a different
+		// generated map.
 		SavedGame* sgTA = _game->getSavedGame();
 		SavedBattleGame* bgTA = sgTA ? sgTA->getSavedBattle() : nullptr;
 		if (!bgTA)
@@ -8742,7 +8702,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			else if (facStr == "neutral") fac = FACTION_NEUTRAL;
 			else badFaction = true;
 
-			// This lever OWNS both ends of "corner" - no wire/protocol depends
+			// This test command OWNS both ends of "corner" - no wire/protocol depends
 			// on the mapping, so it is a private convention, stated once:
 			// NW=(low x,low y), NE=(high x,low y), SW=(low x,high y),
 			// SE=(high x,high y); "scanning inward" walks RINGS of growing
@@ -8773,9 +8733,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					if (u->getFaction() != fac || u->isOut()) continue;
 					movers.push_back(u);
 				}
-				// WV-D89 (supersedes WV-D63(b)'s 2x2 refusal): big units go
+				// Big units go
 				// FIRST, so the corner's open space goes to them - armor size
-				// DESCENDING, then id ASCENDING (WV-D63(a)'s deterministic order)
+				// DESCENDING, then id ASCENDING (a deterministic order)
 				// among movers of the same size.
 				std::sort(movers.begin(), movers.end(),
 					[](const BattleUnit* a, const BattleUnit* b)
@@ -8796,9 +8756,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const int mz = bgTA->getMapSizeZ();
 
 					// rings of growing Chebyshev distance from the corner -
-					// the lever PACKS into the corner ("inward", WV-D63(a)); row-major
+					// the test command PACKS into the corner ("inward"); row-major
 					// spread units along an edge (2x2 reapers 30 tiles west on urban
-					// maps, SPEC 0e-3 cycle 1).
+					// maps).
 					std::vector<Position> candidates;
 					candidates.reserve((std::size_t)mx * (std::size_t)my * (std::size_t)mz);
 					const int maxRing = std::max(mx - 1, my - 1);
@@ -8913,21 +8873,18 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_set_unit_state")
 	{
-		// TEST-ONLY (REV E.48 SPEC 9 SS.B.5 / SS.A.6, RB-D26 discipline - same
+		// TEST-ONLY (same
 		// family as battle_teleport_unit/battle_teleport_all above: applied by
 		// the HARNESS to EACH machine separately with the SAME absolute
 		// arguments; it never forwards anything to the peer - no wire message,
 		// nothing emitted. Never call from product code.
 		//
 		// Fields - each optional, applied in this order, all reported back:
-		//  * `tu` - REV E.48 SS.B.3 shrank this lever from a wider
-		//    {unit, tu, hazard...} shape to {unit, tu} (the incendiary-shot /
-		//    tile-hazard levers named in an earlier draft were dropped). Writes
+		//  * `tu` - writes
 		//    through BattleUnit::setTimeUnits(int), the SAME absolute setter
-		//    W1-P13a's side_transition applier uses for the restate's
+		//    the side_transition applier uses for the restate's
 		//    `perUnit.tu` field (`_tu = Clamp(tu, 0, (int)_stats.tu);`) -
-		//    reports `tu` back after the write. Used by SPEC 14 (P1, P4); SPEC
-		//    9's own tests do not call it.
+		//    reports `tu` back after the write.
 		//  * `status` - an int UnitStatus, written through the existing
 		//    BattleUnit::coopSetStatus() (the side_transition restate's own
 		//    absolute setter); reported back as `status`. A value outside
@@ -8942,49 +8899,46 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		//    the call is refused with "no live BattlescapeGame" BEFORE anything
 		//    is written. Reported back as `panicPending` (= !getPanicHandled()
 		//    after the call) whenever a live BattlescapeGame exists.
-		// W2-P1's test_thin_client_tripwire.py applies `status` to BOTH
-		// machines and `panicPending` to the CLIENT only (its S6 panic case).
+		// test_thin_client_tripwire.py applies `status` to BOTH
+		// machines and `panicPending` to the CLIENT only (its panic case).
 		//  * `health` / `stun` - written through the
 		//    existing absolute setters BattleUnit::coopSetHealth() /
 		//    coopSetStunlevel() (the side_transition restate's own); reported
 		//    back as `health` / `stun`. Applied to BOTH machines by the harness.
 		//  * `specab` - an int SpecialAbility written through
-		//    BattleUnit::coopSetSpecialAbility() (test lever only; _specab is
+		//    BattleUnit::coopSetSpecialAbility() (test command only; _specab is
 		//    otherwise derived from the armor). A value outside
 		//    SPECAB_NONE..SPECAB_BURN_AND_EXPLODE is refused and nothing changes.
 		//    Reported back as `specab`. Applied to BOTH machines by the harness
 		//    (test_delta_core.py's burning-floor walker, specab 2).
-		//  * `spawnUnit` / `spawnUnitFaction` / `respawn` (W2-P3 S-C.1, spec
-		//    rewrite/prompts/w2p3_nonplayer_origins.md (b)13) - the conversion
-		//    staging of C12a: `spawnUnit` a unit type string ("" clears) written
+		//  * `spawnUnit` / `spawnUnitFaction` / `respawn` - the conversion
+		//    staging: `spawnUnit` a unit type string ("" clears) written
 		//    through BattleUnit::setSpawnUnit(mod->getUnit(type)), an unknown
 		//    type is refused; `spawnUnitFaction` an int UnitFaction 0-2 through
 		//    setSpawnUnitFaction(), out of range refused; `respawn` a bool
 		//    through setRespawn(). Every refusal happens before anything is
 		//    written. Reported back as `spawnUnit` (type or ""),
 		//    `spawnUnitFaction` (int) and `respawn`. Applied to BOTH machines by
-		//    the harness (client first, F607) and absorbed like every field here.
-		//  * `morale` (W2-P3 S-D.1, spec rewrite/prompts/w2p3_nonplayer_origins.md
-		//    (b)13) - an int 0-100 written through the existing absolute setter
+		//    the harness (client first) and absorbed like every field here.
+		//  * `morale` - an int 0-100 written through the existing absolute setter
 		//    BattleUnit::coopSetMorale() (the side_transition restate's own; plain
 		//    assignment, no bravery maths); out of range is refused before
-		//    anything is written. Reported back as `morale`. The C13 panic
+		//    anything is written. Reported back as `morale`. The panic
 		//    staging: morale 0 before the END TURN makes the player side start's
 		//    BattleUnit::prepareMorale() roll a panic. Applied to BOTH
-		//    machines by the harness (client first, F607) and absorbed like every
+		//    machines by the harness (client first) and absorbed like every
 		//    field here.
-		//  * `fatalWounds` (W2-P4 S-D.1, spec rewrite/prompts/
-		//    w2p4_client_combat_intents.md amendment C1 PR-Q9) - an array of
+		//  * `fatalWounds` - an array of
 		//    exactly BODYPART_MAX (6) ints in UnitBodyPart order (head, torso,
 		//    right arm, left arm, right leg, left leg), each 0..
 		//    UnitStats::BaseStatLimit, written per part through vanilla's own
 		//    absolute setter BattleUnit::setFatalWound(wound, part) (the setter
 		//    the delta applier uses). A wrong shape or a value out of range is
 		//    refused before anything is written. Reported back as `fatalWounds`
-		//    (the same 6-int array). The C23b medikit staging (a fatal wound for
+		//    (the same 6-int array). The medikit staging (a fatal wound for
 		//    the heal button to treat). Wounds are carried by the delta and
 		//    hashed in unitsStats, so no field_poke row is needed. Applied to
-		//    BOTH machines by the harness (client first, F607) and absorbed like
+		//    BOTH machines by the harness (client first) and absorbed like
 		//    every field here.
 		SavedGame* sgTS = _game->getSavedGame();
 		SavedBattleGame* bgTS = sgTS ? sgTS->getSavedBattle() : nullptr;
@@ -9020,10 +8974,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					? _game->getMod()->getUnit(spawnUnitArg) : nullptr;
 				const bool hasSpawnFaction = req.isMember("spawnUnitFaction");
 				const int spawnFactionArg = req.get("spawnUnitFaction", 0).asInt();
-				// the C13 morale staging field.
+				// the morale staging field.
 				const bool hasMorale = req.isMember("morale");
 				const int moraleArg = req.get("morale", 0).asInt();
-				// W2-P4 S-D.1 (C1 PR-Q9): the C23b fatal-wound staging field.
+				// the fatal-wound staging field.
 				const bool hasWounds = req.isMember("fatalWounds");
 				std::string woundsErr;
 				int woundsArg[BODYPART_MAX] = {};
@@ -9095,17 +9049,17 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					if (req.isMember("respawn"))
 						unit->setRespawn(req["respawn"].asBool());
 					if (hasMorale)
-						unit->coopSetMorale(moraleArg); // the C13 panic staging
+						unit->coopSetMorale(moraleArg); // the panic staging
 					if (hasWounds)
 					{
 						for (int part = 0; part < (int)BODYPART_MAX; ++part)
-							unit->setFatalWound(woundsArg[part], (UnitBodyPart)part); // the C23b staging
+							unit->setFatalWound(woundsArg[part], (UnitBodyPart)part); // the medikit staging
 					}
 					if (req.isMember("motionPoints") && req["motionPoints"].asInt() >= 0)
 						unit->coopSetMotionPoints(req["motionPoints"].asInt()); // TEST-ONLY motion-scan staging (BOTH machines)
 					if (wantPanic)
 						bgameTS->init();
-					CoopDelta::absorbUnit(unit); // a lever write never rides a delta
+					CoopDelta::absorbUnit(unit); // a test write never rides a delta
 					resp["ok"] = true;
 					resp["unit"] = unit->getId();
 					resp["tu"] = unit->getTimeUnits();
@@ -9121,7 +9075,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 						Json::Value jw(Json::arrayValue);
 						for (int part = 0; part < (int)BODYPART_MAX; ++part)
 							jw.append(unit->getFatalWound((UnitBodyPart)part));
-						resp["fatalWounds"] = jw; // W2-P4 S-D.1 (C1 PR-Q9)
+						resp["fatalWounds"] = jw;
 					}
 					if (bgameTS)
 						resp["panicPending"] = !bgameTS->getPanicHandled();
@@ -9143,8 +9097,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_set_tile")
 	{
-		// TEST-ONLY (W2-P2 S-A, spec rewrite/prompts/w2p2_delta_core.md (b)16;
-		// RB-D26 discipline - same family as battle_set_unit_state above):
+		// TEST-ONLY (same family as battle_set_unit_state above):
 		// applied by the HARNESS to EACH machine separately with the SAME
 		// absolute arguments; it never forwards anything to the peer - no wire
 		// message, nothing emitted. Never call from product code.
@@ -9174,7 +9127,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					t->coopSetTileFireAbsolute(req["fire"].asInt());
 				if (req.isMember("smoke"))
 					t->coopSetSmokeAbsolute(req["smoke"].asInt());
-				CoopDelta::absorbTile(t); // the host absorbs its own lever write
+				CoopDelta::absorbTile(t); // the host absorbs its own test write
 				resp["ok"] = true;
 				resp["x"] = pos.x;
 				resp["y"] = pos.y;
@@ -9188,13 +9141,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "delta_drop_next")
 	{
-		// RB-D26 one-shot (W2-P2 S-A, spec (b)16; the reveal_drop pattern): the
+		// TEST-ONLY one-shot (the reveal_drop pattern): the
 		// HOST's next delta attach computes and commits its delta but does not
 		// attach it, so the client is permanently missing those values - a
 		// hash-visible divergence. Harmless (cleared at teardown) if nothing
 		// follows, or on a client. Consumed by the next CoopDelta::attach()
 		// whose delta is non-empty.
-		// Optional {class}: a delta class name (spec (b)1 top-level key,
+		// Optional {class}: a delta class name (the delta's top-level key,
 		// e.g. "tiles") - the one-shot is then consumed only by the next delta
 		// carrying at least one entry of that class. Absent = as above.
 		const std::string dropClass = req.get("class", "").asString();
@@ -9216,7 +9169,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "hash_timing")
 	{
-		// TEST-ONLY, read-only (W2-P2 S-A, spec (b)16; measurements M1/M4):
+		// TEST-ONLY, read-only:
 		// times SharedEcon::computeBattleHashes() (the 7-bucket structured
 		// sweep) and SharedEcon::computeSaveBlobHash() `reps` times each on
 		// THIS machine and reports {sweepUs:{mean,max}, saveBlobUs:{mean,max},
@@ -9274,9 +9227,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "light_census")
 	{
-		// TEST-ONLY, read-only (W2-P2 S-L, amendment A4.5): THIS machine's
-		// light, whole map. Light is in no hash bucket and no serializer (the
-		// A4 research note N7), so nothing else can see it. Per layer
+		// TEST-ONLY, read-only: THIS machine's
+		// light, whole map. Light is in no hash bucket and no serializer,
+		// so nothing else can see it. Per layer
 		// (ambient/fire/items/units) the sum over tiles of FNV(index, value)
 		// for value > 0, the same over Tile::getShade(), the non-zero count per
 		// layer, and with {dump:true} base64 of LL_MAX bytes per tile in tile
@@ -9376,14 +9329,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "light_recompute")
 	{
-		// TEST LEVER (W2-P2 S-L, amendment A4.5): display state only. Applied by
+		// TEST COMMAND: display state only. Applied by
 		// the HARNESS to each machine it wants recomputed; never forwards
-		// anything to the peer. Levers never recompute light (A4 note N8), so a
+		// anything to the peer. Test commands never recompute light, so a
 		// light scenario stages both machines to exact light with the default:
 		// ONE TileEngine::calculateLighting(LL_AMBIENT, invalid, 0, true), the
 		// whole map. With a shape {layer (0-3 or ambient/fire/items/units),
 		// x, y, z, radius, terrain} and {reps} it runs that call `reps` times and
-		// reports the time per call (the S-L.0 measurement). Never derefs the
+		// reports the time per call. Never derefs the
 		// battle's BattlescapeState.
 		SavedGame* sgLR = _game->getSavedGame();
 		SavedBattleGame* bgLR = sgLR ? sgLR->getSavedBattle() : nullptr;
@@ -9465,7 +9418,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "light_probe_reset")
 	{
-		// TEST LEVER (W2-P2 S-L, amendment A4.5): zero THIS machine's
+		// TEST COMMAND: zero THIS machine's
 		// `lightUsMax` and `deltaApplyUsMax` windows, so a scenario reads the
 		// maxima of its own action only. Nothing else changes.
 		CoopDelta::resetLightWindow();
@@ -9476,7 +9429,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_strip_unit")
 	{
-		// TEST-ONLY (REV E.48 SPEC 12 SS.E.5 / SS.A.6, RB-D26 discipline - same
+		// TEST-ONLY (same
 		// family as battle_teleport_unit/battle_set_unit_state above): applied
 		// by the HARNESS to EACH machine separately with the SAME absolute
 		// arguments; it never forwards anything to the peer - no wire message,
@@ -9491,7 +9444,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// each ammo slot's own ammo item the same way. It REFUSES special
 		// weapons by design (item->isSpecialWeapon() early-returns,
 		// SavedBattleGame.cpp:1946-1951) - those ids are reported separately
-		// under skippedSpecial and are NOT a failure of this lever.
+		// under skippedSpecial and are NOT a failure of this test command.
 		//
 		// itemIdCtr is untouched: this arm never reads or writes it, and
 		// SavedBattleGame::removeItem does not touch it either.
@@ -9530,10 +9483,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 					const std::vector<int> goneIds = coopLeverRemovalIds(bi);
 					bgSU->removeItem(bi);
 					deleted.append(biId);
-					coopLeverItemsRemoved(goneIds); // W2-P2 S-B (spec (b)15), incl. its ammo ids
+					coopLeverItemsRemoved(goneIds); // incl. its ammo ids
 				}
-				// the battle counters as this lever left
-				// them (the removed item ids are absorbed per item above, S-B).
+				// the battle counters as this test command left
+				// them (the removed item ids are absorbed per item above).
 				CoopDelta::absorbBattle(bgSU);
 				resp["ok"] = true;
 				resp["unit"] = unit->getId();
@@ -9549,9 +9502,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_end_turn_ready")
 	{
-		// TEST-ONLY (REV E.48 SPEC 10 SS.C.2 / SS.A.6, RB-D26 discipline -
+		// TEST-ONLY (
 		// same family as battle_teleport_unit/battle_set_unit_state above):
-		// ships the SS2.W3 bt_end_turn_ready message with THIS machine's own
+		// ships the bt_end_turn_ready message with THIS machine's own
 		// seat and the GIVEN `turn` - touching no local readiness state
 		// itself, so the harness can CONSTRUCT a stale press deterministically
 		// (a `turn` one behind the current side-phase counter) instead of
@@ -9564,7 +9517,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_visibility_rule")
 	{
-		// TEST-ONLY (REV E.48 SPEC 13 SS.F.2 (ii) / SS.A.6, RB-D26 discipline -
+		// TEST-ONLY (
 		// same family as battle_teleport_unit / battle_set_unit_state /
 		// battle_strip_unit / battle_end_turn_ready above): flips THIS machine's
 		// own-side visibility rule. Applied by the harness to EACH machine with
@@ -9577,10 +9530,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_reserve")
 	{
-		// TEST-ONLY (W1-P9, RB-D26 discipline). Sets THIS machine's own TU
-		// reserve, which WV-D14 ratifies as PER-MACHINE (tuReserved/kneelReserved
-		// are saveBlob-EXCLUDED) and WV-D48 makes the client enforce for itself.
-		// The acceptance needs it on BOTH machines: on the client to drive the
+		// TEST-ONLY. Sets THIS machine's own TU
+		// reserve, which is PER-MACHINE (tuReserved/kneelReserved
+		// are saveBlob-EXCLUDED); the client enforces its own.
+		// A test needs it on BOTH machines: on the client to drive the
 		// step-1 refusal and the k-1 truncation, and on the HOST to prove the same
 		// client-built prefix is admitted IDENTICALLY under two different host
 		// reserve settings.
@@ -9621,27 +9574,26 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "omit_turn_mode")
 	{
-		// TEST-ONLY STOPGAP (W1-P7 deliverable 6, RB-D26/RB-D32 family; delete when
-		// an older-protocol peer can be simulated another way). HOST lever: build
-		// the next battle_offer WITHOUT the SS2.W1 `turnMode` key.
+		// TEST-ONLY STOPGAP (delete when an older-protocol peer can be simulated
+		// another way). HOST test command: build the next battle_offer WITHOUT the
+		// `turnMode` key.
 		//
-		// It exists so D-26's degrade - "an ABSENT key means parallel" - is proven
-		// OVER THE REAL WIRE rather than by unit-testing the parser. A wave-1 host
+		// It exists so the degrade rule - "an ABSENT key means parallel" - is proven
+		// OVER THE REAL WIRE rather than by unit-testing the parser. A current host
 		// ALWAYS sends the key; the only real producer of an absent key is a peer
-		// older than REV D, which nothing in this repo can be.
+		// from before the key existed, which nothing in this repo can be.
 		CoopHandshake::requestOmitTurnMode(req.get("on", true).asBool());
 		resp["ok"] = true;
 	}
 	else if (cmd == "set_touch_modifiers")
 	{
-		// W2-P4 S-A.1 (spec rewrite/prompts/w2p4_client_combat_intents.md (b)13):
-		// TEST lever on the machine it is sent to - a plain setter for THIS
+		// TEST command on the machine it is sent to - a plain setter for THIS
 		// machine's Game touch-button modifier flags, the _ctrl/_alt/_shift that
 		// Game::isCtrlPressed(true)/isAltPressed(true)/isShiftPressed(true) OR in
-		// (the flags BattlescapeState's touch buttons toggle, R3.2). Each flag is
+		// (the flags BattlescapeState's touch buttons toggle). Each flag is
 		// written only when its key is given; the reply carries all three. No
-		// product code changes: the readers are C23f (hand Ctrl), C16f (force-fire)
-		// and C18 (the Ctrl+Shift spray start).
+		// product code changes: tests reach them through the hand Ctrl, force-fire
+		// and Ctrl+Shift spray-start paths.
 		if (req.isMember("ctrl"))
 			_game->setCtrlPressedFlag(req["ctrl"].asBool());
 		if (req.isMember("alt"))
@@ -9655,13 +9607,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "forget_research")
 	{
-		// W2-P4 S-A.1 (amendment C3, C3-Q4 (a)): HOST-only TEST lever, the mirror
+		// HOST-only TEST command, the mirror
 		// of discover_research - remove <topic> from THIS machine's discovered
 		// list through vanilla SavedGame::removeDiscoveredResearch. Research sits
 		// in no battle hash bucket, so the host alone can lose a topic mid-battle:
 		// the only way an honest client's order reaches the host's
-		// `not_researched` deny (C16d-r). Refused on a co-op client.
-		// W2-P4r PR-R7: in a battle the client's live world is the host's
+		// `not_researched` deny. Refused on a co-op client.
+		// In a battle the client's live world is the host's
 		// adopted one; the client's own list travels on battle_accept instead.
 		SavedGame* sg = _game->getSavedGame();
 		RuleResearch* rule = _game->getMod()->getResearch(req.get("topic", "").asString(), false);
@@ -9679,7 +9631,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "research_check")
 	{
-		// W2-P4r (spec rewrite/prompts/w2p4r_research_list.md (b)11): for
+		// For
 		// {topic}, what the product answers for a unit of each seat on THIS
 		// machine - coopSeatIsResearched(game, seat, {rule}) for seats
 		// 0..seatCount()-1 - plus whether a list is stored for the seat and
@@ -9711,7 +9663,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "can_use_weapon")
 	{
-		// W2-P4r (b)11 / Q-R2 (a): the live SavedBattleGame::canUseWeapon(item,
+		// The live SavedBattleGame::canUseWeapon(item,
 		// unit, berserk, type, &message) on THIS machine - the exact call
 		// reaction fire (TileEngine determineReactionType / tryReaction),
 		// berserk (UnitPanicBState) and the AI (AIModule) make. {unit, item,
@@ -9762,7 +9714,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_research_sync")
 	{
-		// W2-P4r (b)11 / Q-R3 (a): TEST lever - write THIS machine's
+		// TEST command - write THIS machine's
 		// connectionTCP::_enable_research_sync (the session flag the host sends
 		// at COOP_READY). It stands in for main's in-session writer (#185,
 		// not at this tip). Sent to BOTH machines, client first. Reply
@@ -9785,7 +9737,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// synced-options layer on THIS machine: {active, role, localName, localSeat, version, values:{15},
 		// own:{15}|null, pending, inFlight, applied (last 16), noops, rejected, requestsSent, clicksDiverted,
 		// clicksIgnoredInFlight, tablesApplied, setsApplied, lastTableFrom, holdArmed, chatMenuExists,
-		// chat:[last 8 {time, player, text}], advanced}. S-B.1 adds the `advanced` view.
+		// chat:[last 8 {time, player, text}], advanced}.
 		CoopSyncedOptions::stateView(resp);
 		connectionTCP* coopSO = _game->getCoopMod();
 		const CoopRole roleSO = connectionTCP::session.role;
@@ -9811,8 +9763,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "synced_option_request")
 	{
-		// TEST lever - {id, value: bool|int} through the SAME submit the
-		// Advanced-screen click uses (a stub returning false until S-A.2). Reply {ok, consumed}.
+		// TEST command - {id, value: bool|int} through the SAME submit the
+		// Advanced-screen click uses. Reply {ok, consumed}.
 		if (!req.isMember("id") || !req.isMember("value"))
 		{
 			resp["error"] = "synced_option_request: needs id and value";
@@ -9827,23 +9779,23 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "options_save")
 	{
-		// TEST lever - a plain call of vanilla Options::save() (proves the save guard
+		// TEST command - a plain call of vanilla Options::save() (proves the save guard
 		// without the OK path's restart). Reply {ok, saved}.
 		resp["saved"] = Options::save();
 		resp["ok"] = true;
 	}
 	else if (cmd == "synced_apply_hold")
 	{
-		// TEST lever - {on} holds the host's synced-option apply latch (inert until the
-		// S-A.2 latch reads it; the hold_battle_ready precedent). Reply {ok, holdArmed}.
+		// TEST command - {on} holds the host's synced-option apply latch (the
+		// hold_battle_ready precedent). Reply {ok, holdArmed}.
 		CoopSyncedOptions::setHoldArmed(req.get("on", false).asBool());
 		resp["holdArmed"] = CoopSyncedOptions::holdArmed();
 		resp["ok"] = true;
 	}
 	else if (cmd == "option_values")
 	{
-		// READ-ONLY lever - the raw Options globals on THIS machine for each
-		// id in {ids:[...]}, independent of the synced table (so C1/C2/C8 have a negative control at red and the
+		// READ-ONLY test command - the raw Options globals on THIS machine for each
+		// id in {ids:[...]}, independent of the synced table (so a test has a negative control and the
 		// per-player controls are readable). Reply {ok, values:{id: bool|int|string|null (unknown id)}}.
 		Json::Value valsOV(Json::objectValue);
 		const Json::Value& idsOV = req["ids"];
@@ -9867,9 +9819,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_soldier_training")
 	{
-		// TEST-ONLY STAGING lever on THIS machine (call it on both, client first, S25). {soldierId,
+		// TEST-ONLY STAGING test command on THIS machine (call it on both, client first). {soldierId,
 		// psiTraining?, training?, rtwh?, psiSkill?, psiStrength?, healthMissing?, manaMissing?}: finds the soldier as the
-		// soldier_rename lever does (real bases only), writes each key present through the existing setters, recomputes the
+		// soldier_rename test command does (real bases only), writes each key present through the existing setters, recomputes the
 		// stat string as vanilla does after a stat write. Reply {ok, soldier: the soldier_training_probe record (read back)}.
 		SavedGame* sgST = _game->getSavedGame();
 		const int idST = req.get("soldierId", -1).asInt();
@@ -10034,7 +9986,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_soldier_dogfight_xp")
 	{
-		// TEST lever - STAGING on THIS machine only (both machines, client first, S25). {soldierId, firing?,
+		// TEST command - STAGING on THIS machine only (both machines, client first). {soldierId, firing?,
 		// reactions?, bravery?}: the soldier found as set_soldier_training finds it (real bases); writes each present field of
 		// getDailyDogfightExperienceCache(). Reply {ok, dogfightXp {firing, reactions, bravery}} (read back).
 		SavedGame* sgDX = _game->getSavedGame();
@@ -10058,9 +10010,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "shared_update_defer")
 	{
-		// TEST lever - {on} defers THIS machine's per-frame SharedEcon
+		// TEST command - {on} defers THIS machine's per-frame SharedEcon
 		// drain (CoopSyncedOptions::testSharedUpdateDeferred gates the one updateCoopTask call), so an arrived
-		// shared_apply stays queued until the funnel's set-time drain (green) or the release; the replica ordering
+		// shared_apply stays queued until the funnel's set-time drain or the release; the replica ordering
 		// window becomes deterministic. Inert unless armed. Reply {ok, deferred}.
 		CoopSyncedOptions::setTestSharedUpdateDeferred(req.get("on", false).asBool());
 		resp["deferred"] = CoopSyncedOptions::testSharedUpdateDeferred();
@@ -10068,7 +10020,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_craft_pilots")
 	{
-		// TEST lever - push the REAL CraftPilotsState (CraftInfoState's call): craft {craftId} (+ optional
+		// TEST command - push the REAL CraftPilotsState (CraftInfoState's call): craft {craftId} (+ optional
 		// {craftType}) at the base open_screen finds ({base} name, else the first non-mirror base). Reply {ok, baseIndex, index}.
 		const std::string baseOP = req.get("base", "").asString(), typeOP = req.get("craftType", "").asString();
 		Base* bOP = nullptr; Craft* cOP = nullptr; size_t ciOP = 0; int biOP = -1, idOP = req.get("craftId", -1).asInt();
@@ -10090,7 +10042,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_craft_pilots")
 	{
-		// TEST lever - STAGING on THIS machine only (both machines, client first, S25): craft {craftId} (+ optional
+		// TEST command - STAGING on THIS machine only (both machines, client first): craft {craftId} (+ optional
 		// {craftType}, first non-mirror base): removeAllPilots, then addPilot({pilots}) in order. Reply {ok, pilots} (read as the probe).
 		const std::string typeSP = req.get("craftType", "").asString();
 		Craft* cSP = nullptr;
@@ -10119,7 +10071,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	else if (cmd == "craft_pilots_probe")
 	{
 		// TEST INTROSPECTION ONLY, read-only; the craft as open_craft_pilots finds it. {required, pilots
-		// (in order, read via Craft::save: getPilotList / arePilotsOnboard rewrite it, F6703), crew [{id, owner}] aboard, top; top
+		// (in order, read via Craft::save: getPilotList / arePilotsOnboard rewrite it), crew [{id, owner}] aboard, top; top
 		// CraftPilots(Select)State: rows [{row, name, wx, wy}] of its first TextList (soldier_attr_probe), buttons [{text, visible, hidden}]}.
 		const std::string baseCP = req.get("base", "").asString(), typeCP = req.get("craftType", "").asString();
 		Base* bCP = nullptr; Craft* cCP = nullptr;
@@ -10185,7 +10137,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "dismiss_arm")
 	{
-		// TEST-ONLY lever (see the comment above pump()). {type = "LoadGameState", fire = dismiss_popup |
+		// TEST-ONLY hook (see the comment above pump()). {type = "LoadGameState", fire = dismiss_popup |
 		// close_screens | pop_state | geo_run (default dismiss_popup), timeoutMs = 10000}. Reply {ok, armed}.
 		const std::string fireDA = req.get("fire", "dismiss_popup").asString();
 		if (fireDA != "dismiss_popup" && fireDA != "close_screens" && fireDA != "pop_state" && fireDA != "geo_run"
@@ -10214,7 +10166,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "slow_top")
 	{
-		// TEST-ONLY lever (see the comment above pump()). {type, ms = 30 (1..100), timeoutMs = 60000} arms it;
+		// TEST-ONLY hook (see the comment above pump()). {type, ms = 30 (1..100), timeoutMs = 60000} arms it;
 		// {off: true} disarms; neither only reports. Reply {ok, slow: {armed, expired, type, ms, slowedPasses, firstTicks, lastTicks}}.
 		if (req.get("off", false).asBool())
 		{
@@ -10245,7 +10197,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "clear_warning")
 	{
-		// TEST lever - clear the vanilla
+		// TEST command - clear the vanilla
 		// battlescape warning text on THIS machine through the public
 		// BattlescapeState::warningRaw("") (display only; the text stays set
 		// after a refusal, so a second identical refusal cannot show as a
@@ -10266,11 +10218,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "display_rules")
 	{
-		// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11): READ-ONLY lever - the display
+		// READ-ONLY test command - the display
 		// rules of each item type in <types> from THIS machine's LOADED Mod, so a test computes a ghost's
 		// expected frames, timing and sound ids from loaded data (mod-correct), plus the Mod constants.
 		// Sound fields are read from the raw vectors (the first id, -1 = none; `soundLists` = every id):
-		// RuleItem::getFireSound() and its siblings pick with RNG::generate, the sim RNG this lever must
+		// RuleItem::getFireSound() and its siblings pick with RNG::generate, the sim RNG this test command must
 		// never draw. Reply {ok, items: {type: {...} | null (unknown type)}, constants: {...}}.
 		const Json::Value& types = req["types"];
 		if (!types.isArray())
@@ -10309,7 +10261,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			o["explosionHitSound"] = firstOf(r->getExplosionHitSoundRaw());
 			o["bulletSpeed"] = r->getBulletSpeed();
 			o["shotgunPellets"] = r->getShotgunPellets();
-			// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9 S-E.1; review F1758): the melee and
+			// The melee and
 			// psi display rules ExplosionBState's hit branch reads (plain getters, no RNG).
 			o["meleeAnimation"] = r->getMeleeAnimation();
 			o["meleeAnimationFrames"] = r->getMeleeAnimationFrames();
@@ -10350,25 +10302,25 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	{
 		// TEST ONLY, public API only. The
 		// TOP state when it is a SellState / TransferItemsState (its widgets exist once its init() ran - poll screen_rows
-		// first, F5573). screen_rows (READ-ONLY): its first TextList's rows as stripped cells (4 columns; debrief_state's
+		// first). screen_rows (READ-ONLY): its first TextList's rows as stripped cells (4 columns; debrief_state's
 		// strip plus leading/trailing spaces - ammo rows are indented), each row's `item` (the item type whose tr() equals
 		// the stripped name, "" if none), every TextButton {text, visible}, every Text, `state`. {autosell: [types]} adds
 		// autosell {type: bool} (SavedGame::getAutosell); {recovered: [types]} adds recovered {type: int} = the topmost
-		// DebriefingState's getRecoveredItemCount (page 3's remaining count - the debriefing's own list is drawn once,
-		// F5687); both work with no screen open. screen_set_amount {item | row, amount}: row = `row`, or the one whose
+		// DebriefingState's getRecoveredItemCount (page 3's remaining count - the debriefing's own list is drawn once);
+		// both work with no screen open. screen_set_amount {item | row, amount}: row = `row`, or the one whose
 		// stripped column 0 equals tr(item); harnessSelectRow(row), then the screen's own change function by the delta
 		// (SellState changeByValue(|d|, sign); TransferItemsState increaseByValue(d) / decreaseByValue(-d)).
 		// Reply {ok, row, name, before, after, okVisible, topAfter}.
 		// also a top ManageAlienContainmentState - 5 columns (the amount is column 3,
 		// ManageAlienContainmentState::updateStrings), its OK is its SECOND TextButton (_btnSell is added first, :97-98),
 		// change functions increaseByValue(d) / decreaseByValue(-d) after harnessSelectRow(row).
-		// W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): also a top PurchaseState (name, cost, stock, amount = column 3; OK = its first
+		// Also a top PurchaseState (name, cost, stock, amount = column 3; OK = its first
 		// TextButton; "buyMenu"); its rows exist from the constructor, so `screen` does not prove its init() ran.
 		State* topSR = _game->getStates().empty() ? nullptr : _game->getStates().back();
 		SellState* sellSR = dynamic_cast<SellState*>(topSR);
 		TransferItemsState* xferSR = dynamic_cast<TransferItemsState*>(topSR);
 		ManageAlienContainmentState* macSR = dynamic_cast<ManageAlienContainmentState*>(topSR);
-		PurchaseState* buySR = dynamic_cast<PurchaseState*>(topSR); // W2-P7 S-C-E3.1 (P7-9 PR-63 (i))
+		PurchaseState* buySR = dynamic_cast<PurchaseState*>(topSR);
 		const size_t colsSR = macSR ? 5 : 4, amountColSR = (macSR || buySR) ? 3 : 2;
 		std::vector<TextButton*> tbsSR;
 		auto classSR = [](State* s) {
@@ -10424,7 +10376,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			const std::string n = _game->getLanguage()->getString(t);
 			if (!trToTypeSR.count(n)) trToTypeSR[n] = t;
 		}
-		if (buySR) // W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): Purchase's soldier, staff and craft rows (after the items)
+		if (buySR) // Purchase's soldier, staff and craft rows (after the items)
 		{
 			std::vector<std::string> moreSR = _game->getMod()->getSoldiersList();
 			moreSR.insert(moreSR.end(), { "STR_SCIENTIST", "STR_ENGINEER" });
@@ -10470,7 +10422,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			auto amountSA = [&]() { return std::atoi(stripSR(listSR->getCellText((size_t)rowSA, amountColSR)).c_str()); };
 			const int beforeSA = amountSA();
 			const int dSA = req.get("amount", 0).asInt() - beforeSA;
-			if (buySR) // W2-P7 S-C-E3.1 (P7-9 PR-63 (i)): Purchase's change functions, then the same reply
+			if (buySR) // Purchase's change functions, then the same reply
 			{
 				buySR->harnessSelectRow((size_t)rowSA);
 				if (dSA > 0) buySR->increaseByValue(dSA);
@@ -10535,7 +10487,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["rows"] = rowsSR;
 		resp["buttons"] = buttonsSR;
 		resp["texts"] = textsSR;
-		// W2-P7 S-C-E2.1 (P7-8 PR-51, D203, F6112, V-E4): textItems, the list's secondary colour (vanilla's "amount > 0"
+		// textItems, the list's secondary colour (vanilla's "amount > 0"
 		// row colour) and the top screen's own interface button2 colour (the colour a row another player edited is drawn in).
 		resp["textItems"] = textItemsSR;
 		resp["secondaryColor"] = listSR ? Json::Value((int)listSR->getSecondaryColor()) : Json::Value();
@@ -10547,7 +10499,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "screen_pick_base")
 	{
-		// TEST lever. On a top TransferBaseState, TransferBaseState :162's own body:
+		// TEST command. On a top TransferBaseState, TransferBaseState :162's own body:
 		// push new TransferItemsState(bases[from], bases[to], <the DebriefingState directly below it, else null>).
 		// Reply {ok, from, to, debrief}.
 		const auto& stPB = _game->getStates();
@@ -10619,8 +10571,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "debrief_state")
 	{
-		// W2-P7 S-B1.1 (spec rewrite/prompts/w2p7_battle_end.md, AMENDMENT P7-2 R3;
-		// F2026, F2049): TEST INTROSPECTION ONLY - read-only, public API only, no
+		// TEST INTROSPECTION ONLY - read-only, public API only, no
 		// vanilla accessor. What the topmost DebriefingState on this machine's stack
 		// DISPLAYS, read from its widgets in DebriefingState.cpp's fixed add() order
 		// (:144-174): texts[0] title, texts[4] recovery header, texts[5] rating;
@@ -10632,8 +10583,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// "the same debrief". strip() drops the colour-flip and
 		// small-font tokens, then trims the leading and trailing '.' runs (every
 		// debrief list is setDot(true), and TextList::addRow pads every column but
-		// the last with '.', TextList.cpp :347-364 - layout, not content; AMENDMENT
-		// P7-3 G9, F2029); num() parses the whole stripped cell as base 10 ("+N"
+		// the last with '.', TextList.cpp :347-364 - layout, not content);
+		// num() parses the whole stripped cell as base 10 ("+N"
 		// and "-N" accepted), "" is 0 only where empty means "no gain" (page 2).
 		DebriefingState* db = nullptr;
 		const auto& dbStates = _game->getStates();
@@ -10748,8 +10699,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_soldier_info")
 	{
-		// TEST lever - push the REAL SoldierInfoState for soldier {soldierId} on THIS machine; base and index
-		// found exactly as the soldier_rename lever finds them (skip _coopBase / _coopIcon bases; optional {base} name). The
+		// TEST command - push the REAL SoldierInfoState for soldier {soldierId} on THIS machine; base and index
+		// found exactly as the soldier_rename test command finds them (skip _coopBase / _coopIcon bases; optional {base} name). The
 		// screen inits on the next frame. Reply {ok, baseIndex, index}.
 		const int idOS = req.get("soldierId", -1).asInt();
 		const std::string baseOS = req.get("base", "").asString();
@@ -10776,7 +10727,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_soldier_rank")
 	{
-		// TEST lever - STAGING on THIS machine only (call it on both machines, client first, S25): soldier
+		// TEST command - STAGING on THIS machine only (call it on both machines, client first): soldier
 		// {soldierId} (every base, index order) -> setRank({rank}). No command, no relay. Reply {ok, rank} (read back).
 		const int idSR = req.get("soldierId", -1).asInt(), rankSR = req.get("rank", -1).asInt();
 		Soldier* sSR = nullptr;
@@ -10860,7 +10811,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_transformation")
 	{
-		// TEST lever - push the REAL SoldierTransformationState on THIS machine, exactly as the direct
+		// TEST command - push the REAL SoldierTransformationState on THIS machine, exactly as the direct
 		// route does (SoldierTransformState :258: no list, so the arrows stay hidden). {rule, soldierId, dead?, base?}: the base
 		// as open_screen finds it (by name, else the first base with _coopBase and _coopIcon false); the soldier by id from the
 		// save's dead list when {dead}, else from that base's roster; the rule by getSoldierTransformation(rule, false). The
@@ -10899,7 +10850,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_soldier_dead")
 	{
-		// TEST lever - STAGING on THIS machine only (call it on both machines, client first, S25): soldier
+		// TEST command - STAGING on THIS machine only (call it on both machines, client first): soldier
 		// {soldierId} (every base, index order, as set_soldier_rank finds it) -> vanilla's SavedGame::killSoldier(true, s,
 		// nullptr) (default armor, unseated, missing in action). No command, no relay. Reply {ok, dead} (read back from the
 		// dead list).
@@ -11019,7 +10970,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "followup_state")
 	{
-		// W2-P7 S-C-C.1 (docs rewrite/prompts/w2p7_sc_design.md, P7-6 C re-pin at 2e177ff39 PR-C9): TEST INTROSPECTION
+		// TEST INTROSPECTION
 		// ONLY - read-only, public API only. The topmost PromotionsState / CommendationState / CommendationLateState /
 		// CannotReequipState on this machine's stack: its first TextList's rows (columns 3 / 2 / 3 / 3, the counts each
 		// vanilla setColumns call creates - TextList has no public column-count getter), every cell stripped as
@@ -11085,7 +11036,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "mission_stats_pad")
 	{
-		// W2-P7 S-C-B2.3.1 (docs rewrite/prompts/w2p7_sc_design.md, P7-6 B2.3 pin PB-7; F5549): TEST LEVER ONLY - append {count}
+		// TEST COMMAND ONLY - append {count}
 		// (default 1) MissionStatistics to THIS machine's world (id = the list's size, vanilla's rule DebriefingState :607; type
 		// "coop_test_pad") and, with {soldierId}, append each new id to that base soldier's diary. Reply {ok, ids, size}.
 		SavedGame* sgMP = _game->getSavedGame();
@@ -11118,7 +11069,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "prod_fx_probe")
 	{
-		// W2-H16g (F6711, spec (e)): TEST INTROSPECTION ONLY - read-only. {base?} (found as open_screen finds it: by name, else
+		// TEST INTROSPECTION ONLY - read-only. {base?} (found as open_screen finds it: by name, else
 		// the first base with _coopBase and _coopIcon false): funds; score (getResearchScores().back(), 0 when empty); ids (the
 		// whole getAllIds() map); engineers (getEngineers()), availableEngineers, scientists; stores (the base's whole store
 		// map); crafts [{id, type}] in list order; transfers [{hours, kind item|craft|soldier|scientist|engineer, item, qty,
@@ -11186,7 +11137,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "prodwin_probe")
 	{
-		// W2-H16h (F7299, spec (e)): TEST INTROSPECTION ONLY - read-only. The top state, if it is a ProductionCompleteState: open;
+		// TEST INTROSPECTION ONLY - read-only. The top state, if it is a ProductionCompleteState: open;
 		// listVisible / listHidden (its one TextList); rows [{name (column 0), qty (column 1), item (the type whose name in this machine's
 		// language is column 0, "" if none), cx, cy (row centre in WINDOW pixels, as click_widget)}]; buttons [{text, visible, hidden, cx, cy}]; top.
 		State* topPW = _game->getStates().empty() ? nullptr : _game->getStates().back();
@@ -11236,7 +11187,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_alloc_screen")
 	{
-		// TEST lever - push the REAL AllocateTrainingState {kind: martial} / AllocatePsiTrainingState {psi}
+		// TEST command - push the REAL AllocateTrainingState {kind: martial} / AllocatePsiTrainingState {psi}
 		// on THIS machine; the base as open_screen finds it. The screen inits on the next frame. Reply {ok, baseIndex}.
 		const std::string kindOA = req.get("kind", "").asString(), nameOA = req.get("base", "").asString();
 		Base* baseOA = nullptr; int biOA = 0;
@@ -11259,7 +11210,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "alloc_screen_probe")
 	{
-		// W2-H16b (S-9..S-11; A1 P7): TEST INTROSPECTION ONLY - read-only. {base?} (open_screen's rule). `top`; `kind` martial |
+		// TEST INTROSPECTION ONLY - read-only. {base?} (open_screen's rule). `top`; `kind` martial |
 		// psi | craft_armor | craft_soldiers | none; `baseIndex`; `rows` [{row, soldierId, status (cell 8 / 3 / 1 / 2), wx, wy
 		// (window pixels, the soldier_attr_probe conversion, visible rows)}] of the top state's first TextList. soldierId: the
 		// craft screens' harnessDisplayedSoldierIds; martial / psi: the roster's ids if the row count is its size (`listing`
@@ -11321,7 +11272,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_soldier_recovery")
 	{
-		// TEST lever - STAGING on THIS machine only (both machines, client first, S25): soldier {soldierId}
+		// TEST command - STAGING on THIS machine only (both machines, client first): soldier {soldierId}
 		// (every base, index order) -> setWoundRecovery({days}) (isWounded for days > 0). Reply {ok, recovery} (read back).
 		const int idWR = req.get("soldierId", -1).asInt();
 		Soldier* sWR = nullptr;
@@ -11383,7 +11334,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				r["currentStats"] = stats(s->getCurrentStats()); r["initialStats"] = stats(s->getInitStats());
 				r["dead"] = (s->getDeath() != nullptr);
 				r["armor"] = s->getArmor() ? s->getArmor()->getType() : "";
-				// coop OF2 S-C (owner D268 (b), extends D155 (a)): the soldier's mod script tags {name: value as saved}, read
+				// coop: the soldier's mod script tags {name: value as saved}, read
 				// back from its own Soldier::save YAML (`tags`; absent when every tag is 0 -> {}). TEST INTROSPECTION, read-only.
 				Json::Value tagsSR(Json::objectValue);
 				{
@@ -11459,7 +11410,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_autosell")
 	{
-		// W2-P7 S-C-E1.1 (AMENDMENT P7-8 PR-46, Q-P8-2): TEST-ONLY world write on THIS machine - SavedGame::setAutosell(item,
+		// TEST-ONLY world write on THIS machine - SavedGame::setAutosell(item,
 		// on), the mark vanilla's page-3 Sell pre-fills from (SellState :279). Run it on both machines, client first, so the
 		// two worlds stay equal. Reply {ok, item, autosell: getAutosell(item)} (false while the local oxceAutoSell is off).
 		const std::string itemAS = req.get("item", "").asString();
@@ -11482,9 +11433,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "screen_push")
 	{
-		// TEST lever. Pushes the REAL
+		// TEST command. Pushes the REAL
 		// screen a player opens from the basescape, so its init() runs on the next frame (ScreenRefresh and the shared
-		// selection bind there, unlike the sell / containment / shared_transfer levers, F6126): {screen: "transfer_base"} =
+		// selection bind there, unlike the sell / containment / shared_transfer test commands): {screen: "transfer_base"} =
 		// BasescapeState :686's new TransferBaseState(base, nullptr) (then screen_pick_base); {screen: "containment"} =
 		// BasescapeState :904's new ManageAlienContainmentState(base, prisonType, OPT_GEOSCAPE) (a facility tile, no
 		// caption). {base: index, default 0; prisonType: default 0}. Reply {ok, screen, base, prisonType}.
@@ -11503,7 +11454,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			_game->pushState(new ManageAlienContainmentState((*sgSP->getBases())[baseSP], prisonSP, OPT_GEOSCAPE));
 		else
 			resp["error"] = "screen_push: unknown screen " + screenSP;
-		// W2-P7 S-C-E3.1 (P7-9 PR-63 (ii)): {screen: "cannot_reequip", base, missing: [{item, qty, craft}]} = vanilla's own
+		// {screen: "cannot_reequip", base, missing: [{item, qty, craft}]} = vanilla's own
 		// push (CraftEquipmentState :1230): new CannotReequipState(missing sorted by listOrder, base); rows fill in its init().
 		if (screenSP == "cannot_reequip" && sgSP && baseSP >= 0 && baseSP < nSP)
 		{
@@ -11528,7 +11479,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	{
 		// TEST INTROSPECTION ONLY - read-only. {names[], items[], tail}: `eventStates` (count on the
 		// stack), `event` (the top-most GeoscapeEventState or null: `picks` = coopPicks, `texts` = coopTexts, `place` = what
-		// THIS machine renders from the picks), then the world parts an event touches (spec (e)).
+		// THIS machine renders from the picks), then the world parts an event touches.
 		SavedGame* sgGE = _game->getSavedGame();
 		Language* langGE = _game->getLanguage();
 		int countGE = 0; GeoscapeEventState* topGE = nullptr;
@@ -11608,7 +11559,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "coop_file_info")
 	{
-		// W2-P7 S-C-A.1 (AMENDMENT P7-6 section 4.1; F4536: has_coop_file reports presence only): TEST INTROSPECTION
+		// (has_coop_file reports presence only.) TEST INTROSPECTION
 		// ONLY - read-only. One in-memory coop blob in the map hasCoopFile() reads (the host's map on the host, the
 		// client's on a client): {key}, or {role} "own_world" = clientBlobKey(getHostName()) (a client's own-world blob)
 		// or "host_copy_of_client" = hostBlobKey(getCurrentClientName()) (the host's copy of the client's world).
@@ -11649,15 +11600,15 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "defer_intents")
 	{
-		// TEST-ONLY STOPGAP (W1-P7, RB-D26/RB-D32 family; delete once real network
-		// latency/loss can be injected another way). HOST lever: hold the next {count} incoming bt_intent
+		// TEST-ONLY STOPGAP (delete once real network
+		// latency/loss can be injected another way). HOST test command: hold the next {count} incoming bt_intent
 		// messages for {ms} before dispatching them normally.
 		//
-		// This is the ONLY way to make WV-D24's intent timeout deterministic. It
+		// This is the ONLY way to make the client's intent timeout deterministic. It
 		// produces a genuinely UNANSWERED intent (so the client's 10 s timer really
 		// runs out), and then a genuinely LATE answer on the wire afterwards - so
 		// the "a late bt_ack/bt_deny is PERMANENTLY IGNORED while a late
-		// bt_action_end still applies" half of the ruling is testable too, rather
+		// bt_action_end still applies" half of the rule is testable too, rather
 		// than asserted against a message that was never sent.
 		if (!isCoopBattle())
 		{
@@ -11702,7 +11653,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				if (f) ++floor;
 				if (w) ++west;
 				if (nw) ++north;
-				// W1-P15 item 2, recommendation R-2 - THE MEASUREMENT. Player-side
+				// THE MEASUREMENT. Player-side
 				// fog on a tile that is Tile::isVoid() on BOTH machines is hashed
 				// by NOTHING: SavedBattleGame::save skips void tiles
 				// (SavedBattleGame.cpp:568-579) so those bits never reach binTiles
@@ -11716,14 +11667,14 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			}
 			resp["mapSizeXYZ"] = n;
 			// Unchanged top-level keys: the PLAYER-side set, read from the RAW
-			// vanilla bits. W1-P15 item-6 FINDING A-3: this probe must keep
-			// reporting the raw bits and must never be routed through W1-P14's
+			// vanilla bits. This probe must keep
+			// reporting the raw bits and must never be routed through the fog
 			// read-switch, or it could no longer prove "both sides sets equal".
 			resp["floor"] = floor;
 			resp["westwall"] = west;
 			resp["northwall"] = north;
 			resp["discoveredVoid"] = discoveredVoid;
-			// D247-U S-A.1 (docs rewrite/prompts/d247u_hotseat_battle.md (e) TA1; TEST-ONLY, read-only):
+			// TEST-ONLY, read-only:
 			// {bits: true} adds the PLAYER-side explored map as hex, two characters per tile in linear
 			// tile-index order (1 = west wall, 2 = north wall, 4 = floor: CoopFog.h's byte), so a
 			// hotseat test compares the two players' maps tile by tile.
@@ -11743,7 +11694,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 				resp["playerBits"] = bitsHex;
 			}
 
-			// W1-P8 (SS2.W4 dual-set): the same census PER SIDE, so a test can
+			// The same census PER SIDE, so a test can
 			// assert both machines hold the SAME two sets rather than one merged
 			// number. `player` mirrors the three keys above by construction.
 			Json::Value player(Json::objectValue);
@@ -11762,7 +11713,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			hostile["northwall"] = hn;
 			resp["hostile"] = hostile;
 
-			// SS2.W5: the POLARITY of the selection-FOV gate on THIS
+			// The POLARITY of the selection-FOV gate on THIS
 			// machine, reported so a test can prove the guard directly instead of
 			// only inferring it from behaviour. TRUE inside an active co-op battle
 			// (a selection change authors no shared fog); FALSE in single player,
@@ -11785,7 +11736,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "reveal_drop")
 	{
-		// RB-D26 one-shot: the HOST computes and PUBLISHES its next reveal delta
+		// TEST-ONLY one-shot: the HOST computes and PUBLISHES its next reveal delta
 		// but does not attach it, so the client is permanently missing those
 		// bits. With the binTiles fog mask removed (SharedEcon.cpp) that is a
 		// real, hash-visible divergence - which is the whole point of the
@@ -11795,13 +11746,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "reveal_base")
 	{
-		// RB-D26 one-shot: the HOST's next quiescent flush ships an ABSOLUTE
-		// `base` restate instead of a sparse `add` (SS2.4a). With
+		// TEST-ONLY one-shot: the HOST's next quiescent flush ships an ABSOLUTE
+		// `base` restate instead of a sparse `add`. With
 		// {"bad_n":true} it advertises a deliberately wrong n, which the client
 		// must treat as a DESYNC - freeze + bt_desync + bundle + banner - and
 		// never partially apply.
-		// W1-P8 (SS2.W4): {"side":"hostile"} restates the OTHER set. An absent
-		// side, or "player", keeps the SS2.4a behaviour byte for byte.
+		// {"side":"hostile"} restates the OTHER set. An absent
+		// side, or "player", keeps the player-side behaviour byte for byte.
 		CoopFog::Side side = CoopFog::Side::Player;
 		if (!CoopFog::sideFromString(req.get("side", "").asString(), side))
 		{
@@ -11814,12 +11765,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "reveal_hostile_pass")
 	{
-		// W1-P8 (RB-D26 discipline): force the coop-only HOSTILE-side FOV pass on
+		// TEST-ONLY: force the coop-only HOSTILE-side FOV pass on
 		// the HOST, right now. The pass is otherwise dirty-tracked - it only
-		// re-sweeps an alien that moved or turned - so without this lever a wave-1
-		// fixture (which never runs an alien turn) could not make the hostile set
-		// grow at a chosen moment, and the SS2.W4/WR-5 "an action that reveals for
-		// BOTH sides" proof would have no way to arrange its premise.
+		// re-sweeps an alien that moved or turned - so without this test command a
+		// fixture that never runs an alien turn could not make the hostile set
+		// grow at a chosen moment, and a proof that "an action reveals for BOTH
+		// sides" would have no way to arrange its premise.
 		// {"force":false} exercises the dirty-tracked path instead.
 		SavedGame* sg = _game->getSavedGame();
 		SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
@@ -11834,8 +11785,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			//   arm       - run a FORCED hostile sweep at the emit choke;
 			//   republish - forget what the hostile side has already published, so
 			//               its whole live set is pending again.
-			// `republish` is the one a wave-1 fixture needs: with no alien turn in
-			// the wave there is no way to make an alien MOVE, so a forced re-sweep
+			// `republish` is the one a fixture with no alien turn needs: there is
+			// no way to make an alien MOVE, so a forced re-sweep
 			// of an unmoved alien discovers nothing new and the delta would be
 			// empty. Forgetting the published mirror changes no live state on
 			// either machine (reveal is monotone - the client re-applies bits it
@@ -11910,7 +11861,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "set_toggle_state")
 	{
-		// TEST lever - STAGING on THIS machine only (both machines, client first, S25); the flag only (no checkup,
+		// TEST command - STAGING on THIS machine only (both machines, client first); the flag only (no checkup,
 		// no command). {kind: "facility", x, y, disabled, base?} (the base as open_screen finds it; the facility at (x, y)) or
 		// {kind: "weapon", craftId, craftType, slot, disabled} (the craft by (type, id) over every base). Reply {ok, disabled}.
 		const std::string kindTS = req.get("kind", "").asString(), baseTS = req.get("base", "").asString();
@@ -11953,7 +11904,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "open_craft_info")
 	{
-		// TEST lever - push the REAL CraftInfoState for the craft {craftId, craftType} on THIS machine (at the
+		// TEST command - push the REAL CraftInfoState for the craft {craftId, craftType} on THIS machine (at the
 		// named {base}, else every base in order; _coopBase / _coopIcon bases skipped). The screen inits on the next frame and
 		// is a POPUP window: wait until list_widgets shows its icons not hidden before a click. Reply {ok, baseIndex, index}.
 		const int idOC = req.get("craftId", -1).asInt();
@@ -11980,13 +11931,13 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "screen_pixels")
 	{
-		// W1-P13c (REV E.53 E53.2 / E54.4 pin 2, REV E.48 SS.A.6): test-only,
+		// Test-only,
 		// read-only, never forwarded. Placed here rather than beside
 		// "screenshot" in execute() - that function is at MSVC's C1061
 		// nesting limit. Reads the back buffer's 8-bit palette indices for
 		// the requested rect, row-major, clipped to the surface, plus the
 		// mode the LAST EXECUTED CoopBattleUi::coopGrayBottomBar() pass
-		// stored (E54.4 pin 3: the pump runs at the top of the frame loop and
+		// stored (the pump runs at the top of the frame loop and
 		// reads the previously completed frame, so `mode` and `pixels`
 		// describe the same frame). Safe against a machine parked in
 		// BriefingState or any other pre-battle state - it touches only
@@ -12030,7 +11981,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "battle_camera_center")
 	{
-		// W2-H3 (spec AMENDMENT 2 step 4, owner D143): test-only, camera-only,
+		// Test-only, camera-only,
 		// read by the harness on THIS machine, never forwarded, nothing emitted.
 		// Centres this machine's battlescape camera on tile {x,y,z} through
 		// vanilla's own Camera::centerOnPosition(pos, false) - the same call
@@ -12070,7 +12021,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	}
 	else if (cmd == "path_probe")
 	{
-		// W2-H3 (spec AMENDMENT 3 step 1): test-only, READ-ONLY, answered by
+		// Test-only, READ-ONLY, answered by
 		// THIS machine to the harness, never forwarded, nothing emitted. Runs
 		// vanilla's Pathfinding::calculate for unit {unit} from its current
 		// tile to tile {x,y,z} with BAM_NORMAL (the plain walk click's own move
@@ -12133,26 +12084,26 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["ok"] = true;
 		}
 	}
-	else if (cmd == "field_poke" || cmd == "synced_census") // one branch, no new arm (C1061; the R4-L2 S-C shape)
+	else if (cmd == "field_poke" || cmd == "synced_census") // one branch, no new arm (C1061; the corrupt_next_blob branch's shape)
 	{
-		// W2-P2 S-H.1 (amendment A5.5): see coopFieldPoke() above.
+		// See coopFieldPoke() above.
 		SavedGame* sgFP = _game->getSavedGame();
 		SavedBattleGame* bgFP = sgFP ? sgFP->getSavedBattle() : nullptr;
 		if (!bgFP)
 			resp["error"] = "field_poke: no live battle";
 		else if (cmd == "synced_census")
-			coopSyncedCensus(_game->getMod(), bgFP, resp); // W2-H26 (TEST-ONLY, read-only)
+			coopSyncedCensus(_game->getMod(), bgFP, resp); // (TEST-ONLY, read-only)
 		else
 			coopFieldPoke(_game->getMod(), bgFP, req, resp);
 	}
 	else if (cmd == "inventory_move")
 	{
-		// U6: the base-screen lever; see coopTestBaseInventoryMove() above.
+		// The base-screen test command; see coopTestBaseInventoryMove() above.
 		coopTestBaseInventoryMove(_game, req, resp);
 	}
 	else if (cmd == "inventory_unload")
 	{
-		// U6: the base-screen lever; see coopTestBaseInventoryUnload() above.
+		// The base-screen test command; see coopTestBaseInventoryUnload() above.
 		coopTestBaseInventoryUnload(_game, req, resp);
 	}
 	else if (cmd == "soldier_layouts")
@@ -12208,7 +12159,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["soldiers"] = slSoldiers;
 		resp["ok"] = true;
 	}
-	else if (cmd == "base_screen_op") { coopTestBaseScreenOp(_game, req, resp); } // W2-H20b (D255 a; spec (e), Q7 a)
+	else if (cmd == "base_screen_op") { coopTestBaseScreenOp(_game, req, resp); }
 	else if (cmd == "open_select_destination") { coopTestOpenSelectDestination(_game, req, resp); }
 	else if (cmd == "throw_next_rx") // coop: TEST-ONLY, either machine
 	{
@@ -12249,7 +12200,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (executeIntrospect13(cmd, req, resp))
 		{
-			// handled by the R2-P11 rewrite-spike introspection dispatcher
+			// handled by the battle-lane introspection dispatcher
 		}
 		else if (executeShared10(cmd, req, resp))
 		{
@@ -12285,7 +12236,7 @@ std::string TestServer::execute(const std::string& line)
 				states.append(typeid(*s).name());
 			}
 			resp["states"] = states;
-			// CIT-G1 fix: true while the top state is a main menu whose init() has not run yet (or the GoToMainMenuState that
+			// True while the top state is a main menu whose init() has not run yet (or the GoToMainMenuState that
 			// pushes one). The game loop pumps test commands BEFORE it inits a newly pushed state, so a join sent now would be
 			// wiped by MainMenuState::init's disconnectTCP + resetSession. The harness waits for false before every join.
 			const State* topGS = _game->getStates().empty() ? nullptr : _game->getStates().back();
@@ -12295,7 +12246,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "pedia_state")
 		{
-			// W2-P8 S-D2 (AMENDMENT P8-4f 4f.3, Q4 (a)): THIS machine's Ufopaedia screens (kind,
+			// THIS machine's Ufopaedia screens (kind,
 			// depth, nerds, article id, a top SelectState's TextList rows), the viewer's seat and mode,
 			// and per requested id {live: vanilla, seat: coopSeatArticleAvailable}. Read-only, test-only.
 			const auto& stPS = _game->getStates();
@@ -12446,12 +12397,12 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "newbattle_seat_soldier")
 		{
-			// R3-P1 (SPIKE-RUNBOOK.md R3-P1 packet text): stamp one soldier
+			// Stamp one soldier
 			// assigned to the New Battle screen's currently selected craft
 			// with a coop seat, BEFORE newbattle_ok generates the battle -
 			// see NewBattleState::harnessSeatOneSoldier()'s own doc comment
 			// for why a plain classic skirmish otherwise leaves every
-			// soldier at seat 0 (host). R3-P2: optional "index" (default 0)
+			// soldier at seat 0 (host). Optional "index" (default 0)
 			// selects the Nth soldier on the craft, so a second call with a
 			// different index stamps a SECOND, different soldier to the
 			// same seat.
@@ -12478,7 +12429,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "newbattle_mission")
 		{
-			// W1-P10 (SS4 "ATOM door", RB-D26 discipline): pick the NEW BATTLE
+			// Test-only: pick the NEW BATTLE
 			// screen's mission by ruleset name before newbattle_ok generates
 			// the battle. The door atom's fixture must CONTAIN a door, and with
 			// the default selection that is a property of the map ROLL, not of
@@ -12515,7 +12466,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "newbattle_craft")
 		{
-			// SPEC 0e-1: pin the skirmish craft by ruleset name before
+			// Pin the skirmish craft by ruleset name before
 			// newbattle_ok generates the battle - the Lightning-contact fixtures
 			// need a craft whose own map data carries a known door (LIGHTNIN.MCD
 			// record 40, the only UFO_Door tile). With no "type" the command just
@@ -12550,7 +12501,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "newbattle_race")
 		{
-			// SPEC 0e-1: pin the alien race by ruleset name from the list
+			// Pin the alien race by ruleset name from the list
 			// cbxMissionChange built for the CURRENT mission - MUST be called after
 			// newbattle_mission (that handler rebuilds _alienRaces; picking a race
 			// first would select from the wrong list). With no "race" the command
@@ -12706,7 +12657,7 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "geo_clock")
 		{
-			// coop W2-H92 (TEST-ONLY, read-only; D304 (a)): THIS machine's geoscape clock to the second, the co-op clock counters
+			// coop (TEST-ONLY, read-only): THIS machine's geoscape clock to the second, the co-op clock counters
 			// and the top state in one light call, so a test can sample both machines every few ms.
 			SavedGame* sgGC = _game->getSavedGame();
 			const auto& stGC = _game->getStates();
@@ -12837,7 +12788,7 @@ std::string TestServer::execute(const std::string& line)
 						}
 						jc["destKind"] = destKind;
 						jc["destId"] = destId;
-						// W2-H51 (TEST-ONLY, pure reads; docs rewrite/prompts/w2h51_craft_peer_craft_target.md T1): the destination craft's
+						// TEST-ONLY, pure reads: the destination craft's
 						// identity, so a row tells a partner's craft mirror from the player's own craft of the same type and id
 						if (auto* dc = dynamic_cast<Craft*>(c->getDestination()))
 						{
@@ -13245,19 +13196,19 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "coop_mission_start")
 		{
-			// SPEC 19 M3: campaign co-op battle entry (SEPARATE or
+			// Campaign co-op battle entry (SEPARATE or
 			// SHARED alike) - the host confirms the pending coop landing.
 			// ConfirmLandingState::btnYesClick does NOT push
 			// CoopState(88)/emit "sendCraft" on this path - that legacy
 			// two-world-merge trigger chain (sendCraft -> sendMissionFile ->
 			// setClientSoldiers -> CoopState::loadWorld 111/765) is UNREACHED
-			// here (F359; left in place as a dead legacy trigger, a later
-			// hygiene row). Instead, under its own `if (coopLanding)` block,
+			// here (left in place as a dead legacy trigger).
+			// Instead, under its own `if (coopLanding)` block,
 			// btnYesClick merges any client-contributed SEPARATE guest onto
-			// this craft (coopMergeGuestContributions(), M2 Branch B: the
+			// this craft (coopMergeGuestContributions(): the
 			// client's battle_roster_contrib census, stored per seat, consumed
 			// here BEFORE generation) and stamps every seated soldier's coop
-			// seat from ownerPlayerId (coopStampCraftSeats(), M1, F358) BEFORE
+			// seat from ownerPlayerId (coopStampCraftSeats()) BEFORE
 			// calling vanilla bgen.run(). This is the SEPARATE and SHARED
 			// analog of the skirmish confirm_landing path alike; it reports
 			// the host stage right after the click so a test can gate on
@@ -13302,9 +13253,8 @@ std::string TestServer::execute(const std::string& line)
 				}
 				else if (act == "ok")
 				{
-					// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10,
-					// Q11 (a)): on the pre-battle screen with the equip phase open, OK is a ready TOGGLE, so
-					// this lever only SETS ready: a press when this seat is not ready, nothing when it is (noop). Any
+					// On the pre-battle screen with the equip phase open, OK is a ready TOGGLE, so
+					// this test command only SETS ready: a press when this seat is not ready, nothing when it is (noop). Any
 					// other screen (no equip phase): vanilla btnOkClick as before. preBattle = the first case applied.
 					const bool preBattle = coopEquipOpen() && CoopDelta::equipIsScreen(inv);
 					if (preBattle && coopEquipLocalReady())
@@ -13332,12 +13282,11 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "hold_battle_ready")
 		{
-			// W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1 section 4 step 10, P8b-1
-			// RULINGS Q16 (a)): TEST-ONLY, CLIENT. {on: true} arms it: the client's handshake then stashes its
+			// TEST-ONLY, CLIENT. {on: true} arms it: the client's handshake then stashes its
 			// battle_ready instead of sending it, so the host stays in phase Handshake (the host-closes-its-briefing-
 			// before-battle_ready window, made deterministic). {on: false} disarms it and sends the stash, if any, from
 			// here. Without `on` it only reports. Response: {ok, armed, held (a stash waits), sent (the release sent
-			// one)}. Inert unless armed (STOP-IF 16).
+			// one)}. Inert unless armed.
 			if (req.isMember("on"))
 			{
 				const bool on = req.get("on", false).asBool();
@@ -13362,10 +13311,10 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "hold_world_stream" || cmd == "hold_world_adopt")
 		{
 			// TEST-ONLY, one branch for
-			// both levers (C1061: execute() gains one nesting level). hold_world_stream (HOST) {on: true} arms it: the
+			// both test commands (C1061: execute() gains one nesting level). hold_world_stream (HOST) {on: true} arms it: the
 			// world streamer then waits before its final MAP_RESULT_LOAD_PROGRESS send (10 ms sleeps, 60 s safety cap;
 			// the host log says "[coop-test] hold_world_stream: holding" while it waits). hold_world_adopt (CLIENT)
-			// {on: true} arms the hold S-C-A.2's pump adoption step reads. {on: false} disarms (a parked stream then
+			// {on: true} arms the hold the pump's adoption step reads. {on: false} disarms (a parked stream then
 			// completes). Without `on` it only reports. Response {ok, armed}. Inert unless armed.
 			const bool stream = (cmd == "hold_world_stream");
 			if (req.isMember("on"))
@@ -13392,13 +13341,8 @@ std::string TestServer::execute(const std::string& line)
 		{
 			SavedGame* sg = _game->getSavedGame();
 			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
-			// R2-P11 (SPIKE-RUNBOOK.md's own text for this packet: "report phase
-			// + authority instead of the stubbed legacy fields"): added
-			// additively in both branches below rather than replacing anything -
-			// every existing battle_state consumer is currently SKIP-PENDING
-			// (r3/r4/r5 per W1_TRIAGE.md), so nothing reads these fields yet, but
-			// nothing already there needed removing either. Deeper re-targets
-			// (e.g. "selectable" via BattleAuthority::commandsUnit()) ride r3/r4.
+			// Phase + authority, reported in both branches below beside the
+			// older fields (nothing there was removed).
 			{
 				BattleAuthority& a = coopBattleAuthority();
 				resp["phase"] = coopTestPhaseName(a.phase.load());
@@ -13406,27 +13350,27 @@ std::string TestServer::execute(const std::string& line)
 				authority["hostSim"] = a.hostSim.load();
 				authority["localSeat"] = a.localSeat.load();
 				authority["battleId"] = a.battleId.load();
-				authority["desyncFrozen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop R4-L3 S-A; the live flag: resync_state.frozen
-				// SPEC 16 M1, F337's NEW probe: latched on a mid-
+				authority["desyncFrozen"] = a.desyncFrozen.load() || coopDesyncSeenLatched(); // coop; the live flag: resync_state.frozen
+				// Latched on a mid-
 				// Active-battle peer leave that spared the authority reset
 				// (see connectionTCP::disconnectTCP), so a test can assert
 				// "paused, not torn down" without inferring it from the
 				// dialog alone.
 				authority["peerAbsent"] = a.peerAbsent.load();
-				// SPEC 16 M4: additive - true when the CURRENT
+				// True when the CURRENT
 				// pause was entered via a graceful battle_leave rather than
 				// a bare liveness/socket-loss detection (BattleAuthority.h).
 				authority["peerLeftByChoice"] = a.peerLeftByChoice.load();
 				resp["authority"] = authority;
 				resp["queueDepth"] = CoopPump::queueDepth();
 				resp["txDrains"] = CoopEmit::txDrainEvents();
-				// SPEC 18 (r4 T4) M8, NEW (additive): the deferred mid-battle
+				// The deferred mid-battle
 				// coop save latch (armed by SaveGameState::think() when a
 				// save was requested while the battle was not quiescent) so
 				// a test can prove a save was requested busy and written
 				// only at quiescence.
 				resp["coopSavePending"] = coopDeferredBattleSavePending();
-				// W2-H1 F448, NEW (additive): the battle-
+				// The battle-
 				// scoped deferral record, so a test proves "requested busy,
 				// written after the walk ended" without racing the latch's
 				// own window (BattleAuthority.h).
@@ -13466,7 +13410,7 @@ std::string TestServer::execute(const std::string& line)
 					resp["hitLog"] = jh;
 				}
 				resp["missionType"] = bg->getMissionType();
-				// W1-P2 (WR-23, WAVE1-RUNBOOK.md SS2.W1): mission IDENTITY, added
+				// Mission IDENTITY, added
 				// ADDITIVELY - the branch reported missionType but neither display
 				// label, so "do the two machines agree on what mission this is?" was
 				// undrivable. strTarget/strCraftOrBase are the two BriefingState labels
@@ -13475,8 +13419,8 @@ std::string TestServer::execute(const std::string& line)
 				// CLIENT what battle_offer.missionLabel carried. `deployment` is the
 				// RESOLVED AlienDeployment type the offer carried (a thin client has no
 				// Craft/Ufo to re-derive it from). All three are plain getters - safe
-				// under a machine parked in BriefingState, which this wave puts on the
-				// client (D3); the getBattleGame() hazard is guarded separately below.
+				// under a machine parked in BriefingState, which is where the
+				// client parks; the getBattleGame() hazard is guarded separately below.
 				resp["strTarget"] = bg->getMissionTarget();
 				resp["strCraftOrBase"] = bg->getMissionCraftOrBase();
 				resp["deployment"] = CoopHandshake::carriedDeploymentType();
@@ -13508,9 +13452,8 @@ std::string TestServer::execute(const std::string& line)
 					resp["mapDiscoveredFloor"] = discFloor;
 					resp["mapSizeXYZ"] = n;
 				}
-				// R1-P4 stub: BattlescapeGame::isYourTurn was removed by the r1
-				// vanilla restore; the real turn-machine returns with r2
-				// (RB-D9/RB-D11). Field kept for response-shape stability.
+				// Stub: BattlescapeGame has no isYourTurn (vanilla has none).
+				// Field kept for response-shape stability.
 				resp["coopTurn"] = -1;
 				// This machine's battle role: host controls coop==0 units, client coop==1
 				// (BattlescapeGame.cpp select gate). Exposed so a test can prove the two
@@ -13554,7 +13497,7 @@ std::string TestServer::execute(const std::string& line)
 				BattlescapeState* bsLive = connectionTCP::isBattlescapeStateLive(bg->getBattleState()) ? bg->getBattleState() : nullptr;
 				BattlescapeGame* bgame = bsLive ? bg->getBattleGame() : nullptr;
 				resp["isBusy"] = bgame ? bgame->isBusy() : false;
-				resp["pendingStates"] = bgame ? (int)bgame->getStates().size() : 0; // WV-D68 (FX-4) settle proof (test-only probe)
+				resp["pendingStates"] = bgame ? (int)bgame->getStates().size() : 0; // settle proof (test-only probe)
 				resp["panicHandled"] = bgame ? bgame->getPanicHandled() : false;
 				resp["isPreview"] = bg->isPreview();
 				// SavedBattleGame::_beforeGame - the pre-inventory flag nextStage()/
@@ -13568,7 +13511,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
-				// W2-H6 (spec (c), F1200-F1206): the actor of THIS machine's current
+				// The actor of THIS machine's current
 				// battle action (BattlescapeGame::_currentAction.actor), -1 for null,
 				// beside selectedId - vanilla pairs the two on every player-driven
 				// selection change (BattlescapeState::selectNextPlayerUnit), and the
@@ -13582,7 +13525,7 @@ std::string TestServer::execute(const std::string& line)
 				// BEFORE it ever calls primaryAction (:1102, :1106). Without them
 				// a swallowed map click is indistinguishable from a click that
 				// reached primaryAction and was correctly refused - which is the
-				// difference W1-G1 criterion 4b turns on.
+				// difference a gate test turns on.
 				{
 					BattlescapeState* bsForInput = bsLive;
 					resp["mouseOverIcons"] = bsForInput ? bsForInput->getMouseOverIcons() : false;
@@ -13591,41 +13534,37 @@ std::string TestServer::execute(const std::string& line)
 					// THIS machine - the Game::getCursor() flag vanilla's popState() sets back with setVisible(true) beside
 					// setupCursor(). A pure read, test-only: no game state, nothing on the wire.
 					resp["cursorVisible"] = (_game && _game->getCursor()) ? _game->getCursor()->getVisible() : false;
-					// W1-P14 (REV E.48 SS.F.2 (i)): the Map::draw hidden-movement gate's
+					// The Map::draw hidden-movement gate's
 					// own value on THIS machine. TRUE => the terrain is drawn; FALSE =>
 					// the HIDDEN MOVEMENT message is blitted instead. Read-only.
 					resp["hiddenMovementShown"] = bsForInput ? bsForInput->getMap()->hiddenMovementShown() : false;
 				}
-				// R3-P2: the _txtCoopWait deny/cancel/desync banner's current
+				// The _txtCoopWait deny/cancel/desync banner's current
 				// text (empty = hidden) - test introspection only, proves
 				// "banner shown" for the forced-mismatch repro (CoopBattleUi::
 				// showDesyncHalted() -> BattlescapeState::setCoopWaitText()).
 				{
 					BattlescapeState* bsForBanner = bsLive;
 					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
-					// W1-P7 (ruling D7 = WV-D13 item 4): the re-added DONOR END-TURN
-					// surface. DORMANT in this packet - W1-P13's readiness tally is its
-					// driver - so the assertion it supports today is that it EXISTS and
-					// stays HIDDEN (empty), which is what proves the re-add did not put a
-					// stray widget on the map strip.
+					// The DONOR END-TURN surface; the readiness tally drives it. Hidden
+					// (empty) means no stray widget on the map strip.
 					resp["coopEndTurnText"] = bsForBanner ? bsForBanner->getCoopEndTurnText() : "";
-					// W1-P13b (REV E.50 D68/E50.3): the button-inversion
-					// probe C.2 names - this machine's OWN seat armed per
+					// The button-inversion
+					// probe - this machine's OWN seat armed per
 					// the last applied tally, the same value the repaint
 					// feeds BattlescapeState::setCoopEndTurnArmed().
 					resp["coopEndTurnArmed"] = bsForBanner ? bsForBanner->getCoopEndTurnArmed() : false;
-					// W1-P13c (REV E.53 E53.2 / E54.4 pin 2): the off-baton
+					// The off-baton
 					// gray-bottom-bar gate, model-side - the secondary check
 					// beside the screen_pixels pixel read.
 					resp["coopOffBatonGray"] = bsForBanner ? CoopBattleUi::coopOffBatonGrayActive() : false;
-					// W1-P9 (SS2.W2 / WV-D48): the VANILLA warning surface's text.
-					// SS2.6 keeps every CO-OP message off _warning, so this asks a
-					// different question from coopWaitText above - and the one
-					// wave-1 answer it has to give is the LOCAL VANILLA reserve
-					// refusal shown when a client's own TU reserve stops a walk at
-					// step 1 ("Time Units reserved for Snap Shot").
+					// The VANILLA warning surface's text.
+					// Every CO-OP message stays off _warning, so this asks a
+					// different question from coopWaitText above - for example the LOCAL
+					// VANILLA reserve refusal shown when a client's own TU reserve stops a
+					// walk at step 1 ("Time Units reserved for Snap Shot").
 					resp["warningText"] = bsForBanner ? bsForBanner->getWarningText() : "";
-					// R5-U2 S-B.1 (docs rewrite/prompts/r5u2_pvp_presentation.md section D): the visible-unit indicator buttons now
+					// The visible-unit indicator buttons now
 					// shown (BattlescapeState::coopHudUnits; test introspection only).
 					if (bsForBanner)
 					{
@@ -13642,11 +13581,9 @@ std::string TestServer::execute(const std::string& line)
 						hud["wounded"] = hudWounded;
 						resp["hudUnits"] = hud;
 					}
-					// the PAINTED HUD numbers, so the client-HUD-refresh
-					// acceptance asserts what is on the map strip rather than what the
-					// model holds - the two are exactly what could disagree before this
-					// packet, because nothing on a thin client repainted them from the
-					// apply path.
+					// The PAINTED HUD numbers, so a client-HUD-refresh test asserts what is
+					// on the map strip rather than what the model holds - the two disagree
+					// when a thin client does not repaint them from the apply path.
 					if (bsForBanner)
 					{
 						int hTu = -1, hEn = -1, hHp = -1, hMo = -1;
@@ -13659,17 +13596,17 @@ std::string TestServer::execute(const std::string& line)
 						resp["hud"] = hud;
 					}
 				}
-				// R2-P7: the CLIENT's held (busy-denied, awaiting auto-resubmit)
+				// The CLIENT's held (busy-denied, awaiting auto-resubmit)
 				// intent as {kind, actorId, iseq}, or null when nothing is
 				// pending. Test introspection only - it makes "pending" an
 				// observable state rather than something a test has to infer
 				// from the banner text (which the busy DENY and the PENDING
-				// hold deliberately share, SS2.6).
+				// hold deliberately share).
 				resp["coopPendingIntent"] = CoopArbiter::pendingIntent();
-				// is the co-op chat overlay capturing the keyboard right
+				// Is the co-op chat overlay capturing the keyboard right
 				// now? Game::run() feeds keys to ChatMenu AND still calls
 				// _states.back()->handle(), so BattlescapeState::allowButtons()
-				// carries a chat guard (ruling D8, legacy parity). Without this
+				// carries a chat guard (legacy parity). Without this
 				// probe a test could only observe the guard's EFFECT and could not
 				// prove the chat was ever open - i.e. it could pass vacuously.
 				{
@@ -13691,7 +13628,7 @@ std::string TestServer::execute(const std::string& line)
 				// generator releases gen-killed units' modules (BattlescapeGenerator::
 				// releaseAIModulesOfUnitsKilledDuringGeneration).
 				int unitsDeadWithAI = 0;
-				// each unit's `specialWeapons` = the ids
+				// Each unit's `specialWeapons` = the ids
 				// of the _items entries with isSpecialWeapon() it owns, in _items
 				// order (a pure read).
 				std::map<int, Json::Value> specialIdsByOwner;
@@ -13715,21 +13652,21 @@ std::string TestServer::execute(const std::string& line)
 					ju["health"] = u->getHealth();
 					ju["tu"] = u->getTimeUnits();
 					ju["stun"] = u->getStunlevel();
-					// W2-P2 S-A (spec (b)16/(e)): morale, whether the unit stands
+					// Morale, whether the unit stands
 					// on a tile (false for a dead/unconscious unit taken off the
 					// map), and the UNIT's own on-fire turns (not the tile's).
 					ju["morale"] = u->getMorale();
 					ju["onTile"] = (u->getTile() != nullptr);
 					ju["unitFire"] = u->getFire();
-					// W2-P3 S-A.1 (amendment B1 RQ7): the unit's rules type (a pure read).
+					// The unit's rules type (a pure read).
 					ju["type"] = u->getType();
 					// the conversion fields and the special
 					// built-in weapons, pure reads. psiWeapon = getSpecialWeapon(BT_PSIAMP)'s
 					// id, -1 when none.
 					ju["originalFaction"] = (int)u->getOriginalFaction();
 					ju["hasAI"] = (u->getAIModule() != nullptr); // a pure read
-					ju["woundable"] = u->isWoundable(); // R5-U8 A1: a pure read - whether the unit takes fatal wounds (BattleUnit::isWoundable, the rule A3's re-skin changes)
-					// R5-U1 S-A.1 (docs rewrite/prompts/r5u1_pvp_fog_camera.md section D): pure reads - vanilla's own visible flag, the
+					ju["woundable"] = u->isWoundable(); // a pure read - whether the unit takes fatal wounds (BattleUnit::isWoundable)
+					// Pure reads - vanilla's own visible flag, the
 					// presentation predicate THIS machine's map and minimap draw a unit by, and the unit's own visible list.
 					ju["visible"] = u->getVisible();
 					ju["visibleHere"] = coopUnitVisibleHere(u);
@@ -13749,8 +13686,7 @@ std::string TestServer::execute(const std::string& line)
 						ju["psiWeapon"] = psi ? psi->getId() : -1;
 					}
 					ju["name"] = u->getName(_game->getLanguage());
-					// W2-P8 S-R.1 (AMENDMENT P8-4 section 4.3; AMENDMENT P8-4c ruling 1, F2948): pure reads of the
-					// two names S-R.2 ships and hashes. `_name` = the unit's own stored name (getName with no
+					// Pure reads of the two names the rename order ships and hashes. `_name` = the unit's own stored name (getName with no
 					// language returns it for every unit type; `name` above translates a non-soldier's type);
 					// `rawName` = the geoscape Soldier's raw name (Soldier::getName(false); "" without one).
 					ju["_name"] = u->getName(nullptr);
@@ -13760,18 +13696,13 @@ std::string TestServer::execute(const std::string& line)
 					// 1 = client-controlled; in SHARED it is derived from the owning
 					// soldier's ownerPlayerId (seat) at mission start.
 					ju["coop"] = (int)u->getCoopSeat();
-					// R1-P4: the coop+getHost()+isYourTurn control gate this comment used
-					// to describe was removed by the r1 vanilla restore along with
-					// isYourTurn itself. This is now plain vanilla isSelectable(FACTION_
-					// PLAYER, ...) - no coop gating at all. The real per-seat control gate
-					// is BattleAuthority::commandsUnit() (R2-P3+, RB-D6); it lands in the
-					// test response once R2-P5's arbiter wires it up.
+					// Plain vanilla isSelectable(FACTION_PLAYER, ...) - no coop gating at
+					// all. The real per-seat control gate is BattleAuthority::commandsUnit().
 					ju["selectable"] = u->isSelectable(FACTION_PLAYER, false, false);
 					// F5: mind-control markers for the PvP psi convergence test.
 					ju["mindControllerId"] = u->getMindControllerId();
-					// R1-P4: _coop_mindcontrolled (a stored flag) was removed by the
-					// r1 vanilla restore - ADDENDUM MJ-8/R2-M4 already calls MC
-					// derived, not stored. Vanilla's own save-condition treats
+					// Mind control is derived, not stored (there is no stored flag).
+					// Vanilla's own save-condition treats
 					// mindControllerID 0 as "no controller" (BattleUnit.cpp save()),
 					// so derive the boolean the same way rather than re-adding a field.
 					ju["mindControlled"] = (u->getMindControllerId() != 0);
@@ -13780,7 +13711,7 @@ std::string TestServer::execute(const std::string& line)
 					ju["guestTank"] = u->getCoopGuestTank(); // a SEPARATE partner's tank on the host's craft ("" = none)
 					BattleItem* w = u->getMainHandWeapon(false);
 					ju["weapon"] = w ? w->getRules()->getType() : "";
-					// REV E.48 SS.E.3: the ARMOR TYPE (Armor::getType(), the
+					// The ARMOR TYPE (Armor::getType(), the
 					// armors.rul `type:` key - e.g. STR_FLYING_SUIT_UC - NOT the storeItem).
 					// The up/down gate's fixture seeds a flying suit with seed_soldier_armor
 					// and must assert it landed on BOTH machines; no other reported field
@@ -13790,8 +13721,8 @@ std::string TestServer::execute(const std::string& line)
 					ju["murdererId"] = u->getMurdererId();
 					ju["killedBy"] = (int)u->killedBy();
 					ju["direction"] = u->getDirection();
-					// W1-P9 (SS2.W2): the walk ev's `enAfter`, and the HASHED
-					// `motionPoints` (SS2.8's unitsStats member that
+					// The walk ev's `enAfter`, and the HASHED
+					// `motionPoints` (the unitsStats member that
 					// BattleUnit::keepWalking() bumps at every completed step).
 					// Both are plain getters; without them a walk test could only
 					// assert TU and would be blind to the two fields most likely
@@ -13806,10 +13737,9 @@ std::string TestServer::execute(const std::string& line)
 					// observable through the saveBlob catch-all - a repro
 					// asserting host/client turret parity needs it directly.
 					ju["directionTurret"] = u->getTurretDirection();
-					// R3-P2: the kneel atom's own observable - no test consumer
-					// needed this before now (turn/direction only).
+					// The kneel atom's own observable.
 					ju["kneeled"] = u->isKneeled();
-					// W1-P11 (SS4 "ATOM spot"). Two plain getters, both needed by
+					// Two plain getters, both needed by
 					// the spot fixture and neither derivable from anything already
 					// reported:
 					//  * `reactions` is the numerator of
@@ -13818,8 +13748,7 @@ std::string TestServer::execute(const std::string& line)
 					//    WALKER's own score before a unit may reaction-fire at all.
 					//    repro_atom_spot pins its fixture by zeroing it on every
 					//    non-player unit, and a pin that cannot be READ BACK is not
-					//    a pin - S5's AI-ORIGIN PRECONDITION makes an alien SHOT an
-					//    EXPECTED wave-1 client desync, so a spot repro has to prove
+					//    a pin - a spot repro has to prove
 					//    reaction fire was IMPOSSIBLE, not merely absent.
 					//  * `spottedThisTurn` is BattleUnit::_unitsSpottedThisTurn, the
 					//    very set the `spot` ev's `seen` list carries. It is in no
@@ -13829,12 +13758,12 @@ std::string TestServer::execute(const std::string& line)
 					//    machines") and what the vanilla-oracle TRIPWIRE reads
 					//    ("the set GREW, so the walk MUST have reported `spot`").
 					//    Stated honestly: comparing the two machines' sets is a
-					//    CONSISTENCY check and NOT a delivery proof, because A5's
+					//    CONSISTENCY check and NOT a delivery proof, because the
 					//    targeted per-ev calculateFOV(unit) recomputes the same set
 					//    locally on a client - measured with a control build, see
 					//    repro_atom_spot.py's "ONE HONEST LIMIT".
 					ju["reactions"] = u->getBaseStats()->reactions;
-					// W1-P11 fix (2026-09-04): the armor flag the ZERO-STEP spot
+					// The armor flag the ZERO-STEP spot
 					// fix DEPENDS ON. `coopNoteWalkSpot` is emitted at the TOP of
 					// vanilla's turning-site spot branch so its h:{unitsStats}
 					// predates the `_preMovementCost` spend below it - but the
@@ -13847,12 +13776,12 @@ std::string TestServer::execute(const std::string& line)
 					// can ASSERT that premise instead of trusting a comment - a
 					// mod that sets it would silently reintroduce the desync.
 					ju["turnBeforeFirstStep"] = u->getArmor()->getTurnBeforeFirstStep();
-					// the placement lever's own 1x1 refusal
+					// The placement test command's own 1x1 refusal
 					// check (`getArmor()->getSize() == 1`), exposed so a test can
-					// verify the SAME predicate rather than trusting the lever's
+					// verify the SAME predicate rather than trusting the test command's
 					// error string.
 					ju["armorSize"] = u->getArmor()->getSize();
-					// R5-U8b TP1 (TEST-ONLY, pure reads; docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) TP1): the two fields
+					// TEST-ONLY, pure reads: the two fields
 					// the rules constructor derives from the ORIGINAL faction and never saves (the dark-vision distance, the
 					// maximum armor), the saved current armor, and the AI pick-up flag.
 					ju["darkVision"] = u->getMaxViewDistanceAtDark(nullptr);
@@ -13867,7 +13796,7 @@ std::string TestServer::execute(const std::string& line)
 						ju["armorMax"] = armorMax;
 					}
 					ju["pickUpActively"] = u->getPickUpWeaponsMoreActively();
-					// R5-U8b TP1 (on request only, `reloadProbe`): what a document load builds for this unit - its own record
+					// On request only (`reloadProbe`): what a document load builds for this unit - its own record
 					// read back exactly as SavedBattleGame::load's unit pass 1 builds a unit not linked to a geoscape soldier
 					// (the rules constructor with the record's original faction and this save's difficulty, then
 					// BattleUnit::load) into a throwaway unit that is never linked, registered or kept.
@@ -13902,15 +13831,14 @@ std::string TestServer::execute(const std::string& line)
 							delete t;
 						}
 					}
-					if (u->getHealth() <= 0 && u->getAIModule() != nullptr) ++unitsDeadWithAI; // WV-D62 + correction: health<=0 = vanilla prepareHealth rule; meaningful pre/post the STATUS_DEAD flip
+					if (u->getHealth() <= 0 && u->getAIModule() != nullptr) ++unitsDeadWithAI; // health<=0 = vanilla prepareHealth rule; meaningful pre/post the STATUS_DEAD flip
 					{
 						Json::Value spottedIds(Json::arrayValue);
 						for (const BattleUnit* sp : u->getUnitsSpottedThisTurn())
 							if (sp) spottedIds.append(sp->getId());
 						ju["spottedThisTurn"] = spottedIds;
 					}
-					// W1-P5 (ruling D8 = WV-D14, evidence F2's "open-item-9 fields"):
-					// the reaction-hand state btn{Left,Right}HandItemClick's
+					// The reaction-hand state btn{Left,Right}HandItemClick's
 					// right-click branch writes. Serialized (BattleUnit.cpp:791-796)
 					// and NOT on saveBlobExcludedUnitKey's list, so a client toggle
 					// diverges the saveBlob bucket - but saveBlob only ever reports
@@ -13920,18 +13848,16 @@ std::string TestServer::execute(const std::string& line)
 					ju["reactOffRight"] = u->isRightHandDisabledForReactions();
 					ju["reactPrefLeft"] = u->isLeftHandPreferredForReactions();
 					ju["reactPrefRight"] = u->isRightHandPreferredForReactions();
-					// W2-P4 S-D.1 (spec rewrite/prompts/w2p4_client_combat_intents.md
-					// (b)13, review N29 = F1096): the fatal wounds per body part
+					// The fatal wounds per body part
 					// (BODYPART_MAX = 6, UnitBodyPart order), read-only - carried by
-					// the delta and hashed in unitsStats, shown by no probe before.
+					// the delta and hashed in unitsStats.
 					{
 						Json::Value wounds(Json::arrayValue);
 						for (int part = 0; part < (int)BODYPART_MAX; ++part)
 							wounds.append(u->getFatalWound((UnitBodyPart)part));
 						ju["wounds"] = wounds;
 					}
-					// W2-P6b S-D.1 (spec rewrite/prompts/w2p6_display_two.md section 8 S-D.1; AMENDMENT
-					// P6b-1 ST4; review F1739/F1748): the death display inputs, read-only - the overkill the
+					// The death display inputs, read-only - the overkill the
 					// sprite's burn fade reads (getOverKillDamage(), derived from the synced health), the fall
 					// phase, the armour's death frames, the unit's death sounds, and the panic / berserk lists
 					// BattlescapeGame::handlePanickingUnit selects (the unit rules, else the geoscape
@@ -13972,7 +13898,7 @@ std::string TestServer::execute(const std::string& line)
 					units.append(ju);
 				}
 				resp["units"] = units;
-				resp["unitsDeadWithAI"] = unitsDeadWithAI; // WV-D62 (FX-3b) positive control
+				resp["unitsDeadWithAI"] = unitsDeadWithAI; // positive control
 				// Spotted hostiles: union of what all player units currently see.
 				// The tactical driver targets only these (no omniscient wall-shots).
 				std::set<int> spotted;
@@ -14028,8 +13954,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["selectedBeforeId"] = normalSelectedBefore ? normalSelectedBefore->getId() : -1;
 				resp["selectedAfterId"] = normalSelectedAfter ? normalSelectedAfter->getId() : -1;
 				resp["giftSelectedId"] = giftSelected ? giftSelected->getId() : -1;
-				// R1-P4 stub: BattlescapeGame::isYourTurn removed by the r1
-				// vanilla restore; real turn-machine returns with r2 (RB-D9/RB-D11).
+				// Stub: BattlescapeGame has no isYourTurn (vanilla has none).
 				resp["coopTurn"] = -1;
 				resp["ok"] = true;
 			}
@@ -14109,8 +14034,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["name"] = found->getName(_game->getLanguage());
 				resp["beforeOwner"] = (int)found->getCoopSeat();
 				resp["localSeat"] = connectionTCP::localSeat();
-				// R1-P4 stub: BattlescapeGame::isYourTurn removed by the r1
-				// vanilla restore; real turn-machine returns with r2 (RB-D9/RB-D11).
+				// Stub: BattlescapeGame has no isYourTurn (vanilla has none).
 				resp["coopTurn"] = -1;
 				resp["canGift"] = coop->canGiftBattleUnit(found);
 
@@ -14285,7 +14209,7 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else if (act == "death_apply_hold")
 			{
-				// TEST-ONLY lever, sent to the CLIENT. {on: true|false}
+				// TEST-ONLY hook, sent to the CLIENT. {on: true|false}
 				// -> {ok, on}. While on, the client's watcher runs ONE death-queue advance before a `death`
 				// enqueue when the queue head has not started (CoopGhost::setDeathApplyHold), so a two-victim
 				// burst's second death is enqueued behind a started head in every run. Battle-scoped.
@@ -14500,16 +14424,16 @@ std::string TestServer::execute(const std::string& line)
 			// state re-init at Game.cpp:426) exactly like a player's key/click -
 			// NOT a direct handler call. Runs on the main thread (pump()), so
 			// SDL_PushEvent is safe. kind=key (default, sym via "key", default
-			// keyOk) or kind=click (at x/y) or kind=modstate (W1-P2: latch/clear the
+			// keyOk) or kind=click (at x/y) or kind=modstate (latch/clear the
 			// modifier only, push nothing). Optional "mod" latches SDL's modifier
-			// state first (W1-P2 - see the block below for why it is not restored).
+			// state first (see the block below for why it is not restored).
 			std::string kind = req.get("kind", "key").asString();
 			// optional MODIFIER state ("ctrl"|"shift"|"alt"|"none"). The
 			// battlescape's ctrl-chords read Game::isCtrlPressed(), which is
 			// SDL_GetModState() (Game.cpp:845-852) - SDL's own latched modifier
 			// state, which SDL_PushEvent does NOT update, so a pushed KEYDOWN alone
-			// can never drive ctrl-B (WAVE1-RUNBOOK.md SS2.W1's "ctrl-B on the
-			// client" acceptance). SDL_SetModState LATCHES: the pushed events are
+			// can never drive ctrl-B (a ctrl-B test on the
+			// client). SDL_SetModState LATCHES: the pushed events are
 			// consumed later, on Game::run's next SDL_PollEvent pass, so the state
 			// deliberately is NOT restored here - the caller clears it with a
 			// follow-up {"mod":"none"} once the chord has been consumed.
@@ -14535,7 +14459,7 @@ std::string TestServer::execute(const std::string& line)
 				int x = req.get("x", 160).asInt();
 				int y = req.get("y", 100).asInt();
 				// optional "button" (default "left") - "right"
-				// drives SDL_BUTTON_RIGHT, needed by the RB-D10 secondaryAction
+				// drives SDL_BUTTON_RIGHT, needed by the secondaryAction
 				// intercept's faithful-UI repro variant (right-click = turn/door
 				// in vanilla battlescape input). The surviving @1e0f9276f body
 				// this extends was left-only.
@@ -14543,7 +14467,7 @@ std::string TestServer::execute(const std::string& line)
 				// by-DISTANCE variant (BattlescapeState::btnNextStopMClick ->
 				// SavedBattleGame::selectNextPlayerUnitByDistance) is bound to
 				// SDL_BUTTON_MIDDLE, and it is one of the three selection paths
-				// W1-G1 criterion 4 requires driven through real input.
+				// a test must drive through real input.
 				std::string buttonName = req.get("button", "left").asString();
 				Uint8 button = (buttonName == "right") ? SDL_BUTTON_RIGHT
 					: (buttonName == "middle") ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
@@ -14632,7 +14556,7 @@ std::string TestServer::execute(const std::string& line)
 					// plain Text captions too (additive - a TextButton IS not a
 					// Text, the two dynamic_casts are disjoint). Needed to read what a
 					// BriefingState actually rendered, e.g. the carried mission labels
-					// after ctrl-B on a thin client (WAVE1-RUNBOOK.md SS2.W1).
+					// after ctrl-B on a thin client.
 					else if (auto* tx = dynamic_cast<Text*>(s)) e["text"] = tx->getText();
 					arr.append(e);
 				}
@@ -14696,7 +14620,7 @@ std::string TestServer::execute(const std::string& line)
 					// inject_input takes. The battlescape icon row binds three
 					// DIFFERENT handlers to the one NEXT-STOP button - left, middle
 					// (by distance) and right (undo) - and two of them are selection
-					// paths D6 requires driven through real input. It belongs HERE
+					// paths a test must drive through real input. It belongs HERE
 					// rather than on inject_input because click_widget is the call
 					// that already converts a widget's BASE rect into WINDOW pixels
 					// (Screen::getXScale() is 2 in the harness's 640x400 window), and
@@ -14849,9 +14773,7 @@ std::string TestServer::execute(const std::string& line)
 			else if (auto* nt = dynamic_cast<NextTurnState*>(top))
 			{
 				// "Turn N" screen. Press the real close handler a player triggers
-				// (any key/click -> NextTurnState::close, public in vanilla - the
-				// #166-era testConfirm() forwarder this used to go through is gone
-				// post r1 vanilla restore, but close() itself was never private,
+				// (any key/click -> NextTurnState::close, public in vanilla,
 				// so call it directly). close() runs the full turn-close - unit
 				// tally, finishBattle/recenter - not a raw pop, so it reaches the
 				// tactical map exactly as a player would.
@@ -15482,7 +15404,7 @@ std::string TestServer::execute(const std::string& line)
 			std::string ipaddr = req.get("ip", "127.0.0.1").asString();
 			std::string port = req.get("port", "3000").asString();
 			std::string localport = req.get("localport", "3001").asString();
-			// an ephemeral local port ("0", the harness's rewrite) binds an OS-assigned UDP port, as host_udp
+			// an ephemeral local port ("0", as the harness passes it) binds an OS-assigned UDP port, as host_udp
 			// does for its port; the transport's own fallback for 0 is a fixed 3001, which two concurrent harness lanes share
 			if (localport == "0")
 			{
@@ -16004,14 +15926,14 @@ std::string TestServer::execute(const std::string& line)
 			{
 				Json::Value items(Json::objectValue);
 				int soldiers = 0;
-				Json::Value soldierOwners(Json::arrayValue); int scientists = 0, engineers = 0; // W2-P7 S-C-E3.1 (P7-9 PR-63 (iii))
+				Json::Value soldierOwners(Json::arrayValue); int scientists = 0, engineers = 0;
 				for (auto* t : *target->getTransfers())
 				{
 					if (t->getType() == TRANSFER_ITEM && t->getItems())
 						items[t->getItems()->getType()] = items.get(t->getItems()->getType(), 0).asInt() + t->getQuantity();
 					else if (t->getType() == TRANSFER_SOLDIER)
 						soldiers++;
-					if (t->getSoldier()) soldierOwners.append(t->getSoldier()->getOwnerPlayerId()); // E3: owners in list order
+					if (t->getSoldier()) soldierOwners.append(t->getSoldier()->getOwnerPlayerId()); // owners in list order
 					scientists += t->getScientists(); engineers += t->getEngineers();
 				}
 				resp["items"] = items;

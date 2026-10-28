@@ -10,7 +10,7 @@ from the capture's cap.py):
       SoldiersState -> BasescapeState inside the 67 window; read W (the client's saveID); GEOSCAPE (QUICK written); read T.
 Cells (13): C2-pre GUARD, C2-copied RED, C2-key RED, C2-rejoin RED, C2-world RED, C2-resume RED, C2-common GUARD; C3-pre GUARD, C3-ok RED,
 C3-log RED, C3-ids RED, C3-key RED, C3-common GUARD. Red (commit R1): RED exactly C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, C3-ok,
-C3-log, C3-ids, C3-key (9 of 13). KEPT = '[coop] W2-H79:' lines in the client's log since read B. ONE EVIDENCE line per row, one PASS / FAIL
+C3-log, C3-ids, C3-key (9 of 13). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B. ONE EVIDENCE line per row, one PASS / FAIL
 line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row (later cells "not reached"); a boot or
 construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info, get_coop, the last 40 log lines of each
 machine); exit 0 only when every cell passes, else 2. one foreground run per invocation.
@@ -23,7 +23,7 @@ import drop_fixture as F  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49465"
-KEPT = "[coop] W2-H79:"
+KEPT = '[coop] "basehost" loaded - saveID stays'
 H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 HOLD, HOLD_R, W_DROP, JOIN_S, ACK_S = 2.0, 3.0, 30.0, 10.0, 30.0
 

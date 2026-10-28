@@ -54,7 +54,7 @@ public:
 	void save(YAML::YamlNodeWriter writer) const;
 	void load(const YAML::YamlNodeReader& reader);
 	const std::map<std::string, int> &getRandomProductionInfo() const { return _randomProductionInfo; }
-	int getCoopStarterSeat() const { return _coopStarterSeat; } // coop W2-H16g (OC-H16g-1)
+	int getCoopStarterSeat() const { return _coopStarterSeat; } // coop
 	void setCoopStarterSeat(int seat) { _coopStarterSeat = seat; } // coop
 	void setRandomProductionInfo(const std::map<std::string, int> &info) { _randomProductionInfo = info; } // coop: the SHARED replica adopts the host's list
 private:

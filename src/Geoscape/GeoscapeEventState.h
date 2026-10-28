@@ -80,7 +80,7 @@ public:
 	void btnItemsArrivingClick(Action *action);
 	/// coop: the picks this window was built from.
 	CoopEventPicks coopPicks() const;
-	/// coop W2-H15, probe only: title, message, then each row's two cells, as drawn.
+	/// coop, probe only: title, message, then each row's two cells, as drawn.
 	std::vector<std::string> coopTexts() const;
 	/// coop: the rule names of the research topic and bonus this window learned ("" = none).
 	std::pair<std::string, std::string> coopResearchPick() const { return { _coopPickResearch, _coopPickBonus }; }

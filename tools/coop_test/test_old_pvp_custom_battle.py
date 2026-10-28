@@ -11,7 +11,7 @@ Fixtures: tools/coop_test/fixtures/gm<2|3|4>_custom_battle.sav, made by the rele
 main-check worktree (T0-3; parallel turns off), committed unedited. Lobby key 49254.
 
 Rows R2 / R3 / R4 (dirs d246sd2b_r<n>_host / _client; host option CoopTurnMode parallel; the partner starts clean):
-  Rn-load   host load_save_menu: one "D246 S-D:" line, one "an older version's PvP / PvE2 Custom Battle save" line naming game mode n (gm3: the swap undone on
+  Rn-load   host load_save_menu: one "older version's co-op Custom Battle save" line, one "an older version's PvP / PvE2 Custom Battle save" line naming game mode n (gm3: the swap undone on
             > 0 units) and one summary line (seats 0/1 CD_S0/CD_S1, unseated CD_UN, turnMode traditional, deployment DEP);
             every unit's seat == CD_SEAT
   Rn-cont   open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE BATTLE: both on the
@@ -69,7 +69,7 @@ PRESS = {2: ("host",), 3: ("client",), 4: ("host", "client")}  # the side to mov
 SIDE_NEXT = 1                                                  # END TURN hands side 0 to side 1 in every mode
 G4_SETTLE = [0, 3]   # gm4: side 0 of the save's turn 2 + 1 once the X-COM AI side ends (R-D246D2-6, F20250; SD2's settle)
 LOAD_S, CLIENT_S, STEP_S = 120, 120, 30                        # bounds (s); TASK 0 measured times in CONSTANTS.md
-N_SD, N_SD2 = "[coop-convert] D246 S-D:", "[coop-convert] an older version's PvP / PvE2 Custom Battle save, game mode"
+N_SD, N_SD2 = "[coop-convert] an older version's co-op Custom Battle save", "[coop-convert] an older version's PvP / PvE2 Custom Battle save, game mode"
 N_SUM = "[coop-convert] an older version's mid-battle co-op save converted"
 N_ANY = "[coop-convert]"
 SUM_RE = re.compile(r"seats 0/1 (\d+)/(\d+), unseated (\d+); turnMode (\w+); deployment \"([^\"]*)\"")

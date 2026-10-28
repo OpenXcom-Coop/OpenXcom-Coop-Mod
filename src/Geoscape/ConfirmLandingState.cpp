@@ -277,19 +277,14 @@ void ConfirmLandingState::btnYesClick(Action *)
 		return;
 	}
 
-	// R4-P1/R4-REWIRE (SPIKE-RUNBOOK.md SS2.7): the R1-P5 stub (a
-	// pre-generation early-return) is replaced by the SS2.7 handshake -
-	// classic/SHARED campaign co-op now runs the SAME vanilla generation as
-	// SP below and hands the result to CoopHandshake::offerBattle() instead
-	// of a dead-end popup ("connectionTCP.cpp:10128-10131" confirms this is
-	// the SINGLE generation+offer point for SHARED - setClientSoldiers()
-	// explicitly skips the SEPARATE two-world startCoopMission() dance for a
-	// SHARED campaign so the battle is never regenerated). The PvP/PvE2
-	// changeHost merge and BriefingState::setupCoop() dispatch this comment
-	// used to describe stay quarantined (RB-D9) - real gm2/gm3/gm4 seat/
-	// faction assignment is R5-P1's job; offerBattle()'s own client-side
-	// gamemode check refuses those until then. This guard is false
-	// on every SP click, so the SP battle-generation path below is
+	// Classic/SHARED campaign co-op runs the SAME vanilla generation as SP
+	// below and hands the result to CoopHandshake::offerBattle() (the
+	// battle-start handshake). This is the SINGLE generation+offer point for
+	// SHARED - setClientSoldiers() skips the SEPARATE two-world
+	// startCoopMission() path for a SHARED campaign, so the battle is never
+	// regenerated. The legacy PvP/PvE2 changeHost merge and
+	// BriefingState::setupCoop() dispatch stay quarantined. This guard is
+	// false on every SP click, so the SP battle-generation path below is
 	// byte-for-byte untouched.
 	const bool coopLanding = connectionTCP::getCoopStatic() == true;
 
@@ -361,15 +356,14 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 		if (coopLanding)
 		{
-			// SPEC 19 M2 Branch B: merge any
+			// Merge any
 			// client-contributed SEPARATE guest onto this craft BEFORE the
 			// stamp below reads ownership, and BEFORE vanilla generation
 			// so the generator actually deploys it. A no-op when
 			// nothing was ever contributed for this craft. Body:
 			// CoopBattleSetup.h/CoopState.cpp; no logic here.
 			coopMergeGuestContributions(_game, _craft);
-			// SPEC 19 M1: the owner->seat stamp this entry was
-			// missing (present, byte-identical, at the three other stamp
+			// The owner->seat stamp (byte-identical at the three other stamp
 			// sites). Stamp BEFORE generate - the same order Cydonia and both
 			// base-defense arms use. Body: CoopBattleSetup.h/
 			// CoopState.cpp; no logic here.
@@ -378,7 +372,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 		bgen.run();
 
-		// R4-P1 (SS2.7): offerBattle() is a pure network side effect - it
+		// offerBattle() is a pure network side effect - it
 		// never touches the state stack (see CoopHandshake.h's top doc
 		// comment for why a first attempt that deferred this push crashed
 		// Game::run() with an empty state stack). BriefingState is pushed
@@ -388,8 +382,8 @@ void ConfirmLandingState::btnYesClick(Action *)
 		// underneath, so that unwind lands the host back on the geoscape.
 		if (coopLanding)
 		{
-			// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds
-			// its blob snapshot (the SS2.W1 ORDERING TRAP - the BriefingState push
+			// Labels + deployment BEFORE the offer builds
+			// its blob snapshot (the ORDERING TRAP in CoopHandshake.h - the BriefingState push
 			// two lines below is what mints them in vanilla). One of FOUR identical
 			// call sites; no-op off the coop host.
 			// the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
@@ -404,9 +398,9 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 void ConfirmLandingState::startCoopMission()
 {
-	// R1-P5/R4-REWIRE: also reachable asynchronously from
+	// Also reachable asynchronously from
 	// connectionTCP::setClientSoldiers() on the coop host after a changeHost
-	// round-trip - RB-D9's quarantine covers this entry path too.
+	// round-trip - the quarantine covers this entry path too.
 	if (connectionTCP::getCoopStatic())
 	{
 		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));

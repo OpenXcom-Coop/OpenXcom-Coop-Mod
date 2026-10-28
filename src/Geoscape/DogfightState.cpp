@@ -2630,7 +2630,7 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
-	// PRD-DF02 REPLICA: the weapon icon is HOST-AUTHORITATIVE, like the
+	// REPLICA: the weapon icon is HOST-AUTHORITATIVE, like the
 	// stance buttons. A click only requests the toggle (df_cmd{weaponToggle,arg=i}); the
 	// icon never flips locally - it follows the host's df_state (applyFrame recolors to the
 	// host's _weaponEnabled on a change). No optimistic echo => no revert flicker.
@@ -3267,9 +3267,9 @@ void DogfightState::applyFrame(const Json::Value& frame)
 		{
 			// PRD-DF02: adopt the host's authoritative weapon-enabled state AND recolor
 			// the icon on a change (recolor() is a relative offset, so only on change) -
-			// a replica's weapon icon follows the host here (owner D301 (b): a click only
-			// sends weaponToggle, with no local flip); this also closes the DF01 gap where
-			// replica icons never tracked the disabled colour.
+			// a replica's weapon icon follows the host here (a click only
+			// sends weaponToggle, with no local flip); this also makes
+			// replica icons track the disabled colour.
 			bool newEnabled = we[i].asBool();
 			if (newEnabled != _weaponEnabled[i])
 			{

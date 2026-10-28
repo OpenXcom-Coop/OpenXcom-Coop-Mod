@@ -18,7 +18,7 @@
 #include "connection_lan_discovery.h"
 #include "rendezvous_config.h"
 #include "../connectionTCP.h"
-// SPEC 16 M1: handleUdpRemotePeerLost() below needs
+// handleUdpRemotePeerLost() below needs
 // coopBattleAuthority()/isCoopBattle() for the mid-Active-battle peer-leave
 // gate - the same reason connectionTCP.cpp includes this header directly.
 #include "../BattleAuthority.h"
@@ -634,7 +634,7 @@ void handleUdpRemotePeerLost()
     // of connectionTCP::disconnectTCP()'s rejoinLost (the spare below, then the pause restored). Read before the clear.
     const bool udpRejoinLost = connectionTCP::getServerOwner() && onConnect != -1 && CoopHandshake::coopHostRejoinPending();
 
-    // SPEC 16 M1 (F331 gate) - the UDP twin of
+    // The UDP twin of
     // connectionTCP::disconnectTCP()'s host branch: a mid-`Active`-battle
     // peer loss on the HOST keeps the co-op battle authority ALIVE instead
     // of tearing it down to Idle. Must be read BEFORE clearNetworkSessionQueues()
@@ -642,7 +642,7 @@ void handleUdpRemotePeerLost()
     // onConnect is overwritten a few lines down. isCoopBattle() is
     // getCoopStatic() (onConnect==1, still true on every path that reaches
     // this function while a battle is live) && phase==Active - exactly the
-    // mid-Active-battle condition M1 needs.
+    // mid-Active-battle condition the pause needs.
     const bool sparePeerAbsentUdp =
         connectionTCP::getServerOwner()
         && onConnect != -1
@@ -651,10 +651,10 @@ void handleUdpRemotePeerLost()
 
     // Drop packets from the old peer before the host relists or the client
     // returns to menus. This matches a fresh process start more closely.
-    // SPEC 16 M1: resetAuthority=false on the mid-Active-battle spare path
+    // resetAuthority=false on the mid-Active-battle spare path
     // (see sparePeerAbsentUdp above). stopUdpPeer()'s
     // later clear keeps the authority too while udpPausedBattleHeld().
-    // the UDP twin of disconnectTCP()'s M4 peek. A
+    // The UDP twin of disconnectTCP()'s battle_leave peek. A
     // battle_leave still queued in g_rxQ (mutex-guarded) would be wiped by the
     // clear below before onTCPMessage() saw it: read it on the way past.
     if (sparePeerAbsentUdp)

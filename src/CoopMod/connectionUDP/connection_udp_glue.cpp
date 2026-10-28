@@ -55,7 +55,7 @@ static bool s_udpEnabled = false;
 static std::thread s_udpPingThread;
 static std::atomic<bool> s_udpPingStop(false);
 
-// true while this HOST holds a SPEC 16 paused battle (peer left mid-Active, the
+// true while this HOST holds a paused battle (peer left mid-Active, the
 // authority spared and peerAbsent latched by handleUdpRemotePeerLost()/disconnectTCP()). Atomics only: safe on
 // the main, ping and relist threads alike.
 static bool udpPausedBattleHeld()

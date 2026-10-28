@@ -134,7 +134,7 @@ void MultipleTargetsState::popupTarget(Target *target)
 			{
 
 				// coop: while a co-op battle is being
-				// handed to this machine (phase Handshake: its battle_offer accepted, the battle blob streaming; lh74-1-cap F21617) a click on
+				// handed to this machine (phase Handshake: its battle_offer accepted, the battle blob streaming) a click on
 				// the partner's base does nothing; the briefing follows. MultipleTargetsState is already popped (:122).
 				if (coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake)
 				{

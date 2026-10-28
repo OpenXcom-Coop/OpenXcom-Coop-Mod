@@ -134,21 +134,19 @@ public:
 	void startCoopMission();
 	/// Test hook: arm/disarm local hotseat exactly as the on-screen toggle would.
 	void harnessSetHotseat(bool on);
-	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md R3-P1 packet text, "FIXTURE-
-	/// COVERAGE NOTE" in tools/coop_test/test_input_gating.py): test hook -
+	/// Test hook -
 	/// stamp ONE soldier assigned to the currently selected craft with a coop
 	/// seat (Soldier::setCoop()), BEFORE OK generates the battle. A plain
 	/// NEW BATTLE > COOP classic skirmish never calls Soldier::setCoop(), so
 	/// every soldier defaults to seat 0 (host); this gives a non-host seat a
-	/// real, commandable unit to drive R3-P1's client-intent repro with, the
-	/// same gap that test file's own FIXTURE-COVERAGE NOTE names. Returns
+	/// real, commandable unit to drive a client-intent repro with. Returns
 	/// the stamped soldier's id, or -1 if the craft has no soldiers.
-	/// R3-P2: @a index (default 0) selects the Nth soldier on the craft
+	/// @a index (default 0) selects the Nth soldier on the craft
 	/// instead of always the first, so a second call can stamp a SECOND,
 	/// different soldier to the same seat (repro_atom_kneel.py's burst/
 	/// drain proof needs two real client-owned units).
 	int harnessSeatOneSoldier(int seat, int index = 0);
-	/// W1-P10 (rewrite wave 1, WAVE1-RUNBOOK.md SS4 "ATOM door"): test hook -
+	/// Test hook -
 	/// pick the MISSION by ruleset name, exactly as clicking the combo box
 	/// would (setSelected + cbxMissionChange, which is what rebuilds the
 	/// terrain list). The door atom's fixture has to CONTAIN a door, and the
@@ -163,13 +161,13 @@ public:
 	/// order - so a test can pick one that exists instead of hard-coding a
 	/// ruleset string that a mod may not define.
 	const std::vector<std::string>& harnessMissionTypes() const { return _missionTypes; }
-	/// SPEC 0e-1: test hook - pick the CRAFT by ruleset name, exactly as
+	/// Test hook - pick the CRAFT by ruleset name, exactly as
 	/// clicking the combo would (setSelected + cbxCraftChange, which re-seats the
 	/// soldiers and, in coop, sends the existing craft_list/selected_craft_id
 	/// message). Returns false (changes nothing) for a name not offered. Test-only.
 	bool harnessSelectCraft(const std::string& type);
 	const std::vector<std::string>& harnessCrafts() const { return _crafts; }
-	/// SPEC 0e-1: test hook - pick the ALIEN RACE by ruleset name from the
+	/// Test hook - pick the ALIEN RACE by ruleset name from the
 	/// list cbxMissionChange built for the CURRENT mission (call after
 	/// harnessSelectMission). No change handler exists for this combo; the race is
 	/// read at generation. Returns false (changes nothing) for a name not offered.

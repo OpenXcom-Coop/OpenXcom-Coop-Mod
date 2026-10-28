@@ -67,10 +67,10 @@ private:
 	/// Third sub-dispatcher: battlescape item/fire introspection + drivers (issue #74).
 	/// execute() tries this FIRST, so it never grows execute()'s own if/else chain.
 	bool executeBattle12(const std::string& cmd, const Json::Value& req, Json::Value& resp);
-	/// Fourth sub-dispatcher: R2-P11 rewrite-spike battle-lane introspection
+	/// Fourth sub-dispatcher: battle-lane introspection
 	/// (event_log/event_state/hash_now/corrupt_bucket/corrupt_next_blob/
-	/// battle_intent/inject_ev, SPIKE-RUNBOOK.md RB-D26/RB-D32), plus the
-	/// WV-D63 deterministic placement levers battle_teleport_unit/
+	/// battle_intent/inject_ev), plus the
+	/// deterministic placement test commands battle_teleport_unit/
 	/// battle_teleport_all (TEST-ONLY: applied to each machine independently
 	/// by the harness with identical absolute arguments; emit nothing; never
 	/// call from product code). Same C1061-avoidance reason as the three

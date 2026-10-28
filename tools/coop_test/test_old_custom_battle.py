@@ -11,7 +11,7 @@ Fixture: tools/coop_test/fixtures/custom_battle.sav, made by the release build's
 worktree (T0-3; parallel turns off), committed unedited. Lobby key 49221.
 
 Row R (dirs d246usd_r_host / d246usd_r_client; host option CoopTurnMode parallel; the client starts clean):
-  R-load   host load_save_menu: one "D246 S-D:" line and one summary line (seats 0/1 CD_S0/CD_S1, unseated CD_UN, turnMode
+  R-load   host load_save_menu: one "older version's co-op Custom Battle save" line and one summary line (seats 0/1 CD_S0/CD_S1, unseated CD_UN, turnMode
            traditional, deployment DEP_CD); every unit of another original faction on no seat (-1); soldiers == CD_EXPECT
   R-cont   open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE BATTLE: both on the
            battle, no CoopState 62 / 68, phase Active, no desync
@@ -50,7 +50,7 @@ CD_S0, CD_S1, CD_UN, CD_TANKS = 7, 7, 1, ()   # seats by E4 (1)'s rule; the Sect
 DEP_CD = "STR_SMALL_SCOUT"                     # the craft's UFO destination's deployment (T0-7)
 PLAY_ID = 31                                   # the lowest seat-1 soldier; every seat-1 soldier is boxed in
 LOAD_S, CLIENT_S, STEP_S = 120, 120, 30        # bounds (s); TASK 0: load 0.1 s, client in battle 1.25 s
-N_SD = "[coop-convert] D246 S-D:"
+N_SD = "[coop-convert] an older version's co-op Custom Battle save"
 N_SUM = "[coop-convert] an older version's mid-battle co-op save converted"
 N_ANY = "[coop-convert]"
 SUM_RE = re.compile(r"seats 0/1 (\d+)/(\d+), unseated (\d+); turnMode (\w+); deployment \"([^\"]*)\"")

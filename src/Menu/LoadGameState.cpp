@@ -159,10 +159,9 @@ void LoadGameState::init()
 	// the plain local load.
 	if (!_game->getCoopMod()->localLoadsAllowed() && _coopKey.empty() && !_loadCoopProgress)
 	{
-		// W1-P5 (WAVE1-RUNBOOK.md ruling D8 = WV-D14, evidence F1): this refusal
-		// used to be LOG-ONLY - the state popped and the player saw nothing at
-		// all. One guarded coop call gives it a face, on the same _txtCoopWait
-		// surface every other coop message uses (SS2.6). Presenter only: the
+		// One guarded coop call gives this refusal a face (without it the state
+		// pops and the player sees nothing at all), on the same _txtCoopWait
+		// surface every other coop message uses. Presenter only: the
 		// decision was already taken by the line above, and this call takes none.
 		// It no-ops when no battle is live, so a GEOSCAPE-side local load stays
 		// log-only for now (that surface does not exist there) - stated as a
@@ -325,18 +324,12 @@ void LoadGameState::think()
 
 				if (_game->getSavedGame()->getSavedBattle() != 0)
 				{
-					// SPEC 18 (r4 T4) M5: the R1-P5/R4-REWIRE stub that used to sit
-					// here (a getCoopStatic()==true branch dropping the loaded
-					// battle behind COOP_DLG_BATTLE_UNAVAILABLE) is DELETED - it was
-					// unreachable in a live flow (the host always loads BEFORE
-					// hosting, so getCoopStatic() is false at this menu load; a
-					// connected client can never reach LoadGameState at all,
-					// localLoadsAllowed()) and its only effect was to drop a coop
-					// mid-battle save that the r4 disk-resume flow
-					// (CoopHandshake::offerResumedBattle(), connectionTCP.cpp) now
-					// serves to a rejoining peer. The vanilla push below is
-					// therefore unconditional, byte-identical to SP mid-battle
-					// resume.
+					// The vanilla push below is unconditional, byte-identical to SP
+					// mid-battle resume: the host always loads BEFORE hosting, so
+					// getCoopStatic() is false at this menu load, a connected client can
+					// never reach LoadGameState at all (localLoadsAllowed()), and a coop
+					// mid-battle save is served to a rejoining peer by the disk-resume flow
+					// (CoopHandshake::offerResumedBattle(), connectionTCP.cpp).
 					_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
 					Options::baseXResolution = Options::baseXBattlescape;
 					Options::baseYResolution = Options::baseYBattlescape;

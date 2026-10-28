@@ -311,7 +311,7 @@ def main():
         # open and after battle_close_inventory - the MINT-PROOF). No banner
         # assertion: the banner stays '' after (1) (R4-L1: no refusal), and (3) sees its own
         # text change. `inventory_move` is deliberately NOT used anywhere here:
-        # it is a dead "rewrite-pending" stub, so any assertion through it is
+        # it is a dead "unsupported" stub, so any assertion through it is
         # vacuous.
         inv_resp = client.cmd({"cmd": "battle_open_inventory", "unit": c_unit})
         inv_banner = banner(client)

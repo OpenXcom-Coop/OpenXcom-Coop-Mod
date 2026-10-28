@@ -104,7 +104,7 @@ AbandonGameState::~AbandonGameState()
 void AbandonGameState::btnYesClick(Action *)
 {
 
-	// coop W2-H53 (L-H49-3; R-H53-0, R-H49-0; F17782): read before the disconnect below, which ends the gm3 alien host's borrow. An
+	// coop: read before the disconnect below, which ends the gm3 alien host's borrow. An
 	// ironman alien host in a borrowed battle saves its own world first and leaves through SaveGameState's quit (the session ends after
 	// the write, as a wait dialog's SAVE & QUIT): after the disconnect the save would name and write the borrowed X-COM world.
 	SavedGame* coopOwner = connectionTCP::coopPvpSaveOwner(_game->getSavedGame());

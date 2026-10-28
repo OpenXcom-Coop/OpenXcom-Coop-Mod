@@ -11,7 +11,7 @@ on a fresh dir joining by NAME (never a base placement: a fresh world is evidenc
           X1-pre (GUARD) S1, D1 (at the 54 host_<id2> holds host_<id1>'s fnv), REJOIN(2) ack + RESUME.
           X1-ids (RED) read M: client2's saveID (get_coop and save_markers) == the host's == id2.
           X1-own (RED) read M: client2's coop_file_info {role own_world} present under client_<id2>_<NAME>.data.
-          X1-log (RED) read M: client2's log holds >= 1 "[coop] W2-H84:" line.
+          X1-log (RED) read M: client2's log holds >= 1 '[coop] own world "' line.
           X1-push (GUARD) one soldier gifted (RECV), client2's push line, the host's host_<id2> fnv changed.
           X1-host (RED) read G: the host's saveID == id2 and the push line's key == client_<id2>_<NAME>.data.
           X1-rejoin (RED) REJOIN(3): no BuildNewBaseState, client3's 68 within JOIN_S, the host's ack within ACK_S.

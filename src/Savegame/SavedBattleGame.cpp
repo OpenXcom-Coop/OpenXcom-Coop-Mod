@@ -147,13 +147,12 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	reader.tryRead("missionType", _missionType);
 	reader.tryRead("strTarget", _strTarget);
 	reader.tryRead("strCraftOrBase", _strCraftOrBase);
-	// coop (W1-P7 deliverable 6, WAVE1-RUNBOOK.md REV D owner rulings
-	// D-20/D-21 revision "D.1" = WV-D55): the BATTLE save block carries the turn
+	// coop: the BATTLE save block carries the turn
 	// mode this battle was PLAYED in, so a mid-battle resume comes back in that
 	// mode even after a full host restart. ONE thin guarded coop call; all logic
 	// lives in src/CoopMod (BattleAuthority.h). Presence-gated, so an SP load and
-	// any save written before REV D read nothing and change nothing (D-26: no key
-	// = parallel). W1-P7 only READS the key - CONSUMING it on resume is r4 T4.
+	// any save written before the key existed read nothing and change nothing
+	// (no key = parallel).
 	coopLoadTurnMode(reader);
 	// the mission deployment
 	// label and the traditional-mode baton holder, same thin guarded shape
@@ -307,7 +306,7 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 				_undoUnit = unit;
 		}
 		// Dead units never get an AIModule on load; the generator releases theirs too
-		// (releaseAIModulesOfUnitsKilledDuringGeneration, WV-D62), so host and loaded copies agree.
+		// (releaseAIModulesOfUnitsKilledDuringGeneration), so host and loaded copies agree.
 		else if (unit->getStatus() != STATUS_DEAD && !unit->isIgnored())
 		{
 			if (const auto& ai = unitReader["AI"])
@@ -367,7 +366,7 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 		}
 	}
 	_itemId++;
-	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): ADOPT the host's carried
+	// coop: ADOPT the host's carried
 	// coopItemIdCtr, verbatim, now that vanilla's own max(id)+1 derivation
 	// above has completed - so the adopt cannot be overwritten. Presence-
 	// gated; all logic lives in src/CoopMod (BattleAuthority.h).
@@ -535,10 +534,10 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	writer.write("missionType", _missionType);
 	writer.write("strTarget", _strTarget);
 	writer.write("strCraftOrBase", _strCraftOrBase).setAsQuotedAndEscaped();
-	// coop (W1-P7 deliverable 6, REV D "D.1" = WV-D55): see the matching call in
+	// coop: see the matching call in
 	// load() above. Self-guarded - it writes NOTHING outside an active co-op
 	// battle, so an SP save is byte-identical and the key is simply ABSENT there.
-	// The CAMPAIGN save block is deliberately untouched (D-21: the donor's
+	// The CAMPAIGN save block is deliberately untouched (the donor's
 	// SavedGame.cpp:1334/:1814 shape is NOT ported), and the key is on
 	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
 	coopSaveTurnMode(writer);
@@ -550,7 +549,7 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	coopSaveDeployment(writer);
 	coopSaveActiveSeat(writer);
 	coopSaveHotseat(writer); // coop: nothing outside a hotseat battle (an SP save stays byte-identical)
-	// coop (SPEC 3 / FX-2, WV-D61 owner ruling R-B): the host's true _itemId,
+	// coop: the host's true _itemId,
 	// so the loading machine ADOPTS it instead of re-deriving max(id)+1 - see
 	// the matching ADOPT call in load() below and BattleAuthority.h. Self-
 	// guarded the same way coopSaveTurnMode() is: an SP save is byte-identical.
@@ -1029,7 +1028,7 @@ BattleUnit *SavedBattleGame::selectPlayerUnit(int dir, bool checkReselect, bool 
 			return _selectedUnit;
 		}
 	}
-	// R5-P2 (SPIKE-RUNBOOK.md RB-D10/R5-P2 packet text): ONE guarded filter
+	// ONE guarded filter
 	// call so the selection cycle SKIPS units this machine's seat does not
 	// command (coopMaySelectUnit() is permissive outside an active coop
 	// battle - BattleAuthority.h). All coop logic lives in CoopMod; this is
@@ -1059,13 +1058,12 @@ BattleUnit* SavedBattleGame::selectNextPlayerUnitByDistance(bool checkReselect, 
 	std::vector< std::pair<int, BattleUnit*> > candidates;
 	for (auto* unit : _units)
 	{
-		// W1-P6 (WAVE1-RUNBOOK.md ruling D6 = WV-D12, NON-NEGOTIABLE): the
-		// SECOND of the three unfiltered selection paths. selectPlayerUnit()
-		// above has carried the seat filter since R5-P2, but this OXCE
-		// by-distance variant - reached by the middle-click NEXT-STOP button
-		// (BattlescapeState::btnNextStopMClick) - built its candidate list from
-		// a BARE isSelectable(), so a seat could land on a unit it does not
-		// command. Same predicate, same one guarded call: coopMaySelectUnit()
+		// The SECOND of the three selection paths that get the seat filter
+		// (selectPlayerUnit() above has it too). This OXCE by-distance variant -
+		// reached by the middle-click NEXT-STOP button
+		// (BattlescapeState::btnNextStopMClick) - builds its candidate list from
+		// isSelectable(), so without the filter a seat could land on a unit it
+		// does not command. Same predicate, same one guarded call: coopMaySelectUnit()
 		// is permissive outside an active coop battle (BattleAuthority.h), and
 		// `_selectedUnit` is saveBlob-hash-excluded (SharedEcon.cpp:3958), so
 		// this is hash-free.
@@ -1266,7 +1264,7 @@ void SavedBattleGame::setTurn(int turn)
 }
 
 /**
- * W1-P13a (rewrite wave 1, WAVE1-RUNBOOK.md SPEC 9): absolute active-side
+ * Absolute active-side
  * set - the coop client-apply counterpart of the `newSide` field on the
  * `side_transition` restate. See the declaration in SavedBattleGame.h for
  * the full contract; the only caller is CoopApply::applyEvPayload() in
@@ -1652,20 +1650,17 @@ void SavedBattleGame::endTurn()
 		prepareNewTurn();
 		_turn++;
 		_side = FACTION_PLAYER;
-		// W1-P6 (ruling D6 = WV-D12, NON-NEGOTIABLE): the THIRD unfiltered
-		// selection path. This restore writes _selectedUnit DIRECTLY, bypassing
+		// The THIRD of the three selection paths that get the seat filter. This
+		// restore writes _selectedUnit DIRECTLY, bypassing
 		// selectPlayerUnit()'s seat filter entirely, so a seat whose last
 		// selection was somehow a unit it does not command would get it handed
 		// back at the top of every player turn. selectNextPlayerUnit() below is
 		// already filtered (:991) and is the correct fallback.
 		//
-		// NOT DEAD CODE, and not reachable in wave 1 either: the whole endTurn()
-		// side machine only starts running on both machines when W1-P13 ships
-		// side_transition, which is why W1-G1 asserts the OTHER two paths and
-		// W1-G3 asserts this one (WR-18). Filtering it now is what the ruling
-		// requires ("the 3 unfiltered selection paths get seat filters no matter
-		// what"); _selectedUnit is saveBlob-hash-excluded and _lastSelectedUnit
-		// is not serialized at all, so both are machine-local and hash-free.
+		// NOT DEAD CODE: it runs whenever the endTurn() side machine runs. Every
+		// one of the three selection paths gets the seat filter; _selectedUnit is
+		// saveBlob-hash-excluded and _lastSelectedUnit is not serialized at all,
+		// so both are machine-local and hash-free.
 		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false)
 			&& coopMaySelectUnit(_lastSelectedUnit))
 			_selectedUnit = _lastSelectedUnit;

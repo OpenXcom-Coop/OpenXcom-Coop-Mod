@@ -37,14 +37,14 @@
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
-#include <map> // coop W2-H87 ED2
+#include <map> // coop
 
 namespace OpenXcom
 {
 
-// coop W2-H87 (docs rewrite/prompts/w2h87_lost_first_base_revert.md ED2; R-LF23065-1, R-LBH2-1, VL-H87-2; h83c-red F23069): the own bases whose
+// coop: the own bases whose
 // loss this machine announced (the constructor's delete_base) while their BaseDestroyedState lives: the base is erased only at OK. The own-base
-// marker lists in connectionTCP.cpp leave these ids out (ED5-ED8), so a partner's base request answered meanwhile cannot bring the base back.
+// marker lists in connectionTCP.cpp leave these ids out, so a partner's base request answered meanwhile cannot bring the base back.
 std::map<const BaseDestroyedState*, int> g_coopAnnouncedBaseLosses;
 
 BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles, bool partialDestruction) :
@@ -72,7 +72,7 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 			if (!partialDestruction)
 			{
-				g_coopAnnouncedBaseLosses[this] = base->_coop_base_id; // coop W2-H87 ED3 (ED2); the destructor erases it (ED4)
+				g_coopAnnouncedBaseLosses[this] = base->_coop_base_id; // coop; the destructor erases it
 			}
 		}
 
@@ -182,7 +182,7 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
  */
 BaseDestroyedState::~BaseDestroyedState()
 {
-	g_coopAnnouncedBaseLosses.erase(this); // coop W2-H87 ED4 (ED2)
+	g_coopAnnouncedBaseLosses.erase(this); // coop
 }
 
 /**

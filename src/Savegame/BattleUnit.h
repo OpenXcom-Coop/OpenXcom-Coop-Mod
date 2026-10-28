@@ -261,7 +261,7 @@ public:
 	Position getPositionVexels() const;
 	/// Sets the unit's direction 0-7.
 	void setDirection(int direction);
-	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): instant
+	/// Instant
 	/// turret-only direction set - the coop client-apply counterpart of
 	/// setDirection() above, for a turretOnly bt_ev turn. Never touches the
 	/// body's own _direction/_toDirection. No animation, same discipline as
@@ -337,7 +337,7 @@ public:
 	int getTimeUnits() const;
 	/// Gets the unit's stamina.
 	int getEnergy() const;
-	/// R3-P1 (rewrite spike, SPIKE-RUNBOOK.md CoopApply.h): absolute energy
+	/// Absolute energy
 	/// set - the coop client-apply counterpart of setTimeUnits() below.
 	/// Clamped to [0, stamina] the same way vanilla's own internal energy
 	/// mutations are.
@@ -753,20 +753,19 @@ public:
 	const std::string& getType() const;
 	/// Convert's unit to a faction
 	void convertToFaction(UnitFaction f);
-	/// R5-P1 (rewrite spike, RB-D23): sets the unit's ORIGINAL faction. Thin
+	/// Sets the unit's ORIGINAL faction. Thin
 	/// setter, no logic - convertToFaction() alone is not enough for a
 	/// generation-time canonical-faction assignment, because
 	/// prepareNewTurn() (BattleUnit.cpp) snaps _faction back to
 	/// _originalFaction every turn whenever they differ (the MC-revert
 	/// mechanic) - CoopMod's CoopState.cpp::assignSeatsAndFactions() is the
-	/// ONE caller (RB-D23's "setOriginalFaction writes funneled through this
-	/// ONE pass").
+	/// ONE caller (every setOriginalFaction write is funneled through this
+	/// ONE pass).
 	/// coopLoadSoldierUnitRecord() (BattleAuthority.h,
 	/// called from load()) is the read-back: it restores that pass's write on
 	/// a soldier-linked unit when a battle document is loaded.
 	void setOriginalFaction(UnitFaction f) { _originalFaction = f; }
-	/// R5-U8 A3 (owner D269 (a); docs rewrite/prompts/r5u8_pve2_gm4.md AMENDMENT
-	/// U8-1): sets the unit's type string. Thin setter, no logic - the release
+	/// Sets the unit's type string. Thin setter, no logic - the release
 	/// line's PvE2 re-skin of an AI-side X-COM soldier (MALE_CIVILIAN /
 	/// FEMALE_CIVILIAN: no rank on the unit-info screen, a blank enemy name, no
 	/// fatal wounds unless the Alien Bleeding option is on) in
