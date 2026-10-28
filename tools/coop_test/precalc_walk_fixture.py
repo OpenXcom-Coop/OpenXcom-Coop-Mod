@@ -1,6 +1,6 @@
-"""SPEC RW-S4 (REV E.33 + REV E.45 amendment) PRECALC. NOT a regression member.
+"""Walk fixture PRECALC. NOT a regression member.
 
-One-time orchestrator measurement (R1/R5): finds the pinned SEED and the baked
+One-time measurement: finds the pinned SEED and the baked
 FORMATION that `repro_atom_walk` will teleport its seven soldiers onto, so the
 test needs no runtime search. Boots the SAME two-instance skirmish fixture the
 test uses, `set_seed(seed)` on the host right before `newbattle_ok` (via

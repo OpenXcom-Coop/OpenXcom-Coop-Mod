@@ -496,8 +496,7 @@ void onDeny(const Json::Value& deny);
 /// flight.
 void onActionEndApplied(std::uint32_t actionId);
 
-/// event_state's lastDeny field (R2-P11's own RW-TODO(R3-P1) marker in
-/// TestServer.cpp, now filled): the {iseq,reason} object from the most
+/// event_state's lastDeny field: the {iseq,reason} object from the most
 /// recent onDeny() this CLIENT machine received this battle, or
 /// Json::Value() (null) if none yet.
 Json::Value lastDeny();

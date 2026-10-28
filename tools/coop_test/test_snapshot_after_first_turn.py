@@ -29,7 +29,7 @@ simulating past that point. `items` and `saveBlob` are the two hash buckets
 that regression breaks; this file asserts both are explicitly present and
 EQUAL in the `hash_now {full:true}` sweep, not merely "the sweep passed".
 
-RW-FIX-TURN BECOMES A TRIPWIRE (WV-D56 consequence 1): under the new
+THE TURN-COUNTER MIRROR IS A TRIPWIRE: under the
 sequencing the client's blob already carries `turn == 1`, so
 `coopClientMirrorFirstTurnCounter()`'s compensating write is now UNREACHABLE
 in the normal case - reaching it (a non-zero `event_state.turnMirrorFired` on
@@ -199,7 +199,7 @@ def main():
             "ready, expected 1/1 (the equip-end sync)")
         print("PASS: battle_state.turn == 1 on both machines after both seats are ready")
 
-        # === 3. RW-FIX-TURN tripwire: must NOT have fired on the client =======
+        # === 3. turn-counter mirror tripwire: must NOT have fired on the client ==
         ces = event_state(client)
         assert ces.get("turnMirrorFired") == 0, (
             f"client event_state.turnMirrorFired == {ces.get('turnMirrorFired')}, "

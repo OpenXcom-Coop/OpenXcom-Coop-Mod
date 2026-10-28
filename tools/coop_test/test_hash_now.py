@@ -11,8 +11,8 @@ each machine's own side (phase Active both, hostSim true only on the host,
 distinct localSeat per machine, and a seq stream that has emitted exactly the
 bring-up reveal traffic and nothing else, fully applied, queue drained).
 
-RW-REVEAL-SYNC (SS2.4a) CHANGED THE t=0 SEQ BASELINE. "t=0" no longer means
-"nothing has been emitted": revealed tiles are game state now, and the host's
+THE t=0 SEQ BASELINE. "t=0" does not mean
+"nothing has been emitted": revealed tiles are game state, and the host's
 own bring-up (BriefingState OK -> BattlescapeState -> equip-screen dismissal ->
 startFirstTurn's recalculateFOV) discovers several hundred tiles AFTER the
 handshake blob was snapshotted. Those ship as standalone `bt_ev{kind:"reveal"}`
@@ -22,8 +22,8 @@ has applied every one. What "t=0" still means, and what this file asserts, is:
 no ACTION has run, the two seq counters agree, and the queue is drained on both
 machines. See the constant's own comment for why the count is what it is.
 
-RESOLVED FINDING (RW-REVEAL-SYNC): with the binTiles fog mask removed from the
-saveBlob bucket (SharedEcon.cpp), the per-tile `discovered` bits are now INSIDE
+FOG IN THE HASH: with no binTiles fog mask in the
+saveBlob bucket (SharedEcon.cpp), the per-tile `discovered` bits are INSIDE
 the hash rather than masked out of it - so the 8/8 equality below is a strictly
 stronger statement than it used to be, and `mapDiscoveredFloor` equality is
 asserted directly alongside it as the human-readable witness (before this packet
@@ -70,7 +70,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 
-# RW-REVEAL-SYNC: how many standalone `bt_ev{kind:"reveal"}` envelopes the HOST's
+# How many standalone `bt_ev{kind:"reveal"}` envelopes the HOST's
 # quiescent flush ships during bring-up. One per QUIESCENT TICK that finds
 # something newly discovered, and everything a single frame discovers coalesces
 # into ONE delta - so this is a small constant, not "one per revealed tile".
@@ -265,7 +265,7 @@ def main():
             f"host/client battleId should match and be nonzero: host={host_es} client={client_es}"
         assert host_es["desyncSeen"] is False and client_es["desyncSeen"] is False, \
             f"neither machine should have desynced yet: host={host_es} client={client_es}"
-        # t=0 (no ACTION has run): the only seq traffic is RW-REVEAL-SYNC's
+        # t=0 (no ACTION has run): the only seq traffic is the host's
         # bring-up reveal flush, fully emitted on the host and fully applied on
         # the client, with nothing left queued on either side.
         host_rs = host.cmd({"cmd": "reveal_state"})
@@ -286,7 +286,7 @@ def main():
         for part in ("floor", "westwall", "northwall"):
             assert host_rs[part] == client_rs[part], (
                 f"discovered {part} count differs at t=0: host={host_rs[part]} "
-                f"client={client_rs[part]} (of {host_rs['mapSizeXYZ']} tiles) - RW-REVEAL-SYNC "
+                f"client={client_rs[part]} (of {host_rs['mapSizeXYZ']} tiles) - the reveal sync "
                 "did not converge the two machines' fog of war")
         # W1-P8 (SS2.W4 dual-set): BOTH sides' sets, per part, on both machines.
         for side in ("player", "hostile"):
@@ -339,7 +339,7 @@ def main():
         print("HOST event_state:", json.dumps(host_es, sort_keys=True))
         print("CLIENT event_state:", json.dumps(client_es, sort_keys=True))
 
-        # --- RW-REVEAL-SYNC: the human-readable witness for the unmasked hash ---
+        # --- the human-readable witness for the unmasked fog hash ---
         hb = host.cmd({"cmd": "battle_state"})
         cb = client.cmd({"cmd": "battle_state"})
         assert hb.get("mapDiscoveredFloor") == cb.get("mapDiscoveredFloor"), (

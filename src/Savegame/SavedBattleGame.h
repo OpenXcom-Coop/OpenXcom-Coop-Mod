@@ -396,7 +396,7 @@ public:
 	bool canUseWeapon(const BattleItem *weapon, const BattleUnit *unit, bool isBerserking, BattleActionType actionType, std::string* message = nullptr) const;
 	/// Gets the turn number.
 	int getTurn() const;
-	/// RW-FIX-TURN (rewrite spike, SPIKE-RUNBOOK.md SS2.7/SS2.8): absolute
+	/// Absolute
 	/// turn-counter set - the coop thin client's counterpart of the
 	/// `_turn = 1` line inside startFirstTurn() below, and of NOTHING else
 	/// that function does (no randomizeItemLocations/resetUnitTiles/

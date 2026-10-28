@@ -1,4 +1,3 @@
-# RW-TRIAGE: TOOLING-PENDING(W6)
 """VALIDATION L2/L3 burn-in matrix runner + per-bucket promotion scoreboard.
 
 Drives `test_parallel_soak.py --profile <p>` repeatedly (optionally K lanes at

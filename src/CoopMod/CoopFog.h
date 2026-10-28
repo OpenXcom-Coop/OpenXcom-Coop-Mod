@@ -33,8 +33,7 @@ class BattleUnit;
 class Tile;
 
 /**
- * RW-DUAL-FOG (W1-P8; WAVE1-RUNBOOK.md SS2.W4, rulings D2 / WV-D8 / WV-D31 /
- * WV-D39): the HOSTILE half of the DUAL-SET per-side reveal model.
+ * The HOSTILE half of the DUAL-SET per-side reveal model.
  *
  * SS2.W4's storage rule is deliberately ASYMMETRIC:
  *   - side "player"  -> the VANILLA per-tile discovered bits
@@ -47,9 +46,9 @@ class Tile;
  *                       (1 = O_WESTWALL, 2 = O_NORTHWALL, 4 = O_FLOOR;
  *                       Tile::saveBinary's boolFields order, Tile.cpp:207).
  *                       It NEVER writes Tile.
- *   - side "neutral" is RESERVED: wave 1 never authors it. A receiver that sees
- *                       one logs `RW-UNSUPPORTED reveal-side-neutral` and lets
- *                       the next hash call it a desync (SS2.W4; the SS2.4
+ *   - side "neutral" is RESERVED and never authored. A receiver that sees
+ *                       one logs `UNSUPPORTED reveal-side-neutral` and lets
+ *                       the next hash call it a desync (the
  *                       `door`-in-turn precedent - correct, the state HAS
  *                       diverged).
  *

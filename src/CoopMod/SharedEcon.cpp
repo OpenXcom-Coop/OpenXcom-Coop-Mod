@@ -7556,20 +7556,13 @@ bool saveBlobExcludedUnitKey(std::string_view k)
 		|| k == "summonedPlayerUnit";
 }
 
-// RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a): the binTiles FOW mask is GONE.
-//
-// It used to live here as saveBlobMaskFowBinTiles() - decode the packed binTiles
-// base64, zero the three `discovered` bits (mask 0x07) of every tile's
-// Tile::saveBinary boolFields byte (Tile.cpp:207) while keeping the two
-// ufo-door-open bits, and hash the masked bytes - on the premise that per-tile
-// FOW was presentation "never promised identical". Owner ruling 2026-09-02
-// reversed that premise: revealed tiles ARE game state. They are now authored
-// exclusively by the host and synced as `reveal` deltas (CoopReveal.h), and a
-// thin client's own tile-FOV sweep is suppressed (TileEngine::
-// calculateTilesInFOV), so the two machines' discovered sets must match exactly.
-// Removing the mask is what makes the saveBlob bucket VERIFY that instead of
-// hiding it: binTiles now falls through to the scalar branch below and its
-// base64 text is hashed whole, discovered bits included.
+// The binTiles FOW bits are NOT masked: revealed tiles are game state,
+// authored exclusively by the host and synced as `reveal` deltas
+// (CoopReveal.h), and a thin client's own tile-FOV sweep is suppressed
+// (TileEngine::calculateTilesInFOV), so the two machines' discovered sets
+// must match exactly. binTiles falls through to the scalar branch below and
+// its base64 text is hashed whole, discovered bits included, so the saveBlob
+// bucket VERIFIES the fog instead of hiding it.
 //
 // Deterministic FNV-1a over the re-parsed node tree (keys + scalar values in
 // document order, recursing maps/seqs) - hashing the STRUCTURE, not raw emit
@@ -7612,9 +7605,8 @@ void saveBlobHashTree(const YAML::YamlNodeReader& node, std::uint64_t& h, bool t
 
 			for (char ch : key) { h ^= (std::uint64_t)(unsigned char)ch; h *= FNV_PRIME; }
 
-			// RW-REVEAL-SYNC: the "binTiles" special case (FOW mask) was removed
-			// here - see the note above saveBlobHashTree(). binTiles is now an
-			// ordinary scalar node and its base64 text is hashed whole.
+			// binTiles is an ordinary scalar node here (no FOW mask special case; see
+			// the note above saveBlobHashTree()): its base64 text is hashed whole.
 			saveBlobHashTree(child, h, false, childScope);
 		}
 	}

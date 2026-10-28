@@ -26,8 +26,8 @@ R4-P2: GeoscapeState::startCoopMission() (the
 deferred battle-start this snapshot feeds) now rides the SAME handshake R4-P1
 built (CoopHandshake::offerBattle) instead of the R1-P5 "coop battles
 unavailable" popup - the CoopBaseDefense snapshot struct + the UAF fix itself
-are UNTOUCHED (R2-M5, kept exactly). TRIM (RW-TRIAGE, this packet): the
-pre-rewrite version of this test only required in_battle() to fire once (the
+are UNTOUCHED (kept exactly). TRIM: an
+earlier version of this test only required in_battle() to fire once (the
 FIRST of host/client to leave the geoscape) via geo.skip_ingame_time's
 early-exit, then read `in_battle(host) or in_battle(client)` a second time as a
 soft "close enough" check on the other side. Since offerBattle()'s host push of

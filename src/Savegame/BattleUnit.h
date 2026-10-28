@@ -369,7 +369,7 @@ public:
 	/// when _specab is SPECAB_BURNFLOOR or SPECAB_BURN_AND_EXPLODE; a restate
 	/// must land unconditionally, so this bypasses that guard on purpose.
 	void coopSetFireAbsolute(int fire);
-	/// W1-P13a (RW-FIX-TURRET discipline): absolute BODY direction set -
+	/// Absolute BODY direction set -
 	/// writes _direction/_toDirection ONLY, mirroring setTurretDirection()
 	/// above but for the other half. setDirection() also writes
 	/// _directionTurret/_toDirectionTurret, which are serialized and NOT

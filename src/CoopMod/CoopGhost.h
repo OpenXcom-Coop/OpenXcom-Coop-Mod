@@ -35,8 +35,7 @@ class SavedBattleGame;
 class Tile;
 
 /**
- * RW-REPLAY (W1-P12; WAVE1-RUNBOOK.md SS4b SPEC 7, rulings D-3 / WV-D27 /
- * WV-D49 / A4): the S3 GHOST STEPPER - a DISPLAY-ONLY replay of a partner's
+ * The GHOST STEPPER - a DISPLAY-ONLY replay of a partner's
  * turn/kneel/walk on the OBSERVING machine, so the action ANIMATES instead of
  * SNAPPING, without moving a single hash bucket.
  *

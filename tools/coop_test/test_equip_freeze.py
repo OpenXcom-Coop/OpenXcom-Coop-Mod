@@ -22,7 +22,7 @@ it already does. That second half is not decoration: that push is the host's
 ONLY non-preview route into startFirstTurn() (`git grep startFirstTurn` finds
 exactly two callers - the preview branch, and InventoryState::btnOkClick at
 InventoryState.cpp:1174). A freeze without it leaves the host at `_turn == 0`
-while the thin client's RW-FIX-TURN mirror forces 1 - the exact saveBlob
+while the thin client's turn-counter mirror forces 1 - the exact saveBlob
 divergence class that fix was built to close - and also skips
 randomizeItemLocations() / resetUnitTiles() / the per-unit prepareNewTurn(false)
 / newTurnUpdateScripts() (SavedBattleGame.cpp:1230-1260).
@@ -255,7 +255,7 @@ def main():
             "up, expected 0 - turn 1 started before every seat was ready")
         assert cb.get("turn") == 0, (
             f"client battle_state.turn == {cb.get('turn')} with both pre-battle equip screens "
-            "up, expected 0 (the turn-0 offer; the RW-FIX-TURN mirror is skipped)")
+            "up, expected 0 (the turn-0 offer; the turn-counter mirror is skipped)")
         hsb, csb = session.assert_hash_clean(
             host, client, buckets=["saveBlob"],
             what="with both pre-battle equip screens up (turn 0)")

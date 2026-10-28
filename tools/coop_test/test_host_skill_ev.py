@@ -10,7 +10,7 @@ MOD Coop_ScriptResearch_Test on both machines); four rows in this order:
        ({intent, skill, G}; the host's intentsReceivedLog entry), HG-tags (equal, TAG_SKILL non-zero), HG-common.
   HH   the host's own skill press (TAB to H, SKILLS by rect, KEY_SKILL), LAST (its red leaves the split standing):
        HH-script (the host ran the script), HH-ev (one {host, skill, H} context whose evs are exactly [skill,
-       bt_action_end], lastCue on both, no RW-UNSUPPORTED / "has no known actor" client line), HH-follow (the
+       bt_action_end], lastCue on both, no UNSUPPORTED / "has no known actor" client line), HH-follow (the
        client's H tags equal the host's within FOLLOW_S, both H_TAGS_AFTER), HH-hash, HH-common.
 Common cell: after wait_host_idle, test_client_shoot.common_fails empty and no crash file since the boot.
 RED (commit A1, unchanged build): exactly HH-ev, HH-follow, HH-hash FAIL. GREEN (A2): every cell PASS.
@@ -285,7 +285,7 @@ def hh_ev_fails(H, seq0, new, hev, cev, eh, ec, clog):
         cue_seq, clc = next((e["seq"] for e in hev if e["kind"] == "skill"), None), ec.get("lastCue") or {}
         if clc.get("kind") != "skill" or clc.get("seq") != cue_seq:
             f.append(f"client lastCue {clc} (want kind skill at seq {cue_seq})")
-    bad = [ln for ln in clog if "RW-UNSUPPORTED" in ln or "has no known actor" in ln]
+    bad = [ln for ln in clog if "UNSUPPORTED" in ln or "has no known actor" in ln]
     if bad:
         f.append(f"client log since the press: {bad[:3]}")
     return f

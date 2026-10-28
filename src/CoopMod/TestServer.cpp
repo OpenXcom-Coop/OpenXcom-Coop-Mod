@@ -4742,7 +4742,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 		resp["error"] = "not in battlescape";
 		return true;
 	}
-	// RW-REVEAL-SYNC: same landmine the battle_state handler carried (see the
+	// Same landmine the battle_state handler carried (see the
 	// note there) - SavedBattleGame::getBattleGame() dereferences _battleState
 	// unconditionally (SavedBattleGame.cpp:1724-1727), so this line hard-killed
 	// the process for a host parked in BriefingState (battle generated,
@@ -8003,8 +8003,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// refused to lower the counter (must be 0 in a clean two-machine run).
 		resp["itemIdCtrAdopted"] = coopItemIdCtrAdopted();
 		resp["itemIdCtrRefused"] = coopItemIdCtrRefused();
-		// FX-1: the host input freeze's delivery-proof counter and the
-		// RW-FIX-TURN tripwire counter. Both battle-scoped, both zero outside a
+		// The host input freeze's delivery-proof counter and the
+		// turn-counter mirror's tripwire counter. Both battle-scoped, both zero outside a
 		// coop battle in flight.
 		resp["coopHostInputFrozenRefusals"] = CoopBattleUi::coopHostInputFrozenRefusals();
 		resp["turnMirrorFired"] = CoopHandshake::coopTurnMirrorFired();
@@ -8577,10 +8577,10 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		// HOST-side spike test lever. actionId 0 (SS2.2: never a
 		// minted actionId, so 0 doubles as "not part of any action chain") -
 		// correct here, since a synthetic spot/etc. ev is not admitted through
-		// CoopArbiter and belongs to no turn/kneel action context. The RB-D32
-		// corollary makes this legal: the client applies an unknown ev kind as
-		// a state-no-op (seq consumed, RW-UNSUPPORTED logged) precisely
-		// because inject_ev's spike payloads are state-less.
+		// CoopArbiter and belongs to no turn/kneel action context. This is
+		// legal: the client applies an unknown ev kind as
+		// a state-no-op (seq consumed, UNSUPPORTED logged) precisely
+		// because inject_ev's test payloads are state-less.
 		if (!isCoopBattle())
 		{
 			resp["error"] = "inject_ev: not in an active coop battle";
@@ -11673,7 +11673,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			resp["count"] = count;
 		}
 	}
-	// ----- RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a, RB-D26 discipline) -----
+	// ----- reveal (fog of war) probes -----
 	else if (cmd == "reveal_state")
 	{
 		// Read-only: how many tiles this machine currently has discovered per
@@ -13540,8 +13540,7 @@ std::string TestServer::execute(const std::string& line)
 				resp["waitBH"] = _game->getCoopMod()->_waitBH;
 				// Sub-conditions of the coop-init gate (BattlescapeState.cpp:1284) so a
 				// test can see exactly which one blocks _battleInit from ever being set.
-				// RW-REVEAL-SYNC (bug fixed in that packet, repro'd by the
-				// orchestrator 2026-09-02): SavedBattleGame::getBattleGame()
+				// SavedBattleGame::getBattleGame()
 				// dereferences _battleState UNCONDITIONALLY
 				// (SavedBattleGame.cpp:1724-1727), so the `? :` guards this line
 				// used to carry never ran - the crash happened INSIDE the
@@ -13800,7 +13799,7 @@ std::string TestServer::execute(const std::string& line)
 					ju["energy"] = u->getEnergy();
 					ju["motionPoints"] = u->getMotionPoints();
 					ju["scannedTurn"] = u->getScannedTurn(); // a pure read (machine-local, never saved or hashed)
-					// RW-FIX-TURRET: the TURRET facing, additively alongside the
+					// The TURRET facing, additively alongside the
 					// body facing above. Serialized per unit
 					// (BattleUnit.cpp:717) but read by NO structured hash bucket
 					// and not excluded from saveBlob, so it was only ever
@@ -14772,7 +14771,7 @@ std::string TestServer::execute(const std::string& line)
 			// unknown popups surface instead of silently hanging.
 			State* top = topState<State>(_game);
 			resp["type"] = top ? typeid(*top).name() : "none";
-			// WV-D101 / SPEC RW-S3: atomic "keep" list. If the caller is waiting for
+			// Atomic "keep" list. If the caller is waiting for
 			// this popup, do NOT pop it - report it instead. Checked FIRST so no
 			// dismiss branch below can ever eat a state the harness wants to inspect.
 			if (top && req.isMember("keep") && req["keep"].isArray())

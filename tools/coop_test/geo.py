@@ -129,7 +129,7 @@ def popup(*typeid_substrs):
     """Interest predicate: fires when the top state's typeid contains any of the
     given substrings, e.g. popup('MissionDetectedState', 'GeoscapeEventState').
     Carries its substrings as `.keep` so drain_popups can hand them to the game's
-    dismiss_popup, which then checks-and-pops ATOMICALLY (SPEC RW-S3 / WV-D101)."""
+    dismiss_popup, which then checks-and-pops ATOMICALLY."""
     def _p(gc):
         t = top_state(gc)
         return t if any(s in t for s in typeid_substrs) else None
@@ -151,7 +151,7 @@ def geo_when(pred):
 # --- dialog draining -------------------------------------------------------
 
 def _walk(gc, interest=None, keep=None, limit=25, stalled=None):
-    """ONE pass of the stack walk on ONE machine (SPEC RW-SETTLE (b) step 1).
+    """ONE pass of the stack walk on ONE machine (the first step of settle()).
 
     Reads the WHOLE state stack, pops unwanted windows from the top with the atomic
     keep list until a wanted window or the geoscape is on top. Returns
@@ -285,7 +285,7 @@ def _step_dialogs(host, client, interest, do_dismiss, dismissed):
     whose interest fires is the hit and is left alone; the OTHER machine is
     still drained (with the same keep list) before the hit is returned, so a
     popup on the peer's top can never freeze it behind the caller's back
-    (SPEC RW-S3b / S3b TRACE: a top popup stops both the geoscape clock and the
+    (a top popup stops both the geoscape clock and the
     popup queue on that machine - Game::run thinks the top state only)."""
     hit = None
     for gc in (host, client):
@@ -416,7 +416,7 @@ def _reconstruct(events):
 
 
 def settle(host, client, keep=None, speed_idx=0, cursors=None, limit=25):
-    """SPEC RW-SETTLE + REV E.44 / WV-D105/107/108/109: leave BOTH machines in a
+    """Leave BOTH machines in a
     KNOWN state, and judge "what appeared during the sweep" from the RECORD, not a
     stack poll.
 

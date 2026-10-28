@@ -121,8 +121,8 @@ int coopCloseUfoDoors(TileEngine* te);
 /// Test introspection only - never read by game logic.
 /// `coopDoorEvsEmitted()` counts `ev door` envelopes this machine SENT;
 /// `coopDoorEvsApplied()` counts the ones it APPLIED; and
-/// `coopDoorInTurnUnsupported()` counts hits on the SS2.4
-/// "RW-UNSUPPORTED door-in-turn" fallback that this packet RETIRES - it is
+/// `coopDoorInTurnUnsupported()` counts hits on the retired
+/// "UNSUPPORTED door-in-turn" fallback - it is
 /// kept as a tripwire and asserted at zero, because a retirement proven by
 /// deleting the branch would be a retirement proven by nothing.
 unsigned int coopDoorEvsEmitted();

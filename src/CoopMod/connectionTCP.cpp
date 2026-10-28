@@ -2370,7 +2370,7 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 	const std::string sideStr = d.get("side", "").asString();
 	if (!CoopFog::sideFromString(sideStr, side))
 	{
-		Log(LOG_ERROR) << "[coop-reveal] RW-UNSUPPORTED reveal-side-unknown '" << sideStr
+		Log(LOG_ERROR) << "[coop-reveal] UNSUPPORTED reveal-side-unknown '" << sideStr
 			<< "' at seq " << seq << " - nothing applied; the next hash will call it a desync";
 		return;
 	}
@@ -2379,7 +2379,7 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 		// Reserved, never authored. Same treatment as a
 		// `door` ev inside a turn - log and let the next hash report it, which is
 		// CORRECT because the state HAS diverged.
-		Log(LOG_ERROR) << "[coop-reveal] RW-UNSUPPORTED reveal-side-neutral at seq " << seq
+		Log(LOG_ERROR) << "[coop-reveal] UNSUPPORTED reveal-side-neutral at seq " << seq
 			<< " - nothing applied; the next hash will call it a desync";
 		return;
 	}
@@ -16667,7 +16667,7 @@ void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 	// tiles+parts the host mutated, which a single {result, tile, part} triple
 	// on this envelope never could (one call can open a RUN of ufo doors,
 	// TileEngine.cpp:4252). The reserved field therefore stays unset and
-	// its "RW-UNSUPPORTED door-in-turn" client fallback is RETIRED for this
+	// its "UNSUPPORTED door-in-turn" client fallback is RETIRED for this
 	// path (kept as a zero-asserted tripwire, see CoopApply::applyEvPayload).
 	ev["h"] = coopBuildUnitsStatsHash(save);
 	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
@@ -21214,7 +21214,7 @@ static void coopHostOnPeerDesync(const Json::Value& report)
 		<< report.get("seq", 0u).asUInt() << ") - the automatic repair runs at the next quiescent pass";
 }
 
-// coop: a partner drop ends every repair state - the pause becomes SPEC 16's (a later rejoin offer is not a
+// coop: a partner drop ends every repair state - the pause becomes the partner-drop pause (a later rejoin offer is not a
 // repair). From CoopSession::onClientDrop() (the host's drop path; harmless anywhere else).
 void coopResyncOnPeerDrop()
 {
@@ -21224,12 +21224,12 @@ void coopResyncOnPeerDrop()
 	g_coopResumedOfferFailed = false; // coop: a drop clears it (the next rejoin answers afresh)
 
 	if (anyRepairState)
-		Log(LOG_INFO) << "[coop-resync] the partner dropped - the repair state is cleared (the pause is SPEC 16's)";
+		Log(LOG_INFO) << "[coop-resync] the partner dropped - the repair state is cleared (the pause is now the partner-drop pause)";
 }
 
 // ===== coop: a resumed offer (a rejoin or the automatic repair) that the second player
-// refused, or whose copy did not match. The pause stays (SPEC 16 M5's resumed branches); RESUME is withheld until a later
-// offer; a failed REPAIR ends repairs in this battle (no loop) and its waiting screen says so (O1). Message-handler
+// refused, or whose copy did not match. The pause stays; RESUME is withheld until a later
+// offer; a failed REPAIR ends repairs in this battle (no loop) and its waiting screen says so. Message-handler
 // context: flags and the record only. =====
 static void coopResumedOfferFailedNote(const char* why)
 {
@@ -21340,9 +21340,9 @@ bool coopFatalVoteArm(SavedBattleGame* /*save*/, int wounded, bool endTurnReques
 		return false; // single player: vanilla pushes its question
 	if (!a.hostSim.load() || endTurnRequested)
 	{
-		// A client never asks (N3); an end-of-turn kill needs no vote - either answer ends the battle (F3238, SV-M11).
+		// A client never asks; an end-of-turn kill needs no vote - either answer ends the battle.
 		Log(LOG_INFO) << "[coop-fatal-vote] no vote: " << (a.hostSim.load() ? "the end of turn killed the last alien"
-			: "client (unreachable, N3)");
+			: "client (unreachable)");
 		return true;
 	}
 	{
@@ -21403,7 +21403,7 @@ bool coopFatalVoteHolds(const char* held)
 	if (held)
 	{
 		fatalVoteNote(-1, std::strcmp(held, "commit") == 0 ? "heldCommits" : "heldIntents");
-		Log(LOG_INFO) << "[coop-fatal-vote] host: " << held << " held - the fatal-wounds vote is in progress (D214 a)";
+		Log(LOG_INFO) << "[coop-fatal-vote] host: " << held << " held - the fatal-wounds vote is in progress";
 	}
 	return true;
 }
@@ -21423,8 +21423,8 @@ int coopFatalVoteOpen()
 	return 0;
 }
 
-// ----- R4-L1 S-A (docs rewrite/prompts/r4l1_abort_vote.md P4; owner design-D8, D231, D244; r4-T3, DES-2.3): the abort
-// vote - the #87 vote with the abort action; the host ARMS a request, its pump opens it and applies a pass. -----
+// ----- coop: the abort vote - the #87 vote with the abort action; the host ARMS a request, its pump opens it and
+// applies a pass. -----
 
 // The state (@a st >= 0; @a label overrides the probe's name for it) and the probe: @a note's fields, +1 to @a add.
 static void abortVoteNote(int st, const char* add = nullptr, Json::Value note = Json::Value(Json::objectValue),
@@ -21450,7 +21450,7 @@ BattlescapeTally coopAbortDialogTally(SavedBattleGame* save)
 	if (connectionTCP::getCoopStatic() && coopBattleAuthority().phase.load() != CoopBattlePhase::Idle
 		&& !coopBattleAuthority().hostSim.load())
 	{
-		abortVoteNote(-1, "dialogDonor"); // R2-M7: the client's dialog is display-only (no tallyUnits())
+		abortVoteNote(-1, "dialogDonor"); // the client's dialog is display-only (no tallyUnits())
 		return coopTallyUnitsDonor(save);
 	}
 	return save->getBattleGame()->tallyUnits(); // vanilla
@@ -21475,7 +21475,7 @@ bool coopAbortVoteHolds(const char* held)
 	if (held)
 	{
 		abortVoteNote(-1, std::strcmp(held, "commit") == 0 ? "heldCommits" : nullptr);
-		Log(LOG_INFO) << "[coop-abort] host: " << held << " held - the abort vote is in progress (VL-L1-2)";
+		Log(LOG_INFO) << "[coop-abort] host: " << held << " held - the abort vote is in progress";
 	}
 	return true;
 }
@@ -21497,7 +21497,7 @@ static bool coopAbortVoteArm(int starterSeat)
 	return true;
 }
 
-// HOST (executeVoteAction): Open -> Passed. Only ARMS the apply (DES-2.3); the pump ends the battle at quiescence.
+// HOST (executeVoteAction): Open -> Passed. Only ARMS the apply; the pump ends the battle at quiescence.
 static void coopAbortVotePassed()
 {
 	if (g_abortVoteState.load() != AV_OPEN)
@@ -21540,12 +21540,12 @@ static void coopAbortVoteDrop(const char* why)
 	Log(LOG_INFO) << "[coop-abort] host: the abort vote dropped (" << why << ")";
 }
 
-static void coopAbortVoteClientPassed() // CLIENT (vote_result, QL1-8): the pump closes the passed screen once on top
+static void coopAbortVoteClientPassed() // CLIENT (vote_result): the pump closes the passed screen once on top
 {
 	g_abortVoteClientPop = true;
 }
 
-// HOST (design 2.3 / 2.4.4; the bt_equip_ready precedent, F4314): a client voter's answer from the battle lane.
+// HOST (as bt_equip_ready does): a client voter's answer from the battle lane.
 // Self-guarded: the host of this battle, its open vote, a partner voter seat still deciding; anything else is counted
 // (answersDropped) and logged. RECORD ONLY, no State op: a decision arms the pump (Decided).
 static void coopFatalVoteOnAnswer(const Json::Value& msg)
@@ -21569,7 +21569,7 @@ static void coopFatalVoteOnAnswer(const Json::Value& msg)
 	}
 }
 
-// CLIENT (design 2.3 "Apply rule", F3236): the applier's fatal_vote branch - RECORD + LATCH ONLY, the battle_end
+// CLIENT: the applier's fatal_vote branch - RECORD + LATCH ONLY, the battle_end
 // precedent (no State op, no RNG, no world write). The pump shows or closes the question.
 static void coopFatalVoteApplied(const Json::Value& ev)
 {
@@ -21606,8 +21606,8 @@ static void coopFatalVoteApplied(const Json::Value& ev)
 		<< ", seq " << ev.get("seq", 0u).asUInt() << ")";
 }
 
-// The pump (design 2.4.2 / 2.4.4 / 2.4.6; P7-5 Q6 (b), Q7 (a)): ONE call at the RB-D5 point in updateCoopTask(), after
-// the drain and the quiescence read, before the SPEC 18 save latch and the SPEC 16 pause latch. HOST: opens an armed
+// The pump: ONE call at the pump point in updateCoopTask(), after
+// the drain and the quiescence read, before the save latch and the partner-drop pause latch. HOST: opens an armed
 // vote at quiescence, closes a decided one, runs the continue step. CLIENT: closes and shows its question. Nothing is
 // pushed over a co-op dialog (CoopState): the step waits while one is the top state. Inert with no vote in flight.
 static void coopFatalVotePump(Game* game, bool quiescent)
@@ -21633,7 +21633,7 @@ static void coopFatalVotePump(Game* game, bool quiescent)
 	else if (host && st == FV_ARMED && a.phase.load() == CoopBattlePhase::Active && quiescent && !dialogTop)
 	{
 		// The open (design 2.1): vanilla's own count; each counted unit's owner is its seat tag, never its controller
-		// (D149, SV-M7); a seat-less unit is the host's (MJ-8). The voter set and N are fixed here.
+		// ; a seat-less unit is the host's. The voter set and N are fixed here.
 		std::vector<int> voters;
 		int wounded = 0;
 		for (const auto* bu : *save->getUnits())
@@ -21727,12 +21727,12 @@ static void coopFatalVotePump(Game* game, bool quiescent)
 		}
 		if (asks && dialogTop)
 		{
-			fatalVoteNote(-1, "coverWaitPasses"); // Q6 (b): it waits while a co-op dialog is the top state
+			fatalVoteNote(-1, "coverWaitPasses"); // it waits while a co-op dialog is the top state
 			return;
 		}
 		g_fatalVoteOpenPending = false;
 		if (!asks)
-			return; // not a voter, or already answered: no new screen (SV-M2)
+			return; // not a voter, or already answered: no new screen
 		game->pushState(new ConfirmEndMissionState(save, wounded, bg));
 		Json::Value note(Json::objectValue);
 		note["questionPushedMs"] = (unsigned int)SDL_GetTicks();
@@ -21741,16 +21741,14 @@ static void coopFatalVotePump(Game* game, bool quiescent)
 	}
 }
 
-// ===== R3-P1: CoopApply (CoopApply.h) - the S2-minimal client-side state
-// applier =====
-// SPIKE-RUNBOOK.md R3-P1 packet text. Resolution is EXCLUSIVELY via
-// CoopIdMaps (RB-D7) - nothing here mints a BattleUnit/BattleItem,
-// but the region is marked per the packet text's own instruction anyway.
+// ===== CoopApply (CoopApply.h) - the client-side state applier =====
+// Resolution is EXCLUSIVELY via CoopIdMaps - nothing here mints a
+// BattleUnit/BattleItem, but the region is marked as a mint region anyway.
 // MINT-WHITELIST-BEGIN
 namespace CoopApply
 {
 
-// RW-FIX-TURRET: write the BODY facing WITHOUT dragging the turret with it.
+// Write the BODY facing WITHOUT dragging the turret with it.
 //
 // Vanilla BattleUnit::setDirection() (BattleUnit.cpp:988-994) deliberately
 // couples all four facing fields (_direction, _toDirection, _directionTurret,
@@ -21764,8 +21762,8 @@ namespace CoopApply
 // facing. `directionTurret` is serialized unconditionally
 // (BattleUnit.cpp:717), is read by NO structured hash bucket, and is not on
 // saveBlobExcludedUnitKey's list (SharedEcon.cpp) - so the saveBlob catch-all
-// caught the drift as a post-action-only, saveBlob-only mismatch (RCA
-// 2026-09-02). Body write + turret restore through the R3-P1 additive
+// caught the drift as a post-action-only, saveBlob-only mismatch.
+// Body write + turret restore through the additive
 // setTurretDirection() accessor keeps the vanilla file untouched; the caller
 // then writes the turret from the ev's own turretTo - the host's real
 // post-state - and never from a local guess.
@@ -21776,12 +21774,11 @@ static void setBodyDirectionKeepTurret(BattleUnit* unit, int dir)
 	unit->setTurretDirection(turret);
 }
 
-// W2-H35b (DF-5 follow-up; docs rewrite/prompts/w2h35b_client_sight_events.md (e) E1; R-R5U1-1 vanilla parity): the
-// CLIENT's mirror of vanilla's positional sight refresh (TileEngine's position overload of its FOV update, without tiles:
-// its range test and its unit half) for FACTION_PLAYER viewers only - the units that write BattleUnit::_visible (W2-H35
-// QH-4 (a)) - at the events a thin client applies without running the vanilla code that refreshes sight there: a door
-// opening (E2), an AI unit's think (E3 / E4), a light-giving item moving (E5), a unit moving or going down (E6), a tile
-// change (E7). The tile half stays the host's (SS2.4a: no discovered bit is written here); per-unit `visible` and the
+// Vanilla parity: the CLIENT's mirror of vanilla's positional sight refresh (TileEngine's position overload of its FOV
+// update, without tiles: its range test and its unit half) for FACTION_PLAYER viewers only - the units that write
+// BattleUnit::_visible - at the events a thin client applies without running the vanilla code that refreshes sight
+// there: a door opening, an AI unit's think, a light-giving item moving, a unit moving or going down, a tile change. The
+// tile half stays the host's (no discovered bit is written here); per-unit `visible` and the
 // visible-unit lists are machine-local and in no hash bucket; no wire. CLIENT only: a no-op on the host (vanilla
 // ran there) and outside an active co-op battle. @a eventRadius >= 0 (each caller passes vanilla's own radius).
 static void coopClientEventSight(SavedBattleGame* save, Position pos, int eventRadius)
@@ -21798,11 +21795,11 @@ static void coopClientEventSight(SavedBattleGame* save, Position pos, int eventR
 	}
 }
 
-// W2-H35c (docs rewrite/prompts/w2h35c_r5u8b_captures.md (e) G1; R-R5U1-1 vanilla parity): the CLIENT's mirror of vanilla's
+// Vanilla parity: the CLIENT's mirror of vanilla's
 // FULL sight refresh at a position (TileEngine's position overload with its default radius: every unit within the maximum
 // view distance clears and rebuilds its visible-unit list, without tiles) for FACTION_PLAYER viewers only.
-// Vanilla runs it where a unit appears or changes sides: SavedBattleGame::convertUnit and BattlescapeGame::spawnNewUnit
-// (G7), TileEngine::psiAttack's mind control (G18). The tile half stays the host's (SS2.4a); machine-local, in no hash
+// Vanilla runs it where a unit appears or changes sides: SavedBattleGame::convertUnit, BattlescapeGame::spawnNewUnit
+// and TileEngine::psiAttack's mind control. The tile half stays the host's; machine-local, in no hash
 // bucket; no wire. CLIENT only: a no-op on the host (vanilla ran there) and outside an active co-op battle.
 static void coopClientFullSightAt(SavedBattleGame* save, Position pos)
 {
@@ -21825,17 +21822,17 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "reveal")
 	{
-		// RW-REVEAL-SYNC (SS2.4a): the standalone reveal carrier has NO `unit`
+		// The standalone reveal carrier has NO `unit`
 		// field and no payload of its own - its entire state effect is the
 		// envelope-level `reveal` object, already applied by
 		// CoopDisplayQueue::onApplied() before it reached here. A known kind,
-		// deliberately not an RW-UNSUPPORTED warning.
+		// deliberately not an UNSUPPORTED warning.
 		return;
 	}
 
 	if (kind == "door")
 	{
-		// W1-P10 (SS4 "ATOM door" / SS2.4's `ev door` / WV-D50): host-authored
+		// The `ev door`: host-authored
 		// TERRAIN apply. NO `unit` is required - a turn-boundary close carries
 		// none and rides actionId 0 - so this branch sits ABOVE the unit gate.
 		//
@@ -21854,10 +21851,10 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// have opened a swinging door on the host either (Tile.cpp:382), while
 		// for the ufo-door branch that guard does not exist at all.
 		//
-		// NEVER "hitTile-class gated" (SS1 rule): there is no coop condition
+		// NEVER "hitTile-class gated": there is no coop condition
 		// under which a carried mutation is skipped. A tile that does not
 		// resolve, or a mutation vanilla declines here, is LOGGED and left
-		// standing so the post-apply hash reports it (SS2.8, no partial
+		// standing so the post-apply hash reports it (no partial
 		// repair) - it is never silently repaired and never silently dropped.
 		const Json::Value& dp = ev["payload"];
 		const bool open = (dp.get("op", "open").asString() != "close");
@@ -21898,14 +21895,14 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			// and in no serializer (Tile::save/saveBinary write neither), so
 			// this is presentation parity, not authored state. calculateFOV is
 			// deliberately NOT called - the client never authors discovered
-			// bits (SS2.4a client-authority rule); those ride this envelope's
+			// bits (client-authority rule); those ride this envelope's
 			// own `reveal`.
 			if (save->getTileEngine())
 				save->getTileEngine()->calculateLighting(LL_FIRE, pos, 1, true);
-			// W2-H35b ((e) E2): vanilla refreshes sight through the doorway right after this light (TileEngine::unitOpensDoor
+			// Vanilla refreshes sight through the doorway right after this light (TileEngine::unitOpensDoor
 			// :4240-:4242: the door centre, radius = the doors opened; one door tile = this tile, radius 1). Unit half only
-			// (E1); the door actor's own sight is A5's (onApplied). A close is not refreshed here: vanilla closes UFO doors only
-			// in BattlescapeGame::endTurn, whose sight W2-H35's side-change mirror re-runs.
+			// (coopClientEventSight()); the door actor's own sight is refreshed in onApplied(). A close is not refreshed here: vanilla closes UFO doors only
+			// in BattlescapeGame::endTurn, whose sight the client's side-change mirror re-runs.
 			if (open)
 				coopClientEventSight(save, pos, 1);
 		}
@@ -21921,11 +21918,11 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "side_transition")
 	{
-		// W1-P13a (REV E.1 IR3-1/S-2): reproduce vanilla's own turret-reset
+		// Reproduce vanilla's own turret-reset
 		// loop - SavedBattleGame::endTurn() (SavedBattleGame.cpp:1539-1545) -
 		// as the FIRST act of applying this restate, before any perUnit
 		// write. Deterministic, faction-derived, RNG-free; the frozen restate
-		// carries no turret field and never will (SS2.W6).
+		// carries no turret field and never will.
 		for (BattleUnit* bu : *save->getUnits())
 		{
 			if (bu->getOriginalFaction() != FACTION_PLAYER)
@@ -21934,8 +21931,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 		const Json::Value& p = ev["payload"];
 
-		// W2-H47 (docs rewrite/prompts/w2h47_client_nextstop_reset.md (e) E1; L-H41-1, F17180-F17188, F17241-F17251):
-		// vanilla's two per-side resets that live only on this machine (SavedBattleGame::endTurn, which this thin client
+		// Vanilla's two per-side resets that live only on this machine (SavedBattleGame::endTurn, which this thin client
 		// never runs). At every side change the undo unit goes (SavedBattleGame.cpp :1628, :1634, :1677), and every unit
 		// of the side about to move may be selected again (its per-side loop :1745-:1748 -> BattleUnit::prepareNewTurn,
 		// _dontReselect = false): a soldier marked done with NEXT STOP comes back to Tab, previous and NEXT STOP at its
@@ -21951,8 +21947,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			{
 				if (!bu->isIgnored() && (int)bu->getFaction() == newSide)
 					bu->allowReselect();
-				// W2-H50 (docs rewrite/prompts/w2h50_client_spotted_reset.md (e) E1; L-H47-1, F17620-F17633, F17760-F17774):
-				// vanilla's third reset of the same units (BattleUnit::prepareNewTurn, _unitsSpottedThisTurn.clear()). This
+				// Vanilla's third reset of the same units (BattleUnit::prepareNewTurn, _unitsSpottedThisTurn.clear()). This
 				// machine only ever added to the list, so a unit kept "knowing" an enemy it spotted in an earlier turn, and an
 				// alien's path preview (Pathfinding::isBlocked, a hostile mover's known-unit test) detoured around a soldier the
 				// host's alien no longer knows. The selected unit's list is refilled from its own sight when the turn screen
@@ -22040,8 +22035,8 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 				u->coopSetBodyDirection(pu["dir"].asInt());
 
 			// LAST among this unit's perUnit writes (after
-			// `floating`, per E49.1). ABSOLUTE overwrite of the unit's script
-			// values; runs no script and draws no RNG (A2). The host's y-script
+			// `floating`). ABSOLUTE overwrite of the unit's script
+			// values; runs no script and draws no RNG. The host's y-script
 			// turn hooks fire inside SavedBattleGame::endTurn, which this thin
 			// client never runs.
 			if (pu.isMember("scriptTags"))
@@ -22091,10 +22086,10 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			save->coopSetSide((UnitFaction)CoopHandshake::coopWireStringToFaction(p["newSide"].asString()));
 
 		// `cheating?` is carried for host parity and deliberately IGNORED on
-		// the client in v1 (REV E.48 B.3/D58): SavedBattleGame::_cheating has
+		// the client: SavedBattleGame::_cheating has
 		// no setter, is not serialized, and is in no hash bucket.
 
-		// W1-P13b (SS2.W3): this machine's own mirror of the side-phase
+		// This machine's own mirror of the side-phase
 		// counter advances HERE - the client's own "applied" point for this
 		// restate - never from an incoming bt_end_turn_tally (that would
 		// let the apply-queue's own lag stamp a press as current before the
@@ -22105,11 +22100,11 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "side_begin")
 	{
-		// (b): side_begin carries no stats/tile data - state is already right
-		// from side_transition. Step 6's "re-select locally with the seat
-		// filter": only when this machine's seat commands the side that is
+		// side_begin carries no stats/tile data - state is already right
+		// from side_transition. Re-select locally with the seat
+		// filter only when this machine's seat commands the side that is
 		// NOW active (mySideActive) - selectNextPlayerUnit() is already
-		// filtered through coopMaySelectUnit() (W1-P6,
+		// filtered through coopMaySelectUnit() (in
 		// SavedBattleGame::selectPlayerUnit()), so this can never select a
 		// unit the local seat does not command. "Arm input"/"reset per-side
 		// UI" need no code here: every input gate in this file
@@ -22120,8 +22115,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// end of CoopDisplayQueue::onApplied(), same as every other kind.
 		if (coopBattleAuthority().mySideActive(save))
 		{
-			// W2-H41 (docs rewrite/prompts/w2h41_coop_selection_turnstart_mc.md (e) E3; L-H40-1, F15780-F15785; R-LH40-1):
-			// vanilla's side-start selection (SavedBattleGame::endTurn, which this thin client never runs): on X-COM's side keep
+			// Vanilla's side-start selection (SavedBattleGame::endTurn, which this thin client never runs): on X-COM's side keep
 			// the unit held while it is still its own and selectable; else, and on any other side, the first such unit in order.
 			BattleUnit* held = save->getSelectedUnit();
 			if (save->getSide() != FACTION_PLAYER || !held || held->getOriginalFaction() != FACTION_PLAYER
@@ -22130,14 +22124,13 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 				save->setSelectedUnit(0);
 				save->selectNextPlayerUnit();
 			}
-			// W2-H6 H6-1: the new selection gets the action actor
+			// The new selection gets the action actor
 			// and the cursor, as the host's own side start does (BattlescapeGame
 			// endTurn's setupCursor() on the player side).
 			coopClientPairSelection(save);
-			// W2-P6a S-C.2 (P6a pinned stage text (c)2 K9; owner D171 (a)): the camera centres on the new selection.
+			// The camera centres on the new selection.
 			CoopGhost::onSideStart(save, ev);
-			// W2-P6a S-M.2 (P6a pinned stage text (b)4; Q13 / OR6 (a), AMENDMENT P6a-2 F1727; F1219, F1270): the
-			// entry notices clear at this seat's first own-side side_begin.
+			// The entry notices clear at this seat's first own-side side_begin.
 			CoopBattleUi::clearEntryNotices(save);
 		}
 		return;
@@ -22145,19 +22138,18 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "battle_end")
 	{
-		// W2-P7 S-A.2 (spec rewrite/prompts/w2p7_battle_end.md (b)5, AMENDMENT
-		// P7-1 ST1/ST2 (a), F2004): the host's terminal envelope. RECORD + ARM
-		// ONLY: no State op, no RNG, no world write and no phase write (ST1: the
+		// The host's terminal envelope. RECORD + ARM
+		// ONLY: no State op, no RNG, no world write and no phase write (the
 		// phase stays Active so the `h` compare right after this - verify() in
 		// the drain - still runs). The delta applies after it (onApplied). The
 		// terminal flag stops the drain after this ev in every mode; the
 		// teardown latch is armed only in a skirmish (DebriefingState's own
-		// skirmish test, getMonthsPassed() == -1, F1904) and is consumed at the
-		// RB-D5 pump point in updateCoopTask(). Campaign returns are S-C.
+		// skirmish test, getMonthsPassed() == -1) and is consumed at the
+		// pump point in updateCoopTask(). Campaign returns are handled below.
 		const Json::Value& p = ev["payload"];
 		bool skirmish = false;
-		// W2-P7 S-C-A.2 / S-C-B1.2 (AMENDMENT P7-6 section 4.1/4.2 step 4, PR-1): every co-op campaign client leaves the
-		// battle on its own debriefing now - SHARED (campaignShared) and every non-SHARED campaign (SEPARATE, PvP).
+		// Every co-op campaign client leaves the battle on its own debriefing - SHARED (campaignShared) and every
+		// non-SHARED campaign (SEPARATE, PvP).
 		bool campaignShared = false;
 		bool campaignCoop = false;
 		BattlescapeState* bs = save->getBattleState();
@@ -22185,7 +22177,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		Log(LOG_INFO) << "[coop-battle-end] client: battle_end applied seq=" << ev.get("seq", 0u).asUInt()
 			<< " reason=" << p.get("reason", "").asString() << " skirmish=" << skirmish
 			<< (skirmish ? " - teardown latched" : campaignShared ? " - campaign SHARED - teardown latched"
-				: campaignCoop ? " - campaign SEPARATE - teardown latched" : " - terminal, return path unchanged (S-C)");
+				: campaignCoop ? " - campaign SEPARATE - teardown latched" : " - terminal, return path unchanged");
 		return;
 	}
 
@@ -22193,8 +22185,8 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 	{
 		// the host's stage-change envelope, the battle_end applier's shape - RECORD +
 		// ARM ONLY: no State op, no phase write (the `h` compare right after this still runs). The terminal flag stops
-		// the drain after it (an open inventory force-closes with the `battle_end` reason, M2); the stage teardown
-		// latch is consumed at the RB-D5 pump point in updateCoopTask().
+		// the drain after it (an open inventory force-closes with the `battle_end` reason); the stage teardown
+		// latch is consumed at the pump point in updateCoopTask().
 		CoopDelta::stageRecordSet("applied", CoopDelta::stageRecord()["applied"].asInt() + 1);
 		CoopDelta::stageRecordSet("seq", ev.get("seq", 0u).asUInt());
 		CoopDelta::stageRecordSet("latchedMs", SDL_GetTicks());
@@ -22207,7 +22199,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "fatal_vote")
 	{
-		// W2-P7 S-V-A.2 (design 2.3 "Apply rule", F3236): the fatal-wounds vote's open / close - RECORD + LATCH
+		// The fatal-wounds vote's open / close - RECORD + LATCH
 		// ONLY, no State op (the battle_end precedent above); the pump shows or closes the question.
 		coopFatalVoteApplied(ev);
 		return;
@@ -22218,7 +22210,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// the host's context-less-chain carrier. Empty
 		// payload; its WHOLE state effect is the envelope's `delta`, written by
 		// applyDelta() right after this returns (CoopDisplayQueue::onApplied).
-		// A known kind, deliberately not an RW-UNSUPPORTED warning.
+		// A known kind, deliberately not an UNSUPPORTED warning.
 		CoopDelta::noteSyncApplied();
 		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(),
 			ev["payload"]); // `sync` is one of the 16 cue kinds ((b)11/(b)16)
@@ -22232,7 +22224,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 	if (kind == "quiesce")
 	{
 		// coop: the host's context-less chain ended - no state, no h. The held order's release runs
-		// in CoopDisplayQueue::onApplied() after this envelope's delta. A known kind, not an RW-UNSUPPORTED warning.
+		// in CoopDisplayQueue::onApplied() after this envelope's delta. A known kind, not an UNSUPPORTED warning.
 		Log(LOG_INFO) << "[coop-apply] quiesce ev seq " << ev.get("seq", 0u).asUInt() << " applied";
 		return;
 	}
@@ -22243,10 +22235,10 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// melee, psi, death, corpse, prime; the P3/P4 kinds are frozen here too).
 		// Its WHOLE state effect is the envelope's `delta`, written by
 		// applyDelta() right after this returns (CoopDisplayQueue::onApplied);
-		// the payload is display data for W2-P5/P6. Record the probe, nothing
+		// the payload is display data. Record the probe, nothing
 		// else - no RNG, no rules, no BState, no unit write.
 		CoopDelta::noteCue(kind, ev.get("seq", 0u).asUInt(), ev.get("actionId", 0u).asUInt(), ev["payload"]);
-		// W2-P5 S-A.1 (amendment E1 PR-E2): probe only - re-derive this shot's path with vanilla's own
+		// Probe only - re-derive this shot's path with vanilla's own
 		// path function before applyDelta runs (CoopGhost region; writes no battle state, draws no RNG).
 		if (kind == "shot")
 			CoopGhost::probeDeriveShotPath(save, ev);
@@ -22255,12 +22247,11 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind != "turn" && kind != "kneel" && kind != "walk_step" && kind != "spot")
 	{
-		// RB-D32 corollary: an unknown ev kind (inject_ev's own spike test
+		// An unknown ev kind (inject_ev's own test
 		// payloads) is a legal state-no-op - seq is consumed by
 		// the caller (CoopPump::drainApplyQueue()) regardless of what
-		// happens here. (`spot` was that example until W1-P11 made it a real
-		// kind with a real applier below.)
-		Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED ev kind '" << kind << "'";
+		// happens here.
+		Log(LOG_WARNING) << "[coop-apply] UNSUPPORTED ev kind '" << kind << "'";
 		return;
 	}
 
@@ -22281,15 +22272,14 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "spot")
 	{
-		// W1-P11 (SS4 "ATOM spot" / SS2.4's `ev spot`): BOOKKEEPING, and
-		// DELIBERATELY NOT AN FOV WRITE (A5 / prd-r3a: "append ids to the
-		// actor's spotted-this-turn set; no FOV write").
+		// The `ev spot`: BOOKKEEPING, and DELIBERATELY NOT AN FOV WRITE
+		// (append ids to the actor's spotted-this-turn set; no FOV write).
 		//
 		// The ids are appended to `_unitsSpottedThisTurn` DIRECTLY rather than
 		// through BattleUnit::addToVisibleUnits(), which is the vanilla writer
 		// but does two further things this applier must not do: it pushes onto
 		// `_visibleUnits` - machine-local presentation the client computes for
-		// itself from its OWN calculateUnitsInFOV (untouched by SS2.4a, unlike
+		// itself from its OWN calculateUnitsInFOV (untouched by the client fog rule, unlike
 		// the tile half) and which drives the HUD's visible-unit buttons - and
 		// its callers set BattleUnit::_visible, a SERIALIZED field. Writing
 		// either here would be a client mint of visibility state.
@@ -22304,21 +22294,21 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// click.
 		//
 		// MEASURED REDUNDANCY, recorded so the next reader does not have to
-		// re-derive it (W1-P11 found it with a control build, not by argument).
-		// On the WALK path this apply is BELT to A5's BRACES rather than the sole
+		// re-derive it (found with a control build, not by argument).
+		// On the WALK path this apply is BELT to onApplied()'s BRACES rather than the sole
 		// writer: CoopDisplayQueue::onApplied() runs
 		// `getTileEngine()->calculateFOV(unit)` for EVERY bt_ev carrying a `unit`
-		// payload field, and SS2.4a suppresses only the TILE half of a client's
+		// payload field, and the client fog rule suppresses only the TILE half of a client's
 		// FOV - `calculateUnitsInFOV` is untouched and writes
 		// _unitsSpottedThisTurn locally. With this push_back compiled out,
-		// repro_atom_spot.py still passed. It is KEPT because it is prd-r3a's
-		// specified shape and because HOST TRUTH is strictly safer than a
-		// client-side derivation that SS2.4a permits but does not guarantee to
+		// repro_atom_spot.py still passed. It is KEPT because it is the
+		// designed shape and because HOST TRUTH is strictly safer than a
+		// client-side derivation that the client fog rule permits but does not guarantee to
 		// agree; it is idempotent (the de-dup below) and hash-neutral, so keeping
 		// it costs nothing. What it must NEVER become is the thing a test claims
 		// to prove - repro_atom_spot's docstring says so in as many words.
 		//
-		// An id that does not resolve is LOGGED and left standing (SS2.8's
+		// An id that does not resolve is LOGGED and left standing (the
 		// no-partial-repair rule), never guessed at.
 		const Json::Value& seen = payload["seen"];
 		std::vector<BattleUnit*>& spotted = unit->getUnitsSpottedThisTurn();
@@ -22354,7 +22344,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 
 	if (kind == "walk_step")
 	{
-		// W1-P9 (SS2.W2 / WV-D30): ONE executed step of a host-authored walk.
+		// ONE executed step of a host-authored walk.
 		//
 		// THE APPLY IS VANILLA'S OWN STATE TRANSITION, DRIVEN BY WIRE DATA -
 		// `BattleUnit::startWalking(dir, to, save)` followed by two
@@ -22376,7 +22366,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		//     g_coopPendingChainKind);
 		//   * `floating` / `_haveNoFloorBelow`, recomputed by setTile();
 		//   * `motionPoints`, which keepWalking() adds at step completion and
-		//     which is inside the HASHED unitsStats bucket (SS2.8) - a hand-
+		//     which is inside the HASHED unitsStats bucket - a hand-
 		//     written applier would red the per-step hash on step one.
 		const Position from = CoopArbiter::coopJsonPos(payload["from"]);
 		const Position to = CoopArbiter::coopJsonPos(payload["to"]);
@@ -22385,7 +22375,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		if (unit->getPosition() != from)
 		{
 			// Not repaired: the hash verify that runs immediately after this
-			// apply is what must report a divergence (SS2.8 - no partial
+			// apply is what must report a divergence (no partial
 			// repair), and silently correcting the position here would HIDE it.
 			Log(LOG_WARNING) << "[coop-apply] walk_step for unit " << unit->getId()
 				<< " starts at " << from << " but this machine has it at "
@@ -22427,7 +22417,7 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 			unit->setPosition(to, /*updateLastPos=*/false);
 		}
 
-		// RW-FIX-TURRET, extended to the walk atom. startWalking() writes the
+		// The turret rule, extended to the walk atom. startWalking() writes the
 		// BODY facing only, which is right for a turret-less soldier (the host's
 		// own `_directionTurret` is untouched by a body turn there). A TURRETED
 		// unit is different: the host's pre-step `lookAt(dir)` + `turn()` moves
@@ -22435,11 +22425,11 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 		// (BattleUnit.cpp's `if (_turretType > -1)` guards inside turn()), so the
 		// net turret change is the same modular delta as the body's. Serialized
 		// (BattleUnit.cpp:717) and inside saveBlob, so it must be reproduced -
-		// this is the same divergence class RW-FIX-TURRET RCA'd for turn.
+		// this is the same divergence class setBodyDirectionKeepTurret() closes for turn.
 		if (dir >= 0 && dir < Pathfinding::DIR_UP && unit->getTurretType() > -1)
 			unit->setTurretDirection(((turretBefore + dir - dirBefore) % 8 + 8) % 8);
 
-		// The ABSOLUTE post-step values (SS2.W2's `tuAfter`/`enAfter`). Absolute
+		// The ABSOLUTE post-step values (`tuAfter`/`enAfter`). Absolute
 		// rather than deltas is also what makes a walk that began KNEELED
 		// converge: the stand-up's TU/energy cost is already inside them.
 		if (payload.isMember("tuAfter"))
@@ -22478,25 +22468,23 @@ void applyEvPayload(SavedBattleGame* save, const Json::Value& ev)
 	{
 		if (payload.isMember("door"))
 		{
-			// W1-P10 RETIRES this fallback FOR THE DOOR PATH (SS4's own
-			// acceptance). SS2.4's `door` field on the turn ev described a
-			// terrain change the spike client could not apply, so it was
-			// correctly treated as a divergence. Since this packet, the
-			// right-click door path emits its own `ev door` from inside
-			// coopUnitOpensDoor() (UnitTurnBState.cpp:86) and the terrain is
-			// APPLIED in-stream - so the host still never sets this field
-			// (connectionTCP.cpp's coopOnUnitTurnFinished comment) and this
-			// branch is now a TRIPWIRE, kept and counted rather than deleted:
-			// repro_atom_door asserts the counter at ZERO while the door
-			// really did open on both machines, which is what makes the
-			// retirement a proof instead of a removal.
+			// The door path does not use this fallback. A `door` field on the
+			// turn ev would describe a terrain change this client does not
+			// apply, so it is treated as a divergence. The right-click door path
+			// emits its own `ev door` from inside coopUnitOpensDoor()
+			// (UnitTurnBState.cpp:86) and the terrain is APPLIED in-stream - so
+			// the host never sets this field (connectionTCP.cpp's
+			// coopOnUnitTurnFinished comment) and this branch is a TRIPWIRE, kept
+			// and counted rather than deleted: repro_atom_door asserts the
+			// counter at ZERO while the door really did open on both machines,
+			// which is what makes the retirement a proof instead of a removal.
 			g_coopDoorInTurnUnsupported.fetch_add(1);
-			Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED door-in-turn (unit "
-				<< unit->getId() << ") - not applied; W1-P10 retired this path, so "
+			Log(LOG_WARNING) << "[coop-apply] UNSUPPORTED door-in-turn (unit "
+				<< unit->getId() << ") - not applied; this path is retired, so "
 				"reaching it means a peer emitted the RETIRED shape";
 		}
 
-		// RW-FIX-TURRET: body first (never dragging the turret along - see
+		// Body first (never dragging the turret along - see
 		// setBodyDirectionKeepTurret() above), then the turret EXCLUSIVELY
 		// from the ev's own explicit turret field. A turretOnly turn writes
 		// no body facing at all (the body did not move on the host either).
@@ -22527,9 +22515,9 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 		return;
 
 	// "pos" is intentionally never read here - turn/kneel never move a unit;
-	// syncing position is the walk atom's job, not this packet's (see
+	// syncing position is the walk atom's job, not this applier's (see
 	// CoopApply.h's own doc comment).
-	// RW-FIX-TURRET: SS2.4's `final` is {pos, dir, tu, energy, kneeled} - it
+	// The `final` is {pos, dir, tu, energy, kneeled} - it
 	// carries NO turret field (buildFinal(), connectionTCP.cpp), so the
 	// turret established by this action's preceding bt_ev (turretTo) is
 	// authoritative and MUST survive this restate. Applying "dir" with plain
@@ -22549,14 +22537,13 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 	}
 }
 
-// W2-P2 S-A, commit S-A.2 (spec rewrite/prompts/w2p2_delta_core.md (b)6): the
-// DELTA applier. Writes the host's absolute values with plain setters only - no
+// The DELTA applier. Writes the host's absolute values with plain setters only - no
 // RNG, no rules evaluation, no BState, no script. Called from
-// CoopDisplayQueue::onApplied() after every wave-1 applier (V9) - on the bt_ev
+// CoopDisplayQueue::onApplied() after every per-kind applier - on the bt_ev
 // path right after applyEvPayload(), on the bt_action_end path right before
 // CoopArbiter::onActionEndApplied() - so it runs before the auto-retry reads
-// local TU and before CoopHashCheck::verify(). Stage S-A applies battle, tiles,
-// nodes and units; stage S-B (commit S-B.2) adds items: removals, the ONE
+// local TU and before CoopHashCheck::verify(). It applies battle, tiles,
+// nodes, units and items: item removals, the ONE
 // sanctioned client mint (an itemsAdded record materialized with the host's
 // id through BattleItem::load, inside this MINT-WHITELIST region), their
 // ammo links, then every items[] entry (ammo links first, then fields). An id
@@ -22564,11 +22551,11 @@ void applyActionEndFinal(BattleUnit* unit, const Json::Value& final)
 // never guessed. The HUD refresh (coopRefreshAppliedHud) is onApplied()'s own
 // last act on both paths.
 //
-// W2-P2 S-L.2 (amendment A4.3 rule L-a, A4.4; owner M6 ruling 2026-09-24): the
+// The
 // light recompute in step (8) mirrors vanilla's scope - local calls shaped from
 // what the delta changed, the whole map only at a side transition.
 
-/// One client light recompute (S-L.2), timed and recorded through the S-L.1
+/// One client light recompute , timed and recorded through the
 /// probe (CoopDelta::noteClientLight: local vs whole, layer/pos/radius/terrain/us).
 static void coopClientLight(TileEngine* te, const Json::Value& ev, LightLayers layer, Position pos, int radius,
 	bool terrain)
@@ -22633,7 +22620,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!save)
 		return;
-	// S-L.2 (A4.3 L-a rule 4, A4.4): a side_transition is the client's ONE
+	// A side_transition is the client's ONE
 	// whole-map light pass (vanilla endTurn's own LL_FIRE call, which the host
 	// makes right after emitting it) and nothing else - also when the envelope
 	// carries no delta, so this sits before the delta-less early return.
@@ -22651,9 +22638,9 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 	int unresolved = 0;
 	std::vector<BattleUnit*> fovUnits;
 
-	// S-L.2 (A4.3 L-a rules 2-3): the PRE-apply state step (8) needs, read
+	// The PRE-apply state step (8) needs, read
 	// before (4)-(7) write it. Units: every entry that changes pos, onTile,
-	// status, fire or faction, with its position now (for a walk_step the wave-1
+	// status, fire or faction, with its position now (for a walk_step the walk_step
 	// applier already moved the unit, so this is the post-step position).
 	// Items: the tile of a light-giving item the delta removes from a tile; for
 	// an item the delta moves (items[] tile/owner, or an itemsAdded id that
@@ -22705,9 +22692,9 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			for (Json::ArrayIndex k = 0; k < arr.size(); ++k)
 			{
 				const int id = arr[k].get("id", -1).asInt();
-				// W2-H35c ((e) G6): a fuse change counts as a move here. A flare that glows only while primed starts or stops
+				// A fuse change counts as a move here. A flare that glows only while primed starts or stops
 				// giving light where it is (BattlescapeGame :1148-:1149 / :1164-:1165 and the host's prime intent: light at
-				// the holder, then sight with the item's range), so step (8c) relights it and E5 re-runs the sight.
+				// the holder, then sight with the item's range), so step (8c) relights it and coopClientEventSight() re-runs the sight.
 				// fuseEnabled rides every fuse change (fuse then fuseEnabled); an item that gives no light before or after
 				// the apply adds no light call.
 				if ((arr[k].isMember("tile") || arr[k].isMember("owner") || arr[k].isMember("fuseEnabled"))
@@ -22926,8 +22913,8 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 	// unit (the rules constructor with the record's type/armor/originalFaction,
 	// the HOST's id, then BattleUnit::load; its AIModule on the same condition),
 	// pass 2's previousOwner link and resetUnitTiles' tile link. Never
-	// setSpecialWeapon() (pass 2 can mint through createItemForUnitSpecialBuiltin,
-	// F537): the special weapons arrive as itemsAdded entries (MJ-5). No
+	// setSpecialWeapon() (pass 2 can mint through createItemForUnitSpecialBuiltin):
+	// the special weapons arrive as itemsAdded entries. No
 	// initUnit/createTempUnit, no script callback, no RNG (the rules constructor
 	// draws RNG::seedless only).
 	if (d.isMember("unitsAdded"))
@@ -22995,7 +22982,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 					unit->setTile(save->getTile(unit->getPosition()), save);
 				save->getUnits()->push_back(unit); // the host appended it too: _units order agrees
 				CoopIdMaps::registerUnit(unit);
-				fovUnits.push_back(unit); // (8): its FOV refresh; RQ10: no light call of its own
+				fovUnits.push_back(unit); // (8): its FOV refresh; no light call of its own
 				++fields;
 				Log(LOG_INFO) << "[coop-delta] seq " << seq << ": materialized unit " << id << " (" << type
 					<< ", faction " << (int)faction << ") with the host's id";
@@ -23198,8 +23185,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				u->coopSetScriptValuesRaw(tagsFromJson(ue["tags"]));
 				++fields;
 			}
-			// W2-P8 S-R.2 (AMENDMENT P8-4 section 4.3; the draft section 2.3 (5), R-M3; owner D167 = c): the
-			// host's names - the unit's own stored name as shipped (the statstring already in it) and, when the
+			// The host's names - the unit's own stored name as shipped (the statstring already in it) and, when the
 			// unit links a geoscape Soldier, that Soldier's raw name. The only client-side name write.
 			if (ue.isMember("name"))
 			{
@@ -23213,7 +23199,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				++fields;
 			}
 			// the host's seat tag - a gift, the one mid-battle
-			// seat write after a unit's first record. Recorded for coopGiftPump(); never a State op here (RB-D5).
+			// seat write after a unit's first record. Recorded for coopGiftPump(); never a State op here.
 			if (ue.isMember("seat"))
 			{
 				const int was = (int)u->getCoopSeat();
@@ -23226,7 +23212,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 		}
 	}
 
-	// ----- (5)-(7) items (stage S-B, spec (b)6-8) -----
+	// ----- (5)-(7) items -----
 	const Mod* mod = save->getMod();
 	std::vector<BattleItem*>* saveItems = save->getItems();
 	// A unit link: -1 = none (always resolves), otherwise the id map.
@@ -23239,7 +23225,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 		return out != nullptr;
 	};
 
-	// (5) itemsRemoved (spec (b)8): the host's removal primitive, then forget
+	// (5) itemsRemoved: the host's removal primitive, then forget
 	// the id. removeItem() also purges the item's ammo; the host lists that
 	// ammo id too, and the second call is a harmless no-op.
 	if (d.isMember("itemsRemoved"))
@@ -23272,7 +23258,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 		}
 	}
 
-	// (6a) itemsAdded (spec (b)7): the one sanctioned client mint. The host's
+	// (6a) itemsAdded: the one sanctioned client mint. The host's
 	// BattleItem::save() record is read back through SavedBattleGame::load()'s
 	// own pass 1/pass 2 steps for one item, with the HOST's id (the counter is
 	// not touched - battle.itemIdCtr sets it). An id that already exists here
@@ -23385,8 +23371,8 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				if (owner)
 				{
 					item->setOwner(owner);
-					// An owned item with no inventory slot = a special weapon (MJ-5):
-					// W2-P3 S-C.2 (spec (b)11) links it to its owner's special-weapon
+					// An owned item with no inventory slot = a special weapon:
+					// link it to its owner's special-weapon
 					// slot exactly as load pass 1 does (SavedBattleGame.cpp :344-:348),
 					// never through setSpecialWeapon().
 					if (item->isSpecialWeapon())
@@ -23694,22 +23680,22 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 	}
 
 	// (8) display refresh - machine-local presentation, in no hash bucket: the
-	// light recompute (S-L.2, below), then a targeted FOV refresh per non-out
-	// unit whose position or status changed (the A5 precedent; the client's
-	// tile half stays suppressed, SS2.4a). FOV reads light, so light goes first.
+	// light recompute (below), then a targeted FOV refresh per non-out
+	// unit whose position or status changed (as onApplied() does for an ev's unit; the client's
+	// tile half stays suppressed). FOV reads light, so light goes first.
 	TileEngine* tileEngine = save->getTileEngine();
 	if (tileEngine)
 	{
 		if (sideTransition)
 		{
-			// A4.4: ONE whole-map pass, nothing else (vanilla endTurn's call).
+			// ONE whole-map pass, nothing else (vanilla endTurn's call).
 			coopClientLight(tileEngine, ev, LL_FIRE, TileEngine::invalid, 0, true);
 		}
 		else
 		{
-			// A4.3 L-a: vanilla-shaped local calls, one per cause class, in
+			// Vanilla-shaped local calls, one per cause class, in
 			// vanilla's order (terrain, units, items), no cross-class merging.
-			// Every call goes through coopClientLight (the S-L.1 probe).
+			// Every call goes through coopClientLight (the light probe).
 			//
 			// (8a) tiles: every entry that changed parts, fire, smoke or UFO-door
 			// bits (explosive/explosiveType alone change no light). ONE call over
@@ -23741,9 +23727,9 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			{
 				const std::pair<Position, int> box = coopLightBox(litTiles);
 				coopClientLight(tileEngine, ev, partsChanged ? LL_AMBIENT : LL_FIRE, box.first, box.second + 1, true);
-				// W2-H35b ((e) E7): vanilla refreshes sight right after a tile change's light (TileEngine::hit :3330-:3336: the
+				// Vanilla refreshes sight right after a tile change's light (TileEngine::hit :3330-:3336: the
 				// tile, radius 1, exact for one tile; TileEngine::explode :3552-:3553: the blast's centre and radius + 1, for which
-				// the box of its changed tiles + 1 stands in, QB-1). Unit half only (E1).
+				// the box of its changed tiles + 1 stands in). Unit half only (coopClientEventSight()).
 				coopClientEventSight(save, box.first, box.second + 1);
 			}
 
@@ -23786,13 +23772,13 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 				}
 				const std::pair<Position, int> box = coopLightBox(ps);
 				coopClientLight(tileEngine, ev, LL_UNITS, box.first, box.second + 2, false);
-				coopClientEventSight(save, box.first, box.second + 2); // W2-H35b E6: the sight after the merged light
+				coopClientEventSight(save, box.first, box.second + 2); // the sight after the merged light
 			}
 			else
 			{
-				// W2-H35b ((e) E6): vanilla refreshes sight right after each of these lights, same place and radius:
+				// Vanilla refreshes sight right after each of these lights, same place and radius:
 				// UnitDieBState :209-:210 (a unit going down, its armour size), UnitWalkBState :249-:250 and UnitFallBState
-				// :157-:158 (a unit that moved, radius 2). Unit half only (E1). The far-old light has no vanilla sight twin.
+				// :157-:158 (a unit that moved, radius 2). Unit half only (coopClientEventSight()). The far-old light has no vanilla sight twin.
 				for (const LitUnit& lu : litUnits)
 				{
 					if (lu.down)
@@ -23829,10 +23815,10 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 			{
 				const std::pair<Position, int> box = coopLightBox(lightItemPos);
 				coopClientLight(tileEngine, ev, LL_ITEMS, box.first, box.second, false);
-				// W2-H35b ((e) E5): vanilla refreshes sight right after an item light change, around each place the light moved
+				// Vanilla refreshes sight right after an item light change, around each place the light moved
 				// from or to, with the item's own range (BattleItem::getVisibilityUpdateRange: a flare's glow range, else 1):
 				// TileEngine::itemDrop :5213-:5214, ProjectileFlyBState :489-:490 (the throw), BattlescapeGame :2992-:2993 (a
-				// pick-up), :2769-:2770 (a spawned item). Unit half only (E1).
+				// pick-up), :2769-:2770 (a spawned item). Unit half only (coopClientEventSight()).
 				int sightRange = 1;
 				for (const std::pair<int, bool>& m : lightItemMoved)
 				{
@@ -23865,7 +23851,7 @@ void applyDelta(SavedBattleGame* save, const Json::Value& ev)
 } // namespace CoopApply
 // MINT-WHITELIST-END
 
-// W2-P6a S-M.2 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (a); OR3 (a)): the relation to
+// The relation to
 // this machine of the unit a battle MESSAGE is about, by the unit's seat tag (a mind-controlled soldier stays its
 // owner's): "own" = this machine's seat; "partner" = another valid seat whose faction is this seat's faction;
 // "other" = everything else (aliens, civilians, units with no seat, a PvP opponent's soldiers). Read-only. File scope,
@@ -23886,7 +23872,7 @@ static const char* coopUnitRelation(const BattleUnit* u)
 	return "other";
 }
 
-// W2-P6a S-C.2 (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (a), (c); OR3 (a); owner D131): the
+// The
 // relation to this machine of the unit that ACTS, for the camera - by who commands it (commandsUnit: a mind-controlled
 // alien acting for this seat is "own"): "own" = this machine's seat commands it; "partner" = another valid seat whose
 // faction is this seat's faction commands it; "other" = everything else (aliens, civilians, units no seat commands, a
@@ -23909,9 +23895,9 @@ static const char* coopActorRelation(const BattleUnit* u)
 }
 
 // REPLAY-REGION-BEGIN
-// W1-P12 (D-3/WV-D27/WV-D49/A4): the S3 ghost stepper's implementation body.
+// The ghost stepper's implementation body.
 // Declarations + CoopUnitDrawView + the full design doc comment live in
-// CoopGhost.h (WV-D20: no new .cpp); this is the storage + the bodies, next
+// CoopGhost.h (no new .cpp); this is the storage + the bodies, next
 // to CoopApply/CoopDisplayQueue - the established home for this scaffolding.
 // Every line from here to the matching END is display-only, enforced by
 // tools/ci/lint_no_replay_mutation.py: it never calls any state-mutating
@@ -23935,7 +23921,7 @@ CoopUnitDrawView CoopUnitDrawView::fromUnit(const BattleUnit* u)
 	v.walkPhase = u->getWalkingPhase() + u->getDiagonalWalkingPhase();
 	v.verticalDirection = u->getVerticalDirection();
 	v.status = (int)u->getStatus();
-	v.fallPhase = u->getFallingPhase(); // W2-P6b S-D.2 (section 8 D-b): the collapse frame
+	v.fallPhase = u->getFallingPhase(); // the collapse frame
 	v.kneeled = u->isKneeled();
 	v.ghostTrailing = false;
 	return v;
@@ -23947,12 +23933,12 @@ namespace CoopGhost
 namespace
 {
 
-// W1-P12 (6e) + SPEC 17 D111: walk/turn pacing is now PER-SEAT,
+// Walk/turn pacing is PER-SEAT,
 // derived at enqueue from the acting unit's owning seat's speed dial (or
 // the floor when unowned) via CoopSpeed::speedFor() below - never a
 // wall-clock constant. Frame counts per step (8 straight/vertical, 16
 // diagonal; 1 per turn octant, along the SHORTER modular arc, ties ->
-// clockwise) are vanilla's own, unchanged - only the per-frame pace is now
+// clockwise) are vanilla's own, unchanged - only the per-frame pace is
 // per-seat. kneel is the one exception: hold the OLD kneeled value for a
 // FIXED 100ms, then flip once - a kneel has no intermediate state, the
 // animation IS the delay.
@@ -23983,7 +23969,7 @@ struct GhostReplay
 	std::uint32_t durationMs = 0;
 	int frames = 0;
 	int seat = -1;
-	// W2-P5 S-T.1 (amendment E3 section E3.6, E3.1 section 4 H0/H6, OR4 (a); probe only, no behaviour
+	// Probe only, no behaviour
 	// change): the ev's actionId; for a `turn` ghost the directions its view drew as advance() stepped it
 	// (dirsShown, the final facing never appended), the view's status at the first such advance (poseShown,
 	// -1 before one) and the advance() gap record (lastAdvanceMs starts at startedAtMs). Read by the
@@ -24002,7 +23988,7 @@ std::map<int, GhostReplay> g_coopGhosts;
 std::atomic<unsigned int> g_ghostEnqueued{0};
 std::atomic<unsigned int> g_ghostCompleted{0};
 
-/// SPEC 17 M4: the last ghost THIS machine enqueued this battle -
+/// The last ghost THIS machine enqueued this battle -
 /// event_state's ghostLast probe (CoopGhost::lastGhost() below). Default-
 /// empty kind ("") before the first ghost; cleared by reset() alongside the
 /// counters above.
@@ -24015,22 +24001,20 @@ struct GhostLast
 };
 GhostLast g_ghostLast;
 
-/// W2-P5 S-A.1 (spec rewrite/prompts/w2p5_display_ghosts.md (b)11, amendment E1 PR-E2/PR-E5/OQ4 = (a)):
-/// the combat-ghost probe storage (event_state `combatGhost` / `derivedPaths`), kept apart from the
-/// SPEC 7 queue and counters above. MAIN-THREAD ONLY: reset() only bumps g_coopCombatGen and
-/// combatSync() clears this storage on its next main-thread use. The S-A.2 combat ghosts below write
-/// the counters and the ring; `derived` is PR-E2's probe ring.
+/// The combat-ghost probe storage (event_state `combatGhost` / `derivedPaths`), kept apart from the
+/// ghost stepper's queue and counters above. MAIN-THREAD ONLY: reset() only bumps g_coopCombatGen and
+/// combatSync() clears this storage on its next main-thread use. The combat ghosts below write
+/// the counters and the ring; `derived` is the client path re-derivation ring.
 struct CombatKinds
 {
 	int shot = 0;
 	int hit = 0;
 	int explosion = 0;
-	// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9; review F1743, OR5 (a)): the melee and psi
-	// ghosts' own slots, so they never count as `shot`. Probe storage only at S-E.1 (S-E.2's ghosts write them).
+	// The melee and psi ghosts' own slots, so they never count as `shot`. Written by those ghosts.
 	int melee = 0;
 	int psi = 0;
 };
-/// W2-P5 S-T.1 (amendment E3 section E3.6): how SPEC 7 `turn` ghosts were enqueued and ended this battle
+/// How the ghost stepper's `turn` ghosts were enqueued and ended this battle
 /// (event_state `turnGhost.counts`).
 struct TurnGhostCounts
 {
@@ -24057,7 +24041,7 @@ struct EffectSoundProbe
 	int count = 0;
 	std::deque<Json::Value> ring;
 };
-/// W2-P6b S-E.1 (section 9, Q10 (a) as pinned by OR2 (a)): how fall ghosts were enqueued and ended this battle
+/// How fall ghosts were enqueued and ended this battle
 /// (event_state `displayTwo.effects.fall`).
 struct FallGhostCounts
 {
@@ -24065,11 +24049,10 @@ struct FallGhostCounts
 	int completed = 0;
 	int cut = 0;
 };
-/// W2-P6a S-C.1 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c); AMENDMENTS P6-5 section 4
-/// and P6-6 section 5; owner D131): the HOST's camera-guard suppression counters (event_state
+/// The HOST's camera-guard suppression counters (event_state
 /// `camera.suppressed`), one per guarded vanilla camera write - the projectile follow (ProjectileFlyBState), the
-/// explosion centre and the hit view level (ExplosionBState, ST1), the walker view level (UnitWalkBState) and the
-/// panic centre (BattlescapeGame). Probe storage only at S-C.1: nothing writes them (S-C.2's host guards do).
+/// explosion centre and the hit view level (ExplosionBState), the walker view level (UnitWalkBState) and the
+/// panic centre (BattlescapeGame). Written by the host guards.
 struct CameraSuppressedCounts
 {
 	int follow = 0;
@@ -24089,18 +24072,18 @@ struct CombatProbeStore
 	int unresolved = 0;
 	int noMap = 0;
 	std::deque<Json::Value> ring;    // the last kCombatRingCap combat ghost records
-	std::deque<Json::Value> derived; // PR-E2: the last kCombatRingCap client path re-derivations
-	std::uint64_t pushed = 0;        // S-A.2: ring records pushed this battle (a ghost finds its own by ordinal)
-	// W2-P5 S-T.1 (E3 section E3.6; E3.1 OR5 (a)): the turn-end ring (the last kCombatRingCap records) and its
+	std::deque<Json::Value> derived; // the last kCombatRingCap client path re-derivations
+	std::uint64_t pushed = 0;        // ring records pushed this battle (a ghost finds its own by ordinal)
+	// The turn-end ring (the last kCombatRingCap records) and its
 	// counters, and the battle-scoped order stamp - a turn record's endStamp and a shot record's startStamp
 	// take the next value. Cleared with the rest of this storage by combatSync() only (never by reset()).
 	TurnGhostCounts turn;
 	std::deque<Json::Value> turnRing;
 	std::uint32_t stamp = 0;
-	// W2-P6b S-D.1 (section 8 S-D.1, D-c; AMENDMENT P6b-1): the death-ghost probe storage (event_state
+	// The death-ghost probe storage (event_state
 	// `displayTwo.death`): its counters, the current queue depth and the last kCombatRingCap death records. Kept
-	// apart from g_coopGhosts, g_combatGhosts and the SPEC 7 counters. Probe storage only at S-D.1:
-	// nothing writes it yet (S-D.2's death ghosts do). Cleared with the rest of this storage by combatSync() only.
+	// apart from g_coopGhosts, g_combatGhosts and the ghost stepper's counters. Written by the death ghosts.
+	// Cleared with the rest of this storage by combatSync() only.
 	DeathGhostCounts death;
 	int deathQueued = 0;
 	std::uint64_t deathPushed = 0;   // death records pushed this battle (a ghost finds its own)
@@ -24109,10 +24092,10 @@ struct CombatProbeStore
 	// medikit / prime / panic sound records, the fall ghosts' counters and records, and `fallSeen`: the client's
 	// top state at each applied `fall` and at every applied ev after it up to and including the first one that
 	// carries a delta, with the advance() runs in between (fallAdvances counts advance() on a coop client; an
-	// open fall window remembers its count at the fall's apply). Probe storage only at S-E.1: only `fallSeen`
-	// is written (by fallSeenProbe() below); S-E.2's effects write the rest. Cleared with the rest of this
+	// open fall window remembers its count at the fall's apply). `fallSeen`
+	// is written by fallSeenProbe() below; the effects write the rest. Cleared with the rest of this
 	// storage by combatSync() only. a `fall` ev's own `fallSeen`
-	// record adds unitAtFrom, fromNoFloor and belowExists (T0E6-1); fallRing's records gain S-E6.2's fields.
+	// record adds unitAtFrom, fromNoFloor and belowExists; fallRing's records gain further fields.
 	EffectSoundProbe medikit;
 	EffectSoundProbe prime;
 	EffectSoundProbe panic;
@@ -24125,10 +24108,10 @@ struct CombatProbeStore
 	std::uint32_t fallSeenSeq = 0;
 	std::uint32_t fallSeenAtMs = 0;
 	std::uint64_t fallSeenAtAdvances = 0;
-	// W2-P6a S-C.1 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5): the camera probe storage
+	// The camera probe storage
 	// (event_state `camera`) - the CLIENT's camera-move records {seq, reason, unit, visible, onScreen, before,
-	// after} (the last kCombatRingCap) and the HOST's guard suppression counters. Probe storage only at S-C.1:
-	// nothing writes it yet (S-C.2's client policy and host guards do). Cleared with the rest of this storage by
+	// after} (the last kCombatRingCap) and the HOST's guard suppression counters. Written by the
+	// client camera policy and the host guards. Cleared with the rest of this storage by
 	// combatSync() only.
 	std::deque<Json::Value> cameraMoves;
 	CameraSuppressedCounts cameraSuppressed;
@@ -24137,9 +24120,8 @@ struct CombatProbeStore
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
 
-/// W2-P6a S-C.2 (spec rewrite/prompts/w2p6_display_two.md P6a pinned stage text (c)2 K2 and "own restore"; owner
-/// D131, D171 (a)): the camera offsets a coop CLIENT keeps to return to - per reaction context whose shot at this
-/// machine's running order was followed, the offset at that context's first followed shot (K2); and the offset
+/// The camera offsets a coop CLIENT keeps to return to - per reaction context whose shot at this
+/// machine's running order was followed, the offset at that context's first followed shot; and the offset
 /// vanilla captured at this client's own fire confirm (cameraPosition, never on the wire). Main thread only; cleared
 /// by combatSync()'s generation branch.
 struct CameraKept
@@ -24156,7 +24138,7 @@ struct CameraStore
 };
 CameraStore g_cameraStore;
 
-/// W2-P6a S-C.2 (P6a pinned stage text (c)2): @a map's camera offset as the probe's {x, y, z} (z = the view level);
+/// @a map's camera offset as the probe's {x, y, z} (z = the view level);
 /// null without a Map.
 Json::Value cameraOffsetJson(Map* map)
 {
@@ -24200,13 +24182,12 @@ Json::Value* cameraMoveRecord(std::uint64_t ordinal)
 	return &g_combatProbe.cameraMoves[(std::size_t)(ordinal - first)];
 }
 
-/// W2-P5 S-A.2 (spec (b)1-6, (b)8-11 for `shot`; amendments E1 OQ3/OQ4/OQ5/PR-E5 and E2): one running
-/// combat ghost on the watching machine. MAIN-THREAD ONLY (OQ4). It owns its display object (the Map owns
-/// none, N32) and keeps ids, its ring record's ordinal and two pointers it only COMPARES: the Map it was
+/// One running combat ghost on the watching machine. MAIN-THREAD ONLY. It owns its display object (the Map owns
+/// none) and keeps ids, its ring record's ordinal and two pointers it only COMPARES: the Map it was
 /// drawn on and a thrown item as resolved at enqueue - never dereferenced once what they name may be gone.
 struct CombatGhost
 {
-	std::string kind;                 // "shot" (S-A), "hit" / "explosion" (S-B), "melee" / "psi"
+	std::string kind;                 // "shot", "hit" / "explosion", "melee" / "psi"
 	std::uint64_t ordinal = 0;        // its ring record (CombatProbeStore::pushed at enqueue)
 	std::uint32_t startedAtMs = 0;
 	std::uint32_t durationMs = 0;     // FIXED AT ENQUEUE, never recomputed
@@ -24216,28 +24197,28 @@ struct CombatGhost
 	int steps = 0;                    // how many distinct projectile indices advance() set
 	Projectile* projectile = nullptr; // owned; on `drawnOn` while the ghost runs
 	const Map* drawnOn = nullptr;     // the live Map at enqueue - compared only
-	bool followBefore = true;         // the Map's follow-projectile flag the ghost switched off (spec (b)6)
-	int thrownItemId = -1;            // a throw: the item the Map draws through Projectile::getItem() (N8)
-	const BattleItem* thrownItem = nullptr; // resolved at enqueue - compared only (spec (b)9)
+	bool followBefore = true;         // the Map's follow-projectile flag the ghost switched off
+	int thrownItemId = -1;            // a throw: the item the Map draws through Projectile::getItem()
+	const BattleItem* thrownItem = nullptr; // resolved at enqueue - compared only
 	Position landingPos;              // a throw: vanilla's ITEM_DROP position (ProjectileFlyBState::think)
-	bool dropSound = false;           // a throw: ITEM_DROP when the ghost ends, natural or cut (spec (b)7)
-	// W2-P5 S-T.1 (E3.1 ST2 (a), section 4 H0; probe only): the advance() gap record while the ghost lives
+	bool dropSound = false;           // a throw: ITEM_DROP when the ghost ends, natural or cut
+	// Probe only: the advance() gap record while the ghost lives
 	// (lastAdvanceMs starts at startedAtMs, maxGapMs lands in the ring record at its end), and the same-action
-	// hold's fields (S-T.3: written by combatStartShot()'s hold, read by combatReleaseHeld() / H3 / H4).
+	// hold's fields (written by combatStartShot()'s hold, read by combatReleaseHeld()).
 	std::uint32_t lastAdvanceMs = 0;
 	std::uint32_t maxGapMs = 0;
 	bool held = false;
 	std::uint32_t afterTurnSeq = 0;
 	std::uint32_t enqueuedAtMs = 0;
-	// W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H1-H4): the pair's keys - the shooter's unit id (its
-	// SPEC 7 turn ghost's key) and the shot's actionId - and the fire / throw sound S-A's rule picked at
-	// enqueue (the ammo may leave with this cue's own delta, N23), played and recorded at release.
+	// The held pair's keys - the shooter's unit id (its turn ghost's key) and the shot's actionId - and the
+	// fire / throw sound picked at enqueue (the ammo may leave with this cue's own delta), played and recorded at
+	// release.
 	int unitId = -1;
 	std::uint32_t actionId = 0;
 	int pendingSound = Mod::NO_SOUND;
 	Position pendingSoundAt;
-	// W2-P5 S-B.2 (spec (b)3/(b)5/(b)9 for `hit` / `explosion`): an impact ghost's vanilla Explosion sprites
-	// (owned; on `drawnOn`'s explosion list until each one's animation ends, N32), the ExplosionBState state
+	// An impact ghost's vanilla Explosion sprites
+	// (owned; on `drawnOn`'s explosion list until each one's animation ends), the ExplosionBState state
 	// interval its sprites animate at and its tick counts (vanilla ExplosionBState::think animates every
 	// sprite once per interval), all fixed at enqueue, and the damage item's rules a joining pellet
 	// falls back to (null for an itemless explosion).
@@ -24246,12 +24227,12 @@ struct CombatGhost
 	std::uint32_t ticksTotal = 0;
 	std::uint32_t ticksDone = 0;
 	const RuleItem* rule = nullptr;
-	// W2-P6b S-E.2 (spec rewrite/prompts/w2p6_display_two.md section 9 E-b): a melee ghost's melee hit sound (vanilla
+	// A melee ghost's melee hit sound (vanilla
 	// ExplosionBState::explode :438-:444), picked at enqueue, played at its tile when the ghost ends, natural or cut
 	// (the ITEM_DROP precedent); Mod::NO_SOUND for every other ghost.
 	int endSound = Mod::NO_SOUND;
 	Position endSoundAt;
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1; OR4 (a), D171 (a)): a shot ghost's camera follow, decided at the
+	// A shot ghost's camera follow, decided at the
 	// cue's apply - the move reason ("follow" | "reaction_follow" | "own_follow"; "" = never followed), the shot's seq,
 	// and once its projectile went on the Map followed, its `camera.moves` record (its `after` is written when the
 	// projectile leaves the Map).
@@ -24262,18 +24243,18 @@ struct CombatGhost
 };
 std::vector<CombatGhost> g_combatGhosts;
 
-/// W2-P6b S-D.2 (spec rewrite/prompts/w2p6_display_two.md section 8 D-c; AMENDMENTS P6b-1, P6b-2, P6b-3): one
+/// One
 /// death ghost on the watching machine - an applied, animated `death` cue drawn as the host's UnitDieBState
 /// draws it (the pirouette to face 3, then the armour's collapse frames) and heard (the death sound), display
 /// only. Ids and values only, never a unit pointer (CoopIdMaps::unit() resolves it fresh). Kept apart from
-/// g_coopGhosts, g_combatGhosts and the SPEC 7 counters; main thread only (P5 OQ4).
+/// g_coopGhosts, g_combatGhosts and the ghost stepper's counters; main thread only.
 struct DeathGhost
 {
 	std::uint32_t seq = 0;
 	std::uint32_t actionId = 0;
 	int unitId = -1;
-	bool front = false;             // the payload's `front`: the host's state stack was empty at the push (ST1)
-	bool dead = true;               // outcome "dead" (a stun plays no death sound, N6)
+	bool front = false;             // the payload's `front`: the host's state stack was empty at the push
+	bool dead = true;               // outcome "dead" (a stun plays no death sound)
 	int fromDir = 0;                // the canonical direction at the apply (read before the delta)
 	int octants = 0;                // D = (3 - fromDir) mod 8, clockwise (UnitDieBState :172-:185)
 	int frames = 0;                 // F = the armour's deathFrames
@@ -24284,7 +24265,7 @@ struct DeathGhost
 	std::uint32_t afterSeq = 0;     // the released head it waited behind (0: none)
 	bool started = false;
 	std::uint32_t startedAtMs = 0;
-	// The schedule in ms from the start, FIXED AT START and never recomputed (D111 spirit; AMENDMENT P6b-2).
+	// The schedule in ms from the start, FIXED AT START and never recomputed.
 	std::uint32_t intervalS = 0;    // Is: the state interval the pirouette steps at
 	std::uint32_t intervalC = 0;    // Ic: the collapse interval
 	std::uint32_t tc = 0;           // startFalling
@@ -24298,29 +24279,28 @@ struct DeathGhost
 	std::vector<int> dirsShown;
 	std::vector<int> phasesShown;
 };
-/// D-c: the host-order death queue (index 0 = the head: started, or the next to start; a ghost leaves the
-/// queue at its release), the released ghosts still drawing their last frame until they end (ST3 (a), the
-/// hold), the host's last state interval as the watcher mirrors it (D-e, D-i) and whether a death ghost set
-/// the live Map's dying flag (K11). Cleared by combatSync()'s generation branch.
+/// The host-order death queue (index 0 = the head: started, or the next to start; a ghost leaves the
+/// queue at its release), the released ghosts still drawing their last frame until they end (the
+/// hold), the host's last state interval as the watcher mirrors it and whether a death ghost set
+/// the live Map's dying flag. Cleared by combatSync()'s generation branch.
 std::vector<DeathGhost> g_deathGhosts;
 std::vector<DeathGhost> g_deathHolding;
 int g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 bool g_deathDyingOn = false;
 /// the TEST-ONLY `death_apply_hold` lever (TestServer battle_action,
 /// sent to the client). While on, an applied `death` first runs ONE deathAdvance() when the queue head is enqueued
-/// but not started, so the head starts before the later death is enqueued (the race order F1798 traced) whether or
+/// but not started, so the head starts before the later death is enqueued whether or
 /// not a client frame ran between the two applies. Off in every game; battle-scoped (cleared by combatSync()'s
 /// generation branch).
 bool g_deathApplyHold = false;
 
-/// W2-P6b S-E6.2 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 5 E-f', owner D173 (b), P6-5
-/// Q2 (b)): one fall ghost on the watching machine - an applied `fall` cue's unit drawn falling one level as the
+/// One fall ghost on the watching machine - an applied `fall` cue's unit drawn falling one level as the
 /// host's UnitFallBState draws it, on two anchors on one clock: the source anchor (the `from` tile: walk phases
 /// 0-3, then a hold) until the unit is canonically below `from`, then the trailing anchor (the landing tile, the
-/// rest of the sweep to phase 7). It starts at the first advance() after its enqueue (D173 (b): a fall applied
+/// rest of the sweep to phase 7). It starts at the first advance() after its enqueue (a fall applied
 /// under the next-turn screen or any other screen waits for it to close). Ids and values only, never a unit
-/// pointer; kept apart from g_coopGhosts, g_combatGhosts, the death queue and the SPEC 7 counters; exempt from
-/// Q1 (b), as death ghosts are; main thread only (P5 OQ4); cleared by combatSync()'s generation branch.
+/// pointer; kept apart from g_coopGhosts, g_combatGhosts, the death queue and the ghost stepper's counters; exempt from
+/// the end-before-the-next-ev rule, as death ghosts are; main thread only; cleared by combatSync()'s generation branch.
 struct FallGhost
 {
 	std::uint32_t seq = 0;
@@ -24342,7 +24322,7 @@ struct FallGhost
 };
 std::vector<FallGhost> g_fallGhosts;
 
-/// The LIVE battle's BattlescapeState, fresh on every call (OQ4: never a stored Map pointer
+/// The LIVE battle's BattlescapeState, fresh on every call (never a stored Map pointer
 /// dereferenced): null with none on the state stack (the client parked in BriefingState, a teardown).
 /// isBattlescapeStateLive() guards the cached state pointer.
 BattlescapeState* combatLiveState()
@@ -24358,7 +24338,7 @@ Map* combatLiveMap()
 	return bs ? bs->getMap() : nullptr;
 }
 
-/// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1): a followed shot ghost's projectile left @a live (its own Map): its
+/// A followed shot ghost's projectile left @a live (its own Map): its
 /// move record's `after` = the camera offset now.
 void cameraFollowEnded(Map* live, const CombatGhost& g)
 {
@@ -24368,7 +24348,7 @@ void cameraFollowEnded(Map* live, const CombatGhost& g)
 		(*r)["after"] = cameraOffsetJson(live);
 }
 
-/// Spec (b)9 / OQ4: takes @a g's projectile off the LIVE Map when that Map is the one it was drawn on and
+/// Takes @a g's projectile off the LIVE Map when that Map is the one it was drawn on and
 /// still shows it (the Map's follow flag restored, the Map redrawn), then deletes it; with no live Map or
 /// another one it only deletes (a ghost whose BattlescapeState died is freed without touching any Map).
 /// Returns the live Map when it is the ghost's own, else null. an impact ghost's remaining
@@ -24410,13 +24390,13 @@ void combatSync()
 	const unsigned int g = g_coopCombatGen.load();
 	if (g_combatProbe.gen != g)
 	{
-		// S-A.2 (OQ4): a reset() since the last main-thread use - every stale ghost leaves the live Map
+		// A reset() since the last main-thread use - every stale ghost leaves the live Map
 		// first and is deleted, then the probe storage starts over.
 		for (CombatGhost& ghost : g_combatGhosts)
 			combatDetach(ghost);
 		g_combatGhosts.clear();
-		// W2-P6b S-D.2 (section 8 D-c, D-S4): the death ghosts go too, after the live Map's dying flag a death
-		// ghost set is restored (only on the live Map, OQ4).
+		// The death ghosts go too, after the live Map's dying flag a death
+		// ghost set is restored (only on the live Map).
 		if (g_deathDyingOn)
 		{
 			if (Map* live = combatLiveMap())
@@ -24427,7 +24407,7 @@ void combatSync()
 		g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 		g_deathDyingOn = false;
 		g_deathApplyHold = false; // the test-only lever is battle-scoped
-		// W2-P6b S-E6.2 (E-f' "reset"): the fall ghosts go too (they hold no Map object; their records go with
+		// The fall ghosts go too (they hold no Map object; their records go with
 		// the probe storage below).
 		g_fallGhosts.clear();
 		g_cameraStore = CameraStore(); // the kept camera offsets are battle-scoped
@@ -24471,7 +24451,7 @@ std::uint32_t paceMsFor(int unitId)
 	return (std::uint32_t)CoopSpeed::speedFor(unit, w);
 }
 
-/// Vanilla's own frame count for one walk step (R1 measured): 8 for a
+/// Vanilla's own frame count for one walk step (measured): 8 for a
 /// straight or vertical (z-change) step, 16 for a diagonal one.
 int framesForStep(const GhostReplay& g)
 {
@@ -24483,8 +24463,8 @@ int framesForStep(const GhostReplay& g)
 
 /// The total wall-clock duration (ms) of @a g's animation: vanilla's own
 /// frame count (turnOctants/framesForStep) times the acting seat's pace
-/// (paceMsFor) - D111, per-seat, never a wall-clock constant. kneel is the
-/// one exception (6e, FIXED 100ms hold).
+/// (paceMsFor) - per-seat, never a wall-clock constant. kneel is the
+/// one exception (a FIXED 100ms hold).
 std::uint32_t ghostDurationMs(const GhostReplay& g)
 {
 	if (g.kind == "kneel")
@@ -24496,11 +24476,11 @@ std::uint32_t ghostDurationMs(const GhostReplay& g)
 
 bool combatClient(); // defined with the combat ghosts below
 
-/// W2-P5 S-T.1 (amendment E3.1 OR4 (a)): the `turn` ghost's drawn pose @a elapsed ms after its start - the
+/// The `turn` ghost's drawn pose @a elapsed ms after its start - the
 /// direction along the SHORTER octant arc (ties clockwise, as vanilla's unit turn() does), one octant per
-/// g.durationMs / octants (fixed at enqueue, D111), and the status its view draws. Shared by view() and
+/// g.durationMs / octants (fixed at enqueue), and the status its view draws. Shared by view() and
 /// advance()'s dirsShown / poseShown probe, so the probe records what view() draws. @a status: in, the
-/// canonical status the caller's view carries; out, the drawn status - W2-P5 S-T.3 (amendment E3 Q5 (a)):
+/// canonical status the caller's view carries; out, the drawn status -
 /// STATUS_TURNING, vanilla's pose while a unit turns (its lookAt), never the aiming pose a held
 /// shot's delta already wrote. Reads only.
 void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int* status)
@@ -24519,14 +24499,14 @@ void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int
 			? (g.fromDir + stepsElapsed) % 8
 			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
 	if (status)
-		*status = (int)STATUS_TURNING; // W2-P5 S-T.3 (E3 Q5 (a), E3.1 OR4 (a)): the turning pose
+		*status = (int)STATUS_TURNING; // the turning pose
 }
 
-/// W2-P5 S-T.1 (amendment E3 section E3.6; E3.1 OR4/OR5; probe only): one turn-end record for a SPEC 7 `turn`
+/// Probe only: one turn-end record for a ghost-stepper `turn`
 /// ghost that ends at @a nowMs - "natural" (advance(), its fixed duration elapsed), "replaced" (the unit's
-/// next ghost, onEvApplied) or "cut" (the shooter's own `shot`, Q1 (b) clause 3) - pushed to the turn ring
+/// next ghost, onEvApplied) or "cut" (the shooter's own `shot`) - pushed to the turn ring
 /// (the last kCombatRingCap) and counted by how it ended; its endStamp takes the next order stamp. A no-op
-/// for walk_step / kneel ghosts and off a coop client. Main thread only (E1 OQ4).
+/// for walk_step / kneel ghosts and off a coop client. Main thread only.
 void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t nowMs)
 {
 	if (g.kind != "turn" || !combatClient())
@@ -24567,17 +24547,16 @@ void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t now
 /// Vanilla's projectile state tick (ProjectileFlyBState setStateInterval(1000/60)).
 const std::uint32_t kCombatTickMs = 16;
 
-/// Coop CLIENT only (spec (b)1): the host simulates and draws with vanilla's own states.
+/// Coop CLIENT only: the host simulates and draws with vanilla's own states.
 bool combatClient()
 {
 	return isCoopBattle() && !coopBattleAuthority().hostSim;
 }
 
-// ----- the client camera policy (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
-// (c)2 K1-K9 as corrected by AMENDMENTS P6-5 section 4 and P6-6 section 5; owner D131, D171 (a); OR4 (a), OR5 (a),
-// Q16 (a)). Every move is a camera write on the live Map - display only - recorded in `camera.moves`. -----
+// ----- the client camera policy. Every move is a camera write on the live Map - display only - recorded in
+// `camera.moves`. -----
 
-/// Q16 (a): a camera write on THIS machine is allowed - a coop client whose ghost option is on.
+/// A camera write on THIS machine is allowed - a coop client whose ghost option is on.
 bool cameraClientOn()
 {
 	return combatClient() && Options::coopGhostStepper;
@@ -24585,7 +24564,7 @@ bool cameraClientOn()
 
 /// The camera term of an ACTING unit: "own" (this seat commands it); "enemy" (an `other` actor
 /// on its own side's turn); "reaction" (an `other` actor off its side's turn while this machine's own admitted order
-/// runs, g_coopClientRunningActionId); "partner" (a partner's unit while coopCameraFollowsPartner(), D249-U); "" for a
+/// runs, g_coopClientRunningActionId); "partner" (a partner's unit while coopCameraFollowsPartner()); "" for a
 /// partner's unit otherwise and for every other case (no camera move). Read at the
 /// cue's apply.
 std::string cameraActorTerm(const SavedBattleGame* save, const BattleUnit* actor)
@@ -24636,10 +24615,10 @@ void cameraRestore(Map* map, std::uint32_t seq, const char* reason, int unitId, 
 	cameraPushMove(seq, reason, unitId, before, cameraOffsetJson(map));
 }
 
-/// K1: the follow flag a shot ghost's projectile goes on @a map with - TRUE when its apply decided a follow
+/// The follow flag a shot ghost's projectile goes on @a map with - TRUE when its apply decided a follow
 /// (camReason) and the option is on now; then the move is recorded (`before` = the offset now, `after` when the
 /// projectile leaves the Map) and, for a reaction at this machine's order, the offset at the context's first
-/// followed shot is kept for K2's restore.
+/// followed shot is kept for the restore at the context's end.
 bool cameraFollowStart(Map* map, CombatGhost& g)
 {
 	if (g.camReason.empty() || !cameraClientOn() || !map)
@@ -24658,9 +24637,9 @@ bool cameraFollowStart(Map* map, CombatGhost& g)
 	return true;
 }
 
-/// K3 / K4 (C-C3): the camera at the start of the display an impact cue starts - `explosion` (power > 0): centre on
-/// its tile when the actor is enemy-turn, a reaction at this machine's order, own, or absent (OR5 (a)); `hit` /
-/// `melee` / `psi`: the view level of the voxel under the same actor rule (hit_level), then - W2-G1 (AUD-A16, owner D171), as
+/// The camera at the start of the display an impact cue starts - `explosion` (power > 0): centre on
+/// its tile when the actor is enemy-turn, a reaction at this machine's order, own, or absent; `hit` /
+/// `melee` / `psi`: the view level of the voxel under the same actor rule (hit_level), then - as
 /// vanilla ExplosionBState (:125, :360) - centre on the unit a melee or psi-amp attack names (a `melee` / `psi` cue, or a `hit`
 /// whose damage item is a psi amp: OXCE's psi-amp use) when the side is HOSTILE and that unit, AFTER the attack, is FACTION_PLAYER
 /// (hit_centre): never on a bullet hit, nor on a successful mind control (vanilla's psiAttack turns the victim first). Read before
@@ -24684,19 +24663,19 @@ void cameraImpact(SavedBattleGame* save, Map* map, const Json::Value& ev, const 
 		cameraLevel(map, seq, "hit_level", actorId, voxel.z / 24);
 	const int hitId = p.get("unit", -1).asInt();
 	const BattleUnit* hitUnit = hitId >= 0 ? CoopIdMaps::unit(hitId) : nullptr;
-	// W2-G1 (AUD-A16): vanilla names a target only for a psi amp or a melee hit (ExplosionBState :122-:125).
+	// Vanilla names a target only for a psi amp or a melee hit (ExplosionBState :122-:125).
 	const RuleItem* hitItem = kind == "hit" && p.isMember("itemType") && p["itemType"].isString()
 		? save->getMod()->getItem(p["itemType"].asString()) : nullptr;
 	const bool named = kind == "melee" || kind == "psi" || (hitItem && hitItem->getBattleType() == BT_PSIAMP);
-	// W2-G1 (AUD-A16): vanilla reads the faction after TileEngine::psiAttack, which turns a mind-controlled victim.
+	// Vanilla reads the faction after TileEngine::psiAttack, which turns a mind-controlled victim.
 	const bool turned = kind == "psi" && p.get("action", "").asString() == "mc" && p.get("success", false).asBool();
 	if (named && !turned && hitUnit && coopSideIsOpponents(save) && coopFactionIsMine((int)hitUnit->getFaction())) // the side this machine plays
 		cameraCentre(map, seq, "hit_centre", hitId, voxel.toTile(), false);
 }
 
-/// K5 / K6 (C-C5): at a `walk_step` ghost's enqueue - an enemy-turn walker: centre on its destination when it is
+/// At a `walk_step` ghost's enqueue - an enemy-turn walker: centre on its destination when it is
 /// visible here and off screen (walker_centre), then the view level of its destination, seen or not (walker_level,
-/// vanilla UnitWalkBState :202/:204); an own walker: the view level only (own_walker_level, D171 (a)); a partner's
+/// vanilla UnitWalkBState :202/:204); an own walker: the view level only (own_walker_level); a partner's
 /// walker: nothing - or, while coopCameraFollowsPartner(), the enemy-turn walker's moves. A walker record carries
 /// its decision inputs `visible` and `onScreen`.
 void cameraWalker(SavedBattleGame* save, const BattleUnit* unit, std::uint32_t seq, const Position& toPos)
@@ -24722,7 +24701,7 @@ void cameraWalker(SavedBattleGame* save, const BattleUnit* unit, std::uint32_t s
 	}
 }
 
-/// K7: at an applied `panic` of an own or other unit that vanilla shows (getVisible() || !noAlienPanicMessages,
+/// At an applied `panic` of an own or other unit that vanilla shows (getVisible() || !noAlienPanicMessages,
 /// BattlescapeGame :1666-:1668): centre on the unit (panic_centre). A partner's unit: nothing, unless
 /// coopCameraFollowsPartner(). Read before the delta.
 void cameraPanic(SavedBattleGame* save, const Json::Value& ev)
@@ -24738,7 +24717,7 @@ void cameraPanic(SavedBattleGame* save, const Json::Value& ev)
 		cameraCentre(map, ev.get("seq", 0u).asUInt(), "panic_centre", unitId, u->getPosition(), true);
 }
 
-/// K2: at the applied `bt_action_end` of a reaction context whose followed shot was kept, the camera returns to that
+/// At the applied `bt_action_end` of a reaction context whose followed shot was kept, the camera returns to that
 /// offset (restore); the kept offset is consumed either way.
 void cameraReactionRestore(const Json::Value& ev)
 {
@@ -24767,7 +24746,7 @@ int& combatKindSlot(CombatKinds& k, const std::string& kind)
 	return k.shot;
 }
 
-/// Pushes one ring record (spec (b)11) and returns its ordinal.
+/// Pushes one ring record and returns its ordinal.
 std::uint64_t combatPushRecord(const Json::Value& r)
 {
 	const std::uint64_t ordinal = g_combatProbe.pushed++;
@@ -24786,7 +24765,7 @@ Json::Value* combatRecord(std::uint64_t ordinal)
 	return &g_combatProbe.ring[(std::size_t)(ordinal - first)];
 }
 
-/// One id from a rule's raw sound list, WITHOUT the sim RNG (F1512: RuleItem's own sound getters pick with
+/// One id from a rule's raw sound list, WITHOUT the sim RNG (RuleItem's own sound getters pick with
 /// the game's generator): none -> Mod::NO_SOUND, one -> that id, several -> RNG::seedless (V4), as vanilla
 /// picks one of them at random.
 int combatPickSound(const std::vector<int>& v)
@@ -24798,7 +24777,7 @@ int combatPickSound(const std::vector<int>& v)
 	return v[(std::size_t)RNG::seedless(0, (int)v.size() - 1)];
 }
 
-/// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5, the F1824 fold of E-b; F3210): a melee sound pick. Vanilla's
+/// A melee sound pick. Vanilla's
 /// getMeleeSound() is the one sound getter whose empty-list default is not -1 (RuleItem.cpp :1224, default 39),
 /// and ExplosionBState's damage-item optValue then keeps that 39 (:305): an empty list -> 39, else
 /// combatPickSound() (the raw list, RNG::seedless, V4).
@@ -24807,7 +24786,7 @@ int combatPickMeleeSound(const std::vector<int>& v)
 	return v.empty() ? 39 : combatPickSound(v);
 }
 
-/// Spec (b)7 (vanilla's own NO_SOUND guard, F1476): plays @a sound on this machine at @a angle, through
+/// Vanilla's own NO_SOUND guard: plays @a sound on this machine at @a angle, through
 /// the depth-aware sound set; a no-op for Mod::NO_SOUND.
 void combatPlay(const SavedBattleGame* save, int sound, int angle)
 {
@@ -24815,7 +24794,7 @@ void combatPlay(const SavedBattleGame* save, int sound, int angle)
 		save->getMod()->getSoundByDepth(save->getDepth(), sound)->play(-1, angle);
 }
 
-/// W2-P6b S-E.1 (spec rewrite/prompts/w2p6_display_two.md section 9 S-E.1 `fall.seen`; T0b-4; probe only): the
+/// Probe only: the
 /// class name of the Game's top state on this machine ("none" without a live BattlescapeState). Read-only.
 std::string effectTopState()
 {
@@ -24828,13 +24807,13 @@ std::string effectTopState()
 	return cut == std::string::npos ? name : name.substr(cut + 1);
 }
 
-/// W2-P6b S-E.1 (section 9 S-E.1 `fall.seen`; TASK 0b row T0b-4, the C10 fall observability; probe only): on a
+/// Probe only (`fall.seen`): on a
 /// coop client, one `fallSeen` record for an applied `fall` and for every applied ev after it up to and including
 /// the first one that carries a delta - {seq, kind, fallSeq, top (the Game's top state at the apply), ms (SDL
 /// ticks), msSinceFall, advances (advance() runs since the fall's apply: advance() runs only while
 /// BattlescapeState is on top with no popup), delta (the ev carries one)}. Called before the ev's own state
 /// applies; a later `fall` opens a new window. Writes the probe storage only.
-/// W2-P6b S-E6.1 (AMENDMENT P6-5 section 5, T0E6-1; probe only): the `fall` ev's own record adds E-f's
+/// Probe only: the `fall` ev's own record adds the fall ghost's
 /// preconditions as this machine reads them at that apply, each true iff it holds for EVERY payload unit (false
 /// for an empty payload): unitAtFrom (the unit resolves and its canonical position == its `from`), fromNoFloor
 /// (the canonical tile at `from` exists and hasNoFloor(save)) and belowExists (a tile at `from` - (0,0,1)).
@@ -24879,7 +24858,7 @@ void fallSeenProbe(const SavedBattleGame* save, const Json::Value& ev, const std
 	r["delta"] = delta;
 	if (isFall)
 	{
-		r["unitAtFrom"] = atFrom; // W2-P6b S-E6.1 (T0E6-1): probe only
+		r["unitAtFrom"] = atFrom; // probe only
 		r["fromNoFloor"] = noFloor;
 		r["belowExists"] = below;
 	}
@@ -24890,10 +24869,10 @@ void fallSeenProbe(const SavedBattleGame* save, const Json::Value& ev, const std
 		g_combatProbe.fallSeenOpen = false;
 }
 
-/// Ends @a g (spec (b)3/(b)7/(b)9/(b)11): its display object leaves the Map and is deleted, a throw plays
+/// Ends @a g: its display object leaves the Map and is deleted, a throw plays
 /// ITEM_DROP at its landing position (natural or cut), its record gets cut/steps/soundEnd, and
-/// completed or cut +1. @a cut: ended before its fixed duration elapsed. W2-P5 S-T.3 (E3.1 section 4 H4,
-/// F1579): a HELD ghost (it never started) always counts cut, plays no ITEM_DROP and keeps its record's
+/// completed or cut +1. @a cut: ended before its fixed duration elapsed.
+/// A HELD ghost (it never started) always counts cut, plays no ITEM_DROP and keeps its record's
 /// sound / soundEnd NO_SOUND and steps 0 - it never went on the Map, so combatDetach() only deletes it.
 void combatEnd(CombatGhost& g, bool cut)
 {
@@ -24908,7 +24887,7 @@ void combatEnd(CombatGhost& g, bool cut)
 		if (r)
 			(*r)["soundEnd"] = Mod::ITEM_DROP;
 	}
-	// W2-P6b S-E.2 (section 9 E-b): a melee ghost's melee hit sound, natural or cut (the ITEM_DROP rule above).
+	// A melee ghost's melee hit sound, natural or cut (the ITEM_DROP rule above).
 	if (g.endSound != Mod::NO_SOUND && map && !neverStarted)
 	{
 		combatPlay(connectionTCP::getStaticBattle(), g.endSound, map->getSoundAngle(g.endSoundAt));
@@ -24926,8 +24905,8 @@ void combatEnd(CombatGhost& g, bool cut)
 		--g_combatProbe.live;
 }
 
-/// Q1 (b): every running combat ghost ends before the next ev's state applies (cut when early). W2-P5 S-B.2
-/// (Q1 (b), amendment E1 OQ1 (a)): a pellet `hit` passes its own non-zero actionId as @a spareActionId - the
+/// Every running combat ghost ends before the next ev's state applies (cut when early).
+/// A pellet `hit` passes its own non-zero actionId as @a spareActionId - the
 /// running hit / explosion ghost of that action keeps running (the pellet joins it); every other ghost ends.
 void combatEndAll(std::uint32_t nowMs, std::uint32_t spareActionId = 0)
 {
@@ -24944,10 +24923,10 @@ void combatEndAll(std::uint32_t nowMs, std::uint32_t spareActionId = 0)
 	}
 }
 
-/// Spec (b)4 + amendment E2: a shot's path re-derived with vanilla's own path function from the cue's
+/// A shot's path re-derived with vanilla's own path function from the cue's
 /// shipped inputs - straight: TileEngine::calculateLineVoxel(originVoxel, farVoxel, true, path, shooter),
 /// the host's own final call; arc: calculateParabolaVoxel from the payload's `arc`, the
-/// host's exact inputs (N27). Both write only the TileEngine voxel cache (N28) and draw no RNG.
+/// host's exact inputs. Both write only the TileEngine voxel cache and draw no RNG.
 /// FALSE (nothing derived) when the payload lacks those inputs.
 bool combatDeriveShotPath(SavedBattleGame* save, const Json::Value& p, BattleUnit* shooter,
 	std::vector<Position>* path)
@@ -24968,17 +24947,17 @@ bool combatDeriveShotPath(SavedBattleGame* save, const Json::Value& p, BattleUni
 	return true;
 }
 
-/// Spec (b)1-7, (b)9-11: starts the projectile ghost of one applied `shot` (a coop client, the option on),
-/// BEFORE the cue's own delta, so the shooter, the weapon, the ammo and a thrown item still resolve (N23).
+/// Starts the projectile ghost of one applied `shot` (a coop client, the option on),
+/// BEFORE the cue's own delta, so the shooter, the weapon, the ammo and a thrown item still resolve.
 /// Exactly one ring record and one enqueued.shot; a record with no display object (unresolved, noMap or a
-/// 0 ms shotgun shot) counts completed at enqueue (PR-E5). The ghost is a vanilla Projectile constructed
-/// with the shot's items (its constructor reads rules and the SPEC 17 seat table only, N24) and driven
+/// 0 ms shotgun shot) counts completed at enqueue. The ghost is a vanilla Projectile constructed
+/// with the shot's items (its constructor reads rules and the CoopSpeed seat table only) and driven
 /// through the coop accessors - never calculateTrajectory/calculateThrow/move/skipTrajectory/
-/// addVaporCloud (N7, N8). W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H1): @a hold (the shooter's
-/// SPEC 7 `turn` ghost of this same action, seq @a turnSeq, still runs) builds the ghost HELD - resolution,
+/// addVaporCloud. @a hold (the shooter's
+/// ghost-stepper `turn` ghost of this same action, seq @a turnSeq, still runs) builds the ghost HELD - resolution,
 /// path, Projectile, ticks, ms and record fields exactly as below, but no sound, not on the Map, no follow
-/// switch and no startedAtMs; it counts `live` and waits for advance()'s release (H2). A record with no
-/// display object (unresolved, noMap, 0 ms) is never held (PR-E5).
+/// switch and no startedAtMs; it counts `live` and waits for advance()'s release. A record with no
+/// display object (unresolved, noMap, 0 ms) is never held.
 void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, std::uint32_t turnSeq)
 {
 	const Json::Value& p = ev["payload"];
@@ -25016,8 +24995,8 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	r["soundEnd"] = Mod::NO_SOUND;
 	r["steps"] = 0;
 	r["cut"] = false;
-	// W2-P5 S-T.1 (amendment E3 section E3.6, E3.1 ST2 (a) and OR5 (a); probe only): afterTurnSeq and waitMs
-	// stay 0 until S-T.3's hold writes them; maxGapMs is the advance() gap while the ghost lives (written at
+	// Probe only: afterTurnSeq and waitMs
+	// stay 0 until the hold writes them; maxGapMs is the advance() gap while the ghost lives (written at
 	// its end); startStamp takes the next order stamp when the ghost goes on the Map (0 without one).
 	r["afterTurnSeq"] = 0;
 	r["waitMs"] = 0;
@@ -25034,7 +25013,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	r["noMap"] = !map;
 	if (resolved)
 	{
-		// OQ5: a derived path that does not end on the host's impact still flies as derived; the record says so.
+		// A derived path that does not end on the host's impact still flies as derived; the record says so.
 		r["trajLen"] = (int)path.size();
 		r["endVoxel"] = coopCueVoxel(path.back());
 		r["pathMatches"] = path.back() == CoopArbiter::coopJsonPos(p["impactVoxel"]);
@@ -25061,14 +25040,14 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	projectile->coopGhostSetTrajectory(path);
 	const int speed = projectile->coopSpeed();
 	const std::size_t step = (std::size_t)std::max(1, speed);
-	// Spec (b)3: ceil(N / speed) ticks of 16 ms, fixed here; shotgun ammo has no flight (vanilla skips it, N6).
+	// ceil(N / speed) ticks of 16 ms, fixed here; shotgun ammo has no flight (vanilla skips it).
 	const std::size_t ticks = pellets ? 0 : (path.size() + step - 1) / step;
 	const std::uint32_t ms = (std::uint32_t)ticks * kCombatTickMs;
 	r["speed"] = speed;
 	r["ticks"] = (int)ticks;
 	r["ms"] = ms;
 
-	// Spec (b)7 (vanilla's createNewProjectile): a throw plays ITEM_THROW at the thrower's position; a shot
+	// As vanilla's createNewProjectile: a throw plays ITEM_THROW at the thrower's position; a shot
 	// plays the ammo's fire sound, else the weapon's, at the trajectory's origin.
 	int sound = Mod::NO_SOUND;
 	Position soundAt = origin.toTile();
@@ -25125,7 +25104,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	g.actionId = ev.get("actionId", 0u).asUInt();
 	g.pendingSound = sound;
 	g.pendingSoundAt = soundAt;
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K1; OR4 (a), D171 (a)): the follow is decided at this apply - an alien
+	// The follow is decided at this apply - an alien
 	// on its own side's turn, an alien reaction shot while this machine's own order runs, this seat's own shot.
 	const std::string camTerm = cameraActorTerm(save, shooter);
 	g.camReason = (camTerm == "enemy" || camTerm == "partner") ? "follow" : camTerm == "reaction" ? "reaction_follow" // a partner's shot as an enemy-turn one
@@ -25145,9 +25124,9 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 		g_combatGhosts.push_back(g);
 		return;
 	}
-	// Spec (b)5/(b)6: vanilla draws it (FOV rules and hidden-movement reveal included); the Map's follow flag is
-	// restored when the ghost leaves the Map. W2-P6a S-C.2 (K1): the Map follows it only as decided above.
-	g_deathInterval = (int)kCombatTickMs; // W2-P6b S-D.2 (D-i): vanilla's projectile state interval, display only
+	// Vanilla draws it (FOV rules and hidden-movement reveal included); the Map's follow flag is
+	// restored when the ghost leaves the Map. The Map follows it only as decided above.
+	g_deathInterval = (int)kCombatTickMs; // vanilla's projectile state interval, display only
 	map->setProjectile(projectile);
 	map->setFollowProjectile(cameraFollowStart(map, g));
 	map->invalidate();
@@ -25158,7 +25137,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	g_combatGhosts.push_back(g);
 }
 
-// ----- the impact ghosts (spec (b)3, (b)5, (b)7-(b)11 for `hit` and `explosion`; ruling Q2 (b)) -----
+// ----- the impact ghosts (`hit` and `explosion`) -----
 
 /// Vanilla ExplosionBState's optValue(): take @a newValue unless it is -1.
 void combatOptValue(int& oldValue, int newValue)
@@ -25167,7 +25146,7 @@ void combatOptValue(int& oldValue, int newValue)
 		oldValue = newValue;
 }
 
-/// The damage item's rules an impact cue names (Q2 (b): the payload's `itemType`, a type string that
+/// The damage item's rules an impact cue names (the payload's `itemType`, a type string that
 /// resolves after the item is gone) from the LOADED Mod. *@a named: whether the payload names one at all
 /// (an itemless terrain link names none).
 const RuleItem* combatCueItemRule(const SavedBattleGame* save, const Json::Value& p, bool* named)
@@ -25176,11 +25155,11 @@ const RuleItem* combatCueItemRule(const SavedBattleGame* save, const Json::Value
 	return *named ? save->getMod()->getItem(p["itemType"].asString()) : nullptr;
 }
 
-/// Spec (b)1, (b)3, (b)5, (b)7-(b)11 for `hit` (not a pellet) and `explosion`: starts the impact ghost of one
+/// For `hit` (not a pellet) and `explosion`: starts the impact ghost of one
 /// applied cue (a coop client, the option on) before the cue's own delta, as vanilla ExplosionBState::init
-/// builds its sprites - never the state itself (it applies damage, N1/R3.3). Exactly one ring record and one
+/// builds its sprites - never the state itself (it applies damage). Exactly one ring record and one
 /// enqueued[kind]; a record with no display object (unresolved, noMap, 0 sprites or 0 ms) counts completed
-/// at enqueue (PR-E5). The damage item's display rules come from the payload's `itemType` (Q2 (b)).
+/// at enqueue. The damage item's display rules come from the payload's `itemType`.
 /// - hit (vanilla's bullet-hit branch, non-melee): anim / frames / sound = the item's hitAnimation /
 ///   hitAnimationFrames / hit sound, overridden per vanilla's optValue chain by the miss rules when the
 ///   payload says `miss`; one SMOKE sprite at the voxel with delay 0 (none when anim is -1), frames = the
@@ -25194,7 +25173,7 @@ const RuleItem* combatCueItemRule(const SavedBattleGame* save, const Json::Value
 ///   Explosion::EXPLODE_FRAMES; interval max(1, 50 - 10 x explosionSpeed), 1 when chain > 6; ms = (max delay
 ///   + frames) x interval; SMALL_EXPLOSION / LARGE_EXPLOSION by pfa <= 80, or the rule's explosion sound,
 ///   played without an angle. power <= 0: 0 sprites, 0 ms, no sound (vanilla pops the state).
-/// Sound ids come from the raw rule lists (F1512: RuleItem's own sound getters draw the sim RNG), several
+/// Sound ids come from the raw rule lists (RuleItem's own sound getters draw the sim RNG), several
 /// ids picked with RNG::seedless.
 void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
 {
@@ -25340,7 +25319,7 @@ void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::
 	// Vanilla plays the hit sound even without a sprite; an explosion with no power plays none.
 	combatPlay(save, sound, soundAngle);
 	r["sound"] = sound;
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K3 / K4, AMENDMENT P6-5 C-C3): the camera at this display's start.
+	// The camera at this display's start.
 	cameraImpact(save, map, ev, kind, actor, centre, power);
 
 	if (sprites.empty() || ms == 0)
@@ -25352,9 +25331,9 @@ void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::
 		return;
 	}
 
-	// Spec (b)5: vanilla draws them (FOV rules and hidden-movement reveal included, N12); no camera call
-	// (D131 is W2-P6's).
-	g_deathInterval = interval; // W2-P6b S-D.2 (D-i): vanilla ExplosionBState's state interval, display only
+	// Vanilla draws them (FOV rules and hidden-movement reveal included); no camera call here (the camera move
+	// is cameraImpact() above).
+	g_deathInterval = interval; // vanilla ExplosionBState's state interval, display only
 	for (Explosion* e : sprites)
 		map->getExplosions()->push_back(e);
 	map->invalidate();
@@ -25375,7 +25354,7 @@ void combatStartImpact(SavedBattleGame* save, const Json::Value& ev, const std::
 	g_combatGhosts.push_back(g);
 }
 
-/// Q1 (b), amendment E1 OQ1 (a): an applied pellet `hit` (payload `pellet`) joins the running hit /
+/// An applied pellet `hit` (payload `pellet`) joins the running hit /
 /// explosion ghost of its actionId - one more SMOKE sprite at the pellet's voxel exactly as vanilla adds it
 /// to the same ExplosionBState's list (ProjectileFlyBState's pellet loop: the damage item's hitAnimation /
 /// hitAnimationFrames, delay 0, no sound), on that ghost's clock (animated the ticks the ghost already ran;
@@ -25420,10 +25399,9 @@ void combatJoinPellet(SavedBattleGame* save, const Json::Value& ev)
 	live->invalidate();
 }
 
-// ----- the melee / psi ghosts and the effect sounds (spec rewrite/prompts/w2p6_display_two.md
-// section 9 E-b..E-e, as ruled by AMENDMENT P6b-1 OR3 / OR5 and AMENDMENT P6b-3 F1782) -----
+// ----- the melee / psi ghosts and the effect sounds -----
 
-/// E-b (review F1743, OR5 (a)): starts the melee / psi ghost of one applied `melee` / `psi` cue (a coop client, the
+/// Starts the melee / psi ghost of one applied `melee` / `psi` cue (a coop client, the
 /// option on) before the cue's own delta - a sibling of combatStartImpact() built line for line on vanilla
 /// ExplosionBState::init's hit branch (:277-:365) and, for melee, explode()'s melee hit sound (:438-:444); never
 /// the state itself. Exactly one ring record (kind "melee" / "psi", plus the payload's `voxel`) and one
@@ -25438,9 +25416,9 @@ void combatJoinPellet(SavedBattleGame* save, const Json::Value& ev)
 /// - `success` false: vanilla's miss chains (:316-:341) with the raw lists.
 /// One HIT.PCK sprite Explosion(voxel, anim, 0, false, true, animFrames) when anim != -1; recorded frames =
 /// animFrames > 0 ? animFrames : Explosion::HIT_FRAMES, ms = frames x interval; the sound at the voxel tile's
-/// angle, played even with no sprite (vanilla :365). A cue with no `voxel` (a psi cue before this stage's additive
-/// field) is unresolved. Sound ids come from the raw rule lists, several picked with RNG::seedless (V4).
-/// The ghost follows Q1 (b) like a hit ghost.
+/// angle, played even with no sprite (vanilla :365). A cue with no `voxel` (a psi cue without the additive
+/// field) is unresolved. Sound ids come from the raw rule lists, several picked with RNG::seedless.
+/// Like a hit ghost, it ends before the next ev's state applies.
 void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
 {
 	const Json::Value& p = ev["payload"];
@@ -25517,7 +25495,7 @@ void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const st
 	}
 	else
 	{
-		sound = combatPickMeleeSound(weaponRule->getMeleeSoundRaw()); // W2-P6b S-E6.2 (F1824 fold): vanilla's 39 default
+		sound = combatPickMeleeSound(weaponRule->getMeleeSoundRaw()); // vanilla's 39 default
 		if (damageRule)
 		{
 			combatOptValue(anim, damageRule->getMeleeAnimation());
@@ -25568,7 +25546,7 @@ void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const st
 	// Vanilla plays the swing / psi sound even without a sprite (:365).
 	combatPlay(save, sound, map->getSoundAngle(tile));
 	r["sound"] = sound;
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K4, AMENDMENT P6-5 C-C3): the camera at this display's start.
+	// The camera at this display's start.
 	cameraImpact(save, map, ev, kind, actor, voxel, 0);
 
 	if (!sprite)
@@ -25584,7 +25562,7 @@ void combatStartHitEffect(SavedBattleGame* save, const Json::Value& ev, const st
 		return;
 	}
 
-	g_deathInterval = interval; // W2-P6b S-D.2 (D-i): vanilla ExplosionBState's state interval, display only
+	g_deathInterval = interval; // vanilla ExplosionBState's state interval, display only
 	map->getExplosions()->push_back(sprite);
 	map->invalidate();
 	CombatGhost g;
@@ -25615,9 +25593,9 @@ void effectPushRecord(EffectSoundProbe& probe, const Json::Value& r)
 		probe.ring.pop_front();
 }
 
-/// E-c (Q14 (a)): an applied `medikit` cue (a coop client, the option on) plays vanilla's medi-kit sound
-/// (TileEngine :5019, playSound(int): no angle, F1749) - the kit resolved BEFORE the cue's delta (a one-charge kit
-/// may leave with it, N43 = F1692), its sound picked from its raw hit-sound list - and records {seq,
+/// An applied `medikit` cue (a coop client, the option on) plays vanilla's medi-kit sound
+/// (TileEngine :5019, playSound(int): no angle) - the kit resolved BEFORE the cue's delta (a one-charge kit
+/// may leave with it), its sound picked from its raw hit-sound list - and records {seq,
 /// actionId, actor, unit, item, itemType, sound, unresolved}.
 void effectMedikit(const SavedBattleGame* save, const Json::Value& ev)
 {
@@ -25679,12 +25657,12 @@ void effectPanic(const SavedBattleGame* save, const Json::Value& ev)
 	effectPushRecord(g_combatProbe.panic, r);
 }
 
-/// W2-P5 S-T.3 (amendment E3.1 section 4 H3, OR1 (a)): run for every non-reveal bt_ev and every
-/// bt_action_end BEFORE combatEndAll(). Each PENDING pair - a held shot ghost whose shooter's SPEC 7 turn
+/// Run for every non-reveal bt_ev and every
+/// bt_action_end BEFORE combatEndAll(). Each PENDING pair - a held shot ghost whose shooter's ghost-stepper turn
 /// ghost (seq afterTurnSeq) still runs - ends unless @a ev is a `shot` of that pair's own actionId (a
-/// launch's next leg or a burst's next shot, which H1 then tests against the same turn ghost): the turn
+/// launch's next leg or a burst's next shot, which combatStartShot() then tests against the same turn ghost): the turn
 /// ghost ends now (turn record `cut`, g_ghostCompleted +1, erased) and combatEndAll() then ends the held
-/// ghost by H4. The pairs are collected first (turnGhostEnded() syncs the combat storage).
+/// ghost as a cut held ghost. The pairs are collected first (turnGhostEnded() syncs the combat storage).
 void combatEndPendingPairs(const Json::Value& ev, const std::string& kind, std::uint32_t nowMs)
 {
 	const std::uint32_t evActionId = ev.get("actionId", 0u).asUInt();
@@ -25705,9 +25683,7 @@ void combatEndPendingPairs(const Json::Value& ev, const std::string& kind, std::
 	}
 }
 
-// ----- the death ghosts (spec rewrite/prompts/w2p6_display_two.md section 8 D-d..D-j, as ruled by
-// AMENDMENT P6b-1 ST1-ST5 / OR3 / OR6, with AMENDMENT P6b-2's traced host schedule and AMENDMENT P6b-3's queue
-// rule F1784) -----
+// ----- the death ghosts -----
 
 /// Pushes one death record (event_state `displayTwo.death.ring`, the last kCombatRingCap) and returns its ordinal.
 std::uint64_t deathPushRecord(const Json::Value& r)
@@ -25741,7 +25717,7 @@ void deathSyncQueued()
 	g_combatProbe.deathQueued = n;
 }
 
-/// D-g / K11: the live Map's dying flag clears at the first release or end after a death ghost set it
+/// The live Map's dying flag clears at the first release or end after a death ghost set it
 /// (vanilla's first pop, UnitDieBState :208); @a g's record says it was the one that cleared it.
 void deathClearDying(const DeathGhost& g)
 {
@@ -25754,7 +25730,7 @@ void deathClearDying(const DeathGhost& g)
 		(*r)["unitDyingCleared"] = true;
 }
 
-/// D-f (AMENDMENT P6b-2's traced schedule): @a g's drawn pose @a e ms after its start. FALSE (no override: the
+/// @a g's drawn pose @a e ms after its start. FALSE (no override: the
 /// canonical unit draws, facing fromDir) before its first octant - a `front` head's first think comes at once,
 /// a queued head's one Is after its start. Then the pirouette: one octant clockwise every Is, status STANDING,
 /// until it faces 3; from tc the collapse: direction 3, status COLLAPSING, fall phase min(F - 1, (e - tc) / Ic)
@@ -25788,12 +25764,12 @@ bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* stat
 	return true;
 }
 
-/// D-e: starts the queue head at @a nowMs with its schedule fixed now, never recomputed.
+/// Starts the queue head at @a nowMs with its schedule fixed now, never recomputed.
 /// Is = the host's last state interval as mirrored; a victim that must turn: Ic = DEFAULT_ANIM_SPEED (the
 /// pirouette's end sets it, UnitDieBState :183) and tc = its last octant ((front ? 0 : Is) + (D - 1) x Is) +
 /// 2 x Ic - Is; a victim already facing 3: Ic = Is and tc = its first think (front ? 0 : Is); isOut = tc (a
 /// respawn victim) or tc + F x Ic; pop = isOut + 2 x Ic; the interval it leaves behind = Ic. Its record gets the
-/// schedule, the released head it waited behind (startedAfterSeq) and the unit's overkill now (ST4 (a): derived
+/// schedule, the released head it waited behind (startedAfterSeq) and the unit's overkill now (derived
 /// from the synced health).
 void deathStart(DeathGhost& g, std::uint32_t nowMs)
 {
@@ -25888,9 +25864,9 @@ void deathReleaseHead()
 		g_deathGhosts.front().afterSeq = h.seq;
 }
 
-/// D-f / D-g at one advance(): ends a started @a g "out" (TRUE) when its canonical unit is out or off its tile
+/// At one advance(): ends a started @a g "out" (TRUE) when its canonical unit is out or off its tile
 /// (the corpse / convert / next delta); else appends the direction and the collapse phase it draws now when they
-/// changed, and plays its death sound once, at the first advance at or after tc (outcome "dead" only, N6).
+/// changed, and plays its death sound once, at the first advance at or after tc (outcome "dead" only).
 bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
 {
 	// probe only - the advance() gap first (the fall ghost's order), so the record's maxGapMs
@@ -25925,7 +25901,7 @@ bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
 	return false;
 }
 
-/// D-e / D-g at one advance() (a coop client; runs whatever the option, OQ3): steps every holding ghost, then
+/// At one advance() (a coop client; runs whatever the option): steps every holding ghost, then
 /// starts the queue head once no combat ghost is live (the host runs a queued UnitDieBState only after the
 /// states in front of it popped), steps it and releases it at popMs - or at once when it ended before isOutMs -
 /// so the next head may start in the same frame. TRUE when a death ghost was live at entry.
@@ -25961,15 +25937,15 @@ bool deathAdvance(const SavedBattleGame* save, std::uint32_t nowMs)
 	return true;
 }
 
-/// D-d (a coop client, from combatOnEv() after Q1 (b)'s combat completion): one applied `death`. A `front` death
-/// (the host's state stack was empty at its push, ST1 (a)) first ends every death ghost ("front"; never gated,
-/// OQ3). With the option on (OR3 (a)) the cue is read BEFORE its delta: an instant death gets no ghost, only its
-/// record and (ST5 (a)) the scream a killed unit gives when it was still conscious or the wire damage type's
-/// global rule is not direct; an animated death is enqueued at the host's queue position (AMENDMENT P6b-3,
-/// F1784: index 0 when `front`; otherwise index 1 when the head started or was itself enqueued `front`, else
+/// From combatOnEv() on a coop client, after the combat ghosts ended: one applied `death`. A `front` death
+/// (the host's state stack was empty at its push) first ends every death ghost ("front"; never gated).
+/// With the option on the cue is read BEFORE its delta: an instant death gets no ghost, only its
+/// record and the scream a killed unit gives when it was still conscious or the wire damage type's
+/// global rule is not direct; an animated death is enqueued at the host's queue position (
+/// index 0 when `front`; otherwise index 1 when the head started or was itself enqueued `front`, else
 /// index 0), with its death sound picked now (outcome "dead" only), the interval the host's constructor left
 /// (DEFAULT_ANIM_SPEED / 3 for a victim that must turn, else DEFAULT_ANIM_SPEED) and, for a player victim, the
-/// live Map's dying flag set (K11).
+/// live Map's dying flag set.
 void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs)
 {
 	const Json::Value& p = ev["payload"];
@@ -25977,7 +25953,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	if (front)
 		deathEndAll(nowMs, "front");
 	if (!Options::coopGhostStepper)
-		return; // OR3 (a): starting a death display is gated, ending one is not
+		return; // starting a death display is gated, ending one is not
 	const int unitId = p.get("unit", -1).asInt();
 	const BattleUnit* unit = unitId >= 0 ? CoopIdMaps::unit(unitId) : nullptr;
 	const bool instant = p.get("instant", false).asBool();
@@ -26009,11 +25985,11 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["holdMs"] = 0;
 	r["maxGapMs"] = 0; // probe only - deathEnd writes the value
 	r["endedBy"] = "";
-	// W2-P6b S-D.3 (AMENDMENT P6b-4, probe only): the queue head had started when this death was enqueued.
+	// Probe only: the queue head had started when this death was enqueued.
 	r["headStartedAtEnqueue"] = !g_deathGhosts.empty() && g_deathGhosts.front().started;
 	if (instant)
 	{
-		// E3 needs no ghost (parity by snap, N8); ST5 (a): vanilla's isOut-frame scream (UnitDieBState :258-:261).
+		// An instant death needs no ghost (parity by snap); vanilla's isOut-frame scream (UnitDieBState :258-:261).
 		++g_combatProbe.death.instant;
 		int sound = Mod::NO_SOUND;
 		const int dt = p.get("damageType", (int)DT_NONE).asInt();
@@ -26073,8 +26049,8 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	deathSyncQueued();
 }
 
-/// D-h (OR6 (a)): the started, not yet ended death ghost of @a u draws its D-f pose (direction, status, collapse
-/// frame) and takes draw precedence over any SPEC 7 ghost of the same unit, which it never touches. FALSE with
+/// The started, not yet ended death ghost of @a u draws its pose (direction, status, collapse
+/// frame) and takes draw precedence over any ghost-stepper ghost of the same unit, which it never touches. FALSE with
 /// none, or before its first octant (the canonical unit draws).
 bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
 {
@@ -26107,8 +26083,7 @@ bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
 	return true;
 }
 
-// ----- the fall ghosts (spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 5 E-f', owner
-// D173 (b), P6-5 Q2 (b); AMENDMENT P6-6) -----
+// ----- the fall ghosts -----
 
 /// Pushes one fall record (event_state `displayTwo.effects.fall.ring`, the last kCombatRingCap) and returns its ordinal.
 std::uint64_t fallPushRecord(const Json::Value& r)
@@ -26138,7 +26113,7 @@ struct FallPose
 	bool past = false;    // the walk phase is past 7 on the trailing anchor: the natural end
 };
 
-/// E-f' (P6-5 Q2 (b), one clock, k = e / pace). Not landed: the source anchor, walk phase min(k, 3) (OR2 (a)'s
+/// One clock, k = e / pace. Not landed: the source anchor, walk phase min(k, 3) (the
 /// hold). Landed before the start: the trailing anchor sweeps 8 phases per level, walk phase 8 x e / (8 x levels x
 /// pace) while e < 8 x levels x pace (more than one level = one stretched sweep). Landed during the ghost at phase
 /// index kL: the walk phase continues at min(kL, 3) + 1 and advances one per pace to 7. Shared by view() and
@@ -26197,8 +26172,8 @@ void fallEnd(const FallGhost& g, const char* endedBy)
 		++g_combatProbe.fall.cut;
 }
 
-/// E-f' ends outside advance() (never gated, OQ3): every fall ghost of @a unitId (-1: every fall ghost) ends with
-/// @a endedBy ("replaced": a new `fall` for the unit; "moved": a SPEC 7 ghost enqueued for it; "side_transition").
+/// Ends outside advance() (never gated): every fall ghost of @a unitId (-1: every fall ghost) ends with
+/// @a endedBy ("replaced": a new `fall` for the unit; "moved": a ghost-stepper ghost enqueued for it; "side_transition").
 void fallEndUnit(int unitId, const char* endedBy)
 {
 	if (g_fallGhosts.empty())
@@ -26217,10 +26192,10 @@ void fallEndUnit(int unitId, const char* endedBy)
 	}
 }
 
-/// E-f' enqueue (a coop client, from combatOnEv()): one applied `fall`. A new `fall` for a unit first ends its
-/// running fall ghost ("replaced", never gated, OQ3); with the option on, each payload unit is read at the apply
+/// Fall ghost enqueue (a coop client, from combatOnEv()): one applied `fall`. A new `fall` for a unit first ends its
+/// running fall ghost ("replaced", never gated); with the option on, each payload unit is read at the apply
 /// (before any delta): it must resolve and stand canonically on `from`, `from`.z > 0, its movement type not
-/// MT_FLY, the canonical tile at `from` with no floor (hasNoFloor(save), vanilla's predicate on tile state, F1746)
+/// MT_FLY, the canonical tile at `from` with no floor (hasNoFloor(save), vanilla's predicate on tile state)
 /// and a tile one level below - else one `unresolved` record (enqueued and cut +1) and no ghost. Pace = the side at
 /// the apply == PLAYER ? CoopSpeed::xcomSpeedFor(nullptr) : alienSpeedFor(nullptr) (UnitFallBState :61/:63).
 /// The record: {seq, unit, from, to (one level below `from`; the landing position once landed), paceMs,
@@ -26233,7 +26208,7 @@ void fallOnEv(const SavedBattleGame* save, const Json::Value& ev, std::uint32_t 
 	for (const Json::Value& e : units)
 		fallEndUnit(e.get("unit", -1).asInt(), "replaced");
 	if (!Options::coopGhostStepper || !save)
-		return; // OR3 (a): starting a fall display is gated, ending one is not
+		return; // starting a fall display is gated, ending one is not
 	const int pace = save->getSide() == FACTION_PLAYER ? CoopSpeed::xcomSpeedFor(nullptr)
 		: CoopSpeed::alienSpeedFor(nullptr);
 	for (const Json::Value& e : units)
@@ -26324,7 +26299,7 @@ const char* fallStep(FallGhost& g, std::uint32_t nowMs)
 	return nullptr;
 }
 
-/// E-f' at one advance() (a coop client; runs whatever the option, OQ3): starts every enqueued fall ghost - its
+/// At one advance() (a coop client; runs whatever the option): starts every enqueued fall ghost - its
 /// start is this advance (advance() runs only with the live BattlescapeState on top and no popup, BattlescapeState
 /// :916-:919), so waitMs = start - enqueue and startedTop is the top state now - then steps each and ends the ones
 /// fallStep() ends. TRUE when a fall ghost was live at entry.
@@ -26405,34 +26380,34 @@ bool fallView(const BattleUnit* u, CoopUnitDrawView* io)
 	return true;
 }
 
-/// The combat half of onEvApplied() (a coop client): Q1 (b)'s completion rule, never gated by the option
-/// (OQ3), then a `shot`'s own ghost when the option is on. a `hit` / `explosion` starts its
-/// impact ghost the same way, and a pellet `hit` joins the running one of its action instead (OQ1 (a)).
+/// The combat half of onEvApplied() (a coop client): the end-before-the-next-ev rule, never gated by the
+/// option, then a `shot`'s own ghost when the option is on. a `hit` / `explosion` starts its
+/// impact ghost the same way, and a pellet `hit` joins the running one of its action instead.
 /// a `melee` / `psi` starts its effect ghost, a `medikit` / `panic` plays its sound (option on).
 void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
 {
 	if (!combatClient())
 		return;
 	combatSync();
-	fallSeenProbe(save, ev, kind, SDL_GetTicks()); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
+	fallSeenProbe(save, ev, kind, SDL_GetTicks()); // probe only
 	if (kind == "reveal")
-		return; // Q1 (b): a nested reveal carries no delta (N14) - it neither ends nor starts a ghost
+		return; // a nested reveal carries no delta - it neither ends nor starts a ghost
 	const std::uint32_t nowMs = SDL_GetTicks();
 	combatEndPendingPairs(ev, kind, nowMs);
 	// a pellet `hit` does not end the running hit / explosion ghost of its own
 	// action - it joins it below; every other running ghost still ends first.
 	const bool pellet = kind == "hit" && ev["payload"].isMember("pellet");
 	combatEndAll(nowMs, pellet ? ev.get("actionId", 0u).asUInt() : 0u);
-	// W2-P6b S-D.2 (section 8 D-d, D-g): a side change ends every death ghost (never gated, OQ3); an applied
-	// `death` goes to deathOnEv() (its `front` ending is never gated; its start is, OR3 (a)). Death ghosts are
-	// the ruled Q1 exception: no other ev ends them.
+	// A side change ends every death ghost (never gated); an applied
+	// `death` goes to deathOnEv() (its `front` ending is never gated; its start is). Death ghosts are
+	// the exception to the end-before-the-next-ev rule: no other ev ends them.
 	if (kind == "side_transition")
 	{
 		deathEndAll(nowMs, "side_transition");
-		fallEndUnit(-1, "side_transition"); // W2-P6b S-E6.2 (E-f'): never gated, OQ3
+		fallEndUnit(-1, "side_transition"); // never gated
 	}
-	// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f', D173 (b)): an applied `fall` enqueues its fall ghosts (option
-	// on); exempt from Q1 (b) as death ghosts are - no other ev but those E-f' names ends one.
+	// An applied `fall` enqueues its fall ghosts (option
+	// on); exempt from the end-before-the-next-ev rule as death ghosts are - no ev ends one except those fallEndUnit() lists.
 	if (kind == "fall")
 	{
 		fallOnEv(save, ev, nowMs);
@@ -26448,8 +26423,8 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		deathOnEv(save, ev, nowMs);
 		return;
 	}
-	// W2-P6b S-E.2 (section 9 E-b..E-d; OR3 (a)): an applied `melee` / `psi` starts its effect ghost, which follows
-	// Q1 (b) like a hit ghost; an applied `medikit` / `panic` plays its sound. Only STARTING a display is gated.
+	// An applied `melee` / `psi` starts its effect ghost, which ends before the next ev like a hit
+	// ghost; an applied `medikit` / `panic` plays its sound. Only STARTING a display is gated.
 	if (kind == "melee" || kind == "psi" || kind == "medikit" || kind == "panic")
 	{
 		if (!Options::coopGhostStepper)
@@ -26459,7 +26434,7 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		else if (kind == "panic")
 		{
 			effectPanic(save, ev);
-			cameraPanic(save, ev); // W2-P6a S-C.2 (P6a pinned stage text (c)2 K7)
+			cameraPanic(save, ev);
 		}
 		else
 			combatStartHitEffect(save, ev, kind);
@@ -26468,7 +26443,7 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	if (kind == "hit" || kind == "explosion")
 	{
 		if (!Options::coopGhostStepper)
-			return; // OQ3: only STARTING (or joining) a ghost is gated (Q4 = a)
+			return; // only STARTING (or joining) a ghost is gated
 		if (pellet)
 			combatJoinPellet(save, ev);
 		else
@@ -26477,10 +26452,10 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	}
 	if (kind != "shot")
 		return;
-	// Q1 (b) third clause (OQ7): a shot also completes the shooter's own running SPEC 7 ghost - vanilla
-	// finishes the turn before it fires. W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H1): EXCEPT the
+	// A shot also completes the shooter's own running ghost-stepper ghost - vanilla
+	// finishes the turn before it fires. EXCEPT the
 	// shooter's still-running `turn` ghost of this same action - it keeps running and the shot's projectile
-	// ghost is built held until advance() sees that turn ghost gone (H2). The shot's state still applies
+	// ghost is built held until advance() sees that turn ghost gone. The shot's state still applies
 	// now; only when it is drawn and heard moves.
 	bool hold = false;
 	std::uint32_t turnSeq = 0;
@@ -26497,17 +26472,17 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		}
 		else
 		{
-			turnGhostEnded(own->second, "cut", nowMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
+			turnGhostEnded(own->second, "cut", nowMs); // probe only
 			g_ghostCompleted.fetch_add(1);
 			g_coopGhosts.erase(own);
 		}
 	}
 	if (!Options::coopGhostStepper)
-		return; // OQ3: only STARTING a ghost is gated (Q4 = a)
+		return; // only STARTING a ghost is gated
 	combatStartShot(save, ev, hold, turnSeq);
 }
 
-/// The combat half of advance() (spec (b)5/(b)9; OQ3: always runs): steps each ghost's projectile to
+/// The combat half of advance() (always runs): steps each ghost's projectile to
 /// min(N - 1, floor(elapsed / 16) x speed) and ends a ghost whose fixed duration elapsed (completed), whose
 /// Map is no longer the live one or whose thrown item no longer resolves to the pointer captured at
 /// enqueue (cut when early). an impact ghost animates its Explosion sprites once per elapsed
@@ -26545,7 +26520,7 @@ bool combatAdvance(std::uint32_t nowMs)
 		}
 		if (it->kind != "shot" && !gone)
 		{
-			// W2-P5 S-B.2 (spec (b)5; vanilla ExplosionBState::think): every sprite animates once per elapsed
+			// As vanilla ExplosionBState::think, every sprite animates once per elapsed
 			// state interval (fixed at enqueue); one whose animation ended leaves the Map and is deleted.
 			const std::uint32_t due = std::min(it->ticksTotal, elapsed / it->intervalMs);
 			while (it->ticksDone < due)
@@ -26589,14 +26564,14 @@ bool combatAdvance(std::uint32_t nowMs)
 	return true;
 }
 
-/// W2-P5 S-T.3 (amendment E3 Q1 (b), E3.1 section 4 H2, F1580): advance() calls this AFTER the SPEC 7
+/// advance() calls this AFTER the ghost-stepper
 /// completion loop, so a turn ghost that ended naturally this frame releases its shot this same frame. A
 /// held ghost whose Map is no longer the live one, or whose thrown item no longer resolves to the pointer
-/// captured at enqueue, ends by H4. One whose shooter has no SPEC 7 ghost with seq == afterTurnSeq any more
-/// is released: startedAtMs = now, its record's waitMs and startStamp (OR5 (a)), its fire / throw sound
-/// (S-A's rule, picked at enqueue) played and recorded, then S-A's go-on-Map lines (the Map's follow flag
+/// captured at enqueue, ends as a cut held ghost. One whose shooter has no ghost-stepper ghost with seq == afterTurnSeq any more
+/// is released: startedAtMs = now, its record's waitMs and startStamp, its fire / throw sound
+/// (picked at enqueue) played and recorded, then combatStartShot()'s go-on-Map lines (the Map's follow flag
 /// read now and switched off, setProjectile, invalidate). Stepping starts at the next combatAdvance(). Not
-/// option-gated (OQ3); display only - no state waits for it (H5).
+/// option-gated; display only - no state waits for it.
 void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
 {
 	combatSync();
@@ -26635,7 +26610,7 @@ void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
 			(*r)["waitMs"] = (Json::UInt)(nowMs - it->enqueuedAtMs);
 			(*r)["startStamp"] = stamp;
 		}
-		g_deathInterval = (int)kCombatTickMs; // W2-P6b S-D.2 (D-i): display only
+		g_deathInterval = (int)kCombatTickMs; // display only
 		it->followBefore = live->getFollowProjectile();
 		live->setProjectile(it->projectile);
 		live->setFollowProjectile(cameraFollowStart(live, *it)); // as decided at the apply
@@ -26673,12 +26648,12 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	rec.unitId = unit->getId();
 	rec.seq = ev.get("seq", 0u).asUInt();
 	rec.startedAtMs = SDL_GetTicks();
-	rec.actionId = ev.get("actionId", 0u).asUInt(); // W2-P5 S-T.1 (E3 section E3.6): probe only
+	rec.actionId = ev.get("actionId", 0u).asUInt(); // probe only
 	rec.lastAdvanceMs = rec.startedAtMs;            // probe only
 
 	if (kind == "turn")
 	{
-		// SS2.4: both endpoints already ride the payload - no canonical read
+		// Both endpoints already ride the payload - no canonical read
 		// needed for direction. A body turn never moves or kneels the unit.
 		rec.fromDir = payload.get("fromDir", unit->getDirection()).asInt();
 		rec.toDir = payload.get("toDir", unit->getDirection()).asInt();
@@ -26687,7 +26662,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	}
 	else if (kind == "kneel")
 	{
-		// SS2.4's `kneel` ev payload carries only the NEW value - the OLD one
+		// The `kneel` ev payload carries only the NEW value - the OLD one
 		// has to come off canonical state HERE, before the caller's next line
 		// (CoopApply::applyEvPayload()) flips it (CoopGhost.h's own file
 		// comment; the call site's own comment in
@@ -26702,7 +26677,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.fromPos = CoopArbiter::coopJsonPos(payload["from"]);
 		rec.toPos = CoopArbiter::coopJsonPos(payload["to"]);
 		rec.fromDir = rec.toDir = payload.get("dir", unit->getDirection()).asInt();
-		// R5-U6 S-B (owner D236 (b); SPEC 7 (6f)'s footstep rider): the walk's sneak (coopOnWalkStepFinished()), and the
+		// The walk's sneak (coopOnWalkStepFinished()), and the
 		// "start moving" voice at a walk's first step - the ordering player's own, or the other player's under its
 		// footsteps option (coopWalkSoundSilenced()), never an unseen walker's.
 		rec.sneak = payload.get("sneak", false).asBool();
@@ -26711,7 +26686,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 			if (BattlescapeState* bs = combatLiveState())
 				bs->getBattleGame()->playUnitResponseSound(unit, 1);
 		}
-		// W1-P9 follow-up (2026-09-03): a walk that began kneeled stands up -
+		// A walk that began kneeled stands up -
 		// that stand-up's OWN `kneel` ev (if the host emitted one) already ran
 		// through this same function first, so by the time a walk_step ev
 		// arrives the unit's kneeled bit is already whatever it will stay -
@@ -26732,12 +26707,12 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	// a ghost already running for this unit is COMPLETED INSTANTLY,
 	// not queued behind - the display clock never gates apply, so the new
 	// ev's ghost starts clean from the new payload's own endpoints.
-	// W2-P6b S-E6.2 (E-f'): a SPEC 7 ghost enqueued for a unit ends its fall ghost ("moved").
+	// A ghost-stepper ghost enqueued for a unit ends its fall ghost ("moved").
 	fallEndUnit(rec.unitId, "moved");
 	auto it = g_coopGhosts.find(rec.unitId);
 	if (it != g_coopGhosts.end())
 	{
-		turnGhostEnded(it->second, "replaced", rec.startedAtMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
+		turnGhostEnded(it->second, "replaced", rec.startedAtMs); // probe only
 		g_ghostCompleted.fetch_add(1);
 		it->second = rec;
 	}
@@ -26748,11 +26723,11 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	g_ghostEnqueued.fetch_add(1);
 	if (rec.kind == "turn" && combatClient())
 	{
-		// W2-P5 S-T.1 (E3 section E3.6): probe only - the turnGhost enqueued count.
+		// Probe only - the turnGhost enqueued count.
 		combatSync();
 		++g_combatProbe.turn.enqueued;
 	}
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K5 / K6, AMENDMENT P6-5 C-C5): the camera at a walk_step ghost's enqueue.
+	// The camera at a walk_step ghost's enqueue.
 	if (rec.kind == "walk_step")
 	{
 		combatSync();
@@ -26760,11 +26735,11 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	}
 }
 
-// R5-U6 S-B (owner D236 (b); SPEC 7 (6f)'s deferred footstep rider): a walk_step ghost plays the step sounds vanilla's
+// A walk_step ghost plays the step sounds vanilla's
 // UnitWalkBState::playMovementSound() plays for the same step - the unit's own move sound at phase 0 (the step's end),
 // the tile's two footsteps at phases 3 and 7, the flying sound at phase 1, then the armor's selectMoveSoundUnit script
 // - behind the same gates (visible here, on screen) and coopWalkSoundSilenced(). Phases 1 .. endphase-1 follow the
-// ghost's own clock (view()'s walkPhase), phase 0 sounds at its end. Sound only (A4): nothing is written but the
+// ghost's own clock (view()'s walkPhase), phase 0 sounds at its end. Sound only: nothing is written but the
 // ghost's own soundStep.
 static void ghostStepSounds(SavedBattleGame* save, GhostReplay& g, std::uint32_t elapsed)
 {
@@ -26821,13 +26796,12 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 {
 	// the combat half always runs, whatever the option.
 	const bool combatLive = combatAdvance(nowMs);
-	// W2-P6b S-D.2 (section 8 D-e): the death ghosts start, step and release here, whatever the option (OQ3).
+	// The death ghosts start, step and release here, whatever the option.
 	const bool deathLive = deathAdvance(save, nowMs);
-	// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f', D173 (b)): the fall ghosts start, step and end here, whatever
-	// the option (OQ3).
+	// The fall ghosts start, step and end here, whatever the option.
 	const bool fallLive = fallAdvance(nowMs);
 	if (combatClient())
-		++g_combatProbe.fallAdvances; // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only - one advance() run
+		++g_combatProbe.fallAdvances; // probe only - one advance() run
 	if (!save || (g_coopGhosts.empty() && !combatLive && !deathLive && !fallLive))
 		return;
 	const bool stepperLive = !g_coopGhosts.empty();
@@ -26837,9 +26811,9 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 		const std::uint32_t elapsed = nowMs - it->second.startedAtMs; // unsigned - wrap-safe
 		if (it->second.kind == "turn")
 		{
-			// W2-P5 S-T.1 (E3.1 section 4 H6; probe only): the advance() gap first, then - while the turn
+			// Probe only: the advance() gap first, then - while the turn
 			// still runs - the direction its view draws at `elapsed` (appended when it changes; the final
-			// facing is never appended) and, at the first such advance, the view's status (OR4 (a)).
+			// facing is never appended) and, at the first such advance, the view's status.
 			GhostReplay& tg = it->second;
 			const std::uint32_t gap = nowMs - tg.lastAdvanceMs;
 			if (gap > tg.maxGapMs)
@@ -26861,7 +26835,7 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 			ghostStepSounds(save, it->second, elapsed); // the footstep rider, before a finished ghost pops
 		if (elapsed >= it->second.durationMs) // fixed at enqueue, never recomputed
 		{
-			turnGhostEnded(it->second, "natural", nowMs); // W2-P5 S-T.1 (E3 section E3.6): probe only
+			turnGhostEnded(it->second, "natural", nowMs); // probe only
 			g_ghostCompleted.fetch_add(1);
 			it = g_coopGhosts.erase(it);
 		}
@@ -26871,13 +26845,13 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 		}
 	}
 
-	// after the SPEC 7 loop - a shot held on its turn ghost goes on the
+	// after the ghost-stepper loop - a shot held on its turn ghost goes on the
 	// Map in the frame that turn ghost ended.
 	combatReleaseHeld(save, nowMs);
 
-	// W2-P5 S-A.2 (Q5 = a): while ANY ghost is live (this frame included) the Map redraws every frame - a
-	// thin client's Map otherwise redraws only on its 100 ms animation timer or a camera move (N9).
-	if (stepperLive || combatLive || deathLive || fallLive) // W2-P6b S-D.2 / S-E6.2: death and fall ghosts too
+	// While ANY ghost is live (this frame included) the Map redraws every frame - a
+	// thin client's Map otherwise redraws only on its 100 ms animation timer or a camera move.
+	if (stepperLive || combatLive || deathLive || fallLive) // death and fall ghosts too
 	{
 		Map* map = combatLiveMap();
 		if (map)
@@ -26887,10 +26861,10 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 
 bool view(const BattleUnit* u, CoopUnitDrawView* io)
 {
-	// W2-P6b S-D.2 (section 8 D-h, OR6 (a)): a started death ghost of `u` draws first; SPEC 7 is untouched.
+	// A started death ghost of `u` draws first; the ghost stepper is untouched.
 	if (u && io && deathView(u, io))
 		return true;
-	// W2-P6b S-E6.2 (AMENDMENT P6-5 section 5 E-f'): then a started fall ghost of `u`, then SPEC 7.
+	// Then a started fall ghost of `u`, then the ghost stepper.
 	if (u && io && fallView(u, io))
 		return true;
 	if (!u || !io || g_coopGhosts.empty())
@@ -26916,7 +26890,7 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 	if (g.kind == "turn")
 	{
 		// the pose helper advance()'s dirsShown / poseShown probe shares (the
-		// same arithmetic this branch always ran); S-T.3 (Q5 (a)): it draws the turning pose.
+		// same arithmetic this branch always ran); it draws the turning pose.
 		turnPoseAt(g, elapsed, &io->direction, &io->status);
 		return true;
 	}
@@ -26965,7 +26939,7 @@ void reset()
 	g_ghostCompleted.store(0u);
 	g_ghostLast = GhostLast{};
 	// the combat probe storage is main-thread only - bump its generation,
-	// never touch it from here (this can run on the UDP-monitor thread, N15).
+	// never touch it from here (this can run on the UDP-monitor thread).
 	g_coopCombatGen.fetch_add(1u);
 }
 
@@ -26982,17 +26956,16 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 {
 	if (!save || !combatClient())
 		return;
-	// W2-P5 S-A.2 (spec (b)2, Q1 (b); OQ3: never gated by the option): a bt_action_end ends every running
-	// combat ghost before its delta applies. W2-P5 S-T.3 (E3.1 section 4 H3, OR1 (a)): a pending pair's turn
-	// ghost ends first.
+	// A bt_action_end ends every running combat ghost before its delta applies (never gated by the option); a
+	// pending pair's turn ghost ends first.
 	combatSync();
 	const std::uint32_t nowMs = SDL_GetTicks();
-	fallSeenProbe(save, ev, "bt_action_end", nowMs); // W2-P6b S-E.1 (section 9 `fall.seen`, T0b-4): probe only
+	fallSeenProbe(save, ev, "bt_action_end", nowMs); // probe only
 	combatEndPendingPairs(ev, "bt_action_end", nowMs);
 	combatEndAll(nowMs);
-	// W2-P6b S-D.2 (section 8 D-g, ST3 (a)): the chain's end ends every death ghost (never gated, OQ3).
+	// The chain's end ends every death ghost (never gated).
 	deathEndAll(nowMs, "action_end");
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K2): a followed reaction at this machine's order returns the camera.
+	// A followed reaction at this machine's order returns the camera.
 	cameraReactionRestore(ev);
 }
 
@@ -27094,8 +27067,8 @@ Json::Value displayTwoProbe()
 
 Json::Value cameraProbe()
 {
-	// W2-P6a S-C.1 (P6a pinned stage text (c)): THIS machine's camera as the live Map holds it (no live
-	// BattlescapeState: offset null, viewLevel -1, follow false), then the probe storage S-C.2 writes.
+	// THIS machine's camera as the live Map holds it (no live
+	// BattlescapeState: offset null, viewLevel -1, follow false), then the camera probe storage.
 	combatSync();
 	Json::Value o(Json::objectValue);
 	Map* live = combatLiveMap();
@@ -27134,7 +27107,7 @@ Json::Value cameraProbe()
 
 void noteCameraSuppressed(const char* what)
 {
-	// W2-P6a S-C.2 (P6a pinned stage text (c)1): the HOST's guard counters (probe storage only).
+	// The HOST's guard counters (probe storage only).
 	combatSync();
 	const std::string w = what ? what : "";
 	CameraSuppressedCounts& c = g_combatProbe.cameraSuppressed;
@@ -27152,7 +27125,7 @@ void noteCameraSuppressed(const char* what)
 
 void onSideStart(SavedBattleGame* save, const Json::Value& ev)
 {
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 K9; D171 (a)): vanilla's side-start centre on the selected unit
+	// Vanilla's side-start centre on the selected unit
 	// (BattlescapeGame::endTurn, playableUnitSelected()).
 	if (!save || !cameraClientOn())
 		return;
@@ -27166,7 +27139,7 @@ void onSideStart(SavedBattleGame* save, const Json::Value& ev)
 
 void noteOwnCamera(int actorId, const std::string& kind, const Position& cameraPosition)
 {
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"): this machine only, never on the wire.
+	// Own restore: this machine only, never on the wire.
 	if (!combatClient())
 		return;
 	combatSync();
@@ -27179,7 +27152,7 @@ void noteOwnCamera(int actorId, const std::string& kind, const Position& cameraP
 void onOwnCombatEnd(SavedBattleGame* save, const Json::Value& ev, int actorId, const std::string& kind,
 	bool multiWaypointLaunch)
 {
-	// W2-P6a S-C.2 (P6a pinned stage text (c)2 "own restore"; vanilla ProjectileFlyBState :634/:640-:642).
+	// Own restore (vanilla ProjectileFlyBState :634/:640-:642).
 	if (!save || !combatClient())
 		return;
 	combatSync();
@@ -27671,7 +27644,7 @@ void onApplied(const Json::Value& ev)
 	const int visibleBefore = g_coopClientPending.active
 		? CoopArbiter::visibleHostileCount() : 0;
 
-	// RW-REVEAL-SYNC (SS2.4a): the envelope-level `reveal` field rides bt_ev of
+	// The envelope-level `reveal` field rides bt_ev of
 	// ANY kind AND bt_action_end, so it is applied HERE - before the state
 	// branch below, whose bt_action_end arm returns early. Presence-gated: a
 	// no-op for every envelope that carries no reveal.
@@ -27926,7 +27899,7 @@ void onApplied(const Json::Value& ev)
 	}
 	else
 	{
-		Log(LOG_WARNING) << "[coop-apply] RW-UNSUPPORTED envelope state '" << state << "'";
+		Log(LOG_WARNING) << "[coop-apply] UNSUPPORTED envelope state '" << state << "'";
 		return;
 	}
 
@@ -30742,7 +30715,7 @@ static PendingHost g_pendingHost;
 // legitimately empty the stack down to zero (and what it does about that).
 static void coopUnwindToSafeState(Game* game)
 {
-	// RW-TRIAGE finding (this packet's corrupt-blob acceptance run): the
+	// The
 	// skirmish path's OWN vanilla popState() pair (NewBattleState::
 	// btnOkClick, unmodified) already discards everything below
 	// BriefingState before pushing it - so BriefingState is BOTH the bottom
@@ -31276,8 +31249,8 @@ bool freezePreBattleEquip(Game* game)
 
 	Log(LOG_INFO) << "[coop-handshake] W1-P4: pre-battle equip FROZEN (WV-D34) - "
 		"InventoryState push SKIPPED; BriefingState::btnOkClick calls "
-		"SavedBattleGame::startFirstTurn() itself instead (WV-D43), so the host does "
-		"not sit at turn 0 against the client's RW-FIX-TURN mirror";
+		"SavedBattleGame::startFirstTurn() itself instead, so the host does "
+		"not sit at turn 0 against the client's turn-counter mirror";
 
 	CoopBattleUi::showEquipFrozen();
 	return true;
@@ -31545,12 +31518,12 @@ void emitPreparedOffer(Game* game)
 	game->getSavedGame()->saveCoopToMemory("battlehost", game->getMod(), "battlehost");
 	CoopDelta::seed(battle); // the delta snapshot := the state the blob just froze
 
-	// RW-REVEAL-SYNC (SS2.4a): seed the published fog bitmap from the very state
+	// Seed the published fog bitmap from the very state
 	// the blob just froze, so the host's first `reveal` delta carries exactly
-	// what it discovered AFTER the client's copy was taken (the orchestrator's
-	// 2026-09-02 gap probe measured ~500 floors revealed between this line and
+	// what it discovered AFTER the client's copy was taken (a
+	// gap probe measured ~500 floors revealed between this line and
 	// the host's own battlescape bring-up - the standalone quiescent flush is
-	// load-bearing, not a nicety). Called EXPLICITLY rather than behind an
+	// required, not a nicety). Called EXPLICITLY rather than behind an
 	// isCoopBattle() guard: phase is still Handshake here, so isCoopBattle() is
 	// false at this point (BattleAuthority.h).
 	CoopReveal::seedPublished(battle);
@@ -32216,10 +32189,7 @@ static std::atomic<unsigned int> g_coopTurnMirrorFired{0};
 unsigned int coopTurnMirrorFired() { return g_coopTurnMirrorFired.load(); }
 
 /**
- * RW-FIX-TURN (owner-approved fix packet 2026-09-01, recorded in the docs
- * repo's spike-log "OWNER DECISION - saveBlob post-overlay divergence RCA";
- * outside the SS5 packet list, not an RB-D deviation): mirror the turn
- * counter that vanilla's host-only battle-start chain sets.
+ * Mirror the turn counter that vanilla's host-only battle-start chain sets.
  *
  * RCA: the host's pre-battle equip screen (InventoryState::btnOkClick,
  * InventoryState.cpp:1174 - or BriefingState.cpp:290 on the preview path)
@@ -32278,9 +32248,9 @@ static void coopClientMirrorFirstTurnCounter(SavedBattleGame* battle)
 	// resetUnitTiles(), the per-unit prepareNewTurn(), newTurnUpdateScripts())
 	// ran before this snapshot was taken, so the item positions are NOT what
 	// the client's `items`/`saveBlob` buckets assume.
-	Log(LOG_ERROR) << "[coop-handshake] WV-D56 TRIPWIRE: the loaded blob carries turn 0 - "
+	Log(LOG_ERROR) << "[coop-handshake] TRIPWIRE: the loaded blob carries turn 0 - "
 		"the host's snapshot was taken BEFORE startFirstTurn(). "
-		"RW-FIX-TURN is compensating, but the item positions are NOT.";
+		"The turn-counter mirror is compensating, but the item positions are NOT.";
 	g_coopTurnMirrorFired.fetch_add(1);
 	battle->setTurn(1);
 }
@@ -32360,7 +32330,7 @@ void onBlobChunkAppended(Game* game)
 	if (!game || !g_pendingClient.awaitingBlob)
 		return;
 
-	// RW-TRIAGE finding (this packet's first harness run): the legacy
+	// The legacy
 	// map_result_data/getline carrier drops the source blob's trailing
 	// newline on reconstruction - std::getline() splits on '\n' and discards
 	// it, and the sender's rejoin loop (loopData()'s sendFileClient branch)
@@ -32576,7 +32546,7 @@ void onBlobChunkAppended(Game* game)
 	// relinked.
 	battle->loadMapResources(game->getMod());
 
-	// RW-FIX (spike): compute the saveBlob AFTER loadMapResources. The save-loop
+	// Compute the saveBlob AFTER loadMapResources. The save-loop
 	// skip predicate Tile::isVoid() (SavedBattleGame::save) tests the _objects[]
 	// MapData pointers, which loadMapResources() relinks from the loaded
 	// mdID/mdsID indices; hashing before the relink counts every tile as void
@@ -32741,7 +32711,7 @@ void onBlobChunkAppended(Game* game)
 		game->getCoopMod()->sendTCPPacketData(ack.toStyledString());
 	}
 
-	// RW-FIX-TURN: LAST statement of the client handshake, strictly after the
+	// The turn-counter mirror: LAST statement of the client handshake, strictly after the
 	// battle_ready hashes are computed AND sent - see the function's own doc
 	// comment above for the sequencing constraint this placement satisfies.
 	// skipped for an `equip` offer - its blob is at turn 0 by design, turn 1 arrives with the
@@ -34444,12 +34414,12 @@ void verify(const Json::Value& evOrEnd)
 		if (expect == got)
 			continue;
 
-		// SS2.8 hard-fail: freeze, report, NO partial repair - stop comparing
-		// (even other carried buckets) at the FIRST mismatch. RW-REVEAL-SYNC
-		// moved the freeze/report/bundle/banner body itself into the file-local
-		// coopRaiseBattleDesync() helper (near CoopReveal) so the SS2.4a reveal
+		// Hard-fail: freeze, report, NO partial repair - stop comparing
+		// (even other carried buckets) at the FIRST mismatch. The
+		// freeze/report/bundle/banner body itself lives in the file-local
+		// coopRaiseBattleDesync() helper (near CoopReveal) so the reveal
 		// `base` n-mismatch raises the IDENTICAL desync; the desyncFrozen latch
-		// (and the lost-race early return) lives inside it now.
+		// (and the lost-race early return) lives inside it.
 		const std::uint32_t seq = evOrEnd.get("seq", 0u).asUInt();
 		const std::string kind = evOrEnd.get("kind", evOrEnd.get("state", "?")).asString();
 		coopRaiseBattleDesync(bucketName.c_str(), expect, got, seq, kind);
@@ -37475,7 +37445,7 @@ void connectionTCP::updateCoopTask()
 		CoopPump::drainApplyQueue();
 	}
 
-	// RW-REVEAL-SYNC (SS2.4a): the HOST's standalone quiescent reveal flush.
+	// The HOST's standalone quiescent reveal flush.
 	// Self-guarded (host sim + phase Active + no open action context + quiescent
 	// BState chain + something actually unpublished), so this stays a single
 	// unconditional call at RB-D5's own pump point - the same tick that already

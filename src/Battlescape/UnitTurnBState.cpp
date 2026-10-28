@@ -79,8 +79,8 @@ void UnitTurnBState::init()
 			// try to open a door
 			// W1-P10 (SS4 "ATOM door"): ONE guarded coop call REPLACING the
 			// `unitOpensDoor(...)` sub-expression - THE right-click door path
-			// SS2.4 reserved a `door` field on the turn ev for and never
-			// applied ("RW-UNSUPPORTED door-in-turn"). The terrain now rides
+			// the turn ev keeps a reserved `door` field for and never
+			// applies ("UNSUPPORTED door-in-turn"). The terrain now rides
 			// its own `ev door` from inside here, so that fallback is retired
 			// for this path (CoopDoor.h). Vanilla's own default `dir` for this
 			// call is -1 ("use the unit's facing", TileEngine.cpp:4095).

@@ -99,9 +99,8 @@ class Ufo;
  * cutscene/music suppressed and every host-sim branch of btnOkClick gated off
  * by _infoOnly. The client's state stack is never left empty (the unwind
  * helper is bounded and pushes a MainMenuState rather than return empty).
- * Finally, answer with battle_ready - whose timing, and the RW-FIX-TURN
- * counter mirror that is the LAST statement of the handshake, W1-P3
- * deliberately did not move.
+ * Finally, answer with battle_ready; the client's turn-counter mirror
+ * stays the LAST statement of the handshake.
  *
  * Bodies live in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
  * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding
@@ -382,7 +381,7 @@ bool mayReopenBriefing(Game* game);
 /// `_turn = 1`, randomizeItemLocations(), resetUnitTiles(), the per-unit
 /// prepareNewTurn(false) and newTurnUpdateScripts() happen
 /// (SavedBattleGame.cpp:1230-1260). A freeze without that replacement leaves the
-/// host at turn 0 against the client's RW-FIX-TURN mirror
+/// host at turn 0 against the client's turn-counter mirror
 /// (coopClientMirrorFirstTurnCounter(), connectionTCP.cpp) and resurrects the
 /// divergence class that fix closed. This function does NOT call it itself: the
 /// vanilla site mirrors the preview branch literally, so the two skip paths read
@@ -517,10 +516,10 @@ void requestOmitTurnMode(bool on);
 /// selection change can never author fog.
 void selectOwnUnitAtEntry(Game* game);
 
-/// WV-D56 test/introspection: how many times coopClientMirrorFirstTurnCounter()
-/// (connectionTCP.cpp, the former RW-FIX-TURN client counter) has fired its
+/// Test/introspection: how many times coopClientMirrorFirstTurnCounter()
+/// (connectionTCP.cpp, the client's turn-counter mirror) has fired its
 /// TRIPWIRE branch - i.e. found a loaded blob still carrying `turn == 0`. Under
-/// FX-1's normal sequencing (snapshot taken AFTER startFirstTurn()) this stays
+/// the normal sequencing (snapshot taken AFTER startFirstTurn()) this stays
 /// ZERO forever; a non-zero value means the host's snapshot was taken before
 /// startFirstTurn() ran, so item positions are NOT what the client's `items`/
 /// `saveBlob` buckets assume. Exposed through event_state as `turnMirrorFired`

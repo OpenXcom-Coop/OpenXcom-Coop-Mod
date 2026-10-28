@@ -157,8 +157,8 @@ def run_mode(mode, test_ports, coop_port):
         assert offer_lines, "host log missing 'battle_offer sent' line"
         assert accept_lines, "host log missing 'battle_accept received' line"
         assert client_active_lines, "client log missing 'CLIENT phase Active' line"
-        # SOFT GATE (RW-TODO(R2-P9)): onReady() proceeds to phase Active whether
-        # the raw saveBlob matched or (as is normal pre-R2-P9) differed on
+        # SOFT GATE: onReady() proceeds to phase Active whether
+        # the raw saveBlob matched or differed on
         # machine-local FOV/discovered state - see test_handshake.py's
         # docstring for the full trace. Only require ONE of the two outcome
         # lines to prove onReady() ran to completion.

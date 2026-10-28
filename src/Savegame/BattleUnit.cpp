@@ -4855,7 +4855,7 @@ void BattleUnit::coopSetFireAbsolute(int fire)
 }
 
 /**
- * W1-P13a (RW-FIX-TURRET discipline): absolute BODY direction set for the
+ * Absolute BODY direction set for the
  * `side_transition` restate applier - writes _direction/_toDirection ONLY,
  * the mirror image of setTurretDirection() above. setDirection() also writes
  * _directionTurret/_toDirectionTurret (serialized, NOT saveBlob-excluded);

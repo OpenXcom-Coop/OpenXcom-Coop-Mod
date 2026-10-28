@@ -728,12 +728,11 @@ bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out);
 /// @a battle exactly as a save would (SavedBattleGame::save, in memory,
 /// never disk), re-parses the emitted YAML and FNV-1a hashes the node tree
 /// with a short exclusion list applied by node path (legacy kills/exp*/
-/// tempUnitStatistics, the D4 per-unit FOV fields visible/turnsSinceSpotted*,
-/// and the R2-P10 cr1-field-audit.md SS2.6 23-item delta). RW-REVEAL-SYNC
-/// (SS2.4a): the per-tile FOW "discovered" carve-out that used to mask the
-/// packed binTiles blob is GONE - revealed tiles are host-authored, wire-synced
-/// game state now (CoopReveal.h), so this hash VERIFIES them. Returns false
-/// (and zeroes @a out) when @a battle is null. W2-P2 S-H (Q-H6): when
+/// tempUnitStatistics, the per-unit FOV fields visible/turnsSinceSpotted*,
+/// and 23 more excluded fields). The per-tile FOW "discovered" bits inside the
+/// packed binTiles blob are NOT excluded: revealed tiles are host-authored,
+/// wire-synced game state (CoopReveal.h), so this hash VERIFIES them. Returns false
+/// (and zeroes @a out) when @a battle is null. When
 /// @a yamlOut is given it receives the emitted battle document the hash was
 /// taken over (the desync diagnostics' text; unchanged hash).
 bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut = nullptr);

@@ -55,8 +55,8 @@ WHAT THIS ASSERTS.
      OWN stored _palette, which a briefing round trip never touches - asserting
      on those alone would be VACUOUS for this trap, so W1-P3 added the additive
      `screen` object (base resolution + live screen palette) this test uses.
-  7. W2-P8b S-H re-point: the offer is snapshotted at turn 0
-     and the RW-FIX-TURN counter mirror is skipped for it, so the client's
+  7. The offer is snapshotted at turn 0
+     and the client's turn-counter mirror is skipped for it, so the client's
      briefing shows turn 0 and the host's pre-battle equip screen too; turn is
      1 on BOTH machines once both seats are ready.
 
@@ -247,12 +247,12 @@ def main():
 
         # === 7. the turn-0 offer (W2-P8b S-H re-point, chain rule A.10) ======
         # The offer is snapshotted at turn 0 and carries `equip`, so the client's
-        # RW-FIX-TURN counter mirror is skipped (b2, F2748): its briefing shows
+        # turn-counter mirror is skipped: its briefing shows
         # turn 0, and turn 1 arrives with the equip-end `sync` after both seats
         # are ready (asserted after equip_both_ready below).
         assert cb.get("turn") == 0, (
             f"client battle_state.turn == {cb.get('turn')} under its entry briefing, expected "
-            "0 - the turn-0 offer (W2-P8b b1) or the skipped RW-FIX-TURN mirror (b2) moved")
+            "0 - the turn-0 offer or the skipped turn-counter mirror moved")
         print("PASS 7: client turn == 0 under its entry briefing (the turn-0 offer; "
               "turn 1 waits for both seats' ready)")
 

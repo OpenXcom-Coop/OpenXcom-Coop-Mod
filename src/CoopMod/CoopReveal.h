@@ -29,7 +29,7 @@ namespace OpenXcom
 class SavedBattleGame;
 
 /**
- * RW-REVEAL-SYNC (rewrite spike, SPIKE-RUNBOOK.md SS2.4a): per-tile "discovered"
+ * Fog-of-war sync: per-tile "discovered"
  * (fog-of-war) bits are GAME STATE, authored EXCLUSIVELY by the host and shipped
  * to every client as presence-gated `reveal` deltas riding the existing
  * host->client envelopes (bt_ev of any kind, bt_action_end), plus a standalone

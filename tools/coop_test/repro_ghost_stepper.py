@@ -2,7 +2,7 @@
 GHOST STEPPER - a partner's turn/kneel/walk ANIMATES on the observing machine
 instead of snapping, display-only, without moving a single hash bucket.
 
-FIXTURE (SPEC RW-S4 REV E.47, owner D36 2026-09-09 - REWRITTEN from scratch on
+FIXTURE (built on
 the LIGHTNING-CRAFT ROOF: self-contained, deterministic, map-independent, no
 search, no SKIP). The player's Lightning craft has a flat roof except a raised
 portion at the very centre. Each fresh actor is teleported (battle_teleport_unit,
@@ -49,7 +49,7 @@ SESSION SHAPE (two boots, in this order):
 
 Exit codes: 0 PASS - 2 FAIL (a red, including a broken fixture premise). There
 is NO exit-3 SKIP - the roof fixture always provides the lane, and a missing
-lane is a RED, not a skip (SPEC RW-S4 REV E.47, WV-D100).
+lane is a RED, not a skip.
 
 Run:  python tools/coop_test/repro_ghost_stepper.py
 """
@@ -69,7 +69,7 @@ EXIT_PASS, EXIT_FAIL = 0, 2
 
 COOP_SEAT_0 = 0
 
-# SPEC RW-S4 REV E.47: the Lightning craft roof, located each run from the craft's
+# The Lightning craft roof, located each run from the craft's
 # own LIGHTNIN door (map-independent; only the craft's placement offset varies).
 # Measured by orch38 R1 on three boots (door at y=25 / y=5 / y=15) - identical
 # door-relative craft-roof geometry, hash_now{full} EQUAL on both machines after
@@ -173,7 +173,7 @@ def do_kneel(host, client, actor_id):
     return unit_of(host, actor_id), unit_of(client, actor_id)
 
 
-# ----- roof fixture (SPEC RW-S4 REV E.47) ---------------------------------
+# ----- roof fixture -------------------------------------------------------
 
 def bring_up_roof_battle(seat_count, tag, pre_ok=None):
     """Boot the two-instance skirmish on the Lightning, corner-place hostiles/
@@ -276,7 +276,7 @@ def lane_dest(host, actor_id, n):
 
 def walk_lane(host, client, actor_id, what, n, require_unhalted=True):
     """ONE send_walk to lane_dest(n); no iseq => a RED naming the premise. Same
-    (hw, cw) shape every GS phase's assertions expect (mirrors the RW-S4
+    (hw, cw) shape every GS phase's assertions expect (mirrors
     repro_atom_walk.walk_lane)."""
     dest = lane_dest(host, actor_id, n)
     prev = session.walk_action_id(host)
@@ -538,7 +538,7 @@ def test_ghost_verbs_e2e():
         # SAME baked roof lane in turn and parked on a separate row once done
         # (teleport_to_lane/park's own doc comments) - the lane is always
         # clear at the start of each phase, so there is no search, no retry,
-        # no reroll (SPEC RW-S4 REV E.47).
+        # no reroll.
         teleport_to_lane(host, client, client_ids[0], door)
         off_es = negative_control(host, client, client_ids[0])
         park(host, client, client_ids[0], door, 0)
@@ -680,7 +680,7 @@ def main():
 
 if __name__ == "__main__":
     # Exit-code convention: 0 PASS, 2 FAIL (a red, including a broken fixture
-    # premise). There is NO exit-3 SKIP (SPEC RW-S4 REV E.47, WV-D100) - the
+    # premise). There is NO exit-3 SKIP - the
     # roof fixture always provides the lane, so a broken premise is a red
     # naming it, never a skip.
     try:

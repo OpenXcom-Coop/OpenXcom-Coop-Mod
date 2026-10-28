@@ -44,7 +44,7 @@ REQUIRES, and where each requirement is asserted below:
            walks, plus `reveal_state` per-part parity unchanged (the client
            never authored fog - SS2.4a's client-authority rule).
 
-FIXTURE (PINNED, not searched — SPEC RW-S4, owner S4=(b) + WV-D99 one run / WV-D100 no SKIP):
+FIXTURE (PINNED, not searched — one run, no SKIP):
 every run of this file is the SAME run. bring_up_pinned_battle() boots the two-instance skirmish
 fixture, set_seed(SEED) on the host right before newbattle_ok, asserts mapFingerprint == FINGERPRINT
 (a RED naming the premise if not), applies the WV-D88 corner placement (hostiles -> the corner
@@ -134,7 +134,7 @@ WALK_DOOR_RADIUS = WALK_RUN + 2
 # any point along the path. The margin here only guarantees room to manoeuvre.
 WALK_CONTACT_MARGIN = 4
 
-# SPEC RW-S4: pinned seed + baked FORMATION (no runtime search). Regenerate with
+# Pinned seed + baked FORMATION (no runtime search). Regenerate with
 #   python tools/coop_test/precalc_walk_fixture.py --seeds 40 --lane-len 11 --spacing 2
 SEED = 1
 FINGERPRINT = -4.48310638993e+18
@@ -247,7 +247,7 @@ def bring_up_lobby(host, client, port):
 
 
 def bring_up_pinned_battle():
-    """SPEC RW-S4: boot the two-instance skirmish fixture on the PINNED seed,
+    """Boot the two-instance skirmish fixture on the PINNED seed,
     assert the map fingerprint, apply the WV-D88 corner placement, then
     teleport the seven player soldiers onto the baked FORMATION."""
     port = str(48436 + 1)
@@ -285,7 +285,7 @@ def bring_up_pinned_battle():
             moves.append({"lever": "battle_teleport_all", "faction": "neutral",
                           "corner": opp, "facing": session._CORNER_FACING[opp]})
         if moves:
-            session.place_deterministic(host, client, moves, what="RW-S4 corner placement")
+            session.place_deterministic(host, client, moves, what="corner placement")
 
         # SLOT -> UNIT MAPPING. slots 0-4 = the client soldiers in seat order;
         # slots 5-6 = the first two live host seat-0 player soldiers by id.
@@ -311,7 +311,7 @@ def bring_up_pinned_battle():
         moves = [{"lever": "battle_teleport_unit", "unit": slot_unit[s],
                   "x": FORMATION[s][0], "y": FORMATION[s][1], "z": Z, "dir": 2}
                  for s in range(7)]
-        session.place_deterministic(host, client, moves, what="RW-S4 FORMATION")
+        session.place_deterministic(host, client, moves, what="FORMATION")
         for s in range(7):
             u = unit_of(host, slot_unit[s])
             assert (u["x"], u["y"], u["z"]) == (FORMATION[s][0], FORMATION[s][1], Z), (
@@ -330,7 +330,7 @@ def bring_up_pinned_battle():
 
 def lane_dest(host, unit_id, n):
     """The unit's CURRENT position + n*D (pure arithmetic, no scan). Asserts it
-    lies within the unit's lane (SPEC RW-S4 (d)3)."""
+    lies within the unit's lane ."""
     u = unit_of(host, unit_id)
     assert abs(n) <= LANE_LEN, (
         f"lane_dest: n={n} exceeds LANE_LEN={LANE_LEN} for unit {unit_id}")

@@ -1,4 +1,4 @@
-"""RW-REVEAL-SYNC (rewrite spike, SPIKE-RUNBOOK.md SS2.4a): fog of war is GAME
+"""Fog of war is GAME
 STATE - the dedicated repro.
 
 Revealed tiles used to be treated as presentation: each machine computed its own
@@ -673,8 +673,8 @@ def run_drop(host, client, actor, soldier_ids):
         "the host's own saveBlob did not move at all, so the pre/post comparison above "
         "cannot be attributed to the dropped reveal")
     print(f"PASS drop: the UNMASKED saveBlob bucket caught it (host={hh['saveBlob']} "
-          f"client={ch['saveBlob']}) and every other bucket stayed EQUAL - before "
-          "RW-REVEAL-SYNC this exact divergence hashed clean 8/8")
+          f"client={ch['saveBlob']}) and every other bucket stayed EQUAL - with the "
+          "fog bits masked out, this exact divergence hashed clean 8/8")
 
 
 def run_badn(host, client, actor, soldier_ids):
@@ -1119,7 +1119,7 @@ def main():
     test_reveal_sp_smoke()
     instance_b()
     instance_c()
-    print("ALL RW-REVEAL-SYNC TESTS PASSED")
+    print("ALL REVEAL SYNC TESTS PASSED")
 
 
 if __name__ == "__main__":

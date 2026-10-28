@@ -62,16 +62,15 @@ namespace CoopApply
 {
 
 /// Applies one in-order bt_ev's payload to the unit it names
-/// (payload["unit"], resolved via CoopIdMaps::unit() - RB-D7). Handles
+/// (payload["unit"], resolved via CoopIdMaps::unit()). Handles
 /// kind "turn" (body facing from toDir unless turretOnly, turret facing
-/// ALWAYS and ONLY from turretTo - RW-FIX-TURRET, see the body's own
+/// ALWAYS and ONLY from turretTo - see the body's own
 /// setBodyDirectionKeepTurret() comment - plus tuAfter) and kind "kneel"
-/// (kneeled, tuAfter) per SS2.4; any other kind (including inject_ev's
-/// RB-D32 test payloads, e.g. "spot") is a state-no-op, logged
-/// "RW-UNSUPPORTED <kind>" - the RB-D32 corollary this is legal under. A
+/// (kneeled, tuAfter); any other kind (including inject_ev's
+/// test payloads, e.g. "spot") is a state-no-op, logged
+/// "UNSUPPORTED <kind>" - legal because those test payloads carry no state. A
 /// "turn" payload's optional "door" field is likewise never applied
-/// (logged "RW-UNSUPPORTED door-in-turn") - SS2.4: spike fixtures are
-/// door-free by construction, terrain apply is the door atom's
+/// (logged "UNSUPPORTED door-in-turn"): terrain apply is the door atom's
 /// job. No-op (logs) if @a save is null, the payload carries no "unit", or
 /// the named unit does not resolve on this machine.
 void applyEvPayload(SavedBattleGame* save, const Json::Value& ev);

@@ -1223,7 +1223,7 @@ def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, conta
 
 
 def assert_turret_parity(host, client, what="", unit_ids=None):
-    """RW-FIX-TURRET: `battle_state`'s per-unit `directionTurret` must read
+    """`battle_state`'s per-unit `directionTurret` must read
     the SAME on both machines for every unit they share (or just `unit_ids`).
 
     Why this needs its own assert instead of riding a bucket: the field is
@@ -1256,18 +1256,18 @@ def assert_turret_parity(host, client, what="", unit_ids=None):
     missing = [i for i in ids if "directionTurret" not in hu[i] or "directionTurret" not in cu[i]]
     assert not missing, (
         f"battle_state units {missing} carry no 'directionTurret' field{tag} - "
-        "the exe predates the RW-FIX-TURRET TestServer addition (stale build?)")
+        "the exe predates the TestServer's directionTurret field (stale build?)")
     bad = {i: (hu[i]["directionTurret"], cu[i]["directionTurret"])
            for i in ids if hu[i]["directionTurret"] != cu[i]["directionTurret"]}
     assert not bad, (
         f"directionTurret MISMATCH{tag}: {len(bad)}/{len(ids)} unit(s) differ, "
         f"(host, client) = {bad} - the client applier dragged the turret along "
-        "with the body facing again (RW-FIX-TURRET)")
+        "with the body facing again")
     return len(ids)
 
 
 def assert_reveal_parity(host, client, what="", samples=24, extra_positions=()):
-    """RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a): the two machines' per-tile
+    """The two machines' per-tile
     fog of war must be IDENTICAL - the host is the sole author of `discovered`
     bits and a thin client never computes tile FOV of its own
     (TileEngine::calculateTilesInFOV is suppressed on hostSim==false).
@@ -1799,7 +1799,7 @@ def dir_between(a, b):
     return None
 
 
-# ===== SPEC RW-S4: shared walk search helpers, moved from
+# ===== shared walk search helpers, moved from
 # repro_atom_walk.py =====
 # The rewrite (commit 2) deleted repro_atom_walk's search helpers, but the
 # family is de-facto shared. Bodies are VERBATIM from dfb40b88a's

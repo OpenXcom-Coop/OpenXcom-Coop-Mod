@@ -290,8 +290,8 @@ def banner_of(gc):
 
 def settle_emits(host, client, timeout=30):
     """Waits until the HOST has nothing left to emit and the client has caught
-    up. Load-bearing before reading a `lastSeqEmitted` baseline: RW-REVEAL-SYNC's
-    quiescent flush (CoopReveal::flushQuiescent, at the RB-D5 pump point) can
+    up. Load-bearing before reading a `lastSeqEmitted` baseline: the reveal sync's
+    quiescent flush (CoopReveal::flushQuiescent, at the updateCoopTask() pump point) can
     emit a standalone `ev reveal` a tick or two AFTER an action settles, and a
     blocker ordered in that window would start against the previous action's
     leftovers."""
@@ -721,11 +721,11 @@ def make_pending(host, client, blocker, actor_b):
 
 
 def inject_spot(host, client):
-    """RB-D32 HOST lever: a synthetic bt_ev{kind:"spot"} through the real
-    CoopEmit::sendEv path with the real next seq. RB-D32's own corollary makes
-    it legal - the spike CLIENT applies an unknown ev kind as a state-no-op
-    (seq consumed, RW-UNSUPPORTED logged) precisely because inject_ev's spike
-    payloads are state-less - and the cancel policy is still evaluated for it,
+    """HOST lever: a synthetic bt_ev{kind:"spot"} through the real
+    CoopEmit::sendEv path with the real next seq. It is legal because the
+    CLIENT applies an unknown ev kind as a state-no-op (seq consumed,
+    UNSUPPORTED logged): inject_ev's test payloads are state-less. The
+    cancel policy is still evaluated for it,
     which is exactly what this exercises."""
     before = event_state(client).get("lastSeqApplied", 0)
     resp = host.ok({"cmd": "inject_ev", "kind": "spot"})

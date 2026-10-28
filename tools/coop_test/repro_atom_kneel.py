@@ -306,7 +306,7 @@ def run_ui_variant(host, client, actor_id, was_kneeled):
     assert client_unit["tu"] < before_tu, "client TU did not decrease after the faithful-UI kneel"
 
     assert_hash_clean(host, client, buckets=["unitsStats"], what="post-UI-variant")
-    # RW-REVEAL-SYNC (SS2.4a): kneeling changes the unit's eye height, so it can
+    # Kneeling changes the unit's eye height, so it can
     # discover (or stop being able to see) tiles - whatever the HOST discovered
     # must have ridden this action's own ev/action_end.
     assert_reveal_parity(host, client, "post-UI-variant",
@@ -473,7 +473,7 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
 def test_atom_kneel_e2e():
     host, client, actor, soldier_ids = bring_up_qualifying_battle(seat_count=2, tag="kneel_e2e")
     try:
-        # RW-REVEAL-SYNC (SS2.4a): the host's bring-up reveals must already be on
+        # The host's bring-up reveals must already be on
         # the client before the first action runs. Probed BEFORE battle_t0:
         # assert_reveal_parity makes dozens of tile_info round trips and is TEST
         # INSTRUMENTATION, not pipeline latency - counting it against the 5s
@@ -521,7 +521,7 @@ def test_atom_kneel_e2e():
             f"mapDiscoveredFloor differs after the e2e kneel: "
             f"host={host_state.get('mapDiscoveredFloor')} "
             f"client={client_state.get('mapDiscoveredFloor')} - a reveal delta this kneel's ev "
-            "should have carried (RW-REVEAL-SYNC SS2.4a) did not land")
+            "should have carried did not land")
         assert_events(client, ["kneel", "bt_action_end"])
 
         elapsed = time.time() - battle_t0
@@ -530,7 +530,7 @@ def test_atom_kneel_e2e():
               f"machines, hash-clean, battle-phase wall-clock={elapsed:.2f}s")
         assert elapsed < 5.0, f"battle-phase wall-clock {elapsed:.2f}s exceeds the 5s target"
 
-        # RW-REVEAL-SYNC per-tile check for the kneel just measured - deliberately
+        # Per-tile fog check for the kneel just measured - deliberately
         # AFTER the latency gate, same instrumentation-vs-latency reason as the
         # pre-action probe (the cheap mapDiscoveredFloor equality inside the
         # window already caught a missing delta).
@@ -567,7 +567,7 @@ def test_atom_kneel_e2e():
         actor_b = next(u for u in client_state_now["units"] if u.get("soldierId") == soldier_ids[1])
         run_burst_drain_proof(host, client, actor_id, actor_b["id"])
 
-        # --- RW-FIX-TURRET: FULL 8-bucket equality AFTER every action above
+        # --- FULL 8-bucket equality AFTER every action above
         # (the G5 item-5 shape). This scope is NEW here - R3-P2 only ever
         # compared the single `unitsStats` bucket per action - and it is worth
         # having on this file specifically because run_burst_drain_proof()
@@ -580,7 +580,7 @@ def test_atom_kneel_e2e():
         # host/client selections deliberately on different units - `selectedUnit`
         # is a top-level saveBlob exclusion (saveBlobExcludedTopKey,
         # SharedEcon.cpp), so that does not weaken the compare.
-        # RW-REVEAL-SYNC: the same 8 buckets are now a STRICTLY stronger claim -
+        # The same 8 buckets are now a STRICTLY stronger claim -
         # saveBlobMaskFowBinTiles is gone, so the per-tile `discovered` bits are
         # inside saveBlob rather than carved out of it. assert_reveal_parity
         # additionally covers what the hash still cannot see (void tiles, which

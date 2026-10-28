@@ -1565,7 +1565,7 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 		unit->clearVisibleTiles();
 		return;
 	}
-	// RW-REVEAL-SYNC (SPIKE-RUNBOOK.md SS2.4a client authority rule): per-tile
+	// Client authority rule for fog of war: per-tile
 	// `discovered` bits are GAME STATE authored EXCLUSIVELY by the host and
 	// shipped as `reveal` deltas - a thin client must never compute them, or its
 	// own sweeps would race the wire and diverge the (now unmasked) saveBlob

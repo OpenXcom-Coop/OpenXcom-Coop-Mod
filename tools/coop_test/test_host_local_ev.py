@@ -113,7 +113,7 @@ def wait_top(gc, state):
 def ctx_fails(kind, actor, want_evs, want_p, seq0, new, hev, cev, eh, ec, clog):
     """The host-context cell: exactly one new {host, kind, actor} context (endSeq > 0, hasFinal true), its evs
     exactly `want_evs`, lastCue {kind, its actionId, want_p} on the host and the same kind at that seq on the client,
-    the client applied the host's seqs, no RW-UNSUPPORTED / "has no known actor" client line."""
+    the client applied the host's seqs, no UNSUPPORTED / "has no known actor" client line."""
     f, ctx = [], mine(new, "host", kind, actor)
     if len(new) != 1 or len(ctx) != 1:
         f.append(f"new host closedContexts {new} (want exactly one {{origin host, kind {kind}, actorId {actor}}})")
@@ -133,7 +133,7 @@ def ctx_fails(kind, actor, want_evs, want_p, seq0, new, hev, cev, eh, ec, clog):
         cue_seq, clc = next((e["seq"] for e in mine_evs if e["kind"] == kind), None), ec.get("lastCue") or {}
         if clc.get("kind") != kind or clc.get("seq") != cue_seq:
             f.append(f"client lastCue {clc} (want kind {kind} at seq {cue_seq})")
-    bad = [ln for ln in clog if "RW-UNSUPPORTED" in ln or "has no known actor" in ln]
+    bad = [ln for ln in clog if "UNSUPPORTED" in ln or "has no known actor" in ln]
     if bad:
         f.append(f"client log since the press: {bad[:3]}")
     return f
