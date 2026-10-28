@@ -309,6 +309,11 @@ private:
 	void setCoopPlayers(const std::vector<std::string> &players)
 	{
 		_coopPlayers = players;
+		// Player profiles and wallets are the one-world Separate model only;
+		// SHARED and PvP keep main's single wallet (PR #213 F3).
+		if (!isSeparateCoopCampaign())
+			return;
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
 		_separateCampaign.ensurePlayers(_coopPlayers);
 		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	}

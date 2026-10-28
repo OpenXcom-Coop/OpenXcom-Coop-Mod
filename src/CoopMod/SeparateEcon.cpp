@@ -1064,6 +1064,36 @@ void CampaignData::addMissionMarker(const std::string& playerName, const std::st
 	if (!playerName.empty() && !name.empty()) ++_players[playerName].missionMarkers[name];
 }
 
+void CampaignData::reconcilePlayerNames(const std::vector<std::string>& roster)
+{
+	std::vector<std::string> stale;
+	for (const auto& entry : _players)
+		if (std::find(roster.begin(), roster.end(), entry.first) == roster.end())
+			stale.push_back(entry.first);
+	std::vector<std::string> missing;
+	for (const auto& name : roster)
+		if (!name.empty() && _players.find(name) == _players.end())
+			missing.push_back(name);
+	if (stale.empty() || missing.empty())
+		return;
+	if (stale.size() != 1 || missing.size() != 1)
+	{
+		Log(LOG_WARNING) << "[separate] " << stale.size() << " profile name(s) are not in the "
+			<< "roster and " << missing.size() << " roster name(s) have no profile; "
+			<< "no unambiguous mapping, profiles left unchanged";
+		return;
+	}
+	const std::string& from = stale.front();
+	const std::string& to = missing.front();
+	_players[to] = _players[from];
+	_players.erase(from);
+	for (std::string& owner : _pendingFactionRechecks)
+		if (owner == from) owner = to;
+	if (_pendingFactionFinaleOwner == from)
+		_pendingFactionFinaleOwner = to;
+	Log(LOG_INFO) << "[separate] profile '" << from << "' now belongs to roster name '" << to << "'";
+}
+
 void CampaignData::ensurePlayers(const std::vector<std::string>& playerNames)
 {
 	for (const auto& name : playerNames)

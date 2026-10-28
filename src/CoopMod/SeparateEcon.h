@@ -57,6 +57,11 @@ public:
 	void load(const YAML::YamlNodeReader& reader);
 	void save(YAML::YamlNodeWriter writer) const;
 	void ensurePlayers(const std::vector<std::string>& playerNames);
+	/// Map profiles saved under a name the roster no longer carries onto the
+	/// roster name that has no profile yet, so profile names always equal
+	/// roster names (PR #213 F23). Only an unambiguous one-to-one match is
+	/// renamed; anything else is logged and left as it is.
+	void reconcilePlayerNames(const std::vector<std::string>& roster);
 	void ensurePlayerFunds(const std::vector<std::string>& playerNames,
 		const std::vector<int64_t>& legacyFunds);
 	void ensureFactionScores(const std::vector<std::string>& playerNames,

@@ -6480,13 +6480,16 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	GameDifficulty missionDifficulty = save->getDifficulty();
 	if (_game->getCoopMod()->isSeparateCampaign())
 	{
-		// The host save is authoritative for Separate ownership.  A migrated save's
-		// persistent profile names can differ from the current lobby roster, so using
-		// the lobby list here can discard a valid pending faction owner.
+		// Owners are roster names: every consumer (event popups, mission access,
+		// arrivals) compares them with seatName(). Profiles are reconciled to the
+		// roster at load (CampaignData::reconcilePlayerNames), so a pending
+		// faction owner keeps its profile under the roster name (PR #213 F23).
 		std::vector<std::string> profileNames;
-		profileNames.reserve(initialSeparatePlayers.size());
-		for (const auto& player : initialSeparatePlayers)
-			profileNames.push_back(player.first);
+		for (const std::string& name : save->getCoopPlayers())
+			if (!name.empty() && initialSeparatePlayers.count(name) != 0)
+				profileNames.push_back(name);
+		// Same rotation order as the profile map the cursor was saved against.
+		std::sort(profileNames.begin(), profileNames.end());
 		const auto& pendingRechecks = save->getSeparateCampaign().getPendingFactionRechecks();
 		const std::string pendingOwner = pendingRechecks.empty()
 			? std::string() : pendingRechecks.front();
