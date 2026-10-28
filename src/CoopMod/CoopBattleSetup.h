@@ -34,10 +34,8 @@ class Vehicle;
 enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/RuleItem.h does
 
 /**
- * R5-P1 (rewrite spike, SPIKE-RUNBOOK.md RB-D23): the ONE generation-time
- * pass that sets canonical per-unit factions and RB-D17 seat tags, replacing
- * the RB-D18 interim seatMap (a wire-only {"0":"player","1":"player"}
- * placeholder that never touched a BattleUnit). Called once by
+ * The ONE generation-time pass that sets canonical per-unit factions and seat
+ * tags. Called once by
  * CoopHandshake::offerBattle() (connectionTCP.cpp) right after vanilla
  * BattlescapeGenerator::run() has produced @a save - the same
  * generation-complete moment every offerBattle() call site already reaches
@@ -45,21 +43,20 @@ enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/Ru
  * never calls this - it gets the real per-unit factions/seats over the wire
  * inside the streamed battle blob, and the real seat->faction store off the
  * battle_offer seatMap this pass produces (see connectionTCP.cpp). Body
- * lives in CoopState.cpp (existing .cpp, RB-D23 - no new .cpp in the spike).
+ * lives in CoopState.cpp.
  *
- * @a gamemode is connectionTCP::_coopGamemode (RB-D23's gamemode source):
+ * @a gamemode is connectionTCP::_coopGamemode :
  *
  *   0/1 (classic/SHARED) - every FACTION_PLAYER-original unit keeps
  *     FACTION_PLAYER; each one with a Soldier owner
  *     (BattleUnit::getGeoscapeSoldier()) is seat-tagged from that Soldier's
- *     OWN pre-generation Soldier::getCoop() ownership stamp (R4-P2's
+ *     OWN pre-generation Soldier::getCoop() ownership stamp (the
  *     Cydonia/base-defense callers, and the SHARED ownership-sync sites in
  *     connectionTCP.cpp, already write it before generation runs - this
- *     pass only reads it back). Everything else - HWPs (no Soldier owner;
- *     the "craft owner rule" this packet's spec text mentions is not wired
- *     to any BattleUnit-reachable API in the spike, so HWPs fall back to
- *     unowned here, same as before this pass existed), civilians, and any
- *     real mission aliens - gets COOP_SEAT_NONE: nobody commands them.
+ *     pass only reads it back). A FACTION_PLAYER unit with no valid Soldier
+ *     owner (an HWP, a soldier whose owner is not one of @a seats) gets
+ *     coopSeatForUnownedUnit()'s seat (seat 0). Civilians and any real
+ *     mission aliens get COOP_SEAT_NONE: nobody commands them.
  *
  *   2/3 (PvP) - the SAME generated battle (real X-COM soldiers +
  *     AlienDeployment-spawned aliens, exactly like SP - see pvp_fixture.py's
@@ -73,71 +70,64 @@ enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/Ru
  *     (FACTION_NEUTRAL) are never assigned a seat in any gamemode. Every
  *     unit this pass gives a real faction to gets it funneled through the
  *     new BattleUnit::setOriginalFaction() + the existing convertToFaction()
- *     - never a direct field write - so the "setOriginalFaction writes
- *     funneled through this ONE pass" half of RB-D23 holds even though gm2/3
- *     happens to reassert the SAME faction vanilla generation already gave
- *     the unit (PvP seat assignment here follows EXISTING faction, it never
- *     flips a real soldier's own side in the spike - only a future gm4
- *     swapper, deferred by RB-D16, would need convertToFaction() to actually
- *     change a value).
+ *     - never a direct field write - so every setOriginalFaction write goes
+ *     through this ONE pass, even though gm2/3 only reasserts the SAME
+ *     faction vanilla generation already gave the unit (PvP seat assignment
+ *     follows the EXISTING faction and never flips a soldier's own side).
  *
- *   4 (PvE2) - R5-U8: both seats command the generated
+ *   4 (PvE2) - both seats command the generated
  *     aliens against an AI-run X-COM squad. Every FACTION_HOSTILE-original
  *     unit becomes FACTION_PLAYER (AI module cleared), the first floor(N/2)
  *     of them in unit-list order seated to the client seat and the rest to
- *     seat 0 (D237 (b) / D245 (a) counts, D237-V1 order); every
+ *     seat 0; every
  *     FACTION_PLAYER-original unit becomes FACTION_HOSTILE and unseated (the
  *     host's alien-turn AI runs it); civilians stay unseated. Both seats map
  *     to FACTION_PLAYER.
  *
- * @a seats is the battle's active seat list (RB-D17 N-player guardrail - no
- * 2-seat assumption baked into the signature). The spike only ever calls
+ * @a seats is the battle's active seat list (no 2-seat assumption baked into
+ * the signature). The game only ever calls
  * this with connectionTCP::seatCount()'s current {0..seatCount()-1} (2
  * seats: host=0, client=1, connectionTCP::localSeat()'s own transport
  * convention). Used two ways: (a) this pass calls
  * coopBattleAuthority().setSeatFaction() for every seat in @a seats,
- * replacing the interim map as the seat->faction store's populator; (b) in
+ * populating the seat->faction store; (b) in
  * the classic/SHARED branch, a Soldier::getCoop() value that is not present
- * in @a seats (stale/out-of-roster ownership) falls back to COOP_SEAT_NONE
+ * in @a seats (stale/out-of-roster ownership) falls back to coopSeatForUnownedUnit()'s seat
  * rather than mis-seating a unit to a seat nobody occupies this battle.
  *
  * `Soldier::_cooptype` re-skin (donor BriefingState.cpp's alien-looking-unit
- * swap for a squad-vs-squad PvP hostile side) is NOT implemented here - r5
- * T3+ scope (SPIKE-RUNBOOK.md R5-P1 packet text). This pass only tags seat
+ * swap for a squad-vs-squad PvP hostile side) is NOT implemented here. This pass
+ * only tags seat
  * + faction; it never touches BattleUnit::getUnitRules()/setUnitRulesCoop().
  */
 void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vector<int>& seats);
 
 /**
- * SPEC 18 (r4 T4) E63.5/F378: the RB-D23 canonical seat->faction rule
- * assignSeatsAndFactions() above applies per-unit at generation, exposed here
- * so CoopHandshake::offerResumedBattle() (connectionTCP.cpp, M2, a disk
- * resume) can rebuild BattleAuthority's seat->faction store from the SAME
- * canonical map over the LOADED units' persisted seat tags
- * (BattleUnit::getCoopSeat()) - the spec's explicit ruling is "reuse
- * coopSeatCanonicalFaction(), NOT assignSeatsAndFactions() (a generation-time
- * pass, not called on resume) and NOT Soldier::getCoop()". Previously a
- * CoopState.cpp anonymous-namespace helper (internal linkage, unreachable
- * from a second translation unit); given external linkage and declared here
- * so M2 can call it. Body (unchanged) still lives in CoopState.cpp, beside
+ * The canonical seat->faction rule assignSeatsAndFactions() above applies
+ * per-unit at generation, exposed here so CoopHandshake::offerResumedBattle()
+ * (connectionTCP.cpp, a disk resume) can rebuild BattleAuthority's
+ * seat->faction store from the SAME canonical map over the LOADED units'
+ * persisted seat tags (BattleUnit::getCoopSeat()) - not through
+ * assignSeatsAndFactions() (a generation-time pass, not called on resume) and
+ * not from Soldier::getCoop(). Body lives in CoopState.cpp, beside
  * assignSeatsAndFactions().
  */
 UnitFaction coopSeatCanonicalFaction(int gamemode, int seat);
 
 /**
- * R5-U4 (owner D235 (a), D235-VL1 / R5-V2, D235-VL2; docs rewrite/prompts/r5u4_ownerless_units.md): the
+ * The
  * seat that commands a unit NO player of this battle owns - an HWP (no Soldier owner), a unit created
  * mid-battle, a soldier whose owner is not one of the battle's seats. It is the LOWEST seat the
  * seat->faction store maps to @a faction (BattleAuthority::seatMapped() and factionOf()): classic / SHARED
  * FACTION_PLAYER -> seat 0, the host; PvP gm2 FACTION_HOSTILE -> seat 1 and gm3 FACTION_HOSTILE -> seat 0,
  * the player of that side; a faction no seat maps (co-op aliens and civilians, PvP civilians) ->
- * COOP_SEAT_NONE, the AI's. Supersedes the 0/1 paragraph above for those units: assignSeatsAndFactions()
- * seats them through this, no longer COOP_SEAT_NONE. Read-only.
+ * COOP_SEAT_NONE, the AI's. assignSeatsAndFactions() seats the 0/1 branch's unowned units through this.
+ * Read-only.
  */
 int coopSeatForUnownedUnit(int faction);
 
 /**
- * R5-U4 (owner D235 (a); D235-VL1, D235-VL2): the HOST's seat stamp for a unit created mid-battle, called
+ * The HOST's seat stamp for a unit created mid-battle, called
  * by the `spawn` cue hooks (connectionTCP.cpp coopCueSpawn() / coopCueSpawnAdded()) BEFORE the cue is
  * sent, so the seat rides the unit's `unitsAdded` record (BattleUnit::save() writes `coop`). Seats @a unit
  * with coopSeatForUnownedUnit() of its original faction; a non-player unit a seat now commands (a PvP
@@ -147,22 +137,18 @@ int coopSeatForUnownedUnit(int faction);
 void coopStampSpawnedUnitSeat(BattleUnit* unit);
 
 /**
- * SPEC 19 M1: the owner->seat stamp that F358 found present at
- * THREE craft-generation entry sites (ConfirmCydoniaState.cpp:109-118,
- * GeoscapeState.cpp:6078-6085 SHARED base defense, :6099-6106 SEPARATE base
- * defense - all byte-identical, untouched by this packet) and MISSING at the
- * fourth: ConfirmLandingState::btnYesClick, the entry every mission-site/UFO
- * battle takes. For every soldier of @a craft's base seated on @a craft
+ * The owner->seat stamp for ConfirmLandingState::btnYesClick, the entry every
+ * mission-site/UFO battle takes (the other three craft-generation entry sites,
+ * ConfirmCydoniaState.cpp and GeoscapeState.cpp's SHARED and SEPARATE base
+ * defense, stamp seats inline). For every soldier of @a craft's base seated on @a craft
  * (Soldier::getCraft() == @a craft): setCoop(owner == 999 ? 0 : owner) - the
  * N-seat-correct shape already used post-battle (GeoscapeState.cpp:986-989,
  * giftSoldier, SharedEcon.cpp:1522), not the three existing sites' 2-seat-only
- * `(owner == 0 || owner == 999) ? 0 : 1` shape (left alone - no churn in
- * accepted behaviour; folding all four into one shape is a later hygiene
- * row). For every vehicle of @a craft: setCoop(0) (D105: HWPs are not seated
- * by owner in wave 1 - assignSeatsAndFactions() above has no Soldier owner to
- * read for them and falls back to COOP_SEAT_NONE regardless).
+ * `(owner == 0 || owner == 999) ? 0 : 1` shape. For every vehicle of @a
+ * craft: setCoop(0) (HWPs are not seated by owner - assignSeatsAndFactions()
+ * above has no Soldier owner to read for them).
  *
- * Deliberately does NOT write coopBase: F366's post-battle cleanup
+ * Deliberately does NOT write coopBase: the post-battle cleanup
  * (GeoscapeState.cpp:975-1005) keys a transferred guest's survival on
  * `coopBase != -1`, so this stamp must never clear it; Cydonia's own
  * `setCoopBase(-1)` is Cydonia's site's call and is untouched.
@@ -170,36 +156,33 @@ void coopStampSpawnedUnitSeat(BattleUnit* unit);
  * Called ONCE, from ConfirmLandingState::btnYesClick, inside a new
  * `if (coopLanding)` block placed immediately BEFORE vanilla `bgen.run()` -
  * the same stamp-then-generate order Cydonia and both base-defense arms use
- * (F365: a merged/seated guest must be on the craft at generation time to be
+ * (a merged/seated guest must be on the craft at generation time to be
  * deployed at all). Runs for SHARED and SEPARATE alike: in SHARED it is the
  * whole fix; in SEPARATE the host's own soldiers are owner 999/0 -> a
  * seat-0 no-op, while a guest merged onto the craft by
  * coopMergeGuestContributions() just above this call carries the client's own
  * seat in ownerPlayerId already, so this reasserts (not assigns) its coop
- * seat. Body lives in CoopState.cpp, beside assignSeatsAndFactions() (RB-D23:
- * no new .cpp).
+ * seat. Body lives in CoopState.cpp, beside assignSeatsAndFactions().
  */
 void coopStampCraftSeats(Craft* craft);
 
 /**
- * SPEC 19 M2 Branch B: the SEPARATE two-world merge,
- * re-expressed on the r4 envelope with generation kept SYNCHRONOUS - the
- * legacy trigger chain (CoopState(88)/"sendCraft"/CoopState::loadWorld(111),
- * :1508-1690 above) is UNREACHED on the craft-landing path and
- * stays that way (a dead legacy trigger, a later hygiene row). This is its
+ * The SEPARATE two-world merge, with generation kept SYNCHRONOUS - the legacy
+ * trigger chain (CoopState(88)/"sendCraft"/CoopState::loadWorld(111)) is not
+ * reached on the craft-landing path. This is its
  * replacement: for every seat whose latest stored `battle_roster_contrib`
  * (BattleWire.h; connectionTCP::sendGuestRosterContrib() sender,
  * connectionTCP.cpp's onTCPMessage() "battle_roster_contrib" handler +
  * per-seat store) names THIS craft (craft id + type), materialise each not
- * already present (by name + ownerPlayerId - R1(b)'s sub-case: no
+ * already present (by name + ownerPlayerId - no
  * coopOriginId field exists on Soldier, so that pair is the only key
  * available) exactly as the legacy loadWorld(111) merge did: `new Soldier` +
  * `load(yaml)`, `setId(lastId + 1)`, `setCoop(seat)`,
- * `setOwnerPlayerId(seat)`, `setCoopBase(-1)` (a merged COPY - F366 deletes
+ * `setOwnerPlayerId(seat)`, `setCoopBase(-1)` (a merged COPY - the post-battle cleanup deletes
  * it post-battle, matching legacy: the durable original lives on in the
  * client's world), push onto @a craft's base's roster,
  * `setCraftAndMoveEquipment(craft, base, monthsPassed == -1)` space
- * permitting (F365: on the craft BEFORE generation, or vanilla's generator
+ * permitting (on the craft BEFORE generation, or vanilla's generator
  * never deploys it).
  *
  * Called ONCE, from ConfirmLandingState::btnYesClick, inside the same
@@ -209,18 +192,18 @@ void coopStampCraftSeats(Craft* craft);
  * coopStampCraftSeats() itself documents); a no-op when nothing was ever
  * contributed for this craft (every classic/SHARED/skirmish call, and any
  * SEPARATE landing with no SEPARATE guest waiting). Body lives in
- * CoopState.cpp (RB-D23: no new .cpp).
+ * CoopState.cpp.
  */
 void coopMergeGuestContributions(Game* game, Craft* craft);
 
 /**
- * D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md; owner D248 (b), D235, D235-VL2): a SEPARATE partner's
+ * A SEPARATE partner's
  * own tank parked on the host's craft (its world tags it coopbase / coopcraft / coopcrafttype; its census sends it as
  * battle_roster_contrib `vehicles`). HOST-ONLY; the three bodies live in connectionTCP.cpp beside the guest store.
  *
  * coopMergeGuestVehicles(): the last step of coopMergeGuestContributions() (after the guest soldiers): every stored
- * parked tank of every seat for @a craft gets a COPY on the craft (Craft::makeCoopVehicle, main's merge shape) when the
- * host's stores hold a spare of its type for it (QD248-1 (a): main's gate, counted per tank) and the craft has room in
+ * parked tank of every seat for @a craft gets a COPY on the craft (Craft::makeCoopVehicle) when the
+ * host's stores hold a spare of its type for it (counted per tank) and the craft has room in
  * its whole capacity and a free vehicle slot; returns how many. coopTagGuestVehicleUnit():
  * BattlescapeGenerator::addXCOMVehicle's one coop line - a merged copy's battle unit gets the tag
  * "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>" (BattleUnit::setCoopGuestTank, saved with the
@@ -242,7 +225,7 @@ void coopDropMergedGuestVehicles(Game* game);
 bool coopGuestTankRecovered(BattleUnit* unit);
 
 /**
- * W2-H9 (owner D199 = (a); D211/D212 working assumption (a)): the test-server
+ * The test-server
  * probes of the SEPARATE co-op client's own-craft battle refusal (TestServer
  * event_state `coopClientBattleRefused` / `coopClientBattleRefusedLast`).
  * Process-lifetime, never reset; written only on a SEPARATE co-op client by

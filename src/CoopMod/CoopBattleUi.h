@@ -40,22 +40,21 @@ class SavedBattleGame;
 struct BattleAction;
 
 /**
- * R2-P6 (rewrite spike, SPIKE-RUNBOOK.md sec 2.6, ADDENDUM 2026-08-31 sec
- * 1.3(f)): the single presenter every admission-model message (deny reason,
+ * The single presenter every admission-model message (deny reason,
  * auto-cancel cause, pending state) routes through. Backs the _txtCoopWait
- * banner re-added to BattlescapeState.h/.cpp this same packet - the
+ * banner in BattlescapeState.h/.cpp - the
  * persistent banner in the map strip above the toolbar, deliberately off the
  * fading vanilla _warning surface (never touched by this presenter).
  *
- * ONE enum->STR table (defined in the .cpp body) maps every sec 2.6 deny
- * reason (wire enum, sec 2.2) and every ADDENDUM 1.3(d) auto-cancel cause to
+ * ONE enum->STR table (defined in the .cpp body) maps every deny reason (wire
+ * enum) and every auto-cancel cause to
  * its STR_COOP_DENY_ (or STR_COOP_CANCEL_) key; STR_COOP_CANCEL_EVENT is the
  * {0}-templated fallback for a cause/kind not in the table, applied directly
  * by showCancel() below rather than looked up.
  *
  * Bodies live in connectionTCP.cpp, next to BattleAuthority/CoopArbiter/
- * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding
- * (R2-P1..P5). Reaches the active battle's BattlescapeState via
+ * CoopIdMaps/CoopPump/CoopEmit - the established home for this scaffolding.
+ * Reaches the active battle's BattlescapeState via
  * connectionTCP::getStaticBattle()->getBattleState() (same pattern
  * CoopArbiter::onIntent() already uses); no-ops if no battle is live.
  *
@@ -64,13 +63,11 @@ struct BattleAction;
  * CoopArbiter::onIntent()) already run on - so touching the widget directly
  * is safe; this presenter must never be called from the socket thread.
  *
- * Wiring history: R2-P6 shipped this API with no live caller; R3-P1 wired
- * showDeny() at the client-inbound bt_deny seam (connectionTCP.cpp's
- * onTCPMessage -> CoopArbiter::onDeny); R2-P9 wired showDesyncHalted();
- * R2-P7 wired showPending()/clearPending() (the busy-held pending state and
- * its right-click/ESC cancel control) and showCancel() (the four
- * Options::coopCancelOn* info-cancel toggles). Every entry point now has a
- * live caller.
+ * Every entry point has a live caller: showDeny() at the client-inbound bt_deny
+ * seam (connectionTCP.cpp's onTCPMessage -> CoopArbiter::onDeny),
+ * showDesyncHalted() (CoopHashCheck::verify), showPending()/clearPending() (the
+ * busy-held pending state and its right-click/ESC cancel control) and
+ * showCancel() (the four Options::coopCancelOn* info-cancel toggles).
  */
 namespace CoopBattleUi
 {
@@ -78,19 +75,14 @@ namespace CoopBattleUi
 /**
  * the LOCAL battlescape controls
  * that a co-op CLIENT must never run. Each control is its OWN enum value
- * because ADDENDUM 2026-08-31 SS1.3(e) forbids collapsing distinct refusals
- * into one generic message ("Action refused" is exactly the shape it names) -
- * every value below has its own STR_COOP_* string in the SS2.6 table.
- *
- * The four battlescape controls are the ungated-client set evidence F2
- * inventoried; QuickLoad is evidence F1's deleted gate.
+ * because distinct refusals must never collapse into one generic message
+ * ("Action refused") - every value below has its own STR_COOP_* string.
  */
 enum class Control
 {
-	// R4-L1 S-A (design-D8, D231; QL1-10 (a)): the ABORT value is RETIRED - either player opens vanilla's abort
+	// The ABORT value is RETIRED - either player opens vanilla's abort
 	// dialog and its OK asks the unanimous abort vote (coopAbortVoteRequest(), CoopArbiter.h).
-	// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 1,
-	// Q10 = (a)): the INVENTORY value is RETIRED - every player opens the
+	// The INVENTORY value is RETIRED - every player opens the
 	// inventory of the soldiers its seat commands and each placement is an
 	// `inv_move` order (refuseInventoryOpen() below is the open gate).
 	/// BattlescapeState::btnZeroTUsClick -> BattleUnit::clearTimeUnits(): a
@@ -101,14 +93,12 @@ enum class Control
 	/// `preferredHandForReactions` / `reactionsDisabledFor{Left,Right}Hand`,
 	/// which are serialized (BattleUnit.cpp:791-796) and are NOT on
 	/// saveBlobExcludedUnitKey's list (SharedEcon.cpp:3992-4014) - so a client
-	/// toggle diverges the saveBlob bucket immediately. These are the
-	/// "open item 9" fields W1-P15's audit gives a bucket home to.
+	/// toggle diverges the saveBlob bucket immediately.
 	HandReaction,
 	/// BattlescapeState::btnUnitUpClick / btnUnitDownClick ->
 	/// BattlescapeGame::moveUpDown(), which pushes a UnitWalkBState - a LOCAL
-	/// walk on a client, bypassing every coop gate. WV-D58 makes the
-	/// client REFUSE and routes the host's own press through the normal walk
-	/// emit path.
+	/// walk on a client, bypassing every coop gate. The client therefore
+	/// REFUSES, and the host's own press goes through the normal walk emit path.
 	LevelChange,
 	/// The battlescape quick-load hotkey (BattlescapeState::handle) and
 	/// LoadGameState's own chokepoint. NOT battle-scoped and NOT
@@ -116,35 +106,34 @@ enum class Control
 	/// for EVERY machine in a live co-op session, host included -
 	/// loading mid-session forks the served world silently.
 	QuickLoad
-	// W2-P1's interim ItemAction and Reload values (the action menu's
-	// non-targeting item actions and the reload hotkey) are RETIRED by W2-P4
-	// S-D (spec (b)12, C1 PR-Q3): each is a client intent now. HandReaction
-	// stays for its HOST ownership term (Q13); the client sends a
-	// `reaction_hands` intent instead of reaching its string.
+	// There are no ItemAction or Reload values: the action menu's non-targeting
+	// item actions and the reload hotkey are client intents. HandReaction stays
+	// for its HOST ownership term; the client sends a `reaction_hands` intent
+	// instead of reaching its string.
 };
 
 /// the ONE gate every hard-gated control calls. Returns TRUE when @a c
 /// must be REFUSED on this machine right now, having already put the refusal
-/// on screen (SS2.6's _txtCoopWait presenter); FALSE means "carry on, vanilla".
+/// on screen (the _txtCoopWait presenter); FALSE means "carry on, vanilla".
 /// The thin vanilla hook is therefore a single unconditional call:
 /// `if (CoopBattleUi::refuseControl(Control::ZeroTu, unit, save)) return;`
 ///
-/// PREDICATE, and why it is not `coopMayCommand()` alone. The packet's goal is
+/// PREDICATE, and why it is not `coopMayCommand()` alone. The goal is
 /// "no CLIENT control can mint local state or push an unsynced modal", and
 /// `coopMayCommand(u, s)` is TRUE for a client acting on its OWN unit during
 /// its OWN side - which is precisely when a player presses these buttons. The
 /// gate is therefore a conjunction of two reason-specific terms, checked in
-/// this order so each refusal names its own cause (SS1.3(e)):
+/// this order so each refusal names its own cause:
 ///   1. `coopBattleAuthority().hostSim` - only the simulating machine may run
 ///      an unsynced local control at all. Failing it shows @a c's own "Only
 ///      the host can ..." string. The two-term shape is the shipped house
 ///      pattern: `BattlescapeState::btnKneelClick` already runs
 ///      `coopMayCommand(bu, _save)` and then `isCoopBattle() && !hostSim`
-///      (:1244 / :1254), and the R5-P2 END TURN client gate is the same
+///      (:1244 / :1254), and the END TURN client gate is the same
 ///      authority term (:1530). Kneel's second term SENDS an intent; these
 ///      five controls have no wire verb, so theirs REFUSES.
 ///   2. `coopMayCommand(u, s)` - when a UNIT is in scope, the pressing seat
-///      must also command it. Failing it shows SS2.6's existing
+///      must also command it. Failing it shows the existing
 ///      STR_COOP_DENY_NOT_YOUR_UNIT (same reason, same words as the wire deny;
 ///      no duplicate key is minted for it).
 /// @a u may be null for the side-level controls (QuickLoad), which skip
@@ -157,12 +146,11 @@ enum class Control
 /// connectionTCP::localLoadsAllowed() answers.
 bool refuseControl(Control c, const BattleUnit* u, const SavedBattleGame* s);
 
-/// W2-P8 S-A.2 (docs rewrite/prompts/w2p8_inventory.md section 8.1 step 1;
-/// Q10 = (a), AMENDMENT P8-1 OR3 (a); owner D130): the MID-battle inventory's
+/// The MID-battle inventory's
 /// open gate (BattlescapeState::btnInventoryClick). TRUE = refused, the refusal
 /// already on the banner. In order: not an active co-op battle -> FALSE
 /// (vanilla); this seat's side is not active -> FALSE (vanilla's own
-/// allowButtons() then keeps the screen closed, silently, V13); a unit this seat
+/// allowButtons() then keeps the screen closed, silently); a unit this seat
 /// does not command -> STR_COOP_DENY_NOT_YOUR_UNIT, TRUE; otherwise FALSE on
 /// either machine. The baton is NOT checked here: off the baton the screen
 /// opens to LOOK and every placement is refused at its execution point.
@@ -181,13 +169,13 @@ std::string inventoryLineText(const char* reason);
 
 /// the presenter half of refuseControl(), for the ONE site that has
 /// already decided the refusal for itself - LoadGameState::init's local-load
-/// chokepoint, whose refusal was log-only before this packet (evidence F1).
+/// chokepoint.
 /// No predicate, no return value: just puts @a c's string on the banner.
 /// No-op outside an active co-op battle (no live BattlescapeState to reach),
 /// which is why a geoscape-side local load stays log-only.
 void showControlRefused(Control c);
 
-/// W1-P5 (D8's chat-open `allowButtons` guard - legacy parity, F-4): is the
+/// The chat-open `allowButtons` guard: is the
 /// co-op chat overlay currently capturing the keyboard on THIS machine?
 ///
 /// Game::run() routes key events to ChatMenu::handleEvent() while the chat is
@@ -210,66 +198,64 @@ bool chatIsOpen(Game* g);
 /// BattlescapeState to reach).
 void showDeny(const char* reason);
 
-/// Shown while a busy-denied intent is HELD pending auto-resubmit (R2-P7,
-/// ADDENDUM 1.3(d)). WIRED as of R2-P7: CoopArbiter::onDeny() calls this on
+/// Shown while a busy-denied intent is HELD pending auto-resubmit:
+/// CoopArbiter::onDeny() calls this on
 /// reason=="busy" instead of dropping the intent. @a context is still
-/// unused for presentation - the banner text is sec 2.6's own busy row
+/// unused for presentation - the banner text is the busy row
 /// (STR_COOP_DENY_BUSY, "Waiting - another action is in progress"), which is
-/// exactly the right message for the held state and keeps R2-P7's "never
+/// exactly the right message for the held state and keeps the "never
 /// generic, never a new ad-hoc string" rule; @a context is retained as the
 /// call-site's self-documentation of WHY the intent is pending.
 void showPending(const char* /*context*/);
 
-/// R2-P7: clears whatever showPending() set (hides the banner). WIRED as of
-/// R2-P7 by CoopArbiter::cancelPendingIntent() (the user's right-click/ESC
+/// Clears whatever showPending() set (hides the banner). Called by
+/// CoopArbiter::cancelPendingIntent() (the user's right-click/ESC
 /// cancel control) and by an auto-resubmit that could not be sent. A
 /// POLICY cancel does not come through here - it goes to showCancel() below,
 /// so the player is told which event killed the order. No-op outside an
 /// active coop battle.
 void clearPending();
 
-/// Client: present an auto-cancel (ADDENDUM 1.3(d)'s four toggles - enemy
+/// Client: present an auto-cancel (the four toggles - enemy
 /// spotted, own-unit hit, visibility gain, or the broad any-partner-action
 /// toggle). @a cause is one of the table's known causes
 /// (enemy_spotted|unit_under_fire|unit_down|new_contact) and gets its own
 /// STR_COOP_CANCEL_* string; any other/unknown @a cause falls back to the
 /// {0}-templated STR_COOP_CANCEL_EVENT with @a evKind substituted for {0}
-/// (sec 2.6's "(cancel) unknown kind" row) - messages must always stay
-/// reason-specific (ADDENDUM 1.3(e)), never a generic "situation changed".
+/// (the "(cancel) unknown kind" row) - messages must always stay
+/// reason-specific, never a generic "situation changed".
 /// No-op outside an active coop battle.
 void showCancel(const char* cause, const char* evKind);
 
-/// W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / WV-D53 / IR2-11): the WALK HALT presenter -
+/// The WALK HALT presenter -
 /// "your unit MOVED and then stopped", which is a different statement from
 /// "your order was refused" and gets its own table.
 ///
-/// @a reason is one of SS2.W2's frozen halt enum values
+/// @a reason is one of the frozen halt enum values
 /// (spot|reaction|blocked|no_tu|no_energy|prox|fall|unit_down), which is a
-/// DISTINCT enum from SS2.2's deny reasons - one answers "why did the executed
+/// DISTINCT enum from the deny reasons - one answers "why did the executed
 /// action stop", the other "why was your order refused". Three binding rules
 /// come with it:
-///   * ONE KEY PER REASON, and NO `{0}` catch-all. REV B's "everything else ->
-///     STR_COOP_CANCEL_EVENT with the reason as {0}" is DEAD (IR2-11): it would
-///     render an untranslated protocol token to the player and it violates
-///     ADDENDUM SS1.3(e)'s reason-specific rule. An UNKNOWN reason therefore
+///   * ONE KEY PER REASON, and NO `{0}` catch-all: a STR_COOP_CANCEL_EVENT
+///     fallback with the reason as {0} would render an untranslated protocol
+///     token to the player and break the reason-specific rule. An UNKNOWN reason therefore
 ///     shows NOTHING and logs, exactly like showDeny()'s unknown-reason arm -
 ///     never a guess.
 ///   * `no_tu` and `no_energy` REUSE VANILLA's own STR_NOT_ENOUGH_TIME_UNITS /
 ///     STR_NOT_ENOUGH_ENERGY - the exact strings vanilla writes to
 ///     `_action.result` at the two UnitWalkBState guards - so the client reads
 ///     what a solo player reads. `spot`/`reaction`/`unit_down` reuse the three
-///     live SS2.6 `_CANCEL_` rows as-is (renaming shipped keys is out of scope).
+///     live `_CANCEL_` rows as-is (shipped keys are not renamed).
 ///     Only `blocked` needs a new key, STR_COOP_HALT_PATH_BLOCKED, minted here.
-///     `prox` and `fall` (walk-FULL) are RESERVED and deliberately not
-///     minted by this packet - walk-core cannot produce either.
+///     `prox` and `fall` are RESERVED and deliberately have no key.
 ///   * A HALTED WALK IS NOT "CANCELLED". The unit moved and the emitted step evs
-///     are truth (SS2.W2 rule 5), so the new key is worded as
+///     are truth, so the new key is worded as
 ///     stop-after-partial-execution, never as "Order cancelled - ...", which
-///     SS2.6 reserves for orders that never executed.
+///     is reserved for orders that never executed.
 /// Terminal banner class (it answers something the player did), so it
 /// dwell-clears like any other answer. No-op outside an active coop battle.
 ///
-/// SHOWN ONLY ON THE ORDERING SEAT (SS2.W2, same rule as the deny presenter):
+/// SHOWN ONLY ON THE ORDERING SEAT (same rule as the deny presenter):
 /// the sole caller is the CLIENT apply path, and only for an actionId this
 /// client itself owns. The observing machine ANIMATES the halt; it
 /// never prints another player's message. A HOST-origin walk keeps vanilla's own
@@ -277,7 +263,7 @@ void showCancel(const char* cause, const char* evKind);
 /// TU and energy halts, and vanilla shows nothing at all for a blocked one.
 void showWalkHalt(const char* reason);
 
-/// W2-P4 S-A (docs rewrite/prompts/w2p4_client_combat_intents.md (b)4): the
+/// The
 /// COMBAT halt presenter - the reason a host-executed combat intent of THIS
 /// client failed (bt_action_end `reason`: no_tu, no_energy, no_morale,
 /// no_health, no_mana, no_stun, no_ammo_loaded, no_rounds_left, out_of_range,
@@ -288,18 +274,18 @@ void showWalkHalt(const char* reason);
 /// shows nothing (logged). No-op outside an active co-op battle.
 void showCombatHalt(const char* reason);
 
-/// R2-P9 (SPIKE-RUNBOOK.md SS2.8 mismatch-behavior note): the STICKY desync
+/// The STICKY desync
 /// banner - "desync detected - battle halted (rejoin arrives in a later
 /// build)" (STR_COOP_DESYNC_HALTED). Called once, from CoopHashCheck::verify
 /// (BattlePump.h) on the first hash mismatch, AFTER battle input is already
 /// frozen - unlike showDeny/showPending/showCancel this is never cleared by
 /// clearPending() (there is nothing to auto-retry into once a battle has
-/// desynced; NO partial repair, SS2.8). No-op outside an active coop battle.
+/// desynced; NO partial repair). No-op outside an active coop battle.
 void showDesyncHalted();
 
-/// W1-P4 (WAVE1-RUNBOOK.md ruling D3 = WV-D9 + WV-D34, mechanism WV-D43): the
+/// The
 /// pre-battle equip freeze's player-visible refusal - STR_COOP_EQUIP_FROZEN on
-/// the same _txtCoopWait surface every other coop message uses (SS2.6: never
+/// the same _txtCoopWait surface every other coop message uses (never
 /// vanilla _warning).
 ///
 /// UNUSUAL TIMING, stated on purpose. Every other entry point here answers
@@ -317,7 +303,7 @@ void showDesyncHalted();
 /// No-op outside an active coop battle (no live BattlescapeState to reach).
 void showEquipFrozen();
 
-/// FX-1: TRUE while THIS machine is the
+/// TRUE while THIS machine is the
 /// coop HOST and the battle handshake has not reached phase Active - i.e. the
 /// client does not hold the blob yet. Deliberately NOT isCoopBattle() (that
 /// requires phase Active, so it is false in exactly the window this guards).
@@ -337,7 +323,7 @@ void showEquipFrozen();
 /// call anywhere.
 bool freezeBattleInputUntilActive();
 
-/// FX-1 test/introspection: how many times freezeBattleInputUntilActive() has
+/// Test/introspection: how many times freezeBattleInputUntilActive() has
 /// refused a host input this process. A POSITIVE delivery proof (not an
 /// absence) that the freeze actually fired. Battle-scoped: reset with the rest
 /// of the banner-class bookkeeping at teardown.
@@ -351,18 +337,17 @@ unsigned int coopHostInputFrozenRefusals();
 ///
 /// Vanilla gates that branch on `unit->getFaction() == _save->getSide()` and
 /// nothing else, so without this a co-op seat could click-select a soldier it
-/// does not command - the exact thing D6 forbids ("a seat can NEVER select,
-/// preview, or command units it doesn't own"). The predicate is
+/// does not command - and a seat must NEVER select, preview, or command units
+/// it does not own. The predicate is
 /// coopMaySelectUnit() (BattleAuthority.h), the SAME one the selection cycle
 /// uses, deliberately NOT coopMayCommand(): the branch has already restricted
 /// the candidate to the currently active side, and cycling/selecting among
 /// already-active-side candidates must not additionally demand mySideActive().
 ///
-/// The message is SS2.6's EXISTING not_your_unit row
+/// The message is the EXISTING not_your_unit row
 /// (STR_COOP_DENY_NOT_YOUR_UNIT, "Not one of your soldiers") - the same
-/// ownership reason the wire deny carries and the wording D6's own acceptance
-/// quotes; no duplicate key is minted for it, exactly as W1-P5's ownership arm
-/// already reuses it. Self-guarded: false outside an active co-op battle, so
+/// ownership reason the wire deny carries; no duplicate key is minted for it,
+/// exactly as refuseControl()'s ownership term reuses it. Self-guarded:
 /// SP click-to-select is byte-identical.
 bool refuseSelectUnitClick(const BattleUnit* target);
 
@@ -370,7 +355,7 @@ bool refuseSelectUnitClick(const BattleUnit* target);
 /// commands no unit in this battle, so battle entry could not auto-select one
 /// for it (STR_COOP_SPECTATOR_MODE). Legacy raised the same notice from its own
 /// client unit selector (`1e0f9276f:BattlescapeState.cpp:1627-1631`, "You are
-/// in spectator mode"); this is that message, on SS2.6's presenter.
+/// in spectator mode"); this is that message, on this presenter.
 ///
 /// Raised once per battle by CoopHandshake::selectOwnUnitAtEntry(). It is a
 /// real path, not defensive framing: a plain classic "NEW BATTLE > COOP"
@@ -381,17 +366,17 @@ bool refuseSelectUnitClick(const BattleUnit* target);
 void showSpectatorMode();
 
 // ---------------------------------------------------------------------------
-// W1-P7: order feedback.
+// Order feedback.
 //
 // BANNER CLASSES. Every entry point above and below writes the ONE _txtCoopWait
-// surface, so this packet gives each message a CLASS and one arbitration rule,
+// surface, so each message has a CLASS and one arbitration rule,
 // rather than letting the newest writer always win:
 //
 //   Sticky   showDesyncHalted() only. Never overwritten, never auto-cleared -
-//            there is nothing to retry into once a battle has desynced (SS2.8).
+//            there is nothing to retry into once a battle has desynced.
 //   Terminal an ANSWER to something the player just did: a non-busy deny, a
-//            policy cancel, an intent timeout, and every local refusal (D8's five
-//            controls, D6's select refusal, SS2.W8's END TURN refusal). These now
+//            policy cancel, an intent timeout, and every local refusal (the
+//            refuseControl() controls, the select refusal, the END TURN refusal).
 //            AUTO-CLEAR after kCoopBannerDwellMs - see clearStaleBanner() below.
 //   Sent     showOrderSent() - this machine's own order is in flight. Cleared by
 //            whatever resolves the round trip (an applied bt_action_end, a deny,
@@ -404,7 +389,7 @@ void showSpectatorMode();
 //            once at battle entry, and their own doc comments above already
 //            define them as 'not sticky - the first deny/pending/cancel replaces
 //            it'. They are deliberately NOT dwell-cleared, so that contract (and
-//            every test written against it) is unchanged by this packet.
+//            every test written against it) holds.
 //
 // Only Sticky blocks an overwrite. The per-tick WAIT driver additionally writes
 // only when the current class is Wait, Notice or nothing (a Notice's own
@@ -414,33 +399,30 @@ void showSpectatorMode();
 // an entry notice is stomped by an idle driver.
 // ---------------------------------------------------------------------------
 
-/// CLIENT (WV-D13 item 2): the 'order sent' IN-FLIGHT indicator, raised by
+/// CLIENT: the 'order sent' IN-FLIGHT indicator, raised by
 /// CoopArbiter::sendClientIntent() the moment the bt_intent envelope goes out
 /// and cleared when the round trip ends (bt_action_end applied, or replaced by a
-/// deny/pending/timeout). STR_COOP_ORDER_SENT. Before this packet the window
-/// between the click and the host's answer showed NOTHING at all, which is the
-/// gap D7 opens with ("the player always knows what the network did with the
-/// click"). No-op outside an active coop battle.
+/// deny/pending/timeout). STR_COOP_ORDER_SENT. Without it the window between
+/// the click and the host's answer shows NOTHING; the player should always
+/// know what the network did with the click. No-op outside an active coop battle.
 void showOrderSent();
 
-/// CLIENT (WV-D13 item 3 / WV-D24): the intent TIMEOUT banner
+/// CLIENT: the intent TIMEOUT banner
 /// (STR_COOP_ACTION_TIMEOUT, "No answer from the host - action dropped"). Raised
-/// by CoopArbiter::tickIntentTimeout() at the moment it releases the IR-2 slot.
+/// by CoopArbiter::tickIntentTimeout() at the moment it releases the one-slot input lock.
 /// Terminal class, so it dwell-clears like any other answer.
 void showIntentTimeout();
 
-/// The per-tick driver: ONE unconditional guarded call from the RB-D5 pump point
+/// The per-tick driver: ONE unconditional guarded call from the pump point
 /// (connectionTCP::updateCoopTask, beside CoopReveal::flushQuiescent()). Three
 /// jobs, all self-guarded and completely inert outside an active co-op battle:
-///   1. CoopArbiter::tickIntentTimeout() - WV-D24's 10 s intent timeout.
-///   2. the Terminal-class AUTO-CLEAR (WV-D13 item 1). Before this packet the
-///      ONLY thing that ever cleared a terminal deny was the player's own next
-///      successful action, so a refusal sat on the map strip indefinitely.
-///      RULED RULE (this packet, the ruling leaves the shape to the builder): a
-///      Terminal banner clears itself kCoopBannerDwellMs after it was raised,
-///      and is of course still replaced early by the next message or cleared by
-///      the player's own next successful action, exactly as before.
-///   3. the seat-attributed WAIT banner (WV-D13 item 4) - the donor's
+///   1. CoopArbiter::tickIntentTimeout() - the 10 s intent timeout.
+///   2. the Terminal-class AUTO-CLEAR: a Terminal banner clears itself
+///      kCoopBannerDwellMs after it was raised (otherwise a refusal would sit on
+///      the map strip until the player's next successful action), and is still
+///      replaced early by the next message or cleared by the player's own next
+///      successful action.
+///   3. the seat-attributed WAIT banner - the donor's
 ///      "Please wait for {0}'s action to finish" driver
 ///      (`cbff7951d:BattlescapeState.cpp:5292-5370`), re-homed from a vanilla
 ///      per-frame method into CoopMod and fed by CoopArbiter::busyOwnerSeat().
@@ -454,21 +436,21 @@ void tick();
 static const unsigned int kCoopBannerDwellMs = 6000u;
 
 // ---------------------------------------------------------------------------
-// W1-P13c (REV E.53 E53.1/E53.2): D-24b AMENDED - nothing is hidden off-baton.
+// Nothing is hidden off-baton.
 // Instead the bottom bar (the `_icons` panel and everything drawn on it) is
 // rendered through a gray lookup while it is not this seat's go. Every
-// widget stays visible and interactive; the refusal (E53.4/E55.1) and the
+// widget stays visible and interactive; the refusal and the
 // persistent wait banner are what actually say "not your turn".
 // ---------------------------------------------------------------------------
 
-/// THE ONE vanilla touch this unit adds: BattlescapeState::blit() overrides
+/// THE ONE vanilla touch for this: BattlescapeState::blit() overrides
 /// State::blit() (State.h's virtual) and, after calling it, makes this ONE
 /// call with the `_icons` panel's own rect. This function decides for itself
 /// whether to act - the vanilla override itself carries no logic. Self-guarded
 /// (CoopMod, the only reader): acts only in a live coop battle,
 /// turnMode==Traditional, phase==Active, and activeSeat != localSeat; never in
 /// parallel mode, never with effect in single player. No-op (mode "off") when
-/// the gate is false, or when @a surface is not an 8bpp surface (E54.4 pin 1).
+/// the gate is false, or when @a surface is not an 8bpp surface.
 ///
 /// Builds/rebuilds a 256-entry lookup table lazily, from @a surface's own
 /// palette, whenever the cached copy no longer matches the live one. Applies
@@ -483,7 +465,7 @@ void coopGrayBottomBar(SDL_Surface* surface, int x, int y, int w, int h);
 /// logic.
 bool coopOffBatonGrayActive();
 
-/// Test-only introspection (REV E.48 SS.A.6 / E54.4 pin 3): the mode the LAST
+/// Test-only introspection: the mode the LAST
 /// EXECUTED coopGrayBottomBar() call stored - "lut", "darken", or "off".
 /// Backs the `screen_pixels` probe's `mode` field, which must describe the
 /// same completed frame the probe's own pixel read does. Never read by game
@@ -491,20 +473,17 @@ bool coopOffBatonGrayActive();
 std::string coopGrayBottomBarMode();
 
 // ---------------------------------------------------------------------------
-// W2-P6a S-M (docs rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE
-// TEXT` (b), AMENDMENT P6-5 section 3, AMENDMENT P6-6 section 5; owner D132):
-// the battle MESSAGES on both machines - vanilla's boxes for this machine's own
-// soldiers, a self-closing notice for the partner's. Commit S-M.1 adds the
-// probe only; the presenter is S-M.2's.
+// The battle MESSAGES on both machines - vanilla's boxes for this machine's own
+// soldiers, a self-closing notice for the partner's.
 // ---------------------------------------------------------------------------
 
-/// Test/introspection (S-M.1, probe only): on a co-op CLIENT, one `seen`
+/// Test/introspection (probe only): on a co-op CLIENT, one `seen`
 /// record {seq, kind, unit, top} per applied `death`, `corpse`, `panic`, `psi`
 /// or `spawn` ev - `unit` is the payload's `unit` (-1 without one), `top` the
 /// class name of the Game's top state at the apply ("none" without a live
-/// BattlescapeState; T0a-3 reads it to pin which rows assert `queued`). Called
+/// BattlescapeState). Called
 /// once from CoopDisplayQueue::onApplied() right after the ev's delta applied
-/// (V9). Writes the probe storage only; inert on the host and outside a co-op
+/// Writes the probe storage only; inert on the host and outside a co-op
 /// battle.
 void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
 
@@ -515,7 +494,7 @@ void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
 ///           owner, presenter, queued, queuedAtMs, shownAtMs}. `unit` = the unit
 ///           the message is ABOUT (vanilla's push site argument), `key` the
 ///           vanilla STR_ key ("" for the invisible pause), `owner` its relation
-///           to this machine (own | partner | other, the pinned seat rule),
+///           to this machine (own | partner | other),
 ///           `presenter` box | okbox | notice | pause | none, `queued` true when
 ///           at the decision the live BattlescapeState was not the Game's top
 ///           state (the entry had to wait in the queue; always false on the
@@ -526,7 +505,7 @@ void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
 ///           decision came from (client).
 ///   counts  per presenter, the records appended with it; `queued` the records
 ///           appended with queued true; `droppedAtBattleEnd` the queued entries
-///           an applied battle_end cleared (AMENDMENT P6-5 C-M4).
+///           an applied battle_end cleared.
 ///   queueDepth  the client's decided-but-not-yet-shown entries.
 ///   seen    CLIENT only: noteMessageEvSeen()'s records, the last 32.
 /// Battle-scoped: the storage starts over on the first main-thread use after
@@ -535,32 +514,32 @@ void noteMessageEvSeen(const SavedBattleGame* save, const Json::Value& ev);
 /// outside a co-op battle.
 Json::Value messagesProbe();
 
-/// W2-P6a S-M.2 (P6a pinned stage text (b)2-(b)3; owner D132, D170 (a); OR2 (a); AMENDMENT P6-5 C-M3, C-M4): the
+/// The
 /// CLIENT presenter. Called once from CoopDisplayQueue::onApplied() for every applied bt_ev, after the ev's delta (it
-/// replaces S-M.1's noteMessageEvSeen() call and makes that call itself). From the cue and the canonical state AFTER
+/// makes the noteMessageEvSeen() call itself). From the cue and the canonical state AFTER
 /// the delta, with vanilla's own conditions, it decides the messages vanilla's host shows: a `death` is remembered and
 /// decided at the unit's `corpse`, at a `spawn {cause convert}` from it, or at the first applied `bt_action_end` /
 /// `sync` / `side_transition` after it (has died from a fatal wound / has been killed / has become unconscious, this
 /// machine's own per-unit dedupe 0/1/2); a `panic` (has panicked / has gone berserk); a successful `psi` (is under
 /// alien control / morale attack / mind control successful); a convert `spawn` with no pending death (has been
-/// killed, M10). The presenter follows the unit the message is ABOUT: own, and units no player owns -> vanilla's box
+/// killed). The presenter follows the unit the message is ABOUT: own, and units no player owns -> vanilla's box
 /// (InfoboxOKState for the two OK-box texts, InfoboxState otherwise); the partner's -> the fading notice. Every
 /// decision is queued and shown by tick(). An applied `battle_end` clears the queue (counted droppedAtBattleEnd) and
 /// nothing shows after it. Inert on the host and outside a co-op battle; writes no unit field, draws no sim RNG,
 /// emits nothing.
 void onMessageEvApplied(const SavedBattleGame* save, const Json::Value& ev);
 
-/// W2-P6a S-M.2 (P6a pinned stage text (b)2, M10): the CLIENT's pre-apply read - for a `spawn {cause convert}`,
+/// The CLIENT's pre-apply read - for a `spawn {cause convert}`,
 /// whether its `from` unit is FACTION_PLAYER before the ev's delta (vanilla convertInfected()'s own test). Called once
 /// from CoopDisplayQueue::onApplied() before the ev's payload and delta apply. Read-only; inert on the host.
 void onMessageEvPreApply(const SavedBattleGame* save, const Json::Value& ev);
 
-/// W2-P6a S-M.2 (P6a pinned stage text (b)2, OR2 (a)): the CLIENT's bt_action_end decision point - every death still
+/// The CLIENT's bt_action_end decision point - every death still
 /// pending decides its message here. Called once from CoopDisplayQueue::onApplied()'s bt_action_end branch, after
 /// the end's delta. Inert on the host.
 void onMessageActionEndApplied(const SavedBattleGame* save, const Json::Value& ev);
 
-/// W2-P6a S-M.2 (P6a pinned stage text (b)4; Q13 / OR6 (a), widened by AMENDMENT P6a-2 F1727; F1219, F1270): the
+/// The
 /// ENTRY notices clear at this seat's first own-side side_begin. A Notice-class banner is cleared when its text is
 /// STR_COOP_EQUIP_FROZEN or STR_COOP_WAITING_FOR_JOIN, or STR_COOP_SPECTATOR_MODE while this seat now commands its
 /// selected unit. Called on the CLIENT after its own-side side_begin re-selection, and on the HOST right after it sends

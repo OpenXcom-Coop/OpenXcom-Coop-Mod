@@ -27,8 +27,7 @@ class TileEngine;
 class BattleUnit;
 
 /**
- * W1-P10 (rewrite wave 1, WAVE1-RUNBOOK.md SS4 "ATOM door", WV-D26/WV-D50):
- * the DOOR atom - host-authoritative terrain apply for the three vanilla door
+ * The DOOR atom - host-authoritative terrain apply for the three vanilla door
  * transitions.
  *
  * WHAT A DOOR ACTUALLY CHANGES, and therefore why this atom exists at all
@@ -36,18 +35,18 @@ class BattleUnit;
  *   * a NORMAL (swinging) door open REPLACES the tile's MapData for the part -
  *     `Tile::openDoor` does `setMapData(altMCD...)` + `setMapData(0,-1,-1,part)`
  *     (Tile.cpp:388-390), and `mapDataID`/`mapDataSetID` are exactly what the
- *     SS2.8 `terrain` bucket sums (SharedEcon.cpp:3843-3848);
+ *     `terrain` hash bucket sums (SharedEcon.cpp:3843-3848);
  *   * a UFO door open sets `_objectsCache[part].currentFrame = 1`
  *     (Tile.cpp:403) - NOT in `terrain`, but serialized as `openDoorWest`/
  *     `openDoorNorth` (Tile.cpp:180-186) and as `binTiles` boolFields bits
  *     8/0x10 (Tile.cpp:209-210), i.e. inside the `saveBlob` bucket;
  *   * `TileEngine::closeUfoDoors` (TileEngine.cpp:4296) closes every open ufo
  *     door at the turn boundary through `Tile::closeUfoDoor` (Tile.cpp:416),
- *     which is the WV-D50 case W1-P13 reuses this packet's emit+apply path for.
- * A thin client runs no BState, so before this packet NONE of that reached it
- * and the first door a walk touched was a permanent divergence.
+ *     which the turn boundary routes through this same emit+apply path.
+ * A thin client runs no BState, so without this atom NONE of that would reach
+ * it and the first door a walk touched would be a permanent divergence.
  *
- * SHAPE (SPIKE-RUNBOOK.md SS2.4's `ev door`, frozen by this packet):
+ * SHAPE (`ev door`, frozen):
  *   ev door {kind:"door", unit?:uid, op:"open"|"close", rClick?:bool,
  *            result?:int, tiles:[{x,y,z,part}...], tuAfter?:int,
  *            reveal?:revealDelta, h:{terrain, unitsStats}}
@@ -62,15 +61,15 @@ class BattleUnit;
  * applier assumes an in-flight walk or even an action context: the ev is
  * stamped with `CoopArbiter::currentActionId()`, which is legitimately 0 at the
  * turn boundary and for the right-click door path, and `unit` is presence-gated
- * (ABSENT for a boundary close). W1-P13 calls coopCloseUfoDoors() from
+ * (ABSENT for a boundary close). coopCloseUfoDoors() is called from
  * `BattlescapeGame::endTurn` (BattlescapeGame.cpp:549) instead of
  * `_save->getTileEngine()->closeUfoDoors()`.
  *
- * ALL LOGIC LIVES IN src/CoopMod (body: connectionTCP.cpp, next to the W1-P9
+ * ALL LOGIC LIVES IN src/CoopMod (body: connectionTCP.cpp, next to the
  * walk hooks). The vanilla files get FIVE thin guarded calls, no more:
  * Tile.cpp x3 (the journal) and UnitWalkBState.cpp / UnitTurnBState.cpp x1 each
  * (the wrapper that replaces the `unitOpensDoor` sub-expression - the same
- * shape W1-P9's `coopWalkReserveRefuses` uses).
+ * shape `coopWalkReserveRefuses` uses).
  */
 
 /// THE JOURNAL (host-side, armed only inside coopUnitOpensDoor()/
@@ -93,29 +92,27 @@ void coopNoteDoorClosed(const Tile* tile, int part);
 
 /// THIN WRAPPER around `TileEngine::unitOpensDoor(unit, rClick, dir)` - ONE
 /// guarded coop call per vanilla site, replacing the call sub-expression
-/// (W1-P9's `coopWalkReserveRefuses` precedent). Outside a co-op battle, and on
+/// (as `coopWalkReserveRefuses` does). Outside a co-op battle, and on
 /// any machine that is not the simulating host, it is EXACTLY
 /// `te->unitOpensDoor(unit, rClick, dir)` and nothing else happens.
 ///
 /// On the host it arms the journal, runs vanilla, and - if vanilla actually
 /// mutated anything - emits ONE `ev door` describing every mutation, AFTER
 /// vanilla's own TU spend and `calculateFOV` so that `tuAfter` is final and the
-/// newly-discovered bits ride this envelope's `reveal` at the SS2.4a choke.
+/// newly-discovered bits ride this envelope's `reveal` at the sendEv choke.
 ///
 /// Covers BOTH producer paths in one function: the walk-time auto-open
 /// (`UnitWalkBState.cpp:381`, rClick=false) and the right-click door
-/// (`UnitTurnBState.cpp:86`, rClick=true) - the path SS2.4 reserved a `door`
-/// field on the turn ev for and never applied.
+/// (`UnitTurnBState.cpp:86`, rClick=true).
 int coopUnitOpensDoor(TileEngine* te, BattleUnit* unit, bool rClick, int dir);
 
 /// THIN WRAPPER around `TileEngine::closeUfoDoors()` with the same contract -
-/// the WV-D50 boundary-callable entry point. The ev it emits carries `op:
+/// the boundary-callable entry point. The ev it emits carries `op:
 /// "close"`, NO `unit` and NO `tuAfter`, and rides `actionId 0`.
 ///
-/// W1-P13 owns the vanilla call site (`BattlescapeGame.cpp:549`); this packet
-/// ships the function and proves it through the `battle_close_ufo_doors`
-/// test lever so "boundary-callable" is a TESTED property and not a
-/// claim about code nobody ran.
+/// The vanilla call site is `BattlescapeGame.cpp:549`; the
+/// `battle_close_ufo_doors` test lever also calls it, so "boundary-callable"
+/// is a TESTED property.
 int coopCloseUfoDoors(TileEngine* te);
 
 /// Test introspection only - never read by game logic.
@@ -129,7 +126,7 @@ unsigned int coopDoorEvsEmitted();
 unsigned int coopDoorEvsApplied();
 unsigned int coopDoorInTurnUnsupported();
 
-/// WV-D59 (P10-ACCEPT, owner ruling R-E, 2026-09-04): counts how many times
+/// Counts how many times
 /// coopUnitOpensDoor() waived the HOST's own tuReserved/kneelReserved for a
 /// CLIENT-ORIGIN door open - the positive control for the door TU-reserve
 /// fairness fix (the host must not apply ITS OWN reserve to a client's
