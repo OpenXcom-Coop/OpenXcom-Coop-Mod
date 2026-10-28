@@ -28,7 +28,7 @@ Every InfoboxState is dismissed on its own machine before any END TURN press (on
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails both rows "boot"; a staging step fails them "staging".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_mc_seat_coop.py
@@ -52,7 +52,7 @@ KEY_C = "48739"
 X_ID = 1000000                    # the one alien, pinned AI-neutral (coop -1)
 S0_IDS, S1_IDS = [10, 11, 12, 13, 14], [8, 9]   # classic seats (RV-U8 pins; TASK 0 Ca / Cb)
 TILES = {X_ID: ((15, 2, 0), 4), 8: ((14, 5, 0), 0), 9: ((16, 5, 0), 0)}   # C_X, C_8, C_9 (open ground, z 0)
-X_TU = 54                         # R-H29-A-1: set_stat {X, tu, 54, refill} before each lever (the pin made its base 0)
+X_TU = 54                         # set_stat {X, tu, 54, refill} before each lever (the pin made its base 0)
 SEED_C1A, SEED_C1B, SEED_C2 = 1, 1, 2   # TASK 0 Ca / Cb (SEED_C2 1 fails the roll: hunt in rewrite/w2h29-task0)
 DEAD = 6
 WATCH_CAP_S = 135                 # F12761 (R-H31-3's pattern, R-C26-1): C2-out ends at the observed deaths
@@ -158,7 +158,7 @@ def row_c1(host, client, crash0, rec):
         set_stat_both(host, client, uid, "psiStrength", 0)
     ev["ampX"] = amp
     for tag, tgt, seed in (("C1A", 8, SEED_C1A), ("C1B", 9, SEED_C1B)):
-        reply = set_stat_both(host, client, X_ID, "tu", X_TU, refill=True)["tu"]   # R-H29-A-1
+        reply = set_stat_both(host, client, X_ID, "tu", X_TU, refill=True)["tu"]
         ev[tag] = {"xTu": {"reply": reply, "readBack": [(units(gc).get(X_ID) or {}).get("tu") for gc in (host, client)]}}
         ev[tag].update(psi_lever(host, client, X_ID, tgt, amp, seed, FACTION_HOSTILE, rec, tag))
     set_stat_both(host, client, X_ID, "psiSkill", 0)

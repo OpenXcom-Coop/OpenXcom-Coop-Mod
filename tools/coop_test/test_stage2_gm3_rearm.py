@@ -26,7 +26,7 @@ NAME, resumeAck <= RJ, profile_ok, RESUME). FXG-7 part 2.
   G3X-7 GUARD CRASH 0 (no new crash file in this lane's crash folder since the row's start).
 UNWIND / PARK counted since the kill, REARM / OFFER since the RESUME press (S2F's needles); HOME = `[coop-pvp] host: back on its own world`
 since the kill. PART2 = S2F part2(). P0 / FP2 / XCOM2 / B1 read at run time (S25). EVIDENCE before each verdict; a failed row prints ONE
-CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2. Red (R1, the unchanged
+CAPTURE line. ONE foreground run, no skip path; exit 0 only when every cell passes, else 2. Red (R1, the unchanged
 build): FAIL G3X-2, G3X-3, G3X-5; every other cell passes. Green (G1, G1-G2): every cell passes.
 
 Run:  python tools/coop_test/test_stage2_gm3_rearm.py

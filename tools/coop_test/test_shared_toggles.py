@@ -22,12 +22,12 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Toggle_Test")
 OPT = "oxceRememberDisabledCraftWeapons"
-BOOT_A = ("w2h16ea", (49335, 49336, 47314))      # SHARED; lobby 47314 (F6422)
+BOOT_A = ("w2h16ea", (49335, 49336, 47314))      # SHARED; lobby 47314
 BOOT_B = ("w2h16eb", (49337, 49338, 47316))      # SEPARATE; lobby 47316
 FAC, INT, AV = "STR_H16E_MIND_SHIELD", "STR_INTERCEPTOR", "STR_AVENGER"
 CELLS = {"A": (0, 3), "B": (4, 2)}               # beside the radar and the living quarters (TASK 0 (i): indices 9 / 10)
 WEAPONS = {"I1.0": (INT, 1, 0), "I1.1": (INT, 1, 1), "I2.0": (INT, 2, 0), "I2.1": (INT, 2, 1)}
-SCALE, BAND, GRID = 2, 0, 32                     # window = int(base * 2 + 0) (F5802, F6587); BaseView::GRID_SIZE
+SCALE, BAND, GRID = 2, 0, 32                     # window = int(base * 2 + 0); BaseView::GRID_SIZE
 POLL_S, POLL_I, UI_S = 3.0, 0.25, 3.0
 GEO, BASE, INFO = "GeoscapeState", "BasescapeState", "CraftInfoState"
 
@@ -150,7 +150,7 @@ def rclick(r, x, gc, key):
     rep = gc.cmd({"cmd": "inject_input", "kind": "click", "button": "right", "x": win(*b)[0], "y": win(*b)[1]})
     r.ev[f"rclick {gc.name} {key}"] = {"baseView": [v["x"], v["y"], v["w"], v["h"]], "base": b, "win": win(*b), "ok": rep.get("ok")}
 def open_info(r, x, gc, ctype, cid):
-    """open_craft_info; the screen on top and its 15x17 weapon icons not hidden (F6581); returns the icons by x."""
+    """open_craft_info; the screen on top and its 15x17 weapon icons not hidden; returns the icons by x."""
     o = gc.cmd({"cmd": "open_craft_info", "craftId": cid, "craftType": ctype})
     def shown():
         st, ws = widgets(gc)

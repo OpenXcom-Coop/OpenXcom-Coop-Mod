@@ -25,7 +25,7 @@ Red today: R-3a, R-3b, R-3c, R-3d FAIL; R-3e, R-3f, CRASH PASS. Green (EB1: the 
 mirrors = geo_state bases with coopIcon true; own = coopIcon and coopBase false. Every press is a real click_widget or inject_input (key
 or click); no visit, leave, dismiss or dialog-back lever. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict;
 a precondition miss ends the row (CAPTURE line, cells "not reached"); a boot miss fails every R-3 cell "boot" with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_partner_visit_rollback.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
@@ -244,7 +244,7 @@ def click_mirror(b, r, m):
 def row_r3(b, r):
     """R-3 (S-B stage file (f)): the client builds a base, the host visits its unnamed marker"""
     h, c, ev = b.host, b.client, r.ev
-    t0w, gap, stepped = time.time(), [], False  # P3-2 first, both on GeoscapeState: the clock holds while the client builds (F20792)
+    t0w, gap, stepped = time.time(), [], False  # P3-2 first, both on GeoscapeState: the clock holds while the client builds
     while time.time() - t0w < GAP_POLL_S + GAP_STEP_S:
         gap.append([round(time.time() - t0w, 1), census(h)["time"]])
         if gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN:

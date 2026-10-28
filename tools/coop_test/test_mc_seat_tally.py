@@ -33,7 +33,7 @@ Every InfoboxState is dismissed on its own machine before any END TURN press (on
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails that boot's rows "boot"; a staging step fails them "staging".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_mc_seat_tally.py
@@ -136,7 +136,7 @@ def boxes_window(m, rec, where, seconds):
 
 
 def tops_ready(m, rec, where, timeout=10):
-    """Every infobox dismissed on its own machine (F11689), NextTurnStates closed, both tops BattlescapeState."""
+    """Every infobox dismissed on its own machine, NextTurnStates closed, both tops BattlescapeState."""
     def ok():
         for gc in m:
             poll_box(gc, rec, where)

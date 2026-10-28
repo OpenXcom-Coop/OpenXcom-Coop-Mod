@@ -1,6 +1,6 @@
 """W2-H80 S-A LBU (tools/coop_test/test_lost_base_undefended.py): GUARD - a base the host loses undefended leaves no marker on the
 partner's globe (lead L-BH2, ruling R-LBH2-1; capture lbh2-cap C1-ctl F21832, here on the host's FIRST base HB).
-Spec docs rewrite/prompts/w2h80_lost_base_ghost.md (f) LBU (QH80-4 (a)); TASK 0 values in rewrite/w2h80-task0/sa/CONSTANTS.md.
+Spec docs rewrite/prompts/w2h80_lost_base_ghost.md (f) LBU; TASK 0 values in rewrite/w2h80-task0/sa/CONSTANTS.md.
 In a SEPARATE campaign the host owns HB (its first base) and SPARE. STRIP empties HB (set_soldier_dead on every HB soldier, host only:
 staging, no relay), so trigger_base_defense on HB finds no defender and pops BaseDestroyedState, whose constructor sends delete_base: the
 client erases its marker of HB at once. E1 (the W2-H80 green, TCP) does not touch this path (no battle world): this file passes on both builds.
@@ -19,7 +19,7 @@ LOST_POS.
 Red today and green (E1): all 5 PASS (a guard file).
 Every press is a real click_widget or inject_input except the logged levers named above. One EVIDENCE line per row, one PASS / FAIL line per
 cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails R4-pre with ONE
-CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_lost_base_undefended.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
@@ -82,7 +82,7 @@ def hits(gc, needle, n0, n1=None):
     """the log lines holding `needle` in [n0, n1): [line index, time hh-mm-ss.mmm, text]"""
     return [[i, ln.split("\t")[0][-13:-1], ln.split("\t")[-1][:120]] for i, ln in enumerate(logl(gc)[n0:n1], n0) if needle in ln]
 def cw(gc, match, settle=1.0, ready=False):
-    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button (W2-U9)
+    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button
         session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)

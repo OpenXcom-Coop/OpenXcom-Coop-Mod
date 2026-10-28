@@ -32,7 +32,7 @@ crash folder. EVIDENCE only: contexts, executed paths, the walker on both machin
 RED on the probe build (commit B1): FC1-host, FC1-hvoice, FC1-own, FC1-ovoice, FC2-client, FC2-cvoice; every other cell
 PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step that fails fails its row's cells.
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2. test_footsteps_pvp.py imports this file's helpers.
 
 Run:  python tools/coop_test/test_footsteps.py
@@ -253,7 +253,7 @@ def row_fc2(host, client, crash0):
 
 
 def bring_up(host, client):
-    """test_reaction_prox.boot, copied with the lobby key as a parameter (F10917)."""
+    """test_reaction_prox.boot, copied with the lobby key as a parameter."""
     bring_up_lobby_roster_pinned(host, client, KEY)
     seated = {}
     session.drive_to_battlescape(host, client, seated, seat_count=2,

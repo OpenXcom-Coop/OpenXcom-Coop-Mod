@@ -22,7 +22,7 @@ preconditions, with reads W / D); GR-rejoin GUARD (read R); GN-close / GR-close 
 GW-write GUARD; GW-log GUARD (CLOSE54 0 at H and E); X-common GUARD (host alive; each new crash_*.log since B is the lever's miss, one per W2-H70 push).
 Red (commit R1, the HEAD build = S-A green): exit 2, RED exactly on GN-close, GN-log, GR-close, GR-log (4).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line
-per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one
+per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
 W2-H70 T1 (docs rewrite/prompts/w2h70_t1_hsw_hsc_repoint.md; F20124): W2-H70's gift pushes the client's stored world; it lands about
 0.2 s after the notice and races the notice's CLEAR guard and R-GR's drop write. R-GN / R-GR arm the client's TEST-ONLY
@@ -108,7 +108,7 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 

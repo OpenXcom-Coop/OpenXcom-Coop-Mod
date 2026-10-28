@@ -1,6 +1,6 @@
 """W2-H70 (spec docs rewrite/prompts/w2h70_gift_during_visit.md (f); TASK 0 rewrite/w2h70-task0/sa/CONSTANTS.md; lead L-H64-2, ruling
 R-H70-0; F19740-F19747, F19921): the rejoin and the save-prompt window rows beside test_gift_during_visit.py (R1-R3); both import
-gift_helpers.py (R-H70-2). Rows (one fresh boot pair each, key "49256", dirs w2h70_<row>_host / _client, the rejoiner
+gift_helpers.py. Rows (one fresh boot pair each, key "49256", dirs w2h70_<row>_host / _client, the rejoiner
 w2h70_<row>_client2; real presses only):
   R4 (C3) the guest staged, the visit, the partner's gift inside, the host's notice OK, HOLD_P, the client killed and rejoined (the host's
      60 / 62, a fresh client join_tcp by B's clientName, the host's OK on Profile and RESUME): R4-rejoin HOLD_R after the rejoin.
@@ -13,7 +13,7 @@ w2h70_<row>_client2; real presses only):
 Cells: X-pre GUARD; R4-rejoin RED (once_host), R5-file RED (once in QUICK's host half, no client entry), R5-reload RED (once_host),
 R5-log RED, R5-995 RED, R6-rejoin RED (once_client); X-common GUARD (both machines alive at the read, no new .dmp; R4 / R6: no hash-map
 file). 12 cells; red (commit R1): RED exactly on R4-rejoin, R5-file, R5-reload, R5-log, R5-995, R6-rejoin. ONE EVIDENCE line per row,
-one PASS / FAIL line per cell, the row verdict; every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95:
+one PASS / FAIL line per cell, the row verdict; every row runs; exit 0 only when every cell passes, else 2.
 one foreground run per invocation.
 Run: python tools/coop_test/test_gift_during_visit_rejoin.py
 """

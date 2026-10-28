@@ -1,4 +1,4 @@
-"""W2-H12 - an in-memory SPEC 16 rejoin re-arms the host's hostile reveal set
+"""an in-memory SPEC 16 rejoin re-arms the host's hostile reveal set
 (spec rewrite/prompts/w2h12_rejoin_reveal_rearm.md (f); SD-2; F3603, F3620,
 F3621). ONE boot (test_death_side's default map, lobby PORT_H12): A_ID to
 T1, the client leaves, a fresh process (client2) rejoins, the host presses
@@ -10,7 +10,7 @@ the host's hostile set (pause census == P, at T1); after RESUME the host's is >=
 client2's equal, revealHostile == P's on both. A boot/rejoin step past its bound
 is a FIXTURE-STOP (one CAPTURE line; every row FAILs "boot"/"rejoin"). Each
 row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>";
-every row runs; a staging failure fails later rows "staging". WV-D95/D99/D100:
+every row runs; a staging failure fails later rows "staging".
 ONE foreground run, no skip path; exit 0 only when all rows pass, 2 otherwise.
 """
 
@@ -221,7 +221,7 @@ def h12_1(host, c2, ctx):
     return f + desync_fails(host, c2)
 
 def h12b_1(host, c2, ctx):
-    """W2-H12b (D219 b), reads only, after H12-1. Q2 (a): a forced pass at T1 discovers 0 (TASK 0 F4584, 3/3)."""
+    """W2-H12b, reads only, after H12-1. Q2 (a): a forced pass at T1 discovers 0 (TASK 0 F4584, 3/3)."""
     p, pz, hh, ch = ctx["P"], ctx.get("pause") or {}, hostile(host), hostile(c2)
     rhh, rhc = rh(host), rh(c2)
     evidence("H12b-1", {"P": p, "pause": pz, "host": hh, "client2": ch,
@@ -246,7 +246,7 @@ def h12b_1(host, c2, ctx):
 def h12_2(host, c2, ctx):
     c0, a0 = hostile(host)["census"], log_count(c2, ADD_RE)
     try:
-        tele_both(host, c2, A_ID, T2, D2)                      # client2 first (F607)
+        tele_both(host, c2, A_ID, T2, D2)                      # client2 first
     except Exception as e:
         ctx["staging"] = f"H12-2 tele_both T2: {short(e)}"
         return [f"staging: {ctx['staging']}"]

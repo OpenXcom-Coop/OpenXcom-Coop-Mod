@@ -33,7 +33,7 @@ Guard over the row: no new crash log; host fatalVote.armed 0 at both endings. Th
 machines' battleEnd records (page3, worldAdoptDeferredPasses, forced, adoptFailed among them), sel_state and the
 per-battle walls.
 
-ONE "EVIDENCE C28S-2:" line, then "PASS C28S-2" or "FAIL C28S-2: <message>". WV-D95/D99/D100: ONE foreground run, no
+ONE "EVIDENCE C28S-2:" line, then "PASS C28S-2" or "FAIL C28S-2: <message>". ONE foreground run, no
 skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_campaign_second_battle.py

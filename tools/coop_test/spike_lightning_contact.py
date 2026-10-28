@@ -58,7 +58,7 @@ _OPPOSITE_CORNER = {"NW": "SE", "NE": "SW", "SW": "NE", "SE": "NW"}
 
 class Precondition(AssertionError):
     """A measurement's own precondition could not be met - this file's exit-2
-    STOP. Never a fixture reroll (WV-D86): this file re-rolls nothing, it
+    STOP. Never a fixture reroll: this file re-rolls nothing, it
     reports what the live boot actually did."""
 
 
@@ -174,7 +174,7 @@ def pin_lightning_and_floater(host):
     require(r.get("ok"), f"newbattle_race refused STR_FLOATER: {r}")
 
 
-# ----- BOOT A (WV-D87): default mission, Lightning --------------------------
+# ----- BOOT A: default mission, Lightning --------------------------
 
 def boot_a(placement, game_port, host_port, client_port):
     tag = f"lightning_a_{placement.lower()}"
@@ -337,7 +337,7 @@ def boot_a(placement, game_port, host_port, client_port):
         client.shutdown()
 
 
-# ----- BOOT B (WV-D88): STR_TERROR_MISSION + STR_FLOATER + Lightning -------
+# ----- BOOT B: STR_TERROR_MISSION + STR_FLOATER + Lightning -------
 
 def boot_b(game_port, host_port, client_port):
     tag = "lightning_b_terror"

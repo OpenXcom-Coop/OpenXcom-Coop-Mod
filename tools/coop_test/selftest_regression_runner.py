@@ -183,7 +183,7 @@ def u13_5(row):
     p = runner(row, ["--batches", md, "--list-only"] + QUIET, env_for())
     row.ev("list-only stdout: %s" % " | ".join(lines_of(p.stdout)))
     row.cell("exit 0", p.returncode == 0, "rc=%d" % p.returncode)
-    # F3 resolved (F7986): batch 1 = pass_a + pass_b (R-2's +=), batch 2 = 2, batch 3 = 2 -> 6 entries; R-2: 4.
+    # F3 resolved: batch 1 = pass_a + pass_b (R-2's +=), batch 2 = 2, batch 3 = 2 -> 6 entries; R-2: 4.
     for want in ("block REGRESSION-3: 3 batches, 6 tests", "batch 1: regstub_pass_a regstub_pass_b",
                  "batch 3: regstub_fail regstub_pass_a"):
         row.cell(want, want in lines_of(p.stdout))
@@ -314,7 +314,7 @@ def u13_9(row):
                             ("fam_hs", ["s26"], "families host_screens_turn,x {s26}"), ("fam_none", [], "families client_shoot set()"),
                             ("c16_18", True, "conflicts(R130[16], R130[18]) True"), ("c5_9", True, "conflicts(R130[5], R130[9]) True"),
                             ("c18_19", False, "conflicts(R130[18], R130[19]) False"),
-                            ("fam_s16", ["s16s2"], "families harness_truth {s16s2}"),  # W2-G1 Q5 (F8463)
+                            ("fam_s16", ["s16s2"], "families harness_truth {s16s2}"),  # W2-G1 Q5
                             ("c_s16", True, "conflicts(spec16_s2, harness_truth) True")):
         got = res.get(key)
         row.cell(name, got is want if isinstance(want, bool) else got == want, str(got))

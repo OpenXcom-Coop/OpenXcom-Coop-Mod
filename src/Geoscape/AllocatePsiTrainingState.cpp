@@ -39,7 +39,7 @@
 #include "../Basescape/SoldierSortUtil.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H16b
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {

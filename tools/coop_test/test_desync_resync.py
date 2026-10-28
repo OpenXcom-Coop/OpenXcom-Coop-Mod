@@ -25,7 +25,7 @@ assert_hash_clean(full); SPLIT = sorted (id, coop) of faction 0, not isOut; NOTI
 client RS loaded +n, NOTICE_OK on both, both tops BattlescapeState, both phase Active, battleId b0 on both, host peerAbsent false, client RS
 frozen false, no CoopState on the host's stack; CRASH = session._crash_log_snapshot() delta at the row's end, every case. LIVE = client RS
 frozen false and both tops BattlescapeState: a row that starts with the battle not LIVE runs only its client-local GUARD, its other cells
-"not reached". battle_state is probed only with a BattlescapeState on top (F10980). A WAIT that times out ends the row ("not reached").
+"not reached". battle_state is probed only with a BattlescapeState on top. A WAIT that times out ends the row ("not reached").
 EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; ONE run (WV-D95; WV-D99 / WV-D100: no SKIP path); exit 0 iff every cell
 passes, else 2.
 Red (commit A1: the record has no writers, the base never repairs): DR1-2..DR1-8, DR4-2..DR4-5, DR2-2..DR2-5 FAIL (DR4 / DR2 after DR1's
@@ -51,7 +51,7 @@ SEED_MAP, MAP_FP = 1, -4.48310638993e+18   # DC's map (CONSTANTS: 5 boots)
 H, H2, G = 10, 11, 8                       # the first / second host-seat soldier, the first seat-1 soldier
 G_TILE, G_DEST = (14, 19, 1), (14, 17, 0)  # G's start tile; the walk's measured end tile (R-L3-A-4, F11791: (14, 17, 1) has no floor)
 U, K4 = 8, 10                              # corrupt_bucket's unit (the first live unit) and the kneeler that does not restate it
-KIND_DR1, SEQ_OFF_DR1 = "bt_action_end", 2  # R-L3-A-2: a bt_action_end (no `kind`, F11651) is named by its state; seq = s0 + 2 (Ra, Rd, Re)
+KIND_DR1, SEQ_OFF_DR1 = "bt_action_end", 2  # a bt_action_end (no `kind`, F11651) is named by its state; seq = s0 + 2 (Ra, Rd, Re)
 BUCKET_DR4, KIND_DR4 = "unitsStats", "kneel"
 BUCKET_DR2, KIND_DR2 = "saveBlob", "side_transition"
 POKE = 7
@@ -107,7 +107,7 @@ def es(gc):
 
 
 def bs(gc):
-    """battle_state, only with a BattlescapeState on top (F10980); {} otherwise"""
+    """battle_state, only with a BattlescapeState on top; {} otherwise"""
     return q(gc, {"cmd": "battle_state"}) if top(gc) == BS else {}
 
 
@@ -224,7 +224,7 @@ def repaired(x, rh0, rc0, n, t_press, cycle=False):
     h, c, seen, tl, last = x.host, x.client, {}, [], [None]
 
     def ok():
-        # cap-r4 (F23921): the client's desync report reaches the host ~30-50 ms after the side change; a NextTurnState closed before
+        # cap-r4: the client's desync report reaches the host ~30-50 ms after the side change; a NextTurnState closed before
         # the host offered the repair moves the host on a side first (the repair then runs on the next one), so close only after it
         offered = delta(rh0, rs(h), "offered") if cycle else 0
         for gc in (h, c):
@@ -317,14 +317,14 @@ def capture(x):
 
 
 def kneel(x, uid):
-    """the host's real-UI kneel of uid (hcv.host_kneel's TAB-select + SDLK_K), reset-safe wait (R-L3-A-4, F11793): the kneel flipped on the
+    """the host's real-UI kneel of uid (hcv.host_kneel's TAB-select + SDLK_K), reset-safe wait: the kneel flipped on the
     host, visible on both, the host idle (the repair's CoopPump::reset(false) can keep hcv's `lastSeqEmitted > s0` false) -> (s0, evidence)"""
     h, c, notes, t = x.host, x.client, [], time.time()
     if not hcv.tab_select(h, uid):
         return None, {"kneeled": [None, None], "s0": None, "kneel s": round(time.time() - t, 2), "notes": ["TAB never selected %s" % uid]}
     k0, s0 = units(h).get(uid, {}).get("kneeled"), es(h).get("lastSeqEmitted") or 0
     h.ok({"cmd": "inject_input", "kind": "key", "key": hcv.SDLK_K})
-    bs_live = lambda st: st[-1:] == [BS] or st[-2:] == [BS, NOTICE]  # noqa: E731  R-L3-C-1 (F12303): BattlescapeState live under the notice
+    bs_live = lambda st: st[-1:] == [BS] or st[-2:] == [BS, NOTICE]  # noqa: E731  R-L3-C-1: BattlescapeState live under the notice
     kn = lambda gc: (session.units_by_id(q(gc, {"cmd": "battle_state"})) if bs_live(stack(gc)) else {}).get(uid, {}).get("kneeled")  # noqa: E731
     try:
         wait("the kneel on both, the host idle", lambda: kn(h) not in (None, k0) and kn(c) == kn(h) and es(h).get("busyOwnerSeat") == -1, 20.0)

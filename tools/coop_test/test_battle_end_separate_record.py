@@ -1,13 +1,13 @@
 """W2-P7 S-C-B2.3 - test_battle_end_separate_record.py: a SEPARATE guest's record follow-ups - the mission-id remap
-when the owner's world already holds a mission (F5549) and the owner's diary under a host with diaries off (F5554)
+when the owner's world already holds a mission and the owner's diary under a host with diaries off
 (docs rewrite/prompts/w2p7_sc_design.md: the P7-6 C re-pin section 5 (Q-C1 a) and the P7-6 B2.3 pin section 5, PB-4..PB-8;
 veto V-C4; owner D155 (a), D202 (a)).
 
 Both rows use C28P's guest's-OWN-kill construction (b1.guest_kill at b1.SEED_P 2 with b1's map pin, B1's 3/3 pin) through
 b1._stage_common with a `pre_extra` hook (PB-8) that runs on the client's own geoscape before OWN_BEFORE and the
 battle-entry snapshot: the client's test lever `mission_stats_pad {count: 1, soldierId: <the guest>}` (PB-7) appends one
-MissionStatistics (type coop_test_pad) to the client's world and its id to the guest's diary. Both campaigns are fresh
-(F6232): the pad gets id 0, the host's mission id 0, the return's new id 1.
+MissionStatistics (type coop_test_pad) to the client's world and its id to the guest's diary. Both campaigns are fresh:
+the pad gets id 0, the host's mission id 0, the return's new id 1.
 
 Row C28P-shift (boot 1, port 47204; the F5549 guard row): the return keeps the owner's own diary id 0 (the pad, F5548's
 tail rule), appends the host's mission as id 1 (== COPY's mission 0 on type, region, success; sepReturn.missionCopied 1)
@@ -24,7 +24,7 @@ Pre-cell guards (a miss is a FIXTURE-STOP: a CAPTURE line, then the row FAILs "p
 guest's kill, the host debriefing pin, fatalVote 0); the pad reply ids [0]; OWN_BEFORE's diary ids OWN_IDS with
 missions[0] = the pad; COPY's kills >= 1, diary ids COPY_IDS and a kill under mission 0; C28P-nodiary also the option
 guard (host soldierDiaries false, client true) and COPY's medal.
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_battle_end_separate_record.py
 """
@@ -42,12 +42,12 @@ from harness import GameClient, make_user_dir
 PORT_SHIFT = "47204"        # PB-6: B's reserved, unused port (block comment test_battle_end_separate.py :77)
 PORT_NODIARY = "47222"      # PB-6: B's reserved, unused port (block comment test_battle_end_separate_diary.py :44)
 PAD_TYPE = "coop_test_pad"  # PB-7: mission_stats_pad's MissionStatistics type
-OWN_IDS = [0]               # F6232: the client's fresh world -> the pad's id 0, appended to the guest's diary
-COPY_IDS = [0, 0]           # F6232: the contributed pad id 0 + the host's own mission id 0 (the host's fresh world)
-RETURNED_IDS = [0, 1]       # F6232: the owner's own 0 kept (F5548) + newId = size() == 1 (coopSeparateReturn)
-TURN_SHIFT = 300            # F6232: (newId 1 - hostId 0) * 300 (makeTurnUnique; the overlay's kill remap)
+OWN_IDS = [0]               # the client's fresh world -> the pad's id 0, appended to the guest's diary
+COPY_IDS = [0, 0]           # the contributed pad id 0 + the host's own mission id 0 (the host's fresh world)
+RETURNED_IDS = [0, 1]       # the owner's own 0 kept + newId = size() == 1 (coopSeparateReturn)
+TURN_SHIFT = 300            # (newId 1 - hostId 0) * 300 (makeTurnUnique; the overlay's kill remap)
 OPTION = "soldierDiaries"   # PB-4 / F6222: the host's per-player OXC option (Options.cpp :203, default true)
-RELOAD_WAIT_S = 10          # R-B23-1 (F6361): bound on the wait for the client's world reload before the pad
+RELOAD_WAIT_S = 10          # bound on the wait for the client's world reload before the pad
 
 
 # ===================== pre_extra hooks and the pre-cell guards =====================
@@ -61,7 +61,7 @@ def read_options(h, c, ctx):
 
 
 def wait_world_reloaded(h, c, ctx):
-    """R-B23-1 (F6361): BasescapeState::btnGeoscapeClick clears insideCoopBase BEFORE its LoadGameState replaces the
+    """BasescapeState::btnGeoscapeClick clears insideCoopBase BEFORE its LoadGameState replaces the
     client's world (the load runs 10 frames later), so session.py's "client back on geoscape" wait can return while
     the outgoing world is still live. Wait (bounded RELOAD_WAIT_S) until the client's top state is GeoscapeState and
     no LoadGameState is on its stack; a timeout is a FIXTURE-STOP (CAPTURE of both machines, the row FAILs)."""
@@ -78,7 +78,7 @@ def wait_world_reloaded(h, c, ctx):
 def pad(h, c, ctx):
     """`pre_extra` (C28P-shift): the client's mission_stats_pad {count: 1, soldierId: the guest}; reply ids [0]."""
     read_options(h, c, ctx)   # evidence only here (C28P-nodiary guards it)
-    wait_world_reloaded(h, c, ctx)   # R-B23-1: never pad the outgoing world (F6361)
+    wait_world_reloaded(h, c, ctx)   # never pad the outgoing world
     sid = b1.soldier_rec(c, name="Guest Zzz").get("id")
     r = c.cmd({"cmd": "mission_stats_pad", "count": 1, "soldierId": sid})
     ctx["pad"] = {"soldierId": sid, "resp": {k: r.get(k) for k in ("ok", "ids", "size", "error")}}

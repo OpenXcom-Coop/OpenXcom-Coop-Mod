@@ -1,10 +1,10 @@
-"""WV-D63 (SPEC 6a): acceptance test for the deterministic PLACEMENT LEVER -
+"""acceptance test for the deterministic PLACEMENT LEVER -
 TestServer.cpp's `battle_teleport_unit` / `battle_teleport_all` commands - and
 its session.py helpers (`place_deterministic`, `contact_free_ufo_door_setup`).
 
 AI-neutral: t=0 only; contact-free by construction (every live hostile is
 teleported away before anything else happens - no walk, no shot, no AI turn
-ever runs in this file). DETERMINISTIC fixture (WV-D65): the SITUATION is
+ever runs in this file). DETERMINISTIC fixture: the SITUATION is
 built by the placement lever plus the hash-equality gate, never a map-
 generator re-roll loop waiting on a CANDIDATE (no MAX_REROLLS/
 FixtureExhausted anywhere below), so the acceptance bar is **3 consecutive
@@ -12,7 +12,7 @@ green**, not 10 - a SKIP here is a LEVER BUG, never a map roll.
 
 Covers, on a STR_BASE_DEFENSE bring-up and a STR_SUPPLY_SHIP bring-up:
   - `battle_teleport_all {faction:"hostile"}` moves every live hostile on
-    BOTH machines, with IDENTICAL replies (WV-D63(f)).
+    BOTH machines, with IDENTICAL replies.
   - `battle_teleport_unit` (via `contact_free_ufo_door_setup`) moves one
     seat-1 soldier onto the standable tile next to a UFO door, facing it.
   - `hash_now {full:true}` is ALL BUCKETS EQUAL after every placement (the
@@ -27,7 +27,7 @@ Covers, on a STR_BASE_DEFENSE bring-up and a STR_SUPPLY_SHIP bring-up:
     any path `sp_smoke.py` touches (it is a brand-new TestServer command
     pair), so nothing here should be able to move it.
 
-THE ONE RE-ROLL IN THIS FILE IS NOT A MAP-ROLLED FIXTURE (WV-D65 NOTE): a
+THE ONE RE-ROLL IN THIS FILE IS NOT A MAP-ROLLED FIXTURE: a
 freshly generated STR_BASE_DEFENSE/STR_SUPPLY_SHIP map occasionally includes a
 live 2x2+ hostile (a Cyberdisc/Sectopod), and WV-D63(b) is explicit that this
 is the FIXTURE'S job, not the lever's: "A 2x2 unit argument => the lever
@@ -45,7 +45,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8f (F9052): bring_up's cleanup
+from harness import shutdown_clients  # bring_up's cleanup
 import session
 from session import assert_hash_clean, place_deterministic, contact_free_ufo_door_setup
 import repro_atom_walk as W
@@ -68,7 +68,7 @@ def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat
         seated = {}
         session.drive_to_battlescape(host, client, seated, mission=mission, pre_seat=pre_seat)
     except BaseException:
-        # W2-U8f (F9052): run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
+        # run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise

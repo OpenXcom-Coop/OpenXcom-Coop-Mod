@@ -2,7 +2,7 @@
 rewrite/w2h64-task0/sa/CONSTANTS.md; lead L-H59-1, ruling R-H64-0; F19186, F19188): in a co-op campaign every host geoscape save waits
 behind "Saving..." (CoopState 54) for the second player's world. While that player is inside the host's base the wait lasts the whole
 visit, and a soldier gift (keypad 2 on its soldier screen) puts the host's GiftNoticeState over the 54. When the player then drops,
-W2-H59's drop helper coopWriteArmedSaveOnPeerDrop writes only a TOP 54, so it returns, and the save is lost (F19186).
+W2-H59's drop helper coopWriteArmedSaveOnPeerDrop writes only a TOP 54, so it returns, and the save is lost.
 Two rows, one fresh boot pair each (key "49225", dirs w2h64_<row>_host / _client; session.new_campaign SEPARATE gm1 tcp, the host base at
 HOST_POS; both tops GeoscapeState unchanged STABLE_S within BOOT_S). Construction (real presses only): stage the guest (the client's first
 own-base soldier not in a craft renamed GIFTNAME, transfer_to_coop_base to the host's base, the host's "Items received" (150) closed by a
@@ -20,7 +20,7 @@ host_<saveID at the 54>_<B clientName>.data, its FNV-1a 64 = B's coop_file_info 
 is the lever's miss, one per W2-H70 push). 14 cells.
 Red (commit R1): exit 2, RED exactly on GD-file, GD-blob, GD-path, GT-file, GT-blob, GT-path, GT-name (7).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
-row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one
+row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
 W2-H70 T1 (docs rewrite/prompts/w2h70_t1_hsw_hsc_repoint.md; F20123): W2-H70's gift pushes the client's stored world, which would
 complete the save before the drop. The client's TEST-ONLY force_stream_key_miss, armed just before the host's button, fails every
@@ -104,7 +104,7 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 

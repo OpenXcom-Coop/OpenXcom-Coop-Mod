@@ -3,7 +3,7 @@ debriefing, takes the host's post-battle world in place under it (MR1), and each
 with its own OK (docs rewrite/prompts/w2p7_sc_design.md section 3.1, AMENDMENT P7-6 section 4.1 rows C28S / C28S-b,
 PR-1..PR-11, the P7-6 TASK 0 RULINGS; owner D156 (a), D175, D176; mechanism rulings MR1-MR3; P7-5 Q4 (a)).
 
-Before S-C-A (F2491, F2492): the client's battle-end latch arms only in a skirmish, so a SHARED campaign client stays
+Before S-C-A: the client's battle-end latch arms only in a skirmish, so a SHARED campaign client stays
 on the battle map until the host has closed every after-battle screen; the host's post-follow-up restream
 (GeoscapeState :1029 -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState) then replaces its whole stack.
 
@@ -40,7 +40,7 @@ HOST_DEBRIEF, host event_state.fatalVote.armed 0 (S-V's vote did not arm, F4544)
 RED (commit S-C-A.1: probes, holds and rows, product untouched): each row fails on exactly cell 1 - the client never
 shows a DebriefingState (it stays on the battle map, F2491). GREEN (commit S-C-A.2): both rows pass.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' battleEnd records, tops, debriefs, cells), then "PASS <id>"
-or "FAIL <id>: <message>"; both rows run. WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when both
+or "FAIL <id>: <message>"; both rows run. ONE foreground run, no skip path; exit 0 only when both
 rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_battle_end_campaign.py
@@ -79,7 +79,7 @@ HOST_DEBRIEF = {
 }
 
 # ----- this file's constants -----
-ROW_PORT = {"C28S": "47200", "C28S-b": "47201"}   # AMENDMENT P7-6 section 4 (F4545): A = 47200-47202
+ROW_PORT = {"C28S": "47200", "C28S-b": "47201"}   # AMENDMENT P7-6 section 4: A = 47200-47202
 ROSTER_NAMES = ("HostPlayer", "ClientPlayer")     # session.new_campaign's defaults (PR-10's `[<roster name>] `)
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
 DEBRIEF_S = 60          # the host's DebriefingState after the kill (T0-6 (ii): 9.3-10.6 s)
@@ -298,9 +298,9 @@ def stage(rid, js, ctx, wound=False, holds=False):
         if not isinstance(hp0, int) or u.get("id") is None:
             capture("wound", f"no live player unit for soldier {squad[0]}: {u}", m)
         want = hp0 - WOUND_HP
-        rc = client.cmd({"cmd": "battle_set_unit_state", "unit": u["id"], "health": want})   # client first (F607)
+        rc = client.cmd({"cmd": "battle_set_unit_state", "unit": u["id"], "health": want})   # client first
         rh = host.cmd({"cmd": "battle_set_unit_state", "unit": u["id"], "health": want})
-        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+        session.wait_seq_barrier(host, client)
         ctx["wound"] = {"unit": u["id"], "soldier": squad[0], "health0": hp0, "want": want,
                         "host": {k: rh.get(k) for k in ("ok", "health", "error")},
                         "client": {k: rc.get(k) for k in ("ok", "health", "error")}}

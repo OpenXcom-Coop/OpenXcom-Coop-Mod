@@ -1,4 +1,4 @@
-"""W2-U8g - test_cleanup_chain_reaper.py (docs rewrite/prompts/w2u8g_cleanup_chain_reaper.md (f), ruling
+"""test_cleanup_chain_reaper.py (docs rewrite/prompts/w2u8g_cleanup_chain_reaper.md (f), ruling
 R-U8g-T0-1 (a)): F9068, a clean-up `host.shutdown(); client.shutdown()` stops at a host shutdown that raises (a crashed
 or hung host game), so the client game runs on after Python exits; F9215, three live chains are caught in-process and
 the next mode / group runs beside the leaked game (test_cydonia_coop_start.run_mode, shoot_pr87_ui.group_campaign_votes
@@ -364,7 +364,7 @@ def main():
     root = harness.TEMP_ROOT = tempfile.mkdtemp(prefix="w2u8g_diag_")  # this run's reports and dumps stay here
     print("EVIDENCE U8g-root: %s" % json.dumps({"diagnosticsRoot": root, "slot": harness.HARNESS_SLOT}), flush=True)
     try:
-        report(exec_row(*ROWS[0]), results)  # first: the child takes the slot lock (F9219)
+        report(exec_row(*ROWS[0]), results)  # first: the child takes the slot lock
         bystander_up()
         for rid, fn in ROWS[1:]: report(exec_row(rid, fn), results)
     finally:

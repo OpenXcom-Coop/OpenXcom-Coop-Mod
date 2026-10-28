@@ -42,7 +42,7 @@ private:
 	TextList * _lstPossibilities;
 	TextButton *_btnResearch, *_btnOk;
 	Base * _base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
 public:
 	/// Creates the NewPossibleResearch state.
 	NewPossibleResearchState(Base * base, const std::vector<RuleResearch *> & possibilities);

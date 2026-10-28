@@ -9,9 +9,9 @@ session. HOTSEAT is armed through the real NEW BATTLE toggle handler (`newbattle
 player 2 the aliens on the aliens' own side of each vanilla round.
 
 Bring-up (boot A): open_new_battle; newbattle_mission MISSION; newbattle_race RACE; newbattle_hotseat on; set_seed SEED_A
-right before newbattle_ok; close_briefing; the battle-start overlays; BattlescapeState on top. R-D247-SA-1: S_WALK (the
+right before newbattle_ok; close_briefing; the battle-start overlays; BattlescapeState on top. S_WALK (the
 lowest-id soldier) is staged by `battle_teleport_unit` onto S_HOME (dir S_DIR) - the 14 soldiers fill the Skyranger cabin
-at turn 1 and no soldier can leave it (F16602). Then every unit `set_stat reactions 0` and TU0 is read.
+at turn 1 and no soldier can leave it. Then every unit `set_stat reactions 0` and TU0 is read.
 
 Rows and cells (one EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a
 failure; a row whose precondition failed FAILs its cells "blocked: <reason>"):
@@ -20,21 +20,21 @@ failure; a row whose precondition failed FAILs its cells "blocked: <reason>"):
            >= 3 live aliens, 0 civilians)
   H1 the hand-over to player 2: S_WALK's real-UI walk to S_DEST, END TURN, the "Side: Aliens" screen (FX_STASH = X-COM's
            map, every alien's x/y/z/direction/tu), close it, settle (<= 10 s, isBusy false, no NextTurnState).
-           H1-side, H1-swap, H1-noai, H1-select, H1-ai, H1-fog, H1-shown, H1-hidden. R-D247-SA-3: a settle that times out
+           H1-side, H1-swap, H1-noai, H1-select, H1-ai, H1-fog, H1-shown, H1-hidden. a settle that times out
            FAILs every H1 cell "not settled" (no vacuous pass).
   H2 player 2 commands an alien: A's real-UI walk to A_DEST, a primed fuse-0 grenade dropped on G_TILE. H2-walk
   H3 the hand-back to player 1: END TURN, poll to the side-0 screen. H3-dark, H3-boom, H3-real, H3-turn, H3-fogX, H3-tu
   H4 the second hand-over: S_WALK walks back to S_HOME, END TURN, close the screen. H4-swap, H4-fogA, H4-select, H4-tu
   H5 the battle ends on player 2's turn: ABORT, the debriefing. H5-debrief, H5-real, H5-disarm
 H2-H5 need player 2's turn (H1); on the unchanged build the AI plays the aliens' side, so they are blocked there.
-H5-real (R-D247-SA-2, F16604 / F16610): `battle_state` has no battle at the debriefing, so it reads the debriefing's own
+H5-real: `battle_state` has no battle at the debriefing, so it reads the debriefing's own
 display (`debrief_state`): rows[] item "X-COM OPERATIVES KILLED" qty == soldiers dead at the battle's end (0 when the row
 is absent), rows[] item "X-COM OPERATIVES MISSING IN ACTION" qty == soldiers alive outside the craft / exit tiles at the
 end (vanilla's abort rule; S_WALK stands outside the craft, F16611), and soldiers[] (the soldier-stats page) names ==
 the soldiers alive on the craft / exit tiles. Expected values are read on battle_state + tile_census just before ABORT.
 
 Red (A1, the base + TA1): every H1-H5 cell FAILs, H0-armed / H0-real / turns-common PASS. Exit 0 only when every cell
-passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). WV-D95: run it in the foreground to completion.
+passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). run it in the foreground to completion.
 
 Run: python tools/coop_test/test_hotseat_turns.py
 """
@@ -337,7 +337,7 @@ def row_h1(B, ctx):
              hms=b.get("hiddenMovementShown"), fxFloor=sum(1 for i in range(len(fx) // 2) if int(fx[2 * i:2 * i + 2], 16) & 4),
              p2Floor=sum(1 for i in range(len(p2) // 2) if int(p2[2 * i:2 * i + 2], 16) & 4),
              camera=B.gc.cmd({"cmd": "event_state"}).get("camera", {}).get("offset"))
-    if not settled:  # R-D247-SA-3
+    if not settled:
         fail_rest("H1", "not settled in 10 s: side %r turn %r busy %r stack %s" % (b.get("side"), b.get("turn"), b.get("isBusy"), st))
         return
     ok_swap, bad = swapped(us)

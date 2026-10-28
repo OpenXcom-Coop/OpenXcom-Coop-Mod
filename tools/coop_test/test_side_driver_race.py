@@ -1,5 +1,5 @@
 """RV-U13 S-A red - test_side_driver_race.py: the four side-change drivers leave the change's NextTurnState
-open (F11011). Pure Python: no game, no port, no lobby key.
+open. Pure Python: no game, no port, no lobby key.
 
 Each row replays four interleavings against ONE shared side-change driver with two scripted fake machines
 (`Fake`, the spec's Appendix C, copied verbatim below) and checks which NextTurnStates the driver left open.
@@ -18,7 +18,7 @@ Cells per row (x = 1..4):
   SDx-held   GUARD  both on side 0 turn 5 with one NextTurnState that a close does not pop (the W2-P8b hold): the
                     driver returns inside its timeout, no exception; exactly that one left on each.
 RED at A1 (the unchanged drivers): SD1..SD4 -race and -stack FAIL, each "left (1, 1)"; every -ctrl and -held
-PASS (F11355). A driver exception (TimeoutError, an assertion) FAILs its cell with its text; the next cell runs.
+PASS. A driver exception (TimeoutError, an assertion) FAILs its cell with its text; the next cell runs.
 
 The engine order the model rests on (F11354, TRACE, re-read at 84026129f):
   - the host changes side (BattlescapeGame.cpp :705), emits side_transition (:731) and pushes its NextTurnState
@@ -26,13 +26,13 @@ The engine order the model rests on (F11354, TRACE, re-read at 84026129f):
     side_transition apply (connectionTCP.cpp :24637-:24641);
   - TestServer serves a probe at the start of a frame (Engine/Game.cpp :177), so a probe never sees a side
     change without its screen; once both reads show the new side, every screen of that change is up.
-A held turn screen (F11356): NextTurnState::close returns before its popState under the W2-P8b hold
+A held turn screen: NextTurnState::close returns before its popState under the W2-P8b hold
 (NextTurnState.cpp :536 / :538) and TestServer close_nextturn still answers ok.
 
 Spec: docs repo rewrite/prompts/rvu13_harness_hardening.md, sections (d) Stage S-A and (f).
-TASK 0: docs repo rewrite/rvu13-task0/sa/CONSTANTS.md (the model check, the Ae push / pop times).
-F11011, F11354, F11355, F11356. WV-D95: run to completion in the foreground. WV-D99: ONE run per bar.
-WV-D100: exit 0 only when every cell passes, else 2; no SKIP; every cell runs after a failure.
+docs repo rewrite/rvu13-task0/sa/CONSTANTS.md (the model check, the Ae push / pop times).
+WV-D95: run to completion in the foreground. ONE run per bar.
+exit 0 only when every cell passes, else 2; no SKIP; every cell runs after a failure.
 
 Run:  python tools/coop_test/test_side_driver_race.py
 """

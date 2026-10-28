@@ -1,7 +1,7 @@
 """MG-A-FS2 / AMENDMENT FS2-A row S2M (owner D282 (b) over H24-VL3, VL-FS2A-2; spec rewrite/prompts/fs2_sa_part2_rearm.md (f), ORCHESTRATOR
 RULINGS QA-1..QA-6; TASK 0 rewrite/fs2a-task0/sa/CONSTANTS.md): a partner lost between part 1 and part 2 of a CUSTOM-BATTLE Cydonia,
 mid-stream. Part 2 WAITS on the host; the partner rejoins from the server list, RESUME appears, part 2 is offered again and both play
-it. Moved here from test_stage2_failed_start.py (QA-6 (a)); its Row / run_boot / CAPTURE helpers are copied from there.
+it. Moved here from test_stage2_failed_start.py; its Row / run_boot / CAPTURE helpers are copied from there.
 
 ONE boot (boot M, lobby key KEY, dirs w2fs2a_s2m_host / _client / _client2): test_multistage.py's boot_a (imported, unchanged). The
 client arms hold_blob_ack {on: true} (reply armed true) before ms1_trigger, so the host's stage-2 blob waits after its first chunk:
@@ -21,7 +21,7 @@ the custom battle (test_skirmish_flow.skirmish_client_at_browser, then join_tcp 
         once ("no RESUME").
   S2M-6 GUARD CRASH 0.
 W = 15 s, POLL = 0.2 s, RJ = 60 s; UNWIND / PARK / REARM / OFFER / PART2 / CRASH as test_stage2_failed_start.py. EVIDENCE before
-each verdict; a failed row prints ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every
+each verdict; a failed row prints ONE CAPTURE line. ONE foreground run, no skip path; exit 0 only when every
 cell passes, else 2. Red (R1, the unchanged build): FAIL S2M-2, S2M-4, S2M-5; every other cell passes. Green (G1): every cell passes.
 
 Run:  python tools/coop_test/test_stage2_custom_rearm.py

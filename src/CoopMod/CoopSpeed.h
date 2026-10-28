@@ -30,7 +30,7 @@ class BattleUnit;
 class SavedBattleGame;
 
 /**
- * SPEC 17 (W1-P18): per-seat animation pacing. Each seat keeps ANIMATING at
+ * per-seat animation pacing. Each seat keeps ANIMATING at
  * its OWN machine-local battleXcomSpeed/battleAlienSpeed/battleFireSpeed
  * option instead of every machine snapping every unit (including a partner's)
  * to the LOCAL option value - a client set to 30 must still see the HOST
@@ -74,7 +74,7 @@ enum Which
 	Fire
 };
 
-/// COOP_SEAT_0..COOP_SEAT_3 (RB-D17). BattleAuthority::kMaxSeats is private
+/// COOP_SEAT_0..COOP_SEAT_3. BattleAuthority::kMaxSeats is private
 /// to that class, so this is its own copy of the same constant.
 const int kMaxSeats = 4;
 
@@ -117,8 +117,8 @@ void tableChanged();
 /// Called from resetBattleAuthority() (connectionTCP.cpp).
 void reset();
 
-/// The exact unit-less form of coopMayCommand(u, s)'s two non-unit terms
-/// (F373): TRUE outside a coop battle; inside one, TRUE only when @a s's
+/// The exact unit-less form of coopMayCommand(u, s)'s two non-unit terms:
+/// TRUE outside a coop battle; inside one, TRUE only when @a s's
 /// side is this seat's AND (parallel mode, or this seat holds the
 /// traditional baton). The Ctrl-S quick-mode toggle (M6) has no single
 /// acting unit, so it gates on this instead of coopMayCommand().

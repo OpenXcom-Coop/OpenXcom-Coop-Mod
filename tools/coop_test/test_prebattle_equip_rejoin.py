@@ -1,4 +1,4 @@
-"""W2-P8b - test_prebattle_equip_rejoin.py: pre-battle equip, Boot W (traditional turn
+"""test_prebattle_equip_rejoin.py: pre-battle equip, Boot W (traditional turn
 mode). Stage S-A's row EQ1b: the host closes its briefing BEFORE the second player's
 battle_ready arrives (the handshake window, phase Handshake) - its equip screen opens,
 shows only its own soldiers, and the equip-open announce goes out once the battle is
@@ -40,17 +40,17 @@ STR_RIGHT_HAND, a STR_GRENADE on STR_BELT (1,0) and a STR_PROXIMITY_GRENADE on S
 pre-battle screen on C1. EQ11b, EQ13 and EQ13b are this boot's LAST rows (P8b-1 section
 5 (L)): at red each writes on the client alone, and that divergence fails every later
 row of the boot.
-  EQ10b the baton (F3118): the host holds the traditional baton at turn 0; the client
+  EQ10b the baton: the host holds the traditional baton at turn 0; the client
         moves the first pile STR_GRENADE to C1's STR_BELT (0,0). GREEN: it lands there
         on both, the client's invGuard.counts.baton unchanged. RED: refused at the
         client's execution point by the baton term (`not_your_go`, invGuard.counts.baton
         +1); the item then leaves the client's cursor by a right-click (vanilla's
         return).
-  EQ11b quick unload (F3111): a Shift-click on C1's loaded rifle in STR_RIGHT_HAND.
+  EQ11b quick unload: a Shift-click on C1's loaded rifle in STR_RIGHT_HAND.
         GREEN: the rifle stays in STR_RIGHT_HAND unloaded, its clip on the ground at PILE,
         on both; the client's invLocalWrites 0. RED: vanilla's `quickUnload && !_tu`
         branch writes on the client alone (invLocalWrites > 0, buckets unequal).
-  EQ13  prime / unprime (F2760): a right-click on C1's STR_GRENADE -> the client's
+  EQ13  prime / unprime: a right-click on C1's STR_GRENADE -> the client's
         PrimeGrenadeState -> key 3; then a right-click again. GREEN: fuse 3 on both,
         then -1 on both. RED: fuse 3 on the client alone, -1 on the host.
   EQ13b the default fuse (Inventory.cpp's BFT_INSTANT branch): a right-click on C1's
@@ -69,7 +69,7 @@ COOP_DLG_CLIENT_RESUME_HOLD (68); the host's dialog offers RESUME (the join's Pr
 popup cleared as it appears); the host presses RESUME (coop_dialog_back). Boots R1 and
 R2: the roster-pinned lobby (their own lobby ports), parallel turn mode,
 session.bring_up_to_briefings with pre_ok = set_seed SEED_MAP; MAP_FP, C, H and PILE as
-Boot W (F3326).
+Boot W.
 Boot R1 spine: the client's briefing (<= 30 s, D210 b); the host's close_briefing -> its
 pre-battle screen; the client's close_briefing -> its pre-battle screen; the host's
 equip-open announce applied on the client.
@@ -83,7 +83,7 @@ equip-open announce applied on the client.
         true) and leaves; the player rejoins in a second fresh process; RESUME. GREEN:
         the rejoiner's pre-battle screen with okPressed true (Q6 a), host
         equip.ready[1] true, and 1.5 s after the screen its line "Waiting for
-        HostPlayer to finish equipping" (D216 c) visible; then the host's OK (the real
+        HostPlayer to finish equipping" visible; then the host's OK (the real
         click) -> turn 1 on both, equip phase ended on both, host barrierDone. RED: no
         equip screen after the rejoin (at S-D.1 EQ21's rejoiner has no screen either,
         so the ready press is recorded as absent; the leave, the rejoin and RESUME
@@ -119,9 +119,9 @@ C=[8, 9] H=[10, 11, 12, 13, 14]").
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
 "PASS <id>" / "FAIL <id>: <message>"; main() runs every row of every boot (W, R1, R2, in
 that order) even after an earlier one failed; a boot's bring-up failure fails that boot's
-rows. Every wait is bounded. WV-D99 / WV-D100: one run is the result; no skip path, no
+rows. Every wait is bounded. one run is the result; no skip path, no
 re-boot. Exit 0 only when every row passes, 2 otherwise (a bring-up or spine failure
-is also 2). WV-D95: run in the foreground to completion.
+is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_prebattle_equip_rejoin.py
 """
@@ -151,7 +151,7 @@ from test_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, H_IDS, PILE, COOP_SEA
 from test_skirmish_rejoin_battle import rejoin_skirmish, dialog, in_battle_save
 
 PORT = "48792"                     # this file's lobby port (unused by every other test file)
-STAGE_TYPES_W = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE", "STR_PROXIMITY_GRENADE")   # TASK 0's four (F3327)
+STAGE_TYPES_W = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE", "STR_PROXIMITY_GRENADE")   # TASK 0's four
 HOST_NEXT_PRESSES = 3              # EQ1b cell: "host next x3"
 PHASE_WAIT_S = 10.0                # the host reaches phase Active after the release
 MOVE_WAIT_S = 5.0

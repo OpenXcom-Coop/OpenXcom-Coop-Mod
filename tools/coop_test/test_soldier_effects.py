@@ -1,11 +1,11 @@
 """W2-H18b (F6136, F6137, F6177, D226 a; spec rewrite/prompts/w2h18b_soldier_effects.md (e)-(f); TASK 0
 w2h18b-task0/CONSTANTS.md): host-only soldier effects reach the SHARED replica. Mod Coop_SoldierEffects_Test: sick bay
-STR_H18B_SICKBAY (+0.5 hp/day) at (0, 3), index 9 (F7408); the Avenger with one pilot seat; STR_SOLDIER dogfightExperience
+STR_H18B_SICKBAY (+0.5 hp/day) at (0, 3), index 9; the Avenger with one pilot seat; STR_SOLDIER dogfightExperience
 100 %; pilots never survive an evacuation. Boot A (SHARED, one boot): H18b-1 stale day_tick cache (stock), H18b-2 sick-bay
 fraction, H18b-3 daily pilot list reset, H18b-4 pilot dogfight award (last of Part A/B), H18b-5 crewless lost craft, H18b-6
 crewed lost craft (last). Boot B (SEPARATE): H18b-7 guard row. Levers client first (S25). roll = TASK 0's exact one-day
 recipe (guard: host day + 1, month unchanged). window = both probes every 0.25 s for 3 s; RED cells at the FIRST sample with
-the client's requests == R0 (F7291). hold (Part C) = host SoldiersState the moment its craft is gone; release = close_screens.
+the client's requests == R0. hold (Part C) = host SoldiersState the moment its craft is gone; release = close_screens.
 clean = wait_resync_clear, drain client then host, 4 s after the window / release: requests == R0 through it is a verdict
 when the replica matched at the first sample, else recorded (a repair restream on the red build, never a verdict).
 RED: H18b-1..6 fail on the replica's cells, H18b-7 passes; GREEN: all pass. "G:" = guard (a miss prints one CAPTURE).
@@ -27,9 +27,9 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierEffects_Test")
 BOOT_A = ("w2h18ba", (49384, 49385, 47364))
 BOOT_B = ("w2h18bb", (49386, 49387), "47366")
-FAC, FAC_IDX = "STR_H18B_SICKBAY", 9                  # TASK 0 F7408
+FAC, FAC_IDX = "STR_H18B_SICKBAY", 9
 AV, SKY, INT = "STR_AVENGER", "STR_SKYRANGER", "STR_INTERCEPTOR"
-CRASHED, HOURS = 2, 72                                # ufo status crashed; xcom1 timePersonnel (TASK 0 F7419)
+CRASHED, HOURS = 2, 72                                # ufo status crashed; xcom1 timePersonnel
 XP0, XP_STAGED = {"firing": 0, "reactions": 0, "bravery": 0}, {"firing": 2, "reactions": 2, "bravery": 20}
 WIN_S, WIN_I, CLEAN_S, GEO = 3.0, 0.25, 4.0, "GeoscapeState"
 

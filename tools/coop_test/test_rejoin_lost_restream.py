@@ -14,9 +14,9 @@ within 30 s of the leave: phase Active, peerAbsent true, battleId B0, inBattle t
 CoopState]; SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both;
 REJOIN(client3) = a fresh client3 on its own dir, rejoin_skirmish, wait <= W_ACK for the host's resumeAck true AND peerAbsent false (profile_ok
 on any host Profile on top), press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s. battle_state is probed only with a
-BattlescapeState on the stack or no battle in the world (F10980); the killed client2 is never probed. Needles = host log since the row's
+BattlescapeState on the stack or no battle in the world; the killed client2 is never probed. Needles = host log since the row's
 baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's resumeAck wait: RL-4 is
-evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; ONE run (WV-D95); exit 0 iff
+evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; ONE run; exit 0 iff
 every cell passes, else 2.
 Red (S-B commit 1): RL FAIL on RL-3, RL-4 and RL-5 "not reached" (RL-1, RL-2, RL-6 PASS).
 """
@@ -30,7 +30,7 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 from test_skirmish_rejoin_battle import drop_client_mid_battle, rejoin_skirmish, start_skirmish_battle  # noqa: E402
 
-WATCH_CAP_S = 135  # RV-U13 S-D (R-C26-1): REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+WATCH_CAP_S = 135  # RV-U13 S-D: REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
 POLL, W, W_POLL, W_ACK, W_PAUSE, W_FLIGHT = 0.25, 15.0, 0.2, WATCH_CAP_S, 30.0, 60.0
 KEY, TAG = "48601", "w2r4l2_l"
 BS, CS, PROFILE = "BattlescapeState", "CoopState", "Profile"
@@ -73,7 +73,7 @@ def held(gc):
     return pick(q(gc, {"cmd": "hold_battle_ready"}), ("ok", "armed", "held", "error"))
 
 def bs_raw(gc):
-    """battle_state, only with a BattlescapeState on the stack or no battle in the world (F10980); {} otherwise"""
+    """battle_state, only with a BattlescapeState on the stack or no battle in the world; {} otherwise"""
     if BS not in stack(gc) and q(gc, {"cmd": "get_coop"}).get("inBattle") is not False:
         return {}
     return q(gc, {"cmd": "battle_state"})

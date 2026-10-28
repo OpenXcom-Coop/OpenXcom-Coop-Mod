@@ -1343,7 +1343,7 @@ void Soldier::setWoundRecovery(int recovery)
 }
 
 /**
- * coop W2-H18b (F6136): the exact wound recovery (the SHARED replica adopts the host's).
+ * coop: the exact wound recovery (the SHARED replica adopts the host's).
  * @return Hospital attention left (fractional with sick-bay bonuses).
  */
 float Soldier::getWoundRecoveryExact() const
@@ -1352,7 +1352,7 @@ float Soldier::getWoundRecoveryExact() const
 }
 
 /**
- * coop W2-H18b (F6136): sets the exact wound recovery, clamped at 0 as setWoundRecovery.
+ * coop: sets the exact wound recovery, clamped at 0 as setWoundRecovery.
  * @param recovery Hospital attention left.
  */
 void Soldier::setWoundRecoveryExact(float recovery)
@@ -1622,7 +1622,7 @@ int Soldier::getPsiStrImprovement() const
 }
 
 /**
- * coop W2-H18 (F3259): sets this month's psi improvement scores (the SHARED replica adopts the host's).
+ * coop: sets this month's psi improvement scores (the SHARED replica adopts the host's).
  */
 void Soldier::setPsiImprovements(int improvement, int psiStrImprovement)
 {

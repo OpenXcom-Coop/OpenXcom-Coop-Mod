@@ -1,4 +1,4 @@
-"""W2-H78 - test_visit_during_handoff.py (VDH): a SEPARATE partner's click on the host's base while the host's battle is being handed
+"""test_visit_during_handoff.py (VDH): a SEPARATE partner's click on the host's base while the host's battle is being handed
 to it (after the host's YES, before its briefing) does nothing; it reaches its briefing and keeps its own world.
 
 Spec: docs rewrite/prompts/w2h78_visit_during_handoff.md (f) rows R1 and G; TASK 0 constants: docs rewrite/w2h78-task0/sa/CONSTANTS.md.
@@ -31,7 +31,7 @@ NEEDLES = {"CLICKIGN": "[coop-visit] base click ignored: a battle hand-off is in
            "ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL"}
 CELLS = {"R1": ["R1-pre", "R1-click", "R1-brief", "R1-world", "R1-host", "R1-crash"],
          "G": ["G-pre", "G-brief", "G-world", "G-host", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

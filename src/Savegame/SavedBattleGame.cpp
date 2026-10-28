@@ -57,7 +57,7 @@
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopHotseat.h" // D247-U S-C: the hotseat battle-save hook pair
 #include "../CoopMod/CoopDelta.h"
-#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
@@ -1200,7 +1200,7 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 	}
 
 	if (unit->getFaction() == FACTION_HOSTILE && getTurn() < rule->getAIUseDelay(getMod())
-		&& !coopFactionHumanCommanded(unit->getFaction())) // coop R5-U3 (owner D234 = a): a human seat's units skip only the AI's delay
+		&& !coopFactionHumanCommanded(unit->getFaction())) // coop: a human seat's units skip only the AI's delay
 	{
 		return false;
 	}
@@ -1389,7 +1389,7 @@ void SavedBattleGame::newTurnUpdateScripts()
 			continue;
 		}
 
-		{ CoopScriptOwner coopOwner(bu); ModScript::scriptCallback<ModScript::NewTurnUnit>(bu->getArmor(), bu, this, this->getTurn(), _side); } // coop OF2
+		{ CoopScriptOwner coopOwner(bu); ModScript::scriptCallback<ModScript::NewTurnUnit>(bu->getArmor(), bu, this, this->getTurn(), _side); } // coop
 	}
 
 	for (auto* item : _items)
@@ -1399,7 +1399,7 @@ void SavedBattleGame::newTurnUpdateScripts()
 			continue;
 		}
 
-		{ CoopScriptOwner coopOwner(item->getOwner()); ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side); } // coop OF2
+		{ CoopScriptOwner coopOwner(item->getOwner()); ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side); } // coop
 	}
 
 	reviveUnconsciousUnits(false);
@@ -2117,13 +2117,13 @@ void SavedBattleGame::initUnit(BattleUnit *unit, size_t itemLevel)
 		}
 	}
 
-	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateUnit>(armor, unit, this, this->getTurn()); } // coop OF2
+	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateUnit>(armor, unit, this, this->getTurn()); } // coop
 
 	if (auto* solder = unit->getGeoscapeSoldier())
 	{
 		for (const auto* bonus : *solder->getBonuses(nullptr))
 		{
-			{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::ApplySoldierBonuses>(bonus, unit, this, bonus); } // coop OF2
+			{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::ApplySoldierBonuses>(bonus, unit, this, bonus); } // coop
 		}
 	}
 }
@@ -2139,7 +2139,7 @@ void SavedBattleGame::initItem(BattleItem *item, BattleUnit *unit)
 		return;
 	}
 
-	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateItem>(item->getRules(), item, unit, this, this->getTurn()); } // coop OF2
+	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateItem>(item->getRules(), item, unit, this, this->getTurn()); } // coop
 }
 
 /**

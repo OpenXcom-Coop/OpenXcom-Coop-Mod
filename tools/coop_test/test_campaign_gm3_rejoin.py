@@ -25,7 +25,7 @@ precondition was never reached, then each of its cells FAILs "blocked: <why>"):
      (client2's hold closed, its craft home, its mirror kept), F1-common.
 RED (C3R, the unchanged product; TASK 0 boot Fa): 9/13 - FAIL F2-target, F2-title, F1-home, F1-release. GREEN (C3G): 13/13.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_rejoin.py
 """
 
@@ -54,8 +54,8 @@ import test_pvp_gm3 as G3F  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc3/CONSTANTS.md, boot Fa) -----
 KEY = "48015"
-SEED = 1                                     # set on the X-COM client right before each confirm_landing (F13986)
-TITLE_WIN = "Aliens defeated"                # FX3-18 (S-C2's TITLE_WIN, F15071); the red shows "Base is saved" (F15554)
+SEED = 1                                     # set on the X-COM client right before each confirm_landing
+TITLE_WIN = "Aliens defeated"                # FX3-18 (S-C2's TITLE_WIN, F15071); the red shows "Base is saved"
 MAP_FP_PIN = 5.996615470105667e+18           # EVIDENCE: F5's map on the unchanged build (= S-C1's MAP_FP_C1)
 S_PIN = (1, (34, 9, 1), (35, 10, 1))         # EVIDENCE: F2's client move by G3C1's rule
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}   # FX3-4

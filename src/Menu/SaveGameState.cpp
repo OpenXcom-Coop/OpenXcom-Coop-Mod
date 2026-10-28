@@ -57,7 +57,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, const std::string &filename, 
  * @param type Type of auto-save being used.
  * @param palette Parent state palette.
  */
-SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn, bool quitAfterSave) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(quitAfterSave) // coop W2-H53
+SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn, bool quitAfterSave) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(quitAfterSave) // coop
 {
 	switch (type)
 	{
@@ -95,7 +95,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *pal
 		break;
 	case SAVE_IRONMAN:
 	case SAVE_IRONMAN_END:
-		_filename = CrossPlatform::sanitizeFilename(connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->getName()) + ".sav"; // coop W2-H49 (F17605)
+		_filename = CrossPlatform::sanitizeFilename(connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->getName()) + ".sav"; // coop
 		break;
 	default:
 		break;
@@ -288,10 +288,10 @@ void SaveGameState::think()
 			}
 
 			std::string backup = _filename + ".bak";
-			// coop W2-H21d (F9196): a co-op wait dialog's SAVE & QUIT reaches this write with a practice screen open (a preview, a base
+			// coop: a co-op wait dialog's SAVE & QUIT reaches this write with a practice screen open (a preview, a base
 			// equipment screen - vanilla has no save path there): write the world as vanilla holds it once that screen is closed.
 			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame());
-			_game->getCoopMod()->coopPvpSaveWorld(backup); // coop D250-U S-C4b (QC-14 (a)): the live world; while the gm3 alien host borrows, its own world with the X-COM world embedded
+			_game->getCoopMod()->coopPvpSaveWorld(backup); // coop D250-U S-C4b: the live world; while the gm3 alien host borrows, its own world with the X-COM world embedded
 			std::string fullPath = Options::getMasterUserFolder() + _filename;
 			std::string bakPath = Options::getMasterUserFolder() + backup;
 
@@ -304,7 +304,7 @@ void SaveGameState::think()
 				throw Exception("Save backed up in " + backup);
 			}
 
-			// coop W2-H53 (QH53-3 (a)): a co-op ironman save that quits (a wait dialog's SAVE & QUIT, the borrowed battle's SAVE AND
+			// coop: a co-op ironman save that quits (a wait dialog's SAVE & QUIT, the borrowed battle's SAVE AND
 			// ABANDON) leaves through quitToMainMenu below, the session's own teardown, as issue #81's SAVE & QUIT does.
 			if (_type == SAVE_IRONMAN_END && !_quitAfterSave)
 			{
@@ -357,7 +357,7 @@ void SaveGameState::quitToMainMenu()
 {
 	_game->resetTouchButtonFlags();
 
-	// SPEC 16 (W1-P17) M6 (DP1, D94=(a)): same capture-before-teardown as
+	// SPEC 16 M6 (DP1, D94=(a)): same capture-before-teardown as
 	// CoopState::btnAbandonClick - SAVE & QUIT's own end-control path onto
 	// the identical GoToMainMenuState chokepoint. peerAbsent is true only
 	// when this SAVE & QUIT is closing a mid-battle co-op pause (M1), never

@@ -143,8 +143,8 @@ private:
 	BattleUnitStatistics* _statistics;
 	int _murdererId;	// used to credit the murderer with the kills that this unit got by blowing up on death
 	int _mindControllerID;	// used to credit the mind controller with the kills of the mind controllee
-	CoopSeat _coopSeat = COOP_SEAT_NONE;	// RB-D17: the battle seat currently controlling this unit
-	std::string _coopGuestTank;	// D248-U: a SEPARATE partner's tank on the host's craft (empty = none)
+	CoopSeat _coopSeat = COOP_SEAT_NONE;	// the battle seat currently controlling this unit
+	std::string _coopGuestTank;	// a SEPARATE partner's tank on the host's craft (empty = none)
 	UnitSide _fatalShotSide;
 	UnitBodyPart _fatalShotBodyPart;
 	std::string _murdererWeapon, _murdererWeaponAmmo;
@@ -309,9 +309,9 @@ public:
 	SoldierGender getGender() const;
 	/// Gets the unit's faction.
 	UnitFaction getFaction() const;
-	/// Gets the coop seat currently controlling this unit (RB-D17).
+	/// Gets the coop seat currently controlling this unit.
 	CoopSeat getCoopSeat() const { return _coopSeat; }
-	/// Sets the coop seat currently controlling this unit (RB-D17).
+	/// Sets the coop seat currently controlling this unit.
 	void setCoopSeat(CoopSeat s) { _coopSeat = s; }
 	/// D248-U (docs rewrite/prompts/d248u_client_tank_host_craft.md): a SEPARATE partner's own tank on the host's craft -
 	/// "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>", empty for every other unit. Set once at
@@ -348,23 +348,23 @@ public:
 	/// heal() are deltas and kill()/instaKill() are not restates, so none of
 	/// them is the right shape for an absolute post-endTurn value.
 	void coopSetHealth(int health);
-	/// W1-P13a: absolute stun-level set. healStun(int) is a delta and
+	/// absolute stun-level set. healStun(int) is a delta and
 	/// prepareStun() is a turn-transition helper; neither restates.
 	void coopSetStunlevel(int stun);
-	/// W1-P13a: absolute morale set. moraleChange(int) is a delta that also
+	/// absolute morale set. moraleChange(int) is a delta that also
 	/// runs bravery maths, which a restate must not repeat.
 	void coopSetMorale(int morale);
-	/// W1-P13a: absolute mana set. prepareMana() is a turn-transition helper
+	/// absolute mana set. prepareMana() is a turn-transition helper
 	/// and stimulant() is a delta; neither restates.
 	void coopSetMana(int mana);
-	/// W1-P13a: absolute unit-status set (BattleUnit.cpp:710 is serialized and
+	/// absolute unit-status set (BattleUnit.cpp:710 is serialized and
 	/// rides the saveBlob bucket; also feeds unitsCore via unitLiveness()).
 	void coopSetStatus(UnitStatus status);
-	/// W1-P13a: absolute floating-flag set (serialized, saveBlob bucket).
+	/// absolute floating-flag set (serialized, saveBlob bucket).
 	/// Apply AFTER position - setTile() recomputes _floating on its own, and
 	/// this restate value must win.
 	void coopSetFloating(bool floating);
-	/// W1-P13a: absolute on-fire-turns set for the UNIT (not the tile - see
+	/// absolute on-fire-turns set for the UNIT (not the tile - see
 	/// Tile::coopSetTileFireAbsolute). setFire() silently drops the write
 	/// when _specab is SPECAB_BURNFLOOR or SPECAB_BURN_AND_EXPLODE; a restate
 	/// must land unconditionally, so this bypasses that guard on purpose.
@@ -378,7 +378,7 @@ public:
 	/// reproduced by the applier instead), so using plain setDirection() here
 	/// would clobber a turret facing this restate does not carry.
 	void coopSetBodyDirection(int dir);
-	/// W1-P13a (REV E.49 / D63): absolute set of the unit's SCRIPT VALUES -
+	/// absolute set of the unit's SCRIPT VALUES -
 	/// the twelfth coop client-apply counterpart, for `side_transition`'s
 	/// perUnit.scriptTags. y-script turn hooks (newTurnUnit) write BattleUnit
 	/// tags on the HOST inside SavedBattleGame::endTurn, which a thin client
@@ -761,7 +761,7 @@ public:
 	/// mechanic) - CoopMod's CoopState.cpp::assignSeatsAndFactions() is the
 	/// ONE caller (RB-D23's "setOriginalFaction writes funneled through this
 	/// ONE pass").
-	/// R5-U8 (AMENDMENT U8-1): coopLoadSoldierUnitRecord() (BattleAuthority.h,
+	/// coopLoadSoldierUnitRecord() (BattleAuthority.h,
 	/// called from load()) is the read-back: it restores that pass's write on
 	/// a soldier-linked unit when a battle document is loaded.
 	void setOriginalFaction(UnitFaction f) { _originalFaction = f; }

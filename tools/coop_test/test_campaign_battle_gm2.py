@@ -24,11 +24,11 @@ precondition was never reached, then each of its cells FAILs "blocked: <why>"):
      F13792: the wait stops at NextTurnState on both); host END TURN; NextTurnState closed.
      B4-host, B4-client, B4-no994, B4-alien, B4-hostok.
   Each row's <row>-common cell: event_state.desyncSeen false on both, 0 new crash files in the row, in a battle hash_now EQUAL.
-RED (the unchanged product, R-D250-SB-1): the gm2 alien client's noBases flips at the battle-blob load (F13087), its entry snapshot
-fails (CoopState 995 over its briefing) and its streamer floods crash logs (F13503-F13505), so the spine stops at the client's briefing:
+RED (the unchanged product, R-D250-SB-1): the gm2 alien client's noBases flips at the battle-blob load, its entry snapshot
+fails (CoopState 995 over its briefing) and its streamer floods crash logs, so the spine stops at the client's briefing:
 B1-gm and B1-seats PASS, every other cell FAILs. GREEN (EB2 + EB3): every cell PASSes.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_gm2.py
 """
 
@@ -54,7 +54,7 @@ SEED_B = 1
 MAP_FP_B = 5.996615470105667e+18
 A_ID = 1000000                      # the lowest-id live alien at SEED_B
 A_DEST = (3, 15, 1)                 # A's first free floor neighbour (N holds an object part)
-STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 8}]   # the gm2 alien client's real base (F13247)
+STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 8}]   # the gm2 alien client's real base
 STUB_FUNDS = 1000
 TITLE_WIN = "Aliens defeated"
 SEED_B4 = 1
@@ -70,7 +70,7 @@ DEBRIEF_S = 60
 CLIENT_DEBRIEF_S = 20
 OK_S = 10
 DRAIN_S = 60
-WATCH994_S = 3.0      # the 994 showed 0.78 s / 1.14 s after the client's OK on the probe build (F13791)
+WATCH994_S = 3.0      # the 994 showed 0.78 s / 1.14 s after the client's OK on the probe build
 KILL_S = 45
 REJECT_LINE = "rejected client progress blob"   # the host's log line before its 994 (TCP writeHostMapSaveProgressFile)
 
@@ -274,7 +274,7 @@ def end_and_debrief(host, client):
 
 
 def drain_host(host, timeout=DRAIN_S, interval=0.4):
-    """The host's OK + follow-ups down to GeoscapeState, NEVER draining a CoopState 994 (R-D250-SB-2): a 994 on top stops the
+    """The host's OK + follow-ups down to GeoscapeState, NEVER draining a CoopState 994: a 994 on top stops the
     drain. Other CoopStates -> coop_dialog_back, the debriefing / follow-ups -> dismiss_popup, BES.WAIT_TOPS left alone.
     Returns (reached, screens, stopped_on_994)."""
     screens, t0 = [], time.time()
@@ -355,7 +355,7 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
             rbad.append(f"client real bases {g['realBases']} (want STUB {STUB})")
         cell("B4-alien", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; noBases true, funds "
              f"{STUB_FUNDS}, real bases == STUB")
-    # R-D250-SB-2 (F13791): watch the host, never drain a 994
+    # watch the host, never drain a 994
     watch, tw = [], time.time()
     while time.time() - t_ok < WATCH994_S:
         if top(host) == "CoopState":

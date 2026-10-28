@@ -15,8 +15,8 @@ the geoscape.
   H2 SHARED, the CLIENT commands the landing, the HOST asks for the abort (guard).
 
 MG-P1 (rewrite/merge-main, R-MF210-1): ABORT opens vanilla's AbortMissionState and its
-OK opens the vote (R4-L1, design-D8); the battle entry is session.drive_both_to_tactical
-(W2-P8b). main's S1 / S2 (the CLIENT's own craft starts a SEPARATE mission) are gone: a
+OK opens the vote (R4-L1, design-D8); the battle entry is session.drive_both_to_tactical.
+main's S1 / S2 (the CLIENT's own craft starts a SEPARATE mission) are gone: a
 SEPARATE client never starts a battle from its own craft (owner D199 (a), W2-H9;
 test_client_landing.py H9-1 / H9-2 cover the refusal).
 
@@ -113,10 +113,10 @@ def enter_tactical(host, client):
 
 def vote_abort(asker, voter, host):
     """ABORT on `asker` and OK on its confirm, YES on `voter`; returns once the host saw
-    the vote pass. MG-P1: on the rewrite ABORT opens vanilla's AbortMissionState and its
+    the vote pass. on the rewrite ABORT opens vanilla's AbortMissionState and its
     OK opens the vote with the asker's YES counted (R4-L1, design-D8). The pass is read
     off the host's records (session.abort_vote_yes): the vote screens and the vote record
-    close with the battle (R-L1-A-3, F10833), so a wait for `finished` on both machines
+    close with the battle, so a wait for `finished` on both machines
     races the battle end."""
     asker.ok({"cmd": "battle_action", "action": "abort"})
     asker.wait_for(asker.name + " abort confirm (AbortMissionState)",
@@ -272,7 +272,7 @@ def shared_row(results, row, tag, ports, asker_is_client):
     return alive
 
 
-ROWS = {  # MG-P1: main's S1 / S2 (client-started SEPARATE missions) dropped - owner D199 (a), W2-H9
+ROWS = {  # main's S1 / S2 (client-started SEPARATE missions) dropped - owner D199 (a), W2-H9
     "S3": lambda r, sfx: separate_row(r, "S3 SEPARATE, host-started mission, client asks to abort",
                                  "cabs3" + sfx, (48945, 48946, 47983), False, True),
     "H1": lambda r, sfx: shared_row(r, "H1 SHARED, client-commanded landing, client asks to abort",
@@ -310,7 +310,7 @@ def main():
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     if notes:
-        sys.exit(2)  # MG-P1: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     print("PASS: the abandon-mission vote ends the battle on both machines in every row")
     sys.exit(0)
 

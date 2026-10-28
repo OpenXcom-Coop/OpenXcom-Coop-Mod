@@ -1,4 +1,4 @@
-"""RV-U8 - the END TURN count drops a seat the moment its last soldier goes out (REV E.48 C.4, D53, RV-Vb; spec
+"""the END TURN count drops a seat the moment its last soldier goes out (REV E.48 C.4, D53, RV-Vb; spec
 docs rewrite/prompts/rvu8_tally_on_unit_out.md (f); TASK 0 docs rewrite/rvu8-task0/CONSTANTS.md).
 
 FOUR rows, each its own boot (test_end_turn_tally.py's recipe: bring_up_lobby, drive_to_battlescape on
@@ -19,7 +19,7 @@ both; T rows: coopActiveSeat 0 on both. A premise or pre-cell miss = ONE CAPTURE
 (FIXTURE-STOP)". Cells run in order; a failed cell ends its row (later cells "not reached"). Guards per row: no new
 crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per
 cell and guard, then its verdict; every row runs after a failure.
-Rulings: D53, design-D1, D-23, D-24, RV-Vb (QU8-1..6 (a)). WV-D95 / D99 / D100: ONE foreground run, no skip path;
+Rulings: D53, design-D1, D-23, D-24, RV-Vb (QU8-1..6 (a)). ONE foreground run, no skip path;
 exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_end_turn_unit_out.py

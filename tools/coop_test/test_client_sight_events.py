@@ -10,7 +10,7 @@ second player's machine runs neither: its door apply refreshes only the door act
 TASK 0 verdicts (docs rewrite/w2h35b-task0/sa/CONSTANTS.md, capture boots Ha and Hb equal, S28): K1 CONFIRMED (host
 A visible and in V's list after the door; client A not drawn, V's list empty); K4 CONFIRMED (seed 1: A's first action
 is an auto shot at W without walking; host hides A at its think; client keeps A drawn through the alien side). The
-door is a normal BARN door, not a UFO door (TASK 0 F14001): its west-wall part leaves the door census and a north-wall
+door is a normal BARN door, not a UFO door: its west-wall part leaves the door census and a north-wall
 part appears when it opens.
 
 ONE classic co-op day boot (lobby key 46640, user dirs w2h35b_a_host / w2h35b_a_client): CAS's boot (copied):
@@ -45,8 +45,8 @@ E2, E3, E4): every cell PASS.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up
 failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a staging miss fails that row's cells "staging".
-WV-D99 / WV-D100: one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell
-passes, else 2. WV-D95: run in the foreground to completion.
+one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell
+passes, else 2. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_sight_events.py
 """

@@ -24,7 +24,7 @@ cell PASS (a dead tank is never credited: R2-stores).
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. A cell whose precondition failed FAILs "not
 reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE RL line and fails the row "boot". Common cell: every
 hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come from probes (S25); a key the build does not write
-reads as absent. WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+reads as absent. run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_tank_lost.py

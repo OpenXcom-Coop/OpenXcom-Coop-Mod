@@ -1,4 +1,4 @@
-"""W2-H14b - a rejoin drops the returning player's END TURN press; both screens show the true tally (spec
+"""a rejoin drops the returning player's END TURN press; both screens show the true tally (spec
 w2h14b_rejoin_clears_end_turn.md (f); owner D221 (c), ruling H14b-1; F4076). TWO parallel boots on test_death_side's
 default map, each shut down before the next, staged with test_rejoin_end_turn's (rej) boot and SPEC 16 leave +
 rejoin: B (PORT_B) plays one END TURN cycle, then the CLIENT presses END TURN and leaves; H (PORT_H) plays no cycle,
@@ -6,7 +6,7 @@ the HOST presses END TURN and the client leaves. A fresh process (client2) rejoi
 H14b-1 (B): the host's lone press does not end the side on the returning player's pre-leave press, and both screens
 show the true tally. H14b-2 (H): client2 shows the host's "END TURN 1/2"; client2's press completes the cycle.
 A boot/rejoin step past its bound is a FIXTURE-STOP (one CAPTURE line; the row FAILs "boot"/"rejoin"). Each row prints
-ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; both rows run. WV-D95/D99/D100: ONE foreground
+ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; both rows run. ONE foreground
 run, no skip path; exit 0 only when both rows pass, 2 otherwise."""
 
 import os

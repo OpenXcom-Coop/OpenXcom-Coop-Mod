@@ -12,7 +12,7 @@ only counts in cueCounts and the state snaps (the "snap display", TASK 0
 T0-6). After S-A every applied `shot` starts one display-only combat ghost on
 the client: a vanilla Projectile on the client's Map flying the path
 re-derived with vanilla's own path function, paced by the shooter's seat fire
-dial (SPEC 17), with the fire / throw / drop sounds. Nine scenarios, ONE boot
+dial, with the fire / throw / drop sounds. Nine scenarios, ONE boot
 (terror seed 1, host fire dial 12, client fire dial 4, coopGhostStepper pinned
 true in both boot options), in this order (G6 last: its blast changes the
 terrain):
@@ -121,8 +121,8 @@ FIXTURE (TASK 0 T0-3, T0-4 and T0-7 on the S-A.1 build; the roster-pinned
 terror boot of test_client_shoot.py): set_seed SEED_ROSTER on the HOST right
 before its open_new_battle, mission STR_TERROR_MISSION, set_seed SEED_MAP right
 before newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated ids
-asserted, pin_ai_neutral. Every lever pair goes to the CLIENT first (F607).
-Item ids are read at run time from the lever replies (F1107). place()
+asserted, pin_ai_neutral. Every lever pair goes to the CLIENT first.
+Item ids are read at run time from the lever replies. place()
 teleports only a unit that is not already on its tile (CLAUDE.local.md S2).
 
 RED-THEN-GREEN (spec (d) row S-A). Commit S-A.1 (this file, the probes, the
@@ -140,9 +140,9 @@ failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all nine rows pass, 2 otherwise (a
-bring-up failure is also 2). WV-D95: run in the foreground to completion.
+bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_ghost_projectile.py
 """
@@ -162,7 +162,7 @@ from test_seat_pacing import tab_select, SDLK_HOME
 from test_delta_core import diff_buckets, desync_record, short, both
 from test_delta_items import items_by_id, tile_of
 from test_host_combat import bring_up_lobby_roster_pinned, evs_since, open_hand_menu_host
-from test_host_combat import sampled_list_fails  # W2-U8d (F6304)
+from test_host_combat import sampled_list_fails
 from test_ai_origins import host_payloads
 from test_client_shoot import (top, units, ubrief, press, give_both, place, set_tu_both, set_firing_both,
                                   wait_seat_dial, aim_click, await_press, RHAND_CENTRE, TU_MAX, KEY_SNAP, KEY_AUTO,
@@ -183,7 +183,7 @@ COOP_SEAT_0, COOP_SEAT_1, SEAT_NONE = 0, 1, -1
 FACTION_PLAYER = 0
 HOST_FIRE_DIAL = 12               # host battleFireSpeed (seat 0)
 CLIENT_FIRE_DIAL = 4              # client battleFireSpeed (seat 1)
-FLOOR_FIRE = min(HOST_FIRE_DIAL, CLIENT_FIRE_DIAL)   # D113: an unowned shooter flies at the slowest seat's dial
+FLOOR_FIRE = min(HOST_FIRE_DIAL, CLIENT_FIRE_DIAL)   # an unowned shooter flies at the slowest seat's dial
 TICK_MS = 16                      # vanilla ProjectileFlyBState setStateInterval(1000/60)
 
 # ----- the lane (TASK 0 T0-1 / T0-7) -----
@@ -218,7 +218,7 @@ G8_LIVE_WAIT_S = 1.0                      # how long the client gets to show the
 G8_MIN_STEPS = 2                          # T0-7: TAB + right-hand box -> ActionMenuState 0.74 s, solo and K=2
 
 # ----- G6 (test_client_grenade C20 staging) -----
-G6_C_TILE, G6_C_DIR = (28, 25, 0), 6      # faces west, away from the waypoints (F1125)
+G6_C_TILE, G6_C_DIR = (28, 25, 0), 6      # faces west, away from the waypoints
 G6_W = C20_W                              # (46, 25, 0): both waypoints (vanilla's dive; launch_order clicks it)
 SEED_G6 = 1                               # legs trajLen 287 / 12; the blast changes 285 census tiles (unmodded)
 G6_LEGS = 2
@@ -289,7 +289,7 @@ def lane_units(gc, shooter):
 
 
 def host_cancel_aim(host):
-    """F503: while the host aims, a hand click only cancels the aim. One such
+    """while the host aims, a hand click only cancels the aim. One such
     click when an earlier row left the host aiming. Returns [cursor before(, after)]."""
     c0 = battle_state(host).get("cursorType")
     if c0 != CURSOR_AIM:
@@ -535,7 +535,7 @@ def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
               "durationMs": octants * TURN_PACE_MS, "seat": seat, "endedBy": "natural", "dirsShown": dirs,
               "poseShown": STATUS_TURNING}
     got_r = {k: tr.get(k) for k in want_r}
-    # W2-U8d (F6304): dirsShown is a per-advance sample of the turn (each octant TURN_PACE_MS from its apply):
+    # dirsShown is a per-advance sample of the turn (each octant TURN_PACE_MS from its apply):
     # the full path, or whole octants left out across a client frame stall (sampled_list_fails)
     fails += [f"turn seq {tv['turnSeq']}: {m}" for m in sampled_list_fails(
         "client turnGhost record dirsShown", got_r.pop("dirsShown"), want_r.pop("dirsShown"),

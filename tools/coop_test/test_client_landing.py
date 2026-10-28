@@ -5,8 +5,8 @@ Before W2-H9 a SEPARATE client whose own craft reached a landable target got the
 vanilla landing prompt, and YES generated a single-player battle in its own world
 (F2201: CoopHandshake::offerBattle() no-ops off the host). When the host then
 landed, the client accepted the host's offer and its solo battle and world were
-thrown away (F2207/F2208). Cydonia confirmed from the client's own craft is the
-same defect at a second entry point (F2447).
+thrown away. Cydonia confirmed from the client's own craft is the
+same defect at a second entry point.
 
 After W2-H9, on a SEPARATE client only: no landing prompt, the craft turns back to
 base and the client sees H9TEXT (CraftErrorState); confirming Cydonia from its own
@@ -282,7 +282,7 @@ def boot_pair(tag):
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
     except BaseException:
-        # W2-U8f (F9053): the row's try/finally gets host / client only from this return, so a failed spawn or
+        # the row's try/finally gets host / client only from this return, so a failed spawn or
         # connect shuts down the games started here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
@@ -478,7 +478,7 @@ def row_h9_2():
         cpath = arrival_poll(client, "CLIENT", (host,))
 
         if cpath == "ConfirmLandingState":
-            # RED (commit 1): the client lands its own craft -> solo battle (F2201). No host
+            # RED (commit 1): the client lands its own craft -> solo battle. No host
             # leg: the host's clock stands still while the client is off its geoscape.
             client.cmd({"cmd": "confirm_landing"})
             drive_solo_to_battlescape(client, "CLIENT")

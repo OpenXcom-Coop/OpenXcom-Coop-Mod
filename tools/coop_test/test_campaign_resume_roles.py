@@ -22,7 +22,7 @@ FAILs "blocked: <why>"):
 RED (C4AR, the unchanged build; TASK 0 boots Ra_ui / Rb_ui): 3/10 - FAIL P1-mode, P1-role, P1-land (W2-H9's refusal), P1-seats
 (blocked), P2-mode, P2-land, P2-seats (blocked). GREEN (C4AG): 10/10.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_resume_roles.py
 """
 
@@ -47,7 +47,7 @@ import test_campaign_rejoin as CR  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc4a/CONSTANTS.md) -----
 KEY = "48017"
-SEED = 1                                     # P1: on the X-COM client2 right before its confirm_landing (F13986); P2: the host's
+SEED = 1                                     # P1: on the X-COM client2 right before its confirm_landing; P2: the host's
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}
 POINT, CRAFT_AT = (0.35, 0.10), (0.34, 0.10)   # FX3-3 / FX3-5 (P1); P2: G2F.to_battle's b0 + (0.35, 0.10), 0.01 short
 SQUAD = 2
@@ -262,9 +262,9 @@ def relaunch(x, ev):
 
 
 def resume_campaign(host, client, save_file, port, host_name="HostPlayer", client_name="ClientPlayer"):
-    """session.resume_campaign copied (R-D250-SC4A-1 (a)) with ONE change: the host's START HOST goes through the real host window
+    """session.resume_campaign copied with ONE change: the host's START HOST goes through the real host window
     (host_menu_host visibility 0 -> HostMenu::hostTCPGame, HM :535), not the host_tcp lever, which keeps a loaded save's mode
-    (TS :14584-:14593) and so never reaches the code the stage changes (F16312)."""
+    (TS :14584-:14593) and so never reaches the code the stage changes."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (resume)", lambda: session.has_state(host, "HostMenu"))
     host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": port, "player": host_name})

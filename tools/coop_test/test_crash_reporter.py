@@ -209,7 +209,7 @@ def settle(g, timeout=W_SETTLE):
 
 
 def ready(g, label, timeout=W_READY):
-    """seconds until the TextButton captioned `label` is visible and not hidden (F12475), or None"""
+    """seconds until the TextButton captioned `label` is visible and not hidden, or None"""
     t0, hidden_seen = time.time(), False
     while time.time() - t0 < timeout:
         bs = [w for w in lw(g)[1] if bare(w.get("type")) == "TextButton" and w.get("text") == label]

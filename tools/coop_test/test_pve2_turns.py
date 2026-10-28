@@ -1,5 +1,5 @@
 """R5-U8 S-B rows T2, T1, T3, T4, E2 (boot B): in PvE2 (gamemode 4) the AI-run X-COM side moves first, as the release
-line plays it, and an alien order given before that is refused (owner D233 (a); QU8-3 (a)).
+line plays it, and an alien order given before that is refused.
 
 Spec: docs repo rewrite/prompts/r5u8_pve2_gm4.md section (f) test_pve2_turns.py, with its ORCHESTRATOR RULINGS, D269
 FINAL = (a), AMENDMENT U8-1 and ruling R-U8-SB-1 (C1_DEST2 = C1_DEST's south neighbour). Constants:
@@ -15,15 +15,15 @@ client's Turn 1 screen is closed (the host keeps its own up for row T2).
       S_AI, both machines reach side 0 of turn 2; no player order runs before the first side transition.
   T3  on turn 2 the client's walk for C1 is admitted and runs.
   T4  an ordinary END TURN cycle (S_AI pinned again): side 0 of the next turn on both, no second opening.
-  E2  the host kills every alien: the players' side ends by itself (W2-H31), soldiersDown, both seats lose, both machines
+  E2  the host kills every alien: the players' side ends by itself, soldiersDown, both seats lose, both machines
       end on the host's debriefing (the client's display-only, D129 (a) / D156 (a)).
 Common cell after each row: every hash bucket EQUAL (E2: right before the kill), desyncSeen false on both, no new file in
 the lane crash folder.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict (T2's verdict prints after T1's actions:
 its C1 read is taken 3 s after the host's close). Every row runs after a failure. A boot step past its bound prints ONE
-CAPTURE B line and fails every cell "boot"; a staging step past its bound fails T2 "staging". WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes,
+CAPTURE B line and fails every cell "boot"; a staging step past its bound fails T2 "staging". run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes,
 else 2.
 
 Run:  python tools/coop_test/test_pve2_turns.py
@@ -61,7 +61,7 @@ ALIEN_IDS = [1000000, 1000001, 1000002, 1000003, 1000004]   # the players' alien
 XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]                       # the AI-run X-COM soldiers
 S_AI, S_AI_TILE, S_AI_DIR, TU_S_AI = 8, (1, 6, 0), 7, 64    # min(XCOM_IDS); open ground >= 21 from every alien
 C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54   # S-A's C1 staging
-C1_DEST2 = (28, 12, 0)            # R-U8-SB-1: C1_DEST's south neighbour (its east neighbour carries a west wall)
+C1_DEST2 = (28, 12, 0)            # C1_DEST's south neighbour (its east neighbour carries a west wall)
 OPENING_KINDS = (["side_transition", "side_begin", "reveal"] + ["walk_step"] * 7 + ["bt_action_end"] * 4
                  + ["side_transition", "side_begin", "side_transition", "side_begin"])   # TASK 0 Bb = Bc
 AI_SHAPE = [("ai", "walk", S_AI)] * 4   # the X-COM AI's new host contexts on the opening side (Bb = Bc; Ba's stand-in too)
@@ -342,7 +342,7 @@ def row_t4(host, client, crash0):
 
 def row_e2(host, client, crash0):
     """Spec (f) E2 (test_battle_end_rules E5's no-press shape): records at 0 and the hash taken; host kill_unit_real
-    {faction 0}; the kill settles; the players' side ends by itself (W2-H31); the host's NextTurnState closed by
+    {faction 0}; the kill settles; the players' side ends by itself; the host's NextTurnState closed by
     dismiss_popup; both DebriefingStates."""
     m, ev, ends = (host, client), {}, []
     live = sorted(i for i in ALIEN_IDS if not (units(host).get(i) or {}).get("isOut"))

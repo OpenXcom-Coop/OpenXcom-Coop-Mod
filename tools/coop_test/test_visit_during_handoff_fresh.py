@@ -1,4 +1,4 @@
-"""W2-H78 - test_visit_during_handoff_fresh.py (VDF): a SEPARATE partner with NO stored copy of the host's base (right after a resume)
+"""test_visit_during_handoff_fresh.py (VDF): a SEPARATE partner with NO stored copy of the host's base (right after a resume)
 asks for the host's base while the host's battle is handed to it: nothing happens, and it reaches its briefing alive. Spec: docs
 rewrite/prompts/w2h78_visit_during_handoff.md (f) rows R2, R3; TASK 0: docs rewrite/w2h78-task0/sa/CONSTANTS.md. Lead L-H74-1 (lh74-1-cap C1b,
 F21614, F21624), ruling R-LH74-1-1 (QH78-1 .. QH78-7 (a)), VL-H78-1. Keys "49460" (new campaign), "49461" (resume); dirs w2h78_r2_*,
@@ -27,7 +27,7 @@ NEEDLES = {"CLICKIGN": "[coop-visit] base click ignored: a battle hand-off is in
            "DROP": "[coop-visit] base request dropped: a battle hand-off is in flight (role 2)",
            "ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL"}
 CELLS = {"R2": ["R2-pre", "R2-click", "R2-alive", "R2-brief", "R2-host"], "R3": ["R3-pre", "R3-drop", "R3-alive", "R3-brief", "R3-host"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -235,7 +235,7 @@ def locate(r, x):
     if not g:
         raise Stop("LOCATE: the client not back on a clean geoscape: %s" % stack(x.client))
 def fresh(r, x, tag):
-    """CAP C1b (F21624): the host's save on disk, both shut down, the host respawned, a FRESH <tag>_client2, resume_campaign on KEY_R"""
+    """CAP C1b: the host's save on disk, both shut down, the host respawned, a FRESH <tag>_client2, resume_campaign on KEY_R"""
     f = SAVE[r.rid]
     path = os.path.join(x.host.user_dir, "xcom1", f)
     n = q(x.host, {"cmd": "save_game", "file": f})

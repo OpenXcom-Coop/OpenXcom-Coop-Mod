@@ -1,7 +1,7 @@
 """W2-H13 (D220 b; spec rewrite/prompts/w2h13_udp_rejoin_spare.md (f); F3701, F3702). Boot UB: rendezvous_stub.py
 carries a HOST > PUBLIC skirmish over UDP; the client joins via join_rendezvous. U1: the client leaves, the host
 keeps the paused battle and re-lists. U2: client2 joins the re-listed room, RESUME, equal state. FIXTURE-STOP on a
-staging miss. Verdicts follow the teardown (H13-T1, F4565). WV-D95/D99/D100: ONE run; exit 0 only all PASS, else 2.
+staging miss. Verdicts follow the teardown (H13-T1, F4565). ONE run; exit 0 only all PASS, else 2.
 U3 (W2-H24 S-B, docs rewrite/prompts/w2h24_failed_battle_start.md AMENDMENT H24-2 section 2, D259 (a), QH24-3 (a), F9980;
 TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B2): its own boot after U1 / U2's teardown on the same stub (key 48583,
 w2h24_u3_host / _client): the client's hold_battle_ready keeps the host in Handshake, the client is killed, the host is
@@ -24,7 +24,7 @@ from rendezvous_stub import RendezvousStub
 
 PORT_U13 = "48511"             # this file's lobby key (in-process only; the host binds an ephemeral UDP port)
 REFUSAL = "offerRejoinBattle() called while the battle is not paused"
-HOST_TERM_RC = 0xC0000409      # H13-T1 (F4565)
+HOST_TERM_RC = 0xC0000409      # H13-T1
 TERM_LINE = "std::terminate called (no active exception)."
 CRASH_HEAD = ("==== Crash/Log", "Time:", "Version:", "Compiled:", "Module:", "ImageBase:", "Mods:")
 from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)

@@ -1,6 +1,6 @@
 """R5-U3 S-A rows P1, D2, D1 (boot A, gm2: the client plays the aliens, seat 1): the human alien side plays by the
 player-side rules vanilla gives X-COM - its panic acts out at its side start (R5-V1) and its units skip only the AI's
-weapon-use delay (owner D234 (a)).
+weapon-use delay.
 
 Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_rules.py, with its ORCHESTRATOR RULINGS
 R-U3-A-1 (A staged on A_D2_TILE before D2), R-U3-A-2 ("the bomb gone on both" is a D2-admit cell, D2-census is census
@@ -34,7 +34,7 @@ crash folder. EVIDENCE only: the panic mode, host infoboxes, the client's warnin
 RED on the unchanged build (commit A1): P1-act, P1-after, D2-canuse, D2-admit, D1-canuse, D1-press; every other cell
 PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A
 boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the
-rows that need it "staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no
+rows that need it "staging". run in the foreground to completion. ONE run is the result, no
 skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_rules.py
@@ -62,18 +62,18 @@ import test_pvp_gm3 as G3F  # noqa: E402
 
 KEY = "48677"
 A_ID = 1000000                    # the only alien (STR_SECTOID_SOLDIER), the client's (seat 1), spawn (27,12,0) dir 5
-A_TU = 54                         # A's TU at bring-up (TASK 0)
-M0 = 0                            # A's morale after the roll (TASK 0); P1-after wants M0 + 15
-SEED_P1 = 1                       # host set_seed before its END TURN: A rolls STATUS_PANICKING (8) on both (TASK 0)
+A_TU = 54                         # A's TU at bring-up
+M0 = 0                            # A's morale after the roll; P1-after wants M0 + 15
+SEED_P1 = 1                       # host set_seed before its END TURN: A rolls STATUS_PANICKING (8) on both
 STATUS_STANDING, STATUS_PANICKING = 0, 8
 FACTION_HOSTILE = 1
 PANIC_S = 15                      # spec (f): the bounded wait for the host's panic ev after both screens close
 STEP_S = 30
-A_D2_TILE, A_D2_DIR = (20, 4, 0), 2   # R-U3-A-1: open ground, a straight open path east to LAUNCH_W
+A_D2_TILE, A_D2_DIR = (20, 4, 0), 2   # open ground, a straight open path east to LAUNCH_W
 LAUNCH_W = (32, 4, 0)             # the LAUNCH_W rule: 12 tiles east, Chebyshev >= 12 from every live unit
 SEED_D2 = 1
 D2_KINDS = ["shot", "shot", "explosion", "bt_action_end"]   # the dive at turn 3 (TASK 0 Ae, Af, Ag)
-DROPS = (("STR_BLASTER_LAUNCHER", (32, 4, 0)), ("STR_RIFLE", (33, 4, 0)))   # R-U3-A-3: gear inside the blast
+DROPS = (("STR_BLASTER_LAUNCHER", (32, 4, 0)), ("STR_RIFLE", (33, 4, 0)))   # gear inside the blast
 KEY_PRIME, KEY_FUSE_0 = 49, 48    # keyBattleActionItem1 (PRIME for a grenade); PrimeGrenadeState button 0
 CURSOR_TARGETING = (2, 3, 4, 5)
 ROWS = (("P1", ("P1-roll", "P1-act", "P1-after", "P1-common")),
@@ -235,7 +235,7 @@ def row_d2(host, client, crash0, st):
     seq0 = es(host, "lastSeqEmitted") or 0
     host.ok({"cmd": "set_seed", "seed": SEED_D2})
     req = shoot_req(A_ID, "launch", st["launcher"], st["bomb"], LAUNCH_W)
-    req["plan"]["waypoints"] = [jt(LAUNCH_W), jt(LAUNCH_W)]   # R-U3-A-3: C20's vanilla dive
+    req["plan"]["waypoints"] = [jt(LAUNCH_W), jt(LAUNCH_W)]   # C20's vanilla dive
     notes = []
     sent = send_intent(host, client, req, notes, timeout=STEP_S)
     settle(host, client, ev)

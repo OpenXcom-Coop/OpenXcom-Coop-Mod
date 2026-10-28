@@ -19,8 +19,8 @@
  */
 #include "../Engine/Surface.h"
 #include "../Engine/Script.h"
-#include "../CoopMod/CoopGhost.h" // W1-P12: CoopUnitDrawView (full struct - the 4 inline accessors below read its fields)
-#include "../Savegame/BattleUnit.h" // W1-P12: the 4 inline accessors below call _unit's own getters, so a forward declare is no longer enough
+#include "../CoopMod/CoopGhost.h" // CoopUnitDrawView (full struct - the 4 inline accessors below read its fields)
+#include "../Savegame/BattleUnit.h" // the 4 inline accessors below call _unit's own getters, so a forward declare is no longer enough
 
 namespace OpenXcom
 {
@@ -61,7 +61,7 @@ private:
 	int _red, _blue;
 	int _x, _y, _shade, _burn;
 	GraphSubset _mask;
-	// W1-P12: the presentation read-switch (CoopMod/CoopGhost.h). Null for
+	// the presentation read-switch (CoopMod/CoopGhost.h). Null for
 	// every caller except Map::drawUnit's &view argument - the 4 accessors
 	// below are then SP-identical by construction (see their own bodies).
 	const CoopUnitDrawView *_coopView = nullptr;
@@ -130,7 +130,7 @@ public:
 	/// Cleans up the UnitSprite.
 	~UnitSprite();
 	/// Draws the unit.
-	/// W1-P12: `coopView` is a defaulted presentation read-switch (CoopMod/
+	/// `coopView` is a defaulted presentation read-switch (CoopMod/
 	/// CoopGhost.h) - null (the default) is byte-identical to the
 	/// pre-W1-P12 vanilla behaviour.
 	void draw(const BattleUnit* unit, int part, int x, int y, int shade, GraphSubset mask, bool drawFacingIndicator,

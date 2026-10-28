@@ -30,7 +30,7 @@ class BattleUnit;
 class Craft;
 class Game;
 class GeoscapeState;
-class Vehicle; // D248-U
+class Vehicle;
 enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/RuleItem.h does
 
 /**
@@ -81,7 +81,7 @@ enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/Ru
  *     swapper, deferred by RB-D16, would need convertToFaction() to actually
  *     change a value).
  *
- *   4 (PvE2) - R5-U8 (owner D233 (a)): both seats command the generated
+ *   4 (PvE2) - R5-U8: both seats command the generated
  *     aliens against an AI-run X-COM squad. Every FACTION_HOSTILE-original
  *     unit becomes FACTION_PLAYER (AI module cleared), the first floor(N/2)
  *     of them in unit-list order seated to the client seat and the rest to
@@ -147,7 +147,7 @@ int coopSeatForUnownedUnit(int faction);
 void coopStampSpawnedUnitSeat(BattleUnit* unit);
 
 /**
- * SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp that F358 found present at
+ * SPEC 19 M1: the owner->seat stamp that F358 found present at
  * THREE craft-generation entry sites (ConfirmCydoniaState.cpp:109-118,
  * GeoscapeState.cpp:6078-6085 SHARED base defense, :6099-6106 SEPARATE base
  * defense - all byte-identical, untouched by this packet) and MISSING at the
@@ -172,7 +172,7 @@ void coopStampSpawnedUnitSeat(BattleUnit* unit);
  * the same stamp-then-generate order Cydonia and both base-defense arms use
  * (F365: a merged/seated guest must be on the craft at generation time to be
  * deployed at all). Runs for SHARED and SEPARATE alike: in SHARED it is the
- * whole fix (F358); in SEPARATE the host's own soldiers are owner 999/0 -> a
+ * whole fix; in SEPARATE the host's own soldiers are owner 999/0 -> a
  * seat-0 no-op, while a guest merged onto the craft by
  * coopMergeGuestContributions() just above this call carries the client's own
  * seat in ownerPlayerId already, so this reasserts (not assigns) its coop
@@ -182,10 +182,10 @@ void coopStampSpawnedUnitSeat(BattleUnit* unit);
 void coopStampCraftSeats(Craft* craft);
 
 /**
- * SPEC 19 (W1-P20) M2 Branch B (F359/F360): the SEPARATE two-world merge,
+ * SPEC 19 M2 Branch B: the SEPARATE two-world merge,
  * re-expressed on the r4 envelope with generation kept SYNCHRONOUS - the
  * legacy trigger chain (CoopState(88)/"sendCraft"/CoopState::loadWorld(111),
- * :1508-1690 above) is UNREACHED on the craft-landing path (F357/F359) and
+ * :1508-1690 above) is UNREACHED on the craft-landing path and
  * stays that way (a dead legacy trigger, a later hygiene row). This is its
  * replacement: for every seat whose latest stored `battle_roster_contrib`
  * (BattleWire.h; connectionTCP::sendGuestRosterContrib() sender,
@@ -221,20 +221,20 @@ void coopMergeGuestContributions(Game* game, Craft* craft);
  * coopMergeGuestVehicles(): the last step of coopMergeGuestContributions() (after the guest soldiers): every stored
  * parked tank of every seat for @a craft gets a COPY on the craft (Craft::makeCoopVehicle, main's merge shape) when the
  * host's stores hold a spare of its type for it (QD248-1 (a): main's gate, counted per tank) and the craft has room in
- * its whole capacity and a free vehicle slot (QD248-2 (a)); returns how many. coopTagGuestVehicleUnit():
+ * its whole capacity and a free vehicle slot; returns how many. coopTagGuestVehicleUnit():
  * BattlescapeGenerator::addXCOMVehicle's one coop line - a merged copy's battle unit gets the tag
  * "coop-guest-tank:<seat>:<host base coop id>:<craft id>:<craft type>" (BattleUnit::setCoopGuestTank, saved with the
  * unit, so a rejoin, a mid-battle save and stage 2 keep it); a no-op for every other vehicle and outside a landing.
  * coopDropMergedGuestVehicles(): ConfirmLandingState right after generation - every merged copy leaves its craft and
  * is deleted (the host's world never keeps the partner's tank); a copy a mission's starting condition banned has the
- * generator's store credit taken back (QD248-4 (a)).
+ * generator's store credit taken back.
  */
 int coopMergeGuestVehicles(Game* game, Craft* craft);
 void coopTagGuestVehicleUnit(const Vehicle* v, BattleUnit* unit);
 void coopDropMergedGuestVehicles(Game* game);
 
 /**
- * D248-U S-B (owner D248 (b)): DebriefingState's tank credit, on the HOST of a co-op session - true for a SEPARATE
+ * D248-U S-B: DebriefingState's tank credit, on the HOST of a co-op session - true for a SEPARATE
  * partner's tank (BattleUnit::getCoopGuestTank() not empty) that vanilla is about to recover: it is marked survived for
  * the debrief payload's guestTanks rows and the caller skips vanilla's store credit (the tank and its ammo), because
  * the tank goes home to the partner's world. False for every other unit (vanilla credits it). Body in connectionTCP.cpp.
@@ -255,7 +255,7 @@ int coopClientBattleRefused();
 std::string coopClientBattleRefusedLast();
 
 /**
- * W2-H9 (owner D199 = (a), D211 = (a)): on a SEPARATE co-op campaign's CLIENT
+ * on a SEPARATE co-op campaign's CLIENT
  * only (connected, not the server owner, gamemode 0/1), refuses an own-craft
  * landing: the craft returns to base (vanilla "No"), @a gs->popup() shows a
  * CraftErrorState with the host-craft-only text (CoopState.cpp), and the function
@@ -265,7 +265,7 @@ std::string coopClientBattleRefusedLast();
 bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft);
 
 /**
- * W2-H9 (owner D199 = (a), D212 = (a)): the same refusal for Cydonia. Called
+ * the same refusal for Cydonia. Called
  * first in ConfirmCydoniaState::btnYesClick; when it returns true it has popped
  * ConfirmCydoniaState and pushed the CraftErrorState, and the craft is
  * untouched. False with no effect outside a SEPARATE co-op client.

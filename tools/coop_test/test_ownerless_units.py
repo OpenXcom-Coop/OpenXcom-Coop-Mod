@@ -25,8 +25,8 @@ Red at A1 (the unchanged build): T-seat, T-walk, S-seat, S-walk, E-wait, E-end F
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows
 that need it "staging"; a cell whose precondition cell failed FAILs "not reached". Common cell: every hash bucket EQUAL,
-desyncSeen false on both, no new crash file. Lever pairs go to the client first (F607); ids come from probes (S25).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+desyncSeen false on both, no new crash file. Lever pairs go to the client first; ids come from probes (S25).
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_ownerless_units.py
@@ -59,11 +59,11 @@ MAP_FP_C = -4.48310638993e+18             # both machines (Ca-Cd)
 TANK = 1000000                            # the tank's unit id (Ca-Cd)
 KEPT, C1, C2, H = [8, 9, 10], 8, 9, 10    # the crew kept (11-14 cut); C1 / C2 seat 1, H seat 0
 T_DEST = (14, 17, 1)                      # 2 tiles north of the tank (14,19,1): path_probe steps 2, tuCost 8 on both
-T_END = (14, 17, 0)                       # R-U4-A-8 (F11943): the walk's measured end on both machines - vanilla steps
+T_END = (14, 17, 0)                       # the walk's measured end on both machines - vanilla steps
                                           # the tank down onto the Skyranger ramp; path_probe sums the path's directions
-                                          # and cannot see that step-down (F12005)
-STAGE_H, H_DIR = (20, 19, 0), 0           # R-U4-A-5 / R-U4-A-7: the victim, facing P_DEST
-STAGE_C1, C1_DIR = (24, 19, 0), 5         # R-U4-A-1: the shooter; a clear ray west to STAGE_H
+                                          # and cannot see that step-down
+STAGE_H, H_DIR = (20, 19, 0), 0           # the victim, facing P_DEST
+STAGE_C1, C1_DIR = (24, 19, 0), 5         # the shooter; a clear ray west to STAGE_H
 FLOOR_S = (28, 19, 0)                     # the FLOOR rule's target from STAGE_C1 (k 4, d 2)
 S_TYPE = "STR_SECTOID_SOLDIER"
 P_TU = 30
@@ -160,7 +160,7 @@ def both_fields(host, client, uid, key, want):
 
 
 def tab_then_click(host, uid, ev):
-    """R-U4-A-4 / R-U4-A-6: ONE TAB (it leaves the post-shot cursor state), the TAB-selected unit recorded and required
+    """ONE TAB (it leaves the post-shot cursor state), the TAB-selected unit recorded and required
     not to be `uid`; then HOME and ONE self-verified left click on uid's tile must select it."""
     ev["cursor0"] = battle_state(host).get("cursorType")
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
@@ -253,7 +253,7 @@ def bring_up(host, client):
         host.wait_for("start offered", lambda: RAW.lobby(host).get("buttonVisible") or None)
 
     def pre_seat(h):
-        """After the craft pin: the Skyranger, every crew soldier after the first three off it, one tank on it (F11069)."""
+        """After the craft pin: the Skyranger, every crew soldier after the first three off it, one tank on it."""
         r = h.cmd({"cmd": "newbattle_craft", "type": CRAFT})
         assert r.get("ok"), f"newbattle_craft {CRAFT}: {r}"
         br = h.cmd({"cmd": "base_report"})
@@ -322,7 +322,7 @@ def row_t(host, client, crash0):
 
 
 def stage_s(host, client):
-    """C1's rifle; H then C1 onto their open-ground tiles (R-U4-A-5 / A-7, R-U4-A-1); H's spawn staging."""
+    """C1's rifle; H then C1 onto their open-ground tiles; H's spawn staging."""
     m, ev = (host, client), {}
     ev["rifle"] = G3F.guarded("S staging", lambda: give(host, client, C1, "STR_RIFLE", "STR_RIFLE_CLIP")
                               .get("weaponId"), m)

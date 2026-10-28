@@ -17,7 +17,7 @@ RED (commit A1, unchanged build): exactly HH-ev, HH-follow, HH-hash FAIL. GREEN 
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
 Run:  python tools/coop_test/test_host_skill_ev.py
 """
 
@@ -46,7 +46,7 @@ MOD_ACTIVE_LINE = "- Coop_ScriptResearch_Test v1.0"
 SKILL = "STR_COOP_TEST_SR_SKILL"
 SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (29 / 28, F11478)
 KEY_SKILL = 49                    # the first (only) skill row
-TAG_SKILL = 1                     # COOP_SR_SKILL's raw index (F11472)
+TAG_SKILL = 1                     # COOP_SR_SKILL's raw index
 SCRIPT_S = 2.0                    # the host ran the script (TASK 0: 0.1 s on both boots)
 FOLLOW_S = 5.0
 POLL_S = 0.1

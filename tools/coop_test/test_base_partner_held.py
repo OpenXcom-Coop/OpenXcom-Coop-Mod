@@ -33,7 +33,7 @@ centring); the paperdoll = inventory_view.drawnSlots; basePresence.held absent r
 RED (HEAD = R1 on the r1 build): 8 of 16 cells - H1-drop, H1-draw, H2-back, H3-gone, H3-draw, H3-back, H4-draw, H5-back; the 8 guards
 PASS. Green: 16 / 16. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure
 (a precondition miss ends its row, its later cells "not reached"); every row ends with both cursors empty (H1 hands the client's pick
-to H2), recorded. WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+to H2), recorded. run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_base_partner_held.py
@@ -60,7 +60,7 @@ PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PI
 TEXT_ITEM_MISSING = "Order cancelled - item unavailable"  # STR_COOP_DENY_ITEM_MISSING (EQ-2's pre-battle refusal)
 HALF = (16, 24)                    # EQ-2 S-D: the held item's top-left = the pointer - (HAND_W * SLOT_W / 2, HAND_H * SLOT_H / 2)
 W_PTR, W, CYCLE_CAP, CLICK_W = 2.0, 10.0, 16, 2.0
-POLL, PAGE = 0.05, 1000000         # a parked ground item sits at x PAGE (F20617)
+POLL, PAGE = 0.05, 1000000         # a parked ground item sits at x PAGE
 CELLS = {
     "H1": ["H1-drop", "H1-draw", "H1-mate"],
     "H2": ["H2-back", "H2-off"],
@@ -472,7 +472,7 @@ def main(tag=TAG, ports=PORTS, extra=None):
             if x is not None:
                 for g in (x.host, x.client):
                     cap[g.name] = {"stack": stack(g), "view": view(g), "basePresence": bpp.bp(g)}
-                # CIT-DIAG (F24295): the spine once missed on the two machines' ground piles differing at pin time; record
+                # the spine once missed on the two machines' ground piles differing at pin time; record
                 # whether the worlds differ (checksum, resync state) and whether the piles agree a moment later
                 def piles():
                     try:

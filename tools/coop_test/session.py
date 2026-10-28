@@ -35,7 +35,7 @@ def states(gc):
 
 
 def _wait_stacks_change(machines, seen, cap, interval=0.02):
-    """CIT-SLEEP1 (F24288): wait until a machine's screen stack differs from `seen` (one states() list per machine), at
+    """wait until a machine's screen stack differs from `seen` (one states() list per machine), at
     most `cap` seconds (the fixed step it replaces). Returns True on a change, False at the cap."""
     end = time.time() + cap
     while time.time() < end:
@@ -49,7 +49,7 @@ def has_state(gc, name):
     return any(name in s for s in states(gc)) or None
 
 
-WIDGET_READY_S = 10.0   # W2-U9: bound of wait_widget_ready (a POPUP window opens in about 20 thinks)
+WIDGET_READY_S = 10.0   # bound of wait_widget_ready (a POPUP window opens in about 20 thinks)
 
 
 def wait_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S, interval=0.05):
@@ -77,7 +77,7 @@ def wait_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S, interval=0.05):
 
 
 def click_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S):
-    """W2-U9: wait_widget_ready, then click_widget {match, nth} (one click, whatever the wait gave). Returns
+    """wait_widget_ready, then click_widget {match, nth} (one click, whatever the wait gave). Returns
     click_widget's reply with `readyS` (wait_widget_ready's result) added."""
     ready = wait_widget_ready(gc, match, nth=nth, timeout=timeout)
     r = dict(gc.cmd({"cmd": "click_widget", "match": match, "nth": nth}))
@@ -86,7 +86,7 @@ def click_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S):
 
 
 def wait_coop_session(gc, timeout=5.0, interval=0.02):
-    """F24296: wait until `gc`'s get_coop coopSession is true; returns the seconds waited, or None when it stayed false for
+    """wait until `gc`'s get_coop coopSession is true; returns the seconds waited, or None when it stayed false for
     `timeout` (the caller goes on and its own check reports the miss). A host save shows its "Saving..." (CoopState 54) only
     in a live session (SaveGameState's deferral needs isCoopSession()); after a rejoin the host logs sessionLive first and
     sets the flag only when the partner's COOP_READY_CLIENT or the r4 handshake lands, so a save sent at once writes with no 54."""
@@ -156,7 +156,7 @@ def resume_campaign_via_button(host, client_name="ClientPlayer"):
         lambda: (host.cmd({"cmd": "get_coop"}).get("clientName") == client_name) or None,
         timeout=60, interval=0.05,
     )
-    # CIT-SLEEP1 (F24288): RESUME's own gate (LobbyMenu::btnCancelClick, mode 2: missingPlayers() empty and
+    # RESUME's own gate (LobbyMenu::btnCancelClick, mode 2: missingPlayers() empty and
     # startEligible() = clientInLobby) instead of a fixed 2 s; at most the old 2 s, then the press as before
     end = time.time() + 2.0
     while time.time() < end and not host.cmd({"cmd": "lobby_state"}).get("startEligible"):
@@ -186,7 +186,7 @@ def new_campaign(host, client, port="47900",
     host.ok({"cmd": "newgame_ok"})
     host.wait_for("host window", lambda: _has_state(host, "HostMenu"))
 
-    # F24293: one session key per harness lane. The UDP client also dials its host's port +- a radius (NAT port guessing,
+    # one session key per harness lane. The UDP client also dials its host's port +- a radius (NAT port guessing,
     # connectionUDP::buildCandidates), and lanes on one machine get neighbouring ephemeral ports, so with one shared key
     # a lane's client authenticated the next lane's host (captured: client :65343 -> host :65342, its own host :65341)
     udp_pw = "harness-lan-s%s" % os.environ.get("OXC_HARNESS_SLOT", "0")
@@ -598,7 +598,7 @@ def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
         ps = host.cmd({"cmd": "parallel_state"})
         persist_alarms = int(ps.get("syncBoundaryPersistAlarms") or 0)
         pending = int(ps.get("syncBoundaryPending") or 0)
-        # U3 (F4881): desyncSeen is published by event_state only (battle_state has no
+        # U3: desyncSeen is published by event_state only (battle_state has no
         # such key, so the old read was always None); a missing key fails, never passes.
         desync = host.cmd({"cmd": "event_state"}).get("desyncSeen")
         alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
@@ -647,7 +647,7 @@ def _sync_mismatch_lines(sc, limit=6):
 # states must therefore never be handed to it while a co-op battle is live:
 #
 #   VoteMenu          - an AbortMissionState OK opens the abandon-mission
-#                       VoteMenu on both machines (R4-L1); dismiss_popup refuses
+#                       VoteMenu on both machines; dismiss_popup refuses
 #                       it: answer it with vote_cast / click_widget.
 #   BattlescapeState  - once the VoteMenu above it has been generic-popped, the
 #                       battlescape itself is the top state, and the next
@@ -737,7 +737,7 @@ def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
     r = host.cmd({"cmd": "dismiss_popup"})
     assert r.get("handled") == "AbortMissionState", \
         f"host abort confirm was not AbortMissionState::btnOkClick: {r}"
-    abort_vote_yes(host, client)  # R4-L1: the OK opened the vote; the partner's YES passes it
+    abort_vote_yes(host, client)  # the OK opened the vote; the partner's YES passes it
 
     deadline = time.time() + drain_timeout
     machines = ((host, "host"), (client, "client")) if expect_both else ((host, "host"),)
@@ -842,7 +842,7 @@ def assert_hash_clean(host, client, buckets=None, full=False, what=""):
     return hh, ch
 
 
-# WV-D63 (SPEC 6a): deterministic placement helpers. Faction/seat/tilepart
+# deterministic placement helpers. Faction/seat/tilepart
 # constants are declared locally rather than imported - every repro in this
 # tree (repro_atom_door.py, repro_atom_walk.py, ...) already re-declares its
 # own copies rather than session.py exporting a shared set, so this follows
@@ -862,13 +862,13 @@ _DIR_FROM_DELTA = {
 # This lever OWNS the corner<->geometry mapping - TestServer.cpp's own
 # battle_teleport_all comment states the same convention - NW=(low x,low y),
 # NE=(high x,low y), SW=(low x,high y), SE=(high x,high y). "Facing the map
-# edge" (WV-D63(a)) means facing further INTO that same corner, i.e. away
+# edge" means facing further INTO that same corner, i.e. away
 # from the map's centre and away from the door.
 _CORNER_FACING = {"NW": 7, "NE": 1, "SW": 5, "SE": 3}
 
 
 def place_deterministic(host, client, moves, what=""):
-    """WV-D63(a): applies the SAME sequence of placement-lever calls
+    """applies the SAME sequence of placement-lever calls
     (`battle_teleport_unit` / `battle_teleport_all`) to BOTH machines, in the
     same order, with identical arguments - never any coop wire traffic
     (WV-D63(b): the harness applies each machine's lever call independently)
@@ -901,7 +901,7 @@ def place_deterministic(host, client, moves, what=""):
             f"place_deterministic{tag}: move {i} ({lever}) replies differ between "
             f"host and client - host={hr} client={cr}")
         results.append((hr, cr))
-        wait_seq_barrier(host, client)  # W2-U8c (F6495)
+        wait_seq_barrier(host, client)
     assert_hash_clean(host, client, full=True, what=f"place_deterministic{tag}")
     return results
 
@@ -921,7 +921,7 @@ def _tile_standable(gc, pos):
 
 def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
                                  actor_id=None, teleport_hostiles=True):
-    """WV-D63(c): builds a CONTACT-FREE UFO-door crossing SITUATION
+    """builds a CONTACT-FREE UFO-door crossing SITUATION
     deterministically via `place_deterministic`, instead of searching a
     freshly generated map for one the way `repro_atom_door.py`'s
     `walk_through_candidates()`/`MAX_REROLLS` loop does. Call once the battle
@@ -1042,7 +1042,7 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
 
 
 def lightning_door(host):
-    """The craft's own UFO door: exactly one find_doors entry with dataSet LIGHTNIN (WV-D87)."""
+    """The craft's own UFO door: exactly one find_doors entry with dataSet LIGHTNIN."""
     r = host.cmd({"cmd": "find_doors", "limit": 512})
     assert r.get("ok"), f"find_doors failed: {r}"
     ds = [d for d in r.get("doors", []) if d.get("dataSet") == "LIGHTNIN"]
@@ -1051,7 +1051,7 @@ def lightning_door(host):
 
 
 class KnownFlake(AssertionError):
-    """WV-D90: a KNOWN flaky scenario was detected and its evidence recorded. Exit 2, loudly."""
+    """a KNOWN flaky scenario was detected and its evidence recorded. Exit 2, loudly."""
 
     def __init__(self, message, test=None, tracking="WV-D90"):
         super().__init__(message)
@@ -1089,7 +1089,7 @@ def units_near(gc, tiles, radius=3):
 
 
 def known_flake(test, tracking, summary, record):
-    """WV-D90: print the banner + the one-line JSON record + the banner, then raise KnownFlake
+    """print the banner + the one-line JSON record + the banner, then raise KnownFlake
     (the caller's __main__ maps it to exit 2 and prints the banner once more)."""
     import json as _json
     print_known_flake_banner(test, tracking, summary)
@@ -1120,7 +1120,7 @@ def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, conta
     fixtures need on the FIRST map, instead of re-rolling for one.
 
     1. Every live hostile -> the corner FARTHEST from the player squad's centroid, facing into
-       it; every live neutral -> the diagonally OPPOSITE corner (WV-D88). Both machines,
+       it; every live neutral -> the diagonally OPPOSITE corner. Both machines,
        identical moves, hash gate (place_deterministic).
     2. For each soldier in `soldier_ids` (caller's order; skip it if `need_weapon` and it carries
        none), scan tiles at the soldier's own z in rings of growing Chebyshev radius 0..scan_radius
@@ -1379,8 +1379,8 @@ def dismiss_battle_start_overlays(host, timeout=10):
 
     W2-P8b S-H (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
     section 4 S-H): a fresh co-op battle now opens the pre-battle equip screen on
-    BOTH machines (owner D174 a) and its OK - which ESC is bound to - is the
-    ready TOGGLE (D206 c, F2755), so an ESC loop over it would flap this seat's
+    BOTH machines and its OK - which ESC is bound to - is the
+    ready TOGGLE, so an ESC loop over it would flap this seat's
     ready. While this machine's `event_state.equip.phase` is "open" this helper
     therefore RAISES instead of pressing ESC: the equip screens close through
     equip_both_ready() below. After the equip end both machines hold vanilla's
@@ -1391,7 +1391,7 @@ def dismiss_battle_start_overlays(host, timeout=10):
     while time.time() < deadline:
         st = states(host)
         if st and "BattlescapeState" in st[-1]:
-            # CIT-SLEEP1 (F24290): the Turn-1 screen's close arms a turn-start autosave that BattlescapeState::init()
+            # the Turn-1 screen's close arms a turn-start autosave that BattlescapeState::init()
             # pushes in the NEXT loop pass, after the test server has answered this read; a second read lands in a later
             # pass and shows its SaveGameState
             if "BattlescapeState" not in (states(host) or [""])[-1]:
@@ -1415,7 +1415,7 @@ def dismiss_battle_start_overlays(host, timeout=10):
                 f"stack={states(host)}")
         host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
         t_esc = time.time()
-        _wait_stacks_change((host,), (st,), 0.3)  # CIT-SLEEP1 (F24288): until the overlay closes, at most the old 0.3 s
+        _wait_stacks_change((host,), (st,), 0.3)  # until the overlay closes, at most the old 0.3 s
     raise TimeoutError(f"{host.name}: battle-start overlays never cleared, stack={states(host)}")
 
 
@@ -1539,7 +1539,7 @@ def actor_is_contact_free(battle_state_resp, unit, tag):
     return True
 
 
-# ===== SPEC 6g (WV-D78/WV-D80): primitives relocated from repro_atom_door.py ==
+# ===== SPEC 6g: primitives relocated from repro_atom_door.py ==
 # That file was 2113 lines of map-ROLLED door search whose coverage now lives in
 # repro_door_deterministic.py (SPEC 6d/6e/6f), and it was a proven flake. These
 # helpers were shared, so they move here VERBATIM; the file itself is deleted.
@@ -1648,7 +1648,7 @@ def pin_ai_neutral(host, client, tag=""):
                if u.get("coop") == COOP_SEAT_NONE and u.get("faction") != FACTION_PLAYER
                and not u.get("isOut")]
     for uid in targets:
-        for gc in (client, host):  # F607: client first (see place_deterministic)
+        for gc in (client, host):  # client first (see place_deterministic)
             who = "host" if gc is host else "client"
             for stat in ("psiSkill", "reactions"):
                 r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid,
@@ -1663,7 +1663,7 @@ def pin_ai_neutral(host, client, tag=""):
             assert r.get("tu") == 0, (
                 f"pin_ai_neutral{tagstr}: unit {uid} read back tu={r.get('tu')} "
                 f"after refill on {who}, expected 0")
-        wait_seq_barrier(host, client)  # W2-U8c (F6495)
+        wait_seq_barrier(host, client)
     assert_hash_clean(host, client, full=True, what=f"pin_ai_neutral{tagstr}")
     print(f"[pin_ai_neutral{tagstr}] pinned {len(targets)} NONE-seat non-player "
           f"unit(s): {targets}")
@@ -1748,7 +1748,7 @@ def closed_door_at(gc, door_at):
 
 
 def door_lookup(gc, door_at):
-    """SPEC 6c5 step 1 (WV-D77) instrumentation helper. The full door dict at
+    """SPEC 6c5 step 1 instrumentation helper. The full door dict at
     (x,y,z,part) - notably its `isUfoDoorOpen` - or None if that coordinate is
     not a door on this machine right now. `find_doors`/`closed_doors` already
     exist; this just indexes by coordinate so a rejection record can report
@@ -1799,7 +1799,7 @@ def dir_between(a, b):
     return None
 
 
-# ===== SPEC RW-S4 (D35=(a)): shared walk search helpers, moved from
+# ===== SPEC RW-S4: shared walk search helpers, moved from
 # repro_atom_walk.py =====
 # The rewrite (commit 2) deleted repro_atom_walk's search helpers, but the
 # family is de-facto shared. Bodies are VERBATIM from dfb40b88a's
@@ -1873,8 +1873,8 @@ FIND_DOORS_ALL = 1 << 20  # find_doors limit above any map's part count (4 parts
 
 
 def tile_scan(gc, x0, x1, y0, y1, z0, z1, doors=False):
-    """{(x, y, z): row} for EVERY position of the inclusive box, read in bulk
-    (CIT-Y2): one TestServer `tile_census` call per <= TILE_CENSUS_MAX tiles
+    """{(x, y, z): row} for EVERY position of the inclusive box, read in bulk:
+    one TestServer `tile_census` call per <= TILE_CENSUS_MAX tiles
     instead of one `tile_info` round trip per tile. A row holds what the
     per-tile loops read from tile_info, under tile_info's own key names and
     getters: ok True, x / y / z, `parts` {floor, westwall, northwall, object}
@@ -1926,7 +1926,7 @@ def tile_scan(gc, x0, x1, y0, y1, z0, z1, doors=False):
 
 def scan_is_open_ground(rows, t, occupied):
     """tile_is_open_ground's predicate read from a tile_scan(..., doors=True)
-    result instead of a tile_info round trip (CIT-Y2): @a t is not occupied,
+    result instead of a tile_info round trip: @a t is not occupied,
     its tile exists, it has a FLOOR part, and no part is a door. @a t must lie
     inside the scanned box (KeyError otherwise)."""
     if t in occupied:
@@ -2047,7 +2047,7 @@ def settle_reveal(host, client, timeout=40):
     settles, and a measurement started before it would see the previous
     action's leftovers."""
     def quiet():
-        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
+        cs = event_state(client)  # client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
         hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
@@ -2071,7 +2071,7 @@ def wait_walk_settled(host, client, prev_action_id, timeout=30):
     be satisfied instantly by the walk BEFORE this one and every assertion after
     it would read stale data."""
     def done():
-        cs = event_state(client)  # W2-U8c (F6561): the client is read first
+        cs = event_state(client)  # the client is read first
         hs = event_state(host)
         hw = hs.get("lastWalk") or {}
         return bool(hs.get("ok") and cs.get("ok")
@@ -2083,11 +2083,11 @@ def wait_walk_settled(host, client, prev_action_id, timeout=30):
         client.wait_for("walk settled (a NEW host restate emitted, client caught up)",
                         done, timeout=timeout)
     except Exception:
-        # F420 (D126, owner): on-timeout diagnostic ONLY. The poll gave up, so dump
+        # on-timeout diagnostic ONLY. The poll gave up, so dump
         # both machines and WHICH predicate sub-condition is unmet, then re-raise the
         # original timeout. Fires ONLY on the failure path (zero effect on green runs);
         # the window is UNCHANGED; this is NOT a second poll and NOT a masking wait -
-        # it captures the rare K=2 no-desync stall family (F419) for a future run.
+        # it captures the rare K=2 no-desync stall family for a future run.
         _hs = event_state(host); _cs = event_state(client)
         _hw = _hs.get("lastWalk") or {}; _cw = _cs.get("lastWalk") or {}
         print("[F420 wait_walk_settled TIMEOUT] prev_action_id=%s" % prev_action_id, flush=True)
@@ -2284,7 +2284,7 @@ SEQ_BARRIER_KEYS = ("lastSeqEmitted", "lastSeqApplied", "queueDepth", "busyOwner
 
 
 def wait_seq_barrier(host, client, timeout=30):
-    """W2-U8b.1 (F6494): wait_host_idle's predicate in TWO reads per poll instead of five - the CLIENT's
+    """W2-U8b.1: wait_host_idle's predicate in TWO reads per poll instead of five - the CLIENT's
     event_state first, then the HOST's - passing when the host's busyOwnerSeat == -1, the client's
     lastSeqApplied == the host's lastSeqEmitted, and both queueDepth == 0.
 
@@ -2422,7 +2422,7 @@ def briefings_to_battlescape(host, client):
     """W2-P8b S-H (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
     section 4 S-H; orchestrator ruling Q14 a): THE battle-entry spine every
     skirmish bring-up runs after `newbattle_ok` (drive_to_battlescape() and the
-    local copies of it). Owner D210 b: the host's offer goes out at PREPARE, so
+    local copies of it). the host's offer goes out at PREPARE, so
     both briefings are up at once; D174 a: after its briefing each player lands
     on the pre-battle equip screen for its own soldiers; D206 c: OK there is a
     ready toggle and turn 1 starts when every seat with something to equip is
@@ -2447,7 +2447,7 @@ def equip_both_ready(host, client, timeout=90):
     """W2-P8b S-H (AMENDMENT P8b-1 section 4 S-H, Q11 a): pass both pre-battle
     equip screens. Each machine whose top state is an InventoryState gets ONE
     `battle_inventory {action: ok}` - the idempotent ready lever (it only SETS
-    this seat's ready, a no-op when it already is), never ESC (F2755). The client's
+    this seat's ready, a no-op when it already is), never ESC. The client's
     screen appears only once its briefing has closed and its equip entry has run,
     and a machine with nothing to equip (a spectator, the PvP alien seat) never
     shows one, so the loop presses each screen when it appears. Returns once
@@ -2481,7 +2481,7 @@ def equip_both_ready(host, client, timeout=90):
           f"wall={time.time() - t0:.2f}s", flush=True)
 
 
-# ===== SPEC 19 (W1-P20): campaign co-op battle entry, client-owned units =====
+# ===== SPEC 19: campaign co-op battle entry, client-owned units =====
 #
 # Two additive campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
 # battle) plus the F355 briefing-ordering drain they both need, and the
@@ -2512,7 +2512,7 @@ def drain_host_coop_notice(host, rounds=15):
 
 
 def drain_host_coop_notice_staged(host, rounds=15):
-    """cit-p1a (F24102): drain_host_coop_notice's presses (a CoopState notice gets coop_dialog_back, any other popup
+    """cit-p1a: drain_host_coop_notice's presses (a CoopState notice gets coop_dialog_back, any other popup
     dismiss_popup, until GeoscapeState is on top; the same bound and the same silent return), with its fixed 0.4 s pause
     after each press replaced by a bounded wait (<= 0.4 s, 0.02 s polls) for the host's stack to change. The guest
     transfer's notice (CoopState 150 "Items received") closes on the first press."""
@@ -2532,19 +2532,19 @@ def drain_host_coop_notice_staged(host, rounds=15):
 def drive_both_to_tactical(host, client, timeout=240):
     """F355 fix (SPEC 18 R1(a), orch49; archived VERBATIM at rewrite/artifacts/
     spec19-fixtures/r1a_v2.py's drive_both_to_tactical): close both briefings
-    in ANY order - W2-P8b (owner D210 b) sends the client offer at PREPARE, so
+    in ANY order - W2-P8b sends the client offer at PREPARE, so
     both briefings are up at once - and drain both machines through Briefing/
     Inventory/CoopState popups until BOTH machines sit on BattlescapeState. The
     pre-battle equip screens' `battle_inventory ok` is the idempotent ready
-    lever (W2-P8b Q11 a), so pressing it every second never flaps a seat's ready
-    (F2756); turn 1 starts once every seat is ready.
+    lever (W2-P8b Q11 a), so pressing it every second never flaps a seat's ready;
+    turn 1 starts once every seat is ready.
 
     A campaign bring-up that settles ONE machine at a time hangs: the host's
-    equip screen waits for the client's ready (W2-P8b), as the pre-P8b client
+    equip screen waits for the client's ready, as the pre-P8b client
     offer waited for the host's briefing OK. Driving both machines in one loop
     is the ordering every campaign battle-entry fixture in this packet (S1's
     SEPARATE guest battle, S2/S3's SHARED mixed battle) needs and
-    test_shared_battle.py's old :165-191 shape lacked (F362). Returns True once both machines are on
+    test_shared_battle.py's old :165-191 shape lacked. Returns True once both machines are on
     BattlescapeState, False on timeout (the caller raises with both machines'
     top states, which names the fixture problem instead of hanging silently)."""
     deadline = time.time() + timeout
@@ -2581,7 +2581,7 @@ def drive_both_to_tactical(host, client, timeout=240):
                 if not moved:
                     break
             return True
-        # CIT-SLEEP1 (F24288): the next round once either stack moves from what this round saw (a press landed or the
+        # the next round once either stack moves from what this round saw (a press landed or the
         # partner moved on), at most the old fixed 1.0 s step
         _wait_stacks_change((host, client), seen, 1.0)
     return False
@@ -2637,7 +2637,7 @@ def wait_back_on_geoscape(gc, what="back on geoscape", timeout=60):
 
 
 def press_back_when_shown(gc, what, codes=None, timeout=60):
-    """W2-U7d (F6474, F6824, F8018): press the top co-op dialog's BEGIN / RESUME / OK only once a player could: wait
+    """press the top co-op dialog's BEGIN / RESUME / OK only once a player could: wait
     (bounded) until the top state is a CoopState whose back button coop_dialog_info reports shown (and whose code is in
     `codes` when given), then press it. A host wait dialog (60 / 62) shows its button up to 0.5 s after it is ready
     (CoopState.cpp :1111-1117, :1199-1213). A timeout raises with the dialog and the stack. Returns the press reply."""
@@ -2664,7 +2664,7 @@ def press_back_when_shown(gc, what, codes=None, timeout=60):
 
 
 def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None, staged=True):
-    """SPEC 19 (W1-P20) S1 fixture: SEPARATE campaign, mixed-ownership squad -
+    """SPEC 19 S1 fixture: SEPARATE campaign, mixed-ownership squad -
     3 of the host's own soldiers plus a CLIENT guest seated on the host's
     craft (the client renames a spare soldier, transfers it to the host's coop
     base, and seats it on the host's Skyranger) - flown to a fresh terror site
@@ -2681,7 +2681,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     back on the geoscape) and BEFORE `drain_host_coop_notice`/
     `spawn_mission_site`/`coop_mission_start` - the window S1's own vacuity
     guard needs (`event_state.guestContrib` must show the roster travelled
-    BEFORE the battle starts). Every other caller (SPEC 18) is unaffected:
+    BEFORE the battle starts). Every other caller is unaffected:
     default None, nothing runs.
 
     `pre_landing` (W2-P7 S-C-A.1, AMENDMENT P7-6 section 4.1; additive): an
@@ -2799,7 +2799,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
 
 
 def bring_up_shared_mixed_battle(js, owners, to_tactical=True, pre_landing=None):
-    """SPEC 19 (W1-P20) S2/S3 fixture core: given an already-brought-up SHARED
+    """SPEC 19 S2/S3 fixture core: given an already-brought-up SHARED
     session (`shared_fixture.bring_up`), board a 2-soldier squad on the shared
     craft with per-slot ownership from `owners`, fly it to a fresh terror
     site, and enter the battle LIVE via confirm_landing with the F355
@@ -2901,7 +2901,7 @@ def bring_up_shared_mixed_battle(js, owners, to_tactical=True, pre_landing=None)
 # ---- T-SPLIT / T-CMD / T-EXIT (spec (f) common tail) -----------------------
 
 def assert_t_split(host, client, expected_seat_by_soldier_id, what=""):
-    """SPEC 19 (W1-P20) spec (f) common tail T-SPLIT, asserted on BOTH
+    """SPEC 19 spec (f) common tail T-SPLIT, asserted on BOTH
     machines once both tops are BattlescapeState (after drive_both_to_
     tactical): phase Active; authority.hostSim true host / false client;
     authority.localSeat 0 host / 1 client; battleId equal non-zero; the set
@@ -2966,7 +2966,7 @@ def _t_cmd_adjacent_free_tile(gc, unit):
         t = (x + DIR_DX[d], y + DIR_DY[d], z)
         if t in occ:
             continue
-        # R-RV21-SA-2 (F14463): `occ` holds anchor tiles only; a multi-tile unit (a 2x2 tank)
+        # `occ` holds anchor tiles only; a multi-tile unit (a 2x2 tank)
         # also covers other tiles, which tile_info reports as its `unit` - skip those too.
         if gc.cmd({"cmd": "tile_info", "x": t[0], "y": t[1], "z": t[2]}).get("unit", -1) != -1:
             continue
@@ -2991,7 +2991,7 @@ def _dir_to(a, b):
 def _octant_chain(from_dir, to_dir):
     """The successive SINGLE-OCTANT facings from from_dir to to_dir along the
     shortest rotation (CW if diff<=4 else CCW), ending at to_dir; empty if already
-    facing it. F395: a MULTI-octant turn aborts on a newly-spotted enemy, but each
+    facing it. a MULTI-octant turn aborts on a newly-spotted enemy, but each
     single-octant turn always lands its one octant (the abort cancels only the
     REST), so chaining reaches any facing deterministically with default movement."""
     diff = (to_dir - from_dir) % 8
@@ -3007,7 +3007,7 @@ def _octant_chain(from_dir, to_dir):
 
 
 def send_turn(client, actor_id, to_dir):
-    """F394/F395 (D118): a STANDALONE single-octant turn intent."""
+    """a STANDALONE single-octant turn intent."""
     return client.cmd({"cmd": "battle_intent", "kind": "turn", "actor": actor_id,
                        "toDir": to_dir})
 
@@ -3028,10 +3028,10 @@ def wait_turn_settled(host, client, baseline, timeout=15):
 
 
 def _wait_click_ready(host, tx, ty, tz, actor_id, timeout=8.0):
-    """D119/F398 (REV E.70): render/hit-test readiness SYNC for a host map click.
+    """render/hit-test readiness SYNC for a host map click.
 
     NOT a masking retry - it re-runs NO assertion; it establishes the precondition
-    the SINGLE click that follows needs. F397: inject_input pushes a bare SDL
+    the SINGLE click that follows needs. inject_input pushes a bare SDL
     button event (no motion), so BattlescapeState::mapClick reads the stored
     selector that map_tile_click_pos left on the target tile - the tile resolution
     is deterministic. The intermittent (~1/6; masked by ANY added delay, a
@@ -3075,7 +3075,7 @@ def _wait_click_ready(host, tx, ty, tz, actor_id, timeout=8.0):
 
 def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=True,
                  what=""):
-    """SPEC 19 (W1-P20) spec (f) common tail T-CMD.
+    """SPEC 19 spec (f) common tail T-CMD.
 
     1. The CLIENT sends `battle_intent` (walk, ONE absolute step onto an
        adjacent free tile - the test_client_gates/repro_atom_walk
@@ -3108,7 +3108,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
         f"T-CMD{tag}: seat-1 actor {seat1_actor_id} position differs before the "
         f"walk (host={before_h} client={before_c}) - not a clean starting point")
 
-    # F394/F395 (D118): CHAINED SINGLE-OCTANT TURNS, THEN STEP. A 1-tile walk that
+    # CHAINED SINGLE-OCTANT TURNS, THEN STEP. A 1-tile walk that
     # must turn - or a multi-octant turn - aborts at the octant a NEW enemy comes
     # into view (vanilla, UnitTurnBState.cpp:125-130), leaving the unit short (~1/6,
     # map-roll dependent). But each SINGLE-octant turn always lands its octant (the
@@ -3202,7 +3202,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
         f"T-CMD{tag}: map_tile_click_pos reports centered=True after the "
         f"settling pass - the camera is still moving (fixture problem, not a "
         f"case to re-roll): {pr2}")
-    # D119/F398 (REV E.70): render-readiness SYNC before the SINGLE click. pr1/pr2
+    # render-readiness SYNC before the SINGLE click. pr1/pr2
     # keep the two-pass camera settle (and the centered==False fixture check);
     # _wait_click_ready then blocks until BattlescapeState::mapClick's own
     # pre-primaryAction swallow gates are clear and the click pixel round-trips
@@ -3245,7 +3245,7 @@ def _crash_log_snapshot():
 
 
 def assert_t_exit(host, client, what="", expect_both=True):
-    """SPEC 19 (W1-P20) spec (f) common tail T-EXIT, REV E.65 (D114=a): the
+    """SPEC 19 spec (f) common tail T-EXIT, REV E.65: the
     host-authoritative abort (coop_abort_battle) returns the HOST to
     GeoscapeState with NO new crash log and NO desyncSeen on EITHER machine.
     SHARED (expect_both=True): the client also returns. SEPARATE
@@ -3253,7 +3253,7 @@ def assert_t_exit(host, client, what="", expect_both=True):
     (`debrief_result`) and is NOT asserted here (OUT-OF-WAVE E65.5)."""
     tag = f" {what}" if what else ""
     before_crash = _crash_log_snapshot()
-    # U3b (F5063): the battle teardown can reset the latch (resetBattleAuthority), so
+    # U3b: the battle teardown can reset the latch (resetBattleAuthority), so
     # desyncSeen is also read on BOTH machines while the battle is still live.
     for gc, tag2 in ((host, "host"), (client, "client")):
         desync = event_state(gc).get("desyncSeen")
@@ -3265,7 +3265,7 @@ def assert_t_exit(host, client, what="", expect_both=True):
         assert st and "GeoscapeState" in st[-1], (
             f"T-EXIT{tag}: {tag2} not on GeoscapeState after abort: {st}")
     # desyncSeen is verified on BOTH machines through the abort regardless of mode.
-    # U3 (F4881): event_state is the only probe that publishes desyncSeen (battle_state's
+    # U3: event_state is the only probe that publishes desyncSeen (battle_state's
     # read was always None); anything but False fails.
     for gc, tag2 in ((host, "host"), (client, "client")):
         desync = event_state(gc).get("desyncSeen")

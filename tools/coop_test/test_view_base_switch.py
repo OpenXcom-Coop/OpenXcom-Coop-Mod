@@ -5,7 +5,7 @@ so a switch inside the view (keys 1-8, BASE INFORMATION's keys + OK) shows them 
 rewrite/prompts/w2h85_sb_base_switch.md (f); pins rewrite/w2h85-task0/sb/CONSTANTS.md; helpers copied from docs rewrite/lh85-cap/cap85.py and VLS.
 ONE boot (key 49655): SETUP (levers: SEAT the client's guest G on HostBase's Skyranger, host quick save, host builds HostBase2), R2c (guard: direct
 real visit of HostBase), R2 (real visit of HostBase2, real key to HostBase, next visit), R2i (SEAT, real visit of HostBase2, real BASE INFORMATION,
-real key, its real OK), CRASH. Red today: R2-view/-ok/-blob/-own/-next, R2i-view/-ok/-own (8 of 17). WV-D95 / WV-D99 / WV-D100: ONE foreground run,
+real key, its real OK), CRASH. Red today: R2-view/-ok/-blob/-own/-next, R2i-view/-ok/-own (8 of 17). ONE foreground run,
 no skip; exit 0 only when every cell passes, else 2.  Run: python tools/coop_test/test_view_base_switch.py   (OXC_HARNESS_SLOT selects the lane)"""
 import contextlib, glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace

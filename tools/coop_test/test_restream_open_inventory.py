@@ -18,7 +18,7 @@ destructor reads that deleted battle (T0-I, F8774 / F8775). Whether the read cra
 alive(gc) = the process runs and `ping` answers. CL = the client's openxcom.log after the size noted before the trigger. Setup guard
 on every boot: h20.setup (option OFF on both, seats differ, H / C / C2 and SKY exist). A boot whose client crashed tolerates the
 client's rc 3 at shutdown; a shutdown exception on a boot whose client lived fails the row. EVIDENCE before the verdict; a failed row
-prints ONE CAPTURE line; ONE run (WV-D95); exit 0 iff the row passes, else 2.
+prints ONE CAPTURE line; ONE run; exit 0 iff the row passes, else 2.
 """
 
 import json

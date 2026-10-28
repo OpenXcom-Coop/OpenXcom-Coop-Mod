@@ -30,7 +30,7 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Cutscene_Test")
-BOOT_A = ("w2h17ba", (49360, 49361, 47350))      # SHARED; lobby 47350 (F7219)
+BOOT_A = ("w2h17ba", (49360, 49361, 47350))      # SHARED; lobby 47350
 BOOT_B = ("w2h17bb", (49362, 49363, 47352))      # SHARED
 BOOT_C = ("w2h17bc", (49364, 49365, 47354))      # SHARED
 BOOT_D = ("w2h17bd", (49366, 49367, 47356))      # SEPARATE

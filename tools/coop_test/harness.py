@@ -83,7 +83,7 @@ if os.name == "nt":
             if owns_handle and not _CloseHandle(handle):
                 raise ctypes.WinError(ctypes.get_last_error())
 
-    # CIT-P2 (F24080-F24083): about 20 s after a game starts, Windows 11 power throttling stops honouring the 1 ms timer
+    # about 20 s after a game starts, Windows 11 power throttling stops honouring the 1 ms timer
     # period SDL requests for a process with no visible window, so the game loop's SDL_Delay(1) and the test server's
     # 1 ms socket wait each take ~15.6 ms and every test-server call ~31 ms instead of ~3. Opting the game out of that
     # throttling keeps SDL's 1 ms period for the whole run. Test harness only (players' games are untouched); best
@@ -156,7 +156,7 @@ TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 # shared state: the per-slot machine lock and the s{slot}_ user-dir prefix. No
 # port bands, so K is no longer capped by the 65535 ceiling.
 HARNESS_SLOT = int(os.environ.get("OXC_HARNESS_SLOT", "0"))
-# W2-U8h (F9563): this lane's own crash folder. Every game spawn() starts writes its crash files (the co-op
+# this lane's own crash folder. Every game spawn() starts writes its crash files (the co-op
 # CrashHandler's crash_*.log / crash_*.dmp) here, not in the <exe dir>/crashlogs every lane shares, so a crash in
 # one lane is never counted by another lane's test. The game reads OXC_CRASHLOG_DIR; a game started any other way
 # (a player, manual_session.py) keeps <exe dir>/crashlogs. One test runs per slot at a time (the slot lock below).
@@ -173,15 +173,15 @@ _COOP_JOIN_CMDS = frozenset(("join_tcp", "join_udp"))
 # invariant the old per-port model relied on).
 _EPHEMERAL_COOP_PORTS = {}
 
-# W2-U8e (F8376, F8573): the GameClient that hosted each rendezvous key (with the port it reported and its
+# the GameClient that hosted each rendezvous key (with the port it reported and its
 # transport) and the GameClients that joined it. Process-global, like _EPHEMERAL_COOP_PORTS.
 _COOP_HOSTS = {}
 _COOP_JOINERS = {}
-# W2-U8g (F9068): every GameClient whose spawn() started a game in this process; _reap_spawned_games reads it.
+# every GameClient whose spawn() started a game in this process; _reap_spawned_games reads it.
 _SPAWNED = []
-# W2-U8e (F8376): the longest a join_tcp waits for its host's lobby listener, in seconds; then it FAILS with a dump.
+# the longest a join_tcp waits for its host's lobby listener, in seconds; then it FAILS with a dump.
 LISTEN_WAIT_S = 60
-# W2-U8e: the TestServer get_coop fields that say where a coop connection stands.
+# the TestServer get_coop fields that say where a coop connection stands.
 _JOIN_VIEW = ("onConnect", "coopDialog", "serverOwner", "coopSession", "clientName")
 PORT_FILE_NAME = "testserver_port.txt"
 KILLED_RETURN_CODE = 1 if os.name == "nt" else -signal.SIGKILL
@@ -305,7 +305,7 @@ def _timelog(event, detail=""):
     path = os.environ.get("OXC_TIMELOG")
     if not path:
         return
-    # WV-D70: ~690 of the ~790 rows a session writes are the spawn tier and only
+    # ~690 of the ~790 rows a session writes are the spawn tier and only
     # SPEC 0c's boot analysis needed them; OFF unless OXC_TIMELOG_SPAWNS=1.
     # test_start/test_end keep emitting under OXC_TIMELOG.
     if event in ("spawn", "spawn_end") and not os.environ.get("OXC_TIMELOG_SPAWNS"):
@@ -344,7 +344,7 @@ _orig_excepthook = sys.excepthook
 
 
 def _tracking_excepthook(exc_type, exc, tb):
-    # W2-U8d (F7624): an uncaught exception never calls sys.exit; Python reports it through this hook and the
+    # an uncaught exception never calls sys.exit; Python reports it through this hook and the
     # process exits 1, so test_end must say 1, not the default 0 (an uncaught KeyboardInterrupt exits with the
     # OS's Ctrl-C code and is logged 1: non-zero, never 0). Then the original hook prints it as before.
     _TIMELOG_EXIT_CODE[0] = 1
@@ -476,7 +476,7 @@ class GameClient:
         # Kept for the opt-in windowed path: harmless under the dummy driver,
         # and it is what the owner-smoke path wants when it is used.
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
-        # W2-U8h (F9563): the game writes its crash files into this lane's own folder.
+        # the game writes its crash files into this lane's own folder.
         os.makedirs(CRASH_DIR, exist_ok=True)
         env["OXC_CRASHLOG_DIR"] = CRASH_DIR
         exe_dir = os.path.dirname(EXE) or "."
@@ -496,7 +496,7 @@ class GameClient:
             popen_kwargs["startupinfo"] = si
         self.proc = subprocess.Popen(
             args, env=env, cwd=exe_dir, **popen_kwargs)
-        if self not in _SPAWNED:  # W2-U8g (F9068): only spawn() registers, so hand-spawned games are never reaped
+        if self not in _SPAWNED:  # only spawn() registers, so hand-spawned games are never reaped
             _SPAWNED.append(self)
         _port_file_event("spawned", user_dir=self.user_dir, game_pid=self.proc.pid)
         if os.name == "nt":
@@ -544,7 +544,7 @@ class GameClient:
                                         game_pid=self.proc.pid if self.proc else None,
                                         game_returncode=self.proc.poll() if self.proc else None)
                 raise
-            time.sleep(0.02)  # CIT-SLEEP1 (F24291): was 0.2 s; a boot reports its port ~0.2-0.5 s after spawn
+            time.sleep(0.02)  # was 0.2 s; a boot reports its port ~0.2-0.5 s after spawn
         exc = TimeoutError(
             f"{self.name}: game never reported its test-server port "
             f"(no {self._port_file})")
@@ -615,7 +615,7 @@ class GameClient:
             actual = resp.get("port")
             if actual:
                 _EPHEMERAL_COOP_PORTS[key] = str(actual)
-                # W2-U8e (F8376): a TCP host unless the host window was asked for UDP (1 / 2) or hotseat (3)
+                # a TCP host unless the host window was asked for UDP (1 / 2) or hotseat (3)
                 tcp = name == "host_tcp" or (name == "host_menu_host" and obj.get("visibility", 0) in (0, "0", None))
                 _COOP_HOSTS[key] = (self, str(actual), "tcp" if tcp else "other")
             return resp
@@ -625,7 +625,7 @@ class GameClient:
             obj["port"] = _EPHEMERAL_COOP_PORTS.get(key, obj["port"])
             if "localport" in obj:
                 obj["localport"] = "0"
-            # W2-U8e (F8376, F8566): the client's connect thread makes ONE attempt (at once under the test server since
+            # the client's connect thread makes ONE attempt (at once under the test server since
             # CIT-G1; ~1.1 s after this command for players) and
             # never retries, while the host opens its listener on its own thread after host_tcp / host_menu_host
             # returned: never send join_tcp before the host reports that listener open.
@@ -654,9 +654,9 @@ class GameClient:
             raise RuntimeError(f"{self.name}: {obj.get('cmd')} failed: {r.get('error')}")
         return r
 
-    # SPEC 0c / WV-D82: measured 2026-09-06, 1.0 s rounding cost ~2.2 s per battle
+    # measured 2026-09-06, 1.0 s rounding cost ~2.2 s per battle
     # setup; 0.1 s is the measured value, not a guess.
-    def wait_for(self, desc, predicate, timeout=90, interval=0.02):  # CIT-SLEEP1 (F24291): default was 0.1 s
+    def wait_for(self, desc, predicate, timeout=90, interval=0.02):  # default was 0.1 s
         deadline = time.time() + timeout
         last = None
         while time.time() < deadline:
@@ -664,7 +664,7 @@ class GameClient:
             if last:
                 return last
             time.sleep(interval)
-        _print_pair_states()  # W2-U8e (F8573): a timed-out wait shows where each coop pair's connection stands
+        _print_pair_states()  # a timed-out wait shows where each coop pair's connection stands
         raise TimeoutError(f"{self.name}: timed out waiting for {desc} (last={last!r})")
 
     def kill(self):
@@ -698,7 +698,7 @@ class GameClient:
                     forced_kill = True
                     _port_file_event("shutdown_wait_timeout", user_dir=self.user_dir,
                                      game_pid=self.proc.pid)
-                    # W2-U8e (F8563): dump the hung game's threads before the kill erases them
+                    # dump the hung game's threads before the kill erases them
                     dump = _port_file_event("shutdown_dump", user_dir=self.user_dir, game_pid=self.proc.pid,
                                             **_dump_hung_game(self.proc, self.name))
                     print("[harness-dump] " + json.dumps(dump, default=str), flush=True)
@@ -743,7 +743,7 @@ def shutdown_clients(*clients):
 
 
 def _reap_spawned_games():
-    """W2-U8g (F9068): the process-exit backstop. A clean-up that stops at its first failed shutdown() (a
+    """the process-exit backstop. A clean-up that stops at its first failed shutdown() (a
     `host.shutdown(); client.shutdown()` chain) or never reaches a game would leave that game running after Python
     exits. At exit, every game spawn() started in this process that is still running gets shutdown(): quit, the
     15 s wait, and W2-U8e's minidump before the kill if it hangs. Games started any other way (manual_session.py,
@@ -764,11 +764,11 @@ def _reap_spawned_games():
         print("[harness-reap] " + json.dumps(line, default=str), flush=True)
 
 
-atexit.register(_reap_spawned_games)  # W2-U8g: registered after _timelog_test_end's, so it runs first (LIFO)
+atexit.register(_reap_spawned_games)  # registered after _timelog_test_end's, so it runs first (LIFO)
 
 
 def _wait_host_listening(host, key, port, joiner):
-    """W2-U8e (F8376, F8566): poll the host's get_coop until onConnect is 1 with serverOwner set, then return.
+    """poll the host's get_coop until onConnect is 1 with serverOwner set, then return.
     connectionTCP::startTCPHost sets onConnect 1 right after SDLNet_TCP_Open opened the listener; a fresh process
     reads -1 before it, and a re-host joins the old host thread (whose exit sets -1) before starting the new one.
     A host that is not running is the caller's business: no wait. onConnect -3 or a 440 dialog on the host (its
@@ -811,7 +811,7 @@ def _wait_host_listening(host, key, port, joiner):
 
 
 def _print_pair_states():
-    """W2-U8e (F8573): on a wait_for deadline, print one [harness-join] line per running member of every coop pair
+    """on a wait_for deadline, print one [harness-join] line per running member of every coop pair
     this process joined: its get_coop connect fields and its top states. A client whose single connect failed shows
     coopDialog 16 (connectionTCP::updateCoopTask's onConnect == 0 branch). Read-only requests; never raises; the
     TimeoutError is unchanged."""
@@ -830,12 +830,12 @@ def _print_pair_states():
                   flush=True)
 
 
-# W2-U8e (F8563): MiniDumpWithHandleData | MiniDumpWithUnloadedModules | MiniDumpWithThreadInfo (dbghelp.h)
+# MiniDumpWithHandleData | MiniDumpWithUnloadedModules | MiniDumpWithThreadInfo (dbghelp.h)
 _HANG_DUMP_TYPE = 0x00000004 | 0x00000020 | 0x00001000
 
 
 def _dump_hung_game(proc, name):
-    """W2-U8e (F8563): write a minidump of a game that did not exit 15 s after quit, before shutdown() kills it:
+    """write a minidump of a game that did not exit 15 s after quit, before shutdown() kills it:
     System32 dbghelp.dll MiniDumpWriteDump through ctypes (every thread's stack and context, handles, modules) into
     the diagnostics dir, which make_user_dir never erases. Read it with the Windows SDK's cdb and that build's PDB,
     no symbol server: cdb -z <dump> -y <exe dir> -c "~*k 30; q". Uses the Popen's own process handle, never a pid
@@ -924,7 +924,7 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     if extra:
         opts = opts.replace("options:\n", extra + "options:\n", 1)
     all_options = dict(options) if options else {}
-    # W1-P12 REGRESSION acceptance (SPEC 7 (g)): "REGRESSION twice - once ON,
+    # W1-P12 REGRESSION acceptance: "REGRESSION twice - once ON,
     # once OFF". None of the 18 regression tests know anything about
     # coopGhostStepper, so this is the mechanism for the OFF pass without
     # editing any of them: a PYTHON-side (not OXC_*, and not a new game-process

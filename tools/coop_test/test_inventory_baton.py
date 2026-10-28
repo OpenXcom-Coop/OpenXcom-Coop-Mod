@@ -3,7 +3,7 @@ inventory and the baton (owner D130: the baton holder moves items in its own
 soldiers' inventory; the other player may open its own soldiers' inventory to
 LOOK, and every placement is refused with "Not your turn - waiting for <name>",
 the host too, V12). Spec docs rewrite/prompts/w2p8_inventory.md: S-C1 PINNED
-STAGE TEXT (AMENDMENT P8-3), AMENDMENT P8-3a (C7: item ids from each row's own
+STAGE TEXT, AMENDMENT P8-3a (C7: item ids from each row's own
 staging record), AMENDMENT P8-3b.
 
 IB1-IB4 ARE DECLARED GREEN AT RED (OR2 (a), F2409; the W2-P7 S-D1
@@ -58,7 +58,7 @@ invGuard as the row names it.
 Each row prints ONE "EVIDENCE <id>:" line with both machines' fields before its
 conditions are checked; every row runs after an earlier failure; "PASS <id>" /
 "FAIL <id>: <message>". Exit 0 only when every row passes, 2 otherwise (a
-bring-up failure is also 2). WV-D99 / WV-D100: one run is the result. WV-D95: run
+bring-up failure is also 2). one run is the result. run
 in the foreground to completion.
 
 Run:  python tools/coop_test/test_inventory_baton.py
@@ -94,7 +94,7 @@ IB2_TILE = (1, 33, 0)             # P8-2 T0-1 IV4 tile
 IB3_H_TILE = STAGE_H              # P8-2 T0-1 STAGE_H (48,24,0)
 H_TU_MAX = 58
 IB5_LETTERS = (("x", 120),)       # W2-P8 S-R: draft section 2.6 IB5 "types one letter" (T0-R2's first letter)
-PASS_WAIT_S = 10.0               # T0-5 (F2408): the baton 0 -> 1 on both within 0.1 s of the host's END TURN
+PASS_WAIT_S = 10.0               # T0-5: the baton 0 -> 1 on both within 0.1 s of the host's END TURN
 CLICK_WAIT_S = 2.0
 ORDER_TIMEOUT_S = 20
 
@@ -271,7 +271,7 @@ def ib5_client_rename_off_baton(host, client, ctx):
 
 
 def pass_baton(host, client):
-    """T0-5 (F2408): the host's END TURN hands the baton 0 -> 1 on both. Not a row."""
+    """T0-5: the host's END TURN hands the baton 0 -> 1 on both. Not a row."""
     out = {"before": seats(host, client)}
     r = host.cmd({"cmd": "battle_action", "action": "end_turn_button"})
     out["endTurn"] = {k: r.get(k) for k in ("ok", "error")}

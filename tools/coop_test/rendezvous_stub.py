@@ -1,4 +1,4 @@
-"""Local rendezvous-server stand-in (W2-H13, D220 b): protocol v2 of connectionUDP/rendezvous_client.cpp (oracle:
+"""Local rendezvous-server stand-in: protocol v2 of connectionUDP/rendezvous_client.cpp (oracle:
 rendezvous_server.cpp) on 127.0.0.1 ephemeral TCP + UDP; crypto = the game's libsodium.dll via ctypes; fresh keys per run;
 every frame and event in events() (+ log_path JSON lines). `python rendezvous_stub.py --selftest [--dll-dir DIR]` -> exit 0."""
 # flake8: noqa: E401,E701,E702,E731

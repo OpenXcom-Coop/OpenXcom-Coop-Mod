@@ -16,8 +16,8 @@ merges); pin_ai_neutral.
 Red at A1 (the unchanged product + T1-T3): T3-store, T3-refused FAIL; every other cell PASS.
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. A boot step past its bound prints ONE CAPTURE line and
-fails the row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+fails the row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_tank_gate.py
 """

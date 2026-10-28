@@ -20,10 +20,10 @@ dirs (make_user_dir(..., mods=[MOD_DIR])); C1 (1000000) to C1_TILE and H1 (10000
 B4 is the file's only row and the boot's last action (on the red build the client freezes at the hit). No common cell (B4-hash is it).
 RED at 2R: B4-armor, B4-hash; B4-pre and B4-hit PASS.
 B4-hit compares with ARMOR_BASE (SECTOID_ARMOR0, the client's maximum on the red build); the spec's text "the client's armorMax" would
-equal the host's own maximum after 2G and fail there (F15445).
+equal the host's own maximum after 2G and fail there.
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. A boot step past its bound prints ONE CAPTURE M line and
-fails every cell "boot"; a staging step past its bound fails them "staging". WV-D95: run in the foreground to completion. WV-D99 /
+fails every cell "boot"; a staging step past its bound fails them "staging". run in the foreground to completion. WV-D99 /
 WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pve2_armor_mod.py

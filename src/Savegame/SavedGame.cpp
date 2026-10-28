@@ -66,7 +66,7 @@
 #include "BaseFacility.h"
 #include "MissionStatistics.h"
 #include "SoldierDeath.h"
-#include "BattleUnitStatistics.h" // W2-H11: BattleUnitKills fields in the D218 log line
+#include "BattleUnitStatistics.h" // BattleUnitKills fields in the D218 log line
 #include "SoldierDiary.h"
 #include "ResearchDiary.h"
 #include "../Mod/AlienRace.h"
@@ -74,7 +74,7 @@
 
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/BattleAuthority.h"
-#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 #include "Upgrade/SaveUpgrade.h"
 #include "../version.h" // SAVE_SCHEMA_CURRENT
 
@@ -907,7 +907,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		{
 			// coop D246-U S-C2 (owner D284 = c amended; docs rewrite/prompts/d246u_sc2_gm3_refusal_text.md): an UNSTAMPED gm3 PvP campaign
 			// battle save (the release line's: it holds no world of the alien player, so it is never converted) refuses with where to ask
-			// for a repair (VL-D284-1). Every other refusal here keeps the text below (VL-D284-2).
+			// for a repair. Every other refusal here keeps the text below.
 			if (!coopStamped && coopOlderGamemode == 3)
 			{
 				throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it, or ask the developers to repair your save by opening an issue at https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues");
@@ -1297,7 +1297,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	// coop D246-U S-D (owner D246 = b; docs rewrite/prompts/d246u_sd_custom_battle_convert.md): a co-op Custom Battle saved
 	// mid-battle by an older version carries no header `coop`, so the gate above never sees it. It is converted the same way
-	// (seat tags, the turn mode it was played in, the mission deployment), so CONTINUE BATTLE (MG-B) resumes it with each player
+	// (seat tags, the turn mode it was played in, the mission deployment), so CONTINUE BATTLE resumes it with each player
 	// commanding its own soldiers and nobody the aliens. A save this build wrote is never converted (BattleAuthority.h).
 	if (!_coop && _battleGame && coopOlderCustomBattleSave(reader))
 	{
@@ -1305,7 +1305,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		coopOlderBattle = true;
 	}
 
-	// coop D246-U (owner D246 = b): an older version's mid-battle co-op save (the gate above) - convert its battle, the
+	// coop: an older version's mid-battle co-op save (the gate above) - convert its battle, the
 	// partner worlds this load restored and the battle mirrors (BattleAuthority.h).
 	if (coopOlderBattle && _battleGame)
 	{
@@ -1401,7 +1401,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
 	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
 	_time->save(headerWriter["time"]);
-	// coop W2-H21c (F8968): a preview battle (the Ufopaedia craft deployment, the base preview) is not part of the world - vanilla never
+	// coop: a preview battle (the Ufopaedia craft deployment, the base preview) is not part of the world - vanilla never
 	// saves one, and a peer loading it null-derefs the Ufopaedia's stand-in soldiers (ids -1..-n, in no base), the crash buildCoopStub
 	// avoids below: a co-op blob carries neither the preview battle nor its header markers.
 	const bool coopSaveBattle = _battleGame != 0 && !_battleGame->isPreview();
@@ -2732,7 +2732,7 @@ void SavedGame::setBattleGame(SavedBattleGame *battleGame)
 }
 
 /**
- * coop W2-H21d: is the battle a real one - neither a preview nor a base equipment screen's practice battle?
+ * coop: is the battle a real one - neither a preview nor a base equipment screen's practice battle?
  * @return True when a battle exists and it is neither.
  */
 bool SavedGame::coopHasRealBattle() const
@@ -2741,7 +2741,7 @@ bool SavedGame::coopHasRealBattle() const
 }
 
 /**
- * coop W2-H21d: hides a practice battle and the base / craft battlescape marks a practice screen set, for a co-op write.
+ * coop: hides a practice battle and the base / craft battlescape marks a practice screen set, for a co-op write.
  * @param save The world; with no battle or a real one nothing is hidden.
  */
 CoopPracticeBattleHidden::CoopPracticeBattleHidden(SavedGame *save) : _save(save), _battle(0)
@@ -2768,7 +2768,7 @@ CoopPracticeBattleHidden::CoopPracticeBattleHidden(SavedGame *save) : _save(save
 }
 
 /**
- * coop W2-H21d: puts the hidden practice battle and the marks back.
+ * coop: puts the hidden practice battle and the marks back.
  */
 CoopPracticeBattleHidden::~CoopPracticeBattleHidden()
 {
@@ -4403,9 +4403,9 @@ bool SavedGame::isUfoOnIgnoreList(int ufoId)
 	return _ignoredUfos.find(ufoId) != _ignoredUfos.end();
 }
 
-// W2-H11 (owner D218): one co-op log line per SavedGame::killSoldier call - the soldier and its owner, the base
+// one co-op log line per SavedGame::killSoldier call - the soldier and its owner, the base
 // roster it was removed from (or none), the cause and the battle turn/side. OXCE erases a dead soldier from its
-// base silently (F3384, F3567). Logging only: reads its arguments, writes nothing.
+// base silently. Logging only: reads its arguments, writes nothing.
 static void coopLogKillSoldier(const Soldier* soldier, const Base* base, int baseIndex, bool resetArmor, const BattleUnitKills* cause, const SavedBattleGame* battle)
 {
 	std::ostringstream ss;
@@ -4458,13 +4458,13 @@ std::vector<Soldier*>::iterator SavedGame::killSoldier(bool resetArmor, Soldier 
 				soldier->die(new SoldierDeath(*_time, cause));
 				_deadSoldiers.push_back(soldier);
 				if (connectionTCP::getCoopStatic() || isCoopSave())
-					coopLogKillSoldier(soldier, xbase, (int)(std::find(_bases.begin(), _bases.end(), xbase) - _bases.begin()), resetArmor, cause, _battleGame); // W2-H11 (D218)
+					coopLogKillSoldier(soldier, xbase, (int)(std::find(_bases.begin(), _bases.end(), xbase) - _bases.begin()), resetArmor, cause, _battleGame);
 				return xbase->getSoldiers()->erase(soldierIt);
 			}
 		}
 	}
 	if (connectionTCP::getCoopStatic() || isCoopSave())
-		coopLogKillSoldier(soldier, nullptr, -1, resetArmor, cause, _battleGame); // W2-H11 (D218)
+		coopLogKillSoldier(soldier, nullptr, -1, resetArmor, cause, _battleGame);
 	return soldierIt;
 }
 
@@ -4758,7 +4758,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 	{
 		return false; // all bases lost, game over
 	}
-	Base* base = getCoopHqBase(); // coop W2-H89 H3 (R-LH88-1-1 (a)): a mission topic's cascade runs at the first own base, never a partner's base copy
+	Base* base = getCoopHqBase(); // coop W2-H89 H3: a mission topic's cascade runs at the first own base, never a partner's base copy
 
 	auto addResearchDiaryEntryForMission = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const AlienDeployment* sourceMission, const RuleResearch* sourceResearch)
 	{
@@ -5061,7 +5061,7 @@ void isResearchedScript(const SavedGame* sg, int& val, const RuleResearch* name)
 {
 	if (sg)
 	{
-		// coop OF2 (owner D258 (b), QOF2-1 (a), D149): in a co-op battle with separate research a battle script run
+		// coop: in a co-op battle with separate research a battle script run
 		// for a unit (CoopScriptOwner) answers from that unit's owner's research; -1 = not routed (vanilla below).
 		const int coopRouted = coopScriptIsResearched(sg, name);
 		if (coopRouted >= 0)

@@ -78,9 +78,9 @@ traditional, set_seed 1 right before newbattle_ok), mission STR_TERROR_MISSION,
 seat_count 2, the Coop_Spray_Test mod on both (the spray rifle and the soldier
 skills), MAP_FP asserted on both, the seated unit ids asserted, pin_ai_neutral.
 Both machines report turnMode traditional and coopActiveSeat 0; the client shows
-"It is HostPlayer's turn". Every lever pair goes to the CLIENT first (F607). Item
-ids are read at run time from the lever replies (F1107). battle_strip_unit id
-lists are compared as sets (F882). The host's own vanilla infobox (a psi success
+"It is HostPlayer's turn". Every lever pair goes to the CLIENT first. Item
+ids are read at run time from the lever replies. battle_strip_unit id
+lists are compared as sets. The host's own vanilla infobox (a psi success
 at the red commit) is recorded and closed host-only; a screen the client's own
 order end opens (the scanner at the red commit) is closed with the client's
 cancel key before the next row.
@@ -94,9 +94,9 @@ runs every row even after an earlier one failed and prints "PASS <id>" /
 "FAIL <id>: <message>". Every wait is bounded; a wait that times out is recorded
 in the EVIDENCE line and fails the row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when every row passes, 2 otherwise (a
-bring-up failure is also 2). WV-D95: run in the foreground to completion.
+bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_baton.py
 """
@@ -128,7 +128,7 @@ from test_thin_client_tripwire import read_reload_key
 
 # ----- bring-up (TASK 0 T0-11: traditional + the roster pin; the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on map seed 1, unmodded and modded (F1164)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on map seed 1, unmodded and modded
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID = 8
 H_ID = 10                         # first host-seat soldier: C23b's patient
@@ -148,7 +148,7 @@ C_TILE = (12, 26, 0)              # open road
 SNAP_C_DIR = 1                    # T0-1: one octant off A
 A_TILE, A_DIR = (12, 23, 0), 4
 THROW_C_TILE, THROW_C_DIR = (12, 27, 0), 2    # C23s3's thrower tile (the throw tile is north, F490)
-THROW_TILE = (12, 22, 0)          # C23s3: clear of the SKILLS button at HOME (F1283)
+THROW_TILE = (12, 22, 0)          # C23s3: clear of the SKILLS button at HOME
 STUN_C_TILE, STUN_C_DIR = (24, 24, 0), 0      # T0-7: C faces north
 STUN_A2_TILE, STUN_A2_DIR = (24, 23, 0), 4    # the tile C faces
 MEDIKIT_C_DIR = 2
@@ -222,8 +222,8 @@ def home(host, client, ctx, uid):
 
 def client_idle(client):
     """The client back on its battlescape, not targeting: a screen or menu left on
-    top is closed with the cancel key, then one hand click cancels a targeting
-    (F503). Returns what was done."""
+    top is closed with the cancel key, then one hand click cancels a targeting.
+    Returns what was done."""
     out = {"top": top(client)}
     if out["top"] != "BattlescapeState":
         press(client, KEY_CANCEL)

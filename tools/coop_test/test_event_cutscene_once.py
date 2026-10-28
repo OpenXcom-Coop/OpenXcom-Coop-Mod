@@ -34,9 +34,9 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Event_Cutscene_Test")
-BOOT_A = ("w2h17da", (49392, 49393, 47372))      # SHARED; lobby 47372 (F7731)
+BOOT_A = ("w2h17da", (49392, 49393, 47372))      # SHARED; lobby 47372
 BOOT_B = ("w2h17db", (49394, 49395, 47374))      # SHARED
-BOOT_C = ("w2h17dc", (49396, 49397, 47376))      # SEPARATE, research sync off (W2-U9, R-B109-1)
+BOOT_C = ("w2h17dc", (49396, 49397, 47376))      # SEPARATE, research sync off
 # W2-U9 (R-B109-1, F21066; MG-F's H17c-3 precedent QMC-5 (a), a2a2d8acf): H17d-3 guards the SEPARATE relay with research
 # sync OFF. With sync on, main #197 (1f17a2b4a; PR197-O1, D226 (a)) makes the partner spawn the research's event itself;
 # that case is the hotfix unit W2-H75 (the relay double play), not this file.
@@ -48,7 +48,7 @@ CUT, CUT_MR = {EV_A: "STR_H17D_A", EV_B: "STR_H17D_B"}, "STR_H17D_MR"
 EV, MRS, KEEP = "GeoscapeEventState", "MonthlyReportState", ("CutsceneState", "StatisticsState")
 PLAY = "cutscene definition empty: "
 SKIP_MIN, POLL_I, LISTED_S, WINDOWS_S, SECOND_S, DAY_S = 60 * 24 * 2, 0.2, 5.0, 5.0, 3.0, 10.0
-FLUSH_S = 1.0                                    # TASK 0: every play line readable <= 0.104 s after its OK
+FLUSH_S = 1.0                                    # every play line readable <= 0.104 s after its OK
 
 class GuardMiss(Exception):
     """A guard failed: the row ends after its CAPTURE line."""
@@ -129,7 +129,7 @@ def skip(r, x, minutes, interest, want):
     t = time.time()
     sk = geo.skip_ingame_time(x.host, x.client, minutes, speed_idx=5, interest=interest, real_timeout=150)
     r.ev["skip"] = {"hit": sk.get("hit"), "skipS": round(time.time() - t, 2), "dismissed": sk.get("dismissed")}
-    guard(r, x, "hit", sk.get("hit") is not None and want in str(sk.get("hit")),       # F7809: never game_minutes
+    guard(r, x, "hit", sk.get("hit") is not None and want in str(sk.get("hit")),       # never game_minutes
           f"skip {r.ev['skip']} timed_out {sk.get('timed_out')}")
 
 def trigger(r, x, topics, scientists, shared):
@@ -256,7 +256,7 @@ def row_h17d_3(r, x):
                                                        f"(F7724, R-H17b-1): client {a} plays {pl['client'].get(a, 0)}")
 
 def row_h17d_4(r, x):
-    """Monthly game over without an ending (F7727): the client's two OKs first; the host must not get its video."""
+    """Monthly game over without an ending: the client's two OKs first; the host must not get its video."""
     h, c = x.host, x.client
     r.ev["setDay"] = h.cmd({"cmd": "set_geo_day", "day": 31, "hour": 22}).get("ok")
     ok, w = wait_until(lambda: (geo_s(c).get("time") or {}).get("day") == 31, DAY_S)

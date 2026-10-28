@@ -20,8 +20,8 @@ Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen f
 
 RED on the build without E2 (commit E1): EC1-next, EC2-prev; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL
 line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and
-fails every row "boot"; a staging step past its bound fails that row "staging". WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+fails every row "boot"; a staging step past its bound fails that row "staging". run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 test_alien_equip_off.py imports this file's helpers.
 
 Run:  python tools/coop_test/test_alien_equip_cycle.py

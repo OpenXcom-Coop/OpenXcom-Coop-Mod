@@ -1,5 +1,5 @@
 """EQ-2 S-B - test_equip_partner_hold.py (EQH): an item the co-op partner picks up on the pre-battle equip screen is reserved
-at once. Owner D291 (b): the pile count drops at pick-up and nobody else can take it; the reservation ends when the holder puts it
+at once. the pile count drops at pick-up and nobody else can take it; the reservation ends when the holder puts it
 down or cancels; D289 (a), D293 (a): never between PvP opponents. Spec: docs repo rewrite/prompts/eq2b_hold.md (f) with its PIN-PASS
 AMENDMENTS, the common file rewrite/prompts/eq2_partner_pointer.md; rulings QEQ2-6 (a), QEQ2-7 (a), QEQ2-12 (a), QEQ2-13 (a) (the
 TEST-ONLY host lever `equip_holds_defer`), R-EQ2-3 (a) (gone / back are read by the held item's id: vanilla's ground layout slides the
@@ -30,8 +30,8 @@ RED on HEAD + r1 (commit R1, the hold not built): H1-drop, H1-table, H1b-mate, H
 H5-once, H6-deny, H6-line (11 of 15); H2-land, H6-host, HP-none, X-crash PASS.
 One EVIDENCE line per row (both tops, both inventory_view briefs, both holds, CPU at the row start, the row's reads), one PASS / FAIL
 line per cell, then the row verdict; every row runs after a failure (a precondition miss ends its own row, its cells "not reached");
-a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_partner_hold.py
 """
 
@@ -310,7 +310,7 @@ def boot_a(host, client):
     ok, ctx["boot"]["clientBriefingS"] = wait_until(lambda: has(client, "BriefingState") and in_battle(client), EQ1_WAIT_S, 0.1)
     if not ok:
         miss("A", f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
-    G3F.guarded("A", lambda: session.wait_seq_barrier(host, client), m)   # F21396: the host's first evs applied before staging (R-LT13-1)
+    G3F.guarded("A", lambda: session.wait_seq_barrier(host, client), m)   # the host's first evs applied before staging
     st = ctx["boot"]["staged"] = G3F.guarded("A", lambda: stage(host, client), m)
     if st["diff"]:
         miss("A", f"buckets differ after the staging: {st['diff']}", m)

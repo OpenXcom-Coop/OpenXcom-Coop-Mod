@@ -1,4 +1,4 @@
-"""W2-H8 (owner D182/D185, D201 = b) - SEPARATE `old_bases`: leaving a base screen or
+"""SEPARATE `old_bases`: leaving a base screen or
 a TRANSFER window must never empty or truncate a player's base list.
 
 In a SEPARATE campaign each world also holds the partner's bases as `_coopIcon`
@@ -260,7 +260,7 @@ def s0_separate(host, client, port):
     hb = blist(host)
     precondition(rid, hb == BASE0, "host bases %s != BASE0 %s" % (hb, BASE0), host, client)
     sel = selected(host)
-    precondition(rid, sel == "HostBase2", "host selectedBase %r != 'HostBase2'" % sel, host, client)  # W2-H68
+    precondition(rid, sel == "HostBase2", "host selectedBase %r != 'HostBase2'" % sel, host, client)
     print("S0 ready: host bases %s selected %r scale (%.2f, %.2f)" % (hb, sel, xs, ys), flush=True)
     return {"xs": xs, "ys": ys}
 
@@ -409,7 +409,7 @@ def row_r1b(host, client, ctx):
 def row_r1d(host, client, ctx):
     rid = "R1d"
     sel = selected(host)
-    precondition(rid, sel == "HostBase2", "selectedBase %r != 'HostBase2'" % sel, host, client)  # W2-H68
+    precondition(rid, sel == "HostBase2", "selectedBase %r != 'HostBase2'" % sel, host, client)
     click(rid, host, "BASES", host, client)
     wait_top(rid, host, "BasescapeState", host, client)
     w = host.cmd({"cmd": "list_widgets"})

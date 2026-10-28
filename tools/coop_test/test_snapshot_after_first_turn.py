@@ -158,9 +158,9 @@ def main():
             f"{MISSION!r}")
         print(f"PASS: host generated {MISSION}, phase=Handshake (nothing sent yet)")
 
-        # === dismiss the host's briefing - W2-P8b (owner D210 b): the offer ===
+        # === dismiss the host's briefing - W2-P8b: the offer ===
         # === already went out at PREPARE, at turn 0; the host lands on its ===
-        # === pre-battle equip screen (D174 a) =================================
+        # === pre-battle equip screen =================================
         client.wait_for("client entry briefing (both briefings at once, D210 b)",
                         lambda: session.has_state(client, "BriefingState") or None, timeout=90)
         host.ok({"cmd": "click_widget", "match": "ok"})
@@ -169,7 +169,7 @@ def main():
 
         # === 2. host.battle_state.turn == 0 right after closing the briefing =
         # W2-P8b S-H re-point (chain rule A.10): turn 1 now starts at the ready
-        # barrier (D206 c), not at the host's briefing OK.
+        # barrier, not at the host's briefing OK.
         hbs = battle_state(host)
         assert hbs.get("turn") == 0, (
             f"host battle_state.turn == {hbs.get('turn')} on its pre-battle equip screen, "

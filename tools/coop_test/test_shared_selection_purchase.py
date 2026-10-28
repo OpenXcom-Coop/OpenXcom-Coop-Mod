@@ -36,11 +36,11 @@ FAILs "pre-cell"):
   (unbound: never opens a selection, applied as sent, PR-56 (iv), P9-6), shared_update_defer {on} (a "hold",
   released within HOLD_MAX_S of the other machine's world change, F4529 / F5840), click_widget on the real captions
   (OK, Cancel, PURCHASE/RECRUIT, F6641), coop_dialog_back ONLY on a CoopState top, dismiss_popup ONLY on an
-  ErrorMessageState top (F4333).
+  ErrorMessageState top.
 
 Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
   Boot BUY (port 47321): P-a, P-k, P-l, P-e, P-c, P-d, P-r, P-h.
-  P-a (D184) (1) client X = 3 -> the host's X amount 3 within SEL_S.
+  P-a (1) client X = 3 -> the host's X amount 3 within SEL_S.
       (2) host Y = 2 -> the client's Y amount 2 within SEL_S.
       (3) sel_state buy|n|0| on both: rows {i:STR_RIFLE: 3, i:STR_PISTOL: 2}, equal rev, viewers [0, 1]; both
           screens' "Cost of Purchases" texts equal.
@@ -58,11 +58,11 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
       (2) the host's `buy {STR_GRENADE, 1}` (the lever): the client's top stays PurchaseState, rebuilt (screen_state.
           funds changed), its X 3 and Y 2 survive.
       (3) the host's X 3 and Y 2.
-  P-c (D203) (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it (EVIDENCE only, never a
+  P-c (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it (EVIDENCE only, never a
           failed cell); host hold on; host X = 5; client OK.
       (2) host hold off: within PAGE_S the client's PurchaseState gone, no CoopState on either;
           incoming_transfers.items[STR_RIFLE] == before + 5 on both (D203: the host applies its current list); the
-          host's top PurchaseState rebuilt (funds changed), every amount 0 (D204).
+          host's top PurchaseState rebuilt (funds changed), every amount 0.
   P-d (MR8) (1) client X = 2; host screen_set_amount {X, 2} (no change when shared); client hold on; host OK -> the
           host's PurchaseState gone within PAGE_S.
       (2) client OK; client hold off: within PAGE_S its PurchaseState gone, no CoopState on either, incoming X ==
@@ -95,7 +95,7 @@ bought), P-d on cell 2 (X before + 4: two purchases), P-r on cell 1 (the client'
 no PurchaseState under the box), P-q on cell 1 (the host's sel_state holds no buy|r|0| key). GREEN (commit
 S-C-E3.2): every row passes.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' sel_state, screen and incoming transfers at the row's end),
-then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every
+then "PASS <id>" or "FAIL <id>: <message>". ONE foreground run, no skip path; exit 0 only when every
 row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_selection_purchase.py
@@ -321,7 +321,7 @@ def req_pre(js, ctx):
     ctx["names"] = scr.roster_names(host)
     ctx["funds0"] = {gc.name: scr.funds(gc) for gc in m}
     pushed = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "screen_push", "screen": "cannot_reequip", "base": 0, "missing": REQ_MISSING})
         pushed[gc.name] = {k: r.get(k) for k in ("ok", "screen", "base", "error")}
     ok, secs = wait_until(lambda: all(top(gc) == "CannotReequipState" for gc in m), PAGE_S)
@@ -772,7 +772,7 @@ def p_h_cells(host, client, ctx):
         f = f or inc_settled(host, client, {n: (v.get("items") or {}).get(X, 0) for n, v in b.items()}, 1, ctx,
                              "c2items")
 
-        def new_owners():   # D254 (b): the new soldierOwners entry == HIRE_OWNER on both machines (P-h step (2))
+        def new_owners():   # the new soldierOwners entry == HIRE_OWNER on both machines (P-h step (2))
             owners = {}
             for gc in (host, client):
                 now = list(incoming(gc).get("soldierOwners") or [])

@@ -30,7 +30,7 @@ Every real-UI walk TABs at least once (a TAB runs calculateFOV for the selected 
 spotted what it sees before it steps; a walker that newly spots a unit halts before the walk-step reaction check (UWBS :252).
 
 Red (B1, the S-A green base): R1-noreact, R1b-noreact, AB-disarm FAIL; R1-walk, R1b-walk, AB-menu, react_off-common PASS.
-Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). WV-D95: run it in the
+Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). run it in the
 foreground to completion.
 
 Run: python tools/coop_test/test_hotseat_react_off.py
@@ -311,7 +311,7 @@ def row_r1(B, ctx):
     if rec.get("fail"):
         fail_rest("R1", "blocked: SR's walk failed (%s)" % rec["fail"])
         return
-    if not settled:  # R-D247-SA-3
+    if not settled:
         fail_rest("R1", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
         return
     cell("R1-walk", at(sr, SR_DEST), "SR at %s" % [sr.get(k) for k in ("x", "y", "z")])
@@ -343,7 +343,7 @@ def row_r1b(B, ctx):
     p2 = b.get("side") == 0 and all(u["faction"] == FACTION_PLAYER for u in us.values()
                                     if u["originalFaction"] == FACTION_HOSTILE and not u["isOut"])
     hand = {"ntsTexts": nts_txt, "settled": settled, "side": b.get("side"), "turn": b.get("turn"), "stack": st, "p2": p2}
-    if not settled:  # R-D247-SA-3
+    if not settled:
         evidence("R1b", handover=hand, boxes=boxes)
         fail_rest("R1b", "not settled in 10 s after the hand-over: side %r busy %r stack %s" % (b.get("side"), b.get("isBusy"), st))
         return
@@ -362,7 +362,7 @@ def row_r1b(B, ctx):
     if rec.get("fail"):
         fail_rest("R1b", "blocked: AR's walk failed (%s)" % rec["fail"])
         return
-    if not settled:  # R-D247-SA-3
+    if not settled:
         fail_rest("R1b", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
         return
     cell("R1b-walk", at(ar, AR_DEST), "AR at %s" % [ar.get(k) for k in ("x", "y", "z")])

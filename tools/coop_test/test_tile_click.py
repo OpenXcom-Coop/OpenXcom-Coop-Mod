@@ -10,7 +10,7 @@ place_deterministic), U / C / C2 on their tiles facing 2 (client first), every o
   K1  the host click-selects its own soldier U (H selected first).
   K2  the client click-selects its own soldier C2 (C selected first).
   K3  the client's click on the host's soldier H is refused: "Not one of your soldiers", selection kept.
-  K4  the host walks H one tile after the probe had to re-centre a far camera (the row-17 shape). Staging (R-V2-A-1): every
+  K4  the host walks H one tile after the probe had to re-centre a far camera (the row-17 shape). Staging: every
       live hostile to corner NE (hash-gated battle_teleport_all), each at Chebyshev >= 21 from H's tile and T_W.
   K5  a tile the probe cannot verify (-5, -5, 0) is not clicked: nothing changes.
 Every click is ONE `map_tile_click` (never `.ok`: an error answer is a FAIL line). Common cell after each row: every hash
@@ -18,7 +18,7 @@ bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot". No retry, skip or attempt loop (aud-0911-A8).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
 cell passes, else 2.
 
 Run:  python tools/coop_test/test_tile_click.py

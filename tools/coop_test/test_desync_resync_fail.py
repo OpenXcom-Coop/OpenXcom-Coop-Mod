@@ -1,21 +1,21 @@
 """R4-L3 stage S-B (spec rewrite/prompts/r4l3_desync_resync.md (f) `test_desync_resync_fail.py`; owner D232 (a), QL3-6 (a), D267 (a);
 orchestrator R-L3-B-1; TASK 0 rewrite/r4l3-task0/sb/CONSTANTS.md): an automatic desync repair whose re-sent battle is refused or whose copy
-does not match leaves the battle paused for good: no further repair, no RESUME (F10818), the host keeps SAVE & QUIT / ABANDON, and the
-waiting screen says the battle could not be repaired (D267 (a)). Two boots, one row each, each shut down before the next:
+does not match leaves the battle paused for good: no further repair, no RESUME, the host keeps SAVE & QUIT / ABANDON, and the
+waiting screen says the battle could not be repaired. Two boots, one row each, each shut down before the next:
   DR3a (boot F1, key "48753", dirs r4l3_f1_host / _client) the re-sent battle is refused: the host arms the TEST-ONLY `corrupt_next_blob`,
       the client pokes H2's reactions (+7, client-only), the host's real-UI kneel of H raises the desync; wait <= 30 s for the host's
       `SPEC16 M5: rejoin refused (corrupt)` line, <= W_TITLE for the 62 title to leave "Repairing the battle", then HOLD_S. DR3a-1 GUARD
       the repair was offered, the lever fired on it, the client refused it (reason=corrupt), client phase Idle, client top CoopStageHold; DR3a-2 RED host RS failed +1, lastFail "refused"; DR3a-3 GUARD at
       every HOLD_S poll: host phase Active, peerAbsent true, 62 on top with back hidden and SAVE & QUIT / ABANDON shown, offered unchanged
       (no loop), client top unchanged, client desyncSeen true; DR3a-4 GUARD the escape: host ABANDON -> host MainMenuState <= 60 s, client
-      code 21 <= 30 s, client OK -> MainMenuState <= 60 s; DR3a-5 RED (D267 (a)) the 62 title at every HOLD_S poll == TITLE_FAILED; DR3a-6
+      code 21 <= 30 s, client OK -> MainMenuState <= 60 s; DR3a-5 RED the 62 title at every HOLD_S poll == TITLE_FAILED; DR3a-6
       GUARD CRASH 0.
   DR3b (boot F2, key "48754", dirs r4l3_f2_host / _client) the re-sent copy does not match: the host arms the TEST-ONLY
       `resync_ready_mismatch`, the same chain; wait <= 30 s for the host's `battle_ready saveBlob MISMATCH` line, then HOLD_S. DR3b-1 GUARD
       offered +1, client RS loaded +1, host `SPEC16 M5: rejoin desync` +1, client top CoopState 68; DR3b-2 RED no RESUME: back hidden at
       every HOLD_S poll (red: shown, "All players connected", F10818); DR3b-3 RED host RS failed +1, lastFail "ready mismatch"; DR3b-4 GUARD
-      no second offer, host peerAbsent true, the client still on 68 at every poll; DR3b-5 RED (D267 (a)) as DR3a-5; DR3b-6 RED at B1
-      (R-L3-B-1) the escape as DR3a-4 - on the red build 62 shows RESUME and hides ABANDON (F12062), so a refused ABANDON fails the cell at
+      no second offer, host peerAbsent true, the client still on 68 at every poll; DR3b-5 RED as DR3a-5; DR3b-6 RED at B1
+      the escape as DR3a-4 - on the red build 62 shows RESUME and hides ABANDON, so a refused ABANDON fails the cell at
       once and the row ends with the capture; DR3b-7 GUARD CRASH 0.
 Definitions (spec (f)): POLL 0.25 s; HOLD_S 20 s; RS(gc) = resync_state.resync, counters as deltas from the row's own baseline; the host's
 battle_state is read while its BattlescapeState is on its stack (it stays live under 62; the client's is never probed); CRASH =
@@ -43,7 +43,7 @@ H, H2 = 10, 11                             # the host-seat soldier the host knee
 POKE, POLL, HOLD_S, W_FAIL = 7, 0.25, 20.0, 30.0
 W_HOST_MENU, W_CLIENT_21, W_CLIENT_MENU = 60.0, 30.0, 60.0
 BS, CSTATE, HOLD, MENU = "BattlescapeState", "CoopState", "CoopStageHold", "MainMenuState"
-TITLE_FAILED = "The battle could not be repaired.\nSave and quit, or abandon it."   # D267 (a)
+TITLE_FAILED = "The battle could not be repaired.\nSave and quit, or abandon it."
 TITLE_REPAIRING, W_TITLE = "Repairing the battle", 5.0   # the 62's in-flight wording (CoopState::waitingTitle) and the settle bound (cap-r4)
 T0_TITLE = {"DR3a": "Waiting for players to load...", "DR3b": "All players connected"}  # TASK 0 at B1 (EVIDENCE only)
 OFFER = "SPEC16 M5: rejoin battle_offer sent (battleId="
@@ -234,7 +234,7 @@ def escape(x):
     ev = {"abandon": q(h, {"cmd": "coop_dialog_abandon"})}
     if not ev["abandon"].get("ok"):
         time.sleep(1.0)
-        cap = capture(x)  # R-L3-B-1: the row ends its escape as TASK 0's Fb2 capture did
+        cap = capture(x)  # the row ends its escape as TASK 0's Fb2 capture did
         ev["after 1 s"] = {"host 62": cap["host"]["coop_dialog_info"] if isinstance(cap["host"], dict) else cap["host"],
                            "host resumeAck": cap["host"].get("resumeAck") if isinstance(cap["host"], dict) else None}
         return False, ev, cap
@@ -274,7 +274,7 @@ def row_dr3a(x, results, walls):
                delta(rh0, rh, "offered") == 1 and len(lev) == 1 and len(rr) == 1 and len(sm) == 1 and ec.get("phase") == "Idle"
                and cst[-1:] == [HOLD], {"offered": delta(rh0, rh, "offered"), "lever": lev, "host refuse": rr, "client sha": sm,
                                         "client phase": ec.get("phase"), "client top": cst[-1:]})
-        # cap-r4 (F23922): the 62 re-words its title on its own 500 ms think gate (CoopState::think), up to 500 ms after the REFUSED line;
+        # cap-r4: the 62 re-words its title on its own 500 ms think gate (CoopState::think), up to 500 ms after the REFUSED line;
         # wait (bounded) until the title has left the repair-in-flight wording, then HOLD_S as written
         tw = wait_t(lambda: not (dlg(h).get("title") or "").startswith(TITLE_REPAIRING), W_TITLE)
         print("EVIDENCE DR3a title settle: %s" % js({"s": tw, "title": dlg(h).get("title")}), flush=True)

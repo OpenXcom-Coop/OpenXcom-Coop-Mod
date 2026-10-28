@@ -1,7 +1,7 @@
 """W2-H91 (owner D303 (a) then (b); trace docs rewrite/w2-resume-dafc8555/reports/cap-vw67.md F24197-F24203; F24235-F24259): a co-op
 save's final rename (<name>.bak -> <name>) that fails because another process holds the file is retried for a short bounded time; a
 rename that still fails shows vanilla's save error on the machine whose save failed, and the save stays in <name>.bak. Vanilla
-single-player saves are unchanged. Two co-op save paths, three rows each, one fresh boot pair per row (D297 (a)):
+single-player saves are unchanged. Two co-op save paths, three rows each, one fresh boot pair per row:
   D = the deferred host save (connectionTCP::writePendingHostSave, the R14 path): a SEPARATE campaign host quick save on the geoscape
       (save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...", the partner's world lands, MAP_RESULT_SAVE_PROGRESS writes);
   B = SaveGameState's own write in co-op: a skirmish host's mid-battle quick save (save_game_ui quick_battle, the F5 key's path).
@@ -22,7 +22,7 @@ Cells (X = D0 D1 D2 B0 B1 B2):
   X-common GUARD (both alive, no new crash_*.log since B). 38 cells.
 Red at the base (`cc5875d65`): exit 2, RED exactly on D1-file, B1-file, D2-dialog, D2-ok, B2-dialog, B2-ok (6).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
-row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one
+row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
 Run: py -3 tools/coop_test/test_save_rename.py
 """

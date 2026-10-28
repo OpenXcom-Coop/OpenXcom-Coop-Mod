@@ -1,4 +1,4 @@
-"""D283 - test_pve2_resume_refused.py: a co-op campaign save played in PvE2 (game mode 4, both players on the Alien team; only
+"""test_pve2_resume_refused.py: a co-op campaign save played in PvE2 (game mode 4, both players on the Alien team; only
 the release line could write one) is not resumed. RESUME CAMPAIGN in the co-op lobby shows D275's small dialog "There must be at least
 one player on the X-COM team for campaign games." with one OK on the host; nothing is resumed and both lobbies stay as they were; OK
 returns the host to the same lobby. The same world in its ordinary mode still resumes.
@@ -30,7 +30,7 @@ Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW lin
 RED (D283R, the unchanged build; TASK 0 TG / TM): 4/12 - FAIL G4-dialog, G4-held, G4-client, G4-ok (blocked), M4-dialog, M4-held,
 M4-client, M4-ok (blocked): the press resumes the save as ordinary co-op. GREEN (D283G): 12/12.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pve2_resume_refused.py
 """
 
@@ -215,7 +215,7 @@ def fx3(src, dst, ev, machines):
 
 
 def to_lobby(host, cl, save, ev):
-    """FX-4 (R-D250-SC4A-1): load_save_menu -> HostMenu (EVIDENCE P-1: the mode there); host_menu_host -> the resume lobby (lobbyMode 2;
+    """FX-4: load_save_menu -> HostMenu (EVIDENCE P-1: the mode there); host_menu_host -> the resume lobby (lobbyMode 2;
     EVIDENCE P-2: the live mode); the client joins; host clientName "ClientPlayer"; 2 s; a Profile popup closed; both tops LobbyMenu."""
     host.ok({"cmd": "load_save_menu", "file": save})
     ok, s = wait(lambda: session.has_state(host, "HostMenu"), MENU_S, 0.1)

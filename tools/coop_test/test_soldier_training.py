@@ -1,10 +1,10 @@
 """W2-H18 (F3259, D226 a; spec rewrite/prompts/w2h18_psi_training_replica.md (e)-(f); TASK 0 w2h18-task0/CONSTANTS.md):
 soldier training on the SHARED replica follows the host. Mod Coop_SoldierFx_Test: STR_H18_TRAINING (psiLabs 10, gym 10,
-healthRecoveryPerDay 3) at (0, 3), index 9 (F6199). Boot A (SHARED): Phase M (option off) stages ids 1-8 psi at 0, ids 1-2
+healthRecoveryPerDay 3) at (0, 3), index 9. Boot A (SHARED): Phase M (option off) stages ids 1-8 psi at 0, ids 1-2
 training, id 3 rtwh, id 4 healthMissing 30, rolls the month (4 host day rolls, F6205) -> H18-1..4; Phase D flips
-anytimePsiTraining on (F6204), id 5 psi at 0, id 6 psi at 100 (finishes on the first roll) -> H18-5, H18-6. Boot B
+anytimePsiTraining on, id 5 psi at 0, id 6 psi at 100 (finishes on the first roll) -> H18-5, H18-6. Boot B
 (SEPARATE): H18-7 guard row. Levers client first (S25). Window: both probes every 0.5 s for 3 s from the hit, cells at its
-end, the client's requests == S0. Clean (F6203): wait_resync_clear, drain client then host, 4 s, requests == S0.
+end, the client's requests == S0. Clean: wait_resync_clear, drain client then host, 4 s, requests == S0.
 RED: H18-1..6 fail on the client's cells, H18-7 passes; GREEN: all pass. "G:" = guard (a phase miss prints one CAPTURE).
 EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
@@ -23,7 +23,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierFx_Test")
 BOOT_A = ("w2h18a", (49314, 49315, 47294))
 BOOT_B = ("w2h18b", (49316, 49317), "47296")
-FAC, FAC_IDX = "STR_H18_TRAINING", 9                  # TASK 0 F6199 / F6210
+FAC, FAC_IDX = "STR_H18_TRAINING", 9
 IDS = list(range(1, 9))
 PHYS = ("tu", "stamina", "health", "firing", "throwing", "strength", "melee")    # Soldier::trainPhys
 OPTS = ["anytimePsiTraining", "allowPsiStrengthImprovement", "psiStrengthEval"]
@@ -112,7 +112,7 @@ def window(ph, x, top_watch=None):  # both probes every 0.5 s for 3 s; requests 
 
 def clean(ph, x):
     h, c = x.host, x.client
-    for gc in ((h, c) if ph["tag"] == "D" else ()): gc.ok({"cmd": "geo_set_speed", "idx": 0})  # R-H18-2 (F6323, F6325)
+    for gc in ((h, c) if ph["tag"] == "D" else ()): gc.ok({"cmd": "geo_set_speed", "idx": 0})
     ph["ev"]["clean"] = cl = {"pendingWait": geo.wait_resync_clear(c, timeout=10)}
     cl["client"], cl["host"] = geo.drain_popups(c), geo.drain_popups(h)
     need(ph, x, "cleanGeoscape", wait_until(lambda: on_geo(h, c), 10, 0.2), f"stacks {stack(h)} / {stack(c)}")

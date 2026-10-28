@@ -20,7 +20,7 @@ both are on the battlescape (the host stamps the mode on the battle offer and th
 mirrors it, D-19b).
 MG-P1 (rewrite/merge-main, R-MF210-1): the option is CoopTurnMode ("parallel" /
 "traditional"); main's S1 and S3 landed the CLIENT's craft, which never starts a SEPARATE
-battle (owner D199 (a), W2-H9): S1 is dropped and S3 lands the host's craft.
+battle: S1 is dropped and S3 lands the host's craft.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
     never held; MG-P1).
@@ -40,7 +40,7 @@ import geo  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-ON = {"CoopTurnMode": "parallel"}      # MG-P1: the rewrite's turn-mode option (Options.cpp CoopTurnMode)
+ON = {"CoopTurnMode": "parallel"}      # the rewrite's turn-mode option (Options.cpp CoopTurnMode)
 OFF = {"CoopTurnMode": "traditional"}
 
 
@@ -68,7 +68,7 @@ def base0(gc):
 
 
 def flags(gc):
-    """In-battle readout (MG-P1): this battle's turn mode as the host stamped it on the
+    """In-battle readout: this battle's turn mode as the host stamped it on the
     battle offer and this machine mirrors it (event_state.turnMode, D-19b), and this
     machine's own option (event_state.optionTurnMode)."""
     es = gc.cmd({"cmd": "event_state"})
@@ -76,7 +76,7 @@ def flags(gc):
 
 
 def geo_flag(gc):
-    """This machine's own turn-mode option, read on the geoscape (MG-P1)."""
+    """This machine's own turn-mode option, read on the geoscape."""
     return gc.cmd({"cmd": "event_state"}).get("optionTurnMode")
 
 
@@ -113,7 +113,7 @@ def separate_landing(host, client, lander):
 def through_inventory(host, client):
     """MG-P1 (rewrite battle entry): the host enters, then session.drive_both_to_tactical
     takes both machines through the briefings and the pre-battle equip screens together
-    (W2-P8b) and settles both on the tactical map."""
+    and settles both on the tactical map."""
     host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                   timeout=180, interval=1.0)
     if not session.drive_both_to_tactical(host, client):
@@ -124,7 +124,7 @@ def through_inventory(host, client):
 # ---- the verdict -----------------------------------------------------------------
 
 def verdict(host, client, expected, geo_flags):
-    """MG-P1: both machines run the battle in the HOST's turn mode (`expected`)."""
+    """both machines run the battle in the HOST's turn mode (`expected`)."""
     got = {gc.name: flags(gc) for gc in (host, client)}
     ok = all(f["mode"] == expected for f in got.values())
     detail = f"expected {expected}; battle event_state {got}; options on the geoscape {geo_flags}"
@@ -133,7 +133,7 @@ def verdict(host, client, expected, geo_flags):
 
 # ---- B1 (main #210: test_parallel_sharedturn's banner check; MG-P1) ------------------
 
-FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # main's tokens, matched case-blind (QP1-2)
+FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # main's tokens, matched case-blind
 END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (test_battle_end_separate)
 
 
@@ -226,7 +226,7 @@ def shared_row(results, row, tag, ports):
         geo_flags = {gc.name: geo_flag(gc) for gc in (host, client)}
         if geo_flags != {"host": "parallel", "client": "parallel"}:
             raise Inconclusive(f"the turn-mode options did not take: {geo_flags}")
-        # MG-P1: main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
+        # main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
         # bring-up (one host-owned and one client-owned soldier; the host confirms the
         # landing; it drives both machines to the tactical map).
         session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1})
@@ -239,7 +239,7 @@ def shared_row(results, row, tag, ports):
 
 
 def main():
-    rows = os.environ.get("COOP_PTL_ROWS", "S2,S3,H1").split(",")  # MG-P1: S1 dropped (D199 (a))
+    rows = os.environ.get("COOP_PTL_ROWS", "S2,S3,H1").split(",")  # S1 dropped
     results = {}
     note = None
     alive = True
@@ -249,7 +249,7 @@ def main():
                                  "host", ON, "ptl2", (49614, 49615, "49616")) and alive
         if "S3" in rows:
             alive = separate_row(results, "S3 SEPARATE fresh, host traditional / client parallel, host's craft lands",
-                                 "host", OFF, "ptl3", (49617, 49618, "49619")) and alive  # MG-P1: D199 (a)
+                                 "host", OFF, "ptl3", (49617, 49618, "49619")) and alive
         if "H1" in rows:
             alive = shared_row(results, "H1 SHARED, both on, host lands the shared craft",
                                "ptlh", (49620, 49621, 49622)) and alive
@@ -266,7 +266,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(2)  # MG-P1: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: the host's parallel-turns choice holds in every battle")

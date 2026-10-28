@@ -27,7 +27,7 @@ DEBRIEF_QTY at its debriefing; over the whole row: no new crash log.
 
 RED (commit S-C-A.1): the row fails on exactly cell 1 - the client never shows a DebriefingState. The holds are inert
 on that build (no post-battle push, no adoption step). GREEN (commit S-C-A.2): the row passes.
-ONE "EVIDENCE C28S-f:" line, then "PASS C28S-f" or "FAIL C28S-f: <message>". WV-D95/D99/D100: ONE foreground run,
+ONE "EVIDENCE C28S-f:" line, then "PASS C28S-f" or "FAIL C28S-f: <message>". ONE foreground run,
 no skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_battle_end_campaign_fence.py
@@ -42,7 +42,7 @@ import test_battle_end_campaign as camp
 from test_battle_end_campaign import (record, wait_until, log_count, capture, cell_debriefs, ADOPT_S, EQUAL_S,
                                          HOST_DEBRIEF)
 
-PORT = "47216"               # AMENDMENT P7-6 section 4 (F4545): the fence file = 47216-47218
+PORT = "47216"               # AMENDMENT P7-6 section 4: the fence file = 47216-47218
 TAG = "w2p7sca_c28sf"
 BASE = "HostBase"            # shared_fixture.bring_up's host_base (base 0)
 SELL_ITEM = "STR_PLASMA_PISTOL"

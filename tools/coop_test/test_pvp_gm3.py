@@ -1,30 +1,30 @@
 """R5-U9 rows G1-G5 (boot G) and H1 (boot H): gm3, where the host plays the aliens, started and asserted for the first
 time (F4842; POST-REWRITE-REVISIT row 10, owner D229; D157 (a), D215 (a); r5-T1: gm3 = gm2 inverted).
 
-Spec: docs repo rewrite/prompts/r5u9_pvp_gm3_fixture.md section (f) test_pvp_gm3.py (QU9-1 (a), QU9-4 (a), QU9-5 (a)).
+Spec: docs repo rewrite/prompts/r5u9_pvp_gm3_fixture.md section (f) test_pvp_gm3.py.
 Constants: rewrite/r5u9-task0/CONSTANTS.md (TASK 0 boots Ga, Gb and H; T0-G6).
 
 Boot G (key 48674): the host sets SEED_ROSTER, the lobby puts the HOST on the Alien team (gamemode 3), then the W2-P8b
 battle-entry spine (repro_pvp_side_relative.drive_to_gm2_battlescape: STR_SMALL_SCOUT, map seed 1). The host owns no
-soldier, so only the partner's pre-battle screen is pressed (D215 (a)).
+soldier, so only the partner's pre-battle screen is pressed.
   G1  gm3 census: coopGamemode 3 and MAP_FP on both; host authority (seat 0, hostSim), partner (seat 1, not); the
       host's seat (coop 0) holds the aliens (hostile), the partner's (coop 1) the X-COM soldiers (player); both machines
       agree per unit; the host logged battle_ready saveBlob EQUAL once; side 0, turn 1.
   G2  the partner orders its X-COM soldier S on its own side (battle_intent walk); the host runs it.
   G3  the partner's END TURN hands the turn to the aliens: side 1 with one side_transition and one side_begin.
-  G4  the host orders its alien A through its own UI: one TAB, tab_select, one self-verified click (QU9-5 (a)).
+  G4  the host orders its alien A through its own UI: one TAB, tab_select, one self-verified click.
   G5  the host kills every X-COM soldier on its own side and presses END TURN: soldiersDown, the host's seat wins, both
-      machines end on the host's debriefing, the partner's display-only (D157 (a)).
+      machines end on the host's debriefing, the partner's display-only.
 Boot H (key 48676): the G bring-up; G1's mode and seat cells re-checked (a failure fails H1 "boot"); then the host kills
 the alien on X-COM's side and the partner presses END TURN:
   H1  aliensDown, the partner's seat wins; both machines end on the host's debriefing.
-Staging (TASK 0): every live unit's reactions 0 on both machines (client first), A on A_TILE, S on S_TILE.
+Staging: every live unit's reactions 0 on both machines (client first), A on A_TILE, S on S_TILE.
 Common cell after each row: every hash bucket EQUAL (on an ending row, right before the kill: there is no battle to hash
 after it), desyncSeen false on both, no new file in the lane crash folder.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails the boot's rows "boot"; a staging step past its bound fails the
-rows that need it (G2, G4) "staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the
+rows that need it (G2, G4) "staging". run in the foreground to completion. ONE run is the
 result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_gm3.py

@@ -55,8 +55,8 @@ public:
 	void load(const YAML::YamlNodeReader& reader);
 	const std::map<std::string, int> &getRandomProductionInfo() const { return _randomProductionInfo; }
 	int getCoopStarterSeat() const { return _coopStarterSeat; } // coop W2-H16g (OC-H16g-1)
-	void setCoopStarterSeat(int seat) { _coopStarterSeat = seat; } // coop W2-H16g
-	void setRandomProductionInfo(const std::map<std::string, int> &info) { _randomProductionInfo = info; } // coop W2-H16h (F7299): the SHARED replica adopts the host's list
+	void setCoopStarterSeat(int seat) { _coopStarterSeat = seat; } // coop
+	void setRandomProductionInfo(const std::map<std::string, int> &info) { _randomProductionInfo = info; } // coop: the SHARED replica adopts the host's list
 private:
 	const RuleManufacture * _rules;
 	int _amount;
@@ -66,7 +66,7 @@ private:
 	bool _sell;
 	bool _isFallback;
 	std::map<std::string, int> _randomProductionInfo;
-	int _coopStarterSeat = -1; // coop W2-H16g: the seat that started this production (SHARED), -1 unknown
+	int _coopStarterSeat = -1; // coop: the seat that started this production (SHARED), -1 unknown
 	bool haveEnoughMoneyForOneMoreUnit(SavedGame * g) const;
 	bool haveEnoughLivingSpaceForOneMoreUnit(Base * b);
 	bool haveEnoughMaterialsForOneMoreUnit(Base * b, const Mod *m) const;

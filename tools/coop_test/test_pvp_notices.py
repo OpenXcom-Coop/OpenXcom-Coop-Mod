@@ -29,8 +29,8 @@ new file in the lane crash folder.
 
 RED on the unchanged product (commit C1): WR-count, BO-seat, BO-text; every other cell PASS. One EVIDENCE line per row,
 one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
-CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging". WV-D95:
-run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell
+CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging".
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
 passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_notices.py
@@ -57,9 +57,9 @@ XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]
 A_DIR = RM.TILES[A_ID][1]         # 4: A's own facing at (15,2,0) (WR's lever turn; TASK 0: admitted, one envelope)
 BO_PATH, BO_DEST = (12, 6, 0), (12, 5, 0)   # two tiles north of S2's (12,7,0), open ground, no turn (F14660 swap)
 SEED_BO = 1                       # the lowest seed whose MIND CONTROL succeeds (TASK 0 Na, Nb, Nc)
-A_TU, S2_TU = RM.A_TU, RM.S2_TU   # 54, 58 (R5-U3 TASK 0)
+A_TU, S2_TU = RM.A_TU, RM.S2_TU   # 54, 58
 CLIENT_SEAT = 1
-TEXT_WAIT = "Please wait for ClientPlayer's action to finish"   # the host's banner for seat 1 (TASK 0, F14663)
+TEXT_WAIT = "Please wait for ClientPlayer's action to finish"   # the host's banner for seat 1
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 SAMPLE_S, WALK_S = 0.1, 30        # the host's sample cadence; the bound on the walk's context
 ROWS = (("WR", ("WR-pre", "WR-count", "WR-common")),

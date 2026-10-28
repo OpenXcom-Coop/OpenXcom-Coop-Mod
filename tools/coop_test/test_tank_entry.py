@@ -28,7 +28,7 @@ cell PASS.
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot step
 past its bound prints ONE CAPTURE line and fails every row "boot"; a cell whose precondition failed FAILs "not reached". Common
 cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. A key the build does not write reads as absent.
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
 passes, else 2.
 
 Run:  python tools/coop_test/test_tank_entry.py
@@ -51,7 +51,7 @@ from test_battle_end_rules import wait_until  # noqa: E402
 
 PORT = "47611"
 TANK, SHELLS, SKYR = "STR_TANK_CANNON", "STR_HWP_CANNON_SHELLS", "STR_SKYRANGER"
-SHELLS_GIVEN = 30         # R-D248-SA-1: one STR_TANK_CANNON load takes 30 (TASK 0: CLIPS 30 on Ea, Eb, Da, Db)
+SHELLS_GIVEN = 30         # one STR_TANK_CANNON load takes 30 (TASK 0: CLIPS 30 on Ea, Eb, Da, Db)
 CLIPS = 30                # the view's shells taken by the partner's load (Ea, Eb, Da, Db)
 TANK_AMMO = 30            # the parked tank's vehicleAmmo (Ea, Eb, Da, Db)
 TANK_SIZE = 4             # the 2x2 tank's SPACE USED on the view craft (1 -> 5 on Ea, Eb, Da, Db)

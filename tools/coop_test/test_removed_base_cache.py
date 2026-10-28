@@ -30,7 +30,7 @@ coopBase, lon, lat]. LINE(id) = engine-log lines holding "[coop] W2-H83: removed
 or inject_input except the logged levers build_new_base, geo_set_speed, the seat levers, drain_host_coop_notice, spawn_mission_site,
 craft_force, set_seed, battle_action abort and drive_both_to_tactical's briefing / equip levers. One EVIDENCE line per row, one PASS / FAIL
 line per cell, then the row verdict; a boot or precondition miss ends its row (ONE CAPTURE line, later cells "not reached") and the file
-goes on to the next boot. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+goes on to the next boot. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_cache.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -39,9 +39,9 @@ import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
 KEY = "49557"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 0014f9bf1)
-B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # ClientBase2: on land (TASK 0)
+B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # ClientBase2: on land
 SITE_D = (0.25, 0.10)                       # SITE_POS = HB + SITE_D (CONSTANTS.md SWAP S1: HB + (0.35, 0.10) is not land)
-FLY_OFFSET = 0.02                           # rad west of the site: ConfirmLandingState in 5.3-6.2 s (TASK 0)
+FLY_OFFSET = 0.02                           # rad west of the site: ConfirmLandingState in 5.3-6.2 s
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_2, ZOOM_MIN, SYM_PLUS, SEED = 50, 3, 43, 7
 OK_GAP_S, RT_SETTLE = 4.0, 3.0

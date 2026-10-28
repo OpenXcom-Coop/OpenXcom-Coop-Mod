@@ -1,7 +1,7 @@
 """D246-U stage S-C2 - test_old_pvp_gm3_refused.py: a gm3 PvP campaign (the host plays the aliens, the second player X-COM)
 that an OLDER version (the release line v2.0.x, unstamped) saved mid-battle keeps refusing at the host's menu load, and ONLY that
 refusal's text gains where to ask for a repair (owner D284 (c) amended; VL-D284-1). Every other save that reaches the same refusal keeps
-today's text (VL-D284-2): a battle save stamped by a newer rewrite build, and an unstamped save of a mode with no conversion.
+today's text: a battle save stamped by a newer rewrite build, and an unstamped save of a mode with no conversion.
 Spec: docs repo rewrite/prompts/d246u_sc2_gm3_refusal_text.md section (f) and its ORCHESTRATOR RULINGS (QSC2-1 .. QSC2-6 (a)). Pins:
 rewrite/d246u-task0/sc2/CONSTANTS.md (TASK 0 T0-1 .. T0-4, T0-W on the unchanged build).
 Each row is ONE host with no client (the refusal comes at the menu load, before any session; no lobby key, QSC2-3), spawned, the row,
@@ -11,7 +11,7 @@ Row G3 (dir d246sc2_g3_host): tools/coop_test/fixtures/pvp_gm3_battle.sav (copie
   G3-refused ErrorMessageState is the top within LOAD_S; no HostMenu / LobbyMenu / BattlescapeState in the stack; exactly 1 refusal
              line and 0 [coop-convert] lines in the host log
   G3-text    one TextButton OK_CAPTION; one Text == HEADER + SEP + TEXT_GM3, visible and not hidden; the log line's last tab field
-             == TEXT_GM3 (VL-D284-1). Then a screenshot to <host dir>/d246sc2_g3_box.png (EVIDENCE shot, never a cell)
+             == TEXT_GM3. Then a screenshot to <host dir>/d246sc2_g3_box.png (EVIDENCE shot, never a cell)
   G3-ok      the real OK -> MainMenuState the top within OK_S, no ErrorMessageState; world_state.has_save false
 Row N2S (dir d246sc2_n2s_host; VL-D284-2, stamped newer): FX-N2S = the fixture's working copy with ONE header line
   `coopBattleProtocol: 2` + the file's own line ending inserted before the first `---` line, as d246sc2_n2s.sav.
@@ -23,8 +23,8 @@ C-common (after the three rows): 0 new crash files since the start; every host a
   beyond the one its row placed.
 RED (R1, the unchanged build): exit 2, 5/6 - FAIL G3-text only (today's text in the box and in the log). GREEN (G1, E1): 6/6.
 One EVIDENCE line per row, one PASS / FAIL line per cell, one ROW line per row; every row runs after a failure; a precondition miss
-ends its row (later cells "not reached"); a boot miss prints ONE CAPTURE line and FAILs the row's cells "boot". WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+ends its row (later cells "not reached"); a boot miss prints ONE CAPTURE line and FAILs the row's cells "boot". run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_old_pvp_gm3_refused.py
 """

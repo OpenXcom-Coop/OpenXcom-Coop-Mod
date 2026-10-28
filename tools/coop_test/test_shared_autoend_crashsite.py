@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""RV-U7 - test_shared_autoend_crashsite.py: a SHARED craft that lands on a crashed UFO whose crew died at generation
+"""test_shared_autoend_crashsite.py: a SHARED craft that lands on a crashed UFO whose crew died at generation
 ends cleanly for both players on the rewrite (POST-REWRITE-REVISIT row 18; owner D123, D229 (a) + gate, D210 (b), D156
 (a); P8b-1 V4; spec docs rewrite/prompts/rvu7_autoend_crash_proof.md; constants docs rewrite/rvu7-task0/CONSTANTS.md).
 
@@ -26,8 +26,8 @@ Cells (in order; a failed cell ends the row, later cells "not reached"):
       -> its debriefing on top, display-only (<= 10 s); worldAdopted 1 (<= 15 s); shared_checksum chk* equal.
   C4  both OKs (test_battle_end_campaign's client_ok_clean / host_ok_drain) -> both on GeoscapeState, no CoopState.
 Guards: no new crash file (none with 0xC0000374 / finishBattle); both processes alive; host fatalVote.armed 0; the
-client zero-disk. Prints ONE "EVIDENCE R18:" line, then "PASS R18" or "FAIL R18: <message>". WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run, no skip path; exit 0 only when the row passes, 2 otherwise.
+client zero-disk. Prints ONE "EVIDENCE R18:" line, then "PASS R18" or "FAIL R18: <message>". run in the
+foreground to completion. ONE run, no skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_autoend_crashsite.py
 """
@@ -52,7 +52,7 @@ HOST_LABEL, CLIENT_LABEL = 49668, 49669
 # ----- TASK 0 pins (docs rewrite/rvu7-task0/CONSTANTS.md: boots A1 = A2 on the fixture's own RNG) -----
 SEED = None                         # the fixture's own RNG kills the whole crew at generation (no seed hunt needed)
 CREW_IDS = [1000001, 1000002, 1000003, 1000004, 1000005]   # 3 snakeman soldiers + 2 navigators, health 0 on both boots
-CLIENT_SCREEN = "InventoryState"    # the client's seat owns 5 soldiers aboard: its pre-battle equip screen (D215 a)
+CLIENT_SCREEN = "InventoryState"    # the client's seat owns 5 soldiers aboard: its pre-battle equip screen
 LAND_S = 66                         # P2: 32.68 s on A1 and A2, x 2
 
 ENTER_S, HOST_BRIEF_S = 180, 60     # P3: session.bring_up_shared_mixed_battle's bounds

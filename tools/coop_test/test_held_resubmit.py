@@ -1,4 +1,4 @@
-"""W2-H90 - test_held_resubmit.py: a client order the host denies `busy` while a turn-start bleed-out death
+"""test_held_resubmit.py: a client order the host denies `busy` while a turn-start bleed-out death
 is queued is held, and must go out again once that chain ends (the ruled busy -> held -> resubmit behaviour: ADDENDUM
 2026-08-31 1.3 (a) "admission happens at quiescence" (register ADD-1.3a); R2-P7's auto-retry; W2-P4 C17p "busy orders
 held and resubmitted"). Owner Q2 (CIT-Q2, 2026-10-19): trace it, show how a player reaches it, then a deterministic red.
@@ -32,9 +32,9 @@ Replacement rules (S54): H / C are the lowest live soldier of seat 0 / seat 1 (a
 from C in direction (d0 + 2) % 8; if map_tile_click_pos does not verify it, the next of (d0 + 6), (d0 + 3), (d0 + 5) % 8
 whose tile two steps away verifies (an on-map tile the click resolves); a row with none fails `pre`.
 
-WV-D99 / WV-D100: one run is the result; no skip path; D297 (a) one fresh boot per row. Each row prints ONE
+one run is the result; no skip path; D297 (a) one fresh boot per row. Each row prints ONE
 "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: ...". Every wait is bounded. Exit 0 only when every row passes,
-2 otherwise. WV-D95: run in the foreground to completion.
+2 otherwise. run in the foreground to completion.
 
 Run:  py -3 tools/coop_test/test_held_resubmit.py
 """

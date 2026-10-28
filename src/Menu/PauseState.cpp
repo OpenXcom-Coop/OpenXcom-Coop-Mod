@@ -43,14 +43,14 @@ namespace OpenXcom
 
 GeoscapeState *_geostate;
 
-// coop W2-H67 (R-LT8-1): an ironman world (the save owner's rules, W2-H49) keeps vanilla's hidden Load and Save (the constructor's
+// coop: an ironman world (the save owner's rules, W2-H49) keeps vanilla's hidden Load and Save (the constructor's
 // ironman block), so the truly-solo re-show blocks below never run for one. Null-safe for an init() without a world.
 static bool coopIronmanWorld(SavedGame *save)
 {
 	return save && connectionTCP::coopPvpSaveOwner(save)->isIronman();
 }
 
-// coop W2-H63 (R-H63-0): vanilla's rule for Save in the battle pause menu (the constructor's "ENOUGH!" guard, OXCE 4a6ade5ef),
+// coop: vanilla's rule for Save in the battle pause menu (the constructor's "ENOUGH!" guard, OXCE 4a6ade5ef),
 // for the truly-solo re-show blocks below: Save stays hidden during the enemy turn (debug mode excepted) or while a battle action
 // is still running, so a single-player save never captures a half-applied action.
 static bool coopVanillaHidesSave(SavedGame *save, OptionsOrigin origin)
@@ -161,7 +161,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		applyBattlescapeTheme("pauseMenu");
 	}
 
-	// coop W2-H49 (F17603): the ironman rules of the world a save here writes (the alien host's own in a gm3 borrowed battle)
+	// coop: the ironman rules of the world a save here writes (the alien host's own in a gm3 borrowed battle)
 	if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman())
 	{
 		_btnLoad->setVisible(false);
@@ -196,7 +196,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		{
 			_btnSave->setVisible(false); // non-ironman + ironman
 
-			if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop W2-H49
+			if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop
 			{
 				_btnAbandon->setVisible(false); // ironman only
 			}
@@ -209,10 +209,10 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 	// load/save to a client. Gating on localSavesAllowed() (which is false for a
 	// client) plus !host keeps the host's Load hidden (its policy is PRD-08) and
 	// preserves solo behavior exactly.
-	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false && !coopIronmanWorld(_game->getSavedGame())) // coop W2-H67 (R-LT8-1)
+	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false && !coopIronmanWorld(_game->getSavedGame())) // coop
 	{
 		_btnLoad->setVisible(true);
-		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop W2-H63 (R-H63-0)
+		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop
 	}
 
 
@@ -226,7 +226,7 @@ PauseState::PauseState(OptionsOrigin origin) : _origin(origin)
 		_game->getCoopMod()->setCoopCampaign(false);
 	}
 
-	// coop MG-B (owner D238 (a)): a loaded single-player Custom Battle's CO-OP (btnCoopClick's first branch, main #181) shows only
+	// coop: a loaded single-player Custom Battle's CO-OP (btnCoopClick's first branch, main #181) shows only
 	// when vanilla would show Save: never during the enemy turn or while an action is still running (the guard above).
 	if (_origin == OPT_BATTLESCAPE
 		&& _game->getSavedGame()->getSavedBattle()
@@ -335,10 +335,10 @@ void PauseState::init()
 
 	// coop: re-show Load/Save only when truly solo (see init() note above);
 	// never re-expose a coop client to local load/save.
-	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false && !coopIronmanWorld(_game->getSavedGame())) // coop W2-H67 (R-LT8-1)
+	if (_game->getCoopMod()->localSavesAllowed() && _game->getCoopMod()->getServerOwner() == false && !coopIronmanWorld(_game->getSavedGame())) // coop
 	{
 		_btnLoad->setVisible(true);
-		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop W2-H63 (R-H63-0)
+		_btnSave->setVisible(!coopVanillaHidesSave(_game->getSavedGame(), _origin)); // coop
 	}
 
 }

@@ -18,7 +18,7 @@ test_client_sight_fuse.py.
 ONE classic co-op day boot (lobby key 46643, user dirs w2h35c_d_host / w2h35c_d_client): SAE's boot (copied):
 SEED_ROSTER 1 before open_new_battle, SEED_MAP 1 before newbattle_ok, seat_count 2, pin_ai_neutral (A = the only alien),
 reactions 0 for every X-COM unit on both, A base TU 54; A on A_BOOT facing 5 on both. Every teleport is followed by
-light_recompute on both (R-H35B-SB-1); every staging write goes to the CLIENT first (F607).
+light_recompute on both; every staging write goes to the CLIENT first.
 
 Rows, in order (every row runs after a failure):
   C3   tele A to A3_TILE facing 5, V (9) to V3_TILE facing 6, K (8) to K3_TILE facing 2 (A behind K); K TU max;
@@ -45,8 +45,8 @@ RED at the red commit (unchanged build): C3-here, C3-list, C3s-list, C18-list FA
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up
 failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a staging miss fails that row's cells "staging".
-WV-D99 / WV-D100: one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell
-passes, else 2. WV-D95: run in the foreground to completion.
+one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell
+passes, else 2. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_sight_more.py
 """

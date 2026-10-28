@@ -12,7 +12,7 @@ Boot RS (key 46610, dirs d246u_rs_*): the host gets the fixture, the client an E
              text "different version of the mod" in the host log, in EVIDENCE)
   RS-log     exactly one "[coop-convert] D246: an older version's mid-battle co-op save converted" line whose counts are
              RS_PB / RS_PM / RS_SEATS / RS_UNSEATED, turnMode traditional, deployment DEP_RS
-  RS-resume  session.resume_campaign_battle's post-load steps (F13303) on key 46610: both inBattle, phase Active,
+  RS-resume  session.resume_campaign_battle's post-load steps on key 46610: both inBattle, phase Active,
              authority.battleId equal and non-zero
   RS-hash    the host log has "battle_ready saveBlob EQUAL" and no MISMATCH; desyncSeen false on both
   RS-seats   the (name, seat) set == RS_EXPECT on both (rc.assert_split); every non-player original faction has coop -1
@@ -21,7 +21,7 @@ Boot RS (key 46610, dirs d246u_rs_*): the host gets the fixture, the client an E
   RS-click   the host's RESUME (CoopState 60 / 62); both tops BattlescapeState; no HostMenu / LobbyMenu
   RS-go      the client's turn order for its guest is refused not_your_go; the guest's facing unchanged on both
   RS-pass    the host's END TURN -> coopEndTurnTally.activeSeat 1 on both; side 0 and turn unchanged
-  RS-cmd     own guest turn admitted: no deny with its iseq; a host turn delta, admitted +1; facings (R-D246-SA-1)
+  RS-cmd     own guest turn admitted: no deny with its iseq; a host turn delta, admitted +1; facings
   RS-common  every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no save
 Boot L1 (host only, dir d246u_l1_host): the SEPARATE fixture with its ONE coop_parallel_turns line removed (the v2.0.6
 shape, line endings kept, asserted).
@@ -31,7 +31,7 @@ shape, line endings kept, asserted).
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
 cell whose precondition failed FAILs "not reached". A boot step past its bound prints ONE CAPTURE line and fails the
-boot's rows "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip
+boot's rows "boot". run in the foreground to completion. ONE run is the result, no skip
 path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_old_battle_resume.py

@@ -695,7 +695,7 @@ void Inventory::mouseOver(Action *action, State *state)
  */
 void Inventory::mouseClick(Action *action, State *state)
 {
-	if (coopEquipPartnerView(_selUnit) && !_game->isMiddleClick(action)) return; // coop EQ-1 (D288 b, D289 a): a partner's soldier is read-only - the release line ignores every left / right click on it
+	if (coopEquipPartnerView(_selUnit) && !_game->isMiddleClick(action)) return; // coop: a partner's soldier is read-only - the release line ignores every left / right click on it
 	if (_game->isLeftClick(action))
 	{
 		if (_selUnit == 0)
@@ -878,7 +878,7 @@ void Inventory::mouseClick(Action *action, State *state)
 						}
 						else
 						{
-							if (coopInterceptInvMove(this, _selUnit, item, newSlot, 0, 0, "ctrl_ground")) { placed = true; } // W2-P8
+							if (coopInterceptInvMove(this, _selUnit, item, newSlot, 0, 0, "ctrl_ground")) { placed = true; }
 							else if (!_tu || _selUnit->spendTimeUnits(item->getMoveToCost(newSlot)))
 							{
 								placed = true;
@@ -934,7 +934,7 @@ void Inventory::mouseClick(Action *action, State *state)
 				{
 					if (!overlapItems(_selUnit, _selItem, slot, x, y) && slot->fitItemInSlot(_selItem->getRules(), x, y))
 					{
-						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, x, y, "drop")) {} // W2-P8
+						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, x, y, "drop")) {}
 						else if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
 						{
 							moveItem(_selItem, slot, x, y);
@@ -952,7 +952,7 @@ void Inventory::mouseClick(Action *action, State *state)
 					}
 					else if (canStack)
 					{
-						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, item->getSlotX(), item->getSlotY(), "stack")) {} // W2-P8
+						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, item->getSlotX(), item->getSlotY(), "stack")) {}
 						else if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
 						{
 							moveItem(_selItem, slot, item->getSlotX(), item->getSlotY());
@@ -1037,7 +1037,7 @@ void Inventory::mouseClick(Action *action, State *state)
 						}
 						if (canLoad)
 						{
-							if (coopInterceptInvLoad(this, _selUnit, _selItem, item, tuCost)) {} // W2-P8
+							if (coopInterceptInvLoad(this, _selUnit, _selItem, item, tuCost)) {}
 							else if (!_tu || _selUnit->spendTimeUnits(tuCost))
 							{
 								bool arrangeFloor = false;
@@ -1089,7 +1089,7 @@ void Inventory::mouseClick(Action *action, State *state)
 					BattleItem *item = _selUnit->getItem(slot, x, y);
 					if (canBeStacked(item, _selItem))
 					{
-						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, item->getSlotX(), item->getSlotY(), "stack_cursor")) {} // W2-P8
+						if (coopInterceptInvMove(this, _selUnit, _selItem, slot, item->getSlotX(), item->getSlotY(), "stack_cursor")) {}
 						else if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(slot)))
 						{
 							moveItem(_selItem, slot, item->getSlotX(), item->getSlotY());
@@ -1141,7 +1141,7 @@ void Inventory::mouseClick(Action *action, State *state)
 										else
 										{
 											_warning->showMessage(_game->getLanguage()->getString(item->getRules()->getPrimeActionMessage()));
-											if (coopInterceptInvFuse(this, _selUnit, item, item->getRules()->getFuseTimerDefault())) return; // W2-P8b
+											if (coopInterceptInvFuse(this, _selUnit, item, item->getRules()->getFuseTimerDefault())) return;
 											item->setFuseTimer(item->getRules()->getFuseTimerDefault());
 											arrangeGround();
 											playSound(item->getRules()->getPrimeSound()); // prime sound
@@ -1153,7 +1153,7 @@ void Inventory::mouseClick(Action *action, State *state)
 									if (item->getRules()->getCostUnprime().Time > 0 /* && !item->getRules()->getUnprimeActionName().empty() */ )
 									{
 										_warning->showMessage(_game->getLanguage()->getString(item->getRules()->getUnprimeActionMessage()));
-										if (coopInterceptInvFuse(this, _selUnit, item, -1)) return; // W2-P8b
+										if (coopInterceptInvFuse(this, _selUnit, item, -1)) return;
 										item->setFuseTimer(-1);  // Unprime the grenade
 										arrangeGround();
 										playSound(item->getRules()->getUnprimeSound()); // unprime sound
@@ -1212,7 +1212,7 @@ bool Inventory::quickDrop()
 {
 	if (_selUnit && _selItem)
 	{
-		if (coopInterceptInvMove(this, _selUnit, _selItem, _inventorySlotGround, 0, 0, "paperdoll")) return false; // W2-P8
+		if (coopInterceptInvMove(this, _selUnit, _selItem, _inventorySlotGround, 0, 0, "paperdoll")) return false;
 		if (!_tu || _selUnit->spendTimeUnits(_selItem->getMoveToCost(_inventorySlotGround)))
 		{
 			moveItem(_selItem, _inventorySlotGround, 0, 0);
@@ -1344,7 +1344,7 @@ bool Inventory::unload(bool quickUnload)
 	}
 
 	// Simplified logic for quick-unload outside of the battlescape
-	if (quickUnload && !_tu && coopInterceptInvQuickUnload(this, _selUnit, _selItem)) return false; // W2-P8b
+	if (quickUnload && !_tu && coopInterceptInvQuickUnload(this, _selUnit, _selItem)) return false;
 	if (quickUnload && !_tu)
 	{
 		// noop(); // 1. do not move the weapon at all!
@@ -1420,7 +1420,7 @@ bool Inventory::unload(bool quickUnload)
 	}
 
 	std::string err;
-	if (coopInterceptInvUnload(this, _selUnit, _selItem, cost)) return false; // W2-P8
+	if (coopInterceptInvUnload(this, _selUnit, _selItem, cost)) return false;
 	if (!_tu || cost.spendTU(&err))
 	{
 		moveItem(_selItem, FirstFreeHand, 0, 0); // 1.
@@ -1749,7 +1749,7 @@ bool Inventory::fitItem(const RuleInventory *newSlot, BattleItem *item, std::str
 		{
 			if (!overlapItems(_selUnit, item, newSlot, x2, y2) && newSlot->fitItemInSlot(item->getRules(), x2, y2))
 			{
-				if (coopInterceptInvMove(this, _selUnit, item, newSlot, x2, y2, "ctrl_fit")) { placed = true; } // W2-P8
+				if (coopInterceptInvMove(this, _selUnit, item, newSlot, x2, y2, "ctrl_fit")) { placed = true; }
 				else if (!_tu || _selUnit->spendTimeUnits(item->getMoveToCost(newSlot)))
 				{
 					placed = true;

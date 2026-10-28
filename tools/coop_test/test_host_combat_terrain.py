@@ -113,9 +113,9 @@ after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
 Every wait is bounded; a wait that times out is recorded in the EVIDENCE line
 and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all three scenarios pass, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_host_combat_terrain.py
@@ -141,7 +141,7 @@ import test_light_scope as ls
 
 # ----- common (test_host_combat.py and test_host_combat_terrain.py; TASK 0a-2) -----
 MISSION = "STR_TERROR_MISSION"
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 H_ID = 10                        # first host-seat soldier; with SEED_ROSTER 1 = "Henryk Kaminski",
                                  # tu 58, health 37, firing 46, throwing 73, melee 25, strength 45
 KEY_ITEM1, KEY_FUSE_0 = 49, 48   # PRIME (grenade menu item 1), fuse 0
@@ -156,12 +156,12 @@ C2_WALL = (4, 20, 0)             # its NORTH wall: URBITS #13 (armor 8, die #15)
 C2_WALL_PARTS = ((2, 13), (2, 15))     # northwall (setId, id) before -> after
 SEED_C2 = 1                      # aimed battle_fire (firing 120): wall destroyed, clip 20 -> 19, H tu 58 -> 12
                                  # (rifle 96, clip 97; 3/3 standalone + 3/3 one-boot)
-C3_H_TILE, C3_H_DIR = (5, 17, 0), 2    # faces east, AWAY from the throw tile (F490)
+C3_H_TILE, C3_H_DIR = (5, 17, 0), 2    # faces east, AWAY from the throw tile
 C3_THROW_TILE = (5, 11, 0)       # 6 tiles north (outside the blast at H); floor URBITS #16
 C3_ITEM_TILE = (5, 11, 0)
 SEED_C3 = 1                      # real-UI prime (key 49, fuse key 48) + battle_fire throw: lands (5,11,0), fuse 0,
                                  # owner -1, H tu 58 -> 42; END TURN cycle: grenade and clip gone, floor (2,16) ->
-                                 # (2,22), host reaches turn 2 in 2.0 s, no unit hurt. Needs SEED_ROSTER (F502).
+                                 # (2,22), host reaches turn 2 in 2.0 s, no unit hurt. Needs SEED_ROSTER.
                                  # one-boot ids: grenade 98, clip 99 (3/3 standalone + 3/3 one-boot)
 C4_H_TILE, C4_H_DIR = (22, 34, 0), 0
 C4_TARGET = (21, 26, 0)          # ROADS #0 floor beside the pump (20,26,0)

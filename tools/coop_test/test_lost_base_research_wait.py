@@ -1,7 +1,7 @@
 """W2-H88 LBR (tools/coop_test/test_lost_base_research_wait.py): after a SEPARATE player loses its first base while it owns another,
 a partner's finished research still reaches it at once (ruling R-LH87-2-1, the promise VL-H68-2 "a partner's finished research reaches
 you at the next geoscape tick", veto line VL-H88-1). Spec docs rewrite/prompts/w2h88_lost_base_research_wait.md (f) + its ORCHESTRATOR
-RULINGS (R-H88-1); TASK 0 values in docs rewrite/w2h88-task0/sa/CONSTANTS.md; capture lh87-2-cap F23315-F23334 (docs rewrite/lh87-2-cap/).
+RULINGS; TASK 0 values in docs rewrite/w2h88-task0/sa/CONSTANTS.md; capture lh87-2-cap F23315-F23334 (docs rewrite/lh87-2-cap/).
 Today a partner's research reaches the other player through a memory-only queue that GeoscapeState applies only while the SELECTED base is
 an own base. Losing the first base (BaseDestroyedState erases it without re-pointing the index) leaves the selected index on the partner's
 mirror that sat after it, so the partner's research waits: no topic, no "Research Completed", for as long as the player stays on the
@@ -35,7 +35,7 @@ GEOSCAPE on the new base's screen); build_new_base, get_soldiers + set_soldier_d
 geo_set_speed and dismiss_popup are setup levers. No row presses BASES and no row builds a base after a loss (either re-points the index).
 Red today: RL1-land, RL1-popup, RL2-land, RL2-popup FAIL (4 of 12); every other cell PASS. Green (E1-E4): 12 / 12.
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached")
-with ONE CAPTURE line; a boot miss fails every row of that boot with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no
+with ONE CAPTURE line; a boot miss fails every row of that boot with ONE CAPTURE line. ONE foreground run, no
 skip; exit 0 only when every cell passes, else 2. Helpers copied from docs rewrite/lh87-2-cap/cap2.py (never imported).
 Run: python tools/coop_test/test_lost_base_research_wait.py   (OXC_HARNESS_SLOT selects the lane)"""
 import datetime, json, os, sys, time  # noqa: E401

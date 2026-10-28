@@ -1,6 +1,6 @@
 """W2-P10 S-A - test_synced_campaign_options.py (SHARED): 14 campaign options join W2-P9's synced set.
 
-Owner D134, D162 a, D163 a, D165 a, D200 a. Spec docs rewrite/prompts/w2p10_campaign_options_scope.md as
+Spec docs rewrite/prompts/w2p10_campaign_options_scope.md as
 re-pinned by AMENDMENT P10-1 (section 3 PX-1..PX-8, section 4.1 S-A, section 5). Constants:
 docs rewrite/w2p10-task0/CONSTANTS.md (TASK 0 `w2p10-t0`, F5393-F5406).
 
@@ -11,7 +11,7 @@ a replica drains the shared economy before applying an option change (Q2), and l
 values; options.cfg never receives a shared value.
 
 ONE SHARED boot (PX-5): shared_fixture.bring_up on lobby key 47244, host user dir = HOST_OPTS, client = defaults.
-OWN_FILE = each machine's options.cfg read after the bring-up returns (F4983), the 16 ids parsed (compare parsed,
+OWN_FILE = each machine's options.cfg read after the bring-up returns, the 16 ids parsed (compare parsed,
 never bytes, F4982). Rows in this order (C5 before C4 so C4's red resync cannot disturb C5's red; C8 last):
 
 | row | RED cells on the S-A.1 build |
@@ -23,7 +23,7 @@ never bytes, F4982). Rows in this order (C5 before C4 so C4's red resync cannot 
 | C4 A12    | at the first read world_diff holds bases[0].items.STR_PISTOL_CLIP (differs by N=1: host 7 vs client 8) |
 | C6 order  | oxceAlternateCraftEquipmentManagement not a table id -> host rejected +1 (and the drain/world/both-false green cells fail) |
 
-Ruling P10-SA-R1 (F5509-F5511): client shared_resync_stats `mismatches` also counts an apply's by-design in-flight
+Ruling P10-SA-R1: client shared_resync_stats `mismatches` also counts an apply's by-design in-flight
 skew, so C4's resync_quiet became `no_resync` (resync `requests` unchanged over the row) + `quiet_after_apply`
 (`mismatches` unchanged over 2 s once the stores agree), and C6 adds `no_resync` (requests unchanged from before the
 defer lever to release + 2 s; the auto-resync repairs a divergence before C6's world_diff read).
@@ -32,7 +32,7 @@ defer lever to release + 2 s; the auto-resync repairs a divergence before C6's w
 Guard every row: the 16 ids in each machine's options.cfg (parsed) == OWN_FILE (STOP-IF 3). Each row prints
 ONE "EVIDENCE <id>:" line (both machines' synced_options_state minus `advanced`, and option_values of the 16) then
 "PASS <id>" or "FAIL <id>: <cells>". Exit 0 only when every row passes, 2 otherwise; no exit 3, no retry (section A.8).
-WV-D95: run in the foreground to completion.
+run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_campaign_options.py
 """
@@ -501,7 +501,7 @@ def row_c4(r, x):
     x.c.cmd({"cmd": "craft_assign", "soldier_id": sol["id"], "craft_id": transport["id"], "on": False})
     wait_until(lambda: shared_stats(x.c)["applyCount"] >= ac0 + 1, APPLY_S)
     before = {"host": item_qty(x.h, LAYOUT_ITEM), "client": item_qty(x.c, LAYOUT_ITEM)}
-    # give the 1-item layout on BOTH machines (F5151), then re-seat client-side.
+    # give the 1-item layout on BOTH machines, then re-seat client-side.
     x.h.cmd({"cmd": "give_layout", "item": LAYOUT_ITEM, "count": 1, "slot": LAYOUT_SLOT, "name": sol["name"]})
     x.c.cmd({"cmd": "give_layout", "item": LAYOUT_ITEM, "count": 1, "slot": LAYOUT_SLOT, "name": sol["name"]})
     ac1 = shared_stats(x.c)["applyCount"]
@@ -517,7 +517,7 @@ def row_c4(r, x):
     r.cell("item_eq", after["host"] == after["client"],
            f"{LAYOUT_ITEM} stores host {after['host']} client {after['client']} (N {after['host'] - after['client']})")
     r.cell("world_eq", not wd, f"world_diff {wd[:25]}")
-    # ruling P10-SA-R1 (F5510/F5511): `mismatches` also counts the by-design in-flight skew of an apply, so it is read
+    # ruling P10-SA-R1: `mismatches` also counts the by-design in-flight skew of an apply, so it is read
     # only once the applied stores agree; the divergence metric is `requests` (a mismatch persisting >= 3000 ms).
     eq, _ = wait_until(lambda: item_qty(x.h, LAYOUT_ITEM) == item_qty(x.c, LAYOUT_ITEM), APPLY_S)
     m0 = resync_stats(x.c)["mismatches"]
@@ -574,7 +574,7 @@ def row_c6(r, x):
     r.cell("both_false", hov.get(A12) is False and cov.get(A12) is False,
            f"A12 host {hov.get(A12)} client {cov.get(A12)} (want both False)")
     r.cell("world_eq_after", not wd, f"world_diff after release {wd[:25]}")
-    # ruling P10-SA-R1 (F5509): a replica that applied the queued unassign under the new value diverges until the
+    # ruling P10-SA-R1: a replica that applied the queued unassign under the new value diverges until the
     # auto-resync repairs it before the read above; the resync request is what tells rows-only from the drain.
     r.cell("no_resync", rq1 == rq0, f"client resync requests {rq0}->{rq1} from before the lever to release+{SETTLE_S}s")
     guard_file(r, x)

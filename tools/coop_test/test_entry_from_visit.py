@@ -1,4 +1,4 @@
-"""W2-H74 - test_entry_from_visit.py (EFV): a SEPARATE partner pulled into the host's battle while it views the host's base keeps its own world.
+"""test_entry_from_visit.py (EFV): a SEPARATE partner pulled into the host's battle while it views the host's base keeps its own world.
 
 Spec: docs rewrite/prompts/w2h74_entry_from_visit.md (f) rows V and G; TASK 0 constants: docs rewrite/w2h74-task0/sa/CONSTANTS.md. Lead L-BH1,
 ruling R-BH-2 fix (a) (QH74-1 .. QH74-6 (a), R-H74-1). Lobby key "49297", dirs w2h74_v_*, w2h74_g_*.
@@ -33,7 +33,7 @@ NEEDLES = {"UNWIND": "[coop] W2-H74: battle entry from a view of the host's base
 CELLS = {"V": ["V-pre", "V-entry", "V-snap", "V-log", "V-marker", "V-funds", "V-exp", "V-inside", "V-pushed", "V-copy", "V-save", "V-return",
                "V-common"],
          "G": ["G-pre", "G-snap", "G-own", "G-copy", "G-common"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

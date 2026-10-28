@@ -2179,7 +2179,7 @@ void DogfightState::hostToggleWeapon(int idx)
 	{
 		CraftWeapon* w = _craft->getWeapons()->at(idx);
 		if (w) w->setDisabled(!_weaponEnabled[idx]);
-		if (w) SharedEcon::submitCraftWeaponDisabled(_game, _craft, idx); // coop W2-H16e (F6176): the remembered flag reaches the replica
+		if (w) SharedEcon::submitCraftWeaponDisabled(_game, _craft, idx); // coop: the remembered flag reaches the replica
 	}
 }
 
@@ -2214,7 +2214,7 @@ void DogfightState::harnessToggleWeapon(int idx)
 	if (idx < 0 || idx >= _weaponNum) return;
 	if (_isReplicaView)
 	{
-		emitDfCmd("weaponToggle", idx); // D301 (b): request only; the icon follows the host's df_state (as weaponClick)
+		emitDfCmd("weaponToggle", idx); // request only; the icon follows the host's df_state (as weaponClick)
 	}
 	else
 	{
@@ -2630,7 +2630,7 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
-	// PRD-DF02 REPLICA (owner D301 (b)): the weapon icon is HOST-AUTHORITATIVE, like the
+	// PRD-DF02 REPLICA: the weapon icon is HOST-AUTHORITATIVE, like the
 	// stance buttons. A click only requests the toggle (df_cmd{weaponToggle,arg=i}); the
 	// icon never flips locally - it follows the host's df_state (applyFrame recolors to the
 	// host's _weaponEnabled on a change). No optimistic echo => no revert flicker.
@@ -2657,7 +2657,7 @@ void DogfightState::weaponClick(Action * a)
 				if (w)
 				{
 					w->setDisabled(!_weaponEnabled[i]);
-					SharedEcon::submitCraftWeaponDisabled(_game, _craft, i); // coop W2-H16e (F6176)
+					SharedEcon::submitCraftWeaponDisabled(_game, _craft, i); // coop
 				}
 			}
 			return;
@@ -2996,7 +2996,7 @@ void DogfightState::awardExperienceToPilots()
 	if (_firedAtLeastOnce && !_experienceAwarded && _craft && _ufo && (_ufo->isCrashed() || _ufo->isDestroyed()))
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
-		const Json::Value h18bMark = SharedEcon::soldierFxMark(_game); // coop W2-H18b (F6137): the pilots' records before the award
+		const Json::Value h18bMark = SharedEcon::soldierFxMark(_game); // coop: the pilots' records before the award
 		for (auto* pilot : _craft->getPilotList(false, nullptr)) // refresh already done in the constructor
 		{
 			if (pilot->getCurrentStats()->firing < pilot->getRules()->getStatCaps().firing)
@@ -3025,7 +3025,7 @@ void DogfightState::awardExperienceToPilots()
 			}
 			pilot->calcStatString(_game->getMod()->getStatStrings(), psiStrengthEval);
 		}
-		SharedEcon::hostSoldierFx(_game, h18bMark); // coop W2-H18b (F6137): the host's pilot experience reaches the replica
+		SharedEcon::hostSoldierFx(_game, h18bMark); // coop: the host's pilot experience reaches the replica
 		_experienceAwarded = true;
 	}
 }

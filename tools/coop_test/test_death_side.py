@@ -1,4 +1,4 @@
-"""W2-H5 - test_death_side.py: a dead or a still-unconscious unit stays off
+"""test_death_side.py: a dead or a still-unconscious unit stays off
 its tile across side changes, on both machines (spec
 rewrite/prompts/w2h5_dead_unit_relink.md section (b)4; F809, F817-F824; owner
 ruling D138).
@@ -9,7 +9,7 @@ perUnit applier links every unit that has a `pos` back onto its tile (the
 side_transition perUnit `pos` branch, `setTile`). The host's out unit stays
 off its tile (vanilla never re-links an out unit, F822), the client's is back
 on it, the `synced` bucket (it mixes each unit's onTile) differs, and the
-client freezes at the first side_transition after the death (F817-F819).
+client freezes at the first side_transition after the death.
 Three scenarios, TWO boots:
 
  Boot 1 - the default NEW BATTLE map (the W2-H5 trace fixture R1/R2): roster
@@ -76,7 +76,7 @@ scenario even after an earlier one failed. Every wait is bounded; a wait that
 times out is recorded in the EVIDENCE line and fails the scenario. WV-D99 /
 WV-D100: one run is the result, no skip path. Exit 0 only when all three
 scenarios pass, 2 otherwise (a bring-up failure fails every scenario of that
-boot). WV-D95: run in the foreground to completion.
+boot). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_death_side.py
 """
@@ -374,7 +374,7 @@ def boot_default(host, client):
 
 
 def kill_real(host, client, uid, notes):
-    """HOST kill_unit_real on `uid`, then its status DEAD with no BState (F823),
+    """HOST kill_unit_real on `uid`, then its status DEAD with no BState,
     then the host idle with the client caught up. Returns the lever's answer."""
     r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
     try:

@@ -220,7 +220,7 @@ def main():
     if not all(alive.values()) or (note and note.startswith("ERROR")):
         sys.exit(2)
     if note:
-        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: research sync makes a discovery a discovery for both players")

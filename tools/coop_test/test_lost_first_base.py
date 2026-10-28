@@ -1,4 +1,4 @@
-"""W2-H87 (F23065; R-LF23065-1, VL-H87-1) - SEPARATE campaign: after a player loses its FIRST base while it owns another
+"""SEPARATE campaign: after a player loses its FIRST base while it owns another
 base, the geoscape BASES button opens its own remaining base with every button, and leaving that screen reloads nothing.
 
 A lost base is erased without re-pointing the selected-base index, and the partner's session-start mirror sits right after
@@ -9,8 +9,8 @@ the host's clock (and the client's, which follows it) goes back, and the two mac
 
 TWO boots, lobby key "49692" (user dirs w2h87_a_* / w2h87_b_*), slot from OXC_HARNESS_SLOT. Spec
 rewrite/prompts/w2h87_lost_first_base_revert.md (f) (ruling R-H87-1: QH87-1 .. QH87-8 (a)); pins from
-rewrite/w2h87-task0/sa/CONSTANTS.md (TASK 0 boots h87t0_r_a / _r_b red, h87t0_g_a / _g_b green). Capture lf23065-cap
-(F23180-F23192); spec findings F23200-F23215. The same unit's F23069 (a lost base back on the partner's globe; R-LBH2-1,
+rewrite/w2h87-task0/sa/CONSTANTS.md (TASK 0 boots h87t0_r_a / _r_b red, h87t0_g_a / _g_b green). Capture lf23065-cap;
+spec findings F23200-F23215. The same unit's F23069 (a lost base back on the partner's globe; R-LBH2-1,
 VL-H87-2) is test_lost_base_reply_ghost.py.
 
   boot A (host acts)
@@ -25,14 +25,14 @@ VL-H87-2) is test_lost_base_reply_ghost.py.
     SETUP-B client builds ClientBase2 (lever), the host lists it                                 (feeds RL2-pre)
     RL-2  as RL-1 on the client               RL2-pre RL2-bases RL2-reload RL2-world RL2-clock RL2-agree
   end   shutdown of both boots                                         CRASH
-RED on the unchanged build (TASK 0): RL1-bases, RL1-reload, RL1-world, RL1-cclock, RL1-agree, RL2-bases, RL2-reload,
+RED on the unchanged build: RL1-bases, RL1-reload, RL1-world, RL1-cclock, RL1-agree, RL2-bases, RL2-reload,
 RL2-world, RL2-agree (9 of 17). RL-3 (a second base lost: no defect), every -pre cell, RL2-clock and CRASH pass on both
 builds. The reload needle is the engine log line "[coop-ui] push class OpenXcom::LoadGameState" in the actor's log.
 
 Each row prints ONE "EVIDENCE <row>:" line, one "PASS <cell>" / "FAIL <cell>: <why>" line per cell and "ROW <row>:
 PASS|FAIL". Every row runs after a failure; a precondition miss ends its row (its later cells FAIL "not reached") with ONE
-CAPTURE line. Every TESTED press is a real click_widget or inject_input. WV-D95: run it to completion in the foreground.
-WV-D99 / D100: ONE run is the bar, no SKIP. Exit 0 = every cell passed; 2 = at least one cell failed.
+CAPTURE line. Every TESTED press is a real click_widget or inject_input. run it to completion in the foreground.
+ONE run is the bar, no SKIP. Exit 0 = every cell passed; 2 = at least one cell failed.
 Run:  python tools/coop_test/test_lost_first_base.py
 """
 

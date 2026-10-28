@@ -1,4 +1,4 @@
-"""SPEC 19 (W1-P20) S1 - campaign co-op battle entry: SEPARATE guest battle.
+"""SPEC 19 S1 - campaign co-op battle entry: SEPARATE guest battle.
 
 A SEPARATE campaign co-op battle flown from the host's Skyranger with a guest
 seated by the CLIENT (session.bring_up_separate_guest_battle - the archived

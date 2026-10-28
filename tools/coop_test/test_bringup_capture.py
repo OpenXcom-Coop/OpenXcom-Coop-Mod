@@ -1,4 +1,4 @@
-"""W2-U8e - test_bringup_capture.py (docs rewrite/prompts/w2u8e_bringup_capture.md (f)): F8376, a join_tcp sent
+"""test_bringup_capture.py (docs rewrite/prompts/w2u8e_bringup_capture.md (f)): F8376, a join_tcp sent
 before the host's lobby listener opened (the client knocks ONCE, ~1.1 s later; refused = CoopState(16)); F8573, the
 host-popup timeout said only last=None; F8563, a game alive 15 s after quit was killed with no trace of its threads.
 U8e-G / -J / -K: no game, fakes (real harness.GameClients with a scripted per-instance _send). U8e-L (key 47277): a

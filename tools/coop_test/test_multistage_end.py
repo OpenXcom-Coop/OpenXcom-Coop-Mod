@@ -25,7 +25,7 @@ TWO boots, one per row, each shut down before the next:
        alien, no cutscene, no objective). set_seed SEED_C, MAP_FP_C, pin_ai_neutral, hash clean; both logs name the
        mod active (no invalid-mod line) and derive the stage-1 deployment. Kill-all (as MS1) -> the stage-entry cells
        with missionType STR_COOP_MULTISTAGE_TEST_P2 -> the stage-2 spine -> both turn 1 on _P2, mapSizeXYZ
-       STAGE2_TILES, hash clean -> kill-all again -> the host's battle_end (W2-P7): host record emitted 1, reason
+       STAGE2_TILES, hash clean -> kill-all again -> the host's battle_end: host record emitted 1, reason
        aliensDown, aborted false; the client's applied 1 with the host's seq, resultReceived 1, debriefDisplayOnly 1;
        the host's DebriefingState (shown, on top, not display-only) and the client's display-only DebriefingState
        with the host's seven content fields (W2-P7 S-B1 cells) -> the client presses OK, then the host (D156 (a), the
@@ -35,12 +35,12 @@ RED on S-A2's commit 1 (S-A1's red base: no stage writer; TASK 0 T0-7 / the red 
 each row fails exactly its four stage-entry cells (no client stage-2 briefing within ENTRY_S, client missionType not
 the stage-2 mission, client stage.applied 0, host stage.emitted 0); every pre-stage cell passes. The host dies after
 the stage change (F5081: died at 16 / 25 / 29 s on MS2's shape, 2 s on MS3's), so host liveness and crash files are
-EVIDENCE only until stage 2 is reached; the host's event_state read itself can fault on the freed stage-1 screen
-(F10010). battle_state is never probed unless a BattlescapeState is on that machine's stack (F9920).
+EVIDENCE only until stage 2 is reached; the host's event_state read itself can fault on the freed stage-1 screen.
+battle_state is never probed unless a BattlescapeState is on that machine's stack.
 
 Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a
 FAIL, ONE "CAPTURE <id>:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past
-its bound fails the row `boot` with one CAPTURE line. Every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE
+its bound fails the row `boot` with one CAPTURE line. Every row runs after a failure. ONE
 foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_multistage_end.py
@@ -91,7 +91,7 @@ STAGE2_TILES = 7200                                        # 60x60x2 (T0-2m, 3/3
 
 
 def bview(gc):
-    """battle_state, only while a BattlescapeState is on the stack (F9920)."""
+    """battle_state, only while a BattlescapeState is on the stack."""
     st = stack(gc)
     if not has_bstate(st):
         return {"skipped": f"no BattlescapeState on the stack (F9920): {st}"}
@@ -357,7 +357,7 @@ def mod_view(gc):
 
 
 def final_debriefs(host, client, ctx, f):
-    """Stage 2's kill-all through W2-P7: battle_end, both debriefs (S-B1), the client's OK then the host's (D156)."""
+    """Stage 2's kill-all through W2-P7: battle_end, both debriefs (S-B1), the client's OK then the host's."""
     g = []
     for name, gc in (("host", host), ("client", client)):
         be = event_state(gc).get("battleEnd") or {}
@@ -398,7 +398,7 @@ def final_debriefs(host, client, ctx, f):
         if debrief_view(cdeb).get(k) != debrief_view(hdeb).get(k):
             f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r}")
     leave = {}
-    for name, gc in (("client", client), ("host", host)):   # D156 (a): the client leaves first (W2-P7 E3)
+    for name, gc in (("client", client), ("host", host)):   # the client leaves first (W2-P7 E3)
         ok = press_ok(gc)
         menu, secs = wait_until(lambda gc=gc: left_menu(gc), OK_LEAVE_S, 0.1) if ok.get("pressed") else (False, 0)
         leave[name] = {"ok": ok, "mainMenu": menu, "secs": secs, "stack": stack(gc)}

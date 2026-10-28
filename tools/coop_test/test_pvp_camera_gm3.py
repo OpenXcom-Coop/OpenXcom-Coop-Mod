@@ -23,7 +23,7 @@ idle; offsets compare x / y (z is the view level).
       send_walk(8, K6_DEST). K6-walk (one new host context {intent, walk, 8}; walk +1; 8 on K6_DEST on both), K6-pre (8
       in HU after), K6-centre (the host's offset != staged and 8's tile on the host's screen: map_tile_screen_pos inside
       the map surface).
-  K8  the alien host's camera centres on its own alien hit by an X-COM psi attack (F4187): the partner's END TURN ->
+  K8  the alien host's camera centres on its own alien hit by an X-COM psi attack: the partner's END TURN ->
       side 1 turn 2, the host's END TURN -> side 0 turn 3; host camera at FAR; the amp on 11, 11 psiSkill 100, A
       psiStrength 0, 11's TU; host set_seed SEED_K8; the partner's lever psi {panic, A}. K8-psi (one new host context
       {intent, psi, 11}; psi +1), K8-centre (the host's offset centred on A's tile: A_CENTRE). K8 is the last row.
@@ -31,8 +31,8 @@ idle; offsets compare x / y (z is the view level).
 Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
 RED at B1: K4-cam, K6-centre, K8-centre; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell,
 then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every
-row "boot"; a staging step past its bound fails the rows that need it "staging". Lever pairs go to the client first
-(F607); ids come from lever replies (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the
+row "boot"; a staging step past its bound fails the rows that need it "staging". Lever pairs go to the client first;
+ids come from lever replies (S25). run in the foreground to completion. ONE run is the
 result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_camera_gm3.py

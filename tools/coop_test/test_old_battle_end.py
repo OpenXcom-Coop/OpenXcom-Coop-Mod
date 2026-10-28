@@ -1,6 +1,6 @@
 """D246-U stage S-B row EA: a SEPARATE co-op campaign saved mid-battle by an OLDER version (the release line, `main`
 651ae44ba), converted at the rewrite host's load (S-A), ends with the guest's record back in its owner's world and no
-copy left in the host's world (owner D246 (b); D155 (a), D181 (a), F366; QD246-5 (a)).
+copy left in the host's world.
 
 Spec: docs repo rewrite/prompts/d246u_midbattle_save_convert.md section (f) test_old_battle_end.py (QD246-1 ..
 QD246-9 (a), orchestrator rulings 2026-10-12). Constants: rewrite/d246u-task0/sb/CONSTANTS.md (TASK 0 T0-2 .. T0-5; the
@@ -21,13 +21,13 @@ traditional mode with the host's go (coopEndTurnTally.activeSeat 0 on both).
                 (RED at B1: guestsApplied 0, missions unchanged - the release line's copy carries no coop-origin tag)
   EA-own-world  the client's soldier_record {name} for each host squad name == exactly OWN_TWINS (the partner's own
                 soldier of that name, coop 0): no host mirror in the client's own world (E4 (0); F13601)
-  EA-copy       the host's OK + b1.drain -> GeoscapeState; no living soldier_record {id: COPY_ID} on the host (F366)
+  EA-copy       the host's OK + b1.drain -> GeoscapeState; no living soldier_record {id: COPY_ID} on the host
   EA-common     every hash bucket EQUAL (taken after the kills, the last point both machines hold the battle: after the
                 debriefing a SEPARATE pair holds two worlds); desyncSeen false on both, no new lane crash file and the
                 client wrote no save (at the end)
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. Every cell runs after a failure; a cell whose
-precondition failed FAILs "not reached". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the
+precondition failed FAILs "not reached". run in the foreground to completion. ONE run is the
 result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_old_battle_end.py
@@ -51,7 +51,7 @@ GUEST = rs.RS_GUEST               # the guest copy's battle unit (9)
 COPY_ID = 9                       # the host world's release-line copy: "Guest Zzz", coopname "Gaston Faure", owner 999
 OWN_ID, OWN_MISSIONS = 8, 0       # the client's own guest soldier (partner world id 8) and its saved missions
 OWN_COOPNAME = "Gaston Faure"     # its coopName (TASK 0: 4 of 4 boots; "Guest Zzz" is only its display name, F13300)
-# (id, coopName, coop) of the partner's own soldiers named as the host squad (F13601): no host mirror beside them
+# (id, coopName, coop) of the partner's own soldiers named as the host squad: no host mirror beside them
 OWN_TWINS = {"Erno Bartok": [(1, "Erno Bartok", 0)], "Robin Berggren": [(2, "Robin Berggren", 0)],
              "Lyris Kollias": [(3, "Lyris Kollias", 0)]}
 HOSTILES = list(range(1000000, 1000014))

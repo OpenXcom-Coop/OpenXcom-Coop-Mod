@@ -3,7 +3,7 @@ shared applies (its post-battle world not yet adopted) drops them and the apply 
 never drain into the next session's world (docs rewrite/prompts/w2p7_sc_design.md section 3.6, AMENDMENT P7-7
 sections 2-4: PR-34 = SK3, F5237, F5576; MR3).
 
-Before S-C-D2 (F5576): CoopSession::resetSession clears no SharedEcon state - the held shared_apply queue (g_applyQ)
+Before S-C-D2: CoopSession::resetSession clears no SharedEcon state - the held shared_apply queue (g_applyQ)
 and the PR-6 apply hold (g_applyHold) survive a return to the main menu and drain into the next session's world at its
 LoadGameState notifyWorldAdopted().
 
@@ -29,12 +29,12 @@ Row D2g (the GREEN cells, in order; a failed cell ends the row and the rest are 
       its count before the rejoin (PR-34: the dropped applies never drain into the next session's world).
 Guard: host event_state.fatalVote.armed 0; no new crash log; the client zero-disk at the end.
 
-RED (commit S-C-D2.1: levers and rows, product untouched): D2g fails on cell 2 - the client's applyQueued stays >= 1
-(F5576). GREEN (commit S-C-D2.2): the row passes.
+RED (commit S-C-D2.1: levers and rows, product untouched): D2g fails on cell 2 - the client's applyQueued stays >= 1.
+GREEN (commit S-C-D2.2): the row passes.
 W2-U8i (W2-G batch 22, F9850-F9857, R-U8i-1): cell 3 used to press the freeze's hidden RESUME in a loop, an input no
 player can make, and W2-U7d's TestServer refusal (95c68b674) left the host on the freeze. Cell 3 now follows the player
 path (AMENDMENT P7-7 section 3.2 D2g; flow-03 / D5) and cell 4 is new.
-ONE "EVIDENCE D2g:" line, then "PASS D2g" or "FAIL D2g: <message>". WV-D95/D99/D100: ONE foreground run, no skip
+ONE "EVIDENCE D2g:" line, then "PASS D2g" or "FAIL D2g: <message>". ONE foreground run, no skip
 path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_apply_hold_reset.py

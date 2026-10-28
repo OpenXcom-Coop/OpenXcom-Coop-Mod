@@ -14,8 +14,8 @@ the owner-side loss (set_ufo_damage) and the drop (kill). Each boot is fresh and
   DO-craft RED, DO-home, DO-seen RED, DO-after, DO-input, DO-common.
 Red (commit R1): exit 2, RED exactly on SW-seen, DM-dfs, DM-dangling, DM-craft, DM-seen, DO-dfs, DO-dangling, DO-craft, DO-seen (9 of 21). A guard
 miss: ONE CAPTURE line and the row's remaining cells FAIL "guard"; a host crash after the row's delete: they FAIL "crash" (the UAF itself). ONE
-EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2
-(WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
+EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2.
+WV-D95: one foreground run per invocation.
 Run: python tools/coop_test/test_dogfight_mirror_delete.py
 """
 import json, math, os, sys, time  # noqa: E401

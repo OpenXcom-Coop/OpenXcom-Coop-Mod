@@ -1,4 +1,4 @@
-"""W2-P8b - test_prebattle_equip.py: pre-battle equip for both players. Both
+"""test_prebattle_equip.py: pre-battle equip for both players. Both
 briefings show at once, each player lands on the vanilla pre-battle equip screen for
 its own soldiers, every change the second player makes is an order the host
 performs, OK is a 'ready' toggle, and turn 1 starts on the host when every seat
@@ -47,14 +47,14 @@ screen shows C1; C1's TU is read on both machines before and after each row.
   EQ12  UNLOAD widget: the client picks R from STR_BACK_PACK, then UNLOAD. GREEN: R in
         STR_RIGHT_HAND, its clip in STR_LEFT_HAND on both, C1's tu unchanged. RED: the
         battle cost (the unload plus the move to the hand) spent on both.
-  EQ14  the host's cursor item (F3125): the host picks Y (the first pile grenade, the
+  EQ14  the host's cursor item: the host picks Y (the first pile grenade, the
         same id first at its cell on both machines) onto its cursor; the client picks
         Y and drops it on C1's STR_LEFT_LEG (0,0). GREEN: the client's line text =
         STR_COOP_DENY_ITEM_MISSING's (invWarningWrites +1, lastDeny item_missing), Y
         still on the host's cursor and on the pile on both; then the host's right-click
         returns Y. RED: the host executes the order (Y on C1 on both).
         R-EQ2-4 (EQ-2 S-B, F21270): the host's TEST-ONLY equip_holds_defer is on from
-        before the host's pick until the answer, so the client still lists Y (D291 b).
+        before the host's pick until the answer, so the client still lists Y.
   T0-6  the pile holds (P8b-2's T0-6 ruling, STOP-IF 8): the host Ctrl-clicks a pile
         rifle clip onto its own soldier (a host equip placement at turn 0). GREEN (and
         at S-B.1: S-A built it): the clip on that H soldier on both, the client applied
@@ -62,15 +62,15 @@ screen shows C1; C1's TU is read on both machines before and after each row.
         the host screen's ground ids.
   RED (commit S-B.1): exactly EQ10, EQ11, EQ12, EQ14 fail, each on its RED cell; every
   other row passes.
-  EQ1   both briefings (D210 b): the host's BriefingState is up; wait <= 30 s for the
+  EQ1   both briefings: the host's BriefingState is up; wait <= 30 s for the
         client's. GREEN: the client's BriefingState up while the host's is up, turn 0
         on both, the client's mapFingerprint = MAP_FP. RED: the wait fails (no offer
         before the host's OK).
-  EQ2   client first (D174): client close_briefing. GREEN: client top InventoryState,
+  EQ2   client first: client close_briefing. GREEN: client top InventoryState,
         preBattle, unitId in C, its `ground` ids = the host's battle_items on PILE, the
         client's equip.pile (the offer's pile) = PILE, the host still on its briefing. RED: precondition
         absent (no client battle).
-  EQ3b  a rename in the window (F3108): NEXT to C2, click the name field (P8-4c T0-R2),
+  EQ3b  a rename in the window: NEXT to C2, click the name field (P8-4c T0-R2),
         one letter, then PREV back to C1 - run just BEFORE EQ3's pick, because vanilla
         refuses PREV/NEXT while an item rides the cursor (InventoryState.cpp
         btnNextClick) and EQ3 holds its clip there. GREEN: C2's name, _name and rawName
@@ -84,10 +84,10 @@ screen shows C1; C1's TU is read on both machines before and after each row.
   EQ9   END TURN in the window (b8), during EQ3's hold: the client's
         battle_end_turn_ready {ready: true}. GREEN: host alive, equip.endTurnIgnored 1,
         turn 0 on both.
-  EQ4   both players' units (EQ-1, owner D288 b): each machine inventory_click {widget: next} x len(H) + len(C).
+  EQ4   both players' units: each machine inventory_click {widget: next} x len(H) + len(C).
         GREEN: the visited ids = H u C on each machine (the partner's read-only). RED at EQ-1's R2: only the own
         set (at S-A.1: no client screen, the freeze text on the banner).
-  EQ5   ready toggle (D206 c, D216 c): client inventory_click {widget: ok} x3. GREEN:
+  EQ5   ready toggle: client inventory_click {widget: ok} x3. GREEN:
         press 1 -> host equip.ready[1] true, client okPressed true, the client's screen
         still on top, turn 0, and at +1.5 s its line "Waiting for HostPlayer to finish
         equipping" visible; press 2 -> all false, the line not visible at +1.5 s;
@@ -130,9 +130,9 @@ H=[10, 11, 12, 13, 14]"), the texts (en-US; exact text).
 
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked; main()
 runs every row even after an earlier one failed and prints "PASS <id>" / "FAIL <id>:
-<message>". Every wait is bounded. WV-D99 / WV-D100: one run is the result; no skip
+<message>". Every wait is bounded. one run is the result; no skip
 path, no second boot. Exit 0 only when every row passes, 2 otherwise (a bring-up or
-spine failure is also 2). WV-D95: run in the foreground to completion.
+spine failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_prebattle_equip.py
 """
@@ -155,10 +155,10 @@ from test_client_items import strip_both
 PORT = "48791"                     # this file's lobby port (unused by every other test file)
 SEED_MAP = 1                       # set_seed right before newbattle_ok (tseed.py)
 MAP_FP = -4.48310638993e+18        # host = client mapFingerprint at SEED_MAP 1 (tseed_parallel.log)
-C_IDS = [8, 9]                     # the client's seated units (F3326)
+C_IDS = [8, 9]                     # the client's seated units
 C1, C2 = 8, 9
-H_IDS = [10, 11, 12, 13, 14]       # the host's own soldiers (F3326)
-PILE = (14, 19, 1)                 # the craft pile tile at turn 0 (F3326)
+H_IDS = [10, 11, 12, 13, 14]       # the host's own soldiers
+PILE = (14, 19, 1)                 # the craft pile tile at turn 0
 COOP_SEAT_0 = 0
 FACTION_PLAYER = 0
 STAGE_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE", "STR_PROXIMITY_GRENADE", "STR_SMOKE_GRENADE")
@@ -198,11 +198,11 @@ EQ1_WAIT_S = 30.0                  # EQ1 cell: "wait <= 30 s for the client's Br
 CLIENT_BATTLE_WAIT_S = 90.0        # the spine: the client's battle after the host's OK (drive_to_battlescape's 90 s)
 ENTRY_WAIT_S = 5.0                 # the client's equip screen after its briefing closes
 CLICK_WAIT_S = 2.0
-CYCLE_CAP = 16                     # EQ-1 (D288 b): goto_unit's press bound - the pre-battle cycle also visits the partner's soldiers
+CYCLE_CAP = 16                     # goto_unit's press bound - the pre-battle cycle also visits the partner's soldiers
 ANSWER_WAIT_S = 3.0                # a held deny / a ready flag / a counter reaches the other machine
 LAND_WAIT_S = 10.0                 # EQ3 cell: "within 10 s the clip is on C1's belt on both"
-LINE_READ_S = 1.5                  # F3112: the line fades in 1.2 s; read 1.5 s after the event
-LINE_GONE_S = 3.0                  # W2-U9d (R-MGR1-1, F23583-F23584): the fade measured 1499-1512 ms; EQ5 press 2 polls, 2 x
+LINE_READ_S = 1.5                  # the line fades in 1.2 s; read 1.5 s after the event
+LINE_GONE_S = 3.0                  # the fade measured 1499-1512 ms; EQ5 press 2 polls, 2 x
 BARRIER_WAIT_S = 5.0
 DEFER_MS = 3000                    # EQ7b: defer_intents {ms 3000, count 1}
 LATE_READ_S = 3.5                  # EQ7 cell: "+3.5 s: lateDenied 1" (the first read)
@@ -374,7 +374,7 @@ def next_press(gc, rec_list):
 
 
 def goto_unit(gc, uid, own, rec_list):
-    """NEXT until the screen shows `uid`. EQ-1 (owner D288 b): the pre-battle PREV / NEXT also visit the partner's
+    """NEXT until the screen shows `uid`. the pre-battle PREV / NEXT also visit the partner's
     soldiers (read-only), so the walk ends at `uid`, after one full cycle (back on its start unit after leaving it) or
     after CYCLE_CAP presses - never after len(own). `own` stays for the callers. True when reached."""
     start = inv_view(gc).get("unitId")
@@ -400,7 +400,7 @@ def ok_press(gc):
 
 
 def drained(host, client):
-    ec, eh = es(client), es(host)  # W2-U8c (F6561): the client is read first
+    ec, eh = es(client), es(host)  # the client is read first
     return (ec.get("lastSeqApplied", 0) == eh.get("lastSeqEmitted", 0) and ec.get("queueDepth") == 0
             and eh.get("queueDepth") == 0)
 
@@ -809,7 +809,7 @@ def eq4_own_units(host, client, ctx):
     for gc, own in ((host, H_IDS), (client, C_IDS)):
         start = inv_view(gc).get("unitId")
         presses = []
-        for _ in range(len(H_IDS) + len(C_IDS)):   # EQ-1 (D288 b): the cycle visits both players' soldiers
+        for _ in range(len(H_IDS) + len(C_IDS)):   # the cycle visits both players' soldiers
             next_press(gc, presses)
         seen = [start] + [p["to"] for p in presses]
         ev[gc.name] = {"start": start, "presses": presses, "seen": seen}
@@ -841,7 +841,7 @@ def eq5_ready_toggle(host, client, ctx):
                 time.sleep(rest)
             v = inv_view(client)
         else:
-            # W2-U9d (R-MGR1-1): the line goes when its last show's fade ends (1499-1512 ms, F23583), so press 2 polls
+            # the line goes when its last show's fade ends (1499-1512 ms, F23583), so press 2 polls
             # until it is not visible, bounded at LINE_GONE_S from the click, instead of one read at +LINE_READ_S
             while True:
                 v = inv_view(client)
@@ -1243,7 +1243,7 @@ def eq14_host_cursor_item(host, client, ctx):
         evidence("EQ14", ev)
         finish([f.replace("EQ14: ", "EQ14: precondition absent - ") for f in fails])
     y = y_host
-    # R-EQ2-4 (EQ-2 S-B, F21270): the host's pick reserves Y (D291 b) and its hold table would take Y off the client's
+    # R-EQ2-4 (EQ-2 S-B, F21270): the host's pick reserves Y and its hold table would take Y off the client's
     # pile within a pump pass; the TEST-ONLY equip_holds_defer keeps that table back (as EQH H6 does), so the client
     # can still pick Y and the put-down race below is built. Off again once the answer is read.
     r = host.cmd({"cmd": "equip_holds_defer", "on": True})
@@ -1274,7 +1274,7 @@ def eq14_host_cursor_item(host, client, ctx):
                   "yHost": item_view(ih, y), "yClient": item_view(ic, y), "hostLine": inv_view(host).get("lineText"),
                   "hostCursorReturned": (es(host).get("hostScreens") or {}).get("cursorReturned")}
     ev["answer"] = answer
-    r = host.cmd({"cmd": "equip_holds_defer", "on": False})  # R-EQ2-4: the held-back table goes out now
+    r = host.cmd({"cmd": "equip_holds_defer", "on": False})  # the held-back table goes out now
     ev["deferOff"] = {k: r.get(k) for k in ("ok", "on", "error")}
     # the host's cursor goes back (vanilla's right-click return; a pick is display only, the item never left the
     # pile). Only with an item on it: a right-click with an empty cursor on the pre-battle screen primes a grenade.

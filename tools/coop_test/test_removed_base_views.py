@@ -36,7 +36,7 @@ all 19 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon an
 coopBase, lon, lat]. LEAVE = engine-log lines holding "[coop] W2-H83: the partner removed the base this player views". Every press is a real
 click_widget or inject_input except the logged levers build_new_base, geo_set_speed, screen_push and set_funds. One EVIDENCE line per row, one
 PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes
-on; a boot miss fails its first row's -pre cell with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only
+on; a boot miss fails its first row's -pre cell with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only
 when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_views.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
@@ -46,9 +46,9 @@ import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
 KEY = "49558"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 2822029fe)
-B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2 / SharedBase2: on land (TASK 0)
-B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3 / SharedBase3: on land (TASK 0)
-B4 = (LAND_LON + 0.09, LAND_LAT + 0.03)     # SharedBase4: on land (TASK 0)
+B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2 / SharedBase2: on land
+B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3 / SharedBase3: on land
+B4 = (LAND_LON + 0.09, LAND_LAT + 0.03)     # SharedBase4: on land
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_1, ZOOM_MIN, SYM_PLUS = 49, 3, 43
 W_LEAVE, W_POP = 5.0, 2.0

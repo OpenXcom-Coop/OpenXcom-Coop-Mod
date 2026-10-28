@@ -1,5 +1,5 @@
 """W2-P6b S-L - test_hit_log.py: the battle's hit log (Ctrl-H) on both machines,
-the same log as the host's, each machine in its own language (owner D172 (a)) -
+the same log as the host's, each machine in its own language -
 spec docs rewrite/prompts/w2p6_display_two.md: AMENDMENT P6-5 section 6 (the
 pinned stage text, rows L1-L4; P6-5 Q3 (a) the envelope carrier, Q4 (a) the
 client writes SavedBattleGame::appendToHitLog, Q5 (a) a German client),
@@ -9,7 +9,7 @@ and the P6-6k S-L TASK 0 RULINGS (SL-1; T0L-1 = F4235-F4244).
 Before S-L.2 the second player's hit log holds only its own entries: the turn
 headers its own next-turn screen writes and a weapon line for every attack it
 picked itself; the host's shots, hits and reactions never reach it, and the
-host's log has no weapon line for the second player's attack (F3212). After
+host's log has no weapon line for the second player's attack. After
 S-L.2 the HOST mirrors every entry that passes vanilla's player-side check as
 {t: type, f: faction, k: [keys]} on its next outermost emit (the envelope field
 `hitLog`), the CLIENT appends each entry through SavedBattleGame::appendToHitLog
@@ -78,9 +78,9 @@ line before its conditions are checked; main() runs every row even after an
 earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait
 is bounded; a wait that times out is recorded and fails the row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all four rows pass, 2 otherwise (a
-bring-up failure is also 2). WV-D95: run in the foreground to completion.
+bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_hit_log.py
 """
@@ -418,7 +418,7 @@ def l2_client_snap(host, client, ctx):
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
     # C16's staging (test_client_shoot.c16_snap_kill) on L1's boot: H back on its bring-up tile and facing (C1
-    # left it on C_TILE), A2 stands in for A (dead since L1) on A_TILE; client first on every lever (F607)
+    # left it on C_TILE), A2 stands in for A (dead since L1) on A_TILE; client first on every lever
     hx, hy, hz, hd = ctx["hHome"]
     uh = units(host).get(H_ID) or {}
     h_back = None

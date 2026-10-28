@@ -1,6 +1,6 @@
 """W2-H86 helpers (tools/coop_test/crossing_helpers.py, "CH"), imported by test_upload_save_crossing.py (UXC: rows U1, CTL) and
 test_upload_save_crossing_heal.py (UXH: rows U2, U2D). Spec docs rewrite/prompts/w2h86_upload_save_crossing.md (f); TASK 0 values in
-rewrite/w2h86-task0/sa/CONSTANTS.md. Lead L-LT17-1, ruling R-LLT17-1-1 (VL-H86-1, VL-H86-2): a partner's unasked upload (here its push
+rewrite/w2h86-task0/sa/CONSTANTS.md. Lead L-LT17-1, ruling R-LLT17-1-1: a partner's unasked upload (here its push
 after the host gifts it a soldier) carries the saveID the partner had when the stream started; a host quick save inside that stream
 re-mints the host's id, and the host's check of the upload (a scratch load) then moved the host's id to the upload's older one while the
 world was stored under the newer key, so a drop + rejoin got a new campaign.
@@ -11,7 +11,7 @@ host is readable between the two checks); both released in a finally (levers_off
 ({id: host_<id>_<NAME>.data}), w58 (the W2-H58 copy line). Every step is recorded in r.ev["X"]; a precondition miss fails the row's -pre
 cell and raises RH.Stop (later cells "not reached"). Imports drop_fixture (F) and rejoin_helpers (RH) unchanged. Never a base
 placement, never the 54's CANCEL (only F resume_and_clear after an ack CANCELs a stale 54). Polls 0.05 s.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run per test file, no SKIP; exit 0 only when every cell passes, else 2."""
+ONE foreground run per test file, no SKIP; exit 0 only when every cell passes, else 2."""
 import os
 import re
 import sys

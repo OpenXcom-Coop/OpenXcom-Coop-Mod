@@ -428,8 +428,8 @@ public:
 	/// live mirror once it re-syncs. 0 = no pending re-link.
 	int getCoopDestUfoId() const { return _coopDestUfoId; }
 	int getCoopDestMissionId() const { return _coopDestMissionId; }
-	int getCoopDestAlienBaseId() const { return _coopDestAlienBaseId; } // coop W2-H48
-	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; _coopDestAlienBaseId = 0; _coopDestCraftBaseId = 0; _coopDestCraftId = 0; _coopDestCraftType.clear(); } // W2-H51
+	int getCoopDestAlienBaseId() const { return _coopDestAlienBaseId; } // coop
+	void clearCoopDestPending() { _coopDestUfoId = 0; _coopDestMissionId = 0; _coopDestAlienBaseId = 0; _coopDestCraftBaseId = 0; _coopDestCraftId = 0; _coopDestCraftType.clear(); }
 	/// Rebinds the destination to a live coop mirror UFO / mission site matching
 	/// the stored coop id (if any), replacing the interim waypoint. Returns true
 	/// if it re-linked. Called on the client after coop targets are re-synced.

@@ -1,6 +1,6 @@
 """D250-U S-C5a - test_campaign_gm3_targets.py: gm3 PvP campaign battles at a UFO and at an alien base (host = the aliens, client =
 X-COM). In ONE gm3 campaign the X-COM player wins at a crashed UFO, aborts at a landed UFO and destroys an alien base, each the alien
-host's own object reached through its mirror; after each battle the target leaves the alien host's world by vanilla's rule (QC-11 (a)):
+host's own object reached through its mirror; after each battle the target leaves the alien host's world by vanilla's rule:
 the crashed UFO disappears, the landed UFO takes off, the destroyed base goes with its links cleared.
 
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-3: SC3-7 "Stage S-C5a", SC3-8 (levers T1-T3; product S1-S4), SC3-9
@@ -37,7 +37,7 @@ other six cells "blocked: <why>"):
 RED (C5R, the lever build): 12/21 cells PASS; FAIL U1-target and U2-target (fate "untouched", the real UFO stays: F15330), A1-hand (refused
 "target": F15328) and A1-host .. A1-common ("blocked: the alien base landing never borrowed (A1-hand)"). GREEN (C5G): 21/21.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_targets.py
 """
 
@@ -60,7 +60,7 @@ import test_campaign_battle_gm3_end as G3E  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc5a/CONSTANTS.md) -----
 KEY = "48022"
-SEED = 1                                     # set on the X-COM CLIENT right before each confirm_landing (F13986)
+SEED = 1                                     # set on the X-COM CLIENT right before each confirm_landing
 TITLE = {"U1": "UFO is recovered", "U2": "UFO is not recovered", "A1": "Alien Base destroyed"}       # FX5-12
 MAP_FP = {"U1": -5.462816325144846e+18, "U2": 3.3951652687105495e+18, "A1": -7.901758915371136e+18}  # EVIDENCE only
 UFO = {"type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",

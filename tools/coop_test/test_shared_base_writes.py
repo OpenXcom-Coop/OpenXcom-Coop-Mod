@@ -2,12 +2,12 @@
 rewrite/w2h20b-task0/CONSTANTS.md): in SHARED, base-screen writes outside H20's gear record end equal on both machines through the host:
 a rename on the base inventory (A14), a saved layout / craft loadout template (A10), a personal layout's armor (A11: own synced, the
 partner's put back at once); the armor screen refuses the partner's soldier "not your soldier" (A13). Today each stays on one machine or
-applies to the partner (F8252-F8256). H / C / C2 = H20's rule (S25). W = 10 s at 0.25 s polls; a key's local effect <= 5 s; "nothing sent"
+applies to the partner. H / C / C2 = H20's rule (S25). W = 10 s at 0.25 s polls; a key's local effect <= 5 s; "nothing sent"
 cells after a 1 s settle. Global layout 0 = equip_layouts {index: 0} inside that machine's open soldier screen (T0-1); loadout 0 and
 lastSelectedArmor = the test-only lever base_screen_op {op: read}. A row whose named RED cell fails evaluates no later cell.
 Boot A (SHARED, ports 49421 / 49422 / 47924, option OFF, STR_PERSONAL_ARMOR 4 on both):
   H20b-1 client screen: rename C "Ripley B". RED: the host's C never "Ripley B" in W. Cleanup (both builds): rename back, W.
-  H20b-2 client screen: rename H "Vasquez B". EQ-3 S-A (owner D294 b): refused before any write - the reply keeps H's name and
+  H20b-2 client screen: rename H "Vasquez B". EQ-3 S-A: refused before any write - the reply keeps H's name and
         neither machine shows "Vasquez B" (host W). RED (before EQ-3 S-A): the reply says "Vasquez B".
   H20b-3 (guard) host screen open; client soldier_rename {C2, "Hicks B"} lands; host close: "Hicks B" on both.
   H20b-4 client screen: select C, Ctrl+1, close. RED: the host's global 0 still [] after W (its screen open). Green: slot 0 equal.
@@ -16,12 +16,12 @@ Boot A (SHARED, ports 49421 / 49422 / 47924, option OFF, STR_PERSONAL_ARMOR 4 on
   H20b-7 (guard, last in Boot A) js.finish(): world equality (names included) + replica zero-disk.
 Boot C (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_POWER_SUIT 4 on both):
   H20b-8 C: A2, personal saved with it, A1; client screen key 108 (client's C A2). RED: the host's C still A1 after W.
-  H20b-9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. EQ-3 S-A (owner D294 b): nothing changes on
+  H20b-9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. EQ-3 S-A: nothing changes on
         either machine within 5 s. RED (before EQ-3 S-A): H takes the personal's grenades on the client's screen.
 Boot B (SEPARATE, tag w2h20bb, labels 49423 / 49424, lobby 47925): H20b-10 (guard) client rename, Ctrl+1, loadout_save stay local.
 EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (soldier_layouts, get_soldiers, geo_state items,
 shared_stats, equip_layouts {index: 0}, read {index: 0}, stacks; both machines). A boot miss fails its rows "boot" with one CAPTURE line.
-Every row runs after a failure. ONE run (WV-D95); exit 0 iff every row passes, else 2.
+Every row runs after a failure. ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json
@@ -216,7 +216,7 @@ def h20b_2(x, r):
     moved, s = converge(lambda: names(h).get(hid) != first)
     r.ev.update({"host watched s": s, "end": x.three()})
     r.evidence()
-    # EQ-3 S-A (owner D294 b, D289 a): a partner's soldier on a SHARED base screen is read-only - the rename is refused before any write.
+    # EQ-3 S-A: a partner's soldier on a SHARED base screen is read-only - the rename is refused before any write.
     r.cell("the reply soldierName stays H's name (EQ-3 S-A: a partner's soldier is not renamed)", rep.get("soldierName") == first, rep)
     r.cell("the client's H changed at once", cn == first, f"client H {cn!r}, host H {hn!r}")
     r.cell("the host's H changed within W", not moved, names(h).get(hid))
@@ -424,7 +424,7 @@ def h20b_9(x, r):
     r.ev.update({"select": sel, "key 108": k108, "grenades before / after / personal": [g0, g1, want, s5],
                  "armor client / host": [ac, ah], "client stocks": [s0, s1], "host applyCount": [a0, a1], "end": x.three()})
     r.evidence()
-    # EQ-3 S-A (owner D294 b, D289 a): the personal-layout key does nothing on the host's soldier on the client's SHARED base screen.
+    # EQ-3 S-A: the personal-layout key does nothing on the host's soldier on the client's SHARED base screen.
     r.cell("H's grenades changed on the client's screen within 5 s of key 108 (EQ-3 S-A: read-only)", not got, [g0, g1, want, s5])
     r.cell("the client re-armored the host's soldier", ac == A1, f"client H {ac}, host H {ah}")
     r.cell("the client's stocks changed", s1 == s0, [s0, s1])

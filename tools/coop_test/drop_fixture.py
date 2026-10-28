@@ -5,7 +5,7 @@ keeps a half-sent world through the drop, F18425 / F18428). The shapes are copie
 imported): the drop at the host's FIRST sight of its "Saving..." (CoopState code 54, 5 ms polls) suspends the partner (NtSuspendProcess),
 reads, then kills it; the host's 62 follows. Every rejoiner is a NEW GameClient on a fresh dir that joins the same lobby key by name.
 Every function records what it saw in a dict it returns (the test prints it as EVIDENCE); none asserts or exits. Never dismiss_popup,
-coop_dialog_back, leave_base or a base placement: a fresh world is evidence, never built on. WV-D95: one foreground run per invocation.
+coop_dialog_back, leave_base or a base placement: a fresh world is evidence, never built on. one foreground run per invocation.
 drop_at_54's optional ready(host) is waited for (at most ready_s) between the 54 sight and the suspend (cap-save F23943)."""
 import ctypes
 import glob
@@ -131,7 +131,7 @@ def real_click(gc, text, timeout=15.0):
 def quick_save(host, name=QUICK, timeout=20.0):
     """save_game_ui {type: quick} with the partner running: the 54 seen, then gone; pending ""; `name` written after the trigger"""
     before = files(host).get(name)
-    session_s = session.wait_coop_session(host)   # F24296: the 54 needs the host's live session
+    session_s = session.wait_coop_session(host)   # the 54 needs the host's live session
     c = {"filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host)), "sessionS": session_s}
     t0 = time.time()
     c["trigger"] = q(host, {"cmd": "save_game_ui", "type": "quick"})
@@ -165,7 +165,7 @@ def wait_62(host, timeout=5.0):
 def drop_at_54(host, client, savetype, delay_ms=0, probe=None, seen_s=10.0, drop_s=5.0, ready=None, ready_s=2.0):
     """save_game_ui {type}; at the host's first sight of its 54 (then ready(host) true, at most ready_s, when given): suspend the client,
     probe(host), the at-54 reads; kill; the host's 62"""
-    session_s = session.wait_coop_session(host)   # F24296: the 54 needs the host's live session
+    session_s = session.wait_coop_session(host)   # the 54 needs the host's live session
     c = {"savetype": savetype, "filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host)),
          "sessionS": session_s}
     t0 = time.time()
@@ -253,7 +253,7 @@ def rejoin(host, gc, port, name, join_s=10.0, ack_s=30.0, at_join=None):
     return c
 
 def resume_and_clear(host):
-    """real_click RESUME; if the host's top is then the stale 54 (F18431), real_click CANCEL; the host's top after up to 5 s"""
+    """real_click RESUME; if the host's top is then the stale 54, real_click CANCEL; the host's top after up to 5 s"""
     c = {"resume": real_click(host, "RESUME", 15.0)}
     t0 = time.time()
     while time.time() - t0 < 2.0 and dlg(host).get("code") == 62:

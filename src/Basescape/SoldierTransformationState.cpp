@@ -38,7 +38,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H16c
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {

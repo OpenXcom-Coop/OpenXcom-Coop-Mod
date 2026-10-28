@@ -1,10 +1,10 @@
-"""SPEC 12 (W1-P13d) - test_level_change_gate.py: REV E.48 SS.E.3 as
-amended by REV E.58 E58.2 (D84) and REV E.61 (D88 = (b)) - WV-D58: the two
+"""test_level_change_gate.py: REV E.48 SS.E.3 as
+amended by REV E.58 E58.2 and REV E.61 - WV-D58: the two
 caption-less unit up/down buttons (`BattlescapeState::btnUnitUpClick` /
 `btnUnitDownClick`) no longer bypass every coop gate. CLIENT = REFUSAL via
 `CoopBattleUi::refuseControl(Control::LevelChange, ...)`, the FIRST statement
 of each button (`connectionTCP.cpp:8007`, Term 1 AUTHORITY, `!hostSim`) -
-armor-independent, refused whatever the selected unit is wearing (F269).
+armor-independent, refused whatever the selected unit is wearing.
 HOST = the same walk-emit path via `coopInterceptWalkConfirm`, immediately
 before `moveUpDown`'s own `statePushBack(new UnitWalkBState(...))`
 (`BattlescapeGame.cpp:2311`) - so a HOST-origin level change streams to the
@@ -22,7 +22,7 @@ are seeded in ONE `pre_ok` window on the Lightning roof fixture
   (i)  the FIRST seat-1 soldier - the CLIENT leg's unit, the exact soldier
        REV E.48 SS.E.3 names;
   (ii) the band `max(seatIds)+1 .. max(seatIds)+11` - only soldiers ABOARD
-       the craft become battle units (F271), so this band is seeded BLIND
+       the craft become battle units, so this band is seeded BLIND
        and the HOST leg's unit is picked from the battle roster afterward:
        the FIRST live unit with `armor == "STR_FLYING_SUIT_UC" and coop ==
        0` (a roster with none is a RED naming the step, SS.A.8 - never a
@@ -49,8 +49,8 @@ hard-coded) and then ASSERTED to equal the pinned values (2 UP / 3 DOWN,
 measured on this build) - a different resolution is a RED that prints the
 whole filtered list, never a silent adaptation.
 
-Cites WV-D58, REV E.48 SS.E.3, REV E.58 E58.2 (D84), REV E.61 E61.1-E61.2
-(D88 = (b)), F235, F267, F269, F270, F271, F274, F276, F278, F279.
+Cites WV-D58, REV E.48 SS.E.3, REV E.58 E58.2, REV E.61 E61.1-E61.2,
+F235, F267, F269, F270, F271, F274, F276, F278, F279.
 
 Run:  python tools/coop_test/test_level_change_gate.py
 """
@@ -137,7 +137,7 @@ def run():
         band_hi = max(seat1_ids) + 11
         for sid in range(band_lo, band_hi + 1):
             rr = h.cmd({"cmd": "seed_soldier_armor", "soldier_id": sid, "armor": ARMOR})
-            # F273: a miss is a NAMED error, not silent - printed, never
+            # a miss is a NAMED error, not silent - printed, never
             # asserted (not every id in the band need exist).
             if not rr.get("ok"):
                 print(f"[seed_two_suits] band id {sid}: {rr.get('error')}")

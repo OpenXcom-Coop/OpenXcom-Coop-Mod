@@ -16,11 +16,11 @@ control passes).
   Boot E2 49538 / 49539, port "46975", dirs w2h21enb_host / _client:
     H21d-E2 (named RED) as E1 with the client's P4 (open_craft_equipment, craft_inventory; non-vacuity top InventoryState over
         CraftEquipmentState, inBattle true). R-H21d-S2-T0-1 (a): the fixture's drive_both_to_tactical OKs any top InventoryState and
-        closed the practice inventory before the battle blob landed (F9535), so this row's drive first waits <= W for the client's
+        closed the practice inventory before the battle blob landed, so this row's drive first waits <= W for the client's
         battle_state.phase "Active" (its entry ran), then runs the fixture's own drive.
 W = 10 s at 0.25 s polls; the host's debriefing 60 s, the client's 20 s. CL = the client's openxcom.log from the size noted at
 pre_landing. A boot / G cell miss ends the row (later cells "not reached", one CAPTURE line); RED 1 does not end it. EVIDENCE before each
-verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run (WV-D95); exit 0 iff every row passes, else 2.
+verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json

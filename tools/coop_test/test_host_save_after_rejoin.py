@@ -4,7 +4,7 @@ file rewrite/prompts/w2h58_rejoin_world_kept.md (section F: the shared fixture d
 rewrite/w2h58-task0/sb/CONSTANTS.md. The partner uploads its world in 3000-byte chunks that the host appends to one global buffer
 (mapData) and parses at the end marker. A partner that drops after some chunks leaves that half in the buffer through the drop and the
 rejoin; the rejoined partner's next upload is glued to it, the YAML breaks at the seam and the host's receive loop re-queues the message
-forever (crash logs, a 62 over a connected partner, the save never written) or drops the partner (F18424-F18428).
+forever (crash logs, a 62 over a connected partner, the save never written) or drops the partner.
 ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the controls first and the red row last:
   Row C0 (GUARD) C0-blob: the host stores the client's world under the campaign's id0 (present, bytes > 0).
   Row CB (control: no half-sent upload, then a second save) a quick save with the client running (id1), kill, client2 rejoins, RESUME,
@@ -25,7 +25,7 @@ coop_file_info {key: host_<id>_ClientPlayer.data}. Every rejoiner is a NEW GameC
 Never dismiss_popup, coop_dialog_back or a base placement: a fresh world is evidence, never built on. One EVIDENCE line per row, one
 PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line) and every later row (cells "not
 reached"); a boot miss fails every cell "boot" with ONE CAPTURE line. A red host is in a crash-log loop after the window: every process
-is shut down right after it. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no SKIP; exit 0 only when every cell passes, else 2.
+is shut down right after it. ONE foreground run, no SKIP; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_host_save_after_rejoin.py   (OXC_HARNESS_SLOT selects the lane)"""
 import json
 import os

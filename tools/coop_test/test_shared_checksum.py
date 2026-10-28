@@ -123,7 +123,7 @@ def main():
                         timeout=90, interval=0.5)
         hs = _resync(host)
         assert hs["requests"] >= 1, f"host did not serve a resync request: {hs}"
-        # F24294: the replica heals at its world adoption, and the hold it then pushes closes on CoopState's next 500 ms
+        # the replica heals at its world adoption, and the hold it then pushes closes on CoopState's next 500 ms
         # think tick after campaign_begun (CoopState.cpp think's 500 ms gate; 497 ms measured), so a read right after the heal
         # can land inside it. test_shared_resync's shape: wait for the release, then assert.
         client.wait_for("client released from the resume hold",

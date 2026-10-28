@@ -887,7 +887,7 @@ void SoldierInfoState::btnFlagClick(Action *action)
 	}
 
 	_soldier->setNationality(temp);
-	SharedEcon::submitSoldierNationality(_game, _base, _soldier); // coop W2-H16
+	SharedEcon::submitSoldierNationality(_game, _base, _soldier); // coop
 	init();
 }
 

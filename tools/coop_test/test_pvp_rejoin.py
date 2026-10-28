@@ -3,7 +3,7 @@ it is still the alien player with the same units, orders its alien again, and wi
 battle with the alien seat as winner (POST-REWRITE-REVISIT row 10, owner D229; SPEC 16 pause and rejoin; D157 (a);
 D219 (b) rides only the common full hash: its revealHostile bucket equal on the host and client2).
 
-Spec: docs repo rewrite/prompts/r5u9_pvp_gm3_fixture.md section (f) test_pvp_rejoin.py (QU9-1 (a), QU9-4 (a)).
+Spec: docs repo rewrite/prompts/r5u9_pvp_gm3_fixture.md section (f) test_pvp_rejoin.py.
 Constants: rewrite/r5u9-task0/CONSTANTS.md (TASK 0 boot R).
 
 Boot R (key 48675): test_battle_end_rules.boot_e6's gm2 bring-up (the client on the Alien team: gamemode 2, MAP_FP,
@@ -18,13 +18,13 @@ authority, A on seat 1 hostile); census C0; every live unit's reactions 0 on bot
       host and client2 and equal to C0; seat 1 holds ALIEN_IDS, all hostile.
   R4  the host's END TURN hands the turn to the aliens; client2 orders A to walk (battle_intent); the host runs it.
   RX  the host kills every X-COM soldier on the aliens' side and client2 presses END TURN: soldiersDown, the alien seat
-      wins, both end on the host's debriefing, client2's display-only (D157 (a)).
+      wins, both end on the host's debriefing, client2's display-only.
 Common cell after each row: every hash bucket EQUAL (host and client2; RX: right before the kill), desyncSeen false, no
 new file in the lane crash folder. R1 has no hash pair (the partner left): desyncSeen and the crash folder only.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot"; a rejoin step past its bound fails R2-RX
-"rejoin". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+"rejoin". run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_rejoin.py

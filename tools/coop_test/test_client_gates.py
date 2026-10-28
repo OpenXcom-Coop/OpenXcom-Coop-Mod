@@ -30,7 +30,7 @@ WHAT THIS ASSERTS.
     of the effect (no dialog / no InventoryState / TU unchanged / reaction
     flags unchanged / no LoadGameState), and `hash_now full` ALL BUCKETS EQUAL
     after every single press. That last one is the MINT-PROOF.
-    W2-P4 S-D (owner D133 (a)): row (4), the hand-reaction toggle, is no longer
+    W2-P4 S-D: row (4), the hand-reaction toggle, is no longer
     refused - the press is a `reaction_hands` intent the HOST runs with
     vanilla's own toggle; the row asserts the order (one host intent context,
     the client's intent counter), vanilla's resulting flags on BOTH machines
@@ -197,7 +197,7 @@ def bring_up(host, client, port):
     assert top_state(host) == "NewBattleState", \
         f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
 
-    # WV-D18: stamp ONE soldier to seat 1 BEFORE generation, so the client
+    # stamp ONE soldier to seat 1 BEFORE generation, so the client
     # really owns a unit (repro_atom_turn.py's helper set, reused).
     seat = host.ok({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1})
 

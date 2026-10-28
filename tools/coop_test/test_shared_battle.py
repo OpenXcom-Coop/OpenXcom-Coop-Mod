@@ -27,7 +27,7 @@ Two scenarios:
                     battle as a unit-less spectator rather than staying on the
                     geoscape - see session-notes-9.md (PRD-anchor discrepancy).
 
-SPEC 19 (W1-P20) S2 (un-skipped, re-pointed): the bring-up now goes through
+SPEC 19 S2 (un-skipped, re-pointed): the bring-up now goes through
 `session.bring_up_shared_mixed_battle` (F355's briefing-close-first ordering -
 the old :165-191 shape waited for the client's `inBattle` BEFORE the host
 closed its briefing, which hangs forever, F362), and each scenario now runs
@@ -36,7 +36,7 @@ T-SPLIT, T-CMD (the host leg only in `mixed` - `solo_client` skips it BY
 CONSTRUCTION, REV E.48 C.4's connected-seat-with-no-live-unit case: the host
 owns no unit to be refused on), T-EXIT.
 
-T-EXIT (SPEC 19 REV E.65 / D114): `session.coop_abort_battle` was re-pointed
+T-EXIT: `session.coop_abort_battle` was re-pointed
 off the pre-rewrite ABANDON-MISSION VOTE (r4 T3, a logging stub that does not
 exist at this tip: `BattlescapeState::btnAbortClick` refuses only the CLIENT's
 press and otherwise pushes vanilla `AbortMissionState` unconditionally, and
@@ -50,7 +50,7 @@ the orchestrator-authorized SS A.10 / R10 re-point of an existing assertion to
 the value the ruled mechanism (D8/WV-D14) implies (measured: SHARED abort
 returns both machines cleanly).
 
-W2-U8 (F6059): the battle map was rolled per boot (no set_seed), so T-CMD's
+the battle map was rolled per boot (no set_seed), so T-CMD's
 one-step walk could draw reaction fire; on one roll (W2f verifier, K=2) a
 sectoid's plasma rifle killed the walker and the merge cell reported the
 death as "deleted post-battle (guest cleanup ran!)". Two changes, chain rule
@@ -75,7 +75,7 @@ import shared_fixture
 import session
 import geo
 
-# W2-U8 (F6059): the pinned S2 terror map. U8 hunt (solo_client, seeds 1-40, one boot each): 39 seeds drew no
+# the pinned S2 terror map. U8 hunt (solo_client, seeds 1-40, one boot each): 39 seeds drew no
 # reaction fire on the T-CMD walk, seed 33 drew one snap that missed. Seed 1 = test_battle_end_campaign's
 # SEED_S (same bring-up, same mapFingerprint).
 SEED_S2 = 1
@@ -87,7 +87,7 @@ def _seed_pin(host, client):
 
 
 def _dead_record(gc, sid):
-    """W2-U8 (F6059): this machine's soldier_record for `sid` on its DEAD list ({} when it is not there)."""
+    """this machine's soldier_record for `sid` on its DEAD list ({} when it is not there)."""
     r = gc.cmd({"cmd": "soldier_record", "id": sid})
     return next((x for x in r.get("records") or [] if x.get("where") == "dead" and x.get("dead")), {})
 
@@ -189,7 +189,7 @@ def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
             print("PASS control-split: on BOTH machines the host-owned unit is coop=0 and the "
                   "client-owned unit is coop=1; exactly the squad deployed")
 
-        # ---- SPEC 19 (W1-P20) common tail: T-SPLIT / T-CMD / T-EXIT --------
+        # ---- SPEC 19 common tail: T-SPLIT / T-CMD / T-EXIT --------
         expected_seats = {sid: want_coop[i] for i, sid in enumerate(squad)}
         session.assert_t_split(host, client, expected_seats, what=f"S2 {label}")
 
@@ -212,7 +212,7 @@ def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
         for i, sid in enumerate(squad):
             if sid in ids:
                 continue
-            # W2-U8 (F6059): killed in battle = on the dead list of both machines; on neither list = deleted.
+            # killed in battle = on the dead list of both machines; on neither list = deleted.
             dead = {tag: _dead_record(gc, sid) for tag, gc in (("host", host), ("client", client))}
             assert dead["host"] and dead["client"], (
                 f"squad soldier {sid} (seat {owners[i]}) was deleted post-battle (guest cleanup ran!): on neither "

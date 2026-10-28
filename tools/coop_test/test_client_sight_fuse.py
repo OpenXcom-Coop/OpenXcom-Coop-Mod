@@ -7,7 +7,7 @@ parking S-1, light_recompute after every teleport) and R-H35B-SB-2).
 Vanilla relights at the holder and re-runs sight with the item's glow range right after a prime or an unprime
 (BattlescapeGame BA_PRIME / BA_UNPRIME, the host's prime intent). The second player's machine receives the item's
 fuse / fuseEnabled change but relights nothing (the applyDelta light pre-pass counts only a tile / owner change), so
-its light and sight stay as before. No stock ruleset has such a flare (F15013): test mod Coop_FuseFlare_Test (this
+its light and sight stay as before. No stock ruleset has such a flare: test mod Coop_FuseFlare_Test (this
 directory's mods/, the spec's (e) M1 / M2 verbatim) adds STR_COOP_FUSE_FLARE (fuseType -1, power 22), loaded on BOTH.
 
 TASK 0 verdicts (docs rewrite/w2h35c-task0/CONSTANTS.md, capture boots Na and Nb equal, S28): C6 CONFIRMED (prime: the
@@ -43,8 +43,8 @@ RED at the red commit (unchanged build): C6-light, C6-here, C6-list, C6u-light, 
 GREEN (W2-H35c G6): every cell PASS.
 
 The row prints one "EVIDENCE C6:" line, one PASS / FAIL line per cell and "ROW C6: PASS|FAIL". A bring-up failure
-prints ONE "CAPTURE boot:" line and fails every cell "boot". WV-D99 / WV-D100: one run is the result; no skip, no
-second boot, no other fixture; exit 0 only when every cell passes, else 2. WV-D95: run in the foreground to completion.
+prints ONE "CAPTURE boot:" line and fails every cell "boot". one run is the result; no skip, no
+second boot, no other fixture; exit 0 only when every cell passes, else 2. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_sight_fuse.py
 """

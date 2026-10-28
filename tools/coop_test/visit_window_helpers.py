@@ -5,9 +5,9 @@ G11, R12) and test_visit_window_67_edits.py (rows R13, R14, R15) import (R-H70-2
 gift_helpers.py (GH: boot, stage_guest, picker, visit, baseline, trigger54, host_cancel, real_click, the probes; imported,
 unchanged); the window, second-save, watch, leave, crew, MOVE and host-picker steps are copied from the capture rewrite/lh70-2-cap/cap.py
 (CAP70, never imported). Every press is real (click_widget on visible text, inject_input at a TextList pixel times the clicking
-machine's scale); the one lever is R15's rename_soldier (QH70C-5). A construction step that misses its precondition raises Stop (its
+machine's scale); the one lever is R15's rename_soldier. A construction step that misses its precondition raises Stop (its
 row ends there, later cells "not reached"); the steps after a row's last precondition only record and never press a 53 / 995 /
-Disconnect control (QH70C-6). No reload, no rejoin. WV-D95 / WV-D99 / WV-D100: one foreground run per invocation; exit 0 only when
+Disconnect control. No reload, no rejoin. one foreground run per invocation; exit 0 only when
 every cell passes, else 2."""
 import json, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -282,7 +282,7 @@ def move_home(x, ev, move):
     raise Stop("no soldier row reached a MOVE window naming %s: %s" % (x.gift, tried))
 
 def rename_guest(x, ev):
-    """R15's lever (QH70C-5): rename_soldier GIFTNAME -> RENAME (the first of RENAMES in neither roster) on the client; the view
+    """R15's lever: rename_soldier GIFTNAME -> RENAME (the first of RENAMES in neither roster) on the client; the view
     lists RENAME within W_UI (the row's last precondition)"""
     c = x.client
     names = {z.get("name") for gc in (x.host, c) for b in soldiers(gc) for z in b.get("soldiers", [])}

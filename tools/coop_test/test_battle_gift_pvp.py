@@ -18,7 +18,7 @@ Red at A1 (the unchanged build + T1-T5): P1-lever ("not sent"); P1-key and P1-co
 coop unchanged on both after wait_host_idle; the host's refusal line and its reason are EVIDENCE.
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. A boot step past its bound prints ONE
 CAPTURE line and fails the row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file.
-Ids come from probes (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip
+Ids come from probes (S25). run in the foreground to completion. ONE run is the result, no skip
 path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift_pvp.py

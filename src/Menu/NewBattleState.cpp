@@ -703,7 +703,7 @@ void NewBattleState::btnOkClick(Action *)
 	// BriefingState::setupCoop() dispatch this comment used to describe stay
 	// quarantined (RB-D9) - real gm2/gm3/gm4 seat/faction assignment is
 	// R5-P1's job; offerBattle()'s own client-side gamemode check refuses
-	// those until then (RB-D18). This guard is false on every SP click, so
+	// those until then. This guard is false on every SP click, so
 	// the SP battle-generation path below is byte-for-byte untouched.
 	const bool coopSkirmish = _game->getCoopMod()->getCoopStatic() == true;
 
@@ -919,7 +919,7 @@ bool NewBattleState::harnessSelectMission(const std::string& type)
 }
 
 /**
- * SPEC 0e-1 (WV-D87): see this method's declaration for why the Lightning-
+ * SPEC 0e-1: see this method's declaration for why the Lightning-
  * contact fixtures need it. Drives the SAME two calls the combo box's own
  * change handler does - setSelected() then cbxCraftChange(), which re-seats
  * the soldiers and, in coop, sends the existing craft_list/selected_craft_id
@@ -941,7 +941,7 @@ bool NewBattleState::harnessSelectCraft(const std::string& type)
 }
 
 /**
- * SPEC 0e-1 (WV-D88): see this method's declaration for why the Lightning-
+ * SPEC 0e-1: see this method's declaration for why the Lightning-
  * contact fixtures need it. No change handler exists for this combo - the
  * race is read at generation - so this only moves the selection. Call after
  * harnessSelectMission(), which is what rebuilds _alienRaces for the current

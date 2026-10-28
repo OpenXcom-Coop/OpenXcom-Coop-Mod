@@ -1,4 +1,4 @@
-"""W2-U8d - test_harness_truth.py: the harness reports what a run really did (docs
+"""test_harness_truth.py: the harness reports what a run really did (docs
 rewrite/prompts/w2u8d_harness_truth.md (f) and its AMENDMENT U8d-2-1). STAGE 2 (owner D256 (a), session 2b8a26ed): rows
 T, W, F, X, D, S, B in this order; each machine is down before the next row.
 U8d-T (F7624, no game): four child scripts import harness and end by an uncaught assert, an uncaught raise, sys.exit(2)
@@ -11,7 +11,7 @@ cell passes, every defect cell fails, and the stall cell, whose left-out entries
 pass (named reds W-TS, F-FS, X-XS: the old exact compares fail it).
 U8d-D (F6304 live; Boot D: lobby 47238, labels 49435 / 49436, user dirs w2u8d_d_*, coopGhostStepper on both): the
 client's slow_top {BattlescapeState, 50 ms} around hc.c1_snap_kill makes every client frame >= 50 ms, so A's death
-record leaves >= 2 of its 6 interior octants out (F8325). Named reds: D-probe (the record carries maxGapMs >= 50) and
+record leaves >= 2 of its 6 interior octants out. Named reds: D-probe (the record carries maxGapMs >= 50) and
 D-red (c1_snap_kill raised on D1's lists).
 U8d-S (F8172; test_pause_on_leave.run_s2's own bring-up, ports 49970-49972, user dirs spec16s2_*): a refusal
 stand-in, installed per INSTANCE on host._send / client._send by a wrapper of s16._s2_bring_up (never by patching
@@ -23,7 +23,7 @@ U8d-B (F8416; run_s2's own bring-up again): a stand-in for the module attribute 
 lobby dance, then raises. The machines are _s2_bring_up's own frame locals (spawned_by); run_s2's failed bring-up must
 shut both games down before the error propagates (named red B-reap: both left running).
 Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) or a boot miss adds
-one "CAPTURE <id>:" line. WV-D95/D99/D100: ONE foreground run, no skip path, every row runs after a failure; exit 0 only
+one "CAPTURE <id>:" line. ONE foreground run, no skip path, every row runs after a failure; exit 0 only
 when every row passes, 2 otherwise. Never pair this file with test_pause_on_leave* in one K=2 batch (S26: U8d-S
 and U8d-B run run_s2's bring-up). Run: python tools/coop_test/test_harness_truth.py
 """
@@ -187,7 +187,7 @@ def u8d_s(r):
            "run_s2 staged on after the host refused tile %s the client had accepted: %d client / %d host teleports "
            "followed, exit %s (F8172)" % (tuple(ref["tile"]), ca, ha, code))
 
-# ---- U8d-W / -F / -X (F6304, no game): the (f) fake model (F8326), through the real checks ----
+# ---- U8d-W / -F / -X (F6304, no game): the (f) fake model, through the real checks ----
 # (cell, the record's list, its maxGapMs): the quiet cell, the named stall cell, then the defect cells
 W_CELLS = (("W-TQ", [6, 7, 0, 1], 4), ("W-TS", [6, 0, 1], 45), ("W-TD", [6, 0, 1], 20), ("W-TR", [6, 1], 45),
            ("W-TO", [6, 0, 7, 1], 200))
@@ -333,7 +333,7 @@ def u8d_d(r):
     r.cell("D-red: c1_snap_kill passes D1 (its left-out octants are whole windows one frame gap spans)", raised is None,
            raised, "D1 failed a death record whose left-out octants the client's frame stall explains (F6304)")
 
-# ---- U8d-B (F8416): run_s2's bring-up fails after both games joined the lobby ----
+# ---- U8d-B: run_s2's bring-up fails after both games joined the lobby ----
 B_RAISE = "W2-U8d stand-in: S2 bring-up failed after both games joined the lobby (F8416)"
 
 def u8d_b(r):

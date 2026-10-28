@@ -5,7 +5,7 @@ In a SEPARATE co-op campaign a soldier gifted to a player who is viewing the giv
 a display copy that keeps the GIVER's soldier id. Giving that copy straight back before the leave reaches the giver (who gets its soldier
 back), but the queued receive still replays after the leave, so both players hold the soldier; a client receiver also erases its OWN soldier
 that shares the giver's id from its parked own world, so it loses one of its soldiers and the host's stored copy of its world loses it at
-once (F20714, F20911, F20912, F20927). One fresh boot pair per row (SEPARATE gm1 tcp, key 49318, dirs w2h70d_<row>_*), no reload:
+once. One fresh boot pair per row (SEPARATE gm1 tcp, key 49318, dirs w2h70d_<row>_*), no reload:
   R16   the client visits the host base; the host gifts its first own soldier not in a craft (renamed GIFTNAME; its id is held by one of
         the client's own soldiers) to it; the client's GiftNoticeState OK; SOLDIERS, GIFTNAME's row, KP2, the host's button (the display
         copy given back); the host's GiftNoticeState OK; stored("back") = the host's copy fnv changed, then a named host save; the client's
@@ -21,7 +21,7 @@ giver's guard = GIFTNAME once on the giver's own bases under its own id and the 
 machine's own bases; file = QUICK holds GIFTNAME only in the giver's half (and, R16, every own0(client) pair in the client entry); common =
 both machines alive at the read, no new .dmp since B.
 Red (HEAD, TASK 0 boots a / b): R16-stored, R16-own, R16-client, R16-file, R16H-host, R16H-file FAIL (6 of 15); green (ED1-ED6, boot c):
-15 / 15. Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100; no SKIP). WV-D95: one foreground run per invocation:
+15 / 15. Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100; no SKIP). one foreground run per invocation:
     python tools/coop_test/test_gift_back.py"""
 import sys
 from gift_back_helpers import *  # noqa: F401,F403 (HD, R-H70-2)

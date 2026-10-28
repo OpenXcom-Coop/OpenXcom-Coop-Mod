@@ -1,8 +1,8 @@
-"""W2-A12b - test_text_fidelity.py: each player reads its own language on the SHARED cannot-reequip list (F6780), the
-SHARED geoscape alerts (F6783) and a SEPARATE partner's craft window (F6784) (AUD-A12, owner D226 (a)). Spec
+"""test_text_fidelity.py: each player reads its own language on the SHARED cannot-reequip list, the
+SHARED geoscape alerts and a SEPARATE partner's craft window (AUD-A12, owner D226 (a)). Spec
 rewrite/prompts/w2a12b_text_fidelity.md (f) + ORCHESTRATOR RULINGS (session 394eb5c7, R-A12b-T0-1); TASK 0 constants
-rewrite/w2a12b-task0/CONSTANTS.md (F7747-F7758). The host stays en-US (its texts are the guards), the client runs
-`language: fr` (German keeps "SKYRANGER", F7536); lobby ports 47348 / 47349 (F7526), control ports ephemeral.
+rewrite/w2a12b-task0/CONSTANTS.md. The host stays en-US (its texts are the guards), the client runs
+`language: fr` (German keeps "SKYRANGER", F7536); lobby ports 47348 / 47349, control ports ephemeral.
 
 Boot A (SHARED, shared_fixture.bring_up "w2a12ba"): G:A (G-lang) the client's own Skyranger reads "PATROUILLE", the
 host's "PATROLLING". Rows in order, the battle last:
@@ -11,13 +11,13 @@ host's "PATROLLING". Rows in order, the battle last:
   A12b-2  rearm alert (B-12): host sells INTERCEPTOR-2's clips to 0, craft_force {craft_id 2, ammo 0, STR_REARMING};
           skip 180 game minutes (speed 4) to CraftErrorState on both; its Text captions: clientSentence == [FR_REARM]
           [RED], G:hostSentence == [EN_REARM]; then craft 2 STR_READY.
-  A12b-3  cannot-reequip (F6780): test_campaign_followups' boot-1 sells, squad[0] given the rifle-set layout on both
+  A12b-3  cannot-reequip: test_campaign_followups' boot-1 sells, squad[0] given the rifle-set layout on both
           (W2-U9c, fu.RIFLE_SET), battle (SEED_S), strip squad[0], autoEnd,
-          loadGamePushes0, kill_unit_real {faction 1}, ending, procedure; CannotReequipState rows sorted (R-C-1):
+          loadGamePushes0, kill_unit_real {faction 1}, ending, procedure; CannotReequipState rows sorted:
           clientCraft == 3 x "MERCURE-1" [RED]; G:hostRows == HOST_ROWS (Rifle Clip 3, R-A12b-T0-1); G:clientItems ==
           the French names; G:qty the client's (item key, qty) == the host's.
 Boot B (SEPARATE, session.new_campaign + geo.wait_both_ready):
-  A12b-4  partner craft (F6784): host spawn_mission_site STR_ALIEN_TERROR at base + (0.35, 0.10), craft_force
+  A12b-4  partner craft: host spawn_mission_site STR_ALIEN_TERROR at base + (0.35, 0.10), craft_force
           SKYRANGER-1 STR_OUT at base + (0.05, 0) to site:<id>, speed idx 0; the client's mirror Skyranger polled to
           STR_OUT (<= 10 s; landing comes at ~76 s): name == "MERCURE-1" and status (displayStatus) == "DESTINATION :
           SITE DE TERREUR-<id>" [RED]; G:coop true, G:mirrorStatus STR_OUT, G:hostOwn == "DESTINATION: TERROR
@@ -28,7 +28,7 @@ cells fail (the client shows the host's "Rifle", English sentence, "SKYRANGER-1"
 every G: cell passes. GREEN (commit 2): every cell passes. French text is written as escapes from the TASK 0 constants.
 An EVIDENCE line precedes every verdict; every row runs after a failure; a precondition miss fails its row on a
 `fixture` cell after a CAPTURE line, a boot miss fails its rows "boot" with ONE CAPTURE line (FIXTURE-STOP).
-WV-D99 / WV-D100: one run, no skip path; exit 0 only when G:A and every row pass, else 2. WV-D95: foreground.
+one run, no skip path; exit 0 only when G:A and every row pass, else 2. foreground.
 
 Run:  python tools/coop_test/test_text_fidelity.py
 """
@@ -49,7 +49,7 @@ import test_campaign_followups as fu
 from test_battle_end_campaign import stack, top, wait_until, short
 
 FR = {"language": "fr"}
-PORTS = {"A": "47348", "B": "47349"}   # F7526: the lobby ports TASK 0 used
+PORTS = {"A": "47348", "B": "47349"}   # the lobby ports TASK 0 used
 # TASK 0 CONSTANTS (deployed standard\xcom1\Language fr.yml / en-US.yml, sha256 equal to bin\standard): the en values
 # are rendered by the host, the fr values by the French client or composed by vanilla's tr(key).arg(...) rule.
 FR_PATROLLING, EN_PATROLLING = "PATROUILLE", "PATROLLING"   # STR_PATROLLING fr :289 / en-US :287 (G-lang)
@@ -229,7 +229,7 @@ def row_reequip(js, ev):
     ok, secs = wait_until(lambda: all(fu.base_items(gc).get(t, 0) == 0 for gc in m for t in fu.LOADOUT_TYPES), STORES_S)
     if not ok:
         miss("A12b-3 sells", f"loadout stock not 0 on both after {secs}s ({ev['sells']})", m)
-    # W2-U9c (R-MGR2-1, F22806): squad[0] gets the rifle-set layout before the battle, so auto-equip never picks it
+    # squad[0] gets the rifle-set layout before the battle, so auto-equip never picks it
     squad, uid = fu.battle(js, ctx, m, layouts={0: fu.RIFLE_SET})   # camp.capture (a CAPTURE line) + FixtureMiss
     rh, rc = b1.both(host, client, {"cmd": "battle_strip_unit", "unit": uid[squad[0]]})
     ev["squad"], ev["strip"] = squad, {"host": rh.get("deleted"), "client": rc.get("deleted")}

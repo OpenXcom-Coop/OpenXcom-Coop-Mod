@@ -32,7 +32,7 @@ the lines of that machine's openxcom.log between two marks. Every row starts wit
 Red today: the 12 RED cells FAIL, the 14 others PASS. Green (W2-H66 S-B G1: EB1-EB5 with EB4-R): all 26 PASS.
 Every press is a real click_widget or inject_input (no gift, visit, leave, dismiss or dialog-back lever). One EVIDENCE line per row, one
 PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached"); a boot miss fails every cell
-"boot" with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+"boot" with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_hold_until_named.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, re, sys, time  # noqa: E401
 
@@ -179,7 +179,7 @@ def folder(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = os.stat(p).st_mtime_ns
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def copyfnv(h): return q(h, {"cmd": "coop_file_info", "role": "host_copy_of_client"}).get("fnv1a64")

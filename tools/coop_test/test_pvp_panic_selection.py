@@ -7,7 +7,7 @@ R-H39-SA-1. Constants: rewrite/w2h39-task0/CONSTANTS.md (TASK 0 boots Pa, Pb (gm
 build; every pin equal on the paired boots; VERDICT CONFIRMED).
 
 Boot P3 (key 49036, dirs w2h39_p3_host / _client, options OPTS_P3): G3F.bring_up; staging = G3F.reactions_zero,
-RM.stage_tiles(TILES_D), the partner's END TURN -> side 1 turn 1, X stripped and X morale 0 on both (R-U2-SD-1).
+RM.stage_tiles(TILES_D), the partner's END TURN -> side 1 turn 1, X stripped and X morale 0 on both.
   X3  host set_seed SEED_X, the host's END TURN -> side 0 turn 2: X panics on the alien host. X3-roll (0, 2) on both, X
       status STATUS_X at the roll, one host panic ev {X, MODE_X} and one bt_action_end on its actionId; X3-sel host
       selectedId -1 at both reads; X3-actor host currentActionActorId -1 at both reads; X3-partner the partner on
@@ -31,7 +31,7 @@ host boxes, the units' (status, tu, morale), the top stacks.
 RED on the unchanged build (commit A1): X3-sel, X3-actor, Z3-zero, A2-sel, A2-actor, Z2-zero (15 of 21 cells PASS). One
 EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step
 past its bound prints ONE CAPTURE line and fails the boot's rows "boot"; a staging step past its bound fails the rows
-that need it "staging". Lever pairs go to the client first (F607). WV-D95: run in the foreground to completion. WV-D99 /
+that need it "staging". Lever pairs go to the client first. run in the foreground to completion. WV-D99 /
 WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_panic_selection.py
@@ -57,7 +57,7 @@ import test_pvp_rules as PR  # noqa: E402
 import test_messages as MSG  # noqa: E402
 
 P3_KEY, P2_KEY = "49036", "49037"
-OPTS_P3 = {"noAlienPanicMessages": True}   # S-D's Le / Lf user-dir option (F14755)
+OPTS_P3 = {"noAlienPanicMessages": True}   # S-D's Le / Lf user-dir option
 A_ID = 1000000                    # the only alien (gm3: the host's, seat 0; gm2: the client's, seat 1)
 X = 13                            # the partner's X-COM soldier staged to panic in gm3 (stripped, morale 0)
 TILES_D = {u: (t, d if u == A_ID else 4) for u, (t, d) in RM.TILES.items()}   # every X-COM unit faces 4 (Pa, Pb)
@@ -67,7 +67,7 @@ PARTNER_SEL3 = 8                  # the gm3 partner's selection and action actor
 HOST_SEL2 = 8                     # the gm2 host's selection and action actor at entry and at side 0 turn 2 (Pc, Pd)
 TEXT_NOT_YOURS = "Not one of your soldiers"   # en-US :77 STR_COOP_DENY_NOT_YOUR_UNIT
 KEY_ZERO = 127                    # Delete: Zero TU (keyBattleZeroTUs)
-ZERO_READ_S = 1.0                 # the refusal banner dwells ~5.95 s (W2-H36 TASK 0); up at 1.05 s on Pa-Pd
+ZERO_READ_S = 1.0                 # the refusal banner dwells ~5.95 s; up at 1.05 s on Pa-Pd
 TEXT_WAIT_S = 8                   # the bounded wait for an empty host coopWaitText before the Delete
 PANIC_S = 15                      # the bounded wait for the host's panic ev and its bt_action_end
 READ_GAP_S = 1.0
@@ -209,7 +209,7 @@ def stage_p3(host, client):
     G3F.guarded("P3 staging", lambda: RM.side_change(host, client, client, G3F.FACTION_HOSTILE, 1, st["side1"]), m)
 
     def strip():
-        rc = client.cmd({"cmd": "battle_strip_unit", "unit": X})   # F607: client first
+        rc = client.cmd({"cmd": "battle_strip_unit", "unit": X})   # client first
         rh = host.cmd({"cmd": "battle_strip_unit", "unit": X})
         assert rc.get("ok") and rh.get("ok") and rc.get("remaining") == 0 == rh.get("remaining"), (
             f"battle_strip_unit {X}: host {rh} client {rc} (want ok, remaining 0 on both)")

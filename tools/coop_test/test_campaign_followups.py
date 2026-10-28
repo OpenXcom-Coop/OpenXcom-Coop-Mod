@@ -10,7 +10,7 @@ the follow-up screens show on the host only (DebriefingState :905-921 run on the
 Boot 1 (port 47208) - rows F1 and F4. shared_fixture.bring_up; T0-S6 (iv)'s cannot-reequip staging (CONSTANTS
 rewrite/w2p7sc-task0/t0/CONSTANTS.md, TASK 0 t_reequip.py): the host `sell`s the base stock of every Skyranger loadout
 type to 0 before the battle; squad[0] gets the RIFLE_SET and squad[1] the RIFLE_SET_HANDS equipment layout on both
-machines (W2-U9c); bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing = host set_seed SEED_S); the
+machines; bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing = host set_seed SEED_S); the
 host-owned soldier squad[0] stripped on both machines (battle_strip_unit, client first); host set_option battleAutoEnd
 true; the participant's-own-kill (the P7-6 TASK 0 ruling) = test_battle_end_separate.guest_kill's recipe for the
 CLIENT-owned soldier squad[1] at SHOT_SEED_F1 -> KEEP dead, murdererId == the shooter -> the autoEnd ending (T0-6 (ii))
@@ -42,7 +42,7 @@ before the OKs), so the red fails on exactly the chain cells.
 RED (commit S-C-C.1: the followup_state probe, the `chain` zero, these rows; product untouched): F1, F2/F3 fail on
 exactly cell 3 and F4 on exactly cell 2 - the client's chain is empty, it shows no follow-up. GREEN (S-C-C.2): all pass.
 Each boot prints ONE "EVIDENCE <boot>:" line, then "PASS <row>" / "FAIL <row>: <message>" per row.
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_campaign_followups.py
 """
@@ -69,7 +69,7 @@ LOADOUT_TYPES = ("STR_GRENADE", "STR_HC_AP_AMMO", "STR_HC_HE_AMMO", "STR_HEAVY_C
                  "STR_PISTOL_CLIP", "STR_RIFLE", "STR_RIFLE_CLIP")   # CONSTANTS T0-S6 (iv) (TASK 0 t_reequip.py)
 REEQUIP_ROWS_F4 = [["Rifle", "1", "SKYRANGER-1"], ["Rifle Clip", "4", "SKYRANGER-1"],
                    ["Grenade", "1", "SKYRANGER-1"]]                  # the host's CannotReequipState rows, 4/4 red-build boots
-# W2-U9c (R-MGR2-1; F22805, F22806, F22883): auto-equip's rifle set (a rifle loaded with one clip, two belt clips, a
+# auto-equip's rifle set (a rifle loaded with one clip, two belt clips, a
 # grenade) as equipment-layout entries (item, give_layout slot, qty). A give_layout entry carries no ammo and the
 # generator loads a layout-placed weapon only from its layout's ammo, so the rifle stays empty: the clip auto-equip
 # loads into it sits on the belt (RIFLE_SET: the strip deletes the same 1 rifle, 3 clips, 1 grenade) or, for a soldier
@@ -158,7 +158,7 @@ def give_rifle_set(js, layouts, m):
     differs per boot, and autoEquip gives the first rifle-class item to the first soldier without a layout
     (HEAVY_CANNON counts as a rifle). Before the battle each squad slot in `layouts` ({slot: RIFLE_SET or
     RIFLE_SET_HANDS}; squad = bring_up_shared_mixed_battle's, the host roster's two lowest ids) gets that equipment
-    layout on BOTH machines (F5151), so the generator places its loadout by layout and autoEquip never decides it.
+    layout on BOTH machines, so the generator places its loadout by layout and autoEquip never decides it.
     Returns the evidence; a soldier not found once by name in its base, or a layout not given in full, is a
     FIXTURE-STOP (camp.capture)."""
     ids = sorted(s["id"] for b in js.host.ok({"cmd": "get_soldiers"})["bases"] for s in b["soldiers"])
@@ -188,7 +188,7 @@ def give_rifle_set(js, layouts, m):
 
 def battle(js, ctx, m, layouts=None):
     """The SHARED battle on SEED_S, squad {0: 0, 1: 1}; the map pin. Returns (squad, {soldier id: unit id}).
-    W2-U9c (R-MGR2-1): `layouts` ({squad slot: RIFLE_SET or RIFLE_SET_HANDS}) are given before the battle by
+    `layouts` ({squad slot: RIFLE_SET or RIFLE_SET_HANDS}) are given before the battle by
     give_rifle_set (default None: no layout, boot 2 unchanged)."""
     if layouts:
         ctx["rifleSet"] = give_rifle_set(js, layouts, m)
@@ -216,7 +216,7 @@ def stage_boot1(js, ctx):
     ok, secs = wait_until(lambda: all(base_items(gc).get(t, 0) == 0 for gc in m for t in LOADOUT_TYPES), 30)
     if not ok:
         camp.capture("F4 sells", f"loadout stock not 0 on both after {secs}s: {ctx['sells']}", m)
-    # W2-U9c (R-MGR2-1, F22882): squad[0] (stripped) AND squad[1] (guest_kill's clear_hands deletes its hand weapon and
+    # squad[0] (stripped) AND squad[1] (guest_kill's clear_hands deletes its hand weapon and
     # that weapon's clip) both feed REEQUIP_ROWS_F4, so both get a rifle-set layout
     squad, uid = battle(js, ctx, m, layouts={0: RIFLE_SET, 1: RIFLE_SET_HANDS})
     rh, rc = b1.both(host, client, {"cmd": "battle_strip_unit", "unit": uid[squad[0]]})
@@ -268,7 +268,7 @@ def stage_boot2(js, ctx):
 
 
 def walk(gc, timeout, followups_only):
-    """Dismiss this machine's after-battle screens; each FOLLOWUPS top read with followup_state while isTop (F5627)
+    """Dismiss this machine's after-battle screens; each FOLLOWUPS top read with followup_state while isTop
     before its dismiss_popup (= its OK, F5628). followups_only: stop at any other top (the client after its OK);
     else CoopState -> coop_dialog_back, other tops dismiss_popup, WAIT_TOPS left alone (the host's drain).
     Returns (reached GeoscapeState, screens, {class: rows})."""

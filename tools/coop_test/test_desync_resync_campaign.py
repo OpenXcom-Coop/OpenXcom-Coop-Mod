@@ -16,14 +16,14 @@ screen and play continues; in SEPARATE the second player's own campaign (its own
   alien's reaction shot during the kneel killed P in DR5 once), wait_host_idle; a miss = FIXTURE-STOP.
   DR6 SEPARATE: OWN0 (the client's coop_file_info {role own_world}: key, bytes, fnv1a64), RES0 (the host's event_state.researchMode
       seats[1] {stored, count, unknown}); the poke + the kneel; REPAIRED. DR6-1 RS as DR5-1; DR6-2 HASH, SPLIT unchanged (GID on seat 1);
-      DR6-3 the own-world key's fnv == OWN0 (F11245); DR6-4 the host's seats[1] == RES0, RES0 holds the client's topic (count >= 1) and the
+      DR6-3 the own-world key's fnv == OWN0; DR6-4 the host's seats[1] == RES0, RES0 holds the client's topic (count >= 1) and the
       host's live research lacks it (QL3-10: B21's kept list; the live world's list would read 0); DR6-5 the guest's walk applies (walk_far),
       HASH; DR6-6 CRASH 0, client zero-disk.
 Definitions (spec (f); helpers imported, never edited): RS / NOTICE_OK / REPAIRED(host, client, B0, 1) / kneel / HASH / SPLIT from
 test_desync_resync (REPAIRED within 45 s: host RS released +1, client RS loaded +1, the notices dismissed, both tops BattlescapeState,
 phase Active, battleId B0, host peerAbsent false, client frozen false, no CoopState on the host); walk_far from test_campaign_rejoin (the
 open tile at radius 1-3 farthest from any non-player; applies = >= 1 step, the final tile equal on both and != the start, == the last step
-unless a reaction / spotting halted it). battle_state only with a BattlescapeState on top (F10980). The seat-1 names have no probe under
+unless a reaction / spotting halted it). battle_state only with a BattlescapeState on top. The seat-1 names have no probe under
 research sync on (EVIDENCE). Every cell is a GUARD (no green follows). A boot miss FAILs its row "boot" with ONE CAPTURE line; a failed row
 prints ONE CAPTURE line; every row runs after a failure; ONE run (WV-D95; WV-D99 / WV-D100: no SKIP path); exit 0 iff every cell passes, else 2.
 """
@@ -41,7 +41,7 @@ import test_campaign_rejoin as CR  # noqa: E402  (main-guarded: walk_far, R-L2-A
 
 KEY_C1, TAG_C1 = 48756, "r4l3_c1"
 KEY_C2, TAG_C2 = "48757", "r4l3_c2"
-SEED_C1, MAP_FP_C1 = 1, 5.690100025079999e+18   # R-L3-D-3 (F13020): the host's set_seed before the landing; seed 1 (the first of
+SEED_C1, MAP_FP_C1 = 1, 5.690100025079999e+18   # the host's set_seed before the landing; seed 1 (the first of
 SEED_C2, MAP_FP_C2 = 1, 5.690100025079999e+18   # 1..40) gives this terror map on both machines in both boots, walk_far walks, 0 reactions
 POKE, TOPIC = 7, "STR_PLASMA_PISTOL"
 SEQ_OFF, KIND = r4.SEQ_OFF_DR1, "bt_action_end"   # the desync seq = host lastSeqEmitted before K + 2 (CONSTANTS: C1a-d, C2a-d)
@@ -86,7 +86,7 @@ def sep_snapshot(gc):
 
 
 def walk(x, uid, rid):
-    """walk_far(host, client, uid) (R-L3-D-1) -> (applies on both + HASH, evidence)"""
+    """walk_far(host, client, uid) -> (applies on both + HASH, evidence)"""
     h, c = x.host, x.client
     wev = {"actor": uid, "start": r4.pos(r4.units(h).get(uid))}
     try:
@@ -182,7 +182,7 @@ def baseline(x):
 
 
 def pin(x, seed, want_fp, tag):
-    """R-L3-D-3 (F12641), test_desync_resync's boot order: the seeded map on both machines, pin_ai_neutral (no alien can react to the
+    """R-L3-D-3, test_desync_resync's boot order: the seeded map on both machines, pin_ai_neutral (no alien can react to the
     kneel or the walk), the host idle"""
     x.fp = [session.battle_state(x.host).get("mapFingerprint"), session.battle_state(x.client).get("mapFingerprint")]
     assert x.fp == [want_fp, want_fp], "FIXTURE-STOP: mapFingerprint %s (want %r, seed %d)" % (x.fp, want_fp, seed)
@@ -213,7 +213,7 @@ def boot_c1():
 
 
 def boot_c2():
-    """boot C2 (SEPARATE): bring_up_separate_guest_battle with the client's own-world topic (R-L3-D-2) before the mission"""
+    """boot C2 (SEPARATE): bring_up_separate_guest_battle with the client's own-world topic before the mission"""
     x = new_x("C2")
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(TAG_C2 + "_host")), GameClient("client", 2, make_user_dir(TAG_C2 + "_client"))

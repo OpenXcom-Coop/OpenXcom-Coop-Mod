@@ -1,4 +1,4 @@
-"""W2-U7d - test_hidden_press.py: the harness vs a hidden host BEGIN / RESUME (F8018, F6474, F6824; docs rewrite/prompts/
+"""test_hidden_press.py: the harness vs a hidden host BEGIN / RESUME (F8018, F6474, F6824; docs rewrite/prompts/
 w2u7c_hidden_press_and_geoscape_wait.md PART B (f) + AMENDMENT U7d-1). The host's wait dialogs 60 (BEGIN) and 62 (RESUME)
 show their button only once the game is ready for it (CoopState.cpp :1199-1216); `coop_dialog_back` presses a hidden one
 anyway and `previous()` begins / resumes the campaign with nobody ready. Boots: C the test_lobby_dialogs campaign lobby
@@ -7,7 +7,7 @@ anyway and `previous()` begins / resumes the campaign with nobody ready. Boots: 
 has no press_back_when_shown, a verdict once it has), then B-2 (a hidden RESUME after the client was killed). RED (commit
 1): B-1 and B-2 FAIL on their press cell, B-3 and every GUARD cell pass; GREEN (commit 2b): all pass. B-1 / B-2 reach
 session.press_back_when_shown only after their hidden press was refused ("hidden"). Each row prints "EVIDENCE <id>:" then
-"PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line. WV-D95/D99/D100: ONE
+"PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line. ONE
 foreground run, no skip path, no retried press, every row runs after a failure; exit 0 only when every row passes, 2
 otherwise. Run: python tools/coop_test/<this>
 """

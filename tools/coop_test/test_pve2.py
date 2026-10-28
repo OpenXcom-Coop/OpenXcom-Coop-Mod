@@ -23,7 +23,7 @@ the lane crash folder.
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE A line and fails every cell "boot" (on a build that refuses gm4 the client logs
 `refused: unsupported` and the host's `battle_refuse received` line ends the briefing wait at once). A staging step past
-its bound fails the rows that need it (A2, A3) "staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100:
+its bound fails the rows that need it (A2, A3) "staging". run in the foreground to completion.
 ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pve2.py
@@ -58,7 +58,7 @@ MAP_FP = 7.136941435423656e+17    # both machines' mapFingerprint (Ab', Ac')
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 ALIEN_IDS = [1000000, 1000001, 1000002, 1000003, 1000004]   # 3 STR_SECTOID_SOLDIER, 2 STR_SECTOID_NAVIGATOR; list order
 SEAT1_IDS = [1000000, 1000001]                              # the first floor(5/2) in unit-list order: the client seat
-SEAT0_IDS = [1000002, 1000003, 1000004]                     # the rest: the host's seat 0 (QU8-1 (a))
+SEAT0_IDS = [1000002, 1000003, 1000004]                     # the rest: the host's seat 0
 XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]                       # 7 soldier-linked units, no tank; ids unchanged (SCOPE-6)
 TYPE_BY_ID = {i: "MALE_CIVILIAN" for i in XCOM_IDS}         # the host's re-type by each soldier's gender (Ab', Ac')
 C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54   # min(SEAT1_IDS); TU = its bring-up TU

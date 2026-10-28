@@ -49,9 +49,9 @@ TransferBaseState::TransferBaseState(Base *base, DebriefingState *debriefingStat
 
 	// coop (SEPARATE only): a basescape underneath hides the peer's mirror bases;
 	// put them back so the destination list can include them (hidden again by
-	// Cancel below). W2-H8: the one process-wide stash, never _base's, so a
+	// Cancel below). the one process-wide stash, never _base's, so a
 	// debriefing or a geoscape popup - nothing hidden - leaves the list untouched.
-	// In SHARED every base is already a real shared base in getBases() (PRD-J05).
+	// In SHARED every base is already a real shared base in getBases().
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true
 		&& !_game->getCoopMod()->isSharedCampaign())
 	{
@@ -143,7 +143,7 @@ TransferBaseState::~TransferBaseState()
 void TransferBaseState::btnCancelClick(Action *)
 {
 
-	// coop (W2-H8): hide the peer's mirrors again when the ctor put them back for a
+	// coop: hide the peer's mirrors again when the ctor put them back for a
 	// basescape underneath (never in SP, SHARED, a debriefing or a geoscape popup).
 	if (_coopShown)
 	{

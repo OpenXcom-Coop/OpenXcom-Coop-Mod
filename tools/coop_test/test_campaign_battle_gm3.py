@@ -32,7 +32,7 @@ RED (C1R, the unchanged product: the X-COM client generates the battle alone, F1
 client's local battle, the non-host warning +1); every other cell FAILs "blocked: the alien host never entered the battle (C1-hand)".
 GREEN (C1G): 15/15. The file ends after C3 (the battle's end is S-C2's).
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_gm3.py
 """
 
@@ -55,7 +55,7 @@ import test_pvp_gm3 as G3F  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc1/CONSTANTS.md, boots Ca and Cb, 2/2 each) -----
 KEY = "48011"
-SEED_C = 1                                   # set on the X-COM CLIENT right before its confirm_landing (F13986)
+SEED_C = 1                                   # set on the X-COM CLIENT right before its confirm_landing
 TOPIC = "STR_LASER_WEAPONS"                  # the first of LASER / MOTION_SCANNER / MEDI_KIT unresearched on both
 MIRROR_S_PIN = 0.05                          # EVIDENCE: the host site's mirror reached the client at the first poll (2/2)
 MAP_FP_C1 = 5.996615470105667e+18            # EVIDENCE: the client-local map at SEED_C (STOP-IF 13: never a stop)

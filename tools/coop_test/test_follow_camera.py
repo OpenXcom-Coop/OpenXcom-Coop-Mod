@@ -23,11 +23,11 @@ Every row ends with <row>-common: every hash bucket EQUAL, desyncSeen false on b
 folder.
 `set_option` for this option rides TB1, the test-only TestServer fallback that answers any registered bool option by
 id; a build without the option answers `error` "unknown option: coopFollowPeerActions" (a FAIL value, never an
-exception). Lever pairs go to the client first (F607); every item id comes from a lever reply (S25).
+exception). Lever pairs go to the client first; every item id comes from a lever reply (S25).
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a cell
 whose precondition failed FAILs "not reached". A boot step past its bound prints ONE "CAPTURE F:" line and fails every
-row "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+row "boot". run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_follow_camera.py
@@ -49,8 +49,8 @@ import test_turn_cues as TCU  # noqa: E402
 from test_ai_origins import host_payloads  # noqa: E402
 
 KEY = "46652"                     # the skirmish_host lobby key (spec (F), F14132)
-OPT = "coopFollowPeerActions"     # `main`'s id (QD249-5 (a))
-OPT_TEXT = "Follow Teammate Actions with Camera"   # `main`'s literal row text (QD249-9 (a))
+OPT = "coopFollowPeerActions"     # `main`'s id
+OPT_TEXT = "Follow Teammate Actions with Camera"   # `main`'s literal row text
 OPT_CATEGORY = "STR_BATTLESCAPE"
 OPTION_OTHER = 2                  # src/Engine/OptionInfo.h enum OptionOwner: the Multiplayer screen's options
 H_ID, HP_ID = 10, 11              # the host seat's first two soldiers (TASK 0: host seat [10, 11, 12, 13, 14])

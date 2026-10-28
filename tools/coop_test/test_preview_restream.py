@@ -15,11 +15,11 @@ soldier and crashes (TASK 0, every red construction: Soldier::getName <- BattleU
         shared_resync_stats.requests +1, alive, BattlescapeState on its stack, isPreview true; then every H21c-1 cell after the reply.
 PV = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing (<= 2 s per probe, SETTLE 0.3 s
 before a key or click, F2888); END = end_turn_button, StatsForNerdsState + has_battle false, keyCancel to depth 0; never close_screens on a
-preview (F8973). W = 10 s at 0.25 s polls, HOLD = 2 s. CL = the client's openxcom.log after the trigger. BLOB = the host's dump_coop_file
+preview. W = 10 s at 0.25 s polls, HOLD = 2 s. CL = the client's openxcom.log after the trigger. BLOB = the host's dump_coop_file
 {shared_world} at host.user_dir/xcom1/shared_world; noBattle = no line `battleGame:`. CRASH = new crashlogs/crash_*.log. Setup guard per
 boot: stacks [GeoscapeState], localSeat 0 / 1, has_battle false (a miss fails the boot's rows `boot`). A dead client leaves its row's
 later cells "not reached" (its crash rc is tolerated at shutdown). EVIDENCE before each verdict; a failed row prints ONE CAPTURE line;
-every row runs after a failure; ONE run (WV-D95); exit 0 iff every row passes, else 2.
+every row runs after a failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json

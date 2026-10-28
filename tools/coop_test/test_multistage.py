@@ -36,7 +36,7 @@ a vanilla next-stage briefing keeps a STALE _battleState that the battle_state p
 
 Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a
 FAIL, ONE "CAPTURE <id>:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past
-its bound fails every row `boot` with one CAPTURE line. Every row runs after a failure. WV-D95 / WV-D99 / WV-D100:
+its bound fails every row `boot` with one CAPTURE line. Every row runs after a failure.
 ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_multistage.py
@@ -100,7 +100,7 @@ def has_bstate(st):
 
 
 def bview(gc):
-    """battle_state, only while a BattlescapeState is on the stack (F9920)."""
+    """battle_state, only while a BattlescapeState is on the stack."""
     st = stack(gc)
     if not has_bstate(st):
         return {"skipped": f"no BattlescapeState on the stack (F9920): {st}"}
@@ -345,7 +345,7 @@ def ms1_green(host, client, ctx):
         assert_hash_clean(host, client, full=True, what="stage 2 turn 1")
     except AssertionError as e:
         f.append(f"hash at stage-2 turn 1: {short(e, 500)}")
-    # R-MGA-A1-G-1 (F9991): the stage-2 aliens stand 14.2 tiles from WALKER at seed 1, inside the default 20
+    # the stage-2 aliens stand 14.2 tiles from WALKER at seed 1, inside the default 20
     pw = session.pick_and_walk(host, client, WALKER, "MS1 stage-2 walk", min_alien_dist=10)
     hp, cp = bview(host).get("pos", {}).get(WALKER), bview(client).get("pos", {}).get(WALKER)
     ctx["walk"] = {"result": pw is not None, "from": hb.get("pos", {}).get(WALKER), "host": hp, "client": cp}

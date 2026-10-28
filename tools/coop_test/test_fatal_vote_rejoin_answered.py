@@ -18,9 +18,9 @@ the client's OK, the pause, dialog 68, RESUME, phase, battleId, hash). rejoin: h
 Open); client2 fatalVote at its zeros. answer: client2 OK not pressed; the host's OK then decides end on the stale yes.
 close: host resends 0; client2 opensApplied 0, answerSent "", questionPushed 0. ending: runs and passes.
 
-WV-D99 / WV-D100: one run is the result; no skip path, one boot. The row prints ONE "EVIDENCE V7b:" line, then
+one run is the result; no skip path, one boot. The row prints ONE "EVIDENCE V7b:" line, then
 "PASS V7b" / "FAIL V7b: <message>"; a rejoin step past its bound prints one CAPTURE line and FAILs "rejoin
-(FIXTURE-STOP)". Exit 0 only when the row passes, 2 otherwise. WV-D95: run in the foreground to completion.
+(FIXTURE-STOP)". Exit 0 only when the row passes, 2 otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_fatal_vote_rejoin_answered.py
 """
@@ -51,7 +51,7 @@ def row_v7b(r):
     r.line("answer", "client fatalVote after its OK", fvt.mism(cs["fv"], {"state": "Open", "answerSent": "yes"}))
     rj.leave(r, fvt.QUESTION, {1: True})
     t_res = rj.rejoin(r, fvt.QUESTION)
-    rj.after_rejoin(r, t_res, [0, 1], 2, {}, [])   # D223 (b): the rejoining seat's earlier yes is dropped
+    rj.after_rejoin(r, t_res, [0, 1], 2, {}, [])   # the rejoining seat's earlier yes is dropped
     if fvt.answer(r, r.client, "OK", "answer"):
         fvt.wait_until(lambda: fvt.norm(fvt.fv(h)).get("answers") == {1: True}, fvt.STEP_S)
     if not fvt.answer(r, h, "OK", "answer"):

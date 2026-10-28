@@ -316,9 +316,9 @@ void BriefingState::btnOkClick(Action *)
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
 			return;
 		}
-		// W1-P4 / W2-P8b / MG-A: every co-op battle, a next stage included (MG-A re-offers it as a fresh battle), equips
+		// every co-op battle, a next stage included (MG-A re-offers it as a fresh battle), equips
 		// through W2-P8b (both players, OK is a ready toggle, turn 1 starts at the barrier); the freeze below has no known
-		// caller since MG-A (F5097). False in single player: the vanilla push below is unchanged.
+		// caller since MG-A. False in single player: the vanilla push below is unchanged.
 		if (CoopHandshake::freezePreBattleEquip(_game))
 		{
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
@@ -339,7 +339,7 @@ void BriefingState::btnOkClick(Action *)
 		Options::baseYResolution = Options::baseYGeoscape;
 		_game->getScreen()->resetDisplay(false);
 		delete bs;
-		CoopHandshake::abandonPreparedOffer(_game); // WV-D56: self-guarded, no-op in SP
+		CoopHandshake::abandonPreparedOffer(_game); // self-guarded, no-op in SP
 		_game->pushState(new AliensCrashState);
 	}
 }

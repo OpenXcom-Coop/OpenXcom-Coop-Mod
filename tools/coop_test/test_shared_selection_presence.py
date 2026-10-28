@@ -68,7 +68,7 @@ RED (commit S-C-E2.1: screen_push, the row colours and textItems, these rows; pr
 cell 2 (the host's viewers stay [0, 1], F6110), E2-cf on cell 2 (the host's L amount stays 0). RED (commit
 S-C-E2.1b, D243, test only): E2-gs fails on cell 1 (the list keeps vanilla's 120). GREEN (commit S-C-E2.2): every row
 passes.
-Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground
+Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE foreground
 run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_selection_presence.py
@@ -209,7 +209,7 @@ def ct2_pre(js, ctx):
     if not (fb.get("ok") and ok and idx["host"] == idx["client"] == fct.CT_INDEX):
         fst.capture("CT2 facility", f"fac_build {ctx['fxCT']['facBuild']}, index {idx} (want {fct.CT_INDEX} on both)", m)
     sets = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": fct.CT_INDEX, "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "x", "y", "buildTime", "error")}
     ctx["fxCT"]["buildTime0"] = sets

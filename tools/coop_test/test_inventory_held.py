@@ -24,7 +24,7 @@ C2 and IH7 ends the battle, so IH7 is last):
         coopIntentsSent.inv_move unchanged by it. After the host's end the held
         order resubmits and is admitted: grenade STR_LEFT_HAND owner C, C TU 60 on
         both, the cursor empty; EQUAL.
-  IH1b  right-click cancels a held order (F1970); declared GREEN at red (S-A
+  IH1b  right-click cancels a held order; declared GREEN at red (S-A
         section 8.1 step 8). The same first drop, then a right-click:
         coopPendingIntent null, the cursor empty, the grenade STR_BELT (1,0) on
         both; after the host's end nothing resubmits (coopIntentsSent.inv_move +1
@@ -77,10 +77,10 @@ C2 and IH7 ends the battle, so IH7 is last):
         grenade still STR_BELT (1,0) (T0-3, F2088); GREEN sets.move +1, host
         syncEvsEmitted +1, client syncEvsApplied +1, H's grenade STR_LEFT_HAND and
         H TU 58 - 4 on both while the screen is open. The heal step; EQUAL.
-  IH3   host reload key (F1133). H: rifle (no clip) STR_RIGHT_HAND, clip belt
+  IH3   host reload key. H: rifle (no clip) STR_RIGHT_HAND, clip belt
         (0,0); host TAB-selects H and presses its reload key. RED: host
         syncEvsEmitted +0, the client's rifle ammo [r, r, r] while the host's is
-        [clip, r, r, r] (F2091). GREEN: sets.reload +1, host syncEvsEmitted +1,
+        [clip, r, r, r]. GREEN: sets.reload +1, host syncEvsEmitted +1,
         rifle ammo [clip, r, r, r] and H's TU equal on both before any other host
         ev. The heal step; EQUAL.
   IH7   battle end with the client's screen open (F1972, F2398, F2399; T0-9).
@@ -104,7 +104,7 @@ Boot 2 (P8-3b ruling 1, F2802):
         grenade where the host's evs put it on both; EQUAL.
 Boot 3 (W2-P8 S-C2: AMENDMENT P8-4 C2-3 and Q1 (a); P8-4b T0-S9 pins, F2884; alone,
 the IH6 precedent, because its red cell ends the client):
-  IH9   a COVERED client inventory whose soldier goes down (F2856). C2 on
+  IH9   a COVERED client inventory whose soldier goes down. C2 on
         (4,32,0) dir 6, stripped, a grenade belt (1,0), TU 58; the client opens
         C2's inventory and covers it with the inventory's Ufopaedia key
         (keyGeoUfopedia from its options.cfg -> UfopaediaStartState); host
@@ -116,7 +116,7 @@ the IH6 precedent, because its red cell ends the client):
         after the close, no InventoryState on the client, no crash file, C2 dead
         on both; EQUAL.
 The heal step (tail of IH2 and IH3, not a row): the client turns C one octant;
-its context's evs carry whatever host change the client still lacks (F2402).
+its context's evs carry whatever host change the client still lacks.
 EVIDENCE prints that context's evs with their delta shapes (ruling 4). Then EQUAL.
 
 Common asserts (after wait_host_idle): hash_now full EQUAL; desyncSeen false on
@@ -127,13 +127,13 @@ Constants: the P8-3b pin table (T0-4, T0-6, T0-7, T0-9, T0-10, T0-11 rows; evide
 and scripts docs rewrite/w2p8-task0/sc1/, t0_sc1.py) and P8-2 T0-1 (tiles, max TU);
 S-C2's IH8 / IH9 pins: the P8-4b pin table (T0-S1, T0-S9 rows; docs
 rewrite/w2p8-task0/sc2/, t0_sc2.py). Item ids come from each row's staging record
-(C7), never literals. Every lever pair goes to the CLIENT first (F607), except the
+(C7), never literals. Every lever pair goes to the CLIENT first, except the
 teleports IH8 and IH9 stage (P8-4b ruling 3: host leg first, checked, then the
 client leg; place_host_first). Each row prints ONE "EVIDENCE <id>:" line with both
 machines' fields before its conditions are checked; every row runs after an earlier
 failure; "PASS <id>" / "FAIL <id>: <message>". Exit 0 only when every row passes, 2
-otherwise (a bring-up failure is also 2). WV-D99 / WV-D100: one run is the result.
-WV-D95: run in the foreground to completion.
+otherwise (a bring-up failure is also 2). one run is the result.
+run in the foreground to completion.
 
 Run:  python tools/coop_test/test_inventory_held.py
 """
@@ -178,7 +178,7 @@ STATUS_UNCONSCIOUS = 7
 # ----- P8-3b T0-4 row (IH1a/b/c): "fire dial 1 on seat 0 (wait_seat_dial); H (14,24,0) dir 2, rifle + clip via
 # give_both; set_seed 1 before each fire; battle_fire snap at (34,24,0), tuCost 14 (impact tile (40,25,0)); C K0 on
 # STAGE_C (2,33,0) (window A) / (0,34,0) (window B); C2 (4,32,0) dir 6, walk dest (1,32,0)"; window 8775-10206 ms
-# (3 boots) >= 3 x the longest in-window sequence 814 ms (F2797) -----
+# (3 boots) >= 3 x the longest in-window sequence 814 ms -----
 FIRE_DIAL = 1
 FIRE_SEED = 1
 FIRE_MODE = "snap"
@@ -193,23 +193,23 @@ C2_TILE, C2_DIR = (4, 32, 0), 6   # T0-4 (IH1c) and T0-6 (IH6, Q5 a)
 C2_DEST = (1, 32, 0)              # T0-4: 3 tiles west along y=32
 # ----- P8-3b T0-10 row (IH8): "C tele (12,26,0) dir 2, TU 64; walk dest (9,29,0) (T0-2's read_lane, dir 5); H = T0-11
 # shape 2 staging; H's grenade belt (1,0) -> STR_LEFT_HAND"; the walk froze 0.124 s after the send; host lastSeqEmitted
-# and syncEvsEmitted flat 4.56 s (F2796) -----
+# and syncEvsEmitted flat 4.56 s -----
 IH8_C_TILE, IH8_C_DIR = (12, 26, 0), 2
 IH8_WALK_DEST = (9, 29, 0)
 IH8_SAMPLE_EVERY_S = 0.1
 # ----- W2-P8 S-C2 (P8-4b pin table): T0-S1 row: "C (12,26,0) dir 2 -> (9,29,0) 3 tiles / (10,28,0) 2 tiles; host
 # camera battle_camera_center (11,27,0) (on-screen) + client battleXcomSpeed 40 + wait_seat_dial(seat 1, "xcom",
 # 40)"; measured "on-screen dial 40: 3 tiles 2339 ms, 2 tiles 1554-1559 ms (3 boots); off-screen walks run at
-# interval 0 (~270 ms) at any dial (F2886); longest host sequence inside a window = IH8's pick+drop 202 ms".
+# interval 0 (~270 ms) at any dial; longest host sequence inside a window = IH8's pick+drop 202 ms".
 # P8-4b ruling 1: every S-C2 walk-window row (IH8 included) pins the camera and the dial. -----
 LANE_MID = (11, 27, 0)            # the host camera's centre for an on-screen partner walk (t0_sc2.py LANE_MID)
 WALK_DIAL = 40                    # the client's battleXcomSpeed = seat 1's xcom dial (CoopSpeed, t0_sc2.dial_xcom)
 WALK_UNDER_S = 6.0                # a 3-tile walk (2339 ms uncovered) must end under the host's screen within this;
-                                  # a covered BattlescapeState steps at most once per frame (F2617), so > 2.5 x
-KEY_SETTLE_S = 0.3                # P8-4b ruling 2 (F2888): a key injected right after a state opens is lost
+                                  # a covered BattlescapeState steps at most once per frame, so > 2.5 x
+KEY_SETTLE_S = 0.3                # P8-4b ruling 2: a key injected right after a state opens is lost
 # ----- W2-P8 S-C2 (P8-4b pin table) T0-S9 row (IH9): "C2 (4,32,0) dir 6, stripped, grenade belt (1,0), TU 58;
 # client opens C2's inventory; cover = keyGeoUfopedia 117 (UfopaediaStartState, 0.102 s), close = keyCancel 27";
-# F2884: "covered client inventory, host kill_unit_real {C2} -> notOnTop +2, then closing the cover crashes the
+# "covered client inventory, host kill_unit_real {C2} -> notOnTop +2, then closing the cover crashes the
 # client 0.527 s later (Inventory.cpp:378 via InventoryState::think)". The keys are read from the machine's own
 # options.cfg (117 and 27 in T0-S9). -----
 COVER_KEY = "keyGeoUfopedia"      # InventoryState :227 (_btnOk -> btnUfopaediaClick)
@@ -217,11 +217,11 @@ CLOSE_KEY = "keyCancel"           # UfopaediaStartState :114 (_btnOk -> btnOkCli
 COVER_WAIT_S = 2.0                # T0-S9: covered 0.102 s after the key
 # ----- P8-3b T0-11 row (IH2 a): "shape 2: restage_h STAGE_H (48,24,0) dir 2, K0, H TU 58" -----
 # ----- P8-3b T0-7 row (IH5): "C K0 on (1,33,0) dir 2"; the client stack at the flip [.., BattlescapeState,
-# InventoryState, NextTurnState] (F2799); at turn 2 the screen rebinds to C2 with C's grenade on the cursor (F2801) --
+# InventoryState, NextTurnState]; at turn 2 the screen rebinds to C2 with C's grenade on the cursor --
 IH5_TILE = (1, 33, 0)
 TURN0 = 1                         # the boot's first player turn (battle_state.turn at bring-up)
 # ----- P8-3b T0-9 row (IH7): "C K0 on STAGE_C (2,33,0); host abort + dismiss_popup"; the client's display-only
-# DebriefingState 0.103 s after the confirm (F2803) -----
+# DebriefingState 0.103 s after the confirm -----
 IH7_TILE = (2, 33, 0)
 # ----- P8-3b T0-6 row + ruling 1 (IH6): "C2 (4,32,0) dir 6 (Q5 a), stripped, grenade belt (1,0), TU 58; host
 # kill_unit_real {C2}"; RED = "the client dies within 5 s of the host kill_unit_real" -----
@@ -241,7 +241,7 @@ WALK_WAIT_S = 15.0
 FLIP_WAIT_S = 30.0
 SYNC_WAIT_S = 3.0                 # P8-2 T0-3: the F1133 negative control sampled at 0 s and 3 s
 LATCH_WAIT_S = 2.0                # C3: the close latch runs at ~InventoryState, one frame after the pop
-KEY_READ_S = 0.5                  # F2097: a text is read within 0.5 s of the press
+KEY_READ_S = 0.5                  # a text is read within 0.5 s of the press
 
 SC1_KEYS = ("invHostDirty", "invForcedCloses", "invWarningWrites", "syncEvsEmitted", "syncEvsApplied",
             "contextsOpened", "cueCounts", "battleEnd", "deltaEvsEmitted")
@@ -427,7 +427,7 @@ def place_host_first(host, client, uid, tile, d):
     """W2-P8 S-C2 (AMENDMENT P8-4b ruling 3, F2888): test_client_shoot.place (re-entrant: a unit already on the
     tile on both keeps its facing, CLAUDE.local.md S2) with the HOST leg first and checked, then the client leg: a
     host refusal (e.g. "not STATUS_STANDING") never leaves the client teleported alone (both() sends the client
-    first, F607). The tile's own check is the lever's refusal (F2897). Only for player units: a host-first teleport
+    first, F607). The tile's own check is the lever's refusal. Only for player units: a host-first teleport
     of an ALIEN makes the host's next reveal ev carry state the client lacks (F607, reproduced for S-C2)."""
     uh, uc = units(host).get(uid) or {}, units(client).get(uid) or {}
     if all((u.get("x"), u.get("y"), u.get("z")) == tuple(tile) for u in (uh, uc)):
@@ -439,7 +439,7 @@ def place_host_first(host, client, uid, tile, d):
     assert rc.get("ok"), f"staging {req}: the client leg refused ({rc}) after the host's ok ({rh})"
     assert (rh.get("to"), rh.get("dir")) == (rc.get("to"), rc.get("dir")), (
         f"staging {req} differs: host={(rh.get('to'), rh.get('dir'))} client={(rc.get('to'), rc.get('dir'))}")
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return {"teleported": tuple(tile), "dir": rh.get("dir")}
 
 
@@ -466,7 +466,7 @@ def set_xcom_dial(host, client, value):
 
 
 def camera_lane(host, tile=LANE_MID):
-    """P8-4b ruling 1 (F2886): the host camera on the partner's walk lane (battle_camera_center, camera-only), so
+    """P8-4b ruling 1: the host camera on the partner's walk lane (battle_camera_center, camera-only), so
     the walk steps at the dial's pace instead of UnitWalkBState's off-screen interval 0."""
     r = host.cmd({"cmd": "battle_camera_center", "x": tile[0], "y": tile[1], "z": tile[2]})
     assert r.get("ok"), f"battle_camera_center {tile} failed on the host: {r}"
@@ -893,7 +893,7 @@ def ih8_open_context_gate(host, client, ctx):
     staged = settle(host, client)
     gh = hst["ids"]["grenade"]
     ev = {"leftover": leftover, "cPlace": ct, "cTu": ctu}
-    # P8-4b ruling 1 (F2886): the walk steps at the dial's pace only on-screen on the host
+    # P8-4b ruling 1: the walk steps at the dial's pace only on-screen on the host
     dial0 = xcom_dial_of(host)
     ev["camera"] = camera_lane(host)
     ev["dial"] = {"boot": dial0, "set": WALK_DIAL, "tables": set_xcom_dial(host, client, WALK_DIAL)}
@@ -1001,7 +1001,7 @@ def ih8_open_context_gate(host, client, ctx):
         if not held_ints or max(held_ints) <= 0:
             fails.append(f"IH8: host invHostDirty.heldByGate while the walk's context was open {held_open} (want > 0)")
         # the RED cell (S-C2.1, D166 today): the walk frozen under the host's screen; GREEN (S-C2.2, D166 = B): it
-        # runs to its end while the host's screen is open, and its evs carry H's change (F2402, D189 c)
+        # runs to its end while the host's screen is open, and its evs carry H's change
         if done is None:
             last = samples[-1] if samples else {}
             fails.append(f"IH8: the walk did not end under the host's open inventory within {WALK_UNDER_S} s of the "
@@ -1167,7 +1167,7 @@ def ih5_side_change(host, client, ctx):
 
 def heal_step(host, client):
     """The tail of IH2 and IH3 (not a row): the client turns C one octant (session.send_turn, F394/F395). Its
-    context's evs carry any host change the client still lacks (F2402); returns that context's evs with the delta
+    context's evs carry any host change the client still lacks; returns that context's evs with the delta
     shape each one carried (host openxcom.log, P8-3b ruling 4)."""
     out = {}
     hmark = log_mark(host)
@@ -1333,7 +1333,7 @@ def ih3_host_reload_key(host, client, ctx):
                                 for k, v in sample.items()},
                      "heal": heal, "row": rec_view(before, rec, {"rifle": rifle, "clip": clip}), "notes": notes})
     fails = list(notes) + staged_fails(hst, staged, H_TU_MAX, "H")
-    r_empty = [rifle, rifle, rifle]                 # F2091 / F2092: an empty rifle [r, r, r]
+    r_empty = [rifle, rifle, rifle]                 # an empty rifle [r, r, r]
     r_loaded = [clip, rifle, rifle, rifle]          # a loaded one [clip, r, r, r]
     if not ev["tab"]:
         fails.append(f"precondition: TAB never selected H on the host (selectedId {battle_state(host).get('selectedId')})")
@@ -1343,7 +1343,7 @@ def ih3_host_reload_key(host, client, ctx):
         fails.append(f"IH3: the host's reload key (key {key}) did not load H's rifle on the host "
                      f"({sample['rifle']['host']})")
     else:
-        # the RED cell (S-C1.1): no sync, the client's rifle stays [r, r, r] (F1133)
+        # the RED cell (S-C1.1): no sync, the client's rifle stays [r, r, r]
         dr = dnum(dirty_sets(before["host"], "reload"), dirty_sets(sample["host"], "reload"))
         dsy = dnum(before["host"]["syncEvsEmitted"], sample["host"]["syncEvsEmitted"])
         if (dr, dsy) != (1, 1):

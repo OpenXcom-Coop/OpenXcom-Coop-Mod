@@ -16,11 +16,11 @@ player adopts a streamed world (connectionTCP::onTCPMessage, F9634). Both kill t
   Cells per row: G per boot (setup, both briefings, non-vacuity, trigger sent); GUARD in every C1 construction; non-vacuity: every
     surviving host reached its effect; RED: no host death in N constructions (TASK 0: C1 2/2, the host died 50-51 ms after keyChat,
     getBattleGame <- ChatMenu::draw; R1 2/2, 1.56-1.86 s after force_resync, getBattleGame <- onTCPMessage at connectionTCP.cpp :36892).
-W = 10 s at POLL 0.25 s, HOLD = 2 s, SETTLE 0.3 s before every key (F2888), N = 3 fresh boots per row, W_BATTLE = 90 s. alive(gc) = the
+W = 10 s at POLL 0.25 s, HOLD = 2 s, SETTLE 0.3 s before every key, N = 3 fresh boots per row, W_BATTLE = 90 s. alive(gc) = the
 process runs and `ping` answers. CRASH = new crashlogs/crash_*.log since the construction started (first 4 frames). HL / CL = the host's /
 client's openxcom.log. A machine that died on the RED trigger (and R1's client) is tolerated at shutdown. EVIDENCE before each verdict;
 a failed row prints ONE CAPTURE line per failed construction (both stacks, get_coop / world_state / battle_state on both, HL / CL tails,
-CRASH); every row runs after a failure; ONE run (WV-D95); exit 0 iff every row passes, else 2.
+CRASH); every row runs after a failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json
@@ -86,7 +86,7 @@ def chat_on(gc):
 
 
 def press_chat(gc):
-    """keyChat as this process wrote it to its options.cfg, SETTLE s after the last input (F2888)"""
+    """keyChat as this process wrote it to its options.cfg, SETTLE s after the last input"""
     key = prj.cr.read_key(gc.user_dir, "keyChat")
     time.sleep(SETTLE)
     return dict(q(gc, {"cmd": "inject_input", "kind": "key", "key": key}), key=key)
@@ -197,7 +197,7 @@ def r1(r, x, rec):
 
 
 def r1_after(r, x, rec):
-    """R1: the stream went out (no streamer-busy drop); the client's fate is recorded (F9646), never a cell"""
+    """R1: the stream went out (no streamer-busy drop); the client's fate is recorded, never a cell"""
     hl = [ln.split("\t")[-1][:160] for ln in pr.log_lines(x.host, x.n_hl) if STREAM in ln or BUSY in ln]
     rec["CL_ADOPT"] = pr.in_order(pr.log_lines(x.client, x.n_cl), sq.CL_ADOPT)
     time.sleep(0.5)

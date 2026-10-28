@@ -2,7 +2,7 @@
 share ONE list of pending amounts per screen, as the Sell screen does since S-C-E1 (owner D184 (a), D203; MR7, MR9,
 MR10, MR16): an amount either player sets shows on the other player's screen with a label naming that player, a
 rejected Transfer keeps the list and the screen (MR10), the other player's screen stays open after a confirm, rebuilt
-at zero (D204 (a)), and a confirm whose confirmer sees none of the list's rows (the other player's soldier rows are
+at zero, and a confirm whose confirmer sees none of the list's rows (the other player's soldier rows are
 hidden, MR7) still applies the list (F6341, V-E3) (docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8
 sections 3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2). D243 (owner 2026-10-05): the label sits
 just above the OK/Cancel buttons while another player has the same screen open; in a SHARED campaign the Transfer list
@@ -32,7 +32,7 @@ FAILs "pre-cell"):
   Probes / levers: screen_push (PR-51), screen_rows (+ textItems [{text, visible}], rows[i].color, secondaryColor,
   highlightColor, PR-51), screen_set_amount, screen_pick_base, sel_state (PR-46), set_funds (both, client first),
   click_widget on the real captions (Transfer, OK, Cancel, Remove Selected), coop_dialog_back ONLY on a CoopState top,
-  dismiss_popup ONLY on an ErrorMessageState top (F4333).
+  dismiss_popup ONLY on an ErrorMessageState top.
   Labels: "Also on this screen: <the other seat's roster name>" (STR_COOP_ALSO_ON_SCREEN, D203, PR-50 (iii); the
   roster = save_markers.coopPlayers, seat 0 = the host).
 
@@ -48,7 +48,7 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
             both (MR10).
         (2) coop_dialog_back; funds restored on both; client Transfer -> OK: within PAGE_S the client's
             TransferItemsState and TransferBaseState gone; the host's top stays TransferItemsState (rebuilt), every
-            amount 0 (D204); shared_checksum.chkTransfers +1 on both; world_diff empty.
+            amount 0; shared_checksum.chkTransfers +1 on both; world_diff empty.
   E2-xe (1) (F6341, MR7, V-E3) the client sets ONLY its own soldier's row to 1; the host's screen_rows lists no row
             named after that soldier (MR7); the host's sel_state xfer|n|0|1 rows == {s:<id>: 1} within SEL_S.
         (2) host Transfer -> OK: within PAGE_S the host's TransferItemsState and TransferBaseState gone; the soldier
@@ -65,7 +65,7 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
   E2-ca (1) client L = 2 -> the host's L amount 2 within SEL_S; both screens' labels visible.
         (2) host Remove Selected: its screen gone within PAGE_S; the client's ManageAlienContainmentState stays (rebuilt
             in place), every amount 0; L stock 2 and STR_SECTOID_CORPSE +2 on both; world_diff empty.
-  E2-gc (D243) (1) the host alone opens containment: its list height == 112 (vanilla, unchanged), no label visible.
+  E2-gc (1) the host alone opens containment: its list height == 112 (vanilla, unchanged), no label visible.
         (2) the client opens it too: both lists 112; on both a VISIBLE label names the other player, its rect between the
             list's bottom and the Cancel button's top (the containment's gap above its buttons), within SEL_S.
 Guard on every row: no new crash log; the client zero-disk at each boot's end.
@@ -74,7 +74,7 @@ RED (commit S-C-E2.1: screen_push, the row colours and textItems, these rows; pr
 E2-ca fail on cell 1 (the host's amount stays 0 / the host's sel_state holds no xfer key), E2-xr on cell 1 (sel_state
 lacks the key). RED (commit S-C-E2.1b, D243, test only): E2-gx fails on cell 1 (the list keeps vanilla's 128), E2-gc
 on cell 2 (no label). GREEN (commit S-C-E2.2): every row passes.
-Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground
+Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE foreground
 run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_selection_screens.py
@@ -101,7 +101,7 @@ XFER_KEY = "xfer|n|0|1"                  # SharedEcon::xferKey(base 0 -> base 1,
 CONT_KEY = "cont|n|0|p0"                 # SharedEcon::contKey(base 0, prisonType 0, normal)
 E2XA_CLIENT, E2XA_HOST = 3, 4            # P7-8 section 4.2 E2-xa's amounts
 E2XR_SET = 4                             # E2-xr's Rifle amount
-E2XR_FUNDS = -1                          # R-E2-1 (F6447/F6448): the $0 base 0 -> 1 transfer fails only below 0 funds
+E2XR_FUNDS = -1                          # the $0 base 0 -> 1 transfer fails only below 0 funds
 E2CA_SET = 2                             # E2-ca's L amount
 L = fct.L                                # STR_SECTOID_SOLDIER (FX-CT's live alien)
 L_FILL = 4                               # CONT: give_items {STR_SECTOID_SOLDIER, 4} on both
@@ -118,7 +118,7 @@ LABEL_HEAD = "Also on this screen: "     # STR_COOP_ALSO_ON_SCREEN "Also on this
 ROW_H = 8
 VANILLA_LIST_H = {"SellState": 120, "TransferItemsState": 128, "ManageAlienContainmentState": 112}
 SHARED_LIST_H = {"SellState": 120 - ROW_H, "TransferItemsState": 128 - ROW_H, "ManageAlienContainmentState": 112}
-XFER_OK, CONFIRM_OK, CANCEL = "Transfer", "OK", "Cancel"   # TransferItemsState / TransferConfirmState captions (F5572)
+XFER_OK, CONFIRM_OK, CANCEL = "Transfer", "OK", "Cancel"   # TransferItemsState / TransferConfirmState captions
 CONT_OK = fct.CONT_OK                    # "Remove Selected" (2-button layout: canSellLiveAliens off)
 MACS = "ManageAlienContainmentState"
 SHARED_FAIL = 556                        # CoopState COOP_DLG_SHARED_FAIL (CoopState.h :56)
@@ -322,7 +322,7 @@ def geometry(gc):
 
 
 def geo_ok(g, cls, want_label):
-    """(ok, why) for one machine's geometry: its top is cls; its list height is SHARED_LIST_H[cls] (D243); with
+    """(ok, why) for one machine's geometry: its top is cls; its list height is SHARED_LIST_H[cls]; with
     want_label a VISIBLE label whose text == want_label lies between the list's bottom and the Cancel button's top;
     without, no label is visible."""
     lst, cancel = g.get("list") or {}, (g.get("buttons") or {}).get(CANCEL) or {}
@@ -424,7 +424,7 @@ def hygiene(host, client, ctx):
 
 
 def give(host, client, item, count, ctx, key):
-    """give_items {item, count} on both, client first (F607); equal `stored` or a FIXTURE-STOP."""
+    """give_items {item, count} on both, client first; equal `stored` or a FIXTURE-STOP."""
     g = {}
     for gc in (client, host):
         r = gc.cmd({"cmd": "give_items", "item": item, "count": count})
@@ -450,7 +450,7 @@ def open_xfer(host, client, ctx):
     for gc in m:
         r = gc.cmd({"cmd": "screen_push", "screen": "transfer_base", "base": 0})
         ok, secs = wait_until(lambda gc=gc: top(gc) == "TransferBaseState", PAGE_S)
-        time.sleep(0.2)   # one pump: TransferBaseState's own init() runs first (F5573)
+        time.sleep(0.2)   # one pump: TransferBaseState's own init() runs first
         p = gc.cmd({"cmd": "screen_pick_base", "from": 0, "to": 1})
         o[gc.name] = {"push": {k: r.get(k) for k in ("ok", "screen", "base", "error")}, "baseUp": ok, "secs": secs,
                       "pick": {k: p.get(k) for k in ("ok", "from", "to", "debrief", "error")}}
@@ -501,7 +501,7 @@ def cont_pre(js, ctx):
     if not (fb.get("ok") and ok and idx["host"] == idx["client"] == CT_INDEX):
         capture("CONT facility", f"fac_build {ctx['cont']['facBuild']}, index {idx} (want {CT_INDEX} on both)", m)
     sets = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": CT_INDEX, "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "buildTime", "error")}
     ctx["cont"]["buildTime0"] = sets
@@ -549,7 +549,7 @@ def stage_quarters(host, client, ctx):
         capture("E2-xe quarters", f"fac_build {ctx['quarters']['facBuild']}, index {idx} after {BASES_S}s (want "
                 f"equal on both)", m)
     sets = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 1, "index": idx["host"], "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "buildTime", "error")}
     ctx["quarters"]["buildTime0"] = sets
@@ -788,7 +788,7 @@ def open_one(gc, screen, ctx, key):
     if screen == "xfer":
         r = gc.cmd({"cmd": "screen_push", "screen": "transfer_base", "base": 0})
         wait_until(lambda: top(gc) == "TransferBaseState", PAGE_S)
-        time.sleep(0.2)   # one pump: TransferBaseState's own init() runs first (F5573)
+        time.sleep(0.2)   # one pump: TransferBaseState's own init() runs first
         p = gc.cmd({"cmd": "screen_pick_base", "from": 0, "to": 1})
         resp = {"push": {k: r.get(k) for k in ("ok", "error")}, "pick": {k: p.get(k) for k in ("ok", "debrief", "error")}}
     else:

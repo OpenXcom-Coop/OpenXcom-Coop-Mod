@@ -14,9 +14,9 @@ Row R (dirs d246usd_r_host / d246usd_r_client; host option CoopTurnMode parallel
   R-load   host load_save_menu: one "D246 S-D:" line and one summary line (seats 0/1 CD_S0/CD_S1, unseated CD_UN, turnMode
            traditional, deployment DEP_CD); every unit of another original faction on no seat (-1); soldiers == CD_EXPECT
   R-cont   open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE BATTLE: both on the
-           battle, no CoopState 62 / 68, phase Active, no desync (MG-B)
+           battle, no CoopState 62 / 68, phase Active, no desync
   R-seats  per unit (coop, faction, isOut, x, y, z) host == client; other factions -1; soldiers == CD_EXPECT
-  R-mode   turnMode traditional on both under the host option parallel; coopEndTurnTally.activeSeat 0 on both (D100)
+  R-mode   turnMode traditional on both under the host option parallel; coopEndTurnTally.activeSeat 0 on both
   R-dep    battle_state.deployment client == host == DEP_CD
   R-play   host END TURN; the client turns seat-1 soldier PLAY_ID one octant: facing equal and changed on both, every hash
            bucket EQUAL, desync false, side 0
@@ -27,7 +27,7 @@ Row N (dir d246usd_n_host): the fixture with every whole line `coop: 1` (a seque
 RED on the unchanged product: R-load, R-seats, R-mode, R-dep, V-load. One EVIDENCE line per row, one PASS / FAIL line per
 cell, the row verdict; every row runs after a failure. A precondition miss (R-cont, a cell that raised) ends its row: later
 cells FAIL "not reached". A boot step past its bound prints ONE CAPTURE line and fails every cell of that row "boot".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
 cell passes, else 2.   Run:  python tools/coop_test/test_old_custom_battle.py
 """
 
@@ -48,13 +48,13 @@ KEY, RESAVE, SOLO = "49221", "d246usd_resave.sav", "custom_battle_solo.sav"
 CD_EXPECT = {8: 0, 9: 0, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0, 31: 1, 32: 1, 33: 1, 34: 1, 35: 1, 36: 1, 37: 1}  # unit id: seat (T0-4)
 CD_S0, CD_S1, CD_UN, CD_TANKS = 7, 7, 1, ()   # seats by E4 (1)'s rule; the Sectoid; no tank (T0-4)
 DEP_CD = "STR_SMALL_SCOUT"                     # the craft's UFO destination's deployment (T0-7)
-PLAY_ID = 31                                   # the lowest seat-1 soldier; every seat-1 soldier is boxed in (F19407)
+PLAY_ID = 31                                   # the lowest seat-1 soldier; every seat-1 soldier is boxed in
 LOAD_S, CLIENT_S, STEP_S = 120, 120, 30        # bounds (s); TASK 0: load 0.1 s, client in battle 1.25 s
 N_SD = "[coop-convert] D246 S-D:"
 N_SUM = "[coop-convert] D246: an older version's mid-battle co-op save converted"
 N_ANY = "[coop-convert]"
 SUM_RE = re.compile(r"seats 0/1 (\d+)/(\d+), unseated (\d+); turnMode (\w+); deployment \"([^\"]*)\"")
-SOLO_RE = re.compile(r"^(\s*(?:- )?)coop: 1$", re.M)   # S54 swap (F19403): the battle units' `- coop: 1` lines too
+SOLO_RE = re.compile(r"^(\s*(?:- )?)coop: 1$", re.M)   # S54 swap: the battle units' `- coop: 1` lines too
 R_CELLS, V_CELLS, N_CELLS = ("R-load", "R-cont", "R-seats", "R-mode", "R-dep", "R-play"), ("V-load",), ("N-solo",)
 stack, bs, es = session.states_stripped, session.battle_state, session.event_state
 

@@ -1,5 +1,5 @@
 """W2-P9 S-B - test_synced_options_ui.py: the Advanced options screen marks and diverts synced options,
-refreshes live and announces changes in chat (owner D134; D164 a, D165 a). Spec: docs
+refreshes live and announces changes in chat. Spec: docs
 rewrite/prompts/w2p9_synced_options.md as re-pinned by AMENDMENT P9-1 (section 3 PR-11, PR-12, PR-13 `advanced`,
 PR-10 prefix key; section 4.2 S-B; section 5) and its P9-1 RULINGS (T0-1 SAFE -> U6 stays). Constants: docs
 rewrite/w2p9-task0/CONSTANTS.md (TASK 0 `w2p9-t0`, F4980-F4989) + T0-4 folded into this red run's capture.
@@ -14,7 +14,7 @@ and this test; product behaviour (prefix, divert, refresh) is S-B green.
 ONE boot (PR-14): host user dir {battleInstantGrenade true, battleExplosionHeight 2, sneakyAI true}, client
 {battleInstantGrenade false, battleExplosionHeight 0, alienBleeding true}; lobby key 47242. U1 runs on the host
 at the main menu BEFORE hosting (role None); then the bring-up and the battle; OWN_FILE = each machine's
-options.cfg read after the bring-up (F4983), the 15 ids parsed. Rows in order U1-U6:
+options.cfg read after the bring-up, the 15 ids parsed. Rows in order U1-U6:
 
 | row | fixture | RED cell (S-B.1 build; the divert/prefix/refresh are S-B.2) |
 |---|---|---|
@@ -29,9 +29,9 @@ Common guards per battle row (S-A): the 15 ids in each options.cfg == OWN_FILE; 
 client's coopClientBStatePushes unchanged since the battle started; hash_now full equal. The guards pass on the
 red build (an undiverted options click touches neither the battle nor the saved file).
 
-WV-D99 / WV-D100: one run is the result; every row runs after a failure; every wait is bounded. Each row prints
+one run is the result; every row runs after a failure; every wait is bounded. Each row prints
 ONE "EVIDENCE <id>:" line and then "PASS <id>" or "FAIL <id>: <cells>". Exit 0 only when every row passes, 2
-otherwise. WV-D95: run in the foreground to completion.
+otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_options_ui.py
 """
@@ -330,7 +330,7 @@ class Ctx:
     def __init__(self, host, client):
         self.h, self.c = host, client
         self.own_file = {}
-        self.session = dict(OWN_HOST)   # the host's table is the session table (D134)
+        self.session = dict(OWN_HOST)   # the host's table is the session table
         self.seated = {}
         self.bstate0 = None
 

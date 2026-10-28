@@ -1,14 +1,14 @@
 """Shared helpers of the W2-H70 stage S-D tests test_gift_back.py (rows R16, R16H) and test_gift_twice_stored.py (row R17); spec docs
-rewrite/prompts/w2h70_sd_gift_back.md (f) and Appendix B; TASK 0 rewrite/w2h70-task0/sd/CONSTANTS.md; leads L-H70B-1 (F20714) and L-H70-3
-(F20715); ruling R-H70D-0, QH70D-1 .. QH70D-8 (a); R-H70-2 (one non-test helper module); the tests' dirs w2h70d_<row>_*. W2-H70 stage S-D:
+rewrite/prompts/w2h70_sd_gift_back.md (f) and Appendix B; TASK 0 rewrite/w2h70-task0/sd/CONSTANTS.md; leads L-H70B-1 and L-H70-3;
+ruling R-H70D-0, QH70D-1 .. QH70D-8 (a); R-H70-2 (one non-test helper module); the tests' dirs w2h70d_<row>_*. W2-H70 stage S-D:
 in a SEPARATE co-op campaign a soldier received while viewing the giver's base and given straight back before the leave ends with its giver
 only, and the host's stored copy of the visiting client's world holds every soldier the client received. Imports gift_display_helpers.py (HB,
 which imports gift_helpers.py, GH)
 unchanged; named_save, the gift-back, host_gives and client_gives are copied from S-B's TASK 0 script rewrite/w2h70-task0/sb/t0_h70b.py, never
-imported; HD has its own receiver path, because the replay after a gift-back is recorded, never awaited (F20924). The host's stored copy is
-read by a NAMED host save once its coop_file_info fnv changed after the row's press (F20923). Every press is real (click_widget on a visible
+imported; HD has its own receiver path, because the replay after a gift-back is recorded, never awaited. The host's stored copy is
+read by a NAMED host save once its coop_file_info fnv changed after the row's press. Every press is real (click_widget on a visible
 button, inject_input at a TextList pixel times the clicking machine's scale, or SDLK_KP2); every probe an existing TestServer command; a
-missed precondition raises Stop (the row ends there). WV-D95 / WV-D99 / WV-D100: one foreground run per invocation, exit 0 only when every
+missed precondition raises Stop (the row ends there). one foreground run per invocation, exit 0 only when every
 cell passes, else 2."""
 from gift_display_helpers import *  # noqa: F401,F403 (HB + GH: boot, picker, visit, baseline, host_gift, gift_from, own_ids, ids_twice, ...)
 
@@ -204,7 +204,7 @@ def census_d(x, ev):
 
 
 def receiver_path_d(x, ev, r, steps=None, need=0, notice=True):
-    """HB receiver_path's shape (F20924): the receiver's GiftNoticeState within W_NOTICE and its OK (BasescapeState) when `notice`, the
+    """HB receiver_path's shape: the receiver's GiftNoticeState within W_NOTICE and its OK (BasescapeState) when `notice`, the
     row's steps, GEOSCAPE ([GeoscapeState] within W_LEAVE), the replay lines: `need` of them within W_REPLAY (a precondition, R17) or, with
     need 0, the first one recorded within W_REPLAY_D (never a precondition, R16 / R16H); HOLD_L; the census; the read"""
     if notice:

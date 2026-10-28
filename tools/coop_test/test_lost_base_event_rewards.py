@@ -40,7 +40,7 @@ start_research, geo_set_speed and save_game are setup levers. No row presses BAS
 Red today: HR-items, HR-craft, HR-xfer, HR-arrive, HR-save, CR-items, CR-craft, CR-xfer, CR-arrive, CR-save FAIL (10 of 15); every other
 cell PASS. Green (H1-H8): 15 / 15. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss
 ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fails every row of that boot with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2. Helpers copied from docs
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2. Helpers copied from docs
 rewrite/lh88-1-cap/cap.py (never imported; its [coop-lh88-1] instrumentation reads dropped).
 Run: python tools/coop_test/test_lost_base_event_rewards.py   (OXC_HARNESS_SLOT selects the lane)"""
 import datetime, glob, json, os, sys, time  # noqa: E401

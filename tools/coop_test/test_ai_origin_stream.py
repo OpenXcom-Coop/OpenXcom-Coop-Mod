@@ -1,4 +1,4 @@
-"""SPEC 12 (W1-P13d) - test_ai_origin_stream.py: REV E.58 E58.1 as amended
+"""test_ai_origin_stream.py: REV E.58 E58.1 as amended
 by REV E.59 E59.1 - the alien WALK a suppressed host now runs (WV-D45,
 `handleAI`'s `origin:"ai"` mint at `BattlescapeGame.cpp:307`, streamed by
 `CoopArbiter::beginAiWalk`) reaches the client as a real, hashed walk chain:
@@ -18,17 +18,16 @@ THE RED THIS TURNS GREEN IS MEASURED AND MUST NOT BE RE-RUN (orch43d F265, on
 the pre-commit-0 build `144e589ed`, same seed, same fixture): the host walked
 the alien 7 tiles spending 47 TU, the client's copy never moved, ticked its
 own TU to 44, and latched `desyncSeen` True while the host stayed False. On
-the current build (`75a8cabf4`) orch43d measured the green end to end (F268):
+the current build (`75a8cabf4`) orch43d measured the green end to end:
 host `lastWalk.origin == 'ai'`, client same actionId 3, 8 `walk_step` evs all
 with `h`, zero shot/hit/explosion, final positions AGREE, `desyncSeen` False
 on both. This file reproduces that green in ONE run.
 
-E59.1 (D86 = (a)) REPLACES E58.1's "on BOTH machines" clause: the origin is
+E59.1 REPLACES E58.1's "on BOTH machines" clause: the origin is
 asserted on the HOST ONLY - `event_state.lastWalk.origin == "ai"`
 (`publishLastWalk`, `connectionTCP.cpp:3554`, fed by the host-side
 `beginWalkChain`, `:3511`). The client's own `lastWalk.origin` is "" by
-construction (it never runs AI) and is printed, never asserted either way
-(F243).
+construction (it never runs AI) and is printed, never asserted either way.
 
 Cites WV-D45, REV E.48 SS.E.4, REV E.58 E58.1, REV E.59 E59.1, F262, F265,
 F268.
@@ -74,17 +73,17 @@ def run():
         assert hostile_ids, f"no live hostile on the pinned seed {SEED}"
 
         for uid in hostile_ids:
-            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # F607: client first
+            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # client first
             rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
             assert rh.get("ok") and rc.get("ok"), (
                 f"battle_strip_unit failed for unit {uid}: host={rh} client={rc}")
             assert rh.get("deleted") == rc.get("deleted"), (
                 f"E.5: the two machines' deleted item id lists differ for unit "
                 f"{uid}: host={rh.get('deleted')} client={rc.get('deleted')}")
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
 
         # ---- non-vacuity capture, BEFORE the verdict: position/TU before ----
         before_pos = {u["id"]: session.unit_pos(u) for u in hostiles}
@@ -150,7 +149,7 @@ def run():
         assert step_indices == sorted(step_indices), (
             f"CLIENT lastWalk.steps' stepIndex is not non-decreasing: {step_indices}")
         # E59.1: the client's own origin is "" by construction - printed,
-        # NEVER asserted either way (F243).
+        # NEVER asserted either way.
         print(f"[assertion 1+2] HOST lastWalk.origin='ai' actionId={host_action_id}; "
               f"CLIENT lastWalk actionId={cw.get('actionId')} "
               f"origin={cw.get('origin')!r} (printed only, not asserted) "

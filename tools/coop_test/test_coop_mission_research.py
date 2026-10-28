@@ -101,7 +101,7 @@ def abort_battle(host, client, shared):
     """Fly the host's Skyranger to a terror site, enter the coop battle on both
     machines, abort it (mission failure); returns what each machine learned."""
     b0 = base0(host)
-    # MG-F: read both machines' research on their own geoscapes; in a SEPARATE battle the client holds
+    # read both machines' research on their own geoscapes; in a SEPARATE battle the client holds
     # the host's world until its debriefing OK brings its own back.
     before = {gc.name: known(gc) for gc in (host, client)}
     cid = next(c for c in b0["crafts"] if "SKYRANGER" in c["type"])["id"]
@@ -209,7 +209,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: mission-outcome research reaches the right players in every mode")

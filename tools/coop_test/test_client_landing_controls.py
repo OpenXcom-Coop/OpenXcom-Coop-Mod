@@ -1,4 +1,4 @@
-"""W2-H9 (owner D199 = (a)) - the controls: every path the SEPARATE-client refusal
+"""the controls: every path the SEPARATE-client refusal
 must NOT touch. Green before AND after W2-H9.
 
   H9-3  host-craft joint battle with a client guest (SEPARATE, SPEC 19 S1 fixture):

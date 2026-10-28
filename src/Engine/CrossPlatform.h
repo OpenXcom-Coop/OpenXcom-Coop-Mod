@@ -234,7 +234,7 @@ namespace CrossPlatform
 	std::pair<std::string, std::string> timeToString(time_t time);
 	/// Move/rename a file between paths.
 	bool moveFile(const std::string &src, const std::string &dest);
-	/// coop W2-H91 (owner D303 (a)): moveFile for a co-op save's final rename, retried while another process holds a file (Windows).
+	/// coop: moveFile for a co-op save's final rename, retried while another process holds a file (Windows).
 	bool moveFileRetry(const std::string &src, const std::string &dest, int boundMs = 2000);
 	/// Copy a file between paths.
 	bool copyFile(const std::string &src, const std::string &dest);

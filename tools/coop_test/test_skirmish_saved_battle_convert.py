@@ -14,11 +14,11 @@ gate the row). C2 seats: seat 1 = the first floor(N/2) soldiers in unit order, s
 every other unit no seat, host == client per unit id, the host's "is now co-op" line once with N / floor / ceil / T. C3 mode:
 coopGamemode 1 and turnMode parallel on both. C4 play: the client walks a staged seat-1 soldier one tile: equal on both, every
 bucket EQUAL, no desync on either.
-RED on the unchanged product (R-MGBB-1 (a)): C1 (the hold stays under the alien-turn screen: with no seat, W2-H31 ends the
+RED on the unchanged product: C1 (the hold stays under the alien-turn screen: with no seat, W2-H31 ends the
 players' side at once, F19162), C2 (the hosted single-player battle has no seats, F5103), C3-C4 not reached (C2). GREEN
 (EB1-EB2): every cell PASS. One EVIDENCE line, one PASS / FAIL line per cell, the row verdict. A precondition miss (C1's gate,
 C2, a cell that raised) ends the row: later cells FAIL "not reached (<cell>)". A boot step past its bound prints ONE CAPTURE
-line and fails every cell "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no
+line and fails every cell "boot". run in the foreground to completion. ONE run is the result, no
 skip path; exit 0 only when every cell passes, else 2.   Run:  python tools/coop_test/test_skirmish_saved_battle_convert.py
 """
 

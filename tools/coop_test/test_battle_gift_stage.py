@@ -7,7 +7,7 @@ QU5-1 .. QU5-11 (a), QU5-10 (a); ruling R-U5-SB-1). Constants: rewrite/r5u5-task
 
 Boot M = test_multistage_end.boot_classic (raw.bring_up_lobby, drive_to_battlescape on STR_COOP_MULTISTAGE_TEST with
 set_seed 1 right before newbattle_ok), copied with the lobby key and a pre_seat hook (boot G's Skyranger crew cut to C1 8 /
-C2 9 (seat 1) and H 10 (seat 0) plus one STR_TANK_CANNON, test_battle_gift_keep.pre_seat_hook) as parameters (F10917);
+C2 9 (seat 1) and H 10 (seat 0) plus one STR_TANK_CANNON, test_battle_gift_keep.pre_seat_hook) as parameters;
 the pins are TASK 0's (MAP_FP_M, the seats with TANK 1000000, the stage-1 alien 1000001); MSE's mod and deployment lines on
 both logs; pin_ai_neutral; hash clean.
   M1  the host gives TANK to the client and the client gives C1 to the host (levers), then MSE's stage change (stage
@@ -22,7 +22,7 @@ Red at B1: M1-seats (TANK coop 0: the stage's seat pass re-seats an ownerless un
 {intent, turn, TANK} and TANK faces the new direction on both. One EVIDENCE line, then one PASS/FAIL line per cell, then
 the row verdict. A boot step past its bound prints ONE CAPTURE line and fails the row "boot"; a cell whose precondition
 failed FAILs "not reached". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come
-from probes (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path;
+from probes (S25). run in the foreground to completion. ONE run is the result, no skip path;
 exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift_stage.py
@@ -60,7 +60,7 @@ not_reached = OWN.not_reached
 
 
 def bring_up(host, client, key):
-    """test_multistage_end.boot_classic with the lobby key and the pre_seat hook as parameters (F10917), TASK 0's pins,
+    """test_multistage_end.boot_classic with the lobby key and the pre_seat hook as parameters, TASK 0's pins,
     then MSE's mod / deployment check (boot_c)."""
     m, pre, seated = (host, client), {}, {}
     GF.guarded("M", lambda: RAW.bring_up_lobby(host, client, key), m)

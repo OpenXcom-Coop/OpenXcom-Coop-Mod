@@ -370,7 +370,7 @@ def test_failed_join_clears_connecting():
 #
 # Step 7's in_battle() predicate already accepted BriefingState, so the client
 # reaching its own briefing needs no test change either.
-# RV-U5 (D229, QV5-6): the dormant SKIP_FULL_FLOW flag and its branch were removed; main() runs all three scenarios.
+# the dormant SKIP_FULL_FLOW flag and its branch were removed; main() runs all three scenarios.
 
 
 def main():

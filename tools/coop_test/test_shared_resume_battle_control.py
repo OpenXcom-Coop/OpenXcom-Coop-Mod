@@ -8,7 +8,7 @@ SHARED arm of `request_load_progress` (connectionTCP.cpp) is what this
 scenario proves reaches the SAME disk-resume fork as SEPARATE.
 
 Reuses test_coop_resume_battle_control's rewritten split_report/assert_split/
-settle_and_assert (F376) and its stage_alien_and_walk/_sav_status_pos helpers
+settle_and_assert and its stage_alien_and_walk/_sav_status_pos helpers
 (the Lightning-roof recipe is identical once a live battle exists - only the
 BRING-UP differs between SEPARATE and SHARED).
 
@@ -130,8 +130,8 @@ def main():
         # D136 = (b), WV-D77; captured on both twins under REGRESSION K=2):
         # the old check had to OBSERVE the latch armed with no file yet, a
         # window that closes when the walk drains - an off-screen walk that
-        # halts on TU (F450) drains within ~25-200 ms, and each battle_state
-        # reply reaches the test ~50 ms late (F460), so the first look can
+        # halts on TU drains within ~25-200 ms, and each battle_state
+        # reply reaches the test ~50 ms late, so the first look can
         # land after the deferred write. The game now records every deferral
         # (`coopSaveDeferrals`) and the tick of the deferred write
         # (`coopSaveDeferredWrittenAt`); the host's `lastWalk.endTick` is the
@@ -181,7 +181,7 @@ def main():
         assert len(new_files) == 1, f"M8: expected exactly one new save file, got {sorted(new_files)}"
         savpath = os.path.join(host_dir, next(iter(new_files)))
 
-        # F448 (D136): the deferred write came no earlier than the walk's end -
+        # the deferred write came no earlier than the walk's end -
         # both are the host's own SDL_GetTicks(), read once the file exists.
         rec = rc.battle(host)
         walk_end = (session.event_state(host).get("lastWalk") or {}).get("endTick")

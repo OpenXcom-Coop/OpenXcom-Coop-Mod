@@ -251,7 +251,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: SEPARATE certain events are shared in time, random events stay random")

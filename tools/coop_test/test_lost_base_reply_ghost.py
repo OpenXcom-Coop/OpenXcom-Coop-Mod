@@ -1,4 +1,4 @@
-"""W2-H87 (F23069; R-LBH2-1, VL-H87-2) - SEPARATE campaign: while a player's "base destroyed" message is open, the partner's
+"""SEPARATE campaign: while a player's "base destroyed" message is open, the partner's
 base request never brings the lost base back as a marker on the partner's globe (both directions).
 
 BaseDestroyedState tells the partner at once that the base is gone (delete_base, its constructor) but erases the base from
@@ -19,12 +19,12 @@ VL-H87-1: losing a first base reverts the campaign) is test_lost_first_base.py.
          CYCLEs again                                                       RL4-pre RL4-open RL4-after
   RL-4c  the same with roles swapped (the client loses ClientBase, the host CYCLEs)  RL4c-pre RL4c-open RL4c-after
   end    shutdown                                                            CRASH
-RED on the unchanged build (TASK 0): RL4-open, RL4-after, RL4c-open, RL4c-after (4 of 7). The ghost cells compare
+RED on the unchanged build: RL4-open, RL4-after, RL4c-open, RL4c-after (4 of 7). The ghost cells compare
 coopBaseIds, never names (a ghost keeps the lost base's name).
 
 Each row prints ONE "EVIDENCE <row>:" line, one "PASS <cell>" / "FAIL <cell>: <why>" line per cell and "ROW <row>:
 PASS|FAIL". Every row runs after a failure; a precondition miss ends its row (its later cells FAIL "not reached") with ONE
-CAPTURE line. Every TESTED press is a real click_widget. WV-D95: run it to completion in the foreground. WV-D99 / D100:
+CAPTURE line. Every TESTED press is a real click_widget. run it to completion in the foreground.
 ONE run is the bar, no SKIP. Exit 0 = every cell passed; 2 = at least one cell failed.
 Run:  python tools/coop_test/test_lost_base_reply_ghost.py
 """

@@ -101,7 +101,7 @@ private:
 	void pushState(State *state);
 	/// Pops the last state from the state stack.
 	void popState();
-	/// coop W2-H83 S-B2 (R-LBH3-1, R-H83-2): closes, top down, every screen on top whose base is gone (State::coopHoldsGoneBase).
+	/// coop W2-H83 S-B2: closes, top down, every screen on top whose base is gone (State::coopHoldsGoneBase).
 	void coopCloseGoneBaseHolders();
 	/// Gets the currently loaded language.
 	Language *getLanguage() const { return _lang; }

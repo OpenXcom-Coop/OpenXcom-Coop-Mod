@@ -23,8 +23,8 @@ zero-disk), parse funds (the last "  - N" under the top-level "funds:"), monthsP
 RED at H1 (TASK 0 boots Ja / Jb, decision rule (i)): RE-1, RJ-funds, RJ-guest, RJ-copy FAIL; RE-2, RJ-1, RJ-2, RJ-end, RJ-crash PASS.
 GREEN at H2 (E1: the client's first SEPARATE entry uploads its entry snapshot through the save-progress round trip): every cell PASS.
 EVIDENCE before each verdict; a WAIT that times out ends its row (later cells "not reached"), except RE-1's wait (RE-2 still runs, RJ runs);
-a failed row prints ONE CAPTURE line; every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no SKIP path, exit 0
-only when every cell passes, else 2. Definitions, REJOIN, needles and the safe battle_state probe (F10980): test_campaign_rejoin.py.
+a failed row prints ONE CAPTURE line; every row runs after a failure. ONE foreground run, no SKIP path, exit 0
+only when every cell passes, else 2. Definitions, REJOIN, needles and the safe battle_state probe: test_campaign_rejoin.py.
 """
 import json
 import os

@@ -12,7 +12,7 @@ QR2, Q1 (b): QR2r; Q3 (a): relative seqs), P6-6b S-M RED RULINGS SM-1/SM-2.
 Before S-M.2 the second player's machine shows no message at all (connectionTCP
 holds no InfoboxState / InfoboxOKState / warningLongRaw), and the host shows
 vanilla's boxes for BOTH players' soldiers - an OK box waits for the host
-player's click, a 2 s box pauses the shared battle (F425).
+player's click, a 2 s box pauses the shared battle.
 
 Boot M: five rows, in this order (boot R, row QR2r, follows; see below). The
 default NEW BATTLE map as test_turn_cues.py boots it (set_seed SEED_ROSTER
@@ -63,7 +63,7 @@ QR2r (AMENDMENT P6-6 Q1 (b); SM-1, SM-2; re-added after W2-H14) runs on its
 OWN boot R once boot M's instances are shut down (after MR2b the client's seat
 has no live soldier left for a two-seat END TURN cycle): test_rejoin_end_turn's
 parallel boot P (test_death_side's default map) on lobby PORT_QR2R, one END
-TURN cycle, the client leaves (SPEC 16), a fresh process (client2) arms
+TURN cycle, the client leaves, a fresh process (client2) arms
 hold_battle_ready {on: true} and rejoins, the host presses RESUME and stays in
 phase Handshake (client2's battle_ready stashed).
   QR2r (a) ONE real host map input (HOME) in Handshake: the host's
@@ -121,9 +121,9 @@ conditions are checked; main() runs every row even after an earlier one failed
 and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait
 that times out is recorded in the EVIDENCE line and fails the row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no retry boot, no
+one run is the result. No skip path, no retry boot, no
 alternative map or actor. Exit 0 only when all six rows pass, 2 otherwise (a
-bring-up failure is also 2). WV-D95: run in the foreground to completion.
+bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_messages.py
 """
@@ -170,7 +170,7 @@ TEXT_MR1 = "Holger Schwarz\nhas died from a fatal wound"
 TEXT_MR2 = "Henryk Kaminski\nhas died from a fatal wound"
 TEXT_MR2B = "Henryk Pawlowski\nhas been killed"
 SEED_MR7 = 1                     # host set_seed right before its cycle-3 END TURN press
-MR7_MODE = "flee"                # PIN (F4003): re-measured under F1726's order on the S-M.1 build, two runs
+MR7_MODE = "flee"                # PIN: re-measured under F1726's order on the S-M.1 build, two runs
 MR7_KEY = KEY_PANICKED           # flee / freeze -> STR_HAS_PANICKED; berserk -> STR_HAS_GONE_BERSERK
 TEXT_MR7 = "Sectoid Soldier\nhas Panicked"
 # PIN (T0a-3, two runs): the client's top at each row's decision point - a death's corpse (OR2 (a)) - was
@@ -178,7 +178,7 @@ TEXT_MR7 = "Sectoid Soldier\nhas Panicked"
 Q_MR1 = False
 Q_MR2 = False
 Q_MR2B = False
-# the host's evs after each row's seq0, as (kind, actionId) - T0a-2r (F4000/F4001), equal relative to seq0
+# the host's evs after each row's seq0, as (kind, actionId) - T0a-2r, equal relative to seq0
 CYCLE_ST = [("side_transition", 0), ("side_begin", 0)]
 MR1_EVS = CYCLE_ST * 3 + [("death", 0), ("corpse", 0)]
 MR2_EVS = MR1_EVS
@@ -764,7 +764,7 @@ def qr2r_drive(host, client, m, rec, ev):
     `m`), the HOME key, the release and the END TURN cycle. Fills `ev`; returns the failing cells."""
     rej.step("QR2r boot R (test_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT_QR2R, False), m)
     pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
-    end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause (F4012)
+    end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause
     post = {"host": rej.snap(host), "client": rej.snap(client)}
     ev["preLeave"] = {"pre": pre, "post": post, "notes": notes}
     bad = [f"cycle notes {notes}"] if notes else []

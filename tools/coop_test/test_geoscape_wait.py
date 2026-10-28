@@ -1,6 +1,6 @@
-"""W2-U7c - test_geoscape_wait.py: the harness's back-on-geoscape wait after `leave_base` vs a slow own-world reload
+"""test_geoscape_wait.py: the harness's back-on-geoscape wait after `leave_base` vs a slow own-world reload
 (F6361, R-W2i-1; docs rewrite/prompts/w2u7c_hidden_press_and_geoscape_wait.md (f)). BasescapeState::btnGeoscapeClick clears
-insideCoopBase BEFORE it pushes the LoadGameState that reloads the leaving machine's own world ~10 frames later (F8006), so a
+insideCoopBase BEFORE it pushes the LoadGameState that reloads the leaving machine's own world ~10 frames later, so a
 wait on the flag alone can return while the visited copy is still live. A quiet reload (~22 ms) ends before the wait's first
 read (~100 ms, F8009), so the TEST-ONLY `slow_top {type LoadGameState, ms 30}` stretches it: the stand-in for W2i's loaded
 machine (QA3). The wait under test (`back_wait`) is session.wait_back_on_geoscape when the module has it (EVIDENCE
@@ -10,7 +10,7 @@ probe that stops the bring-up before the battle (U7c-1); B = session.new_campaig
 U7c-4 (guard: a quiet leave), U7c-2 (both leave directions under slow_top), U7c-3 (the bounded failure). RED (commit 1):
 U7c-1/2/3 FAIL on their named cells, U7c-4 and every GUARD cell pass; GREEN (commit 2): all pass. Each row prints
 "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line.
-WV-D95/D99/D100: ONE foreground run, no skip path, every row runs after a failure; exit 0 only when every row passes, 2
+ONE foreground run, no skip path, every row runs after a failure; exit 0 only when every row passes, 2
 otherwise. Run: python tools/coop_test/<this>
 """
 

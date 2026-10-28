@@ -27,7 +27,7 @@ desyncSeen false on both, no new file in the lane crash folder.
 
 RED on the unchanged product (commit C1): SP1-client, SP2-host; every other cell PASS. One EVIDENCE line per row, one
 PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
-CAPTURE line and fails that boot's rows "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is
+CAPTURE line and fails that boot's rows "boot". run in the foreground to completion. ONE run is
 the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_coop_spectator.py

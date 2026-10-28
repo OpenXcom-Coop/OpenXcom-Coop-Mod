@@ -4,7 +4,7 @@ ends with the X-COM win as an unsaved battle does; the rejoining alien player is
 host keeps the campaign's mode.
 
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-5 (SC5-3 "Stage S-C4a", SC5-5 file B, SC5-6 FX4A-1 .. FX4A-12) and its
-rulings (QC4A-1 .. QC4A-4 (a)) and docs rewrite/w2-resume-efd75a6c/ruling-d250uci.md (R-D250-SC4A-1 (a), R-D250-SC4A-2); QC-16 (a),
+rulings (QC4A-1 .. QC4A-4 (a)) and docs rewrite/w2-resume-efd75a6c/ruling-d250uci.md; QC-16 (a),
 QC3-4 (a), L-SC3-1, VL-C-10, VL-C4A-1, VL-C4A-2; owner D250, O1 (a); F5106, F15861, F15863,
 F15864. TASK 0 pins: docs rewrite/d250u-task0/sc4a/CONSTANTS.md (boots Rc_ui, Rd on the unchanged build; Rc2, Rd2 with C4AG applied,
 then restored).
@@ -24,10 +24,10 @@ FAILs "blocked: <why>"):
      P6-back, P6-land, P6-common.
 RED (C4AR, the unchanged build; TASK 0 boots Rc_ui / Rd): 3/9 - FAIL P3-mode, P3-seats, P3-win, P6-host, P6-back, P6-land
 (blocked). GREEN (C4AG): 9/9.
-P3-seats' seat-store half (R-D250-SC4A-2) reads the host's battle_state.coopGamemode at the resume: the store is seeded from it (TCP offerResumedBattle,
+P3-seats' seat-store half reads the host's battle_state.coopGamemode at the resume: the store is seeded from it (TCP offerResumedBattle,
 coopSeatCanonicalFaction(gamemode, 1) = FACTION_HOSTILE for 2, CS :1974); battle_state.authority carries no seat map (CONSTANTS.md).
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_resume_gm2.py
 """
 
@@ -183,7 +183,7 @@ def relaunch(x, ev):
 
 def resume_campaign_battle(host, client, save_file, port, host_name="HostPlayer", client_name="ClientPlayer", timeout=120,
                            interval=2.0):
-    """session.resume_campaign_battle copied (R-D250-SC4A-1 (a)) with ONE change: the host's START HOST goes through the real host
+    """session.resume_campaign_battle copied with ONE change: the host's START HOST goes through the real host
     window (host_menu_host visibility 0 -> HostMenu::hostTCPGame, HM :535), not the host_tcp lever (TS :14584-:14593; F16312)."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (battle resume)", lambda: session.has_state(host, "HostMenu"))

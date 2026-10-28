@@ -1,9 +1,9 @@
-"""W2-H19 - test_separate_guest_second_battle.py: in a SEPARATE campaign a guest the client seats on the host's craft
-is in every battle that craft lands in one session, whichever player pressed OK first (D156), and a guest the client
+"""test_separate_guest_second_battle.py: in a SEPARATE campaign a guest the client seats on the host's craft
+is in every battle that craft lands in one session, whichever player pressed OK first, and a guest the client
 unseats stays home (docs rewrite/prompts/w2h19_separate_second_battle_guest.md (f); F6860, R-SCF-2, F6986; D104, D155,
 P7SC-MR6; TASK 0 rewrite/w2h19-task0/CONSTANTS.md). Before W2-H19 the host wipes its stored guest roster at its own
-debriefing OK; a client that pressed OK first already resent it and never resends an unchanged one (F6977-F6979), and an
-unseated guest is never reported (F6986).
+debriefing OK; a client that pressed OK first already resent it and never resends an unchanged one, and an
+unseated guest is never reported.
 Two boots (lobby keys 47345 / 47346, F6994); the host's set_seed b1.SEED_P before every coop_mission_start. The guest is
 read BY NAME on the host (its merged copy has a fresh id):
   H19-1 (Boot A): battle1, end_battle, returns("client"), seat(on), land -> (1) exactly one host battle unit named
@@ -14,7 +14,7 @@ Pre-cell guard (a miss is a FIXTURE-STOP: one CAPTURE line, the row FAILs "pre-c
 debriefings, the OK order, the client's guestContrib.sent after the seat, the landing prompt, both on BattlescapeState.
 H19-3 runs only when H19-2's stage passed ("not reached" otherwise); a boot miss FAILs its rows "boot".
 RED (commit 1, product untouched): H19-1 cell 1 (0 guest units), H19-3 cell 1 (1 guest unit); H19-2 passes. GREEN: all.
-Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE
+Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE
 foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 Run:  python tools/coop_test/test_separate_guest_second_battle.py
 """
@@ -29,7 +29,7 @@ from session import battle_state, event_state
 from harness import GameClient, make_user_dir
 import test_battle_end_separate as b1
 
-PORT_A, PORT_B = "47345", "47346"   # F6994: 0 matches in tools/ + src/ at every w2* / rewrite/* tip and the docs repo
+PORT_A, PORT_B = "47345", "47346"   # 0 matches in tools/ + src/ at every w2* / rewrite/* tip and the docs repo
 TAG = "w2h19"
 GUEST = "Guest Zzz"
 SENT_S = 5.0                        # seat(): the client's guestContrib.sent within 5 s ((f); TASK 0 P6: first poll)
@@ -134,7 +134,7 @@ def end_battle(h, c, ctx, key):
 
 
 def returns(h, c, ctx, first):
-    """The OK order (D156): "client" = the client's OK through its follow-ups while the host still shows its
+    """The OK order: "client" = the client's OK through its follow-ups while the host still shows its
     debriefing, then the host's OK + drain; "host" = the reverse. ctx["after"] = the client's own guest record."""
     r = ctx.setdefault("returns", {})
     ctx["okOrder"] = first

@@ -44,7 +44,7 @@
 #include "MeleeAttackBState.h"
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopDelta.h"
-#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 #include "../fmath.h"
 
 namespace OpenXcom
@@ -2854,7 +2854,7 @@ bool TileEngine::tryReaction(ReactionScore *reaction, BattleUnit *target, const 
 		action.targeting = true;
 
 		// hostile units will go into an "aggro" state when they react.
-		if (unit->getFaction() == FACTION_HOSTILE && !coopFactionHumanCommanded(unit->getFaction())) // coop R5-U3 (QU3-4): a human seat's unit reacts as X-COM's do
+		if (unit->getFaction() == FACTION_HOSTILE && !coopFactionHumanCommanded(unit->getFaction())) // coop: a human seat's unit reacts as X-COM's do
 		{
 			AIModule *ai = unit->getAIModule();
 			if (ai == 0)
@@ -2885,12 +2885,12 @@ bool TileEngine::tryReaction(ReactionScore *reaction, BattleUnit *target, const 
 			ModScript::ReactionCommon::Worker worker{ target, unit, action.weapon, action.type, reaction->count, originalAction.weapon, originalAction.skillRules, originalAction.type, origTarg, moveType, arc, _save };
 			if (originalAction.weapon)
 			{
-				{ CoopScriptOwner coopOwner(originalAction.actor); worker.execute(originalAction.weapon->getRules()->getScript<ModScript::ReactionWeaponAction>(), arg); } // coop OF2
+				{ CoopScriptOwner coopOwner(originalAction.actor); worker.execute(originalAction.weapon->getRules()->getScript<ModScript::ReactionWeaponAction>(), arg); } // coop
 			}
 
-			{ CoopScriptOwner coopOwner(target); worker.execute(target->getArmor()->getScript<ModScript::ReactionUnitAction>(), arg); } // coop OF2
+			{ CoopScriptOwner coopOwner(target); worker.execute(target->getArmor()->getScript<ModScript::ReactionUnitAction>(), arg); } // coop
 
-			{ CoopScriptOwner coopOwner(unit); worker.execute(unit->getArmor()->getScript<ModScript::ReactionUnitReaction>(), arg); } // coop OF2
+			{ CoopScriptOwner coopOwner(unit); worker.execute(unit->getArmor()->getScript<ModScript::ReactionUnitReaction>(), arg); } // coop
 
 			if (RNG::percent(arg.getFirst()))
 			{
@@ -4711,7 +4711,7 @@ int TileEngine::psiAttackCalculate(BattleActionAttack::ReadOnly attack, const Ba
 	auto rng = RNG::globalRandomState().subSequence();
 	int psiAttackResult = 0;
 
-	CoopScriptOwner coopOwnerItem(attacker); // coop OF2: the item script reads the attacker's owner's research
+	CoopScriptOwner coopOwnerItem(attacker); // coop: the item script reads the attacker's owner's research
 	psiAttackResult = ModScript::scriptFunc1<ModScript::TryPsiAttackItem>(
 		weapon->getRules(),
 		psiAttackResult,
@@ -4719,7 +4719,7 @@ int TileEngine::psiAttackCalculate(BattleActionAttack::ReadOnly attack, const Ba
 		_save
 	);
 
-	CoopScriptOwner coopOwnerArmor(victim); // coop OF2: the armor script reads the victim's owner's research
+	CoopScriptOwner coopOwnerArmor(victim); // coop: the armor script reads the victim's owner's research
 	psiAttackResult =  ModScript::scriptFunc1<ModScript::TryPsiAttackUnit>(
 		victim->getArmor(),
 		psiAttackResult,
@@ -4879,7 +4879,7 @@ int TileEngine::meleeAttackCalculate(BattleActionAttack::ReadOnly attack, const 
 
 	int meleeAttackResult = 0;
 
-	CoopScriptOwner coopOwnerItem(attacker); // coop OF2: the item script reads the attacker's owner's research
+	CoopScriptOwner coopOwnerItem(attacker); // coop: the item script reads the attacker's owner's research
 	meleeAttackResult = ModScript::scriptFunc1<ModScript::TryMeleeAttackItem>(
 		weapon->getRules(),
 		meleeAttackResult,
@@ -4887,7 +4887,7 @@ int TileEngine::meleeAttackCalculate(BattleActionAttack::ReadOnly attack, const 
 		_save
 	);
 
-	CoopScriptOwner coopOwnerArmor(victim); // coop OF2: the armor script reads the victim's owner's research
+	CoopScriptOwner coopOwnerArmor(victim); // coop: the armor script reads the victim's owner's research
 	meleeAttackResult =  ModScript::scriptFunc1<ModScript::TryMeleeAttackUnit>(
 		victim->getArmor(),
 		meleeAttackResult,
@@ -4987,7 +4987,7 @@ bool TileEngine::medikitUse(BattleAction *action, BattleUnit *target, BattleMedi
 
 	ModScript::HealUnit::Worker work { action->actor, action->weapon, _save, target, action->type };
 
-	{ CoopScriptOwner coopOwner(target); work.execute(target->getArmor()->getScript<ModScript::HealUnit>(), args); } // coop OF2
+	{ CoopScriptOwner coopOwner(target); work.execute(target->getArmor()->getScript<ModScript::HealUnit>(), args); } // coop
 
 	int medikitAction = std::get<medikitActionKey>(args.data);
 	bodyPart = (UnitBodyPart)std::get<bodyPartKey>(args.data);
@@ -5086,7 +5086,7 @@ bool TileEngine::skillUse(BattleAction *action, const RuleSkill *skill)
 	ModScript::SkillUseUnit::Output args { continueAction, spendTu };
 	ModScript::SkillUseUnit::Worker work { actor, action->weapon, _save, skill, action->type, hasTu };
 
-	{ CoopScriptOwner coopOwner(actor); work.execute(skill->getScript<ModScript::SkillUseUnit>(), args); } // coop OF2
+	{ CoopScriptOwner coopOwner(actor); work.execute(skill->getScript<ModScript::SkillUseUnit>(), args); } // coop
 
 	continueAction = args.getFirst();
 	spendTu = args.getSecond();

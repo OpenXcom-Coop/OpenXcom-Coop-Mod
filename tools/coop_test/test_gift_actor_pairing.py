@@ -32,8 +32,8 @@ Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen f
 RED on the unchanged build (commit R1): R1-pair, R1-menu, R1-act, R2-pair, R2-menu, R2-act, R3-pair, R3-cursor,
 R4-none, R4-pair, R4-menu, R4-act (12 of 27 cells). GREEN (G1, E1-E3): every cell PASS. One EVIDENCE line per row, one
 PASS/FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its row (later
-cells "not reached"); a boot miss prints ONE CAPTURE line and fails every row "boot". WV-D95: run in the foreground to
-completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+cells "not reached"); a boot miss prints ONE CAPTURE line and fails every row "boot". run in the foreground to
+completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_gift_actor_pairing.py
 """

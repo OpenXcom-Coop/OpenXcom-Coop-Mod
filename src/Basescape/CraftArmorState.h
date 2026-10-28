@@ -48,14 +48,14 @@ private:
 	TextList *_lstSoldiers;
 
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
 	size_t _craft, _savedScrollPosition;
 	std::vector<Soldier *> _origSoldierOrder;
 	/// Playtest: soldiers this player may SEE (SHARED: own only), non-destructive copy.
 	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
-	/// coop W2-H16b (PRD-J10): live refresh - a shared apply for this base redraws the list.
+	/// coop: live refresh - a shared apply for this base redraws the list.
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	///initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
@@ -70,7 +70,7 @@ public:
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier armors.
 	void init() override;
-	/// coop W2-H16b: applies a pending live refresh.
+	/// coop: applies a pending live refresh.
 	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);

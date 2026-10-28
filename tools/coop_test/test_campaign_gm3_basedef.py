@@ -22,7 +22,7 @@ Row B1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell w
   B1-seats   census equal on both: faction 0 on seat 1 (soldier ids a non-empty subset of CLIENT0's soldiers plus one STR_TANK_LASER_CANNON
              vehicle unit), faction 1 on seat 0 with hasAI false; host geo_state real bases == CLIENT0's; host pvpBorrow.active true.
   B1-host    (FX5B-13: host kill_all faction 1; while no host DebriefingState: client END TURN, the host's NextTurnState closed) host
-             DebriefingState <= DEBRIEF_S, title TITLE_B, displayOnly false; its page 3 Sell and Transfer hidden (D154).
+             DebriefingState <= DEBRIEF_S, title TITLE_B, displayOnly false; its page 3 Sell and Transfer hidden.
   B1-client  client display-only DebriefingState <= CLIENT_DEBRIEF_S; BES.debrief_view equal on BES.DEBRIEF_FIELDS.
   B1-return  (FX5B-14: the client's OK first) client geo_clean <= OK_S; battleEnd.debriefOkBranch "campaign-client-borrowed",
              worldAdopted 1; the client's real base present; client noBases false. Its tank storage vs TANK0: EVIDENCE (fallback route).
@@ -31,7 +31,7 @@ Row B1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell w
   B1-common  desyncSeen false on both; 0 new crash files since the row's start; assert_hash_clean(full=True) EQUAL before the kills.
 RED (C5B2R on 9eacec774): exit 2, 0/7 - B1-hand FAILs (P-C5b2: the client clears the defence and starts nothing, no hand-off, no borrow,
 no battle); the other six FAIL "blocked: no borrowed base defence (B1-hand)". GREEN (C5B2G): 7/7.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_basedef.py
 """
 

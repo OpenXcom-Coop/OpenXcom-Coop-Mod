@@ -264,7 +264,7 @@ public:
 	/// PRD-DF03: draw-only projectile record count, so a test can assert the replica
 	/// rebuilt the host's projectile set from df_state (frame agreement).
 	int harnessProjectileCount() const { return (int)_projectiles.size(); }
-	/// PRD-DF02: toggle weapon @a idx via the correct role lane (replica: df_cmd only, the
+	/// toggle weapon @a idx via the correct role lane (replica: df_cmd only, the
 	/// icon follows the host, D301 (b); host: apply directly) - a harness affordance (weaponClick needs a
 	/// widget sender the harness cannot synthesize).
 	void harnessToggleWeapon(int idx);

@@ -159,7 +159,7 @@ import session
 #
 # W2-P8b S-H RE-MEASURED IT TO AN EXACT 6 (chain rule A.10; 2/2 runs at
 # f225f1fc5, old constant 2). The offer now goes out at PREPARE at turn 0 (owner
-# D210 b) and turn 1 starts at the pre-battle equip barrier (D206 c), so "t=0"
+# D210 b) and turn 1 starts at the pre-battle equip barrier, so "t=0"
 # (after the whole entry chain, before any ACTION) now counts the equip phase's
 # forced syncs too. Measured host log, both runs:
 #   seq 1  side:"hostile" absolute `base` restate at phase Active, unchanged.
@@ -231,7 +231,7 @@ def main():
 
         host.ok({"cmd": "newbattle_ok"})
 
-        # W2-P8b S-H (owner D210 b): the coop blob snapshot and the battle_offer
+        # W2-P8b S-H: the coop blob snapshot and the battle_offer
         # now go out at PREPARE (newbattle_ok), at turn 0, so both briefings are
         # up at once; the shared entry spine passes both briefings, both
         # pre-battle equip screens (D174 a / D206 c; turn 1 starts on the host

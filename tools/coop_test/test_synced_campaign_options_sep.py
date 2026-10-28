@@ -6,14 +6,14 @@ rewrite/prompts/w2p10_campaign_options_scope.md as re-pinned by AMENDMENT P10-1 
 docs rewrite/w2p10-task0/CONSTANTS.md (TASK 0 `w2p10-t0`).
 
 ONE SEPARATE boot (PX-5): session.new_campaign(campaign_mode="coop") on lobby key 47246, host user dir = HOST_OPTS,
-client = defaults. OWN_FILE = each machine's options.cfg read after the bring-up (F4983), the 16 ids parsed.
+client = defaults. OWN_FILE = each machine's options.cfg read after the bring-up, the 16 ids parsed.
 
 | row | RED cell on the S-A.1 build |
 |---|---|
 | C2 SEPARATE join | client option_values of the 14 == the client defaults (not the host's); client own lacks the 14 |
 
 Each row prints ONE "EVIDENCE <id>:" line then PASS/FAIL. Exit 0 only when every row passes, 2 otherwise; no exit 3,
-no retry. WV-D95: run in the foreground to completion.
+no retry. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_campaign_options_sep.py
 """

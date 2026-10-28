@@ -36,7 +36,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
-#include "../CoopMod/SharedEcon.h" // coop RV-U9 (PRD-I5): next-launch crash reporter
+#include "../CoopMod/SharedEcon.h" // coop: next-launch crash reporter
 #include "../CoopMod/connectionTCP.h" // coop D250-U S-C1: the parked PvP world goes with the world
 #include <fstream>
 
@@ -185,7 +185,7 @@ void GoToMainMenuState::init()
 	_game->getScreen()->resetDisplay(false);
 	_game->setState(new MainMenuState(_updateCheck));
 
-	// coop RV-U9 (D228 (a)), ported from `main` :185-:195. PRD-I5: next-launch crash reporter. Fires only on the fresh-boot transition
+	// coop RV-U9, ported from `main` :185-:195. next-launch crash reporter. Fires only on the fresh-boot transition
 	// (StartState -> GoToMainMenuState(true)), i.e. once per launch, at the main-menu
 	// altitude (world already torn down by setSavedGame(0) above) - the same
 	// "before the main menu" altitude the save-upgrade flow lives at. Best-effort
@@ -441,7 +441,7 @@ void MainMenuState::init()
 	_game->getCoopMod()->disconnectTCP(true);
 
 	connectionTCP::_coopGamemode = 0;
-	connectionTCP::_isHotseatActive = false; // coop D247-U (QD247-11): back at the main menu no hotseat stays armed
+	connectionTCP::_isHotseatActive = false; // coop: back at the main menu no hotseat stays armed
 	connectionTCP::session.resetSession();
 	_game->getCoopMod()->coopMissionEnd = false;
 	_game->getCoopMod()->coopInventory = false;

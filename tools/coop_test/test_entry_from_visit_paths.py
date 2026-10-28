@@ -1,4 +1,4 @@
-"""W2-H74 - test_entry_from_visit_paths.py (EFP): a practice screen over the view of the host's base at the host's YES.
+"""test_entry_from_visit_paths.py (EFP): a practice screen over the view of the host's base at the host's YES.
 
 Spec: docs rewrite/prompts/w2h74_entry_from_visit.md (f) row P; TASK 0 constants: docs rewrite/w2h74-task0/sa/CONSTANTS.md. Lead L-BH1, ruling
 R-BH-2 fix (a) (QH74-1 .. QH74-6 (a), R-H74-1). Lobby key "49298", dirs w2h74_p_*. Row L (the leave in flight) is absent: TASK 0's ONE
@@ -30,7 +30,7 @@ RC_OK = (0, 3221226505)
 FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
 NEEDLES = {"UNWIND": "[coop] W2-H74: battle entry from a view of the host's base", "SNAP": "SEPARATE battle-entry own-world snapshot taken"}
 CELLS = {"P": ["P-pre", "P-entry", "P-snap", "P-log", "P-own", "P-flag", "P-common"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):

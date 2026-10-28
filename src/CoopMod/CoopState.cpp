@@ -39,7 +39,7 @@
 #include "../Engine/Language.h"
 #include "../Engine/CrossPlatform.h" // coop R4-L3 S-C: CoopDesyncNoticeState's OPEN FOLDER / REPORT ON GITHUB
 #include "CoopState.h"
-#include "SharedEcon.h" // coop RV-U9 (PRD-I5): the crash prompt's BUNDLE / NEVER handlers
+#include "SharedEcon.h" // coop: the crash prompt's BUNDLE / NEVER handlers
 
 #include "../Basescape/BasescapeState.h"
 
@@ -111,7 +111,7 @@ CoopState::CoopState(int state, int value) : _value(value)
 	_screen = false;
 
 	global_state = state;
-	// CIT-DIAG (F24293-F24294): the game's push line names the class only; several flakes turn on WHICH dialog was up
+	// the game's push line names the class only; several flakes turn on WHICH dialog was up
 	Log(LOG_INFO) << "[coop-dialog] open code=" << state << " value=" << value;
 
 	int x = 20;
@@ -755,7 +755,7 @@ CoopState::CoopState(int state, int value) : _value(value)
 
 	if (state == 21)
 	{
-		// SPEC 16 (W1-P17) M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
+		// SPEC 16 M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
 		// below - its own ctor-time call, per the comment at that function's
 		// top - tears the client's authority/session down. State 21 exists
 		// for exactly one reason (the host is gone), so any live battle
@@ -1038,7 +1038,7 @@ std::string CoopState::waitingTitle() const
 		return "Waiting for players to load...";
 	}
 	const std::string peer = _game->getCoopMod()->getCurrentClientName();
-	// SPEC 16 (W1-P17) M4: a deliberate leave (battle_leave{reasonKey})
+	// SPEC 16 M4: a deliberate leave (battle_leave{reasonKey})
 	// names itself instead of reading as a silent connection loss. Keeps
 	// "to reconnect" in BOTH branches - existing dialog-wording assertions
 	// (test_lobby_dialogs.py, test_resume_game_in_battle.py) only check for
@@ -1083,7 +1083,7 @@ bool CoopState::waitSatisfied() const
 		return connectionTCP::hasCoopFile(
 			connectionTCP::hostBlobKey(_game->getCoopMod()->getCurrentClientName()));
 	}
-	// coop R4-L3 S-B (F10818, QL3-6 (a)): never RESUME over a refused or mismatched rejoin / repair - admission stays closed.
+	// coop R4-L3 S-B: never RESUME over a refused or mismatched rejoin / repair - admission stays closed.
 	return connectionTCP::session.resumeAck && !coopResumedOfferFailed();
 }
 
@@ -1419,7 +1419,7 @@ void CoopState::previous(Action *)
 	// client blob can't rewrite a possibly-different world.
 	else if (global_state == COOP_DLG_HOST_SAVE_WAIT)
 	{
-		// coop W2-H91 (owner D303 (b)): the 54 closes first, so a save error that writePendingHostSave() opens stays on top.
+		// coop: the 54 closes first, so a save error that writePendingHostSave() opens stays on top.
 		_game->popState();
 		_game->getCoopMod()->writePendingHostSave();
 	}
@@ -1470,7 +1470,7 @@ void CoopState::btnAbandonClick(Action *)
 {
 	_game->resetTouchButtonFlags();
 
-	// SPEC 16 (W1-P17) M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
+	// SPEC 16 M6 (DP1, D94=(a)): captured BEFORE disconnectTCP()
 	// below clears BattleAuthority::peerAbsent - that flag IS "this ABANDON
 	// is closing a mid-battle co-op pause" (as opposed to issue #81's
 	// original case, ABANDON on the host's own PRE-battle campaign wait,
@@ -2012,7 +2012,7 @@ void CoopState::loadCoop(Action *)
 
 }
 
-// RB-D23: canonical seat -> faction mapping, by gamemode. Single source of
+// canonical seat -> faction mapping, by gamemode. Single source of
 // truth for BOTH the per-unit assignment loop in assignSeatsAndFactions()
 // below AND (via coopBattleAuthority().setSeatFaction()) the seat->faction
 // store that the real battle_offer seatMap (connectionTCP.cpp) and
@@ -2060,7 +2060,7 @@ void coopStampSpawnedUnitSeat(BattleUnit* unit)
 		return; // an AI side (co-op aliens / civilians, PvP civilians): unseated, its AI module kept (vanilla)
 	unit->setCoopSeat((CoopSeat)seat);
 	if (unit->getOriginalFaction() != FACTION_PLAYER)
-		unit->setAIModule(nullptr); // a PvP side a seat commands: no AI module, as at generation (QU4-4)
+		unit->setAIModule(nullptr); // a PvP side a seat commands: no AI module, as at generation
 }
 
 // R5-P1 (SPIKE-RUNBOOK.md RB-D23): see CoopBattleSetup.h for the full
@@ -2109,7 +2109,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			const UnitFaction orig = unit->getOriginalFaction();
 			if (orig == FACTION_HOSTILE)
 			{
-				unit->setOriginalFaction(FACTION_PLAYER); // funnel (RB-D23)
+				unit->setOriginalFaction(FACTION_PLAYER); // funnel
 				unit->convertToFaction(FACTION_PLAYER);
 				unit->setAIModule(nullptr);
 				if (toClient > 0)
@@ -2124,14 +2124,14 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			}
 			else if (orig == FACTION_PLAYER)
 			{
-				unit->setOriginalFaction(FACTION_HOSTILE); // funnel (RB-D23)
+				unit->setOriginalFaction(FACTION_HOSTILE); // funnel
 				unit->convertToFaction(FACTION_HOSTILE);
 				// R5-U8 A3 (owner D269 (a): the release line's re-skin, main BattlescapeGenerator :1189-:1204): an
 				// AI-side X-COM soldier is re-typed MALE_CIVILIAN / FEMALE_CIVILIAN by its gender - no rank on the
 				// unit-info screen, a blank name where an enemy's name shows (a soldier unit has no race), no fatal
 				// wounds unless the Alien Bleeding option is on (BattleUnit::isWoundable). Sprites (the armor) and
 				// the id are unchanged (SCOPE-6, QU8-A1-3); HWPs keep their type. coopLoadSoldierUnitRecord()
-				// carries the type through every document load (AMENDMENT U8-1).
+				// carries the type through every document load.
 				if (Soldier* soldier = unit->getGeoscapeSoldier())
 					unit->setCoopType(soldier->getGender() == GENDER_FEMALE ? "FEMALE_CIVILIAN" : "MALE_CIVILIAN");
 				unit->setCoopSeat(COOP_SEAT_NONE);
@@ -2171,7 +2171,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 				continue;
 			}
 
-			// Funnel (RB-D23) - reasserts FACTION_PLAYER; a no-op value-wise
+			// Funnel - reasserts FACTION_PLAYER; a no-op value-wise
 			// for every classic/SHARED unit (vanilla generation already set
 			// it), but every real-faction write goes through the funnel.
 			unit->setOriginalFaction(FACTION_PLAYER);
@@ -2205,7 +2205,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 				: (orig == FACTION_PLAYER ? (int)COOP_SEAT_1 : (int)COOP_SEAT_0);
 			const UnitFaction faction = coopSeatCanonicalFaction(gamemode, seat);
 
-			unit->setOriginalFaction(faction); // funnel (RB-D23)
+			unit->setOriginalFaction(faction); // funnel
 			unit->convertToFaction(faction);
 			unit->setCoopSeat((CoopSeat)seat);
 
@@ -2220,7 +2220,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 	}
 }
 
-// SPEC 19 (W1-P20) M2 Branch B: deserialize a guest Soldier off the wire (the
+// SPEC 19 M2 Branch B: deserialize a guest Soldier off the wire (the
 // same Soldier::save()/YAML form connectionTCP.cpp's coopSerializeGuestSoldier()
 // produces). Returns nullptr on a malformed/unknown-type entry (never throws
 // into the caller's merge loop - a bad entry is skipped, not fatal to the
@@ -2240,7 +2240,7 @@ static Soldier* coopDeserializeGuestSoldier(Game* game, const std::string& yaml)
 	return soldier;
 }
 
-// SPEC 19 (W1-P20) M2 Branch B: see the doc comment in CoopBattleSetup.h.
+// SPEC 19 M2 Branch B: see the doc comment in CoopBattleSetup.h.
 void coopMergeGuestContributions(Game* game, Craft* craft)
 {
 	if (!game || !craft || !game->getSavedGame())
@@ -2258,7 +2258,7 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 		if (!coopGuestContribCraftMatches(seat, craft->getId(), craftType))
 			continue;
 
-		const int count = coopGuestContribCraftCount(seat, craft->getId(), craftType); // W2-H19b (F6989): this craft's guests only
+		const int count = coopGuestContribCraftCount(seat, craft->getId(), craftType); // this craft's guests only
 		for (int i = 0; i < count; ++i)
 		{
 			const std::string& yaml = coopGuestContribSoldierYaml(seat, craft->getId(), craftType, i);
@@ -2313,11 +2313,11 @@ void coopMergeGuestContributions(Game* game, Craft* craft)
 			spaceAvailable--;
 		}
 	}
-	// D248-U (owner D248 (b)): then the partner's parked tanks for this craft (connectionTCP.cpp; CoopBattleSetup.h)
+	// then the partner's parked tanks for this craft (connectionTCP.cpp; CoopBattleSetup.h)
 	coopMergeGuestVehicles(game, craft);
 }
 
-// SPEC 19 (W1-P20) M1 (F358): see the doc comment in CoopBattleSetup.h.
+// SPEC 19 M1: see the doc comment in CoopBattleSetup.h.
 void coopStampCraftSeats(Craft* craft)
 {
 	if (!craft)
@@ -2343,7 +2343,7 @@ void coopStampCraftSeats(Craft* craft)
 	}
 }
 
-// W2-H9 (owner D199 = (a)): the SEPARATE client own-craft battle refusal
+// the SEPARATE client own-craft battle refusal
 // probes - see the doc comment in CoopBattleSetup.h. Process-lifetime, never
 // reset; client-side writers only (the two refusals), read by the test server.
 static int s_coopClientBattleRefused = 0;
@@ -2359,7 +2359,7 @@ std::string coopClientBattleRefusedLast()
 	return s_coopClientBattleRefusedLast;
 }
 
-// W2-H9 (owner D199 = (a), D211/D212 = (a)): true only on a SEPARATE co-op
+// true only on a SEPARATE co-op
 // campaign's CLIENT - connected, not the server owner, a SEPARATE coop save,
 // gamemode 0/1. SHARED, the host, single player, PvP (2/3) and PvE2 (4) are
 // false. File-static, not exported.
@@ -2376,13 +2376,13 @@ static bool coopSeparateClientBattleBlocked(Game* game)
 	return gamemode == 0 || gamemode == 1;
 }
 
-// W2-H9: the one refusal text (the key's only reference in src/).
+// the one refusal text (the key's only reference in src/).
 static std::string coopHostCraftOnlyText(Game* game)
 {
 	return game->getLanguage()->getString("STR_COOP_MISSION_HOST_CRAFT_ONLY");
 }
 
-// W2-H9: see the doc comment in CoopBattleSetup.h.
+// see the doc comment in CoopBattleSetup.h.
 bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft)
 {
 	if (!gs || !craft || !coopSeparateClientBattleBlocked(game))
@@ -2396,7 +2396,7 @@ bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft
 	return true;
 }
 
-// W2-H9: see the doc comment in CoopBattleSetup.h.
+// see the doc comment in CoopBattleSetup.h.
 bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft)
 {
 	if (!craft || !coopSeparateClientBattleBlocked(game))

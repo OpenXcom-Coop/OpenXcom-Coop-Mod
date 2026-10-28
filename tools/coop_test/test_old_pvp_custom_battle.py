@@ -15,7 +15,7 @@ Rows R2 / R3 / R4 (dirs d246sd2b_r<n>_host / _client; host option CoopTurnMode p
             > 0 units) and one summary line (seats 0/1 CD_S0/CD_S1, unseated CD_UN, turnMode traditional, deployment DEP);
             every unit's seat == CD_SEAT
   Rn-cont   open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE BATTLE: both on the
-            battle, no CoopState 62 / 68, phase Active, no desync (MG-B)
+            battle, no CoopState 62 / 68, phase Active, no desync
   Rn-seats  per unit (coop, faction, isOut, x, y, z) host == partner; seats == CD_SEAT, factions == CD_FAC (gm3: the aliens
             faction 1 seat 0, X-COM faction 0 seat 1; gm4: X-COM nobody's, the aliens 0 / 1 as tagged); gm4 also: every
             X-COM unit's armorCur AND armorMax per side == G4_X_ARMOR on BOTH machines at the resumed turn (the save's
@@ -23,7 +23,7 @@ Rows R2 / R3 / R4 (dirs d246sd2b_r<n>_host / _client; host option CoopTurnMode p
   Rn-mode   turnMode traditional on both under the host option parallel
   Rn-dep    battle_state.deployment partner == host == DEP
   Rn-play   the side to move presses END TURN (gm2 the host, gm3 the partner, gm4 the host then the partner): side 1 on
-            both; every hash bucket EQUAL before the press; desyncSeen false on both. gm4 (R-D246D2-6, F20250): side 1 is
+            both; every hash bucket EQUAL before the press; desyncSeen false on both. gm4: side 1 is
             the host's X-COM AI side, which ends on its own: side 1 on both is drive_side_change's return, then side 0 of
             turn 3 (G4_SETTLE) on both after wait_host_idle (the AI side crossed, test_skirmish_saved_pve2_end_turn SD2)
   (R3-save) host save_game RESAVE after R3-play's reads, the setup step of row V
@@ -35,7 +35,7 @@ rewrite builds, F20049), R4-seats, R4-mode, R4-dep, R4-play (not reached); V-loa
 gm2 tags already equal the rule); R2-cont, R2-play, R3-cont pass. One EVIDENCE line per row, one PASS / FAIL line per
 cell, the row verdict; every row runs after a failure. A precondition miss (Rn-cont, a cell that raised) ends its row:
 later cells FAIL "not reached". A boot step past its bound prints ONE CAPTURE line and fails every cell of that row "boot".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 Run:  python tools/coop_test/test_old_pvp_custom_battle.py
 """
@@ -258,7 +258,7 @@ def r_seats(n, host, client, ev):
     sc, _ = seat_check(n, uc)
     red = {3: "the release gm3 swap kept (factions swapped): ", 4: "the X-COM side carries the host's seat: "}.get(n, "")
     armor_off, armor = {}, ""
-    if n == 4:   # QD246D2-9 (a): the X-COM side keeps its played armor (cur AND max) on both machines at the resumed turn
+    if n == 4:   # the X-COM side keeps its played armor (cur AND max) on both machines at the resumed turn
         a = ev["armor"] = {gc.name: {k: [us[k].get("armorCur"), us[k].get("armorMax")] if k in us else None for k in G4_X}
                            for gc, us in ((host, uh), (client, uc))}
         ev["armorAt"] = [[bs(g).get("side"), bs(g).get("turn")] for g in (host, client)]
@@ -300,7 +300,7 @@ def r_play(n, host, client, ev):
     try:
         p["side1"] = [[s.get("side"), s.get("turn")] for s in drive_side_change(host, client, SIDE_NEXT, timeout=STEP_S)]
         session.wait_host_idle(host, client, timeout=STEP_S)
-        if n == 4:   # R-D246D2-6 (F20250): the host's X-COM AI side ends on its own; SD2's settle on side 0 of turn 3
+        if n == 4:   # the host's X-COM AI side ends on its own; SD2's settle on side 0 of turn 3
             drive_side_change(host, client, G4_SETTLE[0], want_turn_min=G4_SETTLE[1], timeout=STEP_S)
     except Exception as e:
         p["sideError"] = f"{type(e).__name__}: {str(e)[:300]}"

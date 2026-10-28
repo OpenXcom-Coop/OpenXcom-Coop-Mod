@@ -33,7 +33,7 @@ spotted what it sees before it steps; a walker that newly spots a unit halts bef
 
 Red (B1, the S-A green base): P1-act, P1-morale, K1-killedBy, K1-morale, K2-killedBy, R2-noai FAIL; P1-roll, K1-dead,
 R2-react, rules-common PASS. Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3).
-WV-D95: run it in the foreground to completion.
+run it in the foreground to completion.
 
 Run: python tools/coop_test/test_hotseat_rules.py
 """
@@ -375,7 +375,7 @@ def row_k1(B, ctx):
     d = a2.get("morale", 0) - m0
     evidence("K1", shot={k: r.get(k) for k in ("tuCost", "tuHave")}, settled=settled, stack=st, boxes=boxes, S1before=s1b, S1=ub(s1),
              A2=ub(a2), A2morale=[m0, a2.get("morale")], D=d, D_RED=D_RED)
-    if not settled:  # R-D247-SA-3
+    if not settled:
         fail_rest("K1", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
         return
     cell("K1-dead", s1.get("isOut") and s1.get("status") == STATUS_DEAD, "S1 isOut %r status %r" % (s1.get("isOut"), s1.get("status")))
@@ -403,7 +403,7 @@ def row_k2(B, ctx):
     if rec.get("fail"):
         fail_rest("K2", "blocked: A3's walk failed (%s)" % rec["fail"])
         return
-    if not settled:  # R-D247-SA-3
+    if not settled:
         fail_rest("K2", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
         return
     on_dest = (a3.get("x"), a3.get("y"), a3.get("z")) == A3_DEST

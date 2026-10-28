@@ -38,7 +38,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8g (F9215): the two pair groups' clean-up
+from harness import shutdown_clients  # the two pair groups' clean-up
 import session
 import shared_fixture
 
@@ -227,7 +227,7 @@ def group_campaign_votes():
         scene("3", "VOTE FAILED", scene_03, host, client)
         scene("4", "vote starter cooldown dialog", scene_04, host, client)
     finally:
-        # W2-U8g (F9215): group() catches this raise and runs the next group, so a failed host shutdown must not
+        # group() catches this raise and runs the next group, so a failed host shutdown must not
         # leave the client running beside it (shutdown_clients shuts every peer down before it raises)
         shutdown_clients(host, client)
 
@@ -438,7 +438,7 @@ def group_skirmish():
         skirmish_bring_up(host, client, PORTS_SKIRMISH[2])
         scene("6", "skirmish lobby + EQUIP CRAFT lock", scene_06, host, client)
     finally:
-        # W2-U8g (F9215): group() catches this raise and runs the next group, so a failed host shutdown must not
+        # group() catches this raise and runs the next group, so a failed host shutdown must not
         # leave the client running beside it (shutdown_clients shuts every peer down before it raises)
         shutdown_clients(host, client)
 

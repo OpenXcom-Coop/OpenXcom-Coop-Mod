@@ -46,7 +46,7 @@ class TransferItemsState : public TouchState
 {
 private:
 	Base *_baseFrom, *_baseTo;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_baseFrom) || coopBaseGone(_baseTo); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_baseFrom) || coopBaseGone(_baseTo); } // coop W2-H83 S-B2
 	DebriefingState *_debriefingState;
 	TextButton *_btnOk, *_btnCancel;
 	TextEdit *_btnQuickSearch;

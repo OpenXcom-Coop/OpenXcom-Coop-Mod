@@ -10,7 +10,7 @@ mod lands with this file and is loaded on BOTH machines).
 
 Before S-B the second player cannot do any of this. PRIME and UNPRIME are
 refused in the action menu (K8, ActionMenuState::handleAction) with "Only the
-host can use this item" and coopLocalExecBlocked +0 (F1171). The throw click and
+host can use this item" and coopLocalExecBlocked +0. The throw click and
 the first launcher waypoint click are refused at K1 (BattlescapeGame::
 primaryAction's targeting arm; client coopLocalExecBlocked +1, nothing sent).
 After S-B each press becomes an intent (wire kinds of spec (b)1: `prime` for
@@ -42,7 +42,7 @@ order:
          kind `prime` (coopIntentsSent.prime +1 each).
   C19    throw a primed grenade, then END TURN. A primed grenade on C (lever
          fuse 0, both), C -> C19_C_TILE facing east (dir 2), TU max. The throw
-         tile C19_TILE is due north: C does not face it (F490), and no unit
+         tile C19_TILE is due north: C does not face it, and no unit
          stands within 5 tiles (the grenade's blast radius). Client: TAB, the
          right-hand box, key 53 (THROW), HOME, host set_seed SEED_C19, one left
          click on C19_TILE. Then both machines press END TURN (client first)
@@ -52,7 +52,7 @@ order:
          with an `arc`; the grenade on C19_TILE (owner -1, fuse 0) on both; C
          TU C19_TU_AFTER on both. At END TURN the first ev of the cycle is the
          grenade's explosion centred on C19_TILE, carrying an `endturn`
-         context's id (W2-P3), its one bt_action_end before the cycle's
+         context's id, its one bt_action_end before the cycle's
          side_transition; the grenade gone on both; no unit's health, stun or
          status changed on either machine; the tile equal on both; turn + 1
          on both.
@@ -94,7 +94,7 @@ tile census and terrain equality on both, not T0c's terrain hash values (C19's
 END TURN detonation changes the terrain first); the census box (T0c's x/y box,
 z 0-1: all 285 changed tiles lay at z 0-1) lies outside C19's blast.
 place() teleports only a unit that is not already on the tile (CLAUDE.local.md
-S2). A hand click while the client targets only cancels the targeting (F503).
+S2). A hand click while the client targets only cancels the targeting.
 
 Common asserts (spec (f), after wait_host_idle): hash_now {full:true} - every
 bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged
@@ -114,9 +114,9 @@ FIXTURE (TASK 0 T0-6 = T0b, the C20 redo and the mod = T0c; the roster-pinned
 terror boot of test_host_combat.py): set_seed SEED_ROSTER on the HOST right
 before its open_new_battle, mission STR_TERROR_MISSION, set_seed SEED_MAP right
 before newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
-asserted (SEATED), pin_ai_neutral, the mod active on both (F1164). Every lever
-pair goes to the CLIENT first (F607). Item ids are read at run time from the
-lever replies (F1107), never baked. The seeds were found with the HOST stand-in
+asserted (SEATED), pin_ai_neutral, the mod active on both. Every lever
+pair goes to the CLIENT first. Item ids are read at run time from the
+lever replies, never baked. The seeds were found with the HOST stand-in
 (battle_fire for C): S-B's executor build proves them again (N18 = F1085).
 
 RED-THEN-GREEN (spec (d) row S-B). Commit S-B.1 (this file and the mod) is run
@@ -127,9 +127,9 @@ main() runs every scenario even after an earlier one failed and prints
 "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that times
 out is recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all three scenarios pass, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_client_grenade.py
@@ -158,7 +158,7 @@ from test_client_shoot import (top, snap, ubrief, press, menu_rows, count_of, mi
 # ----- bring-up (TASK 0: the roster-pinned terror boot, the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded (F1164)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID = 8
 H_ID = 10                         # first host-seat soldier
@@ -181,7 +181,7 @@ TEXT_UNPRIMED = "Grenade De-activated!"      # xcom1 STR_GRENADE_IS_DEACTIVATED 
 TEXT_ITEM_ACTION = "Only the host can use this item"   # STR_COOP_ITEM_ACTION_HOST_ONLY (the RED text)
 
 # ----- C19 (T0-6 = T0b: F1124) -----
-C19_C_TILE, C19_C_DIR = (12, 27, 0), 2       # faces east; the throw tile is due north (F490)
+C19_C_TILE, C19_C_DIR = (12, 27, 0), 2       # faces east; the throw tile is due north
 C19_TILE = (12, 20, 0)            # open road, 7 tiles north
 C19_ROWS = 2                      # primed with the mod: THROW + UNPRIME
 SEED_C19 = 2                      # seed 1 landed on (11,21,0)
@@ -190,7 +190,7 @@ C19_TU_AFTER = 46                 # 64 - 16 throw - 2 (two octants of pre-throw 
 C19_CHAIN = ["turn", "shot", "bt_action_end"]   # W2-P5 S-T (D151, E3): the pre-throw turn
 
 # ----- C20 (T0c, the C20 redo: F1169) -----
-C20_C_TILE, C20_C_DIR = (28, 25, 0), 6       # faces west, away from the waypoints (F1125)
+C20_C_TILE, C20_C_DIR = (28, 25, 0), 6       # faces west, away from the waypoints
 C20_W = (46, 25, 0)               # both waypoints (vanilla's dive, PR-Q16)
 C20_CAMERA = (41, 24, 0)          # client camera before the waypoint clicks
 SEED_C20 = 1
@@ -199,7 +199,7 @@ C20_CHAIN = ["turn", "shot", "shot", "explosion", "bt_action_end"]   # W2-P5 S-T
 C20_POWER, C20_RADIUS = 200, 10
 C20_BOX = (range(34, 50), range(13, 38), range(0, 2))   # T0c's census box (x, y), z 0-1
 C20_TILES_CHANGED = 285
-LAUNCH_RECT = (288, 0, 32, 24)    # the launch button (F1127)
+LAUNCH_RECT = (288, 0, 32, 24)    # the launch button
 LAUNCH_CENTRE = (LAUNCH_RECT[0] + LAUNCH_RECT[2] // 2, LAUNCH_RECT[1] + LAUNCH_RECT[3] // 2)
 
 # ----- UI -----
@@ -271,7 +271,7 @@ def item_view(it):
 
 def launch_button_nth(gc):
     """The launch button's click nth: its index among the top state's VISIBLE
-    interactive surfaces (click_widget's order), found by its rect (F1127).
+    interactive surfaces (click_widget's order), found by its rect.
     None while it is hidden."""
     vis = [w for w in gc.cmd({"cmd": "list_widgets"}).get("widgets", []) if w.get("visible") and w.get("interactive")]
     for n, w in enumerate(vis):
@@ -307,7 +307,7 @@ def give_launcher(host, client):
 
 
 def cancel_client_targeting(client):
-    """F503: while the client targets, a hand click only cancels the targeting.
+    """while the client targets, a hand click only cancels the targeting.
     One such click when an earlier scenario left the client targeting. Returns
     [cursor before(, after)]."""
     c0 = battle_state(client).get("cursorType")

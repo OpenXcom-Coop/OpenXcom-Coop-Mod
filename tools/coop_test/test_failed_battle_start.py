@@ -1,7 +1,7 @@
 """W2-H24 stage S-A (spec rewrite/prompts/w2h24_failed_battle_start.md (f), QH24-5 a; TASK 0 rewrite/w2h24-task0/CONSTANTS.md): a failed
 or refused co-op CAMPAIGN battle start. Refused: the host's craft stays "in battle" at its target, the landing question pops up again
-and the .sav keeps inBattlescape for the craft and the site (F5198). The partner lost during the ~1 s start: the host sits on "Waiting
-for <name>" over a briefing that can never start and a rejoin never reaches RESUME (F5199).
+and the .sav keeps inBattlescape for the craft and the site. The partner lost during the ~1 s start: the host sits on "Waiting
+for <name>" over a briefing that can never start and a rejoin never reaches RESUME.
   Boot A (lobby key "48580", w2h24_a_host / _client): C1 a refused start (host corrupt_next_blob), then C0 the negative control on the
   same world (a clean start, then a mid-battle kill: the SPEC 16 pause). Boot B (key "48581", w2h24_b_host / _client / _client2): C2 the
   partner lost during the start (client hold_battle_ready, then kill), then client2 rejoins (test_rejoin_flow.py :47-:70).
@@ -19,7 +19,7 @@ geoscape clock left at its speed). SKY = the host's geo_state entry of the craft
 true" lines with their key paths. UNWIND = host log lines with "W2-H24: failed battle start (" since the row's baseline. CRASH =
 session._crash_log_snapshot() delta, read at the row's end in every case. A WAIT that times out (or a lever reply that is not ok) ends
 the row, its later cells "not reached". EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a
-failure; ONE run (WV-D95); exit 0 iff every cell passes, else 2. Red (S-A commit 1): C1 FAIL C1-3..C1-6, C0 PASS, C2 FAIL C2-1..C2-5.
+failure; ONE run; exit 0 iff every cell passes, else 2. Red (S-A commit 1): C1 FAIL C1-3..C1-6, C0 PASS, C2 FAIL C2-1..C2-5.
 Red (S-B): C1, C0, C2 PASS; S1 FAIL S1-1..S1-3, S1-4 PASS.
 """
 import json

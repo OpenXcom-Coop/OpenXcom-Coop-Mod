@@ -69,7 +69,7 @@ every scenario even after an earlier one failed and prints "PASS <id>" /
 "FAIL <id>: <message>". Every wait is bounded; a wait that times out is
 recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
 (a bring-up failure is also 2).
 
@@ -92,7 +92,7 @@ from test_delta_core import (probes, diff_buckets, desync_record, short, both, s
 # ----- common (every W2-P2 test file; TASK 0a round 1, default map) -----
 SEED_MAP = 1
 MAP_FP = -4.48310638993e+18      # host battle_state.mapFingerprint on SEED_MAP 1
-H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot (F488)
+H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot
 A_ID = 1000000                   # the only alien: Sectoid Soldier, spawn (27,12,0) dir 5, health 30
 A_ITEMS = {56: ("STR_PLASMA_PISTOL", "STR_RIGHT_HAND"), 58: ("STR_PLASMA_PISTOL_CLIP", "STR_BELT"),
            59: ("STR_MIND_PROBE", "STR_BACK_PACK")}   # 60 items at start: first lever-minted id = 60

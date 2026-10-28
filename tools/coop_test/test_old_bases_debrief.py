@@ -1,11 +1,11 @@
-"""W2-H8 (owner D182/D185, D201 = b) - SEPARATE `old_bases`: a TRANSFER opened from
+"""SEPARATE `old_bases`: a TRANSFER opened from
 the debriefing's loot page must leave the host's base list alone.
 
 Before the fix the Select Destination Base window swaps the live base list for a
 copy stored on the debriefing's base, which is empty when that base's screen was
 never opened: the list becomes empty (the campaign ends in defeat once the
 geoscape runs). After the fix the list keeps every own base and the partner's
-mirror, and the window offers the partner's base too (owner D201 = b).
+mirror, and the window offers the partner's base too.
 
 One boot, one row (spec rewrite/prompts/w2h8_old_bases.md (f)):
 
@@ -15,15 +15,15 @@ One boot, one row (spec rewrite/prompts/w2h8_old_bases.md (f)):
               read at the three points (TransferBaseState, after Cancel, the
               geoscape) and the window's destination rows are read.
 
-The SEPARATE client stays in the battle after the host's abort (F387), so the
-host clock is frozen (F2429): the row reads the list at the three points and
+The SEPARATE client stays in the battle after the host's abort, so the
+host clock is frozen: the row reads the list at the three points and
 asserts no ending.
 
 Named red on the pre-fix build (spec (f) + AMENDMENT H8-1 Q3): rows [] and
 host bases [] at TransferBaseState and after Cancel; at the geoscape the list
 is all mirrors [ClientBase, HostBase, HostBase2] (coopBase and coopIcon set) -
 the client, still in the battle on a copy of the host's world, reports the
-host's bases as its own - and the host's ending stays 0 (F2653).
+host's bases as its own - and the host's ending stays 0.
 
 The row prints ONE "EVIDENCE D2:" line and then asserts; a fixture step that
 does not reach its state raises "PRECONDITION D2: ..." with both machines'
@@ -135,7 +135,7 @@ def row_d2(host, client):
                host, client, timeout=30)
     r = host.cmd({"cmd": "dismiss_popup"})
     precondition(r.get("handled") == "AbortMissionState", "abort confirm -> %s" % r, host, client)
-    try:  # R4-L1 (D231): the OK opened the abort vote; the guest's YES passes it
+    try:  # the OK opened the abort vote; the guest's YES passes it
         session.abort_vote_yes(host, client)
     except Exception as e:
         precondition(False, "abort vote: %s" % e, host, client)

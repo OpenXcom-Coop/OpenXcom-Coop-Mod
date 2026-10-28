@@ -29,7 +29,7 @@ roster (with ownership). All of that is compared exactly, base list IN INDEX
 ORDER - the base index is the protocol's routing key (PRD-J03), so an ordering
 difference is itself a desync.
 
-W2-G1 (F7951, F8265): each soldier's gear too - armor, equipment layout,
+each soldier's gear too - armor, equipment layout,
 personal layout and its armor; craft loads are not compared until W2-H20b
 stage B.
 
@@ -102,7 +102,7 @@ def world_dump(gc):
     for i, b in enumerate(g["bases"]):
         soldiers = roster[i]["soldiers"] if i < len(roster) else []
         # W2-G1 (F7951, F8265; Q3 a, Q4 a): each soldier's gear - armor (get_soldiers), equipment layout, personal layout and
-        # its armor (soldier_layouts, items in stored order). Craft items join with W2-H20b stage B (F8265).
+        # its armor (soldier_layouts, items in stored order). Craft items join with W2-H20b stage B.
         armor = {s["id"]: s.get("armor") for s in soldiers}
         gear = gc.ok({"cmd": "soldier_layouts", "base": b["name"]})["soldiers"]
         bases.append({

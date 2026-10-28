@@ -5,13 +5,13 @@ rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_zombie.py (S-E;
 terror + snakeman)", sections (b)1-(b)6 (the `ai` origin), (b)9 (the `spawn`
 cue, V16 `convert`), (b)10 (unitsAdded: the client builds the unit through the
 battle-load path); amendment B1 (RQ5, RQ7, RQ15); ledger `## W2-P3 TASK 0c`
-(F871-F873) and `## W2-P3 TASK 0d` (F872); owner ruling D128 = (b)).
+and `## W2-P3 TASK 0d`; owner ruling D128 = (b)).
 
 S-E is test-only: the product (S-A..S-D) is complete for this scenario. Its RED
 is TASK 0d's C12b row, run on the W2-P3 base exe (`27bdec94e`): the conversion
 rode a context-less `sync` (host (7 melee 0)(8 death 0)(9 sync 0)), the host
 logged the unit add as deltaUnsupported 1, and the client froze at seq 9 on the
-`items` bucket (F872). Since S-C the conversion rides a `spawn` cue in the
+`items` bucket. Since S-C the conversion rides a `spawn` cue in the
 chryssalid's `ai` context and the zombie reaches the client through
 `unitsAdded`.
 
@@ -22,8 +22,8 @@ One scenario, ONE boot:
         C (client seat soldier) on C_TILE facing Ch, Ch (the chryssalid)
         adjacent on CH_TILE facing C (no pre-attack turn), both on BOTH
         machines; C health C_HEALTH (BOTH); Ch unpinned with base tu CH_TU
-        (BOTH, no refill: recovered at its side start) = exactly one BA_HIT
-        (F873). Both machines press END TURN; host set_seed SEED_C12B right
+        (BOTH, no refill: recovered at its side start) = exactly one BA_HIT.
+        Both machines press END TURN; host set_seed SEED_C12B right
         before its press. Ch's AI melee kills C without overkill and
         UnitDieBState converts C into the zombie Z = Z_ID (TASK 0c: Z owns
         ZOMBIE_WEAPON Z_WEAPON_ID; C's four items drop on C_TILE).
@@ -76,7 +76,7 @@ open_new_battle; newbattle_mission STR_TERROR_MISSION, then newbattle_race
 STR_SNAKEMAN (pre_seat), set_seed SEED_MAP right before newbattle_ok,
 seat_count=2, MAP_FP asserted on both; session.pin_ai_neutral (the 23
 non-player units); RQ15: every live player unit's reactions 0 on BOTH. Every
-lever pair applies to the CLIENT first, then the HOST (F607). The seed is set
+lever pair applies to the CLIENT first, then the HOST. The seed is set
 on the HOST immediately before the press that starts the chain.
 
 The scenario prints ONE "EVIDENCE C12b:" line with both machines' fields
@@ -84,9 +84,9 @@ BEFORE its green conditions are checked, then "PASS C12b" / "FAIL C12b:
 <message>". Every wait is bounded; a wait that times out is recorded in the
 EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when the scenario passes, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_zombie.py
 """
@@ -108,7 +108,7 @@ from test_host_combat import (death_snap, death_row, wait_death_ghosts_ended, DE
                                  OVERKILL_NONE)
 
 # ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C12b") -----
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok
 MISSION, RACE = "STR_TERROR_MISSION", "STR_SNAKEMAN"   # newbattle_mission, then newbattle_race (pre_seat)
 MAP_FP = -3.451266327757785e+18  # host AND client battle_state.mapFingerprint (50x50x4 city map)
@@ -126,7 +126,7 @@ CH_TYPE, CH_ARMOR = "STR_CHRYSSALID_TERRORIST", "CHRYSSALID_ARMOR"
 C_TILE, C_DIR = (24, 24, 0), 2   # open street, faces Ch
 CH_TILE, CH_DIR = (25, 24, 0), 6  # adjacent, faces C (the direction Ch -> C is 6: no pre-attack turn)
 C_HEALTH = 10                    # battle_set_unit_state {unit C, health} on both
-CH_TU = 15                       # set_stat tu (no refill): exactly one BA_HIT at the hostile side (F873)
+CH_TU = 15                       # set_stat tu (no refill): exactly one BA_HIT at the hostile side
 SEED_C12B = 2                    # host set_seed right before its END TURN press (after the client's press)
 Z_ID, Z_TYPE = 1000023, "STR_ZOMBIE"   # the new unit = last unit id + 1
 Z_WEAPON_ID = 91                 # ZOMBIE_WEAPON, owner Z (itemIdCtr 91 -> 92); printed

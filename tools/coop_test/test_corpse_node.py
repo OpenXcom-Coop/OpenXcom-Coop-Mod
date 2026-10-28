@@ -93,12 +93,12 @@ process invocation - "one test per invocation").
 
 RED-THEN-GREEN is NOT automated by this file - it is the owner's second
 independent hit, done by hand per each packet's brief:
-  - FX-3b (WV-D62): comment out the single call in BattlescapeGenerator::run(),
+  - FX-3b: comment out the single call in BattlescapeGenerator::run(),
     rebuild, run this file until a qualifying boot, capture the failure
     (expected: the host log's own "battle_ready saveBlob MISMATCH" line plus
     an `AI:` node count delta between the two machines' saved documents), then
     restore the call, rebuild, and confirm green again.
-  - FX-4 (WV-D68): revert ONLY the `|| _parent->getSave()->isBeforeGame()`
+  - FX-4: revert ONLY the `|| _parent->getSave()->isBeforeGame()`
     clause on UnitDieBState.cpp:53 (leave everything else - the comment block,
     the pendingStates probe, this test - in place), rebuild, loop this file
     hunting a STUN-qualified (not merely killed-qualified) boot, capture the
@@ -118,7 +118,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8f (F9059): one_bringup's cleanup
+from harness import shutdown_clients  # one_bringup's cleanup
 import session
 import repro_atom_walk as W
 
@@ -318,7 +318,7 @@ def one_bringup(tag, seed, expected_fingerprint):
         killed = len(dead_non_player_units(st))
         stunned = len(stunned_non_player_units(st))
     except BaseException:
-        # W2-U8f (F9059): main's try/finally starts only after this returns, so a failed probe after the
+        # main's try/finally starts only after this returns, so a failed probe after the
         # bring-up shuts down its games before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
@@ -393,7 +393,7 @@ def run_assertions(host, client, killed, stunned):
               "(its predicate is health<=0, never true for a stunned unit)")
 
     # --- (1) FX-3b's own assertion, RETAINED: unitsDeadWithAI == 0 on BOTH
-    # machines, re-run here on FX-3b+FX-4 together (WV-D68 (f)) ---
+    # machines, re-run here on FX-3b+FX-4 together ---
     host_st, client_st = battle_state(host), battle_state(client)
     assert host_st.get("unitsDeadWithAI") == 0, (
         f"HOST battle_state.unitsDeadWithAI={host_st.get('unitsDeadWithAI')} "

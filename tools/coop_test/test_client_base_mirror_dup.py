@@ -1,16 +1,16 @@
-"""W2-H57 - test_client_base_mirror_dup.py: after a SEPARATE resume the host keeps ONE mirror of the partner's base (lead L-H51-1,
+"""test_client_base_mirror_dup.py: after a SEPARATE resume the host keeps ONE mirror of the partner's base (lead L-H51-1,
 ruling R-H57-0). Today the host answers its own baseRequest with the partner's coopBase3 (checked: copy 1) before the partner's
 once-per-connection coopBase arrives (unchecked: copy 2): two identical "ClientBase" mirrors with the same crafts, so a click on the
 partner's base marker lists "ClientBase" twice and a click on a partner craft lists it twice (capture lh51-1-cap, F18280-F18292, 4/4).
 Spec: docs rewrite/prompts/w2h57_client_base_mirror_dup.md (stage S-A, (d) and (f)), ORCHESTRATOR RULINGS QH57-1 .. QH57-4 (a); TASK 0
 pins: docs rewrite/w2h57-task0/sa/CONSTANTS.md (boots a, b red on HEAD; c green on HEAD + E1-E2, then restored).
-Keys "49189" / "49190" (bring-up / resume lobby), dirs w2h57_s_*. ONE SEPARATE boot S, the host base apart from the client base (F18292).
+Keys "49189" / "49190" (bring-up / resume lobby), dirs w2h57_s_*. ONE SEPARATE boot S, the host base apart from the client base.
 Rows: C0 (controls before the save) C0-count, C0-craft, C0-base; the host's named save, both end, the host respawns on its dir, client2
 on an EMPTY dir, session.resume_campaign, T = its return; R1 R1-5s, R1-crafts (T + 5 s), R1-client, R1-30s (T + 30 s); R3 (a real click
 on the patrolling partner craft, between the R1 reads) R3-click; R2 (a real click on the partner's base marker, LAST) R2-click, R2-back,
 CRASH. Real presses only: inject_input clicks at the projected pixel, Esc on a list, click_widget GEOSCAPE in a peer base; no popup drain
-inside a peer base (F18291), never leave_base / coop_dialog_back / dismiss_popup. RED (TASK 0 a, b): exit 2, FAIL R1-5s, R1-crafts,
-R3-click, R1-30s, R2-click. GREEN (E1 + E2, TASK 0 c): 11/11. WV-D95 / WV-D99 / WV-D100: ONE run, no skip; exit 0 only if all pass, else 2.
+inside a peer base, never leave_base / coop_dialog_back / dismiss_popup. RED (TASK 0 a, b): exit 2, FAIL R1-5s, R1-crafts,
+R3-click, R1-30s, R2-click. GREEN (E1 + E2, TASK 0 c): 11/11. ONE run, no skip; exit 0 only if all pass, else 2.
 Run:  python tools/coop_test/test_client_base_mirror_dup.py
 """
 
@@ -168,7 +168,7 @@ def click(gc, lon, lat, pk, row, label):
         trace, t4 = [], time.time()
         while time.time() - t4 < 0.9:
             st = stack(gc)
-            if st[-1:] == ["MultipleTargetsState"]:  # F23962: read once more, on a later frame: a one-target MultipleTargetsState
+            if st[-1:] == ["MultipleTargetsState"]:  # read once more, on a later frame: a one-target MultipleTargetsState
                 st = stack(gc)                       # closes itself in its first init() (vanilla); a picker stays on top
             e = {"t": now(), "top": st[-1] if st else None}
             if e["top"] == "CoopState":

@@ -1,7 +1,7 @@
 """W2-H26 row CV (boot C, classic gamemode 1): a player-side conversion. Soldier H, staged to respawn as S_TYPE on the
 player side, dies to C1's lever shot; the host builds the new unit P (SavedBattleGame::convertUnit copies H's
 spawnUnitFaction onto it) and the second player builds its copy from the host's unit record (`unitsAdded`). The copy
-must carry the host's spawnUnitFaction, so the spawn ev's `synced` hash matches and the battle goes on (F11270).
+must carry the host's spawnUnitFaction, so the spawn ev's `synced` hash matches and the battle goes on.
 
 Spec: docs repo rewrite/prompts/w2h26_conversion_spawn_faction.md section (f) (orchestrator ruling R-U4-A-3, F11313;
 Q-H26-1 (a): the TEST-ONLY `synced_census` probe and the recompute below; Q-H26-3 (a): CV-explain is a cell).
@@ -34,8 +34,8 @@ records after the spawn seq, both hash_now, the chain's seqs, host infoboxes, th
 RED on the unchanged build + the probe (commit A1): CV-faction, CV-sync, CV-census; every other cell PASS (CV-explain
 proves P's spawnUnitFaction is the only synced row that differed at the spawn ev). GREEN (commit A2): every cell PASS.
 One EVIDENCE line, one PASS/FAIL line per cell, then the row verdict; every cell is evaluated after a failure. A boot or
-staging step past its bound prints ONE CAPTURE line and fails every cell "boot" / "staging". WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes,
+staging step past its bound prints ONE CAPTURE line and fails every cell "boot" / "staging". run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes,
 else 2.
 
 Run:  python tools/coop_test/test_convert_spawn_faction.py
@@ -64,8 +64,8 @@ MAP_FP_C = -4.48310638993e+18     # both machines (TASK 0 Ca, Cb)
 C1, C2, H = 8, 9, 10              # C1 / C2 the client's (seat 1), H the host's (seat 0)
 TANK, ALIEN, P_ID = 1000000, 1000001, 1000002
 S_TYPE = "STR_SECTOID_SOLDIER"    # what H converts into (no spawn unit of its own)
-STAGE_S, STAGE_DIR = (20, 19, 0), 4   # R-U4-A-1 (F11311): C1's open-ground stage
-FLOOR_S = (24, 19, 0)             # the snap target; the projectile's end converts H (F11445)
+STAGE_S, STAGE_DIR = (20, 19, 0), 4   # C1's open-ground stage
+FLOOR_S = (24, 19, 0)             # the snap target; the projectile's end converts H
 CHAIN_KINDS = ["turn", "shot", "hit", "spawn", "bt_action_end"]
 FACTION_PLAYER, STATUS_DEAD = 0, 6
 STEP_S, CLIENT_S, LOG_FLUSH_S = 30, 15, 3
@@ -132,7 +132,7 @@ def unit_row(u):
     y = _mix_tags(y, u["tags"])
     y = _mix_str(y, u["name"])
     y = _mix_str(y, u["rawName"])
-    y = _mix(y, u["seat"])  # R5-U5: the seat tag, right after the two names (SharedEcon.cpp computeBattleHashes)
+    y = _mix(y, u["seat"])  # the seat tag, right after the two names (SharedEcon.cpp computeBattleHashes)
     spec = sorted(u["specialWeapons"])
     y = _mix(y, len(spec))
     for s in spec:

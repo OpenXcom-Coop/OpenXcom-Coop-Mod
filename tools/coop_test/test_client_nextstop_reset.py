@@ -24,7 +24,7 @@ One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdic
 precondition (GUARD) miss ends its row (later cells "not reached"); a cycle note or a missed turn fails the next row's
 cells "not reached"; a boot miss prints ONE CAPTURE line and fails every row "boot". Common cell: every hash bucket
 EQUAL, desyncSeen false on both, no new crash file. Ids and button nths come from probes at run time (S25).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_client_nextstop_reset.py

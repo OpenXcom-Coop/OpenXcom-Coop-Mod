@@ -1,7 +1,7 @@
 """W2-H16b (S-9..S-11; D226 a; spec rewrite/prompts/w2h16b_soldier_allocations.md (f) + A1.5; TASK 0 rewrite/w2h16b-task0):
 crew seats from the crew-armor ctrl-click and the crew keys, and martial / psi allocations made on one machine reach the shared
 world; the training screens and the crew keys touch only the clicker's own soldiers (AUD-A48). Mod Coop_Allocation_Test: ONE
-gym place + ONE psi-lab place at (0, 3), index 9 (F6668). Boot A (SHARED): H16b-1..7, 9, 10, 11; Boot B (SEPARATE): H16b-8.
+gym place + ONE psi-lab place at (0, 3), index 9. Boot A (SHARED): H16b-1..7, 9, 10, 11; Boot B (SEPARATE): H16b-8.
 S0 = flags off, wounds healed, seats via the craft_assign lever, both equal, requests R0; clicks at the alloc_screen_probe
 row centre (ctrl: mod ctrl then modstate none, F6180); keys z 122 / x 120; poll = both machines' flags + seats every 0.25 s
 for 3 s, cells at its end; close = OK until GeoscapeState, requests == R0 (STOP-IF 5). RED: all rows but H16b-8 fail on

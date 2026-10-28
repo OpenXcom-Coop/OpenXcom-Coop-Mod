@@ -1,4 +1,4 @@
-"""SPEC 14 (W1-P16): the EDGE PASS - four deterministic phases on the
+"""the EDGE PASS - four deterministic phases on the
 Lightning-craft roof fixture (repro_ghost_stepper.bring_up_roof_battle),
 each using a fresh seat-1 actor teleported to the baked roof lane
 (GS.teleport_to_lane / GS.lane_dest). TEST-ONLY.
@@ -16,8 +16,7 @@ each using a fresh seat-1 actor teleported to the baked roof lane
            first-step turn sweeps a single-tile hostile staged 2 tiles to
            the actor's left - and halts on contact before executing any
            step (haltStep == 0). Replaces cycle 1's "face the map centre"
-           construction, which placed the hostile off the map edge
-           (WV-D77).
+           construction, which placed the hostile off the map edge.
   PHASE 4  an unaffordable UFO-door open (the zero-tick right-click):
            tu=3 (door cost - 1) refuses, tu=5 (door cost + 1) opens - the
            non-vacuity control.
@@ -117,7 +116,7 @@ def set_tu_both(host, client, actor_id, tu, exact=True):
     machines. Every boundary call in this file keeps the default `exact=True`,
     since the whole point there is the PRECISE TU value."""
     landed = {}
-    for gc in (client, host):  # F607: client first, then host
+    for gc in (client, host):  # client first, then host
         r = gc.cmd({"cmd": "battle_set_unit_state", "unit": actor_id, "tu": tu})
         assert r.get("ok"), (
             f"battle_set_unit_state(unit={actor_id}, tu={tu}) failed on "
@@ -130,7 +129,7 @@ def set_tu_both(host, client, actor_id, tu, exact=True):
     assert landed[host] == landed[client], (
         f"battle_set_unit_state(unit={actor_id}, tu={tu}) landed at different values - "
         f"host={landed[host]} client={landed[client]}")
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     session.assert_hash_clean(host, client, full=True,
                               what=f"after setting unit {actor_id} tu={tu}")
     return landed[host]
@@ -323,11 +322,11 @@ def phase3_zero_step_spot(host, client, actor_id, door):
         [{"lever": "battle_teleport_unit", "unit": alien_id,
           "x": enemy_tile[0], "y": enemy_tile[1], "z": enemy_tile[2], "dir": left}],
         what="PHASE 3 hostile placement")
-    for gc, tag in ((client, "client"), (host, "host")):  # F607: client first
+    for gc, tag in ((client, "client"), (host, "host")):  # client first
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": alien_id,
                     "stat": "reactions", "value": 0})
         assert r.get("ok"), f"PHASE 3: could not zero hostile {alien_id} reactions on {tag}: {r}"
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     session.assert_hash_clean(host, client, full=True, what="PHASE 3 after staging")
 
     # VERIFY, NEVER INFER: re-read both units at the tip rather than trusting

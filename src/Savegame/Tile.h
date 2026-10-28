@@ -359,7 +359,7 @@ public:
 	void addSmoke(int smoke);
 	/// Set smoke, does not increment overlaps.
 	void setSmoke(int smoke);
-	/// W1-P13a: absolute tile-smoke set for the `side_transition` restate's
+	/// absolute tile-smoke set for the `side_transition` restate's
 	/// perTile applier. Same discipline as coopSetTileFireAbsolute() above:
 	/// keeps setSmoke()'s Clamp(smoke,0,255), drops the RNG roll.
 	void coopSetSmokeAbsolute(int smoke);

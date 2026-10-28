@@ -1,9 +1,9 @@
-"""W2-H27: in gm3 (the host plays the aliens) the host's own real-screen alien orders give back the map cursor and the
+"""in gm3 (the host plays the aliens) the host's own real-screen alien orders give back the map cursor and the
 mouse pointer, as an X-COM player's do (vanilla's player-side popState aftermath for the side this seat commands;
 orchestrator ruling R-U4-A-4, owner design-D5 / WV-D11, WV-D53; QH27-1..QH27-5 (a)).
 
 Spec: docs repo rewrite/prompts/w2h27_pvp_cursor_after_shot.md section (f). Constants: rewrite/w2h27-task0/CONSTANTS.md
-(TASK 0 boots Ka, Kc, Kf, Kg; every pin equal on two boots). Reset: ruling R-H27-A-1 (F11944).
+(TASK 0 boots Ka, Kc, Kf, Kg; every pin equal on two boots). Reset: ruling R-H27-A-1.
 
 Boot K (key 48698, dirs w2h27_k_host / _client): G3F.bring_up (gm3, STR_SMALL_SCOUT, map seed 1); reactions 0 for every
 live unit; a plasma pistol for the alien A (lever, both machines, client first); A on STAGE_A facing A_DIR; every bucket
@@ -16,7 +16,7 @@ EQUAL; the partner's END TURN hands the turn to the host's aliens.
      W-common.
   F  a walk that fails for time units shows vanilla's warning and gives the cursor back: F-pre, F-halt, F-warn,
      F-cursor, F-pointer, F-common.
-Reset before each of S, T, W, F (R-H27-A-1): ONE right click on NEXT-SOLDIER (btnPrevSoldierClick: the one input the
+Reset before each of S, T, W, F: ONE right click on NEXT-SOLDIER (btnPrevSoldierClick: the one input the
 hidden pointer lets through, BattlescapeState::handle), then ONE TAB and tab_select(A); `-pre` is a GUARD cell (PASS on
 red and green). Nothing touches the selection or the targeting between an order and its cursor probe; the follow-up
 clicks (S-again, W-again) are plain left clicks after HOME. Every click: HOME, then RV-U2's one-pass map_tile_click.
@@ -26,7 +26,7 @@ F-cursor, F-pointer.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails every row
-"staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+"staging". run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_host_cursor.py
@@ -119,7 +119,7 @@ def icon_nth(gc, col_i, row_i):
 
 
 def reset(host, ev):
-    """R-H27-A-1: ONE right click on NEXT-SOLDIER, ONE TAB, tab_select(A). EVIDENCE: the probe before / after."""
+    """ONE right click on NEXT-SOLDIER, ONE TAB, tab_select(A). EVIDENCE: the probe before / after."""
     ev["resetBefore"] = probe(host)
     click_nth(host, icon_nth(host, 4, 0), "right")
     ev["resetAfterRight"] = probe(host)
@@ -132,7 +132,7 @@ def reset(host, ev):
 
 
 def click(gc, tile, before=None):
-    """HOME, `before` (the host's set_seed, right before the click it governs), ONE map_tile_click (RV-U2)."""
+    """HOME, `before` (the host's set_seed, right before the click it governs), ONE map_tile_click."""
     gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
     if before:

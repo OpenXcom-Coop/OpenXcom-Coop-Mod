@@ -25,11 +25,11 @@ import time
 
 _GEO = "GeoscapeState"
 
-# WV-D107: wait out a self-closing coop dialog (host-save wait / VoteMenu refusal)
+# wait out a self-closing coop dialog (host-save wait / VoteMenu refusal)
 # rather than abandoning the machine's pass at it. STALL_S bounds ONE such wait.
 STALL_S = 3.0        # per-dialog ceiling (clears the measured 1.105s host-save max)
 STALL_POLL = 0.1     # poll interval while waiting a refused dialog out
-# W2-U7 (F5820, F5822): a walk never dismisses on a machine whose SHARED resync is pending; it waits up to
+# a walk never dismisses on a machine whose SHARED resync is pending; it waits up to
 # RESYNC_WAIT_S (read per call) for the repair to land, polling every RESYNC_POLL, then raises ResyncPendingError.
 RESYNC_WAIT_S = 10.0
 RESYNC_POLL = 0.1
@@ -42,12 +42,12 @@ class StuckDialogError(RuntimeError):
 
 
 class ResyncPendingError(AssertionError):
-    """W2-U7 (F5820): a machine's SHARED resync stayed pending for RESYNC_WAIT_S before a dismissal. The message carries the
+    """a machine's SHARED resync stayed pending for RESYNC_WAIT_S before a dismissal. The message carries the
     probe dump (shared_resync_stats, the stack, get_coop, shared_stats)."""
 
 
 def wait_resync_clear(gc, timeout=None):
-    """W2-U7 (F5820): block until `gc`'s SHARED resync is not pending (a host or a non-SHARED machine never is). Returns 0.0 when
+    """block until `gc`'s SHARED resync is not pending (a host or a non-SHARED machine never is). Returns 0.0 when
     it was clear at the first read, else the seconds waited; raises ResyncPendingError at the bound (RESYNC_WAIT_S, read per call)."""
     bound = RESYNC_WAIT_S if timeout is None else timeout
     t0 = time.time()
@@ -154,7 +154,7 @@ def _walk(gc, interest=None, keep=None, limit=25, stalled=None):
     """ONE pass of the stack walk on ONE machine (SPEC RW-SETTLE (b) step 1).
 
     Reads the WHOLE state stack, pops unwanted windows from the top with the atomic
-    keep list (WV-D103) until a wanted window or the geoscape is on top. Returns
+    keep list until a wanted window or the geoscape is on top. Returns
     (dismissed, hit, on_geoscape):
       dismissed - the typeids this pass popped, in order
       hit       - the wanted marker if one is on top here, else None
@@ -177,7 +177,7 @@ def _walk(gc, interest=None, keep=None, limit=25, stalled=None):
         if not top or top.endswith(_GEO):
             return dismissed, None, True
         if wait_resync_clear(gc) > 0:
-            continue   # W2-U7: the restream may have replaced the stack while we waited - re-read it
+            continue   # the restream may have replaced the stack while we waited - re-read it
         req = {"cmd": "dismiss_popup"}
         k = keep if keep is not None else getattr(interest, "keep", None)
         if k:
@@ -186,7 +186,7 @@ def _walk(gc, interest=None, keep=None, limit=25, stalled=None):
         if r.get("kept"):
             return dismissed, r.get("type", top), False
         if r.get("wait"):
-            # WV-D107: the game refused this dialog as self-closing (host-save wait,
+            # the game refused this dialog as self-closing (host-save wait,
             # or a VoteMenu). Poll it out, then RESUME the walk from step 1. On the
             # STALL_S ceiling give up this pass with no hit, and identify the dialog.
             t_wait = time.time()
@@ -337,7 +337,7 @@ def _log_path(gc):
 
 def _log_cursor(gc):
     """Byte offset of the END of the instance's log NOW, to bracket a sweep.
-    WV-D110: shared read, no lock. Missing file -> 0."""
+    shared read, no lock. Missing file -> 0."""
     import os
     try:
         return os.path.getsize(_log_path(gc))
@@ -421,12 +421,12 @@ def settle(host, client, keep=None, speed_idx=0, cursors=None, limit=25):
     stack poll.
 
     1. Walk the whole stack on host then client: pop what nobody wants (atomic keep
-       list); WAIT OUT a dialog the game refuses as self-closing (WV-D107); note
+       list); WAIT OUT a dialog the game refuses as self-closing; note
        what someone wants.
     2. Set `speed_idx` on every machine whose top is now the geoscape.
-    3. WV-D108: read the selected speed back once (geo_state.timeSpeedIndex) and
+    3. read the selected speed back once (geo_state.timeSpeedIndex) and
        assert it == speed_idx. No sleep, no clock band.
-    4. DETECTION (WV-D109): read each machine's post-cursor [coop-ui] record. A
+    4. DETECTION: read each machine's post-cursor [coop-ui] record. A
        transient (push+pop since the cursor) unwanted dialog self-closed -> do
        NOTHING. An unwanted dialog STILL OPEN at the record tail (the walk raced it)
        -> one more sweep pass to dismiss it.

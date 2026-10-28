@@ -1,6 +1,6 @@
 """W2-H82 S-A - test_handoff_base_stream.py (HBS): a SEPARATE partner clicks the host's base just before the host presses YES on a landing;
 the host's base answer is still streaming when the partner's battle_accept arrives. The battle still starts: the partner reaches its briefing,
-the cut base answer is dropped, the host's battle starts (VL-H82-1).
+the cut base answer is dropped, the host's battle starts.
 
 Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sa_handoff_base_stream.md (f) rows R-C3 and G;
 TASK 0 constants: docs rewrite/w2h82-task0/sa/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap, F22290-F22306), ruling R-LH78-1-1 (REG :1431),
@@ -37,7 +37,7 @@ NEEDLES = {"ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_re
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
 CELLS = {"R-C3": ["C3-pre", "C3-entry", "C3-brief", "C3-host", "C3-defer", "C3-drop", "C3-store", "C3-crash"],
          "G": ["G-pre", "G-brief", "G-host", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -96,7 +96,7 @@ def real_click(gc, text, timeout=15.0):
         time.sleep(0.05)
     return {"ok": False, "miss": "%s: button %r not shown within %.0f s" % (gc.name, text, timeout)}
 def cw(gc, match, settle=0.8, shown=False):
-    """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden (F21950)"""
+    """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden"""
     t0 = time.time()
     while shown and time.time() - t0 < W_UI and not any(match.lower() in (w.get("text") or "").lower() and w.get("visible") is True
                                                         and w.get("hidden") is False for w in q(gc, {"cmd": "list_widgets"}).get("widgets", [])):

@@ -23,7 +23,7 @@ Red today: SI-closed, SI-top FAIL (2 of 5); every other cell PASS. Green (EC2-EC
 Every press is a real click_widget or inject_input except the logged levers build_new_base, geo_set_speed, set_funds (only if needed),
 set_soldier_dead, spawn_ufo and trigger_base_defense; read-only probes geo_state, get_soldiers, intercept_list, get_state. One EVIDENCE line per
 row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss
-fails SI-pre with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+fails SI-pre with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_holders_shared.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 

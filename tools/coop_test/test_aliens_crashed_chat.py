@@ -14,9 +14,9 @@ and kills the second player's game (F9632 K4, F9633; TASK 0 2/2).
   Cells: G per boot (setup, spine, staging, the endings, non-vacuity, trigger sent); GUARD in every construction; non-vacuity: every
     surviving client reached its effect; RED: no client death in N constructions (TASK 0 2/2: the client died 50-51 ms after keyChat,
     BattlescapeState::getBattleGame <- ChatMenu::draw (ChatMenu.cpp :245) <- Game::run).
-W = 10 s at POLL 0.25 s, HOLD = 2 s, SETTLE 0.3 s before every key (F2888), N = 3 fresh boots; alive / CRASH / CAPTURE / shutdown as
+W = 10 s at POLL 0.25 s, HOLD = 2 s, SETTLE 0.3 s before every key, N = 3 fresh boots; alive / CRASH / CAPTURE / shutdown as
 test_briefing_battle_reads (main-guarded; a client that died on the RED trigger is tolerated at shutdown). EVIDENCE before the
-verdict; a failed row prints ONE CAPTURE line per failed construction; ONE run (WV-D95); exit 0 iff the row passes, else 2.
+verdict; a failed row prints ONE CAPTURE line per failed construction; ONE run; exit 0 iff the row passes, else 2.
 """
 
 import json

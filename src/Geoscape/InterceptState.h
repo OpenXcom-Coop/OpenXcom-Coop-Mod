@@ -45,14 +45,14 @@ private:
 	TextList *_lstCrafts;
 	Globe *_globe;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
 	Target *_target;
 	std::vector<Craft*> _crafts;
 	std::vector<Craft*> _selCrafts;
 public:
 	/// Creates the Intercept state.
 	InterceptState(Globe *globe, bool useCustomSound, Base *base = 0, Target *target = 0);
-	/// coop W2-H81 (R-LH76-1-1): the target this list was opened for (0 from the geoscape button), for GeoscapeState::coopHeldTargets.
+	/// coop: the target this list was opened for (0 from the geoscape button), for GeoscapeState::coopHeldTargets.
 	Target* coopHeldTarget() const { return _target; }
 	/// Cleans up the Intercept state.
 	~InterceptState();

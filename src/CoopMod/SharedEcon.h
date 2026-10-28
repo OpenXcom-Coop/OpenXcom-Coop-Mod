@@ -39,7 +39,7 @@ class Soldier;
 class AlienBase;
 class SavedBattleGame;
 class RuleEvent;
-class RuleResearch; // W2-H17c
+class RuleResearch;
 class State;
 class GeoscapeState;
 class SellState; // W2-P7 S-C-E1 (P7-8 PR-43): the SelectionBinder's screen
@@ -178,15 +178,15 @@ private:
 // In a SHARED campaign the players on the same Sell screen (E2: Transfer, Alien Containment) edit ONE list of pending
 // amounts per screen key (sellKey / xferKey / contKey). The host holds the list - sel_open / sel_set / sel_close /
 // sel_sync on the shared_cmd lane, each broadcast carrying the list's full state - and a replica mirrors it. The host
-// re-checks every confirm (PR-39): a duplicate counts as done (MR8), otherwise it applies its current, clamped list
-// (D203). Each screen owns a binder (a friend of the screen; no public API sets an amount without side effects, F6101).
+// re-checks every confirm (PR-39): a duplicate counts as done (MR8), otherwise it applies its current, clamped list.
+// Each screen owns a binder (a friend of the screen; no public API sets an amount without side effects, F6101).
 class SelectionBinder
 {
 public:
 	SelectionBinder() = default;
 	SelectionBinder(const SelectionBinder&) = delete;
 	SelectionBinder& operator=(const SelectionBinder&) = delete;
-	/// Leaves the list (sel_close) unless carried over; never once the transport is down (F6110).
+	/// Leaves the list (sel_close) unless carried over; never once the transport is down.
 	~SelectionBinder();
 	/// init(), every call (acts once per instance). Unbound (the harness levers never run init(), F6126) or not
 	/// SHARED: inert for life. Else sel_open {key, seed} - seed = the non-zero local rows, i.e. page 3's autosell
@@ -198,7 +198,7 @@ public:
 	void think(SellState* screen);
 	/// First statement of the screen's amount redraw: a local edit -> sel_set {key, row, amount, eseq}.
 	void localEdit(SellState* screen);
-	/// Right before a refresh push: the replacement adopts the list and nobody leaves it (F2161, F6102).
+	/// Right before a refresh push: the replacement adopts the list and nobody leaves it.
 	void carryOver();
 	/// Confirm: selKey, selRev (the list's rev), selRows (the local rows), on page 3 selCaps (each row's maximum).
 	void stamp(Json::Value& payload);
@@ -235,7 +235,7 @@ private:
 	std::map<std::string, int> _lastSent; // row -> this instance's latest own eseq
 	TransferItemsState* _xfer = nullptr; ManageAlienContainmentState* _cont = nullptr; Text* _label = nullptr; // S-C-E2
 	std::string _labelShown; uint64_t _contSig = 0; // S-C-E2: the names the label shows; containment's amounts as last seen
-	uint64_t _hlSig = 0; std::map<std::string, int> _hlOn; // S-C-E2 (D203): what the highlight was drawn for; the rows lit
+	uint64_t _hlSig = 0; std::map<std::string, int> _hlOn; // S-C-E2: what the highlight was drawn for; the rows lit
 	PurchaseState* _buy = nullptr; // S-C-E3 (P7-9 PR-59)
 };
 
@@ -312,10 +312,10 @@ void broadcast(Game* game, const Json::Value& msg);
 /// lookups deterministically (no RNG re-roll), and pops ResearchCompleteState.
 void hostResearchDone(Game* game, int baseId, const std::string& research,
                       const std::string& bonus, const std::string& newResearch);
-/// W2-H17 (F3262): host side of research_fx; null mark unless the SHARED host and armed. HOST, time1Day, right before a
+/// host side of research_fx; null mark unless the SHARED host and armed. HOST, time1Day, right before a
 /// base's research completion block: every base's stores and project names, its transfer count, the custom counters.
 Json::Value researchFxMark(Game* game, bool armed);
-/// W2-H17 (F3262): host side of research_fx; HOST, right after handlePrimaryResearchSideEffects - diffs the world against
+/// host side of research_fx; HOST, right after handlePrimaryResearchSideEffects - diffs the world against
 /// @a mark and sends the host-origin research_fx command for the base @a baseId (obsolete projects, changed stores, new
 /// item transfers, changed counters; absolute). No-op on a null mark.
 void hostResearchFx(Game* game, int baseId, const Json::Value& mark);
@@ -325,13 +325,13 @@ void hostResearchFx(Game* game, int baseId, const Json::Value& mark);
 void hostFacilityDone(Game* game, int baseId, int x, int y,
                       const std::string& facilityType);
 
-/// Manufacture finished on the host (time1Hour): the replica removes the Production (freeing engineers) and mirrors the completion popup; every unit already arrived by prod_fx (W2-H16g).
+/// Manufacture finished on the host (time1Hour): the replica removes the Production (freeing engineers) and mirrors the completion popup; every unit already arrived by prod_fx.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell);
-/// W2-H16g (F6711): HOST, right before one production's hourly step - the base's stores, transfer count, crafts, engineers,
+/// HOST, right before one production's hourly step - the base's stores, transfer count, crafts, engineers,
 /// id counters, research score and funds; Json::nullValue unless this machine is the SHARED host.
 Json::Value productionFxMark(Game* game, Base* base);
-/// W2-H16g (F6711): HOST, right after that step - sends prod_fx with everything the step changed at the base (new transfers
+/// HOST, right after that step - sends prod_fx with everything the step changed at the base (new transfers
 /// and crafts as their own YAML); no-op on a null mark or when nothing changed.
 void hostProductionFx(Game* game, Base* base, const std::string& manufacture, const Json::Value& mark);
 
@@ -341,19 +341,19 @@ void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
 
 /// End-of-day progress on the host (time1Day): production / research progress columns (W2-H18b: soldier recovery rides soldier_fx).
 void hostDayTick(Game* game);
-/// W2-H18 (F3259): HOST, right before a day/month soldier loop - every soldier's training/recovery record keyed by
+/// HOST, right before a day/month soldier loop - every soldier's training/recovery record keyed by
 /// id; Json::nullValue unless this machine is the SHARED host.
 Json::Value soldierFxMark(Game* game);
-/// W2-H18 (F3259): HOST, right after the loop - sends soldier_fx per base with the absolute record of every soldier
+/// HOST, right after the loop - sends soldier_fx per base with the absolute record of every soldier
 /// whose record changed since @a mark; no-op on a null mark.
 void hostSoldierFx(Game* game, const Json::Value& mark);
-/// W2-H18b (F6177): HOST, right before vanilla evacuates a destroyed craft - the crew aboard and the base's transfer count;
+/// HOST, right before vanilla evacuates a destroyed craft - the crew aboard and the base's transfer count;
 /// Json::nullValue unless this machine is the SHARED host.
 Json::Value craftLostMark(Game* game, Base* base, Craft* craft);
-/// W2-H18b (F6177): HOST, right before the destroyed craft is removed - sends craft_lost (the evacuated crew with their transfer
+/// HOST, right before the destroyed craft is removed - sends craft_lost (the evacuated crew with their transfer
 /// hours and flags, the killed crew); no-op on a null mark.
 void hostCraftLost(Game* game, Base* base, Craft* craft, const Json::Value& mark);
-/// W2-H18b (F7282): REPLICA, from its geoscape think - applies every queued craft_lost whose craft no dogfight window holds.
+/// REPLICA, from its geoscape think - applies every queued craft_lost whose craft no dogfight window holds.
 void flushLostCrafts(Game* game, GeoscapeState* gs);
 
 /// PRD-J07: a base was destroyed by retaliation on the host (it already removed
@@ -379,7 +379,7 @@ void submitCraftTarget(Game* game, Craft* craft, Target* target); // launch/reta
 void submitCraftPoint(Game* game, Craft* craft, double lon, double lat); // waypoint
 void submitCraftReturn(Game* game, Craft* craft);
 void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol);
-/// W2-H16f (F6606): SHARED only - no-op otherwise; called AFTER vanilla's local addPilot (CraftPilotSelectState);
+/// SHARED only - no-op otherwise; called AFTER vanilla's local addPilot (CraftPilotSelectState);
 /// the host re-checks the seat and broadcasts the craft's pilot list (craft_pilots).
 void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId);
 /// W2-H16f (F6606, aud-E1-11): SHARED only - returns false otherwise (vanilla's removeAllPilots runs); removes THIS
@@ -398,7 +398,7 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// PRD-J09 GAP-5: set the ABSOLUTE quantity of @a itemType loaded on @a craft in
 /// the shared world (SHARED only - caller gates). Submits craft_equip; mutates
 /// nothing locally (host validates/clamps + broadcasts, replica applies). Items
-/// only here; an HWP's count goes through craftVehiclesMoved (W2-H20c).
+/// only here; an HWP's count goes through craftVehiclesMoved.
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
 /// W2-H20c (A17, F8261): SHARED, a live campaign and a real base only - no-op otherwise; called right AFTER vanilla's own move in
@@ -406,12 +406,12 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 /// that absolute count goes to the host as craft_equip (its HWP branch); a non-vehicle type is a no-op (items route before vanilla).
 void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before);
 
-/// W2-H16e (F6176): SHARED and a real base only - no-op otherwise; called AFTER vanilla's local toggle
+/// SHARED and a real base only - no-op otherwise; called AFTER vanilla's local toggle
 /// (BasescapeState, mind shield); submits the facility's flag as an absolute end-state; the host re-checks
 /// vanilla's gate and broadcasts the flag both worlds hold (fac_disable).
 void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled);
 
-/// W2-H16e (F6176): SHARED only - no-op otherwise; called AFTER vanilla's local toggle (CraftInfoState's weapon
+/// SHARED only - no-op otherwise; called AFTER vanilla's local toggle (CraftInfoState's weapon
 /// icon; the host's DogfightState with 'remember disabled craft weapons'); submits the weapon's flag as an
 /// absolute end-state; the host decides the craft re-check (craft_weapon_disable).
 void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot);
@@ -430,10 +430,10 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
-/// W2-H20 (D255 a): SHARED and a real base only - no-op otherwise. A base equipment screen (soldier or craft inventory) is about to
+/// SHARED and a real base only - no-op otherwise. A base equipment screen (soldier or craft inventory) is about to
 /// open: records every soldier of @a base (equipment layout, personal layout and its armor) BEFORE vanilla's open may clear a layout.
 void baseEquipOpen(Game* game, Base* base);
-/// W2-H20 (D255 a): the screen's OK, right after vanilla's saveEquipmentLayout: a changed record of a partner's soldier is put back
+/// the screen's OK, right after vanilla's saveEquipmentLayout: a changed record of a partner's soldier is put back
 /// (aud-E1-11); the changed records of this player's own soldiers go to the host as one soldier_equip. No-op unless @a base is marked.
 void baseEquipOk(Game* game, Base* base);
 
@@ -443,7 +443,7 @@ void baseEquipOk(Game* game, Base* base);
 void submitLayoutTemplate(Game* game, Base* base, int index);
 /// W2-H20b (A10): the same for craft loadout template @a index, right after CraftEquipmentState::saveGlobalLoadout.
 void submitLoadoutTemplate(Game* game, Base* base, int index);
-/// W2-H20d (F8551): SHARED and a live campaign only - no-op otherwise; called right AFTER vanilla's local save or delete of craft type
+/// SHARED and a live campaign only - no-op otherwise; called right AFTER vanilla's local save or delete of craft type
 /// @a craftType's generic deployment (AbortMissionState::btnOkClick -> SavedBattleGame::saveDummyCraftDeployment, the Ufopaedia's craft
 /// preview): the type's end-state (its positions, or none) goes to the host as craft_deployment, so both machines hold the same entry and
 /// reset the same crafts' own deployments (vanilla's invalidation). Either player, last save wins (W2-H20b A10's shared templates).
@@ -474,18 +474,18 @@ void craftStageClose(Game* game, Base* base);
 /// vanilla's transformation and both worlds adopt its result. Own soldiers only (AUD-A48).
 bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier, const std::string& name);
 
-/// W2-H16h (F7299): SHARED and a real base only - returns false otherwise (vanilla's local sale runs). Called by the random-production
+/// SHARED and a real base only - returns false otherwise (vanilla's local sale runs). Called by the random-production
 /// window's right-click with the count vanilla would sell; submits it to the host's "sell" (capped there at the stores the host still
 /// holds, V-E1) and writes nothing locally; a count <= 0 submits nothing.
 bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemType, int qty);
 
-/// W2-H16 (F3260): SHARED only - no-op otherwise; called AFTER vanilla's local write
+/// SHARED only - no-op otherwise; called AFTER vanilla's local write
 /// (SoldierRankState); submits the soldier's current rank as an absolute end-state.
 /// The host re-checks the promotion openings against its own world and broadcasts
 /// the rank both worlds hold (soldier_rank).
 void submitSoldierRank(Game* game, Base* base, Soldier* soldier);
 
-/// W2-H16 (F3260): SHARED only - no-op otherwise; called AFTER vanilla's local write
+/// SHARED only - no-op otherwise; called AFTER vanilla's local write
 /// (SoldierInfoState's flag); submits the soldier's current nationality as an
 /// absolute end-state, last-write-wins (soldier_nationality).
 void submitSoldierNationality(Game* game, Base* base, Soldier* soldier);
@@ -576,26 +576,26 @@ Json::Value textName(Game* game, const Target* target);
 Json::Value craftStatusText(Game* game, const Craft* craft);
 /// Renders @a node in this machine's language ("" for anything that is not a node).
 std::string textRender(Game* game, const Json::Value& node);
-/// W2-H15 (F3261, F5602): HOST, before a GeoscapeEventState is built - a snapshot of every world part its eventLogic
+/// HOST, before a GeoscapeEventState is built - a snapshot of every world part its eventLogic
 /// may touch (hq transfers / crafts, stores, craft items, research, diary, score, region activity, id counters).
 /// Json::nullValue unless this machine is the SHARED host and has a base.
 Json::Value eventMark(Game* game);
-/// W2-H15 (F3261, F5602): HOST, right after @a eventState (the window of @a rule) was built from @a mark - diffs the
+/// HOST, right after @a eventState (the window of @a rule) was built from @a mark - diffs the
 /// world against the mark and sends the host-origin `geo_event` command: the exact result (absolute) plus the
 /// window's picks as ids, never rendered text. No-op on a null mark or a state that is not a GeoscapeEventState.
 void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, State* eventState);
-/// W2-H17c (F7224): HOST, in the arc loop right after vanilla grants an arc topic - remembers the Ufopaedia article vanilla opens
+/// HOST, in the arc loop right after vanilla grants an arc topic - remembers the Ufopaedia article vanilla opens
 /// for it (the lookup, else the topic) for the next research_grant. No-op unless this machine is the SHARED host.
 void noteGrantArticle(Game* game, const RuleResearch* research);
-/// W2-H17c (F7222): HOST, after a research grant outside the lab (mission-site despawn, arc scripts) that started at @a mark (eventMark):
+/// HOST, after a research grant outside the lab (mission-site despawn, arc scripts) that started at @a mark (eventMark):
 /// sends research_grant (research, diary, statuses, popped, lab lists, id counters, noted articles; score if @a withScore). No-op on a null mark or no change.
 void hostResearchGrant(Game* game, const Json::Value& mark, const char* source, bool withScore);
-/// W2-H15 (F5602): REPLICA - shows the event windows that arrived while this machine was off the geoscape (or on its
+/// REPLICA - shows the event windows that arrived while this machine was off the geoscape (or on its
 /// debriefing); called from GeoscapeState::init. No-op on the host and when nothing is queued.
 void flushEventWindows(Game* game, GeoscapeState* gs);
-/// W2-H15 (F5877): REPLICA, read-only - how many geo_event windows wait in the queue (geo_event_probe pendingWindows).
+/// REPLICA, read-only - how many geo_event windows wait in the queue (geo_event_probe pendingWindows).
 int pendingEventWindows();
-/// W2-H15 (F5880): drops every queued event window; called from the session teardown (CoopSession::resetSession), so
+/// drops every queued event window; called from the session teardown (CoopSession::resetSession), so
 /// a window queued in one session can never show in a later game.
 void clearEventWindows();
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every
@@ -679,7 +679,7 @@ int applyQueueDepth();
  * buckets. Minimal, spike-scoped port of donor cbff7951d's battle-hash
  * region (SharedEcon.h ~473-504's BattleHashSet/battleHashBucketValue/
  * computeBattleHashes + the sweep/saveBlob-hash-tree bodies in the donor
- * .cpp) - DEFINITIONS ONLY (RB-D20): none of the donor's ring/compare/
+ * .cpp) - DEFINITIONS ONLY: none of the donor's ring/compare/
  * side-gate/promotion-table/boundary-persistence machinery is ported (SS2.8:
  * "host never compares... CLIENT hashes post-apply, compares" - the spike
  * has no host-side ring to compare against).
@@ -744,7 +744,7 @@ bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::strin
 Json::Value equipEndGearRecords(SavedBattleGame* save);
 int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& records);
 
-/// R2-P9 (RB-D20): minimal desync diagnostic bundle - a zip with
+/// R2-P9: minimal desync diagnostic bundle - a zip with
 /// desync-info.json (bucket/expect/got/seq/kind + timestamp) and a best-
 /// effort tail of openxcom.log, written to
 /// <user folder>/desync-reports/desync-<timestamp>.zip. REBUILT SMALL from
@@ -771,7 +771,7 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 std::string writeDesyncText(const std::string& suffix, const std::string& text);
 
 /// coop RV-U9 (owner D228 (a); docs rewrite/prompts/rvu9_crash_report_prompt.md): ported unchanged from `main` SharedEcon.h :647-:674.
-/// PRD-I5: next-launch crash reporter (Pattern A). The dying process only writes a
+/// next-launch crash reporter (Pattern A). The dying process only writes a
 /// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
 /// these run at the NEXT launch, from the main-menu altitude, to offer a one-click
 /// bundle of the previous crash. All best-effort: a broken reporter must never

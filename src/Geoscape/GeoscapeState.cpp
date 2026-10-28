@@ -108,8 +108,8 @@
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleRegion.h"
 #include "MissionDetectedState.h"
-#include "TargetInfoState.h" // coop W2-H81: GeoscapeState::coopHeldTargets
-#include "ConfirmDestinationState.h" // coop W2-H81
+#include "TargetInfoState.h" // coop: GeoscapeState::coopHeldTargets
+#include "ConfirmDestinationState.h" // coop
 #include "SelectDestinationState.h" // coop W2-H83 S-C: GeoscapeState::coopHeldCrafts
 #include "ConfirmCydoniaState.h" // coop W2-H83 S-C
 #include "CraftNotEnoughPilotsState.h" // coop W2-H83 S-C
@@ -647,7 +647,7 @@ void GeoscapeState::startCoopMission()
 }
 
 /**
- * coop W2-H24 S-C1 (D260 (b)): the partner's game was lost during the start of this host's co-op base defense, so the
+ * coop W2-H24 S-C1: the partner's game was lost during the start of this host's co-op base defense, so the
  * attack waits for the partner. Puts back what the start took from the base - the stores the battle generator moved
  * into the battle (BattlescapeGenerator::deployXCOM keeps the pre-battle stores in getBaseStorageItems()) and the tanks
  * Base::setupDefenses rolled out (vanilla's reclaim, Base::cleanupDefenses) - clears the base's battle mark and
@@ -683,7 +683,7 @@ int GeoscapeState::coopRearmBaseDefense()
 }
 
 /**
- * coop W2-H24 S-C1 (D260 (b)): starts a co-op base defense that waited for the partner (coopRearmBaseDefense()) again,
+ * coop W2-H24 S-C1: starts a co-op base defense that waited for the partner (coopRearmBaseDefense()) again,
  * the way the attack first started it: the arrival's Base::setupDefenses (when the base has a retaliation mission),
  * handleBaseDefense()'s co-op stamps, then the deferred start (startCoopMission()) on the snapshot the attack took.
  * Only on the host, with the partner back (its world acknowledged: RESUME's own condition) and no battle in flight;
@@ -1434,7 +1434,7 @@ void GeoscapeState::init()
 	}
 
 	State::init();
-	SharedEcon::flushEventWindows(_game, this); // W2-H15 (F5602): event windows that arrived while this machine was off the geoscape
+	SharedEcon::flushEventWindows(_game, this); // event windows that arrived while this machine was off the geoscape
 	timeDisplay();
 	updateSlackingIndicator();
 
@@ -1517,7 +1517,7 @@ void GeoscapeState::think()
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
 
-	// coop W2-H24 S-C1 (D260 (b)): a co-op base defense waiting for the partner starts again for both once the host's
+	// coop W2-H24 S-C1: a co-op base defense waiting for the partner starts again for both once the host's
 	// RESUME made this the top state again (only the top state thinks; the wait dialog pops itself on RESUME).
 	if (_coopRearmBase != -1)
 	{
@@ -1621,9 +1621,9 @@ void GeoscapeState::think()
 						std::vector<const RuleResearch*> topicsToCheck = { research };
 						if (bonus)
 							topicsToCheck.push_back(bonus);
-						const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop W2-H75
+						const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop
 						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase, false);
-						// coop W2-H75 (R-B109-1): the sender's world spawned these topics' events too (a project or an event's research;
+						// coop: the sender's world spawned these topics' events too (a project or an event's research;
 						// not a mission outcome, F21101), so each copy is a window both worlds hold
 						GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore, root_research.get("sender_side_effects", false).asBool());
 
@@ -1898,7 +1898,7 @@ void GeoscapeState::think()
 						// new!
 						root["crafts"][craft_index]["shield"] = craft->getShield();
 						root["crafts"][craft_index]["interceptionOrder"] = craft->getInterceptionOrder();
-						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage()) == craft->getDefaultName(_game->getLanguage()) ? std::string() : craft->getName(_game->getLanguage()); // coop W2-A12b (F6784): a custom name only - the peer renders a default name in its own language
+						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage()) == craft->getDefaultName(_game->getLanguage()) ? std::string() : craft->getName(_game->getLanguage()); // coop: a custom name only - the peer renders a default name in its own language
 						// returning-state flags, so the peer shows the correct craft
 						// status ("LOW FUEL" vs "MISSION COMPLETE" vs "RETURNING")
 						root["crafts"][craft_index]["lowFuel"] = craft->getLowFuel();
@@ -2211,7 +2211,7 @@ void GeoscapeState::think()
 			// new !!!
 			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
-			// coop W2-H23 (F9871): the ticks this host's own loop has stepped, so a SEPARATE client runs exactly those, once each
+			// coop: the ticks this host's own loop has stepped, so a SEPARATE client runs exactly those, once each
 			root["ticks"] = Json::Int64(connectionTCP::_geoTicksStepped);
 
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
@@ -2256,7 +2256,7 @@ void GeoscapeState::think()
 		// freezing. Sub-screens stop these packets, so their dedicated geo_focus sticks.
 		bool inDogfight = _minimizedDogfights < _dogfights.size();
 		root["geo_focus"] = inDogfight ? 0 : -1;
-		// coop W2-H92 (D304 (a)): a client with a popup queued or shown asks the host to hold the shared clock at once; the
+		// coop: a client with a popup queued or shown asks the host to hold the shared clock at once; the
 		// host's 1000 ms grace stays the fallback for a lost heartbeat. A client whose own world walks the host's ticks (SEPARATE)
 		// keeps asking after the close until its geoscape has run a step (the catch-up, H23-VL1). An open dogfight window keeps
 		// time running, as above.
@@ -2322,7 +2322,7 @@ void GeoscapeState::think()
 			sharedBroadcastDogfights();
 		else
 			sharedReconcileReplicaDogfights();
-		SharedEcon::flushLostCrafts(_game, this); // coop W2-H18b (F7282): a replica removes a lost craft only from its own geoscape
+		SharedEcon::flushLostCrafts(_game, this); // coop: a replica removes a lost craft only from its own geoscape
 	}
 }
 
@@ -2629,11 +2629,11 @@ void GeoscapeState::timeAdvance()
 		{
 			const Uint32 grace = 1000; // ms; comfortably above the client's per-frame heartbeat gap
 			if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace
-				|| _game->getCoopMod()->peerGeoHold.load()) // coop W2-H92 (D304 (a)): the client's heartbeat says it has a popup
+				|| _game->getCoopMod()->peerGeoHold.load()) // coop: the client's heartbeat says it has a popup
 				timeSpan = 0;
 		}
 
-		// coop W2-H23 (F9871, F9874): a SEPARATE client's own loops run on the ticks the HOST stepped - each once, in
+		// coop: a SEPARATE client's own loops run on the ticks the HOST stepped - each once, in
 		// order, as vanilla's 5-second walk below - instead of its own speed span from a clock the heartbeat moved.
 		const int coopPendingTicks = _game->getCoopMod()->coopClientPendingGeoTicks();
 		if (coopPendingTicks >= 0)
@@ -2641,12 +2641,12 @@ void GeoscapeState::timeAdvance()
 
 	}
 
-	const bool coopPausedIn = _pause; // coop W2-H92
+	const bool coopPausedIn = _pause; // coop
 	for (int i = 0; i < timeSpan && !_pause; ++i)
 	{
 		TimeTrigger trigger;
 		trigger = _game->getSavedGame()->getTime()->advance();
-		_game->getCoopMod()->coopGeoTickDone(); // coop W2-H23: the host counts its ticks; a SEPARATE client, the host ticks it ran
+		_game->getCoopMod()->coopGeoTickDone(); // coop: the host counts its ticks; a SEPARATE client, the host ticks it ran
 		switch (trigger)
 		{
 		case TIME_1MONTH:
@@ -2669,7 +2669,7 @@ void GeoscapeState::timeAdvance()
 		}
 	}
 
-	// coop W2-H92 (D304 (a)): the popup hold ends with the first step that ran with no popup in the way (there a SEPARATE client
+	// coop: the popup hold ends with the first step that ran with no popup in the way (there a SEPARATE client
 	// walks the host ticks it missed, H23-VL1)
 	if (!coopPausedIn && _popups.empty())
 		_coopPopupHold = false;
@@ -2990,7 +2990,7 @@ void GeoscapeState::time5Seconds()
 					}
 				}
 
-				const Json::Value h18bCrew = SharedEcon::craftLostMark(_game, xbase, xcraft); // coop W2-H18b (F6177): the crew aboard before vanilla's evacuation
+				const Json::Value h18bCrew = SharedEcon::craftLostMark(_game, xbase, xcraft); // coop: the crew aboard before vanilla's evacuation
 				//if (_ufoIsAttacking)
 				{
 					// Note: this was moved from DogfightState.cpp, as it was not 100% reliable there
@@ -3012,7 +3012,7 @@ void GeoscapeState::time5Seconds()
 						}
 					}
 				}
-				SharedEcon::hostCraftLost(_game, xbase, xcraft, h18bCrew); // coop W2-H18b (F6177): the replica mirrors the lost craft and its crew
+				SharedEcon::hostCraftLost(_game, xbase, xcraft, h18bCrew); // coop: the replica mirrors the lost craft and its crew
 				_game->getSavedGame()->stopHuntingXcomCraft(xcraft); // craft destroyed in dogfight
 				Craft *craft = *craftIt;
 				craftIt = xbase->removeCraft(craft, false);
@@ -3024,7 +3024,7 @@ void GeoscapeState::time5Seconds()
 				Ufo* u = dynamic_cast<Ufo*>(xcraft->getDestination());
 				if (u != 0)
 				{
-					// SPEC 18 (r4 T4) F404 (D122=b): a skirmish/New-Battle UFO has monthsPassed==-1
+					// SPEC 18 (r4 T4) F404: a skirmish/New-Battle UFO has monthsPassed==-1
 					// and NO trajectory (Ufo::load skips the mission+trajectory block for -1), so
 					// this campaign-only craft-chase block must not deref u->getTrajectory() on it.
 					if (!u->getDetected() && _game->getSavedGame()->getMonthsPassed() != -1)
@@ -3211,7 +3211,7 @@ void GeoscapeState::time5Seconds()
 								Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 								// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 								// SEAT instead of popping the dialog here. Battle authority does not move.
-								// W2-H9 (D199 a): a SEPARATE co-op client never starts a battle from its own craft.
+								// a SEPARATE co-op client never starts a battle from its own craft.
 								if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
 									popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 							}
@@ -3263,7 +3263,7 @@ void GeoscapeState::time5Seconds()
 						}
 						// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 						// SEAT instead of popping the dialog here. Battle authority does not move.
-						// W2-H9 (D199 a): a SEPARATE co-op client never starts a battle from its own craft.
+						// a SEPARATE co-op client never starts a battle from its own craft.
 						if (!brokerSharedLanding(xcraft, missionTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
 							popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
 					}
@@ -3284,7 +3284,7 @@ void GeoscapeState::time5Seconds()
 							Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 							// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 							// SEAT instead of popping the dialog here. Battle authority does not move.
-							// W2-H9 (D199 a): a SEPARATE co-op client never starts a battle from its own craft.
+							// a SEPARATE co-op client never starts a battle from its own craft.
 							if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
 								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 						}
@@ -3703,7 +3703,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 	}
 	if (removeSite)
 	{
-		const Json::Value h17cMark = SharedEcon::eventMark(_game); // coop W2-H17c (F7222): the despawn's research and counters, from here
+		const Json::Value h17cMark = SharedEcon::eventMark(_game); // coop: the despawn's research and counters, from here
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
 		const RuleResearch* bonus = nullptr;
@@ -3711,7 +3711,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		{
 			// coop SEPARATE, shared research: the site lived in this world only; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getCoopHqBase()); // coop W2-H89 H6 (R-LH88-1-1 (a)): the sender's first own base
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getCoopHqBase()); // coop W2-H89 H6: the sender's first own base
 		}
 
 		// Increase counters
@@ -3722,7 +3722,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterDespawn());
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterFailure()); // despawn is also a type of failure
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterAll());
-		SharedEcon::hostResearchGrant(_game, h17cMark, "despawn", true); // coop W2-H17c (F7222): before the despawn event's geo_event
+		SharedEcon::hostResearchGrant(_game, h17cMark, "despawn", true); // coop: before the despawn event's geo_event
 
 		// Generate a despawn event
 		auto* eventRules = _game->getMod()->getEvent(site->getDeployment()->chooseDespawnEvent());
@@ -3730,9 +3730,9 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		if (canSpawn)
 		{
 			timerReset();
-			const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261)
+			const Json::Value h15Mark = SharedEcon::eventMark(_game);
 			popup(new GeoscapeEventState(*eventRules));
-			SharedEcon::hostGeoEvent(_game, *eventRules, h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
+			SharedEcon::hostGeoEvent(_game, *eventRules, h15Mark, _popups.back()); // the reward's result rides geo_event
 		}
 	}
 
@@ -4022,15 +4022,15 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	if (!interrupted)
 	{
 		timerReset();
-		const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F3261); MG-C K1 (C11)
-		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared(), ge->isCoopBothWorlds())); // coop W2-H75: the both-worlds mark
-		SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // W2-H15 (F3261): the reward's result rides geo_event
+		const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15; MG-C K1 (C11)
+		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared(), ge->isCoopBothWorlds())); // coop: the both-worlds mark
+		SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // the reward's result rides geo_event
 	}
 
 	// coop SEPARATE: the client's copy of a shared event fires with this one
 	if (ge->isCoopShared())
 	{
-		// coop W2-H77 (R-LH75-3-1): the host's research pick rides the fire (its window, pushed above); none when this copy showed no window
+		// coop: the host's research pick rides the fire (its window, pushed above); none when this copy showed no window
 		const GeoscapeEventState* coopWindow = interrupted || _popups.empty() ? nullptr : dynamic_cast<GeoscapeEventState*>(_popups.back());
 		_game->getCoopMod()->sendCertainEventFire(ge, coopWindow != nullptr, coopWindow ? coopWindow->coopResearchPick() : std::pair<std::string, std::string>());
 	}
@@ -4230,8 +4230,8 @@ void GeoscapeState::time1Hour()
 				Json::Value j;
 				j["type"] = r.type;
 				j["name"] = r.name;
-				j["text"] = r.nameKey.empty() ? SharedEcon::textLiteral(r.name) : r.nameId < 0 ? SharedEcon::textKey(r.nameKey) // coop W2-A12b (F6783)
-					: SharedEcon::textKey("STR_CRAFTNAME", {SharedEcon::textKey(r.nameKey), Json::Value(r.nameId)}); // coop W2-A12b (F6783)
+				j["text"] = r.nameKey.empty() ? SharedEcon::textLiteral(r.name) : r.nameId < 0 ? SharedEcon::textKey(r.nameKey) // coop
+					: SharedEcon::textKey("STR_CRAFTNAME", {SharedEcon::textKey(r.nameKey), Json::Value(r.nameId)}); // coop
 				j["qty"] = r.qty;
 				j["base"] = r.base;
 				j["baseIdx"] = r.baseIdx;
@@ -4247,9 +4247,9 @@ void GeoscapeState::time1Hour()
 		std::map<Production*, productionProgress_e> toRemove;
 		for (auto* prod : xbase->getProductions())
 		{
-			const Json::Value h16gMark = SharedEcon::productionFxMark(_game, xbase); // coop W2-H16g (F6711): the base before this production's hour
+			const Json::Value h16gMark = SharedEcon::productionFxMark(_game, xbase); // coop: the base before this production's hour
 			toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
-			SharedEcon::hostProductionFx(_game, xbase, prod->getRules()->getName(), h16gMark); // coop W2-H16g (F6711): each unit reaches the replica in the hour it is made
+			SharedEcon::hostProductionFx(_game, xbase, prod->getRules()->getName(), h16gMark); // coop: each unit reaches the replica in the hour it is made
 		}
 		for (const auto& pair : toRemove)
 		{
@@ -4459,7 +4459,7 @@ void GeoscapeState::time1Day()
 	SavedGame *saveGame = _game->getSavedGame();
 	Mod *mod = _game->getMod();
 	bool psiStrengthEval = (Options::psiStrengthEval && saveGame->isResearched(mod->getPsiRequirements()));
-	const Json::Value h18DayMark = SharedEcon::soldierFxMark(_game); // coop W2-H18 (F3259): soldier training/recovery before the day's loops
+	const Json::Value h18DayMark = SharedEcon::soldierFxMark(_game); // coop: soldier training/recovery before the day's loops
 
 	// PRD-J04: index of a base in the shared list = the SHARED baseId; used by the
 	// host sim-result broadcasts (research/facility/day_tick).
@@ -4546,7 +4546,7 @@ void GeoscapeState::time1Day()
 				}
 			}
 		}
-		const Json::Value h17Mark = SharedEcon::researchFxMark(_game, !finished.empty()); // coop W2-H17 (F3262): snapshot before 3a
+		const Json::Value h17Mark = SharedEcon::researchFxMark(_game, !finished.empty()); // coop: snapshot before 3a
 		// 3. add finished research, including lookups and getonefrees (up to 4x)
 		std::vector<const RuleResearch*> topicsToCheck;
 		for (auto* project : finished)
@@ -4729,10 +4729,10 @@ void GeoscapeState::time1Day()
 			// 1. remove obsolete research projects from all bases
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
-			const size_t coopEventsBefore = saveGame->getGeoscapeEvents().size(); // coop W2-H75
+			const size_t coopEventsBefore = saveGame->getGeoscapeEvents().size(); // coop
 			saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
-			GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore); // coop W2-H75 (R-B109-1): ResearchCompleteState synced these topics, so the other world spawns the same events
-			SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop W2-H17 (F3262): corpse, refunds, obsolete projects, spawned items and counters reach the replica
+			GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore); // coop: ResearchCompleteState synced these topics, so the other world spawns the same events
+			SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop: corpse, refunds, obsolete projects, spawned items and counters reach the replica
 		}
 
 		// Handle soldier wounds and martial training
@@ -4976,7 +4976,7 @@ void GeoscapeState::time1Day()
 
 	// PRD-J04: mirror end-of-day soldier changes (wound recovery) to SHARED
 	// replicas, for CHANGED soldiers only.
-	SharedEcon::hostSoldierFx(_game, h18DayMark); // coop W2-H18 (F3259): daily psi, martial training, return-to-training, health/mana recovery reach the replica
+	SharedEcon::hostSoldierFx(_game, h18DayMark); // coop: daily psi, martial training, return-to-training, health/mana recovery reach the replica
 	SharedEcon::hostDayTick(_game);
 }
 
@@ -5016,7 +5016,7 @@ void GeoscapeState::time1Month()
 
 	// Determine alien mission for this month.
 	determineAlienMissions();
-	const Json::Value h18MonthMark = SharedEcon::soldierFxMark(_game); // coop W2-H18 (F3259)
+	const Json::Value h18MonthMark = SharedEcon::soldierFxMark(_game); // coop
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
 	if (!Options::anytimePsiTraining)
@@ -5038,7 +5038,7 @@ void GeoscapeState::time1Month()
 		}
 	}
 
-	SharedEcon::hostSoldierFx(_game, h18MonthMark); // coop W2-H18 (F3259): the host's month-end psi results
+	SharedEcon::hostSoldierFx(_game, h18MonthMark); // coop: the host's month-end psi results
 	// Handle funding
 	timerReset();
 
@@ -5087,7 +5087,7 @@ void GeoscapeState::time1MonthCoop()
 	}
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
-	if (!_game->getCoopMod()->isSharedReplica()) // coop W2-H18 (F3259): a SHARED replica adopts the host's soldier_fx instead of rolling its own
+	if (!_game->getCoopMod()->isSharedReplica()) // coop: a SHARED replica adopts the host's soldier_fx instead of rolling its own
 	if (!Options::anytimePsiTraining)
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
@@ -5134,7 +5134,7 @@ void GeoscapeState::time1MonthCoop()
 			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
 		if (!sg->getResearchScores().empty())
 			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
-		if (sg->getResearchScores().size() >= 2) // coop W2-H17c (F7225): the month the host just ended, as the host settled it
+		if (sg->getResearchScores().size() >= 2) // coop: the month the host just ended, as the host settled it
 			sg->getResearchScores()[sg->getResearchScores().size() - 2] = _game->getCoopMod()->sharedMonthlyResearchScoreEnded; // coop
 		_game->getCoopMod()->sharedMonthlyPending = false;
 	}
@@ -5336,7 +5336,7 @@ int GeoscapeState::coopDropQueuedPopupsHolding(const std::vector<Target*>& doome
 void GeoscapeState::popup(State *state)
 {
 	_pause = true;
-	_coopPopupHold = true; // coop W2-H92 (D304 (a))
+	_coopPopupHold = true; // coop
 	_popups.push_back(state);
 }
 
@@ -5825,7 +5825,7 @@ int GeoscapeState::harnessDanglingDogfights(bool pending) const
  * coop W2-H76 (R-BH4-1 fix (a); docs rewrite/prompts/w2h76_dogfight_ufo_uaf.md): ends and deletes every dogfight - open,
  * minimized or still waiting to start - whose UFO is @a ufo, before co-op code deletes that UFO (a partner's mirror: the
  * partner's drop, connectionTCP::deleteAllCoopBases(), or the partner's position snapshot sweep). Vanilla does the same in
- * time5Seconds() for a destroyed UFO; without it the next handleDogfights() reads and writes the freed UFO (F21435-F21443).
+ * time5Seconds() for a destroyed UFO; without it the next handleDogfights() reads and writes the freed UFO.
  * The craft leaves the dogfight as in vanilla's interrupt (time5Seconds' hunter-killer start); the UFO's destructor then
  * sends it home (Target::~Target). The geoscape is left as handleDogfights() leaves it after its last dogfight.
  * @param ufo The UFO about to be deleted.
@@ -6169,7 +6169,7 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
 		}
 	}
 
-	// coop W2-H21d (F9201): the partner's answer can arrive while the host is off its geoscape (its own copy of this prompt still
+	// coop: the partner's answer can arrive while the host is off its geoscape (its own copy of this prompt still
 	// queued) with a practice battle open - a preview or a base equipment screen. setBattleGame below frees that battle under the
 	// screen showing it, which the debriefing returns to; close the host's screens down to the geoscape first. A battle on the
 	// host's world here is always a practice one: a real battle's entry unwinds every other seat's prompt.
@@ -6918,7 +6918,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			}
 		}
 
-		const Json::Value h17cArcMark = save->getMonthsPassed() > 0 ? SharedEcon::eventMark(_game) : Json::Value(); // coop W2-H17c (F7224): month 0 rides the first world stream
+		const Json::Value h17cArcMark = save->getMonthsPassed() > 0 ? SharedEcon::eventMark(_game) : Json::Value(); // coop: month 0 rides the first world stream
 		// start processing command array
 		for (auto* arcCommand : relevantArcScripts)
 		{
@@ -6947,7 +6947,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					}
 				}
 			}
-			Base* hq = save->getCoopHqBase(); // coop W2-H89 H7 (R-LH88-1-1 (a)): an arc topic's cascade runs at the first own base
+			Base* hq = save->getCoopHqBase(); // coop W2-H89 H7: an arc topic's cascade runs at the first own base
 			bool canAddOneMore = arcCommand->getMaxArcs() == -1 || arcCommand->getMaxArcs() > arcsEnabled;
 			if (canAddOneMore && !disabledSeqArcs.empty())
 			{
@@ -7920,7 +7920,7 @@ void GeoscapeState::setTimeSpeedIndex(int idx)
 /**
  * The index of the currently selected time-speed button, in the same
  * {5s,1min,5min,30min,1hr,1day} order setTimeSpeedIndex uses, or -1 if none
- * matches. WV-D108: lets the test harness read the selected speed back
+ * matches. lets the test harness read the selected speed back
  * instead of sampling the clock. No behaviour change.
  * @return index 0..5, or -1.
  */

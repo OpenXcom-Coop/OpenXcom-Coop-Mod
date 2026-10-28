@@ -158,7 +158,7 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
     host.ok({"cmd": "newbattle_ok"})
 
     # W2-P8b S-H: the shared battle-entry spine - both briefings (the offer goes
-    # out at PREPARE, D210 b), both pre-battle equip screens (D174 a / D206 c),
+    # out at PREPARE, D210 b), both pre-battle equip screens,
     # both Turn-1 screens (Q7 a).
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
@@ -199,7 +199,7 @@ def qualifying_actor(host, soldier_id):
     getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
 
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
     within view distance, and the lever does not recompute sight, so the
     visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
@@ -490,7 +490,7 @@ def test_atom_kneel_e2e():
         # --- t=0 hash-clean sanity ---
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-action)")
 
-        # --- drive the client kneel via battle_intent (RB-D13/RB-D32) ---
+        # --- drive the client kneel via battle_intent ---
         baseline = event_seq_baseline(client)
         intent_resp = client.ok({"cmd": "battle_intent", "kind": "kneel",
                                   "actor": actor_id, "kneel": not was_kneeled})
@@ -660,7 +660,7 @@ def test_forced_mismatch():
     frozen forever, so this session is torn down (not reused) once done."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle(seat_count=1, tag="kneel_mismatch")
     try:
-        # R4-L3 S-A (QL3-5 a): this test's subject is the halt; the TEST-ONLY hold keeps the host from repairing it.
+        # R4-L3 S-A: this test's subject is the halt; the TEST-ONLY hold keeps the host from repairing it.
         host.ok({"cmd": "resync_hold", "on": True})
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-corruption)")
 
@@ -735,7 +735,7 @@ def test_forced_mismatch():
         # banner shown: BattlescapeState::_txtCoopWait (CoopBattleUi::
         # showDesyncHalted() -> setCoopWaitText()), read via this packet's
         # new getCoopWaitText()/TestServer battle_state.coopWaitText.
-        # EXACT TEXT, not merely non-empty (W1-P4): coop battle ENTRY now raises
+        # EXACT TEXT, not merely non-empty: coop battle ENTRY now raises
         # its own _txtCoopWait notice (STR_COOP_EQUIP_FROZEN, the pre-battle
         # equip freeze), so "the banner is non-empty" would be true even if
         # showDesyncHalted() never fired. Compare against SS2.6's desync row.

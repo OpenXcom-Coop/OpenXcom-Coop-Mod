@@ -8,7 +8,7 @@ repaired); Boot B (SEPARATE): H16g-7. Row frame: S0 (both probes agree) -> stagi
 probe shows the row's change) -> hold (host SoldiersState: no heartbeat, the host's clock stops) -> window (both probes every
 0.25 s for 3 s; the row's cells read at the FIRST sample) -> release (speed 0 on both, host close_screens, drain both; on a
 row whose cells passed, the client's `requests` stays R0 for 4 s). RED (commit 1): H16g-1..6 fail on their named cells,
-H16g-7 passes; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss). Never `mismatches` (F5510). EVIDENCE then
+H16g-7 passes; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE then
 PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -25,7 +25,7 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ProdFx_Test")
-BOOT_A = ("w2h16ga", (49388, 49389, 47368))     # SHARED; lobby 47368 (F7301)
+BOOT_A = ("w2h16ga", (49388, 49389, 47368))     # SHARED; lobby 47368
 BOOT_B = ("w2h16gb", (49390, 49391, 47370))     # SEPARATE; lobby 47370
 ROCKETS, SOLDIER, SCIENTIST, DELIVERY, RANDOM, CRAFT, FALLBACK = ("STR_H16G_" + n for n in (
     "ROCKETS", "SOLDIER", "SCIENTIST", "DELIVERY", "RANDOM", "CRAFT", "FALLBACK"))
@@ -273,7 +273,7 @@ def row_2(r, x):
 
 
 def row_3(r, x):
-    """A spawned soldier (F6711): SOLDIER e1 q1 from the client; owner = the starting player's seat (R-H16g-1)."""
+    """A spawned soldier: SOLDIER e1 q1 from the client; owner = the starting player's seat (R-H16g-1)."""
     p0 = s0(r, x)
     n0 = ids(p0["host"])["STR_SOLDIER"]
     r.ev["client start"] = pick(x.client.cmd({"cmd": "manufacture_start", "item": SOLDIER, "engineers": 1, "qty": 1}), "ok", "sent", "error")

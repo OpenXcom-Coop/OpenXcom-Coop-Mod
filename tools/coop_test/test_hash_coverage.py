@@ -29,9 +29,9 @@ the second player on purpose):
        table is wrong (STOP-IF H4) and is printed as LEGACY-MOVED. The three
        `tags` rows ([7] at script tag index 1, which no registered tag names
        for unit H on this ruleset) can make the poked battle document
-       unparseable; such a row's saveBlob column reads `unserializable`
-       (F746), and since `synced` is hashed from the raw values the row is
-       still evidence. The lever always restores (F747) and every row prints
+       unparseable; such a row's saveBlob column reads `unserializable`,
+       and since `synced` is hashed from the raw values the row is
+       still evidence. The lever always restores and every row prints
        its restoredValue.
   HC2  Carriage + client checks. Host real-UI kneel toggle of H, host
        real-UI walk of H (HC2_H_TILE -> HC2_WALK_DEST), both machines press
@@ -63,7 +63,7 @@ tile (session.lightning_door: exactly one LIGHTNIN entry, WV-D87). Constants
 from the S-H.1 precalc boot on this map (2026-09-24): H, H2, A and A's items,
 the door, the HC2 walk (open ground, two steps, path_probe-reachable, >= 21
 tiles from the only alien). Every staging write goes to BOTH machines, the
-client first (F607), and the responses are asserted equal. The fuseEnabled
+client first, and the responses are asserted equal. The fuseEnabled
 row needs an item whose fuse timer is set (BattleItem::setFuseEnabled is a
 no-op at fuse -1, and no item starts primed): HC1 gives H2 a STR_GRENADE with
 fuse 20 on both machines (ids asserted equal) - 20 cannot reach 0 in the one
@@ -79,7 +79,7 @@ every scenario even after an earlier one failed and prints "PASS <id>" /
 "FAIL <id>: <message>". Every wait is bounded; a wait that times out is
 recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all three scenarios pass, 2
 otherwise (a bring-up failure is also 2).
 
@@ -104,7 +104,7 @@ import test_delta_core as dc
 SEED_MAP = 1
 CRAFT = "STR_LIGHTNING"
 MAP_FP = -5.194867395711193e+18  # host battle_state.mapFingerprint on SEED_MAP 1 with the Lightning
-H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot (F488)
+H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot
 H2_ID = 11                       # second host-seat soldier (HC3's client-only currStats poke, HC1's grenade)
 A_ID = 1000000                   # the only alien: Sectoid Soldier, spawn (27,12,0)
 A_ITEMS = {56: ("STR_PLASMA_PISTOL", "STR_RIGHT_HAND"), 58: ("STR_PLASMA_PISTOL_CLIP", "STR_BELT"),
@@ -475,7 +475,7 @@ def hc3(host, client, ctx):
     before = {"host": dc.probes(host), "client": dc.probes(client)}
     ch0 = hash_probes(client)
     r0 = dc.units(client)[H2_ID].get("reactions")
-    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A (QL3-5 a): HC3's PASS is the desync itself
+    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: HC3's PASS is the desync itself
     rs = client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": H2_ID, "stat": "reactions",
                      "value": (r0 or 0) + REACTIONS_POKE})
     r1c, r1h = dc.units(client)[H2_ID].get("reactions"), dc.units(host)[H2_ID].get("reactions")

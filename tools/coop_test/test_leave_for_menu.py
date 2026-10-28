@@ -1,4 +1,4 @@
-"""W2-H25 - test_leave_for_menu.py: the partner leaving while this machine is already leaving for the main menu opens
+"""test_leave_for_menu.py: the partner leaving while this machine is already leaving for the main menu opens
 nothing over that exit (issue #79, D156 (a), D239 (a); trace F10500-F10512). Spec docs
 rewrite/prompts/w2h25_gameover_lobby_race.md (f); TASK 0 constants docs rewrite/w2h25-task0/CONSTANTS.md.
 
@@ -19,14 +19,14 @@ keyCancel is a real SDL key (inject_input key 27 -> SlideshowState::screenSkip).
        (unfixed build) `push ... LobbyMenu depth=2` right after `push ... MainMenuState depth=1` with no
        `[coop-session] setRole -> None` between. Cells: no LobbyMenu on the host at any poll; host and client on a
        bare main menu; no new crash file; both alive. slow_top {off} at the row's end.
-  LM3  control: the host leaves first (F10503). +SKIP_AT_S host keyCancel, +CLIENT_SKIP_S client keyCancel. Cells:
+  LM3  control: the host leaves first. +SKIP_AT_S host keyCancel, +CLIENT_SKIP_S client keyCancel. Cells:
        both on a bare main menu; no LobbyMenu on either at any poll; the client log has no CoopState push.
 
-RED on the unfixed build (TASK 0): LM1 (the host on [GoToMainMenuState, SlideshowState, LobbyMenu]) and LM2 (the host
+RED on the unfixed build: LM1 (the host on [GoToMainMenuState, SlideshowState, LobbyMenu]) and LM2 (the host
 on ['MainMenuState', 'LobbyMenu']) FAIL; LM3 PASSES.
 
 Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a FAIL,
-ONE "CAPTURE <id>:" line. Every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip
+ONE "CAPTURE <id>:" line. Every row runs after a failure. ONE foreground run, no skip
 path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_leave_for_menu.py

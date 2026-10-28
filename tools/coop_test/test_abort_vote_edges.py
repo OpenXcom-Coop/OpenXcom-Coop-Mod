@@ -37,7 +37,7 @@ RED (commit 1 = this file; S-A's green build): exit 2 with AV4 PASS and AV5 FAIL
 over the host's question at once, AV state Open, heldWhileFatal 0) and AV5-2 (the host's CANCEL finds no button under
 the VoteMenu; fatalVote result ""); AV5-3 PASS (the host's YES on that VoteMenu ends the battle as an abort; T0-4).
 Commit 2 (P9, the fatal-vote term in the abort pump's open step): exit 0.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_abort_vote_edges.py
 """

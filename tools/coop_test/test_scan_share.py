@@ -1,7 +1,7 @@
 """R5-U6 S-C rows SC1, SC2 (boot CC, classic co-op: the client commands soldiers 8 and 9, the host the other five): a
 motion-scanner mark reaches the co-op partner (orchestrator R5-V5; QU6-4 (a): an untracked `bt_scan_mark` to a mapped
 same-side seat, once per newly marked unit; the partner marks its own copy of the unit for the current turn). Today a scan
-marks units on the scanning machine only (F4853, F14107).
+marks units on the scanning machine only.
 
 Spec: docs repo rewrite/prompts/r5u6_pvp_options.md section (d) Stage S-C and (f) test_scan_share.py, AMENDMENT U6-1
 (U6-1.4, U6-1.7). Constants: rewrite/r5u6-task0/sc/CONSTANTS.md (TASK 0 boots CCa = CCb on the probe build).
@@ -27,8 +27,8 @@ intents.
 
 RED on the probe build (commit C1): SC1-share, SC2-share; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL
 line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line
-and fails every row "boot"; a staging step that fails fails its row's cells. WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+and fails every row "boot"; a staging step that fails fails its row's cells. run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 test_scan_share_pvp.py imports this file's helpers.
 
 Run:  python tools/coop_test/test_scan_share.py
@@ -196,7 +196,7 @@ def row_sc2(host, client, crash0):
 
 
 def bring_up(host, client, key):
-    """test_reaction_prox.boot, copied with the lobby key as a parameter (F10917)."""
+    """test_reaction_prox.boot, copied with the lobby key as a parameter."""
     bring_up_lobby_roster_pinned(host, client, key)
     seated = {}
     session.drive_to_battlescape(host, client, seated, seat_count=2,

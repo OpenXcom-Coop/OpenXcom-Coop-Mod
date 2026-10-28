@@ -19,8 +19,8 @@ Common cell after each row: every hash bucket EQUAL, desyncSeen false on both, n
 RED at 2R: B1-dark, B1-armor (difficulty 0: armor multiplier 0.5), B3-reload, B2-here, B2-list; every other cell PASS.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its
-bound prints ONE CAPTURE B line and fails every cell "boot"; a staging step past its bound fails B2's cells "staging". WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+bound prints ONE CAPTURE B line and fails every cell "boot"; a staging step past its bound fails B2's cells "staging". run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pve2_built.py
 """
@@ -45,7 +45,7 @@ from test_pvp_gm3 import (Miss, stack, top, log_count, capture, guarded, reactio
                              fail_all, shut)
 
 KEY = "48865"                     # this file's lobby key (spec (G))
-DARKNESS = 15                     # battle.cfg darkness (D142 (a)); test_light_scope writes it
+DARKNESS = 15                     # battle.cfg darkness; test_light_scope writes it
 SEED_ROSTER, SEED_MAP = 1, 1
 MISSION = "STR_MEDIUM_SCOUT"
 GAMEMODE_PVE2 = 4

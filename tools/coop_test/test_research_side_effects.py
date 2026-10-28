@@ -1,4 +1,4 @@
-"""W2-H17 - test_research_side_effects.py (SHARED): a finished research project leaves the same world on both machines
+"""test_research_side_effects.py (SHARED): a finished research project leaves the same world on both machines
 (corpse, diary, obsolete project + refund, delivered items, counters; F3262, D226 a). Spec rewrite/prompts/
 w2h17_research_side_effects.md (e)-(f) + RULINGS C1-C3, F5728; docs rewrite/w2h17-task0/CONSTANTS.md. Trigger 1 interrogates
 STR_SECTOID_SOLDIER; trigger 2 completes STR_H17_A while STR_H17_B runs. Per trigger: S0, skip (2 days, speed 5, interest
@@ -19,14 +19,14 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ResearchFx_Test")
-BOOT = ("w2h17a", (49294, 49295, 47284), {"retainCorpses": True})   # labels + lobby key (F5764)
+BOOT = ("w2h17a", (49294, 49295, 47284), {"retainCorpses": True})   # labels + lobby key
 HQ, RC, GEO = "HostBase", "ResearchCompleteState", "GeoscapeState"
 LIVE, CORPSE, LOOKUP = "STR_SECTOID_SOLDIER", "STR_SECTOID_CORPSE", "STR_SECTOID"
 A, B, PISTOL, COUNTER = "STR_H17_A", "STR_H17_B", "STR_PISTOL", "STR_H17_COUNTER"
 NAMES, ITEMS = [LIVE, LOOKUP, A, B], [LIVE, CORPSE, B, PISTOL]
-WINDOW_S, CADENCE_S = 3.0, 0.5      # C3 (F5827): ~0.5 s per both-machine sample
+WINDOW_S, CADENCE_S = 3.0, 0.5      # C3: ~0.5 s per both-machine sample
 CLEAN_S = 4.0                       # > the 3000 ms mismatch debounce (P10 F5510) and H15 F5709's 3.27 s worst case
-PENDING_S, BETWEEN_S = 10.0, 30.0   # C2 (F5820) bound; between triggers
+PENDING_S, BETWEEN_S = 10.0, 30.0   # C2 bound; between triggers
 
 class GuardMiss(Exception):
     """A guard failed: the trigger ends after its CAPTURE line."""
@@ -68,7 +68,7 @@ def dump(gc):
             out[k] = short(e)
     return out
 def wait_pending(x, send=None):
-    """C2 (F5820): before any client dismissal or settle, the client's resync `pending` must be false (bounded)."""
+    """C2: before any client dismissal or settle, the client's resync `pending` must be false (bounded)."""
     send, t0 = send or x.client.cmd, time.time()
     while send({"cmd": "shared_resync_stats"}).get("pending"):
         if time.time() - t0 >= PENDING_S:
@@ -221,7 +221,7 @@ def diary_cells(r, p, want):
     r.cell(f"diary.{p.name}", every(p, lambda s: s["c"]["diary"] == s["h"]["diary"]),
            f"research diary differs: host {ev['host']} / replica {ev['replica']}")
 def row_h17_2(r, x):
-    diary_cells(r, x.p1, [[LIVE, 0, HQ], [LOOKUP, 0, HQ]])       # BASE topic (F5728) + BASE lookup
+    diary_cells(r, x.p1, [[LIVE, 0, HQ], [LOOKUP, 0, HQ]])       # BASE topic + BASE lookup
     diary_cells(r, x.p2, [[A, 0, HQ], [B, 1, A]])                 # BASE topic + FREE_FROM bonus
 
 def row_h17_3(r, x):
@@ -246,7 +246,7 @@ def row_h17_4(r, x):
     ev = r.ev["delivered"] = {"S0": s0, "pistols": both(p, lambda v: v["items"][PISTOL]),
                               "transfers": both(p, lambda v: v["transfers"])}
     r.cell("G:hostPistols", every(p, lambda s: s["h"]["items"][PISTOL] == s0["h"] + 2), f"{ev}")
-    r.cell("G:hostTransfers", every(p, lambda s: s["h"]["transfers"] == []), f"{ev['transfers']}")   # C1 (F5825)
+    r.cell("G:hostTransfers", every(p, lambda s: s["h"]["transfers"] == []), f"{ev['transfers']}")   # C1
     r.cell("pistols", every(p, lambda s: s["c"]["items"][PISTOL] == s0["c"] + 2), f"the delivered items never arrived: {ev}")
     r.cell("replicaTransfers", every(p, lambda s: s["c"]["transfers"] == []), f"{ev['transfers']}")
 

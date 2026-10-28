@@ -1033,7 +1033,7 @@ bool moveFile(const std::string &src, const std::string &dest)
 }
 
 /**
- * coop W2-H91 (owner D303 (a)): moveFile for a co-op save's final rename (<name>.bak -> <name>). On Windows a move that fails
+ * coop: moveFile for a co-op save's final rename (<name>.bak -> <name>). On Windows a move that fails
  * because another process has a file open (ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION: an antivirus scan, a sync tool) is
  * retried every 50 ms until boundMs have passed; any other error is not retried, and other platforms run moveFile once.
  * Logs one line per failed attempt and one with the result.
@@ -1531,7 +1531,7 @@ std::string now()
 
 /**
  * Generates a timestamp of the current time, to the millisecond.
- * WV-D111: the same shape now() returns plus ".mmm", for log lines only. now()
+ * the same shape now() returns plus ".mmm", for log lines only. now()
  * itself is UNCHANGED because three of its callers build FILENAMES, and a
  * wider timestamp would rename the files they build.
  * @return String in D-M-Y_H-M-S.mmm format.
@@ -1743,7 +1743,7 @@ bool openExplorer(const std::string &url)
 
 /**
  * Appends a file, logs nothing to avoid recursion.
- * WV-D110: the append must PERMIT SHARED READING. SDL1's Windows RWops opens
+ * the append must PERMIT SHARED READING. SDL1's Windows RWops opens
  * the file for writing with dwShareMode 0, i.e. exclusively, so the WRITER was
  * denying every reader - and a reader's own open in turn made this append FAIL
  * (measured: 84 sharing violations in 3000 reader opens and 21 lost game

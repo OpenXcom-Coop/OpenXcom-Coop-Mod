@@ -143,7 +143,7 @@ void VoteMenu::think()
 {
 	State::think();
 
-	if (_finished || _noDeadline) // R4-L1 (D231): no countdown, no local timeout
+	if (_finished || _noDeadline) // no countdown, no local timeout
 	{
 		return;
 	}
@@ -273,14 +273,14 @@ void VoteMenu::refreshStatus()
 		_txtStatus->setText(
 			"VOTE SENT - YES: " + std::to_string(yesVotes) +
 			"  NO: " + std::to_string(noVotes) +
-			(_noDeadline ? std::string() : "  TIME: " + std::to_string(seconds) + "s")); // R4-L1 (D231)
+			(_noDeadline ? std::string() : "  TIME: " + std::to_string(seconds) + "s"));
 	}
 	else
 	{
 		_txtStatus->setText(
 			"CAST VOTE - YES: " + std::to_string(yesVotes) +
 			"  NO: " + std::to_string(noVotes) +
-			(_noDeadline ? std::string() : "  TIME: " + std::to_string(seconds) + "s")); // R4-L1 (D231)
+			(_noDeadline ? std::string() : "  TIME: " + std::to_string(seconds) + "s"));
 	}
 }
 
@@ -349,7 +349,7 @@ void VoteMenu::setVotes(const std::vector<int> &votes)
 
 void VoteMenu::setRemainingMilliseconds(std::uint32_t remainingMilliseconds)
 {
-	if (_finished || _noDeadline) // R4-L1 (D231, F10404): the abort vote's 0 is no deadline, not a timeout
+	if (_finished || _noDeadline) // the abort vote's 0 is no deadline, not a timeout
 	{
 		return;
 	}

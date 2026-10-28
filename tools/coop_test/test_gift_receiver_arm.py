@@ -13,12 +13,12 @@ A_ID = its selection at the HOSTILE start.
          reads 1; HOLD_S with nothing closed or dismissed. Then the pin (== [A_ID]; a miss fails the rows below).
   R-BAN  turn 2: the host gives all its units by lever, then receives C1 by the client's real Tab, give key and menu.
   R-BANC turn 2: the client mirror by levers (it gives all, then receives GU by the host's lever).
-  R-BANA turn 2 -> aliens -> turn 3 (LAST): the host gives all by lever, the client's END TURN alone (D53), X (C1) at side 1.
+  R-BANA turn 2 -> aliens -> turn 3 (LAST): the host gives all by lever, the client's END TURN alone, X (C1) at side 1.
 Common cell after each row: every hash bucket EQUAL, desyncSeen false on both, no new crash file. RED on the unchanged build
 (commit R1): R-AI-sel, R-AI-ai, R-BAN-clear, R-BANC-clear, R-BANA-clear, R-BANA-sel, R-BANA-ai (7 of 22); GREEN (G1, E1-E3):
 every cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; every row runs after a failure;
-a precondition miss ends its row ("not reached"); a boot miss prints ONE CAPTURE line and fails every row "boot". WV-D95:
-foreground run to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when all cells pass, else 2.
+a precondition miss ends its row ("not reached"); a boot miss prints ONE CAPTURE line and fails every row "boot".
+foreground run to completion. ONE run is the result, no skip path; exit 0 only when all cells pass, else 2.
 Run:  python tools/coop_test/test_gift_receiver_arm.py
 """
 
@@ -43,8 +43,8 @@ HOST_DIR, CLIENT_DIR = "w2h45_g_host", "w2h45_g_client"    # default options
 GU, X = TBG.C2, TBG.C1            # 9 (R-AI's gift to the host, R-BANC's to the client) / 8 (R-BAN's and R-BANA's)
 GIVE_KEY = 258                    # Options::giveUnit (SDLK_KP2)
 TEXT_SPECTATOR = "You command no soldiers - spectator mode"     # STR_COOP_SPECTATOR_MODE (en-US)
-HOSTILE_S, STEP_S, ALIEN_S, NOTICE_S = 30, 30, 60, 5      # TASK 0: 0.05 / 0.10 / ~4 (incl. the hold) / 0.05 s
-SAMPLE_S, HOLD_S, READ_N, BAN_S = 0.1, 2.0, 3, 2.0       # TASK 0: 8 side-1 host samples per hold; green clear 0.05 s
+HOSTILE_S, STEP_S, ALIEN_S, NOTICE_S = 30, 30, 60, 5      # 0.05 / 0.10 / ~4 (incl. the hold) / 0.05 s
+SAMPLE_S, HOLD_S, READ_N, BAN_S = 0.1, 2.0, 3, 2.0       # 8 side-1 host samples per hold; green clear 0.05 s
 TAB_MAX = 16
 HOST_NAME, CLIENT_NAME = TBG.HOST_NAME, TBG.CLIENT_NAME
 UF = ("coop", "x", "y", "z", "tu", "direction", "hasAI")
@@ -372,7 +372,7 @@ def pin_missed(row, pre, host, client, crash0):
 
 
 def bring_up(host, client, key):
-    """test_battle_gift.bring_up with the key as a parameter and WITHOUT session.pin_ai_neutral (F10917): roster seed
+    """test_battle_gift.bring_up with the key as a parameter and WITHOUT session.pin_ai_neutral: roster seed
     1, map seed 1, STR_SMALL_SCOUT, the Skyranger crew cut to KEPT, one tank; reactions 0; host idle."""
     m, pre, seated = (host, client), {}, {}
 

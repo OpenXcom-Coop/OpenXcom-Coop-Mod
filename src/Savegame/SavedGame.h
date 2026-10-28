@@ -172,7 +172,7 @@ private:
 	// _coop permanently distinguishes co-op campaigns from solo; _coopPlayers
 	// is the locked player list (host first).
 	bool _coop;
-	// coop D283 (b): the game mode this loaded save was played in (its body's coop_gamemode, read by SavedGame::load); 0 for a world
+	// coop: the game mode this loaded save was played in (its body's coop_gamemode, read by SavedGame::load); 0 for a world
 	// this process created or was served. Never written to a save.
 	int _coopLoadedGamemode = 0;
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
@@ -285,7 +285,7 @@ private:
 	/// Is this a co-op campaign save (permanent solo/co-op distinction)?
 	bool isCoopSave() const { return _coop; }
 	void setCoopSave(bool coop) { _coop = coop; }
-	/// coop D283 (b): the game mode this save was played in, as SavedGame::load read it (0 for a new or served world).
+	/// coop: the game mode this save was played in, as SavedGame::load read it (0 for a new or served world).
 	int getCoopLoadedGamemode() const { return _coopLoadedGamemode; }
 	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
@@ -378,7 +378,7 @@ private:
 	SavedBattleGame *detachBattleGame() { SavedBattleGame *b = _battleGame; _battleGame = 0; return b; }
 	/// Reattach a battle previously detached (does not delete any current pointer).
 	void reattachBattleGame(SavedBattleGame *battleGame) { _battleGame = battleGame; }
-	/// coop W2-H21d: is the battle a real one - neither a preview (the Ufopaedia craft deployment, the base defence or craft
+	/// coop: is the battle a real one - neither a preview (the Ufopaedia craft deployment, the base defence or craft
 	/// soldiers preview) nor a base equipment screen's practice battle? Co-op paths asking "is a mission running" use this.
 	bool coopHasRealBattle() const;
 	/// Sets the status of a ufopedia rule
@@ -640,7 +640,7 @@ private:
 	std::vector<std::string>& getGeoscapeDebugLog() { return _geoscapeDebugLog; }
 };
 
-/// coop W2-H21d: while alive, the world reads as vanilla holds it once every practice screen is closed (the preview end in
+/// coop: while alive, the world reads as vanilla holds it once every practice screen is closed (the preview end in
 /// BattlescapeState, CraftEquipmentState / SoldiersState init): no practice battle, no base or craft marked in the battlescape.
 /// The destructor puts both back for the screen still showing them. A real battle, or none, is left untouched. Co-op writers only.
 class CoopPracticeBattleHidden

@@ -58,7 +58,7 @@ class BattleUnit;
  * client must decide NOTHING: it replays the mutation, it does not re-run the
  * host's cost/permission logic.
  *
- * WV-D50 - CALLABLE OUTSIDE A WALK (binding). Neither the emitter nor the
+ * CALLABLE OUTSIDE A WALK (binding). Neither the emitter nor the
  * applier assumes an in-flight walk or even an action context: the ev is
  * stamped with `CoopArbiter::currentActionId()`, which is legitimately 0 at the
  * turn boundary and for the right-click door path, and `unit` is presence-gated
@@ -114,11 +114,11 @@ int coopUnitOpensDoor(TileEngine* te, BattleUnit* unit, bool rClick, int dir);
 ///
 /// W1-P13 owns the vanilla call site (`BattlescapeGame.cpp:549`); this packet
 /// ships the function and proves it through the `battle_close_ufo_doors`
-/// test lever (RB-D26) so "boundary-callable" is a TESTED property and not a
+/// test lever so "boundary-callable" is a TESTED property and not a
 /// claim about code nobody ran.
 int coopCloseUfoDoors(TileEngine* te);
 
-/// Test introspection only (RB-D26) - never read by game logic.
+/// Test introspection only - never read by game logic.
 /// `coopDoorEvsEmitted()` counts `ev door` envelopes this machine SENT;
 /// `coopDoorEvsApplied()` counts the ones it APPLIED; and
 /// `coopDoorInTurnUnsupported()` counts hits on the SS2.4

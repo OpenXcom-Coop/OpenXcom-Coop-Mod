@@ -11,11 +11,11 @@ connected" with RESUME shown and SAVE & QUIT / ABANDON GAME hidden for a partner
   B-dialog GUARD (the hatch and the wait at R1 and R2, resumeAck false at R1); B-drop GUARD (FREEZE +1, DROP +1; SEND_LOST_GEO recorded);
   B-common GUARD (the host alive at R2, no new crash file).
 Nothing is clicked: R1 = coop_dialog_info + list_widgets (RESUME / SAVE & QUIT / ABANDON GAME: visible, hidden) + get_coop once every
-TextButton on the top CoopState reads hidden false (F18080) plus SETTLE_S; R2 = HOLD_S later. QH55-2 (a), red build only: a kill can race to
-the same -3 (F18194); a row B whose EVIDENCE shows the F18081 signature (FREEZE +1, DROP +0, a READY 62) is recorded and the file run ONCE
+TextButton on the top CoopState reads hidden false plus SETTLE_S; R2 = HOLD_S later. QH55-2 (a), red build only: a kill can race to
+the same -3; a row B whose EVIDENCE shows the F18081 signature (FREEZE +1, DROP +0, a READY 62) is recorded and the file run ONCE
 more (that run binds). Red (commit R1): exit 2, RED exactly on A-hatch, A-resume, A-ack, A-drop. A precondition miss ends its row (cells "not
 reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict;
-exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
+exit 0 only when every cell passes, else 2. one foreground run per invocation.
 Run: python tools/coop_test/test_host_drop_dialog.py
 """
 import json, os, sys, time  # noqa: E401
@@ -102,7 +102,7 @@ def sight62(h, tt):
     return round(time.time() - tt, 2)
 
 def settled(h, tt, ev):
-    """list_widgets until the top state is CoopState and every TextButton reads hidden false (F18080) within SHOWN_S; then SETTLE_S"""
+    """list_widgets until the top state is CoopState and every TextButton reads hidden false within SHOWN_S; then SETTLE_S"""
     t0, trail = time.time(), ev.setdefault("trail", [])
     while time.time() - t0 < SHOWN_S:
         st, bs = buttons(h)

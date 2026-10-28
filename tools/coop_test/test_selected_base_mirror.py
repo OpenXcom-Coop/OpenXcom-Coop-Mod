@@ -3,7 +3,7 @@ base screen hides and shows the partner's mirror bases, so the geoscape BASES bu
 base with every button.
 
 A SEPARATE world holds the partner's bases as `_coopIcon` mirrors. An open base screen takes them out of the
-live base list and puts them back on every exit (W2-H8). `SavedGame::_selectedBase` is an INDEX; written
+live base list and puts them back on every exit. `SavedGame::_selectedBase` is an INDEX; written
 while the mirrors are out, it names a mirror once they are back, and the next BASES opens the mirror's layout
 (BUILD FACILITIES, RESEARCH, MANUFACTURE, TRANSFER, SELL/SACK hidden) over the player's first base.
 
@@ -21,14 +21,14 @@ boots a, b red; c green).
   C2  client as H2                                          C2-shown, C2-buttons, C2-transfer, C2-geo
   L   both base lists (control)                             L-lists
   end shutdown                                              CRASH
-RS = BASES, GEOSCAPE, BASES, key 1: the reset both builds reach alike. Red on the pre-fix build (TASK 0):
+RS = BASES, GEOSCAPE, BASES, key 1: the reset both builds reach alike. Red on the pre-fix build:
 H1-geo, H2-shown, H2-buttons, H2-transfer, H2-geo, H3-geo, H4-geo, C1-geo, C2-shown, C2-buttons, C2-transfer,
 C2-geo (the selection names a mirror, or the redirect's first base); H0-*, L-lists and CRASH pass.
 
 Each row prints ONE "EVIDENCE <row>:" line, one "PASS <cell>" / "FAIL <cell>: <why>" line per cell and
 "ROW <row>: PASS|FAIL". Every row runs after a failure; a precondition miss ends its row (its cells FAIL "not
-reached"). Every press is a real click_widget or inject_input. WV-D95: run it to completion in the foreground.
-WV-D99 / D100: ONE run is the bar, no SKIP. Exit 0 = every cell passed; 2 = at least one cell failed.
+reached"). Every press is a real click_widget or inject_input. run it to completion in the foreground.
+ONE run is the bar, no SKIP. Exit 0 = every cell passed; 2 = at least one cell failed.
 Run:  python tools/coop_test/test_selected_base_mirror.py
 """
 
@@ -112,12 +112,12 @@ def wait_for(pred, cap=POLL):
         time.sleep(0.1)
     return bool(pred())
 
-def ready(gc):  # R-H68-2 / F20003: no surface of the top state hidden (a POPUP window hides them all while it opens)
+def ready(gc):  # no surface of the top state hidden (a POPUP window hides them all while it opens)
     return wait_for(lambda: not any(w.get("hidden") for w in widgets(gc)))
 
 def press(gc, match, want):
-    # F20003: a POPUP window (InterceptState) hides its buttons while it opens and a hidden button drops the click
-    session.wait_widget_ready(gc, match, timeout=POLL)   # W2-U9: the shared gate (same rule, same bound)
+    # a POPUP window (InterceptState) hides its buttons while it opens and a hidden button drops the click
+    session.wait_widget_ready(gc, match, timeout=POLL)   # the shared gate (same rule, same bound)
     r = q(gc, {"cmd": "click_widget", "match": match})
     if not r.get("ok") or not wait_for(lambda: top(gc) == want):
         raise Pre("%s %r -> %s, top %s (want %s)" % (gc.name, match, r.get("error") or "ok", stk(gc)[-1:], want))
@@ -171,7 +171,7 @@ def build_base(x, gc, name, ev):
     press(gc, "OK", "BaseNameState")
     if [b[0] for b in census(gc)["bases"] if not b[1]].count("") != 1:
         raise Pre("%s: BaseNameState without one own base named \"\": %s" % (gc.name, snap(gc)))
-    # TASK 0 F20000: the POPUP window hides the TextEdit for ~0.1 s and a hidden surface drops keys
+    # the POPUP window hides the TextEdit for ~0.1 s and a hidden surface drops keys
     if not wait_for(lambda: [w.get("hidden") for w in widgets(gc) if w.get("type", "").endswith("::TextEdit")] == [False]):
         raise Pre("%s: the BaseNameState TextEdit still hidden after %.0f s" % (gc.name, POLL))
     for ch in name:

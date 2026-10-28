@@ -41,7 +41,7 @@ private:
 	Text *_txtTitle, *_txtBase, *_txtName, *_txtStatus, *_txtWeapon, *_txtCrew, *_txtHwp;
 	TextList *_lstCrafts;
 	Base *_base;
-	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2 (R-LBH3-1, R-H83-2)
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop W2-H83 S-B2
 
 	/// PRD-J10: live refresh. A list view holds no pending user input, so it
 	/// rebuilds SILENTLY in place (no pop-and-push, no banner) and takes day_tick

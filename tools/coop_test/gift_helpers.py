@@ -4,8 +4,8 @@ probes, the save-file read and the row runner that test_gift_during_visit.py (ro
 (rows R4-R6) import. Copied from the capture rewrite/lh64-2-cap/cap.py and W2-H64's TASK 0 rewrite/w2h64-task0/sa/t0_h64a.py (never
 imported). Every press is real (click_widget on a visible button, inject_input on a pixel or SDLK_KP2); every probe is an existing
 TestServer command. A construction step that misses its precondition raises Stop (its row ends there); run_row prints one EVIDENCE line
-per row, one PASS / FAIL line per cell and the row verdict; main returns 0 only when every cell passed, else 2 (WV-D99 / WV-D100).
-WV-D95: one foreground run per invocation."""
+per row, one PASS / FAIL line per cell and the row verdict; main returns 0 only when every cell passed, else 2.
+one foreground run per invocation."""
 import base64, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -82,7 +82,7 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 
@@ -129,7 +129,7 @@ def read_save(path):
     return out
 
 def probe_globe(path):
-    """CIT-SLEEP1 (F24288): the probe save's first entry globe once the file parses with every globe value set, else None"""
+    """the probe save's first entry globe once the file parses with every globe value set, else None"""
     try:
         g = ((read_save(path)["entries"]) or [{}])[0].get("globe") or {}
     except Exception:  # a file still being written is a not-yet
@@ -305,16 +305,16 @@ def picker(x, ev):
     t0 = time.time()
     q(h, {"cmd": "save_game_ui", "type": "quick"})
     okq, sq = wait(lambda: os.path.exists(qpath) and os.path.getmtime(qpath) >= t0 - 1, W_SAVE, 0.2)
-    wait(lambda: top(h) == "GeoscapeState", 2.0)   # CIT-SLEEP1 (F24288): the quick save's screens closed, at most the old 2.0 s
+    wait(lambda: top(h) == "GeoscapeState", 2.0)   # the quick save's screens closed, at most the old 2.0 s
     hq = stack(h)
     q(h, {"cmd": "save_game", "file": PROBE})
     okn, _sn = wait(lambda: os.path.exists(spath) and os.path.getsize(spath) > 0, W_SAVE, 0.2)
-    G = (wait(lambda: probe_globe(spath), 2.0)[0] if okn else None) or {}   # CIT-SLEEP1 (F24288): was a fixed 1.0 s
+    G = (wait(lambda: probe_globe(spath), 2.0)[0] if okn else None) or {}   # was a fixed 1.0 s
     cr = next((k for k in (own_base(c) or {}).get("crafts", []) if not k.get("coop")), None)
     q(c, {"cmd": "open_select_destination", "craft_id": cr and cr["id"], "craft_type": cr and cr["type"]})
-    session.wait_widget_ready(c, "CANCEL")   # CIT-SLEEP1 (F24288): was a fixed 0.4 s
+    session.wait_widget_ready(c, "CANCEL")   # was a fixed 0.4 s
     cw = q(c, {"cmd": "click_widget", "match": "CANCEL"})
-    wait(lambda: top(c) == "GeoscapeState", 2.0)   # CIT-SLEEP1 (F24288): was a fixed 0.5 s
+    wait(lambda: top(c) == "GeoscapeState", 2.0)   # was a fixed 0.5 s
     x.pk = {"G": G, "geom": geometry(c), "scale": cw.get("baseX") and {"x": cw["winX"] / cw["baseX"], "y": cw["winY"] / cw["baseY"]}}
     ev["picker"] = {"quick s": sq if okq else None, "host": hq, "probe": bool(okn), "G": G, "scale": x.pk["scale"]}
     if not okq or hq[-1:] != ["GeoscapeState"] or not G or None in G.values() or not x.pk["scale"] or top(c) != "GeoscapeState":
@@ -351,7 +351,7 @@ def trigger54(x, ev):
     """the host's save_game_ui quick; poll POLL_S for the 54 on top within SEEN54_S (name QUICK); the client's 67 within W_67"""
     h = x.host
     x.F0 = files(h)
-    ev["sessionS"] = session.wait_coop_session(h)   # F24296: the 54 needs the host's live session
+    ev["sessionS"] = session.wait_coop_session(h)   # the 54 needs the host's live session
     tt = time.time()
     q(h, {"cmd": "save_game_ui", "type": "quick"})
     while time.time() - tt < SEEN54_S:
@@ -631,7 +631,7 @@ def run_row(rid, tag, key, build, ids, cellfn, pre):
     return not r.fails, round(time.time() - r.t0, 1), failed
 
 def main(name, rows):
-    """every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100)"""
+    """every row runs; exit 0 only when every cell passes, else 2"""
     t0, res, walls, failed = time.time(), {}, {}, []
     for rid, row in rows:
         res[rid], walls[rid], f = row()

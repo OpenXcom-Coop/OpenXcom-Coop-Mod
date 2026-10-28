@@ -52,7 +52,7 @@ The side is asserted before the press, and the proof of delivery is POSITIVE -
 the exact new string appears, and only `CoopBattleUi::showEndTurnHostOnly()` can
 produce it.
 
-FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe (WV-D18) - a
+FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe - a
 live 2-player skirmish through the harness lobby flow, REVIEW4 IR-4 selection
 rule, bounded re-roll, two client-owned soldiers via `newbattle_seat_soldier`.
 
@@ -80,7 +80,7 @@ DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
 
 # EXACT text, from bin/common/Language/en-US.yml. Asserted as TEXT and never as
 # an STR_ key: Language::getString() returns the KEY when the key is missing, so
-# a key-shaped assert passes silently against a stale deploy copy (WV-D17).
+# a key-shaped assert passes silently against a stale deploy copy.
 STR_ORDER_SENT = "Order sent - waiting for the host"
 STR_BUSY = "Waiting - another action is in progress"
 STR_COST_CHANGED = "Order cancelled - cost changed"
@@ -221,7 +221,7 @@ def qualifying_actor(host, soldier_id):
     spotted yet (an alien in LOS aborts a BA_NONE rotation,
     UnitTurnBState.cpp:114-118), (b) no door within 2 tiles.
 
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
     within view distance, and the lever does not recompute sight, so the
     visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
@@ -271,7 +271,7 @@ def settle_emits(host, client, timeout=40):
     before any lastSeqEmitted baseline: SS2.4a's quiescent reveal flush can emit
     a standalone `ev reveal` a tick or two after an action settles."""
     def quiet():
-        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
+        cs = event_state(client)  # client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
         hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
@@ -325,13 +325,13 @@ def tile_click(gc, tx, ty, tz, button="right"):
 
 
 def both_ok(host, client, req, keys):
-    """A two-machine lever pair, CLIENT first (F607); the named response fields
+    """A two-machine lever pair, CLIENT first; the named response fields
     must agree on both machines."""
     rc = client.ok(dict(req))
     rh = host.ok(dict(req))
     vc, vh = tuple(rc.get(k) for k in keys), tuple(rh.get(k) for k in keys)
     assert vc == vh, f"{req['cmd']} disagrees across machines: host={vh} client={vc}"
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return rh
 
 
@@ -631,7 +631,7 @@ def test_seat_attributed_wait():
 
 
 # ===========================================================================
-# PHASE 4: the intent timeout (WV-D24) + the late-message rule
+# PHASE 4: the intent timeout + the late-message rule
 # ===========================================================================
 
 def test_intent_timeout():
@@ -785,7 +785,7 @@ def test_end_turn_refusal():
                         both_show_tally, timeout=15)
 
         after = client.cmd({"cmd": "battle_state"})
-        # KEPT, RE-POINTED (SPEC 10 (f)): the turn_before/after no-advance
+        # KEPT, RE-POINTED: the turn_before/after no-advance
         # compare now proves the side did not advance on ONE seat's arm
         # (this fixture has TWO live seats - F166).
         assert after.get("turn") == turn_before and after.get("side") == FACTION_PLAYER, (

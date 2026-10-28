@@ -31,7 +31,7 @@ RED on the unchanged build (commit D1): AE1-counted, AE1-screen, AE1-ground, AE2
 AE3-pile, AE3-seen, AE4-held, AE4-gone, AE5-pile, AE5-seen, AE6-back, AE6-seen, AE7-held; every other cell PASS. One
 EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its
 bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails that row "staging".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
 cell passes, else 2. test_alien_equip_gm3.py imports this file's helpers.
 
 Run:  python tools/coop_test/test_alien_equip.py
@@ -161,7 +161,7 @@ def sizes():
 
 SZ = sizes()
 SLOTS = {}
-PAGE = {}   # R-U6-SD-2: {machine name: the ground page its open pre-battle screen shows}; goto_page keeps it
+PAGE = {}   # {machine name: the ground page its open pre-battle screen shows}; goto_page keeps it
 
 
 def foot(t, x, y):
@@ -216,7 +216,7 @@ def free_ground(gc, itype):
 
 
 def goto_page(gc, page, rec):
-    """R-U6-SD-2: scroll gc's pre-battle screen to ground page `page` with vanilla's ground-scroll key (keyBattleRight,
+    """scroll gc's pre-battle screen to ground page `page` with vanilla's ground-scroll key (keyBattleRight,
     InventoryState.cpp :269 -> Inventory::arrangeGround(1)) from the page PAGE records (0 at the screen's open; a
     re-layout keeps it): each press moves to the next page while the layout reaches past it, else back to page 0."""
     cur, presses = PAGE.get(gc.name, 0), 0
@@ -433,7 +433,7 @@ def own_tile(host, client, actor_gc, uid, ev):
 
 
 def lobby_e6(host, client, key):
-    """BER.boot_e6's lobby with the key as a parameter (F10917): the client joins and takes the Alien team (gamemode 2)."""
+    """BER.boot_e6's lobby with the key as a parameter: the client joins and takes the Alien team (gamemode 2)."""
     BER.raw.skirmish_host(host, key)
     BER.raw.skirmish_client_at_browser(client)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": BER.raw.CLIENT_PLAYER})
@@ -462,7 +462,7 @@ def drive(host, client):
 
 def bring_up(host, client, key, alien_player, tag, seat):
     """Spawn, the PvP lobby, the drive, both briefings, R0 on both (each before its own briefing closes)."""
-    PAGE.clear()   # R-U6-SD-2: every pre-battle screen of this boot opens on ground page 0
+    PAGE.clear()   # every pre-battle screen of this boot opens on ground page 0
     m = (host, client)
     G3F.guarded(tag, lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
     G3F.guarded(tag, lambda: host.ok({"cmd": "set_seed", "seed": SEED}), m)

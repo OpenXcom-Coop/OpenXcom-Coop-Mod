@@ -2,7 +2,7 @@
 with "Enable Other Player Footstep Sounds" at its default ON on both machines, the HOST's `strafe` option on (an Alt click
 is a sneak only with it, F14785) and the CLIENT's "Enable Reaction Fire in PvP" off (never applies: the host's value
 decides): the opponent's walk plays its step sounds and start voice on this machine, its sneak (Alt) walk is silent here
-whatever the option, and each machine hears its own walks (owner D236 (b); QU6-2 (a); QU6-5 (a); VL-U6-8).
+whatever the option, and each machine hears its own walks.
 
 Spec: docs repo rewrite/prompts/r5u6_pvp_options.md section (f) test_footsteps_pvp.py, AMENDMENT U6-1 (U6-1.3, U6-1.7)
 and the orchestrator ruling R-U6-SB-1 (FP2-sneak and FP4-sneak dropped: no probe reads a walk_step payload; the sneak's
@@ -38,8 +38,8 @@ crash folder. EVIDENCE only: contexts, executed paths, per-step energy, the walk
 RED on the probe build (commit B1): FP1-hvoice, FP1-own, FP2-host, FP2-hvoice, FP2-own, FP3-client, FP3-cvoice,
 FP4-client, FP4-cvoice; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row
 verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot";
-a staging step that fails fails its row's cells (the side change: FP3's and FP4's). WV-D95: run in the foreground to
-completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+a staging step that fails fails its row's cells (the side change: FP3's and FP4's). run in the foreground to
+completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_footsteps_pvp.py
 """
@@ -59,12 +59,12 @@ import test_footsteps as FS  # noqa: E402
 from test_client_shoot import set_tu_both, place  # noqa: E402
 
 KEY = "49062"
-HOST_OPTIONS = {"strafe": True}                   # F14785: vanilla takes an Alt click as a sneak only with it
+HOST_OPTIONS = {"strafe": True}                   # vanilla takes an Alt click as a sneak only with it
 CLIENT_OPTIONS = {"EnableReactionFirePvp": False}  # the client's own option never applies (the host's value decides)
 A_ID, S_ID, S3_ID = RM.A_ID, RM.S_ID, RM.S3_ID     # the alien (client, seat 1); FP3 / FP4's walker; FP1's reactor
 A_HOME, A_DIR = RM.TILES[A_ID]                    # (15,2,0) facing 4
 S_HOME, S_DIR = RM.TILES[S_ID]                    # (15,9,0) facing 0
-SEED_FP1 = 1                                      # F14401 / TASK 0: S3's four snaps hit the floor, A unhurt (health 30)
+SEED_FP1 = 1                                      # S3's four snaps hit the floor, A unhurt (health 30)
 A_FIRST = (15, 3, 0)                              # FP1 / FP2's first step tile
 FP2_DEST = (15, 4, 0)                             # TASK 0 (rule (d) T0-5 (3)): two steps, A visible on the host at each
 S_FIRST = (16, 9, 0)                              # FP3 / FP4's first step tile

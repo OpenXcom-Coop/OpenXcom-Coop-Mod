@@ -1,10 +1,10 @@
-"""W2-H17c (F7222, F7224, F7225; D226 a): research granted outside the lab (a despawned mission site, a monthly arc script)
+"""research granted outside the lab (a despawned mission site, a monthly arc script)
 reaches the second player, and the monthly roll carries the ended month's research score. Spec docs
 rewrite/prompts/w2h17c_research_grants.md (e)-(f) + ORCHESTRATOR RULINGS; TASK 0 rewrite/w2h17c-task0/CONSTANTS.md
 (R-H17c-T0-1..3). Test mod Coop_ResearchGrant_Test. Boot A (SHARED): H17c-1 a host-only terror site (hours 1) despawns
 untouched (research + getOneFree, diary, counter, score, despawn event); H17c-2 the month-1 arc grants STR_H17C_ARC and
 opens its article, then the ended month's score after both rolled. Boot B (SEPARATE, research sync off: MG-F, QMC-5): H17c-3 (guard row). Row frame: S0
-(research_probe, geo_event_probe, requests R0); poll both every 0.25 s for 3 s while a host window is open (F7230); clean =
+(research_probe, geo_event_probe, requests R0); poll both every 0.25 s for 3 s while a host window is open; clean =
 settle + 60 game-min at speed 3 + 4 s: requests == R0, checksum equal. RED (commit 1): H17c-1/2 fail on their named cells,
 H17c-3 passes; "G:" cells are guards (CAPTURE on a miss). GREEN: all pass. EVIDENCE then PASS / FAIL per row; ONE run;
 exit 0 only if all pass, else 2.
@@ -23,9 +23,9 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ResearchGrant_Test")
-BOOT_A = ("w2h17ca", (49370, 49371, 47360))      # SHARED; lobby 47360 (F7232)
+BOOT_A = ("w2h17ca", (49370, 49371, 47360))      # SHARED; lobby 47360
 BOOT_B = ("w2h17cb", (49372, 49373, 47362))      # SEPARATE; lobby 47362
-SYNC_OFF = {"EnableResearchSync": False}  # MG-F (QMC-5, F10160): H17c-3 guards sync off; main #197 M1 covers sync on
+SYNC_OFF = {"EnableResearchSync": False}  # H17c-3 guards sync off; main #197 M1 covers sync on
 DESPAWN, FREE, ARC, CNT = "STR_H17C_DESPAWN", "STR_H17C_FREE", "STR_H17C_ARC", "STR_H17C_DESPAWN_CNT"
 NAMES = [DESPAWN, FREE, ARC]
 MISSION, FREE_FROM = 3, 1                        # research_probe diary sourceType
@@ -129,7 +129,7 @@ def both(ps, f): return {"host": seen(ps, "h", f), "replica": seen(ps, "c", f)} 
 def triples(d): return [[e.get("name"), e.get("sourceType"), e.get("sourceName")] for e in (d.get("tail") or [])]  # noqa: E704
 
 def dismiss_to_geo(gc, limit=12):
-    """dismiss_popup until the geoscape is on top (<= limit); never while this machine's resync is pending (W2-U7)."""
+    """dismiss_popup until the geoscape is on top (<= limit); never while this machine's resync is pending."""
     done = []
     for _ in range(limit):
         t = top(gc)

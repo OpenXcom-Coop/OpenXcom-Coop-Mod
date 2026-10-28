@@ -196,11 +196,11 @@ def main():
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
 
-        # W2-P8b (owner D210 b): the offer (and its missionLabel) now goes out
+        # the offer (and its missionLabel) now goes out
         # at PREPARE, so both briefings are up at once; the host's OK below
-        # lands it on its pre-battle equip screen (D174 a). Assertion 2 probes
+        # lands it on its pre-battle equip screen. Assertion 2 probes
         # the TestServer.cpp:5260 guard from the CLIENT's OWN read-only entry
-        # BriefingState (W1-P3) - "a machine parked in BriefingState".
+        # BriefingState - "a machine parked in BriefingState".
         host.ok({"cmd": "click_widget", "match": "ok"})
         host.wait_for("host battlescape",
                       lambda: session.has_state(host, "BattlescapeState"), timeout=30)
@@ -234,7 +234,7 @@ def main():
         # guard is at TestServer.cpp:5260. Under WV-D56 the host can no longer
         # be caught still sitting in its PRE-battle briefing once the client
         # has labels (that window is exactly what WV-D56 closes) - but the
-        # CLIENT'S OWN read-only entry BriefingState (W1-P3) is still exactly
+        # CLIENT'S OWN read-only entry BriefingState is still exactly
         # "a machine parked in BriefingState", so the guard is re-verified
         # here instead.
         assert top_state(client) == "BriefingState", \

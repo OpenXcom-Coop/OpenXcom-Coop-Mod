@@ -53,7 +53,7 @@ private:
 public:
 	/// Creates the Confirm Landing state.
 	ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool sharedBroker = false);
-	Craft* coopHeldCraft() const { return _craft; } // coop W2-H83 S-C (R-LT18-1): for GeoscapeState::coopHeldCrafts
+	Craft* coopHeldCraft() const { return _craft; } // coop W2-H83 S-C: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Confirm Landing state.
 	~ConfirmLandingState();
 	/// initialize the state, make a sanity check.

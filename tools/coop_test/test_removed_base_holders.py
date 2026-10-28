@@ -24,12 +24,12 @@ survivor, so losing HB is no game over), each + real GEOSCAPE, each in mir(clien
           ConfirmDestinationState on the stack, top SelectDestinationState, holders 0.
   END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
 Red today: MT-dangle, MT-closed, GC-dangle, GC-closed, CD-dangle, CD-closed FAIL (6 of 10); every other cell PASS. Green (EC1): all 10 PASS.
-Ruling R-H83-7 (F23065): once GC has lost the host's first base, the host's BASES opens the partner's mirror and its GEOSCAPE reloads a stale
+Ruling R-H83-7: once GC has lost the host's first base, the host's BASES opens the partner's mirror and its GEOSCAPE reloads a stale
 world; no cell reads the host after CD's removal. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false.
 Every press is a real click_widget or inject_input except the logged levers build_new_base, geo_set_speed, globe_point's centre (staging: the
 player turns the globe), spawn_mission_site, craft_force, set_soldier_dead, spawn_ufo and trigger_base_defense. One EVIDENCE line per row, one
 PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes on;
-a boot miss fails MT-pre with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+a boot miss fails MT-pre with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_holders.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -38,8 +38,8 @@ import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
 KEY = "49559"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 60f182398)
-MT_OFF, GC_OFF, SITE_DLON = (0.02, 0.0), (0.30, 0.10), 0.6   # from HB (TASK 0)
-B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land (TASK 0)
+MT_OFF, GC_OFF, SITE_DLON = (0.02, 0.0), (0.30, 0.10), 0.6   # from HB
+B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land
 B4 = (LAND_LON + 0.09, LAND_LAT + 0.03)     # HostBase4: on land (TASK 0; S-A's B rule)
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_1, SYM_PLUS, SYM_MINUS, SYM_ESC, ZOOM_MT, ZOOM_MIN = 49, 43, 45, 27, 2, 3
@@ -435,7 +435,7 @@ def row_cd(b, r, st):
     mark = len(logl(c))
     d = ev["dismantle"] = dismantle(h, b.sc["host"], "HostBase3")
     r.need("HostBase3" not in d["ownAfterOk"], "the host's own still holds HostBase3 after its OK: %s" % d["ownAfterOk"])
-    must_click(h, "GEOSCAPE", 10)  # F23065 / R-H83-7: the host reloads a stale world here (HB lost in GC); no cell reads the host after it
+    must_click(h, "GEOSCAPE", 10)  # the host reloads a stale world here (HB lost in GC); no cell reads the host after it
     wait_top(h, "GeoscapeState", 15)
     ev["settle"], p1 = settle(c, DEL_SETTLE)
     ev["P1"], ev["line"] = p1, hits(c, NEEDLE % st["ids"]["HostBase3"], mark)

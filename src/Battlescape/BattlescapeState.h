@@ -306,7 +306,7 @@ public:
 	/// folded into setCoopEndTurnText() above: that setter stays text-only
 	/// by design (W1-P7's recorded intent), so the armed bit gets its own.
 	void setCoopEndTurnArmed(bool armed);
-	/// coop (W1-P7): read-only companion to setCoopEndTurnText, for test
+	/// coop: read-only companion to setCoopEndTurnText, for test
 	/// introspection only (TestServer's "battle_state"). Empty means hidden.
 	std::string getCoopEndTurnText() const;
 	/// coop (W1-P13b, REV E.50 D68/E50.3): read-only probe for test

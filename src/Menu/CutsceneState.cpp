@@ -49,7 +49,7 @@ void CutsceneState::init()
 {
 	State::init();
 
-	// coop W2-H17b (F7207, F7208): the relay leaves when the cutscene starts, after every caller has set the ending
+	// coop: the relay leaves when the cutscene starts, after every caller has set the ending
 	// (GeoscapeState research / GeoscapeEventState / BattlescapeState set it right after building this state)
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->allow_cutscene == true && _game->getSavedGame()) // coop
 	{ // coop

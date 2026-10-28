@@ -27,7 +27,7 @@
 #include "../Mod/RuleInventory.h"
 #include "../Mod/Mod.h"
 #include "../Engine/Exception.h"
-#include "../CoopMod/CoopDelta.h" // coop R5-U2: coopFactionIsMine() (R5-U1 S-B)
+#include "../CoopMod/CoopDelta.h" // coop: coopFactionIsMine() (R5-U1 S-B)
 
 namespace OpenXcom
 {
@@ -186,7 +186,7 @@ void UnitSprite::draw(const BattleUnit* unit, int part, int x, int y, int shade,
 	_y = y;
 
 	_unit = unit;
-	_coopView = coopView; // W1-P12: null except from Map::drawUnit's &view argument
+	_coopView = coopView; // null except from Map::drawUnit's &view argument
 	_part = part;
 	_shade = shade;
 	_mask = mask;

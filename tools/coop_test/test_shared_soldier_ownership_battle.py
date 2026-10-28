@@ -15,7 +15,7 @@ the split roster, flies them to a mission, enters the SHARED battle, and asserts
 If this fails, the bootstrap split is not reaching battle control ("all soldiers
 co-owned").
 
-SPEC 19 (W1-P20) S3 (un-skipped, re-pointed): the bring-up now goes through
+SPEC 19 S3 (un-skipped, re-pointed): the bring-up now goes through
 `session.bring_up_shared_mixed_battle(js, owners=None)` (F355's briefing-close-
 first ordering), which boards the roster's two LOWEST ids unstamped - exactly
 the bootstrap pair this test needs, since consecutive soldier ids alternate
@@ -25,7 +25,7 @@ runs right after the existing battle-control assertion, mid-battle, so the
 pre-existing on-load-migration coverage below still runs unconditionally;
 T-EXIT is last (it ends the battle).
 
-T-EXIT (SPEC 19 REV E.65 / D114): `session.coop_abort_battle` was re-pointed off
+T-EXIT: `session.coop_abort_battle` was re-pointed off
 the pre-rewrite ABANDON-MISSION VOTE (r4 T3, a logging stub that does not exist
 at this tip - see test_shared_battle.py's docstring, same root cause) to the
 rewrite-era host-authoritative abort (D8/WV-D14: host btnAbortClick -> vanilla
@@ -52,7 +52,7 @@ def _roster(gc):
 
 
 def _f3384_dump(host, client, when):
-    """W2-P8b S-H.2 (F3384/F3407): ONE evidence block on a failure of T-CMD or
+    """W2-P8b S-H.2: ONE evidence block on a failure of T-CMD or
     of the on-load-migration set_soldier_owner loop - both machines' player
     units and base rosters, from the existing battle_state / get_soldiers
     probes. Never raises: the caller re-raises the original failure."""
@@ -131,7 +131,7 @@ def main():
         # units. The per-unit coop split asserted above is the only SHARED-specific input
         # that path needs, so validating it here guards #3 against ownership regressions.
 
-        # ---- SPEC 19 (W1-P20): T-SPLIT / T-CMD (mid-battle, before T-EXIT) --
+        # ---- SPEC 19: T-SPLIT / T-CMD (mid-battle, before T-EXIT) --
         session.assert_t_split(host, client, want_coop, what="S3 bootstrap ownership")
         seat1_actor = next(sid for sid in squad if want_coop[sid] == 1)
         seat0_actor = next(sid for sid in squad if want_coop[sid] == 0)
@@ -166,8 +166,8 @@ def main():
         print(f"PASS migration: a 999-owned (pre-fix) save healed on load -> "
               f"seat0={n0} seat1={n1}, no soldier left co-owned")
 
-        # ---- SPEC 19 (W1-P20) T-EXIT closes the battle via the host-authoritative
-        # abort (REV E.65): SHARED finishBattle returns BOTH machines cleanly.
+        # ---- SPEC 19 T-EXIT closes the battle via the host-authoritative
+        # abort: SHARED finishBattle returns BOTH machines cleanly.
         session.assert_t_exit(host, client, what="S3 bootstrap ownership")
 
         print("ALL SPEC 19 (W1-P20) S3 SHARED BOOTSTRAP-OWNERSHIP-IN-BATTLE TESTS PASSED")

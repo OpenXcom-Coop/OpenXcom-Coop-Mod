@@ -57,7 +57,7 @@ class Inconclusive(Exception):
 
 def crash_logs():
     hits = []
-    for root in (harness.TEST_ROOT, harness.CRASH_DIR):  # MG-F: this lane's crash folder only (W2-U8h)
+    for root in (harness.TEST_ROOT, harness.CRASH_DIR):  # this lane's crash folder only
         hits += glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)
     return set(hits)
 
@@ -195,7 +195,7 @@ def main():
         sys.exit(2)
     if inconclusive or note:
         print("INCONCLUSIVE:", inconclusive or note)
-        sys.exit(2)  # MG-F: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     print("PASS: research on an already-known topic completes without a crash (SEPARATE + SHARED)")
     sys.exit(0)
 

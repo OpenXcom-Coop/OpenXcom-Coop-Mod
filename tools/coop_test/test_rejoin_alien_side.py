@@ -1,4 +1,4 @@
-"""W2-H33 - a player who rejoins a co-op or PvP battle while it is on the alien side gets the alien side, as the host has
+"""a player who rejoins a co-op or PvP battle while it is on the alien side gets the alien side, as the host has
 it (spec: docs repo rewrite/prompts/w2h33_rejoin_doc_side.md (f); orchestrator ruling R-9B-4, F11800; owner D91 Q2 and
 PRD T5 "kill -9 the client mid-alien-turn -> reconnect -> rejoin -> hash-clean continue"; QH33-1 .. QH33-7 (a)).
 Constants: docs repo rewrite/w2h33-task0/CONSTANTS.md (TASK 0 boots Pa / Pb, Ta / Tb, Va / Vb; EVIDENCE Pr, Pc).
@@ -11,7 +11,7 @@ THREE boots, each shut down before the next, one row each (every id and pin read
       the side); the client leaves gracefully (disconnect_to_menu).
   AV  boot V, key "48747", PvP gm2: test_battle_end_rules.boot_e6; the host's END TURN hands the turn to the alien
       player (the client), who leaves on its own turn (disconnect_to_menu), rejoins and presses END TURN.
-The host's TEST-ONLY `resync_hold {on: true}` (R4-L3 QL3-5) is armed right after each bring-up (QH33-4): a desync then
+The host's TEST-ONLY `resync_hold {on: true}` is armed right after each bring-up: a desync then
 halts client2 instead of being repaired, so the cells read the defect itself; a green never desyncs.
 Cells per row (X = AP / AT / AV):
   X-pause  GUARD at the host's first 62: top CoopState 62 with backVisible false over NextTurnState / BattlescapeState
@@ -36,7 +36,7 @@ A bring-up step past its bound is a FIXTURE-STOP: ONE "CAPTURE <row>:" line (eve
 event_state, coop_dialog_info and the last 40 engine log lines) and every cell of the row FAILs "boot". A leave or rejoin
 step past its bound FAILs the cells from X-side on "rejoin" (X-clean and X-crash are still evaluated). One EVIDENCE line
 per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure. battle_state is probed only
-with a BattlescapeState on the machine's stack (F10980). WV-D95: run in the foreground to completion. WV-D99 / WV-D100:
+with a BattlescapeState on the machine's stack. run in the foreground to completion.
 ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_rejoin_alien_side.py
@@ -104,7 +104,7 @@ def top(gc):
 
 
 def bs(gc):
-    """battle_state, only with a BattlescapeState on the stack (F10980); {} otherwise"""
+    """battle_state, only with a BattlescapeState on the stack; {} otherwise"""
     return q(gc, {"cmd": "battle_state"}) if BS in stack(gc) else {}
 
 

@@ -4,18 +4,18 @@ the shared base is back under the limit - also when it was covered by a box whil
 rewrite/prompts/w2p7_sc_design.md section 3.6, AMENDMENT P7-7 sections 2-4: PR-29..PR-35; owner D154, D175; MR9,
 MR10).
 
-Before S-C-D2 (F5432, F2501): the second player's OK takes it straight to its geoscape - only the host gets vanilla's
+Before S-C-D2: the second player's OK takes it straight to its geoscape - only the host gets vanilla's
 forced ManageAlienContainmentState + "ALIEN CONTAINMENT LIMITS EXCEEDED" box; a SHARED containment confirm closes its
 screen at submit.
 
 Fixture FX-CT (AMENDMENT P7-7 section 3; CONSTANTS docs rewrite/w2p7sc2-task0/CONSTANTS.md T0-S3 (i), F5434-F5438;
 P7-7 RULINGS: forced containment staging = (a) the stun lever): shared_fixture.bring_up(tag, (0, 0, PORT),
-host_options=OPTS, client_options=OPTS), OPTS = {storageLimitsEnforced} on BOTH user dirs (F5429); on the geoscape the
+host_options=OPTS, client_options=OPTS), OPTS = {storageLimitsEnforced} on BOTH user dirs; on the geoscape the
 host fac_builds STR_ALIEN_CONTAINMENT at (0, 3) (F5435: the one key-free cell), both machines list it (index 9), its
-buildTime 0 on BOTH (F5434); give_items {STR_SECTOID_SOLDIER, 10} on BOTH (client first; capacity 10 = facilities.rul
+buildTime 0 on BOTH; give_items {STR_SECTOID_SOLDIER, 10} on BOTH (client first; capacity 10 = facilities.rul
 `aliens: 10`; live aliens have size 0); then test_shared_forced_storage.stage_x() (SEED_S 1, MAP_FP_S, autoEnd on)
 with the stun before the kill: host battle_action {kill_unit_real, unit: 1000000, stun: true} (PR-35: vanilla's debug
-stun, DT_STUN power 1000, BattlescapeState :3423), wait the host's isBusy false and pendingStates 0 (F4665), unit
+stun, DT_STUN power 1000, BattlescapeState :3423), wait the host's isBusy false and pendingStates 0, unit
 1000000 unconscious (status 7) on both machines, the event queues drained and hash_now full equal on both (F5575:
 the client mirror rides the death cue's unconscious outcome); then kill_unit_real {faction: 1} kills the other 14
 (the stunned one is isOut() and skipped); the host's DebriefingState. Pre-cell (FIXTURE-STOP: one CAPTURE line, the
@@ -26,7 +26,7 @@ display-only debriefing adopted in place within ADOPT_S, the stunned unit's type
 
 Probes and levers (PR-28, PR-35): screen_rows / screen_set_amount on the top ManageAlienContainmentState (5 columns,
 amount = column 3, OK = "Remove Selected"), shared_update_defer {on} (the client hold), click_widget on the real
-captions, dismiss_popup ONLY on an ErrorMessageState top, never on a forced screen (F4333).
+captions, dismiss_popup ONLY on an ErrorMessageState top, never on a forced screen.
 
 Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
   Boot 1 (port 47254): D2a.
@@ -46,7 +46,7 @@ Guard on every row: host event_state.fatalVote.armed 0; no new crash log; the cl
 
 RED (commit S-C-D2.1: levers and rows, product untouched): D2a and D2b fail on cell 1 (the client reaches its
 geoscape with no forced screen). GREEN (commit S-C-D2.2): both rows pass.
-Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE
+Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE
 foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_forced_containment.py
@@ -143,7 +143,7 @@ def fx_ct(js, ctx):
     if not (fb.get("ok") and ok and idx["host"] == idx["client"] == CT_INDEX):
         capture("FX-CT facility", f"fac_build {ctx['fxCT']['facBuild']}, index {idx} (want {CT_INDEX} on both)", m)
     sets = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": CT_INDEX, "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "x", "y", "buildTime", "error")}
     ctx["fxCT"]["buildTime0"] = sets

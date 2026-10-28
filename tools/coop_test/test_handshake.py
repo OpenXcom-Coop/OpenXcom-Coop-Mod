@@ -135,10 +135,10 @@ def main():
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
-        # W2-P8b S-H (owner D210 b): the coop blob snapshot and the
+        # W2-P8b S-H: the coop blob snapshot and the
         # battle_offer now go out at PREPARE (newbattle_ok), at turn 0, so both
         # briefings are up at once; the shared entry spine then passes both
-        # briefings, both pre-battle equip screens (D174 a / D206 c) and both
+        # briefings, both pre-battle equip screens and both
         # Turn-1 screens (Q7 a). Every handshake line this test greps for below
         # is written by then.
         session.briefings_to_battlescape(host, client)

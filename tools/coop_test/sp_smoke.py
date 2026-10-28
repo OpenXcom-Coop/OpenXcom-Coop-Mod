@@ -2,7 +2,7 @@
 touches a file under src/Battlescape/** or src/Savegame/**.
 
 AUTHORED BY SPEC 1 (P11-ACCEPT) per BLOCK SP-SMOKE's SPEC-1 carve-out
-(WAVE1-RUNBOOK.md 4b): FX-1 (SPEC 2) was to write this file, but P11-ACCEPT
+(WAVE1-RUNBOOK.md 4b): FX-1 was to write this file, but P11-ACCEPT
 runs first and needs the proof (W1-P11 touched src/Battlescape/UnitWalkBState.cpp),
 so it lands here with the four assertions and at the path the block fixes.
 SPEC 2 finds it already present and only re-runs it - nobody re-invents it in a
@@ -135,7 +135,7 @@ def main():
         host.spawn()
         host.connect()
     except BaseException:
-        # W2-U8f (F9057): main's try/finally starts after the connect, so a failed spawn or connect shuts
+        # main's try/finally starts after the connect, so a failed spawn or connect shuts
         # down the game started here before the error propagates (shared_fixture.bring_up's form)
         harness.shutdown_clients(host)
         raise

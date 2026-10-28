@@ -33,8 +33,8 @@
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/Tile.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H20d (F8551)
-#include "../CoopMod/CoopArbiter.h" // coop R4-L1
+#include "../CoopMod/SharedEcon.h" // coop
+#include "../CoopMod/CoopArbiter.h" // coop
 
 namespace OpenXcom
 {
@@ -205,7 +205,7 @@ void AbortMissionState::btnOkClick(Action *)
 		{
 			// dummy craft, generic deployment schema
 			_battleGame->saveDummyCraftDeployment();
-			SharedEcon::craftDeploymentSaved(_game, _battleGame->getCraftForPreview()->getRules()->getType()); // coop W2-H20d (F8551): the type's deployment end-state to the host
+			SharedEcon::craftDeploymentSaved(_game, _battleGame->getCraftForPreview()->getRules()->getType()); // coop: the type's deployment end-state to the host
 		}
 		else
 		{

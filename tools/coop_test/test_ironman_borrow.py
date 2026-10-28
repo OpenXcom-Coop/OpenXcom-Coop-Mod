@@ -1,4 +1,4 @@
-"""W2-H49 - test_ironman_borrow.py: an ironman alien host keeps its ironman rules in a gm3 borrowed battle (lead L-SC5-4).
+"""test_ironman_borrow.py: an ironman alien host keeps its ironman rules in a gm3 borrowed battle (lead L-SC5-4).
 
 In a gm3 PvP campaign the host plays the aliens and borrows the X-COM player's world for every battle. R-H49-0 = O1 (vanilla's ironman
 rules; aud-E1-05 "ironman is host-only"): while it borrows, an ironman alien host follows its own (parked) world's ironman rules: the
@@ -14,7 +14,7 @@ Boot N (key 49143, dirs w2h49_n_*; no IRONMAN click): row C5 = N-c0, N-start, N-
 RED (the unchanged build, TASK 0 boot i): N1-file, N1-only, N2-x, N2-a, N3-f6, N3-f5, N4-file, N4-only (8 of 20). GREEN (G1): 20/20.
 A bring-up / landing / side change / battle-end miss: ONE "CAPTURE <boot>:" line (BR's stage_to_prompt prints its own "CAPTURE P:")
 and every remaining cell of that boot FAILs "boot". A row precondition miss (host never idle) FAILs its cells "blocked: <why>".
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_ironman_borrow.py
 """
 

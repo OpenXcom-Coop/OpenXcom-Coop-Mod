@@ -21,8 +21,8 @@ same way; S3 global slot 0 of both machines. A spine miss fails every row "spine
       own (non-vacuity), partner (C's layout kept), putback (vs a no-action baseline OK, less A: the client-owned SKY crew soldiers
       with an EMPTY layout that the baseline's auto-equip fills; a Ctrl+Alt open never auto-equips, R-MGR2-2), client.
 RED (before EQ-3 S-A): 24 of 33 cells (spec (f) RED list). EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row
-runs after a failure; a row stopped early reports its later cells "not reached". ONE foreground run (WV-D95, WV-D99, WV-D100); exit 0
-iff every cell passes, else 2. TASK 0: boots a = b red (these 24), p (no A7-A9 / A11) red per gate, c green 33 / 33.
+runs after a failure; a row stopped early reports its later cells "not reached". ONE foreground run; exit 0
+iff every cell passes, else 2. boots a = b red (these 24), p (no A7-A9 / A11) red per gate, c green 33 / 33.
 """
 
 import json
@@ -53,7 +53,7 @@ NAME_CLICK, UNFOCUS_CLICK = (266, 29), (520, 150)  # PEQ's rename recipe (P8-4c 
 RENAME_KEYS = (120,)  # PEQ's RENAME_LETTER "x" (TASK 0 boot p: "zed" hits the screen's auto-equip / diary keys while the field
 #                       takes no focus, and the diary stayed over the screen)
 SDLK_ESCAPE = 27
-MENU_SETTLE = 1.0  # TASK 0: the links menu takes its AUTO-EQUIP click only after its popup
+MENU_SETTLE = 1.0  # the links menu takes its AUTO-EQUIP click only after its popup
 PUTBACK = re.compile(r"\[SHARED\] base equip OK: (\d+) own record\(s\) sent, (\d+) partner record\(s\) put back")
 CELLS = {
     "BV1": ["BV1-reach", "BV1-owner", "BV1-buttons"],
@@ -225,7 +225,7 @@ def all_records(gc):
 
 def baseline(gc, x, craft=False, on_open=None):
     """R-EQ3-2 (3): a no-action open + OK of the same screen right before the row's own; its put-back M (F21256: the screen's re-save).
-    R-EQ3-5 (F21866, F21872): first wait until both machines hold the same soldier_layouts record for every HostBase soldier (the partner's
+    first wait until both machines hold the same soldier_layouts record for every HostBase soldier (the partner's
     last OK has landed); if they never agree within W, a FIXTURE line with both records and no baseline M (the row's putback cell fails).
     `on_open(records)` (BV7 only, R-MGR2-2): called while the screen is open, before its OK, with the agreed records read above."""
     last = {}
@@ -531,7 +531,7 @@ def bv7(x, r):
     sky_partners, ea = [i for i, k in sorted(x.crew.items()) if k == x.sky and i not in x.host_ids], {}
 
     def on_open(recs):
-        """R-MGR2-2 (F23669): E = the client-owned SKY crew soldiers whose agreed record has an EMPTY layout. The baseline's auto-equip
+        """E = the client-owned SKY crew soldiers whose agreed record has an EMPTY layout. The baseline's auto-equip
         fills them on screen and its OK puts each filled one back (SharedEcon.cpp:5907 / :5912); the Ctrl+Alt open never auto-equips
         (BattlescapeGenerator.cpp:82-86, :1400), so it cannot make those put-backs. A = the E units carrying items on this screen."""
         ea["E"] = [i for i in sky_partners if recs.get(i) is not None and not recs[i]["layout"]]

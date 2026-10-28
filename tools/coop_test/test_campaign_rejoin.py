@@ -1,6 +1,6 @@
 """R4-L2 stage S-A (spec rewrite/prompts/r4l2_campaign_rejoin.md (f) rows CR1, CR3, QL2-1 a, QL2-5 a; TASK 0
 rewrite/r4l2-task0/sa/CONSTANTS.md): a player who leaves a co-op CAMPAIGN battle and rejoins is never offered the battle. The host's
-resume_ack battle branch hands the campaign rejoin to offerResumedBattle(), which refuses a live pause (F4812, F10801): REFUSED +1,
+resume_ack battle branch hands the campaign rejoin to offerResumedBattle(), which refuses a live pause: REFUSED +1,
 resumeAck never true, the host waits on dialog 62 and the rejoiner on 68 for good (TASK 0 T0-1 / T0-2).
   Boot H (key "48597", shared_fixture.bring_up("w2r4l2_h", (1, 2, 48597)) + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2
   dir w2r4l2_h_client2): row CR1, SHARED, the client leaves gracefully (disconnect_to_menu), a fresh client2 rejoins. Cells: CR1-1 GUARD
@@ -20,7 +20,7 @@ both tops BattlescapeState <= 60 s. battle_state is probed only with a Battlesca
 (F10980: the probe dereferences a stale _battleState after a BattlescapeState pop and kills the process). Needles = host log since the
 row's baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's resumeAck wait:
 the OFFER / RESUME cells are evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE
-line; every row runs after a failure; ONE run (WV-D95); exit 0 iff every cell passes, else 2.
+line; every row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
 Red (S-A commit 1): CR1 FAIL on CR1-3, CR1-4 and CR1-5..CR1-8 "not reached" (CR1-1, CR1-2, CR1-9 PASS); CR3 PASS.
 """
 import json
@@ -33,7 +33,7 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-WATCH_CAP_S = 135  # RV-U13 S-D (R-C26-1): REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+WATCH_CAP_S = 135  # RV-U13 S-D: REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
 POLL, W_ACK, W_PAUSE = 0.25, WATCH_CAP_S, 30.0
 KEY_H, KEY_C = "48597", "48598"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
@@ -74,7 +74,7 @@ def dlg(gc):
     return pick(q(gc, {"cmd": "coop_dialog_info"}), ("present", "code", "title", "backVisible", "error"))
 
 def bs_raw(gc):
-    """battle_state, only with a BattlescapeState on the stack or no battle in the world (F10980); {} otherwise"""
+    """battle_state, only with a BattlescapeState on the stack or no battle in the world; {} otherwise"""
     if BS not in stack(gc) and q(gc, {"cmd": "get_coop"}).get("inBattle") is not False:
         return {}
     return q(gc, {"cmd": "battle_state"})
@@ -204,7 +204,7 @@ def rejoin(x, key, ev):
     ev["join_tcp"] = q(c2, {"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": "ClientPlayer"})
 
     def acked():
-        for gc in (h, c2):  # R-L2-A-2 (F11185): a press while client2's world loads pops the LoadGameState pushed over its Profile
+        for gc in (h, c2):  # a press while client2's world loads pops the LoadGameState pushed over its Profile
             if top(gc) == PROFILE and (gc is h or dlg(c2).get("code") != 52):
                 ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok"}).get("ok")])
         if ev["c2 on 68 s"] is None and dlg(c2).get("code") == 68:
@@ -237,7 +237,7 @@ def resume(x, ev):
     return (ev.get("RESUME") or {}).get("ok") is True
 
 def walk_far(h, c2, uid, wev):
-    """R-L2-A-1 (F11183): client2 walks uid to the free tile at radius 1-3 (its level, one down, one up) with the LARGEST minimum distance to
+    """client2 walks uid to the free tile at radius 1-3 (its level, one down, one up) with the LARGEST minimum distance to
     any living non-player, farthest first, the pathfinder judging reachability (no iseq = unroutable) -> the host's lastWalk ({}: none)"""
     st = session.battle_state(h)
     u, npc = session.units_by_id(st)[uid], session.living_non_players(st)
@@ -330,7 +330,7 @@ def row_cr3(x, results, walls):
         print("EVIDENCE CR3 host leave: %s" % json.dumps(q(h, {"cmd": "disconnect_to_menu"}), default=str), flush=True)
         seen = {}
 
-        def told():  # R-L2-A-3 (F11193): the dialog first, then the stack, so the stack judged is never older than the dialog
+        def told():  # the dialog first, then the stack, so the stack judged is never older than the dialog
             seen["dialog"] = dlg(c)
             seen["stack"] = stack(c)
             return seen["dialog"].get("code") == 21

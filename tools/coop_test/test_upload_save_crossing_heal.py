@@ -1,7 +1,7 @@
 """W2-H86 UXH (tools/coop_test/test_upload_save_crossing_heal.py): after a partner upload crossed a host quick save, the host's next
-save copies the partner's world to the new id (W2-H58), so a drop during that save and a rejoin still restore the partner's own campaign
+save copies the partner's world to the new id, so a drop during that save and a rejoin still restore the partner's own campaign
 (lead L-LT17-1, ruling R-LLT17-1-1; VL-H86-1, VL-H86-2; QH86-3 (a)). Spec docs rewrite/prompts/w2h86_upload_save_crossing.md (f); TASK 0
-values in rewrite/w2h86-task0/sa/CONSTANTS.md; capture rewrite/llt17-1-cap (F22905, F22906). Helpers: crossing_helpers.py (CH: the
+values in rewrite/w2h86-task0/sa/CONSTANTS.md; capture rewrite/llt17-1-cap. Helpers: crossing_helpers.py (CH: the
 crossing on the TEST-ONLY levers hold_blob_ack scope "upload" and hold_save_reply); rejoin_helpers.py (RH) and drop_fixture.py
 (F) imported unchanged.
 id1 = S1's saveID; id2 = the crossing save's re-mint (S2); id3 = the next save's (S3 / D3). Each row boots its own pair on lobby key 49644
@@ -23,7 +23,7 @@ client on a fresh dir joining by NAME (never a base placement: a fresh world is 
           U2D-resume (RED) resume_and_clear ok, both tops GeoscapeState.  U2D-common (GUARD) host + rejoiner alive, no new crash file.
 Red today (no W2-H86 fix): U2-copied, U2D-copied, U2D-key, U2D-rejoin, U2D-world, U2D-resume FAIL (6 of 14); every other cell PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its row (later cells "not reached",
-one CAPTURE line); every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no SKIP; exit 0 only when every cell
+one CAPTURE line); every row runs after a failure. ONE foreground run, no SKIP; exit 0 only when every cell
 passes, else 2. Run: python tools/coop_test/test_upload_save_crossing_heal.py   (OXC_HARNESS_SLOT selects the lane)"""
 import os
 import sys

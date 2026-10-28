@@ -65,7 +65,7 @@ live host twin before S-C1's host sync):
   IV6   C29a load: rifle (empty) RH, rifle clip belt (0,0); pick the clip, drop it on
         the rifle. GREEN: admitted (invGuard.last {site load, op load, decision
         sent}), rifle ammo [clip, r, r, r], the clip owner -1 slot "" off the tile,
-        on both (F2091/F2092); C TU 64 - 15; the cursor empty after the answer.
+        on both; C TU 64 - 15; the cursor empty after the answer.
   IV7   Shift-unload: rifle RH loaded, LH free; a Shift+click on the rifle. GREEN:
         admitted (site unload, op unload), the clip in STR_LEFT_HAND owner C, rifle
         ammo [r, r, r], on both; C TU 64 - 8.
@@ -144,7 +144,7 @@ names it (counts delta and `last`). An ADMITTED placement also: host closedConte
 gains exactly one {origin intent, kind inv_move, actorId C}; that actionId's host evs
 are exactly [bt_action_end] and every one of them is in the client's log with the
 same seq, kind and actionId; the only other host ev allowed since the drop is one
-`reveal` with actionId 0 (F2093); client coopIntentsSent.inv_move +1; host
+`reveal` with actionId 0; client coopIntentsSent.inv_move +1; host
 intentsReceived.inv_move.admitted +1; client lastAftermath {actionId, kind inv_move};
 client inFlight null and intentTimeouts unchanged; client selectedItem -1; the moved
 item's fields and C's TU equal on both and equal to T0-1b's host-vanilla value. A
@@ -155,18 +155,18 @@ Constants (AMENDMENT P8-2; P8-3 section 3.4: they hold at 63324d66b by code read
 the row tiles (T0-1, two runs identical, F2086), C's max TU 64 (T0-1), the costs
 belt->LH 4, ground clip->belt 12, LH->ground 2, load 15, Shift-unload 8, Ctrl
 auto-place 12, paperdoll 6 (T0-1b on H, F2089; slot/item costs, unit-independent),
-IV9's unprime 20 on C (F2090), each moved item's outcome (T0-1b, docs
+IV9's unprime 20 on C, each moved item's outcome (T0-1b, docs
 rewrite/w2p8-task0/run2_t0_1_3_1b.log ops 4-8, ids substituted), the texts (en-US). The boot is the roster-pinned terror boot of
 test_host_combat.py with `oxceInventoryDropItemOverPaperdoll: true` on both
-(section 8.2). Every lever pair goes to the CLIENT first (F607). Item ids are read at
+(section 8.2). Every lever pair goes to the CLIENT first. Item ids are read at
 run time from the lever replies, never baked.
 
 Each row prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its
 conditions are checked; main() runs every row even after an earlier one failed and
 prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that runs
-out is recorded in the EVIDENCE line and fails the row. WV-D99 / WV-D100: one run is
+out is recorded in the EVIDENCE line and fails the row. one run is
 the result; no skip path, no second boot. Exit 0 only when every row passes, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_inventory.py
@@ -224,8 +224,8 @@ TU_LOAD = 15                      # op4 clip belt (0,0) -> the rifle in RH (IV6)
 TU_SHIFT_UNLOAD = 8               # op5 Shift+click the loaded rifle in RH, LH free: the clip -> LH (IV7)
 TU_CTRL_FIT = 12                  # op7 Ctrl+click the ground grenade -> belt (0,0) (IV8)
 TU_PAPERDOLL = 6                  # op8 grenade belt (1,0) + the paperdoll -> ground (IV10)
-UNPRIME_PCT = 25                  # op6: the grenade's unprime cost, a % of the unit's base TU (F2090)
-TU_UNPRIME_TO_HAND = 4            # op6: + the move belt (3,0) -> the free LH (F2090)
+UNPRIME_PCT = 25                  # op6: the grenade's unprime cost, a % of the unit's base TU
+TU_UNPRIME_TO_HAND = 4            # op6: + the move belt (3,0) -> the free LH
 TU_UNPRIME_C = 20                 # RULING F2090 (a): max(1, floor(64 x 25 / 100)) + 4 on C (IV9)
 
 # ----- the K0 kit (P8-2 T0-1 / plan review section 5) -----
@@ -246,7 +246,7 @@ TEXT_DENY = {
     "one_hand_empty": "At least one hand must be empty!",    # OXCE STR_ONE_HAND_MUST_BE_EMPTY
     "no_ammo_loaded": "No Ammunition Loaded!",               # xcom1 STR_NO_AMMUNITION_LOADED
 }
-TU_BASIS_BAD = 99                 # F1956: "tuBasis -1" cannot be sent (-1 = recompute); pinned 99
+TU_BASIS_BAD = 99                 # "tuBasis -1" cannot be sent (-1 = recompute); pinned 99
 
 # ----- S-R (AMENDMENT P8-4 section 4.3; AMENDMENT P8-4c = ledger `## W2-P8 S-R TASK 0`, docs
 # rewrite/w2p8-task0/sr/t0_sr.py and run_par.log: "battle_open_inventory {unit}; 0.3 s settle; ONE inject_input
@@ -257,7 +257,7 @@ NAME_FIELD_RECT = (28, 6, 210, 17)  # InventoryState.cpp :114 `new TextEdit(this
 NAME_CLICK = (266, 29)              # P8-4c T0-R2: the rect's centre x 2 (the harness window is 640x400)
 RN_LETTERS = (("x", 120), ("y", 121))   # T0-R2's two letters; the inject_input key = the SDL sym (unicode = sym < 128)
 RN4_LETTERS = (("z", 122),)         # draft section 2.6 RN4: one letter
-SDLK_END = 279                      # deps/include/SDL/SDL_keysym.h; P8-4c ruling 3 (F2952): End changes no text
+SDLK_END = 279                      # deps/include/SDL/SDL_keysym.h; P8-4c ruling 3: End changes no text
 RN3_NAME = "x"                      # draft section 2.6 RN3
 KEY_SETTLE_S = 0.3                  # F2888 / T0-R2: after the open, after the click, between keys
 NAME_CHANGE_S = 2.0                 # T0-R2: 0.101 s per letter on the typist; a bounded record, never a condition
@@ -269,7 +269,7 @@ NAME_KEYS = ("name", "_name", "rawName")
 # ----- windows and waits -----
 DEFER_MS = 2000                   # plan review section 2 IV3 / IV13 (the C23b5 precedent)
 POLL_S = 0.05
-BANNER_READ_S = 0.5               # F2097: a refusal text is read within 0.5 s of the press
+BANNER_READ_S = 0.5               # a refusal text is read within 0.5 s of the press
 CLICK_WAIT_S = 2.0                # a click's local effect (cursor, screen) shows within this
 SENT_WAIT_S = 2.0                 # how long a drop gets to show as sent
 ORDER_TIMEOUT_S = 20
@@ -471,7 +471,7 @@ def open_client(client, ev):
     returns True when the screen is open on the client, on C, on top."""
     r = client.cmd({"cmd": "battle_open_inventory", "unit": C_ID})
     ev["open"] = {k: r.get(k) for k in ("ok", "opened", "error")}
-    ev["openBanner"] = banner(client)          # F2097: read right after the press
+    ev["openBanner"] = banner(client)          # read right after the press
     v = inv_view(client)
     ev["openView"] = {k: v.get(k) for k in ("open", "top", "unitId", "selectedItem")}
     ev["openStack"] = stack(client)
@@ -1487,7 +1487,7 @@ def iv9_unload_unprime(host, client, ctx):
         return {"primed": {"owner": C_ID, "slot": LH, "onTile": False, "ammo": [], "fuse": -1}}
 
     def unprime_cost(st):
-        # F2090 (a): the formula on C's run-time base TU (restage's battle_set_unit_state tu 255
+        # the formula on C's run-time base TU (restage's battle_set_unit_state tu 255
         # clamps to getBaseStats()->tu, asserted 64 by staged_fails) must give the pinned 20.
         base = st["tu"]
         spent = max(1, (base * UNPRIME_PCT) // 100) + TU_UNPRIME_TO_HAND
@@ -1679,7 +1679,7 @@ def rn_view(before, rec):
 
 
 def open_name_field(gc, uid, ev):
-    """P8-4c T0-R2 (F2949): battle_open_inventory <uid> on `gc`; KEY_SETTLE_S; the one visible TextEdit must sit on
+    """P8-4c T0-R2: battle_open_inventory <uid> on `gc`; KEY_SETTLE_S; the one visible TextEdit must sit on
     NAME_FIELD_RECT; ONE inject_input click on NAME_CLICK; KEY_SETTLE_S. Fills `ev`; returns True when the click
     was made on `uid`'s open screen."""
     r = gc.cmd({"cmd": "battle_open_inventory", "unit": uid})
@@ -1766,7 +1766,7 @@ def closed_fails(ev, what, who):
 
 
 def rn0_names_at_start(host, client, ctx):
-    """P8-4c ruling 1 (F2948): read-only, the first row (battle start)."""
+    """P8-4c ruling 1: read-only, the first row (battle start)."""
     bh, bc = battle_state(host), battle_state(client)
     uh, uc = session.units_by_id(bh), session.units_by_id(bc)
     rows = []
@@ -1817,7 +1817,7 @@ def rn1_client_rename(host, client, ctx):
     ready = open_name_field(client, C_ID, ev)
     if ready:
         type_letters(client, C_ID, RN_LETTERS, ev)
-        # P8-4c ruling 3 (F2952, Q3 a): End runs the change handler (F2868) but changes no text
+        # P8-4c ruling 3 (F2952, Q3 a): End runs the change handler but changes no text
         e0 = probes_rn(client)
         end["before"] = {"sent": rn_of(e0, "sent"), "rename": count_of(e0["coopIntentsSent"], "rename"),
                          "names": names_of(client, C_ID)}

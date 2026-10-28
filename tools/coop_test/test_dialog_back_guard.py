@@ -1,4 +1,4 @@
-"""W2-U7b - test_dialog_back_guard.py: the harness vs a no-button client hold (F5864; docs rewrite/prompts/
+"""test_dialog_back_guard.py: the harness vs a no-button client hold (F5864; docs rewrite/prompts/
 w2u7b_dialog_back_guard.md (f)). Two client holds hide their button and close themselves when the host releases them:
 68 (the resume hold after a world (re)stream) and 65 (the base-placement hold); `coop_dialog_back` presses the top
 CoopState's back button whatever it shows (68: disconnects the client; 65: pops the hold early). Boots: A SHARED bring_up
@@ -9,7 +9,7 @@ test_lobby_dialogs campaign lobby (49329/49330, lobby 47308): U7b-3 (65). RED (c
 cell, U7b-4 and every GUARD cell pass; GREEN (commit 2): all pass. U7b-4's press-diagnostic cell (Q3) is judged once U7b-1
 has classified the build: one that refuses the hold replies `code` 123 / `backVisible` true and logs the `[coop-test]
 coop_dialog_back:` line; one that presses it (commit 1) has neither. Each row prints "EVIDENCE <id>:" then "PASS <id>" or
-"FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line. WV-D95/D99/D100: ONE foreground run, no skip
+"FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line. ONE foreground run, no skip
 path, every row runs after a failure; exit 0 only when every row passes, 2 otherwise. Run: python tools/coop_test/<this>
 """
 

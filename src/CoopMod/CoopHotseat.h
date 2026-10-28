@@ -35,7 +35,7 @@ class SavedBattleGame;
  * side. One battle round is one vanilla round (X-COM, aliens, civilians): the turn counter, time units,
  * wounds, fire and reinforcements run as in a normal battle.
  *
- * MECHANISM (QD247-2, QD247-7): for player 2's turn FACTION_PLAYER and FACTION_HOSTILE swap on every
+ * MECHANISM: for player 2's turn FACTION_PLAYER and FACTION_HOSTILE swap on every
  * unit (convertToFaction() only - original factions stay, i.e. vanilla's mind-control state) and the
  * active side reads FACTION_PLAYER (SavedBattleGame::coopSetSide()), so every vanilla player rule
  * (selection, sight, the map, the HUD, END TURN) serves player 2. The swap is made when the aliens'
@@ -43,7 +43,7 @@ class SavedBattleGame;
  * when player 2 ends the turn, so no side start ever runs while swapped (BattleUnit::prepareNewTurn()
  * reverts a swapped faction).
  *
- * MAPS (QD247-3): one stash holds the explored map of the player who is not at the keyboard (the vanilla
+ * MAPS: one stash holds the explored map of the player who is not at the keyboard (the vanilla
  * per-tile discovered bits, CoopFog.h's 3-bit byte); each hand-over swaps it with the live bits. Player
  * 2's first turn starts from an unexplored map, as main's does.
  *
@@ -94,7 +94,7 @@ bool coopHotseatWalkReactionOff();
 /// "aggro" step of a reaction; QD247-9).
 bool coopHotseatFactionHuman(int faction);
 
-/// D247-U S-B (QD247-8): for its lifetime on player 2's turn the real factions are back, so
+/// D247-U S-B: for its lifetime on player 2's turn the real factions are back, so
 /// BattlescapeGame::checkForCasualties() keeps vanilla's kill accounting (who killed whom, the killer's
 /// morale, the mind-control credit). Nest-safe: only the outermost guard swaps.
 struct CoopHotseatRealFactions

@@ -13,7 +13,7 @@ slot whenever the peer had equipped that item type on that craft, and was
 dumped back to the floor.
 
 The rewrite restored the vanilla equip screens and has no per-player item check
-at a peer base (owner D241 (a)). This test still guards the visible symptom:
+at a peer base. This test still guards the visible symptom:
 the transferred soldier keeps its full loadout on both screens, at home and at
 the peer base.
 

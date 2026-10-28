@@ -14,7 +14,7 @@ Acceptance (PRD-DF02):
      command wins), both converge, no crash.
   3. CLIENT weaponToggle disables a weapon -> host + client both render it disabled
      (the fire gate reads _weaponEnabled, streamed in df_state). The client's icon follows the
-     host only (owner D301 (b)): no local flip before the host's state, no flicker.
+     host only: no local flip before the host's state, no flicker.
   4. Synced UFO attack-mode marker (ufoStance) renders the SAME posture on both.
   5. CLIENT minimize -> only the client's view minimizes (host window stays full).
   6. CLIENT disengage -> the fight breaks off on BOTH machines.
@@ -33,9 +33,9 @@ import geo
 
 # df_state wire enum: 0 standoff, 1 cautious, 2 standard, 3 aggressive, 4 disengage.
 STANDOFF, CAUTIOUS, STANDARD, AGGRESSIVE, DISENGAGE = 0, 1, 2, 3, 4
-ECHO_S = 5.0   # R-CAPGEO-1: bound of AC1's wait for the host's df_state echo on the client (traced 3-6 ms after the press at
+ECHO_S = 5.0   # bound of AC1's wait for the host's df_state echo on the client (traced 3-6 ms after the press at
                # 2-3 ms test-server calls, inside the press call at 50 ms; cap-geo F23960). A bound, not a pace: replace it
-               # only by a larger value. D301 (b): also the bound of AC3's client / host sampling after the weapon click
+               # only by a larger value. also the bound of AC3's client / host sampling after the weapon click
 
 
 def _geo(gc):
@@ -206,7 +206,7 @@ def main():
         hd = _df_for(host, avenger_id, ufo_id)
         assert hd["weaponEnabled"] and hd["weaponEnabled"][0], \
             f"weapon 0 not initially enabled on host: {hd['weaponEnabled']}"
-        # D301 (b): the client's weapon icon follows the host only, like the stance buttons (a click only sends the request;
+        # the client's weapon icon follows the host only, like the stance buttons (a click only sends the request;
         # the icon changes when the host's df_state shows it). The click and the client's first probe go out in ONE send,
         # so the client runs both in the same TestServer pump, before its network drain (Game.cpp: pump() then
         # updateCoopTask()): that probe reads the icon as the click itself left it, before any host frame reached the

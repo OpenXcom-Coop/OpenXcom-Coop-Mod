@@ -7,11 +7,11 @@ PR-Q3: the K8 action-menu refusal narrows for BA_HIT in S-C's green commit),
 AMENDMENT C2 (F1129: a successful panic already sets the target's
 mindControllerId, so the mind-control proof is the target's faction) and
 AMENDMENT C4 (PR-Q18: the client-side baton check belongs to each intercept;
-F1171: an item-kind refusal does not move coopLocalExecBlocked).
+an item-kind refusal does not move coopLocalExecBlocked).
 
 Before S-C the second player can do none of this. The stun rod's STUN row is
 refused in the action menu (K8, ActionMenuState::handleAction) with "Only the
-host can use this item" and coopLocalExecBlocked +0 (F1171). The psi click and
+host can use this item" and coopLocalExecBlocked +0. The psi click and
 the mind-probe click are refused at K1 (BattlescapeGame::primaryAction's
 targeting arm; client coopLocalExecBlocked +1, nothing sent). After S-C each
 press becomes an intent (wire kinds of spec (b)1: `melee` for BA_HIT, `psi`
@@ -69,7 +69,7 @@ Four scenarios, ONE boot, in this order:
          F1096, Q8 (a); TASK 0 T0-8). Right after C22 on the same boot: A is
          FACTION_PLAYER with mindControllerId C on both (the precondition, C2
          / F1129). After the mind control A has 0 TU and a TU cap of 0, so
-         battle_set_unit_state cannot raise its TU (F1303); `battle_action
+         battle_set_unit_state cannot raise its TU; `battle_action
          set_stat {stat tu, value A_TU_CAP, refill true}` on both (client
          first) writes the cap back to A's bring-up TU and refills TU to it.
          Staging asserts: A's TU after the refill (= the cap) equal on both
@@ -89,8 +89,7 @@ C22 needs, so C22 keeps C and A where they stand (CLAUDE.local.md S2: a unit
 is never teleported onto its own tile, it keeps the facing its last turn
 produced) and re-faces C only when C23d did not leave C facing A. The client
 UnitInfoState C23d's green opens is closed with the client's cancel key
-before C22. A hand click while the client targets only cancels the targeting
-(F503).
+before C22. A hand click while the client targets only cancels the targeting.
 
 Common asserts (spec (f), after the order settles): hash_now {full:true} -
 every bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes
@@ -110,7 +109,7 @@ the second player's psi attack is about the attacker C, the HOST's partner's
 soldier. MR3 (C22): leg P - the host's event_state `messages` ring +1 {C,
 STR_MORALE_ATTACK_SUCCESSFUL, partner, notice} and no host infobox (box_p ==
 []); the client's ring +1 {C, same key, own, box, queued Q_C22P}; leg M - the
-same with STR_MIND_CONTROL_SUCCESSFUL, queued Q_C22M, box_m == []. F1702: after
+same with STR_MIND_CONTROL_SUCCESSFUL, queued Q_C22M, box_m == []. after
 each leg's collect one bounded wait (test_messages.client_quiet: the client's
 message queue empty and BattlescapeState on top within BOX_WAIT_S) so the
 client's own 2 s box never eats leg M's first hand click or C22o's input;
@@ -166,8 +165,8 @@ roster-pinned terror boot of test_host_combat.py): set_seed SEED_ROSTER on
 the HOST right before its open_new_battle, mission STR_TERROR_MISSION,
 set_seed SEED_MAP right before newbattle_ok, seat_count 2, MAP_FP asserted on
 both, the seated unit ids asserted (SEATED), pin_ai_neutral. Every lever pair
-goes to the CLIENT first (F607). Item ids are read at run time from the lever
-replies or by unitLink (F1107), never baked. The seeds were found with HOST
+goes to the CLIENT first. Item ids are read at run time from the lever
+replies or by unitLink, never baked. The seeds were found with HOST
 stand-ins that run the executor's states for C (SEED_C21: S-C.1's battle_fire
 {mode melee}; SEED_C22P / SEED_C22M: battle_action psi_attack): S-C's executor
 build proves them again (N18 = F1085).
@@ -183,9 +182,9 @@ conditions are checked; main() runs every scenario even after an earlier one
 failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded;
 a wait that times out is recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all four scenarios pass, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_client_melee_psi.py
@@ -239,7 +238,7 @@ TEXT_ITEM_ACTION = "Only the host can use this item"   # STR_COOP_ITEM_ACTION_HO
 
 # ----- C23d (T0-9 = T0b; the cost measured with S-C.1's battle_fire {mode use}) -----
 FOV_C_TILE, FOV_C_DIR0 = (12, 26, 0), 2       # C teleported facing east, then a client `turn` toward A
-FOV_TURN_TO, FOV_C_DIR = 0, 1                 # the turn to dir 0 halts at dir 1 on spotting A (F1131)
+FOV_TURN_TO, FOV_C_DIR = 0, 1                 # the turn to dir 0 halts at dir 1 on spotting A
 A_TILE, A_DIR = (12, 23, 0), 4
 MIND_PROBE = "STR_MIND_PROBE"
 PROBE_TU = 32                     # 50 % of C's max TU 64
@@ -263,7 +262,7 @@ KEY_MORALE_ATTACK = "STR_MORALE_ATTACK_SUCCESSFUL"
 KEY_MIND_CONTROL = "STR_MIND_CONTROL_SUCCESSFUL"   # STR_PSI_AMP does not convertToCivilian (not the _ALT key)
 Q_C22P = False                   # PIN (T0a-3): leg P's `psi` applied with BattlescapeState on top (not queued)
 Q_C22M = False
-BOX_WAIT_S = 5                   # F1702: the client's own 2 s success box closes by itself before the next input
+BOX_WAIT_S = 5                   # the client's own 2 s success box closes by itself before the next input
 
 # ----- C22o (T0-8's order for A after the mind control; review N29 = F1096) -----
 C22O_OCTANTS = 2                  # T0b's order: A's facing + 2 octants
@@ -768,7 +767,7 @@ def c22o_order(host, client, ctx):
     seq0 = before["host"]["lastSeqEmitted"] or 0
     if mc:
         try:
-            # F1303: the TU cap is getBaseStats()->tu (= _stats, the clamp of setTimeUnits); set_stat writes it and
+            # the TU cap is getBaseStats()->tu (= _stats, the clamp of setTimeUnits); set_stat writes it and
             # `refill` writes TU = the cap, so the reply's `tu` is the cap on each machine (both(): equal on both).
             tu["staged"] = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu",
                                                "value": A_TU_CAP, "refill": True}, ("tu",)).get("tu")

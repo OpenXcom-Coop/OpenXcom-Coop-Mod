@@ -19,7 +19,7 @@ host's END TURN -> side 1 turn 1 (the host's selection is empty there).
       `shot`), P1-skip (the host's projectileSkips delta 0; RED: +1).
   P2  the same shot with no turn (control): A faces P_TILE (P1's turn); a fresh pistol, TU; the same snap. P2-order (A
       faces P_TILE on both; one {intent, shoot, A}; shoot +1; no `turn` ev), P2-skip (delta 0).
-  P4  an X-COM reaction to the alien player's walk flies in full on the host (F12699): RM row R2's staging (9 reactions
+  P4  an X-COM reaction to the alien player's walk flies in full on the host: RM row R2's staging (9 reactions
       100, firing 0, 9's rifle, TU); A on (15,2,0) (place, kept) and its TU; host set_seed SEED_P4; the client's
       send_walk(A, P4_DEST). P4-react (the host's selection empty; one {intent, walk, A} and one `reaction` context
       {actorId 9, nestedIn that walk} holding a shot by 9, halted `reaction` on both: RM.walk_react), P4-skip (delta 0;
@@ -34,8 +34,8 @@ Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, n
 EVIDENCE only: the host camera before / after each order. RED at C1: P1-skip, P3-skip, P4-skip; every other cell PASS.
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails that boot's rows "boot"; a staging step past its bound fails them
-"staging". Lever pairs go to the client first (F607); ids come from lever replies (S25). WV-D95: run in the foreground
-to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+"staging". Lever pairs go to the client first; ids come from lever replies (S25). run in the foreground
+to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_preturn_shot.py
 """

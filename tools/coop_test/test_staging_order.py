@@ -1,9 +1,9 @@
-"""W2-U8c: a host staging lever can ship a `reveal` ev in its frame (F6471), so a client-first pair waits on
-session.wait_seq_barrier before the next client step (F6495); a settle wait reads the client before the host (F6561).
+"""a host staging lever can ship a `reveal` ev in its frame, so a client-first pair waits on
+session.wait_seq_barrier before the next client step; a settle wait reads the client before the host.
 ONE run; EVIDENCE before each verdict; every row runs after a failure; exit 0 only when all pass, else 2. Cells: [named]
 (the red), [guard] (red and green), [other]. U8c-4 guard / U8c-3: a fake pair vs wait_seq_barrier + wait_host_idle / the
 10 settle waits V1-V6, V8-V11. U8c-G guard / U8c-1 / U8c-2 (Boots A / B / C): dc.both / session.place_deterministic /
-bes.both under the client hold (the U8b stand-in, F8167). TASK 0: docs rewrite/w2u8c-task0/CONSTANTS.md (P1, P2)."""
+bes.both under the client hold (the U8b stand-in, F8167). docs rewrite/w2u8c-task0/CONSTANTS.md (P1, P2)."""
 import json
 import os
 import sys
@@ -26,7 +26,7 @@ import test_feedback as rwf
 import test_retry_cancel as rwr
 import test_turn_mode as rwt
 
-BOOTS = {"A": (49415, "47232"), "B": (49417, "47234"), "C": (49419, "47236")}   # labels, lobby (F8169)
+BOOTS = {"A": (49415, "47232"), "B": (49417, "47234"), "C": (49419, "47236")}   # labels, lobby
 HOLD_S, CALIBRATE, HELD_MIN_S, FAKE_TIMEOUT_S, OUTCOME_S = 3.0, 200, 1.0, 5, 6.0
 A_AT = {"unit": cs.A_ID, "x": cs.A_TILE[0], "y": cs.A_TILE[1], "z": cs.A_TILE[2], "dir": cs.A_DIR}
 TELE_A = dict(A_AT, cmd="battle_teleport_unit")

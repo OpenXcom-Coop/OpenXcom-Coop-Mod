@@ -164,7 +164,7 @@ CraftArmorState::CraftArmorState(Base *base, size_t craft) : _base(base), _craft
  */
 CraftArmorState::~CraftArmorState()
 {
-	_sharedRefresh.unbind(this); // coop W2-H16b (PRD-J10)
+	_sharedRefresh.unbind(this); // coop
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -297,7 +297,7 @@ void CraftArmorState::init()
 	}
 
 	touchComponentsRefresh();
-	_sharedRefresh.bind(_game, this, _base); // coop W2-H16b (PRD-J10): redraw when a shared apply lands
+	_sharedRefresh.bind(_game, this, _base); // coop: redraw when a shared apply lands
 }
 
 /**
@@ -743,7 +743,7 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 }
 
 /**
- * coop W2-H16b (PRD-J10): applies a pending live refresh (the CraftSoldiersState::think shape).
+ * coop: applies a pending live refresh (the CraftSoldiersState::think shape).
  */
 void CraftArmorState::think()
 {

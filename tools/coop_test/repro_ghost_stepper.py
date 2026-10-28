@@ -14,12 +14,12 @@ The lane is located each run from the craft's own LIGHTNIN door
 (session.lightning_door), never from absolute coordinates: roof_z = door_z +
 ROOF_DZ, lane_y = door_y + LANE_DY, lane_x0 = door_x + LANE_DX_START, walked by
 ARITHMETIC (start + n*D), never by scanning. Hostiles/neutrals are corner-placed
-far away (WV-D88) so the roof stays contact-free even after a walk recomputes FOV.
+far away so the roof stays contact-free even after a walk recomputes FOV.
 The baked constants were measured once by the orchestrator's R1 (three boots, door
 at y=25/5/15, identical door-relative craft-roof geometry, hash_now{full} EQUAL on
 both machines after every teleport and a 6-step walk). A premise that no longer
 holds (a lane tile that is not flat/walkable/free) is a RED naming it (exit 2),
-never a SKIP (WV-D100).
+never a SKIP.
 
 WHY EVERY ASSERTION READS THE CLIENT (never the host) - "the observing
 machine" is always the CLIENT in this wave's two-seat topology, and this is
@@ -177,7 +177,7 @@ def do_kneel(host, client, actor_id):
 
 def bring_up_roof_battle(seat_count, tag, pre_ok=None):
     """Boot the two-instance skirmish on the Lightning, corner-place hostiles/
-    neutrals far away (WV-D88) so the roof stays contact-free, and return
+    neutrals far away so the roof stays contact-free, and return
     (host, client, client_ids, host_ids, door).
 
     `seat_count` (R1 F89): the base soldier pool is 6; `seat_count` stamps N
@@ -419,7 +419,7 @@ def positive_walk(host, client, actor_id):
 
 
 def halted_walk_prefix(host, client, actor_id):
-    """SPEC 7(f): "a HALTED walk animates only the executed prefix" -
+    """"a HALTED walk animates only the executed prefix" -
     ghostEnqueued must equal len(lastWalk['steps']) (the EXECUTED prefix),
     never the intent's planned path length. Uses the SAME battle_halt_walk
     one-shot TestServer lever repro_atom_walk.py's own PHASE 3 uses. The roof
@@ -642,7 +642,7 @@ def test_desync_lever_still_detects():
         assert read_ghost_option(client) is True, "coopGhostStepper must default to ON for this proof"
         assert_hash_clean(host, client, full=True, what="at t=0 (pre-corruption)")
 
-        host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A (QL3-5 a): this proof is the halt itself
+        host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: this proof is the halt itself
         corrupted_id = corrupted_unit_id(host, client)
 
         # A KNEEL on a DIFFERENT unit via the HOST's own local keypress

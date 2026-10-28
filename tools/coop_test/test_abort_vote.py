@@ -8,7 +8,7 @@ rewrite/r4l1-task0/CONSTANTS.md: HOST_DLG, the vote texts, the walk pin, AV1b-2'
 Two boots (tbe.boot: the classic parallel skirmish, set_seed SEED_MAP 1, MAP_FP, pin_ai_neutral, hash clean), each shut
 down before the next:
   Boot A (lobby key 48612): AV0 rules and the host's dialog; AV2 the client's ABORT opens the vote and a NO cancels it;
-         AV2b no wait before a new vote (D244); AV1b END TURN waits for the vote.
+         AV2b no wait before a new vote; AV1b END TURN waits for the vote.
   Boot B (lobby key 48613): AV1 the host's ABORT opens it, one YES does not abort, no deadline; AV3 a vote passed during
          a running action lands after it and both YES end the battle for both.
 
@@ -34,7 +34,7 @@ visible and not hidden); dismiss_popup only on an AbortMissionState (and once, i
 RED (commit 1 = this file, the six re-points and the zero-valued probe plumbing): exit 2 with AV0-1, AV2-1, AV2b-1,
 AV1b-1, AV1-1 FAIL (their later cells "not reached": the client's press is refused, the host's OK ends the battle at
 once), AV0-2 / AV0-3 PASS, AV3 FAIL "not reached" (boot B's battle ended at AV1). Commit 2: exit 0.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_abort_vote.py
 """
@@ -52,7 +52,7 @@ import test_battle_end as tbe
 
 KEY_A, KEY_B = "48612", "48613"
 W, POLL = 5.0, 0.1
-WATCH_CAP_S = 135  # RV-U13 S-C (R-C26-1): AV3's waits end at the debriefs; >= max(120, 2.5 x 31.9 s), F11357
+WATCH_CAP_S = 135  # RV-U13 S-C: AV3's waits end at the debriefs; >= max(120, 2.5 x 31.9 s), F11357
 TITLE, QUESTION = "Abort Mission", "Abort Mission?"                   # en-US STR_ABORT_MISSION / _QUESTION
 RULE = "STRICT MAJORITY: 2 OF 2 YES VOTES"
 REFUSAL = "Only the host can abort the mission"                       # STR_COOP_ABORT_HOST_ONLY (retired)

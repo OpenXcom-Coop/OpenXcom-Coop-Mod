@@ -52,7 +52,7 @@ per boot); the Coop_TurnLimit_Test data mod is loaded on E4's boot only:
       presses END TURN (gm2: the host's seat alone ends the X-COM side), then
       closes its NextTurnState -> finishBattle(false, liveSoldiers 7).
       Expected record: reason aliensDown, aborted false, inExitArea 7, seat 0
-      win and seat 1 lose (V7's complement), tally {0, 7, 0}. D157 (a): the
+      win and seat 1 lose (V7's complement), tally {0, 7, 0}. the
       alien seat ends on the host's debriefing, display-only, with the S-B1
       rows of E4/E5 (S-D2; the S-A interim tore it down to MainMenuState and
       its host sent it no `bt_debrief_result`). Not asserted:
@@ -135,7 +135,7 @@ checked; main() runs every row even after an earlier one failed and prints
 "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that runs
 out is recorded and fails the row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot per
+one run is the result. No skip path, no second boot per
 row, no alternative map or actor. Exit 0 only when all four rows pass, 2
 otherwise.
 
@@ -200,18 +200,18 @@ ROW_EXPECT = {
             "tally": {"liveAliens": 1, "liveSoldiers": 7, "inExit": 0}},
 }
 ROW_PORT = {"E4": "48776", "E5": "48777", "E6": "48778", "E6b": "48779"}
-SELF_END_S = 15      # E5: the host's NextTurnState with no press and no lever (W2-H31)
+SELF_END_S = 15      # E5: the host's NextTurnState with no press and no lever
 
 # ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R5; as test_battle_end.py) -----
 # The client's display-only debrief: the X-COM client (E4, E5, S-B1) and the PvP alien side (E6, E6b; D157 (a), S-D2).
 DEBRIEF_ROWS = ("E4", "E5", "E6", "E6b")
 CLIENT_END_TOPS = ("DebriefingState", "MainMenuState")   # the client wait ends on either (every row)
-HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state (F2055)
-DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174 (F2049)
+HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state
+DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
-# G11 (F2031): these rows' host page 1 has at least one row; the other rows pin `rows` as [].
+# G11: these rows' host page 1 has at least one row; the other rows pin `rows` as [].
 ROWS_WITH_PAGE1 = ("E5", "E6")
-# G14 (F2037): these rows' page-1 scores and total come from the per-boot roster (dead soldiers' ranks and
+# G14: these rows' page-1 scores and total come from the per-boot roster (dead soldiers' ranks and
 # missions): the pin holds each page-1 row as {item, qty, recovery} and no `total`.
 ROSTER_SCORED_ROWS = ("E5",)
 # R6: each DEBRIEF_ROWS row's host debrief_state content, copied verbatim from the capture run on the S-B1.1
@@ -317,7 +317,7 @@ def machine_view(gc):
 
 
 def host_hold(host):
-    """S-B1 row f (F2055): sample the host's top every 0.25 s for HOST_HOLD_S and
+    """S-B1 row f: sample the host's top every 0.25 s for HOST_HOLD_S and
     return the distinct non-DebriefingState tops seen, in first-seen order
     ([] = the host's debrief held the top throughout)."""
     seen = []
@@ -426,7 +426,7 @@ def stage_e5(host, client, pre):
 
 def end_e5(host, client, ending):
     """E5 ending: no press and no lever - the side with no live seat ends by
-    itself (W2-H31); the host's NextTurnState close (NextTurnState::close ->
+    itself; the host's NextTurnState close (NextTurnState::close ->
     finishBattle(false, 0))."""
     ok, secs = wait_until(lambda: host_next_turn_up(host), SELF_END_S, 0.1)
     if not ok:
@@ -538,7 +538,7 @@ def pin_view(deb, rid):
     """The pinned form of a debrief_state (AMENDMENT P7-3 G10, F2030): the seven
     content fields, with `soldiers` reduced to each row's deltas in order (the
     row count and the stat gains) - soldier names change per boot, so they are
-    compared host-to-client only (row j), never pinned. G14 (F2037): on
+    compared host-to-client only (row j), never pinned. G14: on
     ROSTER_SCORED_ROWS each page-1 row is {item, qty, recovery} (a dead
     soldier's score comes from its rank and missions, DebriefingState.cpp
     :1494/:1530, BattleUnit.cpp :89-100) and `total` is not pinned; row j still
@@ -600,7 +600,7 @@ def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
     if pin is None:
         f.append(f"no HOST_DEBRIEF pin for {rid} (R6)")
     else:
-        # G11 (F2031): a non-empty title on every row; ROWS_WITH_PAGE1 rows also need a page-1 row
+        # G11: a non-empty title on every row; ROWS_WITH_PAGE1 rows also need a page-1 row
         need_rows = rid in ROWS_WITH_PAGE1
         if pin.get("title") in ("", None) or (need_rows and len(pin.get("rows") or []) < 1):
             f.append(f"HOST_DEBRIEF[{rid}] pin sanity: title={pin.get('title')!r} rows={pin.get('rows')} "

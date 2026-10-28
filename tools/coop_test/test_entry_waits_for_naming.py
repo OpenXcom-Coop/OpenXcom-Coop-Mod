@@ -35,7 +35,7 @@ Red today: the 8 RED cells FAIL; N-hostline, U-enter, U-calm, CRASH PASS. Green 
 Every subject press is a real click_widget / inject_input; no dismiss_popup or coop_dialog_back reaches the partner while it names. One
 EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached"); a
 boot miss fails every row "boot" with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_entry_waits_for_naming.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 

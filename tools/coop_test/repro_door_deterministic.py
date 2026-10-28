@@ -1,25 +1,25 @@
 """SPEC 6d (P10-ACCEPT, REV E.8, WV-D78/WV-D79): the PURPOSE-BUILT
 deterministic door test, its OWN file rather than a retrofit onto
 repro_atom_door.py (NOT touched here) - five prior cycles collided with that
-file's map-rolled SEARCH machinery, never with coop door behaviour (WV-D78).
+file's map-rolled SEARCH machinery, never with coop door behaviour.
 The WV-D63 placement lever removes the need to search: teleport every
 hostile away, teleport a soldier next to a named closed UFO door, walk it
 through, and re-prove WV-D59 (the host must not apply its own TU reserve to
 a client-origin door) in both directions, with a host-origin control leg.
 
-DETERMINISTIC fixture (WV-D65): the SITUATION comes from the Lightning
-craft's own UFO door (WV-D87) plus place_deterministic's own hash-equality
-gate - bar is 3 CONSECUTIVE GREEN, not 10. SPEC 0e-2 (WV-D86) removes the
+DETERMINISTIC fixture: the SITUATION comes from the Lightning
+craft's own UFO door plus place_deterministic's own hash-equality
+gate - bar is 3 CONSECUTIVE GREEN, not 10. SPEC 0e-2 removes the
 map search entirely: ONE boot, no retry of any kind. A `FIXTURE:`-prefixed
 staging failure is a FAIL (exit 2, D59); anything else is a real FAIL (exit 2).
 
-THE TRAP AVOIDED (WV-D77): `event_log`'s probe is a fixed-size POD (`seq`,
+THE TRAP AVOIDED: `event_log`'s probe is a fixed-size POD (`seq`,
 `actionId`, `kind`, `h`, no `payload` - BattlePump.h:206-219 /
 TestServer.cpp:4524-4542), so the door ev is matched on `kind == "door"`
 alone; the OPEN is proved by the counter deltas and the door's own
 `isUfoDoorOpen` False->True transition.
 
-SPEC 6e (REV E.9) EXTENSION - three more phases, same battle, still no
+SPEC 6e EXTENSION - three more phases, same battle, still no
 search. Phase A (leg (a) above) additionally proves the door ev's STREAM
 POSITION on both machines (`session.assert_door_between_steps`) and a door-census
 change + parity (`session.door_census`/`session.assert_door_parity`). Phase B opens a
@@ -30,14 +30,14 @@ NON-UFO door with a THIRD soldier. A UFO door STAYS in the census and flips
 No bucket name is hard-coded: only "at least one moved, printed by name" is
 asserted.
 
-SPEC 6f AMENDMENT (REV E.11) - fixes leg (a)'s geometry (actor starts one tile
+fixes leg (a)'s geometry (actor starts one tile
 back of `near` so the crossing is back->near->far with a walk_step either
 side of the door) and adds phases D/D2/E: the WV-D50 boundary close (MUTATING
 - phase B leaves a UFO door open, unlike repro_atom_door.py's own fixture),
 its no-op repeat, and the client's host-only refusal. Which door(s) are open
 at D is MEASURED, never assumed.
 
-SPEC 6f AMENDMENT 2 (REV E.12) - THE TURN IS THE RIGHT-CLICK. Verified at
+SPEC 6f AMENDMENT 2 - THE TURN IS THE RIGHT-CLICK. Verified at
 source: `UnitTurnBState::init()` (UnitTurnBState.cpp:74-98), when
 `_chargeTUs` (default true) and `_action.type == BA_NONE` (the client turn
 intent's default, connectionTCP.cpp:3720-3732), UNCONDITIONALLY calls
@@ -57,7 +57,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8f (F9054): bring_up's cleanup
+from harness import shutdown_clients  # bring_up's cleanup
 import session
 from session import assert_hash_clean, contact_free_ufo_door_setup, place_deterministic
 import repro_atom_walk as W
@@ -86,7 +86,7 @@ def is_fixture_error(e):
 
 
 def _pin(h):
-    """SPEC 0e-2 (WV-D87/WV-D88): pin the Lightning craft, then the floater
+    """SPEC 0e-2: pin the Lightning craft, then the floater
     race - order matters, drive_to_battlescape calls this AFTER the mission
     pin (cbxMissionChange has already rebuilt the race list by then) and
     BEFORE any seat is picked."""
@@ -95,7 +95,7 @@ def _pin(h):
 
 
 def bring_up():
-    """SPEC 0e-2 (WV-D86): one boot, no retry - ports/dirs keep the same
+    """SPEC 0e-2: one boot, no retry - ports/dirs keep the same
     offsets the single remaining attempt (1) used."""
     port = str(BASE_GAME_PORT + 1)
     host = GameClient("det-host", BASE_TEST_PORT + 2,
@@ -106,7 +106,7 @@ def bring_up():
         W.bring_up_lobby(host, client, port)
         seated = {}
         session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin)
-        # REV E.48 SS.E.2 (SPEC 12): phase D is re-pointed at a REAL end-of-turn,
+        # REV E.48 SS.E.2: phase D is re-pointed at a REAL end-of-turn,
         # which needs the alien side inert so the boundary crosses deterministically
         # (REV E.48 SS.B.2's AI-neutral pin, the one mechanism every SPEC 9..15
         # boundary-crossing test uses).
@@ -115,7 +115,7 @@ def bring_up():
             f"pin_ai_neutral pinned ZERO NONE-seat non-player units on this "
             f"CLASSIC {MISSION} boot - the premise is unexercised (M9a-3)")
     except BaseException:
-        # W2-U8f (F9054): run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
+        # run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
@@ -123,11 +123,11 @@ def bring_up():
 
 
 def pin_tu(host, client, actor_id, tu):
-    for gc in (client, host):  # F607: client first, then host
+    for gc in (client, host):  # client first, then host
         r = gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
                    "stat": "tu", "value": tu, "refill": True})
         assert r.get("ok"), f"pin_tu({gc.name}): set_stat failed: {r}"
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
 
 
 def wait_counter(host, pred, timeout=15):
@@ -159,7 +159,7 @@ def dump_record(what, host, actor_id, pos_before, tu_before, door_at, open_befor
           f"path={restate.get('path')}")
 
 
-# ===== SPEC 0e-2 (WV-D87): the Lightning craft's own UFO door - legs (a)/(b) ====
+# ===== SPEC 0e-2: the Lightning craft's own UFO door - legs (a)/(b) ====
 # and phase B all stage on this ONE door now, replacing contact_free_ufo_door_setup.
 
 lightning_door = session.lightning_door
@@ -169,7 +169,7 @@ def lightning_setup(host, client, tag, actor_id=None, move_factions=True):
     """WV-D87 staging on the craft door. Returns (actor_id, near, far, far_ground, door).
     near = the standable side (deck), far = the void side at door z, far_ground = far one level
     down (the exit tile). Hostiles -> the corner farthest from the door, neutrals -> the
-    opposite corner (WV-D88), both machines, hash gate; the actor -> near, facing far."""
+    opposite corner, both machines, hash gate; the actor -> near, facing far."""
     door, mx, my = lightning_door(host)
     a, b = session.door_sides(door)
     if session._tile_standable(host, a):
@@ -232,7 +232,7 @@ def pick_door(host, want_ufo, exclude_keys, tag):
     already spoken for and is more than session.MAX_VIEW_DISTANCE tiles
     (Chebyshev, position-based, from battle_state) from every living hostile
     (SPEC 0e-2: the actor must not spot on its approach) - not a ranking, a
-    plain exclusion. Missing on this map roll => FIXTURE (WV-D72), never a red."""
+    plain exclusion. Missing on this map roll => FIXTURE, never a red."""
     kind = "UFO" if want_ufo else "non-UFO"
     candidates = [d for d in session.closed_doors(host) if bool(d["isUfoDoor"]) == want_ufo]
     hostiles = [u for u in session.battle_state(host).get("units", [])
@@ -323,7 +323,7 @@ def wait_door_fired(host, client, before_emitted, timeout=30):
     Still used by phase D (SPEC 6f's boundary close)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        cs, hs = session.event_state(client), session.event_state(host)  # W2-U8c (F6561): the client is read first
+        cs, hs = session.event_state(client), session.event_state(host)  # the client is read first
         if (hs["coopDoorEvsEmitted"] > before_emitted
                 and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
                 and cs.get("queueDepth") == 0):
@@ -347,14 +347,14 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
 
     SPEC 0e-2: `door_pick(host) -> (door, door_key)`, when given, replaces
     `pick_door(...)` - phase B uses it to stay on the Lightning's own craft
-    door (WV-D87) instead of picking a second one."""
+    door instead of picking a second one."""
     if door_pick is not None:
         door, door_key = door_pick(host)
     else:
         door, door_key = pick_door(host, want_ufo, exclude_door_keys, tag)
     actor_id = pick_soldier(host, client, used_actors, tag)
     if door_pick is not None:
-        # REV E.20 (WV-D87): the craft door has ONE standable side - the deck tile `near` -
+        # the craft door has ONE standable side - the deck tile `near` -
         # and leg (b)'s actor may still be standing on it. lightning_setup moves that
         # occupant to a free deck tile and places THIS actor on `near` facing the door;
         # `through` is the void tile at door z (the direction the door faces). The
@@ -901,7 +901,7 @@ def phase_client_refused(host, client, tag, census_before):
 
 
 def run_scenario(host, client, tag):
-    # ---- step 2: build the situation on the Lightning's own UFO door (WV-D87) ----
+    # ---- step 2: build the situation on the Lightning's own UFO door ----
     actor_a, near, far, far_ground, door = lightning_setup(host, client, f"{tag} leg-a")
     door_at = (door["x"], door["y"], door["z"], door["part"])
 
@@ -987,7 +987,7 @@ def run_scenario(host, client, tag):
     # ---- SPEC 6e phase A additions (owner item 1 + item 6): the door ev's
     # STREAM POSITION on BOTH machines, plus a door-census change + parity.
     # Purely additive - leg (a)'s own accepted assertions below are unchanged.
-    # WV-D77: on a STOP-IF here (the geometry fix did not produce a leading
+    # on a STOP-IF here (the geometry fix did not produce a leading
     # walk_step), paste the instrumented record before propagating.
     try:
         session.assert_door_between_steps(host, action_id, what=f"{tag}(a) stream position (host)")
@@ -1064,7 +1064,7 @@ def run_scenario(host, client, tag):
     # ---- re-arm: close it again, re-pin TU, only the reserve changes next ----
     rc = host.cmd({"cmd": "battle_close_ufo_doors"})
     assert rc.get("ok"), f"{tag}(b): re-close failed: {rc}"
-    # cap-door (F24230): pin_tu sets the CLIENT's TU first (F607). Wait until the client has applied the
+    # cap-door: pin_tu sets the CLIENT's TU first. Wait until the client has applied the
     # re-close's door ev (seq barrier) first: that ev's unitsStats hash carries the TU the baseline left, so a
     # client TU write landing before it is a DESYNC and an automatic repair (the CIT-FULL5 red).
     session.wait_seq_barrier(host, client)
@@ -1088,7 +1088,7 @@ def run_scenario(host, client, tag):
     hs = session.event_state(host)
     door_opened = opened or hs["coopDoorEvsEmitted"] != emitted_b0
     waive_fired = hs["coopDoorReserveWaived"] != waived_b0
-    # WV-D77: check BOTH signals before raising - a door opened WITHOUT the
+    # check BOTH signals before raising - a door opened WITHOUT the
     # waive moving is a TU-affordability outcome (Tile::openDoor's own cost
     # check), not proof the waive predicate fired for a HOST-origin action.
     if door_opened or waive_fired:
@@ -1118,7 +1118,7 @@ def run_scenario(host, client, tag):
     W.set_reserve(client, mode="none", kneel=False)
     assert_hash_clean(host, client, full=True, what=f"{tag} final")
 
-    # ---- Phase B: THE TURN IS THE RIGHT-CLICK on the SAME craft door (WV-D87), a
+    # ---- Phase B: THE TURN IS THE RIGHT-CLICK on the SAME craft door, a
     # SECOND soldier - re-close it first (leg (b)'s control left it closed already,
     # but this is the fixture's own precondition, not an assumption).
     def _phase_b_door(h):
@@ -1144,7 +1144,7 @@ def run_scenario(host, client, tag):
         exclude_door_keys={door_at, door2_key}, used_actors=used_actors)
     used_actors.add(actor3)
 
-    # ---- SPEC 6f Phase D: BOUNDARY CLOSE, the mutating half (WV-D50) ----
+    # ---- SPEC 6f Phase D: BOUNDARY CLOSE, the mutating half ----
     print(f"\n== {tag} phase F: WALK through a NON-UFO door ==")
     actor4, door4_key = phase_walk_through_normal_door(
         host, client, f"{tag} phase F",
@@ -1161,7 +1161,7 @@ def run_scenario(host, client, tag):
 
 
 def run_fixture(tag):
-    """SPEC 0e-2 (WV-D86): one boot, no retry - a `FIXTURE:` staging failure
+    """SPEC 0e-2: one boot, no retry - a `FIXTURE:` staging failure
     propagates straight to `__main__`'s is_fixture_error mapping (exit 2, D59)
     instead of being caught and retried here."""
     host, client = bring_up()

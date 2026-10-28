@@ -9,8 +9,8 @@ host's base; a soldier it gives away there leaves only the view (both rosters ke
      the host half), R3-reload (once_client).
 X-pre / X-common GUARD (both alive at the read, no new .dmp, no hash-map crash file). 13 cells; red: RED exactly on R1-file, R1-reload,
 R2-live, R2-file, R2-reload, R3-file, R3-reload. The helpers (copied from CAP rewrite/lh64-2-cap/cap.py and T64 rewrite/w2h64-task0/sa/
-t0_h64a.py) live in gift_helpers.py, shared with test_gift_during_visit_rejoin.py (R-H70-2). ONE EVIDENCE line per row, one
-PASS / FAIL line per cell, the row verdict; every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one
+t0_h64a.py) live in gift_helpers.py, shared with test_gift_during_visit_rejoin.py. ONE EVIDENCE line per row, one
+PASS / FAIL line per cell, the row verdict; every row runs; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
 Run: python tools/coop_test/test_gift_during_visit.py
 """

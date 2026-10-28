@@ -4,7 +4,7 @@ load into the rewrite's gm2 seats and resumes for both players through RESUME CA
 (PvE2) save loads unconverted and RESUME CAMPAIGN shows D275's dialog (owner D246 (b); QD246-6 (a); Q283-4 (a); D283 (b); r5-T1).
 
 Spec: docs repo rewrite/prompts/d246u_sc_pvp_battle_convert.md section (f) and its ORCHESTRATOR RULINGS (QD246C-1 .. QD246C-7 (a));
-R-D250-SC4A-1 (a): every resume's START HOST goes through the real host window (host_menu_host), never the host_tcp lever. Pins:
+every resume's START HOST goes through the real host window (host_menu_host), never the host_tcp lever. Pins:
 rewrite/d246u-task0/sc1/CONSTANTS.md (TASK 0 T0-1 .. T0-5: census F16472, negative loads, premise boots P / P4).
 
 Boot C2 (key 48246, dirs d246uc_c2_host / d246uc_c2_client2): the host gets tools/coop_test/fixtures/pvp_gm2_battle.sav, client2 an
@@ -25,7 +25,7 @@ RED (C1R, the unchanged build): exit 2, 1/7 - FAIL C2-load, O4-refused; C2-resum
 load was refused); PASS C2-common. GREEN (C1G): 7/7.
 
 One EVIDENCE line per row, one PASS / FAIL line per cell, one ROW line per row; every row runs after a failure. A bring-up miss prints
-ONE CAPTURE line and FAILs the boot's remaining cells "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run
+ONE CAPTURE line and FAILs the boot's remaining cells "boot". run in the foreground to completion. ONE run
 is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_old_pvp_battle_resume.py

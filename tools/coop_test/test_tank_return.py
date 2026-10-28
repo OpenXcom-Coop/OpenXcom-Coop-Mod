@@ -31,7 +31,7 @@ Shared with test_tank_lost: bring_up (the boot, its pins and guards), ending (SB
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a cell
 whose precondition failed FAILs "not reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE line and fails
 every row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come from probes
-(S25); a key the build does not write reads as absent. WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE
+(S25); a key the build does not write reads as absent. run in the foreground to completion. ONE
 run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_tank_return.py

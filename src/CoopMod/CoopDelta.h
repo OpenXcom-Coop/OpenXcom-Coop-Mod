@@ -295,7 +295,7 @@ void battleEndRecordSet(const char* key, const Json::Value& value);
 void battleEndRecordReset();
 
 /// MG-A S-A1 [stage]: this machine's SESSION-LIFETIME stage record, every key present (zeros before any write);
-/// never reset, not by initBattleAuthority (F5092). Keys: connectionTCP.cpp stageZeros(). Test introspection only.
+/// never reset, not by initBattleAuthority. Keys: connectionTCP.cpp stageZeros(). Test introspection only.
 Json::Value stageRecord();
 
 /// HOST, CoopEmit::sendEv() right after the seq stamp: the first envelope
@@ -533,7 +533,7 @@ void coopBeginEndTurnChain(bool go);
 
 // ----- W2-P3 S-B, commit S-B.2: nested `reaction` / `prox` contexts, D145 -----
 // Spec rewrite/prompts/w2p3_nonplayer_origins.md (b)1-3, (b)8, (b)9; amendments
-// B1 RQ4 (a) / RQ8, B3 (owner ruling D145 = a), B4; D139. Each is ONE guarded
+// B1 RQ4 (a) / RQ8, B3, B4; D139. Each is ONE guarded
 // call at its vanilla site and a no-op unless isCoopBattle() && hostSim.
 // Bodies: connectionTCP.cpp.
 
@@ -541,7 +541,7 @@ void coopBeginEndTurnChain(bool go);
 /// open the NESTED `reaction` context {id, "reaction", @a reactor, nestedIn: the
 /// base's id} - reused for every reactor of the same checkReactionFire burst, a
 /// new one per burst (B4) - recording the base action's actor as the reaction's
-/// trigger (D145); mark "a reaction against the walker" when @a target is the
+/// trigger; mark "a reaction against the walker" when @a target is the
 /// active walker (its halt reason becomes `reaction`, RQ4 (a)).
 void coopBeginReaction(BattleUnit* reactor, BattleUnit* target);
 
@@ -653,7 +653,7 @@ bool coopRemoteOrderRunning();
 /// vanilla's own expression, so vanilla is byte-identical there. No side effect.
 bool coopForceFirePressed(const SavedBattleGame* save);
 
-// ----- W2-P6b S-L, commit S-L.1: the hit-log mirror probe (owner D172 (a)) -----
+// ----- W2-P6b S-L, commit S-L.1: the hit-log mirror probe -----
 // Spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6, AMENDMENT P6-6 section 5 and ruling SL-1. Body:
 // connectionTCP.cpp, right after coopShotTrajectories() (the probe storage, outside every RW-REPLAY-REGION).
 
@@ -668,7 +668,7 @@ bool coopForceFirePressed(const SavedBattleGame* save);
 /// Main thread only; battle-scoped (cleared on the first use after CoopGhost::reset() bumps the combat generation).
 Json::Value coopHitLogMirrorProbe();
 
-// ----- W2-P6b S-L, commit S-L.2: the hit log on both machines (owner D172 (a)) -----
+// ----- W2-P6b S-L, commit S-L.2: the hit log on both machines -----
 // Spec rewrite/prompts/w2p6_display_two.md AMENDMENT P6-5 section 6 (the five vanilla lines; Q3 (a) the envelope
 // carrier, Q4 (a) the client's appendToHitLog), AMENDMENT P6-6 section 5 (Q2 (a)). Body: connectionTCP.cpp, right
 // after coopHitLogMirrorProbe() (outside every RW-REPLAY-REGION). The host's sendEv attaches the pending list as the
@@ -694,7 +694,7 @@ bool coopHitLogPlayerFiring(const std::string& weaponType);
 /// co-op host.
 void coopHitLogMessageKeys(const std::string& a, const std::string& b);
 
-// ----- W2-P6a S-M, commit S-M.2: the battle messages on the HOST (owner D132) -----
+// ----- W2-P6a S-M, commit S-M.2: the battle messages on the HOST -----
 // Spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (b)1, the W2-P6a plan review section 4 (OR1 (a)),
 // AMENDMENT P6-5 section 3. Body: connectionTCP.cpp, right after the CoopBattleUi namespace (the message store).
 
@@ -704,12 +704,12 @@ void coopHitLogMessageKeys(const std::string& a, const std::string& b);
 /// returns TRUE only when @a about - the unit the message is ABOUT - is the PARTNER's (another seat of this seat's
 /// faction): the text then shows as vanilla's fading WarningMessage notice on the live BattlescapeState (nothing for
 /// the invisible pause, @a key "") and the push is skipped, so the shared battle never pauses for the other player's
-/// soldier. This machine's own units and units no player owns (D170 (a)) keep vanilla's box. @a named is the unit
+/// soldier. This machine's own units and units no player owns keep vanilla's box. @a named is the unit
 /// whose gender and name the text carries (nullptr for the psi texts, which take none). Writes no unit field: every
 /// setNotificationShown() stays vanilla's.
 bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const BattleUnit* named);
 
-// ----- W2-P6a S-C, commit S-C.2: the camera on the HOST (owner D131) -----
+// ----- W2-P6a S-C, commit S-C.2: the camera on the HOST -----
 // Spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT` (c)1, the W2-P6a plan review section 4 (ST1 (a)),
 // AMENDMENT P6-5 section 4 C-C1. Body: connectionTCP.cpp, right after coopThinkCoveredBattle() (the same origin test).
 

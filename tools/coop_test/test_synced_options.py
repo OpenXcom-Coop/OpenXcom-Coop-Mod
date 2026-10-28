@@ -12,14 +12,14 @@ between actions (coopBattleQuiescent), every machine writes the shared value int
 
 ONE boot (PR-14): host user dir {battleInstantGrenade true, battleExplosionHeight 2, sneakyAI true}, client
 {battleInstantGrenade false, battleExplosionHeight 0, alienBleeding true}; repro_atom_walk.bring_up_lobby on lobby
-key 47240; OWN_FILE = each machine's options.cfg read after bring_up_lobby returns (F4983), the 15 ids parsed. Rows
+key 47240; OWN_FILE = each machine's options.cfg read after bring_up_lobby returns, the 15 ids parsed. Rows
 in this order (O7 runs before O6):
 
 | row | fixture | GREEN cells | RED cells (S-A.1 build) |
 |---|---|---|---|
 | O1 | the bring-up, at the lobby | active true + role Host/Client; client values == host values == the host's boot table; client own == its boot table; client tablesApplied 1, lastTableFrom "join"; versions equal (0); no chat line | client values == its own boot values (client_values), active false (active); own null (client_own), no table (table) |
 | O2 | lobby: client synced_option_request battleInstantGrenade false | host ring +1 {applied, arrivedWhileBusy false, player = client localName}; both tables == the session table; version +1 on both; client inFlight empty; one chat line each "System" / "<client> changed Instant grenades to NO" | host applied empty, values unchanged (host_applied, values, version, chat) |
-| O3 | session.drive_to_battlescape(seat_count=2); host request battleExplosionHeight 3 | before: client tablesApplied 2, lastTableFrom "offer", versions equal (F4733); after: both tables == session (height 3), version +1, one chat line each "<host> changed Explosion height to 3" | client tablesApplied 0 (offer_table), host height unchanged (values, version, chat) |
+| O3 | session.drive_to_battlescape(seat_count=2); host request battleExplosionHeight 3 | before: client tablesApplied 2, lastTableFrom "offer", versions equal; after: both tables == session (height 3), version +1, one chat line each "<host> changed Explosion height to 3" | client tablesApplied 0 (offer_table), host height unchanged (values, version, chat) |
 | O4 | T0-2's blocker (seat-1 index 0, the R2-P7 helpers); while it runs: client request alienBleeding true, ONE sample | at the sample: host pending holds it with arrivedWhileBusy true, host alienBleeding false, the blocker still open; after wait_blocker_closed: the ring entry's afterSeq >= endSeq, heldFrames >= 1, both tables == session | host pending empty at the sample (pending); then no ring entry (ring), values differ (values) |
 | O5 | host synced_apply_hold on; client sneakyAI false; host pending length 1; host sneakyAI true; hold off | pending order [client's, host's]; two ring entries in that order, versions n+1, n+2; both tables == session (sneakyAI true); two chat lines in that order on both | host pending empty under the hold (pending1, order); then ring, values, chat |
 | O7 | while values != own on both: options_save on both | the 15 ids in each options.cfg == its OWN_FILE; values unchanged in memory | precondition "values != own on both" fails (pre) |
@@ -29,9 +29,9 @@ Guards: every row - the 15 ids in each options.cfg == OWN_FILE (draft STOP-IF 4)
 desyncSeen false on both, the client's coopClientBStatePushes unchanged since the battle started, hash_now full
 equal after session.wait_host_idle. The guards pass on the red build.
 
-WV-D99 / WV-D100: one run is the result; every row runs after a failure; every wait is bounded. Each row prints
+one run is the result; every row runs after a failure; every wait is bounded. Each row prints
 ONE "EVIDENCE <id>:" line (both machines' synced_options_state) and then "PASS <id>" or "FAIL <id>: <cells>".
-Exit 0 only when every row passes, 2 otherwise. WV-D95: run in the foreground to completion.
+Exit 0 only when every row passes, 2 otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_options.py
 """
@@ -168,7 +168,7 @@ class Ctx:
     def __init__(self, host, client):
         self.h, self.c = host, client
         self.own_file = {}
-        self.session = dict(OWN_HOST)    # the host's table is the session table (D134)
+        self.session = dict(OWN_HOST)    # the host's table is the session table
         self.seated = {}
         self.bstate0 = None
         self.in_battle = False

@@ -123,7 +123,7 @@ def drive_side_change(host, client, want_side, want_turn_min=None, timeout=60):
     not stall on an un-dismissed banner."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # RV-U13 S-A (F11011): read both sides FIRST, then close. A machine pushes its NextTurnState in the frame
+        # RV-U13 S-A: read both sides FIRST, then close. A machine pushes its NextTurnState in the frame
         # its side changes (the host's BattlescapeGame::endTurn, a client's side_transition apply), and the host
         # emits side_transition just before its own push, so once both reads match, every NextTurnState of that
         # change is up for the close pass below. The pass closes every stacked one once (F11011 Ae: two) and stops
@@ -203,7 +203,7 @@ def run_classic():
         print(f"[classic] pre-cycle selection armed: host unit {host_pre}, "
               f"client unit {client_pre}")
 
-        # SPEC 10 / REV E.50 E50.1 (D66 = (a)): W1-P13b makes `needed` the
+        # SPEC 10 / REV E.50 E50.1: W1-P13b makes `needed` the
         # LIVE-seat count (REV E.48 C.4) - this classic fixture has TWO live
         # seats, so a lone host press can no longer close the side. The
         # client arms through its OWN real button first, and this driver
@@ -241,12 +241,12 @@ def run_classic():
         cu = {u["id"]: u for u in cs1["units"]}
         host_sel = hs1.get("selectedId", -1)
         client_sel = cs1.get("selectedId", -1)
-        # D64: owner-ruled assertion of record, replacing (f).2's
+        # owner-ruled assertion of record, replacing (f).2's
         # `activeSeats == [0,1]` wording (module docstring).
         assert host_sel in hu and hu[host_sel]["coop"] == 0, (
             f"WR-18: host's restored selection {host_sel} does not resolve "
             f"to an OWN (seat 0) unit: {hu.get(host_sel)}")
-        # D64: owner-ruled assertion of record, replacing (f).2's
+        # owner-ruled assertion of record, replacing (f).2's
         # `activeSeats == [0,1]` wording (module docstring).
         assert client_sel in cu and cu[client_sel]["coop"] == 1, (
             f"WR-18: client's restored selection {client_sel} does not "
@@ -335,7 +335,7 @@ def run_gm2():
         cs_hostile = battle_state(client)
         cu_hostile = {u["id"]: u for u in cs_hostile["units"]}
         client_sel = cs_hostile.get("selectedId", -1)
-        # D64: owner-ruled assertion of record, replacing (f).2's
+        # owner-ruled assertion of record, replacing (f).2's
         # `activeSeats == [0,1]` wording (module docstring).
         assert client_sel in cu_hostile and cu_hostile[client_sel]["coop"] == 1, (
             f"gm2 hostile phase: client's selection {client_sel} does not "

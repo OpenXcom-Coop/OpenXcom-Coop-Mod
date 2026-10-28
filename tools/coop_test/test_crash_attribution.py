@@ -1,8 +1,8 @@
-"""W2-U8h - test_crash_attribution.py (docs rewrite/prompts/w2u8h_crash_attribution.md (f), rulings Q1 (b), Q2-Q8 (a)):
+"""test_crash_attribution.py (docs rewrite/prompts/w2u8h_crash_attribution.md (f), rulings Q1 (b), Q2-Q8 (a)):
 F9495 / F9399, every game started from one exe writes its crash files into ONE <exe dir>/crashlogs, and the lane crash
 readers count every NEW file there as their own crash, so a crash in one K-lane fails another lane's crash cells (F9399
 captured it at K=2). The fix: the coop crash handler honours OXC_CRASHLOG_DIR, the harness gives each lane
-crashlogs/s<slot>, every lane reader and the regression runner follow (F9563, F9564).
+crashlogs/s<slot>, every lane reader and the regression runner follow.
 U8h-ENV: a game this test starts with its own Popen and OXC_CRASHLOG_DIR set writes its crashlog_probe log there.
 U8h-DEF (players unchanged): the same without the variable keeps <exe dir>/crashlogs. U8h-DIR: a harness game (game b,
 up through X) reports this lane's crashlogs/s<slot>. U8h-X: a real child Python on slot + 50 (lane A) force-crashes its

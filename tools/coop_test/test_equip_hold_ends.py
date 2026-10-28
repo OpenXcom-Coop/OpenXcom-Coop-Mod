@@ -22,8 +22,8 @@ holds = event_state.equip.presence.holds; ends cells read the row's delta. Every
 cleanup ends the boot's later rows "not reached"). RED on HEAD (S-B's hold, no ends): L-back, L-once, T-once, T-clear, B-auto,
 B-tmpl (6 of 10); L-ptr, T-pile, B-order, X-crash PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure (a precondition miss ends
-its own row); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". WV-D95: run in the foreground
-to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+its own row); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". run in the foreground
+to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_hold_ends.py
 """
 
@@ -258,7 +258,7 @@ def spine(host, client, tag, extra):
                                                     and battle_state(client).get("inBattle") is True, EQ1_WAIT_S, 0.1)
     if not ok:
         miss(tag, f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
-    G3F.guarded(tag, lambda: session.wait_seq_barrier(host, client), m)   # F21396: the host's first evs applied before staging
+    G3F.guarded(tag, lambda: session.wait_seq_barrier(host, client), m)   # the host's first evs applied before staging
 
     def stage():
         rec = {"stripped": {uid: strip_both(host, client, uid) for uid in (C1, C2)}, "ids": {}}

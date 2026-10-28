@@ -24,7 +24,7 @@ Rows, in order (every row runs after a failure):
   B   alien_cycle(SEED_B): A walks out of V's view. B-pre (walk is B_PATH, no shot / hit / death / spot ev, V not out
       and facing V_TURN_A, >= 3 path samples), B-walk (here(client) false in every path sample), B-after (vis and here
       false on both), B-list (host [], client equal), B-close (soldier 8 selected: here(client) false). W2-U9
-      re-point (R-U9-0, F21065): the staging pin was V (9), measured at H35 when the client stepped 9 -> 8 -> 9 at
+      re-point: the staging pin was V (9), measured at H35 when the client stepped 9 -> 8 -> 9 at
       each X-COM side start; since W2-H41 S-B (7eb33ec00, R-LH40-1) the client keeps soldier 8 (chain rule A.10).
   C2  client turn intent V -> V_TURN_B. C2-agree (vis and here equal on both and false).
   D   tele A to D_TILE keeping its facing; V turn intent D_FACE; A base TU 0 on both; V turn intent D_AWAY; END TURN
@@ -40,8 +40,8 @@ RED at the red commit (unchanged build): A-walk, A-after, A-list, A-close, B-wal
 D-side, D-after FAIL; every other cell PASS. GREEN (W2-H35 E1-E3): every cell PASS.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up failure
-prints ONE "CAPTURE boot:" line and fails every row "boot". WV-D99 / WV-D100: one run is the result; no skip, no second
-boot, no other fixture; exit 0 only when every cell passes, else 2. WV-D95: run in the foreground to completion.
+prints ONE "CAPTURE boot:" line and fails every row "boot". one run is the result; no skip, no second
+boot, no other fixture; exit 0 only when every cell passes, else 2. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_alien_sight.py
 """
@@ -91,9 +91,9 @@ V_TURN_A = 7                                    # (20,18) inside cone 7; every B
 B_PATH = [(19, 19, 0), (19, 20, 0), (19, 21, 0), (18, 22, 0), (18, 23, 0), (17, 24, 0)]
 V_TURN_B = 0                                    # (17,24) outside cone 0
 D_TILE = (20, 18, 0)                            # A teleported here keeping its facing (5 after B)
-D_FACE, D_AWAY = 6, 0                           # V's turn ends at 7: vanilla stops a turn on a new spot (F13340)
+D_FACE, D_AWAY = 6, 0                           # V's turn ends at 7: vanilla stops a turn on a new spot
 HOLD, PERIOD, MIN_PATH_SAMPLES = 3.0, 0.25, 3     # HOLD: the client's player-side screen left up after the cycle
-KEY = "48958"                                   # this file's lobby key (F13155)
+KEY = "48958"                                   # this file's lobby key
 COMBAT_KINDS = ("shot", "hit", "death", "spot")
 CHAIN_KINDS = ("turn", "walk_step", "kneel", "shot", "hit", "explosion", "melee", "psi", "death", "corpse", "spot")
 
@@ -375,7 +375,7 @@ def row_b(host, client):
     n, s = close_client_screen(host, client)
     ev(f"B-close: closed {n}; {fmt(s)}")
     sel, here = s["c"]["sel"], ua(s["c"]).get("here")
-    # W2-U9 (F21065): the client keeps soldier 8 at each X-COM side start (W2-H41 S-B, R-LH40-1), not V.
+    # the client keeps soldier 8 at each X-COM side start (W2-H41 S-B, R-LH40-1), not V.
     cell("B-close", sel == SEATED[0] and here is False,
          f"client selected {sel} (staging: want {SEATED[0]}, the kept soldier), here(client) {here} (want False)")
     common(host, client, "B")

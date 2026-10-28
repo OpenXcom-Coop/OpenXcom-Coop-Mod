@@ -14,7 +14,7 @@ R15's rename_soldier, QH70C-5; no reload, no rejoin):
 Cells: X-pre GUARD; the RED cells above; X-common GUARD (both machines alive at the read, no new .dmp since B). 12 cells; red (commit
 R1): RED exactly on R13-write, R13-seat, R14-write, R14-home, R15-write, R15-name. Never in one K=2 batch with
 test_manual_promotion.py (its port tuple shares 49290, F20703). ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row
-verdict; every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
+verdict; every row runs; exit 0 only when every cell passes, else 2. one foreground run per invocation.
 Run: python tools/coop_test/test_visit_window_67_edits.py
 """
 

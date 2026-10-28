@@ -4,7 +4,7 @@ only while both players are on the geoscape). Unchanged and not asserted here: d
 H23-VL1's client catch-up, the 1000 ms grace as the lost-heartbeat fallback, the speed buttons and the ally speed markers.
 Mod Coop_PopupClock_Test on both machines: no alien mission in the first month, and STR_H92_IDLE (no waves) for P's landed UFO, so
 the forced client popup is a row's only popup. Probe geo_clock (TEST-ONLY, read-only): one machine's clock to the second + its top.
-One fresh boot pair per campaign mode (D297 (a)); each is ONE scenario at the fastest speed (both machines idx 5, one step = one game
+One fresh boot pair per campaign mode; each is ONE scenario at the fastest speed (both machines idx 5, one step = one game
 day = 1440 min): a control stretch with no popup, then one client-only popup held HOLD_S (> the host's 1000 ms grace), then closed.
   S = SHARED: the host's shared_alert UfoLostState (SharedEcon::hostAlert; the host's own copy pops nothing) -> the client's
       alertApply popup (an apply-time popup).
@@ -20,13 +20,13 @@ Rows / cells (every sample reads the host first, then the client: a sampled lead
        host a whole step, then the host walks one tick per step until the grace runs out.
   P-P2 (P only): from the client's pop until both run again (the client has caught up the host's held clock and the host has stepped
        again), the host's lead over the client never exceeds one step (<= 1440 min). Red at the base: the stale credit's step, then a
-       second credited step while the client's first step after the pop walks 0 ticks (F24249), before its catch-up.
+       second credited step while the client's first step after the pop walks 0 ticks, before its catch-up.
   S-P2 GUARD (S only): the host's clock runs again after the client's pop (the hold ends; passes at the base).
 Red at the base (0b8bee213 + this file's probe): exit 2, RED exactly on S-P1-adv (1441.0), S-P1-steps (13), P-P1-adv (1440.917 ..
 2880.917), P-P1-steps (12 .. 13), P-P2-lead (2881.0 .. 4320.917) (7 runs); every P0 and guard cell passes (S-P2-run: 41.9 ..
 45.4 ms).
-EVIDENCE then PASS / FAIL per cell; ONE run; every row runs after a failure; exit 0 only if all pass, else 2 (WV-D99 / WV-D100).
-WV-D95: one foreground run per invocation.
+EVIDENCE then PASS / FAIL per cell; ONE run; every row runs after a failure; exit 0 only if all pass, else 2.
+one foreground run per invocation.
 Run: py -3 tools/coop_test/test_popup_clock.py
 """
 import datetime

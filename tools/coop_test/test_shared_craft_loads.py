@@ -1,13 +1,13 @@
 """W2-H20b stage B (owner D255 a, D226 a; spec rewrite/prompts/w2h20b_shared_base_writes.md AMENDMENT H20b-B-1 B10, QB1 a .. QB4 a,
 H20bB-M1..M5, R-H20bB-T0-1 / -T0-2; TASK 0 rewrite/w2h20bB-task0/CONSTANTS.md): in SHARED, a craft loadout template load (A8), "move
 ground items to base" (A12) and, with oxceAlternateCraftEquipmentManagement ON, the soldier and craft inventory screens (A3, A4, A6) end
-as host-applied craft_equip / craft_assign end-states, and a replica's own option-ON staging triggers no world re-copy (F8259); today each
+as host-applied craft_equip / craft_assign end-states, and a replica's own option-ON staging triggers no world re-copy; today each
 stays on one machine until a restream reverts the client. H / C / C2 = H20's rule (h20.setup, option OFF; S25). SKY(gc) = base_report
 HostBase craft {SKY id, STR_SKYRANGER} items (whole map); ST(gc) = geo_state HostBase items; reqs / mm = the client's shared_resync_stats.
-W = 10 s at 0.25 s; RW 5 s, HOLD 8 s (TASK 0). park = host open_soldiers (no heartbeat, H20bB-M4), unpark = host soldiers_ok; converge =
+W = 10 s at 0.25 s; RW 5 s, HOLD 8 s. park = host open_soldiers (no heartbeat, H20bB-M4), unpark = host soldiers_ok; converge =
 both on GeoscapeState (no CoopState / LoadGameState), SKY and ST equal, <= 30 s; every row starts with converge + client
 shared_reset_resync_stats. (item, slot) = STR_PISTOL into the actor's left hand, else belt, else backpack (run time); an A3 / A4 / A6 SKY
-delta is {PISTOL +1, PISTOL_CLIP +1} (TASK 0). A row whose named RED cell fails evaluates no later cell (F8045).
+delta is {PISTOL +1, PISTOL_CLIP +1}. A row whose named RED cell fails evaluates no later cell.
 Boot A2 (SHARED, 49427 / 49428 / 47927, option OFF): HB-1 A8 TB-2's setup, park, client CES loadout_load 1, OK. RED: SKY(host) unchanged
   after W. HB-2 A12 park, client craft inventory ground_to_base, close. RED: SKY(host) == the reply's before after W. HB-9 js.finish().
 Boot B2 (SHARED, 49429 / 49430 / 47928; setup: TB-4's option-OFF settle, option ON on both, TB-6's host no-edit round trip, converge):
@@ -20,7 +20,7 @@ Boot S2 (SEPARATE, tag w2h20b2s, labels 49431 / 49432, lobby 47929, option ON): 
   PISTOL onto its first soldier, close, craft screen round trip: SKY PISTOL / PISTOL_CLIP +1 locally, shared_stats unchanged 1 s after.
 EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (both machines' base_report, geo_state items,
 soldier_layouts, shared_resync_stats, shared_stats, option_values, stacks); a boot miss fails its rows "boot" with ONE CAPTURE line; a
-failed shutdown is a FAIL line. Every row runs after a failure. ONE run (WV-D95); exit 0 iff everything passes, else 2.
+failed shutdown is a FAIL line. Every row runs after a failure. ONE run; exit 0 iff everything passes, else 2.
 """
 
 import glob
@@ -45,7 +45,7 @@ TAG_B, PORTS_B = "w2h20b2b", (49429, 49430, 47928)
 TAG_S, LABELS_S, LOBBY_S = "w2h20b2s", (49431, 49432), "47929"
 HB, CB, GEO, OPT, SKYR = "HostBase", "ClientBase", "GeoscapeState", "oxceAlternateCraftEquipmentManagement", "STR_SKYRANGER"
 PISTOL, CLIP, INV, CES = "STR_PISTOL", "STR_PISTOL_CLIP", "InventoryState", "CraftEquipmentState"
-DELTA = {CLIP: 1, PISTOL: 1}  # TASK 0: every A3 / A4 / A6 SKY delta (the moved pistol carries its clip)
+DELTA = {CLIP: 1, PISTOL: 1}  # every A3 / A4 / A6 SKY delta (the moved pistol carries its clip)
 W, POLL, RW, HOLD, CONV, SETTLE = 10.0, 0.25, 5.0, 8.0, 30.0, 1.0
 ROWS_A, ROWS_B, ROWS_S = ["HB-1", "HB-2", "HB-9"], ["HB-7", "HB-3", "HB-5", "HB-4", "HB-10", "HB-6"], ["HB-8"]
 ORDER = ROWS_A + ROWS_B + ROWS_S
@@ -309,7 +309,7 @@ def finish(x, r):
 
 
 def setup_b2(x):
-    """TB-4's settle (option OFF; F8526), the option ON on both (set_option, P10 raw-on-both), TB-6's host no-edit round trip (F8525),
+    """TB-4's settle (option OFF; F8526), the option ON on both (set_option, P10 raw-on-both), TB-6's host no-edit round trip,
     converge. Raises on a miss (the boot's rows fail "boot" with its CAPTURE)."""
     r, h, c = Row("Boot B2 setup", x), x.host, x.client
     whole_layouts = lambda gc: {e.get("id"): h20.whole(e)  # noqa: E731

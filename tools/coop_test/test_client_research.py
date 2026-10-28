@@ -2,11 +2,11 @@
 host has research sync OFF, every research-based weapon check reads the research
 of the unit's OWNER (owner D149 = (a); spec rewrite/prompts/w2p4r_research_list.md
 section (f), as amended by PLAN REVIEW + AMENDMENT D1 (PR-R1 = ST1, PR-R2 = ST2,
-PR-R3 = ST3) and AMENDMENT D2 (F1400, F1402-F1405)).
+PR-R3 = ST3) and AMENDMENT D2).
 
 Before W2-P4r the second player's game swaps its own world for the host's at
-battle entry, so both machines only know the HOST's research during the battle
-(F1176): the guest G cannot fire the plasma pistol its player researched and
+battle entry, so both machines only know the HOST's research during the battle:
+the guest G cannot fire the plasma pistol its player researched and
 can fire the heavy plasma only the host researched. After W2-P4r the client
 ships its own list on battle_accept and keeps a copy; each check routes by the
 unit's seat tag. Thirteen scenarios, ONE boot, in this order:
@@ -21,7 +21,7 @@ unit's seat tag. Thirteen scenarios, ONE boot, in this order:
           HCLIP {true, false} (the lists are told apart by NAME); is_researched
           in battle HEAVY and HCLIP true, the other three false, on both.
           W2-P8 S-D1 re-point (A.10, F2638): the boot's pre hook grew (below),
-          so Nc and Nh are read at run time, never baked (F3041).
+          so Nc and Nh are read at run time, never baked.
           RED: seats[1].stored false (no writer), research_check pistol seat 1
           false.
   C16r-u  the owner rule at canUseWeapon (Q-R2 (a)): can_use_weapon {G, item,
@@ -80,7 +80,7 @@ unit's seat tag. Thirteen scenarios, ONE boot, in this order:
   C16r-p5 the Stats-for-Nerds ammo link (:386): the rifle article, U key,
           the ammo combo's clip row. GREEN: nerds 1. RED: nerds 2. Recorded
           code-only: ArticleStateTFTDItem :163, StatsForNerdsState :397, E3-E7.
-  C16r-i  W2-P8 S-D1 (owner D168 = a): the second player's inventory names
+  C16r-i  W2-P8 S-D1: the second player's inventory names
           items by the research of the soldier's OWNER. Staging (both
           machines, client first): G right pistol + PCLIP (clear_hands), left
           heavy + HCLIP, a pistol and a heavy on G's tile; H (the first host
@@ -88,8 +88,8 @@ unit's seat tag. Thirteen scenarios, ONE boot, in this order:
           pistol and a heavy on H's tile. Client, G's inventory
           (battle_open_inventory, 0.3 s): hover = inventory_click on the hand
           with an empty cursor, read the _txtItem Text, one right-click
-          returns the item (F3025); Alt hover = the same click with mod alt,
-          then inject_input modstate none (F3029); the psi-strength line
+          returns the item; Alt hover = the same click with mod alt,
+          then inject_input modstate none; the psi-strength line
           (textStatLine4, a HIDDEN widget in battle: its text is asserted as
           the only proof of that read, F3031); then, re-opened, quick search
           (key 113, one letter per key 0.3 s apart, Enter applies, 113 clears;
@@ -109,7 +109,7 @@ unit's seat tag. Thirteen scenarios, ONE boot, in this order:
           category search (no categories) and the Alt tooltip's own article
           reads (InventoryState :1843/:1851). The host cannot open a partner's
           inventory (vanilla refusal, F3032): no host-views-G leg.
-  C16r-j  W2-P8 S-D1 (owner D213 = b): the displays outside the inventory
+  C16r-j  W2-P8 S-D1: the displays outside the inventory
           follow the owner's research too. Client: UnitInfoState on G (TAB G +
           the stats button, ESC closes, F3035); the melee damage preview (TAB
           G, 0.3 s, key 109 mod ctrl, the InfoboxState text read before its
@@ -142,10 +142,10 @@ sent (client inFlight null and coopIntentsSent unchanged, host lastSeqEmitted
 and intentsReceived unchanged), G TU and clip unchanged on both. G's TU is set
 to its max on both (client first) before every firing row.
 
-PR-R2 / D2 (F1403): warningText stays set after a refusal, so every press sends
+PR-R2 / D2: warningText stays set after a refusal, so every press sends
 clear_warning to the client right before the key and asserts the text AFTER the
 key: RESEARCH_TEXT for a refusal (plus cursorType 1 and BattlescapeState on top),
-not RESEARCH_TEXT for a key that starts targeting (cursorType aim). F1404: after
+not RESEARCH_TEXT for a key that starts targeting (cursorType aim). after
 an admitted shot the client stays in aim, so each later row first sends the F503
 cancel click.
 
@@ -155,7 +155,7 @@ bring_up_separate_guest_battle), the host's options.cfg EnableResearchSync false
 pre_mission_start = client discover_research STR_PLASMA_PISTOL then host
 discover_research STR_HEAVY_PLASMA; pin_ai_neutral right after the battle
 starts. The map, the Skyranger's place, G's tile, max TU, firing and the item
-ids are rolled per boot (F1399): G is found by NAME, its tile, max TU and the
+ids are rolled per boot: G is found by NAME, its tile, max TU and the
 item ids are read at run time, the snap cost is SNAP_PCT of the max TU
 (tuSnap 30 for both weapons, T0-16e). Only the target OFFSETS from G's
 deployment tile and the seeds are baked. G's firing is pinned to FIRING_PIN on
@@ -186,9 +186,9 @@ Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
 BEFORE its green conditions are checked; main() runs every scenario even after
 an earlier one failed.
 
-WV-D99 / WV-D100: one run is the result. Exit 0 only when all thirteen scenarios
+one run is the result. Exit 0 only when all thirteen scenarios
 pass, 2 otherwise (a bring-up failure is also 2). A pixel-check control
-failure in C16r-j is a failure, never retried. WV-D95: run in the foreground
+failure in C16r-j is a failure, never retried. run in the foreground
 to completion.
 
 Run:  python tools/coop_test/test_client_research.py
@@ -243,12 +243,12 @@ CURSOR_NORMAL = 1                 # battle_state.cursorType CT_NORMAL
 CAN_USE_CALLS = (("snap", False), ("hit", False), ("auto", True), ("none", False))   # (action, berserk)
 
 # ----- W2-P8 S-D1 (TASK 0 T0-D1..T0-D3 at 98d209f6c, AMENDMENT P8-4e, F3024-F3043) -----
-SETTLE = 0.3                      # a key injected right after a state opens is lost without it (F2888)
+SETTLE = 0.3                      # a key injected right after a state opens is lost without it
 TXT_ITEM = (128, 140, 160, 9)     # InventoryState _txtItem (T0-D1, F3025)
 TXT_AMMO = (254, 64, 66, 24)      # InventoryState _txtAmmo (recorded only)
-PSI_LINE = (245, 56, 70, 9)       # textStatLine4, the psi-strength line: hidden in battle, text asserted (F3031)
+PSI_LINE = (245, 56, 70, 9)       # textStatLine4, the psi-strength line: hidden in battle, text asserted
 QS_RECT = (244, 140, 40, 9)       # the quick-search TextEdit (T0-D2)
-STATS_RECT = (107, 177, 164, 23)  # the battlescape unit-stats button -> UnitInfoState (F3035)
+STATS_RECT = (107, 177, 164, 23)  # the battlescape unit-stats button -> UnitInfoState
 UI_PSI_LABEL = (8, 137, 140, 9)   # UnitInfoState "PSIONIC STRENGTH"
 UI_PSI_VALUE = (150, 137, 18, 9)  # UnitInfoState psi-strength number
 KEY_Q, KEY_ENTER, KEY_ESC, KEY_M = 113, 13, 27, 109   # quick search toggle, apply, close, ctrl-M melee preview
@@ -258,11 +258,11 @@ PISTOL_NAME, HEAVY_NAME = "Plasma Pistol", "Heavy Plasma"
 W_PISTOL, W_HEAVY = 6, 11         # getTotalWeight() with the clip loaded (T0 D1c/D1h "[6]" / "[11]")
 DMG_PISTOL = "DAMAGE>\x010-104"   # the Alt damage tooltip (T0 POS_D1D2c)
 DMG_HEAVY = "DAMAGE>\x010-230"    # (T0 D1c/D1h)
-PSI_LINE_RE = re.compile(r"P\.Str>\x01([0-9]+)")      # the green psi line shape (F3031)
+PSI_LINE_RE = re.compile(r"P\.Str>\x01([0-9]+)")      # the green psi line shape
 MELEE_G = f"{HEAVY_NAME}\n?-?\n\n{PISTOL_NAME}\n0-0"  # G (left heavy, right pistol) by G's owner: pistol only
 MELEE_G_RED = f"{HEAVY_NAME}\n0-0\n\n{PISTOL_NAME}\n?-?"   # by the host's research (T0 D3melee_c)
 MELEE_H = f"{PISTOL_NAME}\n?-?\n\n{HEAVY_NAME}\n0-0"  # H (left pistol, right heavy) by the host (T0 D3melee_h)
-MELEE_WAIT = 1.9                  # the melee InfoboxState auto-closes ~1.93 s after it opens (F3037)
+MELEE_WAIT = 1.9                  # the melee InfoboxState auto-closes ~1.93 s after it opens
 AIM_TILE = "TGT1"                 # the Alt aiming selector tile (T0 D3aim: G's deployment tile + (0, 2, 0))
 AIM_REGION = (-40, -40, 96, 80)   # screen_pixels region around the tile's screen position (T0 D3aim)
 
@@ -270,7 +270,7 @@ AIM_REGION = (-40, -40, 96, 80)   # screen_pixels region around the tile's scree
 RIFLE, RCLIP = "STR_PLASMA_RIFLE", "STR_PLASMA_RIFLE_CLIP"
 PEDIA_CLIENT_TOPICS = (RIFLE,)          # pre_mission_start on the client, after CLIENT_TOPICS (P8-4f C2)
 PEDIA_HOST_TOPICS = (RIFLE, RCLIP)      # on the host, after HOST_TOPICS (DEP2 cascade: Nh 3 -> 6, Nc 3 -> 4, F3135)
-PCLIP_NAME, HCLIP_NAME = "Plasma Pistol Clip", "Heavy Plasma Clip"   # en-US :844-:849; rows compared EXACTLY (F3095)
+PCLIP_NAME, HCLIP_NAME = "Plasma Pistol Clip", "Heavy Plasma Clip"   # en-US :844-:849; rows compared EXACTLY
 RIFLE_NAME, RCLIP_NAME = "Plasma Rifle", "Plasma Rifle Clip"
 SECTION = "alien artifacts"       # click_widget match on UfopaediaStartState (T0-P1)
 AMMO0 = (194, 40, 82, 17)         # ArticleStateItem _txtAmmoDamage[0] (:334; T0-P3 red "80" on both, F3139)
@@ -375,7 +375,7 @@ def ui_press(host, client, ctx, key, tile=None, before_click=None):
     ev["tab"] = tab_select(client, G)
     assert ev["tab"], f"TAB never selected G on the client (selectedId {battle_state(client).get('selectedId')})"
     if battle_state(client).get("cursorType") == CURSOR_AIM:
-        click_nth(client, RHAND_NTH)   # F503: this click only cancels the aim
+        click_nth(client, RHAND_NTH)   # this click only cancels the aim
         ev["aimCancelled"] = battle_state(client).get("cursorType")
     r = click_nth(client, RHAND_NTH)
     assert (r.get("baseX"), r.get("baseY")) == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
@@ -824,7 +824,7 @@ def sd_close(gc):
 
 
 def sd_hover(gc, slot, want_id, mod=None):
-    """T0-D1 (F3025/F3029): a left click on `slot` with an empty cursor runs the mouse-over before the pick; read
+    """T0-D1: a left click on `slot` with an empty cursor runs the mouse-over before the pick; read
     _txtItem; (Alt: clear the latch); one right-click returns the item."""
     ev = {"cursor0": sd_inv(gc).get("selectedItem")}
     req = {"cmd": "inventory_click", "slot": slot}
@@ -853,7 +853,7 @@ def sd_ground_x(gc, ids):
 
 
 def sd_search(gc, word, ids):
-    """T0-D2 (F3033): key 113 opens the quick search, one letter per key 0.3 s apart, Enter applies; the ground
+    """T0-D2: key 113 opens the quick search, one letter per key 0.3 s apart, Enter applies; the ground
     x of each staged item (HIDDEN_X = hidden); 113 again clears the search."""
     ev = {"word": word, "before": sd_ground_x(gc, ids)}
     sd_key(gc, KEY_Q)
@@ -873,7 +873,7 @@ def sd_search(gc, word, ids):
 
 
 def sd_unit_info(gc, uid):
-    """T0-D3 (F3035): TAB `uid`, the battlescape stats button (by rect), UnitInfoState's psi label + value, ESC."""
+    """T0-D3: TAB `uid`, the battlescape stats button (by rect), UnitInfoState's psi label + value, ESC."""
     ev = {"tab": tab_select(gc, uid)}
     vis = [w for w in sd_lw(gc).get("widgets", []) if w.get("interactive") and w.get("visible")]
     nth = [i for i, w in enumerate(vis) if sd_rect(w) == STATS_RECT]
@@ -893,7 +893,7 @@ def sd_unit_info(gc, uid):
 
 
 def sd_melee(gc, uid):
-    """T0-D3 (F3037): TAB `uid`, 0.3 s, ctrl-M; the InfoboxState text before its ~1.9 s auto-close."""
+    """T0-D3: TAB `uid`, 0.3 s, ctrl-M; the InfoboxState text before its ~1.9 s auto-close."""
     ev = {"tab": tab_select(gc, uid)}
     time.sleep(SETTLE)
     ev["key"] = sd_key(gc, KEY_M, mod="ctrl").get("ok")
@@ -914,12 +914,12 @@ def sd_diff(a, b):
 
 
 def sd_aim_capture(client, G, tile):
-    """T0-D3 (F3039): TAB G, the right-hand box, key 50 (snap aim), HOME, map_tile_click_pos parks the selector on
+    """T0-D3: TAB G, the right-hand box, key 50 (snap aim), HOME, map_tile_click_pos parks the selector on
     `tile`, screen_pixels of the region without then with the Alt latch, latch cleared, one hand click cancels the
-    aim (F503). Returns (evidence, {noalt, alt})."""
+    aim. Returns (evidence, {noalt, alt})."""
     ev = {"tab": tab_select(client, G)}
     if battle_state(client).get("cursorType") == CURSOR_AIM:
-        click_nth(client, RHAND_NTH)   # F503: this click only cancels an earlier aim
+        click_nth(client, RHAND_NTH)   # this click only cancels an earlier aim
     r = click_nth(client, RHAND_NTH)
     ev["rhand"] = (r.get("baseX"), r.get("baseY"))
     ev["menu"] = sd_wait(lambda: top(client) == "ActionMenuState", 3.0)[0]
@@ -948,7 +948,7 @@ def sd_aim_capture(client, G, tile):
     time.sleep(0.3)
     ev["len"] = (len(px["noalt"] or []), len(px["alt"] or []))
     ev["altVsNoalt"] = sd_diff(px["noalt"], px["alt"])
-    click_nth(client, RHAND_NTH)   # F503: cancels the aim
+    click_nth(client, RHAND_NTH)   # cancels the aim
     ev["cursorAfterCancel"] = battle_state(client).get("cursorType")
     return ev, px
 
@@ -1025,7 +1025,7 @@ def c16r_i_inventory(host, client, ctx):
                        + list((s.get("cleared") or {}).values()))):
             fails.append(f"precondition: client {k} {s} (want the field shown, both ground items shown before "
                          f"and after the search, InventoryState on top)")
-    # GREEN: G's inventory reads G's owner's research (D168 a)
+    # GREEN: G's inventory reads G's owner's research
     want_c = {"hoverPistol": f"{PISTOL_NAME} [{W_PISTOL}]", "hoverHeavy": f"{ARTIFACT} [{W_HEAVY}]",
               "altPistol": DMG_PISTOL, "altHeavy": ARTIFACT}
     for k, want in want_c.items():
@@ -1065,7 +1065,7 @@ def c16r_j_displays(host, client, ctx):
         ev["uiH"] = sd_unit_info(host, H)
         ev["meleeC"] = sd_melee(client, G)
         ev["meleeH"] = sd_melee(host, H)
-        # LAST STEP OF THE FILE (F3039): capture, discover into the client's LIVE world, capture again
+        # LAST STEP OF THE FILE: capture, discover into the client's LIVE world, capture again
         ev["aim1"], px1 = sd_aim_capture(client, G, tile)
         ev["discover"] = [{k: r.get(k) for k in ("ok", "researched", "error")}
                           for r in (client.cmd({"cmd": "discover_research", "topic": t}) for t in CLIENT_TOPICS)]
@@ -1110,7 +1110,7 @@ def c16r_j_displays(host, client, ctx):
     if ev["noaltDiff"] != 0:
         fails.append(f"pixel control: the no-Alt captures differ by {ev['noaltDiff']} px (want 0: the capture is "
                      f"stable; a flaky pixel result is a STOP, never a retry)")
-    # GREEN (D213 b): the displays read G's owner's research
+    # GREEN: the displays read G's owner's research
     u = ev.get("uiC") or {}
     lab, val = (u.get("label") or [{}])[0], (u.get("value") or [{}])[0]
     if not (lab.get("v") is True and val.get("v") is True and str(val.get("t") or "").isdigit()):
@@ -1165,7 +1165,7 @@ def pd_keys(ctx, host, client):
 
 
 def pd_key(gc, k):
-    time.sleep(SETTLE)   # a key injected right after a state opens is lost without it (F2888)
+    time.sleep(SETTLE)   # a key injected right after a state opens is lost without it
     return sd_key(gc, k).get("ok")
 
 
@@ -1304,7 +1304,7 @@ def pd_end_fails(f0, end, what):
 
 
 def rows_fails(rows, want_in, want_out, what):
-    """EXACT-text membership of a SelectState's rows (F3095)."""
+    """EXACT-text membership of a SelectState's rows."""
     rows = rows or []
     miss, extra = [x for x in want_in if x not in rows], [x for x in want_out if x in rows]
     return [f"{what} rows {rows} (want {list(want_in)} listed, {list(want_out)} not; missing {miss}, "

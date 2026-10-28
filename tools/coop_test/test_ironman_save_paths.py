@@ -1,4 +1,4 @@
-"""W2-H53 - test_ironman_save_paths.py: co-op ironman save paths (leads L-H49-1, L-H49-2, L-H49-3).
+"""test_ironman_save_paths.py: co-op ironman save paths (leads L-H49-1, L-H49-2, L-H49-3).
 
 R-H53-0 (O1 for L-H49-1 and L-H49-2, L-H49-3 in scope), R-H49-0 = O1 (ironman holds for the save's owner; one campaign file),
 aud-E1-05 (ironman is host-only; the client never saves): a new SHARED ironman campaign asks the host for a save name twice, as solo and
@@ -6,7 +6,7 @@ every other mode (vanilla's two prompts kept), and never asks the second player 
 campaign's wait-dialog SAVE & QUIT saves the campaign's own file and goes to the main menu (no free-name list); an ironman alien host's
 SAVE AND ABANDON GAME in a gm3 borrowed battle saves its campaign file (with the battle) before the session ends.
 Spec: docs rewrite/prompts/w2h53_ironman_save_paths.md ((f); QH53-1 .. QH53-7 (a)); pins: docs rewrite/w2h53-task0/sa/CONSTANTS.md.
-Findings F17980-F17993 (spec), F17860-F17869 (capture), F17782 (W2-H49), F18080-F18099 (TASK 0).
+Findings F17980-F17993 (spec), F17860-F17869 (capture), F17782, F18080-F18099.
 Real inputs only: the IRONMAN toggle, every save list answered by list_save_confirm, the 62 dialog's SAVE & QUIT by click_widget (after its
 window popup ends: a hidden button ignores a click, F18080), ESC (27) + click_widget abandon + click_widget yes, client.kill().
 Boot S (dirs w2h53_s_*; solo; the vanilla control): S-count, S-files.
@@ -16,7 +16,7 @@ Boot A (gm3 ironman, the host plays the aliens; SAVE AND ABANDON GAME at (1, 0) 
 A-client, A-common.  Key 49148; one row per boot.
 RED (the unchanged build): H-count, H-client, H-123, H-files, G-nolist, G-file, G-only, A-save (8 of 19). GREEN (E1-E9): 19/19.
 A boot miss FAILs every cell of that boot "boot" with ONE "CAPTURE <boot>:" line; a row precondition miss FAILs its later cells
-"blocked: <why>". WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+"blocked: <why>". ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_ironman_save_paths.py
 """
 
@@ -293,7 +293,7 @@ def boot_g(host, client, ev, crash0):
     ev["dialog"] = {k: v for k, v in coop_info(host).items() if k in ("code", "title", "saveQuitVisible", "saveQuitText")}
     if not ok:
         return block(later, f"no host 62 with SAVE & QUIT visible {DROP_S} s after the drop ({stk(host)}, {ev['dialog']})")
-    if not settled(host, "CoopState", PAUSE_S):   # the window popup hides its buttons; a hidden button ignores a click (F18080)
+    if not settled(host, "CoopState", PAUSE_S):   # the window popup hides its buttons; a hidden button ignores a click
         return block(later, f"the 62 dialog's widgets never read hidden false in {PAUSE_S} s ({stk(host)})")
     before = ev["filesBeforeClick"] = files(host)
     ev["click"] = r = host.cmd({"cmd": "click_widget", "match": "save & quit"})

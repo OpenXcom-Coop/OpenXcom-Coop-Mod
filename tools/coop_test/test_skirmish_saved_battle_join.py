@@ -1,9 +1,9 @@
 """MG-B S-A rows PG and CB1: a saved co-op Custom Battle hosted from the battle's pause menu continues for both players
-through CONTINUE BATTLE (owner D225 (a)); a loaded single-player Custom Battle's pause-menu CO-OP hides while an action
-runs (owner D238 (a)). Q283-5 (a)'s PvE2 cell is row CB2, test_skirmish_saved_pve2_continue.py (QMB2-1 (a)). Spec: docs
+through CONTINUE BATTLE; a loaded single-player Custom Battle's pause-menu CO-OP hides while an action
+runs. Q283-5 (a)'s PvE2 cell is row CB2, test_skirmish_saved_pve2_continue.py. Spec: docs
 repo rewrite/prompts/mgb2_common.md (rulings, R3, QMB2-1 .. QMB2-5 (a)), mgb2_sa_continue.md (this stage, (f)),
 mgb2_sb_convert.md (S-B); constants rewrite/mgb2-task0/sa/CONSTANTS.md (TASK 0 boots a .. g at dfe41388b). main #181's
-file of this name, re-pointed in place to rows PG + CB1 (QSG-5); lobby key 49207.
+file of this name, re-pointed in place to rows PG + CB1; lobby key 49207.
 
 PG (one solo boot, QMB2-5 (a)): a settled single-player New Battle (set_seed 1). P1 open_pause_coop (a real PauseState and
 its CO-OP click), pop its HostMenu: CO-OP visible. P2 WALK (the first soldier with TU >= 30 to the farthest open tile 6..12
@@ -19,7 +19,7 @@ RED on the unchanged product: P2 (CO-OP shows while an action runs), G3 (the cli
 not reached (G3). GREEN (EA1-EA6): every cell PASS. One EVIDENCE line per row, one PASS / FAIL line per cell, the row
 verdict; every row runs after a failure. A precondition miss (G1, G2, G3, P2's walk, a cell that raised) ends its row:
 later cells FAIL "not reached (<cell>)". A boot step past its bound prints ONE CAPTURE line and fails every cell of that
-row "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+row "boot". run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.   Run:  python tools/coop_test/test_skirmish_saved_battle_join.py
 """
 
@@ -34,7 +34,7 @@ import session  # noqa: E402
 import test_skirmish_flow as SK  # noqa: E402
 
 KEY, SAVE = "49207", "mgb_cb1.sav"
-SEED, SEATED = 1, 2      # set_seed right before newbattle_ok (TASK 0 boots a, b, e, f); seat 1 = squad index 0, 1 (F5292)
+SEED, SEATED = 1, 2      # set_seed right before newbattle_ok (TASK 0 boots a, b, e, f); seat 1 = squad index 0, 1
 CLIENT_S, HOST_S, STEP_S, LOAD_S, BUSY_S = 120, 30, 30, 120, 5   # bounds (s); TASK 0 green: 1.0, 1.4, -, 1.5, 0.05
 TU_WALK, WALK_FAR, WALK_NEAR = 30, 12, 6
 N_REFUSE = "offerRejoinBattle() called while the battle is not paused"

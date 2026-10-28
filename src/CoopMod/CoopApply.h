@@ -50,7 +50,7 @@ class SavedBattleGame;
  * Position is deliberately EXCLUDED (turn/kneel never move a unit; syncing
  * position is the walk atom's job, not this one's). Resolution is
  * EXCLUSIVELY via CoopIdMaps (RB-D7) - this never mints a BattleUnit/
- * BattleItem (RB-D25); the .cpp body sits inside an
+ * BattleItem; the .cpp body sits inside an
  * RW-MINT-WHITELIST-BEGIN/END region even though nothing in it actually
  * mints, per the packet text's own instruction.
  *
@@ -71,7 +71,7 @@ namespace CoopApply
 /// "RW-UNSUPPORTED <kind>" - the RB-D32 corollary this is legal under. A
 /// "turn" payload's optional "door" field is likewise never applied
 /// (logged "RW-UNSUPPORTED door-in-turn") - SS2.4: spike fixtures are
-/// door-free by construction (RB-D15), terrain apply is the door atom's
+/// door-free by construction, terrain apply is the door atom's
 /// job. No-op (logs) if @a save is null, the payload carries no "unit", or
 /// the named unit does not resolve on this machine.
 void applyEvPayload(SavedBattleGame* save, const Json::Value& ev);

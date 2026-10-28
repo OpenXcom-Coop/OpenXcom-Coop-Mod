@@ -1,4 +1,4 @@
-"""W2-H19b - test_separate_guest_two_crafts.py: in SEPARATE every guest the client seats on any host craft flies with
+"""test_separate_guest_two_crafts.py: in SEPARATE every guest the client seats on any host craft flies with
 that craft, and a same-process reconnect refills the host's guest roster (docs rewrite/prompts/
 w2h19b_guest_store_per_craft.md (f); F6989, F6987; H19-Q4 (a), D226 (a), D104, D156, P7-6 VL2; TASK 0
 rewrite/w2h19b-task0/CONSTANTS.md "Run 3"; R-H19b-T0-1..3). Before W2-H19b the host keeps ONE guest roster per player,
@@ -11,7 +11,7 @@ host's set_seed b1.SEED_P before every coop_mission_start; guests are read BY NA
          recvSeats == [1] within 5 s of both geoscapes (F6987, W2-H19 Y2); (2) soldiers[1] == 2
 Pre-cell steps are guards (a miss = FIXTURE-STOP: ONE CAPTURE line, later rows "not reached"); cells are independent.
 RED (product untouched): H19b-1 cells 1+2, H19b-2 cell 2, H19b-3 cell 2. GREEN: all. ONE "EVIDENCE <id>:" line, then
-PASS/FAIL per row. WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, else 2.
+PASS/FAIL per row. ONE foreground run, no skip path; exit 0 only when every row passes, else 2.
 """
 import os
 import sys
@@ -23,7 +23,7 @@ from session import battle_state, has_state
 import test_battle_end_separate as b1
 import test_separate_guest_second_battle as h19
 
-PORT, TAG = "47347", "w2h19b"   # F7526: lobby key 47347 has 0 matches in tools/ + src/ at every w2* / rewrite* tip
+PORT, TAG = "47347", "w2h19b"   # lobby key 47347 has 0 matches in tools/ + src/ at every w2* / rewrite* tip
 SEAT = 1                # the client's seat = the index of the host's guestContrib.soldiers
 ZZZ, YYY, SKY = "Guest Zzz", "Guest Yyy", "STR_SKYRANGER"
 C2_ID = 3               # R-H19b-T0-1: the SECOND spawned Skyranger (craft ids are per type; Interceptor 2 shadows id 2)

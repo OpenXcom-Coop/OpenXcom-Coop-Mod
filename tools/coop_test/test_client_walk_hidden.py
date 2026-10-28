@@ -25,7 +25,7 @@ Red on the unchanged build (W2-H52 red): V2-admit, V2-halt, V2-text (3 of 11; th
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
 precondition (V*-start) miss ends its row and the later rows (cells "not reached"); a boot or staging miss prints ONE
 CAPTURE line and fails every row. Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file.
-Ids are read at run time (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result,
+Ids are read at run time (S25). run in the foreground to completion. ONE run is the result,
 no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_client_walk_hidden.py
@@ -48,8 +48,8 @@ from test_seat_pacing import tab_select, real_click_walk  # noqa: E402
 KEY = "49155"
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 T, D_DIR, FACE = (22, 26, 0), 2, 6               # the lane (TASK 0: spec pin (14,26,0) swapped by T's rule, S54)
-S_DIR = 4                                        # the side line T+s (y 27), open on both (TASK 0)
-HALT = ("spot", 3)                               # V1 / V2 halt reason and TU spent: 3 octants x turn cost 1 (TASK 0)
+S_DIR = 4                                        # the side line T+s (y 27), open on both
+HALT = ("spot", 3)                               # V1 / V2 halt reason and TU spent: 3 octants x turn cost 1
 TEXT = {"spot": "Order cancelled - enemy spotted", "blocked": "Move stopped - path blocked"}
 PARK_MIN, PARK_GAP, NEAR = 21, 2, 20             # PARK: Chebyshev >= 21 from T and T+s, >= 2 apart
 TU_MAX = 255                                     # battle_set_unit_state tu clamps to the unit's full TU
@@ -142,7 +142,7 @@ def probe(gc, uid, dest):   # copied from SSR
 
 
 def straight(host, client, w, a, b):
-    """W on a: path_probe w -> b steps 4 on both, (steps, tuCost) equal, tuCost == 4 x w -> a+d's (F17958)."""
+    """W on a: path_probe w -> b steps 4 on both, (steps, tuCost) equal, tuCost == 4 x w -> a+d's."""
     pb = {"host": probe(host, w, b), "client": probe(client, w, b)}
     p1 = {m: probe(gc, w, add(a, D_DIR)) for m, gc in (("host", host), ("client", client))}
     ok = all(pb[m].get("steps") == 4 and pb[m].get("reachable") and p1[m].get("tuCost") is not None

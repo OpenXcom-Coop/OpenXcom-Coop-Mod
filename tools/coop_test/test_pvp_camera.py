@@ -10,16 +10,16 @@ Constants: rewrite/r5u1-task0/sb/CONSTANTS.md (TASK 0 boots Ba, Bb; every pin eq
 Boot B2 (key 48918, dirs r5u1_b2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.TILES (K1_TILE and K2_TILE also checked open ground), the settle cycle (host END TURN, client END
 TURN -> side 0 turn 2). Every order is a host REAL-UI order: tab_select, the right-hand box, the action key, HOME, the
-host's set_seed right before ONE map_tile_click (RV-U2). HU = the HOST's union of visibleUnits over the live hostile
+host's set_seed right before ONE map_tile_click. HU = the HOST's union of visibleUnits over the live hostile
 units. Camera cells read the offset after the catch-up (host idle, the client applied every host seq, its combat ghosts
-ended), never a move record's `after` (F4218); offsets compare x / y (z is the view level).
+ended), never a move record's `after`; offsets compare x / y (z is the view level).
   K1  an X-COM shot no alien sees does not move the alien player's camera (gap 1): client camera staged on A; 13's
       rifle + TU; host set_seed SEED_K1; the host's real-UI SNAP of 13 at K1_TILE. K1-shot (one new host context {host,
       shoot, 13}; the client applied every seq of its chain), K1-pre (13 not in HU; every tile of the segment 13 ->
       K1_TILE farther than the max view distance from every live hostile unit), K1-cam (the client's offset == staged).
   K2  a shot the aliens see is followed (control): client camera at FAR; 9's rifle + TU; the host's real-UI SNAP of 9 at
       K2_TILE. K2-pre (9 in HU), K2-cam (the client's offset != staged).
-  K3  the alien player's camera centres on its own alien hit by an X-COM psi attack (F4189): client camera at FAR; the
+  K3  the alien player's camera centres on its own alien hit by an X-COM psi attack: client camera at FAR; the
       amp on 8, 8 psiSkill 100, A psiStrength 0, 8's TU; host set_seed SEED_K3; the host's real-UI PANIC by 8 on A.
       K3-psi (one new host context {host, psi, 8}; its psi cue {actor 8, unit A, action panic} applied on the client),
       K3-centre (one client camera.moves record {reason hit_centre, unit A}; the offset centred on A's tile: A_CENTRE).
@@ -27,8 +27,8 @@ ended), never a move record's `after` (F4218); offsets compare x / y (z is the v
 Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
 RED at B1: K1-cam, K3-centre; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the
 row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row
-"boot"; a staging step past its bound fails the rows that need it "staging". Lever pairs go to the client first (F607);
-ids come from lever replies (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the
+"boot"; a staging step past its bound fails the rows that need it "staging". Lever pairs go to the client first;
+ids come from lever replies (S25). run in the foreground to completion. ONE run is the
 result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_camera.py
@@ -109,7 +109,7 @@ def line2d(a, b):
 
 
 def far_pre(host, shooter, tile, ev):
-    """A-3: `shooter` not in HU, and every tile of the segment shooter -> tile farther (2D, squared) than MAX_VIEW_SQ
+    """`shooter` not in HU, and every tile of the segment shooter -> tile farther (2D, squared) than MAX_VIEW_SQ
     from every live hostile unit (coopTileSeenHere tests that distance first, so its tile-sight term is false)."""
     h = hu(host)
     hos = {i: (u["x"], u["y"]) for i, u in units(host).items()
@@ -175,7 +175,7 @@ def hand_key(host, uid, key, rows, cursor, ev):
     assert battle_state(host).get("selectedId") == uid, f"host selectedId {battle_state(host).get('selectedId')} " \
                                                         f"(want {uid})"
     if battle_state(host).get("cursorType") in RM.CURSOR_TARGETING:
-        click_nth(host, RHAND_NTH)   # F503: this click only cancels a leftover aim
+        click_nth(host, RHAND_NTH)   # this click only cancels a leftover aim
     r = click_nth(host, RHAND_NTH)
     assert (r.get("baseX"), r.get("baseY")) == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
     ok, _s = RM.wait_until(lambda: G3F.top(host) == "ActionMenuState", 5, 0.1)
@@ -190,7 +190,7 @@ def hand_key(host, uid, key, rows, cursor, ev):
 
 
 def click_tile(host, tile, seed, ev):
-    """HOME, the host's set_seed right before the click, ONE map_tile_click (RV-U2) on `tile`."""
+    """HOME, the host's set_seed right before the click, ONE map_tile_click on `tile`."""
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
     host.ok({"cmd": "set_seed", "seed": seed})

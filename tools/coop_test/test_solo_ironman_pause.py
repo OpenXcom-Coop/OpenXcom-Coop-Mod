@@ -1,5 +1,5 @@
-"""W2-H67 - test_solo_ironman_pause.py (SIP): a single-player ironman game's pause menu hides LOAD GAME and SAVE GAME (lead L-H63-1).
-R-LT8-1 (VL-H67-1, VL-H67-2), R-H67-1 (QH67-1 .. QH67-5 (a)): vanilla hides both in an ironman pause menu and shows SAVE AND ABANDON GAME; the
+"""test_solo_ironman_pause.py (SIP): a single-player ironman game's pause menu hides LOAD GAME and SAVE GAME (lead L-H63-1).
+R-LT8-1, R-H67-1 (QH67-1 .. QH67-5 (a)): vanilla hides both in an ironman pause menu and shows SAVE AND ABANDON GAME; the
 co-op build's "truly solo" re-show blocks (constructor, init()) turn both back on in every single-player game, ironman included (F19821,
 measured F19941). Spec: docs rewrite/prompts/w2h67_solo_ironman_hide.md (f); pins: docs rewrite/w2h67-task0/sa/CONSTANTS.md (TASK 0, 0ef641b8f).
 Boot I (w2h67_i_sp, solo, the real IRONMAN toggle; precondition 2 start save lists, Cancel hidden on each):
@@ -29,7 +29,7 @@ import pvp_fixture as PF  # noqa: E402
 # ----- TASK 0 pins (docs rewrite/w2h67-task0/sa/CONSTANTS.md) -----
 KEY = "49246"
 NAME_I, NAME_N, NAME_C = "IronH67", "PlainH67", "IronH67C"
-BASE_FALLBACK = (0.706, -0.507)        # session.HOST_LON / HOST_LAT is not land for a first base (F19943)
+BASE_FALLBACK = (0.706, -0.507)        # session.HOST_LON / HOST_LAT is not land for a first base
 NGS_SETTLE, QUIET_SOLO, QUIET_COOP = 0.2, 4.0, 8.0
 DRIVE_S, ARRIVAL_S, ENTRY_S, SETTLE_S, PAUSE_S, SETTLE_W = 150, 60, 60, 30, 10, 5
 ESC = 27
@@ -270,7 +270,7 @@ def to_battle(gc, ev):
         if not hist or hist[-1][1] != s:
             hist.append([round(time.time() - t0, 2), s])
         t = s[-1] if s else ""
-        if t in ("InventoryState", "NextTurnState") and (t, len(hist)) not in done:   # the equip screen's OK is ESC (F19940)
+        if t in ("InventoryState", "NextTurnState") and (t, len(hist)) not in done:   # the equip screen's OK is ESC
             done.add((t, len(hist)))
             r = gc.cmd({"cmd": "inject_input", "kind": "key", "key": ESC} if t == "InventoryState" else {"cmd": "close_nextturn"})
             acts.append([t, r.get("ok"), round(time.time() - t0, 2)])

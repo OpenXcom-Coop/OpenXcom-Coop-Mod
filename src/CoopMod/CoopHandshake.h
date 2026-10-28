@@ -151,7 +151,7 @@ bool requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo);
 // compatibility wrapper (`{ prepareBattleOffer(game, gamemode); }`) so all
 // FOUR existing call sites are unchanged.
 
-/// HOST, PREPARE half (WV-D56). Everything offerBattle() used to do UP TO AND
+/// HOST, PREPARE half. Everything offerBattle() used to do UP TO AND
 /// INCLUDING assignSeatsAndFactions() - the host/phase guards, the battleId
 /// mint, initBattleAuthority(), the turnMode resolve, and the seat/faction
 /// pass. Stashes @a gamemode and the resolved seat list into g_pendingHost
@@ -159,11 +159,11 @@ bool requestPvpBaseDefense(Game* game, Base* base, Ufo* ufo);
 /// and snapshots NOTHING - phase is Handshake when this returns, but no
 /// battle_offer has gone out yet, which is exactly the window
 /// CoopBattleUi::freezeBattleInputUntilActive() exists to freeze.
-/// W2-P8b S-A.2 (owner D210 b): its LAST statement now calls emitPreparedOffer() - the snapshot and the offer
+/// W2-P8b S-A.2: its LAST statement now calls emitPreparedOffer() - the snapshot and the offer
 /// (with its `equip` object) go out at turn 0, before the host's briefing is pushed.
 void prepareBattleOffer(Game* game, int gamemode);
 
-/// HOST, EMIT half (WV-D56). Everything offerBattle() used to do AFTER
+/// HOST, EMIT half. Everything offerBattle() used to do AFTER
 /// assignSeatsAndFactions(): the saveCoopToMemory("battlehost", ...) snapshot,
 /// CoopReveal::seedPublished(), the blob read + sha256, the corrupt_next_blob
 /// lever, the battle_offer JSON build (missionLabel/turnMode included,
@@ -177,7 +177,7 @@ void prepareBattleOffer(Game* game, int gamemode);
 /// past Handshake.
 void emitPreparedOffer(Game* game);
 
-/// HOST, SPEC 16 (W1-P17) M5: REJOIN-RESTREAM entry, called from
+/// HOST, SPEC 16 M5: REJOIN-RESTREAM entry, called from
 /// connectionTCP::streamSkirmishBattleToClient() (the re-targeted #93
 /// skirmish-rejoin path) once a client reconnects to a co-op battle M1 kept
 /// alive through a mid-`Active`-battle peer leave (`phase==Active &&
@@ -227,7 +227,7 @@ void offerRejoinBattle(Game* game);
 /// SavedBattleGame.
 void offerResumedBattle(Game* game);
 
-/// HOST (WV-D56): the path where a prepared-but-not-yet-emitted battle never
+/// HOST: the path where a prepared-but-not-yet-emitted battle never
 /// starts (BriefingState's no-aliens arm - a battle with zero live aliens
 /// never reaches the freeze branch that would call emitPreparedOffer()).
 /// Self-guarded no-op once emitPreparedOffer() has already fired
@@ -258,7 +258,7 @@ void abandonPreparedOffer(Game* game);
 // re-mint divergence is invisible to the hash, because strTarget/strCraftOrBase
 // are saveBlob-hash-EXCLUDED (SharedEcon.cpp:3974).
 //
-// FOUR CALL SITES, ONE HELPER (WV-D42). mintMissionLabels() is called one line
+// FOUR CALL SITES, ONE HELPER. mintMissionLabels() is called one line
 // above EACH of offerBattle()'s four call sites - Menu/NewBattleState.cpp:809,
 // Geoscape/ConfirmLandingState.cpp:369, Geoscape/ConfirmCydoniaState.cpp:179,
 // Geoscape/GeoscapeState.cpp:629 - never as a one-site fix.
@@ -375,7 +375,7 @@ bool mayReopenBriefing(Game* game);
 /// client is already frozen by construction, because its entry BriefingState is
 /// infoOnly and returns at BriefingState.cpp:302 before this site is reached.
 ///
-/// THE CALLER MUST CALL startFirstTurn() WHEN THIS RETURNS TRUE (WV-D43). The
+/// THE CALLER MUST CALL startFirstTurn() WHEN THIS RETURNS TRUE. The
 /// skipped push is the host's only non-preview route into
 /// SavedBattleGame::startFirstTurn() (the other caller is
 /// InventoryState::btnOkClick, InventoryState.cpp:1174), which is where
@@ -400,9 +400,9 @@ bool mayReopenBriefing(Game* game);
 /// dismiss its briefing before that lands. Same predicate
 /// resolveBriefingDeployment() uses, and false in SP, so vanilla is
 /// byte-identical.
-/// W2-P8b S-A.2 (owner D174 a): with the pre-battle equip phase open (a fresh co-op battle) it selects the host's
+/// W2-P8b S-A.2: with the pre-battle equip phase open (a fresh co-op battle) it selects the host's
 /// first own soldier with an inventory and returns false - vanilla pushes the equip screen; the freeze above stays
-/// for the next-stage briefing only (D158).
+/// for the next-stage briefing only.
 bool freezePreBattleEquip(Game* game);
 
 // ----- client-inbound handlers (battle_offer, and the blob-complete check
@@ -447,7 +447,7 @@ void onReady(Game* game, const Json::Value& ready);
 /// disconnect cannot leak into the next session.
 void resetPendingState();
 
-/// coop W2-H24 S-B (QH24-3 (a), F9980): the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
+/// coop W2-H24 S-B: the UDP twin's partner-loss record. handleUdpRemotePeerLost() (the UDP monitor
 /// thread) calls latchFreshStartLostUdp() before its own clearNetworkSessionQueues() resets the authority and the pending
 /// offer; it records whether a FRESH co-op battle start (a stage-2 offer included, MG-A-FS2) was in flight on the host.
 void latchFreshStartLostUdp();
@@ -462,7 +462,7 @@ bool coopHostRejoinPending();
 /// coop R4-L2 S-B: the rejoiner was lost during that rejoin - the pause is restored (phase Active, the offer dropped).
 void coopRestorePauseAfterLostRejoin();
 
-/// R2-P11 (RB-D26): test-only, one-shot corrupt-next-blob lever. HOST: sets a
+/// R2-P11: test-only, one-shot corrupt-next-blob lever. HOST: sets a
 /// flag offerBattle() checks (and clears) right after it computes blobSha -
 /// flips byte 0 of the persisted coopFilesHost["battlehost"] blob AFTER that
 /// sha, so the client's post-stream blobSha verify (not offerBattle's own

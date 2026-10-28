@@ -1,4 +1,4 @@
-"""W2-P8b - test_prebattle_equip_end.py: a co-op battle that starts with no live
+"""test_prebattle_equip_end.py: a co-op battle that starts with no live
 alien ends for BOTH players (spec docs rewrite/prompts/w2p8b_prebattle_equip.md: owner
 D210 b, the draft's (b)11 and (f) EQ24; AMENDMENT P8b-1 section 4 S-E (the pinned stage
 text: `abandonPreparedOffer` gains the emitted case, the `battle_end` envelope helper
@@ -8,7 +8,7 @@ keeps P7's wait for the host's `bt_debrief_result`, then sets AliensCrashState, 
 vanilla OK pushes the display-only DebriefingState), section 2 (F2757: the client's
 force-close never touches the pre-battle screen), section 5 rows EQ24 / EQ24b, section 8;
 P8b-1 RULINGS Q16 (a): the test-only client lever `hold_battle_ready`; ORCHESTRATOR
-RULING Q10 (a); veto line V4; AMENDMENT P8b-2 T0-5 (F3323) and the TASK 0 constants
+RULING Q10 (a); veto line V4; AMENDMENT P8b-2 T0-5 and the TASK 0 constants
 F3326). Stage S-F adds its boots F1 (EQ25) and F2 (EQ26) to this file (owner D215 a:
 a player with nothing to equip sees vanilla's Turn-1 screen at once and it stays until
 the partner is ready; P8b-1 section 4 S-F, section 5 rows EQ25 / EQ26; P8b-2 T0-9).
@@ -42,7 +42,7 @@ the staging. Then:
         applies it (applied 1, the host's seq, reason, aborted, inExitArea, verdicts and
         tally); the client's pre-battle screen stays on top for HOLD_S (the teardown
         waits for the host's debrief result), equip.forceCloseSkips grows and
-        invForcedCloses.count is unchanged (F2757); the host's OK on its AliensCrashState
+        invForcedCloses.count is unchanged; the host's OK on its AliensCrashState
         -> its DebriefingState, resultSent 1; the client's top AliensCrashState (no
         InventoryState left on its stack) within CLIENT_LEAVE_S; the client's teardown
         record (skirmish, not in the drain, no desync, queue 0, lastSeqApplied = the
@@ -132,7 +132,7 @@ MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) (tseed_parallel.log, F3326, throu
 test_prebattle_equip.py); ALIEN_IDS [1000000] (t05.log: "[T0-5] host live aliens
 before staging: [(1000000, 'STR_SECTOID_SOLDIER', 0)]"); the battle_end payload values
 (P8b-1 section 4 S-E); H_BUCKETS, DEBRIEF_WIDGETS, DEBRIEF_FIELDS, CLIENT_LEAVE_S and
-HOST_HOLD_S from test_battle_end.py (W2-P7). S-F: ALL_IDS [8..14] and SEAT_ALL 7
+HOST_HOLD_S from test_battle_end.py. S-F: ALL_IDS [8..14] and SEAT_ALL 7
 (P8b-2 T0-9, t09.log: "seated to seat 1: count=7 soldierIds=[8, 9, 10, 11, 12, 13, 14];
 refusal at index 7"); Boots F1/F2 keep MAP_FP and PILE (measured at 38a3d5b62 by the
 S-F red's scratch bring-up: mapFingerprint = MAP_FP on both machines, equip.pile =
@@ -142,8 +142,8 @@ below (test_prebattle_equip's tail).
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
 "PASS <id>" / "FAIL <id>: <message>"; main() runs every boot even after an earlier one
 failed; a boot's bring-up or spine failure fails its row. Every wait is bounded.
-WV-D99 / WV-D100: one run is the result; no skip path, no re-boot. Exit 0 only when
-every row passes, 2 otherwise. WV-D95: run in the foreground to completion.
+one run is the result; no skip path, no re-boot. Exit 0 only when
+every row passes, 2 otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_prebattle_equip_end.py
 """
@@ -177,7 +177,7 @@ ALIEN_IDS = [1000000]              # t05.log: the host's live aliens before the 
 # ----- S-F: nothing to equip (owner D215 a; AMENDMENT P8b-1 section 4 S-F, section 5 rows EQ25 / EQ26) -----
 PORT_F1 = "48846"                  # Boot F1's lobby port (unused by every other test file)
 PORT_F2 = "48847"                  # Boot F2's lobby port (unused by every other test file)
-ALL_IDS = [8, 9, 10, 11, 12, 13, 14]   # the craft's soldiers = C + H (F3326); t09.log "seated to seat 1: count=7
+ALL_IDS = [8, 9, 10, 11, 12, 13, 14]   # the craft's soldiers = C + H; t09.log "seated to seat 1: count=7
                                        # soldierIds=[8, 9, 10, 11, 12, 13, 14]"
 SEAT_ALL = 7                       # t09.log: "count=7 ...; refusal at index 7" (P8b-2 T0-9's seat-everyone recipe)
 COOP_SEAT_1 = 1
@@ -265,7 +265,7 @@ def hold(client, **kw):
 
 
 def bucket_diff(host, client):
-    """Every hash_now {full:true} bucket that differs - with ruling SA-5 (F3364): while the host is in phase
+    """Every hash_now {full:true} bucket that differs - with ruling SA-5: while the host is in phase
     Handshake its revealHostile is skipped and must be ABSENT from the host's hash_now. Returns (diff, note)."""
     hh, ch = hashes(host), hashes(client)
     handshake = es(host).get("phase") == "Handshake"
@@ -334,7 +334,7 @@ def stage_aliens(host, client, ctx):
                 rec["diffAfterClientOnly"], _ = bucket_diff(host, client)
             rh = host.cmd({"cmd": "battle_set_unit_state", "unit": aid, "status": STATUS_DEAD})
             rec["host"][aid] = {k: rh.get(k) for k in ("ok", "error", "status")}
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
         rec["diff"], rec["hashNote"] = bucket_diff(host, client)
         rec["liveAfter"] = {"host": live_aliens(host), "client": live_aliens(client)}
         rec["turn"] = [turn(host), turn(client)]
@@ -381,7 +381,7 @@ def spine_e1(host, client, ctx):
     rec.update({"clientBriefingWithin": d0 if g0 else None, "hostActiveWithin": d1 if g1 else None,
                 "clientClose": {k: c.get(k) for k in ("ok", "error")}, "clientScreenWithin": d2 if g2 else None})
     if g0 and g2:
-        session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
+        session.wait_seq_barrier(host, client)  # the host's first evs applied before staging
         stage_aliens(host, client, ctx)
     rec.update({"host": dump(host), "client": dump(client)})
     print(f"SPINE E1: {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
@@ -785,7 +785,7 @@ def eq24c_host_ok_in_handshake(host, client, ctx):
                       flush=True)
 
 
-# ===================== S-F: nothing to equip (owner D215 a) =====================
+# ===================== S-F: nothing to equip =====================
 
 
 def brief_equip(gc):

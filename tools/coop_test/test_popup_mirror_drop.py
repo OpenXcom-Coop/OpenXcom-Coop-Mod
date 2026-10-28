@@ -2,9 +2,9 @@
 capture lh76-1-cap F22185-F22188): in a SEPARATE co-op campaign a geoscape popup (UFO detected, destination confirm, target info) keeps a raw
 pointer to the partner's UFO mirror. When the partner drops, deleteAllCoopBases deletes every mirror without looking at those popups; after
 RESUME the popup is on top again over the freed UFO, and INTERCEPT / OK there close the host's game. The fix closes every popup holding a doomed
-mirror right before the delete, as its CANCEL does (VL-H81-1). Probe popup_mirror_check (read-only pointer compares): holders = popups on the
+mirror right before the delete, as its CANCEL does. Probe popup_mirror_check (read-only pointer compares): holders = popups on the
 stack holding a target, dangling = those holding one in no live list, mirror = those holding a live co-op mirror, queued / queuedDangling = the
-same for GeoscapeState's queued popups; the drop reds are read under the 62, before the rejoin (F22327). Owner = client, holder = host (DC: the
+same for GeoscapeState's queued popups; the drop reds are read under the 62, before the rejoin. Owner = client, holder = host (DC: the
 host owns its UFO). Every player press is a real click (globe, INTERCEPT, list rows, the tracker hotkey T, Profile OK, RESUME, CANCEL); levers
 stage only (bases, spawn_ufo, the globe centre, the drop = kill). Binding rule: no press on a popup unless its cell's named top shows and pmc
 dangling 0 was read right before. Each boot is fresh and shut down before the next; key "49507"; the rejoin is a NEW client (ClientPlayer).
@@ -16,7 +16,7 @@ dangling 0 was read right before. Each boot is fresh and shut down before the ne
   Boot DC (dirs w2h81_dc_*): ... while the host's popup shows the host's OWN UFO (the targeting guard). Cells DC-kept, DC-top, DC-cancel.
 Red (commit R1): exit 2, RED exactly on UD-dangling, UD-held, UD-top, CD-dangling, CD-held, CD-top, TI-dangling, TI-held, TI-top (9 of 18).
 A guard (G:) miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
-row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run.
+row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2. one foreground run.
 Run: python tools/coop_test/test_popup_mirror_drop.py"""
 import json, math, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

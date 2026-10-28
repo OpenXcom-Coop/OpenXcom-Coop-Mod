@@ -45,7 +45,7 @@ D156). Four rows, ONE boot each (one ending per boot):
       own boot with E1's pins, the same precondition, then the HOST presses
       its debriefing OK, then the CLIENT presses its own.
   E3 and E3b are the pre-rewrite contract's two orders
-  (test_skirmish_end_main_menu.py :1-45, F2197). Owner D156 (a): each
+  (test_skirmish_end_main_menu.py :1-45, F2197). each
   debriefing stays until that player presses OK; nobody waits, nobody loses
   a screen.
 
@@ -67,7 +67,7 @@ R4's re-points a-c and new rows f-k):
   host    battleEnd emitted 1, seq > 0, reason / aborted / inExitArea /
           perSeatVerdict / tally as the row expects, actionIdAtEmit 0,
           evsAfter 0, stageSkips 0, hBuckets = the 9 action-end bucket names
-          (8 structured + saveBlob); quiescentAtEmit is recorded only (F1911);
+          (8 structured + saveBlob); quiescentAtEmit is recorded only;
           the host's stack still holds DebriefingState; coopClientBStatePushes
           0 and desyncSeen false. S-B1 (f) the host hold: sampled every 0.25 s
           for HOST_HOLD_S after the client's end state, the host's top stays
@@ -155,7 +155,7 @@ client still in battle, then both rows passed. Commit S-B1.1 (this file's
 S-B1 rows, the debrief_state probe, the record's result keys - no product
 behaviour) is run ONCE and each row fails on exactly the S-B1 red: the client
 top MainMenuState and has_save false (S-A's interim end), the host hold and
-the host's top showing CoopState (F2011), the host's resultSent / resultBytes
+the host's top showing CoopState, the host's resultSent / resultBytes
 0 and the client's resultReceived / resultBytes / resultReceivedMs /
 debriefDisplayOnly 0, and the client's debrief_state not shown (shown, onTop,
 displayOnly false, widgets {0, 0, 0}, page -1, and every content field whose
@@ -182,7 +182,7 @@ every row even after an earlier one failed and prints "PASS <id>" /
 "FAIL <id>: <message>". Every wait is bounded; a wait that runs out is
 recorded and fails the row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot per
+one run is the result. No skip path, no second boot per
 row, no alternative map or actor. Exit 0 only when all four rows pass, 2
 otherwise.
 
@@ -213,11 +213,11 @@ H_BUCKETS = sorted(["terrain", "fire", "smoke", "items", "unitsCore", "unitsStat
 DEBRIEF_S = 30        # host DebriefingState after the ending's confirm (T0-1: <= 0.05 s)
 CLIENT_LEAVE_S = 30   # client end state (CLIENT_END_TOPS) after the host's DebriefingState (review section 2)
 ROW_EXPECT = {
-    # T0-2 (F1982): finishBattle(false, 7) from NextTurnState::close, isAborted() false.
+    # T0-2: finishBattle(false, 7) from NextTurnState::close, isAborted() false.
     "E1": {"reason": "aliensDown", "aborted": False, "inExitArea": 7,
            "verdicts": [(0, "win"), (1, "win")],
            "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
-    # T0-2 (F1983): finishBattle(true, 0) from AbortMissionState::btnOkClick, isAborted() true.
+    # T0-2: finishBattle(true, 0) from AbortMissionState::btnOkClick, isAborted() true.
     "E2": {"reason": "abort", "aborted": True, "inExitArea": 0,
            "verdicts": [(0, "abort"), (1, "abort")],
            "tally": {"liveAliens": 1, "liveSoldiers": 7, "inExit": 0}},
@@ -227,11 +227,11 @@ IN_BATTLE_TOPS = ("BattlescapeState", "NextTurnState")
 
 # ----- W2-P7 S-B1 constants (AMENDMENT P7-2 R4) -----
 CLIENT_END_TOPS = ("DebriefingState", "MainMenuState")   # the client wait ends on either; the row asserts DebriefingState
-HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state (F2055)
+HOST_HOLD_S = 3       # the host's top sampled every 0.25 s for this long after the client's end state
 PAGE_S = 10           # each STATS / LOOT page change of E1's page walk
-DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174 (F2049)
+DEBRIEF_WIDGETS = {"texts": 19, "lists": 5, "buttons": 4}   # DebriefingState.cpp :144-174
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
-# G11 (F2031): these rows' host page 1 has at least one row; the other rows pin `rows` as [].
+# G11: these rows' host page 1 has at least one row; the other rows pin `rows` as [].
 ROWS_WITH_PAGE1 = ("E1", "E3b")
 # R6: each row's host debrief_state content, copied verbatim from the capture run on the S-B1.1 build
 # (pin_view: `soldiers` as each row's deltas, G10).
@@ -276,7 +276,7 @@ ROW_EXPECT["E3"] = ROW_EXPECT["E2"]
 ROW_EXPECT["E3b"] = ROW_EXPECT["E1"]
 HOST_DEBRIEF["E3"] = HOST_DEBRIEF["E2"]
 HOST_DEBRIEF["E3b"] = HOST_DEBRIEF["E1"]
-LEAVE_FIRST = {"E3": "client", "E3b": "host"}   # who presses OK first (owner D156 (a))
+LEAVE_FIRST = {"E3": "client", "E3b": "host"}   # who presses OK first
 # The battle phase each machine's OK reads before any reset. E3's host: Idle - the client's leave already reset its
 # battle scope (F2182, H2 (a)). E3b's host: Ended - its own OK's reset clears it (Q10 (a)).
 PHASE_AT_OK = {"E3": {"client": "Idle", "host": "Idle"}, "E3b": {"host": "Ended", "client": "Idle"}}
@@ -341,7 +341,7 @@ def machine_view(gc):
 
 
 def host_hold(host):
-    """S-B1 row f (F2055): sample the host's top every 0.25 s for HOST_HOLD_S and
+    """S-B1 row f: sample the host's top every 0.25 s for HOST_HOLD_S and
     return the distinct non-DebriefingState tops seen, in first-seen order
     ([] = the host's debrief held the top throughout)."""
     seen = []
@@ -422,7 +422,7 @@ def press_ok(gc):
 
 
 def left_menu(gc):
-    """Top MainMenuState and the connection closed: MainMenuState::init (and its disconnect) has run (F2189)."""
+    """Top MainMenuState and the connection closed: MainMenuState::init (and its disconnect) has run."""
     return top(gc) == "MainMenuState" and coop(gc).get("coopStatic") is False
 
 
@@ -629,7 +629,7 @@ def debrief_verdict(rid, hrec, crec, hdeb, cdeb, hold):
     if pin is None:
         f.append(f"no HOST_DEBRIEF pin for {rid} (R6)")
     else:
-        # G11 (F2031): a non-empty title on every row; ROWS_WITH_PAGE1 rows also need a page-1 row
+        # G11: a non-empty title on every row; ROWS_WITH_PAGE1 rows also need a page-1 row
         need_rows = rid in ROWS_WITH_PAGE1
         if pin.get("title") in ("", None) or (need_rows and len(pin.get("rows") or []) < 1):
             f.append(f"HOST_DEBRIEF[{rid}] pin sanity: title={pin.get('title')!r} rows={pin.get('rows')} "

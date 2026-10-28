@@ -16,7 +16,7 @@ seed 1; pin_ai_neutral; every live unit's reactions 0.
   G1  the host gives H by the give-unit key (258) and the menu: G1-menu, G1-give (H seat 1 on both, the `gift` latch +1,
       the host's apply line), G1-recv (the client's notice and target H), G1-giver (the host's selection leaves H),
       G1-cmd (the partner turns H; the host's TAB skips H), G1-common.
-  G3  the client gives C2 by its key and menu, the host gives it straight back with no selection step (D240 (a)):
+  G3  the client gives C2 by its key and menu, the host gives it straight back with no selection step:
       G3-menu, G3-send, G3-seat, G3-recv, G3-back, G3-common.
   G4  three refused gifts by the client's lever: G4-self (target its own seat), G4-partner (the host's TANK:
       not_your_unit), G4-acting (C1 right after its walk to WALK_G4), G4-common.
@@ -37,7 +37,7 @@ shown (a POPUP_BOTH window hides them for ~0.25 s, F13206).
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot"; a cell whose precondition cell failed FAILs "not
 reached". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come from probes (S25).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift.py
@@ -270,7 +270,7 @@ def give_by_menu(gc, caption, ev):
 
 
 def bring_up(host, client, key):
-    """test_ownerless_units.bring_up (boot C) with the lobby key as a parameter (F10917)."""
+    """test_ownerless_units.bring_up (boot C) with the lobby key as a parameter."""
     m, pre, seated = (host, client), {}, {}
 
     def lobby():
@@ -470,7 +470,7 @@ def row_g2(host, client, crash0):
     ev["lever"] = host.cmd({"cmd": "battle_gift", "unit_id": TANK, "owner": 1})
     cells["G2-seat"] = lands(host, client, TANK, 1, ev.setdefault("seat", {}))
     ev["selSeat"] = sels(host, client)
-    # the notice first (read, then dismissed): a TAB under a GiftNoticeState never reaches the battle (F13425)
+    # the notice first (read, then dismissed): a TAB under a GiftNoticeState never reaches the battle
     cells["G2-notice"] = notice_cell(client, host, n0, f"{HOST_NAME} gave {name_of(client, TANK)} to you.",
                                      ev.setdefault("notice", {}), bound=STEP_S if cells["G2-seat"][0] else 0)
     cells["G2-cmd"] = cmd_cell(host, client, TANK, ev.setdefault("cmd", {}), client_tab=True)

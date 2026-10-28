@@ -16,7 +16,7 @@ orders are intents (session.send_walk, a battle_intent shoot lever).
       hiddenMovementShown False; its selectedId printed).
   H6  the alien host sees a seen X-COM soldier walk: the host camera staged on 9 (TASK 0: the lever staging leaves the
       host's sight lists stale at turn 1, so an off-screen walk runs in one frame); the partner's send_walk(9, H2_DEST).
-      W2-U9 re-point (R-U9-0, F21063): since R5-U2 S-B (58a185218, QU1-6) the alien host animates a walk only while
+      W2-U9 re-point: since R5-U2 S-B (58a185218, QU1-6) the alien host animates a walk only while
       the aliens see the walker (an unseen enemy walks unanimated, as vanilla does for the player), and the staged
       tile (18,6,0) is not in the aliens' sight lists, so the 2-tile walk ran unanimated in 50 ms and closed before the
       first sample. Staging now starts the walk SEEN: the partner's one-tile send_walk(9, H6_START) first (a real
@@ -34,8 +34,8 @@ Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, n
 RED at D1: H6-during, H7-screen; every other cell PASS (H5-screen and H9-hidden are guards). One EVIDENCE line per row,
 one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
 CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging". Lever
-pairs go to the client first (F607); ids come from lever replies (S25). WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+pairs go to the client first; ids come from lever replies (S25). run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_hidden_move_gm3.py
 """
@@ -59,7 +59,7 @@ KEY = "48957"
 A_ID = HM.A_ID                    # 1000000 on (15,2,0) facing 4: the host's alien (seat 0)
 S9, U13 = 9, 13
 H2_DEST, K1_TILE = HM.H2_DEST, HM.K1_TILE   # (16,8,0) two tiles from 9 inside A's view sector; (33,30,0)
-# W2-U9 (F21063): 9's seen start tile, one step S of its staged (18,6,0) and two tiles from H2_DEST. Replacement rule:
+# 9's seen start tile, one step S of its staged (18,6,0) and two tiles from H2_DEST. Replacement rule:
 # the nearest open-ground tile one step from (18,6,0) that is two tiles from H2_DEST and puts 9 in the host's HU.
 H6_START = (18, 7, 0)
 SEED_H9 = 1
@@ -89,7 +89,7 @@ def row_h5(host, client, crash0):
 
 def row_h6(host, client, crash0):
     ev, cells = {}, {}
-    # W2-U9 (F21063): start the H6 walk on a tile the aliens see (a real one-tile step refreshes their sight lists).
+    # start the H6 walk on a tile the aliens see (a real one-tile step refreshes their sight lists).
     ev["pre"] = {"resp": session.send_walk(client, S9, H6_START)}
     ev["pre"]["done"] = G3F.walk_done(host, client, S9, H6_START, ev["pre"])
     ev["pre"].update(at=[pos(host, S9), pos(client, S9)], HU=K.hu(host))

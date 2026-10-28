@@ -21,7 +21,7 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 OPT = "oxceManualPromotions"
-BOOT_A = ("w2h16a", (49290, 49291, 47280))      # SHARED; lobby 47280 (F5764)
+BOOT_A = ("w2h16a", (49290, 49291, 47280))      # SHARED; lobby 47280
 BOOT_B = ("w2h16b", (49292, 49293, 47282))      # SEPARATE; lobby 47282
 SQUADDIE, SERGEANT = 1, 2
 POLL_S, POLL_I, UI_S, BETWEEN_S, CLEAN_S = 3.0, 0.1, 3.0, 30, 4.0

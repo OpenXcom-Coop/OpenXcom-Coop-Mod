@@ -17,7 +17,7 @@ T0-I TRACE: resumeBattlePending=1 with preview=1 / baseInv=1, then the refusal).
 W_ACK = 30 s (CONSTANTS: max(30 s, 3 x t_ack 2.42 s)) from client2's join_tcp; W = 10 s at 0.25 s polls, HOLD = 2 s. HL = the host's
 openxcom.log from the size noted before the kill. Setup guard per boot: stacks [GeoscapeState], localSeat 0 / 1, has_battle false, the
 host's lobbyMode 1 (a miss fails the boot's row `boot`, one CAPTURE line). A RED 1 miss leaves the row's later cells "not reached".
-EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run (WV-D95); exit 0 iff every
+EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every
 row passes, else 2.
 """
 

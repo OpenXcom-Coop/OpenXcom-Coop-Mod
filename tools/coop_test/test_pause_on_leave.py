@@ -1,4 +1,4 @@
-"""SPEC 16 (W1-P17) S1 - client drops mid-player-turn with a HOST WALK IN
+"""SPEC 16 S1 - client drops mid-player-turn with a HOST WALK IN
 FLIGHT (drain-first proof, M1+M2). S2-S5 are later cycles, not in this file.
 
 Construction = owner D95 (2026-09-16, R1M F340/F342): a host-origin walk is
@@ -15,7 +15,7 @@ beyond MAX_VIEW_DISTANCE) and is also confirmed empirically
 (spottedThisTurn stays empty on the alien before and during the walk).
 While that walk is in flight (>=2 steps still pending), the client
 disconnects. This exact fixture was measured REPRODUCIBLE 3/3 at tip
-bb2a14dae (F342) before any M1/M2 code existed. WV-D77 evidence folded in:
+bb2a14dae before any M1/M2 code existed. WV-D77 evidence folded in:
 battle_teleport is a dead "rewrite-pending" stub (TestServer.cpp) - the live
 lever is battle_teleport_unit; the runtime set_option command has no case
 for battleXcomSpeed - the live lever is the boot-time options.cfg field via
@@ -111,7 +111,7 @@ Exit codes (S2, run_s2()/main_s2()):
     appeared) - the scenario was never run to the point where it could prove
     anything.
   * FAIL (exit 4): the run completed but one or more of the S2 invariants
-    above did not hold - the RED this scenario exists to invert (F343).
+    above did not hold - the RED this scenario exists to invert.
 """
 import os
 import sys
@@ -243,7 +243,7 @@ def _bring_up(tag, run_idx, seed):
             assert bs.get("phase") == "Active", f"{name}: phase={bs.get('phase')!r}, expected Active"
             assert bs.get("authority", {}).get("battleId", 0) != 0, f"{name}: battleId is 0"
     except BaseException:
-        # W2-U8f (F9051): _run_scenario's try/finally starts only after this returns, so a failed bring-up shuts
+        # _run_scenario's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
@@ -265,12 +265,12 @@ def _locate_ufo_lift_column(host):
     """Scan z=0 for the UFO's own rare mapDataSetID (the lift/hull dataset)
     and return (x, y, ds_id, info) for the first (x,y) whose z=0 floor part
     carries it, or (None, None, None, info) if no such column exists on this
-    boot's map. F342: this build's STR_SMALL_SCOUT UFO1 block has no
+    boot's map. this build's STR_SMALL_SCOUT UFO1 block has no
     isUfoDoor/isDoor tile anywhere, but it does have a real 1-tile-wide,
     3-level-tall lift/elevator shaft - use that instead of a door."""
     dr = host.cmd({"cmd": "find_doors", "limit": 1})
     mx, my = dr["mapSizeX"], dr["mapSizeY"]
-    # CIT-Y2: the z=0 level in bulk (session.tile_scan), read in the same x-then-y order as the old per-tile loop
+    # the z=0 level in bulk (session.tile_scan), read in the same x-then-y order as the old per-tile loop
     rows = session.tile_scan(host, 0, mx - 1, 0, my - 1, 0, 0)
     counts = {}
     first_hit = {}
@@ -307,7 +307,7 @@ def _far_destinations(host, actor, alien_pos, occupied, length, want=5):
     between actor and dest to stay beyond MAX_VIEW_DISTANCE (20) of the
     alien - calibrated for a walk that starts and ends far from a
     horizontally-visible alien. This fixture's LOS safety comes from a
-    DIFFERENT mechanism (F342/D95): the alien sits one Z-LEVEL UP on the
+    DIFFERENT mechanism: the alien sits one Z-LEVEL UP on the
     UFO's lift shaft, so line of sight is blocked by the intervening floor
     regardless of horizontal distance - and the actor's own spawn is
     measured (this file's own author-time hunt, captured 2026-09-16)
@@ -333,7 +333,7 @@ def _far_destinations(host, actor, alien_pos, occupied, length, want=5):
                 ring.append((abs(dz), -(d if d is not None else 1e9), t))
     ring.sort(key=lambda e: (e[0], e[1]))
 
-    # CIT-Y2: every ring tile in bulk (session.tile_scan of the ring's box, door flags from one find_doors), then
+    # every ring tile in bulk (session.tile_scan of the ring's box, door flags from one find_doors), then
     # tile_is_open_ground's predicate in the same ring order
     zs = [t[2] for _, _, t in ring]
     rows = session.tile_scan(host, actor["x"] - length, actor["x"] + length,
@@ -421,12 +421,12 @@ def _run_scenario(tag, run_idx, drop, seed):
         elevator_tile = (lx, ly, 1)
 
         away_dir = _away_direction(actor, (lx, ly))
-        for gc in (client, host):  # F607: client first, then host
+        for gc in (client, host):  # client first, then host
             tr = gc.cmd({"cmd": "battle_teleport_unit", "unit": alien["id"],
                          "x": elevator_tile[0], "y": elevator_tile[1], "z": elevator_tile[2],
                          "dir": away_dir})
             assert tr.get("ok"), f"battle_teleport_unit failed on {gc.name}: {tr}"
-        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+        session.wait_seq_barrier(host, client)
 
         assert _select_by_tab(host, actor["id"]), "could not TAB-select the host actor"
 
@@ -640,7 +640,7 @@ def main():
 # =====================================================================
 
 def _s2_bring_up(base_port):
-    """SPEC 12 AI-stream fixture bring-up (F343): the same mission/race/seed
+    """SPEC 12 AI-stream fixture bring-up: the same mission/race/seed
     test_ai_origin_stream.py uses for a reproducible single-alien
     STR_SMALL_SCOUT boot, via repro_atom_side_transition.bring_up_lobby (the
     established shared lobby-dance helper, not a scratch copy)."""
@@ -657,7 +657,7 @@ def _s2_bring_up(base_port):
             pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": SPEC16_S2_RACE}),
             pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SPEC16_S2_SEED}))
     except BaseException:
-        # W2-U8d (F8416): run_s2's try/finally starts only after this returns, so a failed bring-up shuts
+        # run_s2's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
@@ -698,18 +698,18 @@ def run_s2():
                        (2, 0), (0, 2), (-2, 0), (0, -2)]:
             tx, ty, tz = ax + dx, ay + dy, az
             ok_both = True
-            for gc in (client, host):  # F607: client first, then host
+            for gc in (client, host):  # client first, then host
                 r = gc.cmd({"cmd": "battle_teleport_unit", "unit": target["id"],
                             "x": tx, "y": ty, "z": tz, "dir": 0})
                 if not r.get("ok"):
-                    if gc is host:  # W2-U8d (F8172): the client leg already moved the soldier - stop, never stage on
+                    if gc is host:  # the client leg already moved the soldier - stop, never stage on
                         print(f"FAIL: the host refused tile ({tx},{ty},{tz}) for soldier {target['id']} that the "
                               f"client accepted ({r}): the two machines answered one lever differently")
                         sys.exit(1)
                     ok_both = False
                     break
             if ok_both:
-                session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+                session.wait_seq_barrier(host, client)
                 placed = True
                 print(f"[setup] teleported soldier {target['id']} to ({tx},{ty},{tz})")
                 break

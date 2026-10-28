@@ -20,8 +20,8 @@ SETTLE_S = R1; R2 = HOLD_S later. hatch = code 62, saveQuitVisible and abandonVi
 reconnect". CRASH = new files in FIX.crashes() (the lane crash folder) since the row's baseline. 21 cells. Red (commit R1, P1 build): exit 2,
 RED exactly on A-flood, A-hatch, A-drop, A-name, A-partner, A-rejoin, A-resume, A-save, U-flood, U-hatch, U-drop, U-partner, C-log (13).
 A precondition miss ends its row (later cells "not reached" = FAIL); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE
-line per row, one PASS / FAIL line per cell, then the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). Kills only
-its own clients (by their GameClient). The red writes thousands of crash_*.log files (the builder moves them out after the run). WV-D95: one
+line per row, one PASS / FAIL line per cell, then the row verdict; exit 0 only when every cell passes, else 2. Kills only
+its own clients (by their GameClient). The red writes thousands of crash_*.log files (the builder moves them out after the run). one
 foreground run per invocation.
 Run: python tools/coop_test/test_rx_throw_drop.py   (OXC_HARNESS_SLOT selects the lane)
 """

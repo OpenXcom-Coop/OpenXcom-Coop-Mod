@@ -19,7 +19,7 @@ five rows in this order:
        COOP_SR_SKILL == 2 on both), SR2-H (H's == 1 on both), SR2-intent (the host's intentsReceivedLog holds G's
        skill), SR2-common.
   SR4  G holds the plasma pistol + clip (give_both), the alien A (the lowest live hostile id, the same on both
-       machines) gets reactions 0 (F11033) and is teleported onto TGT_SR4 (G's tile + TGT_SR4_OFF, facing G), all
+       machines) gets reactions 0 and is teleported onto TGT_SR4 (G's tile + TGT_SR4_OFF, facing G), all
        client first; the client's real-UI snap at A (CR.run_press, the host's set_seed SEED_SR4 right before the
        click): SR4-guard (one admitted shoot order, the shot cue {actor G, weapon the pistol} and no other shot, A's
        health dropped, >= 1 live hostile after, the battle running, the click outside the SKILLS rect: else the
@@ -37,7 +37,7 @@ RED of S-A (A1): exactly SR0-G, SR1-G, SR2-G, SR3-G FAIL (G reads 1). RED of S-B
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
 Run:  python tools/coop_test/test_script_research.py
 """
 
@@ -66,7 +66,7 @@ MOD_ACTIVE_LINE = "- Coop_ScriptResearch_Test v1.0"
 SKILL = "STR_COOP_TEST_SR_SKILL"
 SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (28 / 29, F11478)
 KEY_SKILL = 49                    # the first (only) skill row
-# raw field_poke tag index = the MOD's definition order, equal on both machines (F11472)
+# raw field_poke tag index = the MOD's definition order, equal on both machines
 TAG_TURN, TAG_SKILL, TAG_HIT, TAG_DMG, TAG_SPEC, TAG_AHIT, TAG_AMMO, TAG_ASPEC = 0, 1, 2, 3, 4, 5, 6, 7
 TAG_NAMES = {TAG_TURN: "COOP_SR_TURN", TAG_SKILL: "COOP_SR_SKILL", TAG_HIT: "COOP_SR_HIT", TAG_DMG: "COOP_SR_DMG",
              TAG_SPEC: "COOP_SR_SPEC", TAG_AHIT: "COOP_SR_AHIT", TAG_AMMO: "COOP_SR_AMMO", TAG_ASPEC: "COOP_SR_ASPEC"}
@@ -75,7 +75,7 @@ TGT_SR4_OFF = (0, 2, 0)           # TGT_SR4 = G's tile + this, due south (CR TGT
 ALIEN_DIR = 0                     # A faces north, toward G (side FRONT)
 FACTION_HOSTILE = 1
 HOST_R, OWNER_R = 1, 2            # 1 + isResearched(STR_PLASMA_PISTOL): the host's research / the second player's
-MIN_LIVE_PLAYERS = 3              # SR3 stuns G and H; the battle must keep running (F11032)
+MIN_LIVE_PLAYERS = 3              # SR3 stuns G and H; the battle must keep running
 STATUS_UNCONSCIOUS = 7
 SCRIPT_S = 2.0                    # the host's own skill script ran (TASK 0: 0.1 s)
 FOLLOW_S = 5.0                    # the client's tags follow the host's (TASK 0: SR2-H 0.55 / 0.56 s)
@@ -240,7 +240,7 @@ def row_sr0(ev, res, host, client, st):
                      for n, t in (("host", th), ("client", tc))}
     ev["G"] = {"host": th.get(st["G"]), "client": tc.get(st["G"])}
     ev["H"] = {"host": th.get(st["H"]), "client": tc.get(st["H"])}
-    # R-OF2-A-2 (F11983): turn 1 starts at the host's equip barrier, after battle_accept stored seat 1's list, so
+    # turn 1 starts at the host's equip barrier, after battle_accept stored seat 1's list, so
     # G's first-turn newTurnUnit already reads G's owner's research; every other unit keeps the host's.
     res["SR0-G"] = tag_cell("G", st["G"], ev["G"], (TAG_TURN,), OWNER_R)
     f = [f"{n} unit {uid} {TAG_NAMES[TAG_TURN]} {tag_val(v, TAG_TURN)} (want {HOST_R}; 0 = the MOD did not run)"
@@ -360,7 +360,7 @@ def row_sr4(ev, res, host, client, st):
         try:
             ev["pistol"] = wid, _ = give_both(host, client, G, CR.PISTOL, CR.PCLIP)
             both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A, "stat": "reactions",
-                                "value": 0}, ("tu",))   # F11033: A never reacts
+                                "value": 0}, ("tu",))   # A never reacts
             tele_both(host, client, A, tgt, ALIEN_DIR)
         except AssertionError as e:
             miss = f"staging: {short(e, 400)}"

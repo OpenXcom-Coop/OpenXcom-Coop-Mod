@@ -17,7 +17,7 @@ CO-OP's visibility is EVIDENCE only (MG-B's cell, D238 (a)). No save is written.
 RED on the unchanged product: R-busy-save, T-enemy-save. GREEN (E1-E3): every cell PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure. A precondition
 miss ends its row (later cells FAIL "not reached (<step>)", ONE CAPTURE line). A boot miss fails every cell "boot" with
-ONE CAPTURE line. WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path;
+ONE CAPTURE line. run in the foreground to completion. ONE run is the result, no skip path;
 exit 0 only when every cell passes, else 2.   Run:  python tools/coop_test/test_solo_pause_save_guard.py
 """
 
@@ -127,7 +127,7 @@ def settled(gc):
 
 
 def pause_read(gc, seen):
-    """The read (QH63-3 (a)): lever, pop its HostMenu, settle, ONE list_widgets + ONE battle_state."""
+    """The read: lever, pop its HostMenu, settle, ONE list_widgets + ONE battle_state."""
     b0 = bs(gc)
     r = {"pendingAtLever": b0.get("pendingStates"), "sideAtLever": b0.get("side")}
     gc.ok({"cmd": "open_pause_coop"})

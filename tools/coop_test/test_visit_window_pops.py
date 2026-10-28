@@ -23,12 +23,12 @@ force_stream_key_miss (W2-H66; both S45, below) and the probes.
     client's 50 on top the lever off; watch until its top is BasescapeState for 1 s; read V. Cells: R3-pre GUARD (R-H71-2: the start of
     the last host fnv == H0 read is later than the client's logged 50 push, the first changed read ends before its logged BasescapeState
     push), R3-stack RED, R3-geo RED, R3-lift RED, R3-leave GUARD.
-  -lift cells (R-H71-2): clicked ONLY on [GeoscapeState, BasescapeState] (else FAIL "not reached (red stack)", no click): the real click on
+  -lift cells: clicked ONLY on [GeoscapeState, BasescapeState] (else FAIL "not reached (red stack)", no click): the real click on
     the visited base's lift tile -> BriefingState over GeoscapeState within W_UI; the briefing's OK, then end_turn_button -> [GeoscapeState,
     BasescapeState] within W_UI (TASK 0's way back); both alive.
 Red (commit R1, the R0 build): exit 2, RED exactly R1-notice, R1-ok, R2-stack, R2-geo, R2-lift, R3-stack, R3-geo, R3-lift (8 of 17).
 A precondition miss ends its row ("not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line per row,
-one PASS / FAIL line per cell, the verdict; every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95.
+one PASS / FAIL line per cell, the verdict; every row runs; exit 0 only when every cell passes, else 2. WV-D95.
 """
 import base64, datetime, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
@@ -59,7 +59,7 @@ PUSH50 = "[coop-ui] push class OpenXcom::CoopState depth=2"
 GIFT70 = "[coop-gift] W2-H70: the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored own world at the gift
 MISS = "Failed to read from hash map with key: client_"  # loopData's logged miss of the client's own-world key (W2-H66 lever)
 W_LEVER = 5.0  # the lever's miss follows the host's reply to the client's push (W2-H70 T1: the whole stream took 0.23 s)
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 GEO, BS = "GeoscapeState", "BasescapeState"
 
 class Stop(Exception):
@@ -162,7 +162,7 @@ def own_base(gc):
     return next((b for b in gc.ok({"cmd": "geo_state"}).get("bases", []) if not b.get("coopIcon") and not b.get("coopBase")), None)
 
 def click_marker(gc, base, pk, fnv_host=None, fnv_reads=None):
-    """the real marker click (CAP offsets, ONE request); with fnv_host each cycle reads the host fnv first (R-H71-2) -> (t50 epoch, codes)"""
+    """the real marker click (CAP offsets, ONE request); with fnv_host each cycle reads the host fnv first -> (t50 epoch, codes)"""
     x, y = project(pk["G"], base["lon"], base["lat"], pk["geom"])
     t50, codes = None, []
     for dx, dy in CLICKS:
@@ -175,7 +175,7 @@ def click_marker(gc, base, pk, fnv_host=None, fnv_reads=None):
             st = stack(gc)
             if st[-1:] == ["CoopState"]:
                 moved = True
-                if fnv_host is None:  # R-H71-3 (F20152): R3 polls the host fnv and does not use the dialog codes
+                if fnv_host is None:  # R3 polls the host fnv and does not use the dialog codes
                     c = dlg(gc).get("code")
                     codes.append(c)
                     t50 = t50 or (time.time() if c == 50 else None)
@@ -289,7 +289,7 @@ def hold_gift(x, ev):
 def lever(x, on):
     """R3 (S45, vwp-gap F20483): W2-H66's TEST-ONLY force_stream_key_miss on the client: while on, its host-bound stream finds no blob and
     retries, so the world W2-H70 pushes at the gift does not land before B; off (with the client's 50 up), the held stream sends the
-    client's current own-world blob. Not usable in R2: the held stream also holds the client's base stream the host's visit needs (F20483)"""
+    client's current own-world blob. Not usable in R2: the held stream also holds the client's base stream the host's visit needs"""
     lv = q(x.client, {"cmd": "force_stream_key_miss", "on": on})
     if not (lv.get("ok") and lv.get("on") is on):
         raise Stop("force_stream_key_miss %s not set on the client: %s" % (on, lv))
@@ -328,7 +328,7 @@ def watch(x, gc, fnv_reads):
     return firsts
 
 def lift(x, gc, base_name, ev):
-    """the -lift cell's drive on [Geo, Basescape] (R-H71-2): the lift click -> BriefingState over Geo; OK; end_turn_button -> [Geo, Basescape]"""
+    """the -lift cell's drive on [Geo, Basescape]: the lift click -> BriefingState over Geo; OK; end_turn_button -> [Geo, Basescape]"""
     g = q(gc, {"cmd": "geo_state"})
     b = next((z for z in g.get("bases", []) if z.get("name") == base_name), None) or {}
     lf = next((f for f in b.get("facilities") or [] if "LIFT" in str(f.get("type"))), None)
@@ -394,7 +394,7 @@ def row_r1(x, results):
     def pre():
         visit(x)
         baseline(x)
-        ev["sessionS"] = session.wait_coop_session(h)   # F24296: the 54 needs the host's live session
+        ev["sessionS"] = session.wait_coop_session(h)   # the 54 needs the host's live session
         q(h, {"cmd": "save_game_ui", "type": "quick"})
         ev["54 s"] = wait(lambda: top(h) == "CoopState" and dlg(h).get("code") == 54, W_54, 0.005)[1]
         if not wait(lambda: dlg(c).get("code") == 67, W_67, 0.02)[0] or top(h) != "CoopState":
@@ -409,7 +409,7 @@ def row_r1(x, results):
             raise Stop("no PurchaseState row %s / TextList" % ITEM)
         sc = x.pkC["scale"]
         bx, by = tl["x"] + 227 + 5, tl["y"] + items.index(ITEM) * 8 + 4
-        tc = time.time()   # F24297: one red lost this click (amount 0); the client log's PurchaseState push time is comparable
+        tc = time.time()   # one red lost this click (amount 0); the client log's PurchaseState push time is comparable
         ev["buyClick"] = {"at": "%s.%03d" % (time.strftime("%H-%M-%S", time.localtime(tc)), int(tc * 1000) % 1000),
                           "tl": {k: tl.get(k) for k in ("visible", "hidden")}}
         q(c, {"cmd": "inject_input", "kind": "click", "x": int(bx * sc["x"] + 1), "y": int(by * sc["y"] + 1)})

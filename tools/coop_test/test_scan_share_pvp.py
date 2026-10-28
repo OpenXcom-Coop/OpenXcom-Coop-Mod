@@ -19,7 +19,7 @@ EVIDENCE only: S and A on both machines, the screen, the new host contexts.
 
 RED on the probe build (commit C1): none (SC3 is a guard on both builds); every cell PASS. One EVIDENCE line, one PASS/FAIL
 line per cell, then the row verdict. A boot step past its bound prints ONE CAPTURE line and fails the row "boot"; a
-staging step that fails fails the row's cells. WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is
+staging step that fails fails the row's cells. run in the foreground to completion. ONE run is
 the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_scan_share_pvp.py

@@ -29,7 +29,7 @@ the row's cells are "not reached (motion)".
 RED (HEAD before EQ-3 S-B G1): 9 of 14 cells - P1-drawn, P1-pos, P1-name, P2-drawn, P2-pos, P2-name, P3-rest, P4-off, P5-key;
 the 5 guards PASS. Green: 14 / 14. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs
 after a failure (a precondition miss ends its own row, its later cells "not reached"); a spine miss fails every row "spine" with
-ONE CAPTURE line. WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+ONE CAPTURE line. run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_base_partner_pointer.py
@@ -51,7 +51,7 @@ HB, GEO, INV = "HostBase", "GeoscapeState", "InventoryState"
 PT1, PT2 = (150, 120), (60, 150)  # on the Inventory surface, on no widget of the base screens (CONSTANTS.md)
 SCALE = 2                         # the harness window / logical ratio (cursor_pos measured)
 HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"  # the SHARED roster names B2 draws (TASK 0 boot c)
-NAME_DX, NAME_DY = 10, 4          # QEQ2-4: the name's top-left from the pointer's tip
+NAME_DX, NAME_DY = 10, 4          # the name's top-left from the pointer's tip
 MOTION_S, W_PTR, REST_S, QUIET_S = 1.0, 2.0, 3.0, 2.0
 POLL, SAMPLE_S, SCREEN_S = 0.05, 0.25, 30.0
 CELLS = {

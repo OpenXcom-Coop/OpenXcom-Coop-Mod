@@ -35,7 +35,7 @@
 #include "UnitFallBState.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/CoopDoor.h"
-#include "../CoopMod/CoopHotseat.h" // D247-U: the hotseat REACT FIRE toggle
+#include "../CoopMod/CoopHotseat.h" // the hotseat REACT FIRE toggle
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopSpeed.h"
 #include "../CoopMod/CoopDelta.h"
@@ -103,7 +103,7 @@ void UnitWalkBState::think()
 
 	bool unitSpotted = false;
 	int size = _unit->getArmor()->getSize() - 1;
-	bool onScreen = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)); // coop R5-U2 S-B (QU1-6): seen by the side this machine plays
+	bool onScreen = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)); // coop R5-U2 S-B: seen by the side this machine plays
 	if (_unit->isKneeled())
 	{
 		if (_parent->kneel(_unit))
@@ -155,7 +155,7 @@ void UnitWalkBState::think()
 		if ((_parent->getSave()->getTile(_unit->getDestination())->getUnit() == 0) || // next tile must be not occupied
 			(_parent->getSave()->getTile(_unit->getDestination())->getUnit() == _unit))
 		{
-			bool onScreenBoundary = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true)); // coop R5-U2 S-B (QU1-6)
+			bool onScreenBoundary = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true)); // coop R5-U2 S-B
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
 			playMovementSound();
 			if (_parent->getSave()->isPreview())
@@ -203,7 +203,7 @@ void UnitWalkBState::think()
 			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && (!coopFactionIsMine(_unit->getFaction()) || coopCameraFollowsPartner(_unit)) && coopUnitVisibleHere(_unit)) // coop R5-U1 S-B (D222 gap 2): not this machine's side; D249-U: or the partner's walker, option on
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
-			if (coopHostPartnerCamera(_unit, "walkLevel")) {} else // W2-P6a (D131)
+			if (coopHostPartnerCamera(_unit, "walkLevel")) {} else
 			_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
 		}
 
@@ -274,7 +274,7 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop D247-U: the hotseat REACT FIRE toggle (main UnitWalkBState :465) */ && !coopPvpWalkReactionOff()) // coop R5-U6 S-A (D236 b): the host's PvP option
+			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop: the hotseat REACT FIRE toggle (main UnitWalkBState :465) */ && !coopPvpWalkReactionOff()) // coop R5-U6 S-A: the host's PvP option
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
@@ -627,7 +627,7 @@ void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
 	if ((!coopUnitVisibleHere(_unit) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
-	if (coopWalkSoundSilenced(_unit, _action.sneak, false)) return; // coop R5-U6 S-B (D236 b): the other player's footsteps option
+	if (coopWalkSoundSilenced(_unit, _action.sneak, false)) return; // coop R5-U6 S-B: the other player's footsteps option
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

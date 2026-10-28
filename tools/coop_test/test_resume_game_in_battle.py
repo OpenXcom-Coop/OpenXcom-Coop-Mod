@@ -79,7 +79,7 @@ def settle_on_tactical(machines, timeout=180):
 
     W2-P8b S-H: BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
     host's pre-battle equip screen now waits for the client's ready (owner
-    D206 c) and the client's briefing is up at once (D210 b), so settling one
+    D206 c) and the client's briefing is up at once, so settling one
     machine at a time never finishes. `battle_inventory ok` is the idempotent
     ready lever (Q11 a): pressing it every round never flaps a seat's ready."""
     deadline = time.time() + timeout

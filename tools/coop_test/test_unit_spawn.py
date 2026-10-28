@@ -4,7 +4,7 @@ from the host's own saved record, together with its special built-in weapon -
 and a special weapon the host removes is removed there too (spec
 rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_unit_spawn.py
 (S-C)", sections (b)9-(b)13, amendment B1 (ST8, RQ2, RQ5, RQ7, RQ9, RQ10,
-RQ11); ledger `## W2-P3 TASK 0b` (F857-F862) and `## W2-P3 TASK 0d` (F887,
+RQ11); ledger `## W2-P3 TASK 0b` and `## W2-P3 TASK 0d` (F887,
 F888); owner ruling D128 = (b)).
 
 Before S-C, on the W2-P3 base, a unit add is unsupported by the delta
@@ -89,7 +89,7 @@ scratch w2p3/T0b/constants.md): set_seed SEED_ROSTER on the HOST right before
 its open_new_battle; the DEFAULT NEW BATTLE map with set_seed SEED_MAP right
 before newbattle_ok, seat_count=2, MAP_FP asserted on both; the unit order
 UNIT_ORDER asserted (L = last unit id + 1); session.pin_ai_neutral (pins A).
-Every lever pair applies to the CLIENT first, then the HOST (F607). The
+Every lever pair applies to the CLIENT first, then the HOST. The
 seeds are set on the HOST immediately before the press that starts the chain.
 
 RED-THEN-GREEN (spec (d) row S-C). Commit S-C.1 (this file, the lever fields,
@@ -102,9 +102,9 @@ every scenario even after an earlier one failed and prints "PASS <id>" /
 "FAIL <id>: <message>". Every wait is bounded; a wait that times out is
 recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_unit_spawn.py
 """
@@ -125,7 +125,7 @@ from test_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta
 from test_reaction_prox import context_fails
 
 # ----- bring-up (W2-P3 TASK 0b, ledger `## W2-P3 TASK 0b`, T0b constants.md "Common bring-up") -----
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
 SEATED = [8, 9]                  # the client seat's soldiers
@@ -214,7 +214,7 @@ def both_rec(host, client, req, keys, fails, what):
     rc = client.cmd(dict(req))
     rh = host.cmd(dict(req))
     try:
-        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+        session.wait_seq_barrier(host, client)
     except TimeoutError as e:
         fails.append(f"{what}: {e}")
     if not rh.get("ok") or not rc.get("ok"):
@@ -317,7 +317,7 @@ def snap_evidence(rec, what):
     cb, ca = rec["cb"]["host"], rec["ca"]["host"]
     cues = [(e["seq"], e["kind"], e["actionId"], payload(rec, e)) for e in rec["hev"] if e["kind"] in PAYLOAD_KINDS]
     ring = [ring_view(r) for r in (rec["ring"] or []) if (r.get("seq") or 0) > rec["seq0"]]
-    desync = rec["desync"] and {k: rec["desync"].get(k) for k in ("bucket", "seq")}   # F888: never the kind label
+    desync = rec["desync"] and {k: rec["desync"].get(k) for k in ("bucket", "seq")}   # never the kind label
     return (f"{what} seed={rec['seed']} fire={rec['fire']} infoboxes dismissed={rec['dismissed']} client "
             f"wait={rec['settled']}; host evs since seq {rec['seq0']}={ev_tuples(rec['hev'])} client evs="
             f"{ev_tuples(rec['cev'])} (seq, kind, actionId, h); host cues (seq, kind, actionId, payload)={cues}; "

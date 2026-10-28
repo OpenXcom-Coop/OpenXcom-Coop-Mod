@@ -1,15 +1,15 @@
 """W2-H20d (F8551; owner D226 a; spec rewrite/prompts/w2h20d_shared_craft_deployment.md (f), QD1 a .. QD8 a, AMENDMENT H20d-1; TASK 0
 rewrite/w2h20d-task0/CONSTANTS.md): in SHARED, a craft type's soldier deployment saved or deleted from the Ufopaedia's craft preview (the
 craft article, INFO, "Preview", the abort icon, OK; Ctrl+OK deletes) stays on the machine that pressed OK: no command carries it and the
-world checksum does not count it, so only a world copy moves the host's entry to the second player (F8874-F8876).
+world checksum does not count it, so only a world copy moves the host's entry to the second player.
 D(gc) = base_screen_op {op: craft_deployment, craft_type: STR_SKYRANGER} (saved, positions, crafts); Dsky = D's crafts entry with id SKY
-(customDeployment); EQ = both D equal in saved and positions. SKY, seats and HostBase from h20.setup (S25); keys from read_key (F3091).
+(customDeployment); EQ = both D equal in saved and positions. SKY, seats and HostBase from h20.setup (S25); keys from read_key.
 PV(gc, erase) = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing, battle_action abort,
 [modstate ctrl], OK, [modstate none], end_turn_button, close_screens (<= 2 s per probe, SETTLE 0.3 s before a key or click, F2888; never
 close_screens or a copy over an open preview, F8883). COPY = client force_resync, then both stacks [GeoscapeState] and EQ <= 30 s.
 SET(want) = host PV(erase = not want) when the host's saved != want, COPY when not EQ, client shared_reset_resync_stats; guard saved ==
 want on both and EQ. MARK = W2-H20c deploy_mark {HostBase, SKY} on both, then Dsky true on both. reqs / fails = the client's
-shared_resync_stats.requests / shared_stats.failCount. W = 6 s at 0.25 s polls; N = 14 positions (TASK 0).
+shared_resync_stats.requests / shared_stats.failCount. W = 6 s at 0.25 s polls; N = 14 positions.
   Boot A bring_up("w2h20da", (49503, 49504, 47957)):
     HD-0 (guard) the craft soldier screen's "Preview" is hidden on both (the per-craft save W1, F8873); D unsaved on both.
     HD-1 SET(false); MARK; host PV(save). Non-vacuity: the host's D saved, N positions, Dsky false at once. RED: the client's D unsaved
@@ -23,9 +23,9 @@ shared_resync_stats.requests / shared_stats.failCount. W = 6 s at 0.25 s polls; 
     HD-6 (guard, last in Boot A) js.finish(): world equality, the replica's zero disk.
   Boot S (SEPARATE, tag w2h20ds, labels 49505 / 49506, lobby "47958"): HD-S (guard) client PV(save): the client's D saved, the host's not;
     both shared_stats cmd / applyCount / failCount unchanged 1 s later.
-A row whose named RED cell fails evaluates no later cell (F8045). EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE
+A row whose named RED cell fails evaluates no later cell. EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE
 line (both machines' D, stacks, pedia_state, shared_stats, shared_resync_stats); a boot miss fails its rows "boot". Every row runs after a
-failure. ONE run (WV-D95); exit 0 iff everything passes, else 2.
+failure. ONE run; exit 0 iff everything passes, else 2.
 """
 
 import json
@@ -45,7 +45,7 @@ TAG_A, PORTS_A = "w2h20da", (49503, 49504, 47957)
 TAG_S, LABELS_S, LOBBY_S = "w2h20ds", (49505, 49506), "47958"
 HB, CB, SKYR, GEO = "HostBase", "ClientBase", "STR_SKYRANGER", "GeoscapeState"
 BS, SFN, BRF, AMS = "BattlescapeState", "StatsForNerdsState", "BriefingState", "AbortMissionState"
-W, POLL, STEP, SETTLE, CONV, N = 6.0, 0.25, 2.0, 0.3, 30.0, 14  # TASK 0: N = the Skyranger's 14 stand-in soldiers
+W, POLL, STEP, SETTLE, CONV, N = 6.0, 0.25, 2.0, 0.3, 30.0, 14  # N = the Skyranger's 14 stand-in soldiers
 RAW, UNKNOWN, NO_SUCH = [[1, 2, 0, 3]], "unknown command: craft_deployment", "STR_NO_SUCH_CRAFT"
 ROWS_A, ROWS_S = ["HD-%d" % n for n in range(7)], ["HD-S"]
 ORDER = ROWS_A + ROWS_S
@@ -103,7 +103,7 @@ def pd(gc):
 
 
 def act(gc, obj):
-    time.sleep(SETTLE)  # a key or click injected right after a state opens is lost without it (F2888)
+    time.sleep(SETTLE)  # a key or click injected right after a state opens is lost without it
     return q(gc, obj)
 
 
@@ -140,7 +140,7 @@ def pv(gc, keys, erase=False):
     if m:
         return m, ev
     cb, dis = q(gc, {"cmd": "close_briefing"}), 0
-    while not on(BS) and dis < 3:  # dismiss only a top other than BattlescapeState that stays 2 s (AMENDMENT H6)
+    while not on(BS) and dis < 3:  # dismiss only a top other than BattlescapeState that stays 2 s
         dis += 1
         q(gc, {"cmd": "dismiss_popup"})
     pre = q(gc, {"cmd": "battle_state"}).get("isPreview")
@@ -268,7 +268,7 @@ def delete_row(x, r, presser, other, red):
 
 
 def answers(x):
-    """the client's shared_ok + shared_fail count: it rises once the host has answered the client's shared_cmd (F23961)"""
+    """the client's shared_ok + shared_fail count: it rises once the host has answered the client's shared_cmd"""
     r = q(x.client, {"cmd": "shared_stats"})
     return (r.get("okCount") or 0) + (r.get("failCount") or 0)
 
@@ -279,7 +279,7 @@ def raw(x, craft_type):
     f0, a0, t0, out = fails(x)[0], answers(x), time.time(), {}
     out["shared_cmd"] = q(x.client, {"cmd": "shared_cmd", "jcmd": "craft_deployment", "baseId": -1,
                                      "payload": {"craftType": craft_type, "saved": True, "positions": RAW}})
-    # F23961: the negative control's D already holds RAW (the green command's), so settled() reads only after the host's answer
+    # the negative control's D already holds RAW (the green command's), so settled() reads only after the host's answer
     out["answered s"] = round(time.time() - t0, 2) if wait_until(lambda: answers(x) > a0, W, POLL) else None
 
     def settled():

@@ -46,7 +46,7 @@ Eight scenarios, ONE boot, in this order:
   C16h   the halt. C's TU = the snap cost SNAP_TU (both); C faces dir 0 (the
          turn C16's shot produced); real-UI snap at the floor tile C16H_TARGET,
          two octants east. The pre-shot turn spends 1 TU per octant, so vanilla's
-         own haveTU check (ProjectileFlyBState.cpp:90) refuses the shot (F1109).
+         own haveTU check (ProjectileFlyBState.cpp:90) refuses the shot.
          RED: refused at K1. GREEN: {intent, shoot, C} with no `shot` ev and one
          bt_action_end; lastActionHalt {actionId, halted true, reason no_tu} on
          both; the client banner is vanilla's "Not Enough Time Units!"; the host
@@ -95,7 +95,7 @@ Eight scenarios, ONE boot, in this order:
          the host camera centres on C26_CAMERA and the client walks C to
          C26_WALK_DEST through the lever (8 steps, ~13 s with the default 10 s
          timeout, T0-5). RED: intentTimeouts +1 and "No answer from the host -
-         action dropped" at ~10 s while the host still walks (F1118/F1119).
+         action dropped" at ~10 s while the host still walks.
          GREEN: intentTimeouts unchanged, no timeout banner, the client's slot
          (inFlight) held until the walk's bt_action_end, the walk longer than the
          timeout option. Leg 2 (green only, declared: at the base the client
@@ -103,7 +103,7 @@ Eight scenarios, ONE boot, in this order:
          set_seed SEED_C17, real-UI autoshot at C17_TARGET (~21 s, F1121):
          likewise no timeout while the slot is held, the order longer than the
          timeout option, three `shot` evs in one {intent, shoot, C} context.
-         C26-W (R-C26-1, R-C26-2): each leg's watch, and C17p's wait for the host
+         C26-W: each leg's watch, and C17p's wait for the host
          autoshot, ends at the order's end, capped at WATCH_CAP_S (was 45 s / 60 s).
 
 The order puts C16 first on the fresh boot, so it runs exactly on TASK 0's T0-1
@@ -145,9 +145,9 @@ FIXTURE (TASK 0 T0-1, T0-2, T0-3, T0-4 a, T0-5; the roster-pinned terror boot of
 test_host_combat.py): set_seed SEED_ROSTER on the HOST right before its
 open_new_battle, mission STR_TERROR_MISSION, set_seed SEED_MAP right before
 newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
-asserted (SEATED), pin_ai_neutral. Every lever pair goes to the CLIENT first
-(F607). Item ids are read at run time from the lever replies or by owner + slot
-(F1107), never baked. The seeds were found with HOST stand-ins (battle_fire for
+asserted (SEATED), pin_ai_neutral. Every lever pair goes to the CLIENT first.
+Item ids are read at run time from the lever replies or by owner + slot,
+never baked. The seeds were found with HOST stand-ins (battle_fire for
 C): S-A's executor build proves them again (N18 = F1085).
 
 RED-THEN-GREEN (spec (d) row S-A). Commit S-A.1 (this file, the probes, the
@@ -159,9 +159,9 @@ earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait i
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all eight scenarios pass, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_shoot.py
 """
@@ -242,7 +242,7 @@ TEXT_WAIT_HOST = f"Please wait for {raw.HOST_PLAYER}'s action to finish"   # STR
 # ----- C16a / C16d / C16d-r (lever orders) -----
 FLOOR_TARGET = (24, 26, 0)        # road floor due east of C, past C26's walk
 SEED_C16A = 1
-A2_OFF_TILE = (33, 44, 0)         # one tile north of A2's spawn (F1108)
+A2_OFF_TILE = (33, 44, 0)         # one tile north of A2's spawn
 RESEARCH_TOPIC = "STR_PLASMA_PISTOL"
 PISTOL, PISTOL_CLIP = "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"
 TEXT_DENY = {                     # en-US: bin/common STR_COOP_DENY_* / xcom1 vanilla key
@@ -258,7 +258,7 @@ C26_XCOM_DIAL = 200               # client battleXcomSpeed: seat 1 walk dial
 C26_WALK_DEST = (20, 26, 0)
 C26_WALK_STEPS = 8
 C26_CAMERA = (16, 26, 0)          # host camera on the lane (on-screen pacing, F1120)
-C26_FIRE_DIAL = 1                 # client battleFireSpeed for leg 2 (F1121)
+C26_FIRE_DIAL = 1                 # client battleFireSpeed for leg 2
 TIMEOUT_DEFAULT_S = 10            # Options coopIntentTimeoutSeconds default
 TEXT_TIMEOUT = "No answer from the host - action dropped"   # STR_COOP_ACTION_TIMEOUT
 
@@ -268,8 +268,8 @@ CURSOR_AIM = 2                    # battle_state.cursorType CT_AIM
 RHAND_CENTRE = (RHAND_RECT[0] + RHAND_RECT[2] // 2, RHAND_RECT[1] + RHAND_RECT[3] // 2)
 POLL_S = 0.05
 SENT_WAIT_S = 2.0                 # how long a press gets to show as sent or refused
-WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): F11103's loaded leg-2 order (R-C26-2)
-ORDER_TIMEOUT_S = WATCH_CAP_S     # RV-U13 S-C (R-C26-1, F11228): every order window, here and in the importers
+WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): F11103's loaded leg-2 order
+ORDER_TIMEOUT_S = WATCH_CAP_S     # RV-U13 S-C: every order window, here and in the importers
 
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
 PROBE_KEYS = ("desyncSeen", "coopClientBStatePushes", "coopLocalExecBlocked", "lastSeqEmitted",
@@ -402,7 +402,7 @@ def wait_seat_dial(host, client, seat, which, value, timeout=15):
 
 
 def cancel_client_aim(client):
-    """F503: while the client aims, a hand click only cancels the aim. One such
+    """while the client aims, a hand click only cancels the aim. One such
     click when an earlier scenario left the client aiming, so the staging never
     swaps the weapon under a live aim. Returns [cursor before(, after)]."""
     c0 = battle_state(client).get("cursorType")
@@ -424,7 +424,7 @@ def aim_click(client, key, tile, before_click=None):
     ev["tab"] = tab_select(client, C_ID)
     assert ev["tab"], f"TAB never selected C on the client (selectedId {battle_state(client).get('selectedId')})"
     if battle_state(client).get("cursorType") == CURSOR_AIM:
-        click_nth(client, RHAND_NTH)   # F503: this click only cancels the aim
+        click_nth(client, RHAND_NTH)   # this click only cancels the aim
         ev["aimCancelled"] = battle_state(client).get("cursorType")
     r = click_nth(client, RHAND_NTH)
     assert (r.get("baseX"), r.get("baseY")) == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
@@ -504,7 +504,7 @@ def send_intent(host, client, req, notes, timeout=15):
         if ld.get("iseq") == iseq:
             return "deny"
         if order_done(host, client):
-            # F1318: a deny applied between the read above and order_done()'s
+            # a deny applied between the read above and order_done()'s
             # reads leaves the order done; lastDeny wins, so re-read it once.
             ld = event_state(client).get("lastDeny") or {}
             return "deny" if ld.get("iseq") == iseq else "end"

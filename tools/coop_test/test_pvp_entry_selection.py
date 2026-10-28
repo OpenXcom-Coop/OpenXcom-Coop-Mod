@@ -1,7 +1,7 @@
 """W2-H36 rows S3, I3, V3, H3 (boot E3, gm3: the HOST plays the aliens) and S2, C2 (boot E2, gm2: the client plays the
 aliens): at battle start a PvP seat that does not play the first side holds none of the other side's units (design-D6,
 QU2-7 (a) = R5-U2's UC5) and gets no "You command no soldiers - spectator mode" notice (R5-V4); the gm3 host's off-turn
-screen and refusals then match its later X-COM turns (R-U1-SC-1).
+screen and refusals then match its later X-COM turns.
 
 Spec: docs repo rewrite/prompts/w2h36_gm3_host_turn1_selection.md section (f), orchestrator rulings QH36-1 .. QH36-5 (a).
 Constants: rewrite/w2h36-task0/CONSTANTS.md (TASK 0 boots Ea, Eb (gm3) and Ec, Ed (gm2) on the unchanged build; every pin
@@ -32,7 +32,7 @@ RED on the unchanged build (commit A1): S3-sel, S3-text, I3-zero, V3-screen, V3-
 EN2_SEL 8, ACT2 -1; S3-actor is a guard, ACT3 -1); every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line
 per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and
 fails the boot's rows "boot"; a staging step past its bound fails the rows that need it "staging". Lever pairs go to the
-client first (F607). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip
+client first. run in the foreground to completion. ONE run is the result, no skip
 path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_entry_selection.py

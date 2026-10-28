@@ -3,7 +3,7 @@ and its right-click sale goes through the host (`sell`, capped at the host's sto
 rewrite/prompts/w2h16h_random_production_sale.md (e)-(f); TASK 0 rewrite/w2h16h-task0/CONSTANTS.md. Lever (test-only, read-only):
 prodwin_probe; real input (inject_input). Boot A (SHARED): H16h-1..3 (one completion's windows), H16h-4, H16h-5 (last); Boot B
 (SEPARATE): H16h-6 (guard row). RED (commit 1): H16h-1..5 fail on their named cells, H16h-6 passes; GREEN: all pass. "G:" cells
-are guards (CAPTURE on a miss); never `mismatches` (F5510). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 if all pass, else 2."""
+are guards (CAPTURE on a miss); never `mismatches`. EVIDENCE then PASS / FAIL per row; ONE run; exit 0 if all pass, else 2."""
 
 import json
 import os
@@ -18,11 +18,11 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_RandomSale_Test")
-BOOT_A = ("w2h16ha", (49411, 49412, 47380))     # SHARED; lobby 47380 (F8067)
+BOOT_A = ("w2h16ha", (49411, 49412, 47380))     # SHARED; lobby 47380
 BOOT_B = ("w2h16hb", (49413, 49414, 47382))     # SEPARATE; lobby 47382
 ITEM, SR, LR = "STR_H16H_RANDOM", "STR_SMALL_ROCKET", "STR_LARGE_ROCKET"
 CAPTION = "Summary"                             # TASK 0 T0-3 (en-US tr("STR_RANDOM_PRODUCTION_SUMMARY"))
-P_S, P_L = 480, 720                             # TASK 0: the window's price of one small / large rocket
+P_S, P_L = 480, 720                             # the window's price of one small / large rocket
 S0_S, ROLL_S, ROLL_I, OPEN_S, WIN_S, WIN_I, POST_S, UI_S = 20.0, 30.0, 0.1, 3.0, 3.0, 0.25, 4.0, 5.0
 GEO = "GeoscapeState"
 ADOPTED = "restream adopted; released the client hold"   # the host's log line per adopted restream (test_shared_resync_storm)
@@ -54,7 +54,7 @@ def rows(w): return [[q.get("item"), q.get("qty")] for q in w.get("rows") or []]
 def rowof(w, item): return ([q for q in w.get("rows") or [] if q.get("item") == item] or [None])[0]  # noqa: E704
 def both(x, f): return {gc.name: f(gc) for gc in (x.host, x.client)}  # noqa: E704
 def wslim(w): return {"open": w.get("open"), "rows": rows(w), "list": [w.get("listVisible"), w.get("listHidden")]}  # noqa: E704
-def speed(x, idx): return both(x, lambda g: pick(g.cmd({"cmd": "geo_set_speed", "idx": idx}), "ok", "error"))  # noqa: E704 (R-H18-1)
+def speed(x, idx): return both(x, lambda g: pick(g.cmd({"cmd": "geo_set_speed", "idx": idx}), "ok", "error"))  # noqa: E704
 def req0(x): return {k: v["requests"] for k, v in both(x, rs).items()}  # noqa: E704
 
 

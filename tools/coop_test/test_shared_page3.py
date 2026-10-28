@@ -3,7 +3,7 @@ Sell and Transfer buttons on the world it adopted in place, and the page-3 count
 buttons stay in step on both machines whoever sells (docs rewrite/prompts/w2p7_sc_design.md section 3.5, AMENDMENT
 P7-7 sections 2-4: PR-22..PR-28, P7-7 Q2 (a); owner D154, D176; mechanism rulings MR1, MR14).
 
-Before S-C-D1 (F2491, F2506, F5589): the client's display-only debriefing never shows Sell / Transfer (V3 fill forces
+Before S-C-D1: the client's display-only debriefing never shows Sell / Transfer (V3 fill forces
 _showSellButton false and _base null), and a SHARED page-3 sale or transfer - the host's own included - returns
 before vanilla's page-3 bookkeeping (decreaseRecoveredItemCount, setAutosell, hideSellTransferButtons), so the
 page-3 counts never drop on either machine.
@@ -40,7 +40,7 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
       (4) the client sets every remaining row to its qty, Sell/Sack: both page 2 sellVisible and transferVisible false;
           autosell true for every recovered type on both; world_diff empty.
   Boot 2 (port 47251, FX-B): D1c.
-  D1c (0) guard (R-D1-2): "Second Base" availableStores > 0 on both machines.
+  D1c (0) guard: "Second Base" availableStores > 0 on both machines.
       (1) both page 2: transferVisible true.
       (2) the client's TRANSFER -> TransferBaseState; screen_pick_base {0, 1} -> TransferItemsState, rows == page 3.
       (3) screen_set_amount {T, 4}, Transfer, OK -> top DebriefingState within SCREEN_S; recovered[T] == 6 on both;
@@ -50,7 +50,7 @@ Guard on every row: host event_state.fatalVote.armed 0; no new crash log; the cl
 RED (commit S-C-D1.1: probes, levers and rows, product untouched): D1a fails on cell 1 (the client's sellVisible
 false), D1b on cell 1 (the host's recovered[U] stays 8, F2506 / F5589), D1c on cell 1 (the client's transferVisible
 false). GREEN (commit S-C-D1.2): every row passes.
-Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE
+Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE
 foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_page3.py
@@ -76,13 +76,13 @@ RECOVERED_TYPES = ["STR_PLASMA_RIFLE", "STR_PLASMA_RIFLE_CLIP", "STR_PLASMA_PIST
 D1A_SELL, D1B_SELL, D1C_XFER = 3, 2, 4                 # P7-7 section 3.1's amounts
 BOOT_PORT = {"B1": "47250", "B2": "47251"}             # P7-7 section 3 (S26, F5582): D1 = 47250-47252
 SECOND_BASE, LIFT_X, LIFT_Y = "Second Base", 3, 3      # FX-B: test_shared_equip_transfer :109's call
-STORES, STORES_X, STORES_Y = "STR_GENERAL_STORES", 4, 3  # R-D1-2: next to the lift (3, 3); pinned by the D1 red's capture
+STORES, STORES_X, STORES_Y = "STR_GENERAL_STORES", 4, 3  # next to the lift (3, 3); pinned by the D1 red's capture
 ADOPT_S = camp.ADOPT_S  # 15 s (CONSTANTS T0-S2)
 SCREEN_S = 10           # P7-7 section 3.1: "within 10 s"
 PAGE_S = 5              # a debriefing page flip / a screen push after a real click
 EQUAL_S = 10            # a shared_apply's effect may lag one round trip
 BASES_S = 45            # FX-B: the second base on both machines (test_shared_equip_transfer's wait)
-# P7-7 RULINGS R-D1-3 (F5777/F5778): SavedGame::getAutosell reads false whenever the LOCAL oxceAutoSell is off, so both
+# P7-7 RULINGS R-D1-3: SavedGame::getAutosell reads false whenever the LOCAL oxceAutoSell is off, so both
 # machines of both boots boot with it on (make_user_dir(options=...), the F5429 path; per-player, not synced, F5517).
 BOOT_OPTIONS = {"oxceAutoSell": True}
 
@@ -287,7 +287,7 @@ def capture(name, err, machines):
 
 
 def bring_up(tag, port):
-    """shared_fixture.bring_up(tag, (0, 0, port)) with BOTH user dirs booted with BOOT_OPTIONS (R-D1-3): the host's via
+    """shared_fixture.bring_up(tag, (0, 0, port)) with BOTH user dirs booted with BOOT_OPTIONS: the host's via
     host_options, the client's re-made at the same path by make_user_dir(options=...) before either machine spawns."""
     js = shared_fixture.SharedSession(tag, (0, 0, port), host_options=BOOT_OPTIONS)
     if make_user_dir(f"{tag}_client", options=BOOT_OPTIONS) != js.client_dir:
@@ -312,7 +312,7 @@ def fx_b(js, ctx):
     ctx["fxB"].update({"bases": [base_count(host), base_count(client)], "secs": secs})
     if not ok:
         capture("FX-B second base", f"base counts (host, client) {ctx['fxB']['bases']} after {BASES_S}s", (host, client))
-    # R-D1-2 (F5688): General Stores next to the lift, host-built (SHARED: one fac_build shared_cmd applied on both),
+    # General Stores next to the lift, host-built (SHARED: one fac_build shared_cmd applied on both),
     # then buildTime 0 on BOTH (FX-CT's set_facility_build_time pattern, F5434).
     fb = host.cmd({"cmd": "fac_build", "facility": STORES, "base": SECOND_BASE, "x": STORES_X, "y": STORES_Y})
     ctx["fxB"]["facBuild"] = {k: fb.get(k) for k in ("ok", "error")}
@@ -330,7 +330,7 @@ def fx_b(js, ctx):
         capture("FX-B general stores", f"fac_build {ctx['fxB']['facBuild']}, stores index {idx} after {BASES_S}s",
                 (host, client))
     sets = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 1, "index": idx["host"], "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "x", "y", "buildTime", "error")}
     ctx["fxB"]["buildTime0"] = sets
@@ -390,7 +390,7 @@ def buttons(host, client, ctx, key, sell, transfer):
 
 
 def rows_match_page3(gc, ctx, key):
-    """The top screen's rows == this machine's page-3 rows (R-D1-1): exactly the types whose recovered count is > 0,
+    """The top screen's rows == this machine's page-3 rows: exactly the types whose recovered count is > 0,
     each row's remaining qty == that count (screen_rows {recovered}, the debriefing below the screen)."""
     r = rows(gc, recovered=RECOVERED_TYPES)
     got = {row.get("item"): as_int(row["cells"][1]) for row in (r.get("rows") or [])}

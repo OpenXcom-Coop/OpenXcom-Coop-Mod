@@ -47,9 +47,9 @@ namespace CoopWire
 
 /// SS2.1 discriminator: state starts with "bt_", or is one of the
 /// battle-handshake kinds (battle_offer/battle_accept/battle_refuse/
-/// battle_ready) or SPEC 16 (W1-P17) M4's graceful-leave kind
-/// (battle_leave), or SPEC 19 (W1-P20) M2 Branch B's guest-roster census kind
-/// (battle_roster_contrib), or SPEC 17 (W1-P18) M3's per-seat animation-pacing
+/// battle_ready) or SPEC 16 M4's graceful-leave kind
+/// (battle_leave), or SPEC 19 M2 Branch B's guest-roster census kind
+/// (battle_roster_contrib), or SPEC 17 M3's per-seat animation-pacing
 /// kinds (battle_speed_report/battle_speed_seats - SESSION-LEVEL, G1: never
 /// bt_ev, never seq-ordered, never hashed). bt_desync (client->host) is also
 /// a "bt_" kind and therefore routes to the battle lane.
@@ -182,7 +182,7 @@ inline Json::Value makeLeave(int seat, const char* reasonKey)
 /// seated on/at (Soldier::getCoopBase()/getCoopCraft()/getCoopCraftType());
 /// @a soldiers is each guest's own YAML save (Soldier::save(), the same
 /// form Soldier::load() consumes) - the geoscape-side data a craft-landing
-/// merge needs BEFORE generation (F359/F360/F365). Sent from
+/// merge needs BEFORE generation. Sent from
 /// connectionTCP::sendGuestRosterContrib() (the sendGuestCensus() pattern -
 /// computed every tick, sent only when the serialized set for this
 /// destination differs from the last sent, plus once on connect). Consumed,
@@ -190,11 +190,11 @@ inline Json::Value makeLeave(int seat, const char* reasonKey)
 /// (CoopBattleSetup.h::coopMergeGuestContributions(), called from
 /// ConfirmLandingState::btnYesClick before generation); the per-seat store is
 /// cleared by resetBattleAuthority() (connectionTCP.cpp).
-/// W2-H19 (F6860): the battle-end reset (coopResetBattleScope) keeps a roster
+/// the battle-end reset (coopResetBattleScope) keeps a roster
 /// that arrived after the battle ended (it is for the next landing); after
 /// every battle-scope reset the sender resends its whole roster once; an empty
 /// @a soldiers list drops a destination whose guest left the craft.
-/// W2-H19b (F6989): the host keeps one entry per seat AND destination (craftId +
+/// the host keeps one entry per seat AND destination (craftId +
 /// craftType); a landing merges only the landing craft's entry.
 inline Json::Value makeRosterContrib(int seat, int baseId, int craftId, const char* craftType,
 	const std::vector<std::string>& soldiers)

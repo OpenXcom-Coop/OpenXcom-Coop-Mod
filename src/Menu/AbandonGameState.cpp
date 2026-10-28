@@ -122,7 +122,7 @@ void AbandonGameState::btnYesClick(Action *)
 
 	if (_origin == OPT_BATTLESCAPE && _game->getSavedGame()->getSavedBattle()->getAmbientSound() != Mod::NO_SOUND)
 		_game->getMod()->getSoundByDepth(0, _game->getSavedGame()->getSavedBattle()->getAmbientSound())->stopLoop();
-	if (!coopIronmanBorrow && !_game->getSavedGame()->isIronman()) // coop W2-H53
+	if (!coopIronmanBorrow && !_game->getSavedGame()->isIronman()) // coop
 	{
 		// issue #82: one chokepoint owns the geoscape rescale AND dropping the world.
 		// Clearing the save here would delete it while the states popped by setState are
@@ -131,7 +131,7 @@ void AbandonGameState::btnYesClick(Action *)
 	}
 	else
 	{
-		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN_END, _palette, 0, coopIronmanBorrow)); // coop W2-H53: quit after the write
+		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN_END, _palette, 0, coopIronmanBorrow)); // coop: quit after the write
 	}
 }
 

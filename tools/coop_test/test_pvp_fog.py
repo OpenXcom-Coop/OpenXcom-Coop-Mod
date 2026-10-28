@@ -1,6 +1,6 @@
 """R5-U1 S-A rows F6, F1, F2, F3, F5, F4 (boot A2, gm2: the client plays the aliens, seat 1; the host the seven X-COM
 soldiers, seat 0): the PvP alien seat draws, on its map and minimap, only its own units and the X-COM soldiers its side
-sees now (owner PvP model "fog is per side", R5-V3; QU1-1 (a)), and its psi targeting reads the same sight (QU1-5 (a)).
+sees now (owner PvP model "fog is per side", R5-V3; QU1-1 (a)), and its psi targeting reads the same sight.
 
 Spec: docs repo rewrite/prompts/r5u1_pvp_fog_camera.md section (f) test_pvp_fog.py, with the orchestrator rulings
 AMENDMENT U1-1 (the plan review's A-1 .. A-8; here A-2: F5 is a PANIC, F4's D), R-U1-SA-1 (W_OUT) and AMENDMENT U1-2
@@ -26,15 +26,15 @@ units at the read.
       HU), F2-show (VH(client, W) true), F2-agree (every X-COM id: VH(client, id) == id in HU).
   F3  and hidden once it leaves their sight: the host's real-UI walk of 11 to S4_OUT. F3-walk, F3-pre (11 not in HU),
       F3-hide (VH(client, 11) false).
-  F5  the alien player psi-attacks, with an alien that does not see it, the soldier only its other alien saw walk in
-      (QU1-5; R-U1-SA-1): host END TURN -> side 1 turn 2 (the client's side_begin selects B); the amp on B, B psiSkill
+  F5  the alien player psi-attacks, with an alien that does not see it, the soldier only its other alien saw walk in:
+      host END TURN -> side 1 turn 2 (the client's side_begin selects B); the amp on B, B psiSkill
       100, W psiStrength 0, B's TU. F5-pre (B from one spawn {B, convert, from 14} on B_TILE facing B_DIR; W in HU and
       in A's host list, in neither B list; the client's selectedId == B), F5-ui (the client's real-UI PANIC by B on W:
       the right-hand box, PSI_ROWS rows, KEY_PANIC, HC.stage_camera(client, W_IN) in HOME's place, host set_seed
       SEED_F5, one click; one new host context {intent, psi, B}, coopIntentsSent.psi +1, its psi cue {actor B, unit W,
       action panic} applied on the client, W faction 0 on both). From F2 to the press nothing TABs, tab_selects or
       click-selects on the client and no client inventory opens (U1-2.1 W1-W8).
-      W2-U9 re-point (R-U9-0, F21064): since W2-H41 S-B (7eb33ec00; QH41-2 (a), QH41-3 (a), R-LH40-1) the gm2 client's
+      W2-U9 re-point: since W2-H41 S-B (7eb33ec00; QH41-2 (a), QH41-3 (a), R-LH40-1) the gm2 client's
       side_begin selects its FIRST alien A (vanilla's other-side rule), not B. F5-pre now reads the side-start
       selection == A, then ONE real-UI tab_select(client, B) on the client (the single exception to the rule above;
       U1-2.1 W2: it refreshes only B, the unit the ActionMenuState close refreshes anyway, W1), and checks the client's
@@ -48,8 +48,8 @@ Admitted orders: exactly one new host closedContexts entry {origin, kind, actorI
 RED at A1 per (f) as U1-2 amends it: F6-cam, F1-hide, F2-agree, F3-hide, F5-ui, F4-hide, F4-agree; every other cell
 PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A
 boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the
-rows that need it "staging". Lever pairs go to the client first (F607); ids come from lever replies and probes (S25).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+rows that need it "staging". Lever pairs go to the client first; ids come from lever replies and probes (S25).
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_fog.py
@@ -79,7 +79,7 @@ KEY = "48916"
 A_ID = RM.A_ID                    # 1000000: the alien of boot_e6 (STR_SECTOID_SOLDIER), the client's seat 1
 W_ID, S4_ID, U_ID = 12, 11, 13    # the walker W, S4 (F3), the unseen walker (F6)
 A_TILE = RM.TILES[A_ID][0]        # (15,2,0) facing 4: sees 8, 9, 10, 11
-W_OUT, W_DIR = (19, 2, 0), 6      # R-U1-SA-1 (F12920): open ground, A inside W's sector, W outside A's
+W_OUT, W_DIR = (19, 2, 0), 6      # open ground, A inside W's sector, W outside A's
 W_IN = (17, 5, 0)                 # inside A's view sector and LOS
 S4_OUT = (24, 8, 0)               # outside A's view sector
 U_DEST = (30, 33, 0)              # out of A's sight on 13's whole path
@@ -93,7 +93,7 @@ T13 = 61                          # 13's TU at bring-up (Ae, Af)
 B_TILE, B_DIR = (34, 33, 0), 0    # 14's tile and facing; convertUnit keeps both (Ae, Af)
 A_TU = 54                         # A's and B's TU (STR_SECTOID_SOLDIER)
 SEED_F5 = 1
-KEY_PANIC, CT_PSI, PSI_ROWS = 50, 3, 3   # the amp's PANIC key, its cursor, the amp's menu rows (TASK 0)
+KEY_PANIC, CT_PSI, PSI_ROWS = 50, 3, 3   # the amp's PANIC key, its cursor, the amp's menu rows
 CURSOR_TARGETING = RM.CURSOR_TARGETING
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 WANT_B = {"type": B_TYPE, "faction": FACTION_HOSTILE, "coop": 1, "x": B_TILE[0], "y": B_TILE[1], "z": B_TILE[2],
@@ -303,7 +303,7 @@ def row_f5(host, client, crash0, sb):
     RM.stat_both(host, client, b, "psiSkill", 100)
     RM.stat_both(host, client, W_ID, "psiStrength", 0)
     ev["bTu"] = set_tu_both(host, client, b, A_TU)
-    # W2-U9 (F21064): the side start selects the first alien A (QH41-2 (a)); one real-UI TAB then selects B.
+    # the side start selects the first alien A; one real-UI TAB then selects B.
     sel0 = ev["sideStartSel"] = battle_state(client).get("selectedId")
     ev["tabB"] = tab_select(client, b) if sel0 == A_ID else None
     h, ls, sel = hu(host), lists(host, client, b), battle_state(client).get("selectedId")

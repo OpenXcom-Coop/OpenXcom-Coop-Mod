@@ -33,7 +33,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/Soldier.h"
 #include "../Mod/RuleSoldier.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H16f
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {

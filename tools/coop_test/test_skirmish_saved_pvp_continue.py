@@ -28,7 +28,7 @@ cells read SETTLE_S later:
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; every row runs after a failure. A cell that raises
 ends its row (later cells FAIL "not reached (<cell>)"). A boot step past its bound prints ONE CAPTURE <row> line and fails
-every cell of that row "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no
+every cell of that row "boot". run in the foreground to completion. ONE run is the result, no
 skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_skirmish_saved_pvp_continue.py
@@ -136,7 +136,7 @@ def seed_pair(row, ev):
             missed(row, f"save_game: {path} written {ok}, keys {s['saved']} (want coopTurnMode and coopItemIdCtr)", m)
         return path, s
     finally:
-        shut(host)     # the host first (F18815)
+        shut(host)     # the host first
         shut(client)
 
 

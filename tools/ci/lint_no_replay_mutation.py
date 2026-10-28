@@ -2,7 +2,7 @@
 """
 lint_no_replay_mutation.py
 
-WAVE1-RUNBOOK.md SPEC 7 (W1-P12), ruling A4: the S3 ghost stepper is
+WAVE1-RUNBOOK.md SPEC 7, ruling A4: the S3 ghost stepper is
 DISPLAY-ONLY - it may write animation/camera/sound/UI and NOTHING else. It
 must never read or write SavedBattleGame/BattleUnit/Tile for anything but
 drawing, and it must never call any of the mutator methods that actually

@@ -81,7 +81,7 @@ std::uint32_t queueDepth();
 /// R2-P8 wires the actual call site at the battle teardown chokepoint; this
 /// packet only implements the function.
 ///
-/// SPEC 16 (W1-P17) M2: @a resetChainState defaults to true (every existing
+/// SPEC 16 M2: @a resetChainState defaults to true (every existing
 /// caller keeps clearing CoopArbiter's action-context stack/actionId mint/
 /// pending-chain-actor bookkeeping via resetCoopArbiterState(), unchanged).
 /// connectionTCP::clearNetworkSessionQueues() is the ONLY caller that ever

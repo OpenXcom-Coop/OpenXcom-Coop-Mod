@@ -186,8 +186,8 @@ roster-pinned terror boot of test_host_combat.py with the mod on both):
 set_seed SEED_ROSTER on the HOST right before its open_new_battle, mission
 STR_TERROR_MISSION, set_seed SEED_MAP right before newbattle_ok, seat_count 2,
 MAP_FP asserted on both (the mod leaves it unchanged, F1164), the seated unit
-ids asserted, pin_ai_neutral. Every lever pair goes to the CLIENT first (F607).
-Item ids are read at run time from the lever replies (F1107). Seeds were found
+ids asserted, pin_ai_neutral. Every lever pair goes to the CLIENT first.
+Item ids are read at run time from the lever replies. Seeds were found
 with HOST stand-ins (battle_fire {mode spray} / {mode snap, target A}) that run
 the executor's states in its order; the green build proves them again (N18 =
 F1085).
@@ -218,9 +218,9 @@ checked; main() runs every scenario even after an earlier one failed and prints
 "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that times
 out is recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when every scenario passes, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_rules.py
 """
@@ -254,7 +254,7 @@ from test_delta_items import items_by_id
 # ----- bring-up (TASK 0: the roster-pinned terror boot, the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded (F1164)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID = 8
 H_ID = 10                         # first host-seat soldier
@@ -423,7 +423,7 @@ def c18_spray(host, client, ctx):
         ev["tab"] = tab_select(client, C_ID)
         assert ev["tab"], f"TAB never selected C on the client (selectedId {battle_state(client).get('selectedId')})"
         if battle_state(client).get("cursorType") == CURSOR_AIM:
-            click_nth(client, RHAND_NTH)   # F503: this click only cancels the aim
+            click_nth(client, RHAND_NTH)   # this click only cancels the aim
             ev["aimCancelled"] = battle_state(client).get("cursorType")
         r = click_nth(client, RHAND_NTH)
         assert (r.get("baseX"), r.get("baseY")) == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
@@ -612,7 +612,7 @@ def c16f_force_fire(host, client, ctx):
         legs["L1"] = c16f_leg(host, client, False, notes)
         set_tu_both(host, client, C_ID, TU_MAX)
         legs["L2"] = c16f_leg(host, client, True, notes)
-        # S-E1.1b (F1268): leg 3 - the host's Ctrl OFF, the client's own Ctrl ON.
+        # S-E1.1b: leg 3 - the host's Ctrl OFF, the client's own Ctrl ON.
         legs["hostCtrlOffL3"] = touch(host, ctrl=False)
         legs["Arestored"] = {k: v for k, v in both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID,
                                                                   "health": a_health0},
@@ -696,7 +696,7 @@ def skills_nth(gc):
 
 
 def open_skill_menu(client, ev):
-    """TAB-select C, cancel a leftover targeting (F503), the REAL SKILLS button
+    """TAB-select C, cancel a leftover targeting, the REAL SKILLS button
     (by its rect): SkillMenuState opens. Fills `ev`."""
     ev["tab"] = tab_select(client, C_ID)
     assert ev["tab"], f"TAB never selected C on the client (selectedId {battle_state(client).get('selectedId')})"
@@ -1179,7 +1179,7 @@ def c23s4_skill_repeat(host, client, ctx):
     pc_ = place(host, client, C_ID, C_TILE, C18_C_DIR)
     pa_ = place(host, client, A_ID, A_SPAWN, A_SPAWN_DIR)
     set_tu_both(host, client, C_ID, TU_MAX)
-    set_firing_both(host, client, C_ID)   # F1315: as C18 / C16f
+    set_firing_both(host, client, C_ID)   # as C18 / C16f
     staged = diff_buckets(host, client)
     before = snap(host, client)
     log0 = rlog(host)

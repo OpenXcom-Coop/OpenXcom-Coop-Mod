@@ -1,7 +1,7 @@
-"""W2-H48 - test_craft_alienbase_target.py: an X-COM craft sent to the other player's alien base (a mirror on its machine) keeps that
+"""test_craft_alienbase_target.py: an X-COM craft sent to the other player's alien base (a mirror on its machine) keeps that
 destination across a geoscape save and reload, as a craft sent to a UFO or mission-site mirror does since issue #28 (R-H48-0, lead
 L-H44-1). Today every save strips the mirror and the craft node names no co-op id for it, so Craft::load makes the destination a waypoint
-at the base's spot and the craft arrives with "has reached WAY POINT-1 / Now patrolling" (F17280-F17284).
+at the base's spot and the craft arrives with "has reached WAY POINT-1 / Now patrolling".
 
 Spec: docs rewrite/prompts/w2h48_craft_alienbase_target.md (stage S-A, (d) and (f), FX48-1 .. FX48-12) and its ORCHESTRATOR RULINGS
 (QH48-1 .. QH48-7 (a)); R-H48-0 / VL-H48-1, L-H44-1, issue #28 (the UFO / site relink), D199 / D211 (the SEPARATE client's refusal, W2-H9),
@@ -14,7 +14,7 @@ Interceptor 2 CINT -> the host's crashed UFO UCOOP), S-common. Boot P (dirs w2h4
 (CSKY -> the alien host's base ACOOP), R4-gm3, R5-gm3, P-common. Each boot: targets on their OWNER (spawn_alien_base +
 host_alien_base_found; spawn_ufo crashed) and the peer's mirror; seats; craft_force to "alienBaseCoop:" / "ufoCoop:" + the co-op id; the
 host's quick save (SaveGameState) then the named save (PyYAML: host world + client blob); both end; the host respawns on its dir, client2
-on an EMPTY dir; boot S session.resume_campaign, boot P the RR copy through host_menu_host (R-D250-SC4A-1); the relink phase (idx 0), the
+on an EMPTY dir; boot S session.resume_campaign, boot P the RR copy through host_menu_host; the relink phase (idx 0), the
 arrival phase (idx 2); every popup recorded then closed with dismiss_popup (a landing is never confirmed). AB(n) = "DESTINATION: ALIEN
 BASE-" + n, n = the mirror's live Target id (m0 before the save, m1 after the resume; destKind is "other" for a base and a waypoint
 alike, F17290). R1-arrive = the H9 refusal; R2- / R3-arrive = ConfirmLandingState at the base; R5-arrive = CINT turned home (destKind
@@ -23,7 +23,7 @@ alike, F17290). R1-arrive = the H9 refusal; R2- / R3-arrive = ConfirmLandingStat
 RED (R1, the unchanged build; TASK 0 Ka-S / Ka-P): exit 2, 12/21 - FAIL R1-relink, R1-arrive, R2-relink, R2-arrive, R4-client, R4-host,
 R3-relink, R3-arrive, R4-gm3 ("DESTINATION: WAY POINT-1"; CraftPatrolState "has reached WAY POINT-1"; the key absent). GREEN (G1 = E1-E6;
 TASK 0 Kg-S / Kg-P): 21/21.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_craft_alienbase_target.py
 """
 
@@ -61,7 +61,7 @@ BOOTS = {"S": {"targets": ["hab", "ufo", "cab"], "crafts": ["CSKY", "CINT", "HSK
 SEATS = 2                                                                # FX48-4
 MIRROR_S, SAVE_S, RELINK_S, ARRIVE_S = 30, 90, 10, 90                   # FX48-11 (TASK 0: each >= 2 x its measured value)
 RELINK_POLL, ARRIVE_POLL, NEAR, FAR = 0.25, 0.4, 0.01, 0.05             # FX48-8 / FX48-9 / the arrival point / FX48-5
-H9TEXT = "In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to take part."   # FX48-12 (D211)
+H9TEXT = "In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to take part."   # FX48-12
 AB = "DESTINATION: ALIEN BASE-"                                         # FX48-12: AB(n) = AB + n
 HOME = ("STR_REFUELLING", "STR_REARMING", "STR_REPAIRS", "STR_READY")
 CK = ("type", "id", "name", "status", "destKind", "destId", "displayStatus", "lon", "lat")
@@ -232,7 +232,7 @@ def save(host, client, name, ev):
     return files
 
 def resume_rr(host, client, save_file, port):
-    """CAP2's copy of test_campaign_resume_roles.resume_campaign: START HOST through the real host window (R-D250-SC4A-1)."""
+    """CAP2's copy of test_campaign_resume_roles.resume_campaign: START HOST through the real host window."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (resume)", lambda: session.has_state(host, "HostMenu"))
     host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": port, "player": "HostPlayer"})
@@ -422,7 +422,7 @@ def boot(b, x, ev):
         a, cn, tp = arr.get(n) or {}, f"{B['row'][n]}-arrive", tg[CRAFTS[n][5]]["point"]
         c, pt, e = (a.get("crafts") or {}).get(n), patrols(events, owners[n], (b0[n] or {}).get("name")), a.get("ev") or {}
         head = f"{owners[n]} {n} arrival top {a.get('top')!r} at {a.get('t')} s texts {a.get('texts')}; CraftPatrolState naming {n} at {pt}"
-        if b == "S" and n == "CSKY":            # D199 (a): the SEPARATE client's own craft never starts a battle
+        if b == "S" and n == "CSKY":            # the SEPARATE client's own craft never starts a battle
             ok = (a.get("top") == "CraftErrorState" and H9TEXT in a.get("texts", []) and not pt and (c or {}).get("destKind") == "base"
                   and e.get("coopClientBattleRefused") == (base.get("coopClientBattleRefused") or 0) + 1
                   and e.get("coopClientBattleRefusedLast") == f"landing:{keys[n][1]}")

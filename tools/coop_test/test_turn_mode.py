@@ -61,7 +61,7 @@ actually holds, never inferred from what the game did.
 An SP battle save must NOT carry the key at all - that half is asserted by this
 packet's SP battle smoke, which is where an SP battle already exists.
 
-FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe (WV-D18).
+FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe.
 
 Run:  python tools/coop_test/test_turn_mode.py
 """
@@ -268,7 +268,7 @@ def has_door_within(gc, x, y, z, radius=2):
 def qualifying_actor(host, soldier_id):
     """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py.
 
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
     within view distance, and the lever does not recompute sight, so the
     visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
@@ -320,7 +320,7 @@ def bring_up_qualifying_battle(tag, host_options=None, client_options=None,
 
 def settle_emits(host, client, timeout=40):
     def quiet():
-        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
+        cs = event_state(client)  # client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
         hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")

@@ -5,7 +5,7 @@ replaces (f)'s old S-E file; TASK 0 pins: docs rewrite/r5u2-task0/se/CONSTANTS.m
 UE1 probe).
 
 Before R5-U2 S-E the client keeps its own soldier selected through the alien side, so vanilla's term (selected unit
-visible) always draws the map there (F1507). hiddenMovementShown TRUE = the map is drawn, FALSE = the HIDDEN MOVEMENT
+visible) always draws the map there. hiddenMovementShown TRUE = the map is drawn, FALSE = the HIDDEN MOVEMENT
 screen.
 
 ONE classic co-op boot (lobby key 48869, user dirs r5u2_e1_host / r5u2_e1_client): test_client_alien_sight's bring-up
@@ -31,12 +31,12 @@ Rows, in order (every row runs after a failure):
   Every row: <row>-common (hash_now full: every bucket EQUAL; event_state.desyncSeen false on both; 0 new crash files).
 
 RED at the red commit E1 (unchanged build): CH1-screen, CH3-hidden FAIL; every other cell PASS. GREEN (E2, UE1): every
-cell PASS. The window after a seen walk's end is EVIDENCE only (F14368).
+cell PASS. The window after a seen walk's end is EVIDENCE only.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up failure
 prints ONE "CAPTURE boot:" line and fails every row "boot"; a staging failure fails the rows that need it "staging".
-WV-D99 / WV-D100: one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell passes,
-else 2. WV-D95: run in the foreground to completion.
+one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell passes,
+else 2. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_coop_hidden_move.py
 """

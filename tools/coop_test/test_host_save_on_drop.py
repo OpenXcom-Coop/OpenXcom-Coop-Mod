@@ -19,7 +19,7 @@ X-common GUARD (host alive, no new crash_*.log since B); C-file / C-dialog / C-b
 single entry at the saveID after with coop_file_info's fnv after the write, (0, 1, 0, 0)). 41 cells. Red (commit R1): exit 2, RED exactly
 on Q / A / S -file -dialog -blob -path, T-file, T-dialog, T-name, T-blob, T-path, H-file, H-dialog, H-path (20).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
-row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one
+row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
 Run: python tools/coop_test/test_host_save_on_drop.py
 """
@@ -98,7 +98,7 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 

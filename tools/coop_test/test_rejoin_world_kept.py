@@ -3,7 +3,7 @@ campaign (L-LH54-2-1, ruling R-H58-0). Spec docs rewrite/prompts/w2h58_sa_rekey.
 rewrite/prompts/w2h58_rejoin_world_kept.md (section F: the shared fixture drop_fixture.py); TASK 0 values in
 rewrite/w2h58-task0/sa/CONSTANTS.md. A host quick or manual save gives the campaign a new saveID before the partner's fresh world arrives;
 the host's copy of the partner's world is stored under host_<saveID>_<name>.data. A partner that drops during "Saving..." (54) leaves the
-copy under the OLD id only; the rejoin looks up the NEW id, misses, and starts the partner on a fresh world (F18420-F18421).
+copy under the OLD id only; the rejoin looks up the NEW id, misses, and starts the partner on a fresh world.
 ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the controls first and the red row last:
   Row C0   (GUARD) C0-blob: the host stores the client's world under the campaign's id0 (present, bytes > 0).
   Row K2i  (control: the blob lands before the drop, F18422) a quick save with the client running, kill, client2 rejoins, RESUME.
@@ -21,7 +21,7 @@ own(gc) = geo_state bases with coopIcon false as [name, coopBaseId]; key(id) = c
 rejoiner is a NEW GameClient on its own dir joining K1 by the name ClientPlayer. Never dismiss_popup, coop_dialog_back or a base placement:
 a fresh world is evidence, never built on. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
 miss ends its row (CAPTURE line) and every later row (cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no SKIP; exit 0 only when every cell passes, else 2.
+ONE foreground run, no SKIP; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_rejoin_world_kept.py   (OXC_HARNESS_SLOT selects the lane)"""
 import json
 import os

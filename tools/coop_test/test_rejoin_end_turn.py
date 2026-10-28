@@ -1,10 +1,10 @@
-"""W2-H14 - a rejoiner's END TURN side-phase counter starts at the host's (spec w2h14_rejoin_endturn_seed.md (f);
+"""a rejoiner's END TURN side-phase counter starts at the host's (spec w2h14_rejoin_endturn_seed.md (f);
 SM-2; F4012). TWO boots on test_death_side's default map, each shut down before the next: P (parallel, PORT_P),
 T (traditional, PORT_T). Each plays one END TURN cycle, the client leaves, a fresh process (client2) rejoins, the host
-presses RESUME (SPEC 16). H14-1 (P): an END TURN cycle with client2 completes. H14-2 (T): client2 holds the baton and
+presses RESUME. H14-1 (P): an END TURN cycle with client2 completes. H14-2 (T): client2 holds the baton and
 its pass completes the cycle. A boot/rejoin step past its bound is a FIXTURE-STOP (one CAPTURE line; the row FAILs
 "boot"/"rejoin"). Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; both rows run.
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise."""
+ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise."""
 
 import json
 import os
@@ -30,7 +30,7 @@ PORT_P, PORT_T = "48514", "48523"   # this file's lobby ports (unused by every o
 K_P = 3                             # parallel: both counters after one END TURN cycle (the host keeps it at the pause)
 K_T = 3                             # traditional: baton 0 -> 1 -> 0 -> 1; both counters after the cycle
 SEED_RE = re.compile(r"W2-H14: rejoin END TURN side-phase counter seeded to (-?\d+)")
-BATON_NEEDLE = "[coop-baton] battle save carried coopActiveSeat=1"    # F4058; keep the =1 suffix (F4075)
+BATON_NEEDLE = "[coop-baton] battle save carried coopActiveSeat=1"    # F4058; keep the =1 suffix
 OFFER_NEEDLE = "SPEC16 M5: rejoin battle_offer sent"
 IDLE_S, CYCLE_S, SEAT_S, LOG_FLUSH_S = 30, 60, 15, 3
 PC, TS = "coopEndTurnPhaseCounter", "coopEndTurnTalliesSeen"

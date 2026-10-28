@@ -1,8 +1,8 @@
-"""W2-A0712 - test_debrief_fidelity.py: on a co-op debriefing each player reads the title and the recovery header
+"""test_debrief_fidelity.py: on a co-op debriefing each player reads the title and the recovery header
 in its own language (AUD-A12, owner D172; replaces P7-2 G6 (a)), and a Custom Battle debriefing names the other
 player's soldiers `[Player] Name` on page 2 (AUD-A07, owner D177; reverses P7SC-MR5). Spec
 rewrite/prompts/w2p7_a07_a12_fidelity.md (f) with its ORCHESTRATOR RULINGS (session 29a387ef); TASK 0 constants
-rewrite/w2a0712-task0/CONSTANTS.md (F6917-F6929).
+rewrite/w2a0712-task0/CONSTANTS.md.
 
 Two boots, one ending each; both debriefings are read once and no OK is pressed (each boot ends at shutdown):
   Boot A  host en-US (label 49351), client `language: de` (49352); test_battle_end.boot on lobby 47341, then
@@ -17,7 +17,7 @@ coopStatic} and both synced_options_state.localSeat, taken after the bring-up an
          `[HostPlayer] ` / `[ClientPlayer] ` removed and its seat = the S unit with that rawName; the host names seat
          0 raw and seat 1 `[<host clientName>] raw`; the client names seat 1 raw and seat 0 `[<client clientName>] raw`.
   A12-2  the client's title == "UFO is not recovered" (en-US).
-  A07-2  as A07-1 on the abort's seven rows (F2061).
+  A07-2  as A07-1 on the abort's seven rows.
 Guard cells (prefix G:, pass on red and green): the bring-up (MAP_FP, hash clean); the staging, ending and both
 debriefings reached; both debriefs shown and on top, the client display-only, widgets == DEBRIEF_WIDGETS, page 0,
 parseErrors 0; S's seats (2 x coop 1, 5 x coop 0); host clientName "ClientPlayer" and client "HostPlayer", the
@@ -25,18 +25,17 @@ client's coopStatic true, localSeat host 0 / client 1 (in S and at the debriefin
 tbe.debrief_view soldiers equal on both; page-1 rows' (qty, score, recovery) and total equal. Boot A:
 tbe.pin_view(host) == HOST_DEBRIEF["E1"], the client's rating "BEWERTUNG> OK". Boot B: the host's title "UFO wurde
 nicht geborgen" and rating "BEWERTUNG> SCHLECHT!", the client's rating "RATING> POOR!", both recoveryHeader "" (the
-empty key and the client's own :558), tbe.pin_view(host) == HOST_DEBRIEF["E2"] with that German title and rating
-(R-A0712-T0-1, F6927).
+empty key and the client's own :558), tbe.pin_view(host) == HOST_DEBRIEF["E2"] with that German title and rating.
 
 RED (commit 1, the product untouched; ONE run, exit 2): A12-1 fails on clientTitle and clientHeader (the host's
 "UFO is recovered" / "UFO RECOVERY", G6); A07-1 on hostPage2 and clientPage2 (all seven plain on both, MR5); A12-2
 on clientTitle (the German host's "UFO wurde nicht geborgen"); A07-2 on hostPage2 and clientPage2. Every G: cell
 passes. GREEN (commit 2): every row and every G: cell passes.
 
-German item text is non-ASCII (F6925) and soldier names change per boot (F6926): neither is pinned; the expected
+German item text is non-ASCII and soldier names change per boot: neither is pinned; the expected
 page 2 comes from S. An EVIDENCE line precedes every verdict; every row runs after a failure; a boot miss fails its
-rows "boot" with ONE CAPTURE line (FIXTURE-STOP). WV-D99 / WV-D100: one run is the result, no skip path, one boot
-per row pair. Exit 0 only when every row and every G: cell passes, 2 otherwise. WV-D95: run in the foreground.
+rows "boot" with ONE CAPTURE line (FIXTURE-STOP). one run is the result, no skip path, one boot
+per row pair. Exit 0 only when every row and every G: cell passes, 2 otherwise. run in the foreground.
 
 Run:  python tools/coop_test/test_debrief_fidelity.py
 """

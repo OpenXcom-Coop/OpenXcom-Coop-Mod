@@ -155,7 +155,7 @@ def drive_to_battlescape(host, client, host_dir, client_dir):
     host.ok({"cmd": "newbattle_ok"})
 
     # W2-P8b S-H: the shared battle-entry spine - both briefings (the offer goes
-    # out at PREPARE, D210 b), the pre-battle equip screens (D174 a / D206 c),
+    # out at PREPARE, D210 b), the pre-battle equip screens,
     # both Turn-1 screens (Q7 a).
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \

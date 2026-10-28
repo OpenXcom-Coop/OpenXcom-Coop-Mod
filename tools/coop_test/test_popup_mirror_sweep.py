@@ -1,7 +1,7 @@
 """W2-H81 stage S-A PMS (spec rewrite/prompts/w2h81_popup_mirror_uaf.md (f); TASK 0 rewrite/w2h81-task0/sa/CONSTANTS.md; ruling R-LH76-1-1;
 capture lh76-1-cap F22190-F22191): in a SEPARATE co-op campaign the client's mirror sweep deletes the host's UFO mirror under the client's open
 UFO-detected popup when the host's snapshot no longer lists it (S1a); INTERCEPT / CENTRE there would read the freed UFO. The fix closes the popup
-right before the delete, as its CANCEL does (VL-H81-1). Probe popup_mirror_check as in test_popup_mirror_drop.py. Owner = host, holder =
+right before the delete, as its CANCEL does. Probe popup_mirror_check as in test_popup_mirror_drop.py. Owner = host, holder =
 client; levers stage only (bases, spawn_ufo, the globe centre, geo_set_speed 1 on both, set_ufo_damage on the host); every player press is a real
 click and is made only with its cell's named top shown and pmc dangling 0 read right before. Fresh boots, each shut down before the next; key "49508".
   Boot SA (dirs w2h81_sa_*): the host loses its UFO 0.2 s after the client's popup shows (inside the host's 1000 ms grace): the sweep deletes the
@@ -10,7 +10,7 @@ click and is made only with its cell's named top shown and pmc dangling 0 read r
   Cells SB-held, SB-after, SB-alive.
 Red (commit R1): exit 2, RED exactly on SA-dangling, SA-held, SA-top (3 of 7). A guard (G:) miss: ONE CAPTURE line, the row's remaining cells FAIL
 "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell
-passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run. Run: python tools/coop_test/test_popup_mirror_sweep.py"""
+passes, else 2. one foreground run. Run: python tools/coop_test/test_popup_mirror_sweep.py"""
 import json, math, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402

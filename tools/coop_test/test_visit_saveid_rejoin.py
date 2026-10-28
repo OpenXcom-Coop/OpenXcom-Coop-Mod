@@ -14,7 +14,7 @@ C4-key, C4-world, C4-common GUARD; CTL-pre, CTL-ids, CTL-key, CTL-log, CTL-rejoi
 RED exactly C1-ids, C1-key, C1-log, C1-rejoin, C1-world, C1-resume (6 of 21). KEPT = '[coop] W2-H79:' lines in the client's log since read B.
 ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row
 (later cells "not reached"); a boot or construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info,
-get_coop, the last 40 log lines of each machine); exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run
+get_coop, the last 40 log lines of each machine); exit 0 only when every cell passes, else 2. one foreground run
 per invocation.
 Run: python tools/coop_test/test_visit_saveid_rejoin.py
 """

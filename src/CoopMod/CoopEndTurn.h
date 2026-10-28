@@ -44,7 +44,7 @@ class BattlescapeState;
  * the direct lane dispatcher with NO edit to that file (SS2.1's own routing
  * predicate).
  *
- * PARALLEL MODE (SPEC 10 (b)) is unchanged and byte-identical to before this
+ * PARALLEL MODE is unchanged and byte-identical to before this
  * comment was last true. `activeSeat` (the TRADITIONAL baton, W1-P13c / WV-D55
  * / D-23..D-25) is now IMPLEMENTED here: OPTIONAL, present in the tally ONLY
  * in traditional mode (ABSENT in parallel), `needed` forced to 1, `ready`
@@ -98,7 +98,7 @@ void onSideTransition(SavedBattleGame* save);
 /// SPEC 10's "no tally at t=0" stands untouched.
 void onBattleActive(SavedBattleGame* save);
 
-/// SPEC 18 (r4 T4) M3 (D100(b)): the DISK-RESUME twin of onBattleActive()
+/// SPEC 18 (r4 T4) M3: the DISK-RESUME twin of onBattleActive()
 /// above - called INSTEAD OF it, HOST-ONLY (self-guarded identically) and
 /// only for a disk resume (never a fresh battle - that's onBattleActive()'s -
 /// and never an in-memory rejoin, which skips this whole authoring step, see
@@ -123,7 +123,7 @@ void onBattleResumed(SavedBattleGame* save, int savedSeat);
 /// bt_end_turn_ready presses (SS2.W3: "the client stamps turn from the last
 /// APPLIED side_transition, never from a wire value it has not applied
 /// yet"). Never driven by an incoming bt_end_turn_tally.
-/// RV-U8b (R-U8-1): it also clears this machine's END TURN text and armed
+/// it also clears this machine's END TURN text and armed
 /// button when they still show an earlier side's tally (the host's own
 /// boundary clears its own in emitTally()'s INERT branch); a tally that
 /// arrived ahead of this restate is kept.
@@ -136,7 +136,7 @@ void onClientAppliedSideTransition();
 /// pause, so without the seed below every press it makes is stale to the host.
 int rejoinPhase();
 
-/// W2-H14: CLIENT-ONLY (self-guarded: isCoopBattle() && !hostSim; a no-op for
+/// CLIENT-ONLY (self-guarded: isCoopBattle() && !hostSim; a no-op for
 /// @a phase < 0, an offer without the key). Called ONCE, from
 /// onBlobChunkAppended() right after phase Active: this machine's counter
 /// starts at the host's. The traditional baton mirror needs no seed here: the
@@ -146,8 +146,8 @@ void seedRejoinPhase(int phase);
 /// W2-H14b (owner D221 (c), ruling H14b-1): HOST-ONLY (self-guarded:
 /// isCoopBattle() && hostSim). Called ONCE per SPEC 16 in-memory rejoin, from
 /// onReady()'s in-memory branch (connectionTCP.cpp), after phase Active, while
-/// the rejoiner's BattlescapeState is live. The pause kept every stored press
-/// (D91/D98); this drops the returning seat's own (it must press again: a
+/// the rejoiner's BattlescapeState is live. The pause kept every stored press;
+/// this drops the returning seat's own (it must press again: a
 /// press made before the leave never ends a turn after the rejoin), then
 /// re-emits the tally so both machines show the true count. Never commits:
 /// clearing a press cannot complete a side.
@@ -177,7 +177,7 @@ void onQuiescentPass(SavedBattleGame* save, bool quiescent);
 /// transition and by reset().
 void armPve2Opening();
 
-/// R5-U8: true from armPve2Opening() until the next side transition - CoopArbiter::onIntent() denies every
+/// true from armPve2Opening() until the next side transition - CoopArbiter::onIntent() denies every
 /// order `turn_over` meanwhile (the players' first side is already ending).
 bool pve2OpeningPending();
 

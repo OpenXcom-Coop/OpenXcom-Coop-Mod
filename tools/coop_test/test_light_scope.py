@@ -87,7 +87,7 @@ Each scenario prints ONE "EVIDENCE <id>:" line (both machines' fields) before
 its conditions are checked; main() runs every scenario even after an earlier
 one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
-scenario. WV-D99 / WV-D100: one run is the result, no skip path, no second
+scenario. one run is the result, no skip path, no second
 boot. Exit 0 only when all three pass, 2 otherwise (a bring-up failure is
 also 2).
 
@@ -125,7 +125,7 @@ COOP_SEAT_0 = 0
 
 # ----- test_light_scope.py (S-L) -----
 PORT = "48624"
-# A6 (owner D142 = a): the battle runs at maximum darkness. NewBattleState's
+# A6: the battle runs at maximum darkness. NewBattleState's
 # darkness slider range is 0-15; the host's new-battle config lives in the
 # master user folder (Options::getMasterUserFolder() = <user dir>/xcom1/).
 DARKNESS = 15

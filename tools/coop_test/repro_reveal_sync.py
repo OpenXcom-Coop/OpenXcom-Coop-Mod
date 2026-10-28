@@ -227,7 +227,7 @@ def qualifying_actor(host, soldier_id):
     getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
 
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
     within view distance, and the lever does not recompute sight, so the
     visible list may be stale.
     """
@@ -608,7 +608,7 @@ def run_drop(host, client, actor, soldier_ids):
     one delta but never ships it. Because reveal is MONOTONE - a published bit is
     never re-sent - the client is behind FOREVER, which is exactly the failure
     class the old binTiles fog mask made invisible."""
-    # R4-L3 S-A (QL3-5 a): the divergence below must stay; the TEST-ONLY hold keeps the host from repairing it.
+    # R4-L3 S-A: the divergence below must stay; the TEST-ONLY hold keeps the host from repairing it.
     host.ok({"cmd": "resync_hold", "on": True})
     stage_on_roof(host, client, actor, "drop", 1)
     assert_reveal_parity(host, client, "before the drop")
@@ -685,7 +685,7 @@ def run_badn(host, client, actor, soldier_ids):
     assert_reveal_parity(host, client, "before the bad-n restate")
     fog_before = client.cmd({"cmd": "reveal_state"})
 
-    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A (QL3-5 a): this proof is the halt itself
+    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: this proof is the halt itself
     host.ok({"cmd": "reveal_base", "bad_n": True})
 
     client.wait_for("client event_state.desyncSeen becomes true",
@@ -719,7 +719,7 @@ def run_badn(host, client, actor, soldier_ids):
         f"the host's bt_desync line does not name the `reveal` bucket: {line.strip()}")
     print(f"PASS bad_n: host recorded the peer report: {line.strip()}")
 
-    # EXACT TEXT, not merely non-empty (W1-P4): coop battle ENTRY now raises
+    # EXACT TEXT, not merely non-empty: coop battle ENTRY now raises
     # its own _txtCoopWait notice (the pre-battle equip freeze), so a
     # non-emptiness check would no longer prove showDesyncHalted() fired.
     banner = client.cmd({"cmd": "battle_state"}).get("coopWaitText", "")
@@ -853,7 +853,7 @@ def run_dual(host, client, actor, soldier_ids):
     `bt_ev{kind:"reveal", reveal:{side:...}}` emitted from the same choke
     immediately afterwards, in the same seq stream."
 
-    ARRANGING THE PREMISE, honestly. Wave 1 has no alien turn (WV-D25), so
+    ARRANGING THE PREMISE, honestly. Wave 1 has no alien turn, so
     nothing in a wave-1 fixture can MOVE an alien, and a forced re-sweep of an
     unmoved alien discovers nothing new. The RB-D26 lever
     `reveal_hostile_pass {"republish": true}` therefore makes the host FORGET

@@ -26,7 +26,7 @@ W = 10 s at 0.25 s polls, HOLD = 2 s. HL = the host's openxcom.log from the size
 since the row started (first 4 frames). Drive, setup guard (stacks [GeoscapeState], localSeat 0 / 1, has_battle false, the host's
 lobbyMode 1), CAPTURE and shutdown from test_practice_rejoin (main-guarded); a host that dies on a RED cell is tolerated at shutdown.
 EVIDENCE before each verdict; a failed row prints ONE CAPTURE line (incl. the file's first 30 battle lines); every row runs after a
-failure; ONE run (WV-D95); exit 0 iff every row passes, else 2.
+failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json

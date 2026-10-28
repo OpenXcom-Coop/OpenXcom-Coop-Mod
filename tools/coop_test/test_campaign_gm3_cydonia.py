@@ -24,11 +24,11 @@ Row K1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell w
              within END_S both ending_state {ending 2, statistics true}; no DebriefingState at any poll; Slideshow / VideoState seen on
              both; the client's battleEnd {applied 1, reason abort, gameOver true}, hashVerify (else lastHashVerify) = {battle_end, host seq}.
   K1-menu    (FX5B-9 host statistics_ok, then client) both [MainMenuState] <= MENU_S; host pvpBorrow active false, dropped +1; host
-             noBases false (F15326); both processes alive.
+             noBases false; both processes alive.
   K1-common  desyncSeen false on both before the vote; assert_hash_clean(full=True) EQUAL after each spine; 0 new crash files.
 RED (C5B1R on 59fa2ed3a): exit 2, 0/6 - K1-hand FAILs with the client's local Cydonia battle (P-C5b1: host never in battle, the
 non-host warning +1, no borrow); K1-seats .. K1-common FAIL "blocked: the alien host never borrowed (K1-hand)". GREEN (C5B1G): 6/6.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_cydonia.py
 """
 

@@ -357,7 +357,7 @@ void ExplosionBState::init()
 			_parent->getMap()->getCamera()->setViewLevel(_center.z / 24);
 		}
 
-		if (_targetPsiOrHit && coopSideIsOpponents(_parent->getSave()) && coopFactionIsMine(_targetPsiOrHit->getFaction())) // coop R5-U1 S-B (F4187): the side this machine plays
+		if (_targetPsiOrHit && coopSideIsOpponents(_parent->getSave()) && coopFactionIsMine(_targetPsiOrHit->getFaction())) // coop R5-U1 S-B: the side this machine plays
 		{
 			_parent->getMap()->getCamera()->centerOnPosition(_center.toTile(), false);
 		}

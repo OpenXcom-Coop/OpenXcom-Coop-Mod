@@ -1,4 +1,4 @@
-"""W2-H30 - the host's own presses that change the battle on the host only reach the second player in one host
+"""the host's own presses that change the battle on the host only reach the second player in one host
 action (spec docs rewrite/prompts/w2h30_host_local_actions.md (f); TASK 0 docs rewrite/w2h30-task0/sa/CONSTANTS.md and
 rewrite/w2h30-task0/sb/CONSTANTS.md; W2-H28 QH-4 (a); F12351, F12352, F12353, F12354, F12355, F11564). Before the fix
 the HOST's own mind probe (L-1), its Zero TU key (L-4), the last charge of its single-use medi-kit (L-2: the emptied
@@ -33,7 +33,7 @@ HK-follow, HK-hash, HG-ev, HG-follow, HG-hash FAIL. GREEN (B2): all 28 cells PAS
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
 Run:  python tools/coop_test/test_host_local_ev.py
 """
 
@@ -178,7 +178,7 @@ def after(ev, res, rid, kind, want_evs, want_p, host, client, before, seq0, nh, 
 
 
 def heal(ev, host, client):
-    """<row>-next: ONE heal order, the client's lever turn of C by one octant (F11564); answer `end`, buckets equal,
+    """<row>-next: ONE heal order, the client's lever turn of C by one octant; answer `end`, buckets equal,
     desyncSeen false on both, H's TU equal on both."""
     d = (units(host).get(C_ID) or {}).get("direction")
     seq0 = event_state(host).get("lastSeqEmitted") or 0

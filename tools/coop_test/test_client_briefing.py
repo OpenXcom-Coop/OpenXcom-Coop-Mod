@@ -12,7 +12,7 @@ generate the mission" comment W1-P3 replaces). Two consequences:
   * a skirmish joiner was left sitting on ['MainMenuState','NewBattleState',
     'ServerList','LobbyMenu','BattlescapeState'] - a DEAD lobby it could not
     dismiss. That is the adjacent finding W1-P1 disclosed and routed here, and
-    it is why test_skirmish_flow.py's step 7 carried SKIP-PENDING(W1-P3).
+    it is why test_skirmish_flow.py's step 7 carried SKIP-PENDING.
 
 WHAT THIS ASSERTS.
   1. ENTRY SHAPE. The client reaches BriefingState, and the ORDER the runbook
@@ -39,7 +39,7 @@ WHAT THIS ASSERTS.
   5. TESTSERVER PROBES UNDER A CLIENT BriefingState (SS1 WAVE-1 ADDITIONS trap
      2). SavedBattleGame::getBattleGame() derefs _battleState unconditionally;
      the guards at TestServer.cpp:3468-3469 / :5260 were verified against a
-     HOST parked in BriefingState (W1-P2). The CLIENT is a NEW case - it has a
+     HOST parked in BriefingState. The CLIENT is a NEW case - it has a
      live BattlescapeState UNDERNEATH the briefing - so battle_state,
      event_state, hash_now and get_palettes are all exercised there.
   6. WR-24 - THE RENDER HAZARD. BriefingState's ctor sets the GEOSCAPE base
@@ -47,7 +47,7 @@ WHAT THIS ASSERTS.
      (BriefingState.cpp:58-60); btnOkClick sets the BATTLESCAPE values back
      (:297-300). W1-P3 does that OVER a live BattlescapeState. After
      close_briefing, both pre-battle equip screens and both Turn-1 screens
-     (W2-P8b) the client must be back on BattlescapeState with the
+     the client must be back on BattlescapeState with the
      BATTLESCAPE base resolution, a SCREEN palette equal to the host's, an
      unchanged map (mapFingerprint / mapObjTiles / mapSizeXYZ, cross-checked
      against the host) and all hash buckets EQUAL.
@@ -55,7 +55,7 @@ WHAT THIS ASSERTS.
      OWN stored _palette, which a briefing round trip never touches - asserting
      on those alone would be VACUOUS for this trap, so W1-P3 added the additive
      `screen` object (base resolution + live screen palette) this test uses.
-  7. W2-P8b S-H re-point: the offer is snapshotted at turn 0 (owner D210 b)
+  7. W2-P8b S-H re-point: the offer is snapshotted at turn 0
      and the RW-FIX-TURN counter mirror is skipped for it, so the client's
      briefing shows turn 0 and the host's pre-battle equip screen too; turn is
      1 on BOTH machines once both seats are ready.
@@ -198,11 +198,11 @@ def main():
                       lambda: session.has_state(host, "BriefingState"), timeout=30)
 
         # Snapshot of the host's OWN pre-battle briefing text, taken while it is
-        # up, for assertion 2's compare below. W2-P8b (owner D210 b): the offer
+        # up, for assertion 2's compare below. the offer
         # already went out at PREPARE (newbattle_ok), at turn 0, so both
         # briefings are up at once; the host's OK below lands it on its
-        # pre-battle equip screen (D174 a), where it stays until both seats are
-        # ready (D206 c).
+        # pre-battle equip screen, where it stays until both seats are
+        # ready.
         host_texts_pre_offer = widget_texts(host)
 
         host.ok({"cmd": "click_widget", "match": "ok"})
@@ -262,7 +262,7 @@ def main():
             f"mission identity differs: host={hb['strTarget']!r}/{hb['strCraftOrBase']!r} "
             f"client={cb['strTarget']!r}/{cb['strCraftOrBase']!r}")
 
-        # WV-D56: the host's own pre-battle BriefingState is long gone by now
+        # the host's own pre-battle BriefingState is long gone by now
         # (dismissing it is what sent the offer in the first place) - the
         # compare uses the SNAPSHOT taken above, while it was still up.
         host_texts = host_texts_pre_offer
@@ -288,7 +288,7 @@ def main():
             f"104-108 generic fallback?).\n  host  ={sorted(host_texts)}"
             f"\n  client={sorted(client_texts)}")
 
-        # A raw STR_ key would mean the language deploy is stale (WV-D17) and a
+        # A raw STR_ key would mean the language deploy is stale and a
         # missionType-as-title would mean tr() never resolved the deployment's
         # briefing strings.
         for t in client_texts:
@@ -318,8 +318,8 @@ def main():
 
         # === 4. RB-D5: the apply queue drains UNDER the briefing =============
         # Game::run() only think()s the TOP state, so this is exactly where a
-        # State-driven drain would stall. inject_ev is the host-side lever
-        # (RB-D32): it mints a REAL seq through CoopEmit::sendEv and the client
+        # State-driven drain would stall. inject_ev is the host-side lever:
+        # it mints a REAL seq through CoopEmit::sendEv and the client
         # applies it as a state-less no-op, so nothing can diverge.
         base_seq = event_state(client).get("lastSeqApplied", 0)
         emitted = []

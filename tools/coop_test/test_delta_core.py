@@ -66,7 +66,7 @@ are checked; main() runs every scenario even after an earlier one failed and
 prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that
 times out is recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all three scenarios pass, 2
 otherwise (a bring-up failure is also 2).
 
@@ -89,7 +89,7 @@ from test_seat_pacing import tab_select, real_click_walk
 # ----- common (every W2-P2 test file; TASK 0a round 1, default map) -----
 SEED_MAP = 1
 MAP_FP = -4.48310638993e+18      # host battle_state.mapFingerprint on SEED_MAP 1
-H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot (F488)
+H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot
 A_ID = 1000000                   # the only alien: Sectoid Soldier, spawn (27,12,0) dir 5, health 30
 A_ITEMS = {56: ("STR_PLASMA_PISTOL", "STR_RIGHT_HAND"), 58: ("STR_PLASMA_PISTOL_CLIP", "STR_BELT"),
            59: ("STR_MIND_PROBE", "STR_BACK_PACK")}   # 60 items at start: first lever-minted id = 60
@@ -197,7 +197,7 @@ def short(e, n=300):
 
 
 def staging_settled(host, client):
-    """W2-U8b (F6305, F6471; W2-U8 F6060): the client has applied every ev the host emitted
+    """the client has applied every ev the host emitted
     (session.wait_seq_barrier, W2-U8b.1 F6494). A host lever can make the host EMIT in its own frame: an
     alien teleport dirties that alien's hostile FOV key, and CoopReveal::flushQuiescent (updateCoopTask,
     right after TestServer::pump) ships a standalone `reveal` ev whose `h` hashes the host's state at that
@@ -210,9 +210,9 @@ def staging_settled(host, client):
 
 def both(host, client, req, keys):
     """Send `req` to BOTH machines; assert ok and equal on `keys`; then staging_settled() - the client has
-    applied every ev the host emitted before the next lever runs on it (W2-U8b). tele_both, tu_both and
+    applied every ev the host emitted before the next lever runs on it. tele_both, tu_both and
     set_tile_both (and every caller's own wrapper of both) inherit the wait."""
-    rc = client.cmd(dict(req))  # F607: client first, then host
+    rc = client.cmd(dict(req))  # client first, then host
     rh = host.cmd(dict(req))
     assert rh.get("ok") and rc.get("ok"), f"staging {req} failed: host={rh} client={rc}"
     vh, vc = tuple(rh.get(k) for k in keys), tuple(rc.get(k) for k in keys)
@@ -472,7 +472,7 @@ def sa_drop(host, client, ctx):
     before = {"host": probes(host), "client": probes(client)}
     st = set_tile_both(host, client, C15_FIRE_TILE_2, fire=1)
     t0h, t0c = tile(host, C15_FIRE_TILE_2), tile(client, C15_FIRE_TILE_2)
-    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A (QL3-5 a): SA-DROP's PASS is the desync itself
+    host.ok({"cmd": "resync_hold", "on": True})  # R4-L3 S-A: SA-DROP's PASS is the desync itself
     rd = host.cmd({"cmd": "delta_drop_next", "class": "tiles"})
     if not rd.get("ok"):
         notes.append(f"delta_drop_next on the host: {rd}")

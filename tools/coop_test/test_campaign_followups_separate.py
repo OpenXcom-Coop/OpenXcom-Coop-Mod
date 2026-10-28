@@ -26,7 +26,7 @@ drain (read the same way). Cells, in order (a failed cell ends the row):
       `[ClientPlayer] Guest Zzz`), both machines' rows equal after PR-10 stripping (P6-8); both on their geoscapes,
       the client zero-disk, no LoadGameState pushed, host fatalVote.armed 0.
 RED (commit S-C-C.1, product untouched): F5 fails on exactly cell 2 - the client's chain is empty. GREEN (S-C-C.2):
-F5 passes. ONE "EVIDENCE F5:" line, then "PASS F5" or "FAIL F5: <message>". WV-D95/D99/D100: ONE foreground run, no
+F5 passes. ONE "EVIDENCE F5:" line, then "PASS F5" or "FAIL F5: <message>". ONE foreground run, no
 skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_campaign_followups_separate.py

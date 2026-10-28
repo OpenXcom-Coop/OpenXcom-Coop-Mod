@@ -3,7 +3,7 @@ the second player gets the forced storage screen too, every SHARED sell confirm 
 forced screen closes itself once the base is back under its limit (docs rewrite/prompts/w2p7_sc_design.md section
 3.6, AMENDMENT P7-7 sections 2-4: PR-29..PR-35; owner D154, D175; mechanism rulings MR9, MR10, MR15).
 
-Before S-C-D2 (F5432, F2501, F2500, F2163): the second player's OK takes it straight to its geoscape - only the host
+Before S-C-D2: the second player's OK takes it straight to its geoscape - only the host
 gets vanilla's forced SellState + "STORAGE SPACE EXCEEDED" box; a SHARED sell closes its screen at submit, before the
 host answers, so a rejected sale leaves no screen; the host's sellValidate counts base stock only (a forced-storage
 sale of a craft's items is rejected); a forced confirm that arrives after the base is solved shows a fail box.
@@ -11,7 +11,7 @@ sale of a craft's items is rejected); a forced confirm that arrives after the ba
 Fixture FX-ST (AMENDMENT P7-7 section 3, CONSTANTS docs rewrite/w2p7sc2-task0/CONSTANTS.md T0-S3 (ii), CONSTRUCTED):
 shared_fixture.bring_up(tag, (0, 0, PORT), host_options=OPTS, client_options=OPTS), OPTS = {storageLimitsEnforced,
 canSellLiveAliens} (F5429: boot-time options on BOTH user dirs); give_items {STR_RIFLE, 300} on BOTH (client first;
-F5433: base 0 then holds 111 of 65 stores); then stage_x() = a local copy of test_battle_end_campaign.stage()
+base 0 then holds 111 of 65 stores); then stage_x() = a local copy of test_battle_end_campaign.stage()
 WITHOUT its HOST_DEBRIEF pin (T0's storage boots totalled 418, not S-C-A's 454: the pin does not transfer; the host's
 debriefing is recorded in EVIDENCE): SEED_S 1, MAP_FP_S, autoEnd on, kill_unit_real {faction: 1} kills the 15
 hostiles, the host's DebriefingState. Pre-cell (a failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot
@@ -26,8 +26,8 @@ client "hold": its per-frame SharedEcon drain waits, so a host answer or apply s
 F5578; a held shared_fail is asserted AFTER the release, F5573), the host's `sell` lever (a harness confirm, immediate
 pop, F2521), base_report (storage, usedStores / availableStores, crafts[].items), coop_dialog_info, list_widgets (the
 error box text), click_widget on the real captions (SELL, Sell/Sack), dismiss_popup ONLY on an ErrorMessageState top,
-coop_dialog_back ONLY on a CoopState top - never on a forced screen (F4333).
-J10 timing (F4529): a client hold that outlives a host world change by RESYNC_DEBOUNCE (3 s) while the host's
+coop_dialog_back ONLY on a CoopState top - never on a forced screen.
+J10 timing: a client hold that outlives a host world change by RESYNC_DEBOUNCE (3 s) while the host's
 GeoscapeState is on top (it alone sends the checksummed `time` heartbeat) requests a world resync that replaces the
 client's screens; every hold below is released within HOLD_MAX_S of the host's change.
 
@@ -68,7 +68,7 @@ RE-POINT (commit S-C-E1.1, AMENDMENT P7-8 PR-52, F6106, chain rule section A.10;
 product (pre-E1): D2e fails on cell 2 (the host rejects the stale-stock sale, so the page-3 SellState stays); D2c,
 D2d (1) and D2f pass. GREEN (commit S-C-E1.2): every row passes.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' battleEnd keys page3, worldAdoptDeferredPasses, forced,
-adoptFailed), then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground run, no skip path; exit 0
+adoptFailed), then "PASS <id>" or "FAIL <id>: <message>". ONE foreground run, no skip path; exit 0
 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_forced_storage.py
@@ -106,7 +106,7 @@ SCREEN_S = 10                            # P7-7 section 3.2: "within 10 s"
 PAGE_S = p3.PAGE_S                       # 5 s: a screen push / box after a real click or a release
 ANSWER_S = 2.5                           # a held client sees the host's answer (shared_ok / shared_fail at receipt)
 HOLD_SAMPLE_S = 1.0                      # "stays until the apply": the held client's top sampled this long
-HOLD_MAX_S = 2.5                         # F4529: every hold released within this of the host's world change
+HOLD_MAX_S = 2.5                         # every hold released within this of the host's world change
 EQUAL_S = 10                             # a shared_apply's effect may lag one round trip
 
 
@@ -175,7 +175,7 @@ def err_text(gc):
 
 def dismiss_box(gc):
     """Dismiss this machine's top box ONLY when it is an ErrorMessageState (dismiss_popup's generic pop = its OK) or a
-    CoopState (coop_dialog_back); never anything else (F4333). Returns what was dismissed, or None."""
+    CoopState (coop_dialog_back); never anything else. Returns what was dismissed, or None."""
     t = top(gc)
     if t == "ErrorMessageState":
         gc.cmd({"cmd": "dismiss_popup"})
@@ -371,7 +371,7 @@ def fx_st(js, ctx, boot):
     host, client = js.host, js.client
     m = (host, client)
     give = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "give_items", "item": RIFLE, "count": RIFLE_FILL})
         give[gc.name] = {k: r.get(k) for k in ("ok", "stored", "error")}
     ctx["give"] = give
@@ -598,7 +598,7 @@ def d2e_cells(host, client, ctx):
         f0 = sstats(client).get("failCount") or 0
         ctx["c2"]["failCount0"] = f0
         c = p3.click(client, SELL_OK)
-        # the window ends at ANSWER_S or at HOLD_MAX_S after the host's change, whichever is first (F4529)
+        # the window ends at ANSWER_S or at HOLD_MAX_S after the host's change, whichever is first
         budget = max(0.5, min(ANSWER_S, HOLD_MAX_S - (time.time() - ctx["tChange"])))
         ok, secs = wait_until(lambda: top(client) == "DebriefingState", budget, 0.1)
         st = sstats(client)

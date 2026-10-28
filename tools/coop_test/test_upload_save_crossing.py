@@ -1,7 +1,7 @@
 """W2-H86 UXC (tools/coop_test/test_upload_save_crossing.py): a partner upload that crosses a host quick save keeps the host's saveID,
 so a later drop + rejoin restores the partner's own campaign (lead L-LT17-1, ruling R-LLT17-1-1; VL-H86-1). Spec docs
-rewrite/prompts/w2h86_upload_save_crossing.md (f); TASK 0 values in rewrite/w2h86-task0/sa/CONSTANTS.md; capture rewrite/llt17-1-cap
-(F22900-F22915). Helpers: crossing_helpers.py (CH: the crossing on the TEST-ONLY levers hold_blob_ack scope "upload" and
+rewrite/prompts/w2h86_upload_save_crossing.md (f); TASK 0 values in rewrite/w2h86-task0/sa/CONSTANTS.md; capture rewrite/llt17-1-cap.
+Helpers: crossing_helpers.py (CH: the crossing on the TEST-ONLY levers hold_blob_ack scope "upload" and
 hold_save_reply); rejoin_helpers.py (RH) and drop_fixture.py (F) imported unchanged.
 id0 = the campaign's first saveID; id1 = S1's; id2 = the crossing save's re-mint (S2). Each row boots its own pair on lobby key 49643
 (SEPARATE new_campaign); NAME = the host's get_coop.clientName; MARKER = the client's own bases and soldiers; the gift is the host's real
@@ -25,7 +25,7 @@ NAME (never a base placement: a fresh world is evidence); RESUME only after the 
           CTL-rejoin, CTL-world, CTL-resume, CTL-common (GUARD) as U1's.
 Red today (no W2-H86 fix): U1-host, U1-log, U1-sav, U1-key, U1-rejoin, U1-world, U1-resume FAIL (7 of 19); every other cell PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its row (later cells "not reached",
-one CAPTURE line); every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no SKIP; exit 0 only when every cell
+one CAPTURE line); every row runs after a failure. ONE foreground run, no SKIP; exit 0 only when every cell
 passes, else 2. Run: python tools/coop_test/test_upload_save_crossing.py   (OXC_HARNESS_SLOT selects the lane)"""
 import os
 import sys

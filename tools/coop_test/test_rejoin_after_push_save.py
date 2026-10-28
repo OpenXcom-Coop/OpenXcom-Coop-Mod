@@ -1,7 +1,7 @@
 """W2-H84 RAS (tools/coop_test/test_rejoin_after_push_save.py): a partner keeps the host's saveID through a drop during the host's NEXT
 quick save after its upload (C2) and through a resume of the save the host wrote at its drop (X3), so its rejoin restores its own campaign
 (lead L-H79-3, ruling R-LH79-3-1; VL-H84-2). Spec docs rewrite/prompts/w2h84_rejoin_join_id.md (f); TASK 0 values in
-rewrite/w2h84-task0/sa/CONSTANTS.md; capture rewrite/lh79-3-cap (F22370-F22386). Helpers: rejoin_helpers.py (RH); fixture
+rewrite/w2h84-task0/sa/CONSTANTS.md; capture rewrite/lh79-3-cap. Helpers: rejoin_helpers.py (RH); fixture
 drop_fixture.py (F) imported unchanged. id1 = S1's saveID; id2 = D1's re-mint (W2-H58 copies host_<id1> to host_<id2> with id1's
 bytes; W2-H59 writes _quick_.asav at the drop); id3 = D2's re-mint. Lobby key 49499 (SEPARATE); NAME = the host's get_coop.clientName;
 MARKER = the client's own bases and soldiers after BOOT; every rejoiner is a NEW client on a fresh dir joining by NAME (never a base
@@ -23,7 +23,7 @@ placement: a fresh world is evidence); RESUME only after the host's ack (resume_
           X3-rejoin, X3-world, X3-resume (RED) as C2's for client3 on host2.  X3-common (GUARD) host2 + client3 alive, no new crash file.
 Red today (no W2-H84 fix): C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, X3-ids, X3-log, X3-host, X3-rejoin, X3-world, X3-resume
 FAIL (11 of 16); every other cell PASS. One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss
-ends its row (later cells "not reached", one CAPTURE line); every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE foreground
+ends its row (later cells "not reached", one CAPTURE line); every row runs after a failure. ONE foreground
 run, no SKIP; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_rejoin_after_push_save.py   (OXC_HARNESS_SLOT selects the lane)"""
 import os

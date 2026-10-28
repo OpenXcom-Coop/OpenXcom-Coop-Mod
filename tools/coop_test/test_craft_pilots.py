@@ -23,7 +23,7 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Pilots_Test")
-BOOT_A = ("w2h16fa", (49344, 49345, 47334))      # SHARED; lobby 47334 (spec F6709)
+BOOT_A = ("w2h16fa", (49344, 49345, 47334))      # SHARED; lobby 47334
 BOOT_B = ("w2h16fb", (49346, 49347, 47336))      # SEPARATE; lobby 47336
 SKY = {"craftId": 1, "craftType": "STR_SKYRANGER"}
 POLL_S, POLL_I, UI_S, BETWEEN_S, SETTLE_S = 3.0, 0.25, 3.0, 10.0, 0.25

@@ -288,7 +288,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 	// changeHost merge and BriefingState::setupCoop() dispatch this comment
 	// used to describe stay quarantined (RB-D9) - real gm2/gm3/gm4 seat/
 	// faction assignment is R5-P1's job; offerBattle()'s own client-side
-	// gamemode check refuses those until then (RB-D18). This guard is false
+	// gamemode check refuses those until then. This guard is false
 	// on every SP click, so the SP battle-generation path below is
 	// byte-for-byte untouched.
 	const bool coopLanding = connectionTCP::getCoopStatic() == true;
@@ -361,17 +361,17 @@ void ConfirmLandingState::btnYesClick(Action *)
 
 		if (coopLanding)
 		{
-			// SPEC 19 (W1-P20) M2 Branch B (F359/F360): merge any
+			// SPEC 19 M2 Branch B: merge any
 			// client-contributed SEPARATE guest onto this craft BEFORE the
 			// stamp below reads ownership, and BEFORE vanilla generation
-			// (F365) so the generator actually deploys it. A no-op when
+			// so the generator actually deploys it. A no-op when
 			// nothing was ever contributed for this craft. Body:
 			// CoopBattleSetup.h/CoopState.cpp; no logic here.
 			coopMergeGuestContributions(_game, _craft);
-			// SPEC 19 (W1-P20) M1 (F358): the owner->seat stamp this entry was
+			// SPEC 19 M1: the owner->seat stamp this entry was
 			// missing (present, byte-identical, at the three other stamp
 			// sites). Stamp BEFORE generate - the same order Cydonia and both
-			// base-defense arms use (F365). Body: CoopBattleSetup.h/
+			// base-defense arms use. Body: CoopBattleSetup.h/
 			// CoopState.cpp; no logic here.
 			coopStampCraftSeats(_craft);
 		}
@@ -392,7 +392,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 			// its blob snapshot (the SS2.W1 ORDERING TRAP - the BriefingState push
 			// two lines below is what mints them in vanilla). One of FOUR identical
 			// call sites; no-op off the coop host.
-			// D248-U (owner D248 (b)): the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
+			// the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
 			coopDropMergedGuestVehicles(_game);
 			CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
 			CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);

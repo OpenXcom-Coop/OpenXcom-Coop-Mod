@@ -209,7 +209,7 @@ void UnitDieBState::think()
 		_parent->getTileEngine()->calculateLighting(LL_ITEMS, _unit->getPosition(), _unit->getArmor()->getSize());
 		_parent->getTileEngine()->calculateFOV(_unit->getPosition(), _unit->getArmor()->getSize(), false); //Update FOV for anyone that can see me
 		_parent->popState();
-		if (coopFactionIsMine((int)_unit->getOriginalFaction())) // coop R5-U2 S-D (QU2-12): a unit of this machine's side
+		if (coopFactionIsMine((int)_unit->getOriginalFaction())) // coop R5-U2 S-D: a unit of this machine's side
 		{
 			Game *game = _parent->getSave()->getBattleState()->getGame();
 			if (_unit->getStatus() == STATUS_DEAD)
@@ -220,7 +220,7 @@ void UnitDieBState::think()
 					if (_unit->getNotificationShown() < 2)
 					{
 						_unit->setNotificationShown(2);
-						if (coopHostDivertUnitMessage(_unit, "STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit)) {} else // W2-P6a (D132)
+						if (coopHostDivertUnitMessage(_unit, "STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit)) {} else
 						game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_DIED_FROM_A_FATAL_WOUND", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 					}
 				}
@@ -230,7 +230,7 @@ void UnitDieBState::think()
 					if (_unit->getNotificationShown() < 2)
 					{
 						_unit->setNotificationShown(2);
-						if (coopHostDivertUnitMessage(_unit, "STR_HAS_BEEN_KILLED", _unit)) {} else // W2-P6a (D132)
+						if (coopHostDivertUnitMessage(_unit, "STR_HAS_BEEN_KILLED", _unit)) {} else
 						game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_BEEN_KILLED", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 					}
 				}
@@ -240,7 +240,7 @@ void UnitDieBState::think()
 				if (_unit->getNotificationShown() < 1)
 				{
 					_unit->setNotificationShown(1);
-					if (coopHostDivertUnitMessage(_unit, "STR_HAS_BECOME_UNCONSCIOUS", _unit)) {} else // W2-P6a (D132)
+					if (coopHostDivertUnitMessage(_unit, "STR_HAS_BECOME_UNCONSCIOUS", _unit)) {} else
 					game->pushState(new InfoboxOKState(game->getLanguage()->getString("STR_HAS_BECOME_UNCONSCIOUS", _unit->getGender()).arg(_unit->getName(game->getLanguage()))));
 				}
 			}

@@ -1,6 +1,6 @@
-"""SPEC 18 (r4 T4) S1 - SEPARATE mid-battle save/resume, DRAIN-FIRST (D101),
+"""SPEC 18 (r4 T4) S1 - SEPARATE mid-battle save/resume, DRAIN-FIRST,
 re-pointed to the rewrite model (F376/E63.3) on the E72 Lightning-roof
-mid-walk fixture (D121).
+mid-walk fixture.
 
 The canonical mid-battle-resume proof: a SEPARATE campaign co-op battle
 (host's own squad + a CLIENT guest merged in via the two-world merge, SPEC 19
@@ -76,7 +76,7 @@ def battle(gc):
 # ---- split_report / assert_split / settle_and_assert (F376 rewrite) --------
 
 def split_report(host, client):
-    """Per-machine split snapshot, the rewrite model (F376): phase, hostSim,
+    """Per-machine split snapshot, the rewrite model: phase, hostSim,
     localSeat, battleId, coopSession, and the (soldierId, name, coop) set of
     every player-soldier unit. NO term on battleInit/coopTurn/selectable - the
     pre-rewrite signals F376 retired (this engine never sets battleInit and
@@ -105,7 +105,7 @@ def split_report(host, client):
 
 
 def assert_split(host, client, phase, expected):
-    """The rewrite-model split invariant (F376).
+    """The rewrite-model split invariant.
 
     `expected`: {name: coop_seat} - the roster this battle was assembled with
     (built from names known at bring-up time, since the guest's BATTLE
@@ -165,7 +165,7 @@ def settle_and_assert(host, client, phase, expected, timeout=60):
     CoopState::previous() (the coop_dialog_back lever) treats ANY press on
     that specific dialog code as the issue #91 give-up path - it calls
     disconnectTCP() unconditionally, regardless of the button's visibility.
-    Captured via log inspection (WV-D77): drive_both_to_tactical's generic
+    Captured via log inspection: drive_both_to_tactical's generic
     "any CoopState top -> coop_dialog_back" clause fired on the client's hold
     mid-settle, producing an immediate onClientDrop/full teardown - a bug in
     THIS helper's prior use of that generic drain, not an engine defect. The
@@ -187,7 +187,7 @@ def settle_and_assert(host, client, phase, expected, timeout=60):
     raise last_err
 
 
-# ---- the E72 (D121) Lightning-roof mid-walk fixture ------------------------
+# ---- the E72 Lightning-roof mid-walk fixture ------------------------
 
 def _sav_unit_block(path, uid):
     """The raw YAML lines for battle unit `uid` in the .sav at `path` - a
@@ -325,8 +325,8 @@ def _host_squad_battle_units(gc, host_squad):
     return [u for u in bs["units"] if u.get("soldierId") in host_squad and not u.get("isOut")]
 
 
-ROOF_ICON_MARGIN = 8   # base px a roof click must sit above the icon panel (F592(b))
-ROOF_EDGE_MARGIN = 8   # base px a roof click must sit inside the view's left/right edges (F642)
+ROOF_ICON_MARGIN = 8   # base px a roof click must sit above the icon panel
+ROOF_EDGE_MARGIN = 8   # base px a roof click must sit inside the view's left/right edges
 ROOF_FULL_TU = 999     # battle_set_unit_state tu: BattleUnit::setTimeUnits clamps it to the unit's own TU stat
 ROOF_MIN_STEPS = 6     # W2-H3 AMENDMENT 3 step 2(i): the corner-to-corner walk is at least 6 steps
 ROOF_CORNERS = ("NW", "NE", "SW", "SE")
@@ -339,16 +339,16 @@ def _floor_of(r):
 
 
 def _lightning_roof(host, walker):
-    """W2-H3 AMENDMENT 3 step 1 (owner D143): the roof is the LIGHTNING's TOP
+    """W2-H3 AMENDMENT 3 step 1: the roof is the LIGHTNING's TOP
     surface. The walker starts inside the craft, so the roof level is the
     highest level above the walker's tile whose tile in the walker's column
     has a floor part (read per boot from tile_census, tile_info's getters, never hard-coded; F626).
     Flood-fill (4-neighbour) that level's tiles that have a floor part from
     that column. Returns (z, roof_tiles, bbox): bbox = (minx, miny, maxx,
-    maxy). The roof is plane-shaped (F640), so its corners are chosen by
+    maxy). The roof is plane-shaped, so its corners are chosen by
     _roof_corners, not taken from the bbox."""
     col = (walker["x"], walker["y"])
-    # CIT-Y2: every level above the walker in bulk (session.tile_scan), one tile past each map edge and past the
+    # every level above the walker in bulk (session.tile_scan), one tile past each map edge and past the
     # top level, so every position the loops below read is in `rows` and an off-map one is the census's own
     # "no tile" ({"ok": False}, tile_info's "no such tile")
     size = host.cmd({"cmd": "find_doors", "limit": 1})
@@ -449,7 +449,7 @@ def stage_alien_and_walk(host, client, walker_id):
     the walker walks the LIGHTNING's roof (the craft's top level) from one
     corner (the standable roof tile nearest a bbox corner) to the opposite
     corner with the camera centred on the roof, so the whole walk is
-    on-screen and vanilla paces every step at battleXcomSpeed (F465) - the
+    on-screen and vanilla paces every step at battleXcomSpeed - the
     save request lands mid-walk. Returns (elevator, dest, lw, pending) once
     the walk is observed >=2-pending mid-flight."""
     aliens = s16._find_alien(host)
@@ -514,8 +514,8 @@ def stage_alien_and_walk(host, client, walker_id):
     # (3) the walker on the start corner with its full TU stat, TAB-selected
     _walker_to(host, client, walker_id, start, f"walker to roof corner {a}")
     tus = [gc.ok({"cmd": "battle_set_unit_state", "unit": walker_id, "tu": ROOF_FULL_TU})["tu"]
-           for gc in (client, host)][::-1]  # F607: client first; tus stays [host, client]
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+           for gc in (client, host)][::-1]  # client first; tus stays [host, client]
+    session.wait_seq_barrier(host, client)
     assert tus[0] == tus[1], f"S1-PRECOND: the walker's full TU differs host/client: {tus}"
     assert tus[0] >= tu_cost, f"S1-PRECOND: the walker's full TU {tus[0]} < the path's tuCost {tu_cost}"
     session.assert_hash_clean(host, client, full=True, what="walker full TU")
@@ -536,11 +536,11 @@ def stage_alien_and_walk(host, client, walker_id):
     host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
     lw, pending = s16._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
     if lw is None:
-        # F420 (D126, owner): on-timeout diagnostic ONLY. The mid-walk-pending poll
+        # on-timeout diagnostic ONLY. The mid-walk-pending poll
         # gave up (pending stayed < 2 within the window); dump the staging/walk state
         # on BOTH machines before the assertion below fails. Fires ONLY on the failure
         # path; the window is UNCHANGED; this is NOT a second poll and NOT a masking
-        # wait - it captures the rare K=2 no-desync stall family (F419) for a future run.
+        # wait - it captures the rare K=2 no-desync stall family for a future run.
         print("[F420 poll_walk_until_pending TIMEOUT] pending=%s prev_action_id=%s"
               % (pending, prev), flush=True)
         for _nm, _gc in (("host", host), ("client", client)):
@@ -592,8 +592,8 @@ def main():
         # D136 = (b), WV-D77): the old check had to OBSERVE the latch armed
         # with no file yet, a window that closes when the walk drains. A walk
         # whose remaining steps run off-screen (interval 0) and halt on TU
-        # (F450) drains within ~25-200 ms of the request, and each battle_state
-        # reply reaches the test ~50 ms after the game handled it (F460), so
+        # drains within ~25-200 ms of the request, and each battle_state
+        # reply reaches the test ~50 ms after the game handled it, so
         # the first look can land after the deferred write (REGRESSION K=2:
         # deferred -> halt +22 ms -> written +25 ms; the first poll saw the new
         # file with the latch already cleared). The game now records every
@@ -650,7 +650,7 @@ def main():
         savpath = os.path.join(host_dir, next(iter(new_files)))
         print(f"PASS M8: coopSavePending cleared, one new save written -> {savpath}")
 
-        # F448 (D136): the deferred write came no earlier than the walk's end -
+        # the deferred write came no earlier than the walk's end -
         # both are the host's own SDL_GetTicks(), read once the file exists.
         rec = battle(host)
         walk_end = (session.event_state(host).get("lastWalk") or {}).get("endTick")
@@ -739,7 +739,7 @@ def main():
             snap = _snapshot(gc)
             assert snap == post, (
                 f"{tag}: post-resume snapshot != pre-quit `post`:\n  post={post}\n  {tag}={snap}")
-        # "never replay the walk" (D101): CAPTURED (WV-D77) that lastSeqApplied
+        # "never replay the walk": CAPTURED that lastSeqApplied
         # is NOT 0 after a resume - SS2.W5's battle-entry side-begin reveal
         # restate legitimately sends its own bt_ev(kind=reveal) to re-sync FOV
         # on ANY battle entry (fresh join or resume alike), so lastSeqApplied

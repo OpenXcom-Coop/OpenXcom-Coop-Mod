@@ -15,8 +15,8 @@ guard miss of a row prints ONE CAPTURE (four orders, stacks, list_widgets of the
 at each row end (STOP-IF 5). Every sort cell uses a key EQUAL for every soldier (SOLDIER TYPE; CRAFT on the crew-armor
 screen, the hole of its :193 fence) plus shift: unfenced, the stable sort keeps the order and shift reverses it, so the
 order ALWAYS changes, whatever an earlier red row left behind.
-Pixels (TASK 0): window = int(base x 2.0), bands 0 (checked against the EQUIP CRAFT click_widget reply), from the unrounded
-centre (F5802); list row r: y = rect.y + 8r + 4; arrow buttons 11x8 at rect.x + arrowPos (up) / + 12 (down), centre + 5.5,
+Pixels: window = int(base x 2.0), bands 0 (checked against the EQUIP CRAFT click_widget reply), from the unrounded
+centre; list row r: y = rect.y + 8r + 4; arrow buttons 11x8 at rect.x + arrowPos (up) / + 12 (down), centre + 5.5,
 arrowPos 238 (training) / 192 (research); ComboBox: the box centre, then dropdown row r at (x + 2 + (w - 17) / 2,
 popupY + 3 + 8r + 4), popupY = y + h (below) or y - 86 (above: 10 rows x 8 + 6).
 RED on the pre-fix build: H16d-1..6 and H16d-8 fail on their named cells, H16d-9 passes. GREEN: all pass.
@@ -37,7 +37,7 @@ BOOT_A, BOOT_B = ("w2h16da", (49331, 49332, 47310)), ("w2h16db", (49333, 49334),
 HB, SB2, CB, RENAME = "HostBase", "SharedBase2", "ClientBase", "H16D"
 H, C, GEO = "host", "client", "GeoscapeState"
 SCALE, POLL_S, POLL_I, POPUP_H, OWN_ROWS = 2.0, 2.0, 0.25, 10 * 8 + 3 * 2, 4
-ROW_SS_TYPE, ROW_CAS_CRAFT, ROW_ALLOC_TYPE = 4, 3, 3      # dropdown rows: SOLDIER TYPE / CRAFT / SOLDIER TYPE (TASK 0)
+ROW_SS_TYPE, ROW_CAS_CRAFT, ROW_ALLOC_TYPE = 4, 3, 3      # dropdown rows: SOLDIER TYPE / CRAFT / SOLDIER TYPE
 ARROW_TRAINING, ARROW_RESEARCH = 238, 192                 # setArrowColumn: ATS :187, APS :175 / RS :104
 ALLOC = {"martial": "AllocateTrainingState", "psi": "AllocatePsiTrainingState"}
 SS_KEYS = ("cmd", "okCount", "failCount", "applyCount", "applyQueued", "lastFail")

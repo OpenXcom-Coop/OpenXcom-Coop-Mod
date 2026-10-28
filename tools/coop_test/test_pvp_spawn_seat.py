@@ -1,7 +1,7 @@
 """R5-U4 rows Z2 and Z3 (owner D235 (a); D235-VL1 / R5-V2, VL-U4-3): in PvP a unit created mid-battle takes the seat of
 its side's player and, like that side's other units, has no AI module. Two boots, one row each.
 
-Spec: docs repo rewrite/prompts/r5u4_ownerless_units.md section (f) test_pvp_spawn_seat.py (QU4-4 (a), QU4-5 (a)),
+Spec: docs repo rewrite/prompts/r5u4_ownerless_units.md section (f) test_pvp_spawn_seat.py,
 with the orchestrator rulings R-U4-A-1 (the shooter staged onto open ground, hash-gated), R-U4-A-4 (one TAB before the
 click that selects Z3), R-U4-A-5 / R-U4-A-7 (Z3's victim staged onto open ground first, facing Z3's walk) and R-9B-2
 (boot P3's lobby key 48697). Constants: rewrite/r5u4-task0/CONSTANTS.md (TASK 0 boots P2a / P2b, P3a-P3d).
@@ -21,8 +21,8 @@ Red at A1 (the unchanged build): Z2-seat, Z2-ai, Z2-cmd, Z3-seat, Z3-ai, Z3-walk
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails its row "boot"; a staging step past its bound fails the row
 "staging"; a cell whose precondition cell failed FAILs "not reached". Common cell: every hash bucket EQUAL, desyncSeen
-false on both, no new crash file. Lever pairs go to the client first (F607); ids come from probes (S25).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+false on both, no new crash file. Lever pairs go to the client first; ids come from probes (S25).
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_spawn_seat.py
@@ -41,17 +41,17 @@ import test_ownerless_units as OU  # noqa: E402
 from repro_atom_side_begin import drive_side_change  # noqa: E402
 from test_delta_core import both  # noqa: E402
 
-P2_KEY, P3_KEY = "48689", "48697"         # R-9B-2: 48696 is RV-U2's
+P2_KEY, P3_KEY = "48689", "48697"         # 48696 is RV-U2's
 SEED_Z2, SEED_Z3 = 1, 1                   # host set_seed right before each lever shot
 STEP_S = OU.STEP_S
 ZOMBIE = "STR_ZOMBIE"
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 A_ID = 1000000                            # the alien (gm2: the partner's seat 1; gm3: the host's seat 0)
 X, X2 = 8, 9                              # the lowest X-COM ids: the victim, the gm2 shooter (P2a / P2b, P3a-P3d)
-STAGE_X2, X2_DIR = (20, 19, 0), 4         # R-U4-A-1: gm2's shooter
+STAGE_X2, X2_DIR = (20, 19, 0), 4         # gm2's shooter
 FLOOR_Z2 = (24, 19, 0)                    # the FLOOR rule's target from STAGE_X2 (k 4, d 2)
-STAGE_X, X_DIR = (20, 19, 0), 0           # R-U4-A-5 / R-U4-A-7: gm3's victim, facing Z3_DEST
-STAGE_A, A_DIR = (24, 19, 0), 5           # R-U4-A-1: gm3's shooter; a clear ray west to STAGE_X
+STAGE_X, X_DIR = (20, 19, 0), 0           # gm3's victim, facing Z3_DEST
+STAGE_A, A_DIR = (24, 19, 0), 5           # gm3's shooter; a clear ray west to STAGE_X
 FLOOR_Z3 = (28, 19, 0)                    # the FLOOR rule's target from STAGE_A (k 4, d 2)
 Z3_TU = 30
 Z3_DEST = (20, 18, 0)                     # 1 tile north of STAGE_X: path_probe steps 1, tuCost 4 on both

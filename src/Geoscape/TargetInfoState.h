@@ -48,7 +48,7 @@ private:
 public:
 	/// Creates the Target Info state.
 	TargetInfoState(Target *target, Globe *globe);
-	/// coop W2-H81 (R-LH76-1-1): the target this popup holds, for GeoscapeState::coopHeldTargets (never dereferenced there).
+	/// coop: the target this popup holds, for GeoscapeState::coopHeldTargets (never dereferenced there).
 	Target* coopHeldTarget() const { return _target; }
 	/// Cleans up the Target Info state.
 	~TargetInfoState();

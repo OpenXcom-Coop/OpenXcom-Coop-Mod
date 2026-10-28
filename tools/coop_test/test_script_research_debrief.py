@@ -29,7 +29,7 @@ GREEN (C2): every cell PASS (7/7).
 Tags are read through soldier_record's read-only `tags` field (AMENDMENT OF2-4 ED1). Each row prints ONE
 "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a failure. A boot failure
 or an SD0 guard miss prints ONE "CAPTURE <what>:" line and fails every later row.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
 Run:  python tools/coop_test/test_script_research_debrief.py
 """
 
@@ -243,7 +243,7 @@ def row_sd3(ev, res, host, client, st):
                 "stack": stack(client), "sepReturn": record(client).get("sepReturn")}
     res["SD3-ok"] = None if ok1.get("pressed") is True and at_geo else (
         f"the client's OK {ok1} -> geo_clean {at_geo} after {secs} s (stack {stack(client)})")
-    owns = soldier_recs(client, sid=st["ctx"]["guestId"])[0]   # its own world exists only after its OK (F12876)
+    owns = soldier_recs(client, sid=st["ctx"]["guestId"])[0]   # its own world exists only after its OK
     own = owns[0] if owns else {}
     ev["OWN"], ev["COPY"] = [rview(r) for r in owns], rview(copy)
     ev["crashNew"] = sorted(session._crash_log_snapshot() - st["crash0"])

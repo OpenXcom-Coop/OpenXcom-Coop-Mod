@@ -137,7 +137,7 @@ bool emitPendingBaseline();
 /// This is also SS2.W4's FLUSH-BEFORE-ANY-SWEEP-THAT-HASHES-THE-SET rule in
 /// practice: by the time an envelope has left this choke, BOTH sets' pending
 /// deltas are on the wire, so a boundary sweep whose `h` carries
-/// `revealHostile` (W1-P13) can never race its own unpublished bits.
+/// `revealHostile` can never race its own unpublished bits.
 void emitPendingOtherSides();
 
 /// HOST: arm emitPendingBaseline(). Called once, when the host's battle reaches
@@ -154,7 +154,7 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env);
 
 /// Battle-teardown chokepoint: drops the published bitmap and both test-lever
 /// flags. Called from CoopPump::reset() (BattlePump.h), the established single
-/// battle-scoped reset point. W2-H12b (D219 b): @a keepHostile (true only on
+/// battle-scoped reset point. @a keepHostile (true only on
 /// SPEC 16's spare path) keeps CoopFog's hostile set and arms its base restate.
 void reset(bool keepHostile = false);
 
@@ -174,7 +174,7 @@ void requestDropNextDelta();
 /// bt_desync + bundle + banner) and never partially apply. Set by TestServer's
 /// `reveal_base` command; consumed by the next flushQuiescent(), which fires it
 /// even when nothing is unpublished (a base restate is meaningful regardless).
-/// W1-P8: @a side selects WHICH set is restated (SS2.W4). Defaults to the
+/// @a side selects WHICH set is restated (SS2.W4). Defaults to the
 /// player side, so every existing caller and every existing test is unchanged.
 void requestBaseRestate(bool badN, CoopFog::Side side = CoopFog::Side::Player);
 

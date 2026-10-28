@@ -5,7 +5,7 @@ stays on the clicking machine until a world re-copy reverts the client (the only
 SKY / HostBase index / option OFF / seats from h20.setup (S25). V(gc) = base_screen_op {op: craft_vehicles, base: HostBase, craft_id: SKY,
 craft_type: STR_SKYRANGER} (vehicles, order, vehicleAmmo, spaceUsed, customDeployment); ST(gc) = geo_state HostBase items; SKYI(gc) =
 base_report HostBase SKY items; reqs = the client's shared_resync_stats.requests. move(gc, item, n) = the craft_equip lever (the real CES
-move; its `moved` only says the item is on the screen's list, so verdicts read V and ST). W = 10 s at 0.25 s; RW 5 s; AP 30 (TASK 0).
+move; its `moved` only says the item is on the screen's list, so verdicts read V and ST). W = 10 s at 0.25 s; RW 5 s; AP 30.
 park = host open_soldiers (no heartbeat), release = unpark + reqs over RW + converge (stage B's helpers); every row starts with converge +
 client shared_reset_resync_stats, again after a setup that moved a tank. strip = host move -n for every type in the host's V.
 Boot A (SHARED, 49441 / 49442 / 47935; stock TC 2, shells 60, TLC 1 on both): HC-1 parked client TC +1 (deploy_mark on both first). RED: the
@@ -14,9 +14,9 @@ Boot A (SHARED, 49441 / 49442 / 47935; stock TC 2, shells 60, TLC 1 on both): HC
   HC-6 client raw craft_equip {TC, 2}. RED: "vehicles not routed" within W (cleanup: ONE close_screens on the client). HC-7 js.finish().
 Boot S (SEPARATE, tag w2h20cs, labels 49443 / 49444, lobby 47936): HC-8 (guard) R-H20c-T0-1: 4 of the client's SKY crew off by craft_assign
   (spaceAvailable >= 4, EVIDENCE), client TC +1 -> its V {TC: 1}, stores TC -1 / shells -AP; both shared_stats unchanged 1 s later.
-A row whose named RED cell fails evaluates no later cell (F8045). EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE
+A row whose named RED cell fails evaluates no later cell. EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE
 line (both machines' V, SKYI, ST, shared_stats, shared_resync_stats, stacks); a boot miss fails its rows "boot". Every row runs after a
-failure. ONE run (WV-D95); exit 0 iff everything passes, else 2.
+failure. ONE run; exit 0 iff everything passes, else 2.
 """
 
 import json
@@ -38,7 +38,7 @@ TAG_A, PORTS_A = "w2h20ca", (49441, 49442, 47935)
 TAG_S, LABELS_S, LOBBY_S = "w2h20cs", (49443, 49444), "47936"
 HB, CB, GEO, SKYR = "HostBase", "ClientBase", "GeoscapeState", "STR_SKYRANGER"
 TC, TLC, SH = "STR_TANK_CANNON", "STR_TANK_LASER_CANNON", "STR_HWP_CANNON_SHELLS"
-AP, W, POLL, RW, SETTLE, SPACE0 = 30, 10.0, 0.25, cl.RW, 1.0, 6  # TASK 0: AP 30, RW 5 s, spaceAvailable 6 with no tank
+AP, W, POLL, RW, SETTLE, SPACE0 = 30, 10.0, 0.25, cl.RW, 1.0, 6  # AP 30, RW 5 s, spaceAvailable 6 with no tank
 NOT_ROUTED = "vehicles not routed"
 ROWS_A, ROWS_S = ["HC-%d" % n for n in range(1, 8)], ["HC-8"]
 ORDER = ROWS_A + ROWS_S

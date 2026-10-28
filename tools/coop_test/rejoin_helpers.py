@@ -5,7 +5,7 @@ older than the host's (W2-H58's copy after a drop during a host save; a resumed 
 the host's id back and a second rejoin gets a new campaign. Holds boot / shut, the gift by the host's real presses and parse_sav (copied
 from docs rewrite/lh79-3-cap/capc.py and x3.py, themselves copies of test_hold_until_named.py; never imported), the reads (own, ownsold,
 kept, ids, kk), the common steps and the row runner. Imports drop_fixture (F), session, geo and harness unchanged. Never a base
-placement, dismiss_popup or coop_dialog_back: a fresh world is evidence. WV-D95 / WV-D99 / WV-D100: ONE foreground run per file, no SKIP."""
+placement, dismiss_popup or coop_dialog_back: a fresh world is evidence. ONE foreground run per file, no SKIP."""
 import base64
 import json
 import os

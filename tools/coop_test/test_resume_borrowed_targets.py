@@ -1,11 +1,11 @@
-"""W2-H44 - test_resume_borrowed_targets.py: a gm3 PvP campaign battle (host = the aliens, client = X-COM) at the alien host's own
+"""test_resume_borrowed_targets.py: a gm3 PvP campaign battle (host = the aliens, client = X-COM) at the alien host's own
 target, saved by the alien host at turn 2 while it borrows the X-COM player's world, then resumed by both players. The resume finds the
 target on the alien host's globe by its co-op id, so the battle ends as an unsaved one does: an alien base keeps its co-op id across the
-save (QC4B-4 (a)); a won battle there removes the real base and says "Alien Base destroyed" (QC-11 (a), QC-14 (a)).
+save; a won battle there removes the real base and says "Alien Base destroyed".
 
 Spec: docs rewrite/prompts/w2h44_alienbase_coop_id.md (W2-H44 stage S-A, sections (d) and (f), FX44-1 .. FX44-11) and its ORCHESTRATOR
-RULINGS (QH44-1 .. QH44-6 (a)); QC4B-4 (a), QC-11 (a), QC-14 (a), QC4B-3 (a); lead L-SC5-2 (R-LT2-1); VL-H44-1 (withdraws VL-C4B-3);
-F17100 .. F17104, F17110, F17115. TASK 0 pins: docs rewrite/w2h44-task0/sa/CONSTANTS.md (boots Ka / Kb on the unchanged build, Kg on
+RULINGS (QH44-1 .. QH44-6 (a)); QC4B-4 (a), QC-11 (a), QC-14 (a), QC4B-3 (a); lead L-SC5-2; VL-H44-1 (withdraws VL-C4B-3);
+TASK 0 pins: docs rewrite/w2h44-task0/sa/CONSTANTS.md (boots Ka / Kb on the unchanged build, Kg on
 the green premise E1 / E2, then restored).
 
 Key "49059". Boot A (dirs w2h44_a_host / _client / _client2): row A1, the host's alien base (spawn_alien_base race STR_SECTOID, then
@@ -46,7 +46,7 @@ Cells (one PASS / FAIL line each; one EVIDENCE line and one ROW line per row):
 RED (R1, the unchanged build; TASK 0 Ka / Kb 2/2): exit 2, 14/19 - FAIL A1-id, A1-file, A1-borrow, A1-host ("Aliens defeated"),
 A1-target (the real base stays). GREEN (G1 = E1 / E2; TASK 0 Kg): 19/19.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_resume_borrowed_targets.py
 """
 
@@ -82,7 +82,7 @@ TITLE = {"A1": "Alien Base destroyed", "U2": "UFO is not recovered"}        # FX
 SQUAD = 2
 SAVED_AT = (2, 0)                            # FX44-4: (turn, side)
 STUB_FUNDS = 1000                            # the alien role's funds
-RED = {"A1-id", "A1-file", "A1-borrow", "A1-host", "A1-target"}          # TASK 0 Ka / Kb, 2/2 (F17263)
+RED = {"A1-id", "A1-file", "A1-borrow", "A1-host", "A1-target"}          # TASK 0 Ka / Kb, 2/2
 # ----- bounds (FX44-11) -----
 MIRROR_S, LANDING_S, BOTH_IN_S, STEP_S, SAVE_S, GUARD_S = 30, 180, 60, 60, 30, 1.0
 RESUME_S, RESUME_PRESS_S, TOPS_S, ABORT_S = 180, 60, 60, 30

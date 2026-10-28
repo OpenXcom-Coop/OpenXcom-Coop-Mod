@@ -21,11 +21,11 @@ RED (S-V-A.1; one run, exit 2):
   V9  open: host top ConfirmEndMissionState (it asked while the client's chain ran, T0-3) with no Wait line and
       busyOwnerSeat -1; client top BattlescapeState; both fatalVote records at zero. answer: client OK not pressed.
       close: both fatalVote records at zero. ending: not run.
-  E6v open and close: both fatalVote records at zero. ending: runs and passes (F4392); the close-before-battle_end
+  E6v open and close: both fatalVote records at zero. ending: runs and passes; the close-before-battle_end
       line fails.
 
-WV-D99 / WV-D100: one run is the result; no skip path, one boot per row. Exit 0 only when both rows pass, 2 otherwise.
-WV-D95: run in the foreground to completion.
+one run is the result; no skip path, one boot per row. Exit 0 only when both rows pass, 2 otherwise.
+run in the foreground to completion.
 
 Run:  python tools/coop_test/test_fatal_vote_partner.py
 """

@@ -130,7 +130,7 @@ def assert_relinked_to_ufo(tag, host, client, cid, fail, timeout=25):
 
 def drive_to_landing_prompt(tag, host, client, cid, fail, timeout=45):
     """Prove the re-linked craft reaches the REAL (stationary) target: park it
-    on the coop crash site and advance time WITHOUT geo_run. W2-H9 (D199 a):
+    on the coop crash site and advance time WITHOUT geo_run.
     success = the client's top is CraftErrorState with the H9 text and the craft's
     destKind is 'base'; a ConfirmLandingState is a FAIL. Failure = CraftPatrolState
     ('arrived at position'), which is what a stale-waypoint fallback produces

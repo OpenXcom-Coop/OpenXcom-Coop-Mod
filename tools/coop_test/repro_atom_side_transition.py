@@ -2,7 +2,7 @@
 HAZARD-FREE full turn-cycle end to end - `side_transition`/`side_begin`
 applied on the CLIENT for the first time (the engine half landed in commit
 0b33e72c2, "feat(coop): engine half of side_transition + side_begin
-(W1-P13a)"; this file is this packet's own tool-half acceptance).
+"; this file is this packet's own tool-half acceptance).
 
 AI-NEUTRAL PINNING (WV-D45/IR2-9, REV E.48 SS.B.2/D49). Every unit no human
 seat commands is pinned to 0 TU via session.pin_ai_neutral() immediately
@@ -17,7 +17,7 @@ test 1 originally specified a burning/smoking-map turn cycle (tile decay,
 unit fire damage, stun recovery). That is POSTPONED to the shot wave: wave 1
 streams no shot to the client, so the only in-wave way to ignite a map on
 both machines would be a harness-only seeded-hazard lever, not the vanilla
-path the owner wants driving that test (D50/D58). This file is therefore the
+path the owner wants driving that test. This file is therefore the
 HAZARD-FREE cycle test: SS.B.2's pin, ONE host END TURN press, ONE full
 cycle (three side_transitions), and every SPEC 9 (f) test-1 assertion EXCEPT
 the tile-decay/fire-damage/stun-recovery legs. `perTile` is asserted empty
@@ -155,7 +155,7 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
     driver's OWN L10 hash-clean assertion would raise a generic
     HASH MISMATCH from inside assert_hash_clean before L11's own dedicated
     STOP-IF block (which captures the per-unit COOP_RNG_R/COOP_RNG_C tag
-    dump, per WV-D77) ever got to run. L11 does its own, single, post-cycle
+    dump) ever got to run. L11 does its own, single, post-cycle
     hash_now comparison instead - this is a TEST-PLUMBING fix (which hash
     check runs where), not a product fix, and does not touch what is
     asserted or when the STOP-IF fires. D63 closes the mechanical reason
@@ -171,7 +171,7 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
     client_seen = False
     l10_evidence = None
     while time.time() < deadline:
-        # RV-U13 S-A (F11011): read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # RV-U13 S-A: read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
         # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
         # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
@@ -191,7 +191,7 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
                 dismiss_next_turn_if_present(client)
             elif l10_evidence is None:
                 # L10 / REV E.1 S-3: the FIRST client NextTurnState. Prove
-                # dismissing it is presentation-only (WV-D51): hash-neutral,
+                # dismissing it is presentation-only: hash-neutral,
                 # and the battle does not end.
                 # D64 (E49.2.1/E49.2.3): nine-bucket EQUAL boundary check.
                 pre, _ = assert_hash_clean(host, client, full=True,
@@ -215,7 +215,7 @@ def drive_full_cycle(host, client, turn0, timeout=60, capture_l10=True):
                 dismiss_next_turn_if_present(client)
 
         if l10_evidence is not None or not capture_l10:  # never close the client's first screen before L10 proves it
-            depth = None  # RV-U13 S-A (F11011): a client NextTurnState stacked under the one just closed
+            depth = None  # RV-U13 S-A: a client NextTurnState stacked under the one just closed
             while True:
                 st = client.cmd({"cmd": "get_state"}).get("states") or []
                 if not st or "NextTurnState" not in st[-1] or (depth is not None and len(st) >= depth):
@@ -301,7 +301,7 @@ def run_hazard_free_cycle():
         pre_hazard = host.cmd({"cmd": "hash_now", "buckets": ["fire", "smoke"]})
         assert pre_hazard.get("ok"), f"hash_now(fire,smoke) failed pre-cycle: {pre_hazard}"
 
-        # SPEC 10 / REV E.50 E50.1 (D66 = (a)): W1-P13b makes `needed` the
+        # SPEC 10 / REV E.50 E50.1: W1-P13b makes `needed` the
         # LIVE-seat count (REV E.48 C.4) - this classic fixture has TWO live
         # seats, so a lone host press can no longer close the side. The
         # client arms through its OWN real button first, and this driver
@@ -439,7 +439,7 @@ def run_hazard_free_cycle():
                 assert hunit.get("energy", 0) > 0, (
                     f"player-side unit {uid} energy was not restored by the "
                     f"new side's turn: {hunit.get('energy')}")
-        # wounds: NOT a battle_state field (F134) - getFatalWound() for every
+        # wounds: NOT a battle_state field - getFatalWound() for every
         # BODYPART_MAX part lives INSIDE the unitsStats hash bucket
         # (SharedEcon.cpp), so L4's nine-bucket equality above IS the wounds
         # assertion; no probe field is added here.
@@ -483,19 +483,19 @@ def run_script_rng_fixture():
     (make_user_dir's `mods=` param - both machines need the SAME mods or
     their rulesets diverge, per that helper's own docstring).
 
-    REV E.49 E49.1 (D63 = (a)), the invariant this leg asserts: after ONE
+    REV E.49 E49.1, the invariant this leg asserts: after ONE
     full cycle on this fixture, the saveBlob bucket is EQUAL AND the
     per-unit COOP_RNG_R/COOP_RNG_C maps read by `_read_script_rng_tags` are
     EQUAL host == client for every unit. `BattleUnit::coopSetScriptValues`
     (landed in commit ecf58062f, "feat(coop): side_transition perUnit
-    carries scriptTags (D63)") applies the host's freshly-rolled tags to the
+    carries scriptTags ") applies the host's freshly-rolled tags to the
     client from side_transition's new perUnit `scriptTags` field as an
     absolute overwrite, so the mod's own newTurnUnit hook
     (script_rng.rul, which fires on the HOST for every unit at every side
     close and stores fresh COOP_RNG_R/COOP_RNG_C values) now reaches the
     client on the wire.
 
-    F147: this fixture was built for PRD-P3 GAP-10 to prove a PARALLEL
+    this fixture was built for PRD-P3 GAP-10 to prove a PARALLEL
     client's own script draws match the host's by seed replay; under the
     rewrite's thin client the client is not supposed to draw at all, so the
     leg now proves a different and correct property - the client's tags
@@ -514,7 +514,7 @@ def run_script_rng_fixture():
 
         hs0 = battle_state(host)
         turn0 = hs0["turn"]
-        # SPEC 10 / REV E.50 E50.1 (D66 = (a)) - same insertion as
+        # SPEC 10 / REV E.50 E50.1 - same insertion as
         # run_hazard_free_cycle's above: `needed` is 2 in this classic-seat
         # fixture, so the client arms through its own real button and this
         # driver waits for the host's tally text before the host's press.

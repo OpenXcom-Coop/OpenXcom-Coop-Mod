@@ -16,7 +16,7 @@ the host's BEGIN. Every press is a REAL click (click_widget) on a button list_wi
 except the port keys (inject_input) and the base placements (the place_first_base lever). Never dismiss_popup, coop_dialog_back or
 leave_base. Every id is read from geo_state at run time (S25). One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict;
 a precondition miss ends its row and every later row (cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_client_base_ghost.py"""
 
 import glob, json, math, os, sys, time  # noqa: E401

@@ -3,7 +3,7 @@ side change and a battle end: the partner's END TURN flips the side under the ho
 screen, the host's inventory closes itself when the side changes, the enemy AI waits
 behind the host's Esc menu, a hot-grenade end turn runs under the host's screen, and a
 partner's knockout of the last alien ends the battle while the host's screen is open.
-Spec docs rewrite/prompts/w2p8_inventory.md: owner D166 = B, D187-D191; J1 (F2330);
+Spec docs rewrite/prompts/w2p8_inventory.md: owner D166 = B, D187-D191; J1;
 AMENDMENT P8-4 section 4.2 (C2-6: a grenade-free END TURN flips at once today, so HS9
 is declared green at red and HS8b exercises the `endturn` drive; C2-9; the rows and
 the named red) with the draft rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1.8;
@@ -43,7 +43,7 @@ it is LAST:
         screen - hostCovered.byOrigin.endturn > 0 and NextTurnState over the
         host's inventory with the side flipped; after close_nextturn
         hostScreens.closes.byReason.side +1; turn + 1 on both; EQUAL. The grenade
-        explodes under the host's screen in both builds (F2895): never asserted.
+        explodes under the host's screen in both builds: never asserted.
   HS10  (F2641 / F2642, T0-S7) every alien but the lowest id killed
         (kill_unit_real, context-less); battleAutoEnd on both; the last alien on
         (24,23,0) health 5, C on (24,24,0) facing it with a stun rod; the host
@@ -65,14 +65,14 @@ the frozen side change finish; it is recorded and is a no-op on a green run.
 
 Constants: the P8-4b pin table (T0-S6 / T0-S6b / T0-S7 rows; docs
 rewrite/w2p8-task0/sc2/, t0_sc2.py --koseed 1), each with its source line below. Item
-ids come from each row's staging record (C7). Lever pairs go to the CLIENT first
-(F607); player-unit teleports go HOST first, checked (P8-4b ruling 3,
+ids come from each row's staging record (C7). Lever pairs go to the CLIENT first;
+player-unit teleports go HOST first, checked (P8-4b ruling 3,
 place_host_first); HS10's ALIEN teleport stays client-first (a host-first alien
 teleport makes the host's next reveal ev carry state the client lacks and latches a
 client desync, F607 - reproduced at S-C2.1's dispatch tip) after a check of the host
 leg's refusal causes (the alien standing and not out on the host). One "EVIDENCE <id>:"
 line per row before its checks; every row runs after an earlier failure; exit 0 only
-when every row passes, 2 otherwise. WV-D99 / WV-D100: one run is the result. WV-D95:
+when every row passes, 2 otherwise. one run is the result.
 run in the foreground to completion.
 
 Run:  python tools/coop_test/test_host_screens_turn.py
@@ -102,9 +102,9 @@ import test_client_shoot as cs
 from test_turn_baton import drive_full_cycle
 
 # ----- P8-4b T0-S6/S6b row: "parallel; host END TURN first | grenade-free partner END TURN flips at once under both
-# screens (F2893); HS8 at red the host's inventory re-inits on an alien with H's grenade on the cursor (F2894);
+# screens; HS8 at red the host's inventory re-inits on an alien with H's grenade on the cursor;
 # HS8b: the hot grenade explodes 4 ms into the endturn context under the host's screen - only the context close and
-# the flip wait (F2895)" (t0_sc2.py t0s6_hs8 :727, t0s6_hs9 :773, t0s6b :806) -----
+# the flip wait " (t0_sc2.py t0s6_hs8 :727, t0s6_hs9 :773, t0s6b :806) -----
 HOT_TILE = (34, 24, 0)            # t0_sc2.py :262: an empty road tile (P8-3b T0-4's shot target)
 TEXT_END_TURN_1_OF_2 = "END TURN 1/2"   # the host's END TURN tally after its own press (T0-S6 arm record)
 ARM_WAIT_S = 5.0
@@ -118,7 +118,7 @@ CYCLE_S = 90                      # t0_sc2.py cycle_to_next: drive_full_cycle(ti
 SIDE_ALIEN = 1
 # ----- P8-4b T0-S7 row: "12 aliens killed by id; the last on (24,23,0) health 5; C (24,24,0) dir 0 stun rod; seed 1
 # | the end turn runs inside the partner's intent context (closed at endTurn entry); battle ends after the host's
-# NTS closes (P7 recipe) (F2896)" (t0_sc2.py t0s7 :845) -----
+# NTS closes (P7 recipe) " (t0_sc2.py t0s7 :845) -----
 KILL_WAIT_S = 30.0
 END_WINDOW_S = 10.0               # T0-S7: melee send -> both DebriefingState 1.615 s (x 6)
 END_AFTER_S = 30.0                # a red row's released knockout -> both DebriefingState
@@ -214,7 +214,7 @@ def hs8_side_change(host, client, ctx):
         ev["clientEndTurn"] = client_end_turn(client)
         flip = flip_watch(host, t0)
         if flip and top(host) == "NextTurnState":
-            # ruling SC2-G1 (F2924): the host's INVENTORY key is armed in-game BEFORE the close, for the first frame
+            # ruling SC2-G1: the host's INVENTORY key is armed in-game BEFORE the close, for the first frame
             # of the alien side with the battlescape on top (the alien side is over before a harness press lands)
             k = read_inventory_key(host.user_dir)
             ra = host.cmd({"cmd": "battle_arm_key", "key": k, "side": SIDE_ALIEN, "timeoutMs": ARM_TIMEOUT_MS})
@@ -235,7 +235,7 @@ def hs8_side_change(host, client, ctx):
                            "stack": stack(host), "host": bsv(host),
                            "view": {kk: v.get(kk) for kk in ("open", "top", "unitId", "selectedItem")}}
             else:
-                # the RED record (F2894): the host's screen back on top during the alien side
+                # the RED record: the host's screen back on top during the alien side
                 v = inv_view(host)
                 red["view"] = {kk: v.get(kk) for kk in ("open", "top", "unitId", "selectedItem")}
                 samples = []

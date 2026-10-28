@@ -1,5 +1,5 @@
 """W2-P7 S-C-F - test_campaign_second_battle_separate.py: in a SEPARATE campaign the loot, score and funds of a
-battle land in the HOST's world (owner D180), and the same session plays a SECOND battle after the first return
+battle land in the HOST's world, and the same session plays a SECOND battle after the first return
 (docs rewrite/prompts/w2p7_sc_design.md section 3.8, AMENDMENT P7-8 section 4.3 rows L1 and C28P-2, PR-53; N29/F1340;
 owner D155 (a), D156 (a), D180 (a), D181; mechanism rulings MR4, MR6, MR12, MR13).
 
@@ -31,7 +31,7 @@ visits the host's base (visit_coop_base, base_report {coop} finds the guest), se
 (craft_assign {coop, on}), open_soldiers / soldiers_ok, leave_base; then bring_up_separate_guest_battle's tail: the
 items-received drain, a fresh terror site, craft_force, the landing prompt, host set_seed SEED_P, coop_mission_start,
 drive_both_to_tactical (the guest's battle unit present); the ending = kill_unit_real {faction: 1} (every live
-hostile), the host's chain settled (F4665), END TURN both, the host's NextTurnState closed, its debriefing (T0-6 (ii)
+hostile), the host's chain settled, END TURN both, the host's NextTurnState closed, its debriefing (T0-6 (ii)
 SEPARATE). A construction failure is a FIXTURE-STOP (one CAPTURE line, the row FAILs "pre-cell").
   (1) both debriefings equal after PR-10 stripping, the client's display-only.
   (2) the client's OK through its follow-ups -> its own world: no LoadGameState pushed since the kill (P6-4);
@@ -41,7 +41,7 @@ SEPARATE). A construction failure is a FIXTURE-STOP (one CAPTURE line, the row F
       zero-disk.
 C28P-2 runs only when L1's returns (cell 0) passed; otherwise it is reported "not reached".
 Guard over each row: no new crash log. Each row prints ONE "EVIDENCE <id>:" line (both machines' battleEnd records
-and sel_state, the per-battle walls), then "PASS <id>" or "FAIL <id>: <message>". WV-D95/D99/D100: ONE foreground run,
+and sel_state, the per-battle walls), then "PASS <id>" or "FAIL <id>: <message>". ONE foreground run,
 no skip path; exit 0 only when both rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_campaign_second_battle_separate.py
@@ -60,7 +60,7 @@ import test_battle_end_separate as b1
 
 PORT = "47267"                     # AMENDMENT P7-8 section 4 (S26, F6118): F = 47266 (S2), 47267 (P2)
 TAG = "w2p7scf_p2"
-SCORE_EXTRA = 0                    # A.10: host score delta - its debriefing's total, two equal measurements (F6857)
+SCORE_EXTRA = 0                    # A.10: host score delta - its debriefing's total, two equal measurements
 DEBRIEF_S = b1.DEBRIEF_S           # 60 s: the host's DebriefingState after the ending
 DRAIN_S = b1.DRAIN_S               # 60 s
 WANT_SEP = {"ownLoaded": 1, "guestsApplied": 1, "guestsMissing": 0, "pushed": 1}
@@ -197,7 +197,7 @@ def l1_host_score(host, client, ctx):
 
 
 def l1_client_world(host, client, ctx):
-    """(3) the client's funds == MARKER, its base storage == before (D180); its score == the host's (R-SCF-1, F6859:
+    """(3) the client's funds == MARKER, its base storage == before; its score == the host's (R-SCF-1, F6859:
     SEPARATE keeps main's shared monthly-score graphs)."""
     before = (ctx.get("before") or {}).get("client") or {}
     funds = client.cmd({"cmd": "geo_state"}).get("funds")

@@ -7,11 +7,11 @@ the shared assertions: test_fatal_vote.py, whose helpers this file runs. This fi
 helpers; test_fatal_vote_rejoin_answered.py holds V7b (split per SV-T1's pattern: the three rows ran 153.3 s solo
 at red, each with its 30 s red window).
 
-A voter client that drops mid-vote keeps the vote open (D186): the host's SPEC 16 dialog 62 (SAVE & QUIT / ABANDON
+A voter client that drops mid-vote keeps the vote open: the host's SPEC 16 dialog 62 (SAVE & QUIT / ABANDON
 kept) goes over its question or CoopFatalVoteHold. A fresh process (client2) rejoins with the steps of
 test_rejoin_end_turn.stage_rejoin, copied bounded (drop_client_mid_battle, client2, rejoin_skirmish, dialog 68 hold,
 host RESUME via coop_dialog_back). S-V-B.2's resend at onReady gives client2 the open ev; client2 shows vanilla's
-question once the host's RESUME has taken dialog 68 away (P7-5 V3) and answers it. D223 (b): the rejoining seat's own
+question once the host's RESUME has taken dialog 68 away (P7-5 V3) and answers it. the rejoining seat's own
 earlier answer is dropped (it is asked again); the answers of seats that did not leave stand.
 
 | row | wounds | before the drop | after the rejoin | green (S-V-B.2) |
@@ -40,9 +40,9 @@ question:
       closesApplied 0, answerSent "", questionPushed 0). ending: not run.
   V8  as V7 (the host's {0: yes} stands; client2 CANCEL not pressed); the seed line passes.
 
-WV-D99 / WV-D100: one run is the result; no skip path, one boot per row. Each row prints ONE "EVIDENCE <id>:" line
+one run is the result; no skip path, one boot per row. Each row prints ONE "EVIDENCE <id>:" line
 before its verdict, "PASS <id>" / "FAIL <id>: <message>"; a rejoin step past its bound prints one CAPTURE line (every
-machine's probes) and FAILs "rejoin (FIXTURE-STOP)". Exit 0 only when every row passes, 2 otherwise. WV-D95: run in the
+machine's probes) and FAILs "rejoin (FIXTURE-STOP)". Exit 0 only when every row passes, 2 otherwise. run in the
 foreground to completion.
 
 Run:  python tools/coop_test/test_fatal_vote_rejoin.py

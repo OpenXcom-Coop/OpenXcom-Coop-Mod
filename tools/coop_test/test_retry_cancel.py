@@ -33,7 +33,7 @@ Three sessions:
                              run_same_unit_variant()'s doc comment (this is a
                              disclosed packet tension, not a silent skip).
   test_cancel_policy()     - a pending intent + a synthetic `spot` ev injected
-                             via inject_ev (RB-D32) at default-ON options ->
+                             via inject_ev at default-ON options ->
                              pending CLEARED + STR_COOP_CANCEL banner; the
                              same sequence at all-OFF -> pending SURVIVES and
                              resubmits at quiescence (packet acceptance (b)).
@@ -94,7 +94,7 @@ CANCEL_OPTIONS = (
     "coopCancelOnVisibilityGain",
     "coopCancelOnAnyPartnerAction",
 )
-# W1-P7 (WV-D13 / WV-D24): the fifth co-op battle option, and the only INT one.
+# the fifth co-op battle option, and the only INT one.
 # Its ruled default is 10 s.
 TIMEOUT_OPTION = "coopIntentTimeoutSeconds"
 TIMEOUT_DEFAULT = 10
@@ -225,7 +225,7 @@ def qualifying_actor(host, soldier_id):
     getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
 
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
     within view distance, and the lever does not recompute sight, so the
     visible list may be stale.
     """
@@ -296,7 +296,7 @@ def settle_emits(host, client, timeout=30):
     blocker ordered in that window would start against the previous action's
     leftovers."""
     def quiet():
-        cs = event_state(client)  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
+        cs = event_state(client)  # client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
         hs = event_state(host)
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
@@ -308,13 +308,13 @@ def settle_emits(host, client, timeout=30):
 
 
 def both_ok(host, client, req, keys):
-    """A two-machine lever pair, CLIENT first (F607); the named response fields
+    """A two-machine lever pair, CLIENT first; the named response fields
     must agree on both machines."""
     rc = client.ok(dict(req))
     rh = host.ok(dict(req))
     vc, vh = tuple(rc.get(k) for k in keys), tuple(rh.get(k) for k in keys)
     assert vc == vh, f"{req['cmd']} disagrees across machines: host={vh} client={vc}"
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return rh
 
 

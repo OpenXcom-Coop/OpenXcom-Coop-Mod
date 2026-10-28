@@ -25,7 +25,7 @@ on the host; A2 >= PLUS10_S after A0. GHOST(host) = host mirrors with id LOST or
 Red today: R1-A0, R1-RT, R1-10, R1-skip, R2-open FAIL; the other 5 PASS. Green (E1): all 10 PASS.
 Every press is a real click_widget or inject_input except the logged levers named above. One EVIDENCE line per row, one PASS / FAIL line per
 cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails R1-pre with ONE
-CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_lost_base_ghost.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
@@ -98,7 +98,7 @@ def hits(gc, needle, n0, n1=None):
     """the log lines holding `needle` in [n0, n1): [line index, time hh-mm-ss.mmm, text]"""
     return [[i, ln.split("\t")[0][-13:-1], ln.split("\t")[-1][:120]] for i, ln in enumerate(logl(gc)[n0:n1], n0) if needle in ln]
 def cw(gc, match, settle=1.0, ready=False):
-    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button (W2-U9)
+    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button
         session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)

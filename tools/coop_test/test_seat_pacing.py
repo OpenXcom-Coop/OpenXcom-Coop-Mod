@@ -1,4 +1,4 @@
-"""SPEC 17 (W1-P18) - test_seat_pacing.py: per-seat animation pacing
+"""test_seat_pacing.py: per-seat animation pacing
 (CoopSpeed) - the per-seat speed table, the floor fallback for unowned
 (alien) units, the three set_option dial arms, the Ctrl-S "Usain Bolt"
 quick-mode gate (parallel/traditional/alien-side/solo), and the ghost
@@ -32,7 +32,7 @@ src/Battlescape/BattlescapeState.cpp - never re-derived here):
   5. The raw drive_to_battlescape spawn has no walkable, contact-free
      tile (units packed in the Skyranger, random-map aliens in view).
      Every walk/turn fixture below stages its actor first via
-     session.stage_open_ground_actor (WV-D86) - never re-rolled.
+     session.stage_open_ground_actor - never re-rolled.
   6. Ctrl-S: inject_input {kind:"key",key:115,mod:"ctrl"}, cleared with
      {kind:"modstate",mod:"none"}. warningText renders OXCE's own
      STR_QUICK_MODE_ACTIVATED / STR_QUICK_MODE_DEACTIVATED strings (read
@@ -126,7 +126,7 @@ def real_click_walk(host, tile):
     unit, onto `tile` (guaranteed open by the caller's own staging). The
     map_tile_click_pos probe self-verifies before the injected click; a
     verified:false result is a FIXTURE precondition failure, reported once,
-    never retried (W1-P6)."""
+    never retried."""
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
     pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
@@ -239,7 +239,7 @@ def host_turn_leg(host, client, soldier_id, tag):
         u2 = unit_of(host, unit["id"])
         return True if (u2 and u2["direction"] != before_dir) else None
     host.wait_for(f"{tag}: host unit turned", turned, timeout=15)
-    # F24292: `turned` holds from the first octant on; the facing read below is the LANDED one, so the host's turn state
+    # `turned` holds from the first octant on; the facing read below is the LANDED one, so the host's turn state
     # must have ended first (with the old 0.1 s wait_for poll it had, by poll slack only)
     host.wait_for(f"{tag}: host turn landed", lambda: (lambda b: (b.get("isBusy") is False and b.get("pendingStates") == 0)
                                                        or None)(session.battle_state(host)), timeout=15)
@@ -680,14 +680,14 @@ def run_boot_b(activate_text, deactivate_text):
         hostile_ids = [u["id"] for u in hostiles]
         assert hostile_ids, f"boot B fixture: no live hostile on the pinned seed {SEED_AI}"
         for uid in hostile_ids:
-            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # F607: client first
+            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # client first
             rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
             assert rh.get("ok") and rc.get("ok"), (
                 f"boot B fixture: battle_strip_unit failed for {uid}: host={rh} client={rc}")
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
 
         wc0 = (event_state(host).get("lastWalk") or {}).get("actionId", 0)
         turn0 = battle_state(host)["turn"]
@@ -700,7 +700,7 @@ def run_boot_b(activate_text, deactivate_text):
                      timeout=20)
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
-        # ----- S8: Ctrl-S during the non-player side is ignored (D112) -----
+        # ----- S8: Ctrl-S during the non-player side is ignored -----
         # RE-POINTED (orch48 owner ruling D112, F403): S8's original spec text
         # assumed the alien-side ignore is M6's quickModeAllowed() gate
         # (predicting quickModeIgnored +1). Instrumented captures (orch48
@@ -818,7 +818,7 @@ def run_boot_b(activate_text, deactivate_text):
         def ai_walk_settled():
             sid.dismiss_next_turn_if_present(host)
             sid.dismiss_next_turn_if_present(client)
-            cs, hs = event_state(client), event_state(host)  # W2-U8c (F6561): the client is read first
+            cs, hs = event_state(client), event_state(host)  # the client is read first
             hw = hs.get("lastWalk") or {}
             return bool(hs.get("ok") and cs.get("ok")
                         and hw and hw.get("actionId", 0) != wc0

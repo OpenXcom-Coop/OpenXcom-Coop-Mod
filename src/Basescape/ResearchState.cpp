@@ -238,7 +238,7 @@ void ResearchState::init()
 	State::init();
 	if (SharedEcon::baseIndex(_game, _base) < 0)
 	{
-		_game->popState(); // coop W2-H83 (R-LBH3-1, F22415): a SHARED removal took this base while a window above it was open
+		_game->popState(); // coop: a SHARED removal took this base while a window above it was open
 		return;
 	}
 	fillProjectList(0);

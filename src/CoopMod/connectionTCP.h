@@ -180,7 +180,7 @@ bool enqueueTx(std::string&& s);
 
 // Clears shared TCP/UDP transport queues and the updateCoopTask hold queue.
 // Call this when leaving a multiplayer session before starting a new one.
-// SPEC 16 (W1-P17) M1: @a resetAuthority defaults to true (the full F331
+// SPEC 16 M1: @a resetAuthority defaults to true (the full F331
 // reset, unchanged for every existing caller); connectionTCP::disconnectTCP's
 // host branch and its UDP twin (handleUdpRemotePeerLost) are the ONLY
 // callers that ever pass false, on the one mid-`Active`-battle peer-leave
@@ -322,7 +322,7 @@ enum class VoteDecision
  *
  * Votes are indexed by the co-op seat id. A strict majority is required:
  * 2/3 players, 3/4 players, 3/5 players, and so on.
- * R4-L1 (D231, D244): the abort action (isAbortAction) is the exception - unanimous, no deadline, no countdown.
+ * the abort action (isAbortAction) is the exception - unanimous, no deadline, no countdown.
  */
 class VoteSession
 {
@@ -348,10 +348,10 @@ public:
 	// The host owns the real deadline. Clients receive the remaining duration
 	// and keep a local display deadline; vote_result remains authoritative.
 	static constexpr std::uint32_t DEFAULT_TIMEOUT_MS = 30000;
-	static constexpr std::uint32_t NO_DEADLINE_MS = 0xFFFFFFFFu; // R4-L1: VoteMenu's "no countdown" value
-	static bool isAbortAction(const std::string &a) { return a == "abandon_mission"; } // R4-L1 (D231, D244)
+	static constexpr std::uint32_t NO_DEADLINE_MS = 0xFFFFFFFFu; // VoteMenu's "no countdown" value
+	static bool isAbortAction(const std::string &a) { return a == "abandon_mission"; }
 	std::uint32_t deadlineTicks = 0;
-	bool noDeadline = false; // R4-L1 (D231): an abort vote has no deadline and no countdown (set by start(), R4-L1 S-A 2)
+	bool noDeadline = false; // an abort vote has no deadline and no countdown (set by start(), R4-L1 S-A 2)
 
 	void clear()
 	{
@@ -390,7 +390,7 @@ public:
 		question = voteQuestion;
 		totalPlayers = std::max(1, playerCount);
 		requiredYesVotes = (totalPlayers / 2) + 1;
-		noDeadline = isAbortAction(voteAction); // R4-L1 (D231): the abort vote is unanimous, with no deadline
+		noDeadline = isAbortAction(voteAction); // the abort vote is unanimous, with no deadline
 		if (noDeadline)
 			requiredYesVotes = totalPlayers;
 		starterSeat = starter;
@@ -465,7 +465,7 @@ public:
 	{
 		if (noDeadline)
 		{
-			return; // R4-L1 (D231): the abort vote keeps no deadline
+			return; // the abort vote keeps no deadline
 		}
 		deadlineTicks = SDL_GetTicks() + std::max<std::uint32_t>(1, remainingMs);
 	}
@@ -709,7 +709,7 @@ class connectionTCP
 	static Json::Value coopPvpBorrowRecord();                 // the process-lifetime record (TestServer get_coop.pvpBorrow)
 	static bool coopPvpBorrowActive();                        // HOST: the live world is the borrowed X-COM world
 	static SavedGame* coopPvpParkedWorld();                   // HOST: the parked alien world while borrowing, else null
-	static SavedGame* coopPvpSaveOwner(SavedGame* live);      // coop W2-H49: the world a save belongs to (the parked world while borrowing, else live)
+	static SavedGame* coopPvpSaveOwner(SavedGame* live);      // coop: the world a save belongs to (the parked world while borrowing, else live)
 	static void coopPvpBorrowDrop();                          // the main-menu chokepoint: the parked world goes with the world
 	static void coopPvpPeerDropped();                         // coop D250-U S-C3: HOST - a peer drop ends a waiting landing request
 	// coop D250-U S-C4b (QC-14 (a); docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-5): a gm3 battle the alien host saves
@@ -727,7 +727,7 @@ class connectionTCP
 	bool coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk);      // coop D250-U S-C2: HOST, the borrowed battle's OK
 	static void coopPvpClientLeave(Game* game, DebriefingState* db);        // coop D250-U S-C2: CLIENT, OK-time writes on its own base
 	void coopPvpBorrowBaseDefense(SavedGame* borrowed);       // coop D250-U S-C5b2: HOST, the borrow for the X-COM player's base under attack
-	static bool coopPvpRearmBaseDefense();                    // coop D250-U S-C5b2 (D260 (b)): HOST, a failed borrowed base-defence start waits
+	static bool coopPvpRearmBaseDefense();                    // coop D250-U S-C5b2: HOST, a failed borrowed base-defence start waits
 	// W2-P7 S-C-D1.2 (AMENDMENT P7-7 PR-23/PR-25; D176, MR14): CLIENT - page 3 live on the adopted world (every adoption);
 	// EVERY machine - a page-3 sell/transfer apply's autosell marks and its open campaign debriefing's counts.
 	void coopDebriefPage3Live(DebriefingState* deb);
@@ -787,7 +787,7 @@ class connectionTCP
 	// needs this to reach the battle without touching the private _staticGame
 	// directly. Returns nullptr if no battle (or no game) is live.
 	static SavedBattleGame* getStaticBattle();
-	// W1-H1 (F391/F392): SavedBattleGame::getBattleState() caches its
+	// SavedBattleGame::getBattleState() caches its
 	// BattlescapeState* pointer and keeps returning it even after that state
 	// is popped+freed at battle end (getStaticBattle() itself only tells you
 	// the SavedBattleGame is still around, not that the cached state is).
@@ -828,7 +828,7 @@ class connectionTCP
 	bool coopDebriefClientFill(DebriefingState* db);
 	bool coopDebriefClientFinish(DebriefingState* db);
 	void coopDebriefHostSend(DebriefingState* db);
-	// W2-P7 S-B2.2 (AMENDMENT P7-4): vanilla V6, the first statement of DebriefingState::btnOkClick - a co-op skirmish
+	// W2-P7 S-B2.2: vanilla V6, the first statement of DebriefingState::btnOkClick - a co-op skirmish
 	// battle-end debriefing's OK (the client leaves via GoToMainMenuState: true = handled; the host resets its battle
 	// scope: false = vanilla's own exit). A no-op returning false for any other debriefing.
 	bool coopDebriefOk(DebriefingState* db);
@@ -893,7 +893,7 @@ class connectionTCP
 	// SEPARATE research sync: mirror one discovery to the other player (no-op unless
 	// this is a SEPARATE campaign with research sync on). ResearchCompleteState sends
 	// completed projects; GeoscapeEventState sends research an event granted.
-	// coop W2-H75 (R-B109-1): senderSideEffects = this world ran the topics' side effects (spawned their events): true from
+	// coop: senderSideEffects = this world ran the topics' side effects (spawned their events): true from
 	// ResearchCompleteState and GeoscapeEventState, false for a mission outcome (SavedGame::handleResearchUnlockedByMissions, F21101).
 	void sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base, bool senderSideEffects = false);
 
@@ -910,7 +910,7 @@ class connectionTCP
 	void coopPeerCertainEvent(const CoopCertainSpawn& peer);
 	void sendCertainEventTimer(GeoscapeEvent* paired, int month);
 	void coopCertainEventTimer(const std::string& name, long long countdown);
-	// coop W2-H77 (R-LH75-3-1): researchPick = the host's copy showed its window; pick = the (research, bonus) rule names it learned ("" = none)
+	// coop: researchPick = the host's copy showed its window; pick = the (research, bonus) rule names it learned ("" = none)
 	void sendCertainEventFire(GeoscapeEvent* ge, bool researchPick = false, const std::pair<std::string, std::string>& pick = std::pair<std::string, std::string>());
 	void coopCertainEventFire(const std::string& name, bool researchPick = false, const std::string& research = "", const std::string& bonus = "");
 
@@ -942,7 +942,7 @@ class connectionTCP
 	static int monthsPassed;
 	static int daysPassed;
 
-	// coop W2-H23 (F9871, F9874): the SEPARATE client's geoscape clock. The host counts the 5-second ticks its own
+	// coop: the SEPARATE client's geoscape clock. The host counts the 5-second ticks its own
 	// timeAdvance() loop steps (_geoTicksStepped) and sends the count on its "time" heartbeat ("ticks"); a client
 	// whose own world runs the geoscape loops runs exactly those ticks, once each, from its own clock
 	// (_appliedHostGeoTicks of _hostGeoTicks, for the world _geoTickBase) instead of having its clock assigned past
@@ -962,11 +962,11 @@ class connectionTCP
 	/// updateCoopTask(): FALSE = assign the host's heartbeat time, months and days (any other machine, the baseline of a
 	/// world, a host counter restart, or a host clock that moved without stepping); TRUE = the client's own steps keep it.
 	bool coopClientKeepsOwnClock();
-	/// coop W2-H23 (R-H23-G-1): the month / year the monthly_report handler last wrote into such a client's clock
+	/// coop: the month / year the monthly_report handler last wrote into such a client's clock
 	/// (setMonthCoop / setYearCoop); coopClientKeepsOwnClock() does not count them as a host jump. Month 0 = none.
 	static int _coopReportMonth;
 	static int _coopReportYear;
-	static int _coopReportOwnMonth; // coop W2-H23 (R-H23-G-2): the own month / year that write replaced, given back
+	static int _coopReportOwnMonth; // coop: the own month / year that write replaced, given back
 	static int _coopReportOwnYear; // once the report screen has read the host's (coopClientKeepsOwnClock)
 
 	int _AIProgressCoop = -1;
@@ -995,7 +995,7 @@ class connectionTCP
 	// both sides use it to dim the ally marker to yellow. Written on the packet-handler
 	// thread, read on the main thread, hence atomic.
 	std::atomic<Uint32> lastPeerTimePacketMs{0};
-	// coop W2-H92 (D304 (a)): the client's last "time" heartbeat asked to hold the shared clock (a popup queued or shown, or closed
+	// coop: the client's last "time" heartbeat asked to hold the shared clock (a popup queued or shown, or closed
 	// before its geoscape ran a step since); the host's GeoscapeState::timeAdvance() holds while it is set.
 	std::atomic<bool> peerGeoHold{false};
 	// coop: which geoscape location the teammate is looking at, for the ally marker.
@@ -1048,7 +1048,7 @@ class connectionTCP
 	int64_t sharedMonthlyIncome = 0;
 	int64_t sharedMonthlyExpenditure = 0;
 	int sharedMonthlyResearchScore = 0;
-	int sharedMonthlyResearchScoreEnded = 0; // W2-H17c (F7225): the host's research score of the month it just ended
+	int sharedMonthlyResearchScoreEnded = 0; // the host's research score of the month it just ended
 
 	std::vector<std::string> _happyListCoop, _sadListCoop, _pactListCoop, _cancelPactListCoop;
 
@@ -1309,7 +1309,7 @@ class connectionTCP
 	// per peer base so the base that HOUSES a soldier is the one that pays for
 	// it. Sends only when the tally actually changed; call freely.
 	void sendGuestCensus(bool force = false);
-	// SPEC 19 (W1-P20) M2 Branch B: per-tick census of THIS machine's guest
+	// SPEC 19 M2 Branch B: per-tick census of THIS machine's guest
 	// soldiers seated on a peer craft (getCoopBase()/getCoopCraft() both set),
 	// grouped by destination (baseId/craftId/craftType) and sent as
 	// battle_roster_contrib (BattleWire.h) so the host can materialise them at

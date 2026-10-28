@@ -15,7 +15,7 @@ WHAT THE PACKET REQUIRES, and where each requirement is asserted below:
            (after the last `walk_step` of its actionId, before that action's
            `bt_action_end`); `unitsCore`/`unitsStats` - indeed all nine buckets -
            EQUAL at the halt; the ORDERING SEAT shows the exact cancel banner;
-           the per-side reveal sets (W1-P8) are still EQUAL after the contact.
+           the per-side reveal sets are still EQUAL after the contact.
   PHASE 2  THE CONTROL. One more walk for the same actor immediately afterwards:
            either it does NOT halt on spot and emits NO second `spot` ev (which
            proves the halt is not latched and that `seen` really is the
@@ -73,7 +73,7 @@ and specifically, instead of surfacing as a mysterious hash red.
 ============================================================================
 
 FIXTURE (WV-D86/WV-D87, SPEC 0e-2 cycle 3): DETERMINISTIC, no search. Walk-core's
-fixtures are CONTACT-FREE by construction (WV-D18) precisely so they cannot take
+fixtures are CONTACT-FREE by construction precisely so they cannot take
 this halt, so this packet must CREATE the contact rather than find one - but
 instead of trying successive freshly generated maps for a qualifying alien
 distance (the old INVERTED rule this file used to run), contact_p3 (WV-D87/M1) stages the
@@ -145,7 +145,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8f (F9055): bring_up_lightning's cleanup
+from harness import shutdown_clients  # bring_up_lightning's cleanup
 import session
 from session import assert_hash_clean, assert_reveal_parity, DIR_DX, DIR_DY, place_deterministic
 import repro_atom_walk as W
@@ -326,7 +326,7 @@ def drive_to_battlescape(host, client, seated):
     assert W.top_state(host) == "NewBattleState", \
         f"host should land on the NEW BATTLE setup screen, stack={W.states(host)}"
 
-    # SPEC 0e-2 (WV-D87): the craft pin, BEFORE any newbattle_seat_soldier call
+    # SPEC 0e-2: the craft pin, BEFORE any newbattle_seat_soldier call
     # (this local drive_to_battlescape deliberately never issues a
     # newbattle_mission - see the docstring above - so the craft pin has no
     # mission pin to follow; it just has to land before seats are picked).
@@ -414,12 +414,12 @@ def phase0_pin_reaction_fire(host, client):
                    "should have rejected this boot"
 
     for a in aliens:
-        for gc, tag in ((client, "client"), (host, "host")):  # F607: client first
+        for gc, tag in ((client, "client"), (host, "host")):  # client first
             r = gc.cmd({"cmd": "battle_action", "action": "set_stat",
                         "unit": a["id"], "stat": "reactions", "value": 0})
             assert r.get("ok"), \
                 f"PHASE 0: could not zero unit {a['id']}'s reactions on the {tag}: {r}"
-        session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+        session.wait_seq_barrier(host, client)
 
     # READ-BACK on BOTH machines. A pin that cannot be read is not a pin, and the
     # symmetry matters twice over: `currStats` is serialized and NOT on
@@ -512,7 +512,7 @@ def action_ring(gc, action_id, tail=200):
 
 def assert_stream_position(gc, tag, action_id, n_steps):
     """The `spot` ev sits AFTER every `walk_step` of its action and BEFORE that
-    action's `bt_action_end`, exactly once, carrying h:{unitsStats} (RB-D14)."""
+    action's `bt_action_end`, exactly once, carrying h:{unitsStats}."""
     entries = action_ring(gc, action_id)
     assert entries, f"{tag}: the event ring holds nothing at all for actionId {action_id}"
     spots = [e for e in entries if e["kind"] == "spot"]
@@ -715,7 +715,7 @@ def park_client_selection(host, client, park_id):
 
     Selection is a machine-local presentation act (SS2.W5: a selection change
     authors no shared fog in a co-op battle) and the client is only ever
-    selecting its OWN units (W1-P6), so nothing here is a state mint - the
+    selecting its OWN units, so nothing here is a state mint - the
     all-buckets-EQUAL asserts that follow are what hold that claim."""
     for _ in range(14):
         if battle_state(client).get("selectedId") == park_id:
@@ -1004,7 +1004,7 @@ def turn_to(host, client, actor_id, to_dir):
 
 
 def bring_up_lightning():
-    """SPEC 0e-2 (WV-D86/WV-D87): one boot, no retry - ports/dirs keep the same
+    """SPEC 0e-2: one boot, no retry - ports/dirs keep the same
     offsets the single remaining attempt (1) used."""
     port = str(48660 + 1)
     host = GameClient("host", 49620 + 1 * 2,
@@ -1016,7 +1016,7 @@ def bring_up_lightning():
         W.bring_up_lobby(host, client, port)
         drive_to_battlescape(host, client, seated)
     except BaseException:
-        # W2-U8f (F9055): main's try/finally starts only after this returns, so a failed bring-up shuts
+        # main's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise

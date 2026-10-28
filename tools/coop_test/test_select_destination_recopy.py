@@ -18,8 +18,8 @@ Boot A bring_up("w2h21dsa", (49494, 49495, 47946)), rows C, 1, 2; Boot B bring_u
 W = 10 s at 0.25 s polls, HOLD = 2 s; alive = the process runs and `ping` answers; CL = the client's openxcom.log after the size
 noted before the row's open; CRASH = new crashlogs/crash_*.log (first 4 frames). Setup guard per boot: both stacks
 [GeoscapeState] and SKY found, else the boot's rows fail `boot` (ONE CAPTURE line); a client death fails its row and the boot's
-later rows `boot`. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run
-(WV-D95); exit 0 iff every row passes, else 2.
+later rows `boot`. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run;
+exit 0 iff every row passes, else 2.
 """
 
 import json

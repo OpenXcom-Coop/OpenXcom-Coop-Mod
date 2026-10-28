@@ -1,4 +1,4 @@
-"""W2-H15 - test_geo_event_replica.py (SHARED): a geoscape event's reward is applied once, by the host, and the
+"""test_geo_event_replica.py (SHARED): a geoscape event's reward is applied once, by the host, and the
 second player sees the same window in its own language (F3261; D226 a; Q1 a / Q2 b, AMENDMENT A1, R-H15-1/2). Spec docs
 rewrite/prompts/w2h15_event_replica.md (e)-(f); docs rewrite/w2h15-task0/CONSTANTS.md. Mod Coop_GeoEvent_Test.
 Trigger: host research_start STR_H15_TRG_* (cost 1, 2 scientists), skip_ingame_time(3 days, speed 5, interest
@@ -22,7 +22,7 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_GeoEvent_Test")
-BOOT_A = ("w2h15a", (49270, 49271, 47270), {"language": "de"})      # F5657; ports = labels (F5662)
+BOOT_A = ("w2h15a", (49270, 49271, 47270), {"language": "de"})      # F5657; ports = labels
 BOOT_B = ("w2h15b", (49272, 49273, 47272), {"oxceGeoscapeEventsInstantDelivery": False})
 EV = "GeoscapeEventState"
 RES = ["STR_H15_RES_A", "STR_H15_RES_B", "STR_H15_RES_C"]
@@ -35,7 +35,7 @@ REGION_T_DE = "H15 Regionsereignis: {}"                             # the mod's 
 BIG, SMALL = 1000000, 1000                                          # the events' funds
 EVENT_IDS = ("STR_SOLDIER", "STR_SKYRANGER", "STR_INTERCEPTOR")    # eventLogic's getId: genSoldier, the spawned craft
 POLL_S, POLL_I, BETWEEN_S = 3.0, 0.1, 30
-CLEAN_S = 4.0         # > the 3000 ms mismatch debounce (P10 F5510) and the measured 3.27 s worst case (F5709)
+CLEAN_S = 4.0         # > the 3000 ms mismatch debounce (P10 F5510) and the measured 3.27 s worst case
 
 class GuardMiss(Exception):
     """A guard failed: the row ends after its CAPTURE line."""
@@ -114,11 +114,11 @@ def poll(x, secs=POLL_S):
     return out, win
 
 def seen(samples, s0f):
-    v = lambda k: sorted(set(s[k] for s in samples), key=str)  # noqa: E731 - None while a restream runs (F5735)
+    v = lambda k: sorted(set(s[k] for s in samples), key=str)  # noqa: E731 - None while a restream runs
     return {"replica": v("cF"), "host": v("hF"), "requests": v("cReq"), "n": len(samples), "S0": s0f}
 
 def ids_cell(r, s0, hp, cp):
-    """R-H15-1 (F5727): only the counters eventLogic mints that moved on the host (S0 -> hit); the rest EVIDENCE."""
+    """only the counters eventLogic mints that moved on the host (S0 -> hit); the rest EVIDENCE."""
     h0, h1, c1 = s0["host"]["probe"]["ids"], hp["ids"], cp["ids"]
     keys, v = sorted(k for k in EVENT_IDS if h0.get(k) != h1.get(k)), lambda k: [h0.get(k), h1.get(k), c1.get(k)]
     r.ev["ids [S0, host, replica]"] = ev = {"compared": {k: v(k) for k in keys}, "excluded (R-H15-1)":
@@ -207,7 +207,7 @@ def row_h15_3(r, x):
     s0, hp, cp = common(r, x, "TRANSFER", SMALL, "STR_H15_EV_TRANSFER")
     ht, ct = hp["hq"]["transfers"], cp["hq"]["transfers"]
     r.ev["transfers"] = {"host": ht, "replica": ct}
-    key = lambda t: json.dumps(t, sort_keys=True)  # noqa: E731 - the order is not asserted (F5608)
+    key = lambda t: json.dumps(t, sort_keys=True)  # noqa: E731 - the order is not asserted
     r.cell("transfers", sorted(ht, key=key) == sorted(ct, key=key), f"host {ht} / replica {ct}")
     ids_cell(r, s0, hp, cp)
     st, sk = geo.settle(x.host, x.client), geo.skip_ingame_time(x.host, x.client, 25 * 60)
@@ -248,7 +248,7 @@ def row_h15_5(r, x):
     clean(r, x, s0)
 
 def row_h15_8(r, x):
-    """Guard row (F5664): each machine draws the window in its own language; the picks cell is EVIDENCE only."""
+    """Guard row: each machine draws the window in its own language; the picks cell is EVIDENCE only."""
     he, ce = ((x.h158[0].get("event") or {}), (x.h158[1].get("event") or {})) if x.h158 else ({}, {})
     ht, ct = he.get("texts") or {}, ce.get("texts") or {}
     r.ev.update({"host": he, "replica": ce, "picksEqual (EVIDENCE, GREEN-only)": he.get("picks") == ce.get("picks")})
@@ -263,7 +263,7 @@ def row_h15_6(r, x):
     s0, hp, cp = common(r, x, "RESEARCH", SMALL, "STR_H15_EV_RESEARCH")
     hr, cr = ({n: p["research"][n] for n in RES} for p in (hp, cp))
     cr2 = [chk(x.host).get("chkResearch"), chk(x.client).get("chkResearch")]
-    names = [n for n in (picks(hp).get("research"), picks(hp).get("bonus")) if n]     # R-H15-2 (F5728)
+    names = [n for n in (picks(hp).get("research"), picks(hp).get("bonus")) if n]
     dg = [[e for e in p["diary"]["tail"] if e["name"] in names] for p in (hp, cp)]
     ex = [[e for e in p["diary"]["tail"] if e["name"] not in names] for p in (hp, cp)]
     r.ev["research"] = {"host": hr, "replica": cr, "chkResearch": cr2, "researchScore": [hp["researchScore"],
@@ -326,7 +326,7 @@ def boot(spec, rows, results, walls):
             x = SimpleNamespace(host=js.host, client=js.client, h158=None,
                                 hq=js.host.ok({"cmd": "geo_state"})["bases"][0]["name"])
         except BaseException:
-            # W2-U8f (F9060): the except below reports a boot miss and returns without js, so a failed probe after
+            # the except below reports a boot miss and returns without js, so a failed probe after
             # the bring-up shuts down its games before the error propagates (shared_fixture.bring_up's form)
             js.shutdown()
             raise

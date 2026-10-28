@@ -6,8 +6,8 @@ the rewrite spine and is expected to PASS on the unchanged product:
   LC4C  the client's 1/8 turn intent costs 1 TU
         LC4C-admit  one new host context {intent, turn, 8}   LC4C-dir / LC4C-cost  direction 1, TU -1 on both
   LC1R  an alien's blaster launcher shot, launcher in the RIGHT hand (legacy test_coop_alien_launcher_item_loss,
-        issue #74): A teleported into the open, a keepSelection reaction launch at the selected sacrificial soldier T
-        (R-RV5-SA-1), waypoints [T, T] (R-RV5-SA-4 (a): the second waypoint on the same tile aims at the floor)
+        issue #74): A teleported into the open, a keepSelection reaction launch at the selected sacrificial soldier T,
+        waypoints [T, T] (R-RV5-SA-4 (a): the second waypoint on the same tile aims at the floor)
         LC1R-fired   >= 1 explosion ev on the host since the fire, the same seqs on the client; A's bomb gone on both
         LC1R-alive   A alive on both              LC1R-census  census equal
         LC1R-keep    H1's launcher: owner H1, slot STR_RIGHT_HAND on both
@@ -20,12 +20,12 @@ the rewrite spine and is expected to PASS on the unchanged product:
         LC5-fired  one prox context {actorId 8} with a prox_trigger {item G}; the walk halted `prox` on both
         LC5-gone  G absent on both    LC5-symmetric  pre-existing ids gone: host == client    LC5-control  kept
   LC2   an alien's blaster blast at the squad (legacy test_coop_blast_item_damage; last row: it kills): the launch
-        at H1's tile with H1 selected, waypoints [H1's tile, H1's tile] (R-RV5-SA-2, R-RV5-SA-4 (a))
+        at H1's tile with H1 selected, waypoints [H1's tile, H1's tile]
         LC2-fired  >= 1 explosion ev on both logs and >= 1 pre-existing item other than A's bomb destroyed (host)
         LC2-symmetric  the destroyed id sets equal    LC2-census  census equal
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new crash file.
 Census = battle_items as {id: (type, owner, slot)}. Settle = wait_host_idle, then both censuses unchanged over 4
-consecutive 1 s samples (bounded 60 s). Lever pairs go to the CLIENT first (F607); ids come from the lever replies.
+consecutive 1 s samples (bounded 60 s). Lever pairs go to the CLIENT first; ids come from the lever replies.
 
 Spec: docs repo rewrite/prompts/rvu5_quarantine_gate.md section (f) test_item_cover.py, with the orchestrator
 rulings R-RV5-SA-1..4 (rewrite/w2-resume-85647ab8/ruling-rvu5a-sa.md and its R-RV5-SA-4 resume). Constants:
@@ -35,8 +35,8 @@ rule at run time; a staging miss prints ONE CAPTURE line and fails the row "stag
 Boot I (key 49710, dirs rv5_i_host / rv5_i_client): RP.bring_up_lobby_roster_pinned + drive_to_battlescape (map seed
 RP.SEED_MAP), then RP.boot's checks (MAP_FP, SEATED, the one alien pinned AI-neutral, its type, reactions 0, hash).
 No END TURN in this file. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row
-runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot". WV-D95: run in
-the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell
+runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot". run in
+the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
 passes, else 2.
 
 Run:  python tools/coop_test/test_item_cover.py
@@ -69,11 +69,11 @@ SDLK_HOME = 278
 # LC4: rule open ground z 0, no unit or door within 2, Chebyshev >= 12 from A; the clockwise neighbour open too
 LC4H_TILE, LC4H_NB = (15, 19, 0), (16, 18, 0)
 LC4C_TILE = (12, 17, 0)
-# LC1: rule (R-RV5-SA-1) open ground z 0, a straight open line A -> T, Chebyshev >= 12 apart, each >= 12 from every
+# LC1: rule open ground z 0, a straight open line A -> T, Chebyshev >= 12 apart, each >= 12 from every
 # other live unit, the pair nearest the map centre (TASK 0 Ia2 = Ib2; LC1L's pair follows LC1R's T death)
 LC1 = {"LC1R": {"A": (13, 33, 0), "A_DIR": 2, "T": (25, 34, 0), "T_DIR": 6, "slot": "right"},
        "LC1L": {"A": (27, 28, 0), "A_DIR": 5, "T": (15, 33, 0), "T_DIR": 1, "slot": "left"}}
-LC1_A_TU = 54                       # the smallest of 54 / 80 / 120 the launch accepts (F15914)
+LC1_A_TU = 54                       # the smallest of 54 / 80 / 120 the launch accepts
 FIRE_SEED = 1                       # host set_seed right before each launch (R-RV5-SA-1 (3), R-RV5-SA-4 (a))
 FAR = 12
 # LC5: RP C11's pins; litter around the trigger step (4,34,0) at the legacy offsets, a non-open tile swapped to the

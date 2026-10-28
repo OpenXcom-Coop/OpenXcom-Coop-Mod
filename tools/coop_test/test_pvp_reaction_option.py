@@ -22,18 +22,18 @@ staging (test_pvp_react_mc.stage: TILES, A's plasma pistol, S3's rifle, the host
        RN1-none  no `reaction` context nested in W
        RN1-dest  S's executed path RN1_PATH, not halted, S on R1_DEST on both
   RNK  a kneel still draws reaction fire (QU6-1 (a), `main` parity, a guard): S back on its TILES tile facing 0, TU S_TU;
-       A reactions 100 and TU A_TU (R-U6-SA-1); the host TABs to S, host set_seed SEED_RNK, ONE real kneel key.
+       A reactions 100 and TU A_TU; the host TABs to S, host set_seed SEED_RNK, ONE real kneel key.
        RNK-react one new {host, kneel, S} and exactly one `reaction` {actorId A, nestedIn it} with a shot by A; S after
                  it = S_AFTER_RNK on both
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane
 crash folder. EVIDENCE only: the host's options.cfg line, host infoboxes, the client's messages, both cameras.
-The kneel's reaction burst runs after the kneel context closed, with the host's busyOwnerSeat at -1 (TASK 0 F14408), so
+The kneel's reaction burst runs after the kneel context closed, with the host's busyOwnerSeat at -1, so
 RNK waits on the chain itself (host isBusy false, no pending state, the client caught up) before it reads anything.
 
 RED on the unchanged build (commit A1): RN2-none, RN2-dest, RN1-none, RN1-dest; every other cell PASS. One EVIDENCE line
 per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound
 prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_reaction_option.py
@@ -65,9 +65,9 @@ R2_DEST, R1_DEST, A_TU = RM.R2_DEST, RM.R1_DEST, RM.A_TU
 RN2_PATH = [(15, 3, 0), (15, 4, 0)]               # TASK 0 RAa: the reactors-0 stand-in's walk of A (not halted)
 RN1_PATH = [(16, 9, 0), (17, 9, 0)]               # TASK 0 rh2: the reactors-0 stand-in's walk of S (not halted)
 SEED_R2 = 1                                       # R5-U3's R2 recipe
-SEED_R1 = 2                                       # R-U6-SA-1: the first seed leaving S alive and unhurt on red (rh2 = rh2b)
+SEED_R1 = 2                                       # the first seed leaving S alive and unhurt on red (rh2 = rh2b)
 SEED_RNK = 2                                      # the first kneel seed leaving S in (seed 1 kills S; rk2 = rk2b)
-S_TU = 64                                         # S's TU at side 0 turn 2 (TASK 0), restored before the kneel
+S_TU = 64                                         # S's TU at side 0 turn 2, restored before the kneel
 SDLK_K = 107                                      # Options::keyBattleKneel default (test_reaction_prox SDLK_K)
 S_AFTER_RNK = {"health": 40, "stun": 0, "isOut": False, "kneeled": True}   # rk2 = rk2b: three snaps, S unhurt
 STEP_S = RM.STEP_S                                # every bounded wait (30 s)
@@ -202,7 +202,7 @@ def row_rnk(host, client, crash0):
     ev["placeS"] = place(host, client, S_ID, S_HOME, S_DIR)
     ev["sTu"] = set_tu_both(host, client, S_ID, S_TU)
     RM.stat_both(host, client, A_ID, "reactions", 100)
-    ev["aTuRefill"] = RM.stat_both(host, client, A_ID, "tu", A_TU, refill=True)["tu"]   # R-U6-SA-1
+    ev["aTuRefill"] = RM.stat_both(host, client, A_ID, "tu", A_TU, refill=True)["tu"]
     ev["aTuBoth"] = [uview(host, A_ID)["tu"], uview(client, A_ID)["tu"]]
     ev["sBefore"] = [uview(host, S_ID), uview(client, S_ID)]
     ev["tab"] = tab_select(host, S_ID)

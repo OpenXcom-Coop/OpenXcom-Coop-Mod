@@ -1,4 +1,4 @@
-"""SPEC 10 (W1-P13b) - test_end_turn_tally.py: the PARALLEL-mode END TURN
+"""test_end_turn_tally.py: the PARALLEL-mode END TURN
 readiness tally (SS2.W3, frozen) - `bt_end_turn_ready` (client->host) and
 `bt_end_turn_tally` (host->all) - wired by CoopEndTurn (engine + tools commit
 ef9b8d55b, "feat(coop): W1-P13b engine + tools - END TURN readiness tally
@@ -205,7 +205,7 @@ def drive_full_cycle(host, client, turn0, timeout=60):
     TimeoutError if the full cycle never completes on both machines."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # RV-U13 S-A (F11011): read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # RV-U13 S-A: read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
         # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
         # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
@@ -261,7 +261,7 @@ def run_boot_a():
             assert bs.get("coopEndTurnArmed") is False, (
                 f"{who}: coopEndTurnArmed is not False at t=0: "
                 f"{bs.get('coopEndTurnArmed')}")
-            # REV E.52 E52.1 (W1-P13c): parallel mode never writes
+            # REV E.52 E52.1: parallel mode never writes
             # BattleAuthority::activeSeat - the readable form of the
             # "activeSeat is -1" control for the mode this whole boot drives.
             assert event_state(gc).get("coopActiveSeat") == -1, (
@@ -515,8 +515,8 @@ def run_boot_a():
         # gates CoopEndTurn::onSeatSetChanged() off the M1 pause path - the
         # tally FREEZES at its pre-drop value instead. This is the LAST leg,
         # and ends the client. REV E.48 C.3's seat-loss claim (the host
-        # advancing the side once `needed` drops to 1) remains DELETED
-        # (owner ruling D69 = (d)): a client leaving a live coop battle
+        # advancing the side once `needed` drops to 1) remains DELETED:
+        # a client leaving a live coop battle
         # HALTS the game for everyone until it reconnects (pause-on-leave,
         # r4 T4/T5), so "the host advances the side with a single vote" is
         # not a true statement and is asserted NOWHERE below. L7' asserts

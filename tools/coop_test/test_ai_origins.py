@@ -100,7 +100,7 @@ context's bt_action_end precedes the next side_transition); every context the
 scenario opens has exactly one bt_action_end, its last ev, and is recorded in
 closedContexts (endSeq = that ev's seq); contextsOpened grew by exactly the
 number of contexts closed; the client log holds the host's seqs/kinds/
-actionIds. armingDeferrals is printed (F890), never asserted.
+actionIds. armingDeferrals is printed, never asserted.
 
 Probes (commit S-A.1, amendment B1 RQ7): event_state contextsOpened,
 closedContexts (with hasFinal), contextsClosedAtEndTurn, contextBeginRefused
@@ -115,7 +115,7 @@ its open_new_battle (the roster repeats, F501); the DEFAULT NEW BATTLE map (no
 mission pin) with set_seed SEED_MAP right before newbattle_ok, seat_count=2,
 the baked MAP_FP asserted on both; session.pin_ai_neutral (pins A); RQ15:
 every live player unit's reactions 0 on BOTH. Every lever pair applies to the
-CLIENT first, then the HOST (F607), with the responses asserted equal; every
+CLIENT first, then the HOST, with the responses asserted equal; every
 item a lever creates is created on both machines with equal ids. set_seed on
 the HOST immediately before the press that starts the chain.
 
@@ -128,9 +128,9 @@ main() runs every scenario even after an earlier one failed and prints
 "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that
 times out is recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all four scenarios pass, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_ai_origins.py
@@ -156,7 +156,7 @@ from test_host_combat import (camera_of, cam_snap, cam_offset, stage_camera, cam
                                  cam_view)
 
 # ----- bring-up (W2-P3 TASK 0a, ledger `## W2-P3 TASK 0a`) -----
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
 SEATED = [8, 9]                  # the client seat's soldiers
@@ -745,7 +745,7 @@ def c7_ai_throw(host, client, ctx):
     assert sorted(strip_h.get("deleted") or []) == sorted(strip_c.get("deleted") or []), (
         f"battle_strip_unit A deleted ids differ as sets (F882): host={strip_h.get('deleted')} "
         f"client={strip_c.get('deleted')}")
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": "STR_GRENADE", "slot": "STR_BELT"},
               ("weaponId", "ammoId", "weaponSlot"))
     gid = gw.get("weaponId")
@@ -879,7 +879,7 @@ def place_both(host, client, uid, tile, d):
 
 
 def kr1h_stage(host, client):
-    """KR1h's staging (AMENDMENT P6-5 section 4 C-C2; T0a-8), every lever client first (F607): A re-armed on both
+    """KR1h's staging (AMENDMENT P6-5 section 4 C-C2; T0a-8), every lever client first: A re-armed on both
     machines (battle_strip_unit A, the deleted ids compared as sets, F882; battle_give a loaded KR1H_WEAPON), A on
     C6_A_TILE facing C6_A_DIR, H on C6_C_TILE facing C6_C_DIR, C and C2 on tiles out of A's view, A tu A_TU (no
     refill, as C6). Returns the staging record."""
@@ -889,7 +889,7 @@ def kr1h_stage(host, client):
     assert sorted(strip_h.get("deleted") or []) == sorted(strip_c.get("deleted") or []), (
         f"battle_strip_unit A deleted ids differ as sets (F882): host={strip_h.get('deleted')} "
         f"client={strip_c.get('deleted')}")
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": KR1H_WEAPON, "ammo": KR1H_AMMO},
               ("weaponId", "ammoId", "weaponSlot"))
     placed = {uid: place_both(host, client, uid, t, d) for uid, t, d in (

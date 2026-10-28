@@ -7,7 +7,7 @@ runs two full turn cycles with both machines equal (spec
 rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_turn_cues.py
 (S-D)", sections (b)1, (b)7, (b)9 (V14 `fall`, V15 `revive`, V10 `panic`),
 (b)13 (the `morale` lever field), (b)14 (C9 green at the base); amendment B1
-(RQ5, RQ7); ledger `## W2-P3 TASK 0b` (F863-F868) and `## W2-P3 TASK 0d`;
+(RQ5, RQ7); ledger `## W2-P3 TASK 0b` and `## W2-P3 TASK 0d`;
 owner ruling D128 = (b)).
 
 Before S-D, on the W2-P3 base, nothing here freezes: every state change
@@ -15,7 +15,7 @@ already reaches the client through W2-P2's delta (a side_transition's delta or
 a context-less `sync`). What is missing is the cue and, for a panic, the
 action: the revive rides the side_transition's delta, the fall rides a
 context-less `sync`, a panicking soldier's flee walk streams no step and its
-result rides one `sync` (F867), a berserk soldier's shots carry actionId 0.
+result rides one `sync`, a berserk soldier's shots carry actionId 0.
 
 Five scenarios, ONE boot, in this order (the S-D red precalc's combined
 order, 3 boots identical; C9 runs last because its burning unit is at health
@@ -38,7 +38,7 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
   C10  fall (cycle 2, turn 2 -> 3). U on C10_TILE, the barn loft floor
        (BOTH), battle_set_tile {C10_TILE, fire 1} on BOTH; one full cycle (no
        seed). The floor burns out at NEUTRAL -> PLAYER; U falls one level in
-       the player-side think() after that side_transition (F864).
+       the player-side think() after that side_transition.
        GREEN: exactly one `fall` ev {units [{unit U, from C10_TILE}]},
        actionId 0, after the cycle's last side_transition, followed by a
        `sync` whose delta (host deltaRing entry) has units >= 1; U on
@@ -51,8 +51,8 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        right before its press. The morale roll runs at NEUTRAL -> PLAYER
        (BattleUnit::prepareMorale; xcom1 armors define no morale recovery,
        so morale 0 = a 100% panic chance, F866); SEED_C13A picks panic (not
-       berserk) and a flee with a path. The host shows its own panic infobox
-       (F425): the host dismisses it (dismiss_popup, host only) when it is on
+       berserk) and a flee with a path. The host shows its own panic infobox:
+       the host dismisses it (dismiss_popup, host only) when it is on
        top. W2-H10.2 (F3299, H10-R4): C2 is stripped first (battle_strip_unit,
        BOTH) - the flee walk stops when a step costs more TU than C2 has;
        before the flee C2 carries the rifle and clip only (weight <=
@@ -69,8 +69,8 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
        whole flee rides one `sync`.
   C13b berserk (cycle 4, turn 4 -> 5). The same staging (a new rifle, C2
        back on C13_C2_TILE, morale 0 on BOTH), host set_seed SEED_C13B.
-       W2-H10 (F3274-F3276): C2 is stripped first (battle_strip_unit, BOTH)
-       - its start loadout is not seeded (F501/F1132) and a heavy one lowers
+       C2 is stripped first (battle_strip_unit, BOTH)
+       - its start loadout is not seeded and a heavy one lowers
        its TU at the new turn (encumbrance), which costs the third berserk
        turn; before the fire C2 carries the rifle and clip only (weight <=
        C2_STRENGTH) and its TU at the new turn is C2_TU_FULL.
@@ -131,7 +131,7 @@ panicSounds / berserkSounds - [] on both machines (T0b-3, F1782), so -1. E6
 (C10; owner D173 (b), AMENDMENT P6-5 section 5 with P6-5 Q2 (b), AMENDMENT
 P6-6): the second player's fall animation waits for its next-turn screen to
 close, then plays in full. C10's landing `sync` applies ~0.3 s after the
-`fall` and before the client's NextTurnState closes (F1816 / F3207), so at the
+`fall` and before the client's NextTurnState closes, so at the
 ghost's start U already stands on C10_BELOW and the whole fall sweeps on the
 trailing anchor. The client's displayTwo.effects.fall.enqueued +1 with exactly
 ONE record for the `fall` ev's seq {unit U, from C10_TILE, to C10_BELOW, paceMs
@@ -146,8 +146,8 @@ between; S-E6.1 adds unitAtFrom, fromNoFloor and belowExists on the fall's own
 record, T0E6-1). Both add the S-E common asserts (client rngSeed unchanged
 across the cycle, host displayTwo / combatGhost all zero, completed + cut ==
 enqueued per S-E kind). coopGhostStepper is pinned true in both instances.
-RED (commit S-E.1): C13a and C13b failed only on E5 (count +0); E6 was held
-(F1816). RED (commit S-E6.1): C10 fails only on E6 (fall.enqueued +0); C5r,
+RED (commit S-E.1): C13a and C13b failed only on E5 (count +0); E6 was held.
+RED (commit S-E6.1): C10 fails only on E6 (fall.enqueued +0); C5r,
 C13a, C13b and C9 pass.
 
 Common asserts (spec (f) as amended by B1 RQ5, per scenario, after its
@@ -184,7 +184,7 @@ SEED_ROSTER on the HOST right before its open_new_battle; the DEFAULT NEW
 BATTLE map with set_seed SEED_MAP right before newbattle_ok, seat_count=2,
 MAP_FP asserted on both; the unit order UNIT_ORDER and the 60 start items
 asserted; session.pin_ai_neutral (pins A). Every lever pair applies to the
-CLIENT first, then the HOST (F607). The seeds are set on the HOST
+CLIENT first, then the HOST. The seeds are set on the HOST
 immediately before the press that starts the chain.
 
 RED-THEN-GREEN (spec (d) row S-D). Commit S-D.1 (this file + the `morale`
@@ -197,9 +197,9 @@ are checked; main() runs every scenario even after an earlier one failed and
 prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait
 that times out is recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all five scenarios pass, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_turn_cues.py
@@ -225,10 +225,10 @@ from test_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta
 from test_unit_spawn import ring_of, ring_at, ring_view
 from test_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, messages, msg_new
 from test_host_combat import (camera_of, cam_snap, cam_offset, cam_moves, mv, cam_suppressed_delta, cam_view)
-from test_host_combat import sampled_list_fails  # W2-U8d (F6304)
+from test_host_combat import sampled_list_fails
 
 # ----- bring-up (W2-P3 TASK 0b, ledger `## W2-P3 TASK 0b`, T0b constants.md "Common bring-up") -----
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
 SEATED = [8, 9]                  # the client seat's soldiers
@@ -271,7 +271,7 @@ C13B_TURNS = 3
 C13B_KINDS = ["panic", "turn", "shot", "hit", "shot", "hit", "shot", "hit", "turn", "shot", "shot", "hit", "shot",
               "hit", "turn", "bt_action_end"]
 MORALE_AFTER_PANIC = 15          # UnitPanicBState: moraleChange(+15) when the panic ends
-# W2-H10 (F3274-F3276): BattleUnit::prepareTimeUnits scales the new turn's TU by strength / carried weight when the
+# BattleUnit::prepareTimeUnits scales the new turn's TU by strength / carried weight when the
 # weight is over the strength. C2's stats come from SEED_ROSTER (the P8 verifier's saves, both boots: currStats tu 58,
 # strength 28, armor STR_NONE_UC); no probe reads a unit's strength or weight, so they are pinned here.
 C2_STRENGTH = 28
@@ -287,14 +287,14 @@ C2_BERSERK_SOUNDS = []           # unit's panic / berserk list is []) -> the rec
 XCOM_FLOOR_MS = 30               # the fall pace CoopSpeed::xcomSpeedFor(nullptr) (UnitFallBState :61, side PLAYER at
                                  # C10) = the SPEC 17 floor's xcom dial: Options battleXcomSpeed default 30, no dial
                                  # moved in this file
-FALL_PHASES = [0, 1, 2, 3, 4, 5, 6, 7]   # D173 (b): a fall landed before its start sweeps all 8 walk-down phases
+FALL_PHASES = [0, 1, 2, 3, 4, 5, 6, 7]   # a fall landed before its start sweeps all 8 walk-down phases
                                          # (one level = 8 phases, BattleUnit :1147-:1151) at one per paceMs
 FALL_ANCHORS = ["trailing"]      # P6-5 Q2 (b): landed before the start -> only the trailing anchor (the landing tile)
 FALL_LEVELS = 1                  # C10_TILE.z - C10_BELOW.z
 FALL_STARTED_TOP = "BattlescapeState"   # the ghost starts at the first advance() after the client's NextTurnState
                                         # closes (advance() runs only with BattlescapeState on top, BS :916-:919)
 FALL_ENDS = ("natural",)         # walkPhase past 7 on the trailing anchor; cut false
-FALL_END_S = 5.0                 # cap-battle (F23980): bound of fall_row's wait for the client's fall display to end (the
+FALL_END_S = 5.0                 # cap-battle: bound of fall_row's wait for the client's fall display to end (the
                                  # ghost ends 8 x paceMs = 240 ms after its first advance; captured at the tip: ended
                                  # 34-176 ms after the read). A bound, not a pace: replace it only by a larger value
 # TASK 0 T0E6-1 (the S-E6.1 build at 7da606d77; K=2 paired with test_psi, F1786; the fall window inside the
@@ -310,7 +310,7 @@ KEY_PANICKED = "STR_HAS_PANICKED"
 KEY_BERSERK = "STR_HAS_GONE_BERSERK"
 Q_C13A = True                    # PIN (T0a-3): C2's panic applied under the client's NextTurnState (queued)
 Q_C13B = True
-HOLD_PLAYER_S = 30.0             # cap-battle (F23983, F23984): bound of the client's held player-side NextTurnState in
+HOLD_PLAYER_S = 30.0             # cap-battle: bound of the client's held player-side NextTurnState in
                                  # cycles 2 / 3 / 4 (test_psi.py HOLD_C14P_S, W2-U9c R-MGR2-1). A bound: replace it only
                                  # by a larger value
 
@@ -319,7 +319,7 @@ KR5_HOST_TURN_CENTRE = (160, 8, 0)   # PIN (ruling SC-4 (a), F4160; chain rule s
                                      # after cycle 3 = vanilla's NextTurnState close (NextTurnState :576 btnCenterClick)
                                      # centring on the host's own selected soldier H, which runs before C2's panic; measured
                                      # twice on the S-C.2 build (runs g1 and cap1, both (160, 8, 0)). At red the host ended
-                                     # on C2's panic tile instead (F4158).
+                                     # on C2's panic tile instead.
 
 # ----- C9 (T0b constants.md "C9"; F868) -----
 U_FIRE, U_STUN = 11, 12
@@ -458,9 +458,9 @@ def cycle(host, client, seed, rec, what, extra=None, timeout=90, client_hold=Non
     settled (settle_host with `extra`), the client on BattlescapeState, the
     host idle with the client caught up. Every wait is bounded; a timeout is
     recorded in rec["notes"]. Appends the cycle's record to rec["cycles"].
-    W2-U9 (F21067): `client_hold`, when given, is a predicate polled each round; while it returns True the
+    `client_hold`, when given, is a predicate polled each round; while it returns True the
     client's NextTurnState is left up (the caller bounds it; None = close it at once, as before).
-    W2-U9c (R-MGR2-1, F22881): with a `client_hold`, the hold is asked only once the round has seen the client's
+    with a `client_hold`, the hold is asked only once the round has seen the client's
     NextTurnState up, and only that seen screen is closed (a screen that comes up after the read waits for the next
     round's ask), and the cycle does not end while the hold holds (a player-side hold would otherwise end the
     cycle at once and leave the screen to settle_on_battlescape)."""
@@ -538,7 +538,7 @@ def rec_evidence(rec):
     cb, ca = rec["cb"]["host"], rec["ca"]["host"]
     cues = [(e["seq"], e["kind"], e["actionId"], payload(rec, e)) for e in rec["hev"] if e["kind"] in PAYLOAD_KINDS]
     ring = [ring_view(r) for r in (rec["ring"] or []) if (r.get("seq") or 0) > rec["seq0"]]
-    desync = rec["desync"] and {k: rec["desync"].get(k) for k in ("bucket", "seq")}   # F888: never the kind label
+    desync = rec["desync"] and {k: rec["desync"].get(k) for k in ("bucket", "seq")}   # never the kind label
     return (f"cycles={rec['cycles']}; host evs since seq {rec['seq0']}={ev_tuples(rec['hev'])} client evs="
             f"{ev_tuples(rec['cev'])} (seq, kind, actionId, h); host cues (seq, kind, actionId, payload)={cues}; "
             f"host deltaRing since seq {rec['seq0']}={ring}; closedContexts(new, host)="
@@ -712,7 +712,7 @@ def panic_sound_row(host, client, rec, snap_e, mode, what):
 
 
 def wait_fall_end(client, f0, timeout=FALL_END_S):
-    """cap-battle (F23980): bounded, until the client's displayTwo.effects.fall holds more enqueues than `f0` and
+    """cap-battle: bounded, until the client's displayTwo.effects.fall holds more enqueues than `f0` and
     completed + cut == enqueued (every fall display ended). Returns [ok, s]."""
     t0 = time.time()
     while True:
@@ -770,7 +770,7 @@ def fall_row(host, client, rec, snap_e, fall):
         want = {"unit": U_ID, "from": C10_TILE, "to": C10_BELOW, "paceMs": XCOM_FLOOR_MS, "phasesShown": FALL_PHASES,
                 "anchors": FALL_ANCHORS, "landedAtStart": True, "levels": FALL_LEVELS,
                 "startedTop": FALL_STARTED_TOP, "cut": False}
-        # W2-U8d (F6304): phasesShown is a per-advance sample of the fall (phase 0 at its first advance, each
+        # phasesShown is a per-advance sample of the fall (phase 0 at its first advance, each
         # later phase FALL_LEVELS x paceMs): the full sweep, or whole phases left out across a client frame stall
         fails += [f"C10 E6: {m}" for m in sampled_list_fails(
             f"client fall record seq {s} phasesShown", got.pop("phasesShown"), want.pop("phasesShown"),
@@ -873,7 +873,7 @@ def c10_fall(host, client, ctx):
     ft = set_tile_both(host, client, C10_TILE, fire=1)
     staged_diff = diff_buckets(host, client)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E6
-    cycle(host, client, None, rec, "cycle 2",   # cap-battle (F23984): T0E6-1's landing under the client's screen
+    cycle(host, client, None, rec, "cycle 2",   # cap-battle: T0E6-1's landing under the client's screen
           client_hold=hold_player_screen(client, lambda: xyz(units(client).get(U_ID)) == C10_BELOW, rec, "cycle 2",
                                          f"U {U_ID} on {C10_BELOW} (the landing `sync` applied)"))
     end(host, client, rec)
@@ -954,8 +954,8 @@ def c2_resolved(bs):
 
 
 def c2_strip(host, client):
-    """W2-H10 (F3274-F3276): battle_strip_unit C2 on BOTH (client first, F607; it refuses only without a battle or
-    without the unit, on either machine alike). `deleted` lists each machine's own inventory order (F882): compared
+    """battle_strip_unit C2 on BOTH (client first, F607; it refuses only without a battle or
+    without the unit, on either machine alike). `deleted` lists each machine's own inventory order: compared
     as sets."""
     rc = client.cmd({"cmd": "battle_strip_unit", "unit": C2_ID})
     rh = host.cmd({"cmd": "battle_strip_unit", "unit": C2_ID})
@@ -963,7 +963,7 @@ def c2_strip(host, client):
     got = {n: (sorted(r.get("deleted") or []), r.get("skippedSpecial"), r.get("remaining"))
            for n, r in (("host", rh), ("client", rc))}
     assert got["host"] == got["client"], f"battle_strip_unit C2 (deleted, skippedSpecial, remaining) differ: {got}"
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return {"deleted": got["host"][0], "skippedSpecial": got["host"][1], "remaining": got["host"][2]}
 
 
@@ -1072,7 +1072,7 @@ def c13a_flee(host, client, ctx):
     rec = begin(host, client)
     fails = []
     turn_at = battle_state(host).get("turn")
-    strip = c2_strip(host, client)   # W2-H10.2 (F3299): C2 carries only what C13a stages
+    strip = c2_strip(host, client)   # W2-H10.2: C2 carries only what C13a stages
     g, m = c13_stage(host, client, C13A_RIFLE_ID, C13A_CLIP_ID, fails, "C13a")
     staged_diff = diff_buckets(host, client)
     staged = {"host": uview(units(host).get(C2_ID)), "client": uview(units(client).get(C2_ID))}
@@ -1080,7 +1080,7 @@ def c13a_flee(host, client, ctx):
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     mb = msg_snap(host, client)          # W2-P6a S-M row MR4
     cam0 = cam_snap(host, client)        # W2-P6a S-C row KR5
-    cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved,   # cap-battle (F23983)
+    cycle(host, client, SEED_C13A, rec, "cycle 3", extra=c2_resolved,   # cap-battle
           client_hold=hold_player_screen(client, c2_message_seen(client, mb, KEY_PANICKED), rec, "cycle 3",
                                          f"a {KEY_PANICKED} record about {C2_ID} in its messages ring"))
     end(host, client, rec)
@@ -1149,14 +1149,14 @@ def c13a_flee(host, client, ctx):
 def c13b_berserk(host, client, ctx):
     rec = begin(host, client)
     fails = []
-    strip = c2_strip(host, client)   # W2-H10 (F3274): C2 carries only what C13b stages
+    strip = c2_strip(host, client)   # C2 carries only what C13b stages
     g, m = c13_stage(host, client, C13B_RIFLE_ID, C13B_CLIP_ID, fails, "C13b")
     staged_diff = diff_buckets(host, client)
-    load = {"host": c2_load(host), "client": c2_load(client)}   # W2-H10: C2's load before the fire
+    load = {"host": c2_load(host), "client": c2_load(client)}   # C2's load before the fire
     uh0 = units(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E5
     mb = msg_snap(host, client)          # W2-P6a S-M row MR4
-    cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved,   # cap-battle (F23983)
+    cycle(host, client, SEED_C13B, rec, "cycle 4", extra=c2_resolved,   # cap-battle
           client_hold=hold_player_screen(client, c2_message_seen(client, mb, KEY_BERSERK), rec, "cycle 4",
                                          f"a {KEY_BERSERK} record about {C2_ID} in its messages ring"))
     end(host, client, rec)
@@ -1187,7 +1187,7 @@ def c13b_berserk(host, client, ctx):
     fails = list(rec["notes"]) + fails
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    # W2-H10 (F3274-F3276): before the fire C2 is not encumbered, so its TU at the new turn is its full TU
+    # before the fire C2 is not encumbered, so its TU at the new turn is its full TU
     for name, ld in load.items():
         if ld["weight"] is None or ld["weight"] > C2_STRENGTH:
             fails.append(f"C13b: C2's carried weight on the {name} {ld['weight']} (armor {ld['armor']}, carried "

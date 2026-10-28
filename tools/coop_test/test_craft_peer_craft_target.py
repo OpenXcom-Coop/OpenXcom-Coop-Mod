@@ -1,8 +1,8 @@
-"""W2-H51 - test_craft_peer_craft_target.py: in SEPARATE co-op a craft sent after the PARTNER's craft (a mirror on its machine) keeps
+"""test_craft_peer_craft_target.py: in SEPARATE co-op a craft sent after the PARTNER's craft (a mirror on its machine) keeps
 that destination across a geoscape save and reload, as W2-H48 gave alien bases issue #28's treatment (R-H51-0, lead L-H48-1). Today every
 save strips the partner's mirrors and the craft node keeps only the target's rule type and id, so after the reload the craft binds to
 whatever the loaded world holds under them: itself (it hovers, "DESTINATION: INTERCEPTOR-2"), the player's own docked craft of that type
-and id (it flies home and lands), or nothing (an interim waypoint: "has reached WAY POINT-n / Now patrolling") (F17740-F17753).
+and id (it flies home and lands), or nothing (an interim waypoint: "has reached WAY POINT-n / Now patrolling").
 
 Spec: docs rewrite/prompts/w2h51_craft_peer_craft_target.md (stage S-A, (d) and (f), FX51-1 .. FX51-13) and its ORCHESTRATOR RULINGS
 (QH51-1 .. QH51-7 (a)); R-H51-0 / VL-H51-1, L-H48-1, issue #28, R-H48-0; F17740-F17753, F17800-F17819, F18000-F18019. TASK 0 pins:
@@ -21,7 +21,7 @@ TEST-ONLY): displayStatus reads the same text red and green for R1 / R2. R6 read
 staging, send, save or resume miss prints ONE "CAPTURE S:" line and FAILs every remaining cell "boot".
 RED (R1 = HEAD + T1; TASK 0 Ka): exit 2, 9/20 - FAIL R1-relink, R1-follow, R2-relink, R2-follow, R3-relink, R3-status, R4-relink,
 R4-status, R4-nopatrol, R6-client, R6-host. GREEN (G1 = E1-E8; TASK 0 Kg): 20/20.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_craft_peer_craft_target.py
 """
 

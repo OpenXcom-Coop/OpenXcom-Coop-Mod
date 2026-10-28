@@ -108,8 +108,8 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 
 	// coop (SEPARATE mirror machinery only: hide the peer's _coopIcon marker bases
 	// while browsing; every exit of this state puts them back (coopShowMirrors).
-	// PRD-J07: fenced in SHARED - every base in _bases is real and fully browsable
-	// by any player, so nothing is hidden. W2-H8: this state owns what it hid.)
+	// fenced in SHARED - every base in _bases is real and fully browsable
+	// by any player, so nothing is hidden. this state owns what it hid.)
 	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign() && _base && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 		if (coopHideMirrors())
@@ -277,7 +277,7 @@ BasescapeState::~BasescapeState()
 {
 	_sharedRefresh.unbind(this);
 
-	// coop (W2-H8): a basescape removed without an exit drops the mirrors it hid
+	// coop: a basescape removed without an exit drops the mirrors it hid
 	if (s_coopMirrorOwner == this)
 	{
 		s_coopHiddenMirrors.clear();
@@ -618,7 +618,7 @@ void BasescapeState::btnNewBaseClick(Action *)
 	}
 
 	Base *base = new Base(_game->getMod());
-	coopShowMirrors(); // coop (W2-H8): leaving this screen puts the peer's mirrors back
+	coopShowMirrors(); // coop: leaving this screen puts the peer's mirrors back
 	_game->popState();
 	_game->pushState(new BuildNewBaseState(base, _globe, false));
 }
@@ -715,7 +715,7 @@ void BasescapeState::btnGeoscapeClick(Action *)
 	_coop_base_init = false;
 	_game->getCoopMod()->playerInsideCoopBase = false;
 
-	// coop (W2-H8): put back the peer's mirror bases the ctor hid. A no-op when
+	// coop: put back the peer's mirror bases the ctor hid. A no-op when
 	// nothing is hidden (SP, SHARED, a visited peer base, a redirected mirror).
 	coopShowMirrors();
 
@@ -865,7 +865,7 @@ void BasescapeState::viewRightClick(Action *)
 			case 5: if (Options::anytimePsiTraining) _game->pushState(new AllocatePsiTrainingState(_base)); break;
 			case 6: _game->pushState(new SoldiersState(_base)); break;
 			case 7: _game->pushState(new SellState(_base, 0)); break;
-			default: coopShowMirrors(); _game->popState(); break; // coop (W2-H8): puts the peer's mirrors back
+			default: coopShowMirrors(); _game->popState(); break; // coop: puts the peer's mirrors back
 		}
 	}
 	else if (f->getRules()->isMindShield())
@@ -873,7 +873,7 @@ void BasescapeState::viewRightClick(Action *)
 		if (f->getBuildTime() == 0)
 		{
 			f->setDisabled(!f->getDisabled());
-			SharedEcon::submitFacilityDisabled(_game, _base, f->getX(), f->getY(), f->getDisabled()); // coop W2-H16e (F6176): the host applies it to the shared world
+			SharedEcon::submitFacilityDisabled(_game, _base, f->getX(), f->getY(), f->getDisabled()); // coop: the host applies it to the shared world
 			_view->draw();
 			_mini->draw();
 		}
@@ -924,7 +924,7 @@ void BasescapeState::viewRightClick(Action *)
 	}
 	else if (f->getRules()->isLift() || f->getRules()->getRadarRange() > 0)
 	{
-		coopShowMirrors(); // coop (W2-H8): puts the peer's mirrors back
+		coopShowMirrors(); // coop: puts the peer's mirrors back
 		_game->popState();
 	}
 }
@@ -1150,7 +1150,7 @@ bool BasescapeState::coopHideMirrors()
 }
 
 /**
- * coop (W2-H8): puts every stashed mirror back at its index at hide time (clamped
+ * coop: puts every stashed mirror back at its index at hide time (clamped
  * to the end of the list; one already in the list is skipped), only into the world
  * it was hidden from, and empties the stash. A stashed mirror whose peer base id is
  * already live (a fresh mirror of it arrived while it was hidden) is dropped and

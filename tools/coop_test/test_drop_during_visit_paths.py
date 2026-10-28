@@ -4,8 +4,8 @@ In a SEPARATE co-op campaign a host visiting the partner's base (CoopState 55: i
 gets the drop's wait window 62 over the view today. R-TR9-2 fix (m): the host's drop reloads "basehost" as the base screen's GEOSCAPE does,
 then opens the 62 over its own geoscape. This file covers the -3 arm, a screen open inside the base, the control and a named ironman campaign.
 Spec docs rewrite/prompts/w2h73_drop_during_visit.md (f) (QH73-1 .. QH73-5 (a), R-H73-1); pins docs rewrite/w2h73-task0/sa/CONSTANTS.md;
-lead L-TR9-2, capture rewrite/ltr9-2-cap (F20285-F20294).
-Row T (H5, E3; boot w2h73_t_*): VISIT, read I, B, the host's TEST-ONLY force_server_error (W2-H59), READ D at the first host top 62.
+lead L-TR9-2, capture rewrite/ltr9-2-cap.
+Row T (H5, E3; boot w2h73_t_*): VISIT, read I, B, the host's TEST-ONLY force_server_error, READ D at the first host top 62.
   T-pre (GUARD: read I inside the view; the lever ok; SERVER +1), T-stack (RED: [GeoscapeState, CoopState] 62), T-world (RED: the own base
   with FUNDS, no view base), T-inside (RED: insideCoopBase false at READ D and 1 s later; ruling R-H73-2), T-common (GUARD).
 Row S (a screen open inside the base; boot w2h73_s_*): VISIT, the host's real SOLDIERS click, SoldiersState on top (W_UI), B, kill, READ D.
@@ -21,7 +21,7 @@ Red today: T-stack, T-world, T-inside, S-stack, S-world, I-nolist, I-file FAIL; 
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
 row (later cells "not reached"); a boot miss fails the row's first cell with ONE CAPTURE line. Real presses only; staging: set_funds FUNDS;
 the TEST-ONLY lever force_server_error (row T). Helpers copied (never imported) from the capture's cap.py and test_ironman_save_paths.py.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_drop_during_visit_paths.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
@@ -87,7 +87,7 @@ def files(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = [os.path.getsize(p), os.stat(p).st_mtime_ns]
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def cpu():

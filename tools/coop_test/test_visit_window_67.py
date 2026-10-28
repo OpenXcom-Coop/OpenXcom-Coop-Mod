@@ -6,7 +6,7 @@ w2h70c_<row>_host / _client; prefix P: the guest staged, the picker, the visit, 
       (the client's first CoopState code after the second 54 is 67, no 53 / 995 in the trace), R11-key (K0 present at HOLD_W),
       R11-leave (leave_window reaches the geoscape), R11-write (QUICK written within W_SAVE of the leave, no host press), R11-own
       (HOLD_L after the write: the client's top GeoscapeState, role own_world present). After the 54 the steps only record: no 53 /
-      995 / Disconnect press (QH70C-6); the harness shuts both machines down.
+      995 / Disconnect press; the harness shuts both machines down.
   G11 (C1-ctl) as R11 with the client's real OK on SoldiersState after the window (BasescapeState, insideCoopBase true): the five
       cells as GUARD (G11-67, G11-key, G11-leave, G11-write, G11-own).
   R12 (W2, CAP70 C2) SOLDIERS; the window; the host's real globe click on the client's base (the host's BasescapeState = the last
@@ -14,7 +14,7 @@ w2h70c_<row>_host / _client; prefix P: the guest staged, the picker, the visit, 
       the client's own base), R12-basehost GUARD (the client's "basehost" fnv = B2).
 Cells: X-pre GUARD; the cells above; X-common GUARD (both machines alive at the read, no new .dmp since B). 19 cells; red (commit R1):
 RED exactly on R11-67, R11-key, R11-leave, R11-write, R11-own, R12-995. ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
-row verdict; every row runs; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
+row verdict; every row runs; exit 0 only when every cell passes, else 2. one foreground run per invocation.
 Run: python tools/coop_test/test_visit_window_67.py
 """
 

@@ -6,7 +6,7 @@ with both machines equal (spec rewrite/prompts/w2p3_nonplayer_origins.md
 section (f) "test_psi.py (S-E; C14 mission)", sections (b)1-(b)6 (the `ai`
 origin, kind `psi`: no pre-attack turn), (b)7 (the `panic` context), research
 note N11 (the mind-control revert); amendment B1 (RQ5, RQ7, RQ15); ledger
-`## W2-P3 TASK 0c` (F874-F877, F882) and `## W2-P3 TASK 0d`; owner ruling
+`## W2-P3 TASK 0c` and `## W2-P3 TASK 0d`; owner ruling
 D128 = (b)).
 
 S-E is test-only: the product (S-A..S-D) is complete for this scenario. Its RED
@@ -38,7 +38,7 @@ Two scenarios (the two halves of spec row C14), ONE boot, in this order:
              right before its END TURN press. C reverts to the player faction
              at the PLAYER -> HOSTILE side start (N11, F874). P's psi panic
              lowers C2's morale; at the player side start of turn 3 C2 panics
-             and freezes in place (F877); the host dismisses its panic infobox
+             and freezes in place; the host dismisses its panic infobox
              (host only, F876).
              GREEN: after the cycle C faction player on both; P's first `ai`
              context of the alien side is {kind psi, actorId P, nestedIn 0,
@@ -78,7 +78,7 @@ its open_new_battle; newbattle_mission STR_TERROR_MISSION, then
 newbattle_race STR_SECTOID (pre_seat), set_seed SEED_MAP right before
 newbattle_ok, seat_count=2, MAP_FP asserted on both; session.pin_ai_neutral
 (the 23 non-player units); RQ15: every live player unit's reactions 0 on
-BOTH. Every lever pair applies to the CLIENT first, then the HOST (F607). The
+BOTH. Every lever pair applies to the CLIENT first, then the HOST. The
 seeds are set on the HOST immediately before the press that starts the chain.
 
 W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 and the P6b
@@ -101,7 +101,7 @@ the host's event_state `messages` ring +1 {C, STR_IS_UNDER_ALIEN_CONTROL,
 partner, notice}, the client's +1 {C, same key, own, box, queued Q_C14MC};
 C14-panic - the host's +1 {C2, STR_HAS_PANICKED, partner, notice}, the client's
 +1 {C2, same key, own, box, queued Q_C14P}; no host infobox in either cycle
-(rec["dismissed"] == []). F1724: at the end of C14-panic one bounded wait
+(rec["dismissed"] == []). at the end of C14-panic one bounded wait
 (test_messages.client_quiet: the client's message queue empty and
 BattlescapeState on top within 10 s) so the client's 2 s box is closed before
 the teardown; recorded, a timeout fails the row. One "EVIDENCE <id> MR5:" line
@@ -114,9 +114,9 @@ after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
 Every wait is bounded; a wait that times out is recorded in the EVIDENCE line
 and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_psi.py
 """
@@ -137,7 +137,7 @@ from test_host_combat import effect_snap, impact_row
 from test_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet, messages, msg_new
 
 # ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C14") -----
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok
 MISSION, RACE = "STR_TERROR_MISSION", "STR_SECTOID"   # newbattle_mission, then newbattle_race (pre_seat)
 MAP_FP = -3.451266327757785e+18  # host AND client battle_state.mapFingerprint (the C12b map; the race changes the aliens)
@@ -162,7 +162,7 @@ C_PSI_STRENGTH_2 = 100           # cycle 2: C out of P's reach
 C2_PSI_STRENGTH_2 = 0
 SEED_C14P = 1                    # host set_seed right before its cycle-2 END TURN press: psi panic on C2
 C2_MORALE_END = 45               # 100 - 70 (psi panic) + 15 (UnitPanicBState at the panic's end)
-PANIC_MODE = "freeze"            # F877: C2's panic at turn 3 resolves in place (no walk, no shot)
+PANIC_MODE = "freeze"            # C2's panic at turn 3 resolves in place (no walk, no shot)
 PSI_CHAIN = ["psi", "bt_action_end"]
 PANIC_CHAIN = ["panic", "bt_action_end"]
 PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (W2-P6b S-E row E2)
@@ -170,9 +170,9 @@ PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponT
 KEY_UNDER_ALIEN_CONTROL = "STR_IS_UNDER_ALIEN_CONTROL"
 KEY_PANICKED = "STR_HAS_PANICKED"
 Q_C14MC = True                   # PIN (T0a-3): the `psi` applied under the client's NextTurnState (queued)
-HOLD_C14MC_S = 30.0              # W2-U9 (F21067): bound of the client's held alien-side NextTurnState in cycle 1
+HOLD_C14MC_S = 30.0              # bound of the client's held alien-side NextTurnState in cycle 1
 Q_C14P = True                    # PIN (T0a-3): C2's `panic` applied under the client's NextTurnState (queued)
-HOLD_C14P_S = 30.0               # W2-U9c (R-MGR2-1): bound of the client's held player-side NextTurnState in cycle 2
+HOLD_C14P_S = 30.0               # bound of the client's held player-side NextTurnState in cycle 2
 PAYLOAD_EXTRA = ("psi",)         # payloads read beyond test_turn_cues.end()'s kinds
 UNIT_KEYS = ("type", "faction", "originalFaction", "mindControllerId", "mindControlled", "status", "isOut",
              "onTile", "x", "y", "z", "direction", "tu", "health", "morale", "psiWeapon", "specialWeapons")
@@ -221,7 +221,7 @@ def faction_delta_lines(gc, off):
 
 def strip_both(host, client, uid):
     """battle_strip_unit on BOTH (client first, F607). `deleted` lists each
-    machine's own inventory order (F882), so the two are compared as SETS."""
+    machine's own inventory order, so the two are compared as SETS."""
     rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})
     rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
     assert rh.get("ok") and rc.get("ok"), f"battle_strip_unit {uid} failed: host={rh} client={rc}"
@@ -229,7 +229,7 @@ def strip_both(host, client, uid):
     assert sorted(dh) == sorted(dc) and rh.get("skippedSpecial") == rc.get("skippedSpecial"), (
         f"battle_strip_unit {uid} differs as sets: host={dh} {rh.get('skippedSpecial')} client={dc} "
         f"{rc.get('skippedSpecial')}")
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return {"deleted": sorted(dh), "hostOrder": dh, "clientOrder": dc, "skippedSpecial": rh.get("skippedSpecial")}
 
 
@@ -317,7 +317,7 @@ def hold_until_message(client, mb, uid, key, rec, what, bound, side=FACTION_HOST
     (default the alien side, FACTION_HOSTILE) with a NextTurnState on top, keep that screen up until the client's
     messages ring holds the new record about `uid` with `key` (the record MR5 reads, `queued` included), so the host
     AI's psi applies under the screen however late the AI acts (F21001: under 98 % CPU it applied 135 ms after the
-    close). W2-U9c (R-MGR2-1, F22801): `side` FACTION_PLAYER holds the client's player-side screen for the host's
+    close). `side` FACTION_PLAYER holds the client's player-side screen for the host's
     panic, which the host emits only after its own player-side NextTurnState closes. Bounded: after `bound` s it
     releases, notes it in rec["notes"], and MR5 judges as before. Never changes what MR5 reads."""
     st = {"t0": None, "released": False}
@@ -410,12 +410,12 @@ def c14_panic(host, client, ctx):
     off = log_size(host)
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
-    # W2-U9c (R-MGR2-1, F22801): the client's player-side NextTurnState stays up until C2's panic record is in its ring
+    # the client's player-side NextTurnState stays up until C2's panic record is in its ring
     cycle(host, client, SEED_C14P, rec, "cycle 2", extra=c2_resolved,
           client_hold=hold_until_message(client, mb, C2_ID, KEY_PANICKED, rec, "cycle 2", HOLD_C14P_S,
                                          side=FACTION_PLAYER))
     end(host, client, rec)
-    quiet = client_quiet(client)         # F1724: the client's 2 s box closed before the teardown
+    quiet = client_quiet(client)         # the client's 2 s box closed before the teardown
     ma = msg_snap(host, client)
     read_extra_payloads(host, rec)
     flines = faction_delta_lines(host, off)

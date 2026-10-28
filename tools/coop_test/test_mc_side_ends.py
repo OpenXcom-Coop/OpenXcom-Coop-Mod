@@ -26,7 +26,7 @@ reactions 0, MCC.stage_c.
                   the observed deaths, capped at WATCH_CAP_S (R-H31-3; boxes dismissed on their own machine; no
                   turn screen closed, no settle)
        CM-end     with no press the host's NextTurnState is up within SIDE_S of the kill, and exactly one W2-H31 line
-       CM-ends    (R-H31-2) the alien side's turn screen: both machines on side 1 turn 1, 8 / 9 back at faction 0 (coop
+       CM-ends    the alien side's turn screen: both machines on side 1 turn 1, 8 / 9 back at faction 0 (coop
                   1) on both, no battleEnd (emitted 0, applied 0 on both); the host's close runs vanilla's tally and the
                   battle goes on: the host's side 0 turn 2 turn screen with no DebriefingState, the partner on side 0
                   turn 2, both records still 0 / 0 (vanilla: SBG :1742 releases the hold before the tally, BG :749)
@@ -36,7 +36,7 @@ Every InfoboxState is dismissed on its own machine before any END TURN press (on
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails that boot's row "boot"; a staging step fails it "staging"; a cell
 whose precondition failed fails "not reached (<cell> failed)"; each row's -common cell is evaluated in every case.
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_mc_side_ends.py
@@ -64,8 +64,8 @@ from test_mc_seat_coop import X_ID, S0_IDS, S1_IDS, X_TU, DEAD  # noqa: E402
 
 KEY_G, KEY_C = "48786", "48787"
 SEED_G3 = 1                       # TASK 0 Ga / Gb: the host lever psi_attack {8, 1000000} converts A with seed 1
-W2H31 = "[coop-endturn] W2-H31"   # the host's one log line per self-ended side (QH31-4 (a))
-WATCH_CAP_S = 135                 # R-H31-3 (R-C26-1): CM-out ends at the observed deaths; >= max(120, 2.5 x 7.26 s)
+W2H31 = "[coop-endturn] W2-H31"   # the host's one log line per self-ended side
+WATCH_CAP_S = 135                 # CM-out ends at the observed deaths; >= max(120, 2.5 x 7.26 s)
 G_ROWS = (("G3E", ("G3E-mc", "G3E-end", "G3E-skip", "G3E-back", "G3E-alien", "G3E-common")),)
 C_ROWS = (("CM", ("CM-mc", "CM-out", "CM-end", "CM-ends", "CM-common")),)
 
@@ -225,7 +225,7 @@ def row_cm(host, client, crash0, rec):
         MCT.set_stat_both(host, client, uid, "psiStrength", 0)
     ev["ampX"] = amp
     for tag, tgt, seed in (("C1A", 8, MCC.SEED_C1A), ("C1B", 9, MCC.SEED_C1B)):
-        reply = MCT.set_stat_both(host, client, X_ID, "tu", X_TU, refill=True)["tu"]   # R-H29-A-1
+        reply = MCT.set_stat_both(host, client, X_ID, "tu", X_TU, refill=True)["tu"]
         back = [(units(gc).get(X_ID) or {}).get("tu") for gc in (host, client)]
         ev[tag] = {"xTu": {"reply": reply, "readBack": back}}
         ev[tag].update(MCT.psi_lever(host, client, X_ID, tgt, amp, seed, FACTION_HOSTILE, rec, tag))

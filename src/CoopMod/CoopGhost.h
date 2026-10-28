@@ -129,7 +129,7 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// the named unit (see this header's own file comment for why: the `kneel`
 /// case needs the PRE-apply kneeled bit). A ghost already running for the
 /// SAME unit is completed INSTANTLY (dropped to its end state) and replaced -
-/// the display clock never gates apply (WV-D49). No-op when
+/// the display clock never gates apply. No-op when
 /// Options::coopGhostStepper is false, outside a coop battle, for any other
 /// `kind`, or when @a save/the payload's unit does not resolve.
 ///
@@ -140,7 +140,7 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// Options::coopGhostStepper, only STARTING a ghost is. An applied `shot` then starts one display-only
 /// projectile ghost: a vanilla Projectile on the live Map flying the path re-derived with vanilla's own path
 /// function (straight: TileEngine::calculateLineVoxel toward the payload's farVoxel, E2; arc:
-/// calculateParabolaVoxel from the payload's `arc`), paced by the shooter's seat fire dial (SPEC 17) and
+/// calculateParabolaVoxel from the payload's `arc`), paced by the shooter's seat fire dial and
 /// fixed at enqueue, with the fire / throw sound. No battle-state write, no sim RNG, no BState, no camera
 /// move (follow is switched off while the ghost's projectile is on the Map and restored after).
 ///
@@ -216,14 +216,14 @@ unsigned int enqueuedCount();
 
 /// How many ghosts have run their interpolation to completion (popped by
 /// advance()) this battle - INCLUDES a ghost that was completed instantly
-/// because a later ev for the same unit arrived first (WV-D49).
+/// because a later ev for the same unit arrived first.
 unsigned int completedCount();
 
 /// How many ghosts are mid-sweep RIGHT NOW (one slot per unit with a live
 /// ghost).
 unsigned int queueDepth();
 
-/// SPEC 17 (W1-P18) M4: the last ghost THIS machine enqueued this battle -
+/// SPEC 17 M4: the last ghost THIS machine enqueued this battle -
 /// kind/frame-count/fixed-duration/owning-seat, proving the per-seat pacing
 /// derivation delivered (control (ii)'s own evidence) rather than merely
 /// that a ghost ran. Empty kind ("") before the first ghost this battle.

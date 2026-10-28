@@ -18,8 +18,8 @@ battle restarts, rejoins, is offered the battle (CR2), finishes it and gets its 
   soldier_record (OWN_BEFORE's id) == COPY on RECORD_FIELDS, missions == OWN_BEFORE.missions + 1; CR4-3 the host's OK + drain ->
   GeoscapeState, no alive "Guest Zzz" on the host, client2 zero-disk; CR4-4 CRASH 0. EVIDENCE only (never asserted, QL2-4): ICON at the
   end vs ICON0, client2 funds vs F0 (with monthsPassed and the date), RESTASH.
-Definitions, REJOIN, needles, the flow rule and the safe battle_state probe (F10980): test_campaign_rejoin.py (imported, import
-only). EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; ONE run (WV-D95); exit 0 iff every cell passes, else 2.
+Definitions, REJOIN, needles, the flow rule and the safe battle_state probe: test_campaign_rejoin.py (imported, import
+only). EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; ONE run; exit 0 iff every cell passes, else 2.
 Red (S-A commit 1): CR2 FAIL on CR2-3, CR2-4 and CR2-5..CR2-8 "not reached" (CR2-1, CR2-2, CR2-9 PASS).
 S-D (one test-only commit, proof only): CR2 and CR4 PASS, exit 0.
 """

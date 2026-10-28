@@ -1,6 +1,6 @@
-"""W2-H15 - test_geo_event_debrief.py (SHARED): the after-battle geoscape event (the host's debriefing OK) reaches
+"""test_geo_event_debrief.py (SHARED): the after-battle geoscape event (the host's debriefing OK) reaches
 the second player (F5602 folded into W2-H15; F3261; D226 a; rulings Q1 a / Q2 b, AMENDMENT A1; V2). Spec docs
-rewrite/prompts/w2h15_event_replica.md (f) row H15-9; docs rewrite/w2h15-task0/CONSTANTS.md step 0 (iv) (F5710-F5715).
+rewrite/prompts/w2h15_event_replica.md (f) row H15-9; docs rewrite/w2h15-task0/CONSTANTS.md step 0 (iv).
 Mod Coop_GeoEvent_Test: STR_TERROR_MISSION successEvents {STR_H15_EV_DEBRIEF: 100} (funds 1000, 3 x STR_PISTOL_CLIP).
 Boot D, then test_battle_end_campaign.stage (SEED_S, the kill, the host's DebriefingState); C28S-b's order (F5661,
 F5712): the client's display-only debriefing and worldAdopted 1; S0; the host's OK (bec.press_ok + a drain that STOPS at
@@ -26,7 +26,7 @@ import shared_fixture  # noqa: E402
 import test_battle_end_campaign as bec  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_GeoEvent_Test")
-BOOT_D = ("w2h15d", (49274, 49275, 47274))       # ports = labels (F5662)
+BOOT_D = ("w2h15d", (49274, 49275, 47274))       # ports = labels
 EV, RULE, ITEM, REWARD = "GeoscapeEventState", "STR_H15_EV_DEBRIEF", "STR_PISTOL_CLIP", 1000
 ROWS = [["STR_PISTOL_CLIP", 3]]
 RENDER = {"title": RULE, "message": RULE, "rows": [["Pistol Clip", "3"]]}   # the replica's own tr() (no entry for RULE)

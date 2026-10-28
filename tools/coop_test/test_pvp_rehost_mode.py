@@ -1,4 +1,4 @@
-"""W2-H46 - test_pvp_rehost_mode.py: a resumed PvP campaign keeps its mode after the host's DISCONNECT and a second START HOST
+"""test_pvp_rehost_mode.py: a resumed PvP campaign keeps its mode after the host's DISCONNECT and a second START HOST
 (L-SC5-1; R-H46-0; QC-16 (a), QC4A-1 (a), VL-C4A-1). A gm3 campaign (host = the aliens) and a gm2 campaign (host = X-COM) are each
 saved on the geoscape, both processes end, the host loads the save through the real host window, presses START HOST, the REAL
 DISCONNECT button and START HOST again, a fresh client2 joins and the host presses RESUME: both machines must play the save's PvP mode
@@ -7,15 +7,15 @@ L5-phase1 reads client2's phase-one world while client2 holds its battle_accept 
 Spec: docs rewrite/prompts/w2h46_pvp_rehost_mode.md ((f) rows D3, D2, L5; QH46-1 .. QH46-7 (a); F17080-F17089, F17200-F17215); TASK 0
 pins: docs rewrite/w2h46-task0/sa/CONSTANTS.md (boots a3, a2, a5 unchanged; c3, c2 with E1). Key "49122", dirs w2h46_<row>_host / _client /
 _client2; one boot per row. D rows (T0-2 (1)-(13)): bring-up (PF.start_pvp_campaign; mode and noBases pair are preconditions); save1
-(save_game); both end, the host respawns on ITS dir and client2 on an EMPTY dir; load_save_menu; START 1 by host_menu_host visibility 0
-(R-D250-SC4A-1); the REAL DISCONNECT by click_widget once shown (the lobby_disconnect lever only as the logged fallback, failing -leave);
+(save_game); both end, the host respawns on ITS dir and client2 on an EMPTY dir; load_save_menu; START 1 by host_menu_host visibility 0;
+the REAL DISCONNECT by click_widget once shown (the lobby_disconnect lever only as the logged fallback, failing -leave);
 START 2 the same way; client2 join_tcp with guarded profile_ok; RESUME (resume_campaign_via_button, resumeAck, press_back_when_shown
 60 / 62); SETTLE_S; views; save2; common. A bring-up, save1, relaunch, load or START 1 miss is a FIXTURE-STOP: ONE "CAPTURE <row>:"
 line, the boot's remaining cells FAIL "boot"; a later precondition miss ends its row ("blocked: <why>"); every row runs after a failure.
 Cells (one PASS / FAIL line each, one EVIDENCE and one ROW line per row): D3 (gm3) and D2 (gm2): -start1, -leave, -start2, -mode, -role,
 -save, -common; L5 (gm2 rejoin): L5-pause, L5-phase1, L5-resume, L5-end, L5-common.
 RED (unchanged build; TASK 0 a3 / a2 / a5): 7/19 FAIL - D3-start2, D3-mode, D3-role, D3-save, D2-start2, D2-mode, D2-save. GREEN: 19/19.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pvp_rehost_mode.py
 """
 import contextlib
@@ -111,7 +111,7 @@ def roster_size(gc):
     return sum(len(b.get("soldiers", [])) for b in gc.cmd({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag"))
 
 def profile_press(host, c2, rec, t0):
-    """CR.rejoin's guard (R-L2-A-2): profile_ok only on a top-state Profile; client2's only once its load wait 52 is gone."""
+    """CR.rejoin's guard: profile_ok only on a top-state Profile; client2's only once its load wait 52 is gone."""
     for gc in (host, c2):
         if top(gc) == "Profile" and (gc is host or dlg(c2).get("code") != 52):
             rec.append([gc.name, round(time.time() - t0, 2), gc.cmd({"cmd": "profile_ok"}).get("ok")])
@@ -345,7 +345,7 @@ def row_l5(x, ev):
         client.shutdown()
         c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
         c2.spawn(); c2.connect()
-        # F24289: client2's world-without-battle phase lasts ~0.24 s since CIT-G3, shorter than one 0.25 s poll. client2 holds its
+        # client2's world-without-battle phase lasts ~0.24 s since CIT-G3, shorter than one 0.25 s poll. client2 holds its
         # battle_accept (TEST-ONLY hold_battle_accept, W2-H82 L2) so the host streams no battle until phase one is read, then releases it.
         hold = {"arm": c2.cmd({"cmd": "hold_battle_accept", "on": True})}
         t_j, prof, bnb, p1 = time.time(), [], [], {}

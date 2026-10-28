@@ -4,7 +4,7 @@ borrowed battle's start.
 
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-3 (SC3-3 "Stage S-C3", SC3-5 file B, SC3-6 FX3-1 .. FX3-19) and its
 rulings: QC-13 (a), QC-15 (a), QC3-1 .. QC3-6 (a), R-D250-SC3-1 (FX3-11's last step and the client2 refusal baseline); owner D250, O1 (a);
-F13996, F15322, F15323; VL-C-8, VL-C3-1, VL-C3-3, VL-C3-4. TASK 0 pins: docs rewrite/d250u-task0/sc3/CONSTANTS.md (boots Ga, Gb, Ha on the
+TASK 0 pins: docs rewrite/d250u-task0/sc3/CONSTANTS.md (boots Ga, Gb, Ha on the
 unchanged build; d250ucc-red): the H14 variant is `ab`, so F3-role is a red cell.
 
 Boot G: gm3, lobby key 48034, dirs d250uc3_g_host / d250uc3_g_client / d250uc3_g_client2. Boot H (after G): key 48034, dirs
@@ -27,7 +27,7 @@ FAILs each of its cells "blocked: <why>"):
 RED (C3R, the unchanged product; TASK 0 boots Ga / Gb / Ha, variant ab): 3/10 - FAIL F3-pending, F3-role, F3-land, F4-told, F4-menu,
 F4-common (blocked), F6-home. GREEN (C3G): 10/10.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_drop.py
 """
 
@@ -52,13 +52,13 @@ import test_campaign_rejoin as CR  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc3/CONSTANTS.md, boots Ga / Gb / Ha) -----
 KEY = "48034"
-SEED = 1                                     # set on the X-COM client right before each confirm_landing (F13986)
+SEED = 1                                     # set on the X-COM client right before each confirm_landing
 H14_VARIANT = "ab"                           # T0-4: host gamemode 0 and noBases false at every probe after the drop
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}   # FX3-4
 POINT = {"F3": (0.35, 0.10), "F6": (0.35, 0.10)}            # FX3-3: X + point (no swap needed, TASK 0)
 CRAFT_AT = {"F3": (0.34, 0.10), "F6": (0.34, 0.10)}         # FX3-5
 SQUAD = 2
-ARRIVAL = ("ConfirmLandingState", "CraftErrorState")        # R-D250-SC3-1: the screen client2's Skyranger's arrival pushes
+ARRIVAL = ("ConfirmLandingState", "CraftErrorState")        # the screen client2's Skyranger's arrival pushes
 UNWIND = "W2-H24: failed battle start ("
 # ----- bounds -----
 MIRROR_S = 30
@@ -279,14 +279,14 @@ def wait(pred, timeout, interval=0.25):
 
 
 def rejoin_geoscape(host, x, ev):
-    """FX3-11 (R-D250-SC3-1): client2 joins; the host's 62 shows RESUME; RESUME; close_screens over a StoresState; then the host
+    """FX3-11: client2 joins; the host's 62 shows RESUME; RESUME; close_screens over a StoresState; then the host
     geo_clean and client2 without a CoopState / LoadGameState, its top GeoscapeState or its craft's arrival screen. Returns ref0."""
     host = x["host"]
     c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
     c2.spawn(); c2.connect()
     t_j = time.time()
     ev["join"] = c2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
-    ref0 = event_state(c2).get("coopClientBattleRefused")     # R-D250-SC3-1: the baseline right after the join (0)
+    ref0 = event_state(c2).get("coopClientBattleRefused")     # the baseline right after the join (0)
     ev["ref0"], pok = ref0, []
 
     def ready():
@@ -436,7 +436,7 @@ def row_f4(host, ctx, ev):
     ev["disconnect"] = host.cmd({"cmd": "disconnect_to_menu"})
     seen = {}
 
-    def told():  # the dialog first, then the stack (R-L2-A-3)
+    def told():  # the dialog first, then the stack
         seen["dialog"] = dlg(c2)
         seen["stack"] = stack(c2)
         return seen["dialog"].get("code") == 21

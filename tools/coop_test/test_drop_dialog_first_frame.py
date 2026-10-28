@@ -3,7 +3,7 @@ L-H56G-1, ruling R-H61-0, QH61-1..QH61-4 (a); F18629, F18680-F18696, F18880-F188
 disconnectTCP()'s host arm pushes the waiting window 62 BEFORE CoopSession::onClientDrop() clears resumeAck and clientInLobby; the 62 reads
 its state once in its constructor and then only on a 500 ms gate that every CoopState shares, so for ~0.2-0.3 s it reads "All players
 connected" with RESUME and no SAVE & QUIT / ABANDON GAME. A 62 already up and ready keeps RESUME the same way after a drop.
-The reading (QH61-2 (a)): a poll thread on the host, started right before each kill, runs get_coop THEN coop_dialog_info every POLL_S. A 62
+The reading: a poll thread on the host, started right before each kill, runs get_coop THEN coop_dialog_info every POLL_S. A 62
 read is fresh when "to reconnect" is in the title, RESUME is hidden and SAVE & QUIT and ABANDON GAME are shown; any other 62 read is stale. R
 counts a read only when its get_coop returned resumeAck false. Needles count from the host log's line count read just before the kill.
   Row K (SEPARATE; key "49203", dirs w2h61_K_*): session.new_campaign; the poll; client.kill(); TRAIL_S. Cells K-seen GUARD, K-first RED,
@@ -17,7 +17,7 @@ counts a read only when its get_coop returned resumeAck false. Needles count fro
   open). Cells Q-seen, Q-first, Q-log (GUARDs: fresh on both builds).
 Red (commit R1): exit 2, RED exactly on K-first, K-stale, R-stale, H-first, H-stale. Nothing is clicked on the 62. A precondition miss ends
 its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per row, one PASS / FAIL line per
-cell, the row verdict; exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
+cell, the row verdict; exit 0 only when every cell passes, else 2. one foreground run per invocation.
 Run: python tools/coop_test/test_drop_dialog_first_frame.py
 """
 import json, os, sys, threading, time  # noqa: E401

@@ -33,7 +33,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H16h
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {
@@ -232,7 +232,7 @@ void ProductionCompleteState::lstSummaryClick(Action *)
 			_index.erase(_index.begin() + sel);
 		}
 
-		if (SharedEcon::submitRandomProductionSale(_game, _base, itemName, itemCount)) itemCount = 0; // coop W2-H16h (F7299): SHARED - the host sells it for both worlds
+		if (SharedEcon::submitRandomProductionSale(_game, _base, itemName, itemCount)) itemCount = 0; // coop: SHARED - the host sells it for both worlds
 		if (itemCount > 0)
 		{
 			int64_t adjustedSellValue = itemRule->getSellCostAdjusted(_base, _game->getSavedGame());

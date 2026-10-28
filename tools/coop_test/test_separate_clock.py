@@ -147,7 +147,7 @@ def capture(r):
     print(f"CAPTURE {r.rid}: {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
 
 
-def freeze(r):  # both clocks still; the client holds the host's FINAL time (F9915)
+def freeze(r):  # both clocks still; the client holds the host's FINAL time
     h, c = r.x.h, r.x.c
     c.cmd({"cmd": "open_screen", "screen": "soldiers"})
     r.wait("freeze1 client SoldiersState", lambda: top(c) == SOL)
@@ -278,7 +278,7 @@ def row_r4(r):  # jump guard: a forward and a backward set_geo_day run no day lo
     r.cell("J3", True, f"client followed in {t24} s / {t23} s")
 
 
-def row_r5(r):  # R-H23-G-2: across a month-end report the client's date stays a valid calendar date, never backwards
+def row_r5(r):  # across a month-end report the client's date stays a valid calendar date, never backwards
     h, c = r.x.h, r.x.c
     settle_at(r, 28, 12)
     smp = r.ev["samples [phase, client top, year .. minute]"] = [["B0", top(c)] + gtime(c)]

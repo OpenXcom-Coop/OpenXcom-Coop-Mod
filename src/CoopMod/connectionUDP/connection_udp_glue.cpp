@@ -55,7 +55,7 @@ static bool s_udpEnabled = false;
 static std::thread s_udpPingThread;
 static std::atomic<bool> s_udpPingStop(false);
 
-// W2-H13 (D220 b, F3701/F3702): true while this HOST holds a SPEC 16 paused battle (peer left mid-Active, the
+// true while this HOST holds a SPEC 16 paused battle (peer left mid-Active, the
 // authority spared and peerAbsent latched by handleUdpRemotePeerLost()/disconnectTCP()). Atomics only: safe on
 // the main, ping and relist threads alike.
 static bool udpPausedBattleHeld()
@@ -267,7 +267,7 @@ bool startUdpPeer(const std::string& remoteHost,
 	// Start every UDP session with clean shared packet queues.
 	// This prevents stale packets from a previous host/client session from
 	// being delivered after a new peer joins.
-	// W2-H13 (D220 b, F3702): the relist rejoin still drops the old peer's queues, but a held
+	// the relist rejoin still drops the old peer's queues, but a held
 	// paused battle keeps its authority, so offerRejoinBattle() finds it still paused.
 	clearNetworkSessionQueues(!udpPausedBattleHeld());
 
@@ -308,7 +308,7 @@ bool startUdpPeer(const std::string& remoteHost,
 	cfg.log = [](const std::string& s)
 	{
 		DebugLog(("connectionUDP: " + s + "\n").c_str());
-		// CIT-DIAG (F24293): the transport logs only its few state changes (start failures, the authenticated / locked
+		// the transport logs only its few state changes (start failures, the authenticated / locked
 		// peer endpoint, a peer timeout) and a stall report; none reached openxcom.log before
 		Log(LOG_INFO) << "[coop-udp] " << s;
 	};
@@ -316,7 +316,7 @@ bool startUdpPeer(const std::string& remoteHost,
 	if (!s_connectionUDP->start(cfg))
 	{
 		DebugLog("connectionUDP: start failed\n");
-		// CIT-DIAG (F24293): the transport's own reason goes to DebugLog only; a failed start (e.g. the local port in use)
+		// the transport's own reason goes to DebugLog only; a failed start (e.g. the local port in use)
 		// sets onConnect -3 at once, which reads in openxcom.log as a partner lost with no cause
 		Log(LOG_INFO) << "[coop-udp] transport start failed: role=" << (isHost ? "host" : "client") << " localPort=" << localPort
 			<< " remote=" << remoteHost << ":" << remotePort << " sdl='" << SDLNet_GetError() << "'";
@@ -329,7 +329,7 @@ bool startUdpPeer(const std::string& remoteHost,
 
 	DebugLog("connectionUDP: UDP peer object started\n");
 	Log(LOG_INFO) << "[coop-udp] transport started: role=" << (isHost ? "host" : "client") << " localPort=" << localPort
-		<< " remote=" << remoteHost << ":" << remotePort; // CIT-DIAG (F24293)
+		<< " remote=" << remoteHost << ":" << remotePort;
 
 	// Reuse existing connectionTCP/global state. Do not create duplicate UDP
 	// lobby variables.
@@ -477,7 +477,7 @@ void stopUdpPeer()
 	}
 
 	// Drop any queued gameplay packets from the old peer.
-	// W2-H13 (D220 b, F3701): the queues still drop, but a held paused battle keeps its
+	// the queues still drop, but a held paused battle keeps its
 	// authority (battleId, seat map, baton), as the TCP leave's spared clear does.
 	clearNetworkSessionQueues(!udpPausedBattleHeld());
 

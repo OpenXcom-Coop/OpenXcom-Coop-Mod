@@ -22,7 +22,7 @@ W2-P8b battle-entry spine; pin_ai_neutral). Staging: the partner's END TURN hand
                    false on both at the debriefing, no new crash file at the end
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. A boot step past its bound prints ONE CAPTURE
-line and fails PA3 "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip
+line and fails PA3 "boot". run in the foreground to completion. ONE run is the result, no skip
 path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_abort_cover.py

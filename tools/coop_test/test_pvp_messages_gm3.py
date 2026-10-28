@@ -1,6 +1,6 @@
 """R5-U2 S-D rows PS3, PN3, DM4, PP3, DM3 (boot D3, gm3: the HOST plays the aliens, seat 0; the partner the seven X-COM
 soldiers, seat 1; both instances with noAlienPanicMessages ON): in PvP each player sees vanilla's battle messages for its
-own units only (QU2-12 (a), QU1-7; VL-U2-7; F12889, F13328).
+own units only.
 
 Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_pvp_messages_gm3.py, AMENDMENT U2-1 (U2-1.6:
 row PP3 = F13328, QU2-A1-4 (a)) and the orchestrator ruling R-U2-SD-1 (a second alien B before DM3, so A's bleed-out does
@@ -35,7 +35,7 @@ partner's OK boxes by their OK button. RING(gc) = the new `messages` ring record
        PP3-psi     one new host context {intent, psi, PP}; its psi cue {actor PP, unit A, action panic, success true}
        PP3-host    RING(host) holds no STR_MORALE_ATTACK_SUCCESSFUL entry                      (RED: one, F13328)
        PP3-client  RING(client) holds {PP, STR_MORALE_ATTACK_SUCCESSFUL, own} (guard)
-  B staging (R-U2-SD-1): as test_pvp_messages.py's (B on the host's seat 0); a failure FAILs DM3 "staging".
+  B staging: as test_pvp_messages.py's (B on the host's seat 0); a failure FAILs DM3 "staging".
   DM3  (last) its own alien's fatal-wound death gets its message: A health 1 + STAGE_WOUNDS (both); the partner's END TURN
        -> side 1 turn 3.
        DM3-msg     A DEAD on both; RING(host) holds {A, STR_HAS_DIED_FROM_A_FATAL_WOUND, own}          (RED: none)
@@ -43,8 +43,8 @@ Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, n
 RED at D1: PS3-msg, PN3-msg, DM4-host, PP3-host, DM3-msg; every other cell PASS. One EVIDENCE line per row (both rings,
 the partner's warningText), one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step
 past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need
-it "staging". Lever pairs go to the client first (F607); ids come from lever replies (S25). WV-D95: run in the foreground
-to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+it "staging". Lever pairs go to the client first; ids come from lever replies (S25). run in the foreground
+to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_messages_gm3.py
 """
@@ -64,7 +64,7 @@ from test_client_shoot import send_intent, set_tu_both, jt  # noqa: E402
 KEY = "48909"
 A_ID, S2_ID, S_ID, PP_ID = M.A_ID, 10, M.S_ID, M.PP_ID   # S2 10, S 12, PP 8 (U2-1.6 item 5; no swap)
 PP_DIR = 0                        # vanilla getDirectionTo(PP (15,9,0), A after its flee (14,3,0)); the turn stops at 7
-                                  # when A comes into PP's sight (TASK 0)
+                                  # when A comes into PP's sight
 SEED_PS3 = SEED_PN3 = SEED_PP3 = 1
 KEY_MC = 51                       # the amp's MIND CONTROL key (cursor 3, rows 3; TASK 0)
 STEP_S = M.STEP_S

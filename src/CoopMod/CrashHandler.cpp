@@ -39,7 +39,7 @@ std::atomic<unsigned> g_fileSeq{0};
 // the (possibly corrupt) heap at crash time. See CrashHandler::setModList.
 char g_modList[8192] = "(not captured)";
 
-// W2-U8h (F9563): OXC_CRASHLOG_DIR, when set and not empty, names the crash-log folder. The co-op
+// OXC_CRASHLOG_DIR, when set and not empty, names the crash-log folder. The co-op
 // test harness sets one folder per test lane, so a crash in one lane is never counted by another
 // lane's test. Unset (every player) or too long: false, and initLogDir keeps <exe dir>/crashlogs.
 bool useForcedLogDir()
@@ -61,7 +61,7 @@ void initLogDir()
 {
 	if (g_logDir[0] != '\0')
 		return;
-	if (useForcedLogDir()) // W2-U8h (F9563): the harness's per-lane crash folder
+	if (useForcedLogDir()) // the harness's per-lane crash folder
 		return;
 
 	char exePath[MAX_PATH] = {0};
@@ -86,7 +86,7 @@ void initLogDir()
 {
 	if (g_logDir[0] != '\0')
 		return;
-	if (useForcedLogDir()) // W2-U8h (F9563): the harness's per-lane crash folder
+	if (useForcedLogDir()) // the harness's per-lane crash folder
 		return;
 
 	char cwd[PATH_MAX] = {0};

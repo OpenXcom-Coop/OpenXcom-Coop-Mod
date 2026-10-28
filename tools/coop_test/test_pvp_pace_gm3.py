@@ -35,7 +35,7 @@ on both, no new file in the lane crash folder.
 RED on the unchanged product (commit B1): WP-pace, HD3-own, HD3-opp, WX-pace; every other cell PASS (WC is a guard).
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step
 past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need
-it "staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0
+it "staging". run in the foreground to completion. ONE run is the result, no skip path; exit 0
 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_pace_gm3.py
@@ -61,7 +61,7 @@ A_ID, S9_ID, S13_ID = PH.A_ID, 9, 13
 A_TILE = RM.TILES[A_ID][0]        # (15,2,0), facing 4
 WP_DEST = (16, 4, 0)              # two tiles, open ground, z 0, on the host's screen, outside every X-COM view sector;
                                   # A ends facing 3 and still sees 9 and 11 (TASK 0 Bc2 / Bd; Bc's (13,2,0): F14811)
-WX_DEST = (31, 33, 0)             # 13 two tiles west, never in A's sight (TASK 0)
+WX_DEST = (31, 33, 0)             # 13 two tiles west, never in A's sight
 WC_DEST = (17, 7, 0)              # 9 inside A's sight before and after (TASK 0: HU [9, 11] both)
 STEP_S = 30
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1

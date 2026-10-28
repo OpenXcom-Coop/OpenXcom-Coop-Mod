@@ -22,13 +22,13 @@ staging (TILES; A's plasma pistol and S3's rifle by lever), the host's END TURN 
                 facing changed and equal on both
       M2-lever  the client's psi lever at S4: one new host context {intent, psi, A}; S4 faction 1 on both (E10)
       M2-unseen the client's psi lever at S5 (unseen): denied invalid_target, S5 unchanged (O1 (a))
-      After M2: S2 / S4 TU 0, reactions 0 (both); then (R-U3-B-5, F12279) both move by the hash-gated lever to
+      After M2: S2 / S4 TU 0, reactions 0 (both); then both move by the hash-gated lever to
       MOVE_AWAY, out of every later walk's sight (on green they stay mind-controlled, so R1's walk would halt on
       `spot` at S's first turn step).
   R1  the alien reacts to the X-COM host's walk (side 0 turn 2): the client's END TURN; A's pistol back (lever); A
       reactions 100, firing 0, TU A_TU; host set_seed SEED_R1; the host's real-UI walk of S.
       R1-walk / R1-react / R1-alive   as R2 with W {host, walk, S} and the reaction by A; S not out
-      R1-ai     hasAI false for A on the host and on the client after the reaction (QU3-4 (a))
+      R1-ai     hasAI false for A on the host and on the client after the reaction
   M1  X-COM mind-controls the alien and the host commands it (side 0 turn 2): the amp on S, S psiSkill 100, A
       psiStrength 0, S's TU; A in the host's battle_state.spotted.
       M1-ui     the host's real-UI MIND CONTROL on A (set_seed SEED_M1): one new host context {host, psi, S}; A faction 0,
@@ -44,7 +44,7 @@ CLIENT_MAP_S; a cap hit fails the order's cell with the client's stack, R-U3-B-4
 RED on the unchanged build (commit B1): M2-ui, M2-ctrl, M2-lever, R1-ai; every other cell PASS. One EVIDENCE line per
 row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints
 ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_react_mc.py
@@ -75,20 +75,20 @@ S_ID, S3_ID, S2_ID, S4_ID, S5_ID = 8, 9, 10, 11, 12   # R1's walker / M1's attac
 TILES = {   # TASK 0 staging (open ground, z 0, equal on both; S5 and 13 / 14 far from every walk tile)
     A_ID: ((15, 2, 0), 4), S3_ID: ((18, 6, 0), 7), S_ID: ((15, 9, 0), 0), S2_ID: ((12, 7, 0), 0),
     S4_ID: ((18, 8, 0), 0), S5_ID: ((36, 36, 0), 0), 13: ((33, 33, 0), 0), 14: ((34, 33, 0), 0)}
-R2_DEST = (15, 4, 0)              # A 2 tiles south; SEED_R2 halts it after (15,3,0) (TASK 0)
-R1_DEST = (17, 9, 0)              # S 2 tiles east; SEED_R1 halts it after (16,9,0) (TASK 0)
+R2_DEST = (15, 4, 0)              # A 2 tiles south; SEED_R2 halts it after (15,3,0)
+R1_DEST = (17, 9, 0)              # S 2 tiles east; SEED_R1 halts it after (16,9,0)
 M1_DEST = (14, 3, 0)              # A one tile west of its R2 halt tile (15,3,0)
-A_TU, S2_TU = 54, 58              # bring-up TUs (TASK 0): A's refill / TU cap after M1, S2's TU cap after M2
+A_TU, S2_TU = 54, 58              # bring-up TUs: A's refill / TU cap after M1, S2's TU cap after M2
 SEED_R2 = SEED_R1 = SEED_M2 = SEED_M1 = 1
 PSI_AMP, PISTOL, CLIP = "STR_PSI_AMP", "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"
-KEY_MC, CT_PSI, PSI_ROWS = 51, 3, 3   # MIND CONTROL key, its cursor, the amp's menu rows (TASK 0)
+KEY_MC, CT_PSI, PSI_ROWS = 51, 3, 3   # MIND CONTROL key, its cursor, the amp's menu rows
 CURSOR_TARGETING = (2, 3, 4, 5)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 UNSEEN_MIN = 21                   # S5's Chebyshev distance from every hostile unit
 MOVE_AWAY = {S2_ID: (4, 34, 0), S4_ID: (8, 34, 0)}   # R-U3-B-5 (TASK 0, 2 red + 2 green boots): open ground on both,
 FACE_AWAY = 4                     # Chebyshev 25 from every R1 / M1 walk tile and live unit; south, away from them
 STEP_S, ORDER_S = 30, 5           # step bound; the bounded wait for an order's context (ends early on green)
-CLIENT_MAP_S = 5                  # R-U3-B-4: the client's message box after an applied psi ev closes in 2.0 s
+CLIENT_MAP_S = 5                  # the client's message box after an applied psi ev closes in 2.0 s
 ROWS = (("R2", ("R2-walk", "R2-react", "R2-alive", "R2-common")),
         ("M2", ("M2-sees", "M2-ui", "M2-ctrl", "M2-lever", "M2-unseen", "M2-common")),
         ("R1", ("R1-walk", "R1-react", "R1-alive", "R1-ai", "R1-common")),
@@ -265,7 +265,7 @@ def psi_press(gc, host, tile, seed, ev):
 
 def mc_order(host, client, ctx0, target, ev, timeout=ORDER_S):
     """After a mind-control press or lever: a bounded wait for a new host context and the host idle, host boxes
-    dismissed host-only, then (R-U3-B-4) a wait capped at CLIENT_MAP_S for the client's battle map on top (its own
+    dismissed host-only, then a wait capped at CLIENT_MAP_S for the client's battle map on top (its own
     message box gone; stacks to EVIDENCE, a cap hit fails the order's cell). Returns the new contexts."""
     rec = {"hostBoxes": []}
     wait_until(lambda: (poll_host_box(host, rec, "mc") or True) and len(new_contexts(ctx0, ctxs(host))) >= 1
@@ -433,7 +433,7 @@ def row_m2(host, client, crash0):
 
 def row_r1(host, client, crash0):
     ev = {}
-    ev["moved"] = [r[0].get("to") for r in session.place_deterministic(host, client, [   # R-U3-B-5
+    ev["moved"] = [r[0].get("to") for r in session.place_deterministic(host, client, [
         {"lever": "battle_teleport_unit", "unit": uid, "x": t[0], "y": t[1], "z": t[2], "dir": FACE_AWAY}
         for uid, t in MOVE_AWAY.items()], "R-U3-B-5")]
     side_change(host, client, client, FACTION_PLAYER, 2, ev)

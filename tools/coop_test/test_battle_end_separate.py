@@ -3,7 +3,7 @@ debriefing and, at its own OK, returns to ITS OWN world with its guest soldier's
 (docs rewrite/prompts/w2p7_sc_design.md section 3.2, AMENDMENT P7-6 section 4.2 row C28P, PR-1/PR-12..PR-15,
 P7-6 Q1 (a); owner D155 (a), D156 (a), D178 (a), D199 (a); mechanism rulings MR4, MR6, MR12).
 
-Before S-C-B1 (F2491, F387): a SEPARATE campaign client's battle-end latch never arms, so the second player stays on
+Before S-C-B1: a SEPARATE campaign client's battle-end latch never arms, so the second player stays on
 the battle map while only the host debriefs; its soldier's results are lost.
 
 Construction (CONSTANTS rewrite/w2p7sc-task0/t0/CONSTANTS.md T0-6 (iv), the guest's OWN kill, pinned 3/3 at seed 1;
@@ -42,7 +42,7 @@ title "Aliens defeated", host fatalVote.armed 0.
 
 RED (commit S-C-B1.1: probes/record zeros and the row, product untouched): C28P fails on exactly cell 1 - the client
 never shows a DebriefingState (it stays on the battle map, F387). GREEN (commit S-C-B1.2): C28P passes.
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 W2-P7 S-C-B2.1 (D181, AMENDMENT P7-6 section 4.3) adds a second boot C28P-dead: every hostile and the guest killed
 (seed-independent, host kill_unit_real), so the guest is a casualty. GREEN (commit S-C-B2.2): the death reaches the
@@ -73,13 +73,13 @@ from harness import GameClient, make_user_dir
 
 # ----- TASK 0 pins (docs rewrite/w2p7sc-task0/t0/CONSTANTS.md) -----
 SEED_P = 2                          # re-hunted for 558349bc8 (seed 1's shot under-damaged, KEEP survived - F5446/F5449)
-MAP_FP_P = -5.253482715141827e+18   # seed 2 terror map fingerprint, equal host+client, guest-credited kill 3/3 (F5450)
+MAP_FP_P = -5.253482715141827e+18   # seed 2 terror map fingerprint, equal host+client, guest-credited kill 3/3
 KEEP = 1000000                      # CONSTANTS T0-6 (iv): the Sectoid soldier kept for the guest's shot
 MARKER_DELTA = 1234567              # CONSTANTS T0-5 / AMENDMENT 4.2 `f`: client set_funds {value: funds + 1234567}
 STATUS_DEAD = 6                     # p7t0_common STATUS_DEAD
 
 # ----- this file's constants -----
-COOP_PORT = "47206"                 # AMENDMENT P7-6 section 4 (F4545): B1/B2 = 47204-47206 (C28P)
+COOP_PORT = "47206"                 # AMENDMENT P7-6 section 4: B1/B2 = 47204-47206 (C28P)
 COOP_PORT_DEAD = "47205"            # C28P-dead's boot (same B1/B2 block; distinct so the two sequential boots never reuse a socket)
 PR16_LITERAL = "S-C-B2 SEPARATE return"   # PR-16/D218: each applied death + each removed host memorial copy logs one [coop-roster] line with this cause
 ROSTER_NAMES = ("HostPlayer", "ClientPlayer")     # session.new_campaign's defaults (PR-10's `[<roster name>] `)
@@ -92,7 +92,7 @@ DRAIN_S = 60            # the host's OK + follow-ups down to its GeoscapeState
 FNV_S = 30              # cell 2: the host's copy-of-client changes after the return's push (AMENDMENT 4.2 "within 30 s")
 WAIT_TOPS = ("VoteMenu", "BattlescapeState", "SaveGameState")   # never dismissed by a drain (not ours to pop)
 LOADGAME_PUSH = "push class OpenXcom::LoadGameState"           # the [coop-ui] state-push log line (P6-4)
-# W2-P7 S-C-C.1 PR-C7 (F5621): the after-battle screens; their OK is a plain popState = dismiss_popup (F5628).
+# W2-P7 S-C-C.1 PR-C7: the after-battle screens; their OK is a plain popState = dismiss_popup.
 FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
 CHAIN_C28P = ["PromotionsState"]              # A.10: the host's drained follow-ups, 2 equal red-build runs (guest promoted)
 CHAIN_C28P_DEAD = ["CommendationLateState"]   # A.10: the same 2 runs (the dead guest, DebriefingState :778, F4532)
@@ -143,7 +143,7 @@ def record(gc):
 
 
 def soldier_recs(gc, sid=None, name=None):
-    """soldier_record's records list (F2520): every soldier of this machine's world matching id/name."""
+    """soldier_record's records list: every soldier of this machine's world matching id/name."""
     req = {"cmd": "soldier_record"}
     if sid is not None:
         req["id"] = sid
@@ -302,10 +302,10 @@ def cell_client_chain(host, client, ctx, key, host_key, pinned):
 
 
 def both(host, client, req):
-    """A per-machine staging lever sent to BOTH machines, client first (F607). Returns (host resp, client resp)."""
+    """A per-machine staging lever sent to BOTH machines, client first. Returns (host resp, client resp)."""
     rc = client.cmd(dict(req))
     rh = host.cmd(dict(req))
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return rh, rc
 
 
@@ -316,7 +316,7 @@ def chain_settled(host, client, stable=1.0, timeout=45, interval=0.2, want_live=
     samples, t0, idle_since, last = [], time.time(), None, None
     while time.time() - t0 < timeout:
         bs = battle_state(host)
-        ec, eh = event_state(client), event_state(host)  # W2-U8c (F6561): the client is read first
+        ec, eh = event_state(client), event_state(host)  # the client is read first
         live = sum(1 for u in bs.get("units", []) if u.get("faction") == 1 and not u.get("isOut"))
         tp = top(host)
         s = (bool(bs.get("isBusy")), bs.get("pendingStates"), tp, live,
@@ -438,7 +438,7 @@ def kill_all_and_guest(host, client, gid, ctx):
     """C28P-dead construction (AMENDMENT P7-6 section 4.3; seed-independent, no guest shot): kill EVERY hostile in ONE
     host kill_units_real (CIT-Y4, R-Y4-1; every chain settled once, F4665), then kill the guest itself (host kill_unit_real
     {unit: <guest's battle unit id>}, the chain settled). The
-    guest's death then reaches the owner's world (D181); it needs no killer credit (F4536) and no seed."""
+    guest's death then reaches the owner's world; it needs no killer credit and no seed."""
     m = (host, client)
     con = ctx.setdefault("construction", {})
     hostiles = [u["id"] for u in battle_state(host).get("units", [])
@@ -471,7 +471,7 @@ def _stage_common(rid, host, client, ctx, port, kill_fn, precheck, pre_extra=Non
         mv = int(g0.get("funds")) + MARKER_DELTA
         c.ok({"cmd": "set_funds", "value": mv})
         ctx["marker"] = mv
-        if pre_extra is not None:   # W2-P7 S-C-B2.3.1 PB-8: before OWN_BEFORE and the battle-entry snapshot (F6221)
+        if pre_extra is not None:   # W2-P7 S-C-B2.3.1 PB-8: before OWN_BEFORE and the battle-entry snapshot
             pre_extra(h, c, ctx)
         ctx["ownBefore"] = soldier_rec(c, name="Guest Zzz")
 
@@ -649,7 +649,7 @@ def cell_client_return(host, client, ctx):
 
 
 def cell_host_ok(host, client, ctx):
-    """Cell 3: the host's OK + drain -> the merged copy gone (F366); the client zero-disk; fatalVote.armed 0."""
+    """Cell 3: the host's OK + drain -> the merged copy gone; the client zero-disk; fatalVote.armed 0."""
     ok1 = press_ok(host)
     reached, screens = drain(host) if ok1["pressed"] else (False, [])
     recs, meta = soldier_recs(host, name="Guest Zzz")
@@ -688,7 +688,7 @@ def c28p_cells(host, client, ctx):
 
 def cell_dead_return(host, client, ctx):
     """C28P-dead cell 2 (the RED cell): the client's OK -> its own geoscape; the guest reaches the client's MEMORIAL
-    with a death and its base no longer lists it (D181); sepReturn.deadApplied 1; one PR-16 [coop-roster] line in the
+    with a death and its base no longer lists it; sepReturn.deadApplied 1; one PR-16 [coop-roster] line in the
     client log. RED: the guest is still alive in the client's base (B1 applies alive rows only; the dead guest is not in
     the host's bases so B1's payload carries no row for it)."""
     ok1, ok, secs = client_ok_through_followups(client, ctx, "deadReturn")   # PR-C7

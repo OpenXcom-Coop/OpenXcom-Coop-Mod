@@ -35,7 +35,7 @@ Every press is a real click_widget or inject_input; only the save trigger and th
 pressed; the lever is off before shutdown. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
 miss ends its row (later cells "not reached"); a boot miss fails every row of that boot "boot" with ONE CAPTURE line. The END line
 counts every new crash file by kind (loopData, other, Unhandled, .dmp).
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_save_during_naming.py   (OXC_HARNESS_SLOT selects the lane)"""
 import base64, glob, json, math, os, sys, time  # noqa: E401
 
@@ -182,7 +182,7 @@ def folder(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = os.stat(p).st_mtime_ns
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def newer(gc, before):

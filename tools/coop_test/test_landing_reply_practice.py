@@ -18,10 +18,10 @@ DRIVE = test_client_landing_controls row_h9_4's drive to both prompts (the host'
 craft_force, the host's shared_landing_state.pending, the client's ConfirmLandingState), then the host's broker copy on top within W and
 its dismiss_popup -> handled "generic" for ConfirmLandingState, the host's stack [GeoscapeState], pending still true, the client's top
 ConfirmLandingState. PV = W2-H21c's pv (test_preview_restream). W = 10 s at 0.25 s polls, HOLD = 2 s, SETTLE 0.3 s before a key,
-click or lever (F2888). HL = the host's openxcom.log screen record after the YES. CRASH = new crashlogs/crash_*.log since the row
+click or lever. HL = the host's openxcom.log screen record after the YES. CRASH = new crashlogs/crash_*.log since the row
 started (first 4 frames). Setup guard per boot: stacks [GeoscapeState], localSeat 0 / 1, has_battle false (a miss fails the row
 `boot`). One boot per row, shut down before the next. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs
-after a failure; ONE run (WV-D95); exit 0 iff every row passes, else 2.
+after a failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json

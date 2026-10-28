@@ -3,7 +3,7 @@ test_gift_display_copy_screens.py (rows R9, R10); spec docs rewrite/prompts/w2h7
 rewrite/w2h70-task0/sb/CONSTANTS.md; lead L-TR9-1, F20420-F20425; R-TR9-1, R-H70-2, QH70B-1 .. QH70B-8 (a). Imports gift_helpers.py
 (GH) unchanged; the S-B steps are copied from the captures rewrite/ltr9-1-cap/cap.py and rewrite/lh70-2-cap/cap.py, never imported. Every
 press is real (click_widget, inject_input at a pixel or SDLK_KP2); every probe an existing TestServer command; a missed precondition raises
-Stop (the row ends there). WV-D95 / WV-D99 / WV-D100: one foreground run per invocation, exit 0 only when every cell passes."""
+Stop (the row ends there). one foreground run per invocation, exit 0 only when every cell passes."""
 from gift_helpers import *  # noqa: F401,F403 (GH: boot, picker, visit, baseline, host_gift, census, Row, Stop, ...)
 
 GUESTNAME = "Zzz Guest"
@@ -24,7 +24,7 @@ def twice(pairs):
     return {k: v for k, v in seen.items() if len(v) > 1}
 
 def ids_twice(gc):
-    """ids held by two or more soldiers on the machine's own bases (QH70B-7 (a)) -> {id: [names]}"""
+    """ids held by two or more soldiers on the machine's own bases -> {id: [names]}"""
     return twice([(z.get("id"), z.get("name")) for b in own_bases(gc) for z in b.get("soldiers", [])])
 
 def blobs(gc):
@@ -68,7 +68,7 @@ def listed(gc):
     return [z.get("name") for z in q(gc, {"cmd": "base_report", "coop": True}).get("soldiers", [])]
 
 def stage_guest_named(x, ev, name=GUESTNAME):
-    """GH stage_guest under its own name (QH70B-8): the client's first own-base soldier not in a craft (the next one when the transfer
+    """GH stage_guest under its own name: the client's first own-base soldier not in a craft (the next one when the transfer
     refuses, at most 3) renamed `name`, transfer_to_coop_base to the host base; the host's 150 closed by a real OK; GeoscapeState back"""
     c, h = x.client, x.host
     if name in {z.get("name") for gc in (h, c) for b in soldiers(gc) for z in b.get("soldiers", [])}:
@@ -300,7 +300,7 @@ def common_b(rid, ev):
             rd.get("alive") == [True, True] and cr.get("dmp") == [])
 
 def run_row_b(rid, tag, key, build, ids, cellfn, pre, reloads=False):
-    """GH run_row's shape (F20579): boot (a miss fails "boot"), the construction, shutdown, the reload (R7, R8: a fresh pair, same key),
+    """GH run_row's shape: boot (a miss fails "boot"), the construction, shutdown, the reload (R7, R8: a fresh pair, same key),
     ONE EVIDENCE line, the cells, ONE CAPTURE line when a cell failed, the verdict -> (passed, wall, shutdown failures)"""
     r, ev, cap = Row(rid, ["%s-%s" % (rid, c) for c in ids]), {}, None
     x = boot(tag, key)

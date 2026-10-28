@@ -163,7 +163,7 @@ DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
 # EXACT text, from bin/common/Language/en-US.yml and bin/standard/xcom1/
 # Language/en-US.yml. Asserted as TEXT and never as an STR_ key: Language::
 # getString() returns the KEY when the key is missing, so a key-shaped assert
-# passes silently against a stale deploy copy (WV-D17).
+# passes silently against a stale deploy copy.
 STR_HALT_BLOCKED = "Move stopped - path blocked"
 STR_DENY_PATH_CHANGED = "Order cancelled - path blocked"
 STR_DENY_COST_CHANGED = "Order cancelled - cost changed"
@@ -579,7 +579,7 @@ def phase1b_multi_step(host, client, actor_id):
 
 
 def phase2_hud(host, client, actor_id):
-    """WV-D33. Asserted on the PAINTED NumberText values."""
+    """Asserted on the PAINTED NumberText values."""
     # Select the actor on the CLIENT so its numbers are the ones on the strip.
     for _ in range(12):
         if battle_state(client).get("selectedId") == actor_id:
@@ -625,7 +625,7 @@ def phase2_hud(host, client, actor_id):
 
 
 def phase3_halt(host, client, actor_id):
-    """SS2.W2 rule 5 + the halt presenter (WV-D53)."""
+    """SS2.W2 rule 5 + the halt presenter."""
     dest = lane_dest(host, actor_id, 3)
 
     prev = walk_action_id(host)
@@ -1111,8 +1111,8 @@ def phase6_safelist(host, client, walker_id, holder_id):
 
 
 def phase6b_host_origin(host, client, host_ids):
-    """WV-D37: step evs are ORIGIN-INDEPENDENT - a HOST-origin walk emits them
-    too, which is what the observing machine's ghost (W1-P12) will animate.
+    """step evs are ORIGIN-INDEPENDENT - a HOST-origin walk emits them
+    too, which is what the observing machine's ghost will animate.
 
     Driven through the REAL UI (W1-P6's self-verifying `map_tile_click_pos`
     probe), because the host has no `battle_intent`: SS2.5's "host-local player

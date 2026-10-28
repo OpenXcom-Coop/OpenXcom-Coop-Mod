@@ -24,15 +24,15 @@ TESTDIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTDIR))
 RUN_PARALLEL = os.path.join(TESTDIR, "run_parallel.py")
 EXCLUSIVE_TESTS = ("test_udp_rejoin",)
-FAMILY_PREFIXES = {"s26": ("test_inventory", "test_host_screens")}  # S26 (F2912)
+FAMILY_PREFIXES = {"s26": ("test_inventory", "test_host_screens")}  # S26
 FAMILY_NAMES = {"u6": ("test_coop_peer_equip_screens", "test_unload_weapon_crash"),  # U6 Q5
-                "s16s2": ("test_pause_on_leave_alien_turn", "test_harness_truth")}  # W2-G1 Q5 (F8463): lobby 49970
+                "s16s2": ("test_pause_on_leave_alien_turn", "test_harness_truth")}  # W2-G1 Q5: lobby 49970
 HEADING_RE = re.compile(r"^##\s+(REGRESSION-\d+)\b")
 BATCH_RE = re.compile(r"^-\s+batch\s+(\d+)\s*(\+=|:)\s*(.*)$")
 H13_T1_LINE = "std::terminate called (no active exception)."
 CRASH_HEADER = ("==== Crash/Log", "Time:", "Version:", "Compiled:", "Module:", "ImageBase:", "Mods:")
 CPU_SAMPLE_S, CENSUS_S, GATE_POLL_S, GATE_PCT, WATCH_S, TAIL_LINES = 5.0, 30.0, 30.0, 50.0, 150.0, 30
-# The Q7 slot probe: harness's own lock call in a child; rc 0 = the slot is free (F7931).
+# The Q7 slot probe: harness's own lock call in a child; rc 0 = the slot is free.
 PROBE = "import sys; sys.path.insert(0, sys.argv[1]); import harness; harness._acquire_machine_lock(timeout=0)"
 CENSUS_PS1 = r"""# run_regression.py census (cpu_check.ps1 method, F4445): processes above 10 % of the machine and the
 # OpenXcom instances by harness slot, one line each: PROC <name> <pct> / OXC s<slot> / OXC other.
@@ -195,7 +195,7 @@ def crash_snapshot(exe_dir):
     return {p: os.path.getmtime(p) for p in paths if os.path.isfile(p)}
 
 def crash_slot(path, exe_dir):
-    """W2-U8h (F9563): the harness slot whose games wrote `path` (a file in <exe dir>/crashlogs/s<slot>), else None."""
+    """the harness slot whose games wrote `path` (a file in <exe dir>/crashlogs/s<slot>), else None."""
     parent = os.path.dirname(os.path.abspath(path))
     m = re.match(r"^s(\d+)$", os.path.basename(parent))
     crashlogs = os.path.normcase(os.path.join(os.path.abspath(exe_dir), "crashlogs"))
@@ -381,7 +381,7 @@ class Run(object):
     def finish(self, b, running):
         b.rc, b.t1 = b.proc.returncode, time.time()
         b.outf.close()
-        if not b.samples:  # a batch shorter than one sample period still gets a number (F7993)
+        if not b.samples:  # a batch shorter than one sample period still gets a number
             pct = self.cpu.tick()
             for r in [b] + list(running.values()):
                 r.samples.append(pct)
@@ -410,7 +410,7 @@ class Run(object):
             os.makedirs(os.path.join(self.out, "crash"), exist_ok=True)
             shutil.copy2(p, os.path.join(self.out, "crash", os.path.basename(p)))
             m, line, slot = after[p], first_line(p), crash_slot(p, self.exe_dir)
-            # W2-U8h: a file in a lane's s<slot> folder belongs to the test on that slot; a root file keeps the time window
+            # a file in a lane's s<slot> folder belongs to the test on that slot; a root file keeps the time window
             then = [(b, r["test"]) for b, r in tests if r["start_epoch"] - 2 <= m <= r["end_epoch"] + 2
                     and (slot is None or r.get("slot") == slot)]
             benign = line == H13_T1_LINE and any(t == "test_udp_rejoin" for _, t in then)

@@ -1,7 +1,7 @@
 """RV-U5 S-B rows WB-C and WB-H (boot W): the "Please wait for <player>'s action to finish" line on both machines in a
 classic co-op parallel-turns skirmish, the scenarios of the legacy test_coop_wait_banner (owner D229 (a) + hard gate;
 design-D7; QV5-1 (a), QV5-9 (a)). OW1 is ruled (b) by design-D7: S-E's E1 enables WB4 with (b)'s value and adds
-WB4-seat and WB4-clear (QV5-17 (a)). RED at E1: WB4, WB4-seat, WB4-clear; GREEN at E2: every cell.
+WB4-seat and WB4-clear. RED at E1: WB4, WB4-seat, WB4-clear; GREEN at E2: every cell.
 
 Spec: docs repo rewrite/prompts/rvu5_quarantine_gate.md section (f) test_wait_cover.py, with the orchestrator ruling
 R-RV5-SB-1 (WB-C's camera step) and AMENDMENT RV5-E E.8 (WB4, WB4-seat, WB4-clear). Constants:
@@ -32,8 +32,8 @@ live unit within 3 tiles of it, X 1000000 at Chebyshev >= 20 (the pin's rule); a
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new crash file.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A
-boot step past its bound prints ONE CAPTURE line and fails both rows "boot". WV-D95: run in the foreground to
-completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+boot step past its bound prints ONE CAPTURE line and fails both rows "boot". run in the foreground to
+completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_wait_cover.py
 """

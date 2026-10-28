@@ -54,9 +54,9 @@
 #include "../fmath.h"
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
-#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
+#include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/BattleAuthority.h"
-#include "../CoopMod/CoopDelta.h" // coop R5-U2: the S-A draw probe (TEST-ONLY) and coopFactionIsMine() (R5-U1 S-B)
+#include "../CoopMod/CoopDelta.h" // coop: the S-A draw probe (TEST-ONLY) and coopFactionIsMine() (R5-U1 S-B)
 
 
 /*
@@ -552,7 +552,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		return;
 	}
 
-	// W1-P12: the presentation read-switch (CoopMod/CoopGhost.h). `view` is
+	// the presentation read-switch (CoopMod/CoopGhost.h). `view` is
 	// SP-identical to `bu`'s own getters until CoopGhost::view() overwrites
 	// what a live ghost animates for THIS unit - a no-op outside a coop
 	// battle, with the option off, or with no ghost running for `bu`.
@@ -2198,7 +2198,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const Coop
 
 	int offsetX[8] = { 1, 1, 1, 0, -1, -1, -1, 0 };
 	int offsetY[8] = { 1, 0, -1, -1, -1, 0, 1, 1 };
-	// W1-P12: `view` is null for every caller except Map::drawUnit (byte-
+	// `view` is null for every caller except Map::drawUnit (byte-
 	// identical vanilla behaviour then - the OTHER caller, :1720, never
 	// passes one). When non-null, every motion read below comes from it
 	// instead of `unit` - the ghost renders from ITS OWN interpolation

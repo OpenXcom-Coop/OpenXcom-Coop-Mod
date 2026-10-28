@@ -91,7 +91,7 @@ protected:
 	virtual void handle(Action *action);
 	/// Runs state functionality every cycle.
 	virtual void think();
-	/// coop W2-H83 S-B2 (R-LBH3-1, R-H83-2): true when this screen shows a base that is gone from the live base list (the other player
+	/// coop W2-H83 S-B2: true when this screen shows a base that is gone from the live base list (the other player
 	/// removed it, or a world reload replaced it). Game::coopCloseGoneBaseHolders then closes it before it reads that base again.
 	virtual bool coopHoldsGoneBase() const { return false; }
 	/// coop W2-H83 S-B2: closes this screen for coopHoldsGoneBase (a plain pop; a screen with a close-time step overrides it).

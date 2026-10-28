@@ -1,9 +1,9 @@
 """RV-U13 stage S-B (spec rewrite/prompts/rvu13_harness_hardening.md (f) `test_stale_screen_probe.py`, rows S0 and S1; QV13-1 (a),
 QV13-3 (a); TASK 0 rewrite/rvu13-task0/sb/CONSTANTS.md and PREWALK.md): TestServer probes read a battle screen that was popped and
-freed (F10980, F9920). SavedBattleGame keeps its _battleState after Game::popState queues the BattlescapeState for deletion (F11352),
+freed. SavedBattleGame keeps its _battleState after Game::popState queues the BattlescapeState for deletion,
 and seven TestServer sites trust the non-null pointer (F11351: the executeBattle12 head, battle_set_unit_state, can_use_weapon,
 battle_camera_center and three battle_state reads), so a probe in that window reads freed memory (F10980: one battle_state killed the
-client, 0xC0000005 in BattlescapeGame::getStates). The S-B green asks connectionTCP::isBattlescapeStateLive at the seven sites (F11353).
+client, 0xC0000005 in BattlescapeGame::getStates). The S-B green asks connectionTCP::isBattlescapeStateLive at the seven sites.
   Boot S (key "48699", dirs rvu13_b_host / rvu13_b_client): session.bring_up_separate_guest_battle(host, client, port="48699"); both
   tops BattlescapeState within 60 s; pins read live on the client's live screen (S25): G = its unit with coop 1, I = the lowest-id item
   G owns in its battle_items, T = G's tile. A miss = FIXTURE-STOP: ONE "CAPTURE boot:" line and every row FAILs "boot".
@@ -23,7 +23,7 @@ client, 0xC0000005 in BattlescapeGame::getStates). The S-B green asks connection
 Rules: an S1 probe (or its ping) that raises FAILs that cell "client gone" and every later S1 cell (no retry, no reconnect); a client
 that is dead at the end after an S1 RED cell failed is reaped with its own exit code (those cells hold the failure). Outside the S1
 cells no machine is probed with battle_state, an executeBattle12 command, can_use_weapon, battle_camera_center or battle_set_unit_state
-while its stack holds no BattlescapeState and its world holds a battle (F10980). EVIDENCE before each verdict; a failed row prints ONE
+while its stack holds no BattlescapeState and its world holds a battle. EVIDENCE before each verdict; a failed row prints ONE
 CAPTURE line (the four safe probes per machine, new crash files, 40 engine log lines per machine); every row runs after a failure.
 ONE run (WV-D95: run to completion in the foreground; WV-D99 / WV-D100: no SKIP, no retry); exit 0 iff every cell passes, else 2.
 Red (S-B commit B1, the unchanged TestServer): exactly S1-state, S1-screen, S1-canuse, S1-camera, S1-panic FAIL (the stale screen
@@ -78,7 +78,7 @@ def dlg(gc):
 
 
 def safe4(gc):
-    """the four probes that never read a battle screen (F10980)"""
+    """the four probes that never read a battle screen"""
     c, w = q(gc, {"cmd": "get_coop"}), q(gc, {"cmd": "world_state"})
     return {"stack": stack(gc), "coop_dialog_info": dlg(gc),
             "get_coop": {k: c.get(k) for k in ("onConnect", "inBattle", "hasSave", "probeError") if k in c},

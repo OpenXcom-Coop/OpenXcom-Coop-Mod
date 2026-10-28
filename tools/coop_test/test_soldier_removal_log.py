@@ -1,4 +1,4 @@
-"""W2-H11 - a co-op soldier's removal at death leaves one log line, and a
+"""a co-op soldier's removal at death leaves one log line, and a
 set_soldier_owner miss says who is where (spec rewrite/prompts/
 w2h11_soldier_removal_logging.md (f); owner ruling D218; F3567, F3574).
 ONE boot (test_death_side's default map, lobby PORT_H11), rows in order:
@@ -6,7 +6,7 @@ ONE boot (test_death_side's default map, lobby PORT_H11), rows in order:
         holds exactly ONE `[coop-roster] killSoldier:` line naming soldier,
         owner, the base it left (index, name, coop flag), resetArmor 0, battle
         turn and side; get_soldiers no longer lists it. Cause fields and the
-        client's count are printed only (F3570, F3566).
+        client's count are printed only.
  H11-2  the HOST calls set_soldier_owner for the dead DS1_ID (i), GHOST_ID (ii,
         no base soldier, no battle unit) and the control DS2_ID with its own
         owner (iii). Each miss answers ok false, the same error and a `diag`
@@ -16,7 +16,7 @@ A boot step or precondition miss is a FIXTURE-STOP (one CAPTURE line: both
 machines' get_soldiers + battle_state; both rows FAIL "boot"). Each row prints
 ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; every row
 runs; an H11-1 staging failure fails H11-2 "staging". The diag text is never
-printed (H11-L2). WV-D95/D99/D100: ONE foreground run, no skip path; exit 0
+printed (H11-L2). ONE foreground run, no skip path; exit 0
 only when both rows pass, 2 otherwise.
 """
 

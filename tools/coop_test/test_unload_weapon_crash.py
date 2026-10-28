@@ -105,7 +105,7 @@ def main():
         try:
             client.wait_for("client sees transferred soldier", client_sees, timeout=30)
         except TimeoutError:
-            # CIT-DIAG (F24293): once (full run, 0 / 86 since) the client opened its trade dialog yet never listed the
+            # once (full run, 0 / 86 since) the client opened its trade dialog yet never listed the
             # soldier; record what each machine holds, which dialog is up, and whether the soldier shows up late
             def roster(gc):
                 r = gc.cmd({"cmd": "get_soldiers"})

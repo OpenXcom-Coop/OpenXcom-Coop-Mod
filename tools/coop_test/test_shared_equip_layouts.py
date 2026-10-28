@@ -1,4 +1,4 @@
-"""W2-H69 - test_shared_equip_layouts.py (EQL): in a SHARED co-op battle the second player's copy of the
+"""test_shared_equip_layouts.py (EQL): in a SHARED co-op battle the second player's copy of the
 soldiers' saved loadouts - each battle soldier's equipment layout, personal layout and personal-layout armor -
 equals the host's from turn 1 (L-MGP1-1). Spec docs rewrite/prompts/w2h69_shared_equip_layouts.md (f); pins from
 rewrite/w2h69-task0/sa/CONSTANTS.md (TASK 0, h69a-red); orchestrator rulings R-H69-0 (fix (a): the host's equip-end
@@ -8,7 +8,7 @@ R-H69-2 (G-unchanged, below) and QH69-1 .. QH69-6 (a).
 Today the host's pre-battle barrier runs vanilla's close (InventoryState::saveEquipmentLayout), which writes the
 battle soldiers' layouts into the host's world only; the second player pops its screen without OK and its copy
 stays empty until the post-battle world arrives (F19703; test_shared_landing red since W2-G1). A personal layout
-the HOST saves on its own pre-battle screen has the same window (F19710).
+the HOST saves on its own pre-battle screen has the same window.
 
 Boot S (SHARED, one battle; rows L, P): shared_fixture.bring_up -> session.bring_up_shared_mixed_battle(js, OWNERS,
 to_tactical=False) -> the client's shared_resync_stats.requests = R0 -> EQSH's spine (spine_both_briefings,
@@ -32,8 +32,8 @@ a pre_landing snapshot -> turn 1 on both.
 
 RED (today, 5 of 13): L-equal, L-moved, L-sent, L-adopted, P-equal. Each row prints ONE "EVIDENCE <row>:" line,
 then one PASS / FAIL line per cell and its ROW verdict; every row runs after a failure; a precondition miss ends its
-row (later cells "not reached"); a boot miss fails every row of that boot with ONE CAPTURE line. WV-D99 / WV-D100:
-ONE run is the result, no skip; exit 0 only when every cell passes, else 2. WV-D95: run in the foreground to
+row (later cells "not reached"); a boot miss fails every row of that boot with ONE CAPTURE line.
+ONE run is the result, no skip; exit 0 only when every cell passes, else 2. run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_shared_equip_layouts.py
@@ -159,9 +159,9 @@ def brief(g):
 
 
 def stage(host, client, ctx):
-    """Both briefings up, client first (F607): H and C stripped, then L1 to C and L2 to H (S25: staged items)."""
+    """Both briefings up, client first: H and C stripped, then L1 to C and L2 to H (S25: staged items)."""
     c, h = ctx["C"], ctx["H"]
-    session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
+    session.wait_seq_barrier(host, client)  # the host's first evs applied before staging
     rec = {"stripped": {"C": strip_both(host, client, c), "H": strip_both(host, client, h)}, "ids": {}}
     for uid, give in ((c, L1_GIVE), (h, L2_GIVE)):
         for t, extra in give:
@@ -361,7 +361,7 @@ def boot_p():
             client.connect()
 
             def pre_landing(h, c):
-                snap["host"] = gear_of(h)     # R-H69-2: the world the client's battle copy is built from
+                snap["host"] = gear_of(h)     # the world the client's battle copy is built from
                 snap["client"] = gear_of(c)   # its own base (held in coopSepEntrySnapshot() during the battle)
                 snap["equip"] = [records(h), records(c)]
 

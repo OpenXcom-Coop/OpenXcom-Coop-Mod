@@ -1,6 +1,6 @@
 """W2-H82 S-B - test_visit_before_save_reply.py (VSR): the SEPARATE host saves; its click on the partner's base reaches the partner before the
 host's go-ahead for the partner's save-progress stream (the go-ahead arrives while the partner's base answer is streaming). The host gets the base
-view, its "Synchronizing bases..." closes, and the partner's save progress still reaches the host after the view opened (VL-H82-2).
+view, its "Synchronizing bases..." closes, and the partner's save progress still reaches the host after the view opened.
 
 Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sb_visit_during_save_push.md (f) row R-SPB
 (CANDIDATE F22302, proven by TASK 0); TASK 0 constants: docs rewrite/w2h82-task0/sb/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap), ruling
@@ -17,7 +17,7 @@ Red today (R1): SPB-view, SPB-held FAIL (2 of 5); every other cell PASS. Green (
 One EVIDENCE line, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends the row (later cells "not reached") with ONE
 CAPTURE line; a boot miss fails SPB-pre with ONE CAPTURE line. WV-D95 (run to completion in the foreground), WV-D99 (one run; exit 0 only when
 every cell passes, else 2), WV-D100 (no SKIP, no exit 3). Helpers copied (never imported) from docs rewrite/lh78-1-cap/cap.py; LOCATE's CANCEL
-press waits for the button to be shown (F21950)."""
+press waits for the button to be shown."""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
@@ -35,7 +35,7 @@ NEEDLES = {"STREAMHOLD": "[coop-visit] base answer held: a world stream is in fl
            "REPLYSTASH": "[coop-test] hold_save_reply: SEND_FILE_HOST_SAVE_PROGRESS held"}
 HOST_NEEDLES = ("REPLYSTASH",)
 CELLS = {"R-SPB": ["SPB-pre", "SPB-view", "SPB-held", "SPB-copy", "SPB-crash"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -95,7 +95,7 @@ def real_click(gc, text, timeout=15.0):
         time.sleep(0.05)
     return {"ok": False, "miss": "%s: button %r not shown within %.0f s" % (gc.name, text, timeout)}
 def cw(gc, match, settle=0.8, shown=False):
-    """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden (F21950)"""
+    """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden"""
     t0 = time.time()
     while shown and time.time() - t0 < W_UI and not any(match.lower() in (w.get("text") or "").lower() and w.get("visible") is True
                                                         and w.get("hidden") is False for w in q(gc, {"cmd": "list_widgets"}).get("widgets", [])):
@@ -254,7 +254,7 @@ def locate(r, x):
     if not g:
         raise Stop("LOCATE: the host not back on a clean geoscape: %s" % stack(x.host))
 def stable(r, x, tag="stable"):
-    """STABLE = CAP stable_geo, then both machines geo_set_speed {idx: 0} (R-H18-1)"""
+    """STABLE = CAP stable_geo, then both machines geo_set_speed {idx: 0}"""
     sg = stable_geo(x.host, x.client)
     sp = [q(x.host, {"cmd": "geo_set_speed", "idx": 0}).get("ok"), q(x.client, {"cmd": "geo_set_speed", "idx": 0}).get("ok")]
     r.ev[tag] = {"r": sg, "speed": sp}

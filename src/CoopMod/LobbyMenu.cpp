@@ -557,7 +557,7 @@ public:
  * campaign lobby opens when a team pick would put both players on the Alien team - there are no PvE2 (game mode 4) campaigns; PvE2
  * stays a Custom Battle mode. One OK button closes it; the pick itself was refused (LobbyMenu::setPlayerTeam). File-local, as
  * ConfirmStartCampaignState.
- * coop D283 (b): RESUME of a co-op campaign save played in PvE2 opens it too (LobbyMenu::resumeCampaign); OK returns to that lobby.
+ * coop: RESUME of a co-op campaign save played in PvE2 opens it too (LobbyMenu::resumeCampaign); OK returns to that lobby.
  */
 class CampaignTeamRefusedState : public State
 {
@@ -698,9 +698,9 @@ void LobbyMenu::resumeCampaign()
 	// borrowed again before the resume is armed, so it resumes as a battle; false (nothing changed) for every other save.
 	const bool coopPvpResumed = _game->getCoopMod()->coopPvpResumeBorrow();
 
-	// coop D250-U S-C4a (QC-16 (a); VL-C-10): a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
+	// coop D250-U S-C4a: a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
 	// for a new one - the session reset when hosting began (resetCoopState) cleared the flag the save carried. Not while it borrows
-	// the X-COM player's world for a resumed battle (QC-5).
+	// the X-COM player's world for a resumed battle.
 	if (connectionTCP::_coopGamemode == 3 && !connectionTCP::coopPvpParkedWorld())
 		connectionTCP::no_bases = true;
 
@@ -1386,7 +1386,7 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 			current_gamemode = 3;
 		}
 
-		// coop D250-U S-C6 (owner D270 (b), D275): no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
+		// coop D250-U S-C6: no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
 		// both players on the Alien team: the row keeps its team, nothing is sent, and a small dialog says why. A Custom Battle lobby
 		// (lobbyMode 0) keeps PvE2; a resume lobby never re-derives the mode from the teams (below).
 		if (connectionTCP::session.lobbyMode == 1 && current_gamemode == 4)

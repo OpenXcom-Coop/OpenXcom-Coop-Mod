@@ -91,7 +91,7 @@ ConfirmCydoniaState::~ConfirmCydoniaState()
  */
 void ConfirmCydoniaState::btnYesClick(Action *)
 {
-	// W2-H9 (D199 a, D212 a): a SEPARATE co-op client never starts a battle from its own craft.
+	// a SEPARATE co-op client never starts a battle from its own craft.
 	if (coopRefuseSeparateClientCydonia(_game, _craft)) return;
 	if (connectionTCP::getCoopStatic())
 	{
@@ -107,7 +107,7 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 		// (BattleUnit::setCoopSeat()) offerBattle()/the admission arbiter expect.
 		// The legacy SEPARATE-campaign changeHost hand-off + CoopState(88) wait-
 		// dialog choreography (donor :113-128) is DELETED - it predates the
-		// handshake, has no restored carrier, and (RB-D18) the interim handshake
+		// handshake, has no restored carrier, and the interim handshake
 		// already covers both campaign types under gamemode 0/1.
 		for (auto* soldier : *_craft->getBase()->getSoldiers())
 		{
@@ -166,7 +166,7 @@ void ConfirmCydoniaState::startCoopMission()
 		// Soldier::getCoop() ownership btnYesClick just refreshed - the
 		// admission arbiter's not_your_unit check (connectionTCP.cpp) reads
 		// BattleUnit::getCoopSeat(), not the geoscape Soldier.
-		// R5-P1 NOTE (RB-D23): CoopHandshake::offerBattle() below now runs
+		// R5-P1 NOTE: CoopHandshake::offerBattle() below now runs
 		// assignSeatsAndFactions() (CoopState.cpp) on the HOST machine, which
 		// does this exact stamp itself (plus the canonical-faction funnel and
 		// the out-of-roster validity check) - this loop is redundant on the
@@ -195,7 +195,7 @@ void ConfirmCydoniaState::startCoopMission()
 		// W1-P2 (SS2.W1 / WV-D42): labels + deployment BEFORE the offer builds its
 		// blob snapshot (the SS2.W1 ORDERING TRAP). One of FOUR identical call
 		// sites; no-op off the coop host.
-		// RV-21 (D248-U QD248-11 (a)): the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
+		// the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
 		coopDropMergedGuestVehicles(_game);
 		CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
 		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);

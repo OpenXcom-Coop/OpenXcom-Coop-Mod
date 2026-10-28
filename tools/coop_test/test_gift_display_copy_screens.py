@@ -15,7 +15,7 @@ after the leave and the deferred replay the receiver keeps two copies, one shari
 guest = GUESTNAME once on the client's own bases with coopBase = the host base's coop id after the leave (the craft's OK keeps a real
 guest); live / ids / file / common as test_gift_display_copy.py.
 Red (HEAD, TASK 0 boots a / b): R9-live, R9-ids, R9-file, R10-live, R10-ids, R10-file FAIL (6 of 11); green (EB1-EB7, boot c): 11 / 11.
-Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100; no SKIP). WV-D95: one foreground run per invocation:
+Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100; no SKIP). one foreground run per invocation:
     python tools/coop_test/test_gift_display_copy_screens.py"""
 import sys
 from gift_display_helpers import *  # noqa: F401,F403 (HB, R-H70-2)

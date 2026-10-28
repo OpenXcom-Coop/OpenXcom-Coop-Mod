@@ -1,6 +1,6 @@
 """R5-U2 S-D rows PS1, PN1, DM1, PP1, DM2 (boot D2, gm2: the client plays the aliens, seat 1; the host the seven X-COM
 soldiers, seat 0; both instances with noAlienPanicMessages ON): in PvP each player sees vanilla's battle messages for its
-own units only, and its own unit's death sets its dying flag (QU2-12 (a), QU1-7; VL-U2-7, VL-U2-8; F12889, F12890).
+own units only, and its own unit's death sets its dying flag.
 
 Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_pvp_messages.py, AMENDMENT U2-1 (U2-1.6: row
 PP1, QU2-A1-4 (a)) and the orchestrator ruling R-U2-SD-1 (a second alien B before DM2, so A's bleed-out does not end the
@@ -36,7 +36,7 @@ the action they govern.
        PP1-psi     one new host context {host, psi, PP}; its psi cue {actor PP, unit A, action panic, success true}
        PP1-client  RING(client) holds no STR_MORALE_ATTACK_SUCCESSFUL entry                  (RED: one, attacker PP)
        PP1-host    RING(host) holds {PP, STR_MORALE_ATTACK_SUCCESSFUL, own} (guard)
-  B staging (R-U2-SD-1): the rifle on 13 and its TU, 14's spawn staging (STR_SECTOID_SOLDIER, faction 1, both), host
+  B staging: the rifle on 13 and its TU, 14's spawn staging (STR_SECTOID_SOLDIER, faction 1, both), host
        set_seed SEED_B right before the host-local lever snap of 13 at FLOOR_B: one spawn {B, convert, from 14}, B on
        14's tile and facing on both (alien side), 14 dead; B reactions 0. One EVIDENCE line; a failure FAILs DM2 "staging".
   DM2  (last) its own alien's fatal-wound death: A health 1 + STAGE_WOUNDS (both); the host's END TURN -> side 1 turn 3.
@@ -47,8 +47,8 @@ Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, n
 RED at D1: PS1-msg, PN1-msg, PN1-cam, DM1-client, PP1-client, DM2-msg, DM2-dying; every other cell PASS. One EVIDENCE line
 per row (both rings, the client's warningText), one PASS/FAIL line per cell, then the row verdict; every row runs after a
 failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails
-the rows that need it "staging". Lever pairs go to the client first (F607); ids come from lever replies (S25). WV-D95: run
-in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell
+the rows that need it "staging". Lever pairs go to the client first; ids come from lever replies (S25). run
+in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
 passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_messages.py
@@ -75,14 +75,14 @@ KEY = "48889"
 OPTS = {"noAlienPanicMessages": True}   # spec (f): both instances
 A_ID = RM.A_ID                    # 1000000: the only alien at bring-up (STR_SECTOID_SOLDIER), the client's seat 1
 W_ID, S_ID, PP_ID = 11, 12, 8     # PS1's target, the DM1 bleed-out, PP1's attacker (U2-1.6 item 5; no swap)
-SHOOTER_B, VICTIM_B = 13, 14      # R-U2-SD-1: no row uses them; both outside A's sight
-FACE = 4                          # every X-COM unit: A outside its view sector, A still sees 8..11 (TASK 0)
+SHOOTER_B, VICTIM_B = 13, 14      # no row uses them; both outside A's sight
+FACE = 4                          # every X-COM unit: A outside its view sector, A still sees 8..11
 TILES = {u: (t, d if u == A_ID else FACE) for u, (t, d) in RM.TILES.items()}
-FLOOR_B = (37, 37, 0)             # R5-U4's FLOOR rule from 13 on (33,33,0): k 4, d 3 on both censuses (TASK 0)
+FLOOR_B = (37, 37, 0)             # R5-U4's FLOOR rule from 13 on (33,33,0): k 4, d 3 on both censuses
 B_TYPE = "STR_SECTOID_SOLDIER"
-TU = {A_ID: 54, PP_ID: 64, SHOOTER_B: 61}   # bring-up TUs (TASK 0)
+TU = {A_ID: 54, PP_ID: 64, SHOOTER_B: 61}   # bring-up TUs
 SEED_PS1 = SEED_PN1 = SEED_PP1 = SEED_B = 1
-KEY_PANIC, CT_PSI, PSI_ROWS = 50, 3, 3      # the amp's PANIC key, its cursor, its menu rows (TASK 0)
+KEY_PANIC, CT_PSI, PSI_ROWS = 50, 3, 3      # the amp's PANIC key, its cursor, its menu rows
 K_MORALE, K_MIND = "STR_MORALE_ATTACK_SUCCESSFUL", "STR_MIND_CONTROL_SUCCESSFUL"
 K_UNDER, K_PANICKED, K_FATAL = "STR_IS_UNDER_ALIEN_CONTROL", "STR_HAS_PANICKED", "STR_HAS_DIED_FROM_A_FATAL_WOUND"
 STATUS_DEAD, STATUS_PANICKING = 6, 8
@@ -198,7 +198,7 @@ def side_change(host, client, presser, side, turn, where, seed=None, at_roll=Non
 
 
 def psi_press(gc, host, tile, seed, ev, key=KEY_PANIC, cursor=CT_PSI, rows=PSI_ROWS):
-    """RM.psi_press with the action key, its cursor and the menu rows as parameters (F10917): the right-hand box
+    """RM.psi_press with the action key, its cursor and the menu rows as parameters: the right-hand box
     (self-verified), `rows` rows, `key` -> `cursor`, HOME, the host's set_seed right before ONE verified click."""
     if battle_state(gc).get("cursorType") in RM.CURSOR_TARGETING:
         RM.click_nth(gc, RM.RHAND_NTH)
@@ -225,7 +225,7 @@ def psi_press(gc, host, tile, seed, ev, key=KEY_PANIC, cursor=CT_PSI, rows=PSI_R
 def cancel_aim(gc, ev):
     c1 = battle_state(gc).get("cursorType")
     if c1 in RM.CURSOR_TARGETING and G3F.top(gc) == "BattlescapeState":
-        RM.click_nth(gc, RM.RHAND_NTH)   # the right-hand box cancels a leftover aim (F503)
+        RM.click_nth(gc, RM.RHAND_NTH)   # the right-hand box cancels a leftover aim
     ev["cancel"] = [c1, battle_state(gc).get("cursorType")]
 
 
@@ -438,7 +438,7 @@ def row_dm1(host, client, crash0):
     s0 = snap(host, client)
     ev["side"] = side_change(host, client, client, FACTION_PLAYER, 3, "DM1 client END TURN")
     dead = dead_cell(host, client, S_ID, ev)
-    ev["drain"], ev["after"] = host_drained(host, client, "DM1 after")   # cap-battle (F23981)
+    ev["drain"], ev["after"] = host_drained(host, client, "DM1 after")   # cap-battle
     rg = ring(s0, host, client)
     evidence(ev, host, client, rg)
     hr = has(rg["host"], unit=S_ID, key=K_FATAL, owner="own")

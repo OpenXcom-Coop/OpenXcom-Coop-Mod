@@ -18,11 +18,11 @@
 #include "connection_lan_discovery.h"
 #include "rendezvous_config.h"
 #include "../connectionTCP.h"
-// SPEC 16 (W1-P17) M1: handleUdpRemotePeerLost() below needs
+// SPEC 16 M1: handleUdpRemotePeerLost() below needs
 // coopBattleAuthority()/isCoopBattle() for the mid-Active-battle peer-leave
 // gate - the same reason connectionTCP.cpp includes this header directly.
 #include "../BattleAuthority.h"
-// coop W2-H24 S-B (QH24-3 (a)): handleUdpRemotePeerLost() records a fresh battle start before its reset.
+// coop W2-H24 S-B: handleUdpRemotePeerLost() records a fresh battle start before its reset.
 #include "../CoopHandshake.h"
 
 #include <array>
@@ -362,7 +362,7 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
 		// Give the old UDP socket time to close before opening a new one
 		// with the same local UDP port during relist.
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-        // coop W2-H24 S-B (D259 (a), F10560): the host gave up its role in that second - a failed co-op skirmish start
+        // coop W2-H24 S-B: the host gave up its role in that second - a failed co-op skirmish start
         // unwound to the main menu, whose init ended the session (MainMenuState::init: setServerOwner(false),
         // disconnectTCP(true), resetSession()). The session is over: relist nothing (no re-host behind the main menu).
         if (!connectionTCP::getServerOwner())
@@ -634,7 +634,7 @@ void handleUdpRemotePeerLost()
     // of connectionTCP::disconnectTCP()'s rejoinLost (the spare below, then the pause restored). Read before the clear.
     const bool udpRejoinLost = connectionTCP::getServerOwner() && onConnect != -1 && CoopHandshake::coopHostRejoinPending();
 
-    // SPEC 16 (W1-P17) M1 (F331 gate) - the UDP twin of
+    // SPEC 16 M1 (F331 gate) - the UDP twin of
     // connectionTCP::disconnectTCP()'s host branch: a mid-`Active`-battle
     // peer loss on the HOST keeps the co-op battle authority ALIVE instead
     // of tearing it down to Idle. Must be read BEFORE clearNetworkSessionQueues()
@@ -652,9 +652,9 @@ void handleUdpRemotePeerLost()
     // Drop packets from the old peer before the host relists or the client
     // returns to menus. This matches a fresh process start more closely.
     // SPEC 16 M1: resetAuthority=false on the mid-Active-battle spare path
-    // (see sparePeerAbsentUdp above). W2-H13 (D220 b, F3701): stopUdpPeer()'s
+    // (see sparePeerAbsentUdp above). stopUdpPeer()'s
     // later clear keeps the authority too while udpPausedBattleHeld().
-    // W2-H13 (F3707, F4505): the UDP twin of disconnectTCP()'s M4 peek. A
+    // the UDP twin of disconnectTCP()'s M4 peek. A
     // battle_leave still queued in g_rxQ (mutex-guarded) would be wiped by the
     // clear below before onTCPMessage() saw it: read it on the way past.
     if (sparePeerAbsentUdp)
@@ -671,7 +671,7 @@ void handleUdpRemotePeerLost()
                 coopBattleAuthority().peerLeftByChoice = true;
         }
     }
-    // coop W2-H24 S-B (QH24-3 (a), F9980): record a fresh co-op battle start in flight before the clear below resets
+    // coop W2-H24 S-B: record a fresh co-op battle start in flight before the clear below resets
     // it, so the main thread's disconnectTCP() still unwinds it as a failed start (the TCP path reads it before its reset).
     if (connectionTCP::getServerOwner() && onConnect != -1)
         CoopHandshake::latchFreshStartLostUdp();

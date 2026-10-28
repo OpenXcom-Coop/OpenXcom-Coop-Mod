@@ -62,7 +62,7 @@
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/CoopArbiter.h"
 #include "../CoopMod/BattleAuthority.h"
-#include "../CoopMod/SharedEcon.h" // coop W2-H20 (D255 a)
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {
@@ -82,8 +82,8 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_resetCustomDeploymentBackup(false), _reloadUnit(false), _globalLayoutIndex(-1)
 {
 	_battleGame = _game->getSavedGame()->getSavedBattle();
-	if (_base && !_tu) coopBaseInvScreen(this, _game); // coop EQ-3 S-A (owner D294 b): a SHARED base screen shows the partner's soldiers read-only
-	if (_base && !_tu) coopBasePresenceScreen(this, _game, _base, _noCraft); // coop EQ-3 S-B (VL-EQ3-1): the partner's pointer on this pile
+	if (_base && !_tu) coopBaseInvScreen(this, _game); // coop EQ-3 S-A: a SHARED base screen shows the partner's soldiers read-only
+	if (_base && !_tu) coopBasePresenceScreen(this, _game, _base, _noCraft); // coop EQ-3 S-B: the partner's pointer on this pile
 
 	if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
 	{
@@ -116,7 +116,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtPosition = new Text(70, 9, 65, 95);
 	_txtNameStatic = new Text(210, 17, 28, 6);
 	_txtName = new TextEdit(this, 210, 17, 28, 6);
-	_txtCoopOwner = new Text(210, 17, 28, 18); // coop EQ-1: the release line's owner line (its rect)
+	_txtCoopOwner = new Text(210, 17, 28, 18); // coop: the release line's owner line (its rect)
 	_txtTus = new Text(40, 9, 245, 24);
 	_txtWeight = new Text(70, 9, 245, 24);
 	_txtStatLine1 = new Text(70, 9, 245, 32);
@@ -160,7 +160,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	add(_btnQuickSearch, "textItem", "inventory");
 	add(_txtNameStatic, "textName", "inventory", _bg);
 	add(_txtName, "textName", "inventory", _bg);
-	add(_txtCoopOwner, "textCoopOwner", "inventory", _bg); // coop EQ-1: the release line's interface id (no ruleset element)
+	add(_txtCoopOwner, "textCoopOwner", "inventory", _bg); // coop: the release line's interface id (no ruleset element)
 	add(_txtTus, "textTUs", "inventory", _bg);
 	add(_txtWeight, "textWeight", "inventory", _bg);
 	add(_txtStatLine1, "textStatLine1", "inventory", _bg);
@@ -200,7 +200,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtName->setHighContrast(true);
 	_txtName->onChange((ActionHandler)&InventoryState::edtSoldierChange);
 	_txtName->onMousePress((ActionHandler)&InventoryState::edtSoldierPress);
-	_txtCoopOwner->setHighContrast(true); // coop EQ-1: shown only over a partner's soldier (coopEquipApplyViewLook)
+	_txtCoopOwner->setHighContrast(true); // coop: shown only over a partner's soldier (coopEquipApplyViewLook)
 	_txtCoopOwner->setVisible(false);
 
 	if (Options::oxceLinksDisableTextEdit)
@@ -371,7 +371,7 @@ InventoryState::~InventoryState()
 	coopBaseInvScreen(this, nullptr); // coop EQ-3 S-A: forgotten with this screen (before W2-H21's early return)
 	coopBasePresenceScreen(this, nullptr, nullptr, false); // coop EQ-3 S-B: and its pile key
 
-	// coop W2-H21 (F8598): a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
+	// coop: a world swap (a SHARED restream's adoption, a co-op battle entry) deleted this screen's battle before this deferred
 	// delete ran: touch none of it. The swap already set the display for the screen that replaced this one.
 	if (!_game->getSavedGame() || _game->getSavedGame()->getSavedBattle() != _battleGame) return;
 
@@ -479,8 +479,8 @@ void InventoryState::init()
 	_txtName->setText(unit->getName(_game->getLanguage()));
 
 	_btnLinks->setVisible(Options::oxceLinks);
-	coopEquipApplyOkLook(_btnOk, _tu, _parent != 0); // W2-P8b
-	coopEquipApplyViewLook(_game, unit, _tu, _parent != 0, _btnUnload, _btnCreateTemplate, _btnApplyTemplate, _txtCoopOwner); // coop EQ-1 (D288 b)
+	coopEquipApplyOkLook(_btnOk, _tu, _parent != 0);
+	coopEquipApplyViewLook(_game, unit, _tu, _parent != 0, _btnUnload, _btnCreateTemplate, _btnApplyTemplate, _txtCoopOwner); // coop
 
 	bool resetGroundOffset = _tu;
 	if (unit->isSummonedPlayerUnit())
@@ -612,7 +612,7 @@ void InventoryState::init()
  */
 void InventoryState::edtSoldierPress(Action *action)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) { _txtName->setFocus(false); return; } // coop EQ-1 (D289 a): a partner's soldier is not renamed
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) { _txtName->setFocus(false); return; } // coop: a partner's soldier is not renamed
 	if (_btnLinks->getVisible())
 	{
 		double mx = action->getAbsoluteXMouse();
@@ -798,7 +798,7 @@ void InventoryState::saveEquipmentLayout()
  */
 void InventoryState::btnArmorClick(Action *action)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A (D294 b, D289 a): no armor screen for a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A: no armor screen for a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -854,7 +854,7 @@ void InventoryState::btnArmorClick(Action *action)
  */
 void InventoryState::btnArmorClickRight(Action *action)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A (D294 b, D289 a): no avatar screen for a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A: no avatar screen for a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -932,7 +932,7 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 
 	// create new template
 	_createInventoryTemplate(*tmpl);
-	coopNoteInvLayoutSave(_battleGame->getSelectedUnit(), "save_global", index, *tmpl); // W2-P8b
+	coopNoteInvLayoutSave(_battleGame->getSelectedUnit(), "save_global", index, *tmpl);
 
 	// optionally save armor info too
 	if (includingArmor && _battleGame->getSelectedUnit()->getGeoscapeSoldier())
@@ -1054,7 +1054,7 @@ bool InventoryState::tryArmorChange(const std::string& armorName)
 */
 void InventoryState::btnGlobalEquipmentLayoutClick(Action *action)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1119,7 +1119,7 @@ void InventoryState::btnGlobalEquipmentLayoutClick(Action *action)
 */
 void InventoryState::btnInventoryLoadClick(Action *)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1141,7 +1141,7 @@ void InventoryState::btnInventoryLoadClick(Action *)
 */
 void InventoryState::btnInventorySaveClick(Action *)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no layout tool on a partner's soldier
 	// don't accept clicks when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
@@ -1174,7 +1174,7 @@ void InventoryState::btnOkClick(Action *)
 {
 	if (_inv->getSelectedItem() != 0)
 		return;
-	if (coopEquipReadyPress(_btnOk, _tu, _parent != 0)) return; // W2-P8b
+	if (coopEquipReadyPress(_btnOk, _tu, _parent != 0)) return;
 	_game->popState();
 	if (!_tu)
 	{
@@ -1182,7 +1182,7 @@ void InventoryState::btnOkClick(Action *)
 		{
 			saveEquipmentLayout();
 		}
-		if (_base) SharedEcon::baseEquipOk(_game, _base); // coop W2-H20 (D255 a): own soldiers' gear to the host, the partner's put back
+		if (_base) SharedEcon::baseEquipOk(_game, _base); // coop: own soldiers' gear to the host, the partner's put back
 		if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
 		{
 			// assign all soldiers back, if possible
@@ -1219,7 +1219,7 @@ void InventoryState::btnPrevClick(Action *)
 	}
 
 	if (coopEquipCycleOwnUnit(_battleGame, -1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
-	if (coopEquipCycleView(_parent, _tu, -1)) { init(); return; } // coop EQ-1 (D288 b): the partner's soldiers too, read-only
+	if (coopEquipCycleView(_parent, _tu, -1)) { init(); return; } // coop: the partner's soldiers too, read-only
 	if (_parent)
 	{
 		_parent->selectPreviousPlayerUnit(false, false, true);
@@ -1242,7 +1242,7 @@ void InventoryState::btnNextClick(Action *)
 		return;
 	}
 	if (coopEquipCycleOwnUnit(_battleGame, 1)) { init(); return; } // coop R5-U6 S-E (R-U6-OF3): the PvP alien seat's own units
-	if (coopEquipCycleView(_parent, _tu, 1)) { init(); return; } // coop EQ-1 (D288 b): the partner's soldiers too, read-only
+	if (coopEquipCycleView(_parent, _tu, 1)) { init(); return; } // coop: the partner's soldiers too, read-only
 	if (_parent)
 	{
 		_parent->selectNextPlayerUnit(false, false, true);
@@ -1411,7 +1411,7 @@ void InventoryState::btnCreateTemplateClick(Action *)
 
 void InventoryState::btnCreatePersonalTemplateClick(Action *)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1434,7 +1434,7 @@ void InventoryState::btnCreatePersonalTemplateClick(Action *)
 
 		// create new personal template
 		_createInventoryTemplate(personalTemplate);
-		coopNoteInvLayoutSave(unit, "save_personal", -1, personalTemplate); // W2-P8b
+		coopNoteInvLayoutSave(unit, "save_personal", -1, personalTemplate);
 
 		// optionally save armor info too
 		if (Options::oxcePersonalLayoutIncludingArmor)
@@ -1457,7 +1457,7 @@ void InventoryState::btnCreatePersonalTemplateClick(Action *)
 
 void InventoryState::_applyInventoryTemplate(std::vector<EquipmentLayoutItem*> &inventoryTemplate)
 {
-	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "apply", &inventoryTemplate)) return; // W2-P8b
+	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "apply", &inventoryTemplate)) return;
 	BattleUnit               *unit          = _battleGame->getSelectedUnit();
 	Tile                     *groundTile    = unit->getTile();
 	std::vector<BattleItem*> *groundInv     = groundTile->getInventory();
@@ -1678,7 +1678,7 @@ void InventoryState::btnApplyTemplateClick(Action *)
 
 void InventoryState::btnApplyPersonalTemplateClick(Action *)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-1 (D289 a): no layout tool on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop: no layout tool on a partner's soldier
 	// cannot use this feature during the mission!
 	if (_tu)
 	{
@@ -1770,7 +1770,7 @@ void InventoryState::onClearInventory(Action *)
 		return;
 	}
 
-	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "clear", nullptr)) return; // W2-P8b
+	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "clear", nullptr)) return;
 	BattleUnit               *unit       = _battleGame->getSelectedUnit();
 	Tile                     *groundTile = unit->getTile();
 
@@ -1787,14 +1787,14 @@ void InventoryState::onClearInventory(Action *)
 
 void InventoryState::onAutoequip(Action *)
 {
-	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A (D289 a): the links menu's AUTO-EQUIP does nothing on a partner's soldier
+	if (coopEquipPartnerView(_inv->getSelectedUnit())) return; // coop EQ-3 S-A: the links menu's AUTO-EQUIP does nothing on a partner's soldier
 	// don't act when moving items
 	if (_inv->getSelectedItem() != 0)
 	{
 		return;
 	}
 
-	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "autoequip", nullptr)) return; // W2-P8b
+	if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), "autoequip", nullptr)) return;
 	BattleUnit               *unit          = _battleGame->getSelectedUnit();
 	Tile                     *groundTile    = unit->getTile();
 	std::vector<BattleItem*>  groundInv     = *groundTile->getInventory();

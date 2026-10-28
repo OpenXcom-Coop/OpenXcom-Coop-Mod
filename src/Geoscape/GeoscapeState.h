@@ -70,7 +70,7 @@ private:
 	Text *_peerScreenMarker[6];
 	Timer *_gameTimer, *_zoomInEffectTimer, *_zoomOutEffectTimer, *_dogfightStartTimer, *_dogfightTimer;
 	bool _pause, _zoomInEffectDone, _zoomOutEffectDone;
-	// coop W2-H92 (D304 (a)): set by popup(), cleared by the first timeAdvance() that runs with no popup in the way; a co-op
+	// coop: set by popup(), cleared by the first timeAdvance() that runs with no popup in the way; a co-op
 	// client's "time" heartbeat asks the host to hold the shared clock while it is set (see think()).
 	bool _coopPopupHold = false;
 	Text *_txtDebug;
@@ -103,7 +103,7 @@ private:
 	// this - NOT the replica's own local minimize - gates whether the world clock runs,
 	// so host and replica agree regardless of a replica's per-machine minimize choice.
 	bool _dfHostAnyOpen = true;
-	// coop W2-H24 S-C1 (D260 (b)): the index (SavedGame::getBases()) of the base whose co-op base defense waits for the
+	// coop W2-H24 S-C1: the index (SavedGame::getBases()) of the base whose co-op base defense waits for the
 	// partner after its start failed on a lost partner; -1 = none. think() starts it again once RESUME made this the top state.
 	int _coopRearmBase = -1;
 	/// coop W2-H24 S-C1: starts the waiting base defense again (host, partner back, no battle in flight).
@@ -140,7 +140,7 @@ public:
 	~GeoscapeState();
 	// coop
 	void startCoopMission();
-	/// coop W2-H24 S-C1 (D260 (b)): the start of this host's co-op base defense failed on a lost partner - put back what
+	/// coop W2-H24 S-C1: the start of this host's co-op base defense failed on a lost partner - put back what
 	/// it took from the base and wait for the partner (think() starts it again); returns the battle marks cleared.
 	int coopRearmBaseDefense();
 	/// coop D250-U S-C5b2 (owner D250, O1 (a)): HOST, while it borrows the X-COM world - starts the X-COM player's base defence there
@@ -282,21 +282,21 @@ public:
 	/// coop W2-H76 (R-BH4-1 fix (a)): ends and deletes every dogfight (open, minimized or waiting to start) on @a ufo; co-op code
 	/// calls it right before it deletes that UFO (a partner's mirror), as vanilla's time5Seconds() does for a destroyed UFO.
 	void coopDropDogfightsFor(Ufo* ufo);
-	/// coop W2-H81 (R-LH76-1-1 (e)): drops (deletes) every queued popup that holds one of @a doomed - co-op mirrors about to be
+	/// coop: drops (deletes) every queued popup that holds one of @a doomed - co-op mirrors about to be
 	/// deleted - so none opens later on a freed object. Returns how many were dropped.
 	int coopDropQueuedPopupsHolding(const std::vector<Target*>& doomed);
 	/// Test-harness: dogfights queued but not yet started.
 	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
-	/// coop W2-H76 test-harness (R-BH4-1): the dogfights (@a pending: those queued to start) whose UFO pointer is not in the
+	/// coop W2-H76 test-harness: the dogfights (@a pending: those queued to start) whose UFO pointer is not in the
 	/// saved game's UFO list - compared as pointers, never dereferenced.
 	int harnessDanglingDogfights(bool pending) const;
 	/// coop W2-H76 test-harness: how many such dogfights handleDogfights() has met since the game started (every GeoscapeState).
 	static int harnessDanglingDogfightsSeen();
-	/// coop W2-H81 (R-LH76-1-1): the pointers a geoscape popup (UfoDetectedState, MissionDetectedState, TargetInfoState, InterceptState,
+	/// coop: the pointers a geoscape popup (UfoDetectedState, MissionDetectedState, TargetInfoState, InterceptState,
 	/// ConfirmDestinationState, MultipleTargetsState, UfoTrackerState, GeoscapeCraftState) holds; copied, never dereferenced. Returns
 	/// true when @a state is such a popup, even one that holds nothing.
 	static bool coopHeldTargets(State* state, std::vector<Target*>& out);
-	/// coop W2-H83 S-C (R-LT18-1): the crafts a geoscape window or notice holds - the INTERCEPT list, a destination pick, list or confirm,
+	/// coop W2-H83 S-C: the crafts a geoscape window or notice holds - the INTERCEPT list, a destination pick, list or confirm,
 	/// a patrol, dogfight, landing, Cydonia or pilots notice (in SHARED: the crafts of every base); copied, never dereferenced. Returns
 	/// true when @a state is one of those nine windows, even one that holds nothing.
 	static bool coopHeldCrafts(State* state, std::vector<Target*>& out);
@@ -313,7 +313,7 @@ public:
 	void btnTimerClick(Action *action);
 	/// Selects a time-speed button by index (0=5s,1=1min,2=5min,3=30min,4=1hr,5=1day). For the test harness.
 	void setTimeSpeedIndex(int idx);
-	/// WV-D108: the index of the currently selected time-speed button in the same order, or -1. For the test harness.
+	/// the index of the currently selected time-speed button in the same order, or -1. For the test harness.
 	int getTimeSpeedIndex() const;
 	/// Updates the co-op ally markers on the speed/toolbar buttons.
 	void updatePeerSpeedIndicators();

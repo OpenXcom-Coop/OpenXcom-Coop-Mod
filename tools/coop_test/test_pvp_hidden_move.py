@@ -33,8 +33,8 @@ Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, n
 RED at D1: H1-screen, H2-after, H3-hidden, H8-hidden, H4-during; every other cell PASS. One EVIDENCE line per row, one
 PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
 CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging". Lever
-pairs go to the client first (F607); ids come from lever replies (S25). WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+pairs go to the client first; ids come from lever replies (S25). run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_hidden_move.py
 """

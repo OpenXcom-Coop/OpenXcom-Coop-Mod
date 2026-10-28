@@ -1,4 +1,4 @@
-"""W2-H32 - test_ai_mc_soldier.py: in a co-op battle the alien AI acts with a
+"""test_ai_mc_soldier.py: in a co-op battle the alien AI acts with a
 soldier it mind-controlled in that same alien turn, as in vanilla (spec
 rewrite/prompts/w2h32_ai_uses_mc_soldier.md section (f); TASK 0 pins
 rewrite/w2h32-task0/CONSTANTS.md, boots Pa / Pb equal; lead L-H29-2, F11677;
@@ -34,9 +34,9 @@ EVIDENCE line before its cell lines.
 RED at H1 (no product line): AM-ai only; AM-mc, AM-flow, AM-back, AM-common
 PASS. GREEN (E1, connectionTCP.cpp coopMaySelectUnit): every cell PASS.
 
-WV-D99 / WV-D100: one run is the result; no skip path, no second boot, no
+one run is the result; no skip path, no second boot, no
 alternative map, actor or seed. Exit 0 only when every cell passes, else 2.
-WV-D95: run in the foreground to completion.
+run in the foreground to completion.
 
 Run:  python tools/coop_test/test_ai_mc_soldier.py
 """

@@ -27,7 +27,7 @@ lane crash folder.
 RED on the unchanged product (commit A1): AR3-draw, LV3-up, CF3-box, AC3-own, AC3-opp, AM3-mark, LX3-level; every other
 cell PASS (LX3-ctrlf and GP3-ctl are guards). One EVIDENCE line per row, one PASS/FAIL line per cell, then the row
 verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a
-staging step past its bound fails the rows that need it "staging". WV-D95: run in the foreground to completion. WV-D99 /
+staging step past its bound fails the rows that need it "staging". run in the foreground to completion. WV-D99 /
 WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_controls_gm3.py
@@ -54,7 +54,7 @@ ROWS = (("AR3", ("AR3-pre", "AR3-draw", "AR3-common")), ("LV3", ("LV3-up", "LV3-
 
 
 def select_a(host):
-    """The host holds A at side 1 turn 1 (W2-H36); else ONE TAB + tab_select(A) (R-H27-A-1). Returns evidence."""
+    """The host holds A at side 1 turn 1; else ONE TAB + tab_select(A). Returns evidence."""
     ev = {"sel0": battle_state(host).get("selectedId")}
     if ev["sel0"] != A_ID:
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})

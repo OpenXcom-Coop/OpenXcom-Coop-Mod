@@ -13,7 +13,7 @@ C3-log RED, C3-ids RED, C3-key RED, C3-common GUARD. Red (commit R1): RED exactl
 C3-log, C3-ids, C3-key (9 of 13). KEPT = '[coop] W2-H79:' lines in the client's log since read B. ONE EVIDENCE line per row, one PASS / FAIL
 line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row (later cells "not reached"); a boot or
 construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info, get_coop, the last 40 log lines of each
-machine); exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100). WV-D95: one foreground run per invocation.
+machine); exit 0 only when every cell passes, else 2. one foreground run per invocation.
 Run: python tools/coop_test/test_visit_saveid_window.py
 """
 import json, os, re, sys, time  # noqa: E401

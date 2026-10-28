@@ -12,7 +12,7 @@ like SP, then offerBattle() ships it, for BOTH "coop" (SEPARATE) and "shared"
 campaigns alike (both are gamemode 0/1 "classic" under RB-D18 - PvP/PvE2 are
 the only gamemodes the interim handshake refuses).
 
-FX-1 (WV-D56): the host must click its briefing OK BEFORE waiting for the
+FX-1: the host must click its briefing OK BEFORE waiting for the
 client's battle entry. That click runs startFirstTurn() and emits the prepared
 battle offer. The client reaches BattlescapeState only after the streamed blob
 is verified and loaded, with a read-only entry briefing above it. Assertions mirror
@@ -36,7 +36,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8g (F9215): run_mode's clean-up
+from harness import shutdown_clients  # run_mode's clean-up
 import session
 
 
@@ -180,7 +180,7 @@ def run_mode(mode, test_ports, coop_port):
         print(f"PASS {mode}: both players loaded {battles[0]['missionType']} "
               f"with identical Mars map fingerprint {battles[0]['mapFingerprint']}")
     finally:
-        # W2-U8g (F9215): main catches this raise and runs the next mode, so a failed host shutdown must not
+        # main catches this raise and runs the next mode, so a failed host shutdown must not
         # leave the client running beside it (shutdown_clients shuts every peer down before it raises)
         shutdown_clients(host, client)
 

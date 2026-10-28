@@ -29,7 +29,7 @@ M1 is a stage-2 cell: on the red its stage-1 half reads RESEARCH_COUNT_D and its
 
 The row prints ONE "EVIDENCE MS5:" line before its verdict, then "PASS MS5" or "FAIL MS5: <cells>" and, on a FAIL,
 ONE "CAPTURE MS5:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past its
-bound fails the row `boot` with one CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0
+bound fails the row `boot` with one CAPTURE line. ONE foreground run, no skip path; exit 0
 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_multistage_campaign.py

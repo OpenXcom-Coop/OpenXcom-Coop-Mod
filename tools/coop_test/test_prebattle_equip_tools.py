@@ -1,5 +1,5 @@
-"""W2-P8b - test_prebattle_equip_tools.py: the pre-battle bulk tools for the second
-player (stage S-C). Owner D207 a: every pre-battle tool works for the second player,
+"""test_prebattle_equip_tools.py: the pre-battle bulk tools for the second
+player (stage S-C). every pre-battle tool works for the second player,
 each executed by the host - the template buttons, the personal and the global
 layouts, clear and auto-equip become ONE tracked `inv_bulk` order each (op apply /
 clear / autoequip) that the host performs; Q9 (a) / D209 a: a layout the second
@@ -32,7 +32,7 @@ stripped on both machines; C1 gets L1 = a rifle loaded with a rifle clip in
 STR_RIGHT_HAND + a grenade on STR_BELT (0,0); C2 gets L2 = a pistol loaded with a
 pistol clip in STR_LEFT_HAND + a smoke grenade on STR_BELT (1,0) (battle_give); one
 rifle, one rifle clip and one grenade dropped on PILE (battle_drop), so every apply
-finds its types on the pile whatever the stock pile holds (F3327). A layout is
+finds its types on the pile whatever the stock pile holds. A layout is
 compared by its signature: per item (type, slot, slotX/slotY (hands: none), loaded
 ammo types, fuse), sorted.
 The personal save (spine): the client's screen on C2, key keyInvSavePersonalEquipment
@@ -114,9 +114,9 @@ test_prebattle_equip.py (Boot A's bring-up, the same seed).
 
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
 "PASS <id>" / "FAIL <id>: <message>" (the RED cell first); main() runs every row even
-after an earlier one failed. Every wait is bounded. WV-D99 / WV-D100: one run is the
+after an earlier one failed. Every wait is bounded. one run is the
 result; no skip path, no second boot. Exit 0 only when every row passes, 2 otherwise (a
-bring-up or spine failure is also 2). WV-D95: run in the foreground to completion.
+bring-up or spine failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_prebattle_equip_tools.py
 """
@@ -149,7 +149,7 @@ L1_GIVE = ((RIFLE_T, {"ammo": CLIP_T}),                                   # STR_
            (GRENADE_T, {"slot": BELT, "slotX": 0, "slotY": 0}))
 L2_GIVE = ((PISTOL_T, {"slot": "left", "ammo": PISTOL_CLIP_T}),           # STR_LEFT_HAND
            (SMOKE_T, {"slot": BELT, "slotX": 1, "slotY": 0}))
-PILE_DROPS = (RIFLE_T, CLIP_T, GRENADE_T)   # L1's types on the pile, whatever the stock pile holds (F3327)
+PILE_DROPS = (RIFLE_T, CLIP_T, GRENADE_T)   # L1's types on the pile, whatever the stock pile holds
 
 # the inventory keys (Options.cpp at 8b17af3c5 :357-360 and :540-541; harness.py HERMETIC_OPTIONS :327-342 sets
 # none of them): SDL syms, used only when the client's options.cfg does not carry the key
@@ -168,7 +168,7 @@ PROX_T = "STR_PROXIMITY_GRENADE"
 EQ27_PILE_PROX = 3
 H1, H2 = H_IDS[0], H_IDS[1]        # the host control: H1 = the template source, H2 = its target
 TEXT_SHORT = "Not enough items to copy template!"   # STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE (xcom1 en-US / en-GB)
-LINE_READ_S = 1.5                  # F3112: the line fades 1.2 s after a show; read inside it, record +1.5 s
+LINE_READ_S = 1.5                  # the line fades 1.2 s after a show; read inside it, record +1.5 s
 
 
 # ===================== probes =====================
@@ -313,7 +313,7 @@ def spine_stage(host, client, ctx):
     rec = {"ids": {}}
     ctx["staged"] = rec
     try:
-        session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
+        session.wait_seq_barrier(host, client)  # the host's first evs applied before staging
         rec["stripped"] = {uid: strip_both(host, client, uid) for uid in (C1, C2)}
         for uid, gives in ((C1, L1_GIVE), (C2, L2_GIVE)):
             for t, extra in gives:

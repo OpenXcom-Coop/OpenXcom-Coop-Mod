@@ -8,7 +8,7 @@ TWO single-player processes on ONE user dir (label 49114, dir d247u_c; the label
 Process 1: bring-up (open_new_battle, newbattle_mission, newbattle_race, newbattle_hotseat on, set_seed SEED_A, newbattle_ok,
 close_briefing, the start overlays), X-COM END, the "Side: Aliens" screen (FX_STASH = X-COM's map), close it, player 2's real-UI
 walk of A to A_DEST (FA_SAVE = player 2's map), the real F5 quicksave (`save_game_ui {type quick_battle}`), quit. Process 2, same
-dir, the real load route (R-D247-SC-2): the LOAD button's `hidden` false, click_widget "Load Game", the list's `hidden` false, a
+dir, the real load route: the LOAD button's `hidden` false, click_widget "Load Game", the list's `hidden` false, a
 click on the quicksave's row (found by its NAME in vanilla's order: reserved saves first, newest file time first; only row 0 is
 clickable, the row height is not readable), BattlescapeState on top with A on A_DEST (the turn-1 autosave has A elsewhere).
 Rows (one EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; a failed precondition FAILs "blocked: <reason>"):
@@ -16,11 +16,11 @@ Rows (one EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; a
   S1  S1-armed (get_coop.hotseat true), S1-turn (side 0, turn 1, every live alien faction 0), S1-fog (player 2's map == FA_SAVE)
   S2  END, the side-0 screen, close, settle (<= 10 s): S2-handback (turn 2, side 0, every live unit faction == originalFaction),
       S2-fogX (X-COM's map has every bit of FX_STASH). Another side's screen first = "blocked"; a settle timeout = "not settled".
-R-D247-SC-1 (F16681): a battle save writes only non-void tiles (SavedBattleGame::save; Tile::isVoid: no part, smoke or item), so
+a battle save writes only non-void tiles (SavedBattleGame::save; Tile::isVoid: no part, smoke or item), so
 both map cells read only the non-void tiles (tile_census of every level + battle_items on tiles, in the loaded battle) and print
 the void-tile difference count as EVIDENCE.
 Red (C1, the S-B green build): S1-armed, S2-handback, S2-fogX FAIL; S1-turn, S1-fog, save-common PASS. Exit 0 only when every cell
-passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). WV-D95: run it in the foreground to completion.
+passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). run it in the foreground to completion.
 
 Run: python tools/coop_test/test_hotseat_save.py
 """
@@ -121,7 +121,7 @@ class Boot:
         raise TimeoutError("timed out: " + desc)
 
     def shown(self, pick, timeout=5):
-        """R-D247-SC-2: poll until the widget `pick` selects is visible and not hidden (a POPUP window hides every surface
+        """poll until the widget `pick` selects is visible and not hidden (a POPUP window hides every surface
         until its popup ends). -> the widget, or None on timeout."""
         end = time.time() + timeout
         while time.time() < end:
@@ -215,7 +215,7 @@ class Boot:
         return None
 
     def nonvoid(self):
-        """R-D247-SC-1: the tile indexes a battle save writes (Tile::isVoid false): any part, smoke or an item on the tile."""
+        """the tile indexes a battle save writes (Tile::isVoid false): any part, smoke or an item on the tile."""
         fd = self.gc.ok({"cmd": "find_doors", "limit": 0})
         X, Y, Z = fd["mapSizeX"], fd["mapSizeY"], fd["mapSizeZ"]
         items = {(it["tx"], it["ty"], it["tz"]) for it in self.gc.ok({"cmd": "battle_items"})["items"] if it.get("onTile")}
@@ -233,7 +233,7 @@ class Boot:
 
 
 def compare(a, b, idx, n, superset):
-    """R-D247-SC-1: a == b (or a has every bit of b) on the non-void tiles idx. -> (holds, void tiles where it does not)."""
+    """a == b (or a has every bit of b) on the non-void tiles idx. -> (holds, void tiles where it does not)."""
     def ok(i):
         x, y = int(a[2 * i:2 * i + 2], 16), int(b[2 * i:2 * i + 2], 16)
         return (x & y) == y if superset else x == y
@@ -359,7 +359,7 @@ def row_s1(B, ctx):
         shutil.copyfile(log, os.path.join(udir_path(), "openxcom_p1.log"))
     ev["files"] = save_files()
 
-    # ---- process 2 on the same user dir: the real load route (R-D247-SC-2) ----
+    # ---- process 2 on the same user dir: the real load route ----
     gc2 = ctx["gc2"] = harness.GameClient("d247u_c_load", LABEL, udir_path())
     B2 = ctx["B2"] = Boot(gc2)
     gc2.spawn()
@@ -431,7 +431,7 @@ def row_s2(B, ctx):
     evidence("S2", ntsSide=nts.get("side"), ntsTurn=nts.get("turn"), ntsTexts=nts_txt, settled=settled, side=b.get("side"),
              turn=b.get("turn"), stack=st, popups=pops, mismatch=mism, xFloor=nfloor(xm),
              fxFloor=nfloor(ctx["FX_STASH"]), voidTilesMissing=voidd)
-    if not settled:  # R-D247-SA-3: no vacuous pass after a timed-out settle
+    if not settled:  # no vacuous pass after a timed-out settle
         fail_rest("S2", "not settled in 10 s: side %r turn %r busy %r stack %s" % (b.get("side"), b.get("turn"), b.get("isBusy"), st))
         return
     cell("S2-handback", b.get("turn") == 2 and b.get("side") == 0 and not mism,

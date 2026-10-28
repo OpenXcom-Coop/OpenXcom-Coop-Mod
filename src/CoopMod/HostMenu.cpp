@@ -585,7 +585,7 @@ void HostMenu::hostTCPGame(Action* action)
 	{
 		connectionTCP::_coopGamemode = coopLoadedMode;
 	}
-	// coop MG-C (C14, R-MF210-1): `main` #181 also keeps the loaded mode for a saved Custom Battle co-op resume (MG-B).
+	// coop MG-C (C14, R-MF210-1): `main` #181 also keeps the loaded mode for a saved Custom Battle co-op resume.
 	if (!(coopKeepLoadedPvpMode || connectionTCP::session.customBattleResumePending))
 	{
 		connectionTCP::_coopGamemode = 1;
@@ -624,7 +624,7 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	// coop MG-B S-B (owner D237 (b); QMB2-2 (a)): only a single-player Custom Battle hosted from the pause menu (main #181's
+	// coop MG-B S-B: only a single-player Custom Battle hosted from the pause menu (main #181's
 	// CONTINUE BATTLE route, customBattleResumePending) converts, and only when no unit carries seat 1 yet (the scan above); a
 	// campaign never does, and every other host keeps its battle as it is.
 	if (_game->getCoopMod()->getCoopCampaign() == true

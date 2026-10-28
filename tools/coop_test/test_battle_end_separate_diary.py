@@ -24,7 +24,7 @@ RED: the returned guest has no kill with the new mission id (the diary is not co
 W2-P7 S-C-C.1 (PR-C7, the P7-6 C re-pin at 2e177ff39): both rows gain cell 3 (the host's OK + drain) and a LAST cell 4
 (the client's follow-up chain). RED: exactly cell 4 of both rows (the client's chain is empty).
 
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_battle_end_separate_diary.py
 """
@@ -41,7 +41,7 @@ from harness import GameClient, make_user_dir
 # ----- this file's constants -----
 MEDAL_TYPE = "STR_COOP_MEDAL_TEST"        # Coop_Medal_Test's one commendation (criteria totalMissions [1], PR-20)
 MEDAL_MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Medal_Test")
-COOP_PORT_MEDAL = "47220"                 # AMENDMENT P7-6 section 4 (F4545): the diary file = 47220-47222
+COOP_PORT_MEDAL = "47220"                 # AMENDMENT P7-6 section 4: the diary file = 47220-47222
 COOP_PORT_KILL = "47221"
 # W2-P7 S-C-C.1 PR-C7 (A.10): both rows' client follow-up chain = the host's drained follow-ups, 2 equal red-build runs
 CHAIN_DIARY = ["CommendationState", "PromotionsState"]
@@ -49,8 +49,8 @@ CHAIN_DIARY = ["CommendationState", "PromotionsState"]
 
 def precheck_diary(copy):
     """The host's merged 'Guest Zzz' copy must carry this battle in its diary before any OK: the guest's kill was
-    credited, exactly one mission id (a fresh guest on its first battle), a kill under it, and the host-awarded medal
-    (D202 (a)). A miss is a FIXTURE-STOP (the mod did not load, or the kill was not credited)."""
+    credited, exactly one mission id (a fresh guest on its first battle), a kill under it, and the host-awarded medal.
+    A miss is a FIXTURE-STOP (the mod did not load, or the kill was not credited)."""
     if copy.get("kills", 0) < 1:
         return (f"the host's merged 'Guest Zzz' copy has kills {copy.get('kills')!r} (want >= 1: the guest's shot was "
                 f"credited)")
@@ -99,7 +99,7 @@ def _client_return(host, client, ctx):
 
 def cell_medal(host, client, ctx):
     """C28P-medal cell 2 (the RED cell): the returned guest's diary gains this mission's id (MR13), it resolves to the
-    host COPY's mission, and the commendations == the host COPY's and include the medal (D202 a). RED: the diary lacks
+    host COPY's mission, and the commendations == the host COPY's and include the medal. RED: the diary lacks
     the new mission id (B1 does not copy the diary)."""
     f, rec = _client_return(host, client, ctx)
     if f:
@@ -127,7 +127,7 @@ def cell_medal(host, client, ctx):
     for k in ("found", "type", "region", "success"):
         if rm.get(k) != cm.get(k):
             out.append(f"returned mission[{new_id}].{k}={rm.get(k)!r} != host COPY mission[{host_id}].{k}={cm.get(k)!r}")
-    # (3) commendations == the host COPY's and include the medal (D202 a)
+    # (3) commendations == the host COPY's and include the medal
     rcomm = sorted((c.get("type"), c.get("noun"), c.get("level")) for c in (rdiary.get("commendations") or []))
     ccomm = sorted((c.get("type"), c.get("noun"), c.get("level")) for c in (cdiary.get("commendations") or []))
     if rcomm != ccomm:

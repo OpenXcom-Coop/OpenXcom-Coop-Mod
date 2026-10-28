@@ -1,4 +1,4 @@
-"""W2-H77 (R-LH75-3-1, R-H77-2; F21550-F21552, F21885-F21904): in SEPARATE co-op with Research Sync on, a paired certain
+"""in SEPARATE co-op with Research Sync on, a paired certain
 event (coopShared) whose reward is one random research topic teaches BOTH players the host's pick and opens the same article;
 today each machine rolls its own (GE :453) and the sync skips a paired copy (GE :514). Spec docs
 rewrite/prompts/w2h77_event_research_pick.md (f); TASK 0 rewrite/w2h77-task0/sa/CONSTANTS.md. Mod Coop_Event_Pick_Test (spec
@@ -6,16 +6,16 @@ Appendix C): topics STR_H77_P01..Z16; certain events EV_P, EV_Z (month 0), EV_W 
 "49470"), EnableResearchSync on both, boot guard researchMode {shared false, sync true} on both, EV_Z's countdown pinned to
 EVZ_PIN on both right after the bring-up (W2-U9d, R-I63-1: its boot roll is unseeded). Every fire seeds both machines
 (SEEDS: host, client) right before the host's set_event_countdown; the client's copy fires on the host's packet (G:held). Picks
-are read at runtime, no topic is pinned: the host's draws before its pick vary per boot (R-H77-2, F21889-F21892).
-Collision (R-H77-2): the host's pick equals the client's own roll (its seed's one draw over its unknown topics, F21893): the row
+are read at runtime, no topic is pinned: the host's draws before its pick vary per boot.
+Collision: the host's pick equals the client's own roll (its seed's one draw over its unknown topics, F21893): the row
 prints COLLISION and fires once more on the next month's EV_W with host seed + RESEED; a second collision fails it "fixture".
 Rows (8 cells):
   EP-1 month 0, EV_P: sameTopic (RED), sameArticle (RED), noPopup (GUARD cell)
   EP-2 roll_month, EV_W (the X-Com Files red-tape shape): sameTopic (RED), sameArticle (RED), noPopup (GUARD cell)
-  EP-3 research sync off (QH77-1 (a)), EV_Z: ownTopics (GUARD cell), noPopup (GUARD cell)
+  EP-3 research sync off, EV_Z: ownTopics (GUARD cell), noPopup (GUARD cell)
 "G:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell, the row
-verdict; every row runs after a failure; ONE run (WV-D99 / WV-D100): exit 0 only when every cell passes, else 2.
-WV-D95: no wait-hook; run to completion in the foreground.
+verdict; every row runs after a failure; ONE run: exit 0 only when every cell passes, else 2.
+no wait-hook; run to completion in the foreground.
 """
 import json
 import os
@@ -36,7 +36,7 @@ EV_P, EV_W, EV_Z = "STR_H77_EV_P", "STR_H77_EV_W", "STR_H77_EV_Z"
 P, W, Z = (["STR_H77_%s%02d" % (k, i) for i in range(1, 17)] for k in "PWZ")
 SEEDS = {"EP-1": (11, 12), "EP-2": (21, 22), "EP-3": (31, 32)}   # TASK 0 (CONSTANTS.md): host, client
 COUNTDOWN, SKIP_MIN, PAIRED_S, HELD_MIN, RESEED = 60, 180, 10.0, 240, 2
-# W2-U9d (R-I63-1, F23567, F23600-F23602): EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any
+# EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any
 # set_seed) and EP-1 + EP-2 spend 1380-1560 game min (more under load) before EP-3's G:held, so a roll below ~1710 failed it.
 # Pinned on both machines: > HELD_MIN + EP-3's own spend before its fire (0) + 2 x the worst EP-1 + EP-2 spend (570 + 3 x 990,
 # a collision refire in each row) = 7320.
@@ -233,7 +233,7 @@ def fire(r, x, ev, topics, seeds, tag):
 
 
 def picks(r, x, ev, topics, seeds):
-    """fire; on a collision (R-H77-2) ONE more fire on the next month's EV_W with host seed + RESEED."""
+    """fire; on a collision ONE more fire on the next month's EV_W with host seed + RESEED."""
     p = fire(r, x, ev, topics, seeds, "fire")
     if p["host"] != p["own"]:
         return p
@@ -270,7 +270,7 @@ def row_ep2(r, x):
 
 
 def row_ep3(r, x):
-    """Research sync off (QH77-1 (a)): each player keeps exactly its own roll, as today."""
+    """Research sync off: each player keeps exactly its own roll, as today."""
     h, c = x.host, x.client
     so = r.ev["syncOff"] = {gc.name: gc.cmd({"cmd": "set_research_sync", "enabled": False}) for gc in (c, h)}
     rm = {gc.name: rmode(gc).get("sync") for gc in (h, c)}
@@ -342,7 +342,7 @@ def boot(tag, key, rows, results, walls):
         info = {gc.name: {"researchMode": rmode(gc), "geoEvents": geo_events(gc), "stack": stack(gc), "rngSeed": rng(gc),
                           "mod": [ln.split("\t")[-1] for ln in log_lines(gc) if "Coop_Event_Pick_Test" in ln][:2]}
                 for gc in (x.host, x.client)}
-        # W2-U9d: pin EV_Z on both machines (host first; each world keeps its own copy after the pairing)
+        # pin EV_Z on both machines (host first; each world keeps its own copy after the pairing)
         info["evZPin"] = {gc.name: {"reply": gc.cmd({"cmd": "set_event_countdown", "name": EV_Z, "minutes": EVZ_PIN})}
                           for gc in (x.host, x.client)}
         for gc in (x.host, x.client):

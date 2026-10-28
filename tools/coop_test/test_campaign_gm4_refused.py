@@ -4,7 +4,7 @@ button that closes it; the campaign still starts afterwards.
 
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-4 (SC4-9 and SC4-10: rows G1-G3, FX6-1 .. FX6-7), owner rulings
 D270 (b) and D275, D226 (a), QC6-1 .. QC6-3 (a); F15523 (setPlayerTeam is the only writer of a campaign gm4), F15524 (the lobby's
-file-local popup, list_widgets / click_widget, lobby_state.playerTeams). TASK 0: docs rewrite/d250u-task0/sc6/CONSTANTS.md (boot Ga
+file-local popup, list_widgets / click_widget, lobby_state.playerTeams). docs rewrite/d250u-task0/sc6/CONSTANTS.md (boot Ga
 on the unchanged build: premise P-C6, every lever reply, the walls).
 
 Boot G: key "48029", dirs d250uc6_g_host / d250uc6_g_client. Bring-up = PF.start_pvp_campaign's steps up to "START CAMPAIGN shown"
@@ -26,7 +26,7 @@ precondition was never reached, then each of its cells FAILs "blocked: <why>"):
 RED (C6R, the unchanged build): each second Alien pick makes gamemode 4 with teams [Alien, Alien] and no dialog: G1-mode, G1-dialog,
 G1-ok, G2-mode, G2-dialog, G2-ok FAIL (the -ok cells "blocked: no dialog"); G3-start and G3-common PASS: exit 2, 2/8. GREEN (C6G): 8/8.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm4_refused.py
 """
 
@@ -45,7 +45,7 @@ import pvp_fixture as PF  # noqa: E402
 # ----- pins (docs rewrite/d250u-task0/sc6/CONSTANTS.md; SC4-10 FX6-1 .. FX6-7) -----
 KEY = "48029"                                                                       # FX6-1 (TASK 0 used 48031)
 TEXT = "There must be at least one player on the X-COM team for campaign games."   # FX6-5: owner D275, exact
-DIALOG = "CampaignTeamRefusedState"                                                 # QC6-1 (a): the file-local dialog's class
+DIALOG = "CampaignTeamRefusedState"                                                 # the file-local dialog's class
 G1_TEAMS = ["XCOM", "Alien"]      # [ClientPlayer, HostPlayer] (FX6-3) with the host on the Alien team (gamemode 3)
 G2_TEAMS = ["Alien", "XCOM"]      # the client on the Alien team (gamemode 2)
 FALLBACK_BASE = (0.706, -0.507)   # PF.start_pvp_campaign's fallback point on a refused placement (FX6-7)

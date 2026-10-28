@@ -40,7 +40,7 @@ N_REFUSE = "battle_refuse received (battleId="
 N_CLIENT_ACTIVE = "CLIENT phase Active (battleId="
 N_ACCEPT = "battle_accept received (battleId="
 N_ABORT = "[coop] streamer: connection torn down mid-transfer, abandoning stream"
-N_STALE = "[exit] stale SavedGame reached the main menu"  # HS1: EVIDENCE only, never asserted (F5197)
+N_STALE = "[exit] stale SavedGame reached the main menu"  # HS1: EVIDENCE only, never asserted
 HOST_NEEDLES = (N_LEVER, N_REFUSE, N_ACCEPT, N_ABORT, N_STALE)
 CLIENT_NEEDLES = (N_MISMATCH, N_CLIENT_ACTIVE)
 HELD = {}  # T7 (3): cells held out of the file until their ruling / unit lands (none since W2-H24 S-B)
@@ -81,7 +81,7 @@ def snap(gc):
 
 def drive_to_seated(host, client, key):
     """Skirmish lobby -> BATTLE SETTINGS with seat 1 holding soldiers 0 and 1 (spec (f) HS1 fixture). Never
-    session.bring_up_to_briefings: its BriefingState wait races the refusal's unwind (F5204)."""
+    session.bring_up_to_briefings: its BriefingState wait races the refusal's unwind."""
     rwh.skirmish_host(host, key)
     rwh.skirmish_client_at_browser(client)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": "ClientPlayer"})

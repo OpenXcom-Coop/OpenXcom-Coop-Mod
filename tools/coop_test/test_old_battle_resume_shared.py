@@ -25,8 +25,8 @@ Boot RH (key 46611, dirs d246u_rh_*): the host gets the derived copy, the client
   RH-common  every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no save
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict; a cell whose precondition failed FAILs "not
-reached". A boot step past its bound prints ONE CAPTURE line and fails the row "boot". WV-D95: run in the foreground to
-completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+reached". A boot step past its bound prints ONE CAPTURE line and fails the row "boot". run in the foreground to
+completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_old_battle_resume_shared.py
 """

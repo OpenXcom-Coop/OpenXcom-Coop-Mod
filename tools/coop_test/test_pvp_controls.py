@@ -39,7 +39,7 @@ crash folder.
 RED on the unchanged product (commit A1): AR-draw, LV-up, CF-box, AC-own, AC-opp, AM-mark, LX-level, LX-ctrlf; every
 other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a
 failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound
-fails the rows that need it "staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the
+fails the rows that need it "staging". run in the foreground to completion. ONE run is the
 result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_controls.py
@@ -62,7 +62,7 @@ KEY = "48874"
 A_ID, S9_ID = RM.A_ID, 9          # the alien (the client's, seat 1); the X-COM soldier AC's second Alt+C lands on
 A_TILE, S9_TILE = RM.TILES[A_ID][0], RM.TILES[S9_ID][0]   # (15,2,0), (18,6,0) (TASK 0: both verified clickable)
 GX_ID = 8                         # the host's selectedId at side 0 turn 2 (TASK 0 Aa = Ab), on (15,9,0)
-KEY_LEVEL_UP, KEY_LEVEL_DOWN = 280, 281   # keyBattleLevelUp / Down in both options.cfg (TASK 0)
+KEY_LEVEL_UP, KEY_LEVEL_DOWN = 280, 281   # keyBattleLevelUp / Down in both options.cfg
 KEY_F, KEY_C = 102, 99            # Ctrl+F (fatal wounds), Alt+C (custom marker)
 TEXT_FATAL = "FATAL WOUNDS"       # the box's first line (STR_FATAL_WOUNDS, en-US; TASK 0)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1

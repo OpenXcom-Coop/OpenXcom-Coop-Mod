@@ -84,7 +84,7 @@ def test_resume(fails, save_file, tag):
 
 def test_gm3_refused(fails):
     """gm3 mid-battle leg (owner D284 (c) amended; L-SC5-6; QSC2-2 (a)): the release line's gm3 battle save carries no world of
-    the alien player, so the host's menu load refuses it and ONLY that refusal names where to ask for a repair (VL-D284-1). One
+    the alien player, so the host's menu load refuses it and ONLY that refusal names where to ask for a repair. One
     host, no client (the refusal comes before any session). The check is D246-U S-C2's row G3: SC2.load (ErrorMessageState the
     top, no HostMenu / LobbyMenu / BattlescapeState, 1 refusal line, 0 convert lines), SC2.text_bad (the box and the log field
     == SC2.TEXT_GM3), SC2.press_ok (the real OK -> MainMenuState)."""

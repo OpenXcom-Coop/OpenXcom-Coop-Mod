@@ -488,7 +488,7 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 			writer.write("coopDestMissionId", dm->getCoopMissionId());
 		else if (AlienBase* da = dynamic_cast<AlienBase*>(_dest); da && da->_coop) // coop W2-H48 (L-H44-1)
 			writer.write("coopDestAlienBaseId", da->_coop_alienbase_id);
-		else if (Craft* dc = dynamic_cast<Craft*>(_dest); dc && dc->coop && dc->getBase() && dc->getBase()->_coopIcon) // coop W2-H51
+		else if (Craft* dc = dynamic_cast<Craft*>(_dest); dc && dc->coop && dc->getBase() && dc->getBase()->_coopIcon) // coop
 			writer.write("coopDestCraftBaseId", dc->getBase()->_coop_base_id);
 	}
 	// coop

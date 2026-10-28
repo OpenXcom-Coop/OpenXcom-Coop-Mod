@@ -123,7 +123,7 @@ void WarningMessage::think()
 }
 
 /**
- * W1-P9: the message text currently held (test introspection - see the header).
+ * the message text currently held (test introspection - see the header).
  * Deliberately NOT gated on visibility: the fade completes in about a second,
  * which is inside a single harness round trip, so a visibility-gated read would
  * be a race. A caller compares against a value it captured before the action.

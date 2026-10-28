@@ -1,4 +1,4 @@
-"""W2-P8b - test_prebattle_equip_shared.py: a layout the second player saves on the
+"""test_prebattle_equip_shared.py: a layout the second player saves on the
 pre-battle equip screen in a SHARED campaign (stage S-C, orchestrator ruling SC-1 /
 F3506). Q9 (a) / D209 a: in SHARED the second player's saved layouts - its soldier's
 personal layout and a global layout - are saved by the HOST into the one shared world
@@ -32,7 +32,7 @@ on both machines, then L = a rifle loaded with a rifle clip in STR_RIGHT_HAND + 
 grenade on STR_BELT (0,0) (battle_give; test_prebattle_equip_tools's L1).
 Keys: as test_prebattle_equip_tools (the harness options.cfg, else Options.cpp's
 defaults; the live values on both machines must match, F3507); the personal save is
-the plain keyInvSavePersonalEquipment (F3505), the global save vanilla's Ctrl+1
+the plain keyInvSavePersonalEquipment, the global save vanilla's Ctrl+1
 (InventoryState::handle; index 0).
   EQ16s  the client's screen on C: (a) keyInvSavePersonalEquipment; (b) Ctrl+1. GREEN
         (Q9 a, SHARED): (a) the HOST's C personal layout (equip_layouts) = L and the
@@ -103,8 +103,8 @@ client's equip.pile, the offer's) and the pile ids equal on both machines.
 
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
 "PASS <id>" / "FAIL <id>: <message>" (the RED cell first). Every wait is bounded.
-WV-D99 / WV-D100: one run is the result; no skip path, no second boot. Exit 0 only when
-every row passes, 2 otherwise (a bring-up or spine failure is also 2). WV-D95: run in
+one run is the result; no skip path, no second boot. Exit 0 only when
+every row passes, 2 otherwise (a bring-up or spine failure is also 2). run in
 the foreground to completion.
 
 Run:  python tools/coop_test/test_prebattle_equip_shared.py
@@ -211,7 +211,7 @@ def spine_units(host, client, ctx):
 
 
 def spine_both_briefings(host, client, ctx):
-    """S-H's spine, first half: the client's briefing while the host's is up (D210 b)."""
+    """S-H's spine, first half: the client's briefing while the host's is up."""
     got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client), CLIENT_BRIEFING_WAIT_S, 0.2)
     rec = {"clientBriefingWithin": dt if got else None, "hostStack": stack(host), "clientStack": stack(client),
            "turn": [turn(host), turn(client)]}
@@ -226,7 +226,7 @@ def spine_stage(host, client, ctx):
     rec = {"C": c, "ids": {}}
     ctx["staged"] = rec
     try:
-        session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
+        session.wait_seq_barrier(host, client)  # the host's first evs applied before staging
         rec["stripped"] = strip_both(host, client, c)
         for t, extra in L1_GIVE:
             req = {"cmd": "battle_give", "unit": c, "item": t}
@@ -504,7 +504,7 @@ def eq28s_save_armor(host, client, ctx):
     got, dt = wait_until(lambda: "InventorySaveState" in (stack(client) or [""])[-1], SAVE_WAIT_S)
     a["dialogWithin"] = dt if got else None
     a["widgetsAtOpen"] = dialog_widgets(client) if got else None
-    # SC-7 (F3553): the dialog's POPUP window hides every surface until its popup ends and a hidden surface ignores
+    # SC-7: the dialog's POPUP window hides every surface until its popup ends and a hidden surface ignores
     # input - wait (bounded, the condition itself) until the layout list is no longer hidden; the click is never repeated
     shown = {}
 

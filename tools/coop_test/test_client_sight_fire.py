@@ -1,7 +1,7 @@
 """W2-H35b S-C - test_client_sight_fire.py: at night, on the co-op second player's machine an X-COM soldier's list of
 seen units follows vanilla after an incendiary blast's fire lights a dark alien (K2) (spec
 rewrite/prompts/w2h35b_client_sight_events.md (f); rulings R-R5U1-1: the second player's off-turn view follows vanilla;
-D171: hidden aliens stay hidden; W2-H35 QH-3 (a): capture first; fixture rulings R-H35B-SB-1 (darkness D-1, staging S-1),
+hidden aliens stay hidden; W2-H35 QH-3 (a): capture first; fixture rulings R-H35B-SB-1 (darkness D-1, staging S-1),
 R-H35B-SB-2 and R-H35B-SC-1 (S-C's own V tile inside V's sight angle through the blast circle)).
 
 Vanilla refreshes sight right after a blast's light (TileEngine::explode: calculateFOV(centre, radius + 1), which
@@ -31,8 +31,8 @@ tu 255}; bt_action_end, wait_host_idle, seq barrier.
 RED at the red commit (unchanged build): K2-list FAILS; every other cell PASS. GREEN (W2-H35b E1, E7): every cell PASS.
 
 One "EVIDENCE K2:" line, one PASS / FAIL line per cell, "ROW K2: PASS|FAIL". A bring-up failure prints ONE "CAPTURE boot:"
-line and fails every cell "boot". WV-D99 / WV-D100: one run is the result; no skip, no second boot, no other fixture;
-exit 0 only when every cell passes, else 2. WV-D95: run in the foreground to completion.
+line and fails every cell "boot". one run is the result; no skip, no second boot, no other fixture;
+exit 0 only when every cell passes, else 2. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_sight_fire.py
 """
@@ -66,7 +66,7 @@ A_N, A_N_DIR = (20, 18, 0), 5                   # units light 5 / 5 after S-1
 V_ID, T_ID = 9, 11                              # V watches (client seat), T shoots (host seat)
 PARK = ((8, (10, 13, 0)), (12, (11, 13, 0)), (13, (10, 14, 0)), (14, (10, 15, 0)), (10, (10, 16, 0)),
         (T_ID, (10, 17, 0)))                    # S-1 (S-B's pins); facing kept
-V_N, V_N_DIR0, V_N_DIR = (13, 25, 0), 0, 1      # R-H35B-SC-1: the 115th rule tile, the first with a line of sight
+V_N, V_N_DIR0, V_N_DIR = (13, 25, 0), 0, 1      # the 115th rule tile, the first with a line of sight
 T_F, T_DIR = (24, 27, 0), 7                     # T_F rule's first tile, facing FIRE_TARGET (the shot is accepted)
 FIRE_TARGET = (20, 24, 0)                       # 6 tiles south of A_N; the blast centre at SEED_K2 (radius 3)
 FIRE_TILES = sorted([(17, 24, 0)] + [(18, y, 0) for y in (23, 24, 25)] + [(19, y, 0) for y in range(22, 27)]
@@ -215,7 +215,7 @@ def row_k2(host, client):
         staging_miss(cells, STAGED["detail"])
         return common(host, client, "K2")
     req = {"cmd": "battle_give", "unit": T_ID, "item": LAUNCHER, "ammo": ROCKET}
-    rc_g = client.cmd(dict(req))  # F607: client first
+    rc_g = client.cmd(dict(req))  # client first
     rh_g = host.cmd(dict(req))
     session.wait_seq_barrier(host, client, timeout=30)
     wid, aid = rh_g.get("weaponId"), rh_g.get("ammoId")

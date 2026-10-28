@@ -2,7 +2,7 @@
 rewrite/w2h20-task0/CONSTANTS.md; from U6 stage B's rewrite/u6-task0/stageB.patch, U6 Q4): in SHARED, OK on a base
 equipment screen (soldier or craft inventory) sends the presser's OWN changed soldiers' gear to the host, which applies an
 entry only for a soldier the sending seat owns (Q5 a); both machines end with the same record (layout, personal layout,
-its armor); the partner's soldiers go back to their gear at open (aud-E1-11). Today nothing carries it (F7738-F7742).
+its armor); the partner's soldiers go back to their gear at open (aud-E1-11). Today nothing carries it.
 Boot A (SHARED): bring_up("w2h20a", (48704, 48705, 47922)), oxceAlternateCraftEquipmentManagement OFF on both. H / C / C2
 = the first HostBase soldier (base_report order) owned by the host's localSeat / the first / second owned by the client's
 (names roll per boot, S25). rec(gc, n) = n's soldier_layouts {base: HostBase} entry on gc; whole record = (layout,
@@ -10,8 +10,8 @@ personal, personalArmor), exact. W = 10 s at 0.25 s polls (Q9 a); partner-unchan
   H20-1 host: soldier screen, inventory_move {H, STR_PISTOL, left}, close. Non-vacuity: moved, host pistols in H 0 -> 1.
         (A) the client's whole record of H == the host's within W; (B) the host's records of the client's soldiers == before.
   H20-2 client: the same on C. (A) the host's C == the client's within W; (B) the client's records of the host's
-        soldiers == the host's (F7741).
-  H20-3 every HostBase soldier's whole record equal on both within W (F7742).
+        soldiers == the host's.
+  H20-3 every HostBase soldier's whole record equal on both within W.
   H20-4 client: SKYRANGER craft screen, inventory_move {C2, STR_PISTOL, left}, close. Non-vacuity: moved, client pistols
         in C2 +1. (A) the host's C2 == the client's within W; (B) the client's records of the host's soldiers == the host's.
   H20-5 client: soldier screen, inventory_move {C, STR_GRENADE, belt} (R-H20-G-1 staging, S25), inventory_move {C,
@@ -27,7 +27,7 @@ Boot B (SEPARATE, labels 48706 / 48707, lobby 47923): H20-8 client: ClientBase s
   machines' shared_stats cmd / applyCount / failCount unchanged 1 s after the close (guard).
 One EVIDENCE line per row (both machines' H, C, C2 at its start and end, compact) before its verdict; a failed row prints
 ONE CAPTURE line (both machines' soldier_layouts, base_report, shared_stats, stacks; the editor's inventory_ground). A
-boot miss fails its rows "boot" with one CAPTURE line. Every row runs after a failure. ONE run (WV-D95); exit 0 iff
+boot miss fails its rows "boot" with one CAPTURE line. Every row runs after a failure. ONE run; exit 0 iff
 every row passes, else 2.
 """
 
@@ -288,7 +288,7 @@ def h20_5(x, r):
     if not open_soldier_screen(r, c):
         return
     key = (q(c, {"cmd": "equip_layouts"}).get("keys") or {}).get("keyInvSavePersonalEquipment")
-    r.ev["stage"] = st = q(c, {"cmd": "inventory_move", "name": name, "item": STAGE, "slot": "belt"})  # R-H20-G-1
+    r.ev["stage"] = st = q(c, {"cmd": "inventory_move", "name": name, "item": STAGE, "slot": "belt"})
     r.cell(f"G: client staged {STAGE} on C (R-H20-G-1)", st.get("moved") is True and st.get("landedOnUnit") is True, st)
     rep = move(r, c, {"name": name, "slot": "ground", "from": "unit"})
     krep = q(c, {"cmd": "inject_input", "kind": "key", "key": key})

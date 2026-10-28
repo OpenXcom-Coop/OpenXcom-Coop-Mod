@@ -25,7 +25,7 @@ mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase fa
 lon, lat]. LINE(id) = engine-log lines holding "[coop] W2-H83: removed base id=<id> cache=". Every press is a real click_widget or
 inject_input except the logged levers build_new_base and geo_set_speed. One EVIDENCE line per row, one PASS / FAIL line per cell, then the
 row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes on; a boot miss fails G-pre with
-ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_ghost.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -34,8 +34,8 @@ import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
 KEY = "49556"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 0014f9bf1)
-B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2: on land (TASK 0)
-B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land (TASK 0)
+B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2: on land
+B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_1, KEY_2, ZOOM_MIN, SYM_PLUS = 49, 50, 3, 43
 DEL_SETTLE, RT_SETTLE, GONE_S = 3.0, 3.0, 2.0

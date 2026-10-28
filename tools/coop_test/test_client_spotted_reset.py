@@ -27,7 +27,7 @@ One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdic
 precondition (GUARD) miss ends its row and the later rows (cells "not reached"); a boot miss prints ONE CAPTURE line and
 fails every row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids are read
 at run time (S25). Lists are read before any client Tab or click in a row (a selection refreshes the alien's list).
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_client_spotted_reset.py
@@ -59,8 +59,8 @@ FAR = [(33, 33, 0), (34, 33, 0), (35, 33, 0), (36, 33, 0)]   # Chebyshev > 20 fr
 S1_BACK, D1 = (15, 7, 0), (15, 5, 0)             # W1 + 2 / + 4 on (A_DIR + 4) % 8: S1 behind A, L2's walk through it
 T2 = (15, 12, 0)                                 # W1 + 3 on A_DIR, in A's view, off the W1 -> D1 line
 WALK_S, SETTLE_S = 15, 5.0                       # a walk's answer bound / the read after the click (TASK 0: 0.4-1.1 s)
-L2_HALT = ("spot", 3)   # W2-H52 (A.10): L2's walk halt reason and A's TU spent (W2-H52 TASK 0)
-L3_HOST = ("S1", "S3")   # W2-H52 (A.10): the st names in the host's L3 list after that halt (W2-H52 TASK 0)
+L2_HALT = ("spot", 3)   # W2-H52 (A.10): L2's walk halt reason and A's TU spent
+L3_HOST = ("S1", "S3")   # W2-H52 (A.10): the st names in the host's L3 list after that halt
 VEC = {0: (0, -1), 1: (1, -1), 2: (1, 0), 3: (1, 1), 4: (0, 1), 5: (-1, 1), 6: (-1, 0), 7: (-1, -1)}
 ROWS = (("L1", ("L1-start", "L1-list", "L1-probe", "L1-walk", "L1-common")),
         ("L2", ("L2-start", "L2-host", "L2-list", "L2-probe", "L2-walk", "L2-common")),

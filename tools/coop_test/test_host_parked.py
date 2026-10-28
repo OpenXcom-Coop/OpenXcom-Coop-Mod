@@ -5,7 +5,7 @@ shells (vanilla's recovery credits the tank and its load; the tank leaves the st
 :2947-:2955). The partner's world is untouched.
 
 Spec: docs repo rewrite/prompts/d248u_client_tank_host_craft.md, AMENDMENT D248-1 section 8 "Stage S-C" (option (b) only),
-SB-1 (section 4) for the ending; orchestrator rulings on AMENDMENT D248-1 (D280 (b)). Constants:
+SB-1 (section 4) for the ending; orchestrator rulings on AMENDMENT D248-1. Constants:
 rewrite/d248u-task0/sb/CONSTANTS.md section Q (T0-Q boots Qa, Qb) and its subsection "Qc (S-C red, session 42155bc1)".
 
 Boot Q (SEPARATE, port 47614, dirs d248u_q_host / d248u_q_client): session.bring_up_separate_guest_battle(host, client,
@@ -35,8 +35,8 @@ FAIL; every other cell PASS. Green: EQ2b (DebriefingState reequipCraft).
 One EVIDENCE line per row (both machines' player units {id, type, coop, soldierId, guestTank}, the host's guestContrib, the
 debriefings' titles, H_AMMO), then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
 cell whose precondition failed FAILs "not reached (<cell> failed)". Common cell: every hash bucket EQUAL, desyncSeen false
-on both, no new crash file. Ids come from probes (S25); a key the build does not write reads as absent. WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+on both, no new crash file. Ids come from probes (S25); a key the build does not write reads as absent. run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_host_parked.py
 """

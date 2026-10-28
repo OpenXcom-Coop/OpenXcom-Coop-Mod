@@ -48,12 +48,12 @@
 #include "Tile.h"
 #include "SavedGame.h"
 #include "SavedBattleGame.h"
-#include "../CoopMod/BattleAuthority.h" // coop W2-H26: coopSaveSpawnUnitFaction / coopLoadSpawnUnitFaction
+#include "../CoopMod/BattleAuthority.h" // coop: coopSaveSpawnUnitFaction / coopLoadSpawnUnitFaction
 #include "../Engine/ShaderDraw.h"
 #include "BattleUnitStatistics.h"
 #include "../fmath.h"
 #include "../fallthrough.h"
-#include "../CoopMod/CoopScriptOwner.h" // coop OF2: battle mod scripts read the script owner's research
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
@@ -657,9 +657,9 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 		reader.tryRead("respawn", _respawn);
 		reader.tryRead("spawnUnitFaction", _spawnUnitFaction);
 	}
-	coopLoadSpawnUnitFaction(reader, this); // coop W2-H26 (F11270): presence-gated counterpart of coopSaveSpawnUnitFaction (BattleAuthority.h)
-	coopLoadSoldierUnitRecord(reader, this); // coop R5-U8 (AMENDMENT U8-1, F13366): a soldier-linked unit's original faction and type from its record (BattleAuthority.h)
-	coopLoadBuiltValues(reader, this); // coop R5-U8b: presence-gated counterpart of coopSaveBuiltValues (BattleAuthority.h)
+	coopLoadSpawnUnitFaction(reader, this); // coop: presence-gated counterpart of coopSaveSpawnUnitFaction (BattleAuthority.h)
+	coopLoadSoldierUnitRecord(reader, this); // coop: a soldier-linked unit's original faction and type from its record (BattleAuthority.h)
+	coopLoadBuiltValues(reader, this); // coop: presence-gated counterpart of coopSaveBuiltValues (BattleAuthority.h)
 	reader.tryRead("motionPoints", _motionPoints);
 	reader.tryRead("customMarker", _customMarker);
 	reader.tryRead("alreadyRespawned", _alreadyRespawned);
@@ -683,7 +683,7 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 	}
 	reader.tryRead("mindControllerID", _mindControllerID);
 	reader.tryRead("coop", _coopSeat);
-	reader.tryRead("coopGuestTank", _coopGuestTank); // coop D248-U
+	reader.tryRead("coopGuestTank", _coopGuestTank); // coop
 	reader.tryRead("summonedPlayerUnit", _summonedPlayerUnit);
 	reader.tryRead("resummonedFakeCivilian", _resummonedFakeCivilian);
 	reader.tryRead("pickUpWeaponsMoreActively", _pickUpWeaponsMoreActively);
@@ -788,8 +788,8 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 		writer.write("respawn", _respawn);
 		writer.write("spawnUnitFaction", _spawnUnitFaction);
 	}
-	coopSaveSpawnUnitFaction(writer, this); // coop W2-H26 (F11270): spawnUnitFaction without a spawn unit, co-op only (BattleAuthority.h)
-	coopSaveBuiltValues(writer, this); // coop R5-U8b: the built dark vision and maximum armor, co-op only (BattleAuthority.h)
+	coopSaveSpawnUnitFaction(writer, this); // coop: spawnUnitFaction without a spawn unit, co-op only (BattleAuthority.h)
+	coopSaveBuiltValues(writer, this); // coop: the built dark vision and maximum armor, co-op only (BattleAuthority.h)
 	writer.write("motionPoints", _motionPoints);
 	if (_customMarker > 0)
 		writer.write("customMarker", _customMarker);
@@ -827,7 +827,7 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 	if (_coopSeat != COOP_SEAT_NONE)
 		writer.write("coop", (int)_coopSeat);
 	if (!_coopGuestTank.empty())
-		writer.write("coopGuestTank", _coopGuestTank); // coop D248-U
+		writer.write("coopGuestTank", _coopGuestTank); // coop
 	if (_summonedPlayerUnit)
 		writer.write("summonedPlayerUnit", _summonedPlayerUnit);
 	if (_resummonedFakeCivilian)
@@ -1676,10 +1676,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args); } // coop OF2
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args); } // coop
 		}
 
-		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args); } // coop OF2
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args); } // coop
 
 		damage = args.getFirst();
 		bodypart = (UnitBodyPart)args.getSecond();
@@ -1788,10 +1788,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args); } // coop OF2
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args); } // coop
 		}
 
-		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args); } // coop OF2
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args); } // coop
 
 		if (!_armor->getPainImmune() || type->IgnorePainImmunity)
 		{
@@ -1930,10 +1930,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args); } // coop OF2
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args); } // coop
 		}
 
-		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args); } // coop OF2
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args); } // coop
 
 
 		// update state
@@ -4789,7 +4789,7 @@ void BattleUnit::coopSetHealth(int health)
 }
 
 /**
- * W1-P13a: absolute stun-level set for the `side_transition` restate
+ * absolute stun-level set for the `side_transition` restate
  * applier. Plain assignment - healStun(int) is a delta and prepareStun() is
  * a turn-transition helper, neither of which restates.
  * @param stun new stun level
@@ -4800,7 +4800,7 @@ void BattleUnit::coopSetStunlevel(int stun)
 }
 
 /**
- * W1-P13a: absolute morale set for the `side_transition` restate applier.
+ * absolute morale set for the `side_transition` restate applier.
  * Plain assignment - moraleChange(int) is a delta that also runs bravery
  * maths, which a restate must not repeat.
  * @param morale new morale value
@@ -4811,7 +4811,7 @@ void BattleUnit::coopSetMorale(int morale)
 }
 
 /**
- * W1-P13a: absolute mana set for the `side_transition` restate applier.
+ * absolute mana set for the `side_transition` restate applier.
  * Plain assignment - prepareMana() is a turn-transition helper and
  * stimulant() is a delta, neither of which restates.
  * @param mana new mana value
@@ -4822,7 +4822,7 @@ void BattleUnit::coopSetMana(int mana)
 }
 
 /**
- * W1-P13a: absolute unit-status set for the `side_transition` restate
+ * absolute unit-status set for the `side_transition` restate
  * applier. Plain assignment.
  * @param status new unit status
  */
@@ -4832,7 +4832,7 @@ void BattleUnit::coopSetStatus(UnitStatus status)
 }
 
 /**
- * W1-P13a: absolute floating-flag set for the `side_transition` restate
+ * absolute floating-flag set for the `side_transition` restate
  * applier. Plain assignment - the caller applies this AFTER position, since
  * setTile() recomputes _floating on its own and this restate value must win.
  * @param floating new floating flag
@@ -4843,7 +4843,7 @@ void BattleUnit::coopSetFloating(bool floating)
 }
 
 /**
- * W1-P13a: absolute on-fire-turns set for the UNIT, for the `side_transition`
+ * absolute on-fire-turns set for the UNIT, for the `side_transition`
  * restate applier. Unlike setFire() above, this writes unconditionally -
  * setFire() silently drops the write for SPECAB_BURNFLOOR/
  * SPECAB_BURN_AND_EXPLODE units, and a restate must land regardless.
@@ -4870,7 +4870,7 @@ void BattleUnit::coopSetBodyDirection(int dir)
 }
 
 /**
- * W1-P13a (REV E.49 / D63): absolute set of the unit's SCRIPT VALUES for the
+ * absolute set of the unit's SCRIPT VALUES for the
  * `side_transition` restate applier - the twelfth coop client-apply
  * counterpart. Counterpart to BattleUnit::save's _scriptValues.save call
  * (:856) and BattleUnit::load's _scriptValues.load call (:696).

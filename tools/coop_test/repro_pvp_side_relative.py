@@ -1,4 +1,4 @@
-"""SPEC 13 (W1-P14) - repro_pvp_side_relative.py: D5 PvP first milestone
+"""repro_pvp_side_relative.py: D5 PvP first milestone
 acceptance (REV E.48 SS.F). A gm2 client SEES, SELECTS and COMMANDS its own
 alien units on its own side, renders only its own side's fog, and none of it
 moves a hash bucket.
@@ -390,7 +390,7 @@ def phase4_client_click_selects_own_alien(host, client, alien_id, alien_pos, sol
     time.sleep(0.8)
     print("PHASE 4: settling pass done (camera-settle race, module docstring)")
 
-    # W2-H1 F485: since F447 (harness battleEdgeScroll: 0) the camera no
+    # since F447 (harness battleEdgeScroll: 0) the camera no
     # longer drifts after the probe centres it, so the settling click lands ON
     # the alien's tile and, rule still ON, SELECTS the alien without touching
     # coopLocalExecBlocked (captured: selectedId 8 -> 1000000, counter 0 -> 0;

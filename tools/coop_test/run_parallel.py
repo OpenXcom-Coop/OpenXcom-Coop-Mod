@@ -28,13 +28,13 @@ Assignment: timing-sensitive families (PINNED, below) are locked to slot 0 - the
 serial lane - so contention from the other lanes never perturbs a clock- or
 dogfight-timing assertion. Everything else is greedy-LPT bin-packed across all K
 lanes by measured weight (tools/ci/test_weights.json, same table the CI shard
-planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy
-(WV-D100/WV-D101, D59): 0 = PASS, any other exit code = FAIL. There is no SKIP
+planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy:
+0 = PASS, any other exit code = FAIL. There is no SKIP
 status: a fixture that cannot be built is a red (WV-D100: every test must exercise
 its scenario 100% of the time; a test that cannot is rewritten with owner-supplied
 fixture steps, never re-run). NOTHING is ever retried (WV-D101: "reruns just hide
 flakiness"). A file whose column-0 guard prints SKIP-PENDING and exits 0 (the
-W1_TRIAGE.md quarantine) is QUARANTINED (D62, D229): never counted as a pass,
+W1_TRIAGE.md quarantine) is QUARANTINED: never counted as a pass,
 listed and counted apart, and it does not fail the run. Exit 0 iff no test ended FAIL.
 
 Headless is forced on every lane (SDL_VIDEODRIVER/AUDIODRIVER=dummy) unless
@@ -210,7 +210,7 @@ def _copy_fail_dirs(name, slot, t0, fail_dir):
     return dest if os.path.isdir(dest) else None
 
 
-# D62 / D229: a quarantined file (W1_TRIAGE.md, RB-D21) carries a column-0 guard
+# a quarantined file (W1_TRIAGE.md, RB-D21) carries a column-0 guard
 # `print("SKIP-PENDING..."); sys.exit(0)`; such a file that exits 0 is QUARANTINED,
 # never PASS. The guard is read from the source, so the status is the same with or
 # without --log-dir (this runner captures a test's stdout only with --log-dir).
@@ -264,7 +264,7 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
         rc, secs, timed_out = _run_once(name, slot, base_env, hard, log_path)
         end_epoch = time.time()
         rc_attempts = [rc]
-        # WV-D101: NOTHING is retried, by anyone, ever. rc_attempts/attempts and
+        # NOTHING is retried, by anyone, ever. rc_attempts/attempts and
         # the ATT column stay (part of the --json schema) but are now always 1.
         attempts = len(rc_attempts)
         e0 = round(time.time() - run_start, 1)
@@ -399,8 +399,8 @@ def main():
     wall = round(time.time() - run_start, 1)
 
     results.sort(key=lambda r: r["seconds"], reverse=True)
-    # D59 / WV-D100: any nonzero exit is a FAIL (exit 3 is no longer a separate SKIP).
-    # D62 / D229: a QUARANTINED file is listed and counted apart, never as a pass,
+    # any nonzero exit is a FAIL (exit 3 is no longer a separate SKIP).
+    # a QUARANTINED file is listed and counted apart, never as a pass,
     # and does not fail the run.
     fails = [r for r in results if r["status"] == "FAIL"]
     quars = [r for r in results if r["status"] == "QUARANTINED"]

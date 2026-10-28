@@ -1,4 +1,4 @@
-"""W2-G1 - test_world_dump_fields.py: the SHARED world check compares each soldier's gear (spec
+"""test_world_dump_fields.py: the SHARED world check compares each soldier's gear (spec
 rewrite/prompts/w2g_fidelity_pass.md section (f) rows G1-6..G1-9, Q3 (a), Q4 (a); F7951, F8265; owner D226 (a);
 TASK 0 rewrite/w2g1-task0/CONSTANTS.md row T0-6).
 
@@ -16,11 +16,11 @@ machines (T0-6: id 1); k = X's index in base 0's gear, sorted by id (T0-6: 0).
 
   G1-6  a one-machine layout write is seen. The CLIENT gets give_layout {base 0's name, STR_PISTOL, belt, X,
         count 1} (one machine: no route, no store change) -> given 1; 1 s; ONE world_diff read. GREEN: exactly
-        T0-6's list LAYOUT_DIFF. RED (commit 1): [] - "world_dump does not compare soldier layouts (F7951)". Then
+        T0-6's list LAYOUT_DIFF. RED (commit 1): [] - "world_dump does not compare soldier layouts ". Then
         the HOST gets the same; world_diff == [] within 5 s (guard).
   G1-7  a one-machine armor write is seen. The CLIENT gets seed_soldier_armor {X, STR_PERSONAL_ARMOR_UC}; 1 s; ONE
         read. GREEN: exactly ARMOR_DIFF with X's start armor (T0-6: 'STR_NONE_UC'). RED: [] - "world_dump does not
-        compare soldier armor (F8265)". The HOST the same; [] within 5 s (guard).
+        compare soldier armor ". The HOST the same; [] within 5 s (guard).
   G1-8  the dump carries every soldier's gear: for each machine and base i, world_dump(gc)["bases"][i]["gear"] ==
         that machine's soldier_layouts {base: <name>} joined with its get_soldiers armor, sorted by id, entry for
         entry (id, armor, layout, personal, personalArmor). RED: no `gear` key - "world_dump carries no gear".
@@ -28,7 +28,7 @@ machines (T0-6: id 1); k = X's index in base 0's gear, sorted by id (T0-6: 0).
         of G1-6..G1-8.
 
 EVIDENCE line before each verdict; every row runs after a failure; exit 0 only when all four pass, else 2. A boot
-miss fails every row "boot" with one CAPTURE line. WV-D99 / WV-D100: one run is the result, no skip path. WV-D95:
+miss fails every row "boot" with one CAPTURE line. one run is the result, no skip path.
 run in the foreground to completion.
 
 Run:  python tools/coop_test/test_world_dump_fields.py
@@ -41,7 +41,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 
-TAG, PORTS = "w2g1a", (49451, 49452, 47953)   # F8467: unused lobby 47953 and labels 49451 / 49452
+TAG, PORTS = "w2g1a", (49451, 49452, 47953)   # unused lobby 47953 and labels 49451 / 49452
 ITEM, SLOT = "STR_PISTOL", "belt"
 ARMOR = "STR_PERSONAL_ARMOR_UC"
 S0_S, EQUAL_S, SETTLE_S = 20, 5, 1.0

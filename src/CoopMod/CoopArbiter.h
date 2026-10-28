@@ -43,9 +43,9 @@ class BattleItem;
 class RuleInventory;
 struct BattleActionCost;
 class EquipmentLayoutItem; // W2-P8b S-C.2: the pre-battle bulk tools' layouts
-class BattlescapeState; // coop EQ-1: coopEquipCycleView()'s vanilla PREV / NEXT
-class Surface;          // coop EQ-1: coopEquipApplyViewLook()'s buttons
-class Text;             // coop EQ-1: coopEquipApplyViewLook()'s owner line
+class BattlescapeState; // coop: coopEquipCycleView()'s vanilla PREV / NEXT
+class Surface;          // coop: coopEquipApplyViewLook()'s buttons
+class Text;             // coop: coopEquipApplyViewLook()'s owner line
 
 /**
  * W1-P9 (WAVE1-RUNBOOK.md SS2.W2 / rulings D4+D-6 = WV-D29/WV-D30/WV-D38/
@@ -87,7 +87,7 @@ struct CoopWalkIntentArgs
  *   target      the clicked tile
  *   targetUnit  the unit the order aims at (-1 = a tile)
  *   targetPos   that unit's position when the order was built (iff targetUnit >= 0)
- *   forceFire   the ORDERING machine's own Options::forceFire && Ctrl (F423)
+ *   forceFire   the ORDERING machine's own Options::forceFire && Ctrl
  * Everything here is PLAN data: a busy-held order keeps it verbatim and only
  * `tuBasis` is recomputed at the resubmit (PR-Q12), which is why tuBasis is not
  * a member.
@@ -237,7 +237,7 @@ void onChainQuiesced();
 void beginHostLocalTurn(BattleUnit* actor, bool turret);
 
 /// Host: RB-D19 origin stamping for a coop HOST's own local kneel - the
-/// chain-less (RB-D13) counterpart to beginHostLocalTurn() above. Called
+/// chain-less counterpart to beginHostLocalTurn() above. Called
 /// from the THIN BattlescapeState::btnKneelClick hook site's own-input
 /// branch (R3-P2), BEFORE it calls BattlescapeGame::kneel(bu), mirroring
 /// onIntent()'s "kneel" branch bookkeeping (mint actionId, push
@@ -319,7 +319,7 @@ Json::Value lastSpot();
 /// cancelCurentMove() branches. The step evs already emitted STAND (SS2.W2
 /// rule 5) and the completion bt_action_end carries the executed prefix plus
 /// `halted:true` + `reason`. Without it a halt mid-walk is not drivable at all:
-/// walk-core's fixtures are door- and contact-free by construction (WV-D18) and
+/// walk-core's fixtures are door- and contact-free by construction and
 /// its own TU/energy guards need a unit engineered to run out mid-path.
 void requestHaltWalk();
 
@@ -357,7 +357,7 @@ void pushActionContext(std::uint32_t actionId, const char* origin);
 /// empty (SS2.2: 0 is never a minted actionId, so 0 doubles as "none").
 std::uint32_t currentActionId();
 
-/// The `origin` string on top of CoopMod's action-context stack (RB-D12), or
+/// The `origin` string on top of CoopMod's action-context stack, or
 /// "" when the stack is empty. SS2.2's enum values; "intent" means the action
 /// was ADMITTED FROM A CLIENT's bt_intent (the arbiter's own push sites),
 /// which is what WV-D38/WV-D59 key their client-origin rules on.
@@ -399,9 +399,9 @@ const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis);
 const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 	std::vector<Position>& outPath, int& outTuCost, int& outEnergyCost);
 
-// ----- CLIENT section (RB-D32) -----
+// ----- CLIENT section -----
 
-/// CLIENT: the shared intent-builder - "one function, two callers" (RB-D32).
+/// CLIENT: the shared intent-builder - "one function, two callers".
 /// Builds a bt_intent envelope (CoopWire::makeIntent, SS2.3) from EXPLICIT
 /// plan fields, mints this machine's client-local iseq (this namespace's own
 /// counter - separate from the HOST-side actionId mint above; reset at the
@@ -508,7 +508,7 @@ Json::Value lastDeny();
 /// bt_action_end, AFTER onActionEndApplied() has resolved this client's own
 /// in-flight lock. This is the packet text's "event_state-visible
 /// quiescence" signal: the host emits bt_action_end only from
-/// onChainQuiesced() (RB-D11), so applying one is exactly the client-visible
+/// onChainQuiesced(), so applying one is exactly the client-visible
 /// proof that the blocker's chain has unwound. If a PENDING intent is held,
 /// it is resubmitted here through sendClientIntent() - which RECOMPUTES the
 /// preview + tuBasis against CURRENT client state (packet text), never
@@ -676,14 +676,14 @@ Json::Value renamesProbe();
 /// @a ms 0 disarms.
 void requestDeferIntents(std::uint32_t ms, int count);
 
-// TEST-ONLY (W1-P7): the release half of requestDeferIntents() - ONE
+// TEST-ONLY: the release half of requestDeferIntents() - ONE
 // unconditional guarded call at the RB-D5 pump point (the one
 // CoopReveal::flushQuiescent() also uses). Inert with nothing deferred.
 void releaseDeferredIntentsIfExpired();
 
 } // namespace CoopArbiter
 
-/// RB-D11: the free-function forwarder the vanilla BattlescapeGame::popState
+/// the free-function forwarder the vanilla BattlescapeGame::popState
 /// thin hook calls (kept outside namespace CoopArbiter so the vanilla call
 /// site needs no extra namespace qualification beyond OpenXcom's own).
 /// Forwards to CoopArbiter::onChainQuiesced(). Guarded internally (the .cpp
@@ -697,7 +697,7 @@ void coopOnChainQuiesced();
 /// player and in every battle without an equip phase. Body: connectionTCP.cpp (g_equip).
 bool coopEquipOpen();
 
-/// W2-P8b S-A.1: THIS machine's seat's pre-battle ready flag (D206 c); false with no seat or no equip phase.
+/// W2-P8b S-A.1: THIS machine's seat's pre-battle ready flag; false with no seat or no equip phase.
 bool coopEquipLocalReady();
 
 /// W2-P8b S-A.1 (AMENDMENT P8b-1 section 4 step 10, P8b-1 RULINGS Q16 (a)): TEST-ONLY `hold_battle_ready`, CLIENT.
@@ -761,7 +761,7 @@ void coopTestForceServerError();
 /// OK is then a READY TOGGLE - this seat's ready flag flips (host: the local flag; client: `bt_equip_ready`, the flag
 /// set locally at once), the OK graphic shows it with its own pressed surface, and nothing closes. The barrier's
 /// one-shot pass-through makes it return false once (vanilla's close and startFirstTurn() run). ESC and the inventory
-/// key are OK too (F2755). False everywhere else (single player, mid-battle inventories, the base screens).
+/// key are OK too. False everywhere else (single player, mid-battle inventories, the base screens).
 bool coopEquipReadyPress(BattlescapeButton* btnOk, bool tu, bool parent);
 
 /// W2-P8b S-A.2 (AMENDMENT P8b-1 section 4 step 5, Q6): the ONE guarded statement in InventoryState::init() - under
@@ -779,7 +779,7 @@ bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir);
 /// a PARTNER's soldier on the pre-battle equip screen - the equip phase is open, this seat is on the player side, and @a u is
 /// a live player-side unit with an inventory that this seat does not command and another player-side seat does. The screen
 /// shows it READ-ONLY (the release line's view): every inventory click, tool and rename on it does nothing. FALSE everywhere
-/// else (single player, mid-battle inventories, own units, PvP opponents). coop EQ-3 S-A (owner D294 (b)): also TRUE for a
+/// else (single player, mid-battle inventories, own units, PvP opponents). coop EQ-3 S-A: also TRUE for a
 /// partner's soldier on a SHARED base inventory screen (see coopBaseInvScreen()); the same gates make it read-only there.
 bool coopEquipPartnerView(const BattleUnit* u);
 
@@ -803,13 +803,13 @@ void coopBasePresenceScreen(const void* screen, Game* game, const Base* base, bo
 void coopTestBaseHeldDefer(bool on);
 bool coopTestBaseHeldDeferred();
 
-/// coop EQ-1: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
+/// coop: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
 /// InventoryState::btnPrevClick / btnNextClick, after coopEquipCycleOwnUnit(). Runs vanilla's own
 /// BattlescapeState::selectPrevious / NextPlayerUnit with the partner's soldiers admitted (the release line's cycle: every
 /// player-side soldier with an inventory, in unit order) and returns TRUE (the caller re-inits). FALSE (vanilla) elsewhere.
 bool coopEquipCycleView(BattlescapeState* parent, bool tu, int dir);
 
-/// coop EQ-1: the ONE guarded statement in InventoryState::init() after coopEquipApplyOkLook(). On the pre-battle screen a
+/// coop: the ONE guarded statement in InventoryState::init() after coopEquipApplyOkLook(). On the pre-battle screen a
 /// partner's soldier hides UNLOAD, copy and paste and shows "Owner: <name>"; an own soldier shows the buttons and hides the
 /// line. A no-op everywhere else.
 void coopEquipApplyViewLook(Game* game, const BattleUnit* unit, bool tu, bool parent, Surface* unload,
@@ -863,11 +863,11 @@ bool coopFatalVoteArm(SavedBattleGame* save, int wounded, bool endTurnRequested)
 /// it `continue` (TRUE); answers still pending push CoopFatalVoteHold (TRUE).
 bool coopFatalVoteAnswer(Game* game, bool yes);
 
-/// W2-P7 S-V-A.2 (D214 (a)): HOST - TRUE while the fatal-wounds vote is armed or open (onIntent's busy term, the END
+/// W2-P7 S-V-A.2: HOST - TRUE while the fatal-wounds vote is armed or open (onIntent's busy term, the END
 /// TURN commit). @a held ("intent" / "commit") is counted in the probe's heldIntents / heldCommits; nullptr asks.
 bool coopFatalVoteHolds(const char* held = nullptr);
 
-/// W2-P7 S-V-A.2 (D214 (a), F3237): HOST - -1 unless the vote is open; else the lowest partner voter seat still
+/// W2-P7 S-V-A.2: HOST - -1 unless the vote is open; else the lowest partner voter seat still
 /// deciding (busyOwnerSeat names it), or 0 when none is (the covered driver stands still on >= 0).
 int coopFatalVoteOpen();
 
@@ -966,8 +966,8 @@ void coopOnKneelFinished(BattleUnit* unit, bool succeeded);
 ///      without this the host's fog would only catch up at postPathProcedures'
 ///      end-of-walk calculateFOV, one chunk instead of one step at a time.
 ///   2. emit `bt_ev walk_step` (SS2.W2's frozen SINGULAR kind) carrying
-///      {unit, stepIndex, from, dir, to, tuAfter, enAfter} + h:{unitsStats}
-///      (RB-D14). Reveal deltas ride the envelope automatically at the
+///      {unit, stepIndex, from, dir, to, tuAfter, enAfter} + h:{unitsStats}.
+///      Reveal deltas ride the envelope automatically at the
 ///      CoopEmit::sendEv choke (SS2.4a), which is why job 1 runs first.
 ///   3. consume the TEST-ONLY requestHaltWalk() latch.
 ///
@@ -1030,7 +1030,7 @@ void coopNoteWalkHalt(BattleUnit* unit, const std::string& vanillaResult,
 ///     (SharedEcon.cpp) and therefore machine-local, so the value in force
 ///     during execution would otherwise be the HOST player's - silently
 ///     truncating a walk the ordering seat's own reserve had already allowed.
-///     The CLIENT enforces its own, per step, in sendClientIntent() (WV-D48).
+///     The CLIENT enforces its own, per step, in sendClientIntent().
 ///   * SS2.W2's halt reason: this branch leaves `_action.result` EMPTY, which
 ///     hook 2/3's catch-all would map to `blocked`. A reserve refusal is a TU
 ///     shortfall, so it records `no_tu` before cancelling.
@@ -1067,7 +1067,7 @@ bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int e
 ///      coopNoteWalkHalt() is FIRST-REASON-WINS, which is precisely the room
 ///      W1-P9 left for this.
 ///   2. EMIT `bt_ev spot` (SS2.4's own kind) carrying
-///      {unit, seen:[uid...], haltStep} + h:{unitsStats} (RB-D14), through the
+///      {unit, seen:[uid...], haltStep} + h:{unitsStats}, through the
 ///      normal CoopEmit::sendEv choke so any pending `reveal` rides the
 ///      envelope (SS2.4a). SS2.W2 rule 6: an interleaved consequence arrives as
 ///      its OWN ev in-stream and breaks the walk at exactly its own position -
@@ -1095,7 +1095,7 @@ void coopNoteWalkSpot(BattleUnit* unit);
 unsigned int coopSpotEvsEmitted();
 unsigned int coopSpotEvsApplied();
 
-/// W1-P9: the WALK ARM's own gate in BattlescapeGame::primaryAction, replacing
+/// the WALK ARM's own gate in BattlescapeGame::primaryAction, replacing
 /// W1-P6's coopBlockLocalExecution() call there - see BattleAuthority.h for why
 /// that gate SPLIT in this packet and what each half now guards.
 ///
@@ -1121,7 +1121,7 @@ bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 ///      (coopRefuseIfNotMayCommand: rendered not_your_go + coopLocalExecBlocked);
 ///      a refusal restores the cursor vanilla just hid and returns TRUE;
 ///   2. on the co-op HOST: FALSE - vanilla executes and its own
-///      beginHostLocalCombat() stamps the `host` context (W2-P2);
+///      beginHostLocalCombat() stamps the `host` context;
 ///   3. on a co-op CLIENT: ships the completed vanilla action as a `shoot`
 ///      bt_intent through sendClientIntent() (RB-D32's one builder) and returns
 ///      TRUE whether or not it went out, so vanilla's execution never runs on a
@@ -1153,7 +1153,7 @@ bool coopInterceptFireConfirm(BattleAction* action, SavedBattleGame* save);
 ///   1. the baton check on BOTH machines (coopRefuseIfNotMayCommand: rendered
 ///      not_your_go + coopLocalExecBlocked); a refusal returns TRUE;
 ///   2. on the co-op HOST: FALSE - vanilla's prime / unprime block runs and
-///      coopHostPrime() wraps it in a `host` context (W2-P2);
+///      coopHostPrime() wraps it in a `host` context;
 ///   3. on a co-op CLIENT: ships the completed vanilla action as a `prime`
 ///      bt_intent through sendClientIntent() and returns TRUE whether or not it
 ///      went out, so no fuse, TU or FOV write ever runs on a thin client.
@@ -1354,7 +1354,7 @@ bool coopInterceptInvUnload(Inventory* inv, BattleUnit* unit, BattleItem* item, 
 /// button (the guard before its setFuseTimer(); @a inv and @a unit null: the pre-battle screen's and the item's
 /// owner, else that screen's unit); @a fuse = the value vanilla writes (-1 unprimes); site `fuse`. FALSE (vanilla)
 /// unless a co-op battle's pre-battle equip phase is open (SP, base screens and the battle stay byte-identical).
-/// Then the head (ownership and side - no baton in the equip phase), the held (V11) and in-flight (D150) rules;
+/// Then the head (ownership and side - no baton in the equip phase), the held (V11) and in-flight rules;
 /// the HOST: FALSE, vanilla writes (the head latches); a CLIENT sends one TU-free `inv_move {op fuse, item, fuse}`
 /// order and TRUE - it never writes a fuse itself.
 bool coopInterceptInvFuse(Inventory* inv, BattleUnit* unit, BattleItem* item, int fuse);
@@ -1372,7 +1372,7 @@ bool coopInterceptInvQuickUnload(Inventory* inv, BattleUnit* unit, BattleItem* i
 /// onClearInventory / onAutoequip after their cursor checks (`clear` / `autoequip`, @a layout null):
 /// `if (coopInterceptInvBulk(_inv, _battleGame->getSelectedUnit(), <op>, <layout>)) return;`. FALSE (vanilla)
 /// unless a co-op battle's pre-battle equip phase is open. Then the head (ownership and side), the held (V11) and
-/// in-flight (D150) rules; the HOST: FALSE, vanilla writes (the head latches); a CLIENT sends one tracked
+/// in-flight rules; the HOST: FALSE, vanilla writes (the head latches); a CLIENT sends one tracked
 /// `inv_bulk {op, template?}` order and TRUE - it never runs the tool itself.
 bool coopInterceptInvBulk(Inventory* inv, BattleUnit* unit, const char* op,
 	const std::vector<EquipmentLayoutItem*>* layout);
@@ -1430,7 +1430,7 @@ bool coopInterceptRename(BattleUnit* unit, const std::string& text);
 /// completed, released, failed, notices; last {bucket, seq, kind, battleId}; lastSkip / lastFail / lastOfferSide; bundle
 /// (this machine's last report zip); holdArmed; frozen (this machine's live desyncFrozen). Never read by game logic.
 Json::Value coopResyncRecord();
-/// coop R4-L3: TEST-ONLY `resync_hold` lever (HOST). Armed, a desync report is answered as before this unit: logged, no
+/// coop: TEST-ONLY `resync_hold` lever (HOST). Armed, a desync report is answered as before this unit: logged, no
 /// repair (today's halt). Inert unless armed. Returns the armed state.
 bool coopResyncHoldArm(bool on);
 /// coop R4-L3 S-B: TEST-ONLY `resync_ready_mismatch` lever (HOST, one-shot): the next automatic repair offer expects a wrong
@@ -1441,7 +1441,7 @@ void coopTestResyncReadyMismatchArm();
 /// HOST in a PvP battle (gamemode 2 / 3) whose host had the option off when the battle started (initBattleAuthority()
 /// takes Options::EnableReactionFirePvp into connectionTCP::_enable_reaction_shoot): UnitWalkBState then skips its
 /// walk-step reaction check - the release line's one gated site (main UnitWalkBState.cpp :465). A client's own setting
-/// never applies; every other reaction trigger (kneel, shot, melee, fall) stays vanilla (QU6-1 (a)). FALSE in single
+/// never applies; every other reaction trigger (kneel, shot, melee, fall) stays vanilla. FALSE in single
 /// player, on a client, in classic / SHARED / SEPARATE co-op and in PvE2.
 bool coopPvpWalkReactionOff();
 

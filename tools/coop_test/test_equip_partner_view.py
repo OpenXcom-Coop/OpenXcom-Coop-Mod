@@ -1,10 +1,10 @@
-"""EQ-1 - test_equip_partner_view.py: the pre-battle equip screen shows the partner's soldiers READ-ONLY.
+"""test_equip_partner_view.py: the pre-battle equip screen shows the partner's soldiers READ-ONLY.
 
 Owner D288 (b) (equip design session D287): on the pre-battle equip screen PREV / NEXT step through every player-side
 soldier with an inventory, this player's AND the partner's, in unit order, as the release line does; a partner's soldier
 is shown read-only - an "Owner: <name>" line, UNLOAD / copy / paste hidden, and every click, tool and rename on it does
-nothing (D289 a). Not in battle (D292 a); never between PvP opponents (D293 a); a player with no soldier of its own
-still skips the screen (D215 a). Spec docs rewrite/prompts/eq1_partner_soldiers_readonly.md ((f), PINNED SETUP VALUES,
+nothing. Not in battle; never between PvP opponents; a player with no soldier of its own
+still skips the screen. Spec docs rewrite/prompts/eq1_partner_soldiers_readonly.md ((f), PINNED SETUP VALUES,
 QEQ1-1 .. QEQ1-6 (a), VL-EQ1-1 .. VL-EQ1-8); every pin is TASK 0's (docs rewrite/eq1-task0/sa/CONSTANTS.md).
 
 Boot V (ONE boot): S0 the roster-pinned lobby + session.bring_up_to_briefings (seat_count 2, set_seed SEED_MAP before
@@ -27,7 +27,7 @@ RED (EQ-1 S-A, product untouched): exit 2, all 36 cells FAIL - PV1 / PV2 on thei
 "partner view not reached" (their other cells "not reached"); the spine passes. GREEN: exit 0, 36 / 36.
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot miss
 fails every row "boot" with ONE CAPTURE line. Cleanup inside a row (never needed at green): a cursor item ->
-inventory_cursor_clear, a dialog -> ESC, each recorded. WV-D95 / WV-D99 / WV-D100: one foreground run is the result, no
+inventory_cursor_clear, a dialog -> ESC, each recorded. one foreground run is the result, no
 skip path, no second boot. Exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_partner_view.py
 """
@@ -222,7 +222,7 @@ def s1_stage(host, client, ctx):
     ctx["s1"] = rec
     if not got:
         raise AssertionError(f"S1: both machines do not hold the battle with their briefings up ({rec})")
-    session.wait_seq_barrier(host, client)  # F21396: the host's first evs applied before staging (R-LT13-1)
+    session.wait_seq_barrier(host, client)  # the host's first evs applied before staging
     rec["stripped"] = {uid: strip_both(host, client, uid) for uid in (C1, H1)}
     ids = {}
     for name, uid, t, extra in (("rifle", H1, RIFLE_T, {"ammo": CLIP_T}),

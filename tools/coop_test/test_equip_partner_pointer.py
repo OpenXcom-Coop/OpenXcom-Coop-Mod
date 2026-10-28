@@ -1,8 +1,8 @@
 """EQ-2 S-A - test_equip_partner_pointer.py (EQP): the co-op partner's mouse pointer and name on the pre-battle equip
-screen. Owner D290 (c): each player sees the partner's pointer anywhere on the screen; D295 (a): the partner's name in small
+screen. each player sees the partner's pointer anywhere on the screen; D295 (a): the partner's name in small
 text beside it; D293 (a): never between PvP opponents; D292 (a): never in battle. Spec: docs repo
 rewrite/prompts/eq2a_pointer.md (f) and the common file rewrite/prompts/eq2_partner_pointer.md; rulings QEQ2-1 .. QEQ2-5 (a)
-(R-EQ2-1): drawn whatever soldier either screen shows, raw position on the 320x200 Inventory surface, 50 ms rate / 1 s
+drawn whatever soldier either screen shows, raw position on the 320x200 Inventory surface, 50 ms rate / 1 s
 keepalive / 3 s stale, the game's arrow and the name at (+10, +4) in the `weight` colour, the TEST-ONLY TestServer levers
 `inject_input {kind motion}` and `cursor_pos`. Constants: docs repo rewrite/eq2-task0/sa/CONSTANTS.md (TASK 0 boots a, b, p
 on HEAD + A12; c, pc with A1-A11).
@@ -20,16 +20,16 @@ Boot P (PvP gm2, X-COM equipment for aliens on, key KEY_A after boot A's shutdow
 RAE's boot DA (test_alien_equip.py, copied) to both pre-battle screens (the host X-COM, the client the alien seat).
   PVP   move(client, PT1), move(host, PT2); W_PTR: PVP-none, PVP-pre
 move(gc, pt) = inject_input {kind motion} at ((invX + bx) * SCALE, (invY + by) * SCALE), then cursor_pos until it reads
-(invX + bx, invY + by) within MOTION_S, else ONE CAPTURE line and the row fails "motion". A new state re-reads the OS mouse
-(F20621), so every read follows its own motion. presence = event_state.equip.presence (absent = 0 / false).
+(invX + bx, invY + by) within MOTION_S, else ONE CAPTURE line and the row fails "motion". A new state re-reads the OS mouse,
+so every read follows its own motion. presence = event_state.equip.presence (absent = 0 / false).
 
 RED on HEAD + A12 (commit R1, the partner pointer not built): C2H-sent, C2H-seen, C2H-drawn, C2H-name, H2C-drawn, H2C-name,
 MOVE-follow, MOVE-rest, MOVE-quiet (9 of 15); A-pre, A-motion, END-gone, END-quiet, PVP-none, PVP-pre PASS.
 
 One EVIDENCE line per row (both tops, both inventory_view briefs, both cursor_pos, both presence objects, CPU at the row
 start), one PASS / FAIL line per cell, then the row verdict; every row runs after a failure (a precondition miss ends its own
-row, its cells "not reached"); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". WV-D95:
-run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell
+row, its cells "not reached"); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot".
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
 passes, else 2.
 
 Run:  python tools/coop_test/test_equip_partner_pointer.py
@@ -61,7 +61,7 @@ SEED_PVP, MISSION_PVP = 1, "STR_SMALL_SCOUT"   # RAE boot DA
 SCALE = 2                          # window 640x400 / the 320x200 logical screen (cursor_pos measured)
 PT1, PT2, PT3 = (150, 120), (60, 150), (230, 60)   # on the Inventory surface; off OK / PREV / NEXT
 CLIENT_NAME, HOST_NAME = "ClientPlayer", "HostPlayer"   # get_coop's peer field on host / client
-NAME_DX, NAME_DY = 10, 4           # QEQ2-4: the name's top-left from the pointer's tip
+NAME_DX, NAME_DY = 10, 4           # the name's top-left from the pointer's tip
 MOTION_S, W_PTR, REST_S, MOVES_MAX = 1.0, 2.0, 3.0, 12
 TURN_WAIT_S, END_S, POLL_S = 5.0, 2.0, 0.05
 EQ1_WAIT_S, ENTRY_WAIT_S, SCREEN_S, ANSWER_WAIT_S, SAMPLE_S = 30.0, 5.0, 15.0, 3.0, 0.25

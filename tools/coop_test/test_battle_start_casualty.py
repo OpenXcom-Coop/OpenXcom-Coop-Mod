@@ -1,7 +1,7 @@
-"""W2-H22: a battle that starts with a non-player unit already dead or stunned (a crashed UFO's power sources)
-must start on both machines: the second player never settles that casualty itself; the host settles it (WV-D68)
-and its events carry the result (D128). Today the client's BattlescapeGame constructor settles it on a copy the
-host snapshotted before its own settle (D210 b): the client desyncs and freezes in its equip screen (F9343/F9344).
+"""a battle that starts with a non-player unit already dead or stunned (a crashed UFO's power sources)
+must start on both machines: the second player never settles that casualty itself; the host settles it
+and its events carry the result. Today the client's BattlescapeGame constructor settles it on a copy the
+host snapshotted before its own settle: the client desyncs and freezes in its equip screen.
 Spec: docs rewrite/prompts/w2h22_battle_start_casualty_desync.md (f); pins: docs rewrite/w2h22-task0/CONSTANTS.md.
 Point A = both briefings up, the host has NOT pressed OK (the only point where the client's own settle shows).
   R3  negative seed (GUARD, both builds PASS): no casualty; the whole spine; nothing diverges.

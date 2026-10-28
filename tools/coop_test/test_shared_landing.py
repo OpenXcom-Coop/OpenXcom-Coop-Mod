@@ -217,7 +217,7 @@ def main():
                       timeout=30, interval=0.5)
 
         client.ok({"cmd": "confirm_landing"})
-        # SPEC 19 (W1-P20) F355 ordering fix: waiting for the CLIENT's inBattle
+        # SPEC 19 F355 ordering fix: waiting for the CLIENT's inBattle
         # here (the old shape) hangs forever - CoopHandshake::emitPreparedOffer()
         # (the call that actually SENDS the client's offer) runs from
         # BriefingState::btnOkClick/close_briefing on the HOST, not from

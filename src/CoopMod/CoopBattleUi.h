@@ -106,7 +106,7 @@ enum class Control
 	HandReaction,
 	/// BattlescapeState::btnUnitUpClick / btnUnitDownClick ->
 	/// BattlescapeGame::moveUpDown(), which pushes a UnitWalkBState - a LOCAL
-	/// walk on a client, bypassing every coop gate (WV-D40). WV-D58 makes the
+	/// walk on a client, bypassing every coop gate. WV-D58 makes the
 	/// client REFUSE and routes the host's own press through the normal walk
 	/// emit path.
 	LevelChange,
@@ -120,10 +120,10 @@ enum class Control
 	// non-targeting item actions and the reload hotkey) are RETIRED by W2-P4
 	// S-D (spec (b)12, C1 PR-Q3): each is a client intent now. HandReaction
 	// stays for its HOST ownership term (Q13); the client sends a
-	// `reaction_hands` intent instead of reaching its string (owner D133).
+	// `reaction_hands` intent instead of reaching its string.
 };
 
-/// W1-P5: the ONE gate every hard-gated control calls. Returns TRUE when @a c
+/// the ONE gate every hard-gated control calls. Returns TRUE when @a c
 /// must be REFUSED on this machine right now, having already put the refusal
 /// on screen (SS2.6's _txtCoopWait presenter); FALSE means "carry on, vanilla".
 /// The thin vanilla hook is therefore a single unconditional call:
@@ -179,7 +179,7 @@ bool refuseInventoryOpen(const BattleUnit* u, const SavedBattleGame* s);
 /// themselves are unchanged.
 std::string inventoryLineText(const char* reason);
 
-/// W1-P5: the presenter half of refuseControl(), for the ONE site that has
+/// the presenter half of refuseControl(), for the ONE site that has
 /// already decided the refusal for itself - LoadGameState::init's local-load
 /// chokepoint, whose refusal was log-only before this packet (evidence F1).
 /// No predicate, no return value: just puts @a c's string on the banner.
@@ -260,7 +260,7 @@ void showCancel(const char* cause, const char* evKind);
 ///     what a solo player reads. `spot`/`reaction`/`unit_down` reuse the three
 ///     live SS2.6 `_CANCEL_` rows as-is (renaming shipped keys is out of scope).
 ///     Only `blocked` needs a new key, STR_COOP_HALT_PATH_BLOCKED, minted here.
-///     `prox` (W1-P11) and `fall` (walk-FULL) are RESERVED and deliberately not
+///     `prox` and `fall` (walk-FULL) are RESERVED and deliberately not
 ///     minted by this packet - walk-core cannot produce either.
 ///   * A HALTED WALK IS NOT "CANCELLED". The unit moved and the emitted step evs
 ///     are truth (SS2.W2 rule 5), so the new key is worded as
@@ -271,7 +271,7 @@ void showCancel(const char* cause, const char* evKind);
 ///
 /// SHOWN ONLY ON THE ORDERING SEAT (SS2.W2, same rule as the deny presenter):
 /// the sole caller is the CLIENT apply path, and only for an actionId this
-/// client itself owns. The observing machine ANIMATES the halt (W1-P12); it
+/// client itself owns. The observing machine ANIMATES the halt; it
 /// never prints another player's message. A HOST-origin walk keeps vanilla's own
 /// surface - BattlescapeGame::popState() already shows `_action.result` for the
 /// TU and energy halts, and vanilla shows nothing at all for a blocked one.
@@ -458,7 +458,7 @@ static const unsigned int kCoopBannerDwellMs = 6000u;
 // Instead the bottom bar (the `_icons` panel and everything drawn on it) is
 // rendered through a gray lookup while it is not this seat's go. Every
 // widget stays visible and interactive; the refusal (E53.4/E55.1) and the
-// persistent wait banner (REV E.56) are what actually say "not your turn".
+// persistent wait banner are what actually say "not your turn".
 // ---------------------------------------------------------------------------
 
 /// THE ONE vanilla touch this unit adds: BattlescapeState::blit() overrides

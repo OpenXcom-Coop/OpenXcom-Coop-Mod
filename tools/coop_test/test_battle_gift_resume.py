@@ -22,8 +22,8 @@ notice (EVIDENCE).
 {intent, turn, H1} and H1 faces the new direction on both. One EVIDENCE line, then one PASS/FAIL line per cell, then the
 row verdict. A boot step past its bound prints ONE CAPTURE line and fails the row "boot"; a cell whose precondition failed
 FAILs "not reached"; a missed save / resume step fails its cell with a CAPTURE line. Common cell: every hash bucket EQUAL,
-desyncSeen false on both, no new crash file since the first bring-up. Ids come from probes (S25). WV-D95: run in the
-foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes,
+desyncSeen false on both, no new crash file since the first bring-up. Ids come from probes (S25). run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes,
 else 2.
 
 Run:  python tools/coop_test/test_battle_gift_resume.py

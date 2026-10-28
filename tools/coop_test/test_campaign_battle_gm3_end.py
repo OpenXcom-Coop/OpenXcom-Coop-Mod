@@ -28,10 +28,10 @@ precondition was never reached, then each of its cells FAILs "blocked: <why>"):
      D3-host, D3-client, D3-alien, D3-site, D3-return, D3-common.
   <row>-host: host DebriefingState <= 60 s, the row's title, displayOnly false; on page 3 Sell and Transfer hidden.
   <row>-client: the client's display-only DebriefingState <= 20 s; BES.debrief_view equal on BES.DEBRIEF_FIELDS.
-  D1-page3: the client's battleEnd.worldAdopted 1 <= 30 s; on page 3 the client's Sell shown (D154).
+  D1-page3: the client's battleEnd.worldAdopted 1 <= 30 s; on page 3 the client's Sell shown.
   <row>-return: the client's OK first -> geo_clean <= 10 s. D1: debriefOkBranch "campaign-client-borrowed", every SQ soldier in its
      base with missions + 1, the Skyranger returning or at base, noBases false. D2: every SQ soldier in its base, the Skyranger
-     returning or at base. D3: every SQ soldier dead (D181), the Skyranger gone, the host's records for the SQ ids == HOST_SQ0's.
+     returning or at base. D3: every SQ soldier dead, the Skyranger gone, the host's records for the SQ ids == HOST_SQ0's.
   <row>-alien: the host's OK -> geo_clean <= 60 s; host noBases true, funds and real bases == HOST0's, pvpBorrow.active false,
      pvpBorrow.home == pvpBorrow.parked (QC2-A-1 (a); the live ids / daysPassed / monthsPassed are EVIDENCE).
   <row>-site: the host-real site gone from the host's globe and its mirror from the client's <= 10 s; pvpBorrow.fate {kind "site",
@@ -44,7 +44,7 @@ RED (C2R on S-C1's green, base 58a185218 with W2-H37): 2/19 cells PASS (D1-clien
 D1-page3, D1-return, D1-alien, D1-site FAIL; the 12 D2 / D3 cells FAIL "blocked: the alien host never went home (D1-alien)".
 GREEN (C2G): 19/19.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_gm3_end.py
 """
 
@@ -68,7 +68,7 @@ import test_shared_page3 as P3  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc2/CONSTANTS.md; boots w / a / l / w2 and the RE-DISPATCH six, 2/2 each) -----
 KEY = "48013"
-SEED = 1                                     # set on the X-COM CLIENT right before each confirm_landing (F13986)
+SEED = 1                                     # set on the X-COM CLIENT right before each confirm_landing
 TITLE = {"D1": "Aliens defeated", "D2": "Terror continues", "D3": "Craft is lost"}   # TITLE_WIN / TITLE_ABORT / TITLE_LOSS
 MAP_FP = {"D1": 5.996615470105667e+18, "D2": -4.990271614617468e+18, "D3": -4.990271614617468e+18}   # EVIDENCE (STOP-IF 13)
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}   # FX2-4

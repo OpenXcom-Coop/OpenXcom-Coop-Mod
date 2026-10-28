@@ -473,7 +473,7 @@ void SoldiersState::initList(size_t scrl)
 					// soldiers outside of the base are not eligible
 					continue;
 				}
-				if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop W2-H16c (F6605): SHARED lists own soldiers only (aud-E1-11)
+				if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists own soldiers only (aud-E1-11)
 				if (soldier->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(soldier);
@@ -482,7 +482,7 @@ void SoldiersState::initList(size_t scrl)
 			}
 			for (auto* deadMan : *_game->getSavedGame()->getDeadSoldiers())
 			{
-				if (!SharedEcon::ownsSoldier(_game, deadMan)) continue; // coop W2-H16c (F6605)
+				if (!SharedEcon::ownsSoldier(_game, deadMan)) continue; // coop
 				if (deadMan->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(deadMan);
@@ -949,7 +949,7 @@ void SoldiersState::btnInventoryClick(Action *)
 			}
 		}
 
-		SharedEcon::baseEquipOpen(_game, _base); // coop W2-H20 (D255 a): the soldiers' gear before vanilla's open (Ctrl+Alt clears it)
+		SharedEcon::baseEquipOpen(_game, _base); // coop: the soldiers' gear before vanilla's open (Ctrl+Alt clears it)
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_base);
 		bgen.runInventory(0);

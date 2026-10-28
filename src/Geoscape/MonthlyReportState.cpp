@@ -395,7 +395,7 @@ void MonthlyReportState::btnOkClick(Action *)
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
 
-			// coop W2-H17d (F7727): as GeoscapeEventState - both SHARED machines show this report and play a video without an ending at their own OK
+			// coop: as GeoscapeEventState - both SHARED machines show this report and play a video without an ending at their own OK
 			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()->getEnding() == END_NONE) // coop
 				_game->getCoopMod()->allow_cutscene = false; // coop: CutsceneState::init skips the relay; GeoscapeState::init re-arms the latch
 			_game->pushState(new CutsceneState(cutsceneId));
@@ -637,7 +637,7 @@ void MonthlyReportState::calculateChanges()
 			root["sharedExpenditure"] = Json::Value::Int64(
 				hostExpenditures.empty() ? 0 : hostExpenditures.back());
 			root["sharedResearchScore"] = 0; // new month starts at 0 (matches the roll)
-			const auto& h17cScores = _game->getSavedGame()->getResearchScores(); // coop W2-H17c (F7225): the month just ended
+			const auto& h17cScores = _game->getSavedGame()->getResearchScores(); // coop: the month just ended
 			root["sharedResearchScoreEnded"] = h17cScores.size() >= 2 ? h17cScores[h17cScores.size() - 2] : 0; // coop (council bonus, arcs)
 		}
 

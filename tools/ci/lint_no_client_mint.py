@@ -12,7 +12,7 @@ greps src/ for the two constructor call patterns ("new BattleItem(" /
 "new BattleUnit(") and fails (non-zero exit, one line per offender) for any
 occurrence that is not explicitly whitelisted.
 
-Whitelist (RB-D25):
+Whitelist:
   (a) Vanilla directories, where vanilla legitimately mints these objects
       on both host and client alike (SavedBattleGame::load(), the
       BattlescapeGenerator unit spawners, etc.) - not coop-authority code
@@ -47,7 +47,7 @@ import sys
 
 # Matches "new BattleItem(" / "new BattleUnit(" allowing incidental
 # whitespace between the tokens and before the paren (formatting variance),
-# but never a different identifier - deliberately narrow, per RB-D25.
+# but never a different identifier - deliberately narrow.
 MINT_RE = re.compile(r"new\s+(BattleItem|BattleUnit)\s*\(")
 
 BEGIN_MARK = "RW-MINT-WHITELIST-BEGIN"

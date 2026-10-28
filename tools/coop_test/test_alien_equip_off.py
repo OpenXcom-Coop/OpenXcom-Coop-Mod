@@ -18,7 +18,7 @@ Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen f
 
 RED on the build without E2 (commit E1): none (a guard); every cell PASS before and after E2. One EVIDENCE line per row, one
 PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE
-line and fails every row "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no
+line and fails every row "boot". run in the foreground to completion. ONE run is the result, no
 skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_alien_equip_off.py
@@ -105,7 +105,7 @@ FN = {"EO1": row_eo1, "EO2": row_eo2}
 
 
 def run_boot(tag, rows, fns, setup, host_dir, client_dir, host_options):
-    """S-D's AE.run_boot with the host's options a parameter (F10917)."""
+    """S-D's AE.run_boot with the host's options a parameter."""
     host = GameClient("host", None, make_user_dir(host_dir, options=host_options))
     client = GameClient("client", None, make_user_dir(client_dir))
     crash0 = session._crash_log_snapshot()

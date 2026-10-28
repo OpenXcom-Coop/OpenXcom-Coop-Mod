@@ -30,7 +30,7 @@ Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen f
 RED on the unchanged build (commit A1): HT-seq, HT-hold, HT-hud, HK-effect (18 of 22 cells PASS). GREEN (A2): all 22 PASS.
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step
 past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it
-"staging". Lever pairs go to the client first (F607). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE
+"staging". Lever pairs go to the client first. run in the foreground to completion. ONE
 run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_coop_mc_selection.py

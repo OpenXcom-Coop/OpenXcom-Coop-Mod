@@ -239,9 +239,9 @@ void ChatMenu::draw(SDL_Surface* screen)
 		if (savedGame)
 		{
 			auto savedBattle = savedGame->getSavedBattle();
-			if (savedBattle && savedGame->coopHasRealBattle()) // coop W2-H21d (F9403): an equipment screen's practice battle has no BattlescapeState
+			if (savedBattle && savedGame->coopHasRealBattle()) // coop: an equipment screen's practice battle has no BattlescapeState
 			{
-				auto battleGame = connectionTCP::isBattlescapeStateLive(savedBattle->getBattleState()) ? savedBattle->getBattleGame() : nullptr; // coop W2-H21e (F9587): no BattlescapeState in a briefing or on "all aliens killed"
+				auto battleGame = connectionTCP::isBattlescapeStateLive(savedBattle->getBattleState()) ? savedBattle->getBattleGame() : nullptr; // coop: no BattlescapeState in a briefing or on "all aliens killed"
 				if (battleGame)
 				{
 					auto map = battleGame->getMap();

@@ -150,7 +150,7 @@ public:
 	/// Gets the currently selected position.
 	void getSelectorPosition(Position *pos) const;
 	/// Calculates the offset of a soldier, when it is walking in the middle of 2 tiles.
-	/// W1-P12: `view` is a defaulted presentation read-switch (CoopMod/CoopGhost.h) -
+	/// `view` is a defaulted presentation read-switch (CoopMod/CoopGhost.h) -
 	/// null (the default) is byte-identical to the pre-W1-P12 vanilla behaviour.
 	UnitWalkingOffset calculateWalkingOffset(const BattleUnit *unit, const CoopUnitDrawView* view = nullptr) const;
 	/// Sets the 3D cursor type.

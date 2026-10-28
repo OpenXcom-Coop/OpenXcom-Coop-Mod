@@ -1,4 +1,4 @@
-"""W1-P13c (SPEC 11) - test_turn_baton.py: the TRADITIONAL baton, the
+"""test_turn_baton.py: the TRADITIONAL baton, the
 off-baton gray bottom bar and the persistent off-turn banner (REV E.48 SS.D,
 REV E.52 E52.1, REV E.53 E53.2/E53.3, REV E.54 E54.1-E54.4, REV E.55
 E55.1-E55.2, REV E.56 E56.1-E56.2). Engine landed by commit 0 (799d34961,
@@ -25,7 +25,7 @@ sees the WHOLE battlescape exactly as the on-baton machine does (REV E.53
 E53.1 - the old D-24b HIDDEN-widget list is RETIRED; NOTHING is hidden
 anymore), with two differences: the bottom `_icons` bar is rendered through
 a gray lookup (REV E.53 E53.2), and a persistent `STR_COOP_WAIT_TURN` banner
-names the baton holder (REV E.56). Every action that changes the shared
+names the baton holder. Every action that changes the shared
 battle (move, kneel, turn, END TURN) is refused with the rendered
 `STR_COOP_DENY_NOT_YOUR_GO` text; opening the hand-item ACTION MENU is
 ALLOWED off-turn (REV E.54 E54.1, the owner's TU-budgeting exception) and
@@ -173,7 +173,7 @@ def drive_full_cycle(host, client, turn0, timeout=60):
     machines."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # RV-U13 S-A (F11011): read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
+        # RV-U13 S-A: read both sides FIRST, then close (repro_atom_side_begin.drive_side_change has the
         # reason): once both reads show the new side, every NextTurnState of that change is up for the close pass,
         # which closes every stacked one once and stops when a close pops nothing (a held turn screen): no retry.
         hs = battle_state(host)
@@ -540,7 +540,7 @@ def run_boot_a():
               f"BEFORE={before_a8!r} -> AFTER={after_a8!r}; lastSeqEmitted "
               f"unchanged ({seq_a8_0})")
 
-        # ----- A9: THE PASS (SPEC 11 (f)) -----
+        # ----- A9: THE PASS -----
         wait_banner(client, banner_expected_client,
                     "A9 pre-press: a clean banner read before the host's "
                     "real button", timeout=20)
@@ -740,7 +740,7 @@ def run_boot_a():
             f"A13: client did not land at turn0+1/side0: turn0={turn0} -> "
             f"{battle_state(client)['turn']}, side={battle_state(client)['side']}")
 
-        # REV E.57 (D78 = (a)): the entry tally for the NEW player side rides
+        # the entry tally for the NEW player side rides
         # the battle lane, which is explicitly NOT the seq-ordered apply queue
         # (SPIKE-RUNBOOK.md SS2.3 / WR-4), so it can arrive before this machine
         # has applied its own side_transition. E57.1 BUFFERS such a tally and

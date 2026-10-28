@@ -15,8 +15,8 @@ Boot S (key "49433"): ER-2, ER-1, ER-3. Boot E (key "49434"): ER-4. 13 cells:
   ER-3 a mission-outcome topic (private, keeps its relay): hostNoWindow, clientOnce, hostRelay (GUARD cells)
   ER-4 an ending both worlds hold: firstEnds, otherEnds, plays (GUARD cells)
 "G:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell, the row
-verdict; every row runs after a failure; ONE run (WV-D99 / WV-D100): exit 0 only when every cell passes, else 2.
-WV-D95: no wait-hook; run to completion in the foreground.
+verdict; every row runs after a failure; ONE run: exit 0 only when every cell passes, else 2.
+no wait-hook; run to completion in the foreground.
 """
 
 import json
@@ -40,8 +40,8 @@ T_M, EV_M, CUT_M = "STR_H75_T_M", "STR_H75_EV_M", "STR_H75_M"
 T_W, EV_W, CUT_W = "STR_H75_T_WIN", "STR_H75_EV_WIN", "STR_H75_WIN"
 EV, KEEP = "GeoscapeEventState", ("CutsceneState", "StatisticsState")
 PLAY = "cutscene definition empty: "
-FLUSH_S, POLL_I, LISTED_S, WINDOWS_S, PAIRED_S = 1.0, 0.2, 5.0, 5.0, 10.0   # TASK 0: every state within 0.1 s
-# F23963: ER-1 holds the host's EV_A copy HOLD_M game minutes until F's window is shown and OK'd (TASK 0's roles F = client,
+FLUSH_S, POLL_I, LISTED_S, WINDOWS_S, PAIRED_S = 1.0, 0.2, 5.0, 5.0, 10.0   # every state within 0.1 s
+# ER-1 holds the host's EV_A copy HOLD_M game minutes until F's window is shown and OK'd (TASK 0's roles F = client,
 # O = host), then sets O's copy to RELEASE_M, TASK 0's measured O countdown, before skip2. Replacement rules: HOLD_M a multiple
 # of 30 far above what the host's clock runs before F's OK (a speed-5 tick runs a whole game day; up to 3210 minutes measured in
 # 4 runs, F23963); RELEASE_M a multiple of 30 inside skip2's one-day window.
@@ -314,7 +314,7 @@ def row_er1(r, x):
     omid = r.ev["otherMid"] = plays(O, cur[O.name])
     r.cell("otherMid", omid.get(CUT_A, 0) == 0, f"{O.name} played {CUT_A} {omid.get(CUT_A, 0)} time(s) before its own "
                                                 f"window ({F.name}'s relay, F20998)")
-    rel = r.ev["release"] = O.cmd({"cmd": "set_event_countdown", "name": EV_A, "minutes": RELEASE_M})  # F23963: the hold ends
+    rel = r.ev["release"] = O.cmd({"cmd": "set_event_countdown", "name": EV_A, "minutes": RELEASE_M})  # the hold ends
     guard(r, x, "release", rel.get("ok") is True, f"{O.name} set_event_countdown {rel}")
     name2 = skip(r, x, 60 * 24, "skip2", real_timeout=90)
     to = r.ev["otherTitle"] = title(O)

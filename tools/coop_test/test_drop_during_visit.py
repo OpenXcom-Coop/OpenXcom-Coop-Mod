@@ -6,7 +6,7 @@ partner's base screen and the live world stays the view: SAVE & QUIT there write
 RESUME leaves the host on the view under "Save failed (MEMORY)" (995) with no host base on the partner's globe. R-TR9-2 fix (m): the drop
 reloads "basehost" as the base screen's GEOSCAPE does and opens the 62 once the host's own world is back.
 Spec docs rewrite/prompts/w2h73_drop_during_visit.md (f) (QH73-1 .. QH73-5 (a), R-H73-1); pins docs rewrite/w2h73-task0/sa/CONSTANTS.md;
-capture rewrite/ltr9-2-cap (F20285-F20294).
+capture rewrite/ltr9-2-cap.
 Row V (R-m + R-n; boot w2h73_v_*, reload pair w2h73_vr_*): the host's real globe click on the client's base (VISIT), read I, B, client.kill(),
   READ D at the host's first top 62, the real SAVE & QUIT -> list -> NAME_V by key events -> SAVE GAME, the file, a reload pair. Cells
   V-pre (GUARD: read I inside the view), V-stack (RED: [GeoscapeState, CoopState] 62), V-world (RED: exactly the own base, FUNDS, S0),
@@ -18,7 +18,7 @@ Red today: V-stack, V-world, V-log, V-file, V-reload, P-no995, P-home, P-marker 
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
 row (later cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. Real presses only (globe click, SAVE & QUIT,
 list row, key events, SAVE GAME, OK, RESUME); staging: set_funds FUNDS. Helpers copied (never imported) from the capture's cap.py.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_drop_during_visit.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
@@ -83,7 +83,7 @@ def files(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = [os.path.getsize(p), os.stat(p).st_mtime_ns]
-        except FileNotFoundError:  # cap-tail (F24062): renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def cpu():

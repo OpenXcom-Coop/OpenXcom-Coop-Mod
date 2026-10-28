@@ -1,14 +1,14 @@
-"""W2-U7 - test_restream_guard.py: harness dismissals vs a world restream (F5820, F5822; docs
+"""test_restream_guard.py: harness dismissals vs a world restream (F5820, F5822; docs
 rewrite/prompts/w2u7_harness_restream_guard.md (f)). A SHARED replica's restream pushes a LoadGameState that adopts the
 world and pops itself after ~10 frames (~20 ms, F5861); a harness pop of it loses the world, the resync stays pending
-(replica request) and the shared-apply hold stays set (F5820). The TEST-ONLY `dismiss_arm` lever fires ONE harness
+(replica request) and the shared-apply hold stays set. The TEST-ONLY `dismiss_arm` lever fires ONE harness
 command in the game thread on the first pump pass whose top is a LoadGameState (Q1 a). Boots (labels 49296/49297): A lobby
 47286 (U7-1 replica repair vs dismiss_popup); B 47288 (U7-2 geo.settle vs a pending resync held by the host's
 shared_update_defer, F5869; U7-4 guard: ordinary windows close as before); C 47290 (U7-3 host-initiated restream vs
 dismiss_popup; U7-5 close_screens / pop_state / geo_run). RED (commit 1): U7-1, U7-2, U7-3 and U7-5's three fires FAIL on
 their refusal / adoption / walk cells; U7-4 and every GUARD cell pass. GREEN (commit 2): every row passes. Each row prints
 "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line.
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 Run:  python tools/coop_test/test_restream_guard.py
 """
 
@@ -26,7 +26,7 @@ BOOTS = (("A", "w2u7a", 47286, ("U7-1",)), ("B", "w2u7b", 47288, ("U7-2", "U7-4"
          ("C", "w2u7c", 47290, ("U7-3", "U7-5")))
 ARM_MS = 10000                 # dismiss_arm timeoutMs
 ADOPT_S = 3.0                  # green: the adoption and the rename land within 3 s
-HOLD_S = 3.0                   # U7-2: the host's defer holds the resync serve (F5869)
+HOLD_S = 3.0                   # U7-2: the host's defer holds the resync serve
 WALK_S = 2.0                   # U7-2: geo.RESYNC_WAIT_S for its one settle
 CLEAN_S = 10.0                 # a clean resync's pending clears within 10 s
 OLD, GEO_ONLY, NOTICE = "HostBase", ["GeoscapeState"], "GiftNoticeState"

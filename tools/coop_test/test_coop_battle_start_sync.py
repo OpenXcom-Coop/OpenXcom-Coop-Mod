@@ -47,7 +47,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 MODS = [p for p in os.environ.get("COOP_BSS_MODS", "").split(os.pathsep) if p]
 SITE = tuple(os.environ.get("COOP_BSS_SITE",
                             "STR_ALIEN_TERROR,STR_TERROR_MISSION,STR_SECTOID").split(","))
-PARALLEL = {"CoopTurnMode": "parallel"}  # MG-P1: the rewrite's turn-mode option (Options.cpp CoopTurnMode)
+PARALLEL = {"CoopTurnMode": "parallel"}  # the rewrite's turn-mode option (Options.cpp CoopTurnMode)
 
 
 class Inconclusive(Exception):
@@ -75,15 +75,15 @@ def base0(gc):
 
 # ---- the player's action -----------------------------------------------------
 
-GROUND_XS = (18, 16, 14, 12, 10, 8, 6, 4, 2, 0)  # MG-P1: ground columns tried for the drop (20 columns), right first
+GROUND_XS = (18, 16, 14, 12, 10, 8, 6, 4, 2, 0)  # ground columns tried for the drop (20 columns), right first
 
 
 def floor_drop(gc, coop):
     """This machine's player drops a held item of the soldier on its pre-battle equip
     screen on the floor with two real clicks (inventory_click: the hand, then a ground
     cell): the mouse path, whose floor re-layout (Inventory::arrangeGround) runs on this
-    machine only. MG-P1: main used inventory_move ui=true, which the rewrite refuses in a
-    battle (a base-screen lever). The screen shows this machine's own soldiers (W2-P8b);
+    machine only. main used inventory_move ui=true, which the rewrite refuses in a
+    battle (a base-screen lever). The screen shows this machine's own soldiers;
     NEXT steps to the next one until a coop=`coop` soldier holds an item in a hand.
     Returns (detail, item id)."""
     held, unit = [], None
@@ -120,7 +120,7 @@ def floor_drop(gc, coop):
 def through_inventory(host, client, drops):
     """Both machines: briefing -> pre-battle inventory; run the drops while the dropping
     machines' equip screens are up; then ready on both and settle on the tactical map.
-    Returns the dropped item ids. MG-P1 (W2-P8b): both briefings are up at once and each
+    Returns the dropped item ids. both briefings are up at once and each
     player lands on the pre-battle equip screen for its OWN soldiers; a machine with
     nothing to equip (the SEPARATE second player with no soldier aboard) shows none.
     session.drive_both_to_tactical presses each screen's OK (the ready lever) and drains
@@ -292,7 +292,7 @@ def shared_row(results, row, tag, ports):
                                  client_options=PARALLEL)
     host, client = js.host, js.client
     try:
-        # MG-P1: main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
+        # main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
         # bring-up (one host-owned and one client-owned soldier on the shared craft; the host
         # confirms the landing; it returns at the host's briefing).
         session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, to_tactical=False)
@@ -306,7 +306,7 @@ def shared_row(results, row, tag, ports):
 
 
 def main():
-    rows = os.environ.get("COOP_BSS_ROWS", "S2,H1").split(",")  # MG-P1: S1 dropped (D199 (a))
+    rows = os.environ.get("COOP_BSS_ROWS", "S2,H1").split(",")  # S1 dropped
     results = {}
     note = None
     alive = True
@@ -330,7 +330,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(2)  # MG-P1: a precondition miss fails the run (WV-D99 / D100, RV-U1)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: a pre-battle floor drop leaves the first sidestart sync check clean")

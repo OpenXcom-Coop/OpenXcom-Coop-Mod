@@ -21,7 +21,7 @@ the host's battle_action abort and the VOTE rule (a vote_cast when the YES butto
 a coop dialog back or a base leave; no host re-init before READ. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row
 verdict; a precondition miss ends its row (CAPTURE line, cells "not reached") and the file goes on to its next boot; a boot miss fails
 that boot's cells "boot" with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_host_partner_mirror.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, subprocess, sys, time  # noqa: E401
 

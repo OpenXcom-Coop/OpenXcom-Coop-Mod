@@ -201,7 +201,7 @@ void Game::run()
 			CRASH_LOG(msg);
 		}
 
-		// coop W2-H83 S-B2 (R-LBH3-1, R-H83-2): a removal the drain above applied closes the screens that still show that base, before
+		// coop W2-H83 S-B2: a removal the drain above applied closes the screens that still show that base, before
 		// any of them runs init(), handle() or think()
 		coopCloseGoneBaseHolders();
 
@@ -597,7 +597,7 @@ void Game::setState(State *state)
 void Game::pushState(State *state)
 {
 	_states.push_back(state);
-	// WV-D112: the screen record. pushState/popState are the COMPLETE chokepoint
+	// the screen record. pushState/popState are the COMPLETE chokepoint
 	// onto the screen stack (private member, no friends, const accessor), so this
 	// pair is a full history of what was shown - including the direct pushes that
 	// bypass the geoscape popup queue. LOG_INFO because Release runs at LOG_INFO.
@@ -617,7 +617,7 @@ void Game::popState()
 	State *popped = _states.back();
 	_deleted.push_back(popped);
 	_states.pop_back();
-	// WV-D112: the matching record. The state is still alive here (the delete
+	// the matching record. The state is still alive here (the delete
 	// happens at the start of the next cycle), so typeid is safe, and depth is
 	// the size AFTER the pop - so a pop's depth is its push's depth minus one.
 	Log(LOG_INFO) << "[coop-ui] pop  " << typeid(*popped).name()

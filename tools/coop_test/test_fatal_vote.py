@@ -6,7 +6,7 @@ Constants: docs rewrite/w2p7-sv-task0/CONSTANTS.md (TASK 0 `w2p7-sv-t0`, F4380-F
 
 With battleAutoEnd on, the last alien's death while an X-COM soldier bleeds asks vanilla's "Mission complete. / N of
 us is still fatally wounded / End Mission?" (ConfirmEndMissionState, OK / CANCEL). Before S-V-A.2 only the host is asked
-(F3225) and a partner's order runs under the host's question (F3226). After it: the host opens the vote at quiescence,
+and a partner's order runs under the host's question. After it: the host opens the vote at quiescence,
 every owner seat of a bleeding soldier answers vanilla's own question on its own machine (OK = yes, CANCEL = no), the
 mission ends only on all yes, the first no closes every question (`continue`: the battle ends at END TURN, no second
 question), a host that does not vote (or has answered) sits on `CoopFatalVoteHold` with the existing Wait line naming
@@ -15,7 +15,7 @@ continues. This file: rows V0-V6 on the classic boot (test_battle_end.boot: SEED
 only alien, pin_ai_neutral, hash-clean). test_fatal_vote_partner.py holds V9 and E6v (SV-T1).
 
 Staging (stage_v, design section 4): host set_option battleAutoEnd true; WS1 = 8 / WS0 = 10 (the lowest seat-1 /
-seat-0 soldier, asserted); battle_set_unit_state fatalWounds [0,1,0,0,0,0] client first then host (F607); both settle;
+seat-0 soldier, asserted); battle_set_unit_state fatalWounds [0,1,0,0,0,0] client first then host; both settle;
 the pre-ending census (test_battle_end.pre_census: hash clean, desync, both battleEnd records at zero) and both
 machines' fatalVote at its zeros. Kill: host battle_action kill_unit_real A. Answers ONLY through click_widget
 {match: "OK" | "CANCEL"} on the answering machine, pressed only while its top is ConfirmEndMissionState and the button
@@ -57,9 +57,9 @@ and after the close: the zero record). Beyond those:
       close-before-battle_end line fails.
   V6  open: client top BattlescapeState. ending: runs and passes; the close-before-battle_end line fails.
 
-WV-D99 / WV-D100: one run is the result; no skip path, one boot per row. Each row prints ONE "EVIDENCE <id>:" line
+one run is the result; no skip path, one boot per row. Each row prints ONE "EVIDENCE <id>:" line
 before its verdict; main() runs every row and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded.
-Exit 0 only when every row passes, 2 otherwise. WV-D95: run in the foreground to completion.
+Exit 0 only when every row passes, 2 otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_fatal_vote.py
 """
@@ -240,7 +240,7 @@ def hash_clean(r, phase, what):
 
 
 def wait_held_done(r, phase):
-    """R-Y1-2 (CIT-Y1 F23814): before a post-close hash in a row whose held order is resubmitted after the close, wait
+    """before a post-close hash in a row whose held order is resubmitted after the close, wait
     (bounded, STEP_S) until no action is in flight: the client's held slot is empty (battle_state coopPendingIntent null:
     the order went out again), the client's in-flight slot is empty (event_state inFlight null: its bt_action_end
     applied) and the host runs nothing (event_state busyOwnerSeat -1). Checks nothing; the caller's settle() / wait and
@@ -273,7 +273,7 @@ def stage_v(r, wounded, seat_pins=((0, WS0), (1, WS1))):
             wr[f"{gc.name}:{uid}"] = resp.get("fatalWounds")
             if resp.get("fatalWounds") != WOUND:
                 r.fail("pre", f"{gc.name} battle_set_unit_state {uid} fatalWounds answered {resp} (want {WOUND})")
-        session.wait_seq_barrier(h, c)  # W2-U8c (F6495)
+        session.wait_seq_barrier(h, c)
     try:
         session.wait_host_idle(h, c, timeout=30)
     except Exception as e:
@@ -461,7 +461,7 @@ def turn_order(r):
 
 
 def check_held(r, d0, iseq):
-    """D214 (a): the order is denied busy and held on the client; nothing turns on either machine (HELD_OBS_S)."""
+    """the order is denied busy and held on the client; nothing turns on either machine (HELD_OBS_S)."""
     h, c = r.host, r.client
     seen, t0 = set(), time.time()
     while time.time() - t0 < HELD_OBS_S:

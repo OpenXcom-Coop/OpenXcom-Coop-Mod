@@ -1,4 +1,4 @@
-"""SPEC 12 (W1-P13d) - test_nonplayer_think_gate.py: REV E.58 E58.1's gm2
+"""test_nonplayer_think_gate.py: REV E.58 E58.1's gm2
 leg - WV-D44 (BLOCKER) / REV E.48 SS.B.1 (landed by SPEC 9, W1-P13a): the
 coop guard at the head of BattlescapeGame::think()'s non-player branch
 (`coopSuppressNonPlayerThink`, `BattlescapeGame.cpp:233`) means the HOST
@@ -220,17 +220,17 @@ def run_leg_b_classic():
         assert hostile_ids, f"LEG B: no live hostile on the pinned seed {SEED}"
 
         for uid in hostile_ids:
-            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # F607: client first
+            rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})  # client first
             rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
             assert rh.get("ok") and rc.get("ok"), (
                 f"LEG B: battle_strip_unit failed for unit {uid}: host={rh} client={rc}")
             assert rh.get("deleted") == rc.get("deleted"), (
                 f"LEG B: E.5 - the two machines' deleted item id lists differ for "
                 f"unit {uid}: host={rh.get('deleted')} client={rc.get('deleted')}")
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
             host.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
-            session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+            session.wait_seq_barrier(host, client)
 
         turn0 = battle_state(host)["turn"]
 

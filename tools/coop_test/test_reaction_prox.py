@@ -3,7 +3,7 @@ walking soldier, and a proximity mine going off under that walker, each run as
 its own named action NESTED inside the walk (spec
 rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_reaction_prox.py
 (S-B)", sections (b)2-3 nesting and (b)8 latches, amendments B1 (RQ4, RQ5,
-RQ8, RQ15) and B3 (owner ruling D145 = a); D139).
+RQ8, RQ15) and B3; D139).
 
 Before S-B, on the W2-P3 base, the host cancels every reaction shot aimed at a
 client soldier (ProjectileFlyBState::init compares the target with the HOST's
@@ -20,7 +20,7 @@ Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
        spottedThisTurn (no new-spot halt at walk start); A reactions 100 + tu
        A_TU refilled (BOTH); the client TAB-selects C, the host set_seed
        SEED_C8, the client clicks C8_DEST (real UI, 3 planned steps).
-       GREEN (B3 + (f)): A's reaction shots happen (D145) and run under the
+       GREEN (B3 + (f)): A's reaction shots happen and run under the
        walk W - inside ONE `reaction` context R {actorId A, nestedIn W}: R's
        evs are shot (actor A) -> hit(s) -> R's one bt_action_end, before W's
        end; every A shot/hit carries R; W {origin intent, kind walk, actorId
@@ -61,7 +61,7 @@ Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
        GREEN: the stand-up `kneel` ev and every walk_step carry W (hooks owned
        by the base chain read the walk's own id); >= 1 `reaction` context
        nested in W (actorId A), one of them with no `shot` cue - the stand-up
-       reaction, aimed at C's old tile and cancelled (F881); every A shot/hit
+       reaction, aimed at C's old tile and cancelled; every A shot/hit
        carries a `reaction` context nested in W, never W itself; W halts after
        C8K_EXECUTED with reason "reaction" (resolved in the catch-all) on both;
        banner BANNER_UNDER_FIRE; C's outcome per the seed (health
@@ -111,9 +111,9 @@ SEED_ROSTER on the HOST right before its open_new_battle; the DEFAULT NEW
 BATTLE map with set_seed SEED_MAP right before newbattle_ok, seat_count=2,
 MAP_FP asserted on both; session.pin_ai_neutral (pins A); RQ15: every live
 player unit's reactions 0 on BOTH. Every lever pair applies to the CLIENT
-first, then the HOST (F607), responses asserted equal. The seeds were found
+first, then the HOST, responses asserted equal. The seeds were found
 with the host-selection stand-in (host `battle_action select` of C, F880);
-this test does NOT use it - the product fix (D145) is what GREEN tests.
+this test does NOT use it - the product fix is what GREEN tests.
 
 RED-THEN-GREEN (spec (d) row S-B). Commit S-B.1 (this file; product
 unchanged) is run ONCE and every scenario must FAIL with the RED above; commit
@@ -124,9 +124,9 @@ scenario even after an earlier one failed and prints "PASS <id>" /
 "FAIL <id>: <message>". Every wait is bounded; a wait that times out is
 recorded in the EVIDENCE line and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all three scenarios pass, 2
-otherwise (a bring-up failure is also 2). WV-D95: run in the foreground to
+otherwise (a bring-up failure is also 2). run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_reaction_prox.py
@@ -151,7 +151,7 @@ from test_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta
 from test_hit_log import hl_snap, hl_view, hl_count, hl_delta, STRINGS_EN
 
 # ----- bring-up (W2-P3 TASK 0a, ledger `## W2-P3 TASK 0a`) -----
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
 SEATED = [8, 9]                  # the client seat's soldiers
@@ -179,11 +179,11 @@ KR2_WALKLEVEL_PER_STEP = 2             # ruling SC-3 (a), F4143: with the host c
                                        # so UnitWalkBState runs keepWalking(..., false) (end = 2) and writes the view level
                                        # (:204) on both calls of each step - traced over 4 steps (C8, C8k, C11); the guard
                                        # counts every write it suppresses (no dedupe)
-# W2-P6b S-L row L5 (AMENDMENT P6-5 section 6, ruling SL-1; owner D172 (a)): TASK 0 T0L-1 (F4238/F4241)
+# W2-P6b S-L row L5 (AMENDMENT P6-5 section 6, ruling SL-1; owner D172 (a)): TASK 0 T0L-1
 L5_ENTRIES = 10                        # from the quiescent point after C8's END TURN cycle to the walk's end the host
                                        # sends the cycle's pending NEW_TURN + 9 chain entries (REACTION_FIRE x4,
                                        # NEW_SHOT, NEW_SHOT, BIG_DAMAGE, NEW_SHOT, NO_DAMAGE) on 6 evs, counted per entry
-L5_PENDING_AT_QUIET = 1                # SL-1 (F4239): the cycle's NEW_TURN waits for the host's next emit
+L5_PENDING_AT_QUIET = 1                # SL-1: the cycle's NEW_TURN waits for the host's next emit
 
 # ----- C8k (T0c constants.md "C8k") -----
 SEED_C8K = 2                           # host set_seed right before the client's click
@@ -442,7 +442,7 @@ def equal_fails(rec, what):
 
 
 def reaction_fails(rec, what):
-    """A fired (D145): >= 1 `shot` cue with actor A and >= 1 `hit`; every
+    """A fired: >= 1 `shot` cue with actor A and >= 1 `hit`; every
     shot/hit carries a `reaction` context {actorId A} nested in W - never W
     itself, never 0; every reaction context nested in W has actorId A.
     Returns (fails, the reaction contexts nested in W)."""

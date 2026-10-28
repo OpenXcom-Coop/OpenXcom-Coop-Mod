@@ -15,7 +15,7 @@ are refused in the action menu (K8, ActionMenuState::handleAction) with "Only th
 host can use this item": the medi-kit screen never opens. The reload key is
 refused with "Only the host can reload" (K13) and the hand right-click with "Only
 the host can change reaction fire settings" (K14). Each refusal leaves
-coopLocalExecBlocked +0 (F1171) and sends nothing. After S-D each press becomes
+coopLocalExecBlocked +0 and sends nothing. After S-D each press becomes
 an intent (wire kinds of spec (b)1: `medikit`, `use_item` for the scanner,
 `reload`, `reaction_hands`). The host admits it with vanilla's own checks and
 runs vanilla's own code under an `intent` action context (context kinds of spec
@@ -82,7 +82,7 @@ order:
          intent, kind reload, actorId C} whose evs are exactly bt_action_end;
          coopIntentsSent.reload +1; the clip loaded in the rifle on both; C TU
          49 on both; lastAftermath {actionId, kind reload}.
-  C23f   reaction-fire hands (D133). C's flags (offLeft, offRight, prefLeft,
+  C23f   reaction-fire hands. C's flags (offLeft, offRight, prefLeft,
          prefRight) (F, F, F, F) on both. Client: TAB, battle_ui_press
          hand_reaction right (the real handler, a right-button event), then
          the client's touch Ctrl on (set_touch_modifiers), hand_reaction left,
@@ -148,8 +148,8 @@ test_host_combat.py (set_seed SEED_ROSTER on the HOST right before its
 open_new_battle, mission STR_TERROR_MISSION, set_seed SEED_MAP right before
 newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
 asserted, pin_ai_neutral), the mod active on both (MAP_FP unchanged with it).
-Every lever pair goes to the CLIENT first (F607). Item ids are read at run time
-from the lever replies (F1107), never baked.
+Every lever pair goes to the CLIENT first. Item ids are read at run time
+from the lever replies, never baked.
 
 RED-THEN-GREEN (spec (d) row S-D). Commit S-D.1 (this file, the probes, the
 fatalWounds lever, the mod's one-charge kit) is run ONCE and every scenario must
@@ -160,9 +160,9 @@ earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait i
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all nine scenarios pass, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_items.py
 """
@@ -192,7 +192,7 @@ from test_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, wan
 # ----- bring-up (TASK 0: the roster-pinned terror boot, the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded (F1164)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID = 8
 H_ID = 10                         # first host-seat soldier: the patient
@@ -439,7 +439,7 @@ def strip_both(host, client, uid):
     assert rh.get("ok") and rc.get("ok"), f"battle_strip_unit {uid}: host={rh} client={rc}"
     dh, dc = set(rh.get("deleted") or []), set(rc.get("deleted") or [])
     assert dh == dc, f"battle_strip_unit {uid} deleted sets differ (F882): host={sorted(dh)} client={sorted(dc)}"
-    session.wait_seq_barrier(host, client)  # W2-U8c (F6495)
+    session.wait_seq_barrier(host, client)
     return sorted(dh)
 
 

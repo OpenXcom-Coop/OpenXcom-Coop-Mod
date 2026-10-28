@@ -1,8 +1,8 @@
 """W2-P7 S-C-E1 - test_shared_selection.py: in a SHARED campaign both players on the same Sell screen edit ONE
-shared list of pending amounts (owner D184 (a)); the host holds the list and applies its current list at whoever's
+shared list of pending amounts; the host holds the list and applies its current list at whoever's
 confirm (D203: a confirm racing an edit is let through), a second confirm of the same selection counts as done (MR8),
-the other player's screen stays open, rebuilt with the new stock and zero amounts (D204 (a)), a world change on the
-base keeps the shared amounts, clamped (F2161), and the list covers the normal, page-3 and forced Sell screens (MR16)
+the other player's screen stays open, rebuilt with the new stock and zero amounts, a world change on the
+base keeps the shared amounts, clamped, and the list covers the normal, page-3 and forced Sell screens (MR16)
 (docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8 sections 3-4: PR-37..PR-46; MR7, MR8, MR16;
 Q-P8-1..Q-P8-3 (a)).
 
@@ -28,7 +28,7 @@ Fixtures (AMENDMENT P7-8 section 4.1):
   remaining, amount, value), shared_update_defer {on} (a "hold": that machine's per-frame SharedEcon drain waits;
   every client hold is released within HOLD_MAX_S of the host's world change, F4529 / F5840), the host's `sell` lever
   (unbound: applied as sent, PR-39 (iv), F6126), click_widget on the real captions (Sell/Sack, Cancel, SELL), and
-  dismiss_popup ONLY on an ErrorMessageState top / coop_dialog_back ONLY on a CoopState top (F4333).
+  dismiss_popup ONLY on an ErrorMessageState top / coop_dialog_back ONLY on a CoopState top.
 
 Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
   Boot SEL (port 47260): E-a, E-e, E-c, E-d, E-b, E-f.
@@ -43,7 +43,7 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
   E-c (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it (EVIDENCE only, never a
           failed cell); host hold on; host X = 5; client Sell/Sack.
       (2) host hold off: within PAGE_S the client's SellState gone, no CoopState on either; X stock == before - 5 on
-          both (D203: the host applies its current list); the host's top SellState, every amount 0 (D204).
+          both (D203: the host applies its current list); the host's top SellState, every amount 0.
   E-d (1) client X = 2; host screen_set_amount {X, 2} (no change when shared); client hold on; host Sell/Sack ->
           the host's SellState gone within PAGE_S.
       (2) client Sell/Sack; client hold off: within PAGE_S its SellState gone, no CoopState on either, X stock ==
@@ -51,7 +51,7 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
   E-b (1) client Y = 1 and its own soldier's row = 1; the host's screen_rows lists no row named after that soldier
           (MR7); the host's sel_state rows hold s:<id>: 1 and i:STR_PISTOL: 1 within SEL_S.
       (2) host Sell/Sack: its SellState gone within PAGE_S; the client's top stays SellState (rebuilt), every amount
-          0 (D204); Y stock -1 on both; that soldier gone from base 0 on both (get_soldiers); no CoopState.
+          0; Y stock -1 on both; that soldier gone from base 0 on both (get_soldiers); no CoopState.
   E-f (1) client X = 1 -> the host's X amount 1 within SEL_S.
       (2) client Cancel: the host's sel_state viewers [0], rows {i:STR_RIFLE: 1}, its X amount 1.
       (3) host Cancel: the key absent from sel_state on both within SEL_S.
@@ -79,7 +79,7 @@ client's own list was applied), E-d on cell 2 (X stock before - 4: two sales), E
 holds no key), E-p on cell 1 (the host's sel_state holds no key), E-s on cell 2 (the host's Rifle amount 0). GREEN
 (commit S-C-E1.2): every row passes.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' sel_state at the row's end), then "PASS <id>" or "FAIL
-<id>: <message>". WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+<id>: <message>". ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_selection.py
 """
@@ -110,7 +110,7 @@ RIFLE, RIFLE_SIZE = fst.RIFLE, fst.RIFLE_SIZE   # CONSTANTS T0-S3 (ii): STR_RIFL
 E_C_CLIENT, E_C_HOST = 1, 5              # P7-8 section 4.1 E-c's amounts
 E_P_SET = 4                              # P7-8 section 4.1 E-p (2)
 SEL_DUP = "coop_sel_dup"                 # PR-45: a duplicate confirm, answered as a success
-SELL_OK, CANCEL = "Sell/Sack", "Cancel"  # SellState's captions (F5572)
+SELL_OK, CANCEL = "Sell/Sack", "Cancel"  # SellState's captions
 STORAGE_MARK = fst.STORAGE_MARK          # "STORAGE SPACE EXCEEDED"
 SEL_S = 3                                # P7-8 section 4: a cross-machine amount
 PAGE_S = p3.PAGE_S                       # 5 s: a screen push / close after a real click or a release
@@ -349,7 +349,7 @@ def fxst_pre(js, ctx):
     host, client = js.host, js.client
     m = (host, client)
     sa = {}
-    for gc in (client, host):   # client first (F607)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_autosell", "item": T, "on": True})
         sa[gc.name] = {k: r.get(k) for k in ("ok", "item", "autosell", "error")}
     ctx["setAutosell"] = sa
@@ -389,7 +389,7 @@ def row_start(host, client, ctx, stage_items=True):
     if stage_items:
         give = {}
         for item in (X, Y):
-            for gc in (client, host):   # client first (F607)
+            for gc in (client, host):   # client first
                 r = gc.cmd({"cmd": "give_items", "item": item, "count": STAGE})
                 give[f"{gc.name}:{item}"] = {k: r.get(k) for k in ("ok", "stored", "error")}
         ctx["give"] = give

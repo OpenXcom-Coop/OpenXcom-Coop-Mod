@@ -1,5 +1,5 @@
 """D250-U S-C5b2 - test_campaign_gm3_basedef_rejoin.py: an attack on the X-COM player's own base in a gm3 PvP campaign whose borrowed
-start is interrupted by the X-COM player's lost game (host = the aliens, client = X-COM). D260 (b): the alien host goes home to its own
+start is interrupted by the X-COM player's lost game (host = the aliens, client = X-COM). the alien host goes home to its own
 world and the attack waits; once the player is back and RESUME is pressed, the defence starts again for both, in the X-COM player's world,
 and ends through S-C2's return.
 Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4 (SC4-6, SC4-7, SC4-8 file B row B2, FX5B-2, FX5B-11 .. FX5B-17) and its
@@ -29,7 +29,7 @@ Row B2 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell w
   B2-common  desyncSeen false on host and client2; 0 new crash files since the row's start (the hard-killed client writes none: TASK 0 Rb).
 RED (C5B2R on 9eacec774): exit 2, 0/4 - B2-start FAILs (P-C5b2: no hand-off, no borrow to drop); the other three FAIL "blocked: no
 borrowed base defence to drop (B2-start)". GREEN (C5B2G): 4/4.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_basedef_rejoin.py
 """
 

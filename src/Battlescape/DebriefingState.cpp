@@ -23,10 +23,10 @@
 #include "DebriefingState.h"
 #include "CannotReequipState.h"
 #include "../Geoscape/GeoscapeEventState.h"
-#include "../CoopMod/SharedEcon.h" // W2-H15 (F5602)
-#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
-#include "../CoopMod/CoopScriptOwner.h" // coop OF2 S-C: CoopScriptDebriefOwner around postMissionProcedures (D266 (c))
-#include "../CoopMod/CoopBattleSetup.h" // coop D248-U: coopGuestTankRecovered
+#include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
+#include "../CoopMod/CoopScriptOwner.h" // coop OF2 S-C: CoopScriptDebriefOwner around postMissionProcedures
+#include "../CoopMod/CoopBattleSetup.h" // coop: coopGuestTankRecovered
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
@@ -300,9 +300,9 @@ DebriefingState::DebriefingState() :
 	_lstRecoveredItems->setAlign(ALIGN_LEFT);
 	_lstRecoveredItems->setDot(true);
 
-	coopHotseatOnDebriefing(); // coop D247-U: hotseat is scoped to one skirmish (main DebriefingState :300-:314)
+	coopHotseatOnDebriefing(); // coop: hotseat is scoped to one skirmish (main DebriefingState :300-:314)
 
-	// coop (F389): this is the host's battle-end chokepoint (abort/win/lose all
+	// coop: this is the host's battle-end chokepoint (abort/win/lose all
 	// route through here via BattlescapeState::finishBattle before the geoscape
 	// is shown). Mark the mission end so the GeoscapeState post-battle cleanup
 	// (F366 merged-guest deletion + processPendingSoldierGifts) runs. Host-only
@@ -905,9 +905,9 @@ void DebriefingState::btnOkClick(Action *)
 			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn);
 			if (canSpawn)
 			{
-				const Json::Value h15Mark = SharedEcon::eventMark(_game); // W2-H15 (F5602)
+				const Json::Value h15Mark = SharedEcon::eventMark(_game);
 				_game->pushState(new GeoscapeEventState(*_eventToSpawn));
-				SharedEcon::hostGeoEvent(_game, *_eventToSpawn, h15Mark, _game->getStates().back()); // W2-H15 (F5602): the after-battle event reaches the second player
+				SharedEcon::hostGeoEvent(_game, *_eventToSpawn, h15Mark, _game->getStates().back()); // the after-battle event reaches the second player
 			}
 		}
 		if (!_deadSoldiersCommended.empty())
@@ -1606,7 +1606,7 @@ void DebriefingState::prepareDebriefing()
 					}
 					else
 					{ // non soldier player = tank
-						if (coopGuestTankRecovered(bunit)) continue; // coop D248-U: a SEPARATE partner's tank goes home, not into these stores
+						if (coopGuestTankRecovered(bunit)) continue; // coop: a SEPARATE partner's tank goes home, not into these stores
 						addItemsToBaseStores(bunit->getType(), base, 1, false);
 
 						auto unloadWeapon = [&](BattleItem *weapon)
@@ -2214,7 +2214,7 @@ void DebriefingState::prepareDebriefing()
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getCoopHqBase()); // coop W2-H89 H8 (R-LH88-1-1 (a)): the sender's first own base
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getCoopHqBase()); // coop W2-H89 H8: the sender's first own base
 		}
 
 		// Increase counters

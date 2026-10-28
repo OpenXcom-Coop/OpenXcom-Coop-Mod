@@ -1,6 +1,6 @@
 """EQ-2 S-D - test_equip_held_drawn.py (EQD): on the pre-battle equip screen the co-op partner's held item is drawn under the
 partner's pointer, centred on it as vanilla centres its own cursor item, and an item the partner lifts from its own soldier is not
-drawn on that soldier's paperdoll in the read-only view (EQ-1) while it is held. Owner D291 (c), QEQ2-8 (a) (veto VL-EQ2-6),
+drawn on that soldier's paperdoll in the read-only view while it is held. Owner D291 (c), QEQ2-8 (a) (veto VL-EQ2-6),
 D290 (c) / D295 (a) (S-A's pointer), D291 (b) (S-B's hold table), D288 (b) (EQ-1's partner view). Spec: docs repo
 rewrite/prompts/eq2d_held_drawn.md (f) + PIN-PASS AMENDMENTS, common rewrite/prompts/eq2_partner_pointer.md; R-EQ2-3 (a) (held
 items read by id, never by pile cell). Constants: docs repo rewrite/eq2-task0/sd/CONSTANTS.md.
@@ -21,8 +21,8 @@ the host's first evs, F21396): C1, C2 stripped; STAGE_TYPES + HOLD_EXTRA on PILE
 presence = event_state.equip.presence (S-A); an absent `held` reads FAIL. Every row ends with both cursors empty (a failed cleanup
 ends the later rows "not reached"). RED on HEAD (S-C; no held drawing, no paperdoll skip): C2H-held, C2H-centre, H2C-held,
 drop-gone, doll-gone (5 of 8). One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a
-failure; a boot step past its bound prints ONE CAPTURE line and fails every row "boot". WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+failure; a boot step past its bound prints ONE CAPTURE line and fails every row "boot". run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_held_drawn.py
 """
 
@@ -241,7 +241,7 @@ def spine(host, client):
                                                     and battle_state(client).get("inBattle") is True, EQ1_WAIT_S, 0.1)
     if not ok:
         miss(tag, f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
-    G3F.guarded(tag, lambda: session.wait_seq_barrier(host, client), m)   # F21396: the host's first evs applied before staging
+    G3F.guarded(tag, lambda: session.wait_seq_barrier(host, client), m)   # the host's first evs applied before staging
 
     def stage():
         rec = {"stripped": {uid: strip_both(host, client, uid) for uid in (C1, C2)}, "ids": {}}

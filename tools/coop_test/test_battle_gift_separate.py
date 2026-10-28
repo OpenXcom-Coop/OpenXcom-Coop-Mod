@@ -29,10 +29,10 @@ both; CRAFT 1, CRAFT_TYPE "STR_SKYRANGER", FIRST_OWN 0; HOST_BASE_COOP and the h
       X5-common (no new crash file since the bring-up; the client wrote no save).
 Red at C1 (the base build): X1-owner, X2-names, X3-client, X4-host. Every other cell PASS.
 
-A soldier in the other world is found by name AND equal initialStats (F13600), never by a display name alone. One
+A soldier in the other world is found by name AND equal initialStats, never by a display name alone. One
 EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a cell
 whose precondition failed FAILs "not reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE X line and
-fails every row "boot". Ids come from probes (S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run
+fails every row "boot". Ids come from probes (S25). run in the foreground to completion. ONE run
 is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift_separate.py
@@ -63,7 +63,7 @@ DRAIN_S = 60                              # the host's OK + follow-ups down to i
 SQUAD, GUEST_ID, H1, H2, G = [1, 2, 3], 8, 1, 2, 9
 COPY_ID = G                               # the battle copy's id (lastId + 1; R-U5-SC-1, F14084)
 GUEST_NAME = "Guest Zzz"                  # session.bring_up_separate_guest_battle's renamed client guest
-H1_NAME, H2_NAME = "Qqq One", "Qqq Two"   # R-U5-SC-1: the host's renames (no roster pool name holds "Qqq")
+H1_NAME, H2_NAME = "Qqq One", "Qqq Two"   # the host's renames (no roster pool name holds "Qqq")
 CRAFT_TYPE = "STR_SKYRANGER"              # TASK 0 (Xp2, Xa, Xb, Xc)
 TITLE = "Aliens defeated"                 # TASK 0 / OF2 S-C
 STATUS_DEAD = 6

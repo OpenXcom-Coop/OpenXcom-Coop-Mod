@@ -96,9 +96,9 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopGhost.h"
 #include "../CoopMod/CoopEndTurn.h"
-#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
+#include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/CoopSpeed.h"
-#include "../CoopMod/CoopDelta.h" // coop R5-U2: coopFactionIsMine() (R5-U1 S-B)
+#include "../CoopMod/CoopDelta.h" // coop: coopFactionIsMine() (R5-U1 S-B)
 
 namespace OpenXcom
 {
@@ -777,7 +777,7 @@ BattlescapeState::BattlescapeState() :
 	_battleGame = new BattlescapeGame(_save, this);
 
 	_barHealthColor = _barHealth->getColor();
-	coopHotseatOnBattleStart(_save); // coop D247-U: a hotseat battle (or stage) starts on player 1's turn
+	coopHotseatOnBattleStart(_save); // coop: a hotseat battle (or stage) starts on player 1's turn
 }
 
 
@@ -898,7 +898,7 @@ void BattlescapeState::init()
 	{
 		int currentTurn = _autosave;
 		_autosave = 0;
-		// coop W2-H49 (F17602): the ironman rule of the world the save belongs to (the alien host's own in a gm3 borrowed battle)
+		// coop: the ironman rule of the world the save belongs to (the alien host's own in a gm3 borrowed battle)
 		if (connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman())
 		{
 			_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_IRONMAN, _palette));
@@ -922,7 +922,7 @@ void BattlescapeState::think()
 		if (_popups.empty())
 		{
 			State::think();
-			CoopGhost::advance(_save, SDL_GetTicks()); // W1-P12: display-only, self-guarded (no-op outside a coop battle)
+			CoopGhost::advance(_save, SDL_GetTicks()); // display-only, self-guarded (no-op outside a coop battle)
 			int ret = _battleGame->think();
 			if (ret > -1)
 			{
@@ -1222,7 +1222,7 @@ void BattlescapeState::mapIn(Action *)
  */
 void BattlescapeState::btnUnitUpClick(Action *)
 {
-	// W1-P13d (WV-D58 / WV-D40): a co-op CLIENT never reaches
+	// a co-op CLIENT never reaches
 	// BattlescapeGame::moveUpDown() - that pushes a UnitWalkBState, a LOCAL
 	// walk with nothing on the wire. The host falls through to vanilla and its
 	// own press streams through coopInterceptWalkConfirm() in moveUpDown().
@@ -1244,7 +1244,7 @@ void BattlescapeState::btnUnitUpClick(Action *)
  */
 void BattlescapeState::btnUnitDownClick(Action *)
 {
-	// W1-P13d (WV-D58 / WV-D40): a co-op CLIENT never reaches
+	// a co-op CLIENT never reaches
 	// BattlescapeGame::moveUpDown() - that pushes a UnitWalkBState, a LOCAL
 	// walk with nothing on the wire. The host falls through to vanilla and its
 	// own press streams through coopInterceptWalkConfirm() in moveUpDown().
@@ -1336,7 +1336,7 @@ void BattlescapeState::btnKneelClick(Action *)
 				return;
 			}
 
-			// The host's own local kneel in a coop battle (RB-D19): mint+
+			// The host's own local kneel in a coop battle: mint+
 			// push this action's coop context BEFORE the vanilla call
 			// below, so the THIN emit hook inside BattlescapeGame::kneel()
 			// (coopOnKneelFinished) fires for it exactly as it already
@@ -1742,7 +1742,7 @@ void BattlescapeState::btnLeftHandItemClick(Action *action)
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
 			// - machine-local display state, same class as the reserve settings
 			// ratified there.
-			// W2-P4 S-D (owner D133 (a)): the refusal became the reaction-hands
+			// W2-P4 S-D: the refusal became the reaction-hands
 			// intercept - on a co-op client the press is an order the host runs.
 			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, false))
 			{
@@ -1806,7 +1806,7 @@ void BattlescapeState::btnRightHandItemClick(Action *action)
 			// writes `activeHand`, which IS saveBlob-excluded (SharedEcon.cpp:4020)
 			// - machine-local display state, same class as the reserve settings
 			// ratified there.
-			// W2-P4 S-D (owner D133 (a)): the refusal became the reaction-hands
+			// W2-P4 S-D: the refusal became the reaction-hands
 			// intercept - on a co-op client the press is an order the host runs.
 			if (coopInterceptReactionHands(_save->getSelectedUnit(), _save, true))
 			{
@@ -2829,7 +2829,7 @@ void BattlescapeState::bugHuntMessage()
  * @param message Warning message.
  */
 /**
- * W1-P9: the four HUD numbers as currently PAINTED (test introspection - see
+ * the four HUD numbers as currently PAINTED (test introspection - see
  * the header). Never read by game logic.
  */
 void BattlescapeState::getHudNumbers(int& tu, int& energy, int& health, int& morale) const
@@ -2841,7 +2841,7 @@ void BattlescapeState::getHudNumbers(int& tu, int& energy, int& health, int& mor
 }
 
 /**
- * W1-P9: the vanilla warning surface's current text (test introspection - see
+ * the vanilla warning surface's current text (test introspection - see
  * the header). Never read by game logic.
  * @return The last vanilla warning shown, or "" if none.
  */
@@ -2951,7 +2951,7 @@ void BattlescapeState::setCoopEndTurnArmed(bool armed)
 }
 
 /**
- * coop (W1-P7): read-only companion to setCoopEndTurnText() above, for test
+ * coop: read-only companion to setCoopEndTurnText() above, for test
  * introspection only (TestServer's "battle_state" command proves the surface
  * exists and is hidden). Empty string means the surface is hidden.
  */
@@ -3035,7 +3035,7 @@ std::string BattlescapeState::getMeleeDamagePreview(BattleUnit *actor, BattleIte
  */
 inline void BattlescapeState::handle(Action *action)
 {
-	// WV-D56: the host now enters the battlescape BEFORE the client holds the
+	// the host now enters the battlescape BEFORE the client holds the
 	// blob. Every coop input gate is permissive while phase == Handshake
 	// (isCoopBattle() is false there), so map clicks and hotkeys are frozen
 	// until the handshake completes. Self-guarded: false in SP, on a client,
@@ -3218,7 +3218,7 @@ inline void BattlescapeState::handle(Action *action)
 				// "ctrl-s" - switch xcom unit speed to max and back
 				else if (key == SDLK_s && ctrlPressed)
 				{
-					// SPEC 17 (W1-P18) M6: gated on the unit-less form of the
+					// SPEC 17 M6: gated on the unit-less form of the
 					// input-command combinator (F373's quickModeAllowed()) -
 					// off-baton in traditional mode must not let this seat
 					// toggle the OTHER seat's dial out from under it. Vanilla
@@ -3523,7 +3523,7 @@ inline void BattlescapeState::handle(Action *action)
 					}
 				}
 				// quick save and quick load
-				// coop W2-H49 (F17604): no quick save, insta save or quick load for an ironman world, a borrowed battle's owner included
+				// coop W2-H49: no quick save, insta save or quick load for an ironman world, a borrowed battle's owner included
 				if (!connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman() && !_save->isPreview())
 				{
 					if (key == Options::keyQuickSave)
@@ -3912,8 +3912,8 @@ void BattlescapeState::popup(State *state)
  */
 void BattlescapeState::finishBattle(bool abort, int inExitArea)
 {
-	coopHotseatOnFinishBattle(_save); // coop D247-U: real factions and X-COM's map back before the debriefing
-	coopHostBattleEnd(_game, _save, abort, inExitArea); // coop (W2-P7): battle_end; no-op outside a host coop battle
+	coopHotseatOnFinishBattle(_save); // coop: real factions and X-COM's map back before the debriefing
+	coopHostBattleEnd(_game, _save, abort, inExitArea); // coop: battle_end; no-op outside a host coop battle
 	bool isPreview = _save->isPreview();
 
 	while (!_game->isState(this))
@@ -3989,7 +3989,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		_save->setMissionType(nextStage);
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.nextStage();
-		coopHostNextStage(_game, _save); // coop (MG-A): stage_end sent - offer the next stage to both; no-op in SP
+		coopHostNextStage(_game, _save); // coop: stage_end sent - offer the next stage to both; no-op in SP
 		_game->popState();
 		_game->pushState(new BriefingState(0, 0));
 	}
@@ -4060,7 +4060,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
 			// Autosave if game is over
-			if (_game->getSavedGame()->getEnding() != END_NONE && connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop W2-H49
+			if (_game->getSavedGame()->getEnding() != END_NONE && connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop
 			{
 				_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_IRONMAN, _palette));
 			}

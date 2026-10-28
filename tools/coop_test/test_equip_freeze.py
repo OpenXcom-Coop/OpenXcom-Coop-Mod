@@ -29,9 +29,9 @@ randomizeItemLocations() / resetUnitTiles() / the per-unit prepareNewTurn(false)
 
 W2-P8b S-H RE-POINT (chain rule A.10; docs rewrite/prompts/w2p8b_prebattle_equip.md,
 AMENDMENT P8b-1 section 4 S-H): the freeze is GONE for a fresh co-op battle. The
-offer goes out at PREPARE at turn 0 (owner D210 b), each player equips its own
-soldiers on the vanilla pre-battle screen (D174 a), OK is a ready toggle and
-turn 1 starts on the host when every seat is ready (D206 c). The W1-P4 freeze
+offer goes out at PREPARE at turn 0, each player equips its own
+soldiers on the vanilla pre-battle screen, OK is a ready toggle and
+turn 1 starts on the host when every seat is ready. The W1-P4 freeze
 has no caller since MG-A (a stage change re-offers its equip phase), a path this file does not
 reach. This file is now the "no freeze" check, with each assertion re-pointed
 to the value this build measures:
@@ -166,7 +166,7 @@ def main():
         assert top_state(host) == "NewBattleState", \
             f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
 
-        # W1-P6 (WV-D12): stamp ONE soldier to seat 1 before generation
+        # stamp ONE soldier to seat 1 before generation
         # (R3-P1's newbattle_seat_soldier lever, WV-D18's standard fixture
         # shape). Two reasons, both real:
         #   1. REPRESENTATIVENESS - without it the joining client owns ZERO
@@ -193,7 +193,7 @@ def main():
         # synthetic shortcut - which is the whole point: the equip entry lives
         # inside it.
         #
-        # W2-P8b S-H (owner D210 b): the coop blob snapshot and the battle_offer
+        # W2-P8b S-H: the coop blob snapshot and the battle_offer
         # now go out at PREPARE (newbattle_ok), at turn 0, so the client's own
         # entry briefing is up BEFORE the host closes its briefing.
         client.wait_for("client entry briefing (both briefings at once, D210 b)",
@@ -209,7 +209,7 @@ def main():
         time.sleep(3)  # let both logs flush the handshake lines
         print(f"client stack at entry:      {states(client)}")
 
-        # === (a) BOTH equip screens OPEN - the freeze is gone (W2-P8b) =======
+        # === (a) BOTH equip screens OPEN - the freeze is gone =======
         post = states(host)
         assert post[-1] == "InventoryState", (
             "the host's pre-battle equip screen is not on top after close_briefing - "
@@ -247,7 +247,7 @@ def main():
 
         # === (e) turn == 0 on BOTH while the equip screens are up, saveBlob EQUAL
         # The offer is snapshotted at turn 0 and turn 1 starts only at the ready
-        # barrier (D206 c), so nothing may have run startFirstTurn() yet.
+        # barrier, so nothing may have run startFirstTurn() yet.
         hb = battle_state(host)
         cb = battle_state(client)
         assert hb.get("turn") == 0, (

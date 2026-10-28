@@ -24,7 +24,7 @@ Boot B3 (key 48679): G3F.bring_up (gm3, STR_SMALL_SCOUT, map seed 1), every live
       reactions 100, firing 0, TU; host set_seed SEED_R3; the partner's send_walk of S.
       R3-walk / R3-react / R3-alive   W {intent, walk, S} (+1 sent); one reaction {A, nestedIn W}, a shot by A, halted
                 `reaction`; S not out, health equal
-      R3-ai     hasAI false for A on both (QU3-4 (a))
+      R3-ai     hasAI false for A on both
   P2  the host's own alien side panics at its start (R5-V1; S-A's fix is in the base): A reactions 0, morale 0 (both);
       host set_seed SEED_P2 right before the partner's END TURN; A read on both before any NextTurnState closes;
       drive_side_change to side 1; a bounded wait (PANIC_S) for the host's `panic` ev; host infoboxes host-only.
@@ -44,8 +44,8 @@ Every mind-control order waits out the client's own message box (the shared mc_o
 
 RED on the unchanged build (commit B1): M3-ui, M3-ctrl, R3-ai; every other cell PASS. One EVIDENCE line per row, one
 PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
-CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging". WV-D95:
-run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell
+CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging".
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
 passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_react_mc_gm3.py
@@ -75,12 +75,12 @@ A_ID = RM.A_ID                    # the host's alien (gm3 seat 0, FACTION_HOSTIL
 S_ID, S3_ID, S2_ID, S6_ID = 8, 9, 10, 11   # R3's walker, R4's reactor, M3's target, M4's psi attacker
 TILES = {uid: RM.TILES[uid] for uid in (A_ID, S_ID, S3_ID, S2_ID, 12, 13, 14)}
 TILES[S6_ID] = RM.TILES[11]       # boot B2's S4 tile (18,8,0) dir 0
-R4_DEST = RM.R2_DEST              # (15,4,0): SEED_R4 halts A after (15,3,0) (TASK 0)
-R3_DEST = RM.R1_DEST              # (17,9,0): SEED_R3 halts S after (16,9,0) (TASK 0)
+R4_DEST = RM.R2_DEST              # (15,4,0): SEED_R4 halts A after (15,3,0)
+R3_DEST = RM.R1_DEST              # (17,9,0): SEED_R3 halts S after (16,9,0)
 M3_DEST = (11, 7, 0)              # S2 one tile west
-A_TU, S2_TU = RM.A_TU, RM.S2_TU   # 54 / 58 (TASK 0)
+A_TU, S2_TU = RM.A_TU, RM.S2_TU   # 54 / 58
 SEED_R4 = SEED_M3 = SEED_R3 = SEED_P2 = SEED_M4 = 1
-M0B = 0                           # A's morale after the P2 roll (TASK 0); P2-after wants M0B + 15
+M0B = 0                           # A's morale after the P2 roll; P2-after wants M0B + 15
 STATUS_STANDING, STATUS_PANICKING = 0, 8
 FACTION_PLAYER, FACTION_HOSTILE = RM.FACTION_PLAYER, RM.FACTION_HOSTILE
 PANIC_S, STEP_S, ORDER_S = 15, RM.STEP_S, RM.ORDER_S

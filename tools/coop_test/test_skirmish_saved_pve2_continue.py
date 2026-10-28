@@ -1,7 +1,7 @@
 """MG-B S-A row CB2: a saved PvE2 (gamemode 4) co-op Custom Battle, hosted from the battle's pause menu, continues for both
 players through CONTINUE BATTLE with no dialog, and the "X-COM moves first" opening does not run again (owner Q283-5 (a);
-D270 (b): PvE2 stays legal in Custom Battle; D225 (a): CONTINUE BATTLE on the rewrite's handshake; QMB2-1 (a): this cell
-lives in its own file). The sibling rows PG (D238 (a)) and CB1 are test_skirmish_saved_battle_join.py, whose helpers this
+PvE2 stays legal in Custom Battle; D225 (a): CONTINUE BATTLE on the rewrite's handshake; QMB2-1 (a): this cell
+lives in its own file). The sibling rows PG and CB1 are test_skirmish_saved_battle_join.py, whose helpers this
 file imports.
 
 Spec: docs repo rewrite/prompts/mgb2_common.md (rulings, R3, QMB2-1 .. QMB2-5 (a)), mgb2_sa_continue.md (this stage,
@@ -23,7 +23,7 @@ RED on the unchanged product: CB2 ("the saved PvE2 Custom Battle never reached t
 GREEN (EA1-EA6): CB2 PASS.
 
 One EVIDENCE line (every sub-read), one PASS / FAIL line, the row verdict. A boot step past its bound prints ONE CAPTURE
-line and fails the cell "boot". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no
+line and fails the cell "boot". run in the foreground to completion. ONE run is the result, no
 skip path; exit 0 only when the cell passes, else 2.
 
 Run:  python tools/coop_test/test_skirmish_saved_pve2_continue.py

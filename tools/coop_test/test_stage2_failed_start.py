@@ -1,10 +1,10 @@
 """MG-A-FS2 / AMENDMENT FS2-A row S2X (owner D282 (b); spec rewrite/prompts/fs2_sa_part2_rearm.md (f), ORCHESTRATOR RULINGS QA-1..QA-6;
 TASK 0 rewrite/fs2a-task0/sa/CONSTANTS.md): a partner lost between part 1 and part 2 of a SHARED campaign Cydonia. Part 2 WAITS on the
 host (battle kept, part 1's results in it); after the rejoin and the host's RESUME part 2 is offered again and both play it. Row S2M
-(the custom battle) moved to test_stage2_custom_rearm.py (QA-6 (a)).
+(the custom battle) moved to test_stage2_custom_rearm.py.
 
 ONE boot (boot R, lobby key KEY, dirs w2h24x_s2x_host / _client / _client2): test_multistage_campaign.py's boot D steps copied (its
-Cydonia step is a closure) with WORLD0 read and the real-play stack (QF-2 (a)): open_select_destination {CRAFT_D, STR_SKYRANGER} right
+Cydonia step is a closure) with WORLD0 read and the real-play stack: open_select_destination {CRAFT_D, STR_SKYRANGER} right
 before open_cydonia, so confirm_cydonia's two pops leave [GeoscapeState, BriefingState]. Then stage_guards, kill_all(ALIENS_D), client
 hold_battle_ready, close_end_turn, the window W3 (host phase Handshake battleId 2, client battle_ready held), client.kill(), the host
 observed W, client2 rejoins (test_failed_battle_start.py's rejoin() copied with the key and tag as parameters, ending at RESUME),
@@ -27,7 +27,7 @@ W = 15 s, POLL = 0.2 s, RJ = 60 s. UNWIND / PARK / REARM / OFFER = host log line
 since the RESUME press). PART2(m) = battle_state (phase, battleId, turn, missionType, mapFingerprint, xcom). SKY = host geo_state
 entries of CRAFT_D; MARKS = host save_game, then the "inBattlescape: true" lines; WORLD = (own-base soldier ids, usedStores rounded to
 6 places, totalSoldiers). CRASH = session._crash_log_snapshot() delta. EVIDENCE before each verdict; a failed row prints ONE CAPTURE
-line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2. Red (R1, the unchanged
+line. ONE foreground run, no skip path; exit 0 only when every cell passes, else 2. Red (R1, the unchanged
 build): FAIL S2X-2, S2X-7, S2X-8; every other cell passes. Green (G1, E1-E14): every cell passes.
 
 Run:  python tools/coop_test/test_stage2_failed_start.py
@@ -182,7 +182,7 @@ class Row:
 
 
 def boot_r(host, client, ctx):
-    """MS5F boot_d's steps (copied) + WORLD0 + open_select_destination right before open_cydonia (QF-2 (a))."""
+    """MS5F boot_d's steps (copied) + WORLD0 + open_select_destination right before open_cydonia."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     session.new_campaign(host, client, port=KEY, campaign_mode="shared")
     craft, roster = _craft_and_soldiers(host)

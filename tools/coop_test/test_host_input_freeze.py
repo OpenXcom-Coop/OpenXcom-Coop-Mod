@@ -21,15 +21,15 @@ the freeze actually freezes map input, AND the escape hatch actually opens
 Options without itself counting as (or breaking) the freeze. No other file
 proves the hatch.
 
-FIXTURE (W2-U9b, R-U9-1 (a); W2-U9 F21060-F21062). Since W2-P8b a FRESH co-op
+FIXTURE. Since W2-P8b a FRESH co-op
 start never gives the host an input-taking BattlescapeState in phase
 Handshake: the host reads its briefing, then its pre-battle equip
-InventoryState stays on top for the whole Handshake (owner D206 c / D210 b),
+InventoryState stays on top for the whole Handshake,
 so the freeze is unreachable from a fresh start. The one live window is the
 SPEC 16 rejoin RESUME handshake, which `test_messages` row QR2r builds; this
 file copies QR2r's staging (test_messages.qr2r_drive, steps boot..7):
 test_rejoin_end_turn's parallel boot P (test_death_side's default map)
-on this file's lobby PORT, one END TURN cycle, the client leaves (SPEC 16), a
+on this file's lobby PORT, one END TURN cycle, the client leaves, a
 fresh process (client2) arms the test-only lever hold_battle_ready {on: true}
 (W2-P8b Q16 (a)) and rejoins, the host presses RESUME. The host's rejoin
 battle_offer reopened phase Handshake (`offerRejoinBattle`); client2's
@@ -206,7 +206,7 @@ def open_rejoin_window(host, client, m, options):
     miss is a FIXTURE-STOP (rej.miss: one CAPTURE line of every machine in `m`). Returns client2 (appended to `m`)."""
     rej.step("boot R (test_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT, False), m)
     pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
-    end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause (F4012)
+    end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause
     post = {"host": rej.snap(host), "client": rej.snap(client)}
     bad = [f"cycle notes {notes}"] if notes else []
     for w in ("host", "client"):

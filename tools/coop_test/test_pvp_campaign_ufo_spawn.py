@@ -171,7 +171,7 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
 
         made0 = {"host": _made(host), "client": _made(client)}
 
-        # D250-U S-A2 (F16980-F16999): the set check runs after every skip, BEFORE the drain, while the host's
+        # D250-U S-A2: the set check runs after every skip, BEFORE the drain, while the host's
         # sim is held: a kept UfoDetectedState on its top, or speed 0 (skip_ingame_time's settle). Sampled
         # after the drain, both clocks run at speed 5 (settle cannot slow a machine under a popup) and the two
         # reads land at different game times. The host's sim makes the UFOs in both modes (gm2 X-COM host,
@@ -207,7 +207,7 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
                 break
             _harvest()
             _set_check()
-            if r.get("hit") or r["settled"]["hit"]:   # D250-U S-A2: settle keeps a late popup (F13510)
+            if r.get("hit") or r["settled"]["hit"]:   # D250-U S-A2: settle keeps a late popup
                 # D250-U A1 (QD-A1-3): a UfoDetectedState held its machine's clock with the UFO (or its
                 # mirror) alive, so the harvest above saw it; close it on both and go on.
                 for gc in (host, client):

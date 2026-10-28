@@ -137,7 +137,7 @@ GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule, bool coopShar
  */
 void GeoscapeEventState::eventLogic()
 {
-	if (coopReplicaDisplay()) return; // coop W2-H15 (F3261): a SHARED replica draws the host's picks; only the host runs this logic
+	if (coopReplicaDisplay()) return; // coop: a SHARED replica draws the host's picks; only the host runs this logic
 	if (!_eventRule.getAdhocMissionScriptTags().empty())
 	{
 		auto* geo = _game->getGeoscapeState();
@@ -156,7 +156,7 @@ void GeoscapeEventState::eventLogic()
 		size_t pickRegion = RNG::generate(0, rule.getRegionList().size() - 1);
 		auto& regionName = rule.getRegionList().at(pickRegion);
 		regionRule = _game->getMod()->getRegion(regionName, true);
-		_coopRegion = regionName; // coop W2-H15 (F3261): the host's region pick, sent as an id
+		_coopRegion = regionName; // coop: the host's region pick, sent as an id
 		std::string place = tr(regionName);
 
 		if (rule.isCitySpecific())
@@ -167,7 +167,7 @@ void GeoscapeEventState::eventLogic()
 				size_t pickCity = RNG::generate(0, cities - 1);
 				city = regionRule->getCities()->at(pickCity);
 				place = city->getName(_game->getLanguage());
-				_coopCity = (int)pickCity; // coop W2-H15
+				_coopCity = (int)pickCity; // coop
 			}
 		}
 
@@ -396,7 +396,7 @@ void GeoscapeEventState::eventLogic()
 			std::ostringstream ss;
 			ss << -removed;
 			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
-			_coopRows.push_back(std::make_pair(ti.first, -removed)); // coop W2-H15
+			_coopRows.push_back(std::make_pair(ti.first, -removed)); // coop
 		}
 		else if (Options::oxceGeoscapeEventsInstantDelivery)
 		{
@@ -405,7 +405,7 @@ void GeoscapeEventState::eventLogic()
 			std::ostringstream ss;
 			ss << ti.second;
 			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
-			_coopRows.push_back(std::make_pair(ti.first, ti.second)); // coop W2-H15
+			_coopRows.push_back(std::make_pair(ti.first, ti.second)); // coop
 		}
 		else
 		{
@@ -448,7 +448,7 @@ void GeoscapeEventState::eventLogic()
 		}
 	}
 
-	// coop W2-H77 (R-LH75-3-1; F21550-F21552): the client's copy of a SEPARATE paired certain event (fired by the host's certain_event_fire with
+	// coop: the client's copy of a SEPARATE paired certain event (fired by the host's certain_event_fire with
 	// research sync on) learns the host's topic instead of rolling its own - the research sync below is skipped for a paired copy, so its own
 	// roll split the two players' research. The host's topic only if it is new to this player too; never a roll of its own.
 	const std::pair<std::string, std::string>* coopHostPick = _coopShared ? _coopHostPick : nullptr;
@@ -468,7 +468,7 @@ void GeoscapeEventState::eventLogic()
 	{
 		size_t pickResearch = RNG::generate(0, possibilities.size() - 1);
 		const RuleResearch *eventResearch = possibilities.at(pickResearch);
-		_coopPickResearch = eventResearch->getName(); // coop W2-H77: the host sends it with certain_event_fire (GeoscapeState::fireGeoscapeEvent)
+		_coopPickResearch = eventResearch->getName(); // coop: the host sends it with certain_event_fire (GeoscapeState::fireGeoscapeEvent)
 
 		std::string name = eventResearch->getLookup().empty() ? eventResearch->getName() : eventResearch->getLookup();
 		bool alreadyResearched = save->isResearched(name, false); // we have seen the pedia article already, don't show it again
@@ -508,12 +508,12 @@ void GeoscapeEventState::eventLogic()
 		}
 
 		const RuleResearch *syncBonus = nullptr;
-		// coop W2-H77 (R-LH75-3-1): with the host's pick, the host's bonus (when this player does not know it yet) instead of a roll of its own
+		// coop: with the host's pick, the host's bonus (when this player does not know it yet) instead of a roll of its own
 		const RuleResearch* coopHostBonus = coopHostPick && !coopHostPick->second.empty() ? mod->getResearch(coopHostPick->second, false) : nullptr;
 		if (auto* bonus = coopHostPick ? (coopHostBonus && !save->isResearched(coopHostBonus, false) ? coopHostBonus : nullptr) : save->selectGetOneFree(eventResearch))
 		{
 			syncBonus = bonus;
-			_coopPickBonus = bonus->getName(); // coop W2-H77: sent with certain_event_fire
+			_coopPickBonus = bonus->getName(); // coop: sent with certain_event_fire
 			addResearchDiaryEntryForEvent(bonus, DiscoverySourceType::FREE_FROM, nullptr, eventResearch);
 			save->addFinishedResearch(bonus, mod, hq, true);
 			topicsToCheck.push_back(bonus);
@@ -533,7 +533,7 @@ void GeoscapeEventState::eventLogic()
 		// reaches them like a completed project, so both players can read the report.
 		if (!_coopShared)
 		{
-			_game->getCoopMod()->sendResearchSync(alreadyResearched ? nullptr : eventResearch, syncBonus, eventResearch, hq, true); // coop W2-H75: this world spawns the topics' events too (below)
+			_game->getCoopMod()->sendResearchSync(alreadyResearched ? nullptr : eventResearch, syncBonus, eventResearch, hq, true); // coop: this world spawns the topics' events too (below)
 		}
 	}
 
@@ -541,9 +541,9 @@ void GeoscapeEventState::eventLogic()
 	// 1. remove obsolete research projects from all bases
 	// 2. handle items spawned by research
 	// 3. handle events spawned by research
-	const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop W2-H75
+	const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop
 	save->handlePrimaryResearchSideEffects(topicsToCheck, mod, hq);
-	if (!_coopShared) // coop W2-H75 (R-B109-1): the research sync above gives the other player these topics, so its world spawns the same events
+	if (!_coopShared) // coop: the research sync above gives the other player these topics, so its world spawns the same events
 		coopMarkResearchEvents(_game, coopEventsBefore);
 
 	if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
@@ -593,18 +593,18 @@ void GeoscapeEventState::btnOkClick(Action *)
 			if (videoRule->getWinGame()) _game->getSavedGame()->setEnding(END_WIN);
 			if (videoRule->getLoseGame()) _game->getSavedGame()->setEnding(END_LOSE);
 		}
-		// coop W2-H17d (F7719-F7722) + W2-H75 (R-B109-1, F21090-F21094): a window both machines show plays its cutscene at each player's own OK -
-		// SHARED (W2-H15), and in SEPARATE co-op (not PvP: the alien side shows no event) a paired certain event or an event spawned by shared
+		// coop: a window both machines show plays its cutscene at each player's own OK -
+		// SHARED, and in SEPARATE co-op (not PvP: the alien side shows no event) a paired certain event or an event spawned by shared
 		// research (main #197); only an ending is relayed (the first OK ends both campaigns, R-H17b-1); a private SEPARATE event keeps the relay
 		if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getEnding() == END_NONE // coop
-			&& (_game->getCoopMod()->isSharedCampaign() || ((_coopShared || _coopBothWorlds) // coop W2-H75
-				&& _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))) // coop W2-H75
+			&& (_game->getCoopMod()->isSharedCampaign() || ((_coopShared || _coopBothWorlds) // coop
+				&& _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))) // coop
 			_game->getCoopMod()->allow_cutscene = false; // coop: CutsceneState::init skips the relay; GeoscapeState::init re-arms the latch
 	}
 
 	if (_game->getSavedGame()->getEnding() == END_NONE)
 	{
-		Base* base = _game->getSavedGame()->getCoopHqBase(); // coop W2-H89 H5 (R-LH88-1-1 (a); F23453): the stores check reads the base the rewards went to
+		Base* base = _game->getSavedGame()->getCoopHqBase(); // coop W2-H89 H5: the stores check reads the base the rewards went to
 		if (_game->getSavedGame()->getMonthsPassed() > -1 && Options::storageLimitsEnforced && base != 0 && base->storesOverfull())
 		{
 			_game->pushState(new SellState(base, 0));
@@ -646,7 +646,7 @@ void GeoscapeEventState::btnItemsArrivingClick(Action *)
 	}
 }
 
-// coop W2-H15 (F3261): read-only accessors for the coop event relay and the geo_event_probe.
+// coop: read-only accessors for the coop event relay and the geo_event_probe.
 CoopEventPicks GeoscapeEventState::coopPicks() const
 {
 	CoopEventPicks p;
@@ -666,17 +666,17 @@ std::vector<std::string> GeoscapeEventState::coopTexts() const
 	return t;
 }
 
-// coop W2-H15 (F3261): a SHARED replica's window is drawn from the host's picks (ids), in this machine's own language.
+// coop: a SHARED replica's window is drawn from the host's picks (ids), in this machine's own language.
 const CoopEventPicks* GeoscapeEventState::_coopArmed = nullptr;
-const std::pair<std::string, std::string>* GeoscapeEventState::_coopHostPick = nullptr; // coop W2-H77 (R-LH75-3-1)
+const std::pair<std::string, std::string>* GeoscapeEventState::_coopHostPick = nullptr; // coop
 void GeoscapeEventState::coopArmHostPick(const std::pair<std::string, std::string>* pick) { _coopHostPick = pick; }
 void GeoscapeEventState::coopArmDisplay(const CoopEventPicks* picks) { _coopArmed = picks; }
 
-// coop W2-H75 (R-B109-1; F21090, F21128-F21132): SEPARATE co-op with shared research. A topic both players learn spawns its event in
+// coop: SEPARATE co-op with shared research. A topic both players learn spawns its event in
 // both worlds - the researcher's side effects (GeoscapeState::time1Day, eventLogic) and the other player's research sync receiver
 // (GeoscapeState::think, main #197) - each copy on its own timer. Marks the events spawned since `from` as windows both worlds hold,
 // so btnOkClick plays their cutscene at each player's own OK without the relay. Not SHARED (one world), not with separate research,
-// not PvP (the alien side never shows an event, GeoscapeState::fireGeoscapeEvent), not when the sender's world spawned nothing (F21101).
+// not PvP (the alien side never shows an event, GeoscapeState::fireGeoscapeEvent), not when the sender's world spawned nothing.
 void GeoscapeEventState::coopMarkResearchEvents(Game* game, size_t from, bool senderSideEffects)
 {
 	connectionTCP* coop = game ? game->getCoopMod() : nullptr;

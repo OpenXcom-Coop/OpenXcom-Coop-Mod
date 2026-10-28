@@ -1,4 +1,4 @@
-"""SPEC 12 (W1-P13d) - test_client_nextturn.py: REV E.58 E58.3 (D85 = (d))
+"""test_client_nextturn.py: REV E.58 E58.3
 as corrected by REV E.59 E59.3 - SPEC 9's guarded call at
 `NextTurnState::close()` (`coopSuppressNextTurnLifecycle`, W1-P13a) makes a
 CLIENT's own `NextTurnState` dismissal presentation-only: `cleanupDeleted` +
@@ -46,7 +46,7 @@ ever advancing). `drive_to_final_nextturn` reads BOTH signals - see its own
 doc comment for the full trace and why that combination is sound for both
 machines.
 
-Cites REV E.48 SS.B.2, REV E.58 E58.3 (D85), REV E.59 E59.3 (F246: the
+Cites REV E.48 SS.B.2, REV E.58 E58.3, REV E.59 E59.3 (F246: the
 top-state probe is `list_widgets`'s `resp["state"]`, `TestServer.cpp:7878`
 handler / `:7908` field - not `:3634`/`:6847`, unreachable in a battle),
 F255 (the measured autosave file BEFORE/AFTER pair).

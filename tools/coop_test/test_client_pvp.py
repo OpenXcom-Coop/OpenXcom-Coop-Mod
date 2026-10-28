@@ -63,9 +63,9 @@ ONE boot, one scenario with two legs, in this order:
   staged on K_HOSTFAR_PVP (view level 1) before the press; after the shot
   the host's suppressed delta is all +0, its view level 0 and its offset
   moved off the staged one. RED (commit S-C.3a; the S-C green guard
-  suppresses every `intent` base): KR7w walkLevel +8 exactly (F4206), KR7s
+  suppresses every `intent` base): KR7w walkLevel +8 exactly, KR7s
   follow +1 exactly, every other counter +0, the offset still the staged
-  one, view level 1. The client's camera is printed only (F4189). One
+  one, view level 1. The client's camera is printed only. One
   "EVIDENCE KR7:" line.
 
 Common asserts (spec (f), after each leg settles): hash_now {full:true} - every
@@ -85,8 +85,8 @@ set_seed SEED_ROSTER on the HOST right before its open_new_battle (the roster
 pin), the client on the Alien team (gamemode 2),
 repro_pvp_side_relative.drive_to_gm2_battlescape (STR_SMALL_SCOUT, set_seed 1
 right before newbattle_ok), MAP_FP asserted on both, pin_ai_neutral (0 is
-legal in gm2). The alien's items are read at run time by owner + slot (F1107).
-Every lever pair goes to the CLIENT first (F607).
+legal in gm2). The alien's items are read at run time by owner + slot.
+Every lever pair goes to the CLIENT first.
 
 RED-THEN-GREEN (spec (d) row S-E, the orchestrator's S-E4). Commit S-E4.1 (this
 file) is run ONCE and C25 must FAIL with both legs denied `turn_over`, nothing
@@ -96,9 +96,9 @@ its green conditions are checked, then "PASS C25" or "FAIL C25: <message>".
 Every wait is bounded; a wait that times out is recorded in the EVIDENCE line
 and fails the scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when C25 passes, 2 otherwise (a bring-up
-failure is also 2). WV-D95: run in the foreground to completion.
+failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_pvp.py
 """
@@ -143,9 +143,9 @@ S_TILE, S_DIR = (17, 11, 0), 0    # S faces north, towards A
 A_TILE, A_DIR = (17, 8, 0), 4     # A faces south, towards S (open ground)
 WALK_DEST = (17, 7, 0)            # one tile behind A (T0-12's walk)
 SEED_C25 = 1                      # host set_seed right before the shot click (no hunt: the outcome is not asserted)
-# W2-P6a S-C.3 row KR7s (F4193): test_reaction_prox's measured host far tile on the same 40x40x4 map (MAP_FP)
+# W2-P6a S-C.3 row KR7s: test_reaction_prox's measured host far tile on the same 40x40x4 map (MAP_FP)
 K_HOSTFAR_PVP = (38, 38, 1)       # the host camera at view level 1, > 1 screen from A (17,8) and S (17,11)
-KR7W_WALKLEVEL_RED = 8            # KR7w's RED (F4206): the host's own K5 centre (UnitWalkBState :203) puts A on screen,
+KR7W_WALKLEVEL_RED = 8            # KR7w's RED: the host's own K5 centre (UnitWalkBState :203) puts A on screen,
                                   # so its one step runs all 8 walk phases and :205 writes (suppressed) once per phase;
                                   # SC-3's 2 per step holds only for an off-screen walker
 
@@ -238,7 +238,7 @@ def set_stat_both(host, client, uid, stat, value):
 
 def alien_snap(client, ev, before_click):
     """The client's REAL-UI snap for its alien A (spec (f)): TAB-selection of A,
-    a leftover targeting cancelled (F503), the right-hand box (ActionMenuState),
+    a leftover targeting cancelled, the right-hand box (ActionMenuState),
     key 50 (the menu closes and targeting starts), HOME, one self-verified left
     click on S's tile. `before_click` runs right before the click (the host's
     set_seed). Fills `ev`."""
@@ -328,7 +328,7 @@ def leg_walk(host, client, notes):
 def leg_shot(host, client, notes):
     """Leg S: the client's real-UI snap of A at S."""
     # W2-P6a S-C.3 row KR7s (ruling SC3-2, F4209): A back on A_TILE facing S (both machines, client first; only when
-    # leg W moved it, never onto its own tile), so the snap needs no turn (F4203 / F4204)
+    # leg W moved it, never onto its own tile), so the snap needs no turn
     a = units(host).get(A_ID) or {}
     reface = (tele_both(host, client, A_ID, A_TILE, A_DIR) if upos(a) != A_TILE
               else {"skipped": upos(a), "dir": a.get("direction")})
@@ -360,7 +360,7 @@ def kr7_fails(w, s, shots):
     orders are the OPPONENT's, so the watching host's camera follows them as vanilla follows an enemy turn. KR7w (leg
     W, the opponent's walk): host camera.suppressed delta all +0. KR7s (leg S, the opponent's snap, the host staged on
     K_HOSTFAR_PVP): suppressed delta all +0, view level 0, the offset moved off the staged one. The client's camera
-    is printed only (F4189). Prints one "EVIDENCE KR7:" line."""
+    is printed only. Prints one "EVIDENCE KR7:" line."""
     supw = cam_suppressed_delta(w["cam0"]["host"], w["cam1"]["host"])
     sups = cam_suppressed_delta(s["cam0"]["host"], s["cam1"]["host"])
     hs1 = s["cam1"]["host"]

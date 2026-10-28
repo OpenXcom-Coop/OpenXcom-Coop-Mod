@@ -43,8 +43,8 @@ RED at the red commit (unchanged build): K6-list, K5-list FAIL; every other cell
 cell PASS.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up
-failure prints ONE "CAPTURE boot:" line and fails every row "boot". WV-D99 / WV-D100: one run is the result; no skip,
-no second boot, no other fixture; exit 0 only when every cell passes, else 2. WV-D95: run in the foreground to
+failure prints ONE "CAPTURE boot:" line and fails every row "boot". one run is the result; no skip,
+no second boot, no other fixture; exit 0 only when every cell passes, else 2. run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_client_sight_night.py
@@ -82,7 +82,7 @@ PARK = ((8, (10, 13, 0)), (12, (11, 13, 0)), (13, (10, 14, 0)), (14, (10, 15, 0)
 V_N, V_N_DIR0, V_N_DIR = (31, 18, 0), 5, 6      # the V oracle's first candidate
 B0, B0_DIR = (21, 19, 0), 2                     # diagonal to A_N; A behind B
 B_DEST = (30, 19, 0)                            # first straight-east tile at Round(distance) >= 10 from A_N
-T_N, T_DIR = (29, 22, 0), 3                     # T_N rule (R-H35B-SB-2): facing away from F_N (octant 7 + 4)
+T_N, T_DIR = (29, 22, 0), 3                     # T_N rule: facing away from F_N (octant 7 + 4)
 F_N = F_LAND = (20, 17, 0)                      # the throw's target; the flare lands there at SEED_K5
 SEED_CYCLE, SEED_K5 = 1, 1                      # host set_seed right before its END TURN press / the throw
 FLARE = "STR_ELECTRO_FLARE"

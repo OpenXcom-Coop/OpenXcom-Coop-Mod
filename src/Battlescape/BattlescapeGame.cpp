@@ -65,7 +65,7 @@
 #include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopSideTransition.h"
 #include "../CoopMod/CoopDoor.h"
-#include "../CoopMod/CoopHotseat.h" // D247-U: the battle half of the local hotseat mode
+#include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
@@ -200,8 +200,8 @@ BattlescapeGame::BattlescapeGame(SavedBattleGame *save, BattlescapeState *parent
 
 	_debugPlay = false;
 
-	// WV-D68: generation casualties (killed AND stunned) settle synchronously inside UnitDieBState's ctor while isBeforeGame() - see UnitDieBState.cpp.
-	// coop W2-H22 (SCOPE-0, D128): a co-op second player never settles a casualty itself - the host settles it (WV-D68) and its
+	// generation casualties (killed AND stunned) settle synchronously inside UnitDieBState's ctor while isBeforeGame() - see UnitDieBState.cpp.
+	// coop W2-H22 (SCOPE-0, D128): a co-op second player never settles a casualty itself - the host settles it and its
 	// `death` ev's delta carries the result. Self-guarded: false on the host, in single player and in any non-co-op battle.
 	if (!coopSkipClientBattleStartCasualties())
 		checkForCasualties(nullptr, BattleActionAttack{ }, true);
@@ -311,7 +311,7 @@ int BattlescapeGame::think()
 			if (!_playerPanicHandled)
 			{
 				_playerPanicHandled = coopSkipClientPanic() ? true
-					: (coopHotseatAlienTurn() ? coopHandlePanickingHotseat() : handlePanickingPlayer()); // coop D247-U: player 2's aliens too
+					: (coopHotseatAlienTurn() ? coopHandlePanickingHotseat() : handlePanickingPlayer()); // coop: player 2's aliens too
 				_save->getBattleState()->updateSoldierInfo();
 				coopHostDropOffSideSelection(_save); // coop W2-H39 (design-D6): a host never keeps an off-side unit the panic check selected
 			}
@@ -821,7 +821,7 @@ void BattlescapeGame::endTurn()
  */
 void BattlescapeGame::checkForCasualties(const RuleDamageType *damageType, BattleActionAttack attack, bool hiddenExplosion, bool terrainExplosion)
 {
-	CoopHotseatRealFactions coopHotseatFactions(_save); // coop D247-U (QD247-8): vanilla's kill accounting on player 2's turn
+	CoopHotseatRealFactions coopHotseatFactions(_save); // coop: vanilla's kill accounting on player 2's turn
 	BattleUnit* origMurderer = attack.attacker;
 	// If the victim was killed by the murderer's death explosion, fetch who killed the murderer and make HIM the murderer!
 	if (origMurderer && (origMurderer->getSpecialAbility() == SPECAB_EXPLODEONDEATH || origMurderer->getSpecialAbility() == SPECAB_BURN_AND_EXPLODE)
@@ -1736,25 +1736,25 @@ bool BattlescapeGame::handlePanickingUnit(BattleUnit *unit)
 
 	// show a little infobox with the name of the unit and "... is panicking"
 	Game *game = _parentState->getGame();
-	if (coopUnitVisibleHere(unit) || !Options::noAlienPanicMessages) // coop R5-U2 S-D (QU1-7): seen by the side this machine plays
+	if (coopUnitVisibleHere(unit) || !Options::noAlienPanicMessages) // coop R5-U2 S-D: seen by the side this machine plays
 	{
-		if (coopHostPartnerCamera(unit, "panic")) {} else // W2-P6a (D131)
+		if (coopHostPartnerCamera(unit, "panic")) {} else
 		getMap()->getCamera()->centerOnPosition(unit->getPosition());
 		if (status == STATUS_PANICKING)
 		{
-			if (coopHostDivertUnitMessage(unit, "STR_HAS_PANICKED", unit)) {} else // W2-P6a (D132)
+			if (coopHostDivertUnitMessage(unit, "STR_HAS_PANICKED", unit)) {} else
 			game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_PANICKED", unit->getGender()).arg(unit->getName(game->getLanguage()))));
 		}
 		else
 		{
-			if (coopHostDivertUnitMessage(unit, "STR_HAS_GONE_BERSERK", unit)) {} else // W2-P6a (D132)
+			if (coopHostDivertUnitMessage(unit, "STR_HAS_GONE_BERSERK", unit)) {} else
 			game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_GONE_BERSERK", unit->getGender()).arg(unit->getName(game->getLanguage()))));
 		}
 	}
 	else if (soundPlayed)
 	{
 		// simulate a small pause by using an invisible infobox
-		if (coopHostDivertUnitMessage(unit, "", nullptr)) {} else // W2-P6a (D132)
+		if (coopHostDivertUnitMessage(unit, "", nullptr)) {} else
 		game->pushState(new InfoboxState(""));
 	}
 
@@ -1939,7 +1939,7 @@ BattleUnit *BattlescapeGame::getPrimaryBusyActor() const
 {
 	for (BattleState *bs : _states)
 	{
-		if (!bs) continue; // W2-H2 F489: the end-turn marker (statePushBack(0)) is a null entry
+		if (!bs) continue; // the end-turn marker (statePushBack(0)) is a null entry
 		if (dynamic_cast<UnitDieBState*>(bs) || dynamic_cast<UnitFallBState*>(bs)
 			|| dynamic_cast<ExplosionBState*>(bs))
 		{
@@ -2338,7 +2338,7 @@ void BattlescapeGame::primaryAction(Position pos)
 				// Pathfinding is holding as a `bt_intent walk` (through RB-D32's
 				// one intent builder) and returns true, so the push below never
 				// runs on a thin client. On the co-op HOST it stamps this walk's
-				// action context (RB-D19) and returns false so vanilla executes
+				// action context and returns false so vanilla executes
 				// exactly as before. False in single player.
 				if (coopInterceptWalkConfirm(_currentAction.actor, _currentAction.target,
 					_currentAction.run, _currentAction.strafe, _currentAction.sneak,
@@ -2396,7 +2396,7 @@ void BattlescapeGame::secondaryAction(Position pos)
 		return;
 	}
 
-	// The host's own local turn in a coop battle (RB-D19): mint+push this
+	// The host's own local turn in a coop battle: mint+push this
 	// chain's coop action context BEFORE the vanilla push below, so
 	// UnitTurnBState::think()'s completion hook and the popState quiescence
 	// hook's bt_action_end emit both fire for it exactly as they already do
@@ -2471,26 +2471,26 @@ void BattlescapeGame::psiAttackMessage(BattleActionAttack attack, BattleUnit *vi
 	if (victim)
 	{
 		Game *game = getSave()->getBattleState()->getGame();
-		if (attack.attacker->getFaction() != FACTION_NEUTRAL && !coopFactionIsMine((int)attack.attacker->getFaction())) // coop R5-U2 S-D (QU2-12): an opponent's attack (vanilla: FACTION_HOSTILE)
+		if (attack.attacker->getFaction() != FACTION_NEUTRAL && !coopFactionIsMine((int)attack.attacker->getFaction())) // coop R5-U2 S-D: an opponent's attack (vanilla: FACTION_HOSTILE)
 		{
 			// show a little infobox with the name of the unit and "... is under alien control"
 			if (attack.type == BA_MINDCONTROL)
-				if (coopHostDivertUnitMessage(victim, "STR_IS_UNDER_ALIEN_CONTROL", victim)) {} else // W2-P6a (D132)
+				if (coopHostDivertUnitMessage(victim, "STR_IS_UNDER_ALIEN_CONTROL", victim)) {} else
 				game->pushState(new InfoboxState(game->getLanguage()->getString("STR_IS_UNDER_ALIEN_CONTROL", victim->getGender()).arg(victim->getName(game->getLanguage()))));
 		}
 		else
 		{
 			// show a little infobox if it's successful
 			if (attack.type == BA_PANIC)
-				if (coopHostDivertUnitMessage(attack.attacker, "STR_MORALE_ATTACK_SUCCESSFUL", nullptr)) {} else // W2-P6a (D132)
+				if (coopHostDivertUnitMessage(attack.attacker, "STR_MORALE_ATTACK_SUCCESSFUL", nullptr)) {} else
 				game->pushState(new InfoboxState(game->getLanguage()->getString("STR_MORALE_ATTACK_SUCCESSFUL")));
 			else if (attack.type == BA_MINDCONTROL)
 			{
 				if (attack.weapon_item->getRules()->convertToCivilian() && victim->getOriginalFaction() == FACTION_HOSTILE)
-					if (coopHostDivertUnitMessage(attack.attacker, "STR_MIND_CONTROL_SUCCESSFUL_ALT", nullptr)) {} else // W2-P6a (D132)
+					if (coopHostDivertUnitMessage(attack.attacker, "STR_MIND_CONTROL_SUCCESSFUL_ALT", nullptr)) {} else
 					game->pushState(new InfoboxState(game->getLanguage()->getString("STR_MIND_CONTROL_SUCCESSFUL_ALT")));
 				else
-					if (coopHostDivertUnitMessage(attack.attacker, "STR_MIND_CONTROL_SUCCESSFUL", nullptr)) {} else // W2-P6a (D132)
+					if (coopHostDivertUnitMessage(attack.attacker, "STR_MIND_CONTROL_SUCCESSFUL", nullptr)) {} else
 					game->pushState(new InfoboxState(game->getLanguage()->getString("STR_MIND_CONTROL_SUCCESSFUL")));
 			}
 			getSave()->getBattleState()->updateSoldierInfo();
@@ -3505,10 +3505,10 @@ bool BattlescapeGame::convertInfected()
 		{
 			retVal = true;
 			bu->setRespawn(false);
-			if (Options::battleNotifyDeath && coopFactionIsMine((int)bu->getFaction())) // coop R5-U2 S-D (QU2-12): a unit of this machine's side
+			if (Options::battleNotifyDeath && coopFactionIsMine((int)bu->getFaction())) // coop R5-U2 S-D: a unit of this machine's side
 			{
 				Game *game = _parentState->getGame();
-				if (coopHostDivertUnitMessage(bu, "STR_HAS_BEEN_KILLED", bu)) {} else // W2-P6a (D132)
+				if (coopHostDivertUnitMessage(bu, "STR_HAS_BEEN_KILLED", bu)) {} else
 				game->pushState(new InfoboxState(game->getLanguage()->getString("STR_HAS_BEEN_KILLED", bu->getGender()).arg(bu->getName(game->getLanguage()))));
 			}
 

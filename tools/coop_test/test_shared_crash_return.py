@@ -29,7 +29,7 @@ Guard: host event_state.fatalVote.armed 0; no new crash log; the client zero-dis
 
 RED (commit S-C-D1.1): CANDIDATE - cell 2 red (worldHeld 0 and a LoadGameState push) or green; either verdict is
 reported and PR-27 follows it. Prints ONE "EVIDENCE D1d:" line, then "PASS D1d" or "FAIL D1d: <message>".
-WV-D95/D99/D100: ONE foreground run, no skip path; exit 0 only when the row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_crash_return.py
 """

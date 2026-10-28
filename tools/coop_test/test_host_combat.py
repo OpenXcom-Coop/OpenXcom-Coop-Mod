@@ -45,7 +45,7 @@ ONE boot, in this order:
   D3  (W2-P6b S-D, the NEW last scenario) a two-victim death burst. C (8) ->
       D3_C_TILE facing D3_C_DIR, C2 (9) -> D3_C2_TILE facing D3_C2_DIR (BOTH),
       then the HOST's battle_action kill_unit_real {coop_side: 1}; bounded waits
-      for both DEAD on the host with no BState (F823) and the client caught up.
+      for both DEAD on the host with no BState and the client caught up.
       The lever runs on an empty host state stack, so C's UnitDieBState is the
       host's front state and C2's queues behind it (TASK 0b T0b-2: host evs
       exactly D3_EVS, the D3_DEATHS / D3_CORPSES payloads, 6 runs identical).
@@ -124,7 +124,7 @@ mission pin and set_seed SEED_MAP right before newbattle_ok, the baked MAP_FP
 asserted on both, session.pin_ai_neutral. Every lever pair applies to the
 CLIENT first, then the HOST (F607, S-H.1a), with the responses asserted equal;
 every item a lever creates is created on both machines with ids asserted
-equal. set_seed on the HOST immediately before each action. W2-U8 (F6060):
+equal. set_seed on the HOST immediately before each action.
 every lever pair ends with staging_settled() - the client has applied every ev
 the host emitted before the next lever runs on it (see the staging section).
 
@@ -139,9 +139,9 @@ one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 scenario.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when every scenario passes, 2 otherwise
-(a bring-up failure is also 2). WV-D95: run in the foreground to completion.
+(a bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_host_combat.py
 """
@@ -165,7 +165,7 @@ from test_delta_items import items_by_id, item_diff, tile_of, unit_view
 
 # ----- common (test_host_combat.py and test_host_combat_terrain.py; TASK 0a-2) -----
 MISSION = "STR_TERROR_MISSION"
-SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle (F501)
+SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 H_ID = 10                        # first host-seat soldier; with SEED_ROSTER 1 = "Henryk Kaminski",
                                  # tu 58, health 37, firing 46, throwing 73, melee 25, strength 45
 RHAND_NTH = 25                   # click_widget nth of the right-hand box
@@ -219,7 +219,7 @@ D3_C_TILE, D3_C_DIR = (12, 26, 0), 4     # open road (H left it at C5)
 D3_C2_TILE, D3_C2_DIR = (12, 27, 0), 1   # open road
 # W2-P8b S-A's pre-battle equip phase moved every absolute seq +5 (F3426; W2-P8b S-H.3, chain rule A.10: the
 # D3 seqs below re-pointed to the values measured on the S-A build, 2 runs identical, F3446/F3447). Traced on
-# both machines' event_log rings and logs (F3445), the evs before turn 1 are now:
+# both machines' event_log rings and logs, the evs before turn 1 are now:
 #   seq 1 reveal  hostile base restate (SS2.W4)                                  - as before S-A (seq 1)
 #   seq 2 reveal  player, the 587 VOID tiles the blob does not carry             - as before S-A (seq 2)
 #   seq 3 reveal  player, the 655 tiles of the SS2.W5 battle-entry FOV restate   - NEW: it now runs at the equip
@@ -243,7 +243,7 @@ FACTION_HOSTILE = 1
 COOP_SEAT_0 = 0
 STATUS_DEAD = 6                  # src/Mod/Unit.h enum UnitStatus
 STATUS_UNCONSCIOUS = 7
-CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targeting after a shot (F503)
+CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targeting after a shot
 # spec (b)11: the 16 frozen cue kinds; `sync` is the context-less flush, not a combat cue.
 CUE_KINDS = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse", "prime", "sync", "fall",
              "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
@@ -253,7 +253,7 @@ C5_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
 LOG_TAIL = 256                   # CoopEventLog::kCapacity
 
 
-# ===================== staging (W2-U8, F6060) =====================
+# ===================== staging =====================
 # A host lever can make the host EMIT in its own frame: an alien teleport dirties that alien's hostile FOV key, and
 # CoopReveal::flushQuiescent (updateCoopTask, right after TestServer::pump) ships a standalone `reveal` ev whose `h`
 # hashes the host's state at that emit. Before W2-U8 the next pair's client lever could run before the client applied
@@ -261,7 +261,7 @@ LOG_TAIL = 256                   # CoopEventLog::kCapacity
 # unitsStats seq 8 kind=reveal; C5 and D3 failed as a cascade). So every pair ends with staging_settled(): the client
 # has applied every ev the host emitted (session.wait_host_idle) before the next lever runs on it. Its first host read
 # runs in a later TestServer::pump than the lever, after that frame's flush, so it cannot pass before the emit.
-# W2-U8b (F6305, F6471): that wait now lives in test_delta_core.both itself (tele_both and tu_both go through
+# that wait now lives in test_delta_core.both itself (tele_both and tu_both go through
 # it), so this file imports the shared helpers and staging_settled from there instead of wrapping them.
 
 
@@ -511,7 +511,7 @@ def death_schedule(front, octants, is_ms, frames, respawn):
 
 
 def sampled_list_fails(what, got, full, windows, max_gap):
-    """W2-U8d (F6304): a ghost record's per-advance list (dirsShown, phasesShown) against the list its fixed
+    """a ghost record's per-advance list (dirsShown, phasesShown) against the list its fixed
     schedule draws. advance() appends what the ghost draws, once per client frame; windows[i] = the shortest
     time in ms entry i of `full` stays drawn (0: drawn at the ghost's first advance, never left out). An entry
     is left out only when one advance() gap spans its whole window, so the record must hold `full` in order
@@ -638,7 +638,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
                 if k in w:
                     want[k] = w[k]
             got = {k: r.get(k) for k in want}
-            # W2-U8d (F6304): dirsShown / phasesShown are per-advance samples of the fixed schedule (a non-front
+            # dirsShown / phasesShown are per-advance samples of the fixed schedule (a non-front
             # victim: fromDir drawn at the start, each pirouette octant Is ms, the final 3 >= 2 x Ic - Is ms, each
             # collapse phase >= Ic ms); a client frame stall leaves out only whole windows (sampled_list_fails)
             for k in ("dirsShown", "phasesShown"):
@@ -760,7 +760,7 @@ def effect_rules(host, client, types):
 
 def pick_ok(got, ids):
     """A sound picked from the raw list `ids` (F1512 / V4): -1 for an empty list (vanilla plays none), the id for a
-    one-id list, one of the ids otherwise (F1539)."""
+    one-id list, one of the ids otherwise."""
     if not ids:
         return got == NO_SOUND
     return got == ids[0] if len(ids) == 1 else got in ids
@@ -961,7 +961,7 @@ def sound_row(tag, host, client, snap0, kind, wants, extra=None):
 
 # ===================== W2-P6a S-C: the camera probe (rows KR1-KR6, KR1h) =====================
 # Spec rewrite/prompts/w2p6_display_two.md, P6a pinned stage text (c) as corrected by AMENDMENTS P6-5 section 4 and
-# P6-6 section 5 (owner D131, D171 (a)). event_state `camera` (commit S-C.1, both machines): {offset {x, y, z} (the
+# P6-6 section 5. event_state `camera` (commit S-C.1, both machines): {offset {x, y, z} (the
 # live Map's Camera::getMapOffset, z = the view level), viewLevel, follow, moves [the CLIENT's camera-move records
 # {seq, reason, unit, visible, onScreen, before, after}, the last 32], suppressed {follow, explosion, hitLevel,
 # walkLevel, panic} (the HOST's guard counters)}. S-C.1 writes only offset / viewLevel / follow; S-C.2 writes `moves`
@@ -1317,7 +1317,7 @@ def c5_stun(host, client, ctx):
 
 
 def host_both_dead_idle(host, uids):
-    """HOST only: every unit in `uids` DEAD, no BState queued or running (F823)."""
+    """HOST only: every unit in `uids` DEAD, no BState queued or running."""
     bs = battle_state(host)
     ub = session.units_by_id(bs)
     return (all((ub.get(u) or {}).get("status") == STATUS_DEAD for u in uids) and bs.get("pendingStates") == 0

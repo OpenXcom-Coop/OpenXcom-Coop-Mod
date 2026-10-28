@@ -582,7 +582,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
-	// D249-U (owner D249 (a)): main's option, row text and position (main Options.cpp :581); default OFF here (D131).
+	// main's option, row text and position (main Options.cpp :581); default OFF here.
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopFollowPeerActions", &coopFollowPeerActions, false, "Follow Teammate Actions with Camera", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
@@ -679,7 +679,7 @@ static void _setDefaultMods()
  */
 void resetDefault(bool includeMods)
 {
-	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::RESET); // coop (W2-P9)
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::RESET); // coop
 	for (auto& optionInfo : _info)
 	{
 		optionInfo.reset();
@@ -1330,7 +1330,7 @@ void updateOptions()
  */
 bool load(const std::string &filename)
 {
-	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::LOAD); // coop (W2-P9)
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::LOAD); // coop
 	std::string s = _configFolder + filename + ".cfg";
 	try
 	{
@@ -1372,7 +1372,7 @@ bool load(const std::string &filename)
  */
 bool save(bool reset, const std::string& filename)
 {
-	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::SAVE); // coop (W2-P9)
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::SAVE); // coop
 	std::string yaml;
 	std::string filepath = _configFolder + filename + ".cfg";
 	try

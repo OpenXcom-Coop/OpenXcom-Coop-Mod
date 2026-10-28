@@ -28,7 +28,7 @@ crash folder.
 RED on the unchanged product (commit B1): HD-own, HD-opp; every other cell PASS (HDX is a guard). One EVIDENCE line per
 row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints
 ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging".
-WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
 every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_hud.py

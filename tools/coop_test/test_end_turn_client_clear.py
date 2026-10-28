@@ -1,4 +1,4 @@
-"""RV-U8b - the client's END TURN count and pressed button clear when the side ends, as the host's do (R-U8-1,
+"""the client's END TURN count and pressed button clear when the side ends, as the host's do (R-U8-1,
 F10885 / F10963; spec docs rewrite/prompts/rvu8b_client_tally_clear.md (f); TASK 0 docs
 rewrite/rvu8b-task0/CONSTANTS.md).
 
@@ -23,7 +23,7 @@ row: no new crash file, both processes alive at the row end. Each row prints ONE
 PASS/FAIL line per cell and guard, then its verdict; every row runs after a failure.
 Rulings: R-U8-1 ("as the host does": text and pressed look), design-D1 (the count is persistent WITHIN a side), IR2-4
 (readiness clears at every side change; an AI side is INERT, the host emits no tally there), QB-1..QB-4 (a).
-WV-D95 / D99 / D100: ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_end_turn_client_clear.py
 """

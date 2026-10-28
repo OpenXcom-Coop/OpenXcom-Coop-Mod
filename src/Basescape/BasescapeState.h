@@ -115,7 +115,7 @@ public:
 	/// coop (W2-H8, SEPARATE only): hides the peer's mirror bases from the live base
 	/// list into the one process-wide stash; true if any was hidden.
 	static bool coopHideMirrors();
-	/// coop (W2-H8): puts the stashed mirrors back and empties the stash; true if it
+	/// coop: puts the stashed mirrors back and empties the stash; true if it
 	/// held anything. A no-op in SP and SHARED (nothing is ever hidden there).
 	static bool coopShowMirrors();
 	/// coop W2-H83 (SEPARATE only): deletes every stashed mirror of the partner's base @a coopBaseId (the partner removed that base), so

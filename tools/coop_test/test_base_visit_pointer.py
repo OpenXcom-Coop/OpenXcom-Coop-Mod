@@ -3,7 +3,7 @@ on that base's Soldiers inventory, each sees the other's pointer and name, and t
 and is drawn under the visitor's pointer, exactly as S-B / S-C draw them in SHARED (VL-EQ3-1's SEPARATE clause; owner D290 (c),
 D291 (b) + (c), D295 (a); QEQ3-7 (a): the same pile, QEQ3-11 (a): the key is the base's _coop_base_id (the owner's base and the
 visitor's mirror carry the same id) + the pile, QEQ3-12 (a): the SEPARATE peer-visit boot; D241: no SEPARATE equip sync is added,
-S-A's read-only view stays SHARED-only (D294 (b)); R-EQ2-1). Spec: docs repo rewrite/prompts/eq3_base_screens.md + eq3d_separate.md
+S-A's read-only view stays SHARED-only; R-EQ2-1). Spec: docs repo rewrite/prompts/eq3_base_screens.md + eq3d_separate.md
 as amended by its PIN-PASS AMENDMENTS; TASK 0 constants rewrite/eq3-task0/sd/CONSTANTS.md.
 Boot V (SEPARATE, key 49418, dirs eq3d_v_host / _client): S0 session.new_campaign + geo.wait_both_ready; S0b the fixture's own step
 (test_coop_peer_equip_screens: a visitor sees only its own soldiers at a peer base, so the host first transfers one of its soldiers
@@ -27,8 +27,8 @@ offset = the observer's cursor_pos; move(gc, pt) = BPP's real motion recipe.
   X        both close their screens; X-crash (guard: no new crash file in this lane's crash folder, both games alive)
 RED (HEAD before EQ-3 S-D G1): 7 of 10 cells - V1-c2h, V1-h2c, V2-drop, V2-draw, V2-back, V4-off, V3-key; the 3 guards PASS. Green:
 10 / 10. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure (a
-precondition miss ends its own row, its later cells "not reached"); every row ends with both cursors empty (recorded). WV-D95: run
-in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+precondition miss ends its own row, its later cells "not reached"); every row ends with both cursors empty (recorded). run
+in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_base_visit_pointer.py
 """

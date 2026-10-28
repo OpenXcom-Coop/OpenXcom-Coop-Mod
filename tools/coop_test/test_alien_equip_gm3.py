@@ -26,7 +26,7 @@ Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen f
 RED on the unchanged build (commit D1): AG1-counted, AG1-screen, AG1-ground, AG2-held, AG2-gone, AG3-pile, AG3-seen, AG4-order,
 AG4-held, AG4-gone, AG5-held; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row
 verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a
-staging step past its bound fails that row "staging". WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run
+staging step past its bound fails that row "staging". run in the foreground to completion. ONE run
 is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_alien_equip_gm3.py

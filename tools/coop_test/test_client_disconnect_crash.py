@@ -9,13 +9,13 @@ Rows, one fresh SEPARATE session.new_campaign boot pair each (key "49178", dirs 
       B-pre (GUARD), B-alive / B-nocrash / B-menu (RED), B-host (GUARD).
   R-C the control, LAST: the client suspended FIRST, then the host's visit_coop_base -> the host's own 50.
       C-pre, C-host (the host keeps its world on [GeoscapeState]), C-client (the client's 21 after the resume): all GUARD.
-QH54-1 (a): the held peer is suspended by this test (NtSuspendProcess / NtResumeProcess on its own pid, copied from
+the held peer is suspended by this test (NtSuspendProcess / NtResumeProcess on its own pid, copied from
 rewrite/cr75-cap/cr75.py) - a slow link; a suspended game is never sent a command and is resumed in a finally before any
 shutdown. Every press is a REAL click (click_widget {match: "disconnect"}) once list_widgets reads the button visible true,
 hidden false on a top CoopState of the row's code; never coop_dialog_back (it presses during the popup, L-H54-3).
 RED (commit R1): A-alive, A-nocrash, A-menu, B-alive, B-nocrash, B-menu FAIL, the other 7 cells PASS. GREEN (E1): all 13 PASS.
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (cells "not
-reached"); a boot miss fails the row "boot" with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path,
+reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE foreground run, no skip path,
 every row runs after a failure; exit 0 only when every cell passes, else 2. Run: python tools/coop_test/<this file>"""
 
 import ctypes
@@ -237,7 +237,7 @@ def hold_first(gc, ev, held):
 
 
 def row_a(host, client, ev, cells, held, crash0):
-    """the host's save -> the client's 53 "Saving..."; the host suspended at the client's first sight of 53 (QH54-2 (a))"""
+    """the host's save -> the client's 53 "Saving..."; the host suspended at the client's first sight of 53"""
     t0 = time.time()
     ev["trigger"] = host.cmd({"cmd": "save_game_ui", "type": "auto_geoscape"})
     ok = ev["trigger"].get("ok") is True and sight(client, 53, t0, ev)

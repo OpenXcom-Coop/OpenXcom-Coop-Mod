@@ -10,9 +10,9 @@ Rows, one fresh boot each (keys "49182" the campaign / "49186" the NEW BATTLE ke
       B-pre, B-alive, B-nocrash, B-menu, B-host (the host's 20). R-C the control, LAST: no world (NEW BATTLE > COOP) -> the
       refused port -> 16 over the browser -> OK: C-pre, C-list. RED: the -alive / -nocrash / -menu cells of A and B; the rest GUARD.
 Every press is a REAL click (click_widget) once list_widgets reads the button visible true, hidden false on the named top state; the
-port is typed with real keys (inject_input), RETURN before JOIN (F18249). Never coop_dialog_back, dismiss_popup, lobby_disconnect or
-join_tcp (W2-U7c / W2-U7d). One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its
-row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. WV-D95 / WV-D99 / WV-D100: ONE foreground run, no
+port is typed with real keys (inject_input), RETURN before JOIN. Never coop_dialog_back, dismiss_popup, lobby_disconnect or
+join_tcp. One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its
+row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE foreground run, no
 skip path, every row runs after a failure; exit 0 only when every cell passes, else 2. Run: python tools/coop_test/<this file>"""
 
 import json, os, socket, sys, time  # noqa: E401

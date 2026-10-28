@@ -1,5 +1,5 @@
 """MG-A S-E - test_cydonia_ending.py: Cydonia's game-ending end on both machines (owner D239 (a), V5; D158 (a),
-D226 (a)) and the stage offer that overtakes its stage_end (F9992). Spec docs rewrite/prompts/mga_multistage_handoff.md
+D226 (a)) and the stage offer that overtakes its stage_end. Spec docs rewrite/prompts/mga_multistage_handoff.md
 (f), AMENDMENT MG-A-1 section 5 stage S-E (rows MS6, MS7) plus the F9992 row MS8 (orchestrator ruling, R3); TASK 0
 constants docs rewrite/mga-task0/e/CONSTANTS.md (pins, the D239 (a) cell table, the walls).
 
@@ -8,14 +8,14 @@ pre_ok set_seed SEED_E), MAP_FP_E pinned, pin_ai_neutral (the 12 aliens), hash c
 Boot F (SHARED campaign, lobby PORT_F): new_campaign shared, the squad split (seat 0 / seat 1), open_cydonia, set_seed
 SEED_F, confirm_cydonia, the stage-1 spine, MAP_FP_F pinned, pin_ai_neutral, hash clean.
 
-  MS8  the stage offer is stashed and replayed (F9992). Kill-all, END TURN client then host; the stash lever: the
+  MS8  the stage offer is stashed and replayed. Kill-all, END TURN client then host; the stash lever: the
        client's TEST-ONLY read-only `hash_timing {reps}` (reps from a 1-rep measurement, a ~STASH_BLOCK_S block of its
        main thread) is sent on a harness thread, STASH_LEAD_S later the host closes its NextTurnState, so `stage_end`
        and the stage offer reach the client in one pull (guard: the block outlasts the host's close). Cells: the
        client's stage-2 BriefingState within ENTRY_S; its `stage` record offerStashed 1, offerReplayed 1, applied 1;
        its log names the stash; after the spine both machines turn 1 on STR_MARS_THE_FINAL_ASSAULT, mapSizeXYZ 7200,
        mapFingerprint equal, battleId b2 > b1 equal; hash_now full all buckets EQUAL; desyncSeen false; both alive.
-  MS6  custom battle, stage 2: the host aborts and the partner votes YES (R4-L1) with nobody on an exit ("0 Units in
+  MS6  custom battle, stage 2: the host aborts and the partner votes YES with nobody on an exit ("0 Units in
        Target Exit") ->
        abortCutscene loseGame. Polled every POLL_S until both machines show the main menu (MENU_S bound), never a
        dismiss_popup (W2-H17b keep list). Once both tops are SlideshowState, at the first poll after the SCOPE_T2
@@ -26,7 +26,7 @@ SEED_F, confirm_cydonia, the stage-1 spine, MAP_FP_F pinned, pin_ai_neutral, has
        play the host's ending (a SlideshowState on both); both reach the main menu; the partner alive, no new crash
        file; the partner's battle scope is reset: event_state phase not Active at SCOPE_T1 and
        battleEnd.resultWaitPasses equal at SCOPE_T1 and SCOPE_T2 (s after the OK).
-  MS7  SHARED campaign, stage 1: the host aborts and the partner votes YES (R4-L1) with nobody on an END_POINT tile
+  MS7  SHARED campaign, stage 1: the host aborts and the partner votes YES with nobody on an END_POINT tile
        ("0 Units in Target Exit"; both
        soldiers in the craft) -> loseGame. Polled until SCOPE_T2. Cells: ending_state ending END_LOSE and statistics
        on both; no DebriefingState at any poll; a SlideshowState on both; the partner applies `battle_end` hash-clean;
@@ -39,7 +39,7 @@ MS8 has no red cell (S-A1's stash / replay is in this base): it PASSES on the re
 
 Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a FAIL,
 ONE "CAPTURE <id>:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past its bound
-fails its boot's rows `boot` with one CAPTURE line. Every row runs after a failure. WV-D95 / WV-D99 / WV-D100: ONE
+fails its boot's rows `boot` with one CAPTURE line. Every row runs after a failure. ONE
 foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_cydonia_ending.py
@@ -82,11 +82,11 @@ POLL_S = 0.5
 END_LOSE = 2
 NO_EXIT = "0 Units in Target Exit"
 END_STATES = ("CutsceneState", "StatisticsState", "SlideshowState", "VideoState")   # W2-H17b keep list
-KEY_CANCEL = 27         # Options::keyCancel default (SDLK_ESCAPE); MS6's slideshow skip (D299 (b))
+KEY_CANCEL = 27         # Options::keyCancel default (SDLK_ESCAPE); MS6's slideshow skip
 
 
 def bview(gc):
-    """battle_state, only while a BattlescapeState is on the stack (F9920)."""
+    """battle_state, only while a BattlescapeState is on the stack."""
     st = stack(gc)
     if not has_bstate(st):
         return {"skipped": f"no BattlescapeState on the stack (F9920): {st}"}
@@ -415,7 +415,7 @@ def end_cells(host, client, ctx, crash0):
     ctx["newCrashFiles"] = new_crash
     if new_crash:
         f.append(f"new crash file(s) {new_crash}")
-    # RED on commit 1 (TASK 0): the partner's battle scope stays live under the end screens (F9814)
+    # RED on commit 1: the partner's battle scope stays live under the end screens
     if ce1.get("phase") == "Active" or "phase" not in ce1:
         f.append(f"partner battle scope not reset: event_state phase {ce1.get('phase')!r} at {s1.get('t')}s "
                  f"after the OK (want not Active)")
@@ -448,7 +448,7 @@ def ms6(host, client, ctx):
         evidence("MS6", {"guards": g, "abortDialog": ctx.get("abortDialog")})
         return [f"guard: {m}" for m in g]
     def until(p):
-        # D299 (b): once both machines show the ending, a real Escape on each, host then client (the
+        # once both machines show the ending, a real Escape on each, host then client (the
         # test_leave_for_menu key). poll_end calls this only after the SCOPE_T2 read: both scope reads stay under
         # the slideshow.
         if "escape" not in ctx and sorted(p["slideshow"]) == ["client", "host"] and all(

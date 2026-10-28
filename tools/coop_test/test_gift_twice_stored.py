@@ -4,7 +4,7 @@ F20715; ruling R-H70D-0; QH70D-1 .. QH70D-8 (a); helpers gift_back_helpers.py, R
 In a SEPARATE co-op campaign a soldier gifted to a client that is viewing the host's base is queued until the leave, and the client's
 stored own world (the copy the host holds and saves) is rebuilt from "basehost" plus the NEWEST gift only: after a second gift the host's
 copy lacks the first, and after the client gives one of its own soldiers away from the view it lacks every received one, until the leave's
-push (F20715, F20913, F20914). One fresh boot pair (SEPARATE gm1 tcp, key 49319, dirs w2h70d_r17_*), no reload:
+push. One fresh boot pair (SEPARATE gm1 tcp, key 49319, dirs w2h70d_r17_*), no reload:
   R17   the client's first own soldier not in a craft renamed GUESTNAME and transferred to the host base; the client visits the host base;
         the host gifts two soldiers (GIFTNAME, then G2) to it, each followed by stored("g1") / stored("g2") (the host's copy fnv changed
         after the press, then a named host save); the client gives GUESTNAME to the host from the view (the host's notice OK), then
@@ -15,7 +15,7 @@ g1 / g2 / send = the named save's client entry holds every soldier received so f
 and once on the host's; file = QUICK holds GIFTNAME and G2 once each in the client entry only and GUESTNAME once in the host half only;
 ids = no id held twice on either machine's own bases; common = both machines alive at the read, no new .dmp since B.
 Red (HEAD, TASK 0 boots a / b): R17-g2, R17-send FAIL (2 of 8); green (ED1-ED6, boot c): 8 / 8. Exit 0 only when every cell passes, else
-2 (WV-D99 / WV-D100; no SKIP). WV-D95: one foreground run per invocation:
+2 (WV-D99 / WV-D100; no SKIP). one foreground run per invocation:
     python tools/coop_test/test_gift_twice_stored.py"""
 import sys
 from gift_back_helpers import *  # noqa: F401,F403 (HD, R-H70-2)

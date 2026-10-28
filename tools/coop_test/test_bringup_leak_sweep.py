@@ -1,4 +1,4 @@
-"""W2-U8f - test_bringup_leak_sweep.py: a bring-up that fails after its games started shuts them down (docs
+"""test_bringup_leak_sweep.py: a bring-up that fails after its games started shuts them down (docs
 rewrite/prompts/w2u8f_bringup_leak_sweep.md (f); R-U8d2-1 and its R3 sweep, F9051-F9060).
 Ten test helpers start game processes where no clean-up can reach them: when they raise after the spawn, both games
 keep running after Python exits (a plain Popen, no reaper; F9062). Each row makes ONE helper fail right after its
@@ -19,7 +19,7 @@ A bystander game (label 49647, user dir w2u8f_bystander) boots first and runs th
 negative control) checks it was alive after every row and quits rc 0 at the end. exec_row shuts down every row
 machine still running (harness.shutdown_clients), never the bystander.
 Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) or a boot miss adds
-ONE "CAPTURE <id>:" line. WV-D95/D99/D100: ONE foreground run, no skip path, every row runs after a failure; exit 0 only
+ONE "CAPTURE <id>:" line. ONE foreground run, no skip path, every row runs after a failure; exit 0 only
 when every row passes, 2 otherwise. Run: python tools/coop_test/test_bringup_leak_sweep.py
 """
 

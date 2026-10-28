@@ -16,19 +16,19 @@ Boot D2 (the host reuses boot D1's dir, never re-made: make_user_dir would delet
 the host's load_save_menu, open_pause_coop, host_menu_host; the client joins; CONTINUE BATTLE; both phase Active and both tops
 BattlescapeState, no dialog 62 / 68, held 2 s (MG-B's arrival: a miss is CAPTURE D2).
   SD1  SD1-record  every unit's (originalFaction, type, direction) host == client == P (D269 (a), U8-1)
-       SD1-built   every alien's darkVision and armorMax host == client == P (QU8B-5 (a))
+       SD1-built   every alien's darkVision and armorMax host == client == P
        SD1-hold    the resumed host's split line 0; side / turn unchanged on both for HOLD_S with no press
        SD1-order   the client's walk for its alien C1 runs at once (one intent context, no deny, C1 on C1_DEST on both)
        SD1-common
-  SD2  SD2-cycle   client END TURN, host "END TURN 1/2", host END TURN, each machine closes its own NextTurnState (D156 (a)):
+  SD2  SD2-cycle   client END TURN, host "END TURN 1/2", host END TURN, each machine closes its own NextTurnState:
                    side 0 of turn SAVE_TURN + 1 on both, the host's ev kinds = T4_KINDS
        SD2-once    the host's opening line count stays 0 across the cycle
        SD2-common
 Common cell: every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; every row runs after a failure. A boot step past its
-bound prints ONE CAPTURE D1 / CAPTURE D2 line and fails every cell "boot". WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+bound prints ONE CAPTURE D1 / CAPTURE D2 line and fails every cell "boot". run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_skirmish_saved_pve2_end_turn.py
 """
@@ -61,8 +61,8 @@ SEED_ROSTER, SEED_MAP, MISSION = 1, 1, "STR_MEDIUM_SCOUT"   # R5-U8's gm4 pins (
 GAMEMODE_PVE2 = 4
 SAVE_TURN = 2                     # the first players' side after the opening (QSD-6 (a); Da = Db)
 C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54   # min(SEAT1_IDS); S-A's C1 staging
-BOOT_S, LOAD_S, LOBBY_S, RESUME_S = 60, 60, 60, 120   # TASK 0: briefing <= 1.3 s, load 0.1 s, join 2.1 s, arrival 1.8 s
-STEP_S, SIDE_S, HOLD_S, HELD_S = 30, 60, 5, 2.0       # TASK 0: END TURN 1/2 0.05 s, walk 0.15 s, cycle 2.6 s
+BOOT_S, LOAD_S, LOBBY_S, RESUME_S = 60, 60, 60, 120   # briefing <= 1.3 s, load 0.1 s, join 2.1 s, arrival 1.8 s
+STEP_S, SIDE_S, HOLD_S, HELD_S = 30, 60, 5, 2.0       # END TURN 1/2 0.05 s, walk 0.15 s, cycle 2.6 s
 DLG_WAIT_PLAYERS, DLG_RESUME_HOLD = 62, 68
 N_SPLIT = "R5-U8 PvE2:"                     # the host's split line (generation pass)
 N_OPENING = "R5-U8: PvE2 opening"           # the host's opening line
@@ -348,12 +348,12 @@ def main():
     except Exception as e:
         capture("D1", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
     finally:
-        shut(host)     # the host first: it never takes a partner drop (F18815)
+        shut(host)     # the host first: it never takes a partner drop
         shut(client)
     if P is None:
         fails = fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE D1 line)")
     else:
-        host = GameClient("host", None, host.user_dir)   # boot D1's dir, NOT re-made (F18813)
+        host = GameClient("host", None, host.user_dir)   # boot D1's dir, NOT re-made
         client = GameClient("client", None, make_user_dir(CLIENT2_DIR))
         try:
             try:

@@ -1,10 +1,10 @@
-"""W2-H38 - test_pvp_landing_hold.py: in a gm3 PvP campaign the X-COM player's "Waiting for <host>" box (CoopState(3)) stays from
+"""test_pvp_landing_hold.py: in a gm3 PvP campaign the X-COM player's "Waiting for <host>" box (CoopState(3)) stays from
 its YES on the landing prompt until its borrowed battle starts. The host's routine save-progress reply does not close it, the landing
 prompt is not pushed a second time, the X-COM player's globe never becomes its top screen in between, and no position snapshot of that
 globe reaches the alien host while the host borrows the X-COM world.
 
 Spec: docs rewrite/prompts/w2h38_borrow_hold_pop.md, section (f) (owner D250, O1 (a); QC-4 (a), VL-C-1; QH37-5 (a); QH38-1..6 (a);
-F14834, F14846). TASK 0: docs rewrite/w2h38-task0/sa/CONSTANTS.md (red premise boots a / b, green premise boots c / d with E1 only, 2/2
+F14834, F14846). docs rewrite/w2h38-task0/sa/CONSTANTS.md (red premise boots a / b, green premise boots c / d with E1 only, 2/2
 each; the hold's title "Waiting for HostPlayer" / "Disconnect" is EVIDENCE, never asserted).
 
 Boot L: gm3 (the HOST plays the aliens), lobby key 48046, dirs w2h38_l_host / w2h38_l_client. Bring-up: PF.start_pvp_campaign
@@ -25,7 +25,7 @@ Row H1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell w
   H1-common desyncSeen false on both, 0 new crash files since the confirm, hash_now full EQUAL. No battle end, no debriefing OK.
 RED (R1, the unchanged product): 2/6 - FAIL H1-hold, H1-prompt, H1-top, H1-snap; PASS H1-entry, H1-common. GREEN (G1): 6/6.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pvp_landing_hold.py
 """
 
@@ -145,7 +145,7 @@ def bring_up(host, client, key, ev):
 
 def sample(host, client, t_c):
     """H1's monitor sample: the client's coop_dialog_info, then its stack (top; entered = a BattlescapeState in it), then the host's
-    pvpBorrow.borrowed. The dialog is read first so a sample never pairs a pre-entry stack with a post-entry dialog (F15127)."""
+    pvpBorrow.borrowed. The dialog is read first so a sample never pairs a pre-entry stack with a post-entry dialog."""
     dlg = client.cmd({"cmd": "coop_dialog_info"})
     stk = G3C1.stack(client)
     hb = (G3C1.coop(host).get("pvpBorrow") or {}).get("borrowed")

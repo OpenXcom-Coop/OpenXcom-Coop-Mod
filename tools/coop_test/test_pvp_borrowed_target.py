@@ -1,4 +1,4 @@
-"""W2-H37 - test_pvp_borrowed_target.py: a gm3 PvP campaign battle keeps its target. While the alien host runs the battle in the
+"""test_pvp_borrowed_target.py: a gm3 PvP campaign battle keeps its target. While the alien host runs the battle in the
 X-COM client's borrowed world (D250-U S-C1), the borrowed Skyranger keeps heading for the battle's mission site (the mirror H4 rebuilt)
 and that site stays in the borrowed world from the X-COM player's YES through the battle start; a won battle's debriefing is the
 mission site's on both machines, not a base defence.
@@ -29,7 +29,7 @@ FAILs each of its cells "blocked: <why>"):
 RED (R1, the unchanged product: the snapshot sweep deletes the mirror, F14620 / F14621): 4/7 - FAIL H1-dest, H1-target, H2-title.
 GREEN (G1): 7/7.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pvp_borrowed_target.py
 """
 

@@ -12,7 +12,7 @@ FIXTURE-STOP: ONE CAPTURE line, every row FAILs "boot"). Rows in order (N4 last:
      N1-3 RED raiseCount +1, RS notices +1 on each. N1-4 RED OK (click_widget once OK is shown) closes each; a client walk of G to
      G_DEST applies; HASH.
   N2 (N1's reports) N2-1 RED the host's zip: role host, bucket / seq / kind == the client zip's (kind bt_action_end), peerBundlePath, its log,
-     saveBlob-host.yaml. N2-2 GUARD the client's zip (saveBlob, log, saveBlob-client.yaml) and the host's seq text. N2-3 RED (R-L3-A-2) the
+     saveBlob-host.yaml. N2-2 GUARD the client's zip (saveBlob, log, saveBlob-client.yaml) and the host's seq text. N2-3 RED the
      client zip's kind and both RS last.kind == bt_action_end.
   N3 (unitsStats) tu_both(K4), client corrupt_bucket (U), the host's kneel of K4; waits as N1. N3-1 RED the client's zip holds
      saveBlob-client.yaml, bucket unitsStats, role client. N3-2 RED a notice on each again (raiseCount / notices +1); OK on each.
@@ -21,7 +21,7 @@ FIXTURE-STOP: ONE CAPTURE line, every row FAILs "boot"). Rows in order (N4 last:
   N-CRASH GUARD no new crash_*.log in this lane's crash folder over the whole run (read after the shutdown).
 Definitions (spec (f)): POLL 0.25 s; RS(gc) = resync_state.resync, counters as deltas from the row's baseline; HASH = wait_host_idle +
 assert_hash_clean(full); N3 / N4 start with NOTICE_OK on both (a no-op before S-C) and LIVE (client RS frozen false, both tops
-BattlescapeState), else "not reached"; battle_state only with a BattlescapeState on top (F10980); a WAIT that times out ends the row. EVIDENCE
+BattlescapeState), else "not reached"; battle_state only with a BattlescapeState on top; a WAIT that times out ends the row. EVIDENCE
 per row (the host's stack and 62 title at each repair poll, the walls, both RS, the client's DESYNC line, CPU); a failed row prints ONE
 CAPTURE line. ONE run (WV-D95; WV-D99 / WV-D100: no SKIP path); exit 0 iff every cell passes, else 2.
 Red (commit C1, the base build: no notice, no host report, a bt_action_end desync records kind "?"): N1-1..N1-4, N2-1, N2-3, N3-1, N3-2,
@@ -46,7 +46,7 @@ import test_hash_coverage as hcv  # noqa: E402
 KEY, TAG = "48755", "r4l3_n"
 SEED_MAP, MAP_FP = 1, -4.48310638993e+18   # DC's map (S-A CONSTANTS; S-C T0 Na / Nb)
 H, H2, G = 10, 11, 8                       # the soldier the host kneels, the one the client pokes, the first seat-1 soldier
-G_TILE, G_DEST = (14, 19, 1), (14, 17, 0)  # G's start tile; the walk's measured end tile (R-L3-A-4)
+G_TILE, G_DEST = (14, 19, 1), (14, 17, 0)  # G's start tile; the walk's measured end tile
 U, K4 = 8, 10                              # corrupt_bucket's unit (the first live unit) and the kneeler that does not restate it
 KIND_END, SEQ_OFF_N1 = "bt_action_end", 2  # R-L3-A-2 (the base records "?", F11651); the desync seq = s0 + 2 (T0: s0 7 -> seq 9)
 BUCKET_N3, POKE = "unitsStats", 7
@@ -101,7 +101,7 @@ def es(gc):
 
 
 def bs(gc):
-    """battle_state, only with a BattlescapeState on top (F10980); {} otherwise"""
+    """battle_state, only with a BattlescapeState on top; {} otherwise"""
     return q(gc, {"cmd": "battle_state"}) if top(gc) == BS else {}
 
 
@@ -219,7 +219,7 @@ def kneel(x, uid):
         return None, {"kneeled": [None, None], "s0": None, "kneel s": round(time.time() - t, 2), "notes": ["TAB never selected %s" % uid]}
     k0, s0 = units(h).get(uid, {}).get("kneeled"), es(h).get("lastSeqEmitted") or 0
     h.ok({"cmd": "inject_input", "kind": "key", "key": hcv.SDLK_K})
-    bs_live = lambda st: st[-1:] == [BS] or st[-2:] == [BS, NOTICE]  # noqa: E731  R-L3-C-1 (F12303): BattlescapeState live under the notice
+    bs_live = lambda st: st[-1:] == [BS] or st[-2:] == [BS, NOTICE]  # noqa: E731  R-L3-C-1: BattlescapeState live under the notice
     kn = lambda gc: (session.units_by_id(q(gc, {"cmd": "battle_state"})) if bs_live(stack(gc)) else {}).get(uid, {}).get("kneeled")  # noqa: E731
     try:
         wait("the kneel on both, the host idle", lambda: kn(h) not in (None, k0) and kn(c) == kn(h) and es(h).get("busyOwnerSeat") == -1, 20.0)
@@ -287,8 +287,8 @@ def close_notices(x):
         if top(gc) != NOTICE:
             ev[gc.name] = {"top": top(gc), "click": "not clicked: no notice on top"}
             continue
-        # cap-r4 (F23920): the notice's POPUP window hides its buttons while it opens (Window::think -> State::hideAll) and a hidden
-        # button drops the click while click_widget still answers ok; wait until OK is shown, then the same one click (W2-U9)
+        # cap-r4: the notice's POPUP window hides its buttons while it opens (Window::think -> State::hideAll) and a hidden
+        # button drops the click while click_widget still answers ok; wait until OK is shown, then the same one click
         try:
             r = session.click_widget_ready(gc, "OK")
         except Exception as e:  # a dead or gone machine is a value

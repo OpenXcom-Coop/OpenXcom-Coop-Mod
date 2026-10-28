@@ -25,8 +25,8 @@ FAIL (11 of 20); every other cell PASS.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot step
 past its bound prints ONE CAPTURE line and fails every row "boot"; a cell whose precondition failed FAILs "not reached". Common
-cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. WV-D95: run in the foreground to completion.
-WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. run in the foreground to completion.
+ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_cydonia_guests.py
 """
@@ -275,7 +275,7 @@ def row_c3(host, client, pins, crash0, out):
 def end_turn_both(host, client, g, ctx):
     """MSE.close_end_turn :158-:175 with its wait changed ((b) 3a): the partner presses END TURN; a bounded wait until the
     host's coopEndTurnTally.needed > 0 (the tally that press made the host emit: C4-tally's reading); the host presses; the
-    host's NextTurnState (<= 30 s) closed by dismiss_popup. coopEndTurnText is EVIDENCE only (R-RV21-SA-1)."""
+    host's NextTurnState (<= 30 s) closed by dismiss_popup. coopEndTurnText is EVIDENCE only."""
     et = ctx["endTurn"] = {}
     try:
         et["partnerPress"] = client.ok({"cmd": "battle_action", "action": "end_turn_button"})

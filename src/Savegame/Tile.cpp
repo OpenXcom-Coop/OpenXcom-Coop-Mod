@@ -402,7 +402,7 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 			return 4;
 		_objectsCache[part].currentFrame = 1; // start opening door
 		updateSprite((TilePart)part);
-		// W1-P10: the UFO-door half of the same journal hook (CoopDoor.h).
+		// the UFO-door half of the same journal hook (CoopDoor.h).
 		coopNoteDoorOpened(this, part, 1);
 		return 1;
 	}
@@ -424,7 +424,7 @@ int Tile::closeUfoDoor()
 			_objectsCache[part].currentFrame = 0;
 			retval = 1;
 			updateSprite((TilePart)part);
-			// W1-P10 / WV-D50: the CLOSE half of the journal (CoopDoor.h). This
+			// the CLOSE half of the journal (CoopDoor.h). This
 			// is the turn-boundary mutation TileEngine::closeUfoDoors() drives
 			// (TileEngine.cpp:4315) and whose bits ride binTiles into the
 			// saveBlob bucket (this file, :209-210).

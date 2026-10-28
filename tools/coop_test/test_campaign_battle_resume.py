@@ -24,11 +24,11 @@ both inBattle FAILs P4-resume with the captured state and blocks P4-borrow .. P4
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row):
   P5 (the save's shape, read between the save and the shutdown): P5-header, P5-body, P5-blob.
   P4 (save, resume, win): P4-save, P4-resume, P4-borrow, P4-host, P4-client, P4-return, P4-alien, P4-common.
-  P4-save: savedBorrowed == 2 (R-D250-SC4B-1 (a)); the value read before the quick save (1) is printed as "EVIDENCE P4-save".
+  P4-save: savedBorrowed == 2; the value read before the quick save (1) is printed as "EVIDENCE P4-save".
 RED (C4BR, the unchanged build; TASK 0 boot Ka): 3/11 - P4-resume, P4-client, P4-common PASS; FAIL P4-save, P5-header, P5-body,
 P5-blob, P4-borrow, P4-host, P4-return, P4-alien. GREEN (C4BG; Kb / Kb2 10/11 each before R-D250-SC4B-1, P4-save read 2): 11/11.
 
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_resume.py
 """
 
@@ -56,7 +56,7 @@ import test_shared_page3 as P3  # noqa: E402
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc4b/CONSTANTS.md) -----
 KEY = "48019"
 TAG = "d250uc4b_p"
-SEED = 1                                     # on the X-COM client right before its confirm_landing (F13986)
+SEED = 1                                     # on the X-COM client right before its confirm_landing
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}   # FX2-4
 POINT, CRAFT_AT = (0.35, 0.10), (0.34, 0.10)                                    # FX4A-5 / FX3-3: X + point, 0.01 short
 SQUAD = 2
@@ -261,7 +261,7 @@ def save_cell(host, client, saved, ev):
         capture_boot(f"the quick_battle save: new files {new} within {SAVE_S} s (want one .asav, FX4B-5)", host, client)
     time.sleep(GUARD_S)
     pv, inb, bs = pvp(host), G3C1.in_battle(host), battle_state(host)
-    evidence("P4-save", {"savedBorrowedBefore": sb0, "savedBorrowedAfter": pv.get("savedBorrowed")})   # R-D250-SC4B-1
+    evidence("P4-save", {"savedBorrowedBefore": sb0, "savedBorrowedAfter": pv.get("savedBorrowed")})
     ev.update(saveFile=new[0], saveS=ss, pvpAfterSave=pv, savedLines=pvp_lines(host, n0),
               coopSaveDeferrals=bs.get("coopSaveDeferrals"))
     bad = [] if inb else [f"host inBattle {inb!r} {GUARD_S} s after the save (want true)"]
@@ -351,7 +351,7 @@ def relaunch(x, ev):
 
 
 def resume_campaign_battle(host, client, save_file, port, host_name="HostPlayer", client_name=CLIENT, timeout=120, interval=2.0):
-    """session.resume_campaign_battle copied (R-D250-SC4A-1 (a)) with ONE change: the host's START HOST goes through the real host
+    """session.resume_campaign_battle copied with ONE change: the host's START HOST goes through the real host
     window (host_menu_host visibility 0 -> HostMenu::hostTCPGame), not the host_tcp lever."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (battle resume)", lambda: session.has_state(host, "HostMenu"))

@@ -204,7 +204,7 @@ def drive_to_battlescape(host, client, seated_holder):
     host.ok({"cmd": "newbattle_ok"})
 
     # W2-P8b S-H: the shared battle-entry spine - both briefings (the offer goes
-    # out at PREPARE, D210 b), both pre-battle equip screens (D174 a / D206 c),
+    # out at PREPARE, D210 b), both pre-battle equip screens,
     # both Turn-1 screens (Q7 a).
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
@@ -257,7 +257,7 @@ def qualifying_actor(host, soldier_id):
     passes this rule cannot take the abort branch. It is a PIN on the selection
     rule (the IR-4 treatment), never a relaxation of anything the test asserts.
 
-    Rule (a) removed by SPEC 0e-3 (WV-D86): the staging helper leaves nothing
+    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
     within view distance, and the lever does not recompute sight, so the
     visible list may be stale.
     """
@@ -515,7 +515,7 @@ def settle_reveal(host, client, timeout=30):
     measurement started before that flush would see the PREVIOUS action's
     leftover bits ride the next envelope and report a false non-empty diff."""
     def quiet():
-        cs = client.cmd({"cmd": "event_state"})  # W2-U8c (F6561): client, then the host's reveal_state, then its event_state
+        cs = client.cmd({"cmd": "event_state"})  # client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
         hs = host.cmd({"cmd": "event_state"})
         return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
@@ -726,7 +726,7 @@ def test_atom_turn_e2e():
         print(f"PASS RW-FIX-TURN: battle_state.turn == 1 on BOTH machines and hash_now "
               f"full={len(t0_h)}/9 buckets EQUAL post-overlay-dismissal")
 
-        # --- drive the client action via battle_intent (RB-D32) ---
+        # --- drive the client action via battle_intent ---
         # Captured HERE so run_no_reveal_case() can use "the host attached at
         # least one reveal delta while this run drove real turns" as its
         # positive control (see its docstring).

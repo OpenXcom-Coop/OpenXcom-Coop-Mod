@@ -1,4 +1,4 @@
-"""W2-H6 - test_client_selection.py: the client's selected unit and the
+"""test_client_selection.py: the client's selected unit and the
 actor of its current battle action (spec rewrite/prompts/w2h6_client_selection_actor.md
 section (d); F1170, F1200-F1208).
 
@@ -11,7 +11,7 @@ in a gm2 battle, the previous unit in ordinary co-op), and nothing on the client
 clears a selected unit that dies. The action menu is built from the selected
 unit's right-hand item with whatever the actor is, so a gm2 client dies on the
 THROW row (getFiringAccuracy with a null attacker, F1170) and an ordinary
-client's order carries the stale actor (F1205).
+client's order carries the stale actor.
 
 Probe: battle_state.currentActionActorId (this machine's
 BattlescapeGame::_currentAction.actor id, -1 for null) beside selectedId.
@@ -54,8 +54,8 @@ anything for the client before its press.
 
  Boot 3 - parallel (the same terror boot, parallel mode).
   H6c  one END TURN cycle (the client presses first, the host once it paints
-       END TURN 1/2, the full cycle), then the step the capture's B2 lacked
-       (F1207): each next-turn screen on top is dismissed the way a player
+       END TURN 1/2, the full cycle), then the step the capture's B2 lacked:
+       each next-turn screen on top is dismissed the way a player
        does it (one Enter key through inject_input, NextTurnState::handle)
        until both machines show the battlescape and the client has caught up.
        Staging (F1214, H6b's lever; it touches neither the selection nor the
@@ -83,10 +83,10 @@ conditions are checked, then "PASS <id>" or "FAIL <id>: <message>". Every wait
 is bounded; a wait that times out is recorded and fails the scenario. A boot
 that does not come up fails its own scenarios and the next boot still runs.
 
-Item ids vary per boot (F1107): they are read at run time. Every lever pair
-goes to the CLIENT first (F607). WV-D99 / WV-D100: one run is the result; no
+Item ids vary per boot: they are read at run time. Every lever pair
+goes to the CLIENT first. one run is the result; no
 second boot, no alternative map or actor. Exit 0 only when all five scenarios
-pass, 2 otherwise. WV-D95: run in the foreground to completion.
+pass, 2 otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_client_selection.py
 """
@@ -276,13 +276,13 @@ def settle_tops_close(host, client, label, timeout=15):
 
 
 def caught_up(host, client):
-    ec, eh = event_state(client), event_state(host)  # W2-U8c (F6561): the client is read first
+    ec, eh = event_state(client), event_state(host)  # the client is read first
     return (eh.get("busyOwnerSeat") == -1 and ec.get("lastSeqApplied", 0) == eh.get("lastSeqEmitted", 0)
             and ec.get("queueDepth") == 0 and eh.get("queueDepth") == 0)
 
 
 def settle_tops_player(host, client, timeout=30):
-    """F1207: every next-turn screen on top of either machine is dismissed the
+    """every next-turn screen on top of either machine is dismissed the
     way a player does it - ONE Enter key through inject_input (a real SDL key
     event into NextTurnState::handle -> close()), then a bounded wait for that
     screen to leave the stack - until both machines show the battlescape, the

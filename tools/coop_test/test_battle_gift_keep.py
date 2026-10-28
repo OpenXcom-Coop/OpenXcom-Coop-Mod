@@ -27,7 +27,7 @@ Red at B1: none (green on S-A's build; F12908, F12909). Each receiver presses OK
 cell, then the row verdict. Every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails
 every row "boot"; a cell whose precondition failed FAILs "not reached"; a missed K3 staging step fails K3-rejoin with its
 CAPTURE line. Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come from probes
-(S25). WV-D95: run in the foreground to completion. WV-D99 / WV-D100: ONE run is the result, no skip path; exit 0 only
+(S25). run in the foreground to completion. ONE run is the result, no skip path; exit 0 only
 when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift_keep.py
@@ -134,7 +134,7 @@ def seats(gc):
 
 
 def bring_up(host, client, key, tag):
-    """test_battle_gift.bring_up with the lobby key and the CAPTURE tag as parameters (F10917), plus boot K's live
+    """test_battle_gift.bring_up with the lobby key and the CAPTURE tag as parameters, plus boot K's live
     mode pin (traditional on both)."""
     m, pre, seated = (host, client), {}, {}
 

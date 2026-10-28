@@ -20,13 +20,13 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Transform_Test")
-BOOT_A = ("w2h16ca", (49340, 49341, 47330))     # SHARED; lobby 47330 (F6699)
+BOOT_A = ("w2h16ca", (49340, 49341, 47330))     # SHARED; lobby 47330
 BOOT_B = ("w2h16cb", (49342, 49343, 47332))     # SEPARATE; lobby 47332
 BOOST, CLONE, RETIRE, RAISE = "STR_H16C_BOOST", "STR_H16C_CLONE", "STR_H16C_RETIRE", "STR_H16C_RAISE"
 RULES = [BOOST, CLONE, RETIRE, RAISE]
 ROCKET = "STR_SMALL_ROCKET"
-OPTION = {"OVERVIEW": 3, BOOST: 4, CLONE: 5, RETIRE: 6, RAISE: 7}   # action-box rows (F6881); row 2 INVENTORY is never clicked
-N_OPTIONS, SCALE = 8, 2                                               # 640x400 window over 320x200, no bands (F5802)
+OPTION = {"OVERVIEW": 3, BOOST: 4, CLONE: 5, RETIRE: 6, RAISE: 7}   # action-box rows; row 2 INVENTORY is never clicked
+N_OPTIONS, SCALE = 8, 2                                               # 640x400 window over 320x200, no bands
 S0_S, POLL_S, POLL_I, UI_S, BOX_S, TAIL_S = 20.0, 3.0, 0.25, 3.0, 2.0, 5.0
 GEO, SS, STS, STLS, SIS, BOX = ("GeoscapeState", "SoldiersState", "SoldierTransformationState",
                                 "SoldierTransformationListState", "SoldierInfoState", "CoopState")
@@ -60,7 +60,7 @@ def brief(p, sid): return pick(one(p, sid), "where", "history", "stats", "craftI
 
 def view(p, ids, hours=True):
     """What S0 compares (spec (f) row frame): funds, stores, transfers, soldier counter and the row's soldiers. S0 drops the
-    transfer hours: the host's clock (idx 0) advances its transfers between rows and a replica's never do (F6690)."""
+    transfer hours: the host's clock (idx 0) advances its transfers between rows and a replica's never do."""
     tr = [t if hours else {k: v for k, v in t.items() if k != "hours"} for t in p.get("transfers") or []]
     return {"funds": p.get("funds"), "counter": p.get("soldierCounter"), "stores": p.get("stores"), "transfers": tr,
             "soldiers": [s for s in p.get("soldiers") or [] if s.get("id") in ids]}

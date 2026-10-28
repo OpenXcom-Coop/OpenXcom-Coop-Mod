@@ -94,7 +94,7 @@ the rule's explosionHitSound when set, else SMALL_EXPLOSION when pfa <= 80,
 else LARGE_EXPLOSION. Bullet hit (not a miss): frame = hitAnimation, frames =
 hitAnimationFrames when > 0 else Explosion::BULLET_FRAMES (10), one sprite,
 intervalMs = max(1, 50 - 10 x explosionSpeed), ms = frames x intervalMs, sound =
-hitSound. Sound ids are compared exactly only for single-id lists (F1539); a
+hitSound. Sound ids are compared exactly only for single-id lists; a
 multi-id list admits any of its ids.
 
 Common to every row (after session.wait_host_idle: the host has no context and
@@ -131,7 +131,7 @@ of test_host_combat_terrain.py with the Coop_Pellet_Test mod on both):
 set_seed SEED_ROSTER on the HOST right before its open_new_battle, mission
 STR_TERROR_MISSION, set_seed SEED_MAP right before newbattle_ok, seat_count 2,
 MAP_FP asserted on both, pin_ai_neutral, the mod's active line on both. Every
-lever pair goes to the CLIENT first (F607); item ids are read from the lever
+lever pair goes to the CLIENT first; item ids are read from the lever
 replies at run time.
 
 RED-THEN-GREEN (spec (d) row S-B). Commit S-B.1 (this file and the pellet mod;
@@ -144,9 +144,9 @@ conditions are checked; main() runs every row even after an earlier one failed
 and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait
 that times out is recorded in the EVIDENCE line and fails the row.
 
-WV-D99 / WV-D100: one run is the result. No skip path, no second boot, no
+one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all six rows pass, 2 otherwise (a
-bring-up failure is also 2). WV-D95: run in the foreground to completion.
+bring-up failure is also 2). run in the foreground to completion.
 
 Run:  python tools/coop_test/test_ghost_impact.py
 """
@@ -170,7 +170,7 @@ from test_ghost_projectile import record_fails
 # ----- bring-up (the roster-pinned terror boot of test_host_combat_terrain.py + the pellet mod) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 12
-MAP_FP = -2.6402710723327386e+18   # host battle_state.mapFingerprint on SEED_MAP 12, unmodded and modded (F1501)
+MAP_FP = -2.6402710723327386e+18   # host battle_state.mapFingerprint on SEED_MAP 12, unmodded and modded
 H_ID = 10                          # first host-seat soldier (SEED_ROSTER 1: "Henryk Kaminski", tu 58)
 PORT = "48719"
 COOP_SEAT_0 = 0
@@ -214,7 +214,7 @@ H3_POWERS = (75, 46)                      # (power 75, radius 3) + the pump's ch
                                           # `terrain`, itemless, power 46, radius 4); both clips destroyed
 
 # ----- H2 (test_host_combat_terrain C3; TASK 0 T0-5 / T0-7) -----
-H2_H_TILE, H2_H_DIR = (5, 17, 0), 2       # faces east, AWAY from the throw tile (F490): a two-octant turn first
+H2_H_TILE, H2_H_DIR = (5, 17, 0), 2       # faces east, AWAY from the throw tile: a two-octant turn first
 H2_THROW_TILE = (5, 11, 0)                # 6 tiles north; the grenade lands here, a rifle clip is dropped here
 SEED_H2 = 1                               # throw chain turn, shot, bt_action_end (the shot record waits on the
 H2_POWER = 50                             # turn: afterTurnSeq); host trajLen 89; lands on H2_THROW_TILE; END TURN:
@@ -467,7 +467,7 @@ def q2_fails(c, weapon, item):
 
 
 def sound_fails(what, got, ids, default=NO_SOUND):
-    """F1539: one id -> exactly it; several -> any of them; none -> `default`."""
+    """one id -> exactly it; several -> any of them; none -> `default`."""
     if (len(ids) == 1 and got != ids[0]) or (len(ids) > 1 and got not in ids) or (not ids and got != default):
         return [f"{what}: record sound {got} (want {ids[0] if len(ids) == 1 else (ids or default)})"]
     return []

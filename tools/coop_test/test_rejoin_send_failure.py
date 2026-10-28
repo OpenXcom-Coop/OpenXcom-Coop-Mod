@@ -1,7 +1,7 @@
 """R4-L2 stage S-C (spec rewrite/prompts/r4l2_campaign_rejoin.md (f) rows X1, X2, QL2-3 a, QL2-5 a; TASK 0
 rewrite/r4l2-task0/sc/CONSTANTS.md): a partner lost on a failed send mid-battle leaves a pause no rejoin can resume. The TEST-ONLY host lever
 force_send_failure (L1-L6) makes the host's TCP thread take its real send-failure branch (onConnect -3, the partner's socket closed). The -3
-arm never calls disconnectTCP() for a live battle (F10808): a campaign host freezes with peerAbsent false and RESUME shown at once (F10809),
+arm never calls disconnectTCP() for a live battle: a campaign host freezes with peerAbsent false and RESUME shown at once,
 so offerRejoinBattle()'s guard refuses the rejoin (GUARD +1); a skirmish host gets CoopState(440), which pops the battle and stops serving
 (TASK 0 T0-X1 / T0-X2, 2/2 each).
   Boot X1 (key "48602", shared_fixture.bring_up("w2r4l2_x1", (1, 2, 48602)) + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2 dir
@@ -16,10 +16,10 @@ judged); W_ACK 30 s (CONSTANTS: max(30 s, 3 x t_world 2.57 s)); SPLIT = sorted (
 assert_hash_clean(full) + desyncSeen false on both; REJOIN = a fresh client2 on its own dir (campaign: join_tcp from the main menu; skirmish:
 rejoin_skirmish; an exception is a value), wait <= W_ACK for the host's resumeAck true AND peerAbsent false (profile_ok on a top host Profile,
 client2's only once its load wait 52 is gone, R-L2-A-2), press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s.
-battle_state is probed only with a BattlescapeState on the stack or no battle in the world (F10980); the dropped client is probed with
+battle_state is probed only with a BattlescapeState on the stack or no battle in the world; the dropped client is probed with
 get_state / coop_dialog_info only until it is at the main menu. Needles = host log since the row's baseline (client2: its own log). A WAIT
 that times out ends the row (later cells "not reached"), except REJOIN's waits: X-3 is evaluated with the values at the timeout. EVIDENCE
-before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run (WV-D95); exit 0 iff every cell passes, else 2.
+before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
 Red (S-C commit 1): X1 FAIL on X1-2, X1-3, X1-4 "not reached" (X1-1, X1-5 PASS); X2 FAIL on X2-2, X2-3, X2-4 "not reached" (X2-1, X2-5 PASS).
 """
 import json
@@ -73,7 +73,7 @@ def dlg(gc):
     return pick(q(gc, {"cmd": "coop_dialog_info"}), ("present", "code", "title", "backVisible", "error"))
 
 def bs_raw(gc):
-    """battle_state, only with a BattlescapeState on the stack or no battle in the world (F10980); {} otherwise"""
+    """battle_state, only with a BattlescapeState on the stack or no battle in the world; {} otherwise"""
     if BS not in stack(gc) and q(gc, {"cmd": "get_coop"}).get("inBattle") is not False:
         return {}
     return q(gc, {"cmd": "battle_state"})
@@ -145,7 +145,7 @@ class Row:
         if self.fails:
             live = [(n, gc) for n, gc in (("host", x.host), ("client", x.client), ("client2", x.client2)) if alive(gc)]
             cap = {n: {"stack": stack(gc), "get_coop": coop(gc), "coop_dialog_info": dlg(gc)} for n, gc in live}
-            for n, gc in live:  # the dropped client: battle_state only once it is at the main menu (F10980)
+            for n, gc in live:  # the dropped client: battle_state only once it is at the main menu
                 cap[n]["battle_state"] = auth(gc) if gc is not x.client or top(gc) == MENU else {"skipped": "the dropped client"}
             if alive(x.host):
                 cap["host needle deltas"] = counts(x.host, self.n_h)
@@ -236,7 +236,7 @@ def rejoin(x, key, skirmish, ev):
         ev["join_tcp"] = q(c2, {"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": "ClientPlayer"})
 
     def acked():
-        for gc in (h, c2):  # R-L2-A-2: client2's Profile only once its load wait 52 is gone
+        for gc in (h, c2):  # client2's Profile only once its load wait 52 is gone
             if top(gc) == PROFILE and (gc is h or dlg(c2).get("code") != 52):
                 ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok"}).get("ok")])
         return coop(h).get("resumeAck") is True and auth(h).get("peerAbsent") is False

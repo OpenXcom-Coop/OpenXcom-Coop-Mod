@@ -1,6 +1,6 @@
 """W2-H82 S-A - test_handoff_base_marker.py (HBM): a SEPARATE partner clicks the host's base just before the host presses YES on a landing,
 and the host's base answer ends AFTER the battle offer reached the partner and BEFORE the host read the partner's battle_accept. The partner
-drops that cut answer in its hand-off and reaches its briefing; nothing from the cut answer is stored or opened (VL-H82-1).
+drops that cut answer in its hand-off and reaches its briefing; nothing from the cut answer is stored or opened.
 
 Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sa_handoff_base_stream.md (f) row R-V2 (CANDIDATE
 F22301, proven by TASK 0); TASK 0 constants: docs rewrite/w2h82-task0/sa/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap), ruling R-LH78-1-1
@@ -39,7 +39,7 @@ NEEDLES = {"ADOPT": "W1-P3: read-only BriefingState pushed", "EQUAL": "battle_re
            "STASH": "[coop-test] hold_battle_accept: battle_accept stashed"}
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
 CELLS = {"R-V2": ["V2-pre", "V2-drop", "V2-store", "V2-entry", "V2-brief", "V2-host", "V2-crash"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # W2-U8h F9563: this lane's own crash folder (CIT-2 H2)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder (CIT-2 H2)
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
@@ -98,7 +98,7 @@ def real_click(gc, text, timeout=15.0):
         time.sleep(0.05)
     return {"ok": False, "miss": "%s: button %r not shown within %.0f s" % (gc.name, text, timeout)}
 def cw(gc, match, settle=0.8, shown=False):
-    """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden (F21950)"""
+    """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden"""
     t0 = time.time()
     while shown and time.time() - t0 < W_UI and not any(match.lower() in (w.get("text") or "").lower() and w.get("visible") is True
                                                         and w.get("hidden") is False for w in q(gc, {"cmd": "list_widgets"}).get("widgets", [])):

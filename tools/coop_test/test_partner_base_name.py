@@ -22,7 +22,7 @@ marker's name): all PASS. R-1 runs last (QH65-A2 (a)).
 mirrors = bases with coopIcon true; own = coopIcon and coopBase false. Every press is a real click_widget or inject_input (key or
 click); no visit, leave, dismiss or dialog-back lever (the wait / LIFT / CLICK replacement rules log their swaps). One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict;
 a precondition miss ends its row (CAPTURE line, cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
-WV-D95 / WV-D99 / WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_partner_base_name.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
@@ -80,7 +80,7 @@ def logl(gc):
     return open(p, encoding="utf-8", errors="replace").read().splitlines() if os.path.exists(p) else []
 def lines_since(gc, n0): return [ln.split("\t")[0][-13:-1] + " " + ln.split("\t")[-1][:300] for ln in logl(gc)[n0:] if any(n in ln for n in NEEDLES)]
 def cw(gc, match, settle=1.0, ready=False):
-    if ready:  # W2-U9 (F20796 / F20872): a POPUP window (InterceptState) drops a click on a hidden button
+    if ready:  # a POPUP window (InterceptState) drops a click on a hidden button
         session.wait_widget_ready(gc, match)
     r = q(gc, {"cmd": "click_widget", "match": match})
     time.sleep(settle)

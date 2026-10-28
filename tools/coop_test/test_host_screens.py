@@ -18,9 +18,9 @@ restages (HS3, HS3b and HS3c knock out H, H2 and H3, so they come last):
         F2071). GREEN: the walk's context closes and C stands on the destination
         on both while the host's inventory_view.open is true;
         hostCovered.byOrigin.intent +> 0; then the host closes; EQUAL.
-  HS2   (D191) the same walk under the host's PauseState (its options key); GREEN
+  HS2   the same walk under the host's PauseState (its options key); GREEN
         as HS1 with PauseState on top throughout; the host closes it after.
-  HS2b  (D187) the same walk under the host's UnitInfoState on H (TAB H, the
+  HS2b  the same walk under the host's UnitInfoState on H (TAB H, the
         battlescape stats button by rect); GREEN as HS1 under UnitInfoState.
   HS7   (F2335, M5) the host's MedikitState on C (H adjacent, a medi-kit in H's
         right hand; C one fatal wound); client walk order C two tiles away; then
@@ -76,7 +76,7 @@ green run.
 Constants: the P8-4b pin table (T0-S1, the host sequences, T0-S2, T0-S3, T0-S4,
 T0-S5, T0-S9; docs rewrite/w2p8-task0/sc2/, t0_sc2.py with --s3seed 1 --s4seed 2
 --koseed 1), each with its source line below. Item ids come from each row's staging
-record (C7), never literals. Lever pairs go to the CLIENT first (F607), except the
+record (C7), never literals. Lever pairs go to the CLIENT first, except the
 teleports: P8-4b ruling 3 (host leg first, checked, then the client leg;
 test_inventory_held.place_host_first). P8-4b ruling 1: every walk-window row
 pins the host camera on the lane and the client's xcom dial 40; the other rows run
@@ -84,8 +84,8 @@ at the boot's dial (30), as TASK 0 measured them. P8-4b ruling 2: a host key rig
 after a state opened waits KEY_SETTLE_S. Each row prints ONE "EVIDENCE <id>:" line
 with both machines' fields before its conditions are checked; every row runs after
 an earlier failure; "PASS <id>" / "FAIL <id>: <message>". Exit 0 only when every row
-passes, 2 otherwise (a bring-up failure is also 2). WV-D99 / WV-D100: one run is the
-result. WV-D95: run in the foreground to completion.
+passes, 2 otherwise (a bring-up failure is also 2). one run is the
+result. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_host_screens.py
 """
@@ -128,7 +128,7 @@ WALK_C_TILE, WALK_C_DIR = (12, 26, 0), 2
 WALK_DEST3 = (9, 29, 0)           # HS1, HS2, HS2b
 WALK_DEST2 = (10, 28, 0)          # HS7 ("C two tiles away")
 # The walk windows: the dial-40 step interval (40 ms) is longer than a frame, so a covered BattlescapeState's one
-# step per frame (F2617) keeps the uncovered pace; ~2 x the measured walk bounds the green run, and each window is
+# step per frame keeps the uncovered pace; ~2 x the measured walk bounds the green run, and each window is
 # the whole red cost of its row (the K=2 wall bar, S13).
 HS_WALK_UNDER_S = 4.5             # a 3-tile walk (2339 ms uncovered)
 WALK2_UNDER_S = 3.5               # a 2-tile walk (1554-1559 ms uncovered)
@@ -139,7 +139,7 @@ BOOT_DIAL = 30                    # the boot's xcom dial (T0 BOOT lines: speed l
 STATS_RECT = (107, 177, 164, 23)  # the battlescape stats button (T0-S1 hostSeqs HS2b_statsButton, nth 16)
 SCREEN_WAIT_S = 3.0
 # ----- P8-4b T0-S5 row: "H (13,26,0) dir 6, medi-kit RH; C (12,26,0) wounds [0,0,1,0,0,0]; TAB H, RH box nth 25,
-# key 49 | heal button rect (190,120,30,20) key 51; end (220,140,20,20) key 27" (F2889) -----
+# key 49 | heal button rect (190,120,30,20) key 51; end (220,140,20,20) key 27" -----
 MED_H_TILE, MED_H_DIR = (13, 26, 0), 6
 C_WOUNDS = [0, 0, 1, 0, 0, 0]
 MEDIKIT = "STR_MEDI_KIT"
@@ -1072,7 +1072,7 @@ def hs3c_covered_detach(host, client, ctx):
             under = wait_under(host, client, lambda: unconscious_both(host, client, H3_ID), KO_UNDER_S,
                                order["t0"], top(host))
             if under["done"]:
-                # the host check runs at the pump after the driven step that put H3 down (F2616)
+                # the host check runs at the pump after the driven step that put H3 down
                 cd0 = hscr(before["host"]).get("coveredDetach") or 0
                 _, under["detachWaited"] = wait_until(
                     lambda: (hscr(event_state(host)).get("coveredDetach") or 0) > cd0, 1.5, 0.05)

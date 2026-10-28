@@ -21,7 +21,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from harness import shutdown_clients  # W2-U8f (F9056): _build_midbattle_save's cleanup
+from harness import shutdown_clients  # _build_midbattle_save's cleanup
 import session
 
 SDLK_ESCAPE = 27
@@ -216,7 +216,7 @@ def _build_midbattle_save(tag, port_base):
         assert len(new_files) == 1, f"quiescent save did not write exactly one file: {new_files}"
         savepath = os.path.join(host_dir, next(iter(new_files)))
     except BaseException:
-        # W2-U8f (F9056): no caller ever gets host / client (only the save's path), so a failed bring-up or save
+        # no caller ever gets host / client (only the save's path), so a failed bring-up or save
         # shuts down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
@@ -294,7 +294,7 @@ def run_s4():
     assert found, "coopBattleProtocol key not found in the source save to rewrite"
     _assert_refused(d1, 48945, savefile, "protocol=0")
 
-    # (ii) coopBattleProtocol key deleted - an OLDER version's shape: it converts and loads (owner D246 (b); D246-U)
+    # (ii) coopBattleProtocol key deleted - an OLDER version's shape: it converts and loads
     d2 = make_user_dir("s18mr_s4_deleted")
     found = _rewrite_protocol(savepath, os.path.join(d2, "xcom1", savefile), "delete")
     assert found, "coopBattleProtocol key not found in the source save to delete"
@@ -422,7 +422,7 @@ def run_s5():
             f"client PauseState's SAVE GAME button is VISIBLE (should be hidden): {save_widget}")
         print("PASS M6: client's PauseState hides SAVE GAME")
 
-        # CAPTURED (WV-D77): a second ESCAPE sent immediately after list_widgets
+        # CAPTURED: a second ESCAPE sent immediately after list_widgets
         # (no intervening round trip) was reliably swallowed - PauseState never
         # closed until the unrelated peer-liveness teardown eventually fired
         # ~10s later. Every probed diagnostic run that happened to insert an
