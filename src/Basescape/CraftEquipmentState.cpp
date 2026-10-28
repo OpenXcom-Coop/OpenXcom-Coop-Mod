@@ -75,6 +75,8 @@ CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
 	_displayedCrew(0), _displayedSpaceUsed(0), _displayedSpaceAvailable(0), _localBatch(false)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
+	_craftId = c->getId();
+	_craftType = c->getRules()->getType();
 	bool craftHasACrew = getDisplayedCrew() > 0;
 	_isNewBattle = _game->getSavedGame()->getMonthsPassed() == -1;
 
@@ -535,12 +537,23 @@ void CraftEquipmentState::think()
 
 	if (_sharedRefresh.consume())
 	{
-		if (SharedEcon::baseIndex(_game, _base) < 0
-			|| _craft >= _base->getCrafts()->size())
+		// Re-find this screen's craft by identity: selling or transferring an
+		// earlier craft at the base shifts the indices, and the screen must not
+		// silently switch to another craft. Close it if the craft is gone.
+		size_t found = _base->getCrafts()->size();
+		if (SharedEcon::baseIndex(_game, _base) >= 0)
+			for (size_t i = 0; i < _base->getCrafts()->size(); ++i)
+			{
+				const Craft* c = _base->getCrafts()->at(i);
+				if (c->getId() == _craftId && c->getRules()->getType() == _craftType)
+				{ found = i; break; }
+			}
+		if (found >= _base->getCrafts()->size())
 		{
 			_game->popState();
 			return;
 		}
+		_craft = found;
 		const size_t scroll = _lstEquipment->getScroll();
 		initList();
 		_lstEquipment->scrollTo(scroll);
