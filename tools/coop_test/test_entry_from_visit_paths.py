@@ -1,19 +1,21 @@
-"""test_entry_from_visit_paths.py (EFP): a practice screen over the view of the host's base at the host's YES.
+"""test_entry_from_visit_paths.py: a practice screen over the view of the host's base at the host's YES.
 
-Spec: docs rewrite/prompts/w2h74_entry_from_visit.md (f) row P; TASK 0 constants: docs rewrite/w2h74-task0/sa/CONSTANTS.md. Lead L-BH1, ruling
-R-BH-2 fix (a) (QH74-1 .. QH74-6 (a), R-H74-1). Lobby key "49298", dirs w2h74_p_*. Row L (the leave in flight) is absent: TASK 0's ONE
-T0-L attempt did not reach an adoption under the leave's LoadGameState (QH74-5 (a); CONSTANTS.md T0-L).
-Row P (the client views the host's base with the host's Skyranger craft inventory open, a practice battle over the view, when the host presses
-    YES): MARKER (the client's buy at its own base), read B, PROMPT, VISIT (a real globe click + the "HostBase" target), open_craft_equipment
-    {coop: true} + craft_inventory, read D, YES (set_seed 2, real click; the trace waits for the client's BriefingState BEFORE
-    drive_both_to_tactical, R-H21d-S2-T0-1), read E, BATTLE, RETURN (real OKs), read G.
-    Cells P-pre, P-entry (guards), P-snap, P-log, P-own, P-flag, P-common (guard).
-Red today (R1): P-snap, P-log, P-own, P-flag FAIL (4 of 7); every other cell PASS. Green (G1, spec E1-E2): all 7 cells PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends the row (later cells "not reached")
-with ONE CAPTURE line; a boot miss fails P-pre with ONE CAPTURE line. Real presses (YES, OK, the globe click); the client stays zero-disk.
-WV-D95 (run to completion in the foreground), WV-D99 (one run; exit 0 only when every cell passes, else 2), WV-D100 (no SKIP, no exit 3).
-Helpers copied (never imported) from docs rewrite/lbh1-cap/cap.py (as in test_entry_from_visit.py); the practice screen from
-test_practice_battle_entry.py's P4."""
+Lobby key "49298", dirs entry_visit_practice_*. A leave in flight is not covered: a measured attempt did not reach an
+adoption under the leave's LoadGameState.
+Row practice_view (the client views the host's base with the host's Skyranger craft inventory open, a practice battle
+    over the view, when the host presses YES): MARKER (the client's buy at its own base), the baseline read, PROMPT,
+    VISIT (a real globe click + the "HostBase" target), open_craft_equipment {coop: true} + craft_inventory, the
+    pre-YES read, YES (set_seed 2, real click; the trace waits for the client's BriefingState BEFORE
+    drive_both_to_tactical), the briefing read, BATTLE, RETURN (real OKs), the return read.
+    Cells practice_view-pre, practice_view-entry (guards), practice_view-snap, practice_view-log, practice_view-own,
+    practice_view-flag, practice_view-common (guard).
+A build in which the partner loses its world at this entry fails practice_view-snap, -log, -own and -flag (4 of 7)
+and passes every other cell.
+One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends the row
+(later cells "not reached") with ONE CAPTURE line; a boot miss fails practice_view-pre with ONE CAPTURE line. Real
+presses (YES, OK, the globe click); the client stays zero-disk. Run to completion in the foreground; one run, exit 0
+only when every cell passes, else 2; no SKIP, no exit 3. The probe helpers are local copies, never imported (as in
+test_entry_from_visit.py); the practice screen is opened as test_practice_battle_entry.py opens it."""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
@@ -29,14 +31,15 @@ W_UI, W_PROMPT, W_VISIT, W_ENTRY, W_END, W_RET = 10, 120, 60, 25, 60, 15
 RC_OK = (0, 3221226505)
 FOLLOWUPS = ("CommendationLateState", "CommendationState", "PromotionsState", "CannotReequipState")
 NEEDLES = {"UNWIND": "[coop] battle entry from a view of the host's base", "SNAP": "SEPARATE battle-entry own-world snapshot taken"}
-CELLS = {"P": ["P-pre", "P-entry", "P-snap", "P-log", "P-own", "P-flag", "P-common"]}
+CELLS = {"practice_view": ["practice_view-pre", "practice_view-entry", "practice_view-snap", "practice_view-log",
+                           "practice_view-own", "practice_view-flag", "practice_view-common"]}
 CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
     pass
 
-# ----- probes (CAP) -----
+# ----- probes -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def pick(r, keys): return {k: r.get(k) for k in keys}
@@ -90,7 +93,7 @@ def geo(gc):
             "marker": [[t.get("qty"), t.get("hours")] for t in own.get("transfers") or [] if t.get("rule") == MARKER_ITEM],
             "bases": [[b.get("name"), b.get("coopBase"), b.get("coopIcon")] for b in bs], "error": g.get("error")}
 def has_marker(tr): return any(t and t[0] == MARKER_QTY for t in tr or [])
-# ----- real presses (CAP) -----
+# ----- real presses -----
 def real_click(gc, text, timeout=15.0):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -158,7 +161,7 @@ def drain_real(gc, timeout=60):
         time.sleep(0.5)
     return False, seen
 
-# ----- fixture (CAP seat_guest: bring_up_separate_guest_battle's seat) -----
+# ----- fixture (seat_guest: bring_up_separate_guest_battle's seat) -----
 def seat_guest(h, c, ev):
     session.new_campaign(h, c, port=KEY)
     hb = session._campaign_own_roster_base(h)
@@ -249,19 +252,22 @@ class Row:
         bad = [n for n in self.cells if not self.done.get(n)]
         print("ROW %s: %s" % (self.rid, "PASS" if not bad else "FAIL (%d failing: %s)" % (len(bad), bad)), flush=True)
 
-# ----- common steps (spec (f)) -----
-def marker_b(r, x):
-    """MARKER = the client's buy (PurchaseState::btnOkClick); read B: FUNDS_B, EXP_B, CB with the MARKER transfer"""
+# ----- common steps -----
+def marker_baseline(r, x):
+    """MARKER = the client's buy (PurchaseState::btnOkClick); the baseline read: FUNDS_BEFORE, EXP_BEFORE, CB with the
+    MARKER transfer"""
     c = x.client
     b = q(c, {"cmd": "buy", "item": MARKER_ITEM, "count": MARKER_QTY})
     ok, s = wait(lambda: top(c) == "GeoscapeState", W_UI, 0.05)
-    x.nB = len(log(c))
-    B = r.ev["B"] = dict(geo(c), buy=pick(b, ("ok", "error")), topS=s)
-    x.CB, x.FUNDS_B, x.EXP_B = B["cb"], B["funds"], B["expTail"]
-    if not (b.get("ok") and ok and has_marker(B["marker"]) and isinstance(x.FUNDS_B, int) and isinstance(x.EXP_B, int)):
-        raise Stop("MARKER / read B: %s" % js(B))
+    x.nBase = len(log(c))
+    B = r.ev["baselineRead"] = dict(geo(c), buy=pick(b, ("ok", "error")), topS=s)
+    x.CB, x.FUNDS_BEFORE, x.EXP_BEFORE = B["cb"], B["funds"], B["expTail"]
+    if not (b.get("ok") and ok and has_marker(B["marker"]) and isinstance(x.FUNDS_BEFORE, int)
+            and isinstance(x.EXP_BEFORE, int)):
+        raise Stop("MARKER / baseline read: %s" % js(B))
 def prompt(r, x):
-    """PROMPT = CAP's site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on the host"""
+    """PROMPT = a terror site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState
+    on the host"""
     h = x.host
     b0 = session._campaign_base0(h)
     sid = h.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
@@ -291,9 +297,9 @@ def visit(r, x):
     if not v:
         raise Stop("VISIT: the client not in the host's base within %d s" % W_VISIT)
     time.sleep(1.0)
-def read_d(r, x):
+def read_pre_yes(r, x):
     c = x.client
-    D = r.ev["D"] = {"stack": stack(c), "coop": coop(c), "bases": geo(c)["bases"], "hostTop": top(x.host)}
+    D = r.ev["preYesRead"] = {"stack": stack(c), "coop": coop(c), "bases": geo(c)["bases"], "hostTop": top(x.host)}
     return D
 def yes(r, x):
     """YES = the host's set_seed SEED_P and real YES; the trace (client top, code, insideCoopBase, host top) to both BriefingState"""
@@ -315,8 +321,8 @@ def yes(r, x):
     ok = bool(last and "BriefingState" in (last[0] or "") and "BriefingState" in (last[3] or ""))
     r.ev["yes"] = {"seed": sd.get("ok"), "click": k, "trace": trace}
     return ok, [t[2] for t in trace if t[2] is not None]
-def read_e(r, x):
-    E = r.ev["E"] = {"sepSnapshot": record(x.client).get("sepSnapshot"), "log": needles(x.client, x.nB)}
+def read_briefing(r, x):
+    E = r.ev["briefingRead"] = {"sepSnapshot": record(x.client).get("sepSnapshot"), "log": needles(x.client, x.nBase)}
     return E
 def battle(r, x):
     """BATTLE = drive_both_to_tactical, kill_unit_real faction 1, settle, END TURN both, both DebriefingState"""
@@ -338,7 +344,8 @@ def battle(r, x):
     if not (okh and okc):
         raise Stop("BATTLE: debriefing not reached within %d s (host %s, client %s)" % (W_END, stack(h), stack(c)))
 def ret(r, x):
-    """RETURN = the client's real OK and its follow-ups, geo_clean within W_RET, +1.5 s; read G; the host's real OK + drain"""
+    """RETURN = the client's real OK and its follow-ups, geo_clean within W_RET, +1.5 s; the return read; the host's
+    real OK + drain"""
     c = x.client
     ok1 = real_click(c, "OK", 10)
     wait(lambda: (lambda st: st[:1] == ["GeoscapeState"] and all(s in FOLLOWUPS for s in st[1:]))(stack(c)), 10, 0.05)
@@ -349,7 +356,8 @@ def ret(r, x):
     okg, s = wait(lambda: geo_clean(c), W_RET, 0.05)
     time.sleep(1.5)
     rc = record(c)
-    G = r.ev["G"] = dict(geo(c), inside=coop(c).get("insideCoopBase"), stack=stack(c), branch=rc.get("debriefOkBranch"),
+    G = r.ev["returnRead"] = dict(geo(c), inside=coop(c).get("insideCoopBase"), stack=stack(c),
+                                  branch=rc.get("debriefOkBranch"),
                          sepReturn=pick(rc.get("sepReturn") or {}, ("ownLoaded", "pushed")), ok=ok1.get("ok"), geoClean=[bool(okg), s])
     k = real_click(x.host, "OK", 10)
     r.ev["hostReturn"] = [k.get("ok")] + list(drain_real(x.host))
@@ -362,8 +370,8 @@ def common(r, name, x, ok0=True, extra=""):
            "%salive (host, client) %s, exit codes (client, host) %s, new crash files %s (want true, %s, none)" % (extra, al, rc, nc, list(RC_OK)))
 
 # ----- rows -----
-def body_p(r, x):
-    marker_b(r, x)
+def body_practice_view(r, x):
+    marker_baseline(r, x)
     prompt(r, x)
     visit(r, x)
     c = x.client
@@ -372,38 +380,48 @@ def body_p(r, x):
     b = q(c, {"cmd": "craft_inventory"}) if okc else {"error": "no CraftEquipmentState"}
     oki, _ = wait(lambda: top(c) == "InventoryState", W_UI, 0.05)
     r.ev["practice"] = {"open": pick(a, ("ok", "craftId", "error")), "inventory": pick(b, ("ok", "opened", "error")), "top": bool(oki)}
-    D = read_d(r, x)
+    D = read_pre_yes(r, x)
     D["inBattle"] = safe(battle_state, c).get("inBattle")
-    r.cell("P-pre", D["stack"][-3:] == ["BasescapeState", "CraftEquipmentState", "InventoryState"] and D["inBattle"] is True
+    r.cell("practice_view-pre", D["stack"][-3:] == ["BasescapeState", "CraftEquipmentState", "InventoryState"]
+           and D["inBattle"] is True
            and D["coop"].get("insideCoopBase") is True and D["bases"] and all(b[1] is True for b in D["bases"]),
-           "READ D client stack %s, battle_state.inBattle %s, insideCoopBase %s, live bases %s (want InventoryState over CraftEquipmentState "
+           "pre-YES read client stack %s, battle_state.inBattle %s, insideCoopBase %s, live bases %s (want "
+           "InventoryState over CraftEquipmentState "
            "over BasescapeState, true, true, every coopBase true)" % (D["stack"], D["inBattle"], D["coop"].get("insideCoopBase"), D["bases"]))
-    if not r.done["P-pre"]:
-        raise Stop("P-pre")
+    if not r.done["practice_view-pre"]:
+        raise Stop("practice_view-pre")
     ok, codes = yes(r, x)
-    r.cell("P-entry", ok, "YES trace %s (want both BriefingState within %d s)" % (r.ev["yes"]["trace"], W_ENTRY))
+    r.cell("practice_view-entry", ok, "YES trace %s (want both BriefingState within %d s)"
+           % (r.ev["yes"]["trace"], W_ENTRY))
     if not ok:
-        raise Stop("P-entry")
-    E = read_e(r, x)
-    r.cell("P-snap", E["sepSnapshot"] == 1, "READ E battleEnd.sepSnapshot %s (want 1; today 0, F20753)" % E["sepSnapshot"])
-    r.cell("P-log", E["log"]["UNWIND"] == 1, "client log since B: UNWIND %d, SNAP %d (want UNWIND 1; today 0)" % (E["log"]["UNWIND"], E["log"]["SNAP"]))
+        raise Stop("practice_view-entry")
+    E = read_briefing(r, x)
+    r.cell("practice_view-snap", E["sepSnapshot"] == 1, "briefing read battleEnd.sepSnapshot %s (want 1)"
+           % E["sepSnapshot"])
+    r.cell("practice_view-log", E["log"]["UNWIND"] == 1, "client log since the baseline read: UNWIND %d, SNAP %d (want "
+           "UNWIND 1)" % (E["log"]["UNWIND"], E["log"]["SNAP"]))
     battle(r, x)
     G = ret(r, x)
-    r.cell("P-own", G["cb"] == x.CB and has_marker(G["marker"]) and G["funds"] == x.FUNDS_B and G["expTail"] == x.EXP_B,
-           "READ G %s MARKER %s, funds %s, expenditureTail %s (want the MARKER, FUNDS_B %s, EXP_B %s; today the V loss)"
-           % (G["cb"], G["marker"], G["funds"], G["expTail"], x.FUNDS_B, x.EXP_B))
+    r.cell("practice_view-own", G["cb"] == x.CB and has_marker(G["marker"]) and G["funds"] == x.FUNDS_BEFORE
+           and G["expTail"] == x.EXP_BEFORE,
+           "return read %s MARKER %s, funds %s, expenditureTail %s (want the MARKER, FUNDS_BEFORE %s, EXP_BEFORE %s)"
+           % (G["cb"], G["marker"], G["funds"], G["expTail"], x.FUNDS_BEFORE, x.EXP_BEFORE))
     sr = G["sepReturn"]
-    r.cell("P-flag", G["inside"] is False and sr.get("pushed") == 1, "READ G insideCoopBase %s, sepReturn %s (want false, pushed 1; today true, 0)"
+    r.cell("practice_view-flag", G["inside"] is False and sr.get("pushed") == 1, "return read insideCoopBase %s, "
+           "sepReturn %s (want false, pushed 1)"
            % (G["inside"], sr))
     back = G["stack"] == ["GeoscapeState"] and G["branch"] == "campaign-client-separate"
-    common(r, "P-common", x, back, "RETURN client stack %s, debriefOkBranch %r (want [GeoscapeState], 'campaign-client-separate'); "
+    common(r, "practice_view-common", x, back, "RETURN client stack %s, debriefOkBranch %r (want [GeoscapeState], "
+           "'campaign-client-separate'); "
            % (G["stack"], G["branch"]))
 def main():
     c0 = cpu()
-    print("==== W2-H74 EFP (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    Row("P").run(body_p, "w2h74_p")
+    print("==== test_entry_from_visit_paths (slot %s, key %s, exe %s) CPU %s ===="
+          % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    Row("practice_view").run(body_practice_view, "entry_visit_practice")
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H74 EFP: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
+    print("\n==== test_entry_from_visit_paths: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ===="
+          % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
           flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
