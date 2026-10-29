@@ -1,35 +1,36 @@
 """the host's own presses that change the battle on the host only reach the second player in one host
-action (spec docs rewrite/prompts/w2h30_host_local_actions.md (f); TASK 0 docs rewrite/w2h30-task0/sa/CONSTANTS.md and
-rewrite/w2h30-task0/sb/CONSTANTS.md; W2-H28 QH-4 (a); F12351, F12352, F12353, F12354, F12355, F11564). Before the fix
-the HOST's own mind probe (L-1), its Zero TU key (L-4), the last charge of its single-use medi-kit (L-2: the emptied
-kit leaves only at the screen's close) and its instant-grenade skill (L-5: the fuse write after the skill's context
-closed) change the battle on the host only and emit nothing, so the second player keeps the old value (and hash_now
-differs) until the host's next ev of any kind, which carries the change (the -next cells).
+action. When broken, the HOST's own mind probe (mind_probe), its Zero TU key (zero_tu_key), the last charge of its
+single-use medi-kit (last_charge: the emptied kit leaves only at the screen's close) and its instant-grenade skill
+(grenade_skill: the fuse write after the skill's context closed) change the battle on the host only and emit nothing,
+so the second player keeps the old value (and hash_now differs) until the host's next ev of any kind, which carries the
+change (the -next cells).
 ONE boot, test_client_grenade's recipe (the roster-pinned terror map, SEED_MAP 1, the Coop_Spray_Test MOD on both,
 coopGhostStepper true), lobby key 48856; rows in this order:
-  HS0  bring-up: HS0-mod (MOD line, 0 [ERROR] lines), HS0-units (H, A, C on both), HS0-common.
-  HP   the host's mind probe (stage H on PROBE_H_TILE with the probe, A on A_TILE made visible by the lever; TAB to H,
-       the right-hand box, key 49, HOME, one click on A): HP-press (UnitInfoState, H TU H_TU_FULL - PROBE_TU, key 27
-       closes it), HP-ev (one {host, mindprobe, H} context whose evs are exactly [mindprobe, bt_action_end], lastCue
-       {actor H, unit A, item} on both, a clean client log), HP-follow (the client's H TU equals the host's within
-       FOLLOW_S), HP-hash, HP-common, HP-next (the client's lever turn of C heals the window).
-  HZ   the host's Zero TU key (TAB to H, key 127): HZ-press (host H TU 0), HZ-ev ({host, zero_tu, H}, evs [zero_tu,
-       bt_action_end], payload {actor H, unit H}), HZ-follow (client H TU 0 within FOLLOW_S), HZ-hash, HZ-common,
-       HZ-next.
-  HK   the host's single-use kit (P wounded on P_TILE, the tile H faces; ONE_CHARGE in H's right hand; TAB to H, the
-       right-hand box, key 49, key 51 heals, key 27 closes): HK-open (MedikitState, charges [0, 1, 0] on both), HK-use
-       (one {host, medikit, H} context, evs [medikit, bt_action_end], P's wounds and H's TU on both), HK-inctx (the
-       emptied kit gone on both before the close), HK-close (the close and the BA_USE aftermath emit nothing: L-3),
-       HK-follow (the kit gone on both within FOLLOW_S of the close), HK-hash, HK-common, HK-next (the kit's presence).
-  HG   the host's instant-grenade skill, LAST (GRENADE in H's hand; TAB to H, SKILLS by SKILLS_RECT, key 51, then one
-       right-hand click cancels the throw): HG-press (throw targeting, the host's grenade (0, true), the cancel), HG-ev
-       ({host, skill, H} then {host, prime, H}, the prime context's evs [prime, bt_action_end], lastCue {actor H,
-       unit H, item g, fuse 0, unprime false}), HG-follow (the client's grenade (0, true) within FOLLOW_S), HG-hash,
-       HG-common.
+  bring_up  bring-up: bring_up-mod (MOD line, 0 [ERROR] lines), bring_up-units (H, A, C on both), bring_up-common.
+  mind_probe  the host's mind probe (stage H on PROBE_H_TILE with the probe, A on A_TILE made visible by a staging
+       command; TAB to H, the right-hand box, key 49, HOME, one click on A): mind_probe-press (UnitInfoState, H TU
+       H_TU_FULL - PROBE_TU, key 27 closes it), mind_probe-ev (one {host, mindprobe, H} context whose evs are exactly
+       [mindprobe, bt_action_end], lastCue {actor H, unit A, item} on both, a clean client log), mind_probe-follow
+       (the client's H TU equals the host's within FOLLOW_S), mind_probe-hash, mind_probe-common, mind_probe-next (the
+       client's turn order for C heals the window).
+  zero_tu_key  the host's Zero TU key (TAB to H, key 127): zero_tu_key-press (host H TU 0), zero_tu_key-ev ({host,
+       zero_tu, H}, evs [zero_tu, bt_action_end], payload {actor H, unit H}), zero_tu_key-follow (client H TU 0 within
+       FOLLOW_S), zero_tu_key-hash, zero_tu_key-common, zero_tu_key-next.
+  last_charge  the host's single-use kit (P wounded on P_TILE, the tile H faces; ONE_CHARGE in H's right hand; TAB to
+       H, the right-hand box, key 49, key 51 heals, key 27 closes): last_charge-open (MedikitState, charges [0, 1, 0]
+       on both), last_charge-use (one {host, medikit, H} context, evs [medikit, bt_action_end], P's wounds and H's TU
+       on both), last_charge-inctx (the emptied kit gone on both before the close), last_charge-close (the close and
+       the BA_USE aftermath emit nothing), last_charge-follow (the kit gone on both within FOLLOW_S of the close),
+       last_charge-hash, last_charge-common, last_charge-next (the kit's presence).
+  grenade_skill  the host's instant-grenade skill, LAST (GRENADE in H's hand; TAB to H, SKILLS by SKILLS_RECT, key
+       51, then one right-hand click cancels the throw): grenade_skill-press (throw targeting, the host's grenade (0,
+       true), the cancel), grenade_skill-ev ({host, skill, H} then {host, prime, H}, the prime context's evs [prime,
+       bt_action_end], lastCue {actor H, unit H, item g, fuse 0, unprime false}), grenade_skill-follow (the client's
+       grenade (0, true) within FOLLOW_S), grenade_skill-hash, grenade_skill-common.
 Common cell: after wait_host_idle, test_client_shoot.common_fails minus its hash entry and no crash file since the
-boot; the -hash cell is that entry. RED (commit A1, unchanged build): exactly HP-ev, HP-follow, HP-hash, HZ-ev,
-HZ-follow, HZ-hash FAIL. GREEN (A2): the 15 S-A cells PASS. RED (commit B1, S-A's green build): exactly HK-inctx,
-HK-follow, HK-hash, HG-ev, HG-follow, HG-hash FAIL. GREEN (B2): all 28 cells PASS.
+boot; the -hash cell is that entry. When broken, the -ev, -follow and -hash cells of mind_probe and zero_tu_key and
+last_charge-inctx, last_charge-follow, last_charge-hash, grenade_skill-ev, grenade_skill-follow and
+grenade_skill-hash fail.
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
@@ -60,15 +61,15 @@ from test_delta_items import items_by_id
 from test_host_skill_ev import skills_nth, SKILLS_RECT
 
 PORT = "48856"
-HOST_DIR, CLIENT_DIR = "w2h30_host_local_host", "w2h30_host_local_client"
+HOST_DIR, CLIENT_DIR = "host_local_ev_host", "host_local_ev_client"
 H_ID, C_ID, A_ID = 10, 8, 1000000
 SEATED = [8, 9]
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 PROBE_H_TILE, PROBE_H_DIR = (12, 26, 0), 0
-A_TILE, A_DIR = (12, 23, 0), 4            # CMP mind_probe_use's tiles
+A_TILE, A_DIR = (12, 23, 0), 4            # test_client_melee_psi's mind_probe_use tiles
 MIND_PROBE = "STR_MIND_PROBE"
-H_TU_FULL = 58                            # CONSTANTS.md: H 10's max TU (Sa, Sb)
-PROBE_TU = 29                             # CONSTANTS.md: the probe's 50 % of 58 (Sa, Sb)
+H_TU_FULL = 58                            # H 10's max TU
+PROBE_TU = 29                             # the probe's 50 % of 58
 PROBE_ROWS = 2                            # THROW + USE MIND PROBE
 KEY_ITEM1, KEY_CANCEL, KEY_ZERO_TU = 49, 27, 127
 CURSOR_PSI = 3
@@ -78,13 +79,17 @@ FOLLOW_S = 5.0
 MENU_S = 5.0
 POLL_S = 0.1
 HASH_FAIL = "hash_now full not clean"
-CELLS = {"HS0": ("HS0-mod", "HS0-units", "HS0-common"),
-         "HP": ("HP-press", "HP-ev", "HP-follow", "HP-hash", "HP-common", "HP-next"),
-         "HZ": ("HZ-press", "HZ-ev", "HZ-follow", "HZ-hash", "HZ-common", "HZ-next"),
-         "HK": ("HK-open", "HK-use", "HK-inctx", "HK-close", "HK-follow", "HK-hash", "HK-common", "HK-next"),
-         "HG": ("HG-press", "HG-ev", "HG-follow", "HG-hash", "HG-common")}
-# S-B rows HK, HG (docs rewrite/w2h30-task0/sb/CONSTANTS.md: boots Ka and Kb)
-P_ID = 11                                 # CONSTANTS.md: the second host-seat soldier (Ka, Kb)
+CELLS = {"bring_up": ("bring_up-mod", "bring_up-units", "bring_up-common"),
+         "mind_probe": ("mind_probe-press", "mind_probe-ev", "mind_probe-follow", "mind_probe-hash",
+                        "mind_probe-common", "mind_probe-next"),
+         "zero_tu_key": ("zero_tu_key-press", "zero_tu_key-ev", "zero_tu_key-follow", "zero_tu_key-hash",
+                         "zero_tu_key-common", "zero_tu_key-next"),
+         "last_charge": ("last_charge-open", "last_charge-use", "last_charge-inctx", "last_charge-close",
+                         "last_charge-follow", "last_charge-hash", "last_charge-common", "last_charge-next"),
+         "grenade_skill": ("grenade_skill-press", "grenade_skill-ev", "grenade_skill-follow", "grenade_skill-hash",
+                           "grenade_skill-common")}
+# rows last_charge and grenade_skill
+P_ID = 11                                 # the second host-seat soldier
 P_TILE, P_DIR = (12, 25, 0), 4            # the tile H faces from PROBE_H_TILE (direction 0)
 ONE_CHARGE = "STR_MEDI_KIT_ONE_CHARGE"    # the Spray MOD: consumable, 0 / 1 / 0, full screen
 GRENADE = "STR_GRENADE"
@@ -178,7 +183,7 @@ def after(ev, res, rid, kind, want_evs, want_p, host, client, before, seq0, nh, 
 
 
 def heal(ev, host, client):
-    """<row>-next: ONE heal order, the client's lever turn of C by one octant; answer `end`, buckets equal,
+    """<row>-next: ONE heal order, the client's turn order for C by one octant; answer `end`, buckets equal,
     desyncSeen false on both, H's TU equal on both."""
     d = (units(host).get(C_ID) or {}).get("direction")
     seq0 = event_state(host).get("lastSeqEmitted") or 0
@@ -222,7 +227,7 @@ def boot(host, client):   # test_client_grenade.boot() with lobby key PORT
     h_ids = sorted(u["id"] for u in hs["units"] if u.get("coop") == 0 and u.get("faction") == FACTION_PLAYER
                    and not u.get("isOut"))
     assert h_ids and h_ids[0] == H_ID, f"first host-seat soldier {h_ids[:1]} (baked H={H_ID})"
-    pinned = pin_ai_neutral(host, client, tag="w2h30")
+    pinned = pin_ai_neutral(host, client, tag="host_local_ev")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     session.wait_host_idle(host, client, timeout=30)
     session.assert_hash_clean(host, client, full=True, what="bring-up")
@@ -230,14 +235,14 @@ def boot(host, client):   # test_client_grenade.boot() with lobby key PORT
             "turn": hs.get("turn")}
 
 
-def row_hs0(ev, res, host, client, st):
+def row_bring_up(ev, res, host, client, st):
     ev["boot"], logs = st["ctx"], {}
     for n, gc in pairs(host, client):
         lines = log_lines(gc)
         logs[n] = {"active": sum(1 for ln in lines if CGR.MOD_ACTIVE_LINE in ln),
                    "errors": [ln for ln in lines if "[ERROR]" in ln][:5]}
     ev["log"] = logs
-    res["HS0-mod"] = joined([f"{n} log: {v['active']} line(s) with {CGR.MOD_ACTIVE_LINE!r}, [ERROR] lines "
+    res["bring_up-mod"] = joined([f"{n} log: {v['active']} line(s) with {CGR.MOD_ACTIVE_LINE!r}, [ERROR] lines "
                              f"{v['errors']} (want >= 1 and none)" for n, v in logs.items()
                              if v["active"] < 1 or v["errors"]])
     fails, view = [], {}
@@ -256,19 +261,19 @@ def row_hs0(ev, res, host, client, st):
                      "(want a live hostile)")
     if not (view["host"]["C"] == view["client"]["C"] == (FACTION_PLAYER, 1, False)):
         fails.append(f"C {C_ID} (faction, coop, isOut) host {view['host']['C']} client {view['client']['C']}")
-    res["HS0-units"] = joined(fails)
-    res["HS0-common"] = joined(common(host, client, st["bootSnap"], "HS0", st["crash0"]))
+    res["bring_up-units"] = joined(fails)
+    res["bring_up-common"] = joined(common(host, client, st["bootSnap"], "bring_up", st["crash0"]))
 
 
-def row_hp(ev, res, host, client, st):
+def row_mind_probe(ev, res, host, client, st):
     miss = None
-    try:   # staging (levers, client first) and the host's right-hand box
+    try:   # staging (staging commands, client first) and the host's right-hand box
         ev["probe"] = probe = give_both(host, client, H_ID, MIND_PROBE)[0]
         ev["placeH"] = place(host, client, H_ID, PROBE_H_TILE, PROBE_H_DIR)
         ev["placeA"] = place(host, client, A_ID, A_TILE, A_DIR)
         ev["tuMax"] = set_tu_both(host, client, H_ID, TU_MAX)
         ev["tab"] = tab_select(host, H_ID)
-        ev["visLever"] = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID,
+        ev["visibleSet"] = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID,
                                              "visible": True}, ("visible",)).get("visible")
         ev["staged"] = staged = diff_buckets(host, client)
         ev["visible"] = vis = visible(host, A_ID)
@@ -297,8 +302,8 @@ def row_hp(ev, res, host, client, st):
         if ev["cursor"] != CURSOR_PSI or not pr.get("verified"):
             miss = f"cursorType {ev['cursor']} after key {KEY_ITEM1} (want {CURSOR_PSI}), click pos {ev['clickPos']}"
     if miss:
-        capture(host, client, "HP")
-        res.update({c: f"construction: {miss}" for c in CELLS["HP"]})
+        capture(host, client, "mind_probe")
+        res.update({c: f"construction: {miss}" for c in CELLS["mind_probe"]})
         return
     pre = [f"buckets differ after the staging: {staged}"] if staged else []
     if vis is not True:
@@ -317,14 +322,14 @@ def row_hp(ev, res, host, client, st):
         press(host, KEY_CANCEL)
     if not wait_top(host, "BattlescapeState"):
         pre.append(f"host top {top(host)} after key {KEY_CANCEL} (want BattlescapeState)")
-    res["HP-press"] = joined(pre)
-    ev["follow"], res["HP-follow"] = follow_tu(host, client, t0, want)
-    after(ev, res, "HP", "mindprobe", ["mindprobe", "bt_action_end"], {"actor": H_ID, "unit": A_ID, "item": probe},
-          host, client, before, seq0, nh, nc, st)
-    res["HP-next"] = heal(ev, host, client)
+    res["mind_probe-press"] = joined(pre)
+    ev["follow"], res["mind_probe-follow"] = follow_tu(host, client, t0, want)
+    after(ev, res, "mind_probe", "mindprobe", ["mindprobe", "bt_action_end"],
+          {"actor": H_ID, "unit": A_ID, "item": probe}, host, client, before, seq0, nh, nc, st)
+    res["mind_probe-next"] = heal(ev, host, client)
 
 
-def row_hz(ev, res, host, client, st):
+def row_zero_tu_key(ev, res, host, client, st):
     try:
         ev["tuMax"] = set_tu_both(host, client, H_ID, TU_MAX)
         ev["tab"] = tab_select(host, H_ID)
@@ -333,8 +338,8 @@ def row_hz(ev, res, host, client, st):
     except Exception as e:
         miss = short(e, 500)
     if miss:
-        capture(host, client, "HZ")
-        res.update({c: f"construction: {miss}" for c in CELLS["HZ"]})
+        capture(host, client, "zero_tu_key")
+        res.update({c: f"construction: {miss}" for c in CELLS["zero_tu_key"]})
         return
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
@@ -349,11 +354,11 @@ def row_hz(ev, res, host, client, st):
     pre = [f"buckets differ after the staging: {staged}"] if staged else []
     if ev["tuHost"][0] != 0:
         pre.append(f"host H TU {ev['tuHost'][0]} {SCRIPT_S} s after key {KEY_ZERO_TU} (want 0)")
-    res["HZ-press"] = joined(pre)
-    ev["follow"], res["HZ-follow"] = follow_tu(host, client, t0, 0)
-    after(ev, res, "HZ", "zero_tu", ["zero_tu", "bt_action_end"], {"actor": H_ID, "unit": H_ID},
+    res["zero_tu_key-press"] = joined(pre)
+    ev["follow"], res["zero_tu_key-follow"] = follow_tu(host, client, t0, 0)
+    after(ev, res, "zero_tu_key", "zero_tu", ["zero_tu", "bt_action_end"], {"actor": H_ID, "unit": H_ID},
           host, client, before, seq0, nh, nc, st)
-    res["HZ-next"] = heal(ev, host, client)
+    res["zero_tu_key-next"] = heal(ev, host, client)
 
 
 def kit_on(gc, kit):
@@ -385,9 +390,9 @@ def tail_ev(ev, host, client, kinds, nh, subject):
                                if any(f"[coop-ctx] host {k}" in ln or f"[coop-cue] {k}" in ln for k in kinds)]}
 
 
-def row_hk(ev, res, host, client, st):
+def row_last_charge(ev, res, host, client, st):
     miss = None
-    try:   # staging (levers, client first): P wounded on the tile H faces, the one-charge kit in H's right hand
+    try:   # staging (client first): P wounded on the tile H faces, the one-charge kit in H's right hand
         ub = units(host)
         ids = sorted(i for i, u in ub.items() if u.get("coop") == 0 and u.get("faction") == FACTION_PLAYER
                      and not u.get("isOut"))
@@ -416,15 +421,15 @@ def row_hk(ev, res, host, client, st):
     except Exception as e:
         miss = short(e, 500)
     if miss:
-        capture(host, client, "HK")
-        res.update({c: f"construction: {miss}" for c in CELLS["HK"]})
+        capture(host, client, "last_charge")
+        res.update({c: f"construction: {miss}" for c in CELLS["last_charge"]})
         return
     pre = [f"buckets differ after the staging: {staged}"] if staged else []
     if ch != {"host": CHARGES_FULL, "client": CHARGES_FULL}:
         pre.append(f"kit {kit} charges {ch} (want {CHARGES_FULL} on both)")
     if ev["rows"] != KIT_ROWS:
         pre.append(f"host menu rows {ev['rows']} (want {KIT_ROWS})")
-    res["HK-open"] = joined(pre)
+    res["last_charge-open"] = joined(pre)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev["before"] = {"hostLastSeqEmitted": seq0, "clientLastSeqApplied": before["client"]["lastSeqApplied"],
@@ -451,10 +456,11 @@ def row_hk(ev, res, host, client, st):
         f.append(f"H TU {u['tu']} (want {H_TU_FULL - KIT_TU} on both)")
     if u["top"] != "MedikitState":
         f.append(f"host top {u['top']} after the heal (want MedikitState still open)")
-    res["HK-use"] = joined(f)
+    res["last_charge-use"] = joined(f)
     ev["inctx"] = on = {n: kit_on(gc, kit) for n, gc in pairs(host, client)}
-    res["HK-inctx"] = joined([f"kit {kit} listed {on} after the use that emptied it, before the close (want gone on "
-                              "both: the removal rides the medikit context)"] if any(on.values()) else [])
+    res["last_charge-inctx"] = joined([f"kit {kit} listed {on} after the use that emptied it, before the close "
+                                       "(want gone on both: the removal rides the medikit context)"]
+                                      if any(on.values()) else [])
     s1, t1, f = event_state(host).get("lastSeqEmitted"), time.time(), []
     if top(host) == "MedikitState":   # never ESC on the battlescape itself (it opens the options screen)
         press(host, KEY_CANCEL)
@@ -469,19 +475,19 @@ def row_hk(ev, res, host, client, st):
                    "kit": {n: kit_on(gc, kit) for n, gc in pairs(host, client)}}
     if ev["close"]["s2"] != s1:
         f.append(f"host lastSeqEmitted {s1} -> {ev['close']['s2']} {FOLLOW_S} s after the close (want unchanged: the "
-                 "close and the BA_USE aftermath emit nothing, L-3)")
-    res["HK-close"] = joined(f)
-    res["HK-follow"] = joined([] if gone is not None else [f"kit {kit} listed {ev['close']['kit']} {FOLLOW_S} s after "
-                                                           "the close (want gone on both)"])
-    split_common(res, "HK", host, client, before, st)
+                 "close and the BA_USE aftermath emit nothing)")
+    res["last_charge-close"] = joined(f)
+    res["last_charge-follow"] = joined([] if gone is not None else [
+        f"kit {kit} listed {ev['close']['kit']} {FOLLOW_S} s after the close (want gone on both)"])
+    split_common(res, "last_charge", host, client, before, st)
     tail_ev(ev, host, client, ("medikit",), nh, lambda: {n: kit_on(gc, kit) for n, gc in pairs(host, client)})
     nf = heal(ev, host, client)
     ev["next"]["kit"] = on = {n: kit_on(gc, kit) for n, gc in pairs(host, client)}
-    res["HK-next"] = joined(([nf] if nf else []) + ([f"kit {kit} listed {on} after the heal order (want gone on "
-                                                     "both)"] if any(on.values()) else []))
+    res["last_charge-next"] = joined(([nf] if nf else []) + ([
+        f"kit {kit} listed {on} after the heal order (want gone on both)"] if any(on.values()) else []))
 
 
-def row_hg(ev, res, host, client, st):   # LAST: its red leaves the split and a primed grenade standing
+def row_grenade_skill(ev, res, host, client, st):   # LAST: when broken it leaves the split and a primed grenade
     miss = None
     try:
         ev["g"] = g = give_both(host, client, H_ID, GRENADE)[0]
@@ -502,8 +508,8 @@ def row_hg(ev, res, host, client, st):   # LAST: its red leaves the split and a 
     except Exception as e:
         miss = short(e, 500)
     if miss:
-        capture(host, client, "HG")
-        res.update({c: f"construction: {miss}" for c in CELLS["HG"]})
+        capture(host, client, "grenade_skill")
+        res.update({c: f"construction: {miss}" for c in CELLS["grenade_skill"]})
         return
     pre = [f"buckets differ after the staging: {staged}"] if staged else []
     if fuse0 != {"host": FUSE_OFF, "client": FUSE_OFF}:
@@ -528,16 +534,16 @@ def row_hg(ev, res, host, client, st):   # LAST: its red leaves the split and a 
                    f"{KEY_SKILL_GRENADE} (want BattlescapeState, {CURSOR_THROW})")
     if t_fuse is None or t_fuse > SCRIPT_S:
         pre.append(f"host grenade {fuse_of(host, g)} at {t_fuse} s (want {FUSE_INSTANT} within {SCRIPT_S} s)")
-    seen = None   # HG-follow: poll the client's grenade, nothing else ordered meanwhile
+    seen = None   # grenade_skill-follow: poll the client's grenade, nothing else ordered meanwhile
     while seen is None and time.time() - t0 < FOLLOW_S:
         if fuse_of(client, g) == FUSE_INSTANT:
             seen = round(time.time() - t0, 2)
         else:
             time.sleep(POLL_S)
     ev["follow"] = fo = {"t": seen, "host": fuse_of(host, g), "client": fuse_of(client, g)}
-    res["HG-follow"] = joined([] if seen is not None else [f"client grenade {fo['client']}, host {fo['host']} "
-                                                           f"{FOLLOW_S} s after the key (want {FUSE_INSTANT} on both)"])
-    r, t2 = click_nth(host, RHAND_NTH), time.time()   # cancel the throw (F503: a hand click only cancels targeting)
+    res["grenade_skill-follow"] = joined([] if seen is not None else [
+        f"client grenade {fo['client']}, host {fo['host']} {FOLLOW_S} s after the key (want {FUSE_INSTANT} on both)"])
+    r, t2 = click_nth(host, RHAND_NTH), time.time()   # cancel the throw (a hand click only cancels targeting)
     while battle_state(host).get("cursorType") in CGR.CURSOR_TARGETING and time.time() - t2 < MENU_S:
         time.sleep(POLL_S)
     ev["cancel"] = {"click": (r.get("baseX"), r.get("baseY")), "cursor": battle_state(host).get("cursorType"),
@@ -545,7 +551,7 @@ def row_hg(ev, res, host, client, st):   # LAST: its red leaves the split and a 
     if ev["cancel"]["cursor"] in CGR.CURSOR_TARGETING:
         pre.append(f"host cursorType {ev['cancel']['cursor']} after the cancel click (want outside "
                    f"{CGR.CURSOR_TARGETING})")
-    res["HG-press"] = joined(pre)
+    res["grenade_skill-press"] = joined(pre)
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
@@ -562,12 +568,13 @@ def row_hg(ev, res, host, client, st):   # LAST: its red leaves the split and a 
     f += ctx_fails("prime", H_ID, ["prime", "bt_action_end"],
                    {"actor": H_ID, "unit": H_ID, "item": g, "fuse": 0, "unprime": False}, seq0,
                    [c for c in new if c.get("kind") == "prime"], hev, cev, eh, ec, log_lines(client)[nc:])
-    res["HG-ev"] = joined(f)
-    split_common(res, "HG", host, client, before, st)
+    res["grenade_skill-ev"] = joined(f)
+    split_common(res, "grenade_skill", host, client, before, st)
     tail_ev(ev, host, client, ("skill", "prime"), nh, lambda: {n: fuse_of(gc, g) for n, gc in pairs(host, client)})
 
 
-ROWS = (("HS0", row_hs0), ("HP", row_hp), ("HZ", row_hz), ("HK", row_hk), ("HG", row_hg))
+ROWS = (("bring_up", row_bring_up), ("mind_probe", row_mind_probe), ("zero_tu_key", row_zero_tu_key),
+        ("last_charge", row_last_charge), ("grenade_skill", row_grenade_skill))
 
 
 def report(rid, ev, res):
@@ -613,7 +620,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h30] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[host_local_ev] shutdown {gc.name}: {short(e)}", flush=True)
     n = sum(len(v) for v in CELLS.values())
     print(f"\ntest_host_local_ev: {n - len(failed)}/{n} cells passed (fail={failed}) in "
           f"{round(time.time() - t_start, 1)} s", flush=True)
