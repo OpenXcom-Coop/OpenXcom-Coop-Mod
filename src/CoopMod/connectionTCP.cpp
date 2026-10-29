@@ -11036,8 +11036,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					ufo->setLandId(ju["landId"].asInt());
 				ufo->setSecondsRemaining(100000000);
 			}
-			// despawn: hide replica UFOs no longer in the authoritative set (a frozen
-			// replica has no dogfights/followers to unwind; full cleanup is J10).
+			// despawn: mark replica UFOs no longer in the authoritative set (DESTROYED,
+			// no time left). A screen above the geoscape may still show one, so the
+			// replica's GeoscapeState deletes them once it is the top screen
+			// (replicaRemoveDespawnedUfos), as the host deletes its dead UFOs.
 			for (auto* u : *sg->getUfos())
 			{
 				if (liveUfoIds.find(liveByUniqueId ? u->getUniqueId() : u->getId()) == liveUfoIds.end())

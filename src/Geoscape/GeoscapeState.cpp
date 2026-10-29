@@ -2200,8 +2200,34 @@ void GeoscapeState::think()
 		if (_game->getCoopMod()->getServerOwner())
 			sharedBroadcastDogfights();
 		else
+		{
 			sharedReconcileReplicaDogfights();
+			replicaRemoveDespawnedUfos();
+		}
 	}
+}
+
+/**
+ * REPLICA: deletes the UFOs the host no longer lists. The position snapshot only
+ * marks them (DESTROYED, no time left), because a screen above the geoscape may
+ * still show one. Here the geoscape is the top screen and no popup waits to be
+ * shown, as on the host when its time5Seconds deletes a dead UFO; a dogfight
+ * window on that UFO closes first, as the host's does.
+ */
+void GeoscapeState::replicaRemoveDespawnedUfos()
+{
+	if (!_popups.empty() || !_game->getSavedGame()) return;
+	auto onUfo = [](Ufo* ufo) { return [ufo](DogfightState* dogfight) { return dogfight->getUfo() == ufo; }; };
+	Collections::deleteIf(*_game->getSavedGame()->getUfos(), _game->getSavedGame()->getUfos()->size(),
+		[&](Ufo* ufo)
+		{
+			if (ufo->getStatus() != Ufo::DESTROYED || ufo->getSecondsRemaining() != 0)
+				return false;
+			Collections::deleteIf(_dogfights, _dogfights.size(), onUfo(ufo));
+			Collections::deleteIf(_dogfightsToBeStarted, _dogfightsToBeStarted.size(), onUfo(ufo));
+			return true;
+		}
+	);
 }
 
 /**
