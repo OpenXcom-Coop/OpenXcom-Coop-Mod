@@ -1,22 +1,28 @@
-"""RV-U9 (spec rewrite/prompts/rvu9_crash_report_prompt.md (f); owner D228 (a), D229 (a) + gate; QV9-3..QV9-6 (a); TASK 0
-rewrite/rvu9-task0/CONSTANTS.md): `main`'s next-launch crash-report prompt (PRD-I5 Pattern A, aud-E1-26) over the main menu after a crash,
-"Previous crash detected" with BUNDLE (zip into <user>/crash-reports, then the "CRASH REPORT BUNDLED" notice = R4-L3 S-C's
-CoopDesyncNoticeState read through `desync_dialog`) / NOT NOW (asks again next launch) / NEVER (never again for that crash), from both
-sources: the marker <user>/crash-pending.json and an unseen crash dump in harness.CRASH_DIR (the lane folder the game reads through
-OXC_CRASHLOG_DIR; QV9-4: the ledger pre-marks every dump already there seen; the row deletes its own pair whatever its verdict).
-One game at a time, GameClient(name, None, d) (no lobby key); user folder rvu9_<row> made ONCE per row (a relaunch reuses it). Rows:
-  N0 nothing planted: N0-menu, N0-ledger, N0-crash          MB marker, BUNDLE: MB-prompt, MB-zip, MB-marker, MB-notice, MB-crash
-  MN marker, NOT NOW: MN-prompt, MN-keep, MN-crash          MV marker, NEVER, relaunch: MV-prompt, MV-drop, MV-again, MV-crash
-  CB dump, BUNDLE: CB-prompt, CB-zip, CB-seen, CB-notice, CB-crash
-  CN dump, NOT NOW, relaunch: CN-prompt, CN-keep, CN-again, CN-crash    CV dump, NEVER, relaunch: CV-prompt, CV-drop, CV-again, CV-crash
-Every click waits for its TextButton visible and NOT hidden (`ready`: a click during the popup is dropped, F12475, F12711). A cell after
-a row's -prompt cell is judged only when that cell passed, else it FAILs "no prompt" (its actions are not run). A boot not settled on
-MainMenuState or the prompt within 60 s is a setup failure of its row: ONE CAPTURE line, every cell not yet judged FAILs "boot".
-<row>-crash: no new crash_* in harness.CRASH_DIR since the row began but the row's own pair, and every game of the row exited 0.
-Per row: ONE EVIDENCE line, one PASS/FAIL line per cell, the row verdict. Polls 0.25 s, waits bounded. Red (A1, the unchanged build with
-C2): N0-ledger, every -prompt cell and the cells behind it FAIL (20); N0-menu and the seven -crash cells PASS. Green (A2): 28/28.
-ONE run (WV-D95: no wait-hook, run to completion in the foreground; WV-D99 / WV-D100: no SKIP path, no exit 3); exit 0 iff every cell
-passes, else 2.
+"""test_crash_reporter.py: the next-launch crash-report prompt over the main menu after a crash, "Previous crash
+detected" with BUNDLE (zip into <user>/crash-reports, then the "CRASH REPORT BUNDLED" notice, the CoopDesyncNoticeState
+read through `desync_dialog`) / NOT NOW (asks again next launch) / NEVER (never again for that crash), from both
+sources: the marker <user>/crash-pending.json and an unseen crash dump in harness.CRASH_DIR (the lane folder the game
+reads through OXC_CRASHLOG_DIR; the row's ledger marks every dump already there seen; the row deletes its own pair
+whatever its verdict).
+One game at a time, GameClient(name, None, d) (no lobby key); user folder crash_reporter_<row> made ONCE per row (a
+relaunch reuses it). Rows and their cells:
+  NO_CRASH        nothing planted:           NO_CRASH-menu, -ledger, -crash
+  MARKER_BUNDLE   marker, BUNDLE:            MARKER_BUNDLE-prompt, -zip, -marker, -notice, -crash
+  MARKER_NOT_NOW  marker, NOT NOW:           MARKER_NOT_NOW-prompt, -keep, -crash
+  MARKER_NEVER    marker, NEVER, relaunch:   MARKER_NEVER-prompt, -drop, -again, -crash
+  DUMP_BUNDLE     dump, BUNDLE:              DUMP_BUNDLE-prompt, -zip, -seen, -notice, -crash
+  DUMP_NOT_NOW    dump, NOT NOW, relaunch:   DUMP_NOT_NOW-prompt, -keep, -again, -crash
+  DUMP_NEVER      dump, NEVER, relaunch:     DUMP_NEVER-prompt, -drop, -again, -crash
+Every click waits for its TextButton visible and NOT hidden (`ready`: a click during the popup is dropped). A cell after
+a row's -prompt cell is judged only when that cell passed, else it FAILs "no prompt" (its actions are not run). A boot
+not settled on MainMenuState or the prompt within 60 s is a setup failure of its row: ONE CAPTURE line, every cell not
+yet judged FAILs "boot".
+<row>-crash: no new crash_* in harness.CRASH_DIR since the row began but the row's own pair, and every game of the row
+exited 0.
+Per row: ONE EVIDENCE line, one PASS/FAIL line per cell, the row verdict. Polls 0.25 s, waits bounded. A build without
+the prompt fails NO_CRASH-ledger, every -prompt cell and the cells behind it (20); NO_CRASH-menu and the seven -crash
+cells pass. With the prompt all 28 pass.
+One run, in the foreground, no skip path; exit 0 iff every cell passes, else 2.
 """
 import ctypes
 import glob
@@ -38,7 +44,7 @@ BUTTONS = ("BUNDLE", "NOT NOW", "NEVER")
 NOTICE_BUTTONS = ["OK", "OPEN FOLDER", "REPORT ON GITHUB"]
 ISSUE_URL = "https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues/new?title=%5Bcoop%20crash%5D"
 MARKER_TS, MARKER_EXC = "15-08-2026_10-00-00", "0xC0000005"
-DUMP_BYTES = b"FAKE-MINIDUMP-CONTENT-FOR-I5-TEST\n" * 32
+DUMP_BYTES = b"FAKE-MINIDUMP-CONTENT-FOR-CRASH-REPORT-TEST\n" * 32
 LOG_TAGS = ("[coop-ui]", "[COOP]")
 
 
@@ -158,19 +164,20 @@ def raises(dd):
     return (dd.get("last") or {}).get("raiseCount")
 
 
-# ---- the planted crash sources (`main`'s CR :52-:65 and :140-:150; the crash folder is harness.CRASH_DIR, QV9-4) ----
+# ---- the planted crash sources (the marker CrossPlatform::crashDump writes, a crash log pair as CrashHandler
+# writes it; the crash folder is harness.CRASH_DIR) ----
 def plant_marker(user_dir, ts, exc="0xC0000005"):
     dump = os.path.join(user_dir, ts + ".dmp")
     log = os.path.join(user_dir, "openxcom.log")
     with open(dump, "wb") as f:
-        f.write(b"FAKE-MINIDUMP-CONTENT-FOR-I5-TEST\n" * 32)
+        f.write(b"FAKE-MINIDUMP-CONTENT-FOR-CRASH-REPORT-TEST\n" * 32)
     if not os.path.exists(log):
         with open(log, "w", encoding="utf-8") as f:
             f.write("stub openxcom.log planted by test_crash_reporter\n")
     marker = os.path.join(user_dir, "crash-pending.json")
     with open(marker, "w", encoding="utf-8") as f:
         json.dump({"timestamp": ts, "dump": dump, "log": log,
-                   "version": "Extended 8.4.2 (i5-test)", "exception": exc}, f, indent=2)
+                   "version": "Extended 8.4.2 (crash-report-test)", "exception": exc}, f, indent=2)
     return marker
 
 
@@ -348,26 +355,28 @@ def ev_zip(z):
 
 
 # ---- rows ----
-def row_n0(r):
-    d = r.d = make_user_dir("rvu9_n0")
-    g, which = r.boot("rvu9-n0", d)
+def row_no_crash(r):
+    d = r.d = make_user_dir("crash_reporter_no_crash")
+    g, which = r.boot("reporter-no_crash", d)
     ts, tset = r.t_boot
     st, led = stack(g), ledger(d)
     r.ev.update({"stack": st, "ledger": led})
-    r.cell("N0-menu", "%s; get_state holds no %s" % (MENU, PROMPT), which == "menu" and st[-1:] == [MENU] and PROMPT not in st,
+    r.cell("NO_CRASH-menu", "%s; get_state holds no %s" % (MENU, PROMPT),
+           which == "menu" and st[-1:] == [MENU] and PROMPT not in st,
            {"settled": which, "stack": st})
     base = led.get("baseline") if isinstance(led, dict) else None
     ok = (isinstance(led, dict) and isinstance(base, int) and not isinstance(base, bool)
           and ts - 5 <= base <= tset + 5 and led.get("seen") == [])
-    r.cell("N0-ledger", "crash-seen.json a JSON object; baseline an integer in [spawn - 5, settle + 5]; seen []", ok,
+    r.cell("NO_CRASH-ledger", "crash-seen.json a JSON object; baseline an integer in [spawn - 5, settle + 5]; seen []",
+           ok,
            {"ledger": led, "spawn": int(ts), "settle": int(tset)})
 
 
 def marker_row(r, tag, choice):
-    d = r.d = make_user_dir("rvu9_" + tag)
+    d = r.d = make_user_dir("crash_reporter_" + tag)
     marker = plant_marker(d, MARKER_TS, MARKER_EXC)
     mbytes = read_bytes(marker)
-    g, which = r.boot("rvu9-" + tag, d)
+    g, which = r.boot("reporter-" + tag, d)
     rid = tag.upper()
     if not r.prompt(g, which, rid + "-prompt"):
         return
@@ -380,35 +389,40 @@ def marker_row(r, tag, choice):
         ok = len(zs) == 1 and zip_ok(z, ("crash-info.json", "crash.dmp", "openxcom.log"), DUMP_BYTES, "crashdump-marker",
                                      {"report": (z.get("info") or {}).get("report") == "crash",
                                       "exc": ((z.get("info") or {}).get("crash") or {}).get("exception") == MARKER_EXC})
-        r.cell("MB-zip", "BUNDLE: exactly one crash-reports/crash-*.zip within %.0f s holding crash-info.json, crash.dmp (= the planted "
-               "dump), openxcom.log; report crash, source crashdump-marker, crash.exception %s" % (W_ZIP, MARKER_EXC), ok,
+        r.cell("MARKER_BUNDLE-zip", "BUNDLE: exactly one crash-reports/crash-*.zip within %.0f s holding "
+               "crash-info.json, crash.dmp (= the planted dump), openxcom.log; report crash, source crashdump-marker, "
+               "crash.exception %s"
+               % (W_ZIP, MARKER_EXC), ok,
                {"press": pe, "zips": zs})
-        r.cell("MB-marker", "crash-pending.json gone", not os.path.exists(marker), {"marker": os.path.exists(marker)})
-        r.notice(g, "MB-notice", [npath(p) for p in zs])
+        r.cell("MARKER_BUNDLE-marker", "crash-pending.json gone", not os.path.exists(marker),
+               {"marker": os.path.exists(marker)})
+        r.notice(g, "MARKER_BUNDLE-notice", [npath(p) for p in zs])
         return
     zs, dd = zips(d), q(g, {"cmd": "desync_dialog"})
     seen = {"press": pe, "marker": os.path.exists(marker), "zips": zs, "last.raiseCount": raises(dd)}
     if choice == "NOT NOW":
-        r.cell("MN-keep", "NOT NOW: top %s; the marker present and byte-equal; no zip; last.raiseCount 0" % MENU,
+        r.cell("MARKER_NOT_NOW-keep",
+               "NOT NOW: top %s; the marker present and byte-equal; no zip; last.raiseCount 0" % MENU,
                pe.get("top") == MENU and read_bytes(marker) == mbytes and not zs and raises(dd) == 0, seen)
         return
-    r.cell("MV-drop", "NEVER: top %s; the marker gone; no zip; last.raiseCount 0" % MENU,
+    r.cell("MARKER_NEVER-drop", "NEVER: top %s; the marker gone; no zip; last.raiseCount 0" % MENU,
            pe.get("top") == MENU and not os.path.exists(marker) and not zs and raises(dd) == 0, seen)
     r.shut(g)
-    g2, which2 = r.boot("rvu9-mv-2", d)
+    g2, which2 = r.boot("reporter-marker_never-2", d)
     st2 = stack(g2)
-    r.cell("MV-again", "relaunch of the same folder settles on %s (no prompt)" % MENU, which2 == "menu" and PROMPT not in st2,
+    r.cell("MARKER_NEVER-again", "relaunch of the same folder settles on %s (no prompt)" % MENU,
+           which2 == "menu" and PROMPT not in st2,
            {"settled": which2, "stack": st2})
 
 
 def dump_row(r, tag, nonce, choice):
-    d = r.d = make_user_dir("rvu9_" + tag)
+    d = r.d = make_user_dir("crash_reporter_" + tag)
     r.ev["ledger seen at plant"] = write_ledger(d)
     dmp, log = fab_crashlog(nonce)
     r.pair, name = (dmp, log), os.path.basename(dmp)
     r.own = {name, os.path.basename(log)}
     dbytes, lbytes = read_bytes(dmp), read_bytes(log)
-    g, which = r.boot("rvu9-" + tag, d)
+    g, which = r.boot("reporter-" + tag, d)
     rid = tag.upper()
     if not r.prompt(g, which, rid + "-prompt"):
         return
@@ -422,25 +436,28 @@ def dump_row(r, tag, nonce, choice):
         r.ev["zip"] = ev_zip(z)
         ok = len(zs) == 1 and zip_ok(z, ("crash-info.json", "crash.dmp", "crash-log.txt", "openxcom.log"), dbytes, "veh-crashlog",
                                      {"log": z.get("crash-log.txt") == lbytes})
-        r.cell("CB-zip", "BUNDLE: exactly one zip holding crash-info.json, crash.dmp, crash-log.txt (= the fabricated pair's bytes), "
-               "openxcom.log; source veh-crashlog", ok, {"press": pe, "zips": zs})
-        r.cell("CB-seen", "%s in crash-seen.json seen" % name, isinstance(sn, list) and name in sn, {"seen has it": bool(sn) and name in sn})
-        r.notice(g, "CB-notice", [npath(p) for p in zs])
+        r.cell("DUMP_BUNDLE-zip", "BUNDLE: exactly one zip holding crash-info.json, crash.dmp, crash-log.txt (= the "
+               "fabricated pair's bytes), openxcom.log; source veh-crashlog", ok, {"press": pe, "zips": zs})
+        r.cell("DUMP_BUNDLE-seen", "%s in crash-seen.json seen" % name, isinstance(sn, list) and name in sn,
+               {"seen has it": bool(sn) and name in sn})
+        r.notice(g, "DUMP_BUNDLE-notice", [npath(p) for p in zs])
         return
     zs = zips(d)
     seen = {"press": pe, "zips": zs, "in seen": isinstance(sn, list) and name in sn}
     if choice == "NOT NOW":
-        r.cell("CN-keep", "NOT NOW: top %s; no zip; %s NOT in seen" % (MENU, name),
+        r.cell("DUMP_NOT_NOW-keep", "NOT NOW: top %s; no zip; %s NOT in seen" % (MENU, name),
                pe.get("top") == MENU and not zs and isinstance(sn, list) and name not in sn, seen)
     else:
-        r.cell("CV-drop", "NEVER: top %s; no zip; %s in seen" % (MENU, name),
+        r.cell("DUMP_NEVER-drop", "NEVER: top %s; no zip; %s in seen" % (MENU, name),
                pe.get("top") == MENU and not zs and isinstance(sn, list) and name in sn, seen)
     r.shut(g)
-    g2, which2 = r.boot("rvu9-%s-2" % tag, d)
+    g2, which2 = r.boot("reporter-%s-2" % tag, d)
     if choice == "NOT NOW":
-        r.cell("CN-again", "relaunch of the same folder settles on %s (asked again)" % PROMPT, which2 == "prompt", {"settled": which2})
+        r.cell("DUMP_NOT_NOW-again", "relaunch of the same folder settles on %s (asked again)" % PROMPT,
+               which2 == "prompt", {"settled": which2})
     else:
-        r.cell("CV-again", "relaunch of the same folder settles on %s (no prompt)" % MENU, which2 == "menu", {"settled": which2})
+        r.cell("DUMP_NEVER-again", "relaunch of the same folder settles on %s (no prompt)" % MENU,
+               which2 == "menu", {"settled": which2})
 
 
 def capture(g, d):
@@ -484,20 +501,27 @@ def run_row(rid, cells, fn):
 
 
 ROWS = (
-    ("N0", ["N0-menu", "N0-ledger", "N0-crash"], row_n0),
-    ("MB", ["MB-prompt", "MB-zip", "MB-marker", "MB-notice", "MB-crash"], lambda r: marker_row(r, "mb", "BUNDLE")),
-    ("MN", ["MN-prompt", "MN-keep", "MN-crash"], lambda r: marker_row(r, "mn", "NOT NOW")),
-    ("MV", ["MV-prompt", "MV-drop", "MV-again", "MV-crash"], lambda r: marker_row(r, "mv", "NEVER")),
-    ("CB", ["CB-prompt", "CB-zip", "CB-seen", "CB-notice", "CB-crash"], lambda r: dump_row(r, "cb", 99001, "BUNDLE")),
-    ("CN", ["CN-prompt", "CN-keep", "CN-again", "CN-crash"], lambda r: dump_row(r, "cn", 99010, "NOT NOW")),
-    ("CV", ["CV-prompt", "CV-drop", "CV-again", "CV-crash"], lambda r: dump_row(r, "cv", 99011, "NEVER")),
+    ("NO_CRASH", ["NO_CRASH-menu", "NO_CRASH-ledger", "NO_CRASH-crash"], row_no_crash),
+    ("MARKER_BUNDLE", ["MARKER_BUNDLE-prompt", "MARKER_BUNDLE-zip", "MARKER_BUNDLE-marker", "MARKER_BUNDLE-notice",
+                       "MARKER_BUNDLE-crash"], lambda r: marker_row(r, "marker_bundle", "BUNDLE")),
+    ("MARKER_NOT_NOW", ["MARKER_NOT_NOW-prompt", "MARKER_NOT_NOW-keep", "MARKER_NOT_NOW-crash"],
+     lambda r: marker_row(r, "marker_not_now", "NOT NOW")),
+    ("MARKER_NEVER", ["MARKER_NEVER-prompt", "MARKER_NEVER-drop", "MARKER_NEVER-again", "MARKER_NEVER-crash"],
+     lambda r: marker_row(r, "marker_never", "NEVER")),
+    ("DUMP_BUNDLE", ["DUMP_BUNDLE-prompt", "DUMP_BUNDLE-zip", "DUMP_BUNDLE-seen", "DUMP_BUNDLE-notice",
+                     "DUMP_BUNDLE-crash"],
+     lambda r: dump_row(r, "dump_bundle", 99001, "BUNDLE")),
+    ("DUMP_NOT_NOW", ["DUMP_NOT_NOW-prompt", "DUMP_NOT_NOW-keep", "DUMP_NOT_NOW-again", "DUMP_NOT_NOW-crash"],
+     lambda r: dump_row(r, "dump_not_now", 99010, "NOT NOW")),
+    ("DUMP_NEVER", ["DUMP_NEVER-prompt", "DUMP_NEVER-drop", "DUMP_NEVER-again", "DUMP_NEVER-crash"],
+     lambda r: dump_row(r, "dump_never", 99011, "NEVER")),
 )
 
 
 def main():
     t0, c0, results, walls = time.time(), cpu_now(), {}, {}
-    print("[rvu9] slot %d, CRASH_DIR %s (%d crash_* files), exe %s" % (harness.HARNESS_SLOT, harness.CRASH_DIR, len(crash_names()),
-                                                                     harness.EXE), flush=True)
+    print("[test_crash_reporter] slot %d, CRASH_DIR %s (%d crash_* files), exe %s" % (
+        harness.HARNESS_SLOT, harness.CRASH_DIR, len(crash_names()), harness.EXE), flush=True)
     for rid, cells, fn in ROWS:
         try:
             res, walls[rid] = run_row(rid, cells, fn)
