@@ -30,11 +30,11 @@ ONE boot, in this order:
       client lastCue = corpse (payload.unit A, payload.corpses = [the corpse
       id]); SB1's item / morale / onTile asserts; H tu and the clip's qty
       equal on both; the common asserts.
-  C5  host stun rod knocks alien A2 unconscious. H gets a stun rod (BOTH),
-      H -> C5_H_TILE facing A2 at C5_A2_TILE, A2 health 5, H TU max (BOTH).
+  host_stun  host stun rod knocks alien A2 unconscious. H gets a stun rod (BOTH),
+      H -> STUN_H_TILE facing A2 at STUN_A2_TILE, A2 health 5, H TU max (BOTH).
       Host: TAB-select H, click the right-hand box once more first when H is
       still in aim mode after C1 (cursorType 2, amendment A2.3 / F503), click
-      it (ActionMenuState), set_seed SEED_C5, key 52 (STUN). RED: as C1 - no
+      it (ActionMenuState), set_seed SEED_STUN, key 52 (STUN). RED: as C1 - no
       context, no melee/death/corpse ev. GREEN: host hostCombatContexts +1;
       the host event_log for that actionId is exactly melee -> death ->
       corpse -> bt_action_end, every one with `h`; the client log holds the
@@ -60,7 +60,7 @@ W2-P6b S-D (spec rewrite/prompts/w2p6_display_two.md section 8 and the P6b plan
 review's section 2 rows D1-D3; AMENDMENT P6b-1; AMENDMENT P6b-2 = TASK 0b's
 traced host schedule, which replaces section 8's tick model): the watching
 machine plays each animated death as the host does. D1 (C1's kill of A) and D2
-(C5's stun of A2) each want ONE client record for the death ev's seq in
+(host_stun's stun of A2) each want ONE client record for the death ev's seq in
 event_state displayTwo.death.ring, D3 wants two (V1 = C, V2 = C2, in the host's
 order), and every `death` payload carries the additive `front` (the host's
 state stack was empty at the push). Each record's schedule (Ic, tc, isOutMs,
@@ -70,12 +70,12 @@ three rows: the client's rngSeed unchanged across the row, the host's
 displayTwo all zero, the client's completed + cut == enqueued once its death
 ghosts ended (a bounded wait). coopGhostStepper is pinned true in both
 instances' options (the W2-P5 ghost-file precedent). RED (commit S-D.1: the
-probes exist, nothing writes them): C1, C5 and D3 fail only on
+probes exist, nothing writes them): C1, host_stun and D3 fail only on
 displayTwo.death (no record) and the payload's missing `front`. Each row
 prints ONE "EVIDENCE D<n>:" line.
 
 W2-P6b S-E (spec section 9 and the P6b review's section 2 row melee_ghost; AMENDMENTS
-P6b-1..P6b-3): C5's stun-rod swing plays on the watching machine as a melee
+P6b-1..P6b-3): host_stun's stun-rod swing plays on the watching machine as a melee
 ghost. Row melee_ghost wants ONE client combatGhost ring record of kind melee for the
 `melee` ev's seq whose frame, frames, intervalMs, ms, sound and soundEnd equal
 the rule chain impact_expect() computes from both machines' display_rules
@@ -84,7 +84,7 @@ combatGhost.enqueued.melee +1, and the S-E common asserts (client rngSeed
 unchanged, host displayTwo / combatGhost all zero, completed + cut == enqueued
 per S-E kind). The S-E helpers below are shared by the other S-E files. RED
 (commit S-E.1: the melee slot and the effect probes exist, nothing writes
-them): only C5 fails, on melee_ghost (no melee record, enqueued.melee +0). One
+them): only host_stun fails, on melee_ghost (no melee record, enqueued.melee +0). One
 "EVIDENCE melee_ghost:" line.
 
 W2-P6a S-C row KR4 (spec rewrite/prompts/w2p6_display_two.md P6a review section 2, P6a pinned stage text (c),
@@ -110,7 +110,7 @@ Common asserts (spec (f), after the action settles with wait_host_idle):
 hash_now {full:true} - ALL buckets EQUAL on both machines (never a hard-coded
 count); desyncSeen false on both; client coopClientBStatePushes unchanged and
 host 0; client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
-deltaRemoveMissing and deltaAddExisting all 0 on both. The spec's C1/C5 rows
+deltaRemoveMissing and deltaAddExisting all 0 on both. The spec's C1/host_stun rows
 name no lastDelta class counts: at GREEN the action's delta is split over its
 cues, so which classes the LAST non-empty one holds depends on the split; the
 item and unit equality asserts prove the item/unit halves instead.
@@ -173,7 +173,7 @@ KEY_ITEM1, KEY_ITEM2, KEY_ITEM4, KEY_FUSE_0 = 49, 50, 52, 48   # PRIME/AIMED, SN
 TU_MAX = 255                     # battle_set_unit_state / battle_fire tu: clamped to the unit's max TU
 FIRST_LEVER_ITEM_ID = 96         # 96 items at start on both maps (ids 0..95)
 
-# ----- test_host_combat.py (S-C): C1 + C5 -----
+# ----- test_host_combat.py (S-C): C1 + host_stun -----
 SEED_MAP = 1                     # first terror map seed (>= 2 capturable 1x1 aliens on every seed)
 MAP_FP = -3.451266327757785e+18  # host battle_state.mapFingerprint
 A_ID = 1000000                   # Sectoid Soldier, spawn (37,38,0) dir 2; STR_PLASMA_PISTOL id 56 (RIGHT_HAND),
@@ -187,10 +187,10 @@ C1_A_HEALTH = 1                  # battle_set_unit_state {unit: A, health: 1} on
 C1_ITEMS = ("STR_RIFLE", "STR_RIFLE_CLIP")   # give_both clear_hands -> ids 96, 97; set_stat firing 120 on both
 SEED_C1 = 1                      # snap (key 50) + click A's tile: A DEAD, clip 20 -> 19, H tu 58 -> 43,
                                  # corpse id 98; host spotted [] -> [1000000, 1000005]  (3/3 standalone + 3/3 one-boot)
-C5_H_TILE, C5_H_DIR = (24, 24, 0), 0   # H faces A2 on the tile north
-C5_A2_TILE, C5_A2_DIR = (24, 23, 0), 4
-C5_A2_HEALTH = 5                 # battle_set_unit_state {unit: A2, health: 5} on both (measured with H tu = max too)
-SEED_C5 = 1                      # STUN (key 52): A2 UNCONSCIOUS, stun 120, health 5, H tu 58 -> 41
+STUN_H_TILE, STUN_H_DIR = (24, 24, 0), 0   # H faces A2 on the tile north
+STUN_A2_TILE, STUN_A2_DIR = (24, 23, 0), 4
+STUN_A2_HEALTH = 5               # battle_set_unit_state {unit: A2, health: 5} on both (measured with H tu = max too)
+SEED_STUN = 1                    # STUN (key 52): A2 UNCONSCIOUS, stun 120, health 5, H tu 58 -> 41
                                  # standalone: rod 96, body 97 (3/3); one-boot after C1: rod 99, body 100 (3/3)
 
 A_WEAPON = 56                    # A's right-hand STR_PLASMA_PISTOL
@@ -206,16 +206,17 @@ DEATH_F = 3                      # deathFrames of SECTOID_ARMOR0 and STR_NONE_UC
 SECTOID_DEATH_SOUNDS = [10]      # battle_state deathSounds of A and A2 (T0b-3, equal on both machines)
 SOLDIER_DEATH_SOUNDS = [41, 42, 43]   # every soldier of the pinned roster: C, C2, H, U (T0b-3, both machines)
 NO_SOUND = -1                    # a stun's record sound: the host plays none
-OVERKILL_NONE = 0                # getOverKillDamage() after C1, C5 and the D3 lever deaths
+OVERKILL_NONE = 0                # getOverKillDamage() after C1, host_stun and the D3 lever deaths
 DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (D1, D2)
 PHASES_ALL = list(range(DEATH_F))        # [0, 1, 2]: every collapse frame drawn
 C1_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # T0b-1 (seq 7; 12 since S-A)
-C5_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False, "damageType": 0}  # T0b-1 (seq 12; 17 since S-A)
+STUN_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False,
+              "damageType": 0}  # T0b-1 (seq 12; 17 since S-A)
 DEATH_KEYS = ("unit", "outcome", "instant", "damageType")
 DEATH_SETTLE_S = 5.0             # bounded wait for the client's death ghosts to end after the chain settled
 # D3 (TASK 0b T0b-2 = F1767/F1769: 6 runs identical, 26.6 s per boot)
 C_ID, C2_ID = 8, 9               # the client seat's soldiers
-D3_C_TILE, D3_C_DIR = (12, 26, 0), 4     # open road (H left it at C5)
+D3_C_TILE, D3_C_DIR = (12, 26, 0), 4     # open road (H left it at host_stun)
 D3_C2_TILE, D3_C2_DIR = (12, 27, 0), 1   # open road
 # W2-P8b S-A's pre-battle equip phase moved every absolute seq +5 (F3426; W2-P8b S-H.3, chain rule A.10: the
 # D3 seqs below re-pointed to the values measured on the S-A build, 2 runs identical, F3446/F3447). Traced on
@@ -228,8 +229,8 @@ D3_C2_TILE, D3_C2_DIR = (12, 27, 0), 1   # open road
 #   seq 5 sync    equip {ready} seat 0 (host)                                    - NEW
 #   seq 6 sync    equip {ready} seat 1 (client)                                  - NEW
 #   seq 7 sync    equip {end} + battle.turn 1 (the offer's snapshot is turn 0)   - NEW
-# so C1's staging reveal is seq 8 (was 3), C1 runs 9..14 (was 4..9), C5 15..19 (was 10..14).
-D3_SEQ0 = 19                     # host lastSeqEmitted right before the lever (after C1 and C5; 14 before S-A)
+# so C1's staging reveal is seq 8 (was 3), C1 runs 9..14 (was 4..9), host_stun 15..19 (was 10..14).
+D3_SEQ0 = 19                     # host lastSeqEmitted right before the lever (after C1 and host_stun; 14 before S-A)
 D3_KILLED = [C_ID, C2_ID]        # the lever's answer
 D3_EVS = [(20, "death", 0), (21, "death", 0), (22, "corpse", 0), (23, "corpse", 0)]   # host = client
 D3_DEATHS = {20: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
@@ -249,7 +250,7 @@ CUE_KINDS = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse", "pri
              "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
 COMBAT_CUES = tuple(k for k in CUE_KINDS if k != "sync")
 C1_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
-C5_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
+STUN_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
 LOG_TAIL = 256                   # CoopEventLog::kCapacity
 
 
@@ -258,9 +259,9 @@ LOG_TAIL = 256                   # CoopEventLog::kCapacity
 # CoopReveal::flushQuiescent (updateCoopTask, right after TestServer::pump) ships a standalone `reveal` ev whose `h`
 # hashes the host's state at that emit. Before W2-U8 the next pair's client lever could run before the client applied
 # that ev (W2f verifier at K=2: C1's client battle_set_unit_state at .435, reveal seq 8 applied at .436, DESYNC
-# unitsStats seq 8 kind=reveal; C5 and D3 failed as a cascade). So every pair ends with staging_settled(): the client
-# has applied every ev the host emitted (session.wait_host_idle) before the next lever runs on it. Its first host read
-# runs in a later TestServer::pump than the lever, after that frame's flush, so it cannot pass before the emit.
+# unitsStats seq 8 kind=reveal; host_stun and D3 failed as a cascade). So every pair ends with staging_settled(): the
+# client has applied every ev the host emitted (session.wait_host_idle) before the next lever runs on it. Its first host
+# read runs in a later TestServer::pump than the lever, after that frame's flush, so it cannot pass before the emit.
 # that wait now lives in test_delta_core.both itself (tele_both and tu_both go through
 # it), so this file imports the shared helpers and staging_settled from there instead of wrapping them.
 
@@ -688,7 +689,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
 
 # ===================== the effect records =====================
 # Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows, as ruled by
-# AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (melee_ghost on C5), test_client_melee_psi (melee_ghost on
+# AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (melee_ghost on host_stun), test_client_melee_psi (melee_ghost on
 # stun_rod_hit, psi_ghost on psi_panic_and_control, the mind_probe_use rngSeed guard), test_psi (psi_ghost),
 # test_client_items (medikit_sounds), test_client_grenade (prime_sounds) and test_turn_cues (panic_sounds,
 # fall_ghost). "All rows" (review section 2): the client's rngSeed unchanged
@@ -1206,14 +1207,14 @@ def c1_snap_kill(host, client, ctx):
     finish(fails)
 
 
-def c5_stun(host, client, ctx):
+def row_host_stun(host, client, ctx):
     notes = []
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_STUN_ROD", "clear_hands": True},
              ("weaponId", "ammoId"))
     rod = g["weaponId"]
-    tele_both(host, client, H_ID, C5_H_TILE, C5_H_DIR)
-    tele_both(host, client, A2_ID, C5_A2_TILE, C5_A2_DIR)
-    both(host, client, {"cmd": "battle_set_unit_state", "unit": A2_ID, "health": C5_A2_HEALTH},
+    tele_both(host, client, H_ID, STUN_H_TILE, STUN_H_DIR)
+    tele_both(host, client, A2_ID, STUN_A2_TILE, STUN_A2_DIR)
+    both(host, client, {"cmd": "battle_set_unit_state", "unit": A2_ID, "health": STUN_A2_HEALTH},
          ("health", "stun", "status"))
     tu_both(host, client, H_ID)
     staged_diff = diff_buckets(host, client)
@@ -1228,7 +1229,7 @@ def c5_stun(host, client, ctx):
     cursor0 = None
     try:
         cursor0 = open_hand_menu_host(host)
-        host.ok({"cmd": "set_seed", "seed": SEED_C5})
+        host.ok({"cmd": "set_seed", "seed": SEED_STUN})
         press(host, KEY_ITEM4)
         host.wait_for("host stun chain finished (A2 UNCONSCIOUS, no BState)",
                       lambda: host_chain_done(host, A2_ID, STATUS_UNCONSCIOUS), timeout=30)
@@ -1250,8 +1251,8 @@ def c5_stun(host, client, ctx):
               "client": [i for i in ic.values() if i.get("unitLink") == A2_ID]}
     w1 = {"host": ih.get(A2_WEAPON), "client": ic.get(A2_WEAPON)}
     idiff = item_diff(ih, ic)
-    aid, chain, cfails = chain_fails(hev, cev, "melee", C5_CHAIN, seq0)
-    print(f"EVIDENCE C5: staged rod={rod} H->{C5_H_TILE}/{C5_H_DIR} A2->{C5_A2_TILE}/{C5_A2_DIR} "
+    aid, chain, cfails = chain_fails(hev, cev, "melee", STUN_CHAIN, seq0)
+    print(f"EVIDENCE host_stun: staged rod={rod} H->{STUN_H_TILE}/{STUN_H_DIR} A2->{STUN_A2_TILE}/{STUN_A2_DIR} "
           f"stagedDiff={staged_diff} cursorType(before[, after the aim-cancel click])={cursor0}; hostCombatContexts host "
           f"{cb['host']['hostCombatContexts']}->{ca['host']['hostCombatContexts']} client "
           f"{cb['client']['hostCombatContexts']}->{ca['client']['hostCombatContexts']}; host evs since seq "
@@ -1272,8 +1273,8 @@ def c5_stun(host, client, ctx):
           f"{delta_view(pc)}; notes={notes}", flush=True)
     # W2-P6b S-D row D2 (review section 2): A2's animated stun collapse on the client, no sound (N6)
     d2 = death_row("D2", host, client, snap_d, [
-        {"seq": seq_of(chain, "death"), "actionId": aid, "unit": A2_ID, "payload": C5_DEATH, "front": False,
-         "fromDir": C5_A2_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
+        {"seq": seq_of(chain, "death"), "actionId": aid, "unit": A2_ID, "payload": STUN_DEATH, "front": False,
+         "fromDir": STUN_A2_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
          "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
          "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
     # W2-P6b S-E row melee_ghost (review section 2; section 9 E-b): the host's stun-rod swing as a melee ghost on
@@ -1285,13 +1286,13 @@ def c5_stun(host, client, ctx):
     for name, it in w0.items():
         if not it or it.get("owner") != A2_ID:
             fails.append(f"{name} weapon {A2_WEAPON} before the stun {it} (want held by A2)")
-    # the action (spec (f) C5 GREEN)
+    # the action (spec (f) host_stun GREEN)
     fails += context_fails(cb, ca)
     fails += cfails
     body_ids = [i["id"] for i in bodies["host"]]
     fails += last_cue_fails(ca["client"]["lastCue"], aid, seq_of(chain, "corpse"), A2_ID, body_ids)
-    fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, C5_CHAIN[:-1], seq0)
-    fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, C5_CHAIN[:-1],
+    fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, STUN_CHAIN[:-1], seq0)
+    fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, STUN_CHAIN[:-1],
                              seq0)
     # A2 UNCONSCIOUS and stun equal on both
     sh, sc = uh.get(A2_ID) or {}, uc.get(A2_ID) or {}
@@ -1316,7 +1317,7 @@ def c5_stun(host, client, ctx):
                      f"(want the same)")
     fails += d2
     fails += e1
-    fails += common_fails(host, client, before, {}, "C5")
+    fails += common_fails(host, client, before, {}, "host_stun")
     finish(fails)
 
 
@@ -1427,7 +1428,7 @@ def d3_burst(host, client, ctx):
     finish(fails)
 
 
-SCENARIOS = (("C1", c1_snap_kill), ("C5", c5_stun), ("D3", d3_burst))
+SCENARIOS = (("C1", c1_snap_kill), ("host_stun", row_host_stun), ("D3", d3_burst))
 
 
 # ===================== bring-up =====================

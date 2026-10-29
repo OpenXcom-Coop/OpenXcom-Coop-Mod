@@ -25,8 +25,8 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 import test_host_combat as hc
-from test_death_side import (SEED_MAP_D, MAP_FP_D, A_ID, DS1_ID, DS2_ID, FACTION_PLAYER, FACTION_HOSTILE,
-                                COOP_SEAT_0, COOP_SEAT_1)
+from test_death_side import (SEED_MAP_DEFAULT, MAP_FP_DEFAULT, A_ID, HOST_SOLDIER_ID, CLIENT_SOLDIER_ID,
+                                FACTION_PLAYER, FACTION_HOSTILE, COOP_SEAT_0, COOP_SEAT_1)
 from test_skirmish_rejoin_battle import (drop_client_mid_battle, rejoin_skirmish, dialog, in_battle_save, top,
                                          states, has, COOP_DLG_WAIT_PLAYERS, COOP_DLG_CLIENT_RESUME_HOLD)
 from test_delta_core import tele_both, end_turn_cycle, short, desync_record
@@ -107,13 +107,14 @@ def boot(host, client):
     """Copy of test_death_side.boot_default on lobby PORT_H12."""
     hc.bring_up_lobby_roster_pinned(host, client, PORT_H12)
     session.drive_to_battlescape(host, client, {}, seat_count=2,
-                                 pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP_D}))
+                                 pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP_DEFAULT}))
     hs, cs = battle_state(host), battle_state(client)
-    assert hs.get("mapFingerprint") == MAP_FP_D and cs.get("mapFingerprint") == MAP_FP_D, (
-        f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} (baked {MAP_FP_D!r})")
+    assert hs.get("mapFingerprint") == MAP_FP_DEFAULT and cs.get("mapFingerprint") == MAP_FP_DEFAULT, (
+        f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} "
+        f"(baked {MAP_FP_DEFAULT!r})")
     assert pin_ai_neutral(host, client, tag="w2h12"), "pin_ai_neutral pinned no NONE-seat non-player unit"
     ub = session.units_by_id(hs)
-    for uid, seat in ((DS1_ID, COOP_SEAT_0), (DS2_ID, COOP_SEAT_1)):
+    for uid, seat in ((HOST_SOLDIER_ID, COOP_SEAT_0), (CLIENT_SOLDIER_ID, COOP_SEAT_1)):
         u = ub.get(uid) or {}
         assert (u.get("faction") == FACTION_PLAYER and u.get("coop") == seat and not u.get("isOut")
                 and u.get("onTile")), f"unit {uid} at bring-up: {u} (want a live player soldier of seat {seat})"

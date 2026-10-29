@@ -1,34 +1,36 @@
 """test_death_side.py: a dead or a still-unconscious unit stays off
-its tile across side changes, on both machines (spec
-rewrite/prompts/w2h5_dead_unit_relink.md section (b)4; F809, F817-F824; owner
-ruling D138).
+its tile across side changes, on both machines.
 
-At `5f6bcee1d` the host's `side_transition` restates every unit's `pos`, dead
-and unconscious ones included (coopEmitSideTransition), and the client's
-perUnit applier links every unit that has a `pos` back onto its tile (the
-side_transition perUnit `pos` branch, `setTile`). The host's out unit stays
-off its tile (vanilla never re-links an out unit, F822), the client's is back
-on it, the `synced` bucket (it mixes each unit's onTile) differs, and the
-client freezes at the first side_transition after the death.
+The host's `side_transition` restates every unit's `pos`, dead and
+unconscious ones included (coopEmitSideTransition). Vanilla never re-links
+an out unit to its tile, so the client's side_transition perUnit `pos`
+branch links a unit back (`setTile`) only when its restated status is
+neither DEAD nor UNCONSCIOUS. A client that linked an out unit back would
+hold it on its tile while the host does not: the `synced` bucket (it mixes
+each unit's onTile) would differ and the client would freeze at the first
+side_transition after the death.
 Three scenarios, TWO boots:
 
- Boot 1 - the default NEW BATTLE map (the W2-H5 trace fixture R1/R2): roster
- pinned with set_seed SEED_ROSTER on the HOST right before its
- open_new_battle, set_seed SEED_MAP_D right before newbattle_ok, MAP_FP_D
- asserted on both, pin_ai_neutral (the only alien A_ID stays alive and
- inert, so END TURN keeps the battle going). The HOST runs battle_action
- kill_unit_real on DS1_ID, waits for its status DEAD (F823: wait_host_idle
- alone returns while the unit is still COLLAPSING), then for the host to go
- idle with the client caught up; then the same for DS2_ID. Both machines
- press END TURN (the client first) and ONE full side cycle runs back to the
- player side, sampled (below).
-  DS1  the host-seat (coop 0) soldier DS1_ID is killed.
-  DS2  the client-seat (coop 1) soldier DS2_ID is killed.
- Boot 2 - STR_TERROR_MISSION map seed 1, test_host_combat.py's own boot
- (roster pin, MAP_FP, pin_ai_neutral):
-  DS3  that file's C5 stun-rod staging knocks alien A2 unconscious (stun
-       120 against health 5: it stays out for the whole cycle), then the
-       same sampled full cycle on A2.
+ The first boot - the default NEW BATTLE map: roster pinned with set_seed
+ SEED_ROSTER on the HOST right before its open_new_battle, set_seed
+ SEED_MAP_DEFAULT right before newbattle_ok, MAP_FP_DEFAULT asserted on
+ both, pin_ai_neutral (the only alien A_ID stays alive and inert, so END
+ TURN keeps the battle going). The HOST runs battle_action kill_unit_real
+ on HOST_SOLDIER_ID, waits for its status DEAD (wait_host_idle alone
+ returns while the unit is still COLLAPSING), then for the host to go idle
+ with the client caught up; then the same for CLIENT_SOLDIER_ID. Both
+ machines press END TURN (the client first) and ONE full side cycle runs
+ back to the player side, sampled (below).
+  host_soldier_dead    the host-seat (coop 0) soldier HOST_SOLDIER_ID is
+                       killed.
+  client_soldier_dead  the client-seat (coop 1) soldier CLIENT_SOLDIER_ID
+                       is killed.
+ The second boot - STR_TERROR_MISSION map seed 1, test_host_combat.py's own
+ boot (roster pin, MAP_FP, pin_ai_neutral):
+  alien_unconscious    that file's stun-rod staging (its host_stun row)
+                       knocks alien A2 unconscious (stun 120 against
+                       health 5: it stays out for the whole cycle), then
+                       the same sampled full cycle on A2.
 
 THE SAMPLER. On every pass of the cycle loop the test reads, on BOTH
 machines, the scenario unit's record (status, isOut, onTile, position,
@@ -38,15 +40,15 @@ client's lastSeqApplied; a sample is kept whenever anything in it changed.
 The EVIDENCE line prints, per host side_transition seq of the cycle, the
 first sample of each machine taken at that seq (before the next
 side_transition). A poll can miss a client side_transition (the client may
-apply a whole backlog between two polls, test_client_nextturn.py's
-capture), so what covers EVERY side_transition deterministically is the
-client's per-ev hash verify: each side_transition carries the host's `synced`
-bucket, which mixes every unit's onTile, and the client verifies it after
-applying the ev (CoopHashCheck::verify, the D138 `synced` arm). The samples
-are the direct read wherever the poll caught one.
+apply a whole backlog between two polls), so what covers EVERY
+side_transition deterministically is the client's per-ev hash verify: each
+side_transition carries the host's `synced` bucket, which mixes every
+unit's onTile, and the client verifies it after applying the ev
+(CoopHashCheck::verify). The samples are the direct read wherever the poll
+caught one.
 
-GREEN (each scenario, for its unit U; U's out status = DEAD for DS1/DS2,
-UNCONSCIOUS for DS3):
+PASS (each scenario, for its unit U; U's out status = DEAD for
+host_soldier_dead / client_soldier_dead, UNCONSCIOUS for alien_unconscious):
  - before the cycle: U out with its status and onTile false on both
    machines, the tile at its position linking no unit on both;
  - the cycle completes on both machines (player side, turn + 1);
@@ -55,28 +57,27 @@ UNCONSCIOUS for DS3):
  - every sample of the cycle, on each machine: U out with its status, onTile
    false, the tile at its position linking no unit;
  - after the cycle: the same on both machines;
- - the common W2 asserts (test_delta_core.common_fails): hash_now full
+ - the common asserts (test_delta_core.common_fails): hash_now full
    ALL buckets equal, desyncSeen false on both, client coopClientBStatePushes
    unchanged and host 0, client deltaEvsApplied increased, deltaUnresolved /
    deltaUnsupported / deltaRemoveMissing / deltaAddExisting 0 on both.
 
-PROBE (the red commit, orchestrator ruling O1 on F830): tile_info gains ONE
-read-only field `unit` - the id of the unit the tile links (Tile::getUnit),
--1 for none. Before it no probe read the tile half of BattleUnit::setTile's
-two-way link (battle_state `onTile` is the unit half). No product behaviour.
+THE PROBE: tile_info's read-only field `unit` is the id of the unit the
+tile links (Tile::getUnit), -1 for none. It reads the tile half of
+BattleUnit::setTile's two-way link (battle_state `onTile` is the unit half).
 
-RED (stage H5-red, product untouched, ONE run): DS1/DS2 - the client freezes
-with desyncSeen true, bucket `synced`, at the first side_transition after
-the deaths, the client's dead units onTile true while the host's are false.
-DS3 - expected the same (F824, CANDIDATE), recorded as it happens.
+A client that links a dead unit back fails host_soldier_dead and
+client_soldier_dead this way: it freezes with desyncSeen true, bucket
+`synced`, at the first side_transition after the deaths, its dead units
+onTile true while the host's are false.
 
-Each scenario prints ONE "EVIDENCE <id>:" line BEFORE its green conditions
+Each scenario prints ONE "EVIDENCE <id>:" line BEFORE its pass conditions
 are checked, then "PASS <id>" or "FAIL <id>: <message>"; main() runs every
 scenario even after an earlier one failed. Every wait is bounded; a wait that
-times out is recorded in the EVIDENCE line and fails the scenario. WV-D99 /
-WV-D100: one run is the result, no skip path. Exit 0 only when all three
-scenarios pass, 2 otherwise (a bring-up failure fails every scenario of that
-boot). run in the foreground to completion.
+times out is recorded in the EVIDENCE line and fails the scenario. One run
+is the result, no skip path. Exit 0 only when all three scenarios pass, 2
+otherwise (a bring-up failure fails every scenario of that boot). Run it in
+the foreground to completion.
 
 Run:  python tools/coop_test/test_death_side.py
 """
@@ -93,15 +94,15 @@ from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 from test_turn_baton import dismiss_next_turn_if_present
 from test_delta_core import (probes, diff_buckets, desync_record, short, both, tele_both, tu_both,
                                 common_fails, finish, delta_view)
-import test_host_combat as hc   # DS3: the terror-map boot and the C5 stun-rod staging
+import test_host_combat as hc   # alien_unconscious: the terror-map boot and the stun-rod staging
 
-# ----- boot 1: the default NEW BATTLE map (W2-H5 trace fixture R1/R2) -----
-SEED_MAP_D = 1
-MAP_FP_D = -4.48310638993e+18    # host battle_state.mapFingerprint (default map, SEED_MAP_D, roster pinned)
-DS1_ID = 10                      # host-seat (coop 0) soldier "Henryk Kaminski", spawn (14,20,1) (trace R1)
-DS2_ID = 8                       # client-seat (coop 1) soldier "Henryk Pawlowski", spawn (14,19,1) (trace R2)
+# ----- the first boot: the default NEW BATTLE map -----
+SEED_MAP_DEFAULT = 1
+MAP_FP_DEFAULT = -4.48310638993e+18    # host battle_state.mapFingerprint (default map, SEED_MAP_DEFAULT, roster pinned)
+HOST_SOLDIER_ID = 10             # host-seat (coop 0) soldier "Henryk Kaminski", spawn (14,20,1)
+CLIENT_SOLDIER_ID = 8            # client-seat (coop 1) soldier "Henryk Pawlowski", spawn (14,19,1)
 A_ID = 1000000                   # the only alien, pinned; alive through the cycle
-PORT_D = "48628"
+PORT_DEFAULT = "48628"
 
 FACTION_PLAYER = 0
 FACTION_HOSTILE = 1
@@ -313,7 +314,7 @@ def run_cycle_and_collect(host, client, uids, before, notes):
 
 
 def verdict(sid, uid, status, host, client, c, staging):
-    """Print the scenario's EVIDENCE line, then assert its GREEN."""
+    """Print the scenario's EVIDENCE line, then assert its pass conditions."""
     table = per_transition(c["samples"], c["stHost"], uid)
     print(f"EVIDENCE {sid}: unit {uid} staging={staging}; before the cycle host={c['pre']['host'].get(uid)} "
           f"client={c['pre']['client'].get(uid)} tops={c['preTops']} diff={c['preDiff']}; cycle turn {c['turn0']} "
@@ -341,22 +342,22 @@ def verdict(sid, uid, status, host, client, c, staging):
     finish(fails)
 
 
-# ===================== boot 1: DS1 + DS2 =====================
+# ===================== the first boot: two dead soldiers =====================
 
 
 def boot_default(host, client):
-    hc.bring_up_lobby_roster_pinned(host, client, PORT_D)
+    hc.bring_up_lobby_roster_pinned(host, client, PORT_DEFAULT)
     seated = {}
     session.drive_to_battlescape(host, client, seated, seat_count=2,
-                                 pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP_D}))
+                                 pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP_DEFAULT}))
     hs, cs = battle_state(host), battle_state(client)
-    assert hs.get("mapFingerprint") == MAP_FP_D and cs.get("mapFingerprint") == MAP_FP_D, (
+    assert hs.get("mapFingerprint") == MAP_FP_DEFAULT and cs.get("mapFingerprint") == MAP_FP_DEFAULT, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
-        f"baked MAP_FP_D={MAP_FP_D!r} (default map, SEED_MAP_D {SEED_MAP_D})")
-    pinned = pin_ai_neutral(host, client, tag="w2h5-ds12")
+        f"baked MAP_FP_DEFAULT={MAP_FP_DEFAULT!r} (default map, SEED_MAP_DEFAULT {SEED_MAP_DEFAULT})")
+    pinned = pin_ai_neutral(host, client, tag="death_side")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     ub = session.units_by_id(hs)
-    for uid, seat in ((DS1_ID, COOP_SEAT_0), (DS2_ID, COOP_SEAT_1)):
+    for uid, seat in ((HOST_SOLDIER_ID, COOP_SEAT_0), (CLIENT_SOLDIER_ID, COOP_SEAT_1)):
         u = ub.get(uid) or {}
         assert (u.get("faction") == FACTION_PLAYER and u.get("coop") == seat and not u.get("isOut")
                 and u.get("onTile")), (f"unit {uid} at bring-up: faction={u.get('faction')} coop={u.get('coop')} "
@@ -366,16 +367,18 @@ def boot_default(host, client):
     assert a.get("faction") == FACTION_HOSTILE and not a.get("isOut"), f"alien {A_ID} at bring-up: {a}"
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2h5-ds] boot 1 ok: default map MAP_FP={MAP_FP_D!r} turn={hs.get('turn')} seated="
-          f"{seated.get('soldierIds')} pinned={pinned} DS1 {DS1_ID}={ub[DS1_ID].get('name')} "
-          f"({ub[DS1_ID].get('x')},{ub[DS1_ID].get('y')},{ub[DS1_ID].get('z')}) DS2 {DS2_ID}="
-          f"{ub[DS2_ID].get('name')} ({ub[DS2_ID].get('x')},{ub[DS2_ID].get('y')},{ub[DS2_ID].get('z')})",
+    print(f"[test_death_side] default-map boot ok: MAP_FP={MAP_FP_DEFAULT!r} turn={hs.get('turn')} seated="
+          f"{seated.get('soldierIds')} pinned={pinned} host_soldier_dead {HOST_SOLDIER_ID}="
+          f"{ub[HOST_SOLDIER_ID].get('name')} ({ub[HOST_SOLDIER_ID].get('x')},{ub[HOST_SOLDIER_ID].get('y')},"
+          f"{ub[HOST_SOLDIER_ID].get('z')}) client_soldier_dead {CLIENT_SOLDIER_ID}="
+          f"{ub[CLIENT_SOLDIER_ID].get('name')} ({ub[CLIENT_SOLDIER_ID].get('x')},{ub[CLIENT_SOLDIER_ID].get('y')},"
+          f"{ub[CLIENT_SOLDIER_ID].get('z')})",
           flush=True)
 
 
 def kill_real(host, client, uid, notes):
     """HOST kill_unit_real on `uid`, then its status DEAD with no BState,
-    then the host idle with the client caught up. Returns the lever's answer."""
+    then the host idle with the client caught up. Returns the kill command's reply."""
     r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
     try:
         host.wait_for(f"host unit {uid} DEAD (status {STATUS_DEAD}), no BState",
@@ -389,33 +392,34 @@ def kill_real(host, client, uid, notes):
     return r
 
 
-def ds12_stage(host, client):
+def dead_soldiers_stage(host, client):
     notes = []
     before = {"host": probes(host), "client": probes(client)}
-    k1 = kill_real(host, client, DS1_ID, notes)
-    k2 = kill_real(host, client, DS2_ID, notes)
+    host_kill = kill_real(host, client, HOST_SOLDIER_ID, notes)
+    client_kill = kill_real(host, client, CLIENT_SOLDIER_ID, notes)
     staging = {}
-    for sid, uid, k in (("DS1", DS1_ID, k1), ("DS2", DS2_ID, k2)):
+    for sid, uid, k in (("host_soldier_dead", HOST_SOLDIER_ID, host_kill),
+                        ("client_soldier_dead", CLIENT_SOLDIER_ID, client_kill)):
         f = []
         if not k.get("ok") or k.get("killed") != [uid]:
             f.append(f"kill_unit_real answered {k} (want ok, killed [{uid}])")
         staging[sid] = {"kill": k, "fails": f}
-    c = run_cycle_and_collect(host, client, (DS1_ID, DS2_ID), before, notes)
+    c = run_cycle_and_collect(host, client, (HOST_SOLDIER_ID, CLIENT_SOLDIER_ID), before, notes)
     return c, staging
 
 
-# ===================== boot 2: DS3 =====================
+# ===================== the second boot: a stunned alien =====================
 
 
-def ds3_stage(host, client):
+def stunned_alien_stage(host, client):
     notes = []
     before = {"host": probes(host), "client": probes(client)}
     f = []
     g = both(host, client, {"cmd": "battle_give", "unit": hc.H_ID, "item": "STR_STUN_ROD", "clear_hands": True},
              ("weaponId", "ammoId"))
-    tele_both(host, client, hc.H_ID, hc.C5_H_TILE, hc.C5_H_DIR)
-    tele_both(host, client, hc.A2_ID, hc.C5_A2_TILE, hc.C5_A2_DIR)
-    both(host, client, {"cmd": "battle_set_unit_state", "unit": hc.A2_ID, "health": hc.C5_A2_HEALTH},
+    tele_both(host, client, hc.H_ID, hc.STUN_H_TILE, hc.STUN_H_DIR)
+    tele_both(host, client, hc.A2_ID, hc.STUN_A2_TILE, hc.STUN_A2_DIR)
+    both(host, client, {"cmd": "battle_set_unit_state", "unit": hc.A2_ID, "health": hc.STUN_A2_HEALTH},
          ("health", "stun", "status"))
     tu_both(host, client, hc.H_ID)
     staged_diff = diff_buckets(host, client)
@@ -424,7 +428,7 @@ def ds3_stage(host, client):
     cursor0 = None
     try:
         cursor0 = hc.open_hand_menu_host(host)
-        host.ok({"cmd": "set_seed", "seed": hc.SEED_C5})
+        host.ok({"cmd": "set_seed", "seed": hc.SEED_STUN})
         hc.press(host, hc.KEY_ITEM4)
         host.wait_for("host stun chain finished (A2 UNCONSCIOUS, no BState)",
                       lambda: hc.host_chain_done(host, hc.A2_ID, STATUS_UNCONSCIOUS), timeout=30)
@@ -435,8 +439,8 @@ def ds3_stage(host, client):
     except Exception as e:
         notes.append(f"wait_host_idle after the stun: {short(e)}")
     c = run_cycle_and_collect(host, client, (hc.A2_ID,), before, notes)
-    staging = {"rod": g.get("weaponId"), "H": (hc.H_ID, hc.C5_H_TILE, hc.C5_H_DIR),
-               "A2": (hc.A2_ID, hc.C5_A2_TILE, hc.C5_A2_DIR, hc.C5_A2_HEALTH), "cursorType": cursor0,
+    staging = {"rod": g.get("weaponId"), "H": (hc.H_ID, hc.STUN_H_TILE, hc.STUN_H_DIR),
+               "A2": (hc.A2_ID, hc.STUN_A2_TILE, hc.STUN_A2_DIR, hc.STUN_A2_HEALTH), "cursorType": cursor0,
                "stagedDiff": staged_diff, "fails": f}
     return c, staging
 
@@ -447,8 +451,8 @@ def ds3_stage(host, client):
 def run_boot(tag, boot_fn, stage_fn, scenarios, results):
     """One boot: bring-up, the stage, then each scenario's verdict. A failure
     before the verdicts fails every scenario of this boot."""
-    host = GameClient("host", 49860, make_user_dir(f"w2h5_death_side_{tag}_host"))
-    client = GameClient("client", 49861, make_user_dir(f"w2h5_death_side_{tag}_client"))
+    host = GameClient("host", 49860, make_user_dir(f"death_side_{tag}_host"))
+    client = GameClient("client", 49861, make_user_dir(f"death_side_{tag}_client"))
     try:
         try:
             boot_fn(host, client)
@@ -472,16 +476,18 @@ def run_boot(tag, boot_fn, stage_fn, scenarios, results):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h5-ds] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_death_side] shutdown {gc.name}: {short(e)}", flush=True)
 
 
 def main():
     t0 = time.time()
     results = {}
-    order = ["DS1", "DS2", "DS3"]
-    run_boot("ds12", boot_default, ds12_stage,
-             (("DS1", DS1_ID, STATUS_DEAD), ("DS2", DS2_ID, STATUS_DEAD)), results)
-    run_boot("ds3", hc.boot, ds3_stage, (("DS3", hc.A2_ID, STATUS_UNCONSCIOUS),), results)
+    order = ["host_soldier_dead", "client_soldier_dead", "alien_unconscious"]
+    run_boot("dead_soldiers", boot_default, dead_soldiers_stage,
+             (("host_soldier_dead", HOST_SOLDIER_ID, STATUS_DEAD),
+              ("client_soldier_dead", CLIENT_SOLDIER_ID, STATUS_DEAD)), results)
+    run_boot("stunned_alien", hc.boot, stunned_alien_stage,
+             (("alien_unconscious", hc.A2_ID, STATUS_UNCONSCIOUS),), results)
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_death_side: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
