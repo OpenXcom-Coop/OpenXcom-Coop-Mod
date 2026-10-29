@@ -10,8 +10,9 @@ a live pause: REFUSED +1, resumeAck never true, the host waits on dialog 62 and 
   walk of squad[1] applied (walk_far), HASH again; -9 GUARD CRASH 0 and client2 zero-disk.
   Boot campaign_rejoin_host_leaves (key "48598", campaign_rejoin_host_leaves_host / _client): row host_leaves, SEPARATE,
   the host leaves (disconnect_to_menu; the client must not play on alone, and its main menu holds no save). Cells:
-  host_leaves-1 GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s; -2 GUARD still
-  CoopState 8 s later; -3 GUARD OK -> MainMenuState within 60 s, has_save false; -4 GUARD CRASH 0 and client zero-disk.
+  told_connection_lost GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s;
+  no_solo_play GUARD still CoopState 8 s later; back_to_menu GUARD OK -> MainMenuState within 60 s, has_save false;
+  host_leaves_clean GUARD CRASH 0 and client zero-disk.
 Definitions: POLL 0.25 s; W_ACK = WATCH_CAP_S; PAUSE(host) within 30 s of the leave: phase Active, peerAbsent true,
 battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState]; SPLIT = sorted (unit
 id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both; REJOIN =
@@ -327,7 +328,7 @@ def row_client_leaves(x, results, walls):
     r.end("client_leaves-9", x.client2.user_dir if x.client2 is not None else None, results, walls)
 
 def row_host_leaves(x, results, walls):
-    r = Row("host_leaves", ["host_leaves-1", "host_leaves-2", "host_leaves-3"], x)
+    r = Row("host_leaves", ["told_connection_lost", "no_solo_play", "back_to_menu"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
@@ -345,25 +346,25 @@ def row_host_leaves(x, results, walls):
         except Stop as e:
             seen["wait"] = str(e)
         d = seen.get("dialog") or {}
-        r.cell("host_leaves-1", "GUARD", "within 120 s the client's dialog 21 titled \"Server connection lost\", backVisible true, top CoopState",
+        r.cell("told_connection_lost", "GUARD", "within 120 s the client's dialog 21 titled \"Server connection lost\", backVisible true, top CoopState",
                d.get("code") == 21 and d.get("title") == "Server connection lost" and d.get("backVisible") is True
                and seen.get("stack", [])[-1:] == [CS], seen)
         if "wait" in seen:
             raise Stop(seen["wait"])
         time.sleep(8.0)
         st = stack(c)
-        r.cell("host_leaves-2", "GUARD", "8 s later the client's top is still CoopState (no solo play)", st[-1:] == [CS], st)
+        r.cell("no_solo_play", "GUARD", "8 s later the client's top is still CoopState (no solo play)", st[-1:] == [CS], st)
         ev = {"coop_dialog_back": q(c, {"cmd": "coop_dialog_back"})}
         try:
             ev["MainMenuState s"] = wait("the client's top MainMenuState", lambda: top(c) == MENU, 60.0)
         except Stop as e:
             ev["wait"] = str(e)
         ev.update(stack=stack(c), world_state=pick(q(c, {"cmd": "world_state"}), ("has_save", "has_battle", "error")))
-        r.cell("host_leaves-3", "GUARD", "coop_dialog_back: within 60 s the client's top MainMenuState and world_state.has_save false (#82)",
+        r.cell("back_to_menu", "GUARD", "coop_dialog_back: within 60 s the client's top MainMenuState and world_state.has_save false (#82)",
                ev["coop_dialog_back"].get("ok") is True and ev["stack"][-1:] == [MENU] and ev["world_state"]["has_save"] is False, ev)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
-    r.end("host_leaves-4", c.user_dir, results, walls)
+    r.end("host_leaves_clean", c.user_dir, results, walls)
 
 def new_x(tag):
     return SimpleNamespace(tag=tag, js=None, host=None, client=None, client2=None, err=None, squad=None, b0=None, t0=None, split0=None)
