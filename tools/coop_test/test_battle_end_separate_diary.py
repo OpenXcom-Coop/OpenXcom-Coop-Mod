@@ -4,7 +4,7 @@ and kills are remapped onto it; the host's awarded commendations ride the YAML a
 host awarded them (docs rewrite/prompts/w2p7_sc_design.md section 3.3, AMENDMENT P7-6 section 4.3; owner D155 (a),
 D202 (a), D218; mechanism ruling MR13; P7-6 Q1 (a)).
 
-The construction is C28P's guest's-OWN-kill path (CONSTANTS rewrite/w2p7sc-task0/t0/CONSTANTS.md T0-6 (iv), re-pinned
+The construction is guest_returns_alive's guest's-OWN-kill path (CONSTANTS rewrite/w2p7sc-task0/t0/CONSTANTS.md T0-6 (iv), re-pinned
 SEED_P=2 for 558349bc8), imported from test_battle_end_separate (b1). On BOTH machines the data-only mod
 tools/coop_test/mods/Coop_Medal_Test is loaded (PR-20: one commendation STR_COOP_MEDAL_TEST, criteria totalMissions [1]
 - every surviving participant earns it on its first mission), so the host awards the guest the medal in its debriefing

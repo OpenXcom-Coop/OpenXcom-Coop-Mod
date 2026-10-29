@@ -3,7 +3,7 @@ when the owner's world already holds a mission and the owner's diary under a hos
 (docs rewrite/prompts/w2p7_sc_design.md: the P7-6 C re-pin section 5 (Q-C1 a) and the P7-6 B2.3 pin section 5, PB-4..PB-8;
 veto V-C4; owner D155 (a), D202 (a)).
 
-Both rows use C28P's guest's-OWN-kill construction (b1.guest_kill at b1.SEED_P 2 with b1's map pin, B1's 3/3 pin) through
+Both rows use guest_returns_alive's guest's-OWN-kill construction (b1.guest_kill at b1.SEED_P 2 with b1's map pin, B1's 3/3 pin) through
 b1._stage_common with a `pre_extra` hook (PB-8) that runs on the client's own geoscape before OWN_BEFORE and the
 battle-entry snapshot: the client's test lever `mission_stats_pad {count: 1, soldierId: <the guest>}` (PB-7) appends one
 MissionStatistics (type coop_test_pad) to the client's world and its id to the guest's diary. Both campaigns are fresh:

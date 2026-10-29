@@ -172,7 +172,7 @@ def row_sd0(ev, res, host, client, st):
     ev["desyncBefore"] = ds
     if any(ds.values()):
         f.append(f"desyncSeen before the ending {ds} (want false on both)")
-    # the ending (the C28P-dead / R4-L2 CR4 shape, seed-independent)
+    # the ending (the guest_returns_dead / R4-L2 CR4 shape, seed-independent)
     kills = []
     for uid in hostiles(host):
         r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})

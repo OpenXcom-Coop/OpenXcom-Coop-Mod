@@ -5,7 +5,7 @@ host save), never at a battle entry, so a rejoin adopts the base-placement push 
 start-of-game maintenance a second time (GeoscapeState's first-month block) and its guest's seat on the host's craft is lost.
   Boot J (key "48604", dirs w2h34_j_host / _client / _client2): CR.boot_separate's spawn lines, then bring_up_separate_guest_battle(
   pre_mission_start=fx, pre_landing=pin). fx (the client's own geoscape, before the battle): F_S0 = its funds; MARKER = F_S0 +
-  BES.MARKER_DELTA (client set_funds, the C28P marker); GEO0 = its geo_state (funds == MARKER); OWN_BEFORE = its "Guest Zzz" soldier_record;
+  BES.MARKER_DELTA (client set_funds, the guest_returns_alive marker); GEO0 = its geo_state (funds == MARKER); OWN_BEFORE = its "Guest Zzz" soldier_record;
   OWN_SOLDIER = its get_soldiers record of that id (coopBase); H_FX = copy_view(host) read AFTER the marker; the host log length (REJECT
   baseline). pin: host set_seed BES.SEED_P. Both mapFingerprints == BES.MAP_FP_P. A boot miss fails both rows "boot" with ONE CAPTURE line.
   Row RE (the host's copy at the battle entry): RE-1 FIX within W_COPY 15 s the copy's fnv != H_FX's, then its view funds == MARKER,
@@ -32,7 +32,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
-import test_battle_end_separate as BES  # noqa: E402  (main-guarded: the C28P marker, pin and return helpers)
+import test_battle_end_separate as BES  # noqa: E402  (main-guarded: the guest_returns_alive marker, pin and return helpers)
 import test_campaign_rejoin as CR  # noqa: E402  (main-guarded: Row, run, the rejoin construction)
 import test_campaign_rejoin_separate as CRS  # noqa: E402  (main-guarded: ending, rec_view, geo_view, SEP_WANT)
 from harness import GameClient, make_user_dir  # noqa: E402
@@ -92,7 +92,7 @@ def view_ok(v):
 
 
 def fx(host, client):
-    """pre_mission_start: the C28P money marker, then GEO0, OWN_BEFORE, OWN_SOLDIER, H_FX (AFTER the marker), the REJECT baseline"""
+    """pre_mission_start: the guest_returns_alive money marker, then GEO0, OWN_BEFORE, OWN_SOLDIER, H_FX (AFTER the marker), the REJECT baseline"""
     FX["F_S0"] = CR.q(client, {"cmd": "geo_state"}).get("funds")
     FX["MARKER"] = int(FX["F_S0"]) + BES.MARKER_DELTA
     FX["set_funds"] = CR.q(client, {"cmd": "set_funds", "value": FX["MARKER"]}).get("ok")
@@ -104,7 +104,7 @@ def fx(host, client):
 
 
 def pin(host, client):
-    """pre_landing: the C28P map pin"""
+    """pre_landing: the guest_returns_alive map pin"""
     FX["pin"] = CR.q(host, {"cmd": "set_seed", "seed": BES.SEED_P}).get("ok")
 
 

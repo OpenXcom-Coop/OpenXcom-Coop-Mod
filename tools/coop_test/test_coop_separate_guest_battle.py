@@ -33,7 +33,7 @@ SEPARATE host abort (was F387: the host's finishBattle returned only the host;
 the client was left in the battle) is now asserted HERE via expect_both=True.
 (1) the guest's post-battle RECORD (stats/rank/wounds/missions/kills/diary/death)
 returning to the CLIENT's own world is asserted by test_battle_end_separate.py
-(row C28P), not here - S1 asserts the client's clean return and that the host's
+(row guest_returns_alive), not here - S1 asserts the client's clean return and that the host's
 roster satisfies F366.
 
 Run:  python tools/coop_test/test_coop_separate_guest_battle.py

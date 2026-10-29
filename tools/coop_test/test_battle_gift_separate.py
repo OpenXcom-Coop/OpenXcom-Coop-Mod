@@ -18,7 +18,7 @@ both; CRAFT 1, CRAFT_TYPE "STR_SKYRANGER", FIRST_OWN 0; HOST_BASE_COOP and the h
   X1  the three gifts by lever (host {1, owner 1}, host {2, owner 1}, client {9, owner 0}; each landing before the next,
       each receiver dismisses its notice): X1-gifts (precondition), X1-owner (the host's records carry the receivers as
       owners), X1-common.
-  X2  the ending (C28P-dead's order): every live hostile killed, then H2, END TURN on both, the host's NextTurnState
+  X2  the ending (guest_returns_dead's order): every live hostile killed, then H2, END TURN on both, the host's NextTurnState
       closed: X2-end (precondition; then HREC1 / HREC2 / COPY are read), X2-names (both page-2 lists name a given soldier
       as its receiver's).
   X3  the client's OK through its follow-ups: X3-ok (precondition), X3-client (G left the client's world, H1 arrived as a

@@ -10,7 +10,7 @@ battle restarts, rejoins, is offered the battle (CR2), finishes it and gets its 
   ICON1, H0 == the host copy's fnv at the pause); CR2-3 RED the live offer (OFFER +1 reading battleId=B0, REFUSED +0); CR2-4 RED
   RESUME offered within W_ACK and pressed; CR2-5 RED the same battle on both; CR2-6 RED SPLIT (client2's holds GID on seat 1);
   CR2-7 RED HASH; CR2-8 RED one client2 walk of GID applied, HASH again; CR2-9 GUARD CRASH 0 and client2 zero-disk.
-  Row CR4 (S-D, boot S after CR2; the C28P ending of test_battle_end_separate on the rejoined client2): host kill_unit_real for every
+  Row CR4 (S-D, boot S after CR2; the guest_returns_alive ending of test_battle_end_separate on the rejoined client2): host kill_unit_real for every
   live faction-1 unit, chain_settled(host, client2) after each; end_turn_both(host, client2); close_host_nextturn(host); the host's
   DebriefingState within 60 s; COPY = the host's soldier_rec(name="Guest Zzz") before any OK. Cells (every one GUARD, QL2-6 a): CR4-1
   client2's display-only debriefing within 20 s, equal to the host's on debrief_view's fields; CR4-2 client2's OK through its follow-ups
@@ -28,7 +28,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
-import test_battle_end_separate as BES  # noqa: E402  (main-guarded: soldier_rec and the C28P ending helpers)
+import test_battle_end_separate as BES  # noqa: E402  (main-guarded: soldier_rec and the guest_returns_alive ending helpers)
 import test_campaign_rejoin as CR  # noqa: E402  (main-guarded: the S-A helpers)
 
 KEY_S = "48599"
@@ -105,7 +105,7 @@ def geo_view(gc):
 
 
 def ending(x, ev):
-    """CR4's construction (the C28P ending on the rejoined client2) -> COPY; a WAIT that times out ends the row (Stop)"""
+    """CR4's construction (the guest_returns_alive ending on the rejoined client2) -> COPY; a WAIT that times out ends the row (Stop)"""
     h, c2 = x.host, x.client2
     if not (CR.alive(c2) and CR.top(h) == CR.BS and CR.top(c2) == CR.BS):
         raise CR.Stop("CR2 left no resumed battle: client2 alive %s, tops %s / %s"
