@@ -195,6 +195,14 @@ void BaseDestroyedState::btnOkClick(Action *)
 		return;
 	}
 
+	removeBase();
+}
+
+/**
+ * Removes the destroyed base and mirrors the removal to replicas.
+ */
+void BaseDestroyedState::removeBase()
+{
 	auto* bases = _game->getSavedGame()->getBases();
 	for (size_t i = 0; i < bases->size(); ++i)
 	{

@@ -245,6 +245,9 @@ public:
 	void hostToggleWeapon(int idx);
 	/// PRD-DF02 (HOST): apply a replicated self-destruct toggle (defenseless craft only).
 	void hostSelfDestruct();
+	/// HOST: minimize like the local button (standoff range only). Separate applies a
+	/// client owner's minimize here, so the world clock treats both seats the same.
+	void hostMinimize();
 	/// Test hooks (PRD-J08): dogfight sim internals for the harness.
 	int harnessCurrentDist() const { return _currentDist; }
 	int harnessTargetDist() const { return _targetDist; }

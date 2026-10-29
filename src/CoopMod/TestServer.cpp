@@ -65,6 +65,7 @@
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../Geoscape/BaseDestroyedState.h"
 #include "../Geoscape/ResearchCompleteState.h"
 #include "../Geoscape/MonthlyReportState.h"
 #include "../Geoscape/MissionDetectedState.h"
@@ -1765,10 +1766,43 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["error"] = "no saved game";
 		else
 		{
+			// Optional "player": set that Separate player's wallet (call on both
+			// machines to keep the replica equal) instead of this seat's.
+			SeparateFundsScope wallet(_game->getSavedGame(), req.get("player", "").asString());
 			int64_t value = req.get("value", 0).asInt64();
 			_game->getSavedGame()->setFunds(value);
 			resp["funds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
 			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "add_research_score")
+	{
+		// Unit C test helper: add score to the current month (host), so a month
+		// end has a known positive rating and a performance bonus.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+			resp["error"] = "no saved game";
+		else
+		{
+			sg->addResearchScore(req.get("points", 0).asInt());
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "spawn_event")
+	{
+		// Unit C test helper: queue a geoscape event for an owner (Separate) the
+		// way scripts do (SavedGame::spawnEvent), with a 60-minute countdown.
+		SavedGame* sg = _game->getSavedGame();
+		const RuleEvent* rule = _game->getMod()->getEvent(req.get("name", "").asString(), false);
+		if (!sg || !rule)
+			resp["error"] = "no world / unknown event";
+		else
+		{
+			bool spawned = sg->spawnEvent(rule, req.get("owner", "").asString());
+			if (spawned && !sg->getGeoscapeEvents().empty())
+				sg->getGeoscapeEvents().back()->setSpawnCountdown(60);
+			resp["spawned"] = spawned;
+			resp["ok"] = spawned;
 		}
 	}
 	else if (cmd == "start_research")
@@ -3396,10 +3430,12 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			req.get("trajectory", UfoTrajectory::RETALIATION_ASSAULT_RUN).asString(), false);
 		std::string baseName = req.get("base", "").asString();
 		Base* target = nullptr;
+		// A named base may be another Separate player's base (the host simulates
+		// every base in the one world).
 		if (sg)
 			for (auto* b : *sg->getBases())
-				if (!b->_isForeignBase && !b->_coopIcon
-					&& (baseName.empty() || b->getName() == baseName)) { target = b; break; }
+				if (baseName.empty() ? (!b->_isForeignBase && !b->_coopIcon)
+					: b->getName() == baseName) { target = b; break; }
 		if (!sg) resp["error"] = "no saved game";
 		else if (!ufoRule) resp["error"] = "unknown ufo rule";
 		else if (!missionRule) resp["error"] = "unknown mission rule";
@@ -6645,6 +6681,7 @@ std::string TestServer::execute(const std::string& line)
 					playerFunds[player.first] = Json::Value::Int64(
 						player.second.funds.empty() ? 0 : player.second.funds.back());
 				resp["playerFunds"] = playerFunds;
+				resp["warned"] = sg->getWarned();
 				resp["worldMaintenance"] = sg->getBaseMaintenance();
 				resp["monthlyMaintenanceActual"] = SeparateEcon::localPlayerMaintenance(_game);
 				resp["monthlyMaintenanceDisplay"] = SeparateEcon::localPlayerMaintenance(_game);
@@ -8127,6 +8164,14 @@ std::string TestServer::execute(const std::string& line)
 			{
 				db->btnOkClick(nullptr);
 				resp["handled"] = "DebriefingState";
+				resp["ok"] = true;
+			}
+			else if (auto* bd = dynamic_cast<BaseDestroyedState*>(top))
+			{
+				// A full loss removes the base only in the real OK handler; a raw
+				// pop would leave the destroyed base in the world.
+				bd->btnOkClick(nullptr);
+				resp["handled"] = "BaseDestroyedState";
 				resp["ok"] = true;
 			}
 			else if (auto* cp = dynamic_cast<CraftPatrolState*>(top))

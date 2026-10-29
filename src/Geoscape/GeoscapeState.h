@@ -114,7 +114,7 @@ private:
 	// seat and park the craft until it answers. This map is both the "already
 	// asked, do not ask again every tick" guard and the stash of the world data the
 	// dialog needs, which only the host's globe can compute.
-	struct SharedLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; };
+	struct SharedLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; Uint32 sentTicks; };
 	std::map<Craft*, SharedLandingPrompt> _sharedLandingPending;
 	/// PRD-J10: broker this landing to the commanding seat instead of asking here.
 	/// True = brokered (the caller must NOT pop its own dialog).
@@ -269,6 +269,8 @@ public:
 	/// Pops the "reached destination" alert and clears the stale destination line +
 	/// orphan waypoint marker the client's frozen sim never would.
 	void clientCraftReachedWaypoint(Craft* craft);
+	/// Shows (or, for another Separate player's base, applies) a base loss.
+	void showBaseDestroyed(Base* base, Ufo* ufo, bool missiles);
 	/// Test-harness: is a brokered landing decision outstanding on this host?
 	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.

@@ -350,20 +350,38 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 			if (researchBase && !adoptedResearch.empty())
 				game->getSavedGame()->handlePrimaryResearchSideEffects(
 					adoptedResearch, game->getMod(), researchBase);
+			const Json::Value& playerFunds = obj["playerFunds"];
+			if (playerFunds.isObject())
+				for (const std::string& playerName : playerFunds.getMemberNames())
+				{
+					SeparateFundsScope wallet(game->getSavedGame(), playerName);
+					game->getSavedGame()->setFundsRaw(playerFunds[playerName].asInt64());
+				}
 			if (RuleEvent* eventRule = game->getMod()->getEvent(
 				obj.get("event", "").asString(), false))
 				if (GeoscapeState* gs = geo(game))
 				{
-					GeoscapeEventState* eventState = new GeoscapeEventState(*eventRule, owner);
-					std::string article = obj.get("researchName", "").asString();
-					if (article.empty()) article = adoptedArticle;
-					eventState->setReplicatedResearchNames(
-						article,
-						obj.get("bonusResearchName", "").asString());
+					// The replica only shows the host's result. Constructing the
+					// window must not run eventLogic here: that would apply funds,
+					// transfers, mission rolls and RNG to the replica a second time.
 					if (owner.empty() || owner == connectionTCP::seatName(connectionTCP::localSeat()))
+					{
+						GeoscapeEventDisplay display;
+						display.place = obj.get("place", "").asString();
+						const Json::Value& rows = obj["rows"];
+						for (Json::ArrayIndex i = 0; i < rows.size(); ++i)
+							if (rows[i].isArray() && rows[i].size() == 2)
+								display.rows.push_back(std::make_pair(
+									rows[i][0].asString(), rows[i][1].asString()));
+						GeoscapeEventState* eventState = new GeoscapeEventState(
+							*eventRule, owner, false, &display);
+						std::string article = obj.get("researchName", "").asString();
+						if (article.empty()) article = adoptedArticle;
+						eventState->setReplicatedResearchNames(
+							article,
+							obj.get("bonusResearchName", "").asString());
 						gs->popup(eventState);
-					else
-						delete eventState;
+					}
 				}
 		}
 		return true;
@@ -508,6 +526,14 @@ bool showResearchCompletion(Game* game, const Base* base)
 	return game->getCoopMod()->_enable_research_sync || !base->_isForeignBase;
 }
 
+std::string baseWalletOwner(Game* game, const Base* base)
+{
+	if (!game || !base || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign())
+		return std::string();
+	return base->getOwnerPlayerName();
+}
+
 bool showBaseNotification(Game* game, const Base* base)
 {
 	if (!game || !base || !game->getCoopMod()
@@ -569,12 +595,16 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_rearm"
 		|| cmd == "craft_assign")
 		return true;
-	return !remote && (
-		cmd == "research_done" || cmd == "fac_done" || cmd == "prod_done"
+	return !remote && isHostSimulationResult(cmd);
+}
+
+bool isHostSimulationResult(const std::string& cmd)
+{
+	return cmd == "research_done" || cmd == "fac_done" || cmd == "prod_done"
 		|| cmd == "transfer_arrived" || cmd == "base_destroyed"
 		|| cmd == "patrol_prompt" || cmd == "base_damaged"
 		|| cmd == "alien_base_found" || cmd == "alert" || cmd == "day_tick"
-		|| cmd == "land_prompt" || cmd == "land_close");
+		|| cmd == "land_prompt" || cmd == "land_close";
 }
 
 bool validateCraftAssign(Game* game, const Json::Value& payload, Base* base,
@@ -889,7 +919,7 @@ void requestCydonia(Game* game, Craft* craft)
 
 void hostGeoscapeEvent(Game* game, const std::string& eventName,
 	const std::string& researchName, const std::string& bonusResearchName,
-	const std::string& ownerPlayerName)
+	const std::string& ownerPlayerName, const GeoscapeEventDisplay* display)
 {
 	if (!game || eventName.empty() || !game->getCoopMod()
 		|| !game->getCoopMod()->getServerOwner() || !game->getSavedGame()
@@ -916,6 +946,26 @@ void hostGeoscapeEvent(Game* game, const std::string& eventName,
 		for (const RuleResearch* rule : game->getSavedGame()->getDiscoveredResearch())
 			if (rule) discovered.append(rule->getName());
 	msg["discoveredResearch"] = discovered;
+	// The event may have changed its owner's wallet; the replica only displays
+	// the event, so it adopts the authoritative balances instead.
+	Json::Value playerFunds(Json::objectValue);
+	for (const std::string& playerName : game->getSavedGame()->getCoopPlayers())
+		playerFunds[playerName] = Json::Value::Int64(
+			game->getSavedGame()->getSeparatePlayerFunds(playerName));
+	msg["playerFunds"] = playerFunds;
+	if (display)
+	{
+		msg["place"] = display->place;
+		Json::Value rows(Json::arrayValue);
+		for (const auto& row : display->rows)
+		{
+			Json::Value item(Json::arrayValue);
+			item.append(row.first);
+			item.append(row.second);
+			rows.append(item);
+		}
+		msg["rows"] = rows;
+	}
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 }
 void hostMissionResearch(Game* game, const AlienDeployment* deployment,
