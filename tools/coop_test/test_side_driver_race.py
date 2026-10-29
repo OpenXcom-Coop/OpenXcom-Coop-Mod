@@ -8,7 +8,7 @@ Rows (each driver is called with timeout=5):
   SD1  repro_atom_side_begin.drive_side_change(host, client, 0, 5)
   SD2  test_turn_baton.drive_full_cycle(host, client, 4)
   SD3  test_end_turn_tally.drive_full_cycle(host, client, 4)
-  SD4  repro_atom_side_transition.drive_full_cycle(host, client, 4, capture_l10=False)
+  SD4  repro_atom_side_transition.drive_full_cycle(host, client, 4, check_client_screen=False)
 Cells per row (x = 1..4):
   SDx-ctrl   GUARD  both machines already on side 0 turn 5 with one NextTurnState each: the driver returns, no
                     exception; no NextTurnState left on either.
@@ -103,7 +103,7 @@ DRIVERS = {
     "SD1": lambda h, c: SB.drive_side_change(h, c, WANT, T0 + 1, timeout=5),
     "SD2": lambda h, c: TB.drive_full_cycle(h, c, T0, timeout=5),
     "SD3": lambda h, c: ET.drive_full_cycle(h, c, T0, timeout=5),
-    "SD4": lambda h, c: ST.drive_full_cycle(h, c, T0, timeout=5, capture_l10=False),
+    "SD4": lambda h, c: ST.drive_full_cycle(h, c, T0, timeout=5, check_client_screen=False),
 }
 # ---- end of Appendix C ----
 
@@ -111,7 +111,7 @@ ROWS = {
     "SD1": "repro_atom_side_begin.drive_side_change",
     "SD2": "test_turn_baton.drive_full_cycle",
     "SD3": "test_end_turn_tally.drive_full_cycle",
-    "SD4": "repro_atom_side_transition.drive_full_cycle (capture_l10=False)",
+    "SD4": "repro_atom_side_transition.drive_full_cycle (check_client_screen=False)",
 }
 KIND = {"ctrl": "GUARD", "race": "FIX", "stack": "FIX", "held": "GUARD"}
 
