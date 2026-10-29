@@ -1,30 +1,28 @@
 """test_campaign_gm4_refused.py: a NEW co-op campaign lobby refuses the team pick that would put both players
-on the Alien team (no PvE2 / game mode 4 campaigns; PvE2 stays a Custom Battle mode) and opens D275's small dialog with one OK
-button that closes it; the campaign still starts afterwards.
+on the Alien team (no PvE2 / game mode 4 campaigns; PvE2 stays a Custom Battle mode) and opens a small dialog with one
+OK button that closes it; the campaign still starts afterwards.
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-4 (SC4-9 and SC4-10: rows G1-G3, FX6-1 .. FX6-7), owner rulings
-D270 (b) and D275, D226 (a), QC6-1 .. QC6-3 (a); F15523 (setPlayerTeam is the only writer of a campaign gm4), F15524 (the lobby's
-file-local popup, list_widgets / click_widget, lobby_state.playerTeams). docs rewrite/d250u-task0/sc6/CONSTANTS.md (boot Ga
-on the unchanged build: premise P-C6, every lever reply, the walls).
-
-Boot G: key "48029", dirs d250uc6_g_host / d250uc6_g_client. Bring-up = PF.start_pvp_campaign's steps up to "START CAMPAIGN shown"
-(FX6-2); a miss, or G1's precondition missed, is a setup failure: ONE "CAPTURE G:" line, every remaining cell FAILs "boot". Every pick
-goes through the HOST's lobby_set_team (the LobbyMenu::setPlayerTeam funnel the host's click uses); every read waits 1.5 s after its
-pick (FX6-4: LobbyMenu::think refreshes the roster each 1 s, only while the lobby is the top state); rows by PF.row_for (FX6-3).
+One boot: key "48029", dirs campaign_gm4_refused_host / campaign_gm4_refused_client. Bring-up = PF.start_pvp_campaign's
+steps up to "START CAMPAIGN shown"; a miss, or host_alien_first's precondition missed, is a setup failure: ONE
+"CAPTURE boot:" line, every remaining cell FAILs "boot". Every pick goes through the HOST's lobby_set_team (the
+LobbyMenu::setPlayerTeam funnel the host's click uses); every read waits 1.5 s after its pick (LobbyMenu::think
+refreshes the roster each 1 s, only while the lobby is the top state); rows by PF.row_for.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
 precondition was never reached, then each of its cells FAILs "blocked: <why>"):
-  G1 host Alien first: HOST -> Alien (gamemode 3, the precondition), then CLIENT -> Alien.
-     G1-mode (the reply ok with gamemode 3; both get_coop.gamemode 3; both playerTeams [XCOM, Alien] in [ClientPlayer, HostPlayer]
-     order), G1-dialog (host top CampaignTeamRefusedState <= 5 s; its widgets: exactly one TextButton "OK" and one Text == D275's
-     text; the client's top LobbyMenu), G1-ok (click_widget OK: host top LobbyMenu <= 5 s; 1.5 s later START CAMPAIGN shown and the
-     host's teams unchanged).
-  G2 client Alien first: HOST -> XCOM (EVIDENCE: gamemode 1 once G1 was refused, 2 when it was not), CLIENT -> Alien (gamemode 2, the
-     precondition), then HOST -> Alien. G2-mode (gamemode 2; teams [Alien, XCOM]), G2-dialog, G2-ok as G1.
-  G3 the campaign starts after the refusals (GUARD): HOST -> XCOM (gamemode 2, the precondition), START CAMPAIGN, the host places its
-     first base, BEGIN. G3-start (both GeoscapeState top <= 120 s; both gamemode 2; client noBases true, host false), G3-common (0 new
-     crash files in the boot; both processes alive).
-RED (C6R, the unchanged build): each second Alien pick makes gamemode 4 with teams [Alien, Alien] and no dialog: G1-mode, G1-dialog,
-G1-ok, G2-mode, G2-dialog, G2-ok FAIL (the -ok cells "blocked: no dialog"); G3-start and G3-common PASS: exit 2, 2/8. GREEN (C6G): 8/8.
+  host_alien_first: HOST -> Alien (gamemode 3, the precondition), then CLIENT -> Alien.
+     host_alien_first-mode (the reply ok with gamemode 3; both get_coop.gamemode 3; both playerTeams [XCOM, Alien] in
+     [ClientPlayer, HostPlayer] order), host_alien_first-dialog (host top CampaignTeamRefusedState <= 5 s; its widgets:
+     exactly one TextButton "OK" and one Text == TEXT; the client's top LobbyMenu), host_alien_first-ok (click_widget
+     OK: host top LobbyMenu <= 5 s; 1.5 s later START CAMPAIGN shown and the host's teams unchanged).
+  client_alien_first: HOST -> XCOM (EVIDENCE: gamemode 1 once host_alien_first was refused, 2 when it was not),
+     CLIENT -> Alien (gamemode 2, the precondition), then HOST -> Alien. client_alien_first-mode (gamemode 2; teams
+     [Alien, XCOM]), client_alien_first-dialog, client_alien_first-ok as in host_alien_first.
+  campaign_starts: the campaign starts after the refusals: HOST -> XCOM (gamemode 2, the precondition), START CAMPAIGN,
+     the host places its first base, BEGIN. geoscape_reached (both GeoscapeState top <= 120 s; both gamemode 2; client
+     noBases true, host false), no_crash (0 new crash files in the boot; both processes alive).
+Without the refusal, each second Alien pick makes gamemode 4 with teams [Alien, Alien] and no dialog: the -mode, -dialog
+and -ok cells of host_alien_first and client_alien_first FAIL (the -ok cells "blocked: no dialog"); geoscape_reached and
+no_crash PASS: exit 2, 2/8.
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm4_refused.py
@@ -42,13 +40,13 @@ from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 import session  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 
-# ----- pins (docs rewrite/d250u-task0/sc6/CONSTANTS.md; SC4-10 FX6-1 .. FX6-7) -----
-KEY = "48029"                                                                       # FX6-1 (TASK 0 used 48031)
-TEXT = "There must be at least one player on the X-COM team for campaign games."   # FX6-5: owner D275, exact
+# ----- fixture values -----
+KEY = "48029"
+TEXT = "There must be at least one player on the X-COM team for campaign games."   # the dialog's exact text
 DIALOG = "CampaignTeamRefusedState"                                                 # the file-local dialog's class
-G1_TEAMS = ["XCOM", "Alien"]      # [ClientPlayer, HostPlayer] (FX6-3) with the host on the Alien team (gamemode 3)
-G2_TEAMS = ["Alien", "XCOM"]      # the client on the Alien team (gamemode 2)
-FALLBACK_BASE = (0.706, -0.507)   # PF.start_pvp_campaign's fallback point on a refused placement (FX6-7)
+HOST_ALIEN_TEAMS = ["XCOM", "Alien"]     # [ClientPlayer, HostPlayer] with the host on the Alien team (gamemode 3)
+CLIENT_ALIEN_TEAMS = ["Alien", "XCOM"]   # the client on the Alien team (gamemode 2)
+FALLBACK_BASE = (0.706, -0.507)   # PF.start_pvp_campaign's fallback point on a refused placement
 # ----- bounds -----
 READ_S = 1.5
 DIALOG_S = 5.0
@@ -108,14 +106,14 @@ def lobby(gc):
 
 
 def teams(ls, ev):
-    """FX6-3: the teams in the roster's name order [ClientPlayer, HostPlayer], read by name; another order is logged."""
+    """The teams in the roster's name order [ClientPlayer, HostPlayer], read by name; another order is logged."""
     names, tm = ls.get("players") or [], ls.get("playerTeams") or []
     out = []
     for want in ("ClientPlayer", "HostPlayer"):
         idx = [i for i, n in enumerate(names) if want in n]
         out.append(tm[idx[0]] if len(idx) == 1 and idx[0] < len(tm) else None)
     if not (len(names) == 2 and "ClientPlayer" in names[0] and "HostPlayer" in names[1]):
-        ev.setdefault("fx63Order", []).append(names)
+        ev.setdefault("rosterOrder", []).append(names)
     return out
 
 
@@ -163,12 +161,12 @@ def capture_boot(err, host, client):
                             "lobby_state": lobby(gc), "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE G: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE boot: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
 def bring_up(host, client):
-    """FX6-2: PF.start_pvp_campaign's steps up to "START CAMPAIGN shown", copied. Returns the rows (FX6-3)."""
+    """PF.start_pvp_campaign's steps up to "START CAMPAIGN shown", copied. Returns the rows."""
     host.ok({"cmd": "open_new_game", "mode": "coop"})
     host.wait_for("difficulty", lambda: session.has_state(host, "NewGameState"))
     host.ok({"cmd": "newgame_ok"})
@@ -186,8 +184,8 @@ def bring_up(host, client):
 
 
 def refused_row(row, host, client, rows, setup, chosen, want_gm, want_teams):
-    """G1 / G2: the setup picks (a reply's gamemode is checked where `need` is given), then the pick a new campaign lobby must
-    refuse, and the row's three cells."""
+    """host_alien_first / client_alien_first: the setup picks (a reply's gamemode is checked where `need` is given),
+    then the pick a new campaign lobby must refuse, and the row's three cells."""
     names = [f"{row}-mode", f"{row}-dialog", f"{row}-ok"]
     ev, t_row = {}, time.time()
     try:
@@ -196,7 +194,7 @@ def refused_row(row, host, client, rows, setup, chosen, want_gm, want_teams):
             settle(t)
             if need is not None and (not r.get("ok") or r.get("gamemode") != need):
                 why = f"precondition {who} -> {team}: reply {r} (want gamemode {need})"
-                if row == "G1":
+                if row == "host_alien_first":
                     evidence(row, ev)
                     capture_boot(why, host, client)
                 raise Blocked(why)
@@ -252,9 +250,10 @@ def refused_row(row, host, client, rows, setup, chosen, want_gm, want_teams):
     row_verdict(row, names)
 
 
-def row_g3(host, client, rows, crash0):
-    """G3 (GUARD): after the refusals the host still starts the campaign (gm2: the host places its base, the client has none)."""
-    names = ["G3-start", "G3-common"]
+def row_campaign_starts(host, client, rows, crash0):
+    """campaign_starts: after the refusals the host still starts the campaign (gm2: the host places its base, the client
+    has none)."""
+    names = ["geoscape_reached", "no_crash"]
     ev, t_row = {}, time.time()
     try:
         r, t = pick(host, rows, "HOST", "XCOM", ev)
@@ -281,20 +280,20 @@ def row_g3(host, client, rows, crash0):
             err = f"{type(e).__name__}: {str(e)[:300]}"
         hc, cc = coop(host), coop(client)
         ev["start"] = {"err": err, "host": {"coop": hc, "stack": stack(host)}, "client": {"coop": cc, "stack": stack(client)}}
-        cell("G3-start", err is None and top(host) == "GeoscapeState" and top(client) == "GeoscapeState"
+        cell("geoscape_reached", err is None and top(host) == "GeoscapeState" and top(client) == "GeoscapeState"
              and hc.get("gamemode") == 2 and cc.get("gamemode") == 2 and cc.get("noBases") is True and hc.get("noBases") is False,
              f"start error {err}; tops host {top(host)} client {top(client)} (want GeoscapeState <= {GEO_S} s, after "
              f"{ev.get('geoS')} s); gamemode host {hc.get('gamemode')} client {cc.get('gamemode')} (want 2); noBases client "
              f"{cc.get('noBases')} host {hc.get('noBases')} (want True / False)")
     except Blocked as e:
-        block(["G3-start"], str(e))
+        block(["geoscape_reached"], str(e))
     new = sorted(os.path.basename(p) for p in crash_set() - crash0)
     alive = [gc.proc is not None and gc.proc.poll() is None for gc in (host, client)]
-    cell("G3-common", not new and all(alive), f"new crash files in the boot {new} (want none); processes alive host {alive[0]} "
+    cell("no_crash", not new and all(alive), f"new crash files in the boot {new} (want none); processes alive host {alive[0]} "
          f"client {alive[1]} (want both)")
     ev["wallS"] = round(time.time() - t_row, 1)
-    evidence("G3", ev)
-    row_verdict("G3", names)
+    evidence("campaign_starts", ev)
+    row_verdict("campaign_starts", names)
 
 
 def run(host, client):
@@ -303,17 +302,20 @@ def run(host, client):
     try:
         rows = bring_up(host, client)
     except Exception as e:  # noqa: BLE001
-        capture_boot(f"bring-up (FX6-2): {type(e).__name__}: {e}", host, client)
+        capture_boot(f"bring-up: {type(e).__name__}: {e}", host, client)
     print(f"[bring-up] rows {rows}; host lobby {lobby(host)}; get_coop host {coop(host)} client {coop(client)}", flush=True)
-    refused_row("G1", host, client, rows, [("HOST", "Alien", 3)], ("CLIENT", "Alien"), 3, G1_TEAMS)
-    refused_row("G2", host, client, rows, [("HOST", "XCOM", None), ("CLIENT", "Alien", 2)], ("HOST", "Alien"), 2, G2_TEAMS)
-    row_g3(host, client, rows, crash0)
+    refused_row("host_alien_first", host, client, rows, [("HOST", "Alien", 3)], ("CLIENT", "Alien"), 3,
+                HOST_ALIEN_TEAMS)
+    refused_row("client_alien_first", host, client, rows, [("HOST", "XCOM", None), ("CLIENT", "Alien", 2)],
+                ("HOST", "Alien"), 2, CLIENT_ALIEN_TEAMS)
+    row_campaign_starts(host, client, rows, crash0)
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("d250uc6_g_host"))
-    client = GameClient("client", None, make_user_dir("d250uc6_g_client"))
-    all_cells = ["G1-mode", "G1-dialog", "G1-ok", "G2-mode", "G2-dialog", "G2-ok", "G3-start", "G3-common"]
+    host = GameClient("host", None, make_user_dir("campaign_gm4_refused_host"))
+    client = GameClient("client", None, make_user_dir("campaign_gm4_refused_client"))
+    all_cells = ["host_alien_first-mode", "host_alien_first-dialog", "host_alien_first-ok", "client_alien_first-mode",
+                 "client_alien_first-dialog", "client_alien_first-ok", "geoscape_reached", "no_crash"]
     t0 = time.time()
     try:
         run(host, client)
@@ -325,7 +327,7 @@ def main():
     finally:
         host.shutdown(); client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-C6 campaign lobby refuses the second Alien pick: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
+    print(f"\n==== test_campaign_gm4_refused: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
