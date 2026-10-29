@@ -3,39 +3,40 @@ X-COM). In ONE gm3 campaign the X-COM player wins at a crashed UFO, aborts at a 
 host's own object reached through its mirror; after each battle the target leaves the alien host's world by vanilla's rule:
 the crashed UFO disappears, the landed UFO takes off, the destroyed base goes with its links cleared.
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-3: SC3-7 "Stage S-C5a", SC3-8 (levers T1-T3; product S1-S4), SC3-9
-(cells, fixture rules FX5-1 .. FX5-12, FX2-* by reference); rulings QC-11 (a), QC5-1 .. QC5-3 (a); L-D250-SC1-1; F14323, F15327 .. F15330,
-F15333; owner D250, O1 (a). TASK 0 pins: docs rewrite/d250u-task0/sc5a/CONSTANTS.md (boots Ta / Tb on the lever build, Tc on the green
-premise: TITLE_U1 / TITLE_U2 3/3, TITLE_A1 in Tc; F15570 .. F15577).
-
-Boot T: gm3, lobby key 48022, dirs d250uc5_t_host / d250uc5_t_client. Bring-up (FX5-2 = FX3-2 + the crash baseline):
-PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0 / xb; geo.slow_clock. gamemode 3 on both, host noBases true and client
-noBases false are preconditions. A bring-up, staging or row-action miss is a setup failure: ONE "CAPTURE T:" line (both stacks,
-battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every remaining cell FAILs "boot".
-Each row (FX5-3 .. FX5-10): SQ (the two lowest-id client soldiers in its base with recovery 0), the HOST's target at X + the row's point
-(X = the client's XcomBase) and its mirror on the client (UCOOP / ACOOP read at run time), the client's Skyranger forced out to the mirror
-by coop id (lever T1: craft_force dest "ufoCoop:" / "alienBaseCoop:"), the landing prompt (both drained, speed idx 2), client set_seed 1
-then confirm_landing, both inBattle, session.briefings_to_battlescape, the hash, the action, both debriefings, the client's OK, the
-host's OK, the target's fate.
+One boot: gm3, lobby key 48022, dirs campaign_gm3_targets_host / campaign_gm3_targets_client. Bring-up: the crash
+baseline, PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0 / xb; geo.slow_clock. gamemode 3 on both, host
+noBases true and client noBases false are preconditions. A bring-up, staging or row-action miss is a setup failure: ONE
+"CAPTURE boot:" line (both stacks, battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log
+lines) and every remaining cell FAILs "boot".
+Each row: SQ (the two lowest-id client soldiers in its base with recovery 0), the HOST's target at X + the row's point
+(X = the client's XcomBase) and its mirror on the client (UCOOP / ACOOP read at run time), the client's Skyranger forced
+out to the mirror by coop id (craft_force dest "ufoCoop:" / "alienBaseCoop:"), the landing prompt (both drained, speed
+idx 2), client set_seed 1 then confirm_landing, both inBattle, session.briefings_to_battlescape, the hash, the action,
+both debriefings, the client's OK, the host's OK, the target's fate.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a row whose landing never borrowed FAILs its
 other six cells "blocked: <why>"):
-  U1 crashed UFO + X-COM wins (G2F.kill_all faction 1; client END TURN + the host's NextTurnState closed while no host debriefing).
-  U2 landed UFO + abort (client ABORT, its AbortMissionState OK, the alien host's YES on the vote).
-  A1 alien base + X-COM wins (spawn_alien_base race STR_SECTOID, lever T2; host_alien_base_found; kill_all as U1).
+  crashed_ufo_win: crashed UFO + X-COM wins (G2F.kill_all faction 1; client END TURN + the host's NextTurnState closed
+     while no host debriefing).
+  landed_ufo_abort: landed UFO + abort (client ABORT, its AbortMissionState OK, the alien host's YES on the vote).
+  alien_base_win: alien base + X-COM wins (spawn_alien_base race STR_SECTOID; host_alien_base_found; kill_all as
+     crashed_ufo_win).
   <row>-hand: client pvpBorrow sent / pushed / held +1; host pvpBorrow borrowed +1, targetKind "ufo" / "alienBase", targetMirror true,
      targetCoopId == UCOOP / ACOOP, craftType / craftId == the client's Skyranger; both inBattle <= 60 s; the spine passed.
   <row>-host: host DebriefingState <= 60 s, title TITLE[row], displayOnly false.
   <row>-client: the client's display-only DebriefingState <= 20 s, equal to the host's on BES.DEBRIEF_FIELDS.
-  <row>-return: client geo_clean <= 10 s after its OK; debriefOkBranch "campaign-client-borrowed"; every SQ soldier where "base" (U1, A1:
-     missions == missions0 + 1); the Skyranger returning or at base (G3E.returning_or_at_base).
+  <row>-return: client geo_clean <= 10 s after its OK; debriefOkBranch "campaign-client-borrowed"; every SQ soldier
+     where "base" (crashed_ufo_win, alien_base_win: missions == missions0 + 1); the Skyranger returning or at base
+     (G3E.returning_or_at_base).
   <row>-alien: host geo_clean <= 60 s after its OK; noBases true; funds and real bases == HOST0; pvpBorrow.active false; home == parked.
-  <row>-target: U1 fate {ufo, UCOOP, "deleted"}, then <= 10 s no host real UFO (coop false, coopId UCOOP) and no client mirror. U2 fate
-     {ufo, UCOOP, "takeoff"}, then host geo_set_speed idx 0 and <= LIFT_S the host's real UFO status 0 or absent. A1 fate {alienBase,
-     ACOOP, "deleted"}, then <= 10 s no host real base (alien_base_state coop false, coopId ACOOP) and no client mirror.
+  <row>-target: crashed_ufo_win fate {ufo, UCOOP, "deleted"}, then <= 10 s no host real UFO (coop false, coopId UCOOP)
+     and no client mirror. landed_ufo_abort fate {ufo, UCOOP, "takeoff"}, then host geo_set_speed idx 0 and <= LIFT_S
+     the host's real UFO status 0 or absent. alien_base_win fate {alienBase, ACOOP, "deleted"}, then <= 10 s no host
+     real base (alien_base_state coop false, coopId ACOOP) and no client mirror.
   <row>-common: event_state.desyncSeen false on both, 0 new crash files since the row's start, assert_hash_clean(full=True) EQUAL before
      the action.
-RED (C5R, the lever build): 12/21 cells PASS; FAIL U1-target and U2-target (fate "untouched", the real UFO stays: F15330), A1-hand (refused
-"target": F15328) and A1-host .. A1-common ("blocked: the alien base landing never borrowed (A1-hand)"). GREEN (C5G): 21/21.
+Without the target handling, 12/21 cells pass: crashed_ufo_win-target and landed_ufo_abort-target FAIL (fate
+"untouched", the real UFO stays), alien_base_win-hand FAILs (the borrow is refused with reason "target") and
+alien_base_win's other cells are blocked ("the alien base landing never borrowed (alien_base_win-hand)").
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_targets.py
@@ -58,18 +59,22 @@ import test_battle_end_separate as BES  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
 import test_campaign_battle_gm3_end as G3E  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sc5a/CONSTANTS.md) -----
+# ----- fixture values -----
 KEY = "48022"
 SEED = 1                                     # set on the X-COM CLIENT right before each confirm_landing
-TITLE = {"U1": "UFO is recovered", "U2": "UFO is not recovered", "A1": "Alien Base destroyed"}       # FX5-12
-MAP_FP = {"U1": -5.462816325144846e+18, "U2": 3.3951652687105495e+18, "A1": -7.901758915371136e+18}  # EVIDENCE only
+TITLE = {"crashed_ufo_win": "UFO is recovered", "landed_ufo_abort": "UFO is not recovered",
+         "alien_base_win": "Alien Base destroyed"}
+MAP_FP = {"crashed_ufo_win": -5.462816325144846e+18, "landed_ufo_abort": 3.3951652687105495e+18,
+          "alien_base_win": -7.901758915371136e+18}  # EVIDENCE only
 UFO = {"type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",
-       "trajectory": "P0", "hours": 240}                                       # FX5-4
-POINT = {"U1": (0.35, 0.10), "U2": (-0.35, 0.10), "A1": (0.10, 0.35)}          # FX5-3: X + point
-CRAFT_AT = {"U1": (0.34, 0.10), "U2": (-0.34, 0.10), "A1": (0.09, 0.35)}       # FX5-6: 0.01 rad short in longitude, toward X
-KIND = {"U1": "ufo", "U2": "ufo", "A1": "alienBase"}
-ACTION = {"U1": "deleted", "U2": "takeoff", "A1": "deleted"}
-NAMES = {"U1": "UFO", "U2": "UFO", "A1": "alien base"}
+       "trajectory": "P0", "hours": 240}
+# the target and the Skyranger's forced position: X (the X-COM base's lon, lat) plus these offsets (the Skyranger
+# starts 0.01 rad short of the target in longitude, toward X)
+POINT = {"crashed_ufo_win": (0.35, 0.10), "landed_ufo_abort": (-0.35, 0.10), "alien_base_win": (0.10, 0.35)}
+CRAFT_AT = {"crashed_ufo_win": (0.34, 0.10), "landed_ufo_abort": (-0.34, 0.10), "alien_base_win": (0.09, 0.35)}
+KIND = {"crashed_ufo_win": "ufo", "landed_ufo_abort": "ufo", "alien_base_win": "alienBase"}
+ACTION = {"crashed_ufo_win": "deleted", "landed_ufo_abort": "takeoff", "alien_base_win": "deleted"}
+NAMES = {"crashed_ufo_win": "UFO", "landed_ufo_abort": "UFO", "alien_base_win": "alien base"}
 SQUAD = 2
 # ----- bounds -----
 MIRROR_S = 30
@@ -81,10 +86,10 @@ CLIENT_DEBRIEF_S = 20
 OK_S = 10
 HOST_OK_S = 60
 TARGET_S = 10
-LIFT_S = 30                                  # FX5-11
+LIFT_S = 30
 CELLS = ("hand", "host", "client", "return", "alien", "target", "common")
-ROWS = {r: [f"{r}-{c}" for c in CELLS] for r in ("U1", "U2", "A1")}
-ALL_CELLS = ROWS["U1"] + ROWS["U2"] + ROWS["A1"]
+ROWS = {r: [f"{r}-{c}" for c in CELLS] for r in ("crashed_ufo_win", "landed_ufo_abort", "alien_base_win")}
+ALL_CELLS = ROWS["crashed_ufo_win"] + ROWS["landed_ufo_abort"] + ROWS["alien_base_win"]
 
 
 class FixtureMiss(Exception):
@@ -158,12 +163,13 @@ def capture_boot(err, host, client):
                             "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE T: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE boot: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
 def bring_up(host, client, ev):
-    """Spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0 / xb, the crash baseline, geo.slow_clock (FX5-2)."""
+    """Spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0 / xb, the crash baseline,
+    geo.slow_clock."""
     ev["crashBaseline"] = len(crash_set())
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
@@ -183,7 +189,7 @@ def bring_up(host, client, ev):
                "sky": sky and {"type": sky.get("type"), "id": sky.get("id")}, "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0, gamemode=[ch.get("gamemode"), cc.get("gamemode")])
     if not (ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False):
-        capture_boot(f"bring-up preconditions (FX3-2): gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
+        capture_boot(f"bring-up preconditions: gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
                      f"noBases host {ch.get('noBases')!r} client {cc.get('noBases')!r} (want true / false)", host, client)
     if not xb or not sky or len(sids) < SQUAD:
         capture_boot(f"the client has no real base / Skyranger / {SQUAD} soldiers (base {xb and xb.get('name')}, sky {sky}, "
@@ -193,9 +199,10 @@ def bring_up(host, client, ev):
 
 
 def spawn_target(row, host, client, point, ev):
-    """FX5-4 / FX5-5: the HOST's own UFO or alien base at `point` and its mirror on the client. Returns (coop id, craft dest)."""
+    """The HOST's own UFO or alien base at `point` and its mirror on the client. Returns (coop id, craft dest)."""
     if KIND[row] == "ufo":
-        sp = host.cmd(dict(UFO, cmd="spawn_ufo", state="crashed" if row == "U1" else "landed", lon=point[0], lat=point[1]))
+        sp = host.cmd(dict(UFO, cmd="spawn_ufo", state="crashed" if row == "crashed_ufo_win" else "landed",
+                           lon=point[0], lat=point[1]))
         real = next((u for u in ufos(host) if not u.get("coop") and u.get("id") == sp.get("ufo_id")), None) if sp.get("ok") else None
         prefix = "ufoCoop"
     else:
@@ -221,7 +228,7 @@ def spawn_target(row, host, client, point, ev):
 
 
 def stage_row(row, host, client, xb, client0, ev):
-    """FX5-3 .. FX5-8: SQ, the target and its mirror, craft_force, the prompt, set_seed + confirm, the entry wait. Returns
+    """SQ, the target and its mirror, craft_force, the prompt, set_seed + confirm, the entry wait. Returns
     (sq, missions0, tc, pv_client0, pv_host0, entered, entry_s). A miss before the confirm = setup failure."""
     geo.slow_clock(host, client)
     sky = client0["sky"]
@@ -231,7 +238,7 @@ def stage_row(row, host, client, xb, client0, ev):
     sq = [sid for sid in sids if recs[sid].get("where") == "base" and recs[sid].get("recovery") == 0][:SQUAD]
     if len(sq) < SQUAD:
         seen = {s: (recs[s].get("where"), recs[s].get("recovery")) for s in sids}
-        capture_boot(f"{row}: fewer than {SQUAD} client soldiers in base with recovery 0 (FX2-6): {seen}", host, client)
+        capture_boot(f"{row}: fewer than {SQUAD} client soldiers in base with recovery 0: {seen}", host, client)
     asg = [client.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": False}) for sid in sids]
     asg += [client.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": True}) for sid in sq]
     if not all(r.get("ok") for r in asg):
@@ -306,10 +313,11 @@ def hand_cell(row, host, client, tc, client0, pv_c0, pv_h0, both, secs, ev):
 
 
 def act(row, host, client, ev):
-    """FX5-9: U1 / A1 FX2-8 (kills, END TURN), U2 FX2-9 (the abort vote). A step miss = setup failure."""
+    """crashed_ufo_win / alien_base_win: the kills, then END TURN; landed_ufo_abort: the abort vote. A step miss = setup
+    failure."""
     a = {}
     ev["action"] = a
-    if row in ("U1", "A1"):
+    if row in ("crashed_ufo_win", "alien_base_win"):
         t0 = time.time()
         G2F.kill_all(host, client, 1, a, "kills")
         a["killS"] = round(time.time() - t0, 2)
@@ -321,22 +329,23 @@ def act(row, host, client, ev):
     ok, secs = BES.wait_until(lambda: (stack(client) or [None])[-1] == "AbortMissionState", ABORT_S)
     a["abortStateS"] = secs
     if not ok:
-        capture_boot(f"U2: no client AbortMissionState within {ABORT_S} s (stack {stack(client)})", host, client)
+        capture_boot(f"landed_ufo_abort: no client AbortMissionState within {ABORT_S} s (stack {stack(client)})",
+                     host, client)
     d = client.cmd({"cmd": "dismiss_popup"})
     a["dismiss"] = d.get("handled")
     if d.get("handled") != "AbortMissionState":
-        capture_boot(f"U2: client dismiss_popup {d} (want handled AbortMissionState)", host, client)
+        capture_boot(f"landed_ufo_abort: client dismiss_popup {d} (want handled AbortMissionState)", host, client)
     try:
         a["vote"] = session.abort_vote_yes(host, host)
     except Exception as e:  # noqa: BLE001
-        capture_boot(f"U2: session.abort_vote_yes(host, host): {str(e)[:300]}", host, client)
+        capture_boot(f"landed_ufo_abort: session.abort_vote_yes(host, host): {str(e)[:300]}", host, client)
 
 
 def target_cell(row, host, client, tc, pv, ev):
     fate = pv.get("fate") or {}
     want = {"kind": KIND[row], "coopId": tc, "action": ACTION[row]}
     bad = [f"host pvpBorrow.fate {pv.get('fate')!r} (want {want})"] if {k: fate.get(k) for k in want} != want else []
-    if row == "U2":
+    if row == "landed_ufo_abort":
         ev["liftSpeed"] = host.cmd({"cmd": "geo_set_speed", "idx": 0}).get("ok")
         ok, secs = BES.wait_until(lambda: all(u.get("status") == 0 for u in target_of(row, host, client, tc)[0]), LIFT_S)
         hr, cm = target_of(row, host, client, tc)
@@ -376,7 +385,7 @@ def end_row(row, host, client, tc, sq, missions0, host0, client0, ctx, ev):
     cbad = [] if cok else [f"no client display-only DebriefingState within {CLIENT_DEBRIEF_S} s (stack {stack(client)})"]
     cbad += [f"client {k}={cv.get(k)!r} != host {hv.get(k)!r}" for k in BES.DEBRIEF_FIELDS if cok and cv.get(k) != hv.get(k)]
     cell(f"{row}-client", not cbad, "; ".join(cbad) or f"client display-only debriefing {csecs} s, equal on DEBRIEF_FIELDS")
-    # the client's OK first (FX2-12)
+    # the client's OK first
     t_ok = time.time()
     pk = BES.press_ok(client)
     _reached, cscreens = BES.drain(client, timeout=OK_S)
@@ -393,14 +402,14 @@ def end_row(row, host, client, tc, sq, missions0, host0, client0, ctx, ev):
     for sid in sq:
         r = csq[sid]
         want_m = missions0[sid] + 1 if isinstance(missions0[sid], int) else None
-        if r.get("where") != "base" or (row != "U2" and r.get("missions") != want_m):
+        if r.get("where") != "base" or (row != "landed_ufo_abort" and r.get("missions") != want_m):
             rbad.append(f"SQ {sid}: where {r.get('where')!r} missions {r.get('missions')!r} (want 'base'"
-                        + (f", missions {want_m}" if row != "U2" else "") + ")")
+                        + (f", missions {want_m}" if row != "landed_ufo_abort" else "") + ")")
     if not G3E.returning_or_at_base(csky):
         rbad.append(f"client Skyranger {csky} (want returning: STR_OUT to its own base, or at base {list(G3E.AT_BASE)})")
     cell(f"{row}-return", not rbad, "; ".join(rbad) or f"client geo_clean; campaign-client-borrowed; every SQ soldier in base"
-         + ("" if row == "U2" else " with missions + 1") + f"; Skyranger {csky}")
-    # the host's OK (FX2-12): never drain a CoopState 994
+         + ("" if row == "landed_ufo_abort" else " with missions + 1") + f"; Skyranger {csky}")
+    # the host's OK: never drain a CoopState 994
     hk = BES.press_ok(host)
     hreached, hscreens, on994 = G2F.drain_host(host)
     hgok, hgs = BES.wait_until(lambda: BES.geo_clean(host), HOST_OK_S) if hreached else (False, 0)
@@ -417,7 +426,7 @@ def end_row(row, host, client, tc, sq, missions0, host0, client0, ctx, ev):
         if G3E.real_bases(hg) != host0["realBases"] else []
     abad += [f"host pvpBorrow.active {pv.get('active')!r} (want false)"] if pv.get("active") is not False else []
     if "home" not in pv:
-        abad.append("host pvpBorrow.home absent (want == pvpBorrow.parked, QC2-A-1 (a))")
+        abad.append("host pvpBorrow.home absent (want == pvpBorrow.parked)")
     elif pv.get("home") != pv.get("parked"):
         abad.append(f"host pvpBorrow.home {pv.get('home')} != parked {pv.get('parked')}")
     cell(f"{row}-alien", not abad, "; ".join(abad) or f"host geo_clean ({hgs} s), noBases true, funds and real bases == HOST0, "
@@ -476,8 +485,8 @@ def run_row(row, host, client, xb, host0, client0, ctx):
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("d250uc5_t_host"))
-    client = GameClient("client", None, make_user_dir("d250uc5_t_client"))
+    host = GameClient("host", None, make_user_dir("campaign_gm3_targets_host"))
+    client = GameClient("client", None, make_user_dir("campaign_gm3_targets_client"))
     t0 = time.time()
     try:
         ev0 = {}
@@ -486,7 +495,7 @@ def main():
         finally:
             evidence("bring-up", ev0)
         ctx = {"blocked": None}
-        for row in ("U1", "U2", "A1"):
+        for row in ("crashed_ufo_win", "landed_ufo_abort", "alien_base_win"):
             run_row(row, host, client, xb, host0, client0, ctx)
     except FixtureMiss as e:
         block(ALL_CELLS, f"boot ({str(e)[:200]})")
@@ -499,7 +508,7 @@ def main():
         finally:
             client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-C5a gm3 campaign battles at UFOs and alien bases: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
+    print(f"\n==== test_campaign_gm3_targets: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
