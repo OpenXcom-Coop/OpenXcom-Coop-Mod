@@ -71,20 +71,22 @@ def _states(gc):
 
 
 def fly_to_new_site(host, client, lander, craft_type="STR_SKYRANGER", timeout=120,
-                    wait=True):
-    """Single-world landing: the HOST spawns a terror site next to the lander's
+                    wait=True, site=("STR_ALIEN_TERROR", "STR_TERROR_MISSION", "STR_SECTOID")):
+    """Single-world landing: the HOST spawns a mission site next to the lander's
     own base and the lander's transport is forced en route on BOTH machines (the
     host simulates the flight; the replica only mirrors it). Runs both clocks
     until the landing prompt opens on the lander (the craft owner) and returns
     the craft. The caller answers it (confirm_landing). wait=False returns right
-    after the craft is placed at the site (it arrives on the next host tick)."""
+    after the craft is placed at the site (it arrives on the next host tick).
+    site = (mission, deployment, race) of the spawned site, a terror site by
+    default."""
     base_name = "HostBase" if lander is host else "ClientBase"
     base = next(b for b in geo(host)["bases"] if b["name"] == base_name)
     craft = next(c for c in base["crafts"] if c["type"] == craft_type)
-    site_id = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
-                       "deployment": "STR_TERROR_MISSION",
+    site_id = host.ok({"cmd": "spawn_mission_site", "mission": site[0],
+                       "deployment": site[1],
                        "lon": base["lon"] + 0.35, "lat": base["lat"] + 0.10,
-                       "race": "STR_SECTOID", "hours": 240})["site_id"]
+                       "race": site[2], "hours": 240})["site_id"]
     client.wait_for("mission site replicated",
                     lambda: any(s["id"] == site_id for s in geo(client)["missionSites"]) or None,
                     timeout=30, interval=0.3)
