@@ -541,6 +541,16 @@ void CraftArmorState::btnOkClick(Action *)
 void CraftArmorState::toggleCraftSeat(Soldier *s, unsigned int row)
 {
 	Craft* c = _base->getCrafts()->at(_craft);
+	// One-world campaigns: the host seats the soldier (craft_assign, as the Select
+	// Squad screen does) and moves the gear with the seat; the list refreshes
+	// when the host's apply lands.
+	if (_game->getCoopMod()
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+	{
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		else SeparateEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		return;
+	}
 	if (s->getCraft() == c)
 	{
 		s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
