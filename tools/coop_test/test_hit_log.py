@@ -60,7 +60,7 @@ HitLog::getTurnDiary()} and event_state `hitLogMirror` {noted, sent, applied,
 localSuppressed, pending, dropped, last: [the last 32 entries {seq, t, f, k?}]}
 (CoopDelta.h coopHitLogMirrorProbe()), both machines. The helpers below
 (hl_snap, hl_render, the strings) are shared by test_reaction_prox.py (L5)
-and test_client_melee_psi.py (L7).
+and test_client_melee_psi.py (hit_log_weapon).
 
 Pins: the entry counts and orders are TASK 0 T0L-1's (ledger `## W2-P6 S-L
 TASK 0 (T0L-1) DONE`, F4235-F4244, 3/3 runs); the German strings are T0L-2's
@@ -119,7 +119,7 @@ HL_NAMES = {HL_EMPTY: "EMPTY", HL_NEW_TURN: "NEW_TURN", HL_NEW_TURN_MSG: "NEW_TU
             HL_PLAYER_FIRING: "PLAYER_FIRING", HL_REACTION_FIRE: "REACTION_FIRE", HL_NEW_SHOT: "NEW_SHOT",
             HL_NO_DAMAGE: "NO_DAMAGE", HL_SMALL_DAMAGE: "SMALL_DAMAGE", HL_BIG_DAMAGE: "BIG_DAMAGE"}
 # The STR_HIT_LOG_* strings HitLog's constructor caches, and the weapon names the rows' PLAYER_FIRING entries carry.
-# English (the host here; both machines in L5 / L7): bin/common/Language/OXCE/en-US.yml :315-:327 and
+# English (the host here; both machines in L5 / hit_log_weapon): bin/common/Language/OXCE/en-US.yml :315-:327 and
 # bin/standard/xcom1/Language/en-US.yml; "New Turn", "Rifle", "=> " and "hit " are rendered by the running host
 # itself in L1 (its own vanilla log), the weapon names by the running English client's own local weapon line at red.
 STRINGS_EN = {"NEW_TURN": "New Turn", "REACTION_FIRE": "Reaction fire...", "NEW_BULLET": "=> ", "NO_DAMAGE": "0 ",
@@ -159,7 +159,7 @@ BOX_CLOSE_S = 1.0                # BattlescapeState back on top after the click
 MIRROR_KEYS = ("noted", "sent", "applied", "localSuppressed", "pending", "dropped")
 
 
-# ===================== the hit-log probes (shared with L5 / L7) =====================
+# ===================== the hit-log probes (shared with L5 / hit_log_weapon) =====================
 
 
 def hl_log(gc):

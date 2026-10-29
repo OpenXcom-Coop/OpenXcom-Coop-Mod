@@ -74,9 +74,9 @@ probes exist, nothing writes them): C1, C5 and D3 fail only on
 displayTwo.death (no record) and the payload's missing `front`. Each row
 prints ONE "EVIDENCE D<n>:" line.
 
-W2-P6b S-E (spec section 9 and the P6b review's section 2 row E1; AMENDMENTS
+W2-P6b S-E (spec section 9 and the P6b review's section 2 row melee_ghost; AMENDMENTS
 P6b-1..P6b-3): C5's stun-rod swing plays on the watching machine as a melee
-ghost. Row E1 wants ONE client combatGhost ring record of kind melee for the
+ghost. Row melee_ghost wants ONE client combatGhost ring record of kind melee for the
 `melee` ev's seq whose frame, frames, intervalMs, ms, sound and soundEnd equal
 the rule chain impact_expect() computes from both machines' display_rules
 (ExplosionBState's hit branch; the pins in EFFECT_PINS), client
@@ -84,8 +84,8 @@ combatGhost.enqueued.melee +1, and the S-E common asserts (client rngSeed
 unchanged, host displayTwo / combatGhost all zero, completed + cut == enqueued
 per S-E kind). The S-E helpers below are shared by the other S-E files. RED
 (commit S-E.1: the melee slot and the effect probes exist, nothing writes
-them): only C5 fails, on E1 (no melee record, enqueued.melee +0). One
-"EVIDENCE E1:" line.
+them): only C5 fails, on melee_ghost (no melee record, enqueued.melee +0). One
+"EVIDENCE melee_ghost:" line.
 
 W2-P6a S-C row KR4 (spec rewrite/prompts/w2p6_display_two.md P6a review section 2, P6a pinned stage text (c),
 AMENDMENTS P6-5 section 4 and P6-6 section 5; owner D131): the host's own shot never moves the second player's
@@ -687,10 +687,11 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
 
 
 # ===================== the effect records =====================
-# Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows E1-E6, as ruled by
-# AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (E1 on C5), test_client_melee_psi (E1 on C21, E2 on
-# C22, the C23d rngSeed guard), test_psi (E2), test_client_items (medikit_sounds), test_client_grenade
-# (prime_sounds) and test_turn_cues (E5, E6). "All rows" (review section 2): the client's rngSeed unchanged
+# Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows, as ruled by
+# AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (melee_ghost on C5), test_client_melee_psi (melee_ghost on
+# stun_rod_hit, psi_ghost on psi_panic_and_control, the mind_probe_use rngSeed guard), test_psi (psi_ghost),
+# test_client_items (medikit_sounds), test_client_grenade (prime_sounds) and test_turn_cues (panic_sounds,
+# fall_ghost). "All rows" (review section 2): the client's rngSeed unchanged
 # across the row (V4), the
 # host's displayTwo and combatGhost all zero (the host plays vanilla's own), and completed + cut == enqueued per S-E
 # record kind on the client. No wall-clock duration is asserted: every schedule field equals the rule chain
@@ -857,8 +858,9 @@ def effect_common_fails(tag, host, client, snap0, dt1=None, cg1=None):
 
 
 def impact_row(tag, host, client, snap0, cues, weapon):
-    """Rows E1 (melee) / E2 (psi) (review section 2; section 9 E-b): `cues` = [(seq, kind)] of the row's host melee /
-    psi cues (payloads from the host's `[coop-cue]` lines). Each wants ONE client combatGhost ring record of that seq
+    """Rows melee_ghost (melee) / psi_ghost (psi) (review section 2; section 9 E-b): `cues` = [(seq, kind)] of the
+    row's host melee / psi cues (payloads from the host's `[coop-cue]` lines). Each wants ONE client combatGhost ring
+    record of that seq
     and kind, unresolved / noMap false, with the rule chain's frame, frames, intervalMs, ms and sound (melee: and
     soundEnd; psi: `voxel` == the payload's voxel, Q11 - the payload gains it at S-E.2), and the payload's
     weaponType == `weapon`, success true; client combatGhost.enqueued.<kind> +1 per cue; the S-E common asserts.
@@ -918,7 +920,7 @@ def impact_row(tag, host, client, snap0, cues, weapon):
 
 
 def sound_row(tag, host, client, snap0, kind, wants, extra=None):
-    """Rows medikit_sounds, prime_sounds, E5 (panic) (review section 2; section 9 E-c/E-d/E-e): the client's
+    """Rows medikit_sounds, prime_sounds, panic_sounds (panic) (review section 2; section 9 E-c/E-d/E-e): the client's
     displayTwo.effects.<kind>.count +len(wants); per want ONE client record - matched by `match` (its seq) when the
     want has one, else the row's i-th new record in order (the prime aftermath has no seq) - whose `fields` equal
     the want's and whose sound is picked from `sounds` (-1 for an empty list, F1782); the host's count 0 (it plays
@@ -971,8 +973,8 @@ def sound_row(tag, host, client, snap0, kind, wants, extra=None):
 # the other S-C files.
 CAM_SUPPRESSED = ("follow", "explosion", "hitLevel", "walkLevel", "panic")
 # T0a-4 (on the S-C.1 build): the terror map's (SEED_MAP 1, 50 x 50 x 4) staging tiles - the client's camera far from
-# every action of C1 (KR4), the host's camera far from C16 / C21 / C22 at view level 1 (KR3, KR6). Both > 1 screen
-# (320 x 200 base pixels) from (12,23)-(12,26) and (24,23)-(24,24).
+# every action of C1 (KR4), the host's camera far from C16 / stun_rod_hit / psi_panic_and_control at view level 1
+# (KR3, host_view_kept). Both > 1 screen (320 x 200 base pixels) from (12,23)-(12,26) and (24,23)-(24,24).
 K_FAR_TERROR = (45, 2, 0)
 K_HOSTFAR_TERROR = (45, 45, 1)
 
@@ -1221,7 +1223,7 @@ def c5_stun(host, client, ctx):
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
     snap_d = death_snap(host, client)   # W2-P6b S-D row D2
-    snap_e = effect_snap(host, client)  # W2-P6b S-E row E1
+    snap_e = effect_snap(host, client)  # W2-P6b S-E row melee_ghost
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cursor0 = None
     try:
@@ -1274,8 +1276,9 @@ def c5_stun(host, client, ctx):
          "fromDir": C5_A2_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
          "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
          "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
-    # W2-P6b S-E row E1 (review section 2; section 9 E-b): the host's stun-rod swing as a melee ghost on the client
-    e1 = impact_row("E1", host, client, snap_e, [(seq_of(chain, "melee"), "melee")], "STR_STUN_ROD")
+    # W2-P6b S-E row melee_ghost (review section 2; section 9 E-b): the host's stun-rod swing as a melee ghost on
+    # the client
+    e1 = impact_row("melee_ghost", host, client, snap_e, [(seq_of(chain, "melee"), "melee")], "STR_STUN_ROD")
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")

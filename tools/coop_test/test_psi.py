@@ -82,7 +82,7 @@ BOTH. Every lever pair applies to the CLIENT first, then the HOST. The
 seeds are set on the HOST immediately before the press that starts the chain.
 
 W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 and the P6b
-review's section 2 row E2; AMENDMENTS P6b-1..P6b-3): every `psi` ev of each
+review's section 2 row psi_ghost; AMENDMENTS P6b-1..P6b-3): every `psi` ev of each
 scenario plays on the watching machine as a psi ghost - ONE client
 combatGhost record of kind psi per `psi` ev with the psi chain's frame,
 frames, intervalMs, ms and sound from both machines' display_rules
@@ -91,8 +91,8 @@ and `voxel` equal to the payload's additive `voxel` (Q11), plus the S-E common
 asserts (client rngSeed unchanged across the cycle, host displayTwo /
 combatGhost all zero, completed + cut == enqueued per S-E kind).
 coopGhostStepper is pinned true in both instances. RED (commit S-E.1): both
-scenarios fail only on E2 (no psi record, the payload has no `voxel`). One
-"EVIDENCE E2:" line per scenario.
+scenarios fail only on psi_ghost (no psi record, the payload has no `voxel`). One
+"EVIDENCE psi_ghost:" line per scenario.
 
 W2-P6a S-M (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
 (b), the P6a review section 2 row MR5, AMENDMENT P6a-2 F1724; owner D132): both
@@ -166,7 +166,7 @@ C2_MORALE_END = 45               # 100 - 70 (psi panic) + 15 (UnitPanicBState at
 PANIC_MODE = "freeze"            # C2's panic at turn 3 resolves in place (no walk, no shot)
 PSI_CHAIN = ["psi", "bt_action_end"]
 PANIC_CHAIN = ["panic", "bt_action_end"]
-PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (W2-P6b S-E row E2)
+PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (W2-P6b S-E row psi_ghost)
 # W2-P6a S-M row MR5 (P6a review section 2; owner D132; T0a-3 on the S-M.1 build: the client's `seen` record)
 KEY_UNDER_ALIEN_CONTROL = "STR_IS_UNDER_ALIEN_CONTROL"
 KEY_PANICKED = "STR_HAS_PANICKED"
@@ -356,7 +356,7 @@ def c14_mc(host, client, ctx):
     uh0, uc0 = units(host), units(client)
     staged = {"P psiWeapon h/c": ((uh0.get(P_ID) or {}).get("psiWeapon"), (uc0.get(P_ID) or {}).get("psiWeapon")),
               "C": uview(uh0.get(C_ID)), "C2": uview(uh0.get(C2_ID))}
-    snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row psi_ghost
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
     cycle(host, client, SEED_MIND_CONTROL, rec, "cycle 1",
           client_hold=hold_until_message(client, mb, C_ID, KEY_UNDER_ALIEN_CONTROL, rec, "cycle 1", HOLD_C14MC_S))
@@ -370,8 +370,8 @@ def c14_mc(host, client, ctx):
           f"cycle side_transitions={st_seqs(rec['hev'])}; P's ai contexts={[ctx_view(c) for c in ai_p]} first's evs="
           f"{sv(cevs)}; psi evs (seq, actionId, payload)={[(e['seq'], e['actionId'], payload(rec, e)) for e in psis]}; "
           f"units={units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
-    # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
-    e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    # W2-P6b S-E row psi_ghost (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
+    e2 = impact_row("psi_ghost", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
     # W2-G1 row G1-3 (AUD-A16, D171): P's successful mind control of C does not centre the client's camera on C
     g13 = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C_ID, False, "C14-mc G1-3")
     mr5 = mr5_fails(rec, mb, ma, C_ID, KEY_UNDER_ALIEN_CONTROL, Q_C14MC, None, "C14-mc")
@@ -409,7 +409,7 @@ def c14_panic(host, client, ctx):
               "C2": {"host": uview(uh0.get(C2_ID)), "client": uview(uc0.get(C2_ID))},
               "C2 items (id, type, slot)": owned_items(items(host), C2_ID)}
     off = log_size(host)
-    snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
+    snap_e = effect_snap(host, client)   # W2-P6b S-E row psi_ghost
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
     # the client's player-side NextTurnState stays up until C2's panic record is in its ring
     cycle(host, client, SEED_PSI_PANIC, rec, "cycle 2", extra=c2_resolved,
@@ -435,8 +435,8 @@ def c14_panic(host, client, ctx):
           f"{ctx_view(pc)} kind={pc and pc.get('kind')} its evs={sv(pevs)} payloads="
           f"{[(e['seq'], e['kind'], payload(rec, e)) for e in pevs]}; C2 morale before h/c={m0} after h/c={m}; units="
           f"{units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
-    # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
-    e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    # W2-P6b S-E row psi_ghost (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
+    e2 = impact_row("psi_ghost", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
     # W2-G1 row G1-4 (AUD-A16, D171; guard): P's psi panic on C2 still centres the client's camera on C2
     g14 = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C2_ID, True, "C14-panic G1-4")
     mr5 = mr5_fails(rec, mb, ma, C2_ID, KEY_PANICKED, Q_C14P, quiet, "C14-panic")
@@ -526,7 +526,7 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # coopGhostStepper pinned true in both instances (row E2 needs the client's psi ghosts)
+    # coopGhostStepper pinned true in both instances (row psi_ghost needs the client's psi ghosts)
     host = GameClient("host", 49864, make_user_dir("w2p3_psi_host", options={"coopGhostStepper": True}))
     client = GameClient("client", 49865, make_user_dir("w2p3_psi_client", options={"coopGhostStepper": True}))
     results = {}
