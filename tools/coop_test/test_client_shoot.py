@@ -1,167 +1,154 @@
 """test_client_shoot.py: the second player's own shots become
-orders the host checks and fires (spec rewrite/prompts/w2p4_client_combat_intents.md
-section (f) "test_client_shoot.py (S-A)", sections (b)1-5, (b)7 and (b)13, as
-amended by AMENDMENT C1 (PR-Q2: K1 keeps refusing every kind S-A does not build;
-PR-Q14: C16's seat is read through closedContexts), AMENDMENT C3 (D146: the
-research-combined `not_researched` deny and its C16d-r row, the host-only
-forget_research lever) and AMENDMENT C4 (PR-Q18: the client-side baton check
-belongs to the shoot intercept; PR-Q20: the spray start stays refused at K1).
+orders the host checks and fires.
 
-Before S-A the second player cannot fire. Its click on a target is refused at K1
-(BattlescapeGame::primaryAction's targeting arm; client coopLocalExecBlocked +1,
-nothing sent) and the battle_intent lever knows no `shoot` kind (the product's
-unknown-kind path answers "not sent"). After S-A the click becomes a `shoot`
-intent. The host admits it with vanilla's own checks or denies it with a reason,
-runs vanilla's UnitTurnBState + ProjectileFlyBState under an `intent` action
-context that ends in one bt_action_end, and the ordering client shows the answer.
+The second player's click on a target (BattlescapeGame::primaryAction's
+targeting arm) becomes a `shoot` intent. A client that refuses it locally
+instead (client coopLocalExecBlocked +1, nothing sent) cannot fire at all.
+The host admits the intent with vanilla's own checks or denies it with a
+reason, runs vanilla's UnitTurnBState + ProjectileFlyBState under an `intent`
+action context that ends in one bt_action_end, and the ordering client shows
+the answer. Some scenarios send the order through the battle_intent test
+command instead of the real UI.
 Eight scenarios, ONE boot, in this order:
 
-  C16    real-UI snap kill. C gets a rifle + clip, C -> C_TILE facing C16_C_DIR
-         (one octant off A), A -> A_TILE facing A_DIR with health 1, C TU max,
-         C firing 120 (all on BOTH). Client: TAB-select C, the right-hand box,
-         key 50 (SNAP), HOME, host set_seed SEED_C16, one left click on A's tile.
-         RED: refused at K1 (client coopLocalExecBlocked +1, nothing sent, A
-         alive). GREEN: host closedContexts gains {origin intent, kind shoot,
-         actorId C} (C's seat is 1: PR-Q14) whose evs are exactly shot -> hit ->
-         death -> corpse -> bt_action_end; A dead and one corpse with the same id
-         and tile on both; C TU C16_TU_AFTER and the clip C16_CLIP_AFTER on both;
-         the client is back in aim mode (cursorType 2) with lastAftermath
-         {actionId, kind shoot}.
-         W2-P6b S-D row D4 (spec rewrite/prompts/w2p6_display_two.md section 8,
-         the P6b review's section 2 D4; Q16 / OR3 (a)): the client's
-         coopGhostStepper is set false right before the press and true after
-         the order settled; client displayTwo.death enqueued +0 while its
-         cueCounts.death +1; the host's displayTwo all zero; the client's
-         rngSeed unchanged. Declared green at red (commit S-D.1: nothing
-         writes displayTwo). One "EVIDENCE D4:" line.
-         W2-P6a S-C row KR3, host half (spec rewrite/prompts/w2p6_display_two.md
-         P6a review section 2, pinned stage text (c), AMENDMENTS P6-5 section 4
-         and P6-6 section 5, ruling SC-1 (a); owner D131): the host camera is
-         staged on K_HOSTFAR_TERROR (view level 1) before the press. GREEN:
-         host camera.suppressed.follow +1 and the host offset still the staged
-         one. C16's own-move client half is not asserted: D4 switches the
-         client's coopGhostStepper off for this order; KR3's
-         client half is C17's. RED (commit S-C.1): the counter +0, the host
-         offset moved. One "EVIDENCE KR3 C16:" line.
-  C16h   the halt. C's TU = the snap cost SNAP_TU (both); C faces dir 0 (the
-         turn C16's shot produced); real-UI snap at the floor tile C16H_TARGET,
-         two octants east. The pre-shot turn spends 1 TU per octant, so vanilla's
-         own haveTU check (ProjectileFlyBState.cpp:90) refuses the shot.
-         RED: refused at K1. GREEN: {intent, shoot, C} with no `shot` ev and one
-         bt_action_end; lastActionHalt {actionId, halted true, reason no_tu} on
-         both; the client banner is vanilla's "Not Enough Time Units!"; the host
-         shows no warning for it (Q3 = a); C TU C16H_TU_AFTER on both, the clip
+  snap_kill  real-UI snap kill. C gets a rifle + clip, C -> C_TILE facing
+         SNAP_C_DIR (one octant off A), A -> A_TILE facing A_DIR with health
+         1, C TU max, C firing 120 (all on BOTH). Client: TAB-select C, the
+         right-hand box, key 50 (SNAP), HOME, host set_seed SEED_SNAP_KILL, one
+         left click on A's tile. Pass: host closedContexts gains {origin
+         intent, kind shoot, actorId C} (C's seat is 1) whose evs are exactly
+         SNAP_KILL_CHAIN (the pre-shot turn, shot, hit, death, corpse,
+         bt_action_end); A dead and one corpse with the same id and tile on
+         both; C TU SNAP_KILL_TU_AFTER and the clip SNAP_KILL_CLIP_AFTER on
+         both; the client is back in aim mode (cursorType 2) with
+         lastAftermath {actionId, kind shoot}.
+         ghost_option_off (inside snap_kill): the client's coopGhostStepper is
+         set false right before the press and true after the order settled;
+         client displayTwo.death enqueued +0 while its cueCounts.death +1 (the
+         option off starts no death ghost); the host's displayTwo all zero;
+         the client's rngSeed unchanged. One "EVIDENCE ghost_option_off:" line.
+         camera_follow, host half: the host camera is staged on
+         K_HOSTFAR_TERROR (view level 1) before the press. The shot is the
+         partner's order on the host, so its camera does not follow it: host
+         camera.suppressed.follow +1 and the host offset still the staged one.
+         The client half is not asserted here (ghost_option_off switches the
+         client's coopGhostStepper off for this order); auto_three_shots
+         checks it. One "EVIDENCE camera_follow snap_kill:" line.
+  halt_no_tu  the halt. C's TU = the snap cost SNAP_TU (both); C faces dir 0
+         (the turn snap_kill's shot produced); real-UI snap at the floor tile
+         HALT_TARGET, two octants east. The pre-shot turn spends 1 TU per
+         octant, so vanilla's own haveTU check (ProjectileFlyBState.cpp:90)
+         refuses the shot. Pass: {intent, shoot, C} with no `shot` ev and one
+         bt_action_end; lastActionHalt {actionId, halted true, reason no_tu}
+         on both; the client banner is vanilla's "Not Enough Time Units!"; the
+         host shows no warning for it; C TU HALT_TU_AFTER on both, the clip
          untouched.
-  C17    real-UI autoshot at the empty road tile C17_TARGET (C faces it: the
-         turn C16h's shot produced), host set_seed SEED_C17. RED: refused at K1.
-         GREEN: {intent, shoot, C} holding exactly three `shot` evs with
-         shotIndex 1, 2, 3 (host [coop-cue] payloads); C TU C17_TU_AFTER and the
-         clip C17_CLIP_AFTER on both.
-         W2-P6a S-C row KR3, client half (ruling SC-1 (a); owner D171 (a): your
-         own actions move your camera like single player; coopGhostStepper on):
-         the client's camera is read right before its click. GREEN: the
-         client's camera.moves hold {own_follow} at each of the order's shot
-         seqs and {own_restore} at its bt_action_end seq whose `after` equals
-         the offset at the click. RED (commit S-C.1): no client move. One
-         "EVIDENCE KR3 C17:" line.
-  C17p   a combat order while the host is busy. The host's fire dial is set to 1
-         (seat 0 on both), H gets a rifle + clip at C17P_H_TILE; host set_seed
-         SEED_C17P and battle_fire {H, auto} at C17P_H_TARGET: a ~21.4 s host
-         context (T0-4 a). Once the client has applied its first shot, the client
-         snaps at C17P_SNAP_TARGET through the real UI. RED: refused at K1 during
-         the host autoshot. GREEN: client lastDeny busy, coopPendingIntent
-         {kind shoot, actorId C}, the wait banner "Please wait for HostPlayer's
-         action to finish"; after the host's context closes the held order is sent
-         again, admitted and executed ({intent, shoot, C} after the host's end);
-         C TU = TU max - SNAP_TU on both (the cost is recomputed).
-  C16a   aimed through the lever: battle_intent {kind shoot, plan {action
-         aimed, ...}} at the floor tile FLOOR_TARGET. RED: "not sent" (unknown
-         kind). GREEN: {intent, shoot, C} whose first `shot` payload has action
-         aimed.
-  C16d   four denies through the lever: tuBasisOverride SNAP_TU -/+ 1 ->
-         cost_changed; a weapon C does not hold (H's right-hand item) ->
-         weapon_missing; targetUnit A2 with a targetPos one tile off its spawn ->
-         target_moved; H as the actor -> not_your_unit. RED: every variant "not
-         sent". GREEN: each variant answers with its deny on the client
-         (lastDeny {iseq, reason}) and its text on the banner; the host emits
-         nothing and closes no context; C TU unchanged on both.
-  C16d-r the research-combined deny. Host-only forget_research
+  auto_three_shots  real-UI autoshot at the empty road tile AUTO_TARGET (C
+         faces it: the turn halt_no_tu's shot produced), host set_seed
+         SEED_AUTO. Pass: {intent, shoot, C} holding exactly three `shot` evs
+         with shotIndex 1, 2, 3 (host [coop-cue] payloads); C TU AUTO_TU_AFTER
+         and the clip AUTO_CLIP_AFTER on both.
+         camera_follow, client half (a player's own actions move its camera
+         as in single player; coopGhostStepper on): the client's camera is
+         read right before its click. Pass: the client's camera.moves hold
+         {own_follow} at each of the order's shot seqs and {own_restore} at
+         its bt_action_end seq whose `after` equals the offset at the click.
+         One "EVIDENCE camera_follow auto_three_shots:" line.
+  held_while_busy  a combat order while the host is busy. The host's fire
+         dial is set to 1 (seat 0 on both), H gets a rifle + clip at
+         BUSY_H_TILE; host set_seed SEED_BUSY and battle_fire {H, auto} at
+         BUSY_H_TARGET: a host context of about 21.4 s. Once the client has
+         applied its first shot, the client snaps at BUSY_SNAP_TARGET through
+         the real UI. Pass: client lastDeny busy, coopPendingIntent {kind
+         shoot, actorId C}, the wait banner "Please wait for HostPlayer's
+         action to finish"; after the host's context closes the held order is
+         sent again, admitted and executed ({intent, shoot, C} after the
+         host's end); C TU = TU max - SNAP_TU on both (the cost is
+         recomputed).
+  aimed_order  aimed through the test command: battle_intent {kind shoot,
+         plan {action aimed, ...}} at the floor tile FLOOR_TARGET. Pass:
+         {intent, shoot, C} whose first `shot` payload has action aimed.
+  four_denies  four denies through the test command: tuBasisOverride SNAP_TU
+         -/+ 1 -> cost_changed; a weapon C does not hold (H's right-hand item)
+         -> weapon_missing; targetUnit A2 with a targetPos one tile off its
+         spawn -> target_moved; H as the actor -> not_your_unit. Pass: each
+         variant answers with its deny on the client (lastDeny {iseq, reason})
+         and its text on the banner; the host emits nothing and closes no
+         context; C TU unchanged on both.
+  not_researched_deny  the research deny. Host-only forget_research
          STR_PLASMA_PISTOL, then a plasma pistol + clip on C (both) and a
-         lever snap at FLOOR_TARGET. RED: "not sent". GREEN: lastDeny reason
+         test-command snap at FLOOR_TARGET. Pass: lastDeny reason
          not_researched with vanilla's "Unable to use alien artifact until
          researched!" on the banner; nothing executed; C TU and the pistol
          clip unchanged on both.
-  C26    F428. Leg 1: the client's walk dial is set to 200 (seat 1 on both),
-         the host camera centres on C26_CAMERA and the client walks C to
-         C26_WALK_DEST through the lever (8 steps, ~13 s with the default 10 s
-         timeout, T0-5). RED: intentTimeouts +1 and "No answer from the host -
-         action dropped" at ~10 s while the host still walks.
-         GREEN: intentTimeouts unchanged, no timeout banner, the client's slot
-         (inFlight) held until the walk's bt_action_end, the walk longer than the
-         timeout option. Leg 2 (green only, declared: at the base the client
-         cannot fire): the client's fire dial is set to 1, C back on C_TILE, host
-         set_seed SEED_C17, real-UI autoshot at C17_TARGET (~21 s, F1121):
-         likewise no timeout while the slot is held, the order longer than the
-         timeout option, three `shot` evs in one {intent, shoot, C} context.
-         C26-W: each leg's watch, and C17p's wait for the host
-         autoshot, ends at the order's end, capped at WATCH_CAP_S (was 45 s / 60 s).
+  long_order_no_timeout  an order that runs longer than the intent timeout
+         option does not time out while the host still runs it. Leg 1: the
+         client's walk dial is set to 200 (seat 1 on both), the host camera
+         centres on LONG_WALK_CAMERA and the client walks C to LONG_WALK_DEST
+         through the test command (8 steps, about 13 s against the default
+         10 s timeout). A client that times the walk out shows intentTimeouts
+         +1 and "No answer from the host - action dropped" at about 10 s while
+         the host still walks. Pass: intentTimeouts unchanged, no timeout
+         banner, the client's slot (inFlight) held until the walk's
+         bt_action_end, the walk longer than the timeout option. Leg 2: the
+         client's fire dial is set to 1, C back on C_TILE, host set_seed
+         SEED_AUTO, real-UI autoshot at AUTO_TARGET (about 21 s): likewise no
+         timeout while the slot is held, the order longer than the timeout
+         option, three `shot` evs in one {intent, shoot, C} context. Each
+         leg's watch, and held_while_busy's wait for the host autoshot, ends
+         at the order's end, capped at WATCH_CAP_S.
 
-The order puts C16 first on the fresh boot, so it runs exactly on TASK 0's T0-1
-staging (lever rifle 96 / clip 97). Every later scenario keeps C on C_TILE with
-the facing its last turn produced (CLAUDE.local.md S2: a unit is never
-teleported onto its own tile): C16's shot leaves C facing A (dir 0), which makes
-C16h's floor target two octants east; C16h's turn leaves C facing east, which is
-what C17, C17p, C16a and C26 need. C16h's target is a floor tile because C16
-has killed A (T0-2 staged A; the halt path draws no RNG and depends only on C's
-TU, facing and the snap cost, F1109). place() teleports only a unit that is not
-already on the tile.
+snap_kill runs first, on the fresh boot its seed was found on. Every later
+scenario keeps C on C_TILE with the facing its last turn produced (a unit is
+never teleported onto its own tile): snap_kill's shot leaves C facing A (dir
+0), which makes halt_no_tu's floor target two octants east; halt_no_tu's turn
+leaves C facing east, which is what auto_three_shots, held_while_busy,
+aimed_order and long_order_no_timeout need. halt_no_tu's target is a floor
+tile because snap_kill has killed A (the halt path draws no RNG and depends
+only on C's TU, facing and the snap cost). place() teleports only a unit that
+is not already on the tile.
 
-Common asserts (spec (f), after wait_host_idle): hash_now {full:true} - every
-bucket EQUAL (never a hard-coded count); desyncSeen false on both; client
-coopClientBStatePushes unchanged and host 0; the W2-P2 delta must-be-0 counters
-on both; every lever item created on both machines with equal ids (both()).
+Common asserts (after wait_host_idle): hash_now {full:true} - every bucket
+EQUAL (never a hard-coded count); desyncSeen false on both; client
+coopClientBStatePushes unchanged and host 0; the delta must-be-0 counters
+(ZERO_PROBES) on both; every test-command item created on both machines with
+equal ids (both()).
 For an admitted order: host closedContexts gains exactly one {origin intent,
 kind K, actorId C}; every host ev of that actionId is in the client's log with
 the same seq, kind and actionId; exactly one bt_action_end; client
 coopIntentsSent[K] + the number of intents the scenario sent; client inFlight
 null at the end; client intentTimeouts unchanged (no STR_COOP_ACTION_TIMEOUT).
 
-The battle_intent `shoot` contract this file uses (S-A.2 builds it; spec (b)13):
+The battle_intent `shoot` test command this file uses:
   {cmd: battle_intent, kind: shoot, actor, plan: {action, weapon, ammo, target,
    targetUnit, targetPos?, forceFire}, tuBasisOverride?}
-`plan` carries the (b)1 shoot fields except tuBasis and is passed through;
-the lever computes tuBasis as the real UI does (the actor's getActionTUs for the
-action and weapon) unless tuBasisOverride is given. On commit S-A.1 the lever
-still answers "not sent" for the kind (the product's unknown-kind path).
+`plan` carries the shoot intent's fields except tuBasis and is passed through;
+the test command computes tuBasis as the real UI does (the actor's
+getActionTUs for the action and weapon) unless tuBasisOverride is given.
 
-Probes (event_state; spec (b)13): coopIntentsSent (client, kind -> count),
+Probes (event_state): coopIntentsSent (client, kind -> count),
 intentsReceived (host, kind -> {admitted, denied}), lastActionHalt (both,
-{actionId, halted, reason}) and lastAftermath (client, {actionId, kind}) exist
-from commit S-A.1 with no writer; S-A.2 writes them. The existing lastDeny,
-inFlight, intentTimeouts, closedContexts, coopPendingIntent, cursorType,
-coopWaitText and warningText are read as they are.
+{actionId, halted, reason}), lastAftermath (client, {actionId, kind}),
+lastDeny, inFlight, intentTimeouts, closedContexts, coopPendingIntent,
+cursorType, coopWaitText and warningText.
 
-FIXTURE (TASK 0 T0-1, T0-2, T0-3, T0-4 a, T0-5; the roster-pinned terror boot of
-test_host_combat.py): set_seed SEED_ROSTER on the HOST right before its
-open_new_battle, mission STR_TERROR_MISSION, set_seed SEED_MAP right before
-newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
-asserted (SEATED), pin_ai_neutral. Every lever pair goes to the CLIENT first.
-Item ids are read at run time from the lever replies or by owner + slot,
-never baked. The seeds were found with HOST stand-ins (battle_fire for
-C): S-A's executor build proves them again.
+FIXTURE (the roster-pinned terror boot of test_host_combat.py): set_seed
+SEED_ROSTER on the HOST right before its open_new_battle, mission
+STR_TERROR_MISSION, set_seed SEED_MAP right before newbattle_ok, seat_count 2,
+MAP_FP asserted on both, the seated unit ids asserted (SEATED),
+pin_ai_neutral. Every paired test command goes to the CLIENT first. Item ids
+are read at run time from the test-command replies or by owner + slot, never
+baked. The seeds were found with the host firing for C (battle_fire) and hold
+for the client's own orders.
 
-RED-THEN-GREEN (spec (d) row S-A). Commit S-A.1 (this file, the probes, the
-set_touch_modifiers and forget_research levers) is run ONCE and every scenario
-must FAIL with its RED evidence. Commit S-A.2 is run ONCE and every scenario must
-PASS. Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
-BEFORE its green conditions are checked; main() runs every scenario even after an
-earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
-bounded; a wait that times out is recorded in the EVIDENCE line and fails the
-scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+BEFORE its pass conditions are checked; main() runs every scenario even after
+an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every
+wait is bounded; a wait that times out is recorded in the EVIDENCE line and
+fails the scenario.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when all eight scenarios pass, 2 otherwise
-(a bring-up failure is also 2). run in the foreground to completion.
+No skip path, no second boot, no alternative map or actor. Exit 0 only when
+all eight scenarios pass, 2 otherwise (a bring-up failure is also 2).
 
 Run:  python tools/coop_test/test_client_shoot.py
 """
@@ -185,10 +172,10 @@ from test_host_combat import (camera_of, cam_snap, cam_offset, stage_camera, cam
                                  cam_view, K_HOSTFAR_TERROR)
 from test_ai_origins import host_payloads
 
-# ----- bring-up (TASK 0: the roster-pinned terror boot) -----
+# ----- bring-up (the roster-pinned terror boot) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1 (T0a, every boot)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1 (the same on every boot)
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID, C2_ID = 8, 9
 H_ID = 10                         # first host-seat soldier
@@ -203,45 +190,45 @@ TU_MAX = 255                      # battle_set_unit_state tu: clamped to the uni
 C_TU_FULL = 64                    # C's max TU with SEED_ROSTER 1
 FIRING_120 = 120
 
-# ----- C16 -----
+# ----- snap_kill -----
 C_TILE = (12, 26, 0)              # open road
-C16_C_DIR = 1                     # one octant off A
+SNAP_C_DIR = 1                    # one octant off A
 A_TILE, A_DIR = (12, 23, 0), 4
 A_HEALTH = 1
 A_CORPSE = "STR_SECTOID_CORPSE"
-SEED_C16 = 1
-SNAP_TU = 16                      # C's rifle snap cost (the stand-in's tuCost)
+SEED_SNAP_KILL = 1
+SNAP_TU = 16                      # C's rifle snap cost (battle_fire's tuCost for C)
 CLIP_FULL = 20
-C16_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
-C16_TU_AFTER = 47                 # 64 - 16 snap - 1 for the one-octant turn
-C16_CLIP_AFTER = 19
+SNAP_KILL_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
+SNAP_KILL_TU_AFTER = 47           # 64 - 16 snap - 1 for the one-octant turn
+SNAP_KILL_CLIP_AFTER = 19
 
-# ----- C16h -----
-C16H_TARGET = (16, 26, 0)         # floor tile due east of C_TILE: two octants from dir 0
-C16H_TU_AFTER = 14                # 16 - 2 octants x 1 TU; the shot never fires
+# ----- halt_no_tu -----
+HALT_TARGET = (16, 26, 0)         # floor tile due east of C_TILE: two octants from dir 0
+HALT_TU_AFTER = 14                # 16 - 2 octants x 1 TU; the shot never fires
 HALT_NO_TU = "no_tu"
 TEXT_NO_TU = "Not Enough Time Units!"                 # xcom1 STR_NOT_ENOUGH_TIME_UNITS (en-US)
 
-# ----- C17 -----
-C17_TARGET = (32, 26, 0)          # empty road floor tile, 20 tiles east
-SEED_C17 = 1
+# ----- auto_three_shots -----
+AUTO_TARGET = (32, 26, 0)         # empty road floor tile, 20 tiles east
+SEED_AUTO = 1
 AUTO_TU = 22
-C17_TU_AFTER = 42                 # 64 - 22
-C17_CLIP_AFTER = 17
-C17_SHOTS = 3
+AUTO_TU_AFTER = 42                # 64 - 22
+AUTO_CLIP_AFTER = 17
+AUTO_SHOTS = 3
 
-# ----- C17p -----
-C17P_HOST_FIRE_DIAL = 1
-C17P_H_TILE, C17P_H_DIR = (14, 24, 0), 2
-C17P_H_TARGET = (34, 24, 0)       # empty road floor tile
-SEED_C17P = 1
-C17P_SNAP_TARGET = (16, 26, 0)    # due east of C: no pre-shot turn
-C17P_TU_AFTER = C_TU_FULL - SNAP_TU
+# ----- held_while_busy -----
+BUSY_HOST_FIRE_DIAL = 1
+BUSY_H_TILE, BUSY_H_DIR = (14, 24, 0), 2
+BUSY_H_TARGET = (34, 24, 0)       # empty road floor tile
+SEED_BUSY = 1
+BUSY_SNAP_TARGET = (16, 26, 0)    # due east of C: no pre-shot turn
+BUSY_TU_AFTER = C_TU_FULL - SNAP_TU
 TEXT_WAIT_HOST = f"Please wait for {raw.HOST_PLAYER}'s action to finish"   # STR_COOP_WAIT_FOR_PLAYER_ACTION
 
-# ----- C16a / C16d / C16d-r (lever orders) -----
-FLOOR_TARGET = (24, 26, 0)        # road floor due east of C, past C26's walk
-SEED_C16A = 1
+# ----- aimed_order / four_denies / not_researched_deny (test-command orders) -----
+FLOOR_TARGET = (24, 26, 0)        # road floor due east of C, past long_order_no_timeout's walk
+SEED_AIMED = 1
 A2_OFF_TILE = (33, 44, 0)         # one tile north of A2's spawn
 RESEARCH_TOPIC = "STR_PLASMA_PISTOL"
 PISTOL, PISTOL_CLIP = "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"
@@ -253,12 +240,12 @@ TEXT_DENY = {                     # en-US: bin/common STR_COOP_DENY_* / xcom1 va
     "not_researched": "Unable to use alien artifact until researched!",
 }
 
-# ----- C26 -----
-C26_XCOM_DIAL = 200               # client battleXcomSpeed: seat 1 walk dial
-C26_WALK_DEST = (20, 26, 0)
-C26_WALK_STEPS = 8
-C26_CAMERA = (16, 26, 0)          # host camera on the lane (on-screen pacing, F1120)
-C26_FIRE_DIAL = 1                 # client battleFireSpeed for leg 2
+# ----- long_order_no_timeout -----
+LONG_WALK_DIAL = 200              # client battleXcomSpeed: seat 1 walk dial
+LONG_WALK_DEST = (20, 26, 0)
+LONG_WALK_STEPS = 8
+LONG_WALK_CAMERA = (16, 26, 0)    # host camera on the lane (on-screen pacing)
+LONG_FIRE_DIAL = 1                # client battleFireSpeed for leg 2
 TIMEOUT_DEFAULT_S = 10            # Options coopIntentTimeoutSeconds default
 TEXT_TIMEOUT = "No answer from the host - action dropped"   # STR_COOP_ACTION_TIMEOUT
 
@@ -268,7 +255,7 @@ CURSOR_AIM = 2                    # battle_state.cursorType CT_AIM
 RHAND_CENTRE = (RHAND_RECT[0] + RHAND_RECT[2] // 2, RHAND_RECT[1] + RHAND_RECT[3] // 2)
 POLL_S = 0.05
 SENT_WAIT_S = 2.0                 # how long a press gets to show as sent or refused
-WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): F11103's loaded leg-2 order
+WATCH_CAP_S = 135                 # max(120, 2.5 x 54.0 s): a leg-2 order took 54.0 s on a loaded machine
 ORDER_TIMEOUT_S = WATCH_CAP_S     # every order window, here and in the importers
 
 ZERO_PROBES = ("deltaUnresolved", "deltaUnsupported", "deltaRemoveMissing", "deltaAddExisting")
@@ -356,7 +343,7 @@ def c_items(ih, ic, ids):
                 "client": {k: (ic.get(i) or {}).get(k) for k in ("owner", "slot", "qty")}} for i in ids}
 
 
-# ===================== staging (client first, F607) =====================
+# ===================== staging (client first) =====================
 
 
 def give_both(host, client, uid, item, ammo=None):
@@ -370,7 +357,7 @@ def give_both(host, client, uid, item, ammo=None):
 def place(host, client, uid, tile, d):
     """Teleport `uid` onto `tile` facing `d` on BOTH machines - unless it already
     stands there on both, in which case nothing is sent and the unit keeps the
-    facing its last turn produced (CLAUDE.local.md S2). Returns what was done."""
+    facing its last turn produced. Returns what was done."""
     uh, uc = units(host).get(uid) or {}, units(client).get(uid) or {}
     if upos(uh) == tuple(tile) and upos(uc) == tuple(tile):
         return {"kept": tuple(tile), "dir": (uh.get("direction"), uc.get("direction"))}
@@ -389,7 +376,7 @@ def set_firing_both(host, client, uid):
 
 
 def wait_seat_dial(host, client, seat, which, value, timeout=15):
-    """Both machines' SPEC 17 speed table hold `value` for `seat`'s `which` dial."""
+    """Both machines' per-seat speed table hold `value` for `seat`'s `which` dial."""
     def ok():
         for gc in (host, client):
             sp = event_state(gc).get("speed") or {}
@@ -416,7 +403,7 @@ def cancel_client_aim(client):
 
 
 def aim_click(client, key, tile, before_click=None):
-    """The client's REAL-UI shot order (spec (f)): TAB-select C, the right-hand
+    """The client's REAL-UI shot order: TAB-select C, the right-hand
     box (ActionMenuState), the row's key (the menu closes and targeting starts),
     HOME, one self-verified left click on `tile`. `before_click` runs right
     before the click (the host's set_seed). Returns the evidence."""
@@ -462,7 +449,7 @@ def order_done(host, client):
 def await_press(host, client, before, notes, timeout=ORDER_TIMEOUT_S):
     """After a real-UI press: up to SENT_WAIT_S for the press to show as SENT
     (client inFlight set, client coopIntentsSent moved, or the host emitted) or
-    REFUSED at K1 (client coopLocalExecBlocked moved); when sent, until the order
+    REFUSED locally (client coopLocalExecBlocked moved); when sent, until the order
     is over (bounded). Returns {state, t}."""
     t0 = time.time()
     state = "quiet"
@@ -473,7 +460,7 @@ def await_press(host, client, before, notes, timeout=ORDER_TIMEOUT_S):
             state = "sent"
             break
         if ec.get("coopLocalExecBlocked") != before["client"]["coopLocalExecBlocked"]:
-            state = "refusedAtK1"
+            state = "refusedLocally"
             break
         time.sleep(POLL_S)
     out = {"state": state, "t": round(time.time() - t0, 3)}
@@ -490,7 +477,7 @@ def await_press(host, client, before, notes, timeout=ORDER_TIMEOUT_S):
 
 
 def send_intent(host, client, req, notes, timeout=15):
-    """One lever order. When the lever sent it, waits (bounded) for the host's
+    """One test-command order. When the test command sent it, waits (bounded) for the host's
     answer: its deny (client lastDeny.iseq) or the end of the order. Returns
     {resp, sent, iseq, answer}."""
     r = client.cmd(dict(req))
@@ -549,7 +536,7 @@ def chain_of(rec, aid):
 
 
 def admitted_fails(before, rec, kind, actor, sent=1):
-    """Spec (f) common asserts for an ADMITTED order. Returns (fails, ctx)."""
+    """The common asserts for an ADMITTED order. Returns (fails, ctx)."""
     fails = []
     new = ctx_view(before, rec)
     hits = mine(new, "intent", kind, actor)
@@ -582,10 +569,10 @@ def admitted_fails(before, rec, kind, actor, sent=1):
 
 
 def forwarded_fails(before, rec):
-    """The real-UI press must be forwarded as an order, not refused at K1."""
+    """The real-UI press must be forwarded as an order, not refused locally."""
     b, a = before["client"]["coopLocalExecBlocked"], rec["client"]["coopLocalExecBlocked"]
     if a != b:
-        return [f"client coopLocalExecBlocked {b}->{a} (want unchanged: the press is an order, not a K1 refusal)"]
+        return [f"client coopLocalExecBlocked {b}->{a} (want unchanged: the press is an order, not a local refusal)"]
     return []
 
 
@@ -604,7 +591,7 @@ def qty_fails(rec, iid, want, what):
 
 
 def common_fails(host, client, before, what):
-    """Spec (f) common asserts."""
+    """The common asserts."""
     fails = []
     try:
         assert_hash_clean(host, client, full=True, what=what)
@@ -662,50 +649,56 @@ def shot_brief(shots):
             for s, p in shots]
 
 
-def kr3_host_fails(chain, seq0, staged, cam0, cam1):
-    """W2-P6a S-C row KR3, host half (P6a review section 2; ruling SC-1 (a); owner D131): C16 is the client's own
-    intent shot, so on the HOST it is the partner's order - camera.suppressed.follow +1 and the offset still the
-    staged one. The client's own-move half is C17's (D4 switches the client's option off for C16, F4141). Prints
-    one "EVIDENCE KR3 C16:" line."""
+def camera_host_fails(chain, seq0, staged, cam0, cam1):
+    """camera_follow, host half: snap_kill is the client's own intent shot, so on the HOST it is the partner's
+    order, which its camera does not follow - camera.suppressed.follow +1 and the offset still the staged one. The
+    client's own-move half is checked in auto_three_shots (ghost_option_off switches the client's option off for
+    snap_kill). Prints one "EVIDENCE camera_follow snap_kill:" line."""
     shots = [e["seq"] for e in chain if e["kind"] == "shot"]
     sup = cam_suppressed_delta(cam0["host"], cam1["host"])
-    print(f"EVIDENCE KR3 C16: shot seqs={shots}; host staged={cam_offset(staged)} before={cam_view(cam0['host'])} "
-          f"after={cam_view(cam1['host'])} suppressed delta={sup}; client (not asserted, D4) before="
+    print(f"EVIDENCE camera_follow snap_kill: shot seqs={shots}; host staged={cam_offset(staged)} "
+          f"before={cam_view(cam0['host'])} "
+          f"after={cam_view(cam1['host'])} suppressed delta={sup}; client (not asserted, ghost_option_off) before="
           f"{cam_view(cam0['client'], seq0)} after={cam_view(cam1['client'], seq0)}", flush=True)
     fails = []
     if len(shots) != 1:
-        fails.append(f"KR3 C16: precondition: shot seqs {shots} (want one shot)")
+        fails.append(f"camera_follow snap_kill: precondition: shot seqs {shots} (want one shot)")
     if sup["follow"] != 1:
-        fails.append(f"KR3 C16: host camera.suppressed.follow +{sup['follow']} (want +1: the partner's shot)")
+        fails.append(f"camera_follow snap_kill: host camera.suppressed.follow +{sup['follow']} (want +1: the "
+                     f"partner's shot)")
     if cam_offset(cam1["host"]) != cam_offset(staged):
-        fails.append(f"KR3 C16: host camera offset {cam_offset(cam1['host'])} after the order (want the staged "
+        fails.append(f"camera_follow snap_kill: host camera offset {cam_offset(cam1['host'])} after the order (want "
+                     f"the staged "
                      f"{cam_offset(staged)}: the partner's shot never moves the host's camera)")
     return fails
 
 
-def kr3_client_fails(chain, seq0, at_click, cam0, cam1):
-    """W2-P6a S-C row KR3, client half: C17 is the client's own real-UI autoshot
+def camera_client_fails(chain, seq0, at_click, cam0, cam1):
+    """camera_follow, client half: auto_three_shots is the client's own real-UI autoshot
     with coopGhostStepper on - the client's camera.moves hold {own_follow} at each shot seq and {own_restore} at the
     order's bt_action_end seq whose `after` equals the client offset read right before the click. Prints one
-    "EVIDENCE KR3 C17:" line."""
+    "EVIDENCE camera_follow auto_three_shots:" line."""
     shots = [e["seq"] for e in chain if e["kind"] == "shot"]
     ends = [e["seq"] for e in chain if e["kind"] == "bt_action_end"]
     moves = cam_moves(cam1["client"], seq0)
-    print(f"EVIDENCE KR3 C17: shot seqs={shots} end={ends}; client at the click={(at_click or {}).get('offset')} "
+    print(f"EVIDENCE camera_follow auto_three_shots: shot seqs={shots} end={ends}; client at the "
+          f"click={(at_click or {}).get('offset')} "
           f"before={cam_view(cam0['client'], seq0)} after={cam_view(cam1['client'], seq0)}; host before="
           f"{cam_view(cam0['host'])} after={cam_view(cam1['host'])}", flush=True)
     fails = []
-    if len(shots) != C17_SHOTS or len(ends) != 1 or at_click is None:
-        fails.append(f"KR3 C17: precondition: shot seqs {shots}, ends {ends}, client camera at the click "
-                     f"{at_click is not None} (want {C17_SHOTS} shots, one bt_action_end, the click's camera read)")
+    if len(shots) != AUTO_SHOTS or len(ends) != 1 or at_click is None:
+        fails.append(f"camera_follow auto_three_shots: precondition: shot seqs {shots}, ends {ends}, client camera at "
+                     f"the click "
+                     f"{at_click is not None} (want {AUTO_SHOTS} shots, one bt_action_end, the click's camera read)")
     got = [mv(m) for m in moves]
     need = [(s, "own_follow") for s in shots] + [(s, "own_restore") for s in ends[:1]]
     missing = [x for x in need if x not in got]
     if missing:
-        fails.append(f"KR3 C17: client camera.moves lack {missing} (want {need}; moves {got})")
+        fails.append(f"camera_follow auto_three_shots: client camera.moves lack {missing} (want {need}; moves {got})")
     rs = [m for m in moves if ends and mv(m) == (ends[0], "own_restore")]
     if rs and at_click is not None and rs[0].get("after") != at_click.get("offset"):
-        fails.append(f"KR3 C17: client own_restore after={rs[0].get('after')} (want the offset at the click "
+        fails.append(f"camera_follow auto_three_shots: client own_restore after={rs[0].get('after')} (want the offset "
+                     f"at the click "
                      f"{at_click.get('offset')})")
     return fails
 
@@ -713,29 +706,29 @@ def kr3_client_fails(chain, seq0, at_click, cam0, cam1):
 # ===================== scenarios =====================
 
 
-def c16_snap_kill(host, client, ctx):
+def snap_kill(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
-    pc_ = place(host, client, C_ID, C_TILE, C16_C_DIR)
+    pc_ = place(host, client, C_ID, C_TILE, SNAP_C_DIR)
     pa_ = place(host, client, A_ID, A_TILE, A_DIR)
     both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "health": A_HEALTH},
          ("health", "stun", "status"))
     set_tu_both(host, client, C_ID, TU_MAX)
     set_firing_both(host, client, C_ID)
     staged = diff_buckets(host, client)
-    kr3_staged = stage_camera(host, K_HOSTFAR_TERROR)   # W2-P6a S-C row KR3, host half (T0a-4): far, level 1
+    cam_staged = stage_camera(host, K_HOSTFAR_TERROR)   # camera_follow, host half: far, level 1
     cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    # W2-P6b S-D row D4 (review section 2; Q16 / OR3 (a)): the client's ghost option off for this one order
-    d4_0 = {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client),
+    # ghost_option_off: the client's ghost option off for this one order
+    ghost0 = {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client),
             "cue": (event_state(client).get("cueCounts") or {}).get("death") or 0,
             "option": client.ok({"cmd": "set_option", "name": "coopGhostStepper"}).get("value")}
-    d4_off = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
+    ghost_off = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
     pv = {}
     try:
-        pv = aim_click(client, KEY_SNAP, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": SEED_C16}))
+        pv = aim_click(client, KEY_SNAP, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": SEED_SNAP_KILL}))
     except Exception as e:
         notes.append(f"real-UI snap: {short(e)}")
     out = await_press(host, client, before, notes)
@@ -743,7 +736,7 @@ def c16_snap_kill(host, client, ctx):
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
         notes.append(f"wait_host_idle: {short(e)}")
-    d4_on = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
+    ghost_on = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
     cam1 = cam_snap(host, client)
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
@@ -752,43 +745,46 @@ def c16_snap_kill(host, client, ctx):
     chain = chain_of(rec, aid)
     corpses = {n: [i for i in its.values() if i.get("type") == A_CORPSE and i.get("unitLink") == A_ID]
                for n, its in (("host", rec["ih"]), ("client", rec["ic"]))}
-    print(f"EVIDENCE C16: staged rifle={rifle} clip={clip} C={pc_} A={pa_} stagedDiff={staged} aimCancel={aim0} "
+    print(f"EVIDENCE snap_kill: staged rifle={rifle} clip={clip} C={pc_} A={pa_} stagedDiff={staged} aimCancel={aim0} "
           f"press={pv} outcome={out}; {press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; "
           f"action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; host evs={ev_tuples(rec['hev'])} "
           f"client evs={ev_tuples(rec['cev'])}; shots={shot_brief(shot_payloads(host, chain))}; A host="
           f"{ubrief(rec['uh'].get(A_ID))} client={ubrief(rec['uc'].get(A_ID))}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; items={c_items(rec['ih'], rec['ic'], (rifle, clip))}; corpses="
           f"{corpses}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
-    d4_1 = {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client),
+    ghost1 = {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client),
             "cue": (event_state(client).get("cueCounts") or {}).get("death") or 0}
-    d4_enq = (death_counts(d4_1["dt"]["client"])["enqueued"] or 0) - (death_counts(d4_0["dt"]["client"])["enqueued"]
-                                                                     or 0)
-    d4_cue = d4_1["cue"] - d4_0["cue"]
-    hd4 = death_of(d4_1["dt"]["host"])
-    print(f"EVIDENCE D4: option before={d4_0['option']} lever off={d4_off} on={d4_on}; client displayTwo.death counts "
-          f"{death_counts(d4_0['dt']['client'])} -> {death_counts(d4_1['dt']['client'])} (enqueued +{d4_enq}); client "
-          f"cueCounts.death {d4_0['cue']} -> {d4_1['cue']} (+{d4_cue}); host displayTwo={d4_1['dt']['host']}; client "
-          f"rngSeed {d4_0['rng']} -> {d4_1['rng']}", flush=True)
-    kr3 = kr3_host_fails(chain, seq0, kr3_staged, cam0, cam1)
+    ghost_enq = ((death_counts(ghost1["dt"]["client"])["enqueued"] or 0)
+                 - (death_counts(ghost0["dt"]["client"])["enqueued"] or 0))
+    ghost_cue = ghost1["cue"] - ghost0["cue"]
+    host_death = death_of(ghost1["dt"]["host"])
+    print(f"EVIDENCE ghost_option_off: option before={ghost0['option']} command off={ghost_off} on={ghost_on}; client "
+          f"displayTwo.death counts {death_counts(ghost0['dt']['client'])} -> {death_counts(ghost1['dt']['client'])} "
+          f"(enqueued +{ghost_enq}); client cueCounts.death {ghost0['cue']} -> {ghost1['cue']} (+{ghost_cue}); host "
+          f"displayTwo={ghost1['dt']['host']}; client rngSeed {ghost0['rng']} -> {ghost1['rng']}", flush=True)
+    cam_fails = camera_host_fails(chain, seq0, cam_staged, cam0, cam1)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
-    if d4_off is not False or d4_on is not True:
-        fails.append(f"D4: client coopGhostStepper lever answered off={d4_off} on={d4_on} (want False then True)")
-    if d4_enq != 0 or d4_cue != 1:
-        fails.append(f"D4: client displayTwo.death enqueued +{d4_enq}, cueCounts.death +{d4_cue} (want +0 while +1: "
+    if ghost_off is not False or ghost_on is not True:
+        fails.append(f"ghost_option_off: client coopGhostStepper test command answered off={ghost_off} on={ghost_on} "
+                     f"(want False then True)")
+    if ghost_enq != 0 or ghost_cue != 1:
+        fails.append(f"ghost_option_off: client displayTwo.death enqueued +{ghost_enq}, cueCounts.death +{ghost_cue} "
+                     f"(want +0 while +1: "
                      f"the option off starts no death ghost)")
-    if (not hd4 or any(((hd4.get("counts") or {}).get(k) or 0) != 0 for k in DEATH_COUNT_KEYS)
-            or (hd4.get("queued") or 0) != 0 or hd4.get("ring")):
-        fails.append(f"D4: host displayTwo {d4_1['dt']['host']} (want the death counts all 0, queued 0, no record)")
-    if d4_0["rng"] is None or d4_1["rng"] != d4_0["rng"]:
-        fails.append(f"D4: client rngSeed {d4_0['rng']} -> {d4_1['rng']} (want unchanged: V4)")
+    if (not host_death or any(((host_death.get("counts") or {}).get(k) or 0) != 0 for k in DEATH_COUNT_KEYS)
+            or (host_death.get("queued") or 0) != 0 or host_death.get("ring")):
+        fails.append(f"ghost_option_off: host displayTwo {ghost1['dt']['host']} (want the death counts all 0, queued "
+                     f"0, no record)")
+    if ghost0["rng"] is None or ghost1["rng"] != ghost0["rng"]:
+        fails.append(f"ghost_option_off: client rngSeed {ghost0['rng']} -> {ghost1['rng']} (want unchanged)")
     fails += forwarded_fails(before, rec)
     f, cx = admitted_fails(before, rec, "shoot", C_ID)
     fails += f
     kinds = [e["kind"] for e in chain]
-    if cx and kinds != C16_CHAIN:
-        fails.append(f"host evs of actionId {aid} = {kinds} (want exactly {C16_CHAIN})")
+    if cx and kinds != SNAP_KILL_CHAIN:
+        fails.append(f"host evs of actionId {aid} = {kinds} (want exactly {SNAP_KILL_CHAIN})")
     for n, u in (("host", rec["uh"].get(A_ID)), ("client", rec["uc"].get(A_ID))):
         if not u or u.get("status") != STATUS_DEAD or u.get("onTile") is not False:
             fails.append(f"{n} A {unit_view(u)} (want status DEAD ({STATUS_DEAD}), onTile false)")
@@ -796,20 +792,20 @@ def c16_snap_kill(host, client, ctx):
     if len(hc) != 1 or len(cc) != 1 or hc[0].get("id") != cc[0].get("id") or tile_of(hc[0]) != tile_of(cc[0]) \
             or tile_of(hc[0]) is None:
         fails.append(f"corpses of A host={hc} client={cc} (want exactly one {A_CORPSE}, the same id and tile on both)")
-    fails += tu_fails(rec, C_ID, C16_TU_AFTER)
-    fails += qty_fails(rec, clip, C16_CLIP_AFTER, "clip")
+    fails += tu_fails(rec, C_ID, SNAP_KILL_TU_AFTER)
+    fails += qty_fails(rec, clip, SNAP_KILL_CLIP_AFTER, "clip")
     if rec["clientUi"]["cursor"] != CURSOR_AIM:
         fails.append(f"client cursorType after the order {rec['clientUi']['cursor']} (want {CURSOR_AIM}: vanilla keeps "
                      f"aiming after a shot)")
     la = rec["client"]["lastAftermath"] or {}
     if aid is None or la.get("actionId") != aid or la.get("kind") != "shoot":
         fails.append(f"client lastAftermath={rec['client']['lastAftermath']} (want {{actionId {aid}, kind shoot}})")
-    fails += common_fails(host, client, before, "C16")
-    fails += kr3
+    fails += common_fails(host, client, before, "snap_kill")
+    fails += cam_fails
     finish(fails)
 
 
-def c16h_halt(host, client, ctx):
+def halt_no_tu(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
@@ -820,7 +816,7 @@ def c16h_halt(host, client, ctx):
     seq0 = before["host"]["lastSeqEmitted"] or 0
     pv = {}
     try:
-        pv = aim_click(client, KEY_SNAP, C16H_TARGET)
+        pv = aim_click(client, KEY_SNAP, HALT_TARGET)
     except Exception as e:
         notes.append(f"real-UI snap: {short(e)}")
     out = await_press(host, client, before, notes)
@@ -833,7 +829,7 @@ def c16h_halt(host, client, ctx):
     hits = mine(new, "intent", "shoot", C_ID)
     aid = hits[0]["actionId"] if len(hits) == 1 else None
     chain = chain_of(rec, aid)
-    print(f"EVIDENCE C16h: staged rifle={rifle} clip={clip} C={pc_} tu={SNAP_TU} target={C16H_TARGET} "
+    print(f"EVIDENCE halt_no_tu: staged rifle={rifle} clip={clip} C={pc_} tu={SNAP_TU} target={HALT_TARGET} "
           f"stagedDiff={staged} aimCancel={aim0} press={pv} outcome={out}; {press_view(before, rec)}; "
           f"ui={ui_view(before, rec)}; newContexts={new}; action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; "
           f"host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; C host={ubrief(rec['uh'].get(C_ID))} "
@@ -856,14 +852,14 @@ def c16h_halt(host, client, ctx):
     if rec["clientUi"]["banner"] != TEXT_NO_TU:
         fails.append(f"client banner {rec['clientUi']['banner']!r} (want {TEXT_NO_TU!r})")
     if rec["hostUi"]["warning"] == TEXT_NO_TU:
-        fails.append(f"host warningText {rec['hostUi']['warning']!r} (want no warning for the partner's halt, Q3 = a)")
-    fails += tu_fails(rec, C_ID, C16H_TU_AFTER)
+        fails.append(f"host warningText {rec['hostUi']['warning']!r} (want no warning for the partner's halt)")
+    fails += tu_fails(rec, C_ID, HALT_TU_AFTER)
     fails += qty_fails(rec, clip, CLIP_FULL, "clip")
-    fails += common_fails(host, client, before, "C16h")
+    fails += common_fails(host, client, before, "halt_no_tu")
     finish(fails)
 
 
-def c17_auto(host, client, ctx):
+def auto_three_shots(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
@@ -871,17 +867,17 @@ def c17_auto(host, client, ctx):
     set_tu_both(host, client, C_ID, TU_MAX)
     set_firing_both(host, client, C_ID)
     staged = diff_buckets(host, client)
-    cam0 = cam_snap(host, client)        # W2-P6a S-C row KR3, client half (SC-1 (a))
-    kr3_click = {}
+    cam0 = cam_snap(host, client)        # camera_follow, client half
+    cam_click = {}
 
     def before_click():
-        kr3_click["client"] = camera_of(client)   # KR3: the client offset right before the click
-        host.ok({"cmd": "set_seed", "seed": SEED_C17})
+        cam_click["client"] = camera_of(client)   # camera_follow: the client offset right before the click
+        host.ok({"cmd": "set_seed", "seed": SEED_AUTO})
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     pv = {}
     try:
-        pv = aim_click(client, KEY_AUTO, C17_TARGET, before_click)
+        pv = aim_click(client, KEY_AUTO, AUTO_TARGET, before_click)
     except Exception as e:
         notes.append(f"real-UI autoshot: {short(e)}")
     out = await_press(host, client, before, notes)
@@ -896,13 +892,14 @@ def c17_auto(host, client, ctx):
     aid = hits[0]["actionId"] if len(hits) == 1 else None
     chain = chain_of(rec, aid)
     shots = shot_payloads(host, chain)
-    print(f"EVIDENCE C17: staged rifle={rifle} clip={clip} C={pc_} target={C17_TARGET} stagedDiff={staged} "
+    print(f"EVIDENCE auto_three_shots: staged rifle={rifle} clip={clip} C={pc_} target={AUTO_TARGET} "
+          f"stagedDiff={staged} "
           f"aimCancel={aim0} press={pv} outcome={out}; {press_view(before, rec)}; ui={ui_view(before, rec)}; "
           f"newContexts={new}; action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; shots={shot_brief(shots)}; "
           f"host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; items={c_items(rec['ih'], rec['ic'], (rifle, clip))}; "
           f"diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
-    kr3 = kr3_client_fails(chain, seq0, kr3_click.get("client"), cam0, cam1)
+    cam_fails = camera_client_fails(chain, seq0, cam_click.get("client"), cam0, cam1)
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
@@ -910,23 +907,23 @@ def c17_auto(host, client, ctx):
     f, cx = admitted_fails(before, rec, "shoot", C_ID)
     fails += f
     idx = [(p or {}).get("shotIndex") for _, p in shots]
-    if cx and idx != list(range(1, C17_SHOTS + 1)):
-        fails.append(f"`shot` evs of actionId {aid}: shotIndex {idx} (want {list(range(1, C17_SHOTS + 1))} under the "
+    if cx and idx != list(range(1, AUTO_SHOTS + 1)):
+        fails.append(f"`shot` evs of actionId {aid}: shotIndex {idx} (want {list(range(1, AUTO_SHOTS + 1))} under the "
                      f"one context)")
-    fails += tu_fails(rec, C_ID, C17_TU_AFTER)
-    fails += qty_fails(rec, clip, C17_CLIP_AFTER, "clip")
-    fails += common_fails(host, client, before, "C17")
-    fails += kr3
+    fails += tu_fails(rec, C_ID, AUTO_TU_AFTER)
+    fails += qty_fails(rec, clip, AUTO_CLIP_AFTER, "clip")
+    fails += common_fails(host, client, before, "auto_three_shots")
+    fails += cam_fails
     finish(fails)
 
 
-def c17p_pending(host, client, ctx):
+def held_while_busy(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
-    host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": C17P_HOST_FIRE_DIAL})
-    dial = wait_seat_dial(host, client, COOP_SEAT_0, "fire", C17P_HOST_FIRE_DIAL)
+    host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": BUSY_HOST_FIRE_DIAL})
+    dial = wait_seat_dial(host, client, COOP_SEAT_0, "fire", BUSY_HOST_FIRE_DIAL)
     h_rifle, h_clip = give_both(host, client, H_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
-    ph_ = place(host, client, H_ID, C17P_H_TILE, C17P_H_DIR)
+    ph_ = place(host, client, H_ID, BUSY_H_TILE, BUSY_H_DIR)
     set_tu_both(host, client, H_ID, TU_MAX)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
     pc_ = place(host, client, C_ID, C_TILE, 2)
@@ -939,15 +936,15 @@ def c17p_pending(host, client, ctx):
     mid = {"denySeen": None, "pending": None, "banner": None, "hostBusy": None, "inFlightSeen": False}
     pv = {}
     try:
-        host.ok({"cmd": "set_seed", "seed": SEED_C17P})
-        rf = host.ok({"cmd": "battle_fire", "unit": H_ID, "mode": "auto", "x": C17P_H_TARGET[0],
-                      "y": C17P_H_TARGET[1], "z": C17P_H_TARGET[2]})
+        host.ok({"cmd": "set_seed", "seed": SEED_BUSY})
+        rf = host.ok({"cmd": "battle_fire", "unit": H_ID, "mode": "auto", "x": BUSY_H_TARGET[0],
+                      "y": BUSY_H_TARGET[1], "z": BUSY_H_TARGET[2]})
         tl["hostFire"] = (round(time.time() - t0, 3), rf.get("tuCost"))
         client.wait_for("client applied the host autoshot's first shot",
                         lambda: any(e["kind"] == "shot" for e in evs_since(client, seq0)) or None,
                         timeout=20, interval=POLL_S)
         tl["firstShotApplied"] = round(time.time() - t0, 3)
-        pv = aim_click(client, KEY_SNAP, C17P_SNAP_TARGET)
+        pv = aim_click(client, KEY_SNAP, BUSY_SNAP_TARGET)
         tl["click"] = round(pv["clickAt"] - t0, 3)
         mid["hostBusy"] = event_state(host).get("busyOwnerSeat")
         # the client's answer while the host still shoots: up to 3 s for the deny, the held order and the banner
@@ -977,7 +974,7 @@ def c17p_pending(host, client, ctx):
             tl["intentContextClosed"] = round(time.time() - t0, 3)
         client.wait_for("the order is over", lambda: order_done(host, client) or None, timeout=30, interval=0.1)
     except Exception as e:
-        notes.append(f"C17p drive: {short(e)}")
+        notes.append(f"held_while_busy drive: {short(e)}")
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
@@ -990,7 +987,8 @@ def c17p_pending(host, client, ctx):
     chain = chain_of(rec, aid)
     ha = (f"{round(tl['hostContextClosed'] - tl['hostFire'][0], 3)}/{WATCH_CAP_S}s"
           if "hostContextClosed" in tl and "hostFire" in tl else None)   # the host autoshot's span / its cap
-    print(f"EVIDENCE C17p: dial={dial} staged H rifle={h_rifle} clip={h_clip} H={ph_} C rifle={rifle} clip={clip} "
+    print(f"EVIDENCE held_while_busy: dial={dial} staged H rifle={h_rifle} clip={h_clip} H={ph_} C rifle={rifle} "
+          f"clip={clip} "
           f"C={pc_} stagedDiff={staged} aimCancel={aim0} press={pv} timeline={tl} hostAutoshot={ha}; mid={mid}; "
           f"{press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; hostContext={hctx} "
           f"intentContext={ictx} chain={[(e['seq'], e['kind']) for e in chain]}; host evs={ev_tuples(rec['hev'])} "
@@ -1021,12 +1019,12 @@ def c17p_pending(host, client, ctx):
     if cx and hctx and chain and min(e["seq"] for e in chain) <= (hctx[0].get("endSeq") or 0):
         fails.append(f"the held order's first ev seq {min(e['seq'] for e in chain)} is not after the host "
                      f"autoshot's end seq {hctx[0].get('endSeq')} (want it executed after the host's end)")
-    fails += tu_fails(rec, C_ID, C17P_TU_AFTER)
-    fails += common_fails(host, client, before, "C17p")
+    fails += tu_fails(rec, C_ID, BUSY_TU_AFTER)
+    fails += common_fails(host, client, before, "held_while_busy")
     finish(fails)
 
 
-def c16a_aimed(host, client, ctx):
+def aimed_order(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
@@ -1035,7 +1033,7 @@ def c16a_aimed(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_C16A})
+    host.ok({"cmd": "set_seed", "seed": SEED_AIMED})
     req = shoot_req(C_ID, "aimed", rifle, clip, FLOOR_TARGET)
     si = send_intent(host, client, req, notes, timeout=ORDER_TIMEOUT_S)
     if si["sent"] and si["answer"] == "end":
@@ -1049,7 +1047,7 @@ def c16a_aimed(host, client, ctx):
     aid = hits[0]["actionId"] if len(hits) == 1 else None
     chain = chain_of(rec, aid)
     shots = shot_payloads(host, chain)
-    print(f"EVIDENCE C16a: staged rifle={rifle} clip={clip} C={pc_} stagedDiff={staged} aimCancel={aim0} "
+    print(f"EVIDENCE aimed_order: staged rifle={rifle} clip={clip} C={pc_} stagedDiff={staged} aimCancel={aim0} "
           f"request={req} intent={si}; {press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; "
           f"action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; shots={shot_brief(shots)}; "
           f"C host={ubrief(rec['uh'].get(C_ID))} client={ubrief(rec['uc'].get(C_ID))}; diff={rec['diff']} "
@@ -1064,11 +1062,11 @@ def c16a_aimed(host, client, ctx):
     first = shots[0][1] if shots else None
     if cx and (first or {}).get("action") != "aimed":
         fails.append(f"first `shot` of actionId {aid}: {first} (want payload action aimed)")
-    fails += common_fails(host, client, before, "C16a")
+    fails += common_fails(host, client, before, "aimed_order")
     finish(fails)
 
 
-def c16d_denies(host, client, ctx):
+def four_denies(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
@@ -1111,7 +1109,7 @@ def c16d_denies(host, client, ctx):
                      - recv_of(b["host"]["intentsReceived"], "shoot", "admitted"),
                      "cTu": (uh.get("tu"), uc.get("tu"))})
     rec = collect(host, client, seq0)
-    print(f"EVIDENCE C16d: staged rifle={rifle} clip={clip} C={pc_} H right hand={h_item} A2 at={a2} "
+    print(f"EVIDENCE four_denies: staged rifle={rifle} clip={clip} C={pc_} H right hand={h_item} A2 at={a2} "
           f"stagedDiff={staged} aimCancel={aim0} C tu before host/client={c_tu0}; "
           f"variants={[{k: v for k, v in r.items() if k != 'req'} for r in rows]}; "
           f"requests={[r['req'] for r in rows]}; {press_view(first, rec)}; host evs={ev_tuples(rec['hev'])}; "
@@ -1145,11 +1143,11 @@ def c16d_denies(host, client, ctx):
                          f"+{r['denied']} admitted +{r['admitted']} (want +1 / +1 / +0)")
         if r["cTu"] != c_tu0 or c_tu0 != (C_TU_FULL, C_TU_FULL):
             fails.append(f"{tag}: C tu host/client {c_tu0}->{r['cTu']} (want {C_TU_FULL} on both, unchanged)")
-    fails += common_fails(host, client, first, "C16d")
+    fails += common_fails(host, client, first, "four_denies")
     finish(fails)
 
 
-def c16dr_research(host, client, ctx):
+def not_researched_deny(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     isr0 = {gc.name: gc.cmd({"cmd": "is_researched", "topic": RESEARCH_TOPIC}).get("researched")
@@ -1170,7 +1168,8 @@ def c16dr_research(host, client, ctx):
     rec = collect(host, client, seq0)
     new = ctx_view(before, rec)
     q1 = ((rec["ih"].get(pclip) or {}).get("qty"), (rec["ic"].get(pclip) or {}).get("qty"))
-    print(f"EVIDENCE C16d-r: isResearched before={isr0} forget_research={fr} after={isr1} staged pistol={pistol} "
+    print(f"EVIDENCE not_researched_deny: isResearched before={isr0} forget_research={fr} after={isr1} staged "
+          f"pistol={pistol} "
           f"clip={pclip} C={pc_} stagedDiff={staged} aimCancel={aim0} request={req} intent={si}; "
           f"{press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; host evs={ev_tuples(rec['hev'])}; "
           f"C host={ubrief(rec['uh'].get(C_ID))} client={ubrief(rec['uc'].get(C_ID))}; pistol clip qty {q0}->{q1}; "
@@ -1208,7 +1207,7 @@ def c16dr_research(host, client, ctx):
     fails += tu_fails(rec, C_ID, C_TU_FULL)
     if q1 != q0 or q0[0] != q0[1]:
         fails.append(f"pistol clip {pclip} qty host/client {q0}->{q1} (want unchanged and equal)")
-    fails += common_fails(host, client, before, "C16d-r")
+    fails += common_fails(host, client, before, "not_researched_deny")
     finish(fails)
 
 
@@ -1251,26 +1250,27 @@ def slot_view(samples, t_end, timeouts0):
             "timeoutBannerSeen": any(s["banner"] == TEXT_TIMEOUT for s in samples)}
 
 
-def c26_timeout(host, client, ctx):
+def long_order_no_timeout(host, client, ctx):
     notes = []
     aim0 = cancel_client_aim(client)
     tmo = client.ok({"cmd": "set_option", "name": "coopIntentTimeoutSeconds"}).get("value")
-    client.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": C26_XCOM_DIAL})
-    dial1 = wait_seat_dial(host, client, 1, "xcom", C26_XCOM_DIAL)
+    client.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": LONG_WALK_DIAL})
+    dial1 = wait_seat_dial(host, client, 1, "xcom", LONG_WALK_DIAL)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
     pc_ = place(host, client, C_ID, C_TILE, 2)
     set_tu_both(host, client, C_ID, TU_MAX)
     set_firing_both(host, client, C_ID)
-    pp = host.cmd({"cmd": "path_probe", "unit": C_ID, "x": C26_WALK_DEST[0], "y": C26_WALK_DEST[1],
-                   "z": C26_WALK_DEST[2]})
-    cam = host.cmd({"cmd": "battle_camera_center", "x": C26_CAMERA[0], "y": C26_CAMERA[1], "z": C26_CAMERA[2]})
+    pp = host.cmd({"cmd": "path_probe", "unit": C_ID, "x": LONG_WALK_DEST[0], "y": LONG_WALK_DEST[1],
+                   "z": LONG_WALK_DEST[2]})
+    cam = host.cmd({"cmd": "battle_camera_center", "x": LONG_WALK_CAMERA[0], "y": LONG_WALK_CAMERA[1],
+                    "z": LONG_WALK_CAMERA[2]})
     staged = diff_buckets(host, client)
     # ---- leg 1: the long client walk ----
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cw0 = (event_state(client).get("lastWalk") or {}).get("actionId")
     t0 = time.time()
-    rw = client.cmd({"cmd": "battle_intent", "kind": "walk", "actor": C_ID, "dest": jt(C26_WALK_DEST)})
+    rw = client.cmd({"cmd": "battle_intent", "kind": "walk", "actor": C_ID, "dest": jt(LONG_WALK_DEST)})
     s1 = []
     if rw.get("ok"):
         s1 = watch(host, client, t0, lambda s: (s["clientWalk"][0] not in (None, cw0) and s["clientWalk"][1] is False
@@ -1288,17 +1288,17 @@ def c26_timeout(host, client, ctx):
     rec1 = collect(host, client, seq0)
     sv1 = slot_view(s1, t_end1, before["client"]["intentTimeouts"])
     new1 = ctx_view(before, rec1)
-    # ---- leg 2 (green only, declared): the client's own long autoshot ----
+    # ---- leg 2: the client's own long autoshot ----
     notes2 = []
     dial2, pc2, pv2, s2, t_end2, rec2, before2, sv2 = None, None, {}, [], None, None, None, {}
     try:
-        client.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": C26_FIRE_DIAL})
-        dial2 = wait_seat_dial(host, client, 1, "fire", C26_FIRE_DIAL)
+        client.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": LONG_FIRE_DIAL})
+        dial2 = wait_seat_dial(host, client, 1, "fire", LONG_FIRE_DIAL)
         pc2 = place(host, client, C_ID, C_TILE, 2)
         set_tu_both(host, client, C_ID, TU_MAX)
         before2 = snap(host, client)
         seq2 = before2["host"]["lastSeqEmitted"] or 0
-        pv2 = aim_click(client, KEY_AUTO, C17_TARGET, lambda: host.ok({"cmd": "set_seed", "seed": SEED_C17}))
+        pv2 = aim_click(client, KEY_AUTO, AUTO_TARGET, lambda: host.ok({"cmd": "set_seed", "seed": SEED_AUTO}))
         t2 = pv2["clickAt"]
         sent = {"v": False}
 
@@ -1322,7 +1322,8 @@ def c26_timeout(host, client, ctx):
     aid2 = hits2[0]["actionId"] if len(hits2) == 1 else None
     shots2 = shot_payloads(host, chain_of(rec2, aid2)) if rec2 else []
     w1, w2 = (f"{s[-1]['t'] if s else None}/{WATCH_CAP_S}s" for s in (s1, s2))   # each watch's span / its cap
-    print(f"EVIDENCE C26: timeoutOption={tmo} walkDial={dial1} staged rifle={rifle} clip={clip} C={pc_} "
+    print(f"EVIDENCE long_order_no_timeout: timeoutOption={tmo} walkDial={dial1} staged rifle={rifle} clip={clip} "
+          f"C={pc_} "
           f"path_probe={ {k: pp.get(k) for k in ('reachable', 'steps', 'tuCost')} } camera={cam.get('ok')} "
           f"stagedDiff={staged} aimCancel={aim0}; LEG1 walk intent={rw} tEnd={t_end1} watched={w1} slot={sv1} banners="
           f"{banners(s1)} samples={len(s1)}; {press_view(before, rec1)}; newContexts={new1}; host lastWalk="
@@ -1334,11 +1335,11 @@ def c26_timeout(host, client, ctx):
     fails = list(notes)
     if tmo != TIMEOUT_DEFAULT_S:
         fails.append(f"precondition: client coopIntentTimeoutSeconds {tmo} (want the default {TIMEOUT_DEFAULT_S})")
-    if pp.get("steps") != C26_WALK_STEPS:
-        fails.append(f"precondition: path_probe C -> {C26_WALK_DEST} {pp} (want {C26_WALK_STEPS} steps)")
+    if pp.get("steps") != LONG_WALK_STEPS:
+        fails.append(f"precondition: path_probe C -> {LONG_WALK_DEST} {pp} (want {LONG_WALK_STEPS} steps)")
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
-    # leg 1 (F428 on a long walk)
+    # leg 1 (no timeout on a long walk)
     if not rw.get("ok"):
         fails.append(f"leg 1: battle_intent walk answered {rw} (want sent)")
     if t_end1 is not None and t_end1 <= (tmo or TIMEOUT_DEFAULT_S):
@@ -1346,17 +1347,17 @@ def c26_timeout(host, client, ctx):
     if sv1.get("tTimeout") is not None or sv1.get("timeoutBannerSeen"):
         fails.append(f"leg 1: the client timed out at +{sv1.get('tTimeout')} s (banner seen "
                      f"{sv1.get('timeoutBannerSeen')}) while the host walked {sv1.get('hostWalkAtTimeout')} "
-                     f"(want no timeout: F428)")
+                     f"(want no timeout)")
     if sv1.get("gapCount"):
         fails.append(f"leg 1: client inFlight null before the walk's end at +{sv1.get('slotEmptyBeforeEnd')} s "
                      f"(want the slot held until the walk's bt_action_end)")
     for n, u in (("host", rec1["uh"].get(C_ID)), ("client", rec1["uc"].get(C_ID))):
-        if upos(u) != C26_WALK_DEST:
-            fails.append(f"leg 1: {n} C at {upos(u)} (want {C26_WALK_DEST})")
+        if upos(u) != LONG_WALK_DEST:
+            fails.append(f"leg 1: {n} C at {upos(u)} (want {LONG_WALK_DEST})")
     f, _ = admitted_fails(before, rec1, "walk", C_ID)
     fails += [f"leg 1: {m}" for m in f]
-    fails += [f"leg 1: {m}" for m in common_fails(host, client, before, "C26 leg 1")]
-    # leg 2 (green only, declared)
+    fails += [f"leg 1: {m}" for m in common_fails(host, client, before, "long_order_no_timeout leg 1")]
+    # leg 2
     fails += [f"leg 2: {m}" for m in notes2]
     if rec2 is not None and before2 is not None:
         if t_end2 is None:
@@ -1365,21 +1366,22 @@ def c26_timeout(host, client, ctx):
             fails.append(f"leg 2: the order ended at +{t_end2} s, not after the {tmo} s timeout (the leg proves "
                          f"nothing)")
         if sv2.get("tTimeout") is not None or sv2.get("timeoutBannerSeen"):
-            fails.append(f"leg 2: the client timed out at +{sv2.get('tTimeout')} s (want no timeout: F428)")
+            fails.append(f"leg 2: the client timed out at +{sv2.get('tTimeout')} s (want no timeout)")
         if t_end2 is not None and sv2.get("gapCount"):
             fails.append(f"leg 2: client inFlight null before the order's end at +{sv2.get('slotEmptyBeforeEnd')} s")
         f2, cx2 = admitted_fails(before2, rec2, "shoot", C_ID)
         fails += [f"leg 2: {m}" for m in f2]
         idx = [(p or {}).get("shotIndex") for _, p in shots2]
-        if cx2 and idx != list(range(1, C17_SHOTS + 1)):
-            fails.append(f"leg 2: shotIndex {idx} (want {list(range(1, C17_SHOTS + 1))} under one context)")
+        if cx2 and idx != list(range(1, AUTO_SHOTS + 1)):
+            fails.append(f"leg 2: shotIndex {idx} (want {list(range(1, AUTO_SHOTS + 1))} under one context)")
         fails += forwarded_fails(before2, rec2)
-        fails += [f"leg 2: {m}" for m in common_fails(host, client, before2, "C26 leg 2")]
+        fails += [f"leg 2: {m}" for m in common_fails(host, client, before2, "long_order_no_timeout leg 2")]
     finish(fails)
 
 
-SCENARIOS = (("C16", c16_snap_kill), ("C16h", c16h_halt), ("C17", c17_auto), ("C17p", c17p_pending),
-             ("C16a", c16a_aimed), ("C16d", c16d_denies), ("C16d-r", c16dr_research), ("C26", c26_timeout))
+SCENARIOS = (("snap_kill", snap_kill), ("halt_no_tu", halt_no_tu), ("auto_three_shots", auto_three_shots),
+             ("held_while_busy", held_while_busy), ("aimed_order", aimed_order), ("four_denies", four_denies),
+             ("not_researched_deny", not_researched_deny), ("long_order_no_timeout", long_order_no_timeout))
 
 
 # ===================== bring-up =====================
@@ -1394,7 +1396,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p4-sa")
+    pinned = pin_ai_neutral(host, client, tag="client_shoot")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
     seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
@@ -1411,12 +1413,12 @@ def boot(host, client):
         es = event_state(gc)
         assert (isinstance(es.get("coopIntentsSent"), dict) and isinstance(es.get("intentsReceived"), dict)
                 and "lastActionHalt" in es and "lastAftermath" in es), (
-            f"{gc.name} event_state lacks the W2-P4 probes: coopIntentsSent={es.get('coopIntentsSent')!r} "
+            f"{gc.name} event_state lacks the intent probes: coopIntentsSent={es.get('coopIntentsSent')!r} "
             f"intentsReceived={es.get('intentsReceived')!r} lastActionHalt present={'lastActionHalt' in es} "
             f"lastAftermath present={'lastAftermath' in es}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2p4-sa] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={seated_uids} H={H_ID} "
+    print(f"[client_shoot] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={seated_uids} H={H_ID} "
           f"pinned={len(pinned)} C={ubrief(ub.get(C_ID))} A={ubrief(ub.get(A_ID))} A2={ubrief(ub.get(A2_ID))}",
           flush=True)
     return {}
@@ -1424,8 +1426,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49870, make_user_dir("w2p4_client_shoot_host"))
-    client = GameClient("client", 49871, make_user_dir("w2p4_client_shoot_client"))
+    host = GameClient("host", 49870, make_user_dir("client_shoot_host"))
+    client = GameClient("client", 49871, make_user_dir("client_shoot_client"))
     results = {}
     try:
         try:
@@ -1447,7 +1449,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p4-sa] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[client_shoot] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_client_shoot: {len(passed)}/{len(SCENARIOS)} passed "

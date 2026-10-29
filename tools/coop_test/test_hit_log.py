@@ -30,8 +30,8 @@ pin_ai_neutral). Four rows, in this order:
       (the turn-0 NEW_TURN on seq TURN0_SEQ included); the client applied
       exactly the host's entries (same seq, t, f, k); nothing pending.
       RED: the client's text lacks the host's entries (it stays "Neue Runde").
-  L2  C16's staging (test_client_shoot) on L1's boot: H back on its bring-up
-      tile and facing, the target is A2 on C16's A_TILE (A died in L1); the
+  L2  snap_kill's staging (test_client_shoot) on L1's boot: H back on its bring-up
+      tile and facing, the target is A2 on snap_kill's A_TILE (A died in L1); the
       client's real-UI snap. GREEN: the host's text and diary ==
       TEXT_L2_EN / DIARY_L2_EN (it starts with the partner's weapon line), the
       client's == TEXT_L2_DE / DIARY_L2_DE (it starts with the German weapon
@@ -102,8 +102,8 @@ from test_host_combat import (bring_up_lobby_roster_pinned, open_hand_menu_host,
                                  C1_A_DIR, C1_A_HEALTH, C1_ITEMS, SEED_C1, FIRING_120, KEY_ITEM2, STATUS_DEAD,
                                  FACTION_HOSTILE, COOP_SEAT_0)
 from test_client_shoot import (snap as order_snap, give_both, place, set_tu_both, set_firing_both,
-                                  cancel_client_aim, aim_click, await_press, C_ID, C_TILE, C16_C_DIR, A_TILE, A_DIR,
-                                  A_HEALTH, SEED_C16, KEY_SNAP, TU_MAX, SEATED)
+                                  cancel_client_aim, aim_click, await_press, C_ID, C_TILE, SNAP_C_DIR, A_TILE, A_DIR,
+                                  A_HEALTH, SEED_SNAP_KILL, KEY_SNAP, TU_MAX, SEATED)
 from test_ai_origins import end_turn_cycle
 
 # ----- bring-up -----
@@ -139,7 +139,8 @@ TURN0_SEQ = 3                    # T0L-1 (F4236, 3/3): the host's turn-0 NEW_TUR
 L1_ENTRIES = 3                   # T0L-1: C1 = PLAYER_FIRING 'Rifle', NEW_SHOT, SMALL_DAMAGE (carriers seqs 9 / 10 / 11)
 L1_ENTRY_TYPES = [(HL_PLAYER_FIRING, FACTION_PLAYER, ["STR_RIFLE"]), (HL_NEW_SHOT, FACTION_PLAYER, None),
                   (HL_SMALL_DAMAGE, FACTION_PLAYER, None)]
-L2_ENTRIES = 3                   # T0L-1: C16 = NEW_SHOT, SMALL_DAMAGE today + S-L.2's partner weapon line (V6) first
+L2_ENTRIES = 3                   # T0L-1: snap_kill = NEW_SHOT, SMALL_DAMAGE today + S-L.2's partner weapon line
+                                 # (V6) first
 L2_ENTRY_TYPES = L1_ENTRY_TYPES
 TEXT_NEW_TURN_EN = STRINGS_EN["NEW_TURN"]
 TEXT_NEW_TURN_DE = STRINGS_DE["NEW_TURN"]
@@ -417,7 +418,7 @@ def l2_client_snap(host, client, ctx):
     notes = []
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
-    # C16's staging (test_client_shoot.c16_snap_kill) on L1's boot: H back on its bring-up tile and facing (C1
+    # snap_kill's staging (test_client_shoot.snap_kill) on L1's boot: H back on its bring-up tile and facing (C1
     # left it on C_TILE), A2 stands in for A (dead since L1) on A_TILE; client first on every lever
     hx, hy, hz, hd = ctx["hHome"]
     uh = units(host).get(H_ID) or {}
@@ -426,7 +427,7 @@ def l2_client_snap(host, client, ctx):
         h_back = tele_both(host, client, H_ID, (hx, hy, hz), hd)
     aim0 = cancel_client_aim(client)
     rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
-    pc_ = place(host, client, C_ID, C_TILE, C16_C_DIR)
+    pc_ = place(host, client, C_ID, C_TILE, SNAP_C_DIR)
     pa_ = place(host, client, A2_ID, A_TILE, A_DIR)
     both(host, client, {"cmd": "battle_set_unit_state", "unit": A2_ID, "health": A_HEALTH},
          ("health", "stun", "status"))
@@ -437,7 +438,7 @@ def l2_client_snap(host, client, ctx):
     seq0 = before["host"]["lastSeqEmitted"] or 0
     pv = {}
     try:
-        pv = aim_click(client, KEY_SNAP, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": SEED_C16}))
+        pv = aim_click(client, KEY_SNAP, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": SEED_SNAP_KILL}))
     except Exception as e:
         notes.append(f"L2 real-UI snap: {short(e)}")
     out = await_press(host, client, before, notes)

@@ -1,10 +1,11 @@
 """test_fatal_vote_partner.py: the fatal-wounds vote after a partner's kill (V9) and in PvP (E6v).
 Spec, rulings, staging, answers, Q11 and the shared assertions: test_fatal_vote.py (whose helpers this file runs);
-the split is SV-T1 (P7-5b): V9 on test_client_shoot's C16 terror bring-up, E6v on test_battle_end_rules'
+the split is SV-T1 (P7-5b): V9 on test_client_shoot's snap_kill terror bring-up, E6v on test_battle_end_rules'
 gm2 boot_pvp.
 
-  V9  (Q8 (a)) the client's own real-UI snap kills the last alien (C16: SEED_MAP 1 terror map, C = 8 with a rifle
-      at C_TILE, A = 1000000 at A_TILE with health 1, set_seed SEED_C16 right before the click). SV-T3: the 12 other
+  V9  (Q8 (a)) the client's own real-UI snap kills the last alien (snap_kill: SEED_MAP 1 terror map, C = 8 with a rifle
+      at C_TILE, A = 1000000 at A_TILE with health 1, set_seed SEED_SNAP_KILL right before the click).
+      SV-T3: the 12 other
       hostiles die first (one host kill_unit_real each, auto-end still off), then stage_v turns auto-end on and wounds
       WS1 = C2 = 9 (client first). Green: the host never shows the question (it does not vote) and opens the vote
       only after the shot's chain: the open ev's seq > the shot context's bt_action_end seq (SV-T4, relations only);
@@ -63,7 +64,8 @@ def shoot_end(host):
 
 
 def stage_c16(r):
-    """SV-T3 + the C16 staging (test_client_shoot.c16_snap_kill without its D4 option toggle and KR3 camera)."""
+    """SV-T3 + the snap_kill staging (test_client_shoot.snap_kill without its ghost_option_off option toggle and
+    camera_follow camera)."""
     h, c = r.host, r.client
     ae = h.cmd({"cmd": "set_option", "name": "battleAutoEnd"}).get("value")
     hs = battle_state(h)
@@ -86,7 +88,8 @@ def stage_c16(r):
         r.fail("pre", f"wait_host_idle after the kills: {fvt.short(e)}")
     staging = {"kills": kills, "aim0": cs.cancel_client_aim(c),
                "rifle": cs.give_both(h, c, cs.C_ID, "STR_RIFLE", "STR_RIFLE_CLIP"),
-               "C": cs.place(h, c, cs.C_ID, cs.C_TILE, cs.C16_C_DIR), "A": cs.place(h, c, cs.A_ID, cs.A_TILE, cs.A_DIR),
+               "C": cs.place(h, c, cs.C_ID, cs.C_TILE, cs.SNAP_C_DIR),
+               "A": cs.place(h, c, cs.A_ID, cs.A_TILE, cs.A_DIR),
                "Ahealth": cs.both(h, c, {"cmd": "battle_set_unit_state", "unit": cs.A_ID, "health": cs.A_HEALTH},
                                   ("health", "stun", "status")),
                "tu": cs.set_tu_both(h, c, cs.C_ID, cs.TU_MAX)}
@@ -142,7 +145,8 @@ def row_v9(r):
     stage_c16(r)
     census = fvt.stage_v(r, [cs.C2_ID], seat_pins=((0, cs.H_ID), (1, cs.C_ID)))
     try:
-        r.ev["press"] = cs.aim_click(c, cs.KEY_SNAP, cs.A_TILE, lambda: h.ok({"cmd": "set_seed", "seed": cs.SEED_C16}))
+        r.ev["press"] = cs.aim_click(c, cs.KEY_SNAP, cs.A_TILE,
+                                     lambda: h.ok({"cmd": "set_seed", "seed": cs.SEED_SNAP_KILL}))
     except Exception as e:
         r.fail("pre", f"the client's real-UI snap: {fvt.short(e)}")
     ok, trace = fvt.detect_open(r)

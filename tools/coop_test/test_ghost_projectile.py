@@ -200,7 +200,7 @@ A_G3_TU = 60                              # A's TU (base and current) for the st
 H_G3_HEALTH = 500                         # H survives the plasma shot
 SEED_G3 = 1                               # a miss off the map: impact 5 at (-1,420,12), host trajLen 292, speed 4
 
-# ----- G4 (test_client_shoot C17) -----
+# ----- G4 (test_client_shoot auto_three_shots) -----
 SEED_G4 = 1                               # floors at (778,409,1) / (512,396,1) / (518,415,1), trajLen 573/307/313
 G4_SHOTS = 3
 

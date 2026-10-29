@@ -218,7 +218,7 @@ def boot(x):
         assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
         session.wait_host_idle(host, client, timeout=30)
         session.assert_hash_clean(host, client, full=True, what="w2u8c boot")
-        pc = cs.place(host, client, cs.C_ID, cs.C_TILE, cs.C16_C_DIR)
+        pc = cs.place(host, client, cs.C_ID, cs.C_TILE, cs.SNAP_C_DIR)
         c_on = [cs.upos(cs.units(g).get(cs.C_ID)) for g in (host, client)]
         assert c_on == [tuple(cs.C_TILE)] * 2, f"C on host/client {c_on}, want {cs.C_TILE} on both"
     except Exception as e:
