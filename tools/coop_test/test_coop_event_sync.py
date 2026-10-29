@@ -37,7 +37,7 @@ Session 2 (research sync off):
   E8 the host-only event's research does not reach the client.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 2: a precondition never held; MG-F).
+    FAIL (exit 2: a precondition never held).
 """
 import os
 import sys
