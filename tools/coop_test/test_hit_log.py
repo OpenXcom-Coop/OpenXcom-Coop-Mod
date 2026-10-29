@@ -1,20 +1,15 @@
 """test_hit_log.py: the battle's hit log (Ctrl-H) on both machines,
-the same log as the host's, each machine in its own language -
-spec docs rewrite/prompts/w2p6_display_two.md: AMENDMENT P6-5 section 6 (the
-pinned stage text, rows L1-L4; P6-5 Q3 (a) the envelope carrier, Q4 (a) the
-client writes SavedBattleGame::appendToHitLog, Q5 (a) a German client),
-AMENDMENT P6-6 section 5 (Q2 (a): the host records in phase Handshake or Active)
-and the P6-6k S-L TASK 0 RULINGS (SL-1; T0L-1 = F4235-F4244).
+the same log as the host's, each machine in its own language.
 
-Before S-L.2 the second player's hit log holds only its own entries: the turn
-headers its own next-turn screen writes and a weapon line for every attack it
-picked itself; the host's shots, hits and reactions never reach it, and the
-host's log has no weapon line for the second player's attack. After
-S-L.2 the HOST mirrors every entry that passes vanilla's player-side check as
+The HOST mirrors every entry that passes vanilla's player-side check as
 {t: type, f: faction, k: [keys]} on its next outermost emit (the envelope field
-`hitLog`), the CLIENT appends each entry through SavedBattleGame::appendToHitLog
-rendered by its own Language, its own weapon line is suppressed (V7) and the
-host logs the partner's weapon line at the order's executor (V6).
+`hitLog`), recording in phase Handshake or Active; the CLIENT appends each
+entry through SavedBattleGame::appendToHitLog rendered by its own Language, its
+own weapon line is suppressed and the host logs the partner's weapon line at
+the order's executor. When broken, the second player's hit log holds only its
+own entries: the turn headers its own next-turn screen writes and a weapon line
+for every attack it picked itself; the host's shots, hits and reactions never
+reach it, and the host's log has no weapon line for the second player's attack.
 
 ONE boot, the host in English and the CLIENT in German (options `language: de`):
 the roster-pinned terror boot of test_host_combat.py (set_seed SEED_ROSTER
@@ -22,65 +17,67 @@ on the host right before its open_new_battle, STR_TERROR_MISSION, set_seed
 SEED_MAP right before newbattle_ok, seat_count 2, MAP_FP on both,
 pin_ai_neutral). Four rows, in this order:
 
-  L1  host_kill's staging (test_host_combat): the host's real-UI snap kills A.
-      GREEN: the host's hitLog.text and diary == the English rendering of its
-      sent entries == TEXT_L1_EN / DIARY_L1_EN; the client's == the German
-      rendering of the same entries == TEXT_L1_DE / DIARY_L1_DE; the host sent
-      L1_ENTRIES entries in the row (L1_ENTRY_TYPES) and L1_ENTRIES + 1 from boot
-      (the turn-0 NEW_TURN on seq TURN0_SEQ included); the client applied
-      exactly the host's entries (same seq, t, f, k); nothing pending.
-      RED: the client's text lacks the host's entries (it stays "Neue Runde").
-  L2  snap_kill's staging (test_client_shoot) on L1's boot: H back on its bring-up
-      tile and facing, the target is A2 on snap_kill's A_TILE (A died in L1); the
-      client's real-UI snap. GREEN: the host's text and diary ==
-      TEXT_L2_EN / DIARY_L2_EN (it starts with the partner's weapon line), the
-      client's == TEXT_L2_DE / DIARY_L2_DE (it starts with the German weapon
-      name), the client's localSuppressed +1, the host sent L2_ENTRIES
-      (L2_ENTRY_TYPES) and the client applied exactly them. RED: no host
-      weapon line (the host's shot entries append to L1's log); the client's
-      text is its own local log (its own weapon line only).
-  L4  after L2: the client's Ctrl-H (inject_input {key 104, mod ctrl}, then
-      {kind modstate, mod none} once the chord is consumed). GREEN: the
-      client's top InfoboxState shows its hitLog.text, which == TEXT_L2_DE
-      (the host's entries); one left click closes it (BattlescapeState on top,
-      the click sent within INFOBOX_CLICK_S of the box being seen); no order
-      sent and the selection unchanged. RED: the box's text lacks the host's
-      entries.
-  L3  both press END TURN; the next player side. GREEN (declared green at
-      red): host hitLog.text == "New Turn", client == "Neue Runde", both
-      diaries []. The host's pending NEW_TURN (SL-1) is recorded, not asserted.
+  host_snap  host_kill's staging (test_host_combat): the host's real-UI snap
+      kills A. The host's hitLog.text and diary == the English rendering of
+      its sent entries == TEXT_HOST_SNAP_EN / DIARY_HOST_SNAP_EN; the client's
+      == the German rendering of the same entries == TEXT_HOST_SNAP_DE /
+      DIARY_HOST_SNAP_DE; the host sent HOST_SNAP_ENTRIES entries in the row
+      (HOST_SNAP_ENTRY_TYPES) and HOST_SNAP_ENTRIES + 1 from boot (the turn-0
+      NEW_TURN on seq TURN0_SEQ included); the client applied exactly the
+      host's entries (same seq, t, f, k); nothing pending. When broken: the
+      client's text lacks the host's entries (it stays "Neue Runde").
+  client_snap  snap_kill's staging (test_client_shoot) on host_snap's boot: H
+      back on its bring-up tile and facing, the target is A2 on snap_kill's
+      A_TILE (A died in host_snap); the client's real-UI snap. The host's text
+      and diary == TEXT_CLIENT_SNAP_EN / DIARY_CLIENT_SNAP_EN (it starts with
+      the partner's weapon line), the client's == TEXT_CLIENT_SNAP_DE /
+      DIARY_CLIENT_SNAP_DE (it starts with the German weapon name), the
+      client's localSuppressed +1, the host sent CLIENT_SNAP_ENTRIES
+      (CLIENT_SNAP_ENTRY_TYPES) and the client applied exactly them. When
+      broken: no host weapon line (the host's shot entries append to
+      host_snap's log); the client's text is its own local log (its own weapon
+      line only).
+  ctrl_h_box  after client_snap: the client's Ctrl-H (inject_input {key 104,
+      mod ctrl}, then {kind modstate, mod none} once the chord is consumed).
+      The client's top InfoboxState shows its hitLog.text, which ==
+      TEXT_CLIENT_SNAP_DE (the host's entries); one left click closes it
+      (BattlescapeState on top, the click sent within INFOBOX_CLICK_S of the
+      box being seen); no order sent and the selection unchanged. When broken:
+      the box's text lacks the host's entries.
+  end_turn  both press END TURN; the next player side. Host hitLog.text ==
+      "New Turn", client == "Neue Runde", both diaries [] (this row passes
+      without the mirror too). The host's pending NEW_TURN is recorded, not
+      asserted.
 
 Common asserts per row: hash_now {full: true} every bucket EQUAL, desyncSeen
 false on both, the client's coopClientBStatePushes unchanged and the host's 0,
-the client's rngSeed unchanged across the row (V4).
+the client's rngSeed unchanged across the row.
 
-Probes (commit S-L.1; storage and readers only, nothing writes the mirror
-until S-L.2): battle_state `hitLog` {text: HitLog::getHitLogText(), diary:
+Probes: battle_state `hitLog` {text: HitLog::getHitLogText(), diary:
 HitLog::getTurnDiary()} and event_state `hitLogMirror` {noted, sent, applied,
 localSuppressed, pending, dropped, last: [the last 32 entries {seq, t, f, k?}]}
-(CoopDelta.h coopHitLogMirrorProbe()), both machines. The helpers below
-(hl_snap, hl_render, the strings) are shared by test_reaction_prox.py (L5)
-and test_client_melee_psi.py (hit_log_weapon).
+(CoopDelta.h coopHitLogMirrorProbe()), both machines. Some helpers below
+(hl_snap, hl_view and the strings among them) are shared by
+test_reaction_prox.py (its reaction-fire row) and test_client_melee_psi.py
+(hit_log_weapon).
 
-Pins: the entry counts and orders are TASK 0 T0L-1's (ledger `## W2-P6 S-L
-TASK 0 (T0L-1) DONE`, F4235-F4244, 3/3 runs); the German strings are T0L-2's
-(this file's bring-up on the S-L.1 build: "Neue Runde" and "Gewehr" rendered by
-the running German client itself, "=> " and "Treffer" read from the language
+Pins: the entry counts and orders were measured on three runs; the German
+strings come from this file's bring-up ("Neue Runde" and "Gewehr" rendered by
+a running German client itself, "=> " and "Treffer" read from the language
 file that client loads, bin/x64/Release/common/Language/OXCE/de.yml).
 
 Ports: GameClient 49992 /
 49993 (labels only), lobby PORT 48659.
 
-RED-THEN-GREEN. Commit S-L.1 is run ONCE: exit 2
-with exactly L1, L2 and L4 failing (each on its RED above) and L3 passing.
-Commit S-L.2 is run ONCE: all four pass. Each row prints ONE "EVIDENCE <id>:"
-line before its conditions are checked; main() runs every row even after an
-earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait
-is bounded; a wait that times out is recorded and fails the row.
+When broken, host_snap, client_snap and ctrl_h_box fail (each as described
+above) and end_turn passes. Each row prints ONE "EVIDENCE <id>:" line before
+its conditions are checked; main() runs every row even after an earlier one
+failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded;
+a wait that times out is recorded and fails the row.
 
-one run is the result. No skip path, no second boot, no
+One run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all four rows pass, 2 otherwise (a
-bring-up failure is also 2). run in the foreground to completion.
+bring-up failure is also 2).
 
 Run:  python tools/coop_test/test_hit_log.py
 """
@@ -107,9 +104,9 @@ from test_client_shoot import (snap as order_snap, give_both, place, set_tu_both
 from test_ai_origins import end_turn_cycle
 
 # ----- bring-up -----
-PORT = "48659"                   # AMENDMENT P6-5 section 6 / P6-6 section 3 (F3205, F3922: 0 uses at the tip)
+PORT = "48659"                   # no other test uses this lobby port
 HOST_PORT, CLIENT_PORT = 49992, 49993
-CLIENT_OPTIONS = {"language": "de"}   # AMENDMENT P6-5 section 6, Q5 (a): the second player's machine in German
+CLIENT_OPTIONS = {"language": "de"}   # the second player's machine in German
 FACTION_PLAYER = 0
 
 # ----- vanilla HitLog (src/Savegame/HitLog.h HitLogEntryType; HitLog.cpp) -----
@@ -119,40 +116,41 @@ HL_NAMES = {HL_EMPTY: "EMPTY", HL_NEW_TURN: "NEW_TURN", HL_NEW_TURN_MSG: "NEW_TU
             HL_PLAYER_FIRING: "PLAYER_FIRING", HL_REACTION_FIRE: "REACTION_FIRE", HL_NEW_SHOT: "NEW_SHOT",
             HL_NO_DAMAGE: "NO_DAMAGE", HL_SMALL_DAMAGE: "SMALL_DAMAGE", HL_BIG_DAMAGE: "BIG_DAMAGE"}
 # The STR_HIT_LOG_* strings HitLog's constructor caches, and the weapon names the rows' PLAYER_FIRING entries carry.
-# English (the host here; both machines in L5 / hit_log_weapon): bin/common/Language/OXCE/en-US.yml :315-:327 and
-# bin/standard/xcom1/Language/en-US.yml; "New Turn", "Rifle", "=> " and "hit " are rendered by the running host
-# itself in L1 (its own vanilla log), the weapon names by the running English client's own local weapon line at red.
+# English (the host here; both machines in test_reaction_prox's reaction-fire row and test_client_melee_psi's
+# hit_log_weapon): bin/common/Language/OXCE/en-US.yml :315-:327 and bin/standard/xcom1/Language/en-US.yml; "New Turn",
+# "Rifle", "=> " and "hit " are rendered by the running host itself in host_snap (its own vanilla log), the weapon
+# names are those an English client renders for its own weapon line.
 STRINGS_EN = {"NEW_TURN": "New Turn", "REACTION_FIRE": "Reaction fire...", "NEW_BULLET": "=> ", "NO_DAMAGE": "0 ",
               "SMALL_DAMAGE": "hit ", "BIG_DAMAGE": "HIT "}
 WEAPONS_EN = {"STR_RIFLE": "Rifle", "STR_STUN_ROD": "Stun Rod", "STR_PSI_AMP": "Psi-Amp",
               "STR_MIND_PROBE": "Mind Probe"}
-# German (T0L-2): "Neue Runde" (STR_HIT_LOG_NEW_TURN) is rendered by the running German client's own next-turn
-# screen (battle entry, L3) and "Gewehr" (STR_RIFLE) by its own weapon line at red (L2); "=> " and "Treffer"
-# cannot be rendered by the client before S-L.2 and come from the de.yml it loads (common/Language/OXCE/de.yml
-# :241-:251, deployed copy byte-equal to bin/common). No umlaut in any string a row reads.
+# German: "Neue Runde" (STR_HIT_LOG_NEW_TURN) is rendered by the running German client's own next-turn screen
+# (battle entry, end_turn) and "Gewehr" (STR_RIFLE) is the name a German client renders for its own weapon line;
+# "=> " and "Treffer" come from the de.yml it loads (common/Language/OXCE/de.yml :241-:251, deployed copy byte-equal
+# to bin/common). No umlaut in any string a row reads.
 STRINGS_DE = {"NEW_TURN": "Neue Runde", "REACTION_FIRE": "Reaktionsfeuer...", "NEW_BULLET": "=> ", "NO_DAMAGE": "0 ",
               "SMALL_DAMAGE": "Treffer", "BIG_DAMAGE": "TREFFER"}
 WEAPONS_DE = {"STR_RIFLE": "Gewehr"}
 
 # ----- the rows' pins -----
-TURN0_SEQ = 3                    # T0L-1 (F4236, 3/3): the host's turn-0 NEW_TURN (phase Active) rides seq 3 (`reveal`)
-L1_ENTRIES = 3                   # T0L-1: host_kill = PLAYER_FIRING 'Rifle', NEW_SHOT, SMALL_DAMAGE
+TURN0_SEQ = 3                    # the host's turn-0 NEW_TURN (phase Active) rides seq 3 (`reveal`), 3 of 3 runs
+HOST_SNAP_ENTRIES = 3            # host_kill = PLAYER_FIRING 'Rifle', NEW_SHOT, SMALL_DAMAGE
                                  # (carriers seqs 9 / 10 / 11)
-L1_ENTRY_TYPES = [(HL_PLAYER_FIRING, FACTION_PLAYER, ["STR_RIFLE"]), (HL_NEW_SHOT, FACTION_PLAYER, None),
+HOST_SNAP_ENTRY_TYPES = [(HL_PLAYER_FIRING, FACTION_PLAYER, ["STR_RIFLE"]), (HL_NEW_SHOT, FACTION_PLAYER, None),
                   (HL_SMALL_DAMAGE, FACTION_PLAYER, None)]
-L2_ENTRIES = 3                   # T0L-1: snap_kill = NEW_SHOT, SMALL_DAMAGE today + S-L.2's partner weapon line
-                                 # (V6) first
-L2_ENTRY_TYPES = L1_ENTRY_TYPES
+CLIENT_SNAP_ENTRIES = 3          # snap_kill = the partner's weapon line the host logs, then NEW_SHOT,
+                                 # SMALL_DAMAGE
+CLIENT_SNAP_ENTRY_TYPES = HOST_SNAP_ENTRY_TYPES
 TEXT_NEW_TURN_EN = STRINGS_EN["NEW_TURN"]
 TEXT_NEW_TURN_DE = STRINGS_DE["NEW_TURN"]
 # the renderings at each row's end (HitLog.cpp: PLAYER_FIRING writes "<weapon>\n\n" after pushing the previous text,
 # its line breaks as spaces, to the turn diary; NEW_SHOT appends "=> "; a hit appends its damage class)
-TEXT_L1_EN, DIARY_L1_EN = "Rifle\n\n=> hit ", ["New Turn"]
-TEXT_L1_DE, DIARY_L1_DE = "Gewehr\n\n=> Treffer", ["Neue Runde"]
-TEXT_L2_EN, DIARY_L2_EN = "Rifle\n\n=> hit ", ["New Turn", "Rifle  => hit "]
-TEXT_L2_DE, DIARY_L2_DE = "Gewehr\n\n=> Treffer", ["Neue Runde", "Gewehr  => Treffer"]
+TEXT_HOST_SNAP_EN, DIARY_HOST_SNAP_EN = "Rifle\n\n=> hit ", ["New Turn"]
+TEXT_HOST_SNAP_DE, DIARY_HOST_SNAP_DE = "Gewehr\n\n=> Treffer", ["Neue Runde"]
+TEXT_CLIENT_SNAP_EN, DIARY_CLIENT_SNAP_EN = "Rifle\n\n=> hit ", ["New Turn", "Rifle  => hit "]
+TEXT_CLIENT_SNAP_DE, DIARY_CLIENT_SNAP_DE = "Gewehr\n\n=> Treffer", ["Neue Runde", "Gewehr  => Treffer"]
 
-# ----- L4 (Ctrl-H; BattlescapeState.cpp :3152-:3171, InfoboxState.h INFOBOX_DELAY 2000 ms) -----
+# ----- ctrl_h_box (Ctrl-H; BattlescapeState.cpp :3152-:3171, InfoboxState.h INFOBOX_DELAY 2000 ms) -----
 SDLK_H = 104
 BOX_OPEN_S = 1.5                 # the InfoboxState on top after the chord (it closes by itself after 2 s)
 INFOBOX_CLICK_S = 1.0            # the closing click goes out within this of the box being seen (< INFOBOX_DELAY)
@@ -161,7 +159,7 @@ BOX_CLOSE_S = 1.0                # BattlescapeState back on top after the click
 MIRROR_KEYS = ("noted", "sent", "applied", "localSuppressed", "pending", "dropped")
 
 
-# ===================== the hit-log probes (shared with L5 / hit_log_weapon) =====================
+# =========== the hit-log probes (shared with test_reaction_prox / test_client_melee_psi) ===========
 
 
 def hl_log(gc):
@@ -177,13 +175,13 @@ def hl_mirror(gc):
 
 
 def hl_probe_fails(gc):
-    """[] when this machine carries both S-L.1 probes with their full shape."""
+    """[] when this machine carries both hit-log probes with their full shape."""
     h = battle_state(gc).get("hitLog")
     m = event_state(gc).get("hitLogMirror")
     if (not isinstance(h, dict) or not isinstance(h.get("text"), str) or not isinstance(h.get("diary"), list)
             or not isinstance(m, dict) or not all(isinstance(m.get(k), int) for k in MIRROR_KEYS)
             or not isinstance(m.get("last"), list)):
-        return [f"{gc.name} lacks the S-L.1 probes: battle_state.hitLog={h!r} event_state.hitLogMirror={m!r}"]
+        return [f"{gc.name} lacks the hit-log probes: battle_state.hitLog={h!r} event_state.hitLogMirror={m!r}"]
     return []
 
 
@@ -287,7 +285,7 @@ def common_snap(host, client):
 
 def common_fails(host, client, c0, what):
     """Per row: every bucket EQUAL, desyncSeen false on both, the client's coopClientBStatePushes unchanged and the
-    host's 0, the client's rngSeed unchanged (V4)."""
+    host's 0, the client's rngSeed unchanged."""
     fails = []
     try:
         assert_hash_clean(host, client, full=True, what=what)
@@ -300,7 +298,7 @@ def common_fails(host, client, c0, what):
         fails.append(f"{what}: coopClientBStatePushes client {c0['pushes']}->{ec.get('coopClientBStatePushes')} host "
                      f"{eh.get('coopClientBStatePushes')} (want the client's unchanged, the host's 0)")
     if c0["rng"] is None or ec.get("rngSeed") != c0["rng"]:
-        fails.append(f"{what}: client rngSeed {c0['rng']} -> {ec.get('rngSeed')} (want unchanged: V4)")
+        fails.append(f"{what}: client rngSeed {c0['rng']} -> {ec.get('rngSeed')} (want unchanged)")
     return fails
 
 
@@ -311,15 +309,15 @@ def finish(fails):
 
 def mirror_row_fails(what, s0, s1, seq0, n_entries, types):
     """A row's mirror cells: the host sent exactly `n_entries` entries in the row whose (t, f, k) are `types`, none
-    is pending; the client applied exactly the host's entries (same seq, t, f, k, in order, none twice: L-S2)."""
+    is pending; the client applied exactly the host's entries (same seq, t, f, k, in order, none twice)."""
     fails = []
     hn, cn = hl_entries(s1["host"]["mirror"], seq0), hl_entries(s1["client"]["mirror"], seq0)
     sent, applied = hl_delta(s0, s1, "host", "sent"), hl_delta(s0, s1, "client", "applied")
     if sent != n_entries or hl_types(hn) != types:
-        fails.append(f"{what}: the host sent +{sent} entries {hl_types(hn)} (want +{n_entries}: {types}, T0L-1)")
+        fails.append(f"{what}: the host sent +{sent} entries {hl_types(hn)} (want +{n_entries}: {types})")
     if hl_count(s1["host"]["mirror"], "pending"):
         fails.append(f"{what}: the host's pending entries {hl_count(s1['host']['mirror'], 'pending')} at the row's end "
-                     f"(want 0: every entry rides an emit of its own chain, T0L-1)")
+                     f"(want 0: every entry rides an emit of its own chain)")
     if applied != sent or cn != hn:
         fails.append(f"{what}: the client applied +{applied} entries {cn} (want exactly the host's +{sent} {hn})")
     return fails
@@ -348,13 +346,13 @@ def render_fails(what, s1):
 # ===================== rows =====================
 
 
-def l1_host_snap(host, client, ctx):
+def row_host_snap(host, client, ctx):
     notes = []
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
     seq0 = event_state(host).get("lastSeqEmitted") or 0
     # host_kill's staging (test_host_combat.row_host_kill): H rifle + clip, H and A teleported, A health 1, H TU max,
-    # H firing 120, all on both machines (client first, F607)
+    # H firing 120, all on both machines (client first)
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": KILL_ITEMS[0], "ammo": KILL_ITEMS[1],
                             "clear_hands": True}, ("weaponId", "ammoId"))
     tele_both(host, client, H_ID, KILL_H_TILE, KILL_H_DIR)
@@ -379,48 +377,50 @@ def l1_host_snap(host, client, ctx):
         host.wait_for("host shot chain finished (A DEAD, no BState)",
                       lambda: host_chain_done(host, A_ID, STATUS_DEAD), timeout=30)
     except Exception as e:
-        notes.append(f"L1 host snap: {short(e)}")
+        notes.append(f"host_snap host snap: {short(e)}")
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"L1 wait_host_idle: {short(e)}")
+        notes.append(f"host_snap wait_host_idle: {short(e)}")
     s1 = hl_snap(host, client)
     hev = [(e["seq"], e["kind"], e["actionId"]) for e in evs_since(host, seq0)]
     a = {n: unit_view(units(gc).get(A_ID)) for n, gc in (("host", host), ("client", client))}
-    print("EVIDENCE L1: " + json.dumps({
+    print("EVIDENCE host_snap: " + json.dumps({
         "seq0": seq0, "staged": {"rifle": g.get("weaponId"), "clip": g.get("ammoId"), "diff": staged},
         "hostEvs": hev, "A": a, "before": hl_view(s0), "after": hl_view(s1), "notes": notes},
         sort_keys=True, default=str), flush=True)
     fails = list(notes)
     if staged:
-        fails.append(f"L1: buckets differ after the staging: {staged} (want none)")
+        fails.append(f"host_snap: buckets differ after the staging: {staged} (want none)")
     if any((a[n] or {}).get("status") != STATUS_DEAD for n in a):
-        fails.append(f"L1: precondition: A {a} (want DEAD on both: host_kill's kill)")
-    # T0L-1 / F3932: both logs show the NEW_TURN rendering when the row starts
-    fails += log_fails("L1", "host (row start)", s0["host"]["log"], TEXT_NEW_TURN_EN, [], "precondition, F3932")
-    fails += log_fails("L1", "client (row start)", s0["client"]["log"], TEXT_NEW_TURN_DE, [], "precondition, F3932")
-    # GREEN: the client renders the host's entries in German (the RED: they never reach it)
-    fails += log_fails("L1", "client", s1["client"]["log"], TEXT_L1_DE, DIARY_L1_DE,
+        fails.append(f"host_snap: precondition: A {a} (want DEAD on both: host_kill's kill)")
+    # both logs show the NEW_TURN rendering when the row starts
+    fails += log_fails("host_snap", "host (row start)", s0["host"]["log"], TEXT_NEW_TURN_EN, [], "precondition")
+    fails += log_fails("host_snap", "client (row start)", s0["client"]["log"], TEXT_NEW_TURN_DE, [], "precondition")
+    # the client renders the host's entries in German (when broken, they never reach it)
+    fails += log_fails("host_snap", "client", s1["client"]["log"], TEXT_HOST_SNAP_DE, DIARY_HOST_SNAP_DE,
                        "the German rendering of the host's entries")
-    fails += log_fails("L1", "host", s1["host"]["log"], TEXT_L1_EN, DIARY_L1_EN, "its own English rendering")
-    fails += mirror_row_fails("L1", s0, s1, seq0, L1_ENTRIES, L1_ENTRY_TYPES)
+    fails += log_fails("host_snap", "host", s1["host"]["log"], TEXT_HOST_SNAP_EN, DIARY_HOST_SNAP_EN,
+                       "its own English rendering")
+    fails += mirror_row_fails("host_snap", s0, s1, seq0, HOST_SNAP_ENTRIES, HOST_SNAP_ENTRY_TYPES)
     boot_entries = [e for e in hl_entries(s1["host"]["mirror"]) if (e[0] or 0) <= seq0]
     sent_total = hl_count(s1["host"]["mirror"], "sent")
-    if sent_total != L1_ENTRIES + 1 or boot_entries != [(TURN0_SEQ, HL_NEW_TURN, FACTION_PLAYER, None)]:
-        fails.append(f"L1: the host sent {sent_total} entries from boot, those before the row {boot_entries} (want "
-                     f"{L1_ENTRIES + 1}, exactly the turn-0 NEW_TURN on seq {TURN0_SEQ}: T0L-1 F4236, P6-6 Q2 (a); "
-                     f"no other entry on an equip sync, L-S5)")
-    fails += render_fails("L1", s1)
-    fails += common_fails(host, client, c0, "L1")
+    if sent_total != HOST_SNAP_ENTRIES + 1 or boot_entries != [(TURN0_SEQ, HL_NEW_TURN, FACTION_PLAYER, None)]:
+        fails.append(f"host_snap: the host sent {sent_total} entries from boot, those before the row "
+                     f"{boot_entries} (want {HOST_SNAP_ENTRIES + 1}, exactly the turn-0 NEW_TURN on seq {TURN0_SEQ}: "
+                     f"the host records in phase Handshake or Active; no other entry on an equip sync)")
+    fails += render_fails("host_snap", s1)
+    fails += common_fails(host, client, c0, "host_snap")
     finish(fails)
 
 
-def l2_client_snap(host, client, ctx):
+def row_client_snap(host, client, ctx):
     notes = []
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
-    # snap_kill's staging (test_client_shoot.snap_kill) on L1's boot: H back on its bring-up tile and facing (host_kill
-    # left it on C_TILE), A2 stands in for A (dead since L1) on A_TILE; client first on every lever
+    # snap_kill's staging (test_client_shoot.snap_kill) on host_snap's boot: H back on its bring-up tile and facing
+    # (host_kill left it on C_TILE), A2 stands in for A (dead since host_snap) on A_TILE; client first on every
+    # staging write
     hx, hy, hz, hd = ctx["hHome"]
     uh = units(host).get(H_ID) or {}
     h_back = None
@@ -441,40 +441,40 @@ def l2_client_snap(host, client, ctx):
     try:
         pv = aim_click(client, KEY_SNAP, A_TILE, lambda: host.ok({"cmd": "set_seed", "seed": SEED_SNAP_KILL}))
     except Exception as e:
-        notes.append(f"L2 real-UI snap: {short(e)}")
+        notes.append(f"client_snap real-UI snap: {short(e)}")
     out = await_press(host, client, before, notes)
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"L2 wait_host_idle: {short(e)}")
+        notes.append(f"client_snap wait_host_idle: {short(e)}")
     s1 = hl_snap(host, client)
     hev = [(e["seq"], e["kind"], e["actionId"]) for e in evs_since(host, seq0)]
     a2 = {n: unit_view(units(gc).get(A2_ID)) for n, gc in (("host", host), ("client", client))}
-    print("EVIDENCE L2: " + json.dumps({
+    print("EVIDENCE client_snap: " + json.dumps({
         "seq0": seq0, "staged": {"hBack": h_back, "aimCancel": aim0, "rifle": rifle, "clip": clip, "C": pc_,
                                  "A2": pa_, "diff": staged},
         "press": {k: v for k, v in pv.items() if k != "clickAt"}, "outcome": out, "hostEvs": hev, "A2": a2,
         "before": hl_view(s0), "after": hl_view(s1), "notes": notes}, sort_keys=True, default=str), flush=True)
     fails = list(notes)
     if staged:
-        fails.append(f"L2: buckets differ after the staging: {staged} (want none)")
+        fails.append(f"client_snap: buckets differ after the staging: {staged} (want none)")
     if out.get("state") != "sent":
-        fails.append(f"L2: precondition: the client's real-UI snap {out} (want sent as an order and finished)")
-    # GREEN: the host logs the partner's weapon line; the client shows the host's log in German, its own line skipped
-    fails += log_fails("L2", "host", s1["host"]["log"], TEXT_L2_EN, DIARY_L2_EN,
-                       "a new line starting with the partner's weapon (V6)")
-    fails += log_fails("L2", "client", s1["client"]["log"], TEXT_L2_DE, DIARY_L2_DE,
+        fails.append(f"client_snap: precondition: the client's real-UI snap {out} (want sent as an order and finished)")
+    # the host logs the partner's weapon line; the client shows the host's log in German, its own line skipped
+    fails += log_fails("client_snap", "host", s1["host"]["log"], TEXT_CLIENT_SNAP_EN, DIARY_CLIENT_SNAP_EN,
+                       "a new line starting with the partner's weapon")
+    fails += log_fails("client_snap", "client", s1["client"]["log"], TEXT_CLIENT_SNAP_DE, DIARY_CLIENT_SNAP_DE,
                        "the host's log in German, starting with the German weapon name")
     if hl_delta(s0, s1, "client", "localSuppressed") != 1:
-        fails.append(f"L2: client localSuppressed +{hl_delta(s0, s1, 'client', 'localSuppressed')} (want +1: its own "
-                     f"weapon line skipped, the host's entry replaces it, V7)")
-    fails += mirror_row_fails("L2", s0, s1, seq0, L2_ENTRIES, L2_ENTRY_TYPES)
-    fails += render_fails("L2", s1)
-    fails += common_fails(host, client, c0, "L2")
+        fails.append(f"client_snap: client localSuppressed +{hl_delta(s0, s1, 'client', 'localSuppressed')} "
+                     f"(want +1: its own weapon line skipped, the host's entry replaces it)")
+    fails += mirror_row_fails("client_snap", s0, s1, seq0, CLIENT_SNAP_ENTRIES, CLIENT_SNAP_ENTRY_TYPES)
+    fails += render_fails("client_snap", s1)
+    fails += common_fails(host, client, c0, "client_snap")
     finish(fails)
 
 
-def l4_ctrl_h(host, client, ctx):
+def row_ctrl_h_box(host, client, ctx):
     notes = []
     c0 = common_snap(host, client)
     sent0 = event_state(client).get("coopIntentsSent")
@@ -507,60 +507,64 @@ def l4_ctrl_h(host, client, ctx):
             client.wait_for("client BattlescapeState on top after the click",
                             lambda: top(client) == "BattlescapeState" or None, timeout=BOX_CLOSE_S, interval=0.02)
         except Exception as e:
-            notes.append(f"L4 close: {short(e)}")
+            notes.append(f"ctrl_h_box close: {short(e)}")
     box["topAfter"] = top(client)
     ec = event_state(client)
-    print("EVIDENCE L4: " + json.dumps({
+    print("EVIDENCE ctrl_h_box: " + json.dumps({
         "top0": top0, "aimCancel": aim0, "selectedId": (sel0, battle_state(client).get("selectedId")),
         "clickPos": {k: pr.get(k) for k in ("verified", "winX", "winY")}, "clientLog": log0, "box": box,
         "intentsSent": (sent0, ec.get("coopIntentsSent")), "notes": notes}, sort_keys=True, default=str), flush=True)
     fails = list(notes)
     if top0 != "BattlescapeState" or not pr.get("verified"):
-        fails.append(f"L4: precondition: client top {top0!r}, the click spot {pr} (want BattlescapeState, verified)")
+        fails.append(f"ctrl_h_box: precondition: client top {top0!r}, the click spot {pr} "
+                     f"(want BattlescapeState, verified)")
     if not box["seen"]:
-        fails.append(f"L4: no InfoboxState on the client within {BOX_OPEN_S}s of Ctrl-H (top {box['topAfter']!r}; want "
-                     f"vanilla's hit-log box)")
+        fails.append(f"ctrl_h_box: no InfoboxState on the client within {BOX_OPEN_S}s of Ctrl-H "
+                     f"(top {box['topAfter']!r}; want vanilla's hit-log box)")
     else:
         shown = box["texts"][0] if len(box.get("texts") or []) == 1 else box.get("texts")
-        if shown != TEXT_L2_DE:
-            fails.append(f"L4: the client's hit-log box shows {shown!r} (want {TEXT_L2_DE!r}: the host's entries in "
-                         f"German)")
+        if shown != TEXT_CLIENT_SNAP_DE:
+            fails.append(f"ctrl_h_box: the client's hit-log box shows {shown!r} (want {TEXT_CLIENT_SNAP_DE!r}: "
+                         f"the host's entries in German)")
         if shown != log0.get("text"):
-            fails.append(f"L4: the client's hit-log box shows {shown!r} (want its hitLog.text {log0.get('text')!r})")
+            fails.append(f"ctrl_h_box: the client's hit-log box shows {shown!r} "
+                         f"(want its hitLog.text {log0.get('text')!r})")
         if box["topAfter"] != "BattlescapeState" or (box.get("clickAfterSeenS") or 0) > INFOBOX_CLICK_S:
-            fails.append(f"L4: the box was not closed by one click: top after {box['topAfter']!r}, click sent "
+            fails.append(f"ctrl_h_box: the box was not closed by one click: top after {box['topAfter']!r}, click sent "
                          f"{box.get('clickAfterSeenS')}s after the box was seen (want BattlescapeState, < "
                          f"{INFOBOX_CLICK_S}s)")
     if ec.get("coopIntentsSent") != sent0 or battle_state(client).get("selectedId") != sel0:
-        fails.append(f"L4: the client sent {sent0} -> {ec.get('coopIntentsSent')} or changed its selection (want no "
-                     f"order and the selection unchanged)")
-    fails += common_fails(host, client, c0, "L4")
+        fails.append(f"ctrl_h_box: the client sent {sent0} -> {ec.get('coopIntentsSent')} or changed its selection "
+                     f"(want no order and the selection unchanged)")
+    fails += common_fails(host, client, c0, "ctrl_h_box")
     finish(fails)
 
 
-def l3_end_turn(host, client, ctx):
+def row_end_turn(host, client, ctx):
     notes = []
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
     turn0 = end_turn_cycle(host, client, None, notes)
     s1 = hl_snap(host, client)
     hs, cs = battle_state(host), battle_state(client)
-    print("EVIDENCE L3: " + json.dumps({
+    print("EVIDENCE end_turn: " + json.dumps({
         "turn": (turn0, hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")),
         "hostPending": hl_count(s1["host"]["mirror"], "pending"), "before": hl_view(s0), "after": hl_view(s1),
         "notes": notes}, sort_keys=True, default=str), flush=True)
     fails = list(notes)
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (
             (turn0 or 0) + 1, FACTION_PLAYER, (turn0 or 0) + 1, FACTION_PLAYER):
-        fails.append(f"L3: precondition: turn/side host ({hs.get('turn')}, {hs.get('side')}) client ({cs.get('turn')}, "
-                     f"{cs.get('side')}) (want the player side of turn {(turn0 or 0) + 1} on both)")
-    fails += log_fails("L3", "host", s1["host"]["log"], TEXT_NEW_TURN_EN, [], "the NEW_TURN rendering")
-    fails += log_fails("L3", "client", s1["client"]["log"], TEXT_NEW_TURN_DE, [], "the NEW_TURN rendering")
-    fails += common_fails(host, client, c0, "L3")
+        fails.append(f"end_turn: precondition: turn/side host ({hs.get('turn')}, {hs.get('side')}) "
+                     f"client ({cs.get('turn')}, {cs.get('side')}) (want the player side of turn {(turn0 or 0) + 1} "
+                     f"on both)")
+    fails += log_fails("end_turn", "host", s1["host"]["log"], TEXT_NEW_TURN_EN, [], "the NEW_TURN rendering")
+    fails += log_fails("end_turn", "client", s1["client"]["log"], TEXT_NEW_TURN_DE, [], "the NEW_TURN rendering")
+    fails += common_fails(host, client, c0, "end_turn")
     finish(fails)
 
 
-SCENARIOS = (("L1", l1_host_snap), ("L2", l2_client_snap), ("L4", l4_ctrl_h), ("L3", l3_end_turn))
+SCENARIOS = (("host_snap", row_host_snap), ("client_snap", row_client_snap), ("ctrl_h_box", row_ctrl_h_box),
+             ("end_turn", row_end_turn))
 
 
 # ===================== bring-up =====================
@@ -575,7 +579,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p6b-sl")
+    pinned = pin_ai_neutral(host, client, tag="hit_log")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
     seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
@@ -595,7 +599,7 @@ def boot(host, client):
     assert_hash_clean(host, client, full=True, what="bring-up")
     h = ub.get(H_ID) or {}
     ctx = {"hHome": (h.get("x"), h.get("y"), h.get("z"), h.get("direction"))}
-    print(f"[w2p6b-sl] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs.get('turn')} seated={seated_uids} H={H_ID} home "
+    print(f"[hit_log] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs.get('turn')} seated={seated_uids} H={H_ID} home "
           f"{ctx['hHome']} pinned={len(pinned)} client options={CLIENT_OPTIONS} hitLog host={hl_log(host)} client="
           f"{hl_log(client)} mirror host={hl_mirror(host)} client={hl_mirror(client)}", flush=True)
     return ctx
@@ -603,8 +607,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", HOST_PORT, make_user_dir("w2p6b_hit_log_host"))
-    client = GameClient("client", CLIENT_PORT, make_user_dir("w2p6b_hit_log_client", options=CLIENT_OPTIONS))
+    host = GameClient("host", HOST_PORT, make_user_dir("hit_log_host"))
+    client = GameClient("client", CLIENT_PORT, make_user_dir("hit_log_client", options=CLIENT_OPTIONS))
     results = {}
     try:
         try:
@@ -626,7 +630,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p6b-sl] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[hit_log] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_hit_log: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "
