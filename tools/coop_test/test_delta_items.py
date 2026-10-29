@@ -1,49 +1,47 @@
 """test_delta_items.py: every host event carries the item state
 that changed since the previous event, including items the host created and
-items it destroyed (spec rewrite/prompts/w2p2_delta_core.md section (f)
-"test_delta_items.py (S-B)", sections (b)1, (b)7, (b)8, (b)16; orchestrator
-rulings Q2 = (a) and Q4 = (b), amendment A1; owner ruling D128 = (b)).
+items it destroyed.
 
-After stage S-A the delta carries units, tiles, nodes and the battle counters,
-but no item: a corpse the host creates, a weapon a dead unit drops and a
-grenade that blows itself and two clips away exist (or vanish) on the host
-only, and the client freezes with the desync banner on the `items` bucket at
-the next hash check. After stage S-B the delta carries `items`, `itemsAdded`
-(the host's own BattleItem record, materialized on the client through the load
-path with the host's id) and `itemsRemoved`. Two scenarios, ONE boot, in this
-order:
+The delta carries `items`, `itemsAdded` (the host's own BattleItem record,
+materialized on the client through the load path with the host's id) and
+`itemsRemoved`. Without them a corpse the host creates, a weapon a dead unit
+drops and a grenade that blows itself and two clips away would exist (or
+vanish) on the host only, and the client would freeze with the desync banner
+on the `items` bucket at the next hash check. Two scenarios, ONE boot, in
+this order:
 
-  SB2  removal. A primed fuse-0 grenade and two rifle clips are dropped on
-       SB2_GRENADE_TILE / SB2_ITEM_TILE (the same tile) with battle_drop on
-       BOTH machines (ids asserted equal). Both machines press END TURN and the
-       full side cycle runs back to the player side. At the end of the player
-       turn the host detonates the grenade: the grenade is removed and HE 50 on
-       the clips' own tile destroys both clips (TASK 0a precalc). RED (commit
-       S-B.1, no item delta): the client freezes at the side_transition on
-       `items` (grenade and clips destroyed on the host only). GREEN: common
+  grenade_removal  removal. A primed fuse-0 grenade and two rifle clips are
+       dropped on GRENADE_TILE / CLIP_TILE (the same tile) with battle_drop
+       on BOTH machines (ids asserted equal). Both machines press END TURN
+       and the full side cycle runs back to the player side. At the end of
+       the player turn the host detonates the grenade: the grenade is removed
+       and HE 50 on the clips' own tile destroys both clips (measured).
+       Without the item delta the client freezes at the side_transition on
+       `items` (grenade and clips destroyed on the host only). PASS: common
        asserts at player turn N+1; the grenade id and >= 1 clip id absent on
        both; some host emission in the cycle had lastDelta.itemsRemoved >= 2.
-  SB1  kill via lever. The host runs battle_action kill_unit_real on A (host
-       only: overkill damage + checkForCasualties -> UnitDieBState chain ->
-       the S-A `sync` flush). On the host A's inventory drops to its tile and
-       a corpse item is created with the next host id. RED: the client
-       freezes on `items` (the corpse and the dropped weapon exist on the host
-       only). GREEN: common asserts; battle_items equal on both, including the
-       corpse (type A_CORPSE, unitLink A, same id, same tile) and A's weapon
-       (owner -1, on a tile, same tile, previousOwner A); A status DEAD and
-       onTile false on both; >= 1 alien's morale lower than before on the host
-       and equal on both; host lastDelta (from this kill) has itemsAdded >= 1,
-       items >= 1, units >= 1 and battle key itemIdCtr.
+  kill_drops_items  kill by test command. The host runs battle_action
+       kill_unit_real on A (host only: overkill damage + checkForCasualties
+       -> UnitDieBState chain -> the `sync` flush). On the host A's inventory
+       drops to its tile and a corpse item is created with the next host id.
+       Without the item delta the client freezes on `items` (the corpse and
+       the dropped weapon exist on the host only). PASS: common asserts;
+       battle_items equal on both, including the corpse (type A_CORPSE,
+       unitLink A, same id, same tile) and A's weapon (owner -1, on a tile,
+       same tile, previousOwner A); A status DEAD and onTile false on both;
+       >= 1 alien's morale lower than before on the host and equal on both;
+       host lastDelta (from this kill) has itemsAdded >= 1, items >= 1,
+       units >= 1 and battle key itemIdCtr.
 
-WHY SB2 RUNS FIRST. The default map deploys ONE alien (A, amendment A1.3).
-SB1 kills it, and a later END TURN with no live alien ends the battle
-(BattlescapeGame::endTurn pushes NextTurnState with battleComplete, and
-NextTurnState::close() calls finishBattle), so SB2's cycle can only run while
-A is alive. At the red commit SB2 freezes the client, so SB1 runs on a frozen
-client there (the S-A precedent, finding F495); the EVIDENCE line records the
-client's desync latch from before the kill. At the green commit nothing freezes.
+WHY grenade_removal RUNS FIRST. The default map deploys ONE alien (A).
+kill_drops_items kills it, and a later END TURN with no live alien ends the
+battle (BattlescapeGame::endTurn pushes NextTurnState with battleComplete,
+and NextTurnState::close() calls finishBattle), so grenade_removal's cycle
+can only run while A is alive. If grenade_removal freezes the client,
+kill_drops_items runs on a frozen client; its EVIDENCE line records the
+client's desync latch from before the kill.
 
-Common asserts (spec (f), after the action settles with wait_host_idle):
+Common asserts (after the action settles with wait_host_idle):
 hash_now {full:true} - ALL buckets EQUAL on both machines (never a hard-coded
 count); desyncSeen false on both; client coopClientBStatePushes unchanged and
 host 0; client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
@@ -53,23 +51,19 @@ has the scenario's minimum class counts.
 FIXTURE (deterministic, never searched here). The classic parallel skirmish
 bring-up (raw.bring_up_lobby + session.drive_to_battlescape, seat_count=2),
 pinned with set_seed SEED_MAP right before newbattle_ok, asserted against the
-baked MAP_FP, then session.pin_ai_neutral (A cannot act). Every item a lever
-creates is created on BOTH machines in the same order and the ids are
-asserted equal. The constants come from the W2-P2 TASK 0a precalc (round 1,
-default NEW BATTLE map, SEED_MAP 1): A = 1000000 at its spawn with the plasma
-pistol A_WEAPON in its right hand; SB2 tile (7,3,0).
+baked MAP_FP, then session.pin_ai_neutral (A cannot act). Every item a test
+command creates is created on BOTH machines in the same order and the ids
+are asserted equal. The constants were measured on the default NEW BATTLE
+map with SEED_MAP 1: A = 1000000 at its spawn with the plasma pistol
+A_WEAPON in its right hand; grenade_removal tile (7,3,0).
 
-RED-THEN-GREEN (spec (d), Q4 = b). Commit S-B.1 (this file and the
-battle_items probe fields previousOwner / unitLink / slotX / slotY /
-fuseEnabled - no product behaviour) is run ONCE and every scenario must FAIL
-with its named red evidence. Commit S-B.2 (the item delta) is run ONCE and
-every scenario must PASS. Each scenario prints ONE "EVIDENCE <id>:" line with
-both machines' fields BEFORE its green conditions are checked; main() runs
-every scenario even after an earlier one failed and prints "PASS <id>" /
-"FAIL <id>: <message>". Every wait is bounded; a wait that times out is
-recorded in the EVIDENCE line and fails the scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+BEFORE its pass conditions are checked; main() runs every scenario even
+after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
+Every wait is bounded; a wait that times out is recorded in the EVIDENCE
+line and fails the scenario.
 
-one run is the result. No skip path, no second boot, no
+One run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
 (a bring-up failure is also 2).
 
@@ -89,23 +83,24 @@ from test_turn_baton import dismiss_next_turn_if_present
 from test_delta_core import (probes, diff_buckets, desync_record, short, both, settle_on_battlescape,
                                 common_fails, finish, delta_view)
 
-# ----- common (every W2-P2 test file; TASK 0a round 1, default map) -----
+# ----- common to the delta tests (default map) -----
 SEED_MAP = 1
 MAP_FP = -4.48310638993e+18      # host battle_state.mapFingerprint on SEED_MAP 1
 H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot
 A_ID = 1000000                   # the only alien: Sectoid Soldier, spawn (27,12,0) dir 5, health 30
 A_ITEMS = {56: ("STR_PLASMA_PISTOL", "STR_RIGHT_HAND"), 58: ("STR_PLASMA_PISTOL_CLIP", "STR_BELT"),
-           59: ("STR_MIND_PROBE", "STR_BACK_PACK")}   # 60 items at start: first lever-minted id = 60
+           59: ("STR_MIND_PROBE", "STR_BACK_PACK")}   # 60 items at start: first id a test command mints = 60
 A_CORPSE = "STR_SECTOID_CORPSE"
 RHAND_NTH = 25                   # click_widget nth of the right-hand box (RHAND_RECT centre base (296,172))
 KEY_ITEM1, KEY_ITEM2, KEY_ITEM4, KEY_FUSE_0 = 49, 50, 52, 48   # PRIME/AIMED, SNAP, STUN (BA_HIT), fuse 0
 TU_MAX = 255                     # battle_set_unit_state / battle_fire tu: clamped to the unit's max TU
 
-# ----- test_delta_items.py (S-B) -----
-# SB1: kill_unit_real on A_ID at its spawn (27,12,0); corpse type A_CORPSE, dropped weapon STR_PLASMA_PISTOL (id 56).
+# ----- this file's scenarios -----
+# kill_drops_items: kill_unit_real on A_ID at its spawn (27,12,0); corpse type A_CORPSE, dropped weapon
+# STR_PLASMA_PISTOL (id 56).
 A_WEAPON = 56                   # A_ITEMS: A's right-hand plasma pistol
-SB2_GRENADE_TILE = (7, 3, 0)    # CULTIVAT #2, open, > 20 tiles from A
-SB2_ITEM_TILE = (7, 3, 0)       # same tile: HE 50 at l=0 rolls 25..75 > clip armor 20 -> both clips always destroyed
+GRENADE_TILE = (7, 3, 0)        # CULTIVAT #2, open, > 20 tiles from A
+CLIP_TILE = (7, 3, 0)           # same tile: HE 50 at l=0 rolls 25..75 > clip armor 20 -> both clips always destroyed
 
 PORT = "48623"
 FACTION_PLAYER = 0
@@ -235,14 +230,14 @@ def host_chain_done(host):
 # ===================== scenarios =====================
 
 
-def sb2_removal(host, client, ctx):
+def row_grenade_removal(host, client, ctx):
     notes = []
     before = {"host": probes(host), "client": probes(client)}
-    g = both(host, client, {"cmd": "battle_drop", "x": SB2_GRENADE_TILE[0], "y": SB2_GRENADE_TILE[1],
-                            "z": SB2_GRENADE_TILE[2], "item": "STR_GRENADE", "prime": True, "fuse": 0},
+    g = both(host, client, {"cmd": "battle_drop", "x": GRENADE_TILE[0], "y": GRENADE_TILE[1],
+                            "z": GRENADE_TILE[2], "item": "STR_GRENADE", "prime": True, "fuse": 0},
              ("ids",))["ids"]
-    c = both(host, client, {"cmd": "battle_drop", "x": SB2_ITEM_TILE[0], "y": SB2_ITEM_TILE[1],
-                            "z": SB2_ITEM_TILE[2], "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
+    c = both(host, client, {"cmd": "battle_drop", "x": CLIP_TILE[0], "y": CLIP_TILE[1],
+                            "z": CLIP_TILE[2], "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
     ih0, ic0 = items_by_id(host), items_by_id(client)
     staged = items_pair(ih0, ic0, g + c)
     staged_diff = diff_buckets(host, client)
@@ -256,7 +251,7 @@ def sb2_removal(host, client, ctx):
     cycle = [s for s in seen if (s.get("seq") or 0) > seq0]
     removed = [s for s in cycle if (s.get("itemsRemoved") or 0) >= 2]
     present = {i: {"host": i in ih, "client": i in ic} for i in g + c}
-    print(f"EVIDENCE SB2: grenade={g} clips={c} on {SB2_GRENADE_TILE}/{SB2_ITEM_TILE} staged={staged} "
+    print(f"EVIDENCE grenade_removal: grenade={g} clips={c} on {GRENADE_TILE}/{CLIP_TILE} staged={staged} "
           f"stagedDiff={staged_diff}; turn {turn0} -> host=({hs.get('turn')},{hs.get('side')}) "
           f"client=({cs.get('turn')},{cs.get('side')}); present after the cycle={present}; "
           f"client desyncSeen={pc['desyncSeen']} desync={dsc} host desyncSeen={ph['desyncSeen']}; "
@@ -285,14 +280,14 @@ def sb2_removal(host, client, ctx):
                                                                              turn0 + 1, FACTION_PLAYER):
         fails.append(f"not on player turn {turn0 + 1} on both: host=({hs.get('turn')},{hs.get('side')}) "
                      f"client=({cs.get('turn')},{cs.get('side')})")
-    fails += common_fails(host, client, before, {}, "SB2")
+    fails += common_fails(host, client, before, {}, "grenade_removal")
     if not removed:
         fails.append(f"no host emission in the cycle had lastDelta.itemsRemoved >= 2 (summaries seen: "
                      f"{cycle})")
     finish(fails)
 
 
-def sb1_kill(host, client, ctx):
+def row_kill_drops_items(host, client, ctx):
     notes = []
     uh0, uc0 = units(host), units(client)
     aliens = sorted(uid for uid, u in uh0.items() if u.get("faction") == FACTION_HOSTILE)
@@ -322,7 +317,7 @@ def sb1_kill(host, client, ctx):
     morale1 = {uid: {"host": (uh.get(uid) or {}).get("morale"), "client": (uc.get(uid) or {}).get("morale")}
                for uid in aliens}
     idiff = item_diff(ih, ic)
-    print(f"EVIDENCE SB1: kill={r}; aliens (faction hostile before the kill)={aliens}; "
+    print(f"EVIDENCE kill_drops_items: kill={r}; aliens (faction hostile before the kill)={aliens}; "
           f"A before host={unit_view(uh0.get(A_ID))} client={unit_view(uc0.get(A_ID))}; "
           f"A after host={unit_view(uh.get(A_ID))} client={unit_view(uc.get(A_ID))}; "
           f"weapon {A_WEAPON} before={w0} after={w1}; corpses={corpses}; "
@@ -376,7 +371,7 @@ def sb1_kill(host, client, ctx):
         if morale1[uid]["host"] != morale1[uid]["client"]:
             fails.append(f"alien {uid} morale host={morale1[uid]['host']} client={morale1[uid]['client']} "
                          f"(want equal)")
-    fails += common_fails(host, client, before, {"itemsAdded": 1, "items": 1, "units": 1}, "SB1")
+    fails += common_fails(host, client, before, {"itemsAdded": 1, "items": 1, "units": 1}, "kill_drops_items")
     ld = ph["lastDelta"] or {}
     if "itemIdCtr" not in (ld.get("battle") or []):
         fails.append(f"host lastDelta.battle={ld.get('battle')} (want the key itemIdCtr)")
@@ -386,7 +381,7 @@ def sb1_kill(host, client, ctx):
     finish(fails)
 
 
-SCENARIOS = (("SB2", sb2_removal), ("SB1", sb1_kill))
+SCENARIOS = (("grenade_removal", row_grenade_removal), ("kill_drops_items", row_kill_drops_items))
 
 
 # ===================== bring-up =====================
@@ -401,20 +396,20 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} (SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p2-sb")
+    pinned = pin_ai_neutral(host, client, tag="test_delta_items")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
     ph = probes(host)
-    print(f"[w2p2-sb] boot ok: MAP_FP={MAP_FP!r} turn={hs['turn']} pinned={pinned} "
+    print(f"[test_delta_items] boot ok: MAP_FP={MAP_FP!r} turn={hs['turn']} pinned={pinned} "
           f"host deltaArmed={ph['deltaArmed']} deltaSeeds={ph['deltaSeeds']}", flush=True)
     return {}
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49842, make_user_dir("w2p2_delta_items_host"))
-    client = GameClient("client", 49843, make_user_dir("w2p2_delta_items_client"))
+    host = GameClient("host", 49842, make_user_dir("delta_items_host"))
+    client = GameClient("client", 49843, make_user_dir("delta_items_client"))
     results = {}
     try:
         try:
@@ -436,7 +431,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p2-sb] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_delta_items] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_delta_items: {len(passed)}/{len(SCENARIOS)} passed "

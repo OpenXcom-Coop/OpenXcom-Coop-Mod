@@ -28,8 +28,9 @@ ONE boot, in this order:
       shot -> hit -> death -> corpse -> bt_action_end, every one with `h`; the
       client event_log holds the same seqs with the same kinds and actionId;
       client lastCue = corpse (payload.unit A, payload.corpses = [the corpse
-      id]); SB1's item / morale / onTile asserts; H tu and the clip's qty
-      equal on both; the common asserts.
+      id]); the item / morale / onTile asserts of test_delta_items'
+      kill_drops_items row; H tu and the clip's qty equal on both; the
+      common asserts.
   host_stun  host stun rod knocks alien A2 unconscious. H gets a stun rod (BOTH),
       H -> STUN_H_TILE facing A2 at STUN_A2_TILE, A2 health 5, H TU max (BOTH).
       Host: TAB-select H, click the right-hand box once more first when H is
@@ -1163,7 +1164,7 @@ def c1_snap_kill(host, client, ctx):
     fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, C1_CHAIN[1:-1], seq0)
     fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, C1_CHAIN[1:-1],
                              seq0)
-    # SB1's item / morale / onTile asserts
+    # the item / morale / onTile asserts of test_delta_items' kill_drops_items row
     if idiff["hostOnly"] or idiff["clientOnly"] or idiff["differ"]:
         fails.append(f"battle_items differ: hostOnly={sorted(idiff['hostOnly'])} "
                      f"clientOnly={sorted(idiff['clientOnly'])} differ={idiff['differ']} (want equal)")
