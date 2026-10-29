@@ -1,36 +1,31 @@
-"""test_ai_origin_stream.py: REV E.58 E58.1 as amended
-by REV E.59 E59.1 - the alien WALK a suppressed host now runs (WV-D45,
-`handleAI`'s `origin:"ai"` mint at `BattlescapeGame.cpp:307`, streamed by
+"""test_ai_origin_stream.py: the alien WALK the host's AI runs
+(`handleAI`'s `origin:"ai"` mint at `BattlescapeGame.cpp:307`, streamed by
 `CoopArbiter::beginAiWalk`) reaches the client as a real, hashed walk chain:
 same actionId, seq-ordered `walk_step` evs each carrying `h`, zero
-shot/hit/explosion evs (AI shot/grenade/psi are OUT-OF-WAVE, REV E.48 SS.B.1),
-all nine hash buckets EQUAL after the whole alien side, and the client never
-latches `desyncSeen`.
+shot/hit/explosion evs (the test covers the AI walk only: the fixture strips
+every alien and sets its psiSkill to 0), all nine hash buckets EQUAL after the
+whole alien side, and the client never latches `desyncSeen`.
 
-Fixture: M-12's pinned fixture (REV E.48 SS.E.4, wave1-log.md 2026-09-15
-"SPEC 12 TASK 1"), seed 1 - byte-for-byte the scratchpad measurement script
-(`m12_measure.py`): mission STR_SMALL_SCOUT, `newbattle_race STR_FLOATER` in
+Fixture, seed 1: mission STR_SMALL_SCOUT, `newbattle_race STR_FLOATER` in
 `pre_seat`, `set_seed 1` in `pre_ok`, `battle_strip_unit` + `set_stat
-{psiSkill:0}` on every live hostile at t=0 on BOTH machines (no TU pin), the
-F236/D66=(a) press pair.
+{psiSkill:0}` on every live hostile at t=0 on BOTH machines (no TU pin), then
+the client's END TURN and the host's once it shows END TURN 1/2.
 
-THE RED THIS TURNS GREEN IS MEASURED AND MUST NOT BE RE-RUN (orch43d F265, on
-the pre-commit-0 build `144e589ed`, same seed, same fixture): the host walked
-the alien 7 tiles spending 47 TU, the client's copy never moved, ticked its
-own TU to 44, and latched `desyncSeen` True while the host stayed False. On
-the current build (`75a8cabf4`) orch43d measured the green end to end:
-host `lastWalk.origin == 'ai'`, client same actionId 3, 8 `walk_step` evs all
-with `h`, zero shot/hit/explosion, final positions AGREE, `desyncSeen` False
-on both. This file reproduces that green in ONE run.
+Measured on this fixture without the AI walk stream: the host walked the alien
+7 tiles spending 47 TU, the client's copy never moved, ticked its own TU to 44,
+and latched `desyncSeen` True while the host stayed False. With it: host
+`lastWalk.origin == 'ai'`, client same actionId 3, 8 `walk_step` evs all with
+`h`, zero shot/hit/explosion, final positions AGREE, `desyncSeen` False on
+both. This file checks that in ONE run.
 
-E59.1 REPLACES E58.1's "on BOTH machines" clause: the origin is
-asserted on the HOST ONLY - `event_state.lastWalk.origin == "ai"`
+The origin is asserted on the HOST ONLY - `event_state.lastWalk.origin == "ai"`
 (`publishLastWalk`, `connectionTCP.cpp:3554`, fed by the host-side
 `beginWalkChain`, `:3511`). The client's own `lastWalk.origin` is "" by
 construction (it never runs AI) and is printed, never asserted either way.
 
-Cites WV-D45, REV E.48 SS.E.4, REV E.58 E58.1, REV E.59 E59.1, F262, F265,
-F268.
+Checks (each prints its name): host_walk_origin_ai, client_same_walk,
+walk_steps_hashed, no_combat_evs, buckets_equal, no_desync, alien_moved (a
+non-vacuity gate, asserted first).
 
 Run:  python tools/coop_test/test_ai_origin_stream.py
 """
@@ -78,7 +73,7 @@ def run():
             assert rh.get("ok") and rc.get("ok"), (
                 f"battle_strip_unit failed for unit {uid}: host={rh} client={rc}")
             assert rh.get("deleted") == rc.get("deleted"), (
-                f"E.5: the two machines' deleted item id lists differ for unit "
+                f"the two machines' deleted item id lists differ for unit "
                 f"{uid}: host={rh.get('deleted')} client={rc.get('deleted')}")
             session.wait_seq_barrier(host, client)
             client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": uid, "psiSkill": 0})
@@ -116,7 +111,7 @@ def run():
         session.wait_host_idle(host, client, timeout=30)
         session.settle_reveal(host, client)
 
-        # ---- assertion 7 / non-vacuity gate: at least one live hostile's
+        # ---- alien_moved / non-vacuity gate: at least one live hostile's
         # position CHANGED across the cycle (asserted BEFORE the verdict) ----
         after_units = {u["id"]: u for u in battle_state(host)["units"]}
         after_pos = {uid: session.unit_pos(after_units[uid]) for uid in hostile_ids
@@ -129,13 +124,13 @@ def run():
             f"non-vacuity gate FAILED: no live hostile's position changed across "
             f"the alien side - before={before_pos} after={after_pos}")
 
-        # ---- assertion 1: HOST lastWalk.origin == 'ai' ----
+        # ---- host_walk_origin_ai: HOST lastWalk.origin == 'ai' ----
         hw = event_state(host).get("lastWalk")
         assert hw and hw.get("origin") == "ai", (
             f"HOST event_state.lastWalk.origin is not 'ai': {hw}")
         host_action_id = hw.get("actionId")
 
-        # ---- assertion 2: CLIENT lastWalk, SAME actionId, seq-ordered steps ----
+        # ---- client_same_walk: CLIENT lastWalk, SAME actionId, seq-ordered steps ----
         cw = event_state(client).get("lastWalk")
         assert cw and cw.get("actionId") == host_action_id, (
             f"CLIENT event_state.lastWalk.actionId does not match the host's "
@@ -148,14 +143,14 @@ def run():
         step_indices = [s.get("stepIndex") for s in c_steps]
         assert step_indices == sorted(step_indices), (
             f"CLIENT lastWalk.steps' stepIndex is not non-decreasing: {step_indices}")
-        # E59.1: the client's own origin is "" by construction - printed,
+        # the client's own origin is "" by construction - printed,
         # NEVER asserted either way.
-        print(f"[assertion 1+2] HOST lastWalk.origin='ai' actionId={host_action_id}; "
+        print(f"[host_walk_origin_ai + client_same_walk] HOST lastWalk.origin='ai' actionId={host_action_id}; "
               f"CLIENT lastWalk actionId={cw.get('actionId')} "
               f"origin={cw.get('origin')!r} (printed only, not asserted) "
               f"steps seq={seqs} stepIndex={step_indices}")
 
-        # ---- assertion 3: every walk_step ev in the CLIENT's event_log
+        # ---- walk_steps_hashed: every walk_step ev in the CLIENT's event_log
         # (for this actionId) carries h ----
         log = event_log(client, tail=256)
         walk_step_evs = [e for e in log if e.get("actionId") == host_action_id
@@ -165,10 +160,10 @@ def run():
             f"{host_action_id}: {[e.get('kind') for e in log]}")
         without_h = [e for e in walk_step_evs if not e.get("h")]
         assert not without_h, f"{len(without_h)} walk_step ev(s) carry no h: {without_h}"
-        print(f"[assertion 3] {len(walk_step_evs)} walk_step ev(s) for actionId "
+        print(f"[walk_steps_hashed] {len(walk_step_evs)} walk_step ev(s) for actionId "
               f"{host_action_id}, ALL carry h")
 
-        # ---- assertion 4: ZERO shot/hit/explosion evs in the client's event_log ----
+        # ---- no_combat_evs: ZERO shot/hit/explosion evs in the client's event_log ----
         kinds_hist = {}
         for e in log:
             kinds_hist[e.get("kind")] = kinds_hist.get(e.get("kind"), 0) + 1
@@ -176,23 +171,23 @@ def run():
         forbidden_count = sum(v for k, v in kinds_hist.items() if k in forbidden)
         assert forbidden_count == 0, (
             f"{forbidden_count} shot/hit/explosion ev(s) found in the client's "
-            f"event_log - AI shot/grenade/psi are OUT-OF-WAVE (REV E.48 SS.B.1): "
+            f"event_log - the stripped aliens (psiSkill 0) may only walk: "
             f"{kinds_hist}")
-        print(f"[assertion 4] zero shot/hit/explosion evs; full kind histogram: "
+        print(f"[no_combat_evs] zero shot/hit/explosion evs; full kind histogram: "
               f"{kinds_hist}")
 
-        # ---- assertion 5: all nine buckets EQUAL after the alien side ----
+        # ---- buckets_equal: all nine buckets EQUAL after the alien side ----
         hh, ch = assert_hash_clean(host, client, full=True, what="after the alien side")
-        print(f"[assertion 5] {len(hh)}/{len(hh)} buckets EQUAL")
+        print(f"[buckets_equal] {len(hh)}/{len(hh)} buckets EQUAL")
 
-        # ---- assertion 6: the client is NOT frozen ----
+        # ---- no_desync: the client is NOT frozen ----
         hd = event_state(host).get("desyncSeen")
         cd = event_state(client).get("desyncSeen")
         assert cd is False and hd is False, (
             f"desyncSeen is not False on both machines: host={hd} client={cd}")
-        print(f"[assertion 6] desyncSeen False on both machines (host={hd} client={cd})")
+        print(f"[no_desync] desyncSeen False on both machines (host={hd} client={cd})")
 
-        print(f"[assertion 7 / non-vacuity] hostile(s) that moved: {moved}")
+        print(f"[alien_moved / non-vacuity] hostile(s) that moved: {moved}")
 
         print("PASS: test_ai_origin_stream")
     finally:
@@ -202,7 +197,7 @@ def run():
 
 def main():
     run()
-    print("ALL SPEC 12 test_ai_origin_stream TESTS PASSED")
+    print("ALL test_ai_origin_stream TESTS PASSED")
 
 
 if __name__ == "__main__":
