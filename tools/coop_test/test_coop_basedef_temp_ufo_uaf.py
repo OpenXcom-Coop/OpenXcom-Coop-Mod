@@ -9,40 +9,32 @@ GeoscapeState.cpp:169 / :6009 / :565 and .agents/repro/coop-basedef-uaf/.
 
 Scenario: host resumes the fixture coop save (a retaliation is inbound to a base),
 the registered client joins, then time advances until the base defense fires.
-The fixture is a SEPARATE campaign attack on the HOST's own base (donor commit
-0b0daeafb: "Host-side only (the client receives the streamed battle)").
+The fixture is a SEPARATE campaign attack on the HOST's own base: the host runs
+the base defense and the client receives the streamed battle.
 
   * PASS (exit 0): base-defense flow reaches the briefing/battle on both machines
-    (via the R4-P2 handshake) with NO process crash -> the `temp_ufo` read is safe.
+    (via the battle-start handshake) with NO process crash -> the `temp_ufo` read is safe.
   * FAIL (exit 2): a game process crashes (the UAF) -> bug present.
   * FAIL (exit 3): the base defense never fired within the budget -> fixture/flow
     regressed; the test proved nothing (do not treat as green).
   * FAIL (exit 4): the base defense fired and neither machine crashed (the UAF
-    fix holds), but the R4-P2 handshake did not complete on both machines.
+    fix holds), but the battle-start handshake did not complete on both machines.
 
 RED before the fix (crashes ~every run, verified), GREEN after.
 
-R4-P2: GeoscapeState::startCoopMission() (the
-deferred battle-start this snapshot feeds) now rides the SAME handshake R4-P1
-built (CoopHandshake::offerBattle) instead of the R1-P5 "coop battles
-unavailable" popup - the CoopBaseDefense snapshot struct + the UAF fix itself
-are UNTOUCHED (kept exactly). TRIM: an
-earlier version of this test only required in_battle() to fire once (the
-FIRST of host/client to leave the geoscape) via geo.skip_ingame_time's
-early-exit, then read `in_battle(host) or in_battle(client)` a second time as a
-soft "close enough" check on the other side. Since offerBattle()'s host push of
-BriefingState is unconditional (exactly like vanilla SP, see CoopHandshake.h's
-top doc comment) while the client is pushed straight into BattlescapeState by
-CoopHandshake::onBlobChunkAppended (no client-side BriefingState - the
-LoadGameState.cpp "loaded save with a live battle" precedent), a single
-interest-fire no longer proves both sides actually completed the handshake.
-Assertions below explicitly wait for BOTH machines (mirroring
-test_handshake.py / test_cydonia_coop_start.py): host reaches BriefingState
+GeoscapeState::startCoopMission() (the deferred battle-start the CoopBaseDefense
+snapshot feeds) runs the co-op battle-start handshake (CoopHandshake::offerBattle).
+offerBattle()'s host push of BriefingState is unconditional (exactly like
+vanilla SP, see CoopHandshake.h's top doc comment) while the client is pushed
+straight into BattlescapeState by CoopHandshake::onBlobChunkAppended (no
+client-side BriefingState - the LoadGameState.cpp "loaded save with a live
+battle" precedent), so one machine leaving the geoscape does not prove that
+both completed the handshake. The assertions below wait for BOTH machines (as
+test_handshake.py / test_cydonia_coop_start.py do): host reaches BriefingState
 then BattlescapeState after an OK click, client reaches BattlescapeState
 directly, and the host+client "[coop-handshake] ... phase Active" log lines are
-both present. The saveBlob hash comparison itself stays SOFT-GATED pending
-R2-P9 (see test_handshake.py's docstring) - only that onReady() ran to
-completion is asserted, not saveBlob equality.
+both present. The saveBlob hashes are not compared here (test_handshake.py
+checks them): only that onReady() ran to completion is asserted.
 """
 import glob
 import os
@@ -69,7 +61,7 @@ BATTLE_STATES = ("BriefingState", "BattlescapeState")
 
 def crash_logs():
     hits = []
-    for root in (harness.CRASH_DIR,):  # (W2-U8h F9563: this lane's own crash folder)
+    for root in (harness.CRASH_DIR,):  # this harness slot's own crash folder
         hits += glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)
     return set(hits)
 
@@ -137,20 +129,19 @@ def main():
         print("skip_ingame_time result:", res)
         battle_reached = res.get("hit") is not None or in_battle(host) or in_battle(client)
 
-        # E75.1 driving fix + F355 / owner D25: skip_ingame_time now HALTS at the
-        # base-defense BriefingState (interest carries .keep via geo.popup), so it
-        # is still on the host's stack here. CoopHandshake::emitPreparedOffer() runs
+        # skip_ingame_time HALTS at the base-defense BriefingState (the interest
+        # carries .keep via geo.popup), so it is still on the host's stack here. CoopHandshake::emitPreparedOffer() runs
         # from BriefingState::btnOkClick/close_briefing, so the client offer is not
         # SENT until the HOST closes its own briefing FIRST; waiting for the client's
         # BattlescapeState before that hangs. session.drive_both_to_tactical closes
         # the host BriefingState via close_briefing, then drains BOTH machines through
-        # Briefing/Inventory/CoopState popups to BattlescapeState (the SPEC 19 flow).
+        # Briefing/Inventory/CoopState popups to BattlescapeState.
         if battle_reached:
             assert session.drive_both_to_tactical(host, client), (
                 f"drive_both_to_tactical timed out host={session.states(host)[-3:]} "
                 f"client={session.states(client)[-3:]}")
             print("PASS: BOTH machines in BattlescapeState (host briefing closed "
-                  "first via close_briefing, F355)")
+                  "first via close_briefing)")
 
             host_log = log_lines(host_dir)
             client_log = log_lines(client_dir)
@@ -194,7 +185,7 @@ def main():
         sys.exit(3)
     if not handshake_ok:
         print("FAIL: base defense reached the battle (no crash - the UAF fix "
-              "holds) but the R4-P2 handshake did not complete on both "
+              "holds) but the battle-start handshake did not complete on both "
               "machines - see note/log lines above")
         sys.exit(4)
     print("PASS: coop base-defense reached the battle on both machines via "
