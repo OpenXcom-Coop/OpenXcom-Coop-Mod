@@ -1,24 +1,23 @@
-"""W2-H17d (F7719, F7720, F7721, F7727; D226 a; Q1 a .. Q5 a; R-H17d-T0-1): in SHARED a story cutscene that both
-machines play at their own OK (a geoscape event window, the monthly game-over report) plays exactly once on each
-machine; an ending is still relayed (R-H17b-1) and SEPARATE keeps the relay. Spec docs rewrite/prompts/
-w2h17d_event_cutscene_once.md (f); TASK 0 rewrite/w2h17d-task0/CONSTANTS.md. Mod Coop_Event_Cutscene_Test: three
-empty cutscenes (a "play" = one `cutscene definition empty: <id>` engine-log line after the row's S0 mark, read 1.0 s
-after the row's last OK), events STR_EVCUT_EV_A -> STR_EVCUT_A and STR_EVCUT_EV_B -> STR_EVCUT_B spawned by topics
-STR_EVCUT_T_A / STR_EVCUT_T_B, and defeatScore 100000 + gameOver.loseRating STR_EVCUT_MR (a month-1 game over whose
-video has no loseGame). Probes (read-only): research_probe (allowCutscene), geo_event_probe (eventStates,
-event.texts.title), get_state, ending_state, geo_state; levers research_start, set_research_cost, set_geo_day,
-dismiss_popup. Row frame: trigger = host research_start per topic, listed on the host (and the replica in SHARED)
-within 5 s, set_research_cost 1, a 2-day skip (speed 5, real timeout 150 s) to the event window; OK = dismiss_popup
-with the keep list (CutsceneState, StatisticsState) after reading the top, so no dismiss_popup ever reaches a machine
-whose top is one of them; poll = research_probe.allowCutscene every 0.2 s. A latch read is a cell only where a window
-sits under the received cutscene (H17d-1 host, H17d-2 replica before its own OK, H17d-4 host); elsewhere
-GeoscapeState::init re-arms the latch and the counts carry the verdict. H17d-2 reads its first window's title at run
-time (events of one day fire in pointer order, F7730); X = the first window, Y = the other event.
-Boot A (SHARED): H17d-1; Boot B (SHARED): H17d-2; Boot C (SEPARATE, research sync off: W2-U9, R-B109-1): H17d-3;
-Boot D (SHARED): H17d-4.
-RED (commit 1): H17d-1, H17d-2, H17d-4 fail on their named cells, H17d-3 passes; GREEN: all pass. "guard:" cells are
-guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; every row runs after a failure; exit 0 only if
-all pass, else 2.
+"""test_event_cutscene_once.py: in SHARED a story cutscene that both machines play at their own OK (a geoscape event
+window, the monthly game-over report) plays exactly once on each machine; an ending is still relayed and SEPARATE
+keeps the relay. Mod Coop_Event_Cutscene_Test: three empty cutscenes (a "play" = one
+`cutscene definition empty: <id>` engine-log line after the row's mark, read 1.0 s after the row's last OK), events
+STR_EVCUT_EV_A -> STR_EVCUT_A and STR_EVCUT_EV_B -> STR_EVCUT_B spawned by topics STR_EVCUT_T_A / STR_EVCUT_T_B, and
+defeatScore 100000 + gameOver.loseRating STR_EVCUT_MR (a month-1 game over whose video has no loseGame). Probes
+(read-only): research_probe (allowCutscene), geo_event_probe (eventStates, event.texts.title), get_state, ending_state,
+geo_state; test commands research_start, set_research_cost, set_geo_day, dismiss_popup. Row frame: trigger = host
+research_start per topic, listed on the host (and the replica in SHARED) within 5 s, set_research_cost 1, a 2-day skip
+(speed 5, real timeout 150 s) to the event window; OK = dismiss_popup with the keep list (CutsceneState,
+StatisticsState) after reading the top, so no dismiss_popup ever reaches a machine whose top is one of them; poll =
+research_probe.allowCutscene every 0.2 s. A latch read is a cell only where a window sits under the received cutscene
+(client_ok_first host, two_windows replica before its own OK, game_over_report host); elsewhere GeoscapeState::init
+re-arms the latch and the counts carry the verdict. two_windows reads its first window's title at run time (events of
+one day fire in pointer order); X = the first window, Y = the other event.
+One boot per row: client_ok_first, two_windows and game_over_report in SHARED; separate_relay in SEPARATE with
+research sync off.
+A build that relays every story cutscene fails client_ok_first, two_windows and game_over_report on their named cells
+and passes separate_relay; with the fix all pass. "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS /
+FAIL per row; ONE run; every row runs after a failure; exit 0 only if all pass, else 2.
 """
 
 import json
@@ -34,14 +33,13 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Event_Cutscene_Test")
-BOOT_A = ("w2h17da", (49392, 49393, 47372))      # SHARED; lobby 47372
-BOOT_B = ("w2h17db", (49394, 49395, 47374))      # SHARED
-BOOT_C = ("w2h17dc", (49396, 49397, 47376))      # SEPARATE, research sync off
-# W2-U9 (R-B109-1, F21066; MG-F's H17c-3 precedent QMC-5 (a), a2a2d8acf): H17d-3 guards the SEPARATE relay with research
-# sync OFF. With sync on, main #197 (1f17a2b4a; PR197-O1, D226 (a)) makes the partner spawn the research's event itself;
-# that case is the hotfix unit W2-H75 (the relay double play), not this file.
+BOOT_CLIENT_FIRST = ("event_cutscene_client_first", (49392, 49393, 47372))   # SHARED; lobby 47372
+BOOT_TWO_WINDOWS = ("event_cutscene_two_windows", (49394, 49395, 47374))     # SHARED
+BOOT_SEPARATE = ("event_cutscene_separate", (49396, 49397, 47376))           # SEPARATE, research sync off
+# separate_relay guards the SEPARATE relay with research sync OFF. With sync on, the partner spawns the research's
+# event itself (#197); that case (no double play of the relay) is test_event_relay_once.py's, not this file's.
 SYNC_OFF = {"EnableResearchSync": False}
-BOOT_D = ("w2h17dd", (49398, 49399, 47378))      # SHARED
+BOOT_GAME_OVER = ("event_cutscene_game_over", (49398, 49399, 47378))         # SHARED
 T_A, T_B = "STR_EVCUT_T_A", "STR_EVCUT_T_B"
 EV_A, EV_B = "STR_EVCUT_EV_A", "STR_EVCUT_EV_B"
 CUT, CUT_MR = {EV_A: "STR_EVCUT_A", EV_B: "STR_EVCUT_B"}, "STR_EVCUT_MR"
@@ -95,7 +93,7 @@ def log_lines(gc, cur=0):
         return [f"<log read error {e}>"]
 
 def plays(gc, cur):
-    """Since `cur` (the row's S0 mark): this machine's cutscene plays per id."""
+    """Since `cur` (the row's mark): this machine's cutscene plays per id."""
     out = {}
     for ln in log_lines(gc, cur):
         if PLAY in ln:
@@ -176,7 +174,7 @@ def both_windows(r, x):
     return ok, f"eventStates host {evs(x.host)} / client {evs(x.client)} after {w} s; titles {tt}"
 
 def mark(r, x):
-    r.ev["S0"] = {gc.name: snap(gc) for gc in (x.host, x.client)}
+    r.ev["atMark"] = {gc.name: snap(gc) for gc in (x.host, x.client)}
     return {gc.name: log_cur(gc) for gc in (x.host, x.client)}
 
 def counts(r, x, cur):
@@ -185,8 +183,8 @@ def counts(r, x, cur):
     r.ev["end"] = {gc.name: snap(gc) for gc in (x.host, x.client)}
     return pl
 
-def row_h17d_1(r, x):
-    """S1: both windows open, the client presses OK first; the host must not get the client's video."""
+def row_client_ok_first(r, x):
+    """Both windows open, the client presses OK first; the host must not get the client's video."""
     h, c, a = x.host, x.client, CUT[EV_A]
     trigger(r, x, [T_A], 10, True)
     ok, d = both_windows(r, x)
@@ -200,11 +198,11 @@ def row_h17d_1(r, x):
     press_ok(r, x, h, EV, "hostOK")
     pl = counts(r, x, cur)
     r.cell("hostOnce", pl["host"].get(a, 0) == 1, "the host played the story cutscene twice: the client's relay, then "
-                                                   f"its own OK (F7719): host {a} plays {pl['host'].get(a, 0)}")
+                                                   f"its own OK: host {a} plays {pl['host'].get(a, 0)}")
     guard(r, x, "clientOnce", pl["client"].get(a, 0) == 1, f"client {a} plays {pl['client'].get(a, 0)}")
 
-def row_h17d_2(r, x):
-    """Two windows (R-H17d-T0-1): the host's OK on both first, then the replica's; the replica must play X once."""
+def row_two_windows(r, x):
+    """Two windows: the host's OK on both first, then the replica's; the replica must play X once."""
     h, c = x.host, x.client
     trigger(r, x, [T_A, T_B], 5, True)
     ok, d = both_windows(r, x)
@@ -237,10 +235,10 @@ def row_h17d_2(r, x):
     pl = counts(r, x, cur)
     n = r.ev["counts"] = {f"{m}.{k}": pl[m].get(cid, 0) for m in ("host", "client") for k, cid in (("X", cx), ("Y", cy))}
     r.cell("replicaOnce", n["client.X"] == 1, f"the second player played the story cutscene {cx} twice: the host's "
-                                              f"relay over its open window, then its own OK (F7720): {n['client.X']}")
+                                              f"relay over its open window, then its own OK: {n['client.X']}")
     guard(r, x, "onceElse", n["host.X"] == 1 and n["host.Y"] == 1 and n["client.Y"] == 1, f"counts {n}")
 
-def row_h17d_3(r, x):
+def row_separate_relay(r, x):
     """SEPARATE (no-change control): the host's own event; the partner has no window and plays the relay once."""
     h, c, a = x.host, x.client, CUT[EV_A]
     trigger(r, x, [T_A], 10, False)
@@ -252,10 +250,10 @@ def row_h17d_3(r, x):
     press_ok(r, x, h, EV, "hostOK")
     pl = counts(r, x, cur)
     r.cell("hostOnce", pl["host"].get(a, 0) == 1, f"host {a} plays {pl['host'].get(a, 0)}")
-    r.cell("partnerOnce", pl["client"].get(a, 0) == 1, "the SEPARATE partner no longer sees the host's event video "
-                                                       f"(F7724, R-H17b-1): client {a} plays {pl['client'].get(a, 0)}")
+    r.cell("partnerOnce", pl["client"].get(a, 0) == 1, "the SEPARATE partner no longer sees the host's event video: "
+                                                       f"client {a} plays {pl['client'].get(a, 0)}")
 
-def row_h17d_4(r, x):
+def row_game_over_report(r, x):
     """Monthly game over without an ending: the client's two OKs first; the host must not get its video."""
     h, c = x.host, x.client
     r.ev["setDay"] = h.cmd({"cmd": "set_geo_day", "day": 31, "hour": 22}).get("ok")
@@ -276,7 +274,7 @@ def row_h17d_4(r, x):
     press_ok(r, x, h, MRS, "hostOK2")
     pl = counts(r, x, cur)
     r.cell("hostOnce", pl["host"].get(CUT_MR, 0) == 1,
-           f"the host played the game-over video twice (F7727): host {CUT_MR} plays {pl['host'].get(CUT_MR, 0)}")
+           f"the host played the game-over video twice: host {CUT_MR} plays {pl['host'].get(CUT_MR, 0)}")
     guard(r, x, "clientOnce", pl["client"].get(CUT_MR, 0) == 1, f"client {CUT_MR} plays {pl['client'].get(CUT_MR, 0)}")
     e = {n: v["ending"] for n, v in r.ev["end"].items()}
     guard(r, x, "endings", e == {"host": 0, "client": 0}, f"endings {e}")
@@ -333,11 +331,13 @@ def boot(tag, up, rows, results, walls):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h17d] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[test_event_cutscene_once] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
-BOOTS = ((BOOT_A, (("H17d-1", row_h17d_1),), True), (BOOT_B, (("H17d-2", row_h17d_2),), True),
-         (BOOT_C, (("H17d-3", row_h17d_3),), False), (BOOT_D, (("H17d-4", row_h17d_4),), True))
+BOOTS = ((BOOT_CLIENT_FIRST, (("client_ok_first", row_client_ok_first),), True),
+         (BOOT_TWO_WINDOWS, (("two_windows", row_two_windows),), True),
+         (BOOT_SEPARATE, (("separate_relay", row_separate_relay),), False),
+         (BOOT_GAME_OVER, (("game_over_report", row_game_over_report),), True))
 
 def main():
     t0, results, walls = time.time(), {}, {}
