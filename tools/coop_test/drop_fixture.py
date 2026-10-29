@@ -1,12 +1,10 @@
-"""W2-H58 shared drop / rejoin fixture (tools/coop_test/drop_fixture.py; spec docs rewrite/prompts/w2h58_rejoin_world_kept.md section F,
-QH58-1 (a)). Written by S-A's red (w2h58_sa_rekey.md) and imported unchanged by S-B (w2h58_sb_rx_buffer.md).
-L-LH54-2-1 (a partner who drops during the host's quick save rejoins into a fresh world, F18420) and L-LH54-2-2 (the host's inbound buffer
-keeps a half-sent world through the drop, F18425 / F18428). The shapes are copied from the capture docs rewrite/lh54-2b-cap/lh54b.py (never
-imported): the drop at the host's FIRST sight of its "Saving..." (CoopState code 54, 5 ms polls) suspends the partner (NtSuspendProcess),
-reads, then kills it; the host's 62 follows. Every rejoiner is a NEW GameClient on a fresh dir that joins the same lobby key by name.
+"""Shared drop / rejoin fixture: a partner who drops during the host's quick save must rejoin into its own world, not a fresh one, and
+the host's inbound buffer must not keep a half-sent world through the drop. The drop at the host's FIRST sight of its "Saving..."
+(CoopState code 54, 5 ms polls) suspends the partner (NtSuspendProcess), reads, then kills it; the host's 62 follows. Every rejoiner
+is a NEW GameClient on a fresh dir that joins the same lobby key by name.
 Every function records what it saw in a dict it returns (the test prints it as EVIDENCE); none asserts or exits. Never dismiss_popup,
 coop_dialog_back, leave_base or a base placement: a fresh world is evidence, never built on. one foreground run per invocation.
-drop_at_54's optional ready(host) is waited for (at most ready_s) between the 54 sight and the suspend (cap-save F23943)."""
+drop_at_54's optional ready(host) is waited for (at most ready_s) between the 54 sight and the suspend."""
 import ctypes
 import glob
 import os
@@ -54,7 +52,7 @@ def key(gc, k):
 
 def files(gc):
     """the machine's xcom1 save folder: {name: [size, mtime_ns]}; a file renamed between the listing and its stat (the save's
-    .bak -> .asav move) is gone at this read and left out (cap-save F23944)"""
+    .bak -> .asav move) is gone at this read and left out"""
     out = {}
     for p in sorted(glob.glob(os.path.join(gc.user_dir, "xcom1", "*"))):
         try:
@@ -77,7 +75,7 @@ def lines_since(gc, n0, needles=NEEDLES):
     return [p[0][-13:-1] + " " + p[-1][:300] for p in sel]
 
 def cpu():
-    """\\Processor(_Total)\\% Processor Time (F4445) and any Wardogs* process (the owner's game)"""
+    """\\Processor(_Total)\\% Processor Time and any Wardogs* process (a game running beside the tests)"""
     c = harness.cpu_load()
     return {"t": time.strftime("%H:%M:%S"), "cpu": harness.cpu_text(c["cpu"], 0), "wardogs": ",".join(c["wardogs"])}
 

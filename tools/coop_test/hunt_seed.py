@@ -1,4 +1,4 @@
-"""One-time seed hunt (SPEC 0e-4, owner D11). NOT a regression member. Boots host+client on
+"""One-time seed hunt. NOT a regression member. Boots host+client on
 --mission with seeds 1..N (fixed order), set_seed on the host right before newbattle_ok, and
 reports per seed: mapFingerprint, the predicate verdict, and the host-log mismatch line if the
 handshake refused. Stops at the first --stop-after matches. Exit 0 = found; 3 = budget exhausted."""

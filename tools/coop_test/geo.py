@@ -62,7 +62,7 @@ def wait_resync_clear(gc, timeout=None):
             dump = {"resync": rs, "states": gc.cmd({"cmd": "get_state"}).get("states"),
                     "coop": {k: co.get(k) for k in ("shared", "lobbyMode", "coopDialog", "onConnect")},
                     "shared_stats": gc.cmd({"cmd": "shared_stats"})}
-            raise ResyncPendingError("%s: resync pending for %.1fs before a dismissal (F5820): %r" % (gc.name, bound, dump))
+            raise ResyncPendingError("%s: resync pending for %.1fs before a dismissal: %r" % (gc.name, bound, dump))
         time.sleep(RESYNC_POLL)
 
 
@@ -318,7 +318,7 @@ def game_minutes(gc):
     return _abs_minutes(g["time"])
 
 
-# --- the coop-ui record reader (WV-D109 / D110/111/112) ------------------------
+# --- the coop-ui record reader ---------------------------------------------------
 # Each instance logs every screen it pushes/pops to <user_dir>/openxcom.log as
 #   [ts]\t[INFO]\t[coop-ui] push class OpenXcom::<Type> depth=N
 #   [ts]\t[INFO]\t[coop-ui] pop  class OpenXcom::<Type> depth=N   (two spaces)
@@ -381,7 +381,7 @@ def _read_coop_ui(gc, cursor):
 
 
 def _reconstruct(events):
-    """Replay post-cursor events. The window may begin MID-stack (F95), so absolute
+    """Replay post-cursor events. The window may begin MID-stack, so absolute
     depth is NOT assumed; only the RELATIVE step is checked: consecutive events
     must differ by exactly +/-1 (push/pop are the only stack ops and both log), and
     a pop's type must match the most-recent still-open push of that type. Returns

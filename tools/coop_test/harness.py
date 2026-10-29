@@ -291,12 +291,10 @@ def _acquire_machine_lock(timeout=3600):
                 waited = True
             time.sleep(5)
 
-# WV-D64 / SPEC 0b time accounting: when OXC_TIMELOG is set, append one CSV
-# row per event to that file (header ts_iso,agent,role,event,detail - the same
-# file every builder/orchestrator TL one-liner writes to, see
-# rewrite/wave1-timelog.csv in the docs repo). Tagged with OXC_AGENT (default
-# "unknown"); role is fixed "harness" so these automatic rows are visually
-# distinct from the manual "agent" rows a builder's own TL calls write. NEVER
+# Time accounting: when OXC_TIMELOG is set, append one CSV row per event to
+# that file (header ts_iso,agent,role,event,detail). Tagged with OXC_AGENT
+# (default "unknown"); role is fixed "harness" so these automatic rows are
+# visually distinct from rows other tools write to the same file. NEVER
 # raises - a timing-accounting failure must not fail a test.
 _TIMELOG_EXIT_CODE = [0]
 
@@ -305,8 +303,8 @@ def _timelog(event, detail=""):
     path = os.environ.get("OXC_TIMELOG")
     if not path:
         return
-    # ~690 of the ~790 rows a session writes are the spawn tier and only
-    # SPEC 0c's boot analysis needed them; OFF unless OXC_TIMELOG_SPAWNS=1.
+    # ~690 of the ~790 rows a session writes are the spawn tier and only a
+    # boot-time analysis needs them; OFF unless OXC_TIMELOG_SPAWNS=1.
     # test_start/test_end keep emitting under OXC_TIMELOG.
     if event in ("spawn", "spawn_end") and not os.environ.get("OXC_TIMELOG_SPAWNS"):
         return
@@ -374,9 +372,8 @@ LAND_LON, LAND_LAT = 0.7063353365604198, -0.5070346730015731
 # the other stock mods as inactive. Data (UFO/TFTD/standard/common) resolves
 # from the exe's own dir, so this runs on any machine with a built OpenXcom.exe.
 #
-# battleEdgeScroll: 0 (SCROLL_NONE, Options.h:30) - W2-H1 F447 (traced in
-# F456/F458/F459), the F109 precedent of test_host_input_freeze.py made
-# harness-wide. Under the dummy SDL video driver the mouse sits at (0,0), and
+# battleEdgeScroll: 0 (SCROLL_NONE, Options.h:30) for every harness game.
+# Under the dummy SDL video driver the mouse sits at (0,0), and
 # Game::run replays that position as a synthetic mouse motion on every state
 # re-init. With the default SCROLL_AUTO (2), a re-init with a live battlescape
 # on top (e.g. any popup closed after the host's phase Active) makes
@@ -458,23 +455,20 @@ class GameClient:
                 _port_file_event("stale_file_not_observed", path=self._port_file)
         else:
             env["OXC_TEST_PORT"] = str(self._fixed_port)
-        # HEADLESS BY DEFAULT (owner standing rule). Every boot_check, repro_*,
-        # test_rw_* and SP-smoke run funnels through this one spawn(), and it
-        # used to inherit whatever the caller happened to export - which nothing
-        # did, so every harness instance opened a real window and STOLE FOCUS
-        # from whoever was using the machine. A fixture re-roll boots two
-        # instances per attempt and a proof bar does ten-plus attempts, so this
-        # is the whole blast radius.
+        # HEADLESS BY DEFAULT. Every boot_check, repro_*, test_* and SP-smoke
+        # run funnels through this one spawn(); a windowed instance opens a
+        # real window and STEALS FOCUS from whoever is using the machine. A
+        # fixture re-roll boots two instances per attempt, ten-plus attempts
+        # in a row.
         #
-        # Windowed is now an explicit OPT-IN, using the same predicate
-        # run_parallel.py:300-303 already established, so the repo has one
-        # convention. The owner-smoke launcher sets OXC_HARNESS_WINDOWED=1 when
-        # the owner actually wants to watch; no test ever should.
+        # Windowed is an explicit OPT-IN, using the same OXC_HARNESS_WINDOWED
+        # predicate as run_parallel.py, so the repo has one convention. Set it
+        # only when a person wants to watch; no test ever should.
         if not env.get("OXC_HARNESS_WINDOWED"):
             env["SDL_VIDEODRIVER"] = "dummy"
             env["SDL_AUDIODRIVER"] = "dummy"
         # Kept for the opt-in windowed path: harmless under the dummy driver,
-        # and it is what the owner-smoke path wants when it is used.
+        # and it is what a windowed run wants.
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
         # the game writes its crash files into this lane's own folder.
         os.makedirs(CRASH_DIR, exist_ok=True)
@@ -625,8 +619,8 @@ class GameClient:
             obj["port"] = _EPHEMERAL_COOP_PORTS.get(key, obj["port"])
             if "localport" in obj:
                 obj["localport"] = "0"
-            # the client's connect thread makes ONE attempt (at once under the test server since
-            # CIT-G1; ~1.1 s after this command for players) and
+            # the client's connect thread makes ONE attempt (at once under the test server;
+            # ~1.1 s after this command for players) and
             # never retries, while the host opens its listener on its own thread after host_tcp / host_menu_host
             # returned: never send join_tcp before the host reports that listener open.
             host = _COOP_HOSTS.get(key)
@@ -638,7 +632,7 @@ class GameClient:
         return self._send(obj)
 
     def _wait_menu_init(self, timeout=10):
-        """CIT-G1 fix: the game pumps test commands BEFORE it inits a newly pushed state, so a join that lands before
+        """The game pumps test commands BEFORE it inits a newly pushed state, so a join that lands before
         MainMenuState::init is wiped by that init's disconnectTCP + resetSession (test_lobby_polish, 2 of 16 runs once
         the client connected at once). Every join waits until get_state reports no main-menu init pending. A build
         without the field reports nothing, so nothing waits."""
@@ -746,7 +740,7 @@ def _reap_spawned_games():
     """the process-exit backstop. A clean-up that stops at its first failed shutdown() (a
     `host.shutdown(); client.shutdown()` chain) or never reaches a game would leave that game running after Python
     exits. At exit, every game spawn() started in this process that is still running gets shutdown(): quit, the
-    15 s wait, and W2-U8e's minidump before the kill if it hangs. Games started any other way (manual_session.py,
+    15 s wait, and a minidump before the kill if it hangs. Games started any other way (manual_session.py,
     repro74_setup.py) are never touched. One [harness-reap] line per game shut down; never raises; the exit code
     is unchanged."""
     for gc in list(_SPAWNED):
@@ -803,7 +797,7 @@ def _wait_host_listening(host, key, port, joiner):
             tops[gc.name] = "%s: %s" % (type(exc).__name__, exc)
     dump = {"key": key, "port": port, "waitedMs": waited, "polls": polls,
             "hostCoop": {k: coop.get(k) for k in _JOIN_VIEW}, "top": tops}
-    exc = RuntimeError("%s: join_tcp to :%s not sent - host %s %s (F8376): %s" % (
+    exc = RuntimeError("%s: join_tcp to :%s not sent - host %s %s: %s" % (
         joiner.name, port, host.name, why, json.dumps(dump, default=str)))
     if host.user_dir:
         _report_port_file_error("listen_wait_failed", exc, host.user_dir, **dump)
@@ -924,14 +918,12 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     if extra:
         opts = opts.replace("options:\n", extra + "options:\n", 1)
     all_options = dict(options) if options else {}
-    # W1-P12 REGRESSION acceptance: "REGRESSION twice - once ON,
-    # once OFF". None of the 18 regression tests know anything about
-    # coopGhostStepper, so this is the mechanism for the OFF pass without
-    # editing any of them: a PYTHON-side (not OXC_*, and not a new game-process
-    # env var - WAVE1-RUNBOOK.md SS4b's own "OXC_* is not the mechanism" note)
-    # opt-in that forces the option off in EVERY generated options.cfg, for
-    # this harness process only. A caller's own explicit `options` dict entry
-    # (none of the 18 pass one today) still wins.
+    # A pass of the regression tests with coopGhostStepper OFF. None of the
+    # regression tests know anything about coopGhostStepper, so this is the
+    # mechanism for the OFF pass without editing any of them: a PYTHON-side
+    # opt-in (not an OXC_* game-process env var) that forces the option off
+    # in EVERY generated options.cfg, for this harness process only. A
+    # caller's own explicit `options` dict entry still wins.
     if os.environ.get("COOP_GHOST_STEPPER_OFF") and "coopGhostStepper" not in all_options:
         all_options["coopGhostStepper"] = False
     if all_options:
@@ -958,9 +950,9 @@ def find_soldier(soldier_lists, name):
 
 
 # ----- the machine's CPU load for EVIDENCE lines -----
-# Tests record the machine's CPU load and any Wardogs* process (the owner's game, S24) beside their verdicts, to tell a
-# load-inflated red from a real one. Each test used to run its own PowerShell Get-Counter (1.6-2.8 s a call, up to 10 s
-# under load: 211 calls, 484.5 s over 58 tests). cpu_load() reads the same source in-process: GetSystemTimes busy time
+# Tests record the machine's CPU load and any Wardogs* process (a game running beside the tests) beside their verdicts, to
+# tell a load-inflated failure from a real one. A PowerShell Get-Counter costs 1.6-2.8 s a call (up to 10 s under load);
+# cpu_load() reads the same source in-process: GetSystemTimes busy time
 # over the window, which is '\Processor(_Total)\% Processor Time' (median 0.1 point apart on matched 2 s windows). A
 # background thread samples every _CPU_SAMPLE_S from the first call on, so a call costs a process-list scan, not a wait.
 _CPU_SAMPLE_S = 0.5

@@ -243,7 +243,7 @@ campaign each run.
   upgraded save loads through the menu -> resume lobby and a fresh client rejoins
   with the exact name and is served its world (roster intact, zero-disk).
 
-### JOINT campaign tests (PRD-J01..J11)
+### JOINT campaign tests
 
 A JOINT campaign is ONE host-authoritative world shared by both players (bases,
 funds, research, manufacture, crafts), each player keeping control of their own
@@ -292,25 +292,25 @@ finally:
 | `test_joint_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_joint_month_run.py` | the long run: 2 month ends + a battle in one campaign |
 
-#### Shared / replicated JOINT dogfights (PRD-DF01..DF03)
+#### Shared / replicated JOINT dogfights
 
 The host simulates EVERY JOINT dogfight and streams a per-tick state frame
 (`df_state`); every player opens a render-only `DogfightState` and can issue
 stance / weapon / disengage commands (`df_cmd`, arbitrated host-side in
 receive-order). Membership rides `df_open` with a monotonic `membershipEpoch`
-that guards `df_state` against the HK-reshuffle out-of-order race. This dissolves
-GAP-2 (no exclusive "flyer" to route an HK to) and closes GAP-7 / GAP-8 (XP and
+that guards `df_state` against the HK-reshuffle out-of-order race. So there is
+no exclusive "flyer" to route an HK to, and XP and
 `_dest`/waypoints are host-authoritative, since a replica's `update()`
 early-returns before any sim/award code).
 
 | test | proves |
 |---|---|
-| `test_joint_hk_dogfight.py` | GAP-2: an HK attack on a client-commanded craft opens the SAME fight on both machines (no host-only routing); outcome mirrored |
+| `test_joint_hk_dogfight.py` | an HK attack on a client-commanded craft opens the SAME fight on both machines (no host-only routing); outcome mirrored |
 | `test_joint_intercept_spectate.py` | a regular (non-HK) intercept is spectated on both machines; ONE authoritative crash (status + crashId), world-equal |
 | `test_joint_dogfight_control.py` | any player commands a shared fight: stance/weapon/disengage via `df_cmd`, host arbitrates receive-order (last-received-wins); synced UFO-stance marker; client-local minimize |
 | `test_joint_dogfight_present.py` | presentation policy: a host-commanded fight opens FULL on the host / a minimized icon on the client, and a minimized client still commands the host |
-| `test_joint_dogfight_xp.py` | GAP-7: pilot dogfight XP is host-authoritative - EQUAL on both machines, lands on the host `Soldier`, rides the roster stream; a replica is refused the award and never accrues XP locally |
-| `test_joint_dogfight_dest.py` | GAP-8: after a dogfight ends in auto-return, the replica craft's `_dest`/status match the host - no lag, no orphan waypoint to the downed UFO (the replica never sets `_dest` locally) |
+| `test_joint_dogfight_xp.py` | pilot dogfight XP is host-authoritative - EQUAL on both machines, lands on the host `Soldier`, rides the roster stream; a replica is refused the award and never accrues XP locally |
+| `test_joint_dogfight_dest.py` | after a dogfight ends in auto-return, the replica craft's `_dest`/status match the host - no lag, no orphan waypoint to the downed UFO (the replica never sets `_dest` locally) |
 | `test_joint_dogfight_concurrent.py` | up to 4 concurrent interceptions hold ONE membership set on both machines; an HK interrupt-all-and-restart converges both to the new set atomically (epoch lock-step, no stale window, no old-epoch `df_state`); exercises per-(craft,ufo) command targeting |
 
 Traps worth knowing before you write a JOINT test:
@@ -361,7 +361,7 @@ Traps worth knowing before you write a BATTLESCAPE test:
   miss, so an unchanged victim is ambiguous, while a position is not.
 
 Full suite (serial) is ~20 min; no test exceeds ~2 min. Every test runs once and
-nothing is retried: a rerun hides a flaky test (WV-D101, D61).
+nothing is retried: a rerun hides a flaky test.
 
 `session.py` is the shared campaign dance (`new_campaign` / `resume_campaign`
 / `assert_client_zero_disk`) used by every test; `joint_fixture.py` builds the
