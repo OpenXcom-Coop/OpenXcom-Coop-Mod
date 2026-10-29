@@ -176,9 +176,9 @@ def seats_bad(cen):
 
 
 def win(host, c2, ev):
-    """FX-C4: GB.win_cell through the adapter (GB's module globals read at call time: "P3-win" -> "C2-win")."""
-    GB.cell = lambda name, ok, detail: cell("C2-win" if name == "P3-win" else name, ok, detail)
-    GB.block = lambda names, why: block(["C2-win" if n == "P3-win" else n for n in names], why)
+    """FX-C4: GB.win_cell through the adapter (GB's module globals read at call time: "resumed_win" -> "C2-win")."""
+    GB.cell = lambda name, ok, detail: cell("C2-win" if name == "resumed_win" else name, ok, detail)
+    GB.block = lambda names, why: block(["C2-win" if n == "resumed_win" else n for n in names], why)
     GB.win_cell(host, c2, ev)
 
 

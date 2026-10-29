@@ -411,11 +411,12 @@ def row_l5(x, ev):
             raise RowEnd("the battle did not resume on both")
         wv, buf, n_w = {}, io.StringIO(), len(RG2.RESULTS)
         try:
-            with contextlib.redirect_stdout(buf):      # RG2's own "P3-win" line goes to EVIDENCE, its verdict to L5-end
+            # RG2's own "resumed_win" line goes to EVIDENCE, its verdict to L5-end
+            with contextlib.redirect_stdout(buf):
                 RG2.win_cell(host, c2, wv)
         except Exception as e:  # noqa: BLE001
             wv["error"] = f"{type(e).__name__}: {str(e)[:300]}"
-        won = RG2.RESULTS[-1] if len(RG2.RESULTS) > n_w else ("P3-win", False, f"no verdict ({wv.get('error')})")
+        won = RG2.RESULTS[-1] if len(RG2.RESULTS) > n_w else ("resumed_win", False, f"no verdict ({wv.get('error')})")
         ev["WIN"] = dict(wv, printed=buf.getvalue().strip()[:600])
         s2s = []
         wait(lambda: s2s.append(stack(c2)), END_S)          # client2's stack sampled for END_S
