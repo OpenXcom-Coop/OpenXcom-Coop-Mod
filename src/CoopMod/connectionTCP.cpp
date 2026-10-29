@@ -12708,7 +12708,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getCoopMod()->inventory_battle_window = false;
 			}
 
-			_game->pushState(new CoopState(COOP_DLG_WORLD_DOWNLOAD));
+			// Ask for the world now, as main does. The join popup goes on top in
+			// the same frame, so the download dialog's init() would only send the
+			// request after the player closed that popup.
+			CoopState* download = new CoopState(COOP_DLG_WORLD_DOWNLOAD);
+			_game->pushState(download);
+			download->requestCampaignWorld();
 
 			_game->pushState(new Profile);
 		}
