@@ -1,42 +1,42 @@
-"""a player who rejoins a co-op or PvP battle while it is on the alien side gets the alien side, as the host has
-it (spec: docs repo rewrite/prompts/w2h33_rejoin_doc_side.md (f); orchestrator ruling R-9B-4, F11800; owner D91 Q2 and
-PRD T5 "kill -9 the client mid-alien-turn -> reconnect -> rejoin -> hash-clean continue"; QH33-1 .. QH33-7 (a)).
-Constants: docs repo rewrite/w2h33-task0/CONSTANTS.md (TASK 0 boots Pa / Pb, Ta / Tb, Va / Vb; EVIDENCE Pr, Pc).
+"""A player who rejoins a co-op or PvP battle while it is on the alien side gets the alien side, as the host has it:
+kill the client mid-alien-turn, reconnect, rejoin, and the battle goes on hash-clean.
 
 THREE boots, each shut down before the next, one row each (every id and pin read from a probe at bring-up):
-  AP  boot P, key "48745", co-op parallel: test_rejoin_end_turn.boot; the client then the host press END TURN; both
-      machines on side 1 with the host's alien turn screen up (no NextTurnState is closed); the client is killed (PRD T5);
-      a fresh process (client2) rejoins and is held on dialog 68; the host offers RESUME; RESUME; the alien side ends.
-  AT  boot T, key "48746", co-op traditional: the same in turn-by-turn mode (the host passes, the client's last pass ends
-      the side); the client leaves gracefully (disconnect_to_menu).
-  AV  boot V, key "48747", PvP gm2: test_battle_end_rules.boot_pvp; the host's END TURN hands the turn to the alien
-      player (the client), who leaves on its own turn (disconnect_to_menu), rejoins and presses END TURN.
-The host's TEST-ONLY `resync_hold {on: true}` is armed right after each bring-up: a desync then
-halts client2 instead of being repaired, so the cells read the defect itself; a green never desyncs.
-Cells per row (X = AP / AT / AV):
-  X-pause  GUARD at the host's first 62: top CoopState 62 with backVisible false over NextTurnState / BattlescapeState
-           (AV: BattlescapeState right below, coopGamemode 2); authority phase Active, peerAbsent true, battleId B0; host
-           side 1, turn T0.
-  X-side   RED at the hold (client2 on 68, RESUME offered, nothing pressed): client2 side == host side == 1, turn T0 on
+  coop_parallel     key "48745", co-op parallel: test_rejoin_end_turn.boot; the client then the host press END TURN;
+                    both machines on side 1 with the host's alien turn screen up (no NextTurnState is closed); the
+                    client is killed; a fresh process (client2) rejoins and is held on dialog 68; the host offers
+                    RESUME; RESUME; the alien side ends.
+  coop_traditional  key "48746", co-op traditional: the same in turn-by-turn mode (the host passes, the client's last
+                    pass ends the side); the client leaves gracefully (disconnect_to_menu).
+  pvp_gm2           key "48747", PvP gm2: test_battle_end_rules.boot_pvp; the host's END TURN hands the turn to the
+                    alien player (the client), who leaves on its own turn (disconnect_to_menu), rejoins and presses
+                    END TURN.
+The host's TEST-ONLY `resync_hold {on: true}` is armed right after each bring-up: a desync then halts client2 instead
+of being repaired, so the cells read the defect itself; with the fix nothing desyncs.
+Cells per row (X = the row id):
+  X-pause  guard at the host's first 62: top CoopState 62 with backVisible false over NextTurnState / BattlescapeState
+           (pvp_gm2: BattlescapeState right below, coopGamemode 2); authority phase Active, peerAbsent true, battleId
+           B0; host side 1, turn T0.
+  X-side   at the hold (client2 on 68, RESUME offered, nothing pressed): client2 side == host side == 1, turn T0 on
            both.
-  X-synced RED at the hold: hash_now {buckets: [synced]} equal on host and client2 (EVIDENCE: the full-hash diff).
-  X-resume GUARD RESUME (press_back_when_shown, codes 62): within 60 s no 62 on the host, host top NextTurnState (AV:
-           BattlescapeState), client2 holds BattlescapeState and no 68, phase Active on both, host peerAbsent false,
-           battleId B0 on both.
-  X-end    client2 not frozen (else "not reached"); AP / AT: test_turn_baton.drive_full_cycle, settle, both side 0,
-           turn >= T0 + 1 (AT: coopActiveSeat 0 on both); AV: client2 END TURN, drive_side_change to side 0, turn >= T0 + 1.
+  X-synced at the hold: hash_now {buckets: [synced]} equal on host and client2 (EVIDENCE: the full-hash diff).
+  X-resume guard: RESUME (press_back_when_shown, codes 62): within 60 s no 62 on the host, host top NextTurnState
+           (pvp_gm2: BattlescapeState), client2 holds BattlescapeState and no 68, phase Active on both, host
+           peerAbsent false, battleId B0 on both.
+  X-end    client2 not frozen (else "not reached"); co-op rows: test_turn_baton.drive_full_cycle, settle, both side 0,
+           turn >= T0 + 1 (coop_traditional: coopActiveSeat 0 on both); pvp_gm2: client2 END TURN,
+           drive_side_change to side 0, turn >= T0 + 1.
   X-hash   after X-end: wait_host_idle + assert_hash_clean(full).
-  X-clean  every case: client2 desyncSeen false and desyncFrozen false; the host's resync_state desyncs / held / offered
-           deltas from the row's baseline all 0.
-  X-crash  GUARD every case: no new crash_*.log in this lane's crash folder since the row's start.
-RED at H1 (TASK 0 decision rule (i), measured on both boots of each shape): AP-side, AP-synced, AP-end, AP-hash,
-AP-clean, AT-side, AT-synced, AT-end, AT-hash, AT-clean, AV-side, AV-synced, AV-end, AV-hash, AV-clean (X-end / X-hash
-"not reached": client2 frozen by the held desync); every GUARD (X-pause, X-resume, X-crash) PASS.
+  X-clean  every case: client2 desyncSeen false and desyncFrozen false; the host's resync_state desyncs / held /
+           offered deltas from the row's baseline all 0.
+  X-crash  guard, every case: no new crash_*.log in this harness slot's own crash folder since the row's start.
+Without the fix (measured on two boots of each row) every side, synced, end, hash and clean cell fails (X-end /
+X-hash "not reached": client2 frozen by the held desync); every guard cell (X-pause, X-resume, X-crash) passes.
 A bring-up step past its bound is a setup failure: ONE "CAPTURE <row>:" line (every machine's get_state, battle_state,
-event_state, coop_dialog_info and the last 40 engine log lines) and every cell of the row FAILs "boot". A leave or rejoin
-step past its bound FAILs the cells from X-side on "rejoin" (X-clean and X-crash are still evaluated). One EVIDENCE line
-per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure. battle_state is probed only
-with a BattlescapeState on the machine's stack. run in the foreground to completion.
+event_state, coop_dialog_info and the last 40 engine log lines) and every cell of the row FAILs "boot". A leave or
+rejoin step past its bound FAILs the cells from X-side on "rejoin" (X-clean and X-crash are still evaluated). One
+EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure.
+battle_state is probed only with a BattlescapeState on the machine's stack. Run in the foreground to completion.
 ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_rejoin_alien_side.py
@@ -60,7 +60,8 @@ from repro_atom_side_begin import drive_side_change  # noqa: E402
 from test_delta_core import settle_on_battlescape, desync_record  # noqa: E402
 from test_turn_mode import live_mode, PARALLEL, TRADITIONAL  # noqa: E402
 
-ROWS = (("AP", "p", "48745"), ("AT", "t", "48746"), ("AV", "v", "48747"))   # row, boot, lobby key (unused elsewhere)
+ROWS = (("coop_parallel", "p", "48745"), ("coop_traditional", "t", "48746"),
+        ("pvp_gm2", "v", "48747"))   # row, boot shape, lobby key (unused elsewhere)
 CELLS = ("pause", "side", "synced", "resume", "end", "hash", "clean", "crash")
 FROM_SIDE = ("side", "synced", "resume", "end", "hash")
 POLL, POLL_SIDE = 0.25, 0.1
@@ -68,8 +69,8 @@ SIDE_S, PAUSE_S, REJOIN_S, HOLD_S, CYCLE_S, IDLE_S, RESUME_S, MENU_S, PAINT_S = 
 FACTION_PLAYER, FACTION_HOSTILE, GAMEMODE_PVP = 0, 1, 2
 DLG_WAIT, DLG_HOLD = 62, 68
 BS, NTS, CS = "BattlescapeState", "NextTurnState", "CoopState"
-BELOW_62 = {"p": [BS, NTS], "t": [BS, NTS], "v": [BS]}      # CONSTANTS: the host's stack right below its first 62
-TOP_AFTER_RESUME = {"p": NTS, "t": NTS, "v": BS}            # CONSTANTS: the host's top after RESUME
+BELOW_62 = {"p": [BS, NTS], "t": [BS, NTS], "v": [BS]}      # measured: the host's stack right below its first 62
+TOP_AFTER_RESUME = {"p": NTS, "t": NTS, "v": BS}            # measured: the host's top after RESUME
 OFFER = "rejoin battle_offer sent (battleId="
 RS_KEYS = ("desyncs", "held", "offered")
 TS_RE = re.compile(r"^\[(\d\d)-(\d\d)-(\d{4})_(\d\d)-(\d\d)-(\d\d)\.(\d{3})\]")
@@ -125,7 +126,8 @@ def rs_delta(a, b):
 
 
 def snap(gc):
-    """REJ.snap's keys (event_state EK, battle_state BK, battle_state guarded) + authority + coopGamemode + stack"""
+    """test_rejoin_end_turn.snap's keys (event_state EK, battle_state BK, battle_state guarded) + authority +
+    coopGamemode + stack"""
     if not alive(gc):
         return {"alive": False}
     e, b = q(gc, {"cmd": "event_state"}), bs(gc)
@@ -282,7 +284,7 @@ def leave_and_pause(x, cells):
     mark(x, "t_leave")
     try:
         if shape == "p":
-            step(x, "client.kill() (PRD T5)", c.kill, m)
+            step(x, "client.kill()", c.kill, m)
         else:
             step(x, "client disconnect_to_menu -> MainMenuState", lambda: (c.cmd({"cmd": "disconnect_to_menu"}), wait(
                 "client at the main menu", lambda: top(c) == "MainMenuState", MENU_S, POLL_SIDE)), m)
@@ -331,7 +333,7 @@ def rejoin(x):
     mark(x, "t_68")
 
     def offered():
-        if session.has_state(h, "Profile"):        # the join's popup sits over the dialog (REJ :193-194)
+        if session.has_state(h, "Profile"):        # the join's popup sits over the dialog (as in test_rejoin_end_turn)
             q(h, {"cmd": "profile_ok"})
             return False
         d = dlg(h)
@@ -466,7 +468,7 @@ def verdict(rid, cells, ev):
 
 def run_row(rid, shape, key, walls):
     t0 = time.time()
-    tag = f"w2h33_{shape}"
+    tag = f"rejoin_alien_side_{shape}"
     host = GameClient("host", None, make_user_dir(tag + "_host"))
     client = GameClient("client", None, make_user_dir(tag + "_client"))
     client2 = GameClient("client2", None, make_user_dir(tag + "_client2"))
