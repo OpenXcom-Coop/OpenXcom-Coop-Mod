@@ -51,6 +51,15 @@ int findBaseIndex(Game* game, const Base* base)
 	return -1;
 }
 
+GeoscapeState* geo(Game* game)
+{
+	if (!game) return nullptr;
+	for (State* state : game->getStates())
+		if (GeoscapeState* gs = dynamic_cast<GeoscapeState*>(state)) return gs;
+	return nullptr;
+}
+}
+
 Craft* resolveCraft(Game* game, const Json::Value& obj)
 {
 	if (!game || !game->getSavedGame()) return nullptr;
@@ -64,14 +73,6 @@ Craft* resolveCraft(Game* game, const Json::Value& obj)
 	return nullptr;
 }
 
-GeoscapeState* geo(Game* game)
-{
-	if (!game) return nullptr;
-	for (State* state : game->getStates())
-		if (GeoscapeState* gs = dynamic_cast<GeoscapeState*>(state)) return gs;
-	return nullptr;
-}
-
 Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 {
 	Json::Value msg;
@@ -82,6 +83,8 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 	return msg;
 }
 
+namespace
+{
 int seatForPlayerName(const std::string& playerName)
 {
 	if (playerName.empty()) return -1;

@@ -194,6 +194,8 @@
 #include "../Basescape/CraftsState.h"
 #include "../Basescape/CraftWeaponsState.h"
 #include "../Basescape/SoldierArmorState.h"
+#include "../Basescape/SoldierTransformationState.h"
+#include "../Mod/RuleSoldierTransformation.h"
 #include "../Basescape/CraftArmorState.h"
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
@@ -718,6 +720,74 @@ static Json::Value soldierToJson(Soldier* s)
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
+
+	// Press Start on the real SoldierTransformationState for soldier <soldierId>
+	// at <base> (dead = a memorial soldier) with transformation <rule>, the
+	// screen the transformation list opens.
+	if (cmd == "soldier_transform")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		const int id = req.get("soldierId", -1).asInt();
+		Base* target = nullptr;
+		Soldier* soldier = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base->getName() == baseName) { target = base; break; }
+		if (target && !req.get("dead", false).asBool())
+		{
+			for (Soldier* s : *target->getSoldiers())
+				if (s->getId() == id) { soldier = s; break; }
+		}
+		else if (target)
+		{
+			for (Soldier* s : *_game->getSavedGame()->getDeadSoldiers())
+				if (s->getId() == id) { soldier = s; break; }
+		}
+		RuleSoldierTransformation* rule = _game->getMod()->getSoldierTransformation(
+			req.get("rule", "").asString(), false);
+		if (!target) resp["error"] = "base not found: " + baseName;
+		else if (!soldier) resp["error"] = "soldier not found";
+		else if (!rule) resp["error"] = "unknown transformation";
+		else
+		{
+			SoldierTransformationState* screen = new SoldierTransformationState(rule, target, soldier, nullptr);
+			_game->pushState(screen);
+			screen->btnStartClick(nullptr);
+			resp["ok"] = true;
+		}
+		return true;
+	}
+
+	// The craft reference a Separate craft request (separate_cydonia_request)
+	// carries, built now for the craft <craftId> at <base>, and what such a
+	// message names on this machine (separate_resolve_craft).
+	if (cmd == "separate_craft_message")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		const int craftId = req.get("craftId", -1).asInt();
+		Craft* craft = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base->getName() == baseName)
+					for (Craft* c : *base->getCrafts())
+						if (c->getId() == craftId) { craft = c; break; }
+		if (!craft) resp["error"] = "craft not found";
+		else
+		{
+			resp["message"] = SeparateEcon::craftMessage("separate_cydonia_request", _game, craft);
+			resp["ok"] = true;
+		}
+		return true;
+	}
+	if (cmd == "separate_resolve_craft")
+	{
+		Craft* craft = SeparateEcon::resolveCraft(_game, req["message"]);
+		resp["found"] = craft != nullptr;
+		resp["base"] = craft && craft->getBase() ? craft->getBase()->getName() : "";
+		resp["craftId"] = craft ? craft->getId() : -1;
+		resp["ok"] = true;
+		return true;
+	}
 
 	// PR #213 F11: queue a different-faction finale exactly as a partial
 	// faction victory does at the end of a battle.

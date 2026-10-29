@@ -215,6 +215,11 @@ void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
 void broadcastLandClose(Game* game, Craft* craft);
 void requestCydonia(Game* game, Craft* craft);
+/// A craft request message (requestCydonia): @a state plus the reference to
+/// @a craft that resolveCraft reads back on the receiving machine.
+Json::Value craftMessage(const char* state, Game* game, Craft* craft);
+/// The craft a craftMessage names on this machine, or nullptr.
+Craft* resolveCraft(Game* game, const Json::Value& obj);
 /// Replicate research unlocked by a mission-site expiry (host only): the replica
 /// applies the host's exact topic and getOneFree bonus to the same players.
 void hostMissionResearch(Game* game, const AlienDeployment* deployment,
