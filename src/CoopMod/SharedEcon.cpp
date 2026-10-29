@@ -4550,6 +4550,35 @@ int64_t chkStores(SavedGame* save)
 	return cached;
 }
 
+// Every base soldier's current stats, keyed by soldier id. The host alone trains
+// soldiers (martial and psi training) and no result carries their stats, so a
+// replica's soldiers can drift with every count equal. Walks every soldier, so it
+// is cached like chkStores.
+int64_t chkSoldierStats(SavedGame* save)
+{
+	static const SavedGame* cachedSave = nullptr;
+	static int64_t cachedAt = -1;
+	static int64_t cached = 0;
+	const int64_t now = steadyMs();
+	if (save == cachedSave && cachedAt >= 0 && now - cachedAt < CHK_STORES_MS) return cached;
+	uint64_t sum = 0;
+	for (Base* base : *save->getBases())
+		for (const Soldier* soldier : *base->getSoldiers())
+		{
+			const UnitStats* stats = soldier->getCurrentStats();
+			uint64_t h = chkMix((uint64_t)(int64_t)soldier->getId());
+			UnitStats::fieldLoop([&](UnitStats::Ptr field)
+			{
+				h = chkMix(h ^ (uint64_t)(uint16_t)(stats->*field));
+			});
+			sum += h;
+		}
+	cachedSave = save;
+	cachedAt = now;
+	cached = chkValue(sum);
+	return cached;
+}
+
 // Separate's one world keeps each player's wallet and private research in that
 // player's profile. getFunds() reads the LOCAL player's wallet, which differs by
 // machine, so the Separate checksum stamps every profile instead: one wallet and
@@ -7927,6 +7956,7 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	msg["chkProjects"] = Json::Value::Int64(chkProjects(save));
 	msg["chkCounters"] = Json::Value::Int64(chkCounters(save, game->getMod()));
 	msg["chkEvents"] = Json::Value::Int64(chkEvents(save));
+	msg["chkSoldierStats"] = Json::Value::Int64(chkSoldierStats(save));
 
 	// PRD-P2 3a: the battle terms ride along whenever a battle is live, so the
 	// harness' shared_checksum hook exposes them without a second command. No-op on
@@ -8394,6 +8424,7 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	// Content terms; absent from a host that predates them (agreement).
 	const int64_t myStores = chkStores(save), myProjects = chkProjects(save);
 	const int64_t myCounters = chkCounters(save, game->getMod()), myEvents = chkEvents(save);
+	const int64_t mySoldierStats = chkSoldierStats(save);
 	auto contentAgrees = [&msg](const char* key, int64_t mine)
 	{
 		return !msg.isMember(key) || msg[key].asInt64() == mine;
@@ -8401,7 +8432,8 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	const bool contentAgree = contentAgrees("chkStores", myStores)
 		&& contentAgrees("chkProjects", myProjects)
 		&& contentAgrees("chkCounters", myCounters)
-		&& contentAgrees("chkEvents", myEvents);
+		&& contentAgrees("chkEvents", myEvents)
+		&& contentAgrees("chkSoldierStats", mySoldierStats);
 	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
 		&& playersAgree && contentAgree
 		&& (hostItems < 0 || hostItems == myItems)
@@ -8449,9 +8481,10 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
 			<< ", production host=" << hostProductions << " replica=" << myProductions
 			<< ", sites host=" << hostSites << " replica=" << mySites
-			<< ", content (stores/projects/counters/events) agree="
+			<< ", content (stores/projects/counters/events/soldier stats) agree="
 			<< contentAgrees("chkStores", myStores) << contentAgrees("chkProjects", myProjects)
-			<< contentAgrees("chkCounters", myCounters) << contentAgrees("chkEvents", myEvents);
+			<< contentAgrees("chkCounters", myCounters) << contentAgrees("chkEvents", myEvents)
+			<< contentAgrees("chkSoldierStats", mySoldierStats);
 		if (separate)
 			Log(LOG_WARNING) << "[SHARED] Separate player terms: wallets host="
 				<< namedTermsText(hostPlayerFunds) << " replica=" << namedTermsText(myPlayerFunds)
