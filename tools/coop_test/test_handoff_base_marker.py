@@ -1,25 +1,23 @@
-"""test_handoff_base_marker.py (HBM): a SEPARATE partner clicks the host's base just before the host presses YES on a landing,
+"""test_handoff_base_marker.py: a SEPARATE partner clicks the host's base just before the host presses YES on a landing,
 and the host's base answer ends AFTER the battle offer reached the partner and BEFORE the host read the partner's battle_accept. The partner
 drops that cut answer in its hand-off and reaches its briefing; nothing from the cut answer is stored or opened.
 
-Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sa_handoff_base_stream.md (f) row R-V2 (CANDIDATE
-F22301, proven by TASK 0); TASK 0 constants: docs rewrite/w2h82-task0/sa/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap), ruling R-LH78-1-1
-(REG :1431), mechanism R-H82-1 (QH82-1 .. QH82-7 (a)). Lobby key "49517", dirs w2h82_v2_*. The sibling HBS (test_handoff_base_stream.py)
-holds rows R-C3 and G. TEST-ONLY levers: hold_blob_ack {on: true, scope: "base"} and hold_battle_accept (W2-H82 L2: the client's
-onOffer stashes its battle_accept; {on: false} sends it).
-Row R-V2: seat_guest, LOCATE, PRE ("baseclient" present, PRE_F), PROMPT, ARM, the client's hold_battle_accept {on: true}, CLICK (a real globe
-    click on the host base and the "HostBase" target; the client's CoopState 50 on top within 1 s), HELD, YES (set_seed 2, the host's real YES),
-    STASH (client) within W_ACC with 0 ACCRX on the host, RELEASE (the ack hold), MARKER (BASEDROP, or the client's "baseclient" fnv != PRE_F -
-    an absent "baseclient" reads fnv "" and differs, CONSTANTS.md F22489 - or the client's session gone) within W_MARK, the client's
-    hold_battle_accept {on: false} (if alive and connected), ENTRY (from that release), WATCH, END.
-    Cells V2-pre, V2-drop, V2-store, V2-entry, V2-brief, V2-host, V2-crash.
-Red today (R1; TASK 0, two boots): the base answer ends MAP_RESULT_CLIENT_BASE, the partner's 55 parses the post-offer tail and throws, W2-H60's
-catch ends the partner's session (a crash-log file) and the host unwinds the start: V2-drop, V2-store, V2-entry, V2-brief, V2-host, V2-crash
-FAIL (6 of 7); V2-pre PASS. Green (G1, spec E1-E7): all 7 PASS.
+Lobby key "49517", user dirs handoff_base_marker_*. test_handoff_base_stream.py checks the base answer still streaming
+when the partner's battle_accept arrives. Test hooks: hold_blob_ack {on: true, scope: "base"} and hold_battle_accept
+(the client's onOffer stashes its battle_accept; {on: false} sends it).
+Row answer_after_offer: seat_guest, LOCATE, PRE ("baseclient" present, PRE_F), PROMPT, ARM, the client's
+    hold_battle_accept {on: true}, CLICK (a real globe click on the host base and the "HostBase" target; the client's
+    CoopState 50 on top within 1 s), HELD, YES (set_seed 2, the host's real YES), STASH (client) within W_ACC with
+    0 ACCRX on the host, RELEASE (the ack hold), MARKER (BASEDROP, or the client's "baseclient" fnv != PRE_F - an absent
+    "baseclient" reads fnv "" and differs - or the client's session gone) within W_MARK, the client's hold_battle_accept
+    {on: false} (if alive and connected), ENTRY (from that release), WATCH, END.
+    Cells answer_after_offer-pre, -drop, -store, -entry, -brief, -host, -crash.
+Without the fix: the base answer ends MAP_RESULT_CLIENT_BASE, the partner's CoopState 55 parses the post-offer tail and
+throws, its catch ends the partner's session (a crash-log file) and the host unwinds the start: the -drop, -store,
+-entry, -brief, -host and -crash cells FAIL (6 of 7), -pre passes. With the fix all 7 pass.
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends the row (later cells "not reached")
-with ONE CAPTURE line; a boot miss fails V2-pre with ONE CAPTURE line. WV-D95 (run to completion in the foreground), WV-D99 (one run; exit 0
-only when every cell passes, else 2), WV-D100 (no SKIP, no exit 3). Helpers copied (never imported) from docs rewrite/lh78-1-cap/cap.py;
-LOCATE's CANCEL press waits for the button to be shown (W2-H78 TASK 0's S54 swap, F21950)."""
+with ONE CAPTURE line; a boot miss fails answer_after_offer-pre with ONE CAPTURE line. One run: exit 0 only when every
+cell passes, else 2 (no skip, no exit 3). LOCATE's CANCEL press waits for the button to be shown."""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
@@ -27,7 +25,7 @@ import session
 from harness import GameClient, make_user_dir
 
 KEY = "49517"
-SEED_P = 2
+YES_SEED = 2
 ZOOM_MIN, SYM_PLUS = 3, 43
 W_CLICK50, W_HELD, W_ACC, W_MARK, W_ENTRY, W_HOLD, W_PROMPT, W_UI = 1.0, 15, 30, 10, 30, 10.0, 120, 10
 RC_OK = (0, 3221226505)
@@ -38,14 +36,16 @@ NEEDLES = {"ADOPT": "read-only BriefingState pushed", "EQUAL": "battle_ready sav
            "ACCEPTED": "[coop-handshake] battle_offer accepted (battleId=", "ACCRX": "[coop-handshake] battle_accept received (battleId=",
            "STASH": "[coop-test] hold_battle_accept: battle_accept stashed"}
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
-CELLS = {"R-V2": ["V2-pre", "V2-drop", "V2-store", "V2-entry", "V2-brief", "V2-host", "V2-crash"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
+CELLS = {"answer_after_offer": ["answer_after_offer-pre", "answer_after_offer-drop", "answer_after_offer-store",
+                                "answer_after_offer-entry", "answer_after_offer-brief", "answer_after_offer-host",
+                                "answer_after_offer-crash"]}
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this harness slot's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
     pass
 
-# ----- probes (CAP) -----
+# ----- probes -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def pick(r, keys): return {k: r.get(k) for k in keys}
@@ -85,7 +85,7 @@ def wait(pred, timeout, interval=0.25):
             return v or None, round(time.time() - t0, 2)
         time.sleep(interval)
 
-# ----- real presses (CAP) -----
+# ----- real presses -----
 def real_click(gc, text, timeout=15.0):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -142,7 +142,7 @@ def geo_clean(gc):
     st = stack(gc)
     return bool(st) and st[-1] == "GeoscapeState" and not any(("CoopState" in s or "LoadGameState" in s) for s in st)
 
-# ----- fixture (CAP seat_guest: bring_up_separate_guest_battle's seat) -----
+# ----- fixture (seat_guest: bring_up_separate_guest_battle's seat) -----
 def seat_guest(h, c, ev):
     session.new_campaign(h, c, port=KEY)
     hb = session._campaign_own_roster_base(h)
@@ -233,7 +233,7 @@ class Row:
         bad = [n for n in self.cells if not self.done.get(n)]
         print("ROW %s: %s" % (self.rid, "PASS" if not bad else "FAIL (%d failing: %s)" % (len(bad), bad)), flush=True)
 
-# ----- common steps (spec (f)) -----
+# ----- common steps -----
 def locate(r, x):
     """LOCATE = the host base's lon / lat from the host's geo_state; the client's affine from INTERCEPT / CANCEL"""
     session.drain_host_coop_notice(x.host)
@@ -252,7 +252,8 @@ def pre(r, x):
     if not bc.get("present") or not x.PRE_F:
         raise Stop("PRE: baseclient %s (want present)" % js(bc))
 def prompt(r, x):
-    """PROMPT = CAP's site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on the host"""
+    """PROMPT = a mission site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on
+    the host"""
     h = x.host
     b0 = session._campaign_base0(h)
     sid = h.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
@@ -281,7 +282,8 @@ def arm(r, x):
     if not (a.get("ok") and a.get("armed") and a.get("scope") == 1):
         raise Stop("ARM: hold_blob_ack %s" % js(a))
 def click(r, x):
-    """CLICK = CAP click_marker on the host base ("HostBase"); the client's top CoopState 50 within W_CLICK50; HELD within W_HELD"""
+    """CLICK = click_marker on the host base ("HostBase"); the client's top CoopState 50 within W_CLICK50; HELD within
+    W_HELD"""
     c = x.client
     ck = click_marker(c, x.sc, x.hbpos[0], x.hbpos[1], x.HB)
     v50, s50 = wait(lambda: top(c) == "CoopState" and dlg(c).get("code") == 50, W_CLICK50, 0.05)
@@ -294,10 +296,10 @@ def click(r, x):
     if not hv:
         raise Stop("HELD: no base-answer ack withheld within %d s: %s" % (W_HELD, js(hold(c))))
 def yes(r, x):
-    """marks (each machine's log length), YES (set_seed SEED_P, the host's real YES)"""
+    """marks (each machine's log length), YES (set_seed YES_SEED, the host's real YES)"""
     h, c = x.host, x.client
     x.nh, x.nc = len(log(h)), len(log(c))
-    sd = q(h, {"cmd": "set_seed", "seed": SEED_P})
+    sd = q(h, {"cmd": "set_seed", "seed": YES_SEED})
     k = real_click(h, "YES", W_UI)
     x.t_yes = time.time()
     r.ev["yes"] = {"seed": sd.get("ok"), "click": k.get("ok")}
@@ -361,7 +363,7 @@ def marker(x):
     if fv.get("error") is None and fv.get("fnv1a64") != x.PRE_F:
         return "FNV %s" % (fv.get("fnv1a64") or "(absent)")
     return None
-def body_v2(r, x):
+def body_answer_after_offer(r, x):
     c, h = x.client, x.host
     locate(r, x)
     pre(r, x)
@@ -384,7 +386,8 @@ def body_v2(r, x):
     a1 = count(h, x.nh, "ACCRX")
     cc = coop(c)
     r.ev["marker"] = {"which": mk, "s": sm, "accrx": a1, "coop": cc, "top": top(c)}
-    r.cell("V2-pre", bool(mk) and a1 == 0, "guest seated %s, baseclient present, prompt %.2f s, CLICK targets %s picked %s, CoopState 50 %s, "
+    r.cell("answer_after_offer-pre", bool(mk) and a1 == 0,
+           "guest seated %s, baseclient present, prompt %.2f s, CLICK targets %s picked %s, CoopState 50 %s, "
            "HELD %s, STASH %s after %.2f s, host ACCRX while stashed %d, MARKER %s after %.2f s (want all, 0, a marker within W_MARK %d s)"
            % (r.ev["seat"]["seated"], r.ev["promptS"], r.ev["click"]["targets"], r.ev["click"]["pick"], r.ev["click"]["coop50"], r.ev["held"],
               bool(st), ss, a1, mk, sm, W_MARK))
@@ -396,21 +399,24 @@ def body_v2(r, x):
     else:
         r.ev["acceptRelease"] = {"skipped": "client alive %s, onConnect %s" % (alive(c), cc.get("onConnect"))}
     entry_watch_end(r, x, time.time())
-    r.cell("V2-drop", x.n["BASEDROP"] == 1 and x.n["DEFER"] == 0, "client BASEDROP %d, host DEFER %d since YES (want 1, 0)"
-           % (x.n["BASEDROP"], x.n["DEFER"]))
-    r.cell("V2-store", x.END_F == x.PRE_F, "client baseclient fnv END_F %r vs PRE_F %r (want equal)" % (x.END_F, x.PRE_F))
-    r.cell("V2-entry", x.entry, "ADOPT %s within %d s of the accept's release %s (%s)" % (r.ev["entry"]["adopt"], W_ENTRY, r.ev["acceptRelease"],
-                                                                                         r.ev["entry"]))
-    brief_cell(r, x, "V2-brief")
-    host_cell(r, x, "V2-host")
-    r.cell("V2-crash", not x.newCrash and all(x.alive), "new crash files %s, alive (host, client) %s (want none, both)" % (x.newCrash, x.alive))
+    r.cell("answer_after_offer-drop", x.n["BASEDROP"] == 1 and x.n["DEFER"] == 0,
+           "client BASEDROP %d, host DEFER %d since YES (want 1, 0)" % (x.n["BASEDROP"], x.n["DEFER"]))
+    r.cell("answer_after_offer-store", x.END_F == x.PRE_F,
+           "client baseclient fnv END_F %r vs PRE_F %r (want equal)" % (x.END_F, x.PRE_F))
+    r.cell("answer_after_offer-entry", x.entry, "ADOPT %s within %d s of the accept's release %s (%s)"
+           % (r.ev["entry"]["adopt"], W_ENTRY, r.ev["acceptRelease"], r.ev["entry"]))
+    brief_cell(r, x, "answer_after_offer-brief")
+    host_cell(r, x, "answer_after_offer-host")
+    r.cell("answer_after_offer-crash", not x.newCrash and all(x.alive),
+           "new crash files %s, alive (host, client) %s (want none, both)" % (x.newCrash, x.alive))
 def main():
     c0 = cpu()
-    print("==== W2-H82 HBM (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    Row("R-V2").run(body_v2, "w2h82_v2")
+    print("==== test_handoff_base_marker (slot %s, key %s, exe %s) CPU %s ====" % (
+        harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    Row("answer_after_offer").run(body_answer_after_offer, "handoff_base_marker")
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H82 HBM: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
-          flush=True)
+    print("\n==== test_handoff_base_marker: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (
+        len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()), flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
     return 0 if not fails else 2
