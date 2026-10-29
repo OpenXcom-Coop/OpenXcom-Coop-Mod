@@ -339,6 +339,23 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 						adoptedResearch.push_back(rule);
 					}
 			}
+			// Private research: the host gave the event's topics to the owner's
+			// profile, so adopt that profile's new topics at the owner's base.
+			const Json::Value& ownerResearch = obj["ownerResearch"];
+			if (!owner.empty() && researchBase && researchBase->isOwnedByPlayer(owner))
+				for (Json::ArrayIndex i = 0; i < ownerResearch.size(); ++i)
+				{
+					const std::string name = ownerResearch[i].asString();
+					if (!game->getSavedGame()->isResearchedForPlayer(name, owner, false))
+						if (RuleResearch* rule = game->getMod()->getResearch(name, false))
+						{
+							adoptedArticle = rule->getLookup().empty()
+								? rule->getName() : rule->getLookup();
+							game->getSavedGame()->addFinishedResearch(
+								rule, game->getMod(), researchBase, true);
+							adoptedResearch.push_back(rule);
+						}
+				}
 			// Shared Campaign reaches this path through GeoscapeEventState::eventLogic,
 			// which applies the primary research side effects after discovering the
 			// event-selected topic.  Separate Campaign adopts the host's resolved
@@ -949,6 +966,14 @@ void hostGeoscapeEvent(Game* game, const std::string& eventName,
 		for (const RuleResearch* rule : game->getSavedGame()->getDiscoveredResearch())
 			if (rule) discovered.append(rule->getName());
 	msg["discoveredResearch"] = discovered;
+	// Private research: eventLogic gave the event's topics to the owner's
+	// profile, not to the canonical list, so carry that profile instead.
+	Json::Value ownerResearch(Json::arrayValue);
+	if (!game->getCoopMod()->_enable_research_sync && !ownerPlayerName.empty())
+		if (const auto* player = game->getSavedGame()->getSeparateCampaign().getPlayer(ownerPlayerName))
+			for (const std::string& name : player->completedResearch)
+				ownerResearch.append(name);
+	msg["ownerResearch"] = ownerResearch;
 	// The event may have changed its owner's wallet; the replica only displays
 	// the event, so it adopts the authoritative balances instead.
 	Json::Value playerFunds(Json::objectValue);
