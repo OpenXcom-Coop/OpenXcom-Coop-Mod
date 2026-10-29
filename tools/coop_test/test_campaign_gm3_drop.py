@@ -45,7 +45,7 @@ from session import event_state  # noqa: E402
 import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_gm3_end as G3E  # noqa: E402
 import test_campaign_rejoin as CR  # noqa: E402
 
@@ -398,14 +398,14 @@ def row_landing_drop(host, client, x, xb, host0, client0, ctx, ev):
         lbad += [f"host pvpBorrow.borrowed {pre.get('borrowed')!r} before client2's confirm (want BORROW0 {r0['borrowed']})"] \
             if (pre.get("borrowed") or 0) != r0["borrowed"] else []
         confirm("landing_drop client2", host, c2)
-        both, bs = wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(c2), BOTH_IN_S)
+        both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN_S)
         post = pvp(host)
         ev.update(pvpBeforeConfirm=pre, pvpAfterConfirm=post, bothInS=bs)
         lbad += [f"host pvpBorrow.{k} {post.get(k)!r} (want BORROW0 + 1 = {r0[k] + 1})"
                  for k in ("requests", "borrowed") if (post.get(k) or 0) != r0[k] + 1]
         lbad += [f"host pvpBorrow.targetKind {post.get('targetKind')!r} (want 'site')"] if post.get("targetKind") != "site" else []
         if not both:
-            lbad.append(f"inBattle host/client2 {[G3C1.in_battle(host), G3C1.in_battle(c2)]} {bs} s after the confirm")
+            lbad.append(f"inBattle host/client2 {[G3B.in_battle(host), G3B.in_battle(c2)]} {bs} s after the confirm")
         else:
             try:
                 session.briefings_to_battlescape(host, c2)
