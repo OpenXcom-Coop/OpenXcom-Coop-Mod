@@ -27,7 +27,7 @@ src/Battlescape/BattlescapeState.cpp - never re-derived here):
      most recent speedFor() call actually used.
   4. A host-owned unit's walk/turn goes through the REAL UI (TAB-select +
      map_tile_click_pos + inject_input click) - SS2.5's "host-local input
-     never enters the intent path" (repro_atom_walk.py phase6b_host_origin
+     never enters the intent path" (repro_atom_walk.py phase_host_origin
      precedent). A client-owned unit walks via battle_intent/send_walk.
   5. The raw drive_to_battlescape spawn has no walkable, contact-free
      tile (units packed in the Skyranger, random-map aliens in view).
@@ -109,7 +109,7 @@ def seats_map(speed):
 def tab_select(gc, uid, cycles=16):
     """TAB-cycle the REAL UI selection onto unit `uid` - a fixed, bounded
     pass over the (finite) roster, the same idiom repro_atom_walk.py's
-    phase6b_host_origin and repro_atom_turn.py's run_ui_variant both use to
+    phase_host_origin and repro_atom_turn.py's run_ui_variant both use to
     reach a KNOWN state (there is no select-by-id lever for the host's real
     UI). A single deterministic pass over an enumerable list, never a
     repeated attempt at the SAME failing action."""

@@ -422,7 +422,7 @@ def halted_walk_prefix(host, client, actor_id):
     """"a HALTED walk animates only the executed prefix" -
     ghostEnqueued must equal len(lastWalk['steps']) (the EXECUTED prefix),
     never the intent's planned path length. Uses the SAME battle_halt_walk
-    one-shot TestServer lever repro_atom_walk.py's own PHASE 3 uses. The roof
+    one-shot TestServer lever repro_atom_walk.py's own HALT PHASE uses. The roof
     lane's baked ROOF_LANE_LEN gives a 6-step plan every run, so the halt
     lever always has something left to stop."""
     attempt_es = event_state(client)
