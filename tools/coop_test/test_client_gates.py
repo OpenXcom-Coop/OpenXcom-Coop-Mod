@@ -1,18 +1,16 @@
-"""CLIENT HARD GATES on the
-battlescape controls that were still pure vanilla in the rewrite, plus the
-deleted quick-load gate and the chat-open `allowButtons` guard.
+"""CLIENT HARD GATES on battlescape controls that would otherwise run locally
+on a co-op client, plus the quick-load gate and the chat-open `allowButtons`
+guard.
 
-WHAT WAS BROKEN (evidence F1/F2 of DESIGN-SESSION-2026-09-02-evidence.md).
-On a co-op CLIENT, all of these ran locally with nothing on the wire:
-  * ABORT MISSION      -> AbortMissionState, ungated on either machine; the
-                          strict-majority VOTE legacy used is an r4 T3 stub.
-                          (R4-L1 S-A, owner D231: either player's press now
-                          opens vanilla's dialog and its OK asks a unanimous
-                          vote - row (1) below.)
+Ungated, all of these would run locally on a co-op CLIENT with nothing on the
+wire:
+  * ABORT MISSION      -> AbortMissionState, ungated on either machine.
+                          Either player's press opens vanilla's dialog and
+                          its OK asks a unanimous vote (the abort row below).
   * mid-battle INVENTORY -> a full re-equip of any unit, writing `items`.
-                          (W2-P8 S-A, owner D130: the client now opens its
-                          OWN soldiers' inventory and every placement is an
-                          order the host performs - row (2) below.)
+                          The client opens its OWN soldiers' inventory and
+                          every placement is an order the host performs (the
+                          inventory row below).
   * ZERO TU            -> BattleUnit::clearTimeUnits(), writing `unitsStats`.
   * hand REACTION toggles -> preferredHandForReactions /
                           reactionsDisabledFor{Left,Right}Hand, which are
@@ -21,7 +19,7 @@ On a co-op CLIENT, all of these ran locally with nothing on the wire:
                           saveBlob bucket.
   * QUICK LOAD (F9)    -> LoadGameState pushed unconditionally; its own
                           chokepoint then refused SILENTLY (log-only).
-Three of the five therefore diverged the two machines permanently, on one
+Three of the five would therefore diverge the two machines permanently, on one
 keypress, with no message and no detector until the next hash.
 
 WHAT THIS ASSERTS.
@@ -30,42 +28,37 @@ WHAT THIS ASSERTS.
     of the effect (no dialog / no InventoryState / TU unchanged / reaction
     flags unchanged / no LoadGameState), and `hash_now full` ALL BUCKETS EQUAL
     after every single press. That last one is the MINT-PROOF.
-    row (4), the hand-reaction toggle, is no longer
-    refused - the press is a `reaction_hands` intent the HOST runs with
-    vanilla's own toggle; the row asserts the order (one host intent context,
-    the client's intent counter), vanilla's resulting flags on BOTH machines
-    and all buckets EQUAL.
-    W2-P8 S-A (owner D130; rewrite/prompts/w2p8_inventory.md, plan review
-    section 7): row (2), the mid-battle inventory, is no longer refused - the
-    client opens its OWN soldier's inventory (InventoryState on top,
-    inventory_view naming the unit) and opening and closing it leaves all
-    buckets EQUAL. Its placements are test_inventory.py's.
+    hand_reaction, the hand-reaction toggle, is not refused: the press is a
+    `reaction_hands` intent the HOST runs with vanilla's own toggle; the row
+    asserts the order (one host intent context, the client's intent counter),
+    vanilla's resulting flags on BOTH machines and all buckets EQUAL.
+    inventory, the mid-battle inventory, is not refused either: the client
+    opens its OWN soldier's inventory (InventoryState on top, inventory_view
+    naming the unit) and opening and closing it leaves all buckets EQUAL. Its
+    placements are test_inventory.py's.
   PHASE 2 - the same controls on the HOST still WORK (the gate is client-side,
     not a global disable), the ownership term refuses a host press against a
-    CLIENT-owned unit with SS2.6's own not_your_unit string, and the chat-open
+    CLIENT-owned unit with its own not_your_unit string, and the chat-open
     guard suppresses a host press while the chat overlay has the keyboard.
     Everything in phase 2 is non-mutating, so the buckets stay EQUAL.
   PHASE 3 - THE NEGATIVE CONTROL, and it deliberately DIVERGES the two
     machines. Phase 1's "all buckets EQUAL after the press" would be VACUOUS
-    if these controls could not move a bucket in the first place (WR-27: do
-    not ship an assertion that is true by construction). So the last thing
+    if these controls could not move a bucket in the first place (an
+    assertion that is true by construction proves nothing). So the last thing
     this test does is let the HOST press ZERO TU and the hand-reaction toggle
-    for real. ZERO TU must move the host's own `unitsStats` (W2-H30: the
-    host's press now reaches the client in one host action, so the two
-    machines are not compared for it); the hand toggle must make `saveBlob`
-    DIFFER, naming the fields that moved. No equality assertion runs after
-    that point, and nothing else happens in the battle, so nothing is left
-    to freeze on it.
+    for real. ZERO TU must move the host's own `unitsStats` (the host's press
+    reaches the client in one host action, so the two machines are not
+    compared for it); the hand toggle must make `saveBlob` DIFFER, naming the
+    fields that moved. No equality assertion runs after that point, and
+    nothing else happens in the battle, so nothing is left to freeze on it.
 
-REACHABILITY, checked rather than assumed (WR-27 again). Every control here is
+REACHABILITY, checked rather than assumed. Every control here is
 genuinely pressable on a co-op client: allowButtons() needs
 `_save->getSide() == FACTION_PLAYER`, which is TRUE on BOTH machines in a
 classic co-op battle during the player side, and btnInventoryClick /
 btn*HandItemClick gate on playableUnitSelected(), which is the same condition.
-None of these is dead framing the way an off-turn END TURN press is (SS2.W8's
-REACHABILITY note). The one control NOT covered here is the pre-battle equip
-screen - W1-P4 owns that, it is a skipped push rather than a refused press, and
-there IS no pre-battle InventoryState in a co-op battle any more.
+None of these is dead framing the way an off-turn END TURN press is. The one
+control NOT covered here is the pre-battle equip screen.
 
 Run:  python tools/coop_test/test_client_gates.py
 """
@@ -78,22 +71,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 
-SDLK_TAB = 9        # Options::keyBattleNextUnit default (test_equip_freeze precedent)
+SDLK_TAB = 9        # Options::keyBattleNextUnit default (as in test_equip_freeze)
 SDLK_ESCAPE = 27    # Options::keyCancel - AbortMissionState's own cancel binding
 COOP_SEAT_1 = 1
 
 # bin/common/Language/en-US.yml, VERBATIM. Exact text, never non-emptiness
-# (SS1 WAVE-1 ADDITIONS / WV-D17: a raw STR_ key here means the deployed
-# bin/x64/Release/common/Language copy is stale relative to bin/common/).
-TXT_ABORT = "Only the host can abort the mission"   # RETIRED by R4-L1 S-A (D231 vote): row (1)
-# names it only in its failure messages - the client's press now opens vanilla's abort dialog
-TXT_INVENTORY = "Only the host can open the inventory"   # RETIRED by W2-P8 S-A (Q10 a): row (2)
-# names it only in its failure message - the client now opens its own soldier's inventory
+# (a raw STR_ key here means the deployed bin/x64/Release/common/Language copy
+# is stale relative to bin/common/).
+TXT_ABORT = "Only the host can abort the mission"   # the abort row names it only in its
+# failure messages: the client's press opens vanilla's abort dialog instead
+TXT_INVENTORY = "Only the host can open the inventory"   # the inventory row names it only in
+# its failure message: the client opens its own soldier's inventory instead
 TXT_ZERO_TU = "Only the host can expend a soldier's time units"
 TXT_REACTIONS = "Only the host can change reaction fire settings"
 TXT_LOAD = "Saved games cannot be loaded during a co-op session"
-TXT_NOT_YOUR_UNIT = "Not one of your soldiers"      # SS2.6, reused not duplicated
-TXT_EQUIP_FROZEN = "Pre-battle equipment is locked in co-op"   # W1-P4's entry notice
+TXT_NOT_YOUR_UNIT = "Not one of your soldiers"      # the ownership term's text, reused not duplicated
+TXT_EQUIP_FROZEN = "Pre-battle equipment is locked in co-op"   # a notice the client's entry must not show
 
 
 # ---------------------------------------------------------------- helpers ---
@@ -136,9 +129,9 @@ def select_owned(gc, own_ids, who, tries=12):
     """TAB until the machine's selection sits on a unit it OWNS.
 
     Needed because the INITIAL selection is minted at battle generation time,
-    before any seat filter exists - W1-P1 observed both machines starting on
+    before any seat filter exists - both machines have been seen starting on
     unit 8, which in this fixture is the CLIENT's soldier. The selection cycle
-    itself is already seat-filtered (R5-P2's coopMaySelectUnit), so TAB lands
+    itself is seat-filtered (coopMaySelectUnit), so TAB lands
     on an owned unit; `selectedUnit` is saveBlob-hash-excluded, so cycling is
     hash-free either way.
     """
@@ -155,8 +148,7 @@ def select_owned(gc, own_ids, who, tries=12):
 
 
 # ------------------------------------------------------------ lobby drive ---
-# Same inline copies test_equip_freeze.py / test_handshake.py carry
-# (the stated precedent, WV-D18).
+# Same inline copies test_equip_freeze.py / test_handshake.py carry.
 def skirmish_host(host, port, player="HostPlayer"):
     host.ok({"cmd": "open_new_battle"})
     host.wait_for("host new battle", lambda: session.has_state(host, "NewBattleState"))
@@ -212,8 +204,8 @@ def bring_up(host, client, port):
 # ------------------------------------------------------------------- main ---
 def main():
     port = "47992"
-    host_dir = make_user_dir("rw_client_gates_host")
-    client_dir = make_user_dir("rw_client_gates_client")
+    host_dir = make_user_dir("client_gates_host")
+    client_dir = make_user_dir("client_gates_client")
     host = GameClient("host", 48806, host_dir)
     client = GameClient("client", 48807, client_dir)
     try:
@@ -242,13 +234,12 @@ def main():
         print(f"fixture: host owns {sorted(host_own)}, client owns {sorted(client_own)}")
 
         # Every press below has to CHANGE the banner, which is what makes each
-        # text assertion mean "this press produced this message". W2-P8b S-H
-        # re-point (chain rule A.10): the client no longer enters on W1-P4's equip
-        # notice (TXT_EQUIP_FROZEN, deleted by W2-P8b b2) - its entry banner after
-        # both equip screens and turn 1 measured '' (2/2 runs at f225f1fc5).
+        # text assertion mean "this press produced this message". The client's
+        # entry banner after both equip screens and turn 1 is '' (no
+        # TXT_EQUIP_FROZEN notice).
         assert banner(client) == "", (
-            f"client's entry banner is {banner(client)!r}, expected '' (no W1-P4 "
-            f"{TXT_EQUIP_FROZEN!r} notice since W2-P8b); every press below must change it")
+            f"client's entry banner is {banner(client)!r}, expected '' (no "
+            f"{TXT_EQUIP_FROZEN!r} notice); every press below must change it")
 
         session.assert_hash_clean(host, client, full=True, what="at the gate baseline")
 
@@ -268,27 +259,25 @@ def main():
             assert got == expect_text, (
                 f"{label}: client banner is {got!r}, expected {expect_text!r} - "
                 "either the gate did not fire, or it fired with the wrong string "
-                "(a raw STR_ key = stale WV-D17 deploy)")
+                "(a raw STR_ key = stale language deploy)")
             effect_check()
             session.assert_hash_clean(
                 host, client, full=True,
                 what=f"after the client's refused {label} (MINT-PROOF)")
             print(f"  PASS {label}: {got!r}, no effect, all buckets EQUAL")
 
-        # (1) ABORT --------------------------------------------------------
-        # R4-L1 S-A (owner design-D8, D231, D244; chain rule A.10): no longer
-        # refused. The client's press opens vanilla's AbortMissionState (its
-        # counts read through the read-only donor, R2-M7; its OK asks the abort
-        # vote, test_abort_vote.py), ESC closes it, and opening and closing
-        # it write nothing hashed (ALL BUCKETS EQUAL while it is open and after
-        # the ESC - the MINT-PROOF). No refusal banner.
+        # abort ------------------------------------------------------------
+        # Not refused. The client's press opens vanilla's AbortMissionState
+        # (its OK asks the abort vote, test_abort_vote.py), ESC closes it, and
+        # opening and closing it write nothing hashed (ALL BUCKETS EQUAL while
+        # it is open and after the ESC - the MINT-PROOF). No refusal banner.
         client.ok({"cmd": "battle_ui_press", "control": "abort"})
         time.sleep(0.6)
         got = banner(client)
         assert "AbortMissionState" in states(client), (
             f"abort: the client's press did not open the abort dialog (banner {got!r}; "
-            f"the retired host-only refusal is {TXT_ABORT!r}): {states(client)}")
-        assert got != TXT_ABORT, f"abort: client banner {got!r} (the retired host-only refusal)"
+            f"the host-only refusal is {TXT_ABORT!r}): {states(client)}")
+        assert got != TXT_ABORT, f"abort: client banner {got!r} (the host-only refusal)"
         session.assert_hash_clean(
             host, client, full=True,
             what="with the client's abort dialog open (MINT-PROOF)")
@@ -301,16 +290,15 @@ def main():
             what="after the client closed its abort dialog (MINT-PROOF)")
         print("  PASS abort: the client's dialog opened and ESC closed it, all buckets EQUAL")
 
-        # (2) MID-BATTLE INVENTORY ----------------------------------------
-        # W2-P8 S-A (owner D130; spec rewrite/prompts/w2p8_inventory.md, plan
-        # review section 7, Q10 (a); chain rule A.10): no longer refused. The
-        # client opens its OWN soldier's inventory: battle_open_inventory drives
-        # the REAL bstate->btnInventoryClick (TestServer.cpp), the client's top
-        # state is InventoryState, inventory_view names c_unit, and opening and
-        # closing the screen write nothing hashed (ALL BUCKETS EQUAL while it is
-        # open and after battle_close_inventory - the MINT-PROOF). No banner
-        # assertion: the banner stays '' after (1) (R4-L1: no refusal), and (3) sees its own
-        # text change. `inventory_move` is deliberately NOT used anywhere here:
+        # inventory (mid-battle) -------------------------------------------
+        # Not refused. The client opens its OWN soldier's inventory:
+        # battle_open_inventory drives the REAL bstate->btnInventoryClick
+        # (TestServer.cpp), the client's top state is InventoryState,
+        # inventory_view names c_unit, and opening and closing the screen write
+        # nothing hashed (ALL BUCKETS EQUAL while it is open and after
+        # battle_close_inventory - the MINT-PROOF). No banner assertion: the
+        # banner stays '' after the abort row (no refusal), and zero_tu sees its
+        # own text change. `inventory_move` is deliberately NOT used anywhere here:
         # it is a dead "unsupported" stub, so any assertion through it is
         # vacuous.
         inv_resp = client.cmd({"cmd": "battle_open_inventory", "unit": c_unit})
@@ -318,7 +306,7 @@ def main():
         inv_view = client.cmd({"cmd": "inventory_view"})
         assert inv_resp.get("opened") is True, (
             f"the client could not open its OWN soldier's mid-battle inventory (unit "
-            f"{c_unit}): {inv_resp}, client banner {inv_banner!r} (the retired host-only "
+            f"{c_unit}): {inv_resp}, client banner {inv_banner!r} (the host-only "
             f"refusal is {TXT_INVENTORY!r})")
         assert top_state(client) == "InventoryState", (
             f"the client's top state is not the inventory: {states(client)}")
@@ -337,7 +325,7 @@ def main():
         print(f"  PASS inventory: the client opened and closed its own unit {c_unit}'s "
               f"inventory, all buckets EQUAL")
 
-        # (3) ZERO TU ------------------------------------------------------
+        # zero_tu ----------------------------------------------------------
         def zero_tu_effect():
             now = units_by_id(battle_state(client))[c_unit]
             assert now["tu"] == c_before["tu"], (
@@ -352,11 +340,10 @@ def main():
             lambda: client.ok({"cmd": "battle_ui_press", "control": "zero_tu"}),
             TXT_ZERO_TU, zero_tu_effect)
 
-        # (4) HAND REACTION TOGGLE ----------------------------------------
-        # W2-P4 S-D (owner D133 (a); spec rewrite/prompts/w2p4_client_combat_
-        # intents.md (b)12, chain rule A.10): no longer refused. The client's
-        # hand right-click is a `reaction_hands` intent the HOST runs with
-        # vanilla's own toggleRightHandForReactions(ctrl false): the press
+        # hand_reaction ----------------------------------------------------
+        # Not refused. The client's hand right-click is a `reaction_hands` intent
+        # the HOST runs with vanilla's own toggleRightHandForReactions(ctrl
+        # false): the press
         # produced an intent (client coopIntentsSent.reaction_hands +1), the host
         # executed it (exactly one new {origin intent, kind reaction_hands,
         # actorId c_unit} in its closedContexts), nothing ran locally (client
@@ -406,12 +393,12 @@ def main():
                 f"hand_reaction: {f} host={h_now[f]} client={c_now[f]} (want {want_flags[f]} on both: "
                 f"vanilla's toggle, run by the host)")
         assert got != TXT_REACTIONS, (
-            f"hand_reaction: client banner {got!r} (the retired host-only refusal)")
+            f"hand_reaction: client banner {got!r} (the host-only refusal)")
         session.assert_hash_clean(host, client, full=True,
                                   what="after the client's hand_reaction order (MINT-PROOF)")
         print(f"  PASS hand_reaction: an order the host ran, flags {want_flags} on both, all buckets EQUAL")
 
-        # (5) QUICK LOAD ---------------------------------------------------
+        # quickload --------------------------------------------------------
         # Driven as a REAL SDL keypress through Game::run's event loop, because
         # the gate lives in BattlescapeState::handle's key chain, not in a
         # button handler. The key comes from the running game's own Options.
@@ -443,11 +430,11 @@ def main():
         h_unit = select_owned(host, host_own, "host")
         print(f"  host has its OWN unit {h_unit} selected")
 
-        # (6) host ABORT really opens the dialog --------------------------
+        # host abort: really opens the dialog ------------------------------
         host.ok({"cmd": "battle_ui_press", "control": "abort"})
         time.sleep(0.6)
         assert "AbortMissionState" in states(host), (
-            "the HOST could not open the abort dialog - W1-P5's gate must be "
+            "the HOST could not open the abort dialog - the gate must be "
             f"client-side, not a global disable. stack={states(host)}")
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         host.wait_for("host abort dialog dismissed",
@@ -455,7 +442,7 @@ def main():
                       timeout=15)
         print("  PASS host abort: dialog opened, cancelled without aborting")
 
-        # (7) host INVENTORY opens on its OWN unit -------------------------
+        # host inventory: opens on its OWN unit ----------------------------
         r = host.cmd({"cmd": "battle_open_inventory", "unit": h_unit})
         assert r.get("opened") is True, (
             f"the HOST could not open the mid-battle inventory on its own unit "
@@ -466,18 +453,18 @@ def main():
                       timeout=15)
         print("  PASS host inventory: opened on its own unit and closed")
 
-        # (8) the OWNERSHIP term: host press against a CLIENT-owned unit ----
+        # ownership term: host press against a CLIENT-owned unit -----------
         r = host.cmd({"cmd": "battle_open_inventory", "unit": c_unit})
         assert r.get("opened") is False, (
             f"the host opened the inventory of the CLIENT's unit {c_unit}: {r}")
         assert banner(host) == TXT_NOT_YOUR_UNIT, (
             f"host banner is {banner(host)!r}, expected {TXT_NOT_YOUR_UNIT!r} - "
-            "the ownership term must refuse with its OWN reason (SS2.6's "
-            "not_your_unit row), not with the host-only string")
+            "the ownership term must refuse with its OWN reason "
+            "(not_your_unit), not with the host-only string")
         print(f"  PASS ownership term: host refused on the client's unit "
               f"with {TXT_NOT_YOUR_UNIT!r}")
 
-        # (9) the CHAT-OPEN allowButtons guard (legacy parity) -------------
+        # chat guard: the CHAT-OPEN allowButtons guard (as in older versions) -
         hb2 = battle_state(host)
         assert hb2.get("chatMenuExists"), (
             "no ChatMenu on the host - the chat guard cannot be exercised and "
@@ -527,9 +514,9 @@ def main():
         print("    Everything above proved 'the buckets stayed EQUAL'. That is")
         print("    only worth something if these controls CAN move a bucket, so")
         print("    the host now presses them for real. No equality assertion")
-        print("    runs after this point (WR-27).")
+        print("    runs after this point.")
 
-        # Step (8) above deliberately pointed the host's selection at the
+        # The ownership-term check above deliberately pointed the host's selection at the
         # CLIENT's unit (battle_open_inventory sets it before calling the real
         # handler), and battle_ui_press acts on whatever is selected - so put
         # the host back on one of its own soldiers first, or phase 3 would be
@@ -538,8 +525,7 @@ def main():
         h_before = units_by_id(battle_state(host))[h_unit]
         assert h_before["tu"] > 0, f"host unit {h_unit} already at 0 TU"
 
-        # the
-        # host's own ZERO TU press now reaches the client in one `host` action
+        # The host's own ZERO TU press reaches the client in one `host` action
         # (coopHostZeroTu), so this control's non-vacuity is proved on the HOST
         # alone - its own unitsStats moves with the press - and the two machines
         # are not compared for it. The hand toggle below stays the deliberate
@@ -580,7 +566,7 @@ def main():
         print(f"  PASS negative control (hand_reaction): host moved {moved}, "
               f"client unchanged, saveBlob now DIFFERS")
 
-        print("\nALL W1-P5 CLIENT-GATE TESTS PASSED")
+        print("\nALL CLIENT-GATE TESTS PASSED")
     finally:
         host.shutdown()
         client.shutdown()
