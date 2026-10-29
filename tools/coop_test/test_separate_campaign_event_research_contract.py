@@ -31,14 +31,16 @@ def main():
     assert "addFinishedResearchSimple(rule)" not in apply
 
     # Adopting the host's discovered list before constructing the event prevents
-    # the replica from rolling a different random reward.  It also means normal
-    # eventLogic skips the already-discovered topic, so Separate must explicitly
-    # run the same primary unlock chain used by Shared Campaign.
+    # the replica from rolling a different random reward. The replica never
+    # re-runs the vanilla side effects (removed projects, spawned items and
+    # events, counters): they roll its own RNG, so the host sends its results
+    # instead (research_effects, world_extras and the event's rewards; the
+    # replica-completeness fix on this branch).
     finish = apply.index("addFinishedResearch(")
-    side_effects = apply.index("handlePrimaryResearchSideEffects(")
-    assert finish < side_effects < popup
-    assert "adoptedResearch.push_back(rule)" in apply
-    assert "researchBase && !adoptedResearch.empty()" in apply
+    assert finish < popup
+    assert "handlePrimaryResearchSideEffects(" not in apply
+    rewards = apply.index("applyEventRewards(")
+    assert rewards < popup
     assert "adoptedArticle" in apply
     assert "if (article.empty()) article = adoptedArticle" in apply
     restore = apply.index("setReplicatedResearchNames")
