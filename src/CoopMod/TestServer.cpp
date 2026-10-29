@@ -7668,11 +7668,13 @@ std::string TestServer::execute(const std::string& line)
 			// battlescape directly below them, never of a transitional stage, so
 			// reach through them as main's driver did: the abort-vote tests act
 			// while the turn-1 screen is still up, and repeat ABORT while the
-			// abandon-mission vote is open.
+			// abandon-mission vote is open. The in-battle gift notice is the same
+			// kind of overlay: main's driver reached through it too.
 			BattlescapeState* bstate = nullptr;
 			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 			{
-				if (dynamic_cast<NextTurnState*>(*it) || dynamic_cast<VoteMenu*>(*it))
+				if (dynamic_cast<NextTurnState*>(*it) || dynamic_cast<VoteMenu*>(*it)
+					|| dynamic_cast<GiftNoticeState*>(*it))
 					continue;
 				bstate = dynamic_cast<BattlescapeState*>(*it);
 				break;
