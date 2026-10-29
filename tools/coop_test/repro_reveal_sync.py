@@ -1,95 +1,99 @@
-"""Fog of war is GAME
-STATE - the dedicated repro.
+"""Fog of war is GAME STATE - the dedicated repro.
 
-Revealed tiles used to be treated as presentation: each machine computed its own
-tile FOV and the saveBlob hash MASKED the per-tile `discovered` bits out of
-binTiles so the divergence could not be seen. Owner ruling 2026-09-02 reversed
-that. The host is now the sole author of `discovered` bits, ships them as
+The host is the sole author of `discovered` bits and ships them as
 presence-gated `reveal` deltas attached at the ONE emit choke
-(CoopEmit::sendEv), a thin client's own tile-FOV sweep is suppressed
-(TileEngine::calculateTilesInFOV), and the fog mask is GONE from the hash - so
-`hash_now full` now VERIFIES reveals instead of hiding them.
+(CoopEmit::sendEv); a thin client's own tile-FOV sweep is suppressed
+(TileEngine::calculateTilesInFOV), and the saveBlob hash does NOT mask the
+per-tile `discovered` bits out of binTiles - so `hash_now full` VERIFIES
+reveals instead of hiding them.
 
-W1-P8 (WAVE1-RUNBOOK.md SS2.W4 / SS2.W5, rulings D2 / WV-D8 / WV-D31 / WV-D39)
-EXTENDED THIS FILE in four directions, and the sweep is NINE buckets now:
+What else this file covers:
 
   * DUAL-SET fog. Both machines hold BOTH sides' reveal sets. The player side is
-    still the vanilla per-tile Tile bits (so SP stays bit-identical); the hostile
+    the vanilla per-tile Tile bits (so SP stays bit-identical); the hostile
     side is a coop-owned byte-per-tile bitmap that never writes Tile, hashed as
-    its own out-of-band bucket `revealHostile`. Every parity assert below now
+    its own out-of-band bucket `revealHostile`. Every parity assert below
     covers BOTH sets.
-  * G-2. Selection no longer authors shared fog: a host TAB storm emits ZERO
-    reveal evs - proved WITH an action-attributed positive control in the same
+  * Selection does not author shared fog: a host TAB storm emits ZERO reveal
+    evs - proved WITH an action-attributed positive control in the same
     session, so "zero" cannot be the vacuous kind.
-  * WR-5 carriage + ordering. ONE `reveal` per envelope, and it is the ACTING
+  * Carriage + ordering. ONE `reveal` per envelope, and it is the ACTING
     side's; any other side's bits ride their OWN bt_ev{kind:"reveal"} emitted
     from the same choke immediately afterwards, in the same seq stream.
-  * The NINTH bucket's own desync lever, `corrupt_bucket revealHostile`, plus a
-    gm2 (PvP, client=Alien) fixture and a single-player smoke.
+  * The revealHostile bucket's own desync test command,
+    `corrupt_bucket revealHostile`, plus a gm2 (PvP, client=Alien) fixture
+    and a single-player smoke.
 
-Seven sessions, each freshly booted (two of them deliberately break the battle):
+Five sessions, each freshly booted (each FORCED MISMATCH below is the last
+step of its session, because it breaks the battle for good):
 
-  test_reveal_sync_e2e()      (a) 8/8 unmasked + exact fog parity BEFORE any
-                                  action - i.e. the bring-up gap (the host
-                                  reveals several hundred tiles after the
-                                  handshake blob is snapshotted, plus the
-                                  void-tile baseline the blob cannot carry at
-                                  all) is closed by the quiescent flush;
-                              (b) >= 10 mixed turn/kneel actions across BOTH
-                                  seats, with fog parity + 8/8 after each;
-                              (c) flush idempotence - once drained, further
-                                  quiescent ticks emit nothing;
-                              (d) an absolute `base` restate (SS2.4a's other
-                                  revealDelta shape) applies cleanly and
-                                  changes nothing.
-
-  test_reveal_drop_detected() FORCED MISMATCH #1 (RB-D26 `reveal_drop` lever):
-                              the host computes and PUBLISHES one delta but
-                              never ships it, so the client is permanently
-                              behind. Asserts the divergence is REAL (live
-                              per-part counts differ, and the host has nothing
-                              left unpublished, so no later delta will heal it)
-                              and that the now-unmasked saveBlob bucket SEES it.
-
-  test_reveal_base_bad_n()    FORCED MISMATCH #2 (RB-D26 `reveal_base bad_n`):
-                              a `base` restate advertising the wrong `n`.
-                              SS2.4a: "mismatch = desync, never partial apply" -
-                              asserts freeze + bt_desync + bundle + banner, the
-                              same R3-P2 mismatch pattern repro_atom_kneel.py's
-                              corrupt_bucket proof uses.
-
-  test_g2_selection_decoupled()
-                              SS2.W5's G-2 proof, in two halves in ONE session:
-                              (+) POSITIVE CONTROL - real ACTIONS are driven
-                                  until the host is OBSERVED attaching a reveal
-                                  delta, so the counter is provably live AND
-                                  reveals are provably still authored;
-                              (-) a host TAB/selection storm that provably
-                                  CHANGES the selection emits ZERO reveal evs
-                                  and does not move `lastSeqEmitted` at all.
-
-  test_dual_side_ordering()   SS2.W4/WR-5 carriage: ONE action whose envelope
-                              carries the ACTING side's `reveal` while the OTHER
-                              side's bits ride their own `ev reveal` at the very
-                              next seq. Ends with FORCED MISMATCH #3 -
-                              `corrupt_bucket revealHostile` - which only the
-                              NEW ninth bucket can see.
+  session_actions()           one battle, three proofs in order:
+                              run_selection_decoupled() - the selection storm
+                                  proof, in two halves:
+                                  (+) POSITIVE CONTROL - real ACTIONS are
+                                      driven until the host is OBSERVED
+                                      attaching a reveal delta, so the
+                                      counter is provably live AND reveals
+                                      are provably still authored;
+                                  (-) a host TAB/selection storm that
+                                      provably CHANGES the selection emits
+                                      ZERO reveal evs and does not move
+                                      `lastSeqEmitted` at all.
+                              run_e2e() - with the second seated soldier:
+                                  pre_action: every bucket EQUAL + exact fog
+                                      parity BEFORE any action - i.e. the
+                                      bring-up gap (the host reveals several
+                                      hundred tiles after the handshake blob
+                                      is snapshotted, plus the void-tile
+                                      baseline the blob cannot carry at all)
+                                      is closed by the quiescent flush;
+                                  mixed_actions: >= 10 mixed turn/kneel
+                                      actions across BOTH seats, with fog
+                                      parity + every bucket after each;
+                                  flush_idempotent: once drained, further
+                                      quiescent ticks emit nothing;
+                                  player_base_restate / hostile_base_restate:
+                                      an absolute `base` restate (the other
+                                      revealDelta shape besides `add`)
+                                      applies cleanly and changes nothing,
+                                      for each side.
+                              run_dual() - ONE action whose envelope carries
+                                  the ACTING side's `reveal` while the OTHER
+                                  side's bits ride their own `ev reveal` at
+                                  the very next seq. Ends with a FORCED
+                                  MISMATCH - `corrupt_bucket revealHostile` -
+                                  which only the revealHostile bucket can see.
 
   test_reveal_hostile_gm2()   gm2 (PVP, ClientPlayer on the Alien team): the
                               HOSTILE set is non-empty on BOTH machines and
-                              EQUAL, with all nine buckets EQUAL.
+                              EQUAL, with every bucket EQUAL.
 
-  test_reveal_sp_smoke()      SINGLE PLAYER, one instance: the SS2.W5 selection
-                              gate is OFF, no hostile storage is allocated, and
-                              `hash_now full` OMITS `revealHostile` entirely
-                              (WR-26: key ABSENT, never zero) - i.e. the
-                              player-side path is untouched by this packet.
+  test_reveal_sp_smoke()      SINGLE PLAYER, one instance: the selection-FOV
+                              gate is OFF, no hostile storage is allocated,
+                              and `hash_now full` OMITS `revealHostile`
+                              entirely (key ABSENT, never zero) - i.e. the
+                              player-side path is untouched.
 
-FIXTURE: the same live 2-player skirmish + SELECTION RULE + bounded re-roll loop
-repro_atom_turn.py/repro_atom_kneel.py use (REVIEW4 IR-4), reused here by inline
-copy - this file's own precedent is repro_atom_kneel.py, whose precedent is
-repro_atom_turn.py, whose precedent is test_faction_setup.py. seat_count=2 so
-the CLIENT owns two real units and the mixed burst can drive different actors.
+  session_dropped_delta()     FORCED MISMATCH (the `reveal_drop` test
+                              command): the host computes and PUBLISHES one
+                              delta but never ships it, so the client is
+                              permanently behind. Asserts the divergence is
+                              REAL (live per-part counts differ, and the host
+                              has nothing left unpublished, so no later delta
+                              will heal it) and that the unmasked saveBlob
+                              bucket SEES it.
+
+  session_bad_n()             FORCED MISMATCH (`reveal_base bad_n`): a `base`
+                              restate advertising the wrong `n` is a desync,
+                              never a partial apply - asserts freeze +
+                              bt_desync + bundle + banner, the same mismatch
+                              pattern repro_atom_kneel.py's corrupt_bucket
+                              proof uses.
+
+FIXTURE: the same live 2-player skirmish + SELECTION RULE repro_atom_turn.py
+and repro_atom_kneel.py use, reused here by inline copy. seat_count=3 seats
+three soldiers on the CLIENT, so it owns real units and the mixed burst can
+drive different actors.
 
 Run:  python tools/coop_test/repro_reveal_sync.py
 """
@@ -112,19 +116,18 @@ COOP_SEAT_1 = 1
 SDLK_TAB = 9    # Options::keyBattleNextUnit default
 SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
 
-MIXED_ACTIONS = 10  # packet text: ">= 10 mixed turn/kneel across BOTH seats"
+MIXED_ACTIONS = 10  # at least 10 mixed turn/kneel actions across BOTH seats
 
-# W1-P8 (SS2.W4 / WV-D31): the sweep went 8 -> 9 - the 7 BattleHashSet members
-# plus saveBlob plus revealHostile. Named, not hard-coded inline, because SS1's
-# WAVE-1 ADDITIONS trap says a later packet must never "fix" a 9-bucket sweep
-# back to 8.
+# The full sweep: the 8 BattleHashSet members (SharedEcon.h
+# BATTLE_HASH_BUCKETS) plus saveBlob plus revealHostile. Named here rather than
+# repeated inline.
 BUCKETS = 10
 
 TAB_STORM_PRESSES = 24
 
-# SS2.6's desync row, verbatim from bin/common/Language/en-US.yml (W1-P4: the
-# banner assert below is EXACT now, not "non-empty").
-STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted"  # R4-L3 S-A (owner D232 a, r4-residue Q2 a)
+# STR_COOP_DESYNC_HALTED, verbatim from bin/common/Language/en-US.yml: the
+# banner assert below is EXACT, not "non-empty".
+STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted"
 
 
 def states(gc):
@@ -178,8 +181,8 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
-# IR2-1) - see the shared helper's docstring.
+# dismiss_battle_start_overlays() lives in session.py - see the shared
+# helper's docstring.
 
 
 def drive_to_battlescape(host, client, seated_holder, seat_count=3):
@@ -216,20 +219,20 @@ def has_door_within(gc, x, y, z, radius=2):
 
 
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE, reused from repro_atom_turn.py: (a) no
-    hostile currently spotted, (b) no door within 2 tiles of the actor.
+    """The SELECTION RULE, reused from repro_atom_turn.py: the actor must be
+    "open-ground, no-door, NO-ENEMY-LOS".
 
-    RULE (c) - added by the WV-D5 fixture-pinning sweep (2026-09-03). RB-D15 and
-    WV-D18 require an "open-ground, no-door, NO-ENEMY-LOS" actor, and (a)+(b)
-    cover only the first two: (a) asks whether a hostile is ALREADY spotted at
-    t=0, which is silent on whether this actor's ROTATION will bring one into
-    view. Vanilla aborts a BA_NONE turn mid-chain the moment
-    getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
+    The door rule: no door within 2 tiles of the actor.
+
+    The contact rule: a hostile ALREADY spotted at t=0 says nothing about
+    whether this actor's ROTATION will bring one into view, and vanilla aborts
+    a BA_NONE turn mid-chain the moment getUnitsSpottedThisTurn() grows
+    (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
 
-    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
-    within view distance, and the lever does not recompute sight, so the
-    visible list may be stale.
+    There is no "hostile already visible at t=0" rule: the staging helper
+    leaves nothing within view distance, and the staging hook does not
+    recompute sight, so the visible list may be stale.
     """
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
@@ -237,9 +240,9 @@ def qualifying_actor(host, soldier_id):
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
-                return None  # rule (b)
+                return None  # the door rule
             if not session.actor_is_contact_free(st, u, "reveal_sync"):
-                return None  # rule (c)
+                return None  # the contact rule
             return u
     return None
 
@@ -289,7 +292,7 @@ ATTACH_RE = re.compile(r"attached reveal delta \((\d+) tiles, side=(\w+)\) to (.
 def client_reveal_applies(client):
     """Every reveal the CLIENT has applied so far, as (shape, seq, side) - the
     only place the SEQ of a reveal is observable from outside, which is what
-    makes SS2.W4/WR-5's "in seq order" an assertion rather than a hope."""
+    makes the carriage rule's "in seq order" an assertion rather than a hope."""
     out = []
     for ln in log_lines(client):
         m = APPLY_RE.search(ln)
@@ -311,15 +314,15 @@ def host_reveal_attaches(host):
 
 
 def assert_dual_reveal_parity(host, client, what="", samples=10, extra_positions=()):
-    """SS2.W4: assert_reveal_parity's PLAYER-side layers, plus the same
-    per-part equality for the HOSTILE set and for the void-tile census.
+    """assert_reveal_parity's PLAYER-side layers, plus the same per-part
+    equality for the HOSTILE set and for the void-tile census.
 
     The hostile set is coop-owned storage with no serialized representation, so
     NOTHING but this probe can see it - the saveBlob bucket cannot, and its own
     `revealHostile` bucket only says "the two 64-bit digests differ", never which
     part drifted. And `discoveredVoid` is the one number that covers the
-    player-side void-tile hash hole (W1-P15 item 2): fog on tiles that are
-    Tile::isVoid() on both machines is inside no bucket at all.
+    player-side void-tile hash hole: fog on tiles that are Tile::isVoid() on
+    both machines is inside no bucket at all.
     """
     tag = f" {what}" if what else ""
     hr = assert_reveal_parity(host, client, what, samples=samples,
@@ -344,16 +347,16 @@ def assert_dual_reveal_parity(host, client, what="", samples=10, extra_positions
     assert hr["discoveredVoid"] == cr["discoveredVoid"], (
         f"discoveredVoid MISMATCH{tag}: host={hr['discoveredVoid']} "
         f"client={cr['discoveredVoid']} - a fog divergence confined to VOID tiles, which "
-        "no hash bucket can see (W1-P15 item 2)")
+        "no hash bucket can see")
     assert hr["unpublishedHostile"] is False, (
         f"host still owes hostile-side reveal bits{tag}: {hr}")
     return hr
 
 
 def host_reveal_drops(host):
-    """How many times the RB-D26 `reveal_drop` lever has actually eaten a delta,
-    read from the HOST's own log - the precise signal that the one-shot fired
-    (it stays armed through every action that reveals nothing)."""
+    """How many times the `reveal_drop` test command has actually eaten a
+    delta, read from the HOST's own log - the precise signal that the one-shot
+    fired (it stays armed through every action that reveals nothing)."""
     try:
         with open(os.path.join(host.user_dir, "openxcom.log"), "r", errors="replace") as f:
             return sum(1 for ln in f if "reveal_drop lever fired" in ln)
@@ -422,8 +425,8 @@ def client_kneel(host, client, actor_id):
 
 
 def host_kneel(host, client, host_unit_id):
-    """The HOST seat's OWN local input (RB-D19 origin="host") - the other half
-    of "across BOTH seats"."""
+    """The HOST seat's OWN local input (origin="host") - the other half of
+    "across BOTH seats"."""
     was = units_by_id(host.cmd({"cmd": "battle_state"}))[host_unit_id]["kneeled"]
     baseline = event_seq_baseline(client)
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_K})
@@ -433,25 +436,26 @@ def host_kneel(host, client, host_unit_id):
 
 
 def stage_on_roof(host, client, actor, tag, turn_delta):
-    """WV-D94 (SPEC 0e-3 AMENDMENTS 3-5, owner D1/D2/D3): put the staged soldier on the craft
-    ROOF (one level above its deck tile), FACING so that the scenario's first
-    `client_turn_by(actor_a, turn_delta)` lands looking at the MAP CENTRE - 20 tiles of
-    unexplored terrain in view on every craft position. M6: an enclosed deck soldier reveals
-    nothing (0/8), a roof soldier reveals by its 2nd turn (6/6). M8: with the inherited facing,
-    the (5,12) block's first-turn delta was VOID tiles only, and the save-blob hash skips void
-    tiles (CoopFog.h COVERAGE ASTERISK), so `drop`'s hash proof went blind there. The lever does
-    not recompute sight; the first turn does. Returns the roof tile.
-    Idempotent: an actor already standing on that tile is left in place (SPEC 0e-5, owner D7)."""
+    """Put the staged soldier on the craft ROOF (one level above its deck tile),
+    FACING so that the scenario's first `client_turn_by(actor_a, turn_delta)`
+    lands looking at the MAP CENTRE - 20 tiles of unexplored terrain in view on
+    every craft position. Measured: an enclosed deck soldier reveals nothing
+    (0/8), a roof soldier reveals by its 2nd turn (6/6). With the inherited
+    facing, the (5,12) block's first-turn delta was VOID tiles only, and the
+    save-blob hash skips void tiles (CoopFog.h COVERAGE ASTERISK), so the
+    dropped-delta proof's hash went blind there. The teleport does not
+    recompute sight; the first turn does. Returns the roof tile.
+    Idempotent: an actor already standing on that tile is left in place."""
     roof = (actor["x"], actor["y"], actor["z"] + 1)
     st = client.cmd({"cmd": "battle_state"})
     live = next(u for u in st["units"] if u["id"] == actor["id"])
     if (live["x"], live["y"], live["z"]) == roof:
-        # SPEC 0e-5 (owner D7): an earlier scenario of this instance already staged the
+        # An earlier scenario of this instance already staged the
         # soldier here. Keep it where it is and keep the facing its last turn left it - the
         # next turn then sweeps a NEW arc, which is all a chained control needs. Never
         # teleport a unit onto the tile it already occupies.
         print(f"[repro_reveal_sync/{tag}] actor {actor['id']} already on the craft roof at "
-              f"{roof}, facing {live.get('direction')} - no re-stage (WV-D94, SPEC 0e-5)")
+              f"{roof}, facing {live.get('direction')} - no re-stage")
         return roof
     occupied = {session.unit_pos(u) for u in st["units"] if not u.get("isOut")}
     if not session.tile_walkable(host, roof, occupied):
@@ -465,10 +469,10 @@ def stage_on_roof(host, client, actor, tag, turn_delta):
     session.place_deterministic(host, client, [
         {"lever": "battle_teleport_unit", "unit": actor["id"],
          "x": roof[0], "y": roof[1], "z": roof[2], "dir": facing}],
-        what=f"[{tag}] WV-D94 roof staging")
+        what=f"[{tag}] roof staging")
     print(f"[repro_reveal_sync/{tag}] actor {actor['id']} staged on the craft roof at {roof}, "
           f"facing {facing} so the first turn (+{turn_delta}) faces the map centre "
-          f"(dir {centre_dir}, map {mx}x{my}) (WV-D94)")
+          f"(dir {centre_dir}, map {mx}x{my})")
     return roof
 
 
@@ -477,47 +481,49 @@ def run_e2e(host, client, actor, soldier_ids):
     cs = client.cmd({"cmd": "battle_state"})
     actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
 
-    # --- (a) pre-action: unmasked 9/9 + exact fog parity, BOTH sides ---
+    # --- pre_action: every bucket EQUAL (saveBlob unmasked) + exact fog
+    # parity, BOTH sides ---
     rs = assert_dual_reveal_parity(host, client, "pre-action (bring-up gap closed)",
                                    samples=24,
                                    extra_positions=[(actor["x"], actor["y"], actor["z"])])
     pre_h, _ = assert_hash_clean(host, client, full=True, what="pre-action")
     assert "revealHostile" in pre_h, (
-        f"the ninth bucket is missing pre-action ({sorted(pre_h)}) - the hostile "
-        "storage was never allocated, so WR-26 omitted it and every hostile-side "
-        "assertion below would be vacuous")
+        f"the revealHostile bucket is missing pre-action ({sorted(pre_h)}) - the "
+        "hostile storage was never allocated, so hash_now omitted the key and every "
+        "hostile-side assertion below would be vacuous")
     assert len(pre_h) == BUCKETS, (
         f"hash_now full returned {len(pre_h)} buckets, expected {BUCKETS} ({sorted(pre_h)})")
     assert rs["hostile"]["floor"] > 0, (
         f"the HOSTILE reveal set is empty pre-action: {rs['hostile']} - the host's "
         "coop-only hostile FOV pass authored nothing")
-    # SS2.W4 BASELINE (WR-1 / WV-D39), asserted where it happens rather than
+    # The hostile BASELINE, asserted where it happens rather than
     # inferred from the equality above: the hostile set has NO save
     # representation, so it cannot ride the handshake blob - the host seeds its
     # published mirror EMPTY and ships the whole set as the FIRST ev after
     # phase Active. Without this the "hostile sets are equal" assertion could
     # be satisfied by both machines simply being empty.
-    # NOTE (IR2-3): the assertion is deliberately NOT "no battle_ready
+    # NOTE: the assertion is deliberately NOT "no battle_ready
     # mismatch" - CoopHandshake::onReady does not compare `h` at all
     # (connectionTCP.cpp, "not compared at handshake"), so that would be
     # vacuous.
     entry_bases = [a for a in client_reveal_applies(client)
                    if a[0] == "base restate" and a[2] == "hostile"]
     assert entry_bases, (
-        "the client never applied a side:\"hostile\" `base` restate - the SS2.W4 "
+        "the client never applied a side:\"hostile\" `base` restate - the hostile "
         "BASELINE never ran, so the client's hostile set was never seeded from the "
         "host at all")
     assert entry_bases[0][1] == 1, (
         f"the hostile BASELINE restate landed at seq {entry_bases[0][1]}, not seq 1 - "
-        "SS2.W4/WR-1 requires it to be the host's FIRST ev after phase Active")
-    print(f"PASS (a): pre-action {len(pre_h)}/{BUCKETS} buckets EQUAL (saveBlob UNMASKED "
-          f"over binTiles, incl. the new revealHostile) and BOTH sides' fog identical - "
+        "it must be the host's FIRST ev after phase Active")
+    print(f"PASS pre_action: pre-action {len(pre_h)}/{BUCKETS} buckets EQUAL (saveBlob UNMASKED "
+          f"over binTiles, incl. revealHostile) and BOTH sides' fog identical - "
           f"player floor/west/north = {rs['floor']}/{rs['westwall']}/{rs['northwall']}, "
           f"hostile = {rs['hostile']['floor']}/{rs['hostile']['westwall']}/"
           f"{rs['hostile']['northwall']} of {rs['mapSizeXYZ']} tiles, "
           f"discoveredVoid = {rs['discoveredVoid']}")
 
-    # --- (b) >= 10 mixed turn/kneel across BOTH seats, checked after each ---
+    # --- mixed_actions: >= 10 mixed turn/kneel across BOTH seats, checked
+    # after each ---
     for i in range(MIXED_ACTIONS):
         which = i % 5
         if which == 0:
@@ -546,10 +552,10 @@ def run_e2e(host, client, actor, soldier_ids):
                                  what=f"after action {i + 1} ({label})")
         assert len(h) == BUCKETS, \
             f"expected {BUCKETS} buckets after action {i + 1}, got {sorted(h)}"
-        print(f"PASS (b) action {i + 1}/{MIXED_ACTIONS}: {label} - BOTH sides' fog "
+        print(f"PASS mixed_actions action {i + 1}/{MIXED_ACTIONS}: {label} - BOTH sides' fog "
               f"parity + {BUCKETS}/{BUCKETS}")
 
-    # --- (c) flush idempotence: nothing left unpublished, and further
+    # --- flush_idempotent: nothing left unpublished, and further
     # quiescent ticks emit no further reveal ev ---
     emits_before = host_reveal_emits(host)
     seq_before = host.cmd({"cmd": "event_state"})["lastSeqEmitted"]
@@ -564,10 +570,11 @@ def run_e2e(host, client, actor, soldier_ids):
         f"host attached {emits_after - emits_before} further reveal delta(s) while idle")
     assert host.cmd({"cmd": "reveal_state"})["unpublished"] is False, \
         "host still reports unpublished reveal bits after settling"
-    print(f"PASS (c): flush idempotent - 2s of quiescent ticks emitted nothing "
+    print(f"PASS flush_idempotent: flush idempotent - 2s of quiescent ticks emitted nothing "
           f"(lastSeqEmitted stayed {seq_after}, reveal deltas stayed {emits_after})")
 
-    # --- (d) absolute `base` restate (SS2.4a's other revealDelta shape) ---
+    # --- player_base_restate: an absolute `base` restate (the other
+    # revealDelta shape besides `add`) ---
     baseline = event_seq_baseline(client)
     host.ok({"cmd": "reveal_base"})
     wait_settled(host, client, baseline)
@@ -576,10 +583,10 @@ def run_e2e(host, client, actor, soldier_ids):
     assert_dual_reveal_parity(host, client, "after a valid base restate")
     post_h, _ = assert_hash_clean(host, client, full=True, what="after a valid base restate")
     assert len(post_h) == BUCKETS, f"expected {BUCKETS} buckets, got {sorted(post_h)}"
-    print("PASS (d): a valid absolute `base` restate applied cleanly - fog parity and "
+    print("PASS player_base_restate: a valid absolute `base` restate applied cleanly - fog parity and "
           f"{len(post_h)}/{BUCKETS} buckets still EQUAL, no desync")
 
-    # --- (e) the same for the HOSTILE set: SS2.W4's other `base` shape ---
+    # --- hostile_base_restate: the same for the HOSTILE set ---
     baseline = event_seq_baseline(client)
     host.ok({"cmd": "reveal_base", "side": "hostile"})
     wait_settled(host, client, baseline)
@@ -591,9 +598,9 @@ def run_e2e(host, client, actor, soldier_ids):
     applies = client_reveal_applies(client)
     hostile_bases = [a for a in applies if a[0] == "base restate" and a[2] == "hostile"]
     assert len(hostile_bases) >= 2, (
-        "the client applied fewer than two hostile `base` restates - the SS2.W4 "
-        f"BASELINE one at entry and this lever's one: {applies}")
-    print(f"PASS (e): a side:\"hostile\" absolute `base` restate applied cleanly at seq "
+        "the client applied fewer than two hostile `base` restates - the hostile "
+        f"BASELINE one at entry and this test command's one: {applies}")
+    print(f"PASS hostile_base_restate: a side:\"hostile\" absolute `base` restate applied cleanly at seq "
           f"{hostile_bases[-1][1]} - hostile set still "
           f"{rs_e['hostile']['floor']}/{rs_e['hostile']['westwall']}/"
           f"{rs_e['hostile']['northwall']} on both machines, {len(h_e)}/{BUCKETS} EQUAL")
@@ -604,10 +611,10 @@ def run_e2e(host, client, actor, soldier_ids):
 
 
 def run_drop(host, client, actor, soldier_ids):
-    """FORCED MISMATCH #1 (RB-D26 `reveal_drop`). The host computes and PUBLISHES
-    one delta but never ships it. Because reveal is MONOTONE - a published bit is
-    never re-sent - the client is behind FOREVER, which is exactly the failure
-    class the old binTiles fog mask made invisible."""
+    """FORCED MISMATCH (`reveal_drop`). The host computes and PUBLISHES one delta
+    but never ships it. Because reveal is MONOTONE - a published bit is never
+    re-sent - the client is behind FOREVER, which is exactly the failure class a
+    binTiles fog mask in the hash would make invisible."""
     # the divergence below must stay; the TEST-ONLY hold keeps the host from repairing it.
     host.ok({"cmd": "resync_hold", "on": True})
     stage_on_roof(host, client, actor, "drop", 1)
@@ -616,12 +623,12 @@ def run_drop(host, client, actor, soldier_ids):
 
     host.ok({"cmd": "reveal_drop"})
 
-    # The lever is a ONE-SHOT on the next NON-EMPTY delta: attachDelta()
+    # The test command is a ONE-SHOT on the next NON-EMPTY delta: attachDelta()
     # checks the flag only after computeDelta() found something, so an action
     # that reveals nothing leaves it armed (verified in code, and needed here
     # - measured on this fixture, only ~2 of 10 mixed actions reveal anything
     # at all once the bring-up sweep has covered the neighbourhood). So drive
-    # actions until the HOST's own log says the lever actually fired, rather
+    # actions until the HOST's own log says the drop actually fired, rather
     # than assuming any particular action reveals something.
     actor_a = actor["id"]
     actor_b = next(u for u in client.cmd({"cmd": "battle_state"})["units"]
@@ -638,7 +645,7 @@ def run_drop(host, client, actor, soldier_ids):
             continue
         if host_reveal_drops(host):
             fired = True
-            print(f"[repro_reveal_sync/drop] reveal_drop lever fired on action {i + 1}")
+            print(f"[repro_reveal_sync/drop] reveal_drop fired on action {i + 1}")
             break
     assert fired, ("reveal_drop never had a non-empty delta to eat in 24 actions - the "
                    "actors revealed nothing at all, so this proof would be vacuous")
@@ -647,18 +654,18 @@ def run_drop(host, client, actor, soldier_ids):
     cr = client.cmd({"cmd": "reveal_state"})
     assert (hr["floor"], hr["westwall"], hr["northwall"]) != \
            (cr["floor"], cr["westwall"], cr["northwall"]), (
-        f"the lever fired but the two machines' fog still matches: host={hr} client={cr}")
+        f"the drop fired but the two machines' fog still matches: host={hr} client={cr}")
 
     assert hr["unpublished"] is False, (
         "the dropped delta was not marked published - it would be re-sent on the next "
-        f"flush and the divergence would silently heal, defeating the lever: {hr}")
+        f"flush and the divergence would silently heal, defeating the drop: {hr}")
     print(f"PASS drop: live fog DIVERGED and stays diverged - host floor/west/north = "
           f"{hr['floor']}/{hr['westwall']}/{hr['northwall']} vs client "
           f"{cr['floor']}/{cr['westwall']}/{cr['northwall']}, host has nothing unpublished")
 
-    # THE POINT OF THE UNMASK: the joint hash must now SEE it. Before this
-    # packet saveBlobMaskFowBinTiles zeroed exactly these bits, so a
-    # host/client fog divergence produced a perfectly clean 8/8.
+    # THE POINT OF THE UNMASK: the joint hash must SEE it. A fog mask over
+    # binTiles would zero exactly these bits, and a host/client fog divergence
+    # would hash perfectly clean.
     hh = host.cmd({"cmd": "hash_now", "full": True})["h"]
     ch = client.cmd({"cmd": "hash_now", "full": True})["h"]
     assert hh["saveBlob"] != ch["saveBlob"], (
@@ -674,14 +681,14 @@ def run_drop(host, client, actor, soldier_ids):
         "cannot be attributed to the dropped reveal")
     print(f"PASS drop: the UNMASKED saveBlob bucket caught it (host={hh['saveBlob']} "
           f"client={ch['saveBlob']}) and every other bucket stayed EQUAL - with the "
-          "fog bits masked out, this exact divergence hashed clean 8/8")
+          "fog bits masked out, this exact divergence would hash clean")
 
 
 def run_badn(host, client, actor, soldier_ids):
-    """FORCED MISMATCH #2 (RB-D26 `reveal_base bad_n`). SS2.4a: a `base` restate
-    whose `n` does not equal the receiver's getMapSizeXYZ() is a DESYNC - freeze
-    + bt_desync + bundle + banner - and NEVER a partial apply. Same mismatch
-    pattern as repro_atom_kneel.py's corrupt_bucket proof (R3-P2)."""
+    """FORCED MISMATCH (`reveal_base bad_n`). A `base` restate whose `n` does
+    not equal the receiver's getMapSizeXYZ() is a DESYNC - freeze + bt_desync +
+    bundle + banner - and NEVER a partial apply. Same mismatch pattern as
+    repro_atom_kneel.py's corrupt_bucket proof."""
     assert_reveal_parity(host, client, "before the bad-n restate")
     fog_before = client.cmd({"cmd": "reveal_state"})
 
@@ -701,7 +708,7 @@ def run_badn(host, client, actor, soldier_ids):
     for part in ("floor", "westwall", "northwall"):
         assert fog_after[part] == fog_before[part], (
             f"the rejected base restate PARTIALLY applied: {part} went "
-            f"{fog_before[part]} -> {fog_after[part]} (SS2.4a forbids this)")
+            f"{fog_before[part]} -> {fog_after[part]} (a mismatch must never apply in part)")
     print(f"PASS bad_n: nothing was applied - client fog unchanged at "
           f"{fog_after['floor']}/{fog_after['westwall']}/{fog_after['northwall']}")
 
@@ -729,18 +736,18 @@ def run_badn(host, client, actor, soldier_ids):
     print(f"PASS bad_n: client banner shown: {banner!r}")
 
 
-def run_g2(host, client, actor, soldier_ids):
-    """SS2.W5 / ruling D2 = WV-D8: "reveals are authored by ACTIONS and side-begin
-    restates only. Selection changes / TAB must not author shared fog."
+def run_selection_decoupled(host, client, actor, soldier_ids):
+    """Reveals are authored by ACTIONS and side-begin restates only. Selection
+    changes / TAB must not author shared fog.
 
     BOTH HALVES RUN IN ONE SESSION, and the negative half is deliberately the
     second one. "The selection storm emitted ZERO reveal evs" is a statement
     about an ABSENCE, and an absence proves nothing unless the same run has
     already shown the counter moving - a dead counter, a host that stopped
     emitting entirely, or a fixture whose TAB never reached the map would all
-    produce a perfectly green zero. `repro_atom_turn.py`'s run_no_reveal_case is
-    the precedent; SS2.W5 made the coupling deterministic enough to afford the
-    STRONGER, action-attributed form of it:
+    produce a perfectly passing zero. `repro_atom_turn.py`'s run_no_reveal_case
+    does the same; the selection-FOV gate makes the coupling deterministic
+    enough to afford the STRONGER, action-attributed form of it:
 
       (+) real client ACTIONS are driven until the HOST's own log is OBSERVED
           attaching a reveal delta - so reveals are provably still authored, by
@@ -754,8 +761,8 @@ def run_g2(host, client, actor, soldier_ids):
     actor_a = actor["id"]
     cs = client.cmd({"cmd": "battle_state"})
     actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
-    stage_on_roof(host, client, actor, "g2", 2)
-    assert_dual_reveal_parity(host, client, "before the G-2 proof")
+    stage_on_roof(host, client, actor, "selection", 2)
+    assert_dual_reveal_parity(host, client, "before the selection storm proof")
 
     # --- (+) POSITIVE CONTROL: an ACTION authors fog -----------------------
     emits_before = host_reveal_emits(host)
@@ -764,7 +771,7 @@ def run_g2(host, client, actor, soldier_ids):
         try:
             client_turn_by(host, client, actor_a if (i % 2 == 0) else actor_b, 2)
         except Exception as e:  # out of TU / denied - keep trying the other actor
-            print(f"[repro_reveal_sync/g2] action {i} skipped: {e}")
+            print(f"[repro_reveal_sync/selection] action {i} skipped: {e}")
             continue
         if host_reveal_emits(host) > emits_before:
             fired_on = i + 1
@@ -818,7 +825,7 @@ def run_g2(host, client, actor, soldier_ids):
     assert emits_post_storm == emits_pre_storm, (
         f"the host attached {emits_post_storm - emits_pre_storm} reveal delta(s) during "
         f"a {TAB_STORM_PRESSES}-press TAB storm - selection is authoring shared fog "
-        "again (SS2.W5 / D2)")
+        "again")
     assert seq_post_storm == seq_pre_storm, (
         f"lastSeqEmitted moved {seq_pre_storm} -> {seq_post_storm} during the TAB storm - "
         "the storm emitted evs even if they carried no reveal field")
@@ -829,33 +836,33 @@ def run_g2(host, client, actor, soldier_ids):
         assert rs_after["hostile"][part] == rs_before["hostile"][part], (
             f"the hostile set's {part} count moved during a pure selection storm")
     assert rs_after["coopSuppressSelectionFov"] is True, (
-        "the SS2.W5 selection-FOV gate reports itself OFF inside a co-op battle: "
+        "the selection-FOV gate reports itself OFF inside a co-op battle: "
         f"{rs_after}")
-    print(f"PASS (-) G-2: {TAB_STORM_PRESSES} TAB presses over "
+    print(f"PASS (-) selection storm: {TAB_STORM_PRESSES} TAB presses over "
           f"{len(set(seen_selection))} distinct selections emitted ZERO reveal evs "
           f"(deltas stayed {emits_post_storm}, lastSeqEmitted stayed {seq_post_storm}) "
           "and moved no fog counter on either side's set")
 
     assert_dual_reveal_parity(host, client, "after the selection storm")
-    # SS1's WAVE-1 ADDITIONS trap: a NEW assertion says "ALL buckets EQUAL",
-    # never a hard-coded count. assert_hash_clean already proves the two key
-    # SETS are identical and every value matches; naming the new bucket is what
-    # keeps that from being vacuous if the bucket silently disappeared.
+    # This assertion says "ALL buckets EQUAL", never a hard-coded count.
+    # assert_hash_clean already proves the two key SETS are identical and every
+    # value matches; naming the revealHostile bucket is what keeps that from
+    # being vacuous if the bucket silently disappeared.
     h, _ = assert_hash_clean(host, client, full=True, what="after the selection storm")
     assert "revealHostile" in h, f"the revealHostile bucket vanished: {sorted(h)}"
-    print(f"PASS test_g2_selection_decoupled: positive control + zero-ev storm, all "
+    print(f"PASS run_selection_decoupled: positive control + zero-ev storm, all "
           f"{len(h)} buckets EQUAL throughout (incl. revealHostile)")
 
 
 def run_dual(host, client, actor, soldier_ids):
-    """SS2.W4 / WR-5: "ONE `reveal` PER ENVELOPE... the attached `reveal` is the
-    ACTING side's; any OTHER side's pending bits ship as their own
+    """The carriage rule: ONE `reveal` PER ENVELOPE, and the attached `reveal`
+    is the ACTING side's; any OTHER side's pending bits ship as their own
     `bt_ev{kind:"reveal", reveal:{side:...}}` emitted from the same choke
-    immediately afterwards, in the same seq stream."
+    immediately afterwards, in the same seq stream.
 
-    ARRANGING THE PREMISE, honestly. Wave 1 has no alien turn, so
-    nothing in a wave-1 fixture can MOVE an alien, and a forced re-sweep of an
-    unmoved alien discovers nothing new. The RB-D26 lever
+    ARRANGING THE PREMISE, honestly. This fixture drives no alien turn, so
+    nothing in it can MOVE an alien, and a forced re-sweep of an unmoved alien
+    discovers nothing new. The test command
     `reveal_hostile_pass {"republish": true}` therefore makes the host FORGET
     what the hostile side has already published, ARMED so that it fires inside
     the NEXT emit rather than on the next pump tick. It changes no live state on
@@ -864,7 +871,7 @@ def run_dual(host, client, actor, soldier_ids):
     entirely real product behaviour: WHICH envelope carries WHICH side, and in
     what seq order.
 
-    Ends with FORCED MISMATCH #3: `corrupt_bucket revealHostile` on the CLIENT.
+    Ends with a FORCED MISMATCH: `corrupt_bucket revealHostile` on the CLIENT.
     It is last because it permanently diverges the hostile set (poked straight
     into coop storage, bypassing emit, so no later delta heals it), and it is
     poked on the CLIENT for exactly that reason - on the HOST the corrupted bits
@@ -874,7 +881,7 @@ def run_dual(host, client, actor, soldier_ids):
     cs = client.cmd({"cmd": "battle_state"})
     actor_b = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])["id"]
     stage_on_roof(host, client, actor, "dual", 2)
-    assert_dual_reveal_parity(host, client, "before the WR-5 carriage proof")
+    assert_dual_reveal_parity(host, client, "before the carriage proof")
 
     pair = None
     for i in range(16):
@@ -903,7 +910,7 @@ def run_dual(host, client, actor, soldier_ids):
               "no player-side reveal on that envelope, retrying")
     assert pair is not None, (
         "16 actions never produced a single action that revealed for BOTH sides, so "
-        "the WR-5 carriage assertion has no premise to stand on")
+        "the carriage assertion has no premise to stand on")
 
     player_apply, hostile_apply, attaches = pair
     # (1) SEQ ORDER: the other side's ev is the very NEXT seq after the acting
@@ -920,7 +927,7 @@ def run_dual(host, client, actor, soldier_ids):
         f"the ACTING side's delta did not ride the action's own envelope: {attaches}")
     assert other_carriers and "OWN bt_ev" in other_carriers[-1][2], (
         f"the non-acting side's delta did not ride its own reveal ev: {attaches}")
-    print(f"PASS WR-5: acting side (player, {acting_carriers[-1][0]} tiles) on the "
+    print(f"PASS carriage: acting side (player, {acting_carriers[-1][0]} tiles) on the "
           f"action's own envelope at seq {player_apply[1]}; the other side (hostile, "
           f"{other_carriers[-1][0]} tiles) on its OWN bt_ev at seq {hostile_apply[1]}")
 
@@ -930,15 +937,15 @@ def run_dual(host, client, actor, soldier_ids):
     print(f"PASS: all {len(h)} buckets still EQUAL after an action that revealed for "
           "both sides")
 
-    # --- FORCED MISMATCH #3: only the NINTH bucket can see this -----------
+    # --- FORCED MISMATCH: only the revealHostile bucket can see this -------
     before_h = h
     assert client.ok({"cmd": "corrupt_bucket", "name": "revealHostile"}).get("ok"), \
-        "corrupt_bucket revealHostile was refused - the lever does not know the bucket"
+        "corrupt_bucket revealHostile was refused - the test command does not know the bucket"
     hh = host.cmd({"cmd": "hash_now", "full": True})["h"]
     ch = client.cmd({"cmd": "hash_now", "full": True})["h"]
     assert hh["revealHostile"] != ch["revealHostile"], (
         f"the hostile set was corrupted on the client and revealHostile is still EQUAL "
-        f"(host={hh['revealHostile']} client={ch['revealHostile']}) - the new bucket "
+        f"(host={hh['revealHostile']} client={ch['revealHostile']}) - the bucket "
         "does not actually hash the coop bitmap")
     other = {k: (hh[k], ch[k]) for k in hh if k != "revealHostile" and hh[k] != ch[k]}
     assert not other, (
@@ -953,15 +960,15 @@ def run_dual(host, client, actor, soldier_ids):
         != (cr["hostile"]["floor"], cr["hostile"]["westwall"], cr["hostile"]["northwall"]), (
         f"corrupt_bucket revealHostile changed the digest but not the census - "
         f"host={hr['hostile']} client={cr['hostile']}")
-    print(f"PASS corrupt_bucket revealHostile: the NINTH bucket caught it "
+    print(f"PASS corrupt_bucket revealHostile: the revealHostile bucket caught it "
           f"(host={hh['revealHostile']} client={ch['revealHostile']}) and every other "
-          "bucket stayed EQUAL - before W1-P8 this divergence was hashed by nothing")
+          "bucket stayed EQUAL - no other bucket hashes this divergence")
 
 
-def instance_a():
-    host, client, actor, soldier_ids = bring_up_qualifying_battle("a")
+def session_actions():
+    host, client, actor, soldier_ids = bring_up_qualifying_battle("actions")
     try:
-        run_g2(host, client, actor, soldier_ids)
+        run_selection_decoupled(host, client, actor, soldier_ids)
         cs = client.cmd({"cmd": "battle_state"})
         actor_deck = next(u for u in cs["units"] if u.get("soldierId") == soldier_ids[1])
         run_e2e(host, client, actor_deck, soldier_ids[1:])
@@ -971,7 +978,7 @@ def instance_a():
         client.shutdown()
 
 
-def instance_b():
+def session_dropped_delta():
     host, client, actor, soldier_ids = bring_up_qualifying_battle("drop")
     try:
         run_drop(host, client, actor, soldier_ids)
@@ -980,12 +987,12 @@ def instance_b():
         client.shutdown()
 
 
-def instance_c():
+def session_bad_n():
     host, client, actor, soldier_ids = bring_up_qualifying_battle("badn")
     try:
         run_badn(host, client, actor, soldier_ids)
     finally:
-        # A desync-frozen battle has no path back (SS2.8 "no partial repair").
+        # A desync-frozen battle has no path back (no partial repair).
         host.shutdown()
         client.shutdown()
 
@@ -1004,13 +1011,13 @@ def bring_up_gm2_lobby(host, client, port):
 
 
 def test_reveal_hostile_gm2():
-    """SS2.W4's gm2 clause: with a seat actually COMMANDING the hostile side, the
+    """With a seat actually COMMANDING the hostile side (gm2), the
     HOSTILE reveal set must be non-empty on BOTH machines and EQUAL - which is
     what makes "both machines hold both sides' sets, both synced, both inside the
     hash" a measured fact rather than a design intention.
 
-    No actions are driven here (wave 1 streams no alien turn - WV-D25/IR2-9), so
-    this fixture needs no actor pinning: it reads state only.
+    No actions are driven here, so this fixture needs no actor pinning: it
+    reads state only.
     """
     port = "48420"
     host_dir = make_user_dir("repro_reveal_gm2_host")
@@ -1040,7 +1047,7 @@ def test_reveal_hostile_gm2():
         assert rs["hostile"]["floor"] > 0, (
             f"gm2: the HOSTILE reveal set is EMPTY on the host ({rs['hostile']}) with "
             f"{len(hostiles)} alien(s) on the map - the coop-only hostile FOV pass never "
-            "authored anything, so every hostile-side assertion in this wave is vacuous")
+            "authored anything, so every hostile-side assertion in this file is vacuous")
         h, _ = assert_hash_clean(host, client, full=True, what="gm2 entry")
         assert "revealHostile" in h, \
             f"gm2: the revealHostile bucket is missing, got {sorted(h)}"
@@ -1054,16 +1061,16 @@ def test_reveal_hostile_gm2():
 
 
 def test_reveal_sp_smoke():
-    """SINGLE PLAYER, ONE instance: the packet's "SP smoke proves the player-side
-    path bit-identical".
+    """SINGLE PLAYER, ONE instance: the SP smoke proves the player-side path
+    bit-identical.
 
-    Three things are asserted, and together they cover both halves of this
-    packet's SP promise:
-      * SS2.W5's selection-FOV gate reports itself OFF (`coopSuppressSelectionFov`
+    Three things are asserted, and together they cover both halves of that
+    SP promise:
+      * the selection-FOV gate reports itself OFF (`coopSuppressSelectionFov`
         is `isCoopBattle()`, which is false here) - so `updateSoldierInfo(true)`
         still runs vanilla's full `calculateFOV(selectedUnit)`, tiles included;
       * no hostile storage is allocated and `hash_now {full:true}` OMITS
-        `revealHostile` entirely - WR-26's "key ABSENT, not zero";
+        `revealHostile` entirely - "key ABSENT, not zero";
       * a real SP battle boots, reveals fog, and survives a TAB storm with its
         fog monotone (reveal never goes backwards).
     """
@@ -1082,7 +1089,7 @@ def test_reveal_sp_smoke():
         rs = gc.cmd({"cmd": "reveal_state"})
         assert rs.get("ok"), f"reveal_state failed in SP: {rs}"
         assert rs["coopSuppressSelectionFov"] is False, (
-            "the SS2.W5 selection-FOV suppression is ACTIVE in single player - the coop "
+            "the selection-FOV suppression is ACTIVE in single player - the coop "
             f"guard leaked out of a co-op battle and SP is no longer bit-identical: {rs}")
         assert rs["hostile"]["allocated"] is False, (
             f"SP allocated coop hostile reveal storage: {rs['hostile']}")
@@ -1091,8 +1098,8 @@ def test_reveal_sp_smoke():
 
         h = gc.cmd({"cmd": "hash_now", "full": True})["h"]
         assert "revealHostile" not in h, (
-            f"SP's hash_now full carries revealHostile ({sorted(h)}) - WR-26 requires the "
-            "key to be ABSENT, not zero, wherever the coop storage is unallocated")
+            f"SP's hash_now full carries revealHostile ({sorted(h)}) - the key must be "
+            "ABSENT, not zero, wherever the coop storage is unallocated")
         assert h, f"SP hash_now full returned nothing: {h}"
 
         before = (rs["floor"], rs["westwall"], rs["northwall"])
@@ -1114,11 +1121,11 @@ def test_reveal_sp_smoke():
 
 
 def main():
-    instance_a()
+    session_actions()
     test_reveal_hostile_gm2()
     test_reveal_sp_smoke()
-    instance_b()
-    instance_c()
+    session_dropped_delta()
+    session_bad_n()
     print("ALL REVEAL SYNC TESTS PASSED")
 
 
