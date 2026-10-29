@@ -58,6 +58,8 @@ private:
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	///initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
+	/// Seats a soldier on this screen's craft or takes them off it (ctrl-click).
+	void toggleCraftSeat(Soldier *s, unsigned int row);
 public:
 	/// Creates the Craft Armor state.
 	CraftArmorState(Base *base, size_t craft);
@@ -93,6 +95,8 @@ public:
 	/// the soldier list first (normally deferred to init()), as the action writes
 	/// back into it (setCellText) on the local-mutation path.
 	void harnessDeequipAll() { initList(0); btnDeequipAllArmorClick(0); }
+	/// Harness: the list's ctrl-click (seat / unseat) on a soldier, by id.
+	bool harnessCtrlClick(int soldierId);
 };
 
 }
