@@ -209,9 +209,21 @@ void ProductionCompleteState::btnSummaryClick(Action *)
  */
 void ProductionCompleteState::lstSummaryClick(Action *)
 {
+	sellSummaryRow(_lstSummary->getSelectedRow());
+}
+
+void ProductionCompleteState::harnessSellSummaryRow(const std::string &item, int count)
+{
+	_randomProductionInfo[item] = count;
+	_index.assign(1, item);
+	sellSummaryRow(0);
+}
+
+void ProductionCompleteState::sellSummaryRow(unsigned int sel)
+{
+	if (sel >= _index.size()) return;
 	// 1. remember stuff
 	auto scrollPos = _lstSummary->getScroll();
-	unsigned int sel = _lstSummary->getSelectedRow();
 	std::string itemName = _index[sel];
 	int itemCount = _randomProductionInfo[itemName];
 

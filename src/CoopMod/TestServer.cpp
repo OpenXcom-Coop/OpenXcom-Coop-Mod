@@ -62,6 +62,8 @@
 #include "../Engine/State.h"
 #include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/CraftErrorState.h"
+#include "../Geoscape/ProductionCompleteState.h"
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
@@ -9021,15 +9023,22 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "soldiers_reorder")
 		{
 			// Drive the open SoldiersState's real reorder handlers: action
-			// "move_up" (row = displayed row, moved to the top like a right-click)
-			// or "sort" (sort = combobox index; 2 = name).
+			// "move_up" / "move_down" (row = displayed row; max, default true, moves
+			// it to the top / bottom like a right-click, false moves one place like
+			// a left-click) or "sort" (sort = combobox index; 2 = name).
 			SoldiersState* st = findState<SoldiersState>(_game);
 			std::string action = req.get("action", "").asString();
+			const bool max = req.get("max", true).asBool();
 			if (!st)
 				resp["error"] = "no SoldiersState in state stack";
 			else if (action == "move_up")
 			{
-				st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), true);
+				st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), max);
+				resp["ok"] = true;
+			}
+			else if (action == "move_down")
+			{
+				st->moveSoldierDown(nullptr, (unsigned int)req.get("row", 0).asInt(), max);
 				resp["ok"] = true;
 			}
 			else if (action == "sort")
@@ -9051,6 +9060,61 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				resp["error"] = "no SoldiersState in state stack";
+			}
+		}
+		else if (cmd == "soldiers_view")
+		{
+			// Pick the open SoldiersState's screen action (a soldier
+			// transformation name, or STR_SOLDIER_INFO) through its real handler
+			// and report the soldier ids the list then shows.
+			SoldiersState* st = findState<SoldiersState>(_game);
+			const std::string action = req.get("action", "STR_SOLDIER_INFO").asString();
+			if (!st)
+				resp["error"] = "no SoldiersState in state stack";
+			else if (!st->harnessSelectAction(action))
+				resp["error"] = "screen action not offered: " + action;
+			else
+			{
+				Json::Value ids(Json::arrayValue);
+				for (int id : st->harnessDisplayedSoldierIds()) ids.append(id);
+				resp["ids"] = ids;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "craft_error_messages")
+		{
+			// The message of every CraftErrorState on the state stack, bottom
+			// first (the economy warning and the other host notices use it).
+			Json::Value messages(Json::arrayValue);
+			for (auto* s : _game->getStates())
+				if (auto* ce = dynamic_cast<CraftErrorState*>(s))
+					messages.append(ce->getMessage());
+			resp["messages"] = messages;
+			resp["ok"] = true;
+		}
+		else if (cmd == "production_complete_sell")
+		{
+			// Sell <count> of <item> at <base> through the random production
+			// summary of the real ProductionCompleteState (its right-click sell).
+			const std::string baseName = req.get("base", "").asString();
+			const std::string item = req.get("item", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+					if (b->getName() == baseName) { target = b; break; }
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			if (!target)
+				resp["error"] = "base not found: " + baseName;
+			else if (!geo)
+				resp["error"] = "no GeoscapeState in state stack";
+			else if (!_game->getMod()->getItem(item, false))
+				resp["error"] = "unknown item: " + item;
+			else
+			{
+				ProductionCompleteState* pc = new ProductionCompleteState(target, item, geo);
+				pc->harnessSellSummaryRow(item, req.get("count", 1).asInt());
+				delete pc;
+				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "base_report")
@@ -9844,18 +9908,30 @@ std::string TestServer::execute(const std::string& line)
 					else if (!toName.empty() && base->getName() == toName) to = base;
 				}
 			const int transferCraftId = req.get("craft_id", -1).asInt();
+			// Optional soldier_id: transfer that soldier (stationed at fromBase)
+			// through the screen's own soldier row instead of an item.
+			const int transferSoldierId = req.get("soldier_id", -1).asInt();
+			Soldier* transferSoldier = nullptr;
+			if (from && transferSoldierId >= 0)
+				for (auto* s : *from->getSoldiers())
+					if (s->getId() == transferSoldierId) { transferSoldier = s; break; }
 			if (!from || !to)
 				resp["error"] = "from/to base not found";
+			else if (transferSoldierId >= 0 && !transferSoldier)
+				resp["error"] = "soldier not at fromBase";
 			else
 			{
 				TransferItemsState* st = new TransferItemsState(from, to, nullptr);
-				bool ok = transferCraftId >= 0
+				bool ok = transferSoldier ? st->transferSoldierNow(transferSoldier)
+					: transferCraftId >= 0
 					? st->harnessTransferCraft(transferCraftId)
 					: st->harnessTransferItem(itemType, count); // submitSharedTransfer
 				delete st;
 				resp["sent"] = ok;
 				resp["ok"] = ok;
-				if (!ok) resp["error"] = transferCraftId >= 0
+				if (!ok) resp["error"] = transferSoldier
+					? "no transferable row for soldier id"
+					: transferCraftId >= 0
 					? "no transferable row for craft id"
 					: "no transferable row for item: " + itemType;
 			}

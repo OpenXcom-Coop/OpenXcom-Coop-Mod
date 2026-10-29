@@ -71,6 +71,9 @@ public:
 	std::vector<int> harnessDisplayedSoldierIds() const;
 	/// Test automation: pick sort option <index> and run the real sort handler.
 	void harnessSort(size_t index);
+	/// Test automation: pick screen action <action> (a soldier transformation
+	/// name, or STR_SOLDIER_INFO) and run the real handler. False if not offered.
+	bool harnessSelectAction(const std::string &action);
 	/// Applies a pending PRD-J10 live refresh.
 	void think() override;
 	/// Handler for clicking the Soldiers reordering button.

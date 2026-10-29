@@ -879,5 +879,18 @@ std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
 	return ids;
 }
 
+bool SoldiersState::harnessSelectAction(const std::string &action)
+{
+	for (size_t i = 0; i < _availableOptions.size(); ++i)
+	{
+		if (_availableOptions[i] == action)
+		{
+			_cbxScreenActions->setSelected(i);
+			cbxScreenActionsChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
 
 }
