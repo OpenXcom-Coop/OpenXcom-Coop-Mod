@@ -1,16 +1,12 @@
-"""Shared helpers of the W2-H70 stage S-D tests test_gift_back.py (rows R16, R16H) and test_gift_twice_stored.py (row R17); spec docs
-rewrite/prompts/w2h70_sd_gift_back.md (f) and Appendix B; TASK 0 rewrite/w2h70-task0/sd/CONSTANTS.md; leads L-H70B-1 and L-H70-3;
-ruling R-H70D-0, QH70D-1 .. QH70D-8 (a); R-H70-2 (one non-test helper module); the tests' dirs w2h70d_<row>_*.
-in a SEPARATE co-op campaign a soldier received while viewing the giver's base and given straight back before the leave ends with its giver
-only, and the host's stored copy of the visiting client's world holds every soldier the client received. Imports gift_display_helpers.py (HB,
-which imports gift_helpers.py, GH)
-unchanged; named_save, the gift-back, host_gives and client_gives are copied from S-B's TASK 0 script rewrite/w2h70-task0/sb/t0_h70b.py, never
-imported; HD has its own receiver path, because the replay after a gift-back is recorded, never awaited. The host's stored copy is
-read by a NAMED host save once its coop_file_info fnv changed after the row's press. Every press is real (click_widget on a visible
-button, inject_input at a TextList pixel times the clicking machine's scale, or SDLK_KP2); every probe an existing TestServer command; a
-missed precondition raises Stop (the row ends there). one foreground run per invocation, exit 0 only when every
-cell passes, else 2."""
-from gift_display_helpers import *  # noqa: F401,F403 (HB + GH: boot, picker, visit, baseline, host_gift, gift_from, own_ids, ids_twice, ...)
+"""Shared helpers of test_gift_back.py (rows client_gives_back, host_gives_back) and test_gift_twice_stored.py (row gift_twice_stored); each row boots in its own user dirs.
+In a SEPARATE co-op campaign a soldier received while viewing the giver's base and given straight back before the leave ends with its giver
+only, and the host's stored copy of the visiting client's world holds every soldier the client received. Imports gift_display_helpers.py
+(which imports gift_helpers.py). This module has its own receiver path, because the replay after a gift-back is recorded, never
+awaited. The host's stored copy is read by a NAMED host save once its coop_file_info fnv changed after the row's press. Every press is
+real (click_widget on a visible button, inject_input at a TextList pixel times the clicking machine's scale, or SDLK_KP2); every probe
+an existing TestServer command; a missed precondition raises Stop (the row ends there). one foreground run per invocation, exit 0 only
+when every cell passes, else 2."""
+from gift_display_helpers import *  # noqa: F401,F403 (gift_display_helpers + gift_helpers: boot, picker, visit, baseline, host_gift, gift_from, own_ids, ids_twice, ...)
 
 W_PUSH, HOLD_P, W_REPLAY_D = 10.0, 0.5, 3.0
 CANCEL = "[coop-gift] a display copy given back during the visit"
@@ -28,8 +24,8 @@ def mark(x, g):
 
 
 def named_save(x, label):
-    """the host's live world written to a NAMED save (TestServer save_game, h70d_<row>_<label>.sav) within W_SAVE -> (file, s, read_save)"""
-    f = "h70d_%s_%s.sav" % (x.rid, label)
+    """the host's live world written to a NAMED save (TestServer save_game, gift_back_<row>_<label>.sav) within W_SAVE -> (file, s, read_save)"""
+    f = "gift_back_%s_%s.sav" % (x.rid, label)
     p = os.path.join(x.host.user_dir, "xcom1", f)
     q(x.host, {"cmd": "save_game", "file": f})
     v, s = wait(lambda: os.path.exists(p) and os.path.getsize(p) > 0, W_SAVE, 0.1)
@@ -61,7 +57,7 @@ def stored(x, ev, label):
 
 
 def back_to_base(r, why):
-    """the machine's real OK presses back to SoldiersState (SoldierInfoState pops itself on an empty list, F20581), then OK (BasescapeState)"""
+    """the machine's real OK presses back to SoldiersState (SoldierInfoState pops itself on an empty list), then OK (BasescapeState)"""
     for _i in range(4):
         if top(r) == "SoldiersState":
             break
@@ -109,7 +105,7 @@ def give_back(x, ev, r, g, word, sc):
 
 
 def gift_back_client(x, ev):
-    """R16 (T0-F's steps): the host's copy changed from B's (the gift's push) within W_PUSH; the client gives GIFTNAME back to the host
+    """client_gives_back: the host's copy changed from B's (the gift's push) within W_PUSH; the client gives GIFTNAME back to the host
     (give_back); stored("back"); the client back on SoldiersState, OK (BasescapeState)"""
     b0 = (x.B["blob"][0] or {}).get("fnv1a64")
     v, s = wait(lambda: copy_fnv(x) not in (None, b0) or None, W_PUSH)
@@ -122,14 +118,14 @@ def gift_back_client(x, ev):
 
 
 def gift_back_host(x, ev):
-    """R16H: the host gives GIFTNAME back to the client from its view of the client base (give_back, the host's own scale); the host
+    """host_gives_back: the host gives GIFTNAME back to the client from its view of the client base (give_back, the host's own scale); the host
     back on SoldiersState, OK (BasescapeState)"""
     give_back(x, ev, x.host, x.client, "client", (getattr(x, "pkH", None) or x.pk)["scale"])
     ev["giftback"]["back s"] = back_to_base(x.host, "the host's OK after the gift-back")
 
 
 def host_gives(x, ev, k, name):
-    """R17 (T0B host_gives): the host's first own soldier not a GIFTNAME, outside a craft first, renamed `name`; BASES, SOLDIERS, its row,
+    """gift_twice_stored host_gives: the host's first own soldier not a GIFTNAME, outside a craft first, renamed `name`; BASES, SOLDIERS, its row,
     KP2, the client's button; the client's deferral line within W_NOTICE; the host back on GeoscapeState; the client's GiftNoticeState
     within W_NOTICE and its OK (BasescapeState); stored("g<k>")"""
     h, c = x.host, x.client
@@ -175,7 +171,7 @@ def host_gives(x, ev, k, name):
 
 
 def client_gives(x, ev, name):
-    """R17 (T0B client_gives): the visiting client gives `name` (its guest in the view) to the host: SOLDIERS, its row, KP2, the host's
+    """gift_twice_stored client_gives: the visiting client gives `name` (its guest in the view) to the host: SOLDIERS, its row, KP2, the host's
     button; the host's GiftNoticeState within W_NOTICE (the last precondition) and its OK; stored("send"); the client back on
     SoldiersState, OK (BasescapeState)"""
     c, h = x.client, x.host
@@ -197,16 +193,16 @@ def client_gives(x, ev, name):
     g["back s"] = back_to_base(c, "the client's OK after its gift")
 
 
-def census_d(x, ev):
+def census_back(x, ev):
     """both own rosters, where each of x.names is on each machine's own bases, ids held twice"""
     ev["live"] = {"host": own_ids(x.host), "client": own_ids(x.client), "twice": {"host": ids_twice(x.host), "client": ids_twice(x.client)},
                   "where": {n: {"host": own(x.host, n), "client": own(x.client, n)} for n in x.names}}
 
 
-def receiver_path_d(x, ev, r, steps=None, need=0, notice=True):
-    """HB receiver_path's shape: the receiver's GiftNoticeState within W_NOTICE and its OK (BasescapeState) when `notice`, the
-    row's steps, GEOSCAPE ([GeoscapeState] within W_LEAVE), the replay lines: `need` of them within W_REPLAY (a precondition, R17) or, with
-    need 0, the first one recorded within W_REPLAY_D (never a precondition, R16 / R16H); HOLD_L; the census; the read"""
+def receiver_path_back(x, ev, r, steps=None, need=0, notice=True):
+    """gift_display_helpers.receiver_path's shape: the receiver's GiftNoticeState within W_NOTICE and its OK (BasescapeState) when `notice`, the
+    row's steps, GEOSCAPE ([GeoscapeState] within W_LEAVE), the replay lines: `need` of them within W_REPLAY (a precondition, gift_twice_stored) or, with
+    need 0, the first one recorded within W_REPLAY_D (never a precondition, client_gives_back / host_gives_back); HOLD_L; the census; the read"""
     if notice:
         v, s = wait(lambda: top(r) == "GiftNoticeState", W_NOTICE)
         ev["notice"] = {"s": s if v else None, "lines": gift_lines(r, x.n_c if r is x.client else x.n_h)[-3:]}
@@ -227,12 +223,12 @@ def receiver_path_d(x, ev, r, steps=None, need=0, notice=True):
         raise Stop("%d %r line(s) on the %s within %.0f s of the leave: %s" % (need, ADDED, r.name, W_REPLAY, gift_lines(r, n1)[-6:]))
     time.sleep(HOLD_L)
     lv.update(replays=sum(ADDED in ln for ln in log(r)[n1:]), lines=gift_lines(r, n1)[-8:])
-    census_d(x, ev)
+    census_back(x, ev)
     read_point(x, ev)
 
 
-def quick_d(x, ev):
-    """QUICK (HB host_save's file, x.src) parsed whole: the host half and every client entry [key, [[base, name, id]]]"""
+def quick_entries(x, ev):
+    """QUICK (gift_display_helpers.host_save's file, x.src) parsed whole: the host half and every client entry [key, [[base, name, id]]]"""
     f = read_save(x.src)
     ev["quick"] = {"host": f["host"], "entries": [[e["key"], e["soldiers"]] for e in f["entries"]]}
 
@@ -255,8 +251,8 @@ def ids_of(rows):
     return sorted(i for i, _n, _c in rows or [])
 
 
-def cells_d(rid, ev):
-    """the row's cells after X-pre (spec (f)): R16, R16H or R17"""
+def cells_back(rid, ev):
+    """the row's cells after its -pre cell: client_gives_back, host_gives_back or gift_twice_stored"""
     nm, lv, qk, o0 = ev.get("names") or {}, ev.get("live") or {}, ev.get("quick") or {}, ev.get("own0") or {}
     g, g2, gu = nm.get("gift"), nm.get("g2"), nm.get("guest")
     oc, oh, wh, tw = P(o0.get("client")), P(o0.get("host")), lv.get("where") or {}, lv.get("twice") or {}
@@ -266,48 +262,48 @@ def cells_d(rid, ev):
     gid = ((ev.get("gift") or {}).get("soldier") or [None, None])[1]
     ids = (rid + "-ids", "GUARD", "ids_twice empty on both machines: %s" % tw, "host" in tw and not tw["host"] and not tw["client"])
     filed = "QUICK entries %d, host half %s %s, client entry %s %s" % (len(ent), g, cnt(hh, g), g, cnt(e1, g))
-    if rid == "R16":
+    if rid == "client_gives_back":
         st = (ev.get("stored back") or {}).get("entry")
-        return [("R16-stored", "RED", "stored(back) holds every own0(client) pair and no %s: missing %s, %s %d" % (
+        return [("client_gives_back-stored", "RED", "stored(back) holds every own0(client) pair and no %s: missing %s, %s %d" % (
                     g, sorted(oc - PS(st)) if st else st, g, cnt(st, g)), st is not None and oc <= PS(st) and cnt(st, g) == 0),
-                ("R16-own", "RED", "after the leave every own0(client) pair on the client's own bases: missing %s" % sorted(oc - P(lv.get("client"))),
+                ("client_gives_back-own", "RED", "after the leave every own0(client) pair on the client's own bases: missing %s" % sorted(oc - P(lv.get("client"))),
                  "client" in lv and oc <= P(lv["client"])),
-                ("R16-client", "RED", "%s on none of the client's own bases: %s" % (g, w[g].get("client")), w[g].get("client") == []),
-                ("R16-host", "GUARD", "%s once on the host's own bases under the giver's id %s: %s; host ids %s = own0(host) ids %s" % (
+                ("client_gives_back-client", "RED", "%s on none of the client's own bases: %s" % (g, w[g].get("client")), w[g].get("client") == []),
+                ("client_gives_back-host", "GUARD", "%s once on the host's own bases under the giver's id %s: %s; host ids %s = own0(host) ids %s" % (
                     g, gid, w[g].get("host"), ids_of(lv.get("host")), ids_of(o0.get("host"))),
                  len(w[g].get("host") or []) == 1 and w[g]["host"][0][1] == gid and ids_of(lv.get("host")) == ids_of(o0.get("host"))),
                 ids,
-                ("R16-file", "RED", filed + ", own0(client) pairs missing from it %s" % (sorted(oc - PS(e1)) if e1 is not None else None),
+                ("client_gives_back-file", "RED", filed + ", own0(client) pairs missing from it %s" % (sorted(oc - PS(e1)) if e1 is not None else None),
                  e1 is not None and cnt(hh, g) == 1 and cnt(e1, g) == 0 and oc <= PS(e1))]
-    if rid == "R16H":
-        return [("R16H-host", "RED", "after the host's leave %s on none of the host's own bases: %s" % (g, w[g].get("host")), w[g].get("host") == []),
-                ("R16H-own", "GUARD", "every own0(host) pair on the host's own bases: missing %s" % sorted(oh - P(lv.get("host"))),
+    if rid == "host_gives_back":
+        return [("host_gives_back-host", "RED", "after the host's leave %s on none of the host's own bases: %s" % (g, w[g].get("host")), w[g].get("host") == []),
+                ("host_gives_back-own", "GUARD", "every own0(host) pair on the host's own bases: missing %s" % sorted(oh - P(lv.get("host"))),
                  "host" in lv and oh <= P(lv["host"])),
-                ("R16H-client", "GUARD", "%s once on the client's own bases under the giver's id %s: %s; client ids %s = own0(client) ids %s" % (
+                ("host_gives_back-client", "GUARD", "%s once on the client's own bases under the giver's id %s: %s; client ids %s = own0(client) ids %s" % (
                     g, gid, w[g].get("client"), ids_of(lv.get("client")), ids_of(o0.get("client"))),
                  len(w[g].get("client") or []) == 1 and w[g]["client"][0][1] == gid and ids_of(lv.get("client")) == ids_of(o0.get("client"))),
                 ids,
-                ("R16H-file", "RED", filed, e1 is not None and cnt(hh, g) == 0 and cnt(e1, g) == 1)]
+                ("host_gives_back-file", "RED", filed, e1 is not None and cnt(hh, g) == 0 and cnt(e1, g) == 1)]
     s1, s2, s3 = ((ev.get("stored " + k) or {}).get("entry") for k in ("g1", "g2", "send"))
     rest = {p for p in oc if p[1] != gu}
-    return [("R17-g1", "GUARD", "stored(g1): %s %d, own0(client) pairs missing %s" % (g, cnt(s1, g), sorted(oc - PS(s1)) if s1 else s1),
+    return [("gift_twice_stored-g1", "GUARD", "stored(g1): %s %d, own0(client) pairs missing %s" % (g, cnt(s1, g), sorted(oc - PS(s1)) if s1 else s1),
              s1 is not None and cnt(s1, g) == 1 and oc <= PS(s1)),
-            ("R17-g2", "RED", "stored(g2): %s %d, %s %d, own0(client) pairs missing %s" % (g, cnt(s2, g), g2, cnt(s2, g2), sorted(oc - PS(s2)) if s2 else s2),
+            ("gift_twice_stored-g2", "RED", "stored(g2): %s %d, %s %d, own0(client) pairs missing %s" % (g, cnt(s2, g), g2, cnt(s2, g2), sorted(oc - PS(s2)) if s2 else s2),
              s2 is not None and cnt(s2, g) == 1 and cnt(s2, g2) == 1 and oc <= PS(s2)),
-            ("R17-send", "RED", "stored(send): %s %d, %s %d, %s %d, other own0(client) pairs missing %s" % (
+            ("gift_twice_stored-send", "RED", "stored(send): %s %d, %s %d, %s %d, other own0(client) pairs missing %s" % (
                 g, cnt(s3, g), g2, cnt(s3, g2), gu, cnt(s3, gu), sorted(rest - PS(s3)) if s3 else s3),
              s3 is not None and cnt(s3, g) == 1 and cnt(s3, g2) == 1 and cnt(s3, gu) == 0 and rest <= PS(s3)),
-            ("R17-leave", "GUARD", "after the leave client %s %s, %s %s, %s %s; host %s %s" % (
+            ("gift_twice_stored-leave", "GUARD", "after the leave client %s %s, %s %s, %s %s; host %s %s" % (
                 g, w[g].get("client"), g2, w[g2].get("client"), gu, w[gu].get("client"), gu, w[gu].get("host")),
              len(w[g].get("client") or []) == 1 and len(w[g2].get("client") or []) == 1 and w[gu].get("client") == []
              and len(w[gu].get("host") or []) == 1),
-            ("R17-file", "GUARD", "QUICK entries %d: client entry %s %d %s %d %s %d; host half %s %d %s %d %s %d" % (
+            ("gift_twice_stored-file", "GUARD", "QUICK entries %d: client entry %s %d %s %d %s %d; host half %s %d %s %d %s %d" % (
                 len(ent), g, cnt(e1, g), g2, cnt(e1, g2), gu, cnt(e1, gu), g, cnt(hh, g), g2, cnt(hh, g2), gu, cnt(hh, gu)),
              e1 is not None and cnt(e1, g) == 1 and cnt(e1, g2) == 1 and cnt(e1, gu) == 0 and cnt(hh, g) == 0 and cnt(hh, g2) == 0
              and cnt(hh, gu) == 1),
             ids]
 
 
-def run_d(rid, tag, key, build, ids, pre):
-    """HB run_row_b with cells_d (no reload)"""
-    return run_row_b(rid, tag, key, build, ids, cells_d, pre)
+def run_back_row(rid, tag, key, build, ids, pre):
+    """gift_display_helpers.run_row_b with cells_back (no reload)"""
+    return run_row_b(rid, tag, key, build, ids, cells_back, pre)
