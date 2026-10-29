@@ -1,9 +1,8 @@
-"""W2-H84 helpers (tools/coop_test/rejoin_helpers.py, "RH"), imported by test_rejoin_after_push.py (RAP: rows X1, CTL) and
-test_rejoin_after_push_save.py (RAS: rows C2, X3). Spec docs rewrite/prompts/w2h84_rejoin_join_id.md (f); TASK 0 values in
-rewrite/w2h84-task0/sa/CONSTANTS.md. Lead L-H79-3, ruling R-LH79-3-1: a partner's rejoin or resume onto a stored world whose saveID is
-older than the host's (W2-H58's copy after a drop during a host save; a resumed save's embed) takes that older id, so its next upload moves
-the host's id back and a second rejoin gets a new campaign. Holds boot / shut, the gift by the host's real presses and parse_sav (copied
-from docs rewrite/lh79-3-cap/capc.py and x3.py, themselves copies of test_hold_until_named.py; never imported), the reads (own, ownsold,
+"""Helpers of the rejoin tests, imported by test_rejoin_after_push.py (rows upload_rejoin, control), test_rejoin_after_push_save.py
+(rows drop_next_save, resumed_save) and the upload-save crossing tests. Without the saveID fix, a partner's rejoin or resume onto a
+stored world whose saveID is older than the host's (the host's copy after a drop during a host save; a resumed save's embed) takes that
+older id, so its next upload moves the host's id back and a second rejoin gets a new campaign. Holds boot / shut, the gift by the host's
+real presses and parse_sav (the gift steps follow test_hold_until_named.py; nothing is imported from it), the reads (own, ownsold,
 kept, ids, kk), the common steps and the row runner. Imports drop_fixture (F), session, geo and harness unchanged. Never a base
 placement, dismiss_popup or coop_dialog_back: a fresh world is evidence. ONE foreground run per file, no SKIP."""
 import base64
@@ -20,7 +19,7 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
-GIFT_ROW, GIVE_KEY, SETTLE_MENU = (68, 44), 258, 1.0   # SoldiersState row 0 / Options::giveUnit (SDLK_KP2) / HUN's menu settle
+GIFT_ROW, GIVE_KEY, SETTLE_MENU = (68, 44), 258, 1.0   # SoldiersState row 0 / Options::giveUnit (SDLK_KP2) / test_hold_until_named's menu settle
 STABLE_S, BOOT_S, SAVE_S, SEEN_S, DROP_S, JOIN_S, ACK_S = 5.0, 90.0, 20.0, 10.0, 5.0, 10.0, 30.0
 GIFT_S, W_PUSH, W_STORE, HOLD, HOLD_R = 10.0, 10.0, 10.0, 2.0, 3.0
 PUSH, KEPT = "[coop-gift] pushed client progress to host (", '[coop] own world "'
@@ -37,7 +36,7 @@ def alive(gc):
 def pick(d, ks):
     return {k: d.get(k) for k in ks}
 
-def cw(gc, match, settle=1.0, ready=False):  # ----- copied from capc.py from here to wait_fnv_change -----
+def cw(gc, match, settle=1.0, ready=False):  # ----- the gift steps, from here to wait_fnv_change -----
     if ready:
         session.wait_widget_ready(gc, match)
     r = F.q(gc, {"cmd": "click_widget", "match": match})
@@ -76,7 +75,7 @@ def soldier_names(gc):
     r = F.q(gc, {"cmd": "get_soldiers"})
     return sorted(s.get("name") for b in r.get("bases", []) if not b.get("coopIcon") and not b.get("coopBaseFlag") for s in b.get("soldiers", []))
 
-def host_affine(host):  # AFF: the host's INTERCEPT + CANCEL real clicks give the base -> window scale (CAP 2.008)
+def host_affine(host):  # the host's INTERCEPT + CANCEL real clicks give the base -> window scale (measured 2.008)
     return affine(cw(host, "INTERCEPT", 0.6), cw(host, "CANCEL", 0.6, ready=True))
 
 def gift(host, partner, aff):  # host: BASES, SOLDIERS, GIFT_ROW, GIVE_KEY, the partner's button; partner RECV within GIFT_S; host back to geoscape
@@ -122,7 +121,7 @@ def wait_fnv_change(host, k, fnv0, secs):
     tt = until(lambda: got.update(F.key(host, k)) or got.get("fnv1a64") != fnv0, t0 + secs, 0.05)
     return {"t": round(tt - t0, 2) if tt else None, "key": dict(got)}
 
-def parse_sav(path):  # (copied from x3.py) the .sav's saveID and each coopClientSaves entry: key, bytes, fnv1a64, the blob's own saveID
+def parse_sav(path):  # the .sav's saveID and each coopClientSaves entry: key, bytes, fnv1a64, the blob's own saveID
     import yaml
     loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     out = {"bytes": os.path.getsize(path), "mtime_ns": os.stat(path).st_mtime_ns, "entries": []}
@@ -168,9 +167,9 @@ def shut(gcs):
 def own(gc):  # ----- reads ----- geo_state bases with coopIcon false as [name, coopBaseId]
     return [[b.get("name"), b.get("coopBaseId")] for b in F.q(gc, {"cmd": "geo_state"}).get("bases", []) if not b.get("coopIcon")]
 
-ownsold = soldier_names  # the machine's own soldiers' names (CAP soldier_names)
+ownsold = soldier_names  # the machine's own soldiers' names (soldier_names)
 
-def kept(gc):  # the count of '[coop] own world "' lines in the machine's log (0 on a build without E1)
+def kept(gc):  # the count of '[coop] own world "' lines in the machine's log (0 on a build without the fix)
     return sum(1 for ln in F.logl(gc) if KEPT in ln)
 
 def ids(host, gc):  # [get_coop.saveID, save_markers.saveID] of both machines
@@ -182,7 +181,7 @@ def kk(host, i, name):
 def rejoiner(tag, n):  # a NEW GameClient on a fresh dir <tag>_client<n>
     return GameClient("client%d" % n, None, make_user_dir("%s_client%d" % (tag, n)))
 
-def start(r, tag=None, saves=None, names=("host", "client")):  # BOOT (+ NAME, MARKER on a first boot), AFF; a boot miss fails -pre
+def start(r, tag=None, saves=None, names=("host", "client")):  # BOOT (+ NAME, MARKER on a first boot), the click scale; a boot miss fails -pre
     host, client, ev = boot(tag or r.tag, r.key, saves, names)
     r.add(host, client)
     r.ev["boot2" if saves else "boot"] = ev
@@ -196,21 +195,21 @@ def start(r, tag=None, saves=None, names=("host", "client")):  # BOOT (+ NAME, M
     r.aff = host_affine(host)
     return host, client
 
-def s1_d1(r, host, client):  # S1 = a quick save with the client running (id1), HOLD; D1 = the drop at the host's first 54 (id2)
+def save_then_drop(r, host, client):  # first_save = a quick save with the client running (id1), HOLD; first_drop = the drop at the host's first 54 (id2)
     s1 = F.quick_save(host, F.QUICK, SAVE_S)
     r.id1 = s1.get("saveIDAfter")
-    r.ev["S1"] = pick(s1, ("ok", "seen54", "written", "t", "saveIDBefore", "saveIDAfter", "log"))
+    r.ev["first_save"] = pick(s1, ("ok", "seen54", "written", "t", "saveIDBefore", "saveIDAfter", "log"))
     time.sleep(HOLD)
     def probe(h):  # noqa: E306
         i2 = F.sid(h)
         return {"saveID": i2, "id1": kk(h, r.id1, r.name), "id2": kk(h, i2, r.name)}
     d1 = F.drop_at_54(host, client, "quick", 0, probe, SEEN_S, DROP_S)
-    r.ev["D1"] = pick(d1, ("ok", "why", "seen54", "probe", "kill", "log", "filesBefore"))
+    r.ev["first_drop"] = pick(d1, ("ok", "why", "seen54", "probe", "kill", "log", "filesBefore"))
     p = d1.get("probe") or {}
     r.id2 = p.get("saveID")
     ok = bool(s1["ok"] and d1.get("ok") and r.id2 != r.id1 and (p.get("id2") or {}).get("present") is True
               and p["id2"].get("fnv1a64") == (p.get("id1") or {}).get("fnv1a64"))
-    return ok, "S1 %s (id1 %s); D1 %s (id2 %s; at the 54 %s)" % (s1["ok"], r.id1, d1.get("ok"), r.id2, js(p)[:260])
+    return ok, "first_save %s (id1 %s); first_drop %s (id2 %s; at the 54 %s)" % (s1["ok"], r.id1, d1.get("ok"), r.id2, js(p)[:260])
 
 def rejoin_resume(r, host, gc, label, hold=HOLD):  # REJOIN(n) by NAME; only with an ack RESUME (CANCELs a stale 54); HOLD
     rj = F.rejoin(host, gc, r.key, r.name, JOIN_S, ACK_S)
@@ -243,9 +242,9 @@ def kill(r, gc, host, label):  # KILL: the partner's proc.kill() (its rc is the 
     r.ev[label] = {"rc": rc, "w62": pick(w, ("ok", "t", "dialog"))}
     r.need(w["ok"], "no host 62 within %.0f s of the kill" % DROP_S)
 
-def tail(r, host, gc, rj, rc, gifted):  # read R (after HOLD_R): the row's -rejoin, -world, -resume, -common cells
+def tail(r, host, gc, rj, rc, gifted):  # read rejoined (after HOLD_R): the row's -rejoin, -world, -resume, -common cells
     P, ow, osd, tops = r.rid, own(gc), ownsold(gc), [F.stk(host)[-1:], F.stk(gc)[-1:]]
-    r.ev["R"] = {"own": ow, "ownsold": osd, "tops": tops, "ids": ids(host, gc), "hostDialog": F.dlg(host)}
+    r.ev["rejoined"] = {"own": ow, "ownsold": osd, "tops": tops, "ids": ids(host, gc), "hostDialog": F.dlg(host)}
     r.cell(P + "-rejoin", rj["ok"], rj["lab"])
     r.cell(P + "-world", ow == r.marker[0] and gifted in osd, "own %s (MARKER %s); ownsold holds %r: %s" % (ow, r.marker[0], gifted, gifted in osd))
     r.cell(P + "-resume", bool(rc and rc["ok"]) and tops == [["GeoscapeState"], ["GeoscapeState"]], "resume_and_clear %s; tops %s" % (None if rc is None else rc["ok"], tops))
@@ -254,8 +253,8 @@ def tail(r, host, gc, rj, rc, gifted):  # read R (after HOLD_R): the row's -rejo
 
 class Row:
     """one row = its own boot pair: cells, need -> Stop, finish printing EVIDENCE / PASS / FAIL / CAPTURE / the row verdict"""
-    def __init__(self, rid, cells, red, tag, key_):
-        self.rid, self.cells, self.red, self.tag, self.key = rid, cells, red, tag, key_
+    def __init__(self, rid, cells, fix_cells, tag, key_):
+        self.rid, self.cells, self.fix_cells, self.tag, self.key = rid, cells, fix_cells, tag, key_
         self.res, self.procs, self.fails, self.name, self.marker = {}, [], [], "ClientPlayer", ([], [])
         self.t0, self.c0, self.ev = time.time(), F.crashes(), {"cpu": F.cpu()}
     def cell(self, cid, ok, label):
@@ -273,7 +272,7 @@ class Row:
         print("EVIDENCE %s: %s" % (self.rid, js(self.ev)), flush=True)
         for cid in self.cells:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in self.red else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in self.fix_cells else "GUARD", label), flush=True)
             self.fails += [] if ok else [cid]
         if stop:
             cap = {gc.name: {"stack": F.stk(gc), "dialog": F.dlg(gc), "get_coop": F.coop(gc), "log": F.lines_since(gc, 0, ("[coop",))[-40:]}
@@ -281,10 +280,10 @@ class Row:
             print("CAPTURE %s: %s" % (self.rid, js(cap)), flush=True)
         print(("PASS %s" % self.rid) if not self.fails else ("FAIL %s: %s" % (self.rid, " ".join(self.fails))), flush=True)
 
-def run(title, rows, red):  # rows [(rid, cells, fn, tag, key)]; every row runs after a failure; exit 0 only when every cell passes, else 2
+def run(title, rows, fix_cells):  # rows [(rid, cells, fn, tag, key)]; every row runs after a failure; exit 0 only when every cell passes, else 2
     t0, fails, allc = time.time(), [], []
     for rid, cells, fn, tag, key_ in rows:
-        r = Row(rid, cells, red, tag, key_)
+        r = Row(rid, cells, fix_cells, tag, key_)
         allc += list(cells)
         try:
             fn(r)

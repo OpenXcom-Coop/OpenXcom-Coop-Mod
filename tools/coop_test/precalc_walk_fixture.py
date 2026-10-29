@@ -1,17 +1,17 @@
-"""Walk fixture PRECALC. NOT a regression member.
+"""Walk fixture precalculation. Not part of the regression suite.
 
-One-time measurement: finds the pinned SEED and the baked
+One-time measurement: finds the fixed SEED and the baked
 FORMATION that `repro_atom_walk` will teleport its seven soldiers onto, so the
 test needs no runtime search. Boots the SAME two-instance skirmish fixture the
 test uses, `set_seed(seed)` on the host right before `newbattle_ok` (via
 `session.drive_to_battlescape(pre_ok=...)`), records `mapFingerprint`, applies
-the WV-D88 corner placement through `session.stage_open_ground_actor` (hostiles
+the corner placement through `session.stage_open_ground_actor` (hostiles
 -> farthest corner, neutrals -> opposite; hash-gated), then:
 
   (1) OLD fixture: stages the actor exactly as the old file does, finds the unit
       the old `richest()` take() would pick next, and reports whether that unit's
       eight neighbours at its z are all occupied-or-no-floor -> OLD_ENCLOSED
-      (the S4 TRACE's red mechanism, reproduced by seed).
+      (the old fixture's failure by enclosure, reproduced by seed).
   (2) NEW fixture: searches for a FORMATION of `--lanes` (7) parallel lanes at ONE
       z, ONE direction D, spaced `--spacing` (2) apart, each lane `--lane-len`
       (11) consecutive open tiles from the start onward with the tile BEHIND the
@@ -22,8 +22,8 @@ the WV-D88 corner placement through `session.stage_open_ground_actor` (hostiles
       then D in (E,S,W,N), then anchors rows-then-columns; first placement wins.
 
 The first seed with a formation wins. Exit 0 = formation found (prints the
-constants block); exit 2 = no formation in the seed budget (STOP-IF: the owner
-relaxes spacing / lane length / z, or widens the budget).
+constants block); exit 2 = no formation in the seed budget (then relax
+spacing / lane length / z, or widen the budget).
 
 Example:
   python tools/coop_test/precalc_walk_fixture.py --seeds 40 --lane-len 11 --spacing 2
@@ -133,11 +133,11 @@ def search_formation(open_tile, mx, my, z_order, lanes, spacing, lane_len):
 
 
 def old_enclosed(host, client, soldier_ids):
-    """Stage the actor exactly as the old fixture does (WV-D88 corner placement +
+    """Stage the actor exactly as the old fixture does (corner placement +
     ring scan), then check whether the unit the old take()/richest would pick
     next is enclosed (all eight neighbours occupied-or-no-floor). Returns
     (verdict, detail). verdict True/False, or None when staging itself failed
-    (the old file would exit 3 FIXTURE, not a red-by-enclosure)."""
+    (the old file would exit 3 FIXTURE, not a failure by enclosure)."""
     try:
         after, tile, run_dir = session.stage_open_ground_actor(
             host, client, [soldier_ids[0]], "precalc",
@@ -207,7 +207,7 @@ def evaluate_seed(n, lanes, spacing, lane_len, seat_count, scan_formation=True):
         row["host_units"] = len(host_ids0)
         soldier_ids = seated.get("soldierIds", [])
 
-        # (1) OLD_ENCLOSED (also performs the WV-D88 corner placement).
+        # (1) OLD_ENCLOSED (also performs the corner placement).
         enc, enc_detail = old_enclosed(host, client, soldier_ids)
         row["OLD_ENCLOSED"] = enc
         row["old_detail"] = enc_detail
@@ -220,7 +220,7 @@ def evaluate_seed(n, lanes, spacing, lane_len, seat_count, scan_formation=True):
         row["map"] = (mx, my, mapz)
         if not scan_formation:
             # SEED already found; the first formation wins, so later seeds skip
-            # the (expensive) scan and only carry OLD_ENCLOSED for the red hunt.
+            # the (expensive) scan and only carry OLD_ENCLOSED for the enclosed-seed hunt.
             row["formation"] = None
             row["scanned"] = False
             row["scan_s"] = 0.0
@@ -267,7 +267,7 @@ def main():
 
     rows = []
     seed_found = None
-    red_found = None
+    enclosed_found = None
     print(f"[precalc] lanes={a.lanes} lane_len={a.lane_len} spacing={a.spacing} "
           f"seat_count={a.seat_count} seeds=1..{a.seeds}", flush=True)
     for n in range(1, a.seeds + 1):
@@ -286,10 +286,10 @@ def main():
               flush=True)
         if form and seed_found is None:
             seed_found = row
-        if enc is True and red_found is None:
-            red_found = n
-        if a.stop_early and seed_found is not None and red_found is not None:
-            print("[precalc] stop-early: have SEED and RED_SEED", flush=True)
+        if enc is True and enclosed_found is None:
+            enclosed_found = n
+        if a.stop_early and seed_found is not None and enclosed_found is not None:
+            print("[precalc] stop-early: have SEED and ENCLOSED_SEED", flush=True)
             break
 
     print("\n==== PER-SEED TABLE ====", flush=True)
@@ -302,8 +302,8 @@ def main():
               f"{fstr:>10} "
               f"{str(r.get('client_units')):>7} {str(r.get('host_units')):>5}")
 
-    print("\n==== RED_SEED ====", flush=True)
-    print(f"RED_SEED = {red_found}  (first seed with OLD_ENCLOSED = True; "
+    print("\n==== ENCLOSED_SEED ====", flush=True)
+    print(f"ENCLOSED_SEED = {enclosed_found}  (first seed with OLD_ENCLOSED = True; "
           f"None means no enclosed-take() seed in the budget)")
 
     if seed_found is None:

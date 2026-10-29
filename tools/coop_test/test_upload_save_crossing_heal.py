@@ -5,18 +5,18 @@ id1 = first_save's saveID; id2 = the crossing save's re-mint (crossing_save); id
 (SEPARATE new_campaign); NAME = the host's get_coop.clientName; MARKER = the client's own bases and soldiers; every rejoiner is a NEW
 client on a fresh dir joining by NAME (never a base placement: a fresh world is evidence); RESUME only after the host's ack
 (resume_and_clear CANCELs a stale 54).
-  Row heal (the heal): CROSSING (CH); NOTICE; heal_save = a quick save with the partner running; HOLD; after_heal; KILL; REJOIN; read R.
+  Row heal (the heal): CROSSING (CH); NOTICE; heal_save = a quick save with the partner running; HOLD; after_heal; KILL; REJOIN; read rejoined.
           heal-pre (GUARD) every CROSSING step met; NOTICE ok.
           heal-copied (FIX) heal_save's "[coop] N partner world(s) copied from saveID <id2> to <id3>" with N >= 1.
           heal-healed (GUARD) heal_save ok, id3 != id2; after_heal: host == partner == id3 and host_<id3> present.
           heal-rejoin, heal-world, heal-resume, heal-common (GUARD) as test_upload_save_crossing.py's crossed cells (the completed heal save restores the own world).
   Row drop_in_heal (a drop during the heal save): CROSSING (CH); NOTICE; heal_drop = the partner dropped at the host's first 54 of the next quick save
-          (probe: id3, host_<id3>, host_<id2>, host_<id1>); REJOIN; read R.
+          (probe: id3, host_<id3>, host_<id2>, host_<id1>); REJOIN; read rejoined.
           drop_in_heal-pre (GUARD) every CROSSING step met; NOTICE ok; heal_drop ok (54 seen, the 62 after the kill), id3 != id2, and at the 54 no answer
           stored yet (host_<id3> absent or holding host_<id2>'s bytes).
           drop_in_heal-copied (FIX) heal_drop's world-copy line "N ... from saveID <id2> to <id3>" with N >= 1.  drop_in_heal-key (FIX) at heal_drop's 54: host_<id3> present.
           drop_in_heal-rejoin (FIX) no BuildNewBaseState, 68 within JOIN_S, ack within ACK_S.
-          drop_in_heal-world (FIX) read R: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
+          drop_in_heal-world (FIX) read rejoined: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
           drop_in_heal-resume (FIX) resume_and_clear ok, both tops GeoscapeState.  drop_in_heal-common (GUARD) host + rejoiner alive, no new crash file.
 FIX cells fail on a build without the saveID fix: heal-copied, drop_in_heal-copied, drop_in_heal-key, drop_in_heal-rejoin, drop_in_heal-world, drop_in_heal-resume (6 of 14);
 every other cell passes there too.
@@ -48,7 +48,7 @@ def crossing_notice(r, host, client):
 
 
 def rejoin_tail(r, host):
-    """REJOIN (a NEW <tag>_client2 by NAME); read R"""
+    """REJOIN (a NEW <tag>_client2 by NAME); read rejoined"""
     c2 = r.add(RH.rejoiner(r.tag, 2))
     rj, rc = RH.rejoin_resume(r, host, c2, "rejoin")
     RH.tail(r, host, c2, rj, rc, r.gifted)

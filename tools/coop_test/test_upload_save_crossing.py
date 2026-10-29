@@ -6,17 +6,17 @@ id0 = the campaign's first saveID; id1 = first_save's; id2 = the crossing save's
 presses (RH gift) and the crossing stream is the partner's unasked push after it; every rejoiner is a NEW client on a fresh dir joining by
 NAME (never a base placement: a fresh world is evidence); RESUME only after the host's ack.
   Row crossed: CROSSING (CH: first_save; arm_ack_hold; GIFT; PUSH; HELD; arm_reply_hold; crossing_save; REPLY + read idsRead; release_ack_hold; save_done; read after_save; release_reply_hold;
-          store_done; read after_store); KILL; REJOIN; read R.
+          store_done; read after_store); KILL; REJOIN; read rejoined.
           crossed-pre (GUARD) every CROSSING step met.  crossed-host (FIX) after_save: the host's saveID (both probes) == id2.
           crossed-log (FIX) after_save: >= 1 "[coop] partner upload validated" line on the host since crossing_save.
           crossed-sav (FIX) the QUICK .sav: saveID == id2 and exactly one entry, key host_<id2>_<NAME>.data.
           crossed-key (FIX) host_<the host's saveID> present at after_save and at after_store.
           crossed-ids (GUARD) after_store: the host's saveID == the partner's == id2.
           crossed-rejoin (FIX) no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S.
-          crossed-world (FIX) read R: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
+          crossed-world (FIX) read rejoined: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
           crossed-resume (FIX) resume_and_clear ok, both tops GeoscapeState.  crossed-common (GUARD) host + rejoiner alive, no new crash file.
   Row control (the control: no hold): first_save; gift_push (RH gift_push: the push lands, no hook armed); NOTICE; after_stream_save = a quick save after the
-          stream; HOLD; after_stream; KILL; REJOIN; read R.
+          stream; HOLD; after_stream; KILL; REJOIN; read rejoined.
           control-pre (GUARD) first_save, gift_push (push key client_<id1>_<NAME>.data, the host's fnv change), NOTICE.
           control-save (GUARD) after_stream_save ok, id2 != id1, world copy "1 ... from id1 to id2".  control-ids (GUARD) after_stream: host == partner == id2, host_<id2>.
           control-log (GUARD) 0 "[coop] partner upload validated" lines on the host since first_save.  control-sav (GUARD) as crossed-sav.
@@ -48,7 +48,7 @@ def sav_ok(sav, i, name):
 
 
 def tail(r, host, client):
-    """KILL; REJOIN (a NEW <tag>_client2 by NAME); read R"""
+    """KILL; REJOIN (a NEW <tag>_client2 by NAME); read rejoined"""
     RH.kill(r, client, host, "KILL")
     c2 = r.add(RH.rejoiner(r.tag, 2))
     rj, rc = RH.rejoin_resume(r, host, c2, "rejoin")

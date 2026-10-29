@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""W2-U13 failing runner stub for selftest_regression_runner.py (not a test_*
-file: CI, a default suite and REGRESSION never run it, F7929).
+"""Failing runner stub for selftest_regression_runner.py (not a test_* file:
+CI, a default suite and run_regression.py never run it).
 
 As regstub_pass_a, then writes <user dir>/openxcom.log, prints REGSTUB line
 01..40, writes a fake crash log beside OXC_TEST_EXE (only with REGSTUB_CRASH=1

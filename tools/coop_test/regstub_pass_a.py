@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""W2-U13 runner stub for selftest_regression_runner.py (not a test_* file:
-CI, a default suite and REGRESSION never run it, F7929).
+"""Runner stub for selftest_regression_runner.py (not a test_* file:
+CI, a default suite and run_regression.py never run it).
 
 Makes its slot's user dir through harness (no lock, no game), sleeps
 REGSTUB_SLEEP seconds (default 0) and prints ONE REGSTUB line. Exit 0.
