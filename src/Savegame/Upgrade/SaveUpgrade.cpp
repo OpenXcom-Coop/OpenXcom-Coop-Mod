@@ -699,6 +699,15 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			d.schema = SAVE_SCHEMA_CURRENT;
 			return d;
 		}
+		// SHARED already is one world: 2->3 only restamps it. Main loads a
+		// schema-2 SHARED save straight to the host window, so it must not
+		// stop at the upgrade dialog (RU11).
+		if (s == 2 && header["coopCampaignType"].readVal<int>(0) == 1)
+		{
+			d.kind = DetectedSchema::Current;
+			d.schema = SAVE_SCHEMA_CURRENT;
+			return d;
+		}
 	}
 	// 2. Schema-2 embedded-world save. This intermediate Separate format already
 	// has coop:true and a locked roster, but still stores each client world in the
