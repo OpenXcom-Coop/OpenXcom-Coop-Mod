@@ -5454,6 +5454,19 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 		return false;
 	}
 			
+	// coop (parallel turns): there `_isActivePlayerSync` marks the machine that
+	// runs the battle, and it stays true on the battle host for the whole battle,
+	// so the branch above never shuts the battle host out. When the battle host
+	// commands no soldier of its own (a Separate battle the client's craft
+	// started) it spectates, and ownership has to decide: a soldier another seat
+	// commands is never selectable on this machine.
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::parallelTurnActive()
+		&& connectionTCP::coopInventory == true && connectionTCP::show_inactive_player_inventory == false
+		&& _faction == FACTION_PLAYER && connectionTCP::unitSeat(this) != connectionTCP::localSeat())
+	{
+		return false;
+	}
+
 	return (_faction == faction && !isOut() && (!checkReselect || reselectAllowed()) && (!checkInventory || hasInventory()));
 }
 

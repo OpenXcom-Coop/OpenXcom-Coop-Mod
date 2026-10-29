@@ -1012,7 +1012,9 @@ class connectionTCP
 	/// CLIENT: the last `action_deny` it was sent - reason and warning key.
 	/// The flash fades (and BattlescapeState::warning swallows it entirely off
 	/// the player side), so this is the only stable readout of WHY an intent was
-	/// refused. Test introspection; cleared with the request sequence.
+	/// refused. The battle host records its own refused input here too
+	/// (BattlescapeGame::coopRouteAction). Test introspection; cleared with the
+	/// request sequence.
 	static std::string _clientLastDenyReason;
 	static std::string _clientLastDenyWarning;
 

@@ -15603,7 +15603,18 @@ void connectionTCP::ensureEndTurnSeats()
 void connectionTCP::resetEndTurnReady()
 {
 	_endTurnReady.assign(_endTurnReady.size(), false);
-	_endTurnAuto.assign(_endTurnAuto.size(), false);
+	// Auto readiness on a machine that does not run the battle is only the
+	// battle host's echo, and the next echo replaces it wholesale. Keep it here:
+	// each machine resets at battle start on its own schedule (a resumed battle
+	// resets before parallel turns are even live on the client), so the battle
+	// host's echo can land before this machine's reset, and the battle host
+	// sends again only when the tally changes. Clearing it left that player's
+	// END TURN tally without the seat that commands no soldiers for the whole
+	// side. The battle host re-derives its own copy from the roster every tick.
+	if (getHost())
+	{
+		_endTurnAuto.assign(_endTurnAuto.size(), false);
+	}
 	_endTurnTallySideSeq = _sideSeq;
 	_endTurnTallySent.clear();
 	_commitBlocked.clear();
