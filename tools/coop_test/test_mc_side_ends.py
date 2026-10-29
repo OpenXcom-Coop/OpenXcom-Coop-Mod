@@ -7,8 +7,8 @@ with the orchestrator rulings R-H31-1 (the battle-end tally is vanilla's) and R-
 outcome: the aliens' hold is released at their side's start, before the tally, so the battle goes on).
 Constants: rewrite/w2h31-task0/CONSTANTS.md (TASK 0 boots Ga / Gb, Ca / Cb, Ca2 / Cb2).
 
-Boot G (gm3 parallel, key 48786; the host plays the aliens, seat 0): G3F.bring_up, G1-mode and G1-seats must pass,
-every unit's reactions 0, the B2 staging (MCT.stage_b2).
+Boot G (gm3 parallel, key 48786; the host plays the aliens, seat 0): G3F.bring_up, gm3_census-mode and gm3_census-seats
+must pass, every unit's reactions 0, the B2 staging (MCT.stage_b2).
   G3E  the partner's X-COM S holds the host's only alien A (the host psi_attack lever on S, SEED_G3):
        G3E-mc     (precondition) A faction 0, mcId S, coop 0 on both; both tops BattlescapeState
        G3E-end    the partner's END TURN alone: the host's side-phase counter +1 within SIDE_S
@@ -154,11 +154,11 @@ def common_cell(host, client, crash0, hashed, at):
 
 
 def boot_g(host, client, key):
-    """G3F.bring_up (its own CAPTURE line on a miss); G1-mode and G1-seats must pass."""
+    """G3F.bring_up (its own CAPTURE line on a miss); gm3_census-mode and gm3_census-seats must pass."""
     boot, _crash = G3F.bring_up(host, client, key, "G")
-    cells, _ev = G3F.g1_cells(host, client, boot)
-    bad = {n: cells[n][1] for n in ("G1-mode", "G1-seats") if not cells[n][0]}
-    assert not bad, f"G1 cells {bad}"
+    cells, _ev = G3F.census_cells(host, client, boot)
+    bad = {n: cells[n][1] for n in ("gm3_census-mode", "gm3_census-seats") if not cells[n][0]}
+    assert not bad, f"gm3_census cells {bad}"
     return {"boot": boot, "turnMode": [es(host, "turnMode"), es(client, "turnMode")]}
 
 

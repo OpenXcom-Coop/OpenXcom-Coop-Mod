@@ -1,31 +1,29 @@
-"""R5-U9 rows G1-G5 (boot G) and H1 (boot H): gm3, where the host plays the aliens, started and asserted for the first
-time (F4842; POST-REWRITE-REVISIT row 10, owner D229; D157 (a), D215 (a); r5-T1: gm3 = gm2 inverted).
+"""PvP gm3, where the host plays the aliens (gm2 with the sides inverted): started and asserted end to end on two boots.
+The module's helpers (bring_up, guarded, common, run_row, ending, ...) are shared by many PvP and seat tests.
 
-Spec: docs repo rewrite/prompts/r5u9_pvp_gm3_fixture.md section (f) test_pvp_gm3.py.
-Constants: rewrite/r5u9-task0/CONSTANTS.md (TASK 0 boots Ga, Gb and H; T0-G6).
-
-Boot G (key 48674): the host sets SEED_ROSTER, the lobby puts the HOST on the Alien team (gamemode 3), then the W2-P8b
-battle-entry spine (repro_pvp_side_relative.drive_to_gm2_battlescape: STR_SMALL_SCOUT, map seed 1). The host owns no
+Boot gm3_boot (key 48674): the host sets SEED_ROSTER, the lobby puts the HOST on the Alien team (gamemode 3), then the
+battle-entry steps (repro_pvp_side_relative.drive_to_gm2_battlescape: STR_SMALL_SCOUT, map seed 1). The host owns no
 soldier, so only the partner's pre-battle screen is pressed.
-  G1  gm3 census: coopGamemode 3 and MAP_FP on both; host authority (seat 0, hostSim), partner (seat 1, not); the
-      host's seat (coop 0) holds the aliens (hostile), the partner's (coop 1) the X-COM soldiers (player); both machines
+  gm3_census  coopGamemode 3 and MAP_FP on both; host authority (seat 0, hostSim), partner (seat 1, not); the host's
+      seat (coop 0) holds the aliens (hostile), the partner's (coop 1) the X-COM soldiers (player); both machines
       agree per unit; the host logged battle_ready saveBlob EQUAL once; side 0, turn 1.
-  G2  the partner orders its X-COM soldier S on its own side (battle_intent walk); the host runs it.
-  G3  the partner's END TURN hands the turn to the aliens: side 1 with one side_transition and one side_begin.
-  G4  the host orders its alien A through its own UI: one TAB, tab_select, one self-verified click.
-  G5  the host kills every X-COM soldier on its own side and presses END TURN: soldiersDown, the host's seat wins, both
-      machines end on the host's debriefing, the partner's display-only.
-Boot H (key 48676): the G bring-up; G1's mode and seat cells re-checked (a failure fails H1 "boot"); then the host kills
-the alien on X-COM's side and the partner presses END TURN:
-  H1  aliensDown, the partner's seat wins; both machines end on the host's debriefing.
+  partner_walk  the partner orders its X-COM soldier S on its own side (battle_intent walk); the host runs it.
+  turn_to_aliens  the partner's END TURN hands the turn to the aliens: side 1 with one side_transition and one
+      side_begin.
+  host_ui_walk  the host orders its alien A through its own UI: one TAB, tab_select, one self-verified click.
+  host_wins  the host kills every X-COM soldier on its own side and presses END TURN: soldiersDown, the host's seat
+      wins, both machines end on the host's debriefing, the partner's display-only.
+Boot aliens_down_boot (key 48676): the same bring-up; gm3_census's mode and seat cells re-checked (a failure fails
+partner_wins "boot"); then the host kills the alien on X-COM's side and the partner presses END TURN:
+  partner_wins  aliensDown, the partner's seat wins; both machines end on the host's debriefing.
 Staging: every live unit's reactions 0 on both machines (client first), A on A_TILE, S on S_TILE.
 Common cell after each row: every hash bucket EQUAL (on an ending row, right before the kill: there is no battle to hash
-after it), desyncSeen false on both, no new file in the lane crash folder.
+after it), desyncSeen false on both, no new file in this harness slot's crash folder.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails the boot's rows "boot"; a staging step past its bound fails the
-rows that need it (G2, G4) "staging". run in the foreground to completion. ONE run is the
-result, no skip path; exit 0 only when every cell passes, else 2.
+rows that need it (partner_walk, host_ui_walk) "staging". ONE run is the result, no skip path; exit 0 only when every
+cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_gm3.py
 """
@@ -48,30 +46,37 @@ from test_battle_end_rules import host_chain_done, host_next_turn_up, wait_until
 from test_client_shoot import new_contexts  # noqa: E402
 from test_host_combat import evs_since  # noqa: E402
 
-G_KEY, H_KEY = "48674", "48676"
+GM3_KEY, ALIENS_DOWN_KEY = "48674", "48676"
 SEED_ROSTER = 1                   # set_seed on the host before its lobby (the roster pin, test_client_pvp :470)
 GAMEMODE_GM3 = 3
-MAP_FP = -4.48310638993e+18       # both machines' mapFingerprint (STR_SMALL_SCOUT, map seed 1; Ga, Gb, H)
+MAP_FP = -4.48310638993e+18       # both machines' mapFingerprint (STR_SMALL_SCOUT, map seed 1; equal on every boot)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
-ALIEN_IDS = [1000000]             # gm3: the host's seat (coop 0), FACTION_HOSTILE (Ga, Gb, H)
-XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]   # gm3: the partner's seat (coop 1), FACTION_PLAYER (Ga, Gb, H)
+ALIEN_IDS = [1000000]             # gm3: the host's seat (coop 0), FACTION_HOSTILE
+XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]   # gm3: the partner's seat (coop 1), FACTION_PLAYER
 A_ID, A_TILE, A_DIR, A_DEST = 1000000, (17, 8, 0), 0, (17, 7, 0)   # the alien, a one-tile walk north
 S_ID, S_TILE, S_DIR, S_DEST = 8, (2, 34, 0), 2, (3, 34, 0)         # min(XCOM_IDS), open ground 26 tiles from A
-STEP_S = 30                       # each order / side change / ending step's bound (TASK 0: <= 6.3 s)
+STEP_S = 30                       # each order / side change / ending step's bound (measured: <= 6.3 s)
 N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_MISMATCH = "[coop-handshake] battle_ready saveBlob MISMATCH"
-N_NOTHING = "[coop-equip] nothing to equip on this machine"   # EVIDENCE only (D215 (a); TASK 0: host +1)
-EXPECT = {   # the host's battleEnd record (TASK 0 Ga for G5, H for H1); the partner's must carry the same fields
-    "G5": {"reason": "soldiersDown", "aborted": False, "inExitArea": 0, "verdicts": [(0, "win"), (1, "lose")],
-           "tally": {"liveAliens": 1, "liveSoldiers": 0, "inExit": 0}},
-    "H1": {"reason": "aliensDown", "aborted": False, "inExitArea": 7, "verdicts": [(0, "lose"), (1, "win")],
-           "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
+# EVIDENCE only (the host, which owns no soldier, logs it once)
+N_NOTHING = "[coop-equip] nothing to equip on this machine"
+# the host's battleEnd record, as measured for host_wins and partner_wins; the partner's must carry the same fields
+EXPECT = {
+    "host_wins": {"reason": "soldiersDown", "aborted": False, "inExitArea": 0, "verdicts": [(0, "win"), (1, "lose")],
+                  "tally": {"liveAliens": 1, "liveSoldiers": 0, "inExit": 0}},
+    "partner_wins": {"reason": "aliensDown", "aborted": False, "inExitArea": 7, "verdicts": [(0, "lose"), (1, "win")],
+                     "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
 }
-G_ROWS = (("G1", ("G1-mode", "G1-auth", "G1-seats", "G1-equal", "G1-ready", "G1-turn", "G1-common")),
-          ("G2", ("G2-ctx", "G2-pos", "G2-sent", "G2-side", "G2-common")), ("G3", ("G3-side", "G3-once", "G3-common")),
-          ("G4", ("G4-sel", "G4-ctx", "G4-pos", "G4-common")),
-          ("G5", ("G5-kill", "G5-host", "G5-client", "G5-ends", "G5-common")))
-H_ROWS = (("H1", ("H1-kill", "H1-host", "H1-client", "H1-ends", "H1-common")),)
+GM3_ROWS = (("gm3_census", ("gm3_census-mode", "gm3_census-auth", "gm3_census-seats", "gm3_census-equal",
+                            "gm3_census-ready", "gm3_census-turn", "gm3_census-common")),
+            ("partner_walk", ("partner_walk-ctx", "partner_walk-pos", "partner_walk-sent", "partner_walk-side",
+                              "partner_walk-common")),
+            ("turn_to_aliens", ("turn_to_aliens-side", "turn_to_aliens-once", "turn_to_aliens-common")),
+            ("host_ui_walk", ("host_ui_walk-sel", "host_ui_walk-ctx", "host_ui_walk-pos", "host_ui_walk-common")),
+            ("host_wins", ("host_wins-kill", "host_wins-host", "host_wins-client", "host_wins-ends",
+                           "host_wins-common")))
+ALIENS_DOWN_ROWS = (("partner_wins", ("partner_wins-kill", "partner_wins-host", "partner_wins-client",
+                                      "partner_wins-ends", "partner_wins-common")),)
 
 
 class Miss(Exception):
@@ -147,7 +152,7 @@ def tele_both(host, other, uid, t, d):
 
 
 def reactions_zero(host, other):
-    """Every live unit's reactions 0 on both machines (client first, F607); returns {id: (host, other)}."""
+    """Every live unit's reactions 0 on both machines (client first); returns {id: (host, other)}."""
     live = sorted(i for i, u in units(host).items() if not u.get("isOut"))
     for uid in live:
         both(host, other, {"cmd": "battle_action", "action": "set_stat", "unit": uid, "stat": "reactions", "value": 0},
@@ -212,7 +217,7 @@ def shut(*gcs):
             if gc is not None and gc.proc is not None and gc.proc.poll() is None:
                 gc.shutdown()
         except Exception as e:
-            print(f"[r5u9] shutdown {gc.name}: {type(e).__name__}: {str(e)[:200]}", flush=True)
+            print(f"[pvp_gm3] shutdown {gc.name}: {type(e).__name__}: {str(e)[:200]}", flush=True)
 
 
 def walk_done(host, other, uid, dest, ev):
@@ -226,7 +231,7 @@ def walk_done(host, other, uid, dest, ev):
     return ok
 
 
-# ===================== the endings (G5, H1; test_pvp_rejoin's RX reuses it) =====================
+# ===================== the endings (host_wins, partner_wins; test_pvp_rejoin reuses it) =====================
 
 
 def record_view(rec):
@@ -285,7 +290,7 @@ def ending(row, host, other, kill_faction, dead_ids, presser, expect, crash0):
     if not ook or top(other) != "DebriefingState":
         ends.append(f"{other.name} top {top(other)} {osec} s after the host's debriefing (want DebriefingState)")
     if orec.get("debriefDisplayOnly") != 1:
-        ends.append(f"{other.name} battleEnd.debriefDisplayOnly {orec.get('debriefDisplayOnly')} (want 1, D157 (a))")
+        ends.append(f"{other.name} battleEnd.debriefDisplayOnly {orec.get('debriefDisplayOnly')} (want 1)")
     try:
         session.assert_client_zero_disk(other.user_dir)
     except AssertionError as e:
@@ -295,24 +300,26 @@ def ending(row, host, other, kill_faction, dead_ids, presser, expect, crash0):
     return cells, ev
 
 
-# ===================== boot G =====================
+# ===================== boot gm3_boot =====================
 
 
 def bring_up(host, client, key, tag):
-    """The G bring-up (boots G and H): roster pin, the HOST on the Alien team, the W2-P8b spine, pin_ai_neutral."""
+    """The gm3 bring-up (both boots): roster pin, the HOST on the Alien team, the battle-entry steps
+    (PSR.drive_to_gm2_battlescape), pin_ai_neutral."""
     m = (host, client)
     guarded(tag, lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
     guarded(tag, lambda: host.ok({"cmd": "set_seed", "seed": SEED_ROSTER}), m)
     gm = guarded(tag, lambda: PF.start_pvp_skirmish_lobby(host, client, key, alien_player="host"), m)[0]
     guarded(tag, lambda: PSR.drive_to_gm2_battlescape(host, client), m)
     crash0 = session._crash_log_snapshot()
-    pinned = guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="r5u9"), m)   # 0 is legal (PSR :147)
+    pinned = guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="pvp_gm3"), m)   # 0 is legal (PSR :147)
     guarded(tag, lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)   # as boot_pvp before its hash
     return {"lobbyGamemode": gm, "pinned": pinned}, crash0
 
 
-def g1_cells(host, client, boot):
-    """G1's mode / authority / seat / equality cells (H re-checks G1-mode and G1-seats)."""
+def census_cells(host, client, boot):
+    """gm3_census's mode / authority / seat / equality cells (aliens_down_boot re-checks gm3_census-mode and
+    gm3_census-seats)."""
     hb, cb = bview(host), bview(client)
     uh, uc = units(host), units(client)
     ha, ca = hb.get("authority") or {}, cb.get("authority") or {}
@@ -323,44 +330,49 @@ def g1_cells(host, client, boot):
     fc = {i: ((uh.get(i) or {}).get("faction"), (uh.get(i) or {}).get("coop"), (uc.get(i) or {}).get("faction"),
               (uc.get(i) or {}).get("coop")) for i in set(uh) | set(uc)}
     diff = {i: v for i, v in fc.items() if v[:2] != v[2:]}
-    cells = {"G1-mode": (boot["lobbyGamemode"] == hb["coopGamemode"] == cb["coopGamemode"] == GAMEMODE_GM3
-                         and hb["mapFingerprint"] == cb["mapFingerprint"] == MAP_FP,
-                         f"lobby gamemode {boot['lobbyGamemode']}, coopGamemode host/partner {hb['coopGamemode']}/"
-                         f"{cb['coopGamemode']} (want 3), mapFingerprint {hb['mapFingerprint']}/{cb['mapFingerprint']} "
-                         f"(want {MAP_FP})"),
-             "G1-auth": ((ha.get("localSeat"), ha.get("hostSim"), ca.get("localSeat"), ca.get("hostSim")) == (0, True, 1, False),
-                         f"authority host {ha} partner {ca} (want localSeat 0 hostSim true / 1 false)"),
-             "G1-seats": (seat0 == ALIEN_IDS and f0 == [FACTION_HOSTILE] and seat1 == XCOM_IDS and f1 == [FACTION_PLAYER]
-                          and not others, f"host seat 0 ids {seat0} factions {f0} (want {ALIEN_IDS} [1]); seat 1 ids "
-                          f"{seat1} factions {f1} (want {XCOM_IDS} [0]); other seats {others} (want only coop -1)"),
-             "G1-equal": (sorted(uh) == sorted(uc) and not diff, f"id sets equal {sorted(uh) == sorted(uc)}; per-unit "
-                          f"(faction, coop) host vs partner differences {diff} (want none)")}
+    cells = {"gm3_census-mode": (boot["lobbyGamemode"] == hb["coopGamemode"] == cb["coopGamemode"] == GAMEMODE_GM3
+                                 and hb["mapFingerprint"] == cb["mapFingerprint"] == MAP_FP,
+                                 f"lobby gamemode {boot['lobbyGamemode']}, coopGamemode host/partner "
+                                 f"{hb['coopGamemode']}/{cb['coopGamemode']} (want 3), mapFingerprint "
+                                 f"{hb['mapFingerprint']}/{cb['mapFingerprint']} (want {MAP_FP})"),
+             "gm3_census-auth": ((ha.get("localSeat"), ha.get("hostSim"), ca.get("localSeat"), ca.get("hostSim"))
+                                 == (0, True, 1, False),
+                                 f"authority host {ha} partner {ca} (want localSeat 0 hostSim true / 1 false)"),
+             "gm3_census-seats": (seat0 == ALIEN_IDS and f0 == [FACTION_HOSTILE] and seat1 == XCOM_IDS
+                                  and f1 == [FACTION_PLAYER] and not others,
+                                  f"host seat 0 ids {seat0} factions {f0} (want {ALIEN_IDS} [1]); seat 1 ids "
+                                  f"{seat1} factions {f1} (want {XCOM_IDS} [0]); other seats {others} (want only "
+                                  f"coop -1)"),
+             "gm3_census-equal": (sorted(uh) == sorted(uc) and not diff,
+                                  f"id sets equal {sorted(uh) == sorted(uc)}; per-unit (faction, coop) host vs "
+                                  f"partner differences {diff} (want none)")}
     return cells, {"host": hb, "partner": cb, "boot": boot}
 
 
-def row_g1(host, client, boot, crash0):
-    cells, ev = g1_cells(host, client, boot)
-    wait_until(lambda: log_count(host, N_EQUAL) >= 1, 3, 0.25)   # bounded log flush (TASK 0: 1 at once)
+def row_gm3_census(host, client, boot, crash0):
+    cells, ev = census_cells(host, client, boot)
+    wait_until(lambda: log_count(host, N_EQUAL) >= 1, 3, 0.25)   # bounded log flush (measured: 1 at once)
     eq_n, mm_n = log_count(host, N_EQUAL), log_count(host, N_MISMATCH)
-    cells["G1-ready"] = (eq_n == 1 and mm_n == 0, f"host log '{N_EQUAL}' {eq_n} (want 1), MISMATCH {mm_n} (want 0)")
+    cells["gm3_census-ready"] = (eq_n == 1 and mm_n == 0,
+                                 f"host log '{N_EQUAL}' {eq_n} (want 1), MISMATCH {mm_n} (want 0)")
     st = [(ev[n]["side"], ev[n]["turn"]) for n in ("host", "partner")]
-    cells["G1-turn"] = (st == [(0, 1), (0, 1)], f"(side, turn) host/partner {st} (want (0, 1) on both)")
-    cells["G1-common"] = common(host, client, crash0)
+    cells["gm3_census-turn"] = (st == [(0, 1), (0, 1)], f"(side, turn) host/partner {st} (want (0, 1) on both)")
+    cells["gm3_census-common"] = common(host, client, crash0)
     ev.update(nothing=[log_count(host, N_NOTHING), log_count(client, N_NOTHING)],
               equip={"host": es(host, "equip"), "partner": es(client, "equip")})
     return cells, ev
 
 
-def stage_g(host, client):
+def stage_gm3(host, client):
     m = (host, client)
-    ev = {"reactions": guarded("G staging", lambda: reactions_zero(host, client), m)}
-    ev["A"] = guarded("G staging", lambda: tele_both(host, client, A_ID, A_TILE, A_DIR).get("to"), m)
-    ev["S"] = guarded("G staging", lambda: tele_both(host, client, S_ID, S_TILE, S_DIR).get("to"), m)
-    guarded("G staging", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
+    ev = {"reactions": guarded("gm3_boot staging", lambda: reactions_zero(host, client), m)}
+    ev["A"] = guarded("gm3_boot staging", lambda: tele_both(host, client, A_ID, A_TILE, A_DIR).get("to"), m)
+    ev["S"] = guarded("gm3_boot staging", lambda: tele_both(host, client, S_ID, S_TILE, S_DIR).get("to"), m)
+    guarded("gm3_boot staging", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
     return ev
 
 
-def row_g2(host, client, crash0):
+def row_partner_walk(host, client, crash0):
     b_ctx, b_sent, b_deny = es(host, "closedContexts") or [], es(client, "coopIntentsSent") or {}, es(client, "lastDeny")
     ev = {"resp": session.send_walk(client, S_ID, S_DEST)}
     walk_done(host, client, S_ID, S_DEST, ev)
@@ -368,16 +380,17 @@ def row_g2(host, client, crash0):
     sent, deny, infl = es(client, "coopIntentsSent") or {}, es(client, "lastDeny"), es(client, "inFlight")
     sides, ps = [battle_state(host).get("side"), battle_state(client).get("side")], [pos(host, S_ID), pos(client, S_ID)]
     ev.update(newCtx=new, sent=sent, lastDeny=deny)
-    return {"G2-ctx": ctx_cell(new, "intent", S_ID),
-            "G2-pos": (ps == [S_DEST, S_DEST], f"S host/partner {ps} (want {S_DEST} on both; {ev['walkS']} s)"),
-            "G2-sent": (sent.get("walk", 0) == b_sent.get("walk", 0) + 1 and deny == b_deny and infl is None,
+    return {"partner_walk-ctx": ctx_cell(new, "intent", S_ID),
+            "partner_walk-pos": (ps == [S_DEST, S_DEST],
+                                 f"S host/partner {ps} (want {S_DEST} on both; {ev['walkS']} s)"),
+            "partner_walk-sent": (sent.get("walk", 0) == b_sent.get("walk", 0) + 1 and deny == b_deny and infl is None,
                         f"partner coopIntentsSent {b_sent} -> {sent} (want walk +1), lastDeny {b_deny} -> {deny} (want "
                         f"unchanged), inFlight {infl} (want None)"),
-            "G2-side": (sides == [0, 0], f"side host/partner {sides} (want 0 on both)"),
-            "G2-common": common(host, client, crash0)}, ev
+            "partner_walk-side": (sides == [0, 0], f"side host/partner {sides} (want 0 on both)"),
+            "partner_walk-common": common(host, client, crash0)}, ev
 
 
-def row_g3(host, client, crash0):
+def row_turn_to_aliens(host, client, crash0):
     seq0 = es(host, "lastSeqEmitted") or 0
     ev = {"resp": client.cmd({"cmd": "battle_action", "action": "end_turn_button"})}
     try:
@@ -390,22 +403,23 @@ def row_g3(host, client, crash0):
     ck = {k: [e["seq"] for e in cev if e["kind"] == k] for k in ("side_transition", "side_begin")}
     st = [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in (host, client)]
     ev.update(hostEvs=[(e["seq"], e["kind"]) for e in hev], host=bview(host), partner=bview(client))
-    return {"G3-side": (st == [(1, 1), (1, 1)], f"(side, turn) host/partner {st} (want (1, 1) on both)"),
-            "G3-once": (len(hk["side_transition"]) == 1 and len(hk["side_begin"]) == 1 and ck == hk,
+    return {"turn_to_aliens-side": (st == [(1, 1), (1, 1)], f"(side, turn) host/partner {st} (want (1, 1) on both)"),
+            "turn_to_aliens-once": (len(hk["side_transition"]) == 1 and len(hk["side_begin"]) == 1 and ck == hk,
                         f"since the press host side_transition / side_begin seqs {hk} (want one each), partner {ck} "
                         f"(want the same)"),
-            "G3-common": common(host, client, crash0)}, ev
+            "turn_to_aliens-common": common(host, client, crash0)}, ev
 
 
-def row_g4(host, client, crash0):
+def row_host_ui_walk(host, client, crash0):
     ev = {"sel0": battle_state(host).get("selectedId")}
-    host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})   # ONE TAB first (spec G4; T0-G6: F10623)
+    host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})   # ONE TAB first
     time.sleep(0.15)
     ev["tab"] = tab_select(host, A_ID)
     ev["sel"] = battle_state(host).get("selectedId")
-    cells = {"G4-sel": (ev["sel"] == A_ID, f"host selectedId {ev['sel']} before the click (want {A_ID})")}
+    cells = {"host_ui_walk-sel": (ev["sel"] == A_ID, f"host selectedId {ev['sel']} before the click (want {A_ID})")}
     if ev["sel"] != A_ID:
-        cells.update({n: (False, "staging (the host's TAB never selected A)") for n in ("G4-ctx", "G4-pos", "G4-common")})
+        cells.update({n: (False, "staging (the host's TAB never selected A)")
+                      for n in ("host_ui_walk-ctx", "host_ui_walk-pos", "host_ui_walk-common")})
         return cells, ev
     b_ctx = es(host, "closedContexts") or []
     real_click_walk(host, A_DEST)
@@ -413,66 +427,72 @@ def row_g4(host, client, crash0):
     new = new_contexts(b_ctx, es(host, "closedContexts"))
     pa, sides = [pos(host, A_ID), pos(client, A_ID)], [battle_state(gc).get("side") for gc in (host, client)]
     ev["newCtx"] = new
-    cells["G4-ctx"] = ctx_cell(new, "host", A_ID)
-    cells["G4-pos"] = (pa == [A_DEST, A_DEST] and sides == [1, 1],
+    cells["host_ui_walk-ctx"] = ctx_cell(new, "host", A_ID)
+    cells["host_ui_walk-pos"] = (pa == [A_DEST, A_DEST] and sides == [1, 1],
                        f"A host/partner {pa} (want {A_DEST} on both; {ev['walkS']} s), side {sides} (want 1 on both)")
-    cells["G4-common"] = common(host, client, crash0)
+    cells["host_ui_walk-common"] = common(host, client, crash0)
     return cells, ev
 
 
-def boot_g():
-    host = GameClient("host", None, make_user_dir("r5u9_g_host"))
-    client = GameClient("client", None, make_user_dir("r5u9_g_client"))
+def boot_gm3():
+    host = GameClient("host", None, make_user_dir("pvp_gm3_host"))
+    client = GameClient("client", None, make_user_dir("pvp_gm3_client"))
     try:
         try:
-            boot, crash0 = bring_up(host, client, G_KEY, "G")
+            boot, crash0 = bring_up(host, client, GM3_KEY, "gm3_boot")
         except Miss:
-            return fail_all(G_ROWS, "boot (setup failure, see the CAPTURE G line)")
-        rows = dict(G_ROWS)
-        fails = run_row("G1", rows["G1"], lambda: row_g1(host, client, boot, crash0))
+            return fail_all(GM3_ROWS, "boot (setup failure, see the CAPTURE gm3_boot line)")
+        rows = dict(GM3_ROWS)
+        fails = run_row("gm3_census", rows["gm3_census"], lambda: row_gm3_census(host, client, boot, crash0))
         try:
-            staged = stage_g(host, client)
+            staged = stage_gm3(host, client)
         except Miss:
             staged = None
-        fails += (run_row("G2", rows["G2"], lambda: row_g2(host, client, crash0)) if staged
-                  else fail_all((("G2", rows["G2"]),), "staging (see the CAPTURE G staging line)"))
-        fails += run_row("G3", rows["G3"], lambda: row_g3(host, client, crash0))
-        fails += (run_row("G4", rows["G4"], lambda: row_g4(host, client, crash0)) if staged
-                  else fail_all((("G4", rows["G4"]),), "staging (see the CAPTURE G staging line)"))
-        fails += run_row("G5", rows["G5"], lambda: ending("G5", host, client, FACTION_PLAYER, XCOM_IDS, host,
-                                                          EXPECT["G5"], crash0))
+        fails += (run_row("partner_walk", rows["partner_walk"],
+                          lambda: row_partner_walk(host, client, crash0)) if staged
+                  else fail_all((("partner_walk", rows["partner_walk"]),),
+                                "staging (see the CAPTURE gm3_boot staging line)"))
+        fails += run_row("turn_to_aliens", rows["turn_to_aliens"], lambda: row_turn_to_aliens(host, client, crash0))
+        fails += (run_row("host_ui_walk", rows["host_ui_walk"],
+                          lambda: row_host_ui_walk(host, client, crash0)) if staged
+                  else fail_all((("host_ui_walk", rows["host_ui_walk"]),),
+                                "staging (see the CAPTURE gm3_boot staging line)"))
+        fails += run_row("host_wins", rows["host_wins"],
+                         lambda: ending("host_wins", host, client, FACTION_PLAYER, XCOM_IDS, host,
+                                        EXPECT["host_wins"], crash0))
         return fails
     finally:
         shut(host, client)
 
 
-# ===================== boot H =====================
+# ===================== boot aliens_down_boot =====================
 
 
-def boot_h():
-    host = GameClient("host", None, make_user_dir("r5u9_h_host"))
-    client = GameClient("client", None, make_user_dir("r5u9_h_client"))
+def boot_aliens_down():
+    host = GameClient("host", None, make_user_dir("pvp_gm3_aliens_down_host"))
+    client = GameClient("client", None, make_user_dir("pvp_gm3_aliens_down_client"))
     try:
         try:
-            boot, crash0 = bring_up(host, client, H_KEY, "H")
-            cells, _ev = g1_cells(host, client, boot)
-            bad = {n: cells[n][1] for n in ("G1-mode", "G1-seats") if not cells[n][0]}
+            boot, crash0 = bring_up(host, client, ALIENS_DOWN_KEY, "aliens_down_boot")
+            cells, _ev = census_cells(host, client, boot)
+            bad = {n: cells[n][1] for n in ("gm3_census-mode", "gm3_census-seats") if not cells[n][0]}
             if bad:
-                capture("H", f"pre-ending G1 cells {bad}", (host, client))
-                raise Miss("H")
-            guarded("H", lambda: reactions_zero(host, client), (host, client))
+                capture("aliens_down_boot", f"pre-ending gm3_census cells {bad}", (host, client))
+                raise Miss("aliens_down_boot")
+            guarded("aliens_down_boot", lambda: reactions_zero(host, client), (host, client))
         except Miss:
-            return fail_all(H_ROWS, "boot (setup failure, see the CAPTURE H line)")
-        return run_row("H1", H_ROWS[0][1], lambda: ending("H1", host, client, FACTION_HOSTILE, ALIEN_IDS, client,
-                                                          EXPECT["H1"], crash0))
+            return fail_all(ALIENS_DOWN_ROWS, "boot (setup failure, see the CAPTURE aliens_down_boot line)")
+        return run_row("partner_wins", ALIENS_DOWN_ROWS[0][1],
+                       lambda: ending("partner_wins", host, client, FACTION_HOSTILE, ALIEN_IDS, client,
+                                      EXPECT["partner_wins"], crash0))
     finally:
         shut(host, client)
 
 
 def main():
     t0 = time.time()
-    fails = boot_g()
-    fails += boot_h()
+    fails = boot_gm3()
+    fails += boot_aliens_down()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pvp_gm3: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
