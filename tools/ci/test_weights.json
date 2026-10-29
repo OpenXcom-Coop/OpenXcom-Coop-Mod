@@ -174,7 +174,7 @@
   "test_retry_cancel": 54.5,
   "test_seat_pacing": 55.8,
   "test_snapshot_after_first_turn": 9.8,
-  "test_teleport_lever": 17.6,
+  "test_teleport_command": 17.6,
   "test_turn_baton": 36.1,
   "test_turn_mode": 61.2,
   "test_save_upgrade": 2.4,

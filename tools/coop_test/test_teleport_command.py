@@ -204,15 +204,15 @@ if __name__ == "__main__":
     try:
         main()
     except session.KnownFlake as e:
-        session.print_known_flake_banner("test_teleport_lever", e.tracking, str(e))
-        print(f"\ntest_teleport_lever: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        session.print_known_flake_banner("test_teleport_command", e.tracking, str(e))
+        print(f"\ntest_teleport_command: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
         sys.exit(2)
     except AssertionError as e:
         if str(e).startswith("FIXTURE:"):
-            print(f"\ntest_teleport_lever: FAIL (fixture not constructed) - {e}")
+            print(f"\ntest_teleport_command: FAIL (fixture not constructed) - {e}")
             sys.exit(2)
-        print(f"\ntest_teleport_lever: FAIL\nAssertionError: {e}")
+        print(f"\ntest_teleport_command: FAIL\nAssertionError: {e}")
         sys.exit(2)
     except TimeoutError as e:
-        print(f"\ntest_teleport_lever: FAIL\nTimeoutError: {e}")
+        print(f"\ntest_teleport_command: FAIL\nTimeoutError: {e}")
         sys.exit(2)

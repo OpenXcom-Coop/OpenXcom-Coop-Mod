@@ -32,7 +32,7 @@ import harness  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_pause_on_leave as pol  # noqa: E402
-import test_teleport_lever as trl  # noqa: E402
+import test_teleport_command as tpc  # noqa: E402
 import test_client_landing as cl  # noqa: E402
 import repro_door_deterministic as rdd  # noqa: E402
 import repro_atom_spot as ras  # noqa: E402
@@ -142,8 +142,8 @@ G = "GameClient"
 SPECS = (
     ("pause_on_leave_leak", "pause_on_leave", pol, "_bring_up", "GameClient stand-in", 2, lambda: [(pol, G, StandInGC)],
      lambda: pol._bring_up("leak_sweep", 9, pol.WALK_DROP_SEED)),
-    ("teleport_leak", "teleport", trl, "bring_up", "GameClient stand-in", 2, lambda: [(trl, G, StandInGC)],
-     lambda: trl.bring_up("leak_sweep", "STR_SUPPLY_SHIP", "47650", 49640, 49641)),
+    ("teleport_leak", "teleport", tpc, "bring_up", "GameClient stand-in", 2, lambda: [(tpc, G, StandInGC)],
+     lambda: tpc.bring_up("leak_sweep", "STR_SUPPLY_SHIP", "47650", 49640, 49641)),
     ("client_landing_leak", "client_landing", cl, "boot_pair", "GameClient stand-in", 2, lambda: [(cl, G, StandInGC)],
      lambda: cl.boot_pair("leak_sweep")),
     ("door_repro_leak", "door_repro", rdd, "bring_up", "GameClient stand-in", 2, lambda: [(rdd, G, StandInGC)],
