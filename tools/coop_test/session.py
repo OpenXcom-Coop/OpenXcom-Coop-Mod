@@ -1671,7 +1671,7 @@ def assert_door_parity(host, client, what):
 
 
 def assert_door_between_steps(gc, action_id, what):
-    """SS2.W2 rule 6 / SS4's acceptance: the `door` ev takes its place in the
+    """The `door` ev takes its place in the
     seq stream BETWEEN the walk step evs either side of the doorway."""
     evs = action_events(gc, action_id)
     kinds = [(e["seq"], e["kind"]) for e in evs]
@@ -1714,7 +1714,7 @@ def closed_door_at(gc, door_at):
 
 
 def door_lookup(gc, door_at):
-    """SPEC 6c5 step 1 instrumentation helper. The full door dict at
+    """Diagnostic helper: the full door dict at
     (x,y,z,part) - notably its `isUfoDoorOpen` - or None if that coordinate is
     not a door on this machine right now. `find_doors`/`closed_doors` already
     exist; this just indexes by coordinate so a rejection record can report
@@ -1765,13 +1765,7 @@ def dir_between(a, b):
     return None
 
 
-# ===== shared walk search helpers, moved from
-# repro_atom_walk.py =====
-# The rewrite (commit 2) deleted repro_atom_walk's search helpers, but the
-# family is de-facto shared. Bodies are VERBATIM from dfb40b88a's
-# repro_atom_walk.py, with ONE authorized substitution: region_is_contact_free's
-# session.MAX_VIEW_DISTANCE self-reference lost its session.-prefix now that it
-# lives here (same precedent as the SPEC 6g relocation above).
+# ===== shared walk search helpers (used by the walk, door and turn repros) =====
 
 
 WALK_RUN = 3
@@ -1800,12 +1794,11 @@ def jpos(p):
 def has_door_within(gc, x, y, z, radius):
     """Any door part within Chebyshev @a radius of (x,y) at the SAME level.
 
-    Reads W1-P10's `find_doors` probe - ONE round trip for the whole map -
+    Reads the `find_doors` probe - ONE round trip for the whole map -
     instead of a tile_info sweep, which is the same predicate at
     (2*radius+1)^2 round trips per soldier. At the tight WALK_DOOR_RADIUS the
-    sweep was merely wasteful; at WALK_DOOR_REQUIRE_RADIUS, across every seated
-    soldier, it cost ~4.7 MINUTES per fixture attempt (measured) and made the
-    inverted run untenable."""
+    sweep is merely wasteful; at WALK_DOOR_REQUIRE_RADIUS, across every seated
+    soldier, it costs ~4.7 MINUTES per fixture attempt (measured)."""
     r = gc.cmd({"cmd": "find_doors", "limit": 512})
     if not r.get("ok"):
         return False
@@ -1923,21 +1916,22 @@ def min_dist_to(aliens, tile):
 
 
 def region_is_contact_free(aliens, actor, dest, pad=1, max_dist=MAX_VIEW_DISTANCE):
-    """WV-D18's contact-free premise, applied to a candidate WALK rather than to
+    """The contact-free premise, applied to a candidate WALK rather than to
     the actor's starting tile: EVERY tile the walk could occupy must stay
     strictly outside session.MAX_VIEW_DISTANCE of every living non-player unit.
 
     The region checked is the bounding box of (actor, dest) PADDED by @a pad,
     which is a conservative superset of any route Pathfinding can produce for a
     walk of this length - the whole point being that the check must not depend
-    on guessing the route. Aliens do not move for the whole of this test (wave 1
-    has no side transition, so the player side never ends), which is what makes
+    on guessing the route. Aliens do not move while such a walk runs (the
+    player side does not end), which is what makes
     a static per-tile check SOUND rather than merely likely.
 
-    This is THE pin - see WALK_CONTACT_MARGIN's own comment for why the pin had
-    to move here from a static qualification margin. @a max_dist (default
+    This per-walk check is what keeps a walk contact-free: a large static margin
+    around the actor's start rejects every generation (see
+    repro_atom_walk.WALK_CONTACT_MARGIN's comment). @a max_dist (default
     MAX_VIEW_DISTANCE) is the distance a tile must stay strictly outside
-    (R-MGA-A1-G-1: MG-A's stage-2 walk passes a smaller one)."""
+    (test_multistage.py's stage-2 walk passes a smaller one)."""
     x0, x1 = sorted((actor["x"], dest[0]))
     y0, y1 = sorted((actor["y"], dest[1]))
     for x in range(x0 - pad, x1 + pad + 1):
@@ -1956,15 +1950,15 @@ def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10,
     used - `entry[1][-1]` is the destination and `len(entry[1])` is meaningless
     for planning, which is why nothing asserts a predicted path any more.
 
-    WHY DESTINATIONS AND NOT A STRAIGHT OPEN RUN. The first version demanded N
-    COLLINEAR open tiles and was rejected by EVERY generation this map produces
+    WHY DESTINATIONS AND NOT A STRAIGHT OPEN RUN. A demand for N
+    COLLINEAR open tiles is rejected by EVERY generation this map produces
     (15/15 boots, "no 3-tile open-ground run in any direction"): at t=0 the
     squad is packed inside the Skyranger, so an actor's neighbours are other
     soldiers and its straight lines run into the hull. Pathfinding routes around
-    both. Nothing this test asserts needed the straight line - the executed path
+    both. Nothing this test asserts needs the straight line - the executed path
     is compared against the HOST's own record and its own `plannedLen`, never
-    against a path the harness predicted - so the requirement was the fixture
-    being over-specified, not the atom being unobservable.
+    against a path the harness predicted - so requiring one would over-specify
+    the fixture.
 
     ORDERED so the destination FURTHEST from the nearest alien comes first:
     walking away from contact keeps the later phases' own open ground available
@@ -2008,8 +2002,8 @@ def straight_runs(host, actor, occupied, length=WALK_RUN, st=None, want=10,
 
 def settle_reveal(host, client, timeout=40):
     """The host has NOTHING unpublished and the client has caught up. Same
-    helper (and the same reason) as repro_atom_turn.py's: SS2.4a's quiescent
-    flush can publish a standalone `ev reveal` a tick or two after an action
+    helper (and the same reason) as repro_atom_turn.py's: the host's quiescent
+    reveal flush can publish a standalone `ev reveal` a tick or two after an action
     settles, and a measurement started before it would see the previous
     action's leftovers."""
     def quiet():
@@ -2051,12 +2045,12 @@ def wait_walk_settled(host, client, prev_action_id, timeout=30):
     except Exception:
         # on-timeout diagnostic ONLY. The poll gave up, so dump
         # both machines and WHICH predicate sub-condition is unmet, then re-raise the
-        # original timeout. Fires ONLY on the failure path (zero effect on green runs);
-        # the window is UNCHANGED; this is NOT a second poll and NOT a masking wait -
-        # it captures the rare K=2 no-desync stall family for a future run.
+        # original timeout. Fires ONLY on the failure path (no effect on passing runs);
+        # the wait window is UNCHANGED; this is NOT a second poll and NOT a masking wait -
+        # it records a rare stall (no desync, two lanes in parallel) for later debugging.
         _hs = event_state(host); _cs = event_state(client)
         _hw = _hs.get("lastWalk") or {}; _cw = _cs.get("lastWalk") or {}
-        print("[F420 wait_walk_settled TIMEOUT] prev_action_id=%s" % prev_action_id, flush=True)
+        print("[wait_walk_settled TIMEOUT] prev_action_id=%s" % prev_action_id, flush=True)
         for _nm, _es, _lw in (("host", _hs, _hw), ("client", _cs, _cw)):
             print("  [%s] ok=%s lastSeqApplied=%s lastSeqEmitted=%s queueDepth=%s "
                   "lastWalk{actionId=%s active=%s restate=%s steps=%s}"
@@ -2072,7 +2066,7 @@ def wait_walk_settled(host, client, prev_action_id, timeout=30):
         if _cs.get("lastSeqApplied", 0) != _hs.get("lastSeqEmitted", 0): _unmet.append("client_behind(lastSeqApplied<lastSeqEmitted)")
         if _cs.get("queueDepth") != 0: _unmet.append("client_queueDepth_stuck")
         if _hs.get("queueDepth") != 0: _unmet.append("host_queueDepth_stuck")
-        print("  [F420] unmet sub-conditions: %s" % (_unmet or ["<none-race>"]), flush=True)
+        print("  [wait_walk_settled] unmet sub-conditions: %s" % (_unmet or ["<none-race>"]), flush=True)
         raise
 
 
@@ -2123,13 +2117,13 @@ def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
 
     WHY THIS EXISTS RATHER THAN "walk one tile north". At t=0 the squad is packed
     inside the Skyranger, so an actor's ADJACENT tiles are other soldiers and its
-    straight lines run into the hull - the first version of this file demanded a
-    3-tile open run and was rejected by 15/15 generations, and a 1-tile version
-    is rejected just as often for the same reason. Pathfinding routes around
+    straight lines run into the hull - a 3-tile open run is rejected by 15/15
+    generations, and a 1-tile one just as often for the same reason. Pathfinding routes around
     both, and nothing this file asserts needs a path the harness predicted.
 
-    @a min_alien_dist (default MAX_VIEW_DISTANCE, R-MGA-A1-G-1) is the contact-free
-    distance straight_runs() applies to every candidate's region.
+    @a min_alien_dist (default MAX_VIEW_DISTANCE; test_multistage.py's stage-2 walk
+    passes 10) is the contact-free distance straight_runs() applies to every
+    candidate's region.
 
     Returns (host lastWalk, client lastWalk) or None when nothing could be
     ordered."""
@@ -2161,7 +2155,7 @@ def pick_and_walk(host, client, actor_id, what, lengths=(1, 2, 3), min_steps=1,
                     return hw, cw
                 if halted:
                     # A REAL halt (almost always `no_tu` on a drained actor). Not
-                    # a failure of the atom - it is what SS2.W2 says must happen -
+                    # a failure of the atom - a drained actor must halt -
                     # but the caller asked for a clean walk, so try a shorter plan.
                     print(f"    [{what}] a {len(hw['steps'])}-step walk HALTED "
                           f"({(hw.get('restate') or {}).get('reason')!r}); trying a "
@@ -2194,9 +2188,9 @@ def staging_tiles(gc, near, far, occupied, self_pos=None):
     """EVERY tile from which a walk to @a far is a two-step crossing through the
     door: adjacent to `near`, exactly two steps from `far`, walkable, and free.
 
-    A LIST, not a single tile, and that is the point. When this returned only the
-    first match, one actor parking on it made the same door unusable for all six
-    other soldiers - four of the seven rejections in a traced red were "no
+    A LIST, not a single tile, and that is the point. With only the
+    first match, one actor parking on it makes the same door unusable for all six
+    other soldiers - four of the seven rejections in one traced failing run were "no
     walkable staging tile", for a tile that existed and was simply occupied by
     the previous candidate. @a self_pos is excused from the occupancy test for
     the same reason: an actor standing on a staging tile IS staged.
@@ -2227,14 +2221,14 @@ def wait_host_idle(host, client, timeout=30):
     """The host has NO action context open and NO live BState chain, and the
     client has caught up.
 
-    `lastSeqApplied == lastSeqEmitted` ALONE IS NOT ENOUGH, and this cost a run:
+    `lastSeqApplied == lastSeqEmitted` ALONE IS NOT ENOUGH:
     a turn emits its `bt_ev` from UnitTurnBState and its `bt_action_end` from
     CoopArbiter::onChainQuiesced() one chain-unwind LATER, so the two counters
     are transiently EQUAL in the gap between them - and
     CoopArbiter::popActionContext() runs inside onChainQuiesced
     (connectionTCP.cpp:3737). Anything driven in that window inherits the
-    previous action's actionId, which is exactly how PHASE 2's `actionId 0`
-    assertion first failed (it observed 3). `busyOwnerSeat == -1` on the HOST is
+    previous action's actionId (a check that expects `actionId 0` then reads 3).
+    `busyOwnerSeat == -1` on the HOST is
     the shipped predicate for BOTH halves at once:
     `!bg->isBusy() && currentActionId() == 0` (connectionTCP.cpp:4545-4551)."""
     client.wait_for("host idle (no action context, no BState chain), client caught up",
@@ -2250,7 +2244,7 @@ SEQ_BARRIER_KEYS = ("lastSeqEmitted", "lastSeqApplied", "queueDepth", "busyOwner
 
 
 def wait_seq_barrier(host, client, timeout=30):
-    """W2-U8b.1: wait_host_idle's predicate in TWO reads per poll instead of five - the CLIENT's
+    """wait_host_idle's predicate in TWO reads per poll instead of five - the CLIENT's
     event_state first, then the HOST's - passing when the host's busyOwnerSeat == -1, the client's
     lastSeqApplied == the host's lastSeqEmitted, and both queueDepth == 0.
 
@@ -2258,8 +2252,8 @@ def wait_seq_barrier(host, client, timeout=30):
     the one writer; CoopPump::reset re-zeroes it only at a battle reset), and the client can only apply
     a seq the host minted. So a client value read BEFORE the host value that equals it means the client
     had applied every ev the host emitted up to the LATER host read. The host read comes after a client
-    round trip, so it runs in a later TestServer::pump than the caller's last host lever, after that
-    frame's updateCoopTask (CoopReveal::flushQuiescent's standalone `reveal`, F6471).
+    round trip, so it runs in a later TestServer::pump than the caller's last host test command, after
+    that frame's updateCoopTask (CoopReveal::flushQuiescent's standalone `reveal`).
 
     wait_host_idle's hazard (counters transiently equal between a turn's bt_ev and its bt_action_end)
     stays covered: busyOwnerSeat and lastSeqEmitted come from ONE host event_state (one main-thread
@@ -2287,30 +2281,26 @@ def wait_seq_barrier(host, client, timeout=30):
 
 
 def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_seat=None, pre_ok=None, seat_client=True):
-    """repro_atom_walk.drive_to_battlescape plus the mission pin. Kept local
-    rather than parameterising the walk repro's copy: that file carries a
-    stop-line criterion and this packet must not change how it boots.
+    """repro_atom_walk.drive_to_battlescape plus the mission choice. Kept
+    separate from the walk repro's copy so that file's own boot stays as it is.
 
-    `pre_seat` (SPEC 0e-1, additive): an optional `callable(host)` invoked
-    right after the mission pin and before any `newbattle_seat_soldier`
-    call - the window WV-D87/WV-D88 need for `newbattle_craft`/
+    `pre_seat`: an optional `callable(host)` invoked
+    right after the mission choice and before any `newbattle_seat_soldier`
+    call - the window for `newbattle_craft`/
     `newbattle_race` (race must land AFTER mission, since cbxMissionChange
-    rebuilds the race list, and BEFORE seating). Every existing caller is
-    unaffected: default None, nothing runs.
+    rebuilds the race list, and BEFORE seating). Default None: nothing runs.
 
-    `pre_ok` (SPEC 0e-4, additive): an optional `callable(host)` invoked
+    `pre_ok`: an optional `callable(host)` invoked
     immediately BEFORE `newbattle_ok` - the window `hunt_seed.py` and the
-    two pinned-seed gate provers use to send `set_seed` right before the
-    generator reads it. Every existing caller is unaffected: default None,
-    nothing runs.
+    fixed-seed tests use to send `set_seed` right before the
+    generator reads it. Default None: nothing runs.
 
-    `seat_client` (SPEC 10 / REV E.48 C.4, additive): when False, the seat-1
+    `seat_client`: when False, the seat-1
     seating loop below (and its own `len(soldier_ids) >= 2` guard) is
     skipped entirely - no `newbattle_seat_soldier` call is ever sent for
     the client seat - so a caller can bring up a battle with the client
-    UNSEATED (a spectator: C.4's connected-seat-with-no-live-unit case).
-    Every existing caller is unaffected: default True runs the seating loop
-    exactly as before."""
+    UNSEATED (a spectator: a connected seat with no live unit).
+    Default True runs the seating loop."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not has_state(host, "LobbyMenu")) or None)
@@ -2346,19 +2336,19 @@ def drive_to_battlescape(host, client, seated, mission=None, seat_count=8, pre_s
 
 
 def bring_up_to_briefings(host, client, seated, seat_count=2, pre_ok=None, pre_newbattle=None):
-    """W2-P8b S-A.1 (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
-    section 4 step 10; owner D210 b = both briefings at once): drive_to_battlescape's
+    """drive_to_battlescape's
     steps through `newbattle_ok` - NEW BATTLE from the lobby, `seat_count` soldiers
     seated to seat 1 (the client), `pre_ok(host)`, `pre_newbattle(host, client)`,
     `newbattle_ok` - then a wait for the HOST's BriefingState ONLY. Returns with the
     host's briefing up and closes nothing. Whether and when the CLIENT's briefing
-    appears is the caller's business (W2-P8b's rows assert it).
+    appears (both briefings are up at once) is the caller's business (the pre-battle
+    equip tests assert it).
 
     `pre_ok`: an optional `callable(host)` invoked immediately before `newbattle_ok`
     (drive_to_battlescape's window: the pinned map seed, the turn mode).
     `pre_newbattle`: an optional `callable(host, client)` invoked right after `pre_ok`,
-    immediately before `newbattle_ok` - the window for a CLIENT-side test lever that
-    must be armed before the host's offer (W2-P8b Q16 (a): `hold_battle_ready`).
+    immediately before `newbattle_ok` - the window for a CLIENT-side test hook that
+    must be armed before the host's offer (`hold_battle_ready`).
     Fills seated["soldierIds"] (the seated soldiers' ids, in seating order)."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
@@ -2385,14 +2375,13 @@ def bring_up_to_briefings(host, client, seated, seat_count=2, pre_ok=None, pre_n
 
 
 def briefings_to_battlescape(host, client):
-    """W2-P8b S-H (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
-    section 4 S-H; orchestrator ruling Q14 a): THE battle-entry spine every
+    """THE battle-entry spine every
     skirmish bring-up runs after `newbattle_ok` (drive_to_battlescape() and the
-    local copies of it). the host's offer goes out at PREPARE, so
-    both briefings are up at once; D174 a: after its briefing each player lands
-    on the pre-battle equip screen for its own soldiers; D206 c: OK there is a
+    local copies of it). The host's offer goes out at PREPARE, so
+    both briefings are up at once; after its briefing each player lands
+    on the pre-battle equip screen for its own soldiers; OK there is a
     ready toggle and turn 1 starts when every seat with something to equip is
-    ready; Q7 a: the client then sees vanilla's Turn-1 screen too.
+    ready; the client then sees vanilla's Turn-1 screen too.
 
     Steps: the host's BriefingState -> the client's BriefingState (<= 90 s) ->
     the host's briefing OK -> dismiss_client_briefing(client) ->
@@ -2400,7 +2389,7 @@ def briefings_to_battlescape(host, client):
     turn 1 on both machines and BattlescapeState on top of both stacks."""
     host.wait_for("host briefing", lambda: has_state(host, "BriefingState"),
                   timeout=60)
-    client.wait_for("client entry briefing (both briefings at once, D210 b)",
+    client.wait_for("client entry briefing (both briefings at once)",
                     lambda: has_state(client, "BriefingState") or None, timeout=90)
     host.ok({"cmd": "click_widget", "match": "ok"})
     dismiss_client_briefing(client)
@@ -2412,7 +2401,7 @@ def briefings_to_battlescape(host, client):
 def equip_both_ready(host, client, timeout=90):
     """pass both pre-battle
     equip screens. Each machine whose top state is an InventoryState gets ONE
-    `battle_inventory {action: ok}` - the idempotent ready lever (it only SETS
+    `battle_inventory {action: ok}` - the idempotent ready command (it only SETS
     this seat's ready, a no-op when it already is), never ESC. The client's
     screen appears only once its briefing has closed and its equip entry has run,
     and a machine with nothing to equip (a spectator, the PvP alien seat) never
@@ -2449,23 +2438,18 @@ def equip_both_ready(host, client, timeout=90):
 
 # ===== campaign co-op battle entry, client-owned units =====
 #
-# Two additive campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
-# battle) plus the F355 briefing-ordering drain they both need, and the
-# T-SPLIT/T-CMD/T-EXIT common tail every S1/S2/S3 scenario asserts after it.
-# Imported by test_coop_separate_guest_battle.py (S1), test_shared_battle.py
-# (S2) and test_shared_soldier_ownership_battle.py (S3); SPEC 18 imports the
-# two bring-ups too (spec19_campaign_battle_entry.md (c)).
+# Two campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
+# battle) plus the briefing-ordering drain they both need, and the common tail
+# (assert_t_split / assert_t_cmd / assert_t_exit) their scenarios assert after it.
+# Imported by test_coop_separate_guest_battle.py, test_shared_battle.py,
+# test_shared_soldier_ownership_battle.py and the other campaign battle tests.
 
 
 def drain_host_coop_notice(host, rounds=15):
     """A guest transfer/visit pops an items-received CoopState over the host
     geoscape that freezes the sim. Pop only such notices (never a wait/merge
     dialog - those are gone by the time this runs) so the craft can fly.
-
-    Lifted from test_coop_resume_battle_control.drain_host_coop_notice (SPEC
-    18's own file, R4-P2, left untouched) with its `tries` parameter renamed
-    `rounds` per this packet's own brief (a lifted bounded-poll parameter name
-    must not resemble a §A.8-controlled control-flow knob)."""
+    At most `rounds` presses."""
     for _ in range(rounds):
         top = states(host)[-1]
         if "GeoscapeState" in top:
@@ -2478,7 +2462,7 @@ def drain_host_coop_notice(host, rounds=15):
 
 
 def drain_host_coop_notice_staged(host, rounds=15):
-    """cit-p1a: drain_host_coop_notice's presses (a CoopState notice gets coop_dialog_back, any other popup
+    """drain_host_coop_notice's presses (a CoopState notice gets coop_dialog_back, any other popup
     dismiss_popup, until GeoscapeState is on top; the same bound and the same silent return), with its fixed 0.4 s pause
     after each press replaced by a bounded wait (<= 0.4 s, 0.02 s polls) for the host's stack to change. The guest
     transfer's notice (CoopState 150 "Items received") closes on the first press."""
@@ -2496,21 +2480,18 @@ def drain_host_coop_notice_staged(host, rounds=15):
 
 
 def drive_both_to_tactical(host, client, timeout=240):
-    """F355 fix (SPEC 18 R1(a), orch49; archived VERBATIM at rewrite/artifacts/
-    spec19-fixtures/r1a_v2.py's drive_both_to_tactical): close both briefings
-    in ANY order - W2-P8b sends the client offer at PREPARE, so
+    """Close both briefings
+    in ANY order - the host sends the client offer at PREPARE, so
     both briefings are up at once - and drain both machines through Briefing/
     Inventory/CoopState popups until BOTH machines sit on BattlescapeState. The
     pre-battle equip screens' `battle_inventory ok` is the idempotent ready
-    lever, so pressing it every second never flaps a seat's ready;
+    command, so pressing it every second never flaps a seat's ready;
     turn 1 starts once every seat is ready.
 
     A campaign bring-up that settles ONE machine at a time hangs: the host's
-    equip screen waits for the client's ready, as the pre-P8b client
-    offer waited for the host's briefing OK. Driving both machines in one loop
-    is the ordering every campaign battle-entry fixture in this packet (S1's
-    SEPARATE guest battle, S2/S3's SHARED mixed battle) needs and
-    test_shared_battle.py's old :165-191 shape lacked. Returns True once both machines are on
+    equip screen waits for the client's ready. Driving both machines in one loop
+    is the ordering every campaign battle-entry fixture here (the
+    SEPARATE guest battle, the SHARED mixed battle) needs. Returns True once both machines are on
     BattlescapeState, False on timeout (the caller raises with both machines'
     top states, which names the fixture problem instead of hanging silently)."""
     deadline = time.time() + timeout
@@ -2533,9 +2514,7 @@ def drive_both_to_tactical(host, client, timeout=240):
             else:
                 gc.cmd({"cmd": "dismiss_popup"})
         if done:
-            # settle the coop-init handshake a couple ticks (r1a_v2.py's own
-            # mod.drain_to_tactical(rounds=3), inlined here instead of
-            # importing a test_rw_*-adjacent module for three lines).
+            # settle the coop-init handshake a couple ticks (at most three rounds).
             for _ in range(3):
                 moved = False
                 for gc in (host, client):
@@ -2548,7 +2527,7 @@ def drive_both_to_tactical(host, client, timeout=240):
                     break
             return True
         # the next round once either stack moves from what this round saw (a press landed or the
-        # partner moved on), at most the old fixed 1.0 s step
+        # partner moved on), at most 1.0 s
         _wait_stacks_change((host, client), seen, 1.0)
     return False
 
@@ -2570,8 +2549,7 @@ def _campaign_skyranger(gc):
 
 
 def _campaign_own_roster_base(gc):
-    """The real base from get_soldiers - the shape r1a_v2.py's `own_base`/
-    test_coop_resume_battle_control.own_base uses (carries `soldiers`, unlike
+    """The real base from get_soldiers (it carries `soldiers`, unlike
     geo_state's `_campaign_base0`)."""
     for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
         if not b["coopBaseFlag"] and not b.get("coopIcon") and b["soldiers"]:
@@ -2580,7 +2558,7 @@ def _campaign_own_roster_base(gc):
 
 
 def wait_back_on_geoscape(gc, what="back on geoscape", timeout=60):
-    """W2-U7c (F6361, R-W2i-1): after `leave_base` from a peer's base, wait until THIS machine is back on its OWN world.
+    """After `leave_base` from a peer's base, wait until THIS machine is back on its OWN world.
     BasescapeState::btnGeoscapeClick clears insideCoopBase BEFORE it pushes the LoadGameState that reloads the own world
     (~10 frames later), so the flag alone can read "back" while the visited copy is still live. Ready = insideCoopBase false
     AND top state GeoscapeState AND no LoadGameState on the stack. Bounded: a timeout raises with what it last saw."""
