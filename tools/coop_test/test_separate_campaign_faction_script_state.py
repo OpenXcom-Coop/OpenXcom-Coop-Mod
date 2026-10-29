@@ -5,7 +5,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 def player_map(response):
@@ -13,6 +14,7 @@ def player_map(response):
 
 
 def main():
+    require_mods()
     js = shared_fixture.bring_up(
         "sep_rosigma_faction_script_state", (49270, 49271, 48570),
         mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",

@@ -1029,8 +1029,16 @@ void BasescapeState::miniLeftClick(Action *)
  */
 void BasescapeState::miniRightClick(Action *)
 {
-	size_t baseIndex = _mini->getHoveredBase();
+	moveBaseLeft(_mini->getHoveredBase());
+}
 
+void BasescapeState::moveBaseLeft(size_t baseIndex)
+{
+	// SHARED and Separate commands address a base by its index in getBases(), so
+	// both machines must keep one order: a local swap would send a later buy or
+	// transfer to another base (RU8). There is no host command for it.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+		return;
 	if (baseIndex > 0 && baseIndex < _game->getSavedGame()->getBases()->size())
 	{
 		auto& bases = *_game->getSavedGame()->getBases();
@@ -1063,12 +1071,18 @@ void BasescapeState::handleKeyPress(Action *action)
 			Options::keyBaseSelect8
 		};
 		int key = action->getDetails()->key.keysym.sym;
-		for (size_t i = 0; i < _game->getSavedGame()->getBases()->size(); ++i)
+		// Hotkey N selects the base in mini-strip slot N. There are 8 keys, and a
+		// migrated save can hold more than 8 bases, so never index past them.
+		for (size_t i = 0; i < sizeof(baseKeys) / sizeof(baseKeys[0]); ++i)
 		{
 			if (key == baseKeys[i])
 			{
-				_base = _game->getSavedGame()->getBases()->at(i);
-				init();
+				const size_t base = _mini->getBaseAtSlot(i);
+				if (base < _game->getSavedGame()->getBases()->size())
+				{
+					_base = _game->getSavedGame()->getBases()->at(base);
+					init();
+				}
 				break;
 			}
 		}

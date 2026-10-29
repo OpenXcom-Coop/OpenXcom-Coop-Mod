@@ -479,14 +479,20 @@ void BaseInfoState::handleKeyPress(Action *action)
 			Options::keyBaseSelect8
 		};
 		int key = action->getDetails()->key.keysym.sym;
-		for (size_t i = 0; i < _game->getSavedGame()->getBases()->size(); ++i)
+		// Hotkey N selects the base in mini-strip slot N (8 keys; a migrated save
+		// can hold more than 8 bases, so never index past them).
+		for (size_t i = 0; i < sizeof(baseKeys) / sizeof(baseKeys[0]); ++i)
 		{
 			if (key == baseKeys[i])
 			{
-				_mini->setSelectedBase(i);
-				_base = _game->getSavedGame()->getBases()->at(i);
-				_state->setBase(_base);
-				init();
+				const size_t base = _mini->getBaseAtSlot(i);
+				if (base < _game->getSavedGame()->getBases()->size())
+				{
+					_mini->setSelectedBase(base);
+					_base = _game->getSavedGame()->getBases()->at(base);
+					_state->setBase(_base);
+					init();
+				}
 				break;
 			}
 		}

@@ -558,7 +558,7 @@ void TransferItemsState::updateList()
 void TransferItemsState::btnOkClick(Action *)
 {
 	// COOP
-	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0) && _baseTo->_isForeignBase == false)
+	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0))
 	{
 		// check again (because of items with negative size)
 		// But only check the base whose available space is decreasing.
@@ -849,6 +849,21 @@ bool TransferItemsState::harnessTransferItem(const std::string& itemType, int co
 			&& ((RuleItem*)row.rule)->getType() == itemType)
 		{
 			row.amount = count;
+			submitSharedTransfer();
+			return true;
+		}
+	}
+	return false;
+}
+
+bool TransferItemsState::harnessTransferCraft(int craftId)
+{
+	for (auto& row : _items)
+	{
+		if (row.type == TRANSFER_CRAFT && row.rule
+			&& ((Craft*)row.rule)->getId() == craftId)
+		{
+			row.amount = 1;
 			submitSharedTransfer();
 			return true;
 		}
@@ -1437,7 +1452,9 @@ void TransferItemsState::increaseByValue(int change)
 	}
 
 	// COOP 
-	if (errorMessage.empty() || _baseTo->_isForeignBase == true)
+	// Every destination is a real base in the one-world model, the other
+	// player's included: enforce its quarters, hangars, stores and containment.
+	if (errorMessage.empty())
 	{
 		int freeQuarters = _baseTo->getAvailableQuarters() - _baseTo->getUsedQuarters() - _pQty;
 		switch (getRow().type)

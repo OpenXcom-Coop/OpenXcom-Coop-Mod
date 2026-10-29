@@ -735,6 +735,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		int craftId = req.get("craft_id", -1).asInt();
 		Base* target = nullptr;
 		size_t craftIndex = 0;
+		bool craftFound = false;
 		if (_game->getSavedGame())
 		{
 			for (Base* base : *_game->getSavedGame()->getBases())
@@ -744,12 +745,18 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 					target = base;
 					for (size_t i = 0; i < base->getCrafts()->size(); ++i)
 						if (craftId < 0 || base->getCrafts()->at(i)->getId() == craftId)
-						{ craftIndex = i; craftId = base->getCrafts()->at(i)->getId(); break; }
+						{
+							craftIndex = i;
+							craftId = base->getCrafts()->at(i)->getId();
+							craftFound = true;
+							break;
+						}
 					break;
 				}
 			}
 		}
 		if (!target || target->getCrafts()->empty()) resp["error"] = "craft base not found";
+		else if (!craftFound) resp["error"] = "craft id not found";
 		else
 		{
 			_game->pushState(new CraftInfoState(target, craftIndex));
@@ -2444,6 +2451,31 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		{
 			craft->setDestination(base);
 			craft->setStatus("STR_READY");
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "basescape_move_base_left")
+	{
+		// The mini-base strip's right-click: move the named (selected) base one
+		// place left in the base list through the real BasescapeState step.
+		const std::string baseName = req.get("base", "").asString();
+		BasescapeState* state = findState<BasescapeState>(_game);
+		int index = -1;
+		if (_game->getSavedGame())
+		{
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+				if (bases->at(i)->getName() == baseName) { index = (int)i; break; }
+		}
+		if (!state) resp["error"] = "no BasescapeState in state stack";
+		else if (index < 0) resp["error"] = "base not found: " + baseName;
+		else
+		{
+			state->moveBaseLeft((size_t)index);
+			Json::Value order(Json::arrayValue);
+			for (Base* base : *_game->getSavedGame()->getBases())
+				order.append(base->getName());
+			resp["order"] = order;
 			resp["ok"] = true;
 		}
 	}
@@ -6820,10 +6852,16 @@ std::string TestServer::execute(const std::string& line)
 					if (found) break;
 				}
 			}
+			// SHARED keeps main's harness contract: either machine may seat any
+			// soldier at the base (mixed-owner squads are built from one machine,
+			// and the SHARED host does not owner-gate craft_assign). Separate
+			// Campaign gates on the local seat, as its host validator does.
+			const bool caOwnerGated = coop && coop->isSeparateCampaign();
 			Soldier* sol = nullptr;
 			if (base)
 				for (auto* s : *base->getSoldiers())
-					if (s->getId() == soldierId && SharedEcon::ownsSoldier(_game, s))
+					if (s->getId() == soldierId
+						&& (!caOwnerGated || SharedEcon::ownsSoldier(_game, s)))
 					{ sol = s; break; }
 			if (!found)
 				resp["error"] = "craft id not found";
@@ -7477,7 +7515,19 @@ std::string TestServer::execute(const std::string& line)
 			// a multi-stage transition SavedBattleGame::_battleState and lower stack
 			// entries can still refer to the stage being deleted; never dereference
 			// either of those transitional pointers.
-			BattlescapeState* bstate = topState<BattlescapeState>(_game);
+			// The turn screen and the vote menu are modal overlays of the live
+			// battlescape directly below them, never of a transitional stage, so
+			// reach through them as main's driver did: the abort-vote tests act
+			// while the turn-1 screen is still up, and repeat ABORT while the
+			// abandon-mission vote is open.
+			BattlescapeState* bstate = nullptr;
+			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
+			{
+				if (dynamic_cast<NextTurnState*>(*it) || dynamic_cast<VoteMenu*>(*it))
+					continue;
+				bstate = dynamic_cast<BattlescapeState*>(*it);
+				break;
+			}
 			BattlescapeGame* bg = bstate ? bstate->getBattleGame() : nullptr;
 			SavedBattleGame* sbg = bg ? bg->getSave() : nullptr;
 			std::string act = req.get("action", "").asString();
@@ -8968,6 +9018,28 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "base not found: " + baseName;
 			}
 		}
+		else if (cmd == "soldiers_reorder")
+		{
+			// Drive the open SoldiersState's real reorder handlers: action
+			// "move_up" (row = displayed row, moved to the top like a right-click)
+			// or "sort" (sort = combobox index; 2 = name).
+			SoldiersState* st = findState<SoldiersState>(_game);
+			std::string action = req.get("action", "").asString();
+			if (!st)
+				resp["error"] = "no SoldiersState in state stack";
+			else if (action == "move_up")
+			{
+				st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), true);
+				resp["ok"] = true;
+			}
+			else if (action == "sort")
+			{
+				st->harnessSort((size_t)req.get("sort", 2).asInt());
+				resp["ok"] = true;
+			}
+			else
+				resp["error"] = "soldiers_reorder: unknown action";
+		}
 		else if (cmd == "soldiers_ok")
 		{
 			SoldiersState* st = findState<SoldiersState>(_game);
@@ -9022,6 +9094,8 @@ std::string TestServer::execute(const std::string& line)
 				// consume that base's quarters.
 				resp["usedQuarters"] = target->getUsedQuarters();
 				resp["availableQuarters"] = target->getAvailableQuarters();
+				resp["usedHangars"] = target->getUsedHangars();
+				resp["availableHangars"] = target->getAvailableHangars();
 				resp["residentSoldiers"] = static_cast<int>(target->getSoldiers()->size());
 				// General-stores accounting (read-only). Personnel hires need ZERO
 				// store space, so a full store must never block a scientist/engineer/
@@ -9582,15 +9656,19 @@ std::string TestServer::execute(const std::string& line)
 			{
 				Json::Value items(Json::objectValue);
 				int soldiers = 0;
+				int crafts = 0;
 				for (auto* t : *target->getTransfers())
 				{
 					if (t->getType() == TRANSFER_ITEM && t->getItems())
 						items[t->getItems()->getType()] = items.get(t->getItems()->getType(), 0).asInt() + t->getQuantity();
 					else if (t->getType() == TRANSFER_SOLDIER)
 						soldiers++;
+					else if (t->getType() == TRANSFER_CRAFT)
+						crafts++;
 				}
 				resp["items"] = items;
 				resp["soldiers"] = soldiers;
+				resp["crafts"] = crafts;
 				resp["ok"] = true;
 			}
 		}
@@ -9765,16 +9843,21 @@ std::string TestServer::execute(const std::string& line)
 						: base->getName() == fromName)) from = base;
 					else if (!toName.empty() && base->getName() == toName) to = base;
 				}
+			const int transferCraftId = req.get("craft_id", -1).asInt();
 			if (!from || !to)
 				resp["error"] = "from/to base not found";
 			else
 			{
 				TransferItemsState* st = new TransferItemsState(from, to, nullptr);
-				bool ok = st->harnessTransferItem(itemType, count); // submitSharedTransfer
+				bool ok = transferCraftId >= 0
+					? st->harnessTransferCraft(transferCraftId)
+					: st->harnessTransferItem(itemType, count); // submitSharedTransfer
 				delete st;
 				resp["sent"] = ok;
 				resp["ok"] = ok;
-				if (!ok) resp["error"] = "no transferable row for item: " + itemType;
+				if (!ok) resp["error"] = transferCraftId >= 0
+					? "no transferable row for craft id"
+					: "no transferable row for item: " + itemType;
 			}
 		}
 		else if (cmd == "containment")
@@ -10006,7 +10089,9 @@ std::string TestServer::execute(const std::string& line)
 			if (_game->getSavedGame())
 				for (auto* base : *_game->getSavedGame()->getBases())
 				{
-					if (base->_isForeignBase || base->_coopIcon) continue;
+					// A named base may be another player's (a visitor renaming
+					// their own soldier stationed there); unnamed = own bases.
+					if (baseName.empty() && (base->_isForeignBase || base->_coopIcon)) continue;
 					if (!baseName.empty() && base->getName() != baseName) continue;
 					auto* sols = base->getSoldiers();
 					for (size_t i = 0; i < sols->size(); ++i)

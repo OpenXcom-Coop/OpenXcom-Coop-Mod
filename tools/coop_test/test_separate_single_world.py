@@ -278,6 +278,13 @@ def main():
             timeout=30, interval=0.5)
         fail = host.ok({"cmd": "shared_stats"})["lastFail"]
         assert fail == "foreign base command rejected", fail
+        # The refused player is told (separate_fail -> the fail dialog).
+        client.wait_for(
+            "client told the foreign command was refused",
+            lambda: (client.ok({"cmd": "shared_stats"})["lastFail"]
+                     == "STR_COOP_ACTION_REFUSED") or None,
+            timeout=30, interval=0.5)
+        client.ok({"cmd": "coop_dialog_back"})
 
         before_incoming = host.ok(
             {"cmd": "incoming_transfers", "base": "HostBase"})["items"].get(RIFLE, 0)
@@ -426,7 +433,7 @@ def main():
                 "guest assigned within owner craft quota",
                 lambda gc=gc: (next(
                     s for s in soldiers_at(gc, "ClientBase")
-                    if s["name"] == transfer_soldier["name"])["craftId"]
+                    if s["id"] == transfer_soldier["id"])["craftId"]
                     == foreign_craft_id) or None,
                 timeout=30, interval=0.5)
         host.ok({"cmd": "open_screen", "screen": "craft_soldiers",
@@ -436,7 +443,7 @@ def main():
         assert assigned_screen["availableNum"] == 6, assigned_screen
         host.ok({"cmd": "pop_state"})
 
-        assert not any(s["name"] == transfer_soldier["name"]
+        assert not any(s["id"] == transfer_soldier["id"]
                        for s in soldiers_at(host, "HostBase"))
         assert_same_world(host, client, "foreign personnel arrivals")
         print("PASS foreign personnel: hires/transfers leave transit and appear in both soldier screens")

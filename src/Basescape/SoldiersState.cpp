@@ -281,6 +281,17 @@ void SoldiersState::cbxSortByChange(Action *action)
 
 	SortFunctor *compFunc = _sortFunctors[selIdx];
 	_dynGetter = NULL;
+	// A visitor never reorders another player's roster (RU8): the host owns its
+	// order and there is no reorder command. Keep the dynamic column only.
+	if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
+	{
+		if (compFunc && selIdx != 2 && selIdx != 3)
+		{
+			_dynGetter = compFunc->getGetter();
+		}
+		initList(_lstSoldiers->getScroll());
+		return;
+	}
 	if (compFunc)
 	{
 		if (selIdx != 2 && selIdx != 3)
@@ -533,7 +544,10 @@ void SoldiersState::lstItemsLeftArrowClick(Action *action)
 void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally: there is no reorder command, and the row is an index into
+	// the owner-filtered list, not into _base->getSoldiers().
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -587,7 +601,10 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally: there is no reorder command, and the row is an index into
+	// the owner-filtered list, not into _base->getSoldiers().
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -848,6 +865,12 @@ void SoldiersState::lstSoldiersGiveUnitPress(Action *)
 /**
  * Test automation: the soldier ids this screen actually displays.
  */
+void SoldiersState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
 std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
 {
 	std::vector<int> ids;

@@ -6,7 +6,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 def soldiers(gc, base_name):
@@ -23,6 +24,7 @@ def craft_screen(gc, base, craft_id):
 
 
 def main():
+    require_mods()
     js = shared_fixture.bring_up(
         "sep_rosigma_single_seat_craft", (49050, 49051, 48350),
         mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",

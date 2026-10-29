@@ -9,7 +9,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import geo
 import session
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 SAVE_PATH = r"C:\Users\arita\Documents\OpenXcom\40k\campaign_continue.sav"
@@ -32,6 +33,7 @@ def base(machine, name):
 
 
 def main():
+    require_mods(("the 40K campaign save", SAVE_PATH))
     host_dir = make_user_dir(
         "sep_storage_owner_resume_host", saves=(SAVE_PATH,),
         mods=(MOD_40K, MOD_ROSIGMA), options={"storageLimitsEnforced": True})

@@ -6,7 +6,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 def profiles(peer):
@@ -15,6 +16,7 @@ def profiles(peer):
 
 
 def main():
+    require_mods()
     js = shared_fixture.bring_up(
         "sep_rosigma_faction_score", (49170, 49171, 48470),
         mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",

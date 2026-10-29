@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from harness import GameClient, make_user_dir
 import session
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 
 SAVE_SRC = os.environ.get(
@@ -67,9 +68,8 @@ def dismiss_transition_ui(machine):
 
 
 def main():
-    if not os.path.isfile(SAVE_SRC):
-        print("SKIP: ROSIGMA finale save not found: " + SAVE_SRC)
-        return
+    # Local-only (no SKIP pass): the mods and the stage-2 save must exist.
+    require_mods(("the ROSIGMA finale save (set ROSIGMA_FINALE_SAVE)", SAVE_SRC))
 
     host_dir = stage_save(SAVE_SRC)
     client_dir = make_user_dir(

@@ -43,6 +43,10 @@ $bootCheck = Join-Path $testDir "boot_check.py"
 $testPattern = Join-Path $testDir "test_*.py"
 $tests = Get-ChildItem $bootCheck, $testPattern |
          Select-Object -ExpandProperty BaseName | Sort-Object
+# Local-only tests (mod installs, private saves, CLI arguments) are never discovered;
+# same list as plan_shards.ps1 so the plan and the runner agree.
+$localOnly = @((Get-Content (Join-Path $testDir "local_only_tests.json") -Raw | ConvertFrom-Json).tests.PSObject.Properties.Name)
+$tests = @($tests | Where-Object { $localOnly -notcontains $_ })
 
 if ($PlanFile) {
   if (-not $Shard) { throw "-PlanFile requires -Shard" }

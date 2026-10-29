@@ -762,6 +762,10 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 
 	int64_t total = 0;
 	double storeAddTo = 0.0;
+	// Live aliens per prison type: the destination must hold them, exactly as
+	// the vanilla TransferItemsState gate does (any containment of that type
+	// without storage limits; free containment space with them).
+	std::map<int, int> incomingPrisoners;
 
 	const Json::Value& items = payload["items"];
 	if (items.isArray())
@@ -776,7 +780,18 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_TRANSFER"; return false; }
 			total += (int64_t)qty * itemCost;
 			storeAddTo += (double)qty * r->getSize();
+			if (r->isAlien())
+				incomingPrisoners[r->getPrisonType()] += qty;
 		}
+	for (const auto& prisoners : incomingPrisoners)
+	{
+		const int available = toBase->getAvailableContainment(prisoners.first);
+		const int room = Options::storageLimitsEnforced
+			? available - toBase->getUsedContainment(prisoners.first)
+			: (available > 0 ? prisoners.second : 0);
+		if (prisoners.second > room)
+			{ failReason = "STR_NO_ALIEN_CONTAINMENT_FOR_TRANSFER"; return false; }
+	}
 
 	// Living quarters: the base that HOUSES a soldier pays for it, and the
 	// destination reserves the space the moment the transfer is sent
@@ -797,6 +812,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			incomingPersonnel++;
 		}
 
+	int incomingCrafts = 0;
 	const Json::Value& crafts = payload["crafts"];
 	if (crafts.isArray())
 		for (const auto& jc : crafts)
@@ -804,6 +820,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			Craft* c = findCraft(fromBase, jc.get("id", -1).asInt(), jc.get("type", "").asString());
 			if (!c) { failReason = "craft not transferable"; return false; }
 			total += craftCost;
+			incomingCrafts++;
 			// the crew rides along (see transferApply) and must be housed too
 			for (auto* s : *fromBase->getSoldiers())
 				if (s->getCraft() == c) incomingPersonnel++;
@@ -821,6 +838,9 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 	if (save->getFunds() < total) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
 	if (Options::storageLimitsEnforced && toBase->storesOverfull(storeAddTo))
 		{ failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
+	if (incomingCrafts > 0
+		&& toBase->getAvailableHangars() - toBase->getUsedHangars() < incomingCrafts)
+		{ failReason = "STR_NO_FREE_HANGARS_FOR_TRANSFER"; return false; }
 	if (incomingPersonnel > 0
 		&& toBase->getAvailableQuarters() - toBase->getUsedQuarters() < incomingPersonnel)
 		{ failReason = "STR_NO_FREE_ACCOMODATION"; return false; }
@@ -1488,13 +1508,30 @@ void baseRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*sea
 
 // sack payload: { soldierId }. Policy: ANY player may sack ANY soldier (shared
 // roster management, consistent with J05 sell). No refund (vanilla).
-bool sackValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+// Separate Campaign: a player acts only on their own soldiers, wherever they are
+// stationed (a visitor may sack or rename their own soldier at another player's
+// base, RU8). SHARED keeps its any-player roster policy.
+static bool separateSoldierOwnerOk(Game* game, const Soldier* s, int seat)
+{
+	if (!game || !game->getSavedGame()
+		|| game->getSavedGame()->getCampaignType() != CoopCampaignType::Separate)
+		return true;
+	return s->getOwnerPlayerId() == seat;
+}
+
+bool sackValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                   int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { cost = 0; return true; }
+		if (s->getId() == id)
+		{
+			if (!separateSoldierOwnerOk(game, s, seat))
+				{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+			cost = 0;
+			return true;
+		}
 	failReason = "soldier not found";
 	return false;
 }
@@ -1518,13 +1555,19 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 // local-only; in SHARED they ride the shared_cmd like base_rename (host applies +
 // broadcasts, last-write-wins). ANY player may rename ANY soldier (shared roster,
 // consistent with sack). The soldier is looked up by id at the command's base.
-bool soldierRenameValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+bool soldierRenameValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                            int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { cost = 0; return true; }
+		if (s->getId() == id)
+		{
+			if (!separateSoldierOwnerOk(game, s, seat))
+				{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+			cost = 0;
+			return true;
+		}
 	failReason = "soldier not found";
 	return false;
 }
@@ -2799,10 +2842,19 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 			pc.cmd, pc.remote);
 		if (foreign && !foreignAllowed)
 		{
-			// Normal Separate UI permissions prevent this action. Keep the host-side
-			// security boundary, but the obsolete per-player-world ownership dialog
-			// and its wire response no longer exist.
-			++g_failN;
+			// Normal Separate UI permissions prevent most of these actions; the
+			// host keeps the security boundary. Tell the player who asked (the
+			// remote initiator gets separate_fail, the host's own command shows
+			// the fail dialog locally) instead of dropping it silently. The host
+			// diagnostic keeps its own text for the harness. A host simulation
+			// result (simAccept validator) is not a player action: no dialog.
+			using SimValidator = bool (*)(Game*, const Json::Value&, Base*, int,
+				int64_t&, std::string&);
+			const SimValidator* fn = hit->second.validate.target<SimValidator>();
+			if (fn && *fn == &simAccept)
+				++g_failN;
+			else
+				rejectHostCmd(game, pc, "STR_COOP_ACTION_REFUSED");
 			setLastFail("foreign base command rejected");
 			return;
 		}

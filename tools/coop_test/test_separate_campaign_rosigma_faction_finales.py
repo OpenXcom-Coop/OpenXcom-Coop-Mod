@@ -2,7 +2,8 @@
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo, session, shared_fixture
-from test_separate_campaign_three_month_factions import MOD_40K, MOD_ROSIGMA
+from test_separate_campaign_three_month_factions import (
+    MOD_40K, MOD_ROSIGMA, require_mods)
 
 def states(gc): return gc.cmd({"cmd": "get_state"})["states"]
 def has(gc, name): return any(name in state for state in states(gc))
@@ -205,6 +206,7 @@ def continue_after_partial_finale(host, client, expected_owner):
         gc.ok({"cmd": "vote_close"})
 
 def main():
+    require_mods()
     js = shared_fixture.bring_up("sep_rosigma_real_faction_finales",
         (49510, 49511, 48810), mods=(MOD_40K, MOD_ROSIGMA), campaign_mode="coop",
         host_difficulty=0, client_difficulty=3, transport="tcp")

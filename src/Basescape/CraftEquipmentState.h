@@ -73,6 +73,10 @@ private:
 	bool _localBatch;
 	/// Refresh an open equipment list after the host applies a craft_equip command.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	/// The craft this screen edits (id + type: ids are per craft type), so a live
+	/// refresh can re-find it after an earlier craft leaves the base.
+	int _craftId;
+	std::string _craftType;
 	/// SHARED (PRD-J09 GAP-5): route a base<->craft item move through craft_equip
 	/// (absolute desired-on-craft count) instead of mutating this replica's stores.
 	void submitSharedCraftEquip(const RuleItem* item, int signedChange);

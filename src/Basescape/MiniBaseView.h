@@ -63,6 +63,9 @@ public:
 	Uint8 getBaseBorderColor(size_t base) const;
 	/// Returns the visible slot for a canonical SavedGame base index.
 	int getDisplaySlot(size_t base) const;
+	/// Returns the base index shown in visible slot <slot>, or an index past the
+	/// end of the base list when the slot is empty.
+	size_t getBaseAtSlot(size_t slot);
 	/// Special handling for mouse hovers.
 	void mouseOver(Action *action, State *state) override;
 	void setColor(Uint8 color) override;

@@ -351,6 +351,45 @@ class GameClient:
                 self.proc.kill()
 
 
+def _is_link(entry):
+    """A symlink or a Windows junction (any reparse point), without following it."""
+    if entry.is_symlink():
+        return True
+    try:
+        attrs = entry.stat(follow_symlinks=False).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def remove_links(root):
+    """Unlink every symlink/junction under root WITHOUT descending into it.
+
+    make_user_dir junctions mod folders (40K/ROSIGMA and the generated test mods)
+    straight to their sources. Python 3.8+ shutil.rmtree already removes a
+    junction without following it, but any other recursive delete (an older
+    Python, PowerShell 5.1 Remove-Item -Recurse, a manual cleanup) can follow one
+    into the real install. Taking the links out first makes every later
+    recursive delete of the user dir safe."""
+    if not os.path.isdir(root):
+        return
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        for entry in entries:
+            if _is_link(entry):
+                try:
+                    os.unlink(entry.path)
+                except OSError:
+                    os.rmdir(entry.path)  # a directory junction on some Pythons
+            elif entry.is_dir(follow_symlinks=False):
+                stack.append(entry.path)
+
+
 def make_user_dir(name, saves=(), mods=(), options=None):
     """Hermetic, isolated user folder: a freshly written options.cfg pinning
     the stock `xcom1` master (see HERMETIC_OPTIONS) with no external mods and
@@ -387,6 +426,7 @@ def make_user_dir(name, saves=(), mods=(), options=None):
             except OSError:
                 raise exc_info[1]
 
+        remove_links(d)
         shutil.rmtree(d, onerror=remove_readonly)
     os.makedirs(os.path.join(d, "xcom1"))
     # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
