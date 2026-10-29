@@ -13,7 +13,8 @@ every unit's reactions 0, the B2 staging (MCT.stage_b2).
        G3E-mc     (precondition) A faction 0, mcId S, coop 0 on both; both tops BattlescapeState
        G3E-end    the partner's END TURN alone: the host's side-phase counter +1 within SIDE_S
        G3E-skip   with no further press both machines on side 0 turn 2 within SIDE_S, and exactly one
-                  '[coop-endturn] W2-H31' host log line (the host's side had no live seat)
+                  '[coop-endturn] no seat has a live unit on the active side' host log line (the host's side had no
+                  live seat)
        G3E-back   A faction 1, coop 0 on both at side 0 turn 2 (released at its controller side's start)
        G3E-alien  the partner's press: side 1 turn 2; host tally {count 0, needed 1} within PAINT_S; the host's press
                   alone: side 0 turn 3
@@ -25,7 +26,7 @@ reactions 0, MCC.stage_c.
        CM-out     (precondition) host kill_unit_real {coop_side 0}: killed [10..14], DEAD on both; the wait ends at
                   the observed deaths, capped at WATCH_CAP_S (R-H31-3; boxes dismissed on their own machine; no
                   turn screen closed, no settle)
-       CM-end     with no press the host's NextTurnState is up within SIDE_S of the kill, and exactly one W2-H31 line
+       CM-end     with no press the host's NextTurnState is up within SIDE_S of the kill, and exactly one self-end line
        CM-ends    the alien side's turn screen: both machines on side 1 turn 1, 8 / 9 back at faction 0 (coop
                   1) on both, no battleEnd (emitted 0, applied 0 on both); the host's close runs vanilla's tally and the
                   battle goes on: the host's side 0 turn 2 turn screen with no DebriefingState, the partner on side 0
@@ -64,7 +65,7 @@ from test_mc_seat_coop import X_ID, S0_IDS, S1_IDS, X_TU, DEAD  # noqa: E402
 
 KEY_G, KEY_C = "48786", "48787"
 SEED_G3 = 1                       # TASK 0 Ga / Gb: the host lever psi_attack {8, 1000000} converts A with seed 1
-W2H31 = "[coop-endturn] W2-H31"   # the host's one log line per self-ended side
+W2H31 = "[coop-endturn] no seat has a live unit on the active side"   # the host's one log line per self-ended side
 WATCH_CAP_S = 135                 # CM-out ends at the observed deaths; >= max(120, 2.5 x 7.26 s)
 G_ROWS = (("G3E", ("G3E-mc", "G3E-end", "G3E-skip", "G3E-back", "G3E-alien", "G3E-common")),)
 C_ROWS = (("CM", ("CM-mc", "CM-out", "CM-end", "CM-ends", "CM-common")),)
@@ -128,7 +129,7 @@ def debrief(gc):
 
 
 def self_end_lines(host):
-    """The W2-H31 line check: a bounded HOLD_S wait for the count to reach 1, then the count (want exactly 1)."""
+    """The self-end line check: a bounded HOLD_S wait for the count to reach 1, then the count (want exactly 1)."""
     BER.wait_until(lambda: log_count(host, W2H31) >= 1, HOLD_S, 0.25)
     return log_count(host, W2H31)
 

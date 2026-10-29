@@ -24,7 +24,7 @@ the B2 staging.
       MX-end   the host's END TURN alone ends X-COM's side (the baton's last pass): the host's side-phase counter +1
                within SIDE_S (W2-H31 section A.10: the alien side, with no live seat, now passes at once)
       MX-skip  with no further press both machines on side 0 turn 2 within SIDE_S, and exactly one
-               '[coop-endturn] W2-H31' host log line
+               '[coop-endturn] no seat has a live unit on the active side' host log line
       MX-back  A faction 1, coop 1 on both at side 0 turn 2 (released at its controller side's start)
       MX-alien the host's press: side 1 turn 2; host tally {needed 1, activeSeat 1} and coopActiveSeat 1 on both
                within PAINT_S; the partner's press alone: side 0 turn 3
@@ -405,7 +405,8 @@ def row_mx(host, client, crash0, rec):
                     "msgs": [msgs(host), msgs(client)]}
     cells["MX-common"] = common(host, client, crash0, "right before the host's press")
     first = None if cells["MX-mode"][0] and cells["MX-mc"][0] else ("MX-mode" if not cells["MX-mode"][0] else "MX-mc")
-    w2h31, pc = "[coop-endturn] W2-H31", lambda: es(host, "coopEndTurnPhaseCounter") or 0
+    w2h31, pc = ("[coop-endturn] no seat has a live unit on the active side",
+                 lambda: es(host, "coopEndTurnPhaseCounter") or 0)
 
     def mx_end():   # W2-H31 (section A.10, F12376): the side-phase counter, as side 1 now passes at once
         tops_ready((host, client), rec, "before MX-end press")
