@@ -1,10 +1,10 @@
 """A process that played as a client can later host a live campaign.
 
-Regression (PR #213 review F2): the client seat is recorded in the process-wide
-coop_save_owner_player_id. It used to survive the return to the main menu, and
-isCampaignReplica() treated any value above zero as a replica even on the
-server owner. The same process then hosted a new campaign whose Geoscape
-clock never advanced, because the host thought it was a replica. A new
+Regression: the client seat is recorded in the process-wide
+coop_save_owner_player_id. If it survives the return to the main menu, and
+isCampaignReplica() treats any value above zero as a replica even on the
+server owner, the same process then hosts a new campaign whose Geoscape
+clock never advances, because the host thinks it is a replica. A new
 Separate campaign happens to overwrite the value when the host reads the
 client's bootstrap base, so the second session is SHARED, which has no such
 transfer and exposes the stale seat directly.

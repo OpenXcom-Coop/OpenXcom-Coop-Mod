@@ -19,8 +19,8 @@ def main():
     assert "_ownerPlayerName" in event_h
     assert 'writer.write("ownerPlayerName"' in event_cpp
     assert "newEvent->setOwnerPlayerName(ownerPlayerName)" in saved
-    # The main merge turned the event script's spawn into main's index loop with
-    # its certain-event hook; the owner still rides each spawn.
+    # The event script's spawn is an index loop with its certain-event hook;
+    # the owner rides each spawn.
     assert "save->spawnEvent(toBeGenerated[i], missionOwner)" in geo
     assert "isOwnedByPlayer(_ownerPlayerName)" in event_state
     assert 'msg["ownerPlayerName"] = ownerPlayerName' in separate

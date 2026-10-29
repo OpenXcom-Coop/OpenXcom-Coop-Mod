@@ -31,7 +31,7 @@ def main():
     assert "!seenFactions.insert(player->faction).second" in separate
     assert "resolveFactionFinalOutcome" in battle
     assert "partialFactionVictory" in battle
-    # 472e3e84f: a partial faction victory opens the faction finale vote, which
+    # A partial faction victory opens the faction finale vote, which
     # names the faction, instead of a message box.
     assert "queueFactionFinaleVote(owner)" in battle
     vote = tcp.split("void connectionTCP::tryStartFactionFinaleVote()", 1)[1]

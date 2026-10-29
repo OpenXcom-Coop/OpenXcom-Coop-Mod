@@ -1,7 +1,7 @@
 """Separate Campaign: losing bases in the one host-authoritative world.
 
-RU1: the campaign is lost only when NO player has a base left. A player whose
-last base falls stays in the campaign. F21: a destroyed base belongs to its
+The campaign is lost only when NO player has a base left. A player whose
+last base falls stays in the campaign. A destroyed base belongs to its
 owner; another player's base is never held until the HOST clicks OK.
 
 A throwaway mod gives the Battleship a nuclear payload (missilePower < 0), the
@@ -82,7 +82,7 @@ def destroy(host, client, base_name, owner):
     Only the owner's popups are clicked; the other machine's popups are
     clicked too, EXCEPT a BaseDestroyedState, which a non-owner must never get.
     Returns what each machine was shown."""
-    # A retaliation mission would send its next wave at the region's FIRST base
+    # A retaliation mission would send its next UFO at the region's FIRST base
     # (HostBase), whichever base this UFO targets; a research mission adds no
     # base attacks of its own, so only `base_name` is hit.
     host.ok({"cmd": "spawn_base_assault", "base": base_name, "type": "STR_BATTLESHIP",

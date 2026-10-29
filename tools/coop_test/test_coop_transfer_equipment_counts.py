@@ -1,23 +1,16 @@
 """Validates that a soldier's equipped items move with it when it is transferred
 to the other player's base, driven by the "Alternate craft equipment
-management" option, in the single host-owned SEPARATE world (PR #213):
+management" option, in the single host-owned SEPARATE world:
 
-  C1 ON  (the host sends its soldier to ClientBase): the gear leaves HostBase's
+  ON  (the host sends its soldier to ClientBase): the gear leaves HostBase's
      stores when the soldier is sent, travels on the same transfer as the
      soldier, and lands in ClientBase's stores when the soldier arrives; the
      world total of each item is unchanged. Checked on both machines.
-  C2 OFF (the client sends its soldier to HostBase): no item moves - neither
+  OFF (the client sends its soldier to HostBase): no item moves - neither
      base's stores change and nothing but the soldier is en route.
 
 Several distinct items are equipped (a rocket in one hand, a pistol in the
 other) so multi-item transfer is covered too.
-
-Replaced rows (two-world premise gone):
-  - "ON: the gear arrives IMMEDIATELY (a 0-hour transfer matching the instant
-    soldier move; the paused clock never moves)" -> a transfer is no longer
-    instant for the soldier either: it is a timed host-world transfer. The
-    single-world equivalent is C1: the gear rides the soldier's own transfer
-    and arrives with it, never before or after.
 
 Run:  python tools/coop_test/test_coop_transfer_equipment_counts.py
 """
@@ -76,10 +69,10 @@ def run(sender, host, client, seat, src, dst, alt_on, name):
             assert s[src][i] + s[dst][i] == s0[gc.name][src][i] + s0[gc.name][dst][i], (
                 f"{label}: {gc.name}: world {i} total changed")
     if alt_on:
-        print(f"PASS C1 ON: {list(GEAR)} each left {src} with the soldier, travelled on its "
+        print(f"PASS option ON: {list(GEAR)} each left {src} with the soldier, travelled on its "
               f"transfer and reached {dst} with it; world conserved on both machines")
     else:
-        print(f"PASS C2 OFF: nothing moved ({src} and {dst} stores unchanged for "
+        print(f"PASS option OFF: nothing moved ({src} and {dst} stores unchanged for "
               f"{list(GEAR)}, only the soldier en route) on both machines")
 
 

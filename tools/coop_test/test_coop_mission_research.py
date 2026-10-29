@@ -5,7 +5,7 @@ An alien deployment can unlock research when its mission site expires on its own
 (unlockedResearch / unlockedResearchOnFailure); SavedGame::handleResearchUnlockedByMissions
 adds the topic, its lookup and a random getOneFree bonus. Both campaign types are one
 host-owned world: the host runs the mission and its outcome, and the client replica
-adopts the host's exact result. Owner rules (2026-10-06, RU5):
+adopts the host's exact result. The rules:
   * SEPARATE campaign, shared research (research sync on): both players learn the
     same research item, bonus included, and can read the report.
   * SEPARATE campaign, private research (sync off): only the mission owner learns it.
@@ -16,11 +16,11 @@ STR_COOP_RS_DESPAWN_TOPIC on expiry and STR_COOP_RS_FAIL_TOPIC on failure, each 
 four getOneFree bonuses (STR_COOP_RS_FREE_1..8).
 
 Rows (the host player owns every site and craft):
-  M1 SEPARATE, shared research: a site expires on the host -> the client learns the
+  - SEPARATE, shared research: a site expires on the host -> the client learns the
      topic and the host's bonus.
   M2 SEPARATE, shared research: a coop battle there is aborted (mission failure) ->
      the client learns the topic and the host's bonus.
-  M3 SEPARATE, private research: a host-owned site expires -> the host player learns
+  - SEPARATE, private research: a host-owned site expires -> the host player learns
      the topic and a bonus on both machines; the client player learns nothing.
   M4 SHARED: a site expires, then a battle is aborted -> both machines hold the same
      topics and bonuses (guard).
@@ -209,11 +209,11 @@ def separate_session(results, sync):
             r = expire_site(host, client, players=("HostPlayer", "ClientPlayer"))
             h = r[(host.name, "HostPlayer")]
             if not h[0] or len(h[1]) != 1:
-                raise Inconclusive(f"M3: the host player did not learn the topic: {r}")
+                raise Inconclusive(f"private research, site expiry: the host player did not learn the topic: {r}")
             ok = (r[(client.name, "HostPlayer")] == h
                   and r[(host.name, "ClientPlayer")] == (False, [])
                   and r[(client.name, "ClientPlayer")] == (False, []))
-            results["M3 SEPARATE private research, site expiry"] = (ok, f"{r}")
+            results["SEPARATE private research, site expiry"] = (ok, f"{r}")
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         for gc in (host, client):

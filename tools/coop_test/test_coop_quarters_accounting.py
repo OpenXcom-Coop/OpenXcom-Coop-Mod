@@ -1,5 +1,5 @@
 """Regression test: the base that HOUSES a soldier is the base that pays for it,
-in the single host-owned SEPARATE world (PR #213).
+in the single host-owned SEPARATE world.
 
 A transfer to the other player's base keeps the soldier's owner (a gift changes
 it). The soldier must leave the sender's living quarters and occupy the
@@ -7,17 +7,11 @@ receiver's from the moment it is sent (personnel en route count), on BOTH
 machines, and the world total is conserved. Three soldiers move each way, not
 one: a single transfer would not show a roster pruned between moves.
 
-  Q1 host -> client: 3 of the host's soldiers move to ClientBase; HostBase
+  host -> client: 3 of the host's soldiers move to ClientBase; HostBase
      quarters drop by 3 and ClientBase's rise by 3 on both machines.
-  Q2 the visitor's view: ClientBase seen from the host's machine counts the
+  visitor's view: ClientBase seen from the host's machine counts the
      host's soldiers housed there, the same number the client sees.
-  Q3 client -> host and Q4 the client's view of HostBase, the same way.
-
-Replaced rows (two-world premise gone):
-  - "while VISITING a peer base the guests are its residents, so the sender
-    correction is not applied twice" (insideCoopBase, coop_guests census) ->
-    Q2/Q4: there is one world, so the visitor's machine and the owner's machine
-    must report the same used quarters for that base, guests included.
+  client -> host and the client's view of HostBase, the same way.
 
 Run:  python tools/coop_test/test_coop_quarters_accounting.py
 """

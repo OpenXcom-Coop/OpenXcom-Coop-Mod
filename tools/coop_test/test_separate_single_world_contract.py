@@ -83,7 +83,7 @@ def main():
         "bool validateCraftAssign", 1)[0]
     assert 'cmd == "buy"' in separate_policy
     assert 'cmd == "craft_equip"' in separate_policy
-    assert 'cmd == "craft_rearm"' not in separate_policy  # RU8: visitors cannot rearm
+    assert 'cmd == "craft_rearm"' not in separate_policy  # visitors cannot rearm
     assert 'cmd == "craft_assign"' in separate_policy
     assert 'cmd == "transfer_arrived"' in separate_policy
     assert "!remote" in separate_policy
@@ -141,9 +141,8 @@ def main():
     assert "soldier->setOwnerPlayerId(ownerSeat)" in separate_ownership
     assert "seatName(seat) == base->getOwnerPlayerName()" in separate_ownership
     lobby = source("src/CoopMod/LobbyMenu.cpp")
-    # f0698fa4e (issue #93, PR #213 F15): main's rule (a running battle, or a live
-    # geoscape) plus the PR's case: a resumed campaign's lobby (mode 2) offers
-    # RESUME GAME once that campaign is live again.
+    # Issue #93: RESUME GAME shows for a running battle or a live geoscape, and
+    # in a resumed campaign's lobby (mode 2) once that campaign is live again.
     assert "_resumeToGame = (battleRunning || (geoRunning && connectionTCP::session.sessionLocked))" in lobby
     assert "&& (connectionTCP::session.lobbyMode != 2 || connectionTCP::session.sessionLocked)" in lobby
     host_initial = lobby.split("setOwnerPlayerName(_game->getCoopMod()->getHostName())", 1)[1]
@@ -154,7 +153,7 @@ def main():
     assert "xbase->getOwnerPlayerName().empty()" in maintenance
     memory_save = saved_game.split("void SavedGame::saveCoopToMemory", 1)[1].split(
         "buildCoopStub", 1)[0]
-    # 223e3b748: Separate-only rules exclude PvP (stored with the same type).
+    # Separate-only rules exclude PvP (stored with the same type).
     assert "isSeparateCoopCampaign()" in memory_save
     server_role = tcp.split("void connectionTCP::setServerOwner", 1)[1].split(
         "void connectionTCP::setCoopCampaign", 1)[0]
@@ -170,7 +169,7 @@ def main():
         "ResyncStats resyncStats", 1)[0]
     assert "isSharedReplica()" in verify_world
     # Separate compares every player's wallet and private research count,
-    # never the machine-local wallet (PR #213 wave 2).
+    # never the machine-local wallet.
     assert "separateChecksumTerms(save, myPlayerFunds, myPlayerResearch" in verify_world
     assert "sameNamedTerms(hostPlayerFunds, myPlayerFunds)" in verify_world
     assert "sameNamedTerms(hostPlayerResearch, myPlayerResearch)" in verify_world

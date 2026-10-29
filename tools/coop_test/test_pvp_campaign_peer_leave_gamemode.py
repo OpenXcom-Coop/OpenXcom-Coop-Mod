@@ -1,11 +1,11 @@
 """PvP campaign: the host keeps its game mode when the client leaves.
 
 A PvP campaign (game mode 2) is stored with the Separate campaign type but
-keeps main's two-world rules. connectionTCP::isSeparateCampaign() and
+keeps the two-world rules. connectionTCP::isSeparateCampaign() and
 SavedGame::isSeparateCoopCampaign() tell the two apart by the game mode. A
 client that leaves through its menu on the geoscape reaches the host's
-disconnectTCP drop path, which used to zero the game mode outside a battle.
-The host then waited for the rejoin with Separate single-world rules applied
+disconnectTCP drop path. If that path zeroed the game mode outside a battle,
+the host would wait for the rejoin with Separate single-world rules applied
 to its PvP world, and a save in that wait would record game mode 0.
 
 Expected: while the host waits for the player, game mode stays 2 and the

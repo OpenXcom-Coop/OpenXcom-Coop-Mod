@@ -34,8 +34,7 @@ def main():
     # the replica from rolling a different random reward. The replica never
     # re-runs the vanilla side effects (removed projects, spawned items and
     # events, counters): they roll its own RNG, so the host sends its results
-    # instead (research_effects, world_extras and the event's rewards; the
-    # replica-completeness fix on this branch).
+    # instead (research_effects, world_extras and the event's rewards).
     finish = apply.index("addFinishedResearch(")
     assert finish < popup
     assert "handlePrimaryResearchSideEffects(" not in apply

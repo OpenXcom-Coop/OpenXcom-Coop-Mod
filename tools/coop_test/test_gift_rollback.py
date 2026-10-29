@@ -54,8 +54,7 @@ def gift_and_wait(host, giver, receiver, sid, name, receiver_owner_id):
     receiver.wait_for(f"{name} arrives",
                       lambda: (owner_of(receiver, sid) == receiver_owner_id) or None, timeout=30)
     # Separate is one host-owned world: the host's world, and so its next save,
-    # holds the gift once the host shows the new owner. (Two-world Separate
-    # waited for the client's pushed world blob here.)
+    # holds the gift once the host shows the new owner.
     host.wait_for(f"{name} owned by seat {receiver_owner_id} in the host world",
                   lambda: (owner_of(host, sid) == receiver_owner_id) or None, timeout=30)
     dismiss_all_notices(receiver)

@@ -18,7 +18,7 @@ def main():
 
     determine = geo[geo.index("void GeoscapeState::determineAlienMissions"):]
     determine = determine[:determine.index("bool GeoscapeState::attemptAlienRaceEvolution")]
-    # PR #213 F23 (55f26f97a): the rotation runs over the roster names that have
+    # The rotation runs over the roster names that have
     # a player profile, in a fixed order.
     assert "for (const std::string& name : save->getCoopPlayers())" in determine
     assert "nextMissionOwner(profileNames)" in determine
@@ -27,7 +27,7 @@ def main():
     assert "bool factionRestricted = false" in determine
     assert "command->getMinDifficulty() > playerDifficulty" in determine
     assert "command->getMaxDifficulty() < playerDifficulty" in determine
-    # 472e3e84f: research triggers are checked per player on the profiles as they
+    # Research triggers are checked per player on the profiles as they
     # were when mission selection began (an arc script may grant research first).
     assert "initialSeparatePlayers = save->getSeparateCampaign().getPlayers()" in determine
     assert "playerEntry.second.completedResearch.count(trigger.first)" in determine
@@ -36,7 +36,7 @@ def main():
     tcp = (ROOT / "src/CoopMod/connectionTCP.cpp").read_text(encoding="utf-8")
     assert "setFactionResearch(" in tcp
     assert "coopFile->getDiscoveredResearch()" not in tcp  # captured through the shared helper
-    # 472e3e84f: a queued faction finale recheck keeps its owner as well.
+    # A queued faction finale recheck keeps its owner as well.
     assert "if (factionRestricted || queuedFactionFinale) commandOwner = missionOwner" in determine
     assert "processCommand(command, commandOwner)" in determine
 

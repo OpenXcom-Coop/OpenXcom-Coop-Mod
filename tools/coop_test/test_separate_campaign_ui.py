@@ -35,7 +35,7 @@ def main():
         assert menu["baseOwnerText"] == "Owner: HostPlayer", menu
         for button in ("facilities", "research", "manufacture", "sell"):
             assert not menu["visible"][button], menu
-        # Owner ruling RU17: a visitor may transfer their own soldiers out of a
+        # A visitor may transfer their own soldiers out of a
         # partner base, so Transfer shows there.
         assert menu["visible"]["transfer"], menu
         assert menu["miniBorderColors"]["HostBase"] == 1, menu

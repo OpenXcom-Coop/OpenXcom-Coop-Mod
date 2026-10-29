@@ -1,11 +1,11 @@
-"""SHARED: moving a base in the mini strip keeps one base order (PR #213).
+"""SHARED: moving a base in the mini strip keeps one base order.
 
-main lets a SHARED player move the selected base left in the mini base strip.
+A SHARED player can move the selected base left in the mini base strip.
 Commands name a base by its place in the base list, so the move goes through
 the host and both machines apply it in the same order:
 
-  B1 the client moves the last base left -> both machines show the new order
-  B2 a buy the client sends right after the move, naming the base that was in
+  - the client moves the last base left -> both machines show the new order
+  - a buy the client sends right after the move, naming the base that was in
      front of it, lands in that base on both machines
 
 Exit 0 = every row passed. Any other rc is a failure.
@@ -71,11 +71,11 @@ def main():
 
         want = start[:-2] + ["SharedSecond", target]
         moved = poll(lambda: (base_order(host) == want and base_order(client) == want) or None)
-        check("B1 the moved base is one place left on both machines", bool(moved),
+        check("the moved base is one place left on both machines", bool(moved),
               f"want={want} host={base_order(host)} client={base_order(client)}")
         landed = poll(lambda: all(incoming(gc, target) == before[gc.name] + 1
                                   for gc in (host, client)) or None)
-        check(f"B2 the buy sent right after the move lands in {target} on both machines",
+        check(f"the buy sent right after the move lands in {target} on both machines",
               bool(landed) and incoming(host, "SharedSecond") == 0
               and incoming(client, "SharedSecond") == 0,
               {f"{gc.name}:{b}": incoming(gc, b) for gc in (host, client)

@@ -3,24 +3,10 @@ rotation owner, and their popup, report and rewards reach that player only.
 
 The Separate campaign is one host-owned world. Each month the host runs the
 event scripts once, for ONE player in rotation (SeparateEcon
-CampaignData::nextMissionOwner, owner ruling RU15). The event belongs to that
+CampaignData::nextMissionOwner). The event belongs to that
 player: its popup and its report appear only on the owner's machine, its funds go
 to the owner's wallet and its research to the owner (with Shared Research: the
 canonical list, so both players learn it). The other player gets nothing.
-
-The old two-world rows (main #197) checked that each player's own world rolled the
-same certain event at the same time. Their single-world equivalents:
-  E1 (client rolls at game start)  -> the month-0 event exists once and belongs to
-                                      the month-0 rotation owner;
-  E2 (same countdown)              -> the client's view lists the host's events;
-  E3 (each rolls its own random)   -> the 50/50 script picks ONE event, for the
-                                      same owner;
-  E4/E5 (fires for both)           -> fires for its owner only;
-  E6 (research sync to the other)  -> Shared Research gives the event's research
-                                      to both through the canonical list (part
-                                      of E4/E5); with private research the
-                                      script's research trigger is the owner's;
-  E7/E8 (sync off)                 -> private research: the owner's profile only.
 
 Fixture mod Coop_EventSync_Test:
   STR_COOP_EV_CERTAIN    month 0, odds 100, one possible event, pays 100000
@@ -31,32 +17,34 @@ Each event grants its own STR_*_TOPIC research. Delays are 1440 + random(20000)
 minutes; rows that need a fire shorten the host's countdown.
 
 Session 1 (Shared Research on):
-  E1 the month-0 certain event is scheduled once, owned by the first player of the
-     rotation (sorted roster: ClientPlayer).
-  E2 the client's view lists the same events (name, countdown, owner).
-  E3 exactly one of RANDOM_A/B is scheduled, owned by the same player.
-  E4 the certain event fires: event popup and article on the owner's machine only;
-     100000 into the owner's wallet only; its topic reaches both players through
-     the canonical list; no "Research Completed" popup anywhere.
-  E5 both players know STR_COOP_EV_TRIGGER: at month 1 STR_COOP_EV_COND belongs to
-     the next player in the rotation (HostPlayer) and fires for that player only,
-     as in E4.
+  month-0 owner: the month-0 certain event is scheduled once, owned by the first
+     player of the rotation (sorted roster: ClientPlayer).
+  one schedule: the client's view lists the same events (name, countdown, owner).
+  one random pick: exactly one of RANDOM_A/B is scheduled, owned by the same
+     player.
+  owner only: the certain event fires: event popup and article on the owner's
+     machine only; 100000 into the owner's wallet only; its topic reaches both
+     players through the canonical list; no "Research Completed" popup anywhere.
+  next owner: both players know STR_COOP_EV_TRIGGER: at month 1 STR_COOP_EV_COND
+     belongs to the next player in the rotation (HostPlayer) and fires for that
+     player only, under the same owner-only rules.
 Session 2 (private research):
-  E7 the certain event fires for its owner: its topic goes to the owner's profile
-     only (both machines), the global list is unchanged, the wallet and popup rules
-     are E4's.
-  E8 at month 1 (owner HostPlayer) only HostPlayer's profile holds
+  owner only: the certain event fires for its owner: its topic goes to the
+     owner's profile only (both machines), the global list is unchanged, and the
+     wallet and popup rules are the same as in session 1.
+  owner's trigger: at month 1 (owner HostPlayer) only HostPlayer's profile holds
      STR_COOP_EV_TRIGGER_HOST and only ClientPlayer's holds STR_COOP_EV_TRIGGER:
      STR_COOP_EV_COND_HOST is scheduled for HostPlayer, STR_COOP_EV_COND is not;
      COND_HOST's topic goes to HostPlayer's profile only.
-  E6/E10 (Shared Research / private research) STR_COOP_EV_EFFECTS grants a topic
+  research side effects (both sessions): STR_COOP_EV_EFFECTS grants a topic
      whose research side effects raise COOP_EV_COUNTER, schedule
      STR_COOP_EV_FOLLOWUP and send a medi-kit to the owner's base. The replica
      holds the host's counter, the host's follow-up event (its countdown, not one
      the replica rolled) and the medi-kit.
-  E9 STR_COOP_EV_REWARD gives the owner's base a medi-kit, a Skyranger and a
-     soldier; the replica's copy of that base equals the host's, and once the
-     soldier arrives it belongs to the event's owner on both machines.
+  item, craft and soldier rewards: STR_COOP_EV_REWARD gives the owner's base a
+     medi-kit, a Skyranger and a soldier; the replica's copy of that base equals
+     the host's, and once the soldier arrives it belongs to the event's owner on
+     both machines.
 
 Every firing row also checks that the client's view of the pending events (names
 and owners) equals the host's, and reports the client's world-checksum repairs:
@@ -195,7 +183,7 @@ def roll_month(host, client):
 
 
 def fire(host, client, name, row, shared):
-    """Fire the host's copy of `name` and check E4's owner-only rules. Returns
+    """Fire the host's copy of `name` and check the owner-only rules. Returns
     (ok, detail)."""
     pending = events(host)
     if name not in pending:
@@ -329,7 +317,7 @@ def rewards(host, client, owner):
     soldiers_in = lambda b: sum(1 for t in b["transfers"] if t[1] == "STR_SOLDIER") + len(b["soldiers"])
     counts = lambda b: (b["items"].get("STR_MEDI_KIT", 0), rangers(b), soldiers_in(b))
     if counts(hb) != tuple(n + 1 for n in counts(b0)):
-        raise Inconclusive(f"E9: the host world did not give the rewards: (medi-kits, Skyrangers, "
+        raise Inconclusive(f"rewards: the host world did not give the rewards: (medi-kits, Skyrangers, "
                            f"soldiers on the way) before={counts(b0)} after={counts(hb)} "
                            f"transfers={hb['transfers']}")
     deadline = time.time() + 15
@@ -378,29 +366,29 @@ def session_shared(results):
         if CERTAIN not in he:
             raise Inconclusive(f"E1: host never scheduled {CERTAIN}: {he}")
         owner0 = he[CERTAIN][1]
-        results["E1 month-0 owner"] = (owner0 == PLAYERS[0], f"host events={he}")
+        results["month-0 owner"] = (owner0 == PLAYERS[0], f"host events={he}")
         # A 30-minute countdown step may land between the two reads.
         same = (set(ce) == set(he)
                 and all(ce[n][1] == he[n][1] and abs(ce[n][0] - he[n][0]) <= 30 for n in he))
-        results["E2 one schedule"] = (same, f"host={he} client={ce}")
+        results["one schedule"] = (same, f"host={he} client={ce}")
         picked = sorted(RANDOM & set(he))
-        results["E3 one random pick"] = (
+        results["one random pick"] = (
             len(picked) == 1 and he[picked[0]][1] == owner0,
             f"picked={picked} owners={[he[p][1] for p in picked]}")
-        results["E4 owner only, shared research"] = fire(host, client, CERTAIN, "E4", True)
+        results["owner only, shared research"] = fire(host, client, CERTAIN, "certain event", True)
 
         for gc in (host, client):
             gc.ok({"cmd": "discover_research", "topic": "STR_COOP_EV_TRIGGER"})
         roll_month(host, client)
         he = events(host)
         if COND not in he:
-            raise Inconclusive(f"E5: host did not schedule {COND} at month 1: {he}")
+            raise Inconclusive(f"next owner: host did not schedule {COND} at month 1: {he}")
         ok_owner = he[COND][1] == other(owner0) and COND_HOST not in he
-        ok_fire, detail = fire(host, client, COND, "E5", True)
-        results["E5 next owner, shared research"] = (
+        ok_fire, detail = fire(host, client, COND, "next owner", True)
+        results["next owner, shared research"] = (
             ok_owner and ok_fire, f"month-1 events={he} {detail}")
-        results["E6 research side effects, shared research"] = effects(
-            host, client, "E6", "ClientPlayer")
+        results["research side effects, shared research"] = effects(
+            host, client, "side effects, shared research", "ClientPlayer")
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         js.shutdown()
@@ -413,10 +401,10 @@ def session_private(results):
     try:
         he = events(host)
         if CERTAIN not in he:
-            raise Inconclusive(f"E7: host never scheduled {CERTAIN}: {he}")
+            raise Inconclusive(f"private research: host never scheduled {CERTAIN}: {he}")
         owner0 = he[CERTAIN][1]
-        ok_fire, detail = fire(host, client, CERTAIN, "E7", False)
-        results["E7 owner only, private research"] = (
+        ok_fire, detail = fire(host, client, CERTAIN, "certain event, private research", False)
+        results["owner only, private research"] = (
             ok_fire and owner0 == PLAYERS[0], detail)
 
         owner1 = other(owner0)
@@ -428,14 +416,14 @@ def session_private(results):
         roll_month(host, client)
         he = events(host)
         if COND_HOST not in he:
-            raise Inconclusive(f"E8: host did not schedule {COND_HOST} at month 1: {he}")
+            raise Inconclusive(f"owner's trigger: host did not schedule {COND_HOST} at month 1: {he}")
         ok_sched = he[COND_HOST][1] == owner1 and COND not in he
-        ok_fire, detail = fire(host, client, COND_HOST, "E8", False)
-        results["E8 owner's trigger, private research"] = (
+        ok_fire, detail = fire(host, client, COND_HOST, "owner's trigger", False)
+        results["owner's trigger, private research"] = (
             ok_sched and ok_fire, f"month-1 events={he} {detail}")
-        results["E9 item, craft and soldier rewards"] = rewards(host, client, "ClientPlayer")
-        results["E10 research side effects, private research"] = effects(
-            host, client, "E10", "ClientPlayer")
+        results["item, craft and soldier rewards"] = rewards(host, client, "ClientPlayer")
+        results["research side effects, private research"] = effects(
+            host, client, "side effects, private research", "ClientPlayer")
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         js.shutdown()

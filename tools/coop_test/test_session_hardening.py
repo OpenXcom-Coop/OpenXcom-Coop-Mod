@@ -246,9 +246,9 @@ def main():
         # is the world it streamed to the client, never a per-player client blob.
         key_a = f"host_{id_a}_ClientPlayer.data"
         assert not host.ok({"cmd": "has_coop_file", "key": key_a}).get("present"), \
-            "C1 setup: the single Separate world kept a client world blob"
+            "solo-save setup: the single Separate world kept a client world blob"
         assert WORLD_KEY in host_blob_keys(host), \
-            "C1 setup: the streamed campaign world should be held after the campaign"
+            "solo-save setup: the streamed campaign world should be held after the campaign"
 
         # disconnect both to the main menu (the ex-host stays the same process)
         host.ok({"cmd": "disconnect_to_menu"})
@@ -269,7 +269,7 @@ def main():
         assert not host.ok({"cmd": "has_coop_file", "key": key_a}).get("present"), \
             "C1: a stale host_* blob survived the solo load"
         assert WORLD_KEY not in host_blob_keys(host), \
-            "C1: the campaign's streamed world survived the solo load"
+            "solo save: the campaign's streamed world survived the solo load"
         print("PASS C1: solo save after coop loads cleanly, no stale blob")
 
         # ---------- C2 (PRD-04): a second campaign mints a fresh saveID ----------
@@ -287,7 +287,7 @@ def main():
         assert id_1 != 0, "C2 setup: first campaign saveID should be nonzero"
         # The single Separate world's campaign blob is the world the host streamed.
         assert WORLD_KEY in host_blob_keys(host), \
-            "C2 setup: first campaign's streamed world should be held"
+            "second-campaign setup: first campaign's streamed world should be held"
 
         # tear the session down to the main menu in-process (resetSession fires):
         # a pristine identity means the first campaign's blob is gone.
@@ -308,7 +308,7 @@ def main():
             return sorted((b["name"], b["coopBaseId"], b["lon"], b["lat"])
                           for b in gc.ok({"cmd": "geo_state"})["bases"])
         assert bases(client) == bases(host), \
-            f"C2: the client was served a stale world: host={bases(host)} client={bases(client)}"
+            f"second campaign: the client was served a stale world: host={bases(host)} client={bases(client)}"
         print(f"PASS C2: second campaign minted a fresh saveID ({id_1} -> {id_2})")
 
         # ---------- C7 (PRD-08): host mid-session local load is refused ----------

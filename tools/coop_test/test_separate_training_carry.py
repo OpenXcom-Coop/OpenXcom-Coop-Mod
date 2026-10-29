@@ -9,13 +9,13 @@ it never has to repair a step (0 resync requests, 0 streams).
 
 Rows (a test mod gives every access lift a gym, a psi lab and a sick bay with a
 relative bonus, so one day of healing leaves a fraction):
-  T1 wounds   with nobody in training, one soldier per player is wounded and
+  wounds      with nobody in training, one soldier per player is wounded and
               another misses health and mana. After one midnight both machines
               hold the same exact wound recovery and missing health and mana.
-  T2 martial  each player's own soldiers at their own base are in martial
+  martial     each player's own soldiers at their own base are in martial
               training. After one midnight their stats rose on the host and
               every soldier's state is the same on both machines.
-  T3 psi      each player's own soldiers at their own base are in psi training
+  psi         each player's own soldiers at their own base are in psi training
               (monthly psi training, the default). After the month turns their
               psi skill and improvement are the same on both machines.
 
@@ -134,7 +134,7 @@ def released(gc):
 
 def make_equal(host, client, label):
     """Start a row from one world. A previous row that left the machines
-    different (a red build) is healed by a restream: a replica-only stat drift
+    different (a broken build) is healed by a restream: a replica-only stat drift
     makes the checksum ask for one."""
     if not differences(host, client):
         return
@@ -202,18 +202,18 @@ def settle_and_count(host, client, hlog, label):
 
 
 def row_wounds(host, client, host_dir):
-    """T1: wound recovery and missing health and mana after one midnight."""
+    """Wound recovery and missing health and mana after one midnight."""
     picks = []
     for base, owner in (("HostBase", 0), ("ClientBase", 1)):
         ids = own(host, base, owner)
-        assert len(ids) >= 2, ("T1 premise: two own soldiers", base, ids)
+        assert len(ids) >= 2, ("wounds premise: two own soldiers", base, ids)
         picks.append((base, owner, ids[0], {"recovery": 5}))
         picks.append((base, owner, ids[1], {"healthMissing": 10, "manaMissing": 10}))
     for base, owner, sid, wounds in picks:
         for gc in (host, client):
             gc.ok(dict({"cmd": "soldier_carry", "action": "set_wounds", "base": base,
                         "id": sid, "owner": owner}, **wounds))
-    assert not differences(host, client), ("T1 fixture differs", differences(host, client))
+    assert not differences(host, client), ("wounds fixture differs", differences(host, client))
     reset_resync(host, client)
     log = EngineLog(host_dir)
     run_step(host, client, sep.geo(host)["time"]["day"])
@@ -221,16 +221,16 @@ def row_wounds(host, client, host_dir):
     healed = [h[(b, o, s)] for b, o, s, _ in picks]
     premise = (healed[0]["recovery"] < 5 and healed[2]["recovery"] < 5
                and healed[1]["healthMissing"] < 10 and healed[1]["manaMissing"] < 10)
-    print(f"  T1 host after the step: "
+    print(f"  wounds: host after the step: "
           f"{[(s['id'], s['recovery'], s['healthMissing'], s['manaMissing']) for s in healed]}")
-    diffs, rc, rh, streams = settle_and_count(host, client, log, "T1")
-    check("T1 wounds: the host healed its soldiers (premise)", premise,
+    diffs, rc, rh, streams = settle_and_count(host, client, log, "wounds")
+    check("wounds: the host healed its soldiers (premise)", premise,
           f"{[(s['id'], s['recovery'], s['healthMissing'], s['manaMissing']) for s in healed]}")
-    check("T1 wounds: exact wound recovery and missing health and mana match on both "
+    check("wounds: exact wound recovery and missing health and mana match on both "
           "machines right after the day step, with no restream",
           premise and not diffs and rc == 0 and rh == 0 and streams == 0,
           f"diffs={diffs} requests client={rc} host={rh} streams={streams}")
-    # Healed again on both machines, so T2 can train every own soldier.
+    # Healed again on both machines, so the martial row can train every own soldier.
     for base, owner, sid, _ in picks:
         for gc in (host, client):
             gc.ok({"cmd": "soldier_carry", "action": "set_wounds", "base": base,
@@ -243,8 +243,8 @@ def trained_sum(gc, base, ids):
 
 
 def row_martial(host, client, host_dir):
-    """T2: martial training after one midnight."""
-    make_equal(host, client, "T2")
+    """Martial training after one midnight."""
+    make_equal(host, client, "martial")
     screen_all(client, "training", "ClientBase", "assign_all")
     screen_all(host, "training", "HostBase", "assign_all")
     on = False
@@ -252,21 +252,21 @@ def row_martial(host, client, host_dir):
     while time.time() < deadline and not on:
         on = flags_settled(host, client, "training", True)
         time.sleep(0.25)
-    assert on, "T2 premise: every own soldier in martial training on both machines"
+    assert on, "martial premise: every own soldier in martial training on both machines"
     trainees = {"HostBase": own(host, "HostBase", 0), "ClientBase": own(host, "ClientBase", 1)}
     before = {b: trained_sum(host, b, ids) for b, ids in trainees.items()}
-    client.wait_for("T2 both machines agree before the step",
+    client.wait_for("martial: both machines agree before the step",
                     lambda: not differences(host, client) or None, timeout=30, interval=0.5)
     reset_resync(host, client)
     log = EngineLog(host_dir)
     run_step(host, client, sep.geo(host)["time"]["day"])
     after = {b: trained_sum(host, b, ids) for b, ids in trainees.items()}
-    print(f"  T2 trained stats on the host {before} -> {after}")
-    diffs, rc, rh, streams = settle_and_count(host, client, log, "T2")
+    print(f"  martial: trained stats on the host {before} -> {after}")
+    diffs, rc, rh, streams = settle_and_count(host, client, log, "martial")
     premise = all(after[b] > before[b] for b in before)
-    check("T2 martial: the host trained both players' soldiers (premise)", premise,
+    check("martial: the host trained both players' soldiers (premise)", premise,
           f"before={before} after={after}")
-    check("T2 martial: every soldier's stats match on both machines right after the "
+    check("martial: every soldier's stats match on both machines right after the "
           "day step, with no restream",
           premise and not diffs and rc == 0 and rh == 0 and streams == 0,
           f"diffs={diffs} requests client={rc} host={rh} streams={streams}")
@@ -284,8 +284,8 @@ def psi(gc, base, ids):
 
 
 def row_psi_month(host, client, host_dir):
-    """T3: monthly psi training when the month turns."""
-    make_equal(host, client, "T3")
+    """Monthly psi training when the month turns."""
+    make_equal(host, client, "psi")
     screen_all(client, "psi_training", "ClientBase", "assign_all")
     screen_all(host, "psi_training", "HostBase", "assign_all")
     deadline = time.time() + 15
@@ -293,22 +293,22 @@ def row_psi_month(host, client, host_dir):
     while time.time() < deadline and not on:
         on = flags_settled(host, client, "psiTraining", True)
         time.sleep(0.25)
-    assert on, "T3 premise: every own soldier in psi training on both machines"
+    assert on, "psi premise: every own soldier in psi training on both machines"
     trainees = {"HostBase": own(host, "HostBase", 0), "ClientBase": own(host, "ClientBase", 1)}
     before = {b: psi(host, b, ids) for b, ids in trainees.items()}
-    client.wait_for("T3 both machines agree before the step",
+    client.wait_for("psi: both machines agree before the step",
                     lambda: not differences(host, client) or None, timeout=30, interval=0.5)
     reset_resync(host, client)
     log = EngineLog(host_dir)
     t = sep.geo(host)["time"]
     run_step(host, client, calendar.monthrange(t["year"], t["month"])[1])
     after = {b: psi(host, b, ids) for b, ids in trainees.items()}
-    print(f"  T3 psi (skill, improvement) on the host {before} -> {after}")
-    diffs, rc, rh, streams = settle_and_count(host, client, log, "T3")
+    print(f"  psi: (skill, improvement) on the host {before} -> {after}")
+    diffs, rc, rh, streams = settle_and_count(host, client, log, "psi")
     premise = all(after[b][i][0] != before[b][i][0] for b in before for i in before[b])
-    check("T3 psi: the host's month step trained both players' soldiers (premise)", premise,
+    check("psi: the host's month step trained both players' soldiers (premise)", premise,
           f"before={before} after={after}")
-    check("T3 psi: psi skill and improvement match on both machines right after the "
+    check("psi: psi skill and improvement match on both machines right after the "
           "month step, with no restream",
           premise and not diffs and rc == 0 and rh == 0 and streams == 0,
           f"diffs={diffs} requests client={rc} host={rh} streams={streams}")
@@ -327,7 +327,7 @@ def main():
                 gc.ok({"cmd": "geo_set_speed", "idx": 0})
             print("  rosters: " + str({b: [(s["owner"], s["id"]) for s in sep.soldiers_at(host, b)]
                                        for b in ("HostBase", "ClientBase")}))
-            for name, row in (("T1", row_wounds), ("T2", row_martial), ("T3", row_psi_month)):
+            for name, row in (("wounds", row_wounds), ("martial", row_martial), ("psi", row_psi_month)):
                 try:
                     row(host, client, js.host_dir)
                 except (AssertionError, TimeoutError) as e:

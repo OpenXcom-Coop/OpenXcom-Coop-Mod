@@ -163,7 +163,7 @@ def assert_foreign_basescape_menu(gc, expected_base):
     assert menu["base"] == expected_base, menu
     assert menu["foreign"], menu
     visible = menu["visible"]
-    # Owner ruling RU17: a visitor may transfer their own soldiers out of a
+    # A visitor may transfer their own soldiers out of a
     # partner base, so Transfer shows there (its screen lists only those soldiers).
     for button in ("baseInfo", "soldiers", "crafts", "purchase", "transfer", "geoscape"):
         assert visible[button], f"foreign {expected_base}: {button} unexpectedly hidden"

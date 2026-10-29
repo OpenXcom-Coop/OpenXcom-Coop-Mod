@@ -4,10 +4,8 @@ discovery for BOTH players.
 The Separate campaign is one host-owned world. The host simulates every base, so
 a research project completes once, on the host. With Shared Research (the
 multiplayer option "Research Sync"), discoveries go to the one canonical research
-list, which the client replica adopts from the host's research_done result. The
-old two-world rows (main #197) checked that a peer's completion was mirrored into
-the other player's own world; here each row runs the host-simulated completion
-and checks:
+list, which the client replica adopts from the host's research_done result. Each
+row runs the host-simulated completion and checks:
   * both players' knowledge: the global list on both machines, each player's
     research check (isResearchedForPlayer) on both machines, and the private
     profiles (unchanged and identical on both machines);
@@ -17,30 +15,31 @@ and checks:
 
 Rows (vanilla rules plus Coop_ResearchSync_Test, Shared Research on, the host
 player researches at HostBase):
-  R1 bonus   STR_SECTOID_ENGINEER (getOneFree: UFO types). Both players learn the
-             topic, its lookup and the one bonus the host rolled; each machine
-             shows one popup whose VIEW REPORTS opens the bonus article.
-  R2 lookup  STR_SECTOID_CORPSE (lookup STR_SECTOID_AUTOPSY). Both players learn
-             the lookup; each machine's VIEW REPORTS opens that article.
-  R3 dup     the client player's ClientBase also runs STR_LASER_WEAPONS. When the
-             host player's copy finishes, the ClientBase copy is removed on both
-             machines (nothing left to gain from it).
-  R4 keep    the same with STR_SECTOID_ENGINEER: the ClientBase copy stays on both
-             machines, the topic still has undiscovered getOneFree rewards (vanilla
-             rule). Guard row.
-  R5 quiet   STR_SECTOID_CORPSE again, already known to both. Single-world
-             equivalent of "a completion that brings nothing new pops nothing": the
-             old receiver-side mirror is gone, so each machine shows exactly the one
-             Shared Research dialog (no duplicate), no article opens and nobody
-             learns anything.
-  R6 items   STR_COOP_RS_SPAWNS_ITEM (spawnedItem STR_MEDI_KIT). Both players learn
-             the topic; the medi-kit goes only to HostBase, the researcher's base,
-             on both machines (owner ruling RU5).
-  R7 effects STR_COOP_RS_COUNTER_EVENT (increaseCounter COOP_RS_COUNTER, spawnedEvent
-             STR_COOP_RS_EVENT). Both machines hold the same counter value and the
-             same pending event (owner, the host's countdown).
-  R8 corpse  STR_SECTOID_SOLDIER, an interrogation, with retainCorpses on the host
-             only. The corpse returns to HostBase's stores on both machines.
+  bonus          STR_SECTOID_ENGINEER (getOneFree: UFO types). Both players learn
+                 the topic, its lookup and the one bonus the host rolled; each
+                 machine shows one popup whose VIEW REPORTS opens the bonus article.
+  lookup         STR_SECTOID_CORPSE (lookup STR_SECTOID_AUTOPSY). Both players
+                 learn the lookup; each machine's VIEW REPORTS opens that article.
+  duplicate      the client player's ClientBase also runs STR_LASER_WEAPONS. When
+                 the host player's copy finishes, the ClientBase copy is removed
+                 on both machines (nothing left to gain from it).
+  keep           the same with STR_SECTOID_ENGINEER: the ClientBase copy stays on
+                 both machines, the topic still has undiscovered getOneFree
+                 rewards (vanilla rule). Guard row.
+  repeat         STR_SECTOID_CORPSE again, already known to both. A completion
+                 that brings nothing new shows nothing extra: each machine shows
+                 exactly the one Shared Research dialog (no duplicate), no article
+                 opens and nobody learns anything.
+  spawned item   STR_COOP_RS_SPAWNS_ITEM (spawnedItem STR_MEDI_KIT). Both players
+                 learn the topic; the medi-kit goes only to HostBase, the
+                 researcher's base, on both machines.
+  side effects   STR_COOP_RS_COUNTER_EVENT (increaseCounter COOP_RS_COUNTER,
+                 spawnedEvent STR_COOP_RS_EVENT). Both machines hold the same
+                 counter value and the same pending event (owner, the host's
+                 countdown).
+  interrogation  STR_SECTOID_SOLDIER, an interrogation, with retainCorpses on the
+                 host only. The corpse returns to HostBase's stores on both
+                 machines.
 
 Every row also reports the client's world-checksum repairs (resync requests):
 the replica must reach the host's result through the research_done result, not
@@ -167,7 +166,7 @@ def advance(host, client, minutes, settle=3.0):
 
 def start(host, client, topic, cost, base_name="HostBase"):
     """Start `topic` at `base_name` in the world and its replica. The game's own
-    start (res_start) puts the project on both machines; the start_research lever
+    start (res_start) puts the project on both machines; the start_research test command
     writes only the machine it runs on, and a project only the host holds is real
     drift (chkProjects) that the replica repairs with a restream once it outlives
     the checksum debounce."""
@@ -209,9 +208,9 @@ def row_bonus(host, client, results, profiles0):
     gained = known(host) - before
     bonus = sorted(gained & ENGINEER_FREE)
     if "STR_SECTOID_ENGINEER" not in gained or len(bonus) != 1:
-        raise Inconclusive(f"R1: host did not complete the topic with one bonus: gained={sorted(gained)}")
+        raise Inconclusive(f"bonus: host did not complete the topic with one bonus: gained={sorted(gained)}")
     bonus = bonus[0]
-    h, c = converge(host, client, "R1", known)
+    h, c = converge(host, client, "bonus", known)
     view = knowledge(host, client, gained)
     article = "article:" + bonus
     popups = {m: (seen[m].count("RC"), article in seen[m]) for m in seen}
@@ -219,7 +218,7 @@ def row_bonus(host, client, results, profiles0):
           and profiles(host) == profiles(client) == profiles0
           and all(n == 1 and a for n, a in popups.values())
           and requests(client) == r0)
-    results["R1 bonus"] = (ok, f"gained={sorted(gained)} missing on client={sorted(h - c)} "
+    results["getOneFree bonus reaches both players"] = (ok, f"gained={sorted(gained)} missing on client={sorted(h - c)} "
                                f"(RC count, bonus article) per machine={popups} "
                                f"restreams={requests(client) - r0} popups={seen}")
 
@@ -229,15 +228,15 @@ def row_lookup(host, client, results, profiles0):
     start(host, client, "STR_SECTOID_CORPSE", 1)
     seen = advance(host, client, DAY)
     if "STR_SECTOID_AUTOPSY" not in known(host):
-        raise Inconclusive("R2: host never learned STR_SECTOID_AUTOPSY")
-    converge(host, client, "R2", known)
+        raise Inconclusive("lookup: host never learned STR_SECTOID_AUTOPSY")
+    converge(host, client, "lookup", known)
     view = knowledge(host, client, {"STR_SECTOID_AUTOPSY"})
     article = "article:STR_SECTOID_AUTOPSY"
     ok = (everyone_knows(view, {"STR_SECTOID_AUTOPSY"})
           and all(article in seen[m] for m in seen)
           and profiles(host) == profiles(client) == profiles0
           and requests(client) == r0)
-    results["R2 lookup"] = (ok, f"knowledge={view} restreams={requests(client) - r0} popups={seen}")
+    results["lookup reaches both players"] = (ok, f"knowledge={view} restreams={requests(client) - r0} popups={seen}")
 
 
 def row_duplicate(host, client, results, topic, keep, row):
@@ -262,14 +261,14 @@ def row_quiet(host, client, results, profiles0):
     start(host, client, "STR_SECTOID_CORPSE", 1)
     seen = advance(host, client, DAY)
     if "RC" not in seen[host.name]:
-        raise Inconclusive(f"R5: host never completed the repeat: {seen[host.name]}")
+        raise Inconclusive(f"repeat: host never completed the repeat: {seen[host.name]}")
     after = (known(host), known(client))
     articles = {m: [s for s in seen[m] if s.startswith("article:")] for m in seen}
     ok = (all(seen[m].count("RC") == 1 for m in seen)
           and not any(articles.values()) and after == before
           and profiles(host) == profiles(client) == profiles0
           and requests(client) == r0)
-    results["R5 quiet"] = (ok, f"articles={articles} learned host={sorted(after[0] - before[0])} "
+    results["a repeat completion brings nothing new"] = (ok, f"articles={articles} learned host={sorted(after[0] - before[0])} "
                                f"client={sorted(after[1] - before[1])} "
                                f"restreams={requests(client) - r0} popups={seen}")
 
@@ -282,9 +281,9 @@ def row_items(host, client, results):
     start(host, client, topic, 1)
     seen = advance(host, client, DAY)
     if medikits(host, "HostBase") != kits0[(host.name, "HostBase")] + 1:
-        raise Inconclusive(f"R6: host HostBase medi-kits did not grow by one: {kits0} -> "
+        raise Inconclusive(f"spawned item: host HostBase medi-kits did not grow by one: {kits0} -> "
                            f"{medikits(host, 'HostBase')}")
-    converge(host, client, "R6", lambda gc: medikits(gc, "HostBase"))
+    converge(host, client, "spawned item", lambda gc: medikits(gc, "HostBase"))
     kits = {(gc.name, b): medikits(gc, b) for gc in (host, client)
             for b in ("HostBase", "ClientBase")}
     want = dict(kits0)
@@ -292,12 +291,12 @@ def row_items(host, client, results):
         want[(gc.name, "HostBase")] += 1
     view = knowledge(host, client, {topic})
     ok = kits == want and everyone_knows(view, {topic}) and requests(client) == r0
-    results["R6 items"] = (ok, f"medi-kits before={kits0} after={kits} knowledge={view} "
+    results["spawned item stays with the researcher"] = (ok, f"medi-kits before={kits0} after={kits} knowledge={view} "
                                f"restreams={requests(client) - r0}")
 
 
 def row_counter_event(host, client, results):
-    """R7: the topic's custom counter and spawned event reach the replica from the
+    """The topic's custom counter and spawned event reach the replica from the
     host's result. The event's countdown is the host's roll (minus the half hours
     the host counted since), never a roll of the replica's own."""
     topic, ctr, ev = "STR_COOP_RS_COUNTER_EVENT", "COOP_RS_COUNTER", "STR_COOP_RS_EVENT"
@@ -308,21 +307,21 @@ def row_counter_event(host, client, results):
     advance(host, client, DAY)
     elapsed = geo.game_minutes(host) - t0
     if counter(host, ctr) == c0[0] or not pending(host, ev):
-        raise Inconclusive(f"R7: the host world did not run the side effects: counter "
+        raise Inconclusive(f"side effects: the host world did not run the side effects: counter "
                            f"{c0[0]} -> {counter(host, ctr)} events={pending(host, ev)}")
-    converge(host, client, "R7", lambda gc: (counter(gc, ctr), [o for o, _ in pending(gc, ev)]))
+    converge(host, client, "side effects", lambda gc: (counter(gc, ctr), [o for o, _ in pending(gc, ev)]))
     hc, cc = counter(host, ctr), counter(client, ctr)
     he, ce = pending(host, ev), pending(client, ev)
     same_event = (len(he) == len(ce) == 1 and he[0][0] == ce[0][0]
                   and abs(he[0][1] - ce[0][1]) <= elapsed + 30)
     ok = hc == cc and same_event and requests(client) == r0
-    results["R7 counter+event"] = (ok, f"counter host={hc} client={cc} (before {c0}) "
+    results["counter and spawned event reach the replica"] = (ok, f"counter host={hc} client={cc} (before {c0}) "
                                        f"{ev} host={he} client={ce} (window {elapsed} min) "
                                        f"restreams={requests(client) - r0}")
 
 
 def row_interrogation(host, client, results):
-    """R8: a finished interrogation puts the alien's corpse back in the researching
+    """A finished interrogation puts the alien's corpse back in the researching
     base's stores (host option retainCorpses). The replica gets the same corpse
     from the host's result, not from a world restream."""
     r0 = requests(client)
@@ -330,18 +329,18 @@ def row_interrogation(host, client, results):
     start(host, client, "STR_SECTOID_SOLDIER", 1)
     advance(host, client, DAY)
     if "STR_SECTOID_SOLDIER" in projects(host, "HostBase"):
-        raise Inconclusive("R8: the interrogation never completed on the host")
+        raise Inconclusive("interrogation: the interrogation never completed on the host")
     if corpses(host, "HostBase") != k0[0] + 1:
-        raise Inconclusive(f"R8: the host kept no corpse: {k0[0]} -> {corpses(host, 'HostBase')}")
-    h, c = converge(host, client, "R8", lambda gc: corpses(gc, "HostBase"))
+        raise Inconclusive(f"interrogation: the host kept no corpse: {k0[0]} -> {corpses(host, 'HostBase')}")
+    h, c = converge(host, client, "interrogation", lambda gc: corpses(gc, "HostBase"))
     ok = h == c == k0[1] + 1 and requests(client) == r0
-    results["R8 interrogation"] = (ok, f"HostBase corpses before={k0} host={h} client={c} "
+    results["interrogation corpse returns to the researching base"] = (ok, f"HostBase corpses before={k0} host={h} client={c} "
                                        f"restreams={requests(client) - r0}")
 
 
 def main():
     opts = {"EnableResearchSync": True}
-    # R8: only the host keeps interrogation corpses; the replica must follow the
+    # Only the host keeps interrogation corpses; the replica must follow the
     # host's result, not its own option.
     js = sep.bring_up("rsync", (48991, 48992, 47966), mods=[MOD],
                       host_options=dict(opts, retainCorpses=True), client_options=opts)
@@ -361,8 +360,8 @@ def main():
             raise Inconclusive(f"profiles differ at start: {profiles0} vs {profiles(client)}")
         row_bonus(host, client, results, profiles0)
         row_lookup(host, client, results, profiles0)
-        row_duplicate(host, client, results, "STR_LASER_WEAPONS", False, "R3 dup")
-        row_duplicate(host, client, results, "STR_SECTOID_ENGINEER", True, "R4 keep")
+        row_duplicate(host, client, results, "STR_LASER_WEAPONS", False, "duplicate project removed at the other base")
+        row_duplicate(host, client, results, "STR_SECTOID_ENGINEER", True, "duplicate project kept while rewards remain")
         row_quiet(host, client, results, profiles0)
         row_items(host, client, results)
         row_counter_event(host, client, results)

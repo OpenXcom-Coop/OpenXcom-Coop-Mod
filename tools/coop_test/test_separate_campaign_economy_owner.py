@@ -10,8 +10,8 @@ replica copy.
   EVENT  a geoscape event owned by the client credits the client's wallet; the
          client replica only displays it (no second credit on the replica).
   BONUS  the monthly performance bonus is split like country funding: each
-         wallet gets bonus / player count, identically on both machines (RU7).
-  DEBT   debt defeat judges the SUM of both wallets once, on the host (RU2):
+         wallet gets bonus / player count, identically on both machines.
+  DEBT   debt defeat judges the SUM of both wallets once, on the host:
          one player negative but the total positive -> no warning anywhere;
          total negative -> the same warning on both; still negative at the
          next month end -> campaign-wide defeat on both.
@@ -33,16 +33,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo
 import separate_campaign_fixture as fixture
 
-MOD_NAME = "Coop_UnitC_Economy_Test"
-WIDGET = "STR_COOP_UNITC_RIFLE"
+MOD_NAME = "Coop_Economy_Owner_Test"
+WIDGET = "STR_COOP_ECON_RIFLE"
 WIDGET_COST = 1000
 WIDGET_TIME = 5
-EVENT = "STR_COOP_UNITC_FUNDS"
+EVENT = "STR_COOP_ECON_FUNDS"
 EVENT_FUNDS = 70000
 BONUS_FACTOR = 100
 
 METADATA = """\
-name: "Coop unit C economy test"
+name: "Coop economy owner test"
 version: 1.0
 description: "Test-only: research-free manufacture, a funds event, a performance bonus."
 author: coop harness
@@ -268,7 +268,7 @@ def main():
                     "the bonus was not split equally between the players", extra)
                 assert after_c == after_h, ("replica wallets differ", after_h, after_c)
                 report_states(host, client)
-            row("BONUS the performance bonus is split equally (RU7)", bonus)
+            row("BONUS the performance bonus is split equally", bonus)
 
             # DEBT ---------------------------------------------------------
             def debt():
@@ -306,7 +306,7 @@ def main():
                         break
                 assert endings == {"host": 2, "client": 2}, (
                     "the second negative month must end the campaign on both", endings)
-            row("DEBT combined funds judged once on the host (RU2)", debt)
+            row("DEBT combined funds judged once on the host", debt)
         finally:
             js.shutdown()
     finally:

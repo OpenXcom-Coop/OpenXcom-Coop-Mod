@@ -1,6 +1,6 @@
 """Regression test: a soldier's equipment must survive being looked at from the
 other player's base, on BOTH equip screens, in the single host-owned SEPARATE
-world (PR #213).
+world.
 
 Reported from a SEPARATE playtest: a soldier equipped with a weapon in each hand
 and rockets in the backpack is transferred to another player's base; at that base
@@ -13,17 +13,12 @@ whenever the base owner had equipped that type on the craft.
 WHAT IS ASSERTED, at the host's own base and at the client's base (co-op vs
 plain parity: whatever holds at your own base must hold at the partner's):
 
-  0. precondition: the client equips its own crew by hand at its base. main's
+  0. precondition: the client equips its own crew by hand at its base. The
      two-world craft item manifest (whose type-only match stripped the weapons)
-     is retired in the single world: equipping writes none;
+     does not exist in the single world: equipping writes none;
   1. the transferred soldier wears its COMPLETE layout on both screens;
   2. the two screens put the same items in the same slots on that soldier;
   3. the two screens hold the same set of physical item instances (`all`).
-
-Replaced rows (two-world premise gone):
-  - "the host visits the peer base" (insideCoopBase) -> the host opens the
-    client's base screens directly; the soldier is moved there by a host-run
-    transfer and seated on the client's Skyranger through the host.
 
 Run:  python tools/coop_test/test_coop_peer_equip_screens.py
 """
@@ -58,7 +53,7 @@ def close_base_inventory(gc):
 
 def equip_by_hand(gc, base_name, owner_seat, crew_limit=3):
     """Really drag items onto the local player's own crew, the way a player
-    does (main wrote the craft's item manifest here)."""
+    does."""
     own = {s["id"] for s in T.report(gc, base_name)["soldiers"] if s["owner"] == owner_seat}
     open_base_inventory(gc, base_name)
     g = gc.ok({"cmd": "inventory_ground"})
@@ -117,7 +112,7 @@ def main():
             f"the craft item manifest has DUPLICATE (type, id) pairs - a type-only "
             f"match follows: {manifest}")
         assert not manifest, (
-            f"equipping by hand wrote the retired two-world craft item manifest: {manifest}")
+            f"equipping by hand wrote a two-world craft item manifest: {manifest}")
         print(f"client crew equipped by hand ({moved} moves); manifest {len(manifest)} "
               f"entries, all (type,id) distinct")
 

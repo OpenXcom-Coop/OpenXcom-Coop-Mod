@@ -57,7 +57,7 @@ def _coop(gc):
 
 
 def _assert_released(gc, tag, timeout=10.0):
-    """The client must not be parked in the resume hold (the J09 deadlock).
+    """The client must not stay parked in the resume hold (a deadlock).
 
     The replica adopts the world, and the checksum heals, BEFORE the hold can
     close: the release is a host round trip (resume_ack -> campaign_begun) and

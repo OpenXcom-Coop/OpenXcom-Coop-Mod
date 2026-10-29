@@ -1,8 +1,8 @@
-"""PvP campaigns keep main's two-world rules (PR #213 review F3, ruling RU11).
+"""PvP campaigns keep the two-world rules.
 
 PvP campaigns are stored with campaign type Separate, but only the cooperative
-game modes (0/1) use the new single host-authoritative world. PvP (game mode
-2/3) keeps one independent world per player, exactly as on main:
+game modes (0/1) use the single host-authoritative world. PvP (game mode
+2/3) keeps one independent world per player:
 
   gm3 (host = aliens, client = X-COM):
     - the client is NOT a replica: its own world simulates, so research it
@@ -10,11 +10,11 @@ game modes (0/1) use the new single host-authoritative world. PvP (game mode
     - the client's starting craft crew is not trimmed to a per-player quota;
     - no single-world profile/wallet is applied to the PvP world.
     - the alien host's mirror of the client's X-COM base detects a UFO right
-      above it with X-COM's facilities (main's _facilitiesCoop radar data,
-      which on main only the client sends).
+      above it with X-COM's facilities (the _facilitiesCoop radar data,
+      which only the client sends).
   gm2 (host = X-COM, client = aliens):
     - the alien client's mirror of the X-COM base carries X-COM's radar range,
-      so the alien side sees the radar circle (main's _radar_range_coop).
+      so the alien side sees the radar circle (_radar_range_coop).
 
 Run:  py -3 tools/coop_test/test_pvp_campaign_world_rules.py
 Exit 0 = pass, 2 = failure.
@@ -208,7 +208,7 @@ def main():
         for f in fails:
             print(f"  FAIL {f}")
         sys.exit(2)
-    print("  PvP keeps main's two-world rules")
+    print("  PvP keeps the two-world rules")
     sys.exit(0)
 
 

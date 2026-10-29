@@ -91,7 +91,7 @@ def main():
             # the dual-save detector so no client-file picker is shown.
             "embed_sequence_host.sav": ("legacy", "embed", True),
             "embed_no_blob.sav":    ("solo", "none", False),    # F2: key but no blob -> not a recoverable embed -> Solo
-            # PR #213 F3: a PvP save written by main keeps two worlds. Its
+            # A PvP save keeps two worlds. Its
             # coopClientSaves sequence is the PvP format, not a Separate
             # schema-2 intermediate, so it must load as current.
             "pvp_embed_host.sav":   ("current", "none", False),
@@ -252,13 +252,13 @@ def main():
                     "hostName": "HostGuy"})
         assert r["success"] is False, "unified migration must refuse a lossy missing-client merge"
         assert any("missing" in e.lower() for e in r.get("errors", [])), r
-        # RU3: the refusal names the missing input and never offers a
+        # The refusal names the missing input and never offers a
         # client-less continue for a Separate campaign.
         assert any("save file" in e.lower() for e in r.get("errors", [])), r
         assert not any("restart fresh" in w for w in r.get("warnings", [])), r
         print("PASS skip-client: schema-3 unified migration refuses lossy merge")
 
-        # ---- 5c. PvP saves never take the Separate merge (PR #213 F3) -------
+        # ---- 5c. PvP saves never take the Separate merge --------------------
         reset_fixtures()
         r = gc.ok({"cmd": "upgrade_run", "host": "pvp_dual_host.sav",
                    "client": "pvp_dual_client.sav", "clientName": "Carol",

@@ -3,8 +3,7 @@ first host soldier, verify the client sees them at the host's base.
 
 Separate is one host-owned world: a gift changes the soldier's owner and the
 soldier stays at the host's base. There is no mirror base and no physical
-move between worlds. The player-visible result is the same as the two-world
-gift: the client owns the soldier at the host's base, and the host's own
+move between worlds. The player-visible result: the client owns the soldier at the host's base, and the host's own
 soldier list no longer shows it.
 
 Run:  python tools/coop_test/test_gift_fresh.py

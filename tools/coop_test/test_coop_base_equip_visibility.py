@@ -1,4 +1,4 @@
-"""Regression test for issue #33 in the single host-owned SEPARATE world (PR #213):
+"""Regression test for issue #33 in the single host-owned SEPARATE world:
 
   "Units at a friend's base can see equipment that is assigned to friend's
    soldiers (unavailable, but visible)."
@@ -21,13 +21,6 @@ hold none:
 Each case asserts: (a) none of the other player's soldiers is deployed on the
 viewer's inventory screen (they are not the viewer's to equip), and (b) no
 clip reserved by them shows on the ground pane.
-
-Replaced rows (two-world premise gone):
-  - cases 1/2 "visiting a peer base hides the peer's reserved items from the
-    visited storage" (insideCoopBase, base_report coop) -> the visitor opens
-    the partner's real base inventory through its own soldier there.
-  - cases 3/4 "a stripped guest (set_coop_base) at the own base" -> a real
-    guest of the other player, sent by a host-world transfer.
 
 Run:  python tools/coop_test/test_coop_base_equip_visibility.py
 """

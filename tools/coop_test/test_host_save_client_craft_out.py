@@ -16,7 +16,7 @@ interim waypoint at the saved position, and re-links the craft to the LIVE coop
 mirror once it re-syncs - so the craft keeps chasing the REAL, position-synced
 target and engages it on arrival.
 
-Separate is now one host-owned world: the client's craft, the UFO and the
+Separate is one host-owned world: the client's craft, the UFO and the
 craft's target link all live in the host save, and there is no client blob
 or coop mirror UFO. The player-visible bar is unchanged, so the test drives the
 client's craft on both machines (the host simulates, the client mirrors) and
@@ -254,9 +254,8 @@ def run_scenario(label, ports, ufo_state, ufo_speed, craft_pref, mode,
         bx, by = craft["lon"], craft["lat"]
         print(f"  client craft {key} -> OUT")
 
-        # HOST spawns the UFO. Two-world Separate mirrored it onto the client and
-        # stripped it from the client blob (the issue #28 trigger); the one world
-        # holds the UFO and the craft's target link in the host save itself.
+        # HOST spawns the UFO. The one world holds the UFO and the craft's target
+        # link in the host save itself.
         host.ok({"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT",
                  "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
                  "race": "STR_SECTOID", "trajectory": "P0", "state": ufo_state,

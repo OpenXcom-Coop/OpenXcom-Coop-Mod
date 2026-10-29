@@ -5,15 +5,15 @@ The Separate campaign is one host-owned world. With Shared Research off, each
 player's discoveries live in that player's profile, not in the global list.
 
 Rows (vanilla rules plus the test mod Coop_SeparateResearch_Test):
-  P1 UI gates     each machine's research checks (isResearched, as used by the
+  UI gates        each machine's research checks (isResearched, as used by the
                   purchase, facility, armor and other screens) and its Ufopaedia
                   article availability follow the LOCAL player's private research.
-  P2 disables     the host completes a topic that disables another. The topic
+  disables        the host completes a topic that disables another. The topic
                   stays available to the client's base.
-  P3 site expiry  a client-owned terror site expires on the host. The research it
+  site expiry     a client-owned terror site expires on the host. The research it
                   unlocks (topic plus one getOneFree bonus) goes to the client's
                   profile only, on both machines.
-  P4 option       re-applying the unchanged private option (as every load and
+  option          re-applying the unchanged private option (as every load and
                   every option sync does) does not copy the global list into the
                   player profiles again.
 
@@ -59,24 +59,24 @@ def row_ui_gates(host, client):
     for name, topics in want.items():
         for topic, expected in topics.items():
             got = seen[name][topic]
-            assert got["researched"] is expected, ("P1 researched", name, topic, got)
-            assert got["articleExists"] is True, ("P1 article missing", name, topic, got)
-            assert got["articleAvailable"] is expected, ("P1 article", name, topic, got)
-    print("PASS P1 UI gates: each machine reads its own player's private research")
+            assert got["researched"] is expected, ("UI gates: researched", name, topic, got)
+            assert got["articleExists"] is True, ("UI gates: article missing", name, topic, got)
+            assert got["articleAvailable"] is expected, ("UI gates: article", name, topic, got)
+    print("PASS UI gates: each machine reads its own player's private research")
 
 
 def row_disables(host, client):
     before = host.ok({"cmd": "available_research", "base": "ClientBase"})["topics"]
-    assert "STR_COOP_SR_BRANCH" in before, ("P2 precondition", before)
+    assert "STR_COOP_SR_BRANCH" in before, ("disables: precondition", before)
     done = host.ok({"cmd": "discover_research", "topic": "STR_COOP_SR_DISABLER"})
     assert done["ok"], done
     _, prof = profiles(host)
-    assert "STR_COOP_SR_DISABLER" in prof["HostPlayer"], ("P2 precondition", prof)
+    assert "STR_COOP_SR_DISABLER" in prof["HostPlayer"], ("disables: precondition", prof)
     host_list = host.ok({"cmd": "available_research", "base": "HostBase"})["topics"]
     client_list = host.ok({"cmd": "available_research", "base": "ClientBase"})["topics"]
-    assert "STR_COOP_SR_BRANCH" not in host_list, ("P2 host still offered", host_list)
-    assert "STR_COOP_SR_BRANCH" in client_list, ("P2 client lost the topic", client_list)
-    print("PASS P2 disables: the host's branch choice leaves the client's tree alone")
+    assert "STR_COOP_SR_BRANCH" not in host_list, ("disables: host still offered", host_list)
+    assert "STR_COOP_SR_BRANCH" in client_list, ("disables: client lost the topic", client_list)
+    print("PASS disables: the host's branch choice leaves the client's tree alone")
 
 
 def row_site_expiry(host, client):
@@ -99,12 +99,12 @@ def row_site_expiry(host, client):
 
     host_view = learned(host)
     assert host_view["ClientPlayer"][0] and len(host_view["ClientPlayer"][1]) == 1, \
-        ("P3 the site owner did not get the topic and one bonus", host_view)
-    assert host_view["HostPlayer"] == (False, []), ("P3 host credited", host_view)
+        ("site expiry: the site owner did not get the topic and one bonus", host_view)
+    assert host_view["HostPlayer"] == (False, []), ("site expiry: host credited", host_view)
     client.wait_for("client replica learns the site research",
                     lambda: learned(client) == host_view or None,
                     timeout=20, interval=0.5)
-    print(f"PASS P3 site expiry: research went to the site owner only: {host_view}")
+    print(f"PASS site expiry: research went to the site owner only: {host_view}")
 
 
 def row_option_resync(host):
@@ -113,15 +113,15 @@ def row_option_resync(host):
     host.ok({"cmd": "discover_research", "topic": topic})
     host.ok({"cmd": "set_option", "name": "EnableResearchSync", "value": False})
     _, prof = profiles(host)
-    assert all(topic in prof[p] for p in prof), ("P4 switch did not seed profiles", prof)
+    assert all(topic in prof[p] for p in prof), ("option: switch did not seed profiles", prof)
     # A later private-only change: the client's profile no longer holds the topic.
     host.ok({"cmd": "separate_profile_set", "player": "ClientPlayer",
              "removeResearch": topic})
     host.ok({"cmd": "set_option", "name": "EnableResearchSync", "value": False})
     _, prof = profiles(host)
     assert topic not in prof["ClientPlayer"], \
-        ("P4 unchanged option re-copied the global list into a profile", prof)
-    print("PASS P4 option: only a real switch copies research between stores")
+        ("option: unchanged option re-copied the global list into a profile", prof)
+    print("PASS option: only a real switch copies research between stores")
 
 
 def main():
@@ -133,10 +133,10 @@ def main():
     try:
         state, _ = profiles(host)
         assert state["researchSharingEnabled"] is False, state
-        rows = (("P1", lambda: row_ui_gates(host, client)),
-                ("P2", lambda: row_disables(host, client)),
-                ("P3", lambda: row_site_expiry(host, client)),
-                ("P4", lambda: row_option_resync(host)))
+        rows = (("UI gates", lambda: row_ui_gates(host, client)),
+                ("disables", lambda: row_disables(host, client)),
+                ("site expiry", lambda: row_site_expiry(host, client)),
+                ("option", lambda: row_option_resync(host)))
         for name, row in rows:
             try:
                 row()

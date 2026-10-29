@@ -1,5 +1,5 @@
 """Regression tests for the equipment of a soldier transferred to the other
-player's base, in the single host-owned SEPARATE world (PR #213).
+player's base, in the single host-owned SEPARATE world.
 
 There is one world: HostBase (the host's) and ClientBase (the client's) are
 real bases on both machines, a transfer is a host command, and a visitor opens
@@ -25,13 +25,6 @@ shortcut that writes one machine's copy, so this test writes it on both.
           screen (Equip craft > Inventory) at that base, on the host, both show
           the soldier wearing the loadout it had before the transfer, slot for
           slot, and hold the same item instances.
-
-Replaced rows (two-world premise gone):
-  - "the host visits the peer base" (insideCoopBase) -> the host opens the
-    client's base screens directly.
-  - "the co-op trade confirms (CoopState 150, never 552)" -> there is no
-    cross-player trade confirmation any more; the single-world equivalent is
-    2b above (no error dialog, stores debited and credited exactly once).
 
 Run:  python tools/coop_test/test_coop_transferred_equipment.py
 """

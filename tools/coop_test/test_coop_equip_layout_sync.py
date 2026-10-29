@@ -1,14 +1,13 @@
 """Regression test: an equipment layout set on a base inventory screen, the
 Select Squad screen's de-assign buttons, and the craft armor screen's ctrl-click
-seat reach the host, which builds every battle, in both one-world campaigns
-(PR #213).
+seat reach the host, which builds every battle, in both one-world campaigns.
 
-Before the fix, closing the base inventory wrote each soldier's layout on the
-machine that showed the screen only. A layout the client set never reached the
-host, so the host's battle deployed the client's soldiers with their old
-equipment, and with "Alternate craft equipment management" ON the client's own
-unseat / re-seat around the screen moved gear between its craft and stores on
-the client alone (ClientBase rifles: host 3, client 1).
+If closing the base inventory wrote each soldier's layout on the machine that
+showed the screen only, a layout the client set would never reach the host, so
+the host's battle would deploy the client's soldiers with their old equipment,
+and with "Alternate craft equipment management" ON the client's own unseat /
+re-seat around the screen would move gear between its craft and stores on the
+client alone (ClientBase rifles: host 3, client 1).
 
 Every row drags an item for real (Inventory::moveItem) and closes the screen:
 
@@ -33,11 +32,11 @@ Every row drags an item for real (Inventory::moveItem) and closes the screen:
        re-equip" report opens on the client only.
     9. guard: the host's template load on the client's Skyranger (a visitor)
        changes nothing on either machine (only the base owner changes a
-       craft's items, RU8).
+       craft's items).
   SHARED
     4. client at the shared base: the host's report shows the client's layout.
     5. client presses "de-assign all soldiers": every soldier leaves the craft
-       on both machines (SHARED keeps main's any-soldier rule).
+       on both machines (in SHARED a player may unseat any soldier).
     7. the client's craft armor ctrl-click seats its soldier on the shared
        Skyranger and takes it off again, on both machines.
     10. the client loads a template "on top" of the shared Skyranger's items:
@@ -316,7 +315,7 @@ def separate_rows():
               f"host's Skyranger as {want}; ClientBase identical, nothing created or lost; "
               f"the missing {b} reported on the client only")
 
-        # 9. guard: a visitor's template load changes nothing (RU8)
+        # 9. guard: a visitor's template load changes nothing
         view0 = wait_same_base(host, client, CB, "before the visitor's template load")
         load_template(host, host, client, CB, cid, {a: 2}, False)
         T.rename(host, host, client, CB, hsid, "Zzz Barrier")  # a later host command

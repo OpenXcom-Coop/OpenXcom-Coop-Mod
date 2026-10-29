@@ -262,7 +262,7 @@ def embed_sequence_host():
 
 
 def pvp_embed_host():
-    """A PvP (game mode 2) campaign saved by main: schema 2, coop:true and the
+    """A PvP (game mode 2) campaign as the game saves it: schema 2, coop:true and the
     alien player's world in the coopClientSaves sequence. PvP keeps two worlds,
     so this is already current and must never take the Separate 2->3 merge."""
     blob = base64.b64encode(

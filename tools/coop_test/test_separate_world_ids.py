@@ -1,8 +1,8 @@
 """Separate Campaign: every id in the one host world is unique, and the replica
 holds the host's ids.
 
-Separate is one host-owned world. Each player's starting base used to come from
-its own new-game world with its own id counters, so both bases held
+Separate is one host-owned world. Each player's starting base comes from its
+own new-game world with its own id counters, so both bases can hold
 STR_SKYRANGER-1 and STR_INTERCEPTOR-1/2. Vanilla names a craft by (type, id)
 across the whole world (craft and UFO destinations, escorts, interceptions), so
 the host renumbers the merged crafts and owns every later craft id. The replica
@@ -366,7 +366,7 @@ def main():
 
             # SHIPPED ------------------------------------------------------
             def shipped():
-                # Free every interceptor hangar (an earlier red row may leave one).
+                # Free every interceptor hangar (an earlier failing row may leave one).
                 sell_crafts(client, (host, client), "ClientBase",
                             len([1 for t, i in base_crafts(client, "ClientBase") if t == CRAFT]))
                 client.ok({"cmd": "shared_reset_resync_stats"})

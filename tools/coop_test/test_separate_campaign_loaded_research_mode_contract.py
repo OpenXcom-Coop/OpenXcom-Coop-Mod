@@ -13,7 +13,7 @@ def main():
     body = saved[start:end]
 
     # Initialization must not return early merely because the default already
-    # equals the requested OFF value. 810304d5a (F6) saves the mode with the
+    # equals the requested OFF value. The mode is saved with the
     # campaign, so the early return applies only once the saved mode is known.
     assert ("if (_separateCampaign.isResearchModeKnown()\n"
             "\t\t&& _separateCampaign.isResearchSharingEnabled() == enabled)") in body

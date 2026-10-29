@@ -1,5 +1,5 @@
 """Regression test: taking a guest soldier OFF a craft at the other player's
-base must stick, in the single host-owned SEPARATE world (PR #213).
+base must stick, in the single host-owned SEPARATE world.
 
 Reported from a SEPARATE playtest: "when I unassign some soldiers from the
 Skyranger in another player's base and then exit to the geoscape, when I come
@@ -9,17 +9,11 @@ the skyranger again".
 Each direction: the visitor transfers an equipped soldier of its own to the
 partner's base, then at that base
 
-  G1 seats it on the partner's Skyranger -> both machines show it aboard;
-  G2 takes it off again and closes the Soldiers screen -> both machines show
+  seat:   seats it on the partner's Skyranger -> both machines show it aboard;
+  unseat: takes it off again and closes the Soldiers screen -> both machines show
      it off the craft (the host world holds the unseat);
-  G3 goes back to the geoscape, then opens that base's Soldiers screen again
+  reopen: goes back to the geoscape, then opens that base's Soldiers screen again
      -> it is still off the craft on both machines.
-
-Replaced rows (two-world premise gone):
-  - "the PERSISTED seat (coopCraft) is cleared, so the co-op base rebuild on
-    re-entry does not re-seat it" -> there is no mirror base to rebuild and no
-    coopCraft record: the seat is a host world fact. G2/G3 check it on both
-    machines, including after leaving the base screens and coming back.
 
 Run:  python tools/coop_test/test_coop_guest_craft_seat.py
 """
@@ -61,22 +55,22 @@ def run(visitor, host, client, seat, home, peer, name, label):
     cycle_soldiers_screen(visitor, peer)
     s = seats(host, client, peer, sid, cid)
     assert all(v == (cid, crew0 + 1) for v in s.values()), (
-        f"{label}: G1 seat did not take on both machines: {s}")
-    print(f"PASS {label} G1: seated on the partner's Skyranger {cid} on both machines {s}")
+        f"{label}: the seat did not take on both machines: {s}")
+    print(f"PASS {label} seat: seated on the partner's Skyranger {cid} on both machines {s}")
 
     T.seat(visitor, host, client, peer, sid, cid, False)
     cycle_soldiers_screen(visitor, peer)
     s = seats(host, client, peer, sid, cid)
     assert all(v == (-1, crew0) for v in s.values()), (
-        f"{label}: G2 the unseat did not take on both machines: {s}")
-    print(f"PASS {label} G2: taken off the craft on both machines {s}")
+        f"{label}: the unseat did not take on both machines: {s}")
+    print(f"PASS {label} unseat: taken off the craft on both machines {s}")
 
     T.settle(visitor)
     cycle_soldiers_screen(visitor, peer)
     s = seats(host, client, peer, sid, cid)
     assert all(v == (-1, crew0) for v in s.values()), (
-        f"{label}: G3 RE-ASSIGNED after leaving and reopening the base: {s}")
-    print(f"PASS {label} G3: still off the craft after leaving and reopening {s}")
+        f"{label}: RE-ASSIGNED after leaving and reopening the base: {s}")
+    print(f"PASS {label} reopen: still off the craft after leaving and reopening {s}")
 
 
 def main():

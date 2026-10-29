@@ -1,10 +1,10 @@
 """A pending different-faction finale survives a rejoin and a reload, and never
-leaks into a later session (PR #213 review F11).
+leaks into a later session.
 
 A partial faction victory queues a continue/end vote that opens once both
-players are back on the Geoscape. The pending owner used to live only in the
-process: a client that dropped before the vote never learned of it again, a
-reload forgot it, and the main menu did not clear it.
+players are back on the Geoscape. The pending owner must not live only in the
+process: a client that dropped before the vote would never learn of it again,
+a reload would forget it, and the main menu would not clear it.
 
 Flow (stock xcom1; the two players are given different factions directly):
   1. Separate campaign up; the client sits in Basescape so the vote cannot

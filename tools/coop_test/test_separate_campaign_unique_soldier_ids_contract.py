@@ -16,7 +16,7 @@ def main():
     craft = (ROOT / "src/Savegame/Craft.cpp").read_text(encoding="utf-8")
 
     assert "int normalizeSoldierIds(Game* game);" in econ_h
-    # 223e3b748: Separate-only rules exclude PvP (stored with the same type).
+    # Separate-only rules exclude PvP (stored with the same type).
     assert "!save->isSeparateCoopCampaign()" in econ
     assert "if (used.insert(oldId).second) continue;" in econ
     assert "while (reserved.count(nextId)) ++nextId;" in econ

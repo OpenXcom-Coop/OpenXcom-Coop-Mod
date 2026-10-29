@@ -14,11 +14,11 @@ Rows (vanilla rules, no external mod). SEPARATE is one host-owned world with
 private research by default: the host simulates every base and mirrors each
 completion to the replica (research_done).
   A  SEPARATE: the host player re-researches a topic it already knows (the XCF
-     repeatable-topic shape). RED: the host crashes on the daily tick. The
+     repeatable-topic shape). Failure: the host crashes on the daily tick. The
      client replica then applies the host's completion.
   B  SEPARATE: the client player re-researches a topic it already knows. The
      host completes the client base's project (newResearch == nullptr) and the
-     client replica, which owns the completion popup, applies it. RED: either
+     client replica, which owns the completion popup, applies it. Failure: either
      process crashes.
   S  SHARED: the host re-researches a known topic. The SHARED path never sends
      the SEPARATE packet (and research_done already carries "" for a null
