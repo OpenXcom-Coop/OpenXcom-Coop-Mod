@@ -167,12 +167,16 @@ def row_capacity(host, client):
           f"verdict={verdict} client lastFail={stats(client)['lastFail']!r}")
     dismiss_fail(client)
 
-    # A craft into HostBase, whose hangars are full.
-    crafts = [c for c in base_crafts(client, "ClientBase") if c["id"] == 2]
-    assert len(crafts) == 1 and crafts[0]["type"] == "STR_INTERCEPTOR", crafts
+    # A craft into HostBase, whose hangars are full. shared_transfer finds the
+    # craft by id alone: use an interceptor whose id no other craft at the base
+    # shares (the host gives the client's starting crafts world-unique ids).
+    crafts = base_crafts(client, "ClientBase")
+    interceptor = next((c for c in crafts if c["type"] == "STR_INTERCEPTOR"
+                        and sum(o["id"] == c["id"] for o in crafts) == 1), None)
+    assert interceptor, crafts
     host.ok({"cmd": "shared_reset_stats"})
     client.ok({"cmd": "shared_reset_stats"})
-    client.ok({"cmd": "shared_transfer", "craft_id": 2,
+    client.ok({"cmd": "shared_transfer", "craft_id": interceptor["id"],
                "fromBase": "ClientBase", "toBase": "HostBase"})
     verdict = poll(lambda: (lambda inc, st:
                    ("accepted" if inc.get("crafts", 0) else
