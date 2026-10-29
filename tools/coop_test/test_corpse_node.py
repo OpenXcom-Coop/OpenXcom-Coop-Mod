@@ -1,5 +1,5 @@
-"""SPEC 5 (FX-3b, WV-D62 owner ruling 2026-09-05): vanilla-wide generation-time
-AIModule release. BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration()
+"""Vanilla-wide generation-time AIModule release.
+BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration()
 runs ONCE, from run() immediately after explodePowerSources()
 (BattlescapeGenerator.cpp:955), and clears the AIModule of every STATUS_DEAD
 non-player unit that still carries one, so the host stops serialising an `AI:`
@@ -7,23 +7,20 @@ node the client's loader already drops (SavedBattleGame.cpp:298) - the exact
 t=0 saveBlob divergence on a crashed-UFO map whose power-source explosion
 killed crew during generation.
 
-EXTENDED for FX-4 (WV-D68, 2026-09-05): this file now QUALIFIES a boot on
-EITHER a killed (STATUS_DEAD, status==6) OR a stunned (STATUS_UNCONSCIOUS,
-status==7) non-player unit in the host's `battle_state.units[]` at t=0 - not
-killed alone. WV-D68 settles BOTH kinds of generation casualty synchronously
-inside UnitDieBState's ctor (the outer :53 condition gains
-`|| isBeforeGame()`), closing the M2 corpse/node divergence class that FX-3b's
-own SPEC 5 cycle-2 was RETURNED over (a stunned victim used to animate a "fall
-to death" pirouette on the first map frames, racing `isBeforeGame()`'s flip
-between host and client). A qualifying boot additionally asserts the WV-D68
-settle proof: `pendingStates == 0` AND `isBusy == false` on BOTH machines,
-read IMMEDIATELY at phase Active - proof that no collapse animation is still
-in flight on either machine.
+A boot QUALIFIES on EITHER a killed (STATUS_DEAD, status==6) OR a stunned
+(STATUS_UNCONSCIOUS, status==7) non-player unit in the host's
+`battle_state.units[]` at t=0. Both kinds of generation casualty are settled
+synchronously inside UnitDieBState's ctor (the outer :53 condition includes
+`|| isBeforeGame()`), which closes the corpse/node divergence class: without
+it, a stunned victim animates a "fall to death" pirouette on the first map
+frames, racing `isBeforeGame()`'s flip between host and client. A qualifying
+boot additionally asserts the settle proof: `pendingStates == 0` AND
+`isBusy == false` on BOTH machines, read IMMEDIATELY at phase Active - proof
+that no collapse animation is still in flight on either machine.
 
-SPEC 0e-4 (owner D11, 2026-09-07): stun is rare under a random roll
-(~1/30 boots, per WV-D68's own measurement), so this file used to accept 0
-stun-qualified boots in a green run. It now PINS SEED_STUNNED (found once by
-`hunt_seed.py`), so the stunned boot always qualifies; see "THE SEED" below.
+Stun is rare under a random roll (~1/30 boots), so this file PINS SEED_STUNNED
+(found once by `hunt_seed.py`) and the stunned boot always qualifies; see
+"THE SEED" below.
 
 AI-NEUTRAL AND ACTION-FREE: t=0 only. Every assertion below runs before
 anything moves - no walk, no turn, no kneel, no end-turn. This fixture never
@@ -37,37 +34,32 @@ UFO_CRASH_RECOVERY deployment measured to actually offer a CRASHED ship on this
 build - `missionType: STR_UFO_CRASH_RECOVERY`, `reinforcementsDeployment:
 STR_SUPPLY_SHIP`, confirmed against a real generated save, 2026-09-05).
 
-THE SEED (SPEC 0e-4, owner D11, 2026-09-07): explodePowerSources() only fires
-75% of the time per power-source tile (RNG::percent(75),
-BattlescapeGenerator.cpp:2532), and even then a hit does not always kill a
-unit standing near one - so a fresh bring-up used to have to be re-rolled,
-bounded by a bring-up budget, until one landed. `set_seed` sent to the host right
-before `newbattle_ok` (session.drive_to_battlescape's `pre_ok` hook) makes the
-map/NPC/squad deterministic (measured M5/M9: same seed -> identical
-mapFingerprint/NPC ids/positions/sizes/squad positions), so this file instead
-PINS a seed found ONCE by `tools/coop_test/hunt_seed.py`: SEED_KILLED (>= 1
-STATUS_DEAD non-player unit at t=0) and SEED_STUNNED (>= 1
-STATUS_UNCONSCIOUS non-player unit at t=0, WV-D68's second kind). Each pinned
-boot asserts `battle_state.mapFingerprint` matches the fingerprint the hunt
-recorded for that seed BEFORE anything else; a mismatch means a
+THE SEED: explodePowerSources() only fires 75% of the time per power-source
+tile (RNG::percent(75), BattlescapeGenerator.cpp:2532), and even then a hit
+does not always kill a unit standing near one, so a random bring-up rarely
+qualifies. `set_seed` sent to the host right before `newbattle_ok`
+(session.drive_to_battlescape's `pre_ok` hook) makes the map/NPC/squad
+deterministic (measured: same seed -> identical mapFingerprint/NPC
+ids/positions/sizes/squad positions), so this file PINS seeds found ONCE by
+`tools/coop_test/hunt_seed.py`: SEED_KILLED (>= 1 STATUS_DEAD non-player unit
+at t=0) and SEED_STUNNED (>= 1 STATUS_UNCONSCIOUS non-player unit at t=0).
+Each pinned boot asserts `battle_state.mapFingerprint` matches the fingerprint
+the hunt recorded for that seed BEFORE anything else; a mismatch means a
 ruleset/map/generator change shifted what the seed produces, and raises
-`session.known_flake(..., "WV-D91", ...)` (the WV-D90 banner, exit 2) rather
-than silently reporting a boot that proves nothing (the same WV-D57 lesson
-every other rewrite fixture in this tree follows). No reroll loop remains.
+`session.known_flake(..., "pinned_seed_map_drift", ...)` (the known-flake
+banner, exit 2) rather than silently reporting a boot that proves nothing.
 
-ON A QUALIFYING BOOT, this asserts (in this order, so a red says exactly which
-half failed):
+ON A QUALIFYING BOOT, this asserts (in this order, so a failure says exactly
+which half failed):
   0. the POSITIVE CONTROL (an assertion an inert fix could not fail), ONLY
-     when this boot rolled a KILLED casualty (FX-3b's release predicate is
+     when this boot rolled a KILLED casualty (the release predicate is
      `health <= 0`, which is never true for a stunned unit, so a stun-only
      boot skips this control rather than false-failing it): the host's own
      log carries "released N AIModule(s)" with N >= 1;
-  1. `battle_state.unitsDeadWithAI == 0` on BOTH machines - the counter FX-3b's
-     own TestServer.cpp probe adds beside `turnBeforeFirstStep` (:6309),
-     counting STATUS_DEAD units that still carry a non-null AIModule
-     (RETAINED from FX-3b; re-run here on FX-3b+FX-4 together per WV-D68 (f) -
-     no separate FX-3b test is needed);
-  2. WV-D68's OWN settle proof: `pendingStates == 0` AND `isBusy == false` on
+  1. `battle_state.unitsDeadWithAI == 0` on BOTH machines - the TestServer.cpp
+     probe beside `turnBeforeFirstStep` (:6309) that counts STATUS_DEAD units
+     that still carry a non-null AIModule;
+  2. the settle proof: `pendingStates == 0` AND `isBusy == false` on
      BOTH machines, read IMMEDIATELY at phase Active (before any further
      settle delay) - proof that no collapse BState is in flight on either
      machine, i.e. that a stunned (or killed) generation casualty was fully
@@ -79,32 +71,25 @@ half failed):
      (and never "... MISMATCH" for this session) - the handshake this fix
      exists to stop refusing actually accepted the world;
   5. both machines' `save_game` documents (the real on-disk .sav, not a live
-     probe) agree on every `nodes[].type` and every item id - the two fields
-     the (C) RCA's own docstring (test_item_id_ctr.py) named as "MECHANISM
-     2 - a dead alien's corpse id/nodes[].type/binTiles", the divergence class
-     this file's name refers to and which WV-D61 explicitly left untouched.
-     Comparing the SAVED documents (rather than the live JSON probes) is
-     deliberate: it is what the (C) RCA's own investigation compared, and it
-     is what the coop handshake's saveBlob hash is itself computed over.
+     probe) agree on every `nodes[].type` and every item id - a dead alien's
+     corpse id / nodes[].type / binTiles, the divergence class this file's
+     name refers to, which the item-id counter sync (test_item_id_ctr.py)
+     does not cover. Comparing the SAVED documents (rather than the live JSON
+     probes) is deliberate: the coop handshake's saveBlob hash is itself
+     computed over them.
 
-Bar (WV-D65, SPEC 0e-4): the fixture is now DETERMINISTIC (a pinned seed, not
-a map roll), so the bar is THREE CONSECUTIVE GREEN runs (each a separate
-process invocation - "one test per invocation").
+The fixture is DETERMINISTIC (a pinned seed, not a map roll).
 
-RED-THEN-GREEN is NOT automated by this file - it is the owner's second
-independent hit, done by hand per each packet's brief:
-  - FX-3b: comment out the single call in BattlescapeGenerator::run(),
-    rebuild, run this file until a qualifying boot, capture the failure
-    (expected: the host log's own "battle_ready saveBlob MISMATCH" line plus
-    an `AI:` node count delta between the two machines' saved documents), then
-    restore the call, rebuild, and confirm green again.
-  - FX-4: revert ONLY the `|| _parent->getSave()->isBeforeGame()`
-    clause on UnitDieBState.cpp:53 (leave everything else - the comment block,
-    the pendingStates probe, this test - in place), rebuild, loop this file
-    hunting a STUN-qualified (not merely killed-qualified) boot, capture the
-    failure (expected: a `pendingStates`/`isBusy` non-zero reading on the
-    client and/or a `nodes[].type` divergence and/or a saveBlob MISMATCH),
-    then restore the clause, rebuild, and confirm green again.
+Negative controls, by hand (not automated by this file):
+  - comment out the single releaseAIModulesOfUnitsKilledDuringGeneration call
+    in BattlescapeGenerator::run(), rebuild and run this file: expect the host
+    log's own "battle_ready saveBlob MISMATCH" line plus an `AI:` node count
+    delta between the two machines' saved documents. Restore the call.
+  - revert ONLY the `|| _parent->getSave()->isBeforeGame()` clause on
+    UnitDieBState.cpp:53, rebuild and run this file on a STUN-qualified (not
+    merely killed-qualified) boot: expect a `pendingStates`/`isBusy` non-zero
+    reading on the client and/or a `nodes[].type` divergence and/or a saveBlob
+    MISMATCH. Restore the clause.
 
 Run: python tools/coop_test/test_corpse_node.py (its own shell
 invocation - one harness run at a time, machine-wide).
@@ -127,21 +112,19 @@ FACTION_PLAYER = 0
 STATUS_DEAD = 6
 STATUS_UNCONSCIOUS = 7  # a stunned generation casualty qualifies too
 
-# PINNED (SPEC 0e-4, owner D11): found ONCE by hunt_seed.py, never re-rolled.
-# pinned 2026-09-07 by hunt_seed.py at 29536ea95
+# PINNED: each seed found ONCE by hunt_seed.py, never re-rolled, with the map
+# fingerprint it produced.
 SEED_KILLED = 2
 FINGERPRINT_KILLED = 8.979686268403716e+18
-# pinned 2026-09-07 by hunt_seed.py at 29536ea95
 SEED_STUNNED = 23
 FINGERPRINT_STUNNED = -6.768173743533399e+18
 
 BASE_PORT = 48400          # the coop lobby TCP port (bring_up_lobby's `port`)
 BASE_PROBE = 49400         # the TestServer control-socket port base
 
-# EXIT CODES, the wave's shipped convention (2026-09-03 ruling):
-# 0 = PASS, 2 = FAIL (a red - includes a WV-D91/WV-D92 known-flake banner), 3 =
-# SKIP (the ruleset does not offer the fixture mission, or a pinned seed's
-# fingerprint guard passed yet the casualty vanished - see FIXTURE: below).
+# EXIT CODES: 0 = PASS, 2 = FAIL (includes a known-flake banner, a ruleset that
+# does not offer the fixture mission, and a pinned seed whose fingerprint guard
+# passed yet the casualty vanished - see FIXTURE: below).
 EXIT_PASS, EXIT_FAIL = 0, 2
 
 RELEASE_LOG_RE = re.compile(r"released (\d+) AIModule\(s\)")
@@ -149,10 +132,9 @@ SAVEBLOB_EQUAL_TEXT = "[coop-handshake] battle_ready saveBlob EQUAL"
 SAVEBLOB_MISMATCH_TEXT = "[coop-handshake] battle_ready saveBlob MISMATCH"
 
 
-# SPEC 0e-4: the "does not offer" mission check raises an AssertionError
-# already prefixed "FIXTURE:" by session.drive_to_battlescape itself, which
-# the REV E.22 __main__ template's own `str(e).startswith("FIXTURE:")` check
-# routes to SKIP(3) - no bespoke MissionNotOffered wrapper needed any more.
+# The "does not offer" mission check raises an AssertionError already
+# prefixed "FIXTURE:" by session.drive_to_battlescape itself, which __main__'s
+# `str(e).startswith("FIXTURE:")` check reports as "fixture not constructed".
 
 # ----- small probes --------------------------------------------------------
 
@@ -185,14 +167,14 @@ def stunned_non_player_units(st):
             if u.get("status") == STATUS_UNCONSCIOUS and u.get("faction") != FACTION_PLAYER]
 
 
-# ----- save-file introspection (the (C) RCA's own "MECHANISM 2" fields) ---
+# ----- save-file introspection (the corpse / node fields) -------------------
 
 def save_and_read(gc, filename):
-    """Writes a real .sav through the EXISTING `save_game` lever (no new C++:
-    SavedGame::save is called exactly as any player save does) and reads the
+    """Writes a real .sav through the `save_game` test command
+    (SavedGame::save is called exactly as any player save does) and reads the
     file back as text. `save_game` writes under
-    Options::getMasterUserFolder() == <user_dir>/<masterMod>/ (measured
-    2026-09-05: .../xcom1/<file> on this build's ruleset), so this globs for
+    Options::getMasterUserFolder() == <user_dir>/<masterMod>/ (measured:
+    .../xcom1/<file> with this ruleset), so this globs for
     it under the instance's own user_dir rather than assuming the mod name."""
     r = gc.cmd({"cmd": "save_game", "file": filename})
     assert r.get("ok"), f"save_game failed on {gc.name}: {r}"
@@ -207,7 +189,7 @@ def save_and_read(gc, filename):
 def _block_slice(text, key):
     """The text of one top-level (2-space-indent) `battleGame:` child block,
     from its own `  <key>:` line up to (not including) the next 2-space-indent
-    key line. MEASURED shape (2026-09-05, a real generated .sav):
+    key line. MEASURED shape (a real generated .sav):
         battleGame:
           nodes:
             - {id: 0,position: [4,4,0],type: 0,rank: 0,...}
@@ -260,30 +242,29 @@ def item_ids(save_text):
 
 def one_bringup(tag, seed, expected_fingerprint):
     """One fresh host+client bring-up on the STR_SUPPLY_SHIP fixture with the
-    PINNED `seed` (SPEC 0e-4, owner D11): `set_seed` is sent to the host via
+    PINNED `seed`: `set_seed` is sent to the host via
     session.drive_to_battlescape's `pre_ok` hook immediately before
-    `newbattle_ok`, so the map/NPC/squad are deterministic (measured M5/M9).
+    `newbattle_ok`, so the map/NPC/squad are deterministic (measured).
 
     Immediately after drive_to_battlescape returns, asserts the FINGERPRINT
     GUARD: `battle_state.mapFingerprint == expected_fingerprint`. A mismatch
     means a ruleset/map/generator change shifted what this seed produces, so
-    this raises `session.known_flake(..., "WV-D91", ...)` (WV-D90 banner,
-    exit 2) rather than silently reporting a boot that no longer proves
-    anything.
+    this raises `session.known_flake(..., "pinned_seed_map_drift", ...)` (the
+    known-flake banner, exit 2) rather than silently reporting a boot that no
+    longer proves anything.
 
     Returns (host, client, killed, stunned). Lets a "does not offer" mission
     AssertionError (already "FIXTURE:"-prefixed by session.py) or any other
-    AssertionError/TimeoutError propagate as a hard FAIL/SKIP via the
-    REV E.22 __main__ template: after WV-D62/WV-D68 there is no known reason
-    a clean bring-up on a PINNED seed should fail or hang, so this file does
-    not reclassify one as an unrelated, re-rollable mismatch the way
-    test_item_id_ctr.py does for its own (different, already-fixed-
-    elsewhere) map class."""
+    AssertionError/TimeoutError propagate as a hard FAIL via __main__: with
+    generation casualties released and settled there is no known reason a
+    clean bring-up on a PINNED seed should fail or hang, so this file does not
+    reclassify one as an unrelated mismatch the way test_item_id_ctr.py does
+    for its own (different) map class."""
     port = str(BASE_PORT + tag)
     host = GameClient("host", BASE_PROBE + tag * 2,
-                       make_user_dir(f"rw_m2_corpse_host_{tag}"))
+                       make_user_dir(f"corpse_node_host_{tag}"))
     client = GameClient("client", BASE_PROBE + 1 + tag * 2,
-                         make_user_dir(f"rw_m2_corpse_client_{tag}"))
+                         make_user_dir(f"corpse_node_client_{tag}"))
     seated = {}
     try:
         W.bring_up_lobby(host, client, port)
@@ -311,7 +292,7 @@ def one_bringup(tag, seed, expected_fingerprint):
             host.shutdown()
             client.shutdown()
             session.known_flake(
-                "test_corpse_node", "WV-D91",
+                "test_corpse_node", "pinned_seed_map_drift",
                 f"pinned seed {seed} no longer reproduces the scenario - re-run hunt_seed.py",
                 record)
 
@@ -329,9 +310,9 @@ def one_bringup(tag, seed, expected_fingerprint):
 
 def run_assertions(host, client, killed, stunned):
     # Reach phase Active on BOTH machines first, polled TIGHT (not the coarse
-    # default interval) so the WV-D68 settle-proof below reads "IMMEDIATELY at
+    # default interval) so the settle proof below reads "IMMEDIATELY at
     # phase Active" rather than after a blanket settle delay that could let an
-    # in-flight collapse animation quietly finish first and hide a real red.
+    # in-flight collapse animation quietly finish first and hide a real failure.
     host.wait_for("host phase reaches Active",
                   lambda: (event_state(host).get("phase") == "Active") or None,
                   timeout=30, interval=0.1)
@@ -339,14 +320,14 @@ def run_assertions(host, client, killed, stunned):
                     lambda: (event_state(client).get("phase") == "Active") or None,
                     timeout=30, interval=0.1)
 
-    # --- (2) WV-D68's OWN settle proof, read IMMEDIATELY: no collapse BState
+    # --- (2) the settle proof, read IMMEDIATELY: no collapse BState
     # is in flight on EITHER machine right at phase Active ---
     host_st_t0 = battle_state(host)
     client_st_t0 = battle_state(client)
     assert host_st_t0.get("pendingStates") == 0, (
         f"HOST battle_state.pendingStates={host_st_t0.get('pendingStates')} "
         "(expected 0) IMMEDIATELY at phase Active - a BState (e.g. an animated "
-        "UnitDieBState collapse) is still in flight on the host; WV-D68's "
+        "UnitDieBState collapse) is still in flight on the host; the "
         "synchronous settle did not complete before the first frame")
     assert host_st_t0.get("isBusy") is False, (
         f"HOST battle_state.isBusy={host_st_t0.get('isBusy')} (expected False) "
@@ -355,8 +336,8 @@ def run_assertions(host, client, killed, stunned):
     assert client_st_t0.get("pendingStates") == 0, (
         f"CLIENT battle_state.pendingStates={client_st_t0.get('pendingStates')} "
         "(expected 0) IMMEDIATELY at phase Active - the client is replaying a "
-        "collapse the host already settled synchronously, the exact M2 "
-        "divergence WV-D68 exists to close")
+        "collapse the host already settled synchronously, the exact corpse/node "
+        "divergence the synchronous settle exists to close")
     assert client_st_t0.get("isBusy") is False, (
         f"CLIENT battle_state.isBusy={client_st_t0.get('isBusy')} (expected "
         "False) IMMEDIATELY at phase Active - the client's BattlescapeGame "
@@ -372,7 +353,7 @@ def run_assertions(host, client, killed, stunned):
     host_log = log_text(host)
 
     # --- (0) POSITIVE CONTROL, only when this boot rolled a KILLED casualty:
-    # FX-3b's release predicate is health<=0, never true for a stunned unit,
+    # the release predicate is health<=0, never true for a stunned unit,
     # so a stun-only qualifying boot correctly has nothing to release here ---
     released = 0
     if killed >= 1:
@@ -389,11 +370,10 @@ def run_assertions(host, client, killed, stunned):
             f"positive control: the host log's release count is {released}, expected >= 1")
     else:
         print("[test_corpse_node] no KILLED casualty this boot (stun-only "
-              "qualification) - FX-3b's release positive control does not apply "
+              "qualification) - the release positive control does not apply "
               "(its predicate is health<=0, never true for a stunned unit)")
 
-    # --- (1) FX-3b's own assertion, RETAINED: unitsDeadWithAI == 0 on BOTH
-    # machines, re-run here on FX-3b+FX-4 together ---
+    # --- (1) unitsDeadWithAI == 0 on BOTH machines ---
     host_st, client_st = battle_state(host), battle_state(client)
     assert host_st.get("unitsDeadWithAI") == 0, (
         f"HOST battle_state.unitsDeadWithAI={host_st.get('unitsDeadWithAI')} "
@@ -404,13 +384,13 @@ def run_assertions(host, client, killed, stunned):
         "(expected 0) - SavedBattleGame::load never reconstructs an AIModule "
         "for a dead unit (SavedBattleGame.cpp:298), so a non-zero count here "
         "means the host's own generation-time release did not run before the "
-        "snapshot was taken (WV-D62)")
+        "snapshot was taken")
 
     # --- (3) hash_now full: every bucket, saveBlob included, EQUAL. Never
     # hard-code a bucket count - assert "all buckets EQUAL" over whatever the
     # sweep reports. ---
     session.assert_hash_clean(host, client, full=True,
-                               what="WV-D62/WV-D68 t=0 (qualified boot)")
+                               what="generation casualties t=0 (qualified boot)")
 
     # --- (4) the host's own handshake log: accepted, never mismatched ---
     assert SAVEBLOB_EQUAL_TEXT in host_log, (
@@ -423,14 +403,13 @@ def run_assertions(host, client, killed, stunned):
         "mechanism ran and reported success")
 
     # --- (5) the two SAVED documents agree on nodes[].type and item ids ---
-    host_text = save_and_read(host, "rw_m2_corpse_host.sav")
-    client_text = save_and_read(client, "rw_m2_corpse_client.sav")
+    host_text = save_and_read(host, "corpse_node_host.sav")
+    client_text = save_and_read(client, "corpse_node_client.sav")
 
     host_nodes, client_nodes = node_types(host_text), node_types(client_text)
     assert host_nodes == client_nodes, (
-        "the two machines' SAVED `nodes[].type` disagree - MECHANISM 2, the "
-        "exact class test_item_id_ctr.py's docstring named as out of "
-        f"WV-D61's scope: differing ids "
+        "the two machines' SAVED `nodes[].type` disagree - the dead-alien "
+        "corpse/node divergence class: differing ids "
         f"{sorted(k for k in set(host_nodes) | set(client_nodes) if host_nodes.get(k) != client_nodes.get(k))} "
         f"(host has {len(host_nodes)} node(s), client has {len(client_nodes)})")
 
@@ -442,7 +421,7 @@ def run_assertions(host, client, killed, stunned):
 
     print(f"PASS: killed={killed} stunned={stunned} non-player casualty(ies) at "
           f"t=0; pendingStates==0 and isBusy==False on both machines "
-          "IMMEDIATELY at phase Active (WV-D68 settle proof); "
+          "IMMEDIATELY at phase Active (settle proof); "
           f"host log 'released {released} AIModule(s)'"
           f"{' (skipped: stun-only boot)' if killed == 0 else ''}; "
           "unitsDeadWithAI == 0 on both machines; hash_now full EQUAL "

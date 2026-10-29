@@ -37,7 +37,7 @@ SEED_DIVERGENT (the adopt line logs `carried != derived`) and SEED_AGREED
 ran without a discrepancy). Each pinned boot asserts
 `battle_state.mapFingerprint` matches the fingerprint the hunt recorded for
 that seed BEFORE anything else; a mismatch raises `session.known_flake(...,
-"WV-D91", ...)` (the WV-D90 banner, exit 2). On a `TimeoutError` whose host
+"pinned_seed_map_drift", ...)` (the WV-D90 banner, exit 2). On a `TimeoutError` whose host
 log carries `UNRELATED_MISMATCH_SIGNATURE` ("battle_ready saveBlob
 MISMATCH"), this raises `session.known_flake(..., "WV-D92", ...)` instead of
 re-rolling - the pinned seeds are ones that do NOT refuse (measured M9: 0
@@ -82,7 +82,7 @@ SEED_AGREED = 1
 FINGERPRINT_AGREED = 1.870118385057293e+18
 
 # EXIT CODES, matching the wave's shipped convention (2026-09-03 ruling):
-# 0 = PASS, 2 = FAIL (a red - includes a WV-D91/WV-D92 known-flake banner), 3 =
+# 0 = PASS, 2 = FAIL (a red - includes a pinned_seed_map_drift/WV-D92 known-flake banner), 3 =
 # SKIP (the ruleset does not offer the fixture mission).
 EXIT_PASS, EXIT_FAIL = 0, 2
 
@@ -118,7 +118,7 @@ def one_attempt(tag, seed, expected_fingerprint, expect_diverged):
 
     Asserts the FINGERPRINT GUARD immediately after drive_to_battlescape
     returns: `battle_state.mapFingerprint == expected_fingerprint`. A
-    mismatch raises `session.known_flake(..., "WV-D91", ...)` (WV-D90
+    mismatch raises `session.known_flake(..., "pinned_seed_map_drift", ...)` (WV-D90
     banner, exit 2) - a ruleset/map/generator change shifted what this seed
     produces.
 
@@ -163,7 +163,7 @@ def one_attempt(tag, seed, expected_fingerprint, expect_diverged):
         fp = st.get("mapFingerprint")
         if fp != expected_fingerprint:
             session.known_flake(
-                "test_item_id_ctr", "WV-D91",
+                "test_item_id_ctr", "pinned_seed_map_drift",
                 f"pinned seed {seed} no longer reproduces the scenario - "
                 "re-run hunt_seed.py",
                 {"seed": seed, "expected_fingerprint": expected_fingerprint,
