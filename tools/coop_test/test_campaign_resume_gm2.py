@@ -45,7 +45,7 @@ import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402  (pure helpers only)
 
 # ----- TASK 0 pins (docs rewrite/d250u-task0/sc4a/CONSTANTS.md) -----
@@ -158,9 +158,9 @@ def to_battle(host, c, ev, boot):
         capture_boot(f"no host ConfirmLandingState within {LANDING_S} s", host, c)
     host.ok({"cmd": "set_seed", "seed": SEED})
     host.ok({"cmd": "confirm_landing"})
-    both, bs = wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(c), BOTH_IN_S)
+    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c), BOTH_IN_S)
     ev.update(squad=sids[:SQUAD], site=site.get("site_id"), promptS=ps, bothInS=bs)
-    detail = f"inBattle host/{c.name} {[G3C1.in_battle(host), G3C1.in_battle(c)]} {bs} s after the confirm"
+    detail = f"inBattle host/{c.name} {[G3B.in_battle(host), G3B.in_battle(c)]} {bs} s after the confirm"
     if not both and boot:
         capture_boot(detail, host, c)
     return both, detail, sids[:SQUAD]

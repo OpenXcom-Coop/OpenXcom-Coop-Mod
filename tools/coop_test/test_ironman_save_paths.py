@@ -32,7 +32,7 @@ from session import battle_state  # noqa: E402
 import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_resume as BR  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402
 
@@ -338,7 +338,7 @@ def land(host, client, ev):
         raise FixtureMiss(f"BR.stage_to_prompt: {e}")
     client.cmd({"cmd": "set_seed", "seed": SEED})
     client.cmd({"cmd": "confirm_landing"})
-    if not wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(client), ENTRY_S)[0]:
+    if not wait(lambda: G3B.in_battle(host) and G3B.in_battle(client), ENTRY_S)[0]:
         capture_boot(f"not both inBattle {ENTRY_S} s after the confirm", host, client)
     host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=60)
     client.wait_for("client briefing", lambda: session.has_state(client, "BriefingState") or None, timeout=90)

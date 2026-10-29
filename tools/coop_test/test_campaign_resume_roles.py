@@ -41,7 +41,7 @@ import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
 import test_campaign_battle_gm3_end as G3E  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
 import test_campaign_rejoin as CR  # noqa: E402
 
@@ -373,7 +373,7 @@ def p1_land(host, c2, ev):
     sd, cl = c2.cmd({"cmd": "set_seed", "seed": SEED}), c2.cmd({"cmd": "confirm_landing"})
     if not sd.get("ok") or not cl.get("ok"):
         capture_boot(f"P1: client2 set_seed {sd} / confirm_landing {cl}", host, c2)
-    both, bs = wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(c2), BOTH_IN["P1"])
+    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN["P1"])
     post = G3E.coop(host).get("pvpBorrow") or {}
     ref1 = event_state(c2).get("coopClientBattleRefused")
     ev.update(pvpBefore=pre, pvpAfter=post, bothInS=bs, refused1=ref1, client2StackAfterConfirm=stack(c2))
@@ -383,7 +383,7 @@ def p1_land(host, c2, ev):
     bad += [f"host pvpBorrow.{k} {post.get(k)!r} (want {w!r})" for k, w in (("targetKind", "site"), ("targetMirror", True))
             if post.get(k) != w]
     if not both:
-        return bad + [f"inBattle host/client2 {[G3C1.in_battle(host), G3C1.in_battle(c2)]} {bs} s after the confirm"], False, sq
+        return bad + [f"inBattle host/client2 {[G3B.in_battle(host), G3B.in_battle(c2)]} {bs} s after the confirm"], False, sq
     try:
         session.briefings_to_battlescape(host, c2)
     except Exception as e:  # noqa: BLE001
@@ -421,10 +421,10 @@ def p2_land(host, c2, ev):
         capture_boot(f"P2: no host ConfirmLandingState within {LANDING_S} s", host, c2)
     host.ok({"cmd": "set_seed", "seed": SEED})
     host.ok({"cmd": "confirm_landing"})
-    both, bs = wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(c2), BOTH_IN["P2"])
+    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN["P2"])
     ev.update(squad=sids[:SQUAD], site=site.get("site_id"), promptS=ps, bothInS=bs, stacksAfterConfirm=[stack(host), stack(c2)])
     if not both:
-        return [f"inBattle host/client2 {[G3C1.in_battle(host), G3C1.in_battle(c2)]} {bs} s after the confirm"], False, sids[:SQUAD]
+        return [f"inBattle host/client2 {[G3B.in_battle(host), G3B.in_battle(c2)]} {bs} s after the confirm"], False, sids[:SQUAD]
     sp_ok, sp_detail = G2F.spine(host, c2, ev)
     return ([] if sp_ok else [sp_detail]), sp_ok, sids[:SQUAD]
 

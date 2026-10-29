@@ -8,10 +8,10 @@ F14834, F14846). docs rewrite/w2h38-task0/sa/CONSTANTS.md (red premise boots a /
 each; the hold's title "Waiting for HostPlayer" / "Disconnect" is EVIDENCE, never asserted).
 
 Boot L: gm3 (the HOST plays the aliens), lobby key 48046, dirs w2h38_l_host / w2h38_l_client. Bring-up: PF.start_pvp_campaign
-(alien_player="host"); HOST0 / CLIENT0 (G3C1's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
+(alien_player="host"); HOST0 / CLIENT0 (G3B's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
 noBases true, client noBases false, the client's real base X, its non-coop Skyranger SKY, >= 2 soldiers; geo.slow_clock; crash baseline.
-Staging: G3C1.stage_landing (the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE L:" line (or
-G3C1's "CAPTURE boot:" line) and every cell FAILs "boot".
+Staging: G3B.stage_landing (the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE L:" line (or
+G3B's "CAPTURE boot:" line) and every cell FAILs "boot".
 Row H1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked"):
   the client's log cursor; client set_seed 1 + confirm_landing; every 0.02 s until both battle_state.inBattle (<= 60 s) one sample
   (client coop_dialog_info, its stack, the host's pvpBorrow.borrowed; F15127); session.briefings_to_battlescape; H1-common; the client
@@ -41,10 +41,10 @@ from session import battle_state, event_state  # noqa: E402
 import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 
 KEY = "48046"
-SEED_L = 1                    # set on the X-COM CLIENT right before its confirm_landing (as G3C1 and W2-H37)
+SEED_L = 1                    # set on the X-COM CLIENT right before its confirm_landing (as G3B and W2-H37)
 SQUAD = 2
 POLL_S = 0.02                 # a sample every ~0.03 s: the host's borrow to the client's battle entry takes ~0.2-0.3 s
 BOTH_IN_S = 60
@@ -89,7 +89,7 @@ def capture_boot(err, host, client):
             bs = battle_state(gc)
             with open(os.path.join(gc.user_dir, "openxcom.log"), "rb") as fh:
                 tail = fh.read().decode("utf-8", errors="replace").splitlines()[-40:]
-            cap[gc.name] = {"stack": G3C1.stack(gc), "battle": {k: bs.get(k) for k in ("inBattle", "phase", "side", "turn")},
+            cap[gc.name] = {"stack": G3B.stack(gc), "battle": {k: bs.get(k) for k in ("inBattle", "phase", "side", "turn")},
                             "event_state": {k: v for k, v in event_state(gc).items() if k in ("phase", "desyncSeen", "battleEnd")},
                             "coop_dialog_info": gc.cmd({"cmd": "coop_dialog_info"}), "get_coop": gc.cmd({"cmd": "get_coop"}),
                             "log_tail": tail}
@@ -102,7 +102,7 @@ def capture_boot(err, host, client):
 def common(host, client, crash0):
     """(ok, detail): desyncSeen false on both, 0 new crash files since crash0, every hash bucket EQUAL."""
     eh, ec = event_state(host), event_state(client)
-    new = sorted(G3C1.crash_set() - crash0)
+    new = sorted(G3B.crash_set() - crash0)
     bad = []
     if eh.get("desyncSeen") is not False or ec.get("desyncSeen") is not False:
         bad.append(f"desyncSeen host {eh.get('desyncSeen')!r} client {ec.get('desyncSeen')!r} (want false on both)")
@@ -116,21 +116,21 @@ def common(host, client, crash0):
 
 
 def bring_up(host, client, key, ev):
-    """G3C1's bring_up (copied, the key as a parameter): spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0,
+    """G3B's bring_up (copied, the key as a parameter): spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0,
     geo.slow_clock. Its C-gm values are preconditions here (a miss = setup failure)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, key, alien_player="host")
     except Exception as e:  # noqa: BLE001
         capture_boot(f"PF.start_pvp_campaign: {e}", host, client)
-    ch, cc = G3C1.coop(host), G3C1.coop(client)
+    ch, cc = G3B.coop(host), G3B.coop(client)
     hg, cg = host.ok({"cmd": "geo_state"}), client.ok({"cmd": "geo_state"})
     xb = next((b for b in cg.get("bases", []) if not b.get("coopBase") and not b.get("coopIcon")), None)
     sky = next((c for c in (xb or {}).get("crafts", []) if "SKYRANGER" in c.get("type", "") and not c.get("coop")), None)
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
     sids = sorted(s["id"] for s in (sb or {}).get("soldiers", []))
-    host0 = {"noBases": ch.get("noBases"), "funds": hg.get("funds"), "realBases": G3C1.real_bases(hg)}
-    client0 = {"noBases": cc.get("noBases"), "funds": cg.get("funds"), "realBases": G3C1.real_bases(cg),
+    host0 = {"noBases": ch.get("noBases"), "funds": hg.get("funds"), "realBases": G3B.real_bases(hg)}
+    client0 = {"noBases": cc.get("noBases"), "funds": cg.get("funds"), "realBases": G3B.real_bases(cg),
                "sky": sky and {"type": sky.get("type"), "id": sky.get("id")}, "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0)
     geo.slow_clock(host, client)
@@ -147,8 +147,8 @@ def sample(host, client, t_c):
     """H1's monitor sample: the client's coop_dialog_info, then its stack (top; entered = a BattlescapeState in it), then the host's
     pvpBorrow.borrowed. The dialog is read first so a sample never pairs a pre-entry stack with a post-entry dialog."""
     dlg = client.cmd({"cmd": "coop_dialog_info"})
-    stk = G3C1.stack(client)
-    hb = (G3C1.coop(host).get("pvpBorrow") or {}).get("borrowed")
+    stk = G3B.stack(client)
+    hb = (G3B.coop(host).get("pvpBorrow") or {}).get("borrowed")
     s = {"t": round(time.time() - t_c, 2), "top": stk[-1] if stk else None, "entered": "BattlescapeState" in stk,
          "prompt": "ConfirmLandingState" in stk, "borrowed": hb}
     if not s["entered"]:
@@ -184,23 +184,23 @@ def screen_record(client, cursor):
 
 def row_h1(host, client, client0, ev, phases, t0):
     sky = client0["sky"]
-    crash0 = G3C1.crash_set()
+    crash0 = G3B.crash_set()
     cursor = geo._log_cursor(client)
     sd, cl = client.cmd({"cmd": "set_seed", "seed": SEED_L}), client.cmd({"cmd": "confirm_landing"})
     t_c = time.time()
     if not sd.get("ok") or not cl.get("ok"):
         capture_boot(f"client set_seed {sd} / confirm_landing {cl}", host, client)
-    ev["stacksAfterConfirm"] = [G3C1.stack(host), G3C1.stack(client)]
+    ev["stacksAfterConfirm"] = [G3B.stack(host), G3B.stack(client)]
     mon, both = [], False
     while time.time() - t_c < BOTH_IN_S:
         mon.append(sample(host, client, t_c))
-        if G3C1.in_battle(host) and G3C1.in_battle(client):
+        if G3B.in_battle(host) and G3B.in_battle(client):
             both = True
             break
         time.sleep(POLL_S)
     secs = round(time.time() - t_c, 2)
-    ev.update(bothInS=secs, inBattle=[G3C1.in_battle(host), G3C1.in_battle(client)],
-              stacksAtBothIn=[G3C1.stack(host), G3C1.stack(client)])
+    ev.update(bothInS=secs, inBattle=[G3B.in_battle(host), G3B.in_battle(client)],
+              stacksAtBothIn=[G3B.stack(host), G3B.stack(client)])
     phases["bothIn"] = round(time.time() - t0, 1)
     sp_ok, sp_detail = False, "not run (not both inBattle)"
     if both:
@@ -208,7 +208,7 @@ def row_h1(host, client, client0, ev, phases, t0):
             session.briefings_to_battlescape(host, client)
             sp_ok, sp_detail = True, "spine passed"
         except Exception as e:  # noqa: BLE001
-            sp_detail = f"session.briefings_to_battlescape raised: {str(e)[:300]} (stacks {[G3C1.stack(host), G3C1.stack(client)]})"
+            sp_detail = f"session.briefings_to_battlescape raised: {str(e)[:300]} (stacks {[G3B.stack(host), G3B.stack(client)]})"
     phases["spine"] = round(time.time() - t0, 1)
     c_ok, c_detail = common(host, client, crash0)
     phases["common"] = round(time.time() - t0, 1)
@@ -218,7 +218,7 @@ def row_h1(host, client, client0, ev, phases, t0):
     BES.wait_until(has_active, LOG_S)
     rec = screen_record(client, cursor)
     phases["record"] = round(time.time() - t0, 1)
-    hp, cp = G3C1.coop(host).get("pvpBorrow") or {}, G3C1.coop(client).get("pvpBorrow") or {}
+    hp, cp = G3B.coop(host).get("pvpBorrow") or {}, G3B.coop(client).get("pvpBorrow") or {}
     hand = next((i for i, r in enumerate(rec) if r[1] == "HAND"), None)
     entry = None if hand is None else next((i for i in range(hand + 1, len(rec)) if rec[i][1] == "ui"
                                             and rec[i][2][:2] == ("push", "BattlescapeState")), None)
@@ -282,9 +282,9 @@ def run(host, client, phases, t0):
     client0, xb = bring_up(host, client, KEY, ev)
     phases["bringUp"] = round(time.time() - t0, 1)
     try:
-        G3C1.stage_landing(host, client, xb, client0, ev)
-    except G3C1.FixtureMiss as e:
-        raise FixtureMiss(f"G3C1.stage_landing: {e}")
+        G3B.stage_landing(host, client, xb, client0, ev)
+    except G3B.FixtureMiss as e:
+        raise FixtureMiss(f"G3B.stage_landing: {e}")
     phases["staging"] = round(time.time() - t0, 1)
     row_h1(host, client, client0, ev, phases, t0)
     ev["phases"] = phases

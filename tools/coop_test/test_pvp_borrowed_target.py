@@ -8,10 +8,10 @@ QH37-1..6 (a)). TASK 0 pins: docs rewrite/w2h37-task0/sa/CONSTANTS.md (TITLE_WIN
 plus E1-E3, 2/2; the chain L1-L6 traced on boots a and b, 2/2).
 
 Boot H: gm3 (the HOST plays the aliens), lobby key 48043, dirs w2h37_h_host / w2h37_h_client. Bring-up: PF.start_pvp_campaign
-(alien_player="host"); HOST0 / CLIENT0 (G3C1's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
+(alien_player="host"); HOST0 / CLIENT0 (G3B's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
 noBases true, client noBases false, the client's real base X, its non-coop Skyranger SKY, >= 2 soldiers; geo.slow_clock; crash baseline.
-Staging: G3C1.stage_landing (research sync off, TOPIC, the squad of two, the host site at X + (0.35, 0.10), its client mirror,
-craft_force, the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE H:" line (or G3C1's
+Staging: G3B.stage_landing (research sync off, TOPIC, the squad of two, the host site at X + (0.35, 0.10), its client mirror,
+craft_force, the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE H:" line (or G3B's
 "CAPTURE boot:" line) and every remaining cell FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a row whose precondition was never reached
 FAILs each of its cells "blocked: <why>"):
@@ -47,7 +47,7 @@ from session import battle_state, event_state  # noqa: E402
 import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
 
 # ----- TASK 0 pins (docs rewrite/w2h37-task0/sa/CONSTANTS.md) -----
@@ -133,21 +133,21 @@ def common(host, client, crash0, hash_full):
 
 
 def bring_up(host, client, key, ev):
-    """G3C1's bring_up (copied, the key as a parameter): spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0,
+    """G3B's bring_up (copied, the key as a parameter): spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0,
     geo.slow_clock. Its C-gm values are preconditions here (a miss = setup failure)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, key, alien_player="host")
     except Exception as e:  # noqa: BLE001
         capture_boot(f"PF.start_pvp_campaign: {e}", host, client)
-    ch, cc = G3C1.coop(host), G3C1.coop(client)
+    ch, cc = G3B.coop(host), G3B.coop(client)
     hg, cg = host.ok({"cmd": "geo_state"}), client.ok({"cmd": "geo_state"})
     xb = next((b for b in cg.get("bases", []) if not b.get("coopBase") and not b.get("coopIcon")), None)
     sky = next((c for c in (xb or {}).get("crafts", []) if "SKYRANGER" in c.get("type", "") and not c.get("coop")), None)
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
     sids = sorted(s["id"] for s in (sb or {}).get("soldiers", []))
-    host0 = {"noBases": ch.get("noBases"), "funds": hg.get("funds"), "realBases": G3C1.real_bases(hg)}
-    client0 = {"noBases": cc.get("noBases"), "funds": cg.get("funds"), "realBases": G3C1.real_bases(cg),
+    host0 = {"noBases": ch.get("noBases"), "funds": hg.get("funds"), "realBases": G3B.real_bases(hg)}
+    client0 = {"noBases": cc.get("noBases"), "funds": cg.get("funds"), "realBases": G3B.real_bases(cg),
                "sky": sky and {"type": sky.get("type"), "id": sky.get("id")}, "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0)
     geo.slow_clock(host, client)
@@ -191,12 +191,12 @@ def row_h1(host, client, xb, client0, ev, ctx):
     mon, both = [], False
     while time.time() - t_c < BOTH_IN_S:
         mon.append(sample(host, xb["name"], sky, t_c))
-        if G3C1.in_battle(host) and G3C1.in_battle(client):
+        if G3B.in_battle(host) and G3B.in_battle(client):
             both = True
             break
         time.sleep(POLL_S)
     secs = round(time.time() - t_c, 2)
-    ev.update(bothInS=secs, inBattle=[G3C1.in_battle(host), G3C1.in_battle(client)], stacksAtBothIn=[stack(host), stack(client)])
+    ev.update(bothInS=secs, inBattle=[G3B.in_battle(host), G3B.in_battle(client)], stacksAtBothIn=[stack(host), stack(client)])
     sp_ok, sp_detail = False, "not run (not both inBattle)"
     if both:
         try:
@@ -205,7 +205,7 @@ def row_h1(host, client, xb, client0, ev, ctx):
         except Exception as e:  # noqa: BLE001
             sp_detail = f"session.briefings_to_battlescape raised: {str(e)[:300]} (stacks {[stack(host), stack(client)]})"
     mon.append(sample(host, xb["name"], sky, t_c))
-    hp, cp = G3C1.coop(host).get("pvpBorrow") or {}, G3C1.coop(client).get("pvpBorrow") or {}
+    hp, cp = G3B.coop(host).get("pvpBorrow") or {}, G3B.coop(client).get("pvpBorrow") or {}
     target = hp.get("targetCoopId")
     post = [m for m in mon if m["borrowed"]]
     n_pre_hash = len(post)
@@ -283,7 +283,7 @@ def row_h2(host, client, ctx, ev):
         cell("H2-title", not tbad, "; ".join(tbad) or f"title {ht!r} on both")
     cell("H2-common", *common(host, client, crash0, hash_full=False))
     ev.update(hostDebrief=BES.debrief_view(hd), clientDebrief=BES.debrief_view(cd), stacks=[stack(host), stack(client)],
-              debriefS=[hsecs, csecs], positionsSkipped=(G3C1.coop(host).get("pvpBorrow") or {}).get("positionsSkipped"))
+              debriefS=[hsecs, csecs], positionsSkipped=(G3B.coop(host).get("pvpBorrow") or {}).get("positionsSkipped"))
     return names
 
 
@@ -292,9 +292,9 @@ def run(host, client):
     ev1 = {}
     host0, client0, xb = bring_up(host, client, KEY, ev1)
     try:
-        G3C1.stage_landing(host, client, xb, client0, ev1)
-    except G3C1.FixtureMiss as e:
-        raise FixtureMiss(f"G3C1.stage_landing: {e}")
+        G3B.stage_landing(host, client, xb, client0, ev1)
+    except G3B.FixtureMiss as e:
+        raise FixtureMiss(f"G3B.stage_landing: {e}")
     names = row_h1(host, client, xb, client0, ev1, ctx)
     evidence("H1", ev1)
     row_verdict("H1", names)

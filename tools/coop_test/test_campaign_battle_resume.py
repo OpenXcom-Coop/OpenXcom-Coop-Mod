@@ -44,7 +44,7 @@ import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
 import repro_atom_side_begin as RSB  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
-import test_campaign_battle_gm3 as G3C1  # noqa: E402
+import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_gm3_end as G3E  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402  (pure helpers only)
 import test_pvp_borrowed_target as BT  # noqa: E402
@@ -225,7 +225,7 @@ def land_to_saved(host, client, xb, client0, ev):
     sd, cl = client.cmd({"cmd": "set_seed", "seed": SEED}), client.cmd({"cmd": "confirm_landing"})
     if not sd.get("ok") or not cl.get("ok"):
         capture_boot(f"client set_seed {sd} / confirm_landing {cl}", host, client)
-    both, bs = wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(client), BOTH_IN_S)
+    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(client), BOTH_IN_S)
     ev["bothInS"] = bs
     if not both:
         capture_boot(f"not both inBattle within {BOTH_IN_S} s of the client's confirm_landing", host, client)
@@ -262,7 +262,7 @@ def save_cell(host, client, saved, ev):
     if not ok or len(new) != 1 or not new[0].endswith(".asav"):
         capture_boot(f"the quick_battle save: new files {new} within {SAVE_S} s (want one .asav)", host, client)
     time.sleep(GUARD_S)
-    pv, inb, bs = pvp(host), G3C1.in_battle(host), battle_state(host)
+    pv, inb, bs = pvp(host), G3B.in_battle(host), battle_state(host)
     evidence("save_borrowed_count", {"savedBorrowedBefore": sb0, "savedBorrowedAfter": pv.get("savedBorrowed")})
     ev.update(saveFile=new[0], saveS=ss, pvpAfterSave=pv, savedLines=pvp_lines(host, n0),
               coopSaveDeferrals=bs.get("coopSaveDeferrals"))
