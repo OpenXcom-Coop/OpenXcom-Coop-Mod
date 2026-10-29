@@ -1,38 +1,44 @@
 """test_ai_mc_soldier.py: in a co-op battle the alien AI acts with a
-soldier it mind-controlled in that same alien turn, as in vanilla (spec
-rewrite/prompts/w2h32_ai_uses_mc_soldier.md section (f); TASK 0 pins
-rewrite/w2h32-task0/CONSTANTS.md, boots Pa / Pb equal; lead L-H29-2, F11677;
-rulings QH29-7 (a), D151 "follow vanilla", MJ-8, D87 (b), QH32-1..QH32-5 (a)).
+soldier it mind-controlled in that same alien turn, as in vanilla.
 
-Row AM (boot P: the co-op classic terror mission with sectoids, lobby key
-48759, user dirs w2h32_p_host / w2h32_p_client with coopGhostStepper true,
-test_psi's C14 bring-up and C14-mc staging). The sectoid leader P
-mind-controls the partner's soldier C with the REAL alien AI in the alien turn
-of cycle 1 (SEED_C14 on the host right before its END TURN press); the alien AI
+Row ai_uses_mc_soldier (one boot: the co-op classic terror mission with
+sectoids, lobby key 48759, user dirs ai_mc_soldier_host / ai_mc_soldier_client
+with coopGhostStepper true, test_psi's bring-up and the staging of its
+mind-control scenario). The sectoid leader P mind-controls the partner's
+soldier C with the REAL alien AI in the alien turn of cycle 1
+(SEED_MIND_CONTROL on the host right before its END TURN press); the alien AI
 then selects C in that same turn (BattlescapeGame::handleAI gives it its AI
 module); cycle 2 with P inert (psiSkill 0, tu 0) returns C to its owner at the
 next alien turn start.
 
 Cells:
-  AM-mc      (precondition) P's first `ai` context is the psi mind control of
-             C; C faction hostile, mindControllerId P, coop seat 1 on both;
-             cycle 1 ended on player turn 2 on both, no timeout note.
-  AM-ai      the host's battle_state C hasAI true after cycle 1 (the host's AI
-             selected C in the alien turn). RED at H1: false - the host's turn
-             loop skips a unit whose seat tag is its owner's (coopMaySelectUnit).
-  AM-flow    TCU.context_fails(cycle 1) == [] (every context the cycle closed
-             is well formed, the AI's actions with C included).
-  AM-back    after cycle 2: C faction player, coop 1 on both; the host's hasAI
-             for C false (deleted at the release); cycle 2's cycle_fails and
-             context_fails == [].
-  AM-common  DC.common_fails == [] after cycle 1 and after cycle 2.
-A bring-up miss fails every cell "boot" (ONE CAPTURE P: line), a staging miss
-"staging"; a cell whose precondition (AM-mc) failed FAILs "not reached";
-AM-common is evaluated in every case past the staging. The row prints ONE
-EVIDENCE line before its cell lines.
+  mind_control_lands        (precondition) P's first `ai` context is the psi
+                            mind control of C; C faction hostile,
+                            mindControllerId P, coop seat 1 on both; cycle 1
+                            ended on player turn 2 on both, no timeout note.
+  host_ai_selects_soldier   the host's battle_state C hasAI true after cycle 1
+                            (the host's AI selected C in the alien turn).
+                            Without coopMaySelectUnit's rule that a unit
+                            mind-controlled by a seat-less controller is the
+                            host AI's (connectionTCP.cpp), it is false: the
+                            host's turn loop skips a unit whose seat tag is
+                            its owner's.
+  contexts_well_formed      test_turn_cues.context_fails(cycle 1) == [] (every
+                            context the cycle closed is well formed, the AI's
+                            actions with C included).
+  soldier_returns_to_owner  after cycle 2: C faction player, coop 1 on both;
+                            the host's hasAI for C false (the AI module is
+                            deleted when the mind control ends); cycle 2's
+                            cycle_fails and context_fails == [].
+  common_checks             test_delta_core.common_fails == [] after cycle 1
+                            and after cycle 2.
+A bring-up miss fails every cell "boot" (ONE CAPTURE: line), a staging miss
+"staging"; a cell whose precondition (mind_control_lands) failed FAILs "not
+reached"; common_checks is evaluated in every case past the staging. The row
+prints ONE EVIDENCE line before its cell lines.
 
-RED at H1 (no product line): AM-ai only; AM-mc, AM-flow, AM-back, AM-common
-PASS. GREEN (E1, connectionTCP.cpp coopMaySelectUnit): every cell PASS.
+Without that coopMaySelectUnit rule only host_ai_selects_soldier fails; the
+other cells pass either way.
 
 one run is the result; no skip path, no second boot, no
 alternative map, actor or seed. Exit 0 only when every cell passes, else 2.
@@ -56,11 +62,12 @@ from test_turn_cues import begin, end, cycle, cycle_fails, context_fails, st_seq
 from test_psi import (strip_both, psi_stat_both, psi_context_fails, units, read_extra_payloads, SEED_MAP,
                          MISSION, RACE, MAP_FP, SEATED, PINNED, P_ID, P_TYPE, PSI_WEAPON_ID, P_STRIPPED, C_ID,
                          C2_ID, P_TILE, P_DIR, C_TILE, C_DIR, C2_TILE, C2_DIR, P_TU, P_PSI_SKILL,
-                         C_PSI_STRENGTH_1, SEED_C14, SEED_C14P, FACTION_PLAYER, FACTION_HOSTILE)
+                         C_PSI_STRENGTH_1, SEED_MIND_CONTROL, SEED_PSI_PANIC, FACTION_PLAYER, FACTION_HOSTILE)
 
-KEY = "48759"                     # boot P lobby key (spec (F); 0 hits elsewhere at the tip, F12388)
-C_SEAT = 1                        # C is the client seat's soldier (CONSTANTS.md: coop 1 on both)
-CELLS = ("AM-mc", "AM-ai", "AM-flow", "AM-back", "AM-common")
+KEY = "48759"                     # lobby key (no other test uses it)
+C_SEAT = 1                        # C is the client seat's soldier (coop 1 on both machines)
+CELLS = ("mind_control_lands", "host_ai_selects_soldier", "contexts_well_formed", "soldier_returns_to_owner",
+         "common_checks")
 EV_KEYS = ("tu", "x", "y", "z", "hasAI", "faction", "coop", "mindControllerId")
 
 
@@ -81,7 +88,7 @@ def log_tail(gc, n=40):
 
 
 def capture(where, err, host, client):
-    """ONE CAPTURE P: line - both machines' stacks, battle_state side / turn and the last 40 engine log lines."""
+    """ONE CAPTURE: line - both machines' stacks, battle_state side / turn and the last 40 engine log lines."""
     cap = {"where": where, "err": err}
     for gc in (host, client):
         d = {}
@@ -96,13 +103,13 @@ def capture(where, err, host, client):
             d["side/turn"] = f"probe failed: {short(e)}"
         d["log"] = log_tail(gc)
         cap[gc.name] = d
-    print(f"CAPTURE P: {json.dumps(cap, default=str)}", flush=True)
+    print(f"CAPTURE: {json.dumps(cap, default=str)}", flush=True)
 
 
-# ===================== bring-up (test_psi boot()'s body, the key a parameter: F10917) =====================
+# ===================== bring-up (test_psi boot()'s body, with the lobby key as a parameter) =====================
 
 
-def boot_p(host, client, key):
+def boot_battle(host, client, key):
     bring_up_lobby_roster_pinned(host, client, key)
     seated = {}
 
@@ -117,14 +124,14 @@ def boot_p(host, client, key):
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, baked "
         f"MAP_FP={MAP_FP!r} ({MISSION} + {RACE}, SEED_MAP {SEED_MAP})")
     assert seated.get("soldierIds") == SEATED, f"seated {seated.get('soldierIds')} (baked {SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="w2h32-am")
+    pinned = pin_ai_neutral(host, client, tag="ai_mc_soldier")
     assert pinned == PINNED, f"pin_ai_neutral pinned {pinned} (baked {PINNED[0]}..{PINNED[-1]})"
     uh, uc = session.units_by_id(hs), session.units_by_id(cs)
     pt = ((uh.get(P_ID) or {}).get("type"), (uc.get(P_ID) or {}).get("type"),
           (uh.get(P_ID) or {}).get("psiWeapon"), (uc.get(P_ID) or {}).get("psiWeapon"))
     assert pt == (P_TYPE, P_TYPE, PSI_WEAPON_ID, PSI_WEAPON_ID), (
         f"P {P_ID} type/psiWeapon host, client={pt} (want {P_TYPE}, {PSI_WEAPON_ID})")
-    # RQ15: every live player unit's reactions 0 on BOTH machines (no reaction fire in the AI rows)
+    # every live player unit's reactions 0 on BOTH machines (no reaction fire while the AI acts)
     for uid, u in sorted(uh.items()):
         if u.get("faction") == FACTION_PLAYER and not u.get("isOut"):
             both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": uid, "stat": "reactions",
@@ -140,15 +147,16 @@ def boot_p(host, client, key):
             f"keys={sorted(u0)}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2h32] boot ok: {MISSION} + {RACE} key {key} turn={hs.get('turn')} seated={SEATED} "
+    print(f"[test_ai_mc_soldier] boot ok: {MISSION} + {RACE} key {key} turn={hs.get('turn')} seated={SEATED} "
           f"pinned={len(pinned)} P={pt[0]} psiWeapon={pt[2]}", flush=True)
 
 
-# ===================== row AM =====================
+# ===================== row ai_uses_mc_soldier =====================
 
 
-def stage_c14_mc(host, client):
-    """TCU.begin BEFORE any staging write, then test_psi c14_mc's staging (:316-:323) exactly. Returns rec."""
+def stage_mind_control(host, client):
+    """test_turn_cues.begin BEFORE any staging write, then the staging of test_psi's mind-control scenario, step for
+    step. Returns rec."""
     rec = begin(host, client)
     sp = strip_both(host, client, P_ID)
     strip_both(host, client, C_ID)
@@ -188,35 +196,39 @@ def c_fails(rec, want, what):
     return fails
 
 
-def row_am(host, client, rec, res):
-    cycle(host, client, SEED_C14, rec, "AM cycle 1")
+def row_ai_uses_mc_soldier(host, client, rec, res):
+    cycle(host, client, SEED_MIND_CONTROL, rec, "ai_uses_mc_soldier cycle 1")
     end(host, client, rec)
     read_extra_payloads(host, rec)
-    common1 = common_fails(host, client, rec["before"], {}, "AM cycle 1")
-    pfails, ai_p, cevs, psis = psi_context_fails(rec, C_ID, "mc", "AM")
-    mc = list(rec["notes"]) + pfails + cycle_fails(rec, "AM cycle 1")
-    mc += c_fails(rec, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID, "coop": C_SEAT}, "AM-mc")
+    common1 = common_fails(host, client, rec["before"], {}, "ai_uses_mc_soldier cycle 1")
+    pfails, ai_p, cevs, psis = psi_context_fails(rec, C_ID, "mc", "ai_uses_mc_soldier")
+    mc = list(rec["notes"]) + pfails + cycle_fails(rec, "ai_uses_mc_soldier cycle 1")
+    mc += c_fails(rec, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID, "coop": C_SEAT}, "mind_control_lands")
     has_ai = (rec["uh"].get(C_ID) or {}).get("hasAI")
     ai_fail = [] if has_ai is True else [
-        f"AM-ai: the host's battle_state C {C_ID} hasAI={has_ai} after cycle 1 (want true: the host's alien AI "
-        f"selects the soldier P mind-controlled in that alien turn and handleAI gives it its AI module; F11677)"]
-    flow = context_fails(rec, "AM cycle 1")
-    # cycle 2: P inert (both, client first), C returns to its owner at the next alien turn start
+        f"host_ai_selects_soldier: the host's battle_state C {C_ID} hasAI={has_ai} after cycle 1 (want true: the "
+        f"host's alien AI selects the soldier P mind-controlled in that alien turn and handleAI gives it its AI "
+        f"module)"]
+    flow = context_fails(rec, "ai_uses_mc_soldier cycle 1")
+    # cycle 2 (test_psi's cycle-2 seed): P inert (both, client first), C returns to its owner at the next alien turn
+    # start
     rec2 = begin(host, client)
     r_psi = psi_stat_both(host, client, P_ID, "psiSkill", 0)
     r_tu = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": P_ID, "stat": "tu", "value": 0,
                                "refill": True}, ("tu",))
-    cycle(host, client, SEED_C14P, rec2, "AM cycle 2")
+    cycle(host, client, SEED_PSI_PANIC, rec2, "ai_uses_mc_soldier cycle 2")
     end(host, client, rec2)
-    common2 = common_fails(host, client, rec2["before"], {}, "AM cycle 2")
+    common2 = common_fails(host, client, rec2["before"], {}, "ai_uses_mc_soldier cycle 2")
     back = list(rec2["notes"])
     if (r_psi.get("psiSkill"), r_tu.get("tu")) != (0, 0):
-        back.append(f"AM-back: P inert replies psiSkill={r_psi.get('psiSkill')} tu={r_tu.get('tu')} (want 0, 0)")
-    back += c_fails(rec2, {"faction": FACTION_PLAYER, "coop": C_SEAT}, "AM-back")
+        back.append(f"soldier_returns_to_owner: P inert replies psiSkill={r_psi.get('psiSkill')} "
+                    f"tu={r_tu.get('tu')} (want 0, 0)")
+    back += c_fails(rec2, {"faction": FACTION_PLAYER, "coop": C_SEAT}, "soldier_returns_to_owner")
     if (rec2["uh"].get(C_ID) or {}).get("hasAI") is not False:
-        back.append(f"AM-back: the host's C {C_ID} hasAI={(rec2['uh'].get(C_ID) or {}).get('hasAI')} after cycle 2 "
-                    f"(want false: the module is deleted at the release)")
-    back += cycle_fails(rec2, "AM cycle 2") + context_fails(rec2, "AM cycle 2")
+        back.append(f"soldier_returns_to_owner: the host's C {C_ID} "
+                    f"hasAI={(rec2['uh'].get(C_ID) or {}).get('hasAI')} after cycle 2 "
+                    f"(want false: the AI module is deleted when the mind control ends)")
+    back += cycle_fails(rec2, "ai_uses_mc_soldier cycle 2") + context_fails(rec2, "ai_uses_mc_soldier cycle 2")
     ai1 = sorted([c for c in rec["closed"] if c.get("origin") == "ai"], key=lambda c: c.get("endSeq") or 0)
     on_c = [c for c in ai1 if c.get("actorId") == C_ID]
     ev = {"ai contexts cycle 1 (actorId, kind, endSeq)": [(c.get("actorId"), c.get("kind"), c.get("endSeq"))
@@ -231,31 +243,31 @@ def row_am(host, client, rec, res):
           "side_transitions": (st_seqs(rec["hev"]), st_seqs(rec2["hev"])),
           "cycles": rec["cycles"] + rec2["cycles"], "dismissed": (rec["dismissed"], rec2["dismissed"]),
           "diff": (rec["diff"], rec2["diff"])}
-    print(f"EVIDENCE AM: {json.dumps(ev, default=str)}", flush=True)
-    res["AM-mc"] = mc
-    res["AM-ai"] = ai_fail
-    res["AM-flow"] = flow
-    res["AM-back"] = back
-    res["AM-common"] = common1 + common2
+    print(f"EVIDENCE ai_uses_mc_soldier: {json.dumps(ev, default=str)}", flush=True)
+    res["mind_control_lands"] = mc
+    res["host_ai_selects_soldier"] = ai_fail
+    res["contexts_well_formed"] = flow
+    res["soldier_returns_to_owner"] = back
+    res["common_checks"] = common1 + common2
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49866, make_user_dir("w2h32_p_host", options={"coopGhostStepper": True}))
-    client = GameClient("client", 49867, make_user_dir("w2h32_p_client", options={"coopGhostStepper": True}))
+    host = GameClient("host", 49866, make_user_dir("ai_mc_soldier_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49867, make_user_dir("ai_mc_soldier_client", options={"coopGhostStepper": True}))
     res = {}
     rec = None
     stage = "boot"
     try:
         try:
-            boot_p(host, client, KEY)
+            boot_battle(host, client, KEY)
             stage = "staging"
-            rec = stage_c14_mc(host, client)
+            rec = stage_mind_control(host, client)
             stage = "row"
-            row_am(host, client, rec, res)
-            if res["AM-mc"]:  # the precondition failed: the cells that rest on it are not reached
-                for c in ("AM-ai", "AM-flow", "AM-back"):
-                    res[c] = ["not reached (AM-mc failed)"]
+            row_ai_uses_mc_soldier(host, client, rec, res)
+            if res["mind_control_lands"]:  # the precondition failed: the cells that rest on it are not reached
+                for c in ("host_ai_selects_soldier", "contexts_well_formed", "soldier_returns_to_owner"):
+                    res[c] = ["not reached (mind_control_lands failed)"]
         except Exception as e:
             msg = f"{type(e).__name__}: {short(e, 600)}"
             if stage in ("boot", "staging"):
@@ -265,17 +277,18 @@ def main():
             else:
                 for c in CELLS[:-1]:
                     res.setdefault(c, [f"not reached ({msg})"])
-                if "AM-common" not in res:  # AM-common is evaluated in every case past the staging
+                if "common_checks" not in res:  # common_checks is evaluated in every case past the staging
                     try:
-                        res["AM-common"] = [msg] + common_fails(host, client, rec["before"], {}, "AM (exception)")
+                        res["common_checks"] = [msg] + common_fails(host, client, rec["before"], {},
+                                                                    "ai_uses_mc_soldier (exception)")
                     except Exception as e2:
-                        res["AM-common"] = [msg, f"common_fails: {short(e2)}"]
+                        res["common_checks"] = [msg, f"common_fails: {short(e2)}"]
     finally:
         for gc in (host, client):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h32] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_ai_mc_soldier] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [c for c in CELLS if res.get(c) == []]
     for c in CELLS:
         if res.get(c) == []:
@@ -283,7 +296,7 @@ def main():
         else:
             print(f"FAIL {c}: {'; '.join(res.get(c) or ['no result'])}", flush=True)
     ok = len(passed) == len(CELLS)
-    print(f"ROW AM: {'PASS' if ok else 'FAIL'} ({len(passed)}/{len(CELLS)} cells)", flush=True)
+    print(f"ROW ai_uses_mc_soldier: {'PASS' if ok else 'FAIL'} ({len(passed)}/{len(CELLS)} cells)", flush=True)
     print(f"\ntest_ai_mc_soldier: {len(passed)}/{len(CELLS)} cells passed (fail="
           f"{[c for c in CELLS if c not in passed]}) in {time.time() - t0:.1f}s", flush=True)
     return 0 if ok else 2

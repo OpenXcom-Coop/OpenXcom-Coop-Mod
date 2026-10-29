@@ -24,7 +24,7 @@ Two scenarios (the two halves of spec row C14), ONE boot, in this order:
              (BOTH; deleted ids compared as SETS, F882). P on P_TILE facing C
              and C2; C and C2 on C_TILE / C2_TILE facing AWAY from P (neither
              spots P, F875); P base tu P_TU and psiSkill P_PSI_SKILL (BOTH);
-             C psiStrength 0 (BOTH). Host set_seed SEED_C14 right before its
+             C psiStrength 0 (BOTH). Host set_seed SEED_MIND_CONTROL right before its
              END TURN press. The host shows a vanilla infobox with the mind
              control: the host dismisses it (dismiss_popup, host only, F876).
              GREEN: P's first `ai` context of the alien side is {kind psi,
@@ -34,7 +34,7 @@ Two scenarios (the two halves of spec row C14), ONE boot, in this order:
              mindControllerId P on both.
   C14-panic  the revert and the psi panic (cycle 2, turn 2 -> 3). P and C2
              re-teleported to the same tiles (BOTH); C psiStrength 100 (out of
-             P's reach) and C2 psiStrength 0 (BOTH); host set_seed SEED_C14P
+             P's reach) and C2 psiStrength 0 (BOTH); host set_seed SEED_PSI_PANIC
              right before its END TURN press. C reverts to the player faction
              at the PLAYER -> HOSTILE side start (N11, F874). P's psi panic
              lowers C2's morale; at the player side start of turn 3 C2 panics
@@ -157,10 +157,10 @@ C_TILE, C_DIR = (26, 23, 0), 6   # faces AWAY from P
 C2_TILE, C2_DIR = (26, 25, 0), 6
 P_TU, P_PSI_SKILL = 54, 50       # set_stat tu (no refill: recovered at P's side start) + psiSkill (both)
 C_PSI_STRENGTH_1 = 0             # cycle 1: C in P's reach
-SEED_C14 = 1                     # host set_seed right before its cycle-1 END TURN press: mind control of C
+SEED_MIND_CONTROL = 1            # host set_seed right before its cycle-1 END TURN press: mind control of C
 C_PSI_STRENGTH_2 = 100           # cycle 2: C out of P's reach
 C2_PSI_STRENGTH_2 = 0
-SEED_C14P = 1                    # host set_seed right before its cycle-2 END TURN press: psi panic on C2
+SEED_PSI_PANIC = 1               # host set_seed right before its cycle-2 END TURN press: psi panic on C2
 C2_MORALE_END = 45               # 100 - 70 (psi panic) + 15 (UnitPanicBState at the panic's end)
 PANIC_MODE = "freeze"            # C2's panic at turn 3 resolves in place (no walk, no shot)
 PSI_CHAIN = ["psi", "bt_action_end"]
@@ -357,7 +357,7 @@ def c14_mc(host, client, ctx):
               "C": uview(uh0.get(C_ID)), "C2": uview(uh0.get(C2_ID))}
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
-    cycle(host, client, SEED_C14, rec, "cycle 1",
+    cycle(host, client, SEED_MIND_CONTROL, rec, "cycle 1",
           client_hold=hold_until_message(client, mb, C_ID, KEY_UNDER_ALIEN_CONTROL, rec, "cycle 1", HOLD_C14MC_S))
     end(host, client, rec)
     ma = msg_snap(host, client)
@@ -365,7 +365,7 @@ def c14_mc(host, client, ctx):
     pfails, ai_p, cevs, psis = psi_context_fails(rec, C_ID, "mc", "C14-mc")
     print(f"EVIDENCE C14-mc: strip P={sp} strip C={sc}; P {P_TILE}/{P_DIR} C {C_TILE}/{C_DIR} C2 {C2_TILE}/{C2_DIR}; "
           f"psi responses (psiSkill, psiStrength) P={(rp.get('psiSkill'), rp.get('psiStrength'))} C="
-          f"{(rcs.get('psiSkill'), rcs.get('psiStrength'))}; staged={staged} stagedDiff={staged_diff}; seed {SEED_C14}; "
+          f"{(rcs.get('psiSkill'), rcs.get('psiStrength'))}; staged={staged} stagedDiff={staged_diff}; seed {SEED_MIND_CONTROL}; "
           f"cycle side_transitions={st_seqs(rec['hev'])}; P's ai contexts={[ctx_view(c) for c in ai_p]} first's evs="
           f"{sv(cevs)}; psi evs (seq, actionId, payload)={[(e['seq'], e['actionId'], payload(rec, e)) for e in psis]}; "
           f"units={units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
@@ -411,7 +411,7 @@ def c14_panic(host, client, ctx):
     snap_e = effect_snap(host, client)   # W2-P6b S-E row E2
     mb = msg_snap(host, client)          # W2-P6a S-M row MR5
     # the client's player-side NextTurnState stays up until C2's panic record is in its ring
-    cycle(host, client, SEED_C14P, rec, "cycle 2", extra=c2_resolved,
+    cycle(host, client, SEED_PSI_PANIC, rec, "cycle 2", extra=c2_resolved,
           client_hold=hold_until_message(client, mb, C2_ID, KEY_PANICKED, rec, "cycle 2", HOLD_C14P_S,
                                          side=FACTION_PLAYER))
     end(host, client, rec)
@@ -428,7 +428,7 @@ def c14_panic(host, client, ctx):
     m0 = ((uh0.get(C2_ID) or {}).get("morale"), (uc0.get(C2_ID) or {}).get("morale"))
     print(f"EVIDENCE C14-panic: P {P_TILE}/{P_DIR} C2 {C2_TILE}/{C2_DIR}; psi responses (psiSkill, psiStrength) C="
           f"{(rc.get('psiSkill'), rc.get('psiStrength'))} C2={(rc2.get('psiSkill'), rc2.get('psiStrength'))}; staged="
-          f"{staged} stagedDiff={staged_diff}; seed {SEED_C14P}; cycle side_transitions={sts}; host faction/mc delta "
+          f"{staged} stagedDiff={staged_diff}; seed {SEED_PSI_PANIC}; cycle side_transitions={sts}; host faction/mc delta "
           f"lines={flines}; P's ai contexts={[ctx_view(c) for c in ai_p]} first's evs={sv(cevs)}; psi evs (seq, "
           f"actionId, payload)={[(e['seq'], e['actionId'], payload(rec, e)) for e in psis]}; panic context="
           f"{ctx_view(pc)} kind={pc and pc.get('kind')} its evs={sv(pevs)} payloads="
