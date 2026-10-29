@@ -43,7 +43,7 @@ import test_tank_entry as DT  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 import test_ownerless_units as OWN  # noqa: E402
 import test_multistage_end as MSE  # noqa: E402
-import test_multistage as MS1  # noqa: E402
+import test_multistage as MS  # noqa: E402
 
 PORT = "47632"
 # set on the host right before confirm_cydonia (two measured boots: one stage-1 map, host == client)
@@ -157,11 +157,11 @@ def bring_up_cydonia(host, client, port, pre_launch):
     pins["logMark"] = len(G3F.log_lines(host))
     host.ok({"cmd": "confirm_cydonia"})
     host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=60)
-    pins["pressed1"], pins["spine1S"] = MS1.run_spine(host, client)   # session.briefings_to_battlescape
+    pins["pressed1"], pins["spine1S"] = MS.run_spine(host, client)   # session.briefings_to_battlescape
     live = hostiles(host)
     pinned = sorted(session.pin_ai_neutral(host, client, tag="cydonia_guests"))
     assert pinned == live, f"pin_ai_neutral pinned {pinned} (want every live hostile id {live})"
-    session.wait_host_idle(host, client, timeout=MS1.IDLE_S)
+    session.wait_host_idle(host, client, timeout=MS.IDLE_S)
     session.assert_hash_clean(host, client, full=True, what="cydonia_guests bring-up")
     pins["hostiles"] = live
     print("both machines on the Cydonia battlescape (SEPARATE, the partner's guest seated and tank parked)", flush=True)
@@ -286,14 +286,14 @@ def end_turn_both(host, client, g, ctx):
     et = ctx["endTurn"] = {}
     try:
         et["partnerPress"] = client.ok({"cmd": "battle_action", "action": "end_turn_button"})
-        et["tallyOk"], et["tallyS"] = MS1.wait_until(
+        et["tallyOk"], et["tallyS"] = MS.wait_until(
             lambda: ((es(host, "coopEndTurnTally") or {}).get("needed") or 0) > 0, TALLY_S, 0.1)
         et["tally"] = es(host, "coopEndTurnTally")
         et["text"] = {gc.name: battle_state(gc).get("coopEndTurnText") for gc in (host, client)}
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
     except Exception as e:
         g.append(f"END TURN presses: {short(e, 300)}")
-    ok, secs = MS1.wait_until(lambda: "NextTurnState" in host.cmd({"cmd": "list_widgets"}).get("state", ""), 30, 0.1)
+    ok, secs = MS.wait_until(lambda: "NextTurnState" in host.cmd({"cmd": "list_widgets"}).get("state", ""), 30, 0.1)
     if not ok:
         g.append(f"host NextTurnState not up within {secs}s after both END TURN presses")
     ctx["t_close"] = time.time()
@@ -317,8 +317,8 @@ def row_stage2_carry(host, client, pins, crash0, out):
     MSE.stage_guards(host, client, ctx, g)
     ctx["killed"] = MSE.kill_all(host, client, None, g, "stage 1")
     et = end_turn_both(host, client, g, ctx)
-    ctx["hostStageAtClose"] = MS1.eview(host).get("stage")
-    ctx["hostRcAtClose"] = MS1.rc(host)
+    ctx["hostStageAtClose"] = MS.eview(host).get("stage")
+    ctx["hostRcAtClose"] = MS.rc(host)
     tally = et.get("tally") or {}
     t_got = (tally.get("count"), tally.get("needed"), tally.get("ready"))
     cells["stage2_carry-tally"] = (t_got == (1, 2, [1]),
@@ -336,7 +336,7 @@ def row_stage2_carry(host, client, pins, crash0, out):
     if not f:
         ctx["inStage2"] = True
         try:
-            ctx["pressed2"], ctx["spineS"] = MS1.run_spine(host, client)
+            ctx["pressed2"], ctx["spineS"] = MS.run_spine(host, client)
             for name, gc in (("host", host), ("partner", client)):
                 b = MSE.bview(gc)
                 if b.get("turn") != 1 or b.get("missionType") != MSE.MISSION_FINAL:
@@ -372,9 +372,9 @@ def row_stage2_carry(host, client, pins, crash0, out):
     c_ok, c_txt = G3F.common(host, client, crash0)
     cells["stage2_carry-common"] = (c_ok and not lf, f"{c_txt}; liveness {lf or 'host alive, no new crash file'}")
     ev.update(entry=ctx.get("entry"), clientBriefingS=ctx.get("clientBriefingS"), pressed2=ctx.get("pressed2"),
-              spineS=ctx.get("spineS"), stacks={"host": MS1.stack(host), "partner": MS1.stack(client)},
+              spineS=ctx.get("spineS"), stacks={"host": MS.stack(host), "partner": MS.stack(client)},
               carried={"host": safe(lambda: DT.unit_view(host)), "partner": safe(lambda: DT.unit_view(client))},
-              hostRc=MS1.rc(host),
+              hostRc=MS.rc(host),
               newCrashFiles=ctx.get("newCrashFiles"))
     return cells, ev
 
