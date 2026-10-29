@@ -1,34 +1,44 @@
 """test_pve2_resume_refused.py: a co-op campaign save played in PvE2 (game mode 4, both players on the Alien team; only
-the release line could write one) is not resumed. RESUME CAMPAIGN in the co-op lobby shows D275's small dialog "There must be at least
-one player on the X-COM team for campaign games." with one OK on the host; nothing is resumed and both lobbies stay as they were; OK
-returns the host to the same lobby. The same world in its ordinary mode still resumes.
+older versions could write one) is not resumed. RESUME CAMPAIGN in the co-op lobby shows a small dialog "There must be
+at least one player on the X-COM team for campaign games." with one OK on the host; nothing is resumed and both lobbies
+stay as they were; OK returns the host to the same lobby. The same world in its ordinary mode still resumes. Every
+resume's START HOST goes through the real host window (host_menu_host visibility 0 -> HostMenu::hostTCPGame), never
+the host_tcp test command.
 
-Spec: docs rewrite/prompts/d283_pve2_resume_refusal.md (stage S-A; (f) rows G4, G1, M4; FX-1 .. FX-8) and its ORCHESTRATOR RULINGS
-(Q283-1 .. Q283-8 (a)); owner D283 (b), D275, D270 (b); R-D250-SC4A-1 (a): every resume's START HOST goes through the real host window
-(host_menu_host visibility 0 -> HostMenu::hostTCPGame), never the host_tcp lever; F16410, F16412, F16416, F16418. TASK 0 pins: docs
-rewrite/d283-task0/CONSTANTS.md (boots TG, TM on the unchanged build; the S54 swap SRC_MODE 1 -> 0, F16430).
-
-Boot G: lobby key 48283, dirs d283_g_host / _client / _client2 / _client3. FX-1 session.new_campaign (SEPARATE; its host_tcp is the
-new campaign's host step, not a resume); FX-2 the host's save_game d283_g1.sav, both processes end; FX-3 d283_g4.sav = ONE body-line
-byte edit of it (coop_gamemode SRC_MODE -> 4, header untouched, every other save key equal); FX-4 the host respawned on ITS dir and
-client2 on an EMPTY dir, load_save_menu -> HostMenu -> host_menu_host -> the resume lobby (lobbyMode 2), client2 joins, the Profile
-popups closed (profile_ok); FX-5 BEFORE; the host's RESUME press (lobby_action: the real button, LM :921). FX-6 both end; client3 on an
-EMPTY dir; RR.resume_campaign on d283_g1.sav (host_menu_host inside).
-Boot M (after G): key 48283, dirs d283_m_host / _client / _client2. FX-7 session.bring_up_separate_guest_battle; FX-8 the host's
-quick_battle save (exactly one new file), both end, FX-3 -> d283_m4.sav beside it; FX-4, FX-5, the press.
-A bring-up, save, copy, relaunch or lobby miss is a setup failure: ONE "CAPTURE <boot>:" line and every remaining cell of that boot
-FAILs "boot".
-Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure):
-  G4 (boot G) the PvE2 geoscape save: G4-dialog (host top CampaignTeamRefusedState <= DIALOG_S; TextButtons exactly ["OK"], TEXT
-     once), G4-held (press + SETTLE_S: host get_coop / world_state / save files == BEFORE, host stack == BEFORE + [the dialog]),
-     G4-client (client2 stack, get_coop, world_state, save files == BEFORE; lobbyOpen true), G4-ok (OK -> host top LobbyMenu <= OK_S;
-     READ_S later RESUME CAMPAIGN shown, players / startEligible == BEFORE; a second press shows the dialog again and its OK returns),
-     G4-common (0 new crash files in the boot, both processes alive).
-  G1 (boot G, after G4) the same world in its ordinary mode: G1-resume (RR.resume_campaign returns; host and client3 GeoscapeState,
-     gamemode 1 / 1, host sessionLocked true), G1-common.
-  M4 (boot M) the PvE2 mid-battle save: M4-dialog, M4-held, M4-client, M4-ok, M4-common as G4.
-RED (D283R, the unchanged build; TASK 0 TG / TM): 4/12 - FAIL G4-dialog, G4-held, G4-client, G4-ok (blocked), M4-dialog, M4-held,
-M4-client, M4-ok (blocked): the press resumes the save as ordinary co-op. GREEN (D283G): 12/12.
+The geoscape boot: lobby key 48283, dirs pve2_refused_geoscape_host / _client / _client2 / _client3, in these steps:
+  campaign_start     session.new_campaign (SEPARATE; its host_tcp is the new campaign's host step, not a resume).
+  ordinary_save      the host's save_game refused_ordinary.sav; both processes end.
+  pve2_copy          refused_geoscape_pve2.sav = ONE body-line byte edit of it (coop_gamemode SRC_MODE -> 4, header
+                     untouched, every other save key equal).
+  resume_lobby       the host respawned on ITS dir and client2 on an EMPTY dir, load_save_menu -> HostMenu ->
+                     host_menu_host -> the resume lobby (lobbyMode 2), client2 joins, the Profile popups closed
+                     (profile_ok).
+  before             the BEFORE read; then the host's RESUME press (lobby_action: the real button).
+  ordinary_relaunch  both end; client3 on an EMPTY dir; RR.resume_campaign on refused_ordinary.sav (host_menu_host
+                     inside).
+The battle boot (after the geoscape boot): key 48283, dirs pve2_refused_battle_host / _client / _client2.
+  battle_bring_up    session.bring_up_separate_guest_battle.
+  battle_save        the host's quick_battle save (exactly one new file); both end; pve2_copy -> refused_battle_pve2.sav
+                     beside it; resume_lobby, before, the press.
+A bring-up, save, copy, relaunch or lobby miss is a setup failure: ONE "CAPTURE <boot>:" line and every remaining cell
+of that boot FAILs "boot".
+Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a
+failure):
+  geoscape_refused (the geoscape boot) the PvE2 geoscape save: geoscape_refused-dialog (host top
+     CampaignTeamRefusedState <= DIALOG_S; TextButtons exactly ["OK"], TEXT once), geoscape_refused-held (press +
+     SETTLE_S: host get_coop / world_state / save files == BEFORE, host stack == BEFORE + [the dialog]),
+     geoscape_refused-client (client2 stack, get_coop, world_state, save files == BEFORE; lobbyOpen true),
+     geoscape_refused-ok (OK -> host top LobbyMenu <= OK_S; READ_S later RESUME CAMPAIGN shown, players /
+     startEligible == BEFORE; a second press shows the dialog again and its OK returns), geoscape_refused-common (0 new
+     crash files in the boot, both processes alive).
+  ordinary_resumes (the geoscape boot, after geoscape_refused) the same world in its ordinary mode:
+     ordinary_resumes-resume (RR.resume_campaign returns; host and client3 GeoscapeState, gamemode 1 / 1, host
+     sessionLocked true), ordinary_resumes-common.
+  battle_refused (the battle boot) the PvE2 mid-battle save: battle_refused-dialog, battle_refused-held,
+     battle_refused-client, battle_refused-ok, battle_refused-common as geoscape_refused.
+Without the fix: 4/12 - FAIL geoscape_refused-dialog, geoscape_refused-held, geoscape_refused-client,
+geoscape_refused-ok (blocked), battle_refused-dialog, battle_refused-held, battle_refused-client, battle_refused-ok
+(blocked): the press resumes the save as ordinary co-op. With the fix: 12/12.
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pve2_resume_refused.py
@@ -47,23 +57,29 @@ from session import battle_state  # noqa: E402
 import geo  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402  (pure helpers + resume_campaign through the real host window)
 
-# ----- pins (docs rewrite/d283-task0/CONSTANTS.md) -----
+# ----- pins -----
 KEY = "48283"
-SRC_MODE = 0            # the mode session.new_campaign's saves carry (TASK 0 TG / TM; S54 swap 1 -> 0, F16430); FX-3 makes it 4
-TEXT = "There must be at least one player on the X-COM team for campaign games."   # owner D275, exact
-DIALOG = "CampaignTeamRefusedState"                                                 # S-C6 QC6-1 (a): the file-local dialog
-G1_SAVE, G4_SAVE, M4_SAVE = "d283_g1.sav", "d283_g4.sav", "d283_m4.sav"
-FIX = {"G4-dialog", "G4-held", "G4-client", "G4-ok", "M4-dialog", "M4-held", "M4-client", "M4-ok"}   # TASK 0 TG / TM
+SRC_MODE = 0            # the mode session.new_campaign's saves carry (measured); pve2_copy makes it 4
+TEXT = "There must be at least one player on the X-COM team for campaign games."   # the dialog's exact text
+DIALOG = "CampaignTeamRefusedState"                                                 # LobbyMenu.cpp's dialog
+ORDINARY_SAVE, GEOSCAPE_PVE2_SAVE, BATTLE_PVE2_SAVE = ("refused_ordinary.sav", "refused_geoscape_pve2.sav",
+                                                       "refused_battle_pve2.sav")
+# the cells that fail without the fix
+FIX = {"geoscape_refused-dialog", "geoscape_refused-held", "geoscape_refused-client", "geoscape_refused-ok",
+       "battle_refused-dialog", "battle_refused-held", "battle_refused-client", "battle_refused-ok"}
 # ----- bounds -----
 DIALOG_S, OK_S, READ_S = 5.0, 5.0, 1.5
-SETTLE_S = 3.0          # >= 2 x T_c (0.05 s in TG and TM)
+SETTLE_S = 3.0          # >= 2 x the measured settle (0.05 s on both boots)
 SAVE_S, SAVE_S_M, MENU_S, JOIN_S, TOPS_S, BATTLE_S = 10, 15, 30, 60, 10, 30
 COOP_KEYS = ("gamemode", "lobbyMode", "sessionLocked", "lobbyClosed", "resumeAck", "pvpBorrow", "saveID", "onConnect")
 HELD_KEYS = COOP_KEYS[:7]
 CLIENT_KEYS = ("gamemode", "lobbyMode", "sessionLocked", "lobbyClosed", "onConnect")
-ROWS = {"G4": ["G4-dialog", "G4-held", "G4-client", "G4-ok", "G4-common"], "G1": ["G1-resume", "G1-common"],
-        "M4": ["M4-dialog", "M4-held", "M4-client", "M4-ok", "M4-common"]}
-BOOT = {"tag": "G", "captured": False}
+ROWS = {"geoscape_refused": ["geoscape_refused-dialog", "geoscape_refused-held", "geoscape_refused-client",
+                             "geoscape_refused-ok", "geoscape_refused-common"],
+        "ordinary_resumes": ["ordinary_resumes-resume", "ordinary_resumes-common"],
+        "battle_refused": ["battle_refused-dialog", "battle_refused-held", "battle_refused-client", "battle_refused-ok",
+                           "battle_refused-common"]}
+BOOT = {"tag": "geoscape", "captured": False}
 stack, top, crash_set, wait, alive, save_keys = RR.stack, RR.top, RR.crash_set, RR.wait, RR.alive, RR.save_keys
 
 
@@ -120,7 +136,7 @@ def fdiff(a, b):
 
 
 def widgets(gc):
-    """G4R's: the top state's name and its captioned widgets."""
+    """The top state's name and its captioned widgets."""
     r = gc.cmd({"cmd": "list_widgets"})
     ws = [{"type": (w.get("type") or "").replace("class OpenXcom::", ""), "text": w.get("text"), "visible": w.get("visible"),
            "hidden": w.get("hidden")} for w in r.get("widgets") or [] if "text" in w]
@@ -128,7 +144,7 @@ def widgets(gc):
 
 
 def view(host, cl):
-    """FX-5's read of both machines (BEFORE, and the cells' read at press + SETTLE_S)."""
+    """The read of both machines (BEFORE the press, and the cells' read at press + SETTLE_S)."""
     return {"host": {"stack": stack(host), "lobby": lobby(host), "coop": coop(host), "world": world(host), "files": files(host)},
             "client": {"stack": stack(cl), "lobby": lobby(cl), "coop": coop(cl), "world": world(cl), "files": files(cl)}}
 
@@ -180,7 +196,8 @@ def shutdown_all(x):
 
 
 def respawn(x, name):
-    """FX-4 / FX-6 (RB relaunch's shape): every machine ends; the host respawns on ITS dir and `name` on an EMPTY dir."""
+    """The relaunch of resume_lobby / ordinary_relaunch: every machine ends; the host respawns on ITS dir and `name` on
+    an EMPTY dir."""
     try:
         end_all(x)
         x["host"] = GameClient("host", None, x["host"].user_dir)
@@ -192,9 +209,10 @@ def respawn(x, name):
     return x["host"], x[name]
 
 
-def fx3(src, dst, ev, machines):
-    """FX-3 (F16418): ONE body-line byte edit of the host's own save. Split at the first b"\\n---\\n"; in the body ONLY coop_gamemode
-    SRC_MODE -> 4 (exactly one replacement; the header holds no such line); written as bytes; every other save key equal."""
+def write_pve2_copy(src, dst, ev, machines):
+    """pve2_copy: ONE body-line byte edit of the host's own save. Split at the first b"\\n---\\n"; in the body ONLY
+    coop_gamemode SRC_MODE -> 4 (exactly one replacement; the header holds no such line); written as bytes; every other
+    save key equal."""
     data = open(src, "rb").read()
     i = data.find(b"\n---\n")
     head, body = (data[:i + 5], data[i + 5:]) if i >= 0 else (data, b"")
@@ -203,42 +221,48 @@ def fx3(src, dst, ev, machines):
     nh = len(re.findall(pat, head))
     if i < 0 or n != 1 or nh != 0:
         lines = [ln.decode("utf-8", "replace") for ln in data.splitlines() if b"coop_gamemode" in ln]
-        capture_boot(f"FX-3 on {os.path.basename(src)}: {n} body replacement(s), {nh} header line(s) (want 1 / 0); its coop_gamemode "
-                     f"lines {lines}", *machines)
+        capture_boot(f"pve2_copy on {os.path.basename(src)}: {n} body replacement(s), {nh} header line(s) "
+                     f"(want 1 / 0); its coop_gamemode lines {lines}", *machines)
     with open(dst, "wb") as fh:
         fh.write(head + new)
     k0, k4 = save_keys(src), save_keys(dst)
     diff = sorted(k for k in set(k0) | set(k4) if k0.get(k) != k4.get(k))
-    ev["FX-3"] = {"file": os.path.basename(dst), "bytes": os.path.getsize(dst), "keys": k4}
+    ev["pve2_copy"] = {"file": os.path.basename(dst), "bytes": os.path.getsize(dst), "keys": k4}
     if k4.get("coop_gamemode@1") != 4 or diff != ["coop_gamemode@1"]:
-        capture_boot(f"FX-3: the copy's keys {k4} (want coop_gamemode@1 4, every other key == the source's {k0})", *machines)
+        capture_boot(f"pve2_copy: the copy's keys {k4} (want coop_gamemode@1 4, every other key == the source's {k0})",
+                     *machines)
 
 
 def to_lobby(host, cl, save, ev):
-    """FX-4: load_save_menu -> HostMenu (EVIDENCE P-1: the mode there); host_menu_host -> the resume lobby (lobbyMode 2;
-    EVIDENCE P-2: the live mode); the client joins; host clientName "ClientPlayer"; 2 s; a Profile popup closed; both tops LobbyMenu."""
+    """resume_lobby: load_save_menu -> HostMenu (EVIDENCE hostMenu: the mode there); host_menu_host -> the resume lobby
+    (lobbyMode 2; EVIDENCE resumeLobby: the live mode); the client joins; host clientName "ClientPlayer"; 2 s; a Profile
+    popup closed; both tops LobbyMenu."""
     host.ok({"cmd": "load_save_menu", "file": save})
     ok, s = wait(lambda: session.has_state(host, "HostMenu"), MENU_S, 0.1)
     if not ok:
-        capture_boot(f"FX-4: no host HostMenu within {MENU_S} s of load_save_menu {save}", host, cl)
-    ev["P-1"] = {"hostMenuS": s, "gamemode": host.cmd({"cmd": "get_coop"}).get("gamemode")}
+        capture_boot(f"resume_lobby: no host HostMenu within {MENU_S} s of load_save_menu {save}", host, cl)
+    ev["hostMenu"] = {"hostMenuS": s, "gamemode": host.cmd({"cmd": "get_coop"}).get("gamemode")}
     host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": KEY, "player": "HostPlayer"})
     ok, s = wait(lambda: session.has_state(host, "LobbyMenu"), MENU_S, 0.1)
     ls = lobby(host)
-    ev["P-2"] = {"lobbyS": s, "lobbyMode": ls.get("lobbyMode"), "gamemode": host.cmd({"cmd": "get_coop"}).get("gamemode")}
+    ev["resumeLobby"] = {"lobbyS": s, "lobbyMode": ls.get("lobbyMode"),
+                         "gamemode": host.cmd({"cmd": "get_coop"}).get("gamemode")}
     if not ok or ls.get("lobbyMode") != 2:
-        capture_boot(f"FX-4: host LobbyMenu {ok} after {s} s, lobbyMode {ls.get('lobbyMode')} (want 2)", host, cl)
+        capture_boot(f"resume_lobby: host LobbyMenu {ok} after {s} s, lobbyMode {ls.get('lobbyMode')} (want 2)",
+                     host, cl)
     cl.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
     ok, s = wait(lambda: session.has_state(cl, "LobbyMenu") and host.cmd({"cmd": "get_coop"}).get("clientName") == "ClientPlayer",
                  JOIN_S, 0.25)
     if not ok:
-        capture_boot(f"FX-4: {cl.name} LobbyMenu / host clientName 'ClientPlayer' not within {JOIN_S} s", host, cl)
+        capture_boot(f"resume_lobby: {cl.name} LobbyMenu / host clientName 'ClientPlayer' not within {JOIN_S} s",
+                     host, cl)
     ev["joinS"] = s
     time.sleep(2.0)
     ev["profileOk"] = {gc.name: gc.cmd({"cmd": "profile_ok"}).get("ok") for gc in (host, cl) if "Profile" in stack(gc)}
     ok, s = wait(lambda: top(host) == "LobbyMenu" and top(cl) == "LobbyMenu", TOPS_S, 0.1)
     if not ok:
-        capture_boot(f"FX-4: tops {top(host)} / {top(cl)} (want LobbyMenu / LobbyMenu within {TOPS_S} s)", host, cl)
+        capture_boot(f"resume_lobby: tops {top(host)} / {top(cl)} (want LobbyMenu / LobbyMenu within {TOPS_S} s)",
+                     host, cl)
 
 
 def ok_cycle(host):
@@ -254,7 +278,7 @@ def ok_cycle(host):
 
 
 def refused_row(row, host, cl, crash0, ev):
-    """FX-5 BEFORE, the RESUME press, and the row's five cells (X-dialog, X-held, X-client, X-ok, X-common)."""
+    """The BEFORE read, the RESUME press, and the row's five cells (X-dialog, X-held, X-client, X-ok, X-common)."""
     b = view(host, cl)
     ev["BEFORE"] = b
     hb, cb = b["host"], b["client"]
@@ -262,7 +286,7 @@ def refused_row(row, host, cl, crash0, ev):
                                                                      ("startEligible", True)) if hb["lobby"].get(k) != w]
     pre += [f"{k} {hb['coop'].get(k)!r} (want False)" for k in ("sessionLocked", "lobbyClosed") if hb["coop"].get(k) is not False]
     if pre:
-        capture_boot(f"FX-5 BEFORE host: {'; '.join(pre)}", host, cl)
+        capture_boot(f"before: host {'; '.join(pre)}", host, cl)
     t0 = time.time()
     r = host.cmd({"cmd": "lobby_action"})
     ev["press"] = {k: r.get(k) for k in ("ok", "error")}
@@ -348,38 +372,42 @@ def bring_up(x, fn, what):
     return host, cl
 
 
-def g4_setup(x, ev):
-    """FX-1 .. FX-4 of boot G."""
-    host, cl = bring_up(x, session.new_campaign, "FX-1 session.new_campaign")
-    ev["FX-1"] = {"tops": [top(host), top(cl)], "gamemode": [coop(host)["gamemode"], coop(cl)["gamemode"]]}
-    if ev["FX-1"] != {"tops": ["GeoscapeState"] * 2, "gamemode": [SRC_MODE] * 2}:
-        capture_boot(f"FX-1: {ev['FX-1']} (want both tops GeoscapeState, both gamemode {SRC_MODE})", host, cl)
+def geoscape_setup(x, ev):
+    """campaign_start .. resume_lobby of the geoscape boot."""
+    host, cl = bring_up(x, session.new_campaign, "campaign_start session.new_campaign")
+    ev["campaign_start"] = {"tops": [top(host), top(cl)], "gamemode": [coop(host)["gamemode"], coop(cl)["gamemode"]]}
+    if ev["campaign_start"] != {"tops": ["GeoscapeState"] * 2, "gamemode": [SRC_MODE] * 2}:
+        capture_boot(f"campaign_start: {ev['campaign_start']} (want both tops GeoscapeState, both gamemode "
+                     f"{SRC_MODE})", host, cl)
     geo.slow_clock(host, cl)
-    path = os.path.join(host.user_dir, "xcom1", G1_SAVE)
-    r = host.cmd({"cmd": "save_game", "file": G1_SAVE})
+    path = os.path.join(host.user_dir, "xcom1", ORDINARY_SAVE)
+    r = host.cmd({"cmd": "save_game", "file": ORDINARY_SAVE})
     ok, s = wait(lambda: os.path.exists(path) and os.path.getsize(path) > 0, SAVE_S, 0.2)
     if not r.get("ok") or not ok:
-        capture_boot(f"FX-2: host save_game {G1_SAVE}: {r}, file present {os.path.exists(path)} within {SAVE_S} s", host, cl)
+        capture_boot(f"ordinary_save: host save_game {ORDINARY_SAVE}: {r}, file present {os.path.exists(path)} "
+                     f"within {SAVE_S} s", host, cl)
     time.sleep(1.0)
-    ev["FX-2"] = {"file": G1_SAVE, "s": s, "bytes": os.path.getsize(path), "keys": save_keys(path)}
-    if ev["FX-2"]["keys"].get("coop_gamemode@1") != SRC_MODE:
-        capture_boot(f"FX-2: {G1_SAVE} keys {ev['FX-2']['keys']} (want coop_gamemode@1 {SRC_MODE})", host, cl)
+    ev["ordinary_save"] = {"file": ORDINARY_SAVE, "s": s, "bytes": os.path.getsize(path), "keys": save_keys(path)}
+    if ev["ordinary_save"]["keys"].get("coop_gamemode@1") != SRC_MODE:
+        capture_boot(f"ordinary_save: {ORDINARY_SAVE} keys {ev['ordinary_save']['keys']} (want coop_gamemode@1 "
+                     f"{SRC_MODE})", host, cl)
     end_all(x)
-    fx3(path, os.path.join(host.user_dir, "xcom1", G4_SAVE), ev, (host, cl))
+    write_pve2_copy(path, os.path.join(host.user_dir, "xcom1", GEOSCAPE_PVE2_SAVE), ev, (host, cl))
     host, c2 = respawn(x, "client2")
-    to_lobby(host, c2, G4_SAVE, ev)
+    to_lobby(host, c2, GEOSCAPE_PVE2_SAVE, ev)
 
 
-def g1_row(x, ev):
-    """FX-6: both end; client3 on an EMPTY dir; RR.resume_campaign on the ordinary save; G1-resume, G1-common."""
+def ordinary_row(x, ev):
+    """ordinary_relaunch: both end; client3 on an EMPTY dir; RR.resume_campaign on the ordinary save;
+    ordinary_resumes-resume, ordinary_resumes-common."""
     crash1 = crash_set()
     host, c3 = respawn(x, "client3")
     t0, err = time.time(), None
     try:
-        RR.resume_campaign(host, c3, G1_SAVE, port=KEY)
+        RR.resume_campaign(host, c3, ORDINARY_SAVE, port=KEY)
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {str(e)[:300]}"
-        ev["capture"] = RR.capture("G1 resume", host, c3)
+        ev["capture"] = RR.capture("ordinary_resumes resume", host, c3)
     ev["resumeS"] = round(time.time() - t0, 2)
     hc, cc = coop(host), coop(c3)
     tops = [top(host), top(c3)]
@@ -388,30 +416,31 @@ def g1_row(x, ev):
     bad += [f"tops {tops} (want GeoscapeState / GeoscapeState)"] if tops != ["GeoscapeState"] * 2 else []
     bad += [f"gamemode host {hc['gamemode']} client3 {cc['gamemode']} (want 1 / 1)"] if [hc["gamemode"], cc["gamemode"]] != [1, 1] else []
     bad += [f"host sessionLocked {hc['sessionLocked']!r} (want True)"] if hc["sessionLocked"] is not True else []
-    cell("G1-resume", not bad, "; ".join(bad) or f"resumed in {ev['resumeS']} s: host and client3 GeoscapeState, gamemode 1 / 1, host "
+    cell("ordinary_resumes-resume", not bad,
+         "; ".join(bad) or f"resumed in {ev['resumeS']} s: host and client3 GeoscapeState, gamemode 1 / 1, host "
          "sessionLocked true")
-    common("G1", (host, c3), crash1, ev)
+    common("ordinary_resumes", (host, c3), crash1, ev)
 
 
-def boot_g():
-    BOOT.update(tag="G", captured=False)
-    x, ev4, ev1, missed = new_pair("d283_g"), {}, {}, None
+def run_geoscape_boot():
+    BOOT.update(tag="geoscape", captured=False)
+    x, ev4, ev1, missed = new_pair("pve2_refused_geoscape"), {}, {}, None
     crash0 = crash_set()
     try:
-        g4_setup(x, ev4)
-        refused_row("G4", x["host"], x["client2"], crash0, ev4)
+        geoscape_setup(x, ev4)
+        refused_row("geoscape_refused", x["host"], x["client2"], crash0, ev4)
     except Exception as e:  # noqa: BLE001
         missed = boot_miss(e, x)
-        block(ROWS["G4"], f"boot ({missed})")
-    finish("G4", ev4)
+        block(ROWS["geoscape_refused"], f"boot ({missed})")
+    finish("geoscape_refused", ev4)
     if missed is None:
         try:
-            g1_row(x, ev1)
+            ordinary_row(x, ev1)
         except Exception as e:  # noqa: BLE001
             missed = boot_miss(e, x)
     if missed is not None:
-        block(ROWS["G1"], f"boot ({missed})")
-    finish("G1", ev1)
+        block(ROWS["ordinary_resumes"], f"boot ({missed})")
+    finish("ordinary_resumes", ev1)
     shutdown_all(x)
 
 
@@ -421,51 +450,55 @@ def battle_ready(host, cl):
                 and top(host) == "BattlescapeState" and top(cl) == "BattlescapeState")
 
 
-def m4_setup(x, ev):
-    """FX-7, FX-8 (exactly one new save file), both end, FX-3 -> d283_m4.sav beside it, FX-4."""
-    host, cl = bring_up(x, session.bring_up_separate_guest_battle, "FX-7 session.bring_up_separate_guest_battle")
+def battle_setup(x, ev):
+    """battle_bring_up, battle_save (exactly one new save file), both end, pve2_copy -> refused_battle_pve2.sav beside
+    it, resume_lobby."""
+    host, cl = bring_up(x, session.bring_up_separate_guest_battle,
+                        "battle_bring_up session.bring_up_separate_guest_battle")
     ok, s = wait(lambda: battle_ready(host, cl), BATTLE_S, 0.25)
     hb = battle_state(host)
-    ev["FX-7"] = {"s": s, "phase": hb.get("phase"), "turn": hb.get("turn"), "coopGamemode": hb.get("coopGamemode"),
+    ev["battle_bring_up"] = {"s": s, "phase": hb.get("phase"), "turn": hb.get("turn"),
+                             "coopGamemode": hb.get("coopGamemode"),
                   "tops": [top(host), top(cl)]}
     if not ok:
-        capture_boot(f"FX-7: both inBattle, host phase Active and isBusy false, both tops BattlescapeState not within {BATTLE_S} s "
-                     f"({ev['FX-7']})", host, cl)
+        capture_boot(f"battle_bring_up: both inBattle, host phase Active and isBusy false, both tops BattlescapeState "
+                     f"not within {BATTLE_S} s ({ev['battle_bring_up']})", host, cl)
     b0 = set(session.save_files(host.user_dir))
     r = host.cmd({"cmd": "save_game_ui", "type": "quick_battle"})
     ok, s = wait(lambda: set(session.save_files(host.user_dir)) - b0, SAVE_S_M, 0.2)
     time.sleep(1.0)
     new = sorted(set(session.save_files(host.user_dir)) - b0)
     if not r.get("ok") or len(new) != 1:
-        capture_boot(f"FX-8: save_game_ui quick_battle {r}: new save files {new} within {SAVE_S_M} s (want exactly one)", host, cl)
+        capture_boot(f"battle_save: save_game_ui quick_battle {r}: new save files {new} within {SAVE_S_M} s "
+                     f"(want exactly one)", host, cl)
     src = os.path.join(host.user_dir, new[0])
-    ev["FX-8"] = {"file": new[0], "s": s, "bytes": os.path.getsize(src), "keys": save_keys(src)}
+    ev["battle_save"] = {"file": new[0], "s": s, "bytes": os.path.getsize(src), "keys": save_keys(src)}
     end_all(x)
-    fx3(src, os.path.join(os.path.dirname(src), M4_SAVE), ev, (host, cl))
+    write_pve2_copy(src, os.path.join(os.path.dirname(src), BATTLE_PVE2_SAVE), ev, (host, cl))
     host, c2 = respawn(x, "client2")
-    to_lobby(host, c2, M4_SAVE, ev)
+    to_lobby(host, c2, BATTLE_PVE2_SAVE, ev)
 
 
-def boot_m():
-    BOOT.update(tag="M", captured=False)
-    x, ev = new_pair("d283_m"), {}
+def run_battle_boot():
+    BOOT.update(tag="battle", captured=False)
+    x, ev = new_pair("pve2_refused_battle"), {}
     crash0 = crash_set()
     try:
-        m4_setup(x, ev)
-        refused_row("M4", x["host"], x["client2"], crash0, ev)
+        battle_setup(x, ev)
+        refused_row("battle_refused", x["host"], x["client2"], crash0, ev)
     except Exception as e:  # noqa: BLE001
-        block(ROWS["M4"], f"boot ({boot_miss(e, x)})")
-    finish("M4", ev)
+        block(ROWS["battle_refused"], f"boot ({boot_miss(e, x)})")
+    finish("battle_refused", ev)
     shutdown_all(x)
 
 
 def main():
     t0 = time.time()
-    boot_g()
-    boot_m()
-    allc = ROWS["G4"] + ROWS["G1"] + ROWS["M4"]
+    run_geoscape_boot()
+    run_battle_boot()
+    allc = ROWS["geoscape_refused"] + ROWS["ordinary_resumes"] + ROWS["battle_refused"]
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D283 PvE2 campaign save refused on RESUME: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
+    print(f"\n==== PvE2 campaign save refused on RESUME: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
