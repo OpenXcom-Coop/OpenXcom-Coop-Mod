@@ -602,6 +602,32 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	return !remote && isHostSimulationResult(cmd);
 }
 
+bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
+	const Json::Value& payload, const Base* base, int seat)
+{
+	if (allowsForeignBaseCommand(cmd, remote)) return true;
+	// RU17: a visitor may transfer their own soldiers out of another player's
+	// base. Every entry must be one of the requester's soldiers there: items,
+	// crafts, staff and the partner's soldiers stay with the base owner.
+	if (cmd != "transfer" || !base) return false;
+	const Json::Value& soldiers = payload["soldiers"];
+	if (!soldiers.isArray() || soldiers.empty()) return false;
+	if (payload["crafts"].isArray() && !payload["crafts"].empty()) return false;
+	if (payload.get("scientists", 0).asInt() > 0 || payload.get("engineers", 0).asInt() > 0)
+		return false;
+	if (payload["items"].isArray())
+		for (const auto& item : payload["items"])
+			if (item.get("qty", 0).asInt() > 0) return false;
+	for (const auto& id : soldiers)
+	{
+		const Soldier* owned = nullptr;
+		for (const Soldier* s : *const_cast<Base*>(base)->getSoldiers())
+			if (s->getId() == id.asInt() && s->getOwnerPlayerId() == seat) { owned = s; break; }
+		if (!owned) return false;
+	}
+	return true;
+}
+
 bool isHostSimulationResult(const std::string& cmd)
 {
 	return cmd == "research_done" || cmd == "fac_done" || cmd == "prod_done"

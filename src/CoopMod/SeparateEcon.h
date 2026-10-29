@@ -183,6 +183,10 @@ bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	const RuleResearch* research);
 /// Separate-only host policy for commands targeting another player's base.
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote);
+/// The same policy with the command's payload: a transfer out of @a base is
+/// allowed when every entry is a soldier that @a seat owns there (RU17).
+bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
+	const Json::Value& payload, const Base* base, int seat);
 /// Commands the host emits to mirror its own simulation (never player requests).
 bool isHostSimulationResult(const std::string& cmd);
 /// Separate-only craft assignment validation (ownership + per-seat half quota).

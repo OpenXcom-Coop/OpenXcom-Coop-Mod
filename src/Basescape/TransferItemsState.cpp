@@ -152,6 +152,10 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 		_cats.push_back("STR_FILTER_RESEARCHABLE");
 	}
 
+	// Separate (RU17): at another player's base a visitor may move only their own
+	// soldiers out; its items, crafts and staff stay with the base owner.
+	const bool ownSoldiersOnly = _game->getCoopMod()->isSeparateCampaign()
+		&& _baseFrom->_isForeignBase;
 	for (auto* soldier : *_baseFrom->getSoldiers())
 	{
 		if (_debriefingState) break;
@@ -169,7 +173,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 	}
 	for (auto* craft : *_baseFrom->getCrafts())
 	{
-		if (_debriefingState) break;
+		if (_debriefingState || ownSoldiersOnly) break;
 		if (craft->getStatus() != "STR_OUT" || (Options::canTransferCraftsWhileAirborne && craft->getFuel() >= craft->getFuelLimit(_baseTo)))
 		{
 			TransferRow row = { TRANSFER_CRAFT, craft, craft->getName(_game->getLanguage()),  (int)(25 * _distance), 1, 0, 0, -3, 0, 0, (int)(25 * _distance) };
@@ -181,7 +185,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 			}
 		}
 	}
-	if (_baseFrom->getAvailableScientists() > 0 && _debriefingState == 0)
+	if (_baseFrom->getAvailableScientists() > 0 && _debriefingState == 0 && !ownSoldiersOnly)
 	{
 		TransferRow row = { TRANSFER_SCIENTIST, 0, tr("STR_SCIENTIST"),  (int)(5 * _distance), _baseFrom->getAvailableScientists(), _baseTo->getAvailableScientists(), 0, -2, 0, 0, _baseFrom->getAvailableScientists() * (int)(5 * _distance) };
 		_items.push_back(row);
@@ -191,7 +195,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 			_cats.push_back(cat);
 		}
 	}
-	if (_baseFrom->getAvailableEngineers() > 0 && _debriefingState == 0)
+	if (_baseFrom->getAvailableEngineers() > 0 && _debriefingState == 0 && !ownSoldiersOnly)
 	{
 		TransferRow row = { TRANSFER_ENGINEER, 0, tr("STR_ENGINEER"),  (int)(5 * _distance), _baseFrom->getAvailableEngineers(), _baseTo->getAvailableEngineers(), 0, -1, 0, 0, _baseFrom->getAvailableEngineers() * (int)(5 * _distance) };
 		_items.push_back(row);
@@ -209,7 +213,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 		{
 			qty = _debriefingState->getRecoveredItemCount(rule);
 		}
-		if (qty > 0)
+		if (qty > 0 && !ownSoldiersOnly)
 		{
 			TransferRow row = { TRANSFER_ITEM, rule, tr(itemType),  (int)(1 * _distance), qty, _baseTo->getStorageItems()->getItem(rule), 0, rule->getListOrder(), rule->getSize(), qty * rule->getSize(), qty * (int)(1 * _distance) };
 			_items.push_back(row);
@@ -782,7 +786,10 @@ void TransferItemsState::submitSharedTransfer()
 	// intra-world move, so it follows the vanilla "everything travels" rule.)
 	// Items the source base does not actually have are skipped, so a partly
 	// stocked loadout still ships what it can.
-	if (Options::oxceAlternateCraftEquipmentManagement && !soldiers.empty())
+	// At another player's Separate base the gear is that player's stock (RU17):
+	// the soldier leaves without it.
+	if (Options::oxceAlternateCraftEquipmentManagement && !soldiers.empty()
+		&& !(_game->getCoopMod()->isSeparateCampaign() && _baseFrom->_isForeignBase))
 	{
 		// what this transfer already claims, so gear cannot double-book stock
 		std::map<const RuleItem*, int> claimed;

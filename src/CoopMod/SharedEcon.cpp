@@ -2978,7 +2978,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		const std::string playerName = connectionTCP::seatName(pc.seat);
 		const bool foreign = !base->isOwnedByPlayer(playerName);
 		const bool foreignAllowed = SeparateEcon::allowsForeignBaseCommand(
-			pc.cmd, pc.remote);
+			pc.cmd, pc.remote, payload, base, pc.seat);
 		if (foreign && !foreignAllowed)
 		{
 			// Normal Separate UI permissions prevent most of these actions; the
