@@ -165,9 +165,15 @@ def advance(host, client, minutes, settle=3.0):
     return seen
 
 
-def start(gc, topic, cost, base_name="HostBase"):
-    gc.ok({"cmd": "start_research", "topic": topic, "cost": cost, "scientists": 1,
-           "base": base_name})
+def start(host, client, topic, cost, base_name="HostBase"):
+    """Start `topic` at `base_name` in the world and its replica. The game's own
+    start (res_start) puts the project on both machines; the start_research lever
+    writes only the machine it runs on, and a project only the host holds is real
+    drift (chkProjects) that the replica repairs with a restream once it outlives
+    the checksum debounce."""
+    for gc in (host, client):
+        gc.ok({"cmd": "start_research", "topic": topic, "cost": cost, "scientists": 1,
+               "base": base_name})
 
 
 def knowledge(host, client, topics):
@@ -198,7 +204,7 @@ def converge(host, client, what, fn, timeout=15):
 def row_bonus(host, client, results, profiles0):
     before = known(host)
     r0 = requests(client)
-    start(host, "STR_SECTOID_ENGINEER", 1)
+    start(host, client, "STR_SECTOID_ENGINEER", 1)
     seen = advance(host, client, DAY)
     gained = known(host) - before
     bonus = sorted(gained & ENGINEER_FREE)
@@ -220,7 +226,7 @@ def row_bonus(host, client, results, profiles0):
 
 def row_lookup(host, client, results, profiles0):
     r0 = requests(client)
-    start(host, "STR_SECTOID_CORPSE", 1)
+    start(host, client, "STR_SECTOID_CORPSE", 1)
     seen = advance(host, client, DAY)
     if "STR_SECTOID_AUTOPSY" not in known(host):
         raise Inconclusive("R2: host never learned STR_SECTOID_AUTOPSY")
@@ -236,11 +242,11 @@ def row_lookup(host, client, results, profiles0):
 
 def row_duplicate(host, client, results, topic, keep, row):
     r0 = requests(client)
-    for gc in (host, client):  # the client player's copy, in the world and its replica
-        start(gc, topic, 100000, base_name="ClientBase")
+    # the client player's copy, in the world and its replica
+    start(host, client, topic, 100000, base_name="ClientBase")
     if topic not in projects(host, "ClientBase") or topic not in projects(client, "ClientBase"):
         raise Inconclusive(f"{row}: the ClientBase copy of {topic} never started")
-    start(host, topic, 1)
+    start(host, client, topic, 1)
     seen = advance(host, client, DAY)
     if topic in projects(host, "HostBase"):
         raise Inconclusive(f"{row}: the host player's {topic} never completed: {seen}")
@@ -253,7 +259,7 @@ def row_duplicate(host, client, results, topic, keep, row):
 def row_quiet(host, client, results, profiles0):
     r0 = requests(client)
     before = (known(host), known(client))
-    start(host, "STR_SECTOID_CORPSE", 1)
+    start(host, client, "STR_SECTOID_CORPSE", 1)
     seen = advance(host, client, DAY)
     if "RC" not in seen[host.name]:
         raise Inconclusive(f"R5: host never completed the repeat: {seen[host.name]}")
@@ -273,7 +279,7 @@ def row_items(host, client, results):
     r0 = requests(client)
     kits0 = {(gc.name, b): medikits(gc, b) for gc in (host, client)
              for b in ("HostBase", "ClientBase")}
-    start(host, topic, 1)
+    start(host, client, topic, 1)
     seen = advance(host, client, DAY)
     if medikits(host, "HostBase") != kits0[(host.name, "HostBase")] + 1:
         raise Inconclusive(f"R6: host HostBase medi-kits did not grow by one: {kits0} -> "
@@ -298,7 +304,7 @@ def row_counter_event(host, client, results):
     r0 = requests(client)
     c0 = (counter(host, ctr), counter(client, ctr))
     t0 = geo.game_minutes(host)
-    start(host, topic, 1)
+    start(host, client, topic, 1)
     advance(host, client, DAY)
     elapsed = geo.game_minutes(host) - t0
     if counter(host, ctr) == c0[0] or not pending(host, ev):
@@ -321,7 +327,7 @@ def row_interrogation(host, client, results):
     from the host's result, not from a world restream."""
     r0 = requests(client)
     k0 = (corpses(host, "HostBase"), corpses(client, "HostBase"))
-    start(host, "STR_SECTOID_SOLDIER", 1)
+    start(host, client, "STR_SECTOID_SOLDIER", 1)
     advance(host, client, DAY)
     if "STR_SECTOID_SOLDIER" in projects(host, "HostBase"):
         raise Inconclusive("R8: the interrogation never completed on the host")

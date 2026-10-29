@@ -209,6 +209,19 @@ std::atomic<uint64_t> g_resyncReqN{0}; // resyncs asked for (replica) / served (
 bool g_resyncPending = false;          // replica: a world restream is in flight
 bool g_resyncGaveUp = false;           // replica: throttled out, popup already shown
 int64_t g_lastResyncGameMin = -1;      // replica: game-minute stamp of the last resync
+// Replica: wall-clock ms of the last sign that a world stream is coming - the
+// resync request, a restream mark or a stream chunk. The in-flight guard and the
+// result hold live while this is recent (RESYNC_PENDING_TIMEOUT_MS), however fast
+// the game clock runs.
+int64_t g_streamProgressMs = -1;
+// Replica: host results held while a resync restream is in flight. Right after it
+// snapshots its world for a restream, the host sends a restream mark in the same
+// message order as its results: every result before the mark is in that snapshot,
+// every result after it is not. Results after the mark wait here until that world
+// is adopted, then apply once, to it (holdResultDuringRestream). Main thread only.
+int g_restreamMarks = 0;    // marks whose world is not adopted yet
+bool g_releaseHeld = false; // adopted: re-dispatch g_heldResults on the next update
+std::deque<std::pair<std::string, Json::Value>> g_heldResults;
 // The checksum rides the geoscape `time` heartbeat, which the host emits at LINK
 // RATE (~2000/s). Log a mismatch ONCE per episode, not once per heartbeat: a
 // per-heartbeat log is thousands of fopen/fwrite/fclose per second on the
@@ -4020,8 +4033,18 @@ void applyDogfightState(Game* game, const Json::Value& obj)
 	if (gs) gs->sharedApplyDogfightState(obj);
 }
 
+void beginRestreamHold();
+void releaseHeldResults(Game* game);
+
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
+	if (state == "shared_restream_mark" || state == "separate_restream_mark")
+	{
+		// The host just snapshotted its world for a restream (sharedResyncStream).
+		if (!connectionTCP::getServerOwner())
+			beginRestreamHold();
+		return true;
+	}
 	if (state == "shared_cmd" || state == "separate_cmd")
 	{
 		// Only the host validates/applies commands; a replica ignores stray cmds.
@@ -4084,6 +4107,11 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 void update(Game* game)
 {
 	if (!game) return;
+
+	// 0) Replica: a restream's world was adopted (or its hold timed out). Hand the
+	// results that arrived after its mark to the normal receive path, in arrival
+	// order, ahead of the apply drain below.
+	releaseHeldResults(game);
 
 	// 1) Host: drain queued commands -> validate, debit, apply, broadcast.
 	for (;;)
@@ -4847,6 +4875,11 @@ void hostDayTick(Game* game)
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
 const int RESYNC_COOLDOWN_MINUTES = 60; // one game hour between auto-resyncs
 const int RESYNC_DEBOUNCE_MS = 3000;    // a mismatch must survive this to count
+// A resync request whose stream shows no progress (no mark, no chunk) for this
+// long was dropped by the host or died with the stream; the replica asks again.
+// A result hold whose world is not adopted in this long is released (see
+// releaseHeldResults).
+const int RESYNC_PENDING_TIMEOUT_MS = 30000;
 
 namespace {
 // Wall-clock (not game-time) milliseconds: the debounce below measures how long a
@@ -5001,6 +5034,35 @@ int64_t chkStores(SavedGame* save)
 		for (const auto& item : *bases[i]->getStorageItems()->getContents())
 			if (item.second != 0)
 				sum += chkEntry(item.first->getType(), (int64_t)i, item.second);
+	cachedSave = save;
+	cachedAt = now;
+	cached = chkValue(sum);
+	return cached;
+}
+
+// Every base soldier's current stats, keyed by soldier id. The host alone trains
+// soldiers (martial and psi training) and no result carries their stats, so a
+// replica's soldiers can drift with every count equal. Walks every soldier, so it
+// is cached like chkStores.
+int64_t chkSoldierStats(SavedGame* save)
+{
+	static const SavedGame* cachedSave = nullptr;
+	static int64_t cachedAt = -1;
+	static int64_t cached = 0;
+	const int64_t now = steadyMs();
+	if (save == cachedSave && cachedAt >= 0 && now - cachedAt < CHK_STORES_MS) return cached;
+	uint64_t sum = 0;
+	for (Base* base : *save->getBases())
+		for (const Soldier* soldier : *base->getSoldiers())
+		{
+			const UnitStats* stats = soldier->getCurrentStats();
+			uint64_t h = chkMix((uint64_t)(int64_t)soldier->getId());
+			UnitStats::fieldLoop([&](UnitStats::Ptr field)
+			{
+				h = chkMix(h ^ (uint64_t)(uint16_t)(stats->*field));
+			});
+			sum += h;
+		}
 	cachedSave = save;
 	cachedAt = now;
 	cached = chkValue(sum);
@@ -8384,6 +8446,7 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	msg["chkProjects"] = Json::Value::Int64(chkProjects(save));
 	msg["chkCounters"] = Json::Value::Int64(chkCounters(save, game->getMod()));
 	msg["chkEvents"] = Json::Value::Int64(chkEvents(save));
+	msg["chkSoldierStats"] = Json::Value::Int64(chkSoldierStats(save));
 
 	// PRD-P2 3a: the battle terms ride along whenever a battle is live, so the
 	// harness' shared_checksum hook exposes them without a second command. No-op on
@@ -8677,6 +8740,7 @@ bool requestResync(Game* game, const std::string& why, bool force)
 
 	g_resyncPending = true;
 	g_lastResyncGameMin = gameMinutes(game->getSavedGame());
+	g_streamProgressMs = steadyMs();
 	++g_resyncReqN;
 	Log(LOG_WARNING) << "[SHARED] requesting a world resync from the host (" << why
 		<< (force ? ", forced)" : ")");
@@ -8696,6 +8760,112 @@ void notifyWorldAdopted()
 	// mismatch that reappears within the window is still treated as unrepairable.
 	g_resyncPending = false;
 	g_resyncGaveUp = false;
+	if (g_restreamMarks > 0)
+	{
+		// This world is a restream snapshot. Results still queued from before its
+		// mark are already in it, so they must not apply again. The results after
+		// the mark wait in g_heldResults and apply on the next update, to this world.
+		{
+			std::lock_guard<std::mutex> lk(g_mx);
+			g_applyQ.clear();
+		}
+		if (--g_restreamMarks == 0) g_releaseHeld = true;
+	}
+}
+
+void noteWorldStreamProgress()
+{
+	// A chunk of a world stream arrived. A large world takes many seconds to
+	// stream; the in-flight resync guard and the result hold live while chunks
+	// keep coming.
+	if (g_resyncPending || g_restreamMarks > 0) g_streamProgressMs = steadyMs();
+}
+
+void sendRestreamMark(Game* game)
+{
+	if (!game || !game->getCoopMod()) return;
+	Json::Value mark;
+	// Separate keeps its own wire namespace (SeparateEcon.h).
+	mark["state"] = game->getCoopMod()->isSeparateCampaign()
+		? "separate_restream_mark" : "shared_restream_mark";
+	game->getCoopMod()->sendTCPPacketData(mark.toStyledString());
+}
+
+void beginRestreamHold()
+{
+	// Anything still held was sent before this newer snapshot, so it is in it.
+	const size_t inSnapshot = g_heldResults.size();
+	g_heldResults.clear();
+	g_releaseHeld = false;
+	++g_restreamMarks;
+	g_streamProgressMs = steadyMs();
+	Log(LOG_INFO) << "[SHARED] restream mark: host results wait for the adopted world ("
+		<< inSnapshot << " earlier held result(s) are in this snapshot)";
+}
+
+bool holdResultDuringRestream(const std::string& state, const Json::Value& obj)
+{
+	if (g_restreamMarks <= 0 && !g_releaseHeld) return false;
+	// The host's world results: every command result (production, research,
+	// research_effects, world_extras, ...) rides shared_apply / separate_apply; the
+	// Separate event and mission-research results change the world on receipt.
+	if (state != "shared_apply" && state != "separate_apply"
+		&& state != "separate_geoscape_event" && state != "separate_mission_research")
+		return false;
+	g_heldResults.emplace_back(state, obj);
+	return true;
+}
+
+void releaseHeldResults(Game* game)
+{
+	bool timedOut = false;
+	if (g_restreamMarks > 0 && !g_releaseHeld
+		&& steadyMs() - g_streamProgressMs >= RESYNC_PENDING_TIMEOUT_MS)
+	{
+		// The marked world never landed (a failed load or a lost stream). Do not sit
+		// on the results forever: apply them to the world this replica has, and let
+		// the checksum repair whatever that leaves.
+		Log(LOG_WARNING) << "[SHARED] restream not adopted within "
+			<< RESYNC_PENDING_TIMEOUT_MS << "ms; applying " << g_heldResults.size()
+			<< " held result(s) to the current world";
+		g_restreamMarks = 0;
+		g_releaseHeld = true;
+		timedOut = true;
+	}
+	if (!g_releaseHeld) return;
+	g_releaseHeld = false;
+	std::deque<std::pair<std::string, Json::Value>> held;
+	held.swap(g_heldResults);
+	if (held.empty() || !game || !game->getCoopMod()) return;
+	if (!timedOut)
+		Log(LOG_INFO) << "[SHARED] restream adopted: applying " << held.size()
+			<< " result(s) held during the restream";
+	for (auto& result : held)
+	{
+		game->getCoopMod()->onTCPMessage(result.first, result.second);
+		// An event result changes the world on receipt, while an apply waits in
+		// g_applyQ. Drain after each one so the held results apply in arrival
+		// order: an apply carries absolute funds, so a day_tick applied after a
+		// later event would undo that event's funds.
+		for (;;)
+		{
+			Json::Value ap;
+			{
+				std::lock_guard<std::mutex> lk(g_mx);
+				if (g_applyQ.empty()) break;
+				ap = std::move(g_applyQ.front());
+				g_applyQ.pop_front();
+			}
+			processApply(game, ap);
+		}
+	}
+}
+
+void resetRestreamHold()
+{
+	g_restreamMarks = 0;
+	g_releaseHeld = false;
+	g_heldResults.clear();
 }
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)
@@ -8744,6 +8914,7 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	// Content terms; absent from a host that predates them (agreement).
 	const int64_t myStores = chkStores(save), myProjects = chkProjects(save);
 	const int64_t myCounters = chkCounters(save, game->getMod()), myEvents = chkEvents(save);
+	const int64_t mySoldierStats = chkSoldierStats(save);
 	auto contentAgrees = [&msg](const char* key, int64_t mine)
 	{
 		return !msg.isMember(key) || msg[key].asInt64() == mine;
@@ -8751,7 +8922,8 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	const bool contentAgree = contentAgrees("chkStores", myStores)
 		&& contentAgrees("chkProjects", myProjects)
 		&& contentAgrees("chkCounters", myCounters)
-		&& contentAgrees("chkEvents", myEvents);
+		&& contentAgrees("chkEvents", myEvents)
+		&& contentAgrees("chkSoldierStats", mySoldierStats);
 	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
 		&& playersAgree && contentAgree
 		&& (hostItems < 0 || hostItems == myItems)
@@ -8799,9 +8971,10 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
 			<< ", production host=" << hostProductions << " replica=" << myProductions
 			<< ", sites host=" << hostSites << " replica=" << mySites
-			<< ", content (stores/projects/counters/events) agree="
+			<< ", content (stores/projects/counters/events/soldier stats) agree="
 			<< contentAgrees("chkStores", myStores) << contentAgrees("chkProjects", myProjects)
-			<< contentAgrees("chkCounters", myCounters) << contentAgrees("chkEvents", myEvents);
+			<< contentAgrees("chkCounters", myCounters) << contentAgrees("chkEvents", myEvents)
+			<< contentAgrees("chkSoldierStats", mySoldierStats);
 		if (separate)
 			Log(LOG_WARNING) << "[SHARED] Separate player terms: wallets host="
 				<< namedTermsText(hostPlayerFunds) << " replica=" << namedTermsText(myPlayerFunds)
@@ -8816,12 +8989,19 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	if (g_resyncPending)
 	{
 		// A restream is already on the wire: every heartbeat until it lands still
-		// mismatches, and re-asking would queue a second serialization of the whole
-		// world on the host. Wait for it - but not forever: if the host dropped the
-		// request (its single-slot streamer was busy) the guard expires with the
-		// cooldown and the next mismatch re-asks.
-		if (cooling) return;
+		// mismatches, and re-asking would make the host drop the request ("streamer
+		// busy") or serialize the whole world twice. Wait for the adoption. The wait
+		// is REAL time since the last sign of the stream (the request, its mark or a
+		// chunk): at the fastest speed many game hours pass while a large world
+		// streams, so a game-time guard expired mid-stream. A request that shows no
+		// progress for RESYNC_PENDING_TIMEOUT_MS was dropped or died: ask again. That
+		// repair never landed, so it does not count toward giving up below.
+		if (nowMs - g_streamProgressMs < RESYNC_PENDING_TIMEOUT_MS) return;
+		Log(LOG_WARNING) << "[SHARED] no world stream within "
+			<< RESYNC_PENDING_TIMEOUT_MS << "ms of the resync request; asking again";
 		g_resyncPending = false;
+		requestResync(game, "previous resync request got no stream");
+		return;
 	}
 
 	if (cooling)
