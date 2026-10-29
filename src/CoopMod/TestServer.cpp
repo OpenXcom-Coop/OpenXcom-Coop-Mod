@@ -6351,6 +6351,286 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 	return true;
 }
 
+/**
+ * PR 213 test hooks, a further sub-dispatcher. execute()'s command chain hit
+ * MSVC's C1061 nested-block limit once these commands joined it. Returns true
+ * if @a cmd was one of ours (and @a resp was filled).
+ */
+bool TestServer::executePr213(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	connectionTCP* coop = _game->getCoopMod();
+	(void)coop;
+	if (cmd == "craft_deassign")
+	{
+		// The Select Squad screen's de-assign buttons, through the real handlers:
+		// all:true = "de-assign all soldiers at the base", else the craft's crew.
+		// Params: base (name), craft_id, craft_type. In a one-world campaign the
+		// unseats go to the host (async: poll the craft afterwards).
+		const std::string daBase = req.get("base", "").asString();
+		const int daId = req.get("craft_id", -1).asInt();
+		const std::string daType = req.get("craft_type", "STR_SKYRANGER").asString();
+		Base* base = nullptr;
+		size_t craftIdx = 0;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+			{
+				if (b->getName() != daBase) continue;
+				for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+					if (b->getCrafts()->at(i)->getId() == daId
+						&& b->getCrafts()->at(i)->getRules()->getType() == daType)
+					{ base = b; craftIdx = i; }
+			}
+		if (!base)
+			resp["error"] = "craft not found at that base";
+		else
+		{
+			CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
+			if (req.get("all", false).asBool()) st->btnDeassignAllSoldiersClick(nullptr);
+			else st->btnDeassignCraftSoldiersClick(nullptr);
+			delete st;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_loadout" || cmd == "craft_armor_seat")
+	{
+		// craft_loadout: the craft equipment templates (the global loadout
+		// hotkeys). op "set" writes slot <index> on THIS machine (items:
+		// {type: qty}); op "load" runs the real CraftEquipmentState template
+		// load on the base's craft (only_add = the "add on top" variant) and
+		// reports the listed item types it considered and any dialog it
+		// opened (then closed).
+		// craft_armor_seat: the craft armor screen's ctrl-click on soldier
+		// <soldier_id> (seat / unseat on that craft), through its real body.
+		// Both take base (name), craft_id, craft_type ("load" and the seat).
+		const std::string clOp = req.get("op", "load").asString();
+		const int clIndex = req.get("index", 0).asInt();
+		const std::string clBase = req.get("base", "").asString();
+		const int clId = req.get("craft_id", -1).asInt();
+		const std::string clType = req.get("craft_type", "STR_SKYRANGER").asString();
+		Base* base = nullptr;
+		size_t craftIdx = 0;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+			{
+				if (b->getName() != clBase) continue;
+				for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+					if (b->getCrafts()->at(i)->getId() == clId
+						&& b->getCrafts()->at(i)->getRules()->getType() == clType)
+					{ base = b; craftIdx = i; }
+			}
+		if (cmd == "craft_loadout" && clOp == "set")
+		{
+			if (!_game->getSavedGame() || clIndex < 0
+				|| clIndex >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
+				resp["error"] = "no save or bad template index";
+			else
+			{
+				ItemContainer* tmpl = _game->getSavedGame()->getGlobalCraftLoadout(clIndex);
+				tmpl->clear();
+				const Json::Value& items = req["items"];
+				std::string bad;
+				for (const auto& type : items.getMemberNames())
+				{
+					const RuleItem* rule = _game->getMod()->getItem(type, false);
+					if (!rule) { bad = type; continue; }
+					if (items[type].asInt() > 0) tmpl->addItem(rule, items[type].asInt());
+				}
+				_game->getSavedGame()->setGlobalCraftLoadoutName(clIndex,
+					req.get("name", "Harness template").asString());
+				if (!bad.empty()) resp["error"] = "unknown item " + bad;
+				else resp["ok"] = true;
+			}
+		}
+		else if (!base)
+			resp["error"] = "craft not found at that base";
+		else if (cmd == "craft_loadout")
+		{
+			const size_t depth = _game->getStates().size();
+			CraftEquipmentState* ces = new CraftEquipmentState(base, craftIdx);
+			_game->pushState(ces);
+			ces->loadGlobalLoadout(clIndex, req.get("only_add", false).asBool());
+			Json::Value listed(Json::arrayValue);
+			for (const auto& type : ces->harnessListedItems()) listed.append(type);
+			resp["listed"] = listed;
+			Json::Value dialogs(Json::arrayValue);
+			size_t at = 0;
+			for (State* s : _game->getStates())
+				if (at++ > depth) dialogs.append(typeid(*s).name());
+			resp["dialogs"] = dialogs;
+			while (_game->getStates().size() > depth) _game->popState();
+			resp["ok"] = true;
+		}
+		else
+		{
+			const int sid = req.get("soldier_id", -1).asInt();
+			CraftArmorState* cas = new CraftArmorState(base, craftIdx);
+			const bool clicked = cas->harnessCtrlClick(sid);
+			delete cas;
+			resp["clicked"] = clicked;
+			if (clicked) resp["ok"] = true;
+			else resp["error"] = "soldier not on the craft armor list (or its craft is out)";
+		}
+	}
+	else if (cmd == "soldiers_reorder")
+	{
+		// Drive the open SoldiersState's real reorder handlers: action
+		// "move_up" / "move_down" (row = displayed row; max, default true, moves
+		// it to the top / bottom like a right-click, false moves one place like
+		// a left-click) or "sort" (sort = combobox index; 2 = name).
+		SoldiersState* st = findState<SoldiersState>(_game);
+		std::string action = req.get("action", "").asString();
+		const bool max = req.get("max", true).asBool();
+		if (!st)
+			resp["error"] = "no SoldiersState in state stack";
+		else if (action == "move_up")
+		{
+			st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), max);
+			resp["ok"] = true;
+		}
+		else if (action == "move_down")
+		{
+			st->moveSoldierDown(nullptr, (unsigned int)req.get("row", 0).asInt(), max);
+			resp["ok"] = true;
+		}
+		else if (action == "sort")
+		{
+			st->harnessSort((size_t)req.get("sort", 2).asInt());
+			resp["ok"] = true;
+		}
+		else
+			resp["error"] = "soldiers_reorder: unknown action";
+	}
+	else if (cmd == "roster_screen")
+	{
+		// Drive the TOP roster screen's real sort / reorder handlers: the
+		// martial or psi training list, crew armor or craft crew. action
+		// "sort" (sort = combobox index), "move_up" / "move_down" (row = shown
+		// row, moved to the top / bottom like a right-click: the one-place move
+		// warps the mouse through its Action) or "view" (only report). Replies
+		// with the screen and the soldier ids it shows, in its order.
+		State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+		const std::string action = req.get("action", "view").asString();
+		const size_t sortIdx = (size_t)req.get("sort", 2).asInt();
+		const unsigned int row = (unsigned int)req.get("row", 1).asInt();
+		const bool max = true;
+		std::vector<int> shown;
+		bool known = true;
+		auto drive = [&](auto* st, const char* name)
+		{
+			resp["screen"] = name;
+			if (action == "sort") st->harnessSort(sortIdx);
+			else if (action == "move_up") st->moveSoldierUp(nullptr, row, max);
+			else if (action == "move_down") st->moveSoldierDown(nullptr, row, max);
+			else if (action != "view") known = false;
+			shown = st->harnessDisplayedSoldierIds();
+		};
+		// "toggle" (soldier_id) / "assign_all" / "deassign_all": the training
+		// screens' real click and assign-all / de-assign-all key handlers.
+		const bool trainingAction = action == "toggle" || action == "assign_all"
+			|| action == "deassign_all";
+		const int soldierId = req.get("soldier_id", -1).asInt();
+		if (trainingAction && dynamic_cast<AllocateTrainingState*>(top))
+		{
+			auto* t = dynamic_cast<AllocateTrainingState*>(top);
+			resp["screen"] = "training";
+			known = t->harnessTraining(action, soldierId);
+			shown = t->harnessDisplayedSoldierIds();
+			if (!known) resp["error"] = "soldier not on the training screen";
+		}
+		else if (trainingAction && dynamic_cast<AllocatePsiTrainingState*>(top))
+		{
+			auto* p = dynamic_cast<AllocatePsiTrainingState*>(top);
+			resp["screen"] = "psi_training";
+			known = p->harnessTraining(action, soldierId);
+			shown = p->harnessDisplayedSoldierIds();
+			if (!known) resp["error"] = "soldier not on the psi training screen";
+		}
+		else if (trainingAction)
+		{
+			resp["error"] = "no training screen on top";
+			known = false;
+		}
+		else if (auto* t = dynamic_cast<AllocateTrainingState*>(top)) drive(t, "training");
+		else if (auto* p = dynamic_cast<AllocatePsiTrainingState*>(top)) drive(p, "psi_training");
+		else if (auto* a = dynamic_cast<CraftArmorState*>(top)) drive(a, "craft_armor");
+		else if (auto* c = dynamic_cast<CraftSoldiersState*>(top)) drive(c, "craft_soldiers");
+		else
+		{
+			resp["error"] = "no roster screen on top";
+			known = false;
+		}
+		if (known)
+		{
+			Json::Value ids(Json::arrayValue);
+			for (int id : shown) ids.append(id);
+			resp["displayed"] = ids;
+			resp["ok"] = true;
+		}
+		else if (!resp.isMember("error"))
+			resp["error"] = "roster_screen: unknown action";
+	}
+	else if (cmd == "soldiers_view")
+	{
+		// Pick the open SoldiersState's screen action (a soldier
+		// transformation name, or STR_SOLDIER_INFO) through its real handler
+		// and report the soldier ids the list then shows.
+		SoldiersState* st = findState<SoldiersState>(_game);
+		const std::string action = req.get("action", "STR_SOLDIER_INFO").asString();
+		if (!st)
+			resp["error"] = "no SoldiersState in state stack";
+		else if (!st->harnessSelectAction(action))
+			resp["error"] = "screen action not offered: " + action;
+		else
+		{
+			Json::Value ids(Json::arrayValue);
+			for (int id : st->harnessDisplayedSoldierIds()) ids.append(id);
+			resp["ids"] = ids;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "craft_error_messages")
+	{
+		// The message of every CraftErrorState on the state stack, bottom
+		// first (the economy warning and the other host notices use it).
+		Json::Value messages(Json::arrayValue);
+		for (auto* s : _game->getStates())
+			if (auto* ce = dynamic_cast<CraftErrorState*>(s))
+				messages.append(ce->getMessage());
+		resp["messages"] = messages;
+		resp["ok"] = true;
+	}
+	else if (cmd == "production_complete_sell")
+	{
+		// Sell <count> of <item> at <base> through the random production
+		// summary of the real ProductionCompleteState (its right-click sell).
+		const std::string baseName = req.get("base", "").asString();
+		const std::string item = req.get("item", "").asString();
+		Base* target = nullptr;
+		if (_game->getSavedGame())
+			for (auto* b : *_game->getSavedGame()->getBases())
+				if (b->getName() == baseName) { target = b; break; }
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		if (!target)
+			resp["error"] = "base not found: " + baseName;
+		else if (!geo)
+			resp["error"] = "no GeoscapeState in state stack";
+		else if (!_game->getMod()->getItem(item, false))
+			resp["error"] = "unknown item: " + item;
+		else
+		{
+			ProductionCompleteState* pc = new ProductionCompleteState(target, item, geo);
+			pc->harnessSellSummaryRow(item, req.get("count", 1).asInt());
+			delete pc;
+			resp["ok"] = true;
+		}
+	}
+	else
+	{
+		return false;
+	}
+	return true;
+}
+
 std::string TestServer::execute(const std::string& line)
 {
 	Json::Value req;
@@ -7076,116 +7356,10 @@ std::string TestServer::execute(const std::string& line)
 					resp["error"] = want ? "craft refused the soldier" : "soldier could not be unseated";
 			}
 		}
-		else if (cmd == "craft_deassign")
+		else if (executePr213(cmd, req, resp))
 		{
-			// The Select Squad screen's de-assign buttons, through the real handlers:
-			// all:true = "de-assign all soldiers at the base", else the craft's crew.
-			// Params: base (name), craft_id, craft_type. In a one-world campaign the
-			// unseats go to the host (async: poll the craft afterwards).
-			const std::string daBase = req.get("base", "").asString();
-			const int daId = req.get("craft_id", -1).asInt();
-			const std::string daType = req.get("craft_type", "STR_SKYRANGER").asString();
-			Base* base = nullptr;
-			size_t craftIdx = 0;
-			if (_game->getSavedGame())
-				for (auto* b : *_game->getSavedGame()->getBases())
-				{
-					if (b->getName() != daBase) continue;
-					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
-						if (b->getCrafts()->at(i)->getId() == daId
-							&& b->getCrafts()->at(i)->getRules()->getType() == daType)
-						{ base = b; craftIdx = i; }
-				}
-			if (!base)
-				resp["error"] = "craft not found at that base";
-			else
-			{
-				CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
-				if (req.get("all", false).asBool()) st->btnDeassignAllSoldiersClick(nullptr);
-				else st->btnDeassignCraftSoldiersClick(nullptr);
-				delete st;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "craft_loadout" || cmd == "craft_armor_seat")
-		{
-			// craft_loadout: the craft equipment templates (the global loadout
-			// hotkeys). op "set" writes slot <index> on THIS machine (items:
-			// {type: qty}); op "load" runs the real CraftEquipmentState template
-			// load on the base's craft (only_add = the "add on top" variant) and
-			// reports the listed item types it considered and any dialog it
-			// opened (then closed).
-			// craft_armor_seat: the craft armor screen's ctrl-click on soldier
-			// <soldier_id> (seat / unseat on that craft), through its real body.
-			// Both take base (name), craft_id, craft_type ("load" and the seat).
-			const std::string clOp = req.get("op", "load").asString();
-			const int clIndex = req.get("index", 0).asInt();
-			const std::string clBase = req.get("base", "").asString();
-			const int clId = req.get("craft_id", -1).asInt();
-			const std::string clType = req.get("craft_type", "STR_SKYRANGER").asString();
-			Base* base = nullptr;
-			size_t craftIdx = 0;
-			if (_game->getSavedGame())
-				for (auto* b : *_game->getSavedGame()->getBases())
-				{
-					if (b->getName() != clBase) continue;
-					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
-						if (b->getCrafts()->at(i)->getId() == clId
-							&& b->getCrafts()->at(i)->getRules()->getType() == clType)
-						{ base = b; craftIdx = i; }
-				}
-			if (cmd == "craft_loadout" && clOp == "set")
-			{
-				if (!_game->getSavedGame() || clIndex < 0
-					|| clIndex >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
-					resp["error"] = "no save or bad template index";
-				else
-				{
-					ItemContainer* tmpl = _game->getSavedGame()->getGlobalCraftLoadout(clIndex);
-					tmpl->clear();
-					const Json::Value& items = req["items"];
-					std::string bad;
-					for (const auto& type : items.getMemberNames())
-					{
-						const RuleItem* rule = _game->getMod()->getItem(type, false);
-						if (!rule) { bad = type; continue; }
-						if (items[type].asInt() > 0) tmpl->addItem(rule, items[type].asInt());
-					}
-					_game->getSavedGame()->setGlobalCraftLoadoutName(clIndex,
-						req.get("name", "Harness template").asString());
-					if (!bad.empty()) resp["error"] = "unknown item " + bad;
-					else resp["ok"] = true;
-				}
-			}
-			else if (!base)
-				resp["error"] = "craft not found at that base";
-			else if (cmd == "craft_loadout")
-			{
-				const size_t depth = _game->getStates().size();
-				CraftEquipmentState* ces = new CraftEquipmentState(base, craftIdx);
-				_game->pushState(ces);
-				ces->loadGlobalLoadout(clIndex, req.get("only_add", false).asBool());
-				Json::Value listed(Json::arrayValue);
-				for (const auto& type : ces->harnessListedItems()) listed.append(type);
-				resp["listed"] = listed;
-				Json::Value dialogs(Json::arrayValue);
-				size_t at = 0;
-				for (State* s : _game->getStates())
-					if (at++ > depth) dialogs.append(typeid(*s).name());
-				resp["dialogs"] = dialogs;
-				while (_game->getStates().size() > depth) _game->popState();
-				resp["ok"] = true;
-			}
-			else
-			{
-				const int sid = req.get("soldier_id", -1).asInt();
-				CraftArmorState* cas = new CraftArmorState(base, craftIdx);
-				const bool clicked = cas->harnessCtrlClick(sid);
-				delete cas;
-				resp["clicked"] = clicked;
-				if (clicked) resp["ok"] = true;
-				else resp["error"] = "soldier not on the craft armor list (or its craft is out)";
-			}
+			// handled by the PR 213 sub-dispatcher (executePr213), split off to
+			// stay under MSVC's C1061 nested-block limit (same reason as executeShared10).
 		}
 		else if (cmd == "confirm_landing")
 		{
@@ -9312,104 +9486,6 @@ std::string TestServer::execute(const std::string& line)
 				resp["error"] = "base not found: " + baseName;
 			}
 		}
-		else if (cmd == "soldiers_reorder")
-		{
-			// Drive the open SoldiersState's real reorder handlers: action
-			// "move_up" / "move_down" (row = displayed row; max, default true, moves
-			// it to the top / bottom like a right-click, false moves one place like
-			// a left-click) or "sort" (sort = combobox index; 2 = name).
-			SoldiersState* st = findState<SoldiersState>(_game);
-			std::string action = req.get("action", "").asString();
-			const bool max = req.get("max", true).asBool();
-			if (!st)
-				resp["error"] = "no SoldiersState in state stack";
-			else if (action == "move_up")
-			{
-				st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), max);
-				resp["ok"] = true;
-			}
-			else if (action == "move_down")
-			{
-				st->moveSoldierDown(nullptr, (unsigned int)req.get("row", 0).asInt(), max);
-				resp["ok"] = true;
-			}
-			else if (action == "sort")
-			{
-				st->harnessSort((size_t)req.get("sort", 2).asInt());
-				resp["ok"] = true;
-			}
-			else
-				resp["error"] = "soldiers_reorder: unknown action";
-		}
-		else if (cmd == "roster_screen")
-		{
-			// Drive the TOP roster screen's real sort / reorder handlers: the
-			// martial or psi training list, crew armor or craft crew. action
-			// "sort" (sort = combobox index), "move_up" / "move_down" (row = shown
-			// row, moved to the top / bottom like a right-click: the one-place move
-			// warps the mouse through its Action) or "view" (only report). Replies
-			// with the screen and the soldier ids it shows, in its order.
-			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
-			const std::string action = req.get("action", "view").asString();
-			const size_t sortIdx = (size_t)req.get("sort", 2).asInt();
-			const unsigned int row = (unsigned int)req.get("row", 1).asInt();
-			const bool max = true;
-			std::vector<int> shown;
-			bool known = true;
-			auto drive = [&](auto* st, const char* name)
-			{
-				resp["screen"] = name;
-				if (action == "sort") st->harnessSort(sortIdx);
-				else if (action == "move_up") st->moveSoldierUp(nullptr, row, max);
-				else if (action == "move_down") st->moveSoldierDown(nullptr, row, max);
-				else if (action != "view") known = false;
-				shown = st->harnessDisplayedSoldierIds();
-			};
-			// "toggle" (soldier_id) / "assign_all" / "deassign_all": the training
-			// screens' real click and assign-all / de-assign-all key handlers.
-			const bool trainingAction = action == "toggle" || action == "assign_all"
-				|| action == "deassign_all";
-			const int soldierId = req.get("soldier_id", -1).asInt();
-			if (trainingAction && dynamic_cast<AllocateTrainingState*>(top))
-			{
-				auto* t = dynamic_cast<AllocateTrainingState*>(top);
-				resp["screen"] = "training";
-				known = t->harnessTraining(action, soldierId);
-				shown = t->harnessDisplayedSoldierIds();
-				if (!known) resp["error"] = "soldier not on the training screen";
-			}
-			else if (trainingAction && dynamic_cast<AllocatePsiTrainingState*>(top))
-			{
-				auto* p = dynamic_cast<AllocatePsiTrainingState*>(top);
-				resp["screen"] = "psi_training";
-				known = p->harnessTraining(action, soldierId);
-				shown = p->harnessDisplayedSoldierIds();
-				if (!known) resp["error"] = "soldier not on the psi training screen";
-			}
-			else if (trainingAction)
-			{
-				resp["error"] = "no training screen on top";
-				known = false;
-			}
-			else if (auto* t = dynamic_cast<AllocateTrainingState*>(top)) drive(t, "training");
-			else if (auto* p = dynamic_cast<AllocatePsiTrainingState*>(top)) drive(p, "psi_training");
-			else if (auto* a = dynamic_cast<CraftArmorState*>(top)) drive(a, "craft_armor");
-			else if (auto* c = dynamic_cast<CraftSoldiersState*>(top)) drive(c, "craft_soldiers");
-			else
-			{
-				resp["error"] = "no roster screen on top";
-				known = false;
-			}
-			if (known)
-			{
-				Json::Value ids(Json::arrayValue);
-				for (int id : shown) ids.append(id);
-				resp["displayed"] = ids;
-				resp["ok"] = true;
-			}
-			else if (!resp.isMember("error"))
-				resp["error"] = "roster_screen: unknown action";
-		}
 		else if (cmd == "soldiers_ok")
 		{
 			SoldiersState* st = findState<SoldiersState>(_game);
@@ -9421,61 +9497,6 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				resp["error"] = "no SoldiersState in state stack";
-			}
-		}
-		else if (cmd == "soldiers_view")
-		{
-			// Pick the open SoldiersState's screen action (a soldier
-			// transformation name, or STR_SOLDIER_INFO) through its real handler
-			// and report the soldier ids the list then shows.
-			SoldiersState* st = findState<SoldiersState>(_game);
-			const std::string action = req.get("action", "STR_SOLDIER_INFO").asString();
-			if (!st)
-				resp["error"] = "no SoldiersState in state stack";
-			else if (!st->harnessSelectAction(action))
-				resp["error"] = "screen action not offered: " + action;
-			else
-			{
-				Json::Value ids(Json::arrayValue);
-				for (int id : st->harnessDisplayedSoldierIds()) ids.append(id);
-				resp["ids"] = ids;
-				resp["ok"] = true;
-			}
-		}
-		else if (cmd == "craft_error_messages")
-		{
-			// The message of every CraftErrorState on the state stack, bottom
-			// first (the economy warning and the other host notices use it).
-			Json::Value messages(Json::arrayValue);
-			for (auto* s : _game->getStates())
-				if (auto* ce = dynamic_cast<CraftErrorState*>(s))
-					messages.append(ce->getMessage());
-			resp["messages"] = messages;
-			resp["ok"] = true;
-		}
-		else if (cmd == "production_complete_sell")
-		{
-			// Sell <count> of <item> at <base> through the random production
-			// summary of the real ProductionCompleteState (its right-click sell).
-			const std::string baseName = req.get("base", "").asString();
-			const std::string item = req.get("item", "").asString();
-			Base* target = nullptr;
-			if (_game->getSavedGame())
-				for (auto* b : *_game->getSavedGame()->getBases())
-					if (b->getName() == baseName) { target = b; break; }
-			GeoscapeState* geo = findState<GeoscapeState>(_game);
-			if (!target)
-				resp["error"] = "base not found: " + baseName;
-			else if (!geo)
-				resp["error"] = "no GeoscapeState in state stack";
-			else if (!_game->getMod()->getItem(item, false))
-				resp["error"] = "unknown item: " + item;
-			else
-			{
-				ProductionCompleteState* pc = new ProductionCompleteState(target, item, geo);
-				pc->harnessSellSummaryRow(item, req.get("count", 1).asInt());
-				delete pc;
-				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "base_report")
