@@ -3880,11 +3880,17 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		else if (!rule) resp["error"] = "unknown soldier type";
 		else
 		{
-			Soldier* soldier = mod->genSoldier(sg, rule, 0);
-			soldier->setOwnerPlayerId(owner);
-			soldier->setCoop(owner);
-			base->getSoldiers()->push_back(soldier);
-			resp["soldier_id"] = soldier->getId();
+			// <count> (default 1) spawns that many in one frame, so a test can
+			// grow the world without the checksum seeing it half-built.
+			const int count = std::max(1, req.get("count", 1).asInt());
+			for (int i = 0; i < count; ++i)
+			{
+				Soldier* soldier = mod->genSoldier(sg, rule, 0);
+				soldier->setOwnerPlayerId(owner);
+				soldier->setCoop(owner);
+				base->getSoldiers()->push_back(soldier);
+				resp["soldier_id"] = soldier->getId();
+			}
 			resp["ok"] = true;
 		}
 	}
