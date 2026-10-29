@@ -1,8 +1,8 @@
 """a thin, ADDITIVE wrapper so the CI suite's `test_*.py` discovery
 (tools/ci/run_coop_suite.ps1, plan_shards.ps1) runs repro_door_deterministic.py as its own entry. That file
-is the cover the D229 gate (check_quarantine_gate.py) names for two DELETED door rows, and CI never ran it.
+covers two door cases, and CI's `test_*.py` discovery would not run it on its own.
 
-repro_door_deterministic.py is NOT edited and keeps its importers (test_bringup_leak_sweep,
+repro_door_deterministic.py keeps its importers (test_bringup_leak_sweep,
 test_staging_order): this file runs it as `__main__` (runpy), so its own exception -> exit-code
 mapping, output and exit code are exactly those of `python repro_door_deterministic.py`.
 

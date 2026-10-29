@@ -30,11 +30,10 @@ dogfight-timing assertion. Everything else is greedy-LPT bin-packed across all K
 lanes by measured weight (tools/ci/test_weights.json, same table the CI shard
 planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy:
 0 = PASS, any other exit code = FAIL. There is no SKIP
-status: a fixture that cannot be built is a red (WV-D100: every test must exercise
-its scenario 100% of the time; a test that cannot is rewritten with owner-supplied
-fixture steps, never re-run). NOTHING is ever retried (WV-D101: "reruns just hide
-flakiness"). A file whose column-0 guard prints SKIP-PENDING and exits 0 (the
-W1_TRIAGE.md quarantine) is QUARANTINED: never counted as a pass,
+status: a fixture that cannot be built is a failure (every test must exercise
+its scenario every time; a test that cannot is rewritten, never re-run).
+NOTHING is ever retried, because reruns hide flakiness. A file whose column-0
+guard prints SKIP-PENDING and exits 0 is QUARANTINED: never counted as a pass,
 listed and counted apart, and it does not fail the run. Exit 0 iff no test ended FAIL.
 
 Headless is forced on every lane (SDL_VIDEODRIVER/AUDIODRIVER=dummy) unless
@@ -210,7 +209,7 @@ def _copy_fail_dirs(name, slot, t0, fail_dir):
     return dest if os.path.isdir(dest) else None
 
 
-# a quarantined file (W1_TRIAGE.md, RB-D21) carries a column-0 guard
+# a quarantined file carries a column-0 guard
 # `print("SKIP-PENDING..."); sys.exit(0)`; such a file that exits 0 is QUARANTINED,
 # never PASS. The guard is read from the source, so the status is the same with or
 # without --log-dir (this runner captures a test's stdout only with --log-dir).
