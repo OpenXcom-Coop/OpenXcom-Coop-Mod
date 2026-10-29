@@ -848,6 +848,12 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
  */
 void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
 {
+	// One-world campaigns: unseating moves craft/store gear in the host's world,
+	// so each one goes to the host as craft_assign (Separate: own soldiers only).
+	if (submitOneWorldDeassign(nullptr))
+	{
+		return;
+	}
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
@@ -872,6 +878,10 @@ void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
 void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
+	if (submitOneWorldDeassign(c))
+	{
+		return;
+	}
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
@@ -886,6 +896,33 @@ void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 
 	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
 	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
+}
+
+/**
+ * coop (one-world campaigns): sends craft_assign(off) for every soldier seated on
+ * @a craft (or on any craft at the base not out on a mission, when null) that this
+ * player may move: in Separate their own soldiers, in SHARED every soldier (main).
+ * The list refreshes when the host's applies land.
+ * @return true if the campaign routed it (nothing is changed locally).
+ */
+bool CraftSoldiersState::submitOneWorldDeassign(Craft *craft)
+{
+	connectionTCP* coop = _game->getCoopMod();
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()))
+	{
+		return false;
+	}
+	for (auto* soldier : *_base->getSoldiers())
+	{
+		Craft* seated = soldier->getCraft();
+		if (!seated || seated->getStatus() == "STR_OUT" || (craft && seated != craft))
+			continue;
+		if (coop->isSharedCampaign())
+			SharedEcon::submitCraftAssign(_game, seated, soldier, false);
+		else if (SharedEcon::ownsSoldier(_game, soldier))
+			SeparateEcon::submitCraftAssign(_game, seated, soldier, false);
+	}
+	return true;
 }
 
 /**

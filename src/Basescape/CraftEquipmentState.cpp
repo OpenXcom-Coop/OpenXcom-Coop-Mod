@@ -273,7 +273,9 @@ void CraftEquipmentState::init()
 			{
 				c->calculateTotalSoldierEquipment();
 			}
-			if (_returningFromInventory)
+			// (Separate staged nothing: the host's soldier_layout apply moves the gear)
+			if (_returningFromInventory
+				&& !(_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()))
 			{
 				// now that we're back from the inventory screen, we need to remove all the excess base gear
 				// SHARED (GAP-5): multi-step local reconciliation - keep it local
@@ -459,7 +461,16 @@ void CraftEquipmentState::initList()
 				{
 					// try to automatically add more items (if possible)
 					int itemsToAdd = std::min(bQty, reserved - cQty);
-					if (itemsToAdd > 0)
+					// Separate: the stores are host-authoritative, so the top-up goes to the
+					// host as craft_equip (only the base owner changes a craft's items).
+					if (itemsToAdd > 0 && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+					{
+						if (!_base->_isForeignBase)
+						{
+							SeparateEcon::submitCraftEquip(_game, c, itemType, cQty + itemsToAdd);
+						}
+					}
+					else if (itemsToAdd > 0)
 					{
 						_base->getStorageItems()->removeItem(rule, itemsToAdd);
 						bQty -= itemsToAdd;
@@ -1135,7 +1146,28 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 	Craft *craft = _base->getCrafts()->at(_craft);
 	if (getDisplayedCrew() > 0)
 	{
-		if (Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle)
+		// Separate single world: the screen moves nothing. It shows the base's
+		// stores beside the craft's items (what the staging below moves onto the
+		// craft), and the layouts it produces reach the host as one soldier_layout
+		// command whose applier moves the gear between the craft and the stores on
+		// every machine. A visitor's screen at the other player's base shows that
+		// base's stores too: a visitor equips their own soldiers from them.
+		ItemContainer storeView;
+		const bool separateView = Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle
+			&& _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign();
+		if (separateView)
+		{
+			for (const std::string& type : _items)
+			{
+				const RuleItem* rule = _game->getMod()->getItem(type, true);
+				const int stored = _base->getStorageItems()->getItem(rule);
+				if (!rule->getVehicleUnit() && rule->canBeEquippedBeforeBaseDefense() && stored > 0)
+				{
+					storeView.addItem(rule, stored);
+				}
+			}
+		}
+		else if (Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle)
 		{
 			// This is a bit tricky... here's what we're doing:
 			// * Remember the extra craft items (i.e. items that are on the craft, but not equipped by soldiers)
@@ -1186,6 +1218,10 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 			_game->getSavedGame()->setDisableSoldierEquipment(true);
 		}
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+		if (separateView)
+		{
+			bgen.setInventoryStoreItems(&storeView);
+		}
 		bgen.runInventory(craft);
 
 		_game->getScreen()->clear();
@@ -1223,12 +1259,28 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 {
+	// One-world campaigns: the host loads the template (one craft_loadout command
+	// with the listed items and the template) and reports what was missing; this
+	// screen refreshes when the apply lands. In Separate only the base owner
+	// changes a craft's items (RU8), as the screen's own moves do.
+	const bool oneWorld = !_isNewBattle && _game->getCoopMod()
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign());
+	if (oneWorld)
+	{
+		if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
+			return;
+		_btnQuickSearch->setText("");
+		_cbxFilterBy->setSelected(0);
+		initList();
+		SharedEcon::submitCraftLoadout(_game, _base->getCrafts()->at(_craft), _items,
+			*_game->getSavedGame()->getGlobalCraftLoadout(index), onlyAddItems);
+		return;
+	}
+
 	// temporarily turn off alternate craft equipment management to allow removing all items from the craft
 	bool backup = Options::oxceAlternateCraftEquipmentManagement;
 	Options::oxceAlternateCraftEquipmentManagement = false;
 
-	// SHARED (GAP-5): a template load is a clear-then-reload whose second pass reads
-	// the local state the first pass produced - keep it local (deferred sub-case).
 	_localBatch = true;
 
 	// reset filters and reload the full equipment list

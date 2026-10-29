@@ -549,6 +549,14 @@ void Inventory::moveItem(BattleItem* item, const RuleInventory* slot, int x, int
 
 		bool send = true;
 
+		// Separate single world: a base-screen move edits only this screen; the
+		// layouts reach the host as one soldier_layout command when it closes.
+		// main's two-world peer mirror (and its craft manifest) is retired here.
+		if (_game->getCoopMod()->coopInventory == false && _game->getCoopMod()->isSeparateCampaign())
+		{
+			send = false;
+		}
+
 		// coop fix
 		if (item && slot && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->getCoopCampaign() == true)
 		{
@@ -2185,6 +2193,10 @@ bool Inventory::hasCoopItem(BattleUnit* unit, const BattleItem* item)
 		return false;
 
 	if (_game->getCoopMod()->getCoopCampaign() != true)
+		return false;
+
+	// Separate is one host-owned world: no two-world per-craft manifest.
+	if (_game->getCoopMod()->isSeparateCampaign())
 		return false;
 
 	auto* geo = unit->getGeoscapeSoldier();

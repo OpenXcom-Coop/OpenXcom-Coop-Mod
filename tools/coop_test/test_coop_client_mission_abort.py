@@ -103,13 +103,18 @@ def enter_tactical(host, client):
         time.sleep(1.0)
     if not all(top(gc) == "BattlescapeState" for gc in (host, client)):
         raise Inconclusive(f"not both on the tactical map: host={top(host)} client={top(client)}")
-    # Let the coop turn handshake settle before the abort.
+    # Let the coop turn handshake settle before the abort: both machines report
+    # a turn, and one side holds it - the acting side (2) or, when the craft
+    # carries only client soldiers, the host as spectator (4) whose end turn
+    # hands control on. Waiting for a 2 alone ran out its 90 s in every
+    # client-started single-world row, where the pair settles at host 4 /
+    # client 1.
     deadline = time.time() + 90
     while time.time() < deadline:
         turns = [gc.cmd({"cmd": "battle_state"}).get("coopTurn") for gc in (host, client)]
-        if 2 in turns:
+        if all(turns) and (2 in turns or 4 in turns):
             break
-        time.sleep(1.0)
+        time.sleep(0.5)
     time.sleep(2)
 
 

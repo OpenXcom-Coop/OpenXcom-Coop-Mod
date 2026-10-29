@@ -1651,6 +1651,29 @@ void Soldier::clearEquipmentLayout()
 }
 
 /**
+ * coop (single host-owned world): replaces the equipment layout with @a layout,
+ * which is taken over and left empty. With @a base (the soldier's base, the
+ * alternate craft equipment management on, the soldier on a craft at home), the
+ * gear moves as unseating and re-seating around the inventory screen moves it:
+ * the old layout's items leave the craft for the base stores and the new layout's
+ * items come from the stores onto the craft.
+ */
+void Soldier::replaceEquipmentLayout(std::vector<EquipmentLayoutItem*>& layout, Base* base)
+{
+	const bool moveGear = base && _craft;
+	if (moveGear)
+	{
+		autoMoveEquipment(_craft, base, 1); // old layout: craft -> base
+	}
+	clearEquipmentLayout();
+	_equipmentLayout.swap(layout);
+	if (moveGear)
+	{
+		autoMoveEquipment(_craft, base, -1); // new layout: base -> craft
+	}
+}
+
+/**
  * Returns the soldier's diary.
  * @return Diary.
  */

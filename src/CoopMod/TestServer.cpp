@@ -7076,6 +7076,117 @@ std::string TestServer::execute(const std::string& line)
 					resp["error"] = want ? "craft refused the soldier" : "soldier could not be unseated";
 			}
 		}
+		else if (cmd == "craft_deassign")
+		{
+			// The Select Squad screen's de-assign buttons, through the real handlers:
+			// all:true = "de-assign all soldiers at the base", else the craft's crew.
+			// Params: base (name), craft_id, craft_type. In a one-world campaign the
+			// unseats go to the host (async: poll the craft afterwards).
+			const std::string daBase = req.get("base", "").asString();
+			const int daId = req.get("craft_id", -1).asInt();
+			const std::string daType = req.get("craft_type", "STR_SKYRANGER").asString();
+			Base* base = nullptr;
+			size_t craftIdx = 0;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					if (b->getName() != daBase) continue;
+					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+						if (b->getCrafts()->at(i)->getId() == daId
+							&& b->getCrafts()->at(i)->getRules()->getType() == daType)
+						{ base = b; craftIdx = i; }
+				}
+			if (!base)
+				resp["error"] = "craft not found at that base";
+			else
+			{
+				CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
+				if (req.get("all", false).asBool()) st->btnDeassignAllSoldiersClick(nullptr);
+				else st->btnDeassignCraftSoldiersClick(nullptr);
+				delete st;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "craft_loadout" || cmd == "craft_armor_seat")
+		{
+			// craft_loadout: the craft equipment templates (the global loadout
+			// hotkeys). op "set" writes slot <index> on THIS machine (items:
+			// {type: qty}); op "load" runs the real CraftEquipmentState template
+			// load on the base's craft (only_add = the "add on top" variant) and
+			// reports the listed item types it considered and any dialog it
+			// opened (then closed).
+			// craft_armor_seat: the craft armor screen's ctrl-click on soldier
+			// <soldier_id> (seat / unseat on that craft), through its real body.
+			// Both take base (name), craft_id, craft_type ("load" and the seat).
+			const std::string clOp = req.get("op", "load").asString();
+			const int clIndex = req.get("index", 0).asInt();
+			const std::string clBase = req.get("base", "").asString();
+			const int clId = req.get("craft_id", -1).asInt();
+			const std::string clType = req.get("craft_type", "STR_SKYRANGER").asString();
+			Base* base = nullptr;
+			size_t craftIdx = 0;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					if (b->getName() != clBase) continue;
+					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+						if (b->getCrafts()->at(i)->getId() == clId
+							&& b->getCrafts()->at(i)->getRules()->getType() == clType)
+						{ base = b; craftIdx = i; }
+				}
+			if (cmd == "craft_loadout" && clOp == "set")
+			{
+				if (!_game->getSavedGame() || clIndex < 0
+					|| clIndex >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
+					resp["error"] = "no save or bad template index";
+				else
+				{
+					ItemContainer* tmpl = _game->getSavedGame()->getGlobalCraftLoadout(clIndex);
+					tmpl->clear();
+					const Json::Value& items = req["items"];
+					std::string bad;
+					for (const auto& type : items.getMemberNames())
+					{
+						const RuleItem* rule = _game->getMod()->getItem(type, false);
+						if (!rule) { bad = type; continue; }
+						if (items[type].asInt() > 0) tmpl->addItem(rule, items[type].asInt());
+					}
+					_game->getSavedGame()->setGlobalCraftLoadoutName(clIndex,
+						req.get("name", "Harness template").asString());
+					if (!bad.empty()) resp["error"] = "unknown item " + bad;
+					else resp["ok"] = true;
+				}
+			}
+			else if (!base)
+				resp["error"] = "craft not found at that base";
+			else if (cmd == "craft_loadout")
+			{
+				const size_t depth = _game->getStates().size();
+				CraftEquipmentState* ces = new CraftEquipmentState(base, craftIdx);
+				_game->pushState(ces);
+				ces->loadGlobalLoadout(clIndex, req.get("only_add", false).asBool());
+				Json::Value listed(Json::arrayValue);
+				for (const auto& type : ces->harnessListedItems()) listed.append(type);
+				resp["listed"] = listed;
+				Json::Value dialogs(Json::arrayValue);
+				size_t at = 0;
+				for (State* s : _game->getStates())
+					if (at++ > depth) dialogs.append(typeid(*s).name());
+				resp["dialogs"] = dialogs;
+				while (_game->getStates().size() > depth) _game->popState();
+				resp["ok"] = true;
+			}
+			else
+			{
+				const int sid = req.get("soldier_id", -1).asInt();
+				CraftArmorState* cas = new CraftArmorState(base, craftIdx);
+				const bool clicked = cas->harnessCtrlClick(sid);
+				delete cas;
+				resp["clicked"] = clicked;
+				if (clicked) resp["ok"] = true;
+				else resp["error"] = "soldier not on the craft armor list (or its craft is out)";
+			}
+		}
 		else if (cmd == "confirm_landing")
 		{
 			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);
@@ -7700,11 +7811,13 @@ std::string TestServer::execute(const std::string& line)
 			// battlescape directly below them, never of a transitional stage, so
 			// reach through them as main's driver did: the abort-vote tests act
 			// while the turn-1 screen is still up, and repeat ABORT while the
-			// abandon-mission vote is open.
+			// abandon-mission vote is open. The in-battle gift notice is the same
+			// kind of overlay: main's driver reached through it too.
 			BattlescapeState* bstate = nullptr;
 			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 			{
-				if (dynamic_cast<NextTurnState*>(*it) || dynamic_cast<VoteMenu*>(*it))
+				if (dynamic_cast<NextTurnState*>(*it) || dynamic_cast<VoteMenu*>(*it)
+					|| dynamic_cast<GiftNoticeState*>(*it))
 					continue;
 				bstate = dynamic_cast<BattlescapeState*>(*it);
 				break;

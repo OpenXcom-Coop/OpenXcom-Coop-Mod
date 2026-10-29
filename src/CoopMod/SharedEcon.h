@@ -38,6 +38,8 @@ class Target;
 class Soldier;
 class AlienBase;
 class BattleItem;
+class EquipmentLayoutItem;
+class ItemContainer;
 class SavedBattleGame;
 class RuleResearch;
 
@@ -332,6 +334,14 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// only - vehicles are deferred (caller must not route a vehicle item).
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
+/// One-world campaigns (SHARED and Separate): load a craft equipment template on
+/// @a craft. @a listed = the item types the craft equipment screen shows (the
+/// load considers only those), @a tmpl = the template's contents, @a onlyAdd =
+/// add on top instead of replacing. Submits craft_loadout; mutates nothing
+/// locally (the host moves the items and reports what was missing).
+void submitCraftLoadout(Game* game, Craft* craft, const std::vector<std::string>& listed,
+                        const ItemContainer& tmpl, bool onlyAdd);
+
 /// PRD-J09 GAP-5b: mount @a weaponType (empty = dismount) in weapon @a slot of
 /// @a craft in the shared world (SHARED only - caller gates). The launcher + loaded
 /// clips move against the host-authoritative base stores, so a replica must route
@@ -359,6 +369,16 @@ struct TrainingChange
 /// runs the training. Mutates nothing locally; the flags change when it lands.
 void submitSoldierTraining(Game* game, Base* base, bool psi,
 	const std::vector<TrainingChange>& changes);
+/// One-world campaigns (SHARED and Separate): the equipment layouts an inventory
+/// screen at @a base produced. @a soldiers = [{ soldierId, soldierOwner, layout,
+/// personal, personalArmor }], layout/personal being serializeLayout() texts, each
+/// the ABSOLUTE end state (last-write-wins). Submits soldier_layout; the host
+/// validates the owner (Separate) and every machine adopts the same layouts.
+void submitSoldierLayouts(Game* game, Base* base, const Json::Value& soldiers);
+/// The wire form of a soldier's equipment-layout entries (EquipmentLayoutItem::save).
+std::string serializeLayout(const std::vector<EquipmentLayoutItem*>& layout);
+/// Rebuilds layout entries from serializeLayout() text; unknown items are skipped.
+std::vector<EquipmentLayoutItem*> deserializeLayout(Game* game, const std::string& text);
 
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw

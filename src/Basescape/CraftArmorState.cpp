@@ -559,6 +559,79 @@ void CraftArmorState::btnOkClick(Action *)
 }
 
 /**
+ * Seats @a s on this screen's craft, or takes them off it (the list's
+ * ctrl-click). @a row is the soldier's row on the list.
+ */
+void CraftArmorState::toggleCraftSeat(Soldier *s, unsigned int row)
+{
+	Craft* c = _base->getCrafts()->at(_craft);
+	// One-world campaigns: the host seats the soldier (craft_assign, as the Select
+	// Squad screen does) and moves the gear with the seat; the list refreshes
+	// when the host's apply lands.
+	if (_game->getCoopMod()
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+	{
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		else SeparateEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		return;
+	}
+	if (s->getCraft() == c)
+	{
+		s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
+		_lstSoldiers->setCellText(row, 1, tr("STR_NONE_UC"));
+		_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
+	}
+	else if (s->hasFullHealth())
+	{
+		int space = c->getSpaceAvailable();
+		CraftPlacementErrors err = c->validateAddingSoldier(space, s);
+		if (err == CPE_None)
+		{
+			s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
+			_lstSoldiers->setCellText(row, 1, c->getName(_game->getLanguage()));
+			_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
+		}
+		else if (err == CPE_SoldierGroupNotAllowed)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+		else if (err == CPE_SoldierGroupNotSame)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_SAME"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+		else if (err == CPE_ArmorGroupNotAllowed)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_ARMOR_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+		else if (space > 0)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_NOT_ENOUGH_CRAFT_SPACE"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+	}
+}
+
+/**
+ * Harness: the list's ctrl-click on soldier @a soldierId, through the real
+ * handler body. Builds the list first (normally deferred to init()). Returns
+ * false if the soldier is not on the list or rides a craft out on a mission.
+ */
+bool CraftArmorState::harnessCtrlClick(int soldierId)
+{
+	initList(0);
+	for (size_t row = 0; row < _viewSoldiers.size(); ++row)
+	{
+		Soldier *s = _viewSoldiers[row];
+		if (s->getId() != soldierId)
+			continue;
+		if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT")
+			return false;
+		toggleCraftSeat(s, (unsigned int)row);
+		return true;
+	}
+	return false;
+}
+
+/**
  * Shows the Select Armor window.
  * @param action Pointer to an action.
  */
@@ -577,40 +650,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 		{
 			if (_game->isCtrlPressed(true))
 			{
-				Craft* c = _base->getCrafts()->at(_craft);
-				if (s->getCraft() == c)
-				{
-					s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
-					_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, tr("STR_NONE_UC"));
-					_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getColor());
-				}
-				else if (s->hasFullHealth())
-				{
-					int space = c->getSpaceAvailable();
-					CraftPlacementErrors err = c->validateAddingSoldier(space, s);
-					if (err == CPE_None)
-					{
-						s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
-						_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, c->getName(_game->getLanguage()));
-						_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getSecondaryColor());
-					}
-					else if (err == CPE_SoldierGroupNotAllowed)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-					else if (err == CPE_SoldierGroupNotSame)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_SAME"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-					else if (err == CPE_ArmorGroupNotAllowed)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_ARMOR_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-					else if (space > 0)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_NOT_ENOUGH_CRAFT_SPACE"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-				}
+				toggleCraftSeat(s, _lstSoldiers->getSelectedRow());
 			}
 			else
 			{

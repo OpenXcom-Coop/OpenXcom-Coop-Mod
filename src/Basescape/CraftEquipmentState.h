@@ -145,6 +145,8 @@ public:
 	int harnessDisplayedSpaceUsed() const { return _displayedSpaceUsed; }
 	int harnessDisplayedSpaceAvailable() const { return _displayedSpaceAvailable; }
 	std::string harnessDisplayedItem(size_t column, const std::string& itemType) const;
+	/// Harness: the item types the list shows (what a template load considers).
+	const std::vector<std::string>& harnessListedItems() const { return _items; }
 };
 
 }

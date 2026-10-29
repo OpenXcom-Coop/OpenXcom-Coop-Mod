@@ -1,28 +1,23 @@
-"""Regression test: the base that HOUSES a soldier is the base that pays for it.
+"""Regression test: the base that HOUSES a soldier is the base that pays for it,
+in the single host-owned SEPARATE world (PR #213).
 
-A SEPARATE co-op transfer moves a soldier to the peer's base but deliberately
-does NOT change its owner (that is what a gift does), so:
+A transfer to the other player's base keeps the soldier's owner (a gift changes
+it). The soldier must leave the sender's living quarters and occupy the
+receiver's from the moment it is sent (personnel en route count), on BOTH
+machines, and the world total is conserved. Three soldiers move each way, not
+one: a single transfer would not show a roster pruned between moves.
 
-  * the sender KEEPS the Soldier object - TransferItemsState::completeTransfer
-    skips the erase when the destination is a co-op base, and just tags the
-    soldier with getCoopBase() = that base's id;
-  * the receiver gets NOTHING - Base::syncTrade drops an incoming
-    TRANSFER_SOLDIER outright because `soldier_rule` is never written by either
-    transfer path.
+  Q1 host -> client: 3 of the host's soldiers move to ClientBase; HostBase
+     quarters drop by 3 and ClientBase's rise by 3 on both machines.
+  Q2 the visitor's view: ClientBase seen from the host's machine counts the
+     host's soldiers housed there, the same number the client sees.
+  Q3 client -> host and Q4 the client's view of HostBase, the same way.
 
-So before this was fixed the guest occupied NOBODY's living quarters: the sender
-went on paying for a soldier that had left, and the receiver was charged nothing.
-Two halves close it:
-
-  sender   Base::getUsedQuarters() no longer counts soldiers with
-           getCoopBase() != -1 (real own bases only - while VISITING a peer base
-           the world is swapped and those guests really are its residents);
-  receiver connectionTCP::sendGuestCensus() reports the per-peer-base headcount,
-           the peer stores it in Base::coop_guests, and getUsedQuarters() adds it.
-
-Both directions are checked (the bug is symmetric), and THREE soldiers are moved
-each way, not one: a single transfer would not have caught that the roster was
-being silently pruned between moves.
+Replaced rows (two-world premise gone):
+  - "while VISITING a peer base the guests are its residents, so the sender
+    correction is not applied twice" (insideCoopBase, coop_guests census) ->
+    Q2/Q4: there is one world, so the visitor's machine and the owner's machine
+    must report the same used quarters for that base, guests included.
 
 Run:  python tools/coop_test/test_coop_quarters_accounting.py
 """
@@ -31,95 +26,66 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
-import session
 import test_coop_transferred_equipment as T
 
 
-def quarters(gc, base_name):
-    return gc.ok({"cmd": "base_report", "base": base_name})["usedQuarters"]
+def quarters(gc, base):
+    return T.report(gc, base)["usedQuarters"]
 
 
-def free_soldier(gc, base_name):
-    """A base-resident soldier, taking one off the craft if they are all seated
-    (only getCraft()==0 soldiers are transferable rows)."""
-    r = gc.ok({"cmd": "base_report", "base": base_name})
-    free = [s for s in r["soldiers"] if s["craft"] == -1 and s["coopBase"] == -1]
-    if free:
-        return free[0]
-    craft = next(c for c in r["crafts"] if c["type"] == "STR_SKYRANGER")["id"]
-    seated = next(s for s in r["soldiers"] if s["craft"] == craft and s["coopBase"] == -1)
-    gc.ok({"cmd": "craft_assign", "soldier_id": seated["id"],
-           "craft_id": craft, "base": base_name, "on": False})
-    return seated
-
-
-def run_direction(sender, receiver, send_base, recv_base, label, moves=3):
-    send0 = quarters(sender, send_base)
-    recv0 = quarters(receiver, recv_base)
-    print(f"{label}: before - {send_base}={send0} (sender's view), "
-          f"{recv_base}={recv0} (receiver's view)")
-
+def run_direction(sender, host, client, seat, send_base, recv_base, label, moves=3):
+    s0 = {gc.name: quarters(gc, send_base) for gc in (host, client)}
+    r0 = {gc.name: quarters(gc, recv_base) for gc in (host, client)}
+    print(f"{label}: before - {send_base}={s0} {recv_base}={r0}")
+    moved = []
     for n in range(1, moves + 1):
-        soldier = free_soldier(sender, send_base)
-        tr = sender.ok({"cmd": "transfer_to_coop_base",
-                        "name": soldier["name"], "toBase": recv_base})
-        assert tr.get("transferred"), f"{label}: transfer {n} failed: {tr}"
+        sid = T.free_soldier(sender, host, client, send_base, seat, exclude=moved)
+        T.send_soldier(sender, host, client, sid, send_base, recv_base)
+        moved.append(sid)
+        for gc in (host, client):
+            gc.wait_for(f"{label}: {gc.name} sees {n} soldier(s) moved",
+                        lambda gc=gc, n=n: (quarters(gc, send_base) == s0[gc.name] - n
+                                            and quarters(gc, recv_base) == r0[gc.name] + n)
+                        or None, timeout=30, interval=0.3)
+        print(f"{label}: after {n} transfer(s) - {send_base}={quarters(host, send_base)}, "
+              f"{recv_base}={quarters(host, recv_base)} (both machines agree)")
+    for sid in moved:
+        T.arrive(host, client, recv_base, sid)
+    for gc in (host, client):
+        total = quarters(gc, send_base) + quarters(gc, recv_base)
+        assert total == s0[gc.name] + r0[gc.name], (
+            f"{label}: {gc.name}: living quarters not conserved - "
+            f"{s0[gc.name]}+{r0[gc.name]} -> {total}")
+        assert quarters(gc, recv_base) == r0[gc.name] + moves, (
+            f"{label}: {gc.name}: {recv_base} lost guests on arrival: "
+            f"{r0[gc.name]} -> {quarters(gc, recv_base)}")
+    print(f"PASS {label}: {moves} soldier(s) moved from the sender's quarters to the "
+          f"receiver's on both machines, world total conserved")
+    return moved
 
-        sender.wait_for(
-            f"{label}: sender stopped paying for {n} guest(s)",
-            lambda n=n: (quarters(sender, send_base) == send0 - n) or None, timeout=30)
-        receiver.wait_for(
-            f"{label}: receiver charged for {n} guest(s)",
-            lambda n=n: (quarters(receiver, recv_base) == recv0 + n) or None, timeout=45)
-        print(f"{label}: after {n} transfer(s) - {send_base}={quarters(sender, send_base)}, "
-              f"{recv_base}={quarters(receiver, recv_base)}")
 
-    # the world total is conserved: nobody is housed twice, nobody vanishes
-    assert quarters(sender, send_base) + quarters(receiver, recv_base) == send0 + recv0, (
-        f"{label}: living quarters not conserved - "
-        f"{send0}+{recv0} -> {quarters(sender, send_base)}+{quarters(receiver, recv_base)}")
-    print(f"PASS {label}: {moves} guest(s) moved from the sender's quarters to the "
-          f"receiver's, world total conserved")
-
-
-def visiting_view_is_not_double_counted(visitor, peer_base, label):
-    """While visiting, the guests ARE that base's residents - the correction must
-    not be applied a second time there."""
-    visitor.ok({"cmd": "visit_coop_base", "base": peer_base})
-    visitor.wait_for("inside peer base",
-                     lambda: visitor.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None,
-                     timeout=60)
-    rep = visitor.ok({"cmd": "base_report", "coop": True})
-    guests = [s for s in rep["soldiers"] if s["coopBase"] != -1]
-    assert rep["usedQuarters"] >= len(guests), (
-        f"{label}: the visited base reports {rep['usedQuarters']} used quarters but "
-        f"houses {len(guests)} of my guests - the sender-side correction was applied "
-        f"to a visited base too")
-    print(f"PASS {label}: visited base counts its {len(guests)} guest(s) "
-          f"(usedQuarters={rep['usedQuarters']})")
-    session.leave_base(visitor)
+def visitor_view(visitor, owner, base, guests, label):
+    v, o = quarters(visitor, base), quarters(owner, base)
+    housed = [s for s in T.report(visitor, base)["soldiers"] if s["id"] in guests]
+    assert len(housed) == len(guests), f"{label}: guests missing at {base}: {housed}"
+    assert v == o and v >= len(guests), (
+        f"{label}: {base} used quarters - visitor sees {v}, owner sees {o}, "
+        f"{len(guests)} of the visitor's soldiers live there")
+    print(f"PASS {label}: {base} counts its {len(guests)} guest(s) on both machines "
+          f"(usedQuarters={v})")
 
 
 def main():
-    host = GameClient("host", 47811, make_user_dir("host-user"))
-    client = GameClient("client", 47812, make_user_dir("client-user"))
+    js = T.bring_up("xeqquar")
+    host, client = js.host, js.client
     try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client)
-        hb = T.own_base(host)["name"]
-        cb = T.own_base(client)["name"]
-
-        run_direction(host, client, hb, cb, "host -> client")
-        visiting_view_is_not_double_counted(host, cb, "host visiting client base")
-
-        run_direction(client, host, cb, hb, "client -> host")
-        visiting_view_is_not_double_counted(client, hb, "client visiting host base")
-
+        to_client = run_direction(host, host, client, 0, T.HB, T.CB, "host -> client")
+        visitor_view(host, client, T.CB, to_client, "host's view of ClientBase")
+        to_host = run_direction(client, host, client, 1, T.CB, T.HB, "client -> host")
+        visitor_view(client, host, T.HB, to_host, "client's view of HostBase")
         print("TEST PASSED")
     finally:
-        host.shutdown(); client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

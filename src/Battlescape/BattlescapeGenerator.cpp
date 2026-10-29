@@ -24,6 +24,7 @@
 #include "../Engine/Options.h"
 #include "../Engine/RNG.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/SharedEcon.h"
 #include "../Mod/AlienDeployment.h"
 #include "../Mod/AlienRace.h"
 #include "../Mod/Armor.h"
@@ -1028,6 +1029,43 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		}
 	}
 
+	// Separate single world (PR #213): a player's inventory screen at a base, their
+	// own or the other player's, shows only that player's soldiers, and the other
+	// player's reserved items (their soldiers' layouts whose gear lies in this
+	// screen's item pool) stay off the ground pane: those items are still made for
+	// the screen, but on no tile, so the viewer can neither see nor take them. The
+	// battle itself (not _baseInventory) deploys everyone.
+	const bool ownSoldiersOnly = _baseInventory && _base && _game->getCoopMod()
+		&& _game->getCoopMod()->isSeparateCampaign();
+	std::map<const RuleItem*, int> hiddenItems;
+	if (ownSoldiersOnly)
+	{
+		for (Soldier* soldier : *_base->getSoldiers())
+		{
+			if (SharedEcon::ownsSoldier(_game, soldier)) continue;
+			const Craft* soldierCraft = soldier->getCraft();
+			if (soldierCraft && soldierCraft->getStatus() == "STR_OUT") continue;
+			// the pool: base screen = the stores + every craft at home; craft screen =
+			// that craft's items (+ the stores, when setInventoryStoreItems shows them)
+			const bool inPool = _craft == 0 || soldierCraft == _craft
+				|| (!soldierCraft && _inventoryStoreItems);
+			if (!inPool) continue;
+			for (const auto* layoutItem : *soldier->getEquipmentLayout())
+			{
+				if (!layoutItem->isFixed()) ++hiddenItems[layoutItem->getItemType()];
+				for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+					if (const RuleItem* ammo = layoutItem->getAmmoItemForSlot(slot)) ++hiddenItems[ammo];
+			}
+		}
+	}
+	auto poolTile = [&](const RuleItem* rule) -> Tile*
+	{
+		auto hidden = hiddenItems.find(rule);
+		if (hidden == hiddenItems.end() || hidden->second <= 0) return _craftInventoryTile;
+		--hidden->second;
+		return nullptr;
+	};
+
 	// we will need this during debriefing to show a list of recovered items
 	// Note: saved info is required only because of base defense missions, other missions could work without a save too
 	// IMPORTANT: the number of vehicles and their ammo has been messed up by Base::setupDefenses() already :( and will need to be handled separately later
@@ -1154,6 +1192,10 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	{
 		for (auto* soldier : deploymentSoldiers)
 		{
+			if (ownSoldiersOnly && !SharedEcon::ownsSoldier(_game, soldier))
+			{
+				continue;
+			}
 			if (soldier->getArmor()->getSize() == 1)
 			{
 				continue;
@@ -1215,6 +1257,10 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	{
 		for (auto* soldier : deploymentSoldiers)
 		{
+			if (ownSoldiersOnly && !SharedEcon::ownsSoldier(_game, soldier))
+			{
+				continue;
+			}
 			if (soldier->getArmor()->getSize() > 1)
 			{
 				continue;
@@ -1314,12 +1360,27 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 				for (int count = 0; count < pair.second; count++)
 				{
-					_save->createItemForTile(pair.first, _craftInventoryTile, nullptr, coopCount);
+					_save->createItemForTile(pair.first, poolTile(pair.first), nullptr, coopCount);
 					// coop
 					coopCount++;
 				}
 
 				// coop
+				perTypeCount[pair.first->getType()] = coopCount;
+			}
+		}
+		// coop (Separate): the base stores shown beside the craft's items
+		// (setInventoryStoreItems), numbered on the same per-type counter.
+		if (_baseInventory && _inventoryStoreItems)
+		{
+			for (const auto& pair : *_inventoryStoreItems->getContents())
+			{
+				int coopCount = perTypeCount[pair.first->getType()];
+				for (int count = 0; count < pair.second; count++)
+				{
+					_save->createItemForTile(pair.first, poolTile(pair.first), nullptr, coopCount);
+					coopCount++;
+				}
 				perTypeCount[pair.first->getType()] = coopCount;
 			}
 		}
@@ -1356,7 +1417,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 					for (int count = 0; count < i->second; count++)
 					{
-						_save->createItemForTile(i->first, _craftInventoryTile, nullptr, coopCount);
+						_save->createItemForTile(i->first, poolTile(i->first), nullptr, coopCount);
 						// coop
 						coopCount++;
 					}
@@ -1391,7 +1452,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 				for (int count = 0; count < pair.second; count++)
 				{
-					_save->createItemForTile(pair.first, _craftInventoryTile, nullptr, coopCount);
+					_save->createItemForTile(pair.first, poolTile(pair.first), nullptr, coopCount);
 					// coop
 					coopCount++;
 				}
@@ -1521,7 +1582,9 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod* mod, s
 							add = false;
 
 							// coop
-							if (connectionTCP::getCoopStatic() == true && connectionTCP::_coopCampaign == true)
+							// (main's two-world craft manifest; Separate is one host-owned world)
+							if (connectionTCP::getCoopStatic() == true && connectionTCP::_coopCampaign == true
+								&& !connectionTCP::isSeparateCampaignStatic())
 							{
 
 								if (bu)
