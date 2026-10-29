@@ -17,15 +17,13 @@ Rows (parallel turns on, the player's setting):
   H1 SHARED, the host's craft lands; each player drops one of their own soldiers' items.
 Each row passes when, at turn 1 with both event queues drained, neither machine latched
 a desync (event_state.desyncSeen) and a full hash_now snapshot is equal on both machines.
-the rewrite has no sidestart compare; the client
-checks the host's hashes on every event it applies, and the floor cell of a ground item
-is not hashed (MJ-7, OQ-r3-1). The drop is two real clicks on the pre-battle equip
-screen (inventory_click: the hand, then a ground cell). main's S1 (the client's craft
-lands) is dropped: a SEPARATE client never starts a battle from its own craft (owner
-D199 (a), W2-H9).
+There is no sidestart compare: the client checks the host's hashes on every event it
+applies, and the floor cell of a ground item is not hashed. The drop is two real clicks
+on the pre-battle equip screen (inventory_click: the hand, then a ground cell). No row
+lands the client's craft: a SEPARATE client never starts a battle from its own craft.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
-    never held; MG-P1).
+    never held).
 
 Env (optional): COOP_BSS_MODS = os.pathsep-joined mod folders for both machines (e.g. an
 X-Com Files folder named x-com-files), COOP_BSS_SITE = "mission,deployment,race" for the
@@ -47,7 +45,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 MODS = [p for p in os.environ.get("COOP_BSS_MODS", "").split(os.pathsep) if p]
 SITE = tuple(os.environ.get("COOP_BSS_SITE",
                             "STR_ALIEN_TERROR,STR_TERROR_MISSION,STR_SECTOID").split(","))
-PARALLEL = {"CoopTurnMode": "parallel"}  # the rewrite's turn-mode option (Options.cpp CoopTurnMode)
+PARALLEL = {"CoopTurnMode": "parallel"}  # the co-op turn-mode option (Options.cpp CoopTurnMode)
 
 
 class Inconclusive(Exception):
@@ -82,8 +80,8 @@ def floor_drop(gc, coop):
     """This machine's player drops a held item of the soldier on its pre-battle equip
     screen on the floor with two real clicks (inventory_click: the hand, then a ground
     cell): the mouse path, whose floor re-layout (Inventory::arrangeGround) runs on this
-    machine only. main used inventory_move ui=true, which the rewrite refuses in a
-    battle (a base-screen lever). The screen shows this machine's own soldiers;
+    machine only (the test server refuses inventory_move ui=true in a battle: it is a
+    base-screen command). The screen shows this machine's own soldiers;
     NEXT steps to the next one until a coop=`coop` soldier holds an item in a hand.
     Returns (detail, item id)."""
     held, unit = [], None
@@ -123,7 +121,7 @@ def through_inventory(host, client, drops):
     Returns the dropped item ids. both briefings are up at once and each
     player lands on the pre-battle equip screen for its OWN soldiers; a machine with
     nothing to equip (the SEPARATE second player with no soldier aboard) shows none.
-    session.drive_both_to_tactical presses each screen's OK (the ready lever) and drains
+    session.drive_both_to_tactical presses each screen's OK (the player's ready) and drains
     both machines to the battlescape."""
     host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                   timeout=180, interval=1.0)
@@ -186,8 +184,8 @@ def separate_landing(host, client, lander):
 # ---- the verdict -----------------------------------------------------------------
 
 def first_sidestart(host, client, executor, dropped):
-    """MG-P1 verdict on the rewrite, which has no sidestart compare (the client checks
-    the host's hashes on every event it applies): at turn 1, once both event queues are
+    """The row verdict. There is no sidestart compare (the client checks the host's
+    hashes on every event it applies): at turn 1, once both event queues are
     drained, neither machine latched a desync (event_state.desyncSeen) and a full hash_now
     snapshot is equal on both machines. Preconditions: the battle runs in parallel turns
     on both machines and every dropped item lies on the floor on both. (clean, detail)."""
@@ -292,9 +290,8 @@ def shared_row(results, row, tag, ports):
                                  client_options=PARALLEL)
     host, client = js.host, js.client
     try:
-        # main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
-        # bring-up (one host-owned and one client-owned soldier on the shared craft; the host
-        # confirms the landing; it returns at the host's briefing).
+        # the SHARED mixed bring-up (one host-owned and one client-owned soldier on the
+        # shared craft; the host confirms the landing; it returns at the host's briefing).
         session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, to_tactical=False)
         # SHARED: host-owned soldiers are coop 0, client-owned coop 1
         dropped = through_inventory(host, client, [(host, 0), (client, 1)])
@@ -306,7 +303,7 @@ def shared_row(results, row, tag, ports):
 
 
 def main():
-    rows = os.environ.get("COOP_BSS_ROWS", "S2,H1").split(",")  # S1 dropped
+    rows = os.environ.get("COOP_BSS_ROWS", "S2,H1").split(",")
     results = {}
     note = None
     alive = True
