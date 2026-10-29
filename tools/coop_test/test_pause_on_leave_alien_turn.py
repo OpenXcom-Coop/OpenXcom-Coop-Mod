@@ -5,7 +5,7 @@ test_pause_on_leave.py s2`) as its OWN ONE-run entry.
 
 The accepted file test_pause_on_leave.py is NOT edited: it already
 gates S1 vs S2 on sys.argv[1] (plain invocation = S1 only), and this file
-simply calls its main_s2() directly instead of re-invoking argv parsing.
+simply calls its main_alien_turn_kill() directly instead of re-invoking argv parsing.
 
 Run:  python tools/coop_test/test_pause_on_leave_alien_turn.py
 """
@@ -17,4 +17,4 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import test_pause_on_leave as s16
 
 if __name__ == "__main__":
-    s16.main_s2()
+    s16.main_alien_turn_kill()

@@ -63,7 +63,7 @@ Exit codes (ONE run each of CONTROL then DROP, no re-run of either):
     above did not hold - the RED this file exists to invert.
 
 S2 - client kill() mid-ALIEN-turn (D96 M2 quiescence-gate proof, cycle 4) is
-appended below (run_s2() / main_s2()), invoked separately via
+appended below (run_alien_turn_kill() / main_alien_turn_kill()), invoked separately via
 `python test_pause_on_leave.py s2` (plain `python
 test_pause_on_leave.py` still runs ONLY S1, unchanged). Construction
 (F343, measured at tip 1c0291aaa): SPEC 12 AI-stream fixture (STR_SMALL_SCOUT
@@ -98,7 +98,7 @@ alien's status reads a resting value (never STATUS_WALKING(1) or
 STATUS_AIMING(4)) and isBusy()/pendingStates read false/0, at (or before) the
 same sample that first shows the dialog.
 
-Exit codes (S2, run_s2()/main_s2()):
+Exit codes (S2, run_alien_turn_kill()/main_alien_turn_kill()):
   * PASS (exit 0): the alien was genuinely caught mid-action (isBusy True,
     pendingStates>0) before the kill; after the kill the pause modal (dialog
     62) appears, and by the time it has settled the alien's status is a
@@ -126,7 +126,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
-from harness import shutdown_clients  # noqa: E402 (W2-U8d F8416: _s2_bring_up's cleanup)
+from harness import shutdown_clients  # noqa: E402 (W2-U8d F8416: _alien_turn_bring_up's cleanup)
 import repro_atom_side_transition as sid  # noqa: E402 (S2: bring_up_lobby + dismiss_next_turn_if_present)
 
 SDLK_HOME = 278
@@ -639,14 +639,14 @@ def main():
 # separately: `python test_pause_on_leave.py s2`.
 # =====================================================================
 
-def _s2_bring_up(base_port):
+def _alien_turn_bring_up(base_port):
     """SPEC 12 AI-stream fixture bring-up: the same mission/race/seed
     test_ai_origin_stream.py uses for a reproducible single-alien
     STR_SMALL_SCOUT boot, via repro_atom_side_transition.bring_up_lobby (the
     established shared lobby-dance helper, not a scratch copy)."""
     port = base_port
-    host_dir = make_user_dir("spec16s2_host")
-    client_dir = make_user_dir("spec16s2_client")
+    host_dir = make_user_dir("pause_alien_turn_host")
+    client_dir = make_user_dir("pause_alien_turn_client")
     host = GameClient("host", base_port + 1, host_dir)
     client = GameClient("client", base_port + 2, client_dir)
     seated = {}
@@ -657,14 +657,14 @@ def _s2_bring_up(base_port):
             pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": SPEC16_S2_RACE}),
             pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SPEC16_S2_SEED}))
     except BaseException:
-        # run_s2's try/finally starts only after this returns, so a failed bring-up shuts
+        # run_alien_turn_kill's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
         shutdown_clients(host, client)
         raise
     return host, client
 
 
-def run_s2():
+def run_alien_turn_kill():
     """One run: bring up the AI-stream fixture, teleport a host soldier
     adjacent to the alien (weapon intact) so it attacks on its turn, catch
     the host mid-attack (a non-walk BState chain CoopArbiter never wraps),
@@ -672,7 +672,7 @@ def run_s2():
     FAIL (fixture, exit 1) if any precondition cannot be established; FAIL
     (invariant, exit 4) if the drain/survive assertions do not hold; PASS
     (exit 0) otherwise. See module docstring for the full contract."""
-    host, client = _s2_bring_up(SPEC16_S2_BASE_PORT)
+    host, client = _alien_turn_bring_up(SPEC16_S2_BASE_PORT)
     try:
         bs0 = session.battle_state(host)
         hostiles = [u for u in bs0["units"] if u.get("faction") == 1 and not u.get("isOut")]
@@ -848,12 +848,12 @@ def run_s2():
         client.shutdown()
 
 
-def main_s2():
-    run_s2()
+def main_alien_turn_kill():
+    run_alien_turn_kill()
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "s2":
-        main_s2()
+        main_alien_turn_kill()
     else:
         main()

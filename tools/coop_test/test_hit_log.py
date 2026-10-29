@@ -22,7 +22,7 @@ on the host right before its open_new_battle, STR_TERROR_MISSION, set_seed
 SEED_MAP right before newbattle_ok, seat_count 2, MAP_FP on both,
 pin_ai_neutral). Four rows, in this order:
 
-  L1  C1's staging (test_host_combat): the host's real-UI snap kills A.
+  L1  host_kill's staging (test_host_combat): the host's real-UI snap kills A.
       GREEN: the host's hitLog.text and diary == the English rendering of its
       sent entries == TEXT_L1_EN / DIARY_L1_EN; the client's == the German
       rendering of the same entries == TEXT_L1_DE / DIARY_L1_DE; the host sent
@@ -98,8 +98,8 @@ from test_seat_pacing import SDLK_HOME
 from test_delta_core import diff_buckets, short, both, tele_both, tu_both
 from test_delta_items import unit_view
 from test_host_combat import (bring_up_lobby_roster_pinned, open_hand_menu_host, press, host_chain_done, evs_since,
-                                 MISSION, SEED_MAP, MAP_FP, H_ID, A_ID, A2_ID, C1_H_TILE, C1_H_DIR, C1_A_TILE,
-                                 C1_A_DIR, C1_A_HEALTH, C1_ITEMS, SEED_C1, FIRING_120, KEY_ITEM2, STATUS_DEAD,
+                                 MISSION, SEED_MAP, MAP_FP, H_ID, A_ID, A2_ID, KILL_H_TILE, KILL_H_DIR, KILL_A_TILE,
+                                 KILL_A_DIR, KILL_A_HEALTH, KILL_ITEMS, KILL_SEED, FIRING_120, KEY_ITEM2, STATUS_DEAD,
                                  FACTION_HOSTILE, COOP_SEAT_0)
 from test_client_shoot import (snap as order_snap, give_both, place, set_tu_both, set_firing_both,
                                   cancel_client_aim, aim_click, await_press, C_ID, C_TILE, SNAP_C_DIR, A_TILE, A_DIR,
@@ -136,7 +136,8 @@ WEAPONS_DE = {"STR_RIFLE": "Gewehr"}
 
 # ----- the rows' pins -----
 TURN0_SEQ = 3                    # T0L-1 (F4236, 3/3): the host's turn-0 NEW_TURN (phase Active) rides seq 3 (`reveal`)
-L1_ENTRIES = 3                   # T0L-1: C1 = PLAYER_FIRING 'Rifle', NEW_SHOT, SMALL_DAMAGE (carriers seqs 9 / 10 / 11)
+L1_ENTRIES = 3                   # T0L-1: host_kill = PLAYER_FIRING 'Rifle', NEW_SHOT, SMALL_DAMAGE
+                                 # (carriers seqs 9 / 10 / 11)
 L1_ENTRY_TYPES = [(HL_PLAYER_FIRING, FACTION_PLAYER, ["STR_RIFLE"]), (HL_NEW_SHOT, FACTION_PLAYER, None),
                   (HL_SMALL_DAMAGE, FACTION_PLAYER, None)]
 L2_ENTRIES = 3                   # T0L-1: snap_kill = NEW_SHOT, SMALL_DAMAGE today + S-L.2's partner weapon line
@@ -352,13 +353,13 @@ def l1_host_snap(host, client, ctx):
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
     seq0 = event_state(host).get("lastSeqEmitted") or 0
-    # C1's staging (test_host_combat.c1_snap_kill): H rifle + clip, H and A teleported, A health 1, H TU max,
+    # host_kill's staging (test_host_combat.row_host_kill): H rifle + clip, H and A teleported, A health 1, H TU max,
     # H firing 120, all on both machines (client first, F607)
-    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": C1_ITEMS[0], "ammo": C1_ITEMS[1],
+    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": KILL_ITEMS[0], "ammo": KILL_ITEMS[1],
                             "clear_hands": True}, ("weaponId", "ammoId"))
-    tele_both(host, client, H_ID, C1_H_TILE, C1_H_DIR)
-    tele_both(host, client, A_ID, C1_A_TILE, C1_A_DIR)
-    both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "health": C1_A_HEALTH},
+    tele_both(host, client, H_ID, KILL_H_TILE, KILL_H_DIR)
+    tele_both(host, client, A_ID, KILL_A_TILE, KILL_A_DIR)
+    both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "health": KILL_A_HEALTH},
          ("health", "stun", "status"))
     tu_both(host, client, H_ID)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": H_ID, "stat": "firing",
@@ -371,9 +372,9 @@ def l1_host_snap(host, client, ctx):
                       timeout=5)
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
         time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": C1_A_TILE[0], "y": C1_A_TILE[1], "z": C1_A_TILE[2]})
-        assert pr.get("verified"), f"map_tile_click_pos did not verify A's tile {C1_A_TILE}: {pr}"
-        host.ok({"cmd": "set_seed", "seed": SEED_C1})
+        pr = host.cmd({"cmd": "map_tile_click_pos", "x": KILL_A_TILE[0], "y": KILL_A_TILE[1], "z": KILL_A_TILE[2]})
+        assert pr.get("verified"), f"map_tile_click_pos did not verify A's tile {KILL_A_TILE}: {pr}"
+        host.ok({"cmd": "set_seed", "seed": KILL_SEED})
         host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
         host.wait_for("host shot chain finished (A DEAD, no BState)",
                       lambda: host_chain_done(host, A_ID, STATUS_DEAD), timeout=30)
@@ -394,7 +395,7 @@ def l1_host_snap(host, client, ctx):
     if staged:
         fails.append(f"L1: buckets differ after the staging: {staged} (want none)")
     if any((a[n] or {}).get("status") != STATUS_DEAD for n in a):
-        fails.append(f"L1: precondition: A {a} (want DEAD on both: C1's kill)")
+        fails.append(f"L1: precondition: A {a} (want DEAD on both: host_kill's kill)")
     # T0L-1 / F3932: both logs show the NEW_TURN rendering when the row starts
     fails += log_fails("L1", "host (row start)", s0["host"]["log"], TEXT_NEW_TURN_EN, [], "precondition, F3932")
     fails += log_fails("L1", "client (row start)", s0["client"]["log"], TEXT_NEW_TURN_DE, [], "precondition, F3932")
@@ -418,7 +419,7 @@ def l2_client_snap(host, client, ctx):
     notes = []
     c0 = common_snap(host, client)
     s0 = hl_snap(host, client)
-    # snap_kill's staging (test_client_shoot.snap_kill) on L1's boot: H back on its bring-up tile and facing (C1
+    # snap_kill's staging (test_client_shoot.snap_kill) on L1's boot: H back on its bring-up tile and facing (host_kill
     # left it on C_TILE), A2 stands in for A (dead since L1) on A_TILE; client first on every lever
     hx, hy, hz, hd = ctx["hHome"]
     uh = units(host).get(H_ID) or {}
