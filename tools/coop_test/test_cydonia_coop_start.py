@@ -4,27 +4,21 @@ ConfirmCydoniaState is a separate final-mission entry point; it does not pass
 through ConfirmLandingState. Cover both campaign models so this path cannot
 silently fall back to a host-only battle again.
 
-R4-P2: re-pointed onto the SAME battle-start
-handshake R4-P1 built (CoopHandshake::offerBattle) - ConfirmCydoniaState no
-longer runs the legacy SEPARATE changeHost hand-off / CoopState(88) wait
-dialog (deleted, no restored carrier); vanilla generates the battle exactly
-like SP, then offerBattle() ships it, for BOTH "coop" (SEPARATE) and "shared"
-campaigns alike (both are gamemode 0/1 "classic" under RB-D18 - PvP/PvE2 are
-the only gamemodes the interim handshake refuses).
+ConfirmCydoniaState uses the battle-start handshake (CoopHandshake::offerBattle):
+vanilla generates the battle exactly like SP, then offerBattle() ships it, for
+both "coop" (SEPARATE) and "shared" campaigns (both are gamemode 0/1 "classic").
 
-FX-1: the host must click its briefing OK BEFORE waiting for the
+The host must click its briefing OK BEFORE waiting for the
 client's battle entry. That click runs startFirstTurn() and emits the prepared
 battle offer. The client reaches BattlescapeState only after the streamed blob
 is verified and loaded, with a read-only entry briefing above it. Assertions mirror
 test_handshake.py: phase-Active log lines on both machines + BattlescapeState
-in the state stack on both machines. The saveBlob hash comparison itself is
-SOFT-GATED pending R2-P9 (owner-approved 2026-09-01, see test_handshake.py's
-docstring for why) - this test does not assert saveBlob equality, only that
-onReady() ran to completion and phase reached Active regardless of outcome.
-The missionType/mapSizeXYZ/mapFingerprint equality checks are KEPT (not an
-in-battle atom - a pure read-only query against the vanilla-restored
-SavedBattleGame/Tile that proves both machines loaded the SAME streamed map,
-squarely inside "entry + battle_ready parity").
+in the state stack on both machines. This test does not assert saveBlob
+equality (test_handshake.py does), only that onReady() ran to completion and
+phase reached Active.
+The missionType/mapSizeXYZ/mapFingerprint equality checks are a read-only
+query against SavedBattleGame/Tile that proves both machines loaded the SAME
+streamed map.
 
 Run:  python tools/coop_test/test_cydonia_coop_start.py
 Exit 0 = pass; 2 = failure.
@@ -124,13 +118,13 @@ def run_mode(mode, test_ports, coop_port):
                       lambda: _has(host, "ConfirmCydoniaState") or None)
         host.ok({"cmd": "confirm_cydonia"})
 
-        # R4-P2: host pushes BriefingState unconditionally right after vanilla
+        # The host pushes BriefingState unconditionally right after vanilla
         # generation (exactly like SP - offerBattle() is a pure network side
         # effect and never touches the state stack, see CoopHandshake.h).
         host.wait_for("host briefing", lambda: _has(host, "BriefingState"), timeout=60)
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
-        # FX-1: briefing OK runs startFirstTurn() before emitting the prepared offer.
+        # Briefing OK runs startFirstTurn() before emitting the prepared offer.
         host.ok({"cmd": "click_widget", "match": "ok"})
         host.wait_for("host battlescape",
                       lambda: _has(host, "BattlescapeState"), timeout=60)
