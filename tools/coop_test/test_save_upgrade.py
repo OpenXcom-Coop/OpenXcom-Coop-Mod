@@ -21,10 +21,16 @@ Covers (PRD save-upgrader.md 9):
 - negatives: mid-battle refused, gamemode mismatch refused, skip-client warns + 0 saves
 - saved equipment templates: the client world's template slots become the
   client's profile set, the host world's slots stay the host's own
+- save version per game mode: real campaigns of every mode saved on this build.
+  Only the cooperative Separate campaign (one host-owned world) is written at
+  schema 3; solo, SHARED and PvP saves, PvP's embedded player worlds included,
+  stay at schema 2 so the previous release can still open them. Every one of
+  those saves loads back on this build with no upgrade dialog.
 
 Run:  python tools/coop_test/test_save_upgrade.py
 """
 
+import base64
 import os
 import base64
 import copy
@@ -36,7 +42,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fix
 
 import yaml
 
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+import pvp_fixture
+import session
 import synth
 
 PORT = 48710
@@ -58,6 +66,148 @@ CLIENT_TEMPLATES = {
 }
 TEMPLATE_KEYS = ("globalEquipmentLayout", "globalCraftLoadout")
 
+# The schema each game mode's save is written at.
+MODE_SCHEMA = {"separate": 3, "shared": 2, "solo": 2, "pvp": 2}
+
+
+def read_docs(path):
+    with open(path, "r", encoding="utf-8") as f:
+        docs = list(yaml.safe_load_all(f.read()))
+    assert len(docs) == 2, f"{path}: expected 2 YAML docs, got {len(docs)}"
+    return docs[0], docs[1]
+
+
+def embedded_world_schemas(body):
+    """The header saveSchema of every player world embedded in a host save."""
+    schemas = []
+    for entry in body.get("coopClientSaves") or []:
+        stream = base64.b64decode(entry["blob"]).decode("utf-8")
+        header = next(iter(yaml.safe_load_all(stream)))
+        schemas.append(header.get("saveSchema"))
+    return schemas
+
+
+def save_coop_mode(mode, port):
+    """Start a fresh two-player campaign of `mode` and save it on the host."""
+    name = f"mode_{mode}.sav"
+    host_dir = make_user_dir(f"mode_{mode}_host")
+    host = GameClient("host", 48720, host_dir)
+    client = GameClient("client", 48721, make_user_dir(f"mode_{mode}_client"))
+    try:
+        host.spawn(); client.spawn(); host.connect(); client.connect()
+        if mode == "pvp":
+            # Host plays X-COM, the client the aliens: the host save embeds the
+            # client's world in coopClientSaves.
+            gamemode = pvp_fixture.start_pvp_campaign(host, client, port, alien_player="client")
+            assert gamemode == 2, f"pvp: expected game mode 2, got {gamemode}"
+        else:
+            session.new_campaign(host, client, port=port,
+                                 campaign_mode="shared" if mode == "shared" else "coop")
+        coop = host.ok({"cmd": "get_coop"})
+        print(f"[{mode}] host gamemode={coop.get('gamemode')} shared={coop.get('shared')} "
+              f"separateWorld={coop.get('separateWorld')}")
+        host.ok({"cmd": "save_game", "file": name})
+    finally:
+        for gc in (host, client):
+            try: gc.shutdown()
+            except Exception: pass
+    return os.path.join(host_dir, "xcom1", name)
+
+
+def save_solo():
+    """Start a fresh single-player game and save it."""
+    name = "mode_solo.sav"
+    d = make_user_dir("mode_solo")
+    gc = GameClient("solo", 48722, d)
+    try:
+        gc.spawn(); gc.connect()
+        gc.ok({"cmd": "open_new_game", "mode": "solo"})
+        gc.wait_for("difficulty", lambda: session.has_state(gc, "NewGameState"))
+        gc.ok({"cmd": "newgame_ok"})
+        gc.wait_for("base placement", lambda: session.has_state(gc, "BuildNewBaseState"))
+        gc.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "SoloBase"})
+        gc.wait_for("solo geoscape", lambda: (session.has_state(gc, "GeoscapeState")
+                                              and not session.has_state(gc, "BuildNewBaseState")))
+        markers = gc.ok({"cmd": "save_markers"})
+        assert markers["coop"] is False, f"solo: the game is not a solo game: {markers}"
+        gc.ok({"cmd": "save_game", "file": name})
+    finally:
+        gc.shutdown()
+    return os.path.join(d, "xcom1", name)
+
+
+def check_mode_stamp(mode, path, fails):
+    header, body = read_docs(path)
+    want = MODE_SCHEMA[mode]
+    got = header.get("saveSchema")
+    if got != want:
+        fails.append(f"stamp {mode}: saveSchema {got}, expected {want}")
+        print("FAIL " + fails[-1])
+    else:
+        print(f"PASS stamp {mode}: saveSchema {got}")
+    if mode == "pvp":
+        worlds = embedded_world_schemas(body)
+        if not worlds:
+            fails.append("stamp pvp: the PvP save embeds no player world")
+            print("FAIL " + fails[-1])
+        elif any(s != want for s in worlds):
+            fails.append(f"stamp pvp: embedded player world saveSchema {worlds}, expected {want}")
+            print("FAIL " + fails[-1])
+        else:
+            print(f"PASS stamp pvp embedded worlds: saveSchema {worlds}")
+
+
+def check_mode_loads(mode, path, fails):
+    """The save loads on this build through the real load menu with no upgrade
+    dialog: a co-op save reaches the host window, a solo save the Geoscape."""
+    name = os.path.basename(path)
+    gc = GameClient("loader", 48723, make_user_dir(f"mode_load_{mode}", saves=(path,)))
+    try:
+        gc.spawn(); gc.connect()
+        det = gc.ok({"cmd": "upgrade_detect", "file": name})
+        want_kind = "solo" if mode == "solo" else "current"
+        if det["kind"] != want_kind or det["needsUpgrade"]:
+            fails.append(f"load {mode}: detector says {det['kind']} needsUpgrade={det['needsUpgrade']}, "
+                         f"expected {want_kind} with no upgrade")
+            print("FAIL " + fails[-1])
+            return
+        gc.ok({"cmd": "load_save_menu", "file": name})
+        target = "GeoscapeState" if mode == "solo" else "HostMenu"
+
+        def outcome():
+            st = session.states(gc)
+            if any("SaveUpgrade" in s for s in st):
+                return "upgrade dialog"
+            if any("ErrorMessage" in s for s in st):
+                return "error message"
+            return target if any(target in s for s in st) else None
+
+        reached = gc.wait_for(f"{mode} save loaded", outcome, timeout=60, interval=0.25)
+        if reached != target:
+            fails.append(f"load {mode}: reached {reached} ({session.states(gc)}), expected {target}")
+            print("FAIL " + fails[-1])
+        else:
+            print(f"PASS load {mode}: detector {det['kind']}, loaded to {target} with no upgrade dialog")
+    finally:
+        gc.shutdown()
+
+
+def mode_rows():
+    """Save one game of every mode on this build, check each save's schema and
+    load each one back. Returns the failed row lines."""
+    fails = []
+    saves = {
+        "separate": save_coop_mode("separate", "47911"),
+        "shared": save_coop_mode("shared", "47912"),
+        "pvp": save_coop_mode("pvp", "47913"),
+        "solo": save_solo(),
+    }
+    for mode, path in saves.items():
+        check_mode_stamp(mode, path, fails)
+    for mode, path in saves.items():
+        check_mode_loads(mode, path, fails)
+    return fails
+
 
 def two_docs(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -67,6 +217,9 @@ def two_docs(path):
 
 
 def main():
+    # ---- 0. save version per game mode (real campaigns, run first) ----------
+    mode_fails = mode_rows()
+
     d = make_user_dir("save_upgrade")
     xcom1 = os.path.join(d, "xcom1")
 
@@ -313,7 +466,12 @@ def main():
                    "hostName": "HostGuy"})
         assert r["success"] is True, f"PvP schema-1 upgrade failed: {r}"
         ph, pb = two_docs(outp("pvp_dual_host.sav"))
-        assert ph["saveSchema"] == 3, ph.get("saveSchema")
+        # PvP's save layout did not change in schema 3: the upgrade ends at the
+        # PvP save version, 2, for the host world and the embedded player world.
+        assert ph["saveSchema"] == MODE_SCHEMA["pvp"], \
+            f"upgraded PvP save: saveSchema {ph.get('saveSchema')}, expected {MODE_SCHEMA['pvp']}"
+        assert embedded_world_schemas(pb) == [MODE_SCHEMA["pvp"]], \
+            f"upgraded PvP player world: saveSchema {embedded_world_schemas(pb)}"
         assert pb["coop_gamemode"] == 2, pb.get("coop_gamemode")
         assert [b["name"] for b in pb["bases"]] == ["HostBase"], \
             f"PvP client bases must stay in the client world: {[b['name'] for b in pb['bases']]}"
@@ -322,7 +480,7 @@ def main():
             "PvP must keep the client world in coopClientSaves"
         assert not any(b.get("ownerplayername") for b in pb["bases"]), pb["bases"]
         assert gc.ok({"cmd": "upgrade_detect", "file": upgname("pvp_dual_host.sav")})["kind"] == "current"
-        print("PASS PvP upgrade: schema-1 PvP keeps two worlds through 2->3")
+        print("PASS PvP upgrade: schema-1 PvP keeps two worlds and ends at schema 2")
 
         # ---- 6. detector v2 STRONG-marker save + transform hardening ---------
         # The strong pair is shaped like the real-world 1.7.0 save: no saveID,
@@ -413,10 +571,13 @@ def main():
         assert r["threw"] is True, "legacy save must throw in SavedGame::load"
         assert "older version" in r.get("message", ""), r.get("message")
         print("PASS defensive throw: legacy save refused by SavedGame::load")
-
-        print("ALL PASS test_save_upgrade")
     finally:
         gc.shutdown()
+
+    if mode_fails:
+        print("FAIL save version per game mode: " + "; ".join(mode_fails))
+        sys.exit(1)
+    print("ALL PASS test_save_upgrade")
 
 
 if __name__ == "__main__":
