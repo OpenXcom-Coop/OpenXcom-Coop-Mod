@@ -1,27 +1,31 @@
-"""test_equip_held_drawn.py (EQD): on the pre-battle equip screen the co-op partner's held item is drawn under the
-partner's pointer, centred on it as vanilla centres its own cursor item, and an item the partner lifts from its own soldier is not
-drawn on that soldier's paperdoll in the read-only view while it is held. Owner D291 (c), QEQ2-8 (a) (veto VL-EQ2-6),
-D290 (c) / D295 (a) (S-A's pointer), D291 (b) (S-B's hold table), D288 (b) (EQ-1's partner view). Spec: docs repo
-rewrite/prompts/eq2d_held_drawn.md (f) + PIN-PASS AMENDMENTS, common rewrite/prompts/eq2_partner_pointer.md; R-EQ2-3 (a) (held
-items read by id, never by pile cell). Constants: docs repo rewrite/eq2-task0/sd/CONSTANTS.md.
-Boot A (co-op, KEY_D, dirs eq2d_a_*): PBE's spine + S-B's staging (copied, never imported; client first, after the client applied
-the host's first evs, F21396): C1, C2 stripped; STAGE_TYPES + HOLD_EXTRA on PILE; C1 given an STR_RIFLE (right hand).
-  C2H  the client picks the single STR_GRENADE cell (precondition: the host's holds.table[clientSeat] = it within W_HOLD), its
-       pointer to PT1 (drawn on the host): C2H-held (the host's presence.drawn.held = the grenade id), C2H-centre ((heldX, heldY)
-       = (drawn.x - 16, drawn.y - 24): half of RuleInventory::HAND_W x SLOT_W, HAND_H x SLOT_H, vanilla's _selection)
-  H2C  the host picks the single STR_SMOKE_GRENADE cell (precondition: the client's holds.table[hostSeat] = it), its pointer to
-       PT2: H2C-held (the client's drawn.held = the smoke id, centred on the host's pointer)
-  DROP the client picks the grenade again and drops it on C1's STR_BELT (0,0) (lands on both): drop-gone (the host's drawn.held =
-       the grenade before the drop, then -1 within W_HOLD), drop-ptr (GUARD: the host's drawn.ptr still true)
-  DOLL the host presses NEXT (EQ-1's cycle, <= CYCLE_CAP) until it shows C1 (precondition: C1's rifle in the host's
-       inventory_view.drawnSlots, the TEST-ONLY record of what drawItems() drew); the client lifts the rifle from C1's right hand
-       (precondition: the host's holds.table[clientSeat] = it): doll-gone (absent from the host's drawnSlots within W_HOLD while
-       held), doll-back (GUARD: present again within W_HOLD after the client's right-click)
-  X    X-crash (GUARD: no new crash file; host and client alive at the end)
-presence = event_state.equip.presence (S-A); an absent `held` reads FAIL. Every row ends with both cursors empty (a failed cleanup
-ends the later rows "not reached"). RED on HEAD (S-C; no held drawing, no paperdoll skip): C2H-held, C2H-centre, H2C-held,
-drop-gone, doll-gone (5 of 8). One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a
-failure; a boot step past its bound prints ONE CAPTURE line and fails every row "boot". run in the foreground to completion.
+"""test_equip_held_drawn.py: on the pre-battle equip screen the co-op partner's held item is drawn under the
+partner's pointer, centred on it as vanilla centres its own cursor item, and an item the partner lifts from its own
+soldier is not drawn on that soldier's paperdoll in the read-only view while it is held. Held items are read by id,
+never by pile cell.
+One boot (co-op, KEY_D, dirs equip_held_drawn_*): test_prebattle_equip.py's spine plus a staging (copied, never
+imported; client first, after the client applied the host's first evs): C1, C2 stripped; STAGE_TYPES + HOLD_EXTRA on
+PILE; C1 given an STR_RIFLE (right hand).
+  client_holds  the client picks the single STR_GRENADE cell (precondition: the host's holds.table[clientSeat] = it
+       within W_HOLD), its pointer to CLIENT_PT (drawn on the host): client_holds-drawn (the host's
+       presence.drawn.held = the grenade id), client_holds-centred ((heldX, heldY) = (drawn.x - 16, drawn.y - 24):
+       half of RuleInventory::HAND_W x SLOT_W, HAND_H x SLOT_H, vanilla's _selection)
+  host_holds  the host picks the single STR_SMOKE_GRENADE cell (precondition: the client's holds.table[hostSeat] =
+       it), its pointer to HOST_PT: host_holds-drawn (the client's drawn.held = the smoke id, centred on the host's
+       pointer)
+  DROP the client picks the grenade again and drops it on C1's STR_BELT (0,0) (lands on both): drop-gone (the
+       host's drawn.held = the grenade before the drop, then -1 within W_HOLD), drop-ptr (GUARD: the host's
+       drawn.ptr still true)
+  DOLL the host presses NEXT (<= CYCLE_CAP) until it shows C1 (precondition: C1's rifle in the host's
+       inventory_view.drawnSlots, the TEST-ONLY record of what drawItems() drew); the client lifts the rifle from
+       C1's right hand (precondition: the host's holds.table[clientSeat] = it): doll-gone (absent from the host's
+       drawnSlots within W_HOLD while held), doll-back (GUARD: present again within W_HOLD after the client's
+       right-click)
+  END  no_crash (GUARD: no new crash file; host and client alive at the end)
+presence = event_state.equip.presence; an absent `held` reads FAIL. Every row ends with both cursors empty (a failed
+cleanup ends the later rows "not reached"). A build with no held drawing and no paperdoll skip fails
+client_holds-drawn, client_holds-centred, host_holds-drawn, drop-gone and doll-gone (5 of 8). One EVIDENCE line per
+row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; a boot step past its bound prints
+ONE CAPTURE line and fails every row "boot". run in the foreground to completion.
 ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_held_drawn.py
 """
@@ -44,29 +48,30 @@ from test_delta_items import items_by_id  # noqa: E402
 from test_client_items import strip_both  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 
-# ----- pins (rewrite/eq2-task0/sd/CONSTANTS.md) -----
-KEY_D = "49286"                    # boot A (TASK 0 boots a, b, c: 0 files at HEAD)
-SEED_MAP = 1                       # PBE: set_seed right before newbattle_ok
-MAP_FP = -4.48310638993e+18        # PBE: the host's mapFingerprint at SEED_MAP 1
-C_IDS, H_IDS = [8, 9], [10, 11, 12, 13, 14]   # PBE: the client's seated units, the host's own soldiers
-C1, C2, H1 = 8, 9, 10              # C1 = the client's screen, H1 = the host's screen (S-B CONSTANTS)
-PILE = (14, 19, 1)                 # PBE: the craft pile tile at turn 0
+# ----- pinned setup values (the spine's as in test_prebattle_equip.py) -----
+KEY_D = "49286"                    # lobby key
+SEED_MAP = 1                       # set_seed right before newbattle_ok
+MAP_FP = -4.48310638993e+18        # the host's mapFingerprint at SEED_MAP 1
+C_IDS, H_IDS = [8, 9], [10, 11, 12, 13, 14]   # the client's seated units, the host's own soldiers
+C1, C2, H1 = 8, 9, 10              # C1 = the client's screen, H1 = the host's screen
+PILE = (14, 19, 1)                 # the craft pile tile at turn 0
 STAGE_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE", "STR_PROXIMITY_GRENADE", "STR_SMOKE_GRENADE")
-HOLD_EXTRA = "STR_RIFLE_CLIP"      # S-B: the clip cell holds a stack of 2
+HOLD_EXTRA = "STR_RIFLE_CLIP"      # the clip cell holds a stack of 2
 RIFLE_T, GRENADE_T, SMOKE_T = "STR_RIFLE", "STR_GRENADE", "STR_SMOKE_GRENADE"
 GROUND, BELT, RIGHT_HAND, LEFT_HAND = "STR_GROUND", "STR_BELT", "STR_RIGHT_HAND", "STR_LEFT_HAND"
-GROUND_COLS = 20                   # the first ground page (a held item is parked at x 1000000, F20617)
-SCALE, PT1, PT2 = 2, (150, 120), (60, 150)   # S-A: window / logical; the client's / host's pointer on the Inventory surface
-HALF = (2 * 16 // 2, 3 * 16 // 2)  # RuleInventory::HAND_W x SLOT_W / 2, HAND_H x SLOT_H / 2 at HEAD (vanilla _selection)
-W_HOLD, W_PTR, MOTION_S = 2.0, 2.0, 1.0       # S-B / S-A windows (every change seen in 0.05 s at TASK 0)
+GROUND_COLS = 20                   # the first ground page (a held item is parked at x 1000000)
+# SCALE = window / logical pixels; CLIENT_PT / HOST_PT = the client's / host's pointer on the Inventory surface
+SCALE, CLIENT_PT, HOST_PT = 2, (150, 120), (60, 150)
+HALF = (2 * 16 // 2, 3 * 16 // 2)  # RuleInventory::HAND_W x SLOT_W / 2, HAND_H x SLOT_H / 2 (vanilla _selection)
+W_HOLD, W_PTR, MOTION_S = 2.0, 2.0, 1.0       # hold / pointer windows (every change measured within 0.05 s)
 CLICK_WAIT_S, LAND_WAIT_S, POLL_S = 2.0, 10.0, 0.05
-EQ1_WAIT_S, ENTRY_WAIT_S, SCREEN_S = 30.0, 5.0, 15.0
-CYCLE_CAP = 16                     # EQ-1 / PBE: goto_unit's press bound
+BRIEFING_WAIT_S, ENTRY_WAIT_S, SCREEN_S = 30.0, 5.0, 15.0
+CYCLE_CAP = 16                     # NEXT press bound (as test_prebattle_equip.py's goto_unit)
 EXPECTED_RC = (0, 3221226505)
-ROWS = (("C2H", ("C2H-held", "C2H-centre")), ("H2C", ("H2C-held",)), ("DROP", ("drop-gone", "drop-ptr")),
-        ("DOLL", ("doll-gone", "doll-back")))
-ROWS_X = (("X", ("X-crash",)),)
-CPU_CSV = os.path.join(tempfile.gettempdir(), "eq2d_cpu_s%d.csv" % harness.HARNESS_SLOT)
+ROWS = (("client_holds", ("client_holds-drawn", "client_holds-centred")), ("host_holds", ("host_holds-drawn",)),
+        ("DROP", ("drop-gone", "drop-ptr")), ("DOLL", ("doll-gone", "doll-back")))
+ROWS_X = (("END", ("no_crash",)),)
+CPU_CSV = os.path.join(tempfile.gettempdir(), "equip_held_drawn_cpu_s%d.csv" % harness.HARNESS_SLOT)
 
 es = event_state
 authority = lambda gc: battle_state(gc).get("authority") or {}  # noqa: E731
@@ -166,7 +171,7 @@ def pick(gc, cell, iid, ev):
 
 
 def held_on(gc, seat, iid, ev, k):
-    """Precondition: gc's holds.table[seat] = iid within W_HOLD (S-B's grant, or the host's own sample)."""
+    """Precondition: gc's holds.table[seat] = iid within W_HOLD (the hold table's grant, or the host's own sample)."""
     _, ev[k + "Within"] = wait_until(lambda: table(gc)[seat] == iid, W_HOLD)
     ev[k] = table(gc)
     if ev[k][seat] != iid:
@@ -174,7 +179,8 @@ def held_on(gc, seat, iid, ev, k):
 
 
 def point(gc, viewer, pt, ev):
-    """gc's pointer moved to `pt` on the Inventory surface (S-A's motion); precondition: drawn there on `viewer` within W_PTR."""
+    """gc's pointer moved to `pt` on the Inventory surface (a real motion event); precondition: drawn there on `viewer`
+    within W_PTR."""
     c = gc.cmd({"cmd": "cursor_pos"})
     want = [c.get("invX", 0) + pt[0], c.get("invY", 0) + pt[1]]
     ev["motion"] = gc.cmd({"cmd": "inject_input", "kind": "motion", "x": want[0] * SCALE, "y": want[1] * SCALE}).get("ok")
@@ -186,7 +192,8 @@ def point(gc, viewer, pt, ev):
 
 
 def held_read(gc, iid):
-    """gc's presence.drawn once its `held` = iid (bounded by W_HOLD): the record; an absent `held` (the red) stays absent."""
+    """gc's presence.drawn once its `held` = iid (bounded by W_HOLD): the record; an absent `held` stays absent (and
+    fails the cell)."""
     wait_until(lambda: drawn(gc).get("held") == iid, W_HOLD)
     return drawn(gc)
 
@@ -223,7 +230,7 @@ def ready(host, client, ctx):
 
 
 def spine(host, client):
-    m, tag = (host, client), "A"
+    m, tag = (host, client), "boot"
     ctx = {"boot": {}}
     G3F.guarded(tag, lambda: bring_up_lobby_roster_pinned(host, client, KEY_D), m)
     seated = {}
@@ -236,11 +243,12 @@ def spine(host, client):
                           and not u.get("isOut"))}
     ctx["boot"].update(got)
     if (got["mapFingerprint"], got["seated"], got["hIds"]) != (MAP_FP, C_IDS, H_IDS):
-        miss(tag, f"PBE's spine: {got} (want MAP_FP {MAP_FP}, seated {C_IDS}, H {H_IDS})", m)
+        miss(tag, f"the spine: {got} (want MAP_FP {MAP_FP}, seated {C_IDS}, H {H_IDS})", m)
     ok, ctx["boot"]["clientBriefingS"] = wait_until(lambda: any("BriefingState" in s for s in stack(client))
-                                                    and battle_state(client).get("inBattle") is True, EQ1_WAIT_S, 0.1)
+                                                    and battle_state(client).get("inBattle") is True, BRIEFING_WAIT_S,
+                                                    0.1)
     if not ok:
-        miss(tag, f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
+        miss(tag, f"no client BriefingState with its battle within {BRIEFING_WAIT_S} s", m)
     G3F.guarded(tag, lambda: session.wait_seq_barrier(host, client), m)   # the host's first evs applied before staging
 
     def stage():
@@ -269,34 +277,35 @@ def spine(host, client):
     if ctx["units"] != [H1, C1] or ctx["seat"] == ctx["hostSeat"] or None in (ctx["seat"], ctx["hostSeat"]):
         miss(tag, f"screens on {ctx['units']} (want [{H1}, {C1}]); seats host/client {ctx['boot']['seats']}", m)
     ctx["ids"] = st["ids"]
-    print(f"[eq2d] boot A: {json.dumps(ctx['boot'], sort_keys=True, default=str)}", flush=True)
+    print(f"[test_equip_held_drawn] boot: {json.dumps(ctx['boot'], sort_keys=True, default=str)}", flush=True)
     return ctx
 
 
-def row_c2h(host, client, ctx, ev):
+def row_client_holds(host, client, ctx, ev):
     ready(host, client, ctx)
     g = ev["g"] = ctx["ids"][GRENADE_T][0]
     pick(client, single_cell(client, g), g, ev)
     held_on(host, ctx["seat"], g, ev, "hostTable")
-    point(client, host, PT1, ev)
+    point(client, host, CLIENT_PT, ev)
     d = ev["hostDrawn"] = held_read(host, g)
     cleanup(host, client, ctx, ev)
-    return {"C2H-held": (d.get("held") == g, f"the host's drawn.held {d.get('held')} (want {g} within {W_HOLD} s; absent = FAIL)"),
-            "C2H-centre": (d.get("held") == g and centred(d),
-                           f"the host's drawn {show(d)} (want held {g} at (x - {HALF[0]}, y - {HALF[1]}))")}
+    return {"client_holds-drawn": (d.get("held") == g, f"the host's drawn.held {d.get('held')} (want {g} within "
+                                                       f"{W_HOLD} s; absent = FAIL)"),
+            "client_holds-centred": (d.get("held") == g and centred(d),
+                                     f"the host's drawn {show(d)} (want held {g} at (x - {HALF[0]}, y - {HALF[1]}))")}
 
 
-def row_h2c(host, client, ctx, ev):
+def row_host_holds(host, client, ctx, ev):
     ready(host, client, ctx)
     s = ev["s"] = ctx["ids"][SMOKE_T][0]
     pick(host, single_cell(host, s), s, ev)
     held_on(client, ctx["hostSeat"], s, ev, "clientTable")
-    point(host, client, PT2, ev)
+    point(host, client, HOST_PT, ev)
     d = ev["clientDrawn"] = held_read(client, s)
     cleanup(host, client, ctx, ev)
-    return {"H2C-held": (d.get("held") == s and centred(d),
-                         f"the client's drawn {show(d)} (want held {s} centred on the host's pointer: (x - {HALF[0]}, "
-                         f"y - {HALF[1]}))")}
+    return {"host_holds-drawn": (d.get("held") == s and centred(d),
+                                 f"the client's drawn {show(d)} (want held {s} centred on the host's pointer: "
+                                 f"(x - {HALF[0]}, y - {HALF[1]}))")}
 
 
 def row_drop(host, client, ctx, ev):
@@ -328,7 +337,7 @@ def row_doll(host, client, ctx, ev):
         raise AssertionError(f"precondition: a hand item on C1, equal on both (host/client {hands})")
     r = ev["r"] = hands[0][0]
     slot = RIGHT_HAND if r in hand_items(client, C1, RIGHT_HAND) else LEFT_HAND
-    nav = ev["nav"] = [inv_view(host).get("unitId")]      # EQ-1's cycle: NEXT until C1, at most CYCLE_CAP presses
+    nav = ev["nav"] = [inv_view(host).get("unitId")]      # NEXT until C1, at most CYCLE_CAP presses
     while nav[-1] != C1 and len(nav) <= CYCLE_CAP:
         click(host, widget="next")
         wait_until(lambda: inv_view(host).get("unitId") != nav[-1], CLICK_WAIT_S)
@@ -379,19 +388,19 @@ def main():
         cpu = subprocess.Popen(["typeperf", r"\Processor(_Total)\% Processor Time", "-si", "1", "-y", "-f", "CSV",
                                 "-o", CPU_CSV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as e:
-        print(f"[eq2d] typeperf not started: {e}", flush=True)
-    host = GameClient("host", None, make_user_dir("eq2d_a_host"))
-    client = GameClient("client", None, make_user_dir("eq2d_a_client"))
+        print(f"[test_equip_held_drawn] typeperf not started: {e}", flush=True)
+    host = GameClient("host", None, make_user_dir("equip_held_drawn_host"))
+    client = GameClient("client", None, make_user_dir("equip_held_drawn_client"))
     up = [None, None]
     try:
         try:
             ctx = spine(host, client)
-            fns = {"C2H": row_c2h, "H2C": row_h2c, "DROP": row_drop, "DOLL": row_doll}
+            fns = {"client_holds": row_client_holds, "host_holds": row_host_holds, "DROP": row_drop, "DOLL": row_doll}
             fails = sum(run_row(row, order, fns[row], host, client, ctx) for row, order in ROWS)
         except Exception as e:
             if not isinstance(e, G3F.Miss):
-                G3F.capture("A", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
-            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE A line)")
+                G3F.capture("boot", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         up = [alive(host), alive(client)]
     finally:
         rc = {}
@@ -402,12 +411,12 @@ def main():
                 rc[gc.name] = gc.proc.returncode if gc.proc is not None else None
             except Exception as e:
                 rc[gc.name] = f"shutdown: {type(e).__name__}: {str(e)[:200]}"
-        print(f"[eq2d] boot A shut down: {rc}", flush=True)
+        print(f"[test_equip_held_drawn] boot shut down: {rc}", flush=True)
         if cpu is not None:
             cpu.terminate()
             cpu.wait(timeout=10)
     crash = sorted(session._crash_log_snapshot() - crash0)
-    fails += G3F.verdict("X", ROWS_X[0][1], {"X-crash": (not crash and up == [True, True],
+    fails += G3F.verdict("END", ROWS_X[0][1], {"no_crash": (not crash and up == [True, True],
                                                          f"new crash files {crash} (want none); host/client alive at the end "
                                                          f"{up}")}, {"crash": crash, "alive": up, "rc": rc})
     n = sum(len(order) for _, order in ROWS + ROWS_X)
