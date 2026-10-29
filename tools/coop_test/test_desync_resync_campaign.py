@@ -1,31 +1,39 @@
-"""R4-L3 stage S-D (spec rewrite/prompts/r4l3_desync_resync.md (f) `test_desync_resync_campaign.py`; owner D232 (a); QL3-10, QL3-15 (a),
-VL-L3-7; TASK 0 rewrite/r4l3-task0/sd/CONSTANTS.md; orchestrator R-L3-D-1, R-L3-D-2): the automatic desync repair in a co-op CAMPAIGN battle.
-A client-only change to a host-seat soldier is found at the host's next action end, the host re-sends its live battle behind its waiting
-screen and play continues; in SEPARATE the second player's own campaign (its own-world snapshot) and its stored research are untouched.
-  Boot C1 (SHARED, key 48756, dirs r4l3_c1_host / _client): shared_fixture.bring_up("r4l3_c1", (1, 2, 48756)) +
-  session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing = the host's set_seed SEED_C1); P = K = squad[0] (the one host-seat
-  soldier), walker squad[1] (seat 1).
-  DR5 SHARED: B0, SPLIT0, HASH; the client-only set_stat reactions +7 on P; the host's real-UI kneel of K (its bt_action_end, saveBlob);
-      REPAIRED. DR5-1 RS on both: desyncs +1, offered / completed / released +1 (host), teardowns / loaded +1 (client); DR5-2 HASH, SPLIT
-      unchanged, battleId == B0; DR5-3 a client walk of squad[1] applies (walk_far, R-L3-D-1 = R-L2-A-1), HASH; DR5-4 CRASH 0, client zero-disk.
-  Boot C2 (SEPARATE, key "48757", dirs r4l3_c2_host / _client): session.bring_up_separate_guest_battle(host, client, port="48757",
-  pre_mission_start = the client's discover_research STR_PLASMA_PISTOL, a topic the host lacks: R-L3-D-2, so the seat-1 store check
-  discriminates; pre_landing = the host's set_seed SEED_C2); GID = the one faction-0 unit named "Guest" (coop 1); P = host_squad[1],
+"""test_desync_resync_campaign.py: the automatic desync repair in a co-op CAMPAIGN battle.
+A client-only change to a host-seat soldier is found at the host's next action end, the host re-sends its live battle
+behind its waiting screen and play continues; in SEPARATE the second player's own campaign (its own-world snapshot)
+and its stored research are untouched.
+  Boot shared_campaign (SHARED, key 48756, dirs desync_campaign_shared_host / _client):
+  shared_fixture.bring_up("desync_campaign_shared", (1, 2, 48756)) + session.bring_up_shared_mixed_battle(js,
+  {0: 0, 1: 1}, pre_landing = the host's set_seed SEED_SHARED); P = K = squad[0] (the one host-seat soldier), walker
+  squad[1] (seat 1).
+  shared_repair SHARED: B0, SPLIT0, HASH; the client-only set_stat reactions +7 on P; the host's real-UI kneel of K
+      (its bt_action_end, saveBlob); REPAIRED. shared_repair-1 RS on both: desyncs +1, offered / completed / released
+      +1 (host), teardowns / loaded +1 (client); shared_repair-2 HASH, SPLIT unchanged, battleId == B0;
+      shared_repair-3 a client walk of squad[1] applies (walk_far, as in test_campaign_rejoin), HASH; shared_repair-4
+      CRASH 0, client zero-disk.
+  Boot separate_campaign (SEPARATE, key "48757", dirs desync_campaign_separate_host / _client):
+  session.bring_up_separate_guest_battle(host, client, port="48757", pre_mission_start = the client's
+  discover_research STR_PLASMA_PISTOL, a topic the host lacks, so the seat-1 store check discriminates; pre_landing =
+  the host's set_seed SEED_SEPARATE); GID = the one faction-0 unit named "Guest" (coop 1); P = host_squad[1],
   K = host_squad[0], walker GID.
-  Both boots (R-L3-D-3, F12641; test_desync_resync's boot order): mapFingerprint == MAP_FP_Cn on both machines, pin_ai_neutral (a live
-  alien's reaction shot during the kneel killed P in DR5 once), wait_host_idle; a miss = setup failure.
-  DR6 SEPARATE: OWN0 (the client's coop_file_info {role own_world}: key, bytes, fnv1a64), RES0 (the host's event_state.researchMode
-      seats[1] {stored, count, unknown}); the poke + the kneel; REPAIRED. DR6-1 RS as DR5-1; DR6-2 HASH, SPLIT unchanged (GID on seat 1);
-      DR6-3 the own-world key's fnv == OWN0; DR6-4 the host's seats[1] == RES0, RES0 holds the client's topic (count >= 1) and the
-      host's live research lacks it (QL3-10: B21's kept list; the live world's list would read 0); DR6-5 the guest's walk applies (walk_far),
-      HASH; DR6-6 CRASH 0, client zero-disk.
-Definitions (spec (f); helpers imported, never edited): RS / NOTICE_OK / REPAIRED(host, client, B0, 1) / kneel / HASH / SPLIT from
-test_desync_resync (REPAIRED within 45 s: host RS released +1, client RS loaded +1, the notices dismissed, both tops BattlescapeState,
-phase Active, battleId B0, host peerAbsent false, client frozen false, no CoopState on the host); walk_far from test_campaign_rejoin (the
-open tile at radius 1-3 farthest from any non-player; applies = >= 1 step, the final tile equal on both and != the start, == the last step
-unless a reaction / spotting halted it). battle_state only with a BattlescapeState on top. The seat-1 names have no probe under
-research sync on (EVIDENCE). Every cell is a GUARD (no green follows). A boot miss FAILs its row "boot" with ONE CAPTURE line; a failed row
-prints ONE CAPTURE line; every row runs after a failure; ONE run (WV-D95; WV-D99 / WV-D100: no SKIP path); exit 0 iff every cell passes, else 2.
+  Both boots (test_desync_resync's boot order): mapFingerprint == MAP_FP_SHARED / MAP_FP_SEPARATE on both machines,
+  pin_ai_neutral (a live alien's reaction shot during the kneel once killed P in shared_repair), wait_host_idle; a
+  miss = setup failure.
+  separate_repair SEPARATE: OWN0 (the client's coop_file_info {role own_world}: key, bytes, fnv1a64), RES0 (the
+      host's event_state.researchMode seats[1] {stored, count, unknown}); the poke + the kneel; REPAIRED.
+      separate_repair-1 RS as shared_repair-1; separate_repair-2 HASH, SPLIT unchanged (GID on seat 1);
+      separate_repair-3 the own-world key's fnv == OWN0; separate_repair-4 the host's seats[1] == RES0, RES0 holds the
+      client's topic (count >= 1) and the host's live research lacks it (the seat's stored list; the live world's list
+      would read 0); separate_repair-5 the guest's walk applies (walk_far), HASH; separate_repair-6 CRASH 0, client
+      zero-disk.
+Definitions (helpers imported, never edited): RS / NOTICE_OK / REPAIRED(host, client, B0, 1) / kneel / HASH / SPLIT
+from test_desync_resync (REPAIRED within 45 s: host RS released +1, client RS loaded +1, the notices dismissed, both
+tops BattlescapeState, phase Active, battleId B0, host peerAbsent false, client frozen false, no CoopState on the
+host); walk_far from test_campaign_rejoin (the open tile at radius 1-3 farthest from any non-player; applies = >= 1
+step, the final tile equal on both and != the start, == the last step unless a reaction / spotting halted it).
+battle_state only with a BattlescapeState on top. The seat-1 names have no probe under research sync on (EVIDENCE).
+Every cell is a GUARD. A boot miss FAILs its row "boot" with ONE CAPTURE line; a failed row prints ONE CAPTURE line;
+every row runs after a failure; ONE run in the foreground, no skip path; exit 0 iff every cell passes, else 2.
 """
 import os
 import sys
@@ -36,19 +44,21 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 import test_delta_core as dc  # noqa: E402
-import test_desync_resync as r4  # noqa: E402  (main-guarded: RS, REPAIRED, kneel, HASH, SPLIT, Row, capture)
-import test_campaign_rejoin as CR  # noqa: E402  (main-guarded: walk_far, R-L2-A-1)
+import test_desync_resync as DR  # noqa: E402  (main-guarded: RS, REPAIRED, kneel, HASH, SPLIT, Row, capture)
+import test_campaign_rejoin as CR  # noqa: E402  (main-guarded: walk_far)
 
-KEY_C1, TAG_C1 = 48756, "r4l3_c1"
-KEY_C2, TAG_C2 = "48757", "r4l3_c2"
-SEED_C1, MAP_FP_C1 = 1, 5.690100025079999e+18   # the host's set_seed before the landing; seed 1 (the first of
-SEED_C2, MAP_FP_C2 = 1, 5.690100025079999e+18   # 1..40) gives this terror map on both machines in both boots, walk_far walks, 0 reactions
+KEY_SHARED, TAG_SHARED = 48756, "desync_campaign_shared"
+KEY_SEPARATE, TAG_SEPARATE = "48757", "desync_campaign_separate"
+SEED_SHARED, MAP_FP_SHARED = 1, 5.690100025079999e+18      # the host's set_seed before the landing; seed 1 (the
+SEED_SEPARATE, MAP_FP_SEPARATE = 1, 5.690100025079999e+18  # first of 1..40) gives this terror map on both machines
+                                                           # in both boots, walk_far walks, 0 reactions
 POKE, TOPIC = 7, "STR_PLASMA_PISTOL"
-SEQ_OFF, KIND = r4.SEQ_OFF_DR1, "bt_action_end"   # the desync seq = host lastSeqEmitted before K + 2 (CONSTANTS: C1a-d, C2a-d)
+SEQ_OFF, KIND = DR.SEQ_OFFSET, "bt_action_end"   # the desync seq = host lastSeqEmitted before K + 2 (measured on
+                                                 # four boots of each kind)
 DELTAS = ("desyncs", "offered", "completed", "released", "teardowns", "loaded")
 
 
-class Row(r4.Row):
+class Row(DR.Row):
     def end(self, crash_cid, results, walls):
         """the CRASH + zero-disk cell (every case), the row's wall + CPU, ONE CAPTURE line when a cell failed, the row verdict"""
         new = sorted(session._crash_log_snapshot() - self.cr0)
@@ -56,89 +66,97 @@ class Row(r4.Row):
             session.assert_client_zero_disk(self.x.client.user_dir)
             zd = "clean"
         except AssertionError as e:
-            zd = r4.short(e, 300)
+            zd = DR.short(e, 300)
         self.cell(crash_cid, "GUARD", "CRASH 0 (no new crash_*.log in this lane's crash folder since the row's baseline); client zero-disk",
                   not new and zd == "clean", {"crash": new, "zero-disk": zd})
         walls[self.rid] = round(time.time() - self.t0, 1)
-        print("EVIDENCE %s wall: %s s, cpu %s %%" % (self.rid, walls[self.rid], r4.cpu_pct(self.cpu0, r4.cpu_now())), flush=True)
+        print("EVIDENCE %s wall: %s s, cpu %s %%" % (self.rid, walls[self.rid], DR.cpu_pct(self.cpu0, DR.cpu_now())),
+              flush=True)
         if self.fails:
-            print("CAPTURE %s: %s" % (self.rid, r4.js(r4.capture(self.x))), flush=True)
+            print("CAPTURE %s: %s" % (self.rid, DR.js(DR.capture(self.x))), flush=True)
         results[self.rid] = not self.fails
         print(("PASS %s" % self.rid) if not self.fails else ("FAIL %s: %s" % (self.rid, " ".join(self.fails))), flush=True)
 
 
 def own(gc):
     """the client's own-world snapshot: coop_file_info {role own_world}"""
-    r = r4.q(gc, {"cmd": "coop_file_info", "role": "own_world"})
+    r = DR.q(gc, {"cmd": "coop_file_info", "role": "own_world"})
     return {k: r.get(k) for k in ("key", "present", "bytes", "fnv1a64", "error")}
 
 
 def res(gc):
     """the host's stored seat-1 research: event_state.researchMode.seats[1] {stored, count, unknown} (+ the mode, EVIDENCE)"""
-    rm = r4.q(gc, {"cmd": "event_state"}).get("researchMode") or {}
+    rm = DR.q(gc, {"cmd": "event_state"}).get("researchMode") or {}
     s1 = next((s for s in rm.get("seats") or [] if s.get("seat") == 1), {})
     return {"seat1": {k: s1.get(k) for k in ("stored", "count", "unknown")}, "sync": rm.get("sync"), "separate": rm.get("separate"),
             "liveCount": rm.get("liveCount")}
 
 
 def sep_snapshot(gc):
-    return (r4.q(gc, {"cmd": "event_state"}).get("battleEnd") or {}).get("sepSnapshot")
+    return (DR.q(gc, {"cmd": "event_state"}).get("battleEnd") or {}).get("sepSnapshot")
 
 
 def walk(x, uid, rid):
     """walk_far(host, client, uid) -> (applies on both + HASH, evidence)"""
     h, c = x.host, x.client
-    wev = {"actor": uid, "start": r4.pos(r4.units(h).get(uid))}
+    wev = {"actor": uid, "start": DR.pos(DR.units(h).get(uid))}
     try:
         hw = CR.walk_far(h, c, uid, wev)
     except Exception as e:
-        hw, wev["error"] = {}, r4.short(e, 300)
+        hw, wev["error"] = {}, DR.short(e, 300)
     steps = hw.get("steps") or []
     last, halted = (steps[-1].get("to") if steps else None), bool((hw.get("restate") or {}).get("halted"))
     wev.update(steps=len(steps), last=last, halted=halted, reason=(hw.get("restate") or {}).get("reason"),
-               host=r4.pos(r4.units(h).get(uid)), client=r4.pos(r4.units(c).get(uid)))
-    hok, wev["HASH"] = r4.hash_ok(h, c, rid + " after the walk")
+               host=DR.pos(DR.units(h).get(uid)), client=DR.pos(DR.units(c).get(uid)))
+    hok, wev["HASH"] = DR.hash_ok(h, c, rid + " after the walk")
     return (bool(steps) and wev["host"] is not None and wev["host"] == wev["client"] != wev["start"]
             and (halted or wev["host"] == (last["x"], last["y"], last["z"])) and hok), wev
 
 
 def row(x, rid, results, walls):
-    """DR5 (SHARED) / DR6 (SEPARATE): the poke, the host's kneel, REPAIRED, then the row's cells in (f)'s order"""
-    sep = rid == "DR6"
+    """shared_repair (SHARED) / separate_repair (SEPARATE): the poke, the host's kneel, REPAIRED, then the row's
+    cells in order"""
+    sep = rid == "separate_repair"
     ids = ["%s-%d" % (rid, i) for i in range(1, 7 if sep else 5)]
     r = Row(rid, ids[:-1], x)
     h, c = x.host, x.client
     try:
-        rh0, rc0, nh, nc = r4.rs(h), r4.rs(c), len(r4.log(h)), len(r4.log(c))
+        rh0, rc0, nh, nc = DR.rs(h), DR.rs(c), len(DR.log(h)), len(DR.log(c))
         own0, res0, snap0 = (own(c), res(h), sep_snapshot(c)) if sep else (None, None, None)
-        r0 = r4.units(c).get(x.P, {}).get("reactions")
-        rset = r4.q(c, {"cmd": "battle_action", "action": "set_stat", "unit": x.P, "stat": "reactions", "value": (r0 or 0) + POKE})
-        pv = {"P K walker": [x.P, x.K, x.walker], "set_stat": rset, "client reactions": [r0, r4.units(c).get(x.P, {}).get("reactions")],
-              "host reactions": r4.units(h).get(x.P, {}).get("reactions"), "diff": dc.diff_buckets(h, c), "OWN0": own0, "RES0": res0}
-        print("EVIDENCE %s poke: %s" % (rid, r4.js(pv)), flush=True)
+        r0 = DR.units(c).get(x.P, {}).get("reactions")
+        rset = DR.q(c, {"cmd": "battle_action", "action": "set_stat", "unit": x.P, "stat": "reactions",
+                        "value": (r0 or 0) + POKE})
+        pv = {"P K walker": [x.P, x.K, x.walker], "set_stat": rset,
+              "client reactions": [r0, DR.units(c).get(x.P, {}).get("reactions")],
+              "host reactions": DR.units(h).get(x.P, {}).get("reactions"), "diff": dc.diff_buckets(h, c), "OWN0": own0,
+              "RES0": res0}
+        print("EVIDENCE %s poke: %s" % (rid, DR.js(pv)), flush=True)
         if rset.get("ok") is not True or pv["diff"] != ["saveBlob"]:
-            raise r4.Stop("SETUP-FAILURE: the client's set_stat on P %s / the diff %s (want ok, ['saveBlob'])" % (x.P, pv["diff"]))
+            raise DR.Stop("SETUP-FAILURE: the client's set_stat on P %s / the diff %s (want ok, ['saveBlob'])"
+                          % (x.P, pv["diff"]))
         t_press = time.time()
-        s0, kev = r4.kneel(x, x.K)
-        good, rev = r4.repaired(x, rh0, rc0, 1, t_press)
-        rh, rc = r4.rs(h), r4.rs(c)
+        s0, kev = DR.kneel(x, x.K)
+        good, rev = DR.repaired(x, rh0, rc0, 1, t_press)
+        rh, rc = DR.rs(h), DR.rs(c)
         want = {"bucket": "saveBlob", "seq": (s0 or 0) + SEQ_OFF, "kind": KIND, "battleId": x.b0}
-        print("EVIDENCE %s: %s" % (rid, r4.js({"kneel": kev, "repair": rev, "repair wall (host log) s": r4.log_dt(h, nh, r4.RELEASED, t_press),
-                                               "client DESYNC": r4.desync_line(c, nc), "last client/host": [rc.get("last"), rh.get("last")],
+        print("EVIDENCE %s: %s" % (rid, DR.js({"kneel": kev, "repair": rev,
+                                               "repair wall (host log) s": DR.log_dt(h, nh, DR.RELEASED, t_press),
+                                               "client DESYNC": DR.desync_line(c, nc),
+                                               "last client/host": [rc.get("last"), rh.get("last")],
                                                "want last": want, "RS host": rh, "RS client": rc})), flush=True)
-        dd = {k: [r4.delta(rh0, rh, k), r4.delta(rc0, rc, k)] for k in DELTAS}
+        dd = {k: [DR.delta(rh0, rh, k), DR.delta(rc0, rc, k)] for k in DELTAS}
         r.cell(ids[0], "GUARD", "RS on both: desyncs +1; offered / completed / released +1 (host); teardowns / loaded +1 (client)",
                dd["desyncs"] == [1, 1] and all(dd[k][0] == 1 for k in ("offered", "completed", "released"))
                and all(dd[k][1] == 1 for k in ("teardowns", "loaded")), {"deltas host/client": dd, "REPAIRED": good})
         if not good:
-            raise r4.Stop("REPAIRED not reached within %.0f s (%s)" % (r4.W_REPAIR, rev.get("wait")))
-        hok, hev = r4.hash_ok(h, c, rid + " after the repair")
-        sh, sc = r4.split(h), r4.split(c)
+            raise DR.Stop("REPAIRED not reached within %.0f s (%s)" % (DR.W_REPAIR, rev.get("wait")))
+        hok, hev = DR.hash_ok(h, c, rid + " after the repair")
+        sh, sc = DR.split(h), DR.split(c)
         if not sep:
-            bb = [r4.auth(h).get("battleId"), r4.auth(c).get("battleId")]
+            bb = [DR.auth(h).get("battleId"), DR.auth(c).get("battleId")]
             r.cell(ids[1], "GUARD", "HASH; SPLIT(host) == SPLIT(client) == SPLIT0; battleId == B0 %s on both" % x.b0,
-                   hok and sh == sc == x.split0 and bb == [x.b0, x.b0], {"HASH": hev, "SPLIT host/client": [sh, sc], "SPLIT0": x.split0,
-                                                                        "battleId host/client": bb})
+                   hok and sh == sc == x.split0 and bb == [x.b0, x.b0],
+                   {"HASH": hev, "SPLIT host/client": [sh, sc], "SPLIT0": x.split0, "battleId host/client": bb})
             wok, wev = walk(x, x.walker, rid)
             r.cell(ids[2], "GUARD", "a client walk of squad[1] %s applies on both (walk_far: >= 1 step, the final tile equal and != the start, "
                    "== the last step unless halted); HASH" % x.walker, wok, wev)
@@ -146,20 +164,24 @@ def row(x, rid, results, walls):
             r.cell(ids[1], "GUARD", "HASH; SPLIT(host) == SPLIT(client) == SPLIT0 (the guest %s on seat 1)" % x.walker,
                    hok and sh == sc == x.split0 and [x.walker, 1] in sh, {"HASH": hev, "SPLIT host/client": [sh, sc], "SPLIT0": x.split0})
             own1 = own(c)
-            r.cell(ids[2], "GUARD", "the client's own-world key's fnv == OWN0 (F11245: the SEPARATE entry snapshot is not retaken by the repair)",
+            r.cell(ids[2], "GUARD", "the client's own-world key's fnv == OWN0 (the SEPARATE entry snapshot is not "
+                   "retaken by the repair)",
                    own0.get("present") is True and own1.get("present") is True and own1.get("key") == own0.get("key")
-                   and own1.get("fnv1a64") == own0.get("fnv1a64"), {"OWN0": own0, "after": own1,
-                                                                    "battleEnd.sepSnapshot before/after (F12540, EVIDENCE)": [snap0, sep_snapshot(c)]})
+                   and own1.get("fnv1a64") == own0.get("fnv1a64"),
+                   {"OWN0": own0, "after": own1,
+                    "battleEnd.sepSnapshot before/after (EVIDENCE)": [snap0, sep_snapshot(c)]})
             res1 = res(h)
-            live = r4.q(h, {"cmd": "geo_state"}).get("discoveredResearch")
-            r.cell(ids[3], "GUARD", "the host's stored seat-1 research == RES0 (QL3-10); RES0 holds the client's own topic (stored, count >= 1) "
-                   "and the host's live research lacks %s (the check discriminates, R-L3-D-2)" % TOPIC,
+            live = DR.q(h, {"cmd": "geo_state"}).get("discoveredResearch")
+            r.cell(ids[3], "GUARD", "the host's stored seat-1 research == RES0; RES0 holds the client's own topic "
+                   "(stored, count >= 1) and the host's live research lacks %s (the check discriminates)" % TOPIC,
                    res1["seat1"] == res0["seat1"] and res0["seat1"].get("stored") is True and (res0["seat1"].get("count") or 0) >= 1
                    and isinstance(live, list) and TOPIC not in live,
-                   {"RES0": res0, "after": res1, "host live research": live, "the client's pre-battle lever / lists": x.pre,
+                   {"RES0": res0, "after": res1, "host live research": live,
+                    "the client's pre-battle test command / lists": x.pre,
                     "names": "no probe under research sync on (coopSeatResearchNames unexposed; research_check reads the live world)"})
             wok, wev = walk(x, x.walker, rid)
-            r.cell(ids[4], "GUARD", "the guest %s's walk applies on both (walk_far, as DR5-3); HASH" % x.walker, wok, wev)
+            r.cell(ids[4], "GUARD", "the guest %s's walk applies on both (walk_far, as shared_repair-3); HASH"
+                   % x.walker, wok, wev)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(ids[-1], results, walls)
@@ -168,27 +190,28 @@ def row(x, rid, results, walls):
 def baseline(x):
     """both tops BattlescapeState; B0 equal non-zero; SPLIT0 equal with P on seat 0 and the walker on seat 1; HASH clean"""
     h, c = x.host, x.client
-    tops = [r4.top(h), r4.top(c)]
-    assert tops == [r4.BS, r4.BS], "SETUP-FAILURE: tops %s" % tops
-    x.b0, x.split0 = r4.auth(h).get("battleId"), r4.split(h)
-    bc, sc = r4.auth(c).get("battleId"), r4.split(c)
+    tops = [DR.top(h), DR.top(c)]
+    assert tops == [DR.BS, DR.BS], "SETUP-FAILURE: tops %s" % tops
+    x.b0, x.split0 = DR.auth(h).get("battleId"), DR.split(h)
+    bc, sc = DR.auth(c).get("battleId"), DR.split(c)
     seats = dict((u, s) for u, s in x.split0)
     assert x.b0 and x.b0 == bc and x.split0 == sc and seats.get(x.P) == 0 and seats.get(x.K) == 0 and seats.get(x.walker) == 1, (
         "SETUP-FAILURE: B0 %s / %s, SPLIT0 %s / %s, P %s K %s walker %s" % (x.b0, bc, x.split0, sc, x.P, x.K, x.walker))
-    hok, hev = r4.hash_ok(h, c, "boot " + x.name)
+    hok, hev = DR.hash_ok(h, c, "boot " + x.name)
     assert hok, "SETUP-FAILURE: HASH at the boot: %s" % hev
-    print("[r4l3-c] boot %s ok: mapFingerprint %s, pinned %s, B0 %s, SPLIT0 %s, P %s, K %s, walker %s, pre %s" % (
-        x.name, x.fp, x.pinned, x.b0, x.split0, x.P, x.K, x.walker, r4.js(x.pre)), flush=True)
+    print("[test_desync_resync_campaign] boot %s ok: mapFingerprint %s, pinned %s, B0 %s, SPLIT0 %s, P %s, K %s, "
+          "walker %s, pre %s" % (
+        x.name, x.fp, x.pinned, x.b0, x.split0, x.P, x.K, x.walker, DR.js(x.pre)), flush=True)
 
 
 def pin(x, seed, want_fp, tag):
-    """R-L3-D-3, test_desync_resync's boot order: the seeded map on both machines, pin_ai_neutral (no alien can react to the
+    """test_desync_resync's boot order: the seeded map on both machines, pin_ai_neutral (no alien can react to the
     kneel or the walk), the host idle"""
     x.fp = [session.battle_state(x.host).get("mapFingerprint"), session.battle_state(x.client).get("mapFingerprint")]
     assert x.fp == [want_fp, want_fp], "SETUP-FAILURE: mapFingerprint %s (want %r, seed %d)" % (x.fp, want_fp, seed)
     x.pinned = session.pin_ai_neutral(x.host, x.client, tag=tag)
     assert x.pinned, "SETUP-FAILURE: pin_ai_neutral pinned no NONE-seat non-player unit"
-    session.wait_host_idle(x.host, x.client, timeout=r4.W_IDLE)
+    session.wait_host_idle(x.host, x.client, timeout=DR.W_IDLE)
 
 
 def new_x(name):
@@ -196,48 +219,54 @@ def new_x(name):
                            fp=None, pinned=None)
 
 
-def boot_c1():
-    """boot C1 (SHARED): shared_fixture.bring_up + bring_up_shared_mixed_battle(js, {0: 0, 1: 1})"""
-    x = new_x("C1")
+def boot_shared():
+    """boot shared_campaign (SHARED): shared_fixture.bring_up + bring_up_shared_mixed_battle(js, {0: 0, 1: 1})"""
+    x = new_x("shared_campaign")
     try:
-        js = shared_fixture.bring_up(TAG_C1, (1, 2, KEY_C1))
+        js = shared_fixture.bring_up(TAG_SHARED, (1, 2, KEY_SHARED))
         x.host, x.client = js.host, js.client
-        _h, _c, squad = session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_C1}))
+        _h, _c, squad = session.bring_up_shared_mixed_battle(
+            js, {0: 0, 1: 1}, pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_SHARED}))
         x.P = x.K = squad[0]
         x.walker = squad[1]
-        pin(x, SEED_C1, MAP_FP_C1, TAG_C1)
+        pin(x, SEED_SHARED, MAP_FP_SHARED, TAG_SHARED)
         baseline(x)
     except Exception as e:
-        x.err = r4.short(e, 800)
+        x.err = DR.short(e, 800)
     return x
 
 
-def boot_c2():
-    """boot C2 (SEPARATE): bring_up_separate_guest_battle with the client's own-world topic before the mission"""
-    x = new_x("C2")
+def boot_separate():
+    """boot separate_campaign (SEPARATE): bring_up_separate_guest_battle with the client's own-world topic
+    before the mission"""
+    x = new_x("separate_campaign")
     try:
-        x.host, x.client = GameClient("host", 1, make_user_dir(TAG_C2 + "_host")), GameClient("client", 2, make_user_dir(TAG_C2 + "_client"))
+        x.host, x.client = (GameClient("host", 1, make_user_dir(TAG_SEPARATE + "_host")),
+                            GameClient("client", 2, make_user_dir(TAG_SEPARATE + "_client")))
         x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
 
         def f(host, client):  # the client's own world is the live one here (before the battle)
-            x.pre["discover_research"] = r4.q(client, {"cmd": "discover_research", "topic": TOPIC})
-            x.pre["client research"] = r4.q(client, {"cmd": "geo_state"}).get("discoveredResearch")
-            x.pre["host research"] = r4.q(host, {"cmd": "geo_state"}).get("discoveredResearch")
-        hsq, _guest_local = session.bring_up_separate_guest_battle(x.host, x.client, port=KEY_C2, pre_mission_start=f,
-                                                                   pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_C2}))
-        lever = x.pre.get("discover_research") or {}
-        assert lever.get("ok") is True and lever.get("researched") is True, "SETUP-FAILURE: discover_research %s on the client: %s" % (TOPIC, lever)
-        gids = [u.get("id") for u in r4.bs(x.host).get("units") or [] if u.get("faction") == 0 and "Guest" in str(u.get("name"))]
+            x.pre["discover_research"] = DR.q(client, {"cmd": "discover_research", "topic": TOPIC})
+            x.pre["client research"] = DR.q(client, {"cmd": "geo_state"}).get("discoveredResearch")
+            x.pre["host research"] = DR.q(host, {"cmd": "geo_state"}).get("discoveredResearch")
+        hsq, _guest_local = session.bring_up_separate_guest_battle(
+            x.host, x.client, port=KEY_SEPARATE, pre_mission_start=f,
+            pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_SEPARATE}))
+        discover = x.pre.get("discover_research") or {}
+        assert discover.get("ok") is True and discover.get("researched") is True, (
+            "SETUP-FAILURE: discover_research %s on the client: %s" % (TOPIC, discover))
+        gids = [u.get("id") for u in DR.bs(x.host).get("units") or [] if u.get("faction") == 0
+                and "Guest" in str(u.get("name"))]
         assert len(gids) == 1, "SETUP-FAILURE: GID = exactly one faction-0 unit named \"Guest\": %s" % gids
         x.P, x.K, x.walker = hsq[1], hsq[0], gids[0]
-        pin(x, SEED_C2, MAP_FP_C2, TAG_C2)
+        pin(x, SEED_SEPARATE, MAP_FP_SEPARATE, TAG_SEPARATE)
         baseline(x)
     except Exception as e:
-        x.err = r4.short(e, 800)
+        x.err = DR.short(e, 800)
     return x
 
 
-BOOTS = (("C1", boot_c1, "DR5"), ("C2", boot_c2, "DR6"))
+BOOTS = (("shared_campaign", boot_shared, "shared_repair"), ("separate_campaign", boot_separate, "separate_repair"))
 
 
 def main():
@@ -247,16 +276,17 @@ def main():
         x = boot()
         walls[name + " boot"] = round(time.time() - tb, 1)
         if x.err:
-            print("EVIDENCE %s boot: %s\nCAPTURE %s boot: %s" % (rid, x.err, rid, r4.js(r4.capture(x))), flush=True)
+            print("EVIDENCE %s boot: %s\nCAPTURE %s boot: %s" % (rid, x.err, rid, DR.js(DR.capture(x))), flush=True)
             print("FAIL %s boot: boot %s did not reach the tactical map with its pins" % (rid, name), flush=True)
             results[rid] = False
         else:
             row(x, rid, results, walls)
-        failed += r4.shut(x)
+        failed += DR.shut(x)
         walls[name] = round(time.time() - tb, 1)
     failed += [rid for _n, _b, rid in BOOTS if not results.get(rid)]
     print("\ntest_desync_resync_campaign: %d/%d rows passed (fail=%s) walls %s in %.1fs" % (
-        sum(1 for _n, _b, rid in BOOTS if results.get(rid)), len(BOOTS), failed, r4.js(walls), time.time() - t0), flush=True)
+        sum(1 for _n, _b, rid in BOOTS if results.get(rid)), len(BOOTS), failed, DR.js(walls), time.time() - t0),
+          flush=True)
     return 2 if failed else 0
 
 
