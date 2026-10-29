@@ -1,28 +1,28 @@
-"""test_fatal_vote_partner.py: the fatal-wounds vote after a partner's kill (V9) and in PvP (E6v).
-Spec, rulings, staging, answers, Q11 and the shared assertions: test_fatal_vote.py (whose helpers this file runs);
-the split is SV-T1 (P7-5b): V9 on test_client_shoot's snap_kill terror bring-up, E6v on test_battle_end_rules'
-gm2 boot_pvp.
+"""test_fatal_vote_partner.py: the fatal-wounds vote after a partner's kill (partner_kill_vote) and in PvP (pvp_vote).
+Staging, answers, the dismiss_popup rule and the shared assertions: test_fatal_vote.py (whose helpers this file runs).
+partner_kill_vote runs on test_client_shoot's snap_kill terror bring-up, pvp_vote on test_battle_end_rules' gm2
+boot_pvp.
 
-  V9  (Q8 (a)) the client's own real-UI snap kills the last alien (snap_kill: SEED_MAP 1 terror map, C = 8 with a rifle
-      at C_TILE, A = 1000000 at A_TILE with health 1, set_seed SEED_SNAP_KILL right before the click).
-      SV-T3: the 12 other
-      hostiles die first (one host kill_unit_real each, auto-end still off), then stage_vote turns auto-end on and
-      wounds WS1 = C2 = 9 (client first). Green: the host never shows the question (it does not vote) and opens the vote
-      only after the shot's chain: the open ev's seq > the shot context's bt_action_end seq (SV-T4, relations only);
-      host CoopFatalVoteHold + the Wait line naming the client; the client's question (N 1); client OK -> close end ->
-      NextTurnState -> battle_end with last_alien_down's battle_end pins (T0-3) and the display-only debriefing equal to the
-      host's (the terror debriefing has no TASK 0 pin; SV-T2: no death-ghost wait is built or asserted).
-  E6v (P7-5 Q1 (a)) gm2: the host is X-COM (seat 0), the client the aliens (seat 1). WS0 = 8 wounded; host
-      kill_unit_real {faction: 1}. Green: voters [0] (the alien seat never votes), the host's own question, the alien
-      client stays on BattlescapeState with no question while Open and applies the open and close evs; host OK ->
-      close end -> NextTurnState -> battle_end -> test_battle_end_rules' pvp_elimination assertion set (the alien
-      client's display-only debriefing, S-D2).
+  partner_kill_vote  the client's own real-UI snap kills the last alien (snap_kill: SEED_MAP 1 terror map, C = 8 with a
+      rifle at C_TILE, A = 1000000 at A_TILE with health 1, set_seed SEED_SNAP_KILL right before the click). The 12
+      other hostiles die first (one host kill_unit_real each, auto-end still off), then stage_vote turns auto-end on
+      and wounds the client's C2 = 9 (client first). Expected: the host never shows the question (it does not vote)
+      and opens the vote only after the shot's chain: the open ev's seq > the shot context's bt_action_end seq
+      (relations only); host CoopFatalVoteHold + the Wait line naming the client; the client's question (N 1); client
+      OK -> close end -> NextTurnState -> battle_end with last_alien_down's battle_end values (measured: the terror
+      ending matches them) and the display-only debriefing equal to the host's (the terror debriefing has no fixed
+      values; no death-ghost wait is built or asserted).
+  pvp_vote  gm2: the host is X-COM (seat 0), the client the aliens (seat 1). GM2_HOST_SOLDIER = 8 wounded; host
+      kill_unit_real {faction: 1}. Expected: voters [0] (the alien seat never votes), the host's own question, the
+      alien client stays on BattlescapeState with no question while Open and applies the open and close evs; host OK
+      -> close end -> NextTurnState -> battle_end -> test_battle_end_rules' pvp_elimination assertion set (the alien
+      client's display-only debriefing).
 
-RED (S-V-A.1; one run, exit 2):
-  V9  open: host top ConfirmEndMissionState (it asked while the client's chain ran, T0-3) with no Wait line and
-      busyOwnerSeat -1; client top BattlescapeState; both fatalVote records at zero. answer: client OK not pressed.
-      close: both fatalVote records at zero. ending: not run.
-  E6v open and close: both fatalVote records at zero. ending: runs and passes; the close-before-battle_end
+A build whose fatalVote probe answers but that has no vote (one run, exit 2):
+  partner_kill_vote  open: host top ConfirmEndMissionState (it asked while the client's chain ran) with no Wait line
+      and busyOwnerSeat -1; client top BattlescapeState; both fatalVote records at zero. answer: client OK not
+      pressed. close: both fatalVote records at zero. ending: not run.
+  pvp_vote  open and close: both fatalVote records at zero. ending: runs and passes; the close-before-battle_end
       line fails.
 
 one run is the result; no skip path, one boot per row. Exit 0 only when both rows pass, 2 otherwise.
@@ -42,16 +42,16 @@ import test_battle_end_rules as rules
 import test_client_shoot as cs
 import test_fatal_vote as fvt
 
-ROW_PORT = {"V9": "48547", "E6v": "48548"}
+ROW_PORT = {"partner_kill_vote": "48547", "pvp_vote": "48548"}
 FACTION_HOSTILE = 1
 STATUS_DEAD = 6
-HOSTILES_C16 = list(range(1000000, 1000013))   # the terror map's 13 hostiles at boot
-GM2_WS0 = 8                                     # gm2: X-COM [8..14] all seat 0 (TASK 0 CONSTANTS)
+TERROR_HOSTILES = list(range(1000000, 1000013))   # the terror map's 13 hostiles at boot
+GM2_HOST_SOLDIER = 8                              # gm2: X-COM [8..14] all seat 0
 
 
-def boot_c16(host, client, port):
+def boot_terror(host, client, port):
     """test_client_shoot.boot (the roster-pinned terror bring-up); its lobby key (an inert rendezvous key) is
-    pointed at this row's port first, as TASK 0's t03 did."""
+    pointed at this row's port first."""
     cs.PORT = port
     return cs.boot(host, client)
 
@@ -63,17 +63,17 @@ def shoot_end(host):
     return ends[-1] if ends else None
 
 
-def stage_c16(r):
-    """SV-T3 + the snap_kill staging (test_client_shoot.snap_kill without its ghost_option_off option toggle and
-    camera_follow camera)."""
+def stage_snap_kill(r):
+    """The other hostiles killed first, then test_client_shoot's snap_kill staging (without its ghost_option_off
+    option toggle and camera_follow camera)."""
     h, c = r.host, r.client
     ae = h.cmd({"cmd": "set_option", "name": "battleAutoEnd"}).get("value")
     hs = battle_state(h)
     hostiles = sorted(u["id"] for u in hs.get("units", []) if u.get("originalFaction") == FACTION_HOSTILE
                       and not u.get("isOut"))
-    if ae is not False or hostiles != HOSTILES_C16:
+    if ae is not False or hostiles != TERROR_HOSTILES:
         r.fail("pre", f"before the kills: battleAutoEnd {ae!r} (want False), live hostiles {hostiles} "
-                      f"(want {HOSTILES_C16})")
+                      f"(want {TERROR_HOSTILES})")
     kills = {}
     for x in [u for u in hostiles if u != cs.A_ID]:
         resp = h.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": x})
@@ -94,11 +94,12 @@ def stage_c16(r):
                                   ("health", "stun", "status")),
                "tu": cs.set_tu_both(h, c, cs.C_ID, cs.TU_MAX)}
     cs.set_firing_both(h, c, cs.C_ID)
-    r.ev["c16"] = staging
+    r.ev["snapKill"] = staging
 
 
-def v9_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
-    """last_alien_down's battle_end pins (T0-3's terror ending equals them) and S-B1's debrief rows without a host content pin."""
+def partner_kill_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
+    """last_alien_down's battle_end values (measured: the terror ending matches them) and the debriefing checks
+    (both shown, the client's display-only and equal to the host's) without fixed values for the host's."""
     f, exp = [], tbe.ROW_EXPECT["last_alien_down"]
     hrec, crec = hrec if isinstance(hrec, dict) else {}, crec if isinstance(crec, dict) else {}
     hdeb, cdeb = hdeb if isinstance(hdeb, dict) else {}, cdeb if isinstance(cdeb, dict) else {}
@@ -129,20 +130,19 @@ def v9_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
     for k in tbe.DEBRIEF_FIELDS:
         if tbe.debrief_view(cdeb).get(k) != tbe.debrief_view(hdeb).get(k):
             f.append(f"client debrief_state.{k}={cdeb.get(k)!r} != the host's {hdeb.get(k)!r} "
-                     f"(page-2 prefixes stripped, AUD-A07)")
+                     f"(page-2 prefixes stripped)")
     return f + extra
 
 
 def pvp_elimination_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
-    """test_battle_end_rules' pvp_elimination assertion set (TASK 0 T0-6b: the gm2 vote ending equals it on S-D2's
-    build)."""
+    """test_battle_end_rules' pvp_elimination assertion set (measured: the gm2 vote ending matches it)."""
     return rules.row_verdict("pvp_elimination", rules.ROW_EXPECT["pvp_elimination"], hrec, crec, cend, hend, b0, cleft,
                              extra, hold, hdeb, cdeb)
 
 
-def row_v9(r):
+def row_partner_kill_vote(r):
     h, c = r.host, r.client
-    stage_c16(r)
+    stage_snap_kill(r)
     census = fvt.stage_vote(r, [cs.C2_ID], seat_pins=((0, cs.H_ID), (1, cs.C_ID)))
     try:
         r.ev["press"] = cs.aim_click(c, cs.KEY_SNAP, cs.A_TILE,
@@ -162,11 +162,11 @@ def row_v9(r):
     if not fvt.answer(r, c, "OK", "answer"):
         r.ending = "the client's OK was not pressed"
     fvt.check_close(r, "end", {1: True}, {"answerSent": "yes", "questionPushed": 1, "questionClosedByClose": 0})
-    fvt.ending(r, census, v9_verdict)
+    fvt.ending(r, census, partner_kill_verdict)
 
 
-def row_e6v(r):
-    census = fvt.stage_vote(r, [GM2_WS0], seat_pins=((0, GM2_WS0),))
+def row_pvp_vote(r):
+    census = fvt.stage_vote(r, [GM2_HOST_SOLDIER], seat_pins=((0, GM2_HOST_SOLDIER),))
     resp = r.host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "faction": FACTION_HOSTILE})
     r.ev["kill"] = resp
     if not resp.get("ok") or resp.get("killed") != [rules.A_ID]:
@@ -181,11 +181,11 @@ def row_e6v(r):
     fvt.ending(r, census, pvp_elimination_verdict)
 
 
-ROWS = (("V9", boot_c16, row_v9), ("E6v", rules.boot_pvp, row_e6v))
+ROWS = (("partner_kill_vote", boot_terror, row_partner_kill_vote), ("pvp_vote", rules.boot_pvp, row_pvp_vote))
 
 
 def main():
-    return fvt.run_rows("test_fatal_vote_partner", ROWS, ROW_PORT, "w2p7_fatal_vote_partner")
+    return fvt.run_rows("test_fatal_vote_partner", ROWS, ROW_PORT, "fatal_vote_partner")
 
 
 if __name__ == "__main__":
