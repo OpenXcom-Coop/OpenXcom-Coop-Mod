@@ -1,21 +1,26 @@
-"""W2-H55 stage S-A (spec rewrite/prompts/w2h55_host_drop_dialog_resumeack.md (f); TASK 0 rewrite/w2h55-task0/sa/CONSTANTS.md; F18081,
-R-H55-0): when the host's TCP thread drops the partner on a failed send (or a bad frame) during a co-op campaign with no live battle, the -3
-arm pushes the wait dialog 62 without CoopSession::onClientDrop(): resumeAck keeps its campaign-start true and the 62 reads "All players
-connected" with RESUME shown and SAVE & QUIT / ABANDON GAME hidden for a partner who is gone. A failed receive (-2) takes the canonical drop.
-  Row R-A (the lever; key "49184", dirs w2h55_a_*): session.new_campaign (SEPARATE gm1, tcp), both tops GeoscapeState unchanged STABLE_S;
-  host force_send_failure (TEST-ONLY, one-shot, -3); the client's 21 within W_21; the host's 62 on top within SEEN_S; settled; R1; R2.
-  Cells: A-pre GUARD (resumeAck true before the arm, armed + ARMED +1, the 21, the 62 settled); A-hatch FIX (SAVE & QUIT and ABANDON GAME
-  shown at R1 and R2); A-resume FIX (the wait: RESUME hidden, "...to reconnect", at R1 and R2); A-ack FIX (resumeAck false at R1); A-drop FIX
-  (FREEZE +1, DROP +1, SEND_LOST_GEO +1, SEND_LOST +0); A-common GUARD (both alive at R2, no new crash file).
-  Row R-B (the control, LAST; dirs w2h55_b_*): the same boot; client.kill(); the 62; settled; R1; R2. Cells: B-pre GUARD (the 62 settled);
-  B-dialog GUARD (the hatch and the wait at R1 and R2, resumeAck false at R1); B-drop GUARD (FREEZE +1, DROP +1; SEND_LOST_GEO recorded);
-  B-common GUARD (the host alive at R2, no new crash file).
-Nothing is clicked: R1 = coop_dialog_info + list_widgets (RESUME / SAVE & QUIT / ABANDON GAME: visible, hidden) + get_coop once every
-TextButton on the top CoopState reads hidden false plus SETTLE_S; R2 = HOLD_S later. QH55-2 (a), red build only: a kill can race to
-the same -3; a row B whose EVIDENCE shows the F18081 signature (FREEZE +1, DROP +0, a READY 62) is recorded and the file run ONCE
-more (that run binds). Red (commit R1): exit 2, RED exactly on A-hatch, A-resume, A-ack, A-drop. A precondition miss ends its row (cells "not
-reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict;
-exit 0 only when every cell passes, else 2. one foreground run per invocation.
+"""When the host's TCP thread drops the partner on a failed send (or a bad frame) during a co-op campaign with no live
+battle, the -3 arm takes the canonical drop (CoopSession::onClientDrop()), as a failed receive (-2) does: resumeAck
+false, and the wait dialog 62 reads "...to reconnect" with RESUME hidden and SAVE & QUIT / ABANDON GAME shown. When
+broken, the -3 arm pushes the 62 without onClientDrop(): resumeAck keeps its campaign-start true and the 62 reads "All
+players connected" with RESUME shown and SAVE & QUIT / ABANDON GAME hidden for a partner who is gone.
+  Row send_failure (the test hook; key "49184", dirs host_drop_send_failure_*): session.new_campaign (SEPARATE gm1,
+  tcp), both tops GeoscapeState unchanged STABLE_S; host force_send_failure (TEST-ONLY, one-shot, -3); the client's 21
+  within W_21; the host's 62 on top within SEEN_S; settled; settled_read; held_read. Cells: send_setup GUARD
+  (resumeAck true before the arm, armed + ARMED +1, the 21, the 62 settled); send_exits_shown FIX (SAVE & QUIT and
+  ABANDON GAME shown at settled_read and held_read); send_waits FIX (the wait: RESUME hidden, "...to reconnect", at
+  settled_read and held_read); send_ack_cleared FIX (resumeAck false at settled_read); send_drop FIX (FREEZE +1,
+  DROP +1, SEND_LOST_GEO +1, SEND_LOST +0); send_common GUARD (both alive at held_read, no new crash file).
+  Row client_kill (the control, LAST; dirs host_drop_client_kill_*): the same boot; client.kill(); the 62; settled;
+  settled_read; held_read. Cells: kill_setup GUARD (the 62 settled); kill_dialog GUARD (the hatch and the wait at
+  settled_read and held_read, resumeAck false at settled_read); kill_drop GUARD (FREEZE +1, DROP +1; SEND_LOST_GEO
+  recorded); kill_common GUARD (the host alive at held_read, no new crash file).
+Nothing is clicked: settled_read = coop_dialog_info + list_widgets (RESUME / SAVE & QUIT / ABANDON GAME: visible,
+hidden) + get_coop once every TextButton on the top CoopState reads hidden false plus SETTLE_S; held_read = HOLD_S
+later. When broken, a kill can race into the same -3: a client_kill row whose EVIDENCE shows the broken signature
+(FREEZE +1, DROP +0, a READY 62) is recorded and the file run ONCE more (that run counts). When broken, the run exits 2
+failing exactly send_exits_shown, send_waits, send_ack_cleared and send_drop. A precondition miss ends its row (cells
+"not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per row, one PASS / FAIL line
+per cell, the row verdict; exit 0 only when every cell passes, else 2. One foreground run per invocation.
 Run: python tools/coop_test/test_host_drop_dialog.py
 """
 import json, os, sys, time  # noqa: E401
@@ -171,8 +176,9 @@ def baseline(r, x):
     r.cr0, r.n_h = session._crash_log_snapshot(), len(log(x.host))
     r.ev.update({"cpu": cpu(), "host stack before": stack(x.host), "host get_coop before": coop(x.host)})
 
-def row_a(x, results, walls):
-    r = Row("R-A", ["A-pre", "A-hatch", "A-resume", "A-ack", "A-drop", "A-common"], x)
+def row_send_failure(x, results, walls):
+    r = Row("send_failure", ["send_setup", "send_exits_shown", "send_waits", "send_ack_cleared", "send_drop",
+                             "send_common"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c, ev = x.host, x.client, r.ev
@@ -194,34 +200,38 @@ def row_a(x, results, walls):
         if not ok:
             ev["needles"] = n
             r.evidence()
-            r.cell("A-pre", "GUARD", "resumeAck true before the arm, armed true + ARMED +1, the client's 21 within %.0f s, the host's 62 on top, "
-                   "settled" % W_21, False)
-            raise Stop("A-pre: %s" % ev.get("stop", "resumeAck %s, armed %s, ARMED %d" % (ack0, ev["trigger"].get("armed"), n["ARMED"])))
-        ev["R1"] = read(h, tt)
+            r.cell("send_setup", "GUARD", "resumeAck true before the arm, armed true + ARMED +1, the client's 21 "
+                   "within %.0f s, the host's 62 on top, settled" % W_21, False)
+            raise Stop("send_setup: %s" % ev.get("stop", "resumeAck %s, armed %s, ARMED %d" % (
+                ack0, ev["trigger"].get("armed"), n["ARMED"])))
+        ev["settled_read"] = read(h, tt)
         time.sleep(HOLD_S)
-        ev["R2"] = read(h, tt)
-        ev["host stack R2"], ev["needles"], ev["alive R2"] = stack(h), counts(h, r.n_h), [alive(h), alive(c)]
-        ev["client"]["top dialog R2"] = dlg(c)
+        ev["held_read"] = read(h, tt)
+        ev["host stack held_read"], ev["needles"], ev["alive held_read"] = (stack(h), counts(h, r.n_h),
+                                                                            [alive(h), alive(c)])
+        ev["client"]["top dialog held_read"] = dlg(c)
         ev["new crash"] = sorted(session._crash_log_snapshot() - r.cr0)
         r.evidence()
-        r.cell("A-pre", "GUARD", "resumeAck true before the arm, armed true + ARMED +1, the client's 21 within %.0f s, the host's 62 on top, "
-               "settled" % W_21, True)
-        R1, R2, n = ev["R1"], ev["R2"], ev["needles"]
-        r.cell("A-hatch", "FIX", "SAVE & QUIT and ABANDON GAME shown (dialog + TextButtons visible, not hidden) at R1 and R2 (red today: hidden, "
-               "F18081)", hatch(R1) and hatch(R2))
-        r.cell("A-resume", "FIX", "the wait at R1 and R2: RESUME hidden, the title contains \"%s\" and is not \"%s\" (red today: \"%s\", RESUME "
-               "shown, F10809)" % (WAITING, READY, READY), waits(R1) and waits(R2))
-        r.cell("A-ack", "FIX", "the host's resumeAck false at R1 (red today: true, F18186)", R1["coop"].get("resumeAck") is False)
-        r.cell("A-drop", "FIX", "FREEZE +1, DROP +1, SEND_LOST_GEO +1, SEND_LOST +0 (red today: DROP +0, SEND_LOST_GEO +0)",
-               (n["FREEZE"], n["DROP"], n["SEND_LOST_GEO"], n["SEND_LOST"]) == (1, 1, 1, 0))
-        r.cell("A-common", "GUARD", "host and client alive at R2, no new crash_*.log since the row's baseline",
-               ev["alive R2"] == [True, True] and not ev["new crash"])
+        r.cell("send_setup", "GUARD", "resumeAck true before the arm, armed true + ARMED +1, the client's 21 within "
+               "%.0f s, the host's 62 on top, settled" % W_21, True)
+        settled_read, held_read, n = ev["settled_read"], ev["held_read"], ev["needles"]
+        r.cell("send_exits_shown", "FIX", "SAVE & QUIT and ABANDON GAME shown (dialog + TextButtons visible, not "
+               "hidden) at settled_read and held_read (when broken: hidden)", hatch(settled_read) and hatch(held_read))
+        r.cell("send_waits", "FIX", "the wait at settled_read and held_read: RESUME hidden, the title contains \"%s\" "
+               "and is not \"%s\" (when broken: \"%s\", RESUME shown)" % (WAITING, READY, READY),
+               waits(settled_read) and waits(held_read))
+        r.cell("send_ack_cleared", "FIX", "the host's resumeAck false at settled_read (when broken: true)",
+               settled_read["coop"].get("resumeAck") is False)
+        r.cell("send_drop", "FIX", "FREEZE +1, DROP +1, SEND_LOST_GEO +1, SEND_LOST +0 (when broken: DROP +0, "
+               "SEND_LOST_GEO +0)", (n["FREEZE"], n["DROP"], n["SEND_LOST_GEO"], n["SEND_LOST"]) == (1, 1, 1, 0))
+        r.cell("send_common", "GUARD", "host and client alive at held_read, no new crash_*.log since the row's "
+               "baseline", ev["alive held_read"] == [True, True] and not ev["new crash"])
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
 
-def row_b(x, results, walls):
-    r = Row("R-B", ["B-pre", "B-dialog", "B-drop", "B-common"], x)
+def row_client_kill(x, results, walls):
+    r = Row("client_kill", ["kill_setup", "kill_dialog", "kill_drop", "kill_common"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, ev = x.host, r.ev
@@ -238,27 +248,32 @@ def row_b(x, results, walls):
             ev["stop"] = str(e)
             ev["needles"] = counts(h, r.n_h)
             r.evidence()
-            r.cell("B-pre", "GUARD", "the host's 62 on top within %.0f s, settled" % SEEN_S, False)
+            r.cell("kill_setup", "GUARD", "the host's 62 on top within %.0f s, settled" % SEEN_S, False)
             raise
-        ev["R1"] = read(h, tt)
+        ev["settled_read"] = read(h, tt)
         time.sleep(HOLD_S)
-        ev["R2"] = read(h, tt)
-        ev["host stack R2"], ev["needles"], ev["alive R2"] = stack(h), counts(h, r.n_h), alive(h)
+        ev["held_read"] = read(h, tt)
+        ev["host stack held_read"], ev["needles"], ev["alive held_read"] = stack(h), counts(h, r.n_h), alive(h)
         ev["new crash"] = sorted(session._crash_log_snapshot() - r.cr0)
-        R1, R2, n = ev["R1"], ev["R2"], ev["needles"]
-        race = n["FREEZE"] == 1 and n["DROP"] == 0 and (R1["dialog"].get("title") == READY or R2["dialog"].get("title") == READY)
-        ev["path"] = ("F18081 race signature (FREEZE +1, DROP +0, a READY 62): QH55-2 (a) - on the red build run the file ONCE more" if race
-                      else "send (-3, SEND_LOST_GEO +1)" if n["SEND_LOST_GEO"] else "receive (-2, canonical)" if n["DROP"] else "other")
+        settled_read, held_read, n = ev["settled_read"], ev["held_read"], ev["needles"]
+        race = n["FREEZE"] == 1 and n["DROP"] == 0 and (settled_read["dialog"].get("title") == READY
+                                                        or held_read["dialog"].get("title") == READY)
+        ev["path"] = ("the broken -3 signature (FREEZE +1, DROP +0, a READY 62): the kill raced into the failed "
+                      "send - run the file ONCE more" if race
+                      else "send (-3, SEND_LOST_GEO +1)" if n["SEND_LOST_GEO"] else "receive (-2, canonical)"
+                      if n["DROP"] else "other")
         r.evidence()
-        r.cell("B-pre", "GUARD", "the host's 62 on top within %.0f s, settled" % SEEN_S, True)
-        r.cell("B-dialog", "GUARD", "the hatch and the wait at R1 and R2, resumeAck false at R1",
-               hatch(R1) and hatch(R2) and waits(R1) and waits(R2) and R1["coop"].get("resumeAck") is False)
-        r.cell("B-drop", "GUARD", "FREEZE +1, DROP +1 (SEND_LOST_GEO %d recorded)" % n["SEND_LOST_GEO"], n["FREEZE"] == 1 and n["DROP"] == 1)
-        r.cell("B-common", "GUARD", "the host alive at R2, no new crash_*.log since the row's baseline", ev["alive R2"] and not ev["new crash"])
+        r.cell("kill_setup", "GUARD", "the host's 62 on top within %.0f s, settled" % SEEN_S, True)
+        r.cell("kill_dialog", "GUARD", "the hatch and the wait at settled_read and held_read, resumeAck false at "
+               "settled_read", hatch(settled_read) and hatch(held_read) and waits(settled_read) and waits(held_read)
+               and settled_read["coop"].get("resumeAck") is False)
+        r.cell("kill_drop", "GUARD", "FREEZE +1, DROP +1 (SEND_LOST_GEO %d recorded)" % n["SEND_LOST_GEO"],
+               n["FREEZE"] == 1 and n["DROP"] == 1)
+        r.cell("kill_common", "GUARD", "the host alive at held_read, no new crash_*.log since the row's baseline",
+               ev["alive held_read"] and not ev["new crash"])
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
-
 def boot(rid, tag):
     """host + client spawn, connect, session.new_campaign(port=KEY), both tops GeoscapeState unchanged STABLE_S (else x.err)"""
     x = SimpleNamespace(rid=rid, tag=tag, host=None, client=None, err=None)
@@ -297,7 +312,8 @@ def shut(x):
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
-    for rid, tag, row in (("R-A", "w2h55_a", row_a), ("R-B", "w2h55_b", row_b)):
+    for rid, tag, row in (("send_failure", "host_drop_send_failure", row_send_failure),
+                          ("client_kill", "host_drop_client_kill", row_client_kill)):
         tb = time.time()
         x = boot(rid, tag)
         walls[tag + " boot"] = round(time.time() - tb, 1)
@@ -306,9 +322,10 @@ def main():
         finally:
             failed += shut(x)
         walls[tag] = round(time.time() - tb, 1)
-    failed += [rid for rid in ("R-A", "R-B") if not results.get(rid)]
-    print("\ntest_host_drop_dialog: %d/2 rows passed (fail=%s) walls %s in %.1fs" % (sum(1 for rid in ("R-A", "R-B") if results.get(rid)),
-                                                                                     failed, json.dumps(walls), time.time() - t0), flush=True)
+    failed += [rid for rid in ("send_failure", "client_kill") if not results.get(rid)]
+    print("\ntest_host_drop_dialog: %d/2 rows passed (fail=%s) walls %s in %.1fs" % (
+        sum(1 for rid in ("send_failure", "client_kill") if results.get(rid)), failed, json.dumps(walls),
+        time.time() - t0), flush=True)
     return 2 if failed else 0
 
 if __name__ == "__main__":
