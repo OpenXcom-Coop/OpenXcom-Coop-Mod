@@ -1,32 +1,38 @@
-"""W2-H58 S-B HSR (tools/coop_test/test_host_save_after_rejoin.py): after the second player drops during a host save and rejoins, the
-host's next save is written (L-LH54-2-2, ruling R-H58-0). Spec docs rewrite/prompts/w2h58_sb_rx_buffer.md (f) (stage S-B) and the common
-file rewrite/prompts/w2h58_rejoin_world_kept.md (section F: the shared fixture drop_fixture.py, imported unchanged); TASK 0 values in
-rewrite/w2h58-task0/sb/CONSTANTS.md. The partner uploads its world in 3000-byte chunks that the host appends to one global buffer
-(mapData) and parses at the end marker. A partner that drops after some chunks leaves that half in the buffer through the drop and the
-rejoin; the rejoined partner's next upload is glued to it, the YAML breaks at the seam and the host's receive loop re-queues the message
-forever (crash logs, a 62 over a connected partner, the save never written) or drops the partner.
-ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the controls first and the red row last:
-  Row C0 (GUARD) C0-blob: the host stores the client's world under the campaign's id0 (present, bytes > 0).
-  Row CB (control: no half-sent upload, then a second save) a quick save with the client running (id1), kill, client2 rejoins, RESUME,
-         then LIVE, a second quick save with client2 (id2). CB-write1: the first _quick_.asav written, key(id1) present. CB-world: client2
-         never BuildNewBaseState, its [GeoscapeState, CoopState] code 68 within JOIN_S, own(client2) holds (CB_NAME, CB). CB-buf0:
-         buf(host) 0 after RESUME. CB-write2: the second _quick_.asav written after its trigger, key(id2) present, no new crash file.
-  Row M1 (the red, LAST) an autosave drop of client2 at the host's first sight of its 54 once a half-sent upload is buffered (READY; b54 > 0,
-         precondition), client3 rejoins, RESUME, the stale 54 CANCELLED when it is on top, LIVE, then a host quick save
-         with client3 (t3) and a 0.1 s window until the save landed (_quick_.asav after t3, pending "", top GeoscapeState) or 1 s after
-         the first new crash file (QH58-B2 (a)) or SAVE2_S. M1-world (GUARD) as CB-world for client3. M1-buf (FIX) b1 = buf(host) at
-         DROP_READ_S after the kill == 0. M1-write (FIX) _quick_.asav mtime after t3. M1-crash (FIX) no crash file new since t3.
-         M1-host (FIX) host stack [GeoscapeState] and onConnect 1. M1-key (RED, ruling R-H58-B-1) key(id3) present with a fnv1a64
-         different from key(id2)'s at the 54 (S-A's re-mint copy carries id2's bytes; only a landed upload changes the fnv).
-         PRE-CRASH (GUARD) no crash file new since the boot start at t3.
-Red today: M1-buf, M1-write, M1-crash, M1-host, M1-key FAIL; the other 7 cells PASS. Green (EB1: onClientDrop empties mapData): 12/12.
-buf(gc) = get_coop.rxBufferBytes (the W2-H58 S-B probe); own(gc) = geo_state bases with coopIcon false as [name, coopBaseId]; key(id) =
-coop_file_info {key: host_<id>_ClientPlayer.data}. Every rejoiner is a NEW GameClient on its own dir joining K1 by the name ClientPlayer.
-Never dismiss_popup, coop_dialog_back or a base placement: a fresh world is evidence, never built on. One EVIDENCE line per row, one
-PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line) and every later row (cells "not
-reached"); a boot miss fails every cell "boot" with ONE CAPTURE line. A red host is in a crash-log loop after the window: every process
-is shut down right after it. ONE foreground run, no SKIP; exit 0 only when every cell passes, else 2.
-Run: python tools/coop_test/test_host_save_after_rejoin.py   (OXC_HARNESS_SLOT selects the lane)"""
+"""After the second player drops during a host save and rejoins, the host's next save is written. The partner uploads
+its world in 3000-byte chunks that the host appends to one global buffer (mapData) and parses at the end marker. When
+broken, a partner that drops after some chunks leaves that half in the buffer through the drop and the rejoin; the
+rejoined partner's next upload is glued to it, the YAML breaks at the seam and the host's receive loop re-queues the
+message forever (crash logs, a 62 over a connected partner, the save never written) or drops the partner. The fix:
+onClientDrop empties mapData. The shared fixture drop_fixture.py is imported unchanged.
+ONE boot (SEPARATE new_campaign on lobby key KEY, both geoscapes stable), the controls first and the row that fails
+when broken last:
+  Row stored_world (GUARD) world_stored: the host stores the client's world under the campaign's id0 (present,
+         bytes > 0).
+  Row control_rejoin (control: no half-sent upload, then a second save) a quick save with the client running (id1),
+         kill, client2 rejoins, RESUME, then LIVE, a second quick save with client2 (id2). control_first_save: the first
+         _quick_.asav written, key(id1) present. control_world: client2 never BuildNewBaseState, its [GeoscapeState,
+         CoopState] code 68 within JOIN_S, own(client2) holds (CB_NAME, CB). control_buffer_empty: buf(host) 0 after
+         RESUME. control_second_save: the second _quick_.asav written after its trigger, key(id2) present, no new crash
+         file.
+  Row drop_mid_upload (fails when broken, LAST) an autosave drop of client2 at the host's first sight of its 54 once a
+         half-sent upload is buffered (READY; b54 > 0, precondition), client3 rejoins, RESUME, the stale 54 CANCELLED
+         when it is on top, LIVE, then a host quick save with client3 (t3) and a 0.1 s window until the save landed
+         (_quick_.asav after t3, pending "", top GeoscapeState) or 1 s after the first new crash file or SAVE2_S.
+         drop_world (GUARD) as control_world for client3. drop_buffer_emptied (FIX) b1 = buf(host) at DROP_READ_S after
+         the kill == 0. drop_save_written (FIX) _quick_.asav mtime after t3. drop_no_crash (FIX) no crash file new
+         since t3. drop_host_geoscape (FIX) host stack [GeoscapeState] and onConnect 1. drop_key_changed (FIX) key(id3)
+         present with a fnv1a64 different from key(id2)'s at the 54 (the re-mint copy carries id2's bytes; only a
+         landed upload changes the fnv). PRE-CRASH (GUARD) no crash file new since the boot start at t3.
+When broken: drop_buffer_emptied, drop_save_written, drop_no_crash, drop_host_geoscape and drop_key_changed FAIL; the
+other 7 cells PASS.
+buf(gc) = get_coop.rxBufferBytes (a test probe); own(gc) = geo_state bases with coopIcon false as [name, coopBaseId];
+key(id) = coop_file_info {key: host_<id>_ClientPlayer.data}. Every rejoiner is a NEW GameClient on its own dir joining
+KEY by the name ClientPlayer. Never dismiss_popup, coop_dialog_back or a base placement: a fresh world is evidence,
+never built on. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss
+ends its row (CAPTURE line) and every later row (cells "not reached"); a boot miss fails every cell "boot" with ONE
+CAPTURE line. A broken host is in a crash-log loop after the window: every process is shut down right after it. ONE
+foreground run, no SKIP; exit 0 only when every cell passes, else 2.
+Run: python tools/coop_test/test_host_save_after_rejoin.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import json
 import os
 import sys
@@ -37,15 +43,17 @@ import session  # noqa: E402
 import drop_fixture as F  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-K1 = "49195"
-K2 = "49196"  # reserved for the BOOT replacement rule (two boots, PINNED SETUP VALUES); unused while the one boot holds
+KEY = "49195"
+KEY_SPARE = "49196"  # reserved for a second boot when the first one misses; unused while the one boot holds
 NAME = "ClientPlayer"
 STABLE_S, SEEN_S, DROP_S, JOIN_S, ACK_S, SAVE_S = 5.0, 10.0, 5.0, 10.0, 30.0, 20.0
-LIVE_S, READY_S = 10.0, 2.0  # bounds: the host's resume handshake after RESUME; a half-sent upload after the 54 sight (cap-save)
+LIVE_S, READY_S = 10.0, 2.0  # bounds: the host's resume handshake after RESUME; a half-sent upload after the 54 sight
 SUSPEND_DELAY_MS, DROP_READ_S, SAVE2_S = 0, 1.0, 20.0
-ROWS = (("C0", ("C0-blob",)), ("CB", ("CB-write1", "CB-world", "CB-buf0", "CB-write2")),
-        ("M1", ("M1-world", "M1-buf", "M1-write", "M1-crash", "M1-host", "M1-key", "PRE-CRASH")))
-FIX = ("M1-buf", "M1-write", "M1-crash", "M1-host", "M1-key")
+ROWS = (("stored_world", ("world_stored",)),
+        ("control_rejoin", ("control_first_save", "control_world", "control_buffer_empty", "control_second_save")),
+        ("drop_mid_upload", ("drop_world", "drop_buffer_emptied", "drop_save_written", "drop_no_crash",
+                             "drop_host_geoscape", "drop_key_changed", "PRE-CRASH")))
+FIX = ("drop_buffer_emptied", "drop_save_written", "drop_no_crash", "drop_host_geoscape", "drop_key_changed")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 
 
@@ -63,7 +71,7 @@ def kstr(r):
 
 def live(host):
     """LIVE: the host's resume handshake is done (get_coop coopSession true). The host's deferred save (the 54, the saveID re-mint)
-    runs only while coopSession is true (SaveGameState.cpp:255); RESUME turns it true about 0.1 s later (cap-save F23941)"""
+    runs only while coopSession is true (SaveGameState.cpp:255); RESUME turns it true about 0.1 s later"""
     t0, r = time.time(), {}
     while time.time() - t0 < LIVE_S:
         r = F.q(host, {"cmd": "get_coop"})
@@ -83,7 +91,7 @@ def buf(gc):
 
 
 def buffered(h):
-    """READY: the host holds a half-sent upload (buf > 0); its first chunk lands a few ms after the 54 is first seen (cap-save F23943)"""
+    """READY: the host holds a half-sent upload (buf > 0); its first chunk lands a few ms after the 54 is first seen"""
     b = buf(h)
     return isinstance(b, int) and b > 0
 
@@ -126,8 +134,8 @@ def capture(x):
 class X:
     def __init__(self):
         self.t0 = time.time()
-        self.host = GameClient("host", None, make_user_dir("w2h58b_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h58b_client"))
+        self.host = GameClient("host", None, make_user_dir("host_save_rejoin_host"))
+        self.client = GameClient("client", None, make_user_dir("host_save_rejoin_client"))
         self.c2 = self.c3 = None
         self.fails, self.dead, self.cb, self.crash0 = [], None, None, set()
 
@@ -135,7 +143,7 @@ class X:
         return [g for g in (self.host, self.client, self.c2, self.c3) if g is not None]
 
     def rejoiner(self, n):
-        return GameClient("client%d" % n, None, make_user_dir("w2h58b_client%d" % n))
+        return GameClient("client%d" % n, None, make_user_dir("host_save_rejoin_client%d" % n))
 
 
 class Row:
@@ -180,36 +188,38 @@ def world_ok(x, rj, ow):
     return rj["buildNewBase"] is None and rj["t68"] is not None and list(x.cb) in ow["own"]
 
 
-def row_c0(x, r):
+def row_stored_world(x, r):
     r.ev["ownHost"] = own(x.host)
     r.ev["ownClient"] = oc = own(x.client)
     r.need(len(oc["own"]) == 1, "the client's own base not read from geo_state: %s" % oc)
-    x.cb = tuple(oc["own"][0])  # (CB_NAME, CB), read at run time (S25)
+    x.cb = tuple(oc["own"][0])  # (CB_NAME, CB), read at run time
     x.id0 = r.ev["id0"] = F.sid(x.host)
     r.ev["buf"] = buf(x.host)
     r.ev["blob0"] = b = kk(x.host, x.id0)
-    r.cell("C0-blob", b.get("present") is True and (b.get("bytes") or 0) > 0, "key(id0 %s) %s" % (x.id0, kstr(b)))
+    r.cell("world_stored", b.get("present") is True and (b.get("bytes") or 0) > 0, "key(id0 %s) %s" % (x.id0, kstr(b)))
 
 
-def row_cb(x, r):
+def row_control_rejoin(x, r):
     r.ev["save1"] = s = F.quick_save(x.host, F.QUICK, SAVE_S)
     x.id1 = r.ev["id1"] = F.sid(x.host)
     r.ev["key1"] = k1 = kk(x.host, x.id1)
-    r.cell("CB-write1", s["ok"] and k1.get("present") is True, "quick save ok %s (54 seen %s, written %s); id0 %s -> id1 %s; key(id1) %s"
+    r.cell("control_first_save", s["ok"] and k1.get("present") is True,
+           "quick save ok %s (54 seen %s, written %s); id0 %s -> id1 %s; key(id1) %s"
            % (s["ok"], s["seen54"], s["written"], x.id0, x.id1, kstr(k1)))
     x.client.proc.kill()
     r.ev["kill"] = {"t": F.now(x.t0), "rc": x.client.proc.wait(timeout=15)}
     r.ev["w62"] = w = F.wait_62(x.host, DROP_S)
     r.need(w["ok"], "no host 62 within %.0f s of the kill" % DROP_S)
     x.c2 = x.rejoiner(2)
-    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c2, K1, NAME, JOIN_S, ACK_S, at_join=lambda h: {"buf": buf(h), "id1": kk(h, x.id1)})
+    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c2, KEY, NAME, JOIN_S, ACK_S,
+                                   at_join=lambda h: {"buf": buf(h), "id1": kk(h, x.id1)})
     r.ev["own2"] = ow = own(x.c2)
-    r.cell("CB-world", world_ok(x, rj, ow), "client2: " + world(x, rj, ow))
+    r.cell("control_world", world_ok(x, rj, ow), "client2: " + world(x, rj, ow))
     r.need(rj["ack"] is not None, "no host 62 with resumeAck true within %.0f s of join_tcp" % (JOIN_S + ACK_S))
     r.ev["resume"] = rc = F.resume_and_clear(x.host)
     r.need(rc["ok"], "RESUME / host GeoscapeState within 5 s: %s" % js(rc.get("end")))
     r.ev["bufAfterResume"] = b0 = buf(x.host)
-    r.cell("CB-buf0", b0 == 0, "buf(host) after RESUME %s" % b0)
+    r.cell("control_buffer_empty", b0 == 0, "buf(host) after RESUME %s" % b0)
     r.ev["live2"] = lv = live(x.host)
     r.need(lv["ok"], "the host's session not live (get_coop coopSession) within %.0f s of RESUME: %s" % (LIVE_S, js(lv)))
     crash2, tq2 = F.crashes(), time.time_ns()
@@ -219,14 +229,14 @@ def row_cb(x, r):
     new = sorted(F.crashes() - crash2)
     q2 = s2["filesAfter"].get(F.QUICK)
     after = bool(q2 and q2[1] > tq2)
-    r.cell("CB-write2", s2["ok"] and after and k2.get("present") is True and not new,
+    r.cell("control_second_save", s2["ok"] and after and k2.get("present") is True and not new,
            "quick save ok %s (54 seen %s, written %s, mtime after the trigger %s); id1 %s -> id2 %s; key(id2) %s; new crash files %d"
            % (s2["ok"], s2["seen54"], s2["written"], after, x.id1, x.id2, kstr(k2), len(new)))
     r.ev["bufAfterSave2"] = buf(x.host)
 
 
 def window(x, t3, crash3):
-    """M1's save window: until the save landed, or 1 s after the first new crash file, or SAVE2_S"""
+    """drop_mid_upload's save window: until the save landed, or 1 s after the first new crash file, or SAVE2_S"""
     w, t3ns = {"trail": [], "tCrash": None, "tDone": None}, int(t3 * 1e9)
     while time.time() - t3 < SAVE2_S:
         cp = F.coop(x.host)
@@ -249,7 +259,7 @@ def window(x, t3, crash3):
     return w
 
 
-def row_m1(x, r):
+def row_drop_mid_upload(x, r):
     def probe(h):
         return {"buf": buf(h), "saveID": F.sid(h), "id2": kk(h, x.id2)}
     tcall = time.time()
@@ -265,12 +275,14 @@ def row_m1(x, r):
     r.ev["tKillAfterCall"] = round(tkill - tcall, 3)
     time.sleep(max(0.0, tkill + DROP_READ_S - time.time()))
     r.ev["b1"] = b1 = {"t": round(time.time() - tkill, 3), "buf": buf(x.host), "hostStack": F.stk(x.host), "dialog": F.dlg(x.host)}
-    r.cell("M1-buf", b1["buf"] == 0, "b54 %s at the 54 (saveID %s == id2); b1 %s at %s s after the kill" % (b54, p["saveID"], b1["buf"], b1["t"]))
+    r.cell("drop_buffer_emptied", b1["buf"] == 0, "b54 %s at the 54 (saveID %s == id2); b1 %s at %s s after the kill"
+           % (b54, p["saveID"], b1["buf"], b1["t"]))
     x.c3 = x.rejoiner(3)
-    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c3, K1, NAME, JOIN_S, ACK_S, at_join=lambda h: {"buf": buf(h), "id2": kk(h, x.id2)})
+    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c3, KEY, NAME, JOIN_S, ACK_S,
+                                   at_join=lambda h: {"buf": buf(h), "id2": kk(h, x.id2)})
     r.need(rj["join_tcp"].get("ok"), "client3 join_tcp failed: %s" % rj["join_tcp"])
     r.ev["own3"] = ow = own(x.c3)
-    r.cell("M1-world", world_ok(x, rj, ow), "client3: " + world(x, rj, ow))
+    r.cell("drop_world", world_ok(x, rj, ow), "client3: " + world(x, rj, ow))
     r.need(rj["ack"] is not None, "no host 62 with resumeAck true within %.0f s of join_tcp" % (JOIN_S + ACK_S))
     r.ev["resume"] = rc = F.resume_and_clear(x.host)
     r.need(rc["ok"], "RESUME (+ CANCEL of a stale 54) / host GeoscapeState within 5 s: %s" % js(rc.get("end")))
@@ -291,13 +303,16 @@ def row_m1(x, r):
                        "newCrash": len(new), "firstCrash": crash_line(new[0]) if new else None, "c3Stack": F.stk(x.c3),
                        "c3Dialog": F.dlg(x.c3)}
     written = bool(quick and quick[1] > int(t3 * 1e9))
-    r.cell("M1-write", written, "_quick_.asav %s (t3 %d ns): written after t3 %s; window done %s, first crash %s, end %s s"
+    r.cell("drop_save_written", written,
+           "_quick_.asav %s (t3 %d ns): written after t3 %s; window done %s, first crash %s, end %s s"
            % (quick, int(t3 * 1e9), written, w["tDone"], w["tCrash"], w["tEnd"]))
-    r.cell("M1-crash", not new, "crash files new since t3 at the window end: %d; first %s" % (len(new), js(e["firstCrash"])))
-    r.cell("M1-host", st == ["GeoscapeState"] and cp.get("onConnect") == 1, "host stack %s dialog %s onConnect %s pending %r"
+    r.cell("drop_no_crash", not new, "crash files new since t3 at the window end: %d; first %s"
+           % (len(new), js(e["firstCrash"])))
+    r.cell("drop_host_geoscape", st == ["GeoscapeState"] and cp.get("onConnect") == 1,
+           "host stack %s dialog %s onConnect %s pending %r"
            % (st, js(e["dialog"]), cp.get("onConnect"), cp.get("pendingHostSaveName")))
     fn = [t["key"][1] for t in w["trail"]]
-    r.cell("M1-key", k3.get("present") is True and k3.get("fnv1a64") != k2at54.get("fnv1a64"),
+    r.cell("drop_key_changed", k3.get("present") is True and k3.get("fnv1a64") != k2at54.get("fnv1a64"),
            "id2 %s -> id3 %s; key(id2) at the 54 %s; key(id3) at the window end %s; key(id3) fnv at each read %s"
            % (x.id2, id3, kstr(k2at54), kstr(k3), fn))
 
@@ -309,7 +324,7 @@ def boot(x):
         x.host.connect()
         x.client.spawn()
         x.client.connect()
-        session.new_campaign(x.host, x.client, port=K1)
+        session.new_campaign(x.host, x.client, port=KEY)
         ev["tCampaign"] = F.now(x.t0)
         ev["stable"] = F.stable_geo(x.host, x.client, STABLE_S, 90.0)
         ok = ev["stable"]["ok"]
@@ -330,7 +345,8 @@ def main():
     x.crash0 = F.crashes()
     try:
         if boot(x):
-            for rid, fn in (("C0", row_c0), ("CB", row_cb), ("M1", row_m1)):
+            for rid, fn in (("stored_world", row_stored_world), ("control_rejoin", row_control_rejoin),
+                            ("drop_mid_upload", row_drop_mid_upload)):
                 r = Row(x, rid)
                 if x.dead:
                     r.finish(x.dead, reached=False)
@@ -343,7 +359,7 @@ def main():
                 except Exception as e:  # noqa: BLE001 - an unexpected exception ends the row like a precondition miss
                     r.finish("exception %s: %s" % (type(e).__name__, str(e)[:300]))
     finally:
-        for gc in x.procs()[::-1]:  # right after the window: a red host is in the crash-log loop
+        for gc in x.procs()[::-1]:  # right after the window: a broken host is in the crash-log loop
             try:
                 if alive(gc):
                     F.resume(gc)  # harmless when not suspended
@@ -355,8 +371,8 @@ def main():
           flush=True)
     wall = F.now(x.t0)
     cells = [c for _r, cs in ROWS for c in cs]
-    print("SUMMARY W2-H58 S-B HSR: %d/%d cells pass; failing %s; wall %.1f s" % (len(cells) - len(set(x.fails)), len(cells),
-                                                                               sorted(set(x.fails)) or "none", wall), flush=True)
+    print("SUMMARY test_host_save_after_rejoin: %d/%d cells pass; failing %s; wall %.1f s" % (
+        len(cells) - len(set(x.fails)), len(cells), sorted(set(x.fails)) or "none", wall), flush=True)
     return 0 if not x.fails else 2
 
 
