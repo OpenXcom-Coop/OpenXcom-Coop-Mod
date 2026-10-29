@@ -53,7 +53,7 @@ from test_abort_vote import Stop, stack, top, vs, av, be, vote_open, btn_ready, 
 from test_skirmish_rejoin_battle import (drop_client_mid_battle, rejoin_skirmish, dialog, in_battle_save, has,
                                          COOP_DLG_WAIT_PLAYERS, COOP_DLG_CLIENT_RESUME_HOLD)
 
-KEY_C, KEY_D = "48614", "48616"
+KEY_LEAVE, KEY_FATAL_VOTE = "48614", "48616"
 W, POLL = 5.0, 0.1
 CANCELLED = "CONNECTION LOST - VOTE CANCELLED"                       # VoteMenu::cancelVote (#87)
 QUESTION = fvt.QUESTION                                               # ConfirmEndMissionState
@@ -145,7 +145,7 @@ def row_leave_cancels_vote(r, m):
     try:
         c2.spawn()
         c2.connect()
-        rejoin_skirmish(c2, KEY_C)
+        rejoin_skirmish(c2, KEY_LEAVE)
     except Exception as e:
         r.res.setdefault("resume_no_vote", []).append(f"client2 spawn / connect / rejoin_skirmish: {short(e, 400)}")
         raise Stop("resume_no_vote")
@@ -308,8 +308,8 @@ def run_boot(tag, key, rid, fn, results):
 def main():
     t0 = time.time()
     results = {}
-    run_boot("leave", KEY_C, "leave_cancels_vote", row_leave_cancels_vote, results)
-    run_boot("fatal_vote", KEY_D, "abort_waits_for_fatal_vote", row_abort_waits_for_fatal_vote, results)
+    run_boot("leave", KEY_LEAVE, "leave_cancels_vote", row_leave_cancels_vote, results)
+    run_boot("fatal_vote", KEY_FATAL_VOTE, "abort_waits_for_fatal_vote", row_abort_waits_for_fatal_vote, results)
     order = ["leave_cancels_vote", "abort_waits_for_fatal_vote"]
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]

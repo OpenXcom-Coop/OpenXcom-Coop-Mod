@@ -2,14 +2,14 @@
 starts, and no bulk tool takes a reserved item. A leave during equip ends the leaver's hold; turn 1 puts every cursor
 item back; the host's own template and auto-equip skip a held item, and so does a client's bulk order. Held items are
 read by id, never by pile cell.
-Boot holder_leaves (co-op, KEY_C, dirs equip_hold_ends_leave_*): test_prebattle_equip.py's spine plus a staging
+Boot holder_leaves (co-op, LOBBY_KEY, dirs equip_hold_ends_leave_*): test_prebattle_equip.py's spine plus a staging
 (copied, never imported; client first, after the client applied the host's first evs): C1, C2 stripped; STAGE_TYPES +
 HOLD_EXTRA on PILE.
   holder_leaves  the client picks the 2-clip cell (precondition: the host's holds.table[clientSeat] = it within
      W_HOLD), its pointer drawn on the host; client.kill(); once the host's authority.peerAbsent is true:
      holder_leaves-back (the held id on the host's page within W_END), holder_leaves-once (ends.leave delta 1, every
      other 0), holder_leaves-ptr (GUARD: the host's drawn.ptr false within W_END). It ends the boot.
-Boot tools_and_turn (co-op, KEY_C reused, dirs equip_hold_ends_tools_*): the same spine + EXTRA_S (spare stock: a
+Boot tools_and_turn (co-op, LOBBY_KEY reused, dirs equip_hold_ends_tools_*): the same spine + EXTRA_S (spare stock: a
 build whose tools take a held item consumes the first ones).
   auto_equip  H1 stripped, given an unloaded STR_RIFLE (vanilla's auto-equip takes clips only for a held weapon); the
      client picks the first STR_RIFLE_CLIP in tile order; the host's auto-equip key: auto_equip-skips_held (the held
@@ -53,7 +53,7 @@ from test_client_items import strip_both  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 
 # ----- pinned setup values (the spine's as in test_prebattle_equip.py) -----
-KEY_C = "49285"                    # lobby key: boot holder_leaves, then boot tools_and_turn after its shutdown
+LOBBY_KEY = "49285"                # lobby key: boot holder_leaves, then boot tools_and_turn after its shutdown
 SEED_MAP = 1                       # set_seed right before newbattle_ok
 MAP_FP = -4.48310638993e+18        # the host's mapFingerprint at SEED_MAP 1
 C_IDS, H_IDS = [8, 9], [10, 11, 12, 13, 14]   # the client's seated units, the host's own soldiers
@@ -252,7 +252,7 @@ def look(host, client):
 def spine(host, client, tag, extra):
     m = (host, client)
     ctx = {"m": m, "boot": {}}
-    G3F.guarded(tag, lambda: bring_up_lobby_roster_pinned(host, client, KEY_C), m)
+    G3F.guarded(tag, lambda: bring_up_lobby_roster_pinned(host, client, LOBBY_KEY), m)
     seated = {}
     G3F.guarded(tag, lambda: session.bring_up_to_briefings(
         host, client, seated, seat_count=2, pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP})), m)

@@ -2,7 +2,7 @@
 partner's pointer, centred on it as vanilla centres its own cursor item, and an item the partner lifts from its own
 soldier is not drawn on that soldier's paperdoll in the read-only view while it is held. Held items are read by id,
 never by pile cell.
-One boot (co-op, KEY_D, dirs equip_held_drawn_*): test_prebattle_equip.py's spine plus a staging (copied, never
+One boot (co-op, LOBBY_KEY, dirs equip_held_drawn_*): test_prebattle_equip.py's spine plus a staging (copied, never
 imported; client first, after the client applied the host's first evs): C1, C2 stripped; STAGE_TYPES + HOLD_EXTRA on
 PILE; C1 given an STR_RIFLE (right hand).
   client_holds  the client picks the single STR_GRENADE cell (precondition: the host's holds.table[clientSeat] = it
@@ -49,7 +49,7 @@ from test_client_items import strip_both  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 
 # ----- pinned setup values (the spine's as in test_prebattle_equip.py) -----
-KEY_D = "49286"                    # lobby key
+LOBBY_KEY = "49286"                # lobby key
 SEED_MAP = 1                       # set_seed right before newbattle_ok
 MAP_FP = -4.48310638993e+18        # the host's mapFingerprint at SEED_MAP 1
 C_IDS, H_IDS = [8, 9], [10, 11, 12, 13, 14]   # the client's seated units, the host's own soldiers
@@ -232,7 +232,7 @@ def ready(host, client, ctx):
 def spine(host, client):
     m, tag = (host, client), "boot"
     ctx = {"boot": {}}
-    G3F.guarded(tag, lambda: bring_up_lobby_roster_pinned(host, client, KEY_D), m)
+    G3F.guarded(tag, lambda: bring_up_lobby_roster_pinned(host, client, LOBBY_KEY), m)
     seated = {}
     G3F.guarded(tag, lambda: session.bring_up_to_briefings(
         host, client, seated, seat_count=2, pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP})), m)

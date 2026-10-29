@@ -52,7 +52,7 @@ import session
 from session import battle_state, event_state
 import test_battle_end as tbe
 
-KEY_A, KEY_B = "48612", "48613"
+KEY_BATTLE_GOES_ON, KEY_BATTLE_ENDS = "48612", "48613"
 W, POLL = 5.0, 0.1
 WATCH_CAP_S = 135  # abort_after_action's waits end at the debriefs; >= max(120, 2.5 x the measured 31.9 s)
 TITLE, QUESTION = "Abort Mission", "Abort Mission?"                   # en-US STR_ABORT_MISSION / _QUESTION
@@ -540,11 +540,12 @@ def run_boot(tag, key, rows, results):
 def main():
     t0 = time.time()
     results = {}
-    run_boot("battle_goes_on", KEY_A, (("abort_rules", row_abort_rules), ("client_vote_no", row_client_vote_no),
-                                       ("revote_no_wait", row_revote_no_wait), ("end_turn_waits", row_end_turn_waits)),
-             results)
-    run_boot("battle_ends", KEY_B, (("host_vote_open", row_host_vote_open),
-                                    ("abort_after_action", row_abort_after_action)), results)
+    run_boot("battle_goes_on", KEY_BATTLE_GOES_ON, (("abort_rules", row_abort_rules),
+                                                    ("client_vote_no", row_client_vote_no),
+                                                    ("revote_no_wait", row_revote_no_wait),
+                                                    ("end_turn_waits", row_end_turn_waits)), results)
+    run_boot("battle_ends", KEY_BATTLE_ENDS, (("host_vote_open", row_host_vote_open),
+                                              ("abort_after_action", row_abort_after_action)), results)
     order = ["abort_rules", "client_vote_no", "revote_no_wait", "end_turn_waits", "host_vote_open", "abort_after_action"]
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
