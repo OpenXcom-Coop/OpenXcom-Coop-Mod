@@ -1,102 +1,72 @@
-"""test_client_baton.py (C24): the turn check (the baton) on
-every combat order the second player gives, on its own machine AND on the host
-(spec rewrite/prompts/w2p4_client_combat_intents.md section (f)
-"test_client_baton.py (S-E; traditional)", sections (b)10 and Q2, as amended
-by AMENDMENT C1 (N26 = F1093: Q2's shared admission term also denies an
-off-baton turn / kneel / walk intent) and AMENDMENT C4 (PR-Q18: the client-side
-baton check sits in every intercept since the intercept's own stage, so C24's
-real-UI presses render not_your_go already at this file's red commit - the
-column's "green at red, declared" part).
+"""test_client_baton.py: the turn check (the baton) on every combat order the second player gives, on its own machine
+AND on the host.
 
-TRADITIONAL mode, two seats. At battle start the baton is at seat 0 (the host,
-D-23), so the second player (seat 1) is OFF-BATON the whole file. E54.1: a seat
-off its go may do anything LOCAL (open the action menu, choose a row, aim, place
-waypoints, pick a fuse, open the medi-kit screen or the skill menu); every order
-that would change the shared battle is refused with the rendered
-STR_COOP_DENY_NOT_YOUR_GO ("Not your turn - waiting for HostPlayer": the baton
-holder's name) BEFORE anything is sent.
+TRADITIONAL mode, two seats. At battle start the baton is at seat 0 (the host), so the second player (seat 1) is
+OFF-BATON the whole file. A seat off its go may do anything LOCAL (open the action menu, choose a row, aim, place
+waypoints, pick a fuse, open the medi-kit screen or the skill menu); every order that would change the shared battle is
+refused with the rendered STR_COOP_DENY_NOT_YOUR_GO ("Not your turn - waiting for HostPlayer": the baton holder's name)
+BEFORE anything is sent. The host's admission check also denies an off-baton turn / kneel / walk order.
 
-PART 1 - the second player's REAL-UI presses (eleven rows, in this order). Each
-row: the client's banner back to the off-baton text first (a deny banner dwells
-6 s), the staging (levers, client first), then the press:
+PART 1 - the second player's REAL-UI presses (eleven rows, in this order). Each row: the client's banner back to the
+off-baton text first (a deny banner dwells 6 s), the staging (test commands, client first), then the press:
 
-  C24-snap     rifle + clip; C (12,26,0) dir 1, A (12,23,0) dir 4 (T0-1). TAB C,
-               the right-hand box, key 50 (SNAP), HOME, one left click on A.
-  C24-throw    an unprimed grenade; C (12,27,0) dir 2, A back on its bring-up
-               tile. Key 53 (THROW), HOME, one left click on (12,22,0).
-  C24-prime    an unprimed grenade. Key 49 (PRIME), fuse key 48.
-  C24-stun     a stun rod; C (24,24,0) dir 0, A2 (24,23,0) dir 4 (T0-7). Key 52.
-  C24-medikit  a medi-kit; C (12,26,0) dir 2, H (13,26,0) dir 6 (T0-9). Key 49
-               (the medi-kit screen opens locally), then key 49 (painkiller).
-  C24-scanner  a motion scanner. Key 49 (USE SCANNER).
-  C24-reload   C stripped (both), a rifle with no clip in hand and a clip on the
-               belt (W2-P1 S5 shape). The reload key (options.cfg).
-  C24-hands    the right-hand box's right-click (battle_ui_press hand_reaction).
-  C24-psi      a psi amp; C (12,26,0) dir 1, A (12,23,0) dir 4 and visible on
-               both (set_stat visible), C psiSkill 100, A psiStrength 0 (T0-8).
-               Key 50 (PANIC), HOME, one left click on A.
-  C24-skill    C stripped (both). The SKILLS button (found by its rect), key 50
-               (STR_COOP_TEST_SKILL_STOP).
-  C24-spray    rifle + clip (the mod's STR_RIFLE sprays); C (12,26,0) dir 2. Key
-               51 (AUTO), HOME, the client's touch Ctrl + Shift ON, one left click
-               on (24,24,0) (the spray start: local display), one left click on
-               (24,27,0) (the spray fires), the touch flags OFF.
+  snap_press_refused: rifle + clip; C (12,26,0) dir 1, A (12,23,0) dir 4. TAB C, the right-hand box, key 50 (SNAP),
+      HOME, one left click on A.
+  throw_press_refused: an unprimed grenade; C (12,27,0) dir 2, A back on its bring-up tile. Key 53 (THROW), HOME, one
+      left click on (12,22,0).
+  prime_press_refused: an unprimed grenade. Key 49 (PRIME), fuse key 48.
+  stun_press_refused: a stun rod; C (24,24,0) dir 0, A2 (24,23,0) dir 4. Key 52.
+  medikit_press_refused: a medi-kit; C (12,26,0) dir 2, H (13,26,0) dir 6. Key 49 (the medi-kit screen opens
+      locally), then key 49 (painkiller).
+  scanner_press_refused: a motion scanner. Key 49 (USE SCANNER).
+  reload_press_refused: C stripped (both), a rifle with no clip in hand and a clip on the belt. The reload key
+      (options.cfg).
+  hands_press_refused: the right-hand box's right-click (battle_ui_press hand_reaction).
+  psi_press_refused: a psi amp; C (12,26,0) dir 1, A (12,23,0) dir 4 and visible on both (set_stat visible),
+      C psiSkill 100, A psiStrength 0. Key 50 (PANIC), HOME, one left click on A.
+  skill_press_refused: C stripped (both). The SKILLS button (found by its rect), key 50 (STR_COOP_TEST_SKILL_STOP).
+  spray_press_refused: rifle + clip (the mod's STR_RIFLE sprays); C (12,26,0) dir 2. Key 51 (AUTO), HOME, the
+      client's touch Ctrl + Shift ON, one left click on (24,24,0) (the spray start: local display), one left click on
+      (24,27,0) (the spray fires), the touch flags OFF.
 
-  GREEN (every press): the client banner goes from the off-baton text to the
-  rendered not_your_go text; client coopLocalExecBlocked exactly +1; nothing
-  sent (client inFlight null, client coopIntentsSent unchanged, host
-  lastSeqEmitted unchanged, host intentsReceived unchanged); every unit and item
-  field unchanged on both machines. RED: declared green at red (PR-Q18); a press
-  that does not render not_your_go at the red commit is a finding.
+  PASS (every press): the client banner goes from the off-baton text to the rendered not_your_go text; client
+  coopLocalExecBlocked exactly +1; nothing sent (client inFlight null, client coopIntentsSent unchanged, host
+  lastSeqEmitted unchanged, host intentsReceived unchanged); every unit and item field unchanged on both machines. The
+  client-side check sits in every intercept, so these rows do not depend on the host's check.
 
-PART 2 - one `battle_intent` order of each combat kind the second player has
-(spec (b)1: shoot, throw, prime, melee, psi, use_item, medikit, reload,
-reaction_hands, skill) and of the three wave-1 kinds (turn, walk, kneel - C1 N26
-= F1093), thirteen rows. The lever builds and sends the order exactly as the
-real intercept would (sendClientIntent, tuBasis computed unless overridden) but
-skips the client's own baton check, so the HOST's admission alone decides. Each
-plan is a valid order (every other admission term passes): its staging repeats
-the matching press's, plus C23b's patient H for the medi-kit, a floor tile for
-the shot (24,26,0), a two-step walk to (14,26,0), a turn to dir 4, a kneel.
+PART 2 - one `battle_intent` order of each combat kind the second player has (shoot, throw, prime, melee, psi,
+use_item, medikit, reload, reaction_hands, skill) and of the three movement kinds (turn, walk, kneel), thirteen rows
+<kind>_order_denied. The battle_intent test command builds and sends the order exactly as the real intercept would
+(sendClientIntent, tuBasis computed unless overridden) but skips the client's own baton check, so the HOST's admission
+alone decides. Each plan is a valid order (every other admission term passes): its staging repeats the matching
+press's, plus the medi-kit patient H, a floor tile for the shot (24,26,0), a two-step walk to (14,26,0), a turn to
+dir 4, a kneel.
 
-  GREEN (every order): the host denies it `not_your_go` (client lastDeny {iseq,
-  reason not_your_go}; host intentsReceived[kind] denied +1, admitted +0; client
-  coopIntentsSent[kind] +1; client inFlight null after the answer); nothing
-  executed (host lastSeqEmitted unchanged, no new host closedContexts); every
-  unit and item field unchanged on both machines; buckets equal. RED: the host
-  has no baton term (Q2 not built) - every order is ADMITTED and executes.
+  PASS (every order): the host denies it `not_your_go` (client lastDeny {iseq, reason not_your_go}; host
+  intentsReceived[kind] denied +1, admitted +0; client coopIntentsSent[kind] +1; client inFlight null after the
+  answer); nothing executed (host lastSeqEmitted unchanged, no new host closedContexts); every unit and item field
+  unchanged on both machines; buckets equal. Without the host's baton check every order is ADMITTED and executes.
 
-Common asserts (spec (f), after the row settles): hash_now {full:true} - every
-bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged
-and host 0; the W2-P2 delta must-be-0 counters on both; every lever item created
-on both machines with equal ids (both()).
+Common asserts (after the row settles): hash_now {full:true} - every bucket EQUAL; desyncSeen false on both; client
+coopClientBStatePushes unchanged and host 0; the delta counters that must stay 0 (common_fails), on both; every item a
+test command creates exists on both machines with equal ids (both()).
 
-FIXTURE (TASK 0 T0-11, T0b; the constants of T0-1, T0-7, T0-8, T0-9 and T0-10):
-the roster-pinned terror boot (set_seed SEED_ROSTER on the HOST right before its
-open_new_battle), test_turn_baton.pre_ok_traditional (host CoopTurnMode
-traditional, set_seed 1 right before newbattle_ok), mission STR_TERROR_MISSION,
-seat_count 2, the Coop_Spray_Test mod on both (the spray rifle and the soldier
-skills), MAP_FP asserted on both, the seated unit ids asserted, pin_ai_neutral.
-Both machines report turnMode traditional and coopActiveSeat 0; the client shows
-"It is HostPlayer's turn". Every lever pair goes to the CLIENT first. Item
-ids are read at run time from the lever replies. battle_strip_unit id
-lists are compared as sets. The host's own vanilla infobox (a psi success
-at the red commit) is recorded and closed host-only; a screen the client's own
-order end opens (the scanner at the red commit) is closed with the client's
-cancel key before the next row.
+FIXTURE: the roster-pinned terror boot (set_seed SEED_ROSTER on the HOST right before its open_new_battle),
+test_turn_baton.pre_ok_traditional (host CoopTurnMode traditional, set_seed 1 right before newbattle_ok), mission
+STR_TERROR_MISSION, seat_count 2, the Coop_Spray_Test mod on both (the spray rifle and the soldier skills), MAP_FP
+asserted on both, the seated unit ids asserted, pin_ai_neutral. Both machines report turnMode traditional and
+coopActiveSeat 0; the client shows "It is HostPlayer's turn". Every staging command pair goes to the CLIENT first. Item
+ids are read at run time from the command replies. battle_strip_unit id lists are compared as sets. The host's own
+vanilla infobox (a psi success, when the host admits the order) is recorded and closed host-only; a screen the client's
+own order end opens (the scanner, when the host admits the order) is closed with the client's cancel key before the
+next row.
 
-RED-THEN-GREEN (spec (d) row S-E, the orchestrator's S-E3). Commit S-E3.1 (this
-file and the battle_intent plans for every kind) is run ONCE: PART 1 is declared
-green at red, every PART 2 row FAILS with its order ADMITTED by the host. Commit
-S-E3.2 is run ONCE and every row must PASS. Each row prints ONE "EVIDENCE <id>:"
-line with both machines' fields BEFORE its green conditions are checked; main()
-runs every row even after an earlier one failed and prints "PASS <id>" /
-"FAIL <id>: <message>". Every wait is bounded; a wait that times out is recorded
-in the EVIDENCE line and fails the row.
+Each row prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its pass conditions are checked; main()
+runs every row even after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
+bounded; a wait that times out is recorded in the EVIDENCE line and fails the row.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when every row passes, 2 otherwise (a
-bring-up failure is also 2). run in the foreground to completion.
+The test never skips and boots once, on one map with fixed actors. Exit 0 only when every row passes, 2 otherwise (a
+bring-up failure is also 2).
 
 Run:  python tools/coop_test/test_client_baton.py
 """
@@ -126,12 +96,12 @@ from test_client_items import strip_both, dismiss_host_box
 from test_client_rules import touch, open_skill_menu, click_state
 from test_thin_client_tripwire import read_reload_key
 
-# ----- bring-up (TASK 0 T0-11: traditional + the roster pin; the mod on both) -----
+# ----- bring-up (traditional, the roster pin, the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
 MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on map seed 1, unmodded and modded
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID = 8
-H_ID = 10                         # first host-seat soldier: C23b's patient
+H_ID = 10                         # first host-seat soldier: the medi-kit patient
 A_ID, A2_ID = 1000000, 1000001    # Sectoid Soldiers
 PORT = "48716"
 COOP_SEAT_0 = 0
@@ -141,33 +111,33 @@ MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_N
 MOD_ACTIVE_LINE = "- Coop_Spray_Test v1.0"
 HOST_NAME = raw.HOST_PLAYER       # the baton holder, seat 0
 TEXT_TURN = f"It is {HOST_NAME}'s turn"                        # STR_COOP_WAIT_TURN (the off-baton banner)
-TEXT_NOT_YOUR_GO = f"Not your turn - waiting for {HOST_NAME}"   # STR_COOP_DENY_NOT_YOUR_GO (T0-11)
+TEXT_NOT_YOUR_GO = f"Not your turn - waiting for {HOST_NAME}"   # STR_COOP_DENY_NOT_YOUR_GO
 
-# ----- staging (T0-1, T0-6/C23s3, T0-7, T0-8, T0-9, T0-10) -----
+# ----- staging -----
 C_TILE = (12, 26, 0)              # open road
-SNAP_C_DIR = 1                    # T0-1: one octant off A
+SNAP_C_DIR = 1                    # one octant off A
 A_TILE, A_DIR = (12, 23, 0), 4
-THROW_C_TILE, THROW_C_DIR = (12, 27, 0), 2    # C23s3's thrower tile (the throw tile is north, F490)
-THROW_TILE = (12, 22, 0)          # C23s3: clear of the SKILLS button at HOME
-STUN_C_TILE, STUN_C_DIR = (24, 24, 0), 0      # T0-7: C faces north
+THROW_C_TILE, THROW_C_DIR = (12, 27, 0), 2    # the thrower tile (the throw tile is north)
+THROW_TILE = (12, 22, 0)          # clear of the SKILLS button at HOME
+STUN_C_TILE, STUN_C_DIR = (24, 24, 0), 0      # C faces north
 STUN_A2_TILE, STUN_A2_DIR = (24, 23, 0), 4    # the tile C faces
 MEDIKIT_C_DIR = 2
-H_TILE, H_DIR = (13, 26, 0), 6    # T0-9: the tile C faces
-PAINKILLER_PART = 1               # UnitBodyPart torso (the painkiller's part, F1249)
+H_TILE, H_DIR = (13, 26, 0), 6    # the tile C faces
+PAINKILLER_PART = 1               # UnitBodyPart torso (the painkiller's part)
 C_PSI_SKILL = 100
 A_PSI_STRENGTH = 0
 SKILL_STOP = "STR_COOP_TEST_SKILL_STOP"       # no follow-up; the script spends the cost
 SPRAY_C_DIR = 2
-SPRAY_W0, SPRAY_W1 = (24, 24, 0), (24, 27, 0) # T0-10 / C18
-FLOOR_TARGET = (24, 26, 0)        # road floor due east of C (C16a)
-SEED_SHOT = 1                     # SEED_C16A
-SEED_THROW = 2                    # SEED_C23S3
-SEED_MELEE = 1                    # SEED_C21
-SEED_PSI = 1                      # SEED_C22P
+SPRAY_START, SPRAY_END = (24, 24, 0), (24, 27, 0)   # the spray's start and end waypoints
+FLOOR_TARGET = (24, 26, 0)        # road floor due east of C
+SEED_SHOT = 1                     # host set_seed right before each order
+SEED_THROW = 2
+SEED_MELEE = 1
+SEED_PSI = 1
 TURN_TO = 4                       # C faces east (2): two octants
 WALK_DEST = (14, 26, 0)           # two road tiles east of C
 
-# ----- menus (spec (f) keys; rows with the mod: T0b / T0c / T0-17) -----
+# ----- menus (action-menu keys; the menu row counts with the mod) -----
 KEY_ITEM1, KEY_ITEM2, KEY_ITEM3, KEY_ITEM4, KEY_ITEM5 = 49, 50, 51, 52, 53   # keyBattleActionItem1..5
 KEY_SNAP, KEY_AUTO, KEY_PRIME, KEY_THROW = KEY_ITEM2, KEY_ITEM3, KEY_ITEM1, KEY_ITEM5
 KEY_STUN, KEY_USE, KEY_PANIC, KEY_SKILL_STOP = KEY_ITEM4, KEY_ITEM1, KEY_ITEM2, KEY_ITEM2
@@ -333,7 +303,7 @@ def press_row(host, client, ctx, rid, stage, act):
     finish(fails)
 
 
-# ----- stagings (client first, F607) -----
+# ----- stagings (client first) -----
 
 
 def stage_snap(host, client, ctx):
@@ -506,32 +476,33 @@ def act_spray(host, client, ctx, ev, before, st):
     press(client, SDLK_HOME)
     time.sleep(0.15)
     pos = {n: client.cmd({"cmd": "map_tile_click_pos", "x": t[0], "y": t[1], "z": t[2]})
-           for n, t in (("W0", SPRAY_W0), ("W1", SPRAY_W1))}
+           for n, t in (("sprayStart", SPRAY_START), ("sprayEnd", SPRAY_END))}
     ev["clickPos"] = {n: {k: p.get(k) for k in ("verified", "winX", "winY", "centered")} for n, p in pos.items()}
-    assert pos["W0"].get("verified") and pos["W1"].get("verified"), (
+    assert pos["sprayStart"].get("verified") and pos["sprayEnd"].get("verified"), (
         f"precondition: map_tile_click_pos did not verify both spray waypoints on the client: {ev['clickPos']}")
     try:
         ev["clientMods"] = touch(client, ctrl=True, shift=True)
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["W0"]["winX"], "y": pos["W0"]["winY"],
-                   "button": "left"})
-        ev["W0"] = click_state(host, client, before)
-        ev["W0blocked"] = event_state(client).get("coopLocalExecBlocked")
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["W1"]["winX"], "y": pos["W1"]["winY"],
+        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["sprayStart"]["winX"],
+                   "y": pos["sprayStart"]["winY"], "button": "left"})
+        ev["sprayStart"] = click_state(host, client, before)
+        ev["sprayStartBlocked"] = event_state(client).get("coopLocalExecBlocked")
+        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["sprayEnd"]["winX"], "y": pos["sprayEnd"]["winY"],
                    "button": "left"})
     finally:
         ev["clientModsAfter"] = touch(client, ctrl=False, shift=False)
-    if ev["W0"]["state"] != "quiet" or ev["W0blocked"] != before["client"]["coopLocalExecBlocked"]:
+    if ev["sprayStart"]["state"] != "quiet" or ev["sprayStartBlocked"] != before["client"]["coopLocalExecBlocked"]:
         st.setdefault("fails", []).append(
-            f"the spray start click (W0) {ev['W0']}, coopLocalExecBlocked {before['client']['coopLocalExecBlocked']}"
-            f"->{ev['W0blocked']} (want quiet and unchanged: placing a waypoint is local, E54.1)")
+            f"the spray start click (sprayStart) {ev['sprayStart']}, coopLocalExecBlocked "
+            f"{before['client']['coopLocalExecBlocked']}->{ev['sprayStartBlocked']} (want quiet and unchanged: placing "
+            f"a waypoint is local)")
 
 
-PRESSES = (("C24-snap", stage_snap, act_snap), ("C24-throw", stage_throw, act_throw),
-           ("C24-prime", stage_prime, act_prime), ("C24-stun", stage_stun, act_stun),
-           ("C24-medikit", stage_medikit, act_medikit), ("C24-scanner", stage_scanner, act_scanner),
-           ("C24-reload", stage_reload, act_reload), ("C24-hands", stage_hands, act_hands),
-           ("C24-psi", stage_psi, act_psi), ("C24-skill", stage_skill, act_skill),
-           ("C24-spray", stage_spray, act_spray))
+PRESSES = (("snap_press_refused", stage_snap, act_snap), ("throw_press_refused", stage_throw, act_throw),
+           ("prime_press_refused", stage_prime, act_prime), ("stun_press_refused", stage_stun, act_stun),
+           ("medikit_press_refused", stage_medikit, act_medikit), ("scanner_press_refused", stage_scanner, act_scanner),
+           ("reload_press_refused", stage_reload, act_reload), ("hands_press_refused", stage_hands, act_hands),
+           ("psi_press_refused", stage_psi, act_psi), ("skill_press_refused", stage_skill, act_skill),
+           ("spray_press_refused", stage_spray, act_spray))
 
 
 # ===================== PART 2: the battle_intent orders =====================
@@ -543,9 +514,8 @@ def jt(t):
 
 def send_order(host, client, req, notes, box):
     """One battle_intent order from the client, then (bounded) the host's answer:
-    its deny (client lastDeny.iseq) or the end of the order (a host infobox
-    recorded and closed host-only meanwhile; since W2-P8 S-C2, owner D166 = B, it
-    no longer holds the order, N7)."""
+    its deny (client lastDeny.iseq) or the end of the order (a host infobox is
+    recorded and closed host-only meanwhile; it does not hold the order)."""
     r = client.cmd(dict(req))
     iseq = r.get("iseq") if r.get("ok") else None
     out = {"resp": {k: r.get(k) for k in ("ok", "iseq", "error")}, "sent": bool(iseq), "iseq": iseq, "answer": None}
@@ -625,7 +595,7 @@ def intent_row(host, client, ctx, rid, kind, stage, request):
         ld = rec["client"]["lastDeny"] or {}
         if ld.get("iseq") != si["iseq"] or ld.get("reason") != "not_your_go":
             fails.append(f"client lastDeny {rec['client']['lastDeny']} (want {{iseq {si['iseq']}, reason "
-                         f"not_your_go}}: the host's baton term, Q2)")
+                         f"not_your_go}}: the host's baton term)")
         if (answer["denied"], answer["admitted"]) != (1, 0):
             fails.append(f"host intentsReceived.{kind} denied +{answer['denied']} admitted +{answer['admitted']} "
                          f"(want +1 / +0)")
@@ -741,14 +711,14 @@ def r_kneel(st):
     return {"cmd": "battle_intent", "kind": "kneel", "actor": C_ID, "kneel": True}
 
 
-INTENTS = (("C24i-shoot", "shoot", i_shoot, r_shoot), ("C24i-throw", "throw", i_throw, r_throw),
-           ("C24i-prime", "prime", stage_prime, r_prime), ("C24i-melee", "melee", i_melee, r_melee),
-           ("C24i-medikit", "medikit", stage_medikit, r_medikit),
-           ("C24i-psi", "psi", i_psi, r_psi), ("C24i-use_item", "use_item", stage_scanner, r_use_item),
-           ("C24i-reload", "reload", stage_reload, r_reload),
-           ("C24i-reaction_hands", "reaction_hands", stage_hands, r_hands),
-           ("C24i-skill", "skill", stage_skill, r_skill), ("C24i-turn", "turn", i_move, r_turn),
-           ("C24i-walk", "walk", i_move, r_walk), ("C24i-kneel", "kneel", i_move, r_kneel))
+INTENTS = (("shoot_order_denied", "shoot", i_shoot, r_shoot), ("throw_order_denied", "throw", i_throw, r_throw),
+           ("prime_order_denied", "prime", stage_prime, r_prime), ("melee_order_denied", "melee", i_melee, r_melee),
+           ("medikit_order_denied", "medikit", stage_medikit, r_medikit),
+           ("psi_order_denied", "psi", i_psi, r_psi), ("use_item_order_denied", "use_item", stage_scanner, r_use_item),
+           ("reload_order_denied", "reload", stage_reload, r_reload),
+           ("reaction_hands_order_denied", "reaction_hands", stage_hands, r_hands),
+           ("skill_order_denied", "skill", stage_skill, r_skill), ("turn_order_denied", "turn", i_move, r_turn),
+           ("walk_order_denied", "walk", i_move, r_walk), ("kneel_order_denied", "kneel", i_move, r_kneel))
 
 
 def scenarios():
@@ -782,7 +752,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, map seed 1)")
-    pinned = pin_ai_neutral(host, client, tag="w2p4-se3")
+    pinned = pin_ai_neutral(host, client, tag="test_client_baton")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
     seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
@@ -794,7 +764,7 @@ def boot(host, client):
         es = event_state(gc)
         assert (isinstance(es.get("coopIntentsSent"), dict) and isinstance(es.get("intentsReceived"), dict)
                 and "lastDeny" in es), (
-            f"{gc.name} event_state lacks the W2-P4 probes: coopIntentsSent={es.get('coopIntentsSent')!r} "
+            f"{gc.name} event_state lacks the intent probes: coopIntentsSent={es.get('coopIntentsSent')!r} "
             f"intentsReceived={es.get('intentsReceived')!r}")
     seats = {gc.name: event_state(gc).get("coopActiveSeat") for gc in (host, client)}
     assert seats == {"host": 0, "client": 0}, f"coopActiveSeat {seats} (want 0 on both: the host holds the baton)"
@@ -808,7 +778,7 @@ def boot(host, client):
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
     ctx = {"reload_key": read_reload_key(client.user_dir), "spawn": spawn}
-    print(f"[w2p4-se3] boot ok: {MISSION} MAP_FP={MAP_FP!r} mod={ml} modes={modes} coopActiveSeat={seats} "
+    print(f"[test_client_baton] boot ok: {MISSION} MAP_FP={MAP_FP!r} mod={ml} modes={modes} coopActiveSeat={seats} "
           f"peer={peer!r} turn={hs['turn']} seated={seated_uids} H={H_ID} pinned={len(pinned)} touch={mods} "
           f"spawn={spawn} reload_key={ctx['reload_key']} C={ubrief(ub.get(C_ID))}", flush=True)
     return ctx
@@ -816,8 +786,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49882, make_user_dir("w2p4_client_baton_host", mods=[MOD_DIR]))
-    client = GameClient("client", 49883, make_user_dir("w2p4_client_baton_client", mods=[MOD_DIR]))
+    host = GameClient("host", 49882, make_user_dir("client_baton_host", mods=[MOD_DIR]))
+    client = GameClient("client", 49883, make_user_dir("client_baton_client", mods=[MOD_DIR]))
     results = {}
     try:
         try:
@@ -839,7 +809,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p4-se3] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_client_baton] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_client_baton: {len(passed)}/{len(SCENARIOS)} passed "
