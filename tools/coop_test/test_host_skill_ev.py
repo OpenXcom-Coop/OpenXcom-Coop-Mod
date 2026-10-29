@@ -1,23 +1,24 @@
-"""the host's own soldier-skill press reaches the second player in one host action (spec docs
-rewrite/prompts/w2h28_host_skill_use_ev.md (f); TASK 0 docs rewrite/w2h28-task0/CONSTANTS.md; R-OF2-A-1; F11475,
-F11561, F11564). The HOST's own press runs the skill's script on the host only and emits nothing, so the second
-player keeps the soldier's old values (and hash_now differs) until the host's next ev of any kind.
-ONE boot, OF2's measured fixture (test_client_research's research-separate guest battle, lobby key 48987, OF2's
-MOD Coop_ScriptResearch_Test on both machines); four rows in this order:
-  HS0  bring-up: HS0-mod (mod-active line, 0 [ERROR] lines), HS0-units (G, H, live tags equal), HS0-common.
-  HC   end_turn_cycle to turn 2: HC-turn (turn + 1, side 0, BattlescapeState on top of both), HC-common.
-  HG   control, the second player's own skill order (TAB to G, SKILLS by rect, KEY_SKILL): HG-sent, HG-ctx
-       ({intent, skill, G}; the host's intentsReceivedLog entry), HG-tags (equal, TAG_SKILL non-zero), HG-common.
-  HH   the host's own skill press (TAB to H, SKILLS by rect, KEY_SKILL), LAST (its red leaves the split standing):
-       HH-script (the host ran the script), HH-ev (one {host, skill, H} context whose evs are exactly [skill,
-       bt_action_end], lastCue on both, no UNSUPPORTED / "has no known actor" client line), HH-follow (the
-       client's H tags equal the host's within FOLLOW_S, both H_TAGS_AFTER), HH-hash, HH-common.
-Common cell: after wait_host_idle, test_client_shoot.common_fails empty and no crash file since the boot.
-RED (commit A1, unchanged build): exactly HH-ev, HH-follow, HH-hash FAIL. GREEN (A2): every cell PASS.
-Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
-failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
-prints ONE "CAPTURE <row>:" line and fails that row's cells.
-ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
+"""the host's own soldier-skill press reaches the second player in one host action. Without that, the HOST's own press
+runs the skill's script on the host only and emits nothing, so the second player keeps the soldier's old values (and
+hash_now differs) until the host's next ev of any kind.
+ONE boot, test_client_research's measured fixture (its research-separate guest battle, lobby key 48987, the mod
+Coop_ScriptResearch_Test on both machines); four rows in this order, cells named <row>-<check>:
+  bring_up: bring_up-mod (mod-active line, 0 [ERROR] lines), bring_up-units (G, H, live tags equal), bring_up-common.
+  turn_cycle: end_turn_cycle to turn 2: turn_cycle-turn (turn + 1, side 0, BattlescapeState on top of both),
+       turn_cycle-common.
+  client_skill: control, the second player's own skill order (TAB to G, SKILLS by rect, KEY_SKILL): client_skill-sent,
+       client_skill-ctx ({intent, skill, G}; the host's intentsReceivedLog entry), client_skill-tags (equal, TAG_SKILL
+       non-zero), client_skill-common.
+  host_skill: the host's own skill press (TAB to H, SKILLS by rect, KEY_SKILL), LAST (when broken it leaves the split
+       standing): host_skill-script (the host ran the script), host_skill-ev (one {host, skill, H} context whose evs
+       are exactly [skill, bt_action_end], lastCue on both, no UNSUPPORTED / "has no known actor" client line),
+       host_skill-follow (the client's H tags equal the host's within FOLLOW_S, both H_TAGS_AFTER), host_skill-hash,
+       host_skill-common.
+Common cell: after wait_host_idle, test_client_shoot.common_fails empty and no crash file since the boot. When broken,
+exactly host_skill-ev, host_skill-follow and host_skill-hash FAIL; with the fix every cell passes. Each row prints ONE
+"EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a failure. A boot failure
+prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step prints ONE "CAPTURE <row>:"
+line and fails that row's cells. ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
 Run:  python tools/coop_test/test_host_skill_ev.py
 """
 
@@ -39,23 +40,25 @@ from test_turn_baton import click_nth
 from test_seat_pacing import tab_select
 
 PORT = "48987"
-HOST_DIR, CLIENT_DIR = "w2h28_host_skill_host", "w2h28_host_skill_client"
+HOST_DIR, CLIENT_DIR = "host_skill_ev_host", "host_skill_ev_client"
 MOD_NAME = "Coop_ScriptResearch_Test"
 MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_NAME)
 MOD_ACTIVE_LINE = "- Coop_ScriptResearch_Test v1.0"
 SKILL = "STR_COOP_TEST_SR_SKILL"
-SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (29 / 28, F11478)
+SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (29 / 28)
 KEY_SKILL = 49                    # the first (only) skill row
 TAG_SKILL = 1                     # COOP_SR_SKILL's raw index
-SCRIPT_S = 2.0                    # the host ran the script (TASK 0: 0.1 s on both boots)
+SCRIPT_S = 2.0                    # the host ran the script (measured: 0.1 s on both boots)
 FOLLOW_S = 5.0
 POLL_S = 0.1
 MENU_S = 5.0
-H_TAGS_AFTER = [1, 1]             # CONSTANTS.md: host after its press, client after the next ev (Ha, Hb)
+H_TAGS_AFTER = [1, 1]             # measured: the host after its press, the client after the next ev
 HASH_FAIL = "hash_now full not clean"
-CELLS = {"HS0": ("HS0-mod", "HS0-units", "HS0-common"), "HC": ("HC-turn", "HC-common"),
-         "HG": ("HG-sent", "HG-ctx", "HG-tags", "HG-common"),
-         "HH": ("HH-script", "HH-ev", "HH-follow", "HH-hash", "HH-common")}
+CELLS = {"bring_up": ("bring_up-mod", "bring_up-units", "bring_up-common"),
+         "turn_cycle": ("turn_cycle-turn", "turn_cycle-common"),
+         "client_skill": ("client_skill-sent", "client_skill-ctx", "client_skill-tags", "client_skill-common"),
+         "host_skill": ("host_skill-script", "host_skill-ev", "host_skill-follow", "host_skill-hash",
+                        "host_skill-common")}
 
 
 def pairs(host, client):
@@ -141,7 +144,7 @@ def open_skills(gc, uid, ev):
     return None
 
 
-def boot(host, client):   # OF2 t0.py boot() (= CR's boot) with lobby key PORT
+def boot(host, client):   # test_client_research's boot with lobby key PORT
     ctx, pre_rec = {}, {}
 
     def pre(h, c):
@@ -169,7 +172,7 @@ def boot(host, client):   # OF2 t0.py boot() (= CR's boot) with lobby key PORT
                    and u.get("name") != CR.GUEST_NAME and not u.get("isOut"))
     assert hsold, "no host soldier (coop 0, not out)"
     ctx["H"] = hsold[0]
-    pinned = pin_ai_neutral(host, client, tag="w2h28")
+    pinned = pin_ai_neutral(host, client, tag="host_skill_ev")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": ctx["G"], "stat": "firing",
                         "value": CR.FIRING_PIN}, ("tu",))
@@ -181,14 +184,15 @@ def boot(host, client):   # OF2 t0.py boot() (= CR's boot) with lobby key PORT
     return ctx
 
 
-def row_hs0(ev, res, host, client, st):
+def row_bring_up(ev, res, host, client, st):
     ev["boot"], logs = st["ctx"], {}
     for n, gc in pairs(host, client):
         lines = log_lines(gc)
         logs[n] = {"active": sum(1 for ln in lines if MOD_ACTIVE_LINE in ln),
                    "errors": [ln for ln in lines if "[ERROR]" in ln][:5]}
     ev["log"] = logs
-    res["HS0-mod"] = joined([f"{n} log: {v['active']} line(s) with {MOD_ACTIVE_LINE!r}, [ERROR] lines {v['errors']} "
+    res["bring_up-mod"] = joined([f"{n} log: {v['active']} line(s) with {MOD_ACTIVE_LINE!r}, [ERROR] lines "
+                                  f"{v['errors']} "
                              "(want >= 1 and none)" for n, v in logs.items() if v["active"] < 1 or v["errors"]])
     fails, view = [], {}
     for n, gc in pairs(host, client):
@@ -207,11 +211,11 @@ def row_hs0(ev, res, host, client, st):
     if th != tc:
         diff = [(k, th.get(k), tc.get(k)) for k in sorted(set(th) | set(tc)) if th.get(k) != tc.get(k)]
         fails.append(f"live unit tags differ (id, host, client): {diff}")
-    res["HS0-units"] = joined(fails)
-    res["HS0-common"] = joined(common(host, client, st["bootSnap"], "HS0", st["crash0"]))
+    res["bring_up-units"] = joined(fails)
+    res["bring_up-common"] = joined(common(host, client, st["bootSnap"], "bring_up", st["crash0"]))
 
 
-def row_hc(ev, res, host, client, st):
+def row_turn_cycle(ev, res, host, client, st):
     before, notes = snap(host, client), []
     turn0 = battle_state(host).get("turn")
     t = time.time()
@@ -224,17 +228,17 @@ def row_hc(ev, res, host, client, st):
         if v["turn"] != turn0 + 1 or v["side"] != 0 or v["top"] != "BattlescapeState":
             fails.append(f"{n} turn {v['turn']} side {v['side']} top {v['top']} (want turn {turn0 + 1}, side 0, "
                          "BattlescapeState)")
-    res["HC-turn"] = joined(fails)
-    res["HC-common"] = joined(common(host, client, before, "HC", st["crash0"]))
+    res["turn_cycle-turn"] = joined(fails)
+    res["turn_cycle-common"] = joined(common(host, client, before, "turn_cycle", st["crash0"]))
 
 
-def row_hg(ev, res, host, client, st):
+def row_client_skill(ev, res, host, client, st):
     G = st["G"]
     seen = max([e.get("iseq", 0) for e in event_state(host).get("intentsReceivedLog") or []] or [0])
     miss = open_skills(client, G, ev)
     if miss:
-        capture(host, client, "HG")
-        res.update({c: f"construction: {miss}" for c in CELLS["HG"]})
+        capture(host, client, "client_skill")
+        res.update({c: f"construction: {miss}" for c in CELLS["client_skill"]})
         return
     before, notes = snap(host, client), []
     ev["tu0"] = {n: tu(gc, G) for n, gc in pairs(host, client)}
@@ -253,20 +257,21 @@ def row_hg(ev, res, host, client, st):
     f = [] if ev["rows"] == 1 else [f"menu_rows(client) {ev['rows']} (want 1)"]
     if out.get("state") != "sent":
         f.append(f"await_press {out} (want state sent)")
-    res["HG-sent"] = joined(f + notes)
+    res["client_skill-sent"] = joined(f + notes)
     f = []
     if len(new) != 1 or len(mine(new, "intent", "skill", G)) != 1:
         f.append(f"new host closedContexts {new} (want exactly one {{origin intent, kind skill, actorId {G}}})")
     if [(e.get("kind"), e.get("actorId"), e.get("skill")) for e in logn] != [("skill", G, SKILL)]:
         f.append(f"host intentsReceivedLog new {logn} (want one {{kind skill, actorId {G}, skill {SKILL}}})")
-    res["HG-ctx"] = joined(f)
-    res["HG-tags"] = (None if gt["host"] == gt["client"] and tag_on(gt["host"]) else
+    res["client_skill-ctx"] = joined(f)
+    res["client_skill-tags"] = (None if gt["host"] == gt["client"] and tag_on(gt["host"]) else
                       f"G tags host {gt['host']} client {gt['client']} (want equal, index {TAG_SKILL} non-zero)")
-    res["HG-common"] = joined(common(host, client, before, "HG", st["crash0"]))
+    res["client_skill-common"] = joined(common(host, client, before, "client_skill", st["crash0"]))
 
 
-def hh_ev_fails(H, seq0, new, hev, cev, eh, ec, clog):
-    """HH-ev: one new {host, skill, H} context, its evs exactly [skill, bt_action_end], lastCue on both, clean log."""
+def host_skill_ev_fails(H, seq0, new, hev, cev, eh, ec, clog):
+    """host_skill-ev: one new {host, skill, H} context, its evs exactly [skill, bt_action_end], lastCue on both,
+    clean log."""
     f, ctx = [], mine(new, "host", "skill", H)
     if len(new) != 1 or len(ctx) != 1:
         f.append(f"new host closedContexts {new} (want exactly one {{origin host, kind skill, actorId {H}}})")
@@ -291,14 +296,14 @@ def hh_ev_fails(H, seq0, new, hev, cev, eh, ec, clog):
     return f
 
 
-def row_hh(ev, res, host, client, st):
+def row_host_skill(ev, res, host, client, st):
     H = st["H"]
     miss = open_skills(host, H, ev)
     if not miss and ev.get("rows") != 1:
         miss = f"menu_rows(host) {ev.get('rows')} (want 1)"
     if miss:
-        capture(host, client, "HH")
-        res.update({c: f"construction: {miss}" for c in CELLS["HH"]})
+        capture(host, client, "host_skill")
+        res.update({c: f"construction: {miss}" for c in CELLS["host_skill"]})
         return
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
@@ -308,7 +313,7 @@ def row_hh(ev, res, host, client, st):
     nh, nc = len(log_lines(host)), len(log_lines(client))
     t0 = time.time()
     press(host, KEY_SKILL)
-    t_script = None   # HH-script (precondition: the press ran the script on the host)
+    t_script = None   # host_skill-script (precondition: the press ran the script on the host)
     while t_script is None and time.time() - t0 < SCRIPT_S:
         if tag_on(tags(host, H)):
             t_script = round(time.time() - t0, 2)
@@ -323,8 +328,8 @@ def row_hh(ev, res, host, client, st):
     f = [] if t_script is not None else [f"host H tags {tags(host, H)}: index {TAG_SKILL} 0 {SCRIPT_S} s after press"]
     if ev["hostTop"] != "BattlescapeState":
         f.append(f"host top {ev['hostTop']} after the press (want BattlescapeState)")
-    res["HH-script"] = joined(f)
-    t_follow = None   # HH-follow: the client's H tags equal the host's script value, polled until FOLLOW_S
+    res["host_skill-script"] = joined(f)
+    t_follow = None   # host_skill-follow: the client's H tags equal the host's script value, polled until FOLLOW_S
     while True:
         hv, cv = tags(host, H), tags(client, H)
         if hv == cv and tag_on(hv):
@@ -334,9 +339,9 @@ def row_hh(ev, res, host, client, st):
         time.sleep(POLL_S)
     ev["follow"] = {"t": t_follow, "host": hv, "client": cv}
     if t_follow is None:
-        res["HH-follow"] = f"client H tags {cv}, host {hv} {FOLLOW_S} s after the press (want equal)"
+        res["host_skill-follow"] = f"client H tags {cv}, host {hv} {FOLLOW_S} s after the press (want equal)"
     else:
-        res["HH-follow"] = (None if hv == cv == H_TAGS_AFTER else
+        res["host_skill-follow"] = (None if hv == cv == H_TAGS_AFTER else
                             f"H tags host {hv} client {cv} (want H_TAGS_AFTER {H_TAGS_AFTER} on both)")
     try:
         session.wait_host_idle(host, client, timeout=30)
@@ -348,10 +353,10 @@ def row_hh(ev, res, host, client, st):
     hlog, clog = log_lines(host)[nh:], log_lines(client)[nc:]
     ev.update({"newCtx": new, "hostEvs": hev, "clientEvs": cev, "hostLastCue": eh.get("lastCue"),
                "clientLastCue": ec.get("lastCue")})
-    res["HH-ev"] = joined(hh_ev_fails(H, seq0, new, hev, cev, eh, ec, clog))
-    fails = common(host, client, before, "HH", st["crash0"])   # the common cell, split
-    res["HH-hash"] = joined([x for x in fails if x.startswith(HASH_FAIL)])
-    res["HH-common"] = joined([x for x in fails if not x.startswith(HASH_FAIL)])
+    res["host_skill-ev"] = joined(host_skill_ev_fails(H, seq0, new, hev, cev, eh, ec, clog))
+    fails = common(host, client, before, "host_skill", st["crash0"])   # the common cell, split
+    res["host_skill-hash"] = joined([x for x in fails if x.startswith(HASH_FAIL)])
+    res["host_skill-common"] = joined([x for x in fails if not x.startswith(HASH_FAIL)])
     ev["after"] = {"hostLastSeqEmitted": eh.get("lastSeqEmitted"), "clientLastSeqApplied": ec.get("lastSeqApplied"),
                    "tu": {n: tu(gc, H) for n, gc in pairs(host, client)},
                    "cueSkill": {n: (e.get("cueCounts") or {}).get("skill") for n, e in (("host", eh), ("client", ec))},
@@ -361,7 +366,8 @@ def row_hh(ev, res, host, client, st):
                                if "[coop-ctx] host skill context" in ln or "[coop-cue] skill" in ln]}
 
 
-ROWS = (("HS0", row_hs0), ("HC", row_hc), ("HG", row_hg), ("HH", row_hh))
+ROWS = (("bring_up", row_bring_up), ("turn_cycle", row_turn_cycle), ("client_skill", row_client_skill),
+        ("host_skill", row_host_skill))
 
 
 def report(rid, ev, res):
@@ -408,7 +414,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h28] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[host-skill-ev] shutdown {gc.name}: {short(e)}", flush=True)
     n = sum(len(v) for v in CELLS.values())
     print(f"\ntest_host_skill_ev: {n - len(failed)}/{n} cells passed (fail={failed}) in "
           f"{round(time.time() - t_start, 1)} s", flush=True)
