@@ -5750,6 +5750,10 @@ static void readMirrorRadar(Base* base, const Json::Value& marker)
 
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
+	// A host world result that arrives during a resync restream waits for the
+	// adoption of that world, so it applies once, to the world it belongs to.
+	if (SharedEcon::holdResultDuringRestream(stateString, obj))
+		return;
 	// SEPARATE owns the per-player policy layered on top of the shared command
 	// engine.  Let it prepare incoming Separate messages first (notably deriving
 	// the local foreign-base flags from persistent owner names) before the generic
@@ -14486,7 +14490,12 @@ void connectionTCP::sharedResyncStream()
 	if (!sendFileClient)
 	{
 		Log(LOG_ERROR) << "[coop-shared] resync restream failed to serialize the world";
+		return;
 	}
+	// The snapshot is taken and nothing has run since: mark this spot in the
+	// message order, so the replica holds the results sent after it until it has
+	// adopted this world (SharedEcon::holdResultDuringRestream).
+	SharedEcon::sendRestreamMark(_game);
 }
 
 // PRD-J01: this machine's seat. Host is always 0; a client's seat is its
@@ -17199,6 +17208,9 @@ void connectionTCP::disconnectTCP(bool isMain)
 			}
 
 		}
+
+		// Results held for a restream die with the connection.
+		SharedEcon::resetRestreamHold();
 
 		// Session-state resets: exactly two paths (see CoopSession). The host
 		// keeps its campaign/lobby context across a peer drop (D5); a client's

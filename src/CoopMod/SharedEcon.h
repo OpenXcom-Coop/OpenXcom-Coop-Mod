@@ -761,13 +761,32 @@ extern const int RESYNC_DEBOUNCE_MS;
 bool requestResync(Game* game, const std::string& why, bool force = false);
 
 /// A streamed SHARED world was adopted (LoadGameState): clear the in-flight resync
-/// guard so a later drift can be repaired again.
+/// guard so a later drift can be repaired again. For a restream's world, drop the
+/// results queued before its mark and release the ones held after it.
 void notifyWorldAdopted();
 
 /// REPLICA: a chunk of a world stream arrived (connectionTCP map_result_data). The
-/// in-flight resync guard is real time since the request or the last chunk, so a
-/// large world that streams for many seconds keeps it.
+/// in-flight resync guard and the result hold are real time since the request, the
+/// restream mark or the last chunk, so a large world that streams for many seconds
+/// keeps them.
 void noteWorldStreamProgress();
+
+/// HOST: send the restream mark right after a resync restream took its snapshot
+/// (connectionTCP::sharedResyncStream). It rides the same message order as the
+/// host's results, so the replica can tell which results the snapshot holds.
+void sendRestreamMark(Game* game);
+
+/// REPLICA: called first for every received message (connectionTCP::onTCPMessage).
+/// Between a restream mark and the adoption of that world, a host world result
+/// (shared_apply, separate_apply, separate_geoscape_event,
+/// separate_mission_research) is held and returns true; it is re-dispatched once,
+/// to the adopted world, on the next update. Results from before the mark are in
+/// the snapshot: notifyWorldAdopted drops any still queued.
+bool holdResultDuringRestream(const std::string& state, const Json::Value& obj);
+
+/// The connection is gone: drop any held results and pending marks (the next
+/// join streams a fresh world).
+void resetRestreamHold();
 
 /// Harness/diagnostics: auto-resync bookkeeping on this machine.
 struct ResyncStats
