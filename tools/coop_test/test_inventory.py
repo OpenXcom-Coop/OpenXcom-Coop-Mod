@@ -267,7 +267,7 @@ RN_KEYS = ("renames", "invHostDirty", "syncEvsEmitted", "syncEvsApplied")
 NAME_KEYS = ("name", "_name", "rawName")
 
 # ----- windows and waits -----
-DEFER_MS = 2000                   # plan review section 2 IV3 / IV13 (the C23b5 precedent)
+DEFER_MS = 2000                   # plan review section 2 IV3 / IV13 (as test_client_items press_while_in_flight)
 POLL_S = 0.05
 BANNER_READ_S = 0.5               # a refusal text is read within 0.5 s of the press
 CLICK_WAIT_S = 2.0                # a click's local effect (cursor, screen) shows within this

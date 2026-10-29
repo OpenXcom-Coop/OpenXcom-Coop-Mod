@@ -52,7 +52,7 @@ scenario):
                (applied on the client with the same seq, kind and actionId),
                the clip is loaded in the rifle on both machines and C's TU is
                before - 15 on both. C is stripped and gets its max TU on both
-               machines first (C23e's staging): its own loadout carries a rifle
+               machines first (test_client_items reload_rifle's staging): its own loadout carries a rifle
                clip vanilla's reload would pick first, and S3 and S2 now
                really spend TU, which would leave C below the reload's cost and
                S4's stun rod.
@@ -177,7 +177,7 @@ TEXT_RELOAD = "Only the host can reload"                # STR_COOP_RELOAD_HOST_O
 # W2-P4 S-D re-points: both interim keys above are RETIRED (the texts stay here
 # only as "not the interim refusal" checks).
 MEDIKIT_TU = 10                       # STR_MEDI_KIT tuUse 10 flat (items.rul; T0-19 = F1250: "TU before - 10")
-RELOAD_TU = 15                        # STR_RIFLE's clip load from STR_BELT (T0-9: 15, C23e)
+RELOAD_TU = 15                        # STR_RIFLE's clip load from STR_BELT (T0-9: 15, test_client_items reload_rifle)
 TU_MAX = 255                          # battle_set_unit_state tu: clamped to the unit's max TU
 
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
@@ -777,7 +777,7 @@ def s5_reload(host, client, ctx):
     # painkiller; C's max TU varies per boot, F1250), which is below the rifle's
     # 15 TU reload - vanilla's reloadAmmo() would then refuse, and S4's stun rod
     # (last) could not be ordered at all. So S5 gives C its max TU on BOTH
-    # machines (client first, F607), C23e's staging, instead of equalize_tu's
+    # machines (client first, F607), test_client_items reload_rifle's staging, instead of equalize_tu's
     # carry-over.
     tus = []
     for gc in (client, host):  # client first, then host
@@ -786,7 +786,7 @@ def s5_reload(host, client, ctx):
         tus.append(r.get("tu"))
     assert tus[0] == tus[1] and tus[0] >= RELOAD_TU, f"PREMISE: C max TU client/host {tus} (want equal, >= {RELOAD_TU})"
     session.wait_seq_barrier(host, client)
-    # F1132 (amendment C2, C23e's order): C's own starting loadout carries a
+    # F1132 (amendment C2, test_client_items reload_rifle's order): C's own starting loadout carries a
     # rifle clip that vanilla's reloadAmmo() picks before the staged one (the
     # first green run's end delta moved C's own item into the rifle), so C is
     # stripped on BOTH machines first (client first, F607): the staged clip is

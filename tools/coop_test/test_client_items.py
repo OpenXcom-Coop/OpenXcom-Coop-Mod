@@ -1,168 +1,152 @@
 """test_client_items.py: the second player uses its own medi-kit,
 motion scanner, reload key and reaction-fire hand buttons; the host checks and
-runs every one of them (spec rewrite/prompts/w2p4_client_combat_intents.md
-section (f) "test_client_items.py (S-D)", sections (b)1-6, (b)9, as amended by
-AMENDMENT C1 (PR-Q9: the battle_set_unit_state `fatalWounds` lever; PR-Q10: the
-medi-kit target rule; PR-Q15: the one-click kit row C23b2), AMENDMENT C2 (F1132:
-C23e strips C first), AMENDMENT C3 (the owner's D148: the medi-kit screen stays
-open, the host's end carries `continue`; C3-Q13: C23b3; C3-Q14: C23b4; the
-owner's D150: a press while an order is in flight is ignored) and AMENDMENT C4
-(PR-Q18: the client-side baton check belongs to each intercept; F1171: an
-item-kind refusal does not move coopLocalExecBlocked).
+runs every one of them.
 
-Before S-D the second player can do none of this. USE MEDI-KIT and USE SCANNER
-are refused in the action menu (K8, ActionMenuState::handleAction) with "Only the
-host can use this item": the medi-kit screen never opens. The reload key is
-refused with "Only the host can reload" (K13) and the hand right-click with "Only
-the host can change reaction fire settings" (K14). Each refusal leaves
-coopLocalExecBlocked +0 and sends nothing. After S-D each press becomes
-an intent (wire kinds of spec (b)1: `medikit`, `use_item` for the scanner,
-`reload`, `reaction_hands`). The host admits it with vanilla's own checks and
-runs vanilla's own code under an `intent` action context (context kinds of spec
-(b)3: `medikit`, `scanner`, `reload`, `reaction_hands`) that ends in one
-bt_action_end; the ordering client runs vanilla's aftermath for its own action.
-Nine scenarios, ONE boot (the Coop_Spray_Test mod on both machines), in this
-order:
+Each press on the client becomes an intent (wire kinds `medikit`, `use_item`
+for the scanner, `reload`, `reaction_hands`). The host admits it with vanilla's
+own checks and runs vanilla's own code under an `intent` action context
+(context kinds `medikit`, `scanner`, `reload`, `reaction_hands`) that ends in
+one bt_action_end; the ordering client runs vanilla's aftermath for its own
+action. The medi-kit screen stays open on the client between presses (the
+host's end carries `continue`), and a press while an order is in flight is
+ignored. Nine scenarios, ONE boot (the Coop_Spray_Test mod on both machines),
+in this order:
 
-  C23b   medi-kit, the D148 press sequence. C and H stripped (both, once, at the
-         file's start); C -> C_TILE facing east (H's tile), H -> H_TILE facing
-         C; H's fatal wounds WOUNDS (the PR-Q9 lever, both); a medi-kit on C
-         (lever, both, clear hands); C TU max (both). Client: TAB-select C, the
-         right-hand box (2 rows: THROW, USE MEDI-KIT), key 49 (MedikitState
-         opens, nothing sent), then 51 (heal), 50 (stimulant), 49 (painkiller),
-         each awaited to the client's own bt_action_end, then the cancel key.
-         RED: key 49 refused at K8 with "Only the host can use this item",
-         MedikitState never opens, nothing sent. GREEN per press: {origin
-         intent, kind medikit, actorId C} whose evs are exactly medikit ->
-         bt_action_end; client coopIntentsSent.medikit +1; the `medikit` cue
-         {actor C, unit H, item, action, bodypart} (heal on the wounded part,
-         stimulant and painkiller on the torso, vanilla's own arguments);
-         lastActionHalt {halted false, continue true} on both; the client's
-         top state still MedikitState; its three MedikitTxt numbers equal the
-         host's battle_items medikit charges; H wounds / health / stun /
-         morale / energy and the charges as T0-18 measured, equal on both; C
-         TU 54 / 44 / 34 on both; lastAftermath {actionId, kind medikit,
-         continue true}. Cancel: the screen closes locally, nothing sent.
-  C23b5  D150, a press while the order is in flight. A fresh medi-kit on C; H's
-         wounds WOUNDS again; C TU max; the screen open (TAB, the right-hand
-         box, key 49); host defer_intents {ms DEFER_MS, count 1}; key 51, and
-         once the client shows the order in flight, key 51 again. RED: the
-         screen never opens. GREEN: coopIntentsSent.medikit +1 only; host
-         intentsReceived.medikit.admitted +1 only; the heal count 10 -> 9
-         and one wound healed only; C TU 54; the screen still open after the
-         answer.
-  C23b6  TU short. C TU KIT_TU - 1 (client first, then host); the screen open;
-         key 50. RED: the screen never opens. GREEN: the host denies `no_tu`
-         (client lastDeny.reason), the client banner reads vanilla's "Not
-         Enough Time Units!", the client's MedikitState closes, nothing
-         executed (no context), the charges and H unchanged.
-  C23b3  the consumable one-charge kit (the test mod's STR_MEDI_KIT_ONE_CHARGE,
-         charges 0 / 1 / 0, full screen). H's wounds WOUNDS; the kit on C; C
-         TU max; the screen open (numbers 0 / 0 / 1); key 51. RED: the screen
-         never opens. GREEN: the medikit context and heal cue; the kit removed
-         on both after the use (the host removes it right after the use, C3-Q12);
-         the open screen shows 0 / 0 / 0 until closed; H one wound healed; C
-         TU 54; the cancel key closes it with nothing sent and no crash.
-  C23b2  the one-click kit (the mod's STR_MEDI_KIT_ONE_CLICK, medikitType heal).
-         H's wounds WOUNDS; the kit on C; C TU max. Client: TAB, the right-hand
-         box (2 rows), key 49. RED: refused at K8. GREEN: the order is sent at
-         once and no MedikitState opens on the client; the medikit context and
-         heal cue on the first wounded part; H one wound healed; the kit
-         10 / 9 / 10; C TU 54.
-  C23c   scanner. A motion scanner on C; C TU max. Client: TAB, the right-hand
-         box (2 rows: THROW, USE SCANNER), key 49. RED: refused at K8. GREEN:
-         {origin intent, kind scanner, actorId C} whose evs are exactly
-         scanner -> bt_action_end; coopIntentsSent.use_item +1; the `scanner`
-         cue {actor C, item}; C TU 48 on both; the client opens ScannerState
-         at its own end, the host does not; lastAftermath actionId.
-  C23e   reload (F1132: C stripped on both first). A rifle with no ammo and a
-         rifle clip on STR_BELT (0,0) (levers, both); C's inventory exactly
-         these two; C TU max. Client: TAB, the reload key (keyBattleReload).
-         RED: refused at K13 with "Only the host can reload". GREEN: {origin
-         intent, kind reload, actorId C} whose evs are exactly bt_action_end;
-         coopIntentsSent.reload +1; the clip loaded in the rifle on both; C TU
-         49 on both; lastAftermath {actionId, kind reload}.
-  C23f   reaction-fire hands. C's flags (offLeft, offRight, prefLeft,
-         prefRight) (F, F, F, F) on both. Client: TAB, battle_ui_press
-         hand_reaction right (the real handler, a right-button event), then
-         the client's touch Ctrl on (set_touch_modifiers), hand_reaction left,
-         touch Ctrl off. RED: refused at K14 with "Only the host can change
-         reaction fire settings", flags unchanged. GREEN: each press one
-         {origin intent, kind reaction_hands, actorId C} whose evs are exactly
-         bt_action_end, coopIntentsSent.reaction_hands +1; flags (F, F, F, T)
-         after the right press and (T, F, F, T) after the Ctrl left press, on
-         both (vanilla's toggle, T0b / S-D.1's T0 on H); `synced` equal.
-  C23b4  `continue: false` (C3 section 4: a real knockout, the C21 melee shape).
-         A stun rod on C (lever, both); C on C_TILE facing H; H health 5 and
-         no fatal wound (levers, both); C TU max. Client: TAB, the right-hand
-         box, host set_seed SEED_KO, key 52 (STUN): C's own stun order (S-C's
-         intent) knocks H out. The host's vanilla "has become unconscious"
-         InfoboxOKState is recorded and closed host-only through its OK button
-         (the message policy is W2-P6's, H10); since W2-P8 S-C2 (owner D166 =
-         B) it no longer holds the order's chain (N7), so the order can end
-         with the box still up and one more dismiss follows the loop. Then H's stun is set to health + 1 (lever, both: still
-         unconscious, one stimulant revives him), a medi-kit on C (lever,
-         both), C onto H's tile (lever, both), C TU max. Client: TAB, the
-         right-hand box, key 49 (MedikitState on the patient on C's tile), key
-         50 (stimulant). RED: key 49 refused at K8. GREEN: the medikit context
-         and stim cue; lastActionHalt continue false on both; the client's
-         MedikitState closes on the answer; H revived (status STANDING, on a
-         tile, the same position and stun on both); the body item gone on
-         both; lastAftermath continue false.
+  medikit_presses: the medi-kit press sequence.
+    C and H stripped (both, once, at the file's start); C -> C_TILE facing
+    east (H's tile), H -> H_TILE facing C; H's fatal wounds WOUNDS (the
+    battle_set_unit_state `fatalWounds` staging command, both); a medi-kit on
+    C (staging command, both, clear hands); C TU max (both). Client:
+    TAB-select C, the right-hand box (2 rows: THROW, USE MEDI-KIT), key 49
+    (MedikitState opens, nothing sent), then 51 (heal), 50 (stimulant), 49
+    (painkiller), each awaited to the client's own bt_action_end, then the
+    cancel key. Checks per press: {origin intent, kind medikit, actorId C}
+    whose evs are exactly medikit -> bt_action_end; client
+    coopIntentsSent.medikit +1; the `medikit` cue {actor C, unit H, item,
+    action, bodypart} (heal on the wounded part, stimulant and painkiller on
+    the torso, vanilla's own arguments); lastActionHalt {halted false,
+    continue true} on both; the client's top state still MedikitState; its
+    three MedikitTxt numbers equal the host's battle_items medikit charges; H
+    wounds / health / stun / morale / energy and the charges as measured,
+    equal on both; C TU 54 / 44 / 34 on both; lastAftermath {actionId, kind
+    medikit, continue true}. Cancel: the screen closes locally, nothing sent.
+  press_while_in_flight: a press while the order is in flight.
+    A fresh medi-kit on C; H's wounds WOUNDS again; C TU max; the screen open
+    (TAB, the right-hand box, key 49); host defer_intents {ms DEFER_MS, count
+    1}; key 51, and once the client shows the order in flight, key 51 again.
+    Checks: coopIntentsSent.medikit +1 only; host
+    intentsReceived.medikit.admitted +1 only; the heal count 10 -> 9 and one
+    wound healed only; C TU 54; the screen still open after the answer.
+  medikit_tu_short: TU short.
+    C TU KIT_TU - 1 (client first, then host); the screen open; key 50.
+    Checks: the host denies `no_tu` (client lastDeny.reason), the client
+    banner reads vanilla's "Not Enough Time Units!", the client's
+    MedikitState closes, nothing executed (no context), the charges and H
+    unchanged.
+  one_charge_kit: the consumable one-charge kit (the test mod's
+    STR_MEDI_KIT_ONE_CHARGE, charges 0 / 1 / 0, full screen).
+    H's wounds WOUNDS; the kit on C; C TU max; the screen open (numbers
+    0 / 0 / 1); key 51. Checks: the medikit context and heal cue; the kit
+    removed on both after the use (the host removes it right after the use);
+    the open screen shows 0 / 0 / 0 until closed; H one wound healed; C TU 54;
+    the cancel key closes it with nothing sent and no crash.
+  one_click_kit: the one-click kit (the mod's STR_MEDI_KIT_ONE_CLICK,
+    medikitType heal).
+    H's wounds WOUNDS; the kit on C; C TU max. Client: TAB, the right-hand
+    box (2 rows), key 49. Checks: the order is sent at once and no
+    MedikitState opens on the client; the medikit context and heal cue on the
+    first wounded part; H one wound healed; the kit 10 / 9 / 10; C TU 54.
+  use_scanner: scanner.
+    A motion scanner on C; C TU max. Client: TAB, the right-hand box (2 rows:
+    THROW, USE SCANNER), key 49. Checks: {origin intent, kind scanner,
+    actorId C} whose evs are exactly scanner -> bt_action_end;
+    coopIntentsSent.use_item +1; the `scanner` cue {actor C, item}; C TU 48
+    on both; the client opens ScannerState at its own end, the host does not;
+    lastAftermath actionId.
+  reload_rifle: reload (C stripped on both first).
+    A rifle with no ammo and a rifle clip on STR_BELT (0,0) (staging
+    commands, both); C's inventory exactly these two; C TU max. Client: TAB,
+    the reload key (keyBattleReload). Checks: {origin intent, kind reload,
+    actorId C} whose evs are exactly bt_action_end; coopIntentsSent.reload
+    +1; the clip loaded in the rifle on both; C TU 49 on both; lastAftermath
+    {actionId, kind reload}.
+  reaction_hand_buttons: reaction-fire hands.
+    C's flags (offLeft, offRight, prefLeft, prefRight) (F, F, F, F) on both.
+    Client: TAB, battle_ui_press hand_reaction right (the real handler, a
+    right-button event), then the client's touch Ctrl on
+    (set_touch_modifiers), hand_reaction left, touch Ctrl off. Checks: each
+    press one {origin intent, kind reaction_hands, actorId C} whose evs are
+    exactly bt_action_end, coopIntentsSent.reaction_hands +1; flags (F, F, F,
+    T) after the right press and (T, F, F, T) after the Ctrl left press, on
+    both (vanilla's toggle, as measured on H); `synced` equal.
+  revive_after_knockout: `continue: false` (a real knockout).
+    A stun rod on C (staging command, both); C on C_TILE facing H; H health 5
+    and no fatal wound (staging commands, both); C TU max. Client: TAB, the
+    right-hand box, host set_seed SEED_KO, key 52 (STUN): C's own stun order
+    knocks H out. The host's vanilla "has become unconscious" InfoboxOKState
+    is recorded and closed host-only through its OK button; it does not hold
+    the order's chain, so the order can end with the box still up and one
+    more dismiss follows the loop. Then H's stun is set to health + 1
+    (staging command, both: still unconscious, one stimulant revives him), a
+    medi-kit on C (staging command, both), C onto H's tile (staging command,
+    both), C TU max. Client: TAB, the right-hand box, key 49 (MedikitState on
+    the patient on C's tile), key 50 (stimulant). Checks: the medikit context
+    and stim cue; lastActionHalt continue false on both; the client's
+    MedikitState closes on the answer; H revived (status STANDING, on a tile,
+    the same position and stun on both); the body item gone on both;
+    lastAftermath continue false. Its knockout_messages row checks the
+    knockout's messages: vanilla's OK box on the host (H is the host's own
+    soldier), a notice on the client.
 
-W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 E-c and the P6b
-review's section 2 row E3; AMENDMENTS P6b-1..P6b-3; Q14 (a)): the watching
-machine plays the medi-kit sound. Row E3 (C23b's three presses): the client's
-displayTwo.effects.medikit.count +3, ONE record per `medikit` ev's seq with
-itemType STR_MEDI_KIT (the kit resolved before the cue's delta, N43) and its
-sound picked from the kit's raw hitSound list (display_rules, pinned in
-test_host_combat.EFFECT_PINS: [] -> -1, vanilla plays none), and the S-E
-common asserts (client rngSeed unchanged, host displayTwo / combatGhost all
-zero). coopGhostStepper is pinned true in both instances. RED (commit S-E.1):
-only C23b fails, on E3 (count +0, no record). One "EVIDENCE E3:" line.
+medikit_sounds (checked inside medikit_presses): the watching machine plays
+the medi-kit sound. The client's displayTwo.effects.medikit.count +3, ONE
+record per `medikit` ev's seq with itemType STR_MEDI_KIT (the kit resolved
+before the cue's delta) and its sound picked from the kit's raw hitSound list
+(display_rules, pinned in test_host_combat.EFFECT_PINS: [] -> -1, vanilla
+plays none), and the common effect-row asserts (client rngSeed unchanged, host
+displayTwo / combatGhost all zero). coopGhostStepper is pinned true in both
+instances. One "EVIDENCE medikit_sounds:" line.
 
-C23f comes before C23b4 (H is knocked out there). C23e strips C; later rows hand
-out their own items. The scanner's ScannerState (C23c green) is closed with the
-client's cancel key before C23e.
+reaction_hand_buttons comes before revive_after_knockout (H is knocked out
+there). reload_rifle strips C; later rows hand out their own items. The
+scanner's ScannerState is closed with the client's cancel key before
+reload_rifle.
 
-Common asserts (spec (f), after the order settles): hash_now {full:true} -
-every bucket EQUAL; desyncSeen false on both; client coopClientBStatePushes
-unchanged and host 0; the W2-P2 delta must-be-0 counters on both; every lever
-item created on both machines with equal ids (both()). For an admitted order:
-host closedContexts gains exactly one {origin intent, kind K, actorId C}; every
-host ev of that actionId is in the client's log with the same seq, kind and
-actionId; exactly one bt_action_end; client coopIntentsSent[wire kind] +1;
-client inFlight null at the end; client intentTimeouts unchanged (no
-STR_COOP_ACTION_TIMEOUT).
+Common asserts (after the order settles): hash_now {full:true} - every bucket
+EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and
+host 0; the delta counters that must stay 0 (deltaUnresolved,
+deltaUnsupported, deltaRemoveMissing, deltaAddExisting) 0 on both; every
+staged item created on both machines with equal ids (both()). For an admitted
+order: host closedContexts gains exactly one {origin intent, kind K, actorId
+C}; every host ev of that actionId is in the client's log with the same seq,
+kind and actionId; exactly one bt_action_end; client coopIntentsSent[wire
+kind] +1; client inFlight null at the end; client intentTimeouts unchanged
+(no STR_COOP_ACTION_TIMEOUT).
 
-Probes: S-D.1 adds battle_items `medikit` [painKiller, heal, stimulant] (BT_MEDIKIT
+Probes: battle_items `medikit` [painKiller, heal, stimulant] (BT_MEDIKIT
 items), battle_state units `wounds` (6 ints, UnitBodyPart order), the
-battle_set_unit_state `fatalWounds` lever and `continue` in lastActionHalt /
-lastAftermath (null while an end carries none). The cue payloads are read from
-the HOST's own openxcom.log `[coop-cue]` lines.
+battle_set_unit_state `fatalWounds` field and `continue` in lastActionHalt /
+lastAftermath (null while an end carries none). The cue payloads are read
+from the HOST's own openxcom.log `[coop-cue]` lines.
 
-STAGING (TASK 0 T0-9 = T0b; T0-18 and the C23f Ctrl half measured on the S-D.1
-build, 3 boots, the host's OWN MedikitState operated by a host soldier on H as
-the rule stand-in, T0b's method): the roster-pinned terror boot of
-test_host_combat.py (set_seed SEED_ROSTER on the HOST right before its
-open_new_battle, mission STR_TERROR_MISSION, set_seed SEED_MAP right before
-newbattle_ok, seat_count 2, MAP_FP asserted on both, the seated unit ids
-asserted, pin_ai_neutral), the mod active on both (MAP_FP unchanged with it).
-Every lever pair goes to the CLIENT first. Item ids are read at run time
-from the lever replies, never baked.
+STAGING (the values measured on 3 boots, with the host's OWN MedikitState
+operated by a host soldier on H as the stand-in for the client's order): the
+roster-pinned terror boot of test_host_combat.py (set_seed SEED_ROSTER on the
+HOST right before its open_new_battle, mission STR_TERROR_MISSION, set_seed
+SEED_MAP right before newbattle_ok, seat_count 2, MAP_FP asserted on both,
+the seated unit ids asserted, pin_ai_neutral), the mod active on both (MAP_FP
+unchanged with it). Every staging pair goes to the CLIENT first. Item ids are
+read at run time from the staging replies, never baked.
 
-RED-THEN-GREEN (spec (d) row S-D). Commit S-D.1 (this file, the probes, the
-fatalWounds lever, the mod's one-charge kit) is run ONCE and every scenario must
-FAIL with its RED evidence. Commit S-D.2 is run ONCE and every scenario must
-PASS. Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
-BEFORE its green conditions are checked; main() runs every scenario even after an
-earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
-bounded; a wait that times out is recorded in the EVIDENCE line and fails the
-scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+BEFORE its conditions are checked; main() runs every scenario even after an
+earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait
+is bounded; a wait that times out is recorded in the EVIDENCE line and fails
+the scenario.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when all nine scenarios pass, 2 otherwise
-(a bring-up failure is also 2). run in the foreground to completion.
+One run is the result: no skip path, no second boot, no alternative map or
+actor. Exit 0 only when all nine scenarios pass, 2 otherwise (a bring-up
+failure is also 2).
 
 Run:  python tools/coop_test/test_client_items.py
 """
@@ -189,7 +173,7 @@ from test_client_grenade import (admitted_fails, cancel_client_targeting, settle
 from test_thin_client_tripwire import read_reload_key, loaded_ammo
 from test_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want
 
-# ----- bring-up (TASK 0: the roster-pinned terror boot, the mod on both) -----
+# ----- bring-up (the roster-pinned terror boot, the mod on both) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
 MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1, unmodded and modded
@@ -202,50 +186,50 @@ COOP_SEAT_0 = 0
 FACTION_PLAYER = 0
 STATUS_STANDING, STATUS_UNCONSCIOUS = 0, 7   # src/Mod/Unit.h enum UnitStatus
 
-# ----- C23b staging (T0-9 = T0b; T0-18 on the S-D.1 build, 3/3 boots) -----
+# ----- medikit_presses staging (the same on three boots) -----
 C_TILE, C_DIR = (12, 26, 0), 2    # C faces east: H's tile
 H_TILE, H_DIR = (13, 26, 0), 6    # H faces C
-WOUNDS = [0, 0, 2, 0, 0, 0]       # fatalWounds lever: 2 on the right arm (UnitBodyPart 2)
+WOUNDS = [0, 0, 2, 0, 0, 0]       # fatalWounds: 2 on the right arm (UnitBodyPart 2)
 WOUND_PART, TORSO = 2, 1          # MedikitView selects the first wounded part; stim / painkiller use the torso
 WOUNDS_HEALED = [0, 0, 1, 0, 0, 0]
 H_FIELDS = {"health": 37, "stun": 0, "morale": 100, "energy": 60}   # H at the staging: full health, max energy
 MEDIKIT = "STR_MEDI_KIT"
-ONE_CHARGE = "STR_MEDI_KIT_ONE_CHARGE"      # the test mod: consumable, 0 / 1 / 0, full screen (C3-Q13)
+ONE_CHARGE = "STR_MEDI_KIT_ONE_CHARGE"      # the test mod: consumable, 0 / 1 / 0, full screen
 ONE_CLICK = "STR_MEDI_KIT_ONE_CLICK"        # the test mod: medikitType 1 (heal at once), 10 / 10 / 10
 KIT_TU = 10                       # tuUse 10, flatRate (items.rul)
 KIT_ROWS = 2                      # THROW + USE MEDI-KIT
-# the three MedikitTxt numbers after centerAllSurfaces (T0-18: x 193 + 27): painkiller, stimulant, heal
+# the three MedikitTxt numbers after centerAllSurfaces (x 193 + 27): painkiller, stimulant, heal
 MEDIKIT_TXT = {(220, 52, 33, 17): "pk", (220, 88, 33, 17): "stim", (220, 124, 33, 17): "heal"}
 # per press: (key, cue action, cue bodypart, charges [painKiller, heal, stimulant] after, C TU after)
-C23B_PRESSES = ((51, "heal", WOUND_PART, [10, 9, 10], C_TU_FULL - KIT_TU),
-                (50, "stim", TORSO, [10, 9, 9], C_TU_FULL - 2 * KIT_TU),
-                (49, "painkiller", TORSO, [9, 9, 9], C_TU_FULL - 3 * KIT_TU))
+MEDIKIT_PRESSES = ((51, "heal", WOUND_PART, [10, 9, 10], C_TU_FULL - KIT_TU),
+                   (50, "stim", TORSO, [10, 9, 9], C_TU_FULL - 2 * KIT_TU),
+                   (49, "painkiller", TORSO, [9, 9, 9], C_TU_FULL - 3 * KIT_TU))
 MEDIKIT_CHAIN = ["medikit", "bt_action_end"]
 
-# ----- C23b5 (D150; T0-18: a 2000 ms deferral holds the client's slot 2.12 s, harness poll 50 ms) -----
+# ----- press_while_in_flight (a 2000 ms deferral holds the client's slot 2.12 s, harness poll 50 ms) -----
 DEFER_MS = 2000
 
-# ----- C23b6 -----
+# ----- medikit_tu_short -----
 TEXT_NO_TU = "Not Enough Time Units!"        # xcom1 STR_NOT_ENOUGH_TIME_UNITS (en-US), the `no_tu` deny's key
 
-# ----- C23c (T0-9: cost 25 % of 64) -----
+# ----- use_scanner (cost 25 % of 64) -----
 SCANNER = "STR_MOTION_SCANNER"
 SCANNER_TU = 16
 SCANNER_CHAIN = ["scanner", "bt_action_end"]
 
-# ----- C23e (T0-9; F1132; reload cost measured on H: 15) -----
+# ----- reload_rifle (reload cost measured on H: 15) -----
 RELOAD_TU = 15
 INSTANT_CHAIN = ["bt_action_end"]
 
-# ----- C23f (T0b right half; S-D.1's T0 Ctrl half on H) -----
+# ----- reaction_hand_buttons (both halves measured on H) -----
 FLAG_KEYS = ("reactOffLeft", "reactOffRight", "reactPrefLeft", "reactPrefRight")
 FLAGS_0 = (False, False, False, False)
 FLAGS_RIGHT = (False, False, False, True)        # right press, no Ctrl: prefRight on
 FLAGS_CTRL_LEFT = (True, False, False, True)     # then left press with Ctrl: offLeft on
 
-# ----- C23b4 (C3 section 4; S-D.1's T0: 3/3 boots) -----
+# ----- revive_after_knockout (the same on three boots) -----
 STUN_ROD = "STR_STUN_ROD"
-KO_H_HEALTH = 5                   # the C21 shape: the stun rod always knocks a health-5 unit out
+KO_H_HEALTH = 5                   # the stun rod always knocks a health-5 unit out
 SEED_KO = 1                       # H stun 113 after the rod (3/3)
 STUN_RECOVERY = 4                 # items.rul STR_MEDI_KIT stunRecovery: one stimulant
 KO_STUN = KO_H_HEALTH + 1         # still unconscious (stun >= health); one stimulant -> stun 2 < health
@@ -255,9 +239,9 @@ REVIVED_STUN = KO_STUN - STUN_RECOVERY
 KEY_ITEM1, KEY_STUN = 49, 52      # keyBattleActionItem1 (USE MEDI-KIT / USE SCANNER), item4 (STUN)
 KEY_PK, KEY_STIM, KEY_HEAL = 49, 50, 51     # MedikitState: SDLK_1 / SDLK_2 / SDLK_3 (MedikitState.cpp)
 KEY_CANCEL = 27                   # Options::keyCancel: closes MedikitState / ScannerState
-TEXT_ITEM_ACTION = "Only the host can use this item"                     # STR_COOP_ITEM_ACTION_HOST_ONLY (RED)
-TEXT_RELOAD = "Only the host can reload"                                  # STR_COOP_RELOAD_HOST_ONLY (RED)
-TEXT_REACTIONS = "Only the host can change reaction fire settings"        # STR_COOP_REACTIONS_HOST_ONLY (RED)
+TEXT_ITEM_ACTION = "Only the host can use this item"                     # STR_COOP_ITEM_ACTION_HOST_ONLY (refusal)
+TEXT_RELOAD = "Only the host can reload"                                  # STR_COOP_RELOAD_HOST_ONLY (refusal)
+TEXT_REACTIONS = "Only the host can change reaction fire settings"        # STR_COOP_REACTIONS_HOST_ONLY (refusal)
 SCREEN_WAIT_S = 5
 
 
@@ -273,7 +257,7 @@ def hview(u):
 
 
 def items_of(gc):
-    """battle_items with EVERY field (incl. S-D.1's `medikit`) by id."""
+    """battle_items with EVERY field (incl. `medikit`) by id."""
     r = gc.cmd({"cmd": "battle_items"})
     assert r.get("ok"), f"battle_items failed on {gc.name}: {r}"
     return {i["id"]: i for i in r["items"]}
@@ -418,7 +402,7 @@ def snap_one(gc):
                                    "intentsReceived", "lastDeny")}
 
 
-# ===================== staging (client first, F607) =====================
+# ===================== staging (client first) =====================
 
 
 def give(host, client, item, clear=True, **extra):
@@ -438,7 +422,7 @@ def strip_both(host, client, uid):
     rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
     assert rh.get("ok") and rc.get("ok"), f"battle_strip_unit {uid}: host={rh} client={rc}"
     dh, dc = set(rh.get("deleted") or []), set(rc.get("deleted") or [])
-    assert dh == dc, f"battle_strip_unit {uid} deleted sets differ (F882): host={sorted(dh)} client={sorted(dc)}"
+    assert dh == dc, f"battle_strip_unit {uid} deleted sets differ: host={sorted(dh)} client={sorted(dc)}"
     session.wait_seq_barrier(host, client)
     return sorted(dh)
 
@@ -479,7 +463,7 @@ def menu_key(client, ev, key):
 
 def open_screen(client, ev):
     """The medi-kit screen: the menu, key 49. Returns whether MedikitState is on
-    the client's top (RED: the K8 refusal closes the menu, nothing opens)."""
+    the client's top."""
     menu_key(client, ev, KEY_ITEM1)
     ev["banner"] = battle_state(client).get("coopWaitText")
     return ev["screen"]["state"] == "MedikitState"
@@ -498,11 +482,10 @@ def close_screen(client, ev):
 
 
 def dismiss_host_box(host, box):
-    """A host infobox that came up while a partner's order ran (before W2-P8
-    S-C2 it held the order's chain, N7; since owner D166 = B the chain runs under
-    it). Record its texts and close it host-only: an InfoboxOKState through its OK
-    button (the tripwire's A1.6 completion), any other infobox through
-    dismiss_popup."""
+    """A host infobox that came up while a partner's order ran (the order's
+    chain runs on under it). Record its texts and close it host-only: an
+    InfoboxOKState through its OK button (vanilla's own completion), any other
+    infobox through dismiss_popup."""
     t = top(host) or ""
     if "Infobox" not in t:
         return
@@ -533,7 +516,7 @@ def screen_press(host, client, key, notes):
 # ===================== scenarios =====================
 
 
-def c23b_medikit(host, client, ctx):
+def medikit_presses(host, client, ctx):
     notes = []
     pc_ = place(host, client, C_ID, C_TILE, C_DIR)
     ph_ = place(host, client, H_ID, H_TILE, H_DIR)
@@ -544,7 +527,7 @@ def c23b_medikit(host, client, ctx):
     h0 = {"host": hview(session.units_by_id(battle_state(host)).get(H_ID)),
           "client": hview(session.units_by_id(battle_state(client)).get(H_ID))}
     b0 = snap(host, client)
-    snap_e = effect_snap(host, client)   # W2-P6b S-E row E3
+    snap_e = effect_snap(host, client)   # for the medikit_sounds row
     ev = {}
     opened = False
     try:
@@ -554,7 +537,7 @@ def c23b_medikit(host, client, ctx):
     after_open = {"host": snap_one(host), "client": snap_one(client)}
     legs = []
     if opened:
-        for key, action, part, ch_after, tu_after in C23B_PRESSES:
+        for key, action, part, ch_after, tu_after in MEDIKIT_PRESSES:
             nl = []
             before, rec, out, scr = screen_press(host, client, key, nl)
             legs.append({"key": key, "action": action, "part": part, "chargesAfter": ch_after, "tuAfter": tu_after,
@@ -568,7 +551,7 @@ def c23b_medikit(host, client, ctx):
     else:
         cb = ca = None
     rec_end = collect_all(host, client, b0["host"]["lastSeqEmitted"] or 0)
-    print(f"EVIDENCE C23b: staged C={pc_} H={ph_} wounds={w} kit={kit} stagedDiff={staged} H before={h0} "
+    print(f"EVIDENCE medikit_presses: staged C={pc_} H={ph_} wounds={w} kit={kit} stagedDiff={staged} H before={h0} "
           f"press={ev} opened={opened} afterOpen={after_open}; "
           + " | ".join(
               f"LEG {lg['action']} (key {lg['key']}) outcome={lg['out']}; {press_view(lg['before'], lg['rec'])}; "
@@ -580,21 +563,22 @@ def c23b_medikit(host, client, ctx):
               f"diff={lg['rec']['diff']} desync={lg['rec']['dsc']}; notes={lg['notes']}" for lg in legs)
           + f" | CANCEL close={ev.get('close')} before={cb} after={ca}; end: {press_view(b0, rec_end)}; "
           f"ui={ui_view(b0, rec_end)}; diff={rec_end['diff']}; notes={notes}", flush=True)
-    # W2-P6b S-E row E3 (review section 2; section 9 E-c, Q14 (a)): one medikit sound record per applied `medikit`
-    # cue on the client, the kit resolved before the cue's delta, its sound picked from the kit's raw
-    # hit-sound list; none on the host (it plays vanilla's own, TileEngine :5019).
+    # medikit_sounds: one medikit sound record per applied `medikit` cue on the client, the kit resolved before
+    # the cue's delta, its sound picked from the kit's raw hit-sound list; none on the host (it plays vanilla's
+    # own, TileEngine :5019).
     rules, rfails = effect_rules(host, client, [MEDIKIT])
     kit_sounds = ((rules.get(MEDIKIT) or {}).get("soundLists") or {}).get("hitSound") or []
     med_seqs = [e["seq"] for lg in legs for e in lg["rec"]["hev"] if e["kind"] == "medikit"]
-    med_seqs += [None] * (len(C23B_PRESSES) - len(med_seqs))   # a missing press never matches a record
-    e3 = rfails + sound_row("E3", host, client, snap_e, "medikit",
-                            [{"match": {"seq": s}, "fields": {"itemType": MEDIKIT}, "sounds": kit_sounds}
-                             for s in med_seqs], extra={"medikitSeqs": med_seqs, "legs": len(legs)})
+    med_seqs += [None] * (len(MEDIKIT_PRESSES) - len(med_seqs))   # a missing press never matches a record
+    medikit_sound_fails = rfails + sound_row(
+        "medikit_sounds", host, client, snap_e, "medikit",
+        [{"match": {"seq": s}, "fields": {"itemType": MEDIKIT}, "sounds": kit_sounds} for s in med_seqs],
+        extra={"medikitSeqs": med_seqs, "legs": len(legs)})
     fails = list(notes)
     if staged:
         fails.append(f"buckets differ after the staging: {staged} (want none)")
     if w != WOUNDS:
-        fails.append(f"precondition: fatalWounds lever reply {w} (want {WOUNDS})")
+        fails.append(f"precondition: fatalWounds staging reply {w} (want {WOUNDS})")
     if ev.get("rows") != KIT_ROWS:
         fails.append(f"precondition: client menu rows {ev.get('rows')} (want {KIT_ROWS})")
     if not opened:
@@ -604,8 +588,8 @@ def c23b_medikit(host, client, ctx):
         fails += nothing_sent_fails(b0, after_open["host"], after_open["client"], "opening the screen")
         if ev["screen"]["nums"] != nums_of([10, 10, 10]):
             fails.append(f"the opened screen shows {ev['screen']} (want 10 / 10 / 10 at {sorted(MEDIKIT_TXT)})")
-    if opened and len(legs) != len(C23B_PRESSES):
-        fails.append(f"the screen closed after {len(legs)} press(es) (want it open through all three: D148)")
+    if opened and len(legs) != len(MEDIKIT_PRESSES):
+        fails.append(f"the screen closed after {len(legs)} press(es) (want it open through all three)")
     for lg in legs:
         what, rec, before = lg["action"], lg["rec"], lg["before"]
         fails += [f"{what}: {m}" for m in lg["notes"]]
@@ -620,7 +604,8 @@ def c23b_medikit(host, client, ctx):
                                 "bodypart": lg["part"]}, what)
         fails += halt_fails(rec, aid, True, what)
         if lg["screen"]["state"] != "MedikitState":
-            fails.append(f"{what}: client top {lg['screen']['state']} after the answer (want MedikitState: D148)")
+            fails.append(f"{what}: client top {lg['screen']['state']} after the answer "
+                         f"(want MedikitState: the screen stays open)")
         elif lg["screen"]["nums"] != nums_of(charges(rec["ih"], kit)):
             fails.append(f"{what}: the client's screen shows {lg['screen']['nums']} (want the host's charges "
                          f"{nums_of(charges(rec['ih'], kit))})")
@@ -630,17 +615,17 @@ def c23b_medikit(host, client, ctx):
         fails += [f"{what}: {m}" for m in tu_fails(rec, C_ID, lg["tuAfter"])]
         fails += aftermath_fails(rec, aid, "medikit", True, what)
         if rec["clientUi"]["banner"] == TEXT_ITEM_ACTION:
-            fails.append(f"{what}: client banner {rec['clientUi']['banner']!r} (the interim host-only refusal)")
+            fails.append(f"{what}: client banner {rec['clientUi']['banner']!r} (the host-only refusal)")
     if opened:
         if (ev.get("close") or [None])[-1] != "BattlescapeState":
             fails.append(f"cancel: client states {ev.get('close')} (want the screen closed)")
         fails += nothing_sent_fails({"host": cb["host"], "client": cb["client"]}, ca["host"], ca["client"], "cancel")
-    fails += e3
-    fails += common_fails(host, client, b0, "C23b")
+    fails += medikit_sound_fails
+    fails += common_fails(host, client, b0, "medikit_presses")
     finish(fails)
 
 
-def c23b5_inflight(host, client, ctx):
+def press_while_in_flight(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
     w = wounds_both(host, client, H_ID, WOUNDS)
@@ -680,12 +665,13 @@ def c23b5_inflight(host, client, ctx):
             notes.append(f"order never finished: {short(e)}")
         out = {"state": "pressed twice", "tEnd": round(time.time() - t0, 3)}
         time.sleep(0.5)
-    disarm = host.ok({"cmd": "defer_intents", "ms": 0, "count": 0})   # a deferral no order consumed never outlives C23b5
+    # a deferral no order consumed never outlives press_while_in_flight
+    disarm = host.ok({"cmd": "defer_intents", "ms": 0, "count": 0})
     scr = screen(client)
     rec = collect_all(host, client, seq0)
     new = ctx_view(before, rec)
     close_screen(client, ev)
-    print(f"EVIDENCE C23b5: staged wounds={w} kit={kit} stagedDiff={staged} press={ev} opened={opened} "
+    print(f"EVIDENCE press_while_in_flight: staged wounds={w} kit={kit} stagedDiff={staged} press={ev} opened={opened} "
           f"defer={dr} disarm={disarm} second={second} outcome={out}; {press_view(before, rec)}; "
           f"ui={ui_view(before, rec)}; screen={scr}; newContexts={new}; host evs={ev_tuples(rec['hev'])} "
           f"client evs={ev_tuples(rec['cev'])}; H host={hview(rec['uh'].get(H_ID))} client="
@@ -708,18 +694,18 @@ def c23b5_inflight(host, client, ctx):
         d = recv_of(rec["host"]["intentsReceived"], "medikit", "admitted") - recv_of(
             before["host"]["intentsReceived"], "medikit", "admitted")
         if d != 1:
-            fails.append(f"host intentsReceived.medikit.admitted +{d} (want +1: the in-flight press is ignored, D150)")
-        fails += chain_fails(rec, cx, MEDIKIT_CHAIN, "C23b5")
-        fails += h_fails(rec, WOUNDS_HEALED, "C23b5")
-        fails += charge_fails(rec, kit, [10, 9, 10], "C23b5")
+            fails.append(f"host intentsReceived.medikit.admitted +{d} (want +1: the in-flight press is ignored)")
+        fails += chain_fails(rec, cx, MEDIKIT_CHAIN, "press_while_in_flight")
+        fails += h_fails(rec, WOUNDS_HEALED, "press_while_in_flight")
+        fails += charge_fails(rec, kit, [10, 9, 10], "press_while_in_flight")
         fails += tu_fails(rec, C_ID, C_TU_FULL - KIT_TU)
         if scr["state"] != "MedikitState":
             fails.append(f"client top {scr['state']} after the answer (want MedikitState still open)")
-    fails += common_fails(host, client, before, "C23b5")
+    fails += common_fails(host, client, before, "press_while_in_flight")
     finish(fails)
 
 
-def c23b6_tu_short(host, client, ctx):
+def medikit_tu_short(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
     wait_banner_not(client, TEXT_NO_TU, notes)
@@ -745,7 +731,7 @@ def c23b6_tu_short(host, client, ctx):
     scr = screen(client)
     rec = collect_all(host, client, seq0)
     new = ctx_view(before, rec)
-    print(f"EVIDENCE C23b6: staged kit={kit} C tu={tu} stagedDiff={staged} press={ev} opened={opened} "
+    print(f"EVIDENCE medikit_tu_short: staged kit={kit} C tu={tu} stagedDiff={staged} press={ev} opened={opened} "
           f"outcome={out} statesAfter={seen}; {press_view(before, rec)}; ui={ui_view(before, rec)}; screen={scr}; "
           f"newContexts={new}; host evs={ev_tuples(rec['hev'])}; H before={h0} host={hview(rec['uh'].get(H_ID))} "
           f"client={hview(rec['uc'].get(H_ID))}; kit host={charges(rec['ih'], kit)} client={charges(rec['ic'], kit)}; "
@@ -777,14 +763,14 @@ def c23b6_tu_short(host, client, ctx):
                          f"(want unchanged)")
         if rec["client"]["inFlight"] is not None:
             fails.append(f"client inFlight {rec['client']['inFlight']} (want null)")
-    fails += h_fails(rec, h0.get("wounds") if h0 else None, "C23b6")
-    fails += charge_fails(rec, kit, [10, 10, 10], "C23b6")
+    fails += h_fails(rec, h0.get("wounds") if h0 else None, "medikit_tu_short")
+    fails += charge_fails(rec, kit, [10, 10, 10], "medikit_tu_short")
     fails += tu_fails(rec, C_ID, KIT_TU - 1)
-    fails += common_fails(host, client, before, "C23b6")
+    fails += common_fails(host, client, before, "medikit_tu_short")
     finish(fails)
 
 
-def c23b3_consumable(host, client, ctx):
+def one_charge_kit(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
     w = wounds_both(host, client, H_ID, WOUNDS)
@@ -811,7 +797,7 @@ def c23b3_consumable(host, client, ctx):
     ca = {"host": snap_one(host), "client": snap_one(client)}
     alive = {n: bool(gc.cmd({"cmd": "event_state"}).get("ok")) for n, gc in (("host", host), ("client", client))}
     new = ctx_view(before, rec)
-    print(f"EVIDENCE C23b3: staged wounds={w} kit={kit} charges={k0} stagedDiff={staged} press={ev} "
+    print(f"EVIDENCE one_charge_kit: staged wounds={w} kit={kit} charges={k0} stagedDiff={staged} press={ev} "
           f"opened={opened} outcome={out}; {press_view(before, rec)}; ui={ui_view(before, rec)}; screen={scr}; "
           f"newContexts={new}; host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; kit host="
           f"{rec['ih'].get(kit)} client={rec['ic'].get(kit)}; H host={hview(rec['uh'].get(H_ID))} client="
@@ -831,28 +817,28 @@ def c23b3_consumable(host, client, ctx):
         fails += forwarded_fails(before, rec)
         f, cx = admitted_fails(before, rec, "medikit", "medikit", C_ID)
         fails += f
-        fails += chain_fails(rec, cx, MEDIKIT_CHAIN, "C23b3")
+        fails += chain_fails(rec, cx, MEDIKIT_CHAIN, "one_charge_kit")
         if cx:
             fails += cue_fails(host, chain_of(rec, cx.get("actionId")), "medikit",
                                {"actor": C_ID, "unit": H_ID, "item": kit, "action": "heal",
-                                "bodypart": WOUND_PART}, "C23b3")
+                                "bodypart": WOUND_PART}, "one_charge_kit")
         if kit in rec["ih"] or kit in rec["ic"]:
             fails.append(f"kit {kit} host={rec['ih'].get(kit)} client={rec['ic'].get(kit)} after its last charge "
-                         f"(want removed on both, C3-Q12)")
+                         f"(want removed on both right after the use)")
         if scr["state"] != "MedikitState" or scr["nums"] != nums_of([0, 0, 0]):
             fails.append(f"the client's screen after the answer {scr} (want MedikitState open showing 0 / 0 / 0)")
-        fails += h_fails(rec, WOUNDS_HEALED, "C23b3")
+        fails += h_fails(rec, WOUNDS_HEALED, "one_charge_kit")
         fails += tu_fails(rec, C_ID, C_TU_FULL - KIT_TU)
         if (ev.get("close") or [None])[-1] != "BattlescapeState":
             fails.append(f"cancel: client states {ev.get('close')} (want the screen closed)")
         fails += nothing_sent_fails(cb, ca["host"], ca["client"], "cancel")
     if alive != {"host": True, "client": True}:
         fails.append(f"a machine stopped answering after the close: {alive}")
-    fails += common_fails(host, client, before, "C23b3")
+    fails += common_fails(host, client, before, "one_charge_kit")
     finish(fails)
 
 
-def c23b2_one_click(host, client, ctx):
+def one_click_kit(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
     w = wounds_both(host, client, H_ID, WOUNDS)
@@ -870,7 +856,7 @@ def c23b2_one_click(host, client, ctx):
     settle(host, client, notes)
     rec = collect_all(host, client, seq0)
     new = ctx_view(before, rec)
-    print(f"EVIDENCE C23b2: staged wounds={w} kit={kit} stagedDiff={staged} press={ev} outcome={out}; "
+    print(f"EVIDENCE one_click_kit: staged wounds={w} kit={kit} stagedDiff={staged} press={ev} outcome={out}; "
           f"{press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; host evs={ev_tuples(rec['hev'])} "
           f"client evs={ev_tuples(rec['cev'])}; H host={hview(rec['uh'].get(H_ID))} client="
           f"{hview(rec['uc'].get(H_ID))}; kit host={charges(rec['ih'], kit)} client={charges(rec['ic'], kit)}; "
@@ -886,22 +872,22 @@ def c23b2_one_click(host, client, ctx):
     fails += forwarded_fails(before, rec)
     f, cx = admitted_fails(before, rec, "medikit", "medikit", C_ID)
     fails += f
-    fails += chain_fails(rec, cx, MEDIKIT_CHAIN, "C23b2")
+    fails += chain_fails(rec, cx, MEDIKIT_CHAIN, "one_click_kit")
     if cx:
         fails += cue_fails(host, chain_of(rec, cx.get("actionId")), "medikit",
                            {"actor": C_ID, "unit": H_ID, "item": kit, "action": "heal", "bodypart": WOUND_PART},
-                           "C23b2")
-    fails += h_fails(rec, WOUNDS_HEALED, "C23b2")
-    fails += charge_fails(rec, kit, [10, 9, 10], "C23b2")
+                           "one_click_kit")
+    fails += h_fails(rec, WOUNDS_HEALED, "one_click_kit")
+    fails += charge_fails(rec, kit, [10, 9, 10], "one_click_kit")
     fails += tu_fails(rec, C_ID, C_TU_FULL - KIT_TU)
-    fails += aftermath_fails(rec, cx.get("actionId") if cx else None, "medikit", None, "C23b2")
+    fails += aftermath_fails(rec, cx.get("actionId") if cx else None, "medikit", None, "one_click_kit")
     if rec["clientUi"]["banner"] == TEXT_ITEM_ACTION:
-        fails.append(f"client banner {rec['clientUi']['banner']!r} (the interim host-only refusal)")
-    fails += common_fails(host, client, before, "C23b2")
+        fails.append(f"client banner {rec['clientUi']['banner']!r} (the host-only refusal)")
+    fails += common_fails(host, client, before, "one_click_kit")
     finish(fails)
 
 
-def c23c_scanner(host, client, ctx):
+def use_scanner(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
     set_tu_both(host, client, C_ID, TU_MAX)
@@ -922,7 +908,7 @@ def c23c_scanner(host, client, ctx):
     new = ctx_view(before, rec)
     ev2 = {}
     close_screen(client, ev2)
-    print(f"EVIDENCE C23c: staged scanner={scanner} stagedDiff={staged} press={ev} outcome={out}; "
+    print(f"EVIDENCE use_scanner: staged scanner={scanner} stagedDiff={staged} press={ev} outcome={out}; "
           f"{press_view(before, rec)}; ui={ui_view(before, rec)}; top={tops}; newContexts={new}; host evs="
           f"{ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; C host={ubrief(rec['uh'].get(C_ID))} "
           f"client={ubrief(rec['uc'].get(C_ID))}; close={ev2.get('close')}; diff={rec['diff']} desync={rec['dsc']}; "
@@ -935,23 +921,23 @@ def c23c_scanner(host, client, ctx):
     fails += forwarded_fails(before, rec)
     f, cx = admitted_fails(before, rec, "scanner", "use_item", C_ID)
     fails += f
-    fails += chain_fails(rec, cx, SCANNER_CHAIN, "C23c")
+    fails += chain_fails(rec, cx, SCANNER_CHAIN, "use_scanner")
     if cx:
         fails += cue_fails(host, chain_of(rec, cx.get("actionId")), "scanner", {"actor": C_ID, "item": scanner},
-                           "C23c")
+                           "use_scanner")
     fails += tu_fails(rec, C_ID, C_TU_FULL - SCANNER_TU)
     if tops["client"] != "ScannerState":
         fails.append(f"client top state {tops['client']} (want ScannerState, opened at the order's own end)")
     if tops["host"] == "ScannerState":
         fails.append("host top state ScannerState (want none on the host: the screen is the ordering player's)")
-    fails += aftermath_fails(rec, cx.get("actionId") if cx else None, "scanner", None, "C23c")
+    fails += aftermath_fails(rec, cx.get("actionId") if cx else None, "scanner", None, "use_scanner")
     if rec["clientUi"]["banner"] == TEXT_ITEM_ACTION:
-        fails.append(f"client banner {rec['clientUi']['banner']!r} (the interim host-only refusal)")
-    fails += common_fails(host, client, before, "C23c")
+        fails.append(f"client banner {rec['clientUi']['banner']!r} (the host-only refusal)")
+    fails += common_fails(host, client, before, "use_scanner")
     finish(fails)
 
 
-def c23e_reload(host, client, ctx):
+def reload_rifle(host, client, ctx):
     notes = []
     stripped = strip_both(host, client, C_ID)
     rifle = give(host, client, "STR_RIFLE")
@@ -971,7 +957,7 @@ def c23e_reload(host, client, ctx):
     new = ctx_view(before, rec)
     la = {"host": loaded_ammo(rec["ih"].get(rifle) or {}, rifle), "client": loaded_ammo(rec["ic"].get(rifle) or {},
                                                                                          rifle)}
-    print(f"EVIDENCE C23e: stripped={stripped} rifle={rifle} clip={clip} inventory={inv} stagedDiff={staged} "
+    print(f"EVIDENCE reload_rifle: stripped={stripped} rifle={rifle} clip={clip} inventory={inv} stagedDiff={staged} "
           f"press={ev} key={ctx['reload_key']} outcome={out}; {press_view(before, rec)}; ui={ui_view(before, rec)}; "
           f"newContexts={new}; host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; loaded={la}; "
           f"clip host={ {k: (rec['ih'].get(clip) or {}).get(k) for k in ('owner', 'slot')} } client="
@@ -989,14 +975,14 @@ def c23e_reload(host, client, ctx):
     fails += forwarded_fails(before, rec)
     f, cx = admitted_fails(before, rec, "reload", "reload", C_ID)
     fails += f
-    fails += chain_fails(rec, cx, INSTANT_CHAIN, "C23e")
+    fails += chain_fails(rec, cx, INSTANT_CHAIN, "reload_rifle")
     if la != {"host": [clip], "client": [clip]}:
         fails.append(f"rifle {rifle} loaded ammo {la} (want [{clip}] on both)")
     fails += tu_fails(rec, C_ID, C_TU_FULL - RELOAD_TU)
-    fails += aftermath_fails(rec, cx.get("actionId") if cx else None, "reload", None, "C23e")
+    fails += aftermath_fails(rec, cx.get("actionId") if cx else None, "reload", None, "reload_rifle")
     if rec["clientUi"]["banner"] == TEXT_RELOAD:
-        fails.append(f"client banner {rec['clientUi']['banner']!r} (the interim host-only refusal)")
-    fails += common_fails(host, client, before, "C23e")
+        fails.append(f"client banner {rec['clientUi']['banner']!r} (the host-only refusal)")
+    fails += common_fails(host, client, before, "reload_rifle")
     finish(fails)
 
 
@@ -1019,7 +1005,7 @@ def hand_press(host, client, hand, ctrl, notes):
     return before, rec, out, ev
 
 
-def c23f_hands(host, client, ctx):
+def reaction_hand_buttons(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_REACTIONS, notes)
     f0 = (flags(host, C_ID), flags(client, C_ID))
@@ -1031,7 +1017,8 @@ def c23f_hands(host, client, ctx):
     fl = (flags(host, C_ID), flags(client, C_ID))
     sy = {n: (gc.cmd({"cmd": "hash_now", "full": True}).get("h") or {}).get("synced")
           for n, gc in (("host", host), ("client", client))}
-    print(f"EVIDENCE C23f: flags (offL, offR, prefL, prefR) before host={f0[0]} client={f0[1]} stagedDiff={staged} "
+    print(f"EVIDENCE reaction_hand_buttons: flags (offL, offR, prefL, prefR) before host={f0[0]} client={f0[1]} "
+          f"stagedDiff={staged} "
           f"| RIGHT press={e1} outcome={o1}; {press_view(b1, r1)}; newContexts={ctx_view(b1, r1)}; host evs="
           f"{ev_tuples(r1['hev'])} client evs={ev_tuples(r1['cev'])}; flags host={fr[0]} client={fr[1]}; "
           f"diff={r1['diff']}; notes={notes} | LEFT+CTRL press={e2} outcome={o2}; {press_view(b2, r2)}; "
@@ -1044,7 +1031,7 @@ def c23f_hands(host, client, ctx):
     if f0 != (FLAGS_0, FLAGS_0):
         fails.append(f"precondition: C flags host={f0[0]} client={f0[1]} (want {FLAGS_0} on both)")
     if e2.get("ctrlOn") is not True or e2.get("ctrlOff") is not False:
-        fails.append(f"precondition: the client's touch Ctrl lever {e2} (want on for the left press, then off)")
+        fails.append(f"precondition: the client's touch Ctrl command {e2} (want on for the left press, then off)")
     for what, before, rec, want, got in (("right", b1, r1, FLAGS_RIGHT, fr), ("left+ctrl", b2, r2, FLAGS_CTRL_LEFT,
                                                                              fl)):
         fails += [f"{what}: {m}" for m in forwarded_fails(before, rec)]
@@ -1054,36 +1041,40 @@ def c23f_hands(host, client, ctx):
         if got != (want, want):
             fails.append(f"{what}: C flags host={got[0]} client={got[1]} (want {want} on both, vanilla's toggle)")
         if rec["clientUi"]["banner"] == TEXT_REACTIONS:
-            fails.append(f"{what}: client banner {rec['clientUi']['banner']!r} (the interim host-only refusal)")
+            fails.append(f"{what}: client banner {rec['clientUi']['banner']!r} (the host-only refusal)")
     if sy["host"] is None or sy["host"] != sy["client"]:
         fails.append(f"synced bucket host={sy['host']} client={sy['client']} (want equal)")
-    fails += common_fails(host, client, b1, "C23f")
+    fails += common_fails(host, client, b1, "reaction_hand_buttons")
     finish(fails)
 
 
-# W2-P6a S-M row MR6 (P6a review section 2; owner D132, D169 superseded: vanilla for the host's own soldier, C-M1)
+# knockout_messages: H is the host's own soldier, so the host shows vanilla's OK box and the client a notice
 KEY_UNCONSCIOUS = "STR_HAS_BECOME_UNCONSCIOUS"
-TEXT_C23B4 = "Henryk Kaminski\nhas become unconscious"   # PIN: the host's OK box text for H (its own soldier),
-                                                       # read on the S-M.1 build (F1728: "\n")
+TEXT_KNOCKOUT = "Henryk Kaminski\nhas become unconscious"   # PIN: the host's OK box text for H (its own soldier),
+                                                          # as the game reads it (a "\n" line break)
 
 
-def mr6_fails(mb, ma, seq0, box, warning):
-    """W2-P6a S-M row MR6 (P6a review section 2; owner D132): H (the host's own soldier) knocked out by the
-    client's stun rod - vanilla's OK box on the host, a notice on the client. Prints the row's EVIDENCE line."""
+def knockout_message_fails(mb, ma, seq0, box, warning):
+    """knockout_messages: H (the host's own soldier) knocked out by the client's stun rod - vanilla's OK box
+    on the host, a notice on the client. Prints the row's EVIDENCE line."""
     d = msg_delta(mb, ma)
-    print(f"EVIDENCE C23b4 MR6: messages={msg_evidence(mb, ma, seq0)}; hostInfobox={box}; client warningText="
+    print(f"EVIDENCE revive_after_knockout knockout_messages: messages={msg_evidence(mb, ma, seq0)}; "
+          f"hostInfobox={box}; client warningText="
           f"{warning!r}", flush=True)
-    fails = msg_rows_fails("C23b4 MR6", "host", d["host"], [want(H_ID, KEY_UNCONSCIOUS, "own", "okbox")])
-    fails += msg_rows_fails("C23b4 MR6", "client", d["client"], [want(H_ID, KEY_UNCONSCIOUS, "partner", "notice")])
-    if warning != TEXT_C23B4:
-        fails.append(f"C23b4 MR6: the client's warningText {warning!r} (want the notice {TEXT_C23B4!r})")
+    fails = msg_rows_fails("revive_after_knockout knockout_messages", "host", d["host"],
+                           [want(H_ID, KEY_UNCONSCIOUS, "own", "okbox")])
+    fails += msg_rows_fails("revive_after_knockout knockout_messages", "client", d["client"],
+                            [want(H_ID, KEY_UNCONSCIOUS, "partner", "notice")])
+    if warning != TEXT_KNOCKOUT:
+        fails.append(f"revive_after_knockout knockout_messages: the client's warningText {warning!r} "
+                     f"(want the notice {TEXT_KNOCKOUT!r})")
     return fails
 
 
-def c23b4_revive(host, client, ctx):
+def revive_after_knockout(host, client, ctx):
     notes = []
     wait_banner_not(client, TEXT_ITEM_ACTION, notes)
-    # ---- a real knockout: C's own stun rod on H (the C21 shape; S-C's melee intent) ----
+    # ---- a real knockout: C's own stun rod on H (a melee intent) ----
     rod = give(host, client, STUN_ROD)
     pc_ = place(host, client, C_ID, C_TILE, C_DIR)
     ph_ = place(host, client, H_ID, H_TILE, H_DIR)
@@ -1092,7 +1083,7 @@ def c23b4_revive(host, client, ctx):
     set_tu_both(host, client, C_ID, TU_MAX)
     b_ko = snap(host, client)
     seq_ko = b_ko["host"]["lastSeqEmitted"] or 0
-    mb = msg_snap(host, client)          # W2-P6a S-M row MR6
+    mb = msg_snap(host, client)          # for the knockout_messages row
     ko = {}
     box = []
     try:
@@ -1107,8 +1098,8 @@ def c23b4_revive(host, client, ctx):
             if order_done(host, client):
                 break
             time.sleep(0.1)
-        # W2-P8 S-C2 (the draft section 1.6): the order no longer waits for the box, so the loop can end with the
-        # knockout box still up; a no-op when it is gone
+        # the order does not wait for the box, so the loop can end with the knockout box still up; a no-op when
+        # it is gone
         dismiss_host_box(host, box)
         session.wait_host_idle(host, client, timeout=20)
     except Exception as e:
@@ -1156,14 +1147,15 @@ def c23b4_revive(host, client, ctx):
     hh, hc = hview(rec["uh"].get(H_ID)), hview(rec["uc"].get(H_ID))
     bodies_end = {n: sorted(i for i, v in its.items() if v.get("unitLink") == H_ID)
                   for n, its in (("host", rec["ih"]), ("client", rec["ic"]))}
-    print(f"EVIDENCE C23b4: KNOCKOUT rod={rod} C={pc_} H={ph_} Hset={ {k: hs.get(k) for k in ('health', 'stun', 'status', 'fatalWounds')} } "
+    print(f"EVIDENCE revive_after_knockout: KNOCKOUT rod={rod} C={pc_} H={ph_} "
+          f"Hset={ {k: hs.get(k) for k in ('health', 'stun', 'status', 'fatalWounds')} } "
           f"press={ko} hostInfobox={box}; {press_view(b_ko, r_ko)}; newContexts={ctx_view(b_ko, r_ko)}; host evs="
           f"{ev_tuples(r_ko['hev'])}; H={hko} bodies={bodies} | STAGED {staged} pre={pre} | STIM press={ev} "
           f"opened={opened} outcome={out} statesAfter={seen}; {press_view(before, rec)}; ui={ui_view(before, rec)}; "
           f"screen={scr}; newContexts={new}; host evs={ev_tuples(rec['hev'])} client evs={ev_tuples(rec['cev'])}; "
           f"H host={hh} client={hc}; bodies={bodies_end}; kit host={charges(rec['ih'], kit)} client="
           f"{charges(rec['ic'], kit)}; diff={rec['diff']} desync={rec['dsc']}; notes={notes}", flush=True)
-    mr6 = mr6_fails(mb, ma, seq_ko, box, warning)
+    knockout_msg_fails = knockout_message_fails(mb, ma, seq_ko, box, warning)
     fails = list(notes)
     for n in ("host", "client"):
         u = hko[n] or {}
@@ -1192,9 +1184,9 @@ def c23b4_revive(host, client, ctx):
         if cx:
             fails += cue_fails(host, chain_of(rec, aid), "medikit",
                                {"actor": C_ID, "unit": H_ID, "item": kit, "action": "stim", "bodypart": TORSO},
-                               "C23b4")
-        fails += halt_fails(rec, aid, False, "C23b4")
-        fails += aftermath_fails(rec, aid, "medikit", False, "C23b4")
+                               "revive_after_knockout")
+        fails += halt_fails(rec, aid, False, "revive_after_knockout")
+        fails += aftermath_fails(rec, aid, "medikit", False, "revive_after_knockout")
         if scr["state"] == "MedikitState":
             fails.append("the client's MedikitState is still open after `continue: false` (want it closed on the "
                          "answer)")
@@ -1206,15 +1198,16 @@ def c23b4_revive(host, client, ctx):
         if bodies_end["host"] or bodies_end["client"]:
             fails.append(f"H's body items after the revive host={bodies_end['host']} client={bodies_end['client']} "
                          f"(want none)")
-        fails += charge_fails(rec, kit, [10, 10, 9], "C23b4")
-    fails += mr6
-    fails += common_fails(host, client, before, "C23b4")
+        fails += charge_fails(rec, kit, [10, 10, 9], "revive_after_knockout")
+    fails += knockout_msg_fails
+    fails += common_fails(host, client, before, "revive_after_knockout")
     finish(fails)
 
 
-SCENARIOS = (("C23b", c23b_medikit), ("C23b5", c23b5_inflight), ("C23b6", c23b6_tu_short),
-             ("C23b3", c23b3_consumable), ("C23b2", c23b2_one_click), ("C23c", c23c_scanner),
-             ("C23e", c23e_reload), ("C23f", c23f_hands), ("C23b4", c23b4_revive))
+SCENARIOS = (("medikit_presses", medikit_presses), ("press_while_in_flight", press_while_in_flight),
+             ("medikit_tu_short", medikit_tu_short), ("one_charge_kit", one_charge_kit),
+             ("one_click_kit", one_click_kit), ("use_scanner", use_scanner), ("reload_rifle", reload_rifle),
+             ("reaction_hand_buttons", reaction_hand_buttons), ("revive_after_knockout", revive_after_knockout))
 
 
 # ===================== bring-up =====================
@@ -1234,7 +1227,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p4-sd")
+    pinned = pin_ai_neutral(host, client, tag="client_items")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
     seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
@@ -1251,14 +1244,14 @@ def boot(host, client):
         es = event_state(gc)
         assert (isinstance(es.get("coopIntentsSent"), dict) and isinstance(es.get("intentsReceived"), dict)
                 and "lastActionHalt" in es and "lastAftermath" in es), (
-            f"{gc.name} event_state lacks the W2-P4 probes: coopIntentsSent={es.get('coopIntentsSent')!r} "
+            f"{gc.name} event_state lacks the intent probes: coopIntentsSent={es.get('coopIntentsSent')!r} "
             f"intentsReceived={es.get('intentsReceived')!r}")
     session.wait_host_idle(host, client, timeout=30)
-    # T0-9 (T0b's order): C and H stripped on both once (their loadouts vary per boot, F1132)
+    # C and H stripped on both once (their loadouts vary per boot)
     stripped = {uid: strip_both(host, client, uid) for uid in (C_ID, H_ID)}
     assert_hash_clean(host, client, full=True, what="bring-up")
     ctx = {"reload_key": read_reload_key(client.user_dir)}
-    print(f"[w2p4-sd] boot ok: {MISSION} MAP_FP={MAP_FP!r} mod={ml} turn={hs['turn']} seated={seated_uids} "
+    print(f"[client_items] boot ok: {MISSION} MAP_FP={MAP_FP!r} mod={ml} turn={hs['turn']} seated={seated_uids} "
           f"H={H_ID} pinned={len(pinned)} stripped={stripped} reload_key={ctx['reload_key']} "
           f"C={ubrief(ub.get(C_ID))} H={hview(h)} A={unit_view(ub.get(A_ID))} A2={unit_view(ub.get(A2_ID))}",
           flush=True)
@@ -1267,10 +1260,10 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # coopGhostStepper pinned true in both instances (row E3 needs the client's effect displays)
-    host = GameClient("host", 49876, make_user_dir("w2p4_client_items_host", mods=[MOD_DIR],
+    # coopGhostStepper pinned true in both instances (row medikit_sounds needs the client's effect displays)
+    host = GameClient("host", 49876, make_user_dir("client_items_host", mods=[MOD_DIR],
                                                    options={"coopGhostStepper": True}))
-    client = GameClient("client", 49877, make_user_dir("w2p4_client_items_client", mods=[MOD_DIR],
+    client = GameClient("client", 49877, make_user_dir("client_items_client", mods=[MOD_DIR],
                                                        options={"coopGhostStepper": True}))
     results = {}
     try:
@@ -1293,7 +1286,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p4-sd] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[client_items] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_client_items: {len(passed)}/{len(SCENARIOS)} passed "
