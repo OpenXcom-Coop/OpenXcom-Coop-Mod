@@ -13,8 +13,9 @@ whenever the base owner had equipped that type on the craft.
 WHAT IS ASSERTED, at the host's own base and at the client's base (co-op vs
 plain parity: whatever holds at your own base must hold at the partner's):
 
-  0. precondition: the client equips its own crew by hand at its base, and the
-     craft's item manifest it writes has no duplicate (type, id) pair;
+  0. precondition: the client equips its own crew by hand at its base. main's
+     two-world craft item manifest (whose type-only match stripped the weapons)
+     is retired in the single world: equipping writes none;
   1. the transferred soldier wears its COMPLETE layout on both screens;
   2. the two screens put the same items in the same slots on that soldier;
   3. the two screens hold the same set of physical item instances (`all`).
@@ -34,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import test_coop_transferred_equipment as T
 
 GEAR = [("STR_RIFLE", "right", 1), ("STR_PISTOL", "left", 1), ("STR_SMALL_ROCKET", "backpack", 2)]
-# what the client equips on its own crew, by hand, to populate the craft manifest
+# what the client equips on its own crew, by hand
 PEER_DRAGS = (("STR_RIFLE", "right"), ("STR_PISTOL", "left"), ("STR_SMALL_ROCKET", "backpack"))
 
 
@@ -57,7 +58,7 @@ def close_base_inventory(gc):
 
 def equip_by_hand(gc, base_name, owner_seat, crew_limit=3):
     """Really drag items onto the local player's own crew, the way a player
-    does - this is what writes the craft's item manifest."""
+    does (main wrote the craft's item manifest here)."""
     own = {s["id"] for s in T.report(gc, base_name)["soldiers"] if s["owner"] == owner_seat}
     open_base_inventory(gc, base_name)
     g = gc.ok({"cmd": "inventory_ground"})
@@ -115,6 +116,8 @@ def main():
         assert len(ids) == len(manifest), (
             f"the craft item manifest has DUPLICATE (type, id) pairs - a type-only "
             f"match follows: {manifest}")
+        assert not manifest, (
+            f"equipping by hand wrote the retired two-world craft item manifest: {manifest}")
         print(f"client crew equipped by hand ({moved} moves); manifest {len(manifest)} "
               f"entries, all (type,id) distinct")
 

@@ -3,8 +3,9 @@ player's base, in the single host-owned SEPARATE world (PR #213).
 
 There is one world: HostBase (the host's) and ClientBase (the client's) are
 real bases on both machines, a transfer is a host command, and a visitor opens
-the partner's base screens directly. A soldier's equipment layout is kept on
-each machine, so every layout this test writes is written on both machines.
+the partner's base screens directly. A layout set on an inventory screen goes
+to the host as a command (test_coop_equip_layout_sync); give_layout is a test
+shortcut that writes one machine's copy, so this test writes it on both.
 
   scenario_conservation()   - the host transfers a soldier carrying a rocket in
     its layout to the client's base:
@@ -152,7 +153,8 @@ def rename(owner, host, client, base, sid, name):
 
 
 def give_layout(host, client, base, name, item, slot, qty=1):
-    """Write a layout entry on both machines (a layout is per machine)."""
+    """Write a layout entry on both machines (give_layout edits one machine's
+    copy only; a real inventory screen sends the layout to the host)."""
     for gc in (host, client):
         g = gc.ok({"cmd": "give_layout", "base": base, "item": item, "slot": slot,
                    "name": name, "count": 1, "qty": qty})
