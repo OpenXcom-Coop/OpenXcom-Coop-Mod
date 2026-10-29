@@ -1,26 +1,26 @@
-"""the END TURN count drops a seat the moment its last soldier goes out (REV E.48 C.4, D53, RV-Vb; spec
-docs rewrite/prompts/rvu8_tally_on_unit_out.md (f); TASK 0 docs rewrite/rvu8-task0/CONSTANTS.md).
+"""test_end_turn_unit_out.py: the END TURN count drops a seat the moment its last soldier goes out. A seat with no
+live commandable unit on the active side is not a live seat, so the tally recounts at once.
 
 FOUR rows, each its own boot (test_end_turn_tally.py's recipe: bring_up_lobby, drive_to_battlescape on
-STR_SMALL_SCOUT with seat_count 2 and set_seed 1 - plus set_mode(traditional) first for the T rows - then
+STR_SMALL_SCOUT with seat_count 2 and set_seed 1 - plus set_mode(traditional) first for the traditional rows - then
 pin_ai_neutral), each shut down before the next. The kill is the host's real casualty chain (battle_action
 kill_unit_real {coop_side N}); "victims out" = every killed id DEAD (status 6) on the host. A press is the real
 END TURN button (battle_action end_turn_button) on the pressing machine.
-  U1 (parallel)    the host pressed; the client's last soldier goes out -> the side ends with no further press
-                   (design-D1 on the recounted live set); after the cycle seat 1 stays out of the count.
-  U2 (parallel)    the client pressed, then its last soldier goes out -> its press stops counting at once (tally
-                   0/1, text and its pressed button clear); nothing ends until the host presses.
-  T1 (traditional) the holder at entry (seat 0) loses its last soldier -> the turn passes to seat 1 (D-23 skip);
-                   seat 1's own press is then the LAST pass.
-  T2 (traditional) the host passed; the new holder (seat 1) loses its last soldier -> nobody after it: the side
-                   ends (D-23 "the last pass closes the side", D-24 no take-back).
+  parallel_client_out (parallel): the host pressed; the client's last soldier goes out -> the side ends with no
+      further press (the recount leaves the host's press as the only one needed); after the cycle seat 1 stays out
+      of the count.
+  parallel_presser_out (parallel): the client pressed, then its last soldier goes out -> its press stops counting
+      at once (tally 0/1, text and its pressed button clear); nothing ends until the host presses.
+  traditional_holder_out (traditional): the holder at entry (seat 0) loses its last soldier -> the turn passes to
+      seat 1 (a seat with no live unit is skipped); seat 1's own press is then the LAST pass.
+  traditional_last_holder_out (traditional): the host passed; the new holder (seat 1) loses its last soldier ->
+      nobody after it: the side ends (the last pass closes the side; a pass is never taken back).
 Premise (every row): seat 0 / seat 1 live player units == S0_IDS / S1_IDS on both machines; the live turn mode on
-both; T rows: coopActiveSeat 0 on both. A premise or pre-cell miss = ONE CAPTURE line and "FAIL <row>: pre-cell
-(setup failure)". Cells run in order; a failed cell ends its row (later cells "not reached"). Guards per row: no new
-crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per
-cell and guard, then its verdict; every row runs after a failure.
-Rulings: D53, design-D1, D-23, D-24, RV-Vb (QU8-1..6 (a)). ONE foreground run, no skip path;
-exit 0 only when every row passes, 2 otherwise.
+both; traditional rows: coopActiveSeat 0 on both. A premise or pre-cell miss = ONE CAPTURE line and "FAIL <row>:
+pre-cell (setup failure)". Cells run in order; a failed cell ends its row (later cells "not reached"). Guards per
+row: no new crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE <row>:" line, one
+PASS/FAIL line per cell and guard, then its verdict; every row runs after a failure. ONE foreground run, no skip
+path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_end_turn_unit_out.py
 """
@@ -38,10 +38,10 @@ from test_end_turn_tally import bring_up_lobby, drive_full_cycle
 from test_turn_mode import set_mode, live_mode, TRADITIONAL, PARALLEL
 
 MISSION = "STR_SMALL_SCOUT"
-# TASK 0 (docs rewrite/rvu8-task0/CONSTANTS.md; 8/8 boots identical on both machines at 0d4a61d0e):
+# Measured on eight boots, identical on both machines:
 S0_IDS = [10, 11, 12, 13, 14]      # seat 0 (host) live player units
 S1_IDS = [8, 9]                    # seat 1 (client) live player units
-RECOUNT_S, SIDE_S, HOLD_S = 10, 15, 3   # the spec's windows (victims out: 1.56 s seat 1, 4.28 s seat 0)
+RECOUNT_S, SIDE_S, HOLD_S = 10, 15, 3   # the windows (victims out measured at 1.56 s seat 1, 4.28 s seat 0)
 VICTIMS_S, PAINT_S = 10, 15        # victims-out bound (pre-cell); a press's paint bound (pre-cell)
 DEAD = 6                           # STATUS_DEAD as battle_state reports it
 FACTION_PLAYER = 0
@@ -168,7 +168,7 @@ def tally_is(s, **want):
 # ----- the rows: pre(host, client, ctx) builds the pre-cell; cells is an ordered list of (name, fn) where fn returns
 # a failure string or None -----
 
-def u1_pre(host, client, ctx):
+def parallel_client_out_pre(host, client, ctx):
     press(host, ctx, "host")
     if until(lambda: battle_state(host).get("coopEndTurnText") == TEXT1, PAINT_S) is None:
         raise FixtureMiss(f"host did not paint {TEXT1!r} within {PAINT_S} s of its press")
@@ -193,7 +193,7 @@ def side_ended(who):
     return cell
 
 
-def u1_cycle(host, client, ctx):
+def parallel_client_out_cycle(host, client, ctx):
     try:
         drive_full_cycle(host, client, ctx["turn0"])
         session.wait_host_idle(host, client, timeout=30)
@@ -208,7 +208,7 @@ def u1_cycle(host, client, ctx):
     return "; ".join(bad) or None
 
 
-def u2_pre(host, client, ctx):
+def parallel_presser_out_pre(host, client, ctx):
     press(client, ctx, "client")
     if until(lambda: battle_state(host).get("coopEndTurnText") == TEXT1, PAINT_S) is None:
         raise FixtureMiss(f"host did not paint {TEXT1!r} within {PAINT_S} s of the client's press")
@@ -220,7 +220,7 @@ def u2_pre(host, client, ctx):
     kill_seat(host, ctx, 1)
 
 
-def u2_host_recount(host, client, ctx):
+def presser_out_host_recount(host, client, ctx):
     def ok():
         h = snap(host)
         return tally_is(h, count=0, needed=1, ready=[]) and h["text"] == ""
@@ -231,7 +231,7 @@ def u2_host_recount(host, client, ctx):
     return None
 
 
-def u2_client_recount(host, client, ctx):
+def presser_out_client_recount(host, client, ctx):
     def ok():
         c = snap(client)
         return tally_is(c, count=0, needed=1, ready=[]) and c["armed"] is False and c["text"] == ""
@@ -263,12 +263,12 @@ def press_ends_side(presser):
     return cell
 
 
-def t1_pre(host, client, ctx):
+def traditional_holder_out_pre(host, client, ctx):
     ctx["P0"], ctx["C0"] = pc(host), pc(client)
     kill_seat(host, ctx, 0)
 
 
-def t1_pass(host, client, ctx):
+def traditional_holder_out_pass(host, client, ctx):
     def ok():
         return (event_state(host).get("coopActiveSeat") == 1 and event_state(client).get("coopActiveSeat") == 1
                 and tally_is(snap(host), needed=1, count=0, ready=[], activeSeat=1))
@@ -279,7 +279,7 @@ def t1_pass(host, client, ctx):
     return None
 
 
-def t2_pre(host, client, ctx):
+def traditional_last_holder_out_pre(host, client, ctx):
     p = pc(host)
     press(host, ctx, "host")
     if until(lambda: event_state(host).get("coopActiveSeat") == 1
@@ -292,20 +292,20 @@ def t2_pre(host, client, ctx):
 
 
 ROWS = (
-    ("U1", "48164", 49660, 49661, PARALLEL, u1_pre,
+    ("parallel_client_out", "48164", 49660, 49661, PARALLEL, parallel_client_out_pre,
      [("(1) host side ends, no press", side_ended("host")),
       ("(2) client side ends", side_ended("client")),
-      ("(3) next side counts seat 0 only", u1_cycle)]),
-    ("U2", "48165", 49662, 49663, PARALLEL, u2_pre,
-     [("(1) host recount 0/1", u2_host_recount),
-      ("(2) client recount, unarmed", u2_client_recount),
+      ("(3) next side counts seat 0 only", parallel_client_out_cycle)]),
+    ("parallel_presser_out", "48165", 49662, 49663, PARALLEL, parallel_presser_out_pre,
+     [("(1) host recount 0/1", presser_out_host_recount),
+      ("(2) client recount, unarmed", presser_out_client_recount),
       ("(3) no side end for HOLD_S", no_side_end),
       ("(4) host press ends the side", press_ends_side("host"))]),
-    ("T1", "48166", 49664, 49665, TRADITIONAL, t1_pre,
-     [("(1) the turn passes to seat 1", t1_pass),
+    ("traditional_holder_out", "48166", 49664, 49665, TRADITIONAL, traditional_holder_out_pre,
+     [("(1) the turn passes to seat 1", traditional_holder_out_pass),
       ("(2) no side end for HOLD_S", no_side_end),
       ("(3) client press is the last pass", press_ends_side("client"))]),
-    ("T2", "48167", 49666, 49667, TRADITIONAL, t2_pre,
+    ("traditional_last_holder_out", "48167", 49666, 49667, TRADITIONAL, traditional_last_holder_out_pre,
      [("(1) host side ends, no press", side_ended("host")),
       ("(2) client side ends", side_ended("client"))]),
 )
@@ -315,8 +315,8 @@ def run_row(row, results, walls):
     rid, key, lh, lc, mode, pre, cells = row
     t0, ctx, lines = time.time(), {"row": rid}, []
     crash0 = session._crash_log_snapshot()
-    host = GameClient("host", lh, make_user_dir(f"rvu8_{rid}_host"))
-    client = GameClient("client", lc, make_user_dir(f"rvu8_{rid}_client"))
+    host = GameClient("host", lh, make_user_dir(f"end_turn_unit_out_{rid}_host"))
+    client = GameClient("client", lc, make_user_dir(f"end_turn_unit_out_{rid}_client"))
     failed, verdict = [], None
     try:
         try:
@@ -327,7 +327,7 @@ def run_row(row, results, walls):
                     set_mode(h, TRADITIONAL)
                 h.ok({"cmd": "set_seed", "seed": 1})
             session.drive_to_battlescape(host, client, {}, mission=MISSION, seat_count=2, pre_ok=pre_ok)
-            ctx["pinned"] = pin_ai_neutral(host, client, tag=f"rvu8-{rid}")
+            ctx["pinned"] = pin_ai_neutral(host, client, tag=f"end_turn_unit_out-{rid}")
             premise(host, client, mode, ctx)
             ctx["entry"] = {"host": snap(host), "client": snap(client)}
             pre(host, client, ctx)
@@ -369,7 +369,7 @@ def run_row(row, results, walls):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[rvu8] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_end_turn_unit_out] shutdown {gc.name}: {short(e)}", flush=True)
         new_crash = sorted(session._crash_log_snapshot() - crash0)
         ctx["crash"], ctx["alive"] = new_crash, alive
         if verdict is None:
