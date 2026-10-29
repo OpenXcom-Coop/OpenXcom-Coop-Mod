@@ -100,7 +100,8 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 from test_delta_core import diff_buckets, short, both, tele_both, common_fails, finish, hashes
-from test_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned, k4_fails
+from test_ai_origins import (host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned,
+                             melee_psi_camera_fails)
 from test_unit_spawn import ring_at, ring_view
 from test_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs)
@@ -224,7 +225,7 @@ def c12b_zombie(host, client, ctx):
          "respawn": True, "Is": DEATH_IS_TURN, "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": 0,
          "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": True, "phasesShown": []}])
     # W2-G1 row G1-5 (AUD-A16, D171; guard): Ch's melee hit on C still centres the client's camera on C
-    g15 = k4_fails(client, melee[0]["seq"] if melee else None, CH_ID, C_ID, True, "C12b G1-5")
+    g15 = melee_psi_camera_fails(client, melee[0]["seq"] if melee else None, CH_ID, C_ID, True, "C12b G1-5")
     fails = list(rec["notes"])
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")

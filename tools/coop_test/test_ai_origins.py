@@ -1,100 +1,97 @@
 """test_ai_origins.py: an alien's attack and the grenades that
 go off when a side ends each run as a named action - with its own action
 context, its own `bt_action_end`, and (for a ranged or thrown AI attack) the
-alien's turn toward its target sent as a normal `turn` event first (spec
-rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_ai_origins.py
-(S-A)", sections (b)1-6 and (b)13 for the `ai` and `endturn` origins,
-amendments B1 (RQ5, RQ6, RQ7, RQ15) and B2 (C6, C7); owner ruling D128 = (b)).
+alien's turn toward its target sent as a normal `turn` event first. An AI
+action runs in an `ai` context, a grenade that goes off at the end of a side in
+an `endturn` context.
 
-Before W2-P3 these chains already reach the second player through W2-P2's
+Without these contexts the chains still reach the second player through the
 delta and `sync` evs, so nothing freezes - but they are anonymous: their cues
 carry actionId 0, nothing marks where they start and end, and the AI's turn
 toward its target is visible only by sampling the unit.
 
-Four scenarios, ONE boot, in this order (the W2-P3 TASK 0a one-boot order, then KR1h):
+Four scenarios, ONE boot, in this order:
 
-  C3e  end-turn detonation. A primed fuse-0 STR_GRENADE and two
-       STR_RIFLE_CLIPs lie on C3E_TILE (battle_drop, BOTH). Both machines press
-       END TURN (host set_seed SEED_C6 right before its press - the same cycle
-       carries C6); the grenade explodes at the end of the player side, before
-       the first side_transition. GREEN: the explosion carries an `endturn`
-       context's id (host closedContexts {origin endturn, kind endturn,
-       actorId -1, nestedIn 0, hasFinal false}); every combat cue before that
-       side_transition carries it; its one bt_action_end (no `final`) has a
-       lower seq than the side_transition, whose actionId is 0; the grenade
-       and >= 1 clip absent on both. RED (W2-P3 base, TASK 0d): (4 explosion 0)
-       (5 side_transition 0), no bt_action_end between them, no context.
-  C6   the alien shoots at C (same cycle). A (the only alien) on C6_A_TILE
-       facing C6_A_DIR, one octant off the direction to C on C6_C_TILE, A tu
-       base A_TU (BOTH). SEED_C6's alien side runs three AI actions (snap,
-       snap, a one-step walk; B2.2 / F812). GREEN: three `ai` contexts
+  endturn_grenade  end-turn detonation. A primed fuse-0 STR_GRENADE and two
+       STR_RIFLE_CLIPs lie on GRENADE_TILE (battle_drop, BOTH). Both machines
+       press END TURN (host set_seed SEED_AI_SHOT right before its press - the
+       same cycle carries ai_shot); the grenade explodes at the end of the
+       player side, before the first side_transition. Pass: the explosion
+       carries an `endturn` context's id (host closedContexts {origin endturn,
+       kind endturn, actorId -1, nestedIn 0, hasFinal false}); every combat cue
+       before that side_transition carries it; its one bt_action_end (no
+       `final`) has a lower seq than the side_transition, whose actionId is 0;
+       the grenade and >= 1 clip absent on both. Without the `endturn` context
+       the log read (4 explosion 0) (5 side_transition 0), no bt_action_end
+       between them, no context.
+  ai_shot  the alien shoots at C (same cycle). A (the only alien) on
+       SHOT_A_TILE facing SHOT_A_DIR, one octant off the direction to C on
+       SHOT_C_TILE, A tu base A_TU (BOTH). SEED_AI_SHOT's alien side runs three
+       AI actions (snap, snap, a one-step walk). Pass: three `ai` contexts
        {kind shoot, shoot, walk; actorId A; hasFinal true}; the FIRST one's evs
-       in both logs are turn (unit A, fromDir C6_A_DIR, toDir C6_TURN_TO) ->
+       in both logs are turn (unit A, fromDir SHOT_A_DIR, toDir SHOT_TURN_TO) ->
        shot (actor A) -> >= 1 hit -> bt_action_end, with no `sync` between its
        first ev and its end; it is the only context with a `turn` ev; every
        AI action on that side opens and closes its own context; A tu/direction
-       and C health equal on both. RED (TASK 0d): (8 shot 0)(9 hit 0)(10 sync
-       0)(11 shot 0)(12 hit 0)(13 sync 0)(14 walk_step 1)(15 bt_action_end 1),
-       no `ai` context, no `turn` ev (A turned 3 -> 4, visible only by
-       sampling).
-  C7   the alien throws a grenade (battle turn 3; the AI throws grenades only
-       from turn 3, turnAIUseGrenade, F807). Cycle 2 is a plain cycle with A
+       and C health equal on both. Without the `ai` contexts the log read
+       (8 shot 0)(9 hit 0)(10 sync 0)(11 shot 0)(12 hit 0)(13 sync 0)
+       (14 walk_step 1)(15 bt_action_end 1), no `ai` context, no `turn` ev (A
+       turned 3 -> 4, visible only by sampling).
+  ai_throw  the alien throws a grenade (battle turn 3; the AI throws grenades
+       only from turn 3, turnAIUseGrenade). Cycle 2 is a plain cycle with A
        re-pinned (tu 0 + refill, BOTH). Then A is stripped (battle_strip_unit,
-       BOTH, deleted ids compared as SETS - F882) and given a STR_GRENADE on
-       its belt (battle_give, BOTH), A/C/C2 staged (BOTH), A tu base A_TU
-       (BOTH); host set_seed SEED_C7 right before its END TURN press. GREEN:
-       the first `ai` context on the alien side is {kind throw,
-       actorId A, hasFinal true} and its evs are exactly turn (unit A,
-       fromDir C7_A_DIR, toDir C7_TURN_TO) -> shot (action throw, `arc`
-       present, actor A, the grenade) -> bt_action_end; the grenade explodes
-       at the END of the alien side inside an `endturn` context (explosion
-       seq after the throw's end; the context's bt_action_end, no `final`,
-       before the side_transition, whose actionId is 0); every AI action on
-       that side runs in its own context; the grenade absent on both. RED
-       (TASK 0d): (30 shot 0, throw)(31 sync 0)(32 walk_step 2)(33
-       bt_action_end 2)(34 explosion 0)(35 side_transition 0), no `ai` or
-       `endturn` context.
-  KR1h (W2-P6a S-C, AMENDMENT P6-5 section 4 C-C2 / P6-5 Q1 (a); owner
-       D171's clarification) the enemy turn's first `ai` action is a shot at
-       the HOST's soldier H (battle turn 4). A re-armed on BOTH machines
-       (battle_strip_unit A, deleted ids compared as sets, F882; battle_give
-       a loaded STR_PLASMA_PISTOL), A on C6_A_TILE facing C6_A_DIR, H on
-       C6_C_TILE facing C6_C_DIR, C and C2 on KR1H_C_TILE / KR1H_C2_TILE (out
-       of A's view), A tu A_TU (BOTH); the client camera on K_FAR; host
-       set_seed SEED_KR1H right before its END TURN press (T0a-8's seed).
-       GREEN: the alien side's first `ai` context is a shot by A whose `hit`
+       BOTH, deleted ids compared as SETS) and given a STR_GRENADE on its belt
+       (battle_give, BOTH), A/C/C2 staged (BOTH), A tu base A_TU (BOTH); host
+       set_seed SEED_AI_THROW right before its END TURN press. Pass: the first
+       `ai` context on the alien side is {kind throw, actorId A, hasFinal true}
+       and its evs are exactly turn (unit A, fromDir THROW_A_DIR, toDir
+       THROW_TURN_TO) -> shot (action throw, `arc` present, actor A, the
+       grenade) -> bt_action_end; the grenade explodes at the END of the alien
+       side inside an `endturn` context (explosion seq after the throw's end;
+       the context's bt_action_end, no `final`, before the side_transition,
+       whose actionId is 0); every AI action on that side runs in its own
+       context; the grenade absent on both. Without the contexts the log read
+       (30 shot 0, throw)(31 sync 0)(32 walk_step 2)(33 bt_action_end 2)
+       (34 explosion 0)(35 side_transition 0), no `ai` or `endturn` context.
+  camera_host_target  the enemy turn's first `ai` action is a shot at the
+       HOST's soldier H (battle turn 4); the client's camera follows it like
+       any other visible alien action. A re-armed on BOTH machines
+       (battle_strip_unit A, deleted ids compared as sets; battle_give a loaded
+       STR_PLASMA_PISTOL), A on SHOT_A_TILE facing SHOT_A_DIR, H on SHOT_C_TILE
+       facing SHOT_C_DIR, C and C2 on HOST_TARGET_C_TILE / HOST_TARGET_C2_TILE
+       (out of A's view), A tu A_TU (BOTH); the client camera on CAMERA_FAR;
+       host set_seed SEED_HOST_TARGET right before its END TURN press.
+       Pass: the alien side's first `ai` context is a shot by A whose `hit`
        unit is H (the fixture); the client's camera.moves for the cycle carry
        {follow} at that shot's seq and {hit_level} at its hit seq, never
-       {hit_centre} there (W2-G1, AUD-A16: a bullet hit never centres), and
-       equal KR1's rules for everything else; the client offset
-       moved; host camera.suppressed all +0; the file's common and context
-       asserts. RED (commit S-C.1): the client's moves are empty.
+       {hit_centre} there (a bullet hit never centres the camera, as in
+       vanilla), and follow camera_follows_aliens's rules for everything else;
+       the client offset moved; host camera.suppressed all +0; the file's
+       common and context asserts.
 
-W2-P6a S-C camera rows (spec rewrite/prompts/w2p6_display_two.md P6a review
-section 2, P6a pinned stage text (c), AMENDMENTS P6-5 section 4 and P6-6
-section 5; owner D131, D171 (a)), read from event_state `camera` (commit
-S-C.1: offset / viewLevel / follow are live reads; `moves` and `suppressed`
-are written by S-C.2):
-  KR1  (checked in C6, on cycle 1) C3e stages the client camera on K_FAR
-       before the host's press. GREEN: the client's camera.moves for the
-       cycle are exactly {explosion} at the C3e explosion (OR5 (a)), {follow}
-       per shot of A, {hit_level} per hit of A (never {hit_centre} on a bullet
-       hit: W2-G1, AUD-A16), {walker_level} per A
-       walk_step plus {walker_centre} iff that record is visible and off
-       screen, and {side_start} at the player side_begin; the
-       client offset moved; host suppressed all +0. RED: no move, offset
-       unchanged. One "EVIDENCE KR1:" line.
-  KR1-off (checked in C7, on cycle 3; Q16 (a)) the client's coopGhostStepper
-       off right before the press, on after the cycle. GREEN: no client move
-       for the cycle, the client offset unchanged. Declared green at red.
-       One "EVIDENCE KR1-off:" line.
+Camera rows, read from event_state `camera` (offset / viewLevel / follow are
+live reads; `moves` and `suppressed` are the recorded camera moves):
+  camera_follows_aliens  (checked in ai_shot, on cycle 1) endturn_grenade
+       stages the client camera on CAMERA_FAR before the host's press. Pass:
+       the client's camera.moves for the cycle are exactly {explosion} at the
+       endturn_grenade explosion, {follow} per shot of A, {hit_level} per hit
+       of A (never {hit_centre} on a bullet hit, as in vanilla),
+       {walker_level} per A walk_step plus {walker_centre} iff that record is
+       visible and off screen, and {side_start} at the player side_begin; the
+       client offset moved; host suppressed all +0. One
+       "EVIDENCE camera_follows_aliens:" line.
+  camera_option_off  (checked in ai_throw, on cycle 3) the client's
+       coopGhostStepper off right before the press, on after the cycle. Pass:
+       no client move for the cycle, the client offset unchanged. It passes
+       with or without the camera moves. One "EVIDENCE camera_option_off:"
+       line.
 
-Common asserts (spec (f) as amended by B1 RQ5; each scenario's cycle settled
-with wait_host_idle): W2-P2's common asserts (hash_now {full:true} ALL buckets
-EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and
-host 0; client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
+Common asserts (each scenario's cycle settled with wait_host_idle):
+test_delta_core's common asserts (hash_now {full:true} ALL buckets EQUAL;
+desyncSeen false on both; client coopClientBStatePushes unchanged and host 0;
+client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
 deltaRemoveMissing, deltaAddExisting 0 on both); host contextBeginRefused 0;
-contextsClosedAtEndTurn is a DIAGNOSTIC (printed, never asserted, RQ5); every
+contextsClosedAtEndTurn is a DIAGNOSTIC (printed, never asserted); every
 side_transition carries actionId 0 and no action context spans one (each
 context's bt_action_end precedes the next side_transition); every context the
 scenario opens has exactly one bt_action_end, its last ev, and is recorded in
@@ -102,31 +99,26 @@ closedContexts (endSeq = that ev's seq); contextsOpened grew by exactly the
 number of contexts closed; the client log holds the host's seqs/kinds/
 actionIds. armingDeferrals is printed, never asserted.
 
-Probes (commit S-A.1, amendment B1 RQ7): event_state contextsOpened,
-closedContexts (with hasFinal), contextsClosedAtEndTurn, contextBeginRefused
-(host; commit S-A.2 writes them); battle_state units[].type; the host's
-`[coop-turn] turn seq <n> actionId <id>: <payload>` log line (event_log
-carries no payload) next to coopEmitCue's `[coop-cue]` line, both read from
-the host's own openxcom.log.
+Probes: event_state contextsOpened, closedContexts (with hasFinal),
+contextsClosedAtEndTurn, contextBeginRefused (written on the host);
+battle_state units[].type; the host's `[coop-turn] turn seq <n> actionId <id>:
+<payload>` log line (event_log carries no payload) next to coopEmitCue's
+`[coop-cue]` line, both read from the host's own openxcom.log.
 
-Bring-up (deterministic, never searched here; ledger `## W2-P3 TASK 0a`,
-scratch w2p3/T0a/constants.md): set_seed SEED_ROSTER on the HOST right before
-its open_new_battle (the roster repeats, F501); the DEFAULT NEW BATTLE map (no
-mission pin) with set_seed SEED_MAP right before newbattle_ok, seat_count=2,
-the baked MAP_FP asserted on both; session.pin_ai_neutral (pins A); RQ15:
-every live player unit's reactions 0 on BOTH. Every lever pair applies to the
-CLIENT first, then the HOST, with the responses asserted equal; every
-item a lever creates is created on both machines with equal ids. set_seed on
-the HOST immediately before the press that starts the chain.
+Bring-up (deterministic, never searched here): set_seed SEED_ROSTER on the HOST
+right before its open_new_battle (the roster repeats); the DEFAULT NEW BATTLE
+map (no mission pin) with set_seed SEED_MAP right before newbattle_ok,
+seat_count=2, the baked MAP_FP asserted on both; session.pin_ai_neutral (pins
+A); every live player unit's reactions 0 on BOTH. Every test command pair
+applies to the CLIENT first, then the HOST, with the responses asserted equal;
+every item a test command creates is created on both machines with equal ids.
+set_seed on the HOST immediately before the press that starts the chain.
 
-RED-THEN-GREEN (spec (d) row S-A). Commit S-A.1 (this file + the probe
-storage; product behaviour unchanged) is run ONCE and every scenario must
-FAIL with the RED above; commit S-A.2 (the `ai`/`endturn` contexts) is run
-ONCE and every scenario must PASS. Each scenario prints ONE "EVIDENCE <id>:"
-line with both machines' fields BEFORE its green conditions are checked;
-main() runs every scenario even after an earlier one failed and prints
-"PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that
-times out is recorded in the EVIDENCE line and fails the scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+BEFORE its pass conditions are checked; main() runs every scenario even after
+an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every
+wait is bounded; a wait that times out is recorded in the EVIDENCE line and
+fails the scenario.
 
 one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all four scenarios pass, 2
@@ -155,53 +147,53 @@ from test_host_combat import evs_since, ev_tuples, cue_probes, cue_delta
 from test_host_combat import (camera_of, cam_snap, cam_offset, stage_camera, cam_moves, mv, cam_suppressed_delta,
                                  cam_view)
 
-# ----- bring-up (W2-P3 TASK 0a, ledger `## W2-P3 TASK 0a`) -----
+# ----- bring-up -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
 SEATED = [8, 9]                  # the client seat's soldiers
 A_ID = 1000000                   # the only alien: Sectoid Soldier, plasma pistol 56 (ammo 57), clip 58, mind probe 59
-A_TYPE = "STR_SECTOID_SOLDIER"   # battle_state units[].type (B1 RQ7)
+A_TYPE = "STR_SECTOID_SOLDIER"   # battle_state units[].type
 C_ID, C2_ID = 8, 9               # client seat: C (rifle, belt grenade) and C2
 A_TU = 54                        # set_stat tu (no refill): recovered at A's side start
 PORT = "48628"
 FACTION_PLAYER = 0
 
-# ----- C3e + C6: ONE cycle, battle turn 1 -----
-C3E_TILE = (7, 3, 0)             # battle_drop STR_GRENADE {prime, fuse 0} + STR_RIFLE_CLIP x2 (T0a ids 60, 61, 62)
-C6_A_TILE, C6_A_DIR = (15, 3, 0), 3
-C6_C_TILE, C6_C_DIR = (15, 8, 0), 4    # C faces away from A
-C6_TURN_TO = 4                   # the direction A (15,3) -> C (15,8); A turns 3 -> 4 before its first snap
-SEED_C6 = 15                     # host set_seed right before its END TURN press (after the client's press)
-C6_AI_KINDS = ["shoot", "shoot", "walk"]   # snap + hit, snap + hit, a one-step AI walk
+# ----- endturn_grenade + ai_shot: ONE cycle, battle turn 1 -----
+GRENADE_TILE = (7, 3, 0)         # battle_drop STR_GRENADE {prime, fuse 0} + STR_RIFLE_CLIP x2 (measured ids 60, 61, 62)
+SHOT_A_TILE, SHOT_A_DIR = (15, 3, 0), 3
+SHOT_C_TILE, SHOT_C_DIR = (15, 8, 0), 4     # C faces away from A
+SHOT_TURN_TO = 4                 # the direction A (15,3) -> C (15,8); A turns 3 -> 4 before its first snap
+SEED_AI_SHOT = 15                # host set_seed right before its END TURN press (after the client's press)
+SHOT_AI_KINDS = ["shoot", "shoot", "walk"]   # snap + hit, snap + hit, a one-step AI walk
 
-# ----- C7: cycle 2 (turn 2, plain) + cycle 3 (turn 3) -----
-C7_A_TILE, C7_A_DIR = (15, 2, 0), 3
-C7_C_TILE, C7_C_DIR = (15, 9, 0), 4
-C7_C2_TILE, C7_C2_DIR = (16, 9, 0), 4  # C and C2 adjacent: 2 enemies inside the grenade's radius
-C7_TURN_TO = 4                   # the direction A (15,2) -> C (15,9); A turns 3 -> 4 before the throw (T0a)
-SEED_C7 = 3                      # host set_seed right before its END TURN press
+# ----- ai_throw: cycle 2 (turn 2, plain) + cycle 3 (turn 3) -----
+THROW_A_TILE, THROW_A_DIR = (15, 2, 0), 3
+THROW_C_TILE, THROW_C_DIR = (15, 9, 0), 4
+THROW_C2_TILE, THROW_C2_DIR = (16, 9, 0), 4   # C and C2 adjacent: 2 enemies inside the grenade's radius
+THROW_TURN_TO = 4                # the direction A (15,2) -> C (15,9); A turns 3 -> 4 before the throw
+SEED_AI_THROW = 3                # host set_seed right before its END TURN press
 
-# ----- W2-P6a S-C rows KR1, KR1-off, KR1h (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5) -----
-K_FAR = (2, 38, 0)               # T0a-4: the client camera staged here (> 1 screen from every alien action; map 40x40x4)
-H_ID = 10                        # the host seat's first soldier (KR1h's target)
-KR1H_WEAPON, KR1H_AMMO = "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"   # A re-armed (battle_give, both)
-KR1H_C_TILE, KR1H_C_DIR = (2, 34, 0), 0     # T0a-8: C out of A's view (> 20 tiles from C6_A_TILE)
-KR1H_C2_TILE, KR1H_C2_DIR = (6, 34, 0), 0   # T0a-8: C2 out of A's view
-SEED_KR1H = 2                    # T0a-8: host set_seed right before its END TURN press - A's first `ai` shot hits
-                                 # (and kills) H; its second kills soldier 12; no panic follows. Tried: 15 (the
-                                 # construction) and 1 missed with the first shot; 2 met (one boot per seed, battle
-                                 # turn 4); proven on 3 boots and at K=2 with batch 6.
+# ----- camera rows camera_follows_aliens, camera_option_off, camera_host_target -----
+CAMERA_FAR = (2, 38, 0)          # the client camera staged here (> 1 screen from every alien action; map 40x40x4)
+H_ID = 10                        # the host seat's first soldier (camera_host_target's target)
+HOST_TARGET_WEAPON, HOST_TARGET_AMMO = "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"   # A re-armed (battle_give, both)
+HOST_TARGET_C_TILE, HOST_TARGET_C_DIR = (2, 34, 0), 0       # C out of A's view (> 20 tiles from SHOT_A_TILE)
+HOST_TARGET_C2_TILE, HOST_TARGET_C2_DIR = (6, 34, 0), 0     # C2 out of A's view
+SEED_HOST_TARGET = 2             # host set_seed right before its END TURN press - A's first `ai` shot hits
+                                 # (and kills) H; its second kills soldier 12; no panic follows. Seeds 15 and 1
+                                 # missed with the first shot; 2 hits (one boot per seed, battle turn 4); the same
+                                 # on 3 boots and with a second test running in parallel.
 FACTION_HOSTILE, FACTION_NEUTRAL = 1, 2
 CYCLE_SIDES = (FACTION_PLAYER, FACTION_HOSTILE, FACTION_NEUTRAL, FACTION_PLAYER)   # by side_transitions passed
 
-# The ev kinds a named chain emits (the combat cues + the wave-1 action kinds);
+# The ev kinds a named chain emits (the combat cues + the other action kinds);
 # `sync`, `reveal`, `side_*`, `door` and `spot` are not chain evs here.
 CHAIN_KINDS = ("turn", "walk_step", "kneel", "shot", "hit", "explosion", "melee", "psi", "death", "corpse",
                "prime", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
 COMBAT_CUES = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse")
 # The host's own log lines (connectionTCP.cpp): coopEmitCue's `[coop-cue]` and
-# coopOnUnitTurnFinished's `[coop-turn] turn` (commit S-A.1, B1 RQ7).
+# coopOnUnitTurnFinished's `[coop-turn] turn`.
 PAYLOAD_RE = re.compile(r"\[coop-(?:cue|turn)\] (\S+) seq (\d+) actionId (\d+): (\{.*\})\s*$", re.M)
 
 
@@ -213,7 +205,7 @@ def units(gc):
 
 
 def ctx_probes(gc):
-    """The S-A.1 context probes + armingDeferrals (host-written; a client
+    """The context probes + armingDeferrals (host-written; a client
     reports its own empty values)."""
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
@@ -352,7 +344,7 @@ def turn_fails(rec, what):
 
 
 def segment_context_fails(hev, cev, closed, what):
-    """Spec (f) common asserts as amended by B1 RQ5, over one segment of host
+    """The common context asserts over one segment of host
     evs: every side_transition carries actionId 0 (on both machines); every
     non-zero actionId has exactly one bt_action_end, as its last ev, with no
     side_transition between its first ev and that end, and is recorded in
@@ -415,7 +407,7 @@ def cycle_context_fails(rec, what):
 
 
 def ai_actions_fails(side, closed, what):
-    """B2.2: every AI action on the side opens and closes its own context -
+    """Every AI action on the side opens and closes its own context -
     every chain ev on the side carries the id of a context in closedContexts
     whose origin is `ai` (or `endturn` for an explosion) - and no `sync` falls
     between a context's first ev and its end."""
@@ -462,7 +454,7 @@ def cycle_evidence(rec):
             f"->{delta_view(pc)}; notes={rec['notes']}")
 
 
-# ===================== W2-P6a S-C camera rows (KR1, KR1-off, KR1h) =====================
+# ===================== camera rows (camera_follows_aliens, camera_option_off, camera_host_target) =====================
 
 
 def cycle_side(seq, sts):
@@ -471,14 +463,13 @@ def cycle_side(seq, sts):
     return CYCLE_SIDES[min(sum(1 for t in sts if t <= seq), len(CYCLE_SIDES) - 1)]
 
 
-def kr1_expected(hev, pl, closed, uh, client_selected):
-    """KR1's rules (P6a review section 2 row KR1; pinned stage text (c) K1, K3, K4, K5/K6 and K9 as ruled by OR4 (a),
-    OR5 (a), C-C3, C-C5 and D171 (a)) for one END TURN cycle whose only actor is the alien A: the (seq, reason) of every
-    client camera move the cycle must record, in host-log order. {explosion} per explosion whose actor is A or absent
-    (OR5 (a)); {follow} per shot of A; {hit_level} per hit of A (or actorless), never {hit_centre} on a bullet hit
-    (W2-G1, AUD-A16); {walker_level} per walk_step of an `ai` context of A ({walker_centre} is
-    added by the caller iff that walker_level record has visible true and onScreen false); {side_start} at the
-    player side_begin when the client has a selected unit after the cycle (K9). Returns (pairs, walk_step seqs)."""
+def camera_expected(hev, pl, closed, uh, client_selected):
+    """camera_follows_aliens's rules for one END TURN cycle whose only actor is the alien A: the (seq, reason) of every
+    client camera move the cycle must record, in host-log order. {explosion} per explosion whose actor is A or absent;
+    {follow} per shot of A; {hit_level} per hit of A (or actorless), never {hit_centre} on a bullet hit (as in
+    vanilla); {walker_level} per walk_step of an `ai` context of A ({walker_centre} is added by the caller iff that
+    walker_level record has visible true and onScreen false); {side_start} at the player side_begin when the client
+    has a selected unit after the cycle. Returns (pairs, walk_step seqs)."""
     sts = st_seqs(hev)
     exp, walks = [], []
     for e in hev:
@@ -500,7 +491,7 @@ def kr1_expected(hev, pl, closed, uh, client_selected):
 
 
 def cam_rows_fails(tag, rec, cam, exp, walks, staged):
-    """KR1 / KR1h (P6a review section 2; owner D131, D171 (a)): the client's camera.moves for the cycle (seq >
+    """camera_follows_aliens / camera_host_target: the client's camera.moves for the cycle (seq >
     the cycle's seq0) are exactly `exp` plus {walker_centre} at each walk in `walks` whose walker_level record has
     visible true and onScreen false; the client offset after the cycle differs from the staged one; the host's
     camera.suppressed counters +0. Returns (fails, the client's move records of the cycle)."""
@@ -525,14 +516,14 @@ def cam_rows_fails(tag, rec, cam, exp, walks, staged):
     return fails, moves
 
 
-def k4_fails(client, seq, actor, unit, centre, what):
-    """W2-G1 (AUD-A16, owner D171; spec rewrite/prompts/w2g_fidelity_pass.md rows G1-3..G1-5): the client's camera move records
+def melee_psi_camera_fails(client, seq, actor, unit, centre, what):
+    """The client's camera move records
     at the melee / psi cue `seq` are exactly {hit_level} on the actor plus, iff `centre`, {hit_centre} on the hit unit - vanilla
     centres only on the unit a melee or psi attack names, read after the attack. Prints one EVIDENCE line; returns the fails."""
     got = sorted((m.get("reason"), m.get("unit")) for m in camera_of(client).get("moves") or [] if seq is not None and m.get("seq") == seq)
     want = sorted([("hit_level", actor)] + ([("hit_centre", unit)] if centre else []))
     print(f"EVIDENCE {what}: client camera moves at seq {seq} (reason, unit)={got} want={want}", flush=True)
-    return [] if got == want else [f"{what}: the client's camera moves at seq {seq} are {got} (want exactly {want}; AUD-A16: "
+    return [] if got == want else [f"{what}: the client's camera moves at seq {seq} are {got} (want exactly {want}; "
                                    f"vanilla centres only on a melee / psi target that is still the player's after the attack)"]
 
 
@@ -540,51 +531,52 @@ def cycle_payloads(host, hev):
     return host_payloads(host, [e["seq"] for e in hev if e["kind"] in ("turn", "shot", "hit", "explosion")])
 
 
-def kr1_fails(host, client, rec):
-    """W2-P6a S-C row KR1 (C3e + C6's cycle; P6a review section 2): the alien side's visible actions and the C3e
-    explosion move the client's camera by the D131 rules. Prints one "EVIDENCE KR1:" line."""
+def camera_follows_aliens_fails(host, client, rec):
+    """Row camera_follows_aliens (endturn_grenade + ai_shot's cycle): the alien side's visible actions and the
+    endturn_grenade explosion move the client's camera by camera_expected's rules. Prints one
+    "EVIDENCE camera_follows_aliens:" line."""
     cam = rec.get("cam") or {}
     if not cam:
-        return ["KR1: no camera record for cycle 1 (C3e's staging failed before the cycle)"]
+        return ["camera_follows_aliens: no camera record for cycle 1 (endturn_grenade's staging failed before the cycle)"]
     hev = rec["hev"]
     pl = cycle_payloads(host, hev)
     uh = units(host)
     sel = battle_state(client).get("selectedId")
-    exp, walks = kr1_expected(hev, pl, rec["closed"], uh, sel)
-    print(f"EVIDENCE KR1: staged client={cam_offset(cam['staged'])} (K_FAR {K_FAR}); cycle seq0={rec['seq0']}; host "
+    exp, walks = camera_expected(hev, pl, rec["closed"], uh, sel)
+    print(f"EVIDENCE camera_follows_aliens: staged client={cam_offset(cam['staged'])} (CAMERA_FAR {CAMERA_FAR}); cycle seq0={rec['seq0']}; host "
           f"evs={sv(hev)}; payloads (seq: kind, actor, unit)="
           f"{[(s, v['kind'], v['payload'].get('actor'), v['payload'].get('unit')) for s, v in sorted(pl.items())]}; "
           f"client selected after={sel}; expected (seq, reason)={exp} walks={walks}; client before="
           f"{cam_view(cam['before']['client'], rec['seq0'])} after={cam_view(cam['after']['client'], rec['seq0'])}; "
           f"host before={cam_view(cam['before']['host'])} after={cam_view(cam['after']['host'])}; host suppressed "
           f"delta={cam_suppressed_delta(cam['before']['host'], cam['after']['host'])}", flush=True)
-    f, _ = cam_rows_fails("KR1", rec, cam, exp, walks, cam["staged"])
+    f, _ = cam_rows_fails("camera_follows_aliens", rec, cam, exp, walks, cam["staged"])
     return f
 
 
 # ===================== scenarios =====================
 
 
-def c3e_endturn(host, client, ctx):
-    """C3e staging + C6 staging, then the ONE cycle both scenarios read."""
+def scenario_endturn_grenade(host, client, ctx):
+    """endturn_grenade staging + ai_shot staging, then the ONE cycle both scenarios read."""
     notes = []
-    g = both(host, client, {"cmd": "battle_drop", "x": C3E_TILE[0], "y": C3E_TILE[1], "z": C3E_TILE[2],
+    g = both(host, client, {"cmd": "battle_drop", "x": GRENADE_TILE[0], "y": GRENADE_TILE[1], "z": GRENADE_TILE[2],
                             "item": "STR_GRENADE", "prime": True, "fuse": 0}, ("ids",))["ids"]
-    clips = both(host, client, {"cmd": "battle_drop", "x": C3E_TILE[0], "y": C3E_TILE[1], "z": C3E_TILE[2],
+    clips = both(host, client, {"cmd": "battle_drop", "x": GRENADE_TILE[0], "y": GRENADE_TILE[1], "z": GRENADE_TILE[2],
                                 "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
-    tele_both(host, client, C_ID, C6_C_TILE, C6_C_DIR)
-    tele_both(host, client, A_ID, C6_A_TILE, C6_A_DIR)
+    tele_both(host, client, C_ID, SHOT_C_TILE, SHOT_C_DIR)
+    tele_both(host, client, A_ID, SHOT_A_TILE, SHOT_A_DIR)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu",
                         "value": A_TU}, ("tu",))
     staged_diff = diff_buckets(host, client)
     uh0 = units(host)
-    ctx["c6_staged"] = {"A": (uh0.get(A_ID) or {}).get("direction"), "C": unit_view(uh0.get(C_ID)),
+    ctx["ai_shot_staged"] = {"A": (uh0.get(A_ID) or {}).get("direction"), "C": unit_view(uh0.get(C_ID)),
                         "stagedDiff": staged_diff}
-    # W2-P6a S-C row KR1 (T0a-4): the client camera far from every alien action, before the host's press
-    kr1_staged = stage_camera(client, K_FAR)
+    # row camera_follows_aliens: the client camera far from every alien action, before the host's press
+    camera_staged = stage_camera(client, CAMERA_FAR)
     cam0 = cam_snap(host, client)
-    rec = run_cycle(host, client, SEED_C6, notes)
-    rec["cam"] = {"staged": kr1_staged, "before": cam0, "after": cam_snap(host, client)}
+    rec = run_cycle(host, client, SEED_AI_SHOT, notes)
+    rec["cam"] = {"staged": camera_staged, "before": cam0, "after": cam_snap(host, client)}
     ctx["cycle1"] = rec
     hev, cev = rec["hev"], rec["cev"]
     sts = st_seqs(hev)
@@ -594,7 +586,7 @@ def c3e_endturn(host, client, ctx):
     expl = [e for e in seg if e["kind"] == "explosion"]
     pl = host_payloads(host, [e["seq"] for e in expl])
     mine = [e for e in expl if voxel_tile(((pl.get(e["seq"]) or {}).get("payload") or {}).get("centreVoxel"))
-            == C3E_TILE]
+            == GRENADE_TILE]
     x = mine[0] if mine else None
     aid = x["actionId"] if x else None
     c = ctx_of(rec["closed"], aid) if aid else None
@@ -602,11 +594,11 @@ def c3e_endturn(host, client, ctx):
     ends = [e for e in xevs if e["kind"] == "bt_action_end"]
     ih, ic = items_by_id(host), items_by_id(client)
     gone = {i: {"host": i not in ih, "client": i not in ic} for i in g + clips}
-    print(f"EVIDENCE C3e: staged grenade={g} clips={clips} on {C3E_TILE} stagedDiff={staged_diff}; "
+    print(f"EVIDENCE endturn_grenade: staged grenade={g} clips={clips} on {GRENADE_TILE} stagedDiff={staged_diff}; "
           f"{cycle_evidence(rec)}; host evs since seq {rec['seq0']}={ev_tuples(hev)} client evs="
           f"{ev_tuples(cev)} (seq, kind, actionId, h); segment to the first side_transition (seq {st1}) host="
           f"{sv(seg)} client={sv(cseg)}; explosions (seq, actionId, payload)="
-          f"{[(e['seq'], e['actionId'], (pl.get(e['seq']) or {}).get('payload')) for e in expl]}; C3e explosion="
+          f"{[(e['seq'], e['actionId'], (pl.get(e['seq']) or {}).get('payload')) for e in expl]}; endturn_grenade explosion="
           f"{x and (x['seq'], x['actionId'])} its context={ctx_view(c)} its evs={sv(xevs)}; "
           f"{context_evidence(rec)}; items gone={gone}; notes={notes}", flush=True)
     fails = list(notes)
@@ -616,14 +608,14 @@ def c3e_endturn(host, client, ctx):
     if st1 is None:
         fails.append(f"no side_transition in the cycle's host log (host evs {sv(hev)})")
     if not x:
-        fails.append(f"no host `explosion` ev centred on {C3E_TILE} before the first side_transition "
+        fails.append(f"no host `explosion` ev centred on {GRENADE_TILE} before the first side_transition "
                      f"(explosions {[(e['seq'], e['actionId']) for e in expl]})")
     else:
         if aid == 0:
-            fails.append(f"the C3e explosion (seq {x['seq']}) carries actionId 0 (want an `endturn` context's id)")
+            fails.append(f"the endturn_grenade explosion (seq {x['seq']}) carries actionId 0 (want an `endturn` context's id)")
         elif not c or (c.get("origin"), c.get("kind"), c.get("actorId"), c.get("nestedIn"), c.get("hasFinal")) != (
                 "endturn", "endturn", -1, 0, False):
-            fails.append(f"the C3e explosion's context {aid} = {ctx_view(c)} in closedContexts (want origin endturn, "
+            fails.append(f"the endturn_grenade explosion's context {aid} = {ctx_view(c)} in closedContexts (want origin endturn, "
                          f"kind endturn, actorId -1, nestedIn 0, hasFinal false)")
         if aid and (len(ends) != 1 or st1 is None or ends[0]["seq"] >= st1):
             fails.append(f"context {aid}'s bt_action_end(s) {sv(ends)} (want exactly one, seq < the "
@@ -635,25 +627,25 @@ def c3e_endturn(host, client, ctx):
         bad = [(e["seq"], e["kind"], e["actionId"]) for e in seg
                if e["kind"] in COMBAT_CUES and (not aid or e["actionId"] != aid)]
         if bad:
-            fails.append(f"combat cue(s) before the side_transition not on the C3e context {aid}: {bad}")
+            fails.append(f"combat cue(s) before the side_transition not on the endturn_grenade context {aid}: {bad}")
     for i in g:
         if not gone[i]["host"] or not gone[i]["client"]:
             fails.append(f"grenade {i} present after the cycle host={not gone[i]['host']} "
                          f"client={not gone[i]['client']} (want absent on both)")
     if not any(gone[i]["host"] and gone[i]["client"] for i in clips):
         fails.append(f"no clip of {clips} absent on both after the cycle: {gone}")
-    fails += segment_context_fails(seg, cev, rec["closed"], "C3e")
+    fails += segment_context_fails(seg, cev, rec["closed"], "endturn_grenade")
     fails += cycle_context_fails(rec, "cycle 1")
-    fails += common_fails(host, client, rec["before"], {}, "C3e")
+    fails += common_fails(host, client, rec["before"], {}, "endturn_grenade")
     finish(fails)
 
 
-def c6_ai_shot(host, client, ctx):
+def scenario_ai_shot(host, client, ctx):
     rec = ctx.get("cycle1")
     if rec is None:
-        print(f"EVIDENCE C6: no cycle-1 record (C3e's staging failed before the cycle); staged="
-              f"{ctx.get('c6_staged')}", flush=True)
-        raise AssertionError("cycle 1 never ran (C3e's staging failed) - C6 has no alien side to check")
+        print(f"EVIDENCE ai_shot: no cycle-1 record (endturn_grenade's staging failed before the cycle); staged="
+              f"{ctx.get('ai_shot_staged')}", flush=True)
+        raise AssertionError("cycle 1 never ran (endturn_grenade's staging failed) - ai_shot has no alien side to check")
     hev, cev = rec["hev"], rec["cev"]
     sts = st_seqs(hev)
     st1 = sts[0] if len(sts) >= 1 else None
@@ -677,7 +669,7 @@ def c6_ai_shot(host, client, ctx):
     uh, uc = units(host), units(client)
     ah, ac = uh.get(A_ID) or {}, uc.get(A_ID) or {}
     ch, cc = uh.get(C_ID) or {}, uc.get(C_ID) or {}
-    print(f"EVIDENCE C6: staged={ctx.get('c6_staged')} A {C6_A_TILE}/{C6_A_DIR} C {C6_C_TILE}/{C6_C_DIR}; "
+    print(f"EVIDENCE ai_shot: staged={ctx.get('ai_shot_staged')} A {SHOT_A_TILE}/{SHOT_A_DIR} C {SHOT_C_TILE}/{SHOT_C_DIR}; "
           f"side_transitions={sts}; alien side host={sv(side)} client={sv(cside)}; first shot="
           f"{first_shot and (first_shot['seq'], first_shot['actionId'])} payload={fsp}; turn evs on the side="
           f"{sv(turns)} payloads={[(e['seq'], (pl.get(e['seq']) or {}).get('payload')) for e in turns]}; "
@@ -686,7 +678,7 @@ def c6_ai_shot(host, client, ctx):
           f"({ah.get('x')},{ah.get('y')},{ah.get('z')})) client=(tu {ac.get('tu')}, dir {ac.get('direction')}, "
           f"pos ({ac.get('x')},{ac.get('y')},{ac.get('z')})); C health host={ch.get('health')} client="
           f"{cc.get('health')}; {context_evidence(rec)}; {cycle_evidence(rec)}", flush=True)
-    kr1 = kr1_fails(host, client, rec)   # W2-P6a S-C row KR1
+    camera_rows = camera_follows_aliens_fails(host, client, rec)   # row camera_follows_aliens
     fails = list(rec["notes"])
     fails += turn_fails(rec, "cycle 1")
     if st1 is None or st2 is None:
@@ -699,9 +691,9 @@ def c6_ai_shot(host, client, ctx):
     if first_shot and fsp.get("actor") != A_ID:
         fails.append(f"the first shot's payload actor {fsp.get('actor')} (want A {A_ID}); payload={fsp}")
     kinds = [c.get("kind") for c in ai]
-    if kinds != C6_AI_KINDS or any((c.get("actorId"), c.get("nestedIn"), c.get("hasFinal")) != (A_ID, 0, True)
+    if kinds != SHOT_AI_KINDS or any((c.get("actorId"), c.get("nestedIn"), c.get("hasFinal")) != (A_ID, 0, True)
                                    for c in ai):
-        fails.append(f"`ai` contexts on the alien side {[ctx_view(c) for c in ai]} (want kinds {C6_AI_KINDS}, "
+        fails.append(f"`ai` contexts on the alien side {[ctx_view(c) for c in ai]} (want kinds {SHOT_AI_KINDS}, "
                      f"each actorId {A_ID}, nestedIn 0, hasFinal true)")
     if c1:
         ck = [e["kind"] for e in c1evs]
@@ -709,9 +701,9 @@ def c6_ai_shot(host, client, ctx):
                 or any(k != "hit" for k in ck[2:-1])):
             fails.append(f"the first `ai` context {c1.get('actionId')} evs {sv(c1evs)} (want turn -> shot -> "
                          f">= 1 hit -> bt_action_end)")
-        if (tpl.get("unit"), tpl.get("fromDir"), tpl.get("toDir")) != (A_ID, C6_A_DIR, C6_TURN_TO):
+        if (tpl.get("unit"), tpl.get("fromDir"), tpl.get("toDir")) != (A_ID, SHOT_A_DIR, SHOT_TURN_TO):
             fails.append(f"the first `ai` context's turn payload {tpl or None} (want unit {A_ID}, fromDir "
-                         f"{C6_A_DIR}, toDir {C6_TURN_TO})")
+                         f"{SHOT_A_DIR}, toDir {SHOT_TURN_TO})")
         if spl.get("actor") != A_ID:
             fails.append(f"the first `ai` context's shot payload actor {spl.get('actor')} (want {A_ID})")
     if not turns:
@@ -719,22 +711,22 @@ def c6_ai_shot(host, client, ctx):
     elif len(turns) != 1 or not c1 or turns[0]["actionId"] != c1.get("actionId"):
         fails.append(f"turn evs on the alien side {sv(turns)} (want exactly one, in the first `ai` context "
                      f"{c1 and c1.get('actionId')})")
-    fails += ai_actions_fails(side, rec["closed"], "C6")
+    fails += ai_actions_fails(side, rec["closed"], "ai_shot")
     if (ah.get("tu"), ah.get("direction")) != (ac.get("tu"), ac.get("direction")):
         fails.append(f"A tu/direction host=({ah.get('tu')},{ah.get('direction')}) client=({ac.get('tu')},"
                      f"{ac.get('direction')}) (want equal)")
     if ch.get("health") != cc.get("health"):
         fails.append(f"C health host={ch.get('health')} client={cc.get('health')} (want equal)")
-    fails += segment_context_fails(seg, cev, rec["closed"], "C6")
+    fails += segment_context_fails(seg, cev, rec["closed"], "ai_shot")
     fails += cycle_context_fails(rec, "cycle 1")
-    fails += common_fails(host, client, rec["before"], {}, "C6")
-    fails += kr1
+    fails += common_fails(host, client, rec["before"], {}, "ai_shot")
+    fails += camera_rows
     finish(fails)
 
 
-def c7_ai_throw(host, client, ctx):
+def scenario_ai_throw(host, client, ctx):
     notes2 = []
-    # cycle 2 (battle turn 2): a plain cycle with A re-pinned (the AI throws grenades only from turn 3, F807)
+    # cycle 2 (battle turn 2): a plain cycle with A re-pinned (the AI throws grenades only from turn 3)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": 0,
                         "refill": True}, ("tu",))
     rec2 = run_cycle(host, client, None, notes2)
@@ -743,26 +735,26 @@ def c7_ai_throw(host, client, ctx):
     strip_h = host.cmd({"cmd": "battle_strip_unit", "unit": A_ID})
     assert strip_h.get("ok") and strip_c.get("ok"), f"battle_strip_unit A: host={strip_h} client={strip_c}"
     assert sorted(strip_h.get("deleted") or []) == sorted(strip_c.get("deleted") or []), (
-        f"battle_strip_unit A deleted ids differ as sets (F882): host={strip_h.get('deleted')} "
+        f"battle_strip_unit A deleted ids differ as sets: host={strip_h.get('deleted')} "
         f"client={strip_c.get('deleted')}")
     session.wait_seq_barrier(host, client)
     gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": "STR_GRENADE", "slot": "STR_BELT"},
               ("weaponId", "ammoId", "weaponSlot"))
     gid = gw.get("weaponId")
-    tele_both(host, client, A_ID, C7_A_TILE, C7_A_DIR)
-    tele_both(host, client, C_ID, C7_C_TILE, C7_C_DIR)
-    tele_both(host, client, C2_ID, C7_C2_TILE, C7_C2_DIR)
+    tele_both(host, client, A_ID, THROW_A_TILE, THROW_A_DIR)
+    tele_both(host, client, C_ID, THROW_C_TILE, THROW_C_DIR)
+    tele_both(host, client, C2_ID, THROW_C2_TILE, THROW_C2_DIR)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu",
                         "value": A_TU}, ("tu",))
     staged_diff = diff_buckets(host, client)
     notes = []
-    # W2-P6a S-C row KR1-off (Q16 (a)): the client's coopGhostStepper off for cycle 3, on again after it
+    # row camera_option_off: the client's coopGhostStepper off for cycle 3, on again after it
     off0 = {"option": client.ok({"cmd": "set_option", "name": "coopGhostStepper"}).get("value"),
             "cam": camera_of(client)}
-    off_lever = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
-    rec = run_cycle(host, client, SEED_C7, notes)
+    off_reply = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
+    rec = run_cycle(host, client, SEED_AI_THROW, notes)
     off_cam1 = camera_of(client)
-    on_lever = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
+    on_reply = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
     hev, cev = rec["hev"], rec["cev"]
     sts = st_seqs(hev)
     st1 = sts[0] if len(sts) >= 1 else None
@@ -783,10 +775,10 @@ def c7_ai_throw(host, client, ctx):
     c1end = c1evs[-1]["seq"] if c1evs else None
     ih, ic = items_by_id(host), items_by_id(client)
     g_gone = {"host": gid not in ih, "client": gid not in ic}
-    print(f"EVIDENCE C7: cycle 2 {cycle_evidence(rec2)} host evs={sv(rec2['hev'])} client evs={sv(rec2['cev'])} "
+    print(f"EVIDENCE ai_throw: cycle 2 {cycle_evidence(rec2)} host evs={sv(rec2['hev'])} client evs={sv(rec2['cev'])} "
           f"closedContexts(new)={[ctx_view(c) for c in rec2['closed']]}; strip host={strip_h.get('deleted')} "
-          f"client={strip_c.get('deleted')}; grenade={gid} ({gw.get('weaponSlot')}); A {C7_A_TILE}/{C7_A_DIR} "
-          f"C {C7_C_TILE}/{C7_C_DIR} C2 {C7_C2_TILE}/{C7_C2_DIR} stagedDiff={staged_diff}; cycle 3 "
+          f"client={strip_c.get('deleted')}; grenade={gid} ({gw.get('weaponSlot')}); A {THROW_A_TILE}/{THROW_A_DIR} "
+          f"C {THROW_C_TILE}/{THROW_C_DIR} C2 {THROW_C2_TILE}/{THROW_C2_DIR} stagedDiff={staged_diff}; cycle 3 "
           f"side_transitions={sts}; host evs since seq {rec['seq0']}={ev_tuples(hev)} client evs={ev_tuples(cev)} "
           f"(seq, kind, actionId, h); alien side host={sv(side)} client={sv(cside)}; throw="
           f"{throw and (throw['seq'], throw['actionId'])} payload={tp}; ai contexts={[ctx_view(c) for c in ai]}; "
@@ -794,19 +786,20 @@ def c7_ai_throw(host, client, ctx):
           f"{[(e['seq'], e['actionId'], ctx_view(ctx_of(rec['closed'], e['actionId'])), (pl.get(e['seq']) or {}).get('payload')) for e in expl]}; "
           f"grenade gone={g_gone}; {context_evidence(rec)}; {cycle_evidence(rec)}", flush=True)
     off_moves = cam_moves(off_cam1, rec["seq0"])
-    print(f"EVIDENCE KR1-off: client coopGhostStepper before={off0['option']} lever off={off_lever} on={on_lever}; "
+    print(f"EVIDENCE camera_option_off: client coopGhostStepper before={off0['option']} set off={off_reply} "
+          f"on={on_reply}; "
           f"client camera before the press={cam_view(off0['cam'], rec['seq0'])} after the cycle="
           f"{cam_view(off_cam1, rec['seq0'])}", flush=True)
     fails = list(notes2) + list(notes)
-    # W2-P6a S-C row KR1-off (P6a review section 2; Q16 (a)): declared green at red
-    if off_lever is not False or on_lever is not True:
-        fails.append(f"KR1-off: client coopGhostStepper lever answered off={off_lever} on={on_lever} (want False "
-                     f"then True)")
+    # row camera_option_off: passes with or without the camera moves
+    if off_reply is not False or on_reply is not True:
+        fails.append(f"camera_option_off: client coopGhostStepper set_option answered off={off_reply} on={on_reply} "
+                     f"(want False then True)")
     if off_moves:
-        fails.append(f"KR1-off: client camera.moves for cycle 3 {[mv(m) for m in off_moves]} (want none: the "
-                     f"option off moves no camera, Q16 (a))")
+        fails.append(f"camera_option_off: client camera.moves for cycle 3 {[mv(m) for m in off_moves]} (want none: the "
+                     f"option off moves no camera)")
     if cam_offset(off_cam1) != cam_offset(off0["cam"]):
-        fails.append(f"KR1-off: client camera offset {cam_offset(off0['cam'])} -> {cam_offset(off_cam1)} over cycle "
+        fails.append(f"camera_option_off: client camera offset {cam_offset(off0['cam'])} -> {cam_offset(off_cam1)} over cycle "
                      f"3 (want unchanged)")
     fails += turn_fails(rec2, "cycle 2")
     if rec2["diff"]:
@@ -833,10 +826,10 @@ def c7_ai_throw(host, client, ctx):
     if c1:
         if [e["kind"] for e in c1evs] != ["turn", "shot", "bt_action_end"]:
             fails.append(f"the throw context {c1.get('actionId')} evs {sv(c1evs)} (want exactly turn -> shot -> "
-                         f"bt_action_end; the grenade explodes at the end of the side, F808)")
-        if (tpl.get("unit"), tpl.get("fromDir"), tpl.get("toDir")) != (A_ID, C7_A_DIR, C7_TURN_TO):
-            fails.append(f"the throw context's turn payload {tpl or None} (want unit {A_ID}, fromDir {C7_A_DIR}, "
-                         f"toDir {C7_TURN_TO})")
+                         f"bt_action_end; the grenade explodes at the end of the side)")
+        if (tpl.get("unit"), tpl.get("fromDir"), tpl.get("toDir")) != (A_ID, THROW_A_DIR, THROW_TURN_TO):
+            fails.append(f"the throw context's turn payload {tpl or None} (want unit {A_ID}, fromDir {THROW_A_DIR}, "
+                         f"toDir {THROW_TURN_TO})")
         if throw and throw["actionId"] != c1.get("actionId"):
             fails.append(f"the throw (seq {throw['seq']}) carries {throw['actionId']}, not the first `ai` context "
                          f"{c1.get('actionId')}")
@@ -856,20 +849,20 @@ def c7_ai_throw(host, client, ctx):
                          f"explosion and precede the side_transition seq {st2}")
         if c1end is not None and e["seq"] < c1end:
             fails.append(f"explosion seq {e['seq']} lies inside the throw context (ends seq {c1end}); want it at "
-                         f"the end of the alien side (F808)")
+                         f"the end of the alien side")
     if not g_gone["host"] or not g_gone["client"]:
         fails.append(f"grenade {gid} present after the cycle host={not g_gone['host']} client="
                      f"{not g_gone['client']} (want absent on both)")
-    fails += ai_actions_fails(side, rec["closed"], "C7")
-    fails += segment_context_fails(hev, cev, rec["closed"], "C7")
+    fails += ai_actions_fails(side, rec["closed"], "ai_throw")
+    fails += segment_context_fails(hev, cev, rec["closed"], "ai_throw")
     fails += cycle_context_fails(rec, "cycle 3")
-    fails += common_fails(host, client, rec["before"], {}, "C7")
+    fails += common_fails(host, client, rec["before"], {}, "ai_throw")
     finish(fails)
 
 
 def place_both(host, client, uid, tile, d):
     """Teleport `uid` onto `tile` facing `d` on BOTH machines - unless it already stands there on both, then nothing
-    is sent and it keeps its facing (CLAUDE.local.md S2: a staging helper never teleports a unit onto its own tile)."""
+    is sent and it keeps its facing (a staging helper never teleports a unit onto its own tile)."""
     uh, uc = units(host).get(uid) or {}, units(client).get(uid) or {}
     pos = [(u.get("x"), u.get("y"), u.get("z")) for u in (uh, uc)]
     if pos == [tuple(tile), tuple(tile)]:
@@ -878,39 +871,39 @@ def place_both(host, client, uid, tile, d):
     return {"teleported": tuple(tile), "dir": r.get("dir")}
 
 
-def kr1h_stage(host, client):
-    """KR1h's staging (AMENDMENT P6-5 section 4 C-C2; T0a-8), every lever client first: A re-armed on both
-    machines (battle_strip_unit A, the deleted ids compared as sets, F882; battle_give a loaded KR1H_WEAPON), A on
-    C6_A_TILE facing C6_A_DIR, H on C6_C_TILE facing C6_C_DIR, C and C2 on tiles out of A's view, A tu A_TU (no
-    refill, as C6). Returns the staging record."""
+def stage_camera_host_target(host, client):
+    """camera_host_target's staging, every test command client first: A re-armed on both machines
+    (battle_strip_unit A, the deleted ids compared as sets; battle_give a loaded HOST_TARGET_WEAPON), A on
+    SHOT_A_TILE facing SHOT_A_DIR, H on SHOT_C_TILE facing SHOT_C_DIR, C and C2 on tiles out of A's view, A tu A_TU (no
+    refill, as in ai_shot). Returns the staging record."""
     strip_c = client.cmd({"cmd": "battle_strip_unit", "unit": A_ID})
     strip_h = host.cmd({"cmd": "battle_strip_unit", "unit": A_ID})
     assert strip_h.get("ok") and strip_c.get("ok"), f"battle_strip_unit A: host={strip_h} client={strip_c}"
     assert sorted(strip_h.get("deleted") or []) == sorted(strip_c.get("deleted") or []), (
-        f"battle_strip_unit A deleted ids differ as sets (F882): host={strip_h.get('deleted')} "
+        f"battle_strip_unit A deleted ids differ as sets: host={strip_h.get('deleted')} "
         f"client={strip_c.get('deleted')}")
     session.wait_seq_barrier(host, client)
-    gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": KR1H_WEAPON, "ammo": KR1H_AMMO},
+    gw = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": HOST_TARGET_WEAPON, "ammo": HOST_TARGET_AMMO},
               ("weaponId", "ammoId", "weaponSlot"))
     placed = {uid: place_both(host, client, uid, t, d) for uid, t, d in (
-        (A_ID, C6_A_TILE, C6_A_DIR), (H_ID, C6_C_TILE, C6_C_DIR), (C_ID, KR1H_C_TILE, KR1H_C_DIR),
-        (C2_ID, KR1H_C2_TILE, KR1H_C2_DIR))}
+        (A_ID, SHOT_A_TILE, SHOT_A_DIR), (H_ID, SHOT_C_TILE, SHOT_C_DIR), (C_ID, HOST_TARGET_C_TILE, HOST_TARGET_C_DIR),
+        (C2_ID, HOST_TARGET_C2_TILE, HOST_TARGET_C2_DIR))}
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu",
                         "value": A_TU}, ("tu",))
     return {"deleted": sorted(strip_h.get("deleted") or []), "weapon": gw.get("weaponId"), "ammo": gw.get("ammoId"),
             "slot": gw.get("weaponSlot"), "placed": placed}
 
 
-def kr1h_host_target(host, client, ctx):
-    """W2-P6a S-C row KR1h (AMENDMENT P6-5 section 4 C-C2, P6-5 Q1 (a); owner D171's clarification: the camera
-    follows every visible alien action, a shot at EITHER player's soldier included): the enemy turn's first `ai`
+def scenario_camera_host_target(host, client, ctx):
+    """Row camera_host_target (the camera follows every visible alien action, a shot at EITHER player's soldier
+    included): the enemy turn's first `ai`
     action is a shot at the HOST's soldier H; on the CLIENT it moves the camera like any other visible alien action."""
     notes = []
-    st = kr1h_stage(host, client)
+    st = stage_camera_host_target(host, client)
     staged_diff = diff_buckets(host, client)
-    staged = stage_camera(client, K_FAR)
+    staged = stage_camera(client, CAMERA_FAR)
     cam0 = cam_snap(host, client)
-    rec = run_cycle(host, client, SEED_KR1H, notes)
+    rec = run_cycle(host, client, SEED_HOST_TARGET, notes)
     cam = {"staged": staged, "before": cam0, "after": cam_snap(host, client)}
     hev, cev = rec["hev"], rec["cev"]
     sts = st_seqs(hev)
@@ -929,9 +922,9 @@ def kr1h_host_target(host, client, ctx):
     hp = (pl.get(hit1["seq"]) or {}).get("payload") or {} if hit1 else {}
     uh, uc = units(host), units(client)
     sel = battle_state(client).get("selectedId")
-    exp, walks = kr1_expected(hev, pl, rec["closed"], uh, sel)
-    print(f"EVIDENCE KR1h: staging={st} A {C6_A_TILE}/{C6_A_DIR} H {C6_C_TILE}/{C6_C_DIR} C {KR1H_C_TILE} C2 "
-          f"{KR1H_C2_TILE} stagedDiff={staged_diff}; seed={SEED_KR1H}; side_transitions={sts}; alien side host="
+    exp, walks = camera_expected(hev, pl, rec["closed"], uh, sel)
+    print(f"EVIDENCE camera_host_target: staging={st} A {SHOT_A_TILE}/{SHOT_A_DIR} H {SHOT_C_TILE}/{SHOT_C_DIR} C {HOST_TARGET_C_TILE} C2 "
+          f"{HOST_TARGET_C2_TILE} stagedDiff={staged_diff}; seed={SEED_HOST_TARGET}; side_transitions={sts}; alien side host="
           f"{sv(side)}; ai contexts={[ctx_view(c) for c in ai]}; first ai context evs={sv(c1evs)} shot={sp} hit={hp}; "
           f"H host={unit_view(uh.get(H_ID))} client={unit_view(uc.get(H_ID))}; A host=(tu {(uh.get(A_ID) or {}).get('tu')}"
           f", pos ({(uh.get(A_ID) or {}).get('x')},{(uh.get(A_ID) or {}).get('y')})); payloads (seq: kind, actor, "
@@ -942,44 +935,45 @@ def kr1h_host_target(host, client, ctx):
           f"{cam_view(cam['after']['host'])}; {context_evidence(rec)}; {cycle_evidence(rec)}", flush=True)
     fails = list(notes)
     if staged_diff:
-        fails.append(f"buckets differ after the KR1h staging: {staged_diff} (want none)")
-    fails += turn_fails(rec, "KR1h cycle")
+        fails.append(f"buckets differ after the camera_host_target staging: {staged_diff} (want none)")
+    fails += turn_fails(rec, "camera_host_target cycle")
     if st1 is None or st2 is None:
-        fails.append(f"the KR1h cycle's host log has side_transitions {sts} (want >= 2)")
-    # the fixture (T0a-8): the alien side's first `ai` context is a shot by A whose hit lands on H
+        fails.append(f"the camera_host_target cycle's host log has side_transitions {sts} (want >= 2)")
+    # the fixture: the alien side's first `ai` context is a shot by A whose hit lands on H
     if not c1 or (c1.get("kind"), c1.get("actorId")) != ("shoot", A_ID) or not shot1 or sp.get("actor") != A_ID \
             or not hit1 or hp.get("unit") != H_ID:
-        fails.append(f"precondition (T0a-8): the alien side's first ai context {ctx_view(c1)} evs {sv(c1evs)} shot "
+        fails.append(f"precondition (the fixture): the alien side's first ai context {ctx_view(c1)} evs {sv(c1evs)} shot "
                      f"{sp or None} hit {hp or None} (want kind shoot by A {A_ID} whose hit unit is H {H_ID})")
-    # the camera (P6-5 C-C2; W2-G1, AUD-A16): {follow} at that shot, {hit_level} at its hit, no {hit_centre}; KR1's rules
+    # the camera: {follow} at that shot, {hit_level} at its hit, no {hit_centre}; camera_follows_aliens's rules
     if shot1 and hit1:
         moves = cam_moves(cam["after"]["client"], rec["seq0"])
         need = [(shot1["seq"], "follow"), (hit1["seq"], "hit_level")]
         missing = [x for x in need if x not in [mv(m) for m in moves]]
         if missing:
-            fails.append(f"KR1h: client camera.moves lack {missing} for A's shot at H (want {need}; moves "
+            fails.append(f"camera_host_target: client camera.moves lack {missing} for A's shot at H (want {need}; moves "
                          f"{[mv(m) for m in moves]})")
         centred = [m for m in moves if mv(m) == (hit1["seq"], "hit_centre")]
         if centred:
-            fails.append(f"KR1h: the client centred on H {H_ID} hit by A's bullet at seq {hit1['seq']} (AUD-A16: vanilla "
+            fails.append(f"camera_host_target: the client centred on H {H_ID} hit by A's bullet at seq {hit1['seq']} (vanilla "
                          f"centres only on a melee / psi target, never on a bullet hit; records {centred})")
-    f, _ = cam_rows_fails("KR1h", rec, cam, exp, walks, staged)
+    f, _ = cam_rows_fails("camera_host_target", rec, cam, exp, walks, staged)
     fails += f
-    fails += ai_actions_fails(side, rec["closed"], "KR1h")
-    fails += segment_context_fails(seg, cev, rec["closed"], "KR1h")
-    fails += cycle_context_fails(rec, "KR1h cycle")
-    fails += common_fails(host, client, rec["before"], {}, "KR1h")
+    fails += ai_actions_fails(side, rec["closed"], "camera_host_target")
+    fails += segment_context_fails(seg, cev, rec["closed"], "camera_host_target")
+    fails += cycle_context_fails(rec, "camera_host_target cycle")
+    fails += common_fails(host, client, rec["before"], {}, "camera_host_target")
     finish(fails)
 
 
-SCENARIOS = (("C3e", c3e_endturn), ("C6", c6_ai_shot), ("C7", c7_ai_throw), ("KR1h", kr1h_host_target))
+SCENARIOS = (("endturn_grenade", scenario_endturn_grenade), ("ai_shot", scenario_ai_shot),
+             ("ai_throw", scenario_ai_throw), ("camera_host_target", scenario_camera_host_target))
 
 
 # ===================== bring-up =====================
 
 
 def bring_up_lobby_roster_pinned(host, client, port):
-    """raw.bring_up_lobby with ONE added call (W2-P2 amendment A2.2): set_seed
+    """raw.bring_up_lobby with ONE added call: set_seed
     SEED_ROSTER on the HOST immediately before its open_new_battle."""
     host.spawn(); host.connect()
     client.spawn(); client.connect()
@@ -1004,12 +998,12 @@ def boot(host, client):
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, baked "
         f"MAP_FP={MAP_FP!r} (default NEW BATTLE, SEED_MAP {SEED_MAP})")
     assert seated.get("soldierIds") == SEATED, f"seated {seated.get('soldierIds')} (baked {SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="w2p3-sa")
+    pinned = pin_ai_neutral(host, client, tag="ai_origins")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (baked [{A_ID}])"
     uh, uc = session.units_by_id(hs), session.units_by_id(cs)
     types = ((uh.get(A_ID) or {}).get("type"), (uc.get(A_ID) or {}).get("type"))
     assert types == (A_TYPE, A_TYPE), f"A {A_ID} battle_state type host/client={types} (want {A_TYPE})"
-    # RQ15: every live player unit's reactions 0 on BOTH machines (no reaction fire in the AI rows)
+    # every live player unit's reactions 0 on BOTH machines (no reaction fire in the AI scenarios)
     rz = []
     for uid, u in sorted(uh.items()):
         if u.get("faction") == FACTION_PLAYER and not u.get("isOut"):
@@ -1022,13 +1016,13 @@ def boot(host, client):
                 and isinstance(es.get("contextsClosedAtEndTurn"), int)
                 and isinstance(es.get("contextBeginRefused"), int)
                 and isinstance(es.get("armingDeferrals"), int)), (
-            f"{gc.name} event_state lacks the S-A.1 context probes: contextsOpened={es.get('contextsOpened')!r} "
+            f"{gc.name} event_state lacks the context probes: contextsOpened={es.get('contextsOpened')!r} "
             f"closedContexts={es.get('closedContexts')!r} contextsClosedAtEndTurn="
             f"{es.get('contextsClosedAtEndTurn')!r} contextBeginRefused={es.get('contextBeginRefused')!r} "
             f"armingDeferrals={es.get('armingDeferrals')!r}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2p3-sa] boot ok: SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={SEATED} "
+    print(f"[test_ai_origins] boot ok: SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={SEATED} "
           f"pinned={pinned} A type={types[0]} reactions 0 (both) for {rz} probes host={ctx_probes(host)} "
           f"client={ctx_probes(client)}", flush=True)
     return {}
@@ -1036,8 +1030,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49852, make_user_dir("w2p3_ai_origins_host"))
-    client = GameClient("client", 49853, make_user_dir("w2p3_ai_origins_client"))
+    host = GameClient("host", 49852, make_user_dir("ai_origins_host"))
+    client = GameClient("client", 49853, make_user_dir("ai_origins_client"))
     results = {}
     try:
         try:
@@ -1059,7 +1053,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p3-sa] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_ai_origins] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_ai_origins: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "

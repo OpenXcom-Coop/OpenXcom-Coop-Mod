@@ -130,7 +130,8 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 from test_delta_core import diff_buckets, short, both, tele_both, common_fails, finish
-from test_ai_origins import host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned, k4_fails
+from test_ai_origins import (host_payloads, ctx_probes, ctx_view, sv, bring_up_lobby_roster_pinned,
+                             melee_psi_camera_fails)
 from test_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, context_fails, payload, held_by_client,
                                items, st_seqs, panic_context_fails, c2_state_fails, c2_resolved)
 from test_host_combat import effect_snap, impact_row
@@ -372,7 +373,7 @@ def c14_mc(host, client, ctx):
     # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
     e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
     # W2-G1 row G1-3 (AUD-A16, D171): P's successful mind control of C does not centre the client's camera on C
-    g13 = k4_fails(client, psis[0]["seq"] if psis else None, P_ID, C_ID, False, "C14-mc G1-3")
+    g13 = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C_ID, False, "C14-mc G1-3")
     mr5 = mr5_fails(rec, mb, ma, C_ID, KEY_UNDER_ALIEN_CONTROL, Q_C14MC, None, "C14-mc")
     fails = list(rec["notes"])
     if sp["deleted"] != P_STRIPPED:
@@ -437,7 +438,7 @@ def c14_panic(host, client, ctx):
     # W2-P6b S-E row E2 (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
     e2 = impact_row("E2", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
     # W2-G1 row G1-4 (AUD-A16, D171; guard): P's psi panic on C2 still centres the client's camera on C2
-    g14 = k4_fails(client, psis[0]["seq"] if psis else None, P_ID, C2_ID, True, "C14-panic G1-4")
+    g14 = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C2_ID, True, "C14-panic G1-4")
     mr5 = mr5_fails(rec, mb, ma, C2_ID, KEY_PANICKED, Q_C14P, quiet, "C14-panic")
     fails = list(rec["notes"])
     if (rc.get("psiStrength"), rc2.get("psiStrength")) != (C_PSI_STRENGTH_2, C2_PSI_STRENGTH_2):
