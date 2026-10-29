@@ -1,41 +1,43 @@
 """test_debrief_fidelity.py: on a co-op debriefing each player reads the title and the recovery header
-in its own language (AUD-A12, owner D172; replaces P7-2 G6 (a)), and a Custom Battle debriefing names the other
-player's soldiers `[Player] Name` on page 2 (AUD-A07, owner D177; reverses P7SC-MR5). Spec
-rewrite/prompts/w2p7_a07_a12_fidelity.md (f) with its ORCHESTRATOR RULINGS (session 29a387ef); TASK 0 constants
-rewrite/w2a0712-task0/CONSTANTS.md.
+in its own language, and a Custom Battle debriefing names the other player's soldiers `[Player] Name` on page 2.
 
 Two boots, one ending each; both debriefings are read once and no OK is pressed (each boot ends at shutdown):
-  Boot A  host en-US (label 49351), client `language: de` (49352); test_battle_end.boot on lobby 47341, then
-          stage_last_alien_down + end_last_alien_down (last_alien_down, the last alien down). Rows A12-1, A07-1.
-  Boot B  host `language: de` (49353), client en-US (49354); lobby 47342, stage_host_abort + end_host_abort (host_abort, the host's abort:
-          end_last_alien_down waits on the host's English "END TURN 1/2"). Rows A12-2, A07-2.
+  Boot german_client  host en-US (label 49351), client `language: de` (49352); test_battle_end.boot on lobby
+          47341, then stage_last_alien_down + end_last_alien_down (last_alien_down, the last alien down). Rows
+          german_client_title, german_client_names.
+  Boot german_host  host `language: de` (49353), client en-US (49354); lobby 47342, stage_host_abort +
+          end_host_abort (host_abort, the host's abort: end_last_alien_down waits on the host's English
+          "END TURN 1/2"). Rows german_host_title, german_host_names.
 S = the host's battle_state player-soldier units {id, rawName, coop}, both get_coop {hostName, clientName,
 coopStatic} and both synced_options_state.localSeat, taken after the bring-up and before the ending.
 
-  A12-1  the client's title == "UFO wurde geborgen" (de.yml :206), recoveryHeader == "UFO-BERGUNG" (de.yml :226).
-  A07-1  each machine's page-2 names == its view, as sorted lists: for each row raw = the name with a leading
-         `[HostPlayer] ` / `[ClientPlayer] ` removed and its seat = the S unit with that rawName; the host names seat
-         0 raw and seat 1 `[<host clientName>] raw`; the client names seat 1 raw and seat 0 `[<client clientName>] raw`.
-  A12-2  the client's title == "UFO is not recovered" (en-US).
-  A07-2  as A07-1 on the abort's seven rows.
-Guard cells (prefix guard:, pass on red and green): the bring-up (MAP_FP, hash clean); the staging, ending and both
-debriefings reached; both debriefs shown and on top, the client display-only, widgets == DEBRIEF_WIDGETS, page 0,
-parseErrors 0; S's seats (2 x coop 1, 5 x coop 0); host clientName "ClientPlayer" and client "HostPlayer", the
-client's coopStatic true, localSeat host 0 / client 1 (in S and at the debriefing); page-2 deltas and
-tbe.debrief_view soldiers equal on both; page-1 rows' (qty, score, recovery) and total equal. Boot A:
-tbe.pin_view(host) == HOST_DEBRIEF["last_alien_down"], the client's rating "BEWERTUNG> OK". Boot B: the host's title "UFO wurde
-nicht geborgen" and rating "BEWERTUNG> SCHLECHT!", the client's rating "RATING> POOR!", both recoveryHeader "" (the
-empty key and the client's own :558), tbe.pin_view(host) == HOST_DEBRIEF["host_abort"] with that German title and rating.
+  german_client_title  the client's title == "UFO wurde geborgen" (de.yml :206), recoveryHeader == "UFO-BERGUNG"
+         (de.yml :226).
+  german_client_names  each machine's page-2 names == its view, as sorted lists: for each row raw = the name with
+         a leading `[HostPlayer] ` / `[ClientPlayer] ` removed and its seat = the S unit with that rawName; the host
+         names seat 0 raw and seat 1 `[<host clientName>] raw`; the client names seat 1 raw and seat 0
+         `[<client clientName>] raw`.
+  german_host_title  the client's title == "UFO is not recovered" (en-US).
+  german_host_names  as german_client_names on the abort's seven rows.
+Guard cells (prefix guard:) check the setup the rows rely on: the bring-up (MAP_FP, hash clean); the staging,
+ending and both debriefings reached; both debriefs shown and on top, the client display-only, widgets ==
+DEBRIEF_WIDGETS, page 0, parseErrors 0; S's seats (2 x coop 1, 5 x coop 0); host clientName "ClientPlayer" and
+client "HostPlayer", the client's coopStatic true, localSeat host 0 / client 1 (in S and at the debriefing);
+page-2 deltas and tbe.debrief_view soldiers equal on both; page-1 rows' (qty, score, recovery) and total equal.
+Boot german_client: tbe.pin_view(host) == HOST_DEBRIEF["last_alien_down"], the client's rating "BEWERTUNG> OK".
+Boot german_host: the host's title "UFO wurde nicht geborgen" and rating "BEWERTUNG> SCHLECHT!", the client's
+rating "RATING> POOR!", both recoveryHeader "" (the empty key and the client's own :558),
+tbe.pin_view(host) == HOST_DEBRIEF["host_abort"] with that German title and rating.
 
-RED (commit 1, the product untouched; ONE run, exit 2): A12-1 fails on clientTitle and clientHeader (the host's
-"UFO is recovered" / "UFO RECOVERY", G6); A07-1 on hostPage2 and clientPage2 (all seven plain on both, MR5); A12-2
-on clientTitle (the German host's "UFO wurde nicht geborgen"); A07-2 on hostPage2 and clientPage2. Every guard cell
-passes. GREEN (commit 2): every row and every guard cell passes.
+A client that shows the host's debriefing text fails german_client_title on clientTitle and clientHeader (the
+host's "UFO is recovered" / "UFO RECOVERY") and german_host_title on clientTitle (the German host's "UFO wurde
+nicht geborgen"); a debriefing that leaves every name plain fails german_client_names and german_host_names on
+hostPage2 and clientPage2. The guard cells pass either way.
 
 German item text is non-ASCII and soldier names change per boot: neither is pinned; the expected
 page 2 comes from S. An EVIDENCE line precedes every verdict; every row runs after a failure; a boot miss fails its
-rows "boot" with ONE CAPTURE line (setup failure). one run is the result, no skip path, one boot
-per row pair. Exit 0 only when every row and every guard cell passes, 2 otherwise. run in the foreground.
+rows "boot" with ONE CAPTURE line (setup failure). One run is the result, no skip path, one boot
+per row pair. Exit 0 only when every row and every guard cell passes, 2 otherwise. Run it in the foreground.
 
 Run:  python tools/coop_test/test_debrief_fidelity.py
 """
@@ -55,19 +57,23 @@ DE = {"language": "de"}
 # bin\standard).
 DE_UFO_RECOVERED = "UFO wurde geborgen"             # STR_UFO_IS_RECOVERED, de.yml :206
 DE_UFO_RECOVERY = "UFO-BERGUNG"                     # STR_UFO_RECOVERY, de.yml :226
-DE_UFO_NOT_RECOVERED = "UFO wurde nicht geborgen"   # STR_UFO_IS_NOT_RECOVERED, rendered by Boot B's host
+DE_UFO_NOT_RECOVERED = "UFO wurde nicht geborgen"   # STR_UFO_IS_NOT_RECOVERED, rendered by boot german_host's host
 EN_UFO_NOT_RECOVERED = "UFO is not recovered"       # en-US, tbe.HOST_DEBRIEF["host_abort"]
-DE_RATING_OK = "BEWERTUNG> OK"                      # rendered by Boot A's client
-DE_RATING_POOR = "BEWERTUNG> SCHLECHT!"             # rendered by Boot B's host
-EN_RATING_POOR = "RATING> POOR!"                    # rendered by Boot B's client
+DE_RATING_OK = "BEWERTUNG> OK"                      # rendered by boot german_client's client
+DE_RATING_POOR = "BEWERTUNG> SCHLECHT!"             # rendered by boot german_host's host
+EN_RATING_POOR = "RATING> POOR!"                    # rendered by boot german_host's client
 SEATS = [0, 0, 0, 0, 0, 1, 1]                       # S: ids 8, 9 coop 1; ids 10-14 coop 0
-G6 = "the second player reads the host's title and header (G6)"
-MR5 = "a Custom Battle debrief names no player (MR5)"
+TITLE_NOTE = "the second player reads the host's title and header"
+NAMES_NOTE = "a Custom Battle debrief names no player"
 BOOTS = (
-    ("A", {"host": (49351, "w2a0712_a_host", None), "client": (49352, "w2a0712_a_client", DE), "port": "47341",
-           "stage": tbe.stage_last_alien_down, "end": tbe.end_last_alien_down, "rows": ("A12-1", "A07-1")}),
-    ("B", {"host": (49353, "w2a0712_b_host", DE), "client": (49354, "w2a0712_b_client", None), "port": "47342",
-           "stage": tbe.stage_host_abort, "end": tbe.end_host_abort, "rows": ("A12-2", "A07-2")}),
+    ("german_client", {"host": (49351, "debrief_fidelity_german_client_host", None),
+                       "client": (49352, "debrief_fidelity_german_client_client", DE), "port": "47341",
+                       "stage": tbe.stage_last_alien_down, "end": tbe.end_last_alien_down,
+                       "rows": ("german_client_title", "german_client_names")}),
+    ("german_host", {"host": (49353, "debrief_fidelity_german_host_host", DE),
+                     "client": (49354, "debrief_fidelity_german_host_client", None), "port": "47342",
+                     "stage": tbe.stage_host_abort, "end": tbe.end_host_abort,
+                     "rows": ("german_host_title", "german_host_names")}),
 )
 
 
@@ -113,7 +119,7 @@ def names(deb):
 
 
 def view(deb, seat_of, own_seat, peer):
-    """Spec (f): each page-2 row's raw name, prefixed `[<peer>] ` when its S seat is not this machine's (sorted)."""
+    """Each page-2 row's raw name, prefixed `[<peer>] ` when its S seat is not this machine's (sorted)."""
     out = []
     for s in deb.get("soldiers") or []:
         r = bare(s.get("name")) if isinstance(s, dict) else s
@@ -164,7 +170,7 @@ def guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps):
         ("guard:page1Rows", page1(cdeb), page1(hdeb), "(qty, score, recovery), client vs host"),
         ("guard:total", cdeb.get("total"), hdeb.get("total"), "client vs host"),
     ]
-    if bid == "A":
+    if bid == "german_client":
         cells += [("guard:hostPin", tbe.pin_view(hdeb), tbe.HOST_DEBRIEF["last_alien_down"],
                    "tbe.pin_view(host) == HOST_DEBRIEF last_alien_down"),
                   ("guard:clientRating", cdeb.get("rating"), DE_RATING_OK, "the German client renders its own rating")]
@@ -176,18 +182,18 @@ def guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps):
                    "host, client: the empty key and the client's own :558"),
                   ("guard:hostPin", tbe.pin_view(hdeb),
                    dict(tbe.HOST_DEBRIEF["host_abort"], title=DE_UFO_NOT_RECOVERED, rating=DE_RATING_POOR),
-                   "HOST_DEBRIEF host_abort with the German title and rating (R-A0712-T0-1)")]
+                   "HOST_DEBRIEF host_abort with the German title and rating")]
     return cells
 
 
 def row_cells(rid, seat_of, d_snap, hdeb, cdeb):
-    if rid == "A12-1":
-        return [("clientTitle", cdeb.get("title"), DE_UFO_RECOVERED, G6),
-                ("clientHeader", cdeb.get("recoveryHeader"), DE_UFO_RECOVERY, G6)]
-    if rid == "A12-2":
-        return [("clientTitle", cdeb.get("title"), EN_UFO_NOT_RECOVERED, G6)]
-    return [("hostPage2", names(hdeb), view(hdeb, seat_of, 0, d_snap["host"].get("clientName")), MR5),
-            ("clientPage2", names(cdeb), view(cdeb, seat_of, 1, d_snap["client"].get("clientName")), MR5)]
+    if rid == "german_client_title":
+        return [("clientTitle", cdeb.get("title"), DE_UFO_RECOVERED, TITLE_NOTE),
+                ("clientHeader", cdeb.get("recoveryHeader"), DE_UFO_RECOVERY, TITLE_NOTE)]
+    if rid == "german_host_title":
+        return [("clientTitle", cdeb.get("title"), EN_UFO_NOT_RECOVERED, TITLE_NOTE)]
+    return [("hostPage2", names(hdeb), view(hdeb, seat_of, 0, d_snap["host"].get("clientName")), NAMES_NOTE),
+            ("clientPage2", names(cdeb), view(cdeb, seat_of, 1, d_snap["client"].get("clientName")), NAMES_NOTE)]
 
 
 # ===================== one boot =====================
@@ -247,9 +253,9 @@ def run_boot(bid, cfg, results):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2a0712] shutdown {gc.name}: {tbe.short(e)}", flush=True)
+                print(f"[test_debrief_fidelity] shutdown {gc.name}: {tbe.short(e)}", flush=True)
         walls["total"] = round(time.time() - t0, 2)
-        print(f"[w2a0712] boot {bid} walls={walls} start={t0:.1f} end={time.time():.1f}", flush=True)
+        print(f"[test_debrief_fidelity] boot {bid} walls={walls} start={t0:.1f} end={time.time():.1f}", flush=True)
 
 
 # ===================== main =====================
