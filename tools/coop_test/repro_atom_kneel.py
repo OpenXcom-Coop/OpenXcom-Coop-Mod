@@ -1,59 +1,53 @@
-"""R3-P2 (rewrite spike, SPIKE-RUNBOOK.md R3-P2 packet text): ATOM kneel +
-burst + spike sweep - the second atom (chain-less path, RB-D13) plus the r2
-acceptance bullets that need two atoms (burst/drain proof, forced-mismatch
-proof).
+"""ATOM kneel + burst + hash bucket sweep: the kneel action end to end (the
+chain-less path) plus the two proofs that need a second action kind beside
+turn (burst/drain proof, forced-mismatch proof).
 
-FIXTURE: same recipe/precedent as repro_atom_turn.py (R3-P1) - a live
-2-player skirmish through the harness lobby flow, the same SELECTION RULE +
-bounded re-roll loop (REVIEW4 IR-4), reused here via inline copy (this
-file's own precedent: repro_atom_turn.py; that file's own precedent:
-test_faction_setup.py). Extended for R3-P2's burst/drain proof: TWO
-client-owned soldiers (harnessSeatOneSoldier's new `index` param, added by
-this packet) so a mixed turn+kneel burst can drive two DIFFERENT actors
+FIXTURE: same recipe as repro_atom_turn.py - a live 2-player skirmish through
+the harness lobby flow, the same SELECTION RULE + bounded re-roll loop, copied
+inline (repro_atom_turn.py took it from test_faction_setup.py). The burst/drain
+proof uses TWO client-owned soldiers (harnessSeatOneSoldier's `index` param)
+so a mixed turn+kneel burst can drive two DIFFERENT actors
 back-to-back. A genuine host-side "busy" admission race was ATTEMPTED with
 this same two-unit setup (actor A's longest-possible turn, actor B's kneel
 fired immediately after with no sleep) but could not be made to land - see
 run_burst_drain_proof()'s own doc comment for the diagnostic finding
 (BState think()-loop resolution in this harness is effectively
 un-throttled, faster than a second TestServer command's own round trip).
-SUPERSEDED (R2-P7, 2026-09-02; W2-P4 S-F): tools/coop_test/test_retry_cancel.py
-lands a LIVE deny("busy") deterministically behind a real long chain (the
-client's own autoshot) and fires it end-to-end (deny -> pending ->
-auto-resubmit). THIS file is deliberately left as-is: its burst proof is
-about in-order drain across origins, not about busy, and it stays a
-lever-free natural-race regression.
+tools/coop_test/test_retry_cancel.py lands a LIVE deny("busy")
+deterministically behind a real long chain (the client's own autoshot) and
+fires it end-to-end (deny -> pending -> auto-resubmit). THIS file's burst
+proof is about in-order drain across origins, not about busy, and it stays a
+natural-race check with no test hook.
 The "oldest-denied-first observable via lastDeny" clause is instead proven
 via a not_your_unit deny mixed into the same burst (recordDeny()'s
 bookkeeping fires identically for every deny reason, not just "busy" - see
 that function's own doc comment).
 
-RB-D13 recap (why kneel's code shape differs from turn's): kneel is
+Why kneel's code shape differs from turn's: kneel is
 CHAIN-LESS - no BState is ever pushed, so admit -> call -> emit -> pop all
 happen synchronously inside ONE call (CoopArbiter::onIntent()'s "kneel"
 branch for an admitted remote intent, or BattlescapeState::btnKneelClick's
 host-local branch). The actual emit lives in ONE thin hook inside
-BattlescapeGame::kneel() itself (coopOnKneelFinished, connectionTCP.cpp),
-generalized by this packet from R2-P5's original admitted-intent-only inline
-version so it fires identically for BOTH the host's own local kneel click
-and an admitted remote intent - see this packet's final report for why that
-refactor was necessary (R2-P5 only ever covered the intent-admitted origin).
+BattlescapeGame::kneel() itself (coopOnKneelFinished, connectionTCP.cpp), so
+it fires identically for BOTH the host's own local kneel click and an
+admitted remote intent.
 
 Two sessions:
-  test_atom_kneel_e2e()  - ONE session: kneel via battle_intent (RB-D13
-                            chain-less e2e), a faithful-UI variant via a
-                            real SDLK_k keypress (RB-D10 btnKneelClick
+  test_atom_kneel_e2e()  - ONE session: kneel via battle_intent (chain-less
+                            e2e), a faithful-UI variant via a
+                            real SDLK_k keypress (the btnKneelClick
                             intercept, Options::keyBattleKneel default),
                             deny paths (not_your_unit, cost_changed), and
-                            the burst/drain proof (r2 acceptance 1).
+                            the burst/drain proof.
   test_forced_mismatch()  - a SEPARATE, freshly-booted session: corrupt_
                             bucket{unitsStats} on the host (poking a unit
                             OTHER than the one about to kneel - see that
                             function's own comment for why), then a kneel
                             via the HOST's OWN local input -> client
-                            desyncSeen/frozen/bundle/banner (r2 acceptance
-                            3). Ends with an explicit clean shutdown - a
-                            desync-frozen battle cannot be un-frozen (SS2.8
-                            "no partial repair"), so this session is never
+                            desyncSeen/frozen/bundle/banner. Ends with an
+                            explicit clean shutdown - a desync-frozen
+                            battle cannot be un-frozen (there is no partial
+                            repair), so this session is never
                             reused for anything else.
 
 Run:  python tools/coop_test/repro_atom_kneel.py
@@ -78,10 +72,10 @@ COOP_SEAT_1 = 1
 SDLK_TAB = 9    # Options::keyBattleNextUnit default (test_input_gating.py precedent)
 SDLK_K = 107    # Options::keyBattleKneel default (SDLK_k, Options.cpp:337)
 
-# SS2.6's desync row, verbatim from bin/common/Language/en-US.yml. W1-P4 made the
-# banner assert below EXACT rather than "non-empty" (coop battle entry now raises
-# its own notice, so non-emptiness no longer proves showDesyncHalted() fired).
-STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted"  # R4-L3 S-A (owner D232 a, r4-residue Q2 a)
+# The desync banner text, verbatim from bin/common/Language/en-US.yml. The
+# banner assert below is EXACT rather than "non-empty": coop battle entry raises
+# its own notice, so non-emptiness would not prove showDesyncHalted() fired.
+STR_DESYNC_HALTED_TEXT = "Desync detected - battle halted"
 
 
 def states(gc):
@@ -139,8 +133,8 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
     """Steps 5-7 of the skirmish lobby flow (repro_atom_turn.py precedent),
     extended with the fixture seat stamp(s) between reaching NewBattleState
     and clicking OK. `seat_count` seats that many DIFFERENT soldiers to
-    COOP_SEAT_1 via this packet's own harnessSeatOneSoldier `index`
-    extension - repro_atom_turn.py's single-actor recipe used 1 (index
+    COOP_SEAT_1 via harnessSeatOneSoldier's `index` parameter -
+    repro_atom_turn.py's single-actor recipe used 1 (index
     defaults to 0); the burst/drain proof needs 2 real client-owned units."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
@@ -158,8 +152,8 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
     host.ok({"cmd": "newbattle_ok"})
 
     # the shared battle-entry spine - both briefings (the offer goes
-    # out at PREPARE, D210 b), both pre-battle equip screens,
-    # both Turn-1 screens (Q7 a).
+    # out at PREPARE), both pre-battle equip screens,
+    # both Turn-1 screens.
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
@@ -167,8 +161,8 @@ def drive_to_battlescape(host, client, seated_holder, seat_count=1):
     time.sleep(3)  # let both logs flush the handshake lines before reading them
 
 
-# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
-# IR2-1) - see the shared helper's docstring for the surprise it covers and for
+# dismiss_battle_start_overlays() lives in session.py - see the shared
+# helper's docstring for the surprise it covers and for
 # the coop stack shape after the pre-battle equip freeze.
 
 
@@ -185,23 +179,22 @@ def has_door_within(gc, x, y, z, radius=2):
 
 
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE, reused verbatim from repro_atom_turn.py
-    (RB-D15's own text calls out this file's kneel reaction-fire branch by
-    name, so the same empty-spotted-set guard applies even though the
-    no-door clause is really only a turn/door concern) - see that file's own
-    module docstring for the exact (a)/(b) predicates.
+    """SELECTION RULE, as in repro_atom_turn.py: the seat-1 soldier qualifies
+    only with no door tile within 2 tiles of it and no living non-player unit
+    within max view distance (this file's kneel reaction-fire branch needs the
+    same guard even though the no-door clause is really only a turn/door
+    concern).
 
-    RULE (c) - added by the WV-D5 fixture-pinning sweep (2026-09-03). RB-D15 and
-    WV-D18 require an "open-ground, no-door, NO-ENEMY-LOS" actor, and (a)+(b)
-    cover only the first two: (a) asks whether a hostile is ALREADY spotted at
-    t=0, which is silent on whether this actor's ROTATION will bring one into
-    view. Vanilla aborts a BA_NONE turn mid-chain the moment
-    getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
+    The contact check asks for an "open-ground, no-door, NO-ENEMY-LOS" actor:
+    whether a hostile is ALREADY spotted at t=0 is silent on whether this
+    actor's ROTATION will bring one into view. Vanilla aborts a BA_NONE turn
+    mid-chain the moment getUnitsSpottedThisTurn() grows
+    (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
 
-    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
-    within view distance, and the lever does not recompute sight, so the
-    visible list may be stale."""
+    There is no "already spotted" check: the staging helper leaves nothing
+    within view distance, and the staging test hook does not recompute sight,
+    so the visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
@@ -209,9 +202,9 @@ def qualifying_actor(host, soldier_id):
     for u in units.values():
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
-                return None  # rule (b)
+                return None  # a door within 2 tiles
             if not session.actor_is_contact_free(st, u, "kneel"):
-                return None  # rule (c)
+                return None  # a hostile within view distance
             return u
     return None
 
@@ -266,8 +259,8 @@ def wait_settled(host, client, baseline, timeout=15):
 
 
 def run_ui_variant(host, client, actor_id, was_kneeled):
-    """ONE faithful-UI variant step (packet text): a real SDLK_k keypress via
-    inject_input, proving the RB-D10 BattlescapeState::btnKneelClick
+    """ONE faithful-UI variant step: a real SDLK_k keypress via
+    inject_input, proving the BattlescapeState::btnKneelClick
     intercept end-to-end - the client SENDS an intent (instead of running
     vanilla locally) exactly as the battle_intent-driven path did, but
     reached through the real keybinding this time (BattlescapeState.cpp's
@@ -299,7 +292,7 @@ def run_ui_variant(host, client, actor_id, was_kneeled):
 
     assert client_unit["kneeled"] != was_kneeled, (
         f"faithful-UI SDLK_k keypress did not toggle unit {actor_id}'s kneel state "
-        f"(client kneeled={client_unit['kneeled']}, was {was_kneeled}) - the RB-D10 "
+        f"(client kneeled={client_unit['kneeled']}, was {was_kneeled}) - the "
         "btnKneelClick intercept did not fire end-to-end")
     assert host_unit["kneeled"] == client_unit["kneeled"], (
         f"host/client kneel state differ: host={host_unit['kneeled']} client={client_unit['kneeled']}")
@@ -312,16 +305,15 @@ def run_ui_variant(host, client, actor_id, was_kneeled):
     assert_reveal_parity(host, client, "post-UI-variant",
                          extra_positions=[(host_unit["x"], host_unit["y"], host_unit["z"])])
     print(f"PASS run_ui_variant: real SDLK_k keypress toggled unit {actor_id}'s kneel to "
-          f"{client_unit['kneeled']} via the RB-D10 btnKneelClick intercept (client sent the "
+          f"{client_unit['kneeled']} via the btnKneelClick intercept (client sent the "
           "intent, host executed + emitted, client applied), hash-clean")
 
 
 def run_deny_paths(client, host_state, seated_soldier_id, actor_id, actor_kneeled, actor_tu_basis):
-    """Two kneel-specific deny checks (packet text's own deny-path clause,
-    generalized to kneel's own validator per this packet's scope):
+    """Two kneel-specific deny checks, on kneel's own validator:
       not_your_unit - client intents a HOST-owned unit.
       cost_changed  - client intents its OWN unit with a deliberately wrong
-                      tuBasisOverride (RB-D32's own "G5 stale-basis lever"),
+                      tuBasisOverride (a stale TU basis),
                       proving validateKneel()'s recomputed-cost check."""
     host_units = units_by_id(host_state)
     host_owned = next(
@@ -355,13 +347,12 @@ def run_deny_paths(client, host_state, seated_soldier_id, actor_id, actor_kneele
 
 
 def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
-    """r2 acceptance 1: turn+kneel+turn intents fired back-to-back from the
+    """Burst/drain proof: turn+kneel+turn intents fired back-to-back from the
     client while the host-seat acts too - assert strictly increasing applied
-    seq, queueDepth drains to 0, no rotation (the legacy wedge class),
+    seq, queueDepth drains to 0, no rotation (the wedge class),
     oldest-denied-first observable via lastDeny.
 
-    DISCLOSED DEVIATION (not silent - see this packet's final report): a
-    genuine host-side "busy" admission RACE was attempted first (two real
+    A genuine host-side "busy" admission RACE was attempted first (two real
     client-owned units, actor A's turn picked as the LONGEST possible single
     rotation - 180 degrees / 4 ticks - to maximize the window
     bg->isBusy()==true should hold, actor B's kneel fired immediately
@@ -371,16 +362,13 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
     under 100ms - faster than even ONE TestServer command's own round trip
     (~50ms observed) - so by the time actor B's intent could possibly reach
     onIntent()'s busy check, actor A's chain had already fully unwound and
-    admitted normally. At the time this file was written the harness had no
-    lever to artificially pause a BState mid-chain, so "busy" was validated
-    ONLY by R2-P5's own enumerated code-review checklist (item 1), not by a
-    live fire in either R3-P1 or R3-P2.
+    admitted normally.
 
-    RESOLVED (R2-P7, then W2-P4 S-F): a real long chain - the client's own
-    autoshot - keeps its action context open on the HOST, which keeps
-    onIntent()'s `currentActionId() != 0` busy arm true for a measured window.
-    test_retry_cancel.py owns that live-fire proof now; this function
-    keeps its lever-free natural-race shape on purpose.
+    A real long chain - the client's own autoshot - keeps its action context
+    open on the HOST, which keeps onIntent()'s `currentActionId() != 0` busy
+    arm true for a measured window. test_retry_cancel.py owns that live-fire
+    proof; this function keeps its natural-race shape (no test hook) on
+    purpose.
 
     Given deny()/recordDeny() (connectionTCP.cpp) updates the SAME
     oldest-denied-first bookkeeping (g_coopLastDenyTick) for EVERY deny
@@ -428,7 +416,7 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
                "toDir": a_before["direction"]})  # turn A back
     wait_settled(host, client, baseline3)
 
-    # The host-seat acts too: a local kneel (RB-D19 origin="host") on a
+    # The host-seat acts too: a local kneel (origin="host") on a
     # genuinely HOST-OWNED unit - select_away_from()'s own doc comment
     # explains why "whatever the host currently has selected" is NOT good
     # enough (the inherited initial selection is often actor A/B itself).
@@ -451,7 +439,7 @@ def run_burst_drain_proof(host, client, actor_a_id, actor_b_id):
 
     # Strictly increasing seq across the whole burst (turn A, kneel B, the
     # not_your_unit-denied attempt which consumed no seq, turn A back, host
-    # kneel = 4 seq'd actions x2 evs each = 8) - "no rotation" (the legacy
+    # kneel = 4 seq'd actions x2 evs each = 8) - "no rotation" (the
     # wedge class). event_log's ring is battle-scoped, so this also covers
     # every earlier action this session ran (e2e kneel, stand, UI variant) -
     # a stronger check, not a weaker one.
@@ -545,7 +533,7 @@ def test_atom_kneel_e2e():
         cur_kneeled = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["kneeled"]
         assert cur_kneeled == was_kneeled, "stand-back-up kneel intent did not restore state"
 
-        # --- ONE faithful-UI variant: proves the RB-D10 btnKneelClick
+        # --- ONE faithful-UI variant: proves the btnKneelClick
         # intercept end-to-end via a real SDLK_k keypress ---
         run_ui_variant(host, client, actor_id, cur_kneeled)
 
@@ -560,39 +548,37 @@ def test_atom_kneel_e2e():
         run_deny_paths(client, host_state, soldier_ids[0], actor_id,
                         actor_now["kneeled"], tu_kneel_cost)
 
-        # --- burst/drain proof (r2 acceptance 1): needs the SECOND seated
-        # soldier's battle unit id (soldier_ids[1], stamped by this packet's
-        # harnessSeatOneSoldier index extension) ---
+        # --- burst/drain proof: needs the SECOND seated
+        # soldier's battle unit id (soldier_ids[1], stamped through
+        # harnessSeatOneSoldier's index parameter) ---
         client_state_now = client.cmd({"cmd": "battle_state"})
         actor_b = next(u for u in client_state_now["units"] if u.get("soldierId") == soldier_ids[1])
         run_burst_drain_proof(host, client, actor_id, actor_b["id"])
 
-        # --- FULL 8-bucket equality AFTER every action above
-        # (the G5 item-5 shape). This scope is NEW here - R3-P2 only ever
-        # compared the single `unitsStats` bucket per action - and it is worth
-        # having on this file specifically because run_burst_drain_proof()
+        # --- FULL 8-bucket equality AFTER every action above. The
+        # per-action checks compare only the single `unitsStats` bucket;
+        # the full compare matters on this file specifically because run_burst_drain_proof()
         # mixes TWO body turns of actor A into the burst alongside the kneels,
         # i.e. it exercises exactly the applier path whose turret coupling
-        # produced the post-action saveBlob-only `directionTurret` mismatch
-        # RCA'd 2026-09-02 (see session.assert_turret_parity's own docstring
-        # for the mechanism and the corrected attribution). The burst also
+        # once produced a post-action saveBlob-only `directionTurret` mismatch
+        # (see session.assert_turret_parity's own docstring
+        # for the mechanism). The burst also
         # spans both origins (a host-local kneel via origin="host") and leaves
         # host/client selections deliberately on different units - `selectedUnit`
         # is a top-level saveBlob exclusion (saveBlobExcludedTopKey,
         # SharedEcon.cpp), so that does not weaken the compare.
-        # The same 8 buckets are now a STRICTLY stronger claim -
-        # saveBlobMaskFowBinTiles is gone, so the per-tile `discovered` bits are
-        # inside saveBlob rather than carved out of it. assert_reveal_parity
+        # The per-tile `discovered` bits are inside saveBlob (no fog mask is
+        # carved out of it). assert_reveal_parity
         # additionally covers what the hash still cannot see (void tiles, which
         # SavedBattleGame::save skips entirely).
         n_units = assert_turret_parity(host, client, "after the whole kneel/turn burst")
         assert_reveal_parity(host, client, "after the whole kneel/turn burst")
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the whole kneel/turn burst (full 9/9)")
-        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        # The sweep is NINE buckets: the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
         assert len(post_h) == 10, (
             f"hash_now full returned {len(post_h)} buckets, expected 9 "
-            f"({sorted(post_h)}) - the spike bucket set changed under this test")
+            f"({sorted(post_h)}) - the hash bucket set changed under this test")
         print(f"PASS test_atom_kneel_e2e: directionTurret equal on all {n_units} units, fog of "
               f"war in parity, and {len(post_h)}/9 buckets (saveBlob included, binTiles now "
               "UNMASKED) EQUAL on both machines after the whole burst")
@@ -606,7 +592,7 @@ def test_atom_kneel_e2e():
 
 def corrupted_unit_id(host, client):
     """Runs corrupt_bucket{unitsStats} on the HOST and diffs host/client TU
-    per unit to find which unit id it touched (RB-D26's own poke: +-1 TU to
+    per unit to find which unit id it touched (corrupt_bucket's poke: +-1 TU to
     "the first live unit" it finds, iteration-order dependent - NOT
     necessarily the fixture's own seat-1 soldier). Returns that unit id so
     the caller can deliberately kneel a DIFFERENT unit: CoopApply's own
@@ -628,7 +614,7 @@ def select_away_from(host, avoid_id, max_tabs=12):
     unit (coop==COOP_SEAT_0, repro_atom_turn.py's own run_deny_path
     precedent for identifying one) other than `avoid_id`.
 
-    SURPRISE (found while building this repro, not in the packet text): the
+    Note: the
     battle's INHERITED initial selection (blob load, before any Tab press -
     same "pre-filter" wording test_input_gating.py's own NOTE uses for
     the client side) is NOT itself seat-filtered - it is very often the
@@ -636,8 +622,8 @@ def select_away_from(host, avoid_id, max_tabs=12):
     stamped to COOP_SEAT_1 (both pick "the first soldier on the craft"), so
     a naive `selectedId != avoid_id` check can return a CLIENT-owned unit
     the host does not command - btnKneelClick's coopMayCommand() gate then
-    silently no-ops it (correct behavior, but a stuck test). R5-P2 already
-    seat-filters the Tab-cycle ITSELF (SavedBattleGame::selectNextPlayerUnit
+    silently no-ops it (correct behavior, but a stuck test). The Tab-cycle
+    ITSELF is seat-filtered (SavedBattleGame::selectNextPlayerUnit
     predicate), so one press reliably moves off it once actually checked."""
     for _ in range(max_tabs):
         st = host.cmd({"cmd": "battle_state"})
@@ -653,11 +639,11 @@ def select_away_from(host, avoid_id, max_tabs=12):
 
 
 def test_forced_mismatch():
-    """r2 acceptance 3: corrupt_bucket{unitsStats} on the host, then one
+    """Forced mismatch: corrupt_bucket{unitsStats} on the host, then one
     kneel -> client freezes input, event_state.desyncSeen:true, bundle file
     exists (path in bt_desync), banner shown. A SEPARATE, freshly-booted
-    session - SS2.8 "NO partial repair" means a desync-frozen battle stays
-    frozen forever, so this session is torn down (not reused) once done."""
+    session - there is NO partial repair, so a desync-frozen battle stays
+    frozen forever, and this session is torn down (not reused) once done."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle(seat_count=1, tag="kneel_mismatch")
     try:
         # this test's subject is the halt; the TEST-ONLY hold keeps the host from repairing it.
@@ -668,7 +654,7 @@ def test_forced_mismatch():
         print(f"[test_forced_mismatch] corrupt_bucket touched unit {corrupted_id} on the host "
               "(client copy untouched)")
 
-        # Kneel via the HOST's OWN local input (RB-D19 origin=host), on a
+        # Kneel via the HOST's OWN local input (origin=host), on a
         # unit deliberately DIFFERENT from corrupted_id (see
         # corrupted_unit_id()'s own doc comment for why).
         kneel_actor_id = select_away_from(host, corrupted_id)
@@ -733,12 +719,12 @@ def test_forced_mismatch():
               f"bundlePath: {bundle_line.strip()}")
 
         # banner shown: BattlescapeState::_txtCoopWait (CoopBattleUi::
-        # showDesyncHalted() -> setCoopWaitText()), read via this packet's
-        # new getCoopWaitText()/TestServer battle_state.coopWaitText.
+        # showDesyncHalted() -> setCoopWaitText()), read via
+        # getCoopWaitText()/TestServer battle_state.coopWaitText.
         # EXACT TEXT, not merely non-empty: coop battle ENTRY now raises
         # its own _txtCoopWait notice (STR_COOP_EQUIP_FROZEN, the pre-battle
         # equip freeze), so "the banner is non-empty" would be true even if
-        # showDesyncHalted() never fired. Compare against SS2.6's desync row.
+        # showDesyncHalted() never fired. Compare against the desync banner text.
         client_banner = client.cmd({"cmd": "battle_state"}).get("coopWaitText", "")
         assert client_banner == STR_DESYNC_HALTED_TEXT, (
             f"client banner is {client_banner!r}, expected STR_COOP_DESYNC_HALTED "
@@ -747,8 +733,8 @@ def test_forced_mismatch():
         print(f"PASS test_forced_mismatch: client banner shown: {client_banner!r}")
 
     finally:
-        # Restart harness cleanly (packet text): a desync-frozen battle has
-        # no path back to a working state (SS2.8 "no partial repair") - just
+        # Restart harness cleanly: a desync-frozen battle has
+        # no path back to a working state (there is no partial repair) - just
         # tear this session down, never reuse it.
         host.shutdown()
         client.shutdown()
@@ -757,7 +743,7 @@ def test_forced_mismatch():
 def main():
     test_atom_kneel_e2e()
     test_forced_mismatch()
-    print("ALL R3-P2 ATOM KNEEL + BURST + MISMATCH TESTS PASSED")
+    print("ALL ATOM KNEEL + BURST + MISMATCH TESTS PASSED")
 
 
 if __name__ == "__main__":
