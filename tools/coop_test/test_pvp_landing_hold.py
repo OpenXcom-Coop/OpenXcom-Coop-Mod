@@ -3,27 +3,34 @@ its YES on the landing prompt until its borrowed battle starts. The host's routi
 prompt is not pushed a second time, the X-COM player's globe never becomes its top screen in between, and no position snapshot of that
 globe reaches the alien host while the host borrows the X-COM world.
 
-Spec: docs rewrite/prompts/w2h38_borrow_hold_pop.md, section (f) (owner D250, O1 (a); QC-4 (a), VL-C-1; QH37-5 (a); QH38-1..6 (a);
-F14834, F14846). docs rewrite/w2h38-task0/sa/CONSTANTS.md (red premise boots a / b, green premise boots c / d with E1 only, 2/2
-each; the hold's title "Waiting for HostPlayer" / "Disconnect" is EVIDENCE, never asserted).
+The hold's title ("Waiting for HostPlayer" / "Disconnect") is EVIDENCE, never asserted.
 
-Boot L: gm3 (the HOST plays the aliens), lobby key 48046, dirs w2h38_l_host / w2h38_l_client. Bring-up: PF.start_pvp_campaign
-(alien_player="host"); HOST0 / CLIENT0 (G3B's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
-noBases true, client noBases false, the client's real base X, its non-coop Skyranger SKY, >= 2 soldiers; geo.slow_clock; crash baseline.
-Staging: G3B.stage_landing (the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE L:" line (or
-G3B's "CAPTURE boot:" line) and every cell FAILs "boot".
-Row H1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked"):
-  the client's log cursor; client set_seed 1 + confirm_landing; every 0.02 s until both battle_state.inBattle (<= 60 s) one sample
-  (client coop_dialog_info, its stack, the host's pvpBorrow.borrowed; F15127); session.briefings_to_battlescape; H1-common; the client
-  log's "CLIENT phase Active" line (<= 5 s); the screen record ([coop-ui] lines after the cursor; WIN = the events strictly between the
-  hand-off line HAND and the first BattlescapeState push after it, ENTRY); both pvpBorrow records.
-  H1-entry  both inBattle, the spine, the host's borrow record, the client's held record, HAND / ENTRY / ACTIVE, >= 2 post-borrow samples.
-  H1-hold   every pre-entry sample's top is CoopState with code 3; WIN ends with its only CoopState pop, at depth 1 (the entry's unwind).
-  H1-prompt WIN pushes no ConfirmLandingState and no sample's client stack holds one.
-  H1-top    no event in WIN but its last has depth 1 (the client's GeoscapeState never on top between HAND and ENTRY).
-  H1-snap   host pvpBorrow.positionsSkipped (W2-H37's count, absent = 0) == 0.
-  H1-common desyncSeen false on both, 0 new crash files since the confirm, hash_now full EQUAL. No battle end, no debriefing OK.
-RED (R1, the unchanged product): 2/6 - FAIL H1-hold, H1-prompt, H1-top, H1-snap; PASS H1-entry, H1-common. GREEN (G1): 6/6.
+Boot: gm3 (the HOST plays the aliens), lobby key 48046, dirs pvp_landing_hold_host / pvp_landing_hold_client.
+Bring-up: PF.start_pvp_campaign (alien_player="host"); HOST0 / CLIENT0 (G3B's bring_up, copied with the key as a
+parameter); preconditions gamemode 3 on both, host noBases true, client noBases false, the client's real base X, its
+non-coop Skyranger SKY, >= 2 soldiers; geo.slow_clock; crash baseline. Staging: G3B.stage_landing (the landing prompt
+on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE setup:" line (or G3B's "CAPTURE boot:"
+line) and every cell FAILs "boot".
+Row landing (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never
+reached FAILs "blocked"):
+  the client's log cursor; client set_seed 1 + confirm_landing; every 0.02 s until both battle_state.inBattle
+  (<= 60 s) one sample (client coop_dialog_info, its stack, the host's pvpBorrow.borrowed);
+  session.briefings_to_battlescape; landing-common; the client log's "CLIENT phase Active" line (<= 5 s); the screen
+  record ([coop-ui] lines after the cursor; WIN = the events strictly between the hand-off line HAND and the first
+  BattlescapeState push after it, ENTRY); both pvpBorrow records.
+  landing-entry   both inBattle, the battle-entry spine, the host's borrow record, the client's held record,
+                  HAND / ENTRY / ACTIVE, >= 2 post-borrow samples.
+  landing-hold    every pre-entry sample's top is CoopState with code 3; WIN ends with its only CoopState pop, at
+                  depth 1 (the entry's unwind).
+  landing-prompt  WIN pushes no ConfirmLandingState and no sample's client stack holds one.
+  landing-top     no event in WIN but its last has depth 1 (the client's GeoscapeState never on top between HAND and
+                  ENTRY).
+  landing-snap    host pvpBorrow.positionsSkipped (the X-COM player's position snapshots the host received and left
+                  unapplied while it borrowed; absent = 0) == 0.
+  landing-common  desyncSeen false on both, 0 new crash files since the confirm, hash_now full EQUAL. No battle end,
+                  no debriefing OK.
+Without the fix: 2/6 (landing-hold, landing-prompt, landing-top, landing-snap FAIL; landing-entry, landing-common
+PASS). With it: 6/6.
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pvp_landing_hold.py
@@ -44,7 +51,7 @@ import test_battle_end_separate as BES  # noqa: E402
 import test_campaign_battle_gm3 as G3B  # noqa: E402
 
 KEY = "48046"
-SEED_L = 1                    # set on the X-COM CLIENT right before its confirm_landing (as G3B and W2-H37)
+SEED_ENTRY = 1                # set on the X-COM CLIENT right before its confirm_landing (as in G3B)
 SQUAD = 2
 POLL_S = 0.02                 # a sample every ~0.03 s: the host's borrow to the client's battle entry takes ~0.2-0.3 s
 BOTH_IN_S = 60
@@ -52,7 +59,7 @@ LOG_S = 5
 HAND = "[coop-pvp] client: landing handed to the alien host"
 OFFER = "[coop-handshake] battle_offer accepted"
 ACTIVE = "[coop-handshake] CLIENT phase Active"
-ALL_CELLS = ["H1-entry", "H1-hold", "H1-prompt", "H1-top", "H1-snap", "H1-common"]
+ALL_CELLS = ["landing-entry", "landing-hold", "landing-prompt", "landing-top", "landing-snap", "landing-common"]
 
 
 class FixtureMiss(Exception):
@@ -95,7 +102,7 @@ def capture_boot(err, host, client):
                             "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE L: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE setup: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
@@ -117,7 +124,7 @@ def common(host, client, crash0):
 
 def bring_up(host, client, key, ev):
     """G3B's bring_up (copied, the key as a parameter): spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0,
-    geo.slow_clock. Its C-gm values are preconditions here (a miss = setup failure)."""
+    geo.slow_clock. The values its gamemode cell checks are preconditions here (a miss = setup failure)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, key, alien_player="host")
@@ -144,8 +151,9 @@ def bring_up(host, client, key, ev):
 
 
 def sample(host, client, t_c):
-    """H1's monitor sample: the client's coop_dialog_info, then its stack (top; entered = a BattlescapeState in it), then the host's
-    pvpBorrow.borrowed. The dialog is read first so a sample never pairs a pre-entry stack with a post-entry dialog."""
+    """The landing row's monitor sample: the client's coop_dialog_info, then its stack (top; entered = a
+    BattlescapeState in it), then the host's pvpBorrow.borrowed. The dialog is read first so a sample never pairs a
+    pre-entry stack with a post-entry dialog."""
     dlg = client.cmd({"cmd": "coop_dialog_info"})
     stk = G3B.stack(client)
     hb = (G3B.coop(host).get("pvpBorrow") or {}).get("borrowed")
@@ -182,11 +190,11 @@ def screen_record(client, cursor):
     return out
 
 
-def row_h1(host, client, client0, ev, phases, t0):
+def row_landing(host, client, client0, ev, phases, t0):
     sky = client0["sky"]
     crash0 = G3B.crash_set()
     cursor = geo._log_cursor(client)
-    sd, cl = client.cmd({"cmd": "set_seed", "seed": SEED_L}), client.cmd({"cmd": "confirm_landing"})
+    sd, cl = client.cmd({"cmd": "set_seed", "seed": SEED_ENTRY}), client.cmd({"cmd": "confirm_landing"})
     t_c = time.time()
     if not sd.get("ok") or not cl.get("ok"):
         capture_boot(f"client set_seed {sd} / confirm_landing {cl}", host, client)
@@ -236,32 +244,37 @@ def row_h1(host, client, client0, ev, phases, t0):
     ebad += [f"the screen record lacks {n}" for n, ok in (("HAND", hand is not None), ("an ENTRY after HAND", entry is not None),
                                                          ("ACTIVE", stamp("ACTIVE") is not None)) if not ok]
     ebad += [f"{len(post)} post-borrow sample(s) (want >= 2)"] if len(post) < 2 else []
-    cell("H1-entry", not ebad, "; ".join(ebad) or f"both inBattle {secs} s, spine passed; host pvpBorrow borrowed 1, active, site "
+    cell("landing-entry", not ebad, "; ".join(ebad)
+         or f"both inBattle {secs} s, spine passed; host pvpBorrow borrowed 1, active, site "
          f"(mirror), {sky['type']}-{sky['id']}; client held 1; HAND / ENTRY / ACTIVE in the record; {len(post)} post-borrow samples")
     if entry is None or not pre:
-        block(["H1-hold", "H1-prompt", "H1-top"], "no HAND -> ENTRY window in the client's screen record or no pre-entry sample")
+        block(["landing-hold", "landing-prompt", "landing-top"], "no HAND -> ENTRY window in the client's screen "
+              "record or no pre-entry sample")
     else:
         hbad = [f"t {s['t']}: top {s['top']} code {s.get('code')!r}" for s in pre if s["top"] != "CoopState" or s.get("code") != 3]
         pops = [e for e in win if e[:2] == ("pop", "CoopState")]
         last_ok = bool(win) and win[-1] == ("pop", "CoopState", 1) and len(pops) == 1
-        cell("H1-hold", not hbad and last_ok,
+        cell("landing-hold", not hbad and last_ok,
              f"{len(hbad)}/{len(pre)} pre-entry samples without the hold on top" + (f" (first {hbad[0]})" if hbad else "")
              + f"; WIN's last event {win[-1] if win else None}, CoopState pops in WIN {len(pops)} (want the hold on top in every "
              f"pre-entry sample and WIN ending with its only CoopState pop at depth 1)")
         pushes = sum(1 for e in win if e[:2] == ("push", "ConfirmLandingState"))
         seen = [s["t"] for s in mon if s["prompt"]]
-        cell("H1-prompt", pushes == 0 and not seen, f"{pushes} ConfirmLandingState push(es) in WIN, {len(seen)} sample(s) with "
+        cell("landing-prompt", pushes == 0 and not seen,
+             f"{pushes} ConfirmLandingState push(es) in WIN, {len(seen)} sample(s) with "
              f"ConfirmLandingState in the client's stack {seen[:6]} (want 0 / 0)")
         early = [e for e in win[:-1] if e[2] == 1]
-        cell("H1-top", not early, f"{len(early)} event(s) in WIN before its last at depth 1 {early[:3]} (want none: the client's "
+        cell("landing-top", not early,
+             f"{len(early)} event(s) in WIN before its last at depth 1 {early[:3]} (want none: the client's "
              f"GeoscapeState never on top between the hand-off and the battle entry)")
     if hp.get("borrowed") != 1:
-        block(["H1-snap"], "the host never borrowed the X-COM world (H1-entry)")
+        block(["landing-snap"], "the host never borrowed the X-COM world (landing-entry)")
     else:
         sk = hp.get("positionsSkipped") or 0
-        cell("H1-snap", sk == 0, f"host pvpBorrow.positionsSkipped {hp.get('positionsSkipped')!r} (want absent / 0: no snapshot of the "
+        cell("landing-snap", sk == 0,
+             f"host pvpBorrow.positionsSkipped {hp.get('positionsSkipped')!r} (want absent / 0: no snapshot of the "
              f"X-COM globe reached the host while it borrowed)")
-    cell("H1-common", c_ok, c_detail)
+    cell("landing-common", c_ok, c_detail)
     rle = []
     for s in mon:
         key = [s["top"], s.get("code"), s.get("borrowed")]
@@ -286,15 +299,15 @@ def run(host, client, phases, t0):
     except G3B.FixtureMiss as e:
         raise FixtureMiss(f"G3B.stage_landing: {e}")
     phases["staging"] = round(time.time() - t0, 1)
-    row_h1(host, client, client0, ev, phases, t0)
+    row_landing(host, client, client0, ev, phases, t0)
     ev["phases"] = phases
-    evidence("H1", ev)
-    row_verdict("H1", ALL_CELLS)
+    evidence("landing", ev)
+    row_verdict("landing", ALL_CELLS)
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("w2h38_l_host"))
-    client = GameClient("client", None, make_user_dir("w2h38_l_client"))
+    host = GameClient("host", None, make_user_dir("pvp_landing_hold_host"))
+    client = GameClient("client", None, make_user_dir("pvp_landing_hold_client"))
     t0, phases = time.time(), {}
     try:
         run(host, client, phases, t0)
@@ -309,7 +322,7 @@ def main():
         finally:
             client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== W2-H38 gm3 landing hold: {len(RESULTS) - len(fails)}/{len(ALL_CELLS)} cells PASS, "
+    print(f"\n==== gm3 landing hold: {len(RESULTS) - len(fails)}/{len(ALL_CELLS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
