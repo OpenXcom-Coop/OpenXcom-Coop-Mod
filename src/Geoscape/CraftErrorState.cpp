@@ -37,7 +37,7 @@ namespace OpenXcom
  * @param msg Error message.
  */
 CraftErrorState::CraftErrorState(GeoscapeState *state, const std::string &msg, bool enableHotkeys, Target* centerOnTarget) :
-	_state(state), _centerOnTarget(centerOnTarget)
+	_state(state), _centerOnTarget(centerOnTarget), _msg(msg)
 {
 	_screen = false;
 

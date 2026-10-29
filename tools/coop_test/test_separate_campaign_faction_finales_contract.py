@@ -15,6 +15,7 @@ def main():
     separate = read("src/CoopMod/SeparateEcon.cpp")
     battle = read("src/Battlescape/BattlescapeState.cpp")
     geoscape = read("src/Geoscape/GeoscapeState.cpp")
+    tcp = read("src/CoopMod/connectionTCP.cpp")
     test_server = read("src/CoopMod/TestServer.cpp")
     rosigma_test = read("tools/coop_test/test_separate_campaign_rosigma_faction_finales.py")
 
@@ -30,9 +31,14 @@ def main():
     assert "!seenFactions.insert(player->faction).second" in separate
     assert "resolveFactionFinalOutcome" in battle
     assert "partialFactionVictory" in battle
-    assert "SeparateEcon::factionDisplayName" in battle
-    assert '"The final mission for " + factionName' in battle
-    assert "the final missions of all factions must be completed" in battle
+    # 472e3e84f: a partial faction victory opens the faction finale vote, which
+    # names the faction, instead of a message box.
+    assert "queueFactionFinaleVote(owner)" in battle
+    vote = tcp.split("void connectionTCP::tryStartFactionFinaleVote()", 1)[1]
+    vote = vote.split("\n}\n", 1)[0]
+    assert "SeparateEcon::factionDisplayName(" in vote
+    assert '"Vote NO to end with " + factionName' in vote
+    assert "Continue the campaign to complete the remaining faction finales?" in vote
     assert '"STR_1_BEGINNER"' in separate
     assert '"STR_5_SUPERHUMAN"' in separate
     assert "SeparateEcon::allowsFactionScript(_game, ownerPlayerName)" in geoscape

@@ -6,32 +6,90 @@ Every row checks the AUTHORITATIVE host world, not only the visitor's screen:
   V1 sack     the visitor sacks its own soldier there -> gone on both machines
   V2 rename   the visitor renames its own soldier there -> the host has the name
   V3 reorder  move-up and sort on the visitor's filtered list leave the roster
-              order identical on both machines (no host command: blocked)
+              order identical on both machines (a visitor never reorders there)
+  V9 armor    RU16: the visitor changes its own soldier's armor there, taking
+              it from that base's stores; the partner's soldier stays refused
+  V12 transform  the soldier transformation view lists only the local
+              player's soldiers, on either machine
   V4 capacity a transfer into HostBase must respect HostBase's alien
               containment and hangars (host validator)
   V5 rearm    craft weapon rearm at HostBase is refused, and the visitor is
               told so (STR_COOP_ACTION_REFUSED) instead of a silent drop
   V6 harness  open_craft_info with an unknown craft id is an error
-  V7 order    moving a base in the mini strip must not reorder the base list
-              (commands address bases by index): a later buy lands in the
-              right base
+  V10 transfer  RU17: the visitor transfers its own soldier out of HostBase;
+              items, mixed payloads and the partner's soldiers stay refused
+  V11 roster  move up / down at the player's own base goes through the host:
+              both machines end with the same new order
+  V17 sort    sorting the Soldiers screen at the player's own base (and
+              picking the original order again) goes through the host too
+  V16 transform  a soldier transformation runs on the host: its result and
+              cost reach both machines, the partner's soldier is refused, and a
+              visitor's attempt at the partner base leaves both machines agreeing
+  V7 order    moving a base in the mini strip goes through the host: both
+              machines end with the same new order, and a buy sent right after
+              the move still lands in the base it named
+  V18 cydonia a craft request (separate_cydonia_request) built before a base
+              move still names its craft when the host reads it
   V8 strip    with 10 bases, an own base past index 8 is in the mini strip
               and its on-screen hotkey selects it
+  V13 sell    the random production summary's sell goes through the host
+  V14 harness craft_rearm / craft_assign take craft_type and refuse an id
+              that more than one craft type at the base uses
+  V15 warning the month-end economy warning uses each player's own wallet
+              and maintenance, and only that player sees it
 
 Exit 0 = every row passed. Any other rc is a failure.
 """
 
+import calendar
 import os
+import re
+import shutil
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import geo
 import separate_campaign_fixture as fixture
 from separate_campaign_fixture import soldiers_at
 
 RIFLE = "STR_RIFLE"
 LIVE_ALIEN = "STR_SECTOID_SOLDIER"
+ARMOR = "STR_PERSONAL_ARMOR_UC"
+ARMOR_ITEM = "STR_PERSONAL_ARMOR"
+TRANSFORM = "STR_COOP_TEST_TRANSFORM"
+TRANSFORM_PAID = "STR_COOP_TEST_TRANSFORM_PAID"
+TRANSFORM_COST = 20000
+TRANSFORM_FIRING = 7
 KEY_BASE_SELECT_2 = 50  # SDLK_2, the default keyBaseSelect2
+
+MOD_NAME = "coop_visitor_actions"
+METADATA = """\
+name: "Coop visitor actions test"
+version: 1.0
+description: "Test-only: a soldier transformation open to every live soldier."
+author: coop harness
+
+master: xcom1
+"""
+RULESET = f"""\
+soldierTransformation:
+  - name: {TRANSFORM}
+    allowsLiveSoldiers: true
+    allowsWoundedSoldiers: true
+    allowedSoldierTypes:
+      - STR_SOLDIER
+  - name: {TRANSFORM_PAID}
+    allowsLiveSoldiers: true
+    allowsWoundedSoldiers: true
+    keepSoldierArmor: true
+    allowedSoldierTypes:
+      - STR_SOLDIER
+    cost: {TRANSFORM_COST}
+    flatOverallStatChange:
+      firing: {TRANSFORM_FIRING}
+"""
 
 failures = []
 
@@ -54,12 +112,43 @@ def poll(fn, timeout=20.0, interval=0.4):
     return None
 
 
+def make_mod(root):
+    mod = os.path.join(root, MOD_NAME)
+    os.makedirs(os.path.join(mod, "Ruleset"))
+    with open(os.path.join(mod, "metadata.yml"), "w", encoding="utf-8") as f:
+        f.write(METADATA)
+    with open(os.path.join(mod, "Ruleset", "visitor.rul"), "w", encoding="utf-8") as f:
+        f.write(RULESET)
+    return mod
+
+
 def ids_at(gc, base):
     return [s["id"] for s in soldiers_at(gc, base)]
 
 
+def own_ids_at(gc, base, owner):
+    return [s["id"] for s in soldiers_at(gc, base) if s["owner"] == owner]
+
+
+def soldier(gc, base, sid):
+    return next((s for s in soldiers_at(gc, base) if s["id"] == sid), None)
+
+
 def stats(gc):
     return gc.ok({"cmd": "shared_stats"})
+
+
+def reset_stats(host, client):
+    host.ok({"cmd": "shared_reset_stats"})
+    client.ok({"cmd": "shared_reset_stats"})
+
+
+def stock(gc, base, item):
+    return gc.ok({"cmd": "base_report", "base": base})["storage"].get(item, 0)
+
+
+def owner_funds(gc, base):
+    return gc.ok({"cmd": "base_report", "base": base})["ownerFunds"]
 
 
 def base_crafts(gc, base):
@@ -67,11 +156,23 @@ def base_crafts(gc, base):
                 if b["name"] == base)["crafts"]
 
 
+def base_order(gc):
+    return [b["name"] for b in gc.ok({"cmd": "geo_state"})["bases"]]
+
+
 def dismiss_fail(gc):
     try:
         gc.ok({"cmd": "coop_dialog_back"})
     except Exception:
         pass
+
+
+def wait_refused(host, client, reason="STR_COOP_ACTION_REFUSED"):
+    """The client's last command was refused with <reason> (None on timeout)."""
+    seen = poll(lambda: stats(client)["failCount"] or None)
+    last = stats(client)["lastFail"]
+    dismiss_fail(client)
+    return bool(seen) and last == reason, last
 
 
 def hire_guests(host, client, count):
@@ -127,6 +228,7 @@ def row_reorder(host, client):
     before_client = ids_at(client, "HostBase")
     client.ok({"cmd": "open_soldiers", "base": "HostBase"})
     client.ok({"cmd": "soldiers_reorder", "action": "move_up", "row": 1})
+    time.sleep(1.0)  # a host-routed move would have landed by now
     after_move = ids_at(client, "HostBase")
     names = {s["id"]: s["name"] for s in soldiers_at(client, "HostBase")}
     by_name = sorted(before_client, key=lambda i: names[i])
@@ -143,6 +245,53 @@ def row_reorder(host, client):
           f"host={ids_at(host, 'HostBase')}")
 
 
+def row_armor(host, client, guest):
+    """RU16: the visitor's own soldier at HostBase takes armor from HostBase's
+    stores through the host; the host's soldier there stays refused."""
+    for gc in (host, client):
+        gc.ok({"cmd": "give_items", "item": ARMOR_ITEM, "count": 2, "base": "HostBase"})
+    before = stock(host, "HostBase", ARMOR_ITEM)
+    reset_stats(host, client)
+    r = client.cmd({"cmd": "soldier_armor", "base": "HostBase",
+                    "soldier_id": guest, "armor": ARMOR})
+    worn = poll(lambda: ((soldier(host, "HostBase", guest) or {}).get("armor") == ARMOR
+                         and (soldier(client, "HostBase", guest) or {}).get("armor") == ARMOR)
+                or None)
+    check("V9 armor: the visitor's own soldier wears the new armor on both machines",
+          bool(worn),
+          f"resp={r} host={(soldier(host, 'HostBase', guest) or {}).get('armor')} "
+          f"client={(soldier(client, 'HostBase', guest) or {}).get('armor')} "
+          f"client lastFail={stats(client)['lastFail']!r}")
+    dismiss_fail(client)
+    after = (stock(host, "HostBase", ARMOR_ITEM), stock(client, "HostBase", ARMOR_ITEM))
+    check("V9 armor: the armor came out of HostBase's stores on both machines",
+          after == (before - 1, before - 1), f"before={before} after(host,client)={after}")
+
+    partner = next(s for s in soldiers_at(host, "HostBase") if s["owner"] == 0)
+    reset_stats(host, client)
+    client.cmd({"cmd": "soldier_armor", "base": "HostBase",
+                "soldier_id": partner["id"], "armor": ARMOR})
+    refused, last = wait_refused(host, client, "STR_COOP_NOT_YOUR_SOLDIER")
+    check("V9 armor: the partner's soldier at HostBase is refused as not the visitor's",
+          refused and soldier(host, "HostBase", partner["id"])["armor"] == partner["armor"],
+          f"lastFail={last!r} host armor={soldier(host, 'HostBase', partner['id'])['armor']}")
+
+
+def row_transform_view(host, client):
+    """The transformation view lists only the local player's soldiers."""
+    for gc, owner in ((client, 1), (host, 0)):
+        gc.ok({"cmd": "open_soldiers", "base": "HostBase"})
+        r = gc.cmd({"cmd": "soldiers_view", "action": TRANSFORM})
+        gc.ok({"cmd": "soldiers_view", "action": "STR_SOLDIER_INFO"})
+        gc.ok({"cmd": "soldiers_ok"})
+        owners = {s["id"]: s["owner"] for s in soldiers_at(gc, "HostBase")}
+        shown = r.get("ids", [])
+        expected = own_ids_at(gc, "HostBase", owner)
+        check(f"V12 transform: {gc.name}'s transformation view shows only its own soldiers",
+              r.get("ok") and sorted(shown) == sorted(expected),
+              f"resp={r} shown owners={[owners.get(i) for i in shown]} expected={expected}")
+
+
 def row_capacity(host, client):
     report = host.ok({"cmd": "base_report", "base": "HostBase"})
     free_hangars = report["availableHangars"] - report["usedHangars"]
@@ -152,8 +301,7 @@ def row_capacity(host, client):
     for gc in (host, client):
         gc.ok({"cmd": "give_items", "item": LIVE_ALIEN, "count": 1,
                "base": "ClientBase"})
-    host.ok({"cmd": "shared_reset_stats"})
-    client.ok({"cmd": "shared_reset_stats"})
+    reset_stats(host, client)
     client.ok({"cmd": "shared_transfer", "item": LIVE_ALIEN, "count": 1,
                "fromBase": "ClientBase", "toBase": "HostBase"})
     verdict = poll(lambda: (lambda inc, st:
@@ -170,8 +318,7 @@ def row_capacity(host, client):
     # A craft into HostBase, whose hangars are full.
     crafts = [c for c in base_crafts(client, "ClientBase") if c["id"] == 2]
     assert len(crafts) == 1 and crafts[0]["type"] == "STR_INTERCEPTOR", crafts
-    host.ok({"cmd": "shared_reset_stats"})
-    client.ok({"cmd": "shared_reset_stats"})
+    reset_stats(host, client)
     client.ok({"cmd": "shared_transfer", "craft_id": 2,
                "fromBase": "ClientBase", "toBase": "HostBase"})
     verdict = poll(lambda: (lambda inc, st:
@@ -187,17 +334,17 @@ def row_capacity(host, client):
 
 
 def row_rearm(host, client):
-    # craft_rearm finds a craft by id alone, and craft ids are per type: use an
-    # armed interceptor whose id no other craft at the base shares.
+    # An armed interceptor whose id no other craft at the base shares, so the
+    # row does not depend on V14's lever fix.
     crafts = base_crafts(host, "HostBase")
     interceptor = next(c for c in crafts
                        if c["type"] == "STR_INTERCEPTOR" and c["weaponLoadout"][0]
                        and sum(o["id"] == c["id"] for o in crafts) == 1)
     craft_id, armed = interceptor["id"], interceptor["weaponLoadout"][0]
-    host.ok({"cmd": "shared_reset_stats"})
-    client.ok({"cmd": "shared_reset_stats"})
+    reset_stats(host, client)
     sent = client.cmd({"cmd": "craft_rearm", "weapon": "", "slot": 0,
-                       "base": "HostBase", "craft_id": craft_id})
+                       "base": "HostBase", "craft_id": craft_id,
+                       "craft_type": "STR_INTERCEPTOR"})
     assert sent.get("moved"), sent
 
     def loadout():
@@ -223,34 +370,288 @@ def row_open_craft_info(host):
           not opened, f"resp={r}")
 
 
-def base_order(gc):
-    return [b["name"] for b in gc.ok({"cmd": "geo_state"})["bases"]]
+def base_index(gc, name):
+    return base_order(gc).index(name)
+
+
+def row_transfer_out(host, client, guest):
+    """RU17: only the visitor's own soldiers may leave HostBase on its order."""
+    partner = next(s["id"] for s in soldiers_at(host, "HostBase") if s["owner"] == 0)
+    for gc in (host, client):
+        gc.ok({"cmd": "give_items", "item": RIFLE, "count": 1, "base": "HostBase"})
+    rifles = stock(host, "HostBase", RIFLE)
+    src, dst = base_index(client, "HostBase"), base_index(client, "ClientBase")
+
+    # The visitor's transfer screen at HostBase offers no partner items.
+    r = client.cmd({"cmd": "shared_transfer", "item": RIFLE, "count": 1,
+                    "fromBase": "HostBase", "toBase": "ClientBase"})
+    dismiss_fail(client)
+    check("V10 transfer: the visitor's transfer screen lists none of HostBase's items",
+          not r.get("ok") and "no transferable row" in r.get("error", ""), f"resp={r}")
+    # Refused by the host (raw commands, as a stale or modified client would
+    # send them): the partner's items, a payload mixing the visitor's soldier
+    # with an item, and the partner's soldier.
+    for label, payload in (
+            ("the partner's items", {"soldiers": [], "items": [{"rule": RIFLE, "qty": 1}]}),
+            ("own soldier plus an item", {"soldiers": [guest],
+                                          "items": [{"rule": RIFLE, "qty": 1}]}),
+            ("the partner's soldier", {"soldiers": [partner]})):
+        reset_stats(host, client)
+        payload.update({"toBaseId": dst, "crafts": [], "scientists": 0, "engineers": 0})
+        payload.setdefault("items", [])
+        client.ok({"cmd": "shared_cmd", "jcmd": "transfer", "baseId": src,
+                   "payload": payload})
+        refused, last = wait_refused(host, client)
+        check(f"V10 transfer: {label} is refused",
+              refused and {guest, partner} <= set(ids_at(host, "HostBase"))
+              and stock(host, "HostBase", RIFLE) == rifles,
+              f"lastFail={last!r} host HostBase={ids_at(host, 'HostBase')} "
+              f"rifles {rifles}->{stock(host, 'HostBase', RIFLE)}")
+
+    # Both fixture bases stand on the same spot (the host's first placement falls
+    # back to the client's), so a transfer between them costs nothing and this
+    # row cannot show whose wallet pays.
+    reset_stats(host, client)
+    before = host.ok({"cmd": "incoming_transfers", "base": "ClientBase"})["soldiers"]
+    r = client.cmd({"cmd": "shared_transfer", "soldier_id": guest,
+                    "fromBase": "HostBase", "toBase": "ClientBase"})
+    moved = poll(lambda: (guest not in ids_at(host, "HostBase")
+                          and host.ok({"cmd": "incoming_transfers",
+                                       "base": "ClientBase"})["soldiers"] == before + 1
+                          and guest not in ids_at(client, "HostBase")) or None)
+    check("V10 transfer: the visitor's own soldier leaves HostBase for ClientBase",
+          bool(moved),
+          f"resp={r} host HostBase has={guest in ids_at(host, 'HostBase')} "
+          f"client lastFail={stats(client)['lastFail']!r}")
+    dismiss_fail(client)
+
+
+def row_own_roster(host, client):
+    """Move up / down at the player's own base goes through the host."""
+    before = own_ids_at(client, "ClientBase", 1)
+    assert len(before) >= 3, ("premise: three own soldiers at ClientBase", before)
+    client.ok({"cmd": "open_soldiers", "base": "ClientBase"})
+    client.ok({"cmd": "soldiers_reorder", "action": "move_up", "row": 2, "max": True})
+    want = [before[2]] + before[:2] + before[3:]
+    got = poll(lambda: (own_ids_at(host, "ClientBase", 1) == want
+                        and own_ids_at(client, "ClientBase", 1) == want) or None)
+    check("V11 roster: move-to-top at the own base reorders both machines",
+          bool(got), f"want={want} host={own_ids_at(host, 'ClientBase', 1)} "
+          f"client={own_ids_at(client, 'ClientBase', 1)}")
+    start = own_ids_at(client, "ClientBase", 1)
+    client.ok({"cmd": "soldiers_reorder", "action": "move_down", "row": 0, "max": False})
+    want = [start[1], start[0]] + start[2:]
+    got = poll(lambda: (own_ids_at(host, "ClientBase", 1) == want
+                        and own_ids_at(client, "ClientBase", 1) == want) or None)
+    client.ok({"cmd": "soldiers_ok"})
+    check("V11 roster: move-down one place at the own base reorders both machines",
+          bool(got), f"want={want} host={own_ids_at(host, 'ClientBase', 1)} "
+          f"client={own_ids_at(client, 'ClientBase', 1)}")
+    check("V11 roster: both machines hold the same full roster order",
+          ids_at(host, "ClientBase") == ids_at(client, "ClientBase"),
+          f"host={ids_at(host, 'ClientBase')} client={ids_at(client, 'ClientBase')}")
+
+
+def names_at(gc, base, owner):
+    by_id = {s["id"]: s["name"] for s in soldiers_at(gc, base)}
+    return [by_id[i] for i in own_ids_at(gc, base, owner)]
+
+
+def row_sort(host, client):
+    """Sorting the Soldiers screen at the player's own base goes through the host."""
+    own = own_ids_at(client, "ClientBase", 1)
+    assert len(own) >= 3, ("premise: three own soldiers at ClientBase", own)
+    renamed = ["Coop Zulu", "Coop Mike", "Coop Alpha"]
+    for sid, name in zip(own, renamed):
+        client.ok({"cmd": "soldier_rename", "base": "ClientBase", "soldierId": sid,
+                   "name": name})
+    assert poll(lambda: all(n in names_at(gc, "ClientBase", 1) for gc in (host, client)
+                            for n in renamed) or None), \
+        ("premise: renames landed", names_at(host, "ClientBase", 1))
+    before = own_ids_at(host, "ClientBase", 1)
+    assert before == own_ids_at(client, "ClientBase", 1), (before, own_ids_at(client, "ClientBase", 1))
+    client.ok({"cmd": "open_soldiers", "base": "ClientBase"})
+    client.ok({"cmd": "soldiers_reorder", "action": "sort", "sort": 2})
+
+    def sorted_on(gc):
+        names = [n for n in names_at(gc, "ClientBase", 1) if n in renamed]
+        return names == sorted(renamed)
+    got = poll(lambda: (sorted_on(host) and own_ids_at(host, "ClientBase", 1)
+                        == own_ids_at(client, "ClientBase", 1)) or None)
+    check("V17 sort: sorting by name at the own base reorders both machines the same way",
+          bool(got) and own_ids_at(host, "ClientBase", 1) != before,
+          f"before={before} host={names_at(host, 'ClientBase', 1)} "
+          f"client={names_at(client, 'ClientBase', 1)}")
+    client.ok({"cmd": "soldiers_reorder", "action": "sort", "sort": 0})
+    got = poll(lambda: (own_ids_at(host, "ClientBase", 1) == before
+                        and own_ids_at(client, "ClientBase", 1) == before) or None)
+    client.ok({"cmd": "soldiers_ok"})
+    check("V17 sort: the original order comes back on both machines",
+          bool(got), f"before={before} host={own_ids_at(host, 'ClientBase', 1)} "
+          f"client={own_ids_at(client, 'ClientBase', 1)}")
+    check("V17 sort: both machines hold the same full roster order",
+          ids_at(host, "ClientBase") == ids_at(client, "ClientBase"),
+          f"host={ids_at(host, 'ClientBase')} client={ids_at(client, 'ClientBase')}")
+
+
+def firing(gc, base, sid):
+    return (soldier(gc, base, sid) or {}).get("firing")
+
+
+def transform_lands(host, client, base, sid, want):
+    return poll(lambda: (firing(host, base, sid) == want
+                         and firing(client, base, sid) == want) or None)
+
+
+def row_transform(host, client):
+    """A soldier transformation runs on the host for both machines."""
+    sid = own_ids_at(client, "ClientBase", 1)[0]
+    f0 = firing(host, "ClientBase", sid)
+    assert f0 == firing(client, "ClientBase", sid), (f0, firing(client, "ClientBase", sid))
+    funds0 = owner_funds(host, "ClientBase")
+    client.ok({"cmd": "soldier_transform", "base": "ClientBase", "soldierId": sid,
+               "rule": TRANSFORM_PAID})
+    check("V16 transform: the client's transformation of its own soldier reaches the host world",
+          bool(transform_lands(host, client, "ClientBase", sid, f0 + TRANSFORM_FIRING)),
+          f"want={f0 + TRANSFORM_FIRING} host={firing(host, 'ClientBase', sid)} "
+          f"client={firing(client, 'ClientBase', sid)}")
+    paid = poll(lambda: all(owner_funds(gc, "ClientBase") == funds0 - TRANSFORM_COST
+                            for gc in (host, client)) or None, timeout=10)
+    check("V16 transform: the cost leaves the client's wallet once, the same on both machines",
+          bool(paid), f"funds0={funds0} host={owner_funds(host, 'ClientBase')} "
+          f"client={owner_funds(client, 'ClientBase')}")
+
+    hsid = own_ids_at(host, "HostBase", 0)[0]
+    f0 = firing(host, "HostBase", hsid)
+    client.ok({"cmd": "shared_reset_resync_stats"})
+    host.ok({"cmd": "soldier_transform", "base": "HostBase", "soldierId": hsid,
+             "rule": TRANSFORM_PAID})
+    repairs = lambda: client.ok({"cmd": "shared_resync_stats"})["requests"]
+    check("V16 transform: the host's transformation reaches the client's replica as a command",
+          bool(transform_lands(host, client, "HostBase", hsid, f0 + TRANSFORM_FIRING))
+          and repairs() == 0,
+          f"want={f0 + TRANSFORM_FIRING} host={firing(host, 'HostBase', hsid)} "
+          f"client={firing(client, 'HostBase', hsid)} repairs={repairs()}")
+
+    # The host's own soldier stationed at ClientBase (a visitor buy).
+    before = set(ids_at(host, "ClientBase"))
+
+    def incoming(gc):
+        return gc.ok({"cmd": "incoming_transfers", "base": "ClientBase"})["soldiers"]
+    incoming0 = {gc.name: incoming(gc) for gc in (host, client)}  # V10's soldier may still travel
+    reset_stats(host, client)
+    host.ok({"cmd": "buy", "item": "STR_SOLDIER", "count": 1, "kind": "soldier",
+             "base": "ClientBase"})
+    en_route = poll(lambda: all(incoming(gc) == incoming0[gc.name] + 1
+                                for gc in (host, client)) or None, timeout=30)
+    assert en_route, ("premise: the host's recruit is on its way to ClientBase",
+                      stats(host), stats(client), host.ok({"cmd": "get_state"})["states"])
+    host.ok({"cmd": "force_transfer_arrivals", "base": "ClientBase"})
+    client.wait_for("host recruit arrived on the replica",
+                    lambda: (client.ok({"cmd": "incoming_transfers",
+                                        "base": "ClientBase"})["soldiers"] == 0) or None,
+                    timeout=30, interval=0.5)
+    psid = next(s["id"] for s in soldiers_at(host, "ClientBase")
+                if s["id"] not in before and s["owner"] == 0)
+    client.wait_for("host recruit on the replica roster",
+                    lambda: psid in ids_at(client, "ClientBase") or None,
+                    timeout=30, interval=0.5)
+    f0 = firing(host, "ClientBase", psid)
+    reset_stats(host, client)
+    client.ok({"cmd": "soldier_transform", "base": "ClientBase", "soldierId": psid,
+               "rule": TRANSFORM_PAID})
+    refused, last = wait_refused(host, client, "STR_COOP_NOT_YOUR_SOLDIER")
+    check("V16 transform: the partner's soldier at the client's base is refused as not its own",
+          refused and firing(host, "ClientBase", psid) == f0
+          and firing(client, "ClientBase", psid) == f0,
+          f"lastFail={last!r} f0={f0} host={firing(host, 'ClientBase', psid)} "
+          f"client={firing(client, 'ClientBase', psid)}")
+
+    # At the partner's base: whatever the host rules, both machines agree.
+    guests = own_ids_at(host, "HostBase", 1)
+    assert guests, ("premise: a visitor soldier at HostBase", soldiers_at(host, "HostBase"))
+    gsid = guests[0]
+    reset_stats(host, client)
+    client.ok({"cmd": "soldier_transform", "base": "HostBase", "soldierId": gsid,
+               "rule": TRANSFORM_PAID})
+    poll(lambda: (stats(client)["failCount"] or stats(client)["applyCount"]) or None,
+         timeout=10)
+    dismiss_fail(client)
+    check("V16 transform: a visitor's transformation at the partner base leaves both machines agreeing",
+          firing(host, "HostBase", gsid) == firing(client, "HostBase", gsid),
+          f"host={firing(host, 'HostBase', gsid)} client={firing(client, 'HostBase', gsid)} "
+          f"lastFail={stats(client)['lastFail']!r}")
+
+
+def row_cydonia_key(host, client):
+    """A craft request names the craft's base by its key as well as its index."""
+    order = base_order(host)
+    assert order.index("ClientSecond") == order.index("ClientBase") - 1, order
+    crafts = base_crafts(client, "ClientBase")
+    assert crafts, ("premise: a craft at ClientBase", crafts)
+    craft = crafts[0]
+    msg = client.ok({"cmd": "separate_craft_message", "base": "ClientBase",
+                     "craftId": craft["id"]})["message"]
+    client.ok({"cmd": "open_screen", "screen": "basescape", "base": "ClientBase"})
+    client.ok({"cmd": "basescape_move_base_left", "base": "ClientBase"})
+    client.ok({"cmd": "leave_base"})
+    moved = poll(lambda: all(base_order(gc).index("ClientBase") < base_order(gc).index("ClientSecond")
+                             for gc in (host, client)) or None)
+    assert moved, ("premise: ClientBase moved left", base_order(host), base_order(client))
+    r = host.ok({"cmd": "separate_resolve_craft", "message": msg})
+    check("V18 cydonia: a request built before a base move still names the craft on the host",
+          r["found"] and r["base"] == "ClientBase" and r["craftId"] == craft["id"],
+          f"msg={msg} resolved={r} order={base_order(host)}")
 
 
 def row_base_order(host, client):
-    host_order = base_order(host)
-    assert host_order == base_order(client), (host_order, base_order(client))
-    client.ok({"cmd": "open_screen", "screen": "basescape", "base": "ClientBase"})
-    client.ok({"cmd": "basescape_move_base_left", "base": "ClientBase"})
-    client_order = base_order(client)
-    client.ok({"cmd": "leave_base"})
-    check("V7 order: moving a base in the strip keeps both machines' base order",
-          client_order == base_order(host),
-          f"host={base_order(host)} client={client_order}")
+    for gc in (host, client):
+        gc.ok({"cmd": "add_base", "name": "ClientSecond", "lon": 0.1, "lat": -0.9,
+               "coopbaseid": 71200, "ownerPlayerName": "ClientPlayer"})
+    start = base_order(host)
+    assert start == base_order(client), (start, base_order(client))
+    assert start.index("ClientBase") < start.index("ClientSecond"), start
 
-    def incoming(base):
-        return host.ok({"cmd": "incoming_transfers", "base": base})["items"].get(RIFLE, 0)
-    before = {b: incoming(b) for b in ("HostBase", "ClientBase")}
-    client.ok({"cmd": "buy", "item": RIFLE, "count": 1, "base": "ClientBase"})
-    landed = poll(lambda: next((b for b in before if incoming(b) == before[b] + 1), None))
-    check("V7 order: the visitor's buy for ClientBase lands in ClientBase",
-          landed == "ClientBase", f"landed in {landed}")
+    # A visitor cannot move the partner's base.
+    client.ok({"cmd": "open_screen", "screen": "basescape", "base": "HostBase"})
+    client.ok({"cmd": "basescape_move_base_left", "base": "HostBase"})
+    client.ok({"cmd": "leave_base"})
+    time.sleep(1.0)
+    check("V7 order: the visitor cannot move the partner's base",
+          base_order(host) == start and base_order(client) == start,
+          f"start={start} host={base_order(host)} client={base_order(client)}")
+
+    def incoming(gc, base):
+        return gc.ok({"cmd": "incoming_transfers", "base": base})["items"].get(RIFLE, 0)
+    before = {(gc.name, b): incoming(gc, b) for gc in (host, client)
+              for b in ("ClientBase", "ClientSecond")}
+    client.ok({"cmd": "open_screen", "screen": "basescape", "base": "ClientSecond"})
+    # One write: the client runs both in the same frame, so the buy names
+    # ClientBase by its index from before the move, which then means ClientSecond.
+    resps = client.cmd_together(
+        {"cmd": "basescape_move_base_left", "base": "ClientSecond"},
+        {"cmd": "buy", "item": RIFLE, "count": 1, "base": "ClientBase"})
+    assert all(r.get("ok") for r in resps), resps
+    client.ok({"cmd": "leave_base"})
+    want = [b for b in start if b != "ClientSecond"]
+    want.insert(want.index("ClientBase"), "ClientSecond")
+    moved = poll(lambda: (base_order(host) == want and base_order(client) == want) or None)
+    check("V7 order: moving an own base left reorders both machines the same way",
+          bool(moved), f"want={want} host={base_order(host)} client={base_order(client)}")
+    landed = poll(lambda: all(incoming(gc, "ClientBase") == before[(gc.name, "ClientBase")] + 1
+                              for gc in (host, client)) or None)
+    check("V7 order: the buy sent right after the move lands in ClientBase on both machines",
+          bool(landed) and all(incoming(gc, "ClientSecond") == before[(gc.name, "ClientSecond")]
+                               for gc in (host, client)),
+          {f"{gc.name}:{b}": incoming(gc, b) for gc in (host, client)
+           for b in ("ClientBase", "ClientSecond")})
 
 
 def row_strip(host, client):
-    # Same eight extra bases on both machines (no checksum resync): seven owned
-    # by the client, then one owned by the host at index 9.
-    for i in range(7):
+    # Same extra bases on both machines (no checksum resync): owned by the
+    # client, then one owned by the host at index 9.
+    count = 9 - len(base_order(host))
+    for i in range(count):
         for gc in (host, client):
             gc.ok({"cmd": "add_base", "name": f"ClientExtra{i}",
                    "lon": 0.2 + 0.3 * i, "lat": -0.4, "coopbaseid": 71000 + i,
@@ -273,22 +674,161 @@ def row_strip(host, client):
     host.ok({"cmd": "leave_base"})
 
 
+def row_production_sell(host, client):
+    """The random production summary's sell is a host command (no local change)."""
+    for gc in (host, client):
+        gc.ok({"cmd": "give_items", "item": RIFLE, "count": 3, "base": "ClientBase"})
+    stock0 = stock(host, "ClientBase", RIFLE)
+    funds0 = owner_funds(host, "ClientBase")
+    client.ok({"cmd": "production_complete_sell", "base": "ClientBase",
+               "item": RIFLE, "count": 2})
+    sold = poll(lambda: (stock(host, "ClientBase", RIFLE) == stock0 - 2
+                         and stock(client, "ClientBase", RIFLE) == stock0 - 2) or None)
+    check("V13 sell: the sale leaves the host world's stores, and the replica follows",
+          bool(sold), f"stock0={stock0} host={stock(host, 'ClientBase', RIFLE)} "
+          f"client={stock(client, 'ClientBase', RIFLE)}")
+    host_funds, client_funds = owner_funds(host, "ClientBase"), owner_funds(client, "ClientBase")
+    check("V13 sell: the proceeds reach the seller's host wallet, the same on both machines",
+          host_funds > funds0 and client_funds == host_funds,
+          f"funds0={funds0} host={host_funds} client={client_funds}")
+
+
+def two_weapon_types_share_id(gc):
+    crafts = [c for c in base_crafts(gc, "HostBase") if c["weaponLoadout"]]
+    ids = [c["id"] for c in crafts]
+    return next((i for i in ids if ids.count(i) > 1), None)
+
+
+def row_craft_levers(host, client):
+    """craft_rearm / craft_assign: craft_type selects, an ambiguous id errors."""
+    for craft_type in ("STR_FIRESTORM", "STR_AVENGER"):
+        for gc in (host, client):
+            gc.ok({"cmd": "spawn_craft", "type": craft_type, "base": "HostBase"})
+    crafts = base_crafts(host, "HostBase")
+    shared = two_weapon_types_share_id(host)
+    assert shared is not None, ("premise: two armed types share an id", crafts)
+    firestorm = next(c for c in crafts if c["type"] == "STR_FIRESTORM")
+    assert firestorm["id"] == shared and firestorm["weaponLoadout"][0], firestorm
+
+    r = host.cmd({"cmd": "craft_rearm", "weapon": "", "slot": 0,
+                  "base": "HostBase", "craft_id": shared})
+    check("V14 harness: craft_rearm with an id two armed craft types share is an error",
+          not r.get("ok") and "ambiguous" in r.get("error", ""), f"resp={r}")
+    r = host.cmd({"cmd": "craft_rearm", "weapon": "", "slot": 0, "base": "HostBase",
+                  "craft_id": shared, "craft_type": "STR_FIRESTORM"})
+
+    def firestorm_slot():
+        return next(c for c in base_crafts(host, "HostBase")
+                    if c["type"] == "STR_FIRESTORM")["weaponLoadout"][0]
+    emptied = poll(lambda: firestorm_slot() == "" or None, timeout=10)
+    check("V14 harness: craft_rearm with craft_type rearms that craft",
+          r.get("ok") and bool(emptied), f"resp={r} firestorm slot0={firestorm_slot()!r}")
+
+    sky = next(c for c in base_crafts(host, "HostBase") if c["type"] == "STR_SKYRANGER")
+    for _ in range(4):  # the next Avenger id reaches the Skyranger's
+        avenger = next((c for c in base_crafts(host, "HostBase")
+                        if c["type"] == "STR_AVENGER" and c["id"] == sky["id"]), None)
+        if avenger:
+            break
+        for gc in (host, client):
+            gc.ok({"cmd": "spawn_craft", "type": "STR_AVENGER", "base": "HostBase"})
+    assert avenger, ("premise: an Avenger shares the Skyranger's id",
+                     base_crafts(host, "HostBase"))
+    sid = next(s["id"] for s in soldiers_at(host, "HostBase") if s["owner"] == 0)
+    r = host.cmd({"cmd": "craft_assign", "base": "HostBase", "craft_id": sky["id"],
+                  "soldier_id": sid, "on": True})
+    check("V14 harness: craft_assign with an id two transport types share is an error",
+          not r.get("ok") and "ambiguous" in r.get("error", ""), f"resp={r}")
+    r = host.cmd({"cmd": "craft_assign", "base": "HostBase", "craft_id": avenger["id"],
+                  "craft_type": "STR_AVENGER", "soldier_id": sid, "on": True})
+    seated = poll(lambda: (soldier(host, "HostBase", sid) or {}).get("craft") == "STR_AVENGER"
+                  or None, timeout=10)
+    check("V14 harness: craft_assign with craft_type seats on that craft",
+          r.get("ok") and bool(seated), f"resp={r} soldier={soldier(host, 'HostBase', sid)}")
+
+
+def warning_messages(gc):
+    return [m for m in gc.ok({"cmd": "craft_error_messages"})["messages"]
+            if "funds missing" in m]
+
+
+def digits(text):
+    return re.sub(r"(?<=\d)[^\w\-](?=\d)", "", text)
+
+
+def last_day_warnings(host, client, host_funds, client_funds):
+    """Set both wallets, run the clock into the last day of the month and return
+    each machine's economy warnings."""
+    for gc in (host, client):
+        geo.drain_popups(gc)
+        gc.ok({"cmd": "set_funds", "player": "HostPlayer", "value": host_funds})
+        gc.ok({"cmd": "set_funds", "player": "ClientPlayer", "value": client_funds})
+    t = fixture.geo(host)["time"]
+    days = calendar.monthrange(t["year"], t["month"])[1]
+    host.ok({"cmd": "set_geo_day", "day": days - 1, "hour": 23})
+    for gc in (host, client):
+        gc.ok({"cmd": "geo_set_speed", "idx": 3})
+    reached = None
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        if fixture.geo(host)["time"]["day"] == days:
+            reached = reached or time.time()
+            if time.time() - reached > 4:
+                break
+        time.sleep(0.3)
+    for gc in (host, client):
+        gc.ok({"cmd": "geo_set_speed", "idx": 0})
+    assert reached, ("premise: the clock reached the last day", fixture.geo(host)["time"])
+    return warning_messages(host), warning_messages(client)
+
+
+def row_economy_warning(host, client):
+    host_msgs, client_msgs = last_day_warnings(host, client, 900000000, -7123457)
+    check("V15 warning: a player in the red sees the warning with their own funds",
+          len(client_msgs) == 1 and "7123457" in digits(client_msgs[0]),
+          f"client={client_msgs}")
+    check("V15 warning: the player in the black sees no warning",
+          host_msgs == [], f"host={host_msgs}")
+    host_msgs, client_msgs = last_day_warnings(host, client, -3111113, 900000000)
+    check("V15 warning: the host in the red sees its own funds",
+          len(host_msgs) == 1 and "3111113" in digits(host_msgs[0]), f"host={host_msgs}")
+    check("V15 warning: the client in the black is not shown the host's warning",
+          client_msgs == [], f"client={client_msgs}")
+    for gc in (host, client):
+        geo.drain_popups(gc)
+
+
 def main():
-    js = fixture.bring_up("sep_visitor", (49760, 49761, 49060))
-    host, client = js.host, js.client
+    tmp = tempfile.mkdtemp(prefix="coop_visitor_actions_")
     try:
-        fixture.assert_fresh_named_world(host, client)
-        guests = hire_guests(host, client, 3)
-        row_sack(host, client, guests[0])
-        row_rename(host, client, guests[1])
-        row_reorder(host, client)
-        row_capacity(host, client)
-        row_rearm(host, client)
-        row_open_craft_info(host)
-        row_base_order(host, client)
-        row_strip(host, client)
+        mod = make_mod(tmp)
+        js = fixture.bring_up("sep_visitor", (49760, 49761, 49060), mods=[mod])
+        host, client = js.host, js.client
+        try:
+            fixture.assert_fresh_named_world(host, client)
+            guests = hire_guests(host, client, 3)
+            row_sack(host, client, guests[0])
+            row_rename(host, client, guests[1])
+            row_reorder(host, client)
+            row_armor(host, client, guests[1])
+            row_transform_view(host, client)
+            row_capacity(host, client)
+            row_rearm(host, client)
+            row_open_craft_info(host)
+            row_transfer_out(host, client, guests[2])
+            row_own_roster(host, client)
+            row_sort(host, client)
+            row_transform(host, client)
+            row_base_order(host, client)
+            row_cydonia_key(host, client)
+            row_strip(host, client)
+            row_production_sell(host, client)
+            row_craft_levers(host, client)
+            row_economy_warning(host, client)
+        finally:
+            js.shutdown()
     finally:
-        js.shutdown()
+        shutil.rmtree(tmp, ignore_errors=True)
     if failures:
         print(f"FAIL {len(failures)} row(s): {failures}")
         sys.exit(3)

@@ -408,6 +408,7 @@ void SoldierInfoState::init()
 		_soldierId = 0;
 	}
 	_soldier = _list->at(_soldierId);
+	_coopShownId = _soldier->getId();
 	_edtSoldier->setBig();
 	_edtSoldier->setText(_soldier->getName());
 	const UnitStats *initial = _soldier->getInitStats();
@@ -622,6 +623,7 @@ void SoldierInfoState::init()
  */
 void SoldierInfoState::handle(Action* action)
 {
+	if (coopRecheckSoldier()) return; // the event was aimed at a soldier that is gone
 	State::handle(action);
 
 	if (Options::oxceThumbButtons && action->getDetails()->type == SDL_MOUSEBUTTONDOWN)
@@ -694,6 +696,36 @@ void SoldierInfoState::harnessRename(const std::string &name)
 {
 	_edtSoldier->setText(name);
 	edtSoldierChange(nullptr);
+}
+
+/**
+ * coop: in a one-world campaign a host command (soldier_transform, sack) can
+ * replace or delete this screen's soldier after init() ran. Compare the list
+ * slot's pointer only (the cached one may be gone); when it changed, find the
+ * soldier init() showed by its id (a replaced soldier keeps it) and re-run
+ * init(), which clamps the index and closes the screen on an empty list.
+ * @return true when the screen was re-initialised.
+ */
+bool SoldierInfoState::coopRecheckSoldier()
+{
+	if (!_list || !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		return false;
+	if (_soldierId < _list->size() && _list->at(_soldierId) == _soldier) return false;
+	for (size_t i = 0; i < _list->size(); ++i)
+	{
+		if (_list->at(i)->getId() == _coopShownId) { _soldierId = i; break; }
+	}
+	init();
+	return true;
+}
+
+/**
+ * coop: see coopRecheckSoldier.
+ */
+void SoldierInfoState::think()
+{
+	State::think();
+	coopRecheckSoldier();
 }
 
 /**

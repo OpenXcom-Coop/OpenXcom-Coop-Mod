@@ -45,6 +45,9 @@ private:
 	bool _noTransformations;
 	Soldier *_soldier;
 	std::vector<Soldier*> *_list;
+	int _coopShownId = -1; // coop: the id of the soldier init() showed
+	/// coop: re-reads a soldier a host command replaced or removed.
+	bool coopRecheckSoldier();
 
 	Surface *_bg;
 	InteractiveSurface *_rank;
@@ -65,6 +68,8 @@ public:
 	~SoldierInfoState();
 	/// Updates the soldier info.
 	void init() override;
+	/// coop: re-reads a soldier a host command replaced or removed.
+	void think() override;
 	/// Handles keypresses.
 	void handle(Action* action) override;
 	/// Set the soldier Id.

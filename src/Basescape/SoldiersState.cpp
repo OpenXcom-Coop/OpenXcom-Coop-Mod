@@ -282,7 +282,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 	SortFunctor *compFunc = _sortFunctors[selIdx];
 	_dynGetter = NULL;
 	// A visitor never reorders another player's roster (RU8): the host owns its
-	// order and there is no reorder command. Keep the dynamic column only.
+	// order. Keep the dynamic column only.
 	if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
 	{
 		if (compFunc && selIdx != 2 && selIdx != 3)
@@ -292,6 +292,19 @@ void SoldiersState::cbxSortByChange(Action *action)
 		initList(_lstSoldiers->getScroll());
 		return;
 	}
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally: the sort runs on a copy of the player's own soldiers, the
+	// result goes to the host as soldier_order, and the list refreshes when it
+	// lands, so both machines show the same order.
+	const bool oneWorld = _game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign();
+	std::vector<Soldier*> ownOrder;
+	std::vector<Soldier*> *roster = _base->getSoldiers();
+	if (oneWorld)
+	{
+		ownOrder = SharedEcon::visibleSoldiers(_game, _base);
+		roster = &ownOrder;
+	}
+	const std::vector<Soldier*> unsorted = ownOrder;
 	if (compFunc)
 	{
 		if (selIdx != 2 && selIdx != 3)
@@ -304,7 +317,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 		{
 			if (selIdx == 2)
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+				std::stable_sort(roster->begin(), roster->end(),
 					[](const Soldier* a, const Soldier* b)
 					{
 						return Unicode::naturalCompare(a->getName(), b->getName());
@@ -313,7 +326,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 			}
 			else if (selIdx == 3)
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+				std::stable_sort(roster->begin(), roster->end(),
 					[](const Soldier* a, const Soldier* b)
 					{
 						if (a->getCraft())
@@ -340,11 +353,11 @@ void SoldiersState::cbxSortByChange(Action *action)
 			}
 			else
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), *compFunc);
+				std::stable_sort(roster->begin(), roster->end(), *compFunc);
 			}
 			if (_game->isShiftPressed())
 			{
-				std::reverse(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+				std::reverse(roster->begin(), roster->end());
 			}
 		}
 	}
@@ -354,14 +367,19 @@ void SoldiersState::cbxSortByChange(Action *action)
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
 		{
-			auto soldierIt = std::find(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), origSoldier);
-			if (soldierIt != _base->getSoldiers()->end())
+			auto soldierIt = std::find(roster->begin(), roster->end(), origSoldier);
+			if (soldierIt != roster->end())
 			{
 				Soldier *s = *soldierIt;
-				_base->getSoldiers()->erase(soldierIt);
-				_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+				roster->erase(soldierIt);
+				roster->insert(roster->end(), s);
 			}
 		}
+	}
+
+	if (oneWorld && ownOrder != unsorted)
+	{
+		SharedEcon::submitSoldierOrder(_game, _base, ownOrder);
 	}
 
 	size_t originalScrollPos = _lstSoldiers->getScroll();
@@ -450,6 +468,9 @@ void SoldiersState::initList(size_t scrl)
 					// soldiers outside of the base are not eligible
 					continue;
 				}
+				// One-world campaigns: only the local player's soldiers, as the
+				// soldier info view lists them.
+				if (!SharedEcon::ownsSoldier(_game, soldier)) continue;
 				if (soldier->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(soldier);
@@ -458,6 +479,7 @@ void SoldiersState::initList(size_t scrl)
 			}
 			for (auto* deadMan : *_game->getSavedGame()->getDeadSoldiers())
 			{
+				if (!SharedEcon::ownsSoldier(_game, deadMan)) continue;
 				if (deadMan->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(deadMan);
@@ -545,9 +567,29 @@ void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
-	// roster locally: there is no reorder command, and the row is an index into
-	// the owner-filtered list, not into _base->getSoldiers().
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _filteredListOfSoldiers, row, true, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollUp(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -602,9 +644,29 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
-	// roster locally: there is no reorder command, and the row is an index into
-	// the owner-filtered list, not into _base->getSoldiers().
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _filteredListOfSoldiers, row, false, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollDown(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -879,5 +941,18 @@ std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
 	return ids;
 }
 
+bool SoldiersState::harnessSelectAction(const std::string &action)
+{
+	for (size_t i = 0; i < _availableOptions.size(); ++i)
+	{
+		if (_availableOptions[i] == action)
+		{
+			_cbxScreenActions->setSelected(i);
+			cbxScreenActionsChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
 
 }

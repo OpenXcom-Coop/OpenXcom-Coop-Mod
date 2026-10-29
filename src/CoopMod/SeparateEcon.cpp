@@ -52,24 +52,27 @@ int findBaseIndex(Game* game, const Base* base)
 	return -1;
 }
 
-Craft* resolveCraft(Game* game, const Json::Value& obj)
-{
-	if (!game || !game->getSavedGame()) return nullptr;
-	auto* bases = game->getSavedGame()->getBases();
-	int bi = obj.get("baseId", -1).asInt();
-	if (bi < 0 || bi >= static_cast<int>(bases->size())) return nullptr;
-	int id = obj.get("craftId", -1).asInt();
-	std::string type = obj.get("craftType", "").asString();
-	for (Craft* craft : *bases->at(bi)->getCrafts())
-		if (craft->getId() == id && craft->getRules()->getType() == type) return craft;
-	return nullptr;
-}
-
 GeoscapeState* geo(Game* game)
 {
 	if (!game) return nullptr;
 	for (State* state : game->getStates())
 		if (GeoscapeState* gs = dynamic_cast<GeoscapeState*>(state)) return gs;
+	return nullptr;
+}
+}
+
+Craft* resolveCraft(Game* game, const Json::Value& obj)
+{
+	if (!game || !game->getSavedGame()) return nullptr;
+	// The base by its index and key: a base_move can land between the sender
+	// building the message and this machine reading it.
+	Base* base = SharedEcon::resolveBaseReference(game, obj.get("baseId", -1).asInt(),
+		obj.get("baseKey", 0).asInt());
+	if (!base) return nullptr;
+	int id = obj.get("craftId", -1).asInt();
+	std::string type = obj.get("craftType", "").asString();
+	for (Craft* craft : *base->getCrafts())
+		if (craft->getId() == id && craft->getRules()->getType() == type) return craft;
 	return nullptr;
 }
 
@@ -78,11 +81,14 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 	Json::Value msg;
 	msg["state"] = state;
 	msg["baseId"] = findBaseIndex(game, craft ? craft->getBase() : nullptr);
+	msg["baseKey"] = craft && craft->getBase() ? craft->getBase()->_coop_base_id : 0;
 	msg["craftId"] = craft ? craft->getId() : -1;
 	msg["craftType"] = craft ? craft->getRules()->getType() : "";
 	return msg;
 }
 
+namespace
+{
 int seatForPlayerName(const std::string& playerName)
 {
 	if (playerName.empty()) return -1;
@@ -604,12 +610,39 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	// Player-facing exceptions agreed for a foreign Separate base. Commands in
 	// the second group are host simulation results, never remote player requests.
 	// A visitor may buy, equip/crew with their own soldiers and vehicles, and
-	// sack or rename their own soldier stationed there (the validators check the
-	// soldier's owner). Craft weapon rearm stays with the base owner (RU8).
+	// sack, rename or re-armor their own soldier stationed there (the validators
+	// check the soldier's owner; armor comes from that base's stores, RU16).
+	// Craft weapon rearm stays with the base owner (RU8).
 	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_assign"
-		|| cmd == "sack" || cmd == "soldier_rename")
+		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor")
 		return true;
 	return !remote && isHostSimulationResult(cmd);
+}
+
+bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
+	const Json::Value& payload, const Base* base, int seat)
+{
+	if (allowsForeignBaseCommand(cmd, remote)) return true;
+	// RU17: a visitor may transfer their own soldiers out of another player's
+	// base. Every entry must be one of the requester's soldiers there: items,
+	// crafts, staff and the partner's soldiers stay with the base owner.
+	if (cmd != "transfer" || !base) return false;
+	const Json::Value& soldiers = payload["soldiers"];
+	if (!soldiers.isArray() || soldiers.empty()) return false;
+	if (payload["crafts"].isArray() && !payload["crafts"].empty()) return false;
+	if (payload.get("scientists", 0).asInt() > 0 || payload.get("engineers", 0).asInt() > 0)
+		return false;
+	if (payload["items"].isArray())
+		for (const auto& item : payload["items"])
+			if (item.get("qty", 0).asInt() > 0) return false;
+	for (const auto& id : soldiers)
+	{
+		const Soldier* owned = nullptr;
+		for (const Soldier* s : *const_cast<Base*>(base)->getSoldiers())
+			if (s->getId() == id.asInt() && s->getOwnerPlayerId() == seat) { owned = s; break; }
+		if (!owned) return false;
+	}
+	return true;
 }
 
 bool isHostSimulationResult(const std::string& cmd)

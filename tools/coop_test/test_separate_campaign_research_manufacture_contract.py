@@ -27,7 +27,8 @@ def main():
     )
 
     for body in (available, dependable):
-        assert "CoopCampaignType::Separate" in body
+        # 223e3b748: Separate-only rules exclude PvP (stored with the same type).
+        assert "isSeparateCoopCampaign()" in body
         assert "base->getOwnerPlayerName()" in body
         assert "isResearchedForPlayer(requirement->getName(), researchOwner" in body
         assert "researchOwner.empty()" in body

@@ -135,6 +135,15 @@ int lastApplySeat();
 
 /// Index of @a base in SavedGame::getBases() - the SHARED shared base key - or -1.
 int baseIndex(Game* game, const Base* base);
+/// The base a reference (@a baseId = index in the sender's list, @a baseKey = that
+/// base's _coop_base_id) names on this machine: the index while it still names the
+/// keyed base, else the one base holding the key; key 0 = the index alone. A
+/// base_move can reorder the list while a reference is on its way.
+Base* resolveBaseReference(Game* game, int baseId, int baseKey);
+/// Index of the base @a base swaps places with when the mini base strip moves it
+/// one place left (base_move), or -1 when it cannot move. Separate moves it past
+/// the previous base of the same owner; SHARED past the base before it.
+int baseMoveTarget(Game* game, const Base* base);
 
 /**
  * PRD-J10 screen-refresh binding. A SHARED screen owns one of these, binds it in
@@ -358,6 +367,24 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
 /// True if this machine's player owns @a soldier (co-op campaign owner==localSeat;
 /// solo always true).
 bool ownsSoldier(Game* game, const Soldier* soldier);
+/// Moves the soldier at @a row of @a visible (the owner-filtered list a roster
+/// screen shows) one place up or down, or to the top / bottom with @a max, by
+/// sending this player's new soldier order at @a base to the host (soldier_order).
+/// False when the row cannot move that way; nothing is sent then.
+bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
+	unsigned int row, bool up, bool max);
+/// Sends this player's soldier order at @a base (their own soldiers, in the new
+/// order) to the host (soldier_order); the roster changes when it lands.
+void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order);
+/// SHARED and Separate: sends the transformation @a rule of @a soldier (alive, or
+/// dead in the memorial) with the name box's @a name to the host (soldier_transform)
+/// and returns true; nothing changes locally until the host's result lands. False
+/// outside a one-world campaign, where the screen runs vanilla's transformation.
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
+	const std::string& name);
+/// Host: send @a msg as a CraftErrorState "alert" that only @a playerName's
+/// machine shows (a replica of another player ignores it).
+void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// Playtest (Bug: waypoint arrival never reached clients): host broadcasts that a craft

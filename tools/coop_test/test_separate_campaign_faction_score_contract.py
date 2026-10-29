@@ -69,7 +69,11 @@ def test_faction_mission_score_uses_target_owner_not_craft_owner():
     assert "getFactionScoreOwnerPlayerName" in battle_h
     assert 'write("factionScoreOwnerPlayerName"' in battle_cpp
     assert "separate.addFactionScore(factionScoreOwner, total)" in debrief
-    assert "getBattleOwnerPlayerName" not in debrief[debrief.index("// A faction-specific target"):]
+    # The score block only: later code reads the battle owner for other things
+    # (mission research credit 810304d5a, the success / failure event 070f3e361).
+    score = debrief[debrief.index("// A faction-specific target"):]
+    score = score[:score.index("// Resize (if needed)")]
+    assert "getBattleOwnerPlayerName" not in score
 
 
 if __name__ == "__main__":

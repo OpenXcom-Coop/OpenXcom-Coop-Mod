@@ -97,6 +97,8 @@
 #include "../Basescape/BaseView.h"
 #include "../Basescape/SellState.h"
 #include "../Basescape/CraftWeaponsState.h" // issue #121: shared craft-weapon capacity gate
+#include "../Basescape/SoldierTransformationState.h" // soldier_transform runs vanilla's transformation
+#include "../Mod/RuleSoldierTransformation.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/Globe.h"
@@ -172,6 +174,7 @@ struct PendingCmd
 	int seq = 0;
 	int seat = 0;
 	int baseId = -1;
+	int baseKey = 0; // the base's coop id when the sender queued it (resolveBaseRef)
 	Json::Value payload;
 	bool remote = false;
 	bool separateProtocol = false;
@@ -216,16 +219,73 @@ bool isHost() { return connectionTCP::getHost(); }
 
 // baseId decision (PRD offered coop_base_id OR index-in-_bases): we use the
 // INDEX into SavedGame::getBases(). The SHARED world is a byte-faithful streamed
-// replica, so host and every replica hold the same base list in the same order;
-// the index is a stable shared key. _coop_base_id is 0/unset for a SHARED
-// campaign's own real bases, so it is NOT usable. Base add/remove also rides
-// shared_apply (J07), keeping the ordering in lock-step.
+// replica, so host and every replica hold the same base list in the same order.
+// Base add/remove and base_move also ride shared_apply (J07), keeping the
+// ordering in lock-step. A command still in flight across a base_move would
+// name the wrong base by index alone, so each reference also carries the
+// base's _coop_base_id (resolveBaseRef below).
 Base* resolveBase(Game* game, int baseId)
 {
 	if (!game || !game->getSavedGame()) return nullptr;
 	auto* bases = game->getSavedGame()->getBases();
 	if (baseId < 0 || baseId >= (int)bases->size()) return nullptr;
 	return (*bases)[baseId];
+}
+
+// A player may move a base in the list (base_move) while a command that names
+// a base by its index is still on its way, so every base reference also
+// carries that base's _coop_base_id (the host mints it and the world stream and
+// base_new carry it, so both machines hold the same id). The index wins while it
+// still names the keyed base; otherwise the key finds the base. A key shared by
+// two bases resolves to nothing rather than to a guess. A key that no base holds
+// falls back to the index (an id that differs between the machines, the old
+// behaviour). Key 0 = the sender gave none.
+int baseKeyAt(Game* game, int baseId)
+{
+	Base* base = resolveBase(game, baseId);
+	return base ? base->_coop_base_id : 0;
+}
+
+Base* resolveBaseRef(Game* game, int baseId, int baseKey)
+{
+	Base* atIndex = resolveBase(game, baseId);
+	if (baseKey == 0 || !game || !game->getSavedGame()
+		|| (atIndex && atIndex->_coop_base_id == baseKey)) return atIndex;
+	Base* found = nullptr;
+	for (Base* base : *game->getSavedGame()->getBases())
+	{
+		if (base->_coop_base_id != baseKey) continue;
+		if (found) return nullptr;
+		found = base;
+	}
+	return found ? found : atIndex;
+}
+
+// Base indexes inside a payload (a transfer's destination, a craft's target
+// base, a dogfight command's craft base) get the same key, under "<field>Key".
+const char* const kPayloadBaseFields[] = { "toBaseId", "tBaseId", "baseId" };
+
+void keyPayloadBaseRefs(Game* game, Json::Value& payload)
+{
+	if (!payload.isObject()) return;
+	for (const char* field : kPayloadBaseFields)
+		if (payload.isMember(field))
+			payload[std::string(field) + "Key"] = baseKeyAt(game, payload[field].asInt());
+}
+
+// Rewrites each keyed payload index to the base's index in THIS machine's list
+// and re-keys it, so the appliers keep resolving plain indexes.
+void resolvePayloadBaseRefs(Game* game, Json::Value& payload)
+{
+	if (!payload.isObject()) return;
+	for (const char* field : kPayloadBaseFields)
+	{
+		const std::string key = std::string(field) + "Key";
+		if (!payload.isMember(field) || !payload.isMember(key)) continue;
+		Base* base = resolveBaseRef(game, payload[field].asInt(), payload[key].asInt());
+		payload[field] = base ? baseIndex(game, base) : -1;
+		payload[key] = base ? base->_coop_base_id : 0;
+	}
 }
 
 void setLastFail(const std::string& reason)
@@ -1553,6 +1613,167 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
+// soldier_transform payload: { rule, soldierId, dead, name }. baseId = the base the
+// transformation screen was opened at. A transformation used to change only the
+// machine that pressed Start. The host re-checks the screen's gates against its own
+// world (the soldier's owner as for the other soldier commands, the transformation
+// list, funds, required items, living space), then runs vanilla's own transformation
+// once, so its dice roll only there. The result rides the payload and replicas adopt
+// it: out (retire | clone | self), hours (the Transfer it made, 0 = none), soldier
+// (serialized), history and soldierCounter (a clone), stores and craft (the base
+// stores and the source's former craft items, absolute). The player who made a clone
+// owns it.
+Soldier* findTransformSource(Game* game, Base* base, const Json::Value& payload)
+{
+	const int id = payload.get("soldierId", -1).asInt();
+	if (!payload.get("dead", false).asBool()) return findSoldier(base, id);
+	for (auto* s : *game->getSavedGame()->getDeadSoldiers())
+		if (s->getId() == id) return s;
+	return nullptr;
+}
+
+bool soldierTransformValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                              int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	RuleSoldierTransformation* rule = mod->getSoldierTransformation(payload.get("rule", "").asString(), false);
+	if (!rule) { failReason = "unknown transformation"; return false; }
+	std::vector<RuleSoldierTransformation*> available;
+	save->getAvailableTransformations(available, mod, base);
+	if (std::find(available.begin(), available.end(), rule) == available.end())
+		{ failReason = "transformation not available"; return false; }
+	Soldier* s = findTransformSource(game, base, payload);
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat))
+		{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+	// The list's and the Start button's gates (SoldiersState::initList,
+	// SoldierTransformationState::initTransformationData).
+	if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT")
+		{ failReason = "craft out on mission"; return false; }
+	s->prepareStatsWithBonuses(mod);
+	if (!s->isEligibleForTransformation(rule)) { failReason = "soldier not eligible"; return false; }
+	if (save->getFunds() < rule->getCost()) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	for (const auto& ri : rule->getRequiredItems())
+	{
+		const RuleItem* item = mod->getItem(ri.first);
+		if (item && base->getStorageItems()->getItem(item) < ri.second)
+			{ failReason = "not enough items"; return false; }
+	}
+	if (base->getAvailableQuarters() <= base->getUsedQuarters()
+		&& (rule->isCreatingClone() || (rule->isAllowingDeadSoldiers() && s->getDeath())))
+		{ failReason = "STR_NOT_ENOUGH_LIVING_SPACE"; return false; }
+	cost = rule->getCost();
+	return true;
+}
+
+void soldierTransformApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	RuleSoldierTransformation* rule = mod->getSoldierTransformation(payload.get("rule", "").asString(), false);
+	Soldier* src = findTransformSource(game, base, payload);
+	if (!rule || !src) return;
+	const bool retiring = !Mod::isEmptyRuleName(rule->getProducedItem());
+	const std::string transferOwner = connectionTCP::seatName(seat);
+	if (isHost())
+	{
+		// Vanilla's btnStartClick without the funds (the caller debits the cost)
+		// and without the pop.
+		Craft* oldCraft = src->getCraft();
+		const size_t transfers = base->getTransfers()->size();
+		for (const auto& ri : rule->getRequiredItems())
+			if (const auto* item = mod->getItem(ri.first))
+				base->getStorageItems()->removeItem(item, ri.second);
+		{
+			SoldierTransformationState vanilla(rule, base, src, nullptr); // never pushed
+			if (retiring) vanilla.retire(); // deletes src
+			else vanilla.performTransformation();
+		}
+		Transfer* t = base->getTransfers()->size() > transfers ? base->getTransfers()->back() : nullptr;
+		if (t) t->setOwnerPlayerName(transferOwner);
+		payload["hours"] = t ? t->getHours() : 0;
+		payload["out"] = retiring ? "retire" : rule->isCreatingClone() ? "clone" : "self";
+		if (!retiring)
+		{
+			Soldier* dst = rule->isCreatingClone() && t ? t->getSoldier() : src;
+			dst->setName(payload.get("name", dst->getName()).asString()); // the screen's name box
+			if (rule->isCreatingClone())
+			{
+				dst->setOwnerPlayerId(seat);
+				payload["history"] = Json::Value(Json::objectValue);
+				for (const auto& kv : src->getPreviousTransformations()) payload["history"][kv.first] = kv.second;
+				const auto& ids = save->getAllIds();
+				payload["soldierCounter"] = ids.find("STR_SOLDIER") != ids.end() ? ids.at("STR_SOLDIER") : 0;
+			}
+			payload["soldier"] = serializeSoldier(game, dst);
+		}
+		payload["stores"] = Json::Value(Json::objectValue);
+		for (const auto& kv : *base->getStorageItems()->getContents())
+			payload["stores"][kv.first->getType()] = kv.second;
+		if (oldCraft)
+		{
+			payload["craft"]["id"] = oldCraft->getId();
+			payload["craft"]["type"] = oldCraft->getRules()->getType();
+			payload["craft"]["items"] = Json::Value(Json::objectValue);
+			for (const auto& kv : *oldCraft->getItems()->getContents())
+				payload["craft"]["items"][kv.first->getType()] = kv.second;
+		}
+		return;
+	}
+
+	// Replica: adopt the host's result; never roll and never run the transformation.
+	const std::string out = payload.get("out", "").asString();
+	const int hours = payload.get("hours", 0).asInt();
+	std::vector<Soldier*>* home = payload.get("dead", false).asBool() ? save->getDeadSoldiers() : base->getSoldiers();
+	auto it = std::find(home->begin(), home->end(), src);
+	auto push = [&](Transfer* t) { t->setOwnerPlayerName(transferOwner); base->getTransfers()->push_back(t); return t; };
+	if (out == "retire")
+	{
+		if (it != home->end()) home->erase(it);
+		delete src;
+		push(new Transfer(hours))->setItems(mod->getItem(rule->getProducedItem(), true), 1);
+	}
+	else if (out == "clone")
+	{
+		src->setCraft(0); // vanilla unseats the source; its kit rides stores / craft below
+		std::map<std::string, int>& hist = src->getPreviousTransformations();
+		hist.clear();
+		for (const auto& k : payload["history"].getMemberNames()) hist[k] = payload["history"][k].asInt();
+		if (Soldier* c = deserializeSoldier(game, payload.get("soldier", "").asString()))
+			push(new Transfer(hours))->setSoldier(c);
+		const int want = payload.get("soldierCounter", 0).asInt(); // keep the id counter in step
+		const auto& ids = save->getAllIds();
+		while (ids.find("STR_SOLDIER") == ids.end() || ids.at("STR_SOLDIER") < want) save->getId("STR_SOLDIER");
+	}
+	else if (out == "self")
+	{
+		Soldier* d = deserializeSoldier(game, payload.get("soldier", "").asString());
+		if (!d) return;
+		if (hours > 0)
+		{
+			if (it != home->end()) home->erase(it);
+			delete src;
+			push(new Transfer(hours))->setSoldier(d);
+		}
+		else if (it != home->end()) { *it = d; delete src; } // same roster place; unseated like the host's
+		else delete d;
+	}
+	auto setItems = [&](ItemContainer* ic, const Json::Value& items)
+	{
+		ic->clear();
+		for (const auto& k : items.getMemberNames())
+			if (RuleItem* ri = mod->getItem(k, false)) ic->addItem(ri, items[k].asInt());
+	};
+	setItems(base->getStorageItems(), payload["stores"]);
+	if (payload.isMember("craft"))
+		if (Craft* cr = findCraft(base, payload["craft"].get("id", -1).asInt(), payload["craft"].get("type", "").asString()))
+			setItems(cr->getItems(), payload["craft"]["items"]);
+}
+
 // soldier_rename payload: { soldierId, name }. Playtest B3: soldier renames were
 // local-only; in SHARED they ride the shared_cmd like base_rename (host applies +
 // broadcasts, last-write-wins). ANY player may rename ANY soldier (shared roster,
@@ -2152,15 +2373,27 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
 // SoldierArmorState / CraftArmorState: return the old armor's store item + consume
 // the new one against the shared stores.
-bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+// Separate Campaign (RU16): a player changes only their own soldier's armor,
+// also at another player's base, where the armor comes from that base's stores.
+bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                           int64_t& cost, std::string& failReason)
 {
 	cost = 0;
 	if (!base) { failReason = "base not found"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat))
+		{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
 	Armor* next = game->getMod()->getArmor(payload.get("armor", "").asString(), false);
 	if (!next) { failReason = "unknown armor"; return false; }
+	// The armor screen offers a stored armor only while the base holds one (or
+	// the soldier's current armor uses the same store item); a stale replica can
+	// still ask for the last one twice.
+	SavedGame* save = game->getSavedGame();
+	if (save && save->getMonthsPassed() != -1 && next != s->getArmor()
+		&& next->getStoreItem() && next->getStoreItem() != s->getArmor()->getStoreItem()
+		&& base->getStorageItems()->getItem(next->getStoreItem()) < 1)
+		{ failReason = "armor not in base stores"; return false; }
 
 	// issue #121: re-run the client's craft-space gate (SoldierArmorState::lstArmorClick)
 	// against the host-authoritative world. If the soldier rides a craft, a larger armor
@@ -2190,6 +2423,70 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	}
 	s->setArmor(next, true);
 	if (save) save->setLastSelectedArmor(next->getType());
+}
+
+// base_move payload: {}. baseId = the base the mini base strip moves one place
+// left (main's right-click). Commands name bases by index, so the move is a host
+// command that every machine applies at the same point in the apply order.
+bool baseMoveValidate(Game* game, const Json::Value& /*payload*/, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (baseMoveTarget(game, base) < 0) { failReason = "base cannot move left"; return false; }
+	return true;
+}
+
+void baseMoveApply(Game* game, Json::Value& /*payload*/, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	const int from = baseIndex(game, base);
+	const int to = baseMoveTarget(game, base);
+	if (from < 0 || to < 0) return;
+	auto& bases = *game->getSavedGame()->getBases();
+	std::swap(bases[from], bases[to]);
+}
+
+// soldier_order payload: { order:[soldierId...] }. baseId = the base. The roster
+// screens show a player only their own soldiers, so move up / down reorders that
+// player's soldiers among the roster places they already hold; every other
+// soldier keeps its place. Ids no longer at the base are skipped and own
+// soldiers the order leaves out keep their relative order after the listed ones,
+// so a sack or arrival in flight cannot fail the move.
+bool soldierOrderValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                          int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!payload["order"].isArray()) { failReason = "no soldier order"; return false; }
+	return true;
+}
+
+void soldierOrderApply(Game* /*game*/, Json::Value& payload, Base* base, int seat)
+{
+	if (!base || !payload["order"].isArray()) return;
+	auto& roster = *base->getSoldiers();
+	std::vector<size_t> places;
+	std::vector<Soldier*> own;
+	for (size_t i = 0; i < roster.size(); ++i)
+		if (roster[i]->getOwnerPlayerId() == seat)
+		{
+			places.push_back(i);
+			own.push_back(roster[i]);
+		}
+	std::vector<Soldier*> ordered;
+	for (const auto& id : payload["order"])
+		for (Soldier*& s : own)
+			if (s && s->getId() == id.asInt())
+			{
+				ordered.push_back(s);
+				s = nullptr;
+				break;
+			}
+	for (Soldier* s : own)
+		if (s) ordered.push_back(s);
+	for (size_t i = 0; i < places.size(); ++i)
+		roster[places[i]] = ordered[i];
 }
 
 // PRD-DF01: df_open applier (REPLICA only). The host publishes the FULL dogfight
@@ -2457,6 +2754,11 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	{
 		// flag = a base-scoped error (rearm): Separate shows it to the base owner only.
 		if (payload.get("flag", false).asBool() && !SeparateEcon::showBaseNotification(game, base))
+			return;
+		// player = a notice for one player (hostPlayerNotice: the month-end
+		// economy warning); every other machine ignores it.
+		if (payload.isMember("player")
+			&& payload["player"].asString() != connectionTCP::seatName(connectionTCP::localSeat()))
 			return;
 		gs->popup(new CraftErrorState(gs, msg));
 	}
@@ -2869,7 +3171,12 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		return;
 	}
 
-	Base* base = resolveBase(game, pc.baseId);
+	// The sender named its bases by index in ITS list and by key; this machine's
+	// index for the same base is what replicas and appliers use from here on.
+	Base* base = resolveBaseRef(game, pc.baseId, pc.baseKey);
+	const int hostBaseId = base ? baseIndex(game, base) : (pc.baseKey ? -1 : pc.baseId);
+	Json::Value payload = pc.payload;
+	resolvePayloadBaseRefs(game, payload);
 	// Schema-3 SEPARATE policy is intentionally stricter than SHARED.  A seat may
 	// mutate only bases carrying its player name. The explicit player-facing
 	// foreign-base exceptions are the agreed co-op services: purchasing into that
@@ -2884,7 +3191,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		const std::string playerName = connectionTCP::seatName(pc.seat);
 		const bool foreign = !base->isOwnedByPlayer(playerName);
 		const bool foreignAllowed = SeparateEcon::allowsForeignBaseCommand(
-			pc.cmd, pc.remote);
+			pc.cmd, pc.remote, payload, base, pc.seat);
 		if (foreign && !foreignAllowed)
 		{
 			// Normal Separate UI permissions prevent most of these actions; the
@@ -2916,7 +3223,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	int64_t cost = 0;
 	std::string failReason;
 	++g_cmdN;
-	if (!hit->second.validate(game, pc.payload, base, pc.seat, cost, failReason))
+	if (!hit->second.validate(game, payload, base, pc.seat, cost, failReason))
 	{
 		if (pc.separateProtocol && save) save->clearSeparateFundsContext();
 		rejectHostCmd(game, pc, failReason.empty() ? "rejected" : failReason);
@@ -2928,8 +3235,10 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// to the initiator. The applier gets a MUTABLE payload copy so it can resolve
 	// host-only RNG into it (e.g. buy serializes generated soldiers); the resolved
 	// payload is what we broadcast, so replicas reconstruct instead of re-rolling.
+	// Replicas hold the host's base order up to this command, so the broadcast
+	// names the base by the host's index from before the apply (and its key).
+	const int baseKey = base ? base->_coop_base_id : 0;
 	save->setFunds(save->getFunds() - cost);
-	Json::Value payload = pc.payload;
 	hit->second.apply(game, payload, base, pc.seat);
 	++g_applyN;
 
@@ -2938,7 +3247,8 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	apply["cmd"] = pc.cmd;
 	apply["seq"] = pc.seq;
 	apply["seat"] = pc.seat;
-	apply["baseId"] = pc.baseId;
+	apply["baseId"] = hostBaseId;
+	apply["baseKey"] = baseKey;
 	apply["payload"] = payload;
 	apply["funds"] = Json::Value::Int64(save->getFunds());
 	if (pc.separateProtocol) apply["fundsPlayer"] = fundsPlayer;
@@ -2966,7 +3276,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// PRD-J10: the host's own open screens are as stale as a replica's after an
 	// apply (a client's buy moves the host's funds too), so both roles notify.
 	if (pc.separateProtocol && save) save->clearSeparateFundsContext();
-	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
+	fireApplyListener(pc.cmd, hostBaseId, pc.seat);
 }
 
 // ---- Replica-side apply (main thread) ----------------------------------------
@@ -3007,7 +3317,8 @@ void processApply(Game* game, const Json::Value& ap)
 	}
 
 	std::string cmd = ap.get("cmd", "").asString();
-	Base* base = resolveBase(game, ap.get("baseId", -1).asInt());
+	Base* base = resolveBaseRef(game, ap.get("baseId", -1).asInt(), ap.get("baseKey", 0).asInt());
+	const int applyBaseId = base ? baseIndex(game, base) : ap.get("baseId", -1).asInt();
 	auto& reg = registry();
 	auto hit = reg.find(cmd);
 	// NOTE: no "!base" early-return here. A creation command (base_new) carries
@@ -3023,13 +3334,14 @@ void processApply(Game* game, const Json::Value& ap)
 	// Mutable copy for the applier signature; the replica only READS the resolved
 	// payload (host already resolved any RNG before broadcasting).
 	Json::Value payload = ap["payload"];
+	resolvePayloadBaseRefs(game, payload);
 	int seat = ap.get("seat", 0).asInt();
 	hit->second.apply(game, payload, base, seat);
 	if (save && separateApply) save->clearSeparateFundsContext();
 	++g_applyN;
 
 	// PRD-J10: tell the open screen its world just moved under it.
-	fireApplyListener(cmd, ap.get("baseId", -1).asInt(), seat);
+	fireApplyListener(cmd, applyBaseId, seat);
 }
 
 } // anonymous namespace
@@ -3068,6 +3380,25 @@ int baseIndex(Game* game, const Base* base)
 	auto* bases = game->getSavedGame()->getBases();
 	for (size_t i = 0; i < bases->size(); ++i)
 		if ((*bases)[i] == base) return (int)i;
+	return -1;
+}
+
+Base* resolveBaseReference(Game* game, int baseId, int baseKey)
+{
+	return resolveBaseRef(game, baseId, baseKey);
+}
+
+int baseMoveTarget(Game* game, const Base* base)
+{
+	const int from = baseIndex(game, base);
+	if (from <= 0) return -1;
+	SavedGame* save = game->getSavedGame();
+	if (!save->isSeparateCoopCampaign()) return from - 1;
+	// The Separate strip lists each player's own bases together, so a base moves
+	// past the previous base of the same owner.
+	auto* bases = save->getBases();
+	for (int i = from - 1; i >= 0; --i)
+		if ((*bases)[i]->getOwnerPlayerName() == base->getOwnerPlayerName()) return i;
 	return -1;
 }
 
@@ -3146,6 +3477,8 @@ void init()
 	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
 	registerCmd("soldier_rename", &soldierRenameValidate, &soldierRenameApply);
 	registerCmd("soldier_gift",   &soldierGiftValidate,   &soldierGiftApply);
+	// A soldier transformation: the host runs it once and every machine adopts it.
+	registerCmd("soldier_transform", &soldierTransformValidate, &soldierTransformApply);
 	registerCmd("sack",          &sackValidate,         &sackApply);
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
 	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.
@@ -3164,6 +3497,10 @@ void init()
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
+	// The base list order and a player's roster order, kept the same on every
+	// machine (the mini base strip move and the roster screens' move up / down).
+	registerCmd("base_move",      &baseMoveValidate,     &baseMoveApply);
+	registerCmd("soldier_order",  &soldierOrderValidate, &soldierOrderApply);
 	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
 	// (df_open, full set + epoch each change; replica reconciles its render-only
 	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation
@@ -3233,6 +3570,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 			pc.seq = obj.get("seq", 0).asInt();
 			pc.seat = obj.get("seat", 0).asInt();
 			pc.baseId = obj.get("baseId", -1).asInt();
+			pc.baseKey = obj.get("baseKey", 0).asInt();
 			pc.payload = obj["payload"];
 			pc.remote = true;
 			pc.separateProtocol = (state == "separate_cmd");
@@ -3361,6 +3699,11 @@ void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
 	if (!game) return;
 	int seq = ++g_seqCounter;
 	int seat = connectionTCP::localSeat();
+	// Key every base the command names now, while the indexes still mean the
+	// bases the player picked (a base_move can land before this command does).
+	const int baseKey = baseKeyAt(game, baseId);
+	Json::Value keyedPayload = payload;
+	keyPayloadBaseRefs(game, keyedPayload);
 
 	if (isHost())
 	{
@@ -3371,7 +3714,8 @@ void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
 		pc.seq = seq;
 		pc.seat = seat;
 		pc.baseId = baseId;
-		pc.payload = payload;
+		pc.baseKey = baseKey;
+		pc.payload = keyedPayload;
 		pc.remote = false;
 		pc.separateProtocol = separateProtocol;
 		std::lock_guard<std::mutex> lk(g_mx);
@@ -3386,7 +3730,8 @@ void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
 		msg["seq"] = seq;
 		msg["seat"] = seat;
 		msg["baseId"] = baseId;
-		msg["payload"] = payload;
+		msg["baseKey"] = baseKey;
+		msg["payload"] = keyedPayload;
 		if (game->getCoopMod()) game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 	}
 }
@@ -3833,6 +4178,55 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base)
 			out.push_back(s);
 	}
 	return out;
+}
+
+bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
+	unsigned int row, bool up, bool max)
+{
+	if (!game || !base || row >= visible.size()) return false;
+	if (up ? row == 0 : row + 1 >= visible.size()) return false;
+	std::vector<Soldier*> order = visible;
+	Soldier* moved = order[row];
+	order.erase(order.begin() + row);
+	const size_t to = max ? (up ? 0 : order.size()) : (up ? row - 1 : row + 1);
+	order.insert(order.begin() + to, moved);
+	submitSoldierOrder(game, base, order);
+	return true;
+}
+
+void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order)
+{
+	if (!game || !base) return;
+	Json::Value ids(Json::arrayValue);
+	for (const Soldier* s : order) ids.append(s->getId());
+	Json::Value p;
+	p["order"] = ids;
+	submitLocalCmd(game, "soldier_order", baseIndex(game, base), p);
+}
+
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
+	const std::string& name)
+{
+	if (!game || !base || !soldier || !game->getCoopMod()
+		|| !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign()))
+		return false;
+	Json::Value p;
+	p["rule"] = rule;
+	p["soldierId"] = soldier->getId();
+	p["dead"] = soldier->getDeath() != nullptr;
+	p["name"] = name;
+	submitLocalCmd(game, "soldier_transform", baseIndex(game, base), p);
+	return true;
+}
+
+void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg)
+{
+	if (!sharedHost(game)) return;
+	Json::Value p;
+	p["cls"] = "CraftErrorState";
+	p["msg"] = msg;
+	p["player"] = playerName;
+	submitLocalCmd(game, "alert", 0, p);
 }
 
 void hostDayTick(Game* game)

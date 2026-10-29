@@ -34,7 +34,8 @@ def main():
     assert '_unbalanced_craft_soldiers_limit == true' in craft
     assert 'root["enable_parallel_turns"]' in tcp
     assert 'root["enable_parallel_turns"] = Options::EnableCoopParallelTurns;' in tcp
-    assert 'Options::EnableCoopParallelTurns = connectionTCP::_enable_parallel_turns;' in tcp
+    # RU10 (b9374ec47): the client takes the host's value for the session only.
+    assert 'Options::setSessionOverride(&Options::EnableCoopParallelTurns, connectionTCP::_enable_parallel_turns);' in tcp
     assert 'root["enable_host_only_time_speed"]' in tcp
     assert "_txtTooltip->setX(94)" in menu and "_txtTooltip->setWidth(218)" in menu
     assert "PvP and PvP campaign battles" in menu

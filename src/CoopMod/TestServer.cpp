@@ -62,6 +62,8 @@
 #include "../Engine/State.h"
 #include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
+#include "../Geoscape/CraftErrorState.h"
+#include "../Geoscape/ProductionCompleteState.h"
 #include "../Geoscape/ItemsArrivingState.h"
 #include "../Geoscape/GeoscapeCraftState.h"
 #include "../Geoscape/GeoscapeEventState.h"
@@ -192,6 +194,8 @@
 #include "../Basescape/CraftsState.h"
 #include "../Basescape/CraftWeaponsState.h"
 #include "../Basescape/SoldierArmorState.h"
+#include "../Basescape/SoldierTransformationState.h"
+#include "../Mod/RuleSoldierTransformation.h"
 #include "../Basescape/CraftArmorState.h"
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
@@ -716,6 +720,74 @@ static Json::Value soldierToJson(Soldier* s)
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
+
+	// Press Start on the real SoldierTransformationState for soldier <soldierId>
+	// at <base> (dead = a memorial soldier) with transformation <rule>, the
+	// screen the transformation list opens.
+	if (cmd == "soldier_transform")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		const int id = req.get("soldierId", -1).asInt();
+		Base* target = nullptr;
+		Soldier* soldier = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base->getName() == baseName) { target = base; break; }
+		if (target && !req.get("dead", false).asBool())
+		{
+			for (Soldier* s : *target->getSoldiers())
+				if (s->getId() == id) { soldier = s; break; }
+		}
+		else if (target)
+		{
+			for (Soldier* s : *_game->getSavedGame()->getDeadSoldiers())
+				if (s->getId() == id) { soldier = s; break; }
+		}
+		RuleSoldierTransformation* rule = _game->getMod()->getSoldierTransformation(
+			req.get("rule", "").asString(), false);
+		if (!target) resp["error"] = "base not found: " + baseName;
+		else if (!soldier) resp["error"] = "soldier not found";
+		else if (!rule) resp["error"] = "unknown transformation";
+		else
+		{
+			SoldierTransformationState* screen = new SoldierTransformationState(rule, target, soldier, nullptr);
+			_game->pushState(screen);
+			screen->btnStartClick(nullptr);
+			resp["ok"] = true;
+		}
+		return true;
+	}
+
+	// The craft reference a Separate craft request (separate_cydonia_request)
+	// carries, built now for the craft <craftId> at <base>, and what such a
+	// message names on this machine (separate_resolve_craft).
+	if (cmd == "separate_craft_message")
+	{
+		const std::string baseName = req.get("base", "").asString();
+		const int craftId = req.get("craftId", -1).asInt();
+		Craft* craft = nullptr;
+		if (_game->getSavedGame())
+			for (Base* base : *_game->getSavedGame()->getBases())
+				if (base->getName() == baseName)
+					for (Craft* c : *base->getCrafts())
+						if (c->getId() == craftId) { craft = c; break; }
+		if (!craft) resp["error"] = "craft not found";
+		else
+		{
+			resp["message"] = SeparateEcon::craftMessage("separate_cydonia_request", _game, craft);
+			resp["ok"] = true;
+		}
+		return true;
+	}
+	if (cmd == "separate_resolve_craft")
+	{
+		Craft* craft = SeparateEcon::resolveCraft(_game, req["message"]);
+		resp["found"] = craft != nullptr;
+		resp["base"] = craft && craft->getBase() ? craft->getBase()->getName() : "";
+		resp["craftId"] = craft ? craft->getId() : -1;
+		resp["ok"] = true;
+		return true;
+	}
 
 	// PR #213 F11: queue a different-faction finale exactly as a partial
 	// faction victory does at the end of a battle.
@@ -1446,10 +1518,13 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		// force=true bypasses the client capacity gate (issue #121: models a stale
 		// replica whose gate passed), so the request reaches the host un-gated and
 		// the host validator is the one under test.
+		// Craft ids are per craft TYPE: optional craft_type picks the type. Without
+		// it, an id that more than one armed craft at the base uses is an error.
 		std::string weapon = req.get("weapon", "").asString();
 		int slot = req.get("slot", 0).asInt();
 		std::string baseName = req.get("base", "").asString();
 		int craftId = req.get("craft_id", -1).asInt();
+		const std::string craftType = req.get("craft_type", "").asString();
 		bool force = req.get("force", false).asBool();
 		Base* target = nullptr;
 		if (_game->getSavedGame())
@@ -1458,12 +1533,23 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 				                     : b->getName() == baseName)
 				{ target = b; break; }
 		size_t idx = target ? target->getCrafts()->size() : 0;
+		int matches = 0;
 		if (target)
 			for (size_t i = 0; i < target->getCrafts()->size(); ++i)
-				if (craftId < 0 || target->getCrafts()->at(i)->getId() == craftId)
-				{ idx = i; break; }
+			{
+				const Craft* c = target->getCrafts()->at(i);
+				if ((craftId >= 0 && c->getId() != craftId)
+					|| (!craftType.empty() && c->getRules()->getType() != craftType)
+					|| (craftType.empty() && c->getRules()->getWeapons() <= 0))
+					continue;
+				if (matches++ == 0) idx = i;
+				if (craftId < 0) break; // no id: the first (armed) craft, as before
+			}
 		if (!target)
 			resp["error"] = "base not found";
+		else if (matches > 1)
+			resp["error"] = "ambiguous craft id " + std::to_string(craftId)
+				+ ": more than one armed craft type uses it, pass craft_type";
 		else if (idx >= target->getCrafts()->size())
 			resp["error"] = "craft not found";
 		else
@@ -6884,10 +6970,16 @@ std::string TestServer::execute(const std::string& line)
 			// / coop:true narrow the search to one base (the base_report selector).
 			std::string caBase = req.get("base", "").asString();
 			bool caCoop = req.get("coop", false).asBool();
+			// Ids also repeat across craft TYPES at one base (Skyranger 1 and
+			// Interceptor 1). Optional craft_type picks the type; without it the
+			// id must name one craft at the base that carries soldiers, otherwise
+			// the request is an error.
+			const std::string caType = req.get("craft_type", "").asString();
 			SavedGame* sg = _game->getSavedGame();
 			Base* base = nullptr;
 			size_t craftIdx = 0;
 			bool found = false;
+			int caMatches = 0;
 			if (sg)
 			{
 				for (auto* b : *sg->getBases())
@@ -6895,7 +6987,14 @@ std::string TestServer::execute(const std::string& line)
 					if (caCoop && !b->_isForeignBase) continue;
 					if (!caBase.empty() && b->getName() != caBase) continue;
 					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
-						if (b->getCrafts()->at(i)->getId() == craftId) { base = b; craftIdx = i; found = true; break; }
+					{
+						const Craft* c = b->getCrafts()->at(i);
+						if (c->getId() != craftId
+							|| (!caType.empty() && c->getRules()->getType() != caType)
+							|| (caType.empty() && c->getRules()->getMaxUnits() <= 0))
+							continue;
+						if (caMatches++ == 0) { base = b; craftIdx = i; found = true; }
+					}
 					if (found) break;
 				}
 			}
@@ -6912,6 +7011,9 @@ std::string TestServer::execute(const std::string& line)
 					{ sol = s; break; }
 			if (!found)
 				resp["error"] = "craft id not found";
+			else if (caMatches > 1)
+				resp["error"] = "ambiguous craft id " + std::to_string(craftId)
+					+ ": more than one craft type at the base uses it, pass craft_type";
 			else if (!sol)
 				resp["error"] = "soldier id not on craft's base";
 			else
@@ -9068,15 +9170,22 @@ std::string TestServer::execute(const std::string& line)
 		else if (cmd == "soldiers_reorder")
 		{
 			// Drive the open SoldiersState's real reorder handlers: action
-			// "move_up" (row = displayed row, moved to the top like a right-click)
-			// or "sort" (sort = combobox index; 2 = name).
+			// "move_up" / "move_down" (row = displayed row; max, default true, moves
+			// it to the top / bottom like a right-click, false moves one place like
+			// a left-click) or "sort" (sort = combobox index; 2 = name).
 			SoldiersState* st = findState<SoldiersState>(_game);
 			std::string action = req.get("action", "").asString();
+			const bool max = req.get("max", true).asBool();
 			if (!st)
 				resp["error"] = "no SoldiersState in state stack";
 			else if (action == "move_up")
 			{
-				st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), true);
+				st->moveSoldierUp(nullptr, (unsigned int)req.get("row", 1).asInt(), max);
+				resp["ok"] = true;
+			}
+			else if (action == "move_down")
+			{
+				st->moveSoldierDown(nullptr, (unsigned int)req.get("row", 0).asInt(), max);
 				resp["ok"] = true;
 			}
 			else if (action == "sort")
@@ -9098,6 +9207,61 @@ std::string TestServer::execute(const std::string& line)
 			else
 			{
 				resp["error"] = "no SoldiersState in state stack";
+			}
+		}
+		else if (cmd == "soldiers_view")
+		{
+			// Pick the open SoldiersState's screen action (a soldier
+			// transformation name, or STR_SOLDIER_INFO) through its real handler
+			// and report the soldier ids the list then shows.
+			SoldiersState* st = findState<SoldiersState>(_game);
+			const std::string action = req.get("action", "STR_SOLDIER_INFO").asString();
+			if (!st)
+				resp["error"] = "no SoldiersState in state stack";
+			else if (!st->harnessSelectAction(action))
+				resp["error"] = "screen action not offered: " + action;
+			else
+			{
+				Json::Value ids(Json::arrayValue);
+				for (int id : st->harnessDisplayedSoldierIds()) ids.append(id);
+				resp["ids"] = ids;
+				resp["ok"] = true;
+			}
+		}
+		else if (cmd == "craft_error_messages")
+		{
+			// The message of every CraftErrorState on the state stack, bottom
+			// first (the economy warning and the other host notices use it).
+			Json::Value messages(Json::arrayValue);
+			for (auto* s : _game->getStates())
+				if (auto* ce = dynamic_cast<CraftErrorState*>(s))
+					messages.append(ce->getMessage());
+			resp["messages"] = messages;
+			resp["ok"] = true;
+		}
+		else if (cmd == "production_complete_sell")
+		{
+			// Sell <count> of <item> at <base> through the random production
+			// summary of the real ProductionCompleteState (its right-click sell).
+			const std::string baseName = req.get("base", "").asString();
+			const std::string item = req.get("item", "").asString();
+			Base* target = nullptr;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+					if (b->getName() == baseName) { target = b; break; }
+			GeoscapeState* geo = findState<GeoscapeState>(_game);
+			if (!target)
+				resp["error"] = "base not found: " + baseName;
+			else if (!geo)
+				resp["error"] = "no GeoscapeState in state stack";
+			else if (!_game->getMod()->getItem(item, false))
+				resp["error"] = "unknown item: " + item;
+			else
+			{
+				ProductionCompleteState* pc = new ProductionCompleteState(target, item, geo);
+				pc->harnessSellSummaryRow(item, req.get("count", 1).asInt());
+				delete pc;
+				resp["ok"] = true;
 			}
 		}
 		else if (cmd == "base_report")
@@ -9891,18 +10055,30 @@ std::string TestServer::execute(const std::string& line)
 					else if (!toName.empty() && base->getName() == toName) to = base;
 				}
 			const int transferCraftId = req.get("craft_id", -1).asInt();
+			// Optional soldier_id: transfer that soldier (stationed at fromBase)
+			// through the screen's own soldier row instead of an item.
+			const int transferSoldierId = req.get("soldier_id", -1).asInt();
+			Soldier* transferSoldier = nullptr;
+			if (from && transferSoldierId >= 0)
+				for (auto* s : *from->getSoldiers())
+					if (s->getId() == transferSoldierId) { transferSoldier = s; break; }
 			if (!from || !to)
 				resp["error"] = "from/to base not found";
+			else if (transferSoldierId >= 0 && !transferSoldier)
+				resp["error"] = "soldier not at fromBase";
 			else
 			{
 				TransferItemsState* st = new TransferItemsState(from, to, nullptr);
-				bool ok = transferCraftId >= 0
+				bool ok = transferSoldier ? st->transferSoldierNow(transferSoldier)
+					: transferCraftId >= 0
 					? st->harnessTransferCraft(transferCraftId)
 					: st->harnessTransferItem(itemType, count); // submitSharedTransfer
 				delete st;
 				resp["sent"] = ok;
 				resp["ok"] = ok;
-				if (!ok) resp["error"] = transferCraftId >= 0
+				if (!ok) resp["error"] = transferSoldier
+					? "no transferable row for soldier id"
+					: transferCraftId >= 0
 					? "no transferable row for craft id"
 					: "no transferable row for item: " + itemType;
 			}

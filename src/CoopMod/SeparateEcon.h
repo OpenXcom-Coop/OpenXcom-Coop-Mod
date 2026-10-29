@@ -183,6 +183,10 @@ bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	const RuleResearch* research);
 /// Separate-only host policy for commands targeting another player's base.
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote);
+/// The same policy with the command's payload: a transfer out of @a base is
+/// allowed when every entry is a soldier that @a seat owns there (RU17).
+bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
+	const Json::Value& payload, const Base* base, int seat);
 /// Commands the host emits to mirror its own simulation (never player requests).
 bool isHostSimulationResult(const std::string& cmd);
 /// Separate-only craft assignment validation (ownership + per-seat half quota).
@@ -211,6 +215,11 @@ void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
 void broadcastLandClose(Game* game, Craft* craft);
 void requestCydonia(Game* game, Craft* craft);
+/// A craft request message (requestCydonia): @a state plus the reference to
+/// @a craft that resolveCraft reads back on the receiving machine.
+Json::Value craftMessage(const char* state, Game* game, Craft* craft);
+/// The craft a craftMessage names on this machine, or nullptr.
+Craft* resolveCraft(Game* game, const Json::Value& obj);
 /// Replicate research unlocked by a mission-site expiry (host only): the replica
 /// applies the host's exact topic and getOneFree bonus to the same players.
 void hostMissionResearch(Game* game, const AlienDeployment* deployment,

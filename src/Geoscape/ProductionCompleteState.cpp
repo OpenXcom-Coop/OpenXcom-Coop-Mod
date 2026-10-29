@@ -33,6 +33,8 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -209,9 +211,21 @@ void ProductionCompleteState::btnSummaryClick(Action *)
  */
 void ProductionCompleteState::lstSummaryClick(Action *)
 {
+	sellSummaryRow(_lstSummary->getSelectedRow());
+}
+
+void ProductionCompleteState::harnessSellSummaryRow(const std::string &item, int count)
+{
+	_randomProductionInfo[item] = count;
+	_index.assign(1, item);
+	sellSummaryRow(0);
+}
+
+void ProductionCompleteState::sellSummaryRow(unsigned int sel)
+{
+	if (sel >= _index.size()) return;
 	// 1. remember stuff
 	auto scrollPos = _lstSummary->getScroll();
-	unsigned int sel = _lstSummary->getSelectedRow();
 	std::string itemName = _index[sel];
 	int itemCount = _randomProductionInfo[itemName];
 
@@ -231,7 +245,19 @@ void ProductionCompleteState::lstSummaryClick(Action *)
 			_index.erase(_index.begin() + sel);
 		}
 
-		if (itemCount > 0)
+		if (itemCount > 0 && _game->getCoopMod()
+			&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		{
+			// One-world campaigns: the host sells from its stores into the seller's
+			// wallet and every machine applies the result (the "sell" command).
+			Json::Value item;
+			item["rule"] = itemName;
+			item["qty"] = itemCount;
+			Json::Value payload;
+			payload["items"].append(item);
+			SharedEcon::submitLocalCmd(_game, "sell", SharedEcon::baseIndex(_game, _base), payload);
+		}
+		else if (itemCount > 0)
 		{
 			int64_t adjustedSellValue = itemRule->getSellCostAdjusted(_base, _game->getSavedGame());
 			adjustedSellValue *= itemCount;
