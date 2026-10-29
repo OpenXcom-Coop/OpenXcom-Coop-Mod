@@ -47,7 +47,8 @@ GU, X = TBG.C2, TBG.C1            # 9 (alien_turn_gift's gift to the host, clien
 GIVE_KEY = 258                    # Options::giveUnit (SDLK_KP2)
 TEXT_SPECTATOR = "You command no soldiers - spectator mode"     # STR_COOP_SPECTATOR_MODE (en-US)
 HOSTILE_S, STEP_S, ALIEN_S, NOTICE_S = 30, 30, 60, 5      # 0.05 / 0.10 / ~4 (incl. the hold) / 0.05 s
-SAMPLE_S, HOLD_S, READ_N, BAN_S = 0.1, 2.0, 3, 2.0       # 8 side-1 host samples per hold; green clear 0.05 s
+SAMPLE_S, HOLD_S, READ_N, BAN_S = 0.1, 2.0, 3, 2.0       # 8 side-1 host samples per hold;
+                                                          # with the fix the spectator line clears in 0.05 s
 TAB_MAX = 16
 HOST_NAME, CLIENT_NAME = TBG.HOST_NAME, TBG.CLIENT_NAME
 UF = ("coop", "x", "y", "z", "tu", "direction", "hasAI")
