@@ -1,79 +1,53 @@
-"""test_host_screens_turn.py: parallel mode, the host's screens across a
-side change and a battle end: the partner's END TURN flips the side under the host's
-screen, the host's inventory closes itself when the side changes, the enemy AI waits
-behind the host's Esc menu, a hot-grenade end turn runs under the host's screen, and a
-partner's knockout of the last alien ends the battle while the host's screen is open.
-Spec docs rewrite/prompts/w2p8_inventory.md: owner D166 = B, D187-D191; J1;
-AMENDMENT P8-4 section 4.2 (C2-6: a grenade-free END TURN flips at once today, so HS9
-is declared green at red and HS8b exercises the `endturn` drive; C2-9; the rows and
-the named red) with the draft rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1.8;
-AMENDMENT P8-4b (TASK 0 pins, rulings 4 and 5).
+"""test_host_screens_turn.py: parallel mode, the host's screens across a side change and a battle end: the partner's
+END TURN flips the side under the host's screen, the host's inventory closes itself when the side changes, the enemy
+AI waits behind the host's Esc menu, a hot-grenade end turn runs under the host's screen, and a partner's knockout of
+the last alien ends the battle while the host's screen is open.
 
-ONE boot = test_inventory.boot (as test_host_screens.py). Rows in this order,
-every row ONE run; each of HS8, HS9, HS8b ends with a full side cycle (turn + 1 on
-both, test_turn_baton.drive_full_cycle, P8-3b ruling 2); HS10 ends the battle, so
-it is LAST:
-  HS8   (J1 / F2330, the host twin of V13) the host presses END TURN (1/2), opens
-        H's inventory and picks H's grenade (belt (1,0)); the client presses END
-        TURN: the side flips with NextTurnState over the host's inventory; the
-        test closes it (close_nextturn). RED (F2894, ruling 5): the host's
-        InventoryState is the top again during the alien side, re-initialised on
-        an alien with H's grenade on the cursor, hostScreens.closes.byReason.side
-        +0, the side not progressing. GREEN: at the first read after the
-        close_nextturn (no host input in between) hostScreens.closes.byReason.side
-        +1 and byScreen.inventory +1; the host's INVENTORY key, armed in-game
-        before the close (TestServer battle_arm_key, ruling SC2-G1 / F2924: the
-        alien side lasts ~80 ms, two harness round trips exceed it), fires on the
-        first frame of the alien side with the battlescape on top and opens
-        nothing (no InventoryState on the host between the fire and the next
-        turn's NextTurnState); the grenade STR_BELT (1,0) on both; turn + 1 on
-        both; EQUAL.
-  HS9   (D188; declared GREEN at red, C2-6) the host presses END TURN, opens its
-        Esc menu (PauseState); the client presses END TURN; the test closes the
-        NextTurnState over the menu; 5 s of samples with PauseState on top: the
-        host's side stays the alien side, host contextsOpened.ai +0,
-        hostCovered.steps +0; after the menu closes the alien side runs and the
-        next turn starts on both; EQUAL.
-  HS8b  (M1 `endturn`, C2-6, T0-S6b) a primed grenade (fuse 0) dropped on an empty
-        tile on both; the host presses END TURN and opens H's inventory; the
-        client presses END TURN: host contextsOpened.endturn +1 (the precondition:
-        a hot-grenade end turn opens the `endturn` context). RED (ruling 4): the
-        end turn frozen under the host's inventory: side 0 after SAMPLE_S, host top
-        InventoryState, hostCovered.steps +0. GREEN: the end turn runs under the
-        screen - hostCovered.byOrigin.endturn > 0 and NextTurnState over the
-        host's inventory with the side flipped; after close_nextturn
-        hostScreens.closes.byReason.side +1; turn + 1 on both; EQUAL. The grenade
-        explodes under the host's screen in both builds: never asserted.
-  HS10  every alien but the lowest id killed
-        (kill_unit_real, context-less); battleAutoEnd on both; the last alien on
-        (24,23,0) health 5, C on (24,24,0) facing it with a stun rod; the host
-        opens H's inventory and picks the grenade; client stun-rod melee (seed 1).
-        RED: the knockout frozen; no battle end within END_WINDOW_S while the
-        host's screen is open. GREEN: with the host's inventory never closed by
-        the test, the battle ends (the test closes the host's NextTurnState when it
-        is on top, W2-P7's recipe): host battleEnd.emitted 1 and evsAfter 0, client
-        battleEnd.applied 1, both machines on their DebriefingState (the client's
-        display-only), no InventoryState left on either machine, no crash file,
-        desyncAtTeardown false on both.
+ONE boot = test_inventory.boot (as test_host_screens.py). Rows in this order, every row ONE run; each of
+side_change_closes_inventory, pause_holds_alien_side and hot_grenade_end_turn ends with a full side cycle (turn + 1 on
+both, test_turn_baton.drive_full_cycle); knockout_ends_battle ends the battle, so it is LAST:
+  side_change_closes_inventory: the host presses END TURN (1/2), opens H's inventory and picks H's grenade (belt
+      (1,0)); the client presses END TURN: the side flips with NextTurnState over the host's inventory; the test
+      closes it (close_nextturn). Passes when, at the first read after the close_nextturn (no host input in between),
+      hostScreens.closes.byReason.side +1 and byScreen.inventory +1; the host's INVENTORY key, armed in-game before
+      the close (TestServer battle_arm_key: the alien side lasts ~80 ms, two harness round trips exceed it), fires on
+      the first frame of the alien side with the battlescape on top and opens nothing (no InventoryState on the host
+      between the fire and the next turn's NextTurnState); the grenade STR_BELT (1,0) on both; turn + 1 on both;
+      EQUAL. When broken the host's InventoryState is the top again during the alien side, re-initialised on an alien
+      with H's grenade on the cursor, hostScreens.closes.byReason.side +0, the side not progressing.
+  pause_holds_alien_side: the host presses END TURN, opens its Esc menu (PauseState); the client presses END TURN; the
+      test closes the NextTurnState over the menu; 5 s of samples with PauseState on top: the host's side stays the
+      alien side, host contextsOpened.ai +0, hostCovered.steps +0; after the menu closes the alien side runs and the
+      next turn starts on both; EQUAL. This row also passes without the fix: a grenade-free END TURN flips at once, so
+      hot_grenade_end_turn is the row that exercises the `endturn` drive.
+  hot_grenade_end_turn: a primed grenade (fuse 0) dropped on an empty tile on both; the host presses END TURN and
+      opens H's inventory; the client presses END TURN: host contextsOpened.endturn +1 (the precondition: a
+      hot-grenade end turn opens the `endturn` context). Passes when the end turn runs under the screen:
+      hostCovered.byOrigin.endturn > 0 and NextTurnState over the host's inventory with the side flipped; after
+      close_nextturn hostScreens.closes.byReason.side +1; turn + 1 on both; EQUAL. When broken the end turn is frozen
+      under the host's inventory: side 0 after SAMPLE_S, host top InventoryState, hostCovered.steps +0. The grenade
+      explodes under the host's screen with or without the fix: never asserted.
+  knockout_ends_battle: every alien but the lowest id killed (kill_unit_real, context-less); battleAutoEnd on both;
+      the last alien on (24,23,0) health 5, C on (24,24,0) facing it with a stun rod; the host opens H's inventory and
+      picks the grenade; client stun-rod melee (seed 1). Passes when, with the host's inventory never closed by the
+      test, the battle ends (the test closes the host's NextTurnState when it is on top): host battleEnd.emitted 1 and
+      evsAfter 0, client battleEnd.applied 1, both machines on their DebriefingState (the client's display-only), no
+      InventoryState left on either machine, no crash file, desyncAtTeardown false on both. When broken the knockout
+      is frozen: no battle end within END_WINDOW_S while the host's screen is open.
 
-Common asserts (HS8, HS9, HS8b; after wait_host_idle): hash_now full EQUAL; desyncSeen
-false on both; client coopClientBStatePushes unchanged and host 0; client
-invLocalWrites 0 and invGuard unchanged; no screen left open; no new crash file; host
-hostCovered.byOrigin moves only on intent / endturn (STOP-IF 20). A red row's cleanup
-(the host's cursor item back through inventory_cursor_clear, its screen closed) lets
-the frozen side change finish; it is recorded and is a no-op on a green run.
+Common asserts (side_change_closes_inventory, pause_holds_alien_side, hot_grenade_end_turn; after wait_host_idle):
+hash_now full EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and host 0; client
+invLocalWrites 0 and invGuard unchanged; no screen left open; no new crash file; host hostCovered.byOrigin moves only
+on intent / endturn. A failing row's cleanup (the host's cursor item back through inventory_cursor_clear, its screen
+closed) lets the frozen side change finish; it is recorded and is a no-op on a passing run.
 
-Constants: the P8-4b pin table (T0-S6 / T0-S6b / T0-S7 rows; docs
-rewrite/w2p8-task0/sc2/, t0_sc2.py --koseed 1), each with its source line below. Item
-ids come from each row's staging record (C7). Lever pairs go to the CLIENT first;
-player-unit teleports go HOST first, checked (P8-4b ruling 3,
-place_host_first); HS10's ALIEN teleport stays client-first (a host-first alien
-teleport makes the host's next reveal ev carry state the client lacks and latches a
-client desync, F607 - reproduced at S-C2.1's dispatch tip) after a check of the host
-leg's refusal causes (the alien standing and not out on the host). One "EVIDENCE <id>:"
-line per row before its checks; every row runs after an earlier failure; exit 0 only
-when every row passes, 2 otherwise. one run is the result.
-run in the foreground to completion.
+Constants: measured setup values, each with its measurement in the comment above it. Item ids come from each row's
+staging record. Paired test commands go to the CLIENT first; player-unit teleports go HOST first, checked
+(place_host_first); knockout_ends_battle's ALIEN teleport stays client-first (a host-first alien teleport makes the
+host's next reveal ev carry state the client lacks and latches a client desync) after a check of the host leg's
+refusal causes (the alien standing and not out on the host). One "EVIDENCE <id>:" line per row before its checks;
+every row runs after an earlier failure; exit 0 only when every row passes, 2 otherwise. One run is the result; run it
+in the foreground to completion.
 
 Run:  python tools/coop_test/test_host_screens_turn.py
 """
@@ -101,27 +75,28 @@ from test_delta_items import items_by_id
 import test_client_shoot as cs
 from test_turn_baton import drive_full_cycle
 
-# ----- P8-4b T0-S6/S6b row: "parallel; host END TURN first | grenade-free partner END TURN flips at once under both
-# screens; HS8 at red the host's inventory re-inits on an alien with H's grenade on the cursor;
-# HS8b: the hot grenade explodes 4 ms into the endturn context under the host's screen - only the context close and
-# the flip wait " (t0_sc2.py t0s6_hs8 :727, t0s6_hs9 :773, t0s6b :806) -----
-HOT_TILE = (34, 24, 0)            # t0_sc2.py :262: an empty road tile (P8-3b T0-4's shot target)
-TEXT_END_TURN_1_OF_2 = "END TURN 1/2"   # the host's END TURN tally after its own press (T0-S6 arm record)
+# ----- the end turns, as measured: parallel, the host's END TURN first; a grenade-free partner END TURN flips the
+# side at once under both screens; when broken, side_change_closes_inventory's host inventory re-inits on an alien
+# with H's grenade on the cursor; in hot_grenade_end_turn the hot grenade explodes 4 ms into the endturn context
+# under the host's screen, so only the context close and the flip are waited for -----
+HOT_TILE = (34, 24, 0)            # an empty road tile (test_inventory_held's shot target)
+TEXT_END_TURN_1_OF_2 = "END TURN 1/2"   # the host's END TURN tally after its own press
 ARM_WAIT_S = 5.0
 FLIP_WAIT_S = 30.0
-SAMPLE_S = 5.0                    # the draft section 1.8 HS9: "sample 5 s"; T0-S6b's window (5 s of samples)
-SIDE_SAMPLE_S = 3.0               # HS8's red record: the alien side does not progress under the host's screen
-ARM_TIMEOUT_MS = 10000            # HS8: battle_arm_key's deadline (ruling SC2-G1)
-ALIEN_END_WAIT_S = 10.0           # HS8: the armed key's record is read once the alien side is over (its next
-                                  # NextTurnState seen by the lever), within this
-CYCLE_S = 90                      # t0_sc2.py cycle_to_next: drive_full_cycle(timeout=90)
+SAMPLE_S = 5.0                    # pause_holds_alien_side samples 5 s; hot_grenade_end_turn's window (5 s of samples)
+SIDE_SAMPLE_S = 3.0               # side_change_closes_inventory's record when broken: the alien side does not
+                                  # progress under the host's screen
+ARM_TIMEOUT_MS = 10000            # side_change_closes_inventory: battle_arm_key's deadline
+ALIEN_END_WAIT_S = 10.0           # side_change_closes_inventory: the armed key's record is read once the alien side
+                                  # is over (its next NextTurnState seen by the armed key), within this
+CYCLE_S = 90                      # drive_full_cycle's timeout
 SIDE_ALIEN = 1
-# ----- P8-4b T0-S7 row: "12 aliens killed by id; the last on (24,23,0) health 5; C (24,24,0) dir 0 stun rod; seed 1
-# | the end turn runs inside the partner's intent context (closed at endTurn entry); battle ends after the host's
-# NTS closes (P7 recipe) " (t0_sc2.py t0s7 :845) -----
+# ----- the battle end, as measured: 12 aliens killed by id; the last on (24,23,0) health 5; C (24,24,0) dir 0 with
+# a stun rod; seed 1: the end turn runs inside the partner's intent context (closed at endTurn entry); the battle
+# ends after the host's NextTurnState closes -----
 KILL_WAIT_S = 30.0
-END_WINDOW_S = 10.0               # T0-S7: melee send -> both DebriefingState 1.615 s (x 6)
-END_AFTER_S = 30.0                # a red row's released knockout -> both DebriefingState
+END_WINDOW_S = 10.0               # melee send -> both DebriefingState 1.615 s (x 6)
+END_AFTER_S = 30.0                # a frozen row's released knockout -> both DebriefingState
 
 
 # ===================== helpers =====================
@@ -133,7 +108,7 @@ def bsv(gc):
 
 
 def arm_host(host):
-    """The host's own END TURN press first (T0-S6): its tally shows 1/2."""
+    """The host's own END TURN press first: its tally shows 1/2."""
     r = host.cmd({"cmd": "battle_action", "action": "end_turn_button"})
     got, dt = wait_until(lambda: battle_state(host).get("coopEndTurnText") == TEXT_END_TURN_1_OF_2, ARM_WAIT_S, 0.05)
     return {"resp": {k: r.get(k) for k in ("ok", "error")}, "armed": bool(got), "waited": dt, "host": bsv(host)}
@@ -145,8 +120,7 @@ def client_end_turn(client):
 
 
 def flip_watch(host, t0, timeout=FLIP_WAIT_S):
-    """t0_sc2.py flip_watch :676-:686: the first host sample with a NextTurnState on the stack or the side
-    changed."""
+    """The first host sample with a NextTurnState on the stack or the side changed."""
     side0 = battle_state(host).get("side")
     while time.time() - t0 < timeout:
         stk = stack(host)
@@ -160,8 +134,8 @@ def flip_watch(host, t0, timeout=FLIP_WAIT_S):
 
 
 def cycle(host, client, turn0):
-    """turn + 1 on both (P8-3b ruling 2: test_turn_baton.drive_full_cycle), every NextTurnState closed through
-    its real close(), then the host idle (t0_sc2.py cycle_to_next :709-:724)."""
+    """turn + 1 on both (test_turn_baton.drive_full_cycle), every NextTurnState closed through its real close(),
+    then the host idle."""
     rec = {}
     try:
         drive_full_cycle(host, client, turn0, timeout=CYCLE_S)
@@ -181,7 +155,7 @@ def cycle(host, client, turn0):
 def cycle_fails(cyc, turn0, what):
     fails = []
     if "err" in cyc:
-        fails.append(f"SETUP-FAILURE (P8-3b ruling 2): {what}: drive_full_cycle failed: {cyc['err']} (host "
+        fails.append(f"SETUP-FAILURE: {what}: drive_full_cycle failed: {cyc['err']} (host "
                      f"{cyc.get('hostNts')}, client {cyc.get('clientNts')})")
     for n in ("host", "client"):
         a = cyc["after"][n]
@@ -196,7 +170,7 @@ def cycle_fails(cyc, turn0, what):
 # ===================== rows =====================
 
 
-def hs8_side_change(host, client, ctx):
+def side_change_closes_inventory(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"H": restage_h(host, client, STAGE_H, "belt_and_ground", placer=place_host_first)}
@@ -208,14 +182,14 @@ def hs8_side_change(host, client, ctx):
     ev = {"arm": arm_host(host)}
     opened = open_host_inventory(host, H_ID, ev)
     picked = host_pick(host, ev, "pick", BELT, 1, 0, g) if opened else False
-    flip, after_nts, key_row, red = None, {}, None, {}
+    flip, after_nts, key_row, broken = None, {}, None, {}
     if ev["arm"]["armed"] and opened and picked:
         t0 = time.time()
         ev["clientEndTurn"] = client_end_turn(client)
         flip = flip_watch(host, t0)
         if flip and top(host) == "NextTurnState":
-            # ruling SC2-G1: the host's INVENTORY key is armed in-game BEFORE the close, for the first frame
-            # of the alien side with the battlescape on top (the alien side is over before a harness press lands)
+            # the host's INVENTORY key is armed in-game BEFORE the close, for the first frame of the alien side
+            # with the battlescape on top (the alien side is over before a harness press lands)
             k = read_inventory_key(host.user_dir)
             ra = host.cmd({"cmd": "battle_arm_key", "key": k, "side": SIDE_ALIEN, "timeoutMs": ARM_TIMEOUT_MS})
             arm = {kk: ra.get(kk) for kk in ("ok", "armed", "frame", "error")}
@@ -224,8 +198,8 @@ def hs8_side_change(host, client, ctx):
             after_nts = {"close": {k: rn.get(k) for k in ("ok", "handled", "error")},
                          "hostScreens": eh.get("hostScreens"), "stack": stack(host), "side": bsv(host)["side"]}
             if (dnum(hclose(before["host"], "byReason", "side"), hclose(eh, "byReason", "side")) or 0) > 0:
-                # GREEN path: the armed INVENTORY key during the alien side (the host twin of IH5's OR3 a); its
-                # record is read once the lever saw the next turn's NextTurnState (or the arm expired)
+                # the side close ran: the armed INVENTORY key during the alien side; its record is read once the
+                # armed key saw the next turn's NextTurnState (or the arm expired)
                 def side_over():
                     ak = event_state(host).get("armKey") or {}
                     return ak if (ak.get("nextTurnFrame", -1) >= 0 or ak.get("expired")) else None
@@ -235,64 +209,71 @@ def hs8_side_change(host, client, ctx):
                            "stack": stack(host), "host": bsv(host),
                            "view": {kk: v.get(kk) for kk in ("open", "top", "unitId", "selectedItem")}}
             else:
-                # the RED record: the host's screen back on top during the alien side
+                # no side close (when broken): the host's screen back on top during the alien side
                 v = inv_view(host)
-                red["view"] = {kk: v.get(kk) for kk in ("open", "top", "unitId", "selectedItem")}
+                broken["view"] = {kk: v.get(kk) for kk in ("open", "top", "unitId", "selectedItem")}
                 samples = []
                 t1 = time.time()
                 while time.time() - t1 < SIDE_SAMPLE_S:
                     samples.append({"t": round(time.time() - t1, 2), "top": top(host), "host": bsv(host)})
                     time.sleep(0.5)
-                red["samples"] = samples
-    rel = release(host, notes, "HS8")
+                broken["samples"] = samples
+    rel = release(host, notes, "side_change_closes_inventory")
     cyc = cycle(host, client, turn0)
     end = {"grenade": item_both(host, client, g)}
-    evidence("HS8", {"staging": st, "stagedDiff": staged, "ui": ev, "flip": flip, "afterNts": after_nts,
-                     "key": key_row, "red": red, "release": rel, "cycle": cyc, "end": end,
-                     "hostUi": ui_lines(host, hmark)[-16:], "notes": notes})
+    evidence("side_change_closes_inventory", {"staging": st, "stagedDiff": staged, "ui": ev, "flip": flip,
+                                              "afterNts": after_nts, "key": key_row, "broken": broken,
+                                              "release": rel, "cycle": cyc, "end": end,
+                                              "hostUi": ui_lines(host, hmark)[-16:], "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS8: buckets differ after the staging: {staged}")
+        fails.append(f"side_change_closes_inventory: buckets differ after the staging: {staged}")
     if not ev["arm"]["armed"]:
-        fails.append(f"precondition (T0-S6): the host's END TURN did not arm ({ev['arm']})")
+        fails.append(f"precondition (side_change_closes_inventory): the host's END TURN did not arm ({ev['arm']})")
     elif not opened or not picked:
-        fails.append(f"precondition (HS8): the host's inventory on H / the grenade pick ({ev})")
+        fails.append(f"precondition (side_change_closes_inventory): the host's inventory on H / the grenade pick "
+                     f"({ev})")
     elif flip is None or "InventoryState" not in (flip.get("stack") or []) or flip["stack"][-1] != "NextTurnState":
-        fails.append(f"precondition (T0-S6): the side flip with NextTurnState over the host's inventory ({flip})")
+        fails.append(f"precondition (side_change_closes_inventory): the side flip with NextTurnState over the host's "
+                     f"inventory ({flip})")
     else:
-        # the RED cell: the screen re-inits on an alien, no side close; GREEN (J1): closed at the
-        # first pump after the NextTurnState, before any host input
+        # the inventory closes at the first pump after the NextTurnState, before any host input (when broken it
+        # re-inits on an alien, no side close)
         ds = dnum(hclose(before["host"], "byReason", "side"), hclose(after_nts, "byReason", "side"))
         di = dnum(hclose(before["host"], "byScreen", "inventory"), hclose(after_nts, "byScreen", "inventory"))
         if (ds, di) != (1, 1) or "InventoryState" in (after_nts.get("stack") or []):
-            fails.append(f"HS8: after close_nextturn host hostScreens.closes byReason.side +{ds}, byScreen.inventory "
-                         f"+{di}, stack {after_nts.get('stack')} (want +1 / +1, no InventoryState; red record {red})")
+            fails.append(f"side_change_closes_inventory: after close_nextturn host hostScreens.closes byReason.side "
+                         f"+{ds}, byScreen.inventory "
+                         f"+{di}, stack {after_nts.get('stack')} (want +1 / +1, no InventoryState; record when broken "
+                         f"{broken})")
         elif key_row is None:
-            fails.append("HS8: the host's INVENTORY key was not armed for the alien side")
+            fails.append("side_change_closes_inventory: the host's INVENTORY key was not armed for the alien side")
         else:
             ak = key_row.get("armKey") or {}
             if not (key_row["arm"].get("ok") and key_row["arm"].get("armed")):
-                fails.append(f"HS8: battle_arm_key did not arm the host's INVENTORY key ({key_row['arm']})")
+                fails.append(f"side_change_closes_inventory: battle_arm_key did not arm the host's INVENTORY key "
+                             f"({key_row['arm']})")
             elif not ak.get("fired") or ak.get("sideAtFire") != SIDE_ALIEN or ak.get("topBefore") != "BattlescapeState":
-                fails.append(f"HS8: the armed INVENTORY key did not fire on the alien side with the battlescape on "
+                fails.append(f"side_change_closes_inventory: the armed INVENTORY key did not fire on the alien side "
+                             f"with the battlescape on "
                              f"top (want fired, sideAtFire {SIDE_ALIEN}, topBefore BattlescapeState; {ak})")
             elif ak.get("nextTurnFrame", -1) < 0:
-                fails.append(f"HS8: the lever saw no next-turn NextTurnState within {ALIEN_END_WAIT_S} s of the "
-                             f"close ({ak})")
+                fails.append(f"side_change_closes_inventory: the armed key saw no next-turn NextTurnState within "
+                             f"{ALIEN_END_WAIT_S} s of the close ({ak})")
             elif ak.get("inventoryPushesSinceFire") != 0:
-                fails.append(f"HS8: the host's INVENTORY key during the alien side opened a screen: "
-                             f"inventoryPushesSinceFire {ak.get('inventoryPushesSinceFire')} before the next "
+                fails.append(f"side_change_closes_inventory: the host's INVENTORY key during the alien side opened a "
+                             f"screen: inventoryPushesSinceFire {ak.get('inventoryPushesSinceFire')} before the next "
                              f"NextTurnState (want 0; {ak})")
     want_belt = {"owner": H_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}
     for n in ("host", "client"):
         if {k: (end["grenade"][n] or {}).get(k) for k in want_belt} != want_belt:
-            fails.append(f"HS8: the {n}'s grenade {end['grenade'][n]} (want {want_belt})")
-    fails += cycle_fails(cyc, turn0, "HS8")
-    fails += hs_common_fails(host, client, before, crash0, "HS8")
+            fails.append(f"side_change_closes_inventory: the {n}'s grenade {end['grenade'][n]} (want {want_belt})")
+    fails += cycle_fails(cyc, turn0, "side_change_closes_inventory")
+    fails += hs_common_fails(host, client, before, crash0, "side_change_closes_inventory")
     finish(fails)
 
 
-def hs9_pause_holds_ai(host, client, ctx):
+def pause_holds_alien_side(host, client, ctx):
     notes = []
     crash0 = crash_census()
     turn0 = battle_state(host).get("turn")
@@ -324,29 +305,31 @@ def hs9_pause_holds_ai(host, client, ctx):
             press(host, read_key(host.user_dir, CLOSE_KEY))
             got, _ = wait_until(lambda: top(host) != "PauseState", 3.0, 0.02)
             closed = {"ok": bool(got), "stack": stack(host)}
-    rel = release(host, notes, "HS9")
+    rel = release(host, notes, "pause_holds_alien_side")
     cyc = cycle(host, client, turn0)
-    evidence("HS9", {"ui": ev, "flip": flip, "samples": samples, "pauseClosed": closed, "release": rel, "cycle": cyc,
-                     "hostUi": ui_lines(host, hmark)[-12:], "notes": notes})
+    evidence("pause_holds_alien_side", {"ui": ev, "flip": flip, "samples": samples, "pauseClosed": closed,
+                                        "release": rel, "cycle": cyc, "hostUi": ui_lines(host, hmark)[-12:],
+                                        "notes": notes})
     fails = list(notes)
     if not ev["arm"]["armed"] or not opened:
-        fails.append(f"precondition (HS9): the host's END TURN / PauseState ({ev})")
+        fails.append(f"precondition (pause_holds_alien_side): the host's END TURN / PauseState ({ev})")
     elif flip is None or "PauseState" not in (flip.get("stack") or []) or flip["stack"][-1] != "NextTurnState":
-        fails.append(f"precondition (T0-S6): the side flip with NextTurnState over the host's PauseState ({flip})")
+        fails.append(f"precondition (pause_holds_alien_side): the side flip with NextTurnState over the host's "
+                     f"PauseState ({flip})")
     else:
         bad = [s for s in samples if s["top"] != "PauseState" or s["host"].get("side") != SIDE_ALIEN
                or s["ai"] != 0 or s["steps"] != 0]
         if not samples or bad:
-            fails.append(f"HS9: with PauseState on top the host's alien side must hold (side {SIDE_ALIEN}, "
-                         f"contextsOpened.ai +0, hostCovered.steps +0); offending samples {bad[:3]}")
+            fails.append(f"pause_holds_alien_side: with PauseState on top the host's alien side must hold (side "
+                         f"{SIDE_ALIEN}, contextsOpened.ai +0, hostCovered.steps +0); offending samples {bad[:3]}")
         if not closed.get("ok"):
-            fails.append(f"HS9: the host's PauseState did not close ({closed})")
-    fails += cycle_fails(cyc, turn0, "HS9")
-    fails += hs_common_fails(host, client, before, crash0, "HS9")
+            fails.append(f"pause_holds_alien_side: the host's PauseState did not close ({closed})")
+    fails += cycle_fails(cyc, turn0, "pause_holds_alien_side")
+    fails += hs_common_fails(host, client, before, crash0, "pause_holds_alien_side")
     finish(fails)
 
 
-def hs8b_hot_grenade(host, client, ctx):
+def hot_grenade_end_turn(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"hot": both(host, client, {"cmd": "battle_drop", "x": HOT_TILE[0], "y": HOT_TILE[1], "z": HOT_TILE[2],
@@ -383,7 +366,7 @@ def hs8b_hot_grenade(host, client, ctx):
             eh = event_state(host)          # the first read after the close
             after_nts = {"close": {k: rn.get(k) for k in ("ok", "handled", "error")},
                          "hostScreens": eh.get("hostScreens"), "stack": stack(host)}
-    rel = release(host, notes, "HS8b")
+    rel = release(host, notes, "hot_grenade_end_turn")
     if rel:
         window["afterRelease"] = flip_watch(host, time.time())
     cyc = cycle(host, client, turn0)
@@ -391,38 +374,39 @@ def hs8b_hot_grenade(host, client, ctx):
           if c.get("origin") == "endturn"]
     end = {"hotGrenade": {"host": gid in items_by_id(host), "client": gid in items_by_id(client)},
            "endturnContexts": cc}
-    evidence("HS8b", {"staging": st, "stagedDiff": staged, "ui": ev, "window": window, "afterNts": after_nts,
-                      "release": rel, "cycle": cyc, "end": end, "hostUi": ui_lines(host, hmark)[-12:],
-                      "notes": notes})
+    evidence("hot_grenade_end_turn", {"staging": st, "stagedDiff": staged, "ui": ev, "window": window,
+                                      "afterNts": after_nts, "release": rel, "cycle": cyc, "end": end,
+                                      "hostUi": ui_lines(host, hmark)[-12:], "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS8b: buckets differ after the staging: {staged}")
+        fails.append(f"hot_grenade_end_turn: buckets differ after the staging: {staged}")
     samples = window.get("samples") or []
     if not ev["arm"]["armed"] or not opened:
-        fails.append(f"precondition (HS8b): the host's END TURN / inventory ({ev})")
+        fails.append(f"precondition (hot_grenade_end_turn): the host's END TURN / inventory ({ev})")
     elif not any(s["endturn"] >= 1 for s in samples):
-        fails.append(f"precondition (T0-S6b): host contextsOpened.endturn +0 after the client's END TURN (want +1: "
-                     f"the hot grenade opens the endturn context, F2862); samples {samples[:2]}")
+        fails.append(f"precondition (hot_grenade_end_turn): host contextsOpened.endturn +0 after the client's END TURN "
+                     f"(want +1: the hot grenade opens the endturn context); samples {samples[:2]}")
     else:
         f = window.get("flipped")
         if f is None:
             last = samples[-1] if samples else {}
-            # the RED cell (ruling 4): frozen under the host's inventory
-            fails.append(f"HS8b: the end turn did not run under the host's inventory within {SAMPLE_S} s (last "
-                         f"sample: side {(last.get('host') or {}).get('side')}, top {last.get('top')}, "
+            # when broken the end turn is frozen under the host's inventory
+            fails.append(f"hot_grenade_end_turn: the end turn did not run under the host's inventory within {SAMPLE_S} "
+                         f"s (last sample: side {(last.get('host') or {}).get('side')}, top {last.get('top')}, "
                          f"hostCovered.steps +{last.get('steps')}, byOrigin.endturn +{last.get('coveredEndturn')})")
         else:
             if f["stack"][-2:] != ["InventoryState", "NextTurnState"]:
-                fails.append(f"HS8b: the host's stack at the flip {f['stack']} (want NextTurnState over "
-                             f"InventoryState)")
+                fails.append(f"hot_grenade_end_turn: the host's stack at the flip {f['stack']} (want NextTurnState "
+                             f"over InventoryState)")
             if not isinstance(f.get("coveredEndturn"), int) or f["coveredEndturn"] <= 0:
-                fails.append(f"HS8b: host hostCovered.byOrigin.endturn +{f.get('coveredEndturn')} at the flip (want > 0)")
+                fails.append(f"hot_grenade_end_turn: host hostCovered.byOrigin.endturn +{f.get('coveredEndturn')} at "
+                             f"the flip (want > 0)")
             ds = dnum(hclose(before["host"], "byReason", "side"), hclose(after_nts, "byReason", "side"))
             if ds != 1 or "InventoryState" in (after_nts.get("stack") or []):
-                fails.append(f"HS8b: after close_nextturn host hostScreens.closes.byReason.side +{ds}, stack "
-                             f"{after_nts.get('stack')} (want +1, no InventoryState)")
-    fails += cycle_fails(cyc, turn0, "HS8b")
-    fails += hs_common_fails(host, client, before, crash0, "HS8b")
+                fails.append(f"hot_grenade_end_turn: after close_nextturn host hostScreens.closes.byReason.side +{ds}, "
+                             f"stack {after_nts.get('stack')} (want +1, no InventoryState)")
+    fails += cycle_fails(cyc, turn0, "hot_grenade_end_turn")
+    fails += hs_common_fails(host, client, before, crash0, "hot_grenade_end_turn")
     finish(fails)
 
 
@@ -446,15 +430,15 @@ def kill_all_but_one(host, client):
 
 
 def place_alien(host, client, uid, tile, d):
-    """HS10's alien onto `tile`: the host leg's refusal causes checked first (P8-4b ruling 3's intent: the alien
-    standing and not out on the host, the tile's own check left to the lever), then test_client_shoot.place
-    (client first, F607: a host-first ALIEN teleport latches a client desync, reproduced at the dispatch tip)."""
+    """knockout_ends_battle's alien onto `tile`: the host leg's refusal causes checked first (the alien standing
+    and not out on the host; the tile's own check is left to the teleport command), then test_client_shoot.place
+    (client first: a host-first ALIEN teleport latches a client desync)."""
     uh = units(host).get(uid) or {}
     assert uh.get("status") == 0 and not uh.get("isOut"), f"staging: alien {uid} on the host {uh} (want standing)"
     return cs.place(host, client, uid, tile, d)
 
 
-def hs10_battle_end(host, client, ctx):
+def knockout_ends_battle(host, client, ctx):
     notes = []
     crash0 = crash_census()
     kills = kill_all_but_one(host, client)
@@ -476,7 +460,7 @@ def hs10_battle_end(host, client, ctx):
     ev = {}
     opened = open_host_inventory(host, H_ID, ev)
     picked = host_pick(host, ev, "pick", BELT, 1, 0, g) if opened else False
-    order, admitted, tops, ended, red = {}, False, [], False, {}
+    order, admitted, tops, ended, broken = {}, False, [], False, {}
 
     def run_to_end(window, record):
         lastpair = None
@@ -506,14 +490,14 @@ def hs10_battle_end(host, client, ctx):
         if admitted:
             ended = run_to_end(END_WINDOW_S, tops)
             if not ended:
-                # the RED record, then the cleanup (the cursor back, the screen closed, the knockout released)
-                red = {"hostStack": stack(host), "clientStack": stack(client),
+                # the record when broken, then the cleanup (the cursor back, the screen closed, the knockout released)
+                broken = {"hostStack": stack(host), "clientStack": stack(client),
                        "alien": {n: (units(gc).get(last) or {}).get("status") for n, gc in (("host", host),
                                                                                            ("client", client))},
                        "battleEnd": event_state(host).get("battleEnd", {}).get("emitted")}
-                red["release"] = release(host, notes, "HS10")
-                red["tops"] = []
-                red["ended"] = run_to_end(END_AFTER_S, red["tops"])
+                broken["release"] = release(host, notes, "knockout_ends_battle")
+                broken["tops"] = []
+                broken["ended"] = run_to_end(END_AFTER_S, broken["tops"])
     time.sleep(1.0)
     final = {"hostStack": stack(host), "clientStack": stack(client),
              "hostBattleEnd": event_state(host).get("battleEnd"), "clientBattleEnd": event_state(client).get("battleEnd")}
@@ -521,55 +505,60 @@ def hs10_battle_end(host, client, ctx):
         d = gc.cmd({"cmd": "debrief_state"})
         final[n + "Debrief"] = {k: d.get(k) for k in ("ok", "shown", "onTop", "displayOnly", "title")}
     nc = sorted(crash_census() - crash0)
-    evidence("HS10", {"kills": kills, "staging": st, "stagedDiff": staged, "ui": ev,
-                      "order": {k: v for k, v in order.items() if k != "t0"}, "tops": tops, "ended": ended, "red": red,
-                      "final": final, "battleEndBefore": be0, "newCrashFiles": nc,
-                      "hostUi": ui_lines(host, hmark)[-16:], "clientUi": ui_lines(client, cmark)[-12:],
-                      "notes": notes})
+    evidence("knockout_ends_battle", {"kills": kills, "staging": st, "stagedDiff": staged, "ui": ev,
+                                      "order": {k: v for k, v in order.items() if k != "t0"}, "tops": tops,
+                                      "ended": ended, "broken": broken, "final": final, "battleEndBefore": be0,
+                                      "newCrashFiles": nc, "hostUi": ui_lines(host, hmark)[-16:],
+                                      "clientUi": ui_lines(client, cmark)[-12:], "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS10: buckets differ after the staging: {staged}")
+        fails.append(f"knockout_ends_battle: buckets differ after the staging: {staged}")
     if last is None or kills["liveHostile"] != [last] or kills.get("idleErr"):
-        fails.append(f"precondition (T0-S7): every alien but {last} killed (live hostile {kills['liveHostile']}, "
-                     f"{kills.get('idleErr')})")
+        fails.append(f"precondition (knockout_ends_battle): every alien but {last} killed (live hostile "
+                     f"{kills['liveHostile']}, {kills.get('idleErr')})")
     elif not opened or not picked:
-        fails.append(f"precondition (HS10): the host's inventory on H / the grenade pick ({ev})")
+        fails.append(f"precondition (knockout_ends_battle): the host's inventory on H / the grenade pick ({ev})")
     elif not admitted:
-        fails.append(f"precondition (HS10): the client's melee on the last alien was not admitted ({order})")
+        fails.append(f"precondition (knockout_ends_battle): the client's melee on the last alien was not admitted "
+                     f"({order})")
     elif not ended:
-        # the RED cell (S-C2.1): the knockout frozen, no battle end while the host's screen is open
-        fails.append(f"HS10: the battle did not end within {END_WINDOW_S} s with the host's inventory open (the test "
-                     f"closed only NextTurnStates; red record {red.get('hostStack')}, alien status "
-                     f"{red.get('alien')})")
+        # when broken the knockout is frozen, no battle end while the host's screen is open
+        fails.append(f"knockout_ends_battle: the battle did not end within {END_WINDOW_S} s with the host's inventory "
+                     f"open (the test "
+                     f"closed only NextTurnStates; host stack at the window's end {broken.get('hostStack')}, alien "
+                     f"status {broken.get('alien')})")
     else:
         hbe, cbe = final["hostBattleEnd"] or {}, final["clientBattleEnd"] or {}
         if hbe.get("emitted") != 1 or hbe.get("evsAfter") != 0:
-            fails.append(f"HS10: host battleEnd emitted {hbe.get('emitted')} evsAfter {hbe.get('evsAfter')} (want 1 / 0)")
+            fails.append(f"knockout_ends_battle: host battleEnd emitted {hbe.get('emitted')} evsAfter "
+                         f"{hbe.get('evsAfter')} (want 1 / 0)")
         if cbe.get("applied") != 1:
-            fails.append(f"HS10: client battleEnd.applied {cbe.get('applied')} (want 1)")
+            fails.append(f"knockout_ends_battle: client battleEnd.applied {cbe.get('applied')} (want 1)")
         if hbe.get("desyncAtTeardown") or cbe.get("desyncAtTeardown"):
-            fails.append(f"HS10: desyncAtTeardown host={hbe.get('desyncAtTeardown')} client="
+            fails.append(f"knockout_ends_battle: desyncAtTeardown host={hbe.get('desyncAtTeardown')} client="
                          f"{cbe.get('desyncAtTeardown')} (want false on both)")
         hd, cd = final["hostDebrief"], final["clientDebrief"]
         if not (hd.get("shown") and hd.get("onTop")) or not (cd.get("shown") and cd.get("onTop") and cd.get(
                 "displayOnly")):
-            fails.append(f"HS10: debriefs host={hd} client={cd} (want both shown on top, the client's display-only)")
+            fails.append(f"knockout_ends_battle: debriefs host={hd} client={cd} (want both shown on top, the client's "
+                         f"display-only)")
     for n in ("hostStack", "clientStack"):
         if "InventoryState" in (final[n] or []):
-            fails.append(f"HS10: an InventoryState is left on the {n[:-5]} ({final[n]})")
+            fails.append(f"knockout_ends_battle: an InventoryState is left on the {n[:-5]} ({final[n]})")
     if nc:
-        fails.append(f"HS10: new crash file(s) {nc}: {crash_exception_lines(nc)}")
+        fails.append(f"knockout_ends_battle: new crash file(s) {nc}: {crash_exception_lines(nc)}")
     finish(fails)
 
 
-SCENARIOS = (("HS8", hs8_side_change), ("HS9", hs9_pause_holds_ai), ("HS8b", hs8b_hot_grenade),
-             ("HS10", hs10_battle_end))
+SCENARIOS = (("side_change_closes_inventory", side_change_closes_inventory),
+             ("pause_holds_alien_side", pause_holds_alien_side), ("hot_grenade_end_turn", hot_grenade_end_turn),
+             ("knockout_ends_battle", knockout_ends_battle))
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49960, make_user_dir("w2p8_hsturn_host", options=OPTS))
-    client = GameClient("client", 49961, make_user_dir("w2p8_hsturn_client", options=OPTS))
+    host = GameClient("host", 49960, make_user_dir("host_screens_turn_host", options=OPTS))
+    client = GameClient("client", 49961, make_user_dir("host_screens_turn_client", options=OPTS))
     results = {}
     try:
         try:
@@ -591,7 +580,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p8-sc2] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[host-screens] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_host_screens_turn: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "
