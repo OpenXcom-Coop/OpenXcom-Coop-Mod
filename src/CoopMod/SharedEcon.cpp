@@ -20,6 +20,7 @@
 
 #include "SharedEcon.h"
 #include "SeparateEcon.h"
+#include "GiftNoticeState.h"
 #include "../Mod/RuleVideo.h"
 #include "../Menu/CutsceneState.h"
 
@@ -1858,13 +1859,27 @@ bool soldierGiftValidate(Game* /*game*/, const Json::Value& payload, Base* base,
 	failReason = "soldier not found";
 	return false;
 }
-void soldierGiftApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+void soldierGiftApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (!base) return;
 	int id = payload.get("soldierId", -1).asInt();
 	int newOwner = payload.get("newOwner", 0).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { s->setOwnerPlayerId(newOwner); s->setCoop(newOwner); break; }
+		if (s->getId() == id)
+		{
+			const int previousOwner = s->getOwnerPlayerId();
+			s->setOwnerPlayerId(newOwner);
+			s->setCoop(newOwner);
+			// Separate: tell the receiving player, as main's Separate gift does.
+			// SHARED never showed this notice on main and keeps that.
+			if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+				&& previousOwner != newOwner && newOwner == connectionTCP::localSeat())
+			{
+				game->pushState(new GiftNoticeState(game->getCoopMod()->getCurrentClientName()
+					+ " gifted " + s->getName() + " to you at base " + base->getName()));
+			}
+			break;
+		}
 }
 
 // base_new payload: { lon, lat, name, liftType, liftX, liftY } (+ host-resolved

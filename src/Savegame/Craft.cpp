@@ -1159,7 +1159,7 @@ std::string Craft::getGeoscapeStatusString(Language* lang) const
  */
 std::string Craft::getDisplayStatus(Language* lang) const
 {
-	if (coop)
+	if (coop || _hostGeoStatus)
 	{
 		return _coopGeoStatus;
 	}

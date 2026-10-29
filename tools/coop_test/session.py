@@ -299,22 +299,22 @@ def resume_campaign(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
-    # Both machines show the "joined" popup over the resume lobby. Until it is
-    # closed LobbyMenu does not think, so that machine's roster stays empty even
-    # though TCP is connected. Close it on each machine, as a player would.
-    for machine in (host, client):
-        if _has_state(machine, "Profile"):
-            machine.ok({"cmd": "profile_ok"})
+    # Both machines show the "player joined" popup over the lobby, the host's
+    # a moment after the join. Until it is closed LobbyMenu does not think, so
+    # neither machine receives a populated roster even though TCP is connected.
+    # Dismiss it on both, whenever it appears, the way a player would.
+    def roster_ready(m):
+        for gc in (host, client):
+            if _has_state(gc, "Profile"):
+                gc.ok({"cmd": "profile_ok"})
+        ls = m.cmd({"cmd": "lobby_state"})
+        return ls if (ls.get("hostRowName", "").strip()
+                      and ls.get("clientRowName", "").strip()) else None
 
     for machine, who in ((host, "host"), (client, "client")):
         machine.wait_for(
             f"{who} resume lobby roster",
-            lambda m=machine: (
-                m.cmd({"cmd": "lobby_state"})
-                if (m.cmd({"cmd": "lobby_state"}).get("hostRowName", "").strip()
-                    and m.cmd({"cmd": "lobby_state"}).get("clientRowName", "").strip())
-                else None
-            ),
+            lambda m=machine: roster_ready(m),
             timeout=30,
         )
         roster = machine.ok({"cmd": "lobby_state"})

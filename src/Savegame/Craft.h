@@ -405,6 +405,9 @@ public:
 	int coop_total_soldiers = -1;
 	/// coop: synced pre-localized geoscape status string for a peer's craft.
 	std::string _coopGeoStatus;
+	/// coop: a Separate replica shows the host's status string for this craft
+	/// (the replica holds no destination/dogfight/fuel simulation of its own).
+	bool _hostGeoStatus = false;
 
 	/// Computes the airborne geoscape status string ("Intercepting UFO-1",
 	/// "Returning to base", etc.) from this craft's own destination/flags.
@@ -415,6 +418,8 @@ public:
 	std::string getDisplayStatus(Language* lang) const;
 	/// coop: sets the synced geoscape status string (peer craft only).
 	void setCoopGeoStatus(const std::string& status) { _coopGeoStatus = status; }
+	/// coop: adopts the host's status string on a Separate replica.
+	void setHostGeoStatus(const std::string& status) { _coopGeoStatus = status; _hostGeoStatus = true; }
 	/// coop: gets the synced geoscape status string (peer craft only).
 	const std::string& getCoopGeoStatus() const { return _coopGeoStatus; }
 	/// coop (issue #28): pending re-link of an own craft's destination to a

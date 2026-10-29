@@ -30,16 +30,31 @@ def own_base(gc):
     return next(b for b in s["bases"] if not b["coopBaseFlag"] and not b["coopIcon"] and b["soldiers"])
 
 
+def at_base(gc, coop_base_id, soldier, owner):
+    """Copies of `soldier` with `owner` in this machine's roster for the base with
+    `coop_base_id`. Separate is one host world: the replica holds the peer's real
+    base (no mirror copies), so the gift shows up in that base's own roster."""
+    r = gc.cmd({"cmd": "get_soldiers"})
+    if not r.get("ok"):
+        return None
+    return [s for b in r["bases"] if b["coopBaseId"] == coop_base_id
+            for s in b["soldiers"] if s["name"] == soldier and s["owner"] == owner]
+
+
 def test_bug3_owner_resolution(host, client):
     hbase = own_base(host)
     cbase = own_base(client)
 
-    r = client.ok({"cmd": "gift_targets", "name": cbase["soldiers"][0]["name"]})
+    # One Separate world holds both bases, and the two starting rosters can roll
+    # the same names: name the base so the lookup finds the client's own soldier.
+    r = client.ok({"cmd": "gift_targets", "name": cbase["soldiers"][0]["name"],
+                   "base": cbase["name"]})
     assert r["currentOwner"] == 1, f"client's fresh soldier should resolve to owner 1, got {r['currentOwner']}"
     assert [t["id"] for t in r["targets"]] == [0], f"client targets wrong: {r['targets']}"
     assert r["targets"][0]["name"] == "HostPlayer", f"client should see host's name, got {r['targets'][0]['name']}"
 
-    r = host.ok({"cmd": "gift_targets", "name": hbase["soldiers"][0]["name"]})
+    r = host.ok({"cmd": "gift_targets", "name": hbase["soldiers"][0]["name"],
+                 "base": hbase["name"]})
     assert r["currentOwner"] == 0, f"host's fresh soldier should resolve to owner 0, got {r['currentOwner']}"
     assert [t["id"] for t in r["targets"]] == [1], f"host targets wrong: {r['targets']}"
     assert r["targets"][0]["name"] == "ClientPlayer", f"host should see client's name, got {r['targets'][0]['name']}"
@@ -80,12 +95,8 @@ def test_bug1a_list_open(host, client):
     client.ok({"cmd": "soldiers_ok"})
 
     def present():
-        r = client.cmd({"cmd": "get_mirror_soldiers", "coopBaseId": host_base_id})
-        if r.get("ok"):
-            for s in r["soldiers"]:
-                if s["name"] == soldier and s["owner"] == 1:
-                    return s
-        return None
+        hits = at_base(client, host_base_id, soldier, 1)
+        return hits[0] if hits else None
 
     client.wait_for("soldier survived list-open gift", present, timeout=30)
     print(f"PASS bug1a: '{soldier}' survived gift with client's own list open (+notice shown)")
@@ -93,11 +104,14 @@ def test_bug1a_list_open(host, client):
 
 def test_bug1b_mirror_open(host, client):
     hbase = own_base(host)
-    soldier = hbase["soldiers"][0]["name"]  # next soldier (previous one left)
+    # next soldier: a gift changes the owner and the soldier stays on the base
+    soldier = next(s for s in hbase["soldiers"] if s["owner"] == 0)["name"]
     host_base_id = hbase["coopBaseId"]
 
+    # Separate keeps the peer's real base in the one world: the visit opens its
+    # base screen directly.
     client.ok({"cmd": "visit_coop_base", "base": hbase["name"]})
-    client.wait_for("inside peer base", lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
+    client.wait_for("inside peer base", lambda: any("BasescapeState" in s for s in client.cmd({"cmd": "get_state"})["states"]) or None, timeout=60)
 
     host.ok({"cmd": "gift", "name": soldier, "owner": 1})
 
@@ -121,11 +135,8 @@ def test_bug1b_mirror_open(host, client):
     session.leave_base(client)
 
     def present():
-        r = client.cmd({"cmd": "get_mirror_soldiers", "coopBaseId": host_base_id})
-        if not r.get("ok"):
-            return None
-        hits = [s for s in r["soldiers"] if s["name"] == soldier and s["owner"] == 1]
-        return hits[0] if len(hits) == 1 else None  # exactly one - no dup
+        hits = at_base(client, host_base_id, soldier, 1)
+        return hits[0] if hits and len(hits) == 1 else None  # exactly one - no dup
 
     client.wait_for("exactly one durable copy after visit", present, timeout=30)
     print(f"PASS bug1b: '{soldier}' visible during visit, notice shown, exactly one copy after leaving")

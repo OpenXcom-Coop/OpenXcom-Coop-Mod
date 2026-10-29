@@ -1979,6 +1979,7 @@ void GeoscapeState::think()
 
 				Json::Value jcrafts(Json::arrayValue);
 				auto& jbases = *_game->getSavedGame()->getBases();
+				const bool separateWorld = _game->getCoopMod()->isSeparateCampaign();
 				for (size_t bi = 0; bi < jbases.size(); ++bi)
 				{
 					for (auto* craft : *jbases[bi]->getCrafts())
@@ -1996,6 +1997,11 @@ void GeoscapeState::think()
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
 						jc["shield"] = craft->getShield();
+						// Separate: the airborne status string, as main's Separate
+						// snapshot sends it for a peer's craft. The replica holds no
+						// destination, dogfight or fuel simulation to derive it from.
+						if (separateWorld)
+							jc["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
 						jcrafts.append(jc);
 					}
 				}
@@ -2503,10 +2509,22 @@ void GeoscapeState::timeAdvance()
 		// Combined with the host's own implicit pause (its GeoscapeState stops
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
+		// Separate only: SHARED and PvP keep main's rule, where the host freezes on
+		// a stale client heartbeat alone. A SHARED client's open dogfight window
+		// reports focus 0 while it stays on the geoscape, and main keeps time
+		// running through it (RU11).
 		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
-		if (_game->getCoopMod()->peerFocusScreen >= 0
-			|| SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace)
+		const bool peerStale =
+			SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace;
+		if (_game->getCoopMod()->isSeparateCampaign())
+		{
+			if (_game->getCoopMod()->peerFocusScreen >= 0 || peerStale)
+				timeSpan = 0;
+		}
+		else if (_game->getCoopMod()->getServerOwner() && peerStale)
+		{
 			timeSpan = 0;
+		}
 
 	}
 

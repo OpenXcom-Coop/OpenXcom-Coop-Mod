@@ -67,7 +67,15 @@ def main():
     battle_reached = False
     note = None
     try:
-        host.ok({"cmd": "load_save_menu", "file": FIXTURE})
+        # The fixture is a schema-2 Separate save with the client world embedded.
+        # Schema 3 keeps one world, so the load gate sends it to the upgrade
+        # dialog. Run that same upgrade headless and load its result: the
+        # retaliation is in the host world, which the upgrade keeps as is.
+        up = host.ok({"cmd": "upgrade_run", "host": FIXTURE, "hostName": "HostPlayer"})
+        assert up.get("success") and not up.get("errors"), f"fixture upgrade failed: {up}"
+        upgraded = os.path.basename(up["upgradedPath"])
+        assert host.ok({"cmd": "upgrade_detect", "file": upgraded})["kind"] == "current", upgraded
+        host.ok({"cmd": "load_save_menu", "file": upgraded})
         host.wait_for("host window", lambda: session._has_state(host, "HostMenu"))
         host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": PORT, "player": "HostPlayer"})
         host.wait_for("resume lobby", lambda: session._has_state(host, "LobbyMenu"))

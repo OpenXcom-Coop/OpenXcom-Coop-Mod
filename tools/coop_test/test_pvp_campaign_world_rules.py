@@ -119,8 +119,13 @@ def check_gm3_client_world(fails):
                              speed_idx=5, real_timeout=120)
         geo.slow_clock(host, client)
         after = {p["name"]: p["spent"] for p in _base(client, "XcomBase")["research"]}
-        print(f"    client research spent: {before.get(topic)} -> {after.get(topic)}")
-        if after.get(topic, 0) <= before.get(topic, 0):
+        # A project's cost is rolled at 50-150 % of the rule's (STR_LASER_WEAPONS:
+        # 50), so 10 scientists can finish it inside the 3 days. A finished project
+        # leaves the list; its discovery is progress too.
+        done = client.ok({"cmd": "is_researched", "topic": topic})["researched"]
+        print(f"    client research spent: {before.get(topic)} -> {after.get(topic)} "
+              f"(completed={done})")
+        if not done and after.get(topic, 0) <= before.get(topic, 0):
             _fail(fails, "gm3 client world is frozen: its own research made no "
                          f"progress over 3 in-game days ({before} -> {after})")
         else:

@@ -2737,11 +2737,15 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		// What the transfer dialog would offer for this soldier - lets
 		// tests validate owner resolution + button names without UI.
 		std::string name = req.get("name", "").asString();
+		// Optional base (name): one Separate world holds every player's bases,
+		// and two starting rosters can share soldier names.
+		const std::string gtBase = req.get("base", "").asString();
 		Soldier* found = nullptr;
 		if (_game->getSavedGame())
 		{
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
+				if (!gtBase.empty() && base->getName() != gtBase) continue;
 				for (auto* s : *base->getSoldiers())
 				{
 					if (s->getName().find(name) != std::string::npos)
