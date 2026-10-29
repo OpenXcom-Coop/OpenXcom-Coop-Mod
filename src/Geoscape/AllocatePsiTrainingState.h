@@ -55,6 +55,16 @@ private:
 	std::vector<SortFunctor *> _sortFunctors;
 	std::vector<SortFunctor *> _sortFunctorsPlus;
 	bool _doNotReset;
+	/// One-world co-op campaigns (SHARED, Separate): the screen sorts and moves
+	/// its own copy of the roster, never the host-owned roster order itself.
+	bool _coopView;
+	std::vector<Soldier*> _shown;
+	/// The soldiers the list shows, in its order.
+	std::vector<Soldier*>* shown();
+	/// Drops soldiers who left the base from the shown copy and appends arrivals.
+	void syncShown();
+	/// The base roster index of shown row @a row.
+	size_t rosterIndex(size_t row);
 
 	///initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);

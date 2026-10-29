@@ -39,6 +39,7 @@
 #include "../Basescape/SoldierSortUtil.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -48,7 +49,9 @@ namespace OpenXcom
  * @param game Pointer to the core game.
  * @param base Pointer to the base to handle.
  */
-AllocateTrainingState::AllocateTrainingState(Base *base) : _sel(0), _base(base), _origSoldierOrder(*_base->getSoldiers()), _doNotReset(false)
+AllocateTrainingState::AllocateTrainingState(Base *base) : _sel(0), _base(base), _origSoldierOrder(*_base->getSoldiers()), _doNotReset(false),
+	_coopView(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()),
+	_shown(*_base->getSoldiers())
 {
 	// Create objects
 	_window = new Window(this, 320, 200, 0, 0);
@@ -207,11 +210,50 @@ AllocateTrainingState::~AllocateTrainingState()
 }
 
 /**
+ * The soldiers the list shows, in its order. In the one-world co-op campaigns
+ * (SHARED and Separate) the base roster is the host's, in an order both
+ * machines share: the screen sorts and moves its own copy of it, so a sort or
+ * a move here never reorders the roster on this machine only. Elsewhere the
+ * screen reorders the roster itself, as in vanilla.
+ */
+std::vector<Soldier*>* AllocateTrainingState::shown()
+{
+	return _coopView ? &_shown : _base->getSoldiers();
+}
+
+/**
+ * Keeps the shown copy in step with the roster: a soldier who left the base is
+ * dropped, one who arrived is appended in roster order.
+ */
+void AllocateTrainingState::syncShown()
+{
+	if (!_coopView) return;
+	const std::vector<Soldier*>& roster = *_base->getSoldiers();
+	_shown.erase(std::remove_if(_shown.begin(), _shown.end(),
+		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end(); }),
+		_shown.end());
+	for (Soldier* s : roster)
+		if (std::find(_shown.begin(), _shown.end(), s) == _shown.end())
+			_shown.push_back(s);
+}
+
+/**
+ * The base roster index of a shown row (SoldierInfoState pages the roster).
+ */
+size_t AllocateTrainingState::rosterIndex(size_t row)
+{
+	const std::vector<Soldier*>& roster = *_base->getSoldiers();
+	auto it = std::find(roster.begin(), roster.end(), shown()->at(row));
+	return it == roster.end() ? row : (size_t)(it - roster.begin());
+}
+
+/**
  * Sorts the soldiers list by the selected criterion
  * @param action Pointer to an action.
  */
 void AllocateTrainingState::cbxSortByChange(Action *action)
 {
+	syncShown();
 	size_t selIdx = _cbxSortBy->getSelected();
 	if (selIdx == (size_t)-1)
 	{
@@ -223,7 +265,7 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 	{
 		if (selIdx == 2)
 		{
-			std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+			std::stable_sort(shown()->begin(), shown()->end(),
 				[](const Soldier* a, const Soldier* b)
 				{
 					return Unicode::naturalCompare(a->getName(), b->getName());
@@ -232,11 +274,11 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 		}
 		else
 		{
-			std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), *compFunc);
+			std::stable_sort(shown()->begin(), shown()->end(), *compFunc);
 		}
 		if (_game->isShiftPressed())
 		{
-			std::reverse(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+			std::reverse(shown()->begin(), shown()->end());
 		}
 	}
 	else
@@ -245,12 +287,12 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
 		{
-			auto soldierIt = std::find(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), origSoldier);
-			if (soldierIt != _base->getSoldiers()->end())
+			auto soldierIt = std::find(shown()->begin(), shown()->end(), origSoldier);
+			if (soldierIt != shown()->end())
 			{
 				Soldier *s = *soldierIt;
-				_base->getSoldiers()->erase(soldierIt);
-				_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+				shown()->erase(soldierIt);
+				shown()->insert(shown()->end(), s);
 			}
 		}
 	}
@@ -311,9 +353,10 @@ void AllocateTrainingState::init()
  */
 void AllocateTrainingState::initList(size_t scrl)
 {
+	syncShown();
 	int row = 0;
 	_lstSoldiers->clearList();
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : *shown())
 	{
 		const UnitStats* stats = _btnPlus->getPressed() ? soldier->getStatsWithSoldierBonusesOnly() : soldier->getCurrentStats();
 
@@ -373,6 +416,7 @@ void AllocateTrainingState::initList(size_t scrl)
  */
 void AllocateTrainingState::lstItemsLeftArrowClick(Action *action)
 {
+	syncShown();
 	unsigned int row = _lstSoldiers->getSelectedRow();
 	if (row > 0)
 	{
@@ -397,16 +441,17 @@ void AllocateTrainingState::lstItemsLeftArrowClick(Action *action)
  */
 void AllocateTrainingState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	Soldier *s = _base->getSoldiers()->at(row);
+	syncShown();
+	Soldier *s = shown()->at(row);
 	if (max)
 	{
-		_base->getSoldiers()->erase(_base->getSoldiers()->begin() + row);
-		_base->getSoldiers()->insert(_base->getSoldiers()->begin(), s);
+		shown()->erase(shown()->begin() + row);
+		shown()->insert(shown()->begin(), s);
 	}
 	else
 	{
-		_base->getSoldiers()->at(row) = _base->getSoldiers()->at(row - 1);
-		_base->getSoldiers()->at(row - 1) = s;
+		shown()->at(row) = shown()->at(row - 1);
+		shown()->at(row - 1) = s;
 		if (row != _lstSoldiers->getScroll())
 		{
 			SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
@@ -425,8 +470,9 @@ void AllocateTrainingState::moveSoldierUp(Action *action, unsigned int row, bool
  */
 void AllocateTrainingState::lstItemsRightArrowClick(Action *action)
 {
+	syncShown();
 	unsigned int row = _lstSoldiers->getSelectedRow();
-	size_t numSoldiers = _base->getSoldiers()->size();
+	size_t numSoldiers = shown()->size();
 	if (0 < numSoldiers && INT_MAX >= numSoldiers && row < numSoldiers - 1)
 	{
 		if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
@@ -450,16 +496,17 @@ void AllocateTrainingState::lstItemsRightArrowClick(Action *action)
  */
 void AllocateTrainingState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	Soldier *s = _base->getSoldiers()->at(row);
+	syncShown();
+	Soldier *s = shown()->at(row);
 	if (max)
 	{
-		_base->getSoldiers()->erase(_base->getSoldiers()->begin() + row);
-		_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+		shown()->erase(shown()->begin() + row);
+		shown()->insert(shown()->end(), s);
 	}
 	else
 	{
-		_base->getSoldiers()->at(row) = _base->getSoldiers()->at(row + 1);
-		_base->getSoldiers()->at(row + 1) = s;
+		shown()->at(row) = shown()->at(row + 1);
+		shown()->at(row + 1) = s;
 		if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
 		{
 			SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
@@ -478,6 +525,7 @@ void AllocateTrainingState::moveSoldierDown(Action *action, unsigned int row, bo
  */
 void AllocateTrainingState::lstSoldiersClick(Action *action)
 {
+	syncShown();
 	double mx = action->getAbsoluteXMouse();
 	if (mx >= _lstSoldiers->getArrowsLeftEdge() && mx < _lstSoldiers->getArrowsRightEdge())
 	{
@@ -487,7 +535,7 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 	_sel = _lstSoldiers->getSelectedRow();
 	if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
 	{
-		auto* soldier = _base->getSoldiers()->at(_sel);
+		auto* soldier = shown()->at(_sel);
 
 		// can't put fully trained soldiers back into training
 		if (soldier->isFullyTrained()) return;
@@ -534,7 +582,7 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
 	{
 		_doNotReset = true;
-		_game->pushState(new SoldierInfoState(_base, _sel, true, true));
+		_game->pushState(new SoldierInfoState(_base, rosterIndex(_sel), true, true));
 	}
 }
 
@@ -544,10 +592,11 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
  */
 void AllocateTrainingState::lstSoldiersMousePress(Action *action)
 {
+	syncShown();
 	if (Options::changeValueByMouseWheel == 0)
 		return;
 	unsigned int row = _lstSoldiers->getSelectedRow();
-	size_t numSoldiers = _base->getSoldiers()->size();
+	size_t numSoldiers = shown()->size();
 	if (action->getDetails()->button.button == SDL_BUTTON_WHEELUP &&
 		row > 0)
 	{
@@ -574,8 +623,9 @@ void AllocateTrainingState::lstSoldiersMousePress(Action *action)
  */
 void AllocateTrainingState::btnDeassignAllSoldiersClick(Action* action)
 {
+	syncShown();
 	int row = 0;
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : *shown())
 	{
 		soldier->setTraining(false);
 		soldier->setReturnToTrainingWhenHealed(false);
@@ -602,8 +652,9 @@ void AllocateTrainingState::btnDeassignAllSoldiersClick(Action* action)
  */
 void AllocateTrainingState::btnAssignAllSoldiersClick(Action* action)
 {
+	syncShown();
 	int row = 0;
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : *shown())
 	{
 		if (soldier->isFullyTrained())
 		{
@@ -641,7 +692,7 @@ void AllocateTrainingState::harnessSort(size_t index)
 std::vector<int> AllocateTrainingState::harnessDisplayedSoldierIds() const
 {
 	std::vector<int> ids;
-	for (const auto* s : *_base->getSoldiers())
+	for (const auto* s : _coopView ? _shown : *_base->getSoldiers())
 		ids.push_back(s->getId());
 	return ids;
 }
