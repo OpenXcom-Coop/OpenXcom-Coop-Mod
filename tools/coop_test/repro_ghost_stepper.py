@@ -1,6 +1,5 @@
-"""W1-P12 (WAVE1-RUNBOOK.md SPEC 7, ruling D-3 = WV-D27/WV-D49/A4): the S3
-GHOST STEPPER - a partner's turn/kneel/walk ANIMATES on the observing machine
-instead of snapping, display-only, without moving a single hash bucket.
+"""The GHOST STEPPER - a partner's turn/kneel/walk ANIMATES on the observing
+machine instead of snapping, display-only, without moving a single hash bucket.
 
 FIXTURE (built on
 the LIGHTNING-CRAFT ROOF: self-contained, deterministic, map-independent, no
@@ -15,24 +14,24 @@ The lane is located each run from the craft's own LIGHTNIN door
 ROOF_DZ, lane_y = door_y + LANE_DY, lane_x0 = door_x + LANE_DX_START, walked by
 ARITHMETIC (start + n*D), never by scanning. Hostiles/neutrals are corner-placed
 far away so the roof stays contact-free even after a walk recomputes FOV.
-The baked constants were measured once by the orchestrator's R1 (three boots, door
-at y=25/5/15, identical door-relative craft-roof geometry, hash_now{full} EQUAL on
-both machines after every teleport and a 6-step walk). A premise that no longer
-holds (a lane tile that is not flat/walkable/free) is a RED naming it (exit 2),
-never a SKIP.
+The baked constants were measured once (three boots, door at y=25/5/15,
+identical door-relative craft-roof geometry, hash_now{full} EQUAL on both
+machines after every teleport and a 6-step walk). A premise that no longer
+holds (a lane tile that is not flat/walkable/free) is a failure naming it
+(exit 2), never a SKIP.
 
 WHY EVERY ASSERTION READS THE CLIENT (never the host) - "the observing
-machine" is always the CLIENT in this wave's two-seat topology, and this is
+machine" is always the CLIENT in this two-seat topology, and this is
 load-bearing, not a convenience: `CoopPump::enqueue()` (and therefore
 `CoopPump::drainApplyQueue()` / `CoopDisplayQueue::onApplied()`, the ghost
 stepper's ONE call site) is reached only from connectionTCP.cpp's
 network-receive path - the HOST always executes an action directly through
 real vanilla simulation and never loops its own emitted ev back through its
-own apply queue (the mirror image of WV-D40 "no client-side local execution,
-ever": the host never client-side-APPLIES its own already-executed action
-either). So the ghost never runs on the host, regardless of which seat
-originated the action - a HOST-origin turn/kneel/walk is exactly as
-observable on the client's event_state counters as a CLIENT-origin one.
+own apply queue (the mirror image of "no client-side local execution, ever":
+the host never client-side-APPLIES its own already-executed action either).
+So the ghost never runs on the host, regardless of which seat originated the
+action - a HOST-origin turn/kneel/walk is exactly as observable on the
+client's event_state counters as a CLIENT-origin one.
 
 SESSION SHAPE (two boots, in this order):
   test_ghost_verbs_e2e()      - ONE session: the OFF negative control FIRST
@@ -42,14 +41,14 @@ SESSION SHAPE (two boots, in this order):
                                  the kneel-before-walk ordering case - each on
                                  its own fresh client soldier teleported to
                                  the baked roof lane.
-  test_desync_lever_still_detects() - a SEPARATE, freshly-booted session
-                                 (SS2.8 "no partial repair"), seated to leave
-                                 HOST-owned units, proving the desync lever
-                                 still fires.
+  test_desync_check_still_detects() - a SEPARATE, freshly-booted session (a
+                                 desync-frozen battle has no partial repair),
+                                 seated to leave HOST-owned units, proving the
+                                 desync check still fires.
 
-Exit codes: 0 PASS - 2 FAIL (a red, including a broken fixture premise). There
-is NO exit-3 SKIP - the roof fixture always provides the lane, and a missing
-lane is a RED, not a skip.
+Exit codes: 0 PASS - 2 FAIL (including a broken fixture premise). There is NO
+exit-3 SKIP - the roof fixture always provides the lane, and a missing lane is
+a failure, not a skip.
 
 Run:  python tools/coop_test/repro_ghost_stepper.py
 """
@@ -71,7 +70,7 @@ COOP_SEAT_0 = 0
 
 # The Lightning craft roof, located each run from the craft's
 # own LIGHTNIN door (map-independent; only the craft's placement offset varies).
-# Measured by orch38 R1 on three boots (door at y=25 / y=5 / y=15) - identical
+# Measured on three boots (door at y=25 / y=5 / y=15) - identical
 # door-relative craft-roof geometry, hash_now{full} EQUAL on both machines after
 # every teleport and a 6-step walk.
 ROOF_DZ        = 1       # roof_z = door_z + 1
@@ -99,8 +98,8 @@ def unit_of(gc, uid):
 
 
 def set_ghost_option(gc, value):
-    """Round-trip set (TestServer.cpp's coopGhostStepper set_option branch,
-    W1-P12): asserts the write actually landed rather than trusting the
+    """Round-trip set (TestServer.cpp's coopGhostStepper set_option
+    branch): asserts the write actually landed rather than trusting the
     request bounced back unchanged."""
     r = gc.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": value})
     assert r.get("value") == value, f"set_option coopGhostStepper did not stick: {r}"
@@ -135,7 +134,7 @@ def wait_ghost_drained(client, expect_completed, timeout=10):
     `expect_completed` AND ghostQueueDepth is back to 0 - i.e. every ghost
     this call is waiting on has finished its interpolation and been popped
     (CoopGhost::advance(), driven every frame from
-    BattlescapeState::think()'s per-frame path, step 5). The (6e) constants
+    BattlescapeState::think()'s per-frame path). The ghost duration constants
     cap any single ghost well under 1s (kneel 100ms, one walk_step 120ms, a
     full 180-degree turn 4*60=240ms), so the default timeout is generous."""
     def done():
@@ -180,16 +179,15 @@ def bring_up_roof_battle(seat_count, tag, pre_ok=None):
     neutrals far away so the roof stays contact-free, and return
     (host, client, client_ids, host_ids, door).
 
-    `seat_count` (R1 F89): the base soldier pool is 6; `seat_count` stamps N
+    `seat_count`: the base soldier pool is 6; `seat_count` stamps N
     of them to the CLIENT (coop seat 1), leaving the rest on the HOST (coop
     seat 0) - session.drive_to_battlescape's own seat loop stops the moment
     a seat attempt fails, so seat_count directly controls the split.
 
-    `pre_ok` (SPEC 12 REV E.61 E61.1, additive): an optional `callable(host)`
-    forwarded unchanged to `session.drive_to_battlescape`'s own `pre_ok`
-    window (immediately BEFORE `newbattle_ok`, AFTER seating - the window
-    `session.drive_to_battlescape`'s own docstring documents). Every existing
-    caller is unaffected: default None, nothing runs."""
+    `pre_ok`: an optional `callable(host)` forwarded unchanged to
+    `session.drive_to_battlescape`'s own `pre_ok` window (immediately BEFORE
+    `newbattle_ok`, AFTER seating - the window `session.drive_to_battlescape`'s
+    own docstring documents). Default None: nothing runs."""
     port = str(48448)
     host_dir = make_user_dir(f"repro_ghost_stepper_host_{tag}")
     client_dir = make_user_dir(f"repro_ghost_stepper_client_{tag}")
@@ -205,7 +203,7 @@ def bring_up_roof_battle(seat_count, tag, pre_ok=None):
 
         door, mapX, mapY = session.lightning_door(host)
 
-        # WV-D88 corner placement (byte-for-byte the block
+        # Corner placement (byte-for-byte the block
         # repro_atom_walk.bring_up_pinned_battle uses): hostiles -> the
         # squad's own corner, neutrals -> the opposite one, so the roof stays
         # contact-free.
@@ -275,7 +273,7 @@ def lane_dest(host, actor_id, n):
 
 
 def walk_lane(host, client, actor_id, what, n, require_unhalted=True):
-    """ONE send_walk to lane_dest(n); no iseq => a RED naming the premise. Same
+    """ONE send_walk to lane_dest(n); no iseq => a failure naming the premise. Same
     (hw, cw) shape every GS phase's assertions expect (mirrors
     repro_atom_walk.walk_lane)."""
     dest = lane_dest(host, actor_id, n)
@@ -292,11 +290,11 @@ def walk_lane(host, client, actor_id, what, n, require_unhalted=True):
 
 
 def negative_control(host, client, actor_id):
-    """DONE-WHEN 6 / SPEC 7(f)'s "ON/OFF equivalence" negative control - run
+    """The "ON/OFF equivalence" negative control - run
     FIRST, deliberately, while event_state.ghostEnqueued is still literally 0
     on a freshly-booted battle (it is a monotone per-battle counter,
     CoopGhost::reset() only ever runs at battle teardown), so "assert ...
-    ghostEnqueued == 0" (the packet text's own exact wording) is the LITERAL
+    ghostEnqueued == 0" is the LITERAL
     counter value, not a before/after delta computed against a nonzero
     baseline. Running the positive controls first would make a literal-zero
     assertion impossible to satisfy honestly; this file avoids that instead
@@ -387,7 +385,7 @@ def positive_walk(host, client, actor_id):
     # walk's own `steps` - vanilla turns a unit to face its path's first step
     # BEFORE it walks whenever the actor is not already facing that way (a
     # real `turn` ev, and if the actor started kneeled, a real `kneel`
-    # stand-up ev too - the W1-P9 follow-up kneel_before_walk_ordering()
+    # stand-up ev too, a case kneel_before_walk_ordering()
     # covers on its own) - each of which enqueues its OWN ghost, same as any
     # other partner action. Re-deriving the true expected count from the
     # event ring (which - unlike the ghost counters - carries a seq/actionId
@@ -422,9 +420,9 @@ def halted_walk_prefix(host, client, actor_id):
     """"a HALTED walk animates only the executed prefix" -
     ghostEnqueued must equal len(lastWalk['steps']) (the EXECUTED prefix),
     never the intent's planned path length. Uses the SAME battle_halt_walk
-    one-shot TestServer lever repro_atom_walk.py's own HALT PHASE uses. The roof
+    one-shot test command repro_atom_walk.py's own HALT PHASE uses. The roof
     lane's baked ROOF_LANE_LEN gives a 6-step plan every run, so the halt
-    lever always has something left to stop."""
+    hook always has something left to stop."""
     attempt_es = event_state(client)
     enq0 = attempt_es.get("ghostEnqueued", 0)
     comp0 = attempt_es.get("ghostCompleted", 0)
@@ -432,7 +430,7 @@ def halted_walk_prefix(host, client, actor_id):
 
     dest = lane_dest(host, actor_id, ROOF_LANE_LEN - 1)
     prev = session.walk_action_id(host)
-    host.ok({"cmd": "battle_halt_walk"})  # armed BEFORE the send - PHASE 3's own precedent
+    host.ok({"cmd": "battle_halt_walk"})  # armed BEFORE the send, as repro_atom_walk.py's HALT PHASE does
     resp = session.send_walk(client, actor_id, dest)
     assert resp.get("iseq"), (
         f"FIXTURE PREMISE BROKE: halted_walk_prefix: no route from "
@@ -447,7 +445,7 @@ def halted_walk_prefix(host, client, actor_id):
     hsteps = hw["steps"]
     assert 0 < len(hsteps) < hw["plannedLen"], (
         f"halted_walk_prefix: the walk executed {len(hsteps)} of {hw['plannedLen']} planned "
-        "step(s) - the halt lever must stop it AFTER at least one step and BEFORE the last")
+        "step(s) - the halt hook must stop it AFTER at least one step and BEFORE the last")
 
     executed = hsteps
 
@@ -481,10 +479,9 @@ def halted_walk_prefix(host, client, actor_id):
 
 
 def kneel_before_walk_ordering(host, client, actor_id):
-    """W1-P9 follow-up (2026-09-03, cited verbatim in SPEC 7(b)): "a kneel ev
-    now arrives BEFORE the first walk_step of a walk that began kneeled ...
-    Animate it as the stand-up flip it is; it is NOT a walk-stream
-    violation." Kneels the actor DOWN if it is not already, orders a walk,
+    """A kneel ev arrives BEFORE the first walk_step of a walk that began
+    kneeled; it animates as the stand-up flip it is and is NOT a walk-stream
+    violation. Kneels the actor DOWN if it is not already, orders a walk,
     and asserts the CLIENT's own event_log shows the stand-up `kneel` kind
     strictly before the walk's `walk_step` kinds, in seq order."""
     cu = unit_of(client, actor_id)
@@ -508,7 +505,7 @@ def kneel_before_walk_ordering(host, client, actor_id):
     walk_idxs = [i for i, e in enumerate(relevant) if e.get("kind") == "walk_step"]
     assert kneel_idxs, (
         f"kneel_before_walk_ordering: no 'kneel' ev observed after seq {seq_before} in "
-        f"{relevant} - the stand-up must ride its own kneel ev (W1-P9 follow-up)")
+        f"{relevant} - the stand-up must ride its own kneel ev")
     assert walk_idxs, f"kneel_before_walk_ordering: no 'walk_step' ev observed: {relevant}"
     assert max(kneel_idxs) < min(walk_idxs), (
         f"the stand-up 'kneel' ev must precede every 'walk_step' ev in the seq stream - "
@@ -527,7 +524,7 @@ def kneel_before_walk_ordering(host, client, actor_id):
 
 
 def test_ghost_verbs_e2e():
-    host, client, client_ids, host_ids, door = bring_up_roof_battle(8, "a")
+    host, client, client_ids, host_ids, door = bring_up_roof_battle(8, "verbs")
     try:
         assert len(client_ids) >= 5, (
             f"FIXTURE PREMISE BROKE: only {len(client_ids)} live seat-1 unit(s); this fixture "
@@ -543,8 +540,8 @@ def test_ghost_verbs_e2e():
         off_es = negative_control(host, client, client_ids[0])
         park(host, client, client_ids[0], door, 0)
 
-        # Option back ON (the default - WV-D5-style explicit re-arm rather
-        # than assuming a prior branch left it that way).
+        # Option back ON (the default - an explicit re-arm rather than
+        # assuming a prior branch left it that way).
         set_ghost_option(host, True)
         set_ghost_option(client, True)
         assert read_ghost_option(client) is True, "coopGhostStepper did not read back True on client"
@@ -616,14 +613,14 @@ def select_away_from(host, avoid_id, max_tabs=12):
     raise AssertionError(f"could not select a HOST-OWNED unit other than {avoid_id} within {max_tabs} tabs")
 
 
-def test_desync_lever_still_detects():
-    """SPEC 7(f)'s last bullet: "desync levers still detect: corrupt_bucket
-    unitsStats with the stepper ON still freezes the client and writes a
-    bundle." A SEPARATE, freshly-booted session (SS2.8 "no partial repair" -
-    repro_atom_kneel.py's own test_forced_mismatch precedent): a
-    desync-frozen battle has no path back, so this session is torn down,
-    never reused. Seated to leave HOST-owned units (bring_up_roof_battle(4)):
-    GS7 needs a unit the HOST itself can kneel.
+def test_desync_check_still_detects():
+    """The desync check still detects: corrupt_bucket unitsStats with the
+    stepper ON still freezes the client and writes a bundle. A SEPARATE,
+    freshly-booted session (no partial repair - repro_atom_kneel.py's own
+    test_forced_mismatch precedent): a desync-frozen battle has no path back,
+    so this session is torn down, never reused. Seated to leave HOST-owned
+    units (bring_up_roof_battle(4)): this check needs a unit the HOST itself
+    can kneel.
 
     THE HOST'S OWN ACTION IS A REAL KEYPRESS, NOT battle_intent
     (repro_atom_kneel.py's own precedent): `battle_intent` is the CLIENT's
@@ -631,14 +628,14 @@ def test_desync_lever_still_detects():
     the host itself never "intents" anything, it executes directly, so its
     local action must be driven the same way a real player would
     (inject_input), exactly like every other host-origin action in this
-    file's sibling repros. GS7 does NOT use the roof lane - a kneel does not
+    file's sibling repros. This check does NOT use the roof lane - a kneel does not
     move the unit, and the corner-placed aliens keep it contact-free at its
     default interior tile."""
     import glob
 
-    host, client, client_ids, host_ids, door = bring_up_roof_battle(4, "b")
+    host, client, client_ids, host_ids, door = bring_up_roof_battle(4, "desync")
     try:
-        assert host_ids, "FIXTURE PREMISE BROKE: Session B has no host-owned unit to kneel"
+        assert host_ids, "FIXTURE PREMISE BROKE: the desync session has no host-owned unit to kneel"
         assert read_ghost_option(client) is True, "coopGhostStepper must default to ON for this proof"
         assert_hash_clean(host, client, full=True, what="at t=0 (pre-corruption)")
 
@@ -663,7 +660,7 @@ def test_desync_lever_still_detects():
         bundles = glob.glob(bundle_glob)
         assert bundles, f"no desync bundle file found under {bundle_glob}"
 
-        print(f"PASS test_desync_lever_still_detects: corrupt_bucket(unitsStats) on the host "
+        print(f"PASS test_desync_check_still_detects: corrupt_bucket(unitsStats) on the host "
               f"(unit {corrupted_id}) followed by a ghost-carrying host-origin kneel (unit "
               f"{kneel_actor_id}) still froze the client (desyncSeen=True) and wrote a bundle: "
               f"{bundles[0]}")
@@ -674,14 +671,14 @@ def test_desync_lever_still_detects():
 
 def main():
     test_ghost_verbs_e2e()
-    test_desync_lever_still_detects()
-    print("ALL W1-P12 GHOST STEPPER TESTS PASSED")
+    test_desync_check_still_detects()
+    print("ALL GHOST STEPPER TESTS PASSED")
 
 
 if __name__ == "__main__":
-    # Exit-code convention: 0 PASS, 2 FAIL (a red, including a broken fixture
+    # Exit-code convention: 0 PASS, 2 FAIL (including a broken fixture
     # premise). There is NO exit-3 SKIP - the
-    # roof fixture always provides the lane, so a broken premise is a red
+    # roof fixture always provides the lane, so a broken premise is a failure
     # naming it, never a skip.
     try:
         main()
