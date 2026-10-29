@@ -1,11 +1,10 @@
-"""a thin, ADDITIVE wrapper so the CI suite's `test_*.py` discovery
-(tools/ci/run_coop_suite.ps1, plan_shards.ps1) runs repro_atom_kneel.py as its own entry. That file makes checks no
-`test_*` makes (the client's `event_log` seq strictly increasing across a mixed
-client-intent / host-local turn+kneel burst), and CI never ran it.
+"""A thin wrapper so the CI suite's `test_*.py` discovery (tools/ci/run_coop_suite.ps1, plan_shards.ps1)
+runs repro_atom_kneel.py as its own entry. That file makes checks no `test_*` makes (the client's `event_log` seq
+strictly increasing across a mixed client-intent / host-local turn+kneel burst), and the
+discovery would not run it otherwise.
 
-repro_atom_kneel.py is not edited by this wrapper and keeps its 1 importer: this file runs it as `__main__`
-(runpy), so its own exception -> exit-code mapping, output and exit code are exactly those of
-`python repro_atom_kneel.py`. Shape: test_door_deterministic.py.
+This file runs it as `__main__` (runpy), so its own exception -> exit-code mapping, output and exit code are
+exactly those of `python repro_atom_kneel.py`. Same shape as test_door_deterministic.py.
 
 Run:  python tools/coop_test/test_atom_kneel.py
 """
