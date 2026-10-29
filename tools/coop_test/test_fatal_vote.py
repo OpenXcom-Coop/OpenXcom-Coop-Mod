@@ -21,8 +21,8 @@ machines' fatalVote at its zeros. Kill: host battle_action kill_unit_real A. Ans
 {match: "OK" | "CANCEL"} on the answering machine, pressed only while its top is ConfirmEndMissionState and the button
 shows. dismiss_popup (Q11) is called only on the host's NextTurnState, never while the host's vote is Armed or Open,
 and its reply must be handled "NextTurnState->close" (never "generic"). Ending: the host's NextTurnState closes ->
-finishBattle -> battle_end, then test_battle_end's E1 assertion set (row_verdict "E1": battle_end aliensDown, both
-debriefs = HOST_DEBRIEF["E1"], the client's display-only debriefing, the host hold).
+finishBattle -> battle_end, then test_battle_end's last_alien_down assertion set (row_verdict "last_alien_down": battle_end aliensDown, both
+debriefs = HOST_DEBRIEF["last_alien_down"], the client's display-only debriefing, the host hold).
 
 | row | wounds | during the vote | answers | green (the S-V-A.2 product) |
 |---|---|---|---|---|
@@ -526,7 +526,7 @@ def dismiss_next(r):
 
 
 def ending(r, census, verdict, vote=True):
-    """NextTurnState -> close -> battle_end, then `verdict` (the E1 / E6 assertion set) and the vote's relations."""
+    """NextTurnState -> close -> battle_end, then `verdict` (the last_alien_down / E6 assertion set) and the vote's relations."""
     h, c = r.host, r.client
     if r.ending:
         r.fail("ending", f"not run: {r.ending}")
@@ -585,9 +585,9 @@ def ending(r, census, verdict, vote=True):
 
 
 def e1_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
-    """test_battle_end's E1 assertion set (TASK 0: every V0-V6 ending equals E1's pins, F4382)."""
-    return tbe.row_verdict("E1", tbe.ROW_EXPECT["E1"], hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb,
-                           None)
+    """test_battle_end's last_alien_down assertion set (TASK 0: every V0-V6 ending equals last_alien_down's pins, F4382)."""
+    return tbe.row_verdict("last_alien_down", tbe.ROW_EXPECT["last_alien_down"], hrec, crec, cend, hend, b0, cleft,
+                           extra, hold, hdeb, cdeb, None)
 
 
 # ===================== the rows =====================

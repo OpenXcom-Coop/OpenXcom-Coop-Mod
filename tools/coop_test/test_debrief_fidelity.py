@@ -6,9 +6,9 @@ rewrite/w2a0712-task0/CONSTANTS.md.
 
 Two boots, one ending each; both debriefings are read once and no OK is pressed (each boot ends at shutdown):
   Boot A  host en-US (label 49351), client `language: de` (49352); test_battle_end.boot on lobby 47341, then
-          stage_e1 + end_e1 (E1, the last alien down). Rows A12-1, A07-1.
-  Boot B  host `language: de` (49353), client en-US (49354); lobby 47342, stage_e2 + end_e2 (E2, the host's abort:
-          end_e1 waits on the host's English "END TURN 1/2"). Rows A12-2, A07-2.
+          stage_last_alien_down + end_last_alien_down (last_alien_down, the last alien down). Rows A12-1, A07-1.
+  Boot B  host `language: de` (49353), client en-US (49354); lobby 47342, stage_host_abort + end_host_abort (host_abort, the host's abort:
+          end_last_alien_down waits on the host's English "END TURN 1/2"). Rows A12-2, A07-2.
 S = the host's battle_state player-soldier units {id, rawName, coop}, both get_coop {hostName, clientName,
 coopStatic} and both synced_options_state.localSeat, taken after the bring-up and before the ending.
 
@@ -23,9 +23,9 @@ debriefings reached; both debriefs shown and on top, the client display-only, wi
 parseErrors 0; S's seats (2 x coop 1, 5 x coop 0); host clientName "ClientPlayer" and client "HostPlayer", the
 client's coopStatic true, localSeat host 0 / client 1 (in S and at the debriefing); page-2 deltas and
 tbe.debrief_view soldiers equal on both; page-1 rows' (qty, score, recovery) and total equal. Boot A:
-tbe.pin_view(host) == HOST_DEBRIEF["E1"], the client's rating "BEWERTUNG> OK". Boot B: the host's title "UFO wurde
+tbe.pin_view(host) == HOST_DEBRIEF["last_alien_down"], the client's rating "BEWERTUNG> OK". Boot B: the host's title "UFO wurde
 nicht geborgen" and rating "BEWERTUNG> SCHLECHT!", the client's rating "RATING> POOR!", both recoveryHeader "" (the
-empty key and the client's own :558), tbe.pin_view(host) == HOST_DEBRIEF["E2"] with that German title and rating.
+empty key and the client's own :558), tbe.pin_view(host) == HOST_DEBRIEF["host_abort"] with that German title and rating.
 
 RED (commit 1, the product untouched; ONE run, exit 2): A12-1 fails on clientTitle and clientHeader (the host's
 "UFO is recovered" / "UFO RECOVERY", G6); A07-1 on hostPage2 and clientPage2 (all seven plain on both, MR5); A12-2
@@ -56,7 +56,7 @@ DE = {"language": "de"}
 DE_UFO_RECOVERED = "UFO wurde geborgen"             # STR_UFO_IS_RECOVERED, de.yml :206
 DE_UFO_RECOVERY = "UFO-BERGUNG"                     # STR_UFO_RECOVERY, de.yml :226
 DE_UFO_NOT_RECOVERED = "UFO wurde nicht geborgen"   # STR_UFO_IS_NOT_RECOVERED, rendered by Boot B's host
-EN_UFO_NOT_RECOVERED = "UFO is not recovered"       # en-US, tbe.HOST_DEBRIEF["E2"]
+EN_UFO_NOT_RECOVERED = "UFO is not recovered"       # en-US, tbe.HOST_DEBRIEF["host_abort"]
 DE_RATING_OK = "BEWERTUNG> OK"                      # rendered by Boot A's client
 DE_RATING_POOR = "BEWERTUNG> SCHLECHT!"             # rendered by Boot B's host
 EN_RATING_POOR = "RATING> POOR!"                    # rendered by Boot B's client
@@ -65,9 +65,9 @@ G6 = "the second player reads the host's title and header (G6)"
 MR5 = "a Custom Battle debrief names no player (MR5)"
 BOOTS = (
     ("A", {"host": (49351, "w2a0712_a_host", None), "client": (49352, "w2a0712_a_client", DE), "port": "47341",
-           "stage": tbe.stage_e1, "end": tbe.end_e1, "rows": ("A12-1", "A07-1")}),
+           "stage": tbe.stage_last_alien_down, "end": tbe.end_last_alien_down, "rows": ("A12-1", "A07-1")}),
     ("B", {"host": (49353, "w2a0712_b_host", DE), "client": (49354, "w2a0712_b_client", None), "port": "47342",
-           "stage": tbe.stage_e2, "end": tbe.end_e2, "rows": ("A12-2", "A07-2")}),
+           "stage": tbe.stage_host_abort, "end": tbe.end_host_abort, "rows": ("A12-2", "A07-2")}),
 )
 
 
@@ -165,7 +165,8 @@ def guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps):
         ("guard:total", cdeb.get("total"), hdeb.get("total"), "client vs host"),
     ]
     if bid == "A":
-        cells += [("guard:hostPin", tbe.pin_view(hdeb), tbe.HOST_DEBRIEF["E1"], "tbe.pin_view(host) == HOST_DEBRIEF E1"),
+        cells += [("guard:hostPin", tbe.pin_view(hdeb), tbe.HOST_DEBRIEF["last_alien_down"],
+                   "tbe.pin_view(host) == HOST_DEBRIEF last_alien_down"),
                   ("guard:clientRating", cdeb.get("rating"), DE_RATING_OK, "the German client renders its own rating")]
     else:
         cells += [("guard:hostTitle", hdeb.get("title"), DE_UFO_NOT_RECOVERED, "the German host"),
@@ -174,8 +175,8 @@ def guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps):
                   ("guard:recoveryHeaders", (hdeb.get("recoveryHeader"), cdeb.get("recoveryHeader")), ("", ""),
                    "host, client: the empty key and the client's own :558"),
                   ("guard:hostPin", tbe.pin_view(hdeb),
-                   dict(tbe.HOST_DEBRIEF["E2"], title=DE_UFO_NOT_RECOVERED, rating=DE_RATING_POOR),
-                   "HOST_DEBRIEF E2 with the German title and rating (R-A0712-T0-1)")]
+                   dict(tbe.HOST_DEBRIEF["host_abort"], title=DE_UFO_NOT_RECOVERED, rating=DE_RATING_POOR),
+                   "HOST_DEBRIEF host_abort with the German title and rating (R-A0712-T0-1)")]
     return cells
 
 

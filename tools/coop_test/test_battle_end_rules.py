@@ -14,7 +14,7 @@ S-D1 is the reason / verdict / teardown half of E4-E6 (review scope table):
 the S-A product (c8e9a37b1) already covered these endings, so the rows were
 DECLARED GREEN-AT-RED. S-B1 (G1, G2) re-points E4 and E5 (DEBRIEF_ROWS): the
 X-COM client now ends on the host's debriefing in a display-only
-DebriefingState, with the same S-B1 rows as test_battle_end.py E1/E2 (no
+DebriefingState, with the same S-B1 rows as test_battle_end.py last_alien_down/host_abort (no
 page walk here). No OK is pressed. S-D2 (owner D157 (a), AMENDMENT P7-5
 section 3) re-points E6 the same way (chain rule A.10): the PvP alien-side
 client ends on the host's debriefing, display-only, exactly as the X-COM
@@ -59,9 +59,9 @@ per boot); the Coop_TurnLimit_Test data mod is loaded on E4's boot only:
       battle_state.pvpWin (no writer, F1907).
   E6b PvP gm2 host abort (E6's boot; AMENDMENT P7-5 Q3 (a)). No staging; the
       host runs battle_action abort and confirms its AbortMissionState with
-      dismiss_popup (test_battle_end.py end_e2, verbatim; R4-L1: + the alien player's YES) ->
+      dismiss_popup (test_battle_end.py end_host_abort, verbatim; R4-L1: + the alien player's YES) ->
       AbortMissionState::btnOkClick -> setAborted(true) + finishBattle(true,
-      inExit). Expected record (E2's analog, pinned from the S-D2.1 R6
+      inExit). Expected record (host_abort's analog, pinned from the S-D2.1 R6
       capture): reason abort, aborted true, inExitArea 0, seat 0 abort and
       seat 1 win (D157 (a): the hostile seat takes `win` on an abort), tally
       {1, 7, 0}. The alien seat ends on the host's debriefing as in E6.
@@ -79,7 +79,7 @@ the client's read as b0, both machines' battleEnd record present with emitted
 DEBRIEF_S are reported with the prefix "ending".
 
 Row verdict = the S-A assertion set (review section 2, as test_battle_end.py
-E1/E2):
+last_alien_down/host_abort):
   host    battleEnd emitted 1, seq > 0, reason / aborted / inExitArea /
           perSeatVerdict / tally as the row expects, actionIdAtEmit 0,
           evsAfter 0 (no trailing reveal or any other host send after the
@@ -119,7 +119,7 @@ E5 needs at least one). E5's page-1 scores and total come from the per-boot
 roster (a dead soldier's score is its rank and missions), so its pin holds
 each page-1 row as {item, qty, recovery} and no total (G14); row j still
 compares both machines' scores and totals. The S-B1.1 red run:
-E4 and E5 fail on exactly the S-B1 red (as test_battle_end.py E1/E2,
+E4 and E5 fail on exactly the S-B1 red (as test_battle_end.py last_alien_down/host_abort,
 without the page walk); E6 passes. The E6 and E6b pins (and E6b's reason,
 aborted, inExitArea and tally) are copied verbatim from one R6 capture run on
 the S-D2.1 build. The S-D2.1 red run: E4 and E5
@@ -194,7 +194,7 @@ ROW_EXPECT = {
            "tally": {"liveAliens": 0, "liveSoldiers": 7, "inExit": 0}},
     # S-D2: finishBattle(true, inExit) from AbortMissionState::btnOkClick in gm2; the
     # verdict pair is D157 (a) (the hostile seat takes `win` on an abort); reason / aborted / inExitArea / tally
-    # from the R6 capture (E2's analog, F4334).
+    # from the R6 capture (host_abort's analog, F4334).
     "E6b": {"reason": "abort", "aborted": True, "inExitArea": 0,
             "verdicts": [(0, "abort"), (1, "win")],
             "tally": {"liveAliens": 1, "liveSoldiers": 7, "inExit": 0}},
@@ -234,7 +234,7 @@ HOST_DEBRIEF = {
            "rows": [{"item": "X-COM OPERATIVES KILLED", "qty": 7, "recovery": False},
                     {"item": "X-COM CRAFT LOST", "qty": 1, "recovery": False}],
            "rating": "RATING> TERRIBLE!", "soldiers": [], "recovered": []},
-    # R6 capture (S-D2.1 build): E6 = T9, the PvP gm2 elimination (equal to test_battle_end.py's E1 pin, F4334).
+    # R6 capture (S-D2.1 build): E6 = T9, the PvP gm2 elimination (equal to test_battle_end.py's last_alien_down pin, F4334).
     "E6": {"title": "UFO is recovered", "recoveryHeader": "UFO RECOVERY",
            "rows": [{"item": "ALIEN CORPSES RECOVERED", "qty": 1, "recovery": False, "score": 5},
                     {"item": "Alien Alloys", "qty": 1, "recovery": True, "score": 1}],
@@ -251,7 +251,7 @@ HOST_DEBRIEF = {
            "recovered": [{"item": "Plasma Pistol", "qty": 1}, {"item": "  Plasma Pistol Clip", "qty": 2},
                          {"item": "Mind Probe", "qty": 1}, {"item": "Sectoid Corpse", "qty": 1},
                          {"item": "Alien Alloys", "qty": 1}]},
-    # R6 capture (S-D2.1 build): E6b = the PvP gm2 host abort (no page-1 row, G11; equal to the E2 pin, F4334).
+    # R6 capture (S-D2.1 build): E6b = the PvP gm2 host abort (no page-1 row, G11; equal to the host_abort pin, F4334).
     "E6b": {"title": "UFO is not recovered", "recoveryHeader": "", "rows": [], "total": 0,
             "rating": "RATING> POOR!",
             "soldiers": [
@@ -473,7 +473,7 @@ def end_e6(host, client, ending):
 
 
 def end_e6b(host, client, ending):
-    """E6b ending (test_battle_end.py end_e2, verbatim): the host's abort, its
+    """E6b ending (test_battle_end.py end_host_abort, verbatim): the host's abort, its
     confirm and the alien player's YES (R4-L1: the confirm opens the abort vote; its
     pass runs setAborted(true) + finishBattle(true, inExit)), on E6's gm2 boot."""
     try:

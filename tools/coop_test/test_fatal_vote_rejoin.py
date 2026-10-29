@@ -26,7 +26,7 @@ question or hold back on top (a hold shows the Wait line naming the client, busy
 peerAbsent false, battleId kept (FIXTURE-STOP steps), the stream settled, hash_now clean, desyncSeen false; both
 fatalVote records after the rejoin (voteId kept, resends 1, client2 coverWaitPasses >= 1: the resent open waited under
 dialog 68); the close (closeSeq > the host's lastSeqEmitted after the rejoin settled: the rejoin restarts the stream,
-SV-T4); hostCovered.steps unchanged while the question/hold was up; the ending (test_battle_end's E1 set over
+SV-T4); hostCovered.steps unchanged while the question/hold was up; the ending (test_battle_end's last_alien_down set over
 client2, close seq < battle_end seq, evsAfter 0, one vote per battle).
 W2-H14b (an END TURN clear + tally re-send at the rejoin) does not change any cell: no row reads a tally after the
 rejoin except V8's wait for the host's "END TURN 1/2" after client2's own press.

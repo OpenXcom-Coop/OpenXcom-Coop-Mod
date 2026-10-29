@@ -9,7 +9,7 @@ gm2 boot_e6.
       WS1 = C2 = 9 (client first). Green: the host never shows the question (it does not vote) and opens the vote
       only after the shot's chain: the open ev's seq > the shot context's bt_action_end seq (SV-T4, relations only);
       host CoopFatalVoteHold + the Wait line naming the client; the client's question (N 1); client OK -> close end ->
-      NextTurnState -> battle_end with E1's battle_end pins (T0-3) and the display-only debriefing equal to the
+      NextTurnState -> battle_end with last_alien_down's battle_end pins (T0-3) and the display-only debriefing equal to the
       host's (the terror debriefing has no TASK 0 pin; SV-T2: no death-ghost wait is built or asserted).
   E6v (P7-5 Q1 (a)) gm2: the host is X-COM (seat 0), the client the aliens (seat 1). WS0 = 8 wounded; host
       kill_unit_real {faction: 1}. Green: voters [0] (the alien seat never votes), the host's own question, the alien
@@ -95,8 +95,8 @@ def stage_c16(r):
 
 
 def v9_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
-    """E1's battle_end pins (T0-3's terror ending equals them) and S-B1's debrief rows without a host content pin."""
-    f, exp = [], tbe.ROW_EXPECT["E1"]
+    """last_alien_down's battle_end pins (T0-3's terror ending equals them) and S-B1's debrief rows without a host content pin."""
+    f, exp = [], tbe.ROW_EXPECT["last_alien_down"]
     hrec, crec = hrec if isinstance(hrec, dict) else {}, crec if isinstance(crec, dict) else {}
     hdeb, cdeb = hdeb if isinstance(hdeb, dict) else {}, cdeb if isinstance(cdeb, dict) else {}
     hseq = hrec.get("seq")

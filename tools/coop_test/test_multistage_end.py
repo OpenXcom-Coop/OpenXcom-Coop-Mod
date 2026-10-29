@@ -29,7 +29,8 @@ TWO boots, one per row, each shut down before the next:
        aliensDown, aborted false; the client's applied 1 with the host's seq, resultReceived 1, debriefDisplayOnly 1;
        the host's DebriefingState (shown, on top, not display-only) and the client's display-only DebriefingState
        with the host's seven content fields (W2-P7 S-B1 cells) -> the client presses OK, then the host (D156 (a), the
-       W2-P7 E3 order): each OK handled by DebriefingState and each machine reaches the main menu.
+       order of test_battle_end's client_leaves_first): each OK handled by DebriefingState and each machine reaches
+       the main menu.
 
 RED on S-A2's commit 1 (S-A1's red base: no stage writer; TASK 0 T0-7 / the red pre-walks measured on this build):
 each row fails exactly its four stage-entry cells (no client stage-2 briefing within ENTRY_S, client missionType not

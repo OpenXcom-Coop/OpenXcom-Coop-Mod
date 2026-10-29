@@ -85,7 +85,7 @@ C2 and IH7 ends the battle, so IH7 is last):
         ev. The heal step; EQUAL.
   IH7   battle end with the client's screen open.
         The client opens C's inventory and picks the grenade; the host aborts
-        (test_battle_end.end_e2). RED: client
+        (test_battle_end.end_host_abort). RED: client
         battleEnd.inventoryOpenAtTeardown true, invForcedCloses.byReason.battle_end
         +0. GREEN: byReason.battle_end +1, inventoryOpenAtTeardown false. Both:
         the client's top = the display-only DebriefingState within DEBRIEF_S, no
@@ -166,7 +166,7 @@ import test_client_shoot as cs
 from test_turn_baton import drive_full_cycle, dismiss_next_turn_if_present
 from test_seat_pacing import tab_select
 from test_thin_client_tripwire import read_reload_key
-from test_battle_end import end_e2, DEBRIEF_S
+from test_battle_end import end_host_abort, DEBRIEF_S
 
 # ----- units and TU (test_inventory.py :154-:156; P8-2 T0-1) -----
 C2_ID = 9                         # test_inventory.py SEATED [8, 9] (:154); P8-3a Q5 (a)
@@ -1388,7 +1388,7 @@ def ih7_battle_end(host, client, ctx):
     ending = []
     if opened and picked:
         t0 = time.time()
-        out["ending"] = end_e2(host, client, ending)
+        out["ending"] = end_host_abort(host, client, ending)
         applied, out["appliedWaited"] = wait_until(
             lambda: ((event_state(client).get("battleEnd") or {}).get("applied") or 0) >= 1, DEBRIEF_S, 0.05)
         deb, out["debriefWaited"] = wait_until(lambda: session.top_state(client) == "DebriefingState", DEBRIEF_S, 0.05)

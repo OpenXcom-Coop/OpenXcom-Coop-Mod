@@ -64,7 +64,7 @@ HOST_DLG = [["7 Units in X-Com Craft", True], ["0 Units in Target Exit", False],
             [QUESTION, True]]
 WALK_ACTOR, WALK_DEST = 8, (4, 9, 0)                                  # measured: 4.19 s, 9 steps
 END_TURN_HELD_KIND = "FIX"                                            # end_turn_held's cell kind (see the docstring)
-ENDING_PINS = tbe.ROW_EXPECT["E2"]
+ENDING_PINS = tbe.ROW_EXPECT["host_abort"]
 COOLDOWN_DLG = 558
 CELLS = {"abort_rules": ["unanimous_rules", "other_votes_unchanged", "host_dialog_esc"],
          "client_vote_no": ["client_dialog", "client_vote_opens", "client_vote_no_fails"],
@@ -466,7 +466,7 @@ def row_abort_after_action(host, client, r):
     for k in ("reason", "aborted", "inExitArea"):
         r.check("both_debrief", hb.get(k) == ENDING_PINS[k], f"host battleEnd.{k}={hb.get(k)!r} (want {ENDING_PINS[k]!r})")
     r.check("both_debrief", tbe.verdicts(hb) == ENDING_PINS["verdicts"] and tbe.tally(hb) == ENDING_PINS["tally"],
-            f"host battleEnd verdicts {tbe.verdicts(hb)} tally {tbe.tally(hb)} (want the E2 pins)")
+            f"host battleEnd verdicts {tbe.verdicts(hb)} tally {tbe.tally(hb)} (want the host_abort pins)")
     r.check("both_debrief", (cb.get("applied"), cb.get("seq"), cb.get("reason")) == (1, hb.get("seq"), "abort"),
             f"client battleEnd applied/seq/reason={cb.get('applied')}/{cb.get('seq')}/{cb.get('reason')} "
             f"(want 1/{hb.get('seq')}/abort)")

@@ -10,7 +10,7 @@ solo; V7, V8 and V7b together ran 153.3 s at red).
       RESUME. Green: the host drops the rejoining seat's stored answer before the resend, so
       after the rejoin the host's answers are {} and client2's answered [] (resends 1); client2 shows the question
       (N 2); client2 OK (host answers {1: yes}), then the host's OK -> close end {0: yes, 1: yes} -> NextTurnState ->
-      battle_end with test_battle_end's E1 set over client2.
+      battle_end with test_battle_end's last_alien_down set over client2.
 
 RED (S-V-B.1 = the S-V-A.2 build with H12b; no resend exists; one run, exit 2). Every precondition passes (the open,
 the client's OK, the pause, dialog 68, RESUME, phase, battleId, hash). rejoin: host fatalVote resends 0 and answers
