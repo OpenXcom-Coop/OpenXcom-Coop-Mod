@@ -3,34 +3,37 @@ client's landing at a mission site mirrored from the alien world starts ONE batt
 X-COM client's borrowed world; the seats are gm3's; the X-COM player moves a soldier and the alien host moves an alien through its
 own UI; the alien seat reads its own research; the alien world sits parked and untouched.
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, section (f) "test_campaign_battle_gm3.py" (owner D250, O1 (a); D149,
-D215; QC-1..QC-18 (a); F13506, F13986). TASK 0 pins: docs rewrite/d250u-task0/sc1/CONSTANTS.md (SEED_C, TOPIC, MIRROR_S, MAP_FP_C1
-and S / S_DEST / A / A_DEST as EVIDENCE; boots Ca and Cb on the unchanged build, each 2/2).
+The pinned values below (SEED_ENTRY, TOPIC, MIRROR_S_PIN, MAP_FP_ENTRY, S_PIN, A_PIN) were each measured on two boots;
+MIRROR_S_PIN, MAP_FP_ENTRY, S_PIN and A_PIN are EVIDENCE only.
 
-Boot C: gm3, lobby key 48011, dirs d250uc1_c_host / d250uc1_c_client. Bring-up: PF.start_pvp_campaign(alien_player="host"); crash
-baseline; HOST0 / CLIENT0; geo.slow_clock. Staging (TASK 0 T0-2 (2)-(4)): research sync off (client first), host discover_research
-TOPIC, the client's squad of two (the two lowest ids), the host's mission site and its mirror on the client, the client's Skyranger
-forced out to the mirror, the landing prompt on the client. A bring-up or staging step past its bound is a setup failure: ONE
-"CAPTURE C:" line (both stacks, battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every
-remaining cell FAILs "boot".
+The boot: gm3, lobby key 48011, user dirs campaign_battle_gm3_host / campaign_battle_gm3_client. Bring-up:
+PF.start_pvp_campaign(alien_player="host"); crash baseline; HOST0 / CLIENT0; geo.slow_clock. Staging: research sync
+off (client first), host discover_research TOPIC, the client's squad of two (the two lowest ids), the host's mission
+site and its mirror on the client, the client's Skyranger forced out to the mirror, the landing prompt on the client.
+A bring-up or staging step past its bound is a setup failure: ONE "CAPTURE boot:" line (both stacks, battle_state
+phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every remaining cell FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
 precondition was never reached, then each of its cells FAILs "blocked: <why>"):
-  C-gm  gamemode 3 on both; host noBases true, client false (at bring-up).
-  C1 entry: client set_seed SEED_C, confirm_landing; both inBattle <= 60 s; session.briefings_to_battlescape.
-     C1-hand (both get_coop.pvpBorrow records; 0 new client "offerBattle() called on a non-host machine" lines), C1-entry (turn 1,
-     mapFingerprint equal on both), C1-seats (faction 0 seat 1 = the squad, faction 1 seat 0 without AI, no other faction, equal on
-     both), C1-world (the host borrows: pvpBorrow.active, noBases false, pvpBorrow.parked == HOST0), C1-research (research_check:
-     seat 0 reads the parked alien world, TOPIC true; seat 1 false; the live world false), C1-common.
-  C2 X-COM move: reactions 0 (G3F); S / S_DEST by rule; the client walks S: C2-walk, C2-side (client END TURN: side 1), C2-common.
-  C3 alien move: A / A_DEST by rule; host TAB, tab_select, one real click (G3F G4): C3-sel, C3-ctx, C3-pos, C3-side (host END TURN:
-     turn 2, side 0), C3-common.
+  gamemode  gamemode 3 on both; host noBases true, client false (at bring-up).
+  entry: client set_seed SEED_ENTRY, confirm_landing; both inBattle <= 60 s; session.briefings_to_battlescape.
+     entry-borrow (both get_coop.pvpBorrow records; 0 new client "offerBattle() called on a non-host machine" lines),
+     entry-reached (turn 1, mapFingerprint equal on both), entry-seats (faction 0 seat 1 = the squad, faction 1 seat 0
+     without AI, no other faction, equal on both), entry-world (the host borrows: pvpBorrow.active, noBases false,
+     pvpBorrow.parked == HOST0), entry-research (research_check: seat 0 reads the parked alien world, TOPIC true; seat 1
+     false; the live world false), entry-common.
+  xcom_move: reactions 0 (G3F); S / S_DEST by rule; the client walks S: xcom_move-walk, xcom_move-side (client END
+     TURN: side 1), xcom_move-common.
+  alien_move: A / A_DEST by rule; host TAB, tab_select, one real click: alien_move-sel, alien_move-ctx, alien_move-pos,
+     alien_move-side (host END TURN: turn 2, side 0), alien_move-common.
   <row>-common: event_state.desyncSeen false on both, 0 new crash files in the row, assert_hash_clean(full=True) EQUAL.
-Walk targets (spec (f)), read at run time from the HOST's tile_info: S = the lowest-id live faction-0 unit, S_DEST = the first of its
-eight neighbours on its level (N, NE, E, SE, S, SW, W, NW) with no unit, a floor part and no object part; A / A_DEST the same for
-faction 1. TASK 0's S / S_DEST / A / A_DEST and MAP_FP_C1 are EVIDENCE beside the run-time values (never a re-pick).
-RED (C1R, the unchanged product: the X-COM client generates the battle alone, F13506): C-gm PASSes; C1-hand FAILs (no pvpBorrow, the
-client's local battle, the non-host warning +1); every other cell FAILs "blocked: the alien host never entered the battle (C1-hand)".
-GREEN (C1G): 15/15. The file ends after C3 (the battle's end is S-C2's).
+Walk targets, read at run time from the HOST's tile_info: S = the lowest-id live faction-0 unit, S_DEST = the first of
+its eight neighbours on its level (N, NE, E, SE, S, SW, W, NW) with no unit, a floor part and no object part; A / A_DEST
+the same for faction 1. The pinned S_PIN / A_PIN and MAP_FP_ENTRY are EVIDENCE beside the run-time values (never a
+re-pick).
+A failure looks like this: the X-COM client generates the battle alone. gamemode PASSes; entry-borrow FAILs (no
+pvpBorrow, the client's local battle, the non-host warning +1); every other cell FAILs "blocked: the alien host never
+entered the battle (entry-borrow)". The file ends after alien_move (test_campaign_battle_gm3_end covers the battle's
+end).
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_gm3.py
@@ -53,12 +56,12 @@ import test_battle_end_separate as BES  # noqa: E402
 import repro_atom_side_begin as RSB  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sc1/CONSTANTS.md, boots Ca and Cb, 2/2 each) -----
+# ----- pinned values, each measured on two boots -----
 KEY = "48011"
-SEED_C = 1                                   # set on the X-COM CLIENT right before its confirm_landing
+SEED_ENTRY = 1                               # set on the X-COM CLIENT right before its confirm_landing
 TOPIC = "STR_LASER_WEAPONS"                  # the first of LASER / MOTION_SCANNER / MEDI_KIT unresearched on both
 MIRROR_S_PIN = 0.05                          # EVIDENCE: the host site's mirror reached the client at the first poll (2/2)
-MAP_FP_C1 = 5.996615470105667e+18            # EVIDENCE: the client-local map at SEED_C (STOP-IF 13: never a stop)
+MAP_FP_ENTRY = 5.996615470105667e+18         # EVIDENCE: the client-local map at SEED_ENTRY; a mismatch never fails
 S_PIN = (1, (34, 9, 1), (35, 10, 1))         # EVIDENCE: (id, tile, dest) by the rule on the client-local map
 A_PIN = (1000000, (2, 16, 1), (3, 15, 1))    # EVIDENCE
 SQUAD = 2
@@ -70,8 +73,10 @@ MIRROR_S = 30
 LANDING_S = 180
 BOTH_IN_S = 60
 STEP_S = 30
-ALL_CELLS = ["C-gm", "C1-hand", "C1-entry", "C1-seats", "C1-world", "C1-research", "C1-common", "C2-walk", "C2-side",
-             "C2-common", "C3-sel", "C3-ctx", "C3-pos", "C3-side", "C3-common"]
+ALL_CELLS = ["gamemode",
+             "entry-borrow", "entry-reached", "entry-seats", "entry-world", "entry-research", "entry-common",
+             "xcom_move-walk", "xcom_move-side", "xcom_move-common",
+             "alien_move-sel", "alien_move-ctx", "alien_move-pos", "alien_move-side", "alien_move-common"]
 
 
 class FixtureMiss(Exception):
@@ -139,7 +144,7 @@ def capture_boot(err, host, client):
                             "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE C: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE boot: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
@@ -160,8 +165,9 @@ def common(row, host, client, crash0):
 
 
 def walk_target(host, faction):
-    """The spec (f) rule on the HOST's map: the lowest-id live unit of `faction` and the first of its eight neighbours (N, NE, E, SE,
-    S, SW, W, NW) on its level with no unit, a floor part and no object part. Returns (id, tile, dest or None, neighbours)."""
+    """The walk-target rule on the HOST's map: the lowest-id live unit of `faction` and the first of its eight
+    neighbours (N, NE, E, SE, S, SW, W, NW) on its level with no unit, a floor part and no object part. Returns (id,
+    tile, dest or None, neighbours)."""
     live = sorted((u for u in battle_state(host).get("units", []) if u.get("faction") == faction and not u.get("isOut")),
                   key=lambda u: u["id"])
     if not live:
@@ -180,7 +186,7 @@ def walk_target(host, faction):
 
 
 def bring_up(host, client, ev):
-    """Spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0, geo.slow_clock; the C-gm cell."""
+    """Spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0, geo.slow_clock; the gamemode cell."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, KEY, alien_player="host")
@@ -199,7 +205,7 @@ def bring_up(host, client, ev):
                "sky": sky and {"type": sky.get("type"), "id": sky.get("id")}, "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0)
     geo.slow_clock(host, client)
-    cell("C-gm", ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False,
+    cell("gamemode", ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False,
          f"get_coop.gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3 on both); noBases host "
          f"{ch.get('noBases')!r} client {cc.get('noBases')!r} (want true / false)")
     if not xb or not sky or len(sids) < SQUAD:
@@ -209,8 +215,9 @@ def bring_up(host, client, ev):
 
 
 def stage_landing(host, client, xb, client0, ev):
-    """TASK 0 T0-2 (2)-(4): research sync off (client first), host discover_research TOPIC, the squad, the host site and its
-    mirror on the client, craft_force, the landing prompt on the client (drain both, speed idx 2 on both). A miss = setup failure."""
+    """Staging: research sync off (client first), host discover_research TOPIC, the squad, the host site and its
+    mirror on the client, craft_force, the landing prompt on the client (drain both, speed idx 2 on both). A miss =
+    setup failure."""
     sync = [client.cmd({"cmd": "set_research_sync", "enabled": False}).get("sync"),
             host.cmd({"cmd": "set_research_sync", "enabled": False}).get("sync")]
     pre = [host.cmd({"cmd": "is_researched", "topic": TOPIC}).get("researched"),
@@ -265,10 +272,10 @@ def stage_landing(host, client, xb, client0, ev):
     return squad
 
 
-def row_c1(host, client, host0, client0, squad, ctx, ev, crash0):
-    names = ["C1-hand", "C1-entry", "C1-seats", "C1-world", "C1-research", "C1-common"]
+def row_entry(host, client, host0, client0, squad, ctx, ev, crash0):
+    names = ["entry-borrow", "entry-reached", "entry-seats", "entry-world", "entry-research", "entry-common"]
     w0 = BES.log_count(client, WARN)
-    sd, cl = client.cmd({"cmd": "set_seed", "seed": SEED_C}), client.cmd({"cmd": "confirm_landing"})
+    sd, cl = client.cmd({"cmd": "set_seed", "seed": SEED_ENTRY}), client.cmd({"cmd": "confirm_landing"})
     if not sd.get("ok") or not cl.get("ok"):
         capture_boot(f"client set_seed {sd} / confirm_landing {cl}", host, client)
     ev["stacksAfterConfirm"] = [stack(host), stack(client)]
@@ -302,23 +309,23 @@ def row_c1(host, client, host0, client0, squad, ctx, ev, crash0):
                     f"(stacks host {ev['stacksAtWait'][0]} client {ev['stacksAtWait'][1]})")
     elif not (hin and cin):
         hbad.append(f"inBattle host/client {[hin, cin]} {secs} s after the confirm (want both)")
-    cell("C1-hand", not hbad, "; ".join(hbad) or f"client pvpBorrow sent / pushed / held 1; host requests / armed / borrowed 1, "
+    cell("entry-borrow", not hbad, "; ".join(hbad) or f"client pvpBorrow sent / pushed / held 1; host requests / armed / borrowed 1, "
          f"landing, {sky['type']}-{sky['id']}, target site (mirror); 0 non-host warnings; both inBattle {secs} s")
     if not hin:
-        ctx["blocked"] = "the alien host never entered the battle (C1-hand)"
+        ctx["blocked"] = "the alien host never entered the battle (entry-borrow)"
     elif not cin:
-        ctx["blocked"] = "the X-COM client never entered the battle (C1-hand)"
+        ctx["blocked"] = "the X-COM client never entered the battle (entry-borrow)"
     if ctx["blocked"]:
         block(names, ctx["blocked"])
         return names
     bh, bc = battle_state(host), battle_state(client)
     turn, fp = [bh.get("turn"), bc.get("turn")], [bh.get("mapFingerprint"), bc.get("mapFingerprint")]
-    ev.update(turn=turn, mapFingerprint=fp, mapFpPin=MAP_FP_C1, mapFpEqualsPin=(fp[0] == MAP_FP_C1))
+    ev.update(turn=turn, mapFingerprint=fp, mapFpPin=MAP_FP_ENTRY, mapFpEqualsPin=(fp[0] == MAP_FP_ENTRY))
     ebad = [] if sp_ok else [sp_detail]
     ebad += [f"turn {turn} (want [1, 1])"] if turn != [1, 1] else []
     ebad += [f"mapFingerprint host {fp[0]!r} != client {fp[1]!r}"] if fp[0] != fp[1] or fp[0] is None else []
-    cell("C1-entry", not ebad, "; ".join(ebad) or f"turn 1 on both, mapFingerprint {fp[0]!r} on both (MAP_FP_C1 "
-         f"{MAP_FP_C1!r}: {'equal' if fp[0] == MAP_FP_C1 else 'differs, EVIDENCE only (STOP-IF 13)'})")
+    cell("entry-reached", not ebad, "; ".join(ebad) or f"turn 1 on both, mapFingerprint {fp[0]!r} on both "
+         f"(MAP_FP_ENTRY {MAP_FP_ENTRY!r}: {'equal' if fp[0] == MAP_FP_ENTRY else 'differs, EVIDENCE only'})")
     hcen, ccen = census(host), census(client)
     ev.update(censusHost=hcen, censusClient=ccen)
     sbad = []
@@ -336,7 +343,7 @@ def row_c1(host, client, host0, client0, squad, ctx, ev, crash0):
     key = lambda cen: sorted((u["id"], u.get("faction"), u.get("coop")) for u in cen)
     if key(hcen) != key(ccen):
         sbad.append(f"census (id, faction, seat) host {key(hcen)} != client {key(ccen)}")
-    cell("C1-seats", not sbad, "; ".join(sbad) or f"census equal on both: faction 0 = the squad {sorted(squad)} on seat 1, "
+    cell("entry-seats", not sbad, "; ".join(sbad) or f"census equal on both: faction 0 = the squad {sorted(squad)} on seat 1, "
          f"faction 1 on seat 0 without AI ({len(hcen)} units)")
     hp = (coop(host).get("pvpBorrow") or {})
     parked = hp.get("parked") or {}
@@ -349,7 +356,7 @@ def row_c1(host, client, host0, client0, squad, ctx, ev, crash0):
     nb = coop(host).get("noBases")
     wbad += [f"host get_coop.noBases {nb!r} (want false: the live world is X-COM's)"] if nb is not False else []
     wbad += [f"pvpBorrow.parked {pv} != HOST0 {want}"] if pv != want else []
-    cell("C1-world", not wbad, "; ".join(wbad) or f"host borrows (active), noBases false; parked {want}")
+    cell("entry-world", not wbad, "; ".join(wbad) or f"host borrows (active), noBases false; parked {want}")
     rc = host.cmd({"cmd": "research_check", "topic": TOPIC})
     seats = {e.get("seat"): e.get("researched") for e in rc.get("seats") or []}
     live = host.cmd({"cmd": "is_researched", "topic": TOPIC}).get("researched")
@@ -358,15 +365,15 @@ def row_c1(host, client, host0, client0, squad, ctx, ev, crash0):
     rbad += [f"seat 0 researched {seats.get(0)!r} (want true: the parked alien world)"] if seats.get(0) is not True else []
     rbad += [f"seat 1 researched {seats.get(1)!r} (want false)"] if seats.get(1) is not False else []
     rbad += [f"host is_researched {live!r} (want false: the live world is X-COM's)"] if live is not False else []
-    cell("C1-research", not rbad, "; ".join(rbad) or f"{TOPIC}: separate, seat 0 true, seat 1 false, the live world false")
-    common("C1", host, client, crash0)
+    cell("entry-research", not rbad, "; ".join(rbad) or f"{TOPIC}: separate, seat 0 true, seat 1 false, the live world false")
+    common("entry", host, client, crash0)
     if not sp_ok or turn != [1, 1]:
-        ctx["blocked"] = "the entry spine did not reach turn 1 (C1-entry)"
+        ctx["blocked"] = "the entry spine did not reach turn 1 (entry-reached)"
     return names
 
 
-def row_c2(host, client, ctx, ev):
-    names = ["C2-walk", "C2-side", "C2-common"]
+def row_xcom_move(host, client, ctx, ev):
+    names = ["xcom_move-walk", "xcom_move-side", "xcom_move-common"]
     if ctx["blocked"]:
         block(names, ctx["blocked"])
         return names
@@ -376,7 +383,8 @@ def row_c2(host, client, ctx, ev):
         sid, tile, dest, seen = walk_target(host, 0)
         ev.update(S=sid, S_tile=tile, S_DEST=dest, S_pin=S_PIN, S_neighbours=seen)
         if dest is None:
-            cell("C2-walk", False, f"staging: no free neighbour for S {sid} at {tile} by the rule (setup failure, STOP-IF 13): {seen}")
+            cell("xcom_move-walk", False, f"staging: no free neighbour for S {sid} at {tile} by the rule (setup failure): "
+                 f"{seen}")
         else:
             ctx0 = event_state(host).get("closedContexts") or []
             prev = session.walk_action_id(host)
@@ -388,9 +396,10 @@ def row_c2(host, client, ctx, ev):
             ok, detail = G3F.ctx_cell(new, "intent", sid)
             wbad = [] if ok else [detail]
             wbad += [f"S {sid} at host/client {ps} (want {dest} on both)"] if ps != [dest, dest] else []
-            cell("C2-walk", not wbad, "; ".join(wbad) or f"one {{intent, walk, {sid}}} context; S on {dest} on both")
+            cell("xcom_move-walk", not wbad,
+                 "; ".join(wbad) or f"one {{intent, walk, {sid}}} context; S on {dest} on both")
     except Exception as e:  # noqa: BLE001
-        cell("C2-walk", False, f"{type(e).__name__}: {str(e)[:400]}")
+        cell("xcom_move-walk", False, f"{type(e).__name__}: {str(e)[:400]}")
     try:
         ev["endTurn"] = client.cmd({"cmd": "battle_action", "action": "end_turn_button"})
         RSB.drive_side_change(host, client, 1, timeout=STEP_S)
@@ -398,16 +407,16 @@ def row_c2(host, client, ctx, ev):
         ev["sideError"] = str(e)[:300]
     ts = [(battle_state(gc).get("turn"), battle_state(gc).get("side")) for gc in (host, client)]
     ev["turnSide"] = ts
-    cell("C2-side", [s for _t, s in ts] == [1, 1], f"(turn, side) host/client {ts} (want side 1 on both after the client's END "
+    cell("xcom_move-side", [s for _t, s in ts] == [1, 1], f"(turn, side) host/client {ts} (want side 1 on both after the client's END "
          f"TURN){'; ' + ev['sideError'] if ev.get('sideError') else ''}")
-    common("C2", host, client, crash0)
+    common("xcom_move", host, client, crash0)
     if [s for _t, s in ts] != [1, 1]:
-        ctx["blocked"] = "the aliens' side never began on both (C2-side)"
+        ctx["blocked"] = "the aliens' side never began on both (xcom_move-side)"
     return names
 
 
-def row_c3(host, client, ctx, ev):
-    names = ["C3-sel", "C3-ctx", "C3-pos", "C3-side", "C3-common"]
+def row_alien_move(host, client, ctx, ev):
+    names = ["alien_move-sel", "alien_move-ctx", "alien_move-pos", "alien_move-side", "alien_move-common"]
     if ctx["blocked"]:
         block(names, ctx["blocked"])
         return names
@@ -415,17 +424,17 @@ def row_c3(host, client, ctx, ev):
     try:
         aid, tile, dest, seen = walk_target(host, 1)
         ev.update(A=aid, A_tile=tile, A_DEST=dest, A_pin=A_PIN, A_neighbours=seen, sel0=battle_state(host).get("selectedId"))
-        host.ok({"cmd": "inject_input", "kind": "key", "key": G3F.SDLK_TAB})   # ONE TAB first (G3F G4)
+        host.ok({"cmd": "inject_input", "kind": "key", "key": G3F.SDLK_TAB})   # ONE TAB first, as in test_pvp_gm3
         time.sleep(0.15)
         ev["tab"] = G3F.tab_select(host, aid)
         sel = battle_state(host).get("selectedId")
         ev["sel"] = sel
-        cell("C3-sel", sel == aid, f"host selectedId {sel} before the click (want A {aid})")
+        cell("alien_move-sel", sel == aid, f"host selectedId {sel} before the click (want A {aid})")
         if dest is None:
-            block(["C3-ctx", "C3-pos"], f"staging: no free neighbour for A {aid} at {tile} by the rule (setup failure, "
-                  f"STOP-IF 13): {seen}")
+            block(["alien_move-ctx", "alien_move-pos"], f"staging: no free neighbour for A {aid} at {tile} by the rule "
+                  f"(setup failure): {seen}")
         elif sel != aid:
-            block(["C3-ctx", "C3-pos"], "staging (the host's TAB never selected A)")
+            block(["alien_move-ctx", "alien_move-pos"], "staging (the host's TAB never selected A)")
         else:
             b_ctx = event_state(host).get("closedContexts") or []
             G3F.real_click_walk(host, dest)
@@ -434,11 +443,11 @@ def row_c3(host, client, ctx, ev):
             pa, sides = [G3F.pos(host, aid), G3F.pos(client, aid)], [battle_state(gc).get("side") for gc in (host, client)]
             ev.update(newContexts=new, Apos=pa, sides=sides)
             ok, detail = G3F.ctx_cell(new, "host", aid)
-            cell("C3-ctx", ok, detail)
-            cell("C3-pos", pa == [dest, dest] and sides == [1, 1], f"A {aid} host/client {pa} (want {dest} on both; "
-                 f"{ev.get('walkS')} s), side {sides} (want 1 on both)")
+            cell("alien_move-ctx", ok, detail)
+            cell("alien_move-pos", pa == [dest, dest] and sides == [1, 1], f"A {aid} host/client {pa} (want {dest} on "
+                 f"both; {ev.get('walkS')} s), side {sides} (want 1 on both)")
     except Exception as e:  # noqa: BLE001
-        block(["C3-sel", "C3-ctx", "C3-pos"], f"{type(e).__name__}: {str(e)[:400]}")
+        block(["alien_move-sel", "alien_move-ctx", "alien_move-pos"], f"{type(e).__name__}: {str(e)[:400]}")
     try:
         ev["endTurn"] = host.cmd({"cmd": "battle_action", "action": "end_turn_button"})
         RSB.drive_side_change(host, client, 0, want_turn_min=2, timeout=STEP_S)
@@ -446,9 +455,9 @@ def row_c3(host, client, ctx, ev):
         ev["sideError"] = str(e)[:300]
     ts = [(battle_state(gc).get("turn"), battle_state(gc).get("side")) for gc in (host, client)]
     ev["turnSide"] = ts
-    cell("C3-side", ts == [(2, 0), (2, 0)], f"(turn, side) host/client {ts} (want (2, 0) on both after the host's END TURN)"
+    cell("alien_move-side", ts == [(2, 0), (2, 0)], f"(turn, side) host/client {ts} (want (2, 0) on both after the host's END TURN)"
          f"{'; ' + ev['sideError'] if ev.get('sideError') else ''}")
-    common("C3", host, client, crash0)
+    common("alien_move", host, client, crash0)
     return names
 
 
@@ -456,27 +465,27 @@ def run(host, client):
     ctx = {"blocked": None}
     ev0 = {}
     host0, client0, xb = bring_up(host, client, ev0)
-    crash0 = crash_set()   # the crash baseline: staging and the entry count in C1-common
-    evidence("C-gm", ev0)
-    row_verdict("C-gm", ["C-gm"])
+    crash0 = crash_set()   # the crash baseline: staging and the entry count in entry-common
+    evidence("gamemode", ev0)
+    row_verdict("gamemode", ["gamemode"])
     ev1 = {}
     squad = stage_landing(host, client, xb, client0, ev1)
-    names = row_c1(host, client, host0, client0, squad, ctx, ev1, crash0)
-    evidence("C1", ev1)
-    row_verdict("C1", names)
+    names = row_entry(host, client, host0, client0, squad, ctx, ev1, crash0)
+    evidence("entry", ev1)
+    row_verdict("entry", names)
     ev2 = {}
-    names = row_c2(host, client, ctx, ev2)
-    evidence("C2", ev2)
-    row_verdict("C2", names)
+    names = row_xcom_move(host, client, ctx, ev2)
+    evidence("xcom_move", ev2)
+    row_verdict("xcom_move", names)
     ev3 = {}
-    names = row_c3(host, client, ctx, ev3)
-    evidence("C3", ev3)
-    row_verdict("C3", names)
+    names = row_alien_move(host, client, ctx, ev3)
+    evidence("alien_move", ev3)
+    row_verdict("alien_move", names)
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("d250uc1_c_host"))
-    client = GameClient("client", None, make_user_dir("d250uc1_c_client"))
+    host = GameClient("host", None, make_user_dir("campaign_battle_gm3_host"))
+    client = GameClient("client", None, make_user_dir("campaign_battle_gm3_client"))
     t0 = time.time()
     try:
         run(host, client)
@@ -491,7 +500,7 @@ def main():
         finally:
             client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-C1 gm3 PvP campaign battle entry: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
+    print(f"\n==== test_campaign_battle_gm3: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)

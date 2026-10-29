@@ -11,7 +11,7 @@ Boot L: gm3 (the HOST plays the aliens), lobby key 48046, dirs w2h38_l_host / w2
 (alien_player="host"); HOST0 / CLIENT0 (G3C1's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
 noBases true, client noBases false, the client's real base X, its non-coop Skyranger SKY, >= 2 soldiers; geo.slow_clock; crash baseline.
 Staging: G3C1.stage_landing (the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE L:" line (or
-G3C1's "CAPTURE C:" line) and every cell FAILs "boot".
+G3C1's "CAPTURE boot:" line) and every cell FAILs "boot".
 Row H1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked"):
   the client's log cursor; client set_seed 1 + confirm_landing; every 0.02 s until both battle_state.inBattle (<= 60 s) one sample
   (client coop_dialog_info, its stack, the host's pvpBorrow.borrowed; F15127); session.briefings_to_battlescape; H1-common; the client
