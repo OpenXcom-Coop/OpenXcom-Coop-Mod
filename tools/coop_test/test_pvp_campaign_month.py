@@ -70,7 +70,8 @@ def test_month_roll(fails, alien_player, expect_mode):
             gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
             gc.ok({"cmd":"profile_ok"})
         host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
-        host.wait_for("START CAMPAIGN shown (D250-U A1)", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
+        host.wait_for("START CAMPAIGN shown",
+                      lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
         ls = host.cmd({"cmd": "lobby_state"})
         names = ls.get("players", [])
@@ -89,11 +90,12 @@ def test_month_roll(fails, alien_player, expect_mode):
         xcom_gc = host if alien_player == "client" else client
         alien_gc = client if alien_player == "client" else host
 
-        xcom_gc.wait_for("XCOM base placement screen (D250-U S-A)", lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
+        xcom_gc.wait_for("XCOM base placement screen",
+                         lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
         if _has(xcom_gc, "BuildNewBaseState"):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
         time.sleep(2)
-        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # once the wait dialog shows its button
 
         for gc, label in ((host,"host"),(client,"client")):
             gc.wait_for(f"{label} geoscape",
