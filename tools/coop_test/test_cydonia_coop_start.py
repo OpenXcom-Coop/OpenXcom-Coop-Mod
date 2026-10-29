@@ -35,20 +35,23 @@ def _craft_and_soldiers(gc):
     roster = gc.ok({"cmd": "get_soldiers"})["bases"]
     soldiers = next(b["soldiers"] for b in roster
                     if not b.get("coopBaseFlag"))
-    return craft["id"], [s["id"] for s in soldiers]
+    return craft["id"], [s["id"] for s in soldiers], base["name"]
 
 
-def _seat(gc, craft_id, soldier_ids):
+def _seat(gc, craft_id, soldier_ids, base_name):
+    # One Separate world holds both players' bases, and craft ids repeat per
+    # base (both have Skyranger 1): name the base the craft belongs to.
     for sid in soldier_ids:
-        gc.ok({"cmd": "craft_assign", "craft_id": craft_id,
+        gc.ok({"cmd": "craft_assign", "craft_id": craft_id, "base": base_name,
                "soldier_id": sid, "on": False})
     for sid in soldier_ids[:2]:
-        gc.ok({"cmd": "craft_assign", "craft_id": craft_id,
+        gc.ok({"cmd": "craft_assign", "craft_id": craft_id, "base": base_name,
                "soldier_id": sid, "on": True})
 
 
-def _aboard(gc, craft_id):
+def _aboard(gc, craft_id, base_name=None):
     return sorted(s["id"] for b in gc.ok({"cmd": "get_soldiers"})["bases"]
+                  if base_name is None or b["name"] == base_name
                   for s in b["soldiers"] if s["craftId"] == craft_id)
 
 
@@ -61,11 +64,18 @@ def run_mode(mode, test_ports, coop_port):
         client.spawn(); client.connect()
         session.new_campaign(host, client, port=str(coop_port), campaign_mode=mode)
 
-        host_craft, host_roster = _craft_and_soldiers(host)
-        _seat(host, host_craft, host_roster)
+        host_craft, host_roster, host_base = _craft_and_soldiers(host)
+        _seat(host, host_craft, host_roster, host_base)
         if mode == "coop":
-            client_craft, client_roster = _craft_and_soldiers(client)
-            _seat(client, client_craft, client_roster)
+            client_craft, client_roster, client_base = _craft_and_soldiers(client)
+            _seat(client, client_craft, client_roster, client_base)
+            # Separate craft_assign is a host command: wait for the host world.
+            for craft, roster, base in ((host_craft, host_roster, host_base),
+                                        (client_craft, client_roster, client_base)):
+                host.wait_for(f"{base} squad seated",
+                              lambda c=craft, r=roster, b=base:
+                              (_aboard(host, c, b) == sorted(r[:2])) or None,
+                              timeout=30)
         else:
             # Give the shared squad one unit from each seat and wait until the
             # replicated ownership/assignment commands have settled.
