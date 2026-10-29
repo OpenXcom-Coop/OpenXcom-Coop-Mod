@@ -1,9 +1,9 @@
-"""W2-H16h (F7299; D226 a; Q1 a .. Q6 a; V1-V3): in SHARED the random-production window lists the host's items on both machines
-and its right-click sale goes through the host (`sell`, capped at the host's stores, V-E1); SEPARATE stays local. Spec docs
-rewrite/prompts/w2h16h_random_production_sale.md (e)-(f); TASK 0 rewrite/w2h16h-task0/CONSTANTS.md. Lever (test-only, read-only):
-prodwin_probe; real input (inject_input). Boot A (SHARED): H16h-1..3 (one completion's windows), H16h-4, H16h-5 (last); Boot B
-(SEPARATE): H16h-6 (guard row). RED (commit 1): H16h-1..5 fail on their named cells, H16h-6 passes; GREEN: all pass. "guard:" cells
-are guards (CAPTURE on a miss); never `mismatches`. EVIDENCE then PASS / FAIL per row; ONE run; exit 0 if all pass, else 2."""
+"""In SHARED the random-production window lists the host's items on both machines and its right-click sale goes
+through the host (`sell`, capped at the host's stores); SEPARATE stays local. Test hook (read-only): prodwin_probe; real
+input (inject_input). SHARED boot: client_list, client_sells, host_sells (one completion's windows), two_sales,
+after_repair (last); SEPARATE boot: separate_local (guard row). Without the fix the five SHARED rows fail on their named
+cells and separate_local passes; with it all pass. "guard:" cells are guards (CAPTURE on a miss); never `mismatches`.
+EVIDENCE then PASS / FAIL per row; ONE run; exit 0 if all pass, else 2."""
 
 import json
 import os
@@ -18,12 +18,12 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_RandomSale_Test")
-BOOT_A = ("w2h16ha", (49411, 49412, 47380))     # SHARED; lobby 47380
-BOOT_B = ("w2h16hb", (49413, 49414, 47382))     # SEPARATE; lobby 47382
+SHARED_BOOT = ("random_sale_shared", (49411, 49412, 47380))     # SHARED; lobby 47380
+SEPARATE_BOOT = ("random_sale_separate", (49413, 49414, 47382))     # SEPARATE; lobby 47382
 ITEM, SR, LR = "STR_SALETEST_RANDOM", "STR_SMALL_ROCKET", "STR_LARGE_ROCKET"
-CAPTION = "Summary"                             # TASK 0 T0-3 (en-US tr("STR_RANDOM_PRODUCTION_SUMMARY"))
+CAPTION = "Summary"                             # en-US tr("STR_RANDOM_PRODUCTION_SUMMARY")
 P_S, P_L = 480, 720                             # the window's price of one small / large rocket
-S0_S, ROLL_S, ROLL_I, OPEN_S, WIN_S, WIN_I, POST_S, UI_S = 20.0, 30.0, 0.1, 3.0, 3.0, 0.25, 4.0, 5.0
+AGREE_S, ROLL_S, ROLL_I, OPEN_S, WIN_S, WIN_I, POST_S, UI_S = 20.0, 30.0, 0.1, 3.0, 3.0, 0.25, 4.0, 5.0
 GEO = "GeoscapeState"
 ADOPTED = "restream adopted; released the client hold"   # the host's log line per adopted restream (test_shared_resync_storm)
 
@@ -60,13 +60,13 @@ def req0(x): return {k: v["requests"] for k, v in both(x, rs).items()}  # noqa: 
 
 class Row:
     def __init__(self, rid):
-        self.rid, self.t0, self.ev, self.fails, self.passed, self.R0 = rid, time.time(), {}, [], [], None
+        self.rid, self.t0, self.ev, self.fails, self.passed, self.baseline = rid, time.time(), {}, [], [], None
 
     def cell(self, name, ok, detail=""): return (self.passed.append(name) if ok else self.fails.append(f"{name}: {detail}")) or ok  # noqa: E704,E501
 
 
 def capture(x, tag):
-    """Setup-failure dump (STOP-IF 3): both machines' prod_fx_probe, prodwin_probe, shared_stats, shared_resync_stats, stack."""
+    """Setup-failure dump: both machines' prod_fx_probe, prodwin_probe, shared_stats, shared_resync_stats, stack."""
     cap = {}
     for gc in (x.host, x.client):
         try:
@@ -92,7 +92,8 @@ def drain(gc):
 
 
 def agreed(x, drained=None):
-    """Both prod_fx_probe agree on funds, both rocket counts, productions (never `ids`, F7500); no restream pending; on the geoscape."""
+    """Both prod_fx_probe agree on funds, both rocket counts, productions (never `ids`); no restream pending; on the
+    geoscape."""
     if rs(x.client)["pending"]:
         return None
     for gc in (x.host, x.client):
@@ -104,15 +105,15 @@ def agreed(x, drained=None):
     return p if view(p["host"]) == view(p["client"]) else None
 
 
-def s0(r, x, tag="S0"):
-    """Row frame S0: <= 20 s until both machines agree; R0 = both `requests`."""
+def wait_agreed(r, x, tag="atStart"):
+    """Row frame atStart: <= 20 s until both machines agree; baseline = both `requests`."""
     t0, drained = time.time(), []
-    ok, p = wait_until(lambda: agreed(x, drained), S0_S, 0.25)
+    ok, p = wait_until(lambda: agreed(x, drained), AGREE_S, 0.25)
     d = {"agreeS": round(time.time() - t0, 2), "drained": drained}
     r.ev[tag] = d
     guard(r, x, f"{tag} agreement", ok, f"not agreed in {d['agreeS']} s; stacks {both(x, stack)}; views {both(x, lambda g: view(pf(g)))}")
-    r.R0 = req0(x)
-    d.update(R0=r.R0, view={k: view(v) for k, v in p.items()}, window=both(x, lambda g: wslim(pw(g))))
+    r.baseline = req0(x)
+    d.update(baseline=r.baseline, view={k: view(v) for k, v in p.items()}, window=both(x, lambda g: wslim(pw(g))))
     return p
 
 
@@ -174,7 +175,8 @@ def funds_equal(r, x, tag):
 
 
 def window(r, x):
-    """Both probes every ~0.25 s for 3 s; guard: the client's `requests` stays R0 at every sample. Returns the LAST sample."""
+    """Both probes every ~0.25 s for 3 s; guard: the client's `requests` stays baseline at every sample. Returns the
+    LAST sample."""
     t0, reqs, smp = time.time(), [], []
     while time.time() - t0 < WIN_S:
         p, w = both(x, pf), both(x, pw)
@@ -183,12 +185,14 @@ def window(r, x):
         reqs.append(rs(x.client)["requests"])
         time.sleep(WIN_I)
     r.ev["window"] = {"n": len(smp), "requests": reqs, "first": smp[0], "last": smp[-1]}
-    guard(r, x, "window requests flat", all(q == r.R0["client"] for q in reqs), f"client requests {reqs} (R0 {r.R0['client']})")
+    guard(r, x, "window requests flat", all(q == r.baseline["client"] for q in reqs),
+          f"client requests {reqs} (baseline {r.baseline['client']})")
     return smp[-1]
 
 
 def release(r, x):
-    """Speed 0, host close_screens, drain both; cells passed: the client's `requests` stays R0 for 4 s (else EVIDENCE of the repair)."""
+    """Speed 0, host close_screens, drain both; cells passed: the client's `requests` stays baseline for 4 s (else
+    EVIDENCE of the repair)."""
     t0 = time.time()
     r.ev["release"], reqs = {"speed0": speed(x, 0), "close": pick(x.host.cmd({"cmd": "close_screens"}), "popped", "refused"),
                              "drain": both(x, drain)}, []
@@ -197,14 +201,14 @@ def release(r, x):
         time.sleep(0.25)
     r.ev["release"]["requests"] = reqs
     if not r.fails:
-        r.cell("noRepair", all(q == r.R0["client"] for q in reqs), f"client requests {reqs} in {POST_S} s after the release "
-               f"(R0 {r.R0['client']}): the replica needed a repair restream")
+        r.cell("noRepair", all(q == r.baseline["client"] for q in reqs), f"client requests {reqs} in {POST_S} s after "
+               f"the release (baseline {r.baseline['client']}): the replica needed a repair restream")
     r.ev["end"] = {k: view(v) for k, v in both(x, pf).items()}
 
 
-def row_1(r, x):
+def row_client_list(r, x):
     """The second player's list: the client's own start (1, 1); both windows; Summary on both."""
-    p0 = s0(r, x)
+    p0 = wait_agreed(r, x)
     x.K, x.L = st(p0["host"]), st(p0["host"], LR)
     start(r, x, 1)
     progress(r, x, 9)
@@ -218,10 +222,10 @@ def row_1(r, x):
            f"second player's production window lists nothing")
 
 
-def row_2(r, x):
-    """The second player sells (H16h-1's windows): right-click its SMALL row."""
+def row_client_sells(r, x):
+    """The second player sells (client_list's windows): right-click its SMALL row."""
     guard(r, x, "windows open", all(v.get("open") for v in both(x, pw).values()), f"{both(x, lambda g: wslim(pw(g)))}")
-    r.R0 = req0(x)
+    r.baseline = req0(x)
     F = funds_equal(r, x, "F")
     rclick(r, x, x.client, SR, "client rclick SMALL")
     e = window(r, x)
@@ -233,10 +237,10 @@ def row_2(r, x):
            f"P_S = {F + 3 * P_S}), client rows {e['rows']['client']}: the second player cannot sell from its window")
 
 
-def row_3(r, x):
+def row_host_sells(r, x):
     """The host sells (the same windows): right-click its LARGE row; then the release."""
     guard(r, x, "windows open", all(v.get("open") for v in both(x, pw).values()), f"{both(x, lambda g: wslim(pw(g)))}")
-    r.R0 = req0(x)
+    r.baseline = req0(x)
     F = funds_equal(r, x, "F")
     rclick(r, x, x.host, LR, "host rclick LARGE")
     e = window(r, x)
@@ -249,11 +253,13 @@ def row_3(r, x):
     release(r, x)
 
 
-def row_4(r, x):
-    """Two sales at once sell what is left (V-E1): the host's LARGE sale held on the client, then the client's own LARGE click."""
-    p0 = s0(r, x)
+def row_two_sales(r, x):
+    """Two sales at once sell what is left: the host's LARGE sale held on the client, then the client's own LARGE
+    click."""
+    p0 = wait_agreed(r, x)
     L = st(p0["host"], LR)
-    guard(r, x, "L == 0", L == 0 and st(p0["client"], LR) == 0, f"LARGE {view(p0['host'])} / {view(p0['client'])} (H16h-4 needs 0)")
+    guard(r, x, "L == 0", L == 0 and st(p0["client"], LR) == 0,
+          f"LARGE {view(p0['host'])} / {view(p0['client'])} (two_sales needs 0)")
     start(r, x, 1)
     progress(r, x, 9)
     roll_to_window(r, x, [x.host, x.client])
@@ -262,7 +268,7 @@ def row_4(r, x):
     r.ev["rows"] = {k: rows(v) for k, v in w.items()}
     guard(r, x, "host rows", rows(w["host"]) == [[LR, 1], [SR, 3]], f"host rows {rows(w['host'])}")
     if not r.cell("clientList", rows(w["client"]) == rows(w["host"]), f"client rows {rows(w['client'])} / host {rows(w['host'])}: "
-                  f"the second player's production window lists nothing (the green path is not run)"):
+                  f"the second player's production window lists nothing (the sale steps are not run)"):
         return release(r, x)
     F = funds_equal(r, x, "F")
     s0s = r.ev["stats0"] = both(x, ss)
@@ -288,9 +294,10 @@ def row_4(r, x):
     release(r, x)
 
 
-def row_5(r, x):
-    """After a repair copy (last in Boot A): a 2-unit run, a host force_resync after unit 1, then unit 2's windows."""
-    p0 = s0(r, x)
+def row_after_repair(r, x):
+    """After a repair copy (last in the SHARED boot): a 2-unit run, a host force_resync after unit 1, then unit 2's
+    windows."""
+    p0 = wait_agreed(r, x)
     K, L = st(p0["host"]), st(p0["host"], LR)
     start(r, x, 2)
     progress(r, x, 9)
@@ -318,7 +325,7 @@ def row_5(r, x):
           f"{r.ev['atWindow']} (want host rows [[{LR}, 2], [{SR}, 6]], stores K+6 = {K + 6} / L+2 = {L + 2})")
     r.cell("clientListFresh", rows(w["client"]) == rows(w["host"]), f"client rows {rows(w['client'])} / host {rows(w['host'])}: the "
            f"second player lists the copy from the repair")
-    r.R0 = req0(x)
+    r.baseline = req0(x)
     F = funds_equal(r, x, "F")
     rclick(r, x, x.client, SR, "client rclick SMALL")
     e = window(r, x)
@@ -330,13 +337,15 @@ def row_5(r, x):
     release(r, x)
 
 
-def row_6(r, x):
+def row_separate_local(r, x):
     """SEPARATE stays local (guard row): the client's own start (1, 1), its window, its right-click on SMALL."""
     h, c = x.host, x.client
-    guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, S0_S, 0.2)[0], f"stacks {both(x, stack)}")
+    guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, AGREE_S, 0.2)[0],
+          f"stacks {both(x, stack)}")
     r.ev["speed0"] = speed(x, 0)
     p0, h0, s1 = pf(c), pf(h), both(x, ss)
-    r.ev["S0"] = {"client": view(p0), "host": view(h0), "shared_stats": s1, "window": both(x, lambda g: wslim(pw(g)))}
+    r.ev["atStart"] = {"client": view(p0), "host": view(h0), "shared_stats": s1,
+                       "window": both(x, lambda g: wslim(pw(g)))}
     r.ev["start"] = pick(c.cmd({"cmd": "manufacture_start", "item": ITEM, "engineers": 1, "qty": 1}), "ok", "sent", "error")
     guard(r, x, "listed", wait_until(lambda: (prod(pf(c)) or {}).get("assigned") == 1, UI_S)[0] and prod(pf(h)) is None,
           f"client {view(pf(c))} {prod(pf(c))}, host {prod(pf(h))}")
@@ -377,8 +386,8 @@ def run_one(rid, fn, x, results):
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
 
-def setup_a(x):
-    """Speed 0 on both; the seats; both probes answer; the mod's project exists (a start is listed in H16h-1)."""
+def setup_shared(x):
+    """Speed 0 on both; the seats; both probes answer; the mod's project exists (a start is listed in client_list)."""
     sp, seats, p = speed(x, 0), both(x, lambda g: g.cmd({"cmd": "synced_options_state"}).get("localSeat")), both(x, pf)
     info = {"speed0": sp, "seats": seats, "view": {k: view(v) for k, v in p.items()}, "mods": [os.path.basename(MOD)]}
     if not all(v.get("ok") for v in p.values()) or None in seats.values():
@@ -386,8 +395,8 @@ def setup_a(x):
     return info
 
 
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def bring_up_separate():
+    tag, (hp, cp, lp) = SEPARATE_BOOT
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
     try:
@@ -421,17 +430,21 @@ def boot(tag, up, setup, rows_, results, walls):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h16h] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[random_sale] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    ROWS_A = (("H16h-1", row_1), ("H16h-2", row_2), ("H16h-3", row_3), ("H16h-4", row_4), ("H16h-5", row_5))
-    ROWS_B = (("H16h-6", row_6),)
-    boot(BOOT_A[0], lambda: shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,)), setup_a, ROWS_A, results, walls)
-    boot(BOOT_B[0], boot_b, lambda x: {"mods": [os.path.basename(MOD)]}, ROWS_B, results, walls)
-    failed, n = [rid for rid, _ in ROWS_A + ROWS_B if not results.get(rid)], len(ROWS_A + ROWS_B)
+    SHARED_ROWS = (("client_list", row_client_list), ("client_sells", row_client_sells),
+                   ("host_sells", row_host_sells), ("two_sales", row_two_sales), ("after_repair", row_after_repair))
+    SEPARATE_ROWS = (("separate_local", row_separate_local),)
+    boot(SHARED_BOOT[0], lambda: shared_fixture.bring_up(SHARED_BOOT[0], SHARED_BOOT[1], mods=(MOD,)), setup_shared,
+         SHARED_ROWS, results, walls)
+    boot(SEPARATE_BOOT[0], bring_up_separate, lambda x: {"mods": [os.path.basename(MOD)]}, SEPARATE_ROWS, results,
+         walls)
+    failed, n = [rid for rid, _ in SHARED_ROWS + SEPARATE_ROWS if not results.get(rid)], len(SHARED_ROWS
+                                                                                             + SEPARATE_ROWS)
     print(f"\ntest_random_production_sale: {n - len(failed)}/{n} passed (fail={failed}) walls {walls} in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
 
