@@ -1,19 +1,28 @@
-"""test_client_dialog_ok_crash.py (L-H54-1, R-H56-0; capture lh54-1-cap F18240-F18250; docs
-rewrite/prompts/w2h56_client_dialog_ok_crash.md (f); TASK 0 rewrite/w2h56-task0/sa/CONSTANTS.md). The second player of a co-op
-campaign presses OPTIONS > CO-OP > DISCONNECT: its teardown sets GoToMainMenuState, but the lobby pushes the server browser over it
-and the world stays loaded (the trap). A Direct Connect from there that fails (16 "Cannot connect") or reaches a NEW BATTLE host
-(3000 "New Battle") builds a dialog whose constructor runs disconnectTCP() (stack = GoToMainMenuState) and then popState(): the
-dialog is the only state, its OK pops the last state and Game::run reads the empty stack (Game.cpp :444, exit 3, a crash log).
-Rows, one fresh boot each (keys "49182" the campaign / "49186" the NEW BATTLE key and the refused port; dirs w2h56_<row>_*):
-  R-A trap -> Direct Connect to the refused port -> 16 alone -> OK: A-pre, A-alive, A-nocrash, A-menu, A-host (the host's 62).
-  R-B trap; the host ABANDONs its 62 (real click), hosts a NEW BATTLE (levers) -> Direct Connect to it -> 3000 alone -> OK:
-      B-pre, B-alive, B-nocrash, B-menu, B-host (the host's 20). R-C the control, LAST: no world (NEW BATTLE > COOP) -> the
-      refused port -> 16 over the browser -> OK: C-pre, C-list. RED: the -alive / -nocrash / -menu cells of A and B; the rest GUARD.
-Every press is a REAL click (click_widget) once list_widgets reads the button visible true, hidden false on the named top state; the
-port is typed with real keys (inject_input), RETURN before JOIN. Never coop_dialog_back, dismiss_popup, lobby_disconnect or
-join_tcp. One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its
-row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE foreground run, no
-skip path, every row runs after a failure; exit 0 only when every cell passes, else 2. Run: python tools/coop_test/<this file>"""
+"""test_client_dialog_ok_crash.py: a co-op dialog's OK on a client that disconnected from a campaign must not crash it.
+
+The second player of a co-op campaign presses OPTIONS > CO-OP > DISCONNECT: its teardown sets GoToMainMenuState, but
+the lobby pushes the server browser over it and the world stays loaded. A Direct Connect from there that fails (16
+"Cannot connect") or reaches a NEW BATTLE host (3000 "New Battle") builds a dialog whose constructor runs
+disconnectTCP() (stack = GoToMainMenuState) and then popState(). Unguarded, the dialog is then the only state, its OK
+pops the last state and Game::run reads the empty stack (Game.cpp :444, exit 3, a crash log); the client must reach
+the main menu with no world loaded instead.
+Rows, one fresh boot each (lobby keys CAMPAIGN_KEY "49182" the campaign / NEW_BATTLE_KEY "49186" the NEW BATTLE host
+and the refused port; user dirs dialog_ok_crash_<row>_*):
+  refused_port: disconnect to the browser -> Direct Connect to the refused port -> 16 alone -> OK: refused_port_setup,
+      refused_port_alive, refused_port_no_crash, refused_port_main_menu, refused_port_host_dialog (the host's 62).
+  new_battle_host: disconnect to the browser; the host ABANDONs its 62 (real click), hosts a NEW BATTLE (test
+      commands) -> Direct Connect to it -> 3000 alone -> OK: new_battle_host_setup, new_battle_host_alive,
+      new_battle_host_no_crash, new_battle_host_main_menu, new_battle_host_host_dialog (the host's 20).
+  no_world, the control, LAST: no world (NEW BATTLE > COOP) -> the refused port -> 16 over the browser -> OK:
+      no_world_setup, no_world_back_on_browser.
+The _alive, _no_crash and _main_menu cells of refused_port and new_battle_host fail without the fix; the other cells
+pass either way.
+Every press is a REAL click (click_widget) once list_widgets reads the button visible true, hidden false on the named
+top state; the port is typed with real keys (inject_input), RETURN before JOIN. Never coop_dialog_back,
+dismiss_popup, lobby_disconnect or join_tcp. One EVIDENCE line per row, one PASS / FAIL line per cell, the row
+verdict; a precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE
+line. ONE foreground run, no skip path, every row runs after a failure; exit 0 only when every cell passes, else 2.
+Run: python tools/coop_test/<this file>"""
 
 import json, os, socket, sys, time  # noqa: E401
 
@@ -22,18 +31,21 @@ import harness  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 
-KEY = "49182"
-KEY2 = "49186"
-DEAD_PORT = int(KEY2)
-# CONSTANTS.md (TASK 0 boots a, b, c): 16 seen 3.2 s / 3000 1.3 s after JOIN, buttons shown <= 2.9 s, the trap 0.4 s after the
-# DISCONNECT, red exit <= 0.61 s after the OK click, green menu 0.10 s, the host's 62 0.7 s after the DISCONNECT.
+CAMPAIGN_KEY = "49182"
+NEW_BATTLE_KEY = "49186"
+DEAD_PORT = int(NEW_BATTLE_KEY)
+# Three trial boots: 16 seen 3.2 s / 3000 1.3 s after JOIN, buttons shown <= 2.9 s, the browser stack 0.4 s after
+# the DISCONNECT, the crash exit <= 0.61 s after the OK click without the fix, the main menu 0.10 s after it with the
+# fix, the host's 62 0.7 s after the DISCONNECT.
 POLL_S, SHOWN_S, STABLE_S, OUTCOME_S, HOST_S, BOOT_S = 0.05, 30.0, 2.0, 15.0, 15.0, 30.0
 SEEN_S = {16: 30.0, 3000: 40.0}
 KEY_GAP_S, AFTER_FIELD_S, AFTER_RETURN_S = 0.06, 0.3, 0.4
 SDLK_END, SDLK_BACKSPACE, SDLK_RETURN = 279, 8, 13
-CELLS = {"A": ("A-pre", "A-alive", "A-nocrash", "A-menu", "A-host"),
-         "B": ("B-pre", "B-alive", "B-nocrash", "B-menu", "B-host"),
-         "C": ("C-pre", "C-list")}
+CELLS = {"refused_port": ("refused_port_setup", "refused_port_alive", "refused_port_no_crash", "refused_port_main_menu",
+                          "refused_port_host_dialog"),
+         "new_battle_host": ("new_battle_host_setup", "new_battle_host_alive", "new_battle_host_no_crash",
+                             "new_battle_host_main_menu", "new_battle_host_host_dialog"),
+         "no_world": ("no_world_setup", "no_world_back_on_browser")}
 TITLE = {16: "Cannot connect to server", 3000: "Please click the 'New Battle' button"}
 HOST_TITLE = {62: lambda t: t.startswith("Waiting for"), 20: lambda t: t.endswith("has left the server")}
 LIST = ["MainMenuState", "NewBattleState", "ServerList"]
@@ -66,7 +78,7 @@ def info(gc): return pick(gc, "coop_dialog_info", ("present", "code", "title", "
 def coop(gc): return pick(gc, "get_coop", ("coopCampaign", "onConnect", "coopDialog", "serverOwner", "hasSave"))
 def has_save(gc): return probe(lambda: gc.cmd({"cmd": "world_state"}).get("has_save"), lambda u: u)
 
-def cpu():  # the % Processor Time counter and any foreign game (S24)
+def cpu():  # the % Processor Time counter and any foreign game
     c = harness.cpu_load()
     return {"cpu": harness.cpu_text(c["cpu"], 0), "foreign": ",".join(c["wardogs"])}
 
@@ -107,18 +119,19 @@ def press(gc, state, match, t0, ev, step):
     if r.get("ok") is not True:
         raise Miss("%s: click_widget %s" % (step, short(r, 200)))
 
-def trap(client, t0, ev):
-    """OPTIONS > CO-OP > DISCONNECT (real clicks); within STABLE_S the trap's stack, has_save true and coopCampaign true"""
+def disconnect_to_browser(client, t0, ev):
+    """OPTIONS > CO-OP > DISCONNECT (real clicks); within STABLE_S the stack [GoToMainMenuState, ServerList], has_save
+    true and coopCampaign true"""
     for state, match in (("GeoscapeState", "options"), ("PauseState", "co-op"), ("LobbyMenu", "disconnect")):
         press(client, state, match, t0, ev, match)
     end, last = time.time() + STABLE_S, None
     while time.time() < end:
         last = [stk(client), has_save(client), coop(client).get("coopCampaign")]
         if last == [["GoToMainMenuState", "ServerList"], True, True]:
-            ev["trap"] = [now(t0)] + last
+            ev["disconnect_to_browser"] = [now(t0)] + last
             return
         time.sleep(POLL_S)
-    raise Miss("trap: [stack, has_save, coopCampaign] %s" % short(last, 300))
+    raise Miss("disconnect_to_browser: [stack, has_save, coopCampaign] %s" % short(last, 300))
 
 def refused(port, ev):
     """a Python connect to 127.0.0.1:port raises ConnectionRefusedError (just before the dial)"""
@@ -196,7 +209,7 @@ def click_ok(client, host, code, want, rid, t0, ev, cells):
     ev["okClick"] = [now(t0), r.get("ok"), r.get("text")]
     if r.get("ok") is not True or r.get("text") != "OK":
         raise Miss("OK click %s" % short(r, 200))
-    cells[rid + "-pre"] = (True, None)
+    cells[rid + "_setup"] = (True, None)
     return crash0
 
 def outcome(gc, t0, ev, want, key="outcome"):
@@ -217,55 +230,59 @@ def outcome(gc, t0, ev, want, key="outcome"):
     return False
 
 def finish(client, host, rid, want, t0, ev, cells, crash0):
-    """outcome -> alive -> the host's top dialog within HOST_S (A: 62, B: 20) -> the crash diff -> the row's cells"""
+    """outcome -> alive -> the host's top dialog within HOST_S (refused_port: 62, new_battle_host: 20) -> the crash
+    diff -> the row's cells"""
     reached = outcome(client, t0, ev, want)
     alive = client.proc.poll() is None
     ev["afterOutcome"] = {gc.name: stk(gc) for gc in (client, host) if gc is not None}
     if host is not None:
-        code = 62 if rid == "A" else 20
+        code = 62 if rid == "refused_port" else 20
         host_ok, ev["host"] = top_dialog(host, code, t0, HOST_S, HOST_TITLE[code])
     time.sleep(1.0)  # the crash handler's files
     new = session._crash_log_snapshot() - crash0
     ev["newCrash"], ev["exit"] = crash_lines(new), client.proc.poll()
-    if rid == "C":
-        cells["C-list"] = (alive and reached and not new, {"outcome": ev["outcome"], "newCrash": ev["newCrash"]})
+    if rid == "no_world":
+        cells["no_world_back_on_browser"] = (alive and reached and not new,
+                                             {"outcome": ev["outcome"], "newCrash": ev["newCrash"]})
         return
-    cells.update({rid + "-alive": (alive, {"outcome": ev["outcome"], "exit": ev["exit"]}), rid + "-nocrash": (not new, ev["newCrash"]),
-                  rid + "-menu": (reached, ev["outcome"]), rid + "-host": (host_ok, ev["host"])})
+    cells.update({rid + "_alive": (alive, {"outcome": ev["outcome"], "exit": ev["exit"]}),
+                  rid + "_no_crash": (not new, ev["newCrash"]),
+                  rid + "_main_menu": (reached, ev["outcome"]), rid + "_host_dialog": (host_ok, ev["host"])})
 
-def row_a(host, client, ev, cells):
-    """trap -> Direct Connect to the refused DEAD_PORT -> 16 alone -> OK"""
+def row_refused_port(host, client, ev, cells):
+    """disconnect to the browser -> Direct Connect to the refused DEAD_PORT -> 16 alone -> OK"""
     t0 = time.time()
-    trap(client, t0, ev)
+    disconnect_to_browser(client, t0, ev)
     refused(DEAD_PORT, ev)
     dial(client, DEAD_PORT, t0, ev)
-    crash0 = click_ok(client, host, 16, ["CoopState"], "A", t0, ev, cells)
-    finish(client, host, "A", ["MainMenuState"], t0, ev, cells, crash0)
+    crash0 = click_ok(client, host, 16, ["CoopState"], "refused_port", t0, ev, cells)
+    finish(client, host, "refused_port", ["MainMenuState"], t0, ev, cells, crash0)
 
-def row_b(host, client, ev, cells):
-    """trap; the host's 62 -> its ABANDON (real click) -> a NEW BATTLE host on KEY2 (the four levers) -> Direct Connect -> 3000 -> OK"""
+def row_new_battle_host(host, client, ev, cells):
+    """disconnect to the browser; the host's 62 -> its ABANDON (real click) -> a NEW BATTLE host on NEW_BATTLE_KEY (four
+    test commands) -> Direct Connect -> 3000 -> OK"""
     t0 = time.time()
-    trap(client, t0, ev)
+    disconnect_to_browser(client, t0, ev)
     dialog(host, 62, t0, ev, HOST_S)
     press(host, "CoopState", "abandon", t0, ev, "host abandon")
     if not outcome(host, t0, ev, ["MainMenuState"], "hostMain"):
         raise Miss("host after ABANDON: %s" % short(ev["hostMain"], 300))
     try:
-        hm = {"visibility": 0, "server": "TestSrv", "port": KEY2, "player": "HostPlayer"}
-        for lever, state, extra in (("open_new_battle", "NewBattleState", {}), ("newbattle_coop", "ServerList", {}),
+        hm = {"visibility": 0, "server": "TestSrv", "port": NEW_BATTLE_KEY, "player": "HostPlayer"}
+        for command, state, extra in (("open_new_battle", "NewBattleState", {}), ("newbattle_coop", "ServerList", {}),
                                     ("server_list_host", "HostMenu", {}), ("host_menu_host", "LobbyMenu", hm)):
-            host.ok(dict({"cmd": lever}, **extra))
+            host.ok(dict({"cmd": command}, **extra))
             host.wait_for("host " + state, lambda state=state: session.has_state(host, state))
-        port = harness._EPHEMERAL_COOP_PORTS[KEY2]
-        harness._wait_host_listening(host, KEY2, port, client)
+        port = harness._EPHEMERAL_COOP_PORTS[NEW_BATTLE_KEY]
+        harness._wait_host_listening(host, NEW_BATTLE_KEY, port, client)
     except Exception as e:  # noqa: BLE001
         raise Miss("NEW BATTLE host: %s" % unreachable(e))
     ev["steps"].append([host.name, "NEW BATTLE host listening", now(t0), port])
     dial(client, port, t0, ev)
-    crash0 = click_ok(client, host, 3000, ["CoopState"], "B", t0, ev, cells)
-    finish(client, host, "B", ["MainMenuState"], t0, ev, cells, crash0)
+    crash0 = click_ok(client, host, 3000, ["CoopState"], "new_battle_host", t0, ev, cells)
+    finish(client, host, "new_battle_host", ["MainMenuState"], t0, ev, cells, crash0)
 
-def row_c(host, client, ev, cells):
+def row_no_world(host, client, ev, cells):
     """the control: no world. NEW BATTLE > COOP -> the browser -> Direct Connect to DEAD_PORT -> 16 over the browser -> OK"""
     t0 = time.time()
     press(client, "MainMenuState", "new battle", t0, ev, "new battle")
@@ -276,8 +293,8 @@ def row_c(host, client, ev, cells):
         raise Miss("coopCampaign %r on the browser" % ev["coopCampaign"])
     refused(DEAD_PORT, ev)
     dial(client, DEAD_PORT, t0, ev)
-    crash0 = click_ok(client, None, 16, LIST + ["CoopState"], "C", t0, ev, cells)
-    finish(client, None, "C", LIST, t0, ev, cells, crash0)
+    crash0 = click_ok(client, None, 16, LIST + ["CoopState"], "no_world", t0, ev, cells)
+    finish(client, None, "no_world", LIST, t0, ev, cells, crash0)
 
 def settle(host, client, ev):
     """both tops GeoscapeState, both stacks unchanged STABLE_S, within BOOT_S"""
@@ -292,17 +309,19 @@ def settle(host, client, ev):
     return False
 
 def run_row(rid, body):
-    """one fresh boot (R-A / R-B: a SEPARATE session.new_campaign pair; R-C: the client alone); the row body; then shutdown"""
+    """one fresh boot (refused_port / new_battle_host: a SEPARATE session.new_campaign pair; no_world: the client
+    alone); the row body; then shutdown"""
     cells, ev, w0, boot_capture = {}, {"cpu": cpu(), "steps": []}, time.time(), None
-    client = GameClient("client", None, make_user_dir("w2h56_%s_client" % rid.lower()))
-    host = None if rid == "C" else GameClient("host", None, make_user_dir("w2h56_%s_host" % rid.lower()))
+    client = GameClient("client", None, make_user_dir("dialog_ok_crash_%s_client" % rid.lower()))
+    host = None if rid == "no_world" else GameClient("host", None,
+                                                     make_user_dir("dialog_ok_crash_%s_host" % rid.lower()))
     games = [gc for gc in (host, client) if gc is not None]
     try:
         try:
             for gc in games:
                 gc.spawn(); gc.connect()
             if host is not None:
-                session.new_campaign(host, client, port=KEY)
+                session.new_campaign(host, client, port=CAMPAIGN_KEY)
             booted = host is None or settle(host, client, ev)
         except Exception as e:  # noqa: BLE001
             booted, ev["bootError"] = False, unreachable(e)
@@ -312,12 +331,12 @@ def run_row(rid, body):
             body(host, client, ev, cells)
         except Miss as m:
             ev["miss"] = str(m)
-            cells.setdefault(rid + "-pre", (False, "precondition miss: %s" % m))
+            cells.setdefault(rid + "_setup", (False, "precondition miss: %s" % m))
     except Exception as e:  # noqa: BLE001
         ev["error"] = unreachable(e)
-        cells.setdefault(rid + "-pre", (False, ev["error"]))
+        cells.setdefault(rid + "_setup", (False, ev["error"]))
     finally:
-        for gc, exp in ((client, (0, 3, 3221226505)), (host, (0, 3221226505))):  # a red client already exited 3
+        for gc, exp in ((client, (0, 3, 3221226505)), (host, (0, 3221226505))):  # a crashed client already exited 3
             try:
                 if gc is not None and gc.proc is not None:
                     gc.shutdown(expected_returncodes=exp)
@@ -328,27 +347,29 @@ def run_row(rid, body):
     return cells, ev, boot_capture
 
 def report(rid, cells, ev, boot_capture):
-    print("EVIDENCE R-%s: %s" % (rid, short(ev, 4000)), flush=True)
+    print("EVIDENCE %s: %s" % (rid, short(ev, 4000)), flush=True)
     if boot_capture is not None:
-        print("FAIL R-%s boot: %s" % (rid, "no spawn + connect" if rid == "C" else "both tops not GeoscapeState for %.0f s within %.0f s"
-                                     % (STABLE_S, BOOT_S)), flush=True)
-        print("CAPTURE R-%s: %s" % (rid, short(boot_capture, 3000)), flush=True)
+        print("FAIL %s boot: %s" % (rid, "no spawn + connect" if rid == "no_world"
+                                    else "both tops not GeoscapeState for %.0f s within %.0f s" % (STABLE_S, BOOT_S)),
+              flush=True)
+        print("CAPTURE %s: %s" % (rid, short(boot_capture, 3000)), flush=True)
     passed = []
     for name in CELLS[rid]:
         ok, detail = cells.get(name, (False, "not reached"))
         print(("PASS %s" % name) if ok else ("FAIL %s: %s" % (name, short(detail))), flush=True)
         passed += [name] if ok else []
-    print("ROW R-%s: %s (%d/%d cells, wall %s s)" % (rid, "PASS" if len(passed) == len(CELLS[rid]) else "FAIL", len(passed),
-                                                    len(CELLS[rid]), ev.get("wall")), flush=True)
+    print("ROW %s: %s (%d/%d cells, wall %s s)" % (rid, "PASS" if len(passed) == len(CELLS[rid]) else "FAIL",
+                                                  len(passed), len(CELLS[rid]), ev.get("wall")), flush=True)
     return passed
 
 def main():
     t0, passed, walls = time.time(), [], {}
-    for rid, body in (("A", row_a), ("B", row_b), ("C", row_c)):
+    for rid, body in (("refused_port", row_refused_port), ("new_battle_host", row_new_battle_host),
+                      ("no_world", row_no_world)):
         cells, ev, boot_capture = run_row(rid, body)
         passed += report(rid, cells, ev, boot_capture)
-        walls["R-" + rid] = ev.get("wall")
-    failed = [c for rid in ("A", "B", "C") for c in CELLS[rid] if c not in passed]
+        walls["row_" + rid] = ev.get("wall")
+    failed = [c for rid in ("refused_port", "new_battle_host", "no_world") for c in CELLS[rid] if c not in passed]
     print("\ntest_client_dialog_ok_crash: %d/12 cells passed (fail=%s) walls %s in %.1fs"
           % (12 - len(failed), failed, json.dumps(walls), time.time() - t0), flush=True)
     return 2 if failed else 0
