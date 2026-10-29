@@ -1,42 +1,41 @@
-"""R5-U3 S-A rows alien_panic, D2, D1 (boot A, gm2: the client plays the aliens, seat 1): the human alien side plays
-by the player-side rules vanilla gives X-COM - its panic acts out at its side start (R5-V1) and its units skip only the
-AI's weapon-use delay.
+"""PvP rules in gm2 (the client plays the aliens, seat 1): the human alien side plays by the player-side rules vanilla
+gives X-COM - its panic acts out at its side start and its units skip only the AI's weapon-use delay.
 
-Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_rules.py, with its ORCHESTRATOR RULINGS
-R-U3-A-1 (A staged on A_D2_TILE before D2), R-U3-A-2 ("the bomb gone on both" is a D2-admit cell, D2-census is census
-equality) and R-U3-A-3 (D2 is vanilla's dive, two waypoints on LAUNCH_W, with lever-dropped gear inside the blast).
-Constants: rewrite/r5u3-task0/sa/CONSTANTS.md (TASK 0 boots Aa, abcap, Ac-Ag on the unchanged build).
+alien_launch is vanilla's blaster bomb dive (two waypoints on LAUNCH_W) with gear dropped by test command inside the
+blast; A stands on A_LAUNCH_TILE first. The bomb gone on both is part of alien_launch-admit; alien_launch-census is
+census equality. The constants were measured without the fix on several boots.
 
-Boot A (key 48677): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, A morale 0.
+Boot (key 48677): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, A morale 0.
   alien_panic  host set_seed PANIC_SEED right before its END TURN; A's status read on both before any NextTurnState
       closes (the roll); drive_side_change to side 1; a bounded wait (PANIC_S) for the host's `panic` ev, every host
       infobox dismissed host-only, leftover NextTurnStates closed.
       alien_panic-roll   A status 8 (PANICKING) on both at the roll (precondition)
       alien_panic-act    exactly one host `panic` ev {unit A, mode flee or freeze} and its bt_action_end on the same
                          actionId since the press; the client applied the same seqs
-      alien_panic-after  A status 0, TU 0, morale M0 + 15 on both
-  D2  reset A {status 0, TU A_TU, morale 100} (both); A on A_D2_TILE facing A_D2_DIR (teleported only when it does
-      not stand there, S2); launcher + bomb (lever, both); DROPS by battle_drop (both); host set_seed SEED_D2; the
-      client's launch lever with waypoints [LAUNCH_W, LAUNCH_W]; settle.
-      D2-turn   turn 1, side 1 on both (precondition)
-      D2-canuse can_use_weapon {A, launcher, none} true on both, read before the launch
-      D2-admit  one new host context {intent, launch, A}; its ev kinds = D2_KINDS; no client lastDeny for the iseq;
-                coopIntentsSent.shoot +1; inFlight null; the bomb and the dropped gear gone on both
-      D2-census item census (id, type, owner) equal on host and client
-  D1  battle_strip_unit A (both); a grenade (lever, both); TU A_TU (both); the client's real-UI PRIME (TAB, the
-      right-hand box, key 49, the fuse key 48 when the fuse screen opens).
-      D1-canuse can_use_weapon {A, grenade, none} true on both, before the press
-      D1-press  the fuse screen opened on the client; one new host context {intent, prime, A}; coopIntentsSent.prime
-                +1; the grenade's fuse 0 on both
-Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane
-crash folder. EVIDENCE only: the panic mode, host infoboxes, the client's warningText and menu rows, the explosion.
+      alien_panic-after  A status 0, TU 0, morale ROLL_MORALE + 15 on both
+  alien_launch  A set back to {status 0, TU A_TU, morale 100} (both); A on A_LAUNCH_TILE facing A_LAUNCH_DIR
+      (teleported only when it does not stand there); launcher + bomb (test command, both); DROPS by battle_drop
+      (both); host set_seed LAUNCH_SEED; the client's launch intent with waypoints [LAUNCH_W, LAUNCH_W]; settle.
+      alien_launch-turn    turn 1, side 1 on both (precondition)
+      alien_launch-canuse  can_use_weapon {A, launcher, none} true on both, read before the launch
+      alien_launch-admit   one new host context {intent, launch, A}; its ev kinds = LAUNCH_KINDS; no client lastDeny
+                           for the iseq; coopIntentsSent.shoot +1; inFlight null; the bomb and the dropped gear gone
+                           on both
+      alien_launch-census  item census (id, type, owner) equal on host and client
+  alien_prime  battle_strip_unit A (both); a grenade (test command, both); TU A_TU (both); the client's real-UI PRIME
+      (TAB, the right-hand box, key 49, the fuse key 48 when the fuse screen opens).
+      alien_prime-canuse   can_use_weapon {A, grenade, none} true on both, before the press
+      alien_prime-press    the fuse screen opened on the client; one new host context {intent, prime, A};
+                           coopIntentsSent.prime +1; the grenade's fuse 0 on both
+Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in this
+harness slot's crash folder. EVIDENCE only: the panic mode, host infoboxes, the client's warningText and menu rows, the
+explosion.
 
-RED on the unchanged build (commit A1): alien_panic-act, alien_panic-after, D2-canuse, D2-admit, D1-canuse, D1-press;
-every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs
-after a failure. A
-boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the
-rows that need it "staging". run in the foreground to completion. ONE run is the result, no
-skip path; exit 0 only when every cell passes, else 2.
+Without the fix, alien_panic-act, alien_panic-after, alien_launch-canuse, alien_launch-admit, alien_prime-canuse and
+alien_prime-press FAIL; every other cell passes. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row
+verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails every row
+"boot"; a staging step past its bound fails the rows that need it "staging". ONE run is the result, no skip path; exit
+0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_rules.py
 """
@@ -64,22 +63,23 @@ import test_pvp_gm3 as G3F  # noqa: E402
 KEY = "48677"
 A_ID = 1000000                    # the only alien (STR_SECTOID_SOLDIER), the client's (seat 1), spawn (27,12,0) dir 5
 A_TU = 54                         # A's TU at bring-up
-M0 = 0                            # A's morale after the roll; alien_panic-after wants M0 + 15
+ROLL_MORALE = 0                   # A's morale after the roll; alien_panic-after wants ROLL_MORALE + 15
 PANIC_SEED = 1                    # host set_seed before its END TURN: A rolls STATUS_PANICKING (8) on both
 STATUS_STANDING, STATUS_PANICKING = 0, 8
 FACTION_HOSTILE = 1
-PANIC_S = 15                      # spec (f): the bounded wait for the host's panic ev after both screens close
+PANIC_S = 15                      # the bounded wait for the host's panic ev after both screens close
 STEP_S = 30
-A_D2_TILE, A_D2_DIR = (20, 4, 0), 2   # open ground, a straight open path east to LAUNCH_W
-LAUNCH_W = (32, 4, 0)             # the LAUNCH_W rule: 12 tiles east, Chebyshev >= 12 from every live unit
-SEED_D2 = 1
-D2_KINDS = ["shot", "shot", "explosion", "bt_action_end"]   # the dive at turn 3 (TASK 0 Ae, Af, Ag)
+A_LAUNCH_TILE, A_LAUNCH_DIR = (20, 4, 0), 2   # open ground, a straight open path east to LAUNCH_W
+LAUNCH_W = (32, 4, 0)             # 12 tiles east, Chebyshev >= 12 from every live unit
+LAUNCH_SEED = 1
+LAUNCH_KINDS = ["shot", "shot", "explosion", "bt_action_end"]   # the dive at turn 3 (measured on three boots)
 DROPS = (("STR_BLASTER_LAUNCHER", (32, 4, 0)), ("STR_RIFLE", (33, 4, 0)))   # gear inside the blast
 KEY_PRIME, KEY_FUSE_0 = 49, 48    # keyBattleActionItem1 (PRIME for a grenade); PrimeGrenadeState button 0
 CURSOR_TARGETING = (2, 3, 4, 5)
 ROWS = (("alien_panic", ("alien_panic-roll", "alien_panic-act", "alien_panic-after", "alien_panic-common")),
-        ("D2", ("D2-turn", "D2-canuse", "D2-admit", "D2-census", "D2-common")),
-        ("D1", ("D1-canuse", "D1-press", "D1-common")))
+        ("alien_launch", ("alien_launch-turn", "alien_launch-canuse", "alien_launch-admit", "alien_launch-census",
+                          "alien_launch-common")),
+        ("alien_prime", ("alien_prime-canuse", "alien_prime-press", "alien_prime-common")))
 
 
 def es(gc, key):
@@ -111,7 +111,7 @@ def wait_until(pred, timeout, interval):
 
 
 def close_leftovers(host, client):
-    """Close a NextTurnState left on either top (drive_side_change can return before one is pushed, TASK 0 F11011)."""
+    """Close a NextTurnState left on either top (drive_side_change can return before one is pushed)."""
     closed = []
     for gc in (host, client):
         if G3F.top(gc) == "NextTurnState":
@@ -185,7 +185,7 @@ def row_alien_panic(host, client, crash0):
                                                             f"the client the same seqs")
     after = [a_view(host), a_view(client)]
     ev["after"] = after
-    want = (STATUS_STANDING, 0, M0 + 15)
+    want = (STATUS_STANDING, 0, ROLL_MORALE + 15)
     got = [(a["status"], a["tu"], a["morale"]) for a in after]
     cells["alien_panic-after"] = (got == [want, want],
                                   f"A (status, TU, morale) host/client {got} (want {want} on both)")
@@ -193,11 +193,12 @@ def row_alien_panic(host, client, crash0):
     return cells, ev
 
 
-# ===================== D2 =====================
+# ===================== alien_launch =====================
 
 
 def drop_gear(host, client):
-    """DROPS by battle_drop on both (client first, F607); the ids from the replies, each looked up by type (S25)."""
+    """DROPS by battle_drop on both (client first); the ids from the replies, each looked up by type (item ids vary
+    per boot)."""
     ids = {}
     for typ, t in DROPS:
         rc = client.cmd({"cmd": "battle_drop", "x": t[0], "y": t[1], "z": t[2], "item": typ})
@@ -212,30 +213,31 @@ def drop_gear(host, client):
     return ids
 
 
-def stage_d2(host, client):
+def stage_alien_launch(host, client):
     m = (host, client)
-    ev = {"reset": G3F.guarded("D2 staging", lambda: both(host, client, {
+    ev = {"reset": G3F.guarded("alien_launch staging", lambda: both(host, client, {
         "cmd": "battle_set_unit_state", "unit": A_ID, "status": STATUS_STANDING, "tu": A_TU, "morale": 100},
         ("status", "tu", "morale")), m).get("tu")}
-    ev["place"] = G3F.guarded("D2 staging", lambda: place(host, client, A_ID, A_D2_TILE, A_D2_DIR), m)
-    g = G3F.guarded("D2 staging", lambda: both(host, client, {
+    ev["place"] = G3F.guarded("alien_launch staging", lambda: place(host, client, A_ID, A_LAUNCH_TILE, A_LAUNCH_DIR), m)
+    g = G3F.guarded("alien_launch staging", lambda: both(host, client, {
         "cmd": "battle_give", "unit": A_ID, "item": "STR_BLASTER_LAUNCHER", "ammo": "STR_BLASTER_BOMB",
         "slot": "right", "clear_hands": True}, ("weaponId", "ammoId")), m)
     ev.update(launcher=g["weaponId"], bomb=g["ammoId"])
-    ev["drops"] = G3F.guarded("D2 staging", lambda: drop_gear(host, client), m)
+    ev["drops"] = G3F.guarded("alien_launch staging", lambda: drop_gear(host, client), m)
     ev["A"] = [a_view(host), a_view(client)]
     return ev
 
 
-def row_d2(host, client, crash0, st):
+def row_alien_launch(host, client, crash0, st):
     ev, cells = dict(st), {}
     ts = [(battle_state(gc).get("turn"), battle_state(gc).get("side")) for gc in (host, client)]
-    cells["D2-turn"] = (ts == [(1, 1), (1, 1)], f"(turn, side) host/client {ts} (want (1, 1) on both)")
+    cells["alien_launch-turn"] = (ts == [(1, 1), (1, 1)], f"(turn, side) host/client {ts} (want (1, 1) on both)")
     cu = [can_use(host, st["launcher"]), can_use(client, st["launcher"])]
-    cells["D2-canuse"] = (cu == [True, True], f"can_use_weapon {{A, launcher, none}} host/client {cu} (want true on both)")
+    cells["alien_launch-canuse"] = (cu == [True, True],
+                                    f"can_use_weapon {{A, launcher, none}} host/client {cu} (want true on both)")
     b_ctx, sent0 = es(host, "closedContexts") or [], dict(es(client, "coopIntentsSent") or {})
     seq0 = es(host, "lastSeqEmitted") or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_D2})
+    host.ok({"cmd": "set_seed", "seed": LAUNCH_SEED})
     req = shoot_req(A_ID, "launch", st["launcher"], st["bomb"], LAUNCH_W)
     req["plan"]["waypoints"] = [jt(LAUNCH_W), jt(LAUNCH_W)]   # vanilla's dive (test_client_grenade's launcher_dive)
     notes = []
@@ -258,37 +260,38 @@ def row_d2(host, client, crash0, st):
         adm.append(f"new host closedContexts {new} (want exactly one {{intent, launch, {A_ID}}})")
     else:
         kinds = [e["kind"] for e in hev if e["actionId"] == new[0].get("actionId")]
-        if kinds != D2_KINDS:
-            adm.append(f"ev kinds of actionId {new[0].get('actionId')} {kinds} (want {D2_KINDS})")
+        if kinds != LAUNCH_KINDS:
+            adm.append(f"ev kinds of actionId {new[0].get('actionId')} {kinds} (want {LAUNCH_KINDS})")
     if sent.get("iseq") and deny.get("iseq") == sent.get("iseq"):
         adm.append(f"client lastDeny {deny} for the order's iseq {sent.get('iseq')} (want none)")
     if ev["sentDelta"] != 1 or infl is not None:
         adm.append(f"client coopIntentsSent.shoot +{ev['sentDelta']} (want +1), inFlight {infl} (want None)")
     if any(v != [True, True] for v in gone.values()):
         adm.append(f"gone on host/client {gone} (want the bomb {st['bomb']} and the dropped gear gone on both)")
-    cells["D2-admit"] = (not adm, "; ".join(adm) or f"one {{intent, launch, A}} with {D2_KINDS}, bomb and gear gone")
+    cells["alien_launch-admit"] = (not adm, "; ".join(adm)
+                                   or f"one {{intent, launch, A}} with {LAUNCH_KINDS}, bomb and gear gone")
     diff = sorted(i for i in set(ih) | set(ic) if ih.get(i) != ic.get(i))
-    cells["D2-census"] = (not diff, f"item census host vs client: {len(ih)} / {len(ic)} items, differing ids "
+    cells["alien_launch-census"] = (not diff, f"item census host vs client: {len(ih)} / {len(ic)} items, differing ids "
                                     f"{[(i, ih.get(i), ic.get(i)) for i in diff][:12]} (want none)")
-    cells["D2-common"] = G3F.common(host, client, crash0)
+    cells["alien_launch-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-# ===================== D1 =====================
+# ===================== alien_prime =====================
 
 
-def stage_d1(host, client):
+def stage_alien_prime(host, client):
     m = (host, client)
     rc = client.cmd({"cmd": "battle_strip_unit", "unit": A_ID})
     rh = host.cmd({"cmd": "battle_strip_unit", "unit": A_ID})
     if not (rh.get("ok") and rc.get("ok")) or rh.get("deleted") != rc.get("deleted"):
-        G3F.capture("D1 staging", f"battle_strip_unit host {rh} client {rc}", m)
-        raise G3F.Miss("D1 staging")
-    G3F.guarded("D1 staging", lambda: session.wait_seq_barrier(host, client), m)
-    g = G3F.guarded("D1 staging", lambda: both(host, client, {
+        G3F.capture("alien_prime staging", f"battle_strip_unit host {rh} client {rc}", m)
+        raise G3F.Miss("alien_prime staging")
+    G3F.guarded("alien_prime staging", lambda: session.wait_seq_barrier(host, client), m)
+    g = G3F.guarded("alien_prime staging", lambda: both(host, client, {
         "cmd": "battle_give", "unit": A_ID, "item": "STR_GRENADE", "slot": "right", "clear_hands": True},
         ("weaponId",)), m)
-    G3F.guarded("D1 staging", lambda: set_tu_both(host, client, A_ID, A_TU), m)
+    G3F.guarded("alien_prime staging", lambda: set_tu_both(host, client, A_ID, A_TU), m)
     return {"stripped": rh.get("deleted"), "grenade": g["weaponId"]}
 
 
@@ -315,11 +318,12 @@ def prime_press(client, ev):
     ev["topAfter"] = G3F.top(client)
 
 
-def row_d1(host, client, crash0, st):
+def row_alien_prime(host, client, crash0, st):
     ev, cells = dict(st), {}
     gid = st["grenade"]
     cu = [can_use(host, gid), can_use(client, gid)]
-    cells["D1-canuse"] = (cu == [True, True], f"can_use_weapon {{A, grenade, none}} host/client {cu} (want true on both)")
+    cells["alien_prime-canuse"] = (cu == [True, True],
+                                   f"can_use_weapon {{A, grenade, none}} host/client {cu} (want true on both)")
     b_ctx, sent0 = es(host, "closedContexts") or [], dict(es(client, "coopIntentsSent") or {})
     try:
         prime_press(client, ev)
@@ -342,41 +346,45 @@ def row_d1(host, client, crash0, st):
         pr.append(f"client coopIntentsSent.prime +{delta} (want +1), inFlight {ev['inFlight']} (want None)")
     if fuse != [0, 0]:
         pr.append(f"grenade {gid} fuse host/client {fuse} (want 0 on both)")
-    cells["D1-press"] = (not pr, "; ".join(pr) or "fuse screen, one {intent, prime, A}, fuse 0 on both")
-    cells["D1-common"] = G3F.common(host, client, crash0)
+    cells["alien_prime-press"] = (not pr, "; ".join(pr) or "fuse screen, one {intent, prime, A}, fuse 0 on both")
+    cells["alien_prime-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-# ===================== boot A =====================
+# ===================== boot =====================
 
 
-def boot_a():
-    host = GameClient("host", None, make_user_dir("r5u3_a_host"))
-    client = GameClient("client", None, make_user_dir("r5u3_a_client"))
+def run_boot():
+    host = GameClient("host", None, make_user_dir("pvp_rules_host"))
+    client = GameClient("client", None, make_user_dir("pvp_rules_client"))
     m = (host, client)
     try:
         try:
-            G3F.guarded("A", lambda: BER.boot_pvp(host, client, KEY), m)
-            G3F.guarded("A", lambda: G3F.reactions_zero(host, client), m)
+            G3F.guarded("gm2", lambda: BER.boot_pvp(host, client, KEY), m)
+            G3F.guarded("gm2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
-            G3F.guarded("A", lambda: both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "morale": 0},
-                                          ("morale",)), m)
+            G3F.guarded("gm2", lambda: both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "morale": 0},
+                                            ("morale",)), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE A line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE gm2 line)")
         rows = dict(ROWS)
         fails = G3F.run_row("alien_panic", rows["alien_panic"], lambda: row_alien_panic(host, client, crash0))
         try:
-            st2 = stage_d2(host, client)
+            st2 = stage_alien_launch(host, client)
         except G3F.Miss:
             st2 = None
-        fails += (G3F.run_row("D2", rows["D2"], lambda: row_d2(host, client, crash0, st2)) if st2
-                  else G3F.fail_all((("D2", rows["D2"]),), "staging (see the CAPTURE D2 staging line)"))
+        fails += (G3F.run_row("alien_launch", rows["alien_launch"],
+                              lambda: row_alien_launch(host, client, crash0, st2)) if st2
+                  else G3F.fail_all((("alien_launch", rows["alien_launch"]),),
+                                    "staging (see the CAPTURE alien_launch staging line)"))
         try:
-            st1 = stage_d1(host, client)
+            st1 = stage_alien_prime(host, client)
         except G3F.Miss:
             st1 = None
-        fails += (G3F.run_row("D1", rows["D1"], lambda: row_d1(host, client, crash0, st1)) if st1
-                  else G3F.fail_all((("D1", rows["D1"]),), "staging (see the CAPTURE D1 staging line)"))
+        fails += (G3F.run_row("alien_prime", rows["alien_prime"],
+                              lambda: row_alien_prime(host, client, crash0, st1)) if st1
+                  else G3F.fail_all((("alien_prime", rows["alien_prime"]),),
+                                    "staging (see the CAPTURE alien_prime staging line)"))
         return fails
     finally:
         G3F.shut(host, client)
@@ -384,7 +392,7 @@ def boot_a():
 
 def main():
     t0 = time.time()
-    fails = boot_a()
+    fails = run_boot()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pvp_rules: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
