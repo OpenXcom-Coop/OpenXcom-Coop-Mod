@@ -612,4 +612,18 @@ void AllocatePsiTrainingState::btnAssignAllSoldiersClick(Action* action)
 	_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
 }
 
+void AllocatePsiTrainingState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
+std::vector<int> AllocatePsiTrainingState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : *_base->getSoldiers())
+		ids.push_back(s->getId());
+	return ids;
+}
+
 }

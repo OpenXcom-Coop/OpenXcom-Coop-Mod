@@ -87,6 +87,10 @@ public:
 	void btnDeassignAllSoldiersClick(Action* action);
 	/// Handler for clicking the Assign All Soldiers button.
 	void btnAssignAllSoldiersClick(Action* action);
+	/// Test automation: picks sort option @a index through the real handler.
+	void harnessSort(size_t index);
+	/// Test automation: the soldier ids the list shows, in its order.
+	std::vector<int> harnessDisplayedSoldierIds() const;
 };
 
 }

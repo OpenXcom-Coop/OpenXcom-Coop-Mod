@@ -197,6 +197,8 @@
 #include "../Basescape/SoldierTransformationState.h"
 #include "../Mod/RuleSoldierTransformation.h"
 #include "../Basescape/CraftArmorState.h"
+#include "../Geoscape/AllocateTrainingState.h"
+#include "../Geoscape/AllocatePsiTrainingState.h"
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
 #include "SeparateEcon.h"
@@ -1152,6 +1154,16 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 				_game->pushState(new CraftArmorState(target, idx));
 				resp["ok"] = true;
 			}
+		}
+		else if (screen == "training")
+		{
+			_game->pushState(new AllocateTrainingState(target));
+			resp["ok"] = true;
+		}
+		else if (screen == "psi_training")
+		{
+			_game->pushState(new AllocatePsiTrainingState(target));
+			resp["ok"] = true;
 		}
 		else if (screen == "craft_soldiers")
 		{
@@ -9200,6 +9212,49 @@ std::string TestServer::execute(const std::string& line)
 			}
 			else
 				resp["error"] = "soldiers_reorder: unknown action";
+		}
+		else if (cmd == "roster_screen")
+		{
+			// Drive the TOP roster screen's real sort / reorder handlers: the
+			// martial or psi training list, crew armor or craft crew. action
+			// "sort" (sort = combobox index), "move_up" / "move_down" (row = shown
+			// row, moved to the top / bottom like a right-click: the one-place move
+			// warps the mouse through its Action) or "view" (only report). Replies
+			// with the screen and the soldier ids it shows, in its order.
+			State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+			const std::string action = req.get("action", "view").asString();
+			const size_t sortIdx = (size_t)req.get("sort", 2).asInt();
+			const unsigned int row = (unsigned int)req.get("row", 1).asInt();
+			const bool max = true;
+			std::vector<int> shown;
+			bool known = true;
+			auto drive = [&](auto* st, const char* name)
+			{
+				resp["screen"] = name;
+				if (action == "sort") st->harnessSort(sortIdx);
+				else if (action == "move_up") st->moveSoldierUp(nullptr, row, max);
+				else if (action == "move_down") st->moveSoldierDown(nullptr, row, max);
+				else if (action != "view") known = false;
+				shown = st->harnessDisplayedSoldierIds();
+			};
+			if (auto* t = dynamic_cast<AllocateTrainingState*>(top)) drive(t, "training");
+			else if (auto* p = dynamic_cast<AllocatePsiTrainingState*>(top)) drive(p, "psi_training");
+			else if (auto* a = dynamic_cast<CraftArmorState*>(top)) drive(a, "craft_armor");
+			else if (auto* c = dynamic_cast<CraftSoldiersState*>(top)) drive(c, "craft_soldiers");
+			else
+			{
+				resp["error"] = "no roster screen on top";
+				known = false;
+			}
+			if (known)
+			{
+				Json::Value ids(Json::arrayValue);
+				for (int id : shown) ids.append(id);
+				resp["displayed"] = ids;
+				resp["ok"] = true;
+			}
+			else if (!resp.isMember("error"))
+				resp["error"] = "roster_screen: unknown action";
 		}
 		else if (cmd == "soldiers_ok")
 		{

@@ -807,4 +807,10 @@ std::vector<int> CraftArmorState::harnessDisplayedSoldierIds() const
 	return ids;
 }
 
+void CraftArmorState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
 }

@@ -632,4 +632,18 @@ void AllocateTrainingState::btnAssignAllSoldiersClick(Action* action)
 	_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
 }
 
+void AllocateTrainingState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
+std::vector<int> AllocateTrainingState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : *_base->getSoldiers())
+		ids.push_back(s->getId());
+	return ids;
+}
+
 }

@@ -462,6 +462,12 @@ std::vector<int> CraftSoldiersState::harnessDisplayedSoldierIds() const
 	return ids;
 }
 
+void CraftSoldiersState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
 int CraftSoldiersState::harnessSpaceUsed() const
 {
 	return displayedSpaceUsed();

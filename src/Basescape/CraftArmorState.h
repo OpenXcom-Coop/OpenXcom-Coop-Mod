@@ -63,6 +63,8 @@ public:
 	CraftArmorState(Base *base, size_t craft);
 	/// Test automation: soldier ids the crew-armor screen displays (own-only in SHARED).
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation: picks sort option @a index through the real handler.
+	void harnessSort(size_t index);
 	/// Cleans up the Craft Armor state.
 	~CraftArmorState();
 	/// Handler for changing the sort by combobox.
