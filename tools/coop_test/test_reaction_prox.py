@@ -15,11 +15,12 @@ A proximity mine under the walker explodes inside the walk's action with no
 Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
 
   C8   reaction fire halts the client's walk (revisit row 6). A (the only
-       alien) on C8_A_TILE facing C8_A_DIR, C on C8_C_TILE facing A; one END
-       TURN cycle (no seed) so the player-side FOV puts A in C's
+       alien) on HALTED_WALK_A_TILE facing HALTED_WALK_A_DIR, C on
+       HALTED_WALK_C_TILE facing A; one END TURN cycle (no seed) so the
+       player-side FOV puts A in C's
        spottedThisTurn (no new-spot halt at walk start); A reactions 100 + tu
        A_TU refilled (BOTH); the client TAB-selects C, the host set_seed
-       SEED_C8, the client clicks C8_DEST (real UI, 3 planned steps).
+       HALTED_WALK_SEED, the client clicks HALTED_WALK_DEST (real UI, 3 planned steps).
        GREEN (B3 + (f)): A's reaction shots happen and run under the
        walk W - inside ONE `reaction` context R {actorId A, nestedIn W}: R's
        evs are shot (actor A) -> hit(s) -> R's one bt_action_end, before W's
@@ -56,7 +57,7 @@ Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
   C8k  the kneeling walker (B1 RQ4 (a)). A reactions 0 (BOTH); C health
        C_MAX_HEALTH + tu TU_MAX (BOTH); C and A back on the C8 tiles (BOTH);
        the client kneels C (real SDLK_k); A reactions 100 + tu A_TU refilled
-       (BOTH); host set_seed SEED_C8K; the client clicks C8_DEST. The walk
+       (BOTH); host set_seed SEED_C8K; the client clicks HALTED_WALK_DEST. The walk
        stands C up first (kneel() runs the reaction check for the stand-up).
        GREEN: the stand-up `kneel` ev and every walk_step carry W (hooks owned
        by the base chain read the walk's own id); >= 1 `reaction` context
@@ -167,10 +168,10 @@ PORT = "48629"
 FACTION_PLAYER = 0
 
 # ----- C8 (ledger `## W2-P3 TASK 0c`, T0c constants.md "C8") -----
-C8_A_TILE, C8_A_DIR = (15, 2, 0), 4    # A faces south, C on its axis
-C8_C_TILE, C8_C_DIR = (15, 7, 0), 0    # C faces A
-C8_DEST = (18, 7, 0)                   # planned (16,7) (17,7) (18,7): every tile in A's view sector
-SEED_C8 = 3                            # host set_seed right before the client's click
+HALTED_WALK_A_TILE, HALTED_WALK_A_DIR = (15, 2, 0), 4    # A faces south, C on its axis
+HALTED_WALK_C_TILE, HALTED_WALK_C_DIR = (15, 7, 0), 0    # C faces A
+HALTED_WALK_DEST = (18, 7, 0)                   # planned (16,7) (17,7) (18,7): every tile in A's view sector
+HALTED_WALK_SEED = 3                            # host set_seed right before the client's click
 C8_EXECUTED = [(16, 7, 0)]             # halted after step 1 (C8_REACT_STEP 1)
 C8_C_HEALTH = 21                       # C8_C_HEALTH_AFTER: two of A's three snaps hit C (40 -> 21), C standing
 # W2-P6a S-C row KR2 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5): T0a-4's host staging
@@ -573,8 +574,8 @@ def c8_reaction(host, client, ctx):
     notes = []
     # prep: A and C face each other; one END TURN cycle (no seed) so the player-side FOV
     # recalculation puts A in C's spottedThisTurn (a teleport skips calculateFOV).
-    tele_both(host, client, A_ID, C8_A_TILE, C8_A_DIR)
-    tele_both(host, client, C_ID, C8_C_TILE, C8_C_DIR)
+    tele_both(host, client, A_ID, HALTED_WALK_A_TILE, HALTED_WALK_A_DIR)
+    tele_both(host, client, C_ID, HALTED_WALK_C_TILE, HALTED_WALK_C_DIR)
     hl_a = hl_snap(host, client)   # W2-P6b S-L row L5: before the prep cycle
     turn0 = end_turn_cycle(host, client, None, notes)
     hs, cs = battle_state(host), battle_state(client)
@@ -591,11 +592,12 @@ def c8_reaction(host, client, ctx):
     staged_diff = diff_buckets(host, client)
     kr2_staged = stage_camera(host, K_HOSTFAR)   # W2-P6a S-C row KR2 (T0a-4): the host camera far, view level 1
     cam0 = cam_snap(host, client)
-    rec = client_walk(host, client, SEED_C8, C8_DEST, notes)
+    rec = client_walk(host, client, HALTED_WALK_SEED, HALTED_WALK_DEST, notes)
     cam1 = cam_snap(host, client)
     hl_b = hl_snap(host, client)   # W2-P6b S-L row L5: after the walk
     w = rec["W"]
-    print(f"EVIDENCE C8: prep {ctx['prep']}; A {C8_A_TILE}/{C8_A_DIR} C {C8_C_TILE}/{C8_C_DIR} dest {C8_DEST} "
+    print(f"EVIDENCE C8: prep {ctx['prep']}; A {HALTED_WALK_A_TILE}/{HALTED_WALK_A_DIR} "
+          f"C {HALTED_WALK_C_TILE}/{HALTED_WALK_C_DIR} dest {HALTED_WALK_DEST} "
           f"stagedDiff={staged_diff}; {walk_evidence(rec, 'C8')}", flush=True)
     kr2 = kr2_fails(rec, kr2_staged, cam0, cam1)
     l5 = l5_fails(hl_a, hl_q, hl_b)
@@ -640,8 +642,8 @@ def c8k_kneeled(host, client, ctx):
                         "value": 0}, ("tu",))
     both(host, client, {"cmd": "battle_set_unit_state", "unit": C_ID, "health": C_MAX_HEALTH, "tu": TU_MAX},
          ("health", "stun", "status", "tu"))
-    tele_both(host, client, C_ID, C8_C_TILE, C8_C_DIR)
-    tele_both(host, client, A_ID, C8_A_TILE, C8_A_DIR)
+    tele_both(host, client, C_ID, HALTED_WALK_C_TILE, HALTED_WALK_C_DIR)
+    tele_both(host, client, A_ID, HALTED_WALK_A_TILE, HALTED_WALK_A_DIR)
     kseq0 = probes(host)["lastSeqEmitted"] or 0
     try:
         if not tab_select(client, C_ID):
@@ -662,7 +664,7 @@ def c8k_kneeled(host, client, ctx):
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": A_TU,
                         "refill": True}, ("tu",))
     staged_diff = diff_buckets(host, client)
-    rec = client_walk(host, client, SEED_C8K, C8_DEST, notes)
+    rec = client_walk(host, client, SEED_C8K, HALTED_WALK_DEST, notes)
     w = rec["W"]
     kneels = [e for e in rec["hev"] if e["kind"] == "kneel"]
     steps = [e for e in rec["hev"] if e["kind"] == "walk_step"]
