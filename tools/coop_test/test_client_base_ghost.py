@@ -1,22 +1,29 @@
-"""test_client_base_ghost.py (L-H56-1, R-H62-0; captures lh56-1-cap F18567 / F18568 and lh56-1b-cap F18708; docs
-rewrite/prompts/w2h62_sa_client_ghost.md (f) and the common file rewrite/prompts/w2h62_base_marker_cache.md; TASK 0
-rewrite/w2h62-task0/sa/CONSTANTS.md). In a SEPARATE campaign each machine shows the partner's bases as marker bases built from ONE
-process-wide cache (j_markers, connectionTCP.cpp). The cache outlives the session: a client that leaves campaign A and joins campaign B in
-the same game process keeps A's host base as a marker (the client coopBase2 keeps the cache when the new host's reply has no markers).
-ONE boot; keys K1 "49213" (campaigns A and C: hosted twice, a new OS port each time, F18826) and K2 "49214" (B); dirs w2h62a_*:
-  R-3 campaign A (session.new_campaign), the fresh client: R-3a GUARD - its one marker is exactly the host's base.
-  R-1 the trap exit (OPTIONS > CO-OP > DISCONNECT) to campaign B, joined from the trap browser: R-1a RED - no client marker with A's host
-      id at READ 1 / 2 / 3; R-1b RED - only B's host marker (READ 1: 0 or 1 of it; READ 2 / 3: exactly it); R-1c GUARD - B's host marker
-      at READ 3; R-1d GUARD - the host's markers are exactly the client's B base at READ 3.
-  R-2 the ordinary exit (OPTIONS > ABANDON GAME > YES) to campaign C (NEW BATTLE > COOP > Direct Connect): R-2a RED - no client marker
-      with B's or A's host id; R-2b RED, R-2c GUARD, R-2d GUARD as R-1 for C; CRASH GUARD - no crash file new since the boot start and
-      both games alive at the end (read at the end of every run).
-READ 1 = the client at BuildNewBaseState (after the host's P3); READ 2 = 2 s after the client's P4; READ 3 = both geoscapes stable after
-the host's BEGIN. Every press is a REAL click (click_widget) on a button list_widgets reads visible, not hidden, on the named top state,
-except the port keys (inject_input) and the base placements (the place_first_base lever). Never dismiss_popup, coop_dialog_back or
-leave_base. Every id is read from geo_state at run time (S25). One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict;
-a precondition miss ends its row and every later row (cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
-ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+"""test_client_base_ghost.py: in a SEPARATE campaign each machine shows the partner's bases as marker bases built from
+ONE process-wide cache (j_markers, connectionTCP.cpp). The cache must not outlive the session (deleteAllCoopBases clears
+it): kept, a client that leaves campaign A and joins campaign B in the same game process would keep A's host base as a
+marker, because the client's coopBase2 handler keeps the cache when the new host's reply has no markers.
+ONE boot; lobby keys KEY_AC "49213" (campaigns A and C: hosted twice, a new OS port each time) and KEY_B "49214" (B);
+user dirs client_base_ghost_*:
+  first_campaign: campaign A (session.new_campaign), the fresh client. first_campaign_host_marker: its one marker is
+      exactly the host's base.
+  lobby_exit: the client leaves by the lobby (OPTIONS > CO-OP > DISCONNECT, which leaves it on the server browser) and
+      joins campaign B from that browser. lobby_exit_no_old_host_marker: no client marker with A's host id at any of the
+      three reads; lobby_exit_only_new_host_marker: only B's host marker (while placing: 0 or 1 of it; after placing and
+      after BEGIN: exactly it); lobby_exit_new_host_marker_shown: B's host marker after BEGIN;
+      lobby_exit_host_shows_client_base: the host's markers are exactly the client's B base after BEGIN.
+  abandon_exit: the client leaves by OPTIONS > ABANDON GAME > YES and joins campaign C (NEW BATTLE > COOP > Direct
+      Connect). abandon_exit_no_old_host_marker: no client marker with B's or A's host id; the other three cells as
+      lobby_exit's for C; no_crash: no crash file new since the boot start and both games alive at the end (read at the
+      end of every run).
+The *_no_old_host_marker and *_only_new_host_marker cells fail when the cache outlives the session; the other cells
+check the setup and pass either way.
+The three reads: while placing = the client at BuildNewBaseState (after the host placed its base); after placing = 2 s
+after the client placed its base; after BEGIN = both geoscapes stable after the host's BEGIN. Every press is a REAL
+click (click_widget) on a button list_widgets reads visible, not hidden, on the named top state, except the port keys
+(inject_input) and the base placements (the place_first_base test command). The test never uses dismiss_popup,
+coop_dialog_back or leave_base. Every id is read from geo_state at run time. One EVIDENCE line per row, one PASS / FAIL
+line per cell, the row verdict; a precondition miss ends its row and every later row (cells "not reached"); a boot miss
+fails every cell "boot" with ONE CAPTURE line. The test never skips; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_client_base_ghost.py"""
 
 import glob, json, math, os, sys, time  # noqa: E401
@@ -26,19 +33,27 @@ import harness  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 
-K1 = "49213"
-K2 = "49214"
+KEY_AC = "49213"
+KEY_B = "49214"
 NAME = "ClientPlayer"
 SDLK_END, SDLK_BACKSPACE, SDLK_RETURN = 279, 8, 13
 LAND = (harness.LAND_LON, harness.LAND_LAT)
-# CONSTANTS.md (TASK 0 boots a, b, c): P3 HOST_LON/LAT off land 6/6, then LAND+0.06/+0.06 accepted 6/6; P4 cand 0 accepted 6/6; the trap /
-# main menu and the host's 62 at the first poll after the 2 s settle; Profile OKs within 5 s; stable_geo 5.13 s; boot wall ~80 s.
-P3_CANDS = [(session.HOST_LON, session.HOST_LAT), (LAND[0] + 0.06, LAND[1] + 0.06), (LAND[0] + 0.03, LAND[1] - 0.03), LAND]
-P4_CANDS = [(LAND[0] - 0.03, LAND[1] - 0.03), (LAND[0] + 0.06, LAND[1] - 0.03), (LAND[0] + 0.06, LAND[1] + 0.06), LAND]
-STABLE_S, STABLE_TO, TRAP_S, EXIT_S, DROP_S, PROFILE_S, BNB_S, P4_WAIT, QUIET, QUIET_EXIT, JOIN_S = (
+# Three trial boots (six placements each side): the host's first candidate (HOST_LON / HOST_LAT) was off land every time
+# and LAND + 0.06 / + 0.06 was accepted; the client's first candidate was always accepted. The client's exit screen
+# (server browser or main menu) and the host's CoopState 62 showed at the first poll after the 2 s settle; Profile OKs
+# came within 5 s; stable_geo took 5.13 s; the whole run about 80 s.
+HOST_CANDS = [(session.HOST_LON, session.HOST_LAT), (LAND[0] + 0.06, LAND[1] + 0.06), (LAND[0] + 0.03, LAND[1] - 0.03),
+              LAND]
+CLIENT_CANDS = [(LAND[0] - 0.03, LAND[1] - 0.03), (LAND[0] + 0.06, LAND[1] - 0.03), (LAND[0] + 0.06, LAND[1] + 0.06),
+                LAND]
+STABLE_S, STABLE_TO, LOBBY_EXIT_S, EXIT_S, DROP_S, PROFILE_S, BNB_S, CLIENT_PLACE_WAIT, QUIET, QUIET_EXIT, JOIN_S = (
     5.0, 90.0, 10.0, 10.0, 20.0, 30.0, 120.0, 2.0, 1.5, 2.0, 3.0)
 NEEDLES = ("[coop-session]", "COOP_READY", "disconnect", "GoToMainMenu")
-CELLS = {"R-3": ("R-3a",), "R-1": ("R-1a", "R-1b", "R-1c", "R-1d"), "R-2": ("R-2a", "R-2b", "R-2c", "R-2d", "CRASH")}
+CELLS = {"first_campaign": ("first_campaign_host_marker",),
+         "lobby_exit": ("lobby_exit_no_old_host_marker", "lobby_exit_only_new_host_marker",
+                        "lobby_exit_new_host_marker_shown", "lobby_exit_host_shows_client_base"),
+         "abandon_exit": ("abandon_exit_no_old_host_marker", "abandon_exit_only_new_host_marker",
+                          "abandon_exit_new_host_marker_shown", "abandon_exit_host_shows_client_base", "no_crash")}
 T0, IDS = [time.time()], {}
 
 class Miss(Exception):
@@ -82,7 +97,7 @@ def mir(bl): return [(b[0], b[1]) for b in bl if b[2]] if isinstance(bl, list) e
 def own(bl): return [(b[0], b[1]) for b in bl if not b[2] and not b[3]] if isinstance(bl, list) else []
 def crashes(): return set(glob.glob(os.path.join(harness.CRASH_DIR, "crash_*")))
 
-def cpu():  # the % Processor Time counter and any foreign game (S24)
+def cpu():  # the % Processor Time counter and any foreign game
     c = harness.cpu_load()
     return {"cpu": harness.cpu_text(c["cpu"], 0), "foreign": ",".join(c["wardogs"])}
 
@@ -194,7 +209,8 @@ def one_id(gc, what):
     return o[0][1]
 
 def place(gc, cands, name, ev, key, avoid=None):
-    """place_first_base on the first candidate that is land (and >= 0.02 rad from P3): the PINNED SETUP VALUES' replacement rule"""
+    """place_first_base on each candidate in order until the game accepts one (land), skipping any < 0.02 rad from
+    `avoid`"""
     for i, (lon, lat) in enumerate(cands):
         if avoid is not None and math.hypot(lon - avoid[0], lat - avoid[1]) < 0.02:
             continue
@@ -204,20 +220,21 @@ def place(gc, cands, name, ev, key, avoid=None):
             return (lon, lat)
     raise Miss("%s: no placement candidate accepted: %s" % (key, ev.get(key)))
 
-def seed_player_name(user_dir):  # the name a player typed in the browser earlier (both captures)
+def seed_player_name(user_dir):  # the name a player typed in the browser earlier
     for d in (os.path.join(user_dir, "xcom1"), user_dir):
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "player_name.json"), "w", encoding="utf-8") as fh:
             json.dump({"name": NAME}, fh)
 
-def client_exit(host, client, ev, trap):
-    """the client's exit by real clicks; its stack (trap: [GoToMainMenuState, ServerList], else [MainMenuState]); the host's 62; the
-    host's ABANDON (real click) and its main menu"""
-    presses = (("GeoscapeState", "options"), ("PauseState", "co-op"), ("LobbyMenu", "disconnect")) if trap else (
+def client_exit(host, client, ev, via_lobby):
+    """the client's exit by real clicks; its stack (via_lobby: [GoToMainMenuState, ServerList], else [MainMenuState]);
+    the host's CoopState 62 (waiting for players); the host's ABANDON (real click) and its main menu"""
+    presses = (("GeoscapeState", "options"), ("PauseState", "co-op"), ("LobbyMenu", "disconnect")) if via_lobby else (
         ("GeoscapeState", "options"), ("PauseState", "abandon"), ("AbandonGameState", "yes"))
     for i, (state, match) in enumerate(presses):
         press(client, state, match, ev, match, quiet=QUIET_EXIT if i == 2 else QUIET)
-    want, end, s = (["GoToMainMenuState", "ServerList"] if trap else ["MainMenuState"]), time.time() + (TRAP_S if trap else EXIT_S), None
+    want, end, s = ((["GoToMainMenuState", "ServerList"] if via_lobby else ["MainMenuState"]),
+                    time.time() + (LOBBY_EXIT_S if via_lobby else EXIT_S), None)
     while time.time() < end:
         s = stk(client)
         if s[-len(want):] == want:
@@ -235,8 +252,9 @@ def client_exit(host, client, ev, trap):
         raise Miss("host after ABANDON: %s" % stk(host))
 
 def newcamp(host, client, key, hn, cn, ev, ordinary):
-    """NEWCAMP: the host's levers to a SEPARATE lobby on `key`; the client's Direct Connect (after NEW BATTLE > COOP on the ordinary
-    route); Profile OKs; START + confirm; P3; READ 1; P4; READ 2; BEGIN; stable_geo; READ 3"""
+    """the host's test commands to a SEPARATE lobby on `key`; the client's Direct Connect (after NEW BATTLE > COOP on
+    the ordinary route); Profile OKs; START + confirm; the host's placement; the read while placing; the client's
+    placement; the read after placing; BEGIN; stable_geo; the read after BEGIN"""
     host.ok({"cmd": "open_new_game", "mode": "coop"})
     wait_state(host, "NewGameState", 30, "open_new_game")
     host.ok({"cmd": "newgame_ok"})
@@ -264,15 +282,15 @@ def newcamp(host, client, key, hn, cn, ev, ordinary):
     press(host, "LobbyMenu", "start campaign", ev, "start campaign", timeout=20.0, quiet=0.5)
     press(host, "ConfirmStartCampaignState", "ok", ev, "start confirm", timeout=20.0, quiet=0.5)
     wait_state(host, "BuildNewBaseState", BNB_S, "host placement")
-    p3 = place(host, P3_CANDS, hn, ev, "P3")
+    host_spot = place(host, HOST_CANDS, hn, ev, "hostPlace")
     time.sleep(1.0)
-    ev["H"] = one_id(host, "after P3")
+    ev["H"] = one_id(host, "after hostPlace")
     wait_state(client, "BuildNewBaseState", BNB_S, "client placement")
-    read(host, client, ev, "read1")
-    place(client, P4_CANDS, cn, ev, "P4", avoid=p3)
-    time.sleep(P4_WAIT)
-    read(host, client, ev, "read2")
-    ev["C"] = one_id(client, "after P4")
+    read(host, client, ev, "readWhilePlacing")
+    place(client, CLIENT_CANDS, cn, ev, "clientPlace", avoid=host_spot)
+    time.sleep(CLIENT_PLACE_WAIT)
+    read(host, client, ev, "readAfterPlacing")
+    ev["C"] = one_id(client, "after clientPlace")
     d = watch_code(host, (60, 62), 120)
     if d is None:
         raise Miss("no host CoopState 60 / 62 for BEGIN within 120 s: %s" % both(host, client))
@@ -283,44 +301,47 @@ def newcamp(host, client, key, hn, cn, ev, ordinary):
     ev["begin"] = d
     press(host, "CoopState", (d.get("backText") or "begin").lower(), ev, "host begin", timeout=20.0, quiet=0.5)
     ev["stableGeo"] = stable_geo(host, client)
-    read(host, client, ev, "read3")
+    read(host, client, ev, "readAfterBegin")
 
 def judge(rid, ev, cells, prev, hn, cn):
     H, C = ev["H"], ev["C"]
-    ms = [ev[k]["client"]["mir"] for k in ("read1", "read2", "read3")]
-    det = {"READ1": ms[0], "READ2": ms[1], "READ3": ms[2]}
-    cells[rid + "a"] = (not [m for mm in ms for m in mm if m[1] in prev], dict(det, forbiddenIds=list(prev)))
-    cells[rid + "b"] = (len(ms[0]) <= 1 and all(m[1] == H for m in ms[0]) and ms[1] == [(hn, H)] and ms[2] == [(hn, H)],
-                        dict(det, want=[hn, H]))
-    cells[rid + "c"] = ((hn, H) in ms[2], {"READ3": ms[2], "want": [hn, H]})
-    hm = ev["read3"]["host"]["mir"]
-    cells[rid + "d"] = (hm == [(cn, C)], {"hostREAD3": hm, "want": [cn, C]})
+    ms = [ev[k]["client"]["mir"] for k in ("readWhilePlacing", "readAfterPlacing", "readAfterBegin")]
+    det = {"whilePlacing": ms[0], "afterPlacing": ms[1], "afterBegin": ms[2]}
+    cells[rid + "_no_old_host_marker"] = (not [m for mm in ms for m in mm if m[1] in prev],
+                                          dict(det, forbiddenIds=list(prev)))
+    cells[rid + "_only_new_host_marker"] = (len(ms[0]) <= 1 and all(m[1] == H for m in ms[0]) and
+                                            ms[1] == [(hn, H)] and ms[2] == [(hn, H)], dict(det, want=[hn, H]))
+    cells[rid + "_new_host_marker_shown"] = ((hn, H) in ms[2], {"afterBegin": ms[2], "want": [hn, H]})
+    hm = ev["readAfterBegin"]["host"]["mir"]
+    cells[rid + "_host_shows_client_base"] = (hm == [(cn, C)], {"hostAfterBegin": hm, "want": [cn, C]})
 
 def distinct(ev, prev):
     if ev["H"] in prev or ev["C"] in prev:
         raise Miss("new campaign ids H %s / C %s not distinct from %s" % (ev["H"], ev["C"], prev))
 
-def row_r3(host, client, ev, cells):
+def row_first_campaign(host, client, ev, cells):
     """the fresh client in its first campaign A: HA, CA and the client's markers after stable_geo"""
     read(host, client, ev, "read")
-    IDS["HA"], IDS["CA"] = one_id(host, "R-3"), one_id(client, "R-3")
+    IDS["HA"], IDS["CA"] = one_id(host, "first_campaign"), one_id(client, "first_campaign")
     hn, mc = own(ev["read"]["host"]["bases"])[0][0], ev["read"]["client"]["mir"]
-    cells["R-3a"] = (mc == [(hn, IDS["HA"])] and IDS["HA"] != IDS["CA"], {"mirClient": mc, "HA": IDS["HA"], "CA": IDS["CA"], "hostBase": hn})
+    cells["first_campaign_host_marker"] = (mc == [(hn, IDS["HA"])] and IDS["HA"] != IDS["CA"],
+                                           {"mirClient": mc, "HA": IDS["HA"], "CA": IDS["CA"], "hostBase": hn})
 
-def row_r1(host, client, ev, cells):
-    """the trap exit -> campaign B on K2, joined from the trap browser the client already shows"""
-    client_exit(host, client, ev, trap=True)
-    newcamp(host, client, K2, "HostBaseB", "ClientBaseB", ev, ordinary=False)
+def row_lobby_exit(host, client, ev, cells):
+    """the lobby exit -> campaign B on KEY_B, joined from the server browser the lobby exit leaves on screen"""
+    client_exit(host, client, ev, via_lobby=True)
+    newcamp(host, client, KEY_B, "HostBaseB", "ClientBaseB", ev, ordinary=False)
     distinct(ev, (IDS["HA"], IDS["CA"]))
     IDS["HB"], IDS["CB"] = ev["H"], ev["C"]
-    judge("R-1", ev, cells, (IDS["HA"],), "HostBaseB", "ClientBaseB")
+    judge("lobby_exit", ev, cells, (IDS["HA"],), "HostBaseB", "ClientBaseB")
 
-def row_r2(host, client, ev, cells):
-    """the ordinary exit -> campaign C on K1 hosted again (a new OS port), joined by NEW BATTLE > COOP > Direct Connect"""
-    client_exit(host, client, ev, trap=False)
-    newcamp(host, client, K1, "HostBaseC", "ClientBaseC", ev, ordinary=True)
+def row_abandon_exit(host, client, ev, cells):
+    """the ordinary exit (ABANDON GAME) -> campaign C on KEY_AC hosted again (a new OS port), joined by NEW BATTLE >
+    COOP > Direct Connect"""
+    client_exit(host, client, ev, via_lobby=False)
+    newcamp(host, client, KEY_AC, "HostBaseC", "ClientBaseC", ev, ordinary=True)
     distinct(ev, (IDS["HA"], IDS["HB"], IDS["CA"], IDS["CB"]))
-    judge("R-2", ev, cells, (IDS["HB"], IDS["HA"]), "HostBaseC", "ClientBaseC")
+    judge("abandon_exit", ev, cells, (IDS["HB"], IDS["HA"]), "HostBaseC", "ClientBaseC")
 
 def dump(gc):
     if gc.proc is None or gc.proc.poll() is not None:
@@ -336,7 +357,7 @@ def report(rid, ev, cells, capture):
     for name in CELLS[rid]:
         ok, det = cells.get(name, (False, "not reached"))
         if capture is not None:
-            ok, det = False, "boot" if name != "CRASH" else "boot; %s" % short(det, 400)
+            ok, det = False, "boot" if name != "no_crash" else "boot; %s" % short(det, 400)
         print(("PASS %s" % name) if ok else ("FAIL %s: %s" % (name, short(det, 1500))), flush=True)
         passed += 1 if ok else 0
     print("ROW %s: %s (%d/%d cells)" % (rid, "PASS" if passed == len(CELLS[rid]) else "FAIL", passed, len(CELLS[rid])), flush=True)
@@ -345,22 +366,23 @@ def report(rid, ev, cells, capture):
 def main():
     T0[0] = time.time()
     cells, evs, capture, crash0 = {}, {}, None, crashes()
-    host = GameClient("host", None, make_user_dir("w2h62a_host"))
-    client = GameClient("client", None, make_user_dir("w2h62a_client"))
+    host = GameClient("host", None, make_user_dir("client_base_ghost_host"))
+    client = GameClient("client", None, make_user_dir("client_base_ghost_client"))
     games, boot = (host, client), {"cpu": cpu()}
     try:
         try:
             seed_player_name(client.user_dir)
             for gc in games:
                 gc.spawn(); gc.connect()
-            session.new_campaign(host, client, port=K1)
+            session.new_campaign(host, client, port=KEY_AC)
             boot["ports"] = dict(harness._EPHEMERAL_COOP_PORTS)
             boot["stableGeo"] = stable_geo(host, client)
         except Exception as e:  # noqa: BLE001
             boot["error"] = unreachable(e)
             capture = {gc.name: dump(gc) for gc in games}
         missed = None
-        for rid, body in (("R-3", row_r3), ("R-1", row_r1), ("R-2", row_r2)):
+        for rid, body in (("first_campaign", row_first_campaign), ("lobby_exit", row_lobby_exit),
+                          ("abandon_exit", row_abandon_exit)):
             ev = evs[rid] = {"cpu": cpu(), "tStart": now(), "steps": []} if capture is None else {}
             if capture is not None:
                 continue
@@ -387,12 +409,12 @@ def main():
                 rc[gc.name + "Shutdown"] = unreachable(e)
             rc[gc.name] = gc.proc.poll() if gc.proc is not None else None
         new = sorted(os.path.basename(p) for p in crashes() - crash0)
-        cells["CRASH"] = (not new and all(alive.values()), {"newCrash": new, "aliveAtEnd": alive, "rc": rc})
+        cells["no_crash"] = (not new and all(alive.values()), {"newCrash": new, "aliveAtEnd": alive, "rc": rc})
     print("BOOT: %s" % short(boot), flush=True)
     if capture is not None:
         print("CAPTURE: %s" % short(capture), flush=True)
     failed = []
-    for rid in ("R-3", "R-1", "R-2"):
+    for rid in ("first_campaign", "lobby_exit", "abandon_exit"):
         failed += report(rid, evs.get(rid, {}), cells, capture)
     print("\ntest_client_base_ghost: %d/10 cells passed (fail=%s) wall %.1fs" % (10 - len(failed), failed, time.time() - T0[0]), flush=True)
     return 2 if failed else 0
