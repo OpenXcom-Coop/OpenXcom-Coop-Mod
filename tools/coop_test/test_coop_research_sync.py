@@ -36,6 +36,11 @@ player researches at HostBase):
   R6 items   STR_COOP_RS_SPAWNS_ITEM (spawnedItem STR_MEDI_KIT). Both players learn
              the topic; the medi-kit goes only to HostBase, the researcher's base,
              on both machines (owner ruling RU5).
+  R7 effects STR_COOP_RS_COUNTER_EVENT (increaseCounter COOP_RS_COUNTER, spawnedEvent
+             STR_COOP_RS_EVENT). Both machines hold the same counter value and the
+             same pending event (owner, the host's countdown).
+  R8 corpse  STR_SECTOID_SOLDIER, an interrogation, with retainCorpses on the host
+             only. The corpse returns to HostBase's stores on both machines.
 
 Every row also reports the client's world-checksum repairs (resync requests):
 the replica must reach the host's result through the research_done result, not
@@ -98,6 +103,20 @@ def medikits(gc, name):
 
 def requests(gc):
     return gc.ok({"cmd": "shared_resync_stats"})["requests"]
+
+
+def counter(gc, name):
+    return gc.ok({"cmd": "custom_counters", "names": [name]})["counters"].get(name)
+
+
+def pending(gc, name):
+    """(owner, countdown) of each pending `name` event on THIS machine."""
+    return sorted((e["owner"], e["countdown"]) for e in gc.ok({"cmd": "geo_events"})["events"]
+                  if e["name"] == name and not e["over"])
+
+
+def corpses(gc, name):
+    return base(gc, name)["items"].get("STR_SECTOID_CORPSE", 0)
 
 
 def drain(gc):
@@ -271,10 +290,55 @@ def row_items(host, client, results):
                                f"restreams={requests(client) - r0}")
 
 
+def row_counter_event(host, client, results):
+    """R7: the topic's custom counter and spawned event reach the replica from the
+    host's result. The event's countdown is the host's roll (minus the half hours
+    the host counted since), never a roll of the replica's own."""
+    topic, ctr, ev = "STR_COOP_RS_COUNTER_EVENT", "COOP_RS_COUNTER", "STR_COOP_RS_EVENT"
+    r0 = requests(client)
+    c0 = (counter(host, ctr), counter(client, ctr))
+    t0 = geo.game_minutes(host)
+    start(host, topic, 1)
+    advance(host, client, DAY)
+    elapsed = geo.game_minutes(host) - t0
+    if counter(host, ctr) == c0[0] or not pending(host, ev):
+        raise Inconclusive(f"R7: the host world did not run the side effects: counter "
+                           f"{c0[0]} -> {counter(host, ctr)} events={pending(host, ev)}")
+    converge(host, client, "R7", lambda gc: (counter(gc, ctr), [o for o, _ in pending(gc, ev)]))
+    hc, cc = counter(host, ctr), counter(client, ctr)
+    he, ce = pending(host, ev), pending(client, ev)
+    same_event = (len(he) == len(ce) == 1 and he[0][0] == ce[0][0]
+                  and abs(he[0][1] - ce[0][1]) <= elapsed + 30)
+    ok = hc == cc and same_event and requests(client) == r0
+    results["R7 counter+event"] = (ok, f"counter host={hc} client={cc} (before {c0}) "
+                                       f"{ev} host={he} client={ce} (window {elapsed} min) "
+                                       f"restreams={requests(client) - r0}")
+
+
+def row_interrogation(host, client, results):
+    """R8: a finished interrogation puts the alien's corpse back in the researching
+    base's stores (host option retainCorpses). The replica gets the same corpse
+    from the host's result, not from a world restream."""
+    r0 = requests(client)
+    k0 = (corpses(host, "HostBase"), corpses(client, "HostBase"))
+    start(host, "STR_SECTOID_SOLDIER", 1)
+    advance(host, client, DAY)
+    if "STR_SECTOID_SOLDIER" in projects(host, "HostBase"):
+        raise Inconclusive("R8: the interrogation never completed on the host")
+    if corpses(host, "HostBase") != k0[0] + 1:
+        raise Inconclusive(f"R8: the host kept no corpse: {k0[0]} -> {corpses(host, 'HostBase')}")
+    h, c = converge(host, client, "R8", lambda gc: corpses(gc, "HostBase"))
+    ok = h == c == k0[1] + 1 and requests(client) == r0
+    results["R8 interrogation"] = (ok, f"HostBase corpses before={k0} host={h} client={c} "
+                                       f"restreams={requests(client) - r0}")
+
+
 def main():
     opts = {"EnableResearchSync": True}
+    # R8: only the host keeps interrogation corpses; the replica must follow the
+    # host's result, not its own option.
     js = sep.bring_up("rsync", (48991, 48992, 47966), mods=[MOD],
-                      host_options=opts, client_options=opts)
+                      host_options=dict(opts, retainCorpses=True), client_options=opts)
     host, client = js.host, js.client
     results = {}
     note = None
@@ -295,6 +359,8 @@ def main():
         row_duplicate(host, client, results, "STR_SECTOID_ENGINEER", True, "R4 keep")
         row_quiet(host, client, results, profiles0)
         row_items(host, client, results)
+        row_counter_event(host, client, results)
+        row_interrogation(host, client, results)
     except Inconclusive as e:
         note = "INCONCLUSIVE: " + str(e)
     except Exception as e:  # a dropped socket mid-command == a crash

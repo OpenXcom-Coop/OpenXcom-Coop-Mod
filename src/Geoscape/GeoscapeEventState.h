@@ -39,6 +39,9 @@ struct GeoscapeEventDisplay
 {
 	std::string place;
 	std::vector<std::pair<std::string, std::string> > rows;
+	/// Separate host: what eventLogic gave or took at the owner's bases (stores,
+	/// craft items, transfers, crafts) as JSON text, for the replica to apply.
+	std::string rewards;
 };
 
 /**

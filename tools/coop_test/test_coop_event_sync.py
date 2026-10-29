@@ -49,9 +49,18 @@ Session 2 (private research):
      STR_COOP_EV_TRIGGER_HOST and only ClientPlayer's holds STR_COOP_EV_TRIGGER:
      STR_COOP_EV_COND_HOST is scheduled for HostPlayer, STR_COOP_EV_COND is not;
      COND_HOST's topic goes to HostPlayer's profile only.
+  E6/E10 (Shared Research / private research) STR_COOP_EV_EFFECTS grants a topic
+     whose research side effects raise COOP_EV_COUNTER, schedule
+     STR_COOP_EV_FOLLOWUP and send a medi-kit to the owner's base. The replica
+     holds the host's counter, the host's follow-up event (its countdown, not one
+     the replica rolled) and the medi-kit.
+  E9 STR_COOP_EV_REWARD gives the owner's base a medi-kit, a Skyranger and a
+     soldier; the replica's copy of that base equals the host's.
 
-Every firing row also reports the client's world-checksum repairs: the replica
-must reach the host's result through the event message, not a world restream.
+Every firing row also checks that the client's view of the pending events (names
+and owners) equals the host's, and reports the client's world-checksum repairs:
+the replica must reach the host's result through the host's messages, not a world
+restream.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
     FAIL (exit 3: a precondition never held).
@@ -231,11 +240,104 @@ def fire(host, client, name, row, shared):
                 problems.append(f"{gc.name}: research checks {checks}")
             if known(gc) != known0:
                 problems.append(f"{gc.name}: global list changed by {sorted(known(gc) - known0)}")
+    # The fired event leaves the host's schedule; the replica's view of the
+    # schedule must follow (names and owners; a frozen replica never counts down).
+    hs, cs = schedule(host), schedule(client)
+    if hs != cs:
+        problems.append(f"pending events host={hs} client={cs}")
     restreams = requests(client) - r0
     if restreams:
         problems.append(f"the replica needed {restreams} world restream(s)")
     return (not problems, f"owner={owner} " + ("; ".join(problems) if problems else
                                                f"popups={seen}"))
+
+
+def schedule(gc):
+    return sorted((e["name"], e["owner"]) for e in gc.ok({"cmd": "geo_events"})["events"]
+                  if not e["over"])
+
+
+def counter(gc, name):
+    return gc.ok({"cmd": "custom_counters", "names": [name]})["counters"].get(name)
+
+
+def owner_base(gc, player):
+    """The canonical (comparable) view of the player's base on THIS machine."""
+    name = "HostBase" if player == "HostPlayer" else "ClientBase"
+    return next(b for b in sep.canonical_world(gc)["bases"] if b["name"] == name)
+
+
+def medikits(b):
+    return b["items"].get("STR_MEDI_KIT", 0) + sum(
+        q for t, r, q in b["transfers"] if r == "STR_MEDI_KIT")
+
+
+def spawn_on_host(host, name, owner):
+    """Schedule `name` for `owner` in the one world (the host's), due in an hour."""
+    host.ok({"cmd": "spawn_event", "name": name, "owner": owner})
+
+
+def effects(host, client, row, owner):
+    """The event grants STR_COOP_EV_EFFECTS_TOPIC, whose research side effects
+    raise COOP_EV_COUNTER, schedule STR_COOP_EV_FOLLOWUP and send a medi-kit to the
+    owner's base. The replica holds the host's result: the same counter, the same
+    follow-up event on the host's countdown (never one the replica rolled) and the
+    same medi-kit."""
+    ctr, follow = "COOP_EV_COUNTER", "STR_COOP_EV_FOLLOWUP"
+    r0 = requests(client)
+    c0 = (counter(host, ctr), counter(client, ctr))
+    k0 = (medikits(owner_base(host, owner)), medikits(owner_base(client, owner)))
+    spawn_on_host(host, "STR_COOP_EV_EFFECTS", owner)
+    t0 = geo.game_minutes(host)
+    advance(host, client, 180)
+    elapsed = geo.game_minutes(host) - t0
+
+    def view(gc):
+        evs = [e for e in gc.ok({"cmd": "geo_events"})["events"]
+               if e["name"] == follow and not e["over"]]
+        return counter(gc, ctr), [(e["owner"], e["countdown"]) for e in evs]
+
+    hv, cv = view(host), view(client)
+    if hv[0] == c0[0] or len(hv[1]) != 1:
+        raise Inconclusive(f"{row}: the host world did not run the topic's side effects: {hv}")
+    deadline = time.time() + 15
+    while time.time() < deadline and (cv[0] != hv[0] or [o for o, _ in cv[1]] != [o for o, _ in hv[1]]):
+        time.sleep(0.5)
+        hv, cv = view(host), view(client)
+    k = (medikits(owner_base(host, owner)), medikits(owner_base(client, owner)))
+    same_event = (len(cv[1]) == 1 and cv[1][0][0] == hv[1][0][0]
+                  and abs(cv[1][0][1] - hv[1][0][1]) <= elapsed + 30)
+    ok = (cv[0] == hv[0] and same_event and k == (k0[0] + 1, k0[1] + 1)
+          and requests(client) == r0)
+    return (ok, f"owner={owner} counter host={hv[0]} client={cv[0]} (before {c0}) "
+                f"{follow} host={hv[1]} client={cv[1]} (window {elapsed} min) "
+                f"medi-kits before={k0} after={k} restreams={requests(client) - r0}")
+
+
+def rewards(host, client, owner):
+    """STR_COOP_EV_REWARD gives the owner's base a medi-kit (stores), a Skyranger
+    (hangar) and a soldier (on the way in). The replica's base is the host's."""
+    r0 = requests(client)
+    b0 = owner_base(host, owner)
+    spawn_on_host(host, "STR_COOP_EV_REWARD", owner)
+    advance(host, client, 180)
+    hb = owner_base(host, owner)
+    rangers = lambda b: sum(1 for c in b["crafts"] if c[1] == "STR_SKYRANGER")
+    # On the way or, once a slow window passed 24 hours, arrived.
+    soldiers_in = lambda b: sum(1 for t in b["transfers"] if t[1] == "STR_SOLDIER") + len(b["soldiers"])
+    counts = lambda b: (b["items"].get("STR_MEDI_KIT", 0), rangers(b), soldiers_in(b))
+    if counts(hb) != tuple(n + 1 for n in counts(b0)):
+        raise Inconclusive(f"E9: the host world did not give the rewards: (medi-kits, Skyrangers, "
+                           f"soldiers on the way) before={counts(b0)} after={counts(hb)} "
+                           f"transfers={hb['transfers']}")
+    deadline = time.time() + 15
+    cb = owner_base(client, owner)
+    while time.time() < deadline and cb != hb:
+        time.sleep(0.5)
+        hb, cb = owner_base(host, owner), owner_base(client, owner)
+    ok = hb == cb and requests(client) == r0
+    diff = {k: (hb[k], cb[k]) for k in hb if hb[k] != cb[k]}
+    return (ok, f"owner={owner} base differs={diff} restreams={requests(client) - r0}")
 
 
 def session_shared(results):
@@ -267,6 +369,8 @@ def session_shared(results):
         ok_fire, detail = fire(host, client, COND, "E5", True)
         results["E5 next owner, shared research"] = (
             ok_owner and ok_fire, f"month-1 events={he} {detail}")
+        results["E6 research side effects, shared research"] = effects(
+            host, client, "E6", "ClientPlayer")
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         js.shutdown()
@@ -299,6 +403,9 @@ def session_private(results):
         ok_fire, detail = fire(host, client, COND_HOST, "E8", False)
         results["E8 owner's trigger, private research"] = (
             ok_sched and ok_fire, f"month-1 events={he} {detail}")
+        results["E9 item, craft and soldier rewards"] = rewards(host, client, "ClientPlayer")
+        results["E10 research side effects, private research"] = effects(
+            host, client, "E10", "ClientPlayer")
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         js.shutdown()

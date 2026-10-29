@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <map>
 #include <set>
+#include <sstream>
 
 namespace OpenXcom
 {
@@ -324,7 +325,6 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 				researchBase = game->getSavedGame()->getBases()->front();
 
 			std::string adoptedArticle;
-			std::vector<const RuleResearch*> adoptedResearch;
 			const Json::Value& discovered = obj["discoveredResearch"];
 			for (Json::ArrayIndex i = 0; i < discovered.size(); ++i)
 			{
@@ -336,7 +336,6 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 							? rule->getName() : rule->getLookup();
 						game->getSavedGame()->addFinishedResearch(
 							rule, game->getMod(), researchBase, true);
-						adoptedResearch.push_back(rule);
 					}
 			}
 			// Private research: the host gave the event's topics to the owner's
@@ -353,20 +352,15 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 								? rule->getName() : rule->getLookup();
 							game->getSavedGame()->addFinishedResearch(
 								rule, game->getMod(), researchBase, true);
-							adoptedResearch.push_back(rule);
 						}
 				}
-			// Shared Campaign reaches this path through GeoscapeEventState::eventLogic,
-			// which applies the primary research side effects after discovering the
-			// event-selected topic.  Separate Campaign adopts the host's resolved
-			// discovery snapshot first to avoid a second RNG roll, so eventLogic sees
-			// those topics as already researched and deliberately skips that block.
-			// Apply the same unlock chain explicitly for only the newly adopted topics.
-			// This includes spawned items/events and custom counters used by large mods
-			// to expose follow-up projects (for example XCOM Files' Secret Files).
-			if (researchBase && !adoptedResearch.empty())
-				game->getSavedGame()->handlePrimaryResearchSideEffects(
-					adoptedResearch, game->getMod(), researchBase);
+			// The research side effects of these topics (obsolete projects, spawned
+			// items and events, custom counters such as XCOM Files' Secret Files
+			// unlocks) ran on the host and arrive as its results: research_effects and
+			// world_extras. Re-running them here would roll this replica's own RNG
+			// for a spawned event's countdown.
+			// The event's own rewards at its owner's bases (items, crafts, persons).
+			SharedEcon::applyEventRewards(game, obj["rewards"]);
 			const Json::Value& playerFunds = obj["playerFunds"];
 			if (playerFunds.isObject())
 				for (const std::string& playerName : playerFunds.getMemberNames())
@@ -620,7 +614,7 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 
 bool isHostSimulationResult(const std::string& cmd)
 {
-	return cmd == "research_done" || cmd == "research_effects"
+	return cmd == "research_done" || cmd == "research_effects" || cmd == "world_extras"
 		|| cmd == "fac_done" || cmd == "prod_done" || cmd == "transfer_arrived" || cmd == "base_destroyed"
 		|| cmd == "patrol_prompt" || cmd == "base_damaged"
 		|| cmd == "alien_base_found" || cmd == "alert" || cmd == "day_tick"
@@ -993,6 +987,13 @@ void hostGeoscapeEvent(Game* game, const std::string& eventName,
 			rows.append(item);
 		}
 		msg["rows"] = rows;
+		// What eventLogic gave or took at the owner's bases.
+		Json::Value rewards;
+		Json::CharReaderBuilder builder;
+		std::istringstream text(display->rewards);
+		std::string errors;
+		if (!display->rewards.empty() && Json::parseFromStream(builder, text, &rewards, &errors))
+			msg["rewards"] = rewards;
 	}
 	game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 }

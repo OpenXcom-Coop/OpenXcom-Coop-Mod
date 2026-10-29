@@ -21,6 +21,12 @@ Rows (vanilla rules, private research, clock paused):
               wallets equal the host's again.
   C4 release  after each repair the client is not parked in the resume hold and
               the whole world is identical on both machines.
+Drifts the old terms (funds and counts) could not see, each made on the replica
+only and each detected and repaired like C2:
+  C5 stores   one medi-kit more and one rifle fewer at ClientBase (same total).
+  C6 projects a research project only the replica's ClientBase runs.
+  C7 counters a custom counter only the replica holds.
+  C8 events   a pending geoscape event only the replica holds.
 
   * PASS (exit 0): every row holds.
   * FAIL (exit 1/2): a row failed or a game process crashed.
@@ -128,8 +134,79 @@ def row_wallet(host, client):
     print("PASS C3 wallet: a drifted wallet of the other player is repaired")
 
 
+def client_base(gc):
+    return next(b for b in sep.canonical_world(gc)["bases"] if b["name"] == "ClientBase")
+
+
+def drift_repaired(host, client, label, make_drift, drifted):
+    """A replica-only drift that the old checksum terms (funds, counts) cannot
+    see. The checksum must notice it and the restream must repair it."""
+    for gc in (host, client):
+        gc.ok({"cmd": "shared_reset_resync_stats"})
+    make_drift()
+    assert drifted(), label + ": the drift was not made"
+    repair(host, client, label, drifted)
+    print(f"PASS {label}: a drift the old counts missed is detected and repaired")
+
+
+def row_stores(host, client):
+    """C5: one more medi-kit and one rifle fewer at ClientBase: the store total
+    (chkItems) is unchanged, the stores are not."""
+    rifles = client_base(host)["items"].get("STR_RIFLE", 0)
+    assert rifles >= 1, ("C5 precondition: ClientBase has a rifle", client_base(host)["items"])
+
+    def make():
+        client.ok({"cmd": "give_items", "item": "STR_MEDI_KIT", "count": 1, "base": "ClientBase"})
+        client.ok({"cmd": "give_items", "item": "STR_RIFLE", "count": -1, "base": "ClientBase"})
+    drift_repaired(host, client, "C5 stores", make,
+                   lambda: client_base(client)["items"] != client_base(host)["items"])
+
+
+def row_projects(host, client):
+    """C6: a research project only the replica's ClientBase runs."""
+    def make():
+        client.ok({"cmd": "start_research", "topic": DRIFT_TOPIC, "cost": 100000,
+                   "base": "ClientBase"})
+    drift_repaired(host, client, "C6 research projects", make,
+                   lambda: client_base(client)["research"] != client_base(host)["research"])
+
+
+# A counter a rule writes (Coop_EventSync_Test STR_COOP_EV_EFFECTS_TOPIC): the
+# checksum covers only rule-named counters, not object ids.
+COUNTER = "COOP_EV_COUNTER"
+
+
+def counters(gc):
+    return gc.ok({"cmd": "custom_counters", "names": [COUNTER]})["counters"]
+
+
+def row_counters(host, client):
+    """C7: a value of a rule-named custom counter only the replica holds."""
+    drift_repaired(host, client, "C7 custom counters",
+                   lambda: client.ok({"cmd": "set_custom_counter", "name": COUNTER,
+                                      "value": 7}),
+                   lambda: counters(client) != counters(host))
+
+
+def schedule(gc):
+    return sorted((e["name"], e["owner"]) for e in gc.ok({"cmd": "geo_events"})["events"]
+                  if not e["over"])
+
+
+def row_events(host, client):
+    """C8: a pending geoscape event only the replica holds."""
+    drift_repaired(host, client, "C8 pending events",
+                   lambda: client.ok({"cmd": "spawn_event", "name": "STR_COOP_EV_CERTAIN",
+                                      "owner": "ClientPlayer"}),
+                   lambda: schedule(client) != schedule(host))
+
+
 def main():
-    js = sep.bring_up("sep_checksum", (49071, 49072, 48371))
+    # Coop_EventSync_Test supplies the event C8 schedules; with the clock paused
+    # none of its scripted events fires.
+    js = sep.bring_up("sep_checksum", (49071, 49072, 48371),
+                      mods=[os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         "mods", "Coop_EventSync_Test")])
     host, client = js.host, js.client
     failed = []
     try:
@@ -138,7 +215,9 @@ def main():
             gc.ok({"cmd": "geo_set_speed", "idx": 0})
         state = host.ok({"cmd": "separate_profile_state"})
         assert state["researchSharingEnabled"] is False, state
-        for name, row in (("C1", row_terms), ("C2", row_research), ("C3", row_wallet)):
+        for name, row in (("C1", row_terms), ("C2", row_research), ("C3", row_wallet),
+                          ("C5", row_stores), ("C6", row_projects), ("C7", row_counters),
+                          ("C8", row_events)):
             try:
                 row(host, client)
             except (AssertionError, TimeoutError) as e:

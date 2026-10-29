@@ -121,6 +121,8 @@
 #include "../Geoscape/BaseDestroyedState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleEvent.h"
+#include "../Mod/AlienDeployment.h"
+#include "../Savegame/GeoscapeEvent.h"
 #include "../Menu/ErrorMessageState.h"
 
 #include "connectionTCP.h"
@@ -2593,6 +2595,10 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 			break;
 		}
 	}
+	// A finished interrogation put the alien's corpse back in the host's stores
+	// (time1Day 3b, the host's retainCorpses option); keep exactly that corpse.
+	if (const RuleItem* corpse = mod->getItem(payload.get("corpse", "").asString(), false))
+		base->getStorageItems()->addItem(corpse);
 
 	// Add the discovered topic(s). The host already selected the getOneFree
 	// (RNG) and passed it as `bonus`; addFinishedResearch itself is deterministic,
@@ -2625,6 +2631,9 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 			game->pushState(new CutsceneState(topic->getCutscene()));
 		}
 }
+
+// world_extras: defined beside the world checksum terms it shares (hostWorldExtras).
+void worldExtrasApply(Game* game, Json::Value& payload, Base* base, int seat);
 
 // research_effects payload: { removed: [ {baseIdx, research, refund} ],
 // transfers: [ {item, qty, hours, owner} ] }; baseId = the researching base.
@@ -3185,6 +3194,7 @@ void init()
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
 	registerCmd("research_effects", &simAccept, &researchEffectsApply);
+	registerCmd("world_extras",     &simAccept, &worldExtrasApply);
 	registerCmd("fac_done",         &simAccept, &facDoneApply);
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
@@ -3418,13 +3428,15 @@ bool sharedHost(Game* game)
 }
 
 void hostResearchDone(Game* game, int baseId, const std::string& research,
-                      const std::string& bonus, const std::string& newResearch)
+                      const std::string& bonus, const std::string& newResearch,
+                      const std::string& corpse)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
 	p["research"] = research;
 	p["bonus"] = bonus;
 	p["newResearch"] = newResearch;
+	p["corpse"] = corpse;
 	submitLocalCmd(game, "research_done", baseId, p);
 }
 
@@ -3926,6 +3938,118 @@ void worldAggregates(SavedGame* save, int64_t& items, int64_t& soldiers,
 		transfers += (int64_t)base->getTransfers()->size();
 		productions += (int64_t)base->getProductions().size();
 	}
+}
+
+// Content terms of the world checksum. Each is an order-free sum of one hash
+// per entry, so a container's iteration order (ItemContainer is keyed by rule
+// POINTER, which differs per machine) never matters. Masked to 63 bits so the
+// value travels as a non-negative Json Int64.
+uint64_t chkMix(uint64_t x)
+{
+	x += 0x9E3779B97F4A7C15ULL;
+	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+	return x ^ (x >> 31);
+}
+
+uint64_t chkEntry(const std::string& name, int64_t a, int64_t b)
+{
+	uint64_t h = 1469598103934665603ULL; // FNV-1a
+	for (unsigned char c : name) { h ^= c; h *= 1099511628211ULL; }
+	h = chkMix(h ^ ((uint64_t)a * 0x9E3779B97F4A7C15ULL));
+	return chkMix(h ^ ((uint64_t)b * 0xC2B2AE3D27D4EB4FULL));
+}
+
+int64_t chkValue(uint64_t sum) { return (int64_t)(sum & 0x7FFFFFFFFFFFFFFFULL); }
+
+// Every custom counter a rule can write (research increase/decreaseCounter and
+// the eight deployment counters). The id map also holds object ids (craft, UFO,
+// site numbers) that a replica does not mint, so only these names are compared.
+const std::vector<std::string>& customCounterNames(const Mod* mod)
+{
+	static const Mod* cachedMod = nullptr;
+	static std::vector<std::string> names;
+	if (mod == cachedMod) return names;
+	cachedMod = mod;
+	names.clear();
+	if (!mod) return names;
+	auto add = [](const std::string& name) { if (!name.empty()) names.push_back(name); };
+	for (const auto& entry : mod->getResearchMap())
+		if (entry.second)
+		{
+			for (const auto& name : entry.second->getIncreaseCounter()) add(name);
+			for (const auto& name : entry.second->getDecreaseCounter()) add(name);
+		}
+	for (const auto& type : mod->getDeploymentsList())
+		if (const AlienDeployment* d = mod->getDeployment(type, false))
+		{
+			add(d->getCounterSuccess()); add(d->getCounterFailure());
+			add(d->getCounterDespawn()); add(d->getCounterAll());
+			add(d->getDecreaseCounterSuccess()); add(d->getDecreaseCounterFailure());
+			add(d->getDecreaseCounterDespawn()); add(d->getDecreaseCounterAll());
+		}
+	std::sort(names.begin(), names.end());
+	names.erase(std::unique(names.begin(), names.end()), names.end());
+	return names;
+}
+
+int64_t chkCounters(SavedGame* save, const Mod* mod)
+{
+	uint64_t sum = 0;
+	const auto& ids = save->getAllIds();
+	for (const auto& name : customCounterNames(mod))
+	{
+		auto it = ids.find(name);
+		if (it != ids.end()) sum += chkEntry(name, it->second, 0);
+	}
+	return chkValue(sum);
+}
+
+// Pending geoscape events by name, owner and the Separate shared flag. Not the
+// countdown: a replica never counts down, so it holds the host's value at the
+// last world_extras result.
+int64_t chkEvents(SavedGame* save)
+{
+	uint64_t sum = 0;
+	for (const GeoscapeEvent* ge : save->getGeoscapeEvents())
+		if (!ge->isOver())
+			sum += chkEntry(ge->getRules().getName() + '\x1f' + ge->getOwnerPlayerName(),
+				ge->isCoopShared() ? 1 : 0, 0);
+	return chkValue(sum);
+}
+
+int64_t chkProjects(SavedGame* save)
+{
+	uint64_t sum = 0;
+	const auto& bases = *save->getBases();
+	for (size_t i = 0; i < bases.size(); ++i)
+		for (const ResearchProject* proj : bases[i]->getResearch())
+			sum += chkEntry(proj->getRules()->getName(), (int64_t)i, 0);
+	return chkValue(sum);
+}
+
+// Every base's stores by item type and quantity. This walks every stored item
+// type, so it is recomputed at most every CHK_STORES_MS of real time; the stale
+// value is far inside the RESYNC_DEBOUNCE_MS a mismatch must survive.
+const int64_t CHK_STORES_MS = 250;
+
+int64_t chkStores(SavedGame* save)
+{
+	static const SavedGame* cachedSave = nullptr;
+	static int64_t cachedAt = -1;
+	static int64_t cached = 0;
+	const int64_t now = steadyMs();
+	if (save == cachedSave && cachedAt >= 0 && now - cachedAt < CHK_STORES_MS) return cached;
+	uint64_t sum = 0;
+	const auto& bases = *save->getBases();
+	for (size_t i = 0; i < bases.size(); ++i)
+		for (const auto& item : *bases[i]->getStorageItems()->getContents())
+			if (item.second != 0)
+				sum += chkEntry(item.first->getType(), (int64_t)i, item.second);
+	cachedSave = save;
+	cachedAt = now;
+	cached = chkValue(sum);
+	return cached;
 }
 
 // Separate's one world keeps each player's wallet and private research in that
@@ -7299,11 +7423,296 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	// issue #78: an orphaned replica mission site (a despawn the snapshot missed)
 	// must trip the auto-repair too. Count only - the restream is the repair.
 	msg["chkSites"] = (int)save->getMissionSites()->size();
+	// Content terms: drift that keeps every count equal (a swapped store item, a
+	// project only one machine runs, a custom counter, a pending event).
+	msg["chkStores"] = Json::Value::Int64(chkStores(save));
+	msg["chkProjects"] = Json::Value::Int64(chkProjects(save));
+	msg["chkCounters"] = Json::Value::Int64(chkCounters(save, game->getMod()));
+	msg["chkEvents"] = Json::Value::Int64(chkEvents(save));
 
 	// PRD-P2 3a: the battle terms ride along whenever a battle is live, so the
 	// harness' shared_checksum hook exposes them without a second command. No-op on
 	// the geoscape heartbeat, where there is no battle to stamp.
 	attachBattleChecksum(game, msg);
+}
+
+void hostWorldExtras(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !sharedHost(game)) return;
+	static const SavedGame* lastSave = nullptr;
+	static int64_t lastEvents = -1, lastCounters = -1;
+	const int64_t events = chkEvents(save);
+	const int64_t counters = chkCounters(save, game->getMod());
+	if (save == lastSave && events == lastEvents && counters == lastCounters) return;
+	lastSave = save;
+	lastEvents = events;
+	lastCounters = counters;
+
+	Json::Value list(Json::arrayValue);
+	for (const GeoscapeEvent* ge : save->getGeoscapeEvents())
+	{
+		if (ge->isOver()) continue;
+		Json::Value e;
+		e["name"] = ge->getRules().getName();
+		e["owner"] = ge->getOwnerPlayerName();
+		e["countdown"] = Json::Value::UInt64(ge->getSpawnCountdown());
+		e["shared"] = ge->isCoopShared();
+		list.append(e);
+	}
+	Json::Value values(Json::objectValue);
+	const auto& ids = save->getAllIds();
+	for (const auto& name : customCounterNames(game->getMod()))
+	{
+		auto it = ids.find(name);
+		if (it != ids.end()) values[name] = it->second;
+	}
+	Json::Value p;
+	p["events"] = list;
+	p["counters"] = values;
+	submitLocalCmd(game, "world_extras", -1, p);
+}
+
+namespace {
+// world_extras payload: { events: [ {name, owner, countdown, shared} ],
+// counters: { name: value } }. The host's whole set; the replica replaces its own.
+void worldExtrasApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	auto& events = save->getGeoscapeEvents();
+	for (GeoscapeEvent* ge : events) delete ge;
+	events.clear();
+	for (const auto& e : payload["events"])
+	{
+		const RuleEvent* rule = mod->getEvent(e.get("name", "").asString(), false);
+		if (!rule) continue;
+		GeoscapeEvent* ge = new GeoscapeEvent(*rule);
+		ge->setOwnerPlayerName(e.get("owner", "").asString());
+		ge->setSpawnCountdown((size_t)e.get("countdown", 30).asUInt64());
+		ge->setCoopShared(e.get("shared", false).asBool());
+		events.push_back(ge);
+	}
+	std::map<std::string, int> ids = save->getAllIds();
+	const Json::Value& counters = payload["counters"];
+	for (const auto& name : customCounterNames(mod))
+	{
+		if (counters.isMember(name)) ids[name] = counters[name].asInt();
+		else ids.erase(name);
+	}
+	save->setAllIds(ids);
+}
+
+std::map<std::string, int> itemCounts(const ItemContainer* items)
+{
+	std::map<std::string, int> out;
+	for (const auto& item : *items->getContents())
+		if (item.second != 0) out[item.first->getType()] = item.second;
+	return out;
+}
+
+// Appends {<keys>, item, delta} for every type whose count changed.
+void appendItemDeltas(Json::Value& out, const std::map<std::string, int>& before,
+	const std::map<std::string, int>& after, const Json::Value& keys)
+{
+	std::set<std::string> types;
+	for (const auto& item : before) types.insert(item.first);
+	for (const auto& item : after) types.insert(item.first);
+	for (const auto& type : types)
+	{
+		auto b = before.find(type), a = after.find(type);
+		const int delta = (a == after.end() ? 0 : a->second) - (b == before.end() ? 0 : b->second);
+		if (delta == 0) continue;
+		Json::Value d = keys;
+		d["item"] = type;
+		d["delta"] = delta;
+		out.append(d);
+	}
+}
+
+Craft* newRewardCraft(Game* game, Base* base, const Json::Value& c)
+{
+	const RuleCraft* rule = game->getMod()->getCraft(c.get("type", "").asString(), false);
+	if (!rule) return nullptr;
+	Craft* craft = new Craft(rule, base, c.get("id", 0).asInt());
+	craft->initFixedWeapons(game->getMod());
+	craft->setStatus(c.get("status", "STR_READY").asString());
+	return craft;
+}
+
+Json::Value rewardCraft(Craft* craft)
+{
+	Json::Value c;
+	c["type"] = craft->getRules()->getType();
+	c["id"] = craft->getId();
+	c["status"] = craft->getStatus();
+	return c;
+}
+} // namespace
+
+EventRewardSnapshot snapshotEventRewards(Game* game, Base* hq)
+{
+	EventRewardSnapshot s;
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !hq || !game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign()
+		|| !game->getCoopMod()->getServerOwner())
+		return s;
+	s.active = true;
+	for (Base* base : *save->getBases())
+	{
+		s.stores.push_back(itemCounts(base->getStorageItems()));
+		std::vector<std::map<std::string, int> > crafts;
+		for (Craft* craft : *base->getCrafts())
+			crafts.push_back(itemCounts(craft->getItems()));
+		s.craftItems.push_back(crafts);
+	}
+	s.hqTransfers = hq->getTransfers()->size();
+	s.hqCrafts = hq->getCrafts()->size();
+	return s;
+}
+
+std::string describeEventRewards(Game* game, Base* hq, const EventRewardSnapshot& before)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!before.active || !save || !hq) return std::string();
+	const auto& bases = *save->getBases();
+	// eventLogic adds no base; a base list that changed is left to the checksum.
+	if (bases.size() != before.stores.size()) return std::string();
+	int hqIdx = -1;
+	Json::Value stores(Json::arrayValue), craftItems(Json::arrayValue);
+	for (size_t i = 0; i < bases.size(); ++i)
+	{
+		if (bases[i] == hq) hqIdx = (int)i;
+		Json::Value keys;
+		keys["baseIdx"] = (int)i;
+		appendItemDeltas(stores, before.stores[i], itemCounts(bases[i]->getStorageItems()), keys);
+		const auto& crafts = *bases[i]->getCrafts();
+		for (size_t j = 0; j < before.craftItems[i].size() && j < crafts.size(); ++j)
+		{
+			Json::Value craftKeys = keys;
+			craftKeys["craftId"] = crafts[j]->getId();
+			craftKeys["craftType"] = crafts[j]->getRules()->getType();
+			appendItemDeltas(craftItems, before.craftItems[i][j], itemCounts(crafts[j]->getItems()),
+				craftKeys);
+		}
+	}
+	if (hqIdx < 0) return std::string();
+	Json::Value transfers(Json::arrayValue), crafts(Json::arrayValue), ids(Json::objectValue);
+	const auto& hqTransfers = *hq->getTransfers();
+	for (size_t i = before.hqTransfers; i < hqTransfers.size(); ++i)
+	{
+		Transfer* t = hqTransfers[i];
+		Json::Value d;
+		d["type"] = (int)t->getType();
+		d["hours"] = t->getHours();
+		d["owner"] = t->getOwnerPlayerName();
+		d["qty"] = t->getQuantity();
+		// By type: a Transfer leaves the members of the other kinds unset.
+		if (t->getType() == TRANSFER_ITEM && t->getItems())
+			d["item"] = t->getItems()->getType();
+		if (t->getType() == TRANSFER_CRAFT && t->getCraft())
+		{
+			d["craft"] = rewardCraft(t->getCraft());
+			ids[t->getCraft()->getRules()->getType()] = 0;
+		}
+		if (t->getType() == TRANSFER_SOLDIER && t->getSoldier())
+			d["soldier"] = serializeSoldier(game, t->getSoldier());
+		transfers.append(d);
+	}
+	const auto& hqCrafts = *hq->getCrafts();
+	for (size_t i = before.hqCrafts; i < hqCrafts.size(); ++i)
+	{
+		crafts.append(rewardCraft(hqCrafts[i]));
+		ids[hqCrafts[i]->getRules()->getType()] = 0;
+	}
+	// The host minted the new crafts' ids; the replica's id counters follow.
+	const auto& allIds = save->getAllIds();
+	for (const std::string& type : ids.getMemberNames())
+	{
+		auto it = allIds.find(type);
+		if (it != allIds.end()) ids[type] = it->second;
+		else ids.removeMember(type);
+	}
+	if (stores.empty() && craftItems.empty() && transfers.empty() && crafts.empty())
+		return std::string();
+	Json::Value r;
+	r["baseIdx"] = hqIdx;
+	r["stores"] = stores;
+	r["craftItems"] = craftItems;
+	r["transfers"] = transfers;
+	r["crafts"] = crafts;
+	r["ids"] = ids;
+	return r.toStyledString();
+}
+
+void applyEventRewards(Game* game, const Json::Value& r)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	Mod* mod = game ? game->getMod() : nullptr;
+	if (!save || !mod || !r.isObject() || connectionTCP::getHost()) return;
+	for (const auto& d : r["stores"])
+	{
+		Base* base = resolveBase(game, d.get("baseIdx", -1).asInt());
+		const RuleItem* item = mod->getItem(d.get("item", "").asString(), false);
+		const int delta = d.get("delta", 0).asInt();
+		if (!base || !item) continue;
+		if (delta > 0) base->getStorageItems()->addItem(item, delta);
+		else base->getStorageItems()->removeItem(item, -delta);
+	}
+	for (const auto& d : r["craftItems"])
+	{
+		Base* base = resolveBase(game, d.get("baseIdx", -1).asInt());
+		Craft* craft = base ? findCraft(base, d.get("craftId", -1).asInt(),
+			d.get("craftType", "").asString()) : nullptr;
+		const RuleItem* item = mod->getItem(d.get("item", "").asString(), false);
+		const int delta = d.get("delta", 0).asInt();
+		if (!craft || !item) continue;
+		if (delta > 0) craft->getItems()->addItem(item, delta);
+		else craft->getItems()->removeItem(item, -delta);
+	}
+	Base* hq = resolveBase(game, r.get("baseIdx", -1).asInt());
+	if (!hq) return;
+	const Json::Value& ids = r["ids"];
+	if (ids.isObject() && !ids.empty())
+	{
+		std::map<std::string, int> all = save->getAllIds();
+		for (const std::string& type : ids.getMemberNames()) all[type] = ids[type].asInt();
+		save->setAllIds(all);
+	}
+	for (const auto& c : r["crafts"])
+		if (Craft* craft = newRewardCraft(game, hq, c))
+			hq->getCrafts()->push_back(craft);
+	for (const auto& d : r["transfers"])
+	{
+		Transfer* t = new Transfer(d.get("hours", 1).asInt());
+		t->setOwnerPlayerName(d.get("owner", "").asString());
+		const int qty = d.get("qty", 1).asInt();
+		bool made = true;
+		switch (d.get("type", -1).asInt())
+		{
+		case TRANSFER_ITEM:
+			if (const RuleItem* item = mod->getItem(d.get("item", "").asString(), false))
+				t->setItems(item, qty);
+			else made = false;
+			break;
+		case TRANSFER_SCIENTIST: t->setScientists(qty); break;
+		case TRANSFER_ENGINEER: t->setEngineers(qty); break;
+		case TRANSFER_CRAFT:
+			if (Craft* craft = newRewardCraft(game, hq, d["craft"])) t->setCraft(craft);
+			else made = false;
+			break;
+		case TRANSFER_SOLDIER:
+			if (Soldier* s = deserializeSoldier(game, d.get("soldier", "").asString()))
+				t->setSoldier(s);
+			else made = false;
+			break;
+		default: made = false;
+		}
+		if (made) hq->getTransfers()->push_back(t);
+		else delete t;
+	}
 }
 
 bool requestResync(Game* game, const std::string& why, bool force)
@@ -7377,8 +7786,19 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 		|| ((hostPlayerFunds.isNull() || sameNamedTerms(hostPlayerFunds, myPlayerFunds))
 			&& (hostPlayerResearch.isNull()
 				|| sameNamedTerms(hostPlayerResearch, myPlayerResearch)));
+	// Content terms; absent from a host that predates them (agreement).
+	const int64_t myStores = chkStores(save), myProjects = chkProjects(save);
+	const int64_t myCounters = chkCounters(save, game->getMod()), myEvents = chkEvents(save);
+	auto contentAgrees = [&msg](const char* key, int64_t mine)
+	{
+		return !msg.isMember(key) || msg[key].asInt64() == mine;
+	};
+	const bool contentAgree = contentAgrees("chkStores", myStores)
+		&& contentAgrees("chkProjects", myProjects)
+		&& contentAgrees("chkCounters", myCounters)
+		&& contentAgrees("chkEvents", myEvents);
 	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
-		&& playersAgree
+		&& playersAgree && contentAgree
 		&& (hostItems < 0 || hostItems == myItems)
 		&& (hostSoldiers < 0 || hostSoldiers == mySoldiers)
 		&& (hostTransfers < 0 || hostTransfers == myTransfers)
@@ -7423,7 +7843,10 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< ", soldiers host=" << hostSoldiers << " replica=" << mySoldiers
 			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
 			<< ", production host=" << hostProductions << " replica=" << myProductions
-			<< ", sites host=" << hostSites << " replica=" << mySites;
+			<< ", sites host=" << hostSites << " replica=" << mySites
+			<< ", content (stores/projects/counters/events) agree="
+			<< contentAgrees("chkStores", myStores) << contentAgrees("chkProjects", myProjects)
+			<< contentAgrees("chkCounters", myCounters) << contentAgrees("chkEvents", myEvents);
 		if (separate)
 			Log(LOG_WARNING) << "[SHARED] Separate player terms: wallets host="
 				<< namedTermsText(hostPlayerFunds) << " replica=" << namedTermsText(myPlayerFunds)

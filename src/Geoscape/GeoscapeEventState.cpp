@@ -20,6 +20,7 @@
 #include "GeoscapeState.h"
 #include <map>
 #include "../Basescape/SellState.h"
+#include "../CoopMod/SharedEcon.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
 #include "../Engine/RNG.h"
@@ -179,6 +180,8 @@ void GeoscapeEventState::eventLogic()
 	const bool playerFactionScore = !_ownerPlayerName.empty()
 		&& _game->getCoopMod()->isSeparateCampaign()
 		&& save->getSeparateCampaign().haveDifferentFactions();
+	// coop Separate host: capture the rewards below for the replica.
+	const SharedEcon::EventRewardSnapshot rewardsBefore = SharedEcon::snapshotEventRewards(_game, hq);
 
 	RuleRegion *regionRule = nullptr;
 	City* city = nullptr;
@@ -485,6 +488,8 @@ void GeoscapeEventState::eventLogic()
 		}
 	}
 
+	_display.rewards = SharedEcon::describeEventRewards(_game, hq, rewardsBefore);
+
 	// 4. give bonus research
 	std::vector<const RuleResearch*> possibilities;
 
@@ -571,7 +576,13 @@ void GeoscapeEventState::eventLogic()
 	// 1. remove obsolete research projects from all bases
 	// 2. handle items spawned by research
 	// 3. handle events spawned by research
-	save->handlePrimaryResearchSideEffects(topicsToCheck, mod, hq);
+	// coop Separate: the host mirrors what the side effects changed
+	// (research_effects, world_extras); the replica never re-runs them. A SHARED
+	// replica still runs this eventLogic itself, so SHARED keeps the plain call.
+	if (_game->getCoopMod()->isSeparateCampaign())
+		SharedEcon::hostResearchSideEffects(_game, topicsToCheck, hq);
+	else
+		save->handlePrimaryResearchSideEffects(topicsToCheck, mod, hq);
 
 	if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
 	{
