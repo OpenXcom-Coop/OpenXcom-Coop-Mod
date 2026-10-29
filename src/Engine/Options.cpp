@@ -1336,6 +1336,48 @@ bool load(const std::string &filename)
 	return true;
 }
 
+/// The player's own values of options a multiplayer host overrides for the
+/// current session only (RU10).
+static std::map<bool*, bool> _sessionOriginals;
+
+void setSessionOverride(bool *option, bool sessionValue)
+{
+	if (!option)
+		return;
+	if (_sessionOriginals.find(option) == _sessionOriginals.end())
+		_sessionOriginals[option] = *option;
+	*option = sessionValue;
+}
+
+void clearSessionOverrides()
+{
+	for (const auto& original : _sessionOriginals)
+		*original.first = original.second;
+	_sessionOriginals.clear();
+}
+
+namespace
+{
+/// Writes the player's own values while a session override is active.
+struct SessionOverrideSwap
+{
+	std::vector<std::pair<bool*, bool>> sessionValues;
+	SessionOverrideSwap()
+	{
+		for (const auto& original : _sessionOriginals)
+		{
+			sessionValues.push_back(std::make_pair(original.first, *original.first));
+			*original.first = original.second;
+		}
+	}
+	~SessionOverrideSwap()
+	{
+		for (const auto& value : sessionValues)
+			*value.first = value.second;
+	}
+};
+}
+
 /**
  * Saves options to a YAML file.
  * @param filename YAML filename.
@@ -1345,6 +1387,7 @@ bool save(bool reset, const std::string& filename)
 {
 	std::string yaml;
 	std::string filepath = _configFolder + filename + ".cfg";
+	SessionOverrideSwap ownValues;
 	try
 	{
 		YAML::YamlRootNodeWriter writer;

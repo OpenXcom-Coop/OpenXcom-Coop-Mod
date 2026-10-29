@@ -296,6 +296,12 @@ private:
 	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
+	/// True only for the cooperative one-world SEPARATE campaign: per-player
+	/// wallets, private research profiles and named base ownership. PvP campaigns
+	/// (game mode 2/3) are stored with the Separate type too, but keep main's
+	/// two-world rules, so every Separate-only rule must test this, never the
+	/// campaign type alone (PR #213 F3).
+	bool isSeparateCoopCampaign() const;
 	/// Playtest B4: in a SHARED campaign every soldier needs an explicit owner (seat).
 	/// Any soldier still left UNOWNED (ownerPlayerId 999) - the starting roster of a
 	/// fresh game, or a save created before the split existed - is assigned a seat by
@@ -307,6 +313,11 @@ private:
 	void setCoopPlayers(const std::vector<std::string> &players)
 	{
 		_coopPlayers = players;
+		// Player profiles and wallets are the one-world Separate model only;
+		// SHARED and PvP keep main's single wallet (PR #213 F3).
+		if (!isSeparateCoopCampaign())
+			return;
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
 		_separateCampaign.ensurePlayers(_coopPlayers);
 		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	}

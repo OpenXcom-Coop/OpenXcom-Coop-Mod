@@ -77,6 +77,7 @@ struct DetectedSchema
 	Kind kind = Solo;
 	int schema = SAVE_SCHEMA_CURRENT;              // detected schema number
 	SchemaVariant variant = SchemaVariant::None;   // meaningful when kind == Legacy
+	int gamemode = 0;                              // body coop_gamemode (2/3 = PvP)
 
 	/// True when this build can upgrade the save straight away (a chain exists and
 	/// the variant is known). Only a positively-detected legacy co-op save ever

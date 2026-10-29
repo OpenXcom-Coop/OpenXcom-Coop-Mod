@@ -716,6 +716,16 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 {
 	connectionTCP* coop = _game->getCoopMod();
 
+	// PR #213 F11: queue a different-faction finale exactly as a partial
+	// faction victory does at the end of a battle.
+	if (cmd == "faction_finale_queue")
+	{
+		coop->queueFactionFinaleVote(req.get("owner", "").asString());
+		resp["factionFinale"] = coop->factionFinaleStateForTest();
+		resp["ok"] = true;
+		return true;
+	}
+
 	// CraftInfoState crew-preview regression: open the real summary screen and
 	// expose the number of locally visible soldier icons it actually rendered.
 	if (cmd == "open_craft_info")
@@ -6433,6 +6443,7 @@ std::string TestServer::execute(const std::string& line)
 					// unlike SEPARATE, where each side rolls its own.
 					jb["coopBaseId"] = b->_coop_base_id;
 					jb["ownerPlayerName"] = b->getOwnerPlayerName();
+					jb["radarRangeCoop"] = b->_radar_range_coop; // PvP mirror radar (F3)
 					Json::Value crafts(Json::arrayValue);
 					for (auto* c : *b->getCrafts())
 					{
@@ -8234,6 +8245,12 @@ std::string TestServer::execute(const std::string& line)
 			// compared against, so a test can pick a soldier this player owns.
 			resp["localSeat"] = connectionTCP::localSeat();
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
+			// PR #213 F2/F3/F11: replica role, single-world rules and the finale.
+			resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
+			resp["campaignReplica"] = coop->isCampaignReplica();
+			resp["separateWorld"] = _game->getSavedGame() != nullptr
+				&& _game->getSavedGame()->isSeparateCoopCampaign();
+			resp["factionFinale"] = coop->factionFinaleStateForTest();
 			resp["pendingHostSaveName"] = connectionTCP::session.pendingHostSaveName;
 			// PRD-J09: post-battle / mission-lifecycle introspection.
 			resp["coopMissionEnd"] = coop->coopMissionEnd;

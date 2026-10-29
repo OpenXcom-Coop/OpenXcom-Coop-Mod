@@ -1252,8 +1252,12 @@ void Globe::drawRadars()
 					}
 				}
 
-				// coop
-	
+				// coop: a PvP mirror draws the peer base's synced radar range (main)
+				if (xbase->isPeerMirror() && xbase->_radar_range_coop != 0)
+				{
+					range = xbase->_radar_range_coop;
+				}
+
 				range = Nautical(range);
 
 				if (range>0) drawGlobeCircle(lat,lon,range,48);

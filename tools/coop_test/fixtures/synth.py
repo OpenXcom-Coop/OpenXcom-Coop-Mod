@@ -261,6 +261,33 @@ def embed_sequence_host():
                    _host_body(gamemode=1, save_id=EMBED_SAVE_ID, extra=extra))
 
 
+def pvp_embed_host():
+    """A PvP (game mode 2) campaign saved by main: schema 2, coop:true and the
+    alien player's world in the coopClientSaves sequence. PvP keeps two worlds,
+    so this is already current and must never take the Separate 2->3 merge."""
+    blob = base64.b64encode(
+        client_stream(EMBED_CLIENT_NAME, gamemode=2).encode("utf-8")
+    ).decode("ascii")
+    header = _header("PvP Embed Coop", schema=2, coop=True).rstrip() + "\n" + \
+        "coopCampaignType: 0\ncoopPlayers:\n  - HostGuy\n  - Bob\n"
+    extra = [
+        "coopClientSaves:",
+        "  - key: host_%d_%s.data" % (EMBED_SAVE_ID, EMBED_CLIENT_NAME),
+        "    blob: %s" % blob,
+    ]
+    return _stream(header,
+                   _host_body(gamemode=2, save_id=EMBED_SAVE_ID, extra=extra))
+
+
+def pvp_dual_host():
+    # A schema-1 PvP (game mode 2) dual host with a genuine peer link.
+    return _stream(_header("PvP Dual Coop"), _host_body(gamemode=2, save_id=None, strong=True))
+
+
+def pvp_dual_client():
+    return _stream(_header("PvP Dual Client"), _client_body(gamemode=2))
+
+
 def embed_no_blob():
     # A stray coopClientSaveKey with NO coopClientSaveBlob and no strong marker: not
     # a recoverable embed. The detector keys Embed on the BLOB (what ingest reads),
@@ -515,6 +542,9 @@ FILES = {
     "embed_host.sav": embed_host,
     "embed_sequence_host.sav": embed_sequence_host,
     "embed_no_blob.sav": embed_no_blob,
+    "pvp_embed_host.sav": pvp_embed_host,
+    "pvp_dual_host.sav": pvp_dual_host,
+    "pvp_dual_client.sav": pvp_dual_client,
     "sidecar_host.sav": sidecar_host,
     "solo.sav": solo,
     "current.sav": current,

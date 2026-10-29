@@ -78,6 +78,10 @@ class CoopState : public State
 	// missing peer may never end. Only ever built/shown for isHostWaitDialog().
 	TextButton *_btnSaveQuit, *_btnAbandon;
 	int global_state = 0;
+	// The download dialog state whose request this dialog already sent. init()
+	// runs again whenever the dialog returns to the top (an error popup over it),
+	// and must not ask the host for the same transfer again (PR #213 F19).
+	int _downloadRequestedState = -1;
 	int state_counter = 0;
 	int _value = 0; // optional dialog-specific numeric value
 	// PRD-11 C13: retry bookkeeping for the client load-wait dialog (52). When

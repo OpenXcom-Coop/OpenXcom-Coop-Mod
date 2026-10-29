@@ -16,6 +16,7 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
+#include "../Savegame/Transfer.h"
 #include "../Savegame/Ufo.h"
 #include "../Savegame/Vehicle.h"
 #include "../Savegame/AlienMission.h"
@@ -116,8 +117,7 @@ void reconcileVehicleOwners(Craft* craft)
 void synchronizeVehicleOwners(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| save->getCampaignType() != CoopCampaignType::Separate)
+	if (!save || !save->isSeparateCoopCampaign())
 	{
 		return;
 	}
@@ -130,8 +130,7 @@ void synchronizeVehicleOwners(Game* game)
 void trimInitialCraftCrews(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| save->getCampaignType() != CoopCampaignType::Separate
+	if (!save || !save->isSeparateCoopCampaign()
 		|| save->getMonthsPassed() != -1)
 	{
 		return;
@@ -173,8 +172,7 @@ void trimInitialCraftCrews(Game* game)
 int normalizeSoldierIds(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isCoopSave()
-		|| save->getCampaignType() != CoopCampaignType::Separate)
+	if (!save || !save->isSeparateCoopCampaign())
 	{
 		return 0;
 	}
@@ -186,10 +184,20 @@ int normalizeSoldierIds(Game* game)
 	// long-running or heavily modded campaigns.
 	int nextId = 1;
 	std::set<int> reserved;
+	// Soldiers in transit are live soldiers too: a transfer can still hold a
+	// player-local id from an imported world (PR #213 F12).
+	auto livingSoldiers = [](Base* base)
+	{
+		std::vector<Soldier*> soldiers(base->getSoldiers()->begin(), base->getSoldiers()->end());
+		for (Transfer* transfer : *base->getTransfers())
+			if (transfer && transfer->getSoldier())
+				soldiers.push_back(transfer->getSoldier());
+		return soldiers;
+	};
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		for (Soldier* soldier : *base->getSoldiers())
+		for (Soldier* soldier : livingSoldiers(base))
 			if (soldier) reserved.insert(soldier->getId());
 	}
 	for (Soldier* soldier : *save->getDeadSoldiers())
@@ -200,7 +208,7 @@ int normalizeSoldierIds(Game* game)
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		for (Soldier* soldier : *base->getSoldiers())
+		for (Soldier* soldier : livingSoldiers(base))
 		{
 			if (!soldier) continue;
 			const int oldId = soldier->getId();
@@ -243,7 +251,11 @@ int playerMaintenance(Game* game, const std::string& playerName)
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		if (!playerName.empty() && base->isOwnedByPlayer(playerName))
+		// An ownerless (legacy) base is the host's: billed once (PR #213 F13).
+		const bool billed = base->getOwnerPlayerName().empty()
+			? !save->getCoopPlayers().empty() && playerName == save->getCoopPlayers().front()
+			: base->isOwnedByPlayer(playerName);
+		if (!playerName.empty() && billed)
 		{
 			total += base->getMonthlyMaintenace();
 		}
@@ -928,6 +940,7 @@ void CampaignData::clear()
 	_players.clear();
 	_completedFactions.clear();
 	_pendingFactionRechecks.clear();
+	_pendingFactionFinaleOwner.clear();
 	_loadedFromSave = false;
 	_missionOwnerCursor = 0;
 	_researchSharingEnabled = false;
@@ -950,6 +963,7 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 	reader.tryRead("completedFactions", completedFactions);
 	_completedFactions.insert(completedFactions.begin(), completedFactions.end());
 	reader.tryRead("pendingFactionRechecks", _pendingFactionRechecks);
+	reader.tryRead("pendingFactionFinaleOwner", _pendingFactionFinaleOwner);
 	for (const auto& playerReader : reader["players"].children())
 	{
 		const std::string name = playerReader["name"].readVal<std::string>("");
@@ -990,6 +1004,8 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 			_completedFactions.begin(), _completedFactions.end()));
 	if (!_pendingFactionRechecks.empty())
 		writer.write("pendingFactionRechecks", _pendingFactionRechecks);
+	if (!_pendingFactionFinaleOwner.empty())
+		writer.write("pendingFactionFinaleOwner", _pendingFactionFinaleOwner);
 	auto playersWriter = writer["players"];
 	playersWriter.setAsSeq();
 	for (const auto& entry : _players)
@@ -1123,6 +1139,36 @@ int CampaignData::getMissionMarkerCount(const std::string& playerName,
 void CampaignData::addMissionMarker(const std::string& playerName, const std::string& name)
 {
 	if (!playerName.empty() && !name.empty()) ++_players[playerName].missionMarkers[name];
+}
+
+void CampaignData::reconcilePlayerNames(const std::vector<std::string>& roster)
+{
+	std::vector<std::string> stale;
+	for (const auto& entry : _players)
+		if (std::find(roster.begin(), roster.end(), entry.first) == roster.end())
+			stale.push_back(entry.first);
+	std::vector<std::string> missing;
+	for (const auto& name : roster)
+		if (!name.empty() && _players.find(name) == _players.end())
+			missing.push_back(name);
+	if (stale.empty() || missing.empty())
+		return;
+	if (stale.size() != 1 || missing.size() != 1)
+	{
+		Log(LOG_WARNING) << "[separate] " << stale.size() << " profile name(s) are not in the "
+			<< "roster and " << missing.size() << " roster name(s) have no profile; "
+			<< "no unambiguous mapping, profiles left unchanged";
+		return;
+	}
+	const std::string& from = stale.front();
+	const std::string& to = missing.front();
+	_players[to] = _players[from];
+	_players.erase(from);
+	for (std::string& owner : _pendingFactionRechecks)
+		if (owner == from) owner = to;
+	if (_pendingFactionFinaleOwner == from)
+		_pendingFactionFinaleOwner = to;
+	Log(LOG_INFO) << "[separate] profile '" << from << "' now belongs to roster name '" << to << "'";
 }
 
 void CampaignData::ensurePlayers(const std::vector<std::string>& playerNames)

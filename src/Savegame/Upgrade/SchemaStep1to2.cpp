@@ -445,7 +445,13 @@ public:
 		if (!in.hostName.empty() && !cname.empty() && in.hostName == cname)
 			out.errors.push_back("Host and client player names must be unique.");
 
-		if (skip || !haveClient)
+		const bool pvp = set.gamemode == 2 || set.gamemode == 3;
+		if ((skip || !haveClient) && !pvp)
+			out.errors.push_back("The other player's save file is missing. A SEPARATE campaign "
+				"keeps that player's bases, soldiers and research in it, so it cannot be "
+				"upgraded without it. Copy that player's save file into this game's saves "
+				"folder and select it.");
+		else if (skip || !haveClient)
 			out.warnings.push_back("No client world will be included; that player will restart fresh when they rejoin.");
 
 		for (const ClientWorld& c : set.clients)

@@ -91,6 +91,10 @@ def main():
             # the dual-save detector so no client-file picker is shown.
             "embed_sequence_host.sav": ("legacy", "embed", True),
             "embed_no_blob.sav":    ("solo", "none", False),    # F2: key but no blob -> not a recoverable embed -> Solo
+            # PR #213 F3: a PvP save written by main keeps two worlds. Its
+            # coopClientSaves sequence is the PvP format, not a Separate
+            # schema-2 intermediate, so it must load as current.
+            "pvp_embed_host.sav":   ("current", "none", False),
             "sidecar_host.sav":     ("legacy", "sidecar", True),
             "solo.sav":             ("solo", "none", False),
             "current.sav":          ("current", "none", False),
@@ -244,10 +248,33 @@ def main():
         print("PASS negative: gamemode mismatch refused")
 
         reset_fixtures()
-        r = gc.cmd({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True})
+        r = gc.cmd({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True,
+                    "hostName": "HostGuy"})
         assert r["success"] is False, "unified migration must refuse a lossy missing-client merge"
         assert any("missing" in e.lower() for e in r.get("errors", [])), r
+        # RU3: the refusal names the missing input and never offers a
+        # client-less continue for a Separate campaign.
+        assert any("save file" in e.lower() for e in r.get("errors", [])), r
+        assert not any("restart fresh" in w for w in r.get("warnings", [])), r
         print("PASS skip-client: schema-3 unified migration refuses lossy merge")
+
+        # ---- 5c. PvP saves never take the Separate merge (PR #213 F3) -------
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "pvp_dual_host.sav",
+                   "client": "pvp_dual_client.sav", "clientName": "Carol",
+                   "hostName": "HostGuy"})
+        assert r["success"] is True, f"PvP schema-1 upgrade failed: {r}"
+        ph, pb = two_docs(outp("pvp_dual_host.sav"))
+        assert ph["saveSchema"] == 3, ph.get("saveSchema")
+        assert pb["coop_gamemode"] == 2, pb.get("coop_gamemode")
+        assert [b["name"] for b in pb["bases"]] == ["HostBase"], \
+            f"PvP client bases must stay in the client world: {[b['name'] for b in pb['bases']]}"
+        assert "separateCampaign" not in pb, "PvP must not gain Separate player profiles"
+        assert len(pb.get("coopClientSaves", [])) == 1, \
+            "PvP must keep the client world in coopClientSaves"
+        assert not any(b.get("ownerplayername") for b in pb["bases"]), pb["bases"]
+        assert gc.ok({"cmd": "upgrade_detect", "file": upgname("pvp_dual_host.sav")})["kind"] == "current"
+        print("PASS PvP upgrade: schema-1 PvP keeps two worlds through 2->3")
 
         # ---- 6. detector v2 STRONG-marker save + transform hardening ---------
         # The strong pair is shaped like the real-world 1.7.0 save: no saveID,

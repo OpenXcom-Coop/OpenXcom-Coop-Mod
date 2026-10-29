@@ -122,7 +122,7 @@ void StatisticsState::listStats()
 	{
 		ss << tr("STR_STATISTICS");
 	}
-	if (save->getCampaignType() == CoopCampaignType::Separate
+	if (save->isSeparateCoopCampaign()
 		&& save->getSeparateCampaign().haveDifferentFactions())
 	{
 		std::string factionName = _game->getCoopMod()->getEndingFactionDisplayName();

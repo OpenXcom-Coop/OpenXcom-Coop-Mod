@@ -131,6 +131,14 @@ SaveUpgradeClientState::SaveUpgradeClientState(OptionsOrigin origin, const std::
 
 	_btnSkip->setText(tr("STR_SAVE_UPGRADE_SKIP"));
 	_btnSkip->onMouseClick((ActionHandler)&SaveUpgradeClientState::btnSkipClick);
+	// A SEPARATE campaign keeps the other player's bases, soldiers and research
+	// in that player's save, so it is never upgraded without it (RU3). Only a
+	// PvP save, whose other world restarts on rejoin as on main, may skip it.
+	{
+		SaveUpgrade::UpgradeRunner runner(_filename);
+		const int gamemode = runner.detect().gamemode;
+		_btnSkip->setVisible(gamemode == 2 || gamemode == 3);
+	}
 
 	_btnCancel->setText(tr("STR_CANCEL_UC"));
 	_btnCancel->onMouseClick((ActionHandler)&SaveUpgradeClientState::btnCancelClick);

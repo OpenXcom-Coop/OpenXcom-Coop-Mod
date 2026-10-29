@@ -5,8 +5,13 @@
  */
 #include "SaveUpgradeTypes.h"
 
+#include <algorithm>
+#include <functional>
+#include <map>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace OpenXcom
 {
@@ -33,6 +38,27 @@ bool hasFunds(ryml::ConstNodeRef body)
 	return !funds.invalid() && funds.is_seq() && funds.num_children() != 0;
 }
 
+/// Tree::duplicate from another tree copies the node structure but leaves every
+/// key and value pointing into the SOURCE tree's arena. The client worlds are
+/// discarded before the host stream is emitted, so copy those strings into the
+/// destination tree's own arena right after the duplicate.
+void internalizeStrings(ryml::NodeRef node)
+{
+	ryml::Tree* tree = node.tree();
+	if (node.has_key() && !tree->in_arena(node.key()))
+	{
+		const std::string key(node.key().str, node.key().len);
+		node.set_key(tree->to_arena(ryml::to_csubstr(key)));
+	}
+	if (node.has_val() && !tree->in_arena(node.val()))
+	{
+		const std::string val(node.val().str, node.val().len);
+		node.set_val(tree->to_arena(ryml::to_csubstr(val)));
+	}
+	for (ryml::NodeRef child : node.children())
+		internalizeStrings(child);
+}
+
 void copyScalarSequence(ryml::NodeRef destinationMap, ryml::csubstr destinationKey,
 	ryml::NodeRef sourceSequence)
 {
@@ -41,8 +67,14 @@ void copyScalarSequence(ryml::NodeRef destinationMap, ryml::csubstr destinationK
 	ryml::NodeRef destination = yamlutil::mapChild(destinationMap, destinationKey);
 	destination |= ryml::SEQ;
 	for (ryml::NodeRef value : sourceSequence.children())
+	{
+		// The source may live in the destination tree's own arena (the host
+		// world copies its own lists), and to_arena can grow that arena while
+		// copying. Take the value out first.
+		const std::string text(value.val().str, value.val().len);
 		destination.append_child().set_val(
-			destination.tree()->to_arena(value.val()));
+			destination.tree()->to_arena(ryml::to_csubstr(text)));
+	}
 }
 
 void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::NodeRef sourceBody)
@@ -58,8 +90,12 @@ void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::Nod
 	// Preserve the complete history, not merely the current balance. SavedGame
 	// uses the last entry as current funds and the preceding entries in graphs.
 	ryml::NodeRef sourceFunds = sourceBody.find_child("funds");
-	const size_t after = player.num_children() ? player.last_child().id() : ryml::NONE;
-	player.tree()->duplicate(sourceFunds.tree(), sourceFunds.id(), player.id(), after);
+	if (!sourceFunds.invalid())
+	{
+		const size_t after = player.num_children() ? player.last_child().id() : ryml::NONE;
+		const size_t copy = player.tree()->duplicate(sourceFunds.tree(), sourceFunds.id(), player.id(), after);
+		internalizeStrings(player.tree()->ref(copy));
+	}
 
 	// Old Separate worlds also held their own discovery lists. They provide both
 	// the private completed-research state and the faction snapshot used when
@@ -72,8 +108,9 @@ void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::Nod
 	{
 		const size_t pediaAfter = player.num_children()
 			? player.last_child().id() : ryml::NONE;
-		player.tree()->duplicate(
+		const size_t copy = player.tree()->duplicate(
 			pediaStatus.tree(), pediaStatus.id(), player.id(), pediaAfter);
+		internalizeStrings(player.tree()->ref(copy));
 	}
 }
 
@@ -85,7 +122,133 @@ void tagBaseTree(ryml::NodeRef base, const std::string& ownerName, int ownerSeat
 	ryml::NodeRef soldiers = base.find_child("soldiers");
 	if (!soldiers.invalid() && soldiers.is_seq())
 		for (ryml::NodeRef soldier : soldiers.children())
+		{
+			// A mid-battle peer mirror (coop != 0) is kept pristine by 1->2: its
+			// BattleUnit needs it, and the engine deletes it after the battle.
+			if (getInt(soldier, "coop", 0) != 0)
+				continue;
 			setInt(soldier, "ownerplayerid", ownerSeat);
+		}
+}
+
+using CraftKey = std::pair<std::string, long long>;
+
+/// Craft (type, id) pairs of one base, including crafts travelling in transfers.
+void forEachCraft(ryml::NodeRef base, const std::function<void(ryml::NodeRef)>& fn)
+{
+	ryml::NodeRef crafts = base.find_child("crafts");
+	if (!crafts.invalid() && crafts.is_seq())
+		for (ryml::NodeRef craft : crafts.children())
+			fn(craft);
+	ryml::NodeRef transfers = base.find_child("transfers");
+	if (!transfers.invalid() && transfers.is_seq())
+		for (ryml::NodeRef transfer : transfers.children())
+		{
+			ryml::NodeRef craft = transfer.find_child("craft");
+			if (!craft.invalid() && craft.is_map())
+				fn(craft);
+		}
+}
+
+/// An imported world's crafts may fly toward that world's UFOs, waypoints,
+/// sites or crafts. Those ids name other objects (or nothing) in the host
+/// world, so the craft returns to its own base instead of re-binding to a
+/// wrong target (Craft::load resolves STR_BASE to returnToBase()).
+int sendImportedCraftsHome(ryml::NodeRef base)
+{
+	int sent = 0;
+	forEachCraft(base, [&](ryml::NodeRef craft)
+	{
+		removeKey(craft, "coopDestUfoId");
+		removeKey(craft, "coopDestMissionId");
+		ryml::NodeRef dest = craft.find_child("dest");
+		if (dest.invalid() || !dest.is_map() || getStr(dest, "type") == "STR_BASE")
+			return;
+		yamlutil::setStr(dest, "type", "STR_BASE");
+		++sent;
+	});
+	return sent;
+}
+
+/// Give an imported craft a fresh id when the host world already uses its
+/// (type, id), and re-point the base's crew at it.
+int renumberImportedCrafts(ryml::NodeRef base, std::set<CraftKey>& claimed,
+	std::map<std::string, long long>& maxId)
+{
+	int changed = 0;
+	ryml::NodeRef soldiers = base.find_child("soldiers");
+	forEachCraft(base, [&](ryml::NodeRef craft)
+	{
+		const std::string type = getStr(craft, "type");
+		const long long id = getInt(craft, "id", 0);
+		if (claimed.insert(CraftKey(type, id)).second)
+			return;
+		const long long newId = ++maxId[type];
+		claimed.insert(CraftKey(type, newId));
+		setInt(craft, "id", newId);
+		if (!soldiers.invalid() && soldiers.is_seq())
+			for (ryml::NodeRef soldier : soldiers.children())
+			{
+				ryml::NodeRef ref = soldier.find_child("craft");
+				if (!ref.invalid() && ref.is_map() && getStr(ref, "type") == type
+					&& getInt(ref, "id", -1) == id)
+					setInt(ref, "id", newId);
+			}
+		++changed;
+	});
+	return changed;
+}
+
+/// Schema 2 kept a soldier stationed at the other player's base in its
+/// owner's roster, tagged with that base's coopbaseid. One world holds the
+/// soldier where it physically is; ownerplayerid keeps it its owner's.
+int relocateStationedSoldiers(ryml::NodeRef hostBases)
+{
+	std::map<long long, ryml::id_type> baseByCoopId;
+	for (ryml::NodeRef base : hostBases.children())
+	{
+		const long long coopId = getInt(base, "coopbaseid", 0);
+		if (coopId != 0)
+			baseByCoopId[coopId] = base.id();
+	}
+	ryml::Tree* tree = hostBases.tree();
+	int moved = 0;
+	for (ryml::NodeRef base : hostBases.children())
+	{
+		ryml::NodeRef soldiers = base.find_child("soldiers");
+		if (soldiers.invalid() || !soldiers.is_seq())
+			continue;
+		const long long ownId = getInt(base, "coopbaseid", 0);
+		std::vector<std::pair<ryml::id_type, ryml::id_type>> toMove;
+		for (ryml::NodeRef soldier : soldiers.children())
+		{
+			const long long station = getInt(soldier, "coopbase", -1);
+			if (station == -1 || station == ownId)
+				continue;
+			auto target = baseByCoopId.find(station);
+			if (target != baseByCoopId.end())
+				toMove.push_back(std::make_pair(soldier.id(), target->second));
+		}
+		for (const auto& move : toMove)
+		{
+			ryml::NodeRef soldier = tree->ref(move.first);
+			ryml::NodeRef targetSoldiers = yamlutil::mapChild(tree->ref(move.second), "soldiers");
+			targetSoldiers |= ryml::SEQ;
+			setInt(soldier, "coopbase", -1);
+			// A guest never sits on a craft of the base it was listed under.
+			removeKey(soldier, "craft");
+			tree->move(move.first, targetSoldiers.id(),
+				targetSoldiers.num_children() ? targetSoldiers.last_child().id() : ryml::NONE);
+			++moved;
+		}
+	}
+	return moved;
+}
+
+bool isPvp(const SaveSet& set)
+{
+	const long long gamemode = getInt(set.host.body(), "coop_gamemode", set.gamemode);
+	return gamemode == 2 || gamemode == 3;
 }
 
 int rosterSeat(const SaveSet& set, const ClientWorld& client, size_t fallback)
@@ -117,6 +280,8 @@ public:
 		const int campaignType = static_cast<int>(getInt(set.host.header(), "coopCampaignType", 0));
 		if (campaignType == 1)
 			return; // SHARED already is one world; only its schema stamp changes.
+		if (isPvp(set))
+			return; // PvP keeps one world per player; only the stamp changes.
 		std::set<std::string> playerNames;
 		ryml::ConstNodeRef roster = set.host.header().find_child("coopPlayers");
 		if (!roster.invalid() && roster.is_seq())
@@ -163,6 +328,15 @@ public:
 			set.report.push_back("Schema 3: SHARED campaign already uses one authoritative world.");
 			return;
 		}
+		if (isPvp(set))
+		{
+			// PvP keeps main's two worlds: the client world stays embedded.
+			for (ClientWorld& client : set.clients)
+				setInt(client.world.header(), "saveSchema", 3);
+			set.schema = 3;
+			set.report.push_back("Schema 3: PvP campaign keeps one world per player.");
+			return;
+		}
 		// Some real intermediate embed saves predate the explicit campaign-type
 		// header even though their coopClientSaves sequence unambiguously identifies
 		// Separate. Stamp the current format instead of relying on a missing-key
@@ -190,6 +364,32 @@ public:
 		for (ryml::NodeRef base : hostBases.children())
 			tagBaseTree(base, hostName, 0);
 
+		// Every craft id already used by any world, so a renumbered import never
+		// collides with a craft imported later.
+		std::set<CraftKey> claimedCrafts;
+		std::map<std::string, long long> maxCraftId;
+		auto noteMax = [&](ryml::NodeRef craft)
+		{
+			long long& top = maxCraftId[getStr(craft, "type")];
+			top = std::max(top, getInt(craft, "id", 0));
+		};
+		for (ryml::NodeRef base : hostBases.children())
+			forEachCraft(base, [&](ryml::NodeRef craft)
+			{
+				noteMax(craft);
+				claimedCrafts.insert(CraftKey(getStr(craft, "type"), getInt(craft, "id", 0)));
+			});
+		for (ClientWorld& client : set.clients)
+		{
+			ryml::NodeRef bases = client.world.body().find_child("bases");
+			if (!bases.invalid() && bases.is_seq())
+				for (ryml::NodeRef base : bases.children())
+					forEachCraft(base, noteMax);
+		}
+		int craftsSentHome = 0;
+		int craftsRenumbered = 0;
+		int deadImported = 0;
+
 		int imported = 0;
 		for (size_t i = 0; i < set.clients.size(); ++i)
 		{
@@ -206,8 +406,59 @@ public:
 				// soldiers, crafts, stores, projects, productions and transfers.
 				const size_t after = hostBases.num_children() ? hostBases.last_child().id() : ryml::NONE;
 				size_t id = hostBases.tree()->duplicate(sourceBase.tree(), sourceBase.id(), hostBases.id(), after);
-				tagBaseTree(hostBases.tree()->ref(id), ownerName, owner);
+				ryml::NodeRef importedBase = hostBases.tree()->ref(id);
+				internalizeStrings(importedBase);
+				tagBaseTree(importedBase, ownerName, owner);
+				craftsSentHome += sendImportedCraftsHome(importedBase);
+				craftsRenumbered += renumberImportedCrafts(importedBase, claimedCrafts, maxCraftId);
 				++imported;
+			}
+
+			// The player's memorial: its dead soldiers stay its own.
+			ryml::NodeRef clientDead = client.world.body().find_child("deadSoldiers");
+			if (!clientDead.invalid() && clientDead.is_seq() && clientDead.num_children() != 0)
+			{
+				ryml::NodeRef hostDead = yamlutil::mapChild(hostBody, "deadSoldiers");
+				hostDead |= ryml::SEQ;
+				for (ryml::NodeRef dead : clientDead.children())
+				{
+					const size_t deadAfter = hostDead.num_children() ? hostDead.last_child().id() : ryml::NONE;
+					size_t deadId = hostDead.tree()->duplicate(dead.tree(), dead.id(), hostDead.id(), deadAfter);
+					internalizeStrings(hostDead.tree()->ref(deadId));
+					setInt(hostDead.tree()->ref(deadId), "ownerplayerid", owner);
+					++deadImported;
+				}
+			}
+
+			// Id counters: a new object must never reuse an id the imported
+			// world already handed out.
+			ryml::NodeRef clientIds = client.world.body().find_child("ids");
+			if (!clientIds.invalid() && clientIds.is_map())
+			{
+				ryml::NodeRef hostIds = yamlutil::mapChild(hostBody, "ids");
+				hostIds |= ryml::MAP;
+				for (ryml::NodeRef counter : clientIds.children())
+				{
+					if (!counter.has_key())
+						continue;
+					const std::string key(counter.key().str, counter.key().len);
+					const long long value = getInt(clientIds, ryml::to_csubstr(key), 0);
+					if (value > getInt(hostIds, ryml::to_csubstr(key), 0))
+						setInt(hostIds, hostIds.tree()->to_arena(ryml::to_csubstr(key)), value);
+				}
+			}
+		}
+
+		const int soldiersRelocated = relocateStationedSoldiers(hostBases);
+		{
+			ryml::NodeRef hostIds = yamlutil::mapChild(hostBody, "ids");
+			hostIds |= ryml::MAP;
+			for (const auto& top : maxCraftId)
+			{
+				if (top.first.empty())
+					continue;
+				if (getInt(hostIds, ryml::to_csubstr(top.first), 0) <= top.second)
+					setInt(hostIds, hostIds.tree()->to_arena(ryml::to_csubstr(top.first)), top.second + 1);
 			}
 		}
 
@@ -239,6 +490,18 @@ public:
 			+ std::to_string(imported) + " client base(s).");
 		set.report.push_back("All bases now carry unique ownerplayername values; client-world blobs removed.");
 		set.report.push_back("Preserved each player's faction and independent funds history in the unified save.");
+		if (craftsSentHome)
+			set.report.push_back(std::to_string(craftsSentHome)
+				+ " imported craft(s) were flying to a target of their old world and now return to base.");
+		if (craftsRenumbered)
+			set.report.push_back("Renumbered " + std::to_string(craftsRenumbered)
+				+ " imported craft(s) whose id the host world already used.");
+		if (soldiersRelocated)
+			set.report.push_back("Moved " + std::to_string(soldiersRelocated)
+				+ " soldier(s) stationed at the other player's base into that base.");
+		if (deadImported)
+			set.report.push_back("Kept " + std::to_string(deadImported)
+				+ " fallen soldier(s) from the other player's memorial.");
 		if (hostBases.num_children() > 8)
 			set.report.push_back("Grandfathered over-cap campaign: all "
 				+ std::to_string(hostBases.num_children())

@@ -624,6 +624,13 @@ class connectionTCP
 	bool runsVoteActionLocally() const;
 	void executeVoteAction(const std::string& action);
 	void tryStartFactionFinaleVote();
+	/// Host: adopt the pending finale persisted in the live save. Returns true
+	/// when the pending owner changed (a reload, or a world without one).
+	bool syncFactionFinaleFromSave();
+	/// Host: record the pending finale owner in the live save.
+	void storeFactionFinaleOwner(const std::string& owner);
+	/// Clear the per-session readiness so both players re-announce it.
+	void resetFactionFinaleReadiness();
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
 
@@ -709,6 +716,13 @@ class connectionTCP
 	/// Called only while GeoscapeState is actually thinking, after all
 	/// post-debrief screens have closed.
 	void factionFinaleGeoscapeReady();
+	/// Host: re-send a pending finale to a (re)joining client. Called right
+	/// before campaign_begun so the client holds it when it is released.
+	void sendPendingFactionFinale();
+	/// Forget every finale value (main-menu teardown and client teardown).
+	void clearFactionFinaleState();
+	/// Test hook: the finale state as JSON.
+	Json::Value factionFinaleStateForTest() const;
 	const std::string& getEndingFactionDisplayName() const { return _endingFactionDisplayName; }
 	const std::string& getEndingCutsceneId() const { return _endingCutsceneId; }
 	void setEndingCutsceneId(const std::string& id) { _endingCutsceneId = id; }
@@ -794,10 +808,18 @@ class connectionTCP
 	// Rebuild Separate's local purple/own-base presentation from persistent
 	// owner names after this process's seat is known or a streamed world lands.
 	void refreshSeparateBaseOwnership();
+	/// Leave the session from this machine and return to the main menu
+	/// (same teardown as Abandon / Save & Quit; the peer sees a player drop).
+	void leaveSessionToMainMenu();
 	static bool _coopCampaign;
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
-	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
+	static int coop_save_owner_player_id; // ID of the player who owns the co-op save
+	/// Value a just-loaded save may leave in coop_save_owner_player_id. In the
+	/// single-world campaigns the stored value is the writer's seat, not this
+	/// machine's, so it never overrides the local role (PR #213 F2). PvP and
+	/// custom battles keep main's rule: the loaded value names the battle host.
+	static int loadedSaveOwnerId(int storedOwnerId, bool singleWorldCampaign);
 	// PRD-J01: campaign economy model carried to a joining client during the
 	// lobby handshake (before its save exists) so the type label can render.
 	// 0 = Separate, 1 = Shared. Mirrors SavedGame::getCampaignType().

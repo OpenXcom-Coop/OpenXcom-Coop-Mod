@@ -281,8 +281,7 @@ void Base::load(const YAML::YamlNodeReader& reader, SavedGame *save, bool newGam
 	// _isForeignBase UI restrictions/colour working by deriving that local-view flag
 	// from persistent ownership after deserialization.  Legacy saves have no
 	// ownerplayername. Non-campaign multiplayer modes keep their own protocol.
-	if (save && save->isCoopSave()
-		&& save->getCampaignType() == CoopCampaignType::Separate
+	if (save && save->isSeparateCoopCampaign()
 		&& !_ownerPlayerName.empty())
 	{
 		_isForeignBase = _ownerPlayerName != connectionTCP::seatName(connectionTCP::localSeat());
@@ -654,6 +653,39 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 	int hyperwave_chance = 0;
 	int radar_max_range = 0;
 	int radar_chance = 0;
+
+	// PvP mirror of the other player's base: it has no facilities, so detect with
+	// the peer base's synced radar data (main's behaviour, including its +1).
+	if (isPeerMirror())
+	{
+		for (const MirrorFacility& fac : _facilitiesCoop)
+		{
+			if (fac.radarRange >= distance)
+			{
+				int radarChance = fac.radarChance;
+				if (fac.hyperwave)
+				{
+					if (radarChance == 100 || RNG::percent(radarChance))
+					{
+						hyperwave = true;
+					}
+					hyperwave_chance += radarChance + 1;
+				}
+				else
+				{
+					radar_chance += radarChance + 1;
+				}
+			}
+			if (fac.hyperwave)
+			{
+				hyperwave_max_range = std::max(hyperwave_max_range, fac.radarRange);
+			}
+			else
+			{
+				radar_max_range = std::max(radar_max_range, fac.radarRange);
+			}
+		}
+	}
 
 	// Every campaign base is a full Base object. Ownership is a UI/permission
 	// property and never changes which facilities participate in radar detection.
@@ -1787,6 +1819,15 @@ size_t Base::getDetectionChance() const
 {
 	size_t mindShields = 0;
 	size_t completedFacilities = 0;
+
+	// PvP mirror: the peer base's synced facility totals (main).
+	for (const MirrorFacility& fac : _facilitiesCoop)
+	{
+		if (!isPeerMirror())
+			break;
+		mindShields += fac.mindShields;
+		completedFacilities += fac.completedFacilities;
+	}
 
 	for (const auto* fac : _facilities)
 	{

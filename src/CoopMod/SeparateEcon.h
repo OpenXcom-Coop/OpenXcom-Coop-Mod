@@ -49,6 +49,9 @@ private:
 	std::map<std::string, PlayerState> _players;
 	std::set<std::string> _completedFactions;
 	std::vector<std::string> _pendingFactionRechecks;
+	/// Owner of a finished faction finale whose continue/end vote has not run.
+	/// Persisted so a reload or a rejoin still holds the vote (PR #213 F11).
+	std::string _pendingFactionFinaleOwner;
 	bool _loadedFromSave = false;
 	bool _researchSharingEnabled = false;
 	/// The research mode has been decided: loaded from a save, or applied once.
@@ -59,6 +62,11 @@ public:
 	void load(const YAML::YamlNodeReader& reader);
 	void save(YAML::YamlNodeWriter writer) const;
 	void ensurePlayers(const std::vector<std::string>& playerNames);
+	/// Map profiles saved under a name the roster no longer carries onto the
+	/// roster name that has no profile yet, so profile names always equal
+	/// roster names (PR #213 F23). Only an unambiguous one-to-one match is
+	/// renamed; anything else is logged and left as it is.
+	void reconcilePlayerNames(const std::vector<std::string>& roster);
 	void ensurePlayerFunds(const std::vector<std::string>& playerNames,
 		const std::vector<int64_t>& legacyFunds);
 	void ensureFactionScores(const std::vector<std::string>& playerNames,
@@ -113,6 +121,8 @@ public:
 	bool allPlayerFactionsCompleted(const std::vector<std::string>& playerNames) const;
 	const std::set<std::string>& getCompletedFactions() const { return _completedFactions; }
 	const std::vector<std::string>& getPendingFactionRechecks() const { return _pendingFactionRechecks; }
+	const std::string& getPendingFactionFinaleOwner() const { return _pendingFactionFinaleOwner; }
+	void setPendingFactionFinaleOwner(const std::string& owner) { _pendingFactionFinaleOwner = owner; }
 	std::string nextMissionOwner(const std::vector<std::string>& playerNames);
 	int getFactionDifficulty(const std::string& playerName, int fallback) const;
 };

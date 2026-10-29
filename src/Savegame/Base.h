@@ -156,6 +156,21 @@ public:
 	/// Unique locked co-op player name that owns this real base. Empty denotes
 	/// a legacy/solo base; _isForeignBase remains only a local-view UI flag.
 	std::string _ownerPlayerName;
+	/// PvP mirror of the other player's base (main's two-world marker sync).
+	/// A mirror has no facilities of its own, so it carries the peer base's
+	/// radar data instead. Real bases (every SHARED/SEPARATE base) never use it.
+	struct MirrorFacility
+	{
+		int radarChance = 0;
+		int radarRange = 0;
+		bool hyperwave = false;
+		int completedFacilities = 0;
+		int mindShields = 0;
+	};
+	std::vector<MirrorFacility> _facilitiesCoop;
+	double _radar_range_coop = 0;
+	/// True for a PvP marker mirror of the other player's base.
+	bool isPeerMirror() const { return _isForeignBase && _coopIcon; }
 	/// Creates a new base.
 	Base(const Mod *mod);
 	/// Cleans up the base.

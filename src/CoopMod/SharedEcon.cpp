@@ -1596,7 +1596,7 @@ void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int seat)
 	Base* nb = new Base(mod); // ctor random-mints _coop_base_id
 	std::string ownerName = payload.get("ownerPlayerName", connectionTCP::seatName(seat)).asString();
 	nb->setOwnerPlayerName(ownerName);
-	if (save->getCampaignType() == CoopCampaignType::Separate)
+	if (save->isSeparateCoopCampaign())
 		nb->_isForeignBase = !nb->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
 	nb->setFakeUnderwater(payload.get("fakeUnderwater", false).asBool());
 	nb->setLongitude(payload.get("lon", 0.0).asDouble());
@@ -1902,7 +1902,7 @@ bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int
                          int64_t& cost, std::string& failReason)
 {
 	if (game && game->getSavedGame()
-		&& game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+		&& game->getSavedGame()->isSeparateCoopCampaign())
 		return SeparateEcon::validateCraftAssign(
 			game, payload, base, seat, cost, failReason);
 
@@ -1960,7 +1960,7 @@ bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int 
 	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
 	if (!base) { failReason = "base not found"; return false; }
 	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
-	if (game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+	if (game->getSavedGame()->isSeparateCoopCampaign())
 		return SeparateEcon::validateCraftEquip(
 			game, payload, base, seat, cost, failReason);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
@@ -1981,7 +1981,7 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 	if (!craft || !item) return;
 	if (item->getVehicleUnit())
 	{
-		if (game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+		if (game->getSavedGame()->isSeparateCoopCampaign())
 			SeparateEcon::applyVehicleEquip(game, payload, base, seat);
 		return;
 	}
@@ -2782,7 +2782,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// an arrived soldier from the replica's Transfers list). Keep the distinction
 	// host-side so a stale or modified client UI can never bypass ownership.
 	if (pc.separateProtocol && base && game && game->getSavedGame()
-		&& game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate)
+		&& game->getSavedGame()->isSeparateCoopCampaign())
 	{
 		const std::string playerName = connectionTCP::seatName(pc.seat);
 		const bool foreign = !base->isOwnedByPlayer(playerName);
