@@ -49,7 +49,7 @@ from test_client_shoot import new_contexts  # noqa: E402
 from test_host_combat import evs_since  # noqa: E402
 
 G_KEY, H_KEY = "48674", "48676"
-SEED_ROSTER = 1                   # set_seed on the host before its lobby (the roster pin, test_client_pvp :478)
+SEED_ROSTER = 1                   # set_seed on the host before its lobby (the roster pin, test_client_pvp :470)
 GAMEMODE_GM3 = 3
 MAP_FP = -4.48310638993e+18       # both machines' mapFingerprint (STR_SMALL_SCOUT, map seed 1; Ga, Gb, H)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1

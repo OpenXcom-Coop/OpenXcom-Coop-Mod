@@ -112,7 +112,7 @@ from test_host_combat import bring_up_lobby_roster_pinned
 from test_client_shoot import (snap, await_press, new_contexts, mine, press_view, ui_view, menu_rows,
                                   KEY_SNAP, CURSOR_AIM, RHAND_CENTRE)
 
-# ----- boot 1: gm2 (W2-P4 T0c C25 / the W2-H6 capture A) -----
+# ----- boot 1: gm2 (W2-P4 T0c pvp_alien_orders / the W2-H6 capture A) -----
 GM2_PORT = "48191"
 GM2_SEED = 1                       # set_seed on the HOST before open_new_battle (the roster)
 
