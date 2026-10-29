@@ -1,22 +1,28 @@
-"""test_client_disconnect_crash.py: the second player's Disconnect on a co-op wait window (F17875, R-H54-0; docs
-rewrite/prompts/w2h54_client_disconnect_crash.md (f); TASK 0 rewrite/w2h54-task0/sa/CONSTANTS.md). CoopState::previous runs
-disconnectTCP(); popState();. On a client that holds a campaign world, disconnectTCP has already replaced the whole stack with
-GoToMainMenuState (issue #82), the second pop empties it, and Game::run reads the empty stack (Game.cpp :444, exit 3, a crash log).
-Rows, one fresh SEPARATE session.new_campaign boot pair each (key "49178", dirs w2h54_<row>_host / _client):
-  R-A the host's save_game_ui auto_geoscape -> the client's 53 "Saving..."; the host suspended at the client's first sight of 53.
-      A-pre (GUARD), A-alive / A-nocrash / A-menu (RED), A-host (GUARD: the host's 62 on top after the resume).
-  R-B the host suspended FIRST, then the client's visit_coop_base -> its 50 "Synchronizing bases...".
-      B-pre (GUARD), B-alive / B-nocrash / B-menu (RED), B-host (GUARD).
-  R-C the control, LAST: the client suspended FIRST, then the host's visit_coop_base -> the host's own 50.
-      C-pre, C-host (the host keeps its world on [GeoscapeState]), C-client (the client's 21 after the resume): all GUARD.
-the held peer is suspended by this test (NtSuspendProcess / NtResumeProcess on its own pid, copied from
-rewrite/cr75-cap/cr75.py) - a slow link; a suspended game is never sent a command and is resumed in a finally before any
-shutdown. Every press is a REAL click (click_widget {match: "disconnect"}) once list_widgets reads the button visible true,
-hidden false on a top CoopState of the row's code; never coop_dialog_back (it presses during the popup, L-H54-3).
-RED (commit R1): A-alive, A-nocrash, A-menu, B-alive, B-nocrash, B-menu FAIL, the other 7 cells PASS. GREEN (E1): all 13 PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (cells "not
-reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE foreground run, no skip path,
-every row runs after a failure; exit 0 only when every cell passes, else 2. Run: python tools/coop_test/<this file>"""
+"""test_client_disconnect_crash.py: the second player's Disconnect on a co-op wait window must not crash it.
+
+CoopState::previous runs disconnectTCP() and then pops the dialog. On a client that holds a campaign world,
+disconnectTCP has already replaced the whole stack with GoToMainMenuState (issue #82), so a second pop would empty the
+stack and Game::run would read it (Game.cpp :444, exit 3, a crash log); the pop runs only while the dialog is still on
+top.
+Rows, one fresh SEPARATE session.new_campaign boot pair each (key "49178", user dirs disconnect_crash_<row>_host /
+_client):
+  saving_dialog: the host's save_game_ui auto_geoscape -> the client's 53 "Saving..."; the host suspended at the
+      client's first sight of 53. Cells saving_dialog_setup, saving_dialog_alive, saving_dialog_no_crash,
+      saving_dialog_main_menu, saving_dialog_host_dialog (the host's 62 on top after the resume).
+  sync_bases_dialog: the host suspended FIRST, then the client's visit_coop_base -> its 50 "Synchronizing bases...".
+      The same five cells.
+  host_sync_bases, the control, LAST: the client suspended FIRST, then the host's visit_coop_base -> the host's own
+      50. Cells host_sync_bases_setup, host_sync_bases_host_keeps_world (the host keeps its world on
+      [GeoscapeState]), host_sync_bases_client_dialog (the client's 21 after the resume).
+The held peer is suspended by this test (NtSuspendProcess / NtResumeProcess on its own pid) - a slow link; a suspended
+game is never sent a command and is resumed in a finally before any shutdown. Every press is a REAL click
+(click_widget {match: "disconnect"}) once list_widgets reads the button visible true, hidden false on a top CoopState
+of the row's code; never coop_dialog_back (it presses during the popup).
+Without the fix the _alive, _no_crash and _main_menu cells of saving_dialog and sync_bases_dialog fail and the other 7
+cells pass; with it all 13 pass.
+One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (cells
+"not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE foreground run, no skip path, every row
+runs after a failure; exit 0 only when every cell passes, else 2. Run: python tools/coop_test/<this file>"""
 
 import ctypes
 import json
@@ -29,18 +35,22 @@ from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 import session  # noqa: E402
 
 KEY = "49178"
-# CONSTANTS.md (TASK 0 boots a, b, c): sight <= 1.23 s, shown <= 3.06 s, red exit <= 4.31 s after the click, green menu 0.10 s.
+# Three trial boots: sight <= 1.23 s, shown <= 3.06 s, the crash exit <= 4.31 s after the click without the fix, the
+# main menu 0.10 s with the fix.
 POLL_S, SEEN_S, SHOWN_S, OUTCOME_S, PEER_S, STABLE_S, BOOT_S = 0.005, 10.0, 20.0, 15.0, 20.0, 2.0, 30.0
-CELLS = {"A": ("A-pre", "A-alive", "A-nocrash", "A-menu", "A-host"),
-         "B": ("B-pre", "B-alive", "B-nocrash", "B-menu", "B-host"),
-         "C": ("C-pre", "C-host", "C-client")}
+CELLS = {"saving_dialog": ("saving_dialog_setup", "saving_dialog_alive", "saving_dialog_no_crash",
+                           "saving_dialog_main_menu", "saving_dialog_host_dialog"),
+         "sync_bases_dialog": ("sync_bases_dialog_setup", "sync_bases_dialog_alive", "sync_bases_dialog_no_crash",
+                               "sync_bases_dialog_main_menu", "sync_bases_dialog_host_dialog"),
+         "host_sync_bases": ("host_sync_bases_setup", "host_sync_bases_host_keeps_world",
+                             "host_sync_bases_client_dialog")}
 TITLE = {53: "Saving", 50: "Synchronizing bases"}  # the title animates its dots ("Saving." / ".." / "...", CoopState.cpp)
 
 _K32, _NT = ctypes.windll.kernel32, ctypes.windll.ntdll
 _K32.OpenProcess.restype = ctypes.c_void_p
 
 
-def _nt(gc, fn):  # this test's own game, by pid (copied from cr75.py); 0x0800 = PROCESS_SUSPEND_RESUME
+def _nt(gc, fn):  # this test's own game, by pid; 0x0800 = PROCESS_SUSPEND_RESUME
     h = _K32.OpenProcess(0x0800, False, gc.proc.pid)
     rc = fn(ctypes.c_void_p(h))
     _K32.CloseHandle(ctypes.c_void_p(h))
@@ -193,42 +203,45 @@ def crash_lines(paths):  # each new crash_*.log and its #0 line
 
 
 def press(clicker, other, code, rid, t0, ev, cells, ok):
-    """shown -> one REAL click -> the row's pre cell (a GUARD: a miss ends the row)"""
+    """shown -> one REAL click -> the row's setup cell (a miss ends the row)"""
     title = shown(clicker, code, t0, ev) if ok else None
     ev["stackBeforeClick"] = {clicker.name: stk(clicker), other.name: ev["before"][other.name]}  # a held game is never probed
     click = clicker.cmd({"cmd": "click_widget", "match": "disconnect"}) if title is not None else {}
     ev["click"] = {"t": now(t0), "ok": click.get("ok"), "text": click.get("text")} if click else "not sent"
     pre = (title is not None and title.startswith(TITLE[code]) and (ev.get("suspend") or {}).get("rc") == 0
            and click.get("ok") is True and click.get("text") == "Disconnect")
-    cells[rid + "-pre"] = (pre, dict({k: ev.get(k) for k in ("trigger", "sight", "suspend", "shown", "click")}, title=title))
+    cells[rid + "_setup"] = (pre, dict({k: ev.get(k) for k in ("trigger", "sight", "suspend", "shown", "click")},
+                                       title=title))
     return pre
 
 
 def finish(clicker, other, rid, t0, ev, cells, held, crash0):
     """outcome -> resume the held peer -> peer -> the crash diff -> the row's cells"""
-    reached = outcome(clicker, t0, ev, ["GeoscapeState"] if rid == "C" else ["MainMenuState"])
+    reached = outcome(clicker, t0, ev, ["GeoscapeState"] if rid == "host_sync_bases" else ["MainMenuState"])
     alive = clicker.proc.poll() is None
     ev["afterOutcome"] = {clicker.name: stk(clicker)}
-    hs = has_save(clicker) if rid == "C" and alive else None
+    hs = has_save(clicker) if rid == "host_sync_bases" and alive else None
     ev["resume"] = {"t": now(t0), "rc": resume(other)}
     held.remove(other)
-    peer_ok = peer(other, 21 if rid == "C" else 62, t0, ev)
+    peer_ok = peer(other, 21 if rid == "host_sync_bases" else 62, t0, ev)
     time.sleep(1.0)  # the crash handler's files
     new = session._crash_log_snapshot() - crash0
     ev["newCrash"] = crash_lines(new)
     ev["exit"] = {clicker.name: clicker.proc.poll(), other.name: other.proc.poll()}
-    if rid == "C":
-        cells["C-host"] = (alive and reached and hs is True and not new, {"outcome": ev["outcome"], "has_save": hs, "new": ev["newCrash"]})
-        cells["C-client"] = (peer_ok, ev["peer"])
+    if rid == "host_sync_bases":
+        cells["host_sync_bases_host_keeps_world"] = (alive and reached and hs is True and not new,
+                                                     {"outcome": ev["outcome"], "has_save": hs, "new": ev["newCrash"]})
+        cells["host_sync_bases_client_dialog"] = (peer_ok, ev["peer"])
         return
-    cells[rid + "-alive"] = (alive, {"outcome": ev["outcome"], "exit": clicker.proc.poll()})
-    cells[rid + "-nocrash"] = (not new, ev["newCrash"])
-    cells[rid + "-menu"] = (reached, ev["outcome"])
-    cells[rid + "-host"] = (peer_ok, ev["peer"])
+    cells[rid + "_alive"] = (alive, {"outcome": ev["outcome"], "exit": clicker.proc.poll()})
+    cells[rid + "_no_crash"] = (not new, ev["newCrash"])
+    cells[rid + "_main_menu"] = (reached, ev["outcome"])
+    cells[rid + "_host_dialog"] = (peer_ok, ev["peer"])
 
 
 def hold_first(gc, ev, held):
-    """R-B / R-C: suspend the peer BEFORE the trigger (its 50 cannot close without the held reply); returns t0"""
+    """sync_bases_dialog / host_sync_bases: suspend the peer BEFORE the trigger (its 50 cannot close without the held
+    reply); returns t0"""
     ts, rc = time.time(), suspend(gc)
     held.append(gc)
     t0 = time.time()
@@ -236,7 +249,7 @@ def hold_first(gc, ev, held):
     return t0
 
 
-def row_a(host, client, ev, cells, held, crash0):
+def row_saving_dialog(host, client, ev, cells, held, crash0):
     """the host's save -> the client's 53 "Saving..."; the host suspended at the client's first sight of 53"""
     t0 = time.time()
     ev["trigger"] = host.cmd({"cmd": "save_game_ui", "type": "auto_geoscape"})
@@ -244,33 +257,33 @@ def row_a(host, client, ev, cells, held, crash0):
     if ok:
         ev["suspend"] = {"rc": suspend(host), "t": now(t0)}
         held.append(host)
-    if press(client, host, 53, "A", t0, ev, cells, ok):
-        finish(client, host, "A", t0, ev, cells, held, crash0)
+    if press(client, host, 53, "saving_dialog", t0, ev, cells, ok):
+        finish(client, host, "saving_dialog", t0, ev, cells, held, crash0)
 
 
-def row_b(host, client, ev, cells, held, crash0):
+def row_sync_bases_dialog(host, client, ev, cells, held, crash0):
     """the host held FIRST, then the client opens the host's base -> the client's 50 "Synchronizing bases...\""""
     t0 = hold_first(host, ev, held)
     ev["trigger"] = client.cmd({"cmd": "visit_coop_base", "base": ""})
     ok = ev["trigger"].get("ok") is True and sight(client, 50, t0, ev)
-    if press(client, host, 50, "B", t0, ev, cells, ok):
-        finish(client, host, "B", t0, ev, cells, held, crash0)
+    if press(client, host, 50, "sync_bases_dialog", t0, ev, cells, ok):
+        finish(client, host, "sync_bases_dialog", t0, ev, cells, held, crash0)
 
 
-def row_c(host, client, ev, cells, held, crash0):
+def row_host_sync_bases(host, client, ev, cells, held, crash0):
     """the control: the client held FIRST, then the host opens the client's base -> the host's own 50"""
     t0 = hold_first(client, ev, held)
     ev["trigger"] = host.cmd({"cmd": "visit_coop_base", "base": ""})
     ok = ev["trigger"].get("ok") is True and sight(host, 50, t0, ev)
-    if press(host, client, 50, "C", t0, ev, cells, ok):
-        finish(host, client, "C", t0, ev, cells, held, crash0)
+    if press(host, client, 50, "host_sync_bases", t0, ev, cells, ok):
+        finish(host, client, "host_sync_bases", t0, ev, cells, held, crash0)
 
 
 def run_row(rid, body):
     """one fresh SEPARATE boot pair; settle; the row body; every held game resumed, then both shut down"""
     cells, ev, w0, held, boot_capture = {}, {"cpu": cpu()}, time.time(), [], None
-    host = GameClient("host", None, make_user_dir("w2h54_%s_host" % rid.lower()))
-    client = GameClient("client", None, make_user_dir("w2h54_%s_client" % rid.lower()))
+    host = GameClient("host", None, make_user_dir("disconnect_crash_%s_host" % rid.lower()))
+    client = GameClient("client", None, make_user_dir("disconnect_crash_%s_client" % rid.lower()))
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
@@ -289,7 +302,7 @@ def run_row(rid, body):
     finally:
         for gc in list(held):
             ev.setdefault("resumeFinally", {})[gc.name] = resume(gc)
-        for gc, exp in ((client, (0, 3, 3221226505)), (host, (0, 3221226505))):  # a red client already exited 3
+        for gc, exp in ((client, (0, 3, 3221226505)), (host, (0, 3221226505))):  # a crashed client already exited 3
             try:
                 if gc.proc is not None:
                     gc.shutdown(expected_returncodes=exp)
@@ -301,27 +314,30 @@ def run_row(rid, body):
 
 
 def report(rid, cells, ev, boot_capture):
-    print("EVIDENCE R-%s: %s" % (rid, short(ev, 4000)), flush=True)
+    print("EVIDENCE %s: %s" % (rid, short(ev, 4000)), flush=True)
     if boot_capture is not None:
-        print("FAIL R-%s boot: both tops not GeoscapeState for %.0f s within %.0f s" % (rid, STABLE_S, BOOT_S), flush=True)
-        print("CAPTURE R-%s: %s" % (rid, short(boot_capture, 3000)), flush=True)
+        print("FAIL %s boot: both tops not GeoscapeState for %.0f s within %.0f s" % (rid, STABLE_S, BOOT_S),
+              flush=True)
+        print("CAPTURE %s: %s" % (rid, short(boot_capture, 3000)), flush=True)
     passed = []
     for name in CELLS[rid]:
         ok, detail = cells.get(name, (False, "not reached"))
         print(("PASS %s" % name) if ok else ("FAIL %s: %s" % (name, short(detail))), flush=True)
         passed += [name] if ok else []
-    print("ROW R-%s: %s (%d/%d cells, wall %s s)" % (rid, "PASS" if len(passed) == len(CELLS[rid]) else "FAIL", len(passed),
-                                                    len(CELLS[rid]), ev.get("wall")), flush=True)
+    print("ROW %s: %s (%d/%d cells, wall %s s)" % (rid, "PASS" if len(passed) == len(CELLS[rid]) else "FAIL",
+                                                  len(passed), len(CELLS[rid]), ev.get("wall")), flush=True)
     return passed
 
 
 def main():
     t0, passed, walls = time.time(), [], {}
-    for rid, body in (("A", row_a), ("B", row_b), ("C", row_c)):
+    for rid, body in (("saving_dialog", row_saving_dialog), ("sync_bases_dialog", row_sync_bases_dialog),
+                      ("host_sync_bases", row_host_sync_bases)):
         cells, ev, boot_capture = run_row(rid, body)
         passed += report(rid, cells, ev, boot_capture)
-        walls["R-" + rid] = ev.get("wall")
-    failed = [c for rid in ("A", "B", "C") for c in CELLS[rid] if c not in passed]
+        walls["row_" + rid] = ev.get("wall")
+    failed = [c for rid in ("saving_dialog", "sync_bases_dialog", "host_sync_bases") for c in CELLS[rid]
+              if c not in passed]
     print("\ntest_client_disconnect_crash: %d/13 cells passed (fail=%s) walls %s in %.1fs"
           % (13 - len(failed), failed, json.dumps(walls), time.time() - t0), flush=True)
     return 2 if failed else 0
