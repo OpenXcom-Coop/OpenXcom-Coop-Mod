@@ -13,19 +13,18 @@ Rows (each a fresh campaign, both machines enter the battle and settle on the ma
      choice (traditional) must hold, not the client's.
   H1 SHARED, both parallel, the host lands the shared craft (one host-owned and one
      client-owned soldier).
-  B1 (on H1's battle, main #210): no turn / wait banner at a parallel side start on
+  no_wait_banner (on H1's battle, #210): no turn / wait banner at a parallel side start on
      either machine, sampled 8 s at turn 1 and again after one side boundary.
 A row passes when event_state.turnMode on BOTH machines equals the host's option once
 both are on the battlescape (the host stamps the mode on the battle offer and the client
-mirrors it, D-19b).
-the option is CoopTurnMode ("parallel" /
-"traditional"); main's S1 and S3 landed the CLIENT's craft, which never starts a SEPARATE
-battle: S1 is dropped and S3 lands the host's craft.
+mirrors it).
+The option is CoopTurnMode ("parallel" / "traditional"). No row lands the CLIENT's
+craft: a SEPARATE client's craft never starts a battle.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
-    never held; MG-P1).
+    never held).
 
-Env (optional): COOP_PTL_ROWS = "S2,S3,H1" subset (B1 runs with H1).
+Env (optional): COOP_PTL_ROWS = "S2,S3,H1" subset (no_wait_banner runs with H1).
 """
 import os
 import sys
@@ -40,7 +39,7 @@ import geo  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-ON = {"CoopTurnMode": "parallel"}      # the rewrite's turn-mode option (Options.cpp CoopTurnMode)
+ON = {"CoopTurnMode": "parallel"}      # the turn-mode option (Options.cpp CoopTurnMode)
 OFF = {"CoopTurnMode": "traditional"}
 
 
@@ -69,7 +68,7 @@ def base0(gc):
 
 def flags(gc):
     """In-battle readout: this battle's turn mode as the host stamped it on the
-    battle offer and this machine mirrors it (event_state.turnMode, D-19b), and this
+    battle offer and this machine mirrors it (event_state.turnMode), and this
     machine's own option (event_state.optionTurnMode)."""
     es = gc.cmd({"cmd": "event_state"})
     return {"mode": es.get("turnMode"), "option": es.get("optionTurnMode")}
@@ -111,9 +110,9 @@ def separate_landing(host, client, lander):
 
 
 def through_inventory(host, client):
-    """MG-P1 (rewrite battle entry): the host enters, then session.drive_both_to_tactical
-    takes both machines through the briefings and the pre-battle equip screens together
-    and settles both on the tactical map."""
+    """The host enters the battle, then session.drive_both_to_tactical takes both
+    machines through the briefings and the pre-battle equip screens together and settles
+    both on the tactical map."""
     host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                   timeout=180, interval=1.0)
     if not session.drive_both_to_tactical(host, client):
@@ -131,15 +130,15 @@ def verdict(host, client, expected, geo_flags):
     return ok, detail
 
 
-# ---- B1 (main #210: test_parallel_sharedturn's banner check; MG-P1) ------------------
+# ---- no_wait_banner (#210: no turn / wait banner at a parallel side start) -------
 
-FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # main's tokens, matched case-blind
+FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # banner fragments, matched case-blind
 END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (test_battle_end_separate)
 
 
 def no_banners(host, client, seconds=8.0):
-    """Sampled, not one snapshot (main's assert_no_banners): the rewrite's turn / wait
-    banner is battle_state.coopWaitText. Returns (clean, every text each machine showed)."""
+    """Sampled over `seconds`, not one snapshot: the turn / wait banner is
+    battle_state.coopWaitText. Returns (clean, every text each machine showed)."""
     deadline = time.time() + seconds
     seen = {"host": set(), "client": set()}
     while time.time() < deadline:
@@ -180,14 +179,14 @@ def cycle_side(host, client, timeout=240):
 
 
 def banner_row(results, host, client):
-    """B1: no turn / wait banner at a parallel side start on either machine, at turn 1
+    """no_wait_banner: no turn / wait banner at a parallel side start on either machine, at turn 1
     and after one side boundary (the non-player units pinned first, session.pin_ai_neutral,
     so the alien side cannot act)."""
     ok1, seen1 = no_banners(host, client)
-    session.pin_ai_neutral(host, client, tag="mgp1-b1")
+    session.pin_ai_neutral(host, client, tag="no_wait_banner")
     turn = cycle_side(host, client)
     ok2, seen2 = no_banners(host, client)
-    results["B1 SHARED parallel, no turn / wait banner at a side start (main #210)"] = (
+    results["no_wait_banner SHARED parallel, no turn / wait banner at a side start (#210)"] = (
         ok1 and ok2, f"turn 1 showed {seen1}; turn {turn} showed {seen2}")
 
 
@@ -226,9 +225,8 @@ def shared_row(results, row, tag, ports):
         geo_flags = {gc.name: geo_flag(gc) for gc in (host, client)}
         if geo_flags != {"host": "parallel", "client": "parallel"}:
             raise Inconclusive(f"the turn-mode options did not take: {geo_flags}")
-        # main's assign_and_fly + the host's landing = the rewrite's SHARED mixed
-        # bring-up (one host-owned and one client-owned soldier; the host confirms the
-        # landing; it drives both machines to the tactical map).
+        # The SHARED mixed bring-up: one host-owned and one client-owned soldier, the
+        # host confirms the landing, and it drives both machines to the tactical map.
         session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1})
         results[row] = verdict(host, client, "parallel", geo_flags)
         banner_row(results, host, client)
@@ -239,7 +237,7 @@ def shared_row(results, row, tag, ports):
 
 
 def main():
-    rows = os.environ.get("COOP_PTL_ROWS", "S2,S3,H1").split(",")  # S1 dropped
+    rows = os.environ.get("COOP_PTL_ROWS", "S2,S3,H1").split(",")
     results = {}
     note = None
     alive = True
