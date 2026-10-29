@@ -1,30 +1,37 @@
-"""R5-U8 S-A rows A1-A4 (boot A): PvE2 (gamemode 4) - both players command the generated aliens against an AI-run X-COM
-squad, as the release line plays it (owner D233 (a); QU8-1 (a), QU8-2 (a), QU8-6 (a); owner D269 FINAL = (a), the re-skin).
+"""test_pve2.py: PvE2 (gamemode 4) - both players command the generated aliens against an AI-run X-COM squad, as the
+released game plays it, with the X-COM soldiers re-skinned (re-typed, blank name).
 
-Spec: docs repo rewrite/prompts/r5u8_pve2_gm4.md section (f) test_pve2.py, as amended by AMENDMENT U8-1 (U8-1.9: the
-cells A1-reskin and A1-bleed). Constants: rewrite/r5u8-task0/sa/CONSTANTS.md (TASK 0 boot Aa on the unchanged build;
-boots Ab' / Ac' on the probe build of E1, E2, E2b, P1, U1-U4, A3a-A3c).
-
-Boot A (key 48862): the host sets SEED_ROSTER, the lobby puts the client on the Alien team (gamemode 2), then the host's
-own row on Alien (gamemode 4); STR_MEDIUM_SCOUT on map seed SEED_MAP; both briefings and both pre-battle equip screens;
-the unit snapshot and the A1-bleed option sequence with both Turn 1 screens up (TASK 0 steps (3) / (3b)); pin_ai_neutral
-and every live unit's reactions 0; the client's Turn 1 screen closed, then the host's; the stable settle.
-  A1  the battle starts swapped and split: battle_ready saveBlob EQUAL once; gamemode 4; authority; every alien
-      player-side (faction 0, original 0), SEAT1_IDS on coop 1 and SEAT0_IDS on coop 0; every X-COM soldier AI-side
-      (faction 1, original 1, coop -1); no AI module on a player-side unit; the re-skin (type TYPE_BY_ID, a blank name,
-      no id offset); the X-COM soldiers' wound rule follows Alien Bleeding (off / on / off) on both machines.
-  A2  the client walks its own alien C1 (one intent context); its order for the host's alien H1 is denied not_your_unit.
-  A3  the host walks its own alien H1 through its UI (one TAB, the TAB cycle lands only on seat-0 aliens, one click).
-  A4  the host kills every X-COM soldier, both seats press END TURN: aliensDown, both seats win, both machines end on
-      the host's debriefing (the client's display-only, D129 (a) / D156 (a)).
-Common cell after each row: every hash bucket EQUAL (A4: right before the kill), desyncSeen false on both, no new file in
-the lane crash folder.
+The boot (lobby key 48862), in the steps the CAPTURE lines name:
+  1-2  both machines start; the host sets SEED_ROSTER; the lobby puts the client on the Alien team (gamemode 2), then
+       the host's own row on Alien (gamemode 4).
+  3    both lobby rows show Alien on both machines.
+  4    the host at the battle settings: STR_MEDIUM_SCOUT on map seed SEED_MAP.
+  5    both briefings (a refusal ends the wait at once).
+  6    both briefings closed; both pre-battle equip screens; with both Turn 1 screens up, the unit snapshot and the
+       swapped_start-bleed option sequence.
+  7    pin_ai_neutral and every live unit's reactions 0.
+  8    the client's Turn 1 screen closed, then the host's; the stable settle.
+  9    the crash-folder snapshot.
+Rows:
+  swapped_start  the battle starts swapped and split: battle_ready saveBlob EQUAL once; gamemode 4; authority; every
+      alien player-side (faction 0, original 0), SEAT1_IDS on coop 1 and SEAT0_IDS on coop 0; every X-COM soldier
+      AI-side (faction 1, original 1, coop -1); no AI module on a player-side unit; the re-skin (type TYPE_BY_ID, a
+      blank name, no id offset); the X-COM soldiers' wound rule follows Alien Bleeding (off / on / off) on both
+      machines.
+  client_orders  the client walks its own alien C1 (one intent context); its order for the host's alien H1 is denied
+      not_your_unit.
+  host_ui_walk  the host walks its own alien H1 through its UI (one TAB, the TAB cycle lands only on seat-0 aliens, one
+      click).
+  xcom_wiped  the host kills every X-COM soldier, both seats press END TURN: aliensDown, both seats win, both machines
+      end on the host's debriefing (the client's is display-only).
+Common cell after each row: every hash bucket EQUAL (xcom_wiped: right before the kill), desyncSeen false on both, no
+new file in the lane crash folder.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
-step past its bound prints ONE CAPTURE A line and fails every cell "boot" (on a build that refuses gm4 the client logs
-`refused: unsupported` and the host's `battle_refuse received` line ends the briefing wait at once). A staging step past
-its bound fails the rows that need it (A2, A3) "staging". run in the foreground to completion.
-ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+step past its bound prints ONE CAPTURE boot line and fails every cell "boot" (on a build that refuses gm4 the client
+logs `refused: unsupported` and the host's `battle_refuse received` line ends the briefing wait at once). A staging step
+past its bound fails the rows that need it (client_orders, host_ui_walk) "staging". run in the foreground to
+completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pve2.py
 """
@@ -54,33 +61,37 @@ SEED_ROSTER = 1                   # set_seed on the host before its lobby
 SEED_MAP = 1                      # set_seed on the host right before newbattle_ok (N = 5 >= 2: no hunt)
 MISSION = "STR_MEDIUM_SCOUT"
 GAMEMODE_PVE2 = 4
-MAP_FP = 7.136941435423656e+17    # both machines' mapFingerprint (Ab', Ac')
+MAP_FP = 7.136941435423656e+17    # both machines' mapFingerprint
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 ALIEN_IDS = [1000000, 1000001, 1000002, 1000003, 1000004]   # 3 STR_SECTOID_SOLDIER, 2 STR_SECTOID_NAVIGATOR; list order
 SEAT1_IDS = [1000000, 1000001]                              # the first floor(5/2) in unit-list order: the client seat
 SEAT0_IDS = [1000002, 1000003, 1000004]                     # the rest: the host's seat 0
-XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]                       # 7 soldier-linked units, no tank; ids unchanged (SCOPE-6)
-TYPE_BY_ID = {i: "MALE_CIVILIAN" for i in XCOM_IDS}         # the host's re-type by each soldier's gender (Ab', Ac')
+XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]                       # 7 soldier-linked units, no tank; ids unchanged
+TYPE_BY_ID = {i: "MALE_CIVILIAN" for i in XCOM_IDS}         # the host's re-type by each soldier's gender
 C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54   # min(SEAT1_IDS); TU = its bring-up TU
 H1, H1_TILE, H1_DIR, H1_DEST, H1_TU = 1000002, (27, 13, 0), 2, (28, 13, 0), 54   # min(SEAT0_IDS)
-N_ALIVE = 5                       # the players' live units at the ending (A4 record)
-EXPECT_A4 = {"reason": "aliensDown", "aborted": False, "inExitArea": N_ALIVE, "verdicts": [(0, "win"), (1, "win")],
+N_ALIVE = 5                       # the players' live units at the ending (the xcom_wiped record)
+EXPECT_ENDING = {"reason": "aliensDown", "aborted": False, "inExitArea": N_ALIVE, "verdicts": [(0, "win"), (1, "win")],
              "tally": {"liveAliens": 0, "liveSoldiers": N_ALIVE, "inExit": 0}}
 OPT = "alienBleeding"
-STEP_S = 30                       # each staging / order / ending step's bound (TASK 0: <= 6.9 s)
-BOOT_S = 60                       # each briefing wait and the stable settle (TASK 0: <= 1.6 s)
-OPTION_S = 10                     # each A1-bleed phase (TASK 0: 0.1 s)
-DENY_S = 15                       # A2-other's deny (TASK 0: 0.06 s)
+STEP_S = 30                       # each staging / order / ending step's bound (measured: <= 6.9 s)
+BOOT_S = 60                       # each briefing wait and the stable settle (measured: <= 1.6 s)
+OPTION_S = 10                     # each swapped_start-bleed phase (measured: 0.1 s)
+DENY_S = 15                       # client_orders-other's deny (measured: 0.06 s)
 N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_MISMATCH = "[coop-handshake] battle_ready saveBlob MISMATCH"
 N_REFUSED = "refused: unsupported"          # the client's battle_offer refusal
 N_REFUSE_RX = "battle_refuse received"      # the host's unwind on it
-N_SPLIT = "PvE2 split:"                     # the host's split line (E2)
+N_SPLIT = "PvE2 split:"                     # the host's split line
 N_OPENING = "PvE2 opening"           # the host's opening line (the settle passes either way)
-ROWS = (("A1", ("A1-accept", "A1-mode", "A1-auth", "A1-factions", "A1-seats", "A1-ai", "A1-reskin", "A1-bleed",
-                "A1-common")),
-        ("A2", ("A2-own", "A2-other", "A2-common")), ("A3", ("A3-sel", "A3-walk", "A3-common")),
-        ("A4", ("A4-kill", "A4-host", "A4-client", "A4-debrief", "A4-common")))
+ROWS = (("swapped_start",
+         ("swapped_start-accept", "swapped_start-mode", "swapped_start-auth", "swapped_start-factions",
+          "swapped_start-seats", "swapped_start-ai", "swapped_start-reskin", "swapped_start-bleed",
+                "swapped_start-common")),
+        ("client_orders", ("client_orders-own", "client_orders-other", "client_orders-common")),
+        ("host_ui_walk", ("host_ui_walk-sel", "host_ui_walk-walk", "host_ui_walk-common")),
+        ("xcom_wiped",
+         ("xcom_wiped-kill", "xcom_wiped-host", "xcom_wiped-client", "xcom_wiped-debrief", "xcom_wiped-common")))
 
 
 def grep(gc, needle):
@@ -88,8 +99,8 @@ def grep(gc, needle):
 
 
 def walk_done(host, other, uid, dest, ev):
-    """Bounded: `uid` on `dest` on both machines and the other's order slot empty, then the host idle (G3F's helper,
-    copied with this file's STEP_S, F10917)."""
+    """Bounded: `uid` on `dest` on both machines and the other's order slot empty, then the host idle (test_pvp_gm3's
+    walk_done, copied with this file's STEP_S)."""
     ok, ev["walkS"] = wait_until(lambda: pos(host, uid) == dest and pos(other, uid) == dest
                                  and es(other, "inFlight") is None, STEP_S, 0.2)
     try:
@@ -108,12 +119,13 @@ def miss(tag, err, machines):
     raise Miss(tag)
 
 
-# ===================== the gm4 bring-up (spec (f) steps 1-9) =====================
+# ===================== the gm4 bring-up (steps 1-9) =====================
 
 
 def bleed_sequence(host, client):
-    """TASK 0 step (3b), A1-bleed's actions: the host submits alienBleeding false / true / false through the synced-option
-    lever; each phase waits (<= OPTION_S) for both machines' option_values, then reads every unit's woundable on both."""
+    """Step 6's option sequence (the swapped_start-bleed cell): the host submits alienBleeding false / true / false
+    through the synced_option_request test command; each phase waits (<= OPTION_S) for both machines' option_values,
+    then reads every unit's woundable on both."""
     out = {"start": [option(host), option(client)], "phases": []}
     try:
         for val in (False, True, False):
@@ -133,7 +145,7 @@ def bleed_sequence(host, client):
 
 
 def settle(host, client):
-    """Spec (f) step 8's stable settle: bounded BOOT_S, every 0.25 s close any NextTurnState on either machine; done when,
+    """Step 8's stable settle: bounded BOOT_S, every 0.25 s close any NextTurnState on either machine; done when,
     on two polls 1.0 s apart, side 0 on both, both tops BattlescapeState, the host's pendingStates 0 and not isBusy, and
     (the host's opening line count is 0 or turn is 2)."""
     t, hits, last, closes = time.time(), [], None, []
@@ -154,31 +166,31 @@ def settle(host, client):
             continue
         hits = []
         time.sleep(0.25)
-    miss("A", f"step 8: the stable settle not reached in {BOOT_S} s: {last}", (host, client))
+    miss("boot", f"step 8: the stable settle not reached in {BOOT_S} s: {last}", (host, client))
 
 
 def bring_up(host, client):
     m, boot = (host, client), {}
-    guarded("A", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
-    guarded("A", lambda: host.ok({"cmd": "set_seed", "seed": SEED_ROSTER}), m)
-    boot["gm2"] = guarded("A", lambda: PF.start_pvp_skirmish_lobby(host, client, KEY, alien_player="client"), m)[0]
-    row = guarded("A", lambda: PF.row_for(host, "HostPlayer"), m)
-    boot["lobbyGamemode"] = guarded("A", lambda: host.ok({"cmd": "lobby_set_team", "row": row, "team": "Alien"}),
+    guarded("boot", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
+    guarded("boot", lambda: host.ok({"cmd": "set_seed", "seed": SEED_ROSTER}), m)
+    boot["gm2"] = guarded("boot", lambda: PF.start_pvp_skirmish_lobby(host, client, KEY, alien_player="client"), m)[0]
+    row = guarded("boot", lambda: PF.row_for(host, "HostPlayer"), m)
+    boot["lobbyGamemode"] = guarded("boot", lambda: host.ok({"cmd": "lobby_set_team", "row": row, "team": "Alien"}),
                                     m).get("gamemode")
     ok, secs = wait_until(lambda: PF._lobby(host).get("playerTeams") == ["Alien", "Alien"]
                           and PF._lobby(client).get("playerTeams") == ["Alien", "Alien"], 10, 0.25)
     if not ok:
-        miss("A", f"step 3: both lobby rows Alien not shown in {secs} s (host {PF._lobby(host).get('playerTeams')}, "
+        miss("boot", f"step 3: both lobby rows Alien not shown in {secs} s (host {PF._lobby(host).get('playerTeams')}, "
                   f"client {PF._lobby(client).get('playerTeams')})", m)
-    guarded("A", lambda: host.ok({"cmd": "lobby_action"}), m)
-    guarded("A", lambda: host.wait_for("host at battle settings",
+    guarded("boot", lambda: host.ok({"cmd": "lobby_action"}), m)
+    guarded("boot", lambda: host.wait_for("host at battle settings",
                                        lambda: (not session.has_state(host, "LobbyMenu")) or None), m)
     if top(host) != "NewBattleState":
-        miss("A", f"step 4: host stack {stack(host)} (want NewBattleState on top)", m)
-    guarded("A", lambda: host.ok({"cmd": "newbattle_mission", "type": MISSION}), m)
-    guarded("A", lambda: host.ok({"cmd": "set_seed", "seed": SEED_MAP}), m)
+        miss("boot", f"step 4: host stack {stack(host)} (want NewBattleState on top)", m)
+    guarded("boot", lambda: host.ok({"cmd": "newbattle_mission", "type": MISSION}), m)
+    guarded("boot", lambda: host.ok({"cmd": "set_seed", "seed": SEED_MAP}), m)
     t_ok = time.time()
-    guarded("A", lambda: host.ok({"cmd": "newbattle_ok"}), m)
+    guarded("boot", lambda: host.ok({"cmd": "newbattle_ok"}), m)
     for gc in (host, client):   # step 5: the host's BriefingState, then the client's; a refusal ends the wait at once
         ok, secs = wait_until(lambda gc=gc: session.has_state(gc, "BriefingState") or log_count(host, N_REFUSE_RX) > 0,
                               BOOT_S, 0.1)
@@ -186,24 +198,25 @@ def bring_up(host, client):
             wait_until(lambda: log_count(client, N_REFUSED) > 0, 3, 0.1)   # bounded log flush
             refusal = {"sinceNewbattleOkS": round(time.time() - t_ok, 2), "client": grep(client, N_REFUSED),
                        "host": grep(host, N_REFUSE_RX)}
-            miss("A", f"step 5: {gc.name} BriefingState {ok} after {secs} s; refusal {json.dumps(refusal)}", m)
+            miss("boot", f"step 5: {gc.name} BriefingState {ok} after {secs} s; refusal {json.dumps(refusal)}", m)
     boot["briefingS"] = round(time.time() - t_ok, 2)
-    guarded("A", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)   # step 6
-    guarded("A", lambda: session.dismiss_client_briefing(client), m)
+    guarded("boot", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)   # step 6
+    guarded("boot", lambda: session.dismiss_client_briefing(client), m)
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):
             session.equip_both_ready(host, client)
     except Exception as e:
         print(buf.getvalue(), end="", flush=True)
-        miss("A", f"step 6: equip_both_ready: {type(e).__name__}: {str(e)[:500]}", m)
+        miss("boot", f"step 6: equip_both_ready: {type(e).__name__}: {str(e)[:500]}", m)
     boot["equip"] = buf.getvalue().strip()
-    boot["table"] = {"host": units(host), "client": units(client)}   # TASK 0 step (3): Turn 1 screens up
-    boot["bleed"] = bleed_sequence(host, client)                       # TASK 0 step (3b)
-    boot["pinned"] = guarded("A", lambda: session.pin_ai_neutral(host, client, tag="r5u8"), m)   # step 7
-    guarded("A", lambda: reactions_zero(host, client), m)
-    guarded("A", lambda: session.dismiss_battle_start_overlays(client), m)   # step 8: the client's Turn 1 close first
-    guarded("A", lambda: session.dismiss_battle_start_overlays(host), m)
+    boot["table"] = {"host": units(host), "client": units(client)}   # the unit snapshot, Turn 1 screens up
+    boot["bleed"] = bleed_sequence(host, client)                       # the option sequence
+    boot["pinned"] = guarded("boot", lambda: session.pin_ai_neutral(host, client, tag="pve2"), m)   # step 7
+    guarded("boot", lambda: reactions_zero(host, client), m)
+    # step 8: the client's Turn 1 close first
+    guarded("boot", lambda: session.dismiss_battle_start_overlays(client), m)
+    guarded("boot", lambda: session.dismiss_battle_start_overlays(host), m)
     boot["settle"] = settle(host, client)
     return boot, session._crash_log_snapshot()   # step 9
 
@@ -211,7 +224,7 @@ def bring_up(host, client):
 # ===================== the rows =====================
 
 
-def row_a1(host, client, boot, crash0):
+def row_swapped_start(host, client, boot, crash0):
     hb, cb = bview(host), bview(client)
     th, tc = boot["table"]["host"], boot["table"]["client"]
     ha, ca = hb.get("authority") or {}, cb.get("authority") or {}
@@ -241,30 +254,37 @@ def row_a1(host, client, boot, crash0):
              for p in bl["phases"] if not p["reached"] or any(v != [p["value"]] * 2 for v in p["xcom"].values())]
     bleed_ok = (not bl.get("error") and [p["value"] for p in bl["phases"]] == [False, True, False] and not bad_b)
     cells = {
-        "A1-accept": (eq_n == 1 and mm_n == 0 and ref == [0, 0] and tops == ["BattlescapeState", "BattlescapeState"],
-                      f"host log '{N_EQUAL}' {eq_n} (want 1), MISMATCH {mm_n} (want 0); host '{N_REFUSE_RX}' / client "
-                      f"'{N_REFUSED}' {ref} (want [0, 0]); tops host/client {tops} after the settle (want BattlescapeState)"),
-        "A1-mode": (boot["lobbyGamemode"] == hb["coopGamemode"] == cb["coopGamemode"] == GAMEMODE_PVE2
-                    and hb["mapFingerprint"] == cb["mapFingerprint"] == MAP_FP,
-                    f"lobby gamemode {boot['lobbyGamemode']} (after {boot['gm2']}), coopGamemode host/client "
-                    f"{hb['coopGamemode']}/{cb['coopGamemode']} (want 4), mapFingerprint {hb['mapFingerprint']}/"
-                    f"{cb['mapFingerprint']} (want {MAP_FP})"),
-        "A1-auth": ((ha.get("localSeat"), ha.get("hostSim"), ca.get("localSeat"), ca.get("hostSim")) == (0, True, 1, False),
-                    f"authority host {ha} client {ca} (want localSeat 0 hostSim true / 1 false)"),
-        "A1-factions": (not bad_f and not diff and sorted(th) == sorted(tc) == sorted(ALIEN_IDS + XCOM_IDS),
-                        f"(faction, originalFaction) off (alien want (0, 0), X-COM (1, 1)) host/client {bad_f} (want "
-                        f"none); (faction, originalFaction, coop) host vs client differences {diff} (want none); ids "
-                        f"host {sorted(th)} client {sorted(tc)} (want {sorted(ALIEN_IDS + XCOM_IDS)})"),
-        "A1-seats": (not bad_s, f"coop off host/client {bad_s} (want SEAT1_IDS 1, SEAT0_IDS 0, XCOM_IDS -1 on both)"),
-        "A1-ai": (not bad_ai, f"hasAI off host/client {bad_ai} (want every alien false on both, every X-COM unit false "
-                              f"on the client)"),
-        "A1-reskin": (not bad_r, f"(type, name, isPlayerSoldier, soldierId) off host/client {bad_r} (want "
-                                 f"(TYPE_BY_ID[id], '', True, id) on both)"),
-        "A1-bleed": (bleed_ok, f"alienBleeding phases {[p['value'] for p in bl['phases']]} (want [False, True, False]); "
-                               f"phases off (value, reached, secs, option_values host/client, X-COM woundable off) "
-                               f"{bad_b} (want each within {OPTION_S} s, every X-COM woundable == the value on both); "
-                               f"error {bl.get('error')}"),
-        "A1-common": common(host, client, crash0)}
+        "swapped_start-accept": (
+            eq_n == 1 and mm_n == 0 and ref == [0, 0] and tops == ["BattlescapeState", "BattlescapeState"],
+            f"host log '{N_EQUAL}' {eq_n} (want 1), MISMATCH {mm_n} (want 0); host '{N_REFUSE_RX}' / client "
+            f"'{N_REFUSED}' {ref} (want [0, 0]); tops host/client {tops} after the settle (want BattlescapeState)"),
+        "swapped_start-mode": (
+            boot["lobbyGamemode"] == hb["coopGamemode"] == cb["coopGamemode"] == GAMEMODE_PVE2
+            and hb["mapFingerprint"] == cb["mapFingerprint"] == MAP_FP,
+            f"lobby gamemode {boot['lobbyGamemode']} (after {boot['gm2']}), coopGamemode host/client "
+            f"{hb['coopGamemode']}/{cb['coopGamemode']} (want 4), mapFingerprint {hb['mapFingerprint']}/"
+            f"{cb['mapFingerprint']} (want {MAP_FP})"),
+        "swapped_start-auth": (
+            (ha.get("localSeat"), ha.get("hostSim"), ca.get("localSeat"), ca.get("hostSim")) == (0, True, 1, False),
+            f"authority host {ha} client {ca} (want localSeat 0 hostSim true / 1 false)"),
+        "swapped_start-factions": (
+            not bad_f and not diff and sorted(th) == sorted(tc) == sorted(ALIEN_IDS + XCOM_IDS),
+            f"(faction, originalFaction) off (alien want (0, 0), X-COM (1, 1)) host/client {bad_f} (want "
+            f"none); (faction, originalFaction, coop) host vs client differences {diff} (want none); ids "
+            f"host {sorted(th)} client {sorted(tc)} (want {sorted(ALIEN_IDS + XCOM_IDS)})"),
+        "swapped_start-seats": (
+            not bad_s, f"coop off host/client {bad_s} (want SEAT1_IDS 1, SEAT0_IDS 0, XCOM_IDS -1 on both)"),
+        "swapped_start-ai": (
+            not bad_ai, f"hasAI off host/client {bad_ai} (want every alien false on both, every X-COM unit false "
+                        f"on the client)"),
+        "swapped_start-reskin": (not bad_r, f"(type, name, isPlayerSoldier, soldierId) off host/client {bad_r} (want "
+                                            f"(TYPE_BY_ID[id], '', True, id) on both)"),
+        "swapped_start-bleed": (
+            bleed_ok, f"alienBleeding phases {[p['value'] for p in bl['phases']]} (want [False, True, False]); "
+                      f"phases off (value, reached, secs, option_values host/client, X-COM woundable off) "
+                      f"{bad_b} (want each within {OPTION_S} s, every X-COM woundable == the value on both); "
+                      f"error {bl.get('error')}"),
+        "swapped_start-common": common(host, client, crash0)}
     ev = {"split": grep(host, N_SPLIT), "equip": boot["equip"], "briefingS": boot["briefingS"], "settle": boot["settle"],
           "pinned": boot["pinned"], "xcom": {i: {"host": f(th, i, "name", "type", "_name", "rawName", "hasAI"),
                                                 "client": f(tc, i, "name", "type", "_name", "rawName")} for i in XCOM_IDS},
@@ -276,15 +296,15 @@ def row_a1(host, client, boot, crash0):
 
 def stage(host, client, uid, tile, d, tu):
     m = (host, client)
-    ev = {"tele": guarded("A staging", lambda: tele_both(host, client, uid, tile, d).get("to"), m)}
-    ev["tu"] = guarded("A staging", lambda: both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": uid,
+    ev = {"tele": guarded("staging", lambda: tele_both(host, client, uid, tile, d).get("to"), m)}
+    ev["tu"] = guarded("staging", lambda: both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": uid,
                                                                 "stat": "tu", "value": tu, "refill": True},
                                                  ("tu",)).get("tu"), m)
-    guarded("A staging", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
+    guarded("staging", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
     return ev
 
 
-def row_a2(host, client, staged, crash0):
+def row_client_orders(host, client, staged, crash0):
     b_ctx, b_sent = es(host, "closedContexts") or [], es(client, "coopIntentsSent") or {}
     ev = {"staged": staged, "resp": session.send_walk(client, C1, C1_DEST)}
     walk_done(host, client, C1, C1_DEST, ev)
@@ -310,11 +330,13 @@ def row_a2(host, client, staged, crash0):
     other = (deny.get("iseq") == r.get("iseq") and deny.get("reason") == "not_your_unit" and not new2 and d1 == d0,
              f"client lastDeny {deny} for iseq {r.get('iseq')} ({secs} s; want reason not_your_unit); new host contexts "
              f"{new2} (want none); H1 direction host/client {d0} -> {d1} (want unchanged)")
-    return {"A2-own": own, "A2-other": other, "A2-common": common(host, client, crash0)}, ev
+    return {"client_orders-own": own, "client_orders-other": other,
+            "client_orders-common": common(host, client, crash0)}, ev
 
 
 def tab_cycle(host, uid, cycles=16):
-    """ONE TAB, then RSP tab_select's bounded TAB pass onto `uid`, recording every unit each TAB lands on."""
+    """ONE TAB, then test_seat_pacing tab_select's bounded TAB pass onto `uid`, recording every unit each TAB lands
+    on."""
     landed = []
     for _ in range(cycles + 1):
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
@@ -325,16 +347,18 @@ def tab_cycle(host, uid, cycles=16):
     return landed
 
 
-def row_a3(host, client, staged, crash0):
+def row_host_ui_walk(host, client, staged, crash0):
     ev = {"staged": staged, "sel0": battle_state(host).get("selectedId")}
     ev["landed"] = tab_cycle(host, H1)
     ev["sel"] = battle_state(host).get("selectedId")
     bad = [i for i in ev["landed"] if i in SEAT1_IDS or i in XCOM_IDS]
-    cells = {"A3-sel": (ev["sel"] == H1 and not bad, f"host selectedId {ev['sel']} (want {H1}); TAB landings {ev['landed']}"
-                                                     f" (from {ev['sel0']}), on a seat-1 alien or X-COM unit {bad} "
-                                                     f"(want none)")}
+    cells = {"host_ui_walk-sel": (ev["sel"] == H1 and not bad,
+                                  f"host selectedId {ev['sel']} (want {H1}); TAB landings {ev['landed']}"
+                                  f" (from {ev['sel0']}), on a seat-1 alien or X-COM unit {bad} "
+                                  f"(want none)")}
     if ev["sel"] != H1:
-        cells.update({n: (False, "staging (the host's TAB never selected H1)") for n in ("A3-walk", "A3-common")})
+        cells.update({n: (False, "staging (the host's TAB never selected H1)")
+                      for n in ("host_ui_walk-walk", "host_ui_walk-common")})
         return cells, ev
     b_ctx = es(host, "closedContexts") or []
     real_click_walk(host, H1_DEST)
@@ -343,14 +367,14 @@ def row_a3(host, client, staged, crash0):
     ps = [pos(host, H1), pos(client, H1)]
     ctx_ok, ctx_d = ctx_cell(new, "host", H1)
     ev["newCtx"] = new
-    cells["A3-walk"] = (ctx_ok and ps == [H1_DEST, H1_DEST],
+    cells["host_ui_walk-walk"] = (ctx_ok and ps == [H1_DEST, H1_DEST],
                         f"{ctx_d}; H1 host/client {ps} (want {H1_DEST} on both; {ev['walkS']} s)")
-    cells["A3-common"] = common(host, client, crash0)
+    cells["host_ui_walk-common"] = common(host, client, crash0)
     return cells, ev
 
 
-def row_a4(host, client, crash0):
-    """Spec (f) A4 (test_battle_end_rules turn_limit's two-press shape): records at 0 and the hash taken; host
+def row_xcom_wiped(host, client, crash0):
+    """The ending, in test_battle_end_rules turn_limit's two-press shape: records at 0 and the hash taken; host
     kill_unit_real {faction 1}; the kill chain; the client's END TURN; the host shows END TURN 1/2; the host's END
     TURN; the host's NextTurnState closed by dismiss_popup; both DebriefingStates."""
     m, ev, ends = (host, client), {}, []
@@ -402,41 +426,45 @@ def row_a4(host, client, crash0):
         session.assert_client_zero_disk(client.user_dir)
     except AssertionError as e:
         ends.append(str(e)[:300])
-    want = {k: EXPECT_A4[k] for k in ("reason", "aborted", "inExitArea", "verdicts", "tally")}
-    return {"A4-kill": kill_cell,
-            "A4-host": (hrec.get("emitted") == 1 and isinstance(hv["seq"], int) and hv["seq"] > 0
-                        and {k: hv[k] for k in want} == want,
-                        f"host battleEnd emitted {hrec.get('emitted')} (want 1) {hv} (want seq > 0 and {want})"),
-            "A4-client": (crec.get("applied") == 1 and cv == hv,
-                          f"client battleEnd applied {crec.get('applied')} (want 1) {cv} (want the host's)"),
-            "A4-debrief": (not ends, f"{ends or 'both tops DebriefingState, the client display-only, debrief_state '}"
-                                     f"{'' if ends else 'titles and rows equal, no client save'}"),
-            "A4-common": common(host, client, crash0, hashed)}, ev
+    want = {k: EXPECT_ENDING[k] for k in ("reason", "aborted", "inExitArea", "verdicts", "tally")}
+    return {"xcom_wiped-kill": kill_cell,
+            "xcom_wiped-host": (hrec.get("emitted") == 1 and isinstance(hv["seq"], int) and hv["seq"] > 0
+                                and {k: hv[k] for k in want} == want,
+                                f"host battleEnd emitted {hrec.get('emitted')} (want 1) {hv} "
+                                f"(want seq > 0 and {want})"),
+            "xcom_wiped-client": (crec.get("applied") == 1 and cv == hv,
+                                  f"client battleEnd applied {crec.get('applied')} (want 1) {cv} (want the host's)"),
+            "xcom_wiped-debrief": (not ends,
+                                   f"{ends or 'both tops DebriefingState, the client display-only, debrief_state '}"
+                                   f"{'' if ends else 'titles and rows equal, no client save'}"),
+            "xcom_wiped-common": common(host, client, crash0, hashed)}, ev
 
 
-def boot_a():
-    host = GameClient("host", None, make_user_dir("r5u8_a_host"))
-    client = GameClient("client", None, make_user_dir("r5u8_a_client"))
+def run_boot():
+    host = GameClient("host", None, make_user_dir("pve2_host"))
+    client = GameClient("client", None, make_user_dir("pve2_client"))
     try:
         try:
             boot, crash0 = bring_up(host, client)
         except Miss:
-            return fail_all(ROWS, "boot (setup failure, see the CAPTURE A line)")
+            return fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         rows = dict(ROWS)
-        fails = run_row("A1", rows["A1"], lambda: row_a1(host, client, boot, crash0))
+        fails = run_row("swapped_start", rows["swapped_start"], lambda: row_swapped_start(host, client, boot, crash0))
         try:
             staged = stage(host, client, C1, C1_TILE, C1_DIR, C1_TU)
         except Miss:
             staged = None
-        fails += (run_row("A2", rows["A2"], lambda: row_a2(host, client, staged, crash0)) if staged
-                  else fail_all((("A2", rows["A2"]),), "staging (see the CAPTURE A staging line)"))
+        fails += (run_row("client_orders", rows["client_orders"],
+                          lambda: row_client_orders(host, client, staged, crash0)) if staged
+                  else fail_all((("client_orders", rows["client_orders"]),), "staging (see the CAPTURE staging line)"))
         try:
             staged = stage(host, client, H1, H1_TILE, H1_DIR, H1_TU)
         except Miss:
             staged = None
-        fails += (run_row("A3", rows["A3"], lambda: row_a3(host, client, staged, crash0)) if staged
-                  else fail_all((("A3", rows["A3"]),), "staging (see the CAPTURE A staging line)"))
-        fails += run_row("A4", rows["A4"], lambda: row_a4(host, client, crash0))
+        fails += (run_row("host_ui_walk", rows["host_ui_walk"],
+                          lambda: row_host_ui_walk(host, client, staged, crash0)) if staged
+                  else fail_all((("host_ui_walk", rows["host_ui_walk"]),), "staging (see the CAPTURE staging line)"))
+        fails += run_row("xcom_wiped", rows["xcom_wiped"], lambda: row_xcom_wiped(host, client, crash0))
         return fails
     finally:
         shut(host, client)
@@ -444,7 +472,7 @@ def boot_a():
 
 def main():
     t0 = time.time()
-    fails = boot_a()
+    fails = run_boot()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pve2: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
