@@ -1,26 +1,25 @@
-"""W2-H9 (owner D199 = (a); D211/D212 working assumption (a)) - a SEPARATE co-op
-client never starts a battle from its OWN craft. The red rows.
+"""A SEPARATE co-op client never starts a battle from its OWN craft.
 
-Before W2-H9 a SEPARATE client whose own craft reached a landable target got the
-vanilla landing prompt, and YES generated a single-player battle in its own world
-(F2201: CoopHandshake::offerBattle() no-ops off the host). When the host then
-landed, the client accepted the host's offer and its solo battle and world were
-thrown away. Cydonia confirmed from the client's own craft is the
-same defect at a second entry point.
+Without the refusal, a SEPARATE client whose own craft reached a landable target got
+the vanilla landing prompt, and YES generated a single-player battle in its own world
+(CoopHandshake::offerBattle() does nothing off the host). When the host then landed,
+the client accepted the host's offer and its solo battle and world were thrown away.
+Confirming Cydonia from the client's own craft is the same defect at a second entry
+point.
 
-After W2-H9, on a SEPARATE client only: no landing prompt, the craft turns back to
-base and the client sees H9TEXT (CraftErrorState); confirming Cydonia from its own
-craft shows the same message and starts nothing.
+With the refusal, on a SEPARATE client only: no landing prompt, the craft turns back
+to base and the client sees REFUSAL_TEXT (CraftErrorState); confirming Cydonia from
+its own craft shows the same message and starts nothing.
 
-  H9-1  own landing blocked      client craft -> own site: refusal, craft home, no
-                                 re-fire over 10 s of client clock, host untouched.
-  H9-2  the F2208 sequence       the client's own craft arrives first (refused); then
-                                 the host's craft arrives and the host lands; the
-                                 client joins the host's battle from its geoscape.
-                                 (H23-VL1: the client's world stands still while the
-                                 host holds a popup, so the client flies first.)
-  H9-6  own Cydonia blocked      client open_cydonia + confirm_cydonia: refusal,
-                                 no BriefingState, craft untouched.
+  own_landing_refused      client craft -> own site: refusal, craft home, no re-fire
+                           over 10 s of client clock, host untouched.
+  refused_then_joins_host  the client's own craft arrives first (refused); then the
+                           host's craft arrives and the host lands; the client joins
+                           the host's battle from its geoscape. (The client's world
+                           stands still while the host holds a popup, so the client
+                           flies first.)
+  own_cydonia_refused      client open_cydonia + confirm_cydonia: refusal, no
+                           BriefingState, craft untouched.
 
 Each row is its own boot and ONE run. The controls (host guest battle, SHARED
 client landing, single player) are test_client_landing_controls.py.
@@ -38,19 +37,19 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, EXE, TEST_ROOT  # noqa: E402
-from harness import shutdown_clients  # noqa: E402 (W2-U8f F9053: boot_pair's cleanup)
+from harness import shutdown_clients  # noqa: E402 (boot_pair's cleanup)
 import session  # noqa: E402
 
-H9TEXT = ("In co-op only the host's craft can start a mission. Seat your soldiers "
+REFUSAL_TEXT = ("In co-op only the host's craft can start a mission. Seat your soldiers "
           "on the host's craft to take part.")
-F2201_MARKER = "[coop-handshake] offerBattle() called on a non-host machine - ignoring"
-H9_LOG = "[coop-h9]"
+OFFER_IGNORED_MARKER = "[coop-handshake] offerBattle() called on a non-host machine - ignoring"
+REFUSAL_LOG = "[coop-host-craft-only]"
 OFFER_ACCEPTED = "[coop-handshake] battle_offer accepted"
 KEEP = ["ConfirmLandingState", "CraftErrorState"]
-# F2707 / ruling H9-G1: states H9-1's host must never show. The post-flush drain keeps
-# them on top (never cleared), so the host top check still fails on them by name.
+# States own_landing_refused's host must never show. The post-flush drain keeps them
+# on top (never cleared), so the host top check still fails on them by name.
 HOST_NEVER = ["CraftErrorState", "ConfirmLandingState", "BriefingState"]
-from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
+from harness import CRASH_DIR  # noqa: E402  (this lane's own crash folder)
 PUSH_RE = re.compile(r"\[coop-ui\] push (?:class )?(?:OpenXcom::)?(\w+) depth=")
 
 T0 = time.time()
@@ -69,7 +68,7 @@ def check(cond, msg):
         raise RowFail(msg)
 
 
-# ---- shared helpers (copied into each W2-H9 file; session.py is never edited) ----
+# ---- shared helpers (test_client_landing_controls.py has its own copies) ----
 
 def strip(s):
     return s.replace("class OpenXcom::", "")
@@ -101,7 +100,7 @@ def log_count(gc, needle):
 
 
 def pushes(gc, state_name):
-    """WV-D112 screen record: how many times `state_name` was pushed on gc."""
+    """How many times `state_name` was pushed on gc (its log's [coop-ui] push lines)."""
     n = 0
     for line in log_lines(gc):
         m = PUSH_RE.search(line)
@@ -218,8 +217,8 @@ def drain_one(gc, keep):
 
 
 def arrival_poll(gc, tag, others, timeout=60):
-    """Every 0.5 s up to 60 s on gc: stop on top ConfirmLandingState (RED path) or
-    CraftErrorState (GREEN path); otherwise drain popups (never the kept states) and
+    """Every 0.5 s up to 60 s on gc: stop on top ConfirmLandingState (no refusal) or
+    CraftErrorState (the refusal); otherwise drain popups (never the kept states) and
     run the clock at geo_set_speed idx 2. `others` are drained the same way, so a
     host prompt already up stays up (it is kept)."""
     deadline = time.time() + timeout
@@ -242,7 +241,7 @@ def arrival_poll(gc, tag, others, timeout=60):
 
 
 def drive_solo_to_battlescape(gc, tag, timeout=120):
-    """Red evidence only: drain the client's solo battle entry to BattlescapeState."""
+    """Failure evidence only: drain the client's solo battle entry to BattlescapeState."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         top = top_of(gc)
@@ -277,8 +276,8 @@ def vacuity_guard(host, client, tag):
 
 
 def boot_pair(tag):
-    host = GameClient("host", 1, make_user_dir("w2h9_%s_host" % tag))
-    client = GameClient("client", 2, make_user_dir("w2h9_%s_client" % tag))
+    host = GameClient("host", 1, make_user_dir("client_landing_%s_host" % tag))
+    client = GameClient("client", 2, make_user_dir("client_landing_%s_client" % tag))
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
     except BaseException:
@@ -300,7 +299,7 @@ def shutdown_pair(host, client):
 
 
 def dump(tag, host, client):
-    """Probe dump of both machines (STOP-IF 2 evidence)."""
+    """Probe dump of both machines (evidence for a failed row)."""
     for gc, who in ((host, "HOST"), (client, "CLIENT")):
         try:
             es = gc.cmd({"cmd": "event_state"})
@@ -318,32 +317,33 @@ def dump(tag, host, client):
             log("DUMP %s %s failed: %r" % (tag, who, e))
 
 
-# ---- H9-1: own landing blocked ---------------------------------------------------
+# ---- own_landing_refused: the client's own craft cannot land ----------------------
 
-def row_h9_1():
+def row_own_landing_refused():
     host = client = None
     crash_before = crash_files()
     try:
-        host, client = boot_pair("1")
+        host, client = boot_pair("own_landing")
         session.new_campaign(host, client, port="48483")
-        vacuity_guard(host, client, "H9-1")
+        vacuity_guard(host, client, "own_landing_refused")
         w0_host, w0_client = world(host), world(client)
         p0 = probe(client)
-        check(p0 == (0, ""), "H9-1 probe baseline: client refused/last = %r, want (0, '')" % (p0,))
+        check(p0 == (0, ""), "own_landing_refused probe baseline: client refused/last = %r, "
+              "want (0, '')" % (p0,))
         cid, squad = seat_three(client, "CLIENT")
         send_to_new_site(client, "CLIENT", cid)
         path = arrival_poll(client, "CLIENT", (host,))
 
         if path == "ConfirmLandingState":
-            # RED (commit 1): the prompt appeared. Capture the F2201 solo battle.
+            # No refusal: the prompt appeared. Capture the solo battle YES starts.
             p1 = probe(client)
-            shot = os.path.join(TEST_ROOT, "w2h9_h9_1_prompt_s%s.png"
+            shot = os.path.join(TEST_ROOT, "client_landing_own_landing_prompt_s%s.png"
                                 % os.environ.get("OXC_HARNESS_SLOT", "0"))
             client.cmd({"cmd": "screenshot", "path": shot})
-            log("H9-1 FIX: screenshot lever check %s exists=%s size=%s" % (
+            log("own_landing_refused no refusal: screenshot check %s exists=%s size=%s" % (
                 shot, os.path.exists(shot), os.path.getsize(shot) if os.path.exists(shot) else 0))
             r = client.cmd({"cmd": "confirm_landing"})
-            log("H9-1 FIX: client confirm_landing -> %s" % r)
+            log("own_landing_refused no refusal: client confirm_landing -> %s" % r)
             entered = None
             deadline = time.time() + 30
             while time.time() < deadline and not entered:
@@ -355,51 +355,56 @@ def row_h9_1():
             bs = client.cmd({"cmd": "battle_state"})
             es = client.cmd({"cmd": "event_state"})
             time.sleep(3)  # house log flush
-            marker = log_count(client, F2201_MARKER)
-            named = (p1 == (0, "") and entered is not None and bs.get("inBattle") is True
-                     and es.get("battleId") == 0 and es.get("phase") == "Idle" and marker == 1)
-            log("RED-EVIDENCE H9-1: probe=%r; after confirm_landing client stack top=%s "
-                "entered=%s inBattle=%s missionType=%s battleId=%s phase=%s F2201-marker=%d; "
-                "as named=%s" % (p1, top_of(client), entered, bs.get("inBattle"),
-                                  bs.get("missionType"), es.get("battleId"), es.get("phase"),
-                                  marker, named))
-            raise RowFail("H9-1: client arrival popped ConfirmLandingState - W2-H9 refusal "
-                          "expected; confirm_landing then started the solo battle "
-                          "(inBattle=%s battleId=%s phase=%s F2201 marker=%d)"
+            marker = log_count(client, OFFER_IGNORED_MARKER)
+            known_defect = (p1 == (0, "") and entered is not None and bs.get("inBattle") is True
+                            and es.get("battleId") == 0 and es.get("phase") == "Idle"
+                            and marker == 1)
+            log("NO-REFUSAL-EVIDENCE own_landing_refused: probe=%r; after confirm_landing client "
+                "stack top=%s entered=%s inBattle=%s missionType=%s battleId=%s phase=%s "
+                "offer-ignored-marker=%d; known solo-battle defect=%s" % (
+                    p1, top_of(client), entered, bs.get("inBattle"), bs.get("missionType"),
+                    es.get("battleId"), es.get("phase"), marker, known_defect))
+            raise RowFail("own_landing_refused: client arrival popped ConfirmLandingState - the "
+                          "host-craft-only refusal expected; confirm_landing then started the solo "
+                          "battle (inBattle=%s battleId=%s phase=%s offer-ignored marker=%d)"
                           % (bs.get("inBattle"), es.get("battleId"), es.get("phase"), marker))
 
-        # GREEN (commit 2): the refusal.
+        # The refusal.
         state, texts = texts_of_top(client)
-        check("CraftErrorState" in state, "H9-1: client top %s, want CraftErrorState" % state)
-        check(H9TEXT in texts, "H9-1: CraftErrorState Text %r != H9TEXT" % (texts,))
+        check("CraftErrorState" in state, "own_landing_refused: client top %s, want "
+              "CraftErrorState" % state)
+        check(REFUSAL_TEXT in texts, "own_landing_refused: CraftErrorState Text %r != "
+              "REFUSAL_TEXT" % (texts,))
         p1 = probe(client)
         check(p1 == (1, "landing:%d" % cid),
-              "H9-1: client probe %r, want (1, 'landing:%d')" % (p1, cid))
+              "own_landing_refused: client probe %r, want (1, 'landing:%d')" % (p1, cid))
         sk = skyranger(client)
         check(sk["id"] == cid and sk["status"] == "STR_OUT" and sk.get("destKind") == "base",
-              "H9-1: craft %s status=%s destKind=%s, want STR_OUT / base"
+              "own_landing_refused: craft %s status=%s destKind=%s, want STR_OUT / base"
               % (cid, sk["status"], sk.get("destKind")))
         aboard = sorted(s["id"] for s in own_roster_base(client)["soldiers"]
                         if s.get("craftId") == cid)
-        check(aboard == sorted(squad), "H9-1: soldiers aboard %s %s, want %s"
+        check(aboard == sorted(squad), "own_landing_refused: soldiers aboard %s %s, want %s"
               % (cid, aboard, sorted(squad)))
         check(client.cmd({"cmd": "get_coop"}).get("inBattle") is False,
-              "H9-1: client get_coop.inBattle is not False")
-        shot = os.path.join(TEST_ROOT, "w2h9_h9_1_refusal_s%s.png"
+              "own_landing_refused: client get_coop.inBattle is not False")
+        shot = os.path.join(TEST_ROOT, "client_landing_own_landing_refusal_s%s.png"
                             % os.environ.get("OXC_HARNESS_SLOT", "0"))
         client.cmd({"cmd": "screenshot", "path": shot})
         check(os.path.exists(shot) and os.path.getsize(shot) > 0,
-              "H9-1: refusal screenshot not saved at %s" % shot)
-        log("H9-1: refusal screenshot saved %s (%d bytes)" % (shot, os.path.getsize(shot)))
+              "own_landing_refused: refusal screenshot not saved at %s" % shot)
+        log("own_landing_refused: refusal screenshot saved %s (%d bytes)"
+            % (shot, os.path.getsize(shot)))
         time.sleep(3)  # house log flush
         check(pushes(client, "ConfirmLandingState") == 0,
-              "H9-1: client ConfirmLandingState pushes %d, want 0"
+              "own_landing_refused: client ConfirmLandingState pushes %d, want 0"
               % pushes(client, "ConfirmLandingState"))
         check(pushes(client, "BriefingState") == 0,
-              "H9-1: client BriefingState pushes %d, want 0" % pushes(client, "BriefingState"))
-        log("PASS H9-1 refusal: CraftErrorState Text == H9TEXT; probe (1, 'landing:%d'); "
-            "craft STR_OUT -> base; squad %s still aboard; 0 ConfirmLandingState / "
-            "BriefingState pushes; inBattle false" % (cid, sorted(squad)))
+              "own_landing_refused: client BriefingState pushes %d, want 0"
+              % pushes(client, "BriefingState"))
+        log("PASS own_landing_refused refusal: CraftErrorState Text == REFUSAL_TEXT; probe "
+            "(1, 'landing:%d'); craft STR_OUT -> base; squad %s still aboard; 0 "
+            "ConfirmLandingState / BriefingState pushes; inBattle false" % (cid, sorted(squad)))
 
         # No re-fire: dismiss the refusal and run the client clock 10 s.
         client.cmd({"cmd": "dismiss_popup"})
@@ -411,74 +416,78 @@ def row_h9_1():
             time.sleep(0.5)
         time.sleep(3)  # house log flush
         p2 = probe(client)
-        check(p2[0] == 1, "H9-1: probe %r after 10 s of client clock, want 1 (re-fired?)" % (p2,))
+        check(p2[0] == 1, "own_landing_refused: probe %r after 10 s of client clock, want 1 "
+              "(re-fired?)" % (p2,))
         check(pushes(client, "ConfirmLandingState") == 0,
-              "H9-1: a ConfirmLandingState was pushed after the refusal (re-fire)")
-        # F2707 / ruling H9-G1: the host clock runs through the flush, so a natural geoscape
-        # popup (UfoDetectedState at K=2) can reach the host after the loop's last drain.
-        # Clear it with the loop's own step; HOST_NEVER states are kept, never cleared.
+              "own_landing_refused: a ConfirmLandingState was pushed after the refusal (re-fire)")
+        # The host clock runs through the flush, so a natural geoscape popup (a
+        # UfoDetectedState, seen with two tests running at once) can reach the host after
+        # the loop's last drain. Clear it with the loop's own step; HOST_NEVER states are
+        # kept, never cleared.
         host_top = top_of(host)
         drain_one(host, HOST_NEVER)
         if "GeoscapeState" not in host_top:
-            log("H9-1: host top %s after the flush -> drain step (F2707)" % host_top)
-        check("GeoscapeState" in top_of(host), "H9-1: host top %s, want GeoscapeState"
-              % top_of(host))
-        check(pushes(host, "CraftErrorState") == 0, "H9-1: host CraftErrorState pushes %d, want 0"
-              % pushes(host, "CraftErrorState"))
+            log("own_landing_refused: host top %s after the flush -> drain step" % host_top)
+        check("GeoscapeState" in top_of(host), "own_landing_refused: host top %s, want "
+              "GeoscapeState" % top_of(host))
+        check(pushes(host, "CraftErrorState") == 0, "own_landing_refused: host CraftErrorState "
+              "pushes %d, want 0" % pushes(host, "CraftErrorState"))
         for name in ("ConfirmLandingState", "BriefingState"):
-            check(pushes(host, name) == 0, "H9-1: host %s pushes %d, want 0"
+            check(pushes(host, name) == 0, "own_landing_refused: host %s pushes %d, want 0"
                   % (name, pushes(host, name)))
-        check(log_count(host, H9_LOG) == 0, "H9-1: host logged %d [coop-h9] lines, want 0"
-              % log_count(host, H9_LOG))
+        check(log_count(host, REFUSAL_LOG) == 0, "own_landing_refused: host logged %d "
+              "[coop-host-craft-only] lines, want 0" % log_count(host, REFUSAL_LOG))
         w1_host, w1_client = world(host), world(client)
-        check(w1_host == w0_host, "H9-1: host world changed: %s -> %s"
+        check(w1_host == w0_host, "own_landing_refused: host world changed: %s -> %s"
               % (json.dumps(w0_host), json.dumps(w1_host)))
         check(world_except_craft(w1_client, cid) == world_except_craft(w0_client, cid),
-              "H9-1: client world changed beyond craft %d: %s -> %s"
+              "own_landing_refused: client world changed beyond craft %d: %s -> %s"
               % (cid, json.dumps(w0_client), json.dumps(w1_client)))
         for gc, who in ((host, "host"), (client, "client")):
             check(gc.cmd({"cmd": "event_state"}).get("desyncSeen") is False,
-                  "H9-1: %s desyncSeen" % who)
+                  "own_landing_refused: %s desyncSeen" % who)
             check(gc.cmd({"cmd": "get_coop"}).get("coopStatic") is True,
-                  "H9-1: %s coopStatic is not True" % who)
+                  "own_landing_refused: %s coopStatic is not True" % who)
         new_crash = sorted(crash_files() - crash_before)
-        check(not new_crash, "H9-1: new crashlog files %s" % new_crash)
-        log("PASS H9-1 no re-fire + host untouched: probe %r after 10 s; 0 ConfirmLandingState "
-            "pushes; host top GeoscapeState, 0 CraftErrorState / ConfirmLandingState / "
-            "BriefingState pushes, 0 [coop-h9] lines; "
+        check(not new_crash, "own_landing_refused: new crashlog files %s" % new_crash)
+        log("PASS own_landing_refused no re-fire + host untouched: probe %r after 10 s; "
+            "0 ConfirmLandingState pushes; host top GeoscapeState, 0 CraftErrorState / "
+            "ConfirmLandingState / BriefingState pushes, 0 [coop-host-craft-only] lines; "
             "host world == W0; client world == W0 except craft %d; desyncSeen false and "
             "coopStatic true on both; no new crashlog" % (p2, cid))
     except Exception:
         if host is not None and client is not None:
-            dump("H9-1", host, client)
+            dump("own_landing_refused", host, client)
         raise
     finally:
         shutdown_pair(host, client)
 
 
-# ---- H9-2: the F2208 sequence ------------------------------------------------------
+# ---- refused_then_joins_host: refused first, then the client joins the host's battle --
 
-def row_h9_2():
+def row_refused_then_joins_host():
     host = client = None
     try:
-        host, client = boot_pair("2")
+        host, client = boot_pair("joins_host")
         session.new_campaign(host, client, port="48484")
-        vacuity_guard(host, client, "H9-2")
+        vacuity_guard(host, client, "refused_then_joins_host")
         p0 = probe(client)
-        check(p0 == (0, ""), "H9-2 probe baseline: client refused/last = %r, want (0, '')" % (p0,))
-        # 1) both squads seated before any craft flies. H23-VL1: the client's world stands
-        #    still while the host holds a popup, so the client's craft flies first.
+        check(p0 == (0, ""), "refused_then_joins_host probe baseline: client refused/last = %r, "
+              "want (0, '')" % (p0,))
+        # 1) both squads seated before any craft flies. The client's world stands still
+        #    while the host holds a popup, so the client's craft flies first.
         hcid, _ = seat_three(host, "HOST")
         session.drain_host_coop_notice(host)
         ccid, _ = seat_three(client, "CLIENT")
         w1 = world(client)
-        log("H9-2 W1 (client, before its craft leaves): %s" % json.dumps(w1))
+        log("refused_then_joins_host W1 (client, before its craft leaves): %s"
+            % json.dumps(w1))
         # 2) the client's own craft to its own site; the host stays on its geoscape.
         send_to_new_site(client, "CLIENT", ccid)
         cpath = arrival_poll(client, "CLIENT", (host,))
 
         if cpath == "ConfirmLandingState":
-            # RED (commit 1): the client lands its own craft -> solo battle. No host
+            # No refusal: the client lands its own craft -> solo battle. No host
             # leg: the host's clock stands still while the client is off its geoscape.
             client.cmd({"cmd": "confirm_landing"})
             drive_solo_to_battlescape(client, "CLIENT")
@@ -486,45 +495,48 @@ def row_h9_2():
             bs_c = client.cmd({"cmd": "battle_state"})
             es_c = client.cmd({"cmd": "event_state"})
             before = world(client)
-            log("RED-EVIDENCE H9-2 after the client's own landing: client inBattle=%s "
-                "missionType=%s battleId=%s phase=%s; client funds/bases W1=%s/%s, "
-                "in its solo battle=%s/%s" % (
+            log("NO-REFUSAL-EVIDENCE refused_then_joins_host after the client's own landing: "
+                "client inBattle=%s missionType=%s battleId=%s phase=%s; client funds/bases "
+                "W1=%s/%s, in its solo battle=%s/%s" % (
                     bs_c.get("inBattle"), bs_c.get("missionType"), es_c.get("battleId"),
                     es_c.get("phase"), w1["funds"], w1["ownBases"], before["funds"],
                     before["ownBases"]))
-            raise RowFail("H9-2: the client's own craft got the landing prompt and "
-                          "confirm_landing started its own battle (F2201; inBattle=%s "
+            raise RowFail("refused_then_joins_host: the client's own craft got the landing "
+                          "prompt and confirm_landing started its own battle (inBattle=%s "
                           "missionType=%s battleId=%s; funds %s -> %s)" % (
                               bs_c.get("inBattle"), bs_c.get("missionType"),
                               es_c.get("battleId"), w1["funds"], before["funds"]))
 
-        # GREEN (commit 2): refused; the client waits on its geoscape.
-        check(cpath == "CraftErrorState", "H9-2: client arrival reached %s" % cpath)
+        # Refused; the client waits on its geoscape.
+        check(cpath == "CraftErrorState", "refused_then_joins_host: client arrival reached %s"
+              % cpath)
         client.cmd({"cmd": "dismiss_popup"})
         client.wait_for("client back on its geoscape",
                         lambda: "GeoscapeState" in top_of(client) or None, timeout=10,
                         interval=0.25)
         check(client.cmd({"cmd": "get_coop"}).get("inBattle") is False,
-              "H9-2: client inBattle at the host's coop_mission_start")
+              "refused_then_joins_host: client inBattle at the host's coop_mission_start")
         wc = world(client)
         check(world_except_craft(wc, ccid) == world_except_craft(w1, ccid),
-              "H9-2: client world changed beyond craft %d before the host landing: %s -> %s"
-              % (ccid, json.dumps(w1), json.dumps(wc)))
-        log("PASS H9-2 at the host's coop_mission_start: client on GeoscapeState, inBattle "
-            "false, world == W1 except craft %d" % ccid)
+              "refused_then_joins_host: client world changed beyond craft %d before the host "
+              "landing: %s -> %s" % (ccid, json.dumps(w1), json.dumps(wc)))
+        log("PASS refused_then_joins_host at the host's coop_mission_start: client on "
+            "GeoscapeState, inBattle false, world == W1 except craft %d" % ccid)
         # 3) the host's craft to its own site; its prompt is HELD until coop_mission_start.
         send_to_new_site(host, "HOST", hcid)
         hpath = arrival_poll(host, "HOST", (client,))
         check(hpath == "ConfirmLandingState",
-              "FIXTURE H9-2: host arrival reached %s, want its ConfirmLandingState" % hpath)
+              "FIXTURE refused_then_joins_host: host arrival reached %s, want its "
+              "ConfirmLandingState" % hpath)
         check(session.has_state(host, "ConfirmLandingState"),
-              "FIXTURE H9-2: host prompt gone before the host landing: %s" % stack(host)[-3:])
+              "FIXTURE refused_then_joins_host: host prompt gone before the host landing: %s"
+              % stack(host)[-3:])
         host.ok({"cmd": "coop_mission_start"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"),
                       timeout=60, interval=0.5)
         host.cmd({"cmd": "close_briefing"})
         check(session.drive_both_to_tactical(host, client),
-              "H9-2: drive_both_to_tactical timed out (host=%s client=%s)"
+              "refused_then_joins_host: drive_both_to_tactical timed out (host=%s client=%s)"
               % (stack(host)[-3:], stack(client)[-3:]))
         time.sleep(5)
         client.wait_for("client phase Active",
@@ -532,47 +544,55 @@ def row_h9_2():
                         or None, timeout=30, interval=0.5)
         es_h = host.cmd({"cmd": "event_state"})
         es_c = client.cmd({"cmd": "event_state"})
-        check(es_c.get("phase") == "Active", "H9-2: client phase %s" % es_c.get("phase"))
+        check(es_c.get("phase") == "Active", "refused_then_joins_host: client phase %s"
+              % es_c.get("phase"))
         check(isinstance(es_h.get("battleId"), int) and es_h.get("battleId") > 0
               and es_c.get("battleId") == es_h.get("battleId"),
-              "H9-2: battleId client %s host %s" % (es_c.get("battleId"), es_h.get("battleId")))
-        check(es_c.get("hostSim") is False, "H9-2: client hostSim %s" % es_c.get("hostSim"))
+              "refused_then_joins_host: battleId client %s host %s"
+              % (es_c.get("battleId"), es_h.get("battleId")))
+        check(es_c.get("hostSim") is False, "refused_then_joins_host: client hostSim %s"
+              % es_c.get("hostSim"))
         fh = host.cmd({"cmd": "battle_state"}).get("mapFingerprint")
         fc = client.cmd({"cmd": "battle_state"}).get("mapFingerprint")
-        check(fh is not None and fh == fc, "H9-2: mapFingerprint host %s client %s" % (fh, fc))
+        check(fh is not None and fh == fc, "refused_then_joins_host: mapFingerprint host %s "
+              "client %s" % (fh, fc))
         time.sleep(3)  # house log flush
         brief = pushes(client, "BriefingState")
-        check(brief == 1, "H9-2: client BriefingState pushes %d, want 1 (the join's)" % brief)
-        check(log_count(client, F2201_MARKER) == 0, "H9-2: client F2201 marker %d, want 0"
-              % log_count(client, F2201_MARKER))
-        check(log_count(client, OFFER_ACCEPTED) == 1, "H9-2: client battle_offer accepted %d, "
-              "want 1" % log_count(client, OFFER_ACCEPTED))
-        check(probe(client)[0] == 1, "H9-2: client probe %r, want 1" % (probe(client),))
+        check(brief == 1, "refused_then_joins_host: client BriefingState pushes %d, want 1 "
+              "(the join's)" % brief)
+        check(log_count(client, OFFER_IGNORED_MARKER) == 0, "refused_then_joins_host: client "
+              "offer-ignored marker %d, want 0" % log_count(client, OFFER_IGNORED_MARKER))
+        check(log_count(client, OFFER_ACCEPTED) == 1, "refused_then_joins_host: client "
+              "battle_offer accepted %d, want 1" % log_count(client, OFFER_ACCEPTED))
+        check(probe(client)[0] == 1, "refused_then_joins_host: client probe %r, want 1"
+              % (probe(client),))
         for gc, who in ((host, "host"), (client, "client")):
             check(gc.cmd({"cmd": "event_state"}).get("desyncSeen") is False,
-                  "H9-2: %s desyncSeen" % who)
-        log("PASS H9-2 the host's landing: client phase Active, battleId %s == host, hostSim "
-            "false, mapFingerprint equal, 1 BriefingState push, F2201 marker 0, battle_offer "
-            "accepted 1, probe 1, desyncSeen false on both" % es_c.get("battleId"))
+                  "refused_then_joins_host: %s desyncSeen" % who)
+        log("PASS refused_then_joins_host the host's landing: client phase Active, battleId %s "
+            "== host, hostSim false, mapFingerprint equal, 1 BriefingState push, offer-ignored "
+            "marker 0, battle_offer accepted 1, probe 1, desyncSeen false on both"
+            % es_c.get("battleId"))
     except Exception:
         if host is not None and client is not None:
-            dump("H9-2", host, client)
+            dump("refused_then_joins_host", host, client)
         raise
     finally:
         shutdown_pair(host, client)
 
 
-# ---- H9-6: own Cydonia blocked -----------------------------------------------------
+# ---- own_cydonia_refused: the client's own craft cannot launch Cydonia --------------
 
-def row_h9_6():
+def row_own_cydonia_refused():
     host = client = None
     try:
-        host, client = boot_pair("6")
+        host, client = boot_pair("own_cydonia")
         session.new_campaign(host, client, port="48489")
-        vacuity_guard(host, client, "H9-6")
+        vacuity_guard(host, client, "own_cydonia_refused")
         w0_host = world(host)
         p0 = probe(client)
-        check(p0 == (0, ""), "H9-6 probe baseline: client refused/last = %r, want (0, '')" % (p0,))
+        check(p0 == (0, ""), "own_cydonia_refused probe baseline: client refused/last = %r, "
+              "want (0, '')" % (p0,))
         cid, _ = seat_three(client, "CLIENT")
         sk0 = skyranger(client)
         client.ok({"cmd": "open_cydonia", "craft_id": cid})
@@ -594,60 +614,66 @@ def row_h9_6():
         elapsed = time.time() - t_yes
 
         if path == "BriefingState":
-            # RED (commit 1): the solo Mars battle.
+            # No refusal: the solo Mars battle.
             p1 = probe(client)
             bs = client.cmd({"cmd": "battle_state"})
             time.sleep(3)  # house log flush
             brief = pushes(client, "BriefingState")
-            marker = log_count(client, F2201_MARKER)
-            named = brief >= 1 and marker == 1 and p1 == (0, "")
-            log("RED-EVIDENCE H9-6: after confirm_cydonia client stack=%s inBattle=%s "
-                "missionType=%s; BriefingState pushes=%d F2201-marker=%d probe=%r; as named=%s"
+            marker = log_count(client, OFFER_IGNORED_MARKER)
+            known_defect = brief >= 1 and marker == 1 and p1 == (0, "")
+            log("NO-REFUSAL-EVIDENCE own_cydonia_refused: after confirm_cydonia client stack=%s "
+                "inBattle=%s missionType=%s; BriefingState pushes=%d offer-ignored-marker=%d "
+                "probe=%r; known solo-battle defect=%s"
                 % (stack(client)[-3:], bs.get("inBattle"), bs.get("missionType"), brief,
-                   marker, p1, named))
-            raise RowFail("H9-6: confirm_cydonia on the client pushed BriefingState (solo Mars "
-                          "battle %s) - W2-H9 refusal expected (F2201 marker %d, probe %r)"
+                   marker, p1, known_defect))
+            raise RowFail("own_cydonia_refused: confirm_cydonia on the client pushed BriefingState "
+                          "(solo Mars battle %s) - the host-craft-only refusal expected "
+                          "(offer-ignored marker %d, probe %r)"
                           % (bs.get("missionType"), marker, p1))
 
-        # GREEN (commit 2): the refusal.
-        check(path == "CraftErrorState", "H9-6: no CraftErrorState and no BriefingState "
-              "within 30 s (client stack %s)" % stack(client)[-3:])
-        check(elapsed <= 5.0, "H9-6: refusal took %.1f s, want <= 5 s" % elapsed)
+        # The refusal.
+        check(path == "CraftErrorState", "own_cydonia_refused: no CraftErrorState and no "
+              "BriefingState within 30 s (client stack %s)" % stack(client)[-3:])
+        check(elapsed <= 5.0, "own_cydonia_refused: refusal took %.1f s, want <= 5 s" % elapsed)
         state, texts = texts_of_top(client)
-        check(H9TEXT in texts, "H9-6: CraftErrorState Text %r != H9TEXT" % (texts,))
+        check(REFUSAL_TEXT in texts, "own_cydonia_refused: CraftErrorState Text %r != "
+              "REFUSAL_TEXT" % (texts,))
         st = stack(client)
         check(not any("ConfirmCydoniaState" in s for s in st),
-              "H9-6: ConfirmCydoniaState still on the stack %s" % st)
-        check(any("GeoscapeState" in s for s in st), "H9-6: GeoscapeState gone %s" % st)
+              "own_cydonia_refused: ConfirmCydoniaState still on the stack %s" % st)
+        check(any("GeoscapeState" in s for s in st), "own_cydonia_refused: GeoscapeState gone %s"
+              % st)
         check(client.cmd({"cmd": "get_coop"}).get("inBattle") is False,
-              "H9-6: client inBattle is not False")
+              "own_cydonia_refused: client inBattle is not False")
         p1 = probe(client)
-        check(p1 == (1, "cydonia:%d" % cid), "H9-6: client probe %r, want (1, 'cydonia:%d')"
-              % (p1, cid))
+        check(p1 == (1, "cydonia:%d" % cid), "own_cydonia_refused: client probe %r, want "
+              "(1, 'cydonia:%d')" % (p1, cid))
         sk1 = skyranger(client)
         check((sk1["status"], sk1.get("destKind")) == (sk0["status"], sk0.get("destKind")),
-              "H9-6: craft %d (status, destKind) %s -> %s" % (
+              "own_cydonia_refused: craft %d (status, destKind) %s -> %s" % (
                   cid, (sk0["status"], sk0.get("destKind")),
                   (sk1["status"], sk1.get("destKind"))))
         time.sleep(3)  # house log flush
-        check(pushes(client, "BriefingState") == 0, "H9-6: client BriefingState pushes %d, "
-              "want 0" % pushes(client, "BriefingState"))
-        check(world(host) == w0_host, "H9-6: host world changed")
-        check(log_count(host, H9_LOG) == 0, "H9-6: host logged %d [coop-h9] lines"
-              % log_count(host, H9_LOG))
-        log("PASS H9-6: refusal in %.1f s; Text == H9TEXT; ConfirmCydoniaState gone, "
-            "GeoscapeState kept; inBattle false; 0 BriefingState pushes; probe (1, "
-            "'cydonia:%d'); craft (status, destKind) unchanged; host world == W0, 0 "
-            "[coop-h9] lines" % (elapsed, cid))
+        check(pushes(client, "BriefingState") == 0, "own_cydonia_refused: client BriefingState "
+              "pushes %d, want 0" % pushes(client, "BriefingState"))
+        check(world(host) == w0_host, "own_cydonia_refused: host world changed")
+        check(log_count(host, REFUSAL_LOG) == 0, "own_cydonia_refused: host logged %d "
+              "[coop-host-craft-only] lines" % log_count(host, REFUSAL_LOG))
+        log("PASS own_cydonia_refused: refusal in %.1f s; Text == REFUSAL_TEXT; "
+            "ConfirmCydoniaState gone, GeoscapeState kept; inBattle false; 0 BriefingState "
+            "pushes; probe (1, 'cydonia:%d'); craft (status, destKind) unchanged; host world "
+            "== W0, 0 [coop-host-craft-only] lines" % (elapsed, cid))
     except Exception:
         if host is not None and client is not None:
-            dump("H9-6", host, client)
+            dump("own_cydonia_refused", host, client)
         raise
     finally:
         shutdown_pair(host, client)
 
 
-ROWS = (("H9-1", row_h9_1), ("H9-2", row_h9_2), ("H9-6", row_h9_6))
+ROWS = (("own_landing_refused", row_own_landing_refused),
+        ("refused_then_joins_host", row_refused_then_joins_host),
+        ("own_cydonia_refused", row_own_cydonia_refused))
 
 
 def main():
@@ -662,7 +688,7 @@ def main():
             failed.append(name)
             print("[FAIL] %s: %s: %s" % (name, type(e).__name__, e), flush=True)
         walls.append((name, time.time() - t))
-    print("\n==== W2-H9 red rows summary ====")
+    print("\n==== client landing refusal rows summary ====")
     for name, w in walls:
         print("  %-5s %-4s wall %.1fs" % (name, "FAIL" if name in failed else "PASS", w))
     print("  total wall %.1fs; FAILED: %s" % (time.time() - T0, ", ".join(failed) or "none"))

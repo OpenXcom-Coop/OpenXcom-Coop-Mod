@@ -18,7 +18,7 @@ ABORT opens vanilla's AbortMissionState and its
 OK opens the vote (R4-L1, design-D8); the battle entry is session.drive_both_to_tactical.
 main's S1 / S2 (the CLIENT's own craft starts a SEPARATE mission) are gone: a
 SEPARATE client never starts a battle from its own craft (owner D199 (a), W2-H9;
-test_client_landing.py H9-1 / H9-2 cover the refusal).
+test_client_landing.py own_landing_refused / refused_then_joins_host cover the refusal).
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
     never held; MG-P1).

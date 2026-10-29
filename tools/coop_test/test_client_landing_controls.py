@@ -1,14 +1,16 @@
-"""the controls: every path the SEPARATE-client refusal
-must NOT touch. Green before AND after W2-H9.
+"""The controls: every path the SEPARATE-client refusal must NOT touch. These rows
+pass with or without the refusal.
 
-  H9-3  host-craft joint battle with a client guest (SEPARATE, SPEC 19 S1 fixture):
-        both machines enter; the guest is seat 1; no refusal anywhere.
-  H9-4  SHARED client landing: the client orders the shared craft, answers YES on
-        its brokered prompt; the host generates and both enter; no refusal.
-  H9-5  single player: the landing prompt still appears and YES still starts the
-        battle; no refusal.
+  host_craft_guest_battle  host-craft joint battle with a client guest (SEPARATE,
+                           session.bring_up_separate_guest_battle): both machines
+                           enter; the guest is seat 1; no refusal anywhere.
+  shared_client_landing    SHARED client landing: the client orders the shared craft,
+                           answers YES on its brokered prompt; the host generates and
+                           both enter; no refusal.
+  single_player_landing    single player: the landing prompt still appears and YES
+                           still starts the battle; no refusal.
 
-Each row is its own boot and ONE run. The red rows are test_client_landing.py.
+Each row is its own boot and ONE run. The refusal rows are test_client_landing.py.
 
 Run:  python tools/coop_test/test_client_landing_controls.py
 Exit 0 = every row PASS; 2 = any row FAIL.
@@ -25,9 +27,9 @@ from harness import GameClient, make_user_dir, EXE, LAND_LON, LAND_LAT  # noqa: 
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 
-H9_LOG = "[coop-h9]"
+REFUSAL_LOG = "[coop-host-craft-only]"
 KEEP = ["ConfirmLandingState", "CraftErrorState"]
-from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
+from harness import CRASH_DIR  # noqa: E402  (this lane's own crash folder)
 PUSH_RE = re.compile(r"\[coop-ui\] push (?:class )?(?:OpenXcom::)?(\w+) depth=")
 
 T0 = time.time()
@@ -46,7 +48,7 @@ def check(cond, msg):
         raise RowFail(msg)
 
 
-# ---- shared helpers (copied into each W2-H9 file; session.py is never edited) ----
+# ---- shared helpers (test_client_landing.py has its own copies) ----
 
 def strip(s):
     return s.replace("class OpenXcom::", "")
@@ -78,7 +80,7 @@ def log_count(gc, needle):
 
 
 def pushes(gc, state_name):
-    """WV-D112 screen record: how many times `state_name` was pushed on gc."""
+    """How many times `state_name` was pushed on gc (its log's [coop-ui] push lines)."""
     n = 0
     for line in log_lines(gc):
         m = PUSH_RE.search(line)
@@ -193,13 +195,14 @@ def arrival_poll(gc, tag, others, timeout=60):
 
 
 def no_refusal(gcs, tag):
-    """Probe 0, 0 [coop-h9] lines and 0 CraftErrorState pushes on every machine."""
+    """Probe 0, 0 [coop-host-craft-only] lines and 0 CraftErrorState pushes on every
+    machine."""
     time.sleep(3)  # house log flush
     for gc in gcs:
         p = probe(gc)
         check(p == (0, ""), "%s: %s probe %r, want (0, '')" % (tag, gc.name, p))
-        check(log_count(gc, H9_LOG) == 0, "%s: %s logged %d [coop-h9] lines"
-              % (tag, gc.name, log_count(gc, H9_LOG)))
+        check(log_count(gc, REFUSAL_LOG) == 0, "%s: %s logged %d [coop-host-craft-only] "
+              "lines" % (tag, gc.name, log_count(gc, REFUSAL_LOG)))
         check(pushes(gc, "CraftErrorState") == 0, "%s: %s CraftErrorState pushes %d"
               % (tag, gc.name, pushes(gc, "CraftErrorState")))
 
@@ -215,7 +218,7 @@ def shutdown_all(*gcs):
 
 
 def dump(tag, gcs):
-    """Probe dump of every machine (STOP-IF 2 evidence)."""
+    """Probe dump of every machine (evidence for a failed row)."""
     for gc in gcs:
         try:
             es = gc.cmd({"cmd": "event_state"})
@@ -233,11 +236,11 @@ def dump(tag, gcs):
             log("DUMP %s %s failed: %r" % (tag, gc.name, e))
 
 
-# ---- H9-3: host-craft joint battle with a client guest -------------------------------
+# ---- host_craft_guest_battle: host-craft joint battle with a client guest ----------
 
-def row_h9_3():
-    host = GameClient("host", 1, make_user_dir("w2h9_3_host"))
-    client = GameClient("client", 2, make_user_dir("w2h9_3_client"))
+def row_host_craft_guest_battle():
+    host = GameClient("host", 1, make_user_dir("client_landing_guest_battle_host"))
+    client = GameClient("client", 2, make_user_dir("client_landing_guest_battle_client"))
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
 
@@ -247,50 +250,55 @@ def row_h9_3():
             ok = (cc.get("coopStatic") is True and cc.get("serverOwner") is False
                   and cc.get("shared") is False and cc.get("gamemode") in (0, 1)
                   and hc.get("serverOwner") is True)
-            check(ok, "VACUITY H9-3: client coopStatic=%r serverOwner=%r shared=%r "
-                      "gamemode=%r; host serverOwner=%r" % (
+            check(ok, "VACUITY host_craft_guest_battle: client coopStatic=%r serverOwner=%r "
+                      "shared=%r gamemode=%r; host serverOwner=%r" % (
                           cc.get("coopStatic"), cc.get("serverOwner"), cc.get("shared"),
                           cc.get("gamemode"), hc.get("serverOwner")))
-            log("H9-3 vacuity guard: client coopStatic=True serverOwner=False shared=False "
-                "gamemode=%s; host serverOwner=True" % cc.get("gamemode"))
+            log("host_craft_guest_battle vacuity guard: client coopStatic=True "
+                "serverOwner=False shared=False gamemode=%s; host serverOwner=True"
+                % cc.get("gamemode"))
 
+        # the full flight (staged=False): this row reads the landing
         session.bring_up_separate_guest_battle(host, client, port="48485",
-                                               pre_mission_start=guard, staged=False)  # cit-p1a keep: reads the landing
+                                               pre_mission_start=guard, staged=False)
         for gc in (host, client):
-            check("BattlescapeState" in top_of(gc), "H9-3: %s top %s, want BattlescapeState"
-                  % (gc.name, top_of(gc)))
+            check("BattlescapeState" in top_of(gc), "host_craft_guest_battle: %s top %s, want "
+                  "BattlescapeState" % (gc.name, top_of(gc)))
         es_h = host.cmd({"cmd": "event_state"})
         es_c = client.cmd({"cmd": "event_state"})
-        check(es_c.get("phase") == "Active", "H9-3: client phase %s" % es_c.get("phase"))
+        check(es_c.get("phase") == "Active", "host_craft_guest_battle: client phase %s"
+              % es_c.get("phase"))
         check(es_c.get("battleId") == es_h.get("battleId"),
-              "H9-3: battleId client %s host %s" % (es_c.get("battleId"), es_h.get("battleId")))
+              "host_craft_guest_battle: battleId client %s host %s"
+              % (es_c.get("battleId"), es_h.get("battleId")))
         for gc in (host, client):
             players = [u for u in gc.cmd({"cmd": "battle_state"}).get("units", [])
                        if u.get("isPlayerSoldier")]
             guests = [u for u in players if "Guest" in (u.get("name") or "")]
             check(len(guests) == 1 and guests[0].get("coop") == 1,
-                  "H9-3: %s player units named Guest* %s, want exactly one with coop == 1"
-                  % (gc.name, [(u.get("name"), u.get("coop")) for u in guests]))
-        no_refusal((host, client), "H9-3")
+                  "host_craft_guest_battle: %s player units named Guest* %s, want exactly one "
+                  "with coop == 1" % (gc.name, [(u.get("name"), u.get("coop")) for u in guests]))
+        no_refusal((host, client), "host_craft_guest_battle")
         for gc in (host, client):
             check(gc.cmd({"cmd": "event_state"}).get("desyncSeen") is False,
-                  "H9-3: %s desyncSeen" % gc.name)
-        log("PASS H9-3: both on BattlescapeState, client phase Active, battleId %s equal, one "
-            "Guest* unit coop == 1 on both, probe 0 / 0 [coop-h9] lines / 0 CraftErrorState "
-            "pushes on both, desyncSeen false" % es_c.get("battleId"))
+                  "host_craft_guest_battle: %s desyncSeen" % gc.name)
+        log("PASS host_craft_guest_battle: both on BattlescapeState, client phase Active, "
+            "battleId %s equal, one Guest* unit coop == 1 on both, probe 0 / 0 "
+            "[coop-host-craft-only] lines / 0 CraftErrorState pushes on both, desyncSeen false"
+            % es_c.get("battleId"))
     except Exception:
-        dump("H9-3", (host, client))
+        dump("host_craft_guest_battle", (host, client))
         raise
     finally:
         shutdown_all(host, client)
 
 
-# ---- H9-4: SHARED client landing runs on the host ---------------------------------------
+# ---- shared_client_landing: SHARED client landing runs on the host -----------------
 
-def row_h9_4():
-    # TASK 0 (step-5 verdict of test_shared_landing.py on the tip build = PASS): the
-    # YES is the CLIENT's, on its brokered ConfirmLandingState.
-    js = shared_fixture.bring_up("w2h9s", (48487, 48488, 48486))
+def row_shared_client_landing():
+    # The YES is the CLIENT's, on its brokered ConfirmLandingState (the path
+    # test_shared_landing.py's CONFIRM step checks).
+    js = shared_fixture.bring_up("client_landing_shared", (48487, 48488, 48486))
     host, client = js.host, js.client
     try:
         b0 = base0(host)
@@ -306,7 +314,8 @@ def row_h9_4():
                         or None, timeout=60, interval=0.5)
         r = client.ok({"cmd": "craft_order", "order": "target", "craft_id": cid,
                        "craft_type": skyranger(client)["type"], "site_id": site_id})
-        check(r.get("ok") or r.get("sent"), "FIXTURE H9-4: client craft_order not sent: %s" % r)
+        check(r.get("ok") or r.get("sent"), "FIXTURE shared_client_landing: client craft_order "
+              "not sent: %s" % r)
         host.wait_for("host applied the client's craft order",
                       lambda: (craft_by_id(host, cid)["destKind"] == "site") or None,
                       timeout=30, interval=0.5)
@@ -325,8 +334,9 @@ def row_h9_4():
                         lambda: session.has_state(client, "ConfirmLandingState"), timeout=60,
                         interval=0.5)
         check(client.cmd({"cmd": "get_coop"}).get("shared") is True,
-              "VACUITY H9-4: client get_coop.shared is not True")
-        log("H9-4 vacuity guard: client get_coop.shared=True; client brokered prompt up")
+              "VACUITY shared_client_landing: client get_coop.shared is not True")
+        log("shared_client_landing vacuity guard: client get_coop.shared=True; client brokered "
+            "prompt up")
         client.ok({"cmd": "confirm_landing"})
         host.wait_for("host entered the brokered battle",
                       lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
@@ -334,33 +344,35 @@ def row_h9_4():
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"),
                       timeout=60, interval=0.5)
         check(session.drive_both_to_tactical(host, client),
-              "H9-4: drive_both_to_tactical timed out (host=%s client=%s)"
+              "shared_client_landing: drive_both_to_tactical timed out (host=%s client=%s)"
               % (stack(host)[-3:], stack(client)[-3:]))
         for gc in (host, client):
-            check("BattlescapeState" in top_of(gc), "H9-4: %s top %s, want BattlescapeState"
-                  % (gc.name, top_of(gc)))
+            check("BattlescapeState" in top_of(gc), "shared_client_landing: %s top %s, want "
+                  "BattlescapeState" % (gc.name, top_of(gc)))
         es_h = host.cmd({"cmd": "event_state"})
         es_c = client.cmd({"cmd": "event_state"})
-        check(es_c.get("phase") == "Active", "H9-4: client phase %s" % es_c.get("phase"))
+        check(es_c.get("phase") == "Active", "shared_client_landing: client phase %s"
+              % es_c.get("phase"))
         check(es_c.get("battleId") == es_h.get("battleId"),
-              "H9-4: battleId client %s host %s" % (es_c.get("battleId"), es_h.get("battleId")))
+              "shared_client_landing: battleId client %s host %s"
+              % (es_c.get("battleId"), es_h.get("battleId")))
         check(not host.ok({"cmd": "shared_landing_state"})["pending"],
-              "H9-4: host pending landing not cleared")
-        no_refusal((host, client), "H9-4")
-        log("PASS H9-4: both on BattlescapeState, client phase Active, battleId %s equal, "
-            "pending false, probe 0 / 0 [coop-h9] lines / 0 CraftErrorState pushes on both"
-            % es_c.get("battleId"))
+              "shared_client_landing: host pending landing not cleared")
+        no_refusal((host, client), "shared_client_landing")
+        log("PASS shared_client_landing: both on BattlescapeState, client phase Active, battleId "
+            "%s equal, pending false, probe 0 / 0 [coop-host-craft-only] lines / 0 "
+            "CraftErrorState pushes on both" % es_c.get("battleId"))
     except Exception:
-        dump("H9-4", (host, client))
+        dump("shared_client_landing", (host, client))
         raise
     finally:
         js.shutdown()
 
 
-# ---- H9-5: single player -----------------------------------------------------------------
+# ---- single_player_landing: single player ------------------------------------------
 
-def row_h9_5():
-    sp = GameClient("sp", 1, make_user_dir("w2h9_5_sp"))
+def row_single_player_landing():
+    sp = GameClient("sp", 1, make_user_dir("client_landing_single_player_sp"))
     try:
         sp.spawn(); sp.connect()
         sp.ok({"cmd": "open_new_game", "mode": "solo"})
@@ -382,29 +394,31 @@ def row_h9_5():
 
         sp.wait_for("SP geoscape top", on_geoscape, timeout=30, interval=0.5)
         check(sp.cmd({"cmd": "get_coop"}).get("coopStatic") is False,
-              "VACUITY H9-5: get_coop.coopStatic is not False")
-        log("H9-5 vacuity guard: coopStatic=False (single player)")
+              "VACUITY single_player_landing: get_coop.coopStatic is not False")
+        log("single_player_landing vacuity guard: coopStatic=False (single player)")
         cid, _ = seat_three(sp, "SP")
         send_to_new_site(sp, "SP", cid)
         path = arrival_poll(sp, "SP", ())
-        check(path == "ConfirmLandingState", "H9-5: SP arrival reached %s, want the landing "
-              "prompt" % path)
+        check(path == "ConfirmLandingState", "single_player_landing: SP arrival reached %s, want "
+              "the landing prompt" % path)
         sp.ok({"cmd": "confirm_landing"})
         sp.wait_for("SP BriefingState", lambda: session.has_state(sp, "BriefingState"),
                     timeout=60, interval=0.5)
         check(sp.cmd({"cmd": "battle_state"}).get("inBattle") is True,
-              "H9-5: battle_state.inBattle is not True")
-        no_refusal((sp,), "H9-5")
-        log("PASS H9-5: ConfirmLandingState appeared, BriefingState after YES, inBattle true, "
-            "probe 0 / 0 [coop-h9] lines / 0 CraftErrorState pushes")
+              "single_player_landing: battle_state.inBattle is not True")
+        no_refusal((sp,), "single_player_landing")
+        log("PASS single_player_landing: ConfirmLandingState appeared, BriefingState after YES, "
+            "inBattle true, probe 0 / 0 [coop-host-craft-only] lines / 0 CraftErrorState pushes")
     except Exception:
-        dump("H9-5", (sp,))
+        dump("single_player_landing", (sp,))
         raise
     finally:
         shutdown_all(sp)
 
 
-ROWS = (("H9-3", row_h9_3), ("H9-4", row_h9_4), ("H9-5", row_h9_5))
+ROWS = (("host_craft_guest_battle", row_host_craft_guest_battle),
+        ("shared_client_landing", row_shared_client_landing),
+        ("single_player_landing", row_single_player_landing))
 
 
 def main():
@@ -424,7 +438,7 @@ def main():
     if new_crash:
         failed.append("crashlog")
         print("[FAIL] crashlog: new crashlog files %s" % new_crash, flush=True)
-    print("\n==== W2-H9 control rows summary ====")
+    print("\n==== client landing control rows summary ====")
     for name, w in walls:
         print("  %-5s %-4s wall %.1fs" % (name, "FAIL" if name in failed else "PASS", w))
     print("  total wall %.1fs; FAILED: %s" % (time.time() - T0, ", ".join(failed) or "none"))

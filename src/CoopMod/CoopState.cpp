@@ -2381,7 +2381,7 @@ bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft
 	gs->popup(new CraftErrorState(gs, coopHostCraftOnlyText(game)));
 	++s_coopClientBattleRefused;
 	s_coopClientBattleRefusedLast = "landing:" + std::to_string(craft->getId());
-	Log(LOG_INFO) << "[coop-h9] SEPARATE client own-craft landing refused (craft " << craft->getId()
+	Log(LOG_INFO) << "[coop-host-craft-only] SEPARATE client own-craft landing refused (craft " << craft->getId()
 		<< ") - message shown, craft returning to base";
 	return true;
 }
@@ -2395,7 +2395,7 @@ bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft)
 	game->pushState(new CraftErrorState(0, coopHostCraftOnlyText(game)));
 	++s_coopClientBattleRefused;
 	s_coopClientBattleRefusedLast = "cydonia:" + std::to_string(craft->getId());
-	Log(LOG_INFO) << "[coop-h9] SEPARATE client Cydonia launch refused (craft " << craft->getId()
+	Log(LOG_INFO) << "[coop-host-craft-only] SEPARATE client Cydonia launch refused (craft " << craft->getId()
 		<< ") - message shown, craft untouched";
 	return true;
 }

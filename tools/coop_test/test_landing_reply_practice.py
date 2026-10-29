@@ -14,8 +14,9 @@ debriefing OK, a different first frame each time).
   Boot L2 bring_up("w2h21ld2", (49544, 49545, 46978)):
     H21d-L2 (named RED; TASK 0 2/2) as L1 with the host's P4 (open_craft_equipment {HostBase, the SKYRANGER} + craft_inventory),
         non-vacuity: top InventoryState, inBattle true (TASK 0: [GeoscapeState, CraftEquipmentState, InventoryState, BriefingState]).
-DRIVE = test_client_landing_controls row_h9_4's drive to both prompts (the host's site, the client's craft_order, the host's
-craft_force, the host's shared_landing_state.pending, the client's ConfirmLandingState), then the host's broker copy on top within W and
+DRIVE = test_client_landing_controls row_shared_client_landing's drive to both prompts (the host's site, the client's
+craft_order, the host's craft_force, the host's shared_landing_state.pending, the client's ConfirmLandingState), then
+the host's broker copy on top within W and
 its dismiss_popup -> handled "generic" for ConfirmLandingState, the host's stack [GeoscapeState], pending still true, the client's top
 ConfirmLandingState. PV = W2-H21c's pv (test_preview_restream). W = 10 s at 0.25 s polls, HOLD = 2 s, SETTLE 0.3 s before a key,
 click or lever. HL = the host's openxcom.log screen record after the YES. CRASH = new crashlogs/crash_*.log since the row
@@ -62,7 +63,8 @@ def capture(x, n_hl, crash0):
 
 
 def drive(r, x):
-    """DRIVE -> (ok, craft id): row_h9_4's drive to both prompts, then the host's dismiss_popup of its own broker copy"""
+    """DRIVE -> (ok, craft id): row_shared_client_landing's drive to both prompts, then the host's dismiss_popup of its
+    own broker copy"""
     host, client = x.host, x.client
     try:
         b0 = lc.base0(host)
@@ -89,7 +91,7 @@ def drive(r, x):
         host.wait_for("host brokered the landing prompt", brokered, timeout=90, interval=0.5)
         client.wait_for("client brokered ConfirmLandingState", lambda: session.has_state(client, CLS), timeout=60, interval=0.5)
     except Exception as e:
-        return r.cell("guard: DRIVE reached both prompts (row_h9_4)", False, short(e)), None
+        return r.cell("guard: DRIVE reached both prompts (row_shared_client_landing)", False, short(e)), None
     r.ev["DRIVE"] = {"craft": cid, "site": site_id, "host": stack(host), "client": stack(client)}
     if not r.cell("guard: the host's broker copy on top within %.0f s" % W, wait_until(lambda: pr.on_top(host, CLS), W, 0.05),
                   stack(host)):
