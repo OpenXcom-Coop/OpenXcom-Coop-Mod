@@ -26,15 +26,26 @@ Every row drags an item for real (Inventory::moveItem) and closes the screen:
     6. the client ctrl-clicks its own soldier on the craft armor screen of its
        Skyranger: seated on both machines, ClientBase identical; a second
        ctrl-click takes it off on both.
+    8. the client loads a craft equipment template on its Skyranger (replace):
+       the host's craft holds exactly the template's items (one more than the
+       base has of one item, so all of that one), the rest went to the stores,
+       nothing created or lost, ClientBase identical on both, and the "cannot
+       re-equip" report opens on the client only.
+    9. guard: the host's template load on the client's Skyranger (a visitor)
+       changes nothing on either machine (only the base owner changes a
+       craft's items, RU8).
   SHARED
     4. client at the shared base: the host's report shows the client's layout.
     5. client presses "de-assign all soldiers": every soldier leaves the craft
        on both machines (SHARED keeps main's any-soldier rule).
     7. the client's craft armor ctrl-click seats its soldier on the shared
        Skyranger and takes it off again, on both machines.
+    10. the client loads a template "on top" of the shared Skyranger's items:
+       the host's craft gains exactly the template, HostBase identical on both.
 
 Red: with the ctrl-click's local seat (rows 6 and 7) the host never saw the
-soldier on the craft.
+soldier on the craft; with the template's local load (rows 8 and 10) the
+host's craft kept its old items.
 
 Each part (SEPARATE, SHARED) runs even when the other fails; rc 0 = every row
 passed.
@@ -132,6 +143,58 @@ def wait_seat(gcs, base, sid, want, label, timeout=30):
                                  f"want {want}")
 
 
+# Template items: starting-base gear, first two the base holds at least 2 of.
+TEMPLATE_PICKS = ("STR_PISTOL", "STR_RIFLE", "STR_SMALL_ROCKET", "STR_GRENADE",
+                  "STR_PISTOL_CLIP", "STR_RIFLE_CLIP")
+
+
+def craft_items(gc, base, cid):
+    return {t: n for t, n in next(c for c in T.report(gc, base)["crafts"]
+                                  if c["id"] == cid and c["type"] == T.SKYRANGER)["items"].items()
+            if n > 0}
+
+
+def stock_split(gc, base, cid):
+    """{item: (stores, on the craft)} at @base for craft @cid."""
+    store = {t: n for t, n in T.report(gc, base)["storage"].items() if n > 0}
+    craft = craft_items(gc, base, cid)
+    return {t: (store.get(t, 0), craft.get(t, 0)) for t in set(store) | set(craft)}
+
+
+def pick_template_items(split, key):
+    """The first two TEMPLATE_PICKS with key(split[item]) >= 2."""
+    picks = [t for t in TEMPLATE_PICKS if key(split.get(t, (0, 0))) >= 2][:2]
+    assert len(picks) == 2, f"precondition: two template items with 2+ in {split}"
+    return picks
+
+
+def load_template(gc, host, client, base, cid, template, only_add):
+    """Write @template into slot 0 on both machines, then run @gc's real
+    template load on craft @cid. Returns the load's response."""
+    for m in (host, client):
+        m.ok({"cmd": "craft_loadout", "op": "set", "index": 0, "items": template})
+    return gc.ok({"cmd": "craft_loadout", "op": "load", "index": 0, "base": base,
+                  "craft_id": cid, "craft_type": T.SKYRANGER, "only_add": only_add})
+
+
+def wait_craft(gcs, base, cid, want, label, timeout=30):
+    """Craft @cid at @base carries exactly @want ({item: n > 0}) on every
+    machine in @gcs, the host first."""
+    for gc in gcs:
+        try:
+            gc.wait_for(f"{gc.name}: {label}",
+                        lambda gc=gc: craft_items(gc, base, cid) == want or None,
+                        timeout=timeout, interval=0.3)
+        except TimeoutError:
+            seen = {m.name: craft_items(m, base, cid) for m in gcs}
+            raise AssertionError(f"{label}: the craft's items per machine are {seen}, "
+                                 f"want {want}")
+
+
+def has_state(gc, name):
+    return any(name in s for s in gc.cmd({"cmd": "get_state"})["states"])
+
+
 def armor_ctrl_click(gc, host, client, base, cid, sid, want, label):
     """Ctrl-click soldier @sid on the craft armor screen of craft @cid at @base
     (on @gc), then wait until both machines seat it at @want."""
@@ -223,6 +286,45 @@ def separate_rows():
         wait_same_base(host, client, CB, "craft armor ctrl-click unseat")
         print(f"PASS separate-armor-seat: the client's ctrl-click seated soldier {csid} on "
               f"its Skyranger and took it off, on both machines; ClientBase identical")
+
+        # 8. the client loads a craft equipment template on its Skyranger (replace)
+        split = stock_split(host, CB, cid)
+        a, b = pick_template_items(split, lambda sc: sc[0] + sc[1])
+        total_b = sum(split[b])
+        template = {a: 1, b: total_b + 1}
+        r = load_template(client, host, client, CB, cid, template, False)
+        listed = set(r["listed"])
+        assert {a, b} <= listed, (
+            f"precondition: {a} / {b} not on the client's craft equipment list {sorted(listed)}")
+        want = {t: c for t, (s, c) in split.items() if t not in listed and c > 0}
+        want.update({a: 1, b: total_b})
+        wait_craft((host, client), CB, cid, want, "client's template load (Separate)")
+        wait_same_base(host, client, CB, "client's template load")
+        after = stock_split(host, CB, cid)
+        for t in set(split) | set(after):
+            assert sum(after.get(t, (0, 0))) == sum(split.get(t, (0, 0))), (
+                f"{t} at ClientBase (stores, craft) {split.get(t)} -> {after.get(t)}: "
+                f"the template load created or lost items")
+        if not any("CannotReequipState" in d for d in r["dialogs"]):
+            client.wait_for("client: the cannot re-equip report",
+                            lambda: has_state(client, "CannotReequipState") or None,
+                            timeout=15, interval=0.3)
+        assert not has_state(host, "CannotReequipState"), (
+            "the host shows the client's cannot re-equip report")
+        T.settle(client)
+        print(f"PASS separate-template: the client's template ({template}) reached the "
+              f"host's Skyranger as {want}; ClientBase identical, nothing created or lost; "
+              f"the missing {b} reported on the client only")
+
+        # 9. guard: a visitor's template load changes nothing (RU8)
+        view0 = wait_same_base(host, client, CB, "before the visitor's template load")
+        load_template(host, host, client, CB, cid, {a: 2}, False)
+        T.rename(host, host, client, CB, hsid, "Zzz Barrier")  # a later host command
+        view1 = wait_same_base(host, client, CB, "after the visitor's template load")
+        assert view1["crafts"] == view0["crafts"] and view1["storage"] == view0["storage"], (
+            f"the host's template load at ClientBase changed it:\n  before={view0}\n  after ={view1}")
+        print("PASS separate-visitor-template: the host's template load on the client's "
+              "Skyranger changed nothing on either machine")
     finally:
         js.shutdown()
 
@@ -265,6 +367,21 @@ def shared_row():
                          "craft armor ctrl-click unseat (SHARED)")
         print(f"PASS shared-armor-seat: the client's ctrl-click seated soldier {sid} on the "
               f"shared Skyranger and took it off, on both machines")
+
+        # 10. the client loads a template "on top" of the shared Skyranger's items
+        split = stock_split(host, base, cid)
+        a, b = pick_template_items(split, lambda sc: sc[0])
+        template = {a: 1, b: 2}
+        r = load_template(client, host, client, base, cid, template, True)
+        assert {a, b} <= set(r["listed"]), (
+            f"precondition: {a} / {b} not on the client's craft equipment list {r['listed']}")
+        want = {t: c for t, (s, c) in split.items() if c > 0}
+        for t, n in template.items():
+            want[t] = want.get(t, 0) + n
+        wait_craft((host, client), base, cid, want, "client's template load on top (SHARED)")
+        wait_same_base(host, client, base, "SHARED client's template load")
+        print(f"PASS shared-template: the client's template on top ({template}) reached the "
+              f"host's Skyranger; HostBase identical on both")
     finally:
         js.shutdown()
 
