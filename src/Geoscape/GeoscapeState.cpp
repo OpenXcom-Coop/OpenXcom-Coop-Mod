@@ -2007,6 +2007,11 @@ void GeoscapeState::think()
 					if (!ufo->getMission()) continue;
 					Json::Value ju;
 					ju["id"] = ufo->getId();
+					// Identity: the display id is 0 until detection and repeats
+					// across undetected UFOs, so the replica matches by the unique
+					// id and adopts the host's coop id instead of minting one.
+					ju["uniqueId"] = ufo->getUniqueId();
+					ju["coopId"] = ufo->getCoopUfoId();
 					ju["ufo_rule"] = ufo->getRules()->getType();
 					ju["mission_id"] = ufo->getMission()->getId();
 					ju["mission_rule"] = ufo->getMission()->getRules().getType();
