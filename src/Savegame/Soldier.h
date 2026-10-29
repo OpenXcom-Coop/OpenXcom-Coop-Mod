@@ -239,6 +239,8 @@ private:
 
 	/// Gets the soldier's wound recovery time.
 	int getWoundRecoveryInt() const;
+	/// coop: gets the exact (unrounded) wound recovery value.
+	float getWoundRecoveryExact() const { return _recovery; }
 	/// Sets the soldier's wound recovery time.
 	void setWoundRecovery(int recovery);
 	/// Gets ther soldier's wound recovery.

@@ -6663,6 +6663,77 @@ bool TestServer::executePr213(const std::string& cmd, const Json::Value& req, Js
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "soldier_carry")
+	{
+		// Every base soldier's state that the host's day step writes, on THIS
+		// machine: all current stats, the exact wound recovery, missing health and
+		// mana, the training flags, the psi improvement scores and the daily
+		// dogfight-XP cache. action "set_wounds" instead sets recovery (whole
+		// days), healthMissing and manaMissing of soldier <id> (owner <owner>) at
+		// <base> on THIS machine only; call it on both machines for a fixture.
+		const std::string action = req.get("action", "get").asString();
+		SavedGame* sg = _game->getSavedGame();
+		auto statsJson = [](const UnitStats& st)
+		{
+			Json::Value j;
+			j["tu"] = st.tu; j["stamina"] = st.stamina; j["health"] = st.health;
+			j["bravery"] = st.bravery; j["reactions"] = st.reactions; j["firing"] = st.firing;
+			j["throwing"] = st.throwing; j["strength"] = st.strength;
+			j["psiStrength"] = st.psiStrength; j["psiSkill"] = st.psiSkill;
+			j["melee"] = st.melee; j["mana"] = st.mana;
+			return j;
+		};
+		if (!sg)
+			resp["error"] = "no saved game";
+		else if (action == "get")
+		{
+			Json::Value arr(Json::arrayValue);
+			for (auto* b : *sg->getBases())
+				for (auto* s : *b->getSoldiers())
+				{
+					Json::Value j;
+					j["base"] = b->getName();
+					j["id"] = s->getId();
+					j["owner"] = s->getOwnerPlayerId();
+					j["stats"] = statsJson(*s->getCurrentStats());
+					j["recovery"] = (double)s->getWoundRecoveryExact();
+					j["healthMissing"] = s->getHealthMissing();
+					j["manaMissing"] = s->getManaMissing();
+					j["training"] = s->isInTraining();
+					j["psiTraining"] = s->isInPsiTraining();
+					j["trainingQueued"] = s->getReturnToTrainingWhenHealed();
+					j["improvement"] = s->getImprovement();
+					j["psiStrImprovement"] = s->getPsiStrImprovement();
+					j["dogfight"] = statsJson(*s->getDailyDogfightExperienceCache());
+					arr.append(j);
+				}
+			resp["soldiers"] = arr;
+			resp["ok"] = true;
+		}
+		else if (action == "set_wounds")
+		{
+			const std::string baseName = req.get("base", "").asString();
+			const int id = req.get("id", -1).asInt();
+			const int owner = req.get("owner", -1).asInt();
+			Soldier* soldier = nullptr;
+			for (auto* b : *sg->getBases())
+				if (b->getName() == baseName)
+					for (auto* s : *b->getSoldiers())
+						if (s->getId() == id && (owner < 0 || s->getOwnerPlayerId() == owner))
+						{ soldier = s; break; }
+			if (!soldier)
+				resp["error"] = "soldier not found";
+			else
+			{
+				soldier->setWoundRecovery(req.get("recovery", 0).asInt());
+				soldier->setHealthMissing(req.get("healthMissing", 0).asInt());
+				soldier->setManaMissing(req.get("manaMissing", 0).asInt());
+				resp["ok"] = true;
+			}
+		}
+		else
+			resp["error"] = "unknown action: " + action;
+	}
 	else
 	{
 		return false;
