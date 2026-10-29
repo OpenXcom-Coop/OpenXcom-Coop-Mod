@@ -1,16 +1,20 @@
-"""test_dialog_back_guard.py: the harness vs a no-button client hold (F5864; docs rewrite/prompts/
-w2u7b_dialog_back_guard.md (f)). Two client holds hide their button and close themselves when the host releases them:
-68 (the resume hold after a world (re)stream) and 65 (the base-placement hold); `coop_dialog_back` presses the top
-CoopState's back button whatever it shows (68: disconnects the client; 65: pops the hold early). Boots: A SHARED bring_up
-(labels 49324/49325, lobby 47304): U7b-4 (guard: the replica's save refusal 123 shows its button, pressed as before), then
-U7b-1 (the TEST-ONLY `dismiss_arm {type CoopState, fire coop_dialog_back}` fires on the one-frame 68 after a forced repair,
-F6188). B SEPARATE new_campaign (49326/49327, rejoiner 49328, lobby 47306): U7b-2 (the rejoin hold 68). C the
-test_lobby_dialogs campaign lobby (49329/49330, lobby 47308): U7b-3 (65). RED (commit 1): U7b-1/2/3 FAIL on their press
-cell, U7b-4 and every GUARD cell pass; GREEN (commit 2): all pass. U7b-4's press-diagnostic cell (Q3) is judged once U7b-1
-has classified the build: one that refuses the hold replies `code` 123 / `backVisible` true and logs the `[coop-test]
-coop_dialog_back:` line; one that presses it (commit 1) has neither. Each row prints "EVIDENCE <id>:" then "PASS <id>" or
-"FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line. ONE foreground run, no skip
-path, every row runs after a failure; exit 0 only when every row passes, 2 otherwise. Run: python tools/coop_test/<this>
+"""test_dialog_back_guard.py: the test command `coop_dialog_back` refuses a client hold that shows no button. Two
+client holds hide their button and close themselves when the host releases them: 68 (the resume hold after a world
+(re)stream) and 65 (the base-placement hold). A `coop_dialog_back` that pressed the top CoopState's back button whatever
+it shows would disconnect the client on 68 and pop the hold early on 65, which no player can do. Boots:
+  shared_campaign: a SHARED bring_up (labels 49324/49325, lobby 47304). save_refusal_button (guard: the replica's save
+      refusal 123 shows its button and is pressed as before), then resume_hold (the TEST-ONLY `dismiss_arm {type
+      CoopState, fire coop_dialog_back}` fires on the one-frame 68 after a forced repair).
+  separate_campaign: a SEPARATE new_campaign (49326/49327, rejoiner 49328, lobby 47306). rejoin_hold (the rejoin hold
+      68).
+  campaign_lobby: the test_lobby_dialogs campaign lobby (49329/49330, lobby 47308). base_placement_hold (65).
+A build whose `coop_dialog_back` presses a hidden button fails resume_hold, rejoin_hold and base_placement_hold on their
+press cell and passes save_refusal_button and every GUARD cell. save_refusal_button's press-diagnostic cell is judged
+once resume_hold has classified the build: one that refuses the hold replies `code` 123 / `backVisible` true and logs
+the `[coop-test] coop_dialog_back:` line; one that presses it has neither. Each row prints "EVIDENCE <id>:" then
+"PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line. ONE foreground run, no
+skip path, every row runs after a failure; exit 0 only when every row passes, 2 otherwise.
+Run: python tools/coop_test/<this>
 """
 
 import json, os, sys, time
@@ -21,7 +25,7 @@ import geo, session, shared_fixture
 import test_lobby_dialogs as tld
 
 ARM_MS = 10000
-GONE_S = 5.0                   # (f) "gone": within 5 s top MainMenuState / GoToMainMenuState or has_save false
+GONE_S = 5.0                   # "gone": within 5 s top MainMenuState / GoToMainMenuState or has_save false
 GEO = ["GeoscapeState"]
 MENU = (["MainMenuState"], ["GoToMainMenuState"])
 DIAG = "[coop-test] coop_dialog_back:"
@@ -99,10 +103,10 @@ def capture(r):
     out["clientLogTail"] = log_read(r.client)
     return out
 
-def u7b_4(r, ctx):
+def row_save_refusal_button(r, ctx):
     st = geo.settle(r.host, r.client)
-    r.ev["S0"] = {"client": stk(r.client), "host": stk(r.host), "dismissed": st.get("dismissed")}
-    r.guard("S0 client [GeoscapeState]", r.ev["S0"]["client"] == GEO, r.ev["S0"])
+    r.ev["settled"] = {"client": stk(r.client), "host": stk(r.host), "dismissed": st.get("dismissed")}
+    r.guard("settled client [GeoscapeState]", r.ev["settled"]["client"] == GEO, r.ev["settled"])
     q = r.client.cmd({"cmd": "save_game_ui", "type": "quick"})
     v, secs = until(lambda: on_hold(snap(r.client), 123), 3.0)
     c = r.both("before")["client"]
@@ -114,11 +118,11 @@ def u7b_4(r, ctx):
     r.cell("press closes 123", rep.get("ok") is True and v, {"reply": rep, "s": secs, "after": r.ev["after"]["client"]},
            "a shown back button was not pressed as before")
     lines, _ = until(lambda: log_read(r.client, cur, DIAG), 2.0)
-    ctx["u7b4"] = r.ev["diag"] = {"reply": rep, "logLines": lines or []}
-def u7b_4_diag(r, ctx):  # Q3, judged after U7b-1 classified the build (refuses the hold: commit 2; presses it: commit 1)
-    d, build = ctx.get("u7b4"), ctx.get("build")
+    ctx["press_diag"] = r.ev["diag"] = {"reply": rep, "logLines": lines or []}
+def save_refusal_button_diag(r, ctx):  # judged after resume_hold classified the build (refuses or presses the hold)
+    d, build = ctx.get("press_diag"), ctx.get("build")
     if d is None:
-        return  # U7b-4 stopped before its press; its guard already failed the row
+        return  # save_refusal_button stopped before its press; its guard already failed the row
     rep, lines = d["reply"], d["logLines"]
     if build == "refuses":
         ok = rep.get("code") == 123 and rep.get("backVisible") is True and any("code 123 backVisible 1" in x for x in lines)
@@ -127,11 +131,11 @@ def u7b_4_diag(r, ctx):  # Q3, judged after U7b-1 classified the build (refuses 
     r.cell("press diagnostic matches the build (%s)" % build, ok, d,
            "the press reply / log line do not match a build that %s the hold" % build)
 
-def u7b_1(r, ctx):
+def row_resume_hold(r, ctx):
     st = geo.settle(r.host, r.client)
-    s0 = r.ev["S0"] = {"client": stk(r.client), "host": stk(r.host), "pending": pending(r.client),
+    s0 = r.ev["settled"] = {"client": stk(r.client), "host": stk(r.host), "pending": pending(r.client),
                        "dismissed": st.get("dismissed")}
-    r.guard("S0 client [GeoscapeState], not pending", s0["client"] == GEO and s0["pending"] is False, s0)
+    r.guard("settled client [GeoscapeState], not pending", s0["client"] == GEO and s0["pending"] is False, s0)
     r.both("before")
     a = r.client.cmd({"cmd": "dismiss_arm", "type": "CoopState", "fire": "coop_dialog_back", "timeoutMs": ARM_MS})
     r.guard("armed", a.get("ok") and a.get("armed"), a)
@@ -150,25 +154,25 @@ def u7b_1(r, ctx):
     hit, lost = next((p for p in polls if rel(p)), None), next((p for p in polls if gone(p)), None)
     renamed = same = None
     if refused(rep, 68) and hit is not None and hit["t"] <= 3.0:
-        r.host.ok({"cmd": "base_rename", "name": "U7B"})
-        renamed, secs = until(lambda: name0(r.client) == "U7B", 3.0)
+        r.host.ok({"cmd": "base_rename", "name": "Renamed"})
+        renamed, secs = until(lambda: name0(r.client) == "Renamed", 3.0)
         same, _ = until(lambda: (lambda a, b: bool(a) and a == b)(chk(r.host), chk(r.client)), 5.0)
         r.ev["rename"] = {"reached": renamed, "s": secs, "chkEqual": same}
     if lost is not None:  # EVIDENCE only: the host's top after the drop (expected its reconnect dialog 62)
         hd, secs = until(lambda: (lambda d: d if d.get("code") == 62 else None)(dlg(r.host)), 5.0)
         r.ev["hostAfterDrop"] = {"dlg": hd or dlg(r.host), "s": secs, "stack": stk(r.host)}
-    red = rep.get("ok") is True and lost is not None
+    pressed = rep.get("ok") is True and lost is not None
     r.cell("press on the hidden resume hold", refused(rep, 68) and hit is not None and hit["t"] <= 3.0 and renamed and same,
            {"response": rep, "released": hit, "gone": lost},
-           "coop_dialog_back on the hidden resume hold disconnected the client (F5864)" if red else "unexpected outcome")
+           "coop_dialog_back on the hidden resume hold disconnected the client" if pressed else "unexpected outcome")
 
-def u7b_2(r, ctx):
+def row_rejoin_hold(r, ctx):
     host = r.host
     r.client.kill()
     v, secs = until(lambda: dlg(host).get("code") == 62, 60, 0.25)
     r.ev["host62"] = dict(dlg(host), s=secs)
     r.guard("host 62 after the kill", v, r.ev["host62"])
-    rj = r.client = ctx["rejoiner"] = GameClient("client", 49328, make_user_dir("w2u7bb_client2"))
+    rj = r.client = ctx["rejoiner"] = GameClient("client", 49328, make_user_dir("dialog_back_separate_client2"))
     rj.spawn(); rj.connect()
     j = rj.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47306", "player": "ClientPlayer"})
     r.guard("join_tcp", j.get("ok"), j)
@@ -190,11 +194,11 @@ def u7b_2(r, ctx):
         r.ev["release"] = {"rejoinerTop": back, "s": secs, "host": stk(host)}
     ok = (refused(rep, 68) and held and res and res.get("ok") is True and res.get("code") == 62
           and res.get("backVisible") is True and back and r.ev["release"]["host"][-1:] == GEO)
-    red = rep.get("ok") is True and lost is not None
+    pressed = rep.get("ok") is True and lost is not None
     r.cell("press on the rejoin hold", ok, {"reply": rep, "gone": lost, "resume": res},
-           "coop_dialog_back on the rejoin hold disconnected the rejoining client (F5864)" if red else "unexpected outcome")
+           "coop_dialog_back on the rejoin hold disconnected the rejoining client" if pressed else "unexpected outcome")
 
-def u7b_3(r, ctx):
+def row_base_placement_hold(r, ctx):
     host, cl = r.host, r.client
     host.wait_for("start eligible", lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
     session.start_campaign_via_button(host)
@@ -218,11 +222,12 @@ def u7b_3(r, ctx):
     res = r.ev["begin"] = host.cmd({"cmd": "coop_dialog_back"})
     back, secs = until(lambda: stk(cl)[-1:] == GEO, 30.0, 0.25)
     r.ev["release"] = {"clientTop": back, "s": secs, "client": stk(cl), "host": stk(host)}
-    red = rep.get("ok") is True and left is not None
+    pressed = rep.get("ok") is True and left is not None
     r.cell("press on the base-placement hold", refused(rep, 65) and left is None and res.get("ok") is True and back,
            {"reply": rep, "left": left, "begin": res, "release": r.ev["release"]},
-           "the harness released the base-placement hold no player can close" if red else "unexpected outcome")
-ROWS = {"U7b-1": u7b_1, "U7b-2": u7b_2, "U7b-3": u7b_3, "U7b-4": u7b_4}
+           "the harness released the base-placement hold no player can close" if pressed else "unexpected outcome")
+ROWS = {"resume_hold": row_resume_hold, "rejoin_hold": row_rejoin_hold, "base_placement_hold": row_base_placement_hold,
+        "save_refusal_button": row_save_refusal_button}
 
 def exec_row(rid, host, client, ctx):
     r, t0 = Row(rid, host, client), time.time()
@@ -242,7 +247,8 @@ def report(r, results):
     fails += [r.err] if r.err and not r.err.startswith("GUARD") else []
     results[r.rid] = not fails
     print("PASS %s" % r.rid if not fails else "FAIL %s: %s" % (r.rid, " || ".join(fails)), flush=True)
-def start_a(): return (lambda js: (js.host, js.client))(shared_fixture.bring_up("w2u7ba", (49324, 49325, 47304)))
+def start_shared():
+    return (lambda js: (js.host, js.client))(shared_fixture.bring_up("dialog_back_shared", (49324, 49325, 47304)))
 def start_pair(tag, labels, bring):
     host = GameClient("host", labels[0], make_user_dir(tag + "_host"))
     client = GameClient("client", labels[1], make_user_dir(tag + "_client"))
@@ -256,9 +262,13 @@ def start_pair(tag, labels, bring):
         finally:
             raise RuntimeError("%s | %s" % (short(str(e), 600), short(cap, 900))) from e
     return host, client
-BOOTS = (("A", start_a, ("U7b-4", "U7b-1")),
-         ("B", lambda: start_pair("w2u7bb", (49326, 49327), lambda h, c: session.new_campaign(h, c, port="47306")), ("U7b-2",)),
-         ("C", lambda: start_pair("w2u7bc", (49329, 49330), lambda h, c: tld._campaign_lobby(h, c, "47308")), ("U7b-3",)))
+BOOTS = (("shared_campaign", start_shared, ("save_refusal_button", "resume_hold")),
+         ("separate_campaign", lambda: start_pair("dialog_back_separate", (49326, 49327),
+                                                  lambda h, c: session.new_campaign(h, c, port="47306")),
+          ("rejoin_hold",)),
+         ("campaign_lobby", lambda: start_pair("dialog_back_lobby", (49329, 49330),
+                                               lambda h, c: tld._campaign_lobby(h, c, "47308")),
+          ("base_placement_hold",)))
 
 def run_boot(key, start, rids, results, walls, problems):
     t0, ctx, booted = time.time(), {}, None
@@ -273,8 +283,8 @@ def run_boot(key, start, rids, results, walls, problems):
         return
     try:
         rows = [exec_row(rid, booted[0], booted[1], ctx) for rid in rids]
-        if key == "A" and not rows[0].err:
-            u7b_4_diag(rows[0], ctx)
+        if key == "shared_campaign" and not rows[0].err:
+            save_refusal_button_diag(rows[0], ctx)
         for r in rows:
             report(r, results)
     finally:
