@@ -57,18 +57,18 @@ def start_campaign_and_place(host, client, alien_player):
     client.wait_for('x',lambda:_has(client,'LobbyMenu'),timeout=120)
     for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'Profile'));g.ok({"cmd":"profile_ok"})
     host.wait_for('x',lambda:host.cmd({"cmd":"lobby_state"}).get("startEligible"))
-    host.wait_for('START CAMPAIGN shown (D250-U A1)',lambda:host.cmd({"cmd":"lobby_state"}).get("buttonVisible") or None,timeout=10)
+    host.wait_for('START CAMPAIGN shown',lambda:host.cmd({"cmd":"lobby_state"}).get("buttonVisible") or None,timeout=10)
     ls=host.cmd({"cmd":"lobby_state"})
     want='ClientPlayer' if alien_player=='client' else 'HostPlayer'
     for i,n in enumerate(ls.get('players',[])):
         if want in n:host.ok({"cmd":"lobby_set_team","row":i,"team":"Alien"});break
 
     session.start_campaign_via_button(host)
-    xcom_gc.wait_for('XCOM base placement screen (D250-U S-A)', lambda: _has(xcom_gc, 'BuildNewBaseState') or None, timeout=60)
+    xcom_gc.wait_for('XCOM base placement screen', lambda: _has(xcom_gc, 'BuildNewBaseState') or None, timeout=60)
     if _has(xcom_gc,'BuildNewBaseState'):
         xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
     time.sleep(1)
-    session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
+    session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # once the wait dialog shows its button
     for g in (host,client):
         g.wait_for('x',lambda g=g:_has(g,'GeoscapeState')and not _has(g,'CoopState'),timeout=120)
 
