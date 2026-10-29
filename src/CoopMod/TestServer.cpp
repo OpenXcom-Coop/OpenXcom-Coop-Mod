@@ -82,6 +82,7 @@
 #include "../Battlescape/BriefingState.h"
 #include "../Battlescape/InventoryState.h"
 #include "../Battlescape/Inventory.h"
+#include "../Battlescape/InventorySaveState.h"
 #include "../Battlescape/NextTurnState.h"
 #include "../Battlescape/AbortMissionState.h"
 #include "../Battlescape/DebriefingState.h"
@@ -191,6 +192,7 @@
 #include "../Basescape/SackSoldierState.h"
 #include "../Basescape/PlaceLiftState.h"
 #include "../Basescape/CraftEquipmentState.h"
+#include "../Basescape/CraftEquipmentSaveState.h"
 #include "../Basescape/CraftsState.h"
 #include "../Basescape/CraftWeaponsState.h"
 #include "../Basescape/SoldierArmorState.h"
@@ -6391,6 +6393,72 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 }
 
 /**
+ * The saved equipment templates of @a save: every soldier layout slot and
+ * craft loadout slot that holds anything, with its name, armor, item counts
+ * and (layouts) one "type@slot:x,y" entry per item with its ammo, fuse and
+ * fixed flag, so two sets can be compared exactly.
+ */
+static void describeEquipmentTemplates(SavedGame* save, Json::Value& out)
+{
+	Json::Value layouts(Json::arrayValue);
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		const std::vector<EquipmentLayoutItem*>* items = save->getGlobalEquipmentLayout(j);
+		const std::string& name = save->getGlobalEquipmentLayoutName(j);
+		const std::string& armor = save->getGlobalEquipmentLayoutArmor(j);
+		if (items->empty() && name.empty() && armor.empty())
+			continue;
+		Json::Value slot;
+		slot["index"] = j;
+		slot["name"] = name;
+		slot["armor"] = armor;
+		Json::Value counts(Json::objectValue);
+		std::vector<std::string> entries;
+		for (const EquipmentLayoutItem* item : *items)
+		{
+			const std::string type = item->getItemType()->getType();
+			counts[type] = counts.get(type, 0).asInt() + 1;
+			std::string entry = type + "@" + item->getSlot()->getId() + ":"
+				+ std::to_string(item->getSlotX()) + "," + std::to_string(item->getSlotY());
+			for (int a = 0; a < RuleItem::AmmoSlotMax; ++a)
+				if (item->getAmmoItemForSlot(a))
+					entry += "+" + std::to_string(a) + ":" + item->getAmmoItemForSlot(a)->getType();
+			if (item->getFuseTimer() >= 0)
+				entry += " fuse " + std::to_string(item->getFuseTimer());
+			if (item->isFixed())
+				entry += " fixed";
+			entries.push_back(entry);
+		}
+		std::sort(entries.begin(), entries.end());
+		Json::Value list(Json::arrayValue);
+		for (const std::string& entry : entries)
+			list.append(entry);
+		slot["items"] = counts;
+		slot["entries"] = list;
+		layouts.append(slot);
+	}
+	Json::Value crafts(Json::arrayValue);
+	for (int j = 0; j < SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		const ItemContainer* contents = save->getGlobalCraftLoadout(j);
+		const std::string& name = save->getGlobalCraftLoadoutName(j);
+		Json::Value counts(Json::objectValue);
+		for (const auto& entry : *contents->getContents())
+			if (entry.first && entry.second > 0)
+				counts[entry.first->getType()] = entry.second;
+		if (counts.empty() && name.empty())
+			continue;
+		Json::Value slot;
+		slot["index"] = j;
+		slot["name"] = name;
+		slot["items"] = counts;
+		crafts.append(slot);
+	}
+	out["layouts"] = layouts;
+	out["crafts"] = crafts;
+}
+
+/**
  * Base and roster screen test hooks, a further sub-dispatcher. execute()'s command chain hit
  * MSVC's C1061 nested-block limit once these commands joined it. Returns true
  * if @a cmd was one of ours (and @a resp was filled).
@@ -6733,6 +6801,128 @@ bool TestServer::executeBaseScreens(const std::string& cmd, const Json::Value& r
 		}
 		else
 			resp["error"] = "unknown action: " + action;
+	}
+	else if (cmd == "template_save")
+	{
+		// The equipment template save dialogs, through their Save button body.
+		// kind "layout": the open inventory (base or pre-battle) selects the
+		// soldier whose name contains <unit> (optional; else the selected one)
+		// and saves its layout into slot <index> as <name> (<armor> true = the
+		// "save with armor" button). kind "craft": the craft equipment screen
+		// of craft <craft_id>/<craft_type> at <base> saves into loadout slot
+		// <index> as <name>. Both dialogs close as they do for a player.
+		const std::string kind = req.get("kind", "layout").asString();
+		const int index = req.get("index", 0).asInt();
+		const std::string name = req.get("name", "").asString();
+		const size_t depth = _game->getStates().size();
+		if (kind == "layout")
+		{
+			InventoryState* inv = findState<InventoryState>(_game);
+			SavedGame* sg = _game->getSavedGame();
+			SavedBattleGame* bg = sg ? sg->getSavedBattle() : nullptr;
+			Inventory* inventory = inv ? inv->getInventoryForTest() : nullptr;
+			const std::string who = req.get("unit", "").asString();
+			BattleUnit* unit = nullptr;
+			if (bg && !who.empty())
+				for (auto* u : *bg->getUnits())
+				{
+					Soldier* gs = u->getGeoscapeSoldier();
+					if (u->getFaction() == FACTION_PLAYER && gs
+						&& gs->getName().find(who) != std::string::npos)
+					{ unit = u; break; }
+				}
+			if (!inv || !bg || !inventory)
+				resp["error"] = "no open inventory";
+			else if (index < 0 || index >= Options::oxceMaxEquipmentLayoutTemplates)
+				resp["error"] = "bad layout slot";
+			else if (!who.empty() && !unit)
+				resp["error"] = "no player unit matching name: " + who;
+			else
+			{
+				if (unit)
+				{
+					bg->setSelectedUnit(unit);
+					inventory->setSelectedUnit(unit, true);
+				}
+				BattleUnit* selected = bg->getSelectedUnit();
+				InventorySaveState* dialog = new InventorySaveState(inv);
+				_game->pushState(dialog);
+				dialog->harnessSave(index, name, req.get("armor", false).asBool());
+				while (_game->getStates().size() > depth) _game->popState();
+				resp["unit"] = selected && selected->getGeoscapeSoldier()
+					? selected->getGeoscapeSoldier()->getName() : std::string();
+				resp["ok"] = true;
+			}
+		}
+		else if (kind == "craft")
+		{
+			const std::string baseName = req.get("base", "").asString();
+			const int craftId = req.get("craft_id", -1).asInt();
+			const std::string craftType = req.get("craft_type", "STR_SKYRANGER").asString();
+			Base* base = nullptr;
+			size_t craftIdx = 0;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					if (b->getName() != baseName) continue;
+					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+						if (b->getCrafts()->at(i)->getId() == craftId
+							&& b->getCrafts()->at(i)->getRules()->getType() == craftType)
+						{ base = b; craftIdx = i; }
+				}
+			if (!base)
+				resp["error"] = "craft not found at that base";
+			else if (index < 0 || index >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
+				resp["error"] = "bad craft loadout slot";
+			else
+			{
+				CraftEquipmentState* screen = new CraftEquipmentState(base, craftIdx);
+				_game->pushState(screen);
+				// The open screen shows its list before the player presses Save.
+				screen->harnessBuildList();
+				CraftEquipmentSaveState* dialog = new CraftEquipmentSaveState(screen);
+				_game->pushState(dialog);
+				dialog->harnessSave(index, name);
+				while (_game->getStates().size() > depth) _game->popState();
+				resp["ok"] = true;
+			}
+		}
+		else
+			resp["error"] = "unknown kind: " + kind;
+	}
+	else if (cmd == "equipment_templates")
+	{
+		// This machine's saved equipment templates (describeEquipmentTemplates)
+		// and, in a Separate campaign, the sets kept in each player's profile,
+		// read back from the profile's saved form.
+		SavedGame* sg = _game->getSavedGame();
+		if (!sg)
+			resp["error"] = "no world";
+		else
+		{
+			describeEquipmentTemplates(sg, resp);
+			Json::Value players(Json::objectValue);
+			if (sg->isCoopSave() && sg->getCampaignType() == CoopCampaignType::Separate)
+			{
+				YAML::YamlRootNodeWriter writer;
+				sg->getSeparateCampaign().save(writer);
+				YAML::YamlString yaml = writer.emit();
+				YAML::YamlRootNodeReader reader(yaml, "separateTemplatesHarness", false);
+				for (const auto& player : reader["players"].children())
+				{
+					const std::string playerName = player["name"].readVal<std::string>("");
+					SavedGame stored;
+					if (const auto& node = player["equipmentTemplates"])
+						stored.loadTemplates(node, _game->getMod());
+					Json::Value set;
+					describeEquipmentTemplates(&stored, set);
+					players[playerName] = set;
+				}
+			}
+			resp["players"] = players;
+			resp["world"] = Json::Value::UInt64(reinterpret_cast<uintptr_t>(sg));
+			resp["ok"] = true;
+		}
 	}
 	else
 	{

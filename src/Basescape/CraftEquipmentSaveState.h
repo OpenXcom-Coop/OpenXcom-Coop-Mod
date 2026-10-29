@@ -59,6 +59,9 @@ public:
 	void edtSaveKeyPress(Action *action);
 	/// Save template.
 	void saveTemplate();
+	/// Test harness: pick slot @a row, type @a name and press Save, through
+	/// the same body the button runs.
+	void harnessSave(int row, const std::string& name);
 };
 
 }

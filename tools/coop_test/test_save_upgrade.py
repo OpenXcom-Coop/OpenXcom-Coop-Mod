@@ -19,11 +19,14 @@ Covers (PRD save-upgrader.md 9):
   host and client bases, with no coopClientSaves blobs)
 - embed + sidecar recovery (ports test_legacy_migration.py's intent to the new flow)
 - negatives: mid-battle refused, gamemode mismatch refused, skip-client warns + 0 saves
+- saved equipment templates: the client world's template slots become the
+  client's profile set, the host world's slots stay the host's own
 
 Run:  python tools/coop_test/test_save_upgrade.py
 """
 
 import os
+import base64
 import copy
 import shutil
 import sys
@@ -37,6 +40,23 @@ from harness import GameClient, make_user_dir
 import synth
 
 PORT = 48710
+
+# Template slots in the classic keys each schema-2 world keeps them in.
+HOST_TEMPLATES = {
+    "globalEquipmentLayout1": [{"itemType": "STR_PISTOL", "slot": "STR_LEFT_HAND"}],
+    "globalEquipmentLayoutName1": "Host layout",
+    "globalCraftLoadout0": {"STR_PISTOL": 1},
+    "globalCraftLoadoutName0": "Host loadout",
+}
+CLIENT_TEMPLATES = {
+    "globalEquipmentLayout1": [{"itemType": "STR_RIFLE", "slot": "STR_RIGHT_HAND",
+                                "ammoItem": "STR_RIFLE_CLIP"}],
+    "globalEquipmentLayoutName1": "Bob layout",
+    "globalEquipmentLayoutArmor1": "STR_PERSONAL_ARMOR_UC",
+    "globalCraftLoadout0": {"STR_RIFLE": 2},
+    "globalCraftLoadoutName0": "Bob loadout",
+}
+TEMPLATE_KEYS = ("globalEquipmentLayout", "globalCraftLoadout")
 
 
 def two_docs(path):
@@ -210,6 +230,34 @@ def main():
         assert profiles["Bob"]["completedResearch"] == ["STR_MEDI_KIT"], profiles
         assert profiles["Bob"]["factionResearch"] == ["STR_MEDI_KIT"], profiles
         print("PASS sequence embed recovery: independent player funds and factions preserved")
+
+        # Saved equipment templates are per player. Stage templates in a copy
+        # of the sequence fixture: the host world's own slots and, inside the
+        # client world blob, the client's.
+        reset_fixtures()
+        seq = os.path.join(xcom1, "embed_sequence_host.sav")
+        th, tb = two_docs(seq)
+        tb.update(HOST_TEMPLATES)
+        entry = tb["coopClientSaves"][0]
+        ch, cb = yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8"))
+        cb.update(CLIENT_TEMPLATES)
+        entry["blob"] = base64.b64encode(
+            yaml.safe_dump_all([ch, cb], sort_keys=False).encode("utf-8")).decode("ascii")
+        with open(seq, "w", encoding="utf-8") as f:
+            yaml.safe_dump_all([th, tb], f, sort_keys=False)
+        r = gc.ok({"cmd": "upgrade_run", "host": "embed_sequence_host.sav",
+                   "hostName": "HostGuy"})
+        assert r["success"] is True, f"template upgrade failed: {r}"
+        _, ub = two_docs(outp("embed_sequence_host.sav"))
+        profiles = {p["name"]: p for p in ub["separateCampaign"]["players"]}
+        assert profiles["Bob"].get("equipmentTemplates") == CLIENT_TEMPLATES, \
+            f"the client's templates are not its profile set: {profiles['Bob']}"
+        assert "equipmentTemplates" not in profiles["HostGuy"], \
+            f"the host's templates went into its profile: {profiles['HostGuy']}"
+        host_slots = {k: v for k, v in ub.items() if k.startswith(TEMPLATE_KEYS)}
+        assert host_slots == HOST_TEMPLATES, \
+            f"the host world's template slots changed: {host_slots}"
+        print("PASS templates: the client's slots became its profile set, the host's stayed its own")
 
         reset_fixtures()
         r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav", "hostName": "HostGuy"})

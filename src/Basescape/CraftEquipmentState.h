@@ -147,6 +147,8 @@ public:
 	std::string harnessDisplayedItem(size_t column, const std::string& itemType) const;
 	/// Harness: the item types the list shows (what a template load considers).
 	const std::vector<std::string>& harnessListedItems() const { return _items; }
+	/// Harness: build the item list a pushed screen builds in its deferred init().
+	void harnessBuildList() { initList(); }
 };
 
 }

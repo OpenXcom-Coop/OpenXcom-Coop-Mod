@@ -237,4 +237,17 @@ void InventorySaveState::saveTemplate(bool includingArmor)
 	}
 }
 
+/**
+* Test harness: picks a slot, types its name and saves, as a player does.
+* @param row Template slot.
+* @param name Name typed into the slot.
+* @param includingArmor Whether to save the soldier's armor too.
+*/
+void InventorySaveState::harnessSave(int row, const std::string& name, bool includingArmor)
+{
+	_selectedRow = row;
+	_edtSave->setText(name);
+	saveTemplate(includingArmor);
+}
+
 }
