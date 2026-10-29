@@ -32,7 +32,7 @@ Rows (vanilla rules, SEPARATE campaign, research sync on):
 
   * PASS (exit 0): every row holds.
   * FAIL (exit 2): a row failed (the bug) or a game process crashed.
-  * FAIL (exit 2, MG-F): a precondition never held; the test proved nothing.
+  * FAIL (exit 2): a precondition never held; the test proved nothing.
 """
 import os
 import sys

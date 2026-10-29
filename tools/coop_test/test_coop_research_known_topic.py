@@ -24,7 +24,7 @@ Rows (vanilla rules, no external mod):
 
   * PASS (exit 0): every row completes the project with both processes alive.
   * FAIL (exit 2): a game process crashed (the bug).
-  * FAIL (exit 2, MG-F): a precondition never held (e.g. sync never delivered the
+  * FAIL (exit 2): a precondition never held (e.g. sync never delivered the
     host's completion); the test proved nothing.
 """
 import glob
