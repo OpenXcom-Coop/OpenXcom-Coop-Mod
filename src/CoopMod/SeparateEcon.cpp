@@ -706,6 +706,12 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
 	const Json::Value& payload, const Base* base, int seat)
 {
 	if (allowsForeignBaseCommand(cmd, remote)) return true;
+	// By analogy with RU16: a visitor may transform their own soldier stationed
+	// at another player's base. The validator checks the soldier's owner, the
+	// cost comes from the visitor's wallet and the required items from that
+	// base's stores. A dead soldier is not stationed there: it stays refused.
+	if (cmd == "soldier_transform")
+		return !payload.get("dead", false).asBool();
 	// RU17: a visitor may transfer their own soldiers out of another player's
 	// base. Every entry must be one of the requester's soldiers there: items,
 	// crafts, staff and the partner's soldiers stay with the base owner.
