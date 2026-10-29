@@ -60,7 +60,8 @@ def main():
             gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
             gc.ok({"cmd":"profile_ok"})
         host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
-        host.wait_for("START CAMPAIGN shown (D250-U A1)", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
+        host.wait_for("START CAMPAIGN shown",
+                      lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
         # Put host on Alien -> gamemode 3
         ls = host.cmd({"cmd": "lobby_state"})
@@ -86,7 +87,7 @@ def main():
         client.wait_for("client base", lambda: _has(client, "BuildNewBaseState"))
         client.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
         time.sleep(3)
-        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # once the wait dialog shows its button
 
         # Both reach geoscape
         for gc, label in ((host,"host"),(client,"client")):
@@ -145,7 +146,7 @@ def main():
             host.ok({"cmd": "profile_ok"})
             time.sleep(1)
         # Click RESUME on the WAIT_PLAYERS dialog
-        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))  # D250-U S-A (R-U7d-1)
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))  # once the wait dialog shows its button
         time.sleep(5)
 
         try:
