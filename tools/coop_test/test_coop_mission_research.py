@@ -24,7 +24,7 @@ Rows (the host owns every site):
      topics and bonuses (guard).
 
   * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 2: a precondition never held; MG-F).
+    FAIL (exit 2: a precondition never held).
 """
 import os
 import sys
@@ -122,8 +122,8 @@ def abort_battle(host, client, shared):
 
     host.wait_for("landing prompt", landing, timeout=120, interval=0.5)
     host.ok({"cmd": "confirm_landing" if shared else "coop_mission_start"})
-    # MG-F (rewrite battle entry): the host enters, then session.drive_both_to_tactical takes both machines
-    # through the briefings and the pre-battle equip screens together; battle_state.coopTurn is a stub (-1).
+    # The host enters, then session.drive_both_to_tactical takes both machines through the briefings and
+    # the pre-battle equip screens together. There is no coop-turn wait: battle_state.coopTurn is a stub (-1).
     host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                   timeout=180, interval=1.0)
     if not session.drive_both_to_tactical(host, client):
