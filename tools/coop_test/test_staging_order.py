@@ -252,7 +252,7 @@ def construct(row, host, client):
     raised, errs = None, []
     if row == "U8c-1":
         try:
-            session.place_deterministic(host, client, [dict(A_AT, lever="battle_teleport_unit")], what="U8c-1")
+            session.place_deterministic(host, client, [dict(A_AT, cmd="battle_teleport_unit")], what="U8c-1")
         except AssertionError as e:
             raised = str(e)
     for req, keys in (STAGE[1:] if row == "U8c-1" else STAGE):
