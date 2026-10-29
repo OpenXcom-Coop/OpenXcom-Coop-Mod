@@ -1,29 +1,36 @@
-"""test_equip_hold_ends.py (EQE): a reservation on the pre-battle equip screen also ends when its holder leaves or
-turn 1 starts, and no bulk tool takes a reserved item. Owner D291 (b), D208 (a) (a leave during equip), P8b Q4 (a) (turn 1 puts
-every cursor item back), D207 (a) / QEQ2-10 (a) (the host's own template and auto-equip skip a held item; F3125 for a client's
-order). Spec: docs repo rewrite/prompts/eq2c_hold_ends.md (f) + PIN-PASS AMENDMENTS, common rewrite/prompts/eq2_partner_pointer.md;
-R-EQ2-1, R-EQ2-3 (a) (held items read by id, never by pile cell). Constants: docs repo rewrite/eq2-task0/sc/CONSTANTS.md.
-Boot L (co-op, KEY_C, dirs eq2c_l_*): PBE's spine + S-B's staging (copied, never imported; client first, after the client applied
-the host's first evs, F21396): C1, C2 stripped; STAGE_TYPES + HOLD_EXTRA on PILE.
-  L  the client picks the 2-clip cell (precondition: the host's holds.table[clientSeat] = it within W_HOLD), its pointer drawn on
-     the host; client.kill(); once the host's authority.peerAbsent is true: L-back (the held id on the host's page within W_END),
-     L-once (ends.leave delta 1, every other 0), L-ptr (GUARD: the host's drawn.ptr false within W_END). It ends the boot.
-Boot S (co-op, KEY_C reused, dirs eq2c_s_*): the same spine + EXTRA_S (S54: the red tools consume the first ones).
-  BA H1 stripped, given an unloaded STR_RIFLE (S54: vanilla's auto-equip takes clips only for a held weapon); the client picks
-     the first STR_RIFLE_CLIP in tile order; the host's auto-equip key: B-auto (the held id on PILE on both, never on H1)
-  BT H1 stripped, given a rifle and a belt clip, create_template (real click), stripped; the client picks the first clip; the
-     host's apply_template: B-tmpl (the held id on PILE on both, never on H1; TEXT_SHORT shown exactly when it was the only clip)
-  BO the host picks the first STR_GRENADE; the client's auto-equip key on C1 (an inv_bulk order): B-order (GUARD, F3125: answered
-     within W_HOLD, the host's held grenade on C1 on neither machine)
-  T  the client's ready (real OK), then its pick of the single STR_GRENADE cell; the host's ready -> turn 1: T-once (the host's
-     ends.start delta 1), T-pile (GUARD: that id on PILE on both), T-clear (the client's holds.table all -1, localHeld -1)
-  X  X-crash (GUARD: no new crash file, the host alive at the end of each boot)
-holds = event_state.equip.presence.holds; ends cells read the row's delta. Every row ends with both cursors empty (a failed
-cleanup ends the boot's later rows "not reached"). RED on HEAD (S-B's hold, no ends): L-back, L-once, T-once, T-clear, B-auto,
-B-tmpl (6 of 10); L-ptr, T-pile, B-order, X-crash PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure (a precondition miss ends
-its own row); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". run in the foreground
-to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+"""test_equip_hold_ends.py: a reservation on the pre-battle equip screen also ends when its holder leaves or turn 1
+starts, and no bulk tool takes a reserved item. A leave during equip ends the leaver's hold; turn 1 puts every cursor
+item back; the host's own template and auto-equip skip a held item, and so does a client's bulk order. Held items are
+read by id, never by pile cell.
+Boot holder_leaves (co-op, KEY_C, dirs equip_hold_ends_leave_*): test_prebattle_equip.py's spine plus a staging
+(copied, never imported; client first, after the client applied the host's first evs): C1, C2 stripped; STAGE_TYPES +
+HOLD_EXTRA on PILE.
+  holder_leaves  the client picks the 2-clip cell (precondition: the host's holds.table[clientSeat] = it within
+     W_HOLD), its pointer drawn on the host; client.kill(); once the host's authority.peerAbsent is true:
+     holder_leaves-back (the held id on the host's page within W_END), holder_leaves-once (ends.leave delta 1, every
+     other 0), holder_leaves-ptr (GUARD: the host's drawn.ptr false within W_END). It ends the boot.
+Boot tools_and_turn (co-op, KEY_C reused, dirs equip_hold_ends_tools_*): the same spine + EXTRA_S (spare stock: a
+build whose tools take a held item consumes the first ones).
+  auto_equip  H1 stripped, given an unloaded STR_RIFLE (vanilla's auto-equip takes clips only for a held weapon); the
+     client picks the first STR_RIFLE_CLIP in tile order; the host's auto-equip key: auto_equip-skips_held (the held
+     id on PILE on both, never on H1)
+  template_apply  H1 stripped, given a rifle and a belt clip, create_template (real click), stripped; the client picks
+     the first clip; the host's apply_template: template_apply-skips_held (the held id on PILE on both, never on H1;
+     TEXT_SHORT shown exactly when it was the only clip)
+  bulk_order  the host picks the first STR_GRENADE; the client's auto-equip key on C1 (an inv_bulk order):
+     bulk_order-skips_held (GUARD: answered within W_HOLD, the host's held grenade on C1 on neither machine)
+  turn_start  the client's ready (real OK), then its pick of the single STR_GRENADE cell; the host's ready -> turn 1:
+     turn_start-once (the host's ends.start delta 1), turn_start-pile (GUARD: that id on PILE on both),
+     turn_start-clear (the client's holds.table all -1, localHeld -1)
+  END  no_crash (GUARD: no new crash file, the host alive at the end of each boot)
+holds = event_state.equip.presence.holds; ends cells read the row's delta. Every row ends with both cursors empty (a
+failed cleanup ends the boot's later rows "not reached"). A build with the hold table but without these ends fails
+holder_leaves-back, holder_leaves-once, turn_start-once, turn_start-clear, auto_equip-skips_held and
+template_apply-skips_held (6 of 10) and passes holder_leaves-ptr, turn_start-pile, bulk_order-skips_held and no_crash.
+One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure (a
+precondition miss ends its own row); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows
+"boot". run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes,
+else 2.
 Run:  python tools/coop_test/test_equip_hold_ends.py
 """
 
@@ -45,31 +52,33 @@ from test_delta_items import items_by_id  # noqa: E402
 from test_client_items import strip_both  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 
-# ----- pins (rewrite/eq2-task0/sc/CONSTANTS.md) -----
-KEY_C = "49285"                    # boot L, then boot S after boot L's shutdown
-SEED_MAP = 1                       # PBE: set_seed right before newbattle_ok
-MAP_FP = -4.48310638993e+18        # PBE: the host's mapFingerprint at SEED_MAP 1
-C_IDS, H_IDS = [8, 9], [10, 11, 12, 13, 14]   # PBE: the client's seated units, the host's own soldiers
-C1, C2, H1 = 8, 9, 10              # C1 = the client's screen, H1 = the host's screen (S-B CONSTANTS)
-PILE = (14, 19, 1)                 # PBE: the craft pile tile at turn 0
+# ----- pinned setup values (the spine's as in test_prebattle_equip.py) -----
+KEY_C = "49285"                    # lobby key: boot holder_leaves, then boot tools_and_turn after its shutdown
+SEED_MAP = 1                       # set_seed right before newbattle_ok
+MAP_FP = -4.48310638993e+18        # the host's mapFingerprint at SEED_MAP 1
+C_IDS, H_IDS = [8, 9], [10, 11, 12, 13, 14]   # the client's seated units, the host's own soldiers
+C1, C2, H1 = 8, 9, 10              # C1 = the client's screen, H1 = the host's screen
+PILE = (14, 19, 1)                 # the craft pile tile at turn 0
 STAGE_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE", "STR_PROXIMITY_GRENADE", "STR_SMOKE_GRENADE")
-HOLD_EXTRA = "STR_RIFLE_CLIP"      # S-B: the clip cell holds a stack of 2
-EXTRA_S = ("STR_RIFLE_CLIP", "STR_GRENADE")   # boot S only (S54, CONSTANTS.md)
+HOLD_EXTRA = "STR_RIFLE_CLIP"      # the clip cell holds a stack of 2
+EXTRA_S = ("STR_RIFLE_CLIP", "STR_GRENADE")   # boot tools_and_turn only
 RIFLE_T, CLIP_T, GRENADE_T = "STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE"
 GROUND, BELT = "STR_GROUND", "STR_BELT"
-GROUND_COLS = 20                   # the first ground page (a held item is parked at x 1000000, F20617)
-SCALE, PT1 = 2, (150, 120)         # S-A: window / logical; the client's pointer on the Inventory surface
-TEXT_SHORT = "Not enough items to copy template!"   # STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE (PBE tools, EQ27)
+GROUND_COLS = 20                   # the first ground page (a held item is parked at x 1000000)
+SCALE, CLIENT_PT = 2, (150, 120)   # window / logical; the client's pointer on the Inventory surface
+TEXT_SHORT = "Not enough items to copy template!"   # STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE
 W_HOLD, W_PTR, W_END, DROP_WAIT_S = 2.0, 2.0, 3.0, 30.0
 CLICK_WAIT_S, LAND_WAIT_S, ANSWER_WAIT_S, TURN_WAIT_S = 2.0, 10.0, 3.0, 5.0
 LINE_READ_S, KEY_SETTLE_S, SETTLE_S, POLL_S = 1.5, 0.3, 0.5, 0.05
-EQ1_WAIT_S, ENTRY_WAIT_S, SCREEN_S = 30.0, 5.0, 15.0
+BRIEFING_WAIT_S, ENTRY_WAIT_S, SCREEN_S = 30.0, 5.0, 15.0
 ENDS = ("put", "answer", "cancel", "deny", "move", "leave", "start")
 EXPECTED_RC = (0, 3221226505)
-ROWS_L = (("L", ("L-back", "L-once", "L-ptr")),)
-ROWS_S = (("BA", ("B-auto",)), ("BT", ("B-tmpl",)), ("BO", ("B-order",)), ("T", ("T-once", "T-pile", "T-clear")))
-ROWS_X = (("X", ("X-crash",)),)
-CPU_CSV = os.path.join(tempfile.gettempdir(), "eq2c_cpu_s%d.csv" % harness.HARNESS_SLOT)
+ROWS_L = (("holder_leaves", ("holder_leaves-back", "holder_leaves-once", "holder_leaves-ptr")),)
+ROWS_S = (("auto_equip", ("auto_equip-skips_held",)), ("template_apply", ("template_apply-skips_held",)),
+          ("bulk_order", ("bulk_order-skips_held",)),
+          ("turn_start", ("turn_start-once", "turn_start-pile", "turn_start-clear")))
+ROWS_X = (("END", ("no_crash",)),)
+CPU_CSV = os.path.join(tempfile.gettempdir(), "equip_hold_ends_cpu_s%d.csv" % harness.HARNESS_SLOT)
 
 
 def stack(gc):
@@ -200,7 +209,8 @@ def pick(gc, cell, want):
 
 
 def held_by(host, seat, iid, ev):
-    """Precondition: the host's holds.table[seat] = iid within W_HOLD (S-B's grant, or the host's own sample)."""
+    """Precondition: the host's holds.table[seat] = iid within W_HOLD (the hold table's grant, or the host's own
+    sample)."""
     _, ev["tableWithin"] = wait_until(lambda: table(host)[seat] == iid, W_HOLD)
     ev["hostTable"] = table(host)
     if ev["hostTable"][seat] != iid:
@@ -253,11 +263,12 @@ def spine(host, client, tag, extra):
                           and not u.get("isOut"))}
     ctx["boot"].update(got)
     if (got["mapFingerprint"], got["seated"], got["hIds"]) != (MAP_FP, C_IDS, H_IDS):
-        miss(tag, f"PBE's spine: {got} (want MAP_FP {MAP_FP}, seated {C_IDS}, H {H_IDS})", m)
+        miss(tag, f"the spine: {got} (want MAP_FP {MAP_FP}, seated {C_IDS}, H {H_IDS})", m)
     ok, ctx["boot"]["clientBriefingS"] = wait_until(lambda: any("BriefingState" in s for s in stack(client))
-                                                    and battle_state(client).get("inBattle") is True, EQ1_WAIT_S, 0.1)
+                                                    and battle_state(client).get("inBattle") is True, BRIEFING_WAIT_S,
+                                                    0.1)
     if not ok:
-        miss(tag, f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
+        miss(tag, f"no client BriefingState with its battle within {BRIEFING_WAIT_S} s", m)
     G3F.guarded(tag, lambda: session.wait_seq_barrier(host, client), m)   # the host's first evs applied before staging
 
     def stage():
@@ -288,26 +299,28 @@ def spine(host, client, tag, extra):
     ctx["autoKey"] = {gc.name: (gc.cmd({"cmd": "equip_layouts", "index": 0}).get("keys") or {}).get("keyInvAutoEquip")
                       for gc in m}
     ctx["ids"] = st["ids"]
-    print(f"[eq2c] boot {tag}: {json.dumps(ctx['boot'], sort_keys=True, default=str)} keys {ctx['autoKey']}", flush=True)
+    print(f"[test_equip_hold_ends] boot {tag}: {json.dumps(ctx['boot'], sort_keys=True,
+                                                           default=str)} keys {ctx['autoKey']}", flush=True)
     return ctx
 
 
-def boot_l(host, client):
-    ctx = spine(host, client, "L", ())
+def boot_holder_leaves(host, client):
+    ctx = spine(host, client, "holder_leaves", ())
     c = cell_of(client, ctx["ids"][CLIP_T][0])
     ctx["stack"] = {"client": c, "host": cell_of(host, ctx["ids"][CLIP_T][0]), "ids": sorted(at_cell(client, c))}
     if ctx["stack"]["ids"] != sorted(ctx["ids"][CLIP_T]) or sorted(at_cell(host, ctx["stack"]["host"])) != ctx["stack"]["ids"]:
-        miss("L", f"the 2-clip cell: {ctx['stack']} (want the two staged clips at one cell on both screens)", ctx["m"])
+        miss("holder_leaves",
+             f"the 2-clip cell: {ctx['stack']} (want the two staged clips at one cell on both screens)", ctx["m"])
     return ctx
 
 
-def row_l(host, client, ctx, ev):
+def row_holder_leaves(host, client, ctx, ev):
     ready(host, client, ctx)
     x, ev["pick"] = pick(client, ctx["stack"]["client"], ctx["stack"]["ids"])
     held_by(host, ctx["seat"], x, ev)
     ev["hostCount"] = [len(at_cell(host, ctx["stack"]["host"]))]
     inv = client.cmd({"cmd": "cursor_pos"})
-    want = [inv.get("invX", 0) + PT1[0], inv.get("invY", 0) + PT1[1]]
+    want = [inv.get("invX", 0) + CLIENT_PT[0], inv.get("invY", 0) + CLIENT_PT[1]]
     ev["motion"] = client.cmd({"cmd": "inject_input", "kind": "motion", "x": want[0] * SCALE, "y": want[1] * SCALE}).get("ok")
     _, ev["drawnWithin"] = wait_until(lambda: drawn(host).get("ptr") is True, W_PTR)
     ev["drawnBefore"] = drawn(host)
@@ -331,11 +344,15 @@ def row_l(host, client, ctx, ev):
     d = delta(ends(host), e0)
     ev["hostCount"].append(len(at_cell(host, ctx["stack"]["host"])))
     ev.update(x=x, backWithin=back, ptrOffWithin=off, hostCellOfX=cell_of(host, x), endsDelta=d, look=look(host, client))
-    return {"L-back": (back is not None, f"{x} on the host's ground at {ev['hostCellOfX']} (want a page cell within {W_END} s of "
-                                         f"peerAbsent; back after {back} s; the stack cell's count {ev['hostCount']})"),
-            "L-once": (d["leave"] == 1 and all(v == 0 for k, v in d.items() if k != "leave"),
-                       f"host ends delta over L {d} (want leave 1, every other 0; absent = 0)"),
-            "L-ptr": (off is not None, f"the host's drawn.ptr false after {off} s (want within {W_END} s of peerAbsent)")}
+    return {"holder_leaves-back": (back is not None,
+                                   f"{x} on the host's ground at {ev['hostCellOfX']} (want a page cell within "
+                                   f"{W_END} s of peerAbsent; back after {back} s; the stack cell's count "
+                                   f"{ev['hostCount']})"),
+            "holder_leaves-once": (d["leave"] == 1 and all(v == 0 for k, v in d.items() if k != "leave"),
+                                   f"host ends delta over holder_leaves {d} (want leave 1, every other 0; "
+                                   f"absent = 0)"),
+            "holder_leaves-ptr": (off is not None,
+                                  f"the host's drawn.ptr false after {off} s (want within {W_END} s of peerAbsent)")}
 
 
 def first_clip(host, client, ctx, ev):
@@ -347,7 +364,7 @@ def first_clip(host, client, ctx, ev):
     return x
 
 
-def row_ba(host, client, ctx, ev):
+def row_auto_equip(host, client, ctx, ev):
     ready(host, client, ctx)
     ev["strip"] = strip_both(host, client, H1)
     ev["armed"] = both(host, client, {"cmd": "battle_give", "unit": H1, "item": RIFLE_T}, ("weaponId",)).get("weaponId")
@@ -359,11 +376,11 @@ def row_ba(host, client, ctx, ev):
     ok, ev["x"] = where(host, client, x, H1)
     ev.update(look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"B-auto": (ok, f"held clip {x}: on PILE host/client {ev['x']['pile']} (want both); H1 after the host's auto-equip "
-                           f"{ev['x']['unit']['host']} (want without {x})")}
+    return {"auto_equip-skips_held": (ok, f"held clip {x}: on PILE host/client {ev['x']['pile']} (want both); H1 after "
+                                          f"the host's auto-equip {ev['x']['unit']['host']} (want without {x})")}
 
 
-def row_bt(host, client, ctx, ev):
+def row_template_apply(host, client, ctx, ev):
     ready(host, client, ctx)
     ev["strip1"] = strip_both(host, client, H1)
     ev["given"] = [both(host, client, dict({"cmd": "battle_give", "unit": H1, "item": t}, **kw), ("weaponId",)).get("weaponId")
@@ -388,13 +405,14 @@ def row_bt(host, client, ctx, ev):
     ok, ev["x"] = where(host, client, x, H1)
     ev.update(lineSeen=seen, look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"B-tmpl": (ok and (seen is not None) == only,
-                       f"held clip {x}: on PILE host/client {ev['x']['pile']} (want both); H1 after the apply "
-                       f"{ev['x']['unit']['host']} (want without {x}); {TEXT_SHORT!r} seen after {seen} s (want shown exactly "
-                       f"when the held clip was the only one on the pile: {only})")}
+    return {"template_apply-skips_held": (
+        ok and (seen is not None) == only,
+        f"held clip {x}: on PILE host/client {ev['x']['pile']} (want both); H1 after the apply "
+        f"{ev['x']['unit']['host']} (want without {x}); {TEXT_SHORT!r} seen after {seen} s (want shown exactly "
+        f"when the held clip was the only one on the pile: {only})")}
 
 
-def row_bo(host, client, ctx, ev):
+def row_bulk_order(host, client, ctx, ev):
     ready(host, client, ctx)
     gs = of_type(host, GRENADE_T)
     g, ev["pick"] = pick(host, cell_of(host, gs[0]) if gs else None, gs[:1])
@@ -412,12 +430,13 @@ def row_bo(host, client, ctx, ev):
     ev.update(g=g, hostLog=log()[n0:], look=look(host, client))
     cleanup(host, client, ctx, ev)
     off = all(g not in [i[0] for i in u] for u in ev["c1"].values())
-    return {"B-order": (bool(got) and off, f"the client's inv_bulk answered after {ev['answerWithin']} s (want within {W_HOLD} "
-                                            f"s: {bool(got)}); C1 {ev['c1']['host']} (want without the host's held grenade {g} "
-                                            f"on both: {off})")}
+    return {"bulk_order-skips_held": (
+        bool(got) and off,
+        f"the client's inv_bulk answered after {ev['answerWithin']} s (want within {W_HOLD} s: {bool(got)}); "
+        f"C1 {ev['c1']['host']} (want without the host's held grenade {g} on both: {off})")}
 
 
-def row_t(host, client, ctx, ev):
+def row_turn_start(host, client, ctx, ev):
     ready(host, client, ctx)
     gs = [i for i in of_type(client, GRENADE_T) if on_page(client, i) and on_page(host, i)
           and at_cell(client, cell_of(client, i)) == [i] and at_cell(host, cell_of(host, i)) == [i]]   # one entry, page 1
@@ -442,11 +461,11 @@ def row_t(host, client, ctx, ev):
     ch = holds(client) or {}
     tab, lh = ch.get("table") or [-1, -1, -1, -1], ch.get("localHeld", -1)
     ev.update(t=t, endsDelta=d, pile=pile, clientHolds=ch, look=look(host, client), hash=G3F.hash_now(host, client))
-    return {"T-once": (d["start"] == 1, f"host ends delta over T {d} (want start 1; absent = 0)"),
-            "T-pile": (pile == [True, True], f"{t} on PILE host/client {pile} at turn 1 (want both)"),
-            "T-clear": (tab == [-1, -1, -1, -1] and lh == -1 and bool(closed),
-                        f"the client's holds.table {tab}, localHeld {lh} after its screen closed ({bool(closed)} after "
-                        f"{ev['clientClosedWithin']} s; want all -1 and -1)")}
+    return {"turn_start-once": (d["start"] == 1, f"host ends delta over turn_start {d} (want start 1; absent = 0)"),
+            "turn_start-pile": (pile == [True, True], f"{t} on PILE host/client {pile} at turn 1 (want both)"),
+            "turn_start-clear": (tab == [-1, -1, -1, -1] and lh == -1 and bool(closed),
+                                 f"the client's holds.table {tab}, localHeld {lh} after its screen closed "
+                                 f"({bool(closed)} after {ev['clientClosedWithin']} s; want all -1 and -1)")}
 
 
 def run_row(row, order, fn, host, client, ctx):
@@ -483,7 +502,7 @@ def run_boot(tag, rows, setup, fns, host_dir, client_dir, alive_at_end):
                 rc[gc.name] = gc.proc.returncode if gc.proc is not None else None
             except Exception as e:
                 rc[gc.name] = f"shutdown: {type(e).__name__}: {str(e)[:200]}"
-        print(f"[eq2c] boot {tag} shut down: {rc}", flush=True)
+        print(f"[test_equip_hold_ends] boot {tag} shut down: {rc}", flush=True)
 
 
 def main():
@@ -494,16 +513,20 @@ def main():
         cpu = subprocess.Popen(["typeperf", r"\Processor(_Total)\% Processor Time", "-si", "1", "-y", "-f", "CSV",
                                 "-o", CPU_CSV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as e:
-        print(f"[eq2c] typeperf not started: {e}", flush=True)
+        print(f"[test_equip_hold_ends] typeperf not started: {e}", flush=True)
     up = {}
     try:
-        fails = run_boot("L", ROWS_L, boot_l, {"L": row_l}, "eq2c_l_host", "eq2c_l_client", up)
-        fails += run_boot("S", ROWS_S, lambda h, c: spine(h, c, "S", EXTRA_S),
-                          {"BA": row_ba, "BT": row_bt, "BO": row_bo, "T": row_t}, "eq2c_s_host", "eq2c_s_client", up)
+        fails = run_boot("holder_leaves", ROWS_L, boot_holder_leaves, {"holder_leaves": row_holder_leaves},
+                         "equip_hold_ends_leave_host", "equip_hold_ends_leave_client", up)
+        fails += run_boot("tools_and_turn", ROWS_S, lambda h, c: spine(h, c, "tools_and_turn", EXTRA_S),
+                          {"auto_equip": row_auto_equip, "template_apply": row_template_apply,
+                           "bulk_order": row_bulk_order, "turn_start": row_turn_start},
+                          "equip_hold_ends_tools_host", "equip_hold_ends_tools_client", up)
         crash = sorted(session._crash_log_snapshot() - crash0)
-        fails += G3F.verdict("X", ROWS_X[0][1], {"X-crash": (not crash and up.get("L") is True and up.get("S") is True,
-                                                             f"new crash files {crash} (want none); host alive at the end of "
-                                                             f"boot L {up.get('L')}, boot S {up.get('S')}")},
+        fails += G3F.verdict("END", ROWS_X[0][1], {"no_crash": (
+            not crash and up.get("holder_leaves") is True and up.get("tools_and_turn") is True,
+            f"new crash files {crash} (want none); host alive at the end of "
+            f"boot holder_leaves {up.get('holder_leaves')}, boot tools_and_turn {up.get('tools_and_turn')}")},
                              {"crash": crash, "hostAlive": up, "cpu": cpu_pct()})
     finally:
         if cpu is not None:
