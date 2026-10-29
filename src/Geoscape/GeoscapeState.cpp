@@ -7028,6 +7028,17 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			}
 		}
 
+		// With private Separate research each monthly pass belongs to its mission
+		// owner, like an owned geoscape event. The host runs every player's pass
+		// but opens an arc's Ufopaedia article only during its own player's pass.
+		// Another player's pass opens none, even when its topics land in the
+		// host's profile: with the same faction, the month-zero pass files them
+		// there to seed both players' starting research. Shared research, PvP,
+		// SHARED and single-player campaigns open every arc article as before.
+		const bool showArcArticles = missionOwner.empty()
+			|| !save->usesSeparatePrivateResearch()
+			|| missionOwner == connectionTCP::seatName(connectionTCP::localSeat());
+
 		// start processing command array
 		for (auto* arcCommand : relevantArcScripts)
 		{
@@ -7074,12 +7085,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				{
 					if (ruleResearchSeq->getLookup().empty())
 					{
-						Ufopaedia::openArticle(_game, ruleResearchSeq->getName());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchSeq->getName());
 					}
 					else
 					{
 						save->addFinishedResearch(mod->getResearch(ruleResearchSeq->getLookup(), true), mod, hq, true);
-						Ufopaedia::openArticle(_game, ruleResearchSeq->getLookup());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchSeq->getLookup());
 					}
 				}
 			}
@@ -7093,12 +7106,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				{
 					if (ruleResearchRng->getLookup().empty())
 					{
-						Ufopaedia::openArticle(_game, ruleResearchRng->getName());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchRng->getName());
 					}
 					else
 					{
 						save->addFinishedResearch(mod->getResearch(ruleResearchRng->getLookup(), true), mod, hq, true);
-						Ufopaedia::openArticle(_game, ruleResearchRng->getLookup());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchRng->getLookup());
 					}
 				}
 			}
