@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include <json/json.h>
 
@@ -225,9 +226,11 @@ void hostFacilityDone(Game* game, int baseId, int x, int y,
 
 /// Manufacture batch finished on the host (time1Hour): replica materializes the
 /// produced items/crafts, removes the Production (freeing engineers), and mirrors
-/// the completion popup.
+/// the completion popup. craftIds are the ids the host gave the crafts this
+/// production built, so the replica builds the same crafts.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
-                        int units, int progress, bool sell);
+                        int units, int progress, bool sell,
+                        const std::vector<int>& craftIds = std::vector<int>());
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.

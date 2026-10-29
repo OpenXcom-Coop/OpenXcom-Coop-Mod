@@ -4223,7 +4223,7 @@ void GeoscapeState::time1Hour()
 					prodUnits = std::min(prodUnits, pair.first->getAmountTotal());
 				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
 					pair.first->getRules()->getName(), prodUnits, pair.second,
-					pair.first->getSellItems());
+					pair.first->getSellItems(), pair.first->getCoopBuiltCraftIds());
 				xbase->removeProduction(pair.first);
 			}
 		}

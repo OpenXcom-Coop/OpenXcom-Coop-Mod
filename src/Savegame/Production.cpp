@@ -172,6 +172,7 @@ productionProgress_e Production::step(Base * b, SavedGame * g, const Mod *m, Lan
 			if (ruleCraft)
 			{
 				Craft *craft = new Craft(ruleCraft, b, g->getId(ruleCraft->getType()));
+				_coopBuiltCraftIds.push_back(craft->getId());
 				craft->initFixedWeapons(m);
 				craft->checkup();
 				int transferTimeCraft = std::max(0, _rules->getTransferTimes().size() < 3 ? 0 : _rules->getTransferTimes().at(2));

@@ -14269,6 +14269,9 @@ void connectionTCP::refreshSeparateBaseOwnership()
 		if (!save->getSavedBattle())
 		{
 			SeparateEcon::normalizeSoldierIds(_game);
+			// Each player's starting base came from its own new-game world, so
+			// craft ids repeat per base until the host renumbers them.
+			SeparateEcon::normalizeCraftIds(_game);
 		}
 		// Vehicle ownership is persisted by player name. Resolve that stable name
 		// to this connection's current seats after the lobby roster is available.
