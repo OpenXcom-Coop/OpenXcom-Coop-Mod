@@ -1,25 +1,34 @@
-"""W2-H59 stage S-A (spec rewrite/prompts/w2h59_host_save_on_drop.md (f); TASK 0 rewrite/w2h59-task0/sa/CONSTANTS.md; lead L-H54-2,
-ruling R-H59-0; F18260, F18431): in a co-op campaign every host geoscape save is deferred - SaveGameState arms it and shows "Saving..."
-(CoopState 54) until the second player's world arrives. When that player drops while the 54 is up, the drop path pushes the wait dialog
-62 over the 54 and CoopSession::onClientDrop() clears the armed name (a main-thread -3 keeps it armed under a READY 62): the file is never
-written. Six rows, one fresh boot pair each (key "49197", dirs w2h59_<row>_host / _client; session.new_campaign SEPARATE gm1 tcp, R-H
-campaign_mode="shared"; both tops GeoscapeState unchanged STABLE_S within BOOT_S):
-  R-Q quick save + client.kill(); R-A auto_geoscape + kill; R-S quick + host force_send_failure (the host's next PING fails: W2-H55's
-  canonical drop); R-T quick + host force_server_error (TEST-ONLY lever, commit P1: a main-thread -3 with the socket open, the -3 campaign
-  arm a3); R-H SHARED quick + kill (no blob cell: a SHARED save embeds no coopClientSaves); R-C quick, the client running (control, LAST).
-The drop rows suspend the client (NtSuspendProcess by its own GameClient pid; resumed or killed in finally) at the host's first sight of
-the 54 and read the host HOLD_S after the drop event (R-S: after SEND_LOST_GEO, R-T: after the 62; then the client is killed); R-C reads
-1 s after the 54 is gone and the file written.
-Cells (X = Q A S T H C): X-pre GUARD (the 54 on top within SEEN54_S, the armed name = the row's file; drop rows: CLEAR +0 at the 54, the
-suspend rc 0; Q A H: the client exited; S: armed + ARMED +1 + SEND_LOST_GEO +1 within W_LOST; T: SERVER +1 + the 62 within W_62);
-X-file FIX (written: present, mtime newer than B's); X-dialog FIX (B's stack + [CoopState], code 62); X-blob FIX (Q A S T: one
-coopClientSaves entry, key host_<saveID at the 54>_<B clientName>.data, its FNV-1a 64 = B's coop_file_info fnv1a64); X-name GUARD (Q A S
-H C: pendingHostSaveName ""); T-name FIX; X-path FIX ((H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1); T (1, 1, 1, 0) and SERVER 1);
-X-common GUARD (host alive, no new crash_*.log since B); C-file / C-dialog / C-blob / C-path GUARD (written, B's stack within W_SAVE, the
-single entry at the saveID after with coop_file_info's fnv after the write, (0, 1, 0, 0)). 41 cells. Red (commit R1): exit 2, RED exactly
-on Q / A / S -file -dialog -blob -path, T-file, T-dialog, T-name, T-blob, T-path, H-file, H-dialog, H-path (20).
-A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
-row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
+"""test_host_save_on_drop.py: in a co-op campaign every host geoscape save is deferred - SaveGameState arms it and shows
+"Saving..." (CoopState 54) until the second player's world arrives. When that player drops while the 54 is up, the host
+writes the armed save at once, with the partner's world it already holds, and the drop's wait dialog 62 is left on top
+of the stack the save started from. When broken, the drop path pushes the 62 over the 54 and
+CoopSession::onClientDrop() clears the armed name (a main-thread -3 keeps it armed under a READY 62): the file is never
+written. Six rows, one fresh boot pair each (key "49197", dirs save_on_drop_<row>_host / _client;
+session.new_campaign SEPARATE gm1 tcp, shared_kill campaign_mode="shared"; both tops GeoscapeState unchanged STABLE_S
+within BOOT_S):
+  quick_kill: quick save + client.kill(); auto_kill: auto_geoscape + kill; send_failure: quick + host
+  force_send_failure (the host's next PING fails: the canonical drop); server_error: quick + host force_server_error (a
+  test command: a main-thread -3 with the socket open, taken by updateCoopTask's -3 campaign arm); shared_kill: SHARED
+  quick + kill (no blob cell: a SHARED save embeds no coopClientSaves); client_running: quick, the client running
+  (control, LAST).
+The drop rows suspend the client (NtSuspendProcess by its own GameClient pid; resumed or killed in finally) at the
+host's first sight of the 54 and read the host HOLD_S after the drop event (send_failure: after SEND_LOST_GEO,
+server_error: after the 62; then the client is killed); client_running reads 1 s after the 54 is gone and the file
+written.
+Cells, named <row>-<check>: -pre GUARD (the 54 on top within SEEN54_S, the armed name = the row's file; drop rows: CLEAR
++0 at the 54, the suspend rc 0; quick_kill, auto_kill, shared_kill: the client exited; send_failure: armed + ARMED +1 +
+SEND_LOST_GEO +1 within W_LOST; server_error: SERVER +1 + the 62 within W_62); -file FIX (written: present, mtime newer
+than the baseline's); -dialog FIX (the baseline stack + [CoopState], code 62); -blob FIX (quick_kill, auto_kill,
+send_failure, server_error: one coopClientSaves entry, key host_<saveID at the 54>_<baseline clientName>.data, its
+FNV-1a 64 = the baseline coop_file_info fnv1a64); -name GUARD (pendingHostSaveName ""; a FIX for server_error);
+-path FIX ((DEFERRED_DROP, CLEAR, FREEZE, DROP) = (1, 1, 1, 1); server_error (1, 1, 1, 0) and SERVER 1); -common GUARD
+(host alive, no new crash_*.log since the baseline). client_running's -file / -dialog / -blob / -path are GUARDs
+(written, the baseline stack within W_SAVE, the single entry at the saveID after with coop_file_info's fnv after the
+write, (0, 1, 0, 0)). 41 cells. When broken: exit 2, failing exactly the -file, -dialog, -blob and -path cells of
+quick_kill, auto_kill and send_failure, server_error's -file, -dialog, -name, -blob and -path, and shared_kill's -file,
+-dialog and -path (20).
+A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE
+EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
 Run: python tools/coop_test/test_host_save_on_drop.py
 """
@@ -34,11 +43,12 @@ KEY = "49197"
 QUICK, AUTO = "_quick_.asav", "_autogeo_.asav"
 POLL_S, POLL54_S, SEEN54_S, HOLD_S, W_LOST, W_62, W_SAVE, STABLE_S, BOOT_S = 0.1, 0.005, 10.0, 5.0, 5.0, 5.0, 10.0, 2.0, 60.0
 RC_OK = (0, 3221226505)
-NEEDLES = {"H59LOG": "[coop] the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
+NEEDLES = {"DEFERRED_DROP": "[coop] the partner dropped during the host's deferred save",
+           "CLEAR": "[coop-session] clearDeferredSave",
            "FREEZE": "[coop-session] freeze (lobbyMode=", "DROP": "[coop-session] onClientDrop", "ARMED": "[coop-test] force_send_failure: armed",
            "SEND_LOST_GEO": "[coop] the partner was lost on a failed send - the canonical drop",
            "SERVER": "[coop-test] force_server_error: onConnect -3 (main thread)"}
-PATH4 = ("H59LOG", "CLEAR", "FREEZE", "DROP")
+PATH4 = ("DEFERRED_DROP", "CLEAR", "FREEZE", "DROP")
 
 class Stop(Exception):
     """a WAIT timed out or a precondition missed: the row ends here"""
@@ -98,12 +108,12 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 
 def written(folder, before, f):
-    """f present in the folder and its mtime_ns newer than B's (or absent in B)"""
+    """f present in the folder and its mtime_ns newer than in before (or absent there)"""
     a, b = folder.get(f), before.get(f)
     return bool(a and (b is None or a[1] > b[1]))
 
@@ -134,7 +144,8 @@ def blobs(path):
 _K32, _NT = ctypes.windll.kernel32, ctypes.windll.ntdll
 
 def _nt(gc, fn):
-    """NtSuspendProcess / NtResumeProcess on THIS GameClient's own pid (never by image name: other lanes run games) -> rc"""
+    """NtSuspendProcess / NtResumeProcess on THIS GameClient's own pid (never by image name: other harness slots run
+    games) -> rc"""
     _K32.OpenProcess.restype = ctypes.c_void_p
     h = _K32.OpenProcess(0x0800, False, gc.proc.pid)  # PROCESS_SUSPEND_RESUME
     rc = fn(ctypes.c_void_p(h))
@@ -188,12 +199,13 @@ class Row:
         self.end(results, walls, cap=self.x.cap)
 
 def baseline(r, x, shared):
-    """B, just before the trigger: crash snapshot, the host log's line count, stack, get_coop, coop_file_info (SEPARATE), the folder"""
+    """The baseline, just before the trigger: crash snapshot, the host log's line count, stack, get_coop, coop_file_info
+    (SEPARATE), the folder"""
     r.cr0, r.n_h = session._crash_log_snapshot(), len(log(x.host))
-    r.ev["B"] = {"stack": stack(x.host), "get_coop": coop(x.host), "folder": files(x.host)}
+    r.ev["baseline"] = {"stack": stack(x.host), "get_coop": coop(x.host), "folder": files(x.host)}
     if not shared:
-        r.ev["B"]["coop_file_info"] = blobinfo(x.host)
-    return r.ev["B"]
+        r.ev["baseline"]["coop_file_info"] = blobinfo(x.host)
+    return r.ev["baseline"]
 
 def at54(r, x, stype, hold):
     """trigger(type), then poll every POLL54_S up to SEEN54_S: the host's top CoopState with coop_dialog_info.code 54 -> suspend the
@@ -216,11 +228,11 @@ def at54(r, x, stype, hold):
     ev["at54"] = {"missed": "the host's 54 not on top within %.0f s" % SEEN54_S, "stack": stack(h), "dialog": dlg(h), "get_coop": coop(h)}
     return tt, None
 
-def read(r, x, f, B, tt):
+def read(r, x, f, base, tt):
     h = x.host
     rd = {"t": round(time.time() - tt, 2), "stack": stack(h), "dialog": dlg(h), "get_coop": coop(h), "folder": files(h),
           "needles": counts(h, r.n_h), "alive": alive(h), "new crash": sorted(session._crash_log_snapshot() - r.cr0)}
-    rd["written"] = written(rd["folder"], B["folder"], f)
+    rd["written"] = written(rd["folder"], base["folder"], f)
     rd["blob"] = blobs(os.path.join(h.user_dir, "xcom1", f)) if rd["written"] else None
     return rd
 
@@ -260,8 +272,8 @@ def drop_server(r, x, tt):
             "ok, SERVER +1, the host's 62 on top within %.0f s" % W_62)
 
 def drop_row(x, results, walls, rid, p, stype, f, drop, shared=False):
-    """R-Q / R-A / R-S / R-T / R-H: trigger, at54 (suspend), the drop event, read at HOLD_S, the cells"""
-    blob = p in "QAST"
+    """The drop rows: trigger, at54 (suspend), the drop event, read at HOLD_S, the cells"""
+    blob = p in "quick_kill auto_kill send_failure server_error"
     cells = ["%s-%s" % (p, c) for c in (("pre", "file", "dialog") + (("blob",) if blob else ()) + ("name", "path", "common"))]
     r = Row(rid, cells, x)
     if x.err:
@@ -269,7 +281,7 @@ def drop_row(x, results, walls, rid, p, stype, f, drop, shared=False):
     h, ev = x.host, r.ev
     try:
         ev["cpu"] = x.cpu
-        B = baseline(r, x, shared)
+        base = baseline(r, x, shared)
         tt, a = at54(r, x, stype, True)
         pre = "the 54 on top within %.0f s, the armed name %s, CLEAR +0 at the 54, the suspend rc 0" % (SEEN54_S, f)
         if a is None or a["name"] != f or a["CLEAR"] != 0 or a.get("suspend rc") != 0:
@@ -285,7 +297,7 @@ def drop_row(x, results, walls, rid, p, stype, f, drop, shared=False):
         td = time.time()
         while time.time() - td < HOLD_S:
             time.sleep(0.05)
-        rd = ev["read"] = read(r, x, f, B, tt)
+        rd = ev["read"] = read(r, x, f, base, tt)
         if alive(x.client):
             x.client.kill()
             x.held = False
@@ -293,79 +305,93 @@ def drop_row(x, results, walls, rid, p, stype, f, drop, shared=False):
         r.evidence()
         r.cell(p + "-pre", "GUARD", pre + "; " + what, True)
         n = rd["needles"]
-        r.cell(p + "-file", "FIX", "%s written (present, mtime newer than B's) %.0f s after the drop (red today: not written, F18260)" % (f, HOLD_S),
-               rd["written"])
-        r.cell(p + "-dialog", "FIX", "the host stack = B's + [CoopState] with code 62 (red today: B + [CoopState, CoopState], the 54 under "
-               "the 62)", rd["stack"] == B["stack"] + ["CoopState"] and rd["dialog"].get("code") == 62)
+        r.cell(p + "-file", "FIX", "%s written (present, mtime newer than the baseline's) %.0f s after the drop "
+               "(when broken: not written)" % (f, HOLD_S), rd["written"])
+        r.cell(p + "-dialog", "FIX", "the host stack = the baseline's + [CoopState] with code 62 (when broken: the "
+               "baseline + [CoopState, CoopState], the 54 under the 62)",
+               rd["stack"] == base["stack"] + ["CoopState"] and rd["dialog"].get("code") == 62)
         if blob:
-            key = "host_%s_%s.data" % (a["saveID"], B["get_coop"].get("clientName"))
-            r.cell(p + "-blob", "FIX", "the file's coopClientSaves: 1 entry, key %s, FNV-1a 64 = B's coop_file_info %s (red today: no file)" % (
-                key, B["coop_file_info"].get("fnv1a64")), blob_ok(rd, key, B["coop_file_info"].get("fnv1a64")))
-        if p == "T":
-            r.cell("T-name", "FIX", "pendingHostSaveName \"\" at the read (red today: still armed, a3 has no onClientDrop, F18408)",
-                   rd["get_coop"].get("pendingHostSaveName") == "")
-            r.cell("T-path", "FIX", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 0) and SERVER 1 since B (red today: (0, 0, 1, 0))",
+            key = "host_%s_%s.data" % (a["saveID"], base["get_coop"].get("clientName"))
+            r.cell(p + "-blob", "FIX", "the file's coopClientSaves: 1 entry, key %s, FNV-1a 64 = the baseline "
+                   "coop_file_info %s (when broken: no file)" % (key, base["coop_file_info"].get("fnv1a64")),
+                   blob_ok(rd, key, base["coop_file_info"].get("fnv1a64")))
+        if p == "server_error":
+            r.cell("server_error-name", "FIX", "pendingHostSaveName \"\" at the read (when broken: still armed, the "
+                   "main-thread -3 arm calls no onClientDrop)", rd["get_coop"].get("pendingHostSaveName") == "")
+            r.cell("server_error-path", "FIX", "(DEFERRED_DROP, CLEAR, FREEZE, DROP) = (1, 1, 1, 0) and SERVER 1 since "
+                   "the baseline (when broken: (0, 0, 1, 0))",
                    tuple(n[k] for k in PATH4) == (1, 1, 1, 0) and n["SERVER"] == 1)
         else:
-            r.cell(p + "-name", "GUARD", "pendingHostSaveName \"\" at the read (onClientDrop clears it)", rd["get_coop"].get("pendingHostSaveName") == "")
-            r.cell(p + "-path", "FIX", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1) since B (red today: (0, 0, 1, 1))",
-                   tuple(n[k] for k in PATH4) == (1, 1, 1, 1))
-        r.cell(p + "-common", "GUARD", "the host alive at the read, no new crash_*.log since B", rd["alive"] and not rd["new crash"])
+            r.cell(p + "-name", "GUARD", "pendingHostSaveName \"\" at the read (onClientDrop clears it)",
+                   rd["get_coop"].get("pendingHostSaveName") == "")
+            r.cell(p + "-path", "FIX", "(DEFERRED_DROP, CLEAR, FREEZE, DROP) = (1, 1, 1, 1) since the baseline "
+                   "(when broken: (0, 0, 1, 1))", tuple(n[k] for k in PATH4) == (1, 1, 1, 1))
+        r.cell(p + "-common", "GUARD", "the host alive at the read, no new crash_*.log since the baseline",
+               rd["alive"] and not rd["new crash"])
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
 
-def row_q(x, results, walls):
-    drop_row(x, results, walls, "R-Q", "Q", "quick", QUICK, drop_kill)
+def row_quick_kill(x, results, walls):
+    drop_row(x, results, walls, "quick_kill", "quick_kill", "quick", QUICK, drop_kill)
 
-def row_a(x, results, walls):
-    drop_row(x, results, walls, "R-A", "A", "auto_geoscape", AUTO, drop_kill)
+def row_auto_kill(x, results, walls):
+    drop_row(x, results, walls, "auto_kill", "auto_kill", "auto_geoscape", AUTO, drop_kill)
 
-def row_s(x, results, walls):
-    drop_row(x, results, walls, "R-S", "S", "quick", QUICK, drop_send)
+def row_send_failure(x, results, walls):
+    drop_row(x, results, walls, "send_failure", "send_failure", "quick", QUICK, drop_send)
 
-def row_t(x, results, walls):
-    drop_row(x, results, walls, "R-T", "T", "quick", QUICK, drop_server)
+def row_server_error(x, results, walls):
+    drop_row(x, results, walls, "server_error", "server_error", "quick", QUICK, drop_server)
 
-def row_h(x, results, walls):
-    drop_row(x, results, walls, "R-H", "H", "quick", QUICK, drop_kill, shared=True)
+def row_shared_kill(x, results, walls):
+    drop_row(x, results, walls, "shared_kill", "shared_kill", "quick", QUICK, drop_kill, shared=True)
 
-def row_c(x, results, walls):
+def row_client_running(x, results, walls):
     """the control (LAST): the quick save with the client running - the 54 closes and QUICK is written when its world arrives"""
-    r = Row("R-C", ["C-pre", "C-file", "C-dialog", "C-blob", "C-name", "C-path", "C-common"], x)
+    r = Row("client_running", ["client_running-pre", "client_running-file", "client_running-dialog",
+                               "client_running-blob", "client_running-name", "client_running-path",
+                               "client_running-common"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, ev = x.host, r.ev
     try:
         ev["cpu"] = x.cpu
-        B = baseline(r, x, False)
+        base = baseline(r, x, False)
         tt, a = at54(r, x, "quick", False)
         pre = "the 54 on top within %.0f s, the armed name %s (no suspend; CLEAR at the 54 recorded)" % (SEEN54_S, QUICK)
         if a is None or a["name"] != QUICK:
             r.evidence()
-            r.cell("C-pre", "GUARD", pre, False)
-            raise Stop("C-pre: at54 %s" % ev["at54"])
+            r.cell("client_running-pre", "GUARD", pre, False)
+            raise Stop("client_running-pre: at54 %s" % ev["at54"])
         try:
-            ev["54 gone + written s"] = wait("the 54 gone, B's stack and %s written" % QUICK,
-                                             lambda: stack(h) == B["stack"] and written(files(h), B["folder"], QUICK), W_SAVE, 0.05)
+            ev["54 gone + written s"] = wait("the 54 gone, the baseline stack and %s written" % QUICK,
+                                             lambda: stack(h) == base["stack"] and written(files(h), base["folder"],
+                                                                                           QUICK), W_SAVE, 0.05)
         except Stop as e:
             ev["wait"] = str(e)
         time.sleep(1.0)
-        rd = ev["read"] = read(r, x, QUICK, B, tt)
+        rd = ev["read"] = read(r, x, QUICK, base, tt)
         rd["coop_file_info after"] = blobinfo(h)
         met = "wait" not in ev
         r.evidence()
-        r.cell("C-pre", "GUARD", pre, True)
+        r.cell("client_running-pre", "GUARD", pre, True)
         n = rd["needles"]
-        r.cell("C-file", "GUARD", "%s written within %.0f s (F18261)" % (QUICK, W_SAVE), met and rd["written"])
-        r.cell("C-dialog", "GUARD", "the host stack = B's within %.0f s and at the read" % W_SAVE, met and rd["stack"] == B["stack"])
-        key = "host_%s_%s.data" % (rd["get_coop"].get("saveID"), B["get_coop"].get("clientName"))
+        r.cell("client_running-file", "GUARD", "%s written within %.0f s" % (QUICK, W_SAVE), met and rd["written"])
+        r.cell("client_running-dialog", "GUARD",
+               "the host stack = the baseline's within %.0f s and at the read" % W_SAVE,
+               met and rd["stack"] == base["stack"])
+        key = "host_%s_%s.data" % (rd["get_coop"].get("saveID"), base["get_coop"].get("clientName"))
         fv = rd["coop_file_info after"].get("fnv1a64")
-        r.cell("C-blob", "GUARD", "the file's single coopClientSaves entry: key %s, the FNV of coop_file_info after the write %s" % (key, fv),
+        r.cell("client_running-blob", "GUARD", "the file's single coopClientSaves entry: key %s, the FNV of "
+               "coop_file_info after the write %s" % (key, fv),
                blob_ok(rd, key, fv))
-        r.cell("C-name", "GUARD", "pendingHostSaveName \"\" at the read", rd["get_coop"].get("pendingHostSaveName") == "")
-        r.cell("C-path", "GUARD", "(H59LOG, CLEAR, FREEZE, DROP) = (0, 1, 0, 0) since B", tuple(n[k] for k in PATH4) == (0, 1, 0, 0))
-        r.cell("C-common", "GUARD", "the host alive at the read, no new crash_*.log since B", rd["alive"] and not rd["new crash"])
+        r.cell("client_running-name", "GUARD", "pendingHostSaveName \"\" at the read",
+               rd["get_coop"].get("pendingHostSaveName") == "")
+        r.cell("client_running-path", "GUARD", "(DEFERRED_DROP, CLEAR, FREEZE, DROP) = (0, 1, 0, 0) since the baseline",
+               tuple(n[k] for k in PATH4) == (0, 1, 0, 0))
+        r.cell("client_running-common", "GUARD", "the host alive at the read, no new crash_*.log since the baseline",
+               rd["alive"] and not rd["new crash"])
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
@@ -409,8 +435,12 @@ def shut(x):
             failed.append("%s shutdown %s" % (x.tag, gc.name))
     return failed
 
-ROWS = (("R-Q", "w2h59_q", row_q, False), ("R-A", "w2h59_a", row_a, False), ("R-S", "w2h59_s", row_s, False),
-        ("R-T", "w2h59_t", row_t, False), ("R-H", "w2h59_h", row_h, True), ("R-C", "w2h59_c", row_c, False))
+ROWS = (("quick_kill", "save_on_drop_quick_kill", row_quick_kill, False),
+        ("auto_kill", "save_on_drop_auto_kill", row_auto_kill, False),
+        ("send_failure", "save_on_drop_send_failure", row_send_failure, False),
+        ("server_error", "save_on_drop_server_error", row_server_error, False),
+        ("shared_kill", "save_on_drop_shared_kill", row_shared_kill, True),
+        ("client_running", "save_on_drop_client_running", row_client_running, False))
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
