@@ -1,38 +1,46 @@
-"""R5-U6 S-D rows AE1-AE9 (boot DA, gm2 Small Scout: the client plays the aliens, seat 1; the host the seven X-COM
-soldiers, seat 0; default options, so "Enable XCOM Equipment for Aliens in PVP" is on): the PvP alien seat equips its own
-aliens on the pre-battle screen from the ONE X-COM craft pile both sides share (owner D236 (b), D274 and its 2026-10-13
-confirmation, R-U6-OF3, QU6-6 (a)): a drop from either side lands on the pile and is visible to both, either side may take
-anything on it, no refusal, the aliens' starting gear stays in their hands, and after the equip screen every drop lands on
-the dropping unit's own tile.
+"""PvP alien equipment, gm2 (boot client_aliens, Small Scout: the client plays the aliens, seat 1; the host the seven
+X-COM soldiers, seat 0; default options, so "Enable XCOM Equipment for Aliens in PVP" is on): the PvP alien seat equips
+its own aliens on the pre-battle screen from the ONE X-COM craft pile both sides share. A drop from either side lands on
+the pile and is visible to both, either side may take anything on it, nothing is refused, the aliens' starting gear
+stays in their hands, and after the equip screen every drop lands on the dropping unit's own tile.
 
-Spec: docs repo rewrite/prompts/r5u6_pvp_options.md AMENDMENT U6-1.5.6 (f') with U6-1.7's run-time rules and the orchestrator
-rulings R-U6-SD-1 / R-U6-SD-2 (D-1 as R-U6-SD-2 replaces it: every drop on the pile goes to the first free ground cell in
-column-major order where the item fits, across the WHOLE ground grid, the screen scrolled to that cell's page first;
-D-2: PISTOL = the first A_START item, right hand, left hand, then the rest by id, whose type is not on the pile; the U6-1.7
-swap: no STR_RIFLE on the pile, so RIFLE is the lowest-column pile item that fits BACKPACK_CELL). Constants: docs repo
-rewrite/r5u6-task0/sd/CONSTANTS.md (TASK 0 boots DAa, DAb, DAc, DAd on the unchanged build). No id is pinned (S25).
+Rules the steps follow: every drop on the pile goes to the first free ground cell in column-major order where the
+item fits, across the WHOLE ground grid, the screen scrolled to that cell's page first. PISTOL = the first A_START item
+(right hand, left hand, then the rest by id) whose type is not on the pile. RIFLE = the pile's STR_RIFLE; with none on
+the pile, the pile item with the lowest ground column that fits BACKPACK_CELL. No item id is pinned: every id is read
+at run time.
 
-Boot DA (key 49065): set_seed 1, the client joins and takes the Alien team (gamemode 2), the PSR drive without its last line;
-both briefings; R0 on each machine (A = the client seat's first unit with items, A_START, A_SPAWN); the host's briefing OK ->
-its screen on H1 (PILE, PILE_IDS = G(host)); dismiss_client_briefing (a bounded wait for the client's top); CENSUS0.
-  AE1  the alien seat's screen and its own gear: AE1-counted, AE1-screen, AE1-ground, AE1-gear
-  AE2  the alien takes RIFLE from the pile into BACKPACK_CELL (the client's real UI): AE2-order, AE2-held, AE2-gone
-  AE3  the alien's own PISTOL goes on the shared pile: AE3-order, AE3-pile, AE3-seen
-  AE4  the X-COM player takes it onto H1_CELL (host-local real UI): AE4-held, AE4-gone
-  AE5  the X-COM player drops it back on the pile: AE5-pile, AE5-seen
-  AE6  the alien puts RIFLE back: AE6-back, AE6-seen
-  AE7  turn 1 with X-COM gear (RIFLE into BACKPACK_CELL again, both OKs): AE7-turn, AE7-held, AE7-census
-  AE8  a soldier's turn-1 drop lands on its own tile (host): AE8-ground, AE8-tile
-  AE9  an alien's turn-1 drop lands on its own tile (host END TURN, the client's IV5-shaped drop): AE9-ground, AE9-order,
-       AE9-tile
-Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new lane crash file.
+Boot client_aliens (key 49065): set_seed 1, the client joins and takes the Alien team (gamemode 2),
+repro_pvp_side_relative's gm2 drive without its last line; both briefings; the initial reads on each machine (A = the
+client seat's first unit with items, A_START, A_SPAWN); the host's briefing OK -> its screen on H1, the unit it
+opens on (PILE, PILE_IDS = G(host)); dismiss_client_briefing (a bounded wait for the client's top); CENSUS0.
+  alien_screen_opens       the alien seat's screen and its own gear: both_seats_counted, alien_screen_up,
+                           alien_sees_pile, alien_keeps_start_gear
+  alien_takes_rifle        the alien takes RIFLE from the pile into BACKPACK_CELL (the client's real UI):
+                           rifle_take_order, rifle_held_by_alien, rifle_gone_from_xcom_screen
+  alien_drops_pistol       the alien's own PISTOL goes on the shared pile: pistol_drop_order, pistol_on_pile,
+                           xcom_sees_pistol
+  xcom_takes_pistol        the X-COM player takes it onto H1_CELL (host-local real UI): pistol_held_by_xcom,
+                           pistol_gone_from_alien_screen
+  xcom_returns_pistol      the X-COM player drops it back on the pile: pistol_back_on_pile, alien_sees_pistol_back
+  alien_returns_rifle      the alien puts RIFLE back: rifle_back_on_pile, xcom_sees_rifle
+  turn_one_with_xcom_gear  turn 1 with X-COM gear (RIFLE into BACKPACK_CELL again, both OKs): turn_one_starts,
+                           alien_keeps_rifle, item_census_unchanged
+  soldier_drop_own_tile    a soldier's turn-1 drop lands on its own tile (host): soldier_ground_is_tile,
+                           soldier_drop_lands
+  alien_drop_own_tile      an alien's turn-1 drop lands on its own tile (the host's END TURN, then the client drops
+                           from A's inventory): alien_ground_is_tile, alien_drop_order, alien_drop_lands
+Each row ends with a common cell (<row>_common): every hash bucket EQUAL, desyncSeen false on both, no new crash
+file.
 
-RED on the unchanged build (commit D1): AE1-counted, AE1-screen, AE1-ground, AE2-order, AE2-held, AE2-gone, AE3-order,
-AE3-pile, AE3-seen, AE4-held, AE4-gone, AE5-pile, AE5-seen, AE6-back, AE6-seen, AE7-held; every other cell PASS. One
-EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its
-bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails that row "staging".
-run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
-cell passes, else 2. test_alien_equip_gm3.py imports this file's helpers.
+On a build without this feature, these cells fail: both_seats_counted, alien_screen_up, alien_sees_pile,
+rifle_take_order, rifle_held_by_alien, rifle_gone_from_xcom_screen, pistol_drop_order, pistol_on_pile,
+xcom_sees_pistol, pistol_held_by_xcom, pistol_gone_from_alien_screen, pistol_back_on_pile, alien_sees_pistol_back,
+rifle_back_on_pile, xcom_sees_rifle, alien_keeps_rifle; every other cell passes. One EVIDENCE line per row, one
+PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
+CAPTURE line and fails every row "boot"; a staging step past its bound fails that row "staging". Run it in the
+foreground to completion: one run is the result, with no skip path; exit 0 only when every cell passes, else 2.
+test_alien_equip_gm3, test_alien_equip_cycle and test_alien_equip_off import this file's helpers.
 
 Run:  python tools/coop_test/test_alien_equip.py
 """
@@ -55,23 +63,28 @@ import test_prebattle_equip as PEQ  # noqa: E402
 from test_client_shoot import new_contexts  # noqa: E402
 
 KEY = "49065"
-SEED = 1                          # set_seed on the host before its lobby and right before newbattle_ok (BER / PSR)
+SEED = 1                          # set_seed on the host before its lobby and right before newbattle_ok
 MISSION = "STR_SMALL_SCOUT"
 GROUND, BACK, BELT, LH, RH = "STR_GROUND", "STR_BACK_PACK", "STR_BELT", "STR_LEFT_HAND", "STR_RIGHT_HAND"
 SDLK_RIGHT, COLS, GROUND_ROWS = 275, 20, 3   # vanilla's ground-scroll key (keyBattleRight); one ground page is 20 x 3
 STEP_S, SCREEN_S, LAND_S, ORDER_S, CLICK_S, POLL_S = 30, 15, 10, 20, 2, 0.1
-ROWS = (("AE1", ("AE1-counted", "AE1-screen", "AE1-ground", "AE1-gear", "AE1-common")),
-        ("AE2", ("AE2-order", "AE2-held", "AE2-gone", "AE2-common")),
-        ("AE3", ("AE3-order", "AE3-pile", "AE3-seen", "AE3-common")),
-        ("AE4", ("AE4-held", "AE4-gone", "AE4-common")),
-        ("AE5", ("AE5-pile", "AE5-seen", "AE5-common")),
-        ("AE6", ("AE6-back", "AE6-seen", "AE6-common")),
-        ("AE7", ("AE7-turn", "AE7-held", "AE7-census", "AE7-common")),
-        ("AE8", ("AE8-ground", "AE8-tile", "AE8-common")),
-        ("AE9", ("AE9-ground", "AE9-order", "AE9-tile", "AE9-common")))
+ROWS = (("alien_screen_opens", ("both_seats_counted", "alien_screen_up", "alien_sees_pile", "alien_keeps_start_gear",
+                                "alien_screen_opens_common")),
+        ("alien_takes_rifle", ("rifle_take_order", "rifle_held_by_alien", "rifle_gone_from_xcom_screen",
+                               "alien_takes_rifle_common")),
+        ("alien_drops_pistol", ("pistol_drop_order", "pistol_on_pile", "xcom_sees_pistol",
+                                "alien_drops_pistol_common")),
+        ("xcom_takes_pistol", ("pistol_held_by_xcom", "pistol_gone_from_alien_screen", "xcom_takes_pistol_common")),
+        ("xcom_returns_pistol", ("pistol_back_on_pile", "alien_sees_pistol_back", "xcom_returns_pistol_common")),
+        ("alien_returns_rifle", ("rifle_back_on_pile", "xcom_sees_rifle", "alien_returns_rifle_common")),
+        ("turn_one_with_xcom_gear", ("turn_one_starts", "alien_keeps_rifle", "item_census_unchanged",
+                                     "turn_one_with_xcom_gear_common")),
+        ("soldier_drop_own_tile", ("soldier_ground_is_tile", "soldier_drop_lands", "soldier_drop_own_tile_common")),
+        ("alien_drop_own_tile", ("alien_ground_is_tile", "alien_drop_order", "alien_drop_lands",
+                                 "alien_drop_own_tile_common")))
 
 
-# ===================== shared helpers (test_alien_equip_gm3 imports them) =====================
+# ===================== shared helpers (the three sibling tests import them) ======================
 
 
 def es(gc, key):
@@ -143,7 +156,7 @@ def screen_on(gc, uid):
 
 
 def sizes():
-    """{type: (invWidth, invHeight)} from the ruleset the game reads (the Release deploy, F6757)."""
+    """{type: (invWidth, invHeight)} from the ruleset the game reads (the Release deploy beside the exe)."""
     p = os.path.join(os.path.dirname(os.path.abspath(harness.EXE)), "standard", "xcom1", "items.rul")
     d, cur = {}, None
     with open(p, encoding="utf-8") as f:
@@ -170,7 +183,7 @@ def foot(t, x, y):
 
 
 def free_cell(gc, its, uid, itype, slot=BACK):
-    """U6-1.7: the first free `slot` cell, row-major, of `uid` where `itype` fits (cells minus the unit's items)."""
+    """The first free `slot` cell, row-major, of `uid` where `itype` fits (cells minus the unit's items)."""
     if not SLOTS:
         SLOTS.update({k: {tuple(c) for c in v["cells"]} for k, v in (gc.cmd({"cmd": "inventory_view"}).get("slots") or {}).items()})
     cells, occ = SLOTS.get(slot) or set(), set()
@@ -198,8 +211,8 @@ def x_max(lay):
 
 
 def free_ground(gc, itype):
-    """R-U6-SD-2 (replaces R-U6-SD-1 D-1's page-0 search): the first free ground cell where the item fits, column-major
-    (x, then y) across the WHOLE ground grid (x past 19 = page 1, ...) on the pages the screen reaches (page p while the
+    """The first free ground cell where the item fits, column-major (x, then y) across the WHOLE ground grid, not only
+    page 0 (x past 19 = page 1, ...) on the pages the screen reaches (page p while the
     layout reaches column 20 * p, vanilla's ground-scroll rule); an item never straddles two pages. Absolute (x, y)."""
     lay = ground_layout(gc)
     occ = set()
@@ -232,9 +245,9 @@ def goto_page(gc, page, rec):
 
 
 def pick_ground(gc, iid, rec):
-    """U6-1.7 ground-page rule with R-U6-SD-2's scroll: the screen to page c // 20 (goto_page, from the page it shows),
-    then column c - 20 * (c // 20). Returns the id
-    the pick put on the cursor (the item or a same-type stack-mate), or None."""
+    """A pick from the ground at the item's cell c: the screen to page c // 20 (goto_page, from the page it shows),
+    then column c - 20 * (c // 20). Returns the id the pick put on the cursor (the item or a same-type stack-mate), or
+    None."""
     v = iv(gc)
     cell = PEQ.cell_of(v, iid)
     rec.update(cell=cell, cursorBefore=v.get("selectedItem"))
@@ -268,7 +281,8 @@ def drop_at(gc, slot, x, y, rec):
 
 
 def drop_ground(gc, its, rec):
-    """A drop on the pile at R-U6-SD-2's cell: the screen scrolled to the cell's page first, then the cell's column on it."""
+    """A drop on the pile at free_ground's cell: the screen scrolled to the cell's page first, then the cell's column
+    on it."""
     cell = free_ground(gc, (its.get(cursor(gc)) or {}).get("type"))
     rec["groundCell"] = cell
     if cell is None:
@@ -315,8 +329,9 @@ def order_cell(host, client, b, actor):
                 f"{b['sent']} -> {sent} (want +1)")
 
 
-def r0(gc, seat):
-    """U6-1.7 R0: A = `seat`'s first unit (battle_state.units order) owning an item in a slot; A_START; A_SPAWN."""
+def initial_reads(gc, seat):
+    """The initial reads: A = `seat`'s first unit (battle_state.units order) owning an item in a slot; A_START;
+    A_SPAWN."""
     its = IT(gc)
     a = next((u["id"] for u in battle_state(gc).get("units", []) if u.get("coop") == seat and not u.get("isOut")
               and any(it.get("owner") == u["id"] and it.get("slot") for it in its.values())), None)
@@ -324,22 +339,22 @@ def r0(gc, seat):
 
 
 def reads(ctx, host, xgc):
-    """PISTOL, RIFLE (U6-1.7 swap rule), BACKPACK_CELL, the X-COM unit's cell for PISTOL (H1 / C1_CELL)."""
+    """PISTOL, RIFLE (rifle_choice), BACKPACK_CELL, the X-COM unit's cell for PISTOL (H1_CELL here, C1_CELL in gm3)."""
     ih, A = IT(host), ctx["A"]
-    ast = ctx["R0"]["host"]["A_START"]
+    ast = ctx["initial"]["host"]["A_START"]
     ptypes = {(ih.get(i) or {}).get("type") for i in ctx["PILE_IDS"]}
     order = ([i for i, s in ast.items() if s[0] == RH] + [i for i, s in ast.items() if s[0] == LH]
              + sorted(i for i, s in ast.items() if s[0] not in (RH, LH)))
     ctx["PISTOL"] = next((i for i in order if (ih.get(i) or {}).get("type") not in ptypes), None)
-    ctx["BP0"] = free_cell(xgc, ih, A, "STR_RIFLE")
-    ctx["RIFLE"] = rifle_choice(xgc, ih, A, ctx["BP0"])
+    ctx["RIFLE_CELL"] = free_cell(xgc, ih, A, "STR_RIFLE")
+    ctx["RIFLE"] = rifle_choice(xgc, ih, A, ctx["RIFLE_CELL"])
     ctx["BACKPACK_CELL"] = free_cell(xgc, ih, A, (ih.get(ctx["RIFLE"]) or {}).get("type"))
     ctx["X_CELL"] = free_cell(xgc, ih, ctx["X"], (ih.get(ctx["PISTOL"]) or {}).get("type"))
     ctx["types"] = {k: (ih.get(ctx[k]) or {}).get("type") for k in ("PISTOL", "RIFLE")}
 
 
 def rifle_choice(gc, its, uid, cell):
-    """U6-1.7 RIFLE: the pile's STR_RIFLE (PEQ first_of_type); none: the pile item with the lowest ground column (then
+    """RIFLE: the pile's STR_RIFLE (PEQ first_of_type); none: the pile item with the lowest ground column (then
     row, then list order) whose footprint fits `uid`'s BACKPACK_CELL (computed for STR_RIFLE)."""
     rid = PEQ.first_of_type(gc, "STR_RIFLE")
     if rid is not None or cell is None:
@@ -399,13 +414,13 @@ def census_cell(host, client, c0):
 
 
 def own_unit(gc, seat, pile):
-    """U6-1.7 S_OWN: `seat`'s first live soldier in unit order whose position is not PILE."""
+    """S_OWN: `seat`'s first live soldier in unit order whose position is not PILE."""
     return next((u["id"] for u in battle_state(gc).get("units", []) if u.get("coop") == seat and u.get("faction") == 0
                  and not u.get("isOut") and (u.get("x"), u.get("y"), u.get("z")) != tuple(pile)), None)
 
 
 def own_tile(host, client, actor_gc, uid, ev):
-    """Own-tile row (U6-1.7): TU refill and a grenade in the left hand (both, client first), actor_gc's
+    """The own-tile rows' steps: TU refill and a grenade in the left hand (both, client first), actor_gc's
     battle_open_inventory {uid}, a real click on STR_LEFT_HAND, a real click on STR_GROUND (0,0), the order's wait,
     battle_close_inventory. Returns the cells' reads; raises on a staging step (the row fails "staging")."""
     m = (host, client)
@@ -432,8 +447,9 @@ def own_tile(host, client, actor_gc, uid, ev):
     return {"opened": opened, "ground": ground, "tile": tile, "landed": bool(landed), "before": b}
 
 
-def lobby_e6(host, client, key):
-    """BER.boot_e6's lobby with the key as a parameter: the client joins and takes the Alien team (gamemode 2)."""
+def lobby_client_aliens(host, client, key):
+    """test_battle_end_rules' gm2 boot lobby with the key as a parameter: the client joins and takes the Alien team
+    (gamemode 2)."""
     BER.raw.skirmish_host(host, key)
     BER.raw.skirmish_client_at_browser(client)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": BER.raw.CLIENT_PLAYER})
@@ -443,12 +459,13 @@ def lobby_e6(host, client, key):
     client.ok({"cmd": "profile_ok"})
     host.wait_for("start offered", lambda: BER.raw.lobby(host).get("buttonVisible") or None)
     r = host.ok({"cmd": "lobby_set_team", "row": BER.gm2_row_for(host, BER.raw.CLIENT_PLAYER), "team": "Alien"})
-    time.sleep(1)   # the change_team broadcast settles on the client (PSR PHASE 0)
+    time.sleep(1)   # the change_team broadcast settles on the client (as in test_battle_end_rules' gm2 boot)
     return r.get("gamemode")
 
 
 def drive(host, client):
-    """PSR drive_to_gm2_battlescape WITHOUT its last line (session.briefings_to_battlescape), then both briefings up."""
+    """repro_pvp_side_relative.drive_to_gm2_battlescape WITHOUT its last line (session.briefings_to_battlescape), then
+    both briefings up."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings", lambda: (not session.has_state(host, "LobbyMenu")) or None)
     assert G3F.top(host) == "NewBattleState", f"host stack {G3F.stack(host)} (want NewBattleState on top)"
@@ -461,27 +478,27 @@ def drive(host, client):
 
 
 def bring_up(host, client, key, alien_player, tag, seat):
-    """Spawn, the PvP lobby, the drive, both briefings, R0 on both (each before its own briefing closes)."""
+    """Spawn, the PvP lobby, the drive, both briefings, the initial reads on both (each before its own briefing closes)."""
     PAGE.clear()   # every pre-battle screen of this boot opens on ground page 0
     m = (host, client)
     G3F.guarded(tag, lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
     G3F.guarded(tag, lambda: host.ok({"cmd": "set_seed", "seed": SEED}), m)
     if alien_player == "client":
-        gm = G3F.guarded(tag, lambda: lobby_e6(host, client, key), m)
+        gm = G3F.guarded(tag, lambda: lobby_client_aliens(host, client, key), m)
     else:
         gm = G3F.guarded(tag, lambda: PF.start_pvp_skirmish_lobby(host, client, key, alien_player="host"), m)[0]
     G3F.guarded(tag, lambda: drive(host, client), m)
-    R0 = {gc.name: G3F.guarded(tag, lambda gc=gc: r0(gc, seat), m) for gc in m}
-    if R0["host"]["A"] is None or R0["host"]["A"] != R0["client"]["A"]:
-        G3F.capture(tag, f"R0 {R0} (want one A on both)", m)
+    initial = {gc.name: G3F.guarded(tag, lambda gc=gc: initial_reads(gc, seat), m) for gc in m}
+    if initial["host"]["A"] is None or initial["host"]["A"] != initial["client"]["A"]:
+        G3F.capture(tag, f"initial {initial} (want one A on both)", m)
         raise G3F.Miss(tag)
-    return {"gm": gm, "R0": R0, "A": R0["host"]["A"]}
+    return {"gm": gm, "initial": initial, "A": initial["host"]["A"]}
 
 
 def gear_cell(host, client, ctx):
     A = ctx["A"]
     got = [items_of(IT(host), A), items_of(IT(client), A)]
-    want = [ctx["R0"]["host"]["A_START"], ctx["R0"]["client"]["A_START"]]
+    want = [ctx["initial"]["host"]["A_START"], ctx["initial"]["client"]["A_START"]]
     inpile = sorted(set(want[0]) & set(ctx["PILE_IDS"]))
     return (got == want and want[0] == want[1] and not inpile,
             f"A's items host {got[0]} client {got[1]} (want A_START {want[0]} on both); A_START ids on the pile {inpile} (want none)")
@@ -494,21 +511,21 @@ def held_cells(host, client, iid, uid, slot, pile):
             + " on both, off the pile)")
 
 
-# ===================== boot DA =====================
+# ===================== boot client_aliens =====================
 
 
-def setup_da(host, client):
+def setup_client_aliens(host, client):
     m = (host, client)
-    ctx = bring_up(host, client, KEY, "client", "DA", 1)
-    G3F.guarded("DA", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)
+    ctx = bring_up(host, client, KEY, "client", "client_aliens", 1)
+    G3F.guarded("client_aliens", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)
     up, ctx["hostScreenS"] = wait_until(lambda: PEQ.screen_up(host), SCREEN_S)
     if not up:
-        G3F.capture("DA", "the host's pre-battle screen never came up", m)
-        raise G3F.Miss("DA")
+        G3F.capture("client_aliens", "the host's pre-battle screen never came up", m)
+        raise G3F.Miss("client_aliens")
     v = iv(host)
     ctx.update(X=v.get("unitId"), PILE=tuple((es(host, "equip") or {}).get("pile") or ()), PILE_IDS=PEQ.ground_ids(v),
                cols={g["id"]: (g.get("x"), g.get("y")) for g in v.get("ground") or []})
-    G3F.guarded("DA", lambda: session.dismiss_client_briefing(client), m)
+    G3F.guarded("client_aliens", lambda: session.dismiss_client_briefing(client), m)
     _, ctx["clientTopS"] = wait_until(lambda: (es(client, "equip") or {}).get("entryDone")
                                       and G3F.top(client) != "BattlescapeState", SCREEN_S)
     ctx["CENSUS0"] = census(host)
@@ -517,27 +534,27 @@ def setup_da(host, client):
     return ctx
 
 
-def row_ae1(host, client, ctx, crash0):
+def row_alien_screen_opens(host, client, ctx, crash0):
     A, v = ctx["A"], iv(client)
     cnt = ((es(host, "equip") or {}).get("counted") or [])[:2]
-    ev = {k: ctx[k] for k in ("gm", "R0", "X", "PILE", "PILE_IDS", "cols", "PISTOL", "RIFLE", "BP0", "BACKPACK_CELL",
-                              "X_CELL", "types", "hostScreenS", "clientTopS", "census0Client")}
+    ev = {k: ctx[k] for k in ("gm", "initial", "X", "PILE", "PILE_IDS", "cols", "PISTOL", "RIFLE", "RIFLE_CELL",
+                              "BACKPACK_CELL", "X_CELL", "types", "hostScreenS", "clientTopS", "census0Client")}
     ev.update(clientView=PEQ.view_brief(v), stacks=[G3F.stack(host), G3F.stack(client)],
               equip=[es(host, "equip"), es(client, "equip")])
-    return {"AE1-counted": (cnt == [True, True], f"host equip.counted[:2] {cnt} (want [true, true])"),
-            "AE1-screen": (G3F.top(client) == "InventoryState" and screen_on(client, A),
+    return {"both_seats_counted": (cnt == [True, True], f"host equip.counted[:2] {cnt} (want [true, true])"),
+            "alien_screen_up": (G3F.top(client) == "InventoryState" and screen_on(client, A),
                            f"client top {G3F.top(client)}, inventory_view {PEQ.view_brief(v)} (want the pre-battle "
                            f"InventoryState on {A}; {ctx['clientTopS']} s)"),
-            "AE1-ground": (G(client) == ctx["PILE_IDS"], f"G(client) {G(client)} (want PILE_IDS {ctx['PILE_IDS']})"),
-            "AE1-gear": gear_cell(host, client, ctx),
-            "AE1-common": G3F.common(host, client, crash0)}, ev
+            "alien_sees_pile": (G(client) == ctx["PILE_IDS"], f"G(client) {G(client)} (want PILE_IDS {ctx['PILE_IDS']})"),
+            "alien_keeps_start_gear": gear_cell(host, client, ctx),
+            "alien_screen_opens_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae2(host, client, ctx, crash0):
+def row_alien_takes_rifle(host, client, ctx, crash0):
     A, bc, m = ctx["A"], ctx["BACKPACK_CELL"], (host, client)
     b, ev = before(host, client), {"candidate": ctx["RIFLE"], "cell": bc}
     if screen_on(client, A) and bc is not None:
-        cand = rifle_choice(client, IT(client), A, ctx["BP0"])
+        cand = rifle_choice(client, IT(client), A, ctx["RIFLE_CELL"])
         p, d = {}, {}
         got = pick_ground(client, cand, p)
         if got is not None:
@@ -550,17 +567,17 @@ def row_ae2(host, client, ctx, crash0):
         ev["step"] = f"no pre-battle screen on the client on {A} (top {G3F.top(client)})"
     R = ctx["RIFLE"]
     gone = screen_on(host, ctx["X"]) and R not in G(host)
-    return {"AE2-order": order_cell(host, client, b, A),
-            "AE2-held": held_cells(host, client, R, A, BACK, ctx["PILE"]),
-            "AE2-gone": (gone, f"host screen on {ctx['X']} {screen_on(host, ctx['X'])}; RIFLE {R} in G(host) {R in G(host)} "
+    return {"rifle_take_order": order_cell(host, client, b, A),
+            "rifle_held_by_alien": held_cells(host, client, R, A, BACK, ctx["PILE"]),
+            "rifle_gone_from_xcom_screen": (gone, f"host screen on {ctx['X']} {screen_on(host, ctx['X'])}; RIFLE {R} in G(host) {R in G(host)} "
                          f"(want the screen up and RIFLE gone from it)"),
-            "AE2-common": G3F.common(host, client, crash0)}, ev
+            "alien_takes_rifle_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae3(host, client, ctx, crash0):
+def row_alien_drops_pistol(host, client, ctx, crash0):
     A, P = ctx["A"], ctx["PISTOL"]
     b, ev = before(host, client), {"PISTOL": P}
-    s = ctx["R0"]["client"]["A_START"].get(P) or (None, 0, 0)
+    s = ctx["initial"]["client"]["A_START"].get(P) or (None, 0, 0)
     if screen_on(client, A):
         p, d = {}, {}
         if pick_at(client, s[0], s[1], s[2], P, p):
@@ -570,14 +587,14 @@ def row_ae3(host, client, ctx, crash0):
         ev.update(pick=p, drop=d)
     else:
         ev["step"] = f"no pre-battle screen on the client on {A} (top {G3F.top(client)})"
-    return {"AE3-order": order_cell(host, client, b, A),
-            "AE3-pile": (at_both(host, client, P, ctx["PILE"]), f"PISTOL {P} host/client {views(host, client, P)} (want at "
+    return {"pistol_drop_order": order_cell(host, client, b, A),
+            "pistol_on_pile": (at_both(host, client, P, ctx["PILE"]), f"PISTOL {P} host/client {views(host, client, P)} (want at "
                          f"PILE {ctx['PILE']} on both)"),
-            "AE3-seen": (P in G(host), f"PISTOL {P} in G(host) {P in G(host)} (want true: the X-COM player sees the drop)"),
-            "AE3-common": G3F.common(host, client, crash0)}, ev
+            "xcom_sees_pistol": (P in G(host), f"PISTOL {P} in G(host) {P in G(host)} (want true: the X-COM player sees the drop)"),
+            "alien_drops_pistol_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae4(host, client, ctx, crash0):
+def row_xcom_takes_pistol(host, client, ctx, crash0):
     A, P, H1, xc, m = ctx["A"], ctx["PISTOL"], ctx["X"], ctx["X_CELL"], (host, client)
     ev = {"PISTOL": P, "H1_CELL": xc}
     if screen_on(host, H1) and P in G(host) and xc is not None:
@@ -591,13 +608,13 @@ def row_ae4(host, client, ctx, crash0):
     else:
         ev["step"] = f"no PISTOL {P} on the host's ground (screen on {H1} {screen_on(host, H1)})"
     gone = screen_on(client, A) and P not in G(client)
-    return {"AE4-held": held_cells(host, client, P, H1, None, ctx["PILE"]),
-            "AE4-gone": (gone, f"client screen on {A} {screen_on(client, A)}; PISTOL {P} in G(client) {P in G(client)} (want "
+    return {"pistol_held_by_xcom": held_cells(host, client, P, H1, None, ctx["PILE"]),
+            "pistol_gone_from_alien_screen": (gone, f"client screen on {A} {screen_on(client, A)}; PISTOL {P} in G(client) {P in G(client)} (want "
                          f"the screen up and PISTOL gone from it)"),
-            "AE4-common": G3F.common(host, client, crash0)}, ev
+            "xcom_takes_pistol_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae5(host, client, ctx, crash0):
+def row_xcom_returns_pistol(host, client, ctx, crash0):
     A, P, H1, xc = ctx["A"], ctx["PISTOL"], ctx["X"], ctx["X_CELL"]
     ev = {"PISTOL": P}
     if screen_on(host, H1) and owned(IT(host), P, H1, BACK) and xc is not None:
@@ -610,14 +627,14 @@ def row_ae5(host, client, ctx, crash0):
     else:
         ev["step"] = f"PISTOL {P} is not on H1 {H1} (host {PEQ.item_view(IT(host), P)})"
     seen = screen_on(client, A) and P in G(client)
-    return {"AE5-pile": (at_both(host, client, P, ctx["PILE"]), f"PISTOL {P} host/client {views(host, client, P)} (want at "
+    return {"pistol_back_on_pile": (at_both(host, client, P, ctx["PILE"]), f"PISTOL {P} host/client {views(host, client, P)} (want at "
                          f"PILE on both)"),
-            "AE5-seen": (seen, f"client screen on {A} {screen_on(client, A)}; PISTOL {P} in G(client) {P in G(client)} "
+            "alien_sees_pistol_back": (seen, f"client screen on {A} {screen_on(client, A)}; PISTOL {P} in G(client) {P in G(client)} "
                          f"(want both true)"),
-            "AE5-common": G3F.common(host, client, crash0)}, ev
+            "xcom_returns_pistol_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae6(host, client, ctx, crash0):
+def row_alien_returns_rifle(host, client, ctx, crash0):
     A, R, bc = ctx["A"], ctx["RIFLE"], ctx["BACKPACK_CELL"]
     b, ev = before(host, client), {"RIFLE": R}
     if screen_on(client, A) and owned(IT(client), R, A, BACK) and bc is not None:
@@ -631,12 +648,12 @@ def row_ae6(host, client, ctx, crash0):
         ev["step"] = f"no pre-battle screen on the client with RIFLE {R} on A (client {PEQ.item_view(IT(client), R)})"
     ok, detail = order_cell(host, client, b, A)
     back = at_both(host, client, R, ctx["PILE"])
-    return {"AE6-back": (ok and back, f"{detail}; RIFLE {R} host/client {views(host, client, R)} (want at PILE on both)"),
-            "AE6-seen": (ok and R in G(host), f"AE6's order admitted {ok}; RIFLE {R} in G(host) {R in G(host)} (want both)"),
-            "AE6-common": G3F.common(host, client, crash0)}, ev
+    return {"rifle_back_on_pile": (ok and back, f"{detail}; RIFLE {R} host/client {views(host, client, R)} (want at PILE on both)"),
+            "xcom_sees_rifle": (ok and R in G(host), f"alien_returns_rifle's order admitted {ok}; RIFLE {R} in G(host) {R in G(host)} (want both)"),
+            "alien_returns_rifle_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae7(host, client, ctx, crash0):
+def row_turn_one_with_xcom_gear(host, client, ctx, crash0):
     A, R, bc = ctx["A"], ctx["RIFLE"], ctx["BACKPACK_CELL"]
     ev = {"RIFLE": R}
     if screen_on(client, A) and R in G(client) and bc is not None:
@@ -651,44 +668,47 @@ def row_ae7(host, client, ctx, crash0):
     hashed = G3F.hash_now(host, client)
     ps = [pos(host, A), pos(client, A)]
     held = all(owned(IT(gc), R, A) for gc in (host, client))
-    return {"AE7-turn": turn,
-            "AE7-held": (held and ps == [ctx["R0"]["host"]["A_SPAWN"]] * 2 and hashed == "all buckets EQUAL",
+    return {"turn_one_starts": turn,
+            "alien_keeps_rifle": (held and ps == [ctx["initial"]["host"]["A_SPAWN"]] * 2 and hashed == "all buckets EQUAL",
                          f"RIFLE {R} host/client {views(host, client, R)} (want owner {A}); A at {ps} (want A_SPAWN "
-                         f"{ctx['R0']['host']['A_SPAWN']} on both); hash {hashed}"),
-            "AE7-census": census_cell(host, client, ctx["CENSUS0"]),
-            "AE7-common": G3F.common(host, client, crash0, hashed)}, ev
+                         f"{ctx['initial']['host']['A_SPAWN']} on both); hash {hashed}"),
+            "item_census_unchanged": census_cell(host, client, ctx["CENSUS0"]),
+            "turn_one_with_xcom_gear_common": G3F.common(host, client, crash0, hashed)}, ev
 
 
-def row_ae8(host, client, ctx, crash0):
+def row_soldier_drop_own_tile(host, client, ctx, crash0):
     s = own_unit(host, 0, ctx["PILE"])
     ev = {"S_OWN": s, "sideTurn": [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in (host, client)]}
     if s is None:
         raise AssertionError(f"staging: no host soldier off the pile {ctx['PILE']}")
     r = own_tile(host, client, host, s, ev)
-    return {"AE8-ground": (r["opened"] and r["ground"] == r["tile"], f"host inventory opened {r['opened']} {ev['open']}; "
+    return {"soldier_ground_is_tile": (r["opened"] and r["ground"] == r["tile"], f"host inventory opened {r['opened']} {ev['open']}; "
                            f"G(host) {r['ground']} (want the ids on S_OWN's tile {r['tile']})"),
-            "AE8-tile": (r["landed"], f"grenade {ev['grenade']} host/client {ev['grenadeViews']} (want at S_OWN's "
+            "soldier_drop_lands": (r["landed"], f"grenade {ev['grenade']} host/client {ev['grenadeViews']} (want at S_OWN's "
                          f"position {ev['pos'][0]} on both)"),
-            "AE8-common": G3F.common(host, client, crash0)}, ev
+            "soldier_drop_own_tile_common": G3F.common(host, client, crash0)}, ev
 
 
-def row_ae9(host, client, ctx, crash0):
+def row_alien_drop_own_tile(host, client, ctx, crash0):
     A, ev = ctx["A"], {}
     try:
         RM.side_change(host, client, host, 1, 1, ev)
     except Exception as e:
         raise AssertionError(f"staging: the host's END TURN: {str(e)[:300]}")
     r = own_tile(host, client, client, A, ev)
-    return {"AE9-ground": (r["opened"] and r["ground"] == r["tile"], f"client inventory opened {r['opened']} {ev['open']}; "
+    return {"alien_ground_is_tile": (r["opened"] and r["ground"] == r["tile"], f"client inventory opened {r['opened']} {ev['open']}; "
                            f"G(client) {r['ground']} (want the ids on A's tile in IT(host) {r['tile']})"),
-            "AE9-order": order_cell(host, client, r["before"], A),
-            "AE9-tile": (r["landed"], f"grenade {ev['grenade']} host/client {ev['grenadeViews']} (want at A's position "
+            "alien_drop_order": order_cell(host, client, r["before"], A),
+            "alien_drop_lands": (r["landed"], f"grenade {ev['grenade']} host/client {ev['grenadeViews']} (want at A's position "
                          f"{ev['pos'][0]} on both)"),
-            "AE9-common": G3F.common(host, client, crash0)}, ev
+            "alien_drop_own_tile_common": G3F.common(host, client, crash0)}, ev
 
 
-FN = {"AE1": row_ae1, "AE2": row_ae2, "AE3": row_ae3, "AE4": row_ae4, "AE5": row_ae5, "AE6": row_ae6, "AE7": row_ae7,
-      "AE8": row_ae8, "AE9": row_ae9}
+FN = {"alien_screen_opens": row_alien_screen_opens, "alien_takes_rifle": row_alien_takes_rifle,
+      "alien_drops_pistol": row_alien_drops_pistol, "xcom_takes_pistol": row_xcom_takes_pistol,
+      "xcom_returns_pistol": row_xcom_returns_pistol, "alien_returns_rifle": row_alien_returns_rifle,
+      "turn_one_with_xcom_gear": row_turn_one_with_xcom_gear, "soldier_drop_own_tile": row_soldier_drop_own_tile,
+      "alien_drop_own_tile": row_alien_drop_own_tile}
 
 
 def run_boot(tag, rows, fns, setup, host_dir, client_dir):
@@ -700,7 +720,7 @@ def run_boot(tag, rows, fns, setup, host_dir, client_dir):
         try:
             ctx = setup(host, client)
         except G3F.Miss:
-            return G3F.fail_all(rows, f"boot (FIXTURE-STOP, see the CAPTURE {tag} line)")
+            return G3F.fail_all(rows, f"boot (see the CAPTURE {tag} line)")
         return sum(G3F.run_row(row, order, lambda r=row: fns[r](host, client, ctx, crash0)) for row, order in rows)
     finally:
         G3F.shut(host, client)
@@ -708,7 +728,7 @@ def run_boot(tag, rows, fns, setup, host_dir, client_dir):
 
 def main():
     t0 = time.time()
-    fails = run_boot("DA", ROWS, FN, setup_da, "r5u6_da_host", "r5u6_da_client")
+    fails = run_boot("client_aliens", ROWS, FN, setup_client_aliens, "alien_equip_host", "alien_equip_client")
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_alien_equip: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
