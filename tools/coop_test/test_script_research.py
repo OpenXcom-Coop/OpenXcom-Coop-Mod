@@ -71,7 +71,7 @@ TAG_TURN, TAG_SKILL, TAG_HIT, TAG_DMG, TAG_SPEC, TAG_AHIT, TAG_AMMO, TAG_ASPEC =
 TAG_NAMES = {TAG_TURN: "COOP_SR_TURN", TAG_SKILL: "COOP_SR_SKILL", TAG_HIT: "COOP_SR_HIT", TAG_DMG: "COOP_SR_DMG",
              TAG_SPEC: "COOP_SR_SPEC", TAG_AHIT: "COOP_SR_AHIT", TAG_AMMO: "COOP_SR_AMMO", TAG_ASPEC: "COOP_SR_ASPEC"}
 SEED_SR4 = 1                      # the host's set_seed right before the click: the first hitting seed (T0-B3, 4 boots)
-TGT_SR4_OFF = (0, 2, 0)           # TGT_SR4 = G's tile + this, due south (CR TGT_OFF["TGT1"] shape; free on 5 boots)
+TGT_SR4_OFF = (0, 2, 0)           # TGT_SR4 = G's tile + this, due south (CR TGT_OFF["south_2"] shape; free on 5 boots)
 ALIEN_DIR = 0                     # A faces north, toward G (side FRONT)
 FACTION_HOSTILE = 1
 HOST_R, OWNER_R = 1, 2            # 1 + isResearched(STR_PLASMA_PISTOL): the host's research / the second player's
