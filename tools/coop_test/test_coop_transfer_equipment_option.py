@@ -1,18 +1,22 @@
 """Regression test: the "Alternate craft equipment management" option
 (Options::oxceAlternateCraftEquipmentManagement) drives whether a soldier's
-equipment travels with it when it is vanilla-transferred to a co-op base.
+equipment travels with it when it is transferred to the other player's base,
+in the single host-owned SEPARATE world (PR #213).
 
-  OFF (default): a soldier's gear is not carried between bases. The transferred
-    soldier is stripped - it arrives at the peer base with an empty layout.
-  ON: the equipment layout travels with the soldier; it stays equipped at the
-    peer base.
+  E1 ON  (the host sends its soldier to ClientBase): the layout travels with
+     the soldier; it is still equipped at the partner's base, on both machines.
+  E2 OFF (the client sends its soldier to HostBase): the soldier's gear does
+     not travel, so it arrives at the partner's base with an EMPTY layout (it
+     does not silently re-equip from the partner's stores), on both machines.
 
-This test only checks the guest's *layout* at the peer base (stripped vs kept).
-The matching item-count movement (ON: sender -N / receiver +N) is covered by
-test_coop_transfer_equipment_counts.py.
+This test checks the soldier's layout only. The matching item-count movement
+is covered by test_coop_transfer_equipment_counts.py.
 
-Only a base-resident (non-craft) soldier is individually transferable, and a
-fresh base has exactly one, so each mode runs in its own fresh session.
+Replaced rows (two-world premise gone):
+  - "the host visits the peer base and reads the guest there" (insideCoopBase)
+    -> both machines read the soldier at the partner's real base.
+  - one fresh session per mode (one transferable soldier per base) -> one
+    session: each player sends its own base-resident soldier.
 
 Run:  python tools/coop_test/test_coop_transfer_equipment_option.py
 """
@@ -21,66 +25,37 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
-import session
+import test_coop_transferred_equipment as T
 
 ROCKET = "STR_SMALL_ROCKET"
-OPT = "oxceAlternateCraftEquipmentManagement"
 
 
-def own_base(gc):
-    s = gc.ok({"cmd": "get_soldiers"})
-    return next(b for b in s["bases"]
-               if not b["coopBaseFlag"] and not b["coopIcon"] and b["soldiers"])
-
-
-def run_mode(alt_on, label):
-    host = GameClient("host", 47811, make_user_dir("host-user"))
-    client = GameClient("client", 47812, make_user_dir("client-user"))
-    try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client)
-
-        hb = own_base(host); cb = own_base(client)
-
-        # the lone base-resident soldier, uniquely named + a rocket in the off-hand
-        soldier = next(s for s in hb["soldiers"] if not s.get("craft"))["name"]
-        host.ok({"cmd": "rename_soldier", "name": soldier, "newName": "Zzz Xfer"})
-        host.ok({"cmd": "give_layout", "item": ROCKET, "slot": "left", "name": "Zzz", "count": 1})
-
-        # both machines share the option value
-        host.ok({"cmd": "set_option", "name": OPT, "value": alt_on})
-        client.ok({"cmd": "set_option", "name": OPT, "value": alt_on})
-
-        r = host.ok({"cmd": "transfer_to_coop_base", "name": "Zzz", "toBase": cb["name"]})
-        assert r.get("transferred"), f"{label}: transfer failed: {r}"
-
-        host.ok({"cmd": "visit_coop_base", "base": cb["name"]})
-        host.wait_for("inside peer base",
-                      lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-        rep = host.ok({"cmd": "base_report", "coop": True})
-        guest = next((s for s in rep["soldiers"] if "Zzz" in s["name"]), None)
-        assert guest is not None, f"{label}: transferred soldier not at the visited base"
-        layout = guest["layout"]
-        print(f"{label}: visited guest '{guest['name']}' layout={layout}")
-
-        session.leave_base(host)
-        return layout
-    finally:
-        host.shutdown(); client.shutdown()
+def run(sender, host, client, seat, src, dst, alt_on, name):
+    T.set_alt(host, client, alt_on)
+    sid = T.free_soldier(sender, host, client, src, seat)
+    T.rename(sender, host, client, src, sid, name)
+    T.give_layout(host, client, src, name, ROCKET, "left")
+    T.send_soldier(sender, host, client, sid, src, dst)
+    T.arrive(host, client, dst, sid)
+    return {gc.name: T.soldier_at(gc, dst, sid)["layout"] for gc in (host, client)}
 
 
 def main():
-    off_layout = run_mode(False, "OFF")
-    assert off_layout == [], f"OFF: expected the transferred soldier stripped (empty layout), got {off_layout}"
-    print("PASS OFF: soldier stripped on transfer (empty layout at peer base)")
+    js = T.bring_up("xeqopt")
+    host, client = js.host, js.client
+    try:
+        on = run(host, host, client, 0, T.HB, T.CB, True, "Zzz On")
+        assert all(ROCKET in lo for lo in on.values()), (
+            f"E1 ON: expected the soldier to keep its {ROCKET} at the partner's base, got {on}")
+        print(f"PASS E1 ON: the soldier kept its loadout at the partner's base {on}")
 
-    on_layout = run_mode(True, "ON")
-    assert ROCKET in on_layout, f"ON: expected the transferred soldier to keep its {ROCKET}, got {on_layout}"
-    print("PASS ON: soldier kept its loadout on transfer (equipped at peer base)")
-
-    print("TEST PASSED")
+        off = run(client, host, client, 1, T.CB, T.HB, False, "Zzz Off")
+        assert all(lo == [] for lo in off.values()), (
+            f"E2 OFF: expected the soldier stripped (empty layout) at the partner's base, got {off}")
+        print(f"PASS E2 OFF: the soldier arrived stripped at the partner's base {off}")
+        print("TEST PASSED")
+    finally:
+        js.shutdown()
 
 
 if __name__ == "__main__":

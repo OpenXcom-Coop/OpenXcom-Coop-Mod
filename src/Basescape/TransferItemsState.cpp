@@ -838,6 +838,12 @@ void TransferItemsState::submitSharedTransfer()
 	payload["crafts"] = crafts;
 	payload["scientists"] = scientists;
 	payload["engineers"] = engineers;
+	// Separate, option OFF: a soldier sent to another player's base leaves its
+	// gear behind and arrives with an empty layout, so it never re-equips from
+	// that player's stores (main's completeTransfer did the same).
+	if (_game->getCoopMod()->isSeparateCampaign() && !soldiers.empty()
+		&& !Options::oxceAlternateCraftEquipmentManagement && _baseTo->_isForeignBase)
+		payload["stripLayout"] = true;
 	if (_game->getCoopMod()->isSharedCampaign())
 		SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload);
 	else

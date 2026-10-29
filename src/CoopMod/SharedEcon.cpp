@@ -938,6 +938,9 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int seat)
 		}
 
 	const Json::Value& soldiers = payload["soldiers"];
+	// Separate only (TransferItemsState::submitSharedTransfer): the sender's
+	// option was OFF and the soldier goes to another player's base.
+	const bool stripLayout = payload.get("stripLayout", false).asBool();
 	if (soldiers.isArray())
 		for (const auto& sid : soldiers)
 		{
@@ -950,6 +953,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int seat)
 					s->setPsiTraining(false);
 					if (s->isInTraining()) s->setReturnToTrainingWhenHealed(true);
 					s->setTraining(false);
+					if (stripLayout) s->clearEquipmentLayout();
 					// Ownership unchanged by a transfer (PRD-J05).
 					Transfer* t = new Transfer(time);
 					t->setOwnerPlayerName(connectionTCP::seatName(s->getOwnerPlayerId()));
