@@ -1,37 +1,33 @@
-"""R5-P1 (rewrite spike, SPIKE-RUNBOOK.md RB-D23): assignSeatsAndFactions()
-canonical-faction/seat probe.
+"""test_faction_setup.py: assignSeatsAndFactions() canonical-faction/seat probe.
 
 Two scenarios, each a real 2-player skirmish co-op battle start through the
 harness lobby flow (host: NEW BATTLE > COOP > Host > START HOST -> lobby ->
 [gm2 only: lobby_set_team ClientPlayer -> Alien] -> BATTLE SETTINGS -> OK ->
-tactical map) - the SAME UI path test_handshake.py (R4-P1) already proved
-out, extended with the PvP team-select step `pvp_fixture.py` uses for its own
-gm2/gm3 lobby drive (read as a reference, not imported - test_skirmish_flow.py,
-which pvp_fixture.py itself imports, still carries its own pre-existing
-SKIP-PENDING(R4-P1) guard that exits at import time; test_handshake.py hit
-the same thing and inlined skirmish_host()/skirmish_client_at_browser() rather
-than touch that guard - this test follows the same precedent).
+tactical map) - the SAME UI path test_handshake.py drives, extended with the
+PvP team-select step `pvp_fixture.py` uses for its own gm2/gm3 lobby drive
+(read as a reference, not imported; like test_handshake.py, this test inlines
+skirmish_host() / skirmish_client_at_browser()).
 
-  (a) test_classic(): default lobby (no team changes -> gamemode 1, "PVE",
-      grouped with gamemode 0 under RB-D23's "classic/SHARED" umbrella).
+  test_classic(): default lobby (no team changes -> gamemode 1, "PVE",
+      grouped with gamemode 0 as "classic/SHARED").
       Every real soldier unit (`isPlayerSoldier`) must be FACTION_PLAYER on
       BOTH machines; since nothing in this flow ever calls Soldier::setCoop()
       (NewBattleState.cpp has no such call), every soldier's ownership stamp
       sits at its Soldier ctor default (_coop == 0) - so every soldier unit's
       seat tag must be COOP_SEAT_0 on both machines; every player-side
-      non-soldier unit (an HWP, a summoned unit) must be COOP_SEAT_0 too (R5-U4,
-      owner D235 (a): the host commands every ownerless player-side unit), and
-      every other non-soldier unit (civilians/real mission aliens) must be
-      COOP_SEAT_NONE (-1).
+      non-soldier unit (an HWP, a summoned unit) must be COOP_SEAT_0 too (the
+      host commands every ownerless player-side unit), and every other
+      non-soldier unit (civilians/real mission aliens) must be COOP_SEAT_NONE
+      (-1).
 
-  (b) test_pvp_gm2(): ClientPlayer set to the Alien team pre-battle
+  test_pvp_gm2(): ClientPlayer set to the Alien team pre-battle
       (lobby_set_team -> gamemode 2, "PVP" - pvp_fixture.py's own
       "host=XCOM, client=Alien" contract). assignSeatsAndFactions() must seat
       the vanilla-generated FACTION_PLAYER group at seat 0 and the
       vanilla-generated FACTION_HOSTILE group (the mission's real aliens) at
-      seat 1 - checked the other direction from (a): every coop==0 unit is
-      FACTION_PLAYER, every coop==1 unit is FACTION_HOSTILE, on BOTH machines,
-      and the split is non-vacuous (both groups actually populated).
+      seat 1 - checked the other direction from test_classic(): every coop==0
+      unit is FACTION_PLAYER, every coop==1 unit is FACTION_HOSTILE, on BOTH
+      machines, and the split is non-vacuous (both groups actually populated).
 
 Both scenarios additionally assert per-unit id-for-id equality between the
 host's and the client's own `battle_state` unit dump - the client never
@@ -41,13 +37,10 @@ snapshotted), so an equal dump on both machines is direct evidence that the
 host's canonical assignment actually made it into the streamed blob, not just
 into the host's own live SavedBattleGame.
 
-The two `hash_now {full:true}` all-buckets-equal-at-ready clauses (REVIEW4
-IR-11) run at the G4 joint check (needs R2-P9->P11's introspection from the
-parallel branch, already landed, but the JOINT verification itself is a
-separate cross-packet gate) - this test does not attempt them; it reuses the
-EXISTING R2-P9 saveBlob-EQUAL hard gate (already wired into onReady()
-unconditionally, proven by test_handshake.py) purely as a "did the
-handshake actually complete" sanity check alongside the faction/seat asserts.
+This test does not check the `hash_now {full:true}` all-buckets-equal-at-ready
+clauses; it uses the saveBlob-EQUAL check in onReady() (also used by
+test_handshake.py) purely as a "did the handshake actually complete" sanity
+check alongside the faction/seat asserts.
 
 Run:  python tools/coop_test/test_faction_setup.py
 """
@@ -144,8 +137,8 @@ def bring_up_lobby(host, client, host_dir, client_dir, port):
 
 def drive_to_battlescape(host, client, host_dir, client_dir):
     """Steps 5-7: BATTLE SETTINGS -> OK -> both machines in BattlescapeState.
-    Same sequence test_handshake.py (R4-P1) already proved for the classic
-    path; R5-P1 only adds the PvP team-select step BEFORE this is called."""
+    Same sequence as test_handshake.py's classic path; the PvP scenario only
+    adds its team-select step BEFORE this is called."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not session.has_state(host, "LobbyMenu")) or None)
@@ -155,8 +148,8 @@ def drive_to_battlescape(host, client, host_dir, client_dir):
     host.ok({"cmd": "newbattle_ok"})
 
     # the shared battle-entry spine - both briefings (the offer goes
-    # out at PREPARE, D210 b), the pre-battle equip screens,
-    # both Turn-1 screens (Q7 a).
+    # out at PREPARE), the pre-battle equip screens,
+    # both Turn-1 screens.
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
@@ -184,7 +177,7 @@ def drive_to_battlescape(host, client, host_dir, client_dir):
         "battle_ready arrived but 'saveBlob EQUAL' was never logged - onReady() " \
         "did not run to completion"
     assert host_active_lines, "host did not reach phase Active after an EQUAL saveBlob"
-    # (W1-P3's client entry briefing is closed by the spine above, W2-P8b S-H.)
+    # (The client's entry briefing is closed by the spine above.)
 
 
 def assert_cross_machine_equal(host_units, client_units):
@@ -200,10 +193,10 @@ def assert_cross_machine_equal(host_units, client_units):
 
 
 def test_classic():
-    """(a): classic 2-seat skirmish - every soldier FACTION_PLAYER, seat 0."""
+    """Classic 2-seat skirmish - every soldier FACTION_PLAYER, seat 0."""
     port = "47993"
-    host_dir = make_user_dir("rw_faction_classic_host")
-    client_dir = make_user_dir("rw_faction_classic_client")
+    host_dir = make_user_dir("faction_classic_host")
+    client_dir = make_user_dir("faction_classic_client")
     host = GameClient("host", 48790, host_dir)
     client = GameClient("client", 48791, client_dir)
     try:
@@ -231,7 +224,7 @@ def test_classic():
             elif u["originalFaction"] == FACTION_PLAYER:
                 assert u["coop"] == COOP_SEAT_0, \
                     f"player-side non-soldier unit {uid} ({u['name']}) coop seat={u['coop']}, " \
-                    f"expected COOP_SEAT_0 (R5-U4, owner D235 (a): the host commands it)"
+                    f"expected COOP_SEAT_0 (the host commands it)"
             else:
                 assert u["coop"] == COOP_SEAT_NONE, \
                     f"non-soldier unit {uid} ({u['name']}) coop seat={u['coop']}, " \
@@ -248,11 +241,11 @@ def test_classic():
 
 
 def test_pvp_gm2():
-    """(b): PvP skirmish, ClientPlayer on Alien (gamemode 2) - seat0 FACTION_PLAYER,
+    """PvP skirmish, ClientPlayer on Alien (gamemode 2) - seat0 FACTION_PLAYER,
     seat1 FACTION_HOSTILE, both machines, non-vacuous split."""
     port = "47994"
-    host_dir = make_user_dir("rw_faction_pvp_host")
-    client_dir = make_user_dir("rw_faction_pvp_client")
+    host_dir = make_user_dir("faction_pvp_host")
+    client_dir = make_user_dir("faction_pvp_client")
     host = GameClient("host", 48792, host_dir)
     client = GameClient("client", 48793, client_dir)
     try:
@@ -310,7 +303,7 @@ def test_pvp_gm2():
 def main():
     test_classic()
     test_pvp_gm2()
-    print("ALL R5-P1 FACTION/SEAT TESTS PASSED")
+    print("ALL test_faction_setup TESTS PASSED")
 
 
 if __name__ == "__main__":
