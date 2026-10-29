@@ -1,35 +1,33 @@
-"""R5-U2 S-C rows WG, SP1 (boot S1) and SP2 (boot S2), classic co-op: a co-op player who loses its last soldier mid-battle
-is told "You command no soldiers - spectator mode" at once, the host as well as the second
-player; and the second player's new-contact count is unchanged (WR-30 guard).
+"""Rows new_contacts, client_spectator (boot client_wiped) and host_spectator (boot host_wiped), classic co-op: a
+co-op player who loses its last soldier mid-battle is told "You command no soldiers - spectator mode" at once, the
+host as well as the second player; and the second player's new-contact count is unchanged (guard).
 
-Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_coop_spectator.py, with AMENDMENT U2-1 (U2-1.5,
-U2-1.8: the seats are MCC.boot_seated's RV-U8 pins) and the orchestrator rulings (QU2-1 .. QU2-17 (a),
-QU2-A1-1 .. QU2-A1-5 (a)).
-Constants: rewrite/r5u2-task0/sc/CONSTANTS.md (TASK 0 boots Sa, Sb on the C1 probe build).
-
-Boot S1 (key 48886, dirs r5u2_s1_host / _client): MCC.boot_seated (BER.boot_classic: STR_SMALL_SCOUT, map seed 1,
-the one alien pinned AI-neutral; seats S0_IDS [10..14] host / S1_IDS [8, 9] client on both, turnMode parallel).
-  WG  the co-op client's new-contact count is unchanged (guard)
-      WG-count    the client's event_state.visibleHostileCount == the distinct FACTION_HOSTILE ids in the union of
-                  units[i].visibleUnits, i in S1_IDS, on the client
-  SP1 the second player loses its last soldier (last row of S1): host battle_action kill_unit_real {coop_side 1}
-      SP1-out     8 and 9 DEAD on both (precondition; the wait ends at the observed deaths, capped at KILL_S)
-      SP1-client  the client's coopWaitText == TEXT_SPECTATOR within NOTICE_S
-      SP1-host    the host's coopWaitText != TEXT_SPECTATOR in every sample of that window (guard)
-Boot S2 (key 48888, dirs r5u2_s2_host / _client): MCC.boot_seated.
-  SP2 the host loses its last soldier: host kill_unit_real {coop_side 0}
-      SP2-out     10..14 DEAD on both; the battle continues: both tops BattlescapeState, (turn, side) unchanged
-                  (precondition; the client still commands 8, 9: W2-H31)
-      SP2-host    the host's coopWaitText == TEXT_SPECTATOR within NOTICE_S
-      SP2-client  the client's coopWaitText != TEXT_SPECTATOR in every sample of that window (guard)
+Boot client_wiped (key 48886, dirs coop_spectator_client_wiped_host / _client): MCC.boot_seated (BER.boot_classic:
+STR_SMALL_SCOUT, map seed 1, the one alien pinned AI-neutral; seats S0_IDS [10..14] host / S1_IDS [8, 9] client on
+both, turnMode parallel).
+  new_contacts  the co-op client's new-contact count is unchanged (guard)
+      new_contacts-count       the client's event_state.visibleHostileCount == the distinct FACTION_HOSTILE ids in the
+                               union of units[i].visibleUnits, i in S1_IDS, on the client
+  client_spectator  the second player loses its last soldier (last row of client_wiped): host battle_action
+                    kill_unit_real {coop_side 1}
+      client_spectator-out     8 and 9 DEAD on both (precondition; the wait ends at the observed deaths, capped at
+                               KILL_S)
+      client_spectator-client  the client's coopWaitText == TEXT_SPECTATOR within NOTICE_S
+      client_spectator-host    the host's coopWaitText != TEXT_SPECTATOR in every sample of that window (guard)
+Boot host_wiped (key 48888, dirs coop_spectator_host_wiped_host / _client): MCC.boot_seated.
+  host_spectator  the host loses its last soldier: host kill_unit_real {coop_side 0}
+      host_spectator-out       10..14 DEAD on both; the battle continues: both tops BattlescapeState, (turn, side)
+                               unchanged (precondition; the client still commands 8, 9)
+      host_spectator-host      the host's coopWaitText == TEXT_SPECTATOR within NOTICE_S
+      host_spectator-client    the client's coopWaitText != TEXT_SPECTATOR in every sample of that window (guard)
 The window starts once the deaths are observed; both machines are sampled every SAMPLE_S through it, an infobox on either
 machine closed on its own machine (MCC idiom). Common cell after each row (<row>-common): every hash bucket EQUAL,
 desyncSeen false on both, no new file in the lane crash folder.
 
-RED on the unchanged product (commit C1): SP1-client, SP2-host; every other cell PASS. One EVIDENCE line per row, one
-PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE
-CAPTURE line and fails that boot's rows "boot". run in the foreground to completion. ONE run is
-the result, no skip path; exit 0 only when every cell passes, else 2.
+A game that does not tell a player who lost its last soldier fails client_spectator-client and host_spectator-host;
+every other cell passes. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs
+after a failure. A boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". Run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_coop_spectator.py
 """
@@ -47,14 +45,17 @@ import test_battle_end_rules as BER  # noqa: E402
 import test_mc_seat_coop as MCC  # noqa: E402
 from test_mc_seat_tally import poll_box  # noqa: E402
 
-KEY_S1, KEY_S2 = "48886", "48888"
-S0_IDS, S1_IDS = MCC.S0_IDS, MCC.S1_IDS   # [10..14] the host's seat, [8, 9] the client's (RV-U8 pins)
+KEY_CLIENT_WIPED, KEY_HOST_WIPED = "48886", "48888"
+S0_IDS, S1_IDS = MCC.S0_IDS, MCC.S1_IDS   # [10..14] the host's seat, [8, 9] the client's (MCC's fixed ids)
 TEXT_SPECTATOR = "You command no soldiers - spectator mode"   # STR_COOP_SPECTATOR_MODE, en-US
 FACTION_HOSTILE, DEAD = 1, 6
-KILL_S = 30                       # the deaths' bound (TASK 0: 1.72 s for 8, 9; 4.74 s for 10..14)
+KILL_S = 30                       # the deaths' bound (measured: 1.72 s for 8, 9; 4.74 s for 10..14)
 NOTICE_S, SAMPLE_S = 10, 0.1      # the notice window after the deaths, and its sample cadence
-S1_ROWS = (("WG", ("WG-count", "WG-common")), ("SP1", ("SP1-out", "SP1-client", "SP1-host", "SP1-common")))
-S2_ROWS = (("SP2", ("SP2-out", "SP2-host", "SP2-client", "SP2-common")),)
+CLIENT_WIPED_ROWS = (("new_contacts", ("new_contacts-count", "new_contacts-common")),
+                     ("client_spectator", ("client_spectator-out", "client_spectator-client", "client_spectator-host",
+                                           "client_spectator-common")))
+HOST_WIPED_ROWS = (("host_spectator", ("host_spectator-out", "host_spectator-host", "host_spectator-client",
+                                       "host_spectator-common")),)
 
 
 def vhc(gc):
@@ -109,18 +110,19 @@ def first_at(samples, idx, text):
 # ===================== rows =====================
 
 
-def row_wg(host, client, crash0):
+def row_new_contacts(host, client, crash0):
     count, union = vhc(client), hostile_union(client, S1_IDS)
     ev = {"count": count, "union": union, "hostCount": vhc(host), "client": bsv(client),
           "lists": {i: (G3F.units(client).get(i) or {}).get("visibleUnits") for i in S1_IDS}}
-    return {"WG-count": (count == len(union), f"the client's visibleHostileCount {count} (want {len(union)}: the "
-                                              f"FACTION_HOSTILE ids its soldiers see, {union})"),
-            "WG-common": G3F.common(host, client, crash0)}, ev
+    return {"new_contacts-count": (count == len(union),
+                                   f"the client's visibleHostileCount {count} (want {len(union)}: the "
+                                   f"FACTION_HOSTILE ids its soldiers see, {union})"),
+            "new_contacts-common": G3F.common(host, client, crash0)}, ev
 
 
-def row_sp(row, host, client, crash0, seat, dead_ids, told, other):
-    """`row` (SP1 / SP2): host kill_unit_real {coop_side seat}; `told` must show TEXT_SPECTATOR within the window,
-    `other` never."""
+def row_spectator(row, host, client, crash0, seat, dead_ids, told, other):
+    """`row` (client_spectator / host_spectator): host kill_unit_real {coop_side seat}; `told` must show
+    TEXT_SPECTATOR within the window, `other` never."""
     ev, rec, m = {"before": {"host": bsv(host), "client": bsv(client)}}, {"boxes": []}, (host, client)
     ts0 = [turn_side(gc) for gc in m]
     k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": seat})
@@ -155,8 +157,8 @@ def row_sp(row, host, client, crash0, seat, dead_ids, told, other):
 
 
 def run_boot(tag, key, rows, row_fns):
-    host = GameClient("host", None, make_user_dir(f"r5u2_{tag}_host"))
-    client = GameClient("client", None, make_user_dir(f"r5u2_{tag}_client"))
+    host = GameClient("host", None, make_user_dir(f"coop_spectator_{tag}_host"))
+    client = GameClient("client", None, make_user_dir(f"coop_spectator_{tag}_client"))
     m = (host, client)
     try:
         try:
@@ -175,10 +177,10 @@ def run_boot(tag, key, rows, row_fns):
 
 def main():
     t0 = time.time()
-    fails = run_boot("s1", KEY_S1, S1_ROWS,
-                     (row_wg, lambda h, c, k: row_sp("SP1", h, c, k, 1, S1_IDS, c, h)))
-    fails += run_boot("s2", KEY_S2, S2_ROWS,
-                      (lambda h, c, k: row_sp("SP2", h, c, k, 0, S0_IDS, h, c),))
+    fails = run_boot("client_wiped", KEY_CLIENT_WIPED, CLIENT_WIPED_ROWS,
+                     (row_new_contacts, lambda h, c, k: row_spectator("client_spectator", h, c, k, 1, S1_IDS, c, h)))
+    fails += run_boot("host_wiped", KEY_HOST_WIPED, HOST_WIPED_ROWS,
+                      (lambda h, c, k: row_spectator("host_spectator", h, c, k, 0, S0_IDS, h, c),))
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_coop_spectator: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
