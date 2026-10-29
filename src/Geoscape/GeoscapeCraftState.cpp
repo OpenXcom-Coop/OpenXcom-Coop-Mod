@@ -271,7 +271,13 @@ GeoscapeCraftState::GeoscapeCraftState(Craft *craft, Globe *globe, Waypoint *way
 	// PRD-J08 SHARED: SEPARATE-only peer-disable, fenced. A SHARED world has no
 	// mirror (coop) crafts - every craft is shared and ANY player may command
 	// it, so only the vanilla low-fuel/mission-complete hiding applies.
-	if ((!_game->getCoopMod()->isSharedCampaign() && _craft->coop)
+	const Base *craftBase = _craft->getBase();
+	const bool foreignSeparateCraft = _game->getCoopMod()->isSeparateCampaign()
+		&& craftBase && !craftBase->getOwnerPlayerName().empty()
+		&& !craftBase->isOwnedByPlayer(
+			connectionTCP::seatName(connectionTCP::localSeat()));
+	if (foreignSeparateCraft
+		|| (!_game->getCoopMod()->isSharedCampaign() && _craft->coop)
 		|| _craft->getLowFuel() || _craft->getMissionComplete())
 	{
 		_btnBase->setVisible(false);
@@ -307,7 +313,7 @@ void GeoscapeCraftState::btnBaseClick(Action *)
 	}
 	// PRD-J08 SHARED: craft orders are commands to the host - mutate nothing
 	// locally; the world settles via shared_apply (+ the position snapshot).
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		SharedEcon::submitCraftReturn(_game, _craft);
 		delete _waypoint;
@@ -354,7 +360,7 @@ void GeoscapeCraftState::btnPatrolClick(Action *)
 		return;
 	}
 	// PRD-J08 SHARED: patrol rides the command protocol (auto-patrol included).
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		SharedEcon::submitCraftPatrol(_game, _craft, true);
 		delete _waypoint;
@@ -387,6 +393,11 @@ bool GeoscapeCraftState::testControlButtonsVisible() const
 	return _btnBase->getVisible() && _btnTarget->getVisible() && _btnPatrol->getVisible();
 }
 
+std::string GeoscapeCraftState::testCraftBaseName() const
+{
+	return _craft && _craft->getBase() ? _craft->getBase()->getName() : std::string();
+}
+
 void GeoscapeCraftState::btnCancelClick(Action *)
 {
 	// Go to the last known UFO position
@@ -394,7 +405,7 @@ void GeoscapeCraftState::btnCancelClick(Action *)
 	{
 		// PRD-J08 SHARED: the redirect is a command; the shared waypoint is
 		// created by the applier on host + replicas (id counter lock-step).
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			SharedEcon::submitCraftPoint(_game, _craft,
 				_waypoint->getLongitude(), _waypoint->getLatitude());

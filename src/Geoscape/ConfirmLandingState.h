@@ -51,6 +51,8 @@ private:
 	// Checks the starting condition
 	std::string checkStartingCondition();
 public:
+	/// The craft this dialog asks about.
+	Craft* getCraft() const { return _craft; }
 	/// Creates the Confirm Landing state.
 	ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool sharedBroker = false);
 	/// Cleans up the Confirm Landing state.

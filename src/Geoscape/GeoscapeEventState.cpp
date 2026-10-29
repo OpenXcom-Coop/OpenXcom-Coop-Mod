@@ -18,8 +18,10 @@
  */
 #include "GeoscapeEventState.h"
 #include "GeoscapeState.h"
+#include <algorithm>
 #include <map>
 #include "../Basescape/SellState.h"
+#include "../CoopMod/SharedEcon.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
 #include "../Engine/RNG.h"
@@ -53,7 +55,9 @@ namespace OpenXcom
  * Initializes all the elements in the Geoscape Event window.
  * @param geoEvent Pointer to the event.
  */
-GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule, bool coopShared) : _eventRule(eventRule), _coopShared(coopShared)
+GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
+	const std::string& ownerPlayerName, bool coopShared,
+	const GeoscapeEventDisplay* replicated) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule), _coopShared(coopShared)
 {
 	_screen = false;
 
@@ -114,7 +118,22 @@ GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule, bool coopShar
 	_lstTransfers->setBackground(_window);
 	_lstTransfers->setMargin(2);
 
-	eventLogic();
+	if (replicated)
+	{
+		// Display-only copy of the host's result: the authoritative host already
+		// applied this event (funds, transfers, missions, research and RNG).
+		if (!replicated->place.empty())
+		{
+			_txtTitle->setText(tr(_eventRule.getName()).arg(replicated->place));
+			_txtMessage->setText(tr(_eventRule.getDescription()).arg(replicated->place));
+		}
+		for (const auto& row : replicated->rows)
+			addTransferRow(row.first, row.second);
+	}
+	else
+	{
+		eventLogic();
+	}
 
 	_txtItem->setVisible(false);
 	_txtQuantity->setVisible(false);
@@ -131,6 +150,12 @@ GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule, bool coopShar
 	}
 }
 
+void GeoscapeEventState::addTransferRow(const std::string& itemType, const std::string& quantity)
+{
+	_lstTransfers->addRow(2, tr(itemType).c_str(), quantity.c_str());
+	_display.rows.push_back(std::make_pair(itemType, quantity));
+}
+
 /**
  * Helper performing event logic.
  */
@@ -139,13 +164,25 @@ void GeoscapeEventState::eventLogic()
 	if (!_eventRule.getAdhocMissionScriptTags().empty())
 	{
 		auto* geo = _game->getGeoscapeState();
-		geo->determineAlienMissions(false, &_eventRule);
+		geo->determineAlienMissions(false, &_eventRule, _ownerPlayerName);
 	}
 
 	SavedGame *save = _game->getSavedGame();
 	Base *hq = save->getBases()->front();
+	if (!_ownerPlayerName.empty())
+		for (Base* candidate : *save->getBases())
+			if (candidate && candidate->isOwnedByPlayer(_ownerPlayerName))
+			{
+				hq = candidate;
+				break;
+			}
 	const Mod *mod = _game->getMod();
 	const RuleEvent &rule = _eventRule;
+	const bool playerFactionScore = !_ownerPlayerName.empty()
+		&& _game->getCoopMod()->isSeparateCampaign()
+		&& save->getSeparateCampaign().haveDifferentFactions();
+	// coop Separate host: capture the rewards below for the replica.
+	const SharedEcon::EventRewardSnapshot rewardsBefore = SharedEcon::snapshotEventRewards(_game, hq);
 
 	RuleRegion *regionRule = nullptr;
 	City* city = nullptr;
@@ -167,6 +204,7 @@ void GeoscapeEventState::eventLogic()
 			}
 		}
 
+		_display.place = place;
 		std::string titlePlus = tr(rule.getName()).arg(place);
 		_txtTitle->setText(titlePlus);
 
@@ -189,7 +227,13 @@ void GeoscapeEventState::eventLogic()
 	}
 
 	// 1. give/take score points
-	if (regionRule)
+	if (playerFactionScore)
+	{
+		save->getSeparateCampaign().ensureFactionScores(
+			save->getCoopPlayers(), save->getResearchScores().size());
+		save->getSeparateCampaign().addFactionScore(_ownerPlayerName, rule.getPoints());
+	}
+	else if (regionRule)
 	{
 		for (auto* region : *_game->getSavedGame()->getRegions())
 		{
@@ -205,8 +249,24 @@ void GeoscapeEventState::eventLogic()
 		save->addResearchScore(rule.getPoints());
 	}
 
-	// 2. give/take funds
-	save->setFunds(save->getFunds() + rule.getFunds());
+	// 2. give/take funds (Separate: the event owner's wallet)
+	{
+		SeparateFundsScope wallet(save,
+			_game->getCoopMod()->isSeparateCampaign() ? _ownerPlayerName : std::string());
+		save->setFunds(save->getFunds() + rule.getFunds());
+	}
+
+	// Separate: a soldier the event spawns belongs to the event's owner (their
+	// seat), as a hire belongs to its purchaser; without it the soldier stays
+	// unowned (999) and no player's roster shows it.
+	int spawnedSoldierOwner = -1;
+	if (_game->getCoopMod()->isSeparateCampaign() && !_ownerPlayerName.empty())
+	{
+		const std::vector<std::string>& players = save->getCoopPlayers();
+		auto seat = std::find(players.begin(), players.end(), _ownerPlayerName);
+		if (seat != players.end())
+			spawnedSoldierOwner = (int)(seat - players.begin());
+	}
 
 	// 3. spawn/transfer persons (soldiers, engineers, scientists, ...)
 	const std::string& spawnedPersonType = rule.getSpawnedPersonType();
@@ -215,12 +275,14 @@ void GeoscapeEventState::eventLogic()
 		if (spawnedPersonType == "STR_SCIENTIST")
 		{
 			Transfer* t = new Transfer(24);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setScientists(rule.getSpawnedPersons());
 			hq->getTransfers()->push_back(t);
 		}
 		else if (spawnedPersonType == "STR_ENGINEER")
 		{
 			Transfer* t = new Transfer(24);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setEngineers(rule.getSpawnedPersons());
 			hq->getTransfers()->push_back(t);
 		}
@@ -232,6 +294,7 @@ void GeoscapeEventState::eventLogic()
 				for (int i = 0; i < rule.getSpawnedPersons(); ++i)
 				{
 					Transfer* t = new Transfer(24);
+					t->setOwnerPlayerName(_ownerPlayerName);
 					int nationality = _game->getSavedGame()->selectSoldierNationalityByLocation(_game->getMod(), ruleSoldier, city);
 					Soldier* s = mod->genSoldier(save, ruleSoldier, nationality);
 					YAML::YamlRootNodeReader reader(rule.getSpawnedSoldierTemplate(), "(spawned soldier template)");
@@ -244,6 +307,8 @@ void GeoscapeEventState::eventLogic()
 					{
 						s->genName();
 					}
+					if (spawnedSoldierOwner >= 0)
+						s->setOwnerPlayerId(spawnedSoldierOwner);
 					t->setSoldier(s);
 					hq->getTransfers()->push_back(t);
 				}
@@ -283,6 +348,7 @@ void GeoscapeEventState::eventLogic()
 			for (int i = 0; i < ts.second; ++i)
 			{
 				Transfer* t = new Transfer(24);
+				t->setOwnerPlayerName(_ownerPlayerName);
 				int nationality = _game->getSavedGame()->selectSoldierNationalityByLocation(_game->getMod(), ts.first, city);
 				Soldier* s = mod->genSoldier(save, ts.first, nationality);
 				YAML::YamlRootNodeReader reader(rule.getSpawnedSoldierTemplate(), "(spawned soldier template)");
@@ -291,6 +357,8 @@ void GeoscapeEventState::eventLogic()
 					// reset what may have been loaded
 					s->genName();
 				}
+				if (spawnedSoldierOwner >= 0)
+					s->setOwnerPlayerId(spawnedSoldierOwner);
 				t->setSoldier(s);
 				hq->getTransfers()->push_back(t);
 			}
@@ -359,6 +427,8 @@ void GeoscapeEventState::eventLogic()
 			int removed = 0;
 			for (auto* xbase : *save->getBases())
 			{
+				if (!_ownerPlayerName.empty() && !xbase->isOwnedByPlayer(_ownerPlayerName))
+					continue;
 				int bQty = xbase->getStorageItems()->getItem(r);
 				if (bQty > 0)
 				{
@@ -373,6 +443,8 @@ void GeoscapeEventState::eventLogic()
 			{
 				for (auto* xbase : *save->getBases())
 				{
+					if (!_ownerPlayerName.empty() && !xbase->isOwnedByPlayer(_ownerPlayerName))
+						continue;
 					for (auto* xcraft : *xbase->getCrafts())
 					{
 						int cQty = xcraft->getItems()->getItem(r);
@@ -391,7 +463,7 @@ void GeoscapeEventState::eventLogic()
 
 			std::ostringstream ss;
 			ss << -removed;
-			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
+			addTransferRow(ti.first, ss.str());
 		}
 		else if (Options::oxceGeoscapeEventsInstantDelivery)
 		{
@@ -399,11 +471,12 @@ void GeoscapeEventState::eventLogic()
 
 			std::ostringstream ss;
 			ss << ti.second;
-			_lstTransfers->addRow(2, tr(ti.first).c_str(), ss.str().c_str());
+			addTransferRow(ti.first, ss.str());
 		}
 		else
 		{
 			Transfer* t = new Transfer(1);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setItems(mod->getItem(ti.first, true), ti.second);
 			hq->getTransfers()->push_back(t);
 		}
@@ -426,17 +499,21 @@ void GeoscapeEventState::eventLogic()
 			// same as buy
 			craft->setStatus("STR_REFUELLING");
 			Transfer* t = new Transfer(1);
+			t->setOwnerPlayerName(_ownerPlayerName);
 			t->setCraft(craft);
 			hq->getTransfers()->push_back(t);
 		}
 	}
+
+	_display.rewards = SharedEcon::describeEventRewards(_game, hq, rewardsBefore);
 
 	// 4. give bonus research
 	std::vector<const RuleResearch*> possibilities;
 
 	for (auto* rRule : rule.getResearchList())
 	{
-		if (!save->isResearched(rRule, false) || save->hasUndiscoveredGetOneFree(rRule, true))
+		if (!save->isResearchedForBase(rRule->getName(), hq, false)
+			|| save->hasUndiscoveredGetOneFree(rRule, true))
 		{
 			possibilities.push_back(rRule);
 		}
@@ -449,7 +526,7 @@ void GeoscapeEventState::eventLogic()
 		const RuleResearch *eventResearch = possibilities.at(pickResearch);
 
 		std::string name = eventResearch->getLookup().empty() ? eventResearch->getName() : eventResearch->getLookup();
-		bool alreadyResearched = save->isResearched(name, false); // we have seen the pedia article already, don't show it again
+		bool alreadyResearched = save->isResearchedForBase(name, hq, false); // this player has seen the pedia article already
 
 		auto addResearchDiaryEntryForEvent = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const RuleEvent* sourceEvent, const RuleResearch* sourceResearch)
 		{
@@ -486,7 +563,7 @@ void GeoscapeEventState::eventLogic()
 		}
 
 		const RuleResearch *syncBonus = nullptr;
-		if (auto* bonus = save->selectGetOneFree(eventResearch))
+		if (auto* bonus = save->selectGetOneFree(eventResearch, hq))
 		{
 			syncBonus = bonus;
 			addResearchDiaryEntryForEvent(bonus, DiscoverySourceType::FREE_FROM, nullptr, eventResearch);
@@ -516,7 +593,13 @@ void GeoscapeEventState::eventLogic()
 	// 1. remove obsolete research projects from all bases
 	// 2. handle items spawned by research
 	// 3. handle events spawned by research
-	save->handlePrimaryResearchSideEffects(topicsToCheck, mod, hq);
+	// coop Separate: the host mirrors what the side effects changed
+	// (research_effects, world_extras); the replica never re-runs them. A SHARED
+	// replica still runs this eventLogic itself, so SHARED keeps the plain call.
+	if (_game->getCoopMod()->isSeparateCampaign())
+		SharedEcon::hostResearchSideEffects(_game, topicsToCheck, hq);
+	else
+		save->handlePrimaryResearchSideEffects(topicsToCheck, mod, hq);
 
 	if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
 	{
@@ -579,11 +662,17 @@ void GeoscapeEventState::btnOkClick(Action *)
 
 	if (!_bonusResearchName.empty())
 	{
-		Ufopaedia::openArticle(_game, _bonusResearchName);
+		if (_replicatedResearchNames)
+			Ufopaedia::openReplicatedEventArticle(_game, _bonusResearchName);
+		else
+			Ufopaedia::openArticle(_game, _bonusResearchName);
 	}
 	if (!_researchName.empty())
 	{
-		Ufopaedia::openArticle(_game, _researchName);
+		if (_replicatedResearchNames)
+			Ufopaedia::openReplicatedEventArticle(_game, _researchName);
+		else
+			Ufopaedia::openArticle(_game, _researchName);
 	}
 }
 

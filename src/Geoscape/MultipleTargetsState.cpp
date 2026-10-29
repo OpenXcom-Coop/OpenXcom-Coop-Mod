@@ -31,9 +31,13 @@
 #include "UfoDetectedState.h"
 #include "GeoscapeCraftState.h"
 #include "TargetInfoState.h"
+#include "../Basescape/BasescapeState.h"
 #include "../Engine/Options.h"
 #include "../Engine/Action.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SeparateEcon.h"
+#include "CraftErrorState.h"
 
 namespace OpenXcom
 {
@@ -120,6 +124,13 @@ void MultipleTargetsState::init()
 void MultipleTargetsState::popupTarget(Target *target)
 {
 	_game->popState();
+	if (!SeparateEcon::ownsMissionTarget(_game, target))
+	{
+		_game->pushState(new CraftErrorState(_state,
+			tr("STR_COOP_MISSION_BELONGS_TO_PLAYER").arg(
+				SeparateEcon::missionTargetOwner(target))));
+		return;
+	}
 	if (_crafts.size() == 0)
 	{
 		Base* b = dynamic_cast<Base*>(target);
@@ -127,14 +138,23 @@ void MultipleTargetsState::popupTarget(Target *target)
 		Ufo* u = dynamic_cast<Ufo*>(target);
 		if (b != 0)
 		{
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true && b->_coopBase == true)
+			// Shared and Separate campaigns keep every real base in the current
+			// world. Opening another player's base therefore uses the normal base
+			// selection flow; no base file is downloaded or swapped in.
+			if (_game->getCoopMod()->isSeparateCampaign()
+				&& !b->getOwnerPlayerName().empty()
+				&& !b->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat())))
 			{
-
-				CoopState *coopWindow = new CoopState(50);
-				_game->getCoopMod()->current_base_name = b->getName();
-				coopWindow->setGlobe(_state->getGlobe());
-				_game->pushState(coopWindow);
+				auto* bases = _game->getSavedGame()->getBases();
+				for (size_t i = 0; i < bases->size(); ++i)
+				{
+					if (bases->at(i) == b)
+					{
+						_game->getSavedGame()->setSelectedBase(i);
+						break;
+					}
+				}
+				_game->pushState(new BasescapeState(b, _state->getGlobe()));
 			}
 			else
 			{

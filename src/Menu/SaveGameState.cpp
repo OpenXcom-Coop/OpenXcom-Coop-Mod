@@ -229,7 +229,8 @@ void SaveGameState::think()
 			// with whatever blob is in the store (same staleness guarantee the
 			// autosaves and the COOP_DLG_HOST_SAVE_WAIT cancel already have).
 			bool deferHostSave = false;
-			if (!_quitAfterSave && (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false && _type != SAVE_IRONMAN_END)
+			if (!_quitAfterSave && (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false && _type != SAVE_IRONMAN_END
+				&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)

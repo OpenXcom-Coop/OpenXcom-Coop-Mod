@@ -46,19 +46,25 @@ def keep_awake():
 
 
 def crafts_of(gc):
-    """Flat list of every craft geo_state reports for this instance."""
+    """Flat list of every craft geo_state reports for this instance, each tagged
+    with its base name and whether that base is the other player's (`peer`).
+
+    Separate is one host world: the client holds the host's real base and crafts
+    (no mirror copies), so a peer craft is one at a base another player owns."""
     r = gc.cmd({"cmd": "geo_state"})
     if not r.get("ok"):
         return []
     out = []
     for b in r["bases"]:
-        out.extend(b.get("crafts", []))
+        for c in b.get("crafts", []):
+            out.append(dict(c, base=b["name"], peer=bool(b.get("coopBase"))))
     return out
 
 
 def find_craft(gc, craft_id, coop):
+    """coop=False: this machine's own craft; coop=True: its copy of a peer craft."""
     for c in crafts_of(gc):
-        if c["id"] == craft_id and bool(c["coop"]) == coop:
+        if c["id"] == craft_id and c["peer"] == coop:
             return c
     return None
 
@@ -168,7 +174,7 @@ def pick_crafts(host):
     soldier capacity) for the airborne B-family, and an armed craft (weapon
     slots > 0) for the REARMING case. Falls back to the same craft if the base
     only has one kind."""
-    own = [c for c in crafts_of(host) if not c["coop"]]
+    own = [c for c in crafts_of(host) if not c["peer"]]
     transport = next((c for c in own if c.get("weapons", 0) == 0), None)
     armed = next((c for c in own if c.get("weapons", 0) > 0), None)
     t = (transport or armed or own[0])["id"] if own else None
@@ -227,13 +233,14 @@ def assert_control_guard(res, client):
     buttons for a PEER's craft (coop=true) so a non-owning player can't redirect
     another player's ship, while still showing them for its OWN craft."""
     ccrafts = crafts_of(client)
-    peer = next((c for c in ccrafts if c["coop"]), None)
-    own = next((c for c in ccrafts if not c["coop"]), None)
+    peer = next((c for c in ccrafts if c["peer"]), None)
+    own = next((c for c in ccrafts if not c["peer"]), None)
 
     if not peer:
         res.record("GUARD peer craft buttons hidden", False, "no peer (coop) craft on client")
     else:
-        r = client.cmd({"cmd": "geo_craft_buttons", "craft_id": peer["id"], "coop": True})
+        r = client.cmd({"cmd": "geo_craft_buttons", "craft_id": peer["id"],
+                        "coop": bool(peer["coop"]), "base": peer["base"]})
         ok = bool(r.get("ok")) and r.get("buttons_visible") is False
         res.record("GUARD peer craft buttons hidden", ok,
                    f"peer craft id={peer['id']} buttons_visible={r.get('buttons_visible')} "
@@ -242,7 +249,8 @@ def assert_control_guard(res, client):
     if not own:
         res.record("GUARD own craft buttons shown", False, "no own craft on client")
     else:
-        r = client.cmd({"cmd": "geo_craft_buttons", "craft_id": own["id"], "coop": False})
+        r = client.cmd({"cmd": "geo_craft_buttons", "craft_id": own["id"],
+                        "coop": bool(own["coop"]), "base": own["base"]})
         ok = bool(r.get("ok")) and r.get("buttons_visible") is True
         res.record("GUARD own craft buttons shown", ok,
                    f"own craft id={own['id']} buttons_visible={r.get('buttons_visible')} "

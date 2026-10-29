@@ -108,6 +108,15 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
 	return find != vec.end();
 }
 
+/// The saveSchema stamp for a world of this game mode. Only a cooperative
+/// Separate campaign is written at the newest schema; solo, SHARED, PvP and
+/// skirmish worlds keep the schema the previous release reads.
+int saveSchemaStamp(const SavedGame& save)
+{
+	return SaveUpgrade::schemaForMode(save.isCoopSave(),
+		static_cast<int>(save.getCampaignType()), connectionTCP::_coopGamemode);
+}
+
 }
 
 /**
@@ -339,6 +348,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
 	reader.tryRead("difficulty", _difficulty);
+	_separateCampaign.load(reader["separateCampaign"]);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
@@ -347,14 +357,26 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	// coop
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
-	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	{
+		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
+		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
+		connectionTCP::coop_save_owner_player_id = connectionTCP::loadedSaveOwnerId(
+			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
+				|| isSeparateCoopCampaign()));
+	}
+	// Player profiles are the one-world Separate model; PvP keeps none.
+	if (isSeparateCoopCampaign())
+	{
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
+		_separateCampaign.ensurePlayers(_coopPlayers);
+	}
 	// coop (PRD-P5): coop_parallel_turns is NOT read here. Every in-memory load
 	// is a world swapped inside a live session (often into a throwaway
 	// SavedGame), and the COOP_READY handshake already decided the session mode.
 	// A blob written before the handshake latched carries a stale false, so
 	// reading it switched parallel turns off for the rest of the session. Only
 	// the disk load (SavedGame::load, the resume path) restores the mode.
-	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
+	if (connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
 	}
@@ -365,6 +387,8 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
 	reader.tryRead("funds", _funds);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	reader.tryRead("maintenance", _maintenance);
 	reader.tryRead("userNotes", _userNotes);
 	reader.tryRead("geoscapeDebugLog", _geoscapeDebugLog);
@@ -546,6 +570,13 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 	sortReserchVector(_discovered);
+	if (isSeparateCoopCampaign() && !_separateCampaign.wasLoadedFromSave())
+	{
+		std::vector<std::string> legacyResearch;
+		for (const auto* research : _discovered)
+			if (research) legacyResearch.push_back(research->getName());
+		_separateCampaign.migrateLegacyResearch(_coopPlayers, legacyResearch);
+	}
 
 	// Research Diary
 	{
@@ -565,6 +596,8 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 
 	reader.tryRead("generatedEvents", _generatedEvents);
 	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.migrateLegacyUfopediaStatus(_coopPlayers, _ufopediaRuleStatus);
 	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
 	reader.tryRead("researchRuleStatus", _researchRuleStatus);
 	reader.tryRead("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
@@ -638,7 +671,22 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 
-	loadTemplates(reader, mod);
+	// Separate: every player keeps their own saved templates. The world's
+	// template slots are the host's own set; a client takes its set from its
+	// player profile (LoadGameState carries a client's set over instead when it
+	// already holds a campaign world).
+	if (isSeparateCoopCampaign() && !connectionTCP::getServerOwner())
+	{
+		const int seat = connectionTCP::localSeat();
+		const SeparateEcon::CampaignData::PlayerState* profile =
+			(seat >= 0 && static_cast<size_t>(seat) < _coopPlayers.size())
+			? _separateCampaign.getPlayer(_coopPlayers[seat]) : nullptr;
+		setTemplates(profile ? profile->equipmentTemplates : SeparateEcon::EquipmentTemplates(), mod);
+	}
+	else
+	{
+		loadTemplates(reader, mod);
+	}
 
 	for (const auto& missionStats : reader["missionStatistics"].children())
 	{
@@ -850,6 +898,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	}
 
 	reader.tryRead("difficulty", _difficulty);
+	_separateCampaign.load(reader["separateCampaign"]);
 	reader.tryRead("end", _end);
 	if (reader["rng"] && (_ironman || !Options::newSeedOnLoad))
 		RNG::setSeed(reader["rng"].readVal<uint64_t>());
@@ -862,16 +911,26 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	connectionTCP::saveID = 0;
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
-	reader.tryRead("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
+	{
+		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
+		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
+		connectionTCP::coop_save_owner_player_id = connectionTCP::loadedSaveOwnerId(
+			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
+				|| isSeparateCoopCampaign()));
+	}
+	// Player profiles are the one-world Separate model; PvP keeps none.
+	if (isSeparateCoopCampaign())
+	{
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
+		_separateCampaign.ensurePlayers(_coopPlayers);
+	}
 	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
 	// mid-battle resume comes back in the same mode it was played in.
 	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
-	// Single-authority: a host save embeds every client-world blob captured
-	// at save time. Restore them as the served copies (memory only - the
-	// reconnect flow streams from these), so a rolled-back save rolls every
-	// client back too. The load defines the full served set: stale host blobs
-	// from another campaign/session are dropped first, so a solo or different
-	// save never serves (or re-embeds) a foreign client world.
+	// Only adversarial PvP keeps distinct player worlds. Shared and Separate
+	// campaigns always load one authoritative host world and never restore
+	// player-world blobs.
+	if (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3)
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
 		for (auto it = connectionTCP::coopFilesHost.begin(); it != connectionTCP::coopFilesHost.end();)
@@ -895,7 +954,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 			}
 		}
 	}
-	if (connectionTCP::isCoopBaseLoading == false && connectionTCP::getServerOwner() == false)
+	if (connectionTCP::getServerOwner() == false)
 	{
 		reader.tryRead("no_bases", connectionTCP::no_bases);
 	}
@@ -906,6 +965,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
 	reader.tryRead("funds", _funds);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	reader.tryRead("maintenance", _maintenance);
 	reader.tryRead("userNotes", _userNotes);
 	reader.tryRead("geoscapeDebugLog", _geoscapeDebugLog);
@@ -1087,6 +1148,13 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		}
 	}
 	sortReserchVector(_discovered);
+	if (isSeparateCoopCampaign() && !_separateCampaign.wasLoadedFromSave())
+	{
+		std::vector<std::string> legacyResearch;
+		for (const auto* research : _discovered)
+			if (research) legacyResearch.push_back(research->getName());
+		_separateCampaign.migrateLegacyResearch(_coopPlayers, legacyResearch);
+	}
 
 	// Research Diary
 	{
@@ -1106,6 +1174,8 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	reader.tryRead("generatedEvents", _generatedEvents);
 	loadUfopediaRuleStatus(reader["ufopediaRuleStatus"]);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.migrateLegacyUfopediaStatus(_coopPlayers, _ufopediaRuleStatus);
 	reader.tryRead("manufactureRuleStatus", _manufactureRuleStatus);
 	reader.tryRead("researchRuleStatus", _researchRuleStatus);
 	reader.tryRead("monthlyPurchaseLimitLog", _monthlyPurchaseLimitLog);
@@ -1237,6 +1307,57 @@ void SavedGame::loadTemplates(const YAML::YamlNodeReader& reader, const Mod* mod
 	}
 }
 
+void SavedGame::clearTemplates()
+{
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		for (auto* entry : _globalEquipmentLayout[j])
+		{
+			delete entry;
+		}
+		_globalEquipmentLayout[j].clear();
+		_globalEquipmentLayoutName[j].clear();
+		_globalEquipmentLayoutArmor[j].clear();
+	}
+	for (int j = 0; j < MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		_globalCraftLoadout[j]->clear();
+		_globalCraftLoadoutName[j].clear();
+	}
+}
+
+void SavedGame::copyTemplatesFrom(const SavedGame& other)
+{
+	clearTemplates();
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		for (const auto* entry : other._globalEquipmentLayout[j])
+		{
+			_globalEquipmentLayout[j].push_back(new EquipmentLayoutItem(*entry));
+		}
+		_globalEquipmentLayoutName[j] = other._globalEquipmentLayoutName[j];
+		_globalEquipmentLayoutArmor[j] = other._globalEquipmentLayoutArmor[j];
+	}
+	for (int j = 0; j < MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		*_globalCraftLoadout[j] = *other._globalCraftLoadout[j];
+		_globalCraftLoadoutName[j] = other._globalCraftLoadoutName[j];
+	}
+}
+
+void SavedGame::setTemplates(const SeparateEcon::EquipmentTemplates& templates, const Mod* mod)
+{
+	clearTemplates();
+	if (templates.empty())
+		return;
+	// The profile set is kept in the same keys as the world's own slots, so
+	// loadTemplates reads it, with the same handling of unknown types.
+	YAML::YamlRootNodeWriter writer;
+	templates.save(writer);
+	const YAML::YamlRootNodeReader reader(writer.emit(), "(player templates)", false);
+	loadTemplates(reader, mod);
+}
+
 void SavedGame::loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader)
 {
 	reader.tryReadVal(_ufopediaRuleStatus);
@@ -1287,10 +1408,10 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 		git_sha.erase(0, 1);
 	headerWriter.write("build", git_sha);
 	// Schema stamp: every save (the host .sav AND every embedded client blob, which
-	// are full 2-doc saves) carries the current co-op save schema so the load gate
+	// are full 2-doc saves) carries its game mode's save schema so the load gate
 	// can classify old saves. Unstamped schema-2 saves gain this on their next save.
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
-	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
 	if (_battleGame != 0)
 	{
@@ -1324,6 +1445,8 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.save(writer["separateCampaign"]);
 
 	// coop
 	// Only a coop save carries a saveID; a solo save must not (the load gate
@@ -1377,7 +1500,12 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	for (auto& base : _bases)
 	{
 
-		if (base->_coopBase == false)
+		// Every named-owner base is real in schema-3 Separate. _isForeignBase is only
+		// the current seat's foreign-base UI flag and may still reflect the seat
+		// used while the disk save was loaded, before hosting/joining starts.
+		if (base->_isForeignBase == false
+			|| (isSeparateCoopCampaign()
+				&& !base->getOwnerPlayerName().empty()))
 		{
 			found = true;
 		}
@@ -1554,7 +1682,7 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	if (!git_sha.empty() && git_sha[0] == '.')
 		git_sha.erase(0, 1);
 	headerWriter.write("build", git_sha);
-	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
 	// P4: the stub is a pure GEOSCAPE world - never a battle. A mid-battle resume
 	// loads this stub as its phase-one geoscape and streams the real battle on top
@@ -1582,6 +1710,8 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.save(writer["separateCampaign"]);
 
 	if (_coop)
 		writer.write("saveID", connectionTCP::saveID);
@@ -1767,10 +1897,10 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		git_sha.erase(0, 1);
 	headerWriter.write("build", git_sha);
 	// Schema stamp: every save (the host .sav AND every embedded client blob, which
-	// are full 2-doc saves) carries the current co-op save schema so the load gate
+	// are full 2-doc saves) carries its game mode's save schema so the load gate
 	// can classify old saves. Unstamped schema-2 saves gain this on their next save.
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
-	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
 	if (_battleGame != 0)
 	{
@@ -1804,6 +1934,8 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.setAsMap();
 	writer.write("difficulty", _difficulty);
 	writer.write("end", _end);
+	if (isSeparateCoopCampaign())
+		_separateCampaign.save(writer["separateCampaign"]);
 
 	// coop
 	// Only a coop save carries a saveID; a solo save must not (the load gate
@@ -1816,21 +1948,15 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// coop (PRD-P5)
 	writer.write("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	writer.write("no_bases", connectionTCP::no_bases);
-	// Single-authority: embed the freshest client-world blob of EVERY client
-	// so this save captures all players' rosters atomically. Skip when this
-	// call is itself writing a client sidecar (.data) to avoid recursion, and
-	// when no coop campaign session ever ran (saveID 0 - never pollute a solo
-	// campaign's save with another campaign's blobs).
+	// PvP still owns distinct player worlds. Campaign modes do not embed client
+	// worlds: their single host save already contains every base and roster.
 	bool isSidecarWrite = filename.size() >= 5 && filename.compare(filename.size() - 5, 5, ".data") == 0;
-	// PRD-J02: a SHARED save is already the single authoritative world for every
-	// player - there are no separate client worlds to embed. Skip the
-	// coopClientSaves sequence entirely (SEPARATE keeps embedding as before).
-	bool sharedSave = (_campaignType == CoopCampaignType::Shared);
-	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite && !sharedSave)
+	if (_coop && connectionTCP::saveID != 0 && !isSidecarWrite
+		&& (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3))
 	{
 		// Blob identity comes from the locked roster (host at [0], clients after),
 		// NOT from reverse-parsing map keys: each client's world lives under
-		// hostBlobKey(name) at the current saveID (the store keeps one entry per
+		// pvpHostWorldKey(name) at the current saveID (the store keeps one entry per
 		// client and the saveID is stable within a session - see PRD-04). This
 		// removes the fragile filename find/substr + lexicographic-id selection
 		// that could pick the wrong blob (S8). Keyed by exact name, so player
@@ -1847,9 +1973,9 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 			// blob matched by exact roster name (any saveID); the embedded key is
 			// normalized to the CURRENT saveID so the reconnect flow finds it
 			// after this save is loaded.
-			const std::string* blob = connectionTCP::findHostClientBlob(_coopPlayers[i]);
+			const std::string* blob = connectionTCP::findPvpClientWorld(_coopPlayers[i]);
 			if (blob && !blob->empty())
-				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), blob);
+				toEmbed.emplace_back(connectionTCP::pvpHostWorldKey(_coopPlayers[i]), blob);
 			else if (connectionTCP::_coopGamemode == 2)
 			{
 				// PvP P4: the gm2 alien client has no host-side world blob (its own
@@ -1858,7 +1984,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 				// leaking host bases/roster. buildCoopStub touches no coop map, so
 				// calling it here under coopFilesMutex cannot deadlock.
 				stubStore.push_back(buildCoopStub(mod));
-				toEmbed.emplace_back(connectionTCP::hostBlobKey(_coopPlayers[i]), &stubStore.back());
+				toEmbed.emplace_back(connectionTCP::pvpHostWorldKey(_coopPlayers[i]), &stubStore.back());
 			}
 		}
 		if (!toEmbed.empty())
@@ -2150,7 +2276,94 @@ int64_t SavedGame::getFunds() const
 		return 1000;
 	}
 
+	if (isSeparateCoopCampaign())
+	{
+		const std::string playerName = getSeparateFundsContextPlayer();
+		const std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(playerName);
+		if (playerFunds && !playerFunds->empty()) return playerFunds->back();
+	}
 	return _funds.back();
+}
+
+bool SavedGame::isSeparateCoopCampaign() const
+{
+	// PvP (game mode 2/3) is stored with the Separate type but keeps the
+	// two-world rules: one wallet, global research, no named-owner profiles.
+	return _coop && _campaignType == CoopCampaignType::Separate
+		&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3;
+}
+
+std::string SavedGame::getSeparateFundsContextPlayer() const
+{
+	if (!_separateFundsContext.empty()) return _separateFundsContext;
+	std::string playerName = connectionTCP::seatName(connectionTCP::localSeat());
+	if (!playerName.empty()) return playerName;
+	int seat = connectionTCP::coop_save_owner_player_id;
+	if (seat >= 0 && seat < static_cast<int>(_coopPlayers.size()))
+		return _coopPlayers[seat];
+	return _coopPlayers.empty() ? std::string() : _coopPlayers.front();
+}
+
+bool SavedGame::usesSeparatePrivateResearch() const
+{
+	// The single place that decides whether research is private. PvP (coop
+	// game modes 2 and 3) keeps its two worlds and the global list.
+	if (!_coop || _campaignType != CoopCampaignType::Separate)
+		return false;
+	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
+		return false;
+	return !_separateCampaign.isResearchSharingEnabled();
+}
+
+std::string SavedGame::getSeparateResearchContextPlayer() const
+{
+	if (!_separateResearchContext.empty()) return _separateResearchContext;
+	return getSeparateFundsContextPlayer();
+}
+
+bool SavedGame::isResearchedByAnyPlayer(const std::string &research) const
+{
+	if (!usesSeparatePrivateResearch())
+		return isResearched(research, false);
+	for (const auto& player : _separateCampaign.getPlayers())
+		if (_separateCampaign.hasCompletedResearch(player.first, research))
+			return true;
+	return false;
+}
+
+std::vector<const RuleResearch*> SavedGame::getResearchedTopics(const Mod *mod) const
+{
+	if (!usesSeparatePrivateResearch() || !mod)
+		return _discovered;
+	std::vector<const RuleResearch*> topics;
+	if (const auto* player = _separateCampaign.getPlayer(getSeparateResearchContextPlayer()))
+		for (const auto& name : player->completedResearch)
+			if (const RuleResearch* rule = mod->getResearch(name, false))
+				topics.push_back(rule);
+	return topics;
+}
+
+int64_t SavedGame::getSeparatePlayerFunds(const std::string& playerName) const
+{
+	const std::vector<int64_t>* funds = _separateCampaign.getPlayerFunds(playerName);
+	return funds && !funds->empty() ? funds->back() : (_funds.empty() ? 0 : _funds.back());
+}
+
+int64_t SavedGame::getSeparatePlayerCosts() const
+{
+	if (!isSeparateCoopCampaign()) return 0;
+	return getSeparatePlayerCosts(getSeparateFundsContextPlayer());
+}
+
+int64_t SavedGame::getSeparatePlayerCosts(const std::string& playerName) const
+{
+	auto it = _separatePlayerCosts.find(playerName);
+	return it == _separatePlayerCosts.end() ? 0 : it->second;
+}
+
+void SavedGame::setSeparatePlayerCosts(const std::string& playerName, int64_t costs)
+{
+	if (!playerName.empty()) _separatePlayerCosts[playerName] = costs;
 }
 
 /**
@@ -2159,6 +2372,12 @@ int64_t SavedGame::getFunds() const
  */
 std::vector<int64_t> &SavedGame::getFundsList()
 {
+	if (isSeparateCoopCampaign())
+	{
+		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
+			getSeparateFundsContextPlayer());
+		if (playerFunds && !playerFunds->empty()) return *playerFunds;
+	}
 	return _funds;
 }
 
@@ -2168,15 +2387,22 @@ std::vector<int64_t> &SavedGame::getFundsList()
  */
 void SavedGame::setFunds(int64_t funds)
 {
-	if (_funds.back() > funds)
+	std::vector<int64_t>* target = &_funds;
+	if (isSeparateCoopCampaign())
 	{
-		_expenditures.back() += _funds.back() - funds;
+		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
+			getSeparateFundsContextPlayer());
+		if (playerFunds && !playerFunds->empty()) target = playerFunds;
+	}
+	if (target->back() > funds)
+	{
+		_expenditures.back() += target->back() - funds;
 	}
 	else
 	{
-		_incomes.back() += funds - _funds.back();
+		_incomes.back() += funds - target->back();
 	}
-	_funds.back() = funds;
+	target->back() = funds;
 }
 
 /**
@@ -2188,12 +2414,23 @@ void SavedGame::setFunds(int64_t funds)
  * through many gross income AND expenditure events, so net-inference on the
  * replica drifts the Graphs->Finance series (GAP-9). The SHARED apply layer calls
  * this and then copies the host's authoritative _incomes/_expenditures tails
- * verbatim, keeping the replica's series exactly the host's. Never used by the
- * HOST or by SEPARATE campaigns (setFunds is unchanged there).
+ * verbatim, keeping the replica's series exactly the host's. A SEPARATE apply
+ * uses the same raw adoption while a temporary player context routes the value
+ * into the command initiator's private wallet.
  * @param funds New funds.
  */
 void SavedGame::setFundsRaw(int64_t funds)
 {
+	if (isSeparateCoopCampaign())
+	{
+		std::vector<int64_t>* playerFunds = _separateCampaign.getPlayerFunds(
+			getSeparateFundsContextPlayer());
+		if (playerFunds && !playerFunds->empty())
+		{
+			playerFunds->back() = funds;
+			return;
+		}
+	}
 	_funds.back() = funds;
 }
 
@@ -2257,7 +2494,59 @@ void SavedGame::setGlobeZoom(int zoom)
  */
 void SavedGame::monthlyFunding()
 {
-	int countryFunding = getCountryFunding();
+	int64_t countryFunding = getCountryFunding();
+	if (isSeparateCoopCampaign() && !_coopPlayers.empty())
+	{
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
+		int totalMaintenance = 0;
+		int64_t totalBalanceDelta = 0;
+		int64_t totalPlayerCosts = 0;
+		for (const std::string& playerName : _coopPlayers)
+		{
+			int playerMaintenance = 0;
+			for (Base* base : _bases)
+				// An ownerless (legacy) base came from the host world: bill it once,
+				// to the host, never to every player.
+				if (base && (base->getOwnerPlayerName().empty()
+					? playerName == _coopPlayers.front()
+					: base->isOwnedByPlayer(playerName)))
+					playerMaintenance += base->getMonthlyMaintenace();
+			totalMaintenance += playerMaintenance;
+
+			SeparateEcon::CampaignData::PlayerState* player = _separateCampaign.getPlayer(playerName);
+			if (!player || player->funds.empty()) continue;
+			const int64_t normalNet = countryFunding - playerMaintenance;
+			const int64_t balanceDelta = normalNet / static_cast<int64_t>(_coopPlayers.size());
+			const int64_t playerCosts = normalNet - balanceDelta;
+			_separatePlayerCosts[playerName] = playerCosts;
+			totalBalanceDelta += balanceDelta;
+			totalPlayerCosts += playerCosts;
+			std::vector<int64_t>* playerFunds = &player->funds;
+			playerFunds->back() += balanceDelta;
+			playerFunds->push_back(playerFunds->back());
+			if (playerFunds->size() > 12) playerFunds->erase(playerFunds->begin());
+		}
+
+		// Keep the legacy/global finance series as the sum of the independently
+		// settled player economies. Player-facing balances come from PlayerState.
+		const int64_t pooledIncome = countryFunding * static_cast<int64_t>(_coopPlayers.size());
+		_funds.back() += totalBalanceDelta;
+		_funds.push_back(_funds.back());
+		_maintenance.back() = totalMaintenance;
+		_maintenance.push_back(0);
+		_incomes.push_back(pooledIncome);
+		_expenditures.push_back(totalMaintenance + totalPlayerCosts);
+		_researchScores.push_back(0);
+		_separateCampaign.newFactionScoreMonth(
+			_coopPlayers, std::min<size_t>(_researchScores.size(), 12));
+
+		if (_incomes.size() > 12) _incomes.erase(_incomes.begin());
+		if (_expenditures.size() > 12) _expenditures.erase(_expenditures.begin());
+		if (_researchScores.size() > 12) _researchScores.erase(_researchScores.begin());
+		if (_funds.size() > 12) _funds.erase(_funds.begin());
+		if (_maintenance.size() > 12) _maintenance.erase(_maintenance.begin());
+		return;
+	}
 	int baseMaintenance = getBaseMaintenance();
 	_funds.back() += (countryFunding - baseMaintenance);
 	_funds.push_back(_funds.back());
@@ -2482,9 +2771,13 @@ int SavedGame::getBaseMaintenance() const
 	int total = 0;
 	for (const auto* xbase : _bases)
 	{
-		// coop
-		// In separate campaigns, monthly maintenance costs only include bases owned by the current player, not bases owned by other players. This is a temporary fix until the separate campaign rework.
-		if (connectionTCP::getCoopStatic() == true && connectionTCP::isSharedCampaignStatic() == false && xbase->_coopBase == true)
+		// Old ownerless mirror/PvP bases are display copies and must not be billed.
+		// A unified Separate base has a persistent owner name and is part of the
+		// host's one real economy even when it is foreign in this seat's UI.
+		if (connectionTCP::getCoopStatic() == true
+			&& connectionTCP::isSharedCampaignStatic() == false
+			&& xbase->_isForeignBase == true
+			&& xbase->getOwnerPlayerName().empty())
 		{
 			continue;
 		}
@@ -2555,6 +2848,12 @@ void SavedGame::setBattleGame(SavedBattleGame *battleGame)
  */
 void SavedGame::setUfopediaRuleStatus(const std::string &ufopediaRule, int newStatus)
 {
+	if (isSeparateCoopCampaign())
+	{
+		_separateCampaign.setUfopediaRuleStatus(
+			getSeparateFundsContextPlayer(), ufopediaRule, newStatus);
+		return;
+	}
 	_ufopediaRuleStatus[ufopediaRule] = newStatus;
 }
 
@@ -2602,8 +2901,18 @@ const std::map<std::string, bool> &SavedGame::getHiddenPurchaseItems()
  * @param research Pointer to the given research rule.
  * @return Pointer to the selected getOneFree topic. Nullptr, if nothing was selected.
  */
-const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research)
+const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research, const Base* base)
 {
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	// Disabled-topic checks below read the same player's private tree.
+	SeparateResearchScope researchScope(this, researchOwner);
+	auto researched = [&](const RuleResearch* topic)
+	{
+		return researchOwner.empty() ? isResearched(topic, false)
+			: isResearchedForPlayer(topic->getName(), researchOwner, false);
+	};
 	if (!research->getGetOneFree().empty() || !research->getGetOneFreeProtected().empty())
 	{
 		std::vector<const RuleResearch*> possibilities;
@@ -2613,14 +2922,14 @@ const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research)
 			{
 				continue; // skip disabled topics
 			}
-			if (!isResearched(free, false))
+			if (!researched(free))
 			{
 				possibilities.push_back(free);
 			}
 		}
 		for (auto& pair : research->getGetOneFreeProtected())
 		{
-			if (isResearched(pair.first, false))
+			if (researched(pair.first))
 			{
 				for (auto* res : pair.second)
 				{
@@ -2628,7 +2937,7 @@ const RuleResearch* SavedGame::selectGetOneFree(const RuleResearch* research)
 					{
 						continue; // skip disabled topics
 					}
-					if (!isResearched(res, false))
+					if (!researched(res))
 					{
 						possibilities.push_back(res);
 					}
@@ -2684,10 +2993,48 @@ void SavedGame::makeAllResearchDiscovered(const Mod* mod)
  */
 void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * mod, Base * base, bool score)
 {
-	if (isResearchRuleStatusDisabled(research->getName()))
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	const bool playerScoped = !researchOwner.empty();
+	// Private research disables topics per player. A completion for another
+	// player's base (a replica applying the host player's research) must check
+	// that player's disabled topics, never the local player's, so the check
+	// waits for the owner's scope below.
+	if (!playerScoped && isResearchRuleStatusDisabled(research->getName()))
 	{
 		return;
 	}
+	// Every research check below (disabled topics included) is this player's.
+	SeparateResearchScope researchScope(this, researchOwner);
+	if (playerScoped && isResearchRuleStatusDisabled(research->getName()))
+	{
+		return;
+	}
+	auto researched = [&](const RuleResearch* topic)
+	{
+		return playerScoped ? isResearchedForPlayer(topic->getName(), researchOwner, false)
+			: isResearched(topic, false);
+	};
+	auto hasPlayerGetOneFree = [&](const RuleResearch* topic)
+	{
+		for (const auto* free : topic->getGetOneFree())
+			if (!isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+				return true;
+		for (const auto& group : topic->getGetOneFreeProtected())
+			for (const auto* free : group.second)
+				if (!isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+					return true;
+		return false;
+	};
+	auto hasPlayerProtectedUnlock = [&](const RuleResearch* topic)
+	{
+		for (const auto* unlock : topic->getUnlocked())
+			if (!isResearchRuleStatusDisabled(unlock->getName())
+				&& !unlock->getRequirements().empty() && !researched(unlock))
+				return true;
+		return false;
+	};
 
 	// Not really a queue in C++ terminology (we don't need or want pop_front())
 	std::vector<const RuleResearch *> queue;
@@ -2699,17 +3046,24 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		const RuleResearch *currentQueueItem = queue.at(currentQueueIndex);
 
 		// 1. Find out and remember if the currentQueueItem has any undiscovered non-disabled "protected unlocks" or "getOneFree"
-		bool hasUndiscoveredProtectedUnlocks = hasUndiscoveredProtectedUnlock(currentQueueItem);
-		bool hasAnyUndiscoveredGetOneFrees = hasUndiscoveredGetOneFree(currentQueueItem, false);
+		bool hasUndiscoveredProtectedUnlocks = playerScoped
+			? hasPlayerProtectedUnlock(currentQueueItem) : hasUndiscoveredProtectedUnlock(currentQueueItem);
+		bool hasAnyUndiscoveredGetOneFrees = playerScoped
+			? hasPlayerGetOneFree(currentQueueItem) : hasUndiscoveredGetOneFree(currentQueueItem, false);
 
 		// 2. If the currentQueueItem was *not* already discovered before, add it to discovered research
 		bool checkRelatedZeroCostTopics = true;
-		if (!isResearched(currentQueueItem, false))
+		if (!researched(currentQueueItem))
 		{
 			if (!research->isRepeatable())
 			{
-				_discovered.push_back(currentQueueItem);
-				sortReserchVector(_discovered);
+				if (playerScoped)
+					_separateCampaign.completeResearch(researchOwner, currentQueueItem->getName());
+				else
+				{
+					_discovered.push_back(currentQueueItem);
+					sortReserchVector(_discovered);
+				}
 			}
 
 			if (currentQueueItem != research)
@@ -2736,6 +3090,14 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 			// process "disables"
 			for (const auto* dis : currentQueueItem->getDisabled())
 			{
+				if (playerScoped)
+				{
+					// Private research: one player's branch choice disables the
+					// topic for that player only.
+					_separateCampaign.removeCompletedResearch(researchOwner, dis->getName());
+					_separateCampaign.disableResearch(researchOwner, dis->getName());
+					continue;
+				}
 				removeDiscoveredResearch(dis); // unresearch
 				setResearchRuleStatus(dis->getName(), RuleResearch::RESEARCH_STATUS_DISABLED); // mark as permanently disabled
 			}
@@ -2754,6 +3116,10 @@ void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * m
 		// process "re-enables": https://openxcom.org/forum/index.php?topic=12071.0
 		for (const auto* ree : currentQueueItem->getReenabled())
 		{
+			if (playerScoped && _separateCampaign.enableResearch(researchOwner, ree->getName()))
+			{
+				continue; // re-enabled for this player only
+			}
 			if (isResearchRuleStatusDisabled(ree->getName()))
 			{
 				setResearchRuleStatus(ree->getName(), RuleResearch::RESEARCH_STATUS_NEW); // reset status
@@ -2892,10 +3258,66 @@ bool SavedGame::isResearchable(const RuleItem* item, const Mod* mod) const
  */
 void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projects, const Mod *mod, Base *base, bool considerDebugMode) const
 {
+	const bool sharedSeparateResearch = isSeparateCoopCampaign()
+		&& _separateCampaign.isResearchSharingEnabled();
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	const bool playerScoped = !researchOwner.empty();
+	SeparateResearchScope researchScope(this, researchOwner);
+	auto researched = [&](const std::string& topic, bool debug)
+	{
+		return playerScoped ? isResearchedForPlayer(topic, researchOwner, debug)
+			: isResearched(topic, debug);
+	};
+	auto allResearchRules = [&](const std::vector<const RuleResearch*>& topics,
+		bool debug, bool skipDisabled)
+	{
+		for (const auto* topic : topics)
+		{
+			if (!topic || (skipDisabled && isResearchRuleStatusDisabled(topic->getName())))
+				continue;
+			if (!researched(topic->getName(), debug))
+				return false;
+		}
+		return true;
+	};
+	auto hasPlayerGetOneFree = [&](const RuleResearch* topic, bool onlyAvailable)
+	{
+		if (!allResearchRules(topic->getGetOneFree(), false, true))
+			return true;
+		for (const auto& group : topic->getGetOneFreeProtected())
+			if ((!onlyAvailable || (group.first && researched(group.first->getName(), false)))
+				&& !allResearchRules(group.second, false, true))
+				return true;
+		return false;
+	};
+	auto hasPlayerProtectedUnlock = [&](const RuleResearch* topic)
+	{
+		for (const auto* unlock : topic->getUnlocked())
+			if (!isResearchRuleStatusDisabled(unlock->getName())
+				&& !unlock->getRequirements().empty()
+				&& !researched(unlock->getName(), false))
+				return true;
+		return false;
+	};
+
 	// This list is used for topics that can be researched even if *not all* dependencies have been discovered yet (e.g. STR_ALIEN_ORIGINS)
 	// Note: all requirements of such topics *have to* be discovered though! This will be handled elsewhere.
 	std::vector<const RuleResearch *> unlocked;
-	for (const auto* research : _discovered)
+	std::vector<const RuleResearch*> discoverySources;
+	if (playerScoped)
+	{
+		if (const auto* player = _separateCampaign.getPlayer(researchOwner))
+			for (const auto& topic : player->completedResearch)
+				if (const auto* rule = mod->getResearch(topic, false))
+					discoverySources.push_back(rule);
+	}
+	else
+	{
+		discoverySources = _discovered;
+	}
+	for (const auto* research : discoverySources)
 	{
 		for (const auto* unl : research->getUnlocked())
 		{
@@ -2922,7 +3344,7 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 		else
 		{
 			// These items are not on the "unlocked list", we must check if "dependencies" are satisfied!
-			if (!isResearched(research->getDependencies(), considerDebugMode))
+			if (!allResearchRules(research->getDependencies(), considerDebugMode, false))
 			{
 				continue;
 			}
@@ -2934,19 +3356,19 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 		//   - there is an additional filter in NewPossibleResearchState::NewPossibleResearchState()
 		//   - we do this check for other functionality using this method, namely SavedGame::addFinishedResearch()
 		//     - Note: when called from there, parameter considerDebugMode = false
-		if (!isResearched(research->getRequirements(), considerDebugMode))
+		if (!allResearchRules(research->getRequirements(), considerDebugMode, false))
 		{
 			continue;
 		}
 
 		// Remove the already researched topics from the list *UNLESS* they can still give you something more
-		if (isResearched(research->getName(), false))
+		if (researched(research->getName(), false))
 		{
-			if (hasUndiscoveredGetOneFree(research, true))
+			if (playerScoped ? hasPlayerGetOneFree(research, true) : hasUndiscoveredGetOneFree(research, true))
 			{
 				// This research topic still has some more undiscovered non-disabled and *AVAILABLE* "getOneFree" topics, keep it!
 			}
-			else if (hasUndiscoveredProtectedUnlock(research))
+			else if (playerScoped ? hasPlayerProtectedUnlock(research) : hasUndiscoveredProtectedUnlock(research))
 			{
 				// This research topic still has one or more undiscovered non-disabled "protected unlocks", keep it!
 			}
@@ -2959,29 +3381,54 @@ void SavedGame::getAvailableResearchProjects(std::vector<RuleResearch *> &projec
 
 		if (base)
 		{
-			// Check if this topic is already being researched in the given base
+			// Shared Research is one campaign-wide tree.  Unlike Shared Campaign,
+			// Separate keeps physical bases player-owned, so checking only the open
+			// base would make the two seats see different projects.  Treat ongoing
+			// work and prerequisites as world-wide while sharing is enabled.
 			bool found = false;
-			for (auto* ongoing : base->getResearch())
+			const std::vector<Base*> basesToCheck = sharedSeparateResearch
+				? _bases : std::vector<Base*>{base};
+			for (Base* researchBase : basesToCheck)
 			{
-				if (ongoing->getRules() == research)
+				for (auto* ongoing : researchBase->getResearch())
 				{
-					found = true;
-					break;
+					if (ongoing->getRules() == research)
+					{
+						found = true;
+						break;
+					}
 				}
+				if (found) break;
 			}
 			if (found)
 			{
 				continue;
 			}
 
-			// Check for needed item in the given base
-			if (research->needItem() && base->getStorageItems()->getItem(research->getNeededItem()) == 0)
+			// In shared Separate research, an item in either player's base unlocks
+			// the common tree.  The authoritative start command consumes it from the
+			// actual source base (SeparateEcon::consumeSharedResearchItem).
+			bool hasNeededItem = !research->needItem();
+			if (research->needItem())
+				for (Base* researchBase : basesToCheck)
+					if (researchBase->getStorageItems()->getItem(research->getNeededItem()) > 0)
+					{
+						hasNeededItem = true;
+						break;
+					}
+			if (!hasNeededItem)
 			{
 				continue;
 			}
 
-			// Check for required buildings/functions in the given base
-			if ((~base->getProvidedBaseFunc({}) & research->getRequireBaseFunc()).any())
+			bool hasRequiredFunctions = false;
+			for (Base* researchBase : basesToCheck)
+				if ((~researchBase->getProvidedBaseFunc({}) & research->getRequireBaseFunc()).none())
+				{
+					hasRequiredFunctions = true;
+					break;
+				}
+			if (!hasRequiredFunctions)
 			{
 				continue;
 			}
@@ -3033,11 +3480,23 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
 {
 	const auto& baseProductions = base->getProductions();
 	RuleBaseFacilityFunctions baseFunc = base->getProvidedBaseFunc({});
+	const std::string researchOwner = (isSeparateCoopCampaign()
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	SeparateResearchScope researchScope(this, researchOwner);
+	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
+	{
+		if (researchOwner.empty()) return isResearched(requirements);
+		for (const RuleResearch* requirement : requirements)
+			if (requirement && !isResearchedForPlayer(requirement->getName(), researchOwner, false))
+				return false;
+		return true;
+	};
 
 	for (const auto& manuf : mod->getManufactureList())
 	{
 		RuleManufacture *m = mod->getManufacture(manuf);
-		if (!isResearched(m->getRequirements()))
+		if (!requirementsResearched(m->getRequirements()))
 		{
 			continue;
 		}
@@ -3076,8 +3535,19 @@ void SavedGame::getAvailableProductions (std::vector<RuleManufacture *> & produc
  * @param mod the Game Mod
  * @param base a pointer to a Base
  */
-void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & dependables, const RuleResearch *research, const Mod * mod, Base *) const
+void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & dependables, const RuleResearch *research, const Mod * mod, Base *base) const
 {
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	auto requirementsResearched = [&](const std::vector<const RuleResearch*>& requirements)
+	{
+		if (researchOwner.empty()) return isResearched(requirements);
+		for (const RuleResearch* requirement : requirements)
+			if (requirement && !isResearchedForPlayer(requirement->getName(), researchOwner, false))
+				return false;
+		return true;
+	};
 	for (const auto& manuf : mod->getManufactureList())
 	{
 		// don't show previously unlocked (and seen!) manufacturing topics
@@ -3090,7 +3560,7 @@ void SavedGame::getDependableManufacture (std::vector<RuleManufacture *> & depen
 
 		RuleManufacture *m = mod->getManufacture(manuf);
 		const auto& reqs = m->getRequirements();
-		if (isResearched(reqs) && std::find(reqs.begin(), reqs.end(), research) != reqs.end())
+		if (requirementsResearched(reqs) && std::find(reqs.begin(), reqs.end(), research) != reqs.end())
 		{
 			dependables.push_back(m);
 		}
@@ -3112,6 +3582,7 @@ void SavedGame::getAvailableTransformations (std::vector<RuleSoldierTransformati
 	}
 
 	RuleBaseFacilityFunctions baseFunc = base->getProvidedBaseFunc({});
+	SeparateResearchScope researchScope(this, base->getOwnerPlayerName());
 
 	for (const auto& transformType : list)
 	{
@@ -3211,6 +3682,18 @@ void SavedGame::getDependableFacilities(std::vector<RuleBaseFacility *> & depend
  */
 int SavedGame::getUfopediaRuleStatus(const std::string &ufopediaRule)
 {
+	if (isSeparateCoopCampaign())
+	{
+		int status = 0;
+		if (_separateCampaign.getUfopediaRuleStatus(
+			getSeparateFundsContextPlayer(), ufopediaRule, status))
+			return status;
+		// Rule-defined hidden entries are common policy. Legacy NORMAL entries,
+		// however, are host read marks and must not make the client see them read.
+		auto legacy = _ufopediaRuleStatus.find(ufopediaRule);
+		return legacy != _ufopediaRuleStatus.end() && legacy->second == 2
+			? legacy->second : 0;
+	}
 	return _ufopediaRuleStatus[ufopediaRule];
 }
 
@@ -3231,6 +3714,11 @@ int SavedGame::getManufactureRuleStatus(const std::string &manufactureRule)
  */
 int SavedGame::getResearchRuleStatus(const std::string &researchRule) const
 {
+	if (usesSeparatePrivateResearch()
+		&& _separateCampaign.isResearchDisabled(getSeparateResearchContextPlayer(), researchRule))
+	{
+		return RuleResearch::RESEARCH_STATUS_DISABLED;
+	}
 	auto it = _researchRuleStatus.find(researchRule);
 	if (it != _researchRuleStatus.end())
 	{
@@ -3253,6 +3741,11 @@ bool SavedGame::isResearchRuleStatusDisabled(const std::string &researchRule) co
 		{
 			return true;
 		}
+	}
+	// Private research: a topic the research context player's own discoveries disabled.
+	if (usesSeparatePrivateResearch())
+	{
+		return _separateCampaign.isResearchDisabled(getSeparateResearchContextPlayer(), researchRule);
 	}
 	return false;
 }
@@ -3328,6 +3821,8 @@ bool SavedGame::isResearched(const std::string &research, bool considerDebugMode
 	//	return true;
 	if (considerDebugMode && _debug)
 		return true;
+	if (usesSeparatePrivateResearch())
+		return _separateCampaign.hasCompletedResearch(getSeparateResearchContextPlayer(), research);
 
 	return haveReserchVector(_discovered, research);
 }
@@ -3338,6 +3833,9 @@ bool SavedGame::isResearched(const RuleResearch *research, bool considerDebugMod
 	//	return true;
 	if (considerDebugMode && _debug)
 		return true;
+	if (usesSeparatePrivateResearch())
+		return research && _separateCampaign.hasCompletedResearch(
+			getSeparateResearchContextPlayer(), research->getName());
 
 	return haveReserchVector(_discovered, research);
 }
@@ -3351,13 +3849,90 @@ bool SavedGame::isResearched(const std::vector<std::string> &research, bool cons
 
 	for (const auto& res : research)
 	{
-		if (!haveReserchVector(_discovered, res))
+		if (!isResearched(res, false))
 		{
 			return false;
 		}
 	}
 
 	return true;
+}
+
+bool SavedGame::isResearchedForPlayer(const std::string &research,
+	const std::string &playerName, bool considerDebugMode) const
+{
+	if (considerDebugMode && _debug)
+		return true;
+	if (!isSeparateCoopCampaign() || playerName.empty()
+		|| _separateCampaign.isResearchSharingEnabled())
+		return isResearched(research, false);
+	return _separateCampaign.hasCompletedResearch(playerName, research);
+}
+
+void SavedGame::setSeparateResearchSharingEnabled(bool enabled, const Mod *mod)
+{
+	if (!isSeparateCoopCampaign())
+		return;
+
+	_separateCampaign.ensurePlayers(_coopPlayers);
+	// The mode is saved with the campaign. Loads and option syncs re-apply the
+	// session value; only a real switch (or the first mode of a new campaign)
+	// moves research between the global list and the player profiles.
+	if (_separateCampaign.isResearchModeKnown()
+		&& _separateCampaign.isResearchSharingEnabled() == enabled)
+		return;
+	if (enabled)
+	{
+		// Shared Research has one canonical store. Preserve every discovery made
+		// privately before the option was enabled by promoting the union.
+		if (mod)
+		{
+			for (const auto& player : _separateCampaign.getPlayers())
+				for (const auto& name : player.second.completedResearch)
+					if (RuleResearch* rule = mod->getResearch(name, false))
+						if (!haveReserchVector(_discovered, rule))
+							_discovered.push_back(rule);
+			// A topic a private discovery disabled stays disabled in the one tree.
+			for (const auto& player : _separateCampaign.getPlayers())
+				for (const auto& name : player.second.disabledResearch)
+				{
+					if (RuleResearch* rule = mod->getResearch(name, false))
+						removeDiscoveredResearch(rule);
+					setResearchRuleStatus(name, RuleResearch::RESEARCH_STATUS_DISABLED);
+				}
+		}
+		sortReserchVector(_discovered);
+	}
+	else
+	{
+		// Disabling sharing (or starting a new private campaign) starts every
+		// private tree with everything in the global list.
+		for (const auto* rule : _discovered)
+			if (rule)
+				for (const auto& player : _separateCampaign.getPlayers())
+					_separateCampaign.addCompletedResearch(player.first, rule->getName());
+	}
+	_separateCampaign.setResearchSharingEnabled(enabled);
+}
+
+bool SavedGame::isResearchedForPlayer(const std::vector<std::string> &research,
+	const std::string &playerName, bool considerDebugMode) const
+{
+	if (research.empty())
+		return true;
+	if (considerDebugMode && _debug)
+		return true;
+	for (const auto& topic : research)
+		if (!isResearchedForPlayer(topic, playerName, false))
+			return false;
+	return true;
+}
+
+bool SavedGame::isResearchedForBase(const std::string &research, const Base *base,
+	bool considerDebugMode) const
+{
+	return isResearchedForPlayer(research,
+		base ? base->getOwnerPlayerName() : std::string(), considerDebugMode);
 }
 
 /**
@@ -3384,7 +3959,7 @@ bool SavedGame::isResearched(const std::vector<const RuleResearch *> &research, 
 				continue;
 			}
 		}
-		if (!haveReserchVector(_discovered, res))
+		if (!isResearched(res, false))
 		{
 			return false;
 		}
@@ -4424,7 +4999,7 @@ void SavedGame::deleteRetaliationMission(AlienMission* am, Base* base)
  * Spawn a Geoscape event from the event rules.
  * @return True if successful.
  */
-bool SavedGame::spawnEvent(const RuleEvent* eventRules)
+bool SavedGame::spawnEvent(const RuleEvent* eventRules, const std::string& ownerPlayerName)
 {
 	if (!eventRules)
 	{
@@ -4432,13 +5007,19 @@ bool SavedGame::spawnEvent(const RuleEvent* eventRules)
 	}
 
 	GeoscapeEvent* newEvent = new GeoscapeEvent(*eventRules);
+	newEvent->setOwnerPlayerName(ownerPlayerName);
 	int minutes = (eventRules->getTimer() + (RNG::generate(0, eventRules->getTimerRandom()))) / 30 * 30;
 	if (minutes < 60) minutes = 60; // just in case
 	newEvent->setSpawnCountdown(minutes);
 	_geoscapeEvents.push_back(newEvent);
 
-	// remember that it has been generated
-	addGeneratedEvent(eventRules);
+	// Faction events with identical rule IDs must remain independently available
+	// to each faction. Common and same-faction campaigns retain vanilla history.
+	if (isSeparateCoopCampaign()
+		&& !ownerPlayerName.empty() && _separateCampaign.haveDifferentFactions())
+		_separateCampaign.addGeneratedEvent(ownerPlayerName, eventRules->getName());
+	else
+		addGeneratedEvent(eventRules);
 
 	if (Options::oxceGeoscapeDebugLogMaxEntries > 0)
 	{
@@ -4455,7 +5036,7 @@ bool SavedGame::spawnEvent(const RuleEvent* eventRules)
 /**
  * Checks if an instant Geoscape event can be spawned.
  */
-bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
+bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules, const std::string& ownerPlayerName)
 {
 	if (!eventRules)
 	{
@@ -4465,7 +5046,10 @@ bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
 	bool interrupted = false;
 	if (!eventRules->getInterruptResearch().empty())
 	{
-		if (isResearched(eventRules->getInterruptResearch(), false))
+		SeparateResearchScope researchScope(this, ownerPlayerName);
+		if (ownerPlayerName.empty() && usesSeparatePrivateResearch()
+			? isResearchedByAnyPlayer(eventRules->getInterruptResearch())
+			: isResearched(eventRules->getInterruptResearch(), false))
 		{
 			interrupted = true;
 		}
@@ -4486,7 +5070,8 @@ bool SavedGame::canSpawnInstantEvent(const RuleEvent* eventRules)
  * 2. Adds also getOneFree bonus and possible lookup(s). Also silently.
  * 3. Handles alien mission interruption.
  */
-bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut)
+bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut,
+	const std::string& ownerPlayerName, const RuleResearch* const* forcedBonus)
 {
 	if (!research)
 	{
@@ -4497,6 +5082,35 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 		return false; // all bases lost, game over
 	}
 	Base* base = _bases.front();
+
+	// Private Separate research: the topics belong to the mission owner (every
+	// player when the mission has no owner). addFinishedResearch credits the
+	// owner of the base it is given, so use one base per receiving player.
+	std::vector<Base*> researchBases{ base };
+	if (usesSeparatePrivateResearch())
+	{
+		researchBases.clear();
+		for (const std::string& player : _coopPlayers)
+		{
+			if (!ownerPlayerName.empty() && player != ownerPlayerName)
+				continue;
+			for (Base* candidate : _bases)
+				if (candidate && candidate->isOwnedByPlayer(player))
+				{
+					researchBases.push_back(candidate);
+					break;
+				}
+		}
+		if (researchBases.empty())
+			return false; // the owner has no base left
+		base = researchBases.front();
+	}
+	SeparateResearchScope researchScope(this, base->getOwnerPlayerName());
+	auto addFinishedResearchForOwners = [&](const RuleResearch* topic)
+	{
+		for (Base* researchBase : researchBases)
+			addFinishedResearch(topic, mod, researchBase, true);
+	};
 
 	auto addResearchDiaryEntryForMission = [&](const RuleResearch* discoveredResearch, DiscoverySourceType sourceType, const AlienDeployment* sourceMission, const RuleResearch* sourceResearch)
 	{
@@ -4522,26 +5136,26 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 	std::vector<const RuleResearch*> researchVec;
 	researchVec.push_back(research);
 	addResearchDiaryEntryForMission(research, DiscoverySourceType::MISSION, deployment, nullptr);
-	addFinishedResearch(research, mod, base, true);
+	addFinishedResearchForOwners(research);
 	if (!research->getLookup().empty())
 	{
 		researchVec.push_back(mod->getResearch(research->getLookup(), true));
 		addResearchDiaryEntryForMission(researchVec.back(), DiscoverySourceType::MISSION, deployment, nullptr);
-		addFinishedResearch(researchVec.back(), mod, base, true);
+		addFinishedResearchForOwners(researchVec.back());
 	}
 
-	if (auto* bonus = selectGetOneFree(research))
+	if (auto* bonus = forcedBonus ? *forcedBonus : selectGetOneFree(research, base))
 	{
 		if (bonusOut)
 			*bonusOut = bonus; // coop: research sync mirrors the same bonus
 		researchVec.push_back(bonus);
 		addResearchDiaryEntryForMission(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);
-		addFinishedResearch(bonus, mod, base, true);
+		addFinishedResearchForOwners(bonus);
 		if (!bonus->getLookup().empty())
 		{
 			researchVec.push_back(mod->getResearch(bonus->getLookup(), true));
 			addResearchDiaryEntryForMission(researchVec.back(), DiscoverySourceType::FREE_FROM, nullptr, research);
-			addFinishedResearch(researchVec.back(), mod, base, true);
+			addFinishedResearchForOwners(researchVec.back());
 		}
 	}
 
@@ -4567,20 +5181,58 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
  */
 void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems)
 {
+	const std::string researchOwner = (base && isSeparateCoopCampaign()
+		&& !_separateCampaign.isResearchSharingEnabled())
+		? base->getOwnerPlayerName() : std::string();
+	const bool playerScoped = !researchOwner.empty();
+	SeparateResearchScope researchScope(this, researchOwner);
+	auto researched = [&](const RuleResearch* topic)
+	{
+		return playerScoped ? isResearchedForPlayer(topic->getName(), researchOwner, false)
+			: isResearched(topic, false);
+	};
+	auto hasRemainingGetOneFree = [&](const RuleResearch* topic)
+	{
+		for (const RuleResearch* free : topic->getGetOneFree())
+			if (free && !isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+				return true;
+		for (const auto& group : topic->getGetOneFreeProtected())
+			if (group.first && researched(group.first))
+				for (const RuleResearch* free : group.second)
+					if (free && !isResearchRuleStatusDisabled(free->getName()) && !researched(free))
+						return true;
+		return false;
+	};
+	auto hasRemainingProtectedUnlock = [&](const RuleResearch* topic)
+	{
+		for (const RuleResearch* unlock : topic->getUnlocked())
+			if (unlock && !unlock->getRequirements().empty()
+				&& !isResearchRuleStatusDisabled(unlock->getName()) && !researched(unlock))
+				return true;
+		return false;
+	};
+
 	for (auto* myResearchRule : topicsToCheck)
 	{
 		// 3j. now iterate through all the bases and remove this project from their labs (unless it can still yield more stuff!)
 		for (Base* otherBase : _bases)
 		{
+			// A private Separate discovery must never cancel the same project in
+			// another player's laboratory. Both bases live in one authoritative
+			// world, so the original campaign-wide loop needs an ownership fence.
+			if (playerScoped && !otherBase->isOwnedByPlayer(researchOwner))
+				continue;
 			for (ResearchProject* otherProject : otherBase->getResearch())
 			{
 				if (myResearchRule == otherProject->getRules())
 				{
-					if (hasUndiscoveredGetOneFree(myResearchRule, true))
+					if (playerScoped ? hasRemainingGetOneFree(myResearchRule)
+						: hasUndiscoveredGetOneFree(myResearchRule, true))
 					{
 						// This research topic still has some more undiscovered non-disabled and *AVAILABLE* "getOneFree" topics, keep it!
 					}
-					else if (hasUndiscoveredProtectedUnlock(myResearchRule))
+					else if (playerScoped ? hasRemainingProtectedUnlock(myResearchRule)
+						: hasUndiscoveredProtectedUnlock(myResearchRule))
 					{
 						// This research topic still has one or more undiscovered non-disabled "protected unlocks", keep it!
 					}
@@ -4599,6 +5251,7 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		if (spawnedItem)
 		{
 			Transfer* t = new Transfer(1);
+			t->setOwnerPlayerName(researchOwner);
 			t->setItems(spawnedItem, std::max(1, myResearchRule->getSpawnedItemCount()));
 			base->getTransfers()->push_back(t);
 		}
@@ -4608,13 +5261,14 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 			if (spawnedItem2)
 			{
 				Transfer* t = new Transfer(1);
+				t->setOwnerPlayerName(researchOwner);
 				t->setItems(spawnedItem2);
 				base->getTransfers()->push_back(t);
 			}
 		}
 		// 3l. handle spawned events
 		RuleEvent* spawnedEventRule = mod->getEvent(myResearchRule->getSpawnedEvent());
-		spawnEvent(spawnedEventRule);
+		spawnEvent(spawnedEventRule, researchOwner);
 		// 3m. handle counters
 		for (auto& inc : myResearchRule->getIncreaseCounter())
 		{

@@ -29,6 +29,7 @@ Run:  python tools/coop_test/test_shared_checksum.py
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
@@ -42,7 +43,9 @@ OLD_FIELDS = ("chkFunds", "chkBases", "chkResearch")
 
 
 def _chk(gc):
-    return gc.ok({"cmd": "shared_checksum"})
+    # Only the checksum terms: the response also carries harness fields (the
+    # request id echo) that differ per machine.
+    return {k: v for k, v in gc.ok({"cmd": "shared_checksum"}).items() if k.startswith("chk")}
 
 
 def _resync(gc):
@@ -53,12 +56,22 @@ def _coop(gc):
     return gc.ok({"cmd": "get_coop"})
 
 
-def _assert_released(gc, tag):
-    """The client must not be parked in the resume hold (the J09 deadlock)."""
+def _assert_released(gc, tag, timeout=10.0):
+    """The client must not stay parked in the resume hold (a deadlock).
+
+    The replica adopts the world, and the checksum heals, BEFORE the hold can
+    close: the release is a host round trip (resume_ack -> campaign_begun) and
+    the hold acts on it on its 500 ms think tick. So wait, bounded, for the hold
+    to close. A hold nothing releases stays up past any bound."""
+    deadline = time.monotonic() + timeout
     c = _coop(gc)
+    while c["coopDialog"] == COOP_DLG_CLIENT_RESUME_HOLD and time.monotonic() < deadline:
+        time.sleep(0.05)
+        c = _coop(gc)
     assert c["coopDialog"] != COOP_DLG_CLIENT_RESUME_HOLD, (
         f"{tag}: client is stuck in COOP_DLG_CLIENT_RESUME_HOLD (68) - the "
-        f"restream adopted a world but nothing released the hold. get_coop={c}")
+        f"restream adopted a world but nothing released the hold within "
+        f"{timeout:.0f} s. get_coop={c}")
 
 
 def main():

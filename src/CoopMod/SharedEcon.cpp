@@ -19,6 +19,10 @@
  */
 
 #include "SharedEcon.h"
+#include "SeparateEcon.h"
+#include "GiftNoticeState.h"
+#include "../Mod/RuleVideo.h"
+#include "../Menu/CutsceneState.h"
 
 #include <algorithm>
 #include <atomic>
@@ -75,6 +79,8 @@
 #include "../Savegame/Country.h"
 #include "../Savegame/WeightedOptions.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Engine/Collections.h"
 #include "../Savegame/BattleItem.h"
 #include "../Savegame/BattleUnit.h"
 // PRD-I0: the sync-check sweep reads tiles (terrain/fire/smoke), inventory slot
@@ -92,7 +98,10 @@
 
 #include <cmath>
 #include "../Basescape/BaseView.h"
+#include "../Basescape/SellState.h"
 #include "../Basescape/CraftWeaponsState.h" // issue #121: shared craft-weapon capacity gate
+#include "../Basescape/SoldierTransformationState.h" // soldier_transform runs vanilla's transformation
+#include "../Mod/RuleSoldierTransformation.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/Globe.h"
@@ -117,7 +126,11 @@
 #include "../Geoscape/BaseDestroyedState.h"
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleEvent.h"
+#include "../Mod/AlienDeployment.h"
+#include "../Savegame/GeoscapeEvent.h"
 #include "../Menu/ErrorMessageState.h"
+#include "../Savegame/Vehicle.h"
+#include "../Battlescape/CannotReequipState.h"
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -166,8 +179,10 @@ struct PendingCmd
 	int seq = 0;
 	int seat = 0;
 	int baseId = -1;
+	int baseKey = 0; // the base's coop id when the sender queued it (resolveBaseRef)
 	Json::Value payload;
 	bool remote = false;
+	bool separateProtocol = false;
 };
 
 std::mutex g_mx;                     // guards the four queues below
@@ -194,6 +209,19 @@ std::atomic<uint64_t> g_resyncReqN{0}; // resyncs asked for (replica) / served (
 bool g_resyncPending = false;          // replica: a world restream is in flight
 bool g_resyncGaveUp = false;           // replica: throttled out, popup already shown
 int64_t g_lastResyncGameMin = -1;      // replica: game-minute stamp of the last resync
+// Replica: wall-clock ms of the last sign that a world stream is coming - the
+// resync request, a restream mark or a stream chunk. The in-flight guard and the
+// result hold live while this is recent (RESYNC_PENDING_TIMEOUT_MS), however fast
+// the game clock runs.
+int64_t g_streamProgressMs = -1;
+// Replica: host results held while a resync restream is in flight. Right after it
+// snapshots its world for a restream, the host sends a restream mark in the same
+// message order as its results: every result before the mark is in that snapshot,
+// every result after it is not. Results after the mark wait here until that world
+// is adopted, then apply once, to it (holdResultDuringRestream). Main thread only.
+int g_restreamMarks = 0;    // marks whose world is not adopted yet
+bool g_releaseHeld = false; // adopted: re-dispatch g_heldResults on the next update
+std::deque<std::pair<std::string, Json::Value>> g_heldResults;
 // The checksum rides the geoscape `time` heartbeat, which the host emits at LINK
 // RATE (~2000/s). Log a mismatch ONCE per episode, not once per heartbeat: a
 // per-heartbeat log is thousands of fopen/fwrite/fclose per second on the
@@ -209,16 +237,73 @@ bool isHost() { return connectionTCP::getHost(); }
 
 // baseId decision (PRD offered coop_base_id OR index-in-_bases): we use the
 // INDEX into SavedGame::getBases(). The SHARED world is a byte-faithful streamed
-// replica, so host and every replica hold the same base list in the same order;
-// the index is a stable shared key. _coop_base_id is 0/unset for a SHARED
-// campaign's own real bases, so it is NOT usable. Base add/remove also rides
-// shared_apply (J07), keeping the ordering in lock-step.
+// replica, so host and every replica hold the same base list in the same order.
+// Base add/remove and base_move also ride shared_apply, keeping the
+// ordering in lock-step. A command still in flight across a base_move would
+// name the wrong base by index alone, so each reference also carries the
+// base's _coop_base_id (resolveBaseRef below).
 Base* resolveBase(Game* game, int baseId)
 {
 	if (!game || !game->getSavedGame()) return nullptr;
 	auto* bases = game->getSavedGame()->getBases();
 	if (baseId < 0 || baseId >= (int)bases->size()) return nullptr;
 	return (*bases)[baseId];
+}
+
+// A player may move a base in the list (base_move) while a command that names
+// a base by its index is still on its way, so every base reference also
+// carries that base's _coop_base_id (the host mints it and the world stream and
+// base_new carry it, so both machines hold the same id). The index wins while it
+// still names the keyed base; otherwise the key finds the base. A key shared by
+// two bases resolves to nothing rather than to a guess. A key that no base holds
+// falls back to the index (an id that differs between the machines, the old
+// behaviour). Key 0 = the sender gave none.
+int baseKeyAt(Game* game, int baseId)
+{
+	Base* base = resolveBase(game, baseId);
+	return base ? base->_coop_base_id : 0;
+}
+
+Base* resolveBaseRef(Game* game, int baseId, int baseKey)
+{
+	Base* atIndex = resolveBase(game, baseId);
+	if (baseKey == 0 || !game || !game->getSavedGame()
+		|| (atIndex && atIndex->_coop_base_id == baseKey)) return atIndex;
+	Base* found = nullptr;
+	for (Base* base : *game->getSavedGame()->getBases())
+	{
+		if (base->_coop_base_id != baseKey) continue;
+		if (found) return nullptr;
+		found = base;
+	}
+	return found ? found : atIndex;
+}
+
+// Base indexes inside a payload (a transfer's destination, a craft's target
+// base, a dogfight command's craft base) get the same key, under "<field>Key".
+const char* const kPayloadBaseFields[] = { "toBaseId", "tBaseId", "baseId" };
+
+void keyPayloadBaseRefs(Game* game, Json::Value& payload)
+{
+	if (!payload.isObject()) return;
+	for (const char* field : kPayloadBaseFields)
+		if (payload.isMember(field))
+			payload[std::string(field) + "Key"] = baseKeyAt(game, payload[field].asInt());
+}
+
+// Rewrites each keyed payload index to the base's index in THIS machine's list
+// and re-keys it, so the appliers keep resolving plain indexes.
+void resolvePayloadBaseRefs(Game* game, Json::Value& payload)
+{
+	if (!payload.isObject()) return;
+	for (const char* field : kPayloadBaseFields)
+	{
+		const std::string key = std::string(field) + "Key";
+		if (!payload.isMember(field) || !payload.isMember(key)) continue;
+		Base* base = resolveBaseRef(game, payload[field].asInt(), payload[key].asInt());
+		payload[field] = base ? baseIndex(game, base) : -1;
+		payload[key] = base ? base->_coop_base_id : 0;
+	}
 }
 
 void setLastFail(const std::string& reason)
@@ -297,6 +382,28 @@ Craft* findCraft(Base* base, int id, const std::string& type)
 	for (auto* c : *base->getCrafts())
 		if (c->getId() == id && c->getRules()->getType() == type) return c;
 	return nullptr;
+}
+
+// A replica takes a craft id the host minted. Keep this machine's per-type
+// counter past it, so the replica's counter matches the host's after the apply.
+void adoptCraftId(SavedGame* save, const std::string& type, int id)
+{
+	std::map<std::string, int> ids = save->getAllIds();
+	if (ids[type] <= id)
+	{
+		ids[type] = id + 1;
+		save->setAllIds(ids);
+	}
+}
+
+// True when @a base already holds the craft (type, id), docked or in transit.
+bool baseHasCraft(Base* base, int id, const std::string& type)
+{
+	if (findCraft(base, id, type)) return true;
+	for (auto* t : *base->getTransfers())
+		if (t && t->getCraft() && t->getCraft()->getId() == id
+			&& t->getCraft()->getRules()->getType() == type) return true;
+	return false;
 }
 
 // Find a soldier at @a base by its vanilla unique id (Soldier::getId(), stable
@@ -390,7 +497,7 @@ bool buyValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*
 		}
 		case TRANSFER_SOLDIER:
 		{
-			// PRD-J05: hired soldiers spend shared funds; the purchaser owns them
+			// PRD-J05: hired soldiers spend the command purchaser's funds; the purchaser owns them
 			// (setOwnerPlayerId at apply). The host GENERATES them (RNG) at apply
 			// time and serializes each into the shared_apply payload so replicas
 			// reconstruct rather than re-roll.
@@ -434,6 +541,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 	if (!save || !mod) return;
 	auto& limitLog = save->getMonthlyPurchaseLimitLog();
 	const bool host = connectionTCP::getHost();
+	const std::string transferOwner = connectionTCP::seatName(seat);
 
 	Json::Value& items = payload["items"];
 	if (!items.isArray()) return;
@@ -455,6 +563,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			if (!r) break;
 			if (r->getMonthlyBuyLimit() > 0) limitLog[r->getType()] += qty;
 			Transfer* t = new Transfer(r->getTransferTime());
+			t->setOwnerPlayerName(transferOwner);
 			t->setItems(r, qty);
 			base->getTransfers()->push_back(t);
 			break;
@@ -462,6 +571,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 		case TRANSFER_SCIENTIST:
 		{
 			Transfer* t = new Transfer(mod->getPersonnelTime());
+			t->setOwnerPlayerName(transferOwner);
 			t->setScientists(qty);
 			base->getTransfers()->push_back(t);
 			break;
@@ -469,6 +579,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 		case TRANSFER_ENGINEER:
 		{
 			Transfer* t = new Transfer(mod->getPersonnelTime());
+			t->setOwnerPlayerName(transferOwner);
 			t->setEngineers(qty);
 			base->getTransfers()->push_back(t);
 			break;
@@ -478,18 +589,38 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			RuleCraft* r = mod->getCraft(rule, false);
 			if (!r) break;
 			if (r->getMonthlyBuyLimit() > 0) limitLog[r->getType()] += qty;
+			// The host mints each craft id and writes it into the payload; the
+			// replica takes it from there. Counter lock-step alone is not enough:
+			// the host also mints craft ids the replica never sees (an hourly
+			// production unit, an event's reward craft).
+			const bool mint = host && !it.isMember("craftIds");
+			Json::Value minted(Json::arrayValue);
 			for (int c = 0; c < qty; ++c)
 			{
 				Transfer* t = new Transfer(r->getTransferTime());
-				// getId() advances the per-type counter identically on host and
-				// replica (same start + same shared_apply on both), so no id needs
-				// to travel in the packet and the counters stay in lock-step.
-				Craft* craft = new Craft(r, base, save->getId(r->getType()));
+				t->setOwnerPlayerName(transferOwner);
+				int craftId = 0;
+				if (mint)
+				{
+					craftId = save->getId(r->getType());
+					minted.append(craftId);
+				}
+				else if (it.isMember("craftIds") && c < (int)it["craftIds"].size())
+				{
+					craftId = it["craftIds"][c].asInt();
+					adoptCraftId(save, r->getType(), craftId);
+				}
+				else
+				{
+					craftId = save->getId(r->getType()); // older host: no ids sent
+				}
+				Craft* craft = new Craft(r, base, craftId);
 				craft->initFixedWeapons(mod);
 				craft->setStatus("STR_REFUELLING");
 				t->setCraft(craft);
 				base->getTransfers()->push_back(t);
 			}
+			if (mint) it["craftIds"] = minted; // travels in shared_apply to the replicas
 			break;
 		}
 		case TRANSFER_SOLDIER:
@@ -519,6 +650,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 					}
 					soldier->setOwnerPlayerId(seat); // PRD-J05: purchaser owns the hire
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(transferOwner);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
 					serialized.append(serializeSoldier(game, soldier));
@@ -536,6 +668,7 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 					if (!soldier) continue;
 					soldier->setOwnerPlayerId(seat); // belt-and-braces (also in YAML)
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(transferOwner);
 					t->setSoldier(soldier);
 					base->getTransfers()->push_back(t);
 				}
@@ -750,6 +883,10 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 
 	int64_t total = 0;
 	double storeAddTo = 0.0;
+	// Live aliens per prison type: the destination must hold them, exactly as
+	// the vanilla TransferItemsState gate does (any containment of that type
+	// without storage limits; free containment space with them).
+	std::map<int, int> incomingPrisoners;
 
 	const Json::Value& items = payload["items"];
 	if (items.isArray())
@@ -764,7 +901,18 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 				{ failReason = "STR_NOT_ENOUGH_ITEMS_TO_TRANSFER"; return false; }
 			total += (int64_t)qty * itemCost;
 			storeAddTo += (double)qty * r->getSize();
+			if (r->isAlien())
+				incomingPrisoners[r->getPrisonType()] += qty;
 		}
+	for (const auto& prisoners : incomingPrisoners)
+	{
+		const int available = toBase->getAvailableContainment(prisoners.first);
+		const int room = Options::storageLimitsEnforced
+			? available - toBase->getUsedContainment(prisoners.first)
+			: (available > 0 ? prisoners.second : 0);
+		if (prisoners.second > room)
+			{ failReason = "STR_NO_ALIEN_CONTAINMENT_FOR_TRANSFER"; return false; }
+	}
 
 	// Living quarters: the base that HOUSES a soldier pays for it, and the
 	// destination reserves the space the moment the transfer is sent
@@ -785,6 +933,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			incomingPersonnel++;
 		}
 
+	int incomingCrafts = 0;
 	const Json::Value& crafts = payload["crafts"];
 	if (crafts.isArray())
 		for (const auto& jc : crafts)
@@ -792,6 +941,7 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 			Craft* c = findCraft(fromBase, jc.get("id", -1).asInt(), jc.get("type", "").asString());
 			if (!c) { failReason = "craft not transferable"; return false; }
 			total += craftCost;
+			incomingCrafts++;
 			// the crew rides along (see transferApply) and must be housed too
 			for (auto* s : *fromBase->getSoldiers())
 				if (s->getCraft() == c) incomingPersonnel++;
@@ -809,6 +959,9 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 	if (save->getFunds() < total) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
 	if (Options::storageLimitsEnforced && toBase->storesOverfull(storeAddTo))
 		{ failReason = "STR_NOT_ENOUGH_STORE_SPACE"; return false; }
+	if (incomingCrafts > 0
+		&& toBase->getAvailableHangars() - toBase->getUsedHangars() < incomingCrafts)
+		{ failReason = "STR_NO_FREE_HANGARS_FOR_TRANSFER"; return false; }
 	if (incomingPersonnel > 0
 		&& toBase->getAvailableQuarters() - toBase->getUsedQuarters() < incomingPersonnel)
 		{ failReason = "STR_NO_FREE_ACCOMODATION"; return false; }
@@ -817,13 +970,14 @@ bool transferValidate(Game* game, const Json::Value& payload, Base* fromBase, in
 	return true;
 }
 
-void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*/)
+void transferApply(Game* game, Json::Value& payload, Base* fromBase, int seat)
 {
 	if (!fromBase) return;
 	Mod* mod = game->getMod();
 	if (!mod) return;
 	Base* toBase = resolveBase(game, payload.get("toBaseId", -1).asInt());
 	if (!toBase) return;
+	const std::string transferOwner = connectionTCP::seatName(seat);
 
 	double distance = baseDistance(fromBase, toBase);
 	int time = (int)floor(6 + distance / 10.0);
@@ -837,11 +991,15 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 			if (!r || qty <= 0) continue;
 			fromBase->getStorageItems()->removeItem(r, qty);
 			Transfer* t = new Transfer(time);
+			t->setOwnerPlayerName(transferOwner);
 			t->setItems(r, qty);
 			toBase->getTransfers()->push_back(t);
 		}
 
 	const Json::Value& soldiers = payload["soldiers"];
+	// Separate only (TransferItemsState::submitSharedTransfer): the sender's
+	// option was OFF and the soldier goes to another player's base.
+	const bool stripLayout = payload.get("stripLayout", false).asBool();
 	if (soldiers.isArray())
 		for (const auto& sid : soldiers)
 		{
@@ -854,8 +1012,10 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 					s->setPsiTraining(false);
 					if (s->isInTraining()) s->setReturnToTrainingWhenHealed(true);
 					s->setTraining(false);
+					if (stripLayout) s->clearEquipmentLayout();
 					// Ownership unchanged by a transfer (PRD-J05).
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(connectionTCP::seatName(s->getOwnerPlayerId()));
 					t->setSoldier(s);
 					toBase->getTransfers()->push_back(t);
 					fromBase->getSoldiers()->erase(it);
@@ -880,6 +1040,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 					if (s->isInTraining()) s->setReturnToTrainingWhenHealed(true);
 					s->setTraining(false);
 					Transfer* t = new Transfer(time);
+					t->setOwnerPlayerName(connectionTCP::seatName(s->getOwnerPlayerId()));
 					t->setSoldier(s);
 					toBase->getTransfers()->push_back(t);
 					it = fromBase->getSoldiers()->erase(it);
@@ -888,6 +1049,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 			}
 			fromBase->removeCraft(craft, false);
 			Transfer* t = new Transfer(time);
+			t->setOwnerPlayerName(transferOwner);
 			t->setCraft(craft);
 			toBase->getTransfers()->push_back(t);
 		}
@@ -898,6 +1060,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	{
 		fromBase->setScientists(fromBase->getScientists() - sci);
 		Transfer* t = new Transfer(time);
+		t->setOwnerPlayerName(transferOwner);
 		t->setScientists(sci);
 		toBase->getTransfers()->push_back(t);
 	}
@@ -905,6 +1068,7 @@ void transferApply(Game* game, Json::Value& payload, Base* fromBase, int /*seat*
 	{
 		fromBase->setEngineers(fromBase->getEngineers() - eng);
 		Transfer* t = new Transfer(time);
+		t->setOwnerPlayerName(transferOwner);
 		t->setEngineers(eng);
 		toBase->getTransfers()->push_back(t);
 	}
@@ -968,7 +1132,10 @@ void resStartApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	base->addResearch(proj); // 0 scientists (allocation is a separate res_alloc)
 	// Consume the needed item exactly as the vanilla start does (deterministic).
 	if (rule->needItem() && rule->destroyItem())
-		base->getStorageItems()->removeItem(rule->getNeededItem(), 1);
+	{
+		if (!SeparateEcon::consumeSharedResearchItem(game, base, rule))
+			base->getStorageItems()->removeItem(rule->getNeededItem(), 1);
+	}
 }
 
 // res_alloc payload: { project:<ruleName>, assigned:<absolute int> }. ABSOLUTE
@@ -1466,13 +1633,30 @@ void baseRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*sea
 
 // sack payload: { soldierId }. Policy: ANY player may sack ANY soldier (shared
 // roster management, consistent with J05 sell). No refund (vanilla).
-bool sackValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+// Separate Campaign: a player acts only on their own soldiers, wherever they are
+// stationed (a visitor may sack or rename their own soldier at another player's
+// base). SHARED keeps its any-player roster policy.
+static bool separateSoldierOwnerOk(Game* game, const Soldier* s, int seat)
+{
+	if (!game || !game->getSavedGame()
+		|| game->getSavedGame()->getCampaignType() != CoopCampaignType::Separate)
+		return true;
+	return s->getOwnerPlayerId() == seat;
+}
+
+bool sackValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                   int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { cost = 0; return true; }
+		if (s->getId() == id)
+		{
+			if (!separateSoldierOwnerOk(game, s, seat))
+				{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+			cost = 0;
+			return true;
+		}
 	failReason = "soldier not found";
 	return false;
 }
@@ -1492,17 +1676,183 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
+// soldier_transform payload: { rule, soldierId, dead, name }. baseId = the base the
+// transformation screen was opened at. The host re-checks the screen's gates against its own
+// world (the soldier's owner as for the other soldier commands, the transformation
+// list, funds, required items, living space), then runs vanilla's own transformation
+// once, so its dice roll only there. The result rides the payload and replicas adopt
+// it: out (retire | clone | self), hours (the Transfer it made, 0 = none), soldier
+// (serialized), history and soldierCounter (a clone), stores and craft (the base
+// stores and the source's former craft items, absolute). The player who made a clone
+// owns it.
+Soldier* findTransformSource(Game* game, Base* base, const Json::Value& payload)
+{
+	const int id = payload.get("soldierId", -1).asInt();
+	if (!payload.get("dead", false).asBool()) return findSoldier(base, id);
+	for (auto* s : *game->getSavedGame()->getDeadSoldiers())
+		if (s->getId() == id) return s;
+	return nullptr;
+}
+
+bool soldierTransformValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                              int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	RuleSoldierTransformation* rule = mod->getSoldierTransformation(payload.get("rule", "").asString(), false);
+	if (!rule) { failReason = "unknown transformation"; return false; }
+	std::vector<RuleSoldierTransformation*> available;
+	save->getAvailableTransformations(available, mod, base);
+	if (std::find(available.begin(), available.end(), rule) == available.end())
+		{ failReason = "transformation not available"; return false; }
+	Soldier* s = findTransformSource(game, base, payload);
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat))
+		{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+	// The list's and the Start button's gates (SoldiersState::initList,
+	// SoldierTransformationState::initTransformationData).
+	if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT")
+		{ failReason = "craft out on mission"; return false; }
+	s->prepareStatsWithBonuses(mod);
+	if (!s->isEligibleForTransformation(rule)) { failReason = "soldier not eligible"; return false; }
+	if (save->getFunds() < rule->getCost()) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	for (const auto& ri : rule->getRequiredItems())
+	{
+		const RuleItem* item = mod->getItem(ri.first);
+		if (item && base->getStorageItems()->getItem(item) < ri.second)
+			{ failReason = "not enough items"; return false; }
+	}
+	if (base->getAvailableQuarters() <= base->getUsedQuarters()
+		&& (rule->isCreatingClone() || (rule->isAllowingDeadSoldiers() && s->getDeath())))
+		{ failReason = "STR_NOT_ENOUGH_LIVING_SPACE"; return false; }
+	cost = rule->getCost();
+	return true;
+}
+
+void soldierTransformApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	RuleSoldierTransformation* rule = mod->getSoldierTransformation(payload.get("rule", "").asString(), false);
+	Soldier* src = findTransformSource(game, base, payload);
+	if (!rule || !src) return;
+	const bool retiring = !Mod::isEmptyRuleName(rule->getProducedItem());
+	const std::string transferOwner = connectionTCP::seatName(seat);
+	if (isHost())
+	{
+		// Vanilla's btnStartClick without the funds (the caller debits the cost)
+		// and without the pop.
+		Craft* oldCraft = src->getCraft();
+		const size_t transfers = base->getTransfers()->size();
+		for (const auto& ri : rule->getRequiredItems())
+			if (const auto* item = mod->getItem(ri.first))
+				base->getStorageItems()->removeItem(item, ri.second);
+		{
+			SoldierTransformationState vanilla(rule, base, src, nullptr); // never pushed
+			if (retiring) vanilla.retire(); // deletes src
+			else vanilla.performTransformation();
+		}
+		Transfer* t = base->getTransfers()->size() > transfers ? base->getTransfers()->back() : nullptr;
+		if (t) t->setOwnerPlayerName(transferOwner);
+		payload["hours"] = t ? t->getHours() : 0;
+		payload["out"] = retiring ? "retire" : rule->isCreatingClone() ? "clone" : "self";
+		if (!retiring)
+		{
+			Soldier* dst = rule->isCreatingClone() && t ? t->getSoldier() : src;
+			dst->setName(payload.get("name", dst->getName()).asString()); // the screen's name box
+			if (rule->isCreatingClone())
+			{
+				dst->setOwnerPlayerId(seat);
+				payload["history"] = Json::Value(Json::objectValue);
+				for (const auto& kv : src->getPreviousTransformations()) payload["history"][kv.first] = kv.second;
+				const auto& ids = save->getAllIds();
+				payload["soldierCounter"] = ids.find("STR_SOLDIER") != ids.end() ? ids.at("STR_SOLDIER") : 0;
+			}
+			payload["soldier"] = serializeSoldier(game, dst);
+		}
+		payload["stores"] = Json::Value(Json::objectValue);
+		for (const auto& kv : *base->getStorageItems()->getContents())
+			payload["stores"][kv.first->getType()] = kv.second;
+		if (oldCraft)
+		{
+			payload["craft"]["id"] = oldCraft->getId();
+			payload["craft"]["type"] = oldCraft->getRules()->getType();
+			payload["craft"]["items"] = Json::Value(Json::objectValue);
+			for (const auto& kv : *oldCraft->getItems()->getContents())
+				payload["craft"]["items"][kv.first->getType()] = kv.second;
+		}
+		return;
+	}
+
+	// Replica: adopt the host's result; never roll and never run the transformation.
+	const std::string out = payload.get("out", "").asString();
+	const int hours = payload.get("hours", 0).asInt();
+	std::vector<Soldier*>* home = payload.get("dead", false).asBool() ? save->getDeadSoldiers() : base->getSoldiers();
+	auto it = std::find(home->begin(), home->end(), src);
+	auto push = [&](Transfer* t) { t->setOwnerPlayerName(transferOwner); base->getTransfers()->push_back(t); return t; };
+	if (out == "retire")
+	{
+		if (it != home->end()) home->erase(it);
+		delete src;
+		push(new Transfer(hours))->setItems(mod->getItem(rule->getProducedItem(), true), 1);
+	}
+	else if (out == "clone")
+	{
+		src->setCraft(0); // vanilla unseats the source; its kit rides stores / craft below
+		std::map<std::string, int>& hist = src->getPreviousTransformations();
+		hist.clear();
+		for (const auto& k : payload["history"].getMemberNames()) hist[k] = payload["history"][k].asInt();
+		if (Soldier* c = deserializeSoldier(game, payload.get("soldier", "").asString()))
+			push(new Transfer(hours))->setSoldier(c);
+		const int want = payload.get("soldierCounter", 0).asInt(); // keep the id counter in step
+		const auto& ids = save->getAllIds();
+		while (ids.find("STR_SOLDIER") == ids.end() || ids.at("STR_SOLDIER") < want) save->getId("STR_SOLDIER");
+	}
+	else if (out == "self")
+	{
+		Soldier* d = deserializeSoldier(game, payload.get("soldier", "").asString());
+		if (!d) return;
+		if (hours > 0)
+		{
+			if (it != home->end()) home->erase(it);
+			delete src;
+			push(new Transfer(hours))->setSoldier(d);
+		}
+		else if (it != home->end()) { *it = d; delete src; } // same roster place; unseated like the host's
+		else delete d;
+	}
+	auto setItems = [&](ItemContainer* ic, const Json::Value& items)
+	{
+		ic->clear();
+		for (const auto& k : items.getMemberNames())
+			if (RuleItem* ri = mod->getItem(k, false)) ic->addItem(ri, items[k].asInt());
+	};
+	setItems(base->getStorageItems(), payload["stores"]);
+	if (payload.isMember("craft"))
+		if (Craft* cr = findCraft(base, payload["craft"].get("id", -1).asInt(), payload["craft"].get("type", "").asString()))
+			setItems(cr->getItems(), payload["craft"]["items"]);
+}
+
 // soldier_rename payload: { soldierId, name }. Playtest B3: soldier renames were
 // local-only; in SHARED they ride the shared_cmd like base_rename (host applies +
 // broadcasts, last-write-wins). ANY player may rename ANY soldier (shared roster,
 // consistent with sack). The soldier is looked up by id at the command's base.
-bool soldierRenameValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+bool soldierRenameValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                            int64_t& cost, std::string& failReason)
 {
 	if (!base) { failReason = "base not found"; return false; }
 	int id = payload.get("soldierId", -1).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { cost = 0; return true; }
+		if (s->getId() == id)
+		{
+			if (!separateSoldierOwnerOk(game, s, seat))
+				{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+			cost = 0;
+			return true;
+		}
 	failReason = "soldier not found";
 	return false;
 }
@@ -1529,13 +1879,27 @@ bool soldierGiftValidate(Game* /*game*/, const Json::Value& payload, Base* base,
 	failReason = "soldier not found";
 	return false;
 }
-void soldierGiftApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+void soldierGiftApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (!base) return;
 	int id = payload.get("soldierId", -1).asInt();
 	int newOwner = payload.get("newOwner", 0).asInt();
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) { s->setOwnerPlayerId(newOwner); s->setCoop(newOwner); break; }
+		if (s->getId() == id)
+		{
+			const int previousOwner = s->getOwnerPlayerId();
+			s->setOwnerPlayerId(newOwner);
+			s->setCoop(newOwner);
+			// Separate: tell the receiving player about the gift.
+			// SHARED shows no notice.
+			if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+				&& previousOwner != newOwner && newOwner == connectionTCP::localSeat())
+			{
+				game->pushState(new GiftNoticeState(game->getCoopMod()->getCurrentClientName()
+					+ " gifted " + s->getName() + " to you at base " + base->getName()));
+			}
+			break;
+		}
 }
 
 // base_new payload: { lon, lat, name, liftType, liftX, liftY } (+ host-resolved
@@ -1549,6 +1913,9 @@ bool baseNewValidate(Game* game, const Json::Value& payload, Base* /*base*/, int
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) { failReason = "no world"; return false; }
+	// The eight-base limit is campaign-wide in both co-op campaign types.  It
+	// must not scale with the number of seats.
+	if (save->getBases()->size() >= 8) { failReason = "STR_MAXIMUM_NUMBER_OF_BASES_REACHED"; return false; }
 	double lon = payload.get("lon", 0.0).asDouble();
 	double lat = payload.get("lat", 0.0).asDouble();
 	int regionCost = -1;
@@ -1562,13 +1929,17 @@ bool baseNewValidate(Game* game, const Json::Value& payload, Base* /*base*/, int
 	return true;
 }
 
-void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int seat)
 {
 	SavedGame* save = game->getSavedGame();
 	Mod* mod = game->getMod();
 	if (!save || !mod) return;
 
 	Base* nb = new Base(mod); // ctor random-mints _coop_base_id
+	std::string ownerName = payload.get("ownerPlayerName", connectionTCP::seatName(seat)).asString();
+	nb->setOwnerPlayerName(ownerName);
+	if (save->isSeparateCoopCampaign())
+		nb->_isForeignBase = !nb->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
 	nb->setFakeUnderwater(payload.get("fakeUnderwater", false).asBool());
 	nb->setLongitude(payload.get("lon", 0.0).asDouble());
 	nb->setLatitude(payload.get("lat", 0.0).asDouble());
@@ -1643,10 +2014,106 @@ GeoscapeState* findGeoState(Game* game)
 	return nullptr;
 }
 
-// Last wound-recovery value the host broadcast per soldier id, so day_tick only
-// carries CHANGED soldiers (process-global; compare-and-set makes stale entries
-// self-correct on the next change).
-std::unordered_map<int, int> g_soldierRecovery;
+// The soldier state the host's day and month steps write: wound recovery and
+// missing health/mana (replenishStats), martial and psi training (stats, the
+// training flags, the psi improvement scores) and the dogfight-XP reset. The
+// host snapshots it before the step (hostSoldierStepBegin) and day_tick carries
+// every soldier whose state changed, so the replica holds the host's values
+// right after the step instead of waiting for a checksum restream.
+struct SoldierStepState
+{
+	int id = -1;
+	int owner = -1;
+	float recovery = 0.0f;
+	int healthMissing = 0;
+	int manaMissing = 0;
+	UnitStats stats;
+	UnitStats dogfight;
+	bool training = false;
+	bool psiTraining = false;
+	bool trainingQueued = false;
+	int improvement = 0;
+	int psiStrImprovement = 0;
+};
+
+SoldierStepState soldierStepState(Soldier* s)
+{
+	SoldierStepState st;
+	st.id = s->getId();
+	st.owner = s->getOwnerPlayerId();
+	st.recovery = s->getWoundRecoveryExact();
+	st.healthMissing = s->getHealthMissing();
+	st.manaMissing = s->getManaMissing();
+	st.stats = *s->getCurrentStats();
+	st.dogfight = *s->getDailyDogfightExperienceCache();
+	st.training = s->isInTraining();
+	st.psiTraining = s->isInPsiTraining();
+	st.trainingQueued = s->getReturnToTrainingWhenHealed();
+	st.improvement = s->getImprovement();
+	st.psiStrImprovement = s->getPsiStrImprovement();
+	return st;
+}
+
+bool sameUnitStats(const UnitStats& a, const UnitStats& b)
+{
+	bool same = true;
+	UnitStats::fieldLoop([&](UnitStats::Ptr field) { if (a.*field != b.*field) same = false; });
+	return same;
+}
+
+bool sameStepState(const SoldierStepState& a, const SoldierStepState& b)
+{
+	return a.id == b.id && a.owner == b.owner && a.recovery == b.recovery
+		&& a.healthMissing == b.healthMissing && a.manaMissing == b.manaMissing
+		&& sameUnitStats(a.stats, b.stats) && sameUnitStats(a.dogfight, b.dogfight)
+		&& a.training == b.training && a.psiTraining == b.psiTraining
+		&& a.trainingQueued == b.trainingQueued && a.improvement == b.improvement
+		&& a.psiStrImprovement == b.psiStrImprovement;
+}
+
+Json::Value unitStatsJson(const UnitStats& st)
+{
+	Json::Value arr(Json::arrayValue);
+	UnitStats::fieldLoop([&](UnitStats::Ptr field) { arr.append((int)(st.*field)); });
+	return arr;
+}
+
+void readUnitStats(const Json::Value& arr, UnitStats& out)
+{
+	if (!arr.isArray() || arr.size() == 0) return;
+	Json::ArrayIndex i = 0;
+	UnitStats::fieldLoop([&](UnitStats::Ptr field)
+	{
+		if (i < arr.size()) out.*field = (UnitStats::Type)arr[i].asInt();
+		++i;
+	});
+}
+
+// day_tick soldier entry: the soldier's id and owner (ids may repeat across
+// players) and its complete step state, stats in UnitStats::fieldLoop order.
+Json::Value soldierStepJson(const SoldierStepState& st)
+{
+	Json::Value js;
+	js["id"] = st.id;
+	js["owner"] = st.owner;
+	js["recovery"] = (double)st.recovery;
+	js["healthMissing"] = st.healthMissing;
+	js["manaMissing"] = st.manaMissing;
+	js["stats"] = unitStatsJson(st.stats);
+	js["dogfight"] = unitStatsJson(st.dogfight);
+	js["training"] = st.training;
+	js["psiTraining"] = st.psiTraining;
+	js["trainingQueued"] = st.trainingQueued;
+	js["improvement"] = st.improvement;
+	js["psiStrImprovement"] = st.psiStrImprovement;
+	return js;
+}
+
+// The snapshot taken before the step, per soldier object. Armed by
+// hostSoldierStepBegin, consumed (and cleared) by hostDayTick.
+std::map<const Soldier*, SoldierStepState> g_soldierStepBefore;
+const SavedGame* g_soldierStepSave = nullptr;
+bool g_soldierStepArmed = false;
 
 bool simAccept(Game* /*game*/, const Json::Value& /*payload*/, Base* /*base*/,
                int /*seat*/, int64_t& cost, std::string& /*failReason*/)
@@ -1861,22 +2328,28 @@ void craftPatrolApply(Game* game, Json::Value& payload, Base* base, int seat)
 // regardless of arrival order (last-write-wins, like the craft orders). Vehicles
 // are covered by the same craft space accounting (getSpaceAvailable counts unit
 // size); a dedicated vehicle assign command was not needed for the AC.
-Soldier* findSoldierAtBase(Base* base, int id)
+Soldier* findSoldierAtBase(Base* base, int id, int owner = -1)
 {
 	if (!base) return nullptr;
 	for (auto* s : *base->getSoldiers())
-		if (s->getId() == id) return s;
+		if (s->getId() == id && (owner < 0 || s->getOwnerPlayerId() == owner)) return s;
 	return nullptr;
 }
 
-bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                          int64_t& cost, std::string& failReason)
 {
+	if (game && game->getSavedGame()
+		&& game->getSavedGame()->isSeparateCoopCampaign())
+		return SeparateEcon::validateCraftAssign(
+			game, payload, base, seat, cost, failReason);
+
 	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
 	if (!base) { failReason = "base not found"; return false; }
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	if (!craft) { failReason = "craft not found"; return false; }
-	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt());
+	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt(),
+		payload.get("soldierOwner", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
 	const bool onOff = payload.get("onOff", false).asBool();
 	// A craft already OUT on a mission is locked (vanilla lstSoldiersClick).
@@ -1897,7 +2370,8 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 {
 	if (!base) return;
 	Craft* craft = resolveOrderCraft(game, payload, base);
-	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt());
+	Soldier* s = findSoldierAtBase(base, payload.get("soldierId", -1).asInt(),
+		payload.get("soldierOwner", -1).asInt());
 	if (!craft || !s) return;
 	const bool onOff = payload.get("onOff", false).asBool();
 	const bool newBattle = game->getSavedGame()->getMonthsPassed() == -1;
@@ -1915,31 +2389,35 @@ void craftAssignApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 //   { craftId, craftType, item, count }   baseId = the craft's home-base index.
 // count = the ABSOLUTE desired quantity of `item` loaded on the craft, so host
 // and replica converge regardless of arrival order (the J08/J09 last-write-wins
-// idiom). Items only; vehicles/ammo are deferred (like craft_assign's vehicle
-// variant - CraftEquipmentState still routes non-vehicle items only).
-bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+// idiom). Separate Campaign vehicles share this command envelope, but their
+// ownership and seat-priority rules live in SeparateEcon. Shared Campaign's
+// existing vehicle behavior is deliberately unchanged.
+bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                         int64_t& cost, std::string& failReason)
 {
 	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
 	if (!base) { failReason = "base not found"; return false; }
 	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	if (game->getSavedGame()->isSeparateCoopCampaign())
+		return SeparateEcon::validateCraftEquip(
+			game, payload, base, seat, cost, failReason);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
 	if (!item) { failReason = "unknown item"; return false; }
-	if (item->getVehicleUnit()) { failReason = "vehicles not routed"; return false; }
+	if (item->getVehicleUnit())
+	{
+		failReason = "vehicles not routed";
+		return false;
+	}
 	return true;
 }
 
-void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+// Moves (non-vehicle) @a item between @a base's stores and @a craft until the
+// craft holds @a target, within what the stores hold and the craft's capacity.
+static void setCraftItemCount(Craft* craft, Base* base, const RuleItem* item, int target)
 {
-	if (!base) return;
-	Craft* craft = resolveOrderCraft(game, payload, base);
-	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
-	if (!craft || !item || item->getVehicleUnit()) return;
-
 	ItemContainer* craftItems = craft->getItems();
 	ItemContainer* store = base->getStorageItems();
 	int current = craftItems->getItem(item);
-	int target = payload.get("count", 0).asInt();
 	if (target < 0) target = 0;
 
 	// Clamp UP by base availability (never move more than the base holds) and by
@@ -1965,6 +2443,187 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	int delta = target - current;
 	if (delta > 0)      { craftItems->addItem(item, delta);   store->removeItem(item, delta); }
 	else if (delta < 0) { craftItems->removeItem(item, -delta); store->addItem(item, -delta); }
+}
+
+void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
+	if (!craft || !item) return;
+	if (item->getVehicleUnit())
+	{
+		if (game->getSavedGame()->isSeparateCoopCampaign())
+			SeparateEcon::applyVehicleEquip(game, payload, base, seat);
+		return;
+	}
+	setCraftItemCount(craft, base, item, payload.get("count", 0).asInt());
+}
+
+// SHARED vehicles on the craft equipment screen: CraftEquipmentState's own
+// vehicle moves (a vehicle and its ammo leave the stores together and come back
+// together; a vehicle needs craft room and a full clip load), on the shared world.
+static void setSharedVehicleCount(Craft* craft, Base* base, const RuleItem* item, int target)
+{
+	ItemContainer* store = base->getStorageItems();
+	const int current = craft->getVehicleCount(item->getType());
+	const RuleItem* ammo = item->getVehicleClipAmmo();
+	const int ammoPerVehicle = item->getVehicleClipsLoaded();
+	if (target < current)
+	{
+		const int change = current - target;
+		store->addItem(item, change);
+		if (ammo) store->addItem(ammo, ammoPerVehicle * change);
+		Collections::deleteIf(*craft->getVehicles(), change,
+			[&](Vehicle* v) { return v->getRules() == item; });
+	}
+	else if (target > current)
+	{
+		const int size = item->getVehicleUnit()->getArmor()->getTotalSize();
+		int change = std::min(target - current, store->getItem(item));
+		change = std::min(change, craft->validateAddingVehicles(size));
+		if (ammo && ammoPerVehicle > 0)
+			change = std::min(change, store->getItem(ammo) / ammoPerVehicle);
+		for (int i = 0; i < change; ++i)
+		{
+			if (ammo) store->removeItem(ammo, ammoPerVehicle);
+			store->removeItem(item);
+			craft->getVehicles()->push_back(new Vehicle(item, item->getVehicleClipSize(), size));
+			craft->resetCustomDeployment();
+		}
+	}
+}
+
+// craft_loadout payload: { craftId, craftType, onlyAdd, listed:[itemType...],
+// template:{itemType: qty} }, baseId = the craft's home-base index. A craft
+// equipment template load (CraftEquipmentState::loadGlobalLoadout): listed are
+// the item types the screen shows, template the slot's contents. Unless onlyAdd,
+// every listed item first goes back to the stores; then each listed item takes
+// its template quantity on top, within the stores and the craft's capacity
+// (the screen's moves with the alternate management off, as vanilla's load
+// does). The host turns that into steps (absolute counts, in order) and the
+// "cannot re-equip" shortfall; every machine runs the same steps, and the
+// player who loaded sees the shortfall. Separate: a player's own vehicles
+// only, with the craft screen's owner priority, and only the base owner may
+// load a template.
+bool craftLoadoutValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                          int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	if (!payload["listed"].isArray() || !payload["template"].isObject())
+		{ failReason = "bad craft loadout"; return false; }
+	if (game->getSavedGame()->isSeparateCoopCampaign()
+		&& !base->isOwnedByPlayer(connectionTCP::seatName(seat)))
+		{ failReason = "Only the base owner can change craft equipment"; return false; }
+	return true;
+}
+
+void craftLoadoutApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base || !game->getSavedGame()) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	const bool separate = game->getSavedGame()->isSeparateCoopCampaign();
+	auto countOf = [&](const RuleItem* item)
+	{
+		if (!item->getVehicleUnit()) return craft->getItems()->getItem(item);
+		return separate
+			? SeparateEcon::vehicleSelectionCount(game, craft, item->getType(), seat)
+			: craft->getVehicleCount(item->getType());
+	};
+	const bool onlyAdd = payload.get("onlyAdd", false).asBool();
+	const Json::Value& tmpl = payload["template"];
+	std::map<std::string, int> before;
+	if (isHost())
+	{
+		for (const auto& name : tmpl.getMemberNames())
+			if (const RuleItem* item = game->getMod()->getItem(name, false))
+				before[name] = countOf(item);
+		Json::Value steps(Json::arrayValue);
+		std::vector<std::pair<std::string, int>> adds;
+		for (const auto& entry : payload["listed"])
+		{
+			const std::string type = entry.asString();
+			const RuleItem* item = game->getMod()->getItem(type, false);
+			if (!item) continue;
+			const int now = countOf(item);
+			if (!onlyAdd && now > 0)
+			{
+				Json::Value step;
+				step["item"] = type;
+				step["count"] = 0;
+				steps.append(step);
+			}
+			const int qty = tmpl.get(type, 0).asInt();
+			if (qty > 0) adds.push_back({ type, (onlyAdd ? now : 0) + qty });
+		}
+		for (const auto& add : adds)
+		{
+			Json::Value step;
+			step["item"] = add.first;
+			step["count"] = add.second;
+			steps.append(step);
+		}
+		payload["steps"] = steps;
+	}
+	for (auto& step : payload["steps"])
+	{
+		const RuleItem* item = game->getMod()->getItem(step.get("item", "").asString(), false);
+		if (!item) continue;
+		if (!item->getVehicleUnit())
+			setCraftItemCount(craft, base, item, step.get("count", 0).asInt());
+		else if (separate)
+		{
+			// applyVehicleEquip names the craft itself; on the host it writes the
+			// resolved count and owners into the step for the replicas.
+			step["craftId"] = craft->getId();
+			step["craftType"] = craft->getRules()->getType();
+			SeparateEcon::applyVehicleEquip(game, step, base, seat);
+		}
+		else
+			setSharedVehicleCount(craft, base, item, step.get("count", 0).asInt());
+	}
+	if (isHost())
+	{
+		Json::Value missing(Json::arrayValue);
+		for (const auto& name : tmpl.getMemberNames())
+		{
+			const RuleItem* item = game->getMod()->getItem(name, false);
+			if (!item) continue;
+			const int got = countOf(item) - (onlyAdd ? before[name] : 0);
+			const int short_ = tmpl[name].asInt() - got;
+			if (short_ > 0)
+			{
+				Json::Value m;
+				m["item"] = name;
+				m["qty"] = short_;
+				missing.append(m);
+			}
+		}
+		payload["missing"] = missing;
+	}
+	// The player who loaded the template sees what was missing (vanilla's report).
+	if (seat == connectionTCP::localSeat() && payload["missing"].isArray()
+		&& !payload["missing"].empty())
+	{
+		const std::string craftName = craft->getName(game->getLanguage());
+		std::vector<ReequipStat> stats;
+		for (const auto& m : payload["missing"])
+		{
+			const RuleItem* item = game->getMod()->getItem(m.get("item", "").asString(), false);
+			if (!item) continue;
+			ReequipStat stat = { item->getType(), m.get("qty", 0).asInt(), craftName, item->getListOrder() };
+			stats.push_back(stat);
+		}
+		std::sort(stats.begin(), stats.end(), [](const ReequipStat& a, const ReequipStat& b)
+			{
+				return a.listOrder < b.listOrder;
+			});
+		if (!stats.empty())
+			game->pushState(new CannotReequipState(stats, base));
+	}
 }
 
 // ---- PRD-J09 GAP-5b: shared-world base-screen store mutators ------------------
@@ -2057,15 +2716,27 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
 // SoldierArmorState / CraftArmorState: return the old armor's store item + consume
 // the new one against the shared stores.
-bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+// Separate Campaign: a player changes only their own soldier's armor,
+// also at another player's base, where the armor comes from that base's stores.
+bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                           int64_t& cost, std::string& failReason)
 {
 	cost = 0;
 	if (!base) { failReason = "base not found"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat))
+		{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
 	Armor* next = game->getMod()->getArmor(payload.get("armor", "").asString(), false);
 	if (!next) { failReason = "unknown armor"; return false; }
+	// The armor screen offers a stored armor only while the base holds one (or
+	// the soldier's current armor uses the same store item); a stale replica can
+	// still ask for the last one twice.
+	SavedGame* save = game->getSavedGame();
+	if (save && save->getMonthsPassed() != -1 && next != s->getArmor()
+		&& next->getStoreItem() && next->getStoreItem() != s->getArmor()->getStoreItem()
+		&& base->getStorageItems()->getItem(next->getStoreItem()) < 1)
+		{ failReason = "armor not in base stores"; return false; }
 
 	// issue #121: re-run the client's craft-space gate (SoldierArmorState::lstArmorClick)
 	// against the host-authoritative world. If the soldier rides a craft, a larger armor
@@ -2097,6 +2768,195 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
+// soldier_training payload: { kind: "martial" | "psi", soldiers: [{ id, training,
+// queued }] }. baseId = the soldiers' base. The training screens send the flags a
+// click or assign-all / de-assign-all sets; the host runs the training, so the
+// flags live in its world. SHARED: any soldier, as the screen allows today.
+// Separate: only the requester's own soldiers, also at another player's base.
+// The checks are the screen's: no training for a fully trained soldier, a
+// wounded one is only queued (martial), and the base must have the room.
+bool soldierTrainingValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                             int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	const std::string kind = payload.get("kind", "").asString();
+	if (kind != "martial" && kind != "psi") { failReason = "unknown training"; return false; }
+	const bool psi = kind == "psi";
+	const Json::Value& soldiers = payload["soldiers"];
+	if (!soldiers.isArray() || soldiers.empty()) { failReason = "no soldiers"; return false; }
+	int added = 0;
+	int removed = 0;
+	for (const auto& entry : soldiers)
+	{
+		Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
+		if (!s) { failReason = "soldier not found"; return false; }
+		if (!separateSoldierOwnerOk(game, s, seat))
+			{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+		const bool training = entry.get("training", false).asBool();
+		const bool now = psi ? s->isInPsiTraining() : s->isInTraining();
+		if (training && !now)
+		{
+			const bool trainable = psi
+				? s->getRules()->getTrainingStatCaps().psiSkill > 0 && !s->isFullyPsiTrained()
+				: !s->isFullyTrained() && !s->isWounded();
+			if (!trainable) { failReason = "soldier cannot train"; return false; }
+			++added;
+		}
+		else if (!training && now) ++removed;
+		if (!psi && entry.get("queued", false).asBool() && s->isFullyTrained())
+			{ failReason = "soldier cannot train"; return false; }
+	}
+	const int used = psi ? base->getUsedPsiLabs() : base->getUsedTraining();
+	const int room = psi ? base->getAvailablePsiLabs() : base->getAvailableTraining();
+	if (added > 0 && used - removed + added > room)
+		{ failReason = "no free training space"; return false; }
+	return true;
+}
+
+void soldierTrainingApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	const bool psi = payload.get("kind", "").asString() == "psi";
+	for (const auto& entry : payload["soldiers"])
+	{
+		Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
+		if (!s) continue;
+		if (psi)
+			s->setPsiTraining(entry.get("training", false).asBool());
+		else
+		{
+			s->setTraining(entry.get("training", false).asBool());
+			s->setReturnToTrainingWhenHealed(entry.get("queued", false).asBool());
+		}
+	}
+}
+
+// soldier_layout payload: { soldiers:[{ soldierId, soldierOwner, layout, personal,
+// personalArmor }] }, baseId = the base whose inventory screen closed. layout and
+// personal are serializeLayout() texts, each the soldier's ABSOLUTE end state
+// (last-write-wins), so every machine adopts the same layouts. Without it a layout
+// set on a replica never reached the host, which builds every battle.
+// Separate Campaign: a player sets only their own soldiers' layouts, also at the
+// other player's base, where the equipment comes from that base's stores. With the
+// alternate craft equipment management the gear follows the layout between the
+// soldier's craft and the stores, as vanilla's unseat / re-seat around the
+// inventory screen moves it; the host's option decides and travels in the
+// payload, so every machine moves the same items.
+bool soldierLayoutValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                           int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	const Json::Value& list = payload["soldiers"];
+	if (!list.isArray() || list.empty()) { failReason = "no soldiers"; return false; }
+	for (const auto& entry : list)
+	{
+		Soldier* s = findSoldierAtBase(base, entry.get("soldierId", -1).asInt(),
+			entry.get("soldierOwner", -1).asInt());
+		if (!s) { failReason = "soldier not found"; return false; }
+		if (!separateSoldierOwnerOk(game, s, seat))
+			{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+	}
+	return true;
+}
+
+void soldierLayoutApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base || !game->getSavedGame()) return;
+	SavedGame* save = game->getSavedGame();
+	if (isHost())
+		payload["moveGear"] = save->isSeparateCoopCampaign()
+			&& Options::oxceAlternateCraftEquipmentManagement
+			&& save->getMonthsPassed() != -1;
+	const bool moveGear = payload.get("moveGear", false).asBool();
+	for (const auto& entry : payload["soldiers"])
+	{
+		Soldier* s = findSoldierAtBase(base, entry.get("soldierId", -1).asInt(),
+			entry.get("soldierOwner", -1).asInt());
+		if (!s) continue;
+		std::vector<EquipmentLayoutItem*> layout =
+			deserializeLayout(game, entry.get("layout", "").asString());
+		const Craft* craft = s->getCraft();
+		const bool atHome = craft && craft->getStatus() != "STR_OUT" && craft->getBase() == base;
+		s->replaceEquipmentLayout(layout, moveGear && atHome ? base : nullptr);
+		if (entry.isMember("personal"))
+		{
+			std::vector<EquipmentLayoutItem*> personal =
+				deserializeLayout(game, entry.get("personal", "").asString());
+			Collections::deleteAll(*s->getPersonalEquipmentLayout());
+			s->getPersonalEquipmentLayout()->swap(personal);
+			const std::string armor = entry.get("personalArmor", "").asString();
+			s->setPersonalEquipmentArmor(armor.empty() ? nullptr
+				: game->getMod()->getArmor(armor, false));
+		}
+	}
+}
+
+// base_move payload: {}. baseId = the base the mini base strip moves one place
+// left (a right-click in the strip). Commands name bases by index, so the move is a host
+// command that every machine applies at the same point in the apply order.
+bool baseMoveValidate(Game* game, const Json::Value& /*payload*/, Base* base, int /*seat*/,
+                      int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (baseMoveTarget(game, base) < 0) { failReason = "base cannot move left"; return false; }
+	return true;
+}
+
+void baseMoveApply(Game* game, Json::Value& /*payload*/, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	const int from = baseIndex(game, base);
+	const int to = baseMoveTarget(game, base);
+	if (from < 0 || to < 0) return;
+	auto& bases = *game->getSavedGame()->getBases();
+	std::swap(bases[from], bases[to]);
+}
+
+// soldier_order payload: { order:[soldierId...] }. baseId = the base. The roster
+// screens show a player only their own soldiers, so move up / down reorders that
+// player's soldiers among the roster places they already hold; every other
+// soldier keeps its place. Ids no longer at the base are skipped and own
+// soldiers the order leaves out keep their relative order after the listed ones,
+// so a sack or arrival in flight cannot fail the move.
+bool soldierOrderValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+                          int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!payload["order"].isArray()) { failReason = "no soldier order"; return false; }
+	return true;
+}
+
+void soldierOrderApply(Game* /*game*/, Json::Value& payload, Base* base, int seat)
+{
+	if (!base || !payload["order"].isArray()) return;
+	auto& roster = *base->getSoldiers();
+	std::vector<size_t> places;
+	std::vector<Soldier*> own;
+	for (size_t i = 0; i < roster.size(); ++i)
+		if (roster[i]->getOwnerPlayerId() == seat)
+		{
+			places.push_back(i);
+			own.push_back(roster[i]);
+		}
+	std::vector<Soldier*> ordered;
+	for (const auto& id : payload["order"])
+		for (Soldier*& s : own)
+			if (s && s->getId() == id.asInt())
+			{
+				ordered.push_back(s);
+				s = nullptr;
+				break;
+			}
+	for (Soldier* s : own)
+		if (s) ordered.push_back(s);
+	for (size_t i = 0; i < places.size(); ++i)
+		roster[places[i]] = ordered[i];
+}
+
 // PRD-DF01: df_open applier (REPLICA only). The host publishes the FULL dogfight
 // membership set + epoch on every change; the replica adopts it and reconciles its
 // render-only windows (opens new tuples once their craft + UFO are replicated,
@@ -2125,11 +2985,12 @@ void dfCmdApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 	GeoscapeState* gs = findGeoState(game);
 	if (!gs) return;
 	int craftId = payload.get("craftId", -1).asInt();
+	int baseId = payload.get("baseId", -1).asInt();
 	int ufoId = payload.get("ufoId", -1).asInt();
 	std::string craftType = payload.get("craftType", "").asString();
 	std::string action = payload.get("action", "").asString();
 	int arg = payload.get("arg", -1).asInt();
-	if (!gs->sharedApplyDogfightCmd(craftId, ufoId, craftType, action, arg))
+	if (!gs->sharedApplyDogfightCmd(baseId, craftId, ufoId, craftType, action, arg))
 	{
 		static bool warned = false;
 		if (!warned)
@@ -2154,6 +3015,9 @@ void landPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	// the broker dialog and any player may answer (first answer wins, host-arbitrated;
 	// a land_close closes the losers).
 	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& !SeparateEcon::ownsCraft(game, craft))
+		return;
 	GeoscapeState* gs = findGeoState(game);
 	// The dialog renders the destination's name, so a replica that has not yet
 	// replicated the target (or is not on the geoscape) simply does not participate.
@@ -2164,6 +3028,11 @@ void landPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	{
 		return;
 	}
+	// Separate re-sends an unanswered prompt; keep the dialog that is already open.
+	for (State* state : game->getStates())
+		if (ConfirmLandingState* open = dynamic_cast<ConfirmLandingState*>(state))
+			if (open->getCraft() == craft)
+				return;
 	// Textures are null on purpose: this dialog only ASKS. It never runs
 	// checkStartingCondition or the battle generator (its broker branch submits
 	// land_reply instead), and the only thing it draws from the host's world is
@@ -2244,8 +3113,9 @@ void baseDamagedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 
 	// Same "base damaged but survived" dialog the host shows. Safe to pop the real one:
 	// its OK handler returns early for a partial destruction and never erases the base.
+	// Separate: only the base owner gets it.
 	GeoscapeState* gs = findGeoState(game);
-	if (!gs) return;
+	if (!gs || !SeparateEcon::showBaseNotification(game, base)) return;
 	Ufo* ufo = nullptr;
 	const int ufoId = payload.get("ufoId", -1).asInt();
 	for (auto* u : *save->getUfos())
@@ -2253,7 +3123,9 @@ void baseDamagedApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 	gs->popup(new BaseDestroyedState(base, ufo, true, true));
 }
 
-// alien_base_found payload: { alienBaseId }. Host-origin, replica-only apply.
+// alien_base_found payload carries the complete target.  A freshly spawned base
+// does not exist in a frozen replica yet, so discovery must be able to create it
+// before applying the flag and popup.
 // X-Com discovering an alien base is a shared-world MUTATION (setDiscovered), not just an
 // alert, so it must not be rolled twice. The replica's time1MonthCoop used to run its OWN
 // RNG::percent(chanceToDetectAlienBaseEachMonth) and pick its own base, so host and client
@@ -2266,16 +3138,33 @@ void alienBaseFoundApply(Game* game, Json::Value& payload, Base* /*base*/, int /
 	GeoscapeState* gs = findGeoState(game);
 	if (!save || !gs) return;
 	const int id = payload.get("alienBaseId", -1).asInt();
+	AlienBase* found = nullptr;
 	for (auto* ab : *save->getAlienBases())
 	{
 		if (ab->getId() == id)
 		{
-			if (!ab->isDiscovered())
-				ab->setDiscovered(true);
-			gs->popup(new AlienBaseState(ab, gs));
-			return;
+			found = ab;
+			break;
 		}
 	}
+	if (!found)
+	{
+		const std::string deploymentName = payload.get("deployment", "").asString();
+		AlienDeployment* deployment = game->getMod()->getDeployment(deploymentName, false);
+		if (!deployment) return;
+		found = new AlienBase(deployment, payload.get("startMonth", 0).asInt());
+		found->setId(id);
+		found->_coop_alienbase_id = payload.get("coopId", 0).asInt();
+		found->_coop = true;
+		save->getAlienBases()->push_back(found);
+	}
+	found->setLongitude(payload.get("lon", 0.0).asDouble());
+	found->setLatitude(payload.get("lat", 0.0).asDouble());
+	found->setPactCountry(payload.get("pactCountry", "").asString());
+	found->setAlienRace(payload.get("race", "").asString());
+	found->setOwnerPlayerName(payload.get("ownerPlayerName", "").asString());
+	found->setDiscovered(true);
+	gs->popup(new AlienBaseState(found, gs));
 }
 
 // ---- generic informational-alert replication --------------------------------
@@ -2306,6 +3195,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	const std::string cls = payload.get("cls", "").asString();
 	const std::string msg = payload.get("msg", "").asString();
 
+
 	std::vector<std::string> names;
 	const Json::Value& jn = payload["names"];
 	for (Json::ArrayIndex i = 0; i < jn.size(); ++i) names.push_back(jn[i].asString());
@@ -2315,12 +3205,29 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (!base && !game->getSavedGame()->getBases()->empty())
 		base = game->getSavedGame()->getBases()->front();
 
+	const bool researchUnlockAlert = cls == "ResearchRequiredState"
+		|| cls == "NewPossibleResearchState"
+		|| cls == "NewPossibleManufactureState"
+		|| cls == "NewPossiblePurchaseState"
+		|| cls == "NewPossibleCraftState"
+		|| cls == "NewPossibleFacilityState";
+	if (researchUnlockAlert && !SeparateEcon::showResearchCompletion(game, base))
+		return;
+
 	if (cls == "UfoLostState")
 	{
 		gs->popup(new UfoLostState(msg));
 	}
 	else if (cls == "CraftErrorState")
 	{
+		// flag = a base-scoped error (rearm): Separate shows it to the base owner only.
+		if (payload.get("flag", false).asBool() && !SeparateEcon::showBaseNotification(game, base))
+			return;
+		// player = a notice for one player (hostPlayerNotice: the month-end
+		// economy warning); every other machine ignores it.
+		if (payload.isMember("player")
+			&& payload["player"].asString() != connectionTCP::seatName(connectionTCP::localSeat()))
+			return;
 		gs->popup(new CraftErrorState(gs, msg));
 	}
 	else if (cls == "DogfightErrorState")
@@ -2348,10 +3255,27 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 				row.base = jr[i].get("base", "").asString();
 				row.baseIdx = jr[i].get("baseIdx", -1).asInt();
 				row.ownerSeat = jr[i].get("ownerSeat", -1).asInt();
-				rows.push_back(row);
+				row.ownerPlayerName = jr[i].get("ownerPlayerName", "").asString();
+				if (row.ownerPlayerName.empty() || !game->getCoopMod()->isSeparateCampaign()
+					|| row.ownerPlayerName == connectionTCP::seatName(connectionTCP::localSeat()))
+					rows.push_back(row);
 			}
-			gs->popup(new ItemsArrivingState(gs, rows));
+			if (!rows.empty()) gs->popup(new ItemsArrivingState(gs, rows));
 		}
+	}
+	else if (cls == "SeparateStorageExceeded")
+	{
+		// The host simulates storage for every Separate base, but only the base
+		// owner may receive and resolve this mandatory sell dialog.
+		if (!base || !game->getCoopMod()->isSeparateCampaign()
+			|| !SeparateEcon::showBaseNotification(game, base))
+			return;
+		auto* itf = mod->getInterface("geoscape");
+		gs->popup(new ErrorMessageState(
+			game->getLanguage()->getString("STR_STORAGE_EXCEEDED").arg(base->getName()),
+			game->getScreen()->getPalette(), itf->getElement("errorMessage")->color,
+			"BACK13.SCR", itf->getElement("errorPalette")->color));
+		gs->popup(new SellState(base, nullptr));
 	}
 	else if (cls == "ResearchRequiredState")
 	{
@@ -2395,7 +3319,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	{
 		std::vector<Soldier*> v;
 		const Json::Value& ids = payload["ids"];
-		if (base)
+		if (base && SeparateEcon::showBaseNotification(game, base))
 		{
 			for (Json::ArrayIndex i = 0; i < ids.size(); ++i)
 				for (auto* s : *base->getSoldiers())
@@ -2441,6 +3365,10 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 			break;
 		}
 	}
+	// A finished interrogation put the alien's corpse back in the host's stores
+	// (time1Day 3b, the host's retainCorpses option); keep exactly that corpse.
+	if (const RuleItem* corpse = mod->getItem(payload.get("corpse", "").asString(), false))
+		base->getStorageItems()->addItem(corpse);
 
 	// Add the discovered topic(s). The host already selected the getOneFree
 	// (RNG) and passed it as `bonus`; addFinishedResearch itself is deterministic,
@@ -2458,7 +3386,59 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	// Mirror the host popup (coop=true -> the ctor does NOT re-broadcast).
 	const std::string nrName = payload.get("newResearch", "").asString();
 	const RuleResearch* newResearch = nrName.empty() ? nullptr : mod->getResearch(nrName, false);
-	game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
+	if (SeparateEcon::showResearchCompletion(game, base))
+		game->pushState(new ResearchCompleteState(newResearch, bonus, research, base, true));
+	// Separate: a non-ending research cutscene plays for the research owner only
+	// (the host plays its own; an ending arrives as faction_campaign_end).
+	if (game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& SeparateEcon::showBaseNotification(game, base))
+		for (const RuleResearch* topic : { research, bonus })
+		{
+			if (!topic || topic->getCutscene().empty()) continue;
+			const RuleVideo* video = mod->getVideo(topic->getCutscene(), false);
+			if (!video || video->getWinGame() || video->getLoseGame()) continue;
+			game->getCoopMod()->allow_cutscene = false;
+			game->pushState(new CutsceneState(topic->getCutscene()));
+		}
+}
+
+// world_extras: defined beside the world checksum terms it shares (hostWorldExtras).
+void worldExtrasApply(Game* game, Json::Value& payload, Base* base, int seat);
+
+// research_effects payload: { removed: [ {baseIdx, research, refund} ],
+// transfers: [ {item, qty, hours, owner} ] }; baseId = the researching base.
+// The host's handlePrimaryResearchSideEffects results for one base's completed
+// topics (hostResearchSideEffects), sent after that base's research_done results.
+void researchEffectsApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // host already applied in time1Day
+	Mod* mod = game->getMod();
+	if (!mod) return;
+	for (const auto& r : payload["removed"])
+	{
+		Base* from = resolveBase(game, r.get("baseIdx", -1).asInt());
+		ResearchProject* proj = from
+			? findResearchProject(from, r.get("research", "").asString()) : nullptr;
+		if (!proj) continue;
+		// The host decided the needed-item refund from its own progress. Mark the
+		// copy finished so removeResearch() does not decide again, then refund
+		// exactly as the host did.
+		proj->setSpent(proj->getCost());
+		const RuleItem* needed = proj->getRules()->getNeededItem();
+		if (r.get("refund", false).asBool() && needed)
+			from->getStorageItems()->addItem(needed, 1);
+		from->removeResearch(proj);
+	}
+	if (!base) return;
+	for (const auto& s : payload["transfers"])
+	{
+		const RuleItem* item = mod->getItem(s.get("item", "").asString(), false);
+		if (!item) continue;
+		Transfer* t = new Transfer(s.get("hours", 1).asInt());
+		t->setOwnerPlayerName(s.get("owner", "").asString());
+		t->setItems(item, s.get("qty", 1).asInt());
+		base->getTransfers()->push_back(t);
+	}
 }
 
 // fac_done payload: { x, y, type }.
@@ -2474,7 +3454,7 @@ void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		{
 			fac->setBuildTime(0);
 			GeoscapeState* gs = findGeoState(game);
-			if (gs)
+			if (gs && SeparateEcon::showBaseNotification(game, base))
 				game->pushState(new ProductionCompleteState(
 					base, game->getLanguage()->getString(payload.get("type", "").asString()),
 					gs, PROGRESS_CONSTRUCTION));
@@ -2483,7 +3463,9 @@ void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
-// prod_done payload: { manufacture, units, progress, sell }.
+// prod_done payload: { manufacture, units, progress, sell, craftIds, final }.
+// units = what the host's step made this hour; final = the batch is done (an
+// older host sends only the finished batch, so a missing flag means done).
 void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
@@ -2494,6 +3476,7 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 
 	const std::string mName = payload.get("manufacture", "").asString();
 	int units = payload.get("units", 0).asInt();
+	const bool batchDone = payload.get("final", true).asBool();
 	// GAP-6b: the host Production's SELL flag. When set, Production::step() credited
 	// funds and added NOTHING to stores for the produced items; the authoritative
 	// funds ride this shared_apply as usual, so the replica must skip the storage add
@@ -2502,27 +3485,119 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	// craft materialization below stays unconditional.
 	bool sell = payload.get("sell", false).asBool();
 	RuleManufacture* rule = mod->getManufacture(mName, false);
-	if (!rule || units <= 0) return;
+	if (!rule) return;
 
-	// Materialize the deterministic output (items + crafts). Random/spawned-person
-	// production is host-RNG and NOT reconstructed here (documented limitation);
-	// the next shared_apply / checksum surfaces any resulting drift.
-	if (!sell)
-		for (const auto& it : rule->getProducedItems())
-			base->getStorageItems()->addItem(it.first, it.second * units);
-	if (const RuleCraft* craftRule = rule->getProducedCraft())
+	// Materialize the deterministic output (items + crafts) where the host's
+	// Production::step() put it: the stores and the hangar, or a transfer when
+	// the manufacture ships its output (transferTimes: items first, crafts
+	// third). Random production is host-RNG and NOT reconstructed here
+	// (documented limitation); the next shared_apply / checksum surfaces any
+	// resulting drift. Spawned persons are rebuilt below.
+	const std::vector<int>& shipHours = rule->getTransferTimes();
+	const int itemHours = std::max(0, shipHours.empty() ? 0 : shipHours.front());
+	const int craftHours = std::max(0, shipHours.size() < 3 ? 0 : shipHours.at(2));
+	if (!sell && units > 0)
 	{
-		for (int c = 0; c < units; ++c)
+		if (itemHours > 0)
 		{
-			// getId(craftType) advances the per-type counter identically to the
-			// host (all craft creation rides shared_apply), so ids stay in lockstep.
-			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base,
-			                         save->getId(craftRule->getType()));
-			craft->initFixedWeapons(mod);
-			craft->checkup();
-			base->getCrafts()->push_back(craft);
+			for (int u = 0; u < units; ++u)
+				for (const auto& it : rule->getProducedItems())
+				{
+					Transfer* t = new Transfer(itemHours);
+					t->setItems(it.first, it.second);
+					base->getTransfers()->push_back(t);
+				}
+		}
+		else
+		{
+			for (const auto& it : rule->getProducedItems())
+				base->getStorageItems()->addItem(it.first, it.second * units);
 		}
 	}
+	if (const RuleCraft* craftRule = rule->getProducedCraft())
+	{
+		const std::string& craftType = craftRule->getType();
+		auto build = [&](int craftId)
+		{
+			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base, craftId);
+			craft->initFixedWeapons(mod);
+			craft->checkup();
+			if (craftHours > 0)
+			{
+				Transfer* t = new Transfer(craftHours);
+				t->setCraft(craft);
+				base->getTransfers()->push_back(t);
+			}
+			else
+			{
+				base->getCrafts()->push_back(craft);
+			}
+		};
+		const Json::Value& craftIds = payload["craftIds"];
+		if (craftIds.isArray())
+		{
+			// The host's ids, never this machine's counter. A craft the replica
+			// already holds (it arrived in a world stream after the host built
+			// it) is not built twice.
+			for (const auto& jid : craftIds)
+			{
+				const int craftId = jid.asInt();
+				adoptCraftId(save, craftType, craftId);
+				if (!baseHasCraft(base, craftId, craftType))
+					build(craftId);
+			}
+		}
+		else
+		{
+			// Older host: no ids travel, mint in counter lock-step as before.
+			for (int c = 0; c < units; ++c)
+				build(save->getId(craftType));
+		}
+	}
+
+	// Spawned persons (spawnedPersonType) travel as on the host: one transfer
+	// per unit with the rule's personnel transfer time. A scientist or engineer
+	// is a count; a soldier is the host's own (id, name, stats, owner), never one
+	// this machine rolls. A soldier the replica already holds (a world stream
+	// after the host spawned it) is not added twice.
+	const std::string& person = rule->getSpawnedPersonType();
+	if (!person.empty())
+	{
+		const int personHours = std::max(1, shipHours.size() < 2 ? 24 : shipHours.at(1));
+		if (person == "STR_SCIENTIST" || person == "STR_ENGINEER")
+		{
+			for (int u = 0; u < units; ++u)
+			{
+				Transfer* t = new Transfer(personHours);
+				if (person == "STR_SCIENTIST") t->setScientists(1);
+				else t->setEngineers(1);
+				base->getTransfers()->push_back(t);
+			}
+		}
+		else
+		{
+			auto held = [&](int id)
+			{
+				if (findSoldier(base, id)) return true;
+				for (auto* t : *base->getTransfers())
+					if (t->getType() == TRANSFER_SOLDIER && t->getSoldier()
+						&& t->getSoldier()->getId() == id) return true;
+				return false;
+			};
+			for (const auto& yaml : payload["soldiers"])
+			{
+				Soldier* s = deserializeSoldier(game, yaml.asString());
+				if (!s) continue;
+				if (held(s->getId())) { delete s; continue; }
+				Transfer* t = new Transfer(personHours);
+				t->setSoldier(s);
+				base->getTransfers()->push_back(t);
+			}
+		}
+	}
+
+	// A unit inside the batch: the Production keeps running on both machines.
+	if (!batchDone) return;
 
 	// Remove the matching Production (returns its engineers to the base pool) and
 	// mirror the completion popup.
@@ -2531,7 +3606,7 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		if (prod->getRules()->getName() == mName)
 		{
 			GeoscapeState* gs = findGeoState(game);
-			if (gs)
+			if (gs && SeparateEcon::showBaseNotification(game, base))
 				game->pushState(new ProductionCompleteState(
 					base, game->getLanguage()->getString(mName), gs,
 					(productionProgress_e)payload.get("progress", PROGRESS_COMPLETE).asInt(),
@@ -2586,11 +3661,13 @@ void transferArrivedApply(Game* game, Json::Value& payload, Base* base, int /*se
 	}
 }
 
-// day_tick payload: { soldiers:[{id,recovery}], productions:[{item,spent}],
+// day_tick payload: { soldiers:[soldierStepJson], productions:[{item,spent}],
 // research:[{project,spent}] }. PRD-J06: the replica's timeXxx handlers are
 // frozen, so production _timeSpent and research _spent never advance locally;
 // the host broadcasts the day's progress so the "days left" / "Progress" columns
 // render current on replicas. Display-only (completion is host-driven J04).
+// The soldier entries are the host's day/month step results (wounds, training);
+// the replica adopts them exactly and never rolls its own.
 void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
@@ -2599,16 +3676,25 @@ void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (soldiers.isArray())
 		for (const auto& s : soldiers)
 		{
-			int id = s.get("id", -1).asInt();
-			int recovery = s.get("recovery", 0).asInt();
-			for (auto* soldier : *base->getSoldiers())
-			{
-				if (soldier->getId() == id)
-				{
-					soldier->setWoundRecovery(recovery);
-					break;
-				}
-			}
+			Soldier* soldier = findSoldierAtBase(base, s.get("id", -1).asInt(),
+				s.get("owner", -1).asInt());
+			if (!soldier) continue;
+			soldier->setWoundRecoveryExact((float)s.get("recovery", 0.0).asDouble());
+			soldier->setHealthMissing(s.get("healthMissing", soldier->getHealthMissing()).asInt());
+			soldier->setManaMissing(s.get("manaMissing", soldier->getManaMissing()).asInt());
+			readUnitStats(s["stats"], *soldier->getCurrentStatsEditable());
+			readUnitStats(s["dogfight"], *soldier->getDailyDogfightExperienceCache());
+			soldier->setTraining(s.get("training", soldier->isInTraining()).asBool());
+			soldier->setPsiTraining(s.get("psiTraining", soldier->isInPsiTraining()).asBool());
+			soldier->setReturnToTrainingWhenHealed(
+				s.get("trainingQueued", soldier->getReturnToTrainingWhenHealed()).asBool());
+			soldier->setImprovements(s.get("improvement", soldier->getImprovement()).asInt(),
+				s.get("psiStrImprovement", soldier->getPsiStrImprovement()).asInt());
+			// The stat string is derived; recompute it the way loading a save does.
+			SavedGame* save = game->getSavedGame();
+			Mod* mod = game->getMod();
+			soldier->calcStatString(mod->getStatStrings(),
+				Options::psiStrengthEval && save->isResearched(mod->getPsiRequirements()));
 		}
 	const Json::Value& productions = payload["productions"];
 	if (productions.isArray())
@@ -2634,7 +3720,7 @@ void rejectHostCmd(Game* game, const PendingCmd& pc, const std::string& reason)
 	if (pc.remote)
 	{
 		Json::Value fail;
-		fail["state"] = "shared_fail";
+		fail["state"] = pc.separateProtocol ? "separate_fail" : "shared_fail";
 		fail["seq"] = pc.seq;
 		fail["reason"] = reason;
 		if (game->getCoopMod()) game->getCoopMod()->sendTCPPacketData(fail.toStyledString());
@@ -2659,12 +3745,61 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 		return;
 	}
 
-	Base* base = resolveBase(game, pc.baseId);
+	// The sender named its bases by index in ITS list and by key; this machine's
+	// index for the same base is what replicas and appliers use from here on.
+	Base* base = resolveBaseRef(game, pc.baseId, pc.baseKey);
+	const int hostBaseId = base ? baseIndex(game, base) : (pc.baseKey ? -1 : pc.baseId);
+	Json::Value payload = pc.payload;
+	resolvePayloadBaseRefs(game, payload);
+	// Schema-3 SEPARATE policy is intentionally stricter than SHARED.  A seat may
+	// mutate only bases carrying its player name. The explicit player-facing
+	// foreign-base exceptions are the agreed co-op services: purchasing into that
+	// base and equipping/rearming a craft stationed there. Host simulation results
+	// are not player actions: they must reach every replica even when the affected
+	// base belongs to another player (most visibly transfer_arrived, which removes
+	// an arrived soldier from the replica's Transfers list). Keep the distinction
+	// host-side so a stale or modified client UI can never bypass ownership.
+	if (pc.separateProtocol && base && game && game->getSavedGame()
+		&& game->getSavedGame()->isSeparateCoopCampaign())
+	{
+		const std::string playerName = connectionTCP::seatName(pc.seat);
+		const bool foreign = !base->isOwnedByPlayer(playerName);
+		const bool foreignAllowed = SeparateEcon::allowsForeignBaseCommand(
+			pc.cmd, pc.remote, payload, base, pc.seat);
+		if (foreign && !foreignAllowed)
+		{
+			// Normal Separate UI permissions prevent most of these actions; the
+			// host keeps the security boundary. Tell the player who asked (the
+			// remote initiator gets separate_fail, the host's own command shows
+			// the fail dialog locally) instead of dropping it silently. The host
+			// diagnostic keeps its own text for the harness. A host simulation
+			// result (simAccept validator) is not a player action: no dialog.
+			using SimValidator = bool (*)(Game*, const Json::Value&, Base*, int,
+				int64_t&, std::string&);
+			const SimValidator* fn = hit->second.validate.target<SimValidator>();
+			if (fn && *fn == &simAccept)
+				++g_failN;
+			else
+				rejectHostCmd(game, pc, "STR_COOP_ACTION_REFUSED");
+			setLastFail("foreign base command rejected");
+			return;
+		}
+	}
+	SavedGame* save = game->getSavedGame();
+	// A host simulation result (prod_done, research_done, ...) settles the base
+	// owner's wallet, so it reports that wallet to replicas, not the host seat's.
+	const std::string fundsPlayer = !pc.separateProtocol ? std::string()
+		: (!pc.remote && base && !base->getOwnerPlayerName().empty()
+			&& SeparateEcon::isHostSimulationResult(pc.cmd))
+			? base->getOwnerPlayerName() : connectionTCP::seatName(pc.seat);
+	if (pc.separateProtocol && save)
+		save->setSeparateFundsContext(fundsPlayer);
 	int64_t cost = 0;
 	std::string failReason;
 	++g_cmdN;
-	if (!hit->second.validate(game, pc.payload, base, pc.seat, cost, failReason))
+	if (!hit->second.validate(game, payload, base, pc.seat, cost, failReason))
 	{
+		if (pc.separateProtocol && save) save->clearSeparateFundsContext();
 		rejectHostCmd(game, pc, failReason.empty() ? "rejected" : failReason);
 		return;
 	}
@@ -2674,20 +3809,23 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// to the initiator. The applier gets a MUTABLE payload copy so it can resolve
 	// host-only RNG into it (e.g. buy serializes generated soldiers); the resolved
 	// payload is what we broadcast, so replicas reconstruct instead of re-rolling.
-	SavedGame* save = game->getSavedGame();
+	// Replicas hold the host's base order up to this command, so the broadcast
+	// names the base by the host's index from before the apply (and its key).
+	const int baseKey = base ? base->_coop_base_id : 0;
 	save->setFunds(save->getFunds() - cost);
-	Json::Value payload = pc.payload;
 	hit->second.apply(game, payload, base, pc.seat);
 	++g_applyN;
 
 	Json::Value apply;
-	apply["state"] = "shared_apply";
+	apply["state"] = pc.separateProtocol ? "separate_apply" : "shared_apply";
 	apply["cmd"] = pc.cmd;
 	apply["seq"] = pc.seq;
 	apply["seat"] = pc.seat;
-	apply["baseId"] = pc.baseId;
+	apply["baseId"] = hostBaseId;
+	apply["baseKey"] = baseKey;
 	apply["payload"] = payload;
 	apply["funds"] = Json::Value::Int64(save->getFunds());
+	if (pc.separateProtocol) apply["fundsPlayer"] = fundsPlayer;
 	// GAP-9: carry the host's authoritative current-month income/expenditure tails
 	// (read AFTER apply, so they include any gross flow the applier booked, e.g. a
 	// prod_done that both sells and restarts a unit). The replica adopts these
@@ -2703,7 +3841,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	if (pc.remote && game->getCoopMod())
 	{
 		Json::Value ok;
-		ok["state"] = "shared_ok";
+		ok["state"] = pc.separateProtocol ? "separate_ok" : "shared_ok";
 		ok["seq"] = pc.seq;
 		game->getCoopMod()->sendTCPPacketData(ok.toStyledString());
 		++g_okN;
@@ -2711,13 +3849,22 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 
 	// PRD-J10: the host's own open screens are as stale as a replica's after an
 	// apply (a client's buy moves the host's funds too), so both roles notify.
-	fireApplyListener(pc.cmd, pc.baseId, pc.seat);
+	if (pc.separateProtocol && save) save->clearSeparateFundsContext();
+	fireApplyListener(pc.cmd, hostBaseId, pc.seat);
 }
 
 // ---- Replica-side apply (main thread) ----------------------------------------
 void processApply(Game* game, const Json::Value& ap)
 {
 	SavedGame* save = game->getSavedGame();
+	const bool separateApply = ap.get("state", "").asString() == "separate_apply";
+	if (save && separateApply)
+	{
+		std::string fundsPlayer = ap.get("fundsPlayer", "").asString();
+		if (fundsPlayer.empty())
+			fundsPlayer = connectionTCP::seatName(ap.get("seat", 0).asInt());
+		save->setSeparateFundsContext(fundsPlayer);
+	}
 	// Funds are host-authoritative: adopt them from the packet no matter what, so
 	// the replica cannot drift even if the mutation itself cannot be reconstructed.
 	if (save && ap.isMember("funds"))
@@ -2744,24 +3891,31 @@ void processApply(Game* game, const Json::Value& ap)
 	}
 
 	std::string cmd = ap.get("cmd", "").asString();
-	Base* base = resolveBase(game, ap.get("baseId", -1).asInt());
+	Base* base = resolveBaseRef(game, ap.get("baseId", -1).asInt(), ap.get("baseKey", 0).asInt());
+	const int applyBaseId = base ? baseIndex(game, base) : ap.get("baseId", -1).asInt();
 	auto& reg = registry();
 	auto hit = reg.find(cmd);
 	// NOTE: no "!base" early-return here. A creation command (base_new) carries
 	// baseId=-1 (no existing base) and its applier ignores @a base; every OTHER
 	// applier already null-guards @a base itself (if (!base) return;), so passing a
 	// null base straight through is safe and keeps base creation working on replicas.
-	if (hit == reg.end()) return;
+	if (hit == reg.end())
+	{
+		if (save && separateApply) save->clearSeparateFundsContext();
+		return;
+	}
 
 	// Mutable copy for the applier signature; the replica only READS the resolved
 	// payload (host already resolved any RNG before broadcasting).
 	Json::Value payload = ap["payload"];
+	resolvePayloadBaseRefs(game, payload);
 	int seat = ap.get("seat", 0).asInt();
 	hit->second.apply(game, payload, base, seat);
+	if (save && separateApply) save->clearSeparateFundsContext();
 	++g_applyN;
 
 	// PRD-J10: tell the open screen its world just moved under it.
-	fireApplyListener(cmd, ap.get("baseId", -1).asInt(), seat);
+	fireApplyListener(cmd, applyBaseId, seat);
 }
 
 } // anonymous namespace
@@ -2803,9 +3957,28 @@ int baseIndex(Game* game, const Base* base)
 	return -1;
 }
 
+Base* resolveBaseReference(Game* game, int baseId, int baseKey)
+{
+	return resolveBaseRef(game, baseId, baseKey);
+}
+
+int baseMoveTarget(Game* game, const Base* base)
+{
+	const int from = baseIndex(game, base);
+	if (from <= 0) return -1;
+	SavedGame* save = game->getSavedGame();
+	if (!save->isSeparateCoopCampaign()) return from - 1;
+	// The Separate strip lists each player's own bases together, so a base moves
+	// past the previous base of the same owner.
+	auto* bases = save->getBases();
+	for (int i = from - 1; i >= 0; --i)
+		if ((*bases)[i]->getOwnerPlayerName() == base->getOwnerPlayerName()) return i;
+	return -1;
+}
+
 void ScreenRefresh::bind(Game* game, const void* owner, Base* base, bool wantProgress)
 {
-	if (!game || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!game || !game->getCoopMod() || !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())) return;
 	_game = game;
 	_base = base;
 	_wantProgress = wantProgress;
@@ -2878,6 +4051,8 @@ void init()
 	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
 	registerCmd("soldier_rename", &soldierRenameValidate, &soldierRenameApply);
 	registerCmd("soldier_gift",   &soldierGiftValidate,   &soldierGiftApply);
+	// A soldier transformation: the host runs it once and every machine adopts it.
+	registerCmd("soldier_transform", &soldierTransformValidate, &soldierTransformApply);
 	registerCmd("sack",          &sackValidate,         &sackApply);
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
 	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.
@@ -2892,10 +4067,25 @@ void init()
 	registerCmd("craft_assign",   &craftAssignValidate, &craftAssignApply);
 	// PRD-J09 GAP-5: shared-world craft equipment loadout (base-screen equip).
 	registerCmd("craft_equip",    &craftEquipValidate,  &craftEquipApply);
+	// A craft equipment template load (the whole loadout as one command).
+	registerCmd("craft_loadout",  &craftLoadoutValidate, &craftLoadoutApply);
 	// PRD-J09 GAP-5b: the sibling base-screen store mutators (arm/rearm a craft
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
+	// The training screens' flags (martial and psi): the host runs the training.
+	registerCmd("soldier_training", &soldierTrainingValidate, &soldierTrainingApply);
+	// The equipment layouts an inventory screen at a base produced (the host builds
+	// every battle from them).
+	registerCmd("soldier_layout", &soldierLayoutValidate, &soldierLayoutApply);
+	// The base list order and a player's roster order, kept the same on every
+	// machine (the mini base strip move and the roster screens' move up / down).
+	registerCmd("base_move",      &baseMoveValidate,     &baseMoveApply);
+	registerCmd("soldier_order",  &soldierOrderValidate, &soldierOrderApply);
+	// Separate: a client's saved soldier layout or craft loadout slot, kept in
+	// that player's profile on the host.
+	registerCmd("equipment_template", &SeparateEcon::validateEquipmentTemplate,
+		&SeparateEcon::applyEquipmentTemplate);
 	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
 	// (df_open, full set + epoch each change; replica reconciles its render-only
 	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation
@@ -2925,6 +4115,8 @@ void init()
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
+	registerCmd("research_effects", &simAccept, &researchEffectsApply);
+	registerCmd("world_extras",     &simAccept, &worldExtrasApply);
 	registerCmd("fac_done",         &simAccept, &facDoneApply);
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
@@ -2951,9 +4143,19 @@ void applyDogfightState(Game* game, const Json::Value& obj)
 	if (gs) gs->sharedApplyDogfightState(obj);
 }
 
+void beginRestreamHold();
+void releaseHeldResults(Game* game);
+
 bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 {
-	if (state == "shared_cmd")
+	if (state == "shared_restream_mark" || state == "separate_restream_mark")
+	{
+		// The host just snapshotted its world for a restream (sharedResyncStream).
+		if (!connectionTCP::getServerOwner())
+			beginRestreamHold();
+		return true;
+	}
+	if (state == "shared_cmd" || state == "separate_cmd")
 	{
 		// Only the host validates/applies commands; a replica ignores stray cmds.
 		if (isHost())
@@ -2963,14 +4165,16 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 			pc.seq = obj.get("seq", 0).asInt();
 			pc.seat = obj.get("seat", 0).asInt();
 			pc.baseId = obj.get("baseId", -1).asInt();
+			pc.baseKey = obj.get("baseKey", 0).asInt();
 			pc.payload = obj["payload"];
 			pc.remote = true;
+			pc.separateProtocol = (state == "separate_cmd");
 			std::lock_guard<std::mutex> lk(g_mx);
 			g_cmdQ.push_back(std::move(pc));
 		}
 		return true;
 	}
-	if (state == "shared_apply")
+	if (state == "shared_apply" || state == "separate_apply")
 	{
 		// Replicas (and only replicas) adopt applied mutations. The host applied
 		// at broadcast time and must never re-apply its own broadcast.
@@ -2981,12 +4185,12 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 		}
 		return true;
 	}
-	if (state == "shared_ok")
+	if (state == "shared_ok" || state == "separate_ok")
 	{
 		++g_okN; // informational: the mutation self-applies from shared_apply
 		return true;
 	}
-	if (state == "shared_fail")
+	if (state == "shared_fail" || state == "separate_fail")
 	{
 		std::string reason = obj.get("reason", "").asString();
 		++g_failN;
@@ -2995,7 +4199,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 		g_failQ.push_back(reason);
 		return true;
 	}
-	if (state == "shared_resync_request")
+	if (state == "shared_resync_request" || state == "separate_resync_request")
 	{
 		// PRD-J10: a replica's world checksum diverged from ours. Only the host
 		// can answer; queue it for the main-thread pump (the restream serializes
@@ -3013,6 +4217,11 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 void update(Game* game)
 {
 	if (!game) return;
+
+	// 0) Replica: a restream's world was adopted (or its hold timed out). Hand the
+	// results that arrived after its mark to the normal receive path, in arrival
+	// order, ahead of the apply drain below.
+	releaseHeldResults(game);
 
 	// 1) Host: drain queued commands -> validate, debit, apply, broadcast.
 	for (;;)
@@ -3065,7 +4274,8 @@ void update(Game* game)
 		}
 		if (!have) break;
 		connectionTCP* coop = game->getCoopMod();
-		if (!coop || !coop->getServerOwner() || !coop->isSharedCampaign()) continue;
+		if (!coop || !coop->getServerOwner()
+			|| (!coop->isSharedCampaign() && !coop->isSeparateCampaign())) continue;
 		++g_resyncReqN;
 		Log(LOG_WARNING) << "[SHARED] resync requested by the replica; re-streaming"
 			<< " the authoritative world";
@@ -3075,10 +4285,25 @@ void update(Game* game)
 
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload)
+
+{
+	const bool separate = game && game->getCoopMod()
+		&& (game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())
+		&& !game->getCoopMod()->isSharedCampaign();
+	submitCommandEngine(game, cmd, baseId, payload, separate);
+}
+
+void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
+	const Json::Value& payload, bool separateProtocol)
 {
 	if (!game) return;
 	int seq = ++g_seqCounter;
 	int seat = connectionTCP::localSeat();
+	// Key every base the command names now, while the indexes still mean the
+	// bases the player picked (a base_move can land before this command does).
+	const int baseKey = baseKeyAt(game, baseId);
+	Json::Value keyedPayload = payload;
+	keyPayloadBaseRefs(game, keyedPayload);
 
 	if (isHost())
 	{
@@ -3089,8 +4314,10 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 		pc.seq = seq;
 		pc.seat = seat;
 		pc.baseId = baseId;
-		pc.payload = payload;
+		pc.baseKey = baseKey;
+		pc.payload = keyedPayload;
 		pc.remote = false;
+		pc.separateProtocol = separateProtocol;
 		std::lock_guard<std::mutex> lk(g_mx);
 		g_cmdQ.push_back(std::move(pc));
 	}
@@ -3098,12 +4325,13 @@ void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 	{
 		// Replica: send the command to the host; mutate nothing locally.
 		Json::Value msg;
-		msg["state"] = "shared_cmd";
+		msg["state"] = separateProtocol ? "separate_cmd" : "shared_cmd";
 		msg["cmd"] = cmd;
 		msg["seq"] = seq;
 		msg["seat"] = seat;
 		msg["baseId"] = baseId;
-		msg["payload"] = payload;
+		msg["baseKey"] = baseKey;
+		msg["payload"] = keyedPayload;
 		if (game->getCoopMod()) game->getCoopMod()->sendTCPPacketData(msg.toStyledString());
 	}
 }
@@ -3138,20 +4366,86 @@ void resetStats()
 namespace {
 bool sharedHost(Game* game)
 {
-	return game && game->getCoopMod() && game->getCoopMod()->isSharedCampaign()
-		&& connectionTCP::getHost();
+	return game && game->getCoopMod() && (game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())
+		&& game->getCoopMod()->getServerOwner();
 }
+
 }
 
 void hostResearchDone(Game* game, int baseId, const std::string& research,
-                      const std::string& bonus, const std::string& newResearch)
+                      const std::string& bonus, const std::string& newResearch,
+                      const std::string& corpse)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
 	p["research"] = research;
 	p["bonus"] = bonus;
 	p["newResearch"] = newResearch;
+	p["corpse"] = corpse;
 	submitLocalCmd(game, "research_done", baseId, p);
+}
+
+void hostResearchSideEffects(Game* game, const std::vector<const RuleResearch*>& topics,
+                             Base* base)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || topics.empty()) return;
+	Mod* mod = game->getMod();
+	if (!sharedHost(game) || !base)
+	{
+		save->handlePrimaryResearchSideEffects(topics, mod, base);
+		return;
+	}
+	// Every base's projects before the call. A base never runs two projects of
+	// one topic, so (base index, topic) names a project.
+	struct Project { int baseIdx; std::string research; bool refund; };
+	std::vector<Project> before;
+	auto& bases = *save->getBases();
+	int baseIdx = -1;
+	for (size_t i = 0; i < bases.size(); ++i)
+	{
+		if (bases[i] == base) baseIdx = (int)i;
+		for (ResearchProject* proj : bases[i]->getResearch())
+		{
+			const RuleResearch* rule = proj->getRules();
+			// Base::removeResearch refunds the needed item of an unfinished project.
+			before.push_back({ (int)i, rule->getName(),
+				!proj->isFinished() && rule->needItem() && rule->destroyItem() });
+		}
+	}
+	const size_t transfersBefore = base->getTransfers()->size();
+	save->handlePrimaryResearchSideEffects(topics, mod, base);
+	if (baseIdx < 0) return;
+
+	Json::Value removed(Json::arrayValue);
+	for (const auto& proj : before)
+	{
+		if (findResearchProject(bases[proj.baseIdx], proj.research)) continue;
+		Json::Value r;
+		r["baseIdx"] = proj.baseIdx;
+		r["research"] = proj.research;
+		r["refund"] = proj.refund;
+		removed.append(r);
+	}
+	// handlePrimaryResearchSideEffects only appends the spawned item transfers.
+	Json::Value spawned(Json::arrayValue);
+	const auto& transfers = *base->getTransfers();
+	for (size_t i = transfersBefore; i < transfers.size(); ++i)
+	{
+		const Transfer* t = transfers[i];
+		if (!t->getItems()) continue;
+		Json::Value s;
+		s["item"] = t->getItems()->getType();
+		s["qty"] = t->getQuantity();
+		s["hours"] = t->getHours();
+		s["owner"] = t->getOwnerPlayerName();
+		spawned.append(s);
+	}
+	if (removed.empty() && spawned.empty()) return;
+	Json::Value p;
+	p["removed"] = removed;
+	p["transfers"] = spawned;
+	submitLocalCmd(game, "research_effects", baseIdx, p);
 }
 
 void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& facilityType)
@@ -3165,16 +4459,40 @@ void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& f
 }
 
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
-                        int units, int progress, bool sell)
+                        int units, int progress, bool sell,
+                        const std::vector<int>& craftIds, bool batchDone,
+                        const std::vector<Soldier*>& soldiers)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
 	p["manufacture"] = manufacture;
 	p["units"] = units;
 	p["progress"] = progress;
+	// The units this step made; the replica removes the Production only when
+	// the batch is done.
+	p["final"] = batchDone;
 	// GAP-6b: carry the host Production's SELL flag so the replica materializes
 	// exactly what the host did (sold -> funds only, nothing to stores).
 	p["sell"] = sell;
+	// The crafts the host built, by id. Without them the replica minted ids from
+	// its own counter, which falls behind whenever the host builds a unit and a
+	// purchase lands before the batch finishes.
+	if (game->getMod())
+		if (const RuleManufacture* rule = game->getMod()->getManufacture(manufacture, false))
+			if (rule->getProducedCraft())
+			{
+				Json::Value ids(Json::arrayValue);
+				for (int id : craftIds) ids.append(id);
+				p["craftIds"] = ids;
+			}
+	// The soldiers it spawned, whole (id, name, stats, owner): the replica takes
+	// them instead of rolling its own.
+	if (!soldiers.empty())
+	{
+		Json::Value spawned(Json::arrayValue);
+		for (Soldier* s : soldiers) spawned.append(serializeSoldier(game, s));
+		p["soldiers"] = spawned;
+	}
 	submitLocalCmd(game, "prod_done", baseId, p);
 }
 
@@ -3318,6 +4636,7 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff)
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
 	p["soldierId"] = soldier->getId();
+	p["soldierOwner"] = soldier->getOwnerPlayerId();
 	p["onOff"] = onOff;
 	submitLocalCmd(game, "craft_assign", craftBaseIndex(game, craft), p);
 }
@@ -3331,6 +4650,25 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 	p["item"] = itemType;
 	p["count"] = desiredOnCraft;
 	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
+}
+
+void submitCraftLoadout(Game* game, Craft* craft, const std::vector<std::string>& listed,
+                        const ItemContainer& tmpl, bool onlyAdd)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["onlyAdd"] = onlyAdd;
+	Json::Value types(Json::arrayValue);
+	for (const auto& type : listed) types.append(type);
+	p["listed"] = types;
+	Json::Value contents(Json::objectValue);
+	for (const auto& entry : *tmpl.getContents())
+		if (entry.first && entry.second > 0)
+			contents[entry.first->getType()] = entry.second;
+	p["template"] = contents;
+	submitLocalCmd(game, "craft_loadout", craftBaseIndex(game, craft), p);
 }
 
 void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& weaponType)
@@ -3351,6 +4689,62 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::str
 	p["soldierId"] = soldier->getId();
 	p["armor"] = armorType;
 	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
+}
+
+void submitSoldierTraining(Game* game, Base* base, bool psi,
+	const std::vector<TrainingChange>& changes)
+{
+	if (!game || !base || changes.empty()) return;
+	Json::Value soldiers(Json::arrayValue);
+	for (const TrainingChange& change : changes)
+	{
+		Json::Value s;
+		s["id"] = change.soldier->getId();
+		s["training"] = change.training;
+		if (!psi) s["queued"] = change.queued;
+		soldiers.append(s);
+	}
+	Json::Value p;
+	p["kind"] = psi ? "psi" : "martial";
+	p["soldiers"] = soldiers;
+	submitLocalCmd(game, "soldier_training", baseIndex(game, base), p);
+}
+
+void submitSoldierLayouts(Game* game, Base* base, const Json::Value& soldiers)
+{
+	if (!game || !base || !soldiers.isArray() || soldiers.empty()) return;
+	Json::Value p;
+	p["soldiers"] = soldiers;
+	submitLocalCmd(game, "soldier_layout", baseIndex(game, base), p);
+}
+
+std::string serializeLayout(const std::vector<EquipmentLayoutItem*>& layout)
+{
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	writer.write("layout", layout,
+		[](YAML::YamlNodeWriter& w, EquipmentLayoutItem* i)
+		{ i->save(w.write()); });
+	return writer.emit().yaml;
+}
+
+std::vector<EquipmentLayoutItem*> deserializeLayout(Game* game, const std::string& text)
+{
+	std::vector<EquipmentLayoutItem*> out;
+	if (!game || text.empty()) return out;
+	YAML::YamlRootNodeReader reader(YAML::YamlString{text}, "soldierLayout");
+	for (const auto& entry : reader["layout"].children())
+	{
+		try
+		{
+			out.push_back(new EquipmentLayoutItem(entry, game->getMod()));
+		}
+		catch (Exception&)
+		{
+			// an item this machine's mod does not know: skip it, as Soldier::load does
+		}
+	}
+	return out;
 }
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)
@@ -3405,12 +4799,20 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase)
 	if (!sharedHost(game) || !alienBase) return;
 	Json::Value p;
 	p["alienBaseId"] = alienBase->getId();
+	p["coopId"] = alienBase->_coop_alienbase_id;
+	p["deployment"] = alienBase->getDeployment()->getType();
+	p["startMonth"] = alienBase->getStartMonth();
+	p["lon"] = alienBase->getLongitude();
+	p["lat"] = alienBase->getLatitude();
+	p["pactCountry"] = alienBase->getPactCountry();
+	p["race"] = alienBase->getAlienRace();
+	p["ownerPlayerName"] = alienBase->getOwnerPlayerName();
 	submitLocalCmd(game, "alien_base_found", 0, p);
 }
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg,
                Base* base, int craftId, const std::vector<std::string>& names,
-               const std::vector<int>& ids, bool flag, const Json::Value& rows)
+			   const std::vector<int>& ids, bool flag, const Json::Value& rows)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
@@ -3456,7 +4858,8 @@ bool ownsSoldier(Game* game, const Soldier* soldier)
 {
 	if (!game || !soldier) return false;
 	connectionTCP* coop = game->getCoopMod();
-	if (!coop || !coop->isSharedCampaign()) return true; // solo/SEPARATE: not owner-gated
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()))
+		return true; // solo: not owner-gated
 	return soldier->getOwnerPlayerId() == connectionTCP::localSeat();
 }
 
@@ -3465,14 +4868,84 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base)
 	std::vector<Soldier*> out;
 	if (!base) return out;
 	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
-	bool shared = coop && coop->isSharedCampaign();
-	int seat = shared ? connectionTCP::localSeat() : -1;
+	bool playerOwnedRoster = coop
+		&& (coop->isSharedCampaign() || coop->isSeparateCampaign());
+	int seat = playerOwnedRoster ? connectionTCP::localSeat() : -1;
 	for (auto* s : *base->getSoldiers())
 	{
-		if (!shared || s->getOwnerPlayerId() == seat)
+		if (!playerOwnedRoster || s->getOwnerPlayerId() == seat)
 			out.push_back(s);
 	}
 	return out;
+}
+
+bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
+	unsigned int row, bool up, bool max)
+{
+	if (!game || !base || row >= visible.size()) return false;
+	if (up ? row == 0 : row + 1 >= visible.size()) return false;
+	std::vector<Soldier*> order = visible;
+	Soldier* moved = order[row];
+	order.erase(order.begin() + row);
+	const size_t to = max ? (up ? 0 : order.size()) : (up ? row - 1 : row + 1);
+	order.insert(order.begin() + to, moved);
+	submitSoldierOrder(game, base, order);
+	return true;
+}
+
+void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order)
+{
+	if (!game || !base) return;
+	Json::Value ids(Json::arrayValue);
+	for (const Soldier* s : order) ids.append(s->getId());
+	Json::Value p;
+	p["order"] = ids;
+	submitLocalCmd(game, "soldier_order", baseIndex(game, base), p);
+}
+
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
+	const std::string& name)
+{
+	if (!game || !base || !soldier || !game->getCoopMod()
+		|| !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign()))
+		return false;
+	Json::Value p;
+	p["rule"] = rule;
+	p["soldierId"] = soldier->getId();
+	p["dead"] = soldier->getDeath() != nullptr;
+	p["name"] = name;
+	submitLocalCmd(game, "soldier_transform", baseIndex(game, base), p);
+	return true;
+}
+
+void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg)
+{
+	if (!sharedHost(game)) return;
+	Json::Value p;
+	p["cls"] = "CraftErrorState";
+	p["msg"] = msg;
+	p["player"] = playerName;
+	submitLocalCmd(game, "alert", 0, p);
+}
+
+void hostSoldierStepBegin(Game* game, bool keepArmed)
+{
+	SavedGame* save = sharedHost(game) ? game->getSavedGame() : nullptr;
+	if (!save)
+	{
+		g_soldierStepBefore.clear();
+		g_soldierStepArmed = false;
+		return;
+	}
+	// time1Month arms the snapshot and falls through into time1Day, whose own
+	// call must keep it so the month's psi training is carried too.
+	if (keepArmed && g_soldierStepArmed && g_soldierStepSave == save) return;
+	g_soldierStepBefore.clear();
+	for (auto* base : *save->getBases())
+		for (auto* soldier : *base->getSoldiers())
+			g_soldierStepBefore[soldier] = soldierStepState(soldier);
+	g_soldierStepSave = save;
+	g_soldierStepArmed = true;
 }
 
 void hostDayTick(Game* game)
@@ -3480,25 +4953,23 @@ void hostDayTick(Game* game)
 	if (!sharedHost(game)) return;
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
+	// Only a snapshot of this world, taken before this step, can say what the
+	// step changed.
+	const bool armed = g_soldierStepArmed && g_soldierStepSave == save;
 	auto* bases = save->getBases();
 	for (int bi = 0; bi < (int)bases->size(); ++bi)
 	{
 		Base* base = (*bases)[bi];
 		Json::Value soldiers(Json::arrayValue);
-		for (auto* soldier : *base->getSoldiers())
-		{
-			int id = soldier->getId();
-			int rec = soldier->getWoundRecoveryInt();
-			auto hit = g_soldierRecovery.find(id);
-			if (hit == g_soldierRecovery.end() || hit->second != rec)
+		if (armed)
+			for (auto* soldier : *base->getSoldiers())
 			{
-				g_soldierRecovery[id] = rec;
-				Json::Value js;
-				js["id"] = id;
-				js["recovery"] = rec;
-				soldiers.append(js);
+				auto hit = g_soldierStepBefore.find(soldier);
+				if (hit == g_soldierStepBefore.end()) continue; // new this step: carried by its own result
+				const SoldierStepState now = soldierStepState(soldier);
+				if (!sameStepState(hit->second, now))
+					soldiers.append(soldierStepJson(now));
 			}
-		}
 		// PRD-J06: carry each running production's _timeSpent and each research
 		// project's _spent so the frozen replica's progress columns stay current
 		// (its own step() never runs). Small payload; sent whole each active day.
@@ -3527,11 +4998,18 @@ void hostDayTick(Game* game)
 			submitLocalCmd(game, "day_tick", bi, p);
 		}
 	}
+	g_soldierStepBefore.clear();
+	g_soldierStepArmed = false;
 }
 
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
 const int RESYNC_COOLDOWN_MINUTES = 60; // one game hour between auto-resyncs
 const int RESYNC_DEBOUNCE_MS = 3000;    // a mismatch must survive this to count
+// A resync request whose stream shows no progress (no mark, no chunk) for this
+// long was dropped by the host or died with the stream; the replica asks again.
+// A result hold whose world is not adopted in this long is released (see
+// releaseHeldResults).
+const int RESYNC_PENDING_TIMEOUT_MS = 30000;
 
 namespace {
 // Wall-clock (not game-time) milliseconds: the debounce below measures how long a
@@ -3578,6 +5056,194 @@ void worldAggregates(SavedGame* save, int64_t& items, int64_t& soldiers,
 		transfers += (int64_t)base->getTransfers()->size();
 		productions += (int64_t)base->getProductions().size();
 	}
+}
+
+// Content terms of the world checksum. Each is an order-free sum of one hash
+// per entry, so a container's iteration order (ItemContainer is keyed by rule
+// POINTER, which differs per machine) never matters. Masked to 63 bits so the
+// value travels as a non-negative Json Int64.
+uint64_t chkMix(uint64_t x)
+{
+	x += 0x9E3779B97F4A7C15ULL;
+	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+	return x ^ (x >> 31);
+}
+
+uint64_t chkEntry(const std::string& name, int64_t a, int64_t b)
+{
+	uint64_t h = 1469598103934665603ULL; // FNV-1a
+	for (unsigned char c : name) { h ^= c; h *= 1099511628211ULL; }
+	h = chkMix(h ^ ((uint64_t)a * 0x9E3779B97F4A7C15ULL));
+	return chkMix(h ^ ((uint64_t)b * 0xC2B2AE3D27D4EB4FULL));
+}
+
+int64_t chkValue(uint64_t sum) { return (int64_t)(sum & 0x7FFFFFFFFFFFFFFFULL); }
+
+// Every custom counter a rule can write (research increase/decreaseCounter and
+// the eight deployment counters). The id map also holds object ids (craft, UFO,
+// site numbers) that a replica does not mint, so only these names are compared.
+const std::vector<std::string>& customCounterNames(const Mod* mod)
+{
+	static const Mod* cachedMod = nullptr;
+	static std::vector<std::string> names;
+	if (mod == cachedMod) return names;
+	cachedMod = mod;
+	names.clear();
+	if (!mod) return names;
+	auto add = [](const std::string& name) { if (!name.empty()) names.push_back(name); };
+	for (const auto& entry : mod->getResearchMap())
+		if (entry.second)
+		{
+			for (const auto& name : entry.second->getIncreaseCounter()) add(name);
+			for (const auto& name : entry.second->getDecreaseCounter()) add(name);
+		}
+	for (const auto& type : mod->getDeploymentsList())
+		if (const AlienDeployment* d = mod->getDeployment(type, false))
+		{
+			add(d->getCounterSuccess()); add(d->getCounterFailure());
+			add(d->getCounterDespawn()); add(d->getCounterAll());
+			add(d->getDecreaseCounterSuccess()); add(d->getDecreaseCounterFailure());
+			add(d->getDecreaseCounterDespawn()); add(d->getDecreaseCounterAll());
+		}
+	std::sort(names.begin(), names.end());
+	names.erase(std::unique(names.begin(), names.end()), names.end());
+	return names;
+}
+
+int64_t chkCounters(SavedGame* save, const Mod* mod)
+{
+	uint64_t sum = 0;
+	const auto& ids = save->getAllIds();
+	for (const auto& name : customCounterNames(mod))
+	{
+		auto it = ids.find(name);
+		if (it != ids.end()) sum += chkEntry(name, it->second, 0);
+	}
+	return chkValue(sum);
+}
+
+// Pending geoscape events by name, owner and the Separate shared flag. Not the
+// countdown: a replica never counts down, so it holds the host's value at the
+// last world_extras result.
+int64_t chkEvents(SavedGame* save)
+{
+	uint64_t sum = 0;
+	for (const GeoscapeEvent* ge : save->getGeoscapeEvents())
+		if (!ge->isOver())
+			sum += chkEntry(ge->getRules().getName() + '\x1f' + ge->getOwnerPlayerName(),
+				ge->isCoopShared() ? 1 : 0, 0);
+	return chkValue(sum);
+}
+
+int64_t chkProjects(SavedGame* save)
+{
+	uint64_t sum = 0;
+	const auto& bases = *save->getBases();
+	for (size_t i = 0; i < bases.size(); ++i)
+		for (const ResearchProject* proj : bases[i]->getResearch())
+			sum += chkEntry(proj->getRules()->getName(), (int64_t)i, 0);
+	return chkValue(sum);
+}
+
+// Every base's stores by item type and quantity. This walks every stored item
+// type, so it is recomputed at most every CHK_STORES_MS of real time; the stale
+// value is far inside the RESYNC_DEBOUNCE_MS a mismatch must survive.
+const int64_t CHK_STORES_MS = 250;
+
+int64_t chkStores(SavedGame* save)
+{
+	static const SavedGame* cachedSave = nullptr;
+	static int64_t cachedAt = -1;
+	static int64_t cached = 0;
+	const int64_t now = steadyMs();
+	if (save == cachedSave && cachedAt >= 0 && now - cachedAt < CHK_STORES_MS) return cached;
+	uint64_t sum = 0;
+	const auto& bases = *save->getBases();
+	for (size_t i = 0; i < bases.size(); ++i)
+		for (const auto& item : *bases[i]->getStorageItems()->getContents())
+			if (item.second != 0)
+				sum += chkEntry(item.first->getType(), (int64_t)i, item.second);
+	cachedSave = save;
+	cachedAt = now;
+	cached = chkValue(sum);
+	return cached;
+}
+
+// Every base soldier's current stats, keyed by soldier id. The host alone trains
+// soldiers (martial and psi training) and no result carries their stats, so a
+// replica's soldiers can drift with every count equal. Walks every soldier, so it
+// is cached like chkStores.
+int64_t chkSoldierStats(SavedGame* save)
+{
+	static const SavedGame* cachedSave = nullptr;
+	static int64_t cachedAt = -1;
+	static int64_t cached = 0;
+	const int64_t now = steadyMs();
+	if (save == cachedSave && cachedAt >= 0 && now - cachedAt < CHK_STORES_MS) return cached;
+	uint64_t sum = 0;
+	for (Base* base : *save->getBases())
+		for (const Soldier* soldier : *base->getSoldiers())
+		{
+			const UnitStats* stats = soldier->getCurrentStats();
+			uint64_t h = chkMix((uint64_t)(int64_t)soldier->getId());
+			UnitStats::fieldLoop([&](UnitStats::Ptr field)
+			{
+				h = chkMix(h ^ (uint64_t)(uint16_t)(stats->*field));
+			});
+			sum += h;
+		}
+	cachedSave = save;
+	cachedAt = now;
+	cached = chkValue(sum);
+	return cached;
+}
+
+// Separate's one world keeps each player's wallet and private research in that
+// player's profile. getFunds() reads the LOCAL player's wallet, which differs by
+// machine, so the Separate checksum stamps every profile instead: one wallet and
+// one completed-research count per player name, plus the sum of the wallets as
+// the machine-independent chkFunds. Stamp and verify both call this.
+bool separateChecksumTerms(SavedGame* save, Json::Value& funds, Json::Value& research,
+	int64_t& totalFunds)
+{
+	funds = Json::Value(Json::objectValue);
+	research = Json::Value(Json::objectValue);
+	totalFunds = 0;
+	if (!save || !save->isSeparateCoopCampaign()) return false;
+	for (const auto& player : save->getSeparateCampaign().getPlayers())
+	{
+		const int64_t wallet = player.second.funds.empty() ? 0 : player.second.funds.back();
+		funds[player.first] = Json::Value::Int64(wallet);
+		research[player.first] = (int)player.second.completedResearch.size();
+		totalFunds += wallet;
+	}
+	return true;
+}
+
+// Name-keyed integer maps compared by value (a parsed and a locally built
+// Json::Value may differ in integer type).
+bool sameNamedTerms(const Json::Value& a, const Json::Value& b)
+{
+	if (!a.isObject() || !b.isObject() || a.size() != b.size()) return false;
+	for (const std::string& name : a.getMemberNames())
+		if (!b.isMember(name) || a[name].asInt64() != b[name].asInt64()) return false;
+	return true;
+}
+
+std::string namedTermsText(const Json::Value& terms)
+{
+	std::ostringstream ss;
+	ss << "{";
+	bool first = true;
+	if (terms.isObject())
+		for (const std::string& name : terms.getMemberNames())
+		{
+			ss << (first ? "" : ", ") << name << "=" << terms[name].asInt64();
+			first = false;
+		}
+	ss << "}";
+	return ss.str();
 }
 } // namespace
 
@@ -3861,7 +5527,15 @@ void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string&
 	//
 	// The ITEM terms keep comparing unconditionally: an item id minted on one
 	// machine only is not a state a late chain can heal.
-	const bool unitsComparable = !rxPassDeferred();
+	// Parallel replay intentionally reaches this legacy checksum BEFORE the
+	// host's next_turn unit snapshot is applied.  A death/fall animation may
+	// therefore still be one display step behind even when the snapshot about to
+	// be consumed makes the two battles identical.  The modern unitsCore and
+	// unitsRegen buckets compare at SIDESTART, after that absolute snapshot, and
+	// retain the real persistent-unit desync coverage.  Keep this old pre-apply
+	// unit term for classic co-op only; its item-id/census terms remain active in
+	// both modes below.
+	const bool unitsComparable = !connectionTCP::parallelTurnActive() && !rxPassDeferred();
 	// coop (option 3, 2c lever-on): the ITEM terms also get the behind-at-boundary guard
 	// (a corpse mint / item removal still replaying here is a late chain that heals) - the
 	// same rxPassDeferred() guard `units` already uses. Lever-off keeps the item terms
@@ -5950,10 +7624,14 @@ void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
 	e.kind = kind;
 	e.compared = false;
 	if (!computeBattleHashes(game, e.h)) return; // no battle: nothing to remember
-	// PRD-I2: the save-derived hash is boundary-only. Per-action entries keep
-	// e.saveBlob at 0 and never ship the field, so it is compared only at
-	// boundaries; recorded here so the peer's boundary report has a match.
-	if (boundary) computeSaveBlobHash(game, e.saveBlob);
+	// PRD-I2: the save-derived hash is boundary-only. It remains useful for shared
+	// and legacy/PvP battles, where both peers are expected to hold an equivalent
+	// complete battle save. A separate campaign deliberately keeps player-specific
+	// state on each peer, so comparing whole save documents there is invalid. The
+	// structured battle buckets above remain active for separate campaigns.
+	const bool separateCampaign = game && game->getCoopMod()
+		&& game->getCoopMod()->isSeparateCampaign();
+	if (boundary && !separateCampaign) computeSaveBlobHash(game, e.saveBlob);
 	// PRD-I3 SEAM-7: stash this machine's full unitsStats field vector (opt-in), the
 	// SAME sample e.h was computed from, for a field-by-field mismatch diff later.
 	if (g_syncFieldCapture) unitStatsFullJson(game, e.statVec, -1);
@@ -6030,6 +7708,9 @@ void syncCheckAttachBoundary(Game* game, Json::Value& msg)
 	// The seven fast sweep buckets first (identical to a per-action report)...
 	syncCheckAttach(game, msg);
 	if (!msg.isMember("h")) return; // no live battle
+	// Separate campaigns no longer exchange or compare whole-save blobs. Their
+	// host-authoritative battle is checked by the structured buckets attached above.
+	if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()) return;
 	// ...then the boundary-only save-derived bucket. Its PRESENCE in the "h" map is
 	// what gates the host compare: a per-action report never carries it and an old
 	// peer never carries it, so both are skipped without any policy flag.
@@ -6863,9 +8544,18 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
 	SavedGame* save = game->getSavedGame();
-	msg["chkFunds"] = Json::Value::Int64(save->getFunds());
+	Json::Value playerFunds, playerResearch;
+	int64_t totalFunds = 0;
+	const bool separate = separateChecksumTerms(save, playerFunds, playerResearch, totalFunds);
+	msg["chkFunds"] = Json::Value::Int64(separate ? totalFunds : save->getFunds());
 	msg["chkBases"] = (int)save->getBases()->size();
 	msg["chkResearch"] = (int)save->getDiscoveredResearch().size();
+	if (separate)
+	{
+		// Separate: every player's wallet and private research count, by name.
+		msg["chkPlayerFunds"] = playerFunds;
+		msg["chkPlayerResearch"] = playerResearch;
+	}
 
 	// GAP-4: widen past funds/bases/research so store, roster, transfer and
 	// production drift can no longer hide from the auto-repair (funds is the only
@@ -6880,11 +8570,297 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 	// issue #78: an orphaned replica mission site (a despawn the snapshot missed)
 	// must trip the auto-repair too. Count only - the restream is the repair.
 	msg["chkSites"] = (int)save->getMissionSites()->size();
+	// Content terms: drift that keeps every count equal (a swapped store item, a
+	// project only one machine runs, a custom counter, a pending event).
+	msg["chkStores"] = Json::Value::Int64(chkStores(save));
+	msg["chkProjects"] = Json::Value::Int64(chkProjects(save));
+	msg["chkCounters"] = Json::Value::Int64(chkCounters(save, game->getMod()));
+	msg["chkEvents"] = Json::Value::Int64(chkEvents(save));
+	msg["chkSoldierStats"] = Json::Value::Int64(chkSoldierStats(save));
 
 	// PRD-P2 3a: the battle terms ride along whenever a battle is live, so the
 	// harness' shared_checksum hook exposes them without a second command. No-op on
 	// the geoscape heartbeat, where there is no battle to stamp.
 	attachBattleChecksum(game, msg);
+}
+
+void hostWorldExtras(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !sharedHost(game)) return;
+	static const SavedGame* lastSave = nullptr;
+	static int64_t lastEvents = -1, lastCounters = -1;
+	const int64_t events = chkEvents(save);
+	const int64_t counters = chkCounters(save, game->getMod());
+	if (save == lastSave && events == lastEvents && counters == lastCounters) return;
+	lastSave = save;
+	lastEvents = events;
+	lastCounters = counters;
+
+	Json::Value list(Json::arrayValue);
+	for (const GeoscapeEvent* ge : save->getGeoscapeEvents())
+	{
+		if (ge->isOver()) continue;
+		Json::Value e;
+		e["name"] = ge->getRules().getName();
+		e["owner"] = ge->getOwnerPlayerName();
+		e["countdown"] = Json::Value::UInt64(ge->getSpawnCountdown());
+		e["shared"] = ge->isCoopShared();
+		list.append(e);
+	}
+	Json::Value values(Json::objectValue);
+	const auto& ids = save->getAllIds();
+	for (const auto& name : customCounterNames(game->getMod()))
+	{
+		auto it = ids.find(name);
+		if (it != ids.end()) values[name] = it->second;
+	}
+	Json::Value p;
+	p["events"] = list;
+	p["counters"] = values;
+	submitLocalCmd(game, "world_extras", -1, p);
+}
+
+namespace {
+// world_extras payload: { events: [ {name, owner, countdown, shared} ],
+// counters: { name: value } }. The host's whole set; the replica replaces its own.
+void worldExtrasApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	if (!save || !mod) return;
+	auto& events = save->getGeoscapeEvents();
+	for (GeoscapeEvent* ge : events) delete ge;
+	events.clear();
+	for (const auto& e : payload["events"])
+	{
+		const RuleEvent* rule = mod->getEvent(e.get("name", "").asString(), false);
+		if (!rule) continue;
+		GeoscapeEvent* ge = new GeoscapeEvent(*rule);
+		ge->setOwnerPlayerName(e.get("owner", "").asString());
+		ge->setSpawnCountdown((size_t)e.get("countdown", 30).asUInt64());
+		ge->setCoopShared(e.get("shared", false).asBool());
+		events.push_back(ge);
+	}
+	std::map<std::string, int> ids = save->getAllIds();
+	const Json::Value& counters = payload["counters"];
+	for (const auto& name : customCounterNames(mod))
+	{
+		if (counters.isMember(name)) ids[name] = counters[name].asInt();
+		else ids.erase(name);
+	}
+	save->setAllIds(ids);
+}
+
+std::map<std::string, int> itemCounts(const ItemContainer* items)
+{
+	std::map<std::string, int> out;
+	for (const auto& item : *items->getContents())
+		if (item.second != 0) out[item.first->getType()] = item.second;
+	return out;
+}
+
+// Appends {<keys>, item, delta} for every type whose count changed.
+void appendItemDeltas(Json::Value& out, const std::map<std::string, int>& before,
+	const std::map<std::string, int>& after, const Json::Value& keys)
+{
+	std::set<std::string> types;
+	for (const auto& item : before) types.insert(item.first);
+	for (const auto& item : after) types.insert(item.first);
+	for (const auto& type : types)
+	{
+		auto b = before.find(type), a = after.find(type);
+		const int delta = (a == after.end() ? 0 : a->second) - (b == before.end() ? 0 : b->second);
+		if (delta == 0) continue;
+		Json::Value d = keys;
+		d["item"] = type;
+		d["delta"] = delta;
+		out.append(d);
+	}
+}
+
+Craft* newRewardCraft(Game* game, Base* base, const Json::Value& c)
+{
+	const RuleCraft* rule = game->getMod()->getCraft(c.get("type", "").asString(), false);
+	if (!rule) return nullptr;
+	Craft* craft = new Craft(rule, base, c.get("id", 0).asInt());
+	craft->initFixedWeapons(game->getMod());
+	craft->setStatus(c.get("status", "STR_READY").asString());
+	return craft;
+}
+
+Json::Value rewardCraft(Craft* craft)
+{
+	Json::Value c;
+	c["type"] = craft->getRules()->getType();
+	c["id"] = craft->getId();
+	c["status"] = craft->getStatus();
+	return c;
+}
+} // namespace
+
+EventRewardSnapshot snapshotEventRewards(Game* game, Base* hq)
+{
+	EventRewardSnapshot s;
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !hq || !game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign()
+		|| !game->getCoopMod()->getServerOwner())
+		return s;
+	s.active = true;
+	for (Base* base : *save->getBases())
+	{
+		s.stores.push_back(itemCounts(base->getStorageItems()));
+		std::vector<std::map<std::string, int> > crafts;
+		for (Craft* craft : *base->getCrafts())
+			crafts.push_back(itemCounts(craft->getItems()));
+		s.craftItems.push_back(crafts);
+	}
+	s.hqTransfers = hq->getTransfers()->size();
+	s.hqCrafts = hq->getCrafts()->size();
+	return s;
+}
+
+std::string describeEventRewards(Game* game, Base* hq, const EventRewardSnapshot& before)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!before.active || !save || !hq) return std::string();
+	const auto& bases = *save->getBases();
+	// eventLogic adds no base; a base list that changed is left to the checksum.
+	if (bases.size() != before.stores.size()) return std::string();
+	int hqIdx = -1;
+	Json::Value stores(Json::arrayValue), craftItems(Json::arrayValue);
+	for (size_t i = 0; i < bases.size(); ++i)
+	{
+		if (bases[i] == hq) hqIdx = (int)i;
+		Json::Value keys;
+		keys["baseIdx"] = (int)i;
+		appendItemDeltas(stores, before.stores[i], itemCounts(bases[i]->getStorageItems()), keys);
+		const auto& crafts = *bases[i]->getCrafts();
+		for (size_t j = 0; j < before.craftItems[i].size() && j < crafts.size(); ++j)
+		{
+			Json::Value craftKeys = keys;
+			craftKeys["craftId"] = crafts[j]->getId();
+			craftKeys["craftType"] = crafts[j]->getRules()->getType();
+			appendItemDeltas(craftItems, before.craftItems[i][j], itemCounts(crafts[j]->getItems()),
+				craftKeys);
+		}
+	}
+	if (hqIdx < 0) return std::string();
+	Json::Value transfers(Json::arrayValue), crafts(Json::arrayValue), ids(Json::objectValue);
+	const auto& hqTransfers = *hq->getTransfers();
+	for (size_t i = before.hqTransfers; i < hqTransfers.size(); ++i)
+	{
+		Transfer* t = hqTransfers[i];
+		Json::Value d;
+		d["type"] = (int)t->getType();
+		d["hours"] = t->getHours();
+		d["owner"] = t->getOwnerPlayerName();
+		d["qty"] = t->getQuantity();
+		// By type: a Transfer leaves the members of the other kinds unset.
+		if (t->getType() == TRANSFER_ITEM && t->getItems())
+			d["item"] = t->getItems()->getType();
+		if (t->getType() == TRANSFER_CRAFT && t->getCraft())
+		{
+			d["craft"] = rewardCraft(t->getCraft());
+			ids[t->getCraft()->getRules()->getType()] = 0;
+		}
+		if (t->getType() == TRANSFER_SOLDIER && t->getSoldier())
+			d["soldier"] = serializeSoldier(game, t->getSoldier());
+		transfers.append(d);
+	}
+	const auto& hqCrafts = *hq->getCrafts();
+	for (size_t i = before.hqCrafts; i < hqCrafts.size(); ++i)
+	{
+		crafts.append(rewardCraft(hqCrafts[i]));
+		ids[hqCrafts[i]->getRules()->getType()] = 0;
+	}
+	// The host minted the new crafts' ids; the replica's id counters follow.
+	const auto& allIds = save->getAllIds();
+	for (const std::string& type : ids.getMemberNames())
+	{
+		auto it = allIds.find(type);
+		if (it != allIds.end()) ids[type] = it->second;
+		else ids.removeMember(type);
+	}
+	if (stores.empty() && craftItems.empty() && transfers.empty() && crafts.empty())
+		return std::string();
+	Json::Value r;
+	r["baseIdx"] = hqIdx;
+	r["stores"] = stores;
+	r["craftItems"] = craftItems;
+	r["transfers"] = transfers;
+	r["crafts"] = crafts;
+	r["ids"] = ids;
+	return r.toStyledString();
+}
+
+void applyEventRewards(Game* game, const Json::Value& r)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	Mod* mod = game ? game->getMod() : nullptr;
+	if (!save || !mod || !r.isObject() || connectionTCP::getHost()) return;
+	for (const auto& d : r["stores"])
+	{
+		Base* base = resolveBase(game, d.get("baseIdx", -1).asInt());
+		const RuleItem* item = mod->getItem(d.get("item", "").asString(), false);
+		const int delta = d.get("delta", 0).asInt();
+		if (!base || !item) continue;
+		if (delta > 0) base->getStorageItems()->addItem(item, delta);
+		else base->getStorageItems()->removeItem(item, -delta);
+	}
+	for (const auto& d : r["craftItems"])
+	{
+		Base* base = resolveBase(game, d.get("baseIdx", -1).asInt());
+		Craft* craft = base ? findCraft(base, d.get("craftId", -1).asInt(),
+			d.get("craftType", "").asString()) : nullptr;
+		const RuleItem* item = mod->getItem(d.get("item", "").asString(), false);
+		const int delta = d.get("delta", 0).asInt();
+		if (!craft || !item) continue;
+		if (delta > 0) craft->getItems()->addItem(item, delta);
+		else craft->getItems()->removeItem(item, -delta);
+	}
+	Base* hq = resolveBase(game, r.get("baseIdx", -1).asInt());
+	if (!hq) return;
+	const Json::Value& ids = r["ids"];
+	if (ids.isObject() && !ids.empty())
+	{
+		std::map<std::string, int> all = save->getAllIds();
+		for (const std::string& type : ids.getMemberNames()) all[type] = ids[type].asInt();
+		save->setAllIds(all);
+	}
+	for (const auto& c : r["crafts"])
+		if (Craft* craft = newRewardCraft(game, hq, c))
+			hq->getCrafts()->push_back(craft);
+	for (const auto& d : r["transfers"])
+	{
+		Transfer* t = new Transfer(d.get("hours", 1).asInt());
+		t->setOwnerPlayerName(d.get("owner", "").asString());
+		const int qty = d.get("qty", 1).asInt();
+		bool made = true;
+		switch (d.get("type", -1).asInt())
+		{
+		case TRANSFER_ITEM:
+			if (const RuleItem* item = mod->getItem(d.get("item", "").asString(), false))
+				t->setItems(item, qty);
+			else made = false;
+			break;
+		case TRANSFER_SCIENTIST: t->setScientists(qty); break;
+		case TRANSFER_ENGINEER: t->setEngineers(qty); break;
+		case TRANSFER_CRAFT:
+			if (Craft* craft = newRewardCraft(game, hq, d["craft"])) t->setCraft(craft);
+			else made = false;
+			break;
+		case TRANSFER_SOLDIER:
+			if (Soldier* s = deserializeSoldier(game, d.get("soldier", "").asString()))
+				t->setSoldier(s);
+			else made = false;
+			break;
+		default: made = false;
+		}
+		if (made) hq->getTransfers()->push_back(t);
+		else delete t;
+	}
 }
 
 bool requestResync(Game* game, const std::string& why, bool force)
@@ -6894,12 +8870,15 @@ bool requestResync(Game* game, const std::string& why, bool force)
 
 	g_resyncPending = true;
 	g_lastResyncGameMin = gameMinutes(game->getSavedGame());
+	g_streamProgressMs = steadyMs();
 	++g_resyncReqN;
 	Log(LOG_WARNING) << "[SHARED] requesting a world resync from the host (" << why
 		<< (force ? ", forced)" : ")");
 
 	Json::Value req;
-	req["state"] = "shared_resync_request";
+	// Separate keeps its own wire namespace (SeparateEcon.h).
+	req["state"] = game->getCoopMod()->isSeparateCampaign()
+		? "separate_resync_request" : "shared_resync_request";
 	game->getCoopMod()->sendTCPPacketData(req.toStyledString());
 	return true;
 }
@@ -6911,12 +8890,123 @@ void notifyWorldAdopted()
 	// mismatch that reappears within the window is still treated as unrepairable.
 	g_resyncPending = false;
 	g_resyncGaveUp = false;
+	if (g_restreamMarks > 0)
+	{
+		// This world is a restream snapshot. Results still queued from before its
+		// mark are already in it, so they must not apply again. The results after
+		// the mark wait in g_heldResults and apply on the next update, to this world.
+		{
+			std::lock_guard<std::mutex> lk(g_mx);
+			g_applyQ.clear();
+		}
+		if (--g_restreamMarks == 0) g_releaseHeld = true;
+	}
+}
+
+void noteWorldStreamProgress()
+{
+	// A chunk of a world stream arrived. A large world takes many seconds to
+	// stream; the in-flight resync guard and the result hold live while chunks
+	// keep coming.
+	if (g_resyncPending || g_restreamMarks > 0) g_streamProgressMs = steadyMs();
+}
+
+void sendRestreamMark(Game* game)
+{
+	if (!game || !game->getCoopMod()) return;
+	Json::Value mark;
+	// Separate keeps its own wire namespace (SeparateEcon.h).
+	mark["state"] = game->getCoopMod()->isSeparateCampaign()
+		? "separate_restream_mark" : "shared_restream_mark";
+	game->getCoopMod()->sendTCPPacketData(mark.toStyledString());
+}
+
+void beginRestreamHold()
+{
+	// Anything still held was sent before this newer snapshot, so it is in it.
+	const size_t inSnapshot = g_heldResults.size();
+	g_heldResults.clear();
+	g_releaseHeld = false;
+	++g_restreamMarks;
+	g_streamProgressMs = steadyMs();
+	Log(LOG_INFO) << "[SHARED] restream mark: host results wait for the adopted world ("
+		<< inSnapshot << " earlier held result(s) are in this snapshot)";
+}
+
+bool holdResultDuringRestream(const std::string& state, const Json::Value& obj)
+{
+	if (g_restreamMarks <= 0 && !g_releaseHeld) return false;
+	// The host's world results: every command result (production, research,
+	// research_effects, world_extras, ...) rides shared_apply / separate_apply; the
+	// Separate event and mission-research results change the world on receipt.
+	if (state != "shared_apply" && state != "separate_apply"
+		&& state != "separate_geoscape_event" && state != "separate_mission_research")
+		return false;
+	g_heldResults.emplace_back(state, obj);
+	return true;
+}
+
+void releaseHeldResults(Game* game)
+{
+	bool timedOut = false;
+	if (g_restreamMarks > 0 && !g_releaseHeld
+		&& steadyMs() - g_streamProgressMs >= RESYNC_PENDING_TIMEOUT_MS)
+	{
+		// The marked world never landed (a failed load or a lost stream). Do not sit
+		// on the results forever: apply them to the world this replica has, and let
+		// the checksum repair whatever that leaves.
+		Log(LOG_WARNING) << "[SHARED] restream not adopted within "
+			<< RESYNC_PENDING_TIMEOUT_MS << "ms; applying " << g_heldResults.size()
+			<< " held result(s) to the current world";
+		g_restreamMarks = 0;
+		g_releaseHeld = true;
+		timedOut = true;
+	}
+	if (!g_releaseHeld) return;
+	g_releaseHeld = false;
+	std::deque<std::pair<std::string, Json::Value>> held;
+	held.swap(g_heldResults);
+	if (held.empty() || !game || !game->getCoopMod()) return;
+	if (!timedOut)
+		Log(LOG_INFO) << "[SHARED] restream adopted: applying " << held.size()
+			<< " result(s) held during the restream";
+	for (auto& result : held)
+	{
+		game->getCoopMod()->onTCPMessage(result.first, result.second);
+		// An event result changes the world on receipt, while an apply waits in
+		// g_applyQ. Drain after each one so the held results apply in arrival
+		// order: an apply carries absolute funds, so a day_tick applied after a
+		// later event would undo that event's funds.
+		for (;;)
+		{
+			Json::Value ap;
+			{
+				std::lock_guard<std::mutex> lk(g_mx);
+				if (g_applyQ.empty()) break;
+				ap = std::move(g_applyQ.front());
+				g_applyQ.pop_front();
+			}
+			processApply(game, ap);
+		}
+	}
+}
+
+void resetRestreamHold()
+{
+	g_restreamMarks = 0;
+	g_releaseHeld = false;
+	g_heldResults.clear();
 }
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)
 {
-	if (!game || !game->getSavedGame()) return;
-	if (!msg.isMember("chkFunds")) return; // older/non-SHARED host
+	// Both single-world campaigns repair here. Separate's wallets are views of
+	// the local player, so its funds and research terms are every player's
+	// profile (separateChecksumTerms), never this machine's own wallet. PvP keeps
+	// two worlds and is not a replica.
+	if (!game || !game->getSavedGame() || !game->getCoopMod()
+		|| !game->getCoopMod()->isSharedReplica()) return;
+	if (!msg.isMember("chkFunds")) return; // older/non-single-world host
 	// PRD-P2 3a: the battle terms are compared on their OWN path and are deliberately
 	// NOT folded into the world condition below - that condition's repair is
 	// sharedResyncStream, and a mid-battle world restream tears down the live battle.
@@ -6934,13 +9024,38 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	int64_t hostTransfers = msg.get("chkTransfers", -1).asInt64();
 	int64_t hostProductions = msg.get("chkProduction", -1).asInt64();
 	int hostSites = msg.get("chkSites", -1).asInt(); // issue #78; -1 = old host
-	int64_t myFunds = save->getFunds();
+	Json::Value myPlayerFunds, myPlayerResearch;
+	int64_t myTotalFunds = 0;
+	const bool separate = separateChecksumTerms(save, myPlayerFunds, myPlayerResearch,
+		myTotalFunds);
+	int64_t myFunds = separate ? myTotalFunds : save->getFunds();
 	int myBases = (int)save->getBases()->size();
 	int myResearch = (int)save->getDiscoveredResearch().size();
 	int mySites = (int)save->getMissionSites()->size();
 	int64_t myItems, mySoldiers, myTransfers, myProductions;
 	worldAggregates(save, myItems, mySoldiers, myTransfers, myProductions);
+	// Separate per-player terms; absent from a host that predates them.
+	const Json::Value& hostPlayerFunds = msg["chkPlayerFunds"];
+	const Json::Value& hostPlayerResearch = msg["chkPlayerResearch"];
+	const bool playersAgree = !separate
+		|| ((hostPlayerFunds.isNull() || sameNamedTerms(hostPlayerFunds, myPlayerFunds))
+			&& (hostPlayerResearch.isNull()
+				|| sameNamedTerms(hostPlayerResearch, myPlayerResearch)));
+	// Content terms; absent from a host that predates them (agreement).
+	const int64_t myStores = chkStores(save), myProjects = chkProjects(save);
+	const int64_t myCounters = chkCounters(save, game->getMod()), myEvents = chkEvents(save);
+	const int64_t mySoldierStats = chkSoldierStats(save);
+	auto contentAgrees = [&msg](const char* key, int64_t mine)
+	{
+		return !msg.isMember(key) || msg[key].asInt64() == mine;
+	};
+	const bool contentAgree = contentAgrees("chkStores", myStores)
+		&& contentAgrees("chkProjects", myProjects)
+		&& contentAgrees("chkCounters", myCounters)
+		&& contentAgrees("chkEvents", myEvents)
+		&& contentAgrees("chkSoldierStats", mySoldierStats);
 	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
+		&& playersAgree && contentAgree
 		&& (hostItems < 0 || hostItems == myItems)
 		&& (hostSoldiers < 0 || hostSoldiers == mySoldiers)
 		&& (hostTransfers < 0 || hostTransfers == myTransfers)
@@ -6985,7 +9100,16 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< ", soldiers host=" << hostSoldiers << " replica=" << mySoldiers
 			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
 			<< ", production host=" << hostProductions << " replica=" << myProductions
-			<< ", sites host=" << hostSites << " replica=" << mySites;
+			<< ", sites host=" << hostSites << " replica=" << mySites
+			<< ", content (stores/projects/counters/events/soldier stats) agree="
+			<< contentAgrees("chkStores", myStores) << contentAgrees("chkProjects", myProjects)
+			<< contentAgrees("chkCounters", myCounters) << contentAgrees("chkEvents", myEvents)
+			<< contentAgrees("chkSoldierStats", mySoldierStats);
+		if (separate)
+			Log(LOG_WARNING) << "[SHARED] Separate player terms: wallets host="
+				<< namedTermsText(hostPlayerFunds) << " replica=" << namedTermsText(myPlayerFunds)
+				<< ", research host=" << namedTermsText(hostPlayerResearch)
+				<< " replica=" << namedTermsText(myPlayerResearch);
 	}
 
 	const int64_t now = gameMinutes(save);
@@ -6995,12 +9119,19 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	if (g_resyncPending)
 	{
 		// A restream is already on the wire: every heartbeat until it lands still
-		// mismatches, and re-asking would queue a second serialization of the whole
-		// world on the host. Wait for it - but not forever: if the host dropped the
-		// request (its single-slot streamer was busy) the guard expires with the
-		// cooldown and the next mismatch re-asks.
-		if (cooling) return;
+		// mismatches, and re-asking would make the host drop the request ("streamer
+		// busy") or serialize the whole world twice. Wait for the adoption. The wait
+		// is REAL time since the last sign of the stream (the request, its mark or a
+		// chunk): at the fastest speed many game hours pass while a large world
+		// streams, so a game-time guard expired mid-stream. A request that shows no
+		// progress for RESYNC_PENDING_TIMEOUT_MS was dropped or died: ask again. That
+		// repair never landed, so it does not count toward giving up below.
+		if (nowMs - g_streamProgressMs < RESYNC_PENDING_TIMEOUT_MS) return;
+		Log(LOG_WARNING) << "[SHARED] no world stream within "
+			<< RESYNC_PENDING_TIMEOUT_MS << "ms of the resync request; asking again";
 		g_resyncPending = false;
+		requestResync(game, "previous resync request got no stream");
+		return;
 	}
 
 	if (cooling)

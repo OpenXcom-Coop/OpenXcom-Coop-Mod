@@ -41,6 +41,7 @@
 #include "../Menu/SaveGameState.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleVideo.h"
+#include "../CoopMod/SeparateEcon.h"
 
 #include "../Mod/RuleRegion.h"
 
@@ -66,7 +67,8 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtMaintenance = new Text(130, 9, 16, 40);
 	_txtBalance = new Text(160, 9, 146, 40);
 	_txtBonus = new Text(300, 9, 16, 48);
-	_txtDesc = new Text(280, 124, 16, 56);
+	_txtPlayerCosts = new Text(300, 9, 16, 48);
+	_txtDesc = new Text(280, 116, 16, 56);
 	_txtFailure = new Text(290, 160, 15, 10);
 
 	// Set palette
@@ -82,6 +84,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	add(_txtMaintenance, "text1", "monthlyReport");
 	add(_txtBalance, "text1", "monthlyReport");
 	add(_txtBonus, "text1", "monthlyReport");
+	add(_txtPlayerCosts, "text1", "monthlyReport");
 	add(_txtDesc, "text2", "monthlyReport");
 	add(_txtFailure, "text2", "monthlyReport");
 
@@ -112,7 +115,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtFailure->setVisible(false);
 
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 	{
 		calculateChanges();
 	}
@@ -128,6 +131,8 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		_pactList = _game->getCoopMod()->_pactListCoop;
 		_cancelPactList = _game->getCoopMod()->_cancelPactListCoop;
 
+		_separateDebt = _game->getCoopMod()->separateMonthlyDebt;
+		_separateWasWarned = _game->getCoopMod()->separateMonthlyWarned;
 	}
 
 	int month = _game->getSavedGame()->getTime()->getMonth() - 1, year = _game->getSavedGame()->getTime()->getYear();
@@ -155,6 +160,17 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	}
 	_txtMonth->setText(tr("STR_MONTH").arg(tr(m)).arg(year));
 
+	// Faction-owned events are private only when Separate players selected
+	// different factions. Show the local player's effective score while keeping
+	// council funding and game-over decisions on the common campaign score.
+	int displayedRatingTotal = _ratingTotal;
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+	{
+		const size_t scoreCount = _game->getSavedGame()->getResearchScores().size();
+		const size_t scoreIndex = scoreCount > 1 ? scoreCount - 2 : 0;
+		displayedRatingTotal += SeparateEcon::localFactionScore(_game, scoreIndex);
+	}
+
 	// Calculate rating
 	int difficulty_threshold = _game->getMod()->getDefeatScore() + 100 * _game->getSavedGame()->getDifficultyCoefficient();
 	{
@@ -170,19 +186,19 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		}
 	}
 	std::string rating = tr("STR_RATING_TERRIBLE");
-	if (_ratingTotal > difficulty_threshold - 300)
+	if (displayedRatingTotal > difficulty_threshold - 300)
 	{
 		rating = tr("STR_RATING_POOR");
 	}
-	if (_ratingTotal > difficulty_threshold)
+	if (displayedRatingTotal > difficulty_threshold)
 	{
 		rating = tr("STR_RATING_OK");
 	}
-	if (_ratingTotal > 0)
+	if (displayedRatingTotal > 0)
 	{
 		rating = tr("STR_RATING_GOOD");
 	}
-	if (_ratingTotal > 500)
+	if (displayedRatingTotal > 500)
 	{
 		rating = tr("STR_RATING_EXCELLENT");
 	}
@@ -193,7 +209,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		int temp = INT_MIN;
 		for (auto& pair : *_game->getMod()->getMonthlyRatings())
 		{
-			if (pair.first > temp && pair.first <= _ratingTotal)
+			if (pair.first > temp && pair.first <= displayedRatingTotal)
 			{
 				temp = pair.first;
 				rating = tr(pair.second);
@@ -201,10 +217,11 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		}
 	}
 
-	_txtRating->setText(tr("STR_MONTHLY_RATING").arg(_ratingTotal).arg(rating));
+	_txtRating->setText(tr("STR_MONTHLY_RATING").arg(displayedRatingTotal).arg(rating));
 
 	std::ostringstream ss;
-	ss << tr("STR_INCOME") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(_game->getSavedGame()->getCountryFunding());
+	ss << tr("STR_INCOME") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(
+		_game->getSavedGame()->getCountryFunding());
 	ss << " (";
 	if (_fundingDiff > 0)
 		ss << '+';
@@ -212,30 +229,69 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtIncome->setText(ss.str());
 
 	std::ostringstream ss2;
-	ss2 << tr("STR_MAINTENANCE") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(_game->getSavedGame()->getBaseMaintenance());
+	ss2 << tr("STR_MAINTENANCE") << "> " << Unicode::TOK_COLOR_FLIP
+		<< Unicode::formatFunding(SeparateEcon::localPlayerMaintenance(_game));
 	_txtMaintenance->setText(ss2.str());
 
+	const bool separate = _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign();
+	if (separate)
+	{
+		std::ostringstream playerCosts;
+		playerCosts << tr("STR_PLAYERS_COSTS") << "> " << Unicode::TOK_COLOR_FLIP
+			<< Unicode::formatFunding(_game->getSavedGame()->getSeparatePlayerCosts());
+		_txtPlayerCosts->setText(playerCosts.str());
+		_txtPlayerCosts->setY(49);
+	}
+	else
+	{
+		_txtPlayerCosts->setVisible(false);
+	}
+
 	int performanceBonus = _game->getMod()->getPerformanceBonus(_ratingTotal);
+	if (separate && performanceBonus > 0)
+	{
+		// The host already credited every wallet with its share (settleSeparateMonth)
+		// and the client adopted those wallets. Show this player's share only.
+		const size_t players = std::max<size_t>(1, _game->getSavedGame()->getCoopPlayers().size());
+		performanceBonus = performanceBonus / static_cast<int>(players);
+	}
 	if (performanceBonus > 0)
 	{
 		// increase funds by performance bonus
-		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() + performanceBonus);
+		if (!separate)
+			_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() + performanceBonus);
 		// display
 		std::ostringstream ss4;
 		ss4 << tr("STR_PERFORMANCE_BONUS") << "> " << Unicode::TOK_COLOR_FLIP << Unicode::formatFunding(performanceBonus);
 		_txtBonus->setText(ss4.str());
-		// shuffle the fields a bit for better overview
-		int upper = _txtMaintenance->getY();
-		int lower = _txtBonus->getY();
-		_txtMaintenance->setY(lower);
-		_txtBalance->setY(lower);
-		_txtBonus->setY(upper);
+		if (separate)
+		{
+			_txtBonus->setY(57);
+			_txtDesc->setY(65);
+			_txtDesc->setHeight(105);
+		}
+		else
+		{
+			// shuffle the fields a bit for the vanilla overview
+			int upper = _txtMaintenance->getY();
+			int lower = _txtBonus->getY();
+			_txtMaintenance->setY(lower);
+			_txtBalance->setY(lower);
+			_txtBonus->setY(upper);
+		}
 	}
 	else
 	{
-		// vanilla view
 		_txtBonus->setVisible(false);
-		_txtDesc->setY(_txtBonus->getY());
+		if (separate)
+		{
+			_txtDesc->setY(57);
+			_txtDesc->setHeight(115);
+		}
+		else
+		{
+			_txtDesc->setY(_txtBonus->getY());
+		}
 	}
 
 	std::ostringstream ss3;
@@ -271,9 +327,14 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 
 	if (!_gameOver)
 	{
-		if (_game->getSavedGame()->getFunds() <= _game->getMod()->getDefeatFunds())
+		// Separate judges the players' combined funds once, on the host, and both
+		// machines apply that verdict. Everyone else checks the local funds.
+		const bool inDebt = separate ? _separateDebt
+			: _game->getSavedGame()->getFunds() <= _game->getMod()->getDefeatFunds();
+		const bool wasWarned = separate ? _separateWasWarned : _game->getSavedGame()->getWarned();
+		if (inDebt)
 		{
-			if (_game->getSavedGame()->getWarned())
+			if (wasWarned)
 			{
 				ss5.str("");
 				ss5 << tr("STR_YOU_HAVE_NOT_SUCCEEDED");
@@ -304,10 +365,14 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtDesc->setText(ss5.str());
 
 	// Give modders some handles on political situation
+	// coop: a campaign replica only displays the report. The host spawns these
+	// events (their countdown is an RNG roll) and its world_extras result carries
+	// them to the replica.
+	const bool spawnPactEvents = !_game->getCoopMod()->isCampaignReplica();
 	for (const auto& traitorName : _pactList)
 	{
 		auto traitor = _game->getMod()->getCountry(traitorName, false);
-		if (traitor)
+		if (traitor && spawnPactEvents)
 		{
 			_game->getSavedGame()->spawnEvent(traitor->getSignedPactEvent());
 		}
@@ -315,7 +380,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	for (const auto& exTraitorName : _cancelPactList)
 	{
 		auto exTraitor = _game->getMod()->getCountry(exTraitorName, false);
-		if (exTraitor)
+		if (exTraitor && spawnPactEvents)
 		{
 			_game->getSavedGame()->spawnEvent(exTraitor->getRejoinedXcomEvent());
 		}
@@ -429,6 +494,7 @@ void MonthlyReportState::btnOkClick(Action *)
 void MonthlyReportState::calculateChanges()
 {
 	// initialize all our variables.
+	int globalFundingDiff = 0;
 	_lastMonthsRating = 0;
 	int xcomSubTotal = 0;
 	int xcomTotal = 0;
@@ -504,11 +570,20 @@ void MonthlyReportState::calculateChanges()
 		}
 	}
 
+	globalFundingDiff = _fundingDiff;
+
 	//calculate total.
 	_ratingTotal = xcomTotal - alienTotal;
 
+	// Separate: settle the bonus and the debt verdict before the monthly packet,
+	// so the client adopts the same wallets and the same verdict.
+	if (_game->getCoopMod()->isSeparateCampaign() && _game->getCoopMod()->getServerOwner())
+	{
+		settleSeparateMonth();
+	}
+
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && _game->getCoopMod()->_enable_time_sync == true)
+	if (_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner())
 	{
 
 		Json::Value root;
@@ -592,6 +667,7 @@ void MonthlyReportState::calculateChanges()
 		root["year"] = _game->getSavedGame()->getTime()->getYear();
 
 		root["fundingDiff"] = _fundingDiff;
+		root["globalFundingDiff"] = globalFundingDiff;
 		root["ratingTotal"] = _ratingTotal;
 		root["lastMonthsRating"] = _lastMonthsRating;
 
@@ -616,7 +692,7 @@ void MonthlyReportState::calculateChanges()
 		// state is constructed AFTER SavedGame::monthlyFunding(), so getFunds() is
 		// the settled value and getBaseMaintenance()/getCountryFunding() equal the
 		// just-ended month's expenditure/income (bases/countries unchanged since).
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			root["sharedFunds"] = Json::Value::Int64(_game->getSavedGame()->getFunds());
 			root["sharedMaintenance"] = Json::Value::Int64(_game->getSavedGame()->getBaseMaintenance());
@@ -634,12 +710,59 @@ void MonthlyReportState::calculateChanges()
 			root["sharedExpenditure"] = Json::Value::Int64(
 				hostExpenditures.empty() ? 0 : hostExpenditures.back());
 			root["sharedResearchScore"] = 0; // new month starts at 0 (matches the roll)
+			if (_game->getCoopMod()->isSeparateCampaign())
+			{
+				Json::Value playerFunds(Json::objectValue);
+				Json::Value playerCosts(Json::objectValue);
+				for (const auto& player : _game->getSavedGame()->getSeparateCampaign().getPlayers())
+				{
+					Json::Value history(Json::arrayValue);
+					for (int64_t funds : player.second.funds)
+						history.append(Json::Value::Int64(funds));
+					playerFunds[player.first] = history;
+					playerCosts[player.first] = Json::Value::Int64(
+						_game->getSavedGame()->getSeparatePlayerCosts(player.first));
+				}
+				root["separatePlayerFunds"] = playerFunds;
+				root["separatePlayerCosts"] = playerCosts;
+				root["separateDebt"] = _separateDebt;
+				root["separateWarned"] = _separateWasWarned;
+			}
 		}
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 	}
 
 
+}
+
+/**
+ * Separate host: each player's wallet gets an equal share of the performance
+ * bonus, like country funding. The campaign is in debt when the SUM of
+ * all players' funds is at or below the mod's defeat threshold; one
+ * player may stay negative while the combined total is above it.
+ */
+void MonthlyReportState::settleSeparateMonth()
+{
+	SavedGame* save = _game->getSavedGame();
+	const std::vector<std::string>& players = save->getCoopPlayers();
+	const int performanceBonus = _game->getMod()->getPerformanceBonus(_ratingTotal);
+	if (performanceBonus > 0 && !players.empty())
+	{
+		const int64_t share = performanceBonus / static_cast<int64_t>(players.size());
+		for (const std::string& playerName : players)
+		{
+			SeparateFundsScope wallet(save, playerName);
+			save->setFunds(save->getFunds() + share);
+		}
+	}
+	int64_t combined = 0;
+	for (const std::string& playerName : players)
+		combined += save->getSeparatePlayerFunds(playerName);
+	if (players.empty())
+		combined = save->getFunds();
+	_separateDebt = combined <= _game->getMod()->getDefeatFunds();
+	_separateWasWarned = save->getWarned();
 }
 
 /**

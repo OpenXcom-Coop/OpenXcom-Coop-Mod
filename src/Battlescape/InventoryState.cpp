@@ -60,9 +60,45 @@
 #include "TileEngine.h"
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
+#include "../Savegame/EquipmentLayoutItem.h"
 
 namespace OpenXcom
 {
+
+/**
+ * The equipment-layout entries a soldier's current inventory makes (what
+ * saveEquipmentLayout writes for the unit).
+ */
+static void layoutFromInventory(BattleUnit* bu, std::vector<EquipmentLayoutItem*>& out)
+{
+	// note: with using getInventory() we are skipping the ammos loaded, (they're not owned) because we handle the loaded-ammos separately (inside)
+	for (auto* bi : *bu->getInventory())
+	{
+		// skip fixed items
+		if (bi->getRules()->isFixed())
+		{
+			bool loaded = bi->needsAmmoForSlot(0) && bi->getAmmoForSlot(0);
+			if (!loaded) continue;
+		}
+		else if (!bi->getRules()->canBeEquippedToCraftInventory())
+		{
+			// skip other not-allowed items, which somehow made it here (e.g. were spawned instead of equipped)
+			continue;
+		}
+
+		out.push_back(new EquipmentLayoutItem(bi));
+	}
+}
+
+static std::string personalTemplateText(const Soldier* s)
+{
+	Soldier* soldier = const_cast<Soldier*>(s);
+	const Armor* armor = soldier->getPersonalEquipmentArmor();
+	return SharedEcon::serializeLayout(*soldier->getPersonalEquipmentLayout())
+		+ "|" + (armor ? armor->getType() : std::string());
+}
 
 static const int _templateBtnX = 288;
 static const int _createTemplateBtnY = 90;
@@ -83,7 +119,19 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 {
 	_battleGame = _game->getSavedGame()->getSavedBattle();
 
-	if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
+	if (oneWorldBaseScreen())
+	{
+		for (auto* bu : *_battleGame->getUnits())
+			if (bu->getGeoscapeSoldier())
+				_personalAtOpen[bu->getGeoscapeSoldier()] = personalTemplateText(bu->getGeoscapeSoldier());
+	}
+
+	// Separate single world: the screen never unseats anyone. The base screen
+	// already shows every craft's items at the base, and the layouts it produces
+	// reach the host as one soldier_layout command, whose applier moves the gear
+	// between the soldiers' crafts and the stores (what this unseat / re-seat
+	// pair does locally) on every machine.
+	if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft && !separateBaseScreen())
 	{
 		// deassign all soldiers
 		for (auto* soldier : *_base->getSoldiers())
@@ -385,8 +433,11 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 		}
 		
-		// coop base
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == true)
+		// coop base (the two-world craft item manifest). Separate is one host-owned
+		// world: the items on a craft belong to the base owner, a soldier's own
+		// gear is its layout, and no per-craft manifest exists, so neither block runs.
+		const bool twoWorldManifest = !_game->getCoopMod()->isSeparateCampaign();
+		if (twoWorldManifest && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == true)
 		{
 
 			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
@@ -416,7 +467,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 		}
 
 		// coop base
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == false)
+		if (twoWorldManifest && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == false)
 		{
 
 			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
@@ -923,24 +974,57 @@ void InventoryState::saveEquipmentLayout()
 		}
 
 		// save the soldier's items
-		// note: with using getInventory() we are skipping the ammos loaded, (they're not owned) because we handle the loaded-ammos separately (inside)
-		for (auto* bi : *bu->getInventory())
-		{
-			// skip fixed items
-			if (bi->getRules()->isFixed())
-			{
-				bool loaded = bi->needsAmmoForSlot(0) && bi->getAmmoForSlot(0);
-				if (!loaded) continue;
-			}
-			else if (!bi->getRules()->canBeEquippedToCraftInventory())
-			{
-				// skip other not-allowed items, which somehow made it here (e.g. were spawned instead of equipped)
-				continue;
-			}
-
-			layoutItems->push_back(new EquipmentLayoutItem(bi));
-		}
+		layoutFromInventory(bu, *layoutItems);
 	}
+}
+
+/**
+ * coop: a base inventory screen (not the battle's) in a one-world campaign, whose
+ * world the host owns.
+ */
+bool InventoryState::oneWorldBaseScreen() const
+{
+	connectionTCP* coop = _game->getCoopMod();
+	return !_tu && _base && !_parent && coop
+		&& (coop->isSharedCampaign() || coop->isSeparateCampaign());
+}
+
+bool InventoryState::separateBaseScreen() const
+{
+	return oneWorldBaseScreen() && _game->getCoopMod()->isSeparateCampaign();
+}
+
+/**
+ * coop: sends every layout (and personal template) this screen changed to the
+ * host as one soldier_layout command. A layout written only on a replica never
+ * reached the host, which builds the battle, and the next world restream wiped it.
+ */
+void InventoryState::submitOneWorldLayouts()
+{
+	Json::Value changed(Json::arrayValue);
+	for (auto* bu : *_battleGame->getUnits())
+	{
+		Soldier* s = bu->getGeoscapeSoldier();
+		if (!s) continue;
+		std::vector<EquipmentLayoutItem*> next;
+		layoutFromInventory(bu, next);
+		const std::string layout = SharedEcon::serializeLayout(next);
+		Collections::deleteAll(next);
+		const std::string personal = personalTemplateText(s);
+		auto open = _personalAtOpen.find(s);
+		const bool personalChanged = open == _personalAtOpen.end() || open->second != personal;
+		if (!personalChanged && layout == SharedEcon::serializeLayout(*s->getEquipmentLayout()))
+			continue;
+		Json::Value entry;
+		entry["soldierId"] = s->getId();
+		entry["soldierOwner"] = s->getOwnerPlayerId();
+		entry["layout"] = layout;
+		entry["personal"] = SharedEcon::serializeLayout(*s->getPersonalEquipmentLayout());
+		entry["personalArmor"] = s->getPersonalEquipmentArmor()
+			? s->getPersonalEquipmentArmor()->getType() : std::string();
+		changed.append(entry);
+	}
+	SharedEcon::submitSoldierLayouts(_game, _base, changed);
 }
 
 /**
@@ -1091,6 +1175,10 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 	{
 		_game->getSavedGame()->setGlobalEquipmentLayoutArmor(index, std::string());
 	}
+
+	// Separate: the host keeps a client's templates in its player profile
+	// (the slot's name is already set, so name and contents travel together).
+	SeparateEcon::submitLayoutTemplate(_game, index);
 }
 
 void InventoryState::loadGlobalLayout(int index)
@@ -1325,11 +1413,22 @@ void InventoryState::btnOkClick(Action*)
 
 	if (!_tu)
 	{
-		if (_base || !Options::oxceAlternateCraftEquipmentManagement)
+		if (oneWorldBaseScreen())
+		{
+			// The host owns the world: the layouts go to it as one command. Separate
+			// mutates nothing here (the applier also moves the gear); SHARED keeps
+			// its local write, which the command then makes the same everywhere.
+			submitOneWorldLayouts();
+			if (!separateBaseScreen())
+			{
+				saveEquipmentLayout();
+			}
+		}
+		else if (_base || !Options::oxceAlternateCraftEquipmentManagement)
 		{
 			saveEquipmentLayout();
 		}
-		if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft)
+		if (Options::oxceAlternateCraftEquipmentManagement && !_tu && _base && _noCraft && !separateBaseScreen())
 		{
 			// assign all soldiers back, if possible
 			for (auto* soldier : *_base->getSoldiers())
@@ -2844,7 +2943,7 @@ void InventoryState::moveCoopItemsToGround(Craft* craft, BattleUnit* unit)
 		if (!craft->getBase())
 			return;
 
-		if (craft->getBase()->_coopBase == false)
+		if (craft->getBase()->_isForeignBase == false)
 			return;
 
 		std::vector<const BattleItem*> checkedItems;
@@ -2857,7 +2956,7 @@ void InventoryState::moveCoopItemsToGround(Craft* craft, BattleUnit* unit)
 		for (const auto& coopItem : craft->getCoopItems())
 		{
 
-			if (coopItem.owner != craft->getBase()->_coopBase)
+			if (coopItem.owner != craft->getBase()->_isForeignBase)
 				continue;
 
 			for (auto &item : *_game->getSavedGame()->getSavedBattle()->getItems())

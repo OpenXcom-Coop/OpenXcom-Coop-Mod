@@ -26,6 +26,7 @@
 #include "../Mod/ArticleDefinition.h"
 #include "../Mod/Mod.h"
 #include "../Savegame/SavedGame.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -135,7 +136,8 @@ namespace OpenXcom
 		int ruleStatus = _game->getSavedGame()->getUfopediaRuleStatus(_id);
 		if (ruleStatus != ArticleDefinition::PEDIA_STATUS_HIDDEN)
 		{
-			_game->getSavedGame()->setUfopediaRuleStatus(_id, ArticleDefinition::PEDIA_STATUS_NORMAL);
+			SeparateEcon::setUfopediaRuleStatus(
+				_game, _id, ArticleDefinition::PEDIA_STATUS_NORMAL);
 		}
 	}
 

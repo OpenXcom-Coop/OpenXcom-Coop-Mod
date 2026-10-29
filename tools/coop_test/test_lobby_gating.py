@@ -95,15 +95,17 @@ def main():
         assert t0 == t1, f"BUG2: client clock advanced while waiting: {t0} -> {t1}"
         print("PASS bug2b: client clock frozen while waiting")
 
-        # host places, waits for the blob, resumes
+        # host places, waits for the client's base in its world, resumes. The
+        # single Separate world merges the client's base into the host world and
+        # keeps no client blob, so the base itself is the placement signal.
         host.wait_for("host base placement", lambda: session._has_state(host, "BuildNewBaseState"))
         r = host.cmd({"cmd": "place_first_base", "lon": 0.35, "lat": 0.85, "name": "HostBase"})
         if not r.get("ok"):
             host.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "HostBase"})
         host.wait_for(
             "all players placed",
-            lambda: host.cmd({"cmd": "has_coop_file",
-                              "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_ClientPlayer.data"}).get("present") or None,
+            lambda: next((b for b in host.cmd({"cmd": "geo_state"}).get("bases", [])
+                          if b.get("ownerPlayerName") == "ClientPlayer"), None),
             timeout=120,
         )
         host.ok({"cmd": "coop_dialog_back"})

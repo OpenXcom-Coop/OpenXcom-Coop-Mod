@@ -96,7 +96,21 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
 
         # ---- host clicks BEGIN to release both machines to the geoscape ----
         if _has(host, "CoopState"):
-            # WAIT_BASES always shows BEGIN (see CoopState::waitSatisfied).
+            # In gm3 the client world can arrive a few frames after its base-placement
+            # screen closes. Wait until the real dialog exposes BEGIN; clicking Back
+            # while it still says "Waiting..." is intentionally a no-op.
+            try:
+                host.wait_for(
+                    "all bases placed",
+                    lambda: (host.ok({"cmd": "screen_state"}).get("title")
+                             in ("All bases placed.", "All players connected")) or None,
+                    timeout=120, interval=0.5)
+            except TimeoutError as exc:
+                raise AssertionError(
+                    f"{exc}; pvp_world_state="
+                    f"{host.ok({'cmd': 'pvp_world_state'})}; "
+                    f"states={_states(host)}; "
+                    f"screen={host.ok({'cmd': 'screen_state'})}") from exc
             host.ok({"cmd": "coop_dialog_back"})
 
         # ---- both reach geoscape ----

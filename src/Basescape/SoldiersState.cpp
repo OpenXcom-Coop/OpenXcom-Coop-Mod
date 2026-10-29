@@ -252,27 +252,6 @@ SoldiersState::SoldiersState(Base *base) : _base(base), _origSoldierOrder(*_base
 	// coop: transfer the hovered soldier to another player
 	_lstSoldiers->onKeyboardPress((ActionHandler)&SoldiersState::lstSoldiersGiveUnitPress, Options::giveUnit);
 
-
-	// Coop mode: if the game is in coop and this base is not a coop base
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true && !_game->getCoopMod()->isSharedCampaign())
-	{
-		std::vector<Soldier*> coopSoldiers;
-
-		_base->base_oldsoldiers = *_base->getSoldiers();
-
-		for (auto* soldier : *_base->getSoldiers())
-		{
-			if (soldier->getCoopBase() == -1)
-			{
-				// Add all soldiers that do NOT belong to a coop base
-				coopSoldiers.push_back(soldier);
-			}
-		}
-
-		// Replace the contents of the original soldier list
-		*_base->getSoldiers() = coopSoldiers;
-	}
-
 }
 
 /**
@@ -302,6 +281,30 @@ void SoldiersState::cbxSortByChange(Action *action)
 
 	SortFunctor *compFunc = _sortFunctors[selIdx];
 	_dynGetter = NULL;
+	// A visitor never reorders another player's roster: the host owns its
+	// order. Keep the dynamic column only.
+	if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
+	{
+		if (compFunc && selIdx != 2 && selIdx != 3)
+		{
+			_dynGetter = compFunc->getGetter();
+		}
+		initList(_lstSoldiers->getScroll());
+		return;
+	}
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally: the sort runs on a copy of the player's own soldiers, the
+	// result goes to the host as soldier_order, and the list refreshes when it
+	// lands, so both machines show the same order.
+	const bool oneWorld = _game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign();
+	std::vector<Soldier*> ownOrder;
+	std::vector<Soldier*> *roster = _base->getSoldiers();
+	if (oneWorld)
+	{
+		ownOrder = SharedEcon::visibleSoldiers(_game, _base);
+		roster = &ownOrder;
+	}
+	const std::vector<Soldier*> unsorted = ownOrder;
 	if (compFunc)
 	{
 		if (selIdx != 2 && selIdx != 3)
@@ -314,7 +317,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 		{
 			if (selIdx == 2)
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+				std::stable_sort(roster->begin(), roster->end(),
 					[](const Soldier* a, const Soldier* b)
 					{
 						return Unicode::naturalCompare(a->getName(), b->getName());
@@ -323,7 +326,7 @@ void SoldiersState::cbxSortByChange(Action *action)
 			}
 			else if (selIdx == 3)
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+				std::stable_sort(roster->begin(), roster->end(),
 					[](const Soldier* a, const Soldier* b)
 					{
 						if (a->getCraft())
@@ -350,11 +353,11 @@ void SoldiersState::cbxSortByChange(Action *action)
 			}
 			else
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), *compFunc);
+				std::stable_sort(roster->begin(), roster->end(), *compFunc);
 			}
 			if (_game->isShiftPressed())
 			{
-				std::reverse(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+				std::reverse(roster->begin(), roster->end());
 			}
 		}
 	}
@@ -364,14 +367,19 @@ void SoldiersState::cbxSortByChange(Action *action)
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
 		{
-			auto soldierIt = std::find(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), origSoldier);
-			if (soldierIt != _base->getSoldiers()->end())
+			auto soldierIt = std::find(roster->begin(), roster->end(), origSoldier);
+			if (soldierIt != roster->end())
 			{
 				Soldier *s = *soldierIt;
-				_base->getSoldiers()->erase(soldierIt);
-				_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+				roster->erase(soldierIt);
+				roster->insert(roster->end(), s);
 			}
 		}
+	}
+
+	if (oneWorld && ownOrder != unsorted)
+	{
+		SharedEcon::submitSoldierOrder(_game, _base, ownOrder);
 	}
 
 	size_t originalScrollPos = _lstSoldiers->getScroll();
@@ -438,8 +446,8 @@ void SoldiersState::initList(size_t scrl)
 	{
 		_lstSoldiers->setArrowColumn(188, ARROW_VERTICAL);
 
-		// Playtest: SHARED shows only the local player's own soldiers (non-destructive:
-		// filter a LOCAL copy, never mutate the shared roster). SEPARATE/solo unchanged.
+		// Both one-world campaign types show only the local player's soldiers.
+		// Filter a local copy: the authoritative unified roster is never mutated.
 		_filteredListOfSoldiers = SharedEcon::visibleSoldiers(_game, _base);
 	}
 	else
@@ -460,6 +468,9 @@ void SoldiersState::initList(size_t scrl)
 					// soldiers outside of the base are not eligible
 					continue;
 				}
+				// One-world campaigns: only the local player's soldiers, as the
+				// soldier info view lists them.
+				if (!SharedEcon::ownsSoldier(_game, soldier)) continue;
 				if (soldier->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(soldier);
@@ -468,6 +479,7 @@ void SoldiersState::initList(size_t scrl)
 			}
 			for (auto* deadMan : *_game->getSavedGame()->getDeadSoldiers())
 			{
+				if (!SharedEcon::ownsSoldier(_game, deadMan)) continue;
 				if (deadMan->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(deadMan);
@@ -491,17 +503,6 @@ void SoldiersState::initList(size_t scrl)
 	unsigned int row = 0;
 	for (const auto* soldier : _filteredListOfSoldiers)
 	{
-
-		//  coop
-		if (soldier->getCoopBase() != -1 && _base->_coopBase == false && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-			continue;
-		}
-
-		if (soldier->getCoopBase() == -1 && _base->_coopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
-		{
-			continue;
-		}
 
 		std::string craftString = soldier->getCraftString(_game->getLanguage(), recovery);
 
@@ -565,7 +566,30 @@ void SoldiersState::lstItemsLeftArrowClick(Action *action)
 void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED does not reorder at all, and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _filteredListOfSoldiers, row, true, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollUp(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -619,7 +643,30 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
  */
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED does not reorder at all, and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _filteredListOfSoldiers, row, false, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollDown(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -648,160 +695,6 @@ void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
  */
 void SoldiersState::btnOkClick(Action *)
 {
-
-	// coop campaign
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && _game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
-	{
-
-		// save the other player's base (CLIENT only), e.g., soldiers, etc.
-		std::string filename = "basehost";
-
-		SavedGame* basehost_save = new SavedGame();
-
-		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-		// if save found
-		if (basehost_save)
-		{
-
-			for (auto& saved_base : *basehost_save->getBases())
-			{
-
-				// poista ensiksi kaikki jotka ei -1 tukikohdasta!
-				auto& soldiers = *saved_base->getSoldiers(); // Viitataan vektoriin
-
-				// Vapautetaan muistissa olevat sotilaat, joiden coopBase != -1
-				for (auto it = soldiers.begin(); it != soldiers.end(); /* ei ++it */)
-				{
-					if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
-					{
-						delete *it;              // Vapautetaan muistista sotilas
-						it = soldiers.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
-					}
-					else
-					{
-						++it; // Siirrytään seuraavaan vain jos ei poistettu
-					}
-				}
-
-				// Myös ajoneuvot
-				auto& crafts = *saved_base->getCrafts(); // Viitataan vektoriin, joka sisältää Craft*-olioita
-
-				for (auto& craft : crafts) // Jokainen craft on yksittäinen alus
-				{
-					auto& vehicles = *craft->getVehicles(); // Viitataan aluksen ajoneuvovektoriin
-
-					for (auto it = vehicles.begin(); it != vehicles.end(); /* ei ++it */)
-					{
-						if ((*it)->getCoopBase() == _base->_coop_base_id) // Tarkistetaan coopBase
-						{
-							delete *it;              // Vapautetaan muistista ajoneuvo
-							it = vehicles.erase(it); // Poistetaan osoitin vektorista ja päivitetään iteratori
-						}
-						else
-						{
-							++it; // Siirrytään seuraavaan vain jos ei poistettu
-						}
-					}
-				}
-			}
-
-			// Lisätään uudet sotilaat ensimmäisen tukikohdan sotilaslistaan
-			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
-
-			for (auto* soldier : *_base->getSoldiers())
-			{
-				if (soldier->getCraft())
-				{
-
-					soldier->setCoopCraft(soldier->getCraft()->getId());
-					soldier->setCoopCraftType(soldier->getCraft()->getType());
-				}
-				else
-				{
-					// A guest taken OFF the craft must have its persisted seat cleared
-					// too. CoopState/BasescapeState rebuild a co-op base by re-seating
-					// every guest whose CoopCraft matches a craft there, so leaving a
-					// stale id here silently puts the soldier back on the craft the
-					// moment the player leaves and re-enters the base.
-					soldier->setCoopCraft(-1);
-					soldier->setCoopCraftType("");
-				}
-
-				soldier->setCoopBase(_base->_coop_base_id);
-				soldier->setCoopName(soldier->getName());
-
-				target_soldiers.push_back(soldier);
-			}
-
-			auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
-
-			// lisätään uudet ajoneuvot
-			for (auto* craft : *_base->getCrafts())
-			{
-
-				for (auto* vehicle : *craft->getVehicles())
-				{
-
-					vehicle->setCoopBase(_base->_coop_base_id);
-					vehicle->setCoopCraft(craft->getId());
-					vehicle->setCoopCraftType(craft->getType());
-
-					target_vehicles.push_back(vehicle);
-				}
-			}
-
-			// save changes
-			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
-
-			// Fix B (Bug 1): the CoopCraft assignments above land ONLY in the
-			// "basehost" blob (the client's copy of the HOST world). The client's
-			// OWN-world blob (client_<saveID>_<host>.data) - which GeoscapeState
-			// reloads at mission end - is never touched here, so a guest's craft
-			// assignment reverts to its stale value and the soldier is unassigned
-			// from the skyranger after a battle. Mirror each guest's assignment
-			// into the own-world blob so it survives the reload.
-			std::map<std::string, std::pair<int, std::string>> guestCraftAssignments;
-			for (auto* soldier : *_base->getSoldiers())
-			{
-				Craft* assignedCraft = soldier->getCraft();
-				guestCraftAssignments[soldier->getName()] = std::make_pair(
-					assignedCraft ? assignedCraft->getId() : -1,
-					assignedCraft ? assignedCraft->getType() : std::string());
-			}
-			_game->getCoopMod()->syncOwnWorldGuestCraft(_base->_coop_base_id, guestCraftAssignments);
-		
-			// estetaan dublikaatio tallenuksen jalkeen...
-			auto& soldiers = *_base->getSoldiers();
-			for (auto it = soldiers.begin(); it != soldiers.end();)
-			{
-
-				if ((*it)->getCoopBase() == -1)
-				{
-					delete *it;              // Vapautetaan muisti
-					it = soldiers.erase(it); // Poistetaan listasta ja päivitetään iteraattori
-				}
-				else
-				{
-					++it; // Siirrytään seuraavaan elementtiin vain, jos ei poistettu
-				}
-			}
-		}
-		
-	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && !_game->getCoopMod()->isSharedCampaign())
-	{
-		// coop
-		_filteredListOfSoldiers = _base->base_oldsoldiers;
-		*_base->getSoldiers() = _base->base_oldsoldiers;
-
-		_base->base_oldsoldiers.clear();
-
-	}
-
-
 	_game->popState();
 }
 
@@ -877,7 +770,23 @@ void SoldiersState::cbxScreenActionsChange(Action *action)
 */
 void SoldiersState::btnInventoryClick(Action *)
 {
-	if (_base->getAvailableSoldiers(true, true) > 0)
+	// Separate single world: the screen shows only this player's soldiers
+	// (BattlescapeGenerator::deployXCOM), so it needs one of them to show.
+	bool canShow = _base->getAvailableSoldiers(true, true) > 0;
+	if (canShow && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+	{
+		canShow = false;
+		for (const Soldier* soldier : SharedEcon::visibleSoldiers(_game, _base))
+		{
+			if ((soldier->hasFullHealth() || soldier->canDefendBase())
+				&& (!soldier->getCraft() || soldier->getCraft()->getStatus() != "STR_OUT"))
+			{
+				canShow = true;
+				break;
+			}
+		}
+	}
+	if (canShow)
 	{
 		SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 		_game->getSavedGame()->setBattleGame(bgame);
@@ -888,55 +797,9 @@ void SoldiersState::btnInventoryClick(Action *)
 			_game->getSavedGame()->setDisableSoldierEquipment(true);
 		}
 
-		// Issue #33 (own-base variant): coop "guest" soldiers stationed at this
-		// base are stripped from the editable roster (see the SoldiersState ctor),
-		// so they are not deployed for this inventory - but their equipment-layout
-		// items still sit in this base's storage and would otherwise show up as
-		// free/available on the ground pane. Pull those reserved items out of
-		// storage while runInventory builds the ground, then put them straight
-		// back. Base-mode runInventory never mutates storage, so the real save is
-		// left untouched.
-		std::vector<const RuleItem*> hiddenReserved;
-		if (_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getCoopCampaign() && _base->_coopBase == false)
-		{
-			for (auto* guest : _base->base_oldsoldiers)
-			{
-				if (guest->getCoopBase() == -1)
-				{
-					continue; // an editable own soldier - it is deployed normally
-				}
-				for (auto* layoutItem : *guest->getEquipmentLayout())
-				{
-					const RuleItem* itemRule = layoutItem->getItemType();
-					if (itemRule)
-					{
-						hiddenReserved.push_back(itemRule);
-					}
-					for (int ammoSlot = 0; ammoSlot < RuleItem::AmmoSlotMax; ++ammoSlot)
-					{
-						const RuleItem* ammoRule = layoutItem->getAmmoItemForSlot(ammoSlot);
-						if (ammoRule)
-						{
-							hiddenReserved.push_back(ammoRule);
-						}
-					}
-				}
-			}
-			for (const RuleItem* itemRule : hiddenReserved)
-			{
-				_base->getStorageItems()->removeItem(itemRule, 1);
-			}
-		}
-
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_base);
 		bgen.runInventory(0);
-
-		// restore the reserved items pulled out above (see issue #33 note)
-		for (const RuleItem* itemRule : hiddenReserved)
-		{
-			_base->getStorageItems()->addItem(itemRule, 1);
-		}
 
 		// pre-select the soldier under the mouse cursor (if possible)
 		if (_availableOptions.empty() || _cbxScreenActions->getSelected() == 0)
@@ -986,8 +849,9 @@ void SoldiersState::lstSoldiersClick(Action *action)
 		}
 		else
 		{
-			// Playtest: the list is owner-filtered in SHARED, so the display row is NOT the
-			// base-roster index SoldierInfoState expects. Map it back to the real index.
+			// The list is owner-filtered in both one-world campaign types, so the
+			// display row is NOT the base-roster index SoldierInfoState expects. Map
+			// it back to the authoritative roster index.
 			size_t _row = _lstSoldiers->getSelectedRow();
 			int _baseIdx = (int)_row;
 			if (_row < _filteredListOfSoldiers.size())
@@ -1079,6 +943,12 @@ void SoldiersState::lstSoldiersGiveUnitPress(Action *)
 /**
  * Test automation: the soldier ids this screen actually displays.
  */
+void SoldiersState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
 std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
 {
 	std::vector<int> ids;
@@ -1087,5 +957,18 @@ std::vector<int> SoldiersState::harnessDisplayedSoldierIds() const
 	return ids;
 }
 
+bool SoldiersState::harnessSelectAction(const std::string &action)
+{
+	for (size_t i = 0; i < _availableOptions.size(); ++i)
+	{
+		if (_availableOptions[i] == action)
+		{
+			_cbxScreenActions->setSelected(i);
+			cbxScreenActionsChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
 
 }

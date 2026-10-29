@@ -159,7 +159,7 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 
 	int discoveredSum = 0;
 	// pre-calculate globally
-	for (auto* discoveredResearchRule : _game->getSavedGame()->getDiscoveredResearch())
+	for (auto* discoveredResearchRule : _game->getSavedGame()->getResearchedTopics(_game->getMod()))
 	{
 		_alreadyAvailableResearch.insert(discoveredResearchRule->getName());
 		discoveredSum += discoveredResearchRule->getCost();
@@ -174,6 +174,13 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 				_disabledResearch.insert(rr->getName());
 			}
 		}
+	}
+	if (_game->getSavedGame()->usesSeparatePrivateResearch())
+	{
+		// Topics the local player's own discoveries disabled.
+		for (const auto& name : _game->getMod()->getResearchList())
+			if (_game->getSavedGame()->isResearchRuleStatusDisabled(name))
+				_disabledResearch.insert(name);
 	}
 
 	int totalSum = 0;

@@ -62,6 +62,9 @@ public:
 	void edtSaveKeyPress(Action *action);
 	/// Save template.
 	void saveTemplate(bool includingArmor);
+	/// Test harness: pick slot @a row, type @a name and press Save (or Save
+	/// with armor), through the same body the buttons run.
+	void harnessSave(int row, const std::string& name, bool includingArmor);
 };
 
 }

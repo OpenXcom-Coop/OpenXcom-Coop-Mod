@@ -212,7 +212,7 @@ std::string SaveWorld::emit() const
 	return out;
 }
 
-std::string hostBlobKey(long long saveID, const std::string& clientName)
+std::string legacyHostBlobKey(long long saveID, const std::string& clientName)
 {
 	return "host_" + std::to_string(saveID) + "_" + clientName + ".data";
 }
@@ -233,7 +233,7 @@ std::string readFileText(const std::string& fileName)
 	return std::string((std::istreambuf_iterator<char>(*in)), std::istreambuf_iterator<char>());
 }
 
-// host_<saveID>_<name>.data -> <name>  (mirror of connectionTCP::findHostClientBlob)
+// host_<saveID>_<name>.data -> <name> (schema-2 upgrade input only)
 std::string clientNameFromKey(const std::string& key)
 {
 	const std::string prefix = "host_";
@@ -276,12 +276,13 @@ std::string joinLines(const std::vector<std::string>& v, const std::string& sep)
 	return out;
 }
 
-std::vector<const SchemaStep*> buildChain(int from)
+// The steps from schema `from` up to `target`, the schema of the save's game mode.
+std::vector<const SchemaStep*> buildChain(int from, int target)
 {
 	std::vector<const SchemaStep*> chain;
 	int cur = from;
 	// Guard against a malformed registry that could otherwise loop forever.
-	for (int guard = 0; cur < SAVE_SCHEMA_CURRENT && guard < 64; ++guard)
+	for (int guard = 0; cur < target && guard < 64; ++guard)
 	{
 		const SchemaStep* next = nullptr;
 		for (const SchemaStep* s : getSchemaSteps())
@@ -316,6 +317,27 @@ void ingestSaveSet(SaveSet& set, const DetectedSchema& d, const UpgradeInputs& i
 	case SchemaVariant::Embed:
 	{
 		ryml::ConstNodeRef body = set.host.body();
+		// Schema 2 stores every client world in a sequence.  Older schema 1
+		// embed saves used the singular key/blob pair below.
+		ryml::ConstNodeRef clients = body.find_child("coopClientSaves");
+		if (!clients.invalid() && clients.is_seq())
+		{
+			for (ryml::ConstNodeRef entry : clients.children())
+			{
+				std::string key = yamlutil::getStr(entry, "key", std::string());
+				ryml::ConstNodeRef blobNode = entry.find_child("blob");
+				if (blobNode.invalid() || !blobNode.has_val())
+					continue;
+				std::string clientStream = yamlutil::base64DecodeToString(blobNode.val());
+				if (clientStream.empty())
+					continue;
+				ClientWorld cw;
+				cw.name = clientNameFromKey(key);
+				cw.world.ingestStream(clientStream);
+				set.clients.push_back(std::move(cw));
+			}
+			break;
+		}
 		std::string key = yamlutil::getStr(body, "coopClientSaveKey", std::string());
 		ryml::ConstNodeRef blobNode = body.invalid() ? body : body.find_child("coopClientSaveBlob");
 		if (!blobNode.invalid() && blobNode.has_val())
@@ -382,7 +404,7 @@ std::string emitHostStream(SaveSet& set)
 			std::string clientStream = c.world.emit();
 			ryml::NodeRef e = seq.append_child();
 			e |= ryml::MAP;
-			yamlutil::setStr(e, "key", hostBlobKey(set.saveID, c.name));
+			yamlutil::setStr(e, "key", legacyHostBlobKey(set.saveID, c.name));
 			ryml::NodeRef blob = yamlutil::mapChild(e, "blob");
 			blob.set_val_serialized(c4::fmt::base64(ryml::csubstr(clientStream.data(), clientStream.size())));
 		}
@@ -415,15 +437,19 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			why = "host header missing coopPlayers";
 			return false;
 		}
-		if (yamlutil::getInt(header, "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
+		const long long campaignType = yamlutil::getInt(header, "coopCampaignType", -1);
+		if (campaignType != 0 && campaignType != 1)
 		{
-			why = "host header saveSchema is not current";
+			why = "host header has an invalid coopCampaignType";
 			return false;
 		}
-		// Upgraded saves are always SEPARATE (SHARED postdates every schema-1 save).
-		if (yamlutil::getInt(header, "coopCampaignType", -1) != 0)
+		const long long gamemode = yamlutil::getInt(body, "coop_gamemode", 0);
+		// Every world in the save carries its game mode's schema: 3 for a
+		// Separate campaign, 2 for SHARED and for PvP and its embedded worlds.
+		const int modeSchema = schemaForMode(true, static_cast<int>(campaignType), static_cast<int>(gamemode));
+		if (yamlutil::getInt(header, "saveSchema", 0) != modeSchema)
 		{
-			why = "host header coopCampaignType is not SEPARATE (0)";
+			why = "host header saveSchema is not the schema of its game mode";
 			return false;
 		}
 		if (yamlutil::getInt(body, "coop_save_owner_player_id", -1) != 0)
@@ -437,6 +463,29 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			return false;
 		}
 		ryml::ConstNodeRef seq = body.find_child("coopClientSaves");
+		const bool separateWorld = campaignType == 0 && gamemode != 2 && gamemode != 3;
+		if (separateWorld && !seq.invalid() && seq.num_children() != 0)
+		{
+			why = "schema-3 SEPARATE save still contains client-world blobs";
+			return false;
+		}
+		if (separateWorld)
+		{
+			ryml::ConstNodeRef bases = body.find_child("bases");
+			if (bases.invalid() || !bases.is_seq() || bases.num_children() == 0)
+			{
+				why = "unified SEPARATE save has an invalid base count";
+				return false;
+			}
+			for (ryml::ConstNodeRef base : bases.children())
+			{
+				if (yamlutil::getStr(base, "ownerplayername", std::string()).empty())
+				{
+					why = "unified SEPARATE base is missing ownerplayername";
+					return false;
+				}
+			}
+		}
 		if (!seq.invalid())
 		{
 			for (ryml::ConstNodeRef e : seq.children())
@@ -456,9 +505,9 @@ bool postflightVerify(const std::string& stream, std::string& why)
 				}
 				auto cht = yamlutil::parseMap(ch);
 				auto cbt = yamlutil::parseMap(cb);
-				if (yamlutil::getInt(cht->crootref(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
+				if (yamlutil::getInt(cht->crootref(), "saveSchema", 0) != modeSchema)
 				{
-					why = "client header saveSchema is not current";
+					why = "client header saveSchema is not the schema of its game mode";
 					return false;
 				}
 				if (yamlutil::getInt(cht->crootref(), "coopCampaignType", -1) != 0)
@@ -619,6 +668,12 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 												 const std::string& masterUserFolder)
 {
 	DetectedSchema d;
+	d.gamemode = body["coop_gamemode"].readVal<int>(0);
+	// The schema an upgrade of this save ends at. Only a co-op save is ever
+	// upgraded (every Legacy kind below is co-op by its own signal), so the
+	// target is the co-op mode's schema: 3 for a Separate campaign, 2 for
+	// SHARED and PvP.
+	d.target = schemaForMode(true, header["coopCampaignType"].readVal<int>(0), d.gamemode);
 
 	// Detector v2.3 (PRD 3.1): a save is CO-OP iff a POSITIVE signal holds. There is
 	// no ambiguous/weak tier and no bare coop_gamemode/saveID rule - the fork build
@@ -643,16 +698,70 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			return d;
 		}
 		stampedOld = true; // s < CURRENT: an older stamped schema, resolve variant below
+		// PvP (game mode 2/3) keeps one world per player. Schema 2 is the
+		// current PvP layout, coopClientSaves included, and 2->3 only unifies
+		// the cooperative Separate campaign. Load it as it is.
+		const int gamemode = body["coop_gamemode"].readVal<int>(0);
+		if (s == 2 && (gamemode == 2 || gamemode == 3))
+		{
+			d.kind = DetectedSchema::Current;
+			return d;
+		}
+		// SHARED already is one world and is still written at schema 2. A
+		// schema-2 SHARED save loads straight to the host window, so it must
+		// not stop at the upgrade dialog.
+		if (s == 2 && header["coopCampaignType"].readVal<int>(0) == 1)
+		{
+			d.kind = DetectedSchema::Current;
+			return d;
+		}
+		// Solo games are written at schema 2 by this build and the previous
+		// release alike, and every stamped co-op save carries coop:true. A
+		// schema-2 save without it is a solo game and loads as it is.
+		if (s == 2 && !header["coop"].readVal(false))
+		{
+			d.kind = DetectedSchema::Solo;
+			return d;
+		}
 	}
-	// 2. Unstamped host-authoritative save: current, re-stamped on next save.
-	else if (header["coop"].readVal(false))
+	// 2. Schema-2 embedded-world save. This intermediate Separate format already
+	// has coop:true and a locked roster, but still stores each client world in the
+	// coopClientSaves sequence. Some builds stamped these saves as schema 2 while
+	// others left them unstamped, so the sequence itself is authoritative for this
+	// variant. Detect it before both the strong-marker legacy scan and the generic
+	// unstamped host-authoritative rule; otherwise a stamped save can be mistaken
+	// for a schema-1 dual save and incorrectly request a separate client file.
+	YAML::YamlNodeReader embeddedWorlds = body["coopClientSaves"];
+	if (embeddedWorlds && embeddedWorlds.isSeq())
+	{
+		for (const YAML::YamlNodeReader& entry : embeddedWorlds.children())
+		{
+			if (entry["blob"])
+			{
+				d.schema = 2;
+				// PvP still keeps one embedded world per player at schema 2:
+				// that is its own layout, so there is nothing to upgrade.
+				if (d.schema >= d.target)
+				{
+					d.kind = DetectedSchema::Current;
+					return d;
+				}
+				d.kind = DetectedSchema::Legacy;
+				d.variant = SchemaVariant::Embed;
+				return d;
+			}
+		}
+	}
+
+	// 3. Unstamped host-authoritative save: current, re-stamped on next save.
+	if (!schemaNode && header["coop"].readVal(false))
 	{
 		d.kind = DetectedSchema::Current;
 		d.schema = SAVE_SCHEMA_CURRENT;
 		return d;
 	}
 
-	// 3. Legacy embed: the client world is base64-embedded in the host body. Key on
+	// 4. Legacy embed: the client world is base64-embedded in the host body. Key on
 	//    the BLOB (the actual world ingest decodes), not coopClientSaveKey (the name
 	//    label): a save with a stray key but no blob has no recoverable client world,
 	//    so it must NOT be classified Embed (that dead-ended in a client-name prompt
@@ -666,7 +775,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 4. Legacy sidecar: a non-zero saveID WITH a matching host_<saveID>_*.data file
+	// 5. Legacy sidecar: a non-zero saveID WITH a matching host_<saveID>_*.data file
 	//    on disk. saveID alone (no sidecar) is NOT a co-op signal - it is only the
 	//    input to this lookup.
 	long long saveID = 0;
@@ -679,7 +788,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 5. A genuine coop-only, non-default per-object link anywhere in the body -> a
+	// 6. A genuine coop-only, non-default per-object link anywhere in the body -> a
 	//    real legacy co-op campaign (the case the fork's silent-solo trap missed).
 	if (scanReaderForStrongMarker(body, 0))
 	{
@@ -689,19 +798,32 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		return d;
 	}
 
-	// 6. A stamped older-schema save with no recognizable variant. Currently
+	// 7. A stamped older-schema save with no recognizable variant. Currently
 	//    UNREACHABLE: no build ever stamped a schema < CURRENT. Kept for the
 	//    framework's sake. NOTE: when a future schema step affects solo saves, this
 	//    branch must NOT force the dual client-picker onto a solo save - route
 	//    stamped-older solo saves to a silent/generic upgrade instead.
 	if (stampedOld)
 	{
+		// Every save carries the schema stamp, including solo campaigns.  A
+		// schema-2 solo save needs no co-op world merge and must never be routed
+		// to the client-file picker merely because CURRENT advanced to 3.
+		if (!header["coop"].readVal(false))
+		{
+			d.kind = DetectedSchema::Solo;
+			d.schema = SAVE_SCHEMA_CURRENT;
+			d.variant = SchemaVariant::None;
+			return d;
+		}
 		d.kind = DetectedSchema::Legacy;
-		d.variant = SchemaVariant::Dual;
+		// Schema 2 is already host-authoritative: its client worlds are embedded
+		// when SEPARATE and intentionally absent when SHARED. It never needs the
+		// legacy dual-file/name prompts; 2->3 validates a missing required embed.
+		d.variant = SchemaVariant::Embed;
 		return d;
 	}
 
-	// 7. No co-op trace at all: an ordinary solo save (gains the stamp on next save).
+	// 8. No co-op trace at all: an ordinary solo save (gains the stamp on next save).
 	d.kind = DetectedSchema::Solo;
 	d.schema = SAVE_SCHEMA_CURRENT;
 	return d;
@@ -738,6 +860,7 @@ const std::vector<const SchemaStep*>& getSchemaSteps()
 {
 	static const std::vector<const SchemaStep*> steps = {
 		step_1_to_2(),
+		step_2_to_3(),
 	};
 	return steps;
 }
@@ -777,7 +900,7 @@ std::vector<InputRequest> UpgradeRunner::requiredInputs()
 	SaveSet probe;
 	probe.schema = d.schema;
 	probe.variant = d.variant;
-	for (const SchemaStep* step : buildChain(d.schema))
+	for (const SchemaStep* step : buildChain(d.schema, d.target))
 	{
 		std::vector<InputRequest> si = step->requiredInputs(probe);
 		reqs.insert(reqs.end(), si.begin(), si.end());
@@ -803,8 +926,8 @@ PreflightResult UpgradeRunner::preflight(const UpgradeInputs& in)
 	if (!d.needsUpgrade())
 		return r; // current / solo: nothing to do
 
-	std::vector<const SchemaStep*> chain = buildChain(d.schema);
-	if (chain.empty() || chain.back()->toSchema() != SAVE_SCHEMA_CURRENT)
+	std::vector<const SchemaStep*> chain = buildChain(d.schema, d.target);
+	if (chain.empty() || chain.back()->toSchema() != d.target)
 	{
 		r.errors.push_back("This build cannot upgrade schema " + std::to_string(d.schema) + ".");
 		return r;
@@ -839,8 +962,8 @@ ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 		res.errorMessage = "Save does not need upgrading.";
 		return res;
 	}
-	std::vector<const SchemaStep*> chain = buildChain(d.schema);
-	if (chain.empty() || chain.back()->toSchema() != SAVE_SCHEMA_CURRENT)
+	std::vector<const SchemaStep*> chain = buildChain(d.schema, d.target);
+	if (chain.empty() || chain.back()->toSchema() != d.target)
 	{
 		res.errorMessage = "This build cannot upgrade schema " + std::to_string(d.schema) + ".";
 		return res;
@@ -1002,7 +1125,7 @@ bool runSelfTest(std::vector<std::string>& log)
 			set.clients.push_back(std::move(cw));
 		}
 		UpgradeInputs in;
-		in.hostName = "";
+		in.hostName = "Host";
 		in.clientName = "Bob";
 		step_1_to_2()->apply(set, in);
 
@@ -1011,9 +1134,9 @@ bool runSelfTest(std::vector<std::string>& log)
 			log.push_back("FAIL: host header coop not set");
 			return false;
 		}
-		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
+		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != 2)
 		{
-			log.push_back("FAIL: host header saveSchema not current");
+			log.push_back("FAIL: 1->2 did not stamp schema 2");
 			return false;
 		}
 		if (yamlutil::getInt(set.host.body(), "coop_save_owner_player_id", -1) != 0)
@@ -1026,9 +1149,9 @@ bool runSelfTest(std::vector<std::string>& log)
 			log.push_back("FAIL: coopClientSaveKey not removed");
 			return false;
 		}
-		if (set.roster.size() != 2 || set.roster[0] != "" || set.roster[1] != "Bob")
+		if (set.roster.size() != 2 || set.roster[0] != "Host" || set.roster[1] != "Bob")
 		{
-			log.push_back("FAIL: roster not [\"\", \"Bob\"]");
+			log.push_back("FAIL: roster not [\"Host\", \"Bob\"]");
 			return false;
 		}
 		if (set.saveID < 10000000000000LL)
@@ -1058,7 +1181,25 @@ bool runSelfTest(std::vector<std::string>& log)
 		}
 		log.push_back("OK: 1->2 transform tagged host/client and minted identity");
 
-		// 3. Emit + post-flight verify (blob round-trips, detector reports current).
+		// 3. Merge the schema-2 client world into the authoritative host world.
+		step_2_to_3()->apply(set, in);
+		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT
+			|| !set.clients.empty())
+		{
+			log.push_back("FAIL: 2->3 did not stamp current schema and remove client worlds");
+			return false;
+		}
+		ryml::ConstNodeRef mergedBases = set.host.body().find_child("bases");
+		if (mergedBases.invalid() || mergedBases.num_children() != 2
+			|| yamlutil::getStr(mergedBases.child(0), "ownerplayername", "") != "Host"
+			|| yamlutil::getStr(mergedBases.child(1), "ownerplayername", "") != "Bob")
+		{
+			log.push_back("FAIL: 2->3 did not merge owner-tagged bases");
+			return false;
+		}
+		log.push_back("OK: 2->3 merged client base into the host world");
+
+		// 4. Emit + post-flight verify (no blobs, detector reports current).
 		std::string emitted = emitHostStream(set);
 		std::string why;
 		if (!postflightVerify(emitted, why))

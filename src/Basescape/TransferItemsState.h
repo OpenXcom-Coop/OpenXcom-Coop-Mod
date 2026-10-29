@@ -105,6 +105,9 @@ public:
 	/// Test-harness hook (PRD-J05): set the transfer amount for ITEM <itemType> to
 	/// <count> then submit the SHARED transfer. Returns false if no matching row.
 	bool harnessTransferItem(const std::string& itemType, int count);
+	/// Test-harness hook: transfer the craft with id <craftId> through the same
+	/// shared/Separate submission path. Returns false if no matching row.
+	bool harnessTransferCraft(int craftId);
 	/// Programmatic single-soldier transfer (test-harness hook): sets that
 	/// soldier's row amount to 1 and completes the transfer. Returns false if
 	/// the soldier is not a transferable row.

@@ -8,12 +8,14 @@ open that soldier's inventory and it showed the client as the owner, with every
 inventory action blocked. The report came from a resumed mid-battle save.
 
 A unit's `coop` value counts from the battle host (0 = the battle host's soldiers,
-isSelectable / InventoryState), and the client is the battle host of a mission its
-own craft started. The parallel-turns code compared `coop` with the session seat
-(host 0, client 1) instead, so in a client-started battle it handed the client's
-soldiers to the host and made the client a spectator.
+isSelectable / InventoryState). The Separate campaign is one world the host owns,
+so the host runs every battle, including one the client's craft started. There the
+client's soldiers carry coop 1 and the host commands no soldier of its own: it
+spectates while it still runs the battle, and it must not be able to select or
+move the client's soldiers.
 
-Rows (each a fresh SEPARATE campaign with parallel turns on, one craft lands):
+Rows (each a fresh SEPARATE campaign with parallel turns on, one craft lands; the
+host spawns the mission site and the lander's own craft flies to it):
   S1 the CLIENT's craft lands. Live battle checks.
   R1 continues S1: the host saves mid-battle, both games restart, the pair resumes
      the battle, and the same checks run again.
@@ -51,6 +53,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
 import session  # noqa: E402
 import geo  # noqa: E402
+import separate_campaign_fixture  # noqa: E402
 import test_coop_client_mission_abort as CAB  # noqa: E402
 import test_parallel_intents as PI  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
@@ -169,8 +172,9 @@ def check_split(owner, other, phase, errs):
     if x["selectable"]:
         fail("%s (other) can select %s, which are %s's" % (other.name, x["selectable"], owner.name))
 
-    # 3. the end-turn tally, decided on the owner (the battle host): the other's
-    #    seat has no soldiers, so it is auto-ready and the owner's is not
+    # 3. the end-turn tally as the owner sees it (the battle host's own tally, or
+    #    its echo): the other's seat has no soldiers, so it is auto-ready and the
+    #    owner's is not
     if o["autoSeats"] != [other_seat]:
         fail("%s autoSeats=%s, want [%s] (only %s's seat has no soldiers)"
              % (owner.name, o["autoSeats"], other_seat, other.name))
@@ -211,17 +215,11 @@ def check_split(owner, other, phase, errs):
 
 
 def land(host, client, lander):
-    """Fly the lander's first transport to a fresh site and start the coop mission."""
-    other = host if lander is client else client
-    b = CAB.base0(lander)
-    site = lander.ok({"cmd": "spawn_mission_site", "mission": SITE[0], "deployment": SITE[1],
-                      "lon": b["lon"] + 0.35, "lat": b["lat"] + 0.10, "race": SITE[2],
-                      "hours": 240})["site_id"]
-    cid = CAB.transport(lander)["id"]
-    lander.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
-               "lon": b["lon"] + 0.34, "lat": b["lat"] + 0.10, "dest": f"site:{site}",
-               "fuel": 999999, "lowFuel": False})
-    CAB.wait_landing_prompt(lander, other)
+    """Fly the lander's first transport to a fresh site and start the coop mission.
+    The host owns the one Separate world, so the host spawns the site next to the
+    lander's base and both machines put the lander's craft en route; the landing
+    prompt then opens on the lander, the craft's owner, who answers it."""
+    separate_campaign_fixture.fly_to_new_site(host, client, lander, CAB.CRAFT, site=SITE)
     for gc in (host, client):
         gc.ok({"cmd": "set_seed", "seed": SEED})
     lander.ok({"cmd": "coop_mission_start"})

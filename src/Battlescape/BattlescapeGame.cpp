@@ -1639,7 +1639,7 @@ int BattlescapeGame::think()
 				{
 					if (_save->selectNextPlayerUnit(true, _AISecondMove) == 0)
 					{
-						if (!_save->getDebugMode())
+						if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 						{
 							_endTurnRequested = true;
 							statePushBack(0); // end AI turn
@@ -1769,7 +1769,7 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 	{
 		if (_save->selectNextPlayerUnit(true, _AISecondMove) == 0)
 		{
-			if (!_save->getDebugMode())
+			if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 			{
 				_endTurnRequested = true;
 				statePushBack(0); // end AI turn
@@ -1913,7 +1913,7 @@ void BattlescapeGame::handleAI(BattleUnit* unit)
 		_AIActionCounter = 0;
 		if (_save->selectNextPlayerUnit(true, _AISecondMove) == 0)
 		{
-			if (!_save->getDebugMode())
+			if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 			{
 				_endTurnRequested = true;
 				statePushBack(0); // end AI turn
@@ -2832,7 +2832,10 @@ void BattlescapeGame::executeAction(BattleAction &action, bool calculatePath)
  */
 bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &kind)
 {
-	if (!connectionTCP::parallelTurnActive())
+	// Deployment previews are local sandboxes. In particular, a parallel-turn
+	// client must execute preview movement locally instead of sending an intent
+	// to the host's real battle arbiter (which correctly rejects it as turn_over).
+	if (_save->isPreview() || !connectionTCP::parallelTurnActive())
 	{
 		return false;
 	}
@@ -2846,6 +2849,19 @@ bool BattlescapeGame::coopRouteAction(BattleAction &action, const std::string &k
 
 	// The host executes, but through the same admission gate a client intent
 	// meets - otherwise the two players would be held to different rules.
+	// Ownership first, as coopValidateIntent checks it for a client: a soldier
+	// another seat commands is refused with the same warning. The host is the
+	// battle host of every Separate battle, so it spectates one the client's
+	// craft started and must not move the client's soldiers. The refusal is
+	// remembered where a client keeps the last refusal it was sent.
+	if (action.actor && action.actor->getFaction() == FACTION_PLAYER
+		&& connectionTCP::unitSeat(action.actor) != connectionTCP::localSeat())
+	{
+		connectionTCP::_clientLastDenyReason = "invalid";
+		connectionTCP::_clientLastDenyWarning = "STR_COOP_NOT_YOUR_SOLDIER";
+		getCoopMod()->flashBattleWarning("STR_COOP_NOT_YOUR_SOLDIER");
+		return true;
+	}
 	if (!connectionTCP::canAdmitAction())
 	{
 		// coop (PRD-P7): a chain that is nothing but locomotion is not worth making
@@ -3705,7 +3721,7 @@ void BattlescapeGame::popState()
 					_AIActionCounter = 0;
 					if (_states.empty() && _save->selectNextPlayerUnit(true) == 0)
 					{
-						if (!_save->getDebugMode())
+						if (!_save->getDebugMode() || getCoopMod()->getCoopStatic())
 						{
 							_endTurnRequested = true;
 							statePushBack(0); // end AI turn

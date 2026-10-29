@@ -72,7 +72,7 @@ ConfirmDestinationState::ConfirmDestinationState(std::vector<Craft*> crafts, Tar
 		// PRD-J08 SHARED: airborne craft transfer mutates two bases directly and
 		// is not one of the J08 craft-order commands - hide it (the base
 		// Transfer screen, which rides the J05 "transfer" command, covers it).
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			transferAvailable = false;
 		}
@@ -370,7 +370,7 @@ void ConfirmDestinationState::btnOkClick(Action *)
 	// applies orders in arrival order (last-command-wins). A fresh waypoint
 	// (id 0) travels as a lon/lat "point"; the applier creates the shared
 	// waypoint on host + replicas so the id counter stays in lock-step.
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		Waypoint* wj = dynamic_cast<Waypoint*>(_target);
 		for (auto* craft : _crafts)

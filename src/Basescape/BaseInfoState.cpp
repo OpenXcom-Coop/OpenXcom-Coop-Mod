@@ -31,6 +31,7 @@
 #include "MiniBaseView.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
+#include "../CoopMod/connectionTCP.h"
 #include "MonthlyCostsState.h"
 #include "TransfersState.h"
 #include "StoresState.h"
@@ -270,19 +271,27 @@ void BaseInfoState::init()
 	State::init();
 	_edtBase->setText(_base->getName());
 
+	// Vanilla reserves incoming soldiers immediately, so getTotalSoldiers()
+	// includes TRANSFER_SOLDIER. In Separate this screen describes who is
+	// physically in the selected base now; keep the reservation in Used Quarters
+	// but do not present an in-transit soldier as an extra roster member.
+	const int displayedSoldiers = connectionTCP::isSeparateCampaignStatic()
+		? static_cast<int>(_base->getSoldiers()->size())
+		: _base->getTotalSoldiers();
 	std::ostringstream ss;
-	ss << _base->getAvailableSoldiers() << ":" << _base->getTotalSoldiers();
+	ss << _base->getAvailableSoldiers() << ":" << displayedSoldiers;
 	_numSoldiers->setText(ss.str());
 
-	if (!Options::oxceBaseInfoScaleEnabled || _base->getTotalSoldiers() * _barSoldiers->getScale() < MAX_BAR_WIDTH)
+	if (!Options::oxceBaseInfoScaleEnabled || displayedSoldiers * _barSoldiers->getScale() < MAX_BAR_WIDTH)
 	{
-		_barSoldiers->setMax(_base->getTotalSoldiers());
+		_barSoldiers->setMax(displayedSoldiers);
 		_barSoldiers->setValue(_base->getAvailableSoldiers());
 	}
 	else
 	{
 		_barSoldiers->setMax(MAX_BAR_WIDTH);
-		_barSoldiers->setValue(_base->getAvailableSoldiers() * MAX_BAR_WIDTH / _base->getTotalSoldiers());
+		_barSoldiers->setValue(displayedSoldiers > 0
+			? _base->getAvailableSoldiers() * MAX_BAR_WIDTH / displayedSoldiers : 0);
 	}
 
 	std::ostringstream ss2;
@@ -470,14 +479,20 @@ void BaseInfoState::handleKeyPress(Action *action)
 			Options::keyBaseSelect8
 		};
 		int key = action->getDetails()->key.keysym.sym;
-		for (size_t i = 0; i < _game->getSavedGame()->getBases()->size(); ++i)
+		// Hotkey N selects the base in mini-strip slot N (8 keys; a migrated save
+		// can hold more than 8 bases, so never index past them).
+		for (size_t i = 0; i < sizeof(baseKeys) / sizeof(baseKeys[0]); ++i)
 		{
 			if (key == baseKeys[i])
 			{
-				_mini->setSelectedBase(i);
-				_base = _game->getSavedGame()->getBases()->at(i);
-				_state->setBase(_base);
-				init();
+				const size_t base = _mini->getBaseAtSlot(i);
+				if (base < _game->getSavedGame()->getBases()->size())
+				{
+					_mini->setSelectedBase(base);
+					_base = _game->getSavedGame()->getBases()->at(base);
+					_state->setBase(_base);
+					init();
+				}
 				break;
 			}
 		}

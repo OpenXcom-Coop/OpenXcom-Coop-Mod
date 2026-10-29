@@ -18,6 +18,7 @@
  */
 
 #include "Ufopaedia.h"
+#include <algorithm>
 #include "UfopaediaStartState.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Base.h"
@@ -183,6 +184,36 @@ namespace OpenXcom
 		{
 			game->pushState(createArticleState(std::move(state)));
 		}
+	}
+
+	bool Ufopaedia::openReplicatedEventArticle(Game *game, const std::string &article_id)
+	{
+		if (!game || article_id.empty()) return false;
+		auto state = createCommonArticleState(game->getSavedGame(), game->getMod());
+		state->current_index = getArticleIndex(state->articleList, article_id);
+		if (state->current_index == ArticleCommonState::invalid)
+		{
+			ArticleDefinition* article = game->getMod()->getUfopaediaArticle(article_id, false);
+			if (!article)
+				article = game->getMod()->getUfopaediaArticle(article_id + "_UC", false);
+			if (!article)
+				for (const auto& id : game->getMod()->getUfopaediaList())
+				{
+					ArticleDefinition* candidate = game->getMod()->getUfopaediaArticle(id, false);
+					if (candidate && std::find(candidate->_requires.begin(), candidate->_requires.end(), article_id)
+						!= candidate->_requires.end())
+					{
+						article = candidate;
+						break;
+					}
+				}
+			if (!article) return false;
+			state->articleList.push_back(article);
+			state->articleStatusList.push_back(false);
+			state->current_index = state->articleList.size() - 1;
+		}
+		game->pushState(createArticleState(std::move(state)));
+		return true;
 	}
 
 	/**

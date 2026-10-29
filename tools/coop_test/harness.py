@@ -13,9 +13,11 @@ import errno
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import time
+import re
 
 if os.name == "nt":
     import msvcrt
@@ -161,6 +163,7 @@ class GameClient:
         self.proc = None
         self.sock = None
         self.buf = b""
+        self._request_id = 0
 
     @property
     def _port_file(self):
@@ -270,14 +273,25 @@ class GameClient:
         raise TimeoutError(f"{self.name}: test server not reachable on :{self.port}")
 
     def _send(self, obj):
-        self.sock.sendall((json.dumps(obj) + "\n").encode())
-        while b"\n" not in self.buf:
-            chunk = self.sock.recv(65536)
-            if not chunk:
-                raise ConnectionError(f"{self.name}: socket closed")
-            self.buf += chunk
-        line, self.buf = self.buf.split(b"\n", 1)
-        return json.loads(line)
+        self._request_id += 1
+        request_id = self._request_id
+        request = dict(obj)
+        request["_requestId"] = request_id
+        self.sock.sendall((json.dumps(request) + "\n").encode())
+        while True:
+            while b"\n" not in self.buf:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    raise ConnectionError(f"{self.name}: socket closed")
+                self.buf += chunk
+            line, self.buf = self.buf.split(b"\n", 1)
+            response = json.loads(line)
+            response_id = response.get("_requestId")
+            # Backward compatibility with an executable built before request
+            # correlation was added. Once rebuilt, only the exact matching
+            # response can satisfy this command.
+            if response_id is None or response_id == request_id:
+                return response
 
     def cmd(self, obj):
         # Ephemeral coop ports (see the module header). A coop HOST command is
@@ -314,6 +328,32 @@ class GameClient:
             raise RuntimeError(f"{self.name}: {obj.get('cmd')} failed: {r.get('error')}")
         return r
 
+    def cmd_together(self, *objs):
+        """Send several plain commands in ONE socket write, so the TestServer
+        runs them in the same frame: nothing the game receives can be applied
+        between them (a command sent on a stale view). Returns the responses in
+        request order. No coop host/join port rewriting."""
+        ids, lines = [], b""
+        for obj in objs:
+            self._request_id += 1
+            request = dict(obj)
+            request["_requestId"] = self._request_id
+            ids.append(self._request_id)
+            lines += (json.dumps(request) + "\n").encode()
+        self.sock.sendall(lines)
+        got = {}
+        while len(got) < len(ids):
+            while b"\n" not in self.buf:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    raise ConnectionError(f"{self.name}: socket closed")
+                self.buf += chunk
+            line, self.buf = self.buf.split(b"\n", 1)
+            response = json.loads(line)
+            if response.get("_requestId") in ids:
+                got[response["_requestId"]] = response
+        return [got[i] for i in ids]
+
     def wait_for(self, desc, predicate, timeout=90, interval=1.0):
         deadline = time.time() + timeout
         last = None
@@ -335,6 +375,102 @@ class GameClient:
                 self.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+
+
+def _is_link(entry):
+    """A symlink or a Windows junction (any reparse point), without following it."""
+    if entry.is_symlink():
+        return True
+    try:
+        attrs = entry.stat(follow_symlinks=False).st_file_attributes
+    except (OSError, AttributeError):
+        return False
+    return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def remove_links(root):
+    """Unlink every symlink/junction under root WITHOUT descending into it.
+
+    make_user_dir junctions mod folders (40K/ROSIGMA and the generated test mods)
+    straight to their sources. Python 3.8+ shutil.rmtree already removes a
+    junction without following it, but any other recursive delete (an older
+    Python, PowerShell 5.1 Remove-Item -Recurse, a manual cleanup) can follow one
+    into the real install. Taking the links out first makes every later
+    recursive delete of the user dir safe."""
+    if not os.path.isdir(root):
+        return
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        try:
+            entries = list(os.scandir(current))
+        except OSError:
+            continue
+        for entry in entries:
+            if _is_link(entry):
+                try:
+                    os.unlink(entry.path)
+                except OSError:
+                    os.rmdir(entry.path)  # a directory junction on some Pythons
+            elif entry.is_dir(follow_symlinks=False):
+                stack.append(entry.path)
+
+
+def _unlink_keeping_attributes(path):
+    """Delete one directory entry of a read-only file without changing the file.
+
+    A hard link shares the read-only attribute with every other name of the same
+    file, so clearing it to delete the user dir's link would also clear it on the
+    real mod file. Windows 10 1809+ can delete a read-only entry as is
+    (FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE); only this name goes."""
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.HANDLE)
+    kernel32.SetFileInformationByHandle.restype = wintypes.BOOL
+    kernel32.SetFileInformationByHandle.argtypes = (wintypes.HANDLE, ctypes.c_int,
+                                                    wintypes.LPVOID, wintypes.DWORD)
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    delete_access, share_all, open_existing = 0x00010000, 0x7, 3
+    open_reparse_point = 0x00200000
+    file_disposition_info_ex = 21
+    # DELETE | POSIX_SEMANTICS | IGNORE_READONLY_ATTRIBUTE
+    flags = wintypes.DWORD(0x1 | 0x2 | 0x10)
+    handle = kernel32.CreateFileW(path, delete_access, share_all, None,
+                                  open_existing, open_reparse_point, None)
+    if handle in (None, wintypes.HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not kernel32.SetFileInformationByHandle(handle, file_disposition_info_ex,
+                                                   ctypes.byref(flags),
+                                                   ctypes.sizeof(flags)):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _remove_readonly(func, path, exc_info):
+    """shutil.rmtree onerror: remove a read-only entry of the harness's own tree.
+
+    Some large Windows mods contain read-only files. A previous run may have
+    staged them as hard links, which share the read-only attribute with the real
+    mod file: such an entry is deleted without touching its attributes. Only an
+    entry with no other name (a copy or a directory the harness made) is made
+    writable first."""
+    try:
+        st = os.lstat(path)
+        if stat.S_ISDIR(st.st_mode) or st.st_nlink <= 1:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        elif os.name == "nt":
+            _unlink_keeping_attributes(path)
+        else:
+            raise exc_info[1]
+    except OSError:
+        raise exc_info[1]
 
 
 def make_user_dir(name, saves=(), mods=(), options=None):
@@ -362,7 +498,8 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     name = "s%d_%s" % (HARNESS_SLOT, name)
     d = os.path.join(TEST_ROOT, name)
     if os.path.exists(d):
-        shutil.rmtree(d)
+        remove_links(d)
+        shutil.rmtree(d, onerror=_remove_readonly)
     os.makedirs(os.path.join(d, "xcom1"))
     # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
     # joined list of paths - to mod folder(s) appended to EVERY instance's mod set,
@@ -375,8 +512,45 @@ def make_user_dir(name, saves=(), mods=(), options=None):
         mods = list(mods) + [p for p in env_mod.split(os.pathsep) if p]
     extra = ""
     for src in mods:
-        mod_id = os.path.basename(os.path.normpath(src))
-        shutil.copytree(src, os.path.join(d, "mods", mod_id))
+        folder_id = os.path.basename(os.path.normpath(src))
+        mod_id = folder_id
+        metadata = os.path.join(src, "metadata.yml")
+        if os.path.isfile(metadata):
+            with open(metadata, encoding="utf-8", errors="replace") as meta:
+                for line in meta:
+                    match = re.match(r"^\s*id:\s*[\"']?([^\"'#\s]+)", line)
+                    if match:
+                        mod_id = match.group(1)
+                        break
+        destination = os.path.join(d, "mods", folder_id)
+        # Large total conversions (40K/ROSIGMA) are several gigabytes and are
+        # read-only to the game. On Windows, expose the original directory via a
+        # junction: unlike thousands of per-file hardlinks this cannot hit NTFS
+        # link-count or TEMP quota limits after many test sessions.
+        junction_created = False
+        if os.name == "nt":
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            result = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", destination,
+                 os.path.abspath(src)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                check=False)
+            junction_created = result.returncode == 0
+
+        # Non-Windows and unusual Windows filesystems retain the old hardlink
+        # staging, falling back to copies only when a particular link fails. A
+        # read-only file is copied: a hard link would share its attributes with
+        # the real mod file, and removing the user dir has to clear them.
+        def link_or_copy(source, destination):
+            try:
+                if not os.stat(source).st_mode & stat.S_IWRITE:
+                    return shutil.copy2(source, destination)
+                os.link(source, destination)
+                return destination
+            except OSError:
+                return shutil.copy2(source, destination)
+        if not junction_created:
+            shutil.copytree(src, destination, copy_function=link_or_copy)
         extra += "  - active: true\n    id: " + mod_id + "\n"
     opts = HERMETIC_OPTIONS
     if extra:

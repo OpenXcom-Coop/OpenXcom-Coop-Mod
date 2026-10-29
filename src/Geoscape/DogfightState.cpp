@@ -54,6 +54,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Mod/Mod.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -249,15 +250,15 @@ DogfightState::DogfightState(GeoscapeState *state, Craft *craft, Ufo *ufo, bool 
 	_minimized(false), _endDogfight(false), _animatingHit(false), _waitForPoly(false), _waitForAltitude(false), _ufoSize(0), _ufoBlobSize(0),
 	_craftHeight(0), _currentCraftDamageColor(0),
 	_interceptionNumber(0), _interceptionsCount(0), _x(0), _y(0), _minimizedIconX(0), _minimizedIconY(0), _firedAtLeastOnce(false), _experienceAwarded(false),
-	_delayedRecolorDone(false), _isReplicaView(false), _ufoStance(0)
+	_delayedRecolorDone(false), _isReplicaView(false), _locallyVisible(true), _ufoStance(0)
 {
 	_screen = false;
 	// PRD-DF01: on a SHARED replica this window renders a host-simulated fight from
 	// the df_state stream and never runs the sim body (see update()). The host owns
 	// every dogfight; a replica never has a non-replica instance and vice versa.
-	_isReplicaView = _game->getCoopMod()
-		&& _game->getCoopMod()->isSharedCampaign()
-		&& !_game->getCoopMod()->getServerOwner();
+	_isReplicaView = _game->getCoopMod() && _game->getCoopMod()->isSharedReplica();
+	_locallyVisible = !_game->getCoopMod()->isSeparateCampaign()
+		|| SeparateEcon::ownsCraft(_game, _craft);
 	_craft->setInDogfight(true);
 	_weaponNum = _craft->getRules()->getWeapons();
 	if (_weaponNum > RuleCraft::WeaponMax)
@@ -762,6 +763,8 @@ bool DogfightState::isUfoAttacking() const
  */
 void DogfightState::think()
 {
+	if (_harnessHold)
+		return;
 	if (!_delayedRecolorDone)
 	{
 		// can't be done in the constructor (recoloring the ammo text doesn't work)
@@ -775,6 +778,7 @@ void DogfightState::think()
 		_delayedRecolorDone = true;
 
 		// Note: init() is never called for DogfightState, so we'll do it here instead
+		if (_locallyVisible)
 		{
 			auto& sounds = _game->getMod()->getStartDogfightSounds();
 			int soundId = sounds.empty() ? Mod::NO_SOUND : sounds[RNG::generate(0, sounds.size() - 1)];
@@ -1759,7 +1763,7 @@ void DogfightState::update()
 				{
 
 					// coop
-					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+					if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 					{
 						for (auto* country : *_game->getSavedGame()->getCountries())
 						{
@@ -1792,7 +1796,7 @@ void DogfightState::update()
 					playDfSound(Mod::UFO_CRASH); //10
 
 					// coop
-					if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+					if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 					{
 						for (auto* country : *_game->getSavedGame()->getCountries())
 						{
@@ -1899,7 +1903,7 @@ void DogfightState::update()
 				_destroyUfo = true;
 
 				// coop
-				if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+				if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 				{
 					for (auto* country : *_game->getSavedGame()->getCountries())
 					{
@@ -2119,6 +2123,7 @@ void DogfightState::emitDfCmd(const std::string& action, int arg)
 	Json::Value p;
 	p["craftId"] = _craft ? _craft->getId() : -1;
 	p["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	p["baseId"] = _craft ? SeparateEcon::baseIndex(_game, _craft->getBase()) : -1;
 	p["ufoId"] = _ufo ? _ufo->getId() : -1;
 	p["action"] = action;
 	p["arg"] = arg;
@@ -2249,12 +2254,27 @@ void DogfightState::btnMinimizeClick(Action *)
 	// PRD-DF02 REPLICA: minimize is per-machine VIEW state (README #6): minimize
 	// freely and locally. It never drives the world clock (the host's authoritative
 	// hostAnyOpen does, 4) and never touches the host-owned sim (no shield write).
+	// Separate: only this seat sees its own craft's fight, and the host holds an
+	// invisible copy that keeps the world clock frozen until it is minimized. The
+	// owner's minimize is therefore the host's minimize: ask the host and adopt
+	// its result from df_state.
 	if (_isReplicaView)
 	{
-		setMinimized(true);
+		if (_game->getCoopMod()->isSeparateCampaign())
+			emitDfCmd("minimize");
+		else
+			setMinimized(true);
 		return;
 	}
 
+	hostMinimize();
+}
+
+/**
+ * HOST: the vanilla minimize (standoff range only).
+ */
+void DogfightState::hostMinimize()
+{
 	if (!_ufo->isCrashed() && !_craft->isDestroyed() && !_ufoBreakingOff)
 	{
 		if (_currentDist >= STANDOFF_DIST)
@@ -2786,6 +2806,11 @@ void DogfightState::btnMinimizedIconClick(Action *)
 		_state->popup(new DogfightErrorState(_craft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
 		setWaitForPoly(true);
 	}
+	else if (_isReplicaView && _game->getCoopMod()->isSeparateCampaign())
+	{
+		// Separate: restore the host's copy too (see btnMinimizeClick).
+		emitDfCmd("restore");
+	}
 	else
 	{
 		setMinimized(false);
@@ -3106,6 +3131,7 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
 {
 	frame["craftId"] = _craft ? _craft->getId() : -1;
 	frame["craftType"] = _craft ? _craft->getRules()->getType() : std::string();
+	frame["baseId"] = _craft ? SeparateEcon::baseIndex(_game, _craft->getBase()) : -1;
 	frame["ufoId"] = _ufo ? _ufo->getId() : -1;
 	frame["currentDist"] = _currentDist;
 	frame["targetDist"] = _targetDist;
@@ -3122,6 +3148,7 @@ void DogfightState::buildStateFrame(Json::Value& frame) const
 	// 1=kamikaze-aggressive) so every player renders the same marker.
 	frame["ufoStance"] = _ufo ? _ufo->getHuntBehavior() : 0;
 	frame["statusText"] = _statusBase; // marker-free base; the replica re-adds the marker
+	frame["minimized"] = _minimized; // Separate: the owner's window follows the host's copy
 	frame["end"] = _end;
 	frame["endDogfight"] = _endDogfight;
 	frame["ufoBreakingOff"] = _ufoBreakingOff;
@@ -3183,15 +3210,21 @@ void DogfightState::playDfSound(int soundId)
 	// dummy driver where getSound() can return null, and what a test needs to know is
 	// whether this machine's dogfight raised the SFX at all.
 	++_soundsPlayed;
+	if (_locallyVisible)
 	if (auto* s = _game->getMod()->getSound("GEO.CAT", soundId))
 		s->play();
 	// A replica only ever plays frame-driven sounds, so it must not re-broadcast them.
-	if (!_isReplicaView && _game->getCoopMod()->isSharedCampaign())
+	if (!_isReplicaView && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		_frameSounds.push_back(soundId);
 }
 
 void DogfightState::applyFrame(const Json::Value& frame)
 {
+	if (_game->getCoopMod()->isSeparateCampaign() && frame.isMember("minimized")
+		&& frame["minimized"].asBool() != _minimized)
+	{
+		setMinimized(frame["minimized"].asBool());
+	}
 	_currentDist = frame.get("currentDist", _currentDist).asInt();
 	_targetDist = frame.get("targetDist", _targetDist).asInt();
 	if (_game->getMod()->getShowDogfightDistanceInKm())

@@ -32,6 +32,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../Engine/Script.h"
 #include "ResearchDiary.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -175,6 +176,17 @@ private:
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
+	SeparateEcon::CampaignData _separateCampaign;
+	// Transient Monthly Report explanation. The actual reduction is already
+	// persisted in each player's funds history, so this display value is not saved.
+	std::map<std::string, int64_t> _separatePlayerCosts;
+	// Transient command-authority override. Empty means the local seat's wallet;
+	// host validation sets this to the command initiator before touching funds.
+	std::string _separateFundsContext;
+	// Transient research-authority override for private Separate research. Empty
+	// means the funds context, then the local seat. Mutable so const research
+	// queries can scope it to the player they are evaluating.
+	mutable std::string _separateResearchContext;
 	GameTime *_time;
 	std::vector<std::string> _userNotes;
 	std::vector<std::string> _geoscapeDebugLog;
@@ -247,6 +259,14 @@ private:
 	/// Loads a saved game from YAML.
 	void load(const std::string &filename, Mod *mod, Language *lang);
 	void loadTemplates(const YAML::YamlNodeReader& reader, const Mod* mod);
+	/// Empties every saved soldier layout and craft loadout slot.
+	void clearTemplates();
+	/// Replaces every saved soldier layout and craft loadout slot with a copy
+	/// of @a other's.
+	void copyTemplatesFrom(const SavedGame& other);
+	/// Replaces every saved soldier layout and craft loadout slot with a
+	/// player's profile set.
+	void setTemplates(const SeparateEcon::EquipmentTemplates& templates, const Mod* mod);
 	void loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader);
 	/// Saves a saved game to YAML.
 	void saveCoopToMemory(const std::string& filename, Mod* mod, const std::string& key) const;
@@ -284,6 +304,12 @@ private:
 	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
+	/// True only for the cooperative one-world SEPARATE campaign: per-player
+	/// wallets, private research profiles and named base ownership. PvP campaigns
+	/// (game mode 2/3) are stored with the Separate type too, but keep the
+	/// two-world rules, so every Separate-only rule must test this, never the
+	/// campaign type alone.
+	bool isSeparateCoopCampaign() const;
 	/// Playtest B4: in a SHARED campaign every soldier needs an explicit owner (seat).
 	/// Any soldier still left UNOWNED (ownerPlayerId 999) - the starting roster of a
 	/// fresh game, or a save created before the split existed - is assigned a seat by
@@ -292,16 +318,59 @@ private:
 	void migrateSharedSoldierOwnership();
 	/// Locked co-op player list (host first), set at campaign start.
 	const std::vector<std::string> &getCoopPlayers() const { return _coopPlayers; }
-	void setCoopPlayers(const std::vector<std::string> &players) { _coopPlayers = players; }
+	void setCoopPlayers(const std::vector<std::string> &players)
+	{
+		_coopPlayers = players;
+		// Player profiles and wallets are the one-world Separate model only;
+		// SHARED and PvP keep a single wallet.
+		if (!isSeparateCoopCampaign())
+			return;
+		_separateCampaign.reconcilePlayerNames(_coopPlayers);
+		_separateCampaign.ensurePlayers(_coopPlayers);
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
+	}
 	void addCoopPlayer(const std::string &name)
 	{
 		for (const auto &p : _coopPlayers)
 			if (p == name)
 				return;
 		_coopPlayers.push_back(name);
+		_separateCampaign.ensurePlayers(_coopPlayers);
+		_separateCampaign.ensurePlayerFunds(_coopPlayers, _funds);
 	}
+	SeparateEcon::CampaignData& getSeparateCampaign() { return _separateCampaign; }
+	const SeparateEcon::CampaignData& getSeparateCampaign() const { return _separateCampaign; }
+	/// Switch Separate between private player profiles and the ordinary global
+	/// research list without losing discoveries made before the switch.
+	void setSeparateResearchSharingEnabled(bool enabled, const Mod *mod);
+	/// True in a one-world Separate campaign with private research: not PvP and
+	/// not Shared Research. The isResearched family then reads the research
+	/// context player's profile instead of the global list.
+	bool usesSeparatePrivateResearch() const;
+	/// The player whose private research the isResearched family reads: the
+	/// research context, else the funds context, else the local seat.
+	std::string getSeparateResearchContextPlayer() const;
+	void setSeparateResearchContext(const std::string& playerName) const { _separateResearchContext = playerName; }
+	const std::string& getSeparateResearchContext() const { return _separateResearchContext; }
+	/// Has any campaign player researched the topic (private research), or is it
+	/// researched (every other mode)?
+	bool isResearchedByAnyPlayer(const std::string &research) const;
+	/// The researched topics the isResearched family sees: the research context
+	/// player's profile with private research, else the global list.
+	std::vector<const RuleResearch*> getResearchedTopics(const Mod *mod) const;
 	/// Gets the current funds.
 	int64_t getFunds() const;
+	/// Select the Separate player wallet used during an authoritative command.
+	void setSeparateFundsContext(const std::string& playerName) { _separateFundsContext = playerName; }
+	void clearSeparateFundsContext() { _separateFundsContext.clear(); }
+	/// The explicitly selected wallet, or empty when the local seat's wallet is used.
+	const std::string& getSeparateFundsContext() const { return _separateFundsContext; }
+	std::string getSeparateFundsContextPlayer() const;
+	int64_t getSeparatePlayerFunds(const std::string& playerName) const;
+	/// Latest player-count scaling expense shown on Separate's Monthly Report.
+	int64_t getSeparatePlayerCosts() const;
+	int64_t getSeparatePlayerCosts(const std::string& playerName) const;
+	void setSeparatePlayerCosts(const std::string& playerName, int64_t costs);
 	/// Gets the list of funds from previous months.
 	std::vector<int64_t> &getFundsList();
 	/// Sets new funds.
@@ -378,7 +447,7 @@ private:
 	/// Sets the item as hidden or unhidden
 	void setHiddenPurchaseItemsStatus(const std::string &itemName, bool hidden);
 	/// Selects a "getOneFree" topic for the given research rule.
-	const RuleResearch* selectGetOneFree(const RuleResearch* research);
+	const RuleResearch* selectGetOneFree(const RuleResearch* research, const Base* base = nullptr);
 	/// Remove a research from the "already discovered" list
 	void removeDiscoveredResearch(const RuleResearch *research);
 	/// Add a finished ResearchProject
@@ -441,6 +510,15 @@ private:
 	bool isResearched(const RuleResearch *research, bool considerDebugMode = true) const;
 	/// Gets if a certain list of research topics has been completed.
 	bool isResearched(const std::vector<std::string> &research, bool considerDebugMode = true) const;
+	/// Player-scoped research query for a one-world Separate campaign. Other
+	/// campaign types retain the ordinary global research semantics.
+	bool isResearchedForPlayer(const std::string &research, const std::string &playerName,
+		bool considerDebugMode = true) const;
+	bool isResearchedForPlayer(const std::vector<std::string> &research,
+		const std::string &playerName, bool considerDebugMode = true) const;
+	/// Convenience wrapper using Base::ownerPlayerName as the research owner.
+	bool isResearchedForBase(const std::string &research, const Base *base,
+		bool considerDebugMode = true) const;
 	/// Gets if a certain list of research topics has been completed.
 	bool isResearched(const std::vector<const RuleResearch *> &research, bool considerDebugMode = true, bool skipDisabled = false) const;
 	/// Gets if a certain item has been obtained.
@@ -612,17 +690,72 @@ private:
 	/// Delete the given retaliation mission.
 	void deleteRetaliationMission(AlienMission* am, Base* base);
 	/// Spawn a Geoscape event from the event rules.
-	bool spawnEvent(const RuleEvent* eventRules);
-	/// Checks if an instant Geoscape event can be spawned.
-	bool canSpawnInstantEvent(const RuleEvent* eventRules);
+	bool spawnEvent(const RuleEvent* eventRules,
+		const std::string& ownerPlayerName = std::string());
+	/// Checks if an instant Geoscape event can be spawned. With private Separate
+	/// research the interrupt topic is checked against the event owner's research.
+	bool canSpawnInstantEvent(const RuleEvent* eventRules,
+		const std::string& ownerPlayerName = std::string());
 	/// Handles research unlocked by successful/failed missions and despawned mission sites.
-	bool handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut = nullptr);
+	/// With private Separate research the topics go to ownerPlayerName only (every
+	/// player when it is empty). A non-null forcedBonus replaces the getOneFree roll
+	/// (a replica applies the host's choice).
+	bool handleResearchUnlockedByMissions(const RuleResearch* research, const Mod* mod, const AlienDeployment* deployment, const RuleResearch** bonusOut = nullptr,
+		const std::string& ownerPlayerName = std::string(), const RuleResearch* const* forcedBonus = nullptr);
 	/// Handles research side effects for primary research sources.
 	void handlePrimaryResearchSideEffects(const std::vector<const RuleResearch*> &topicsToCheck, const Mod* mod, Base* base, bool spawnItems = true);
 	/// Gets the list of user notes.
 	std::vector<std::string>& getUserNotes() { return _userNotes; }
 	/// Gets the list of geoscape debug log entries.
 	std::vector<std::string>& getGeoscapeDebugLog() { return _geoscapeDebugLog; }
+};
+
+/// Scopes the Separate research context to one player (see
+/// SavedGame::setSeparateResearchContext) and restores the previous context.
+class SeparateResearchScope
+{
+	const SavedGame* _save;
+	std::string _previous;
+public:
+	SeparateResearchScope(const SavedGame* save, const std::string& playerName)
+		: _save(save), _previous(save ? save->getSeparateResearchContext() : std::string())
+	{
+		if (_save) _save->setSeparateResearchContext(playerName);
+	}
+	~SeparateResearchScope()
+	{
+		if (_save) _save->setSeparateResearchContext(_previous);
+	}
+	SeparateResearchScope(const SeparateResearchScope&) = delete;
+	SeparateResearchScope& operator=(const SeparateResearchScope&) = delete;
+};
+
+/**
+ * Selects one Separate player's wallet for host simulation code that has no
+ * command initiator (hourly production, events, monthly bonus). An empty name
+ * keeps the current wallet. The previous selection is restored on exit.
+ */
+class SeparateFundsScope
+{
+	SavedGame* _save;
+	std::string _previous;
+	bool _active;
+public:
+	SeparateFundsScope(SavedGame* save, const std::string& playerName)
+		: _save(save), _active(save && !playerName.empty())
+	{
+		if (!_active) return;
+		_previous = _save->getSeparateFundsContext();
+		_save->setSeparateFundsContext(playerName);
+	}
+	~SeparateFundsScope()
+	{
+		if (!_active) return;
+		if (_previous.empty()) _save->clearSeparateFundsContext();
+		else _save->setSeparateFundsContext(_previous);
+	}
+	SeparateFundsScope(const SeparateFundsScope&) = delete;
+	SeparateFundsScope& operator=(const SeparateFundsScope&) = delete;
 };
 
 }

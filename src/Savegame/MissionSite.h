@@ -40,6 +40,9 @@ private:
 	int _texture;
 	size_t _secondsRemaining;
 	std::string _race, _city;
+	// Inherited from AlienMission in Separate Campaign. Empty means a
+	// legacy/shared target and is intentionally visible to every player.
+	std::string _ownerPlayerName;
 	bool _inBattlescape, _detected;
 	Ufo* _ufo;
 	int _ufoUniqueId;
@@ -76,6 +79,8 @@ public:
 	std::string getAlienRace() const;
 	/// Sets the mission site's alien race.
 	void setAlienRace(const std::string &race);
+	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
+	void setOwnerPlayerName(const std::string& owner) { _ownerPlayerName = owner; }
 	/// Sets the mission site's battlescape status.
 	void setInBattlescape(bool inbattle);
 	/// Gets if the mission site is in battlescape.

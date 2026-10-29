@@ -30,6 +30,7 @@
 #include "../Savegame/Craft.h"
 #include "../Savegame/Target.h"
 #include "../Savegame/Ufo.h"
+#include "../Savegame/AlienMission.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Vehicle.h"
@@ -47,6 +48,7 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -269,7 +271,10 @@ void ConfirmLandingState::btnYesClick(Action *)
 	// touch the shared world. Report the answer; the host does the rest.
 	if (_sharedBroker)
 	{
-		SharedEcon::submitLandReply(_game, _craft, true, false);
+		if (_game->getCoopMod()->isSharedCampaign())
+			SharedEcon::submitLandReply(_game, _craft, true, false);
+		else
+			SeparateEcon::submitLandReply(_game, _craft, true, false);
 		_game->popState();
 		return;
 	}
@@ -285,7 +290,7 @@ void ConfirmLandingState::btnYesClick(Action *)
 		// and ship "battlehost" to the client via the existing coop path. This
 		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
 		// SHARED would duplicate the already-shared soldiers.
-		if (_game->getCoopMod()->isSharedCampaign())
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			_game->getCoopMod()->setSelectedCraft(_craft);
 			_game->getCoopMod()->setConfirmLandingState(this);
@@ -300,7 +305,10 @@ void ConfirmLandingState::btnYesClick(Action *)
 			}
 			for (auto* v : *_craft->getVehicles())
 			{
-				v->setCoop(0);
+				// SeparateEcon assigns each physical vehicle to a player. Keep
+				// that selection when the shared world becomes a battle.
+				if (_game->getCoopMod()->isSharedCampaign())
+					v->setCoop(0);
 				v->setCoopBase(-1);
 			}
 			startCoopMission();
@@ -418,13 +426,25 @@ void ConfirmLandingState::startCoopMission()
 	// second call here would run bgen.run() again and replace the world with a NEW random
 	// map, stranding the client (which already loaded the first) on a different map. If a
 	// battle already exists, this is a re-entry - do nothing.
-	if (_game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getSavedGame()
 		&& _game->getSavedGame()->getSavedBattle())
 	{
 		return;
 	}
 
 	_game->getCoopMod()->coopInventory = true;
+
+	// The host generates every single-world battle, including one requested by a
+	// client-owned craft. Bind briefing/equipment/debriefing context to that
+	// craft's real base rather than whichever base the host last viewed.
+	if (_craft && _craft->getBase()
+		&& (_game->getCoopMod()->isSharedCampaign()
+			|| _game->getCoopMod()->isSeparateCampaign()))
+	{
+		const int missionBase = SeparateEcon::baseIndex(_game, _craft->getBase());
+		if (missionBase >= 0)
+			_game->getSavedGame()->setSelectedBase(static_cast<size_t>(missionBase));
+	}
 
 	std::string message = checkStartingCondition();
 	if (!message.empty())
@@ -441,6 +461,20 @@ void ConfirmLandingState::startCoopMission()
 	AlienBase* b = dynamic_cast<AlienBase*>(_craft->getDestination());
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+	std::string battleOwner = (_craft && _craft->getBase())
+		? _craft->getBase()->getOwnerPlayerName() : std::string();
+	// Mission ownership controls who may launch a faction-specific mission; the
+	// battle itself belongs to the player whose craft actually launched it.
+	bgame->setBattleOwnerPlayerName(battleOwner);
+	if (_game->getCoopMod()->isSeparateCampaign()
+		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+	{
+		std::string factionScoreOwner;
+		if (u && u->getMission()) factionScoreOwner = u->getMission()->getOwnerPlayerName();
+		else if (m) factionScoreOwner = m->getOwnerPlayerName();
+		else if (b) factionScoreOwner = b->getOwnerPlayerName();
+		bgame->setFactionScoreOwnerPlayerName(factionScoreOwner);
+	}
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen(_game);
 	bgen.setWorldTexture(_missionTexture, _globeTexture);
@@ -504,7 +538,10 @@ void ConfirmLandingState::btnNoClick(Action *)
 	// still means "patrol here" rather than "return to base"; the host applies it.
 	if (_sharedBroker)
 	{
-		SharedEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		if (_game->getCoopMod()->isSharedCampaign())
+			SharedEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
+		else
+			SeparateEcon::submitLandReply(_game, _craft, false, _game->isCtrlPressed());
 		_game->popState();
 		return;
 	}

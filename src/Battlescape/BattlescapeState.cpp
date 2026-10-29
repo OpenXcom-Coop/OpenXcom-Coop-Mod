@@ -84,6 +84,7 @@
 #include "../Savegame/HitLog.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../Savegame/Ufo.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Mod/RuleEnviroEffects.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleInventory.h"
@@ -893,10 +894,14 @@ BattlescapeState::BattlescapeState() :
 
 	}
 
-	// coop fix
+	// A deployment preview is a local inspection tool, not a network battle.
+	// Never inherit the client's previous/off-turn state: doing so hid the local
+	// soldier UI and rejected movement with STR_COOP_TURN_OVER. Both host and
+	// client must enter every base/craft preview as an immediately playable view.
 	if (_save->isPreview() == true && _game->getCoopMod()->getCoopStatic() == true)
 	{
-		_game->getCoopMod()->setPlayerTurn(2);
+		_game->getCoopMod()->setPlayerTurn(0);
+		_battleGame->isYourTurn = 0;
 	}
 
 }
@@ -1469,6 +1474,39 @@ void BattlescapeState::think()
 				_save->getBattleGame()->getCoopMod()->_clientPanicHandle = false;
 			}
 
+			// A resumed battle restores the host's selectedUnit from the shared
+			// battle save on BOTH machines.  Unlike fresh battle initialization,
+			// some resume handshakes already have _battleInit/playerTurn consumed,
+			// so the selector block below is not guaranteed to run again.  Repair
+			// only this machine-local UI pointer once the parallel player side is
+			// live; unit positions, ownership and the host-authored battle remain
+			// untouched.  Re-checking here also covers an old Separate save whose
+			// selected unit was written while the host was active.
+			if (coopParallel && _game->getCoopMod()->_battleInit
+				&& _save->getSide() == FACTION_PLAYER && _battleGame->isYourTurn == 2)
+			{
+				const int mySeat = connectionTCP::localSeat();
+				BattleUnit* selected = _save->getSelectedUnit();
+				if (!selected || selected->getCoop() != mySeat || selected->isOut()
+					|| selected->getHealth() <= 0 || selected->getFaction() != FACTION_PLAYER)
+				{
+					BattleUnit* mine = nullptr;
+					for (BattleUnit* unit : *_save->getUnits())
+					{
+						if (unit && unit->getCoop() == mySeat && unit->getHealth() > 0
+							&& !unit->isOut() && unit->getFaction() == FACTION_PLAYER)
+						{
+							mine = unit;
+							break;
+						}
+					}
+					_save->setSelectedUnit(mine);
+					_battleGame->getCurrentAction()->actor = mine;
+					updateSoldierInfo();
+					_battleGame->setupCursor();
+				}
+			}
+
 			// coop: off-turn "<peer>'s Turn" banner. Classic mode only - parallel mode
 			// has no off-turn side (both machines hold isYourTurn == 2), so coopParallel
 			// gates it out.
@@ -1838,16 +1876,18 @@ void BattlescapeState::think()
 				_battleGame->cancelAllActions();
 		
 				// Read the co-op save owner player ID to check whether the current player is the host
-				if (_game->getCoopMod()->isSharedCampaign())
+				if (_game->getCoopMod()->isSharedCampaign()
+					|| _game->getCoopMod()->isSeparateCampaign())
 				{
-					// SHARED: the server owner (host machine = seat 0) is ALWAYS the battle
+					// Single-world campaigns: the server owner (host machine = seat 0) is ALWAYS the battle
 					// host and controls coop==0 soldiers; the client controls coop==1. The
 					// generic save-owner logic below misfires here because
 					// coop_save_owner_player_id is machine-LOCAL (0 on host, 1 on client),
 					// so the host matches `==0` AND the client matches `==1` -> both become
 					// host, both command the coop==0 soldiers and the client's own coop==1
 					// soldiers are controllable by no one ("both players control the same
-					// team"). Derive the role from the unambiguous server-owner flag instead.
+					// team"). Separate uses the same one authoritative battle world as Shared,
+					// so derive both modes from the unambiguous server-owner flag.
 					_game->getCoopMod()->setHost(_game->getCoopMod()->getServerOwner());
 				}
 				else if (_game->getCoopMod()->getServerOwner() == true)
@@ -2239,7 +2279,7 @@ void BattlescapeState::mapClick(Action *action)
 			// coop: PRD-P5's temporary parallel input gate is gone from here -
 			// PRD-P6 lets the click through and BattlescapeGame::secondaryAction
 			// turns it into an `action_intent` on the client instead of a turn.
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+			if (!_save->isPreview() && (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 			{
 				return;
 			}
@@ -2251,7 +2291,7 @@ void BattlescapeState::mapClick(Action *action)
 			// Off-turn left clicks must not call primaryAction, but the local gift
 			// selection above has still been updated. On our own turn the same click
 			// also proceeds through the normal unit/action selection path.
-			if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+			if (!_save->isPreview() && (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 			{
 				return;
 			}
@@ -2960,6 +3000,27 @@ void BattlescapeState::selectNextPlayerUnit(bool checkReselect, bool setReselect
 		BattleUnit *unit = byDistance
 			? _save->selectNextPlayerUnitByDistance(checkReselect, setReselect, checkInventory)
 			: _save->selectNextPlayerUnit(checkReselect, setReselect, checkInventory);
+		// Parallel co-op has one simultaneous player side, but each machine must
+		// keep its local selection on its own seat.  SavedBattleGame's vanilla
+		// selector only filters by faction; after loading the host-authored battle
+		// it could therefore leave the client on a host soldier and every map click
+		// was then correctly rejected as STR_COOP_NOT_YOUR_SOLDIER.  Walk the same
+		// ordered roster until a locally-owned unit is selected.  Classic turns do
+		// not use this filter because their current-turn hand-off owns selection.
+		if (connectionTCP::parallelTurnActive())
+		{
+			const int localSeat = connectionTCP::localSeat();
+			const size_t count = _save->getUnits()->size();
+			for (size_t i = 0; unit && unit->getCoop() != localSeat && i < count; ++i)
+			{
+				unit = _save->selectNextPlayerUnit(false, false, checkInventory);
+			}
+			if (unit && unit->getCoop() != localSeat)
+			{
+				_save->setSelectedUnit(0);
+				unit = 0;
+			}
+		}
 		updateSoldierInfo(checkFOV);
 		if (unit && !_game->isShiftPressed(true)) _map->getCamera()->centerOnPosition(unit->getPosition());
 		_battleGame->cancelAllActions();
@@ -2979,6 +3040,20 @@ void BattlescapeState::selectPreviousPlayerUnit(bool checkReselect, bool setRese
 	if (allowButtons())
 	{
 		BattleUnit *unit = _save->selectPreviousPlayerUnit(checkReselect, setReselect, checkInventory);
+		if (connectionTCP::parallelTurnActive())
+		{
+			const int localSeat = connectionTCP::localSeat();
+			const size_t count = _save->getUnits()->size();
+			for (size_t i = 0; unit && unit->getCoop() != localSeat && i < count; ++i)
+			{
+				unit = _save->selectPreviousPlayerUnit(false, false, checkInventory);
+			}
+			if (unit && unit->getCoop() != localSeat)
+			{
+				_save->setSelectedUnit(0);
+				unit = 0;
+			}
+		}
 		updateSoldierInfo();
 		if (unit && !_game->isShiftPressed(true)) _map->getCamera()->centerOnPosition(unit->getPosition());
 		_battleGame->cancelAllActions();
@@ -3979,6 +4054,11 @@ void BattlescapeState::btnNightVisionClick(Action *action)
  */
 bool BattlescapeState::playableUnitSelected()
 {
+	// Previews are local and deliberately do not participate in co-op ownership
+	// or active-turn arbitration. This also lets a client inspect either its own
+	// or another player's base using the standard preview soldier.
+	if (_save->isPreview())
+		return _save->getSelectedUnit() != 0 && allowButtons();
 
 	// coop
 	if (_save->getSelectedUnit())
@@ -4014,7 +4094,7 @@ void BattlescapeState::drawItem(BattleItem* item, Surface* hand, std::vector<Num
 	hand->clear();
 
 	// coop
-	if (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4)
+	if (!_save->isPreview() && (_battleGame->isYourTurn == 1 || _battleGame->isYourTurn == 3 || _battleGame->isYourTurn == 4))
 		return; // coop
 
 
@@ -6416,12 +6496,14 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			_save->startFirstTurn();
 			_save->getTileEngine()->recalculateFOV();
 
-			// tag coop units + ship the rebuilt stage to the client. As at every
-			// other coop mission-start site (ConfirmLandingState, GeoscapeState,
-			// NewBattleState, ...), the briefing is only a vehicle for setupCoop()
-			// (co-op never shows it) and is intentionally not pushed.
+			// Tag coop units and ship the rebuilt stage to the client. Mark this
+			// stream so both peers can show the new stage's briefing as information
+			// only; the battle has already been generated and must not be rebuilt by
+			// BriefingState::btnOkClick.
+			connectionTCP::nextStageBriefing = true;
 			BriefingState* b = new BriefingState(0, 0);
 			b->setupCoop();
+			connectionTCP::nextStageBriefing = false;
 
 			// leave the finished stage-1 battle and enter the rebuilt stage-2 one,
 			// mirroring BriefingState::btnOkClick. setBattleState re-points the save at
@@ -6429,12 +6511,23 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			// the popped one. The BattlescapeState ctor performs the co-op battle init
 			// (turn negotiation + inventory sync) for the new stage.
 			_game->popState();
+			// Some co-op mission-start paths keep their original BriefingState
+			// underneath BattlescapeState.  It is no longer part of the live stage;
+			// leaving it here makes closing the new briefing reveal the old one and
+			// replay its cutscene.  Retire every contiguous stale briefing before
+			// installing the rebuilt stage.
+			while (!_game->getStates().empty()
+				&& dynamic_cast<BriefingState*>(_game->getStates().back()) != nullptr)
+			{
+				_game->popState();
+			}
 
 			BattlescapeState* bs = new BattlescapeState;
 			bs->getBattleGame()->spawnFromPrimedItems();
 			_save->setBattleState(bs);
 			_game->pushState(bs);
 			_game->pushState(new NextTurnState(_save, bs));
+			_game->pushState(new BriefingState(0, 0, true));
 
 		}
 
@@ -6474,6 +6567,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		}
 		_game->pushState(new DebriefingState);
 		std::string cutscene;
+		bool partialFactionVictory = false;
 		if (ruleDeploy)
 		{
 			if (abort)
@@ -6502,12 +6596,42 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		}
 		if (!cutscene.empty())
 		{
+			const RuleVideo *videoRule = _game->getMod()->getVideo(cutscene, true);
+			// A faction finale belongs to the player whose craft launched the battle.
+			// Mission-marker ownership is retained separately for score routing, but
+			// it may still carry the host's name in a client-requested final mission.
+			const std::string factionOwner = _game->getSavedGame()->getSavedBattle()
+				? _game->getSavedGame()->getSavedBattle()->getBattleOwnerPlayerName()
+				: std::string();
+			const bool terminalVictory = videoRule->getWinGame();
+			const bool terminalDefeat = videoRule->getLoseGame();
+			if ((terminalVictory || terminalDefeat)
+				&& !SeparateEcon::resolveFactionFinalOutcome(
+					_game, factionOwner, terminalVictory))
+			{
+				// This faction finished its own finale, but other distinct factions
+				// are still playing. Keep the debriefing and return to Geoscape.
+				partialFactionVictory = terminalVictory;
+				cutscene.clear();
+			}
+		}
+		if (!cutscene.empty())
+		{
+			const RuleVideo *videoRule = _game->getMod()->getVideo(cutscene, true);
+			const bool terminalSeparate = _game->getCoopMod()->isSeparateCampaign()
+				&& _game->getCoopMod()->getServerOwner()
+				&& (videoRule->getWinGame() || videoRule->getLoseGame());
+			// A terminal Separate result is sent below together with the cutscene id
+			// and verdict. Suppress CutsceneState's older standalone packet, whose
+			// ending would still be END_NONE at construction time.
+			if (terminalSeparate)
+				_game->getCoopMod()->allow_cutscene = false;
+
 			// if cutscene is "wingame" or "losegame", then the DebriefingState
 			// pushed above will get popped without being shown.  otherwise
 			// it will get shown after the cutscene.
 			_game->pushState(new CutsceneState(cutscene));
 
-			const RuleVideo *videoRule = _game->getMod()->getVideo(cutscene, true);
 			if (videoRule->getWinGame())
 			{
 				_game->getSavedGame()->setEnding(END_WIN);
@@ -6516,11 +6640,33 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			{
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
+			// PVE clients do not run finishBattle independently.  A terminal
+			// faction finale therefore needs an explicit host verdict to replace
+			// their End Turn screen with their own faction's Statistics screen.
+			if (_game->getCoopMod()->isSeparateCampaign()
+				&& _game->getCoopMod()->getServerOwner()
+				&& _game->getSavedGame()->getEnding() != END_NONE)
+			{
+				_game->getCoopMod()->prepareLocalEndingFactionDisplayName();
+				_game->getCoopMod()->setEndingCutsceneId(cutscene);
+				Json::Value ending;
+				ending["state"] = "faction_campaign_end";
+				ending["cutscene"] = cutscene;
+				ending["victory"] = _game->getSavedGame()->getEnding() == END_WIN;
+				_game->getCoopMod()->sendTCPPacketData(ending.toStyledString());
+			}
 			// Autosave if game is over
 			if (_game->getSavedGame()->getEnding() != END_NONE && _game->getSavedGame()->isIronman())
 			{
 				_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_IRONMAN, _palette));
 			}
+		}
+		else if (partialFactionVictory)
+		{
+			const std::string owner = _game->getSavedGame()->getSavedBattle()
+					? _game->getSavedGame()->getSavedBattle()->getBattleOwnerPlayerName()
+					: std::string();
+			_game->getCoopMod()->queueFactionFinaleVote(owner);
 		}
 	}
 }

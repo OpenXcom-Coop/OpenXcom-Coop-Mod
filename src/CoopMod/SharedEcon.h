@@ -21,7 +21,9 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
+#include <vector>
 
 #include <json/json.h>
 
@@ -36,7 +38,10 @@ class Target;
 class Soldier;
 class AlienBase;
 class BattleItem;
+class EquipmentLayoutItem;
+class ItemContainer;
 class SavedBattleGame;
+class RuleResearch;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -132,6 +137,15 @@ int lastApplySeat();
 
 /// Index of @a base in SavedGame::getBases() - the SHARED shared base key - or -1.
 int baseIndex(Game* game, const Base* base);
+/// The base a reference (@a baseId = index in the sender's list, @a baseKey = that
+/// base's _coop_base_id) names on this machine: the index while it still names the
+/// keyed base, else the one base holding the key; key 0 = the index alone. A
+/// base_move can reorder the list while a reference is on its way.
+Base* resolveBaseReference(Game* game, int baseId, int baseKey);
+/// Index of the base @a base swaps places with when the mini base strip moves it
+/// one place left (base_move), or -1 when it cannot move. Separate moves it past
+/// the previous base of the same owner; SHARED past the base before it.
+int baseMoveTarget(Game* game, const Base* base);
 
 /**
  * PRD-J10 screen-refresh binding. A SHARED screen owns one of these, binds it in
@@ -185,6 +199,11 @@ void update(Game* game);
 void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload);
 
+/// Low-level validated command engine shared by the two one-world protocols.
+/// Public UI code must call SharedEcon or SeparateEcon, never this directly.
+void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
+	const Json::Value& payload, bool separateProtocol);
+
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
 /// machine-readable @a reason - an STR_ id where the vanilla rule had one, a bare
@@ -210,26 +229,76 @@ void broadcast(Game* game, const Json::Value& msg);
 /// Research finished on the host (time1Day): replica removes the base's matching
 /// ResearchProject (freeing its scientists), adds the discovered topic + bonus +
 /// lookups deterministically (no RNG re-roll), and pops ResearchCompleteState.
+/// @a corpse is the item a finished interrogation put back in the host's stores
+/// ("" = none); the replica stores the same item.
 void hostResearchDone(Game* game, int baseId, const std::string& research,
-                      const std::string& bonus, const std::string& newResearch);
+                      const std::string& bonus, const std::string& newResearch,
+                      const std::string& corpse = std::string());
+
+/// Runs SavedGame::handlePrimaryResearchSideEffects for the topics one base
+/// completed (time1Day). On a SHARED or SEPARATE host it then mirrors what that
+/// call changed, as research_effects: the obsolete projects it removed from any
+/// base (with the item refund the host made) and the item transfers the research
+/// spawned at @a base. The replica applies exactly those results; it never re-runs
+/// the side effects on its own state.
+void hostResearchSideEffects(Game* game, const std::vector<const RuleResearch*>& topics,
+                             Base* base);
+
+/// Host, every geoscape heartbeat: when the pending geoscape events (name, owner,
+/// shared flag) or the custom counters changed since the last call, sends the
+/// whole set as world_extras. The replica replaces its events and counters with
+/// it. This one hook covers every writer: event scripts at the month roll, an
+/// event that fired, research side effects, mission-site and battle counters.
+void hostWorldExtras(Game* game);
+
+/// What an event's eventLogic changed at its owner's bases, captured on a
+/// Separate host so the replica can apply the same result (separate_geoscape_event
+/// "rewards"): store and craft-item deltas, the transfers and crafts it added at
+/// the owner's base. Inactive (no capture) anywhere else.
+struct EventRewardSnapshot
+{
+	bool active = false;
+	std::vector<std::map<std::string, int> > stores;
+	std::vector<std::vector<std::map<std::string, int> > > craftItems;
+	size_t hqTransfers = 0;
+	size_t hqCrafts = 0;
+};
+EventRewardSnapshot snapshotEventRewards(Game* game, Base* hq);
+/// The rewards since @a before as JSON text ("" when nothing changed).
+std::string describeEventRewards(Game* game, Base* hq, const EventRewardSnapshot& before);
+/// Replica: applies a describeEventRewards result.
+void applyEventRewards(Game* game, const Json::Value& rewards);
 
 /// Facility construction finished on the host (time1Day): replica sets the
 /// facility at (x,y) buildTime 0 and mirrors the completion popup.
 void hostFacilityDone(Game* game, int baseId, int x, int y,
                       const std::string& facilityType);
 
-/// Manufacture batch finished on the host (time1Hour): replica materializes the
-/// produced items/crafts, removes the Production (freeing engineers), and mirrors
-/// the completion popup.
+/// Manufacture units finished on the host (time1Hour): replica materializes the
+/// @a units this step made (items/crafts, stored, docked or shipped as the host
+/// did). When @a batchDone it also removes the Production (freeing engineers)
+/// and mirrors the completion popup. craftIds are the ids the host gave the
+/// crafts this step built, so the replica builds the same crafts; soldiers are
+/// the soldiers it spawned (spawnedPersonType), sent whole so the replica holds
+/// the host's soldiers.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
-                        int units, int progress, bool sell);
+                        int units, int progress, bool sell,
+                        const std::vector<int>& craftIds = std::vector<int>(),
+                        bool batchDone = true,
+                        const std::vector<Soldier*>& soldiers = std::vector<Soldier*>());
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.
 void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
 
-/// End-of-day soldier changes on the host (time1Day): replica adopts the
-/// per-soldier wound-recovery values for CHANGED soldiers only.
+/// Host: snapshot every base soldier's step state (wounds, stats, training
+/// flags, psi improvement, daily dogfight XP) before the day or month step.
+/// @a keepArmed keeps a snapshot this world already armed (time1Day after
+/// time1Month in the same clock advance).
+void hostSoldierStepBegin(Game* game, bool keepArmed);
+/// End-of-day changes on the host (time1Day): day_tick carries every soldier
+/// whose step state changed since hostSoldierStepBegin (the replica adopts it
+/// exactly) plus the production and research progress.
 void hostDayTick(Game* game);
 
 /// PRD-J07: a base was destroyed by retaliation on the host (it already removed
@@ -271,6 +340,14 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// only - vehicles are deferred (caller must not route a vehicle item).
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
+/// One-world campaigns (SHARED and Separate): load a craft equipment template on
+/// @a craft. @a listed = the item types the craft equipment screen shows (the
+/// load considers only those), @a tmpl = the template's contents, @a onlyAdd =
+/// add on top instead of replacing. Submits craft_loadout; mutates nothing
+/// locally (the host moves the items and reports what was missing).
+void submitCraftLoadout(Game* game, Craft* craft, const std::vector<std::string>& listed,
+                        const ItemContainer& tmpl, bool onlyAdd);
+
 /// PRD-J09 GAP-5b: mount @a weaponType (empty = dismount) in weapon @a slot of
 /// @a craft in the shared world (SHARED only - caller gates). The launcher + loaded
 /// clips move against the host-authoritative base stores, so a replica must route
@@ -284,6 +361,30 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// route this instead of doing it locally. Absolute end-state (which armor the
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
+
+/// A training screen's change to one soldier: whether it is in training, and
+/// (martial training only) whether it returns to training once healed.
+struct TrainingChange
+{
+	Soldier* soldier;
+	bool training;
+	bool queued;
+};
+/// SHARED and Separate: sends the training flags @a changes set at @a base (psi
+/// lab when @a psi, else martial training) to the host (soldier_training), which
+/// runs the training. Mutates nothing locally; the flags change when it lands.
+void submitSoldierTraining(Game* game, Base* base, bool psi,
+	const std::vector<TrainingChange>& changes);
+/// One-world campaigns (SHARED and Separate): the equipment layouts an inventory
+/// screen at @a base produced. @a soldiers = [{ soldierId, soldierOwner, layout,
+/// personal, personalArmor }], layout/personal being serializeLayout() texts, each
+/// the ABSOLUTE end state (last-write-wins). Submits soldier_layout; the host
+/// validates the owner (Separate) and every machine adopts the same layouts.
+void submitSoldierLayouts(Game* game, Base* base, const Json::Value& soldiers);
+/// The wire form of a soldier's equipment-layout entries (EquipmentLayoutItem::save).
+std::string serializeLayout(const std::vector<EquipmentLayoutItem*>& layout);
+/// Rebuilds layout entries from serializeLayout() text; unknown items are skipped.
+std::vector<EquipmentLayoutItem*> deserializeLayout(Game* game, const std::string& text);
 
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw
@@ -305,13 +406,32 @@ void applyDogfightState(Game* game, const Json::Value& obj);
 /// shared_apply{land_prompt} so THAT seat gets the confirm dialog. @a shade is the
 /// host's day/night value (the replica's clock may differ by a tick).
 /// Playtest (soldier ownership parity): the soldiers THIS machine's player may see /
-/// manage at @a base. SHARED: only getOwnerPlayerId() == localSeat() (each player sees
-/// only their own half of the shared roster). SEPARATE/solo: the full roster verbatim
-/// (the SEPARATE guest-filter is handled destructively per-view, unchanged). A COPY -
-/// callers must never mutate base->getSoldiers() in SHARED (checksum/desync).
+/// manage at @a base. Both one-world co-op campaign types expose only
+/// getOwnerPlayerId() == localSeat(); a transferred Separate soldier remains visible
+/// to its owner at the foreign base, not to that base's owner. Solo returns the full
+/// roster. A COPY - callers must never mutate base->getSoldiers() through this view.
 std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
-/// True if this machine's player owns @a soldier (SHARED owner==localSeat; else true).
+/// True if this machine's player owns @a soldier (co-op campaign owner==localSeat;
+/// solo always true).
 bool ownsSoldier(Game* game, const Soldier* soldier);
+/// Moves the soldier at @a row of @a visible (the owner-filtered list a roster
+/// screen shows) one place up or down, or to the top / bottom with @a max, by
+/// sending this player's new soldier order at @a base to the host (soldier_order).
+/// False when the row cannot move that way; nothing is sent then.
+bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
+	unsigned int row, bool up, bool max);
+/// Sends this player's soldier order at @a base (their own soldiers, in the new
+/// order) to the host (soldier_order); the roster changes when it lands.
+void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order);
+/// SHARED and Separate: sends the transformation @a rule of @a soldier (alive, or
+/// dead in the memorial) with the name box's @a name to the host (soldier_transform)
+/// and returns true; nothing changes locally until the host's result lands. False
+/// outside a one-world campaign, where the screen runs vanilla's transformation.
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
+	const std::string& name);
+/// Host: send @a msg as a CraftErrorState "alert" that only @a playerName's
+/// machine shows (a replica of another player ignores it).
+void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// Playtest (Bug: waypoint arrival never reached clients): host broadcasts that a craft
@@ -338,9 +458,9 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase);
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
                Base* base = nullptr, int craftId = -1,
-               const std::vector<std::string>& names = {},
-               const std::vector<int>& ids = {}, bool flag = false,
-               const Json::Value& rows = Json::Value());
+		const std::vector<std::string>& names = {},
+		const std::vector<int>& ids = {}, bool flag = false,
+		const Json::Value& rows = Json::Value());
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every
 /// other seat's broker ConfirmLandingState closes itself.
 void broadcastLandClose(Game* game, Craft* craft);
@@ -686,15 +806,39 @@ extern const int RESYNC_DEBOUNCE_MS;
 bool requestResync(Game* game, const std::string& why, bool force = false);
 
 /// A streamed SHARED world was adopted (LoadGameState): clear the in-flight resync
-/// guard so a later drift can be repaired again.
+/// guard so a later drift can be repaired again. For a restream's world, drop the
+/// results queued before its mark and release the ones held after it.
 void notifyWorldAdopted();
+
+/// REPLICA: a chunk of a world stream arrived (connectionTCP map_result_data). The
+/// in-flight resync guard and the result hold are real time since the request, the
+/// restream mark or the last chunk, so a large world that streams for many seconds
+/// keeps them.
+void noteWorldStreamProgress();
+
+/// HOST: send the restream mark right after a resync restream took its snapshot
+/// (connectionTCP::sharedResyncStream). It rides the same message order as the
+/// host's results, so the replica can tell which results the snapshot holds.
+void sendRestreamMark(Game* game);
+
+/// REPLICA: called first for every received message (connectionTCP::onTCPMessage).
+/// Between a restream mark and the adoption of that world, a host world result
+/// (shared_apply, separate_apply, separate_geoscape_event,
+/// separate_mission_research) is held and returns true; it is re-dispatched once,
+/// to the adopted world, on the next update. Results from before the mark are in
+/// the snapshot: notifyWorldAdopted drops any still queued.
+bool holdResultDuringRestream(const std::string& state, const Json::Value& obj);
+
+/// The connection is gone: drop any held results and pending marks (the next
+/// join streams a fresh world).
+void resetRestreamHold();
 
 /// Harness/diagnostics: auto-resync bookkeeping on this machine.
 struct ResyncStats
 {
 	uint64_t mismatches;  // checksum mismatches observed (replica)
 	uint64_t requests;    // shared_resync_request sent (replica) / served (host)
-	bool pending;         // a resync is in flight (replica)
+	bool pending;         // a resync is in flight, until adoption or timeout (replica)
 	bool gaveUp;          // throttled out: the "save and reload" popup was shown
 	int64_t lastGameMin;  // game-minute stamp of the last auto-resync, -1 = never
 };

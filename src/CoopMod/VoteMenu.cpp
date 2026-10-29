@@ -29,6 +29,7 @@ namespace OpenXcom
 
 VoteMenu::VoteMenu(
 	std::uint64_t voteId,
+	const std::string &action,
 	const std::string &title,
 	const std::string &question,
 	int totalPlayers,
@@ -117,10 +118,16 @@ VoteMenu::VoteMenu(
 	_txtStatus->setAlign(ALIGN_CENTER);
 
 	_btnYes->setText(tr("STR_YES"));
+	if (action.compare(0, std::string("continue_faction_campaign|").size(),
+		"continue_faction_campaign|") == 0)
+		_btnYes->setText("CONTINUE CAMPAIGN");
 	_btnYes->onMouseClick((ActionHandler)&VoteMenu::btnYesClick);
 	_btnYes->onKeyboardPress((ActionHandler)&VoteMenu::btnYesClick, Options::keyOk);
 
 	_btnNo->setText(tr("STR_NO"));
+	if (action.compare(0, std::string("continue_faction_campaign|").size(),
+		"continue_faction_campaign|") == 0)
+		_btnNo->setText("END CAMPAIGN");
 	_btnNo->onMouseClick((ActionHandler)&VoteMenu::btnNoClick);
 	_btnNo->onKeyboardPress((ActionHandler)&VoteMenu::btnNoClick, Options::keyCancel);
 

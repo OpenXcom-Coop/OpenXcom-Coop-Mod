@@ -38,6 +38,7 @@
 #include "../Mod/RuleGlobe.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -153,7 +154,7 @@ void PlaceLiftState::viewClick(Action *)
 	// carrying lon/lat/name/lift so the host builds the whole base atomically
 	// (same coopbaseid, name, lift position, funds debited once) and broadcasts it.
 	// The initial campaign base (_first) is J02's and stays the local/streamed path.
-	if (_game->getCoopMod()->isSharedCampaign() && !_first)
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && !_first)
 	{
 		submitSharedNewBase(_view->getGridX(), _view->getGridY());
 		delete _base; // floating UI scratch base, never added to getBases()
@@ -179,7 +180,7 @@ void PlaceLiftState::viewClick(Action *)
 	}
 
 	// coop (SEPARATE mirror markers only; SHARED rides the base_new shared_cmd above)
-	if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
 		// BASE
@@ -260,7 +261,11 @@ void PlaceLiftState::submitSharedNewBase(int x, int y)
 	payload["liftType"] = _lift->getType();
 	payload["liftX"] = x;
 	payload["liftY"] = y;
-	SharedEcon::submitLocalCmd(_game, "base_new", -1, payload);
+	payload["ownerPlayerName"] = connectionTCP::seatName(connectionTCP::localSeat());
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::submitLocalCmd(_game, "base_new", -1, payload);
+	else
+		SeparateEcon::submitLocalCmd(_game, "base_new", -1, payload);
 }
 
 /**

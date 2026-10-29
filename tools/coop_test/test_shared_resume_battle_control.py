@@ -1,19 +1,14 @@
 """Mid-battle coop RESUME must restore split control (SHARED mode).
 
-SHARED is strictly worse off than SEPARATE here. Besides the shared COOP_READY
-re-arm gap (coopSession/_battleInit never restored -> control not split), the
-SHARED branch of `request_load_progress` (connectionTCP.cpp:3734, comment: "Battle-
-scape resume stays 2-player/out of scope") streams ONLY the geoscape world on
-resume and never arms `resumeBattlePending`, so the host's resume_ack handler
-takes the plain campaign-resume path and NEVER emits `campaign_resume_battle`.
-The client is therefore never streamed the battle at all - it never re-enters the
-battlescape.
+The authoritative campaign snapshot contains both the geoscape world and its
+live SavedBattleGame. The client must adopt that single snapshot, enter the
+Battlescape, complete the COOP_READY handshake, and restore split control.
 
 This test:
 
   1. SHARED campaign; a MIXED-ownership squad on the shared craft - seat 0 (host-
      owned, coop==0 in battle) + seat 1 (client-owned, coop==1). The split rides
-     the shared battlehost blob, so it is asserted on BOTH machines live.
+     the shared battle snapshot, so it is asserted on BOTH machines live.
   2. Enter the SHARED battle (host confirms; NO two-world merge) and reach the
      battlescape; SANITY-check the live split.
   3. Host saves mid-battle, both instances killed, host relaunches (client dir

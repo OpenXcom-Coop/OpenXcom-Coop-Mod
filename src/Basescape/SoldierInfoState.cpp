@@ -47,6 +47,7 @@
 #include "../Mod/RuleSoldier.h"
 #include "../Savegame/SoldierDeath.h"
 #include "../CoopMod/SharedEcon.h" // coop (SHARED soldier_rename)
+#include "../CoopMod/SeparateEcon.h"
 #include "../CoopMod/connectionTCP.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 
@@ -323,15 +324,6 @@ SoldierInfoState::SoldierInfoState(Base *base, size_t soldierId, bool forceLimit
 
 	_btnSack->setText(tr("STR_SACK"));
 
-	// COOP
-	if (_base)
-	{
-		if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
-		{
-			_btnSack->setText("MOVE");
-		}
-	}
-
 	_btnSack->onMouseClick((ActionHandler)&SoldierInfoState::btnSackClick);
 
 	_btnDiary->setText(tr("STR_DIARY"));
@@ -416,6 +408,7 @@ void SoldierInfoState::init()
 		_soldierId = 0;
 	}
 	_soldier = _list->at(_soldierId);
+	_coopShownId = _soldier->getId();
 	_edtSoldier->setBig();
 	_edtSoldier->setText(_soldier->getName());
 	const UnitStats *initial = _soldier->getInitStats();
@@ -630,6 +623,7 @@ void SoldierInfoState::init()
  */
 void SoldierInfoState::handle(Action* action)
 {
+	if (coopRecheckSoldier()) return; // the event was aimed at a soldier that is gone
 	State::handle(action);
 
 	if (Options::oxceThumbButtons && action->getDetails()->type == SDL_MOUSEBUTTONDOWN)
@@ -677,8 +671,10 @@ void SoldierInfoState::edtSoldierChange(Action *)
 	// applies + broadcasts, last-write-wins), exactly like base_rename. The local
 	// setName above stays for immediate UI feedback; the shared_apply re-asserts the
 	// winning name authoritatively on every machine.
-	if (_base != 0 && _base->_coopBase == false
-		&& _game->getCoopMod()->isSharedCampaign())
+	// Separate routes it at every base, so a visitor's rename of their own soldier
+	// stationed at another player's base reaches the host too.
+	if (_base != 0
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -687,7 +683,8 @@ void SoldierInfoState::edtSoldierChange(Action *)
 		Json::Value payload;
 		payload["soldierId"] = _soldier->getId();
 		payload["name"] = _edtSoldier->getText();
-		SharedEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
+		else SeparateEcon::submitLocalCmd(_game, "soldier_rename", baseId, payload);
 	}
 }
 
@@ -699,6 +696,36 @@ void SoldierInfoState::harnessRename(const std::string &name)
 {
 	_edtSoldier->setText(name);
 	edtSoldierChange(nullptr);
+}
+
+/**
+ * coop: in a one-world campaign a host command (soldier_transform, sack) can
+ * replace or delete this screen's soldier after init() ran. Compare the list
+ * slot's pointer only (the cached one may be gone); when it changed, find the
+ * soldier init() showed by its id (a replaced soldier keeps it) and re-run
+ * init(), which clamps the index and closes the screen on an empty list.
+ * @return true when the screen was re-initialised.
+ */
+bool SoldierInfoState::coopRecheckSoldier()
+{
+	if (!_list || !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		return false;
+	if (_soldierId < _list->size() && _list->at(_soldierId) == _soldier) return false;
+	for (size_t i = 0; i < _list->size(); ++i)
+	{
+		if (_list->at(i)->getId() == _coopShownId) { _soldierId = i; break; }
+	}
+	init();
+	return true;
+}
+
+/**
+ * coop: see coopRecheckSoldier.
+ */
+void SoldierInfoState::think()
+{
+	State::think();
+	coopRecheckSoldier();
 }
 
 /**
@@ -749,7 +776,7 @@ void SoldierInfoState::btnPrevClick(Action *)
 	for (size_t i = 0; i < n; ++i)
 	{
 		_soldierId = (_soldierId == 0) ? n - 1 : _soldierId - 1;
-		if (!_game->getCoopMod()->isSharedCampaign()
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			|| SharedEcon::ownsSoldier(_game, _list->at(_soldierId)))
 			break;
 	}
@@ -768,7 +795,7 @@ void SoldierInfoState::btnNextClick(Action *)
 		_soldierId++;
 		if (_soldierId >= n)
 			_soldierId = 0;
-		if (!_game->getCoopMod()->isSharedCampaign()
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			|| SharedEcon::ownsSoldier(_game, _list->at(_soldierId)))
 			break;
 	}

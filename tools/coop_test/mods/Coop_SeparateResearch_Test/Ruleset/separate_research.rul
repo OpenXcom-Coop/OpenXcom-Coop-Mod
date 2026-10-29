@@ -1,0 +1,41 @@
+# Test-only mod for test_separate_private_research.py and
+# test_separate_research_ending.py.
+research:
+  # One player's branch choice: completing DISABLER disables BRANCH.
+  - name: STR_COOP_SR_DISABLER
+    cost: 10
+    points: 1
+    disables:
+      - STR_COOP_SR_BRANCH
+  - name: STR_COOP_SR_BRANCH
+    cost: 10
+    points: 1
+  # A topic learned while Shared Research is on (mode-switch rows).
+  - name: STR_COOP_SR_SHARED_TOPIC
+    cost: 10
+    points: 1
+  # Unlocked when a terror site expires, with two getOneFree bonuses.
+  - name: STR_COOP_SR_DESPAWN_TOPIC
+    cost: 10
+    points: 1
+    getOneFree:
+      - STR_COOP_SR_FREE_1
+      - STR_COOP_SR_FREE_2
+  - name: STR_COOP_SR_FREE_1
+    cost: 10
+  - name: STR_COOP_SR_FREE_2
+    cost: 10
+  # Research-free topics whose completion plays the stock win or lose video,
+  # so finishing one ends the campaign.
+  - name: STR_COOP_SR_WIN_TOPIC
+    cost: 10
+    points: 1
+    cutscene: winGame
+  - name: STR_COOP_SR_LOSE_TOPIC
+    cost: 10
+    points: 1
+    cutscene: loseGame
+
+alienDeployments:
+  - type: STR_TERROR_MISSION
+    unlockedResearchOnDespawn: STR_COOP_SR_DESPAWN_TOPIC

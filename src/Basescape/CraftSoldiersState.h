@@ -31,6 +31,7 @@ class Text;
 class TextList;
 class ComboBox;
 class Base;
+class Craft;
 class Soldier;
 struct SortFunctor;
 
@@ -94,6 +95,8 @@ public:
 	/// Handler for clicking the De-assign All Soldiers button.
 	void btnDeassignAllSoldiersClick(Action *action);
 	void btnDeassignCraftSoldiersClick(Action *action);
+	/// coop: routes a de-assign button through the host (one-world campaigns).
+	bool submitOneWorldDeassign(Craft *craft);
 	/// Harness (PRD-J09): toggle a soldier's assignment by id, driving the same
 	/// path as a left-click (SHARED -> craft_assign command; SEPARATE -> local).
 	void harnessToggle(int soldierId);
@@ -102,12 +105,16 @@ public:
 	std::string harnessUsedText() const;
 	/// Test automation: soldier ids the craft-crew screen displays (own-only in SHARED).
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation: picks sort option @a index through the real handler.
+	void harnessSort(size_t index);
 	/// Test automation (SHARED capacity): numeric shared-craft space, so a test can assert
 	/// both seats agree and the ship is NOT halved. used = combined (all owners aboard),
 	/// available = full max - used, max = the craft's real unit capacity.
 	int harnessSpaceUsed() const;
 	int harnessSpaceAvailable() const;
 	int harnessMaxUnits() const;
+	/// Local player's displayed use (SEPARATE) or combined use (other modes).
+	int displayedSpaceUsed() const;
 };
 
 }

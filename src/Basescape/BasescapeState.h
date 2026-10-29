@@ -19,6 +19,7 @@
  */
 #include "../Engine/State.h"
 #include "../CoopMod/SharedEcon.h"
+#include <cstdint>
 
 namespace OpenXcom
 {
@@ -40,7 +41,7 @@ class BasescapeState : public State
 private:
 	BaseView *_view;
 	MiniBaseView *_mini;
-	Text *_txtFacility, *_txtLocation, *_txtFunds;
+	Text *_txtFacility, *_txtLocation, *_txtFunds, *_txtBaseOwner;
 	TextEdit *_edtBase;
 	TextButton *_btnNewBase, *_btnBaseInfo, *_btnSoldiers, *_btnCrafts, *_btnFacilities, *_btnResearch, *_btnManufacture, *_btnTransfer, *_btnPurchase, *_btnSell, *_btnGeoscape;
 	Base *_base;
@@ -56,6 +57,10 @@ private:
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	/// Re-reads the shared world into the funds label / base view (PRD-J10).
 	void sharedRefresh();
+	/// Recalculate menu permissions whenever the displayed base changes.
+	void updateBaseAccessButtons();
+	/// Show the wallet belonging to the displayed base owner in Separate.
+	void updateFundsLabel();
 public:
 	/// Creates the Basescape state.
 	BasescapeState(Base *base, Globe *globe);
@@ -103,6 +108,9 @@ public:
 	void miniLeftClick(Action *action);
 	/// Handler for clicking the mini base view (right button).
 	void miniRightClick(Action *action);
+	/// Moves the base at <baseIndex> one place left in the base list (the
+	/// mini-base strip's right-click action).
+	void moveBaseLeft(size_t baseIndex);
 	/// Handler for changing the text on the Name edit.
 	void edtBaseChange(Action *action);
 	/// Handler for pressing a base selection hotkey.
@@ -112,6 +120,15 @@ public:
 	/// Test automation: the funds header text (a constructor/init-time cache; only
 	/// changes when the screen is rebuilt, so it proves a live SHARED refresh landed).
 	std::string harnessFundsText() const;
+	int64_t harnessDisplayedFunds() const;
+	/// Test automation: inspect the real Basescape menu after selecting a base.
+	bool harnessButtonVisible(const std::string &button) const;
+	bool harnessBaseOwnerVisible() const;
+	std::string harnessBaseOwnerText() const;
+	std::string harnessBaseName() const;
+	bool harnessForeignBase() const;
+	int harnessMiniBorderColor(const std::string &baseName) const;
+	int harnessMiniDisplaySlot(const std::string &baseName) const;
 };
 
 }

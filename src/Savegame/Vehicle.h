@@ -34,7 +34,10 @@ class Vehicle
 private:
 	const RuleItem *_rules;
 	int _ammo, _size;
-	bool _coop = false;
+	// Runtime battlescape seat. Persistent Separate ownership is stored by
+	// player name because seats may change after loading or reconnecting.
+	int _coop = 0;
+	std::string _ownerPlayerName;
 	int _coopbase = -1;
 	int _coopcraft = -1;
 	std::string _coopcraft_type;
@@ -58,6 +61,8 @@ private:
 	// coop
 	void setCoop(int coop);
 	int getCoop() const;
+	void setOwnerPlayerName(const std::string& ownerPlayerName);
+	const std::string& getOwnerPlayerName() const;
 	void setCoopBase(int base);
 	int getCoopBase() const;
 	void setCoopCraft(int craft);

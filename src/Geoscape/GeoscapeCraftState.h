@@ -67,6 +67,8 @@ public:
 	/// Select target, Patrol) are shown. They are hidden for a peer's coop craft
 	/// so a non-owning player cannot redirect another player's ship.
 	bool testControlButtonsVisible() const;
+	/// Test hook: base identity proves the clicked craft opened the expected dialog.
+	std::string testCraftBaseName() const;
 };
 
 }

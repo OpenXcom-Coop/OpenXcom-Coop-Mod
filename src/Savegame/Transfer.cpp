@@ -32,7 +32,7 @@ namespace OpenXcom
  * Initializes a transfer.
  * @param hours Hours in-transit.
  */
-Transfer::Transfer(int hours) : _hours(hours), _soldier(0), _craft(0), _itemQty(0), _scientists(0), _engineers(0), _delivered(false)
+Transfer::Transfer(int hours) : _hours(hours), _soldier(0), _craft(0), _itemId(0), _itemQty(0), _scientists(0), _engineers(0), _delivered(false)
 {
 }
 
@@ -106,6 +106,7 @@ bool Transfer::load(const YAML::YamlNodeReader& reader, Base *base, const Mod *m
 	reader.tryRead("scientists", _scientists);
 	reader.tryRead("engineers", _engineers);
 	reader.tryRead("delivered", _delivered);
+	reader.tryRead("ownerPlayerName", _ownerPlayerName);
 	return true;
 }
 
@@ -140,6 +141,8 @@ void Transfer::save(YAML::YamlNodeWriter writer, const Base* b, const Mod* mod) 
 	}
 	if (_delivered)
 		writer.write("delivered", _delivered);
+	if (!_ownerPlayerName.empty())
+		writer.write("ownerPlayerName", _ownerPlayerName);
 }
 
 /**
@@ -306,6 +309,8 @@ TransferType Transfer::getType() const
  */
 void Transfer::advance(Base *base)
 {
+	if (_delivered)
+		return;
 	_hours--;
 	if (_hours <= 0)
 	{

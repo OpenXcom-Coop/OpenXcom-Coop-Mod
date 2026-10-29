@@ -318,8 +318,9 @@ struct CoopSession
 	bool lobbyClosed = true;
 	// resume handshake: a client reported its world loaded (CoopState 62/64)
 	bool resumeAck = false;
-	// battle-save resume is two-phase: geoscape world first, then the battle
-	// stream; set while phase two is still owed
+	// A resume snapshot may carry a live battle. Kept until the client confirms
+	// that it adopted the combined authoritative world; legacy peers may still
+	// use the separate battle-stream fallback.
 	bool resumeBattlePending = false;
 	// PRD-11 C8: names of clients that were actually SERVED a resume world blob
 	// this resume cycle. Only an eligible acker gets the battle stream; a
@@ -594,6 +595,17 @@ class connectionTCP
 	// 60-second deadline for that seat; other seats remain free to start votes.
 	static constexpr std::uint32_t VOTE_START_COOLDOWN_MS = 60000;
 	std::vector<std::uint32_t> _voteStarterCooldownUntil;
+	// Different-faction Separate finales wait until every player has closed the
+	// debriefing, then reuse VoteMenu for the continue/end-campaign decision.
+	std::string _pendingFactionFinaleOwner;
+	std::set<int> _factionFinaleReadySeats;
+	bool _localFactionFinaleReady = false;
+	// A Separate client may enter its old Geoscape before the host's post-battle
+	// world snapshot arrives. Do not open the finale vote until that snapshot has
+	// been adopted and the host has released the resume hold.
+	bool _factionFinaleReplicaSynced = false;
+	std::string _endingFactionDisplayName;
+	std::string _endingCutsceneId;
 	VoteMenu* findVoteMenu(std::uint64_t voteId) const;
 	void openVoteMenu();
 	void updateVoteMenu();
@@ -611,6 +623,14 @@ class connectionTCP
 	void finishVote(bool passed);
 	bool runsVoteActionLocally() const;
 	void executeVoteAction(const std::string& action);
+	void tryStartFactionFinaleVote();
+	/// Host: adopt the pending finale persisted in the live save. Returns true
+	/// when the pending owner changed (a reload, or a world without one).
+	bool syncFactionFinaleFromSave();
+	/// Host: record the pending finale owner in the live save.
+	void storeFactionFinaleOwner(const std::string& owner);
+	/// Clear the per-session readiness so both players re-announce it.
+	void resetFactionFinaleReadiness();
 	void readVoteSnapshot(const Json::Value& obj);
 	std::vector<std::string> buildVotePlayerNames(int totalPlayers) const;
 
@@ -677,7 +697,6 @@ class connectionTCP
 	/// (g_lastNextTurnJson). Only reachable via the parallel_state TestServer
 	/// command; never fires in shipped mode. No-op if no next_turn has applied yet.
 	void coopDebugReplayLastNextTurn();
-	void sendBaseFile();
 	void sendMissionFile();
 	/// issue #93: stream the RUNNING skirmish battle to a rejoining client.
 	void streamSkirmishBattleToClient();
@@ -692,6 +711,23 @@ class connectionTCP
 	// and the requesting seat is automatically counted as YES.
 	bool requestVote(const std::string& action, const std::string& title,
 		const std::string& question);
+	/// Queue the different-faction finale choice and synchronize debrief closure.
+	void queueFactionFinaleVote(const std::string& ownerPlayerName);
+	/// Called only while GeoscapeState is actually thinking, after all
+	/// post-debrief screens have closed.
+	void factionFinaleGeoscapeReady();
+	/// Host: re-send a pending finale to a (re)joining client. Called right
+	/// before campaign_begun so the client holds it when it is released.
+	void sendPendingFactionFinale();
+	/// Forget every finale value (main-menu teardown and client teardown).
+	void clearFactionFinaleState();
+	/// Test hook: the finale state as JSON.
+	Json::Value factionFinaleStateForTest() const;
+	const std::string& getEndingFactionDisplayName() const { return _endingFactionDisplayName; }
+	const std::string& getEndingCutsceneId() const { return _endingCutsceneId; }
+	void setEndingCutsceneId(const std::string& id) { _endingCutsceneId = id; }
+	/// Select the local player's faction for a Separate end-game statistics screen.
+	void prepareLocalEndingFactionDisplayName();
 	// Casts the local seat's vote. Duplicate votes are rejected.
 	bool castVote(std::uint64_t voteId, bool yes);
 	bool hasVoteInProgress() const { return _activeVote.active || _voteRequestPending; }
@@ -769,10 +805,21 @@ class connectionTCP
 	bool isCoopSession(); // is the co-op session created? (does not consider whether a player has joined)
 	void setCoopSession(bool session);
 	void setServerOwner(bool owner);
+	// Rebuild Separate's local purple/own-base presentation from persistent
+	// owner names after this process's seat is known or a streamed world lands.
+	void refreshSeparateBaseOwnership();
+	/// Leave the session from this machine and return to the main menu
+	/// (same teardown as Abandon / Save & Quit; the peer sees a player drop).
+	void leaveSessionToMainMenu();
 	static bool _coopCampaign;
 	void setCoopCampaign(bool coop);
 	static int _coopGamemode; // no mode = 0, PVE = 1, PVP = 2, PVP2 = 3, PVE2 = 4,
-	static int coop_save_owner_player_id; // ID of the player who owns the co-op save 
+	static int coop_save_owner_player_id; // ID of the player who owns the co-op save
+	/// Value a just-loaded save may leave in coop_save_owner_player_id. In the
+	/// single-world campaigns the stored value is the writer's seat, not this
+	/// machine's, so it never overrides the local role. PvP and
+	/// custom battles use the loaded value as is: it names the battle host.
+	static int loadedSaveOwnerId(int storedOwnerId, bool singleWorldCampaign);
 	// PRD-J01: campaign economy model carried to a joining client during the
 	// lobby handshake (before its save exists) so the type label can render.
 	// 0 = Separate, 1 = Shared. Mirrors SavedGame::getCampaignType().
@@ -781,12 +828,21 @@ class connectionTCP
 	// PRD-J01: true when the ACTIVE save is a SHARED co-op campaign. Every later
 	// SHARED-gated behavior tests this; SEPARATE/solo return false.
 	bool isSharedCampaign();
+	// True only for an actual SEPARATE co-op campaign. Do not replace this with
+	// !isSharedCampaign(): that expression is also true in single-player, PvP,
+	// custom battles, and before an active co-op save has been installed.
+	bool isSeparateCampaign();
 	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
 	static bool isSharedCampaignStatic();
-	// PRD-J02: true for a SHARED client - a world replica the host streams. A
-	// replica never builds its own world, never saves to disk, and never runs
-	// the SEPARATE mirror machinery. (isSharedCampaign() && !host)
+	// Static mirror of isSeparateCampaign() for the same engine-level callers.
+	static bool isSeparateCampaignStatic();
+	// True for a client replica in either host-authoritative campaign type.
+	// Shared and Separate have different economy/permission rules, but neither
+	// client owns a second strategic world or writes a campaign save to disk.
 	bool isSharedReplica();
+	/// True when this machine displays a host-authoritative campaign world.
+	/// Shared and schema-3 Separate clients never simulate Geoscape time locally.
+	bool isCampaignReplica();
 	// PRD-J02: serialize the host's authoritative world fresh and hand it to the
 	// streamer (single-client resume-blob lane) so the connected client adopts
 	// it as its replica. Host only; used at SHARED campaign start and resume.
@@ -956,7 +1012,9 @@ class connectionTCP
 	/// CLIENT: the last `action_deny` it was sent - reason and warning key.
 	/// The flash fades (and BattlescapeState::warning swallows it entirely off
 	/// the player side), so this is the only stable readout of WHY an intent was
-	/// refused. Test introspection; cleared with the request sequence.
+	/// refused. The battle host records its own refused input here too
+	/// (BattlescapeGame::coopRouteAction). Test introspection; cleared with the
+	/// request sequence.
 	static std::string _clientLastDenyReason;
 	static std::string _clientLastDenyWarning;
 
@@ -1152,7 +1210,6 @@ class connectionTCP
 
 	void createCoopMenu();
 	static void sendTCPPacketStaticData2(std::string data);
-	void writeHostMapFile2();
 	void writeHostMapFile();
 	bool writeHostMapSaveProgressFile();
 	void writeHostMapLoadProgressFile();
@@ -1266,7 +1323,7 @@ class connectionTCP
 	int _currentAmmoID = -1;
 	std::string currentAmmoType = "";
 
-	bool _enable_research_sync = true;
+	bool _enable_research_sync = false;
 
 	// SEPARATE research sync: mirror one discovery to the other player (no-op unless
 	// this is a SEPARATE campaign with research sync on). ResearchCompleteState sends
@@ -1288,8 +1345,6 @@ class connectionTCP
 	void coopCertainEventTimer(const std::string& name, long long countdown);
 	void sendCertainEventFire(GeoscapeEvent* ge);
 	void coopCertainEventFire(const std::string& name);
-
-	static bool _enable_time_sync;
 
 	static bool _enable_reaction_shoot;
 
@@ -1417,6 +1472,12 @@ class connectionTCP
 	// monthly_report packet (SHARED). A replica overwrites its own recomputed tails
 	// with these in time1MonthCoop, so funds/maintenance never drift from the host.
 	bool sharedMonthlyPending = false;
+	bool separateMonthlyPending = false;
+	// Separate: the host's debt verdict for the month (combined player funds).
+	bool separateMonthlyDebt = false;
+	bool separateMonthlyWarned = false;
+	Json::Value separateMonthlyPlayerFunds;
+	Json::Value separateMonthlyPlayerCosts;
 	int64_t sharedMonthlyFunds = 0;
 	int64_t sharedMonthlyMaintenance = 0;
 	int64_t sharedMonthlyIncome = 0;
@@ -1453,7 +1514,6 @@ class connectionTCP
 	bool openMultipleTargetsMenu = false;
 
 	static bool no_bases;
-	static bool isCoopBaseLoading;
 
 	// hotseat
 	static bool _isHotseatActive;
@@ -1478,32 +1538,31 @@ class connectionTCP
 	// LOAD_PROGRESS
 	bool _isLoadProgress = false;
 
-	// Transport scratch only: peer base/battlescape payloads plus the served
-	// client-world blobs for the CURRENT session. Never a permanent save
-	// store - the host .sav embed (coopClientSaves) is the durable copy, and
-	// SavedGame::load redefines the served set from it on every load. (Same
-	// intent as the fixes branch: temp data and permanent saves stay
-	// strictly separate.)
+	// Transport scratch for battles, authoritative campaign-world streams and
+	// the distinct player worlds used by PvP. Shared/Separate campaign saves
+	// never persist entries from these maps.
 	// Stores coop files in a hash map instead of separate files in the host folders
 	static std::unordered_map<std::string, std::string> coopFilesHost;
 	// Stores coop files in a hash map instead of separate files in the client folders
 	static std::unordered_map<std::string, std::string> coopFilesClient;
-	// Guards both blob maps: the loopData streamer thread reads them while the
+	// Guards both transfer maps: the loopData streamer thread reads them while the
 	// main thread stores/erases entries. Hold only around map access; copy the
 	// blob out before any long work.
 	static std::mutex coopFilesMutex;
 	static bool hasCoopFile(const std::string& key);
-	// Canonical world-blob keys, scoped by the current saveID:
+	/// True when the host has any valid stored PvP world for this exact player name.
+	static bool hasPvpClientWorld(const std::string& clientName);
+	// PvP-only player-world keys, scoped by the current saveID:
 	// host_<saveID>_<clientName>.data / client_<saveID>_<hostName>.data
-	static std::string hostBlobKey(const std::string& clientName);
-	static std::string clientBlobKey(const std::string& hostName);
-	// Newest stored world blob for a given client, matched by EXACT player-name
+	static std::string pvpHostWorldKey(const std::string& clientName);
+	static std::string pvpClientWorldKey(const std::string& hostName);
+	// Newest stored PvP world for a given client, matched by EXACT player-name
 	// field across any saveID (the host re-mints saveID on every save, so the
 	// stored key's id can lag the current one). Returns nullptr if none. Blob
 	// identity comes from the caller's roster, never from reverse-parsing keys.
 	// CALLER MUST HOLD coopFilesMutex; the returned pointer is valid only while
 	// that lock is held.
-	static const std::string* findHostClientBlob(const std::string& clientName);
+	static const std::string* findPvpClientWorld(const std::string& clientName);
 	// Single authority: may this machine read/write local .sav files right now?
 	// Truth table: solo play -> yes; coop host -> yes; coop client -> no.
 	// Every local save/load gate and Load/Save button-visibility decision must
@@ -1575,6 +1634,9 @@ class connectionTCP
 	static bool loadProgressBusy;
 	static bool forceCloseCoopStateMenu;
 	static bool forceClosePasswordCheckMenu;
+	// One-shot marker carried with a streamed multi-stage battle. The receiver
+	// uses it to show the new stage's briefing without rebuilding the battle.
+	static bool nextStageBriefing;
 
 	// other
 	static int manuallyAddedServerRemoveID;
@@ -1619,8 +1681,7 @@ class connectionTCP
 	// Serializes the soldier (with its station base id) and sends the
 	// physical-gift packet to the peer.
 	void sendSoldierGiftPacket(Soldier* soldier, int newOwnerId);
-	// Erases the soldier pointer from every base roster (including the
-	// SoldiersState/CraftSoldiersState base_oldsoldiers snapshots).
+	// Erases the soldier pointer from every base roster.
 	void removeSoldierFromLocalBases(Soldier* soldier);
 	// In-battle gifts waiting for the mission to end. Snapshot the craft id and
 	// type while the battle world is still alive: Soldier::getCraft() may keep a
@@ -1643,10 +1704,8 @@ class connectionTCP
 	// Soldiers gifted away are parked here instead of deleted: UI states
 	// (sort snapshots, open dialogs) may still hold pointers to them.
 	std::vector<Soldier*> _giftedSoldiers;
-	// Ids of soldiers gifted away this session. A stale copy of one of
-	// these can resurrect when the pre-visit "basehost" snapshot is restored;
-	// the sweep in processPendingSoldierGifts() parks exactly those (and
-	// nothing else - legacy saves carry unrelated ownerPlayerId values).
+	// Ids of soldiers gifted away this session. The cleanup sweep parks exactly
+	// these and nothing else; legacy saves can contain unrelated owner ids.
 	std::unordered_set<int> _giftedAwaySoldierIds;
 	// Counter feeding the unique per-packet gift id, plus the in-memory
 	// duplicate-delivery guard (sufficient now: the host's save is the single
@@ -1671,15 +1730,11 @@ class connectionTCP
 	// the host on reconnect. To keep the embedded blob fresh, the client
 	// silently pushes its progress to the host after every soldier gift.
 	void pushProgressToHostSilently();
-	// Fix B (Bug 1): when the client assigns/unassigns its guest soldiers to a
-	// host craft via the mirror-base UI, the assignment is written only into the
-	// "basehost" blob (the client's copy of the HOST world). The client's OWN
-	// world blob (client_<saveID>_<host>.data) - which GeoscapeState reloads at
-	// mission end - is never updated, so the guest's CoopCraft reverts to its
-	// stale value (unassigned) after a battle. This durably mirrors the
-	// per-guest CoopCraft/CoopCraftType into the own-world blob (and pushes it
-	// to the host) so the assignment survives the mission-end reload.
-	// assignments maps a guest's CoopName to {CoopCraft, CoopCraftType}.
+	// New SEPARATE campaign only: contribute the client's freshly placed first
+	// base to the host world once. The transient transfer is discarded after
+	// merge and is never embedded as a player-world save.
+	void sendInitialSeparateBaseToHost();
+	// Legacy multi-world PvP helper. Campaigns never call this path.
 	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);
 	// Clears session gift state (pending queues, dedup ids, away-ids)
 	// after a save load - stale in-memory state must never outlive the save

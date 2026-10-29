@@ -130,17 +130,30 @@ def through_inventory(host, client, drops):
 
 
 def separate_landing(host, client, lander):
-    """Fly the lander's first craft to a fresh site and confirm the coop landing."""
-    b0 = base0(lander)
-    if not b0["crafts"]:
-        raise Inconclusive(lander.name + ": no craft")
-    cid = b0["crafts"][0]["id"]
+    """Fly the lander's first craft to a fresh site and confirm the coop landing.
+
+    Separate is one host world: the host spawns the site next to the lander's own
+    base and simulates the flight, so the craft is forced en route on both machines
+    (the replica only mirrors it). The lander, the craft's owner, answers the prompt."""
+    owner = "HostPlayer" if lander is host else "ClientPlayer"
+    b0 = next((b for b in host.ok({"cmd": "geo_state"})["bases"]
+               if b.get("ownerPlayerName") == owner), None)
+    if not b0 or not b0["crafts"]:
+        raise Inconclusive(lander.name + ": no own base with a craft")
+    craft = b0["crafts"][0]
     mission, deployment, race = SITE
-    site = lander.ok({"cmd": "spawn_mission_site", "mission": mission,
-                      "deployment": deployment, "lon": b0["lon"] + 0.35,
-                      "lat": b0["lat"] + 0.10, "race": race, "hours": 240})["site_id"]
-    lander.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT", "lon": b0["lon"] + 0.34,
-               "lat": b0["lat"] + 0.10, "dest": f"site:{site}", "fuel": 999999, "lowFuel": False})
+    site = host.ok({"cmd": "spawn_mission_site", "mission": mission,
+                    "deployment": deployment, "lon": b0["lon"] + 0.35,
+                    "lat": b0["lat"] + 0.10, "race": race, "hours": 240})["site_id"]
+    client.wait_for("mission site replicated",
+                    lambda: any(s["id"] == site for s in
+                                client.ok({"cmd": "geo_state"})["missionSites"]) or None,
+                    timeout=30, interval=0.3)
+    for gc in (client, host):
+        gc.ok({"cmd": "craft_force", "base": b0["name"], "craft_id": craft["id"],
+               "craft_type": craft["type"], "status": "STR_OUT", "lon": b0["lon"] + 0.34,
+               "lat": b0["lat"] + 0.10, "dest": f"site:{site}", "fuel": 999999,
+               "lowFuel": False})
 
     def landing():
         if has(lander, "ConfirmLandingState"):
@@ -231,9 +244,11 @@ def separate_row(results, row, lander_role, tag, ports, resume):
                 geo.drain_popups(gc)
         lander = client if lander_role == "client" else host
         separate_landing(host, client, lander)
-        # SEPARATE: every soldier in the battle is the lander's (coop 0 there)
-        through_inventory(host, client, [(lander, 0)])
-        results[row] = first_sidestart(host, client, lander)
+        # SEPARATE: every soldier in the battle is the lander's. The server owner
+        # stays battle host for a client's mission too, and unit coop counts from
+        # the battle host, so the client's soldiers are coop 1.
+        through_inventory(host, client, [(lander, 0 if lander is host else 1)])
+        results[row] = first_sidestart(host, client, host)
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
         for gc in (host, client):

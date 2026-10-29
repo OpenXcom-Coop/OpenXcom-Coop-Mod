@@ -53,6 +53,10 @@ enum CoopDialogCode {
 	COOP_DLG_WAIT_PLAYERS     = 62,
 	COOP_DLG_CLIENT_HOLD      = 65, // client placed base, holds until host resumes
 	COOP_DLG_CLIENT_RESUME_HOLD = 68, // rejoined client holds until host resumes
+	COOP_DLG_MAP_DOWNLOAD       = 69, // blocks the old battle while requesting a new map
+	COOP_DLG_SAVED_MAP_DOWNLOAD = 70, // blocks while requesting a saved battle map
+	COOP_DLG_REVERSE_MAP_DOWNLOAD = 71, // blocks the temporary reverse-role map transfer
+	COOP_DLG_WORLD_DOWNLOAD     = 72, // blocks while requesting a campaign world
 	COOP_DLG_SHARED_FAIL       = 556, // PRD-J10: the host rejected a SHARED command
 	COOP_DLG_CONFIRM_EQUIP_CRAFT = 557, // lock the Custom Battle craft before equipment
 	COOP_DLG_VOTE_COOLDOWN = 558, // a seat tried to start another vote too soon
@@ -74,6 +78,10 @@ class CoopState : public State
 	// missing peer may never end. Only ever built/shown for isHostWaitDialog().
 	TextButton *_btnSaveQuit, *_btnAbandon;
 	int global_state = 0;
+	// The download dialog state whose request this dialog already sent. init()
+	// runs again whenever the dialog returns to the top (an error popup over it),
+	// and must not ask the host for the same transfer again.
+	int _downloadRequestedState = -1;
 	int state_counter = 0;
 	int _value = 0; // optional dialog-specific numeric value
 	// PRD-11 C13: retry bookkeeping for the client load-wait dialog (52). When
@@ -93,6 +101,7 @@ class CoopState : public State
 	CoopState(int state, int value = 0);
 	/// Cleans up the Pause state.
 	~CoopState();
+	void init() override;
 	void loadCoop(Action *);
 	void previous(Action *);
 	void btnYesClick(Action *);
@@ -101,6 +110,12 @@ class CoopState : public State
 	/// issue #81: ABANDON GAME - leave for the main menu, writing nothing.
 	void btnAbandonClick(Action *);
 	void loadWorld();
+	/// Continue a two-phase campaign resume in this same dialog by requesting
+	/// the saved Battlescape snapshot from the host.
+	void requestSavedBattleMap();
+	/// Turn the lobby's existing client load wait into the active campaign-world
+	/// download instead of stacking a second dialog on top of it.
+	void requestCampaignWorld();
 	/// Issues #79/#81: place a host-wait dialog's title + button row, measured
 	/// from the window. `withAction` puts RESUME/BEGIN in the row instead of
 	/// the escape hatch.
@@ -146,6 +161,17 @@ class CoopState : public State
 			|| global_state == COOP_DLG_WAIT_PLAYERS
 			|| global_state == COOP_DLG_CLIENT_HOLD
 			|| global_state == COOP_DLG_CLIENT_RESUME_HOLD;
+	}
+	static bool isMapDownloadDialog(int code)
+	{
+		return code == COOP_DLG_MAP_DOWNLOAD
+			|| code == COOP_DLG_SAVED_MAP_DOWNLOAD
+			|| code == COOP_DLG_REVERSE_MAP_DOWNLOAD;
+	}
+	static bool isWorldDownloadDialog(int code)
+	{
+		return code == COOP_DLG_CLIENT_LOAD_WAIT
+			|| code == COOP_DLG_WORLD_DOWNLOAD;
 	}
 	/// Runs the timers and handles popups.
 	void think() override;
