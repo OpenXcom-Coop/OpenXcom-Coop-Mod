@@ -1,36 +1,42 @@
 """test_campaign_gm3_basedef.py: an attack on the X-COM player's own base in a gm3 PvP campaign (host = the aliens,
-client = X-COM). The X-COM player's base defence is handed to the alien host, which runs it in the X-COM player's borrowed world; both play
-it; X-COM wins; the X-COM player's world keeps the result (S-C2's return) and the alien host goes home to its own world.
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md AMENDMENT SC-4 (SC4-6, SC4-7, SC4-8 file A row B1, FX5B-2, FX5B-11 .. FX5B-15) and its
-ORCHESTRATOR RULINGS (QC5B-1 .. QC5B-7 (a)); owner D250, O1 (a); D154; F13994, F15516 .. F15519. TASK 0 pins: docs
-rewrite/d250u-task0/sc5b2/CONSTANTS.md (P-C5b2 2/2 on boots Ba2 / Ba3; the green premise boot Bb; the walls).
+client = X-COM). The X-COM player's base defence is handed to the alien host, which runs it in the X-COM player's
+borrowed world; both play it; X-COM wins; the X-COM player's world keeps the result and the alien host goes home to its
+own world. The pinned values (title, map fingerprint, bounds) were measured on several boots.
 
-Boot B: gm3, key 48028, dirs d250uc5b2_b_host / _client. Bring-up (FX5B-2): PF.start_pvp_campaign(alien_player="host"), HOST0 / CLIENT0,
-gamemode 3 on both / host noBases true / client false as preconditions, geo.slow_clock. FX5B-11: client give_items STR_TANK_LASER_CANNON
-x1, TANK0 = the client's base_report storage. FX5B-12 as TASK 0 measured it: the client's spawn_base_assault UFO never arrives (DESTROYED at
-its first waypoint with the tank still in the stores, boots I / Ba / Ba2 / Ba3, F16170), so the attack is FX5B-12's stated fallback, QC5B-7
-(b)'s route: client spawn_ufo (W2-H24's arguments) + client trigger_base_defense {ufo_id} (the handler direct, logged; no setupDefenses
-on the client: B1-return's tank value is EVIDENCE only, as FX5B-12 says). Then geo_set_speed idx 1 on both until the client's top is
-CoopState code 3 or the UFO is gone from the client's globe (<= ARRIVE_S, plain popups drained), then idx 0. The waits that need the
-hand-off (both inBattle, the battle) run only after it (client pvpBorrow.sent +1 or its CoopState 3 seen). A bring-up or staging miss is a
-setup failure: ONE "CAPTURE B:" line (both stacks, battle_state phase / side / turn / missionType, coop_dialog_info, get_coop, the last 40
-engine log lines) and every remaining cell FAILs "boot".
-Row B1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked: <why>"):
-  B1-hand    client top CoopState code 3 <= ARRIVE_S of the attack; client pvpBorrow sent / pushed / held +1; host borrowed +1, kind
-             "baseDefense", targetKind "base", targetMirror false; both inBattle <= ENTRY_S; the spine passed; both missionType
-             STR_BASE_DEFENSE.
-  B1-seats   census equal on both: faction 0 on seat 1 (soldier ids a non-empty subset of CLIENT0's soldiers plus one STR_TANK_LASER_CANNON
-             vehicle unit), faction 1 on seat 0 with hasAI false; host geo_state real bases == CLIENT0's; host pvpBorrow.active true.
-  B1-host    (FX5B-13: host kill_all faction 1; while no host DebriefingState: client END TURN, the host's NextTurnState closed) host
-             DebriefingState <= DEBRIEF_S, title TITLE_B, displayOnly false; its page 3 Sell and Transfer hidden.
-  B1-client  client display-only DebriefingState <= CLIENT_DEBRIEF_S; BES.debrief_view equal on BES.DEBRIEF_FIELDS.
-  B1-return  (FX5B-14: the client's OK first) client geo_clean <= OK_S; battleEnd.debriefOkBranch "campaign-client-borrowed",
-             worldAdopted 1; the client's real base present; client noBases false. Its tank storage vs TANK0: EVIDENCE (fallback route).
-  B1-alien   (the host's OK) host geo_clean <= HOST_OK_S; noBases true; funds and real bases == HOST0; pvpBorrow.active false;
-             home == parked; fate {kind "base", coopId == targetCoopId, action "untouched"}.
-  B1-common  desyncSeen false on both; 0 new crash files since the row's start; assert_hash_clean(full=True) EQUAL before the kills.
-RED (C5B2R on 9eacec774): exit 2, 0/7 - B1-hand FAILs (P-C5b2: the client clears the defence and starts nothing, no hand-off, no borrow,
-no battle); the other six FAIL "blocked: no borrowed base defence (B1-hand)". GREEN (C5B2G): 7/7.
+Boot: gm3, key 48028, dirs campaign_gm3_basedef_host / _client. Bring-up: PF.start_pvp_campaign(alien_player="host"),
+HOST0 / CLIENT0, gamemode 3 on both / host noBases true / client false as preconditions, geo.slow_clock. The tank:
+client give_items STR_TANK_LASER_CANNON x1, TANK0 = the client's base_report storage. The attack: the client's
+spawn_base_assault UFO never arrives (DESTROYED at its first waypoint with the tank still in the stores, on four boots),
+so the attack is a client spawn_ufo (the UFO arguments) + client trigger_base_defense {ufo_id} (the handler called
+directly, logged; no setupDefenses on the client, so client_return's tank value is EVIDENCE only). Then geo_set_speed
+idx 1 on both until the client's top is CoopState code 3 or the UFO is gone from the client's globe (<= ARRIVE_S, plain
+popups drained), then idx 0. The waits that need the hand-off (both inBattle, the battle) run only after it (client
+pvpBorrow.sent +1 or its CoopState 3 seen). A bring-up or staging miss is a setup failure: ONE "CAPTURE boot:" line
+(both stacks, battle_state phase / side / turn / missionType, coop_dialog_info, get_coop, the last 40 engine log lines)
+and every remaining cell FAILs "boot".
+Row base_defense (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never
+reached FAILs "blocked: <why>"):
+  hand_off        client top CoopState code 3 <= ARRIVE_S of the attack; client pvpBorrow sent / pushed / held +1;
+                  host borrowed +1, kind "baseDefense", targetKind "base", targetMirror false; both inBattle
+                  <= ENTRY_S; the spine passed; both missionType STR_BASE_DEFENSE.
+  seat_census     census equal on both: faction 0 on seat 1 (soldier ids a non-empty subset of CLIENT0's soldiers plus
+                  one STR_TANK_LASER_CANNON vehicle unit), faction 1 on seat 0 with hasAI false; host geo_state real
+                  bases == CLIENT0's; host pvpBorrow.active true.
+  host_debrief    (host kill_all faction 1; while no host DebriefingState: client END TURN, the host's NextTurnState
+                  closed) host DebriefingState <= DEBRIEF_S, title TITLE_WIN, displayOnly false; its page 3 Sell and
+                  Transfer hidden.
+  client_debrief  client display-only DebriefingState <= CLIENT_DEBRIEF_S; BES.debrief_view equal on
+                  BES.DEBRIEF_FIELDS.
+  client_return   (the client's OK first) client geo_clean <= OK_S; battleEnd.debriefOkBranch
+                  "campaign-client-borrowed", worldAdopted 1; the client's real base present; client noBases false.
+                  Its tank storage vs TANK0: EVIDENCE (no setupDefenses on the client).
+  alien_home      (the host's OK) host geo_clean <= HOST_OK_S; noBases true; funds and real bases == HOST0;
+                  pvpBorrow.active false; home == parked; fate {kind "base", coopId == targetCoopId, action
+                  "untouched"}.
+  no_desync       desyncSeen false on both; 0 new crash files since the row's start; assert_hash_clean(full=True)
+                  EQUAL before the kills.
+A failure looks like this: exit 2, 0/7 - hand_off FAILs (the client clears the defence and starts nothing: no
+hand-off, no borrow, no battle); the other six FAIL "blocked: no borrowed base defence (hand_off)".
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_basedef.py
 """
@@ -53,18 +59,19 @@ import test_campaign_battle_gm2 as G2F  # noqa: E402
 import test_campaign_battle_gm3_end as G3E  # noqa: E402
 import test_shared_page3 as P3  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sc5b2/CONSTANTS.md; boots Ba2 / Ba3 red, Bb green) -----
+# ----- pins -----
 KEY = "48028"
-TANK = "STR_TANK_LASER_CANNON"               # FX5B-11 (TANK0 1 in 4/4 boots)
+TANK = "STR_TANK_LASER_CANNON"               # the tank given to the client (TANK0 1 in 4/4 boots)
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
-       "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}     # FX5B-12 fallback (QC5B-7 (b), W2-H24's arguments)
+       "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}     # the attacking UFO (see the module docstring)
 MISSION = "STR_BASE_DEFENSE"
-TITLE_B = "Base is saved"                    # FX5B-15 (Bb, Rb)
-MAP_FP = 8.531978294236504e+18               # EVIDENCE only (Bb, Rb; STOP-IF 13's rule)
+TITLE_WIN = "Base is saved"                    # the host's debriefing title after the win
+MAP_FP = 8.531978294236504e+18               # EVIDENCE only; a mismatch never fails
 KEEP = ("CoopState", "BriefingState", "BattlescapeState", "BaseDefenseState", "DebriefingState", "ConfirmLandingState", "Profile")
-# ----- bounds (s; TASK 0 measured: hand-off 0.35, both inBattle 1.71, host debriefing 0.05 after the end turn, client 0.05, OKs 0.35 / 0.05) -
+# ----- bounds (s) -----
+# measured: hand-off 0.35, both inBattle 1.71, host debriefing 0.05 after the end turn, client 0.05, OKs 0.35 / 0.05
 ARRIVE_S, ENTRY_S, DEBRIEF_S, CLIENT_DEBRIEF_S, OK_S, HOST_OK_S = 30, 60, 60, 20, 10, 60
-CELLS = ["B1-hand", "B1-seats", "B1-host", "B1-client", "B1-return", "B1-alien", "B1-common"]
+CELLS = ["hand_off", "seat_census", "host_debrief", "client_debrief", "client_return", "alien_home", "no_desync"]
 RESULTS = []          # (cell, ok, detail)
 
 
@@ -153,12 +160,12 @@ def capture_boot(err, host, client):
                             "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE B: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE boot: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
 def bring_up(host, client, ev):
-    """FX5B-2: G3E's bring_up with this file's KEY (no HOST_SQ0)."""
+    """test_campaign_battle_gm3_end's bring_up with this file's KEY (no HOST_SQ0)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, KEY, alien_player="host")
@@ -176,7 +183,7 @@ def bring_up(host, client, ev):
                "base": xb and xb.get("name"), "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0, gamemode=[ch.get("gamemode"), cc.get("gamemode")])
     if not (ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False):
-        capture_boot(f"bring-up preconditions (FX5B-2): gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
+        capture_boot(f"bring-up preconditions: gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
                      f"noBases host {ch.get('noBases')!r} client {cc.get('noBases')!r} (want true / false)", host, client)
     if not xb or not sids:
         capture_boot(f"the client has no real base / soldiers (base {xb and xb.get('name')}, soldiers {sids})", host, client)
@@ -185,21 +192,21 @@ def bring_up(host, client, ev):
 
 
 def attack(host, client, client0, ev):
-    """FX5B-11 (the tank) and FX5B-12 (the attack: the stated fallback route, see the docstring). Returns the attack record."""
+    """The tank, then the attack (the spawn_ufo route, see the module docstring). Returns the attack record."""
     a = ev.setdefault("attack", {})
     gi = client.cmd({"cmd": "give_items", "item": TANK, "count": 1})
     st0 = storage(client)
     a.update(giveItems=gi, TANK0=st0["tank"], storageBefore=st0, pvpBefore={"host": pvp(host), "client": pvp(client)})
     if not gi.get("ok") or st0["name"] != client0["base"]:
-        capture_boot(f"client give_items {TANK}: {gi}, base_report {st0} (FX5B-11: the item missing = setup failure)", host, client)
+        capture_boot(f"client give_items {TANK}: {gi}, base_report {st0} (the item missing = setup failure)", host, client)
     su = client.cmd(dict(UFO))
     if not su.get("ok"):
-        capture_boot(f"client spawn_ufo (FX5B-12 fallback): {su}", host, client)
+        capture_boot(f"client spawn_ufo: {su}", host, client)
     tb = client.cmd({"cmd": "trigger_base_defense", "ufo_id": su.get("ufo_id")})
     ta = time.time()
     a.update(spawnUfo=su, trigger=tb, stacksAfterTrigger=[stack(host), stack(client)])
     if not tb.get("ok") or tb.get("base") != client0["base"]:
-        capture_boot(f"client trigger_base_defense {tb} (want base {client0['base']!r}, FX5B-12)", host, client)
+        capture_boot(f"client trigger_base_defense {tb} (want base {client0['base']!r})", host, client)
     a["speed1"] = [gc.cmd({"cmd": "geo_set_speed", "idx": 1}).get("ok") for gc in (host, client)]
     how, coop3, drained = None, None, []
     while time.time() - ta < ARRIVE_S:
@@ -222,17 +229,17 @@ def attack(host, client, client0, ev):
     return a, ta
 
 
-def b1_hand(host, client, a, ta, ev, ctx):
+def check_hand_off(host, client, a, ta, ev, ctx):
     p0 = a["pvpBefore"]
     d = lambda new, old, k: (new.get(k) or 0) - (old.get(k) or 0)  # noqa: E731
     if not a["handed"]:
         hb, cb, hp, cp = bview(host), bview(client), pvp(host), pvp(client)
         ev.update(noHandOff={"battle": [hb, cb], "pvp": {"host": hp, "client": cp}, "stacks": [stack(host), stack(client)]})
-        cell("B1-hand", False, f"no hand-off (P-C5b2): the attack ended with {a['ended']} {a['endedS']} s after the trigger, the client's top "
+        cell("hand_off", False, f"no hand-off: the attack ended with {a['ended']} {a['endedS']} s after the trigger, the client's top "
              f"never CoopState code 3; client pvpBorrow sent / pushed / held +{d(cp, p0['client'], 'sent')} / "
              f"+{d(cp, p0['client'], 'pushed')} / +{d(cp, p0['client'], 'held')}, host borrowed +{d(hp, p0['host'], 'borrowed')}; "
              f"inBattle host / client {[hb.get('inBattle'), cb.get('inBattle')]} (stacks host {stack(host)} client {stack(client)})")
-        ctx["blocked"] = "no borrowed base defence (B1-hand)"
+        ctx["blocked"] = "no borrowed base defence (hand_off)"
         return {}
     ok, secs = BES.wait_until(lambda: bool(bview(host).get("inBattle")) and bool(bview(client).get("inBattle")), ENTRY_S)
     ev.update(entryS=secs, stacksAtEntry=[stack(host), stack(client)])
@@ -251,17 +258,17 @@ def b1_hand(host, client, a, ta, ev, ctx):
     else:
         bad += [f"{nm} missionType {b.get('missionType')!r} (want {MISSION!r})" for nm, b in (("host", hb), ("client", cb))
                 if b.get("missionType") != MISSION]
-    cell("B1-hand", not bad, "; ".join(bad) or f"the client held on CoopState 3 ({a['coop3S']} s after the attack); client sent / pushed / "
+    cell("hand_off", not bad, "; ".join(bad) or f"the client held on CoopState 3 ({a['coop3S']} s after the attack); client sent / pushed / "
          f"held +1; host borrowed +1, baseDefense, target base {hp.get('targetCoopId')} (not a mirror); both inBattle {secs} s; spine "
          f"passed; {MISSION} on both")
     if not hb.get("inBattle") or d(hp, p0["host"], "borrowed") != 1:
-        ctx["blocked"] = "no borrowed base defence (B1-hand)"
+        ctx["blocked"] = "no borrowed base defence (hand_off)"
     elif not (ok and sp_ok):
-        ctx["blocked"] = "both machines never reached the borrowed battlescape (B1-hand)"
+        ctx["blocked"] = "both machines never reached the borrowed battlescape (hand_off)"
     return hp
 
 
-def b1_seats(host, client, client0, ev, ctx):
+def check_seats(host, client, client0, ev, ctx):
     hcen, ccen = census(host), census(client)
     ctx["hash"] = attempt(lambda: session.assert_hash_clean(host, client, full=True, what="before the kills"), "EQUAL")
     hp, hg = pvp(host), host.ok({"cmd": "geo_state"})
@@ -284,11 +291,11 @@ def b1_seats(host, client, client0, ev, ctx):
     bad += [f"host real bases {G3E.real_bases(hg)} (want CLIENT0's {client0['realBases']}: the live world is X-COM's)"] \
         if G3E.real_bases(hg) != client0["realBases"] else []
     bad += [f"host pvpBorrow.active {hp.get('active')!r} (want true)"] if hp.get("active") is not True else []
-    cell("B1-seats", not bad, "; ".join(bad) or f"census equal on both ({len(hcen)} units): X-COM soldiers and the {TANK} on seat 1, faction 1 "
+    cell("seat_census", not bad, "; ".join(bad) or f"census equal on both ({len(hcen)} units): X-COM soldiers and the {TANK} on seat 1, faction 1 "
          "on seat 0 without AI; the host's live world holds CLIENT0's bases; host borrows (active)")
 
 
-def b1_end(host, client, client0, host0, hp_hand, ev, ctx):
+def check_end(host, client, client0, host0, hp_hand, ev, ctx):
     a = ev.setdefault("end", {})
     ctx["desync"] = [event_state(host).get("desyncSeen"), event_state(client).get("desyncSeen")]
     G2F.kill_all(host, client, 1, a, "kills")
@@ -299,16 +306,16 @@ def b1_end(host, client, client0, host0, hp_hand, ev, ctx):
     hdeb = G3E.deb(host)
     ev["hostDebrief"] = {k: v for k, v in hdeb.items() if k != "widgets"}
     if not ok:
-        cell("B1-host", False, f"no host DebriefingState within {DEBRIEF_S} s (stack {stack(host)})")
-        ctx["blocked"] = "the host's debriefing never opened (B1-host)"
+        cell("host_debrief", False, f"no host DebriefingState within {DEBRIEF_S} s (stack {stack(host)})")
+        ctx["blocked"] = "the host's debriefing never opened (host_debrief)"
         return
     flip = P3.to_page2(host)
     hp3 = G3E.page3(host)
     ev["hostPage3"] = dict(hp3, flipped=flip)
-    hbad = [f"debrief_state.{k}={hdeb.get(k)!r} (want {w!r})" for k, w in (("title", TITLE_B), ("displayOnly", False)) if hdeb.get(k) != w]
+    hbad = [f"debrief_state.{k}={hdeb.get(k)!r} (want {w!r})" for k, w in (("title", TITLE_WIN), ("displayOnly", False)) if hdeb.get(k) != w]
     hbad += [f"page 3 not reached (page {hp3.get('page')}, onTop {hp3.get('onTop')})"] if hp3.get("page") != 2 else []
-    hbad += [f"page 3 {k} {hp3.get(k)!r} (want false, D154)" for k in ("sellVisible", "transferVisible") if hp3.get(k) is not False]
-    cell("B1-host", not hbad, "; ".join(hbad) or f"host DebriefingState {secs} s, title {TITLE_B!r}, displayOnly false; page 3 Sell and "
+    hbad += [f"page 3 {k} {hp3.get(k)!r} (want false)" for k in ("sellVisible", "transferVisible") if hp3.get(k) is not False]
+    cell("host_debrief", not hbad, "; ".join(hbad) or f"host DebriefingState {secs} s, title {TITLE_WIN!r}, displayOnly false; page 3 Sell and "
          "Transfer hidden")
     cok, csecs = BES.wait_until(lambda: (lambda d: d.get("shown") is True and d.get("onTop") is True
                                          and d.get("displayOnly") is True)(G3E.deb(client)), CLIENT_DEBRIEF_S)
@@ -317,8 +324,9 @@ def b1_end(host, client, client0, host0, hp_hand, ev, ctx):
     ev["clientDebrief"] = {k: v for k, v in cdeb.items() if k != "widgets"}
     cbad = [] if cok else [f"no client display-only DebriefingState within {CLIENT_DEBRIEF_S} s (stack {stack(client)})"]
     cbad += [f"client {k}={cv.get(k)!r} != host {hv.get(k)!r}" for k in BES.DEBRIEF_FIELDS if cok and cv.get(k) != hv.get(k)]
-    cell("B1-client", not cbad, "; ".join(cbad) or f"client display-only debriefing {csecs} s, equal on DEBRIEF_FIELDS")
-    # FX5B-14: the client's OK first
+    cell("client_debrief", not cbad,
+         "; ".join(cbad) or f"client display-only debriefing {csecs} s, equal on DEBRIEF_FIELDS")
+    # the client's OK first
     t_ok = time.time()
     pk = BES.press_ok(client)
     _reached, screens = BES.drain(client, timeout=OK_S)
@@ -334,7 +342,7 @@ def b1_end(host, client, client0, host0, hp_hand, ev, ctx):
     rbad += [f"the client's real bases {G3E.real_bases(cg)} (want its base {client0['base']!r} present)"] \
         if client0["base"] not in [b["name"] for b in G3E.real_bases(cg)] else []
     rbad += [f"client noBases {cco.get('noBases')!r} (want false)"] if cco.get("noBases") is not False else []
-    cell("B1-return", not rbad, "; ".join(rbad) or f"client geo_clean; campaign-client-borrowed, worldAdopted 1; {client0['base']} present; "
+    cell("client_return", not rbad, "; ".join(rbad) or f"client geo_clean; campaign-client-borrowed, worldAdopted 1; {client0['base']} present; "
          f"noBases false (tank {cst['tank']} vs TANK0 {ev['attack']['TANK0']}: EVIDENCE)")
     # the host's OK: never drain a CoopState 994
     hk = BES.press_ok(host)
@@ -353,11 +361,11 @@ def b1_end(host, client, client0, host0, hp_hand, ev, ctx):
         ([f"host pvpBorrow.home {pv.get('home')} != parked {pv.get('parked')}"] if pv.get("home") != pv.get("parked") else [])
     want = {"kind": "base", "coopId": hp_hand.get("targetCoopId"), "action": "untouched"}
     abad += [f"host pvpBorrow.fate {pv.get('fate')!r} (want {want})"] if pv.get("fate") != want else []
-    cell("B1-alien", not abad, "; ".join(abad) or f"host geo_clean ({hgs} s), noBases true, funds and real bases == HOST0, active false, "
+    cell("alien_home", not abad, "; ".join(abad) or f"host geo_clean ({hgs} s), noBases true, funds and real bases == HOST0, active false, "
          f"home == parked, fate {want}")
 
 
-def b1_common(host, client, ctx, crash0):
+def check_common(host, client, ctx, crash0):
     if "desync" not in ctx:
         ctx["desync"] = [event_state(host).get("desyncSeen"), event_state(client).get("desyncSeen")]
     after = [event_state(host).get("desyncSeen"), event_state(client).get("desyncSeen")]
@@ -366,34 +374,34 @@ def b1_common(host, client, ctx, crash0):
         if ctx["desync"] != [False, False] or after != [False, False] else []
     bad += [f"hash_now full before the kills: {ctx['hash'][1]}"] if not ctx["hash"][0] else []
     bad += [f"{len(new)} new crash file(s) since the row's start (first {os.path.basename(new[0])})"] if new else []
-    cell("B1-common", not bad, "; ".join(bad) or "desyncSeen false on both; hash EQUAL before the kills; 0 new crash files")
+    cell("no_desync", not bad, "; ".join(bad) or "desyncSeen false on both; hash EQUAL before the kills; 0 new crash files")
 
 
-def run_b1(host, client, host0, client0, ev):
+def run_row(host, client, host0, client0, ev):
     ctx = {"blocked": None}
     crash0 = crash_set()
     a, ta = attack(host, client, client0, ev)
-    hp_hand = b1_hand(host, client, a, ta, ev, ctx)
+    hp_hand = check_hand_off(host, client, a, ta, ev, ctx)
     if ctx["blocked"]:
         block(CELLS, ctx["blocked"])
         return
-    b1_seats(host, client, client0, ev, ctx)
-    b1_end(host, client, client0, host0, hp_hand, ev, ctx)
+    check_seats(host, client, client0, ev, ctx)
+    check_end(host, client, client0, host0, hp_hand, ev, ctx)
     if ctx["blocked"]:
         block(CELLS[:-1], ctx["blocked"])
-    b1_common(host, client, ctx, crash0)
+    check_common(host, client, ctx, crash0)
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("d250uc5b2_b_host"))
-    client = GameClient("client", None, make_user_dir("d250uc5b2_b_client"))
+    host = GameClient("host", None, make_user_dir("campaign_gm3_basedef_host"))
+    client = GameClient("client", None, make_user_dir("campaign_gm3_basedef_client"))
     t0, ev = time.time(), {}
     try:
         try:
             host0, client0 = bring_up(host, client, ev)
-            run_b1(host, client, host0, client0, ev)
+            run_row(host, client, host0, client0, ev)
         finally:
-            print(f"EVIDENCE B1: {json.dumps(dict(ev, wall=round(time.time() - t0, 1)), sort_keys=True, default=str)}", flush=True)
+            print(f"EVIDENCE base_defense: {json.dumps(dict(ev, wall=round(time.time() - t0, 1)), sort_keys=True, default=str)}", flush=True)
     except FixtureMiss as e:
         block(CELLS, f"boot ({str(e)[:200]})")
     except Exception as e:  # noqa: BLE001
@@ -405,8 +413,8 @@ def main():
         finally:
             client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"ROW B1: {'PASS' if not fails else 'FAIL'}" + (f" ({len(fails)} failing: {fails})" if fails else ""), flush=True)
-    print(f"\n==== D250-U S-C5b2 gm3 PvP campaign base defence: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
+    print(f"ROW base_defense: {'PASS' if not fails else 'FAIL'}" + (f" ({len(fails)} failing: {fails})" if fails else ""), flush=True)
+    print(f"\n==== test_campaign_gm3_basedef: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
