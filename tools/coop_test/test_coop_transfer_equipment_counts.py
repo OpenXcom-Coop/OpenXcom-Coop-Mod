@@ -8,9 +8,9 @@ management" option:
         no pending timed transfer and at most five in-game minutes elapsing.
   OFF - nothing moves.
 
-The geoscape clocks run after new_campaign. Allow up to five elapsed in-game
-minutes across the transfer and storage observations, rather than requiring
-a frozen clock. Keep the storage, pending-transfer and conservation checks.
+The geoscape clocks run after new_campaign, so up to five in-game minutes may
+pass across the transfer and storage observations; the storage,
+pending-transfer and conservation checks show the items arrived without a timed transfer.
 
 Several distinct items are equipped (a rocket in one hand, a pistol in the
 other) so multi-item transfer is covered too.

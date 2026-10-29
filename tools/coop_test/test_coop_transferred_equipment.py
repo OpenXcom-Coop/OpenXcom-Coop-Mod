@@ -170,11 +170,11 @@ def scenario_conservation():
         print(f"world rockets before={world_rockets_before}, client base stock={client_stock}")
         assert client_stock > 0, "client base has no rockets to reason about"
 
-        # Peer-local rosters can reuse names. Make the old name-only wait
-        # unsatisfiable so only actual guest delivery can satisfy this test.
+        # Peer-local rosters can reuse names, so the soldier gets a unique name
+        # and only the actual guest delivery can satisfy the wait below.
         picked = next(s for s in hb["soldiers"] if not s.get("craft"))
         soldier_id = picked["id"]
-        soldier = f"F112 XFER {uuid.uuid4().hex}"
+        soldier = f"XFER {uuid.uuid4().hex}"
         host.ok({"cmd": "rename_soldier", "name": picked["name"], "newName": soldier})
 
         hs = host.ok({"cmd": "get_soldiers"})
@@ -203,7 +203,7 @@ def scenario_conservation():
         assert tr.get("transferred"), f"transfer failed: {tr}"
 
         # The host retains the named Soldier; the peer receives a guest census.
-        # Require both signals within the original single 30-second deadline.
+        # Require both signals within one 30-second deadline.
         last_delivery = {}
         def guest_delivered():
             r = host.ok({"cmd": "get_soldiers"})
