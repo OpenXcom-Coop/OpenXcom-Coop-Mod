@@ -1,51 +1,57 @@
-"""R5-U3 S-B rows R2, M2, R1, M1 (boot B2, gm2: the client plays the aliens, seat 1; the host the seven X-COM soldiers,
-seat 0): reaction fire and mind control both ways, the human alien side playing by the player-side rules vanilla gives
-X-COM (R5-V1, QU3-4 (a); O1 (a): the alien player may mind-control only a unit its own side sees).
+"""PvP reaction fire and mind control both ways in gm2 (the client plays the aliens, seat 1; the host the seven X-COM
+soldiers, seat 0), the human alien side playing by the player-side rules vanilla gives X-COM; the alien player may
+mind-control only a unit its own side sees.
 
-Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_react_mc.py, with the orchestrator rulings
-R-U3-B-2 (row order R2, M2, R1, M1: R1's reaction gives A a host AI module, F11585) and register row R5U3-O1 (O1 (a)).
-Constants: rewrite/r5u3-task0/sb/CONSTANTS.md (TASK 0 boots Ba2, Bb2, Bn2 on the unchanged build; every pin equal).
+Row order matters: alien_reacts' reaction gives A a host AI module, so it runs after xcom_reacts and alien_mc. The
+ids, tiles and seeds below were measured equal on three boots without the fix.
 
-Boot B2 (key 48678): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, the TASK 0
-staging (TILES; A's plasma pistol and S3's rifle by lever), the host's END TURN -> side 1 turn 1.
-  R2  X-COM reacts to the alien seat's walk: S3 reactions 100, firing 0, TU; host set_seed SEED_R2; client send_walk.
-      R2-walk   one new host context W {intent, walk, A}; the client's coopIntentsSent.walk +1, inFlight null
-      R2-react  one `reaction` context {actorId S3, nestedIn W}; a `shot` by S3 in it; the client has its seqs;
-                lastWalk.restate halted, reason `reaction` on both
-      R2-alive  A not out, health equal on both
-  M2  the alien seat mind-controls X-COM soldiers (side 1 turn 1): S3 reactions 0; the amp on A; A psiSkill 100; S2,
-      S4, S5 psiStrength 0; TU (both).
-      M2-sees   S2 and S4 in A's spottedThisTurn on the host; S5 Chebyshev >= 21 from every hostile unit (precondition)
-      M2-ui     the client's real-UI MIND CONTROL on S2 (TAB, the right-hand box, key 51, HOME, host set_seed SEED_M2,
-                one click): one new host context {intent, psi, A}; psi +1; S2 faction 1, mindControllerId A on both
-      M2-ctrl   S2's TU cap refilled (both); the client's battle_intent turn for S2 admitted {intent, turn, S2}; S2's
-                facing changed and equal on both
-      M2-lever  the client's psi lever at S4: one new host context {intent, psi, A}; S4 faction 1 on both (E10)
-      M2-unseen the client's psi lever at S5 (unseen): denied invalid_target, S5 unchanged (O1 (a))
-      After M2: S2 / S4 TU 0, reactions 0 (both); then both move by the hash-gated lever to
-      MOVE_AWAY, out of every later walk's sight (on green they stay mind-controlled, so R1's walk would halt on
-      `spot` at S's first turn step).
-  R1  the alien reacts to the X-COM host's walk (side 0 turn 2): the client's END TURN; A's pistol back (lever); A
-      reactions 100, firing 0, TU A_TU; host set_seed SEED_R1; the host's real-UI walk of S.
-      R1-walk / R1-react / R1-alive   as R2 with W {host, walk, S} and the reaction by A; S not out
-      R1-ai     hasAI false for A on the host and on the client after the reaction
-  M1  X-COM mind-controls the alien and the host commands it (side 0 turn 2): the amp on S, S psiSkill 100, A
+Boot (key 48678): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, the staging
+(TILES; A's plasma pistol and S3's rifle by test command), the host's END TURN -> side 1 turn 1.
+  xcom_reacts  X-COM reacts to the alien seat's walk: S3 reactions 100, firing 0, TU; host set_seed XCOM_REACT_SEED;
+      client send_walk.
+      xcom_reacts-walk     one new host context W {intent, walk, A}; the client's coopIntentsSent.walk +1, inFlight
+                           null
+      xcom_reacts-react    one `reaction` context {actorId S3, nestedIn W}; a `shot` by S3 in it; the client has its
+                           seqs; lastWalk.restate halted, reason `reaction` on both
+      xcom_reacts-alive    A not out, health equal on both
+  alien_mc  the alien seat mind-controls X-COM soldiers (side 1 turn 1): S3 reactions 0; the amp on A; A psiSkill 100;
+      S2, S4, S5 psiStrength 0; TU (both).
+      alien_mc-sees        S2 and S4 in A's spottedThisTurn on the host; S5 Chebyshev >= 21 from every hostile unit
+                           (precondition)
+      alien_mc-ui          the client's real-UI MIND CONTROL on S2 (TAB, the right-hand box, key 51, HOME, host
+                           set_seed ALIEN_MC_SEED, one click): one new host context {intent, psi, A}; psi +1; S2
+                           faction 1, mindControllerId A on both
+      alien_mc-ctrl        S2's TU cap refilled (both); the client's battle_intent turn for S2 admitted {intent,
+                           turn, S2}; S2's facing changed and equal on both
+      alien_mc-intent      the client's psi intent at S4 (test command): one new host context {intent, psi, A}; S4
+                           faction 1 on both
+      alien_mc-unseen      the client's psi intent at S5 (unseen): denied invalid_target, S5 unchanged
+      After alien_mc: S2 / S4 TU 0, reactions 0 (both); then both move by the hash-gated placement test command to
+      MOVE_AWAY, out of every later walk's sight (with the fix they stay mind-controlled, so alien_reacts' walk would
+      halt on `spot` at S's first turn step).
+  alien_reacts  the alien reacts to the X-COM host's walk (side 0 turn 2): the client's END TURN; A's pistol back
+      (test command); A reactions 100, firing 0, TU A_TU; host set_seed ALIEN_REACT_SEED; the host's real-UI walk of
+      S.
+      alien_reacts-walk / alien_reacts-react / alien_reacts-alive   as xcom_reacts with W {host, walk, S} and the
+                           reaction by A; S not out
+      alien_reacts-ai      hasAI false for A on the host and on the client after the reaction
+  xcom_mc  X-COM mind-controls the alien and the host commands it (side 0 turn 2): the amp on S, S psiSkill 100, A
       psiStrength 0, S's TU; A in the host's battle_state.spotted.
-      M1-ui     the host's real-UI MIND CONTROL on A (set_seed SEED_M1): one new host context {host, psi, S}; A faction 0,
-                mindControllerId S on both
-      M1-ctrl   A's TU cap refilled; the host's real-UI walk of A to M1_DEST: {host, walk, A}, A on M1_DEST on both;
-                the client's battle_intent turn for A denied not_your_unit
-      M1 is the last row (A is the only alien; no END TURN after it, F10911).
-Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane
-crash folder. EVIDENCE only: host infoboxes (dismissed host-only), messages, camera, the client's warningText.
-After every mind-control order the client's own message box is waited out (its battle map back on top, capped at
-CLIENT_MAP_S; a cap hit fails the order's cell with the client's stack, R-U3-B-4).
+      xcom_mc-ui           the host's real-UI MIND CONTROL on A (set_seed XCOM_MC_SEED): one new host context {host,
+                           psi, S}; A faction 0, mindControllerId S on both
+      xcom_mc-ctrl         A's TU cap refilled; the host's real-UI walk of A to CONTROLLED_WALK_DEST: {host, walk,
+                           A}, A on CONTROLLED_WALK_DEST on both; the client's battle_intent turn for A denied
+                           not_your_unit
+      xcom_mc is the last row (A is the only alien; no END TURN after it).
+Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in this
+harness slot's crash folder. EVIDENCE only: host infoboxes (dismissed host-only), messages, camera, the client's
+warningText. After every mind-control order the client's own message box is waited out (its battle map back on top,
+capped at CLIENT_MAP_S; a cap hit fails the order's cell with the client's stack).
 
-RED on the unchanged build (commit B1): M2-ui, M2-ctrl, M2-lever, R1-ai; every other cell PASS. One EVIDENCE line per
-row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints
-ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that need it "staging".
-run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
-every cell passes, else 2.
+Without the fix, alien_mc-ui, alien_mc-ctrl, alien_mc-intent and alien_reacts-ai FAIL; every other cell passes. One
+EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step
+past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the rows that
+need it "staging". ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_react_mc.py
 """
@@ -71,28 +77,31 @@ import test_pvp_gm3 as G3F  # noqa: E402
 
 KEY = "48678"
 A_ID = 1000000                    # the only alien (STR_SECTOID_SOLDIER), the client's (seat 1)
-S_ID, S3_ID, S2_ID, S4_ID, S5_ID = 8, 9, 10, 11, 12   # R1's walker / M1's attacker, R2's reactor, M2's targets
-TILES = {   # TASK 0 staging (open ground, z 0, equal on both; S5 and 13 / 14 far from every walk tile)
+# S: alien_reacts' walker and xcom_mc's attacker; S3: xcom_reacts' reactor; S2, S4, S5: alien_mc's targets
+S_ID, S3_ID, S2_ID, S4_ID, S5_ID = 8, 9, 10, 11, 12
+TILES = {   # the staging (open ground, z 0, equal on both; S5 and 13 / 14 far from every walk tile)
     A_ID: ((15, 2, 0), 4), S3_ID: ((18, 6, 0), 7), S_ID: ((15, 9, 0), 0), S2_ID: ((12, 7, 0), 0),
     S4_ID: ((18, 8, 0), 0), S5_ID: ((36, 36, 0), 0), 13: ((33, 33, 0), 0), 14: ((34, 33, 0), 0)}
-ALIEN_WALK_DEST = (15, 4, 0)              # A 2 tiles south; SEED_R2 halts it after (15,3,0)
-SOLDIER_WALK_DEST = (17, 9, 0)              # S 2 tiles east; SEED_R1 halts it after (16,9,0)
-M1_DEST = (14, 3, 0)              # A one tile west of its R2 halt tile (15,3,0)
-A_TU, S2_TU = 54, 58              # bring-up TUs: A's refill / TU cap after M1, S2's TU cap after M2
-SEED_R2 = SEED_R1 = SEED_M2 = SEED_M1 = 1
+ALIEN_WALK_DEST = (15, 4, 0)      # A 2 tiles south; XCOM_REACT_SEED halts it after (15,3,0)
+SOLDIER_WALK_DEST = (17, 9, 0)    # S 2 tiles east; ALIEN_REACT_SEED halts it after (16,9,0)
+CONTROLLED_WALK_DEST = (14, 3, 0)   # A one tile west of its xcom_reacts halt tile (15,3,0)
+A_TU, S2_TU = 54, 58              # bring-up TUs: A's refill / TU cap after xcom_mc, S2's TU cap after alien_mc
+XCOM_REACT_SEED = ALIEN_REACT_SEED = ALIEN_MC_SEED = XCOM_MC_SEED = 1
 PSI_AMP, PISTOL, CLIP = "STR_PSI_AMP", "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"
 KEY_MC, CT_PSI, PSI_ROWS = 51, 3, 3   # MIND CONTROL key, its cursor, the amp's menu rows
 CURSOR_TARGETING = (2, 3, 4, 5)
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 UNSEEN_MIN = 21                   # S5's Chebyshev distance from every hostile unit
-MOVE_AWAY = {S2_ID: (4, 34, 0), S4_ID: (8, 34, 0)}   # R-U3-B-5 (TASK 0, 2 red + 2 green boots): open ground on both,
-FACE_AWAY = 4                     # Chebyshev 25 from every R1 / M1 walk tile and live unit; south, away from them
-STEP_S, ORDER_S = 30, 5           # step bound; the bounded wait for an order's context (ends early on green)
+MOVE_AWAY = {S2_ID: (4, 34, 0), S4_ID: (8, 34, 0)}   # open ground on both (measured on four boots), Chebyshev 25
+FACE_AWAY = 4                     # from every alien_reacts / xcom_mc walk tile and live unit; south, away from them
+STEP_S, ORDER_S = 30, 5           # step bound; the bounded wait for an order's context (ends early with the fix)
 CLIENT_MAP_S = 5                  # the client's message box after an applied psi ev closes in 2.0 s
-ROWS = (("R2", ("R2-walk", "R2-react", "R2-alive", "R2-common")),
-        ("M2", ("M2-sees", "M2-ui", "M2-ctrl", "M2-lever", "M2-unseen", "M2-common")),
-        ("R1", ("R1-walk", "R1-react", "R1-alive", "R1-ai", "R1-common")),
-        ("M1", ("M1-ui", "M1-ctrl", "M1-common")))
+ROWS = (("xcom_reacts", ("xcom_reacts-walk", "xcom_reacts-react", "xcom_reacts-alive", "xcom_reacts-common")),
+        ("alien_mc", ("alien_mc-sees", "alien_mc-ui", "alien_mc-ctrl", "alien_mc-intent", "alien_mc-unseen",
+                      "alien_mc-common")),
+        ("alien_reacts", ("alien_reacts-walk", "alien_reacts-react", "alien_reacts-alive", "alien_reacts-ai",
+                          "alien_reacts-common")),
+        ("xcom_mc", ("xcom_mc-ui", "xcom_mc-ctrl", "xcom_mc-common")))
 
 
 # ===================== shared helpers (test_pvp_react_mc_gm3 imports them) =====================
@@ -168,7 +177,8 @@ def side_change(host, client, presser, side, turn, ev):
 
 
 def stage_tiles(host, client, tiles, dests):
-    """Every staging tile and destination open ground on both machines (equal floor, no object), then `place` (S2)."""
+    """Every staging tile and destination open ground on both machines (equal floor, no object), then `place` (which
+    never teleports a unit onto the tile it already stands on)."""
     th = G3F.guarded("staging", lambda: tile_parts(host), (host, client))
     tc = G3F.guarded("staging", lambda: tile_parts(client), (host, client))
     bad = [(t, th.get(t[:2]), tc.get(t[:2])) for t in [td[0] for td in tiles.values()] + list(dests)
@@ -235,7 +245,7 @@ def alive_cell(host, client, uid):
 
 def ai_cell(host, client):
     got = [uv(host, A_ID)["hasAI"], uv(client, A_ID)["hasAI"]]
-    return (got == [False, False], f"A hasAI host/client {got} (want False / False, QU3-4 (a))")
+    return (got == [False, False], f"A hasAI host/client {got} (want False / False)")
 
 
 def psi_press(gc, host, tile, seed, ev):
@@ -264,7 +274,7 @@ def psi_press(gc, host, tile, seed, ev):
 
 
 def mc_order(host, client, ctx0, target, ev, timeout=ORDER_S):
-    """After a mind-control press or lever: a bounded wait for a new host context and the host idle, host boxes
+    """After a mind-control press or psi intent: a bounded wait for a new host context and the host idle, host boxes
     dismissed host-only, then a wait capped at CLIENT_MAP_S for the client's battle map on top (its own
     message box gone; stacks to EVIDENCE, a cap hit fails the order's cell). Returns the new contexts."""
     rec = {"hostBoxes": []}
@@ -284,7 +294,7 @@ def mc_cell(new, origin, actor, host, client, target, faction, ev, sent=None):
     bad = []
     cm = ev.get("clientMap")
     if cm and not cm[0]:
-        bad.append(f"the client's battle map not back on top within {CLIENT_MAP_S} s (R-U3-B-4): stack {cm[2]}")
+        bad.append(f"the client's battle map not back on top within {CLIENT_MAP_S} s: stack {cm[2]}")
     if len(new) != 1 or (new[0].get("origin"), new[0].get("kind"), new[0].get("actorId")) != (origin, "psi", actor):
         bad.append(f"new host contexts {[cv(c) for c in new]} (want exactly one {{{origin}, psi, {actor}}})")
     if sent is not None and sent != 1:
@@ -335,7 +345,7 @@ def cheb(a, b):
 # ===================== rows =====================
 
 
-def row_r2(host, client, crash0, st):
+def row_xcom_reacts(host, client, crash0, st):
     ev = dict(st)
     stat_both(host, client, S3_ID, "reactions", 100)
     stat_both(host, client, S3_ID, "firing", 0)
@@ -343,21 +353,21 @@ def row_r2(host, client, crash0, st):
     ev["aSees"] = uv(host, A_ID), unit(host, A_ID).get("spottedThisTurn")
     seq0, ctx0, prev = es(host, "lastSeqEmitted") or 0, ctxs(host), session.walk_action_id(host)
     sent0 = dict(es(client, "coopIntentsSent") or {})
-    host.ok({"cmd": "set_seed", "seed": SEED_R2})
+    host.ok({"cmd": "set_seed", "seed": XCOM_REACT_SEED})
     ev["walk"] = session.send_walk(client, A_ID, ALIEN_WALK_DEST)
     try:
         session.wait_walk_settled(host, client, prev, timeout=STEP_S)
     except Exception as e:
         ev["walkError"] = str(e)[:200]
     settle(host, client, ev)
-    cells = walk_react("R2", host, client, ctx0, seq0, "intent", A_ID, S3_ID, ev, sent0)
-    cells["R2-alive"] = alive_cell(host, client, A_ID)
+    cells = walk_react("xcom_reacts", host, client, ctx0, seq0, "intent", A_ID, S3_ID, ev, sent0)
+    cells["xcom_reacts-alive"] = alive_cell(host, client, A_ID)
     ev["A"] = [uv(host, A_ID), uv(client, A_ID)]
-    cells["R2-common"] = G3F.common(host, client, crash0)
+    cells["xcom_reacts-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_m2(host, client, crash0):
+def row_alien_mc(host, client, crash0):
     ev, cells = {}, {}
     stat_both(host, client, S3_ID, "reactions", 0)
     amp = give_both(host, client, A_ID, PSI_AMP)["weaponId"]
@@ -371,41 +381,41 @@ def row_m2(host, client, crash0):
     far = min(cheb(TILES[S5_ID][0], p) for p in hostile)
     ts = [(battle_state(gc).get("turn"), battle_state(gc).get("side")) for gc in (host, client)]
     ev.update(amp=amp, aSpotted=seen, s5Cheb=far, turnSide=ts)
-    cells["M2-sees"] = (S2_ID in seen and S4_ID in seen and far >= UNSEEN_MIN and ts == [(1, 1)] * 2,
-                        f"A spottedThisTurn on the host {seen} (want {S2_ID} and {S4_ID}); S5 Chebyshev {far} from "
-                        f"the hostile units (want >= {UNSEEN_MIN}); (turn, side) {ts} (want (1, 1))")
+    cells["alien_mc-sees"] = (S2_ID in seen and S4_ID in seen and far >= UNSEEN_MIN and ts == [(1, 1)] * 2,
+                              f"A spottedThisTurn on the host {seen} (want {S2_ID} and {S4_ID}); S5 Chebyshev {far} "
+                              f"from the hostile units (want >= {UNSEEN_MIN}); (turn, side) {ts} (want (1, 1))")
     ui = ev["ui"] = {}
     ctx0, sent0 = ctxs(host), dict(es(client, "coopIntentsSent") or {})
     try:
         ui["tab"] = tab_select(client, A_ID)
-        psi_press(client, host, TILES[S2_ID][0], SEED_M2, ui)
+        psi_press(client, host, TILES[S2_ID][0], ALIEN_MC_SEED, ui)
     except Exception as e:
         ui["pressError"] = str(e)[:300]
     new = mc_order(host, client, ctx0, S2_ID, ui)
     c1 = battle_state(client).get("cursorType")
     if c1 in CURSOR_TARGETING and ui["clientMap"][0]:
-        click_nth(client, RHAND_NTH)   # cancel the client's leftover targeting (TASK 0: 3 -> 1)
+        click_nth(client, RHAND_NTH)   # cancel the client's leftover targeting (measured: cursorType 3 -> 1)
     ui.update(cancel=[c1, battle_state(client).get("cursorType")], warningText=battle_state(client).get("warningText"))
     sent = (es(client, "coopIntentsSent") or {}).get("psi", 0) - sent0.get("psi", 0)
-    cells["M2-ui"] = mc_cell(new, "intent", A_ID, host, client, S2_ID, FACTION_HOSTILE, ui, sent)
+    cells["alien_mc-ui"] = mc_cell(new, "intent", A_ID, host, client, S2_ID, FACTION_HOSTILE, ui, sent)
     ctl = ev["ctrl"] = {}
     s2 = [(uv(gc, S2_ID)["faction"], uv(gc, S2_ID)["mindControllerId"]) for gc in (host, client)]
     if s2 != [(FACTION_HOSTILE, A_ID)] * 2:
-        cells["M2-ctrl"] = (False, f"S2 (faction, mindControllerId) host/client {s2} (want (1, {A_ID})): not mind-"
-                                   f"controlled, no order sent")
+        cells["alien_mc-ctrl"] = (False, f"S2 (faction, mindControllerId) host/client {s2} (want (1, {A_ID})): not "
+                                         f"mind-controlled, no order sent")
     else:
         cap = stat_both(host, client, S2_ID, "tu", S2_TU, refill=True)["tu"]
         d0 = uv(client, S2_ID)["direction"]
         tnew, deny = turn_order(host, client, S2_ID, (d0 + 6) % 8, ctl)
         dirs = [uv(gc, S2_ID)["direction"] for gc in (host, client)]
         ctl.update(cap=cap, d0=d0, dirs=dirs, newCtx=[cv(c) for c in tnew])
-        cells["M2-ctrl"] = (cap == S2_TU and ctx_ok(tnew, "intent", "turn", S2_ID) and deny is None
-                            and dirs[0] == dirs[1] != d0,
-                            f"S2 TU refill {cap} (want {S2_TU}); turn contexts {ctl['newCtx']} (want one {{intent, "
-                            f"turn, {S2_ID}}}), deny {deny} (want none); direction {d0} -> host/client {dirs} (want "
-                            f"changed and equal)")
-    for cell, uid, want in (("M2-lever", S4_ID, "admit"), ("M2-unseen", S5_ID, "deny")):
-        lv = ev[cell] = {}
+        cells["alien_mc-ctrl"] = (cap == S2_TU and ctx_ok(tnew, "intent", "turn", S2_ID) and deny is None
+                                  and dirs[0] == dirs[1] != d0,
+                                  f"S2 TU refill {cap} (want {S2_TU}); turn contexts {ctl['newCtx']} (want one "
+                                  f"{{intent, turn, {S2_ID}}}), deny {deny} (want none); direction {d0} -> host/client "
+                                  f"{dirs} (want changed and equal)")
+    for cell, uid, want in (("alien_mc-intent", S4_ID, "admit"), ("alien_mc-unseen", S5_ID, "deny")):
+        intent = ev[cell] = {}
         set_tu_both(host, client, A_ID, A_TU)
         ctx0 = ctxs(host)
         t = G3F.pos(host, uid)
@@ -413,29 +423,29 @@ def row_m2(host, client, crash0):
         si = send_intent(host, client, {"cmd": "battle_intent", "kind": "psi", "actor": A_ID,
                                         "plan": {"action": "mc", "weapon": amp, "target": jt(t), "targetUnit": uid}},
                          notes, timeout=STEP_S)
-        lnew = mc_order(host, client, ctx0, uid, lv, timeout=1)
+        lnew = mc_order(host, client, ctx0, uid, intent, timeout=1)
         deny = es(client, "lastDeny") or {}
-        lv.update(iseq=si.get("iseq"), answer=si.get("answer"), deny=deny, notes=notes)
+        intent.update(iseq=si.get("iseq"), answer=si.get("answer"), deny=deny, notes=notes)
         if want == "admit":
-            cells[cell] = mc_cell(lnew, "intent", A_ID, host, client, uid, FACTION_HOSTILE, lv)
+            cells[cell] = mc_cell(lnew, "intent", A_ID, host, client, uid, FACTION_HOSTILE, intent)
         else:
             got = [(uv(gc, uid)["faction"], uv(gc, uid)["mindControllerId"]) for gc in (host, client)]
             cells[cell] = (bool(si.get("iseq")) and deny.get("iseq") == si.get("iseq")
                            and deny.get("reason") == "invalid_target" and not lnew and got == [(0, 0)] * 2,
-                           f"deny {deny} for iseq {si.get('iseq')} (want invalid_target, O1 (a)); new contexts "
-                           f"{lv['newCtx']} (want none); S5 (faction, mcId) host/client {got} (want (0, 0))")
+                           f"deny {deny} for iseq {si.get('iseq')} (want invalid_target: S5 is unseen); new contexts "
+                           f"{intent['newCtx']} (want none); S5 (faction, mcId) host/client {got} (want (0, 0))")
     for uid in (S2_ID, S4_ID):
         set_tu_both(host, client, uid, 0)
         stat_both(host, client, uid, "reactions", 0)
-    cells["M2-common"] = G3F.common(host, client, crash0)
+    cells["alien_mc-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_r1(host, client, crash0):
+def row_alien_reacts(host, client, crash0):
     ev = {}
     ev["moved"] = [r[0].get("to") for r in session.place_deterministic(host, client, [
         {"cmd": "battle_teleport_unit", "unit": uid, "x": t[0], "y": t[1], "z": t[2], "dir": FACE_AWAY}
-        for uid, t in MOVE_AWAY.items()], "R-U3-B-5")]
+        for uid, t in MOVE_AWAY.items()], "move away")]
     side_change(host, client, client, FACTION_PLAYER, 2, ev)
     g = give_both(host, client, A_ID, PISTOL, CLIP)
     stat_both(host, client, A_ID, "reactions", 100)
@@ -445,19 +455,19 @@ def row_r1(host, client, crash0):
     ev["tab"] = tab_select(host, S_ID)
     seq0, ctx0 = es(host, "lastSeqEmitted") or 0, ctxs(host)
     try:
-        host_walk(host, client, S_ID, SOLDIER_WALK_DEST, ev, seed=SEED_R1)
+        host_walk(host, client, S_ID, SOLDIER_WALK_DEST, ev, seed=ALIEN_REACT_SEED)
     except Exception as e:
         ev["walkError"] = str(e)[:300]
-    cells = walk_react("R1", host, client, ctx0, seq0, "host", S_ID, A_ID, ev)
-    cells["R1-alive"] = alive_cell(host, client, S_ID)
-    cells["R1-ai"] = ai_cell(host, client)
+    cells = walk_react("alien_reacts", host, client, ctx0, seq0, "host", S_ID, A_ID, ev)
+    cells["alien_reacts-alive"] = alive_cell(host, client, S_ID)
+    cells["alien_reacts-ai"] = ai_cell(host, client)
     stat_both(host, client, A_ID, "reactions", 0)
     ev["S"] = [uv(host, S_ID), uv(client, S_ID)]
-    cells["R1-common"] = G3F.common(host, client, crash0)
+    cells["alien_reacts-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_m1(host, client, crash0):
+def row_xcom_mc(host, client, crash0):
     ev, cells = {}, {}
     ev["ampS"] = give_both(host, client, S_ID, PSI_AMP)["weaponId"]
     stat_both(host, client, S_ID, "psiSkill", 100)
@@ -468,41 +478,42 @@ def row_m1(host, client, crash0):
     ctx0 = ctxs(host)
     try:
         ui["tab"] = tab_select(host, S_ID)
-        psi_press(host, host, G3F.pos(host, A_ID), SEED_M1, ui)
+        psi_press(host, host, G3F.pos(host, A_ID), XCOM_MC_SEED, ui)
     except Exception as e:
         ui["pressError"] = str(e)[:300]
     new = mc_order(host, client, ctx0, A_ID, ui)
-    cells["M1-ui"] = mc_cell(new, "host", S_ID, host, client, A_ID, FACTION_PLAYER, ui)
+    cells["xcom_mc-ui"] = mc_cell(new, "host", S_ID, host, client, A_ID, FACTION_PLAYER, ui)
     ctl = ev["ctrl"] = {}
     a = [(uv(gc, A_ID)["faction"], uv(gc, A_ID)["mindControllerId"]) for gc in (host, client)]
     if a != [(FACTION_PLAYER, S_ID)] * 2:
-        cells["M1-ctrl"] = (False, f"A (faction, mindControllerId) host/client {a} (want (0, {S_ID})): not mind-"
-                                   f"controlled, no order sent")
+        cells["xcom_mc-ctrl"] = (False, f"A (faction, mindControllerId) host/client {a} (want (0, {S_ID})): not mind-"
+                                        f"controlled, no order sent")
     else:
         ctl["tuBefore"] = [uv(gc, A_ID)["tu"] for gc in (host, client)]
         cap = stat_both(host, client, A_ID, "tu", A_TU, refill=True)["tu"]
         ctl["tab"] = tab_select(host, A_ID)
         try:
-            wnew = host_walk(host, client, A_ID, M1_DEST, ctl)
+            wnew = host_walk(host, client, A_ID, CONTROLLED_WALK_DEST, ctl)
         except Exception as e:
             wnew, ctl["walkError"] = [], str(e)[:300]
         pa = [G3F.pos(gc, A_ID) for gc in (host, client)]
         tnew, deny = turn_order(host, client, A_ID, (uv(client, A_ID)["direction"] + 2) % 8, ctl)
         ctl.update(cap=cap, walkCtx=[cv(c) for c in wnew], pos=pa, turnCtx=[cv(c) for c in tnew])
-        cells["M1-ctrl"] = (cap == A_TU and ctx_ok(wnew, "host", "walk", A_ID) and pa == [M1_DEST] * 2 and not tnew
-                            and (deny or {}).get("reason") == "not_your_unit",
-                            f"A TU refill {cap} (want {A_TU}); walk contexts {ctl['walkCtx']} (want one {{host, walk, "
-                            f"{A_ID}}}); A host/client {pa} (want {M1_DEST}); the client's turn: contexts "
-                            f"{ctl['turnCtx']} (want none), deny {deny} (want not_your_unit)")
-    cells["M1-common"] = G3F.common(host, client, crash0)
+        cells["xcom_mc-ctrl"] = (cap == A_TU and ctx_ok(wnew, "host", "walk", A_ID)
+                                 and pa == [CONTROLLED_WALK_DEST] * 2 and not tnew
+                                 and (deny or {}).get("reason") == "not_your_unit",
+                                 f"A TU refill {cap} (want {A_TU}); walk contexts {ctl['walkCtx']} (want one {{host, "
+                                 f"walk, {A_ID}}}); A host/client {pa} (want {CONTROLLED_WALK_DEST}); the client's "
+                                 f"turn: contexts {ctl['turnCtx']} (want none), deny {deny} (want not_your_unit)")
+    cells["xcom_mc-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-# ===================== boot B2 =====================
+# ===================== boot =====================
 
 
 def stage(host, client):
-    ev = {"placed": stage_tiles(host, client, TILES, (ALIEN_WALK_DEST, SOLDIER_WALK_DEST, M1_DEST))}
+    ev = {"placed": stage_tiles(host, client, TILES, (ALIEN_WALK_DEST, SOLDIER_WALK_DEST, CONTROLLED_WALK_DEST))}
     m = (host, client)
     g = G3F.guarded("staging", lambda: give_both(host, client, A_ID, PISTOL, CLIP), m)
     ev["aPistol"] = (g["weaponId"], g["ammoId"])
@@ -514,26 +525,26 @@ def stage(host, client):
     return ev
 
 
-def boot_b2():
-    host = GameClient("host", None, make_user_dir("r5u3_b2_host"))
-    client = GameClient("client", None, make_user_dir("r5u3_b2_client"))
+def run_boot():
+    host = GameClient("host", None, make_user_dir("pvp_react_mc_host"))
+    client = GameClient("client", None, make_user_dir("pvp_react_mc_client"))
     m = (host, client)
     try:
         try:
-            G3F.guarded("B2", lambda: BER.boot_pvp(host, client, KEY), m)
-            G3F.guarded("B2", lambda: G3F.reactions_zero(host, client), m)
+            G3F.guarded("boot", lambda: BER.boot_pvp(host, client, KEY), m)
+            G3F.guarded("boot", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE B2 line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         try:
             st = stage(host, client)
         except G3F.Miss:
             return G3F.fail_all(ROWS, "staging (see the CAPTURE staging line)")
         rows = dict(ROWS)
-        fails = G3F.run_row("R2", rows["R2"], lambda: row_r2(host, client, crash0, st))
-        fails += G3F.run_row("M2", rows["M2"], lambda: row_m2(host, client, crash0))
-        fails += G3F.run_row("R1", rows["R1"], lambda: row_r1(host, client, crash0))
-        fails += G3F.run_row("M1", rows["M1"], lambda: row_m1(host, client, crash0))
+        fails = G3F.run_row("xcom_reacts", rows["xcom_reacts"], lambda: row_xcom_reacts(host, client, crash0, st))
+        fails += G3F.run_row("alien_mc", rows["alien_mc"], lambda: row_alien_mc(host, client, crash0))
+        fails += G3F.run_row("alien_reacts", rows["alien_reacts"], lambda: row_alien_reacts(host, client, crash0))
+        fails += G3F.run_row("xcom_mc", rows["xcom_mc"], lambda: row_xcom_mc(host, client, crash0))
         print(f"EVIDENCE quiet: {client_quiet(client)}", flush=True)
         return fails
     finally:
@@ -542,7 +553,7 @@ def boot_b2():
 
 def main():
     t0 = time.time()
-    fails = boot_b2()
+    fails = run_boot()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pvp_react_mc: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
