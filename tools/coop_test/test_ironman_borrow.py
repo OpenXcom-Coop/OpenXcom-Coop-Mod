@@ -12,7 +12,7 @@ Boot I (key 49143, dirs w2h49_i_*; ironman; host = the aliens), rows: C0 = I-c0 
 N2 = N2-x, N2-client (control), N2-a; N3 = N3-f6, N3-f5; N4 = N4-file, N4-only, N4-pause (control), N4-home (control); I-common.
 Boot N (key 49143, dirs w2h49_n_*; no IRONMAN click): row C5 = N-c0, N-start, N-pause, N-f5, N-after, N-common.
 RED (the unchanged build, TASK 0 boot i): N1-file, N1-only, N2-x, N2-a, N3-f6, N3-f5, N4-file, N4-only (8 of 20). GREEN (G1): 20/20.
-A bring-up / landing / side change / battle-end miss: ONE "CAPTURE <boot>:" line (BR's stage_to_prompt prints its own "CAPTURE P:")
+A bring-up / landing / side change / battle-end miss: ONE "CAPTURE <boot>:" line (BR's stage_to_prompt prints its own "CAPTURE boot:")
 and every remaining cell of that boot FAILs "boot". A row precondition miss (host never idle) FAILs its cells "blocked: <why>".
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_ironman_borrow.py
