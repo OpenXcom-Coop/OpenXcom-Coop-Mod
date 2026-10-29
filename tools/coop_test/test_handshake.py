@@ -1,12 +1,10 @@
-"""R4-P1 (rewrite spike, SPIKE-RUNBOOK.md SS2.7): battle-start handshake probe.
+"""Battle-start handshake check.
 
 Drives a real 2-player skirmish co-op battle start through the harness lobby
 flow (host: NEW BATTLE > COOP > Host > START HOST -> lobby -> BATTLE SETTINGS
 -> OK), the same UI path test_skirmish_flow.py's test_skirmish_full_flow()
-uses for its own steps 1-7 (that test stays SKIP-PENDING(R4-P1) - it also
-exercises the EQUIP CRAFT craft-lock broadcast, a separate, still-quarantined
-piece of choreography outside this packet's scope; this probe is deliberately
-narrower: only the SS2.7 handshake itself).
+uses for its own steps 1-7 (that test also exercises the EQUIP CRAFT
+craft-lock broadcast; this check covers only the battle-start handshake).
 
 Asserts:
   - the client reaches BattlescapeState directly (CoopHandshake::
@@ -17,26 +15,19 @@ Asserts:
   - BOTH machines reach phase Active and BattlescapeState (host drives its
     BriefingState OK; client is pushed there directly).
 
-SAVEBLOB IS HARD-GATED AS OF R2-P9. The R4-P1 saveBlob was a RAW FNV over the
-emitted battle YAML, so it necessarily included machine-local FOV/discovered
-state - unit "visible"/"turnsSinceSpotted*" and the tile boolFields byte
-(= per-part terrain "discovered" flags, Tile.cpp:207, packed inside binTiles).
-Those legitimately differ per machine (each computes its own FOV), so the raw
-saveBlob differed on essentially every run pre-R2-P9. This was TRACED
-2026-09-01 by decoding both binTiles: 0 terrain / 0 smoke / 0 fire / 0 unit-core
-divergence, only 190 tile discovered-flag diffs + 7 unit "visible" diffs - i.e.
-purely FOV, NOT a real desync (and NOT the tile-load bug an earlier revision of
-this docstring wrongly blamed - the R4-P1 reorder fix in CoopHandshake::
-onBlobChunkAppended materialises tiles before hashing, and stays correct here).
-
-R2-P9 replaced coopComputeSaveBlobBucketHex's raw hash with the canonical
-filtered SS2.8 bucket set (SharedEcon::computeSaveBlobHash - excludes the D4
-FOV fields, the per-tile FOW bits packed in binTiles, and the R2-P10
-cr1-field-audit.md sec 6 23-item delta) and RESTORED onReady()'s hard
-mismatch -> refuse/teardown gate (SS2.7: "no battle starts unequal"). This
-test now asserts EQUAL: at t=0 (before the first event), both machines are
-hashing the SAME streamed blob content minus only the excluded machine-local
-fields, so EQUAL is the expected, not merely possible, outcome.
+The saveBlob comparison is a hard gate: onReady() refuses and tears down on a
+mismatch ("no battle starts unequal"). A raw hash over the emitted battle YAML
+would include machine-local FOV state (unit "visible" / "turnsSinceSpotted*"),
+which legitimately differs per machine (each computes its own FOV), so it would
+differ on almost every run without a real desync. SharedEcon::
+computeSaveBlobHash (behind coopComputeSaveBlobBucketHex) hashes the battle
+document with an exclusion list applied (legacy kills / exp* /
+tempUnitStatistics, the per-unit FOV fields and 23 more fields); the per-tile
+"discovered" bits inside binTiles are hashed, since revealed tiles are
+host-authored, wire-synced game state. CoopHandshake::onBlobChunkAppended
+materialises the tiles before hashing. At t=0 (before the first event) both
+machines hash the SAME streamed blob content minus only the excluded fields,
+so EQUAL is the expected outcome.
 
 Run:  python tools/coop_test/test_handshake.py
 """
@@ -97,16 +88,16 @@ def grep_lines(lines, needle):
 
 def main():
     port = "47985"
-    host_dir = make_user_dir("rw_handshake_host")
-    client_dir = make_user_dir("rw_handshake_client")
+    host_dir = make_user_dir("handshake_host")
+    client_dir = make_user_dir("handshake_client")
     host = GameClient("host", 48780, host_dir)
     client = GameClient("client", 48781, client_dir)
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
 
-        # --- lobby bring-up (test_skirmish_flow.py steps 1-4, minus the
-        # EQUIP CRAFT detour - not this packet's concern) ---
+        # --- lobby bring-up (test_skirmish_flow.py steps 1-4, without the
+        # EQUIP CRAFT detour) ---
         skirmish_host(host, port)
         skirmish_client_at_browser(client)
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": "ClientPlayer"})
@@ -126,7 +117,7 @@ def main():
             f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
         print("PASS step 5: host at BATTLE SETTINGS")
 
-        # --- R4-P1: OK drives NewBattleState::btnOkClick, which now runs
+        # --- OK drives NewBattleState::btnOkClick, which runs
         # vanilla bgen.run() then CoopHandshake::offerBattle() as a side
         # effect (BriefingState is still pushed immediately, unconditionally,
         # exactly like vanilla - see CoopHandshake.h's top doc comment) ---
@@ -136,16 +127,16 @@ def main():
         print("PASS: host reached BriefingState (vanilla push, unconditional)")
 
         # the coop blob snapshot and the
-        # battle_offer now go out at PREPARE (newbattle_ok), at turn 0, so both
-        # briefings are up at once; the shared entry spine then passes both
-        # briefings, both pre-battle equip screens and both
-        # Turn-1 screens (Q7 a). Every handshake line this test greps for below
+        # battle_offer go out at PREPARE (newbattle_ok), at turn 0, so both
+        # briefings are up at once; session.briefings_to_battlescape then passes
+        # both briefings, both pre-battle equip screens and both
+        # Turn-1 screens. Every handshake line this test greps for below
         # is written by then.
         session.briefings_to_battlescape(host, client)
         assert session.has_state(host, "BattlescapeState"), \
             f"host should reach BattlescapeState, stack={states(host)}"
         print("PASS: host passed its briefing, its pre-battle equip screen and its "
-              "Turn-1 screen (W2-P8b)")
+              "Turn-1 screen")
 
         # client: CoopHandshake::onBlobChunkAppended() pushes BattlescapeState
         # once the blob is received+verified+loaded, then its read-only
@@ -177,15 +168,15 @@ def main():
         print("HOST LOG:", accept_lines[-1])
         print("CLIENT LOG:", client_active_lines[-1])
 
-        # HARD GATE (R2-P9): onReady() now REFUSES/tears down on a mismatch and
-        # never reaches phase Active - see this module's docstring. EQUAL is the
-        # expected outcome at t=0 under the canonical SS2.8-filtered hash; a
-        # MISMATCH here means the canonical bucket hash is not filtering the
-        # machine-local FOV/discovered state correctly - fail loudly, do not
+        # Hard gate: onReady() REFUSES/tears down on a mismatch and never
+        # reaches phase Active - see this module's docstring. EQUAL is the
+        # expected outcome at t=0 under the canonical filtered hash; a
+        # MISMATCH here means the canonical hash is not filtering the
+        # machine-local FOV state correctly - fail loudly, do not
         # loosen the gate.
         assert not mismatch_lines, \
-            "battle_ready saveBlob MISMATCH under the canonical SS2.8 hash - " \
-            f"the R2-P9 exclusion list is not filtering correctly: {mismatch_lines[-1]}"
+            "battle_ready saveBlob MISMATCH under the canonical filtered hash - " \
+            f"the exclusion list is not filtering correctly: {mismatch_lines[-1]}"
         assert equal_lines, \
             "battle_ready arrived but 'saveBlob EQUAL' was never logged - onReady() " \
             "did not run to completion (or a mismatch fired without matching the " \
@@ -198,9 +189,9 @@ def main():
         print("HOST LOG:", host_active_lines[-1])
 
         print("PASS: BOTH machines in BattlescapeState, host+client phase Active, "
-              "saveBlob EQUAL under the canonical R2-P9 hash")
+              "saveBlob EQUAL under the canonical filtered hash")
 
-        print("ALL R4-P1 HANDSHAKE TESTS PASSED")
+        print("ALL HANDSHAKE TESTS PASSED")
     finally:
         host.shutdown()
         client.shutdown()
