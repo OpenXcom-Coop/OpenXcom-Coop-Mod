@@ -7,13 +7,13 @@ and rockets in the backpack is transferred to another player's base; at that bas
 with the soldier equip screen, and items dropped onto the soldier there "drop
 right back down to the ground items lower panel".
 
-ROOT CAUSE (release line). A per-player item check on the equip screens matched
+ROOT CAUSE (older versions). A per-player item check on the equip screens matched
 the peer's items by type alone, so a visiting player's OWN weapon was refused a
 slot whenever the peer had equipped that item type on that craft, and was
 dumped back to the floor.
 
-The rewrite restored the vanilla equip screens and has no per-player item check
-at a peer base. This test still guards the visible symptom:
+The equip screens are vanilla's and have no per-player item check at a peer
+base. This test guards the visible symptom:
 the transferred soldier keeps its full loadout on both screens, at home and at
 the peer base.
 
@@ -141,8 +141,8 @@ def main():
         hb = T.own_base(host)["name"]
         cb = T.own_base(client)["name"]
 
-        # The peer equips its own crew by hand first. This is the precondition
-        # the playtest had and the earlier tests did not.
+        # The peer first equips its own crew by hand with the item types the target
+        # soldier carries (PEER_DRAGS), as in the reported game.
         moved = equip_by_hand(client, cb)
         assert moved > 0, "precondition failed - the peer equipped nothing by hand"
 
