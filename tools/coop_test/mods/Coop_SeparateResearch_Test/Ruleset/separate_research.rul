@@ -1,4 +1,5 @@
-# Test-only mod for test_separate_private_research.py.
+# Test-only mod for test_separate_private_research.py and
+# test_separate_research_ending.py.
 research:
   # One player's branch choice: completing DISABLER disables BRANCH.
   - name: STR_COOP_SR_DISABLER
@@ -24,6 +25,16 @@ research:
     cost: 10
   - name: STR_COOP_SR_FREE_2
     cost: 10
+  # Research-free topics whose completion plays the stock win or lose video,
+  # so finishing one ends the campaign.
+  - name: STR_COOP_SR_WIN_TOPIC
+    cost: 10
+    points: 1
+    cutscene: winGame
+  - name: STR_COOP_SR_LOSE_TOPIC
+    cost: 10
+    points: 1
+    cutscene: loseGame
 
 alienDeployments:
   - type: STR_TERROR_MISSION

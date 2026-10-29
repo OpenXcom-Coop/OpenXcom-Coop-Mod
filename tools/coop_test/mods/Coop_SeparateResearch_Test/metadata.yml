@@ -1,7 +1,9 @@
 name: "Coop separate private-research probe"
 version: 1.0
 description: "Test-only fixture for test_separate_private_research.py: a topic that
-  disables another, and mission-site expiry research with getOneFree bonuses."
+  disables another, and mission-site expiry research with getOneFree bonuses.
+  For test_separate_research_ending.py: two topics whose cutscene wins or loses
+  the campaign."
 author: coop harness
 
 master: xcom1
