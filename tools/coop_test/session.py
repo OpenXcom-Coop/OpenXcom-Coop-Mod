@@ -2440,7 +2440,7 @@ def equip_both_ready(host, client, timeout=90):
 #
 # Two campaign bring-ups (SEPARATE guest battle, SHARED mixed-owner
 # battle) plus the briefing-ordering drain they both need, and the common tail
-# (assert_t_split / assert_t_cmd / assert_t_exit) their scenarios assert after it.
+# (assert_control_split / assert_seat_commands / assert_battle_exit) their scenarios assert after it.
 # Imported by test_coop_separate_guest_battle.py, test_shared_battle.py,
 # test_shared_soldier_ownership_battle.py and the other campaign battle tests.
 
@@ -2861,7 +2861,7 @@ def bring_up_shared_mixed_battle(js, owners, to_tactical=True, pre_landing=None)
 
 # ---- the campaign battle common tail: control_split / seat_commands / battle_exit ----
 
-def assert_t_split(host, client, expected_seat_by_soldier_id, what=""):
+def assert_control_split(host, client, expected_seat_by_soldier_id, what=""):
     """The common-tail check control_split, asserted on BOTH
     machines once both tops are BattlescapeState (after drive_both_to_
     tactical): phase Active; authority.hostSim true host / false client;
@@ -2916,7 +2916,7 @@ def assert_t_split(host, client, expected_seat_by_soldier_id, what=""):
           f"expected seats on both machines, hash clean, {equal_lines[-1]}")
 
 
-def _t_cmd_adjacent_free_tile(gc, unit):
+def _adjacent_free_tile(gc, unit):
     """ONE adjacent (Chebyshev distance 1) tile with a floor and no unit on
     it - seat_commands needs only a single admitted step, never a search/backtrack
     beyond the 8 immediate neighbours."""
@@ -3034,7 +3034,7 @@ def _wait_click_ready(host, tx, ty, tz, actor_id, timeout=8.0):
         f"last poll={last}")
 
 
-def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=True,
+def assert_seat_commands(host, client, seat1_actor_id, seat0_actor_id=None, host_check=True,
                  what=""):
     """The common-tail check seat_commands.
 
@@ -3062,7 +3062,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
 
     # ---- 1. ADMITTED: client turns (octant by octant, if needed) then walks ----
     actor = unit_of(client, seat1_actor_id)
-    dest = _t_cmd_adjacent_free_tile(client, actor)
+    dest = _adjacent_free_tile(client, actor)
     before_h = pos_of(unit_of(host, seat1_actor_id))
     before_c = pos_of(actor)
     assert before_h == before_c, (
@@ -3119,7 +3119,7 @@ def assert_t_cmd(host, client, seat1_actor_id, seat0_actor_id=None, host_check=T
     if seat0_actor_id is not None:
         before0_h = pos_of(unit_of(host, seat0_actor_id))
         before0_c = pos_of(unit_of(client, seat0_actor_id))
-        dest0 = _t_cmd_adjacent_free_tile(host, unit_of(host, seat0_actor_id))
+        dest0 = _adjacent_free_tile(host, unit_of(host, seat0_actor_id))
         resp0 = send_walk(client, seat0_actor_id, dest0)
         deadline = time.time() + 10
         ld0 = None
@@ -3205,7 +3205,7 @@ def _crash_log_snapshot():
     return set(glob.glob(os.path.join(_harness.CRASH_DIR, "crash_*.log")))
 
 
-def assert_t_exit(host, client, what="", expect_both=True):
+def assert_battle_exit(host, client, what="", expect_both=True):
     """The common-tail check battle_exit: the
     host-authoritative abort (coop_abort_battle) returns the HOST to
     GeoscapeState with NO new crash log and NO desyncSeen on EITHER machine.

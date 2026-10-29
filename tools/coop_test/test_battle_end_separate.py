@@ -383,7 +383,7 @@ def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, fixture_stop=True):
     if live != [KEEP] or gnow.get("isOut"):
         capture("guest-kill: kill others", f"live hostiles {live} (want [{KEEP}]) / guest out {gnow.get('isOut')}", m)
     # 2. KEEP onto a free tile adjacent to the guest, facing the guest
-    tile = session._t_cmd_adjacent_free_tile(host, gnow)
+    tile = session._adjacent_free_tile(host, gnow)
     gpos = session.pos_of(gnow)
     face_guest = session._dir_to(tile, gpos)
     rh, rc = both(host, client, {"cmd": "battle_teleport_unit", "unit": KEEP, "x": tile[0], "y": tile[1],

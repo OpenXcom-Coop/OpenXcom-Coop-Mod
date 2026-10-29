@@ -429,7 +429,7 @@ def run_s5():
         # extra round trip here closed within 1s. A short settle before the
         # close press clears it every time - the same class of UI-settle wait
         # this codebase already uses elsewhere (e.g. the click-ready settle in
-        # session.assert_t_cmd), not a retry over a failed assertion.
+        # session.assert_seat_commands), not a retry over a failed assertion.
         time.sleep(0.5)
         client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         _wait_client_with_host_keepalive(

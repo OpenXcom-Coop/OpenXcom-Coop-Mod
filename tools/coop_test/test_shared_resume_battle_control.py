@@ -114,7 +114,7 @@ def main():
         host_seat_id, client_seat_id, expected_names = bring_up_lightning_roof_shared(js)
 
         expected_seats = {host_seat_id: 0, client_seat_id: 1}
-        session.assert_t_split(host, client, expected_seats, what="S2 pre-save live split")
+        session.assert_control_split(host, client, expected_seats, what="S2 pre-save live split")
 
         walker_id = next(u["id"] for u in rc.battle(host)["units"]
                          if u.get("soldierId") == host_seat_id and not u.get("isOut"))
@@ -297,7 +297,7 @@ def main():
         # E63.3's T-CMD reuse is scoped to the ADMIT + DENY legs only (the host
         # click-select-refusal leg is SPEC 19's own fresh-entry coverage) -
         # see test_coop_resume_battle_control.py's own note.
-        session.assert_t_cmd(host2, client2, client_seat_id, host_seat_id,
+        session.assert_seat_commands(host2, client2, client_seat_id, host_seat_id,
                              host_check=False, what="S2 after resume")
 
         session.assert_client_zero_disk(client2.user_dir)

@@ -191,14 +191,14 @@ def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
 
         # ---- SPEC 19 common tail: T-SPLIT / T-CMD / T-EXIT --------
         expected_seats = {sid: want_coop[i] for i, sid in enumerate(squad)}
-        session.assert_t_split(host, client, expected_seats, what=f"S2 {label}")
+        session.assert_control_split(host, client, expected_seats, what=f"S2 {label}")
 
         seat1_actor = next(sid for i, sid in enumerate(squad) if want_coop[i] == 1)
         seat0_actor = next((sid for i, sid in enumerate(squad) if want_coop[i] == 0), None)
-        session.assert_t_cmd(host, client, seat1_actor, seat0_actor,
+        session.assert_seat_commands(host, client, seat1_actor, seat0_actor,
                              host_check=host_has_unit, what=f"S2 {label}")
 
-        session.assert_t_exit(host, client, what=f"S2 {label}")
+        session.assert_battle_exit(host, client, what=f"S2 {label}")
 
         # ---- single-world post-battle merge: worlds identical -------------
         def _equal():

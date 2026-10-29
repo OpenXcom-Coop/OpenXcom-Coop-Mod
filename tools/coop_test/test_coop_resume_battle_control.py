@@ -577,7 +577,7 @@ def main():
             "guest battle soldierId differs between machines - not a shared live battle")
         expected_seats = {sid: 0 for sid in host_squad}
         expected_seats[guest_battle_id] = 1
-        session.assert_t_split(host, client, expected_seats, what="S1 pre-save live split")
+        session.assert_control_split(host, client, expected_seats, what="S1 pre-save live split")
 
         walker_id = _host_squad_battle_units(host, host_squad)[0]["id"]
         walker_before = next(u for u in battle(host)["units"] if u["id"] == walker_id)
@@ -790,7 +790,7 @@ def main():
         # both -> assert_hash_clean"; the deny leg is what E63.3 adds). The
         # host click-select-refusal leg (T-CMD leg 3) is SPEC 19's own coverage
         # on a FRESH battle entry, not part of this scenario - host_check=False.
-        session.assert_t_cmd(host, client, guest_battle_id, host_squad[0],
+        session.assert_seat_commands(host, client, guest_battle_id, host_squad[0],
                              host_check=False, what="S1 after resume")
 
         session.assert_client_zero_disk(client.user_dir)

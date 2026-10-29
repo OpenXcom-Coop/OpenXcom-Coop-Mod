@@ -21,7 +21,7 @@ Boot RH (key 46611, dirs d246u_rh_*): the host gets the derived copy, the client
   RH-mode    turnMode "parallel" on both; coopEndTurnTally == the reset default on both (RBC's RESET_TALLY)
   RH-deploy  deployment / strTarget / strCraftOrBase == DEP_RH / TGT_RH / COB_RH on both
   RH-click   the host's RESUME (CoopState 60 / 62); both tops BattlescapeState; no HostMenu / LobbyMenu
-  RH-cmd     session.assert_t_cmd(RH_C1, RH_H0, host_check=False)
+  RH-cmd     session.assert_seat_commands(RH_C1, RH_H0, host_check=False)
   RH-common  every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no save
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict; a cell whose precondition failed FAILs "not
@@ -76,7 +76,7 @@ def row_rh(host, client, crash0, changed, cells, ev):
     rs.need(cells, "RH-click")
 
     def cmd():
-        rs.quiet(lambda: session.assert_t_cmd(host, client, RH_C1, RH_H0, host_check=False, what="RH"), ev, "rhCmd")
+        rs.quiet(lambda: session.assert_seat_commands(host, client, RH_C1, RH_H0, host_check=False, what="RH"), ev, "rhCmd")
         return True, f"client admitted on its soldier {RH_C1}, not_your_unit on host soldier {RH_H0}, hash clean"
     rs.attempt(cells, "RH-cmd", cmd, (host, client))
     cells["RH-common"] = rs.common_cell(host, client, crash0, ev, "rh")

@@ -206,7 +206,7 @@ def row_c1(host, client, pins, pre, crash0, out):
         cells["C1-seat"] = OWN.both_fields(host, client, G, "coop", 1)
         want_seats = {**{s: 0 for s in pins["host_squad"]}, G: 1}
         try:
-            session.assert_t_split(host, client, want_seats, what="RV-21 C1")
+            session.assert_control_split(host, client, want_seats, what="RV-21 C1")
             cells["C1-split"] = (True, f"T-SPLIT: the isPlayerSoldier roster {want_seats} (soldierId: seat) on both, phase "
                                        f"Active, authority, battleId equal, hash clean, battle_ready saveBlob EQUAL")
         except Exception as e:
@@ -231,7 +231,7 @@ def row_c2(host, client, pins, crash0, out):
     else:
         ev["before"] = {gc.name: G3F.pos(gc, G) for gc in (host, client)}
         try:
-            session.assert_t_cmd(host, client, G, pins["host_squad"][0], host_check=True, what="RV-21 C2")
+            session.assert_seat_commands(host, client, G, pins["host_squad"][0], host_check=True, what="RV-21 C2")
             cells["C2-cmd"] = (True, f"T-CMD: the partner's walk on {G} admitted and equal on both, hash clean; its walk on "
                                      f"{pins['host_squad'][0]} denied not_your_unit; the host's click on {G} refused")
         except Exception as e:
@@ -347,7 +347,7 @@ def row_c4(host, client, pins, crash0, out):
         else:
             cells["C4-guest"] = unit_cell(host, client, G, "guest", {"coop": 1})
             try:
-                session.assert_t_cmd(host, client, G, None, host_check=False, what="RV-21 C4")
+                session.assert_seat_commands(host, client, G, None, host_check=False, what="RV-21 C4")
                 cells["C4-cmd"] = (True, f"T-CMD at stage 2: the partner's walk on {G} admitted, equal on both, hash clean")
             except Exception as e:
                 cells["C4-cmd"] = (False, short(e))

@@ -132,11 +132,11 @@ def main():
         # that path needs, so validating it here guards #3 against ownership regressions.
 
         # ---- T-SPLIT / T-CMD (mid-battle, before T-EXIT) --
-        session.assert_t_split(host, client, want_coop, what="S3 bootstrap ownership")
+        session.assert_control_split(host, client, want_coop, what="S3 bootstrap ownership")
         seat1_actor = next(sid for sid in squad if want_coop[sid] == 1)
         seat0_actor = next(sid for sid in squad if want_coop[sid] == 0)
         try:
-            session.assert_t_cmd(host, client, seat1_actor, seat0_actor,
+            session.assert_seat_commands(host, client, seat1_actor, seat0_actor,
                                  what="S3 bootstrap ownership")
         except Exception:
             _f3384_dump(host, client, "T-CMD failed")
@@ -168,7 +168,7 @@ def main():
 
         # ---- SPEC 19 T-EXIT closes the battle via the host-authoritative
         # abort: SHARED finishBattle returns BOTH machines cleanly.
-        session.assert_t_exit(host, client, what="S3 bootstrap ownership")
+        session.assert_battle_exit(host, client, what="S3 bootstrap ownership")
 
         print("ALL SPEC 19 (W1-P20) S3 SHARED BOOTSTRAP-OWNERSHIP-IN-BATTLE TESTS PASSED")
     finally:

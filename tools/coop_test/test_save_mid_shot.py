@@ -261,7 +261,7 @@ def main():
             guest = [x for x in session.battle_state(host)["units"]
                      if x.get("isPlayerSoldier") and "Guest" in (x.get("name") or "")]
             assert len(guest) == 1, f"guest battle unit: {guest}"
-            session.assert_t_cmd(host, client, guest[0]["soldierId"], host_squad[0], host_check=False, what="SV1")
+            session.assert_seat_commands(host, client, guest[0]["soldierId"], host_squad[0], host_check=False, what="SV1")
             cells["S8"] = (True, f"both tops BattlescapeState {tops}; T-CMD admit + deny passed")
         except (AssertionError, TimeoutError, RuntimeError) as e:
             cells["S8"] = (False, f"{type(e).__name__}: {str(e)[:400]}")

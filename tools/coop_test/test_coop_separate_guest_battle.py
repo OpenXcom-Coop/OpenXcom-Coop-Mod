@@ -126,11 +126,11 @@ def main():
 
         expected_seats = {sid: 0 for sid in host_squad}
         expected_seats[guest_battle_id] = 1
-        session.assert_t_split(host, client, expected_seats,
+        session.assert_control_split(host, client, expected_seats,
                                what="S1 separate guest battle")
-        session.assert_t_cmd(host, client, guest_battle_id, host_squad[0],
+        session.assert_seat_commands(host, client, guest_battle_id, host_squad[0],
                              what="S1 separate guest battle")
-        session.assert_t_exit(host, client, what="S1 separate guest battle",
+        session.assert_battle_exit(host, client, what="S1 separate guest battle",
                               expect_both=True)
 
         # ---- post-battle roster consumers ------------------------------
