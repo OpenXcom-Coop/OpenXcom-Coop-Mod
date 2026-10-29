@@ -1,17 +1,17 @@
 """test_client_selection.py: the client's selected unit and the
-actor of its current battle action (spec rewrite/prompts/w2h6_client_selection_actor.md
-section (d); F1170, F1200-F1208).
+actor of its current battle action.
 
 Vanilla pairs every player-driven selection change with the action actor and
 the cursor (BattlescapeState::selectNextPlayerUnit: cancelAllActions(), the
-actor = the new unit, setupCursor()). The client's co-op selection writers do
-not: the side_begin re-select (connectionTCP.cpp, `save->selectNextPlayerUnit()`
-under mySideActive) moves the selection and leaves the actor where it was (null
-in a gm2 battle, the previous unit in ordinary co-op), and nothing on the client
-clears a selected unit that dies. The action menu is built from the selected
-unit's right-hand item with whatever the actor is, so a gm2 client dies on the
-THROW row (getFiringAccuracy with a null attacker, F1170) and an ordinary
-client's order carries the stale actor.
+actor = the new unit, setupCursor()). The client's co-op selection writers
+must do the same: the side_begin re-select (connectionTCP.cpp,
+`save->selectNextPlayerUnit()` under mySideActive) pairs the new selection,
+and the client clears a selected unit that dies. Without the pairing the
+actor stays where it was (null in a gm2 battle, the previous unit in ordinary
+co-op). The action menu is built from the selected unit's right-hand item
+with whatever the actor is, so a gm2 client then crashes on the THROW row
+(getFiringAccuracy with a null attacker) and an ordinary client's order
+carries the stale actor.
 
 Probe: battle_state.currentActionActorId (this machine's
 BattlescapeGame::_currentAction.actor id, -1 for null) beside selectedId.
@@ -25,68 +25,70 @@ anything for the client before its press.
  set_seed 1 before open_new_battle and before newbattle_ok, the client on the
  Alien team), pin_ai_neutral (0 is legal in gm2), every X-COM soldier's
  reactions 0 on both.
-  H6a  the host presses END TURN and the battle crosses to the hostile side
-       (the client's). The client presses the right-hand box of its selected
-       alien. RED (at 282551690): the client process dies (rc 3) with a crash
-       report; the test records the rc and the report as the evidence, fails
-       the scenario and goes on with the other boots. GREEN: the client is
-       alive, ActionMenuState is on top, currentActionActorId == selectedId
-       (the alien) before the press and with the menu open; ESC.
+  gm2_alien_menu  the host presses END TURN and the battle crosses to the
+       hostile side (the client's). The client presses the right-hand box of
+       its selected alien. A client that crashes on the press (rc 3, a crash
+       report) has the rc and the report recorded as the evidence, fails the
+       scenario, and the other boots still run. Pass: the client is alive,
+       ActionMenuState is on top, currentActionActorId == selectedId (the
+       alien) before the press and with the menu open; ESC.
 
  Boot 2 - traditional (test_turn_baton.pre_ok_traditional; the roster pin
  of test_host_combat.py; STR_TERROR_MISSION map seed 1, MAP_FP on both,
  pin_ai_neutral, the client's seated units SEATED).
-  H6b  the capture's C2 steps: the host's END TURN passes the baton to seat 1,
-       the client's END TURN closes the side, the full cycle to turn 2, the
-       host's END TURN passes the baton again. Staging for H6b2 (neither lever
-       touches the selection or the action): the client's selected unit S gets
-       a rifle + clip and stands on H6B_TILE facing east (both machines). The
-       client presses the right-hand box and the menu stays open for H6b2.
-       RED: currentActionActorId != selectedId (8 vs 9). GREEN: equal before
-       the press and with the menu open; the menu's rows are the rows of S's
-       right-hand weapon (WEAPON_ROWS).
-  H6b2 F1205: from that open menu, the SNAP key, HOME, host set_seed
-       SEED_SHOT, one left click on the floor tile H6B_TARGET. RED: whatever
-       this build does, printed in the EVIDENCE line (by reading: the order
-       carries the stale actor and the host answers deny weapon_missing).
-       GREEN: host closedContexts gains exactly one {origin intent, kind
-       shoot, actorId S}.
+  trad_menu_actor  the host's END TURN passes the baton to seat 1, the
+       client's END TURN closes the side, the full cycle to turn 2, the host's
+       END TURN passes the baton again. Staging for trad_snap_actor (neither
+       test command touches the selection or the action): the client's
+       selected unit S gets a rifle + clip and stands on SNAP_FROM_TILE facing
+       east (both machines). The client presses the right-hand box and the
+       menu stays open for trad_snap_actor. A stale actor shows as
+       currentActionActorId != selectedId (for example 8 vs 9). Pass: equal
+       before the press and with the menu open; the menu's rows are the rows
+       of S's right-hand weapon (WEAPON_ROWS).
+  trad_snap_actor  from that open menu, the SNAP key, HOME, host set_seed
+       SEED_SHOT, one left click on the floor tile SNAP_TARGET. The EVIDENCE
+       line prints the outcome (a stale actor would put the wrong unit in the
+       order, and the host would answer deny weapon_missing). Pass: host
+       closedContexts gains exactly one {origin intent, kind shoot, actorId
+       S}.
 
  Boot 3 - parallel (the same terror boot, parallel mode).
-  H6c  one END TURN cycle (the client presses first, the host once it paints
-       END TURN 1/2, the full cycle), then the step the capture's B2 lacked:
-       each next-turn screen on top is dismissed the way a player
-       does it (one Enter key through inject_input, NextTurnState::handle)
-       until both machines show the battlescape and the client has caught up.
-       Staging (F1214, H6b's lever; it touches neither the selection nor the
+  par_menu_actor  one END TURN cycle (the client presses first, the host
+       once it paints END TURN 1/2, the full cycle), then each next-turn
+       screen on top is dismissed the way a player does it (one Enter key
+       through inject_input, NextTurnState::handle) until both machines show
+       the battlescape and the client has caught up. Staging (the rifle test
+       command of trad_menu_actor; it touches neither the selection nor the
        action): the client's selected unit gets a rifle + clip (both
-       machines), so the expected menu rows are always the rifle's.
-       The client presses the right-hand box, then ESC. RED / GREEN as H6b.
-  H6d  the host kills the client's selected soldier V (capD staging: shooter
-       H_ID with a rifle + clip on SHOOTER_TILE, TU max, firing 120; V on
-       VICTIM_TILE with health 1; host set_seed SEED_SHOT; battle_fire snap at
-       V). One construction: V not DEAD on both = the precondition failed, no
-       press. RED: the client's selectedId stays V (dead) and V stays the
-       actor. GREEN (F1218, no press: click_widget nth counts visible widgets
-       only, so with the box hidden a press by nth lands on another widget):
-       the client's list_widgets holds exactly one interactive entry at
-       RHAND_RECT and it has visible false; the battlescape is on top (no
-       ActionMenuState); selectedId -1 and currentActionActorId -1 on the
-       player side; then ONE TAB selects a live soldier of the client's seat
-       with currentActionActorId == selectedId.
+       machines), so the expected menu rows are always the rifle's. The
+       client presses the right-hand box, then ESC. Pass and fail as in
+       trad_menu_actor.
+  par_dead_selection  the host kills the client's selected soldier V
+       (staging: shooter H_ID with a rifle + clip on SHOOTER_TILE, TU max,
+       firing 120; V on VICTIM_TILE with health 1; host set_seed SEED_SHOT;
+       battle_fire snap at V). One construction: V not DEAD on both = the
+       precondition failed, no press. A client that keeps a dead selection
+       shows selectedId V (dead) with V as the actor. Pass (no press:
+       click_widget nth counts visible widgets only, so with the box hidden a
+       press by nth lands on another widget): the client's list_widgets holds
+       exactly one interactive entry at RHAND_RECT and it has visible false;
+       the battlescape is on top (no ActionMenuState); selectedId -1 and
+       currentActionActorId -1 on the player side; then ONE TAB selects a
+       live soldier of the client's seat with currentActionActorId ==
+       selectedId.
 
-Common asserts after every scenario (spec (d)): after wait_host_idle, hash_now
+Common asserts after every scenario: after wait_host_idle, hash_now
 {full:true} with every bucket EQUAL (never a hard-coded count);
 coopClientBStatePushes 0 on both; desyncSeen false on both. Each scenario
-prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its green
+prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its pass
 conditions are checked, then "PASS <id>" or "FAIL <id>: <message>". Every wait
 is bounded; a wait that times out is recorded and fails the scenario. A boot
 that does not come up fails its own scenarios and the next boot still runs.
 
-Item ids vary per boot: they are read at run time. Every lever pair
-goes to the CLIENT first. one run is the result; no
-second boot, no alternative map or actor. Exit 0 only when all five scenarios
-pass, 2 otherwise. run in the foreground to completion.
+Item ids vary per boot: they are read at run time. Every paired test command
+goes to the CLIENT first. No second boot, no alternative map or actor. Exit 0
+only when all five scenarios pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_client_selection.py
 """
@@ -112,14 +114,14 @@ from test_host_combat import bring_up_lobby_roster_pinned
 from test_client_shoot import (snap, await_press, new_contexts, mine, press_view, ui_view, menu_rows,
                                   KEY_SNAP, CURSOR_AIM, RHAND_CENTRE)
 
-# ----- boot 1: gm2 (W2-P4 T0c pvp_alien_orders / the W2-H6 capture A) -----
+# ----- boot 1: gm2 (the same bring-up as test_client_pvp's pvp_alien_orders) -----
 GM2_PORT = "48191"
 GM2_SEED = 1                       # set_seed on the HOST before open_new_battle (the roster)
 
 # ----- boots 2 and 3: the roster-pinned terror boot (test_host_combat.py) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1 (T0a, every boot)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1 (the same on every boot)
 SEATED = [8, 9]                   # the client's seated units
 H_ID = 10                         # first host-seat soldier
 TRAD_PORT = "48192"
@@ -132,14 +134,14 @@ TU_MAX = 255                      # battle_set_unit_state tu: clamped to the uni
 FIRING_120 = 120
 SEED_SHOT = 1
 
-# ----- H6b / H6b2 -----
-H6B_TILE, H6B_DIR = (12, 26, 0), 2   # open road (test_client_shoot C_TILE), facing east
-H6B_TARGET = (16, 26, 0)             # floor tile due east: no pre-shot turn (test_client_shoot C17P_SNAP_TARGET)
-# ActionMenuState rows per right-hand weapon (the W2-H6 capture: STR_RIFLE THROW/AUTO/SNAP/AIMED,
+# ----- trad_menu_actor / trad_snap_actor -----
+SNAP_FROM_TILE, SNAP_FROM_DIR = (12, 26, 0), 2   # open road (test_client_shoot C_TILE), facing east
+SNAP_TARGET = (16, 26, 0)   # floor tile due east: no pre-shot turn (test_client_shoot's snap target)
+# ActionMenuState rows per right-hand weapon (STR_RIFLE THROW/AUTO/SNAP/AIMED,
 # STR_ROCKET_LAUNCHER THROW/SNAP/AIMED).
 WEAPON_ROWS = {"STR_RIFLE": 4, "STR_ROCKET_LAUNCHER": 3}
 
-# ----- H6d (the capture's capD staging) -----
+# ----- par_dead_selection staging -----
 SHOOTER_TILE, SHOOTER_DIR = (12, 26, 0), 1
 VICTIM_TILE, VICTIM_DIR = (12, 23, 0), 0
 
@@ -151,7 +153,7 @@ BS_STATE = "BattlescapeState"
 NEXT_TURN_STATE = "NextTurnState"
 MENU_WAIT_S = 4.0
 CRASH_WAIT_S = 10.0
-from harness import CRASH_DIR as CRASHLOGS  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
+from harness import CRASH_DIR as CRASHLOGS  # noqa: E402  (this lane's own crash folder)
 
 
 # ===================== small probes =====================
@@ -238,7 +240,7 @@ def crash_head(files, n=6):
     return []
 
 
-# ===================== staging (client first, F607) =====================
+# ===================== staging (client first) =====================
 
 
 def give_both(host, client, uid, item, ammo):
@@ -265,9 +267,8 @@ def wait_baton(host, client, seat, label, timeout=30):
 
 
 def settle_tops_close(host, client, label, timeout=15):
-    """The capture's settle step (caplib.settle_tops): close any NextTurnState
-    on top of either machine through close_nextturn until both tops are the
-    battlescape."""
+    """Close any NextTurnState on top of either machine through close_nextturn
+    until both tops are the battlescape."""
     def ok():
         for gc in (host, client):
             dismiss_next_turn_if_present(gc)
@@ -366,7 +367,7 @@ def click_fails(ev):
 
 
 def hand_box_view(gc):
-    """F1218 (H6.1c): the right-hand box as list_widgets reports it. list_widgets
+    """The right-hand box as list_widgets reports it. list_widgets
     lists every surface of the top state, hidden ones included, each with its
     `visible` flag. Returns the top state (prefix-stripped), every entry at
     RHAND_RECT, and the rect click_widget nth RHAND_NTH would hit now (it
@@ -395,7 +396,7 @@ def close_menu(client):
 
 
 def common_fails(host, client, what):
-    """Spec (d) common: buckets equal, coopClientBStatePushes 0, no desync."""
+    """The common asserts: buckets equal, coopClientBStatePushes 0, no desync."""
     fails = []
     try:
         session.wait_host_idle(host, client, timeout=30)
@@ -445,7 +446,7 @@ def boot_gm2(host, client):
     hs, cs = battle_state(host), battle_state(client)
     assert hs.get("coopGamemode") == 2 and cs.get("coopGamemode") == 2, (
         f"coopGamemode host={hs.get('coopGamemode')} client={cs.get('coopGamemode')} (want 2 on both)")
-    pinned = pin_ai_neutral(host, client, tag="w2h6-gm2")
+    pinned = pin_ai_neutral(host, client, tag="client_selection-gm2")
     xcom = sorted(u["id"] for u in hs["units"] if u.get("faction") == FACTION_PLAYER
                   and u.get("coop") == COOP_SEAT_0 and not u.get("isOut"))
     assert xcom, "no live X-COM soldier on the host"
@@ -453,12 +454,12 @@ def boot_gm2(host, client):
         set_stat_both(host, client, uid, "reactions", 0)
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="gm2 bring-up")
-    print(f"[w2h6] gm2 boot ok: mapFP={hs.get('mapFingerprint')} side={hs.get('side')}/{cs.get('side')} "
+    print(f"[client_selection] gm2 boot ok: mapFP={hs.get('mapFingerprint')} side={hs.get('side')}/{cs.get('side')} "
           f"pinned={len(pinned)} xcom reactions 0={xcom} selection={dump(host, client)}", flush=True)
     return {}
 
 
-def h6a_gm2_press(host, client, ctx):
+def gm2_alien_menu(host, client, ctx):
     notes = []
     crash0 = crash_files()
     try:
@@ -482,7 +483,7 @@ def h6a_gm2_press(host, client, ctx):
         elif ev["top"] == MENU_STATE:
             esc_top = close_menu(client)
     diff = diff_buckets(host, client) if alive(client) else None
-    print(f"EVIDENCE H6a: pre={pre} selectedUnit={ubrief(su)} rightHand={rh} press={ev} crashFiles={crash} "
+    print(f"EVIDENCE gm2_alien_menu: pre={pre} selectedUnit={ubrief(su)} rightHand={rh} press={ev} crashFiles={crash} "
           f"crashHead={crash_head(crash)} afterEsc={esc_top} diff={diff} notes={notes}", flush=True)
     fails = list(notes)
     if notes:
@@ -506,7 +507,7 @@ def h6a_gm2_press(host, client, ctx):
         fails.append(f"client currentActionActorId {ev.get('actorInMenu')} with the menu open (want selectedId {sel})")
     if ev.get("top") == MENU_STATE and esc_top != BS_STATE:
         fails.append(f"client top after ESC {esc_top} (want {BS_STATE})")
-    fails += common_fails(host, client, "H6a")
+    fails += common_fails(host, client, "gm2_alien_menu")
     finish(fails)
 
 
@@ -521,7 +522,7 @@ def boot_terror(host, client, port, pre_ok, mode):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag=f"w2h6-{mode}")
+    pinned = pin_ai_neutral(host, client, tag=f"client_selection-{mode}")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
     seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
@@ -530,7 +531,7 @@ def boot_terror(host, client, port, pre_ok, mode):
     assert modes == (mode, mode), f"turnMode host/client={modes} (want {mode} on both)"
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what=f"{mode} bring-up")
-    print(f"[w2h6] {mode} boot ok: {MISSION} MAP_FP={MAP_FP!r} seated={seated_uids} pinned={len(pinned)} "
+    print(f"[client_selection] {mode} boot ok: {MISSION} MAP_FP={MAP_FP!r} seated={seated_uids} pinned={len(pinned)} "
           f"selection={dump(host, client)}", flush=True)
     return {}
 
@@ -544,8 +545,9 @@ def boot_par(host, client):
 
 
 def menu_checks(pre_c, sel, rh, ev):
-    """H6b / H6c green: actor == selected before the press and with the menu
-    open; the menu's rows are the selected unit's right-hand weapon's."""
+    """trad_menu_actor / par_menu_actor pass conditions: actor == selected
+    before the press and with the menu open; the menu's rows are the selected
+    unit's right-hand weapon's."""
     fails = []
     if pre_c.get("actorId") != sel:
         fails.append(f"client currentActionActorId {pre_c.get('actorId')} != selectedId {sel} before the press")
@@ -564,9 +566,9 @@ def menu_checks(pre_c, sel, rh, ev):
     return fails
 
 
-def h6b_trad_menu(host, client, ctx):
+def trad_menu_actor(host, client, ctx):
     notes = []
-    ctx["h6bMenu"] = False
+    ctx["menuLeftOpen"] = False
     staged = {}
     try:
         wait_baton(host, client, COOP_SEAT_0, "entry")
@@ -585,7 +587,7 @@ def h6b_trad_menu(host, client, ctx):
         sel0 = battle_state(client).get("selectedId")
         staged["unit"] = sel0
         staged["rifle"] = give_both(host, client, sel0, "STR_RIFLE", "STR_RIFLE_CLIP")
-        staged["tele"] = tele_both(host, client, sel0, H6B_TILE, H6B_DIR).get("to")
+        staged["tele"] = tele_both(host, client, sel0, SNAP_FROM_TILE, SNAP_FROM_DIR).get("to")
         staged["diff"] = diff_buckets(host, client)
     except Exception as e:
         notes.append(f"precondition: the client's turn-2 baton was not reached: {short(e)}; {dump(host, client)}")
@@ -595,10 +597,10 @@ def h6b_trad_menu(host, client, ctx):
     su = units(client).get(sel)
     rh = right_hand(client, sel) if sel not in (None, -1) else None
     ev = rhand_press(client, want_menu=True) if not notes else {}
-    ctx["h6bMenu"] = bool(ev.get("alive") and ev.get("top") == MENU_STATE)
-    ctx["h6bSel"] = sel
-    ctx["h6bWeapon"] = rh
-    print(f"EVIDENCE H6b: staged={staged} pre={pre} selectedUnit={ubrief(su)} rightHand={rh} press={ev} "
+    ctx["menuLeftOpen"] = bool(ev.get("alive") and ev.get("top") == MENU_STATE)
+    ctx["menuSelected"] = sel
+    ctx["menuWeapon"] = rh
+    print(f"EVIDENCE trad_menu_actor: staged={staged} pre={pre} selectedUnit={ubrief(su)} rightHand={rh} press={ev} "
           f"notes={notes}", flush=True)
     fails = list(notes)
     if notes:
@@ -613,15 +615,15 @@ def h6b_trad_menu(host, client, ctx):
         fails.append(f"buckets differ after the staging: {staged['diff']} (want none)")
     fails += click_fails(ev)
     fails += menu_checks(pc, sel, rh, ev)
-    fails += common_fails(host, client, "H6b")
+    fails += common_fails(host, client, "trad_menu_actor")
     finish(fails)
 
 
-def h6b2_trad_snap(host, client, ctx):
+def trad_snap_actor(host, client, ctx):
     notes = []
-    sel = ctx.get("h6bSel")
-    if not ctx.get("h6bMenu"):
-        raise AssertionError(f"H6b left no open action menu on the client ({dump(host, client)}): the snap "
+    sel = ctx.get("menuSelected")
+    if not ctx.get("menuLeftOpen"):
+        raise AssertionError(f"trad_menu_actor left no open action menu on the client ({dump(host, client)}): the snap "
                              f"from that menu cannot run")
     before = snap(host, client)
     aim = {}
@@ -640,10 +642,10 @@ def h6b2_trad_snap(host, client, ctx):
         else:
             press(client, SDLK_HOME)
             time.sleep(0.15)
-            r = client.cmd({"cmd": "map_tile_click_pos", "x": H6B_TARGET[0], "y": H6B_TARGET[1], "z": H6B_TARGET[2]})
+            r = client.cmd({"cmd": "map_tile_click_pos", "x": SNAP_TARGET[0], "y": SNAP_TARGET[1], "z": SNAP_TARGET[2]})
             pr = {k: r.get(k) for k in ("verified", "winX", "winY", "centered")}
             if not r.get("verified"):
-                notes.append(f"precondition: map_tile_click_pos did not verify {H6B_TARGET}: {r}")
+                notes.append(f"precondition: map_tile_click_pos did not verify {SNAP_TARGET}: {r}")
             else:
                 host.ok({"cmd": "set_seed", "seed": SEED_SHOT})
                 client.ok({"cmd": "inject_input", "kind": "click", "x": r["winX"], "y": r["winY"], "button": "left"})
@@ -657,19 +659,19 @@ def h6b2_trad_snap(host, client, ctx):
     rec = snap(host, client)
     new = new_contexts(before["host"]["closedContexts"], rec["host"]["closedContexts"])
     hits = mine(new, "intent", "shoot", sel)
-    print(f"EVIDENCE H6b2: selected={sel} weapon={ctx.get('h6bWeapon')} target={H6B_TARGET} aim={aim} clickPos={pr} "
-          f"outcome={out}; {press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; "
+    print(f"EVIDENCE trad_snap_actor: selected={sel} weapon={ctx.get('menuWeapon')} target={SNAP_TARGET} aim={aim} "
+          f"clickPos={pr} outcome={out}; {press_view(before, rec)}; ui={ui_view(before, rec)}; newContexts={new}; "
           f"lastDeny={rec['client']['lastDeny']}; intentsReceived host={rec['host']['intentsReceived']}; "
           f"after={dump(host, client)} diff={diff_buckets(host, client)}; notes={notes}", flush=True)
     fails = list(notes)
     if len(hits) != 1:
         fails.append(f"host closedContexts gained {len(hits)} {{origin intent, kind shoot, actorId {sel}}} (want "
                      f"exactly 1; new contexts={new}; client lastDeny={rec['client']['lastDeny']})")
-    fails += common_fails(host, client, "H6b2")
+    fails += common_fails(host, client, "trad_snap_actor")
     finish(fails)
 
 
-def h6c_par_menu(host, client, ctx):
+def par_menu_actor(host, client, ctx):
     notes = []
     keys = {}
     staged = {}
@@ -683,9 +685,10 @@ def h6c_par_menu(host, client, ctx):
         drive_full_cycle(host, client, turn0, timeout=90)
         session.wait_host_idle(host, client, timeout=30)
         keys = settle_tops_player(host, client)
-        # F1214 (H6.1b): a known right-hand weapon on the client's selected unit,
-        # H6b's lever (client first, F607); it touches neither the selection nor
-        # the action, so the menu's expected rows are always the rifle's.
+        # A known right-hand weapon on the client's selected unit, the same
+        # test command as trad_menu_actor (client first); it touches neither the
+        # selection nor the action, so the menu's expected rows are always the
+        # rifle's.
         sel0 = battle_state(client).get("selectedId")
         staged["unit"] = sel0
         staged["rifle"] = give_both(host, client, sel0, "STR_RIFLE", "STR_RIFLE_CLIP")
@@ -699,8 +702,8 @@ def h6c_par_menu(host, client, ctx):
     rh = right_hand(client, sel) if sel not in (None, -1) else None
     ev = rhand_press(client, want_menu=True) if not notes else {}
     esc_top = close_menu(client) if ev.get("top") == MENU_STATE else None
-    print(f"EVIDENCE H6c: turn0={turn0} nextTurnKeys={keys} staged={staged} pre={pre} selectedUnit={ubrief(su)} "
-          f"rightHand={rh} press={ev} afterEsc={esc_top} notes={notes}", flush=True)
+    print(f"EVIDENCE par_menu_actor: turn0={turn0} nextTurnKeys={keys} staged={staged} pre={pre} "
+          f"selectedUnit={ubrief(su)} rightHand={rh} press={ev} afterEsc={esc_top} notes={notes}", flush=True)
     fails = list(notes)
     if notes:
         finish(fails)
@@ -713,11 +716,11 @@ def h6c_par_menu(host, client, ctx):
     fails += menu_checks(pc, sel, rh, ev)
     if ev.get("top") == MENU_STATE and esc_top != BS_STATE:
         fails.append(f"client top after ESC {esc_top} (want {BS_STATE})")
-    fails += common_fails(host, client, "H6c")
+    fails += common_fails(host, client, "par_menu_actor")
     finish(fails)
 
 
-def h6d_par_death(host, client, ctx):
+def par_dead_selection(host, client, ctx):
     notes = []
     if not alive(client) or not alive(host):
         raise AssertionError(f"a machine is not running: {dump(host, client)}")
@@ -767,8 +770,8 @@ def h6d_par_death(host, client, ctx):
             cs = battle_state(client)
             tab.update({"selectedId": cs.get("selectedId"), "actorId": cs.get("currentActionActorId"),
                         "unit": ubrief(units(client).get(cs.get("selectedId")))})
-    print(f"EVIDENCE H6d: victim={v} {ubrief(v0)} staged={staged} victim host={ubrief(vh)} client={ubrief(vc)} "
-          f"dead={dead} afterKill={after} handBox={ev} tab={tab} notes={notes}", flush=True)
+    print(f"EVIDENCE par_dead_selection: victim={v} {ubrief(v0)} staged={staged} victim host={ubrief(vh)} "
+          f"client={ubrief(vc)} dead={dead} afterKill={after} handBox={ev} tab={tab} notes={notes}", flush=True)
     fails = list(notes)
     if not dead:
         fails.append(f"precondition: victim {v} not DEAD on both after the one construction (host "
@@ -795,14 +798,14 @@ def h6d_par_death(host, client, ctx):
         fails.append(f"TAB selected {tab.get('selectedId')} {ubrief(tu)} (want a live soldier of seat 1 other than {v})")
     if tab.get("actorId") != tab.get("selectedId"):
         fails.append(f"after TAB currentActionActorId {tab.get('actorId')} != selectedId {tab.get('selectedId')}")
-    fails += common_fails(host, client, "H6d")
+    fails += common_fails(host, client, "par_dead_selection")
     finish(fails)
 
 
 BOOTS = (
-    ("gm2", boot_gm2, (("H6a", h6a_gm2_press),)),
-    ("traditional", boot_trad, (("H6b", h6b_trad_menu), ("H6b2", h6b2_trad_snap))),
-    ("parallel", boot_par, (("H6c", h6c_par_menu), ("H6d", h6d_par_death))),
+    ("gm2", boot_gm2, (("gm2_alien_menu", gm2_alien_menu),)),
+    ("traditional", boot_trad, (("trad_menu_actor", trad_menu_actor), ("trad_snap_actor", trad_snap_actor))),
+    ("parallel", boot_par, (("par_menu_actor", par_menu_actor), ("par_dead_selection", par_dead_selection))),
 )
 
 
@@ -811,7 +814,7 @@ def shutdown(gc):
     try:
         gc.shutdown()
     except Exception as e:
-        print(f"[w2h6] shutdown {gc.name} (rc before shutdown {rc}): {short(e)}", flush=True)
+        print(f"[client_selection] shutdown {gc.name} (rc before shutdown {rc}): {short(e)}", flush=True)
 
 
 def main():
@@ -819,8 +822,8 @@ def main():
     results = {}
     order = [sid for _, _, scs in BOOTS for sid, _ in scs]
     for bname, boot, scenarios in BOOTS:
-        host = GameClient("host", 49880, make_user_dir(f"w2h6_sel_{bname}_host"))
-        client = GameClient("client", 49881, make_user_dir(f"w2h6_sel_{bname}_client"))
+        host = GameClient("host", 49880, make_user_dir(f"client_selection_{bname}_host"))
+        client = GameClient("client", 49881, make_user_dir(f"client_selection_{bname}_client"))
         try:
             try:
                 ctx = boot(host, client)
