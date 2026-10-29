@@ -1,6 +1,6 @@
-"""R5-U3 S-A rows P1, D2, D1 (boot A, gm2: the client plays the aliens, seat 1): the human alien side plays by the
-player-side rules vanilla gives X-COM - its panic acts out at its side start (R5-V1) and its units skip only the AI's
-weapon-use delay.
+"""R5-U3 S-A rows alien_panic, D2, D1 (boot A, gm2: the client plays the aliens, seat 1): the human alien side plays
+by the player-side rules vanilla gives X-COM - its panic acts out at its side start (R5-V1) and its units skip only the
+AI's weapon-use delay.
 
 Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_rules.py, with its ORCHESTRATOR RULINGS
 R-U3-A-1 (A staged on A_D2_TILE before D2), R-U3-A-2 ("the bomb gone on both" is a D2-admit cell, D2-census is census
@@ -8,13 +8,13 @@ equality) and R-U3-A-3 (D2 is vanilla's dive, two waypoints on LAUNCH_W, with le
 Constants: rewrite/r5u3-task0/sa/CONSTANTS.md (TASK 0 boots Aa, abcap, Ac-Ag on the unchanged build).
 
 Boot A (key 48677): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, A morale 0.
-  P1  host set_seed SEED_P1 right before its END TURN; A's status read on both before any NextTurnState closes (the
-      roll); drive_side_change to side 1; a bounded wait (PANIC_S) for the host's `panic` ev, every host infobox
-      dismissed host-only, leftover NextTurnStates closed.
-      P1-roll   A status 8 (PANICKING) on both at the roll (precondition)
-      P1-act    exactly one host `panic` ev {unit A, mode flee or freeze} and its bt_action_end on the same actionId
-                since the press; the client applied the same seqs
-      P1-after  A status 0, TU 0, morale M0 + 15 on both
+  alien_panic  host set_seed PANIC_SEED right before its END TURN; A's status read on both before any NextTurnState
+      closes (the roll); drive_side_change to side 1; a bounded wait (PANIC_S) for the host's `panic` ev, every host
+      infobox dismissed host-only, leftover NextTurnStates closed.
+      alien_panic-roll   A status 8 (PANICKING) on both at the roll (precondition)
+      alien_panic-act    exactly one host `panic` ev {unit A, mode flee or freeze} and its bt_action_end on the same
+                         actionId since the press; the client applied the same seqs
+      alien_panic-after  A status 0, TU 0, morale M0 + 15 on both
   D2  reset A {status 0, TU A_TU, morale 100} (both); A on A_D2_TILE facing A_D2_DIR (teleported only when it does
       not stand there, S2); launcher + bomb (lever, both); DROPS by battle_drop (both); host set_seed SEED_D2; the
       client's launch lever with waypoints [LAUNCH_W, LAUNCH_W]; settle.
@@ -31,8 +31,9 @@ Boot A (key 48677): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), ever
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane
 crash folder. EVIDENCE only: the panic mode, host infoboxes, the client's warningText and menu rows, the explosion.
 
-RED on the unchanged build (commit A1): P1-act, P1-after, D2-canuse, D2-admit, D1-canuse, D1-press; every other cell
-PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A
+RED on the unchanged build (commit A1): alien_panic-act, alien_panic-after, D2-canuse, D2-admit, D1-canuse, D1-press;
+every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs
+after a failure. A
 boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails the
 rows that need it "staging". run in the foreground to completion. ONE run is the result, no
 skip path; exit 0 only when every cell passes, else 2.
@@ -63,8 +64,8 @@ import test_pvp_gm3 as G3F  # noqa: E402
 KEY = "48677"
 A_ID = 1000000                    # the only alien (STR_SECTOID_SOLDIER), the client's (seat 1), spawn (27,12,0) dir 5
 A_TU = 54                         # A's TU at bring-up
-M0 = 0                            # A's morale after the roll; P1-after wants M0 + 15
-SEED_P1 = 1                       # host set_seed before its END TURN: A rolls STATUS_PANICKING (8) on both
+M0 = 0                            # A's morale after the roll; alien_panic-after wants M0 + 15
+PANIC_SEED = 1                    # host set_seed before its END TURN: A rolls STATUS_PANICKING (8) on both
 STATUS_STANDING, STATUS_PANICKING = 0, 8
 FACTION_HOSTILE = 1
 PANIC_S = 15                      # spec (f): the bounded wait for the host's panic ev after both screens close
@@ -76,7 +77,7 @@ D2_KINDS = ["shot", "shot", "explosion", "bt_action_end"]   # the dive at turn 3
 DROPS = (("STR_BLASTER_LAUNCHER", (32, 4, 0)), ("STR_RIFLE", (33, 4, 0)))   # gear inside the blast
 KEY_PRIME, KEY_FUSE_0 = 49, 48    # keyBattleActionItem1 (PRIME for a grenade); PrimeGrenadeState button 0
 CURSOR_TARGETING = (2, 3, 4, 5)
-ROWS = (("P1", ("P1-roll", "P1-act", "P1-after", "P1-common")),
+ROWS = (("alien_panic", ("alien_panic-roll", "alien_panic-act", "alien_panic-after", "alien_panic-common")),
         ("D2", ("D2-turn", "D2-canuse", "D2-admit", "D2-census", "D2-common")),
         ("D1", ("D1-canuse", "D1-press", "D1-common")))
 
@@ -126,21 +127,21 @@ def settle(host, client, ev):
         ev["idleError"] = str(e)[:200]
 
 
-# ===================== P1 =====================
+# ===================== alien_panic =====================
 
 
-def row_p1(host, client, crash0):
+def row_alien_panic(host, client, crash0):
     ev, cells = {}, {}
     seq0 = es(host, "lastSeqEmitted") or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_P1})
+    host.ok({"cmd": "set_seed", "seed": PANIC_SEED})
     ev["press"] = host.cmd({"cmd": "battle_action", "action": "end_turn_button"})
     ok, ev["sideS"] = wait_until(lambda: battle_state(host).get("side") == 1 and battle_state(client).get("side") == 1,
                                  STEP_S, 0.1)
     roll = [a_view(host), a_view(client)]
     ev.update(roll=roll, rollStacks=[G3F.stack(host), G3F.stack(client)])
-    cells["P1-roll"] = (ok and [r["status"] for r in roll] == [STATUS_PANICKING] * 2,
-                        f"side 1 on both {ok} ({ev['sideS']} s); A status host/client at the roll "
-                        f"{[r['status'] for r in roll]} (want [8, 8], SEED_P1 {SEED_P1})")
+    cells["alien_panic-roll"] = (ok and [r["status"] for r in roll] == [STATUS_PANICKING] * 2,
+                                 f"side 1 on both {ok} ({ev['sideS']} s); A status host/client at the roll "
+                                 f"{[r['status'] for r in roll]} (want [8, 8], PANIC_SEED {PANIC_SEED})")
     try:
         drive_side_change(host, client, FACTION_HOSTILE, timeout=STEP_S)
     except Exception as e:
@@ -148,7 +149,7 @@ def row_p1(host, client, crash0):
     rec, closed = {"hostBoxes": []}, []
 
     def panic_done():
-        poll_host_box(host, rec, "P1")
+        poll_host_box(host, rec, "alien_panic")
         closed.extend(close_leftovers(host, client))
         hev = evs_since(host, seq0)
         pids = [e["actionId"] for e in hev if e["kind"] == "panic"]
@@ -156,7 +157,7 @@ def row_p1(host, client, crash0):
             and es(host, "busyOwnerSeat") == -1
     ev["panicWait"] = wait_until(panic_done, PANIC_S, 0.2)
     settle(host, client, ev)
-    poll_host_box(host, rec, "P1 after")
+    poll_host_box(host, rec, "alien_panic after")
     ev["quiet"] = client_quiet(client)
     hev, cev = evs_since(host, seq0), evs_since(client, seq0)
     cmap = {e["seq"]: (e["kind"], e["actionId"]) for e in cev}
@@ -180,14 +181,15 @@ def row_p1(host, client, crash0):
         bad = [(e["seq"], e["kind"], cmap.get(e["seq"])) for e in mine if cmap.get(e["seq"]) != (e["kind"], aid)]
         if bad:
             act.append(f"client log lacks the host's evs of actionId {aid}: (seq, kind, client entry) {bad}")
-    cells["P1-act"] = (not act, "; ".join(act) or f"one panic ev {ev['panicPayloads']} and its bt_action_end, "
-                                                   f"the client the same seqs")
+    cells["alien_panic-act"] = (not act, "; ".join(act) or f"one panic ev {ev['panicPayloads']} and its bt_action_end, "
+                                                            f"the client the same seqs")
     after = [a_view(host), a_view(client)]
     ev["after"] = after
     want = (STATUS_STANDING, 0, M0 + 15)
     got = [(a["status"], a["tu"], a["morale"]) for a in after]
-    cells["P1-after"] = (got == [want, want], f"A (status, TU, morale) host/client {got} (want {want} on both)")
-    cells["P1-common"] = G3F.common(host, client, crash0)
+    cells["alien_panic-after"] = (got == [want, want],
+                                  f"A (status, TU, morale) host/client {got} (want {want} on both)")
+    cells["alien_panic-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
@@ -362,7 +364,7 @@ def boot_a():
         except G3F.Miss:
             return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE A line)")
         rows = dict(ROWS)
-        fails = G3F.run_row("P1", rows["P1"], lambda: row_p1(host, client, crash0))
+        fails = G3F.run_row("alien_panic", rows["alien_panic"], lambda: row_alien_panic(host, client, crash0))
         try:
             st2 = stage_d2(host, client)
         except G3F.Miss:
