@@ -19,6 +19,9 @@ takes the ids the host sends; it never mints its own.
           host builds it, not only when the whole batch finishes.
   SHIPPED a craft and an item produced with a transfer time go into a transfer
           on the replica, as on the host, instead of straight into the base.
+  SPAWNED a manufacture that spawns a soldier gives it to the base's owner, and
+          the replica's transfer holds the host's soldier (id, name, stats,
+          owner); a spawned scientist travels to the replica too.
   UFOS    the replica's UFOs carry the host's identity: unique id, display id,
           coop id, status and altitude. Two undetected UFOs (display id 0) stay
           two UFOs on the replica, and a crashed UFO stays crashed.
@@ -55,6 +58,9 @@ BUILD_SHIPPED = "STR_COOP_WORLDIDS_INTERCEPTOR_SHIPPED"
 RIFLE_SHIPPED = "STR_COOP_WORLDIDS_RIFLE_SHIPPED"
 RIFLE = "STR_RIFLE"
 SHIP_HOURS = 48
+# Productions that spawn a person (spawnedPersonType) instead of an item.
+RECRUIT = "STR_COOP_WORLDIDS_RECRUIT"
+SCIENTIST_JOB = "STR_COOP_WORLDIDS_SCIENTIST"
 
 METADATA = """\
 name: "Coop world ids test"
@@ -90,6 +96,20 @@ manufacture:
     transferTimes: [{SHIP_HOURS}, 1, {SHIP_HOURS}]
     producedItems:
       {RIFLE}: 1
+  - name: {RECRUIT}
+    category: STR_EQUIPMENT
+    space: 1
+    time: {BUILD_TIME}
+    cost: 100
+    spawnedPersonType: STR_SOLDIER
+    producedItems: {{}}
+  - name: {SCIENTIST_JOB}
+    category: STR_EQUIPMENT
+    space: 1
+    time: {BUILD_TIME}
+    cost: 100
+    spawnedPersonType: STR_SCIENTIST
+    producedItems: {{}}
 """
 
 FAILURES = []
@@ -200,6 +220,12 @@ def base_output(gc, base):
     return (sorted((c["type"], c["id"]) for c in b["crafts"]),
             {k: v for k, v in b["items"].items() if v},
             sorted((t["type"], t["rule"], t["qty"]) for t in b["transfers"]))
+
+
+def transit_soldiers(gc, base):
+    """The soldiers on their way to a base, by id."""
+    rows = gc.ok({"cmd": "incoming_transfers", "base": base})["soldierRows"]
+    return {s["id"]: s for s in rows}
 
 
 def repairs(gc):
@@ -372,6 +398,57 @@ def main():
                     f"the replica did not ship the outputs like the host, or matched only "
                     f"through a world repair ({repairs(client)}):\n host={h}\n client={c}")
             row("SHIPPED a production with a transfer time ships on the replica too", shipped)
+
+            # SPAWNED ------------------------------------------------------
+            spawn = {}
+
+            def spawned_owner():
+                client.ok({"cmd": "shared_reset_resync_stats"})
+                spawn["before"] = set(transit_soldiers(host, "ClientBase"))
+                for item in (RECRUIT, SCIENTIST_JOB):
+                    started = client.ok({"cmd": "manufacture_start", "base": "ClientBase",
+                                         "item": item, "engineers": 2, "qty": 1})
+                    assert started.get("sent"), (item, started)
+                    host.wait_for(f"{item} reaches the host",
+                                  lambda item=item: production(host, "ClientBase", item) or None,
+                                  timeout=30, interval=0.3)
+                    host.ok({"cmd": "set_production_progress", "base": "ClientBase",
+                             "item": item, "timeSpent": BUILD_TIME - 1})
+                done = run_clock(host, client,
+                                 lambda: production(host, "ClientBase", RECRUIT) is None
+                                 and production(host, "ClientBase", SCIENTIST_JOB) is None, 60)
+                stop_clock(host, client)
+                geo.drain_popups(host)
+                geo.drain_popups(client)
+                assert done, "the spawning productions did not finish on the host"
+                new = {i: s for i, s in transit_soldiers(host, "ClientBase").items()
+                       if i not in spawn["before"]}
+                assert len(new) == 1, f"premise: the host spawned one soldier: {new}"
+                spawn["host"] = new
+                s = next(iter(new.values()))
+                assert s["owner"] == 1, (f"the manufactured soldier {s['id']} belongs to owner "
+                                         f"{s['owner']}, not to ClientBase's owner (seat 1)")
+            row("SPAWNED-OWNER a manufactured soldier belongs to the base's owner", spawned_owner)
+
+            def spawned_replica():
+                assert spawn.get("host"), "premise: SPAWNED-OWNER spawned a soldier"
+
+                def client_new():
+                    return {i: s for i, s in transit_soldiers(client, "ClientBase").items()
+                            if i not in spawn["before"]}
+                h = base_output(host, "ClientBase")
+                deadline = time.time() + 15
+                while time.time() < deadline and (base_output(client, "ClientBase") != h
+                                                  or client_new() != spawn["host"]):
+                    time.sleep(0.5)
+                    h = base_output(host, "ClientBase")
+                c = base_output(client, "ClientBase")
+                assert h == c and client_new() == spawn["host"] and repairs(client) == 0, (
+                    f"the replica does not hold the host's spawned persons, or matched only "
+                    f"through a world repair ({repairs(client)}):\n host={h}\n client={c}\n"
+                    f" host soldier={spawn['host']}\n client soldier={client_new()}")
+            row("SPAWNED-REPLICA the replica's transfer holds the host's spawned soldier "
+                "and scientist", spawned_replica)
 
             # UFOS ---------------------------------------------------------
             def ufos():

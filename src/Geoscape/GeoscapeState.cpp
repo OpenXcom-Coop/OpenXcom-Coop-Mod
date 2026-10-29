@@ -4248,6 +4248,8 @@ void GeoscapeState::time1Hour()
 		// Each production's units and built crafts before this hour's step, so
 		// every unit it finishes reaches the replicas in the hour it is made.
 		std::map<Production*, std::pair<int, size_t> > before;
+		// And the soldiers it spawned (spawnedPersonType) before this step.
+		std::map<Production*, size_t> spawnedBefore;
 		{
 			// Separate: unit costs, the money check and sale proceeds belong to
 			// the base owner's wallet, not to the host seat's.
@@ -4256,6 +4258,7 @@ void GeoscapeState::time1Hour()
 			for (auto* prod : xbase->getProductions())
 			{
 				before[prod] = std::make_pair(materialized(prod), prod->getCoopBuiltCraftIds().size());
+				spawnedBefore[prod] = prod->getCoopSpawnedSoldierIds().size();
 				toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
 			}
 		}
@@ -4268,20 +4271,25 @@ void GeoscapeState::time1Hour()
 			const int units = materialized(pair.first) - before[pair.first].first;
 			const std::vector<int>& built = pair.first->getCoopBuiltCraftIds();
 			const std::vector<int> newCrafts(built.begin() + std::min(before[pair.first].second, built.size()), built.end());
+			// The soldiers this step spawned: in Separate they belong to the
+			// base owner, and the replicas get the host's soldiers.
+			const std::vector<int>& spawnedIds = pair.first->getCoopSpawnedSoldierIds();
+			const std::vector<Soldier*> spawned = SeparateEcon::spawnedSoldiers(_game, xbase,
+				std::vector<int>(spawnedIds.begin() + std::min(spawnedBefore[pair.first], spawnedIds.size()), spawnedIds.end()));
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
 				if (SeparateEcon::showBaseNotification(_game, xbase))
 					popup(new ProductionCompleteState(xbase, tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
 				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
 					pair.first->getRules()->getName(), units, pair.second,
-					pair.first->getSellItems(), newCrafts, true);
+					pair.first->getSellItems(), newCrafts, true, spawned);
 				xbase->removeProduction(pair.first);
 			}
 			else if (units > 0)
 			{
 				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
 					pair.first->getRules()->getName(), units, pair.second,
-					pair.first->getSellItems(), newCrafts, false);
+					pair.first->getSellItems(), newCrafts, false, spawned);
 			}
 		}
 

@@ -9965,17 +9965,23 @@ std::string TestServer::execute(const std::string& line)
 				Json::Value items(Json::objectValue);
 				int soldiers = 0;
 				int crafts = 0;
+				// Each soldier on the way, as get_soldiers shows a stationed one.
+				Json::Value soldierRows(Json::arrayValue);
 				for (auto* t : *target->getTransfers())
 				{
 					if (t->getType() == TRANSFER_ITEM && t->getItems())
 						items[t->getItems()->getType()] = items.get(t->getItems()->getType(), 0).asInt() + t->getQuantity();
 					else if (t->getType() == TRANSFER_SOLDIER)
+					{
 						soldiers++;
+						if (t->getSoldier()) soldierRows.append(soldierToJson(t->getSoldier()));
+					}
 					else if (t->getType() == TRANSFER_CRAFT)
 						crafts++;
 				}
 				resp["items"] = items;
 				resp["soldiers"] = soldiers;
+				resp["soldierRows"] = soldierRows;
 				resp["crafts"] = crafts;
 				resp["ok"] = true;
 			}

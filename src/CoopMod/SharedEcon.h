@@ -276,11 +276,14 @@ void hostFacilityDone(Game* game, int baseId, int x, int y,
 /// @a units this step made (items/crafts, stored, docked or shipped as the host
 /// did). When @a batchDone it also removes the Production (freeing engineers)
 /// and mirrors the completion popup. craftIds are the ids the host gave the
-/// crafts this step built, so the replica builds the same crafts.
+/// crafts this step built, so the replica builds the same crafts; soldiers are
+/// the soldiers it spawned (spawnedPersonType), sent whole so the replica holds
+/// the host's soldiers.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell,
                         const std::vector<int>& craftIds = std::vector<int>(),
-                        bool batchDone = true);
+                        bool batchDone = true,
+                        const std::vector<Soldier*>& soldiers = std::vector<Soldier*>());
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.

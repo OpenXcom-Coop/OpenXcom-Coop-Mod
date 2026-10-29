@@ -3127,9 +3127,9 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	// Materialize the deterministic output (items + crafts) where the host's
 	// Production::step() put it: the stores and the hangar, or a transfer when
 	// the manufacture ships its output (transferTimes: items first, crafts
-	// third). Random/spawned-person production is host-RNG and NOT reconstructed
-	// here (documented limitation); the next shared_apply / checksum surfaces any
-	// resulting drift.
+	// third). Random production is host-RNG and NOT reconstructed here
+	// (documented limitation); the next shared_apply / checksum surfaces any
+	// resulting drift. Spawned persons are rebuilt below.
 	const std::vector<int>& shipHours = rule->getTransferTimes();
 	const int itemHours = std::max(0, shipHours.empty() ? 0 : shipHours.front());
 	const int craftHours = std::max(0, shipHours.size() < 3 ? 0 : shipHours.at(2));
@@ -3189,6 +3189,47 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			// Older host: no ids travel, mint in counter lock-step as before.
 			for (int c = 0; c < units; ++c)
 				build(save->getId(craftType));
+		}
+	}
+
+	// Spawned persons (spawnedPersonType) travel as on the host: one transfer
+	// per unit with the rule's personnel transfer time. A scientist or engineer
+	// is a count; a soldier is the host's own (id, name, stats, owner), never one
+	// this machine rolls. A soldier the replica already holds (a world stream
+	// after the host spawned it) is not added twice.
+	const std::string& person = rule->getSpawnedPersonType();
+	if (!person.empty())
+	{
+		const int personHours = std::max(1, shipHours.size() < 2 ? 24 : shipHours.at(1));
+		if (person == "STR_SCIENTIST" || person == "STR_ENGINEER")
+		{
+			for (int u = 0; u < units; ++u)
+			{
+				Transfer* t = new Transfer(personHours);
+				if (person == "STR_SCIENTIST") t->setScientists(1);
+				else t->setEngineers(1);
+				base->getTransfers()->push_back(t);
+			}
+		}
+		else
+		{
+			auto held = [&](int id)
+			{
+				if (findSoldier(base, id)) return true;
+				for (auto* t : *base->getTransfers())
+					if (t->getType() == TRANSFER_SOLDIER && t->getSoldier()
+						&& t->getSoldier()->getId() == id) return true;
+				return false;
+			};
+			for (const auto& yaml : payload["soldiers"])
+			{
+				Soldier* s = deserializeSoldier(game, yaml.asString());
+				if (!s) continue;
+				if (held(s->getId())) { delete s; continue; }
+				Transfer* t = new Transfer(personHours);
+				t->setSoldier(s);
+				base->getTransfers()->push_back(t);
+			}
 		}
 	}
 
@@ -4021,7 +4062,8 @@ void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& f
 
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell,
-                        const std::vector<int>& craftIds, bool batchDone)
+                        const std::vector<int>& craftIds, bool batchDone,
+                        const std::vector<Soldier*>& soldiers)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
@@ -4045,6 +4087,14 @@ void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
 				for (int id : craftIds) ids.append(id);
 				p["craftIds"] = ids;
 			}
+	// The soldiers it spawned, whole (id, name, stats, owner): the replica takes
+	// them instead of rolling its own.
+	if (!soldiers.empty())
+	{
+		Json::Value spawned(Json::arrayValue);
+		for (Soldier* s : soldiers) spawned.append(serializeSoldier(game, s));
+		p["soldiers"] = spawned;
+	}
 	submitLocalCmd(game, "prod_done", baseId, p);
 }
 

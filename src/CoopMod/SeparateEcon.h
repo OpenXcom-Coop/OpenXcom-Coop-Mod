@@ -179,6 +179,10 @@ bool showResearchCompletion(Game* game, const Base* base);
 /// Separate wallet that pays for host-simulated work at this base (its owner);
 /// empty outside Separate, so the caller keeps the ordinary funds.
 std::string baseWalletOwner(Game* game, const Base* base);
+/// Host: the soldiers @a ids a production at @a base just spawned, from its
+/// transfers. In Separate they belong to the base owner, as a hire belongs to
+/// its purchaser; elsewhere their owner stays as it is.
+std::vector<Soldier*> spawnedSoldiers(Game* game, Base* base, const std::vector<int>& ids);
 /// Whether this local seat owns a base-scoped notification (production,
 /// construction, and owner-less legacy arrivals).
 bool showBaseNotification(Game* game, const Base* base);

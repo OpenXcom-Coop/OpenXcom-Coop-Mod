@@ -302,6 +302,7 @@ productionProgress_e Production::step(Base * b, SavedGame * g, const Mod *m, Lan
 						{
 							s->genName();
 						}
+						_coopSpawnedSoldierIds.push_back(s->getId());
 						t->setSoldier(s);
 						b->getTransfers()->push_back(t);
 					}

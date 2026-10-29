@@ -634,6 +634,33 @@ std::string baseWalletOwner(Game* game, const Base* base)
 	return base->getOwnerPlayerName();
 }
 
+std::vector<Soldier*> spawnedSoldiers(Game* game, Base* base, const std::vector<int>& ids)
+{
+	std::vector<Soldier*> out;
+	if (!game || !base || ids.empty()) return out;
+	for (int id : ids)
+		for (Transfer* t : *base->getTransfers())
+			if (t->getType() == TRANSFER_SOLDIER && t->getSoldier()
+				&& t->getSoldier()->getId() == id)
+			{
+				out.push_back(t->getSoldier());
+				break;
+			}
+	// Separate: the base owner's seat, as for an event's soldiers. Without it
+	// the soldier stays unowned (999) and no player's roster shows it.
+	SavedGame* save = game->getSavedGame();
+	if (save && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& !base->getOwnerPlayerName().empty())
+	{
+		const std::vector<std::string>& players = save->getCoopPlayers();
+		auto seat = std::find(players.begin(), players.end(), base->getOwnerPlayerName());
+		if (seat != players.end())
+			for (Soldier* s : out)
+				s->setOwnerPlayerId((int)(seat - players.begin()));
+	}
+	return out;
+}
+
 bool showBaseNotification(Game* game, const Base* base)
 {
 	if (!game || !base || !game->getCoopMod()
