@@ -2590,6 +2590,11 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 		// flag = a base-scoped error (rearm): Separate shows it to the base owner only.
 		if (payload.get("flag", false).asBool() && !SeparateEcon::showBaseNotification(game, base))
 			return;
+		// player = a notice for one player (hostPlayerNotice: the month-end
+		// economy warning); every other machine ignores it.
+		if (payload.isMember("player")
+			&& payload["player"].asString() != connectionTCP::seatName(connectionTCP::localSeat()))
+			return;
 		gs->popup(new CraftErrorState(gs, msg));
 	}
 	else if (cls == "DogfightErrorState")
@@ -3908,6 +3913,16 @@ bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visi
 	p["order"] = ids;
 	submitLocalCmd(game, "soldier_order", baseIndex(game, base), p);
 	return true;
+}
+
+void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg)
+{
+	if (!sharedHost(game)) return;
+	Json::Value p;
+	p["cls"] = "CraftErrorState";
+	p["msg"] = msg;
+	p["player"] = playerName;
+	submitLocalCmd(game, "alert", 0, p);
 }
 
 void hostDayTick(Game* game)

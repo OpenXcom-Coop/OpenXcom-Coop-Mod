@@ -4944,21 +4944,50 @@ void GeoscapeState::time1Day()
 			performanceBonus = 0; // bonus only, no malus
 		}
 
-		int64_t funds = _game->getSavedGame()->getFunds();
 		int64_t income = _game->getSavedGame()->getCountryFunding() + performanceBonus;
-		int64_t maintenance = _game->getSavedGame()->getBaseMaintenance();
-		int64_t projection = funds + income - maintenance;
-		if (projection < 0)
+		auto economyWarning = [&](int64_t funds, int64_t maintenance, int64_t projection) -> std::string
 		{
 			projection = std::abs(projection);
 			projection = ((projection / 100000) + 1) * 100000; // round up to 100k
-			std::string msg = tr("STR_ECONOMY_WARNING")
+			return tr("STR_ECONOMY_WARNING")
 				.arg(Unicode::formatFunding(funds))
 				.arg(Unicode::formatFunding(income))
 				.arg(Unicode::formatFunding(maintenance))
 				.arg(Unicode::formatFunding(projection));
-			popup(new CraftErrorState(this, msg, false));
-			SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+		};
+		const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
+		if (_game->getCoopMod()->isSeparateCampaign() && !players.empty())
+		{
+			// Separate: each player's own wallet and maintenance, shown only to
+			// that player. The month end credits every wallet with an equal share
+			// of the income less that player's own maintenance (monthlyFunding,
+			// settleSeparateMonth), so the projection uses the same share.
+			const std::string localPlayer = connectionTCP::seatName(connectionTCP::localSeat());
+			for (const std::string& player : players)
+			{
+				const int64_t funds = _game->getSavedGame()->getSeparatePlayerFunds(player);
+				const int64_t maintenance = SeparateEcon::playerMaintenance(_game, player);
+				const int64_t projection = funds
+					+ (income - maintenance) / static_cast<int64_t>(players.size());
+				if (projection >= 0) continue;
+				const std::string msg = economyWarning(funds, maintenance, projection);
+				if (player == localPlayer)
+					popup(new CraftErrorState(this, msg, false));
+				else
+					SharedEcon::hostPlayerNotice(_game, player, msg);
+			}
+		}
+		else
+		{
+			int64_t funds = _game->getSavedGame()->getFunds();
+			int64_t maintenance = _game->getSavedGame()->getBaseMaintenance();
+			int64_t projection = funds + income - maintenance;
+			if (projection < 0)
+			{
+				std::string msg = economyWarning(funds, maintenance, projection);
+				popup(new CraftErrorState(this, msg, false));
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+			}
 		}
 	}
 

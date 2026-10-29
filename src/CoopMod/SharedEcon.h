@@ -328,6 +328,9 @@ bool ownsSoldier(Game* game, const Soldier* soldier);
 /// False when the row cannot move that way; nothing is sent then.
 bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
 	unsigned int row, bool up, bool max);
+/// Host: send @a msg as a CraftErrorState "alert" that only @a playerName's
+/// machine shows (a replica of another player ignores it).
+void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// Playtest (Bug: waypoint arrival never reached clients): host broadcasts that a craft
