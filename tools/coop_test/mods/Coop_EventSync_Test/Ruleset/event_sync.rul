@@ -3,6 +3,8 @@
 # almost never agree; the test reads the countdowns through the geo_events lever.
 # The minimum (timer: 1440, one day) keeps every event from firing on its own inside
 # a test's 3-hour window; rows that need a fire shorten the countdown explicitly.
+# The certain and conditional events also pay 100000 funds, so a test can check
+# that an event's reward goes to the event owner's wallet only.
 research:
   - name: STR_COOP_EV_CERTAIN_TOPIC
     cost: 10
@@ -29,6 +31,7 @@ research:
 events:
   - name: STR_COOP_EV_CERTAIN
     description: STR_COOP_EV_CERTAIN_DESCRIPTION
+    funds: 100000
     researchList:
       - STR_COOP_EV_CERTAIN_TOPIC
     timer: 1440
@@ -47,12 +50,14 @@ events:
     timerRandom: 20000
   - name: STR_COOP_EV_COND
     description: STR_COOP_EV_COND_DESCRIPTION
+    funds: 100000
     researchList:
       - STR_COOP_EV_COND_TOPIC
     timer: 1440
     timerRandom: 20000
   - name: STR_COOP_EV_COND_HOST
     description: STR_COOP_EV_COND_DESCRIPTION
+    funds: 100000
     researchList:
       - STR_COOP_EV_COND_HOST_TOPIC
     timer: 1440
