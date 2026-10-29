@@ -10,7 +10,7 @@ Boot K: gm3, key 48027, dirs d250uc5b_k_host / _client. Bring-up (FX5B-2): PF.st
 gamemode 3 on both / host noBases true / client false as preconditions, geo.slow_clock. Staging (FX5B-3, FX5B-4): SQ = the two lowest-id
 client base soldiers with recovery 0 alone on the client's Skyranger; the client drained to GeoscapeState; open_select_destination then
 open_cydonia (stack [GeoscapeState, SelectDestinationState, ConfirmCydoniaState]); client set_seed 1, confirm_cydonia. A bring-up,
-staging or abort-step miss is a FIXTURE-STOP: ONE "CAPTURE K:" line (both stacks, battle_state phase / side / turn / missionType,
+staging or abort-step miss is a setup failure: ONE "CAPTURE K:" line (both stacks, battle_state phase / side / turn / missionType,
 coop_dialog_info, get_coop, the last 40 engine log lines) and every remaining cell FAILs "boot".
 Row K1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked: <why>"):
   K1-hand    both inBattle <= ENTRY_S; client pvpBorrow sent / pushed / held +1; host requests / armed / borrowed +1, kind and targetKind
@@ -191,7 +191,7 @@ def bring_up(host, client, ev):
 
 
 def stage(host, client, client0, ev):
-    """FX5B-3 (SQ) and FX5B-4 (the route) up to the client's confirm_cydonia. Returns (sq, w0, t_confirm). A miss = FIXTURE-STOP."""
+    """FX5B-3 (SQ) and FX5B-4 (the route) up to the client's confirm_cydonia. Returns (sq, w0, t_confirm). A miss = setup failure."""
     sky = client0["sky"]
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
     sids = sorted(s["id"] for s in (sb or {}).get("soldiers", []))

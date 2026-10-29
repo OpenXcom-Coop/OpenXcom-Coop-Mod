@@ -211,7 +211,7 @@ def boot_d3():
             _boot, crash0 = G3F.bring_up(host, client, KEY, "D3")
             G3F.guarded("D3", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE D3 line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE D3 line)")
         try:
             M.stage(host, client, client)
         except G3F.Miss:

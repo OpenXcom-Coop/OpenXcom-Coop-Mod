@@ -228,7 +228,7 @@ def forced(gc):
 
 
 def dump(gc):
-    """One machine's probe dump (the FIXTURE-STOP rule's evidence)."""
+    """One machine's probe dump (the evidence for a setup failure)."""
     try:
         bs = battle_state(gc)
         e = es(gc)

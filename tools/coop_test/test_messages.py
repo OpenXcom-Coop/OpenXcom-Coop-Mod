@@ -79,7 +79,7 @@ phase Handshake (client2's battle_ready stashed).
        player: the last is its own side's; no ev payload probe names the
        side). (e) hash clean on both (full). The host's
        banner transitions during the cycle are recorded, not asserted. A
-       construction step past its bound is a FIXTURE-STOP: one CAPTURE line
+       construction step past its bound is a setup failure: one CAPTURE line
        (every machine's event_state, battle_state, dialog, stack).
 The EQUIP_FROZEN next-stage clear has no caller since MG-A (a stage change
 re-offers its equip phase, F5097).
@@ -760,7 +760,7 @@ def qr2r_cycle(host, c2, rec):
 
 
 def qr2r_drive(host, client, m, rec, ev):
-    """Boot R's construction (each step bounded; a miss is a FIXTURE-STOP with one CAPTURE line of every machine in
+    """Boot R's construction (each step bounded; a miss is a setup failure with one CAPTURE line of every machine in
     `m`), the HOME key, the release and the END TURN cycle. Fills `ev`; returns the failing cells."""
     rej.step("QR2r boot R (test_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT_QR2R, False), m)
     pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
@@ -899,7 +899,7 @@ def qr2r_drive(host, client, m, rec, ev):
 
 def qr2r_resume_entry():
     """Row QR2r on boot R: its own three instances, shut down before the verdict. Prints ONE EVIDENCE line, then
-    raises AssertionError on a failing cell (a FIXTURE-STOP fails the row after its CAPTURE line)."""
+    raises AssertionError on a failing cell (a setup failure fails the row after its CAPTURE line)."""
     host = GameClient("host", None, make_user_dir("w2p6a_messages_qr2r_host", options=OPTIONS))
     client = GameClient("client", None, make_user_dir("w2p6a_messages_qr2r_client", options=OPTIONS))
     m = [host, client]
@@ -908,7 +908,7 @@ def qr2r_resume_entry():
     try:
         fails = qr2r_drive(host, client, m, rec, ev)
     except rej.FixtureMiss as e:
-        fails = [f"QR2r: FIXTURE-STOP {e}"]
+        fails = [f"QR2r: SETUP-FAILURE {e}"]
     except Exception as e:
         fails = [f"QR2r: {type(e).__name__}: {short(e, 600)}"]
     finally:

@@ -180,7 +180,7 @@ def boot_bp():
             crash0 = session._crash_log_snapshot()
             print(f"EVIDENCE boot: walkSounds host {FS.sounds(host)} client {FS.sounds(client)}", flush=True)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE BP line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE BP line)")
         try:
             st = RM.stage(host, client)
             print(f"EVIDENCE stage: {st}; (turn, side) "

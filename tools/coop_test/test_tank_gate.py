@@ -90,7 +90,7 @@ def main():
                                                                    pre_mission=pre_d(pre)), (host, client))
             TE.guarded("D", lambda: session.pin_ai_neutral(host, client, tag="d248u"), (host, client))
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE D line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE D line)")
         else:
             fails += G3F.run_row("T3", ROWS[0][1], lambda: row_t3(host, client, pins, pre, crash0))
     finally:

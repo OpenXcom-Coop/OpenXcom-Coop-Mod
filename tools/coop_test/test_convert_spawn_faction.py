@@ -484,7 +484,7 @@ def boot_c(t0, cpu0):
             bring_up(host, client, ev)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all((("CV", CELLS),), "boot (FIXTURE-STOP, see the CAPTURE line)")
+            return G3F.fail_all((("CV", CELLS),), "boot (setup failure, see the CAPTURE line)")
         try:
             stage(host, client, ev)
         except G3F.Miss:

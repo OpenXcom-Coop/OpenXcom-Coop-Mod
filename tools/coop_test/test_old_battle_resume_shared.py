@@ -93,7 +93,7 @@ def boot_rh():
         try:
             rs.boot("RH", (host, client))
         except rs.Miss:
-            return rs.fail_all((("RH", RH_CELLS),), "boot (FIXTURE-STOP, see the CAPTURE RH line)")
+            return rs.fail_all((("RH", RH_CELLS),), "boot (setup failure, see the CAPTURE RH line)")
         return rs.run_row("RH", RH_CELLS, lambda cells, ev: row_rh(host, client, crash0, changed, cells, ev))
     finally:
         rs.shut(host, client)

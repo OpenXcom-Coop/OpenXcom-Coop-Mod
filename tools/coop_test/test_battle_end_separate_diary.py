@@ -50,7 +50,7 @@ CHAIN_DIARY = ["CommendationState", "PromotionsState"]
 def precheck_diary(copy):
     """The host's merged 'Guest Zzz' copy must carry this battle in its diary before any OK: the guest's kill was
     credited, exactly one mission id (a fresh guest on its first battle), a kill under it, and the host-awarded medal.
-    A miss is a FIXTURE-STOP (the mod did not load, or the kill was not credited)."""
+    A miss is a setup failure (the mod did not load, or the kill was not credited)."""
     if copy.get("kills", 0) < 1:
         return (f"the host's merged 'Guest Zzz' copy has kills {copy.get('kills')!r} (want >= 1: the guest's shot was "
                 f"credited)")

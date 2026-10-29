@@ -199,7 +199,7 @@ def boot_a3():
             boot, crash0 = G3F.bring_up(host, client, KEY, "A3")
             G3F.guarded("A3", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE A3 line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE A3 line)")
         try:
             st = stage(host, client)
         except G3F.Miss:

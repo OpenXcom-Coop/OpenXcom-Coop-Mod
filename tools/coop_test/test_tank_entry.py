@@ -11,7 +11,7 @@ its host squad cut to `host_soldiers`, plus (i) the host's give_items STR_TANK_C
 its Skyranger (its craft list then holds the tank); (ii) inside the partner's visit, after the guest's craft_assign: the
 partner's craft_equip of one tank onto the host's Skyranger in the visited base (the view's stores lose one tank and 30 shells
 and the view craft's SPACE USED grows by the tank's size: no probe reads a visited craft's vehicle list); (iii) a `pre_mission`
-callback after leave_base, before the mission spawn. Each missed step is a FIXTURE-STOP.
+callback after leave_base, before the mission spawn. Each missed step is a setup failure.
 
 Boot E (SEPARATE, port 47611, dirs d248u_e_host / d248u_e_client): bring_up_tank_battle(host, client, "47611"); pin_ai_neutral.
 TAG = "coop-guest-tank:1:<HOST_BASE_COOP>:<HOST_SKY>:STR_SKYRANGER" (HOST_BASE_COOP from this boot's base_report).
@@ -331,7 +331,7 @@ def main():
             pins = guarded("E", lambda: bring_up_tank_battle(host, client, PORT, pre_mission=pre_e(pre)), (host, client))
             guarded("E", lambda: session.pin_ai_neutral(host, client, tag="d248u"), (host, client))
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE E line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE E line)")
         else:
             out = {}
             fails += G3F.run_row("T1", rows["T1"], lambda: row_t1(host, client, pins, pre, crash0, out))

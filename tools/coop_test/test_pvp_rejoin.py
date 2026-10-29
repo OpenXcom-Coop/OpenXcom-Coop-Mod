@@ -180,7 +180,7 @@ def boot_r():
             guarded("R", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
             crash0 = session._crash_log_snapshot()
         except Miss:
-            return fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE R line)")
+            return fail_all(ROWS, "boot (setup failure, see the CAPTURE R line)")
         bid0 = (battle_state(host).get("authority") or {}).get("battleId")
         fails = run_row("R1", rows["R1"], lambda: row_r1(host, client, crash0, {"boot": boot, "battleId": bid0,
                                                                                   "A": [pos(host, A_ID), pos(client, A_ID)]}))
@@ -188,7 +188,7 @@ def boot_r():
         try:
             rejoin(host, client2, ev)
         except Miss:
-            return fails + fail_all(ROWS[1:], "rejoin (FIXTURE-STOP, see the CAPTURE R rejoin line)")
+            return fails + fail_all(ROWS[1:], "rejoin (setup failure, see the CAPTURE R rejoin line)")
         fails += run_row("R2", rows["R2"], lambda: row_r2(host, client2, bid0, crash0, ev))
         fails += run_row("R3", rows["R3"], lambda: row_r3(host, client2, c0, crash0))
         fails += run_row("R4", rows["R4"], lambda: row_r4(host, client2, crash0))

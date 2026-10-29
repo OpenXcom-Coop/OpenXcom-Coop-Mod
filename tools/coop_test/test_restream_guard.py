@@ -7,7 +7,7 @@ command in the game thread on the first pump pass whose top is a LoadGameState (
 shared_update_defer, F5869; U7-4 guard: ordinary windows close as before); C 47290 (U7-3 host-initiated restream vs
 dismiss_popup; U7-5 close_screens / pop_state / geo_run). RED (commit 1): U7-1, U7-2, U7-3 and U7-5's three fires FAIL on
 their refusal / adoption / walk cells; U7-4 and every GUARD cell pass. GREEN (commit 2): every row passes. Each row prints
-"EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line.
+"EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line.
 ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 Run:  python tools/coop_test/test_restream_guard.py
 """
@@ -31,7 +31,7 @@ WALK_S = 2.0                   # U7-2: geo.RESYNC_WAIT_S for its one settle
 CLEAN_S = 10.0                 # a clean resync's pending clears within 10 s
 OLD, GEO_ONLY, NOTICE = "HostBase", ["GeoscapeState"], "GiftNoticeState"
 
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 
 def short(x, n=300):
     s = x if isinstance(x, str) else json.dumps(x, default=str, sort_keys=True)
@@ -79,7 +79,7 @@ class Row:
         return bool(until(lambda: (lambda a, b: bool(a) and a == b)(chk(self.host), chk(self.client)), 5)[0])
 
 def capture(r):
-    """FIXTURE-STOP dump: both stacks, shared_resync_stats, shared_stats, get_coop, the arm record, [coop-ui] tail."""
+    """Setup-failure dump: both stacks, shared_resync_stats, shared_stats, get_coop, the arm record, [coop-ui] tail."""
     out = {}
     for gc in (r.host, r.client):
         co = gc.cmd({"cmd": "get_coop"})

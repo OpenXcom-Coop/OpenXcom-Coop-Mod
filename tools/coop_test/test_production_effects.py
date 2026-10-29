@@ -98,7 +98,7 @@ class Row:
 
 
 def capture(x, tag):
-    """FIXTURE-STOP dump (STOP-IF 3): both machines' prod_fx_probe, transform_probe, shared_stats, shared_resync_stats, stack."""
+    """Setup-failure dump (STOP-IF 3): both machines' prod_fx_probe, transform_probe, shared_stats, shared_resync_stats, stack."""
     cap = {}
     for gc in (x.host, x.client):
         try:

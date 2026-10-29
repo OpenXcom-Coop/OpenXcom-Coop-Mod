@@ -461,7 +461,7 @@ def row_c5(r, x):
     A, Q = _pick_A_Q(b)
     r.ev.update(A=A, Q=Q)
     if A is None or Q is None:
-        r.cell("pre_AQ", False, f"no A/Q pair on the start grid (A {A} Q {Q}) (FIXTURE-STOP)")
+        r.cell("pre_AQ", False, f"no A/Q pair on the start grid (A {A} Q {Q}) (setup failure)")
         return
     ac0 = shared_stats(x.c)["applyCount"]
     x.h.cmd({"cmd": "fac_build", "facility": GRID, "x": A[0], "y": A[1]})
@@ -490,7 +490,7 @@ def row_c4(r, x):
     seated = [s for s in rep["soldiers"] if transport and s["craft"] == transport["id"]]
     if transport is None or not seated or LAYOUT_ITEM not in b["items"] or b["items"][LAYOUT_ITEM] < 1:
         r.cell("pre_fixture", False,
-               f"FIXTURE-STOP: craft {transport} seated {len(seated) if transport else 0} "
+               f"SETUP-FAILURE: craft {transport} seated {len(seated) if transport else 0} "
                f"{LAYOUT_ITEM} stock {b['items'].get(LAYOUT_ITEM)}")
         return
     sol = seated[0]
@@ -533,7 +533,7 @@ def row_c4(r, x):
 
 def row_c6(r, x):
     if x.sol_id is None or x.craft_id is None:
-        r.cell("pre_fixture", False, "no soldier/craft pinned by C4 (FIXTURE-STOP)")
+        r.cell("pre_fixture", False, "no soldier/craft pinned by C4 (setup failure)")
         return
     rq0 = resync_stats(x.c)["requests"]  # ruling P10-SA-R1: before the defer lever arms
     arm = x.c.cmd({"cmd": "shared_update_defer", "on": True})

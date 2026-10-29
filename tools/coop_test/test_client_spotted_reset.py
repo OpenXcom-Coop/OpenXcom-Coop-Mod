@@ -313,7 +313,7 @@ def run_all(host, client):
         print(f"[w2h50] boot E6: {json.dumps(boot, default=str)}", flush=True)
     except Exception as e:
         G3F.capture("E6", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
-        return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE E6 line)")
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE E6 line)")
     try:
         miss = stage(host, client, st)
     except Exception as e:

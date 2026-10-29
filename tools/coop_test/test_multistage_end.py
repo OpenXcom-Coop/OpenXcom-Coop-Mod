@@ -479,14 +479,14 @@ def run_row(rid, results):
             print(f"[mga-a2] boot {tag.upper()} ok: {info}", flush=True)
         except Exception as e:
             results[rid] = False
-            print(f"FAIL {rid}: boot (FIXTURE-STOP) {short(e, 600)}", flush=True)
+            print(f"FAIL {rid}: boot (setup failure) {short(e, 600)}", flush=True)
             capture(rid, [host, client], short(e, 600))
             return
         try:
             fails = (ms2 if rid == "MS2" else ms3)(host, client, ctx, crash0)
         except FixtureMiss as e:
-            fails = [f"FIXTURE-STOP {e}"]
-            evidence(rid, {"fixtureStop": str(e), "ctx": ctx})
+            fails = [f"SETUP-FAILURE {e}"]
+            evidence(rid, {"setupFailure": str(e), "ctx": ctx})
         except Exception as e:
             fails = [short(e, 600)]
             evidence(rid, {"exception": short(e, 600), "ctx": ctx})

@@ -30,7 +30,7 @@ K32.TerminateProcess.argtypes, K32.TerminateProcess.restype = (wintypes.HANDLE, 
 K32.CloseHandle.argtypes, K32.CloseHandle.restype = (wintypes.HANDLE,), wintypes.BOOL
 ACCESS = 0x00100000 | 0x1000 | 0x0001  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE
 BY = {"gc": None, "err": None, "bootS": None, "alive": []}  # the bystander and its liveness after each row
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 class BootMiss(Exception): pass  # a spawn / connect failed
 def short(x, n=300):
     s = x if isinstance(x, str) else json.dumps(x, default=str, sort_keys=True)
@@ -297,7 +297,7 @@ def u8g_x(r):
            "the bystander did not shut down cleanly")
 ROWS = (("U8g-EXIT", u8g_exit), ("U8g-CY", u8g_cy), ("U8g-PV", u8g_pv), ("U8g-PS", u8g_ps), ("U8g-C", u8g_c),
         ("U8g-H", u8g_h), ("U8g-X", u8g_x))
-def capture(r):  # FIXTURE-STOP dump: each machine's state, history and log tail (+ the EXIT child's output)
+def capture(r):  # Setup-failure dump: each machine's state, history and log tail (+ the EXIT child's output)
     cap = {"childOut": tail(r.child_out, 25)} if r.child_out else {}
     for gc in r.machines:
         p = gc.proc

@@ -380,7 +380,7 @@ def run_all(host, client):
               flush=True)
     except Exception as e:
         G3F.capture("boot", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
-        return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE boot line)")
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
     try:
         miss = stage(host, client, st)
     except Exception as e:

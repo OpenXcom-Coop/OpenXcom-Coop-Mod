@@ -1151,7 +1151,7 @@ def ih5_side_change(host, client, ctx):
                 fails.append(f"IH5: the client's INVENTORY key during the alien side {key_row} (want the screen "
                              f"closed and coopWaitText unchanged, OR3 a, on the alien side)")
         if "err" in cycle:
-            fails.append(f"FIXTURE-STOP (P8-3b ruling 2): drive_full_cycle failed: {cycle['err']} (host "
+            fails.append(f"SETUP-FAILURE (P8-3b ruling 2): drive_full_cycle failed: {cycle['err']} (host "
                          f"{cycle.get('hostNts')}, client {cycle.get('clientNts')}, NTS push/pop lines "
                          f"{cycle['uiLines']})")
         t2 = cycle.get("turn2") or {}
@@ -1658,7 +1658,7 @@ def ih9_covered_unit_out(host, client, ctx):
     if not opened:
         fails.append(f"IH9: the client's inventory did not open on C2 ({ev['open']}, {ev['openView']})")
     elif not covered:
-        fails.append(f"FIXTURE-STOP (P8-4b T0-S9): the client's {COVER_KEY} did not cover its inventory ({cov})")
+        fails.append(f"SETUP-FAILURE (P8-4b T0-S9): the client's {COVER_KEY} did not cover its inventory ({cov})")
     elif died is not None:
         # the RED cell: the covered screen thinks before the next pump pass and draws a
         # tileless unit (Inventory.cpp:378)

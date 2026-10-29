@@ -3,7 +3,7 @@ QL3-13 (a); orchestrator R-L3-A-1, R-L3-A-2; TASK 0 rewrite/r4l3-task0/sc/CONSTA
 written a report zip and both players see `main`'s notice reworded ("CO-OP DESYNC REPAIRED ...", OK / OPEN FOLDER / REPORT ON GITHUB) naming
 each machine's own report; a held repair writes both reports and raises no notice. Boot N (key "48755", dirs r4l3_n_host / _client): DC's
 boot (raw.bring_up_lobby, drive_to_battlescape with set_seed SEED_MAP, MAP_FP, pin_ai_neutral, HASH), the pins asserted (a miss =
-FIXTURE-STOP: ONE CAPTURE line, every row FAILs "boot"). Rows in order (N4 last: the battle halts):
+setup failure: ONE CAPTURE line, every row FAILs "boot"). Rows in order (N4 last: the battle halts):
   N1 (saveBlob) the client pokes H2's reactions (+7, client-only), the host's real-UI kneel of H (its bt_action_end); wait <= 45 s for host
      RS released +1 and client RS loaded +1, <= 10 s for the notice on top of both; desync_dialog read BEFORE any dismissal. N1-1 FIX client:
      live, headline "saveBlob diverged at action <seq>: bt_action_end" (<seq> the DESYNC line's; R-L3-A-2: the spec names no kind string for
@@ -499,7 +499,7 @@ def row_n4(x, results, walls):
 
 
 def boot():
-    """boot N -> x (x.err set on a miss: FIXTURE-STOP)"""
+    """boot N -> x (x.err set on a miss: setup failure)"""
     x = SimpleNamespace(host=None, client=None, err=None, n1=None)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(TAG + "_host")), GameClient("client", 2, make_user_dir(TAG + "_client"))
@@ -507,9 +507,9 @@ def boot():
         session.drive_to_battlescape(x.host, x.client, {}, seat_count=2, pre_ok=lambda gc: gc.ok({"cmd": "set_seed", "seed": SEED_MAP}))
         hs, cs = session.battle_state(x.host), session.battle_state(x.client)
         fp = [hs.get("mapFingerprint"), cs.get("mapFingerprint")]
-        assert fp == [MAP_FP, MAP_FP], "FIXTURE-STOP: mapFingerprint %s (MAP_FP %r, SEED_MAP %d)" % (fp, MAP_FP, SEED_MAP)
+        assert fp == [MAP_FP, MAP_FP], "SETUP-FAILURE: mapFingerprint %s (MAP_FP %r, SEED_MAP %d)" % (fp, MAP_FP, SEED_MAP)
         pinned = session.pin_ai_neutral(x.host, x.client, tag=TAG)
-        assert pinned, "FIXTURE-STOP: pin_ai_neutral pinned no NONE-seat non-player unit"
+        assert pinned, "SETUP-FAILURE: pin_ai_neutral pinned no NONE-seat non-player unit"
         session.wait_host_idle(x.host, x.client, timeout=W_IDLE)
         session.assert_hash_clean(x.host, x.client, full=True, what="boot N")
         live_us = [u for u in hs.get("units") or [] if u.get("faction") == 0 and not u.get("isOut")]
@@ -517,7 +517,7 @@ def boot():
         gt = tuple(session.units_by_id(hs).get(G, {}).get(k) for k in "xyz")
         b0 = [(r.get("authority") or {}).get("battleId") for r in (hs, cs)]
         assert s0[:2] == [H, H2] and s1[:1] == [G] and gt == G_TILE and b0[0] and b0[0] == b0[1], (
-            "FIXTURE-STOP: pins seat0 %s seat1 %s G at %s B0 %s (CONSTANTS H %d, H2 %d, G %d at %s)" % (s0, s1, gt, b0, H, H2, G, G_TILE))
+            "SETUP-FAILURE: pins seat0 %s seat1 %s G at %s B0 %s (CONSTANTS H %d, H2 %d, G %d at %s)" % (s0, s1, gt, b0, H, H2, G, G_TILE))
         print("[r4l3-n] boot ok: MAP_FP %r, pinned %s, B0 %s, turn %s, seats %s / %s" % (MAP_FP, pinned, b0, hs.get("turn"), s0, s1), flush=True)
     except Exception as e:
         x.err = short(e, 800)

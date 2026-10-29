@@ -268,7 +268,7 @@ def boot_ra():
             G3F.guarded("RA", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE RA line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE RA line)")
         try:
             st["stage"] = RM.stage(host, client)
         except G3F.Miss:

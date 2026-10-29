@@ -255,7 +255,7 @@ def boot_p3():
         try:
             boot, crash0 = G3F.bring_up(host, client, P3_KEY, "P3")
         except G3F.Miss:
-            return G3F.fail_all(P3_ROWS, "boot (FIXTURE-STOP, see the CAPTURE P3 line)")
+            return G3F.fail_all(P3_ROWS, "boot (setup failure, see the CAPTURE P3 line)")
         entry = view(host)
         try:
             st = stage_p3(host, client)
@@ -317,7 +317,7 @@ def boot_p2():
             crash0 = session._crash_log_snapshot()
             G3F.guarded("P2", lambda: morale0(host, client, A_ID), m)
         except G3F.Miss:
-            return G3F.fail_all(P2_ROWS, "boot (FIXTURE-STOP, see the CAPTURE P2 line)")
+            return G3F.fail_all(P2_ROWS, "boot (setup failure, see the CAPTURE P2 line)")
         print(f"EVIDENCE P2 boot: {json.dumps({'info': info, 'hostEntry': view(host)}, sort_keys=True, default=str)}",
               flush=True)
         fails = G3F.run_row("A2", rows["A2"], lambda: row_a2(host, client, crash0))

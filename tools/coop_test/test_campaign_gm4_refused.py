@@ -8,7 +8,7 @@ file-local popup, list_widgets / click_widget, lobby_state.playerTeams). docs re
 on the unchanged build: premise P-C6, every lever reply, the walls).
 
 Boot G: key "48029", dirs d250uc6_g_host / d250uc6_g_client. Bring-up = PF.start_pvp_campaign's steps up to "START CAMPAIGN shown"
-(FX6-2); a miss, or G1's precondition missed, is a FIXTURE-STOP: ONE "CAPTURE G:" line, every remaining cell FAILs "boot". Every pick
+(FX6-2); a miss, or G1's precondition missed, is a setup failure: ONE "CAPTURE G:" line, every remaining cell FAILs "boot". Every pick
 goes through the HOST's lobby_set_team (the LobbyMenu::setPlayerTeam funnel the host's click uses); every read waits 1.5 s after its
 pick (FX6-4: LobbyMenu::think refreshes the roster each 1 s, only while the lobby is the top state); rows by PF.row_for (FX6-3).
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its

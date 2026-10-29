@@ -34,7 +34,7 @@ passes. GREEN (commit 2): every row and every guard cell passes.
 
 German item text is non-ASCII and soldier names change per boot: neither is pinned; the expected
 page 2 comes from S. An EVIDENCE line precedes every verdict; every row runs after a failure; a boot miss fails its
-rows "boot" with ONE CAPTURE line (FIXTURE-STOP). one run is the result, no skip path, one boot
+rows "boot" with ONE CAPTURE line (setup failure). one run is the result, no skip path, one boot
 per row pair. Exit 0 only when every row and every guard cell passes, 2 otherwise. run in the foreground.
 
 Run:  python tools/coop_test/test_debrief_fidelity.py
@@ -99,7 +99,7 @@ def soldier_units(gc):
 
 
 def capture(gc):
-    """The FIXTURE-STOP dump of one machine (every probe the rows read)."""
+    """The setup-failure dump of one machine (every probe the rows read)."""
     return {"stack": safe(lambda: tbe.stack(gc)), "snapshot": snapshot(gc), "units": safe(lambda: soldier_units(gc)),
             "debrief": safe(lambda: gc.cmd({"cmd": "debrief_state"}))}
 
@@ -205,9 +205,9 @@ def run_boot(bid, cfg, results):
         except Exception as e:
             err = tbe.short(e)
             print(f"CAPTURE {bid}: boot miss {err}; host={capture(host)}; client={capture(client)}", flush=True)
-            verdict(f"guard:{bid}", [("guard:boot", err, "ok", "the bring-up: MAP_FP, hash clean (FIXTURE-STOP)")], results)
+            verdict(f"guard:{bid}", [("guard:boot", err, "ok", "the bring-up: MAP_FP, hash clean (setup failure)")], results)
             for rid in cfg["rows"]:
-                verdict(rid, [("boot", err, "ok", "FIXTURE-STOP")], results)
+                verdict(rid, [("boot", err, "ok", "SETUP-FAILURE")], results)
             return
         walls["bringUp"] = round(time.time() - t0, 2)
         units = soldier_units(host)
@@ -241,7 +241,7 @@ def run_boot(bid, cfg, results):
         print(f"CAPTURE {bid}: {type(e).__name__}: {e}; host={capture(host)}; client={capture(client)}", flush=True)
         for label in (f"guard:{bid}",) + tuple(cfg["rows"]):
             if label not in results:
-                verdict(label, [("run", tbe.short(e), "ok", "FIXTURE-STOP")], results)
+                verdict(label, [("run", tbe.short(e), "ok", "SETUP-FAILURE")], results)
     finally:
         for gc in (host, client):
             try:

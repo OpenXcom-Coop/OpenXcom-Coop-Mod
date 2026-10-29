@@ -11,7 +11,7 @@ value; RE-DISPATCH d250ucb-red2 on the W2-H37 base: TITLE_WIN / TITLE_ABORT / TI
 
 Boot D: gm3, lobby key 48013, dirs d250uc2_d_host / d250uc2_d_client. Bring-up: PF.start_pvp_campaign(alien_player="host"); HOST0 /
 CLIENT0; HOST_SQ0 (the host's soldier_record for every CLIENT0 soldier id); geo.slow_clock. gamemode 3 on both, host noBases true and
-client noBases false are bring-up preconditions (FX2-2). A bring-up, staging, entry or row-action miss is a FIXTURE-STOP: ONE
+client noBases false are bring-up preconditions (FX2-2). A bring-up, staging, entry or row-action miss is a setup failure: ONE
 "CAPTURE D:" line (both stacks, battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every
 remaining cell FAILs "boot".
 Each row stages (FX2-3 .. FX2-7): a fresh host-real mission site at X + the row's point (X = the client's XcomBase), its mirror on the
@@ -238,7 +238,7 @@ def bring_up(host, client, ev):
 
 def stage_row(row, host, client, xb, client0, ev):
     """FX2-3 .. FX2-7: SQ, the host site and its mirror, craft_force, the landing prompt, set_seed + confirm, both inBattle, the
-    spine. Returns (site_id, point, sq, missions0). A miss = FIXTURE-STOP."""
+    spine. Returns (site_id, point, sq, missions0). A miss = setup failure."""
     geo.slow_clock(host, client)
     sky = client0["sky"]
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
@@ -309,7 +309,7 @@ def stage_row(row, host, client, xb, client0, ev):
 
 
 def act(row, host, client, ev):
-    """The row's end: FX2-8 (D1 win), FX2-9 (D2 abort), FX2-10 (D3 loss). A step miss = FIXTURE-STOP."""
+    """The row's end: FX2-8 (D1 win), FX2-9 (D2 abort), FX2-10 (D3 loss). A step miss = setup failure."""
     a = {}
     ev["action"] = a
     if row == "D1":

@@ -427,7 +427,7 @@ def boot_g():
         try:
             boot, crash0 = bring_up(host, client, G_KEY, "G")
         except Miss:
-            return fail_all(G_ROWS, "boot (FIXTURE-STOP, see the CAPTURE G line)")
+            return fail_all(G_ROWS, "boot (setup failure, see the CAPTURE G line)")
         rows = dict(G_ROWS)
         fails = run_row("G1", rows["G1"], lambda: row_g1(host, client, boot, crash0))
         try:
@@ -462,7 +462,7 @@ def boot_h():
                 raise Miss("H")
             guarded("H", lambda: reactions_zero(host, client), (host, client))
         except Miss:
-            return fail_all(H_ROWS, "boot (FIXTURE-STOP, see the CAPTURE H line)")
+            return fail_all(H_ROWS, "boot (setup failure, see the CAPTURE H line)")
         return run_row("H1", H_ROWS[0][1], lambda: ending("H1", host, client, FACTION_HOSTILE, ALIEN_IDS, client,
                                                           EXPECT["H1"], crash0))
     finally:

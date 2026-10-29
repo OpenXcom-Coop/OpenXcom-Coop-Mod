@@ -15,7 +15,7 @@ pre_mission_start, after the MARKER) snapshotting BEFORE the battle: the client'
 month_report.score; the host's month_report.score and base storage. Once the host debriefs (still pre-cell): the
 types the host's debriefing recovers = screen_rows {recovered: <every type in the host's base storage>} > 0 (the
 topmost DebriefingState's getRecoveredItemCount), cross-checked against debrief_state's recovered list (same row count
-and quantity sum; a mismatch is a FIXTURE-STOP).
+and quantity sum; a mismatch is a setup failure).
   (0) both returns: the client's display-only debriefing (equal to the host's, PR-10), the client's OK through its
       follow-up screens (S-C-C's client_ok_through_followups, PR-C7) to a clean GeoscapeState, then the host's OK +
       drain to its GeoscapeState; the guest's own record after battle 1 is kept for C28P-2.
@@ -32,7 +32,7 @@ visits the host's base (visit_coop_base, base_report {coop} finds the guest), se
 items-received drain, a fresh terror site, craft_force, the landing prompt, host set_seed SEED_P, coop_mission_start,
 drive_both_to_tactical (the guest's battle unit present); the ending = kill_unit_real {faction: 1} (every live
 hostile), the host's chain settled, END TURN both, the host's NextTurnState closed, its debriefing (T0-6 (ii)
-SEPARATE). A construction failure is a FIXTURE-STOP (one CAPTURE line, the row FAILs "pre-cell").
+SEPARATE). A construction failure is a setup failure (one CAPTURE line, the row FAILs "pre-cell").
   (1) both debriefings equal after PR-10 stripping, the client's display-only.
   (2) the client's OK through its follow-ups -> its own world: no LoadGameState pushed since the kill (P6-4);
       battleEnd.sepReturn {ownLoaded 1, guestsApplied 1, guestsMissing 0, pushed 1} for battle 2 (the record reset at
@@ -132,7 +132,7 @@ def l1_stage(rid, host, client, ctx):
     walls_mark(ctx, "battle1Start")
     b1._stage_common(rid, host, client, ctx, PORT, b1.guest_kill, b1._precheck_alive, pre_extra=l1_snapshot)
     walls_mark(ctx, "battle1Debrief")
-    # the types the host's debriefing recovers (pre-cell; a mismatch with the shown list is a FIXTURE-STOP)
+    # the types the host's debriefing recovers (pre-cell; a mismatch with the shown list is a setup failure)
     hst = storage(host) or {}
     rr = host.cmd({"cmd": "screen_rows", "recovered": sorted(hst.keys())})
     rec = rr.get("recovered") if isinstance(rr.get("recovered"), dict) else {}

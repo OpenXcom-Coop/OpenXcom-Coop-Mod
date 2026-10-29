@@ -377,7 +377,7 @@ def main():
             crash0 = session._crash_log_snapshot()
             pins = DT.guarded("G", lambda: bring_up_cydonia(host, client, PORT, pre_c1(pre)), (host, client))
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE G line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE G line)")
         else:
             fails += G3F.run_row("C1", rows["C1"], lambda: row_c1(host, client, pins, pre, crash0, out))
             fails += G3F.run_row("C2", rows["C2"], lambda: row_c2(host, client, pins, crash0, out))

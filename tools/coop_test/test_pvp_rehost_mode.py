@@ -10,7 +10,7 @@ _client2; one boot per row. D rows (T0-2 (1)-(13)): bring-up (PF.start_pvp_campa
 (save_game); both end, the host respawns on ITS dir and client2 on an EMPTY dir; load_save_menu; START 1 by host_menu_host visibility 0;
 the REAL DISCONNECT by click_widget once shown (the lobby_disconnect lever only as the logged fallback, failing -leave);
 START 2 the same way; client2 join_tcp with guarded profile_ok; RESUME (resume_campaign_via_button, resumeAck, press_back_when_shown
-60 / 62); SETTLE_S; views; save2; common. A bring-up, save1, relaunch, load or START 1 miss is a FIXTURE-STOP: ONE "CAPTURE <row>:"
+60 / 62); SETTLE_S; views; save2; common. A bring-up, save1, relaunch, load or START 1 miss is a setup failure: ONE "CAPTURE <row>:"
 line, the boot's remaining cells FAIL "boot"; a later precondition miss ends its row ("blocked: <why>"); every row runs after a failure.
 Cells (one PASS / FAIL line each, one EVIDENCE and one ROW line per row): D3 (gm3) and D2 (gm2): -start1, -leave, -start2, -mode, -role,
 -save, -common; L5 (gm2 rejoin): L5-pause, L5-phase1, L5-resume, L5-end, L5-common.
@@ -53,7 +53,7 @@ view, census, capture, dlg = RR.view, RR.census, RR.capture, CR.dlg
 RESULTS = []          # (cell, ok, detail)
 
 class FixtureMiss(Exception):
-    """a FIXTURE-STOP: every remaining cell of the boot FAILs boot"""
+    """a setup failure: every remaining cell of the boot FAILs boot"""
 
 class RowEnd(Exception):
     """a precondition miss: the row's later cells FAIL blocked"""
@@ -137,7 +137,7 @@ def bring_up(host, client, gm, ev):
     return hv, cv
 
 def geo_save(host, client, name, ev, key):
-    """RR.geo_save copied (FX4A-3): save_game lever, the file within SAVE_S, RR.save_keys; a save1 miss is a FIXTURE-STOP."""
+    """RR.geo_save copied (FX4A-3): save_game lever, the file within SAVE_S, RR.save_keys; a save1 miss is a setup failure."""
     path = os.path.join(host.user_dir, "xcom1", name)
     r = host.cmd({"cmd": "save_game", "file": name})
     ok, secs = wait(lambda: os.path.exists(path) and os.path.getsize(path) > 0, SAVE_S, 0.2)

@@ -162,7 +162,7 @@ def run_boot(tag, key, rows, row_fns):
             info = G3F.guarded(tag.upper(), lambda: MCC.boot_c(host, client, key), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(rows, f"boot (FIXTURE-STOP, see the CAPTURE {tag.upper()} line)")
+            return G3F.fail_all(rows, f"boot (setup failure, see the CAPTURE {tag.upper()} line)")
         print(f"EVIDENCE boot {tag.upper()}: {info}; host {bsv(host)}; client {bsv(client)}", flush=True)
         fails = 0
         for (row, order), fn in zip(rows, row_fns):

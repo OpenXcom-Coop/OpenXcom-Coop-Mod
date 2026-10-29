@@ -222,7 +222,7 @@ def boot_m():
         try:
             boot, crash0 = bring_up(host, client)
         except Miss:
-            return fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE M line)")
+            return fail_all(ROWS, "boot (setup failure, see the CAPTURE M line)")
         try:
             staged = stage(host, client)
         except Miss:

@@ -11,7 +11,7 @@ One game at a time, GameClient(name, None, d) (no lobby key); user folder rvu9_<
   CN dump, NOT NOW, relaunch: CN-prompt, CN-keep, CN-again, CN-crash    CV dump, NEVER, relaunch: CV-prompt, CV-drop, CV-again, CV-crash
 Every click waits for its TextButton visible and NOT hidden (`ready`: a click during the popup is dropped, F12475, F12711). A cell after
 a row's -prompt cell is judged only when that cell passed, else it FAILs "no prompt" (its actions are not run). A boot not settled on
-MainMenuState or the prompt within 60 s is a FIXTURE-STOP of its row: ONE CAPTURE line, every cell not yet judged FAILs "boot".
+MainMenuState or the prompt within 60 s is a setup failure of its row: ONE CAPTURE line, every cell not yet judged FAILs "boot".
 <row>-crash: no new crash_* in harness.CRASH_DIR since the row began but the row's own pair, and every game of the row exited 0.
 Per row: ONE EVIDENCE line, one PASS/FAIL line per cell, the row verdict. Polls 0.25 s, waits bounded. Red (A1, the unchanged build with
 C2): N0-ledger, every -prompt cell and the cells behind it FAIL (20); N0-menu and the seven -crash cells PASS. Green (A2): 28/28.
@@ -43,7 +43,7 @@ LOG_TAGS = ("[coop-ui]", "[COOP]")
 
 
 class BootMiss(Exception):
-    """a boot did not settle on MainMenuState or the prompt: FIXTURE-STOP of the row"""
+    """a boot did not settle on MainMenuState or the prompt: setup failure of the row"""
 
 
 def short(e, n=300):

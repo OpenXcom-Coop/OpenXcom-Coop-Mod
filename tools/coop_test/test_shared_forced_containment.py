@@ -18,11 +18,11 @@ with the stun before the kill: host battle_action {kill_unit_real, unit: 1000000
 stun, DT_STUN power 1000, BattlescapeState :3423), wait the host's isBusy false and pendingStates 0, unit
 1000000 unconscious (status 7) on both machines, the event queues drained and hash_now full equal on both (F5575:
 the client mirror rides the death cue's unconscious outcome); then kill_unit_real {faction: 1} kills the other 14
-(the stunned one is isOut() and skipped); the host's DebriefingState. Pre-cell (FIXTURE-STOP: one CAPTURE line, the
+(the stunned one is isOut() and skipped); the host's DebriefingState. Pre-cell (setup failure: one CAPTURE line, the
 boot's rows FAIL "pre-cell"): the facility, the fill, the stun and its mirror, the host's debriefing rows hold "LIVE
 ALIENS RECOVERED" 1 (vanilla's recoverAlien on the unconscious body: containment state 2 iff free < 0), the client's
 display-only debriefing adopted in place within ADOPT_S, the stunned unit's type == L. Cell-level precondition
-(FIXTURE-STOP): after the host's OK its stack ends ManageAlienContainmentState + ErrorMessageState.
+(setup failure): after the host's OK its stack ends ManageAlienContainmentState + ErrorMessageState.
 
 Probes and levers (PR-28, PR-35): screen_rows / screen_set_amount on the top ManageAlienContainmentState (5 columns,
 amount = column 3, OK = "Remove Selected"), shared_update_defer {on} (the client hold), click_widget on the real

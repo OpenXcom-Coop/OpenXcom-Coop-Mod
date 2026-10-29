@@ -7,7 +7,7 @@ TASK 0 pins: docs rewrite/d250u-task0/sc3/CONSTANTS.md (boot Fa on the unchanged
 
 Boot F: gm3, lobby key 48015, dirs d250uc3_f_host / d250uc3_f_client / d250uc3_f_client2. Bring-up (FX3-2): PF.start_pvp_campaign
 (alien_player="host"); HOST0 / CLIENT0; gamemode 3 on both, host noBases true and client noBases false are preconditions; geo.slow_clock.
-A bring-up or staging miss is a FIXTURE-STOP: ONE "CAPTURE F:" line (both stacks, battle_state phase / side / turn when safe,
+A bring-up or staging miss is a setup failure: ONE "CAPTURE F:" line (both stacks, battle_state phase / side / turn when safe,
 coop_dialog_info, get_coop, the last 40 engine log lines) and every remaining cell FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
 precondition was never reached, then each of its cells FAILs "blocked: <why>"):

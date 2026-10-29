@@ -20,7 +20,7 @@ client with it on; Coop_Medal_Test on both. GREEN (S-C-B2.3.2): the returned gue
 0. RED (S-C-B2.3.1): V5 serializes the guest row under the host's option (no `diary`) and the overlay removes the owner's
 diary - the returned guest has no diary (cell 2).
 
-Pre-cell guards (a miss is a FIXTURE-STOP: a CAPTURE line, then the row FAILs "pre-cell"): b1's (bring-up, map pin, the
+Pre-cell guards (a miss is a setup failure: a CAPTURE line, then the row FAILs "pre-cell"): b1's (bring-up, map pin, the
 guest's kill, the host debriefing pin, fatalVote 0); the pad reply ids [0]; OWN_BEFORE's diary ids OWN_IDS with
 missions[0] = the pad; COPY's kills >= 1, diary ids COPY_IDS and a kill under mission 0; C28P-nodiary also the option
 guard (host soldierDiaries false, client true) and COPY's medal.
@@ -64,7 +64,7 @@ def wait_world_reloaded(h, c, ctx):
     """BasescapeState::btnGeoscapeClick clears insideCoopBase BEFORE its LoadGameState replaces the
     client's world (the load runs 10 frames later), so session.py's "client back on geoscape" wait can return while
     the outgoing world is still live. Wait (bounded RELOAD_WAIT_S) until the client's top state is GeoscapeState and
-    no LoadGameState is on its stack; a timeout is a FIXTURE-STOP (CAPTURE of both machines, the row FAILs)."""
+    no LoadGameState is on its stack; a timeout is a setup failure (CAPTURE of both machines, the row FAILs)."""
     ready = lambda st: st if st and st[-1] == "GeoscapeState" and not any("LoadGameState" in x for x in st) else None
     t0 = time.time()
     try:

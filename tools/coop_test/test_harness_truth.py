@@ -22,7 +22,7 @@ stop there (FAIL, exit 1) instead of staging on with the soldier moved on the cl
 U8d-B (F8416; run_s2's own bring-up again): a stand-in for the module attribute s16.sid.bring_up_lobby runs the real
 lobby dance, then raises. The machines are _s2_bring_up's own frame locals (spawned_by); run_s2's failed bring-up must
 shut both games down before the error propagates (named red B-reap: both left running).
-Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) or a boot miss adds
+Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) or a boot miss adds
 one "CAPTURE <id>:" line. ONE foreground run, no skip path, every row runs after a failure; exit 0 only
 when every row passes, 2 otherwise. Never pair this file with test_pause_on_leave* in one K=2 batch (S26: U8d-S
 and U8d-B run run_s2's bring-up). Run: python tools/coop_test/test_harness_truth.py
@@ -46,7 +46,7 @@ CHILDREN = (("u8d_t_assert.py", 'assert False, "W2-U8d deliberate"', 1),
             ("u8d_t_clean.py", "pass", 0))
 NAMED_T = {"u8d_t_assert.py": "T-assert", "u8d_t_raise.py": "T-raise"}
 REFUSAL = {"ok": False, "error": "W2-U8d stand-in: host leg refused (F8172)"}
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 
 
 def short(x, n=300):

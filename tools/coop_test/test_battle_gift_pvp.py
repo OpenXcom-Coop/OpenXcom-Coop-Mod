@@ -97,7 +97,7 @@ def main():
             boot, crash0 = bring_up(host, client)
             print(f"[r5u5] boot P: {json.dumps(boot, default=str)}", flush=True)
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE P line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE P line)")
         else:
             fails += G3F.run_row("P1", ROWS[0][1], lambda: row_p1(host, client, crash0))
     finally:

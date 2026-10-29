@@ -9,7 +9,7 @@ and STOP, P8-12), never a fix here.
 
 Fixture (one boot, port 47266, AMENDMENT P7-8 section 4 S26): shared_fixture.bring_up(tag, (0, 0, PORT)); battle 1 =
 test_battle_end_campaign.stage (FX-S: SEED_S, MAP_FP_S, autoEnd, the 15 hostiles, the HOST_DEBRIEF pin; its
-pre-cell is a FIXTURE-STOP); battle 2 = session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1},
+pre-cell is a setup failure); battle 2 = session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1},
 pre_landing=camp.seed_pin) on the SAME session, ended by a local copy of camp.stage's ending WITHOUT the HOST_DEBRIEF pin
 (FX-ST's precedent, test_shared_forced_storage.stage_x): autoEnd on, kill_unit_real {faction: 1} kills every live
 hostile, the host's NextTurnState closed, the host's DebriefingState.

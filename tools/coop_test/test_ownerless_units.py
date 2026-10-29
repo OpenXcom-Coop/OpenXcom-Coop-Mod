@@ -167,7 +167,7 @@ def tab_then_click(host, uid, ev):
     time.sleep(0.15)
     ev["tabSel"], ev["tabCursor"] = battle_state(host).get("selectedId"), battle_state(host).get("cursorType")
     if ev["tabSel"] == uid:
-        return False, f"the TAB selected {uid} itself (want another unit: the click must select it; FIXTURE-STOP)"
+        return False, f"the TAB selected {uid} itself (want another unit: the click must select it; setup failure)"
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
     t = pos(host, uid)
@@ -427,7 +427,7 @@ def main():
             boot, crash0 = bring_up(host, client)
             print(f"[r5u4] boot C: {json.dumps(boot, default=str)}", flush=True)
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE C line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE C line)")
         else:
             fails += G3F.run_row("T", rows["T"], lambda: row_t(host, client, crash0))
             try:

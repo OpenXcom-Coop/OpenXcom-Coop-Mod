@@ -27,7 +27,7 @@ RED (commit 1: the geo_state craft `name` probe + this file, product untouched; 
 cells fail (the client shows the host's "Rifle", English sentence, "SKYRANGER-1", "DESTINATION: TERROR SITE-<id>");
 every guard cell passes. GREEN (commit 2): every cell passes. French text is written as escapes from the TASK 0 constants.
 An EVIDENCE line precedes every verdict; every row runs after a failure; a precondition miss fails its row on a
-`fixture` cell after a CAPTURE line, a boot miss fails its rows "boot" with ONE CAPTURE line (FIXTURE-STOP).
+`fixture` cell after a CAPTURE line, a boot miss fails its rows "boot" with ONE CAPTURE line (setup failure).
 one run, no skip path; exit 0 only when guard:A and every row pass, else 2. foreground.
 
 Run:  python tools/coop_test/test_text_fidelity.py
@@ -104,7 +104,7 @@ def captions(gc):
 
 
 def dump(gc):
-    """The FIXTURE-STOP dump of one machine: stack, items_arriving_rows, list_widgets texts, followup_state rows and
+    """The setup-failure dump of one machine: stack, items_arriving_rows, list_widgets texts, followup_state rows and
     the geo_state crafts."""
     keys = ("base", "id", "type", "coop", "name", "status", "displayStatus")
     return {"stack": safe(lambda: stack(gc)),
@@ -123,7 +123,7 @@ def capture(label, err, m):
 
 
 def miss(label, err, m):
-    """FIXTURE-STOP: ONE CAPTURE line with both machines' dumps, then raise."""
+    """A setup failure: ONE CAPTURE line with both machines' dumps, then raise."""
     capture(label, err, m)
     raise camp.FixtureMiss(f"{label}: {err[:600]}")
 
@@ -165,10 +165,10 @@ def run_row(rid, fn, results, walls, m, cleanup=None):
     try:
         cells = fn(ev)
     except camp.FixtureMiss as e:
-        cells = [("fixture", short(e), "ok", "FIXTURE-STOP (CAPTURE above)")]
+        cells = [("fixture", short(e), "ok", "SETUP-FAILURE (CAPTURE above)")]
     except Exception as e:
         capture(rid, short(e), m)
-        cells = [("run", short(e), "ok", "FIXTURE-STOP")]
+        cells = [("run", short(e), "ok", "SETUP-FAILURE")]
     if cleanup:
         ev["cleanup"] = safe(cleanup)
     walls[rid] = ev["wall"] = round(time.time() - t0, 2)
@@ -308,7 +308,7 @@ def boot_a(results, walls):
         except Exception as e:
             print(f"CAPTURE A: boot miss {short(e, 800)} (bring_up shut both machines down)", flush=True)
             for rid in rows:
-                verdict(rid, [("boot", short(e), "ok", "FIXTURE-STOP")], results)
+                verdict(rid, [("boot", short(e), "ok", "SETUP-FAILURE")], results)
             return
         host, client = js.host, js.client
         m = (host, client)
@@ -327,7 +327,7 @@ def boot_a(results, walls):
         print(f"CAPTURE A: {short(e, 800)}", flush=True)
         for rid in rows:
             if rid not in results:
-                verdict(rid, [("run", short(e), "ok", "FIXTURE-STOP")], results)
+                verdict(rid, [("run", short(e), "ok", "SETUP-FAILURE")], results)
     finally:
         if js is not None:
             try:
@@ -352,7 +352,7 @@ def boot_b(results, walls):
             geo.wait_both_ready(host, client)
         except Exception as e:
             capture("B: boot miss", short(e, 800), m)
-            verdict("A12b-4", [("boot", short(e), "ok", "FIXTURE-STOP")], results)
+            verdict("A12b-4", [("boot", short(e), "ok", "SETUP-FAILURE")], results)
             return
         walls["B bring-up"] = round(time.time() - t0, 2)
         run_row("A12b-4", lambda ev: row_partner(host, client, ev), results, walls, m)

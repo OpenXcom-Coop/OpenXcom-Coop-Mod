@@ -10,7 +10,7 @@ read BY NAME on the host (its merged copy has a fresh id):
       Guest* in battle 2; (2) fresh: one host 'Guest Zzz' record, missions == the client's own after battle 1
   H19-2 (Boot B, guard): battle1, end_battle, returns("host"), seat(on), land -> cells (1), (2) as H19-1
   H19-3 (Boot B, after H19-2): end_battle, returns("host"), seat(off), land -> (1) no guest unit in battle 3
-Pre-cell guard (a miss is a FIXTURE-STOP: one CAPTURE line, the row FAILs "pre-cell"): battle 1's one guest unit, both
+Pre-cell guard (a miss is a setup failure: one CAPTURE line, the row FAILs "pre-cell"): battle 1's one guest unit, both
 debriefings, the OK order, the client's guestContrib.sent after the seat, the landing prompt, both on BattlescapeState.
 H19-3 runs only when H19-2's stage passed ("not reached" otherwise); a boot miss FAILs its rows "boot".
 RED (commit 1, product untouched): H19-1 cell 1 (0 guest units), H19-3 cell 1 (1 guest unit); H19-2 passes. GREEN: all.
@@ -57,7 +57,7 @@ def host_guest_recs(h):
 
 
 def dump(gc):
-    """FIXTURE-STOP extras: base_report {coop} and the [coop-debrief] / [coop-gift] log lines."""
+    """Setup-failure extras: base_report {coop} and the [coop-debrief] / [coop-gift] log lines."""
     out = {}
     try:
         r = gc.cmd({"cmd": "base_report", "coop": True})
@@ -74,7 +74,7 @@ def dump(gc):
 
 
 def miss(ctx, name, err, h, c):
-    """FIXTURE-STOP: both dump()s into ctx (EVIDENCE), then b1.capture's ONE CAPTURE line + FixtureMiss."""
+    """A setup failure: both dump()s into ctx (EVIDENCE), then b1.capture's ONE CAPTURE line + FixtureMiss."""
     ctx["missDump"] = {gc.name: dump(gc) for gc in (h, c)}
     b1.capture(name, err, (h, c))
 

@@ -247,11 +247,11 @@ def run_boot(row, cells_order, key, slug, row_fn):
         try:
             rs.boot(row, (host, client))
         except rs.Miss:
-            return rs.fail_all(((row, cells_order),), f"boot (FIXTURE-STOP, see the CAPTURE {row} line)")
+            return rs.fail_all(((row, cells_order),), f"boot (setup failure, see the CAPTURE {row} line)")
         ev = {}
         miss = enter(host, client, key, ev, slug)
         if miss:
-            return rs.verdict(row, cells_order, {n: (False, f"boot (FIXTURE-STOP, see the CAPTURE line): {miss[:300]}")
+            return rs.verdict(row, cells_order, {n: (False, f"boot (setup failure, see the CAPTURE line): {miss[:300]}")
                                                  for n in cells_order}, ev)
         cells = {}
         try:

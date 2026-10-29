@@ -216,7 +216,7 @@ def boot_e3():
         try:
             boot, crash0 = G3F.bring_up(host, client, E3_KEY, "E3")
         except G3F.Miss:
-            return G3F.fail_all(E3_ROWS, "boot (FIXTURE-STOP, see the CAPTURE E3 line)")
+            return G3F.fail_all(E3_ROWS, "boot (setup failure, see the CAPTURE E3 line)")
         fails = G3F.run_row("S3", rows["S3"], lambda: row_s3(host, client, crash0))
         try:
             staged = G3F.guarded("E3 staging", lambda: G3F.reactions_zero(host, client), m)
@@ -280,7 +280,7 @@ def boot_e2():
         try:
             info = G3F.guarded("E2", lambda: BER.boot_e6(host, client, E2_KEY), (host, client))
         except G3F.Miss:
-            return G3F.fail_all(E2_ROWS, "boot (FIXTURE-STOP, see the CAPTURE E2 line)")
+            return G3F.fail_all(E2_ROWS, "boot (setup failure, see the CAPTURE E2 line)")
         crash0 = session._crash_log_snapshot()
         fails = G3F.run_row("S2", rows["S2"], lambda: row_s2(host, client, crash0))
         print(f"EVIDENCE E2 boot: {json.dumps(info, sort_keys=True, default=str)}", flush=True)

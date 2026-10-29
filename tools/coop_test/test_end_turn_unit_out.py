@@ -16,7 +16,7 @@ END TURN button (battle_action end_turn_button) on the pressing machine.
                    ends (D-23 "the last pass closes the side", D-24 no take-back).
 Premise (every row): seat 0 / seat 1 live player units == S0_IDS / S1_IDS on both machines; the live turn mode on
 both; T rows: coopActiveSeat 0 on both. A premise or pre-cell miss = ONE CAPTURE line and "FAIL <row>: pre-cell
-(FIXTURE-STOP)". Cells run in order; a failed cell ends its row (later cells "not reached"). Guards per row: no new
+(setup failure)". Cells run in order; a failed cell ends its row (later cells "not reached"). Guards per row: no new
 crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per
 cell and guard, then its verdict; every row runs after a failure.
 Rulings: D53, design-D1, D-23, D-24, RV-Vb (QU8-1..6 (a)). ONE foreground run, no skip path;
@@ -51,7 +51,7 @@ TALLY_KEYS = ("count", "needed", "ready", "side", "activeSeat")
 
 
 class FixtureMiss(Exception):
-    """A premise / pre-cell step missed its bound: the row is a FIXTURE-STOP."""
+    """A premise / pre-cell step missed its bound: the row is a setup failure."""
 
 
 def short(e, n=300):
@@ -343,7 +343,7 @@ def run_row(row, results, walls):
                 except Exception as e2:
                     cap[w] = {"error": short(e2), "log": log_tail(gc)}
             print(f"CAPTURE {rid}: {type(e).__name__}: {short(e, 600)} | {json.dumps(cap, default=str)}", flush=True)
-            verdict = "pre-cell (FIXTURE-STOP)"
+            verdict = "pre-cell (setup failure)"
             return
         reached = True
         for name, fn in cells:

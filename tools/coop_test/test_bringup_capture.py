@@ -18,7 +18,7 @@ JT = {"cmd": "join_tcp", "ip": "127.0.0.1", "player": "ClientPlayer"}
 VIEW = ("onConnect", "coopDialog", "serverOwner", "coopSession", "clientName", "host")
 POPUP_MSG = "host: timed out waiting for host popup (last=None)"
 LOG = []  # (machine, cmd, request) of every fake GameClient request
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 class BootMiss(Exception): pass  # a spawn / connect failed
 def short(x, n=300):
     s = x if isinstance(x, str) else json.dumps(x, default=str, sort_keys=True)
@@ -394,7 +394,7 @@ def u8e_d(r):
            and len(in_report) == 1, {"dumpEvents": len(dumps), "dump": r.ev["dumpEvent"], "inReport": in_report},
            "the forced kill of a game that never heard quit left no dump of its threads (F8563)")
 ROWS = (("U8e-G", u8e_g), ("U8e-J", u8e_j), ("U8e-K", u8e_k), ("U8e-L", u8e_l), ("U8e-A", u8e_a), ("U8e-D", u8e_d))
-def capture(r):  # FIXTURE-STOP dump: each machine's get_coop + get_state (unhooked), history, log tail
+def capture(r):  # Setup-failure dump: each machine's get_coop + get_state (unhooked), history, log tail
     cap = {"standIn": r.ev.get("standIn"), "fakeLog": None if r.machines else [x[:2] for x in LOG[-20:]]}
     for gc in r.machines:
         up, pid = gc.proc is not None and gc.proc.poll() is None and gc.sock is not None, gc.proc and gc.proc.pid

@@ -360,7 +360,7 @@ def boot_a():
             G3F.guarded("A", lambda: both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "morale": 0},
                                           ("morale",)), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE A line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE A line)")
         rows = dict(ROWS)
         fails = G3F.run_row("P1", rows["P1"], lambda: row_p1(host, client, crash0))
         try:

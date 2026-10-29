@@ -510,14 +510,14 @@ def run_boot(tag, ports, up, rows, results):
             capture("boot", [host, client], short(e, 600))
             for rid, _fn in rows:
                 results[rid] = False
-                print(f"EVIDENCE {rid}: {json.dumps({'boot': tag})}\nFAIL {rid}: boot (FIXTURE-STOP) {short(e, 600)}",
+                print(f"EVIDENCE {rid}: {json.dumps({'boot': tag})}\nFAIL {rid}: boot (setup failure) {short(e, 600)}",
                       flush=True)
             return
         for rid, fn in rows:
             try:
                 fails = fn(host, client)
             except FixtureMiss as e:
-                fails = [f"FIXTURE-STOP {e}"]
+                fails = [f"SETUP-FAILURE {e}"]
             except Exception as e:
                 fails = [short(e, 600)]
             results[rid] = not fails

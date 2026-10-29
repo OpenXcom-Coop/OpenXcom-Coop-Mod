@@ -8,7 +8,7 @@ rewrite/fs2g3-task0/sa/CONSTANTS.md (red premise boots Pa / Pb 2/2, green premis
 ONE boot (boot P: gm3, key KEY, dirs fs2g3_g3x_host / _client / _client2). FXG-1 bring-up and FXG-2 staging = K's
 (test_campaign_gm3_cydonia.py) bring_up / stage / capture_boot copied with KEY and the row id as parameters (K's KEY is read
 inside them, F16808): the client's open_select_destination {Skyranger, STR_SKYRANGER}, open_cydonia, set_seed SEED, confirm_cydonia;
-a miss is a FIXTURE-STOP (ONE CAPTURE line, every cell FAILs "boot"). FXG-3 part 1 (entry <= ENTRY_S, the spine, hash). FXG-4
+a miss is a setup failure (ONE CAPTURE line, every cell FAILs "boot"). FXG-3 part 1 (entry <= ENTRY_S, the spine, hash). FXG-4
 kill_all faction 1, client hold_battle_ready {on: true}, client END TURN + the host's NextTurnState closed, the window (host Handshake
 battleId B1 + 1, client held) <= WINDOW_S. FXG-5 client.kill(), W of host stacks at POLL. FXG-6 S2F's rejoin() (client2, join_tcp
 NAME, resumeAck <= RJ, profile_ok, RESUME). FXG-7 part 2.
@@ -291,7 +291,7 @@ def main():
             ctx.update(name=bev["NAME"], SQ=sq, CLIENT0=client0)
             booted = True
             print("[fs2g3] G3X boot ok: %s (%.1f s)" % (json.dumps(bev, sort_keys=True, default=str), time.time() - t0), flush=True)
-        except Exception as e:  # noqa: BLE001  a bring-up / staging miss (FixtureMiss) or a probe that raised: FIXTURE-STOP
+        except Exception as e:  # noqa: BLE001  a bring-up / staging miss (FixtureMiss) or a probe that raised: setup failure
             if not isinstance(e, FixtureMiss):
                 try:
                     capture_boot(short(e, 300), host, client, "G3X")
@@ -299,7 +299,7 @@ def main():
                     pass
             print("EVIDENCE G3X boot: %s" % short(e, 600), flush=True)
             for cid in CELLS:
-                print("FAIL %s: boot (FIXTURE-STOP)" % cid, flush=True)
+                print("FAIL %s: boot (setup failure)" % cid, flush=True)
             r.fails += list(CELLS)
         if booted:
             try:

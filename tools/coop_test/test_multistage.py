@@ -477,13 +477,13 @@ def main():
             capture("boot", [host, client], short(e, 600))
             for rid in ("MS1", "MS4"):
                 results[rid] = False
-                print(f"FAIL {rid}: boot (FIXTURE-STOP) {short(e, 600)}", flush=True)
+                print(f"FAIL {rid}: boot (setup failure) {short(e, 600)}", flush=True)
             return 2
         for rid, fn in (("MS1", lambda: ms1(host, client, ctx, crash0)), ("MS4", lambda: ms4(host, client, ctx))):
             try:
                 fails = fn()
             except FixtureMiss as e:
-                fails = [f"FIXTURE-STOP {e}"]
+                fails = [f"SETUP-FAILURE {e}"]
             except Exception as e:
                 fails = [short(e, 600)]
             results[rid] = not fails

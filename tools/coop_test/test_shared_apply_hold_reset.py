@@ -10,7 +10,7 @@ LoadGameState notifyWorldAdopted().
 Fixture (AMENDMENT P7-7 section 3.2 D2g): FX-S with test_battle_end_campaign.stage(..., holds=True) - C28S-f's
 construction: the SHARED battle on SEED_S, the host's hold_world_stream and the client's hold_world_adopt armed before
 the ending, the 15 hostiles killed, the host's debriefing == HOST_DEBRIEF. Pre-cell
-(FIXTURE-STOP: one CAPTURE line, the row FAILs "pre-cell"): stage() and the client's display-only DebriefingState on
+(setup failure: one CAPTURE line, the row FAILs "pre-cell"): stage() and the client's display-only DebriefingState on
 top within CLIENT_DEBRIEF_S.
 
 Row D2g (the GREEN cells, in order; a failed cell ends the row and the rest are reported "not reached"):

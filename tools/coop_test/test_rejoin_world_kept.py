@@ -71,7 +71,7 @@ def alive(gc):
 
 
 def capture(x):
-    """every live machine's probes and log tail (the FIXTURE-STOP dump)"""
+    """every live machine's probes and log tail (the setup failure dump)"""
     out = {}
     for gc in x.procs():
         if alive(gc):

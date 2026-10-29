@@ -181,7 +181,7 @@ def cycle(host, client, turn0):
 def cycle_fails(cyc, turn0, what):
     fails = []
     if "err" in cyc:
-        fails.append(f"FIXTURE-STOP (P8-3b ruling 2): {what}: drive_full_cycle failed: {cyc['err']} (host "
+        fails.append(f"SETUP-FAILURE (P8-3b ruling 2): {what}: drive_full_cycle failed: {cyc['err']} (host "
                      f"{cyc.get('hostNts')}, client {cyc.get('clientNts')})")
     for n in ("host", "client"):
         a = cyc["after"][n]

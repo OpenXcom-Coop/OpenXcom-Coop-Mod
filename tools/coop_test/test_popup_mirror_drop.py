@@ -406,7 +406,7 @@ def row_cd(row):
     try:
         wait("host ConfirmDestinationState", lambda: (stack(host) or [])[-2:] == ["SelectDestinationState", "ConfirmDestinationState"], 5)
     except Guard:
-        raise Guard("guard:pre: host stack %s; want [..., SelectDestinationState, ConfirmDestinationState] (FIXTURE-STOP)" % stack(host))
+        raise Guard("guard:pre: host stack %s; want [..., SelectDestinationState, ConfirmDestinationState] (setup failure)" % stack(host))
     pre(row, host, "ConfirmDestinationState", 1, 1)
     U, R = drop(row)
     drop_reds(row, U, "CD")

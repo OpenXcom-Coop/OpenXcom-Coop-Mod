@@ -176,7 +176,7 @@ def run_boot(rid, tag, boot, row, failed):
             info = boot(host, client, ctx)
             print("[w2fs2a] %s boot ok: %s (%.1f s)" % (rid, json.dumps(info, default=str), time.time() - t0), flush=True)
         except Exception as e:
-            print("EVIDENCE %s boot: %s\nFAIL %s: boot (FIXTURE-STOP)" % (rid, short(e, 600), rid), flush=True)
+            print("EVIDENCE %s boot: %s\nFAIL %s: boot (setup failure)" % (rid, short(e, 600), rid), flush=True)
             capture(rid, host, {"client2": client})
             info = None
         if info is not None:

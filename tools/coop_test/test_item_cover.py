@@ -480,7 +480,7 @@ def main():
             info = guarded("I", lambda: boot_i(host, client), (host, client))
             print(f"[rv5-i] boot ok: {info}", flush=True)
         except Miss:
-            fails = fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE I line)")
+            fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE I line)")
         else:
             fns = {"LC4H": lambda: row_lc4h(host, client, crash0), "LC4C": lambda: row_lc4c(host, client, crash0),
                    "LC1R": lambda: row_lc1(host, client, crash0, "LC1R"),

@@ -10,7 +10,7 @@ premise: TITLE_U1 / TITLE_U2 3/3, TITLE_A1 in Tc; F15570 .. F15577).
 
 Boot T: gm3, lobby key 48022, dirs d250uc5_t_host / d250uc5_t_client. Bring-up (FX5-2 = FX3-2 + the crash baseline):
 PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0 / xb; geo.slow_clock. gamemode 3 on both, host noBases true and client
-noBases false are preconditions. A bring-up, staging or row-action miss is a FIXTURE-STOP: ONE "CAPTURE T:" line (both stacks,
+noBases false are preconditions. A bring-up, staging or row-action miss is a setup failure: ONE "CAPTURE T:" line (both stacks,
 battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every remaining cell FAILs "boot".
 Each row (FX5-3 .. FX5-10): SQ (the two lowest-id client soldiers in its base with recovery 0), the HOST's target at X + the row's point
 (X = the client's XcomBase) and its mirror on the client (UCOOP / ACOOP read at run time), the client's Skyranger forced out to the mirror
@@ -222,7 +222,7 @@ def spawn_target(row, host, client, point, ev):
 
 def stage_row(row, host, client, xb, client0, ev):
     """FX5-3 .. FX5-8: SQ, the target and its mirror, craft_force, the prompt, set_seed + confirm, the entry wait. Returns
-    (sq, missions0, tc, pv_client0, pv_host0, entered, entry_s). A miss before the confirm = FIXTURE-STOP."""
+    (sq, missions0, tc, pv_client0, pv_host0, entered, entry_s). A miss before the confirm = setup failure."""
     geo.slow_clock(host, client)
     sky = client0["sky"]
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
@@ -306,7 +306,7 @@ def hand_cell(row, host, client, tc, client0, pv_c0, pv_h0, both, secs, ev):
 
 
 def act(row, host, client, ev):
-    """FX5-9: U1 / A1 FX2-8 (kills, END TURN), U2 FX2-9 (the abort vote). A step miss = FIXTURE-STOP."""
+    """FX5-9: U1 / A1 FX2-8 (kills, END TURN), U2 FX2-9 (the abort vote). A step miss = setup failure."""
     a = {}
     ev["action"] = a
     if row in ("U1", "A1"):

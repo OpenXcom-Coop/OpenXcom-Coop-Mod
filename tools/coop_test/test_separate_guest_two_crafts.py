@@ -9,7 +9,7 @@ host's set_seed b1.SEED_P before every coop_mission_start; guests are read BY NA
   H19b-2 end_battle, returns("client"), land_craft(3) -> (1) guard ["Guest Yyy"]; (2) soldiers[1] at the prompt == 2
   H19b-3 end_battle, returns("host"), rejoin (save, same-process drop, join_tcp, RESUME) -> (1) guard: the host's
          recvSeats == [1] within 5 s of both geoscapes; (2) soldiers[1] == 2
-Pre-cell steps are guards (a miss = FIXTURE-STOP: ONE CAPTURE line, later rows "not reached"); cells are independent.
+Pre-cell steps are guards (a miss = setup failure: ONE CAPTURE line, later rows "not reached"); cells are independent.
 RED (product untouched): H19b-1 cells 1+2, H19b-2 cell 2, H19b-3 cell 2. GREEN: all. ONE "EVIDENCE <id>:" line, then
 PASS/FAIL per row. ONE foreground run, no skip path; exit 0 only when every row passes, else 2.
 """

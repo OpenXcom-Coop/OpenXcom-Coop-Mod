@@ -10,7 +10,7 @@ each; the hold's title "Waiting for HostPlayer" / "Disconnect" is EVIDENCE, neve
 Boot L: gm3 (the HOST plays the aliens), lobby key 48046, dirs w2h38_l_host / w2h38_l_client. Bring-up: PF.start_pvp_campaign
 (alien_player="host"); HOST0 / CLIENT0 (G3C1's bring_up, copied with the key as a parameter); preconditions gamemode 3 on both, host
 noBases true, client noBases false, the client's real base X, its non-coop Skyranger SKY, >= 2 soldiers; geo.slow_clock; crash baseline.
-Staging: G3C1.stage_landing (the landing prompt on the client). A bring-up or staging miss is a FIXTURE-STOP: ONE "CAPTURE L:" line (or
+Staging: G3C1.stage_landing (the landing prompt on the client). A bring-up or staging miss is a setup failure: ONE "CAPTURE L:" line (or
 G3C1's "CAPTURE C:" line) and every cell FAILs "boot".
 Row H1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked"):
   the client's log cursor; client set_seed 1 + confirm_landing; every 0.02 s until both battle_state.inBattle (<= 60 s) one sample
@@ -117,7 +117,7 @@ def common(host, client, crash0):
 
 def bring_up(host, client, key, ev):
     """G3C1's bring_up (copied, the key as a parameter): spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0,
-    geo.slow_clock. Its C-gm values are preconditions here (a miss = FIXTURE-STOP)."""
+    geo.slow_clock. Its C-gm values are preconditions here (a miss = setup failure)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, key, alien_player="host")

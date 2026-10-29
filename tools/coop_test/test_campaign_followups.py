@@ -29,7 +29,7 @@ way). The rows' cells are then checked in order on what was recorded; a failed c
        other seat's soldier `[<seat name>] `, own plain; (6) the host's PromotionsState rows == [["[ClientPlayer]
        <shooter>", RANK_TR_F1, BASE]], the two machines' rows equal after PR-10 stripping (P6-8); both on the
        geoscape, the client zero-disk, no LoadGameState pushed, host fatalVote.armed 0.
-  F4   (1) the host showed CannotReequipState with REEQUIP_ROWS_F4 (the fixture; a miss = FIXTURE-STOP); (2) the client
+  F4   (1) the host showed CannotReequipState with REEQUIP_ROWS_F4 (the fixture; a miss = setup failure); (2) the client
        showed a CannotReequipState [RED]; (3) its rows (item, qty, craft) == the host's; (4) over the adopted base
        (PR-C2: battleEnd.page3 {live 1, baseIndex 0} - D1's coopDebriefPage3Live set the debriefing's _base).
   F2/F3 (1), (2) as F1; (3) the client's chain == CHAIN_F23 == its stack == the host's drained follow-ups [RED];
@@ -160,7 +160,7 @@ def give_rifle_set(js, layouts, m):
     RIFLE_SET_HANDS}; squad = bring_up_shared_mixed_battle's, the host roster's two lowest ids) gets that equipment
     layout on BOTH machines, so the generator places its loadout by layout and autoEquip never decides it.
     Returns the evidence; a soldier not found once by name in its base, or a layout not given in full, is a
-    FIXTURE-STOP (camp.capture)."""
+    setup failure (camp.capture)."""
     ids = sorted(s["id"] for b in js.host.ok({"cmd": "get_soldiers"})["bases"] for s in b["soldiers"])
     out = []
     for slot, entries in sorted(layouts.items()):
@@ -431,7 +431,7 @@ def f1_cells(ctx):
 def f4_cells(ctx):
     def fixture():
         got = ctx["host"]["rows"].get("CannotReequipState")
-        return [] if sorted(got or []) == sorted(REEQUIP_ROWS_F4) else [f"FIXTURE-STOP: the host's CannotReequipState rows {got} != "
+        return [] if sorted(got or []) == sorted(REEQUIP_ROWS_F4) else [f"SETUP-FAILURE: the host's CannotReequipState rows {got} != "
                                                   f"{REEQUIP_ROWS_F4} (T0-S6 (iv) staging)"]
 
     def shown():
@@ -506,7 +506,7 @@ def run_boot(boot, tag, port, mods, stage_fn, rows, results, walls):
             js = shared_fixture.bring_up(tag, (0, 0, port), mods=mods)
             stage_fn(js, ctx)
         except Exception as e:
-            pre = f"pre-cell (FIXTURE-STOP) {short(e, 800)}"
+            pre = f"pre-cell (setup failure) {short(e, 800)}"
         if pre is None:
             try:
                 procedure(js, ctx)

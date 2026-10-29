@@ -14,7 +14,7 @@ selection - each machine keeps its own amounts, the other player never sees them
 xfer / cont key and no label is drawn; a Transfer confirm built from the confirmer's visible rows only submits
 nothing when the list holds only the other player's soldier row (TransferItemsState :774, F6341's Transfer shape).
 
-Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot
+Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
 FAILs "pre-cell"):
   XFER = SEL (test_shared_selection.sel_pre on shared_fixture.bring_up(tag, (0, 0, "47262")): the first base-0
          soldier owned by seat 1, off its craft on both) + test_shared_page3.fx_b (the client builds "Second Base",
@@ -378,7 +378,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's stack, sel_state, top screen rows (whole), base 0 and 1 stock, roster,
+    """A setup failure: CAPTURE every machine's stack, sel_state, top screen rows (whole), base 0 and 1 stock, roster,
     shared stats, the dialog, then raise."""
     cap = {}
     for gc in machines:
@@ -399,7 +399,7 @@ def capture(name, err, machines):
 
 def hygiene(host, client, ctx):
     """Holds off; boxes dismissed (ErrorMessageState / CoopState only, F4333); every base screen cancelled with its
-    real Cancel - both machines back on GeoscapeState (a miss is a FIXTURE-STOP)."""
+    real Cancel - both machines back on GeoscapeState (a miss is a setup failure)."""
     m = (host, client)
     h = {"holds": {gc.name: hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
     t0 = time.time()
@@ -424,7 +424,7 @@ def hygiene(host, client, ctx):
 
 
 def give(host, client, item, count, ctx, key):
-    """give_items {item, count} on both, client first; equal `stored` or a FIXTURE-STOP."""
+    """give_items {item, count} on both, client first; equal `stored` or a setup failure."""
     g = {}
     for gc in (client, host):
         r = gc.cmd({"cmd": "give_items", "item": item, "count": count})
@@ -444,7 +444,7 @@ def set_funds_both(host, client, value):
 
 def open_xfer(host, client, ctx):
     """Both machines (host first): screen_push {transfer_base, base 0}, then screen_pick_base {0, 1}; both
-    TransferItemsStates ready (a miss is a FIXTURE-STOP)."""
+    TransferItemsStates ready (a miss is a setup failure)."""
     m = (host, client)
     o = {}
     for gc in m:
@@ -783,7 +783,7 @@ def e2_xe_cells(host, client, ctx):
 
 def open_one(gc, screen, ctx, key):
     """ONE machine opens the real screen: "xfer" = screen_push {transfer_base, base 0} + screen_pick_base {0, 1};
-    "cont" = screen_push {containment, base 0, prisonType 0}; ready or a FIXTURE-STOP."""
+    "cont" = screen_push {containment, base 0, prisonType 0}; ready or a setup failure."""
     cls = "TransferItemsState" if screen == "xfer" else MACS
     if screen == "xfer":
         r = gc.cmd({"cmd": "screen_push", "screen": "transfer_base", "base": 0})
@@ -886,14 +886,14 @@ def e2_gc_cells(host, client, ctx):
 
 
 def run_cells(cells):
-    """The row's cells in order -> (verdict (None = pass), cell records). A fixture miss is a FIXTURE-STOP."""
+    """The row's cells in order -> (verdict (None = pass), cell records). A fixture miss is a setup failure."""
     out = []
     for i, (name, fn) in enumerate(cells):
         try:
             f = fn()
         except MISSES as e:
-            out.append({"cell": name, "pass": False, "fixtureStop": str(e)})
-            return f"FIXTURE-STOP in cell {name}: {e}", out
+            out.append({"cell": name, "pass": False, "setupFailure": str(e)})
+            return f"SETUP-FAILURE in cell {name}: {e}", out
         except Exception as e:
             f = [f"{type(e).__name__}: {short(e, 600)}"]
         out.append({"cell": name, "pass": not f, "fails": f})
@@ -917,7 +917,7 @@ def run_boot(boot, tag, port, up_fn, pre_fn, rows_spec, battle, results, walls, 
             js = up_fn(tag, port)
             pre_fn(js, pre)
         except Exception as e:
-            miss = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, MISSES) else short(e, 800)}"
+            miss = f"pre-cell (setup failure) {e if isinstance(e, MISSES) else short(e, 800)}"
         for n, (rid, cells_fn) in enumerate(rows_spec):
             tr = time.time()
             ctx = {"row": rid, "boot": pre if n > 0 else {}, "pre": pre if n == 0 else {"see": rows_spec[0][0]}}

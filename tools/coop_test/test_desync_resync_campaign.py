@@ -13,7 +13,7 @@ screen and play continues; in SEPARATE the second player's own campaign (its own
   discriminates; pre_landing = the host's set_seed SEED_C2); GID = the one faction-0 unit named "Guest" (coop 1); P = host_squad[1],
   K = host_squad[0], walker GID.
   Both boots (R-L3-D-3, F12641; test_desync_resync's boot order): mapFingerprint == MAP_FP_Cn on both machines, pin_ai_neutral (a live
-  alien's reaction shot during the kneel killed P in DR5 once), wait_host_idle; a miss = FIXTURE-STOP.
+  alien's reaction shot during the kneel killed P in DR5 once), wait_host_idle; a miss = setup failure.
   DR6 SEPARATE: OWN0 (the client's coop_file_info {role own_world}: key, bytes, fnv1a64), RES0 (the host's event_state.researchMode
       seats[1] {stored, count, unknown}); the poke + the kneel; REPAIRED. DR6-1 RS as DR5-1; DR6-2 HASH, SPLIT unchanged (GID on seat 1);
       DR6-3 the own-world key's fnv == OWN0; DR6-4 the host's seats[1] == RES0, RES0 holds the client's topic (count >= 1) and the
@@ -117,7 +117,7 @@ def row(x, rid, results, walls):
               "host reactions": r4.units(h).get(x.P, {}).get("reactions"), "diff": dc.diff_buckets(h, c), "OWN0": own0, "RES0": res0}
         print("EVIDENCE %s poke: %s" % (rid, r4.js(pv)), flush=True)
         if rset.get("ok") is not True or pv["diff"] != ["saveBlob"]:
-            raise r4.Stop("FIXTURE-STOP: the client's set_stat on P %s / the diff %s (want ok, ['saveBlob'])" % (x.P, pv["diff"]))
+            raise r4.Stop("SETUP-FAILURE: the client's set_stat on P %s / the diff %s (want ok, ['saveBlob'])" % (x.P, pv["diff"]))
         t_press = time.time()
         s0, kev = r4.kneel(x, x.K)
         good, rev = r4.repaired(x, rh0, rc0, 1, t_press)
@@ -169,14 +169,14 @@ def baseline(x):
     """both tops BattlescapeState; B0 equal non-zero; SPLIT0 equal with P on seat 0 and the walker on seat 1; HASH clean"""
     h, c = x.host, x.client
     tops = [r4.top(h), r4.top(c)]
-    assert tops == [r4.BS, r4.BS], "FIXTURE-STOP: tops %s" % tops
+    assert tops == [r4.BS, r4.BS], "SETUP-FAILURE: tops %s" % tops
     x.b0, x.split0 = r4.auth(h).get("battleId"), r4.split(h)
     bc, sc = r4.auth(c).get("battleId"), r4.split(c)
     seats = dict((u, s) for u, s in x.split0)
     assert x.b0 and x.b0 == bc and x.split0 == sc and seats.get(x.P) == 0 and seats.get(x.K) == 0 and seats.get(x.walker) == 1, (
-        "FIXTURE-STOP: B0 %s / %s, SPLIT0 %s / %s, P %s K %s walker %s" % (x.b0, bc, x.split0, sc, x.P, x.K, x.walker))
+        "SETUP-FAILURE: B0 %s / %s, SPLIT0 %s / %s, P %s K %s walker %s" % (x.b0, bc, x.split0, sc, x.P, x.K, x.walker))
     hok, hev = r4.hash_ok(h, c, "boot " + x.name)
-    assert hok, "FIXTURE-STOP: HASH at the boot: %s" % hev
+    assert hok, "SETUP-FAILURE: HASH at the boot: %s" % hev
     print("[r4l3-c] boot %s ok: mapFingerprint %s, pinned %s, B0 %s, SPLIT0 %s, P %s, K %s, walker %s, pre %s" % (
         x.name, x.fp, x.pinned, x.b0, x.split0, x.P, x.K, x.walker, r4.js(x.pre)), flush=True)
 
@@ -185,9 +185,9 @@ def pin(x, seed, want_fp, tag):
     """R-L3-D-3, test_desync_resync's boot order: the seeded map on both machines, pin_ai_neutral (no alien can react to the
     kneel or the walk), the host idle"""
     x.fp = [session.battle_state(x.host).get("mapFingerprint"), session.battle_state(x.client).get("mapFingerprint")]
-    assert x.fp == [want_fp, want_fp], "FIXTURE-STOP: mapFingerprint %s (want %r, seed %d)" % (x.fp, want_fp, seed)
+    assert x.fp == [want_fp, want_fp], "SETUP-FAILURE: mapFingerprint %s (want %r, seed %d)" % (x.fp, want_fp, seed)
     x.pinned = session.pin_ai_neutral(x.host, x.client, tag=tag)
-    assert x.pinned, "FIXTURE-STOP: pin_ai_neutral pinned no NONE-seat non-player unit"
+    assert x.pinned, "SETUP-FAILURE: pin_ai_neutral pinned no NONE-seat non-player unit"
     session.wait_host_idle(x.host, x.client, timeout=r4.W_IDLE)
 
 
@@ -226,9 +226,9 @@ def boot_c2():
         hsq, _guest_local = session.bring_up_separate_guest_battle(x.host, x.client, port=KEY_C2, pre_mission_start=f,
                                                                    pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_C2}))
         lever = x.pre.get("discover_research") or {}
-        assert lever.get("ok") is True and lever.get("researched") is True, "FIXTURE-STOP: discover_research %s on the client: %s" % (TOPIC, lever)
+        assert lever.get("ok") is True and lever.get("researched") is True, "SETUP-FAILURE: discover_research %s on the client: %s" % (TOPIC, lever)
         gids = [u.get("id") for u in r4.bs(x.host).get("units") or [] if u.get("faction") == 0 and "Guest" in str(u.get("name"))]
-        assert len(gids) == 1, "FIXTURE-STOP: GID = exactly one faction-0 unit named \"Guest\": %s" % gids
+        assert len(gids) == 1, "SETUP-FAILURE: GID = exactly one faction-0 unit named \"Guest\": %s" % gids
         x.P, x.K, x.walker = hsq[1], hsq[0], gids[0]
         pin(x, SEED_C2, MAP_FP_C2, TAG_C2)
         baseline(x)

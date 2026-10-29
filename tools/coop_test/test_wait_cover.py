@@ -253,7 +253,7 @@ def boot_w():
         try:
             guarded("W", lambda: MCC.boot_c(host, client, W_KEY), (host, client))
         except Miss:
-            return fail_all(W_ROWS, "boot (FIXTURE-STOP, see the CAPTURE W line)")
+            return fail_all(W_ROWS, "boot (setup failure, see the CAPTURE W line)")
         rows, fails = dict(W_ROWS), 0
         for row, uid, tile, dest, d, fn in (("WB-C", 8, WB_C_TILE, WB_C_DEST, WB_C_DIR, row_c),
                                             ("WB-H", 10, WB_H_TILE, WB_H_DEST, WB_H_DIR, row_h)):

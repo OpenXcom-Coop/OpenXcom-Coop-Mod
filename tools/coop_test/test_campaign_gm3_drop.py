@@ -9,7 +9,7 @@ unchanged build; d250ucc-red): the H14 variant is `ab`, so F3-role is a red cell
 
 Boot G: gm3, lobby key 48034, dirs d250uc3_g_host / d250uc3_g_client / d250uc3_g_client2. Boot H (after G): key 48034, dirs
 d250uc3_h_host / d250uc3_h_client. Bring-up in each (FX3-2): PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0; gamemode 3 on
-both, host noBases true and client noBases false are preconditions; geo.slow_clock. A bring-up or staging miss is a FIXTURE-STOP: ONE
+both, host noBases true and client noBases false are preconditions; geo.slow_clock. A bring-up or staging miss is a setup failure: ONE
 "CAPTURE G:" / "CAPTURE H:" line and every remaining cell of that boot FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a row whose precondition was never reached
 FAILs each of its cells "blocked: <why>"):

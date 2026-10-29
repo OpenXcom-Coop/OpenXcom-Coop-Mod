@@ -231,7 +231,7 @@ def boot_cc():
             info = G3F.guarded("CC", lambda: bring_up(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE CC line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE CC line)")
         print(f"EVIDENCE boot: {info}", flush=True)
         rows = dict(ROWS)
         fails = G3F.run_row("SC1", rows["SC1"], lambda: row_sc1(host, client, crash0))

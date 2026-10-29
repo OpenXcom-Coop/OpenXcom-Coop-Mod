@@ -133,7 +133,7 @@ def boot_p():
         try:
             boot, crash0 = G3F.bring_up(host, client, P_KEY, "P")
         except Miss:
-            return fail_all(P_ROWS, "boot (FIXTURE-STOP, see the CAPTURE P line)")
+            return fail_all(P_ROWS, "boot (setup failure, see the CAPTURE P line)")
         try:
             staged = stage_p(host, client)
         except Miss:

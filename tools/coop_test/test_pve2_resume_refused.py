@@ -16,7 +16,7 @@ popups closed (profile_ok); FX-5 BEFORE; the host's RESUME press (lobby_action: 
 EMPTY dir; RR.resume_campaign on d283_g1.sav (host_menu_host inside).
 Boot M (after G): key 48283, dirs d283_m_host / _client / _client2. FX-7 session.bring_up_separate_guest_battle; FX-8 the host's
 quick_battle save (exactly one new file), both end, FX-3 -> d283_m4.sav beside it; FX-4, FX-5, the press.
-A bring-up, save, copy, relaunch or lobby miss is a FIXTURE-STOP: ONE "CAPTURE <boot>:" line and every remaining cell of that boot
+A bring-up, save, copy, relaunch or lobby miss is a setup failure: ONE "CAPTURE <boot>:" line and every remaining cell of that boot
 FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure):
   G4 (boot G) the PvE2 geoscape save: G4-dialog (host top CampaignTeamRefusedState <= DIALOG_S; TextButtons exactly ["OK"], TEXT

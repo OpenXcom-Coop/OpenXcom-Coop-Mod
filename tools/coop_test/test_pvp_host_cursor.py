@@ -338,7 +338,7 @@ def boot_k():
         try:
             _boot, crash0 = G3F.bring_up(host, client, KEY, "K")
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE K line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE K line)")
         try:
             G3F.guarded("K staging", lambda: stage(host, client), (host, client))
         except G3F.Miss:

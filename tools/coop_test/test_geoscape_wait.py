@@ -9,7 +9,7 @@ session.bring_up_separate_guest_battle (labels 49401/49402, lobby 47224) with sl
 probe that stops the bring-up before the battle (U7c-1); B = session.new_campaign SEPARATE (labels 49403/49404, lobby 47226):
 U7c-4 (guard: a quiet leave), U7c-2 (both leave directions under slow_top), U7c-3 (the bounded failure). RED (commit 1):
 U7c-1/2/3 FAIL on their named cells, U7c-4 and every GUARD cell pass; GREEN (commit 2): all pass. Each row prints
-"EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line.
+"EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line.
 ONE foreground run, no skip path, every row runs after a failure; exit 0 only when every row passes, 2
 otherwise. Run: python tools/coop_test/<this>
 """
@@ -25,7 +25,7 @@ LGS = "LoadGameState"
 SLOW_MS = 30                   # (f): 30 ms per LoadGameState frame, ~11 frames >= 330 ms (QA3)
 SETTLE_S = 10.0                # (f) settle: the leaving machine's stack is ["GeoscapeState"] within 10 s
 WAIT_KIND = "helper" if hasattr(session, "wait_back_on_geoscape") else "inline"
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 class Probed(Exception): pass     # U7c-1's probe stops the bring-up before the battle
 
 def short(x, n=300):

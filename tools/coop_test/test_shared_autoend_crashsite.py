@@ -10,7 +10,7 @@ sets up, and a battle that starts with no live alien goes to vanilla's AliensCra
 P8b-1 V4). This file lands there from the player's own SHARED save, fixtures/auto_end_crash.sav (its Skyranger flies
 to the crashed UFO 23), through the rewrite's SHARED resume and landing.
 
-Row R18 (ONE boot). Pre-cell (a miss is a FIXTURE-STOP: one CAPTURE line, then "FAIL R18: pre-cell ..."):
+Row R18 (ONE boot). Pre-cell (a miss is a setup failure: one CAPTURE line, then "FAIL R18: pre-cell ..."):
   P1  session.resume_campaign on the fixture; both tops GeoscapeState; save_markers.campaignType 1 on both.
   P2  host geo_set_speed {idx 2} every 0.5 s until ConfirmLandingState is on the host's stack (<= LAND_S).
   P3  [set_seed SEED when pinned] host confirm_landing; host inBattle (<= 180 s); host BriefingState (<= 60 s).
@@ -118,7 +118,7 @@ def dead(u):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: one CAPTURE line (both machines' stacks, event_state, battle_state flags, debrief_state)."""
+    """A setup failure: one CAPTURE line (both machines' stacks, event_state, battle_state flags, debrief_state)."""
     cap = {}
     for gc in machines:
         try:
@@ -278,7 +278,7 @@ def main():
             client.connect()
             pre_cell(host, client, ctx)
         except Exception as e:
-            verdict = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
+            verdict = f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
         if verdict is None:
             cl = cells(host, client, ctx)
             ctx["cells"] = []

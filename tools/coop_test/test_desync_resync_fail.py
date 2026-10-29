@@ -21,7 +21,7 @@ waiting screen says the battle could not be repaired. Two boots, one row each, e
 Definitions (spec (f)): POLL 0.25 s; HOLD_S 20 s; RS(gc) = resync_state.resync, counters as deltas from the row's own baseline; the host's
 battle_state is read while its BattlescapeState is on its stack (it stays live under 62; the client's is never probed); CRASH =
 session._crash_log_snapshot() delta at the row's end, every case. EVIDENCE per cell; a failed row prints ONE CAPTURE line (both machines);
-a boot miss = FIXTURE-STOP: ONE CAPTURE line and the row FAILs "boot". ONE run (WV-D95; WV-D99 / WV-D100: no SKIP path); exit 0 iff every
+a boot miss = setup failure: ONE CAPTURE line and the row FAILs "boot". ONE run (WV-D95; WV-D99 / WV-D100: no SKIP path); exit 0 iff every
 cell passes, else 2.
 Red (commit B1, the levers only): DR3a-2, DR3a-5, DR3b-2, DR3b-3, DR3b-5, DR3b-6 FAIL; every other cell PASS. TASK 0's 62 titles on the
 red build (EVIDENCE): DR3a "Waiting for players to load...", DR3b "All players connected".
@@ -346,7 +346,7 @@ def row_dr3b(x, results, walls):
 
 
 def boot(key, tag):
-    """boot F (DC's boot on its own key) -> x (x.err set on a miss: FIXTURE-STOP)"""
+    """boot F (DC's boot on its own key) -> x (x.err set on a miss: setup failure)"""
     x = SimpleNamespace(host=None, client=None, err=None, b0=None, t_press=None)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(tag + "_host")), GameClient("client", 2, make_user_dir(tag + "_client"))
@@ -354,15 +354,15 @@ def boot(key, tag):
         session.drive_to_battlescape(x.host, x.client, {}, seat_count=2, pre_ok=lambda gc: gc.ok({"cmd": "set_seed", "seed": SEED_MAP}))
         hs, cs = session.battle_state(x.host), session.battle_state(x.client)
         fp = [hs.get("mapFingerprint"), cs.get("mapFingerprint")]
-        assert fp == [MAP_FP, MAP_FP], "FIXTURE-STOP: mapFingerprint %s (MAP_FP %r, SEED_MAP %d)" % (fp, MAP_FP, SEED_MAP)
+        assert fp == [MAP_FP, MAP_FP], "SETUP-FAILURE: mapFingerprint %s (MAP_FP %r, SEED_MAP %d)" % (fp, MAP_FP, SEED_MAP)
         pinned = session.pin_ai_neutral(x.host, x.client, tag=tag)
-        assert pinned, "FIXTURE-STOP: pin_ai_neutral pinned no NONE-seat non-player unit"
+        assert pinned, "SETUP-FAILURE: pin_ai_neutral pinned no NONE-seat non-player unit"
         session.wait_host_idle(x.host, x.client, timeout=30)
         session.assert_hash_clean(x.host, x.client, full=True, what="boot " + tag)
         s0 = sorted(u["id"] for u in hs.get("units") or [] if u.get("faction") == 0 and not u.get("isOut") and u.get("coop") == 0)
-        assert s0[:2] == [H, H2], "FIXTURE-STOP: seat-0 soldiers %s (CONSTANTS H %d, H2 %d)" % (s0, H, H2)
+        assert s0[:2] == [H, H2], "SETUP-FAILURE: seat-0 soldiers %s (CONSTANTS H %d, H2 %d)" % (s0, H, H2)
         b = [(session.battle_state(gc).get("authority") or {}).get("battleId") for gc in (x.host, x.client)]
-        assert b[0] and b[0] == b[1], "FIXTURE-STOP: battleId %s" % b
+        assert b[0] and b[0] == b[1], "SETUP-FAILURE: battleId %s" % b
         x.b0 = b[0]
         print("[r4l3-f] boot %s ok: key %s, MAP_FP %r, pinned %s, B0 %s" % (tag, key, MAP_FP, pinned, x.b0), flush=True)
     except Exception as e:

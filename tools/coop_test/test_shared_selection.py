@@ -12,7 +12,7 @@ and the store probe sel_state is an empty stub.
 
 Fixtures:
   SEL  = shared_fixture.bring_up(tag, (0, 0, "47260")), geoscape only; X = STR_RIFLE, Y = STR_PISTOL; pre-cell (a
-         failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot FAILs "pre-cell"): the first get_soldiers
+         failure is a setup failure: one CAPTURE line, every row of the boot FAILs "pre-cell"): the first get_soldiers
          soldier of base 0 owned by seat 1 (the client), taken off its craft by the host's craft_assign {on: false}
          and off-craft on both machines. Each row starts by turning every hold off, dismissing any box and cancelling
          any Sell screen on both machines, restages X and Y with give_items {+STAGE} on both (client first, S25), then
@@ -276,7 +276,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's stack, sel_state, top screen rows, base 0 stock and roster, shared stats
+    """A setup failure: CAPTURE every machine's stack, sel_state, top screen rows, base 0 stock and roster, shared stats
     (whole), then raise."""
     cap = {}
     for gc in machines:
@@ -364,7 +364,7 @@ def fxst_pre(js, ctx):
 
 def row_start(host, client, ctx, stage_items=True):
     """SEL row hygiene: holds off, boxes dismissed, every Sell screen cancelled (both back on GeoscapeState); X and Y
-    restaged on both (client first); open_screen sell on both, ready. A miss is a FIXTURE-STOP (CAPTURE)."""
+    restaged on both (client first); open_screen sell on both, ready. A miss is a setup failure (CAPTURE)."""
     m = (host, client)
     h = {"holds": {gc.name: hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
     t0 = time.time()
@@ -849,14 +849,14 @@ def e_s_cells(host, client, ctx):
 
 
 def run_cells(cells):
-    """The row's cells in order -> (verdict (None = pass), cell records). A fixture miss is a FIXTURE-STOP."""
+    """The row's cells in order -> (verdict (None = pass), cell records). A fixture miss is a setup failure."""
     out = []
     for i, (name, fn) in enumerate(cells):
         try:
             f = fn()
         except MISSES as e:
-            out.append({"cell": name, "pass": False, "fixtureStop": str(e)})
-            return f"FIXTURE-STOP in cell {name}: {e}", out
+            out.append({"cell": name, "pass": False, "setupFailure": str(e)})
+            return f"SETUP-FAILURE in cell {name}: {e}", out
         except Exception as e:
             f = [f"{type(e).__name__}: {short(e, 600)}"]
         out.append({"cell": name, "pass": not f, "fails": f})
@@ -903,7 +903,7 @@ def run_boot(boot, tag, up_fn, pre_fn, rows_spec, battle, results, walls):
             js = up_fn(tag, BOOT_PORT[boot])
             pre_fn(js, pre)
         except Exception as e:
-            miss = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, MISSES) else short(e, 800)}"
+            miss = f"pre-cell (setup failure) {e if isinstance(e, MISSES) else short(e, 800)}"
         for n, (rid, cells_fn) in enumerate(rows_spec):
             tr = time.time()
             ctx = {"row": rid, "boot": pre if n > 0 else {}, "pre": pre if n == 0 else {"see": rows_spec[0][0]}}

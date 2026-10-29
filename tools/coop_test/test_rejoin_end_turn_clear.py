@@ -5,7 +5,7 @@ rejoin: B (PORT_B) plays one END TURN cycle, then the CLIENT presses END TURN an
 the HOST presses END TURN and the client leaves. A fresh process (client2) rejoins, the host presses RESUME.
 H14b-1 (B): the host's lone press does not end the side on the returning player's pre-leave press, and both screens
 show the true tally. H14b-2 (H): client2 shows the host's "END TURN 1/2"; client2's press completes the cycle.
-A boot/rejoin step past its bound is a FIXTURE-STOP (one CAPTURE line; the row FAILs "boot"/"rejoin"). Each row prints
+A boot/rejoin step past its bound is a setup failure (one CAPTURE line; the row FAILs "boot"/"rejoin"). Each row prints
 ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; both rows run. ONE foreground
 run, no skip path; exit 0 only when both rows pass, 2 otherwise."""
 
@@ -225,7 +225,7 @@ def run_boot(kind, rid, stage_fn, row_fn, results, walls):
         try:
             c2 = stage_fn(host, client, ctx)
         except Exception as e:     # a FixtureMiss printed its CAPTURE line; anything else is unexpected, still a FAIL
-            print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (FIXTURE-STOP) "
+            print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (setup failure) "
                   f"{e if isinstance(e, rej.FixtureMiss) else short(e, 600)}", flush=True)
             return
         try:

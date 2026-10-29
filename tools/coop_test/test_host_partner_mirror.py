@@ -202,7 +202,7 @@ class Boot:
         self.census.append(s)
         return s
 def capture(b):
-    """every live machine's probes and log tail (the FIXTURE-STOP dump)"""
+    """every live machine's probes and log tail (the setup failure dump)"""
     out = {}
     for gc in b.procs():
         w = q(gc, {"cmd": "list_widgets"}) if alive(gc) else {}

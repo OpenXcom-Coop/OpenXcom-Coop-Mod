@@ -293,7 +293,7 @@ def main():
         except Exception as e:
             if not isinstance(e, G3F.Miss):
                 G3F.capture("G", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE G line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE G line)")
         else:
             fails += G3F.run_row("N1", rows["N1"], row(row_n1, host, client, crash0, st))
             for name, turn, fn in (("N2", 2, row_n2), ("N3", 3, row_n3)):

@@ -12,7 +12,7 @@ copy's results to the client's own soldier at the client's OK.
 ONE boot (test_client_research's research-separate guest battle, lobby key 48999, the MOD on both machines, the
 client's own soldier id guest_id kept), then four rows in this order:
   SD0  the ending: host battle_action kill_unit_real on every live hostile (chain_settled after each), end_turn_both,
-       close_host_nextturn, the host's DebriefingState within 60 s. SD0-guard (a miss = FIXTURE-STOP): G by name
+       close_host_nextturn, the host's DebriefingState within 60 s. SD0-guard (a miss = setup failure): G by name
        (coop 1) and H (the first host soldier, coop 0); researchMode == CR.MODE_WANT and seats[1].stored on both; the
        mod-active line in both engine logs; desyncSeen false on both before the ending; every kill settled; the host's
        debrief_state shown, onTop, not displayOnly, title TITLE; the host's battleEnd reason aliensDown, not aborted;
@@ -308,7 +308,7 @@ def main():
             failed += run_row("SD0", row_sd0, host, client, st)
             if failed:
                 capture(host, client, "SD0")
-                failed += fail_rest([rid for rid, _ in ROWS[1:]], "the SD0 guard missed (FIXTURE-STOP)")
+                failed += fail_rest([rid for rid, _ in ROWS[1:]], "the SD0 guard missed (setup failure)")
             else:
                 for rid, fn in ROWS[1:]:
                     failed += run_row(rid, fn, host, client, st)

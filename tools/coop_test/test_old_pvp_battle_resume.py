@@ -110,7 +110,7 @@ def units(gc):
 
 
 def spawn(boot, host, c2):
-    """FX-C1 / FX-O5: spawn and connect both; a miss is a FIXTURE-STOP."""
+    """FX-C1 / FX-O5: spawn and connect both; a miss is a setup failure."""
     try:
         host.spawn(); host.connect(); c2.spawn(); c2.connect()
     except Exception as e:  # noqa: BLE001

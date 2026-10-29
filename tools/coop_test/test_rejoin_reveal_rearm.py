@@ -8,7 +8,7 @@ cycle's boundary hash carries revealHostile. W2-H12b (D219 b; F3748; spec
 rewrite/prompts/w2h12b_rejoin_keep_hostile_map.md (f)) H12b-1: the leave keeps
 the host's hostile set (pause census == P, at T1); after RESUME the host's is >= P,
 client2's equal, revealHostile == P's on both. A boot/rejoin step past its bound
-is a FIXTURE-STOP (one CAPTURE line; every row FAILs "boot"/"rejoin"). Each
+is a setup failure (one CAPTURE line; every row FAILs "boot"/"rejoin"). Each
 row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>";
 every row runs; a staging failure fails later rows "staging".
 ONE foreground run, no skip path; exit 0 only when all rows pass, 2 otherwise.
@@ -84,7 +84,7 @@ def evidence(rid, obj):
     print(f"EVIDENCE {rid}: {json.dumps(obj, sort_keys=True, default=str)}", flush=True)
 
 def miss(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's reveal_state, event_state, dialog and stack (whole), then raise."""
+    """A setup failure: CAPTURE every machine's reveal_state, event_state, dialog and stack (whole), then raise."""
     cap = {}
     for gc in machines:
         cap[gc.name] = {}
@@ -300,7 +300,7 @@ def main():
             c2 = stage_rejoin(host, client, ctx)
         except FixtureMiss as e:
             for rid, _fn in ROWS:
-                print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (FIXTURE-STOP) {e}", flush=True)
+                print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (setup failure) {e}", flush=True)
         for rid, fn in (ROWS if c2 is not None else ()):
             if ctx.get("staging"):
                 print(f"FAIL {rid}: staging ({ctx['staging']})", flush=True)

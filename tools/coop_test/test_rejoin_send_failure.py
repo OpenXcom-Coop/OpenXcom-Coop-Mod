@@ -161,7 +161,7 @@ class Row:
         self.end(None, results, walls)
 
 def baseline(r, x):
-    """B0 (equal non-zero on both), SPLIT0 (host == client), HASH clean; a miss = FIXTURE-STOP"""
+    """B0 (equal non-zero on both), SPLIT0 (host == client), HASH clean; a miss = setup failure"""
     hb, cb = auth(x.host), auth(x.client)
     x.b0, x.split0 = hb.get("battleId"), split(x.host)
     sc = split(x.client)
@@ -169,7 +169,7 @@ def baseline(r, x):
     ev = {"B0": [x.b0, cb.get("battleId")], "SPLIT0": [x.split0, sc], "T0": hb.get("turn"), "HASH": hev}
     print("EVIDENCE %s baseline: %s" % (r.rid, json.dumps(ev, sort_keys=True, default=str)), flush=True)
     if not (x.b0 and x.b0 == cb.get("battleId") and x.split0 and x.split0 == sc and hok):
-        raise Stop("FIXTURE-STOP: baseline (B0 equal non-zero, SPLIT0 host == client, HASH clean) missed")
+        raise Stop("SETUP-FAILURE: baseline (B0 equal non-zero, SPLIT0 host == client, HASH clean) missed")
 
 def lever(r, x):
     """host force_send_failure; the host (stack, dialog, get_coop) and the client (dialog) polled at W_POLL from the arm until W after the

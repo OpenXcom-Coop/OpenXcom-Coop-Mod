@@ -438,7 +438,7 @@ def main():
             boot, crash0 = bring_up(host, client, KEY)
             print(f"EVIDENCE boot G: {json.dumps(boot, default=str)}", flush=True)
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE G line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE G line)")
         else:
             ids, rows = {"aliens": boot["aliens"]}, dict(ROWS)
             fails += G3F.run_row("R-AI", rows["R-AI"], lambda: row_ai(host, client, crash0, ids))

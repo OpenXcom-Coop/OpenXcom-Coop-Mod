@@ -17,7 +17,7 @@ battle_set_unit_state {status: STATUS_DEAD} on both machines, client first (test
 P8b T0-5); the host's close_briefing -> its AliensCrashState; the host's OK on it -> its DebriefingState with V5's
 result held (phase Handshake, resultSent 0, SE-4); the client's close_briefing (that test's spine); then the client's
 hold_battle_ready {on: false} releases battle_ready -> the host's onReady sends the held result, then the PR-3 world
-push. Pre-cell (a failure is a FIXTURE-STOP: one CAPTURE line, then the row FAILs "pre-cell").
+push. Pre-cell (a failure is a setup failure: one CAPTURE line, then the row FAILs "pre-cell").
 
 Row D1d (the GREEN cells, in order; a failed cell ends the row):
   (1) the client's top AliensCrashState within CRASH_S of the host's DebriefingState.
@@ -254,7 +254,7 @@ def main():
             js = shared_fixture.bring_up(TAG, (0, 0, PORT))
             fx_x(js, ctx)
         except Exception as e:
-            verdict = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
+            verdict = f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
         if verdict is None:
             host, client = js.host, js.client
             cl = cells(host, client, ctx)

@@ -13,8 +13,8 @@ d250uc4a_r2_host / _client / _client2. Each boot (FX4A-2): bring-up (gm3: G3D's 
 alien_player="client"; the mode and noBases pair are preconditions); the host's direct save_game (FX4A-3); both processes end; the
 host respawns on ITS dir and client2 on an EMPTY dir; resume_campaign, session.resume_campaign copied with the host's START HOST
 through host_menu_host (visibility 0: HostMenu::hostTCPGame) instead of the host_tcp lever (FX4A-4 as ruled by R-D250-SC4A-1). A bring-up, save, relaunch or staging miss is
-a FIXTURE-STOP: ONE "CAPTURE <boot>:" line and every remaining cell of that boot FAILs "boot". A resume that does not reach its
-session-up bound is not a FIXTURE-STOP: its row's cells FAIL with the captured state.
+a setup failure: ONE "CAPTURE <boot>:" line and every remaining cell of that boot FAILs "boot". A resume that does not reach its
+session-up bound is not a setup failure: its row's cells FAIL with the captured state.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a cell whose precondition was never reached
 FAILs "blocked: <why>"):
   P1 (R3) gm3 geoscape save + resume, client2's landing (FX4A-5): P1-mode, P1-role, P1-land, P1-seats, P1-common.

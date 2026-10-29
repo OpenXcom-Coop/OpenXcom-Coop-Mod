@@ -14,7 +14,7 @@ idx 0). The window (FX5B-16; it needs the hand-off: client pvpBorrow.sent +1 or 
 Handshake and client hold_battle_ready.held true <= WATCH_S (plain host popups drained); client.kill(); W = W_S of host stacks every W_POLL.
 FX5B-17 the rejoin (test_failed_base_defense.rejoin()'s steps on KEY): client2 spawn / connect / join_tcp; host get_coop.resumeAck true
 <= RESUME_ACK_S; profile_ok on a top Profile (the host); session.press_back_when_shown(host, "host RESUME", codes=(60, 62)). A bring-up or
-staging miss is a FIXTURE-STOP: ONE "CAPTURE R:" line and every remaining cell FAILs "boot".
+staging miss is a setup failure: ONE "CAPTURE R:" line and every remaining cell FAILs "boot".
 Row B2 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked: <why>"):
   B2-start   in the window host pvpBorrow.borrowed +1, phase Handshake, client held true; after the kill: host UNWIND ("W2-H24: failed battle
              start (") +1 reading "(partner dropped)" or "(partner lost)"; at W the host stack ends [GeoscapeState, CoopState] with dialog
@@ -186,7 +186,7 @@ def attack(host, client, client0, ev):
     gi = client.cmd({"cmd": "give_items", "item": TANK, "count": 1})
     a["giveItems"] = gi
     if not gi.get("ok"):
-        capture_boot(f"client give_items {TANK}: {gi} (FX5B-11: the item missing = FIXTURE-STOP)", host, client)
+        capture_boot(f"client give_items {TANK}: {gi} (FX5B-11: the item missing = setup failure)", host, client)
     h = client.cmd({"cmd": "hold_battle_ready", "on": True})
     a.update(hold=h, pvpBefore={"host": pvp(host), "client": pvp(client)})
     if h.get("armed") is not True:

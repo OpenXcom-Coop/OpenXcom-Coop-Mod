@@ -23,7 +23,7 @@ Every row asserts: the open as test_fatal_vote V1 / V3; the pause (host stack en
 CoopState], dialog 62 with SAVE & QUIT and ABANDON, no RESUME; the vote Open with the answers given before the drop);
 client2 held on dialog 68 with no question in its stack before RESUME (P7-5 V3, STOP-IF 12); after RESUME the host's
 question or hold back on top (a hold shows the Wait line naming the client, busyOwnerSeat 1), phase Active on both,
-peerAbsent false, battleId kept (FIXTURE-STOP steps), the stream settled, hash_now clean, desyncSeen false; both
+peerAbsent false, battleId kept (setup-failure steps), the stream settled, hash_now clean, desyncSeen false; both
 fatalVote records after the rejoin (voteId kept, resends 1, client2 coverWaitPasses >= 1: the resent open waited under
 dialog 68); the close (closeSeq > the host's lastSeqEmitted after the rejoin settled: the rejoin restarts the stream,
 SV-T4); hostCovered.steps unchanged while the question/hold was up; the ending (test_battle_end's last_alien_down set over
@@ -42,7 +42,7 @@ question:
 
 one run is the result; no skip path, one boot per row. Each row prints ONE "EVIDENCE <id>:" line
 before its verdict, "PASS <id>" / "FAIL <id>: <message>"; a rejoin step past its bound prints one CAPTURE line (every
-machine's probes) and FAILs "rejoin (FIXTURE-STOP)". Exit 0 only when every row passes, 2 otherwise. run in the
+machine's probes) and FAILs "rejoin (setup failure)". Exit 0 only when every row passes, 2 otherwise. run in the
 foreground to completion.
 
 Run:  python tools/coop_test/test_fatal_vote_rejoin.py
@@ -76,7 +76,7 @@ SEED_RE = re.compile(r"rejoin END TURN side-phase counter seeded to (-?\d+)")
 DIALOG_KEYS = ("present", "code", "title", "backVisible", "backText", "saveQuitVisible", "abandonVisible")
 
 
-class FixtureStop(Exception):
+class SetupFailure(Exception):
     pass
 
 
@@ -95,7 +95,7 @@ class RejoinRow(fvt.Row):
 
 
 def capture(r, name, err):
-    """FIXTURE-STOP: one CAPTURE line with every machine's probes (whole), then the row stops."""
+    """A setup failure: one CAPTURE line with every machine's probes (whole), then the row stops."""
     cap = {}
     for gc in r.machines:
         cap[gc.name] = {}
@@ -106,13 +106,13 @@ def capture(r, name, err):
             except Exception as e:
                 cap[gc.name][k] = f"probe failed: {fvt.short(e)}"
     print(f"CAPTURE {r.rid} {name} (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
-    raise FixtureStop(f"{name}: {err}")
+    raise SetupFailure(f"{name}: {err}")
 
 
 def step(r, name, fn):
     try:
         return fn()
-    except FixtureStop:
+    except SetupFailure:
         raise
     except Exception as e:
         capture(r, name, fvt.short(e))
@@ -303,8 +303,8 @@ def run_row(rid, row_fn, results, port, label):
         r.ev["bootS"] = round(time.time() - r.t0, 1)
         try:
             row_fn(r)
-        except FixtureStop as e:
-            r.fail("rejoin (FIXTURE-STOP)", str(e))
+        except SetupFailure as e:
+            r.fail("rejoin (setup failure)", str(e))
         except Exception as e:
             r.fail("exception", fvt.short(e))
         r.ev["wallS"] = round(time.time() - r.t0, 1)

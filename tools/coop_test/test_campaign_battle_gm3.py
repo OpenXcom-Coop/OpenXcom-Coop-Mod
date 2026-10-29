@@ -10,7 +10,7 @@ and S / S_DEST / A / A_DEST as EVIDENCE; boots Ca and Cb on the unchanged build,
 Boot C: gm3, lobby key 48011, dirs d250uc1_c_host / d250uc1_c_client. Bring-up: PF.start_pvp_campaign(alien_player="host"); crash
 baseline; HOST0 / CLIENT0; geo.slow_clock. Staging (TASK 0 T0-2 (2)-(4)): research sync off (client first), host discover_research
 TOPIC, the client's squad of two (the two lowest ids), the host's mission site and its mirror on the client, the client's Skyranger
-forced out to the mirror, the landing prompt on the client. A bring-up or staging step past its bound is a FIXTURE-STOP: ONE
+forced out to the mirror, the landing prompt on the client. A bring-up or staging step past its bound is a setup failure: ONE
 "CAPTURE C:" line (both stacks, battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every
 remaining cell FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
@@ -210,7 +210,7 @@ def bring_up(host, client, ev):
 
 def stage_landing(host, client, xb, client0, ev):
     """TASK 0 T0-2 (2)-(4): research sync off (client first), host discover_research TOPIC, the squad, the host site and its
-    mirror on the client, craft_force, the landing prompt on the client (drain both, speed idx 2 on both). A miss = FIXTURE-STOP."""
+    mirror on the client, craft_force, the landing prompt on the client (drain both, speed idx 2 on both). A miss = setup failure."""
     sync = [client.cmd({"cmd": "set_research_sync", "enabled": False}).get("sync"),
             host.cmd({"cmd": "set_research_sync", "enabled": False}).get("sync")]
     pre = [host.cmd({"cmd": "is_researched", "topic": TOPIC}).get("researched"),
@@ -376,7 +376,7 @@ def row_c2(host, client, ctx, ev):
         sid, tile, dest, seen = walk_target(host, 0)
         ev.update(S=sid, S_tile=tile, S_DEST=dest, S_pin=S_PIN, S_neighbours=seen)
         if dest is None:
-            cell("C2-walk", False, f"staging: no free neighbour for S {sid} at {tile} by the rule (FIXTURE-STOP, STOP-IF 13): {seen}")
+            cell("C2-walk", False, f"staging: no free neighbour for S {sid} at {tile} by the rule (setup failure, STOP-IF 13): {seen}")
         else:
             ctx0 = event_state(host).get("closedContexts") or []
             prev = session.walk_action_id(host)
@@ -422,7 +422,7 @@ def row_c3(host, client, ctx, ev):
         ev["sel"] = sel
         cell("C3-sel", sel == aid, f"host selectedId {sel} before the click (want A {aid})")
         if dest is None:
-            block(["C3-ctx", "C3-pos"], f"staging: no free neighbour for A {aid} at {tile} by the rule (FIXTURE-STOP, "
+            block(["C3-ctx", "C3-pos"], f"staging: no free neighbour for A {aid} at {tile} by the rule (setup failure, "
                   f"STOP-IF 13): {seen}")
         elif sel != aid:
             block(["C3-ctx", "C3-pos"], "staging (the host's TAB never selected A)")

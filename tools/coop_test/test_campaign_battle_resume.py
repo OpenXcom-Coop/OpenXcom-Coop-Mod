@@ -19,7 +19,7 @@ SAVED from the host, host save_game_ui {type: "quick_battle"}, the new _quick_.a
 shutdown. The relaunch and resume (FX4B-7): both shut down, the host respawned on its dir, client2 on an EMPTY dir; resume_campaign_battle
 (session's, copied, its host step through host_menu_host, R-D250-SC4A-1), the host's RESUME, both tops BattlescapeState. The win
 (FX4B-8 = FX2-8 with client2; the host's page 3 by FX2-11) and the OKs (FX4B-9 = FX2-12, client2 first). A bring-up, landing, turn,
-save or relaunch miss is a FIXTURE-STOP: ONE "CAPTURE P:" line and every remaining cell FAILs "boot". A resume that does not reach
+save or relaunch miss is a setup failure: ONE "CAPTURE P:" line and every remaining cell FAILs "boot". A resume that does not reach
 both inBattle FAILs P4-resume with the captured state and blocks P4-borrow .. P4-alien.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row):
   P5 (the save's shape, read between the save and the shutdown): P5-header, P5-body, P5-blob.
@@ -252,7 +252,7 @@ def land_to_saved(host, client, xb, client0, ev):
 
 
 def save_cell(host, client, saved, ev):
-    """FX4B-5: host save_game_ui quick_battle; the new .asav <= SAVE_S (a miss = FIXTURE-STOP); P4-save. Returns the file path."""
+    """FX4B-5: host save_game_ui quick_battle; the new .asav <= SAVE_S (a miss = setup failure); P4-save. Returns the file path."""
     before, n0, sb0 = set(session.save_files(host.user_dir)), len(logl(host)), pvp(host).get("savedBorrowed")
     ev["saveReply"] = host.cmd({"cmd": "save_game_ui", "type": "quick_battle"})
     ok, ss = wait(lambda: set(session.save_files(host.user_dir)) - before, SAVE_S, 0.2)

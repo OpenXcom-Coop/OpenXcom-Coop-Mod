@@ -249,7 +249,7 @@ def boot_b():
         try:
             boot, crash0 = bring_up(host, client)
         except Miss:
-            return fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE B line)")
+            return fail_all(ROWS, "boot (setup failure, see the CAPTURE B line)")
         rows = dict(ROWS)
         fails = run_row("B1", rows["B1"], lambda: row_b1(host, client, boot, crash0))
         fails += run_row("B3", rows["B3"], lambda: row_b3(host, client, crash0))

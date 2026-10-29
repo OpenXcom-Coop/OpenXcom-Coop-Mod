@@ -3,7 +3,7 @@ rewrite/r4l3-task0/sa/CONSTANTS.md): a desync detected in a co-op battle no long
 its next quiescent pass behind its waiting screen, re-sends its live battle (offer key `resync`), the second player tears its frozen battle
 down in process and loads the host's, and both screens close by themselves once the copy matches; play continues.
   Boot R (key "48752", dirs r4l3_r_host / _client): DC's boot (raw.bring_up_lobby, session.drive_to_battlescape seat_count 2 with set_seed
-  SEED_MAP before newbattle_ok, MAP_FP on both, pin_ai_neutral, wait_host_idle, HASH); the pins H, H2, G, G_TILE asserted (a miss = FIXTURE-STOP
+  SEED_MAP before newbattle_ok, MAP_FP on both, pin_ai_neutral, wait_host_idle, HASH); the pins H, H2, G, G_TILE asserted (a miss = setup failure
   with ONE CAPTURE line, every row FAILs "boot"). Rows in this order:
   DR1 player turn: a client-only `set_stat reactions` +7 on H2 is found at the host's real-UI kneel of H (its bt_action_end, `saveBlob`) and
       repaired. DR1-1 GUARD set_stat ok + the diff ['saveBlob']; DR1-2 FIX the desync on both records (client last == {saveBlob, s0 + 2,
@@ -495,7 +495,7 @@ def row_dr2(x, results, walls):
 
 
 def boot():
-    """boot R -> x (x.err set on a miss: FIXTURE-STOP)"""
+    """boot R -> x (x.err set on a miss: setup failure)"""
     x = SimpleNamespace(host=None, client=None, err=None, b0=None, split0=None)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(TAG + "_host")), GameClient("client", 2, make_user_dir(TAG + "_client"))
@@ -503,9 +503,9 @@ def boot():
         session.drive_to_battlescape(x.host, x.client, {}, seat_count=2, pre_ok=lambda gc: gc.ok({"cmd": "set_seed", "seed": SEED_MAP}))
         hs, cs = session.battle_state(x.host), session.battle_state(x.client)
         fp = [hs.get("mapFingerprint"), cs.get("mapFingerprint")]
-        assert fp == [MAP_FP, MAP_FP], "FIXTURE-STOP: mapFingerprint %s (MAP_FP %r, SEED_MAP %d)" % (fp, MAP_FP, SEED_MAP)
+        assert fp == [MAP_FP, MAP_FP], "SETUP-FAILURE: mapFingerprint %s (MAP_FP %r, SEED_MAP %d)" % (fp, MAP_FP, SEED_MAP)
         pinned = session.pin_ai_neutral(x.host, x.client, tag=TAG)
-        assert pinned, "FIXTURE-STOP: pin_ai_neutral pinned no NONE-seat non-player unit"
+        assert pinned, "SETUP-FAILURE: pin_ai_neutral pinned no NONE-seat non-player unit"
         session.wait_host_idle(x.host, x.client, timeout=W_IDLE)
         session.assert_hash_clean(x.host, x.client, full=True, what="boot R")
         live_us = [u for u in hs.get("units") or [] if u.get("faction") == 0 and not u.get("isOut")]
@@ -513,11 +513,11 @@ def boot():
         s1 = sorted(u["id"] for u in live_us if u.get("coop") == 1)
         gt = pos(session.units_by_id(hs).get(G))
         assert s0[:2] == [H, H2] and s1[:1] == [G] and gt == G_TILE, (
-            "FIXTURE-STOP: pins seat0 %s seat1 %s G at %s (CONSTANTS H %d, H2 %d, G %d at %s)" % (s0, s1, gt, H, H2, G, G_TILE))
+            "SETUP-FAILURE: pins seat0 %s seat1 %s G at %s (CONSTANTS H %d, H2 %d, G %d at %s)" % (s0, s1, gt, H, H2, G, G_TILE))
         ah, ac = auth(x.host), auth(x.client)
         x.b0, x.split0 = ah.get("battleId"), split(x.host)
         assert x.b0 and x.b0 == ac.get("battleId") and x.split0 == split(x.client), (
-            "FIXTURE-STOP: B0 %s / %s, SPLIT0 %s / %s" % (x.b0, ac.get("battleId"), x.split0, split(x.client)))
+            "SETUP-FAILURE: B0 %s / %s, SPLIT0 %s / %s" % (x.b0, ac.get("battleId"), x.split0, split(x.client)))
         print("[r4l3-r] boot ok: MAP_FP %r, pinned %s, B0 %s, turn %s, SPLIT0 %s" % (MAP_FP, pinned, x.b0, ah.get("turn"), x.split0), flush=True)
     except Exception as e:
         x.err = short(e, 800)

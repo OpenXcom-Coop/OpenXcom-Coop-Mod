@@ -192,7 +192,7 @@ def boot_n2():
             G3F.guarded("N2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE N2 line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE N2 line)")
         try:
             st = stage(host, client)
         except G3F.Miss:

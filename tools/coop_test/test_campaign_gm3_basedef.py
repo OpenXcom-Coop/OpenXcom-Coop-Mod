@@ -13,7 +13,7 @@ its first waypoint with the tank still in the stores, boots I / Ba / Ba2 / Ba3, 
 on the client: B1-return's tank value is EVIDENCE only, as FX5B-12 says). Then geo_set_speed idx 1 on both until the client's top is
 CoopState code 3 or the UFO is gone from the client's globe (<= ARRIVE_S, plain popups drained), then idx 0. The waits that need the
 hand-off (both inBattle, the battle) run only after it (client pvpBorrow.sent +1 or its CoopState 3 seen). A bring-up or staging miss is a
-FIXTURE-STOP: ONE "CAPTURE B:" line (both stacks, battle_state phase / side / turn / missionType, coop_dialog_info, get_coop, the last 40
+setup failure: ONE "CAPTURE B:" line (both stacks, battle_state phase / side / turn / missionType, coop_dialog_info, get_coop, the last 40
 engine log lines) and every remaining cell FAILs "boot".
 Row B1 (one PASS / FAIL line per cell, one EVIDENCE line, one ROW line; a cell whose precondition was never reached FAILs "blocked: <why>"):
   B1-hand    client top CoopState code 3 <= ARRIVE_S of the attack; client pvpBorrow sent / pushed / held +1; host borrowed +1, kind
@@ -191,7 +191,7 @@ def attack(host, client, client0, ev):
     st0 = storage(client)
     a.update(giveItems=gi, TANK0=st0["tank"], storageBefore=st0, pvpBefore={"host": pvp(host), "client": pvp(client)})
     if not gi.get("ok") or st0["name"] != client0["base"]:
-        capture_boot(f"client give_items {TANK}: {gi}, base_report {st0} (FX5B-11: the item missing = FIXTURE-STOP)", host, client)
+        capture_boot(f"client give_items {TANK}: {gi}, base_report {st0} (FX5B-11: the item missing = setup failure)", host, client)
     su = client.cmd(dict(UFO))
     if not su.get("ok"):
         capture_boot(f"client spawn_ufo (FX5B-12 fallback): {su}", host, client)

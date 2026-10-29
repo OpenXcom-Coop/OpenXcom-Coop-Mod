@@ -1111,7 +1111,7 @@ def hs3c_covered_detach(host, client, ctx):
     if not opened:
         fails.append(f"precondition (HS3c): the host's inventory did not open on H3 ({ev})")
     elif not covered:
-        fails.append(f"FIXTURE-STOP (P8-4b T0-S9 recipe on the host): the host's keyGeoUfopedia did not cover its "
+        fails.append(f"SETUP-FAILURE (P8-4b T0-S9 recipe on the host): the host's keyGeoUfopedia did not cover its "
                      f"inventory ({cov})")
     elif not admitted:
         fails.append(f"precondition (HS3c): the client's melee was not admitted ({order})")

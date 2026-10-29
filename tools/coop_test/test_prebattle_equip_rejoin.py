@@ -612,7 +612,7 @@ def eq13b_default_fuse(host, client, ctx):
 
 
 def dump(gc):
-    """One machine's probe dump (the FIXTURE-STOP rule's evidence): stack, phase, authority, turn, the equip probe,
+    """One machine's probe dump (the evidence for a setup failure): stack, phase, authority, turn, the equip probe,
     the top CoopState dialog and the inventory view."""
     try:
         bs = battle_state(gc)

@@ -16,7 +16,7 @@ availableStores 0 and vanilla refuses any item transfer to it) the host fac_buil
 lift, waits for both machines to list it and sets its buildTime 0 on BOTH (the FX-CT pattern); then
 test_battle_end_campaign.stage() (S-C-A's SHARED ending: SEED_S 1,
 MAP_FP_S, the 15 hostiles killed, the host's debriefing == HOST_DEBRIEF: recovered Sectoid Corpse 10, Plasma Pistol
-8, ...). Pre-cell (a failure is a FIXTURE-STOP: one CAPTURE line, then every row of the boot FAILs "pre-cell"): the
+8, ...). Pre-cell (a failure is a setup failure: one CAPTURE line, then every row of the boot FAILs "pre-cell"): the
 client's display-only DebriefingState on top and battleEnd.worldAdopted 1 within ADOPT_S (15 s, CONSTANTS T0-S2),
 then both machines on page 2 (the recovered items: STATS -> LOOT through click_widget, debrief_state.page 2).
 
@@ -271,7 +271,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's stack, battleEnd record and debrief_state (whole), then raise."""
+    """A setup failure: CAPTURE every machine's stack, battleEnd record and debrief_state (whole), then raise."""
     cap = {}
     for gc in machines:
         try:
@@ -521,7 +521,7 @@ def d1c_cells(host, client, ctx):
         av = {gc.name: second_base_stores(gc) for gc in (host, client)}
         ctx["secondBaseStores"] = av
         return [] if all(isinstance(v, (int, float)) and v > 0 for v in av.values()) else [
-            f"{SECOND_BASE} availableStores {av} (want > 0 on both: R-D1-2 FIXTURE-STOP of D1c)"]
+            f"{SECOND_BASE} availableStores {av} (want > 0 on both: R-D1-2 setup failure of D1c)"]
 
     def c2():
         f = open_screen(client, "TRANSFER", "TransferBaseState", ctx, "clientXferBase")
@@ -615,7 +615,7 @@ def run_boot(boot, tag, rows_spec, two_bases, results, walls):
             js = bring_up(tag, BOOT_PORT[boot])
             pre_cell(js, pre, two_bases)
         except Exception as e:
-            miss = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
+            miss = f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
         for n, (rid, cells_fn) in enumerate(rows_spec):
             tr = time.time()
             ctx = {"row": rid, "boot": boot, "pre": pre if n == 0 else {"see": rows_spec[0][0]}}

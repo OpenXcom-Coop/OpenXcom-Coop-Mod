@@ -2,7 +2,7 @@
 SM-2; F4012). TWO boots on test_death_side's default map, each shut down before the next: P (parallel, PORT_P),
 T (traditional, PORT_T). Each plays one END TURN cycle, the client leaves, a fresh process (client2) rejoins, the host
 presses RESUME. H14-1 (P): an END TURN cycle with client2 completes. H14-2 (T): client2 holds the baton and
-its pass completes the cycle. A boot/rejoin step past its bound is a FIXTURE-STOP (one CAPTURE line; the row FAILs
+its pass completes the cycle. A boot/rejoin step past its bound is a setup failure (one CAPTURE line; the row FAILs
 "boot"/"rejoin"). Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; both rows run.
 ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise."""
 
@@ -67,7 +67,7 @@ def evidence(rid, obj):
     print(f"EVIDENCE {rid}: {json.dumps(obj, sort_keys=True, default=str)}", flush=True)
 
 def miss(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's event_state, battle_state, dialog and stack (whole), then raise."""
+    """A setup failure: CAPTURE every machine's event_state, battle_state, dialog and stack (whole), then raise."""
     cap = {}
     for gc in machines:
         cap[gc.name] = {}
@@ -337,7 +337,7 @@ def run_boot(kind, port, stage_fn, rows, results, walls):
             c2 = stage_rejoin(host, client, port, kind, ctx)
         except Exception as e:     # a FixtureMiss printed its CAPTURE line; anything else is unexpected, still a FAIL
             for rid, _ in rows:
-                print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (FIXTURE-STOP) "
+                print(f"FAIL {rid}: {'rejoin' if ctx.get('booted') else 'boot'} (setup failure) "
                       f"{e if isinstance(e, FixtureMiss) else short(e, 600)}", flush=True)
             return
         for rid, row_fn in rows:

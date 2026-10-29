@@ -20,7 +20,7 @@ close: host resends 0; client2 opensApplied 0, answerSent "", questionPushed 0. 
 
 one run is the result; no skip path, one boot. The row prints ONE "EVIDENCE V7b:" line, then
 "PASS V7b" / "FAIL V7b: <message>"; a rejoin step past its bound prints one CAPTURE line and FAILs "rejoin
-(FIXTURE-STOP)". Exit 0 only when the row passes, 2 otherwise. run in the foreground to completion.
+(setup failure)". Exit 0 only when the row passes, 2 otherwise. run in the foreground to completion.
 
 Run:  python tools/coop_test/test_fatal_vote_rejoin_answered.py
 """

@@ -78,7 +78,7 @@ def main():
         try:
             pins, crash0 = RT.bring_up(host, client, PORT, "RL")
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE RL line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE RL line)")
         else:
             fails += G3F.run_row("R2", ROWS[0][1], lambda: row_r2(host, client, pins, crash0))
     finally:

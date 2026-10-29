@@ -3,7 +3,7 @@ nothing over that exit (issue #79, D156 (a), D239 (a); trace F10500-F10512). Spe
 rewrite/prompts/w2h25_gameover_lobby_race.md (f); TASK 0 constants docs rewrite/w2h25-task0/CONSTANTS.md.
 
 Every row boots its own pair with test_cydonia_ending's helpers, imported unchanged: boot_e (custom battle, Cydonia
-landing, seed 1, pinned), ms8 into stage 2 (a precondition miss is FIXTURE-STOP), then abort_ok (AbortMissionState
+landing, seed 1, pinned), ms8 into stage 2 (a precondition miss is a setup failure), then abort_ok (AbortMissionState
 "0 Units in Target Exit" -> loseGame, the game-ending slideshow on both machines). A SlideshowState on both within
 SLIDESHOW_S is a guard. Both stacks are polled every POLL_S from the OK to the row's end ("no LobbyMenu at any poll").
 A main-menu cell is a bare ['MainMenuState'] read that is still bare SETTLE_S later (every poll between, F10505). A
@@ -15,7 +15,7 @@ keyCancel is a real SDL key (inject_input key 27 -> SlideshowState::screenSkip).
        main menu; no new crash file; both alive.
   LM2  the frame before the host's MainMenuState::init (C1, F10502 = Integration 19's red). +SKIP_AT_S: host
        slow_top {type MainMenuState, ms 100, timeoutMs 20000}; host keyCancel; client keyCancel DELTA_S after the
-       host's reply. Window-proof GUARD (FIXTURE-STOP if missed): the host log's W2-H25 line names MainMenuState, or
+       host's reply. Window-proof GUARD (setup failure if missed): the host log's W2-H25 line names MainMenuState, or
        (unfixed build) `push ... LobbyMenu depth=2` right after `push ... MainMenuState depth=1` with no
        `[coop-session] setRole -> None` between. Cells: no LobbyMenu on the host at any poll; host and client on a
        bare main menu; no new crash file; both alive. slow_top {off} at the row's end.
@@ -239,7 +239,7 @@ def lm2(host, client, crash0):
         red_win = red_window_sig(hlog)
         ctx["window"] = {"e3": e3, "greenNamesMainMenuState": green_win, "redSignature": red_win}
         if not (green_win or red_win):
-            f.append("FIXTURE-STOP window-proof guard missed: no W2-H25 line naming MainMenuState and no "
+            f.append("SETUP-FAILURE window-proof guard missed: no W2-H25 line naming MainMenuState and no "
                      "LobbyMenu push right after the un-init'd MainMenuState push")
         if "host" in w.lobby:
             f.append(f"a LobbyMenu was on the host's stack at +{w.lobby['host']}s")
@@ -302,7 +302,7 @@ def run_row(rid, fn):
             fails = fn(host, client, crash0)
         except FixtureMiss as e:
             print(f"EVIDENCE {rid}: {json.dumps({'fixture': short(e, 800)})}", flush=True)
-            fails = [f"FIXTURE-STOP {short(e, 800)}"]
+            fails = [f"SETUP-FAILURE {short(e, 800)}"]
         except Exception as e:
             print(f"EVIDENCE {rid}: {json.dumps({'error': short(e, 800)})}", flush=True)
             fails = [short(e, 800)]

@@ -351,7 +351,7 @@ def main():
         shut(host)     # the host first: it never takes a partner drop
         shut(client)
     if P is None:
-        fails = fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE D1 line)")
+        fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE D1 line)")
     else:
         host = GameClient("host", None, host.user_dir)   # boot D1's dir, NOT re-made
         client = GameClient("client", None, make_user_dir(CLIENT2_DIR))
@@ -363,7 +363,7 @@ def main():
             except Exception as e:
                 capture("D2", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
             if arrival is None:
-                fails = fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE D2 line)")
+                fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE D2 line)")
             else:
                 fails = run_row("SD1", rows["SD1"], lambda: row_sd1(host, client, P, arrival, crash0))
                 fails += run_row("SD2", rows["SD2"], lambda: row_sd2(host, client, crash0, crash_start))

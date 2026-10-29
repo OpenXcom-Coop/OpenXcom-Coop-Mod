@@ -408,7 +408,7 @@ def boot_b():
         try:
             boot, crash0 = bring_up(host, client)
         except Miss:
-            return fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE B line)")
+            return fail_all(ROWS, "boot (setup failure, see the CAPTURE B line)")
         try:
             t2 = t2_act(host, client, boot, crash0)
         except Exception as e:

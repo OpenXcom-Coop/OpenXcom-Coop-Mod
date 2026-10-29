@@ -35,7 +35,7 @@ Row C28P. The GREEN cells are numbered and checked in order; a failed cell ends 
       push changed the host's copy).
   (3) the host's OK + drain -> the host's soldier_record {name:"Guest Zzz"} finds no alive match (F366: the living
       merged copy is deleted); the client zero-disk; host fatalVote.armed 0.
-Pre-cell guard (a failure is a FIXTURE-STOP: one CAPTURE line, then the row FAILs "pre-cell"): bring-up, the map pin
+Pre-cell guard (a failure is a setup failure: one CAPTURE line, then the row FAILs "pre-cell"): bring-up, the map pin
 (mapFingerprint both == MAP_FP_P), the guest-kill construction (KEEP dead by the guest, status DEAD + murdererId ==
 the guest's battle unit id on the host), the host's DebriefingState within DEBRIEF_S, shown/onTop/displayOnly False and
 title "Aliens defeated", host fatalVote.armed 0.
@@ -204,7 +204,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's event_state, battle_state flags and stack (whole), then raise."""
+    """A setup failure: CAPTURE every machine's event_state, battle_state flags and stack (whole), then raise."""
     cap = {}
     for gc in machines:
         try:
@@ -361,11 +361,11 @@ def close_host_nextturn(host, timeout=60):
     return host.cmd({"cmd": "dismiss_popup"})
 
 
-def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, fixture_stop=True):
+def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, raise_on_miss=True):
     """CONSTANTS T0-6 (iv): the guest's OWN kill of the last alien, KEEP's TU zeroed first so it cannot reaction-fire
     (orchestrator ruling, F5446: KEEP reaction-fired and killed the guest). Fills ctx['construction'] and returns the
-    shot outcome. With fixture_stop (the test), raises FixtureMiss after a CAPTURE line if the kill does not reproduce
-    at `shot_seed`; the seed re-hunt calls with fixture_stop=False to inspect every seed."""
+    shot outcome. With raise_on_miss (the test), raises FixtureMiss after a CAPTURE line if the kill does not reproduce
+    at `shot_seed`; the seed re-hunt calls with raise_on_miss=False to inspect every seed."""
     m = (host, client)
     con = ctx.setdefault("construction", {})
     # 1. kill every hostile except KEEP in ONE host call (CIT-Y4, R-Y4-1: kill_units_real, the same ids in the same
@@ -425,7 +425,7 @@ def guest_kill(host, client, gid, ctx, shot_seed=SEED_P, fixture_stop=True):
                    "keepClient": {kk: unit(client, KEEP).get(kk) for kk in ("status", "health", "murdererId")},
                    "guestHost": {kk: unit(host, gid).get(kk) for kk in ("tu", "health", "direction", "isOut")}}
     con["killed"] = (kh.get("status") == STATUS_DEAD and kh.get("murdererId") == gid)
-    if not con["killed"] and fixture_stop:
+    if not con["killed"] and raise_on_miss:
         capture("guest-kill: the shot", f"KEEP not killed by the guest at shot seed {shot_seed}: "
                 f"keepHost={con['shot']['keepHost']} (want status {STATUS_DEAD}, murdererId {gid})", m)
     return con["shot"]
@@ -789,7 +789,7 @@ def run_row(rid, host, client, results, walls, stage_fn, cells_fn):
         try:
             stage_fn(rid, host, client, ctx)
         except Exception as e:
-            verdict = (f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}", None)
+            verdict = (f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}", None)
         if verdict is None:
             cells = cells_fn(host, client, ctx)
             ctx["cells"] = []

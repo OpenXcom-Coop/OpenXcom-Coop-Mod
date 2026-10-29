@@ -168,7 +168,7 @@ class Row:
         self.end(None, None, results, walls)
 
 def baseline(r, x, other):
-    """B0 (equal non-zero on both), SPLIT0 (host == other), T0, HASH clean; a miss = FIXTURE-STOP"""
+    """B0 (equal non-zero on both), SPLIT0 (host == other), T0, HASH clean; a miss = setup failure"""
     hb, ob = auth(x.host), auth(other)
     x.b0, x.t0, x.split0 = hb.get("battleId"), hb.get("turn"), split(x.host)
     so = split(other)
@@ -176,7 +176,7 @@ def baseline(r, x, other):
     ev = {"B0": [x.b0, ob.get("battleId")], "SPLIT0": [x.split0, so], "T0": x.t0, "HASH": hev}
     print("EVIDENCE %s baseline: %s" % (r.rid, json.dumps(ev, sort_keys=True, default=str)), flush=True)
     if not (x.b0 and x.b0 == ob.get("battleId") and x.split0 and x.split0 == so and hok):
-        raise Stop("FIXTURE-STOP: baseline (B0 equal non-zero, SPLIT0 host == %s, HASH clean) missed" % other.name)
+        raise Stop("SETUP-FAILURE: baseline (B0 equal non-zero, SPLIT0 host == %s, HASH clean) missed" % other.name)
 
 def pause(x):
     """PAUSE(host) within W_PAUSE of the leave -> (ok, the values at the pass or the timeout)"""

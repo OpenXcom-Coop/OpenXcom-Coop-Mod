@@ -321,7 +321,7 @@ def boot_b(host, client):
     try:
         info = G3F.guarded("B", lambda: boot(host, client), (host, client))
     except G3F.Miss:
-        return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE B line)")
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE B line)")
     crash0 = session._crash_log_snapshot()
     print(f"[w2h41] boot B ok: {info}", flush=True)
     state = {}

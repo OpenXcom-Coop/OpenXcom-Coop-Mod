@@ -18,7 +18,7 @@ count, each with a proc, G4 every machine alive at the fire, G5 the bystander al
 A bystander game (label 49647, user dir w2u8f_bystander) boots first and runs through every row; row U8f-X (the
 negative control) checks it was alive after every row and quits rc 0 at the end. exec_row shuts down every row
 machine still running (harness.shutdown_clients), never the bystander.
-Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) or a boot miss adds
+Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) or a boot miss adds
 ONE "CAPTURE <id>:" line. ONE foreground run, no skip path, every row runs after a failure; exit 0 only
 when every row passes, 2 otherwise. Run: python tools/coop_test/test_bringup_leak_sweep.py
 """
@@ -43,7 +43,7 @@ import test_geo_event_replica as gr  # noqa: E402
 
 BYSTANDER = ("u8f-bystander", 49647, "w2u8f_bystander")
 GR_SPEC = ("w2u8f_geo", (49645, 49646, 47651), None)
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 
 
 class StandInGC(harness.GameClient):

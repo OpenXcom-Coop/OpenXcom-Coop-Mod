@@ -110,7 +110,7 @@ class Row:
         self.rid, self.x, self.ev, self.fails, self.passed, self.captured = rid, x, {}, [], [], False
     def cell(self, name, ok, detail=""):
         (self.passed if ok else self.fails).append(name if ok else f"{name}: {detail}")
-        if not ok and name.startswith("guard:") and not self.captured:   # FIXTURE-STOP dump (STOP-IF 3)
+        if not ok and name.startswith("guard:") and not self.captured:   # Setup-failure dump (STOP-IF 3)
             self.captured = True
             capture(self.rid, self.x, name)
         return ok

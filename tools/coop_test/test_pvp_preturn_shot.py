@@ -207,7 +207,7 @@ def boot_c2():
             crash0 = session._crash_log_snapshot()
             G3F.guarded("C2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS_C2, "boot (FIXTURE-STOP, see the CAPTURE C2 line)")
+            return G3F.fail_all(ROWS_C2, "boot (setup failure, see the CAPTURE C2 line)")
         st = {}
         try:
             tiles = dict(RM.TILES)
@@ -239,7 +239,7 @@ def boot_c3():
             boot, crash0 = G3F.bring_up(host, client, KEY_C3, "C3")
             G3F.guarded("C3", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS_C3, "boot (FIXTURE-STOP, see the CAPTURE C3 line)")
+            return G3F.fail_all(ROWS_C3, "boot (setup failure, see the CAPTURE C3 line)")
         st = {"boot": boot}
         try:
             st["placed"] = RM.stage_tiles(host, client, RM.TILES, (P3_TILE,))

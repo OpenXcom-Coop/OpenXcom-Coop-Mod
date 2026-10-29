@@ -298,7 +298,7 @@ def row_o4(r, x):
     if actor is None:
         r.ev["actorDump"] = [{k: u.get(k) for k in ("id", "soldierId", "faction", "coop", "x", "y", "z", "isOut")}
                              for u in session.battle_state(x.h).get("units", [])]
-        r.cell("pre_actor", False, f"no client actor qualifies after staging soldier {sid} (FIXTURE-STOP)")
+        r.cell("pre_actor", False, f"no client actor qualifies after staging soldier {sid} (setup failure)")
         return
     r.ev["actor"] = {k: actor.get(k) for k in ("id", "soldierId", "x", "y", "z", "coop")}
     blocker = rc.stage_blocker(x.h, x.c, actor["id"])

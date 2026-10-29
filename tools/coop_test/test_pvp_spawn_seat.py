@@ -117,7 +117,7 @@ def boot_p2():
             crash0 = session._crash_log_snapshot()
             G3F.guarded("P2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all((("Z2", Z2_ORDER),), "boot (FIXTURE-STOP, see the CAPTURE P2 line)")
+            return G3F.fail_all((("Z2", Z2_ORDER),), "boot (setup failure, see the CAPTURE P2 line)")
         try:
             st = stage_z2(host, client)
         except G3F.Miss:
@@ -184,7 +184,7 @@ def boot_p3():
                     f"lobby gamemode {boot['lobbyGamemode']} (want 3); (side, turn) host/partner {st} (want (1, 1))")
             G3F.guarded("P3", to_side1, m)
         except G3F.Miss:
-            return G3F.fail_all((("Z3", Z3_ORDER),), "boot (FIXTURE-STOP, see the CAPTURE P3 line)")
+            return G3F.fail_all((("Z3", Z3_ORDER),), "boot (setup failure, see the CAPTURE P3 line)")
         try:
             st = stage_z3(host, client)
         except G3F.Miss:

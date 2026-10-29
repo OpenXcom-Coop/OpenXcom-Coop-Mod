@@ -8,7 +8,7 @@ TASK 0 pins: docs rewrite/d250u-task0/sb/CONSTANTS.md (SEED_B, MAP_FP_B, A, A_DE
 TASK 0-only EB2 probe build; TITLE_WIN, SEED_B4, MAP_FP_B4, TITLE_LOSS and the return values on the probe build; each 2/2).
 
 Boot B: gm2, lobby key 47938, dirs d250u_b_host / d250u_b_client. Bring-up: PF.start_pvp_campaign(alien_player="client"); crash
-baseline; geo.slow_clock. A bring-up or B1 landing step past its bound is a FIXTURE-STOP: ONE "CAPTURE B:" line, every row FAILs "boot".
+baseline; geo.slow_clock. A bring-up or B1 landing step past its bound is a setup failure: ONE "CAPTURE B:" line, every row FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
 precondition was never reached, then each of its cells FAILs "blocked: <why>"):
   B1 entry: squad of two, site, craft forced out, landing, host set_seed SEED_B, confirm_landing, both inBattle <= 180 s,
@@ -184,7 +184,7 @@ def capture_boot(err, host, client):
 
 def to_battle(host, client, lon_off, seed, ev, boot):
     """Squad of two, a site at b0 + lon_off, the Skyranger forced out to it, the landing wait, host set_seed, confirm_landing, both
-    inBattle. A miss: boot=True -> FIXTURE-STOP (CAPTURE B:), else Blocked. Returns the site id."""
+    inBattle. A miss: boot=True -> setup failure (CAPTURE B:), else Blocked. Returns the site id."""
     def miss(err):
         if boot:
             capture_boot(err, host, client)

@@ -301,7 +301,7 @@ def boot_c(host, client):
     try:
         info = G3F.guarded("C", lambda: boot(host, client), (host, client))
     except G3F.Miss:
-        return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE C line)")
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE C line)")
     crash0 = session._crash_log_snapshot()
     try:
         st = stage_c(host, client)

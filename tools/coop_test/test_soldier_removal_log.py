@@ -12,7 +12,7 @@ ONE boot (test_death_side's default map, lobby PORT_H11), rows in order:
         owner (iii). Each miss answers ok false, the same error and a `diag`
         listing every base's soldiers (= R0, in order), the dead (DS1_ID) and
         the player units (DS1_ID DEAD), logged once each; (iii) ok, no diag.
-A boot step or precondition miss is a FIXTURE-STOP (one CAPTURE line: both
+A boot step or precondition miss is a setup failure (one CAPTURE line: both
 machines' get_soldiers + battle_state; both rows FAIL "boot"). Each row prints
 ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; every row
 runs; an H11-1 staging failure fails H11-2 "staging". The diag text is never
@@ -75,7 +75,7 @@ def bases_with(rost, sid):
     return [i for i, (_n, _c, ss) in enumerate(rost) if any(s[0] == sid for s in ss)]
 
 def capture(name, err, machines):
-    """FIXTURE-STOP evidence: both machines' get_soldiers and battle_state, whole."""
+    """Setup-failure evidence: both machines' get_soldiers and battle_state, whole."""
     def probe(gc, k):
         try:
             return gc.cmd({"cmd": k})
@@ -232,7 +232,7 @@ def main():
         except Exception as e:
             capture("boot", short(e, 800), (host, client))
             for rid, _fn in ROWS:
-                print(f"FAIL {rid}: boot (FIXTURE-STOP) {short(e, 400)}", flush=True)
+                print(f"FAIL {rid}: boot (setup failure) {short(e, 400)}", flush=True)
         for rid, fn in (ROWS if ctx.get("booted") else ()):
             if ctx.get("staging"):
                 print(f"FAIL {rid}: staging ({ctx['staging']})", flush=True)

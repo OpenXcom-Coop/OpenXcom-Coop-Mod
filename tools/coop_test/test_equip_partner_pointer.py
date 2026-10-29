@@ -474,7 +474,7 @@ def run_boot(tag, rows, setup, fns, host_dir, client_dir):
         except Exception as e:
             if not isinstance(e, G3F.Miss):
                 G3F.capture(tag, f"{type(e).__name__}: {str(e)[:600]}", (host, client))
-            return G3F.fail_all(rows, f"boot (FIXTURE-STOP, see the CAPTURE {tag} line)")
+            return G3F.fail_all(rows, f"boot (setup failure, see the CAPTURE {tag} line)")
         return sum(run_row(row, order, fns[row], host, client, ctx) for row, order in rows)
     finally:
         rc = {}

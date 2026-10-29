@@ -66,7 +66,7 @@ def row_cr2(x, results, walls):
         print("EVIDENCE CR2 fixture: %s" % json.dumps({"GID units": gids, "OWN_BEFORE": OWN.get("OWN_BEFORE"), "F0": OWN.get("F0")},
                                                      sort_keys=True, default=str), flush=True)
         if len(gids) != 1 or gids[0]["coop"] != 1:
-            raise CR.Stop("FIXTURE-STOP: GID = exactly one host battle unit named \"Guest\" on coop 1: %s" % gids)
+            raise CR.Stop("SETUP-FAILURE: GID = exactly one host battle unit named \"Guest\" on coop 1: %s" % gids)
         gid = gids[0]["id"]
         CR.baseline(r, x, c)
         icon0, h0 = icons(h), copy_info(h)

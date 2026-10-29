@@ -7,7 +7,7 @@ anyway and `previous()` begins / resumes the campaign with nobody ready. Boots: 
 has no press_back_when_shown, a verdict once it has), then B-2 (a hidden RESUME after the client was killed). RED (commit
 1): B-1 and B-2 FAIL on their press cell, B-3 and every GUARD cell pass; GREEN (commit 2b): all pass. B-1 / B-2 reach
 session.press_back_when_shown only after their hidden press was refused ("hidden"). Each row prints "EVIDENCE <id>:" then
-"PASS <id>" or "FAIL <id>: ..."; a guard miss (FIXTURE-STOP) adds one "CAPTURE <id>:" line. ONE
+"PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line. ONE
 foreground run, no skip path, no retried press, every row runs after a failure; exit 0 only when every row passes, 2
 otherwise. Run: python tools/coop_test/<this>
 """
@@ -23,7 +23,7 @@ HOLD_S = 2.0                       # (f) 2 s of 0.1 s polls after each hidden pr
 GEO = ["GeoscapeState"]
 DIAG = "[coop-test] coop_dialog_back:"
 PRESS = "coop_dialog_back: code "  # a PRESS line; a refusal (2b) reads "coop_dialog_back: refused hidden code N"
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 
 def short(x, n=300):
     s = x if isinstance(x, str) else json.dumps(x, default=str, sort_keys=True)

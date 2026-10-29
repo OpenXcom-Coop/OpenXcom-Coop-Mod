@@ -13,7 +13,7 @@ player never sees them, the store (sel_state) holds no buy key, a confirm sends 
 the screen before the host answers, a rebuild after any world change resets every amount to 0, and the SHARED
 reequip Purchase never lowers the missing counts.
 
-Fixtures (AMENDMENT P7-9 section 4; a pre-cell failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot
+Fixtures (AMENDMENT P7-9 section 4; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
 FAILs "pre-cell"):
   BUY = shared_fixture.bring_up(tag, (0, 0, "47321")), geoscape only; X = STR_RIFLE ($3,000), Y = STR_PISTOL ($800),
         S = STR_SOLDIER ($40,000) (xcom1 items.rul / soldiers.rul costBuy). Pre-cell: both machines' funds equal
@@ -278,7 +278,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's stack, sel_state, top screen rows (whole), funds, incoming transfers,
+    """A setup failure: CAPTURE every machine's stack, sel_state, top screen rows (whole), funds, incoming transfers,
     follow-up rows, shared stats and dialog, then raise."""
     cap = {}
     for gc in machines:
@@ -336,7 +336,7 @@ def req_pre(js, ctx):
 
 def hygiene(host, client, ctx):
     """Holds off; boxes dismissed (ErrorMessageState / CoopState only, F4333); every Purchase screen cancelled with
-    its real Cancel - both machines back on GeoscapeState (a miss is a FIXTURE-STOP)."""
+    its real Cancel - both machines back on GeoscapeState (a miss is a setup failure)."""
     m = (host, client)
     h = {"holds": {gc.name: e1.hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
     t0 = time.time()
@@ -361,7 +361,7 @@ def hygiene(host, client, ctx):
 
 
 def open_buy(gc, ctx, key):
-    """open_screen {screen: "purchase"} (base 0); ready, then one pump for its init(); a miss is a FIXTURE-STOP."""
+    """open_screen {screen: "purchase"} (base 0); ready, then one pump for its init(); a miss is a setup failure."""
     r = gc.cmd({"cmd": "open_screen", "screen": "purchase"})
     ok, secs = wait_until(lambda: purchase_ready(gc), PAGE_S)
     time.sleep(SETTLE_S)
@@ -883,7 +883,7 @@ def run_boot(boot, tag, port, pre_fn, rows_spec, results, walls):
             js = shared_fixture.bring_up(tag, (0, 0, port))
             pre_fn(js, pre)
         except Exception as e:
-            miss = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, MISSES) else short(e, 800)}"
+            miss = f"pre-cell (setup failure) {e if isinstance(e, MISSES) else short(e, 800)}"
         for n, (rid, cells_fn) in enumerate(rows_spec):
             tr = time.time()
             ctx = {"row": rid, "boot": pre if n > 0 else {}, "pre": pre if n == 0 else {"see": rows_spec[0][0]}}

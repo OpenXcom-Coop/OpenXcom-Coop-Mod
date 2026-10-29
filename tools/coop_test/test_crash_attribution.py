@@ -103,7 +103,7 @@ def site(i):  # "<file>:<line>" of reader i's function at this tip
     try: return "%s:%d" % (os.path.basename(inspect.getsourcefile(SITES[i])), inspect.getsourcelines(SITES[i])[1])
     except (OSError, TypeError): return "?"
 RUN = {"root": None, "b": None, "bErr": None, "probe": {}, "files": {}}  # this run's root, game b, probe / crash files
-class GuardMiss(Exception): pass  # a guard cell failed: FIXTURE-STOP
+class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 class BootMiss(Exception): pass  # a spawn / connect failed
 def short(x, n=300):
     s = x if isinstance(x, str) else json.dumps(x, default=str, sort_keys=True)
@@ -331,7 +331,7 @@ def u8h_rr(r):
 
 ROWS = (("U8h-ENV", u8h_env), ("U8h-DEF", u8h_def), ("U8h-DIR", u8h_dir), ("U8h-X", u8h_x), ("U8h-B", u8h_b),
         ("U8h-RR", u8h_rr))
-def capture(r):  # FIXTURE-STOP dump: each machine's state and log tail (+ X's child output)
+def capture(r):  # Setup-failure dump: each machine's state and log tail (+ X's child output)
     cap = {"childOut": tail(r.child_out, 25)} if r.child_out else {}
     for gc in r.seen + r.machines:
         p = gc.proc

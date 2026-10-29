@@ -1,6 +1,6 @@
 """Boot UB: rendezvous_stub.py
 carries a HOST > PUBLIC skirmish over UDP; the client joins via join_rendezvous. U1: the client leaves, the host
-keeps the paused battle and re-lists. U2: client2 joins the re-listed room, RESUME, equal state. FIXTURE-STOP on a
+keeps the paused battle and re-lists. U2: client2 joins the re-listed room, RESUME, equal state. A setup failure on a
 staging miss. Verdicts follow the teardown. ONE run; exit 0 only all PASS, else 2.
 U3 (W2-H24 S-B, docs rewrite/prompts/w2h24_failed_battle_start.md AMENDMENT H24-2 section 2, D259 (a), QH24-3 (a), F9980;
 TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B2): its own boot after U1 / U2's teardown on the same stub (key 48583,
@@ -81,7 +81,7 @@ def probe(fn, gc):
         return f"probe failed: {short(e)}"
 
 def capture(name, err, machines, stub):
-    """FIXTURE-STOP record: each machine's battle_state (lists > 20 dropped), get_coop, dialog, stack; stub events."""
+    """Setup-failure record: each machine's battle_state (lists > 20 dropped), get_coop, dialog, stack; stub events."""
     cap = {gc.name: {k: probe(fn, gc) for k, fn in (("stack", session.states), ("battle_state", battle_state),
                                                     ("get_coop", lambda g: g.cmd({"cmd": "get_coop"})),
                                                     ("dialog", dialog))} for gc in machines}
@@ -358,7 +358,7 @@ def main():
                 ctx["boot"] = str(e)
             for rid, fn in ROWS:
                 if not ctx.get("booted") or ctx.get("staging"):
-                    results[rid] = [f"boot (FIXTURE-STOP) {ctx['boot']}" if not ctx.get("booted")
+                    results[rid] = [f"boot (setup failure) {ctx['boot']}" if not ctx.get("booted")
                                     else f"staging ({ctx['staging']})"]
                     continue
                 try:

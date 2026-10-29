@@ -35,7 +35,7 @@ and rejoins, the host presses RESUME. The host's rejoin
 battle_offer reopened phase Handshake (`offerRejoinBattle`); client2's
 battle_ready is stashed, so the host sits on BattlescapeState in phase
 Handshake until THIS FILE releases the hold - the window is deterministic,
-not a race. Every construction step is bounded; a miss is a FIXTURE-STOP
+not a race. Every construction step is bounded; a miss is a setup failure
 (test_rejoin_end_turn.miss: one CAPTURE line of every machine, then raise).
 Before the client leaves, select_mover makes the actor a host soldier that can
 walk onto a neighbour tile in one step (the Active control's precondition;
@@ -172,7 +172,7 @@ def select_mover(host):
     the Active control needs it to walk onto a neighbour. PIN-RULE (S54): keep the host's selection when one of its 8
     neighbours passes can_step_to; else select the lowest-id live host-seat (coop 0) soldier that has one (the
     nearest value meeting the precondition) with the test lever battle_action select. Returns (old id, actor id,
-    tile) or None when no host soldier has a one-step neighbour (a FIXTURE-STOP)."""
+    tile) or None when no host soldier has a one-step neighbour (a setup failure)."""
     bs = battle_state(host)
     sel = bs.get("selectedId")
     own = [u for u in bs.get("units", []) if u.get("coop") == 0 and u.get("faction") == FACTION_PLAYER
@@ -203,7 +203,7 @@ def resolve_click_pixel(gc, tile):
 
 def open_rejoin_window(host, client, m, options):
     """QR2r's staging (test_messages.qr2r_drive, boot R steps boot..7) on this file's PORT. Each step bounded; a
-    miss is a FIXTURE-STOP (rej.miss: one CAPTURE line of every machine in `m`). Returns client2 (appended to `m`)."""
+    miss is a setup failure (rej.miss: one CAPTURE line of every machine in `m`). Returns client2 (appended to `m`)."""
     rej.step("boot R (test_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT, False), m)
     pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
     end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause

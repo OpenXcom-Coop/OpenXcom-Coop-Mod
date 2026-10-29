@@ -14,10 +14,10 @@ canSellLiveAliens} (F5429: boot-time options on BOTH user dirs); give_items {STR
 base 0 then holds 111 of 65 stores); then stage_x() = a local copy of test_battle_end_campaign.stage()
 WITHOUT its HOST_DEBRIEF pin (T0's storage boots totalled 418, not S-C-A's 454: the pin does not transfer; the host's
 debriefing is recorded in EVIDENCE): SEED_S 1, MAP_FP_S, autoEnd on, kill_unit_real {faction: 1} kills the 15
-hostiles, the host's DebriefingState. Pre-cell (a failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot
+hostiles, the host's DebriefingState. Pre-cell (a failure is a setup failure: one CAPTURE line, every row of the boot
 FAILs "pre-cell"): the client's display-only DebriefingState and battleEnd.worldAdopted 1 within ADOPT_S; the host's
 base over its storage limit; boot 1 also a craft holding a rifle (D2c cell 3's MR15 sale reaches it); boot 2 T's
-page-3 count == T_QTY on both and the host's stock of T == T_QTY. Cell-level precondition (FIXTURE-STOP): after the
+page-3 count == T_QTY on both and the host's stock of T == T_QTY. Cell-level precondition (setup failure): after the
 host's OK its stack ends SellState + ErrorMessageState.
 
 Probes and levers (PR-28, PR-35): screen_rows / screen_set_amount (the top Sell screen), screen_rows {recovered}
@@ -272,7 +272,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines, extra_items=()):
-    """FIXTURE-STOP: CAPTURE every machine's stack, battleEnd record, debrief_state, top screen rows, base 0 and shared
+    """A setup failure: CAPTURE every machine's stack, battleEnd record, debrief_state, top screen rows, base 0 and shared
     stats (whole), then raise."""
     cap = {}
     for gc in machines:
@@ -405,7 +405,7 @@ def press_ok(gc):
 
 
 def both_oks_forced(host, client, ctx, key, cls, mark, record_check=None):
-    """The client's OK, then the host's. FIXTURE-STOP unless the host's stack then ends cls + ErrorMessageState (the
+    """The client's OK, then the host's. A setup failure unless the host's stack then ends cls + ErrorMessageState (the
     fixture's precondition). The cell: the client's stack ends cls + ErrorMessageState, its box text == the host's
     and holds `mark`; record_check(client record) -> failures."""
     c_ok = press_ok(client)
@@ -718,14 +718,14 @@ def d2f_cells(host, client, ctx):
 
 
 def run_cells(cells):
-    """The row's cells in order -> the verdict (None = pass). A FixtureMiss is a FIXTURE-STOP, not a cell failure."""
+    """The row's cells in order -> the verdict (None = pass). A FixtureMiss is a setup failure, not a cell failure."""
     out = []
     for i, (name, fn) in enumerate(cells):
         try:
             f = fn()
         except FixtureMiss as e:
-            out.append({"cell": name, "pass": False, "fixtureStop": str(e)})
-            return f"FIXTURE-STOP in cell {name}: {e}", out
+            out.append({"cell": name, "pass": False, "setupFailure": str(e)})
+            return f"SETUP-FAILURE in cell {name}: {e}", out
         except Exception as e:
             f = [f"{type(e).__name__}: {short(e, 600)}"]
         out.append({"cell": name, "pass": not f, "fails": f})
@@ -765,7 +765,7 @@ def run_boot(boot, tag, port, opts, pre_fn, rows_spec, results, walls, needs=Non
             js = bring_up(tag, port, opts)
             pre_fn(js, pre)
         except Exception as e:
-            miss = f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
+            miss = f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
         for n, (rid, cells_fn) in enumerate(rows_spec):
             tr = time.time()
             ctx = {"row": rid, "boot": boot, "pre": pre if n == 0 else {"see": rows_spec[0][0]}}

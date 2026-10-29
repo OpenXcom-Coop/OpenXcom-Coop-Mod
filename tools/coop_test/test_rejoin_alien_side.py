@@ -32,7 +32,7 @@ Cells per row (X = AP / AT / AV):
 RED at H1 (TASK 0 decision rule (i), measured on both boots of each shape): AP-side, AP-synced, AP-end, AP-hash,
 AP-clean, AT-side, AT-synced, AT-end, AT-hash, AT-clean, AV-side, AV-synced, AV-end, AV-hash, AV-clean (X-end / X-hash
 "not reached": client2 frozen by the held desync); every GUARD (X-pause, X-resume, X-crash) PASS.
-A bring-up step past its bound is a FIXTURE-STOP: ONE "CAPTURE <row>:" line (every machine's get_state, battle_state,
+A bring-up step past its bound is a setup failure: ONE "CAPTURE <row>:" line (every machine's get_state, battle_state,
 event_state, coop_dialog_info and the last 40 engine log lines) and every cell of the row FAILs "boot". A leave or rejoin
 step past its bound FAILs the cells from X-side on "rejoin" (X-clean and X-crash are still evaluated). One EVIDENCE line
 per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure. battle_state is probed only
@@ -202,7 +202,7 @@ def mark(x, name):
     x["ev"]["t"][name] = round(time.time() - x["t_press"], 3) if "t_press" in x else None
 
 
-# ===================== bring-up (FIXTURE-STOP -> every cell "boot") =====================
+# ===================== bring-up (setup failure -> every cell "boot") =====================
 
 
 def side1_no_close(x):
@@ -478,7 +478,7 @@ def run_row(rid, shape, key, walls):
         try:
             bring_up(x)
         except Miss as e:
-            cells = {c: (False, f"boot (FIXTURE-STOP: {e})") for c in CELLS}
+            cells = {c: (False, f"boot (setup failure: {e})") for c in CELLS}
             return verdict(rid, cells, ev)
         try:
             leave_and_pause(x, cells)

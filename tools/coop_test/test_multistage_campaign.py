@@ -182,15 +182,15 @@ def main():
             info = boot_d(host, client)
             print(f"[mga-a2] boot D ok: {info}", flush=True)
         except Exception as e:
-            print(f"FAIL MS5: boot (FIXTURE-STOP) {short(e, 600)}", flush=True)
+            print(f"FAIL MS5: boot (setup failure) {short(e, 600)}", flush=True)
             capture("MS5", [host, client], short(e, 600))
             info = None
         if info is not None:
             try:
                 fails = ms5(host, client, ctx, crash0)
             except FixtureMiss as e:
-                fails = [f"FIXTURE-STOP {e}"]
-                evidence("MS5", {"fixtureStop": str(e), "ctx": ctx})
+                fails = [f"SETUP-FAILURE {e}"]
+                evidence("MS5", {"setupFailure": str(e), "ctx": ctx})
             except Exception as e:
                 fails = [short(e, 600)]
                 evidence("MS5", {"exception": short(e, 600), "ctx": ctx})

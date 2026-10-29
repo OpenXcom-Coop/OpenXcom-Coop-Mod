@@ -72,7 +72,7 @@ def boot_cp():
             G3F.guarded("CP", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE CP line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE CP line)")
         print(f"EVIDENCE boot: A {[SS.uview(gc, SS.A_ID) for gc in m]}; scannedTurn {SS.scanned_all(host, client)}",
               flush=True)
         return G3F.run_row("SC3", ROWS[0][1], lambda: row_sc3(host, client, crash0))

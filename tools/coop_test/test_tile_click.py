@@ -330,7 +330,7 @@ def main():
         try:
             boot(host, client)   # bring_up_lobby_roster_pinned spawns and connects both machines
         except Miss:
-            fails = sum(verdict(row, order, {n: (False, "boot (FIXTURE-STOP, see the CAPTURE K line)") for n in order},
+            fails = sum(verdict(row, order, {n: (False, "boot (setup failure, see the CAPTURE K line)") for n in order},
                                 {"error": "boot"}) for row, order in ROWS)
         else:
             rows = dict(ROWS)

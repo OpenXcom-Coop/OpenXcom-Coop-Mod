@@ -159,7 +159,7 @@ class Row:
         self.end(None, results, walls)
 
 def baseline(r, x):
-    """B0 (equal non-zero on both), SPLIT0 (host == client), HASH clean; a miss = FIXTURE-STOP"""
+    """B0 (equal non-zero on both), SPLIT0 (host == client), HASH clean; a miss = setup failure"""
     hb, cb = auth(x.host), auth(x.client)
     x.b0, x.split0 = hb.get("battleId"), split(x.host)
     sc = split(x.client)
@@ -167,7 +167,7 @@ def baseline(r, x):
     ev = {"B0": [x.b0, cb.get("battleId")], "SPLIT0": [x.split0, sc], "T0": hb.get("turn"), "HASH": hev}
     print("EVIDENCE %s baseline: %s" % (r.rid, json.dumps(ev, sort_keys=True, default=str)), flush=True)
     if not (x.b0 and x.b0 == cb.get("battleId") and x.split0 and x.split0 == sc and hok):
-        raise Stop("FIXTURE-STOP: baseline (B0 equal non-zero, SPLIT0 host == client, HASH clean) missed")
+        raise Stop("SETUP-FAILURE: baseline (B0 equal non-zero, SPLIT0 host == client, HASH clean) missed")
 
 def pause(x):
     """PAUSE(host) within W_PAUSE of the leave -> (ok, the values at the pass or the timeout)"""
@@ -193,7 +193,7 @@ def in_flight(r, x):
     c2.spawn(); c2.connect()
     ev = {"arm": pick(q(c2, {"cmd": "hold_battle_ready", "on": True}), ("ok", "armed", "held", "error"))}
     if ev["arm"].get("armed") is not True:
-        raise Stop("FIXTURE-STOP: client2 hold_battle_ready {on: true} not armed: %s" % ev["arm"])
+        raise Stop("SETUP-FAILURE: client2 hold_battle_ready {on: true} not armed: %s" % ev["arm"])
     try:
         rejoin_skirmish(c2, KEY)
     except Exception as e:

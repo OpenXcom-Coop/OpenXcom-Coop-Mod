@@ -14,7 +14,7 @@ list holding only the other player's soldier row submits nothing; the host keeps
 list's viewers (its close never leaves: disconnect_to_menu drops the transport first, F6110); the forced containment
 screens keep each machine's own amounts.
 
-Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a FIXTURE-STOP: one CAPTURE line, every row of the boot
+Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
 FAILs "pre-cell"):
   PRES = SEL (test_shared_selection.sel_pre on shared_fixture.bring_up(tag, (0, 0, "47265")): the first base-0
          soldier owned by seat 1, off its craft on both) + the roster names (save_markers.coopPlayers); rows restage

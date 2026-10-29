@@ -221,7 +221,7 @@ class Row:
         print(("PASS %s" % self.rid) if not fails else ("FAIL %s: %s" % (self.rid, " ".join(fails))), flush=True)
         self.b.fails += fails
 def capture(b):
-    """every live machine's probes and log tail (the FIXTURE-STOP dump)"""
+    """every live machine's probes and log tail (the setup failure dump)"""
     out = {}
     for gc in (b.host, b.client):
         if not alive(gc):

@@ -9,7 +9,7 @@ Before S-C-C: the client's OK returns it to its own geoscape (S-C-B1's coopSepar
 Fixture (one boot, port 47212): test_battle_end_separate._stage_common(..., guest_kill, ...) - B1's guest's-OWN-kill
 construction (SEED_P 2, MAP_FP_P, KEEP's TU 0; F5445/F5446/F5449/F5450) - with the data-only mod Coop_Medal_Test on both
 machines (make_user_dir mods, as test_battle_end_separate_diary.py): every surviving participant earns
-STR_COOP_MEDAL_TEST (PR-20), and the guest's kill promotes it. Pre-cell (FIXTURE-STOP): B1's guards plus the host's
+STR_COOP_MEDAL_TEST (PR-20), and the guest's kill promotes it. Pre-cell (setup failure): B1's guards plus the host's
 merged "Guest Zzz" copy with kills >= 1, rankString RANK_F5 and the medal.
 
 The procedure and the cells are test_campaign_followups.py's (imported): both debrief_state snapshots, the client's
@@ -113,7 +113,7 @@ def main():
             host.spawn(); client.spawn(); host.connect(); client.connect()
             stage(host, client, ctx)
         except Exception as e:
-            pre = f"pre-cell (FIXTURE-STOP) {fu.short(e, 800)}"
+            pre = f"pre-cell (setup failure) {fu.short(e, 800)}"
         if pre is None:
             try:
                 fu.procedure(types.SimpleNamespace(host=host, client=client), ctx, shared=False)

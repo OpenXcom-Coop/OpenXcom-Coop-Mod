@@ -361,7 +361,7 @@ def main():
             boot, pre, crash0 = bring_up(host, client)
             print(f"[r5u5] boot X: {json.dumps(boot, default=str)}", flush=True)
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (FIXTURE-STOP, see the CAPTURE X line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE X line)")
         else:
             ctx = {"pre": pre}
             for row, fn in (("X1", row_x1), ("X2", row_x2), ("X3", row_x3), ("X4", row_x4), ("X5", row_x5)):

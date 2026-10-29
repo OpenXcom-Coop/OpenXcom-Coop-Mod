@@ -6,7 +6,7 @@ battle_camera_center and three battle_state reads), so a probe in that window re
 client, 0xC0000005 in BattlescapeGame::getStates). The S-B green asks connectionTCP::isBattlescapeStateLive at the seven sites.
   Boot S (key "48699", dirs rvu13_b_host / rvu13_b_client): session.bring_up_separate_guest_battle(host, client, port="48699"); both
   tops BattlescapeState within 60 s; pins read live on the client's live screen (S25): G = its unit with coop 1, I = the lowest-id item
-  G owns in its battle_items, T = G's tile. A miss = FIXTURE-STOP: ONE "CAPTURE boot:" line and every row FAILs "boot".
+  G owns in its battle_items, T = G's tile. A miss = setup failure: ONE "CAPTURE boot:" line and every row FAILs "boot".
   S0 (GUARD, non-vacuity) the client probes while its BattlescapeState is on the stack: S0-state battle_state ok, hud present,
   cursorType != -1, pendingStates an int; S0-screen map_tile_screen_pos {T} no error; S0-canuse can_use_weapon {G, I, snap} no error,
   canUse present; S0-camera battle_camera_center {T} no error.

@@ -18,7 +18,7 @@ NextTurnState before cell (2) has read). tPhase = the moment both phase counters
       side's tally.
 Premise (every row): seat 0 / seat 1 live player units == S0_IDS / S1_IDS on both machines, the live turn mode on
 both (C3: coopActiveSeat 0 on both), entry text '' and button up on both. A premise or pre-cell miss = ONE CAPTURE
-line and "FAIL <row>: pre-cell (FIXTURE-STOP)". A failed cell ends its row (later cells "not reached"). Guards per
+line and "FAIL <row>: pre-cell (setup failure)". A failed cell ends its row (later cells "not reached"). Guards per
 row: no new crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE <row>:" line, one
 PASS/FAIL line per cell and guard, then its verdict; every row runs after a failure.
 Rulings: R-U8-1 ("as the host does": text and pressed look), design-D1 (the count is persistent WITHIN a side), IR2-4
@@ -237,7 +237,7 @@ def run_row(row, results, walls):
                 except Exception as e2:
                     cap[w] = {"error": short(e2), "log": log_tail(gc)}
             print(f"CAPTURE {rid}: {type(e).__name__}: {short(e, 600)} | {json.dumps(cap, default=str)}", flush=True)
-            verdict = "pre-cell (FIXTURE-STOP)"
+            verdict = "pre-cell (setup failure)"
             return
         reached = True
         for name, mk in CELLS:

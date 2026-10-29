@@ -542,7 +542,7 @@ def run_boot(tag, rows, setup, fns, host_dir, client_dir, alive_at_end):
             if not isinstance(e, G3F.Miss):
                 G3F.capture(tag, f"{type(e).__name__}: {str(e)[:600]}", (host, client))
             alive_at_end[tag] = alive(host)
-            return G3F.fail_all(rows, f"boot (FIXTURE-STOP, see the CAPTURE {tag} line)")
+            return G3F.fail_all(rows, f"boot (setup failure, see the CAPTURE {tag} line)")
         fails = sum(run_row(row, order, fns[row], host, client, ctx) for row, order in rows)
         alive_at_end[tag] = alive(host)
         return fails

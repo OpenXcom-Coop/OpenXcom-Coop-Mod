@@ -11,8 +11,8 @@ then restored).
 
 Boot R4 (gm2): lobby key 48041, dirs d250uc4a_r4_host / _client / _client2. Boot R6 (gm2, after R4): key 48041, dirs d250uc4a_r6_host /
 _client / _client2. Bring-up in each (FX4A-2): PF.start_pvp_campaign(alien_player="client"); gamemode 2 / 2, client noBases true, host
-false are preconditions; HOST0. A bring-up, landing, save, relaunch or staging miss is a FIXTURE-STOP: ONE "CAPTURE <boot>:" line and
-every remaining cell of that boot FAILs "boot". A resume or rejoin that does not reach its bound is not a FIXTURE-STOP: its row's cells
+false are preconditions; HOST0. A bring-up, landing, save, relaunch or staging miss is a setup failure: ONE "CAPTURE <boot>:" line and
+every remaining cell of that boot FAILs "boot". A resume or rejoin that does not reach its bound is not a setup failure: its row's cells
 FAIL with the captured state.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a cell whose precondition was never reached
 FAILs "blocked: <why>"):
@@ -129,7 +129,7 @@ def bring_up(host, client, ev):
 
 def to_battle(host, c, ev, boot):
     """FX4A-6: G2F's to_battle copied (the host's Skyranger and squad of two, its own site at b0 + POINT, forced out 0.01 short; the
-    landing prompt; host set_seed + confirm_landing; both inBattle <= 180 s). A staging miss is a FIXTURE-STOP; with boot=False the
+    landing prompt; host set_seed + confirm_landing; both inBattle <= 180 s). A staging miss is a setup failure; with boot=False the
     inBattle wait returns its failure instead. Returns (ok, detail, squad)."""
     b0 = session._campaign_base0(host)
     sky = next((x for x in b0.get("crafts", []) if "SKYRANGER" in x.get("type", "")), None)

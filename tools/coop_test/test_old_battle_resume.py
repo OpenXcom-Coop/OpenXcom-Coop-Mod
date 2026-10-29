@@ -431,7 +431,7 @@ def boot_rs():
         try:
             boot("RS", (host, client))
         except Miss:
-            return fail_all((("RS", RS_CELLS),), "boot (FIXTURE-STOP, see the CAPTURE RS line)")
+            return fail_all((("RS", RS_CELLS),), "boot (setup failure, see the CAPTURE RS line)")
         return run_row("RS", RS_CELLS, lambda cells, ev: row_rs(host, client, crash0, cells, ev))
     finally:
         shut(host, client)
@@ -461,7 +461,7 @@ def boot_l1():
         try:
             boot("L1", (host,))
         except Miss:
-            return fail_all((("L1", L1_CELLS),), "boot (FIXTURE-STOP, see the CAPTURE L1 line)")
+            return fail_all((("L1", L1_CELLS),), "boot (setup failure, see the CAPTURE L1 line)")
         return run_row("L1", L1_CELLS, lambda cells, ev: row_l1(host, crash0, removed, cells, ev))
     finally:
         shut(host)

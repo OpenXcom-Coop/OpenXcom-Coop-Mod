@@ -547,7 +547,7 @@ def main():
             bring_up(host, client)
         except Miss:
             for row, order in ROWS:
-                why = "boot (FIXTURE-STOP, see the CAPTURE F line)"
+                why = "boot (setup failure, see the CAPTURE F line)"
                 failed += verdict(row, order, {n: (False, why) for n in order},
                                   {"error": "boot"})
         else:

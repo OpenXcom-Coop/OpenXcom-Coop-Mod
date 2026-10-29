@@ -145,7 +145,7 @@ def settle(ev, name, pred, base, cap):
     if waited > base:
         ev["swaps"].append("%s %.1f -> %.1f s" % (name, base, waited))
 def capture(b):
-    """every live machine's probes and log tail (the FIXTURE-STOP dump)"""
+    """every live machine's probes and log tail (the setup failure dump)"""
     out = {}
     for gc in (b.host, b.client):
         if not alive(gc):

@@ -272,7 +272,7 @@ def land_to_saved(row, host, client, tc, client0, ev):
 
 
 def save_and_read(row, host, client, tid, tc, ev):
-    """FX44-5 / FX44-6: the quick save (a miss = FIXTURE-STOP) and the file read; A1-file. Returns the save's file name."""
+    """FX44-5 / FX44-6: the quick save (a miss = setup failure) and the file read; A1-file. Returns the save's file name."""
     before, n0 = set(session.save_files(host.user_dir)), len(BR.logl(host))
     ev["saveReply"] = host.cmd({"cmd": "save_game_ui", "type": "quick_battle"})
     ok, ss = wait(lambda: set(session.save_files(host.user_dir)) - before, SAVE_S, 0.2)
@@ -404,7 +404,7 @@ def resume_cells(row, host, c2, file, saved, sq, tid, tc, client0, ev):
 
 
 def act(row, host, c2, ev):
-    """FX44-8: A1 the win (G3T.act's FX2-8), U2 the abort (FX2-9; a step miss = FIXTURE-STOP)."""
+    """FX44-8: A1 the win (G3T.act's FX2-8), U2 the abort (FX2-9; a step miss = setup failure)."""
     a = ev["action"] = {}
     t0 = time.time()
     if row == "A1":
