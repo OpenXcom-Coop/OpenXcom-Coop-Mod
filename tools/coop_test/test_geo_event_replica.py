@@ -6,7 +6,7 @@ GeoscapeEventState, real_timeout 150) -> the host's window at 00:30; both polled
 fundsSeen, same window (equal picks + own render), clean (settle + 60 min + 4 s: requests == S0's, checksum equal).
 Boot A (host de): H15-1, -2, -4, -5 (+ H15-8 on its windows), -6, -7; Boot B (no instant delivery): H15-3.
 RED (commit 1): H15-1 fails on the replica's funds S0 + 1,000,000 (host at S0); H15-2..7 on the replica's funds above
-the host's (fundsSeen) or requests above S0; H15-8 passes (guard row, F5664). "G:" cells are guards (CAPTURE on a miss).
+the host's (fundsSeen) or requests above S0; H15-8 passes (guard row, F5664). "guard:" cells are guards (CAPTURE on a miss).
 GREEN (commit 2): all pass. EVIDENCE then PASS / FAIL per row; ONE foreground run; exit 0 only if all pass, else 2.
 """
 
@@ -77,7 +77,7 @@ class Row:
         return ok
 
 def guard(r, x, name, ok, detail):
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     cap = {}
     for gc in (x.host, x.client):
@@ -307,7 +307,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             geo.settle(x.host, x.client)
         except Exception as e:

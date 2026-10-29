@@ -4,31 +4,31 @@ rewrite/prompts/w2a12b_text_fidelity.md (f) + ORCHESTRATOR RULINGS (session 394e
 rewrite/w2a12b-task0/CONSTANTS.md. The host stays en-US (its texts are the guards), the client runs
 `language: fr` (German keeps "SKYRANGER", F7536); lobby ports 47348 / 47349, control ports ephemeral.
 
-Boot A (SHARED, shared_fixture.bring_up "w2a12ba"): G:A (G-lang) the client's own Skyranger reads "PATROUILLE", the
+Boot A (SHARED, shared_fixture.bring_up "w2a12ba"): guard:A (G-lang) the client's own Skyranger reads "PATROUILLE", the
 host's "PATROLLING". Rows in order, the battle last:
   A12b-1  arrival row (B-15): host buy STR_RIFLE x1; skip 6 game days (speed 5) to ItemsArrivingState on top of BOTH
-          (the hit may be the client's); items_arriving_rows: clientRows == ["Fusil"] [RED], G:hostRows == ["Rifle"].
+          (the hit may be the client's); items_arriving_rows: clientRows == ["Fusil"] [RED], guard:hostRows == ["Rifle"].
   A12b-2  rearm alert (B-12): host sells INTERCEPTOR-2's clips to 0, craft_force {craft_id 2, ammo 0, STR_REARMING};
           skip 180 game minutes (speed 4) to CraftErrorState on both; its Text captions: clientSentence == [FR_REARM]
-          [RED], G:hostSentence == [EN_REARM]; then craft 2 STR_READY.
+          [RED], guard:hostSentence == [EN_REARM]; then craft 2 STR_READY.
   A12b-3  cannot-reequip: test_campaign_followups' boot-1 sells, squad[0] given the rifle-set layout on both
           (W2-U9c, fu.RIFLE_SET), battle (SEED_S), strip squad[0], autoEnd,
           loadGamePushes0, kill_unit_real {faction 1}, ending, procedure; CannotReequipState rows sorted:
-          clientCraft == 3 x "MERCURE-1" [RED]; G:hostRows == HOST_ROWS (Rifle Clip 3, R-A12b-T0-1); G:clientItems ==
-          the French names; G:qty the client's (item key, qty) == the host's.
+          clientCraft == 3 x "MERCURE-1" [RED]; guard:hostRows == HOST_ROWS (Rifle Clip 3, R-A12b-T0-1); guard:clientItems ==
+          the French names; guard:qty the client's (item key, qty) == the host's.
 Boot B (SEPARATE, session.new_campaign + geo.wait_both_ready):
   A12b-4  partner craft: host spawn_mission_site STR_ALIEN_TERROR at base + (0.35, 0.10), craft_force
           SKYRANGER-1 STR_OUT at base + (0.05, 0) to site:<id>, speed idx 0; the client's mirror Skyranger polled to
           STR_OUT (<= 10 s; landing comes at ~76 s): name == "MERCURE-1" and status (displayStatus) == "DESTINATION :
-          SITE DE TERREUR-<id>" [RED]; G:coop true, G:mirrorStatus STR_OUT, G:hostOwn == "DESTINATION: TERROR
-          SITE-<id>", G:clientOwn == "PATROUILLE".
+          SITE DE TERREUR-<id>" [RED]; guard:coop true, guard:mirrorStatus STR_OUT, guard:hostOwn == "DESTINATION: TERROR
+          SITE-<id>", guard:clientOwn == "PATROUILLE".
 
 RED (commit 1: the geo_state craft `name` probe + this file, product untouched; ONE run, exit 2): exactly the [RED]
 cells fail (the client shows the host's "Rifle", English sentence, "SKYRANGER-1", "DESTINATION: TERROR SITE-<id>");
-every G: cell passes. GREEN (commit 2): every cell passes. French text is written as escapes from the TASK 0 constants.
+every guard cell passes. GREEN (commit 2): every cell passes. French text is written as escapes from the TASK 0 constants.
 An EVIDENCE line precedes every verdict; every row runs after a failure; a precondition miss fails its row on a
 `fixture` cell after a CAPTURE line, a boot miss fails its rows "boot" with ONE CAPTURE line (FIXTURE-STOP).
-one run, no skip path; exit 0 only when G:A and every row pass, else 2. foreground.
+one run, no skip path; exit 0 only when guard:A and every row pass, else 2. foreground.
 
 Run:  python tools/coop_test/test_text_fidelity.py
 """
@@ -71,7 +71,7 @@ M4 = "the partner's craft window reads the owner's language (F6784)"
 HOST_OWN = "the host keeps its own language"
 EN_ROUTE_S, TOPS_S, STORES_S, SITE_S, PROBE_S = 30, 20, 30, 30, 10
 SKIP = ("hit", "game_minutes", "timed_out", "dismissed")   # the skip_ingame_time fields an EVIDENCE line keeps
-ORDER = ("G:A", "A12b-1", "A12b-2", "A12b-3", "A12b-4")
+ORDER = ("guard:A", "A12b-1", "A12b-2", "A12b-3", "A12b-4")
 
 
 # ===================== probes =====================
@@ -196,7 +196,7 @@ def row_arrival(host, client, ev):
                                                         interest=geo.popup("ItemsArrivingState")).items() if k in SKIP}
     tops(m, "ItemsArrivingState", "A12b-1 arrival", ev)
     rows = ev["rows"] = {gc.name: gc.cmd({"cmd": "items_arriving_rows"}).get("rows") for gc in m}
-    return [("clientRows", rows["client"], [FR_RIFLE], M1), ("G:hostRows", rows["host"], [EN_RIFLE], HOST_OWN)]
+    return [("clientRows", rows["client"], [FR_RIFLE], M1), ("guard:hostRows", rows["host"], [EN_RIFLE], HOST_OWN)]
 
 
 def row_rearm(host, client, ev):
@@ -216,7 +216,7 @@ def row_rearm(host, client, ev):
                                                         interest=geo.popup("CraftErrorState")).items() if k in SKIP}
     tops(m, "CraftErrorState", "A12b-2 alert", ev)
     cap = ev["captions"] = {gc.name: captions(gc) for gc in m}
-    return [("clientSentence", cap["client"], [FR_REARM], M2), ("G:hostSentence", cap["host"], [EN_REARM], HOST_OWN)]
+    return [("clientSentence", cap["client"], [FR_REARM], M2), ("guard:hostSentence", cap["host"], [EN_REARM], HOST_OWN)]
 
 
 def row_reequip(js, ev):
@@ -258,9 +258,9 @@ def row_reequip(js, ev):
     en_key = {en: v[0] for en, v in ITEMS.items()}
     fr_key = {v[1]: v[0] for v in ITEMS.values()}
     return [("clientCraft", [r[2] for r in sorted(cr)], [FR_CRAFT] * len(HOST_ROWS), M3),
-            ("G:hostRows", sorted(hr), sorted(HOST_ROWS), "TASK 0's en-US rows (R-A12b-T0-1)"),
-            ("G:clientItems", sorted(r[0] for r in cr), sorted(v[1] for v in ITEMS.values()), "the French item names"),
-            ("G:qty", sorted((fr_key.get(r[0], r[0]), r[1]) for r in cr),
+            ("guard:hostRows", sorted(hr), sorted(HOST_ROWS), "TASK 0's en-US rows (R-A12b-T0-1)"),
+            ("guard:clientItems", sorted(r[0] for r in cr), sorted(v[1] for v in ITEMS.values()), "the French item names"),
+            ("guard:qty", sorted((fr_key.get(r[0], r[0]), r[1]) for r in cr),
              sorted((en_key.get(r[0], r[0]), r[1]) for r in hr), "the client's (item key, qty) == the host's")]
 
 
@@ -290,10 +290,10 @@ def row_partner(host, client, ev):
               hostTop=top(host))
     return [("name", mirror.get("name"), FR_CRAFT, M4),
             ("status", mirror.get("displayStatus"), FR_DEST.format(sid), M4),
-            ("G:coop", mirror.get("coop"), True, "the client's mirror of the host's Skyranger"),
-            ("G:mirrorStatus", mirror.get("status"), "STR_OUT", f"polled {secs}s"),
-            ("G:hostOwn", own_h.get("displayStatus"), EN_DEST.format(sid), HOST_OWN),
-            ("G:clientOwn", own_c.get("displayStatus"), FR_PATROLLING, "the client's own Skyranger renders French")]
+            ("guard:coop", mirror.get("coop"), True, "the client's mirror of the host's Skyranger"),
+            ("guard:mirrorStatus", mirror.get("status"), "STR_OUT", f"polled {secs}s"),
+            ("guard:hostOwn", own_h.get("displayStatus"), EN_DEST.format(sid), HOST_OWN),
+            ("guard:clientOwn", own_c.get("displayStatus"), FR_PATROLLING, "the client's own Skyranger renders French")]
 
 
 # ===================== boots =====================
@@ -301,7 +301,7 @@ def row_partner(host, client, ev):
 
 def boot_a(results, walls):
     t0, js, crash0 = time.time(), None, session._crash_log_snapshot()
-    rows = ("G:A", "A12b-1", "A12b-2", "A12b-3")
+    rows = ("guard:A", "A12b-1", "A12b-2", "A12b-3")
     try:
         try:
             js = shared_fixture.bring_up("w2a12ba", (0, 0, PORTS["A"]), client_options=FR)
@@ -316,9 +316,9 @@ def boot_a(results, walls):
         sky = {gc.name: safe(lambda gc=gc: craft(gc, "STR_SKYRANGER", 1)) for gc in m}
         own = json.dumps({gc.name: safe(lambda gc=gc: crafts(gc, False)) for gc in m}, sort_keys=True, default=str)
         print(f"EVIDENCE boot A: walls={walls}; own crafts={own}", flush=True)
-        verdict("G:A", [("G:lang", sky["client"].get("displayStatus"), FR_PATROLLING,
+        verdict("guard:A", [("guard:lang", sky["client"].get("displayStatus"), FR_PATROLLING,
                          "the client's own Skyranger renders French (TASK 0 G-lang)"),
-                        ("G:hostLang", sky["host"].get("displayStatus"), EN_PATROLLING, HOST_OWN)], results)
+                        ("guard:hostLang", sky["host"].get("displayStatus"), EN_PATROLLING, HOST_OWN)], results)
         run_row("A12b-1", lambda ev: row_arrival(host, client, ev), results, walls, m, cleanup=lambda: drain(m))
         run_row("A12b-2", lambda ev: row_rearm(host, client, ev), results, walls, m,
                 cleanup=lambda: [host.cmd({"cmd": "craft_force", "craft_id": 2, "status": "STR_READY"}), drain(m)])

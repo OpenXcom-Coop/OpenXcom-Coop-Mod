@@ -5,10 +5,10 @@ coopSepEntrySnapshot reads the practice battle as a started battle and skips the
 return loads the stale own-world blob and the pre-mission MARKER funds are lost (TASK 0: E1 2/2, E2 2/2 on the gated drive; the C28P-shape
 control passes).
   Boot E1 GameClient 49536 / 49537, bring_up_separate_guest_battle(port "46974"), dirs w2h21ena_host / _client:
-    H21d-E1 (named RED) G: setup (pre_mission_start) + MARKER = the client's funds + 1234567; pre_landing PV(client), non-vacuity (top
-        BattlescapeState, isPreview true, inBattle true); the entry. G: the practice screen still open at the entry (CL: its top's pop
-        after LABELS). RED 1: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP (TASK 0: 0, absent). G: every hostile killed by
-        the host (chains settled), END TURN both, NextTurnState, the host's DebriefingState; H0 = the host's host_copy_of_client fnv; G:
+    H21d-E1 (named RED) guard: setup (pre_mission_start) + MARKER = the client's funds + 1234567; pre_landing PV(client), non-vacuity (top
+        BattlescapeState, isPreview true, inBattle true); the entry. guard: the practice screen still open at the entry (CL: its top's pop
+        after LABELS). RED 1: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP (TASK 0: 0, absent). guard: every hostile killed by
+        the host (chains settled), END TURN both, NextTurnState, the host's DebriefingState; H0 = the host's host_copy_of_client fnv; guard:
         the client's display-only DebriefingState; its OK through its follow-ups. RED 2: the client top GeoscapeState with no CoopState /
         LoadGameState, geo_state.funds == MARKER, inBattle false, sepReturn.ownLoaded 1 (TASK 0: funds == funds0). Within W the host
         copy's fnv != H0, its dump has no `battleGame:` and no `inBattlescape: true` line; the host's OK + drain -> [GeoscapeState]; the
@@ -120,7 +120,7 @@ def practice(r, x, kind):
     r.ev["non-vacuity"] = nv = {"stack": stack(c), "isPreview": pre, "inBattle": ib}
     good = ok and pr.on_top(c, x.top) and ib is True and (pre is True if kind == "P1" else CES in nv["stack"])
     what = "BattlescapeState, isPreview true" if kind == "P1" else "InventoryState over CraftEquipmentState"
-    if not r.cell(f"G: non-vacuity: the client's {kind} open (top {what}, inBattle true)", good, nv):
+    if not r.cell(f"guard: non-vacuity: the client's {kind} open (top {what}, inBattle true)", good, nv):
         raise Stop("non-vacuity")
     x.n_cl = pr.log_size(c)
 
@@ -142,7 +142,7 @@ def entry_row(r, x, kind):
         su = {gc.name: [stack(gc), coop(gc, "localSeat")["localSeat"], q(gc, {"cmd": "world_state"}).get("has_battle")] for gc in (hh, cc)}
         su["host lobbyMode"], su["client insideCoopBase"] = coop(hh, "lobbyMode")["lobbyMode"], coop(cc, "insideCoopBase")["insideCoopBase"]
         r.ev["setup"] = su
-        if not r.cell("G: setup (client [GeoscapeState] seat 1, host seat 0, has_battle false both, host lobbyMode 1, client outside "
+        if not r.cell("guard: setup (client [GeoscapeState] seat 1, host seat 0, has_battle false both, host lobbyMode 1, client outside "
                       "a coop base)", su["client"] == [[GEO], 1, False] and su["host"][1:] == [0, False]
                       and su["host lobbyMode"] == 1 and su["client insideCoopBase"] is False, su):
             raise Stop("setup")
@@ -150,7 +150,7 @@ def entry_row(r, x, kind):
         x.marker = f0 + be.MARKER_DELTA
         s = q(cc, {"cmd": "set_funds", "value": x.marker})
         r.ev["marker"] = {"funds0": f0, "MARKER": x.marker, "set_funds": s.get("ok")}
-        if not r.cell("G: MARKER set", s.get("ok") and q(cc, {"cmd": "geo_state"}).get("funds") == x.marker, r.ev["marker"]):
+        if not r.cell("guard: MARKER set", s.get("ok") and q(cc, {"cmd": "geo_state"}).get("funds") == x.marker, r.ev["marker"]):
             raise Stop("marker")
 
     orig = session.drive_both_to_tactical
@@ -162,7 +162,7 @@ def entry_row(r, x, kind):
     except Stop:
         return capture(r, x)
     except Exception as e:
-        r.cell("G: the entry (bring_up_separate_guest_battle to both tactical)", False, short(e, 600))
+        r.cell("guard: the entry (bring_up_separate_guest_battle to both tactical)", False, short(e, 600))
         return capture(r, x)
     finally:
         session.drive_both_to_tactical = orig
@@ -170,7 +170,7 @@ def entry_row(r, x, kind):
     i_lab = next((i for i, ln in enumerate(cl) if LABELS in ln), None)
     i_pop = next((i for i, ln in enumerate(cl) if POP + x.top in ln), None)
     r.ev["entry CL"] = [ln for ln in cl if any(k in ln for k in KEYS)][:12]
-    if not r.cell(f"G: the practice screen still open at the entry (CL: pop {x.top} after '{LABELS}')",
+    if not r.cell(f"guard: the practice screen still open at the entry (CL: pop {x.top} after '{LABELS}')",
                   i_lab is not None and i_pop is not None and i_pop > i_lab, {"labels at": i_lab, "pop at": i_pop}):
         return capture(r, x)
     sep_snap, snap = be.record(c).get("sepSnapshot"), any(SNAP in ln for ln in cl)
@@ -186,12 +186,12 @@ def entry_row(r, x, kind):
     r.ev["nextturn"] = be.close_host_nextturn(h)
     deb = wait_until(lambda: "DebriefingState" in stack(h), HOST_DEB_S)
     r.ev["ending"] = {"hostiles": len(hostiles), "settled": settled.count(True), "live after": live, "host stack": stack(h)}
-    if not r.cell(f"G: every hostile killed (chains settled), the host's DebriefingState within {HOST_DEB_S} s",
+    if not r.cell(f"guard: every hostile killed (chains settled), the host's DebriefingState within {HOST_DEB_S} s",
                   deb and hostiles and not live and all(settled), r.ev["ending"]):
         return capture(r, x)
     r.ev["H0"] = h0 = be.coop_fnv(h, "host_copy_of_client")[0]
     shown = lambda d: d.get("shown") is True and d.get("onTop") is True and d.get("displayOnly") is True  # noqa: E731
-    if not r.cell(f"G: the client's display-only DebriefingState within {CLIENT_DEB_S} s",
+    if not r.cell(f"guard: the client's display-only DebriefingState within {CLIENT_DEB_S} s",
                   wait_until(lambda: shown(q(c, {"cmd": "debrief_state"})), CLIENT_DEB_S), stack(c)):
         return capture(r, x)
     ctx = {}
@@ -235,7 +235,7 @@ def run(rid, tag, ports, kind, results, walls):
         else:
             entry_row(r, x, kind)
     except Exception as e:
-        r.cell(f"G: {rid} exception", False, short(e, 600))
+        r.cell(f"guard: {rid} exception", False, short(e, 600))
         capture(r, x)
     finally:
         for gc in (x.client, x.host):

@@ -7,7 +7,7 @@ F5712): the client's display-only debriefing and worldAdopted 1; S0; the host's 
 its GeoscapeEventState, F5711) while the client stays on its debriefing; both polled 0.1 s for 5 s; the client's OK;
 both polled 0.1 s for 10 s; both dismiss; clean (settle + 60 min + 4 s: replica requests == S0's, checksum equal).
 RED (commit 1, product untouched; F5710): the replica's eventStates stays 0 for 10 s after its OK AND (its funds != the
-host's OR its requests > S0) -> FAIL "the after-battle event never reached the second player". "G:" cells are guards
+host's OR its requests > S0) -> FAIL "the after-battle event never reached the second player". "guard:" cells are guards
 (red and green). GREEN (commit 2): pendingWindows 1 and equal funds / clips before the client's OK; after it the same
 window within 10 s, pendingWindows 0, fundsSeen == host funds, world_diff [], clean. One "EVIDENCE H15-9:" line, then
 "PASS H15-9" / "FAIL H15-9: <cells>". ONE foreground run; exit 0 only on PASS, else 2; a boot or guard miss prints one
@@ -59,7 +59,7 @@ def cell(r, name, ok, detail=""):
     (r["passed"].append(name) if ok else r["fails"].append(f"{name}: {detail}"))
 
 def guard(r, js, name, ok, detail, cap=True):
-    cell(r, "G:" + name, ok, detail)
+    cell(r, "guard:" + name, ok, detail)
     if ok:
         return
     out = {}
@@ -108,7 +108,7 @@ def row(r, js):
     host, client, ctx = js.host, js.client, {}
     try:
         bec.stage("H15-9", js, ctx)       # prints its own CAPTURE line on a miss
-        cell(r, "G:stage", True)
+        cell(r, "guard:stage", True)
     except bec.FixtureMiss as e:
         guard(r, js, "stage", False, short(e), cap=False)
     r["ev"]["stage"] = {k: ctx.get(k) for k in ("squad", "mapFingerprint", "autoEnd", "kill")}

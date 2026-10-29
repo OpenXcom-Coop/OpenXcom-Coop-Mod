@@ -13,7 +13,7 @@ log's play of the packet's cutscene after the row's S0 mark (R-H17b-R-1; there G
 H17b-3 also accepts a SlideshowState push after that machine's StatisticsState push (the stock loseGame, R-H17b-G-2).
 H17b-1 has no packet guard: since W2-H17d a SHARED story event's OK relays nothing (each player plays it at its own OK).
 Boot A (SHARED): H17b-1 (first), H17b-2; Boot B: H17b-3; Boot C: H17b-4; Boot D (SEPARATE): H17b-5.
-RED (commit 1): H17b-1..5 fail on their named cells; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss).
+RED (commit 1): H17b-1..5 fail on their named cells; GREEN: all pass. "guard:" cells are guards (CAPTURE on a miss).
 EVIDENCE then PASS / FAIL per row; ONE run; every row runs after a failure; exit 0 only if all pass, else 2.
 """
 
@@ -115,7 +115,7 @@ def stock_play(gc, cur):
 
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' ending_state, research_probe, get_state, eventStates and engine log tail."""
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     cap = {}
     for gc in (x.host, x.client):

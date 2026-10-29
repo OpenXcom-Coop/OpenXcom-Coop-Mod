@@ -18,7 +18,7 @@ coopStatic} and both synced_options_state.localSeat, taken after the bring-up an
          0 raw and seat 1 `[<host clientName>] raw`; the client names seat 1 raw and seat 0 `[<client clientName>] raw`.
   A12-2  the client's title == "UFO is not recovered" (en-US).
   A07-2  as A07-1 on the abort's seven rows.
-Guard cells (prefix G:, pass on red and green): the bring-up (MAP_FP, hash clean); the staging, ending and both
+Guard cells (prefix guard:, pass on red and green): the bring-up (MAP_FP, hash clean); the staging, ending and both
 debriefings reached; both debriefs shown and on top, the client display-only, widgets == DEBRIEF_WIDGETS, page 0,
 parseErrors 0; S's seats (2 x coop 1, 5 x coop 0); host clientName "ClientPlayer" and client "HostPlayer", the
 client's coopStatic true, localSeat host 0 / client 1 (in S and at the debriefing); page-2 deltas and
@@ -29,13 +29,13 @@ empty key and the client's own :558), tbe.pin_view(host) == HOST_DEBRIEF["E2"] w
 
 RED (commit 1, the product untouched; ONE run, exit 2): A12-1 fails on clientTitle and clientHeader (the host's
 "UFO is recovered" / "UFO RECOVERY", G6); A07-1 on hostPage2 and clientPage2 (all seven plain on both, MR5); A12-2
-on clientTitle (the German host's "UFO wurde nicht geborgen"); A07-2 on hostPage2 and clientPage2. Every G: cell
-passes. GREEN (commit 2): every row and every G: cell passes.
+on clientTitle (the German host's "UFO wurde nicht geborgen"); A07-2 on hostPage2 and clientPage2. Every guard cell
+passes. GREEN (commit 2): every row and every guard cell passes.
 
 German item text is non-ASCII and soldier names change per boot: neither is pinned; the expected
 page 2 comes from S. An EVIDENCE line precedes every verdict; every row runs after a failure; a boot miss fails its
 rows "boot" with ONE CAPTURE line (FIXTURE-STOP). one run is the result, no skip path, one boot
-per row pair. Exit 0 only when every row and every G: cell passes, 2 otherwise. run in the foreground.
+per row pair. Exit 0 only when every row and every guard cell passes, 2 otherwise. run in the foreground.
 
 Run:  python tools/coop_test/test_debrief_fidelity.py
 """
@@ -145,35 +145,35 @@ def guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps):
                        if isinstance(r, dict)]
     snaps = (s_snap["host"], d_snap["host"], s_snap["client"], d_snap["client"])
     cells = [
-        ("G:boot", "ok", "ok", "the bring-up: MAP_FP, hash clean"),
-        ("G:ending", steps, [], "staging, ending, host DebriefingState, client end top"),
-        ("G:hostDebrief", shape(hdeb), (True, True, False, tbe.DEBRIEF_WIDGETS, 0, 0),
+        ("guard:boot", "ok", "ok", "the bring-up: MAP_FP, hash clean"),
+        ("guard:ending", steps, [], "staging, ending, host DebriefingState, client end top"),
+        ("guard:hostDebrief", shape(hdeb), (True, True, False, tbe.DEBRIEF_WIDGETS, 0, 0),
          "shown, onTop, displayOnly, widgets, page, parseErrors"),
-        ("G:clientDebrief", shape(cdeb), (True, True, True, tbe.DEBRIEF_WIDGETS, 0, 0),
+        ("guard:clientDebrief", shape(cdeb), (True, True, True, tbe.DEBRIEF_WIDGETS, 0, 0),
          "shown, onTop, displayOnly, widgets, page, parseErrors"),
-        ("G:seats", sorted((u.get("coop") for u in units), key=repr), SEATS, "S: the host's player-soldier units"),
-        ("G:clientName", tuple(s.get("clientName") for s in snaps),
+        ("guard:seats", sorted((u.get("coop") for u in units), key=repr), SEATS, "S: the host's player-soldier units"),
+        ("guard:clientName", tuple(s.get("clientName") for s in snaps),
          (raw.CLIENT_PLAYER, raw.CLIENT_PLAYER, raw.HOST_PLAYER, raw.HOST_PLAYER), "host S/debrief, client S/debrief"),
-        ("G:coopStatic", (s_snap["client"].get("coopStatic"), d_snap["client"].get("coopStatic")), (True, True),
+        ("guard:coopStatic", (s_snap["client"].get("coopStatic"), d_snap["client"].get("coopStatic")), (True, True),
          "client S/debrief"),
-        ("G:localSeat", tuple(s.get("localSeat") for s in snaps), (0, 0, 1, 1), "host S/debrief, client S/debrief"),
-        ("G:page2Deltas", [s.get("deltas") for s in cdeb.get("soldiers") or [] if isinstance(s, dict)],
+        ("guard:localSeat", tuple(s.get("localSeat") for s in snaps), (0, 0, 1, 1), "host S/debrief, client S/debrief"),
+        ("guard:page2Deltas", [s.get("deltas") for s in cdeb.get("soldiers") or [] if isinstance(s, dict)],
          [s.get("deltas") for s in hdeb.get("soldiers") or [] if isinstance(s, dict)], "client vs host"),
-        ("G:page2Stripped", tbe.debrief_view(cdeb)["soldiers"], tbe.debrief_view(hdeb)["soldiers"],
+        ("guard:page2Stripped", tbe.debrief_view(cdeb)["soldiers"], tbe.debrief_view(hdeb)["soldiers"],
          "tbe.debrief_view soldiers, client vs host"),
-        ("G:page1Rows", page1(cdeb), page1(hdeb), "(qty, score, recovery), client vs host"),
-        ("G:total", cdeb.get("total"), hdeb.get("total"), "client vs host"),
+        ("guard:page1Rows", page1(cdeb), page1(hdeb), "(qty, score, recovery), client vs host"),
+        ("guard:total", cdeb.get("total"), hdeb.get("total"), "client vs host"),
     ]
     if bid == "A":
-        cells += [("G:hostPin", tbe.pin_view(hdeb), tbe.HOST_DEBRIEF["E1"], "tbe.pin_view(host) == HOST_DEBRIEF E1"),
-                  ("G:clientRating", cdeb.get("rating"), DE_RATING_OK, "the German client renders its own rating")]
+        cells += [("guard:hostPin", tbe.pin_view(hdeb), tbe.HOST_DEBRIEF["E1"], "tbe.pin_view(host) == HOST_DEBRIEF E1"),
+                  ("guard:clientRating", cdeb.get("rating"), DE_RATING_OK, "the German client renders its own rating")]
     else:
-        cells += [("G:hostTitle", hdeb.get("title"), DE_UFO_NOT_RECOVERED, "the German host"),
-                  ("G:hostRating", hdeb.get("rating"), DE_RATING_POOR, "the German host"),
-                  ("G:clientRating", cdeb.get("rating"), EN_RATING_POOR, "the English client renders its own rating"),
-                  ("G:recoveryHeaders", (hdeb.get("recoveryHeader"), cdeb.get("recoveryHeader")), ("", ""),
+        cells += [("guard:hostTitle", hdeb.get("title"), DE_UFO_NOT_RECOVERED, "the German host"),
+                  ("guard:hostRating", hdeb.get("rating"), DE_RATING_POOR, "the German host"),
+                  ("guard:clientRating", cdeb.get("rating"), EN_RATING_POOR, "the English client renders its own rating"),
+                  ("guard:recoveryHeaders", (hdeb.get("recoveryHeader"), cdeb.get("recoveryHeader")), ("", ""),
                    "host, client: the empty key and the client's own :558"),
-                  ("G:hostPin", tbe.pin_view(hdeb),
+                  ("guard:hostPin", tbe.pin_view(hdeb),
                    dict(tbe.HOST_DEBRIEF["E2"], title=DE_UFO_NOT_RECOVERED, rating=DE_RATING_POOR),
                    "HOST_DEBRIEF E2 with the German title and rating (R-A0712-T0-1)")]
     return cells
@@ -204,7 +204,7 @@ def run_boot(bid, cfg, results):
         except Exception as e:
             err = tbe.short(e)
             print(f"CAPTURE {bid}: boot miss {err}; host={capture(host)}; client={capture(client)}", flush=True)
-            verdict(f"G:{bid}", [("G:boot", err, "ok", "the bring-up: MAP_FP, hash clean (FIXTURE-STOP)")], results)
+            verdict(f"guard:{bid}", [("guard:boot", err, "ok", "the bring-up: MAP_FP, hash clean (FIXTURE-STOP)")], results)
             for rid in cfg["rows"]:
                 verdict(rid, [("boot", err, "ok", "FIXTURE-STOP")], results)
             return
@@ -232,13 +232,13 @@ def run_boot(bid, cfg, results):
               f"staging={staging}; ending={end_resp}; pre fails={pre}; ending fails={ending}; "
               f"host debrief_state={hdeb}; client debrief_state={cdeb}", flush=True)
         steps = [f"pre-ending: {m}" for m in pre] + [f"ending: {m}" for m in ending]
-        verdict(f"G:{bid}", guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps), results)
+        verdict(f"guard:{bid}", guard_cells(bid, units, s_snap, d_snap, hdeb, cdeb, steps), results)
         seat_of = {u.get("rawName"): u.get("coop") for u in units}
         for rid in cfg["rows"]:
             verdict(rid, row_cells(rid, seat_of, d_snap, hdeb, cdeb), results)
     except Exception as e:
         print(f"CAPTURE {bid}: {type(e).__name__}: {e}; host={capture(host)}; client={capture(client)}", flush=True)
-        for label in (f"G:{bid}",) + tuple(cfg["rows"]):
+        for label in (f"guard:{bid}",) + tuple(cfg["rows"]):
             if label not in results:
                 verdict(label, [("run", tbe.short(e), "ok", "FIXTURE-STOP")], results)
     finally:
@@ -260,7 +260,7 @@ def main():
     for bid, cfg in BOOTS:
         run_boot(bid, cfg, results)
     rows = [rid for _, cfg in BOOTS for rid in cfg["rows"]]
-    guards = [f"G:{bid}" for bid, _ in BOOTS]
+    guards = [f"guard:{bid}" for bid, _ in BOOTS]
     failed = [k for k in guards + rows if not results.get(k)]
     print(f"\ntest_debrief_fidelity: rows {sum(1 for r in rows if results.get(r))}/{len(rows)} passed, guards "
           f"{sum(1 for g in guards if results.get(g))}/{len(guards)} passed (fail={failed}) in {time.time() - t0:.1f}s",

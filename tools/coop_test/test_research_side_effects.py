@@ -4,7 +4,7 @@ w2h17_research_side_effects.md (e)-(f) + RULINGS C1-C3, F5728; docs rewrite/w2h1
 STR_SECTOID_SOLDIER; trigger 2 completes STR_RESFX_A while STR_RESFX_B runs. Per trigger: S0, skip (2 days, speed 5, interest
 ResearchCompleteState), hit window (both windows open, both read every ~0.5 s for 3 s, C3), clean (settle + 60 min + 4 s).
 C2: no client dismissal while its resync is pending (10 s; timeout = FAIL + dump). RED (commit 1): H17-1..5 fail on their
-named cells, H17-6 passes (guard row); "G:" cells are guards (CAPTURE on a miss). GREEN: all pass. Exit 0 only if all pass.
+named cells, H17-6 passes (guard row); "guard:" cells are guards (CAPTURE on a miss). GREEN: all pass. Exit 0 only if all pass.
 """
 
 import json
@@ -167,7 +167,7 @@ class Row:
 def phase_ok(r, p):
     """The trigger's guard cells on this row (+ its hit-window EVIDENCE); False when the window was never read."""
     for n, ok, d in p.guards:
-        r.cell(f"G:{p.name}.{n}", ok, d)
+        r.cell(f"guard:{p.name}.{n}", ok, d)
     if p.error:
         r.cell(f"{p.name}.error", False, p.error)
     last, dg = (p.samples[-1] if p.samples else {}), (lambda v: (v.get("diary") or {}))  # noqa: E731
@@ -201,7 +201,7 @@ def row_h17_1(r, x):
         return
     s0 = {k: p.s0[n]["view"]["items"][CORPSE] for k, n in (("h", "host"), ("c", "client"))}
     ev = r.ev["corpse"] = dict(both(p, lambda v: v["items"][CORPSE]), S0=s0)
-    r.cell("G:hostCorpse", every(p, lambda s: s["h"]["items"][CORPSE] == s0["h"] + 1), f"{ev}")
+    r.cell("guard:hostCorpse", every(p, lambda s: s["h"]["items"][CORPSE] == s0["h"] + 1), f"{ev}")
     r.cell("replicaCorpse", every(p, lambda s: s["c"]["items"][CORPSE] == s0["c"] + 1), f"the replica skipped the corpse: {ev}")
     clean_cell(r, p)
 
@@ -215,7 +215,7 @@ def diary_cells(r, p, want):
     ev = r.ev["diary." + p.name] = dict(both(p, lambda v: v["diary"]), S0size=n0, want=want,
                                         hostNew=new_entries(p.samples[-1], "h", n0["h"]),
                                         replicaNew=new_entries(p.samples[-1], "c", n0["c"]))
-    r.cell(f"G:hostEntries.{p.name}", every(p, lambda s: all(w in new_entries(s, "h", n0["h"]) for w in want)), f"{ev['hostNew']}")
+    r.cell(f"guard:hostEntries.{p.name}", every(p, lambda s: all(w in new_entries(s, "h", n0["h"]) for w in want)), f"{ev['hostNew']}")
     r.cell(f"replicaEntries.{p.name}", every(p, lambda s: all(w in new_entries(s, "c", n0["c"]) for w in want)),
            f"research diary differs: replica new {ev['replicaNew']} want {want}")
     r.cell(f"diary.{p.name}", every(p, lambda s: s["c"]["diary"] == s["h"]["diary"]),
@@ -230,10 +230,10 @@ def row_h17_3(r, x):
     h0 = p.s0["host"]["view"]
     ev = r.ev["obsolete"] = {k: both(p, f) for k, f in (("research", lambda v: v["research"]), (B, lambda v: v["items"][B]),
                                                          ("free", lambda v: v["free"]), ("researchedB", lambda v: v["researched"][B]))}
-    r.cell("G:hostNoB", every(p, lambda s: B not in s["h"]["research"]), f"{ev['research']}")
-    r.cell("G:hostBDiscovered", every(p, lambda s: s["h"]["researched"][B]), f"{ev['researchedB']}")
-    r.cell("G:hostRefund", every(p, lambda s: s["h"]["items"][B] == h0["items"][B] + 1), f"S0 {h0['items'][B]} {ev[B]}")
-    r.cell("G:hostFree", every(p, lambda s: s["h"]["free"] == h0["free"] + 10), f"S0 {h0['free']} {ev['free']}")
+    r.cell("guard:hostNoB", every(p, lambda s: B not in s["h"]["research"]), f"{ev['research']}")
+    r.cell("guard:hostBDiscovered", every(p, lambda s: s["h"]["researched"][B]), f"{ev['researchedB']}")
+    r.cell("guard:hostRefund", every(p, lambda s: s["h"]["items"][B] == h0["items"][B] + 1), f"S0 {h0['items'][B]} {ev[B]}")
+    r.cell("guard:hostFree", every(p, lambda s: s["h"]["free"] == h0["free"] + 10), f"S0 {h0['free']} {ev['free']}")
     r.cell("replicaNoB", every(p, lambda s: B not in s["c"]["research"]), f"the obsolete project stayed: {ev['research']}")
     r.cell("storesB", every(p, lambda s: s["c"]["items"][B] == s["h"]["items"][B]), f"{ev[B]}")
     r.cell("freeScientists", every(p, lambda s: s["c"]["free"] == s["h"]["free"]), f"{ev['free']}")
@@ -245,8 +245,8 @@ def row_h17_4(r, x):
     s0 = {k: p.s0[n]["view"]["items"][PISTOL] for k, n in (("h", "host"), ("c", "client"))}
     ev = r.ev["delivered"] = {"S0": s0, "pistols": both(p, lambda v: v["items"][PISTOL]),
                               "transfers": both(p, lambda v: v["transfers"])}
-    r.cell("G:hostPistols", every(p, lambda s: s["h"]["items"][PISTOL] == s0["h"] + 2), f"{ev}")
-    r.cell("G:hostTransfers", every(p, lambda s: s["h"]["transfers"] == []), f"{ev['transfers']}")   # C1
+    r.cell("guard:hostPistols", every(p, lambda s: s["h"]["items"][PISTOL] == s0["h"] + 2), f"{ev}")
+    r.cell("guard:hostTransfers", every(p, lambda s: s["h"]["transfers"] == []), f"{ev['transfers']}")   # C1
     r.cell("pistols", every(p, lambda s: s["c"]["items"][PISTOL] == s0["c"] + 2), f"the delivered items never arrived: {ev}")
     r.cell("replicaTransfers", every(p, lambda s: s["c"]["transfers"] == []), f"{ev['transfers']}")
 
@@ -256,7 +256,7 @@ def row_h17_5(r, x):
     h0 = p.s0["host"]["probe"]["ids"]
     ev = r.ev["counter"] = dict(both(p, lambda v: v["ids"].get(COUNTER)),
                                 S0=[h0.get(COUNTER), p.s0["client"]["probe"]["ids"].get(COUNTER)])
-    r.cell("G:hostCounter", COUNTER not in h0 and every(p, lambda s: s["h"]["ids"].get(COUNTER) == 2), f"{ev}")
+    r.cell("guard:hostCounter", COUNTER not in h0 and every(p, lambda s: s["h"]["ids"].get(COUNTER) == 2), f"{ev}")
     r.cell("counter", every(p, lambda s: s["c"]["ids"].get(COUNTER) == s["h"]["ids"].get(COUNTER)), f"counter differs: {ev}")
 
 def row_h17_6(r, x):

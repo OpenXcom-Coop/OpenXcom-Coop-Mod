@@ -5,7 +5,7 @@ machine), soldier_attr_probe. Real input: rank badge (click_widget nth 0) -> ran
 inject_input at rankScreen.rows[r].wx/wy; flag = click_widget nth 1. Boot A (SHARED): H16-1..4; Boot B (SEPARATE): H16-5
 (guard row). S0: S1, S2 (client-owned), S3 (host-owned) -> squaddie, client then host; floor(N/5) - 1 others -> sergeant;
 one sergeant opening on both (guard). RED (commit 1): H16-1..4 fail on their named cell, H16-5 passes; GREEN: all pass.
-"G:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
+"guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
 import json
@@ -67,7 +67,7 @@ class Row:
 
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' stack, shared_stats, each row soldier's [soldier_attr_probe, soldier_record]."""
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     cap = {}
     for gc in (x.host, x.client):
@@ -244,7 +244,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             x.client.cmd({"cmd": "shared_update_defer", "on": False})
             geo.settle(x.host, x.client)

@@ -16,7 +16,7 @@ GeoscapeState::init re-arms the latch and the counts carry the verdict. H17d-2 r
 time (events of one day fire in pointer order, F7730); X = the first window, Y = the other event.
 Boot A (SHARED): H17d-1; Boot B (SHARED): H17d-2; Boot C (SEPARATE, research sync off: W2-U9, R-B109-1): H17d-3;
 Boot D (SHARED): H17d-4.
-RED (commit 1): H17d-1, H17d-2, H17d-4 fail on their named cells, H17d-3 passes; GREEN: all pass. "G:" cells are
+RED (commit 1): H17d-1, H17d-2, H17d-4 fail on their named cells, H17d-3 passes; GREEN: all pass. "guard:" cells are
 guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; every row runs after a failure; exit 0 only if
 all pass, else 2.
 """
@@ -112,7 +112,7 @@ def capture(gc):
 
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' research_probe, geo_event_probe, get_state and engine log tail."""
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     cap = {gc.name: capture(gc) for gc in (x.host, x.client)}
     print(f"CAPTURE {r.rid} (guard {name}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)

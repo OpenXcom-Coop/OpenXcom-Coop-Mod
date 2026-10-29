@@ -3,7 +3,7 @@ the transformation lists show own soldiers only. Spec docs rewrite/prompts/w2h16
 rewrite/w2h16c-task0/CONSTANTS.md rulings C1-C7 applied. Levers (test-only): open_transformation, set_soldier_dead,
 transform_probe. Real input: the SoldiersState action box (drop-down arithmetic, F6880) and Start (click_widget, raw rule key).
 Boot A (SHARED): H16c-1..10; Boot B (SEPARATE): H16c-11. RED (commit 1): H16c-1..8 and -10 fail on their named cells, -9 and
--11 pass; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss). `requests` is recorded per row, never a verdict.
+-11 pass; GREEN: all pass. "guard:" cells are guards (CAPTURE on a miss). `requests` is recorded per row, never a verdict.
 EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -90,7 +90,7 @@ def capture(x, tag):
     print(f"CAPTURE {tag}: {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
 
 def guard(r, x, name, ok, detail):
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     capture(x, f"{r.rid} (guard {name})")
     raise GuardMiss(f"guard {name}")
@@ -197,7 +197,7 @@ def poll(r, x):
     return last
 
 def own(r, x, p, p0, sid, rule, tag, cost, rocket):
-    """G: the clicking machine's own change (red: its local write; green: the host's result applied)."""
+    """guard: the clicking machine's own change (red: its local write; green: the host's result applied)."""
     got = {"history": [hist(p0, sid, rule), hist(p, sid, rule)], "funds": [p0.get("funds"), p.get("funds")],
            "rockets": [rockets(p0), rockets(p)]}
     guard(r, x, f"{tag} own change", got["history"][1] == got["history"][0] + 1 and p0.get("funds") - p.get("funds") == cost
@@ -424,7 +424,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             x.client.cmd({"cmd": "shared_update_defer", "on": False})
             r.ev["settleAfterMiss"] = {gc.name: pick(gc.cmd({"cmd": "close_screens"}), "popped", "refused")

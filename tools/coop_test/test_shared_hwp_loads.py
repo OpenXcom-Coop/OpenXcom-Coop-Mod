@@ -95,7 +95,7 @@ class Row(cl.Row):
 def guard_v(r, x, want, tag):
     v = both_v(x)
     r.ev["V " + tag] = v
-    return r.cell(f"G: V.vehicles == {want} on both ({tag})", all(e.get("vehicles") == want for e in v.values()), v)
+    return r.cell(f"guard: V.vehicles == {want} on both ({tag})", all(e.get("vehicles") == want for e in v.values()), v)
 
 
 def strip(r, x):
@@ -193,7 +193,7 @@ def host_move(x, r, n, red):
     r.ev.update({"move": mv, "host V at once": v1, "host ST diff": sd, "first req s": first, "equal s": eq, "V after": vv, "over RW": over,
                  "converge": [cv["ok"], cv["s"]]})
     r.evidence()
-    if not r.cell("G: converge after the row", cv["ok"], cv):
+    if not r.cell("guard: converge after the row", cv["ok"], cv):
         return
     if not r.cell("non-vacuity: the host's V / customDeployment / ST at once", mv.get("moved") is True
                   and v1.get("vehicles") == ({TLC: 1} if n > 0 else {}) and (n < 0 or v1.get("customDeployment") is False)
@@ -215,7 +215,7 @@ def hc_5(x, r):
                 "payload": {"kind": "loadout", "index": 1, "name": "", "items": items}})
     got, s = cl.timed(lambda: all(bso(g, op="read", index=1).get("loadout") == items for g in (h, c)), W)
     r.ev["template"] = {"items": items, "shared_cmd": rep, "read 1 equal s": s}
-    if not r.cell("G: template 1 (SKYI + TC 1) on both within W (stage A)", rep.get("ok") and got, r.ev["template"]):
+    if not r.cell("guard: template 1 (SKYI + TC 1) on both within W (stage A)", rep.get("ok") and got, r.ev["template"]):
         return r.evidence()
 
     def act():
@@ -247,7 +247,7 @@ def hc_6(x, r):
         return r.evidence()
     v = both_v(x)
     r.ev["V start"] = v
-    if not r.cell(f"G: V {{}} and spaceAvailable {SPACE0} on both", all(e.get("vehicles") == {} and e.get("spaceAvailable") == SPACE0
+    if not r.cell(f"guard: V {{}} and spaceAvailable {SPACE0} on both", all(e.get("vehicles") == {} and e.get("spaceAvailable") == SPACE0
                                                                           for e in v.values()), v):
         return r.evidence()
     s0, f0, ts0 = {g.name: cl.st(g) for g in (h, c)}, stats3(c), time.time()
@@ -295,8 +295,8 @@ def hc_8(x, r):
     stg = {"ClientBase SKY": sid, "crew": crew, "give_items": gv, "craft_assign off": off, "client V after the staging": v0}
     print(f"EVIDENCE HC-8 (staging, R-H20c-T0-1): {json.dumps(stg, sort_keys=True, default=str)}", flush=True)
     r.ev["staging"] = stg
-    if not (r.cell("G: a ClientBase SKYRANGER with >= 4 crew, stock given", sid is not None and len(crew) >= 4 and all(g.get("ok") for g in gv), stg)
-            and r.cell("G: craft_assign took 4 crew off (spaceAvailable >= 4)", all(o.get("seated") is False for o in off) and len(off) == 4
+    if not (r.cell("guard: a ClientBase SKYRANGER with >= 4 crew, stock given", sid is not None and len(crew) >= 4 and all(g.get("ok") for g in gv), stg)
+            and r.cell("guard: craft_assign took 4 crew off (spaceAvailable >= 4)", all(o.get("seated") is False for o in off) and len(off) == 4
                        and (v0.get("spaceAvailable") or 0) >= 4 and v0.get("vehicles") == {}, stg)):
         return r.evidence()
     s0, st0, k0 = {g.name: h20.stats3(g) for g in (h, c)}, cl.st(c, CB), cl.sky(c, sid, CB)
@@ -335,7 +335,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"G: {rid} exception", False, h20.short(e))
+            r.cell(f"guard: {rid} exception", False, h20.short(e))
         for g in (x.host, x.client):  # a stopped row leaves no screen behind (a re-copy in flight is waited out first)
             before = stack(g)
             if not cl.is_dead(before) and (before or [""])[-1] != GEO:

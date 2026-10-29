@@ -41,7 +41,7 @@ W, POLL, HOLD, SETTLE = 10.0, 0.25, 2.0, 0.3
 GEO, BS, BRF, CLS = "GeoscapeState", "BattlescapeState", "BriefingState", "ConfirmLandingState"
 INV, CEQ, HB = "InventoryState", "CraftEquipmentState", "HostBase"
 WANT = [GEO, BRF]
-TASK0 = {"LG": "guard: the host stack [GeoscapeState, BriefingState] 2/2",
+BASELINE = {"LG": "guard: the host stack [GeoscapeState, BriefingState] 2/2",
          "L1": "named red 3/3: [GeoscapeState, UfopaediaStartState, UfopaediaSelectState, ArticleStateCraft, StatsForNerdsState, "
                "BattlescapeState, BriefingState]; T0-X 3/3 host deaths after the debriefing OK",
          "L2": "named red 2/2: [GeoscapeState, CraftEquipmentState, InventoryState, BriefingState]"}
@@ -89,9 +89,9 @@ def drive(r, x):
         host.wait_for("host brokered the landing prompt", brokered, timeout=90, interval=0.5)
         client.wait_for("client brokered ConfirmLandingState", lambda: session.has_state(client, CLS), timeout=60, interval=0.5)
     except Exception as e:
-        return r.cell("G: DRIVE reached both prompts (row_h9_4)", False, short(e)), None
+        return r.cell("guard: DRIVE reached both prompts (row_h9_4)", False, short(e)), None
     r.ev["DRIVE"] = {"craft": cid, "site": site_id, "host": stack(host), "client": stack(client)}
-    if not r.cell("G: the host's broker copy on top within %.0f s" % W, wait_until(lambda: pr.on_top(host, CLS), W, 0.05),
+    if not r.cell("guard: the host's broker copy on top within %.0f s" % W, wait_until(lambda: pr.on_top(host, CLS), W, 0.05),
                   stack(host)):
         return False, cid
     time.sleep(SETTLE)
@@ -101,7 +101,7 @@ def drive(r, x):
                             "pending": q(host, {"cmd": "shared_landing_state"}).get("pending"), "client": stack(client)}
     ok = (CLS in str(d.get("type")) and d.get("handled") == "generic" and st["host"] == [GEO] and st["pending"] is True
           and st["client"][-1:] == [CLS])
-    return r.cell("G: the host's dismiss_popup -> generic %s; host [%s], pending true, the client's top %s" % (CLS, GEO, CLS),
+    return r.cell("guard: the host's dismiss_popup -> generic %s; host [%s], pending true, the client's top %s" % (CLS, GEO, CLS),
                   ok, st), cid
 
 
@@ -110,7 +110,7 @@ def practice(r, x, kind, cid):
     host = x.host
     if kind == "L1":
         ok, r.ev["PV(host)"] = pr.pv(host, x.keys["host"])
-        if not r.cell("G: PV(host) reached the preview", ok, r.ev["PV(host)"]):
+        if not r.cell("guard: PV(host) reached the preview", ok, r.ev["PV(host)"]):
             return False
         want_top, want_pre = BS, True
     else:
@@ -121,12 +121,12 @@ def practice(r, x, kind, cid):
         ok = ok and rep2.get("opened") is True and wait_until(lambda: pr.on_top(host, INV), W, 0.05)
         r.ev["P4(host)"] = {"open": {k: rep.get(k) for k in ("ok", "craftId", "error")},
                             "inventory": {k: rep2.get(k) for k in ("ok", "opened", "error")}, "stack": stack(host)}
-        if not r.cell("G: the host's P4 (open_craft_equipment + craft_inventory) opened", ok, r.ev["P4(host)"]):
+        if not r.cell("guard: the host's P4 (open_craft_equipment + craft_inventory) opened", ok, r.ev["P4(host)"]):
             return False
         want_top, want_pre = INV, None
     nv = r.ev["non-vacuity"] = {"stack": stack(host), "isPreview": q(host, {"cmd": "battle_state"}).get("isPreview"),
                                 "inBattle": q(host, {"cmd": "get_coop"}).get("inBattle")}
-    return r.cell("G: non-vacuity: host top %s%s, inBattle true" % (want_top, ", isPreview true" if want_pre else ""),
+    return r.cell("guard: non-vacuity: host top %s%s, inBattle true" % (want_top, ", isPreview true" if want_pre else ""),
                   nv["stack"][-1:] == [want_top] and (want_pre is None or nv["isPreview"] is True) and nv["inBattle"] is True, nv)
 
 
@@ -140,7 +140,7 @@ def row(r, x, kind, crash0):
     time.sleep(SETTLE)
     t1 = time.time()
     rep = q(client, {"cmd": "confirm_landing"})
-    if not r.cell("G: the client's confirm_landing ok", rep.get("ok") is True, rep):
+    if not r.cell("guard: the client's confirm_landing ok", rep.get("ok") is True, rep):
         return r.cap.update(capture(x, n_hl, crash0))
     tl, last = [], None
     while True:
@@ -167,13 +167,13 @@ def row(r, x, kind, crash0):
 
 def run_boot(tag, ports, kind, results, walls):
     t0, crash0 = time.time(), pr.crash_names()
-    r = pr.Row("H21d-" + kind, TASK0[kind])
+    r = pr.Row("H21d-" + kind, BASELINE[kind])
     js, x = pr.boot(tag, ports, [r])
     if js is not None:
         try:
             row(r, x, kind, crash0)
         except Exception as e:
-            r.cell("G: H21d-%s exception" % kind, False, short(e))
+            r.cell("guard: H21d-%s exception" % kind, False, short(e))
             if not r.cap:
                 r.cap.update(capture(x, 0, crash0))
         pr.shut(js, r, tag, False)

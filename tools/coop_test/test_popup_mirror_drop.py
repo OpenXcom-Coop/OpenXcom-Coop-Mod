@@ -15,7 +15,7 @@ dangling 0 was read right before. Each boot is fresh and shut down before the ne
   Boot TI (dirs w2h81_ti_*): ... while the host's target-info window shows its UFO (D-TI). Cells TI-dangling FIX, TI-held FIX, TI-top FIX, TI-alive.
   Boot DC (dirs w2h81_dc_*): ... while the host's popup shows the host's OWN UFO (the targeting guard). Cells DC-kept, DC-top, DC-cancel.
 Red (commit R1): exit 2, RED exactly on UD-dangling, UD-held, UD-top, CD-dangling, CD-held, CD-top, TI-dangling, TI-held, TI-top (9 of 18).
-A guard (G:) miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
+A guard cell miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
 row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2. one foreground run.
 Run: python tools/coop_test/test_popup_mirror_drop.py"""
 import json, math, os, sys, time  # noqa: E401
@@ -33,7 +33,7 @@ UFO = {"type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "ST
        "state": "flying", "speed": 1}
 
 class Guard(Exception):
-    """a guard (G:) missed: the row's remaining cells fail"""
+    """a guard cell missed: the row's remaining cells fail"""
 
 def short(e, n=400):
     return ("%s: %s" % (type(e).__name__, e))[:n]
@@ -62,7 +62,7 @@ def wait(desc, pred, timeout, interval=0.1):
         if pred():
             return round(time.time() - t0, 2)
         time.sleep(interval)
-    raise Guard("G: %s: not within %.0f s" % (desc, timeout))
+    raise Guard("guard: %s: not within %.0f s" % (desc, timeout))
 
 def log_lines(gc):
     p = os.path.join(gc.user_dir, "openxcom.log")
@@ -96,7 +96,7 @@ def press(gc, match, want=None, timeout=15, exact=False):
     r = q(gc, {"cmd": "click_widget", "match": match})
     note_click(gc, r)
     if not r.get("ok"):
-        raise Guard("G: %s click %r: %s" % (gc.name, match, r))
+        raise Guard("guard: %s click %r: %s" % (gc.name, match, r))
     if want:
         wait("%s top %s after %r" % (gc.name, want, match), lambda: top(gc) == want, timeout)
 
@@ -151,14 +151,14 @@ def bring_up(row):
     H = next((b["lon"], b["lat"]) for b in geo(host).get("bases", []) if not b.get("coopBase") and not b.get("coopIcon"))
     C = next(((H[0] + dl, H[1] + dt) for dl, dt in CLIENT_OFFSETS if globe(client, lon=H[0] + dl, lat=H[1] + dt).get("land")), None)
     if C is None or not client.cmd({"cmd": "place_first_base", "lon": C[0], "lat": C[1], "name": "ClientBase"}).get("ok"):
-        raise Guard("G: client base near H %s: %s" % (H, C))
+        raise Guard("guard: client base near H %s: %s" % (H, C))
     host.wait_for("all players placed bases", lambda: host.cmd({"cmd": "has_coop_file", "key": "host_%s_ClientPlayer.data"
                   % host.cmd({"cmd": "save_markers"})["saveID"]}).get("present") or None, timeout=120)
     session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))
     t0, last, tch = time.time(), None, time.time()
     while not (last and last[0][-1:] == last[1][-1:] == ("GeoscapeState",) and time.time() - tch >= 2.0):
         if time.time() - t0 > 90:
-            raise Guard("G: both tops GeoscapeState for 2 s: not within 90 s (%s)" % (last,))
+            raise Guard("guard: both tops GeoscapeState for 2 s: not within 90 s (%s)" % (last,))
         s = (tuple(stack(host) or ()), tuple(stack(client) or ()))
         if s != last:
             last, tch = s, time.time()
@@ -188,7 +188,7 @@ def drain_to_geo(gc, timeout=20):
                 clicks.append([t, m])
                 break
         time.sleep(0.25)
-    raise Guard("G: %s GeoscapeState on top within %d s (%s)" % (gc.name, timeout, stack(gc)))
+    raise Guard("guard: %s GeoscapeState on top within %d s (%s)" % (gc.name, timeout, stack(gc)))
 
 def calibrate(gc):
     """two real clicks at different x / y measure the window affine (INTERCEPT opens InterceptState, CANCEL closes it)"""
@@ -196,13 +196,13 @@ def calibrate(gc):
     wait("%s InterceptState shown" % gc.name, lambda: not any(w.get("hidden") for w in widgets(gc)), 5)
     press(gc, "CANCEL", "GeoscapeState", exact=True)
     if gc.name not in AFF:
-        raise Guard("G: affine not measured on %s: %s" % (gc.name, AFF.get(gc.name + "_pts")))
+        raise Guard("guard: affine not measured on %s: %s" % (gc.name, AFF.get(gc.name + "_pts")))
 
 def stage_ufo(row, owner, holder, H, C):
     """the owner's UFO and its detected mirror on the holder; both back on the geoscape"""
     p = pick_ufo_point(owner, H, C)
     if p is None:
-        raise Guard("G: no UFO point")
+        raise Guard("guard: no UFO point")
     su = owner.ok(dict({"cmd": "spawn_ufo", "lon": p[0], "lat": p[1]}, **UFO))
     ou = next(u for u in ufos(owner) if u["id"] == su["ufo_id"] and not u.get("coop"))
     box = {}
@@ -220,7 +220,7 @@ def open_uds(row, gc, find):
     """a real globe click on the UFO find() returns -> MultipleTargetsState (one target) -> UfoDetectedState"""
     m = find()
     if m is None:
-        raise Guard("G: %s: the UFO to click is gone" % gc.name)
+        raise Guard("guard: %s: the UFO to click is gone" % gc.name)
     globe(gc, centerLon=m["lon"], centerLat=m["lat"])  # staging: the player rotates the globe to the UFO
     time.sleep(0.3)
     m = find() or m
@@ -234,12 +234,12 @@ def open_uds(row, gc, find):
         time.sleep(0.02)
     row.ev["globe click"] = [g.get("x"), g.get("y"), stack(gc)]
     if top(gc) != "UfoDetectedState":
-        raise Guard("G: %s: no UfoDetectedState after the globe click (%s)" % (gc.name, stack(gc)))
+        raise Guard("guard: %s: no UfoDetectedState after the globe click (%s)" % (gc.name, stack(gc)))
 
 def list_row_click(row, gc, idx, want):
     tl = [w for w in widgets(gc) if (w.get("type") or "").endswith("::TextList")]
     if len(tl) != 1:
-        raise Guard("G: %s: one TextList on %s, got %d" % (gc.name, top(gc), len(tl)))
+        raise Guard("guard: %s: one TextList on %s, got %d" % (gc.name, top(gc), len(tl)))
     click_px(gc, tl[0]["x"] + 30, tl[0]["y"] + 8 * idx + 4)
     wait("%s %s after the row click" % (gc.name, want), lambda: top(gc) == want, 5)
 
@@ -247,21 +247,21 @@ def pre(row, gc, want_top, holders, mirror):
     t, c = top(gc), pmc(gc)
     row.ev["pre"] = {"top": t, "pmc": c}
     if t != want_top or c.get("holders") != holders or c.get("dangling") != 0 or c.get("mirror") != mirror:
-        raise Guard("G:pre: %s top %s pmc %s; want %s, holders %d, dangling 0, mirror %d" % (gc.name, t, c, want_top, holders, mirror))
+        raise Guard("guard:pre: %s top %s pmc %s; want %s, holders %d, dangling 0, mirror %d" % (gc.name, t, c, want_top, holders, mirror))
 
 def drop(row):
     """the common drop sequence (f): kill the owner (client), read U under the 62, rejoin, RESUME (real), read R"""
     host, ev = row.host, row.ev
     row.client.kill()  # staging: the partner's game drops
     ev["killed client rc"] = row.client.proc.returncode
-    ev["62 s"] = wait("G:62 host 62 on top", lambda: q(host, {"cmd": "coop_dialog_info"}).get("code") == 62 and top(host) == "CoopState", W62_S)
+    ev["62 s"] = wait("guard:62 host 62 on top", lambda: q(host, {"cmd": "coop_dialog_info"}).get("code") == 62 and top(host) == "CoopState", W62_S)
     time.sleep(UNDER62_S)
     U = {"pmc": pmc(host), "stack": stack(host), "coop ufos": [u.get("id") for u in ufos(host) if u.get("coop")]}
     ev["U"] = U
     row.client2 = GameClient("client", None, make_user_dir("w2h81_%s_client2" % row.rid.lower()))
     row.client2.spawn(); row.client2.connect()
     row.client2.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
-    ev["ack s"] = wait("G:ack host resumeAck", lambda: q(host, {"cmd": "get_coop"}).get("resumeAck"), ACK_S, 0.25)
+    ev["ack s"] = wait("guard:ack host resumeAck", lambda: q(host, {"cmd": "get_coop"}).get("resumeAck"), ACK_S, 0.25)
     t1 = time.time()
     while time.time() - t1 < W62R_S and top(host) != "CoopState":
         if "Profile" in (top(host) or ""):
@@ -273,9 +273,9 @@ def drop(row):
                 q(host, {"cmd": "profile_ok"})
         time.sleep(0.2)
     if top(host) != "CoopState":
-        raise Guard("G:62r: host top CoopState within %d s: %s" % (W62R_S, stack(host)))
+        raise Guard("guard:62r: host top CoopState within %d s: %s" % (W62R_S, stack(host)))
     press(host, "RESUME", None, W62R_S)
-    ev["resume s"] = wait("G:resume host 62 gone", lambda: q(host, {"cmd": "coop_dialog_info"}).get("code") != 62, RESUME_S)
+    ev["resume s"] = wait("guard:resume host 62 gone", lambda: q(host, {"cmd": "coop_dialog_info"}).get("code") != 62, RESUME_S)
     try:
         ev["client2 drained"] = drain_to_geo(row.client2, DRAIN2_S)
     except Guard as e:
@@ -391,7 +391,7 @@ def row_cd(row):
     rows = q(host, {"cmd": "intercept_list"}).get("rows", [])
     idx = next((i for i, r in enumerate(rows) if r.get("type") == "STR_INTERCEPTOR" and r.get("status") == "STR_READY"), None)
     if idx is None:
-        raise Guard("G: no ready STR_INTERCEPTOR row: %s" % rows)
+        raise Guard("guard: no ready STR_INTERCEPTOR row: %s" % rows)
     cid = rows[idx].get("craftId")
     ev["interceptor"] = {"row": idx, "CID": cid}
     mm = mirror_now(host, m["coopId"]) or m
@@ -406,7 +406,7 @@ def row_cd(row):
     try:
         wait("host ConfirmDestinationState", lambda: (stack(host) or [])[-2:] == ["SelectDestinationState", "ConfirmDestinationState"], 5)
     except Guard:
-        raise Guard("G:pre: host stack %s; want [..., SelectDestinationState, ConfirmDestinationState] (FIXTURE-STOP)" % stack(host))
+        raise Guard("guard:pre: host stack %s; want [..., SelectDestinationState, ConfirmDestinationState] (FIXTURE-STOP)" % stack(host))
     pre(row, host, "ConfirmDestinationState", 1, 1)
     U, R = drop(row)
     drop_reds(row, U, "CD")
@@ -433,7 +433,7 @@ def row_ti(row):
     U0 = [u for u in g0.get("ufos", []) if u.get("detected") and u.get("status") != 4]
     ui = next((i for i, u in enumerate(U0) if u.get("coop") and u.get("coopId") == m["coopId"]), None)
     if ui is None:
-        raise Guard("G: the mirror is not a tracker row: %s" % U0)
+        raise Guard("guard: the mirror is not a tracker row: %s" % U0)
     ev["tracker row"] = len(sites) + ui
     q(host, {"cmd": "inject_input", "kind": "key", "key": 116})  # the UFO tracker hotkey T (keyGeoUfoTracker = SDLK_t)
     wait("host UfoTrackerState", lambda: top(host) == "UfoTrackerState", 5)

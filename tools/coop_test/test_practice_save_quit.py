@@ -73,14 +73,14 @@ def save_quit_row(r, x, kind, name):
     files0 = set(session.save_files(h.user_dir))
     a = q(h, {"cmd": "coop_dialog_save_quit"})
     listed = a.get("ok") and wait_until(lambda: session.has_state(h, "ListSaveState"), W)
-    if not r.cell("G: SAVE & QUIT -> ListSaveState", listed, [a, stack(h)]):
+    if not r.cell("guard: SAVE & QUIT -> ListSaveState", listed, [a, stack(h)]):
         return prj.capture(r, x, n_hl)
     b = q(h, {"cmd": "list_save_confirm", "name": name})
     menu = b.get("ok") and wait_until(lambda: q(h, {"cmd": "ending_state"}).get("mainMenu"), MAIN_MENU_S)
     new = sorted(set(session.save_files(h.user_dir)) - files0)
     savs = [f for f in new if f.endswith(".sav")]
     r.ev["SAVE & QUIT"] = {"confirm": b, "mainMenu": menu, "new files": new, "stack": stack(h)}
-    if not r.cell(f"G: within {MAIN_MENU_S:.0f} s ending_state.mainMenu, exactly one new .sav", menu and len(savs) == 1,
+    if not r.cell(f"guard: within {MAIN_MENU_S:.0f} s ending_state.mainMenu, exactly one new .sav", menu and len(savs) == 1,
                   r.ev["SAVE & QUIT"]):
         return prj.capture(r, x, n_hl)
     r.ev["SAV"], head = read_sav(os.path.join(h.user_dir, savs[0]))
@@ -123,9 +123,9 @@ def t_chat(x, n_cl):
     return rep.get("ok") is True and key is not None, rep, lambda: q(x.host, {"cmd": "battle_state"}).get("chatActive") is True
 
 
-def count_row(rid, base, ports, trigger, task0, results, walls):
+def count_row(rid, base, ports, trigger, baseline, results, walls):
     """N fresh SHARED boots: setup guard, the host's P4, the trigger, W for its effect, HOLD; a host death is one count"""
-    t0, r, deaths, recs = time.time(), pr.Row(rid, task0), 0, []
+    t0, r, deaths, recs = time.time(), pr.Row(rid, baseline), 0, []
     for k in range(1, N_COUNT + 1):
         x, rec, died = prj.X(f"{base}{k}"), {"boot": f"{base}{k}"}, False
         try:
@@ -133,7 +133,7 @@ def count_row(rid, base, ports, trigger, task0, results, walls):
                 rec["P4"], rec["non-vacuity"] = r.ev.pop("P4(host)", None), r.ev.pop("non-vacuity")
                 n_cl, before = pr.log_size(x.client), pr.crash_names()
                 ok, rec["trigger"], effect = trigger(x, n_cl)
-                if r.cell(f"G: {x.tag} trigger sent", ok, rec["trigger"]):
+                if r.cell(f"guard: {x.tag} trigger sent", ok, rec["trigger"]):
                     wait_until(lambda: not pr.alive(x.host) or effect(), W)
                     rec["effect"] = bool(effect())
                     time.sleep(HOLD)
@@ -146,7 +146,7 @@ def count_row(rid, base, ports, trigger, task0, results, walls):
                     if died:
                         prj.capture(r, x, 0, rec["CRASH"])
         except Exception as e:
-            r.cell(f"G: {x.tag} exception", False, prj.short(e))
+            r.cell(f"guard: {x.tag} exception", False, prj.short(e))
         finally:
             prj.shut(r, x, tolerate_host=died)
         recs.append(rec)
@@ -160,8 +160,8 @@ def count_row(rid, base, ports, trigger, task0, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    prj.run("H21d-Q1", "w2h21sqa", (49532, 49533, 46972), save_quit_row, results, walls, args=("P1", "w2h21sqa"), task0=RED_Q1)
-    prj.run("H21d-Q2", "w2h21sqb", (49534, 49535, 46973), save_quit_row, results, walls, args=("P4", "w2h21sqb"), task0=RED_Q2)
+    prj.run("H21d-Q1", "w2h21sqa", (49532, 49533, 46972), save_quit_row, results, walls, args=("P1", "w2h21sqa"), baseline=RED_Q1)
+    prj.run("H21d-Q2", "w2h21sqb", (49534, 49535, 46973), save_quit_row, results, walls, args=("P4", "w2h21sqb"), baseline=RED_Q2)
     count_row("H21d-R5", "w2h21sqr", (49546, 49547, 46979), t_resync, RED_R5, results, walls)
     count_row("H21d-R6", "w2h21sqk", (49548, 49549, 46980), t_chat, RED_R6, results, walls)
     rows = ("H21d-Q1", "H21d-Q2", "H21d-R5", "H21d-R6")

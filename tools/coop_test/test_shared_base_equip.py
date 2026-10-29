@@ -168,42 +168,42 @@ class Row:
 def open_soldier_screen(r, gc, base=HB):
     """open_soldiers -> SoldiersState -> soldiers_inventory (opened) -> InventoryState (stage B's open)."""
     rep = q(gc, {"cmd": "open_soldiers", "base": base})
-    if not r.cell(f"G: {gc.name} open_soldiers {base}",
+    if not r.cell(f"guard: {gc.name} open_soldiers {base}",
                   rep.get("ok") and wait_until(lambda: "SoldiersState" in stack(gc), 30), [rep, stack(gc)]):
         return False
     rep = q(gc, {"cmd": "soldiers_inventory"})
-    return r.cell(f"G: {gc.name} soldiers_inventory",
+    return r.cell(f"guard: {gc.name} soldiers_inventory",
                   rep.get("opened") is True and wait_until(lambda: "InventoryState" in stack(gc), 30), [rep, stack(gc)])
 
 
 def close_soldier_screen(r, gc):
     """battle_inventory ok -> InventoryState gone -> soldiers_ok -> SoldiersState gone (stage B's close)."""
     rep = q(gc, {"cmd": "battle_inventory", "action": "ok"})
-    r.cell(f"G: {gc.name} battle_inventory ok",
+    r.cell(f"guard: {gc.name} battle_inventory ok",
            rep.get("ok") and wait_until(lambda: "InventoryState" not in stack(gc), 30), [rep, stack(gc)])
     rep = q(gc, {"cmd": "soldiers_ok"})
-    r.cell(f"G: {gc.name} soldiers_ok",
+    r.cell(f"guard: {gc.name} soldiers_ok",
            rep.get("ok") and wait_until(lambda: "SoldiersState" not in stack(gc), 30), [rep, stack(gc)])
 
 
 def open_craft_screen(r, x, gc):
     """open_craft_equipment {HostBase, SKY} -> CraftEquipmentState -> craft_inventory (opened) -> InventoryState."""
     rep = q(gc, {"cmd": "open_craft_equipment", "base": HB, "craft_id": x.sky})
-    if not r.cell(f"G: {gc.name} open_craft_equipment {HB} {x.sky}", rep.get("ok") and rep.get("craftId") == x.sky
+    if not r.cell(f"guard: {gc.name} open_craft_equipment {HB} {x.sky}", rep.get("ok") and rep.get("craftId") == x.sky
                   and wait_until(lambda: "CraftEquipmentState" in stack(gc), 30), [rep, stack(gc)]):
         return False
     rep = q(gc, {"cmd": "craft_inventory"})
-    return r.cell(f"G: {gc.name} craft_inventory",
+    return r.cell(f"guard: {gc.name} craft_inventory",
                   rep.get("opened") is True and wait_until(lambda: "InventoryState" in stack(gc), 30), [rep, stack(gc)])
 
 
 def close_craft_screen(r, gc):
     """battle_inventory ok -> InventoryState gone -> craft_equipment_ok -> CraftEquipmentState gone."""
     rep = q(gc, {"cmd": "battle_inventory", "action": "ok"})
-    r.cell(f"G: {gc.name} battle_inventory ok",
+    r.cell(f"guard: {gc.name} battle_inventory ok",
            rep.get("ok") and wait_until(lambda: "InventoryState" not in stack(gc), 30), [rep, stack(gc)])
     rep = q(gc, {"cmd": "craft_equipment_ok"})
-    r.cell(f"G: {gc.name} craft_equipment_ok",
+    r.cell(f"guard: {gc.name} craft_equipment_ok",
            rep.get("ok") and wait_until(lambda: "CraftEquipmentState" not in stack(gc), 30), [rep, stack(gc)])
 
 
@@ -289,7 +289,7 @@ def h20_5(x, r):
         return
     key = (q(c, {"cmd": "equip_layouts"}).get("keys") or {}).get("keyInvSavePersonalEquipment")
     r.ev["stage"] = st = q(c, {"cmd": "inventory_move", "name": name, "item": STAGE, "slot": "belt"})
-    r.cell(f"G: client staged {STAGE} on C (R-H20-G-1)", st.get("moved") is True and st.get("landedOnUnit") is True, st)
+    r.cell(f"guard: client staged {STAGE} on C (R-H20-G-1)", st.get("moved") is True and st.get("landedOnUnit") is True, st)
     rep = move(r, c, {"name": name, "slot": "ground", "from": "unit"})
     krep = q(c, {"cmd": "inject_input", "kind": "key", "key": key})
     saved = wait_until(lambda: (layouts(c).get(name) or {}).get("personal"), 5.0)  # the key lands on the next frame
@@ -333,7 +333,7 @@ def h20_6(x, r):
                  "client dialog code": q(c, {"cmd": "coop_dialog_info"}).get("code")})
     r.ev["end"] = x.three()
     r.evidence()
-    r.cell("G: shared_cmd sent", rep.get("ok") is True, rep)
+    r.cell("guard: shared_cmd sent", rep.get("ok") is True, rep)
     if not r.cell("the host does not know soldier_equip" if s1.get("lastFail") == UNKNOWN
                   else "the client's shared_fail count changed", s1.get("failCount") == f0,
                   f"client failCount {f0} -> {s1.get('failCount')}, lastFail {s1.get('lastFail')!r}"):
@@ -424,7 +424,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"G: {rid} exception", False, short(e))
+            r.cell(f"guard: {rid} exception", False, short(e))
         for g in (x.host, x.client):  # a stopped row (or H20-6's red shared-fail box, T0-5) leaves no screen behind
             before = stack(g)
             if (before or [""])[-1] != GEO:

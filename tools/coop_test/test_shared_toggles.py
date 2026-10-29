@@ -5,7 +5,7 @@ toggle_probe, set_toggle_state (staging, THIS machine), open_craft_info. Real in
 left-click on the CraftInfoState weapon icon (after its icons are not hidden, F6581). Boot A (SHARED, the host's
 oxceRememberDisabledCraftWeapons on): H16e-1..H16e-8 (H16e-8 the dogfight, last); Boot B (SEPARATE): H16e-9 (guard row).
 S0 (every row): every switch enabled except the row's start values, client first (S25); both probes equal; R0 = requests.
-RED (1, 1b): H16e-1..8 fail on their named cell (H16e-7 on bothEnabled since 1b, F6649); H16e-9 passes. GREEN: all pass. "G:" cells are
+RED (1, 1b): H16e-1..8 fail on their named cell (H16e-7 on bothEnabled since 1b, F6649); H16e-9 passes. GREEN: all pass. "guard:" cells are
 guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2."""
 
 import json
@@ -94,7 +94,7 @@ def capture(x):
     return cap
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' toggle_probe, stack, list_widgets, dogfight_state and shared_stats (STOP-IF 3)."""
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     print(f"CAPTURE {r.rid} (guard {name}): {json.dumps(capture(x), sort_keys=True, default=str)}", flush=True)
     raise GuardMiss(f"guard {name}")
@@ -291,7 +291,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             r.ev["closeAfterMiss"] = closeall(x)
         except Exception as e:

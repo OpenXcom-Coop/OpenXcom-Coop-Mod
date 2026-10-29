@@ -6,7 +6,7 @@ untouched (research + getOneFree, diary, counter, score, despawn event); H17c-2 
 opens its article, then the ended month's score after both rolled. Boot B (SEPARATE, research sync off: MG-F, QMC-5): H17c-3 (guard row). Row frame: S0
 (research_probe, geo_event_probe, requests R0); poll both every 0.25 s for 3 s while a host window is open; clean =
 settle + 60 game-min at speed 3 + 4 s: requests == R0, checksum equal. RED (commit 1): H17c-1/2 fail on their named cells,
-H17c-3 passes; "G:" cells are guards (CAPTURE on a miss). GREEN: all pass. EVIDENCE then PASS / FAIL per row; ONE run;
+H17c-3 passes; "guard:" cells are guards (CAPTURE on a miss). GREEN: all pass. EVIDENCE then PASS / FAIL per row; ONE run;
 exit 0 only if all pass, else 2.
 """
 
@@ -83,11 +83,11 @@ class Row:
         (self.passed.append(name) if ok else self.fails.append(f"{name}: {detail}"))
         return ok
     def guard(self, name, ok, detail, stop=True):
-        self.cell("G:" + name, ok, detail)
+        self.cell("guard:" + name, ok, detail)
         if stop:
             self.stop_on_miss()
     def stop_on_miss(self):
-        miss = [f.split(":")[1] for f in self.fails if f.startswith("G:")]
+        miss = [f.split(":")[1] for f in self.fails if f.startswith("guard:")]
         if miss:
             capture(self.rid, "guard " + ",".join(miss), self.x)
             self.captured = True
@@ -254,7 +254,7 @@ def run_row(rid, fn, x, results):
         r.cell("exception", False, short(e, 800))
         if not r.captured:
             capture(rid, "exception", x)
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             geo.settle(x.host, x.client)
         except Exception as e:

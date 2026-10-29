@@ -2,7 +2,7 @@
 and its right-click sale goes through the host (`sell`, capped at the host's stores, V-E1); SEPARATE stays local. Spec docs
 rewrite/prompts/w2h16h_random_production_sale.md (e)-(f); TASK 0 rewrite/w2h16h-task0/CONSTANTS.md. Lever (test-only, read-only):
 prodwin_probe; real input (inject_input). Boot A (SHARED): H16h-1..3 (one completion's windows), H16h-4, H16h-5 (last); Boot B
-(SEPARATE): H16h-6 (guard row). RED (commit 1): H16h-1..5 fail on their named cells, H16h-6 passes; GREEN: all pass. "G:" cells
+(SEPARATE): H16h-6 (guard row). RED (commit 1): H16h-1..5 fail on their named cells, H16h-6 passes; GREEN: all pass. "guard:" cells
 are guards (CAPTURE on a miss); never `mismatches`. EVIDENCE then PASS / FAIL per row; ONE run; exit 0 if all pass, else 2."""
 
 import json
@@ -78,7 +78,7 @@ def capture(x, tag):
 
 
 def guard(r, x, name, ok, detail):
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     capture(x, f"{r.rid} (guard {name})")
     raise GuardMiss(f"guard {name}")
@@ -117,7 +117,7 @@ def s0(r, x, tag="S0"):
 
 
 def start(r, x, qty):
-    """The client's real start (ManufactureInfoState; SHARED man_start); G: listed on both (assigned 1, amount qty), funds equal."""
+    """The client's real start (ManufactureInfoState; SHARED man_start); guard: listed on both (assigned 1, amount qty), funds equal."""
     r.ev["start"] = pick(x.client.cmd({"cmd": "manufacture_start", "item": ITEM, "engineers": 1, "qty": qty}), "ok", "sent", "error")
     ok, p = wait_until(lambda: (lambda p: p if all(pick(prod(v) or {}, "assigned", "amount") == {"assigned": 1, "amount": qty}
                                                    for v in p.values()) and p["host"]["funds"] == p["client"]["funds"] else None)(
@@ -167,14 +167,14 @@ def rclick(r, x, gc, item, tag):
 
 
 def funds_equal(r, x, tag):
-    """F = both machines' funds just before the row's first right-click (G: equal)."""
+    """F = both machines' funds just before the row's first right-click (guard: equal)."""
     f = r.ev[tag] = both(x, lambda g: pf(g).get("funds"))
     guard(r, x, tag, f["host"] == f["client"], f"funds {f}")
     return f["host"]
 
 
 def window(r, x):
-    """Both probes every ~0.25 s for 3 s; G: the client's `requests` stays R0 at every sample. Returns the LAST sample."""
+    """Both probes every ~0.25 s for 3 s; guard: the client's `requests` stays R0 at every sample. Returns the LAST sample."""
     t0, reqs, smp = time.time(), [], []
     while time.time() - t0 < WIN_S:
         p, w = both(x, pf), both(x, pw)
@@ -365,7 +365,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             r.ev["settleAfterMiss"] = {"speed0": speed(x, 0), "close": {gc.name: pick(gc.cmd({"cmd": "close_screens"}), "popped",
                                                                                           "refused") for gc in (x.host, x.client)}}

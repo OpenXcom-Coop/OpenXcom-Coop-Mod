@@ -60,7 +60,7 @@ def construct_to_trigger(r, x, rec):
     g2 = bool(cl.get("ok") and wait_until(lambda: peq.screen_up(c), pe.ENTRY_WAIT_S, 0.1))
     rec["spine"] = {"client briefing s": d0 if g0 else None, "host Active": bool(g1), "client close": cl, "screen_up": g2,
                     "host": stack(h), "client": stack(c)}
-    if not r.cell(f"G: {x.tag} spine: the client's {BRF}, the host's phase Active, the client's close_briefing -> its pre-battle screen",
+    if not r.cell(f"guard: {x.tag} spine: the client's {BRF}, the host's phase Active, the client's close_briefing -> its pre-battle screen",
                   g2, rec["spine"]):
         return None
     ok, rec["GUARD"] = bbr.guard(r, x.tag, c, "on its pre-battle screen (a live BattlescapeState under it)")
@@ -69,29 +69,29 @@ def construct_to_trigger(r, x, rec):
     ctx, ev = {}, {}
     s = pe.stage_aliens(h, c, ctx)
     rec["staged"] = {k: s.get(k) for k in ("ids", "liveAfter", "diff", "error")}
-    if not r.cell(f"G: {x.tag} stage_aliens: every live alien dead on both, buckets equal", staged_ok(s), rec["staged"]):
+    if not r.cell(f"guard: {x.tag} stage_aliens: every live alien dead on both, buckets equal", staged_ok(s), rec["staged"]):
         return None
     fx = pe.host_close(h, ev)
     ap = not fx and wait_until(lambda: pe.record(c).get("applied") == 1, pe.END_WAIT_S, 0.1)
     rec["host close"] = {"fails": fx, "client applied": bool(ap), "host": stack(h)}
-    if not r.cell(f"G: {x.tag} host_close -> the host's top {ACS}; the client applies its battle_end within {pe.END_WAIT_S:.0f} s", ap,
+    if not r.cell(f"guard: {x.tag} host_close -> the host's top {ACS}; the client applies its battle_end within {pe.END_WAIT_S:.0f} s", ap,
                   rec["host close"]):
         return None
     pe.ending_host_ok(h, c, ev)
     rec["host ok"] = ho = {k: (ev.get("hostOk") or {}).get(k) for k in ("debriefWithin", "resultSentWithin", "hostStack")}
-    if not r.cell(f"G: {x.tag} ending_host_ok -> the host's DebriefingState, resultSent", ho["debriefWithin"] is not None
+    if not r.cell(f"guard: {x.tag} ending_host_ok -> the host's DebriefingState, resultSent", ho["debriefWithin"] is not None
                   and ho["resultSentWithin"] is not None, ho):
         return None
     top = wait_until(lambda: stack(c)[-1:] == [ACS], pe.CLIENT_LEAVE_S, 0.1)
     bs = q(c, {"cmd": "battle_state"})
     rec["client"] = v = {"stack": stack(c), "has_battle": q(c, {"cmd": "world_state"}).get("has_battle"), "isPreview": bs.get("isPreview")}
-    if not r.cell(f"G: {x.tag} client non-vacuity: top {ACS} within {pe.CLIENT_LEAVE_S} s, no {BS} on its stack, has_battle true, "
+    if not r.cell(f"guard: {x.tag} client non-vacuity: top {ACS} within {pe.CLIENT_LEAVE_S} s, no {BS} on its stack, has_battle true, "
                   f"isPreview false", top and BS not in v["stack"] and v["has_battle"] is True and v["isPreview"] is False, v):
         return None
     rec["stacks before trigger"] = {"host": stack(h), "client": stack(c)}
     rec["trigger"] = rep = bbr.press_chat(c)
     t1 = time.time()
-    if not r.cell(f"G: {x.tag} the client's keyChat sent", rep.get("ok") is True, rep):
+    if not r.cell(f"guard: {x.tag} the client's keyChat sent", rep.get("ok") is True, rep):
         return None
     return t1, lambda: bbr.chat_on(c) is True
 

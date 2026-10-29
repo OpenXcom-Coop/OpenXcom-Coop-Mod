@@ -8,7 +8,7 @@ reading). Boot B (SEPARATE; 49333/49334, lobby 47312): H16d-9 (guard row: the va
 
 Cell rule: ONE click per cell; both machines' order of the list the click targets, read before and polled every 0.25 s for
 2 s. GREEN = the clicker's order unchanged and both machines equal at the window end; RED (named) = the clicker's order
-changed. "G:" cells are guards (red and green): the other machine's order unchanged at every poll, the craft-list click
+changed. "guard:" cells are guards (red and green): the other machine's order unchanged at every poll, the craft-list click
 guard, the equal sort key on the clicker, every screen reached, the 4 own rows of the SHARED training screens (R-H16d-T0-2:
 their arrows swap roster positions at the visible row index, so every cell reads the roster through base_report). The first
 guard miss of a row prints ONE CAPTURE (four orders, stacks, list_widgets of the top state, shared_stats). requests == R0
@@ -110,7 +110,7 @@ class Row:
         self.rid, self.x, self.ev, self.fails, self.passed, self.captured = rid, x, {}, [], [], False
     def cell(self, name, ok, detail=""):
         (self.passed if ok else self.fails).append(name if ok else f"{name}: {detail}")
-        if not ok and name.startswith("G:") and not self.captured:   # FIXTURE-STOP dump (STOP-IF 3)
+        if not ok and name.startswith("guard:") and not self.captured:   # FIXTURE-STOP dump (STOP-IF 3)
             self.captured = True
             capture(self.rid, self.x, name)
         return ok
@@ -130,41 +130,41 @@ def click(gc, bx, by, button="left", mod=None):
     gc.ok(dict({"cmd": "inject_input", "kind": "click", "x": wx, "y": wy, "button": button}, **({"mod": mod} if mod else {})))
     return [bx, by, wx, wy, button, mod]
 def wait_top(r, gc, name, tag, timeout=5.0):
-    r.need(f"G:{tag} {gc.name} {name}", wait_until(lambda: top(gc) == name, timeout), stack(gc))
+    r.need(f"guard:{tag} {gc.name} {name}", wait_until(lambda: top(gc) == name, timeout), stack(gc))
 def one(r, gc, kind, tag):
     st, ws = widgets(gc)
     hits = [w["rect"] for w in ws if w["t"] == kind and w["vis"]]
-    r.need(f"G:{tag} {gc.name} one {kind}", len(hits) == 1, [st, hits])
+    r.need(f"guard:{tag} {gc.name} one {kind}", len(hits) == 1, [st, hits])
     r.ev[f"{tag} {gc.name} {kind} rect"] = hits[0]
     return hits[0]
 def close(r, gc, tag):
     q(gc, {"cmd": "close_screens"})
-    r.need(f"G:{tag} {gc.name} closed", wait_until(lambda: top(gc) == GEO, 5.0), stack(gc))
+    r.need(f"guard:{tag} {gc.name} closed", wait_until(lambda: top(gc) == GEO, 5.0), stack(gc))
 def open_screen(r, gc, tag, screen, top_state, **kv):
     rep = q(gc, dict({"cmd": "open_screen", "screen": screen}, **kv))
-    r.need(f"G:{tag} {gc.name} open_screen {screen}", rep.get("ok"), rep)
+    r.need(f"guard:{tag} {gc.name} open_screen {screen}", rep.get("ok"), rep)
     wait_top(r, gc, top_state, tag)
 def equip_craft(r, gc, tag):
     """basescape (first base) -> EQUIP CRAFT (click_widget; its reply checks SCALE) -> CraftsState; the TextList rect."""
     open_screen(r, gc, tag, "basescape", "BasescapeState")
     st, ws = widgets(gc)
     b = [w["rect"] for w in ws if (w["text"] or "").upper() == "EQUIP CRAFT"]
-    r.need(f"G:{tag} {gc.name} one EQUIP CRAFT", len(b) == 1, [st, b])
+    r.need(f"guard:{tag} {gc.name} one EQUIP CRAFT", len(b) == 1, [st, b])
     cx, cy = b[0][0] + b[0][2] / 2.0, b[0][1] + b[0][3] / 2.0
     cw = q(gc, {"cmd": "click_widget", "match": "EQUIP CRAFT"})
-    r.need(f"G:{tag} {gc.name} scale {SCALE} bands 0", cw.get("ok") and [cw.get("winX"), cw.get("winY")] ==
+    r.need(f"guard:{tag} {gc.name} scale {SCALE} bands 0", cw.get("ok") and [cw.get("winX"), cw.get("winY")] ==
            [int(cx * SCALE), int(cy * SCALE)], cw)
     wait_top(r, gc, "CraftsState", tag)
     return one(r, gc, "TextList", tag)
 def open_alloc(r, gc, kind, tag):
     rep = q(gc, {"cmd": "open_alloc_screen", "kind": kind})
-    r.need(f"G:{tag} {gc.name} open_alloc_screen {kind}", rep.get("ok"), rep)
+    r.need(f"guard:{tag} {gc.name} open_alloc_screen {kind}", rep.get("ok"), rep)
     wait_top(r, gc, ALLOC[kind], tag)
     p = wait_until(lambda: (lambda v: v if v.get("rows") or v.get("error") else None)(
         q(gc, {"cmd": "alloc_screen_probe"})), 3.0) or {}
     rows = [w.get("soldierId") for w in p.get("rows", [])]
     r.ev[f"{tag} {gc.name} {kind} rows [listing, ids]"] = [p.get("listing"), rows]
-    r.need(f"G:{tag} {gc.name} {OWN_ROWS} own rows", p.get("ok") and p.get("listing") == "own" and len(rows) == OWN_ROWS, p)
+    r.need(f"guard:{tag} {gc.name} {OWN_ROWS} own rows", p.get("ok") and p.get("listing") == "own" and len(rows) == OWN_ROWS, p)
     return one(r, gc, "TextList", tag)
 
 # --------------------------------------------------------------------------- cells
@@ -186,7 +186,7 @@ def cell(x, r, name, gc, probe, act, red, shift=False, expect_change=False):
     if shift:   # the latch is cleared after the window (TASK 0: consumed within 0.05 s)
         q(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "none"})
     r.ev[name] = {"before": b, "after": a, "tChange": t_ch}
-    r.cell(f"G:{name}: {o.name} unchanged", not seen, f"{o.name} {b[o.name]} -> {seen}")
+    r.cell(f"guard:{name}: {o.name} unchanged", not seen, f"{o.name} {b[o.name]} -> {seen}")
     if expect_change:   # H16d-9: SEPARATE keeps the vanilla reorder
         return r.cell(name, a[gc.name] != b[gc.name], f"the {gc.name}'s order did not change in SEPARATE: {a[gc.name]}")
     if a[gc.name] != b[gc.name]:
@@ -197,7 +197,7 @@ def sort_cell(x, r, name, gc, row, above, key, red, expect_change=False):
     sol = soldiers(gc, x.base[gc.name]) or []
     vals = sorted(set(str(s.get(key)) for s in sol))
     r.ev[f"{name} key {key}"] = [len(sol), vals]
-    r.need(f"G:{name}: equal {key} key on the {gc.name}", len(sol) > 1 and len(vals) == 1, f"{key} {vals} over {len(sol)}")
+    r.need(f"guard:{name}: equal {key} key on the {gc.name}", len(sol) > 1 and len(vals) == 1, f"{key} {vals} over {len(sol)}")
     bx, by, bw, bh = one(r, gc, "ComboBox", name)
     py = by - POPUP_H if above else by + bh
     box, pick = (bx + bw / 2.0, by + bh / 2.0), (bx + 2 + (bw - 17) / 2.0, py + 3 + 8 * row + 4)
@@ -221,7 +221,7 @@ def h1(x, r):   # craft list: right-click (client, row 1) and shift+right-click 
         cell(x, r, n, gc, crafts, lambda: click(gc, *p, button="right", mod=mod),
              f"the {gc.name}'s craft list reordered on its machine only ({o})", shift=bool(mod))
         click(gc, *p)   # the click guard: a left-click on the same row opens the craft
-        r.need(f"G:{n[:7]} {gc.name} click guard CraftInfoState", wait_until(lambda: top(gc) == "CraftInfoState", 3.0), stack(gc))
+        r.need(f"guard:{n[:7]} {gc.name} click guard CraftInfoState", wait_until(lambda: top(gc) == "CraftInfoState", 3.0), stack(gc))
         close(r, gc, n[:7])
 def h2(x, r):   # soldier-list sort box (client)
     c = x.client
@@ -261,7 +261,7 @@ def h5(x, r):   # psi training: arrow + sort box (client), arrow (host)
     close(r, h, "H16d-5c")
 def h6(x, r):   # research arrows: client row 0 DOWN, host row 1 UP
     h, c = x.host, x.client
-    r.need("G:H16d-6 research [P1, P2] on both", research(h) == x.P and research(c) == x.P,
+    r.need("guard:H16d-6 research [P1, P2] on both", research(h) == x.P and research(c) == x.P,
            {H: research(h), C: research(c), "P": x.P})
     for gc, row, down, n in ((c, 0, True, "H16d-6a client research row 0 DOWN arrow"),
                              (h, 1, False, "H16d-6b host research row 1 UP arrow")):
@@ -272,7 +272,7 @@ def h6(x, r):   # research arrows: client row 0 DOWN, host row 1 UP
         close(r, gc, n[:7])
 def h8(x, r):   # base strip (client) + a command by index (LAST in Boot A)
     h, c = x.host, x.client
-    r.need("G:H16d-8 bases [HostBase, SharedBase2] on both", bases(h) == [HB, SB2] and bases(c) == [HB, SB2],
+    r.need("guard:H16d-8 bases [HostBase, SharedBase2] on both", bases(h) == [HB, SB2] and bases(c) == [HB, SB2],
            {H: bases(h), C: bases(c)})
     open_screen(r, c, "H16d-8a", "basescape", "BasescapeState", base=SB2)
     m = one(r, c, "MiniBaseView", "H16d-8a")
@@ -282,7 +282,7 @@ def h8(x, r):   # base strip (client) + a command by index (LAST in Boot A)
     r.ev["H16d-8a selectedBase"] = {g.name: q(g, {"cmd": "geo_state"}).get("selectedBase") for g in (h, c)}
     close(r, c, "H16d-8a")
     rep = q(c, {"cmd": "base_rename", "base": SB2, "name": RENAME})
-    r.need("G:H16d-8b client base_rename", rep.get("ok"), rep)
+    r.need("guard:H16d-8b client base_rename", rep.get("ok"), rep)
     time.sleep(POLL_S)
     a, want = {g.name: bases(g) for g in (h, c)}, [HB, RENAME]
     r.ev["H16d-8b bases after the client's rename of SharedBase2 (2 s)"] = a
@@ -360,13 +360,13 @@ def run_row(rid, fn, x, results, walls):
     except Miss:
         pass
     except Exception as e:
-        r.cell(f"G:{rid} exception", False, short(e))
+        r.cell(f"guard:{rid} exception", False, short(e))
     for g in (x.host, x.client):   # a stopped row leaves no screen behind
         if top(g) != GEO:
             q(g, {"cmd": "close_screens"})
             wait_until(lambda: top(g) == GEO, 5.0)
     now = {g.name: req(g) for g in (x.host, x.client)}
-    r.cell(f"G:{rid} requests == R0", now == x.R0, f"requests {now} vs R0 {x.R0} (STOP-IF 5)")
+    r.cell(f"guard:{rid} requests == R0", now == x.R0, f"requests {now} vs R0 {x.R0} (STOP-IF 5)")
     walls[rid] = round(time.time() - t0, 1)
     r.report(results)
 def boot(results, walls, tag, rows, up, setup=None):

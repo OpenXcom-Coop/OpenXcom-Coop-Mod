@@ -108,7 +108,7 @@ def drop(r, x):
     gone = wait_until(lambda: coop(h, "coopSession")["coopSession"] is False, 60)
     on62 = gone and wait_until(lambda: stack(h)[-2:] == under + [CS] and q(h, {"cmd": "coop_dialog_info"}).get("code") == 62, W)
     r.ev["drop"] = {"noticed": gone, "host stack": stack(h), "dialog": q(h, {"cmd": "coop_dialog_info"}).get("code")}
-    if not r.cell(f"G: the host's 62 on top over its {under}", on62, r.ev["drop"]):
+    if not r.cell(f"guard: the host's 62 on top over its {under}", on62, r.ev["drop"]):
         capture(r, x, n_hl)
     return bool(on62), n_hl, before
 
@@ -126,7 +126,7 @@ def rejoin_row(r, x, kind, label):
     c2.spawn()
     c2.connect()
     j, t_join = q(c2, {"cmd": "join_tcp", "ip": "127.0.0.1", "port": str(x.coop_port), "player": "ClientPlayer"}), time.time()
-    if not r.cell("G: client2 join_tcp", j.get("ok"), j):
+    if not r.cell("guard: client2 join_tcp", j.get("ok"), j):
         return capture(r, x, n_hl)
     ack = wait_until(lambda: coop(h, "resumeAck")["resumeAck"] is True, W_ACK)
     t_ack = round(time.time() - t_join, 2)
@@ -221,13 +221,13 @@ def shut(r, x, tolerate_host=False):
                 r.cap.setdefault("shutdown", short(e, 300))
 
 
-def run(rid, tag, ports, row, results, walls, separate=False, args=(), task0=FIX):
-    t0, x, r = time.time(), X(tag), pr.Row(rid, task0)
+def run(rid, tag, ports, row, results, walls, separate=False, args=(), baseline=FIX):
+    t0, x, r = time.time(), X(tag), pr.Row(rid, baseline)
     try:
         if boot(r, x, ports, separate):
             row(r, x, *args)
     except Exception as e:
-        r.cell(f"G: {rid} exception", False, short(e))
+        r.cell(f"guard: {rid} exception", False, short(e))
         capture(r, x)
     finally:
         shut(r, x, tolerate_host=getattr(x, "host_died_on_red", False))

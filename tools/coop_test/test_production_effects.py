@@ -8,7 +8,7 @@ repaired); Boot B (SEPARATE): H16g-7. Row frame: S0 (both probes agree) -> stagi
 probe shows the row's change) -> hold (host SoldiersState: no heartbeat, the host's clock stops) -> window (both probes every
 0.25 s for 3 s; the row's cells read at the FIRST sample) -> release (speed 0 on both, host close_screens, drain both; on a
 row whose cells passed, the client's `requests` stays R0 for 4 s). RED (commit 1): H16g-1..6 fail on their named cells,
-H16g-7 passes; GREEN: all pass. "G:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE then
+H16g-7 passes; GREEN: all pass. "guard:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE then
 PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -111,7 +111,7 @@ def capture(x, tag):
 
 
 def guard(r, x, name, ok, detail):
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     capture(x, f"{r.rid} (guard {name})")
     raise GuardMiss(f"guard {name}")
@@ -157,7 +157,7 @@ def s0(r, x, tag="S0"):
 
 
 def listed(r, x, names, assigned, tag):
-    """G: every start is listed on both machines with its assigned engineers (and both funds equal)."""
+    """guard: every start is listed on both machines with its assigned engineers (and both funds equal)."""
     def both():
         ph, pc = pf(x.host), pf(x.client)
         ok = all((prod(p, n) or {}).get("assigned") == assigned for p in (ph, pc) for n in names) and ph.get("funds") == pc.get("funds")
@@ -195,7 +195,7 @@ def roll(r, x, pred, what):
 
 
 def window(r, x, soldiers=False):
-    """Both probes every ~0.25 s for 3 s; G: the client's `requests` stays R0 throughout. Returns the FIRST sample (the
+    """Both probes every ~0.25 s for 3 s; guard: the client's `requests` stays R0 throughout. Returns the FIRST sample (the
     row's cells read there, change 7); `soldiers` adds both transform_probe to it."""
     h, c, t0, n, reqs, first = x.host, x.client, time.time(), 0, [], None
     while time.time() - t0 < WIN_S:
@@ -415,7 +415,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             r.ev["settleAfterMiss"] = {"speed0": speed(x, 0), "close": {gc.name: pick(gc.cmd({"cmd": "close_screens"}), "popped",
                                                                                           "refused") for gc in (x.host, x.client)}}

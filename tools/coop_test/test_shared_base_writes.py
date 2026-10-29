@@ -181,7 +181,7 @@ def set_armor(r, x, sender, sid, arm, tag):
     rep = q(sender, {"cmd": "soldier_armor", "soldier_id": sid, "armor": arm, "base": HB})
     got, s = converge(lambda: armor(x.host, sid) == arm and armor(x.client, sid) == arm)
     r.ev[tag] = [rep, s]
-    return r.cell(f"G: {tag} on both", rep.get("moved") is True and got, [rep, armor(x.host, sid), armor(x.client, sid)])
+    return r.cell(f"guard: {tag} on both", rep.get("moved") is True and got, [rep, armor(x.host, sid), armor(x.client, sid)])
 
 
 def h20b_1(x, r):
@@ -235,8 +235,8 @@ def h20b_3(x, r):
     x.first["C2"] = "Hicks B" if nh == nc == "Hicks B" else x.first["C2"]
     r.ev.update({"soldier_rename": rep, "wait s": s, "host stack at change": top, "end": x.three()})
     r.evidence()
-    r.cell("G: client soldier_rename sent", rep.get("ok") is True, rep)
-    r.cell("G: the host's C2 'Hicks B' within W with its InventoryState on top", got and top[-1:] == ["InventoryState"],
+    r.cell("guard: client soldier_rename sent", rep.get("ok") is True, rep)
+    r.cell("guard: the host's C2 'Hicks B' within W with its InventoryState on top", got and top[-1:] == ["InventoryState"],
            [names(h).get(c2), top])
     r.cell("the host's base-screen OK put C2's old name back (no mark refresh)", nh == nc == "Hicks B", f"host {nh!r} client {nc!r}")
 
@@ -262,7 +262,7 @@ def h20b_4(x, r):
         close_soldier_screen(r, h)
     r.ev.update({"host slot0": hs, "wait s": s, "end": x.three()})
     r.evidence()
-    if not r.cell("G: the host's slot 0 readable on its screen", hs is not None, hs):
+    if not r.cell("guard: the host's slot 0 readable on its screen", hs is not None, hs):
         return
     if not r.cell("the client's layout template never reached the host", bool(hs[0]), f"host global {hs[0]}"):
         return
@@ -275,12 +275,12 @@ def h20b_5(x, r):
            .get("items"))
     r.ev.update({"start": x.three(), "sky items (client)": sky, "host read before": bso(h, op="read", index=0)})
     rep = q(c, {"cmd": "open_craft_equipment", "base": HB, "craft_id": x.sky})
-    if not r.cell("G: client open_craft_equipment SKY", rep.get("ok") and rep.get("craftId") == x.sky
+    if not r.cell("guard: client open_craft_equipment SKY", rep.get("ok") and rep.get("craftId") == x.sky
                   and wait_until(lambda: stack(c)[-1:] == ["CraftEquipmentState"], 30), [rep, stack(c)]):
         return
     save = bso(c, op="loadout_save", index=0)
     ok = q(c, {"cmd": "craft_equipment_ok"})
-    r.cell("G: client craft_equipment_ok", ok.get("ok") and wait_until(lambda: "CraftEquipmentState" not in stack(c), 30),
+    r.cell("guard: client craft_equipment_ok", ok.get("ok") and wait_until(lambda: "CraftEquipmentState" not in stack(c), 30),
            [ok, stack(c)])
     cr = bso(c, op="read", index=0)
     _v, s = converge(lambda: (lambda hr: [hr.get("loadout"), hr.get("loadoutName")])(bso(h, op="read", index=0))
@@ -354,7 +354,7 @@ def h20b_8(x, r):
     r.ev["setup key 115"] = [sel, key(c, kk.get("keyInvSavePersonalEquipment")),
                              converge(lambda: personal(c, cid)[1] == A2, KEY_W)]
     close_soldier_screen(r, c)
-    if not (r.cell("G: the client's personal of C saved with POWER", personal(c, cid)[1] == A2 and personal(c, cid)[0],
+    if not (r.cell("guard: the client's personal of C saved with POWER", personal(c, cid)[1] == A2 and personal(c, cid)[0],
                    personal(c, cid)) and set_armor(r, x, c, cid, A1, "setup C PERSONAL")):
         return
     b0 = snap8(x)
@@ -403,9 +403,9 @@ def h20b_9(x, r):
     r.ev["setup"] = {"select": sel, "belt": belt, "key 115": k115, "saved": saved, "drop": drop}
     synced = converge(lambda: personal(c, hid) == personal(h, hid))
     r.ev["setup"]["client record of H"] = [personal(c, hid), synced]
-    if not (r.cell("G: the host's staging (grenade on, key 115, grenade off)", sel.get("ok") and belt.get("moved") is True
+    if not (r.cell("guard: the host's staging (grenade on, key 115, grenade off)", sel.get("ok") and belt.get("moved") is True
                    and saved[0] and drop.get("moved") is True, r.ev["setup"])
-            and r.cell("G: the client's record of H's personal == the host's", synced[0], personal(c, hid))
+            and r.cell("guard: the client's record of H's personal == the host's", synced[0], personal(c, hid))
             and set_armor(r, x, h, hid, A1, "setup H PERSONAL")):
         r.evidence()
         return
@@ -458,7 +458,7 @@ def h20b_10(x, r):
     r.ev.update({"global 0 before": g0, "rename": ren, "ctrl1": k, "loadout_save": save, "read after": rd, "name after": nm,
                  "shared_stats before": s0, "shared_stats after": s1})
     r.evidence()
-    r.cell("G: client ClientBase craft equipment screen open / closed", ces and ok.get("ok") and closed, [rep, ok, stack(c)])
+    r.cell("guard: client ClientBase craft equipment screen open / closed", ces and ok.get("ok") and closed, [rep, ok, stack(c)])
     r.cell("the client's rename did not change its name", ren.get("soldierName") == "Ripley S" and nm == "Ripley S", [ren, nm])
     r.cell("the client's global 0 did not change", g0 is not None and not g0[0] and k["saved"], [g0, k])
     r.cell("the client's loadout 0 did not change", sky.get("items") and rd.get("loadout") == sky.get("items"),
@@ -484,7 +484,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"G: {rid} exception", False, h20.short(e))
+            r.cell(f"guard: {rid} exception", False, h20.short(e))
         for g in (x.host, x.client):  # a stopped row (or H20b-6's green refusal box, CoopState 556) leaves no screen behind
             before = stack(g)
             if (before or [""])[-1] != GEO:

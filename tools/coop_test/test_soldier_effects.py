@@ -8,7 +8,7 @@ recipe (guard: host day + 1, month unchanged). window = both probes every 0.25 s
 the client's requests == R0. hold (Part C) = host SoldiersState the moment its craft is gone; release = close_screens.
 clean = wait_resync_clear, drain client then host, 4 s after the window / release: requests == R0 through it is a verdict
 when the replica matched at the first sample, else recorded (a repair restream on the red build, never a verdict).
-RED: H18b-1..6 fail on the replica's cells, H18b-7 passes; GREEN: all pass. "G:" = guard (a miss prints one CAPTURE).
+RED: H18b-1..6 fail on the replica's cells, H18b-7 passes; GREEN: all pass. "guard:" = guard (a miss prints one CAPTURE).
 EVIDENCE then PASS / FAIL per row; every row runs after a failure; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -117,7 +117,7 @@ class Row:
         return bool(ok)
 
     def need(self, name, ok, detail=""):
-        if not self.cell("G:" + name, ok, detail):
+        if not self.cell("guard:" + name, ok, detail):
             capture(self.rid, self.x, name)
             raise Miss(name)
 

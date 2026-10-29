@@ -49,8 +49,8 @@ RED_R1 = ("named red: TASK 0 2/2 the host died 1.56-1.86 s after the client's fo
 
 class Row(pr.Row):
     """pr.Row with one CAPTURE line per failed construction, printed after the EVIDENCE line"""
-    def __init__(self, rid, task0):
-        super().__init__(rid, task0)
+    def __init__(self, rid, baseline):
+        super().__init__(rid, baseline)
         self.caps = []
 
     def report(self, results):
@@ -127,7 +127,7 @@ def host_nv(r, x, rec):
                        "chatMenuExists": [bs.get("chatMenuExists"), q(x.client, {"cmd": "battle_state"}).get("chatMenuExists")]}
     ok = (v["stack"][-1:] == [BRF] and BS not in v["stack"] and v["isPreview"] is False and v["has_battle"] is True
           and v["chatMenuExists"] == [True, True])
-    return r.cell(f"G: {x.tag} host non-vacuity: top {BRF}, no {BS} on its stack, isPreview false, has_battle true, chatMenuExists on "
+    return r.cell(f"guard: {x.tag} host non-vacuity: top {BRF}, no {BS} on its stack, isPreview false, has_battle true, chatMenuExists on "
                   f"both", ok, v)
 
 
@@ -140,7 +140,7 @@ def boot_skirmish(r, x, rec, ports, pre_ok=None):
         session.bring_up_to_briefings(x.host, x.client, {}, seat_count=2, pre_ok=pre_ok)
         return True
     except Exception as e:
-        return r.cell(f"G: {x.tag} boot", False, short(e, 600))
+        return r.cell(f"guard: {x.tag} boot", False, short(e, 600))
 
 
 def boot_shared(r, x, rec):
@@ -148,7 +148,7 @@ def boot_shared(r, x, rec):
     tmp = pr.Row("boot", None)
     ok = prj.boot(tmp, x, PORTS_R1, False)
     rec["setup"] = tmp.ev.get("setup " + x.tag)
-    return ok or r.cell(f"G: {x.tag} boot", False, [tmp.fails, tmp.cap])
+    return ok or r.cell(f"guard: {x.tag} boot", False, [tmp.fails, tmp.cap])
 
 
 def c1(r, x, rec):
@@ -156,7 +156,7 @@ def c1(r, x, rec):
     h, c = x.host, x.client
     both = wait_until(lambda: BS in stack(c) and stack(c)[-1:] == [BRF], W_BATTLE, 0.5)
     rec["client"] = stack(c)
-    if not r.cell(f"G: {x.tag} the client's {BRF} over its {BS} within {W_BATTLE:.0f} s", both, rec["client"]):
+    if not r.cell(f"guard: {x.tag} the client's {BRF} over its {BS} within {W_BATTLE:.0f} s", both, rec["client"]):
         return None
     if not host_nv(r, x, rec):
         return None
@@ -166,7 +166,7 @@ def c1(r, x, rec):
     rec["stacks before trigger"] = {"host": stack(h), "client": stack(c)}
     rec["trigger"] = rep = press_chat(h)
     t1 = time.time()
-    if not r.cell(f"G: {x.tag} the host's keyChat sent", rep.get("ok") is True, rep):
+    if not r.cell(f"guard: {x.tag} the host's keyChat sent", rep.get("ok") is True, rep):
         return None
     return t1, lambda: chat_on(h) is True
 
@@ -177,12 +177,12 @@ def r1(r, x, rec):
     try:
         session.bring_up_shared_mixed_battle(x.js, None, to_tactical=False)
     except Exception as e:
-        r.cell(f"G: {x.tag} bring_up_shared_mixed_battle", False, short(e, 600))
+        r.cell(f"guard: {x.tag} bring_up_shared_mixed_battle", False, short(e, 600))
         return None
     both = wait_until(lambda: BS in stack(c) and BRF in stack(c), W_BATTLE, 0.5)
     acc = any(ACCEPT in ln for ln in pr.log_lines(c))
     rec["client"] = stack(c)
-    if not r.cell(f"G: {x.tag} the client holds {BS} and {BRF} within {W_BATTLE:.0f} s, CL `{ACCEPT}`", both and acc, [rec["client"], acc]):
+    if not r.cell(f"guard: {x.tag} the client holds {BS} and {BRF} within {W_BATTLE:.0f} s, CL `{ACCEPT}`", both and acc, [rec["client"], acc]):
         return None
     if not host_nv(r, x, rec):
         return None
@@ -190,7 +190,7 @@ def r1(r, x, rec):
     rec["stacks before trigger"] = {"host": stack(h), "client": stack(c)}
     rec["trigger"] = rep = q(c, {"cmd": "force_resync"})
     t1 = time.time()
-    if not r.cell(f"G: {x.tag} the client's force_resync (role replica, sent true)", rep.get("role") == "replica" and rep.get("sent") is True,
+    if not r.cell(f"guard: {x.tag} the client's force_resync (role replica, sent true)", rep.get("role") == "replica" and rep.get("sent") is True,
                   rep):
         return None
     return t1, lambda: pr.in_order(pr.log_lines(c, x.n_cl), sq.CL_ADOPT)
@@ -202,7 +202,7 @@ def r1_after(r, x, rec):
     rec["CL_ADOPT"] = pr.in_order(pr.log_lines(x.client, x.n_cl), sq.CL_ADOPT)
     time.sleep(0.5)
     rec["client fate"] = {"alive": pr.alive(x.client), "stack": stack(x.client) if pr.alive(x.client) else "<dead>"}
-    r.cell(f"G: {x.tag} HL `{STREAM}` and no streamer-busy drop", any(STREAM in ln for ln in hl) and not any(BUSY in ln for ln in hl), hl)
+    r.cell(f"guard: {x.tag} HL `{STREAM}` and no streamer-busy drop", any(STREAM in ln for ln in hl) and not any(BUSY in ln for ln in hl), hl)
 
 
 def shut(r, x, tolerate):
@@ -219,9 +219,9 @@ def shut(r, x, tolerate):
                 r.cell(f"{x.tag} shutdown ({gc.name})", False, short(e, 300))
 
 
-def count_row(rid, base, task0, boot, construct, watched, results, walls, after=None, always=()):
+def count_row(rid, base, baseline, boot, construct, watched, results, walls, after=None, always=()):
     """N fresh boots: boot, construct up to the trigger, watch `watched` (host / client); a death is one count"""
-    t0, r, deaths, recs = time.time(), Row(rid, task0), 0, []
+    t0, r, deaths, recs = time.time(), Row(rid, baseline), 0, []
     for k in range(1, N + 1):
         x, rec, died, n_f, tk = prj.X(f"{base}{k}"), {"boot": f"{base}{k}"}, False, len(r.fails), time.time()
         before = pr.crash_names()
@@ -237,7 +237,7 @@ def count_row(rid, base, task0, boot, construct, watched, results, walls, after=
                 if after:
                     after(r, x, rec)
         except Exception as e:
-            r.cell(f"G: {x.tag} exception", False, short(e))
+            r.cell(f"guard: {x.tag} exception", False, short(e))
         if died or len(r.fails) > n_f:
             r.caps.append((x.tag, capture(x, rec.get("CRASH") or pr.crash_info(before))))
         shut(r, x, set(always) | ({watched} if died else set()))

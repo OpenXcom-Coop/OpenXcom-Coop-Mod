@@ -103,9 +103,9 @@ def capture(x, n_cl, crash, bl=None):
     return out
 
 class Row(h20.Row):
-    def __init__(self, rid, task0):
+    def __init__(self, rid, baseline):
         super().__init__(rid, h20.X(None, None))
-        self.ev = {"TASK 0": task0}
+        self.ev = {"baseline": baseline}
 
     def report(self, results):
         self.evidence()
@@ -201,7 +201,7 @@ def row(r, x, js, mode):
     """mode G: the client's preview + the client's force_resync; 1: the host's preview + the HOST's; 2: the host's + the client's"""
     pg, trig = (x.client, x.client) if mode == "G" else (x.host, x.host if mode == "1" else x.client)
     ok, r.ev[f"PV({pg.name})"] = pv(pg, x.keys[pg.name])
-    if not r.cell(f"G: PV({pg.name}) reached the preview", ok, r.ev[f"PV({pg.name})"]):
+    if not r.cell(f"guard: PV({pg.name}) reached the preview", ok, r.ev[f"PV({pg.name})"]):
         return r.cap.update(capture(x, 0, []))
     req0 = q(x.host, {"cmd": "shared_resync_stats"}).get("requests") or 0
     n_cl, before, t1 = log_size(x.client), crash_names(), time.time()
@@ -276,11 +276,11 @@ def run_boot(tag, ports, rows, modes, results, walls):
         t = time.time()
         try:
             if js is not None and not alive(x.client):
-                r.cell("G: the boot's client is alive before the row", False, "dead")
+                r.cell("guard: the boot's client is alive before the row", False, "dead")
             elif js is not None:
                 row(r, x, js, mode)
         except Exception as e:
-            r.cell(f"G: {r.rid} exception", False, short(e))
+            r.cell(f"guard: {r.rid} exception", False, short(e))
         walls[r.rid] = r.ev["wall s"] = round(time.time() - t, 1)
     if js is not None:
         shut(js, rows[-1], tag, not alive(x.client))

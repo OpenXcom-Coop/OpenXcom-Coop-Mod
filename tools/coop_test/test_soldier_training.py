@@ -5,7 +5,7 @@ training, id 3 rtwh, id 4 healthMissing 30, rolls the month (4 host day rolls, F
 anytimePsiTraining on, id 5 psi at 0, id 6 psi at 100 (finishes on the first roll) -> H18-5, H18-6. Boot B
 (SEPARATE): H18-7 guard row. Levers client first (S25). Window: both probes every 0.5 s for 3 s from the hit, cells at its
 end, the client's requests == S0. Clean: wait_resync_clear, drain client then host, 4 s, requests == S0.
-RED: H18-1..6 fail on the client's cells, H18-7 passes; GREEN: all pass. "G:" = guard (a phase miss prints one CAPTURE).
+RED: H18-1..6 fail on the client's cells, H18-7 passes; GREEN: all pass. "guard:" = guard (a phase miss prints one CAPTURE).
 EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -193,9 +193,9 @@ def roster_cell(r, ph):
 def row_1(r, ph):
     h, c = ph["end"]["host"], ph["end"]["client"]
     r.ev["(psiSkill, improvement) [host, client]"] = {i: [psi(h[i]), psi(c[i])] for i in IDS}
-    r.cell("G:hostRolled", all(16 <= psi(h[i])[0] <= 24 and psi(h[i])[0] == psi(h[i])[1] for i in IDS),
+    r.cell("guard:hostRolled", all(16 <= psi(h[i])[0] <= 24 and psi(h[i])[0] == psi(h[i])[1] for i in IDS),
            {i: psi(h[i]) for i in IDS})
-    r.cell("G:clientMoved", all(c[i]["stats"]["psiSkill"] != 0 for i in IDS), {i: psi(c[i]) for i in IDS})
+    r.cell("guard:clientMoved", all(c[i]["stats"]["psiSkill"] != 0 for i in IDS), {i: psi(c[i]) for i in IDS})
     diff = [i for i in IDS if psi(h[i]) != psi(c[i])]
     r.cell("psi", not diff, f"the replica rolled its own psi training: ids {diff} differ")
     roster_cell(r, ph)
@@ -203,7 +203,7 @@ def row_2(r, ph):
     h, c, s0 = ph["end"]["host"], ph["end"]["client"], ph["S0"]
     r.ev["physical ids 1-2 [S0 host, host, S0 client, client]"] = {
         i: [phys(s0["host"][i]), phys(h[i]), phys(s0["client"][i]), phys(c[i])] for i in (1, 2)}
-    r.cell("G:hostTrained", all(sum(phys(h[i]).values()) > sum(phys(s0["host"][i]).values()) for i in (1, 2)),
+    r.cell("guard:hostTrained", all(sum(phys(h[i]).values()) > sum(phys(s0["host"][i]).values()) for i in (1, 2)),
            "host physical sum not above S0")
     same0 = all(phys(c[i]) == phys(s0["client"][i]) for i in (1, 2))
     r.cell("physical", all(phys(c[i]) == phys(h[i]) for i in (1, 2)),
@@ -213,7 +213,7 @@ def one(sid, name, get, gname, guard, red, red_txt):
     def row(r, ph):  # noqa: E306
         h, c = get(ph["end"]["host"][sid]), get(ph["end"]["client"][sid])
         r.ev[f"id {sid} {name} [host, client]"] = [h, c]
-        r.cell("G:" + gname, guard(h), h)
+        r.cell("guard:" + gname, guard(h), h)
         r.cell(name, c == h, red_txt if c == red else f"client {c}")
     return row
 row_3 = one(3, "(training, rtwh)", lambda s: [s["training"], s["rtwh"]], "hostReturned", lambda v: v == [True, False],
@@ -227,9 +227,9 @@ def row_6(r, ph):
     r.ev["id 6 psiTraining [host, client]"] = [h[6]["psiTraining"], c[6]["psiTraining"]]
     r.ev["improvement ids 1-8 [host, client]"] = [[h[i]["improvement"] for i in IDS], [c[i]["improvement"] for i in IDS]]
     r.ev["hostTopAtHit"], r.ev["clientTop_s"] = ph["hostTopAtHit"], ph["clientTop_s"]
-    r.cell("G:hostFinished", h[6]["psiTraining"] is False, h[6]["psiTraining"])
-    r.cell("G:hostWindow", ph["hostTopAtHit"] == [TFS], ph["hostTopAtHit"])
-    r.cell("G:clientWindow", ph["clientTop_s"] is not None and ph["clientTop_s"] <= WIN_S, ph["clientTop_s"])
+    r.cell("guard:hostFinished", h[6]["psiTraining"] is False, h[6]["psiTraining"])
+    r.cell("guard:hostWindow", ph["hostTopAtHit"] == [TFS], ph["hostTopAtHit"])
+    r.cell("guard:clientWindow", ph["clientTop_s"] is not None and ph["clientTop_s"] <= WIN_S, ph["clientTop_s"])
     r.cell("psiTraining", c[6]["psiTraining"] == h[6]["psiTraining"],
            f"the replica's id 6 psiTraining {c[6]['psiTraining']}")
     roster_cell(r, ph)
@@ -253,7 +253,7 @@ def run_phase(tag, fn, rows, x, results):
             except Exception as e:
                 r.cell("exception", False, short(e, 800))
         for m in ph["miss"]:
-            r.cell("G:phase " + tag, False, m)
+            r.cell("guard:phase " + tag, False, m)
         r.report(results)
 
 def boot_miss(tag, e, rids, results):
@@ -316,7 +316,7 @@ def boot_b(results, walls):
         try:
             row_7(ph, x, r)
         except Miss:
-            r.cell("G:" + ph["miss"][-1].split(":")[0], False, ph["miss"][-1])
+            r.cell("guard:" + ph["miss"][-1].split(":")[0], False, ph["miss"][-1])
         except Exception as e:
             r.cell("exception", False, short(e, 800))
             capture("H18-7", x, "exception")

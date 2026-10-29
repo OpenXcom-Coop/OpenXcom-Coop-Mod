@@ -5,7 +5,7 @@ gym place + ONE psi-lab place at (0, 3), index 9. Boot A (SHARED): H16b-1..7, 9,
 S0 = flags off, wounds healed, seats via the craft_assign lever, both equal, requests R0; clicks at the alloc_screen_probe
 row centre (ctrl: mod ctrl then modstate none, F6180); keys z 122 / x 120; poll = both machines' flags + seats every 0.25 s
 for 3 s, cells at its end; close = OK until GeoscapeState, requests == R0 (STOP-IF 5). RED: all rows but H16b-8 fail on
-their named cells; GREEN: all pass. "G:" = guard (red and green; a miss prints one CAPTURE). ONE run; exit 0 iff all pass.
+their named cells; GREEN: all pass. "guard:" = guard (red and green; a miss prints one CAPTURE). ONE run; exit 0 iff all pass.
 """
 
 import json
@@ -78,7 +78,7 @@ class Row:
         self.R0, self.popups, self.captured = {}, [], False
     def cell(self, name, ok, detail=""):
         (self.passed if ok else self.fails).append(name if ok else f"{name}: {detail}")
-        if not ok and name.startswith("G:") and not self.captured:   # FIXTURE-STOP dump (STOP-IF 3)
+        if not ok and name.startswith("guard:") and not self.captured:   # FIXTURE-STOP dump (STOP-IF 3)
             self.captured = True
             capture(self.rid, self.x, self.ids, name)
         return ok
@@ -102,14 +102,14 @@ def seat_to(x, want, timeout=6.0):
     both = lambda a, b: all(a.get(i) == w and b.get(i) == w for i, w in want.items())  # noqa: E731
     return wait_until(lambda: both(crafts(h), crafts(c)), timeout, 0.2)
 def stage(x, r, tag, want):
-    """set_soldier_training {id: {field: value}} on the client, then the host (S25); G: both machines hold it."""
+    """set_soldier_training {id: {field: value}} on the client, then the host (S25); guard: both machines hold it."""
     for gc in (x.client, x.host):
         for i, kv in want.items():
             lever(gc, i, **kv)
     f = r.ev[tag] = {gc.name: flags(gc, list(want)) for gc in (x.host, x.client)}
     k = {"training": "tr", "rtwh": "rtwh", "psiTraining": "psi", "psiSkill": "psiSkill"}
     bad = [(n, i, f2) for n in f for i, kv in want.items() for f2, v in kv.items() if f[n][i][k[f2]] != v]
-    r.need(f"G:{tag} staged", not bad, f"(machine, id, field) {bad}")
+    r.need(f"guard:{tag} staged", not bad, f"(machine, id, field) {bad}")
 def s0(x, r, seats=None, extra=None, tag="S0"):
     h, c = x.host, x.client
     want = {i: dict({"training": False, "rtwh": False, "psiTraining": False}, **(extra or {}).get(i, {})) for i in x.ids}
@@ -123,22 +123,22 @@ def s0(x, r, seats=None, extra=None, tag="S0"):
     seated = seat_to(x, seats)
     f, k = {gc.name: flags(gc, x.ids) for gc in (h, c)}, {gc.name: crafts(gc) for gc in (h, c)}
     r.ev[tag] = {"flags": f, "crafts": k}
-    r.need(f"G:{tag} equal", seated and f[H] == f[C] and k[H] == k[C] and all(k[H][i] == w for i, w in seats.items()),
+    r.need(f"guard:{tag} equal", seated and f[H] == f[C] and k[H] == k[C] and all(k[H][i] == w for i, w in seats.items()),
            f"seated {seated} flags {f} crafts {k}")
     r.R0 = {gc.name: req(gc) for gc in (h, c)}
 def open_screen(gc, r, kind, tag):
     gc.ok({"cmd": "open_alloc_screen", "kind": kind} if kind in ("martial", "psi") else
           {"cmd": "open_screen", "screen": kind, "craft_id": 1})
-    r.need(f"G:{tag} {gc.name} {SCREEN[kind]}", wait_until(lambda: top(gc) == SCREEN[kind], 3.0), stack(gc))
+    r.need(f"guard:{tag} {gc.name} {SCREEN[kind]}", wait_until(lambda: top(gc) == SCREEN[kind], 3.0), stack(gc))
     p = wait_until(lambda: (lambda q: q if q.get("rows") or q.get("error") else None)(aprobe(gc)), 2.0) or aprobe(gc)
-    r.need(f"G:{tag} {gc.name} probe", p.get("ok") and p.get("kind") == kind and p.get("rows"), p)   # STOP-IF 9
+    r.need(f"guard:{tag} {gc.name} probe", p.get("ok") and p.get("kind") == kind and p.get("rows"), p)   # STOP-IF 9
     r.ev[f"{tag} {gc.name} open [listing, [row, id, status]]"] = [
         p.get("listing"), [[w.get("row"), w.get("soldierId"), w.get("status")] for w in p["rows"]]]
     return p
 def click(gc, r, sid, tag, ctrl=False):
     p = aprobe(gc)
     row = [w for w in p.get("rows", []) if w.get("soldierId") == sid]
-    r.need(f"G:{tag} {gc.name} row of {sid}", row and "wx" in row[0], p)
+    r.need(f"guard:{tag} {gc.name} row of {sid}", row and "wx" in row[0], p)
     gc.ok(dict({"cmd": "inject_input", "kind": "click", "x": row[0]["wx"], "y": row[0]["wy"]}, **({"mod": "ctrl"} if ctrl else {})))
     if ctrl:
         gc.ok({"cmd": "inject_input", "kind": "modstate", "mod": "none"})
@@ -152,9 +152,9 @@ def close(x, r, gc, tag):
             r.popups.append([tag, gc.name, gc.cmd({"cmd": "screen_state"}).get("title")])
         gc.cmd({"cmd": "coop_dialog_back"} if t == POP else {"cmd": "click_widget", "match": "OK"})
         wait_until(lambda: top(gc) != t, 1.0)
-    r.need(f"G:{tag} {gc.name} closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
+    r.need(f"guard:{tag} {gc.name} closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
     now = {m.name: req(m) for m in (x.host, x.client)}
-    r.need(f"G:{tag} requests", now == r.R0, f"requests {now} vs R0 {r.R0} (STOP-IF 5)")
+    r.need(f"guard:{tag} requests", now == r.R0, f"requests {now} vs R0 {r.R0} (STOP-IF 5)")
 def step(x, r, tag, gc, ids, kind=None, sid=None, sym=None, ctrl=False, done=True):
     """[Open `kind` on gc;] click `sid` (ctrl) or press `sym`; poll `ids` 3 s; e[H] / e[C] = the poll end, e["top"] /
     e["rows"] = gc's top state and rows [id, status] there; close the opened screen when `done`. Returns (open probe, e)."""
@@ -182,8 +182,8 @@ def row_1(x, r):   # crew-armor ctrl-click OFF (client)
     p, e = step(x, r, "ctrl", c, [C1], "craft_armor", sid=C1, ctrl=True, done=False)
     st, da = next((s for i, s in e["rows"] if i == C1), None), ss(h)["applyCount"] - a0
     r.ev["client C1 status, host applyCount delta"] = [st, da]
-    r.cell("G:rows own", ids_of(p) == x.C, ids_of(p))
-    r.cell("G:ctrl seen, client seat, cell", [e["top"], e[C][C1]["craft"], st] == [SCREEN["craft_armor"], -1, "NONE"],
+    r.cell("guard:rows own", ids_of(p) == x.C, ids_of(p))
+    r.cell("guard:ctrl seen, client seat, cell", [e["top"], e[C][C1]["craft"], st] == [SCREEN["craft_armor"], -1, "NONE"],
            [e["top"], e[C][C1], st])
     r.cell("seat", [e[H][C1]["craft"], da] == [-1, 1], "the client's crew-armor seat stayed on its machine (S-9a): "
            f"host C1 craft {e[H][C1]['craft']}, host applyCount +{da}")
@@ -192,22 +192,22 @@ def row_2(x, r):   # crew-armor ctrl-click ON (client), OFF (host)
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
     s0(x, r, seats={i: (-1 if i == C1 else 1) for i in x.ids})
     _p, e = step(x, r, "(1)", c, [C1], "craft_armor", sid=C1, ctrl=True)
-    r.cell("G:(1) client seat", e[C][C1]["craft"] == 1, e[C][C1])
+    r.cell("guard:(1) client seat", e[C][C1]["craft"] == 1, e[C][C1])
     r.cell("(1)", e[H][C1]["craft"] == 1, f"the client's crew-armor seat stayed on its machine (S-9a): host C1 craft {e[H][C1]['craft']}")
     p, e = step(x, r, "(2)", h, [H1], "craft_armor", sid=H1, ctrl=True)
-    r.cell("G:(2) host rows own, host seat", [ids_of(p), e[H][H1]["craft"]] == [x.H, -1], [ids_of(p), e[H][H1]])
+    r.cell("guard:(2) host rows own, host seat", [ids_of(p), e[H][H1]["craft"]] == [x.H, -1], [ids_of(p), e[H][H1]])
     r.cell("(2)", e[C][H1]["craft"] == -1, f"the host's crew-armor seat stayed on its machine (S-9a): client H1 craft {e[C][H1]['craft']}")
 def row_3(x, r):   # crew hotkeys z / x (client); crew C1, C2 only (roster positions < 4, F6169)
     c, keep = x.client, [x.C1, x.C2]
     s0(x, r, seats={i: (1 if i in keep else -1) for i in x.ids})
     pos = {i: x.ids.index(i) for i in keep}
-    r.cell("G:roster positions", all(v < min(len(x.C), len(x.H)) for v in pos.values()), pos)
+    r.cell("guard:roster positions", all(v < min(len(x.C), len(x.H)) for v in pos.values()), pos)
     open_screen(c, r, "craft_soldiers", "open")
     for name, sym, site in (("z", KEY_Z, "S-9c"), ("x", KEY_X, "S-9b")):
         if name == "x":
-            r.need("G:restage", seat_to(x, {i: 1 for i in keep}), "C1, C2 back on craft 1")
+            r.need("guard:restage", seat_to(x, {i: 1 for i in keep}), "C1, C2 back on craft 1")
         _p, e = step(x, r, name, c, keep, sym=sym)
-        r.cell(f"G:{name} client seats, alive", all(e[C][i]["craft"] == -1 for i in keep) and pong(c)
+        r.cell(f"guard:{name} client seats, alive", all(e[C][i]["craft"] == -1 for i in keep) and pong(c)
                and e["top"] == SCREEN["craft_soldiers"], [e[C], e["top"]])
         r.cell(name, all(e[H][i]["craft"] == -1 for i in keep),
                f"the crew hotkey stayed local ({site}): host C1, C2 craft {[e[H][i]['craft'] for i in keep]}")
@@ -217,27 +217,27 @@ def row_4(x, r):   # martial click, own rows, both directions (A1.5 H16b-4')
     s0(x, r)
     p, e = step(x, r, "(1)", c, [C1], "martial", sid=C1)
     r.cell("(0) client rows", listing(p, x.C), OWN % ("martial", len(ids_of(p)), p.get("listing")))
-    r.cell("G:(1) client C1", e[C][C1]["tr"] is True, e[C][C1])
+    r.cell("guard:(1) client C1", e[C][C1]["tr"] is True, e[C][C1])
     r.cell("(1)", e[H][C1]["tr"] is True, f"the client's martial click stayed on its machine (S-10a): host C1 training {e[H][C1]['tr']}")
     stage(x, r, "(2) restage", {C1: {"training": False}, H1: {"training": True}})
     p, e = step(x, r, "(2)", h, [H1], "martial", sid=H1)
     r.cell("(0b) host rows", listing(p, x.H), OWN % ("martial", len(ids_of(p)), p.get("listing")))
-    r.cell("G:(2) host H1", e[H][H1]["tr"] is False, e[H][H1])
+    r.cell("guard:(2) host H1", e[H][H1]["tr"] is False, e[H][H1])
     r.cell("(2)", e[C][H1]["tr"] is False, f"the host's martial click stayed on its machine (S-10a): client H1 training {e[C][H1]['tr']}")
 def row_5(x, r):   # the last gym place, both at once (the client's applies held)
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
     s0(x, r)
     open_screen(c, r, "martial", "open")
     try:
-        r.need("G:defer on", c.ok({"cmd": "shared_update_defer", "on": True}).get("deferred") is True)
+        r.need("guard:defer on", c.ok({"cmd": "shared_update_defer", "on": True}).get("deferred") is True)
         open_screen(h, r, "martial", "open")
         a0 = ss(h)["applyCount"]
         click(h, r, H1, "host")
-        r.cell("G:host H1", wait_until(lambda: flags(h, [H1])[H1]["tr"], 1.0), flags(h, [H1]))
+        r.cell("guard:host H1", wait_until(lambda: flags(h, [H1])[H1]["tr"], 1.0), flags(h, [H1]))
         wait_until(lambda: ss(h)["applyCount"] > a0, 1.0)   # green: the host's own apply lands before the client's click
         da, r.ev["client freeTraining before its click (stale world)"] = ss(h)["applyCount"] - a0, free_gym(c)
         click(c, r, C1, "client")
-        r.cell("G:stale click", wait_until(lambda: flags(c, [C1])[C1]["tr"], 1.0), flags(c, [C1]))
+        r.cell("guard:stale click", wait_until(lambda: flags(c, [C1])[C1]["tr"], 1.0), flags(c, [C1]))
         time.sleep(1.0)
     finally:
         c.cmd({"cmd": "shared_update_defer", "on": False})
@@ -256,15 +256,15 @@ def row_6(x, r):   # queue when healed + the add-all key, own soldiers only (A1.
             gc.ok({"cmd": "set_soldier_recovery", "soldierId": i, "days": 5})
     x.wounded.update({C2, H1})
     w = {gc.name: {i: v["rec"] for i, v in flags(gc, [C2, H1]).items()} for gc in (h, c)}
-    r.need("G:wounded", all(v == 5 for m in w.values() for v in m.values()), w)
+    r.need("guard:wounded", all(v == 5 for m in w.values() for v in m.values()), w)
     p, e = step(x, r, "(1)", c, [C2], "martial", sid=C2, done=False)
-    r.cell("G:C2 status", status_of(p, C2) != status_of(p, C1), [status_of(p, C1), status_of(p, C2)])
-    r.cell("G:(1) client C2 rtwh", e[C][C2]["rtwh"] is True, e[C][C2])
+    r.cell("guard:C2 status", status_of(p, C2) != status_of(p, C1), [status_of(p, C1), status_of(p, C2)])
+    r.cell("guard:(1) client C2 rtwh", e[C][C2]["rtwh"] is True, e[C][C2])
     r.cell("(1)", e[H][C2]["rtwh"] is True, f"the client's queue click stayed on its machine (S-10a): host C2 rtwh {e[H][C2]['rtwh']}")
     stage(x, r, "(2) restage", {C2: {"training": False, "rtwh": False, "psiTraining": False}})
     _p, e = step(x, r, "(2)", c, [C1, C2, H1], sym=KEY_Z)
     v, q = {m: [e[m][C1]["tr"], e[m][C2]["rtwh"]] for m in (H, C)}, [e[C][H1]["rtwh"], e[H][H1]["rtwh"]]
-    r.cell("G:(2) client C1 training, C2 rtwh", v[C] == [True, True], v[C])
+    r.cell("guard:(2) client C1 training, C2 rtwh", v[C] == [True, True], v[C])
     r.cell("(2)", v[H] == [True, True], f"the client's add-all key stayed on its machine (S-10c): host [C1 training, C2 rtwh] {v[H]}")
     r.cell("(3)", q == [False, False], f"the client's add-all key queued the partner's soldier (AUD-A48): H1 rtwh [client, host] {q}")
     close(x, r, c, "close")
@@ -273,7 +273,7 @@ def row_7(x, r):   # psi: own rows, click, remove-all, the open-screen clean-up 
     s0(x, r)
     p, e = step(x, r, "(1)", c, [C1], "psi", sid=C1)
     r.cell("(0) client rows", listing(p, x.C), OWN % ("psi", len(ids_of(p)), p.get("listing")))
-    r.cell("G:(1) client C1", e[C][C1]["psi"] is True, e[C][C1])
+    r.cell("guard:(1) client C1", e[C][C1]["psi"] is True, e[C][C1])
     r.cell("(1)", e[H][C1]["psi"] is True, f"the client's psi click stayed on its machine (S-11a): host C1 psiTraining {e[H][C1]['psi']}")
     stage(x, r, "(2) restage", {C1: {"psiTraining": True}})
     _p, e = step(x, r, "(2)", h, [C1], "psi", sym=KEY_X)
@@ -281,11 +281,11 @@ def row_7(x, r):   # psi: own rows, click, remove-all, the open-screen clean-up 
     r.cell("(2)", v == [True, True], f"the host's remove-all key took the partner's soldier out (AUD-A48): C1 psiTraining [host, client] {v}")
     s0(x, r, extra={H1: {"psiTraining": True}}, tag="(3) S0")
     _p, e = step(x, r, "(3)", h, [H1], "psi", sym=KEY_X)
-    r.cell("G:(3) host H1", e[H][H1]["psi"] is False, e[H][H1])
+    r.cell("guard:(3) host H1", e[H][H1]["psi"] is False, e[H][H1])
     r.cell("(3)", e[C][H1]["psi"] is False, f"the host's remove-all key stayed on its machine (S-11b): client H1 psiTraining {e[C][H1]['psi']}")
     s0(x, r, extra={C2: {"psiTraining": True, "psiSkill": 100}}, tag="(4) S0")
     _p, e = step(x, r, "(4)", c, [C2], "psi")
-    r.cell("G:(4) client C2 cleared", e[C][C2]["psi"] is False, e[C][C2])
+    r.cell("guard:(4) client C2 cleared", e[C][C2]["psi"] is False, e[C][C2])
     r.cell("(4)", e[H][C2]["psi"] is False,
            f"the client's open-screen clean-up stayed on its machine (S-11c): host C2 psiTraining {e[H][C2]['psi']}")
     s0(x, r, extra={H2: {"psiTraining": True, "psiSkill": 100}}, tag="(5) S0")
@@ -296,31 +296,31 @@ def row_9(x, r):   # the crew keys keep the partner's soldier seated (C1, H1 at 
     h, c, C1, H1, keep = x.host, x.client, x.C1, x.H1, [x.C1, x.H1]
     s0(x, r, seats={i: (1 if i in keep else -1) for i in x.ids})
     pos = {i: x.ids.index(i) for i in keep}
-    r.cell("G:roster positions", all(v < min(len(x.C), len(x.H)) for v in pos.values()), pos)
+    r.cell("guard:roster positions", all(v < min(len(x.C), len(x.H)) for v in pos.values()), pos)
     _p, e = step(x, r, "z", c, keep, "craft_soldiers", sym=KEY_Z)
-    r.cell("G:z client C1, alive", e[C][C1]["craft"] == -1 and pong(c), e[C][C1])
+    r.cell("guard:z client C1, alive", e[C][C1]["craft"] == -1 and pong(c), e[C][C1])
     v = [e[C][H1]["craft"], e[H][H1]["craft"]]
     r.cell("(z) partner", v == [1, 1], f"the client's crew key unseated the partner's soldier (AUD-A48): H1 craft [client, host] {v}")
     r.cell("(z) host", e[H][C1]["craft"] == -1, f"the client's crew key stayed on its machine (S-9c): host C1 craft {e[H][C1]['craft']}")
-    r.need("G:restage", seat_to(x, {C1: 1, H1: 1}), "C1, H1 back on craft 1")
+    r.need("guard:restage", seat_to(x, {C1: 1, H1: 1}), "C1, H1 back on craft 1")
     _p, e = step(x, r, "x", h, keep, "craft_soldiers", sym=KEY_X)
-    r.cell("G:x host H1, alive", e[H][H1]["craft"] == -1 and pong(h, c), e[H][H1])
+    r.cell("guard:x host H1, alive", e[H][H1]["craft"] == -1 and pong(h, c), e[H][H1])
     v = [e[H][C1]["craft"], e[C][C1]["craft"]]
     r.cell("(x) partner", v == [1, 1], f"the host's crew key unseated the partner's soldier (AUD-A48): C1 craft [host, client] {v}")
     r.cell("(x) client", e[C][H1]["craft"] == -1, f"the host's crew key stayed on its machine (S-9b): client H1 craft {e[C][H1]['craft']}")
 def refuse(x, r, gc, tag, jcmd, payload, sid, field):
-    """gc's shared_cmd for the partner's soldier: G: gc failCount +1, the popup, the flag unchanged; cell: lastFail."""
+    """gc's shared_cmd for the partner's soldier: guard: gc failCount +1, the popup, the flag unchanged; cell: lastFail."""
     f0 = ss(gc)["failCount"]
     gc.ok({"cmd": "shared_cmd", "jcmd": jcmd, "baseId": 0, "payload": payload})
-    r.cell(f"G:{tag} {gc.name} failCount +1", wait_until(lambda: ss(gc)["failCount"] == f0 + 1, 3.0), ss(gc))
-    r.cell(f"G:{tag} popup", wait_until(lambda: top(gc) == POP, 2.0), stack(gc))
+    r.cell(f"guard:{tag} {gc.name} failCount +1", wait_until(lambda: ss(gc)["failCount"] == f0 + 1, 3.0), ss(gc))
+    r.cell(f"guard:{tag} popup", wait_until(lambda: top(gc) == POP, 2.0), stack(gc))
     lf = ss(gc)["lastFail"]
     r.ev[f"{tag} {gc.name} lastFail, popup title"] = [lf, gc.cmd({"cmd": "screen_state"}).get("title")]
     _p, e = step(x, r, tag, gc, [sid])
-    r.cell(f"G:{tag} flag unchanged", e[H][sid][field] is False and e[C][sid][field] is False, [e[H][sid], e[C][sid]])
+    r.cell(f"guard:{tag} flag unchanged", e[H][sid][field] is False and e[C][sid][field] is False, [e[H][sid], e[C][sid]])
     r.cell(tag, lf == "not your soldier", f"the host answered {lf!r} instead of 'not your soldier'")
     gc.cmd({"cmd": "coop_dialog_back"})
-    r.need(f"G:{tag} popup closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
+    r.need(f"guard:{tag} popup closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
 def row_10(x, r):   # the host refuses the partner's soldier
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
     s0(x, r)
@@ -329,7 +329,7 @@ def row_10(x, r):   # the host refuses the partner's soldier
     a0 = ss(h)["applyCount"]
     refuse(x, r, c, "(1)", "soldier_training", {"soldierId": H1, "training": True, "rtwh": False}, H1, "tr")
     refuse(x, r, h, "(2)", "soldier_psi_training", {"soldierId": C1, "psi": True}, C1, "psi")
-    r.cell("G:host applyCount unchanged (1)-(2)", ss(h)["applyCount"] == a0, ss(h))
+    r.cell("guard:host applyCount unchanged (1)-(2)", ss(h)["applyCount"] == a0, ss(h))
     a1 = ss(h)["applyCount"]
     c.ok({"cmd": "shared_cmd", "jcmd": "soldier_training", "baseId": 0, "payload": {"soldierId": C1, "training": True, "rtwh": False}})
     _p, e = step(x, r, "(3)", c, [C1])
@@ -345,7 +345,7 @@ def row_11(x, r):   # the client's reset-armor key keeps the partner's armor (OC
         for i in pair:
             gc.ok({"cmd": "seed_soldier_armor", "soldier_id": i, "armor": PERSONAL})
     r.ev["armor seeded"] = a = {gc.name: armor(gc, pair) for gc in (h, c)}
-    r.need("G:seed", all(v == PERSONAL for m in a.values() for v in m.values()), a)
+    r.need("guard:seed", all(v == PERSONAL for m in a.values() for v in m.values()), a)
     c.ok({"cmd": "craft_deequip_armor"})
     t0 = time.time()
     while time.time() - t0 < POLL_S:
@@ -353,24 +353,24 @@ def row_11(x, r):   # the client's reset-armor key keeps the partner's armor (OC
         a = {gc.name: armor(gc, pair) for gc in (h, c)}
     d, n = {gc.name: store(gc) - st0[gc.name] for gc in (h, c)}, sum(1 for i in pair if a[H][i] == NONE)
     r.ev["armor end, store delta, reset count"], v, now = [a, d, n], [a[H][H1], a[C][H1]], {m.name: req(m) for m in (h, c)}
-    r.cell("G:C1 reset", a[H][C1] == NONE and a[C][C1] == NONE, a)
-    r.cell("G:store", d[H] == d[C] == n, f"store delta {d} vs {n} reset (R-H16b-T0-4: +2 on red)")
-    r.cell("G:requests", now == r.R0, f"requests {now} vs R0 {r.R0} (STOP-IF 5)")
+    r.cell("guard:C1 reset", a[H][C1] == NONE and a[C][C1] == NONE, a)
+    r.cell("guard:store", d[H] == d[C] == n, f"store delta {d} vs {n} reset (R-H16b-T0-4: +2 on red)")
+    r.cell("guard:requests", now == r.R0, f"requests {now} vs R0 {r.R0} (STOP-IF 5)")
     r.cell("partner armor", v == [PERSONAL, PERSONAL],
            f"the client's armor-reset key stripped the partner's soldier (aud-E1-11): H1 armor [host, client] {v}")
 def row_8(x, r):   # SEPARATE stays local (Boot B; guard row)
     h, c = x.host, x.client
     s_0, r.R0 = {gc.name: ss(gc) for gc in (h, c)}, {gc.name: req(gc) for gc in (h, c)}
     r.ev["fac_build"] = c.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok")    # local in SEPARATE
-    r.need("G:facility", wait_until(lambda: fac_index(c) == FAC_IDX, 10), fac_index(c))
+    r.need("guard:facility", wait_until(lambda: fac_index(c) == FAC_IDX, 10), fac_index(c))
     bt = c.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": FAC_IDX, "time": 0})
     b0 = c.ok({"cmd": "soldier_training_probe", "ids": []})["bases"][0]
-    r.need("G:buildTime0, capacities", bt.get("buildTime") == 0 and (b0["psiLabs"], b0["training"]) == (1, 1), [bt, b0])
+    r.need("guard:buildTime0, capacities", bt.get("buildTime") == 0 and (b0["psiLabs"], b0["training"]) == (1, 1), [bt, b0])
     sid = open_screen(c, r, "martial", "martial")["rows"][0]["soldierId"]
     click(c, r, sid, "martial")
     close(x, r, c, "martial")
     sida = open_screen(c, r, "craft_armor", "armor")["rows"][0]["soldierId"]
-    r.need("G:seated", craft(c, sida) == 1, craft(c, sida))
+    r.need("guard:seated", craft(c, sida) == 1, craft(c, sida))
     click(c, r, sida, "armor", ctrl=True)
     time.sleep(2.0)
     own, s_1 = r.ev["own [training, seat]"], r.ev["shared_stats after"] = [flags(c, [sid])[sid]["tr"], craft(c, sida)], \
@@ -385,7 +385,7 @@ def run_row(rid, fn, x, results, ids):
     except Miss:
         pass
     except Exception as e:
-        r.cell("G:exception", False, short(e, 800))
+        r.cell("guard:exception", False, short(e, 800))
     finally:
         try:
             x.client.cmd({"cmd": "shared_update_defer", "on": False})
@@ -396,7 +396,7 @@ def run_row(rid, fn, x, results, ids):
                                             "requests": req(gc), "stack": stack(gc)} for gc in (x.host, x.client)}
         except Exception as e:
             r.ev["cleanupError"] = short(e)
-        r.cell("G:no popup", not r.popups or rid == "H16b-10", r.popups)
+        r.cell("guard:no popup", not r.popups or rid == "H16b-10", r.popups)
         r.ev["popups"], r.ev["wallS"] = r.popups, round(time.time() - t0, 1)
         r.report(results)
     return r.ev["wallS"]

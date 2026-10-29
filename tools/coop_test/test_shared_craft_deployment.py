@@ -200,15 +200,15 @@ def set_(r, x, want):
     ev = r.ev["SET(%s)" % want] = {}
     if D(x.host).get("saved") is not want:
         m, ev["host PV"] = pv(x.host, x.keys["host"], erase=not want)
-        if not r.cell(f"G: SET host preview drive {m}", m is None, ev["host PV"]):
+        if not r.cell(f"guard: SET host preview drive {m}", m is None, ev["host PV"]):
             return False
     if not eq(x):
         ev["COPY"] = cp = copy(x)
-        if not r.cell("G: SET COPY (both [GeoscapeState] and EQ within 30 s)", cp["ok"], cp):
+        if not r.cell("guard: SET COPY (both [GeoscapeState] and EQ within 30 s)", cp["ok"], cp):
             return False
     ev["reset"] = q(x.client, {"cmd": "shared_reset_resync_stats"}).get("ok")
     ev["D"] = d = both(x)
-    return r.cell(f"G: SET D saved == {want} on both, EQ", ev["reset"] is True and same(d["host"], d["client"])
+    return r.cell(f"guard: SET D saved == {want} on both, EQ", ev["reset"] is True and same(d["host"], d["client"])
                   and all(e.get("saved") is want for e in d.values()), d)
 
 
@@ -311,7 +311,7 @@ def hd_0(x, r):
     r.evidence()
     for g in (x.host, x.client):
         e = out[g.name]
-        if r.cell(f"G: {g.name} open_screen craft_soldiers {HB} {x.sky}", e["open_screen"].get("ok") is True and e["stack"] == [GEO], e):
+        if r.cell(f"guard: {g.name} open_screen craft_soldiers {HB} {x.sky}", e["open_screen"].get("ok") is True and e["stack"] == [GEO], e):
             r.cell(f"the {g.name}'s craft soldier screen shows its per-craft Preview (W1 has no carrier)",
                    e["Preview buttons"] == [{"text": "Preview", "visible": False}], e["Preview buttons"])
         r.cell(f"the {g.name}'s D saved at boot", e["D"].get("saved") is False and e["D"].get("positions") == [], e["D"])
@@ -327,7 +327,7 @@ def hd_5(x, r):
         r.ev["fails 1 s after"] = fails(x)[0]
         r.ev["negative control"] = raw(x, NO_SUCH)
     r.evidence()
-    if not (r.cell("G: shared_cmd sent", a["shared_cmd"].get("ok") is True, a["shared_cmd"])
+    if not (r.cell("guard: shared_cmd sent", a["shared_cmd"].get("ok") is True, a["shared_cmd"])
             and r.cell("the host has no carrier for a craft deployment", not (ref and ref[1] == UNKNOWN), a)
             and r.cell(f"both D saved {RAW} within W", not ref and "applied s" in a, a)):
         return
@@ -352,7 +352,7 @@ def hd_6(x, r):
 def hd_s(x, r):
     h, c = x.host, x.client
     d0 = both(x)
-    if not r.cell("G: D unsaved on both at boot (SEPARATE)", all(e.get("saved") is False for e in d0.values()), d0):
+    if not r.cell("guard: D unsaved on both at boot (SEPARATE)", all(e.get("saved") is False for e in d0.values()), d0):
         return r.evidence()
     s0 = {g.name: stats3(g) for g in (h, c)}
     m, r.ev["PV client"] = pv(c, x.keys["client"])
@@ -391,7 +391,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"G: {rid} exception", False, short(e))
+            r.cell(f"guard: {rid} exception", False, short(e))
         for g in (x.host, x.client):  # a stopped row leaves no screen behind (an open preview ends through its own buttons)
             before = stack(g)
             if not is_dead(before) and before != [GEO]:

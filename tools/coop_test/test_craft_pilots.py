@@ -6,7 +6,7 @@ open_craft_pilots (the REAL CraftPilotsState), craft_pilots_probe (read-only; th
 set_craft_pilots (staging, THIS machine). Real input: click_widget "Add Pilot" -> the select list not hidden -> inject_input
 at the probe's row of the soldier; click_widget "Remove All". Boot A (SHARED): H16f-1..7 (H16f-7, the launch, last);
 Boot B (SEPARATE): H16f-8 (guard row). S0: set_craft_pilots on both (client first) to the row's start list.
-RED (commit 1): H16f-1..7 fail on their named cell, H16f-8 passes; GREEN: all pass. "G:" cells are guards (CAPTURE on a
+RED (commit 1): H16f-1..7 fail on their named cell, H16f-8 passes; GREEN: all pass. "guard:" cells are guards (CAPTURE on a
 miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -68,7 +68,7 @@ class Row:
 
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' stack, craft_pilots_probe, list_widgets of the top state, shared_stats."""
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     cap = {}
     for gc in (x.host, x.client):
@@ -282,7 +282,7 @@ def run_one(rid, fn, x, results):
         r.ev["guardMiss"] = str(e)
     except Exception as e:
         r.cell("exception", False, short(e, 800))
-    if any(f.startswith(("G:", "exception")) for f in r.fails):
+    if any(f.startswith(("guard:", "exception")) for f in r.fails):
         try:
             x.client.cmd({"cmd": "shared_update_defer", "on": False})
             for gc in (x.client, x.host):

@@ -179,9 +179,9 @@ def battle_start(r, k, c):
         try:
             c["squad"] = session.bring_up_shared_mixed_battle(js, None, to_tactical=False, pre_landing=f)[2]
         except Exception as e:
-            r.cell(f"G: k{k} bring_up_shared_mixed_battle", False, short(e, 600))
+            r.cell(f"guard: k{k} bring_up_shared_mixed_battle", False, short(e, 600))
         c["pre_landing"] = {n: v for n, v in pre.items() if n in ("at base", "opened", "stack")}
-        if not (pre.get("opened") and r.cell(f"G: k{k} the soldier inventory on the client's stack", pre["stack"][-1:] == [INV],
+        if not (pre.get("opened") and r.cell(f"guard: k{k} the soldier inventory on the client's stack", pre["stack"][-1:] == [INV],
                                              pre["stack"])) or len(r.fails) > n_f:
             r.cap[f"k{k}"] = capture(x, pre.get("n_cl", 0), [])
             return False, False
@@ -213,7 +213,7 @@ def recopy(r, x, k, c):
     base_screen = "CraftEquipmentState" if craft else "SoldiersState"
     opened = h20.open_craft_screen(r, x, x.client) if craft else h20.open_soldier_screen(r, x.client)
     c["stack before"] = st0 = stack(x.client)
-    if not (opened and r.cell(f"G: k{k} the {c['path'][8:]} inventory on the client's stack", st0[-1:] == [INV] and base_screen in st0,
+    if not (opened and r.cell(f"guard: k{k} the {c['path'][8:]} inventory on the client's stack", st0[-1:] == [INV] and base_screen in st0,
                               st0)):
         r.cap[f"k{k}"] = capture(x, 0, [])
         return False, False
@@ -283,7 +283,7 @@ def h21_r(results, walls):
         except AssertionError as e:
             r.cell("js.finish (both worlds equal, the replica's zero disk)", False, short(e, 1500))
     except Exception as e:
-        r.cell("G: H21-R exception", False, short(e))
+        r.cell("guard: H21-R exception", False, short(e))
     finally:
         if js is not None:
             end(js, r, "H21-R")

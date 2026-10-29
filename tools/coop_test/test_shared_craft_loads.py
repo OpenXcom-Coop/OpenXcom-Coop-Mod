@@ -150,27 +150,27 @@ def guard(r, x, tag="start"):
     rep = q(x.client, {"cmd": "shared_reset_resync_stats"})
     r.ev[tag] = {"converge": [c["ok"], c["s"]], "sky host / client": [sky(x.host, x.sky), sky(x.client, x.sky)],
                  "reqs / mm": rs(x.client)}
-    return r.cell(f"G: converge + client shared_reset_resync_stats ({tag})", c["ok"] and rep.get("ok") is True, [c, rep])
+    return r.cell(f"guard: converge + client shared_reset_resync_stats ({tag})", c["ok"] and rep.get("ok") is True, [c, rep])
 
 
 def open_ces(r, gc, base, cid, inv=False):
     rep = q(gc, {"cmd": "open_craft_equipment", "base": base, "craft_id": cid})
-    if not r.cell(f"G: {gc.name} open_craft_equipment {base} {cid}", rep.get("ok") and rep.get("craftId") == cid
+    if not r.cell(f"guard: {gc.name} open_craft_equipment {base} {cid}", rep.get("ok") and rep.get("craftId") == cid
                   and wait_until(lambda: CES in stack(gc), 30), [rep, stack(gc)]):
         return False
     if not inv:
         return True
     rep = q(gc, {"cmd": "craft_inventory"})
-    return r.cell(f"G: {gc.name} craft_inventory", rep.get("opened") is True and wait_until(lambda: INV in stack(gc), 30),
+    return r.cell(f"guard: {gc.name} craft_inventory", rep.get("opened") is True and wait_until(lambda: INV in stack(gc), 30),
                   [rep, stack(gc)])
 
 
 def close_ces(r, gc, inv=False):
     if inv:
         rep = q(gc, {"cmd": "battle_inventory", "action": "ok"})
-        r.cell(f"G: {gc.name} battle_inventory ok", rep.get("ok") and wait_until(lambda: INV not in stack(gc), 30), [rep, stack(gc)])
+        r.cell(f"guard: {gc.name} battle_inventory ok", rep.get("ok") and wait_until(lambda: INV not in stack(gc), 30), [rep, stack(gc)])
     rep = q(gc, {"cmd": "craft_equipment_ok"})
-    return r.cell(f"G: {gc.name} craft_equipment_ok", rep.get("ok") and wait_until(lambda: CES not in stack(gc), 30),
+    return r.cell(f"guard: {gc.name} craft_equipment_ok", rep.get("ok") and wait_until(lambda: CES not in stack(gc), 30),
                   [rep, stack(gc)])
 
 
@@ -190,7 +190,7 @@ def edit(r, gc, name):
 
 def park(r, x):
     rep = q(x.host, {"cmd": "open_soldiers", "base": HB})
-    return r.cell("G: park (host SoldiersState on top)", rep.get("ok") and wait_until(lambda: top(x.host) == "SoldiersState", 10),
+    return r.cell("guard: park (host SoldiersState on top)", rep.get("ok") and wait_until(lambda: top(x.host) == "SoldiersState", 10),
                   [rep, stack(x.host)])
 
 
@@ -201,7 +201,7 @@ def release(r, x):
     rel = {"unpark": [rep.get("ok"), up], "over RW": watch(x, RW)}
     rel["converge"] = converge(x)
     r.ev["release"] = rel
-    rel["ok"] = r.cell("G: unpark + converge after the row", up and rel["converge"]["ok"], rel)
+    rel["ok"] = r.cell("guard: unpark + converge after the row", up and rel["converge"]["ok"], rel)
     return rel
 
 
@@ -243,9 +243,9 @@ def hb_1(x, r):
     off, s2 = timed(lambda: all((sky(g, x.sky) or {}).get(PISTOL, 0) == b[g.name][0].get(PISTOL, 0) - 2
                                 and st(g).get(PISTOL, 0) == b[g.name][1].get(PISTOL, 0) + 2 for g in (h, c)), W)
     r.ev["setup"] = {"loadout_save 1": save.get("loadout"), "host read 1 s": s, "craft_equip": ce, "pistols -2 s": s2}
-    if not (r.cell("G: client loadout_save 1 == the SKY's items", opened and save.get("loadout") == b["client"][0], save)
-            and r.cell("G: the host's loadout 1 == the client's within W", got, s)
-            and r.cell("G: craft_equip STR_PISTOL -2 on both within W", ce.get("moved") is True and off, [ce, s2])
+    if not (r.cell("guard: client loadout_save 1 == the SKY's items", opened and save.get("loadout") == b["client"][0], save)
+            and r.cell("guard: the host's loadout 1 == the client's within W", got, s)
+            and r.cell("guard: craft_equip STR_PISTOL -2 on both within W", ce.get("moved") is True and off, [ce, s2])
             and guard(r, x, "after the setup")):
         r.evidence()
         return
@@ -350,7 +350,7 @@ def hb_7(x, r):
     a, w, rel = parked(r, x, act)
     r.ev.update({"edit": a, "host over W": w})
     r.evidence()
-    if not (rel["ok"] and a and w and r.cell("G: STR_PISTOL moved onto H", a["moved"], a)):
+    if not (rel["ok"] and a and w and r.cell("guard: STR_PISTOL moved onto H", a["moved"], a)):
         return
     r.cell("the client's SKY changed after a partner edit", a["client SKY diff at once"] == {}, a)
     r.cell("the host's SKY changed", w["host sky"] == w["host before"], w)
@@ -373,7 +373,7 @@ def client_edit(x, r, who, craft, red):
     a, w, rel = parked(r, x, act)
     r.ev.update({"edit": a, "host over W": w})
     r.evidence()
-    if not (rel["ok"] and a and w and r.cell(f"G: STR_PISTOL moved onto {who}", a["moved"], a)):
+    if not (rel["ok"] and a and w and r.cell(f"guard: STR_PISTOL moved onto {who}", a["moved"], a)):
         return
     if not r.cell(f"non-vacuity: the client's SKY diff == {DELTA}", a["client SKY diff after the close"] == DELTA, a):
         return
@@ -385,7 +385,7 @@ def hb_4(x, r):
     if not guard(r, x):
         return
     gv = r.ev["give STR_PISTOL 1"] = {g.name: q(g, {"cmd": "give_items", "item": PISTOL, "count": 1, "base": HB}) for g in (c, h)}
-    if not r.cell("G: give_items STR_PISTOL 1 on both, client first (R-H20bB-G-1, F8754)", all(v.get("ok") for v in gv.values()), gv):
+    if not r.cell("guard: give_items STR_PISTOL 1 on both, client first (R-H20bB-G-1, F8754)", all(v.get("ok") for v in gv.values()), gv):
         return
     h0 = sky(h, x.sky)
     if not h20.open_soldier_screen(r, h):
@@ -406,7 +406,7 @@ def hb_4(x, r):
     r.ev.update({"moved": e, "host SKY diff": hd, "first req s": first, "equal s": eq, "over RW": over, "converge": cv,
                  "sky host / client end": [sky(h, x.sky), sky(c, x.sky)]})
     r.evidence()
-    if not (r.cell("G: converge after the row", cv["ok"], cv) and r.cell("G: STR_PISTOL moved onto H", e, r.ev.get("host edit"))):
+    if not (r.cell("guard: converge after the row", cv["ok"], cv) and r.cell("guard: STR_PISTOL moved onto H", e, r.ev.get("host edit"))):
         return
     if not r.cell(f"non-vacuity: the host's SKY diff == {DELTA}", hd == DELTA, hd):
         return
@@ -420,7 +420,7 @@ def hb_6(x, r):
     h, c = x.host, x.client
     if not guard(r, x):
         return
-    if not (r.cell("G: the host idle on its geoscape", stack(h) == [GEO], stack(h)) and open_ces(r, c, HB, x.sky, inv=True)):
+    if not (r.cell("guard: the host idle on its geoscape", stack(h) == [GEO], stack(h)) and open_ces(r, c, HB, x.sky, inv=True)):
         r.evidence()
         return
     t0, sh, sc = time.time(), st(h), st(c)
@@ -462,8 +462,8 @@ def hb_8(x, r):
     first = ((rep.get("soldiers") or [{}])[0]).get("name")
     s0, k0 = {g.name: h20.stats3(g) for g in (h, c)}, sky(c, sid, CB)
     r.ev.update({"set_option": so, "option": on, "ClientBase SKY": [sid, k0], "first soldier": first})
-    if not (r.cell("G: option ON on both", on == {"host": True, "client": True}, [so, on])
-            and r.cell("G: a ClientBase SKYRANGER and a first soldier", sid is not None and first and k0 is not None, [sid, first])
+    if not (r.cell("guard: option ON on both", on == {"host": True, "client": True}, [so, on])
+            and r.cell("guard: a ClientBase SKYRANGER and a first soldier", sid is not None and first and k0 is not None, [sid, first])
             and h20.open_soldier_screen(r, c, CB)):
         r.evidence()
         return
@@ -480,7 +480,7 @@ def hb_8(x, r):
     r.ev.update({"top each second": held, "SKY diff (soldier screen)": d, "SKY diff (craft round trip)": diff(k1, k2),
                  "shared_stats before": s0, "shared_stats 1 s after": s1})
     r.evidence()
-    r.cell("G: STR_PISTOL moved onto the first soldier", e, r.ev.get("client edit"))
+    r.cell("guard: STR_PISTOL moved onto the first soldier", e, r.ev.get("client edit"))
     r.cell("the InventoryState left the top within 8 s", held == [INV] * 8, held)
     r.cell("the client's ClientBase SKY PISTOL / PISTOL_CLIP not +1 locally", d.get(PISTOL) == 1 and d.get(CLIP) == 1, d)
     r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
@@ -502,7 +502,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"G: {rid} exception", False, h20.short(e))
+            r.cell(f"guard: {rid} exception", False, h20.short(e))
         for g in (x.host, x.client):  # a stopped row leaves no screen behind; a dead client (HB-6 red) is left to the shutdown
             before = stack(g)
             if not is_dead(before) and (before or [""])[-1] != GEO:

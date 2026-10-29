@@ -147,9 +147,9 @@ def open_picker(r, js, sky):
     r.ev["open"] = rep = q(c, {"cmd": "open_select_destination", "craft_id": sky, "craft_type": "STR_SKYRANGER"})
     shown = wait_until(lambda: stack(c) == [GEO, SDS], W)
     r.ev["stack open"], scr = stack(c), ui(log_lines(c, n_cl), ("[coop-ui]",))
-    ok = r.cell("G: open_select_destination ok, depth 2", rep.get("ok") is True and rep.get("depth") == 2, rep)
-    ok = r.cell(f"G: the client stack == [{GEO}, {SDS}] within {W:.0f} s", shown, r.ev["stack open"]) and ok
-    return r.cell(f"G: CL {PUSH + SDS}", any(PUSH + SDS in x for x in scr), scr) and ok, n_cl, before
+    ok = r.cell("guard: open_select_destination ok, depth 2", rep.get("ok") is True and rep.get("depth") == 2, rep)
+    ok = r.cell(f"guard: the client stack == [{GEO}, {SDS}] within {W:.0f} s", shown, r.ev["stack open"]) and ok
+    return r.cell(f"guard: CL {PUSH + SDS}", any(PUSH + SDS in x for x in scr), scr) and ok, n_cl, before
 
 def settle(r, c, t1, want, limit, what):
     """poll the client (POLL s) until it dies, holds the stack `want` HOLD s, or `limit` s pass without it; record the outcome
@@ -199,7 +199,7 @@ def row_a(rid, js, sky):
                     except AssertionError as e:
                         r.cell("js.finish (both worlds equal, the replica's zero disk)", False, short(e, 1500))
     except Exception as e:
-        r.cell(f"G: {rid} exception", False, short(e))
+        r.cell(f"guard: {rid} exception", False, short(e))
     if r.fails:
         r.cap = capture(js, r.n_cl, crash)
         if not died and stack(c) != [GEO]:  # a stopped row leaves no screen behind for the next one
@@ -258,7 +258,7 @@ def row_3(results, walls):
             r.cell("CL in order: " + ", ".join(t + (" (directly)" if d else "") for t, d in TEARDOWN), in_order(scr, TEARDOWN), scr)
             r.cell("no CRASH", not crash, crash)
     except Exception as e:
-        r.cell("G: H21b-3 exception", False, short(e))
+        r.cell("guard: H21b-3 exception", False, short(e))
     if r.fails:
         r.cap = capture(js, r.n_cl, crash)
     err = end(js)

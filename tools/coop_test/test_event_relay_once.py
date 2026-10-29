@@ -14,7 +14,7 @@ Boot S (key "49433"): ER-2, ER-1, ER-3. Boot E (key "49434"): ER-4. 13 cells:
   ER-1 a research-spawned event: otherMid (RED), otherOnce (RED), firstOnce (RED)
   ER-3 a mission-outcome topic (private, keeps its relay): hostNoWindow, clientOnce, hostRelay (GUARD cells)
   ER-4 an ending both worlds hold: firstEnds, otherEnds, plays (GUARD cells)
-"G:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell, the row
+"guard:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell, the row
 verdict; every row runs after a failure; ONE run: exit 0 only when every cell passes, else 2.
 no wait-hook; run to completion in the foreground.
 """
@@ -147,7 +147,7 @@ def cap_line(r, x, why):
 
 def guard(r, x, name, ok, detail):
     """A miss: CAPTURE both machines' probes and engine log tails, then the row ends."""
-    if r.cell("G:" + name, ok, detail):
+    if r.cell("guard:" + name, ok, detail):
         return
     cap_line(r, x, "guard " + name)
     raise GuardMiss(f"guard {name}")
