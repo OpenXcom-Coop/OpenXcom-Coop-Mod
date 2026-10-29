@@ -1,40 +1,50 @@
-"""test_base_partner_held.py (BPH): the co-op partner's held item on a SHARED base inventory screen leaves your
-pile while it is held (you cannot pick that copy) and is drawn under the partner's pointer; it comes back when the partner puts it
-down, cancels or leaves the screen (VL-EQ3-1; owner D291 (b) + (c) on base screens; QEQ3-9 (a): display-level, each machine maps the
-partner's held item onto its OWN copy, no host arbitration and no refusal; QEQ3-10 (a): the held item rides S-B's `base_equip_ptr`
-snapshot; QEQ3-13 (a): the TEST-ONLY `base_held_defer` lever times H4's race; VL-EQ3-7: both keep the last item, no "Order
-cancelled"; R-EQ3-3; R-EQ2-1 (QEQ2-8: a lifted soldier item leaves the read-only paperdoll; QEQ2-10)). Spec: docs repo
-rewrite/prompts/eq3_base_screens.md + eq3c_held.md (f) as amended by its PIN-PASS AMENDMENTS; TASK 0 constants
-rewrite/eq3-task0/sc/CONSTANTS.md.
-Boot S (SHARED, key 49416, dirs eq3c_s_host / _client): shared_fixture.bring_up + W2-H20's setup (H, C, SKY, HostBase; H20's and
-BPP's helpers imported, never edited). Spine: S1 the host stages H (inventory_move {H, ITEM_H, left}, real OK; the client's record
-of H carries it within W); S2 both open HostBase's Soldiers inventory, the client NEXTs to C; S3 move(client, PT1), move(host, PT2)
-(BPP's recipe: each snapshot `on`). Preconditions: PILE_TYPE's cell >= 2 entries and LAST_TYPE exactly 1 entry on both screens
-(pins with their replacement rules, logged); each cursor_pos inside its Inventory surface. A spine miss = every row FAIL "spine"
-with ONE CAPTURE line.
-Reads: count = the screen's inventory_view.ground entries at the cell (a held item is parked at x 1000000, F20617); "draws" = the
-observer's event_state.equip.presence.drawn.held = its equip.basePresence.held.local, at (drawn.x - 16, drawn.y - 24) (EQ-2 S-D's
-centring); the paperdoll = inventory_view.drawnSlots; basePresence.held absent reads -1 (the red).
-  H1 LIFT  the client picks PILE_TYPE's cell; the host: H1-drop (count one lower within W_PTR), H1-draw (draws its held.local under
-           the client's pointer); the host picks the same cell and right-clicks: H1-mate (guard: a PILE_TYPE item other than held.local)
-  H2 PUT   the client drops its cursor item on C's belt cell BELT: H2-back (the host's count back to its pre-H1 value within W_PTR,
-           H1-drop seen first), H2-off (guard: the host's drawn.held -1 within W_PTR)
-  H3 OWNED the client NEXTs to H (S-A's read-only view); the host lifts ITEM_H from H's left hand, then right-clicks: H3-gone (the
-           client's drawnSlots lacks its ITEM_H id while held), H3-draw (the client draws it under the host's pointer), H3-back (back in
-           the client's drawnSlots within W_PTR and H carries ITEM_H in the left hand on both; H3-gone seen first)
-  H4 RACE  the client NEXTs to C (an own soldier: S-A's partner view takes no click; logged in CONSTANTS.md); both
-           base_held_defer {on: true}; the client, then the host, picks LAST_TYPE; both {on: false}; W_PTR on both; both right-click:
-           H4-both (guard: both cursors still hold it), H4-noline (guard: no "Order cancelled - item unavailable", no line shown),
-           H4-draw (each draws its own held.local = its own cursor item under the other's pointer)
-  H5 OK    the client (on C) picks PILE_TYPE, real OK, right click, real OK: H5-stay (guard: the first OK leaves the screen on top),
-           H5-back (the host's count drops while the client holds, back within W_PTR after the right click), H5-off (guard: the host's
-           drawn.ptr false within W_PTR of the second OK), H5-belt (guard: the host's record of C carries PILE_TYPE at BELT within W)
-  X        base_held_defer {on: false} on both in the boot's finally; X-crash (guard: no new crash file, both games alive)
-RED (HEAD = R1 on the r1 build): 8 of 16 cells - H1-drop, H1-draw, H2-back, H3-gone, H3-draw, H3-back, H4-draw, H5-back; the 8 guards
-PASS. Green: 16 / 16. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure
-(a precondition miss ends its row, its later cells "not reached"); every row ends with both cursors empty (H1 hands the client's pick
-to H2), recorded. run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when
-every cell passes, else 2.
+"""test_base_partner_held.py: the co-op partner's held item on a SHARED base inventory screen leaves your pile while it is
+held (you cannot pick that copy) and is drawn under the partner's pointer; it comes back when the partner puts it down,
+cancels or leaves the screen. This is display only: each machine maps the partner's held item onto its OWN copy, with no
+host arbitration and no refusal. The held item rides the partner pointer's `base_equip_ptr` snapshot
+(test_base_partner_pointer). The test-only `base_held_defer` command times last_item_race. When both pick the last item,
+both keep it and no "Order cancelled" line shows. A soldier item the partner lifts leaves the read-only paperdoll while it
+is held.
+The boot (SHARED, key 49416, dirs base_partner_held_host / _client): shared_fixture.bring_up + test_shared_base_equip's
+setup (H, C, SKY, HostBase; its helpers and test_base_partner_pointer's are imported, never edited). Spine: stage_item the
+host stages H (inventory_move {H, ITEM_H, left}, real OK; the client's record of H carries it within W); open_screens both
+open HostBase's Soldiers inventory, the client NEXTs to C; move_pointers move(client, PT1), move(host, PT2)
+(test_base_partner_pointer's recipe: each snapshot `on`). Preconditions: PILE_TYPE's cell >= 2 entries and LAST_TYPE
+exactly 1 entry on both screens (preferred values with their replacement rules, logged); each cursor_pos inside its
+Inventory surface. A spine miss = every row FAIL "spine" with ONE CAPTURE line.
+Reads: count = the screen's inventory_view.ground entries at the cell (a held item is parked at x 1000000); "draws" = the
+observer's event_state.equip.presence.drawn.held = its equip.basePresence.held.local, at (drawn.x - 16, drawn.y - 24)
+(centred on the pointer); the paperdoll = inventory_view.drawnSlots; basePresence.held absent reads -1 (as on a build
+without this feature).
+  partner_lift       the client picks PILE_TYPE's cell; the host: pile_count_drops (count one lower within W_PTR),
+                     host_draws_held_item (draws its held.local under the client's pointer); the host picks the same cell
+                     and right-clicks: host_picks_other_copy (guard: a PILE_TYPE item other than held.local)
+  partner_put        the client drops its cursor item on C's belt cell BELT: pile_count_back (the host's count back to its
+                     value before partner_lift within W_PTR, pile_count_drops seen first), held_drawing_ends (guard: the
+                     host's drawn.held -1 within W_PTR)
+  soldier_item_lift  the client NEXTs to H (a soldier the client does not own: a read-only view); the host lifts ITEM_H
+                     from H's left hand, then right-clicks: paperdoll_hides_item (the client's drawnSlots lacks its ITEM_H
+                     id while held), client_draws_held_item (the client draws it under the host's pointer),
+                     paperdoll_item_back (back in the client's drawnSlots within W_PTR and H carries ITEM_H in the left
+                     hand on both; paperdoll_hides_item seen first)
+  last_item_race     the client NEXTs to C (an own soldier: the read-only partner view takes no click); both
+                     base_held_defer {on: true}; the client, then the host, picks LAST_TYPE; both {on: false}; W_PTR on
+                     both; both right-click: both_cursors_keep_item (guard: both cursors still hold it), no_refusal_line
+                     (guard: no "Order cancelled - item unavailable", no line shown), each_draws_other_item (each draws
+                     its own held.local = its own cursor item under the other's pointer)
+  partner_ok         the client (on C) picks PILE_TYPE, real OK, right click, real OK: first_ok_keeps_screen (guard: the
+                     first OK leaves the screen on top), count_back_after_cancel (the host's count drops while the client
+                     holds, back within W_PTR after the right click), pointer_off_after_close (guard: the host's drawn.ptr
+                     false within W_PTR of the second OK), host_record_has_belt_item (guard: the host's record of C
+                     carries PILE_TYPE at BELT within W)
+  crash_check        base_held_defer {on: false} on both in the boot's finally; no_new_crash_file (guard: no new crash
+                     file, both games alive)
+On a build without this feature, 8 of the 16 cells fail: pile_count_drops, host_draws_held_item, pile_count_back,
+paperdoll_hides_item, client_draws_held_item, paperdoll_item_back, each_draws_other_item, count_back_after_cancel; the 8
+guards pass. With it, 16 / 16 pass. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every
+row runs after a failure (a precondition miss ends its row, its later cells "not reached"); every row ends with both
+cursors empty (partner_lift hands the client's pick to partner_put), recorded. Run in the foreground to completion. ONE run
+is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_base_partner_held.py
 """
@@ -53,24 +63,25 @@ import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screen
 import test_base_partner_pointer as bpp  # noqa: E402  (main-guarded: move, cpos, equip, drawn, bp, alive, PT1 / PT2)
 from test_shared_base_equip import q, stack, open_soldier_screen  # noqa: E402
 
-TAG, PORTS = "eq3c_s", (49416, 49416, 49416)  # BPH_PORTS (pin pass: two inert labels and the rendezvous key)
+TAG, PORTS = "base_partner_held", (49416, 49416, 49416)  # two inert labels and the rendezvous key
 HB, GEO, INV = "HostBase", "GeoscapeState", "InventoryState"
 GROUND, BELT_SLOT, LEFT = "STR_GROUND", "STR_BELT", "STR_LEFT_HAND"
-PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PISTOL", (0, 0)  # pins (rules: pick_types, pick_belt)
-TEXT_ITEM_MISSING = "Order cancelled - item unavailable"  # STR_COOP_DENY_ITEM_MISSING (EQ-2's pre-battle refusal)
+# preferred values; pick_types / pick_belt replace one that does not fit
+PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PISTOL", (0, 0)
+TEXT_ITEM_MISSING = "Order cancelled - item unavailable"  # STR_COOP_DENY_ITEM_MISSING (the pre-battle equip refusal)
 HALF = (16, 24)                    # the held item's top-left = the pointer - (HAND_W * SLOT_W / 2, HAND_H * SLOT_H / 2)
 W_PTR, W, CYCLE_CAP, CLICK_W = 2.0, 10.0, 16, 2.0
 POLL, PAGE = 0.05, 1000000         # a parked ground item sits at x PAGE
 CELLS = {
-    "H1": ["H1-drop", "H1-draw", "H1-mate"],
-    "H2": ["H2-back", "H2-off"],
-    "H3": ["H3-gone", "H3-draw", "H3-back"],
-    "H4": ["H4-both", "H4-noline", "H4-draw"],
-    "H5": ["H5-stay", "H5-back", "H5-off", "H5-belt"],
-    "X": ["X-crash"],
+    "partner_lift": ["pile_count_drops", "host_draws_held_item", "host_picks_other_copy"],
+    "partner_put": ["pile_count_back", "held_drawing_ends"],
+    "soldier_item_lift": ["paperdoll_hides_item", "client_draws_held_item", "paperdoll_item_back"],
+    "last_item_race": ["both_cursors_keep_item", "no_refusal_line", "each_draws_other_item"],
+    "partner_ok": ["first_ok_keeps_screen", "count_back_after_cancel", "pointer_off_after_close", "host_record_has_belt_item"],
+    "crash_check": ["no_new_crash_file"],
 }
-ORDER = ["H1", "H2", "H3", "H4", "H5", "X"]
-EV = {}  # every row's EVIDENCE (TASK 0 dumps it as JSON)
+ORDER = ["partner_lift", "partner_put", "soldier_item_lift", "last_item_race", "partner_ok", "crash_check"]
+EV = {}  # every row's EVIDENCE, by row id, plus the spine and the end-of-boot reads (kept for a caller of main)
 
 
 class Row(bpp.Row):
@@ -123,13 +134,13 @@ def kinds(gc):
 
 
 def local(gc):
-    """gc's basePresence.held.local (absent = -1: the red)."""
+    """gc's basePresence.held.local (absent = -1, as on a build without this feature)."""
     v = (bpp.bp(gc).get("held") or {}).get("local")
     return v if isinstance(v, int) else -1
 
 
 def under(gc, iid):
-    """gc draws item `iid` under the partner's pointer, centred as EQ-2 S-D centres it, and it is gc's mapped held.local."""
+    """gc draws item `iid` under the partner's pointer, centred on it (HALF), and it is gc's mapped held.local."""
     d = bpp.drawn(gc)
     return (isinstance(iid, int) and iid >= 0 and d.get("ptr") is True and d.get("held") == iid and local(gc) == iid
             and [d.get("heldX"), d.get("heldY")] == [(d.get("x") or 0) - HALF[0], (d.get("y") or 0) - HALF[1]])
@@ -171,7 +182,8 @@ def lift(gc, ev, key, want_type, **at):
 
 
 def give_back(gc, ev, key):
-    """The holder's right click (vanilla's cancel); a cursor a right click cannot reach is cleared by the lever (recorded)."""
+    """The holder's right click (vanilla's cancel); a cursor a right click cannot reach is cleared by the test command
+    inventory_cursor_clear (recorded)."""
     if cur(gc) in (None, -1):
         return True
     ev[key] = {"right": click(gc, slot=GROUND, x=0, y=0, button="right")}
@@ -240,7 +252,8 @@ def pick_types(x):
 
 
 def sizes():
-    """{type: [invWidth, invHeight]} from the ruleset the game reads (the Release deploy, F6757; test_alien_equip's reader)."""
+    """{type: [invWidth, invHeight]} from the ruleset the game reads (the data deployed beside the Release exe; the same
+    reader as test_alien_equip's)."""
     d, t = {}, None
     with open(os.path.join(os.path.dirname(os.path.abspath(harness.EXE)), "standard", "xcom1", "items.rul"), encoding="utf-8") as f:
         for line in f:
@@ -257,7 +270,7 @@ def sizes():
 
 def pick_belt(x):
     """BELT: C's STR_BELT (0, 0) when PILE_TYPE fits there on the client's screen, else the next belt cell (the slot's cell order)
-    where it fits: every cell of its footprint a belt cell that no carried item's footprint covers (F21916: a 2 x 1 item)."""
+    where it fits: every cell of its footprint a belt cell that no carried item's footprint covers (a 2 x 1 item needs two)."""
     sz = sizes()
     foot = lambda t, a, b: {(a + i, b + j) for i in range(sz.get(t, [1, 1])[0]) for j in range(sz.get(t, [1, 1])[1])}  # noqa: E731
     cells = [tuple(c) for c in ((view(x.client).get("slots") or {}).get(BELT_SLOT) or {}).get("cells") or []]
@@ -272,21 +285,21 @@ def spine(x):
     h, c = x.host, x.client
     h20.setup(x)
     sh, sp = bpp.Shim(), {}
-    sp["S1 open"] = open_soldier_screen(sh, h)
-    sp["S1 move"] = q(h, {"cmd": "inventory_move", "name": x.H, "item": ITEM_H, "slot": "left"})
-    sp["S1 ok"] = click(h, widget="ok")
+    sp["stage_item open"] = open_soldier_screen(sh, h)
+    sp["stage_item move"] = q(h, {"cmd": "inventory_move", "name": x.H, "item": ITEM_H, "slot": "left"})
+    sp["stage_item ok"] = click(h, widget="ok")
     h20.wait_until(lambda: INV not in stack(h), 10.0, POLL)
-    sp["S1 soldiers_ok"] = q(h, {"cmd": "soldiers_ok"}).get("ok")
+    sp["stage_item soldiers_ok"] = q(h, {"cmd": "soldiers_ok"}).get("ok")
     h20.wait_until(lambda: bpp.top(h) == GEO, 10.0, POLL)
     hand = lambda gc: any(i.get("type") == ITEM_H and i.get("slot") == LEFT  # noqa: E731
                           for i in (h20.layouts(gc).get(x.H) or {}).get("layout") or [])
-    sp["S1 client record"], sp["S1 within"] = h20.converge(lambda: hand(c))
-    sp["S2 open"] = {gc.name: open_soldier_screen(sh, gc) for gc in (h, c)}
-    sp["S2 nav"] = []
-    sp["S2 client on C"] = goto(c, x.ids["C"], sp["S2 nav"])
-    sp["S2 host unit"] = view(h).get("unitId")
+    sp["stage_item client record"], sp["stage_item within"] = h20.converge(lambda: hand(c))
+    sp["open_screens open"] = {gc.name: open_soldier_screen(sh, gc) for gc in (h, c)}
+    sp["open_screens nav"] = []
+    sp["open_screens client on C"] = goto(c, x.ids["C"], sp["open_screens nav"])
+    sp["open_screens host unit"] = view(h).get("unitId")
     ev = {}
-    sp["S3 moves"] = [bpp.move(c, bpp.PT1, ev), bpp.move(h, bpp.PT2, ev), ev]
+    sp["move_pointers moves"] = [bpp.move(c, bpp.PT1, ev), bpp.move(h, bpp.PT2, ev), ev]
     sp["cursor"] = {gc.name: bpp.cpos(gc) for gc in (h, c)}
     sp["pins"] = pick_types(x)
     sp["belt"] = pick_belt(x)
@@ -298,8 +311,8 @@ def spine(x):
                "steps": sp, "open fails": sh.fails}
     xy = lambda n, k: sp["cursor"][n].get(k) if isinstance(sp["cursor"][n].get(k), int) else -1  # noqa: E731
     inside = all(0 <= xy(n, "x") < 320 and 0 <= xy(n, "y") < 200 for n in ("host", "client"))  # the Inventory surface (rect)
-    if not (sp["S1 move"].get("landedSlot") == LEFT and sp["S1 client record"] and all(sp["S2 open"].values())
-            and sp["S2 client on C"] and all(sp["S3 moves"][:2]) and inside and x.pile and x.last and x.belt
+    if not (sp["stage_item move"].get("landedSlot") == LEFT and sp["stage_item client record"] and all(sp["open_screens open"].values())
+            and sp["open_screens client on C"] and all(sp["move_pointers moves"][:2]) and inside and x.pile and x.last and x.belt
             and None not in x.pile_cell.values() and None not in x.last_cell.values() and None not in x.item_h.values()
             and not sp["host record of C belt"] and all(bpp.top(gc) == INV for gc in (h, c))):
         raise RuntimeError(f"spine: {x.spine}")
@@ -308,7 +321,7 @@ def spine(x):
 # ===================== rows =====================
 
 
-def h1(x, r):
+def row_partner_lift(x, r):
     h, c = x.host, x.client
     ready(x, r)
     hc = x.pile_cell["host"]
@@ -317,22 +330,24 @@ def h1(x, r):
     first = r.ev["first true (s)"] = seen({"drop": lambda: count(h, hc) == n0 - 1, "draw": lambda: under(h, local(h))}, W_PTR)
     r.ev["host"] = show(h)
     r.ev["hostCount"] = count(h, hc)
-    x.h1_drop = first["drop"] is not None
-    r.cell("H1-drop", x.h1_drop, f"the host's count at {hc} {n0} -> {r.ev['hostCount']} (want {n0 - 1} within {W_PTR} s while "
-                                 f"the client holds {r.ev['clientPick id']}; first {first['drop']})")
-    r.cell("H1-draw", first["draw"] is not None, f"the host draws {r.ev['host']} (want its held.local, != -1, under the client's "
-                                                 f"pointer at (x - {HALF[0]}, y - {HALF[1]}) within {W_PTR} s)")
+    x.lift_drop_seen = first["drop"] is not None
+    r.cell("pile_count_drops", x.lift_drop_seen,
+           f"the host's count at {hc} {n0} -> {r.ev['hostCount']} (want {n0 - 1} within {W_PTR} s while "
+           f"the client holds {r.ev['clientPick id']}; first {first['drop']})")
+    r.cell("host_draws_held_item", first["draw"] is not None,
+           f"the host draws {r.ev['host']} (want its held.local, != -1, under the client's "
+           f"pointer at (x - {HALF[0]}, y - {HALF[1]}) within {W_PTR} s)")
     loc = r.ev["host held.local before its pick"] = local(h)
     mate = lift(h, r.ev, "hostPick", x.pile, slot=GROUND, x=hc[0], y=hc[1])
-    r.cell("H1-mate", mate != loc, f"the host picked {mate} (want a {x.pile} other than its held.local {loc})")
+    r.cell("host_picks_other_copy", mate != loc, f"the host picked {mate} (want a {x.pile} other than its held.local {loc})")
     give_back(h, r.ev, "hostReturn")
-    r.ev["cursors at end"] = {"host": cur(h), "client (kept for H2)": cur(c)}
+    r.ev["cursors at end"] = {"host": cur(h), "client (kept for partner_put)": cur(c)}
 
 
-def h2(x, r):
+def row_partner_put(x, r):
     h, c = x.host, x.client
     if cur(h) != -1 or (types(c).get(cur(c)) or ("?",))[0] != x.pile:
-        raise Stop(f"precondition: H1 left the client holding a {x.pile} and the host empty (cursors {cur(h)} / {cur(c)})")
+        raise Stop(f"precondition: partner_lift left the client holding a {x.pile} and the host empty (cursors {cur(h)} / {cur(c)})")
     held, hc = cur(c), x.pile_cell["host"]
     r.ev["drop"] = click(c, slot=BELT_SLOT, x=x.belt[0], y=x.belt[1])
     h20.wait_until(lambda: cur(c) == -1, CLICK_W, POLL)
@@ -341,14 +356,15 @@ def h2(x, r):
         raise Stop(f"precondition: {held} not on C's belt {x.belt} on the client ({r.ev['landed']}; cursor {cur(c)})")
     first = r.ev["first true (s)"] = seen({"back": lambda: count(h, hc) == x.n0, "off": lambda: bpp.drawn(h).get("held") == -1}, W_PTR)
     r.ev["host"], r.ev["hostCount"] = show(h), count(h, hc)
-    r.cell("H2-back", x.h1_drop and first["back"] is not None,
-           f"the host's count at {hc} {r.ev['hostCount']} (want back to {x.n0} within {W_PTR} s of the belt drop, after H1-drop "
-           f"{'seen' if x.h1_drop else 'NOT seen'}; first {first['back']})")
-    r.cell("H2-off", first["off"] is not None, f"the host's drawn.held {r.ev['host']['drawn']['held']} (want -1 within {W_PTR} s)")
+    r.cell("pile_count_back", x.lift_drop_seen and first["back"] is not None,
+           f"the host's count at {hc} {r.ev['hostCount']} (want back to {x.n0} within {W_PTR} s of the belt drop, after pile_count_drops "
+           f"{'seen' if x.lift_drop_seen else 'NOT seen'}; first {first['back']})")
+    r.cell("held_drawing_ends", first["off"] is not None,
+           f"the host's drawn.held {r.ev['host']['drawn']['held']} (want -1 within {W_PTR} s)")
     ends(x, r)
 
 
-def h3(x, r):
+def row_soldier_item_lift(x, r):
     h, c, hid = x.host, x.client, x.ids["H"]
     ready(x, r)
     nav = r.ev["nav"] = {"client": [], "host": []}
@@ -366,18 +382,20 @@ def h3(x, r):
                     and carries(h, hid, ITEM_H, LEFT) is not None)
     back = r.ev["back within (s)"] = seen({"back": hand}, W_PTR)["back"]
     r.ev["client after"] = dict(show(c), drawnSlots=view(c).get("drawnSlots"))
-    r.cell("H3-gone", first["gone"] is not None, f"the client's drawnSlots {r.ev['client held']['drawnSlots']} while the host holds "
-                                                 f"H's {ITEM_H} (want {cid} absent within {W_PTR} s; first {first['gone']})")
-    r.cell("H3-draw", first["draw"] is not None, f"the client draws {r.ev['client held']} (want {cid} = its held.local under the "
-                                                 f"host's pointer within {W_PTR} s)")
-    r.cell("H3-back", first["gone"] is not None and back is not None,
+    r.cell("paperdoll_hides_item", first["gone"] is not None,
+           f"the client's drawnSlots {r.ev['client held']['drawnSlots']} while the host holds "
+           f"H's {ITEM_H} (want {cid} absent within {W_PTR} s; first {first['gone']})")
+    r.cell("client_draws_held_item", first["draw"] is not None,
+           f"the client draws {r.ev['client held']} (want {cid} = its held.local under the "
+           f"host's pointer within {W_PTR} s)")
+    r.cell("paperdoll_item_back", first["gone"] is not None and back is not None,
            f"after the host's right click: the client's drawnSlots {r.ev['client after']['drawnSlots']} (want {cid} back within "
-           f"{W_PTR} s, H3-gone {'seen' if first['gone'] is not None else 'NOT seen'}; back {back}); H's left hand on both "
+           f"{W_PTR} s, paperdoll_hides_item {'seen' if first['gone'] is not None else 'NOT seen'}; back {back}); H's left hand on both "
            f"{[carries(gc, hid, ITEM_H, LEFT) for gc in (h, c)]}")
     ends(x, r)
 
 
-def h4(x, r):
+def row_last_item_race(x, r):
     h, c = x.host, x.client
     ready(x, r)
     nav = r.ev["client nav to C"] = []
@@ -399,11 +417,12 @@ def h4(x, r):
     r.ev["look"] = {gc.name: show(gc) for gc in (h, c)}
     r.ev["lines (distinct)"] = sorted({json.dumps(s, sort_keys=True) for s in lines})
     hold = {gc.name: cur(gc) for gc in (h, c)}
-    r.cell("H4-both", hold == ids, f"cursors after {W_PTR} s {hold} (want {ids}: both keep their {x.last})")
+    r.cell("both_cursors_keep_item", hold == ids, f"cursors after {W_PTR} s {hold} (want {ids}: both keep their {x.last})")
     bad = [s for s in lines for v in s.values() if v[0] == TEXT_ITEM_MISSING or v[1] is True]
-    r.cell("H4-noline", lines and not bad, f"lines over {W_PTR} s: {r.ev['lines (distinct)']} (want no '{TEXT_ITEM_MISSING}' and "
-                                           f"no line shown on either screen)")
-    r.cell("H4-draw", first["hostDraw"] is not None and first["clientDraw"] is not None,
+    r.cell("no_refusal_line", lines and not bad,
+           f"lines over {W_PTR} s: {r.ev['lines (distinct)']} (want no '{TEXT_ITEM_MISSING}' and "
+           f"no line shown on either screen)")
+    r.cell("each_draws_other_item", first["hostDraw"] is not None and first["clientDraw"] is not None,
            f"host / client draw {r.ev['look']} (want each its own cursor item {ids} = its held.local under the other's pointer "
            f"within {W_PTR} s; first {first['hostDraw']} / {first['clientDraw']})")
     for gc in (c, h):
@@ -411,7 +430,7 @@ def h4(x, r):
     ends(x, r)
 
 
-def h5(x, r):
+def row_partner_ok(x, r):
     h, c = x.host, x.client
     ready(x, r)
     nav = r.ev["client nav to C"] = []
@@ -424,35 +443,38 @@ def h5(x, r):
     r.ev["ok1"] = click(c, widget="ok")
     stay = r.ev["first off top (s)"] = seen({"gone": lambda: bpp.top(c) != INV}, CLICK_W, whole=True)["gone"]
     r.ev["client after ok1"] = {"stack": stack(c), "cursor": cur(c)}
-    r.cell("H5-stay", stay is None and bpp.top(c) == INV and cur(c) == r.ev["clientPick id"],
+    r.cell("first_ok_keeps_screen", stay is None and bpp.top(c) == INV and cur(c) == r.ev["clientPick id"],
            f"after the first OK the client's stack {r.ev['client after ok1']} (want its InventoryState on top for {CLICK_W} s, the "
            f"item still on the cursor)")
     give_back(c, r.ev, "clientReturn")
     back = r.ev["back within (s)"] = seen({"back": lambda: count(h, hc) == n0}, W_PTR)["back"]
     r.ev["hostCount after"] = count(h, hc)
-    r.cell("H5-back", drop is not None and back is not None,
+    r.cell("count_back_after_cancel", drop is not None and back is not None,
            f"the host's count at {hc}: {n0}, drop while the client holds {drop}, back to {n0} after the right click {back} "
            f"(want both within {W_PTR} s; now {r.ev['hostCount after']})")
     r.ev["ok2"] = click(c, widget="ok")
     if not h20.wait_until(lambda: INV not in stack(c), 10.0, POLL):
         raise Stop(f"precondition: the client's second OK closes its screen ({stack(c)})")
     off = r.ev["off within (s)"] = seen({"off": lambda: bpp.drawn(h).get("ptr") is not True}, W_PTR)["off"]
-    r.cell("H5-off", off is not None, f"the host's drawn.ptr {bpp.drawn(h).get('ptr')} (want false within {W_PTR} s of the second OK)")
+    r.cell("pointer_off_after_close", off is not None,
+           f"the host's drawn.ptr {bpp.drawn(h).get('ptr')} (want false within {W_PTR} s of the second OK)")
     r.ev["soldiers_ok"] = q(c, {"cmd": "soldiers_ok"}).get("ok")
     got, r.ev["belt within (s)"] = h20.converge(lambda: belt_rec(h, x.C, x.pile, x.belt))
-    r.cell("H5-belt", got, f"the host's record of C {h20.compact(h20.layouts(h).get(x.C))} (want a {x.pile} at {BELT_SLOT} {x.belt} "
-                           f"within {W} s: H2's drop sent at the client's OK, W2-H20)")
+    r.cell("host_record_has_belt_item", got,
+           f"the host's record of C {h20.compact(h20.layouts(h).get(x.C))} (want a {x.pile} at {BELT_SLOT} {x.belt} "
+           f"within {W} s: partner_put's belt drop is sent at the client's OK)")
     r.ev["cursors at end"] = {"host": cur(h), "client": "screen closed"}
 
 
-def px(x, r):
+def row_crash_check(x, r):
     crash = sorted(session._crash_log_snapshot() - x.crash0)
     up = {gc.name: bpp.alive(gc) for gc in (x.host, x.client)}
     r.ev.update(newCrashFiles=crash, alive=up, tops={gc.name: stack(gc) for gc in (x.host, x.client)})
-    r.cell("X-crash", not crash and all(up.values()), f"new crash files {crash} (want none); alive {up} (want both)")
+    r.cell("no_new_crash_file", not crash and all(up.values()), f"new crash files {crash} (want none); alive {up} (want both)")
 
 
-FNS = {"H1": h1, "H2": h2, "H3": h3, "H4": h4, "H5": h5, "X": px}
+FNS = {"partner_lift": row_partner_lift, "partner_put": row_partner_put, "soldier_item_lift": row_soldier_item_lift,
+       "last_item_race": row_last_item_race, "partner_ok": row_partner_ok, "crash_check": row_crash_check}
 
 
 def main(tag=TAG, ports=PORTS, extra=None):
@@ -462,7 +484,7 @@ def main(tag=TAG, ports=PORTS, extra=None):
         try:
             js = shared_fixture.bring_up(tag, ports)
             x = h20.X(js.host, js.client, js)
-            x.crash0, x.h1_drop, x.n0 = crash0, False, None
+            x.crash0, x.lift_drop_seen, x.n0 = crash0, False, None
             spine(x)
             walls["spine"] = round(time.time() - t0, 1)
             print(f"EVIDENCE spine: {json.dumps(x.spine, sort_keys=True, default=str)}", flush=True)
@@ -502,7 +524,8 @@ def main(tag=TAG, ports=PORTS, extra=None):
                 except Exception as e:
                     r.why = h20.short(e, 900)
                     r.ev["stopped"] = r.why
-                    if rid != "H1":  # H1 hands the client's pick to H2; any other stopped row leaves both cursors empty
+                    # partner_lift hands the client's pick to partner_put; any other stopped row leaves both cursors empty
+                    if rid != "partner_lift":
                         r.ev["cleanup"] = {gc.name: give_back(gc, r.ev, "cleanup " + gc.name) for gc in (x.host, x.client)
                                            if bpp.top(gc) == INV}
                 walls[rid] = round(time.time() - t1, 1)
