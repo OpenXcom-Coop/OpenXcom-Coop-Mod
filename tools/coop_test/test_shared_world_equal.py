@@ -7,24 +7,21 @@ one. A helper that only ever passes proves nothing.
 
   EQUAL     a freshly bootstrapped SHARED world compares equal, and stays equal
             across a real mutation (a client buy) once the round-trip lands.
-  SENSITIVE force a divergence the auto-repair CANNOT see and prove the helper
-            catches it. The GAP-4 world checksum now sums total item COUNT (so a
-            plain give_items-to-one-machine WOULD trip it - that path is covered
-            by test_shared_checksum), but it is only COUNTS: swap 7 rifles on the
-            host for 7 pistols on the client and every checksum field - including
-            the widened item/soldier/transfer/production counts - stays identical,
-            so no mismatch, no auto-resync, nothing in the logs. The world-diff
-            helper compares exact CONTENTS, so it still catches it: this is the
-            honest negative control for the widened checksum.
-  REPAIR    force_resync re-streams the authoritative world and equality returns
-            - i.e. the repair primitive fixes drift BEYOND the checksum's reach,
-            even though nothing would have triggered it automatically.
+  SENSITIVE force a count-preserving content divergence and prove the helper
+            catches it: 7 rifles on the host, 7 pistols on the client. Every
+            checksum COUNT (items, soldiers, transfers, production) stays
+            identical; only the stores content term chkStores differs, so the
+            auto-repair fires only after its debounce. The world-diff helper
+            compares exact CONTENTS and catches it inside that window: this is
+            the honest negative control.
+  REPAIR    force_resync re-streams the authoritative world and equality returns.
 
 Run:  python tools/coop_test/test_shared_world_equal.py
 """
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
@@ -64,28 +61,33 @@ def main():
                       lambda: _rifles(host) == 4 or None, timeout=30, interval=0.5)
         js.assert_world_equal("after a client buy")
 
-        # ---- SENSITIVE: drift the (widened) checksum cannot see ------------
-        # GAP-4 made total item COUNT a checksum field, so a plain give_items to
-        # one machine now trips it (test_shared_checksum covers that). To exercise
-        # the world-diff helper's blind spot we need a COUNT-preserving CONTENT
-        # drift: +7 rifles on the host, +7 pistols on the client. Every checksum
-        # count is identical (+7 items on both), so nothing auto-resyncs; only the
-        # exact contents differ, which only world_diff sees.
-        chk_before = host.ok({"cmd": "shared_checksum"})
+        # ---- SENSITIVE: a count-preserving content drift ------------------
+        # +7 rifles on the host, +7 pistols on the client. Every checksum count is
+        # identical (+7 items on both); only the stores content term differs. The
+        # auto-repair needs the mismatch to survive RESYNC_DEBOUNCE_MS (3 s), so
+        # the helper below runs inside that window. Only the chk* terms are
+        # compared: the response also echoes a per-machine request id.
+        def chk(gc):
+            return {k: v for k, v in gc.ok({"cmd": "shared_checksum"}).items()
+                    if k.startswith("chk")}
+        chk_before = chk(host)
         host.ok({"cmd": "give_items", "item": RIFLE, "count": 7})
         client.ok({"cmd": "give_items", "item": PISTOL, "count": 7})
-        chk_h = host.ok({"cmd": "shared_checksum"})
-        chk_c = client.ok({"cmd": "shared_checksum"})
-        assert chk_h == chk_c, \
-            (f"count-preserving content drift moved the world checksum - this "
-             f"test's premise is stale: host={chk_h} client={chk_c}")
-        # ...and the GAP-4 fix really is live: the widened checksum DID track the
-        # added stock (item count went up by 7 on both), it just can't tell rifles
-        # from pistols.
+        # chkStores is recomputed at most every 250 ms on each machine.
+        deadline = time.time() + 2
+        while True:
+            chk_h, chk_c = chk(host), chk(client)
+            differs = sorted(k for k in chk_h if chk_h[k] != chk_c.get(k))
+            if differs == ["chkStores"] or time.time() > deadline:
+                break
+            time.sleep(0.1)
+        assert differs == ["chkStores"], \
+            (f"a count-preserving content drift must move only chkStores: "
+             f"differs={differs} host={chk_h} client={chk_c}")
         assert chk_h["chkItems"] == chk_before["chkItems"] + 7, \
             f"widened checksum did not track the added items: {chk_before} -> {chk_h}"
-        print("PASS blind-spot: 7 rifles on the host vs 7 pistols on the client; every "
-              "checksum count IDENTICAL (incl. chkItems) -> no auto-resync will fire")
+        print("PASS content-drift: 7 rifles on the host vs 7 pistols on the client; every "
+              "checksum count IDENTICAL, only chkStores differs")
 
         diff = shared_fixture.world_diff(host, client)
         assert diff, ("the equality helper did NOT catch a content divergence - "
@@ -97,7 +99,7 @@ def main():
 
         # and it is a REAL failure, not just a truthy diff: the assert must raise.
         try:
-            shared_fixture.assert_world_equal(host, client, "negative control", timeout=5)
+            shared_fixture.assert_world_equal(host, client, "negative control", timeout=1)
         except AssertionError as e:
             assert "DIVERGED" in str(e), f"unexpected assertion text: {e}"
             print("PASS negative-control: assert_world_equal RAISES on an unequal world")
@@ -110,7 +112,7 @@ def main():
         host.ok({"cmd": "force_resync"})
         shared_fixture.assert_world_equal(host, client, "after force_resync", timeout=90)
         print("PASS repair: force_resync re-streamed the authoritative world; the "
-              "store drift the checksum could not see is gone")
+              "store drift is gone")
 
         js.finish()
         print("ALL SHARED WORLD-EQUALITY TESTS PASSED")
