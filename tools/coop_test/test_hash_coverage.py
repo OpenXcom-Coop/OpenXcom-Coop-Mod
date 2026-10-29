@@ -1,87 +1,72 @@
 """test_hash_coverage.py: every synced field is in a hash
-bucket, and the second player checks the whole-save hash (spec
-rewrite/prompts/w2p2_delta_core.md amendments A5 (A5.2, A5.5), A7 and A8;
-owner rulings D138 and D144 = (a); Q-H5 = (a) raw status, F608).
+bucket, and the second player checks the whole-save hash.
 
-Before stage S-H, seven hash buckets cover part of what the delta syncs; the
-rest (facing, armour, reaction hands, surrender flags, script tags, item ammo
-links, medikit charges, UFO doors, node types, turn and side...) is only inside
-`saveBlob`, which the second player never checks (a carried `saveBlob` is
-logged and ignored, F470). After S-H one new bucket, `synced`, holds the 33
-delta fields no other bucket covers (A5.2), every event carries it, every
-bt_action_end and side_transition carries `saveBlob`, and the second player
-compares both. Three scenarios, ONE boot, in this order (HC3 LAST: it freezes
-the second player on purpose):
+The legacy hash buckets (terrain, fire, smoke, items, unitsCore, unitsStats,
+itemIdCtr) cover only part of what the delta syncs; the rest (facing, armour,
+reaction hands, surrender flags, script tags, item ammo links, medikit
+charges, UFO doors, node types, turn and side...) is held by the `synced`
+bucket, which covers every delta field no other bucket covers. Every event
+carries it, every bt_action_end and side_transition carries `saveBlob`, and
+the second player compares both. Three scenarios, ONE boot, in this order
+(saveblob_desync LAST: it freezes the second player on purpose):
 
-  HC1  Per-field coverage. For each of the 33 A5.2 rows, plus the two rows
-       W2-P3 S-C adds (amendment B1 RQ9: battle.reinforcementsMemory,
-       unit.specialWeapons; red on commit S-C.1, green on S-C.2) and the two
-       rows W2-P8 S-R adds (AMENDMENT P8-4 R-5: unit.name, unit.rawName; red
-       on commit S-R.1, green on S-R.2), the CLIENT runs the
-       test-only `field_poke` lever (one field written with the delta
-       applier's own setter, every bucket hashed by name plus saveBlob, the
-       field restored with the same setter - all inside one command). The row
-       is covered when the poke moves `synced` away from the host's value S0
-       and the restore brings it back, while no legacy bucket moves. RED
-       (commit S-H.1): `synced` is absent from the lever's buckets on every
-       row, and every legacy bucket is unchanged by every poke (the field is
-       uncovered today). A row whose poke MOVES a legacy bucket means the A5.2
-       table is wrong (STOP-IF H4) and is printed as LEGACY-MOVED. The three
-       `tags` rows ([7] at script tag index 1, which no registered tag names
-       for unit H on this ruleset) can make the poked battle document
-       unparseable; such a row's saveBlob column reads `unserializable`,
-       and since `synced` is hashed from the raw values the row is
-       still evidence. The lever always restores and every row prints
-       its restoredValue.
-  HC2  Carriage + client checks. Host real-UI kneel toggle of H, host
-       real-UI walk of H (HC2_H_TILE -> HC2_WALK_DEST), both machines press
-       END TURN and the full side cycle runs. GREEN: over that window the
-       client compared `synced` once per applied ev (side_begin included,
-       Q-H8) and `saveBlob` once per bt_action_end + side_transition (its
-       own event_log kinds); no desync; common asserts. RED: the client's
+  field_coverage  Per-field coverage. For each row of FIELD_ROWS the CLIENT
+       runs the test-only `field_poke` command (one field written with the
+       delta applier's own setter, every bucket hashed by name plus saveBlob,
+       the field restored with the same setter - all inside one command). The
+       row is covered when the poke moves `synced` away from the host's value
+       S0 and the restore brings it back, while no legacy bucket moves. A row
+       whose poke MOVES a legacy bucket means FIELD_ROWS is wrong and is
+       printed as LEGACY-MOVED. The three `tags` rows ([7] at script tag index
+       1, which no registered tag names for unit H on this ruleset) can make
+       the poked battle document unparseable; such a row's saveBlob column
+       reads `unserializable`, and since `synced` is hashed from the raw
+       values the row is still evidence. field_poke always restores and every
+       row prints its restoredValue.
+  client_compares  Carriage + client checks. Host real-UI kneel toggle of H,
+       host real-UI walk of H (WALK_H_TILE -> WALK_DEST), both machines press
+       END TURN and the full side cycle runs. Over that window the client
+       compared `synced` once per applied ev (side_begin included) and
+       `saveBlob` once per bt_action_end + side_transition (its own event_log
+       kinds); no desync; common asserts. When broken, the client's
        hashVerifyCounts has no `synced` / `saveBlob` entry.
-  HC3  The saveBlob arm. A client-only currStats poke on H2 (`set_stat
-       reactions`: serialized, in no bucket, not in the delta, N20) makes
-       `saveBlob` the ONLY differing hash (precondition); then a host kneel
-       toggle of H. GREEN: the client freezes with bucket `saveBlob` at the
-       seq of the kneel's bt_action_end (the kneel ev itself passes). RED:
-       client desyncSeen stays false after that bt_action_end.
+  saveblob_desync  The saveBlob arm. A client-only currStats poke on H2
+       (`set_stat reactions`: serialized, in no bucket, not in the delta)
+       makes `saveBlob` the ONLY differing hash (precondition); then a host
+       kneel toggle of H. The client freezes with bucket `saveBlob` at the
+       seq of the kneel's bt_action_end (the kneel ev itself passes). When
+       broken, client desyncSeen stays false after that bt_action_end.
 
-Common asserts (spec (f)): hash_now {full:true} - ALL buckets EQUAL on both
-machines (never a hard-coded count); desyncSeen false on both; client
+Common asserts: hash_now {full:true} - ALL buckets EQUAL on both machines
+(never a hard-coded count); desyncSeen false on both; client
 coopClientBStatePushes unchanged and host 0; client deltaEvsApplied increased;
 deltaUnresolved, deltaUnsupported, deltaRemoveMissing and deltaAddExisting 0
 on both.
 
-FIXTURE (deterministic, never searched here; AMENDMENT A8, owner D144 = (a)).
-The classic parallel skirmish bring-up (raw.bring_up_lobby +
-session.drive_to_battlescape, seat_count=2) with `newbattle_craft
-STR_LIGHTNING` before seating (repro_door_deterministic's route) and set_seed
-SEED_MAP right before newbattle_ok, asserted against the baked MAP_FP, then
-session.pin_ai_neutral. The Lightning's own UFO door is the doorBits row's
-tile (session.lightning_door: exactly one LIGHTNIN entry, WV-D87). Constants
-from the S-H.1 precalc boot on this map (2026-09-24): H, H2, A and A's items,
-the door, the HC2 walk (open ground, two steps, path_probe-reachable, >= 21
+FIXTURE (deterministic, never searched here). The classic parallel skirmish
+bring-up (raw.bring_up_lobby + session.drive_to_battlescape, seat_count=2)
+with `newbattle_craft STR_LIGHTNING` before seating (repro_door_deterministic's
+route) and set_seed SEED_MAP right before newbattle_ok, asserted against the
+baked MAP_FP, then session.pin_ai_neutral. The Lightning's own UFO door is the
+doorBits row's tile (session.lightning_door: exactly one LIGHTNIN entry).
+Constants measured on a boot of this map: H, H2, A and A's items, the door,
+the client_compares walk (open ground, two steps, path_probe-reachable, >= 21
 tiles from the only alien). Every staging write goes to BOTH machines, the
-client first, and the responses are asserted equal. The fuseEnabled
-row needs an item whose fuse timer is set (BattleItem::setFuseEnabled is a
-no-op at fuse -1, and no item starts primed): HC1 gives H2 a STR_GRENADE with
+client first, and the responses are asserted equal. The fuseEnabled row needs
+an item whose fuse timer is set (BattleItem::setFuseEnabled is a no-op at fuse
+-1, and no item starts primed): field_coverage gives H2 a STR_GRENADE with
 fuse 20 on both machines (ids asserted equal) - 20 cannot reach 0 in the one
 side cycle this file runs.
 
-RED-THEN-GREEN (spec (d), Q4 = b). Commit S-H.1 (this file, `field_poke`, the
-hash-verify probes - no product behaviour) is run ONCE and every scenario must
-FAIL with its named red evidence; commit S-H.2 (the `synced` bucket, the `h`
-sites, the verify arm) is run ONCE and every scenario must PASS. Each scenario
-prints ONE "EVIDENCE <id>:" line with both machines' fields (HC1 also prints
-one HC1-ROW line per row) BEFORE its green conditions are checked; main() runs
-every scenario even after an earlier one failed and prints "PASS <id>" /
-"FAIL <id>: <message>". Every wait is bounded; a wait that times out is
-recorded in the EVIDENCE line and fails the scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+(field_coverage also prints one FIELD-ROW line per row) BEFORE its pass
+conditions are checked; main() runs every scenario even after an earlier one
+failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded;
+a wait that times out is recorded in the EVIDENCE line and fails the scenario.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when all three scenarios pass, 2
-otherwise (a bring-up failure is also 2).
+One run is the result. No skip path, no second boot, no alternative map or
+actor. Exit 0 only when all three scenarios pass, 2 otherwise (a bring-up
+failure is also 2).
 
 Run:  python tools/coop_test/test_hash_coverage.py
 """
@@ -99,29 +84,31 @@ import repro_atom_walk as raw
 from test_seat_pacing import tab_select, real_click_walk
 import test_delta_core as dc
 
-# ----- AMENDMENT A8 map (S-H.1 precalc, 2026-09-24): default NEW BATTLE
-# mission (STR_UFO_GROUND_ASSAULT, small scout, farmland), craft STR_LIGHTNING -----
+# ----- the map: default NEW BATTLE mission (STR_UFO_GROUND_ASSAULT, small
+# scout, farmland), craft STR_LIGHTNING -----
 SEED_MAP = 1
 CRAFT = "STR_LIGHTNING"
 MAP_FP = -5.194867395711193e+18  # host battle_state.mapFingerprint on SEED_MAP 1 with the Lightning
 H_ID = 10                        # first host-seat (coop 0) soldier; stats/loadout random per boot
-H2_ID = 11                       # second host-seat soldier (HC3's client-only currStats poke, HC1's grenade)
+H2_ID = 11                       # second host-seat soldier (saveblob_desync's client-only currStats poke,
+#                                  field_coverage's grenade)
 A_ID = 1000000                   # the only alien: Sectoid Soldier, spawn (27,12,0)
 A_ITEMS = {56: ("STR_PLASMA_PISTOL", "STR_RIGHT_HAND"), 58: ("STR_PLASMA_PISTOL_CLIP", "STR_BELT"),
-           59: ("STR_MIND_PROBE", "STR_BACK_PACK")}   # 60 items at start: first lever-minted id = 60
-A_WEAPON = 56                    # HC1's item rows (ammo [57, 56, 56, 56]: clip 57 in slot 0, slots 1-3 self)
+           59: ("STR_MIND_PROBE", "STR_BACK_PACK")}   # 60 items at start: the first id a test command mints is 60
+A_WEAPON = 56                    # field_coverage's item rows (ammo [57, 56, 56, 56]: clip 57 in slot 0,
+#                                  slots 1-3 self)
 A_CLIP = 57
 NODE_ID = 0
-HC_UFO_DOOR = (22, 5, 1)         # the Lightning's own UFO door: westwall part, closed at start
-HC_UFO_DOOR_PART = "westwall"
-HC_UFO_DOOR_BIT = 1              # doorBits: 1 west, 2 north, 4 floor
-HC2_H_TILE, HC2_H_DIR = (9, 0, 0), 6          # open ground, facing west
-HC2_WALK_DEST = (7, 0, 0)                      # path_probe: 2 steps, TU 8, reachable on both machines
-HC2_WALK_PATH = [(8, 0, 0), (7, 0, 0)]
+UFO_DOOR = (22, 5, 1)            # the Lightning's own UFO door: westwall part, closed at start
+UFO_DOOR_PART = "westwall"
+UFO_DOOR_BIT = 1                 # doorBits: 1 west, 2 north, 4 floor
+WALK_H_TILE, WALK_H_DIR = (9, 0, 0), 6        # open ground, facing west
+WALK_DEST = (7, 0, 0)                          # path_probe: 2 steps, TU 8, reachable on both machines
+WALK_PATH = [(8, 0, 0), (7, 0, 0)]
 FUSE_ITEM = "STR_GRENADE"        # the fuseEnabled row's item (given to H2's left hand, fuse 20)
 FUSE_TURNS = 20
-REACTIONS_POKE = 7               # HC3: client-only reactions = current + 7
-HC_WAVE = "HC1_WAVE"             # the reinforcementsMemory row's wave key (any string; no stock wave)
+REACTIONS_POKE = 7               # saveblob_desync: client-only reactions = current + 7
+WAVE_KEY = "TEST_WAVE"           # the reinforcementsMemory row's wave key (any string; no stock wave)
 
 PORT = "48627"
 FACTION_PLAYER = 0
@@ -139,11 +126,11 @@ def neg(b, ctx):
     return not b
 
 
-# The 33 A5.2 rows that no legacy bucket covers, in the table's order:
+# One row per delta field that no legacy bucket covers:
 # (row, class, target, field, value from `before`). Targets: "H" (unit H), "door"
 # (the Lightning door tile), "node", "weapon" (A's pistol), "fuse" (H2's
 # primed grenade), "battle".
-HC1_ROWS = (
+FIELD_ROWS = (
     ("unit.onTile", "unit", "H", "onTile", neg),
     ("unit.dir", "unit", "H", "dir", lambda b, c: (b + 1) % 8),
     ("unit.turretDir", "unit", "H", "turretDir", lambda b, c: (b + 1) % 8),
@@ -162,7 +149,7 @@ HC1_ROWS = (
     ("unit.reactOffLeft", "unit", "H", "reactOffLeft", neg),
     ("unit.reactOffRight", "unit", "H", "reactOffRight", neg),
     ("unit.tags", "unit", "H", "tags", lambda b, c: [7]),
-    ("tile.doorBits", "tile", "door", "doorBits", lambda b, c: b ^ HC_UFO_DOOR_BIT),
+    ("tile.doorBits", "tile", "door", "doorBits", lambda b, c: b ^ UFO_DOOR_BIT),
     ("node.type", "node", "node", "type", lambda b, c: b ^ NODE_TYPE_DANGEROUS),
     ("item.previousOwner", "item", "weapon", "previousOwner", lambda b, c: H_ID),
     ("item.unit", "item", "weapon", "unit", lambda b, c: H_ID),
@@ -178,27 +165,20 @@ HC1_ROWS = (
     ("battle.turn", "battle", "battle", "turn", lambda b, c: b + 1),
     ("battle.side", "battle", "battle", "side", lambda b, c: "hostile"),
     ("battle.tags", "battle", "battle", "tags", lambda b, c: [7]),
-    # W2-P3 S-C (spec rewrite/prompts/w2p3_nonplayer_origins.md, amendment B1
-    # RQ2/RQ9): the two fields S-C adds to `synced`. The battle's
-    # reinforcement-wave counter (stock xcom1 defines no wave: before = {}), and
-    # H's special-weapon ids - the unit-side link (its own slots, the write the
-    # second player's addLoadedSpecialWeapon makes), poked to hold A's pistol
-    # without touching the item (no legacy bucket moves). RED (commit S-C.1):
-    # `synced` does not move for either row.
+    # The battle's reinforcement-wave counter (stock xcom1 defines no wave:
+    # before = {}), and H's special-weapon ids - the unit-side link (its own
+    # slots, the write the second player's addLoadedSpecialWeapon makes), poked
+    # to hold A's pistol without touching the item (no legacy bucket moves).
     ("battle.reinforcementsMemory", "battle", "battle", "reinforcementsMemory",
-     lambda b, c: dict(b, **{HC_WAVE: (b.get(HC_WAVE) or 0) + 1})),
+     lambda b, c: dict(b, **{WAVE_KEY: (b.get(WAVE_KEY) or 0) + 1})),
     ("unit.specialWeapons", "unit", "H", "specialWeapons", lambda b, c: list(b) + [A_WEAPON]),
-    # W2-P8 S-R (docs rewrite/prompts/w2p8_inventory.md AMENDMENT P8-4 section 4.3 R-5, the draft
-    # rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6 "HC1 rows (iff hashed)"; AMENDMENT P8-4c: T0-R1
-    # found the names equal on both machines at battle start, F2945, so S-R.2 hashes them in `synced`): H's
-    # own stored name (the delta's `name`, BattleUnit::setName) and its geoscape Soldier's raw name (the
-    # delta's `rawName`, Soldier::setName), each poked to its value + "x". RED (commit S-R.1): the poke moves
-    # no bucket.
+    # H's own stored name (the delta's `name`, BattleUnit::setName) and its geoscape Soldier's raw name (the
+    # delta's `rawName`, Soldier::setName), each poked to its value + "x". Both names are equal on both
+    # machines at battle start, so `synced` hashes them.
     ("unit.name", "unit", "H", "name", lambda b, c: b + "x"),
     ("unit.rawName", "unit", "H", "rawName", lambda b, c: b + "x"),
-    # the seat tag the gift order ships in the delta
-    # (`seat`, BattleUnit::setCoopSeat), poked from H's seat 0 to 1. RED (R5-U5's red commit A1): the poke moves no
-    # bucket.
+    # The seat tag the gift order ships in the delta (`seat`, BattleUnit::setCoopSeat), poked from H's seat 0
+    # to 1.
     ("unit.seat", "unit", "H", "seat", lambda b, c: 1 if b == 0 else 0),
 )
 
@@ -297,7 +277,7 @@ def action_end_of(host, first_seq, kind):
 # ===================== scenarios =====================
 
 
-def hc1(host, client, ctx):
+def row_field_coverage(host, client, ctx):
     notes = []
     fails = []
     # The fuseEnabled row's item: a primed grenade in H2's left hand, both machines, ids equal.
@@ -312,11 +292,11 @@ def hc1(host, client, ctx):
     except Exception as e:
         notes.append(f"wait_host_idle after the grenade: {dc.short(e)}")
     try:
-        assert_hash_clean(host, client, full=True, what="HC1 start")
+        assert_hash_clean(host, client, full=True, what="field_coverage start")
     except AssertionError as e:
-        fails.append(f"hash_now full not clean before HC1: {dc.short(e, 600)}")
+        fails.append(f"hash_now full not clean before field_coverage: {dc.short(e, 600)}")
     rows = []
-    for n, (row, cls, target, field, value_of) in enumerate(HC1_ROWS, 1):
+    for n, (row, cls, target, field, value_of) in enumerate(FIELD_ROWS, 1):
         tgt = target_of(target, ctx)
         s0 = host_synced(host)
         peek = client.cmd(dict({"cmd": "field_poke", "class": cls, "field": field}, **tgt))
@@ -332,47 +312,47 @@ def hc1(host, client, ctx):
         rec.update({"before": before, "value": value, "errors": r.get("errors")})
         if not r.get("ok"):
             rec["err"] = f"poke: {r.get('error')}"
-        # Recorded for every row, a refused or failed poke included: the lever
+        # Recorded for every row, a refused or failed poke included: field_poke
         # always restores, so restoredValue shows a failed restore.
         bk = r.get("buckets") or {}
         b0, b1, b2 = bk.get("before") or {}, bk.get("poked") or {}, bk.get("restored") or {}
         sb = r.get("saveBlob") or {}
-        # A saveBlob the lever could not serialize (F746: an unregistered script
-        # tag) is reported as "unserializable"; the row stays evidence for `synced`.
+        # A saveBlob field_poke could not serialize (an unregistered script tag)
+        # is reported as "unserializable"; the row stays evidence for `synced`.
         sb_col = ("unserializable" if sb.get("poked") == "unserializable"
                   else ("changed" if sb.get("poked") != sb.get("before") else "unchanged"))
         rec.update({
             "poked": r.get("poked"), "restoredValue": r.get("restoredValue"),
-            "leverBuckets": sorted(b1),
+            "pokeBuckets": sorted(b1),
             "legacyMoved": [k for k in LEGACY_BUCKETS if b1.get(k) != b0.get(k)],
             "legacyNotRestored": [k for k in LEGACY_BUCKETS if b2.get(k) != b0.get(k)],
             "legacyAbsent": [k for k in LEGACY_BUCKETS if k not in b1],
-            "syncedInLever": "synced" in b1,
+            "syncedInPoke": "synced" in b1,
             "syncedPoked": b1.get("synced"), "syncedRestored": b2.get("synced"),
             "saveBlob": sb_col,
             "saveBlobRestored": sb.get("restored") == sb.get("before"),
         })
         rows.append(rec)
     try:
-        assert_hash_clean(host, client, full=True, what="HC1 end (every poke restored)")
+        assert_hash_clean(host, client, full=True, what="field_coverage end (every poke restored)")
         end_clean = True
     except AssertionError as e:
         end_clean = False
-        fails.append(f"hash_now full not clean after HC1: {dc.short(e, 600)}")
+        fails.append(f"hash_now full not clean after field_coverage: {dc.short(e, 600)}")
 
     for rec in rows:
         tag = " LEGACY-MOVED" if rec.get("legacyMoved") else ""
-        print(f"HC1-ROW {rec['n']:2d} {rec['row']}:{tag} before={json.dumps(rec.get('before'))} "
+        print(f"FIELD-ROW {rec['n']:2d} {rec['row']}:{tag} before={json.dumps(rec.get('before'))} "
               f"value={json.dumps(rec.get('value'))} poked={json.dumps(rec.get('poked'))} "
               f"restored={json.dumps(rec.get('restoredValue'))} legacyMoved={rec.get('legacyMoved')} "
-              f"legacyNotRestored={rec.get('legacyNotRestored')} syncedInLever={rec.get('syncedInLever')} "
+              f"legacyNotRestored={rec.get('legacyNotRestored')} syncedInPoke={rec.get('syncedInPoke')} "
               f"S0={rec.get('S0')} syncedPoked={rec.get('syncedPoked')} syncedRestored={rec.get('syncedRestored')} "
               f"saveBlob={rec.get('saveBlob')} saveBlobRestored={rec.get('saveBlobRestored')} "
               f"err={rec.get('err')} errors={rec.get('errors')}", flush=True)
     ok_rows = [r for r in rows if not r.get("err")]
-    print(f"EVIDENCE HC1: rows={len(rows)}/{len(HC1_ROWS)} answered={len(ok_rows)} "
+    print(f"EVIDENCE field_coverage: rows={len(rows)}/{len(FIELD_ROWS)} answered={len(ok_rows)} "
           f"errors={[(r['row'], r['err']) for r in rows if r.get('err')]}; "
-          f"syncedInLever on {sum(1 for r in ok_rows if r.get('syncedInLever'))} row(s); "
+          f"syncedInPoke on {sum(1 for r in ok_rows if r.get('syncedInPoke'))} row(s); "
           f"legacyMoved on {[r['row'] for r in ok_rows if r.get('legacyMoved')]}; "
           f"legacyNotRestored on {[r['row'] for r in ok_rows if r.get('legacyNotRestored')]}; "
           f"notRestored on {[r['row'] for r in rows if r.get('restoredValue') != r.get('before')]}; "
@@ -380,7 +360,7 @@ def hc1(host, client, ctx):
           f"saveBlobChanged on {[r['row'] for r in ok_rows if r.get('saveBlob') == 'changed']}; "
           f"saveBlobUnserializable on {[r['row'] for r in ok_rows if r.get('saveBlob') == 'unserializable']}; "
           f"host S0 synced={sorted({r.get('S0') for r in rows}, key=str)}; "
-          f"leverBuckets={ok_rows[0].get('leverBuckets') if ok_rows else None}; "
+          f"pokeBuckets={ok_rows[0].get('pokeBuckets') if ok_rows else None}; "
           f"fuse item {ctx['fuseItemId']} door i={ctx['doorIndex']} A type={ctx['aType']}; "
           f"hash clean after={end_clean}; notes={notes}", flush=True)
 
@@ -394,13 +374,13 @@ def hc1(host, client, ctx):
         if r.get("restoredValue") != r.get("before"):
             why.append(f"restoredValue {r.get('restoredValue')} != before {r.get('before')}")
         if r.get("legacyMoved"):
-            why.append(f"the poke moved legacy bucket(s) {r['legacyMoved']} (A5.2 table wrong, STOP-IF H4)")
+            why.append(f"the poke moved legacy bucket(s) {r['legacyMoved']} (FIELD_ROWS is wrong)")
         if r.get("legacyNotRestored"):
             why.append(f"legacy bucket(s) {r['legacyNotRestored']} not restored")
         if r.get("legacyAbsent"):
-            why.append(f"legacy bucket(s) {r['legacyAbsent']} missing from the lever")
-        if not r.get("syncedInLever"):
-            why.append("'synced' is not among the lever's buckets")
+            why.append(f"legacy bucket(s) {r['legacyAbsent']} missing from the poke's buckets")
+        if not r.get("syncedInPoke"):
+            why.append("'synced' is not among the poke's buckets")
         else:
             if r.get("S0") is None:
                 why.append("host hash_now has no 'synced'")
@@ -410,14 +390,14 @@ def hc1(host, client, ctx):
                 why.append(f"restored synced {r.get('syncedRestored')} != S0 {r.get('S0')}")
         if why:
             fails.append(f"{r['row']}: " + "; ".join(why))
-    if len(rows) != len(HC1_ROWS):
-        fails.append(f"only {len(rows)} of {len(HC1_ROWS)} rows ran")
+    if len(rows) != len(FIELD_ROWS):
+        fails.append(f"only {len(rows)} of {len(FIELD_ROWS)} rows ran")
     dc.finish(notes + fails)
 
 
-def hc2(host, client, ctx):
+def row_client_compares(host, client, ctx):
     notes = []
-    dc.tele_both(host, client, H_ID, HC2_H_TILE, HC2_H_DIR)
+    dc.tele_both(host, client, H_ID, WALK_H_TILE, WALK_H_DIR)
     dc.tu_both(host, client, H_ID)
     try:
         session.wait_host_idle(host, client, timeout=30)
@@ -426,7 +406,7 @@ def hc2(host, client, ctx):
     before = {"host": dc.probes(host), "client": dc.probes(client)}
     ch0, hh0 = hash_probes(client), hash_probes(host)
     k0, k1, _ = host_kneel(host, client, H_ID, notes)
-    hw = host_walk(host, client, H_ID, HC2_WALK_DEST, notes)
+    hw = host_walk(host, client, H_ID, WALK_DEST, notes)
     turn0 = dc.end_turn_cycle(host, client, notes)
     hs, cs = battle_state(host), battle_state(client)
     ch1, hh1 = hash_probes(client), hash_probes(host)
@@ -439,7 +419,7 @@ def hc2(host, client, ctx):
     d_seq = seq1 - seq0
     d_synced = since(ch0["hashVerifyCounts"], ch1["hashVerifyCounts"], "synced")
     d_sb = since(ch0["hashVerifyCounts"], ch1["hashVerifyCounts"], "saveBlob")
-    print(f"EVIDENCE HC2: H kneeled {k0}->{k1}; walk executed={dc.executed_path(hw)}; "
+    print(f"EVIDENCE client_compares: H kneeled {k0}->{k1}; walk executed={dc.executed_path(hw)}; "
           f"turn {turn0} -> host=({hs.get('turn')},{hs.get('side')}) client=({cs.get('turn')},{cs.get('side')}); "
           f"client lastSeqApplied {seq0}->{seq1} (d={d_seq}), window kinds={kinds} (log covers window={covered}); "
           f"bt_action_end+side_transition={ends}; client hashVerifyCounts {ch0['hashVerifyCounts']}->"
@@ -451,8 +431,8 @@ def hc2(host, client, ctx):
     fails = list(notes)
     if k0 is None or k1 == k0:
         fails.append(f"the host kneel did not toggle H ({k0}->{k1})")
-    if dc.executed_path(hw) != HC2_WALK_PATH:
-        fails.append(f"walk executed {dc.executed_path(hw)} (want {HC2_WALK_PATH})")
+    if dc.executed_path(hw) != WALK_PATH:
+        fails.append(f"walk executed {dc.executed_path(hw)} (want {WALK_PATH})")
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (turn0 + 1, FACTION_PLAYER,
                                                                              turn0 + 1, FACTION_PLAYER):
         fails.append(f"not on player turn {turn0 + 1} on both: host=({hs.get('turn')},{hs.get('side')}) "
@@ -466,16 +446,16 @@ def hc2(host, client, ctx):
     if d_sb != ends:
         fails.append(f"client compared 'saveBlob' {d_sb} time(s) over {ends} bt_action_end+side_transition "
                      f"ev(s) (want equal)")
-    fails += dc.common_fails(host, client, before, {}, "HC2")
+    fails += dc.common_fails(host, client, before, {}, "client_compares")
     dc.finish(fails)
 
 
-def hc3(host, client, ctx):
+def row_saveblob_desync(host, client, ctx):
     notes = []
     before = {"host": dc.probes(host), "client": dc.probes(client)}
     ch0 = hash_probes(client)
     r0 = dc.units(client)[H2_ID].get("reactions")
-    host.ok({"cmd": "resync_hold", "on": True})  # HC3's PASS is the desync itself
+    host.ok({"cmd": "resync_hold", "on": True})  # saveblob_desync's PASS is the desync itself
     rs = client.cmd({"cmd": "battle_action", "action": "set_stat", "unit": H2_ID, "stat": "reactions",
                      "value": (r0 or 0) + REACTIONS_POKE})
     r1c, r1h = dc.units(client)[H2_ID].get("reactions"), dc.units(host)[H2_ID].get("reactions")
@@ -493,7 +473,7 @@ def hc3(host, client, ctx):
     pc = dc.probes(client)
     ch1 = hash_probes(client)
     dsc = dc.desync_record(client, pc["desyncSeen"])
-    print(f"EVIDENCE HC3: H2 reactions client {r0}->{r1c} (set_stat ok={rs.get('ok')}) host {r1h}; "
+    print(f"EVIDENCE saveblob_desync: H2 reactions client {r0}->{r1c} (set_stat ok={rs.get('ok')}) host {r1h}; "
           f"hash diff before the kneel={pre_diff}; host kneel H {k0}->{k1} actionId={action_id} "
           f"kneel seq={kneel_seq} bt_action_end seq={end_seq}; client desyncSeen "
           f"{before['client']['desyncSeen']}->{pc['desyncSeen']} desync={dsc}; client lastSeqApplied "
@@ -507,7 +487,7 @@ def hc3(host, client, ctx):
     if k0 is None or k1 == k0 or end_seq is None:
         fails.append(f"the host kneel did not complete (kneeled {k0}->{k1}, bt_action_end seq {end_seq})")
     if before["client"]["desyncSeen"]:
-        fails.append("client desyncSeen was already true before HC3")
+        fails.append("client desyncSeen was already true before saveblob_desync")
     if not pc["desyncSeen"]:
         fails.append(f"client desyncSeen false after the kneel's bt_action_end (seq {end_seq}) "
                      f"(want true, bucket saveBlob)")
@@ -517,7 +497,8 @@ def hc3(host, client, ctx):
     dc.finish(fails)
 
 
-SCENARIOS = (("HC1", hc1), ("HC2", hc2), ("HC3", hc3))
+SCENARIOS = (("field_coverage", row_field_coverage), ("client_compares", row_client_compares),
+             ("saveblob_desync", row_saveblob_desync))
 
 
 # ===================== bring-up =====================
@@ -538,7 +519,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} (SEED_MAP {SEED_MAP}, {CRAFT})")
-    pinned = pin_ai_neutral(host, client, tag="w2p2-sh")
+    pinned = pin_ai_neutral(host, client, tag="hash_coverage")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     h_ids = sorted(u["id"] for u in hs["units"] if u.get("coop") == COOP_SEAT_0
                    and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
@@ -551,21 +532,21 @@ def boot(host, client):
             f"A item {iid}: {it} (baked {itype} in {islot})")
     assert (items.get(A_WEAPON) or {}).get("ammo", [None])[0] == A_CLIP, f"A weapon {items.get(A_WEAPON)}"
     door, mx, my = session.lightning_door(host)
-    assert (door["x"], door["y"], door["z"], door["part"]) == HC_UFO_DOOR + (1,), (
-        f"Lightning door {door} (baked {HC_UFO_DOOR} {HC_UFO_DOOR_PART})")
+    assert (door["x"], door["y"], door["z"], door["part"]) == UFO_DOOR + (1,), (
+        f"Lightning door {door} (baked {UFO_DOOR} {UFO_DOOR_PART})")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    ctx = {"doorIndex": tile_index(HC_UFO_DOOR, mx, my)}
+    ctx = {"doorIndex": tile_index(UFO_DOOR, mx, my)}
     ph = dc.probes(host)
-    print(f"[w2p2-sh] boot ok: MAP_FP={MAP_FP!r} craft={CRAFT} turn={hs['turn']} H={H_ID} H2={H2_ID} "
+    print(f"[hash_coverage] boot ok: MAP_FP={MAP_FP!r} craft={CRAFT} turn={hs['turn']} H={H_ID} H2={H2_ID} "
           f"pinned={pinned} door={door} ctx={ctx} host deltaArmed={ph['deltaArmed']}", flush=True)
     return ctx
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49850, make_user_dir("w2p2_hash_coverage_host"))
-    client = GameClient("client", 49851, make_user_dir("w2p2_hash_coverage_client"))
+    host = GameClient("host", 49850, make_user_dir("hash_coverage_host"))
+    client = GameClient("client", 49851, make_user_dir("hash_coverage_client"))
     results = {}
     try:
         try:
@@ -587,7 +568,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p2-sh] shutdown {gc.name}: {dc.short(e)}", flush=True)
+                print(f"[hash_coverage] shutdown {gc.name}: {dc.short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_hash_coverage: {len(passed)}/{len(SCENARIOS)} passed "
