@@ -1,19 +1,18 @@
 """test_battle_end_campaign_fence.py: the stream fence. A shared command the
 host submits while its post-battle world streams to the second player is neither lost nor doubled: the host defers
-it until the stream's completion message has left (the fence's HOST half, T0-S1 CONFIRMED F4760/F4761), the client
-holds the resulting shared_apply until it has adopted the streamed world in place, then applies it onto that world
-(docs rewrite/prompts/w2p7_sc_design.md section 3.1 step 7, AMENDMENT P7-6 section 4.1 row C28S-f, PR-6, PR-11, the
-P7-6 TASK 0 RULINGS; owner D156 (a), D176; MR1, MR3).
+it until the stream's completion message has left (the fence's host half), the client holds the resulting
+shared_apply until it has adopted the streamed world in place, then applies it onto that world.
 
-Fixture (one boot; the C28S fixture of test_battle_end_campaign.py, imported): the SHARED battle on SEED_S, then,
-before the ending, the two TEST-ONLY holds: host hold_world_stream {on: true} (the streamer
+Fixture (one boot; test_battle_end_campaign.py's client_ok_first fixture, imported): the SHARED battle on SEED_S,
+then, before the ending, the two TEST-ONLY holds: host hold_world_stream {on: true} (the streamer
 parks before its final MAP_RESULT_LOAD_PROGRESS, so sendFileClient stays set and the host log says "[coop-test]
-hold_world_stream: holding"), client hold_world_adopt {on: true} (S-C-A.2's adoption step skips). The item is T0-6's
-recovered SELL_ITEM ("Plasma Pistol", 8 recovered: CONSTANTS T0-6 (ii) / HOST_DEBRIEF) - base 0 holds none before the
+hold_world_stream: holding"), client hold_world_adopt {on: true} (the client's adoption step skips). The item is
+SELL_ITEM, recovered by the battle ("Plasma Pistol", 8 recovered: HOST_DEBRIEF) - base 0 holds none before the
 battle, so its count at the host's debriefing is the debriefing's own (DEBRIEF_QTY, checked pre-cell).
 
-Row C28S-f. GREEN cells, in order; a failed cell ends the row ("not reached" after it):
-  (1) both debrief_state equal (PR-10 stripped); the client's shown, on top and display-only (as C28S (1)).
+Row sale_behind_fence. Cells, in order; a failed cell ends the row ("not reached" after it):
+  (1) both debrief_state equal (page-2 prefixes stripped); the client's shown, on top and display-only (as
+      test_battle_end_campaign's client_ok_first (1)).
   (2) the host's stream is parked (the hold line in the host log within ADOPT_S); the host's `sell {SELL_ITEM, 1}`
       from a base screen; host battleEnd.fenceDeferredPasses >= 1 within FENCE_S while the host's count stays
       DEBRIEF_QTY (the command waits behind the fence).
@@ -25,10 +24,10 @@ Row C28S-f. GREEN cells, in order; a failed cell ends the row ("not reached" aft
 Pre-cell guard as test_battle_end_campaign.py, plus the holds armed and the host's base-0 SELL_ITEM count ==
 DEBRIEF_QTY at its debriefing; over the whole row: no new crash log.
 
-RED (commit S-C-A.1): the row fails on exactly cell 1 - the client never shows a DebriefingState. The holds are inert
-on that build (no post-battle push, no adoption step). GREEN (commit S-C-A.2): the row passes.
-ONE "EVIDENCE C28S-f:" line, then "PASS C28S-f" or "FAIL C28S-f: <message>". ONE foreground run,
-no skip path; exit 0 only when the row passes, 2 otherwise.
+Without the campaign debriefing the row fails on cell 1 - the client never shows a DebriefingState, and the holds
+are inert (no post-battle push, no adoption step).
+ONE "EVIDENCE sale_behind_fence:" line, then "PASS sale_behind_fence" or "FAIL sale_behind_fence: <message>". ONE
+foreground run, no skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_battle_end_campaign_fence.py
 """
@@ -42,11 +41,11 @@ import test_battle_end_campaign as camp
 from test_battle_end_campaign import (record, wait_until, log_count, capture, cell_debriefs, ADOPT_S, EQUAL_S,
                                          HOST_DEBRIEF)
 
-PORT = "47216"               # AMENDMENT P7-6 section 4: the fence file = 47216-47218
-TAG = "w2p7sca_c28sf"
+PORT = "47216"               # this file's lobby port
+TAG = "campaign_end_fence"
 BASE = "HostBase"            # shared_fixture.bring_up's host_base (base 0)
 SELL_ITEM = "STR_PLASMA_PISTOL"
-DEBRIEF_QTY = next(r["qty"] for r in HOST_DEBRIEF["recovered"] if r["item"] == "Plasma Pistol")   # 8 (T0-6 (ii))
+DEBRIEF_QTY = next(r["qty"] for r in HOST_DEBRIEF["recovered"] if r["item"] == "Plasma Pistol")   # 8
 FENCE_S = 3                  # host fenceDeferredPasses >= 1 after the sell (one pump pass is ~16 ms)
 HOLD_LINE = "[coop-test] hold_world_stream: holding"
 
@@ -63,7 +62,8 @@ def funds(gc):
 
 
 def stage_fence(rid, js, ctx):
-    """The C28S stage with both holds armed before the ending, then the debriefing's SELL_ITEM count on the host."""
+    """test_battle_end_campaign's stage (as client_ok_first) with both holds armed before the ending, then the
+    debriefing's SELL_ITEM count on the host."""
     camp.stage(rid, js, ctx, wound=False, holds=True)
     d = base_count(js.host)
     ctx["debriefQty"] = d
@@ -142,10 +142,10 @@ def main():
     t0, results, walls = time.time(), {}, {}
     # test_battle_end_campaign.run_row: the same EVIDENCE / PASS / FAIL shape; it releases both holds before the
     # shutdown.
-    camp.run_row("C28S-f", TAG, PORT, stage_fence, fence_cells, results, walls, holds=True)
-    ok = bool(results.get("C28S-f"))
-    print(f"\ntest_battle_end_campaign_fence: {int(ok)}/1 passed (pass={['C28S-f'] if ok else []} "
-          f"fail={[] if ok else ['C28S-f']}) in {time.time() - t0:.1f}s (row walls {walls})", flush=True)
+    camp.run_row("sale_behind_fence", TAG, PORT, stage_fence, fence_cells, results, walls, holds=True)
+    ok = bool(results.get("sale_behind_fence"))
+    print(f"\ntest_battle_end_campaign_fence: {int(ok)}/1 passed (pass={['sale_behind_fence'] if ok else []} "
+          f"fail={[] if ok else ['sale_behind_fence']}) in {time.time() - t0:.1f}s (row walls {walls})", flush=True)
     return 0 if ok else 2
 
 
