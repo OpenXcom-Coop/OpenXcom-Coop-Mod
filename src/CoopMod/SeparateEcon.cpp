@@ -603,8 +603,8 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 
 bool isHostSimulationResult(const std::string& cmd)
 {
-	return cmd == "research_done" || cmd == "fac_done" || cmd == "prod_done"
-		|| cmd == "transfer_arrived" || cmd == "base_destroyed"
+	return cmd == "research_done" || cmd == "research_effects"
+		|| cmd == "fac_done" || cmd == "prod_done" || cmd == "transfer_arrived" || cmd == "base_destroyed"
 		|| cmd == "patrol_prompt" || cmd == "base_damaged"
 		|| cmd == "alien_base_found" || cmd == "alert" || cmd == "day_tick"
 		|| cmd == "land_prompt" || cmd == "land_close";

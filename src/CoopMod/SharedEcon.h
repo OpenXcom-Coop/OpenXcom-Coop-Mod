@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include <json/json.h>
 
@@ -37,6 +38,7 @@ class Soldier;
 class AlienBase;
 class BattleItem;
 class SavedBattleGame;
+class RuleResearch;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -217,6 +219,15 @@ void broadcast(Game* game, const Json::Value& msg);
 /// lookups deterministically (no RNG re-roll), and pops ResearchCompleteState.
 void hostResearchDone(Game* game, int baseId, const std::string& research,
                       const std::string& bonus, const std::string& newResearch);
+
+/// Runs SavedGame::handlePrimaryResearchSideEffects for the topics one base
+/// completed (time1Day). On a SHARED or SEPARATE host it then mirrors what that
+/// call changed, as research_effects: the obsolete projects it removed from any
+/// base (with the item refund the host made) and the item transfers the research
+/// spawned at @a base. The replica applies exactly those results; it never re-runs
+/// the side effects on its own state.
+void hostResearchSideEffects(Game* game, const std::vector<const RuleResearch*>& topics,
+                             Base* base);
 
 /// Facility construction finished on the host (time1Day): replica sets the
 /// facility at (x,y) buildTime 0 and mirrors the completion popup.

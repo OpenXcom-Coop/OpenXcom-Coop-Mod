@@ -2626,6 +2626,42 @@ void researchDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 		}
 }
 
+// research_effects payload: { removed: [ {baseIdx, research, refund} ],
+// transfers: [ {item, qty, hours, owner} ] }; baseId = the researching base.
+// The host's handlePrimaryResearchSideEffects results for one base's completed
+// topics (hostResearchSideEffects), sent after that base's research_done results.
+void researchEffectsApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (connectionTCP::getHost()) return; // host already applied in time1Day
+	Mod* mod = game->getMod();
+	if (!mod) return;
+	for (const auto& r : payload["removed"])
+	{
+		Base* from = resolveBase(game, r.get("baseIdx", -1).asInt());
+		ResearchProject* proj = from
+			? findResearchProject(from, r.get("research", "").asString()) : nullptr;
+		if (!proj) continue;
+		// The host decided the needed-item refund from its own progress. Mark the
+		// copy finished so removeResearch() does not decide again, then refund
+		// exactly as the host did.
+		proj->setSpent(proj->getCost());
+		const RuleItem* needed = proj->getRules()->getNeededItem();
+		if (r.get("refund", false).asBool() && needed)
+			from->getStorageItems()->addItem(needed, 1);
+		from->removeResearch(proj);
+	}
+	if (!base) return;
+	for (const auto& s : payload["transfers"])
+	{
+		const RuleItem* item = mod->getItem(s.get("item", "").asString(), false);
+		if (!item) continue;
+		Transfer* t = new Transfer(s.get("hours", 1).asInt());
+		t->setOwnerPlayerName(s.get("owner", "").asString());
+		t->setItems(item, s.get("qty", 1).asInt());
+		base->getTransfers()->push_back(t);
+	}
+}
+
 // fac_done payload: { x, y, type }.
 void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
@@ -3148,6 +3184,7 @@ void init()
 	// PRD-J04 host simulation-result mirrors (always-accept validator; appliers
 	// run replica-side only).
 	registerCmd("research_done",    &simAccept, &researchDoneApply);
+	registerCmd("research_effects", &simAccept, &researchEffectsApply);
 	registerCmd("fac_done",         &simAccept, &facDoneApply);
 	registerCmd("prod_done",        &simAccept, &prodDoneApply);
 	registerCmd("transfer_arrived", &simAccept, &transferArrivedApply);
@@ -3389,6 +3426,69 @@ void hostResearchDone(Game* game, int baseId, const std::string& research,
 	p["bonus"] = bonus;
 	p["newResearch"] = newResearch;
 	submitLocalCmd(game, "research_done", baseId, p);
+}
+
+void hostResearchSideEffects(Game* game, const std::vector<const RuleResearch*>& topics,
+                             Base* base)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || topics.empty()) return;
+	Mod* mod = game->getMod();
+	if (!sharedHost(game) || !base)
+	{
+		save->handlePrimaryResearchSideEffects(topics, mod, base);
+		return;
+	}
+	// Every base's projects before the call. A base never runs two projects of
+	// one topic, so (base index, topic) names a project.
+	struct Project { int baseIdx; std::string research; bool refund; };
+	std::vector<Project> before;
+	auto& bases = *save->getBases();
+	int baseIdx = -1;
+	for (size_t i = 0; i < bases.size(); ++i)
+	{
+		if (bases[i] == base) baseIdx = (int)i;
+		for (ResearchProject* proj : bases[i]->getResearch())
+		{
+			const RuleResearch* rule = proj->getRules();
+			// Base::removeResearch refunds the needed item of an unfinished project.
+			before.push_back({ (int)i, rule->getName(),
+				!proj->isFinished() && rule->needItem() && rule->destroyItem() });
+		}
+	}
+	const size_t transfersBefore = base->getTransfers()->size();
+	save->handlePrimaryResearchSideEffects(topics, mod, base);
+	if (baseIdx < 0) return;
+
+	Json::Value removed(Json::arrayValue);
+	for (const auto& proj : before)
+	{
+		if (findResearchProject(bases[proj.baseIdx], proj.research)) continue;
+		Json::Value r;
+		r["baseIdx"] = proj.baseIdx;
+		r["research"] = proj.research;
+		r["refund"] = proj.refund;
+		removed.append(r);
+	}
+	// handlePrimaryResearchSideEffects only appends the spawned item transfers.
+	Json::Value spawned(Json::arrayValue);
+	const auto& transfers = *base->getTransfers();
+	for (size_t i = transfersBefore; i < transfers.size(); ++i)
+	{
+		const Transfer* t = transfers[i];
+		if (!t->getItems()) continue;
+		Json::Value s;
+		s["item"] = t->getItems()->getType();
+		s["qty"] = t->getQuantity();
+		s["hours"] = t->getHours();
+		s["owner"] = t->getOwnerPlayerName();
+		spawned.append(s);
+	}
+	if (removed.empty() && spawned.empty()) return;
+	Json::Value p;
+	p["removed"] = removed;
+	p["transfers"] = spawned;
+	submitLocalCmd(game, "research_effects", baseIdx, p);
 }
 
 void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& facilityType)

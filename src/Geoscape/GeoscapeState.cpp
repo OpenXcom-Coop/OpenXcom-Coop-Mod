@@ -4708,7 +4708,9 @@ void GeoscapeState::time1Day()
 			// 1. remove obsolete research projects from all bases
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
-			saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+			// coop: a SHARED or SEPARATE host mirrors the removed projects and the
+			// spawned items to the replica (research_effects).
+			SharedEcon::hostResearchSideEffects(_game, topicsToCheck, xbase);
 		}
 
 		// Handle soldier wounds and martial training
