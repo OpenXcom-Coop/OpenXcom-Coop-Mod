@@ -2208,15 +2208,27 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
 // SoldierArmorState / CraftArmorState: return the old armor's store item + consume
 // the new one against the shared stores.
-bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int /*seat*/,
+// Separate Campaign (RU16): a player changes only their own soldier's armor,
+// also at another player's base, where the armor comes from that base's stores.
+bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                           int64_t& cost, std::string& failReason)
 {
 	cost = 0;
 	if (!base) { failReason = "base not found"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat))
+		{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
 	Armor* next = game->getMod()->getArmor(payload.get("armor", "").asString(), false);
 	if (!next) { failReason = "unknown armor"; return false; }
+	// The armor screen offers a stored armor only while the base holds one (or
+	// the soldier's current armor uses the same store item); a stale replica can
+	// still ask for the last one twice.
+	SavedGame* save = game->getSavedGame();
+	if (save && save->getMonthsPassed() != -1 && next != s->getArmor()
+		&& next->getStoreItem() && next->getStoreItem() != s->getArmor()->getStoreItem()
+		&& base->getStorageItems()->getItem(next->getStoreItem()) < 1)
+		{ failReason = "armor not in base stores"; return false; }
 
 	// issue #121: re-run the client's craft-space gate (SoldierArmorState::lstArmorClick)
 	// against the host-authoritative world. If the soldier rides a craft, a larger armor
