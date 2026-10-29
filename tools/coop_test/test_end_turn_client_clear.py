@@ -1,28 +1,30 @@
-"""the client's END TURN count and pressed button clear when the side ends, as the host's do (R-U8-1,
-F10885 / F10963; spec docs rewrite/prompts/rvu8b_client_tally_clear.md (f); TASK 0 docs
-rewrite/rvu8b-task0/CONSTANTS.md).
+"""the client's END TURN count and pressed button clear when the side ends, as the host's do.
 
 THREE rows, each its own boot (test_end_turn_tally.py's recipe: bring_up_lobby, drive_to_battlescape on
-STR_SMALL_SCOUT with seat_count 2 and set_seed 1 - plus set_mode(traditional) first for C3 - then pin_ai_neutral),
-each shut down before the next. A press is the real END TURN button (battle_action end_turn_button) on the pressing
-machine; C2's commit is test_end_turn_unit_out.kill_seat (the host's kill_unit_real {coop_side 1}, victims out).
-  C1 (parallel)    the client pressed; the host's press completes the side (commit tally {2, 2, [0, 1]}).
-  C2 (parallel)    the host pressed; the client's last soldier goes out and RV-U8's recount commits ({1, 1, [0]}).
-  C3 (traditional) the host passed; the client's press is the last pass ({1, 1, [1], activeSeat 1}).
+STR_SMALL_SCOUT with seat_count 2 and set_seed 1 - plus set_mode(traditional) first for traditional_last_pass - then
+pin_ai_neutral), each shut down before the next. A press is the real END TURN button (battle_action end_turn_button)
+on the pressing machine; client_unit_out's commit is test_end_turn_unit_out.kill_seat (the host's kill_unit_real
+{coop_side 1}, victims out).
+  client_pressed (parallel)           the client pressed; the host's press completes the side (commit tally {2, 2,
+                                      [0, 1]}).
+  client_unit_out (parallel)          the host pressed; the client's last soldier goes out and the unit-out recount
+                                      commits ({1, 1, [0]}).
+  traditional_last_pass (traditional) the host passed; the client's press is the last pass ({1, 1, [1],
+                                      activeSeat 1}).
 After the commit both machines sit at phase counter +1 on the alien side, each on its NextTurnState (nothing closes a
 NextTurnState before cell (2) has read). tPhase = the moment both phase counters read +1. Cells, in order:
-  (1) the host at the alien side, as today: phase counter P0 + 1, side ALIEN_SIDE, text '', button up.
+  (1) the host at the alien side, as before: phase counter P0 + 1, side ALIEN_SIDE, text '', button up.
   (2) the client clears: within CLEAR_S of tPhase its text is '' and its button up, both machines still at +1.
   (3) presentation only: both machines' tally still equals the commit tally; talliesSeen == seen0 + DS on each.
   (4) the next X-COM side: drive_full_cycle + wait_host_idle; both phase counters +3, text '', button up, the new
       side's tally.
 Premise (every row): seat 0 / seat 1 live player units == S0_IDS / S1_IDS on both machines, the live turn mode on
-both (C3: coopActiveSeat 0 on both), entry text '' and button up on both. A premise or pre-cell miss = ONE CAPTURE
-line and "FAIL <row>: pre-cell (setup failure)". A failed cell ends its row (later cells "not reached"). Guards per
-row: no new crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE <row>:" line, one
-PASS/FAIL line per cell and guard, then its verdict; every row runs after a failure.
-Rulings: R-U8-1 ("as the host does": text and pressed look), design-D1 (the count is persistent WITHIN a side), IR2-4
-(readiness clears at every side change; an AI side is INERT, the host emits no tally there), QB-1..QB-4 (a).
+both (traditional_last_pass: coopActiveSeat 0 on both), entry text '' and button up on both. A premise or pre-cell
+miss = ONE CAPTURE line and "FAIL <row>: pre-cell (setup failure)". A failed cell ends its row (later cells "not
+reached"). Guards per row: no new crash file, both processes alive at the row end. Each row prints ONE "EVIDENCE
+<row>:" line, one PASS/FAIL line per cell and guard, then its verdict; every row runs after a failure.
+The rules checked: the client's text and pressed look clear as the host's do; the count persists WITHIN a side;
+readiness clears at every side change; an AI side is INERT, so the host emits no tally there.
 ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_end_turn_client_clear.py
@@ -42,18 +44,19 @@ from test_turn_mode import set_mode, TRADITIONAL, PARALLEL
 from test_end_turn_unit_out import (FixtureMiss, short, snap, pc, until, until_by, press, kill_seat, premise,
                                        tally_is, log_tail, MISSION, TEXT1)
 
-# TASK 0 (docs rewrite/rvu8b-task0/CONSTANTS.md; 6/6 boots at 4232a1527, each pair equal on both machines): both
-# phase counters +1 0.15-0.25 s after the commit; both machines parked on NextTurnState, side 1, through PARK_S 6;
-# the client still shows C1 "END TURN 2/2" armed True, C2 "END TURN 1/1" armed False, C3 "END TURN 1/1" armed True.
-PAINT_S, SIDE_S, CLEAR_S = 15, 15, 3   # the spec's windows, never widened (VICTIMS_S 10 is kill_seat's own bound)
+# Measured on six boots, equal on both machines: both phase counters +1 0.15-0.25 s after the commit; both machines
+# parked on NextTurnState, side 1, for at least 6 s. A client that does not clear keeps showing client_pressed
+# "END TURN 2/2" armed True, client_unit_out "END TURN 1/1" armed False, traditional_last_pass "END TURN 1/1"
+# armed True there.
+PAINT_S, SIDE_S, CLEAR_S = 15, 15, 3   # fixed windows (VICTIMS_S 10 is kill_seat's own bound)
 DS = 1                                 # talliesSeen from seen0 to the alien side, both machines (the commit tally)
 ALIEN_SIDE = 1                         # battle_state.side of the hostile side
-COMMIT = {"C1": dict(count=2, needed=2, ready=[0, 1], side="player"),
-          "C2": dict(count=1, needed=1, ready=[0], side="player"),
-          "C3": dict(count=1, needed=1, ready=[1], side="player", activeSeat=1)}
-NEXT = {"C1": dict(count=0, needed=2, ready=[], side="player"),
-        "C2": dict(count=0, needed=1, ready=[], side="player"),
-        "C3": dict(count=0, needed=1, ready=[], side="player", activeSeat=0)}
+COMMIT = {"client_pressed": dict(count=2, needed=2, ready=[0, 1], side="player"),
+          "client_unit_out": dict(count=1, needed=1, ready=[0], side="player"),
+          "traditional_last_pass": dict(count=1, needed=1, ready=[1], side="player", activeSeat=1)}
+NEXT = {"client_pressed": dict(count=0, needed=2, ready=[], side="player"),
+        "client_unit_out": dict(count=0, needed=1, ready=[], side="player"),
+        "traditional_last_pass": dict(count=0, needed=1, ready=[], side="player", activeSeat=0)}
 
 
 def top(gc):
@@ -98,7 +101,7 @@ def to_alien_side(host, client, ctx, t_commit):
 
 # ----- the pre-cells: the press before the commit, the baseline, the commit, both counters +1 -----
 
-def c1_pre(host, client, ctx):
+def client_pressed_pre(host, client, ctx):
     press(client, ctx, "client")
     if until(lambda: battle_state(host).get("coopEndTurnText") == TEXT1
              and battle_state(client).get("coopEndTurnArmed") is True
@@ -112,7 +115,7 @@ def c1_pre(host, client, ctx):
     to_alien_side(host, client, ctx, t)
 
 
-def c2_pre(host, client, ctx):
+def client_unit_out_pre(host, client, ctx):
     press(host, ctx, "host")
     if until(lambda: battle_state(host).get("coopEndTurnText") == TEXT1
              and both_tally(host, client, count=1, needed=2, ready=[0]), PAINT_S) is None:
@@ -123,7 +126,7 @@ def c2_pre(host, client, ctx):
     to_alien_side(host, client, ctx, ctx["tOut"])
 
 
-def c3_pre(host, client, ctx):
+def traditional_last_pass_pre(host, client, ctx):
     p, c = pc(host), pc(client)
     press(host, ctx, "host (pass)")
     if until(lambda: event_state(host).get("coopActiveSeat") == 1 and event_state(client).get("coopActiveSeat") == 1
@@ -201,17 +204,17 @@ def next_side(row):
 
 CELLS = (("(1) host at the alien side", host_alien), ("(2) client clears", client_clears),
          ("(3) presentation only", presentation_only), ("(4) the next X-COM side", next_side))
-ROWS = (("C1", "48124", 49624, 49625, PARALLEL, c1_pre),
-        ("C2", "48125", 49626, 49627, PARALLEL, c2_pre),
-        ("C3", "48126", 49628, 49629, TRADITIONAL, c3_pre))
+ROWS = (("client_pressed", "48124", 49624, 49625, PARALLEL, client_pressed_pre),
+        ("client_unit_out", "48125", 49626, 49627, PARALLEL, client_unit_out_pre),
+        ("traditional_last_pass", "48126", 49628, 49629, TRADITIONAL, traditional_last_pass_pre))
 
 
 def run_row(row, results, walls):
     rid, key, lh, lc, mode, pre = row
     t0, ctx, lines = time.time(), {"row": rid}, []
     crash0 = session._crash_log_snapshot()
-    host = GameClient("host", lh, make_user_dir(f"rvu8b_{rid}_host"))
-    client = GameClient("client", lc, make_user_dir(f"rvu8b_{rid}_client"))
+    host = GameClient("host", lh, make_user_dir(f"end_turn_clear_{rid}_host"))
+    client = GameClient("client", lc, make_user_dir(f"end_turn_clear_{rid}_client"))
     failed, verdict = [], None
     try:
         try:
@@ -222,7 +225,7 @@ def run_row(row, results, walls):
                     set_mode(h, TRADITIONAL)
                 h.ok({"cmd": "set_seed", "seed": 1})
             session.drive_to_battlescape(host, client, {}, mission=MISSION, seat_count=2, pre_ok=pre_ok)
-            ctx["pinned"] = pin_ai_neutral(host, client, tag=f"rvu8b-{rid}")
+            ctx["pinned"] = pin_ai_neutral(host, client, tag=f"end_turn_clear-{rid}")
             premise(host, client, mode, ctx)
             entry(host, client, ctx)
             pre(host, client, ctx)
@@ -261,7 +264,7 @@ def run_row(row, results, walls):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[rvu8b] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_end_turn_client_clear] shutdown {gc.name}: {short(e)}", flush=True)
         new_crash = sorted(session._crash_log_snapshot() - crash0)
         ctx["crash"], ctx["alive"] = new_crash, alive
         if verdict is None:
