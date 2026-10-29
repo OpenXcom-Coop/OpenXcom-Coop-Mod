@@ -291,8 +291,14 @@ void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
 /// pending transfers (items/scientists/engineers/craft) and removes them.
 void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
 
-/// End-of-day soldier changes on the host (time1Day): replica adopts the
-/// per-soldier wound-recovery values for CHANGED soldiers only.
+/// Host: snapshot every base soldier's step state (wounds, stats, training
+/// flags, psi improvement, daily dogfight XP) before the day or month step.
+/// @a keepArmed keeps a snapshot this world already armed (time1Day after
+/// time1Month in the same clock advance).
+void hostSoldierStepBegin(Game* game, bool keepArmed);
+/// End-of-day changes on the host (time1Day): day_tick carries every soldier
+/// whose step state changed since hostSoldierStepBegin (the replica adopts it
+/// exactly) plus the production and research progress.
 void hostDayTick(Game* game);
 
 /// PRD-J07: a base was destroyed by retaliation on the host (it already removed

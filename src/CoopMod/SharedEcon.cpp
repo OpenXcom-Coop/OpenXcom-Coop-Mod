@@ -2015,10 +2015,106 @@ GeoscapeState* findGeoState(Game* game)
 	return nullptr;
 }
 
-// Last wound-recovery value the host broadcast per soldier id, so day_tick only
-// carries CHANGED soldiers (process-global; compare-and-set makes stale entries
-// self-correct on the next change).
-std::unordered_map<int, int> g_soldierRecovery;
+// The soldier state the host's day and month steps write: wound recovery and
+// missing health/mana (replenishStats), martial and psi training (stats, the
+// training flags, the psi improvement scores) and the dogfight-XP reset. The
+// host snapshots it before the step (hostSoldierStepBegin) and day_tick carries
+// every soldier whose state changed, so the replica holds the host's values
+// right after the step instead of waiting for a checksum restream.
+struct SoldierStepState
+{
+	int id = -1;
+	int owner = -1;
+	float recovery = 0.0f;
+	int healthMissing = 0;
+	int manaMissing = 0;
+	UnitStats stats;
+	UnitStats dogfight;
+	bool training = false;
+	bool psiTraining = false;
+	bool trainingQueued = false;
+	int improvement = 0;
+	int psiStrImprovement = 0;
+};
+
+SoldierStepState soldierStepState(Soldier* s)
+{
+	SoldierStepState st;
+	st.id = s->getId();
+	st.owner = s->getOwnerPlayerId();
+	st.recovery = s->getWoundRecoveryExact();
+	st.healthMissing = s->getHealthMissing();
+	st.manaMissing = s->getManaMissing();
+	st.stats = *s->getCurrentStats();
+	st.dogfight = *s->getDailyDogfightExperienceCache();
+	st.training = s->isInTraining();
+	st.psiTraining = s->isInPsiTraining();
+	st.trainingQueued = s->getReturnToTrainingWhenHealed();
+	st.improvement = s->getImprovement();
+	st.psiStrImprovement = s->getPsiStrImprovement();
+	return st;
+}
+
+bool sameUnitStats(const UnitStats& a, const UnitStats& b)
+{
+	bool same = true;
+	UnitStats::fieldLoop([&](UnitStats::Ptr field) { if (a.*field != b.*field) same = false; });
+	return same;
+}
+
+bool sameStepState(const SoldierStepState& a, const SoldierStepState& b)
+{
+	return a.id == b.id && a.owner == b.owner && a.recovery == b.recovery
+		&& a.healthMissing == b.healthMissing && a.manaMissing == b.manaMissing
+		&& sameUnitStats(a.stats, b.stats) && sameUnitStats(a.dogfight, b.dogfight)
+		&& a.training == b.training && a.psiTraining == b.psiTraining
+		&& a.trainingQueued == b.trainingQueued && a.improvement == b.improvement
+		&& a.psiStrImprovement == b.psiStrImprovement;
+}
+
+Json::Value unitStatsJson(const UnitStats& st)
+{
+	Json::Value arr(Json::arrayValue);
+	UnitStats::fieldLoop([&](UnitStats::Ptr field) { arr.append((int)(st.*field)); });
+	return arr;
+}
+
+void readUnitStats(const Json::Value& arr, UnitStats& out)
+{
+	if (!arr.isArray() || arr.size() == 0) return;
+	Json::ArrayIndex i = 0;
+	UnitStats::fieldLoop([&](UnitStats::Ptr field)
+	{
+		if (i < arr.size()) out.*field = (UnitStats::Type)arr[i].asInt();
+		++i;
+	});
+}
+
+// day_tick soldier entry: the soldier's id and owner (ids may repeat across
+// players) and its complete step state, stats in UnitStats::fieldLoop order.
+Json::Value soldierStepJson(const SoldierStepState& st)
+{
+	Json::Value js;
+	js["id"] = st.id;
+	js["owner"] = st.owner;
+	js["recovery"] = (double)st.recovery;
+	js["healthMissing"] = st.healthMissing;
+	js["manaMissing"] = st.manaMissing;
+	js["stats"] = unitStatsJson(st.stats);
+	js["dogfight"] = unitStatsJson(st.dogfight);
+	js["training"] = st.training;
+	js["psiTraining"] = st.psiTraining;
+	js["trainingQueued"] = st.trainingQueued;
+	js["improvement"] = st.improvement;
+	js["psiStrImprovement"] = st.psiStrImprovement;
+	return js;
+}
+
+// The snapshot taken before the step, per soldier object. Armed by
+// hostSoldierStepBegin, consumed (and cleared) by hostDayTick.
+std::map<const Soldier*, SoldierStepState> g_soldierStepBefore;
+const SavedGame* g_soldierStepSave = nullptr;
+bool g_soldierStepArmed = false;
 
 bool simAccept(Game* /*game*/, const Json::Value& /*payload*/, Base* /*base*/,
                int /*seat*/, int64_t& cost, std::string& /*failReason*/)
@@ -3566,11 +3662,13 @@ void transferArrivedApply(Game* game, Json::Value& payload, Base* base, int /*se
 	}
 }
 
-// day_tick payload: { soldiers:[{id,recovery}], productions:[{item,spent}],
+// day_tick payload: { soldiers:[soldierStepJson], productions:[{item,spent}],
 // research:[{project,spent}] }. PRD-J06: the replica's timeXxx handlers are
 // frozen, so production _timeSpent and research _spent never advance locally;
 // the host broadcasts the day's progress so the "days left" / "Progress" columns
 // render current on replicas. Display-only (completion is host-driven J04).
+// The soldier entries are the host's day/month step results (wounds, training);
+// the replica adopts them exactly and never rolls its own.
 void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
@@ -3579,16 +3677,25 @@ void dayTickApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (soldiers.isArray())
 		for (const auto& s : soldiers)
 		{
-			int id = s.get("id", -1).asInt();
-			int recovery = s.get("recovery", 0).asInt();
-			for (auto* soldier : *base->getSoldiers())
-			{
-				if (soldier->getId() == id)
-				{
-					soldier->setWoundRecovery(recovery);
-					break;
-				}
-			}
+			Soldier* soldier = findSoldierAtBase(base, s.get("id", -1).asInt(),
+				s.get("owner", -1).asInt());
+			if (!soldier) continue;
+			soldier->setWoundRecoveryExact((float)s.get("recovery", 0.0).asDouble());
+			soldier->setHealthMissing(s.get("healthMissing", soldier->getHealthMissing()).asInt());
+			soldier->setManaMissing(s.get("manaMissing", soldier->getManaMissing()).asInt());
+			readUnitStats(s["stats"], *soldier->getCurrentStatsEditable());
+			readUnitStats(s["dogfight"], *soldier->getDailyDogfightExperienceCache());
+			soldier->setTraining(s.get("training", soldier->isInTraining()).asBool());
+			soldier->setPsiTraining(s.get("psiTraining", soldier->isInPsiTraining()).asBool());
+			soldier->setReturnToTrainingWhenHealed(
+				s.get("trainingQueued", soldier->getReturnToTrainingWhenHealed()).asBool());
+			soldier->setImprovements(s.get("improvement", soldier->getImprovement()).asInt(),
+				s.get("psiStrImprovement", soldier->getPsiStrImprovement()).asInt());
+			// The stat string is derived; recompute it the way loading a save does.
+			SavedGame* save = game->getSavedGame();
+			Mod* mod = game->getMod();
+			soldier->calcStatString(mod->getStatStrings(),
+				Options::psiStrengthEval && save->isResearched(mod->getPsiRequirements()));
 		}
 	const Json::Value& productions = payload["productions"];
 	if (productions.isArray())
@@ -4818,30 +4925,48 @@ void hostPlayerNotice(Game* game, const std::string& playerName, const std::stri
 	submitLocalCmd(game, "alert", 0, p);
 }
 
+void hostSoldierStepBegin(Game* game, bool keepArmed)
+{
+	SavedGame* save = sharedHost(game) ? game->getSavedGame() : nullptr;
+	if (!save)
+	{
+		g_soldierStepBefore.clear();
+		g_soldierStepArmed = false;
+		return;
+	}
+	// time1Month arms the snapshot and falls through into time1Day, whose own
+	// call must keep it so the month's psi training is carried too.
+	if (keepArmed && g_soldierStepArmed && g_soldierStepSave == save) return;
+	g_soldierStepBefore.clear();
+	for (auto* base : *save->getBases())
+		for (auto* soldier : *base->getSoldiers())
+			g_soldierStepBefore[soldier] = soldierStepState(soldier);
+	g_soldierStepSave = save;
+	g_soldierStepArmed = true;
+}
+
 void hostDayTick(Game* game)
 {
 	if (!sharedHost(game)) return;
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
+	// Only a snapshot of this world, taken before this step, can say what the
+	// step changed.
+	const bool armed = g_soldierStepArmed && g_soldierStepSave == save;
 	auto* bases = save->getBases();
 	for (int bi = 0; bi < (int)bases->size(); ++bi)
 	{
 		Base* base = (*bases)[bi];
 		Json::Value soldiers(Json::arrayValue);
-		for (auto* soldier : *base->getSoldiers())
-		{
-			int id = soldier->getId();
-			int rec = soldier->getWoundRecoveryInt();
-			auto hit = g_soldierRecovery.find(id);
-			if (hit == g_soldierRecovery.end() || hit->second != rec)
+		if (armed)
+			for (auto* soldier : *base->getSoldiers())
 			{
-				g_soldierRecovery[id] = rec;
-				Json::Value js;
-				js["id"] = id;
-				js["recovery"] = rec;
-				soldiers.append(js);
+				auto hit = g_soldierStepBefore.find(soldier);
+				if (hit == g_soldierStepBefore.end()) continue; // new this step: carried by its own result
+				const SoldierStepState now = soldierStepState(soldier);
+				if (!sameStepState(hit->second, now))
+					soldiers.append(soldierStepJson(now));
 			}
-		}
 		// PRD-J06: carry each running production's _timeSpent and each research
 		// project's _spent so the frozen replica's progress columns stay current
 		// (its own step() never runs). Small payload; sent whole each active day.
@@ -4870,6 +4995,8 @@ void hostDayTick(Game* game)
 			submitLocalCmd(game, "day_tick", bi, p);
 		}
 	}
+	g_soldierStepBefore.clear();
+	g_soldierStepArmed = false;
 }
 
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------

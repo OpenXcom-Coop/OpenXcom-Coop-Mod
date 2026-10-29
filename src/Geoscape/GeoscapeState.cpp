@@ -4515,6 +4515,10 @@ void GeoscapeState::time1Day()
 		return;
 	}
 
+	// coop host: snapshot the soldiers before the day step changes them, so
+	// hostDayTick carries every change (kept when time1Month armed it).
+	SharedEcon::hostSoldierStepBegin(_game, true);
+
 	_game->getSavedGame()->increaseDaysPassed();
 
 	SavedGame *saveGame = _game->getSavedGame();
@@ -5078,8 +5082,9 @@ void GeoscapeState::time1Day()
 		}
 	}
 
-	// PRD-J04: mirror end-of-day soldier changes (wound recovery) to SHARED
-	// replicas, for CHANGED soldiers only.
+	// PRD-J04: mirror the step's soldier changes (wounds, martial and psi
+	// training, monthly psi training) to SHARED and Separate replicas, for
+	// CHANGED soldiers only.
 	SharedEcon::hostDayTick(_game);
 }
 
@@ -5114,6 +5119,10 @@ void GeoscapeState::time1Month()
 	{
 		return;
 	}
+
+	// coop host: snapshot the soldiers before the month's psi training; the
+	// day step that follows (time1Day) carries the changes in its day_tick.
+	SharedEcon::hostSoldierStepBegin(_game, false);
 
 	_game->getSavedGame()->addMonth();
 
@@ -5187,8 +5196,10 @@ void GeoscapeState::time1MonthCoop()
 		determineAlienMissions();
 	}
 
-	// Handle Psi-Training and initiate a new retaliation mission, if applicable
-	if (!Options::anytimePsiTraining)
+	// Handle Psi-Training and initiate a new retaliation mission, if applicable.
+	// A campaign replica never trains: the host's month step rolled it, and the
+	// results ride the host's day_tick.
+	if (!Options::anytimePsiTraining && !_game->getCoopMod()->isCampaignReplica())
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
 		for (auto* xbase : *_game->getSavedGame()->getBases())

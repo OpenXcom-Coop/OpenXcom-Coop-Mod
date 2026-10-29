@@ -241,6 +241,8 @@ private:
 	int getWoundRecoveryInt() const;
 	/// coop: gets the exact (unrounded) wound recovery value.
 	float getWoundRecoveryExact() const { return _recovery; }
+	/// coop: sets the exact wound recovery value the host's day step left.
+	void setWoundRecoveryExact(float recovery) { _recovery = recovery > 0.0f ? recovery : 0.0f; }
 	/// Sets the soldier's wound recovery time.
 	void setWoundRecovery(int recovery);
 	/// Gets ther soldier's wound recovery.
@@ -285,6 +287,8 @@ private:
 	int getImprovement() const;
 	/// returns this soldier's psionic strength improvement score for this month.
 	int getPsiStrImprovement() const;
+	/// coop: sets both psi improvement scores the host's training step left.
+	void setImprovements(int improvement, int psiStrImprovement) { _improvement = improvement; _psiStrImprovement = psiStrImprovement; }
 	/// Gets the soldier death info.
 	SoldierDeath *getDeath() const;
 	/// Kills the soldier.
