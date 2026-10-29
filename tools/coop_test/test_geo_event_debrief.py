@@ -2,7 +2,7 @@
 the second player (F5602 folded into W2-H15; F3261; D226 a; rulings Q1 a / Q2 b, AMENDMENT A1; V2). Spec docs
 rewrite/prompts/w2h15_event_replica.md (f) row H15-9; docs rewrite/w2h15-task0/CONSTANTS.md step 0 (iv).
 Mod Coop_GeoEvent_Test: STR_TERROR_MISSION successEvents {STR_GEOEV_EV_DEBRIEF: 100} (funds 1000, 3 x STR_PISTOL_CLIP).
-Boot D, then test_battle_end_campaign.stage (SEED_S, the kill, the host's DebriefingState); C28S-b's order (F5661,
+Boot D, then test_battle_end_campaign.stage (SEED_S, the kill, the host's DebriefingState); host_ok_first's order (F5661,
 F5712): the client's display-only debriefing and worldAdopted 1; S0; the host's OK (bec.press_ok + a drain that STOPS at
 its GeoscapeEventState, F5711) while the client stays on its debriefing; both polled 0.1 s for 5 s; the client's OK;
 both polled 0.1 s for 10 s; both dismiss; clean (settle + 60 min + 4 s: replica requests == S0's, checksum equal).

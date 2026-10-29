@@ -1,44 +1,44 @@
 """test_battle_end_campaign.py: a SHARED campaign's second player ends on its own display-only
-debriefing, takes the host's post-battle world in place under it (MR1), and each player leaves its own debriefing
-with its own OK (docs rewrite/prompts/w2p7_sc_design.md section 3.1, AMENDMENT P7-6 section 4.1 rows C28S / C28S-b,
-PR-1..PR-11, the P7-6 TASK 0 RULINGS; owner D156 (a), D175, D176; mechanism rulings MR1-MR3; P7-5 Q4 (a)).
+debriefing, takes the host's post-battle world in place under it, and each player leaves its own debriefing
+with its own OK.
 
-Before S-C-A: the client's battle-end latch arms only in a skirmish, so a SHARED campaign client stays
-on the battle map until the host has closed every after-battle screen; the host's post-follow-up restream
-(GeoscapeState :1029 -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState) then replaces its whole stack.
+Without this, the client's battle-end latch arms only in a skirmish, so a SHARED campaign client stays on the
+battle map until the host has closed every after-battle screen; the host's post-follow-up restream
+(GeoscapeState :1029 -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState) then replaces its whole stack,
+and each row fails on cell 1 (the client never shows a DebriefingState).
 
-Fixture (one boot per row; TASK 0 ledger `## W2-P7 S-C TASK 0 (part 1) DONE`, docs rewrite/w2p7sc-task0/t0/
-CONSTANTS.md): shared_fixture.bring_up(tag, (0, 0, PORT)); session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1},
-pre_landing = host set_seed SEED_S) - T0-6 (i): SEED 1 pins the terror map (MAP_FP_S on both machines); host set_option
-battleAutoEnd true; host battle_action kill_unit_real {faction: 1} kills the 15 hostiles (T0-6 (ii)); the host's
-autoEnd NextTurnState is closed with dismiss_popup -> the host's DebriefingState, pinned (HOST_DEBRIEF). C28S-b first
-wounds the host-owned soldier aboard (T0-6 (v): battle_set_unit_state {unit, health: start - WOUND_HP} on both
-machines, client first; F4541). No END TURN is pressed (the autoEnd ends the battle), so F4665's wait never applies.
+Fixture (one boot per row): shared_fixture.bring_up(tag, (0, 0, PORT)); session.bring_up_shared_mixed_battle(js,
+{0: 0, 1: 1}, pre_landing = host set_seed SEED_S): SEED 1 pins the terror map (MAP_FP_S on both machines); host
+set_option battleAutoEnd true; host battle_action kill_unit_real {faction: 1} kills the 15 hostiles; the host's
+autoEnd NextTurnState is closed with dismiss_popup -> the host's DebriefingState, pinned (HOST_DEBRIEF). host_ok_first
+first wounds the host-owned soldier aboard (battle_set_unit_state {unit, health: start - WOUND_HP} on both machines,
+client first). No END TURN is pressed (the autoEnd ends the battle).
 
-Rows. The GREEN cells are numbered and checked in order; a failed cell ends its row (every
-later cell depends on it) and the rest are reported "not reached":
-  C28S   (1) both debrief_state equal on the seven content fields with page-2 names prefix-stripped (PR-10); the
-             client's shown, on top and display-only within CLIENT_DEBRIEF_S of the host's DebriefingState.
-         (2) the client's battleEnd.worldAdopted 1 within ADOPT_S (T0-S2: 15 s); shared_checksum chk* equal.
+Rows. The cells are numbered and checked in order; a failed cell ends its row (every later cell depends on it) and
+the rest are reported "not reached":
+  client_ok_first
+         (1) both debrief_state equal on the seven content fields with page-2 names prefix-stripped; the client's
+             shown, on top and display-only within CLIENT_DEBRIEF_S of the host's DebriefingState.
+         (2) the client's battleEnd.worldAdopted 1 within ADOPT_S (15 s); shared_checksum chk* equal.
          (3) the client's OK first: its top GeoscapeState with no CoopState / LoadGameState on its stack within OK_S
-             (and no LoadGameState pushed over the whole row, P6-4); the host's top still DebriefingState.
+             (and no LoadGameState pushed over the whole row); the host's top still DebriefingState.
          (4) the host's OK + drain: both tops GeoscapeState; event_state phase Idle and researchMode.coopBattle false on
              both; chk* equal; host battleEnd.worldPushed 1; debriefOkBranch "campaign-host" (host) and
              "campaign-client-shared" (client); the client zero-disk.
-  C28S-b (1) as C28S (1).
+  host_ok_first
+         (1) as client_ok_first (1).
          (2) the client's worldAdopted 1 within ADOPT_S (before the host's OK).
          (3) the host's OK first + drain to its GeoscapeState; then the client's top stays DebriefingState for
-             HOST_HOLD_S (top_hold == []), worldAdopted still 1 and worldHeld 1 (no MAP_RESULT replacement, MR2).
+             HOST_HOLD_S (top_hold == []), worldAdopted still 1 and worldHeld 1 (no MAP_RESULT replacement).
          (4) the wounded soldier's get_soldiers craftId -1 and soldier_record recovery > 0 on BOTH machines
-             (unassign_wounded, MR2).
+             (unassign_wounded).
          (5) the client's OK: its top GeoscapeState with no CoopState / LoadGameState within OK_S (none pushed over the
              row); chk* equal; debriefOkBranch "campaign-host" / "campaign-client-shared"; the client zero-disk.
-Pre-cell guard (a failure is a FIXTURE-STOP: one CAPTURE line, then the row FAILs "pre-cell"): bring-up, the map pin,
-the wound (C28S-b), autoEnd on, the kill, the host's DebriefingState within DEBRIEF_S, the host's debrief_state ==
-HOST_DEBRIEF, host event_state.fatalVote.armed 0 (S-V's vote did not arm, F4544). Over the whole row: no new crash log.
+Pre-cell guard (a failure is a setup failure: one CAPTURE line, then the row FAILs "pre-cell"): bring-up, the map pin,
+the wound (host_ok_first), autoEnd on, the kill, the host's DebriefingState within DEBRIEF_S, the host's debrief_state
+== HOST_DEBRIEF, host event_state.fatalVote.armed 0 (the fatal-wounds vote did not arm). Over the whole row: no new
+crash log.
 
-RED (commit S-C-A.1: probes, holds and rows, product untouched): each row fails on exactly cell 1 - the client never
-shows a DebriefingState (it stays on the battle map, F2491). GREEN (commit S-C-A.2): both rows pass.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' battleEnd records, tops, debriefs, cells), then "PASS <id>"
 or "FAIL <id>: <message>"; both rows run. ONE foreground run, no skip path; exit 0 only when both
 rows pass, 2 otherwise.
@@ -56,14 +56,14 @@ import session
 from session import battle_state, event_state
 import shared_fixture
 
-# ----- TASK 0 pins (docs rewrite/w2p7sc-task0/t0/CONSTANTS.md; logs sh1..sh3 = T0's three SHARED boots) -----
-SEED_S = 1                          # CONSTANTS T0-6 (i): "SEED_S = SEED_P = 1"
-MAP_FP_S = 5.690100025079999e+18    # CONSTANTS T0-6 (i): "Host mapFingerprint 5.690100025079999e+18 on every boot (client equal)"
-HOSTILES = list(range(1000000, 1000015))   # CONSTANTS T0-6 (i): "15 hostiles 1000000-1000014"
-WOUND_HP = 5                        # CONSTANTS T0-6 (v): "battle_set_unit_state {unit:1, health:start-5} both machines"
-ADOPT_S = 15                        # CONSTANTS T0-S2: "C28S adoption timeout = 15 s"
-# CONSTANTS T0-6 (ii) "Host debrief pin" = logs sh1/sh2/sh3 `M hostDebrief` (identical on 3/3 boots); `soldiers` as
-# each row's deltas (names change per boot and are compared host-to-client only, test_battle_end G10).
+# ----- pins, from three SHARED boots -----
+SEED_S = 1                          # pins the terror map
+MAP_FP_S = 5.690100025079999e+18    # the host mapFingerprint on every boot (the client's equal)
+HOSTILES = list(range(1000000, 1000015))   # the 15 hostiles, 1000000-1000014
+WOUND_HP = 5                        # battle_set_unit_state {unit, health: start - 5} on both machines
+ADOPT_S = 15                        # the client's adoption timeout
+# The host's debriefing (identical on 3/3 boots); `soldiers` as each row's deltas (names change per boot and are
+# compared host-to-client only, as in test_battle_end).
 HOST_DEBRIEF = {
     "title": "Aliens defeated", "recoveryHeader": "",
     "rows": [{"item": "ALIEN CORPSES RECOVERED", "qty": 10, "recovery": False, "score": 50},
@@ -79,17 +79,17 @@ HOST_DEBRIEF = {
 }
 
 # ----- this file's constants -----
-ROW_PORT = {"C28S": "47200", "C28S-b": "47201"}   # AMENDMENT P7-6 section 4: A = 47200-47202
-ROSTER_NAMES = ("HostPlayer", "ClientPlayer")     # session.new_campaign's defaults (PR-10's `[<roster name>] `)
+ROW_PORT = {"client_ok_first": "47200", "host_ok_first": "47201"}   # this file's lobby ports
+ROSTER_NAMES = ("HostPlayer", "ClientPlayer")     # session.new_campaign's defaults (the `[<roster name>] ` prefix)
 DEBRIEF_FIELDS = ("title", "recoveryHeader", "rows", "total", "rating", "soldiers", "recovered")
-DEBRIEF_S = 60          # the host's DebriefingState after the kill (T0-6 (ii): 9.3-10.6 s)
+DEBRIEF_S = 60          # the host's DebriefingState after the kill (observed 9.3-10.6 s)
 CLIENT_DEBRIEF_S = 20   # cell 1: the client's display-only DebriefingState after the host's
 OK_S = 10               # a machine's GeoscapeState after its own OK
 DRAIN_S = 60            # the host's OK + follow-ups down to its GeoscapeState
-EQUAL_S = 10            # chk* / a shared_apply's effect may lag one round trip (J10 debounce reasoning)
-HOST_HOLD_S = 3         # C28S-b cell 3: the client's top sampled every 0.25 s (test_battle_end HOST_HOLD_S)
+EQUAL_S = 10            # chk* / a shared_apply's effect may lag one round trip
+HOST_HOLD_S = 3         # host_ok_first cell 3: the client's top sampled every 0.25 s (test_battle_end HOST_HOLD_S)
 WAIT_TOPS = ("VoteMenu", "BattlescapeState", "SaveGameState")   # never dismissed by a drain (not ours to pop)
-LOADGAME_PUSH = "push class OpenXcom::LoadGameState"           # the [coop-ui] state-push log line (P6-4)
+LOADGAME_PUSH = "push class OpenXcom::LoadGameState"           # the [coop-ui] state-push log line
 
 
 class FixtureMiss(Exception):
@@ -131,7 +131,7 @@ def record(gc):
 
 
 def chk(gc):
-    """shared_checksum's chk* fields (the J10 world aggregates)."""
+    """shared_checksum's chk* fields (the SHARED world aggregates)."""
     r = gc.cmd({"cmd": "shared_checksum"})
     return {k: v for k, v in r.items() if k.startswith("chk")}
 
@@ -148,7 +148,7 @@ def chk_equal(host, client):
 
 
 def strip_prefix(name):
-    """PR-10: a leading `[<roster name>] ` is stripped so these rows stay exact after S-C-C's prefixes land."""
+    """A leading `[<roster name>] ` (the page-2 player prefix) is stripped, so the comparison ignores it."""
     for n in ROSTER_NAMES:
         p = f"[{n}] "
         if isinstance(name, str) and name.startswith(p):
@@ -157,7 +157,7 @@ def strip_prefix(name):
 
 
 def debrief_view(deb):
-    """The seven content fields of a debrief_state with page-2 names prefix-stripped (PR-10)."""
+    """The seven content fields of a debrief_state with page-2 names prefix-stripped."""
     deb = deb if isinstance(deb, dict) else {}
     out = {k: deb.get(k) for k in DEBRIEF_FIELDS}
     out["soldiers"] = [{"name": strip_prefix(s.get("name")), "deltas": s.get("deltas")}
@@ -255,7 +255,7 @@ def evidence(rid, obj):
 
 
 def capture(name, err, machines):
-    """FIXTURE-STOP: CAPTURE every machine's event_state, battle_state flags and stack (whole), then raise."""
+    """A setup failure: CAPTURE every machine's event_state, battle_state flags and stack (whole), then raise."""
     cap = {}
     for gc in machines:
         try:
@@ -315,7 +315,7 @@ def stage(rid, js, ctx, wound=False, holds=False):
         ch = client.cmd({"cmd": "hold_world_adopt", "on": True})
         ctx["holds"] = {"host": hh, "client": ch}
         if not (hh.get("ok") and hh.get("armed") is True and ch.get("ok") and ch.get("armed") is True):
-            capture("holds", f"hold levers answered {ctx['holds']}", m)
+            capture("holds", f"hold commands answered {ctx['holds']}", m)
     ctx["loadGamePushes0"] = log_count(client, LOADGAME_PUSH)
     k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "faction": 1})
     ctx["kill"] = {k2: k.get(k2) for k2 in ("ok", "killed", "error")}
@@ -341,11 +341,11 @@ def stage(rid, js, ctx, wound=False, holds=False):
     bad = [f"host debrief_state.{k}={hdeb.get(k)!r} (want {w!r})"
            for k, w in (("shown", True), ("onTop", True), ("displayOnly", False)) if hdeb.get(k) is not w]
     pv = pin_view(hdeb)
-    bad += [f"host debrief_state.{k}={pv.get(k)!r} (want the T0 pin {HOST_DEBRIEF[k]!r})"
+    bad += [f"host debrief_state.{k}={pv.get(k)!r} (want the pin {HOST_DEBRIEF[k]!r})"
             for k in DEBRIEF_FIELDS if pv.get(k) != HOST_DEBRIEF[k]]
     armed = (event_state(host).get("fatalVote") or {}).get("armed")
     if armed != 0:
-        bad.append(f"host fatalVote.armed={armed!r} (want 0: no S-V vote, F4544)")
+        bad.append(f"host fatalVote.armed={armed!r} (want 0: no fatal-wounds vote)")
     if bad:
         capture("host debriefing pin", "; ".join(bad), m)
 
@@ -354,7 +354,7 @@ def stage(rid, js, ctx, wound=False, holds=False):
 
 
 def cell_debriefs(host, client, ctx):
-    """Cell 1 (every row): the client's display-only debriefing, equal to the host's (PR-10 stripped)."""
+    """Cell 1 (every row): the client's display-only debriefing, equal to the host's (page-2 prefixes stripped)."""
     ok, secs = wait_until(lambda: (lambda d: d.get("shown") is True and d.get("onTop") is True
                                    and d.get("displayOnly") is True)(client.cmd({"cmd": "debrief_state"})),
                           CLIENT_DEBRIEF_S)
@@ -403,7 +403,7 @@ def client_ok_clean(client, ctx, key):
     if not ok:
         f.append(f"client not on a clean GeoscapeState within {OK_S}s of its OK (stack {stack(client)})")
     if pushes != 0:
-        f.append(f"client pushed {pushes} LoadGameState(s) since the ending (want 0: in-place adoption, P6-4)")
+        f.append(f"client pushed {pushes} LoadGameState(s) since the ending (want 0: in-place adoption)")
     return f
 
 
@@ -448,10 +448,10 @@ def end_checks(host, client, ctx):
     return f
 
 
-# ----- C28S -----
+# ----- client_ok_first -----
 
 
-def c28s_cells(host, client, ctx):
+def client_ok_first_cells(host, client, ctx):
     return [
         ("1 both debriefings, the client's display-only", lambda: cell_debriefs(host, client, ctx)),
         ("2 the client adopted in place, chk* equal", lambda: cell_adopted(host, client, ctx, True)),
@@ -464,10 +464,10 @@ def c28s_cells(host, client, ctx):
     ]
 
 
-# ----- C28S-b -----
+# ----- host_ok_first -----
 
 
-def c28sb_hold(host, client, ctx):
+def host_ok_first_hold(host, client, ctx):
     f = host_ok_drain(host, ctx, "hostOk")
     if f:
         return f
@@ -484,7 +484,7 @@ def c28sb_hold(host, client, ctx):
     return f
 
 
-def c28sb_wounded(host, client, ctx):
+def host_ok_first_wounded(host, client, ctx):
     sid = ctx["squad"][0]
     ok, secs = wait_until(lambda: soldier_craft(host, sid) == -1 and soldier_craft(client, sid) == -1, EQUAL_S)
     hr, hresp = soldier_recovery(host, sid)
@@ -501,12 +501,12 @@ def c28sb_wounded(host, client, ctx):
     return f
 
 
-def c28sb_cells(host, client, ctx):
+def host_ok_first_cells(host, client, ctx):
     return [
         ("1 both debriefings, the client's display-only", lambda: cell_debriefs(host, client, ctx)),
         ("2 the client adopted in place before the host's OK", lambda: cell_adopted(host, client, ctx, False)),
-        ("3 the host's OK first; the client's debriefing holds", lambda: c28sb_hold(host, client, ctx)),
-        ("4 the wounded soldier is off the craft on both (unassign_wounded)", lambda: c28sb_wounded(host, client, ctx)),
+        ("3 the host's OK first; the client's debriefing holds", lambda: host_ok_first_hold(host, client, ctx)),
+        ("4 the wounded soldier is off the craft on both (unassign_wounded)", lambda: host_ok_first_wounded(host, client, ctx)),
         ("5 the client's OK", lambda: client_ok_clean(client, ctx, "clientOk") + end_checks(host, client, ctx)),
     ]
 
@@ -525,7 +525,7 @@ def run_row(rid, tag, port, stage_fn, cells_fn, results, walls, holds=False):
             js = shared_fixture.bring_up(tag, (0, 0, port))
             stage_fn(rid, js, ctx)
         except Exception as e:
-            verdict = (f"pre-cell (FIXTURE-STOP) {e if isinstance(e, FixtureMiss) else short(e, 800)}", None)
+            verdict = (f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}", None)
         if verdict is None:
             host, client = js.host, js.client
             cells = cells_fn(host, client, ctx)
@@ -556,19 +556,20 @@ def run_row(rid, tag, port, stage_fn, cells_fn, results, walls, holds=False):
     finally:
         if js is not None:
             if holds:
-                for gc, lever in ((js.host, "hold_world_stream"), (js.client, "hold_world_adopt")):
+                for gc, hold_cmd in ((js.host, "hold_world_stream"), (js.client, "hold_world_adopt")):
                     try:
-                        gc.cmd({"cmd": lever, "on": False})
+                        gc.cmd({"cmd": hold_cmd, "on": False})
                     except Exception as e:
-                        print(f"[w2p7-sca] release {lever}: {short(e)}", flush=True)
+                        print(f"[test_battle_end_campaign] release {hold_cmd}: {short(e)}", flush=True)
             try:
                 js.shutdown()
             except Exception as e:
-                print(f"[w2p7-sca] shutdown: {short(e)}", flush=True)
+                print(f"[test_battle_end_campaign] shutdown: {short(e)}", flush=True)
         walls[rid] = round(time.time() - t0, 1)
 
 
-ROWS = (("C28S", "w2p7sca_c28s", c28s_cells, False), ("C28S-b", "w2p7sca_c28sb", c28sb_cells, True))
+ROWS = (("client_ok_first", "campaign_end_client_ok_first", client_ok_first_cells, False),
+        ("host_ok_first", "campaign_end_host_ok_first", host_ok_first_cells, True))
 
 
 def main():
