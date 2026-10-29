@@ -1,51 +1,51 @@
 """test_client_sight_night.py: at night, on the co-op second player's machine each X-COM soldier's list
-of seen units follows vanilla when a soldier's personal light moves away from a lit alien (K6) and when a thrown flare
-lands next to a dark alien (K5) (spec rewrite/prompts/w2h35b_client_sight_events.md (f); rulings R-R5U1-1: the second
-player's off-turn view follows vanilla; D171: hidden aliens stay hidden; W2-H35 QH-3 (a): capture first; fixture rulings
-R-H35B-SB-1 (darkness D-1, staging S-1, B_DEST, T_N) and R-H35B-SB-2 (the thrower faces away from F_N, F490)).
+of seen units follows vanilla when a soldier's personal light moves away from a lit alien (walk_away) and when a
+thrown flare lands next to a dark alien (flare_land). The second player's off-turn view follows vanilla, and an alien
+no X-COM soldier sees stays hidden.
 
 Vanilla refreshes sight around a unit right after its step's light (UnitWalkBState :249-:250, radius 2) and around an
-item right after its light moves (TileEngine::itemDrop :5213-:5214, the item's glow range). The second player's machine
-recomputes the same light (applyDelta step (8b) / (8c)) but refreshes only the actor's own sight, and its action-end
-refresh of the thrower runs before the delta's light.
+item right after its light moves (TileEngine::itemDrop :5213-:5214, the item's glow range). The second player's
+machine recomputes the same light (applyDelta step (8b) / (8c)) and then refreshes sight at the same place and radius
+(connectionTCP.cpp coopClientEventSight), besides the actor's own sight.
 
-TASK 0 verdicts (docs rewrite/w2h35b-task0/sb/CONSTANTS.md, capture boots Na and Nb equal, S28): K6 CONFIRMED (after B
-walks east the host drops A from V's list; the client keeps it); K5 CONFIRMED (after the flare lands on F_N the host's
-V sees A; the client's V does not; the client's thrower does not either and A stays undrawn there).
+Fixture facts (equal in two boots): after B walks east the host drops A from V's list; a client without the step
+refresh keeps it. After the flare lands on F_N the host's V sees A; a client without the item refresh does not, its
+thrower does not either, and A stays undrawn there.
 
-ONE classic co-op NIGHT boot (lobby key 46641, user dirs w2h35b_b_host / w2h35b_b_client): CAS's boot (copied) with LS
-write_night_cfg (darkness 15) written into the host's user dir before the host starts and LS night_precondition after
-it: SEED_ROSTER 1 before open_new_battle, SEED_MAP 1 before newbattle_ok, seat_count 2, pin_ai_neutral (A = the only
-alien, base TU 0: it never acts), reactions 0 for every X-COM unit on both.
-Staging (a miss fails every row "staging"): S-1 parks 8, 12, 13, 14, B (10) and T (11) on PARK (Round(distance) >= 10
+ONE classic co-op NIGHT boot (lobby key 46641, user dirs client_sight_night_host / client_sight_night_client):
+test_client_alien_sight's boot (copied) with test_light_scope's write_night_cfg (darkness 15) written into the host's
+user dir before the host starts and its night_precondition after it: SEED_ROSTER 1 before open_new_battle, SEED_MAP 1
+before newbattle_ok, seat_count 2, pin_ai_neutral (A = the only alien, base TU 0: it never acts), reactions 0 for
+every X-COM unit on both.
+Staging (a miss fails every row "staging"): park 8, 12, 13, 14, B (10) and T (11) on PARK (Round(distance) >= 10
 from A_N and F_N); A to A_N facing 5; V (9) to V_N facing 5; client turn intent V -> 6; every teleport is followed by
-light_recompute on both (levers never recompute light). D-1: A_N's units light <= DARK_MAX on both; vis false on both;
-A in neither list(V).
+light_recompute on both (a teleport does not recompute light). Dark precondition: A_N's units light <= DARK_MAX on
+both; vis false on both; A in neither list(V).
 
 Rows, in order (every row runs after a failure):
-  K6  tele B to B0 facing 2, light_recompute on both, client turn intents V -> 5 -> 6, then ONE real-UI host walk of B
-      to B_DEST (dc.host_walk; walk end, wait_host_idle, seq barrier).
-      K6-pre  before the walk: A in list(V) on both; vis true on both.
-      K6-host after the walk: A not in host list(V) (precondition: vanilla's step refresh dropped the dark A).
-      K6-list list(client, V) equal to list(host, V).
-  K5  END TURN cycle (host set_seed 1; screens closed client first); battle_give STR_ELECTRO_FLARE to T on both (ids
-      equal, not -1); tele T to T_N facing T_DIR (away from F_N, F490) + light_recompute; host set_seed SEED_K5; host
-      battle_fire {unit T, mode throw, weapon_id <the flare>, F_N, tu 255} (the lever turns T, then throws).
-      K5-pre  before the throw: side 0 on both; D-1 dark; vis false on both; A in neither list(V); the flare in T's
-              hand on both.
-      K5-land after the throw chain (bt_action_end, wait_host_idle, seq barrier): the flare on F_LAND on both; A in
-              host list(V) (precondition: vanilla's landing refresh).
-      K5-list list(client, V) equal to list(host, V).
+  walk_away  tele B to B_START facing 2, light_recompute on both, client turn intents V -> 5 -> 6, then ONE real-UI host
+      walk of B to B_DEST (dc.host_walk; walk end, wait_host_idle, seq barrier).
+      walk_away-pre   before the walk: A in list(V) on both; vis true on both.
+      walk_away-host  after the walk: A not in host list(V) (precondition: vanilla's step refresh dropped the dark A).
+      walk_away-list  list(client, V) equal to list(host, V).
+  flare_land  END TURN cycle (host set_seed 1; screens closed client first); battle_give STR_ELECTRO_FLARE to T on
+      both (ids equal, not -1); tele T to T_N facing T_DIR (away from F_N: a thrower already facing its target cancels
+      its own throw) + light_recompute; host set_seed SEED_THROW; host battle_fire {unit T, mode throw, weapon_id
+      <the flare>, F_N, tu 255} (the test command turns T, then throws).
+      flare_land-pre     before the throw: side 0 on both; A_N dark; vis false on both; A in neither list(V); the
+                         flare in T's hand on both.
+      flare_land-landed  after the throw chain (bt_action_end, wait_host_idle, seq barrier): the flare on F_LAND on
+                         both; A in host list(V) (precondition: vanilla's landing refresh).
+      flare_land-list    list(client, V) equal to list(host, V).
   Every row: <row>-common (hash_now full: every bucket EQUAL; event_state.desyncSeen false on both; 0 new crash files).
-"vis(gc)" = A's battle_state units[].visible; "list(gc, U)" = U's units[].visibleUnits (R5-U1 S-A's T1 probe).
+"vis(gc)" = A's battle_state units[].visible; "list(gc, U)" = U's units[].visibleUnits.
 
-RED at the red commit (unchanged build): K6-list, K5-list FAIL; every other cell PASS. GREEN: every
-cell PASS.
+A client without the step and item refreshes fails walk_away-list and flare_land-list; every other cell passes.
+With them, every cell passes.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up
-failure prints ONE "CAPTURE boot:" line and fails every row "boot". one run is the result; no skip,
-no second boot, no other fixture; exit 0 only when every cell passes, else 2. run in the foreground to
-completion.
+failure prints ONE "CAPTURE boot:" line and fails every row "boot". No skip, no second boot, no other fixture; exit 0
+only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_client_sight_night.py
 """
@@ -68,28 +68,28 @@ import test_light_scope as ls
 # vis, ua, snap, fmt, states, client_turn, alien_cycle, close_client_screen and the per-GameClient lock (on import)
 import test_client_alien_sight as cas
 
-# ----- TASK 0 pins (CONSTANTS.md; boots Na and Nb equal, S28) -----
+# ----- fixture values (equal in two boots) -----
 SEED_ROSTER, SEED_MAP = 1, 1
 MAP_FP = -4.48310638993e+18
 SEATED = [8, 9]
 A_ID, A_TYPE = 1000000, "STR_SECTOID_SOLDIER"   # the only alien (pin_ai_neutral: base TU 0)
 A_BOOT, A_BOOT_DIR = (27, 12, 0), 5             # A at boot
-DARKNESS, DARK_MAX = 15, 5                      # battle.cfg darkness; D-1: A_N units light <= 5 (shade > 9)
-A_N, A_N_DIR = (20, 18, 0), 5                   # units light 5 / 5 after S-1 (no swap)
+DARKNESS, DARK_MAX = 15, 5                      # battle.cfg darkness; dark: A_N units light <= 5 (shade > 9)
+A_N, A_N_DIR = (20, 18, 0), 5                   # units light 5 / 5 after the parking
 V_ID, B_ID, T_ID = 9, 10, 11                    # V watches (client seat), B walks, T throws (host seat)
 PARK = ((8, (10, 13, 0)), (12, (11, 13, 0)), (13, (10, 14, 0)), (14, (10, 15, 0)), (B_ID, (10, 16, 0)),
-        (T_ID, (10, 17, 0)))                    # S-1: ring scan from the craft exit (14,17,0); facing kept
-V_N, V_N_DIR0, V_N_DIR = (31, 18, 0), 5, 6      # the V oracle's first candidate
-B0, B0_DIR = (21, 19, 0), 2                     # diagonal to A_N; A behind B
+        (T_ID, (10, 17, 0)))                    # a ring scan from the craft exit (14,17,0); facing kept
+V_N, V_N_DIR0, V_N_DIR = (31, 18, 0), 5, 6      # the first candidate tile for V
+B_START, B_START_DIR = (21, 19, 0), 2           # diagonal to A_N; A behind B
 B_DEST = (30, 19, 0)                            # first straight-east tile at Round(distance) >= 10 from A_N
-T_N, T_DIR = (29, 22, 0), 3                     # T_N rule: facing away from F_N (octant 7 + 4)
-F_N = F_LAND = (20, 17, 0)                      # the throw's target; the flare lands there at SEED_K5
-SEED_CYCLE, SEED_K5 = 1, 1                      # host set_seed right before its END TURN press / the throw
+T_N, T_DIR = (29, 22, 0), 3                     # facing away from F_N (octant 7 + 4)
+F_N = F_LAND = (20, 17, 0)                      # the throw's target; the flare lands there at SEED_THROW
+SEED_CYCLE, SEED_THROW = 1, 1                   # host set_seed right before its END TURN press / the throw
 FLARE = "STR_ELECTRO_FLARE"
-KEY = "46641"                                   # this file's lobby key (spec (G))
+KEY = "46641"                                   # this file's lobby key
 
-ROWS = (("K6", ("K6-pre", "K6-host", "K6-list", "K6-common")),
-        ("K5", ("K5-pre", "K5-land", "K5-list", "K5-common")))
+ROWS = (("walk_away", ("walk_away-pre", "walk_away-host", "walk_away-list", "walk_away-common")),
+        ("flare_land", ("flare_land-pre", "flare_land-landed", "flare_land-list", "flare_land-common")))
 RESULTS = {}
 CRASH0 = set()
 STAGED = {"ok": None, "detail": ""}
@@ -120,7 +120,7 @@ def crash_files():
 
 def common(host, client, row):
     try:
-        assert_hash_clean(host, client, full=True, what=f"w2h35b-sb {row}")
+        assert_hash_clean(host, client, full=True, what=f"client_sight_night {row}")
         h = "EQUAL"
     except AssertionError as e:
         h = str(e)[:600]
@@ -149,14 +149,14 @@ def recompute(host, client):
 
 
 def tele_rc(host, client, uid, t, d):
-    """tele_both, then light_recompute on both (R-H35B-SB-1 S-1: levers never recompute light)."""
+    """tele_both, then light_recompute on both (a teleport does not recompute light)."""
     tele_both(host, client, uid, t, d)
     return recompute(host, client)
 
 
 def light(host, client, tag, tiles):
     """[ambient, fire, items, units] of each tile on both machines (light_census) and the census fields that differ."""
-    ch, cc = ls.census(host, f"sb_{tag}_h"), ls.census(client, f"sb_{tag}_c")
+    ch, cc = ls.census(host, f"night_{tag}_h"), ls.census(client, f"night_{tag}_c")
     return ({f"{t[0]},{t[1]},{t[2]}": (ls.tile_light(ch, t), ls.tile_light(cc, t)) for t in tiles},
             ls.census_mismatch(ch, cc))
 
@@ -186,7 +186,7 @@ def item(gc, iid):
 
 
 def stage(host, client):
-    """S-1 parking, A to A_N, V to V_N + the turn intent to V_N_DIR; returns (ok, detail)."""
+    """Parking, A to A_N, V to V_N + the turn intent to V_N_DIR; returns (ok, detail)."""
     s0 = cas.snap(host, client)
     rc = all([tele_rc(host, client, uid, t, ua(s0["h"], uid).get("dir")) for uid, t in PARK])  # every one runs
     rc = tele_rc(host, client, A_ID, A_N, A_N_DIR) and rc
@@ -197,20 +197,20 @@ def stage(host, client):
     lv, vv = lists(s, V_ID), avis(s)
     ok = (rc and parked and at(s, A_ID, A_N, A_N_DIR) and at(s, V_ID, V_N, V_N_DIR) and dark(lt)
           and vv == (False, False) and all(A_ID not in (x or []) for x in lv))
-    return ok, (f"recompute {rc}; parked {parked}; A_N light h/c {lt[0]} mismatch {lt[1]} (D-1: units <= {DARK_MAX}); "
+    return ok, (f"recompute {rc}; parked {parked}; A_N light h/c {lt[0]} mismatch {lt[1]} (dark: units <= {DARK_MAX}); "
                 f"V turn intent {r}; vis h/c {vv}; list(V) h/c {lv}; {cas.fmt(s)}")
 
 
 # ===================== rows =====================
 
 
-def row_k6(host, client):
-    cells = dict(ROWS)["K6"]
+def row_walk_away(host, client):
+    cells = dict(ROWS)["walk_away"]
     if not STAGED["ok"]:
         staging_miss(cells, STAGED["detail"])
-        return common(host, client, "K6")
-    rc = tele_rc(host, client, B_ID, B0, B0_DIR)
-    lt0 = light(host, client, "k6_pre", [A_N, B0])
+        return common(host, client, "walk_away")
+    rc = tele_rc(host, client, B_ID, B_START, B_START_DIR)
+    lt0 = light(host, client, "walk_pre", [A_N, B_START])
     r5, _s = cas.client_turn(host, client, V_ID, 5)
     r6, s1 = cas.client_turn(host, client, V_ID, V_N_DIR)
     lv1, vv1 = lists(s1, V_ID), avis(s1)
@@ -220,26 +220,27 @@ def row_k6(host, client):
     session.wait_seq_barrier(host, client, timeout=30)
     s2 = cas.snap(host, client)
     path = dc.executed_path(hw)
-    lt1 = light(host, client, "k6_post", [A_N, B_DEST])
+    lt1 = light(host, client, "walk_post", [A_N, B_DEST])
     lv2, vv2 = lists(s2, V_ID), avis(s2)
-    ev(f"K6: B tele {B0} facing {B0_DIR} + recompute {rc}; light before h/c {lt0[0]} mismatch {lt0[1]}; V turn intents "
-       f"{r5} {r6}; pre {cas.fmt(s1)} | B walk to {B_DEST}: executed path {path} notes {notes} evs host "
-       f"{evs_a(host, seq0)} client {evs_a(client, seq0)} | A's tile light after h/c {lt1[0]} mismatch {lt1[1]} | vis "
-       f"h/c {vv2} | client selected {s2['c']['sel']} | after {cas.fmt(s2)}")
-    cell("K6-pre", rc and at(s1, B_ID, B0, B0_DIR) and all(A_ID in (x or []) for x in lv1) and vv1 == (True, True),
-         f"B on {B0} facing {B0_DIR} on both {at(s1, B_ID, B0, B0_DIR)}; list(V) h/c {lv1}; vis h/c {vv1} (want A in "
-         f"both lists, True / True)")
-    cell("K6-host", path[-1:] == [B_DEST] and A_ID not in (lv2[0] or []),
+    ev(f"walk_away: B tele {B_START} facing {B_START_DIR} + recompute {rc}; light before h/c {lt0[0]} mismatch "
+       f"{lt0[1]}; V turn intents {r5} {r6}; pre {cas.fmt(s1)} | B walk to {B_DEST}: executed path {path} notes "
+       f"{notes} evs host {evs_a(host, seq0)} client {evs_a(client, seq0)} | A's tile light after h/c {lt1[0]} "
+       f"mismatch {lt1[1]} | vis h/c {vv2} | client selected {s2['c']['sel']} | after {cas.fmt(s2)}")
+    cell("walk_away-pre", rc and at(s1, B_ID, B_START, B_START_DIR) and all(A_ID in (x or []) for x in lv1)
+         and vv1 == (True, True),
+         f"B on {B_START} facing {B_START_DIR} on both {at(s1, B_ID, B_START, B_START_DIR)}; list(V) h/c {lv1}; "
+         f"vis h/c {vv1} (want A in both lists, True / True)")
+    cell("walk_away-host", path[-1:] == [B_DEST] and A_ID not in (lv2[0] or []),
          f"B's walk ends on {path[-1:]}; host list(V) {lv2[0]} (precondition: ends on {B_DEST}, without {A_ID})")
-    cell("K6-list", lv2[1] == lv2[0], f"list(V) host {lv2[0]} client {lv2[1]} (want equal)")
-    common(host, client, "K6")
+    cell("walk_away-list", lv2[1] == lv2[0], f"list(V) host {lv2[0]} client {lv2[1]} (want equal)")
+    common(host, client, "walk_away")
 
 
-def row_k5(host, client):
-    cells = dict(ROWS)["K5"]
+def row_flare_land(host, client):
+    cells = dict(ROWS)["flare_land"]
     if not STAGED["ok"]:
         staging_miss(cells, STAGED["detail"])
-        return common(host, client, "K5")
+        return common(host, client, "flare_land")
     cy = cas.alien_cycle(host, client, SEED_CYCLE, 0.0)
     closed, s0 = cas.close_client_screen(host, client)
     rc_g = client.cmd({"cmd": "battle_give", "unit": T_ID, "item": FLARE})
@@ -247,15 +248,15 @@ def row_k5(host, client):
     session.wait_seq_barrier(host, client, timeout=30)
     fid = rh_g.get("weaponId")
     if not (rh_g.get("ok") and rc_g.get("ok") and fid == rc_g.get("weaponId") and fid not in (None, -1)):
-        staging_miss(cells, f"battle_give host {rh_g} client {rc_g} (want ids equal, not -1; STOP-IF 6)")
-        return common(host, client, "K5")
+        staging_miss(cells, f"battle_give host {rh_g} client {rc_g} (want ids equal, not -1)")
+        return common(host, client, "flare_land")
     rc = tele_rc(host, client, T_ID, T_N, T_DIR)
-    lt0 = light(host, client, "k5_pre", [A_N, T_N, F_N])
+    lt0 = light(host, client, "throw_pre", [A_N, T_N, F_N])
     s1 = cas.snap(host, client)
     hand = (item(host, fid), item(client, fid))
     lv1, vv1 = lists(s1, V_ID), avis(s1)
     seq0 = event_state(host).get("lastSeqEmitted") or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_K5})
+    host.ok({"cmd": "set_seed", "seed": SEED_THROW})
     fire = host.cmd({"cmd": "battle_fire", "unit": T_ID, "mode": "throw", "weapon_id": fid, "x": F_N[0], "y": F_N[1],
                      "z": F_N[2], "tu": 255})
     host.wait_for("host bt_action_end after the throw",
@@ -264,37 +265,38 @@ def row_k5(host, client):
     session.wait_seq_barrier(host, client, timeout=30)
     s2 = cas.snap(host, client)
     land = (item(host, fid), item(client, fid))
-    lt1 = light(host, client, "k5_post", [A_N, F_LAND])
+    lt1 = light(host, client, "throw_post", [A_N, F_LAND])
     lv2, vv2, lt2 = lists(s2, V_ID), avis(s2), lists(s2, T_ID)
-    ev(f"K5: END TURN cycle evs {[k for _, k in cy['hev']]} closed {closed} side h/c {s0['h']['side']}/"
+    ev(f"flare_land: END TURN cycle evs {[k for _, k in cy['hev']]} closed {closed} side h/c {s0['h']['side']}/"
        f"{s0['c']['side']} | flare give h/c {fid}/{rc_g.get('weaponId')} | T tele {T_N} facing {T_DIR} + recompute {rc} "
        f"| light before h/c {lt0[0]} mismatch {lt0[1]} | pre {cas.fmt(s1)} | throw {fire} chain host "
        f"{evs_a(host, seq0)} client {evs_a(client, seq0)} | flare h/c {land} | A's tile light after h/c {lt1[0]} "
        f"mismatch {lt1[1]} | vis h/c {vv2} | list(T) h/c {lt2} | after {cas.fmt(s2)}")
     in_hand = all(x and x.get("owner") == T_ID and x.get("slot") == "STR_RIGHT_HAND" for x in hand)
-    cell("K5-pre", rc and (s1["h"]["side"], s1["c"]["side"]) == (0, 0) and at(s1, T_ID, T_N, T_DIR) and dark(lt0)
-         and vv1 == (False, False) and all(A_ID not in (x or []) for x in lv1) and in_hand,
-         f"side h/c {s1['h']['side']}/{s1['c']['side']}; T on {T_N} facing {T_DIR} {at(s1, T_ID, T_N, T_DIR)}; D-1 dark "
-         f"{dark(lt0)}; vis h/c {vv1}; list(V) h/c {lv1}; flare in T's hand h/c {in_hand} (want 0 / 0, True, dark, "
-         f"False / False, no A, True)")
+    cell("flare_land-pre", rc and (s1["h"]["side"], s1["c"]["side"]) == (0, 0) and at(s1, T_ID, T_N, T_DIR)
+         and dark(lt0) and vv1 == (False, False) and all(A_ID not in (x or []) for x in lv1) and in_hand,
+         f"side h/c {s1['h']['side']}/{s1['c']['side']}; T on {T_N} facing {T_DIR} {at(s1, T_ID, T_N, T_DIR)}; "
+         f"A_N dark {dark(lt0)}; vis h/c {vv1}; list(V) h/c {lv1}; flare in T's hand h/c {in_hand} (want 0 / 0, True, "
+         f"dark, False / False, no A, True)")
     on_land = all(x and x.get("owner") == -1 and x.get("onTile") and (x.get("tx"), x.get("ty"), x.get("tz")) == F_LAND
                   for x in land)
-    cell("K5-land", on_land and A_ID in (lv2[0] or []),
+    cell("flare_land-landed", on_land and A_ID in (lv2[0] or []),
          f"flare on {F_LAND} on both {on_land}; host list(V) {lv2[0]} (precondition: on {F_LAND}, holds {A_ID})")
-    cell("K5-list", lv2[1] == lv2[0], f"list(V) host {lv2[0]} client {lv2[1]} (want equal)")
-    common(host, client, "K5")
+    cell("flare_land-list", lv2[1] == lv2[0], f"list(V) host {lv2[0]} client {lv2[1]} (want equal)")
+    common(host, client, "flare_land")
 
 
-ROW_FNS = {"K6": row_k6, "K5": row_k5}
+ROW_FNS = {"walk_away": row_walk_away, "flare_land": row_flare_land}
 
 
 # ===================== bring-up =====================
 
 
 def boot(host, client):
-    """CAS's boot with this file's key (copied) at night: LS write_night_cfg into the host's user dir before it starts,
-    SEED_ROSTER on the host before open_new_battle, SEED_MAP before newbattle_ok, seat_count 2, pin_ai_neutral, every
-    live X-COM unit's reactions 0 on both (client first, F607), LS night_precondition; A on A_BOOT facing A_BOOT_DIR."""
+    """test_client_alien_sight's boot with this file's key (copied) at night: test_light_scope's write_night_cfg into
+    the host's user dir before it starts, SEED_ROSTER on the host before open_new_battle, SEED_MAP before newbattle_ok,
+    seat_count 2, pin_ai_neutral, every live X-COM unit's reactions 0 on both (client first), test_light_scope's
+    night_precondition; A on A_BOOT facing A_BOOT_DIR."""
     ls.write_night_cfg(host.user_dir)
     host.spawn(); host.connect()
     client.spawn(); client.connect()
@@ -314,7 +316,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} (baked {MAP_FP!r})")
     assert seated.get("soldierIds") == SEATED, f"seated {seated.get('soldierIds')} (baked {SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="w2h35b-sb")
+    pinned = pin_ai_neutral(host, client, tag="client_sight_night")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (baked [{A_ID}])"
     uh, uc = session.units_by_id(hs), session.units_by_id(cs)
     types = ((uh.get(A_ID) or {}).get("type"), (uc.get(A_ID) or {}).get("type"))
@@ -324,7 +326,7 @@ def boot(host, client):
             both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": uid, "stat": "reactions",
                                 "value": 0}, ("tu",))
     session.wait_host_idle(host, client, timeout=30)
-    assert_hash_clean(host, client, full=True, what="w2h35b-sb bring-up")
+    assert_hash_clean(host, client, full=True, what="client_sight_night bring-up")
     nerr = ls.night_precondition(host, client)
     assert nerr is None, nerr
     s = cas.snap(host, client)
@@ -355,8 +357,8 @@ def capture_boot(host, client, err):
 def main():
     global CRASH0
     t0 = time.time()
-    host = GameClient("host", 49854, make_user_dir("w2h35b_b_host"))
-    client = GameClient("client", 49855, make_user_dir("w2h35b_b_client"))
+    host = GameClient("host", 49854, make_user_dir("client_sight_night_host"))
+    client = GameClient("client", 49855, make_user_dir("client_sight_night_client"))
     blocked = None
     try:
         try:
@@ -370,7 +372,7 @@ def main():
                 STAGED["ok"], STAGED["detail"] = stage(host, client)
             except Exception as e:  # a staging failure fails every row "staging"
                 STAGED["ok"], STAGED["detail"] = False, f"staging raised {short(e)}"
-            print(f"[w2h35b-sb] staging ok {STAGED['ok']}: {STAGED['detail']}", flush=True)
+            print(f"[client_sight_night] staging ok {STAGED['ok']}: {STAGED['detail']}", flush=True)
         for row, cells in ROWS:
             if blocked:
                 ev(f"not run ({blocked})")
@@ -390,7 +392,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h35b-sb] shutdown {gc.name}: {short(e, 200)}", flush=True)
+                print(f"[client_sight_night] shutdown {gc.name}: {short(e, 200)}", flush=True)
     names = [c for _, cells in ROWS for c in cells]
     failed = [c for c in names if not RESULTS.get(c)]
     print(f"\ntest_client_sight_night: {len(names) - len(failed)}/{len(names)} cells passed (fail={failed}) in "
