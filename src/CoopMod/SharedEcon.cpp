@@ -97,6 +97,8 @@
 #include "../Basescape/BaseView.h"
 #include "../Basescape/SellState.h"
 #include "../Basescape/CraftWeaponsState.h" // issue #121: shared craft-weapon capacity gate
+#include "../Basescape/SoldierTransformationState.h" // soldier_transform runs vanilla's transformation
+#include "../Mod/RuleSoldierTransformation.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Geoscape/ConfirmLandingState.h"
 #include "../Geoscape/Globe.h"
@@ -1607,6 +1609,167 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 		delete s;
 		break;
 	}
+}
+
+// soldier_transform payload: { rule, soldierId, dead, name }. baseId = the base the
+// transformation screen was opened at. A transformation used to change only the
+// machine that pressed Start. The host re-checks the screen's gates against its own
+// world (the soldier's owner as for the other soldier commands, the transformation
+// list, funds, required items, living space), then runs vanilla's own transformation
+// once, so its dice roll only there. The result rides the payload and replicas adopt
+// it: out (retire | clone | self), hours (the Transfer it made, 0 = none), soldier
+// (serialized), history and soldierCounter (a clone), stores and craft (the base
+// stores and the source's former craft items, absolute). The player who made a clone
+// owns it.
+Soldier* findTransformSource(Game* game, Base* base, const Json::Value& payload)
+{
+	const int id = payload.get("soldierId", -1).asInt();
+	if (!payload.get("dead", false).asBool()) return findSoldier(base, id);
+	for (auto* s : *game->getSavedGame()->getDeadSoldiers())
+		if (s->getId() == id) return s;
+	return nullptr;
+}
+
+bool soldierTransformValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                              int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	RuleSoldierTransformation* rule = mod->getSoldierTransformation(payload.get("rule", "").asString(), false);
+	if (!rule) { failReason = "unknown transformation"; return false; }
+	std::vector<RuleSoldierTransformation*> available;
+	save->getAvailableTransformations(available, mod, base);
+	if (std::find(available.begin(), available.end(), rule) == available.end())
+		{ failReason = "transformation not available"; return false; }
+	Soldier* s = findTransformSource(game, base, payload);
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat))
+		{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+	// The list's and the Start button's gates (SoldiersState::initList,
+	// SoldierTransformationState::initTransformationData).
+	if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT")
+		{ failReason = "craft out on mission"; return false; }
+	s->prepareStatsWithBonuses(mod);
+	if (!s->isEligibleForTransformation(rule)) { failReason = "soldier not eligible"; return false; }
+	if (save->getFunds() < rule->getCost()) { failReason = "STR_NOT_ENOUGH_MONEY"; return false; }
+	for (const auto& ri : rule->getRequiredItems())
+	{
+		const RuleItem* item = mod->getItem(ri.first);
+		if (item && base->getStorageItems()->getItem(item) < ri.second)
+			{ failReason = "not enough items"; return false; }
+	}
+	if (base->getAvailableQuarters() <= base->getUsedQuarters()
+		&& (rule->isCreatingClone() || (rule->isAllowingDeadSoldiers() && s->getDeath())))
+		{ failReason = "STR_NOT_ENOUGH_LIVING_SPACE"; return false; }
+	cost = rule->getCost();
+	return true;
+}
+
+void soldierTransformApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base) return;
+	SavedGame* save = game->getSavedGame();
+	Mod* mod = game->getMod();
+	RuleSoldierTransformation* rule = mod->getSoldierTransformation(payload.get("rule", "").asString(), false);
+	Soldier* src = findTransformSource(game, base, payload);
+	if (!rule || !src) return;
+	const bool retiring = !Mod::isEmptyRuleName(rule->getProducedItem());
+	const std::string transferOwner = connectionTCP::seatName(seat);
+	if (isHost())
+	{
+		// Vanilla's btnStartClick without the funds (the caller debits the cost)
+		// and without the pop.
+		Craft* oldCraft = src->getCraft();
+		const size_t transfers = base->getTransfers()->size();
+		for (const auto& ri : rule->getRequiredItems())
+			if (const auto* item = mod->getItem(ri.first))
+				base->getStorageItems()->removeItem(item, ri.second);
+		{
+			SoldierTransformationState vanilla(rule, base, src, nullptr); // never pushed
+			if (retiring) vanilla.retire(); // deletes src
+			else vanilla.performTransformation();
+		}
+		Transfer* t = base->getTransfers()->size() > transfers ? base->getTransfers()->back() : nullptr;
+		if (t) t->setOwnerPlayerName(transferOwner);
+		payload["hours"] = t ? t->getHours() : 0;
+		payload["out"] = retiring ? "retire" : rule->isCreatingClone() ? "clone" : "self";
+		if (!retiring)
+		{
+			Soldier* dst = rule->isCreatingClone() && t ? t->getSoldier() : src;
+			dst->setName(payload.get("name", dst->getName()).asString()); // the screen's name box
+			if (rule->isCreatingClone())
+			{
+				dst->setOwnerPlayerId(seat);
+				payload["history"] = Json::Value(Json::objectValue);
+				for (const auto& kv : src->getPreviousTransformations()) payload["history"][kv.first] = kv.second;
+				const auto& ids = save->getAllIds();
+				payload["soldierCounter"] = ids.find("STR_SOLDIER") != ids.end() ? ids.at("STR_SOLDIER") : 0;
+			}
+			payload["soldier"] = serializeSoldier(game, dst);
+		}
+		payload["stores"] = Json::Value(Json::objectValue);
+		for (const auto& kv : *base->getStorageItems()->getContents())
+			payload["stores"][kv.first->getType()] = kv.second;
+		if (oldCraft)
+		{
+			payload["craft"]["id"] = oldCraft->getId();
+			payload["craft"]["type"] = oldCraft->getRules()->getType();
+			payload["craft"]["items"] = Json::Value(Json::objectValue);
+			for (const auto& kv : *oldCraft->getItems()->getContents())
+				payload["craft"]["items"][kv.first->getType()] = kv.second;
+		}
+		return;
+	}
+
+	// Replica: adopt the host's result; never roll and never run the transformation.
+	const std::string out = payload.get("out", "").asString();
+	const int hours = payload.get("hours", 0).asInt();
+	std::vector<Soldier*>* home = payload.get("dead", false).asBool() ? save->getDeadSoldiers() : base->getSoldiers();
+	auto it = std::find(home->begin(), home->end(), src);
+	auto push = [&](Transfer* t) { t->setOwnerPlayerName(transferOwner); base->getTransfers()->push_back(t); return t; };
+	if (out == "retire")
+	{
+		if (it != home->end()) home->erase(it);
+		delete src;
+		push(new Transfer(hours))->setItems(mod->getItem(rule->getProducedItem(), true), 1);
+	}
+	else if (out == "clone")
+	{
+		src->setCraft(0); // vanilla unseats the source; its kit rides stores / craft below
+		std::map<std::string, int>& hist = src->getPreviousTransformations();
+		hist.clear();
+		for (const auto& k : payload["history"].getMemberNames()) hist[k] = payload["history"][k].asInt();
+		if (Soldier* c = deserializeSoldier(game, payload.get("soldier", "").asString()))
+			push(new Transfer(hours))->setSoldier(c);
+		const int want = payload.get("soldierCounter", 0).asInt(); // keep the id counter in step
+		const auto& ids = save->getAllIds();
+		while (ids.find("STR_SOLDIER") == ids.end() || ids.at("STR_SOLDIER") < want) save->getId("STR_SOLDIER");
+	}
+	else if (out == "self")
+	{
+		Soldier* d = deserializeSoldier(game, payload.get("soldier", "").asString());
+		if (!d) return;
+		if (hours > 0)
+		{
+			if (it != home->end()) home->erase(it);
+			delete src;
+			push(new Transfer(hours))->setSoldier(d);
+		}
+		else if (it != home->end()) { *it = d; delete src; } // same roster place; unseated like the host's
+		else delete d;
+	}
+	auto setItems = [&](ItemContainer* ic, const Json::Value& items)
+	{
+		ic->clear();
+		for (const auto& k : items.getMemberNames())
+			if (RuleItem* ri = mod->getItem(k, false)) ic->addItem(ri, items[k].asInt());
+	};
+	setItems(base->getStorageItems(), payload["stores"]);
+	if (payload.isMember("craft"))
+		if (Craft* cr = findCraft(base, payload["craft"].get("id", -1).asInt(), payload["craft"].get("type", "").asString()))
+			setItems(cr->getItems(), payload["craft"]["items"]);
 }
 
 // soldier_rename payload: { soldierId, name }. Playtest B3: soldier renames were
@@ -3264,6 +3427,8 @@ void init()
 	registerCmd("base_rename",   &baseRenameValidate,   &baseRenameApply);
 	registerCmd("soldier_rename", &soldierRenameValidate, &soldierRenameApply);
 	registerCmd("soldier_gift",   &soldierGiftValidate,   &soldierGiftApply);
+	// A soldier transformation: the host runs it once and every machine adopts it.
+	registerCmd("soldier_transform", &soldierTransformValidate, &soldierTransformApply);
 	registerCmd("sack",          &sackValidate,         &sackApply);
 	registerCmd("base_new",      &baseNewValidate,      &baseNewApply);
 	// PRD-J07 base_destroyed: host-originated (retaliation, J04); replica-only apply.
@@ -3919,6 +4084,21 @@ void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& ord
 	Json::Value p;
 	p["order"] = ids;
 	submitLocalCmd(game, "soldier_order", baseIndex(game, base), p);
+}
+
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
+	const std::string& name)
+{
+	if (!game || !base || !soldier || !game->getCoopMod()
+		|| !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign()))
+		return false;
+	Json::Value p;
+	p["rule"] = rule;
+	p["soldierId"] = soldier->getId();
+	p["dead"] = soldier->getDeath() != nullptr;
+	p["name"] = name;
+	submitLocalCmd(game, "soldier_transform", baseIndex(game, base), p);
+	return true;
 }
 
 void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg)

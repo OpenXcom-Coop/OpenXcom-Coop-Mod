@@ -331,6 +331,12 @@ bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visi
 /// Sends this player's soldier order at @a base (their own soldiers, in the new
 /// order) to the host (soldier_order); the roster changes when it lands.
 void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order);
+/// SHARED and Separate: sends the transformation @a rule of @a soldier (alive, or
+/// dead in the memorial) with the name box's @a name to the host (soldier_transform)
+/// and returns true; nothing changes locally until the host's result lands. False
+/// outside a one-world campaign, where the screen runs vanilla's transformation.
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
+	const std::string& name);
 /// Host: send @a msg as a CraftErrorState "alert" that only @a playerName's
 /// machine shows (a replica of another player ignores it).
 void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg);
