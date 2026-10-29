@@ -1,27 +1,29 @@
-"""R4-L2 stage S-A (spec rewrite/prompts/r4l2_campaign_rejoin.md (f) rows CR1, CR3, QL2-1 a, QL2-5 a; TASK 0
-rewrite/r4l2-task0/sa/CONSTANTS.md): a player who leaves a co-op CAMPAIGN battle and rejoins is never offered the battle. The host's
-resume_ack battle branch hands the campaign rejoin to offerResumedBattle(), which refuses a live pause: REFUSED +1,
-resumeAck never true, the host waits on dialog 62 and the rejoiner on 68 for good (TASK 0 T0-1 / T0-2).
-  Boot H (key "48597", shared_fixture.bring_up("w2r4l2_h", (1, 2, 48597)) + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2
-  dir w2r4l2_h_client2): row CR1, SHARED, the client leaves gracefully (disconnect_to_menu), a fresh client2 rejoins. Cells: CR1-1 GUARD
-  PAUSE, peerLeftByChoice true, title "has left the battle"; CR1-2 GUARD phase 1 served (SHARED_STREAM +1, a client2 poll on 68);
-  CR1-3 FIX the live offer (OFFER +1 reading battleId=B0, REFUSED +0); CR1-4 FIX RESUME offered ("All players connected", within
-  W_ACK) and pressed; CR1-5 FIX the same battle on both; CR1-6 FIX SPLIT; CR1-7 FIX HASH; CR1-8 FIX one client2 walk of squad[1]
-  applied (walk_far, R-L2-A-1), HASH again; CR1-9 GUARD CRASH 0 and client2 zero-disk.
-  Boot C (key "48598", w2r4l2_c_host / _client): row CR3, SEPARATE, the host leaves (disconnect_to_menu; aud-I93, MJ-2). Cells: CR3-1
-  GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s; CR3-2 GUARD still CoopState 8 s later;
-  CR3-3 GUARD OK -> MainMenuState within 60 s, has_save false; CR3-4 GUARD CRASH 0 and client zero-disk.
-Definitions (spec (f)): POLL 0.25 s; W_ACK = WATCH_CAP_S (RV-U13 S-D; was max(30 s, 3 x t_world 6.41 s)); PAUSE(host) within 30 s of the leave:
-phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState];
-SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both;
-REJOIN = a fresh client2 on its own dir, join_tcp from the main menu, wait <= W_ACK for the host's resumeAck true AND peerAbsent false
-(profile_ok only on a top-state Profile; client2's only once its load wait 52 is gone, R-L2-A-2), press_back_when_shown(host, codes=(62,)),
-both tops BattlescapeState <= 60 s. battle_state is probed only with a BattlescapeState on the stack or no battle in the world
-(F10980: the probe dereferences a stale _battleState after a BattlescapeState pop and kills the process). Needles = host log since the
-row's baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's resumeAck wait:
-the OFFER / RESUME cells are evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE
-line; every row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
-Red (S-A commit 1): CR1 FAIL on CR1-3, CR1-4 and CR1-5..CR1-8 "not reached" (CR1-1, CR1-2, CR1-9 PASS); CR3 PASS.
+"""test_campaign_rejoin.py: a player who leaves a co-op CAMPAIGN battle and rejoins is offered the battle again.
+Without that offer, the host's resume_ack battle branch hands the campaign rejoin to offerResumedBattle(), which refuses
+a live pause: REFUSED +1, resumeAck never true, the host waits on dialog 62 and the rejoiner on 68 for good.
+  Boot campaign_rejoin_shared (key "48597", shared_fixture.bring_up("campaign_rejoin_shared", (1, 2, 48597)) +
+  bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2 dir campaign_rejoin_shared_client2): row client_leaves,
+  SHARED, the client leaves gracefully (disconnect_to_menu), a fresh client2 rejoins. Cells: client_leaves-1 GUARD
+  PAUSE, peerLeftByChoice true, title "has left the battle"; -2 GUARD phase 1 served (SHARED_STREAM +1, a client2 poll
+  on 68); -3 FIX the live offer (OFFER +1 reading battleId=B0, REFUSED +0); -4 FIX RESUME offered ("All players
+  connected", within W_ACK) and pressed; -5 FIX the same battle on both; -6 FIX SPLIT; -7 FIX HASH; -8 FIX one client2
+  walk of squad[1] applied (walk_far), HASH again; -9 GUARD CRASH 0 and client2 zero-disk.
+  Boot campaign_rejoin_host_leaves (key "48598", campaign_rejoin_host_leaves_host / _client): row host_leaves, SEPARATE,
+  the host leaves (disconnect_to_menu; the client must not play on alone, and its main menu holds no save). Cells:
+  host_leaves-1 GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s; -2 GUARD still
+  CoopState 8 s later; -3 GUARD OK -> MainMenuState within 60 s, has_save false; -4 GUARD CRASH 0 and client zero-disk.
+Definitions: POLL 0.25 s; W_ACK = WATCH_CAP_S; PAUSE(host) within 30 s of the leave: phase Active, peerAbsent true,
+battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState]; SPLIT = sorted (unit
+id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both; REJOIN =
+a fresh client2 on its own dir, join_tcp from the main menu, wait <= W_ACK for the host's resumeAck true AND peerAbsent
+false (profile_ok only on a top-state Profile; client2's only once its load wait 52 is gone),
+press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s. battle_state is probed only with a
+BattlescapeState on the stack or no battle in the world (otherwise the probe would dereference a stale _battleState
+after a BattlescapeState pop and kill the process). Needles = host log since the row's baseline (client2: its own log).
+A WAIT that times out ends the row (later cells "not reached"), except REJOIN's resumeAck wait: the OFFER / RESUME cells
+are evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every
+row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
+Without the offer, client_leaves FAILs on -3, -4 and -5 .. -8 "not reached" (-1, -2, -9 PASS); host_leaves PASSes.
 """
 import json
 import os
@@ -33,9 +35,9 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin)
 POLL, W_ACK, W_PAUSE = 0.25, WATCH_CAP_S, 30.0
-KEY_H, KEY_C = "48597", "48598"
+KEY_SHARED, KEY_HOST_LEAVES = "48597", "48598"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
 OFFER, REFUSED = "rejoin battle_offer sent (battleId=", "offerResumedBattle() called outside a disk resume"
 GUARD, RELEASE = "offerRejoinBattle() called while the battle is not ", "restream adopted; released the client hold"
@@ -82,7 +84,7 @@ def bs_raw(gc):
 def auth(gc):
     r = bs_raw(gc)
     if not r:
-        return {"skipped": "no BattlescapeState, a battle in the world (F10980)"}
+        return {"skipped": "no BattlescapeState, a battle in the world"}
     return dict(pick(r, ("phase", "inBattle", "turn", "error")), **pick(r.get("authority") or {}, ("battleId", "peerAbsent", "peerLeftByChoice")))
 
 def split(gc):
@@ -111,7 +113,7 @@ def wait(desc, pred, timeout, interval=POLL):
     raise Stop("WAIT %s: timed out after %.0f s" % (desc, timeout))
 
 def hash_ok(host, other, what):
-    """spec (f) HASH(host, other) -> (ok, evidence)"""
+    """HASH(host, other) -> (ok, evidence)"""
     ev = {}
     try:
         session.wait_host_idle(host, other)
@@ -253,20 +255,21 @@ def walk_far(h, c2, uid, wev):
     return {}
 
 def rejoin_tail(r, x, rid, key, actor, cell2):
-    """REJOIN + cells <rid>-2 (cell2(ev, n), the row's own) and <rid>-3 .. <rid>-8 (spec (f) CR1-3 .. CR1-8)"""
+    """REJOIN + cells <rid>-2 (cell2(ev, n), the row's own) and <rid>-3 .. <rid>-8 (offer, RESUME, same battle, SPLIT,
+    HASH, the walk)"""
     h, n_h, ev = x.host, r.n_h, {}
     acked = rejoin(x, key, ev)
     c2 = x.client2
     n = counts(h, n_h)
     cell2(ev, n)
     offer = since(h, n_h, OFFER)
-    r.cell(rid + "-3", "FIX", "the live offer: OFFER +1 reading battleId=%s, REFUSED +0 (red today: OFFER +0, REFUSED +1, T0-1 / T0-2)" % x.b0,
+    r.cell(rid + "-3", "FIX", "the live offer: OFFER +1 reading battleId=%s, REFUSED +0 (a refused offer reads OFFER +0, REFUSED +1)" % x.b0,
            len(offer) == 1 and ("battleId=%s," % x.b0) in offer[0] and n["REFUSED"] == 0,
            {"OFFER": offer, "REFUSED": since(h, n_h, REFUSED), "GUARD": since(h, n_h, GUARD), "needles": n})
     resumed = acked and resume(x, ev)
     title = (ev.get("RESUME dialog") or {}).get("title")
     r.cell(rid + "-4", "FIX", "RESUME offered: host resumeAck true and peerAbsent false within W_ACK %.0f s, dialog 62 backVisible true titled "
-           "\"All players connected\", RESUME pressed (red today: resumeAck false at W_ACK)" % W_ACK,
+           "\"All players connected\", RESUME pressed (a refused offer leaves resumeAck false at W_ACK)" % W_ACK,
            resumed and title == "All players connected", ev)
     if not resumed:
         raise Stop("REJOIN: no RESUME (resumeAck wait: %s)" % ev.get("ack wait", "passed"))
@@ -292,42 +295,45 @@ def rejoin_tail(r, x, rid, key, actor, cell2):
     wev.update(steps=len(steps), last=last, halted=halted, host=pos(h, actor), client2=pos(c2, actor))
     hok2, wev["HASH"] = hash_ok(h, c2, rid + " after the walk")
     r.cell(rid + "-8", "FIX", "one client2 walk of unit %s applied: >= 1 step, the final tile equal on both and != the start, == the last "
-           "step unless a reaction / spotting halted it (R-L2-A-1), HASH again" % actor, bool(steps) and wev["host"] is not None
+           "step unless a reaction / spotting halted it, HASH again" % actor, bool(steps) and wev["host"] is not None
            and wev["host"] == wev["client2"] != wev["start"] and (halted or wev["host"] == (last["x"], last["y"], last["z"])) and hok2, wev)
 
-def row_cr1(x, results, walls):
-    r = Row("CR1", ["CR1-%d" % i for i in range(1, 9)], x)
+def row_client_leaves(x, results, walls):
+    r = Row("client_leaves", ["client_leaves-%d" % i for i in range(1, 9)], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
     try:
         baseline(r, x, c)
         r.n_h = len(log(h))
-        print("EVIDENCE CR1 leave: %s" % json.dumps(q(c, {"cmd": "disconnect_to_menu"}), default=str), flush=True)
+        print("EVIDENCE client_leaves leave: %s" % json.dumps(q(c, {"cmd": "disconnect_to_menu"}), default=str),
+              flush=True)
         wait("client top MainMenuState", lambda: top(c) == MENU, 60.0)
         ok, pv = pause(x)
         title = (pv.get("dialog") or {}).get("title") or ""
-        r.cell("CR1-1", "GUARD", "PAUSE(host), peerLeftByChoice true, the title contains \"has left the battle\"",
+        r.cell("client_leaves-1", "GUARD",
+               "PAUSE(host), peerLeftByChoice true, the title contains \"has left the battle\"",
                ok and (pv.get("battle") or {}).get("peerLeftByChoice") is True and "has left the battle" in title, pv)
         if not ok:
             raise Stop("PAUSE(host) not reached within %.0f s" % W_PAUSE)
 
         def cell2(ev, n):
-            r.cell("CR1-2", "GUARD", "phase 1 served: SHARED_STREAM +1 and a client2 poll on dialog 68",
+            r.cell("client_leaves-2", "GUARD", "phase 1 served: SHARED_STREAM +1 and a client2 poll on dialog 68",
                    n["SHARED_STREAM"] == 1 and ev.get("c2 on 68 s") is not None,
                    {"SHARED_STREAM": since(h, r.n_h, SHARED_STREAM), "c2 on 68 s": ev.get("c2 on 68 s"), "join_tcp": ev.get("join_tcp")})
-        rejoin_tail(r, x, "CR1", KEY_H, x.squad[1], cell2)
+        rejoin_tail(r, x, "client_leaves", KEY_SHARED, x.squad[1], cell2)
     except Exception as e:  # Stop, or a probe / spawn that raised: the row ends here
         r.stop(e)
-    r.end("CR1-9", x.client2.user_dir if x.client2 is not None else None, results, walls)
+    r.end("client_leaves-9", x.client2.user_dir if x.client2 is not None else None, results, walls)
 
-def row_cr3(x, results, walls):
-    r = Row("CR3", ["CR3-1", "CR3-2", "CR3-3"], x)
+def row_host_leaves(x, results, walls):
+    r = Row("host_leaves", ["host_leaves-1", "host_leaves-2", "host_leaves-3"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
     try:
-        print("EVIDENCE CR3 host leave: %s" % json.dumps(q(h, {"cmd": "disconnect_to_menu"}), default=str), flush=True)
+        print("EVIDENCE host_leaves host leave: %s" % json.dumps(q(h, {"cmd": "disconnect_to_menu"}), default=str),
+              flush=True)
         seen = {}
 
         def told():  # the dialog first, then the stack, so the stack judged is never older than the dialog
@@ -339,31 +345,32 @@ def row_cr3(x, results, walls):
         except Stop as e:
             seen["wait"] = str(e)
         d = seen.get("dialog") or {}
-        r.cell("CR3-1", "GUARD", "within 120 s the client's dialog 21 titled \"Server connection lost\", backVisible true, top CoopState",
+        r.cell("host_leaves-1", "GUARD", "within 120 s the client's dialog 21 titled \"Server connection lost\", backVisible true, top CoopState",
                d.get("code") == 21 and d.get("title") == "Server connection lost" and d.get("backVisible") is True
                and seen.get("stack", [])[-1:] == [CS], seen)
         if "wait" in seen:
             raise Stop(seen["wait"])
         time.sleep(8.0)
         st = stack(c)
-        r.cell("CR3-2", "GUARD", "8 s later the client's top is still CoopState (no solo play, aud-I93)", st[-1:] == [CS], st)
+        r.cell("host_leaves-2", "GUARD", "8 s later the client's top is still CoopState (no solo play)", st[-1:] == [CS], st)
         ev = {"coop_dialog_back": q(c, {"cmd": "coop_dialog_back"})}
         try:
             ev["MainMenuState s"] = wait("the client's top MainMenuState", lambda: top(c) == MENU, 60.0)
         except Stop as e:
             ev["wait"] = str(e)
         ev.update(stack=stack(c), world_state=pick(q(c, {"cmd": "world_state"}), ("has_save", "has_battle", "error")))
-        r.cell("CR3-3", "GUARD", "coop_dialog_back: within 60 s the client's top MainMenuState and world_state.has_save false (MJ-2, #82)",
+        r.cell("host_leaves-3", "GUARD", "coop_dialog_back: within 60 s the client's top MainMenuState and world_state.has_save false (#82)",
                ev["coop_dialog_back"].get("ok") is True and ev["stack"][-1:] == [MENU] and ev["world_state"]["has_save"] is False, ev)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
-    r.end("CR3-4", c.user_dir, results, walls)
+    r.end("host_leaves-4", c.user_dir, results, walls)
 
 def new_x(tag):
     return SimpleNamespace(tag=tag, js=None, host=None, client=None, client2=None, err=None, squad=None, b0=None, t0=None, split0=None)
 
 def boot_shared(tag, key):
-    """boot H: shared_fixture.bring_up + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}) (squad[1] owned by seat 1)"""
+    """the SHARED boot: shared_fixture.bring_up + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}) (squad[1] owned by
+    seat 1)"""
     x = new_x(tag)
     try:
         x.js = shared_fixture.bring_up(tag, (1, 2, int(key)))
@@ -374,7 +381,7 @@ def boot_shared(tag, key):
     return x
 
 def boot_separate(tag, key, pre=None):
-    """a SEPARATE boot: bring_up_separate_guest_battle (SPEC 19 S1: 3 host soldiers + the client's "Guest Zzz") to tactical"""
+    """a SEPARATE boot: bring_up_separate_guest_battle (3 host soldiers + the client's "Guest Zzz") to tactical"""
     x = new_x(tag)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(tag + "_host")), GameClient("client", 2, make_user_dir(tag + "_client"))
@@ -414,8 +421,10 @@ def run(boots, name):
     return 2 if failed else 0
 
 def main():
-    return run((("w2r4l2_h", lambda tag: boot_shared(tag, KEY_H), (("CR1", row_cr1),)),
-                ("w2r4l2_c", lambda tag: boot_separate(tag, KEY_C), (("CR3", row_cr3),))), "test_campaign_rejoin")
+    return run((("campaign_rejoin_shared", lambda tag: boot_shared(tag, KEY_SHARED),
+                 (("client_leaves", row_client_leaves),)),
+                ("campaign_rejoin_host_leaves", lambda tag: boot_separate(tag, KEY_HOST_LEAVES),
+                 (("host_leaves", row_host_leaves),))), "test_campaign_rejoin")
 
 if __name__ == "__main__":
     sys.exit(main())
