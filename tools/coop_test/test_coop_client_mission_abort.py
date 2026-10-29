@@ -14,14 +14,14 @@ the geoscape.
   H1 SHARED, the CLIENT commands the landing, the CLIENT asks for the abort (guard).
   H2 SHARED, the CLIENT commands the landing, the HOST asks for the abort (guard).
 
-ABORT opens vanilla's AbortMissionState and its
-OK opens the vote (R4-L1, design-D8); the battle entry is session.drive_both_to_tactical.
-main's S1 / S2 (the CLIENT's own craft starts a SEPARATE mission) are gone: a
-SEPARATE client never starts a battle from its own craft (owner D199 (a), W2-H9;
-test_client_landing.py own_landing_refused / refused_then_joins_host cover the refusal).
+ABORT opens vanilla's AbortMissionState and its OK opens the vote. The battle
+entry is session.drive_both_to_tactical. No row has the CLIENT's own craft start a
+SEPARATE mission: a SEPARATE client never starts a battle from its own craft
+(test_client_landing.py's own_landing_refused and refused_then_joins_host rows
+cover that refusal).
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
-    never held; MG-P1).
+    never held).
 
 Env: OXC_TEST_CRAFT - the starting craft type to fly (default STR_SKYRANGER).
 With X-Com Files loaded through the harness's OXC_TEST_EXTRA_MOD, use
@@ -101,9 +101,9 @@ def wait_landing_prompt(starter, other):
 
 
 def enter_tactical(host, client):
-    # MG-P1 (rewrite battle entry): the host enters, then session.drive_both_to_tactical takes both machines through
-    # the briefings and the pre-battle equip screens together (W2-P8b: a machine with nothing to equip shows none);
-    # battle_state.coopTurn is a stub (-1) on the rewrite, so main's coop-turn wait is gone.
+    # The host enters, then session.drive_both_to_tactical takes both machines through the briefings and the
+    # pre-battle equip screens together (a machine with nothing to equip shows none). There is no coop-turn wait:
+    # battle_state.coopTurn is a stub that always reads -1.
     host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                   timeout=180, interval=1.0)
     if not session.drive_both_to_tactical(host, client):
@@ -113,11 +113,10 @@ def enter_tactical(host, client):
 
 def vote_abort(asker, voter, host):
     """ABORT on `asker` and OK on its confirm, YES on `voter`; returns once the host saw
-    the vote pass. on the rewrite ABORT opens vanilla's AbortMissionState and its
-    OK opens the vote with the asker's YES counted (R4-L1, design-D8). The pass is read
-    off the host's records (session.abort_vote_yes): the vote screens and the vote record
-    close with the battle, so a wait for `finished` on both machines
-    races the battle end."""
+    the vote pass. The vote that AbortMissionState's OK opens counts the asker's YES.
+    The pass is read off the host's records (session.abort_vote_yes): the vote screens
+    and the vote record close with the battle, so a wait for `finished` on both
+    machines races the battle end."""
     asker.ok({"cmd": "battle_action", "action": "abort"})
     asker.wait_for(asker.name + " abort confirm (AbortMissionState)",
                    lambda: has(asker, "AbortMissionState") or None, timeout=30, interval=0.25)
@@ -272,7 +271,7 @@ def shared_row(results, row, tag, ports, asker_is_client):
     return alive
 
 
-ROWS = {  # main's S1 / S2 (client-started SEPARATE missions) dropped - owner D199 (a), W2-H9
+ROWS = {
     "S3": lambda r, sfx: separate_row(r, "S3 SEPARATE, host-started mission, client asks to abort",
                                  "cabs3" + sfx, (48945, 48946, 47983), False, True),
     "H1": lambda r, sfx: shared_row(r, "H1 SHARED, client-commanded landing, client asks to abort",
