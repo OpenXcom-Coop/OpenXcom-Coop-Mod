@@ -3036,7 +3036,9 @@ void facDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	}
 }
 
-// prod_done payload: { manufacture, units, progress, sell }.
+// prod_done payload: { manufacture, units, progress, sell, craftIds, final }.
+// units = what the host's step made this hour; final = the batch is done (an
+// older host sends only the finished batch, so a missing flag means done).
 void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 {
 	if (connectionTCP::getHost()) return;
@@ -3047,6 +3049,7 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 
 	const std::string mName = payload.get("manufacture", "").asString();
 	int units = payload.get("units", 0).asInt();
+	const bool batchDone = payload.get("final", true).asBool();
 	// GAP-6b: the host Production's SELL flag. When set, Production::step() credited
 	// funds and added NOTHING to stores for the produced items; the authoritative
 	// funds ride this shared_apply as usual, so the replica must skip the storage add
@@ -3055,14 +3058,35 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	// craft materialization below stays unconditional.
 	bool sell = payload.get("sell", false).asBool();
 	RuleManufacture* rule = mod->getManufacture(mName, false);
-	if (!rule || units <= 0) return;
+	if (!rule) return;
 
-	// Materialize the deterministic output (items + crafts). Random/spawned-person
-	// production is host-RNG and NOT reconstructed here (documented limitation);
-	// the next shared_apply / checksum surfaces any resulting drift.
-	if (!sell)
-		for (const auto& it : rule->getProducedItems())
-			base->getStorageItems()->addItem(it.first, it.second * units);
+	// Materialize the deterministic output (items + crafts) where the host's
+	// Production::step() put it: the stores and the hangar, or a transfer when
+	// the manufacture ships its output (transferTimes: items first, crafts
+	// third). Random/spawned-person production is host-RNG and NOT reconstructed
+	// here (documented limitation); the next shared_apply / checksum surfaces any
+	// resulting drift.
+	const std::vector<int>& shipHours = rule->getTransferTimes();
+	const int itemHours = std::max(0, shipHours.empty() ? 0 : shipHours.front());
+	const int craftHours = std::max(0, shipHours.size() < 3 ? 0 : shipHours.at(2));
+	if (!sell && units > 0)
+	{
+		if (itemHours > 0)
+		{
+			for (int u = 0; u < units; ++u)
+				for (const auto& it : rule->getProducedItems())
+				{
+					Transfer* t = new Transfer(itemHours);
+					t->setItems(it.first, it.second);
+					base->getTransfers()->push_back(t);
+				}
+		}
+		else
+		{
+			for (const auto& it : rule->getProducedItems())
+				base->getStorageItems()->addItem(it.first, it.second * units);
+		}
+	}
 	if (const RuleCraft* craftRule = rule->getProducedCraft())
 	{
 		const std::string& craftType = craftRule->getType();
@@ -3071,7 +3095,16 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base, craftId);
 			craft->initFixedWeapons(mod);
 			craft->checkup();
-			base->getCrafts()->push_back(craft);
+			if (craftHours > 0)
+			{
+				Transfer* t = new Transfer(craftHours);
+				t->setCraft(craft);
+				base->getTransfers()->push_back(t);
+			}
+			else
+			{
+				base->getCrafts()->push_back(craft);
+			}
 		};
 		const Json::Value& craftIds = payload["craftIds"];
 		if (craftIds.isArray())
@@ -3094,6 +3127,9 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 				build(save->getId(craftType));
 		}
 	}
+
+	// A unit inside the batch: the Production keeps running on both machines.
+	if (!batchDone) return;
 
 	// Remove the matching Production (returns its engineers to the base pool) and
 	// mirror the completion popup.
@@ -3919,13 +3955,16 @@ void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& f
 
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell,
-                        const std::vector<int>& craftIds)
+                        const std::vector<int>& craftIds, bool batchDone)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
 	p["manufacture"] = manufacture;
 	p["units"] = units;
 	p["progress"] = progress;
+	// The units this step made; the replica removes the Production only when
+	// the batch is done.
+	p["final"] = batchDone;
 	// GAP-6b: carry the host Production's SELL flag so the replica materializes
 	// exactly what the host did (sold -> funds only, nothing to stores).
 	p["sell"] = sell;

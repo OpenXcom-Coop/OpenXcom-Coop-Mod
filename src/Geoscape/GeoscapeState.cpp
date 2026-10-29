@@ -4206,6 +4206,22 @@ void GeoscapeState::time1Hour()
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		std::map<Production*, productionProgress_e> toRemove;
+		// GAP-6: the count the host ACTUALLY materialized, NOT the raw time-based
+		// getAmountProduced(), which overshoots getAmountTotal() when a single
+		// hourly step advances _timeSpent past _amount*manufactureTime (big
+		// engineer pool, or a multi-day time jump). Production::step() caps
+		// materialization at getAmountTotal() via std::min; mirror that cap so the
+		// replica delivers the same count, never over-materializes.
+		auto materialized = [](const Production* prod)
+		{
+			int units = prod->getAmountProduced();
+			if (!prod->getInfiniteAmount())
+				units = std::min(units, prod->getAmountTotal());
+			return units;
+		};
+		// Each production's units and built crafts before this hour's step, so
+		// every unit it finishes reaches the replicas in the hour it is made.
+		std::map<Production*, std::pair<int, size_t> > before;
 		{
 			// Separate: unit costs, the money check and sale proceeds belong to
 			// the base owner's wallet, not to the host seat's.
@@ -4213,29 +4229,33 @@ void GeoscapeState::time1Hour()
 				SeparateEcon::baseWalletOwner(_game, xbase));
 			for (auto* prod : xbase->getProductions())
 			{
+				before[prod] = std::make_pair(materialized(prod), prod->getCoopBuiltCraftIds().size());
 				toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
 			}
 		}
 		for (const auto& pair : toRemove)
 		{
+			// PRD-J04: mirror the units this step made to SHARED and Separate
+			// replicas (and the finished batch, before the Production object is
+			// destroyed): a craft or item unit appears there in the same hour as
+			// on the host, docked, stored or shipped as the host put it.
+			const int units = materialized(pair.first) - before[pair.first].first;
+			const std::vector<int>& built = pair.first->getCoopBuiltCraftIds();
+			const std::vector<int> newCrafts(built.begin() + std::min(before[pair.first].second, built.size()), built.end());
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
 				if (SeparateEcon::showBaseNotification(_game, xbase))
 					popup(new ProductionCompleteState(xbase, tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
-				// PRD-J04: mirror the finished manufacture to SHARED replicas before the
-				// Production object is destroyed. GAP-6: broadcast the count the host
-				// ACTUALLY materialized, NOT the raw time-based getAmountProduced(), which
-				// overshoots getAmountTotal() when a single hourly step advances _timeSpent
-				// past _amount*manufactureTime (big engineer pool, or a multi-day time jump).
-				// Production::step() caps materialization at getAmountTotal() via std::min;
-				// mirror that cap so the replica delivers the same count, never over-materializes.
-				int prodUnits = pair.first->getAmountProduced();
-				if (!pair.first->getInfiniteAmount())
-					prodUnits = std::min(prodUnits, pair.first->getAmountTotal());
 				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
-					pair.first->getRules()->getName(), prodUnits, pair.second,
-					pair.first->getSellItems(), pair.first->getCoopBuiltCraftIds());
+					pair.first->getRules()->getName(), units, pair.second,
+					pair.first->getSellItems(), newCrafts, true);
 				xbase->removeProduction(pair.first);
+			}
+			else if (units > 0)
+			{
+				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
+					pair.first->getRules()->getName(), units, pair.second,
+					pair.first->getSellItems(), newCrafts, false);
 			}
 		}
 

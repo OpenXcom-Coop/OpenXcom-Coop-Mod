@@ -272,13 +272,15 @@ void applyEventRewards(Game* game, const Json::Value& rewards);
 void hostFacilityDone(Game* game, int baseId, int x, int y,
                       const std::string& facilityType);
 
-/// Manufacture batch finished on the host (time1Hour): replica materializes the
-/// produced items/crafts, removes the Production (freeing engineers), and mirrors
-/// the completion popup. craftIds are the ids the host gave the crafts this
-/// production built, so the replica builds the same crafts.
+/// Manufacture units finished on the host (time1Hour): replica materializes the
+/// @a units this step made (items/crafts, stored, docked or shipped as the host
+/// did). When @a batchDone it also removes the Production (freeing engineers)
+/// and mirrors the completion popup. craftIds are the ids the host gave the
+/// crafts this step built, so the replica builds the same crafts.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell,
-                        const std::vector<int>& craftIds = std::vector<int>());
+                        const std::vector<int>& craftIds = std::vector<int>(),
+                        bool batchDone = true);
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.
