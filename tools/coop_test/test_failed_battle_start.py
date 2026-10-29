@@ -53,7 +53,7 @@ def q(gc, obj):
     except Exception as e:  # a dead or gone machine is a value
         return {"error": short(e, 200)}
 
-def lever(gc, obj, key="ok"):
+def hook_cmd(gc, obj, key="ok"):
     rep = q(gc, obj)
     if rep.get(key) is not True:
         raise Stop("%s %s: %s" % (gc.name, obj.get("cmd"), json.dumps(rep, default=str)[:300]))
@@ -234,8 +234,8 @@ def row_c1(x, results, walls):
         n_c, s0 = len(log(c)), sky(h, x.cid)
         if s0.get("destKind") != "site" or s0.get("destId") != x.site:
             raise Stop("baseline SKY destKind site, destId %s: %s" % (x.site, s0))
-        lever(h, {"cmd": "corrupt_next_blob"})
-        lever(h, {"cmd": "coop_mission_start"})
+        hook_cmd(h, {"cmd": "corrupt_next_blob"})
+        hook_cmd(h, {"cmd": "coop_mission_start"})
         t0, polls = time.time(), []
         wait("host battle_refuse received +1", lambda: since(h, n_h, REFUSE), 30.0)
 
@@ -281,7 +281,7 @@ def row_c0(x, results, walls):
             wait("host landing prompt", landing_prompt(h), 120.0, 0.5)
         n_h = r.ctx["n_h"] = len(log(h))
         n_c = len(log(c))
-        lever(h, {"cmd": "coop_mission_start"})
+        hook_cmd(h, {"cmd": "coop_mission_start"})
         wait("both phase Active", lambda: bstate(h)["phase"] == "Active" and bstate(c)["phase"] == "Active", 20.0)
         hb, cb, act, unw = bstate(h), bstate(c), since(c, n_c, CLIENT_ACTIVE), since(h, n_h, UNWIND)
         r.cell("C0-1", "GUARD", "the start works: both phase Active, equal non-zero battleId, client CLIENT phase Active +1, UNWIND +0",
@@ -335,9 +335,9 @@ def row_c2(x, results, walls):
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
     try:
-        lever(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
+        hook_cmd(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
         n_h = r.ctx["n_h"] = len(log(h))
-        lever(h, {"cmd": "coop_mission_start"})
+        hook_cmd(h, {"cmd": "coop_mission_start"})
         wait("host phase Handshake and client held", lambda: bstate(h)["phase"] == "Handshake"
              and q(c, {"cmd": "hold_battle_ready"}).get("held") is True, 30.0)
         c.kill()
@@ -373,9 +373,9 @@ def row_s1(x, results, walls):
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
     try:
-        lever(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
+        hook_cmd(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
         n_h = r.ctx["n_h"] = len(log(h))
-        lever(h, {"cmd": "newbattle_ok"})
+        hook_cmd(h, {"cmd": "newbattle_ok"})
         wait("host phase Handshake and client held", lambda: bstate(h)["phase"] == "Handshake"
              and q(c, {"cmd": "hold_battle_ready"}).get("held") is True, 30.0)
         c.kill()

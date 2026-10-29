@@ -1,28 +1,30 @@
-"""W2-H24 stages S-C2 and S-C1: a co-op CAMPAIGN
-base defence whose start fails. W2-H24-R (owner D265 (a), reverses D261) removed S-C2's row BR (a refused base defence ended the
-session): a refused base defence now takes S-A's shared unwind like every other failed start, and D262 (b) leaves that path unasserted.
-  Boot B0 (lobby key "48587", w2h24_f_host / _client; S-C2, TASK 0 rewrite/w2h24-task0/sc2/CONSTANTS.md): B0 the negative control, a
+"""test_failed_base_defense.py: a co-op CAMPAIGN base defence whose start fails. A refused base defence takes the shared
+unwind like every other failed start; this test leaves that path unasserted.
+  Boot base_defense_clean (lobby key "48587", base_defense_clean_host / _client): clean_start, the negative control, a
   clean co-op base-defence start.
-  Cells: B0-1 GUARD the start works, B0-2 GUARD MARKS = the base's one mark, B0-3 GUARD CRASH 0.
-  Stage S-C1 (AMENDMENT H24-2 section 4; D260 (b), R-H24-2-11..R-H24-2-14; TASK 0 rewrite/w2h24-task0/sc1/CONSTANTS.md T0-D1): a co-op
-  CAMPAIGN base defence whose partner's game dies during the ~1 s start. Today the host sits on "Waiting for <name> to reconnect..." over
-  a briefing that can never start, the base marked in battle and short of the stores the battle took, and a rejoin never reaches
-  RESUME. the host waits on the world map with the base given back what the start took; once the partner is back and RESUME
-  is pressed, the defence starts again for both.
-  Boot BD (lobby key "48588", w2h24_e_host / _client / _client2): BD the client's hold_battle_ready armed, the trigger, the window (host
-  Handshake + client held), U1, client.kill(), observe W, S1 / MARKS, then client2 rejoins (rejoin(): a copy of
-  test_failed_battle_start.rejoin() with a 60 s resumeAck cap, ending at RESUME) and both reach phase Active within 60 s, U2.
-  Cells: BD-1 FIX UNWIND, BD-2 FIX the host waits on the world map, BD-3 FIX the stores are back (S1 == S0), BD-4 FIX MARKS 0, BD-5 FIX
-  the defence starts again for both (U2 == U1), BD-6 GUARD CRASH 0.
+  Cells: clean_start-works GUARD the start works, clean_start-marks GUARD MARKS = the base's one mark,
+  clean_start-no_crash GUARD CRASH 0.
+  partner_drops: a co-op CAMPAIGN base defence whose partner's game dies during the ~1 s start. When broken, the host
+  sits on "Waiting for <name> to reconnect..." over a briefing that can never start, the base marked in battle and short
+  of the stores the battle took, and a rejoin never reaches RESUME. Wanted: the host waits on the world map with the
+  base given back what the start took; once the partner is back and RESUME is pressed, the defence starts again for
+  both.
+  Boot base_defense_drop (lobby key "48588", base_defense_drop_host / _client / _client2): partner_drops, the client's
+  hold_battle_ready armed, the trigger, the window (host Handshake + client held), U1, client.kill(), observe W, S1 /
+  MARKS, then client2 rejoins (rejoin(): a copy of test_failed_battle_start.rejoin() with a 60 s resumeAck cap, ending
+  at RESUME) and both reach phase Active within 60 s, U2.
+  Cells: partner_drops-1 FIX UNWIND, partner_drops-2 FIX the host waits on the world map, partner_drops-3 FIX the
+  stores are back (S1 == S0), partner_drops-4 FIX MARKS 0, partner_drops-5 FIX the defence starts again for both
+  (U2 == U1), partner_drops-no_crash GUARD CRASH 0.
 BASEDEF = test_failed_battle_start.camp() through drain_host_coop_notice (host squad of 3 on the Skyranger, the client's "Guest"
 transferred to the host base and seated), then the baseline (host base_report storage S0 + soldier ids R0, MARKS []), spawn_ufo
 (test_shared_base_defense.py's arguments), the needle baseline, trigger_base_defense (reply base = the host base).
 U = the host's battle_state.units soldierIds (faction 0, soldierId != -1).
 W = 15 s, POLL = 0.2 s. MARKS / UNWIND / CRASH, the flow rule, the EVIDENCE / CAPTURE lines and the row bookkeeping are
-test_failed_battle_start's (imported, unchanged). A WAIT that times out (or a lever reply that is not ok) ends the row, its later
-cells "not reached"; a boot miss fails its row "boot"; every row runs after a failure; ONE run; exit 0 iff every cell passes,
-else 2. Red: B0 PASS, BR FAIL BR-2..BR-5. Red (S-C1, T0-D1): B0, BR PASS; BD FAIL BD-1..BD-5, BD-6 PASS.
-W2-H24-R (D265 (a), reverses D261): row BR, its boot and its constants removed; B0, BD PASS.
+test_failed_battle_start's (imported, unchanged). A WAIT that times out (or a test command reply that is not ok) ends
+the row, its later cells "not reached"; a boot miss fails its row "boot"; every row runs after a failure; ONE run;
+exit 0 iff every cell passes, else 2. A build where a dropped partner leaves the host stuck passes clean_start and fails
+partner_drops-1 .. partner_drops-5 (partner_drops-no_crash passes).
 """
 import json
 import os
@@ -33,12 +35,12 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
-from test_failed_battle_start import (q, lever, stack, bstate, coop, dlg, log, since, marks, wait, changes,  # noqa: E402
-                                         Row, Stop, short)
+from test_failed_battle_start import (q, hook_cmd, stack, bstate, coop, dlg, log, since, marks, wait,  # noqa: E402
+                                      changes, Row, Stop, short)
 
 W, POLL = 15.0, 0.2
-WATCH_CAP_S = 135  # a start wait ends at both phase Active; >= max(120, 2.5 x 30.4 s), F11358
-KEY_B0, KEY_BD = "48587", "48588"
+WATCH_CAP_S = 135  # a start wait ends at both phase Active; >= max(120, 2.5 x 30.4 s)
+KEY_CLEAN, KEY_DROP = "48587", "48588"
 CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "failed battle start ("
 REARMED, PREPARED = "battle marks cleared=1, crafts sent home=0", "battle offer PREPARED (battleId="
 RESUMED_GUARD = "offerResumedBattle() called outside a disk resume (phase="
@@ -104,19 +106,19 @@ def trigger(r, x):
     if b.get("name") != x.hbase:
         raise Stop("host base_report: %s" % json.dumps(b, default=str)[:300])
     x.s0, x.r0 = b.get("storage") or {}, sorted(s.get("id") for s in b.get("soldiers") or [])
-    m0 = marks(h, "w2h24_%s_pre.sav" % r.rid.lower())
+    m0 = marks(h, "base_defense_%s_pre.sav" % r.rid.lower())
     if m0["flags"] != []:
         raise Stop("baseline MARKS not []: %s" % m0)
-    ufo = lever(h, UFO)
+    ufo = hook_cmd(h, UFO)
     r.ctx["n_h"], n_c = len(log(h)), len(log(c))
-    t = lever(h, {"cmd": "trigger_base_defense", "ufo_id": ufo.get("ufo_id")})
+    t = hook_cmd(h, {"cmd": "trigger_base_defense", "ufo_id": ufo.get("ufo_id")})
     if t.get("base") != x.hbase:
         raise Stop("trigger_base_defense hit %r, not the host base %r" % (t.get("base"), x.hbase))
     return n_c
 
 
-def row_b0(x, results, walls):
-    r = BRow("B0", ["B0-1", "B0-2"], x)
+def row_clean_start(x, results, walls):
+    r = BRow("clean_start", ["clean_start-works", "clean_start-marks"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
@@ -127,17 +129,18 @@ def row_b0(x, results, walls):
              WATCH_CAP_S)
         hb, cb, mt = bstate(h), bstate(c), q(h, {"cmd": "battle_state"}).get("missionType")
         act, unw = since(c, n_c, CLIENT_ACTIVE), since(h, r.ctx["n_h"], UNWIND)
-        r.cell("B0-1", "GUARD", 'the start works: both phase Active, equal non-zero battleId, host missionType "STR_BASE_DEFENSE", '
-               "client CLIENT phase Active +1, UNWIND +0", hb["phase"] == cb["phase"] == "Active" and bool(hb["battleId"])
+        r.cell("clean_start-works", "GUARD", 'the start works: both phase Active, equal non-zero battleId, host '
+               'missionType "STR_BASE_DEFENSE", client CLIENT phase Active +1, UNWIND +0',
+               hb["phase"] == cb["phase"] == "Active" and bool(hb["battleId"])
                and hb["battleId"] == cb["battleId"] and mt == "STR_BASE_DEFENSE" and len(act) == 1 and not unw,
                {"host": hb, "client": cb, "missionType": mt, "active": act, "UNWIND": unw, "s to both Active": round(time.time() - t0, 2)})
-        r.ctx["MARKS"] = marks(h, "w2h24_b0.sav")
+        r.ctx["MARKS"] = marks(h, "base_defense_clean_marks.sav")
         fl = r.ctx["MARKS"]["flags"]
-        r.cell("B0-2", "GUARD", 'MARKS = 1 line ending "%s" (the live defence\'s mark)' % BASE_MARK,
+        r.cell("clean_start-marks", "GUARD", 'MARKS = 1 line ending "%s" (the live defence\'s mark)' % BASE_MARK,
                fl is not None and len(fl) == 1 and fl[0].endswith(BASE_MARK), r.ctx["MARKS"])
-    except Exception as e:  # Stop, or a lever that raised: the row ends here
+    except Exception as e:  # Stop, or a test command that raised: the row ends here
         r.stop(e)
-    r.end("B0-3", results, walls)
+    r.end("clean_start-no_crash", results, walls)
 
 
 def units(gc):
@@ -154,7 +157,8 @@ def rejoin(x, n_h, ev):
     try:
         x.client2 = GameClient("client2", 3, make_user_dir(x.tag + "_client2"))
         x.client2.spawn(); x.client2.connect()
-        ev["join_tcp"] = x.client2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY_BD, "player": "ClientPlayer"})
+        ev["join_tcp"] = x.client2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY_DROP,
+                                        "player": "ClientPlayer"})
     except Exception as e:
         ev["join"] = short(e)
         return False
@@ -167,20 +171,20 @@ def rejoin(x, n_h, ev):
             time.sleep(0.5)
         ev["n_h at RESUME"] = len(log(h))
         ev["RESUME"] = session.press_back_when_shown(h, "host RESUME", codes=(60, 62))
-    except Exception as e:  # a timed-out wait (Stop / TimeoutError) or a machine gone: BD-5's own evidence
+    except Exception as e:  # a timed-out wait (Stop / TimeoutError) or a machine gone: partner_drops-5's own evidence
         ev["wait"] = short(e, 300)
     ev.update({"host stack": stack(h), "host dialog": dlg(h), "client2 stack": stack(x.client2), "client2 dialog": dlg(x.client2),
                "resumed-offer guard": since(h, n_h, RESUMED_GUARD)})
     return "resumeAck s" in ev and (ev.get("RESUME") or {}).get("ok") is True
 
 
-def row_bd(x, results, walls):
-    r = BRow("BD", ["BD-%d" % i for i in range(1, 6)], x)
+def row_partner_drops(x, results, walls):
+    r = BRow("partner_drops", ["partner_drops-%d" % i for i in range(1, 6)], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
     try:
-        lever(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
+        hook_cmd(c, {"cmd": "hold_battle_ready", "on": True}, key="armed")
         trigger(r, x)
         tt = time.time()
         wait("host phase Handshake and client held", lambda: bstate(h)["phase"] == "Handshake"
@@ -195,21 +199,24 @@ def row_bd(x, results, walls):
         hs, hb, d, b1 = stack(h), bstate(h), dlg(h), q(h, {"cmd": "base_report"})
         s1 = b1.get("storage") or {}
         diff = {k: [x.s0.get(k, 0), s1.get(k, 0)] for k in sorted(set(x.s0) | set(s1)) if x.s0.get(k, 0) != s1.get(k, 0)}
-        r.ctx["MARKS"] = marks(h, "w2h24_bd.sav")
+        r.ctx["MARKS"] = marks(h, "base_defense_drop_marks.sav")
         unw = since(h, r.ctx["n_h"], UNWIND)
         why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
         path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
                 "UNWIND reason": why}
-        r.cell("BD-1", "FIX", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-D1)' % REARMED,
+        r.cell("partner_drops-1", "FIX",
+               'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (when broken: 0 lines)' % REARMED,
                len(unw) == 1 and bool(why) and REARMED in unw[0], {"UNWIND": unw, "path": path, "window": win, "U1": u1})
-        r.cell("BD-2", "FIX", "the host waits on the world map: at W the stack ends [GeoscapeState, CoopState], dialog 62, no "
-               "BriefingState / BattlescapeState, inBattle false, phase Idle (red today: 62 over BriefingState, inBattle true, T0-D1)",
+        r.cell("partner_drops-2", "FIX", "the host waits on the world map: at W the stack ends [GeoscapeState, "
+               "CoopState], dialog 62, no BriefingState / BattlescapeState, inBattle false, phase Idle (when broken: "
+               "62 over BriefingState, inBattle true)",
                hs[-2:] == [GEO, COOP] and d.get("code") == 62 and BRF not in hs and BS not in hs and hb["inBattle"] is False
                and hb["phase"] == "Idle", {"stack": hs, "dialog": d, "battle": hb, "stacks": changes(polls)})
         r1 = sorted(s.get("id") for s in b1.get("soldiers") or [])
-        r.cell("BD-3", "FIX", "the stores are back: S1 == S0 (red today: 12 item types short, T0-D1)", s1 == x.s0,
+        r.cell("partner_drops-3", "FIX", "the stores are back: S1 == S0 (when broken: 12 item types short)", s1 == x.s0,
                {"S1 vs S0 differences": diff, "base": b1.get("name"), "soldiers after the drop": r1, "R0": x.r0})
-        r.cell("BD-4", "FIX", "MARKS = 0 lines (red today: 1, bases/inBattlescape, T0-D1)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
+        r.cell("partner_drops-4", "FIX", "MARKS = 0 lines (when broken: 1, bases/inBattlescape)",
+               r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
         ev = {}
         ok = rejoin(x, len(log(h)), ev)
         if ok:
@@ -224,18 +231,20 @@ def row_bd(x, results, walls):
         r2 = sorted(s.get("id") for s in q(h, {"cmd": "base_report"}).get("soldiers") or [])
         ev.update({"host": hb2, "client2": cb2, "missionType": mt, "PREPARED after RESUME": prep, "U1": u1, "U2": u2,
                    "soldiers after the rejoin": r2})
-        r.cell("BD-5", "FIX", "the defence starts again for both: resumeAck true, RESUME pressed, host PREPARED +1 after the RESUME, "
-               'within 60 s both phase Active with equal battleId, host missionType "STR_BASE_DEFENSE", U2 == U1 (red today: resumeAck '
-               "never true in 60 s, T0-D1)", ok and len(prep) == 1 and hb2["phase"] == cb2.get("phase") == "Active" and bool(hb2["battleId"])
+        r.cell("partner_drops-5", "FIX", "the defence starts again for both: resumeAck true, RESUME pressed, host "
+               'PREPARED +1 after the RESUME, within 60 s both phase Active with equal battleId, host missionType '
+               '"STR_BASE_DEFENSE", U2 == U1 (when broken: resumeAck never true in 60 s)',
+               ok and len(prep) == 1 and hb2["phase"] == cb2.get("phase") == "Active" and bool(hb2["battleId"])
                and hb2["battleId"] == cb2.get("battleId") and mt == "STR_BASE_DEFENSE" and bool(u1) and u2 == u1, ev)
-    except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
+    except Exception as e:  # Stop, or a test command / kill() that raised: the row ends here
         r.stop(e)
-    r.end("BD-6", results, walls)
+    r.end("partner_drops-no_crash", results, walls)
 
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
-    for tag, key, row in (("w2h24_f", KEY_B0, row_b0), ("w2h24_e", KEY_BD, row_bd)):
+    for tag, key, row in (("base_defense_clean", KEY_CLEAN, row_clean_start),
+                          ("base_defense_drop", KEY_DROP, row_partner_drops)):
         tb = time.time()
         x = boot(tag, key)
         walls[tag + " BASEDEF"] = round(time.time() - tb, 1)
@@ -248,7 +257,7 @@ def main():
                 print("FAIL %s shutdown (%s): %s" % (tag, gc.name, short(e, 300)), flush=True)
                 failed.append("%s shutdown %s" % (tag, gc.name))
         walls[tag] = round(time.time() - tb, 1)
-    rows = ("B0", "BD")
+    rows = ("clean_start", "partner_drops")
     failed += [rid for rid in rows if not results.get(rid)]
     print("\ntest_failed_base_defense: %d/%d rows passed (fail=%s) walls %s in %.1fs" % (
         sum(1 for rid in rows if results.get(rid)), len(rows), failed, json.dumps(walls), time.time() - t0), flush=True)
