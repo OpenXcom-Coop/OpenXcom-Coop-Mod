@@ -1,37 +1,46 @@
-"""test_equip_partner_hold.py (EQH): an item the co-op partner picks up on the pre-battle equip screen is reserved
-at once. the pile count drops at pick-up and nobody else can take it; the reservation ends when the holder puts it
-down or cancels; D289 (a), D293 (a): never between PvP opponents. Spec: docs repo rewrite/prompts/eq2b_hold.md (f) with its PIN-PASS
-AMENDMENTS, the common file rewrite/prompts/eq2_partner_pointer.md; rulings QEQ2-6 (a), QEQ2-7 (a), QEQ2-12 (a), QEQ2-13 (a) (the
-TEST-ONLY host lever `equip_holds_defer`), R-EQ2-3 (a) (gone / back are read by the held item's id: vanilla's ground layout slides the
-next stack into a freed cell, VL-EQ2-7). Constants: docs repo rewrite/eq2-task0/sb/CONSTANTS.md (TASK 0 boots a, b, p on HEAD + r1;
-c, pc with g1).
-Boot A (co-op, key KEY_B, dirs eq2b_a_host / eq2b_a_client): PBE's spine (test_prebattle_equip.py, copied, never imported) and
-staging, client first, as soon as both machines hold the battle: C1 and C2 stripped, one each of STAGE_TYPES plus HOLD_EXTRA (a second
-STR_RIFLE_CLIP) dropped on PILE; the client closes its briefing (its screen on C1), then the host. Rows in order (real clicks,
-inventory_click; a pick = a left-click on a ground cell with an empty cursor):
-  H1   the client picks the 2-clip cell: H1-drop (the host's count at that cell 2 -> 1 within W_HOLD), H1-table
-  H1b  the host left-clicks the same cell, then right-clicks: H1b-mate (its pick is the stack-mate, never the client's item)
-  H2   the client drops its clip on C1's STR_BELT (0,0): H2-land (GUARD), H2-once (ends.move delta 1, every other end 0)
-  H3   the host picks the grenade; the client clicks the cell the grenade held: H3-gone (its id off the client's page within
-       W_HOLD), H3-noclick (that id never on the client's cursor). The client's cursor is emptied; the host keeps the grenade for H4.
-  H4   the host right-clicks: H4-back (H3-gone held, the id back on a page cell of the client's screen within W_HOLD, ends.put 1)
-  H5   the client picks the smoke grenade, then right-clicks: H5-back (off the host's page, then back), H5-once (ends.cancel 1)
-  H6   the race: host equip_holds_defer on; the host picks the proximity grenade; the client (still listing it) picks it; W_HOLD;
-       lever off: H6-deny (the host's denies delta 1), H6-line (the client's cursor empty, its line TEXT_ITEM_MISSING), H6-host (GUARD)
-Boot P (PvP gm2, X-COM equipment for aliens on, key KEY_B after boot A's shutdown, dirs eq2b_p_host / eq2b_p_client): RAE's boot DA
-(test_alien_equip.py, copied) plus one STR_RIFLE_CLIP dropped on PILE while both briefings are up.
-  HP   the alien client picks the clip: HP-none (GUARD: the host's count unchanged, its table all -1, the client's sends delta 0)
-  X    after both boots: X-crash (GUARD: no new crash file, both hosts alive)
-A count = the number of that screen's inventory_view.ground entries at the cell (x, y); an id is off the page when its ground x is
-PARK_X (Inventory::arrangeGround parks it there, F20617); holds = event_state.equip.presence.holds (absent: table -1, counters 0).
-Counters read as the row's delta. Every row ends with both cursors empty (the holder's right-click, recorded); a cleanup that fails
-ends the boot's later rows "not reached".
-RED on HEAD + r1 (commit R1, the hold not built): H1-drop, H1-table, H1b-mate, H2-once, H3-gone, H3-noclick, H4-back, H5-back,
-H5-once, H6-deny, H6-line (11 of 15); H2-land, H6-host, HP-none, X-crash PASS.
-One EVIDENCE line per row (both tops, both inventory_view briefs, both holds, CPU at the row start, the row's reads), one PASS / FAIL
-line per cell, then the row verdict; every row runs after a failure (a precondition miss ends its own row, its cells "not reached");
-a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot". run in the foreground to completion.
-ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+"""test_equip_partner_hold.py: an item the co-op partner picks up on the pre-battle equip screen is reserved at once.
+The pile count drops at pick-up and nobody else can take it; the reservation ends when the holder puts it down or
+cancels. Between PvP opponents nothing is reserved. Gone / back are read by the held item's id, never by its cell:
+vanilla's ground layout slides the next stack into a freed cell. While the host's test command `equip_holds_defer` is
+on, the host's hold table is not sent, so the partner's click can land on an item the host already holds.
+Boot coop (co-op, LOBBY_KEY, dirs equip_partner_hold_coop_host / equip_partner_hold_coop_client):
+test_prebattle_equip.py's spine (copied, never imported) and staging, client first, as soon as both machines hold the
+battle: C1 and C2 stripped, one each of STAGE_TYPES plus HOLD_EXTRA (a second STR_RIFLE_CLIP) dropped on PILE; the
+client closes its briefing (its screen on C1), then the host. Rows in order (real clicks, inventory_click; a pick = a
+left-click on a ground cell with an empty cursor):
+  client_pick     the client picks the 2-clip cell: client_pick-count_drops (the host's count at that cell 2 -> 1
+                  within W_HOLD), client_pick-table
+  host_same_cell  the host left-clicks the same cell, then right-clicks: host_same_cell-mate (its pick is the
+                  stack-mate, never the client's item)
+  client_drop     the client drops its clip on C1's STR_BELT (0,0): client_drop-land (GUARD), client_drop-once
+                  (ends.move delta 1, every other end 0)
+  host_pick       the host picks the grenade; the client clicks the cell the grenade held: host_pick-gone (its id off
+                  the client's page within W_HOLD), host_pick-noclick (that id never on the client's cursor). The
+                  client's cursor is emptied; the host keeps the grenade for host_returns.
+  host_returns    the host right-clicks: host_returns-back (host_pick-gone held, the id back on a page cell of the
+                  client's screen within W_HOLD, ends.put 1)
+  client_cancel   the client picks the smoke grenade, then right-clicks: client_cancel-back (off the host's page, then
+                  back), client_cancel-once (ends.cancel 1)
+  pick_race       the race: host equip_holds_defer on; the host picks the proximity grenade; the client (still listing
+                  it) picks it; W_HOLD; equip_holds_defer off: pick_race-deny (the host's denies delta 1),
+                  pick_race-line (the client's cursor empty, its line TEXT_ITEM_MISSING), pick_race-host (GUARD)
+Boot pvp (PvP gm2, X-COM equipment for aliens on, LOBBY_KEY after boot coop's shutdown, dirs
+equip_partner_hold_pvp_host / equip_partner_hold_pvp_client): test_alien_equip.py's boot client_aliens (copied) plus
+one STR_RIFLE_CLIP dropped on PILE while both briefings are up.
+  pvp_pick        the alien client picks the clip: pvp_pick-no_hold (GUARD: the host's count unchanged, its table all
+                  -1, the client's sends delta 0)
+  END             after both boots: no_crash (GUARD: no new crash file, both hosts alive)
+A count = the number of that screen's inventory_view.ground entries at the cell (x, y); an id is off the page when its
+ground x is PARK_X (Inventory::arrangeGround parks it there); holds = event_state.equip.presence.holds (absent: table
+-1, counters 0). Counters read as the row's delta. Every row ends with both cursors empty (the holder's right-click,
+recorded); a cleanup that fails ends the boot's later rows "not reached".
+A build without the hold fails client_pick-count_drops, client_pick-table, host_same_cell-mate, client_drop-once,
+host_pick-gone, host_pick-noclick, host_returns-back, client_cancel-back, client_cancel-once, pick_race-deny and
+pick_race-line (11 of 15) and passes client_drop-land, pick_race-host, pvp_pick-no_hold and no_crash.
+One EVIDENCE line per row (both tops, both inventory_view briefs, both holds, CPU at the row start, the row's reads),
+one PASS / FAIL line per cell, then the row verdict; every row runs after a failure (a precondition miss ends its own
+row, its cells "not reached"); a boot step past its bound prints ONE CAPTURE line and fails that boot's rows "boot".
+run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_partner_hold.py
 """
 
@@ -54,32 +63,36 @@ from test_client_items import strip_both  # noqa: E402
 import test_battle_end_rules as BER  # noqa: E402
 import test_pvp_gm3 as G3F  # noqa: E402
 
-# ----- pins (rewrite/eq2-task0/sb/CONSTANTS.md; no value needed its replacement rule) -----
-KEY_B = "49284"                    # boot A, then boot P after boot A's shutdown
-SEED_MAP = 1                       # PBE: set_seed right before newbattle_ok
-MAP_FP = -4.48310638993e+18        # PBE: the host's mapFingerprint at SEED_MAP 1
-C_IDS = [8, 9]                     # PBE: the client's seated units
+# ----- pinned setup values (the spine's as in test_prebattle_equip.py) -----
+LOBBY_KEY = "49284"                # boot coop, then boot pvp after its shutdown
+SEED_MAP = 1                       # set_seed right before newbattle_ok
+MAP_FP = -4.48310638993e+18        # the host's mapFingerprint at SEED_MAP 1
+C_IDS = [8, 9]                     # the client's seated units
 C1, C2 = 8, 9
-H_IDS = [10, 11, 12, 13, 14]       # PBE: the host's own soldiers
-PILE = (14, 19, 1)                 # PBE / RAE: the craft pile tile at turn 0 (co-op and gm2)
+H_IDS = [10, 11, 12, 13, 14]       # the host's own soldiers
+PILE = (14, 19, 1)                 # the craft pile tile at turn 0 (co-op and gm2)
 STAGE_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_GRENADE", "STR_PROXIMITY_GRENADE", "STR_SMOKE_GRENADE")
 HOLD_EXTRA = "STR_RIFLE_CLIP"      # a second clip: the clip cell holds a stack of 2
 STACK_TYPE = "STR_RIFLE_CLIP"
-SINGLES = {"H3": "STR_GRENADE", "H5": "STR_SMOKE_GRENADE", "H6": "STR_PROXIMITY_GRENADE"}
+SINGLES = {"host_pick": "STR_GRENADE", "client_cancel": "STR_SMOKE_GRENADE", "pick_race": "STR_PROXIMITY_GRENADE"}
 GROUND, BELT = "STR_GROUND", "STR_BELT"
 GROUND_COLS, PARK_X = 20, 1000000  # the first ground page; arrangeGround's park column
-SEED_PVP, MISSION_PVP = 1, "STR_SMALL_SCOUT"   # RAE boot DA
-TEXT_ITEM_MISSING = "Order cancelled - item unavailable"   # STR_COOP_DENY_ITEM_MISSING (QEQ2-7, P8-4-M3)
+SEED_PVP, MISSION_PVP = 1, "STR_SMALL_SCOUT"   # test_alien_equip.py's boot client_aliens
+TEXT_ITEM_MISSING = "Order cancelled - item unavailable"   # STR_COOP_DENY_ITEM_MISSING
 W_HOLD, CLICK_WAIT_S, LAND_WAIT_S, ANSWER_WAIT_S, SETTLE_S, POLL_S = 2.0, 2.0, 10.0, 3.0, 0.5, 0.05
-EQ1_WAIT_S, ENTRY_WAIT_S, SCREEN_S = 30.0, 5.0, 15.0
+BRIEFING_WAIT_S, ENTRY_WAIT_S, SCREEN_S = 30.0, 5.0, 15.0
 ENDS = ("put", "answer", "cancel", "deny", "move", "leave", "start")
 EXPECTED_RC = (0, 3221226505)
-ROWS_A = (("H1", ("H1-drop", "H1-table")), ("H1b", ("H1b-mate",)), ("H2", ("H2-land", "H2-once")),
-          ("H3", ("H3-gone", "H3-noclick")), ("H4", ("H4-back",)), ("H5", ("H5-back", "H5-once")),
-          ("H6", ("H6-deny", "H6-line", "H6-host")))
-ROWS_P = (("HP", ("HP-none",)),)
-ROWS_X = (("X", ("X-crash",)),)
-CPU_CSV = os.path.join(tempfile.gettempdir(), "eq2b_cpu_s%d.csv" % harness.HARNESS_SLOT)
+ROWS_COOP = (("client_pick", ("client_pick-count_drops", "client_pick-table")),
+             ("host_same_cell", ("host_same_cell-mate",)),
+             ("client_drop", ("client_drop-land", "client_drop-once")),
+             ("host_pick", ("host_pick-gone", "host_pick-noclick")),
+             ("host_returns", ("host_returns-back",)),
+             ("client_cancel", ("client_cancel-back", "client_cancel-once")),
+             ("pick_race", ("pick_race-deny", "pick_race-line", "pick_race-host")))
+ROWS_PVP = (("pvp_pick", ("pvp_pick-no_hold",)),)
+ROWS_END = (("END", ("no_crash",)),)
+CPU_CSV = os.path.join(tempfile.gettempdir(), "equip_partner_hold_cpu_s%d.csv" % harness.HARNESS_SLOT)
 
 
 def stack(gc):
@@ -242,7 +255,8 @@ def look(host, client):
 
 
 def ready(host, client, ctx, host_empty=True):
-    """A row's head: both pre-battle screens up, the client's cursor empty (the host's too unless it holds H3's item)."""
+    """A row's head: both pre-battle screens up, the client's cursor empty (the host's too unless it holds
+    host_pick's item)."""
     if ctx.get("broken"):
         raise AssertionError(f"not reached: an earlier row's cleanup failed ({ctx['broken']})")
     if not (screen_up(host) and screen_up(client)):
@@ -259,11 +273,11 @@ def cleanup(host, client, ctx, ev, keep_host=False):
         ctx["broken"] = f"cursors host/client {ev['cursorsAfter']} after the cleanup"
 
 
-# ===================== boot A (PBE's spine and staging, copied) =====================
+# ===================== boot coop (test_prebattle_equip.py's spine and staging, copied) =====================
 
 
 def stage(host, client):
-    """C1 and C2 stripped on both machines, then STAGE_TYPES and HOLD_EXTRA dropped on PILE (client first, F607)."""
+    """C1 and C2 stripped on both machines, then STAGE_TYPES and HOLD_EXTRA dropped on PILE (client first)."""
     rec = {"stripped": {uid: strip_both(host, client, uid) for uid in (C1, C2)}, "ids": {}}
     for t in STAGE_TYPES:
         rec["ids"][t] = both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1], "z": PILE[2], "item": t},
@@ -275,29 +289,30 @@ def stage(host, client):
 
 
 def cells(host, client, ids, extra, m):
-    """The pinned cells on both screens, their preconditions checked (CONSTANTS.md: every pin met its rule)."""
+    """The pinned cells on both screens, their preconditions checked."""
     page1 = lambda c: bool(c) and c[0] is not None and 0 <= c[0] < GROUND_COLS  # noqa: E731
     out = {}
     sc = {gc.name: cell_of(gc, ids[STACK_TYPE]) for gc in (host, client)}
     st = {n: (sorted(at_cell(gc, sc[n])) if sc[n] else []) for n, gc in (("host", host), ("client", client))}
     if not (page1(sc["host"]) and page1(sc["client"]) and st["host"] == st["client"] == sorted([ids[STACK_TYPE], extra])):
-        miss("A", f"the stack cell: {sc} holds {st} (want the two staged clips at one page-1 cell on both screens)", m)
+        miss("coop", f"the stack cell: {sc} holds {st} (want the two staged clips at one page-1 cell on both "
+             f"screens)", m)
     out["stack"] = {"cell": sc, "ids": st["client"]}
     for row, t in SINGLES.items():
         iid = ids[t]
         c = {gc.name: cell_of(gc, iid) for gc in (host, client)}
         if not all(page1(c[n]) and at_cell(gc, c[n]) == [iid] for n, gc in (("host", host), ("client", client))):
-            miss("A", f"the {row} cell: {t} {iid} at {c} (want one entry at a page-1 cell on both screens)", m)
+            miss("coop", f"the {row} cell: {t} {iid} at {c} (want one entry at a page-1 cell on both screens)", m)
         out[row] = {"id": iid, "type": t, "cell": c}
     return out
 
 
-def boot_a(host, client):
+def boot_coop(host, client):
     m = (host, client)
     ctx = {"m": m, "boot": {}, "crash0": session._crash_log_snapshot()}
-    G3F.guarded("A", lambda: bring_up_lobby_roster_pinned(host, client, KEY_B), m)
+    G3F.guarded("coop", lambda: bring_up_lobby_roster_pinned(host, client, LOBBY_KEY), m)
     seated = {}
-    G3F.guarded("A", lambda: session.bring_up_to_briefings(
+    G3F.guarded("coop", lambda: session.bring_up_to_briefings(
         host, client, seated, seat_count=2, pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP})), m)
     hb = battle_state(host)
     sid = {u.get("soldierId"): u["id"] for u in hb.get("units", []) if u.get("soldierId") is not None}
@@ -306,30 +321,32 @@ def boot_a(host, client):
                           and not u.get("isOut"))}
     ctx["boot"].update(got)
     if (got["mapFingerprint"], got["seated"], got["hIds"]) != (MAP_FP, C_IDS, H_IDS):
-        miss("A", f"PBE's spine: {got} (want MAP_FP {MAP_FP}, seated {C_IDS}, H {H_IDS})", m)
-    ok, ctx["boot"]["clientBriefingS"] = wait_until(lambda: has(client, "BriefingState") and in_battle(client), EQ1_WAIT_S, 0.1)
+        miss("coop", f"the spine: {got} (want MAP_FP {MAP_FP}, seated {C_IDS}, H {H_IDS})", m)
+    ok, ctx["boot"]["clientBriefingS"] = wait_until(lambda: has(client, "BriefingState") and in_battle(client),
+                                                    BRIEFING_WAIT_S, 0.1)
     if not ok:
-        miss("A", f"no client BriefingState with its battle within {EQ1_WAIT_S} s", m)
-    G3F.guarded("A", lambda: session.wait_seq_barrier(host, client), m)   # the host's first evs applied before staging
-    st = ctx["boot"]["staged"] = G3F.guarded("A", lambda: stage(host, client), m)
+        miss("coop", f"no client BriefingState with its battle within {BRIEFING_WAIT_S} s", m)
+    # the host's first evs applied before staging
+    G3F.guarded("coop", lambda: session.wait_seq_barrier(host, client), m)
+    st = ctx["boot"]["staged"] = G3F.guarded("coop", lambda: stage(host, client), m)
     if st["diff"]:
-        miss("A", f"buckets differ after the staging: {st['diff']}", m)
+        miss("coop", f"buckets differ after the staging: {st['diff']}", m)
     ctx["boot"]["clientClose"] = client.cmd({"cmd": "close_briefing"}).get("ok")
     ok, ctx["boot"]["clientScreenS"] = wait_until(lambda: screen_up(client), ENTRY_WAIT_S)
     if not ok:
-        miss("A", f"the client's pre-battle screen not up within {ENTRY_WAIT_S} s after its briefing closed", m)
+        miss("coop", f"the client's pre-battle screen not up within {ENTRY_WAIT_S} s after its briefing closed", m)
     ctx["boot"]["hostClose"] = host.cmd({"cmd": "close_briefing"}).get("ok")
     ok, ctx["boot"]["hostScreenS"] = wait_until(lambda: screen_up(host), SCREEN_S)
     if not ok:
-        miss("A", f"the host's pre-battle screen not up within {SCREEN_S} s after its briefing closed", m)
+        miss("coop", f"the host's pre-battle screen not up within {SCREEN_S} s after its briefing closed", m)
     ctx["seat"] = (battle_state(client).get("authority") or {}).get("localSeat")
     ctx["cells"] = cells(host, client, st["ids"], st["extra"], m)
     ctx["boot"].update(cells=ctx["cells"], seatClient=ctx["seat"], units=[inv_view(gc).get("unitId") for gc in m])
-    print(f"[eq2b] boot A: {json.dumps(ctx['boot'], sort_keys=True, default=str)}", flush=True)
+    print(f"[test_equip_partner_hold] boot coop: {json.dumps(ctx['boot'], sort_keys=True, default=str)}", flush=True)
     return ctx
 
 
-def row_h1(host, client, ctx, ev):
+def row_client_pick(host, client, ctx, ev):
     ready(host, client, ctx)
     sc = ctx["cells"]["stack"]["cell"]
     n0 = len(at_cell(host, sc["host"]))
@@ -338,26 +355,29 @@ def row_h1(host, client, ctx, ev):
     _, ev["dropWithin"] = wait_until(lambda: len(at_cell(host, sc["host"])) == n0 - 1, W_HOLD)
     n1, tab = len(at_cell(host, sc["host"])), table(host)
     ev.update(hostCount=[n0, n1], hostAtCell=at_cell(host, sc["host"]), hostTable=tab, look=look(host, client))
-    return {"H1-drop": (n1 == n0 - 1, f"the host's count at {sc['host']}: {n0} -> {n1} (want {n0} -> {n0 - 1} within {W_HOLD} s; "
-                                      f"the client holds {x})"),
-            "H1-table": (tab[ctx["seat"]] == x, f"host holds.table {tab} (want [{ctx['seat']}] = the client's item {x}; absent = -1)")}
+    return {"client_pick-count_drops": (n1 == n0 - 1, f"the host's count at {sc['host']}: {n0} -> {n1} (want {n0} -> "
+                                                      f"{n0 - 1} within {W_HOLD} s; the client holds {x})"),
+            "client_pick-table": (tab[ctx["seat"]] == x, f"host holds.table {tab} (want [{ctx['seat']}] = the client's "
+                                                         f"item {x}; absent = -1)")}
 
 
-def row_h1b(host, client, ctx, ev):
+def row_host_same_cell(host, client, ctx, ev):
     x, sc = ctx.get("x"), ctx["cells"]["stack"]["cell"]
     if x is None or cursor(client) != x or cursor(host) != -1:
-        raise AssertionError(f"precondition: the client holds {cursor(client)} (want H1's {x}), the host {cursor(host)} (want empty)")
+        raise AssertionError(f"precondition: the client holds {cursor(client)} (want client_pick's {x}), the host "
+                             f"{cursor(host)} (want empty)")
     mates = [i for i in ctx["cells"]["stack"]["ids"] if i != x]
     y, ev["pick"] = pick(host, sc["host"], ctx["cells"]["stack"]["ids"])
     ev.update(hostItem=y, clientItem=x, mates=mates, look=look(host, client))
     give_back(host, ev, "hostReturn")
     ev["cursorsAfter"] = [cursor(host), cursor(client)]
     if cursor(host) != -1:
-        ctx["broken"] = f"the host's cursor {cursor(host)} after H1b's right-click"
-    return {"H1b-mate": (y in mates, f"the host's pick {y} (want the stack-mate {mates}, never the client's {x})")}
+        ctx["broken"] = f"the host's cursor {cursor(host)} after host_same_cell's right-click"
+    return {"host_same_cell-mate": (y in mates, f"the host's pick {y} (want the stack-mate {mates}, never the client's "
+                                                f"{x})")}
 
 
-def row_h2(host, client, ctx, ev):
+def row_client_drop(host, client, ctx, ev):
     x = ctx.get("x")
     if x is None or cursor(client) != x or cursor(host) != -1 or inv_view(client).get("unitId") != C1:
         raise AssertionError(f"precondition: client holds {cursor(client)} on unit {inv_view(client).get('unitId')} (want {x} on "
@@ -375,47 +395,51 @@ def row_h2(host, client, ctx, ev):
     d = delta(ends(host), e0)
     ev.update(item={"host": where(host), "client": where(client)}, endsDelta=d, look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"H2-land": (bool(got), f"item {x} host {ev['item']['host']} client {ev['item']['client']} (want {want} on both within "
-                                   f"{LAND_WAIT_S} s)"),
-            "H2-once": (d["move"] == 1 and all(v == 0 for k, v in d.items() if k != "move"),
-                        f"host ends delta over H2 {d} (want move 1, every other 0; absent = 0)")}
+    return {"client_drop-land": (bool(got), f"item {x} host {ev['item']['host']} client {ev['item']['client']} (want "
+                                            f"{want} on both within {LAND_WAIT_S} s)"),
+            "client_drop-once": (d["move"] == 1 and all(v == 0 for k, v in d.items() if k != "move"),
+                                 f"host ends delta over client_drop {d} (want move 1, every other 0; absent = 0)")}
 
 
-def row_h3(host, client, ctx, ev):
+def row_host_pick(host, client, ctx, ev):
     ready(host, client, ctx)
-    s = ctx["cells"]["H3"]
+    s = ctx["cells"]["host_pick"]
     g, ev["pick"] = pick(host, s["cell"]["host"], [s["id"]])
     got, ev["goneWithin"] = wait_until(lambda: parked(client, g), W_HOLD)
     ev["clientCellOfItem"], ev["clientAtOldCell"] = cell_of(client, g), at_cell(client, s["cell"]["client"])
-    ctx["H3gone"] = bool(got)
+    ctx["host_pick_gone"] = bool(got)
     c, ev["clientPick"] = pick(client, s["cell"]["client"])
     ev["look"] = look(host, client)
     cleanup(host, client, ctx, ev, keep_host=True)
-    return {"H3-gone": (bool(got), f"{s['type']} {g} on the client's ground at {ev['clientCellOfItem']} (want off the page, x {PARK_X}, "
-                                   f"within {W_HOLD} s; its old cell {s['cell']['client']} now holds {ev['clientAtOldCell']})"),
-            "H3-noclick": (c != g, f"the client's click on {s['cell']['client']} put {c} on its cursor (want never {g}, R-EQ2-3)")}
+    return {"host_pick-gone": (bool(got), f"{s['type']} {g} on the client's ground at {ev['clientCellOfItem']} "
+                                          f"(want off the page, x {PARK_X}, within {W_HOLD} s; its old cell "
+                                          f"{s['cell']['client']} now holds {ev['clientAtOldCell']})"),
+            "host_pick-noclick": (c != g, f"the client's click on {s['cell']['client']} put {c} on its cursor (want "
+                                          f"never {g})")}
 
 
-def row_h4(host, client, ctx, ev):
-    s = ctx["cells"]["H3"]
+def row_host_returns(host, client, ctx, ev):
+    s = ctx["cells"]["host_pick"]
     ready(host, client, ctx, host_empty=False)
     if cursor(host) != s["id"]:
-        raise AssertionError(f"precondition: the host holds {cursor(host)} (want H3's {s['id']})")
+        raise AssertionError(f"precondition: the host holds {cursor(host)} (want host_pick's {s['id']})")
     e0 = ends(host)
     give_back(host, ev, "hostReturn")
     got, ev["backWithin"] = wait_until(lambda: on_page(client, s["id"]), W_HOLD)
     time.sleep(SETTLE_S)
     d = delta(ends(host), e0)
-    ev.update(clientCellOfItem=cell_of(client, s["id"]), endsDelta=d, h3Gone=ctx.get("H3gone"), look=look(host, client))
+    ev.update(clientCellOfItem=cell_of(client, s["id"]), endsDelta=d, hostPickGone=ctx.get("host_pick_gone"),
+              look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"H4-back": (bool(ctx.get("H3gone")) and bool(got) and d["put"] == 1,
-                        f"gone after H3's pick {ctx.get('H3gone')}; {s['id']} on the client's page at {ev['clientCellOfItem']} "
-                        f"(want a page cell within {W_HOLD} s); host ends.put delta {d['put']} (want 1)")}
+    return {"host_returns-back": (bool(ctx.get("host_pick_gone")) and bool(got) and d["put"] == 1,
+                        f"gone after host_pick's pick {ctx.get('host_pick_gone')}; {s['id']} on the client's page at "
+                        f"{ev['clientCellOfItem']} (want a page cell within {W_HOLD} s); host ends.put delta "
+                        f"{d['put']} (want 1)")}
 
 
-def row_h5(host, client, ctx, ev):
+def row_client_cancel(host, client, ctx, ev):
     ready(host, client, ctx)
-    s = ctx["cells"]["H5"]
+    s = ctx["cells"]["client_cancel"]
     e0 = ends(host)
     k, ev["pick"] = pick(client, s["cell"]["client"], [s["id"]])
     gone, ev["goneWithin"] = wait_until(lambda: parked(host, k), W_HOLD)
@@ -426,14 +450,15 @@ def row_h5(host, client, ctx, ev):
     d = delta(ends(host), e0)
     ev.update(hostCellAfterCancel=cell_of(host, k), endsDelta=d, look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"H5-back": (bool(gone) and bool(back), f"{k} on the host's ground: {ev['hostCellAfterPick']} after the pick (want x "
-                                                   f"{PARK_X}), {ev['hostCellAfterCancel']} after the cancel (want a page cell)"),
-            "H5-once": (d["cancel"] == 1, f"host ends delta over H5 {d} (want cancel 1)")}
+    return {"client_cancel-back": (bool(gone) and bool(back),
+                                   f"{k} on the host's ground: {ev['hostCellAfterPick']} after the pick (want x "
+                                   f"{PARK_X}), {ev['hostCellAfterCancel']} after the cancel (want a page cell)"),
+            "client_cancel-once": (d["cancel"] == 1, f"host ends delta over client_cancel {d} (want cancel 1)")}
 
 
-def row_h6(host, client, ctx, ev):
+def row_pick_race(host, client, ctx, ev):
     ready(host, client, ctx)
-    s = ctx["cells"]["H6"]
+    s = ctx["cells"]["pick_race"]
     d0 = counter(host, "denies")
     r = host.cmd({"cmd": "equip_holds_defer", "on": True})
     ev["deferOn"] = {k: r.get(k) for k in ("ok", "on", "error")}
@@ -450,16 +475,16 @@ def row_h6(host, client, ctx, ev):
     v, hc, dd = inv_view(client), cursor(host), counter(host, "denies") - d0
     ev.update(client=brief(v), hostCursor=hc, deniesDelta=dd, look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"H6-deny": (dd == 1, f"host holds.denies delta {dd} (want 1)"),
-            "H6-line": (v.get("selectedItem") == -1 and v.get("lineText") == TEXT_ITEM_MISSING,
+    return {"pick_race-deny": (dd == 1, f"host holds.denies delta {dd} (want 1)"),
+            "pick_race-line": (v.get("selectedItem") == -1 and v.get("lineText") == TEXT_ITEM_MISSING,
                         f"client cursor {v.get('selectedItem')}, line {v.get('lineText')!r} (want -1 and {TEXT_ITEM_MISSING!r} within "
-                        f"{W_HOLD} s of the lever's off)"),
-            "H6-host": (hc == p, f"the host's cursor {hc} (want {p} still on it)")}
+                        f"{W_HOLD} s of equip_holds_defer off)"),
+            "pick_race-host": (hc == p, f"the host's cursor {hc} (want {p} still on it)")}
 
 
 def pvp_to_briefings(host, client, key):
-    """RAE's lobby_e6 (the client joins and takes the Alien team, gamemode 2) and its drive (Small Scout, set_seed,
-    newbattle_ok, both briefings up). Returns the gamemode."""
+    """test_alien_equip.py's lobby_client_aliens (the client joins and takes the Alien team, gamemode 2) and its drive
+    (Small Scout, set_seed, newbattle_ok, both briefings up). Returns the gamemode."""
     BER.raw.skirmish_host(host, key)
     BER.raw.skirmish_client_at_browser(client)
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": BER.raw.CLIENT_PLAYER})
@@ -469,7 +494,7 @@ def pvp_to_briefings(host, client, key):
     client.ok({"cmd": "profile_ok"})
     host.wait_for("start offered", lambda: BER.raw.lobby(host).get("buttonVisible") or None)
     r = host.ok({"cmd": "lobby_set_team", "row": BER.gm2_row_for(host, BER.raw.CLIENT_PLAYER), "team": "Alien"})
-    time.sleep(1)   # the change_team broadcast settles on the client (PSR PHASE 0)
+    time.sleep(1)   # the change_team broadcast settles on the client
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings", lambda: (not session.has_state(host, "LobbyMenu")) or None)
     m = host.cmd({"cmd": "newbattle_mission", "type": MISSION_PVP})
@@ -481,33 +506,35 @@ def pvp_to_briefings(host, client, key):
     return r.get("gamemode")
 
 
-def boot_p(host, client):
+def boot_pvp(host, client):
     m = (host, client)
     ctx = {"m": m, "boot": {}, "crash0": session._crash_log_snapshot()}
-    G3F.guarded("P", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
-    G3F.guarded("P", lambda: host.ok({"cmd": "set_seed", "seed": SEED_PVP}), m)
-    ctx["boot"]["gm"] = G3F.guarded("P", lambda: pvp_to_briefings(host, client, KEY_B), m)
+    G3F.guarded("pvp", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
+    G3F.guarded("pvp", lambda: host.ok({"cmd": "set_seed", "seed": SEED_PVP}), m)
+    ctx["boot"]["gm"] = G3F.guarded("pvp", lambda: pvp_to_briefings(host, client, LOBBY_KEY), m)
     if ctx["boot"]["gm"] != 2 or not (in_battle(host) and in_battle(client)):
-        miss("P", f"gamemode {ctx['boot']['gm']} (want 2), inBattle host {in_battle(host)} client {in_battle(client)}", m)
-    ctx["clip"] = G3F.guarded("P", lambda: both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1], "z": PILE[2],
-                                                               "item": STACK_TYPE}, ("ids",))["ids"][0], m)
-    G3F.guarded("P", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)
+        miss("pvp", f"gamemode {ctx['boot']['gm']} (want 2), inBattle host {in_battle(host)} client "
+             f"{in_battle(client)}", m)
+    ctx["clip"] = G3F.guarded("pvp", lambda: both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1],
+                                                                 "z": PILE[2], "item": STACK_TYPE},
+                                                  ("ids",))["ids"][0], m)
+    G3F.guarded("pvp", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)
     ok, ctx["boot"]["hostScreenS"] = wait_until(lambda: screen_up(host), SCREEN_S)
     if not ok:
-        miss("P", "the host's pre-battle screen never came up", m)
-    G3F.guarded("P", lambda: session.dismiss_client_briefing(client), m)
+        miss("pvp", "the host's pre-battle screen never came up", m)
+    G3F.guarded("pvp", lambda: session.dismiss_client_briefing(client), m)
     ok, ctx["boot"]["clientScreenS"] = wait_until(lambda: screen_up(client), SCREEN_S)
     if not ok:
-        miss("P", f"the client's (alien seat) pre-battle screen not up within {SCREEN_S} s", m)
+        miss("pvp", f"the client's (alien seat) pre-battle screen not up within {SCREEN_S} s", m)
     ctx["cell"] = {gc.name: cell_of(gc, ctx["clip"]) for gc in m}
     if not all(c and c[0] is not None and 0 <= c[0] < GROUND_COLS for c in ctx["cell"].values()):
-        miss("P", f"the dropped clip {ctx['clip']} at {ctx['cell']} (want a page-1 cell on both screens)", m)
+        miss("pvp", f"the dropped clip {ctx['clip']} at {ctx['cell']} (want a page-1 cell on both screens)", m)
     ctx["boot"].update(clip=ctx["clip"], cell=ctx["cell"], pile=[equip(gc).get("pile") for gc in m])
-    print(f"[eq2b] boot P: {json.dumps(ctx['boot'], sort_keys=True, default=str)}", flush=True)
+    print(f"[test_equip_partner_hold] boot pvp: {json.dumps(ctx['boot'], sort_keys=True, default=str)}", flush=True)
     return ctx
 
 
-def row_hp(host, client, ctx, ev):
+def row_pvp_pick(host, client, ctx, ev):
     ready(host, client, ctx)
     hc, cc = ctx["cell"]["host"], ctx["cell"]["client"]
     n0, s0 = len(at_cell(host, hc)), counter(client, "sends")
@@ -516,9 +543,9 @@ def row_hp(host, client, ctx, ev):
     n1, tab, ds = len(at_cell(host, hc)), table(host), counter(client, "sends") - s0
     ev.update(hostCount=[n0, n1], hostTable=tab, clientSendsDelta=ds, look=look(host, client))
     cleanup(host, client, ctx, ev)
-    return {"HP-none": (n1 == n0 and tab == [-1, -1, -1, -1] and ds == 0,
+    return {"pvp_pick-no_hold": (n1 == n0 and tab == [-1, -1, -1, -1] and ds == 0,
                         f"the host's count at {hc} {n0} -> {n1} (want unchanged), host table {tab} (want all -1), the client's "
-                        f"sends delta {ds} (want 0; absent = -1 / 0: D274, D293)")}
+                        f"sends delta {ds} (want 0; absent = -1 / 0)")}
 
 
 def run_row(row, order, fn, host, client, ctx):
@@ -559,11 +586,13 @@ def run_boot(tag, rows, setup, fns, host_dir, client_dir, alive_at_end):
                 rc[gc.name] = gc.proc.returncode if gc.proc is not None else None
             except Exception as e:
                 rc[gc.name] = f"shutdown: {type(e).__name__}: {str(e)[:200]}"
-        print(f"[eq2b] boot {tag} shut down: {rc}", flush=True)
+        print(f"[test_equip_partner_hold] boot {tag} shut down: {rc}", flush=True)
 
 
-FN_A = {"H1": row_h1, "H1b": row_h1b, "H2": row_h2, "H3": row_h3, "H4": row_h4, "H5": row_h5, "H6": row_h6}
-FN_P = {"HP": row_hp}
+FN_COOP = {"client_pick": row_client_pick, "host_same_cell": row_host_same_cell, "client_drop": row_client_drop,
+           "host_pick": row_host_pick, "host_returns": row_host_returns, "client_cancel": row_client_cancel,
+           "pick_race": row_pick_race}
+FN_PVP = {"pvp_pick": row_pvp_pick}
 
 
 def main():
@@ -574,21 +603,24 @@ def main():
         cpu = subprocess.Popen(["typeperf", r"\Processor(_Total)\% Processor Time", "-si", "1", "-y", "-f", "CSV",
                                 "-o", CPU_CSV], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as e:
-        print(f"[eq2b] typeperf not started: {e}", flush=True)
+        print(f"[test_equip_partner_hold] typeperf not started: {e}", flush=True)
     up = {}
     try:
-        fails = run_boot("A", ROWS_A, boot_a, FN_A, "eq2b_a_host", "eq2b_a_client", up)
-        fails += run_boot("P", ROWS_P, boot_p, FN_P, "eq2b_p_host", "eq2b_p_client", up)
+        fails = run_boot("coop", ROWS_COOP, boot_coop, FN_COOP, "equip_partner_hold_coop_host",
+                         "equip_partner_hold_coop_client", up)
+        fails += run_boot("pvp", ROWS_PVP, boot_pvp, FN_PVP, "equip_partner_hold_pvp_host",
+                          "equip_partner_hold_pvp_client", up)
         crash = sorted(session._crash_log_snapshot() - crash0)
-        fails += G3F.verdict("X", ROWS_X[0][1], {"X-crash": (not crash and up.get("A") is True and up.get("P") is True,
-                                                             f"new crash files {crash} (want none); host alive at the end of "
-                                                             f"boot A {up.get('A')}, boot P {up.get('P')}")},
+        fails += G3F.verdict("END", ROWS_END[0][1],
+                             {"no_crash": (not crash and up.get("coop") is True and up.get("pvp") is True,
+                                           f"new crash files {crash} (want none); host alive at the end of "
+                                           f"boot coop {up.get('coop')}, boot pvp {up.get('pvp')}")},
                              {"crash": crash, "hostAlive": up, "cpu": cpu_pct()})
     finally:
         if cpu is not None:
             cpu.terminate()
             cpu.wait(timeout=10)
-    n = sum(len(order) for _, order in ROWS_A + ROWS_P + ROWS_X)
+    n = sum(len(order) for _, order in ROWS_COOP + ROWS_PVP + ROWS_END)
     print(f"\ntest_equip_partner_hold: {n - fails}/{n} cells passed ({'PASS' if not fails else 'FAIL'}) in "
           f"{time.time() - t0:.1f}s; CPU mean {cpu_pct(True)} %; typeperf rc {cpu.returncode if cpu else None}", flush=True)
     return 0 if not fails else 2
