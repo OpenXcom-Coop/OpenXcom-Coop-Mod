@@ -2,8 +2,8 @@
 """Run the coop test suite across K non-colliding harness lanes at once.
 
 Lane k runs on harness slot BASE+k (OXC_HARNESS_SLOT=BASE+k; BASE = --slot-base,
-else the inherited OXC_HARNESS_SLOT, else 0, so a lane that exports its own slot,
-e.g. lane 2's 4, runs K=2 on its own pair 4/5). harness.py isolates a slot by a per-slot
+else the inherited OXC_HARNESS_SLOT, else 0, so a caller that exports its own slot,
+e.g. 4, runs K=2 on its own pair 4/5). harness.py isolates a slot by a per-slot
 machine lock and s{slot}_-prefixed user dirs (see harness.py). Ports are now
 OS-assigned ephemeral for every instance, so lanes no longer need disjoint port
 bands - the isolation is purely the lock + user dirs. This runner owns all K
@@ -22,7 +22,8 @@ non-slotted / old-harness run.
 --log-dir L writes each test's stdout+stderr to L/<test>.log (unbuffered); without
 it the K lanes interleave in one stream. --fail-copy-dir F copies, after a non-PASS
 test and before its lane's next test, every s<slot>_* user dir of that lane whose
-openxcom.log changed since the test started to F/<test>/ (S27).
+openxcom.log changed since the test started to F/<test>/, so a later run on the
+same slot cannot overwrite the failed run's engine logs.
 
 Assignment: timing-sensitive families (PINNED, below) are locked to slot 0 - the
 serial lane - so contention from the other lanes never perturbs a clock- or
@@ -196,7 +197,7 @@ def _kill_tree(proc):
 
 
 def _copy_fail_dirs(name, slot, t0, fail_dir):
-    """S27: copy this lane's s<slot>_* user dirs whose openxcom.log changed at or
+    """Copy this lane's s<slot>_* user dirs whose openxcom.log changed at or
     after the test's start - 1 s to fail_dir/<test>/<dir>. Returns the path or None."""
     dest = os.path.join(fail_dir, name)
     for d in sorted(glob.glob(os.path.join(TEST_ROOT, "s%d_*" % slot))):
@@ -264,7 +265,7 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
         end_epoch = time.time()
         rc_attempts = [rc]
         # NOTHING is retried, by anyone, ever. rc_attempts/attempts and
-        # the ATT column stay (part of the --json schema) but are now always 1.
+        # the ATT column stay (part of the --json schema) and are always 1.
         attempts = len(rc_attempts)
         e0 = round(time.time() - run_start, 1)
         over_budget = (rc == 0 and not timed_out and secs > budget)
@@ -322,7 +323,7 @@ def main():
                     "slot SLOT_BASE+k (default: the inherited OXC_HARNESS_SLOT, else 0)")
     ap.add_argument("--log-dir", help="write each test's stdout+stderr to LOG_DIR/<test>.log")
     ap.add_argument("--fail-copy-dir", help="after a non-PASS test, copy its lane's fresh "
-                    "s<slot>_* user dirs to FAIL_COPY_DIR/<test>/ (S27)")
+                    "s<slot>_* user dirs to FAIL_COPY_DIR/<test>/")
     args = ap.parse_args()
     base = (args.slot_base if args.slot_base is not None
             else int(os.environ.get("OXC_HARNESS_SLOT", "0")))
@@ -398,7 +399,7 @@ def main():
     wall = round(time.time() - run_start, 1)
 
     results.sort(key=lambda r: r["seconds"], reverse=True)
-    # any nonzero exit is a FAIL (exit 3 is no longer a separate SKIP).
+    # any nonzero exit is a FAIL (exit 3 too: there is no separate SKIP).
     # a QUARANTINED file is listed and counted apart, never as a pass,
     # and does not fail the run.
     fails = [r for r in results if r["status"] == "FAIL"]
