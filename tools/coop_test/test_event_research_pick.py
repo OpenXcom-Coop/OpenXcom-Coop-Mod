@@ -1,21 +1,22 @@
-"""in SEPARATE co-op with Research Sync on, a paired certain
-event (coopShared) whose reward is one random research topic teaches BOTH players the host's pick and opens the same article;
-today each machine rolls its own (GE :453) and the sync skips a paired copy (GE :514). Spec docs
-rewrite/prompts/w2h77_event_research_pick.md (f); TASK 0 rewrite/w2h77-task0/sa/CONSTANTS.md. Mod Coop_Event_Pick_Test (spec
-Appendix C): topics STR_PICK_P01..Z16; certain events EV_P, EV_Z (month 0), EV_W (every month from 1). One SEPARATE boot (key
-"49470"), EnableResearchSync on both, boot guard researchMode {shared false, sync true} on both, EV_Z's countdown pinned to
-EVZ_PIN on both right after the bring-up (W2-U9d, R-I63-1: its boot roll is unseeded). Every fire seeds both machines
-(SEEDS: host, client) right before the host's set_event_countdown; the client's copy fires on the host's packet (guard:held). Picks
-are read at runtime, no topic is pinned: the host's draws before its pick vary per boot.
-Collision: the host's pick equals the client's own roll (its seed's one draw over its unknown topics, F21893): the row
-prints COLLISION and fires once more on the next month's EV_W with host seed + RESEED; a second collision fails it "fixture".
-No row can collide: before each row's fire the host learns the topic the client's seed will roll, so the host's pick always differs.
-Rows (8 cells):
-  EP-1 month 0, EV_P: sameTopic (RED), sameArticle (RED), noPopup (GUARD cell)
-  EP-2 roll_month, EV_W (the X-Com Files red-tape shape): sameTopic (RED), sameArticle (RED), noPopup (GUARD cell)
-  EP-3 research sync off, EV_Z: ownTopics (GUARD cell), noPopup (GUARD cell)
-"guard:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell, the row
-verdict; every row runs after a failure; ONE run: exit 0 only when every cell passes, else 2.
+"""test_event_research_pick.py: in SEPARATE co-op with Research Sync on, a paired certain event (coopShared) whose
+reward is one random research topic teaches BOTH players the host's pick and opens the same article; without that,
+each machine rolls its own (GeoscapeEventState's random research pick) and the research sync skips a paired copy. Mod
+Coop_Event_Pick_Test: topics STR_PICK_P01..Z16; certain events EV_P, EV_Z (month 0), EV_W (every month from 1). One
+SEPARATE boot (key "49470"), EnableResearchSync on both, boot guard researchMode {shared false, sync true} on both,
+EV_Z's countdown pinned to EVZ_PIN on both right after the bring-up (its boot roll is unseeded). Every fire seeds both
+machines (SEEDS: host, client) right before the host's set_event_countdown; the client's copy fires on the host's
+packet (guard:held). Picks are read at runtime, no topic is pinned: the host's draws before its pick vary per boot.
+Collision: the host's pick equals the client's own roll (its seed's one draw over its unknown topics): the row prints
+COLLISION and fires once more on the next month's EV_W with host seed + RESEED; a second collision fails it "fixture".
+No row can collide: before each row's fire the host learns the topic the client's seed will roll, so the host's pick
+always differs.
+Rows (8 cells; FIX cells fail when each machine rolls its own, GUARD cells pass either way):
+  first_month_event month 0, EV_P: sameTopic (FIX), sameArticle (FIX), noPopup (GUARD cell)
+  later_month_event roll_month, EV_W (the X-Com Files red-tape shape): sameTopic (FIX), sameArticle (FIX), noPopup
+                    (GUARD cell)
+  sync_off_event research sync off, EV_Z: ownTopics (GUARD cell), noPopup (GUARD cell)
+"guard:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell,
+the row verdict; every row runs after a failure; ONE run: exit 0 only when every cell passes, else 2.
 no wait-hook; run to completion in the foreground.
 """
 import json
@@ -35,12 +36,12 @@ MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Eve
 KEY = "49470"
 EV_P, EV_W, EV_Z = "STR_PICK_EV_P", "STR_PICK_EV_W", "STR_PICK_EV_Z"
 P, W, Z = (["STR_PICK_%s%02d" % (k, i) for i in range(1, 17)] for k in "PWZ")
-SEEDS = {"EP-1": (11, 12), "EP-2": (21, 22), "EP-3": (31, 32)}   # host, client
+SEEDS = {"first_month_event": (11, 12), "later_month_event": (21, 22), "sync_off_event": (31, 32)}   # host, client
 COUNTDOWN, SKIP_MIN, PAIRED_S, HELD_MIN, RESEED = 60, 180, 10.0, 240, 2
-# EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any
-# set_seed) and EP-1 + EP-2 spend 1380-1560 game min (more under load) before EP-3's guard:held, so a roll below ~1710 failed it.
-# Pinned on both machines: > HELD_MIN + EP-3's own spend before its fire (0) + 2 x the worst EP-1 + EP-2 spend (570 + 3 x 990,
-# a collision refire in each row) = 7320.
+# EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any set_seed), and first_month_event and
+# later_month_event spend 1380-1560 game minutes (more under load) before sync_off_event's guard:held, so a roll below
+# ~1710 would fail it. Pinned on both machines: > HELD_MIN + sync_off_event's own spend before its fire (0) + 2 x the
+# worst first_month_event + later_month_event spend (570 + 3 x 990, a collision refire in each row) = 7320.
 EVZ_PIN = 7500
 MONTH_DAYS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 U64 = (1 << 64) - 1
@@ -81,8 +82,9 @@ def pending(gc, name):
 
 
 def own_roll(seed, unknown):
-    """The client's own pick at `seed`: one draw of src/Engine/RNG.cpp (xorshift64*) over GE's possibilities (its unknown
-    topics in researchList order). Returns (topic, the RNG state after that draw as event_state.rngSeed shows it)."""
+    """The client's own pick at `seed`: one draw of src/Engine/RNG.cpp (xorshift64*) over GeoscapeEventState's
+    possibilities (its unknown topics in researchList order). Returns (topic, the RNG state after that draw as
+    event_state.rngSeed shows it)."""
     x = seed & U64
     x ^= x >> 12
     x ^= (x << 25) & U64
@@ -136,8 +138,9 @@ class Row:
 
 
 def drain(gc, win):
-    """ES drain (copied): close every popup, VIEW REPORTS on a research popup; 'RC' / 'EV' / 'article:<id>' per popup.
-    Also records this machine's rngSeed at the first event window it closes (EVIDENCE only)."""
+    """test_coop_event_sync.py's drain (copied): close every popup, VIEW REPORTS on a research popup; 'RC' / 'EV' /
+    'article:<id>' per popup. Also records this machine's rngSeed at the first event window it closes (EVIDENCE
+    only)."""
     seen = []
     for _ in range(30):
         t = geo.top_state(gc)
@@ -162,7 +165,8 @@ def drain(gc, win):
 
 
 def advance(host, client, minutes, win, settle=3.0):
-    """ES advance (copied): speed 4 until the host's clock moved `minutes` (real deadline 120 s), then a 3 s settle."""
+    """test_coop_event_sync.py's advance (copied): speed 4 until the host's clock moved `minutes` (real deadline
+    120 s), then a 3 s settle."""
     seen = {host.name: [], client.name: []}
     start = geo.game_minutes(host)
     deadline = time.time() + 120
@@ -186,7 +190,8 @@ def advance(host, client, minutes, win, settle=3.0):
 
 
 def roll_month(r, x, label):
-    """ES roll_month (copied): the host's set_geo_day to the month's last day 23:00 (31 in month 0), advance 120, sleep 2.0."""
+    """test_coop_event_sync.py's roll_month (copied): the host's set_geo_day to the month's last day 23:00 (31 in
+    month 0), advance 120, sleep 2.0."""
     h, c = x.host, x.client
     before = {gc.name: months(gc) for gc in (h, c)}
     m = ((h.cmd({"cmd": "geo_state"}) or {}).get("time") or {}).get("month") or 1
@@ -200,7 +205,8 @@ def roll_month(r, x, label):
 
 
 def fire(r, x, ev, topics, seeds, tag):
-    """Spec (f) fire: the pair, the held client copy, both seeds, the host's countdown, the skip. Returns this fire's picks."""
+    """One fire: the pair, the held client copy, both seeds, the host's countdown, the skip. Returns this fire's
+    picks."""
     h, c = x.host, x.client
     g = "" if tag == "fire" else "2"
     r.topics = topics
@@ -251,47 +257,47 @@ def picks(r, x, ev, topics, seeds):
         return p
     r.ev["collision"] = [p["host"]]
     print(f"COLLISION {r.rid}: the host's pick {p['host']} = the client's own roll at seed {seeds[1]}; one more fire on the "
-          f"next month's {EV_W} with host seed {seeds[0] + RESEED} (R-H77-2)", flush=True)
+          f"next month's {EV_W} with host seed {seeds[0] + RESEED}", flush=True)
     roll_month(r, x, "refireRoll")
     p2 = fire(r, x, EV_W, W, (seeds[0] + RESEED, seeds[1]), "refire")
     p2["RC"] = {n: p["RC"][n] + p2["RC"][n] for n in p2["RC"]}
     if p2["host"] == p2["own"]:
         r.ev["collision"].append(p2["host"])
-        p2["fixture"] = f"fixture: a second collision ({p2['host']}, R-H77-2)"
+        p2["fixture"] = f"fixture: a second collision ({p2['host']})"
     return p2
 
 
-def red_cells(r, x, p):
+def pick_cells(r, x, p):
     fx, h, cl = p.get("fixture"), p["host"], p["client"]
-    r.cell("sameTopic", not fx and cl == [h], fx or f"the client learned {cl}, the host {h} (each rolled its own, F21550)")
+    r.cell("sameTopic", not fx and cl == [h], fx or f"the client learned {cl}, the host {h} (each rolled its own)")
     want = ["article:" + str(h)]
     r.cell("sameArticle", not fx and p["arts"]["client"] == p["arts"]["host"] == want,
            fx or f"articles host {p['arts']['host']} / client {p['arts']['client']}, want {want} on both")
     gcell(r, x, "noPopup", p["RC"] == {"host": 0, "client": 0}, f"research popups (RC) {p['RC']}")
 
 
-def row_ep1(r, x):
+def row_first_month_event(r, x):
     """Month 0, a paired oneTimeSequentialEvents certain event: the client learns the host's pick."""
-    host_learns_client_roll(r, x, P, SEEDS["EP-1"][1])
-    red_cells(r, x, picks(r, x, EV_P, P, SEEDS["EP-1"]))
+    host_learns_client_roll(r, x, P, SEEDS["first_month_event"][1])
+    pick_cells(r, x, picks(r, x, EV_P, P, SEEDS["first_month_event"]))
 
 
-def row_ep2(r, x):
-    """Month 1, a paired eventWeights certain event (its two countdowns may differ by 60 min, F21554: never compared)."""
+def row_later_month_event(r, x):
+    """Month 1, a paired eventWeights certain event (its two countdowns may differ by 60 min: never compared)."""
     roll_month(r, x, "roll")
-    host_learns_client_roll(r, x, W, SEEDS["EP-2"][1])
-    red_cells(r, x, picks(r, x, EV_W, W, SEEDS["EP-2"]))
+    host_learns_client_roll(r, x, W, SEEDS["later_month_event"][1])
+    pick_cells(r, x, picks(r, x, EV_W, W, SEEDS["later_month_event"]))
 
 
-def row_ep3(r, x):
-    """Research sync off: each player keeps exactly its own roll, as today."""
+def row_sync_off_event(r, x):
+    """Research sync off: each player keeps exactly its own roll."""
     h, c = x.host, x.client
     so = r.ev["syncOff"] = {gc.name: gc.cmd({"cmd": "set_research_sync", "enabled": False}) for gc in (c, h)}
     rm = {gc.name: rmode(gc).get("sync") for gc in (h, c)}
     guard(r, x, "syncOff", all(v.get("ok") is True for v in so.values()) and rm == {"host": False, "client": False},
           f"set_research_sync {so}; researchMode.sync {rm}")
-    host_learns_client_roll(r, x, Z, SEEDS["EP-3"][1])
-    p = picks(r, x, EV_Z, Z, SEEDS["EP-3"])
+    host_learns_client_roll(r, x, Z, SEEDS["sync_off_event"][1])
+    p = picks(r, x, EV_Z, Z, SEEDS["sync_off_event"])
     fx = p.get("fixture")
     gcell(r, x, "ownTopics", not fx and len(p["client"]) == 1 and p["client"] != [p["host"]],
           fx or f"the host learned {p['host']}, the client {p['client']} (own roll {p['own']}): each must learn exactly its own")
@@ -349,7 +355,7 @@ def boot(tag, key, rows, results, walls):
     try:
         js = boot_sep(tag, key)
         x = SimpleNamespace(host=js.host, client=js.client)
-        time.sleep(2.0)  # ES bring_up: the host's event schedule reaches the client
+        time.sleep(2.0)  # as test_coop_event_sync.py's bring_up: the host's event schedule reaches the client
         for gc in (x.host, x.client):
             geo.drain_popups(gc)
         geo.slow_clock(x.host, x.client)
@@ -386,18 +392,18 @@ def boot(tag, key, rows, results, walls):
             if js is not None:
                 js.shutdown()
         except Exception as e:
-            print(f"[w2h77] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[event_research_pick] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
 
-ROWS = (("EP-1", row_ep1, ("sameTopic", "sameArticle", "noPopup"), P),
-        ("EP-2", row_ep2, ("sameTopic", "sameArticle", "noPopup"), W),
-        ("EP-3", row_ep3, ("ownTopics", "noPopup"), Z))
+ROWS = (("first_month_event", row_first_month_event, ("sameTopic", "sameArticle", "noPopup"), P),
+        ("later_month_event", row_later_month_event, ("sameTopic", "sameArticle", "noPopup"), W),
+        ("sync_off_event", row_sync_off_event, ("ownTopics", "noPopup"), Z))
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot("w2h77", KEY, ROWS, results, walls)
+    boot("event_research_pick", KEY, ROWS, results, walls)
     n_cells = sum(len(c) for _r, _fn, c, _t in ROWS)
     failed = {rid: results.get(rid, ["not run"]) for rid, _fn, _c, _t in ROWS if results.get(rid, ["not run"])}
     print(f"\ntest_event_research_pick: {len(ROWS) - len(failed)}/{len(ROWS)} rows passed, failed cells {failed} "
