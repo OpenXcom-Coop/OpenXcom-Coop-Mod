@@ -12,15 +12,16 @@ every received one, before the leave's push. One fresh boot pair (SEPARATE gm1 t
 g1 / g2 / send = the named save's client entry holds every soldier received so far once (no GUESTNAME after the send) and every other
 (id, name) of the client's own soldiers read before the visit; leave = GIFTNAME and GIFTNAME2 once each on the client's own bases, GUESTNAME on none
 and once on the host's; file = QUICK holds GIFTNAME and GIFTNAME2 once each in the client entry only and GUESTNAME once in the host half only;
-ids = no id held twice on either machine's own bases; common = both machines alive at the read, no new .dmp since B.
-RED cells fail on a build without the fix: gift_twice_stored-g2, gift_twice_stored-send (2 of 8). Exit 0 only when every cell passes, else 2 (no SKIP). one
-foreground run per invocation:
+ids = no id held twice on either machine's own bases; common = both machines alive at the read, no new .dmp since the baseline (just
+before the first gift).
+FIX cells fail on a build without the fix: gift_twice_stored-g2, gift_twice_stored-send (2 of 8). Exit 0 only when every cell passes, else 2 (no SKIP).
+Run:
     python tools/coop_test/test_gift_twice_stored.py"""
 import sys
 from gift_back_helpers import *  # noqa: F401,F403
 
 KEY = "49319"
-PRE = ("each construction step met its precondition (boot, the guest, picker, the visit, B, each host gift: its menu, the client's deferral "
+PRE = ("each construction step met its precondition (boot, the guest, picker, the visit, the baseline, each host gift: its menu, the client's deferral "
        "line and notice, the host's copy changed, the named save; the client's gift of the guest: the host's notice, the copy changed, the "
        "named save; the leave, both replay lines, the host's save)")
 

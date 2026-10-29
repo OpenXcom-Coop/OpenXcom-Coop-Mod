@@ -18,15 +18,15 @@ stored = the named save's client entry holds every (id, name) of the client's ow
 own = after the leave every own0 pair of the receiver on its own bases; client / host = GIFTNAME on none of the receiver's own bases; the
 giver's guard = GIFTNAME once on the giver's own bases under its own id and the giver's ids those of own0; ids = no id held twice on either
 machine's own bases; file = QUICK holds GIFTNAME only in the giver's half (and, client_gives_back, every own0(client) pair in the client entry); common =
-both machines alive at the read, no new .dmp since B.
-RED cells fail on a build without the fix: client_gives_back-stored, client_gives_back-own, client_gives_back-client, client_gives_back-file, host_gives_back-host, host_gives_back-file (6 of 15). Exit 0 only when
-every cell passes, else 2 (no SKIP). one foreground run per invocation:
+both machines alive at the read, no new .dmp since the baseline (just before the gift).
+FIX cells fail on a build without the fix: client_gives_back-stored, client_gives_back-own, client_gives_back-client, client_gives_back-file, host_gives_back-host, host_gives_back-file (6 of 15). Exit 0 only when
+every cell passes, else 2 (no SKIP). Run:
     python tools/coop_test/test_gift_back.py"""
 import sys
 from gift_back_helpers import *  # noqa: F401,F403
 
 KEY = "49318"
-PRE = ("each construction step met its precondition (boot, picker, the visit, B, the gift and the receiver's deferral line, the giver's id "
+PRE = ("each construction step met its precondition (boot, picker, the visit, the baseline, the gift and the receiver's deferral line, the giver's id "
        "on one of the receiver's own soldiers, the notice, the gift-back's screens and the giver's notice, %sthe leave, the host's save)")
 
 

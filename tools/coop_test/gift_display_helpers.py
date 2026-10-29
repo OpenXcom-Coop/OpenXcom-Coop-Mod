@@ -1,10 +1,8 @@
-"""gift_display_helpers.py: shared helpers of the W2-H70 S-B tests test_gift_display_copy.py (rows R7, R8, G7) and
-test_gift_display_copy_screens.py (rows R9, R10); spec docs rewrite/prompts/w2h70_sb_display_copy.md (f) and Appendix B; TASK 0
-rewrite/w2h70-task0/sb/CONSTANTS.md; lead L-TR9-1, F20420-F20425; R-TR9-1, R-H70-2, QH70B-1 .. QH70B-8 (a). Imports gift_helpers.py
-(GH) unchanged; the S-B steps are copied from the captures rewrite/ltr9-1-cap/cap.py and rewrite/lh70-2-cap/cap.py, never imported. Every
-press is real (click_widget, inject_input at a pixel or SDLK_KP2); every probe an existing TestServer command; a missed precondition raises
-Stop (the row ends there). one foreground run per invocation, exit 0 only when every cell passes."""
-from gift_helpers import *  # noqa: F401,F403 (GH: boot, picker, visit, baseline, host_gift, census, Row, Stop, ...)
+"""gift_display_helpers.py: shared helpers of the gift display-copy tests test_gift_display_copy.py (rows host_gives_list, host_visits_list, host_gives_no_screen) and
+test_gift_display_copy_screens.py (rows host_gives_craft_ok, host_gives_move), on top of gift_helpers.py (imported unchanged). Every press is real (click_widget,
+inject_input at a pixel or SDLK_KP2); every probe an existing TestServer command; a missed precondition raises Stop (the row ends there).
+Exit 0 only when every cell passes."""
+from gift_helpers import *  # noqa: F401,F403 (gift_helpers: boot, picker, visit, baseline, host_gift, census, Row, Stop, ...)
 
 GUESTNAME = "Zzz Guest"
 W_REPLAY = 25.0
@@ -39,10 +37,10 @@ def blobs(gc):
             "own": pick(q(gc, {"cmd": "coop_file_info", "role": "own_world"}), ("key",) + ks)}
 
 def snap(x, ev, label):
-    """both stacks, get_coop and the coop blobs at one point of the row (t = seconds since B)"""
+    """both stacks, get_coop and the coop blobs at one point of the row (t = seconds since the baseline)"""
     ev[label] = {n: {"stack": stack(gc), "coop": coop(gc), "blob": blobs(gc)} if alive(gc) else {"alive": False}
                  for n, gc in (("host", x.host), ("client", x.client))}
-    ev[label]["t"] = round(time.time() - x.B["t"], 3) if getattr(x, "B", None) else None
+    ev[label]["t"] = round(time.time() - x.before_gift["t"], 3) if getattr(x, "before_gift", None) else None
 
 def row_to(x, gc, rows, want, sc):
     """the first of `rows` whose TextList pixel (x + 30 / y + 3 + 8 * row, x the clicker's scale, + 1) puts `want` on top in W_UI"""
@@ -68,7 +66,7 @@ def listed(gc):
     return [z.get("name") for z in q(gc, {"cmd": "base_report", "coop": True}).get("soldiers", [])]
 
 def stage_guest_named(x, ev, name=GUESTNAME):
-    """GH stage_guest under its own name: the client's first own-base soldier not in a craft (the next one when the transfer
+    """gift_helpers.stage_guest under its own name: the client's first own-base soldier not in a craft (the next one when the transfer
     refuses, at most 3) renamed `name`, transfer_to_coop_base to the host base; the host's 150 closed by a real OK; GeoscapeState back"""
     c, h = x.client, x.host
     if name in {z.get("name") for gc in (h, c) for b in soldiers(gc) for z in b.get("soldiers", [])}:
@@ -91,7 +89,8 @@ def stage_guest_named(x, ev, name=GUESTNAME):
         raise Stop("the guest not staged: %s" % ev["guest"])
 
 def host_picker(x, ev):
-    """CAP9 picker2's host half: the globe of GH picker's probe save (host world) and a select-destination CANCEL's window scale"""
+    """the host's half of the picker: the globe of gift_helpers.picker's probe save (host world) and a select-destination CANCEL's
+    window scale"""
     h = x.host
     with open(os.path.join(h.user_dir, "xcom1", PROBE), encoding="utf-8", errors="replace") as fh:
         w = next((d for d in yaml.load_all(fh, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) if isinstance(d, dict) and "bases" in d), {})
@@ -116,7 +115,7 @@ def host_visit(x, ev):
         raise Stop("the host not inside the client base within %.0f s: %s" % (W_VISIT, stack(h)))
 
 def gift_from(x, ev):
-    """CAP9 gift_from: the client's first own soldier not in a craft renamed GIFTNAME; BASES, SOLDIERS, its row, KP2, the host's button;
+    """the client's first own soldier not in a craft renamed GIFTNAME; BASES, SOLDIERS, its row, KP2, the host's button;
     the host's deferral line within W_NOTICE; the client back on GeoscapeState (real presses)"""
     c, h = x.client, x.host
     g = ev["gift"] = {}
@@ -151,18 +150,18 @@ def gift_from(x, ev):
         raise Stop("the client not back on GeoscapeState after its gift: %s" % stack(c))
 
 def list_ok(x, ev, r):
-    """R7 / R8: SOLDIERS (SoldiersState lists GIFTNAME), OK (BasescapeState)"""
+    """host_gives_list / host_visits_list: SOLDIERS (SoldiersState lists GIFTNAME), OK (BasescapeState)"""
     ev["screen"] = {"SoldiersState s": press_to(r, "SOLDIERS", "SoldiersState", "SOLDIERS"), "listed": listed(r)}
     if x.gift not in ev["screen"]["listed"]:
         raise Stop("SoldiersState does not list %s: %s" % (x.gift, ev["screen"]["listed"]))
     ev["screen"]["OK s"] = press_to(r, "OK", "BasescapeState", "the list's OK")
 
 def no_screen(x, ev, r):
-    """G7: no screen inside the visit (the notice's OK, then GEOSCAPE)"""
+    """host_gives_no_screen: no screen inside the visit (the notice's OK, then GEOSCAPE)"""
     ev["screen"] = {"listed": listed(r)}
 
 def craft_ok(x, ev, r, label):
-    """R9: the craft button `label` (CraftsState), craft row 0 (CraftInfoState; rows 1, 2 next), OK (CraftsState), OK (BasescapeState)"""
+    """host_gives_craft_ok: the craft button `label` (CraftsState), craft row 0 (CraftInfoState; rows 1, 2 next), OK (CraftsState), OK (BasescapeState)"""
     sc = press_to(r, label, "CraftsState", label)
     row = row_to(x, r, (0, 1, 2), "CraftInfoState", x.pk["scale"])
     ev["screen"] = {"CraftsState s": sc, "craft row": row, "listed": listed(r)}
@@ -172,8 +171,8 @@ def craft_ok(x, ev, r, label):
     ev["screen"]["CraftsState OK s"] = press_to(r, "OK", "BasescapeState", "CraftsState's OK")
 
 def move_home(x, ev, r, label):
-    """R10: SOLDIERS, GIFTNAME's row, the SACK button `label` (SackSoldierState naming GIFTNAME), OK (SoldiersState: SoldierInfoState
-    pops itself on an empty list, F20581; else its OK), OK (BasescapeState)"""
+    """host_gives_move: SOLDIERS, GIFTNAME's row, the SACK button `label` (SackSoldierState naming GIFTNAME), OK (SoldiersState: SoldierInfoState
+    pops itself on an empty list; else its OK), OK (BasescapeState)"""
     press_to(r, "SOLDIERS", "SoldiersState", "SOLDIERS")
     ls = listed(r)
     if x.gift not in ls:
@@ -197,7 +196,7 @@ def move_home(x, ev, r, label):
     ev["screen"]["OK s"] = press_to(r, "OK", "BasescapeState", "the list's OK")
 
 def receiver_path(x, ev, r, steps):
-    """CAP9 receiver_steps: GiftNoticeState within W_NOTICE, its OK, the row's screen steps, GEOSCAPE ([GeoscapeState] in W_LEAVE),
+    """the receiver's steps: GiftNoticeState within W_NOTICE, its OK, the row's screen steps, GEOSCAPE ([GeoscapeState] in W_LEAVE),
     ADDED within W_REPLAY, HOLD_L, the live census and the read"""
     v, s = wait(lambda: top(r) == "GiftNoticeState", W_NOTICE)
     ev["notice"] = {"s": s if v else None, "lines": gift_lines(r, x.n_c if r is x.client else x.n_h)[-3:]}
@@ -224,7 +223,8 @@ def receiver_path(x, ev, r, steps):
     read_point(x, ev)
 
 def file_read(x, ev):
-    """QUICK's halves (GH read_save): GIFTNAME in the host half [base, id] / client entries [key, base, id]; per half the ids twice"""
+    """QUICK's halves (gift_helpers.read_save): GIFTNAME in the host half [base, id] / client entries [key, base, id]; per half the ids
+    twice"""
     p = os.path.join(x.host.user_dir, "xcom1", QUICK)
     f = read_save(p)
     ev["halves"] = {"bytes": f["bytes"], "keys": [[e["key"], e["bytes"], e["fnv1a64"]] for e in f["entries"]],
@@ -251,7 +251,7 @@ def qstat(h):
         return [0, 0]
 
 def host_save(x, ev):
-    """CAP9 host_save: the host's quick save with no visit open (both tops GeoscapeState): QUICK written within W_SAVE; its halves"""
+    """the host's quick save with no visit open (both tops GeoscapeState): QUICK written within W_SAVE; its halves"""
     h = x.host
     if top(h) != "GeoscapeState" or top(x.client) != "GeoscapeState":
         raise Stop("a visit still open at the save: %s %s" % (stack(h), stack(x.client)))
@@ -259,13 +259,14 @@ def host_save(x, ev):
     q(h, {"cmd": "save_game_ui", "type": "quick"})
     v, s = wait(lambda: qstat(h)[1] > before, W_SAVE, 0.05)
     time.sleep(1.0)
-    ev["write"] = {"s": s if v else None, "QUICK": qstat(h), "host": stack(h), "client": stack(x.client), "at": round(t0 - x.B["t"], 3)}
+    ev["write"] = {"s": s if v else None, "QUICK": qstat(h), "host": stack(h), "client": stack(x.client), "at": round(t0 - x.before_gift["t"], 3)}
     if not v:
         raise Stop("the host's quick save not written within %.0f s" % W_SAVE)
     return file_read(x, ev)
 
-def reload_b(x, ev, key):
-    """GH reload plus ids_twice: a fresh pair <tag>r_host / _client, QUICK copied in before the host spawns, resume_campaign, settle"""
+def reload_with_twice(x, ev, key):
+    """gift_helpers.reload plus ids_twice: a fresh pair <tag>r_host / _client, QUICK copied in before the host spawns, resume_campaign,
+    settle"""
     y = boot(x.tag + "r", key, saves=(x.src,))
     try:
         if y.err:
@@ -279,8 +280,8 @@ def reload_b(x, ev, key):
     finally:
         x.shutfail = shut(y)
 
-def cells_b(rid, ev, who, reloads, kind="FIX"):
-    """the row's cells after X-pre: live, ids, file (+ reload) for the receiver `who` ("client": R7, G7, R9, R10; "host": R8)"""
+def copy_cells(rid, ev, who, reloads, kind="FIX"):
+    """the row's cells after <row>-pre: live, ids, file (+ reload) for the receiver `who` ("client": host_gives_list, host_gives_no_screen, host_gives_craft_ok, host_gives_move; "host": host_visits_list)"""
     lv, hv, rl = ev.get("live") or {}, ev.get("halves") or {}, ev.get("reload") or {}
     once = once_client if who == "client" else once_host
     clean = file_clean_client if who == "client" else file_clean_host
@@ -293,14 +294,14 @@ def cells_b(rid, ev, who, reloads, kind="FIX"):
             who, who, rl.get(who), (rl.get("twice") or {}).get(who)), "host" in rl and once(rl) and not rl["twice"][who]))
     return out
 
-def common_b(rid, ev):
+def copy_common(rid, ev):
     rd = ev.get("read") or {}
     cr = rd.get("crash") or {}
-    return (rid + "-common", "GUARD", "both machines alive at the read, no new .dmp since B: %s %s" % (rd.get("alive"), cr.get("dmp")),
+    return (rid + "-common", "GUARD", "both machines alive at the read, no new .dmp since the baseline: %s %s" % (rd.get("alive"), cr.get("dmp")),
             rd.get("alive") == [True, True] and cr.get("dmp") == [])
 
-def run_row_b(rid, tag, key, build, ids, cellfn, pre, reloads=False):
-    """GH run_row's shape: boot (a miss fails "boot"), the construction, shutdown, the reload (R7, R8: a fresh pair, same key),
+def run_copy_row(rid, tag, key, build, ids, cellfn, pre, reloads=False):
+    """gift_helpers.run_row's shape: boot (a miss fails "boot"), the construction, shutdown, the reload (host_gives_list, host_visits_list: a fresh pair, same key),
     ONE EVIDENCE line, the cells, ONE CAPTURE line when a cell failed, the verdict -> (passed, wall, shutdown failures)"""
     r, ev, cap = Row(rid, ["%s-%s" % (rid, c) for c in ids]), {}, None
     x = boot(tag, key)
@@ -322,13 +323,13 @@ def run_row_b(rid, tag, key, build, ids, cellfn, pre, reloads=False):
         failed += shut(x)
     if not x.err:
         if "stop" not in ev and reloads:
-            reload_b(x, ev, key)
+            reload_with_twice(x, ev, key)
             failed += x.shutfail
         print("EVIDENCE %s: %s" % (rid, json.dumps(ev, sort_keys=True, default=str)), flush=True)
         r.cell(rid + "-pre", "GUARD", pre, "stop" not in ev)
         if "stop" in ev:
             r.stop(ev["stop"])
-        for cid, kind, label, ok in ([] if "stop" in ev else cellfn(rid, ev) + [common_b(rid, ev)]):
+        for cid, kind, label, ok in ([] if "stop" in ev else cellfn(rid, ev) + [copy_common(rid, ev)]):
             r.cell(cid, kind, label, ok)
     if r.fails:
         cap = cap or {k: ev.get(k) for k in ("read", "halves", "live", "reload")}
@@ -337,7 +338,8 @@ def run_row_b(rid, tag, key, build, ids, cellfn, pre, reloads=False):
     return not r.fails, round(time.time() - r.t0, 1), failed
 
 def visit_gift(x, ev, steps, guest=False):
-    """R7 / G7 / R9 / R10: (R9 guest), picker, the client's visit, B, the host's gift, the receiver path (client), the host's save"""
+    """host_gives_list / host_gives_no_screen / host_gives_craft_ok / host_gives_move: (host_gives_craft_ok guest), picker, the client's visit, the baseline, the host's gift, the receiver path (client), the
+    host's save"""
     if guest:
         stage_guest_named(x, ev)
     picker(x, ev)
@@ -349,7 +351,8 @@ def visit_gift(x, ev, steps, guest=False):
     host_save(x, ev)
 
 def host_visit_gift(x, ev, steps):
-    """R8: picker + the host's globe and scale, the host's visit, B, the client's gift, the receiver path (host), the host's save"""
+    """host_visits_list: picker + the host's globe and scale, the host's visit, the baseline, the client's gift, the receiver path (host), the host's
+    save"""
     picker(x, ev)
     host_picker(x, ev)
     ev["own0"] = own_ids(x.host)

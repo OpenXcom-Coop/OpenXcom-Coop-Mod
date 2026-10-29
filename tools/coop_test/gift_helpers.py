@@ -1,11 +1,9 @@
-"""Shared helpers of the W2-H70 tests (spec docs rewrite/prompts, W2-H70 "a soldier gifted during a co-op base visit", sections (f) and
-Appendix B; TASK 0 rewrite/w2h70-task0/sa/CONSTANTS.md; lead L-H64-2, rulings R-H70-0 and R-H70-2): the boot, every construction step, the
-probes, the save-file read and the row runner that test_gift_during_visit.py (rows R1-R3) and test_gift_during_visit_rejoin.py
-(rows R4-R6) import. Copied from the capture rewrite/lh64-2-cap/cap.py and W2-H64's TASK 0 rewrite/w2h64-task0/sa/t0_h64a.py (never
-imported). Every press is real (click_widget on a visible button, inject_input on a pixel or SDLK_KP2); every probe is an existing
-TestServer command. A construction step that misses its precondition raises Stop (its row ends there); run_row prints one EVIDENCE line
-per row, one PASS / FAIL line per cell and the row verdict; main returns 0 only when every cell passed, else 2.
-one foreground run per invocation."""
+"""Shared helpers of the tests of a soldier gifted during a co-op base visit (SEPARATE campaign): the boot, every construction step,
+the probes, the save-file read and the row runner that test_gift_during_visit.py (rows visitor_gives_cancel, visitor_gives_leave, host_gives_cancel) and
+test_gift_during_visit_rejoin.py (rows visitor_gives_rejoin, visitor_gives_in_window, host_gives_rejoin) import. Every press is real (click_widget on a visible button, inject_input on a
+pixel or SDLK_KP2); every probe is an existing TestServer command. A construction step that misses its precondition raises Stop (its
+row ends there); run_row prints one EVIDENCE line per row, one PASS / FAIL line per cell and the row verdict; main returns 0 only when
+every cell passed, else 2."""
 import base64, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -15,7 +13,7 @@ import harness  # noqa: E402
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-QUICK, PROBE = "_quick_.asav", "h70_probe.sav"
+QUICK, PROBE = "_quick_.asav", "gift_probe.sav"
 HOST_POS = (0.90, -0.60)
 GIFTNAMES = ("Zzz Gift", "Zzz Gift2", "Zzz Gift3")
 SDLK_KP2 = 258
@@ -25,7 +23,7 @@ RC_OK = (0, 3221226505)
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
 HASH = "Failed to read from hash map"
-T0_PUSH = 0.0  # the host's stored partner world after a gift: one sample (TASK 0 polled it)
+PUSH_POLL_S = 0.0  # how long push_watch polls the host's stored partner world after a gift (0: one sample)
 
 class Stop(Exception):
     """a WAIT timed out or a precondition missed: the row ends here"""
@@ -82,7 +80,7 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 
@@ -305,16 +303,16 @@ def picker(x, ev):
     t0 = time.time()
     q(h, {"cmd": "save_game_ui", "type": "quick"})
     okq, sq = wait(lambda: os.path.exists(qpath) and os.path.getmtime(qpath) >= t0 - 1, W_SAVE, 0.2)
-    wait(lambda: top(h) == "GeoscapeState", 2.0)   # the quick save's screens closed, at most the old 2.0 s
+    wait(lambda: top(h) == "GeoscapeState", 2.0)   # the quick save's screens closed, at most 2.0 s
     hq = stack(h)
     q(h, {"cmd": "save_game", "file": PROBE})
     okn, _sn = wait(lambda: os.path.exists(spath) and os.path.getsize(spath) > 0, W_SAVE, 0.2)
-    G = (wait(lambda: probe_globe(spath), 2.0)[0] if okn else None) or {}   # was a fixed 1.0 s
+    G = (wait(lambda: probe_globe(spath), 2.0)[0] if okn else None) or {}
     cr = next((k for k in (own_base(c) or {}).get("crafts", []) if not k.get("coop")), None)
     q(c, {"cmd": "open_select_destination", "craft_id": cr and cr["id"], "craft_type": cr and cr["type"]})
-    session.wait_widget_ready(c, "CANCEL")   # was a fixed 0.4 s
+    session.wait_widget_ready(c, "CANCEL")
     cw = q(c, {"cmd": "click_widget", "match": "CANCEL"})
-    wait(lambda: top(c) == "GeoscapeState", 2.0)   # was a fixed 0.5 s
+    wait(lambda: top(c) == "GeoscapeState", 2.0)
     x.pk = {"G": G, "geom": geometry(c), "scale": cw.get("baseX") and {"x": cw["winX"] / cw["baseX"], "y": cw["winY"] / cw["baseY"]}}
     ev["picker"] = {"quick s": sq if okq else None, "host": hq, "probe": bool(okn), "G": G, "scale": x.pk["scale"]}
     if not okq or hq[-1:] != ["GeoscapeState"] or not G or None in G.values() or not x.pk["scale"] or top(c) != "GeoscapeState":
@@ -337,15 +335,16 @@ def to_soldiers(x, ev):
         raise Stop("no SoldiersState: %s" % stack(x.client))
 
 def baseline(x, ev):
-    """B, just before the row's gift: crash census, both log line counts, stacks, get_coop, coop_file_info, the host folder"""
+    """the baseline x.before_gift, just before the row's gift: crash census, both log line counts, stacks, get_coop, coop_file_info,
+    the host folder"""
     h, c = x.host, x.client
     x.c0, x.n_h, x.n_c = crash(), len(log(h)), len(log(c))
     if not x.gift:
         pick_gift(x)
-    x.B = {"t": time.time(), "stack": [stack(h), stack(c)], "get_coop": [coop(h), coop(c)], "blob": [blob(h), blob(c)], "folder": files(h),
+    x.before_gift = {"t": time.time(), "stack": [stack(h), stack(c)], "get_coop": [coop(h), coop(c)], "blob": [blob(h), blob(c)], "folder": files(h),
            "crash": len(x.c0), "cpu": cpu()}
-    ev["B"] = dict(x.B, t=None)
-    return x.B
+    ev["before_gift"] = dict(x.before_gift, t=None)
+    return x.before_gift
 
 def trigger54(x, ev):
     """the host's save_game_ui quick; poll POLL_S for the 54 on top within SEEN54_S (name QUICK); the client's 67 within W_67"""
@@ -390,11 +389,11 @@ def host_cancel(x, ev, label="CANCEL"):
     x.how = "CANCEL"
 
 def push_watch(x, ev, label):
-    """the host's stored partner world after a gift (TASK 0: polled up to T0_PUSH s for a change from B's)"""
-    b0, t0 = (x.B["blob"][0] or {}).get("fnv1a64"), time.time()
+    """the host's stored partner world after a gift, polled up to PUSH_POLL_S s for a change from the baseline's"""
+    b0, t0 = (x.before_gift["blob"][0] or {}).get("fnv1a64"), time.time()
     while True:
         b = blob(x.host) or {}
-        if b.get("fnv1a64") != b0 or time.time() - t0 >= T0_PUSH:
+        if b.get("fnv1a64") != b0 or time.time() - t0 >= PUSH_POLL_S:
             ev[label] = {"fnv": b.get("fnv1a64"), "key": b.get("key"), "changed": b.get("fnv1a64") != b0, "s": round(time.time() - t0, 3)}
             return
         time.sleep(0.05)
@@ -509,9 +508,9 @@ def leave_base(x, ev):
     raise Stop("the client not back on GeoscapeState within %.0f s: %s" % (W_LEAVE, seen[-6:]))
 
 def kill_rejoin(x, ev):
-    """CAP kill_rejoin: client.kill(); the host's 60 / 62 within W_DROP; a fresh client (<tag>_client2) join_tcp by B's clientName; the
+    """client.kill(); the host's 60 / 62 within W_DROP; a fresh client (<tag>_client2) join_tcp by the baseline's clientName; the
     host's resumeAck within JOIN_S; the host's real OK on a Profile state and real RESUME; both GeoscapeState within W_RESUME; HOLD_R"""
-    h, cname = x.host, x.B["get_coop"][0].get("clientName")
+    h, cname = x.host, x.before_gift["get_coop"][0].get("clientName")
     r = ev["rejoin"] = {"store at kill": (blob(h) or {}).get("fnv1a64")}
     x.client.kill()
     x.dead.append(x.client)
@@ -545,7 +544,7 @@ def kill_rejoin(x, ev):
     r["blob"] = [blob(h), blob(x.client)]
 
 def read_point(x, ev):
-    """the read: both machines alive, the crash folder since B, both stacks"""
+    """the read: both machines alive, the crash folder since the baseline, both stacks"""
     ev["read"] = {"alive": [alive(x.host), alive(x.client)], "crash": crash_new(x.c0), "host": stack(x.host), "client": stack(x.client),
                   "clientDlg": dlg(x.client), "blob": [blob(x.host), blob(x.client)], "lines": gift_lines(x.client, x.n_c)[-6:] if alive(x.client) else None}
     return ev["read"]
@@ -573,8 +572,8 @@ def reload(x, ev, key=None):
 
 def common(rid, rd):
     cr = rd.get("crash") or {}
-    return (rid + "-common", "GUARD", "both machines alive at the read, no new .dmp since B" + ("" if rid == "R5" else ", hashlogs == 0"),
-            rd.get("alive") == [True, True] and cr.get("dmp") == [] and (rid == "R5" or cr.get("hashlogs") == 0))
+    return (rid + "-common", "GUARD", "both machines alive at the read, no new .dmp since the baseline" + ("" if rid == "visitor_gives_in_window" else ", hashlogs == 0"),
+            rd.get("alive") == [True, True] and cr.get("dmp") == [] and (rid == "visitor_gives_in_window" or cr.get("hashlogs") == 0))
 
 def reloaded(ev):
     rl = ev.get("reload")
@@ -594,7 +593,7 @@ class Row:
             self.fails.append(cid)
 
 def run_row(rid, tag, key, build, ids, cellfn, pre):
-    """boot (a miss fails the row "boot"), the construction to the read, shutdown, the reload (R1 R2 R3 R5), ONE EVIDENCE line, the
+    """boot (a miss fails the row "boot"), the construction to the read, shutdown, the reload (rows visitor_gives_cancel, visitor_gives_leave, host_gives_cancel, visitor_gives_in_window), ONE EVIDENCE line, the
     cells, ONE CAPTURE line when a cell failed, the row verdict -> (passed, wall, shutdown failures)"""
     r, ev, cap = Row(rid, ["%s-%s" % (rid, c) for c in ids]), {}, None
     x = boot(tag, key)
@@ -615,7 +614,7 @@ def run_row(rid, tag, key, build, ids, cellfn, pre):
     finally:
         failed += shut(x)
     if not x.err:
-        if "stop" not in ev and rid in ("R1", "R2", "R3", "R5"):
+        if "stop" not in ev and rid in ("visitor_gives_cancel", "visitor_gives_leave", "host_gives_cancel", "visitor_gives_in_window"):
             reload(x, ev)
             failed += x.shutfail
         print("EVIDENCE %s: %s" % (rid, json.dumps(ev, sort_keys=True, default=str)), flush=True)

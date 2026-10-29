@@ -105,9 +105,9 @@ def give_back(x, ev, r, g, word, sc):
 
 
 def gift_back_client(x, ev):
-    """client_gives_back: the host's copy changed from B's (the gift's push) within W_PUSH; the client gives GIFTNAME back to the host
-    (give_back); stored("back"); the client back on SoldiersState, OK (BasescapeState)"""
-    b0 = (x.B["blob"][0] or {}).get("fnv1a64")
+    """client_gives_back: the host's copy changed from the baseline's (the gift's push) within W_PUSH; the client gives GIFTNAME back to
+    the host (give_back); stored("back"); the client back on SoldiersState, OK (BasescapeState)"""
+    b0 = (x.before_gift["blob"][0] or {}).get("fnv1a64")
     v, s = wait(lambda: copy_fnv(x) not in (None, b0) or None, W_PUSH)
     ev["gift push"] = {"fnv0": b0, "fnv": copy_fnv(x), "s": s if v else None}
     if not v:
@@ -305,5 +305,5 @@ def cells_back(rid, ev):
 
 
 def run_back_row(rid, tag, key, build, ids, pre):
-    """gift_display_helpers.run_row_b with cells_back (no reload)"""
-    return run_row_b(rid, tag, key, build, ids, cells_back, pre)
+    """gift_display_helpers.run_copy_row with cells_back (no reload)"""
+    return run_copy_row(rid, tag, key, build, ids, cells_back, pre)
