@@ -8321,7 +8321,24 @@ void releaseHeldResults(Game* game)
 		Log(LOG_INFO) << "[SHARED] restream adopted: applying " << held.size()
 			<< " result(s) held during the restream";
 	for (auto& result : held)
+	{
 		game->getCoopMod()->onTCPMessage(result.first, result.second);
+		// An event result changes the world on receipt, while an apply waits in
+		// g_applyQ. Drain after each one so the held results apply in arrival
+		// order: an apply carries absolute funds, so a day_tick applied after a
+		// later event would undo that event's funds.
+		for (;;)
+		{
+			Json::Value ap;
+			{
+				std::lock_guard<std::mutex> lk(g_mx);
+				if (g_applyQ.empty()) break;
+				ap = std::move(g_applyQ.front());
+				g_applyQ.pop_front();
+			}
+			processApply(game, ap);
+		}
+	}
 }
 
 void resetRestreamHold()
