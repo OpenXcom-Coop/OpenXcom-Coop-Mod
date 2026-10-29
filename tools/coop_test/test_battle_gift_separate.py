@@ -1,39 +1,36 @@
-"""R5-U5 S-C rows X1-X5 (boot X; owner aud-E1-13, VL-U5-6, QU5-8 (a)): in a SEPARATE campaign a soldier given during the
-battle belongs to its receiver afterwards - a host soldier given to the partner leaves the host's world and joins the
-partner's as a guest at the host's base, the partner's guest given to the host stays in the host's world as an ordinary
-host soldier and leaves the partner's, a soldier who died after being given stays in the giver's memorial, and the
-debriefing names a given soldier as its receiver's. Boot X: SEPARATE co-op, the mixed squad of
-session.bring_up_separate_guest_battle (three host soldiers and the client's guest "Guest Zzz" on the host's craft), coop
-port 47602, dirs r5u5_x_host / r5u5_x_client.
+"""test_battle_gift_separate.py: in a SEPARATE campaign a soldier given during the battle belongs to its receiver
+afterwards - a host soldier given to the partner leaves the host's world and joins the partner's as a guest at the
+host's base, the partner's guest given to the host stays in the host's world as an ordinary host soldier and leaves the
+partner's, a soldier who died after being given stays in the giver's memorial, and the debriefing names a given soldier
+as its receiver's. One boot: SEPARATE co-op, the mixed squad of session.bring_up_separate_guest_battle (three host
+soldiers and the client's guest "Guest Zzz" on the host's craft), coop port 47602, dirs battle_gift_separate_host /
+battle_gift_separate_client.
 
-Spec: docs repo rewrite/prompts/r5u5_battle_gift_order.md AMENDMENT R5U5-1 section 6 (f) (ORCHESTRATOR RULINGS on it:
-QU5-C-1 .. QU5-C-8 (a)) with ORCHESTRATOR RULING R-U5-SC-1: the host renames H1 and H2 before the mission (names no roster
-rolls, the "Guest Zzz" device; two SEPARATE worlds started in the same second roll the same roster, F14082) and every name +
-initialStats rule uses those names; X4-host compares the kept guest's id with the battle copy's id (COPY_ID, F14084).
-Constants: rewrite/r5u5-task0/sc/CONSTANTS.md (boots Xp2, Xa, Xb, Xc).
+The host renames H1 and H2 before the mission, to names no roster rolls (as with "Guest Zzz": two SEPARATE worlds
+started in the same second roll the same roster), and every name + initialStats rule uses those names.
+host_world_updated compares the kept guest's id with the battle copy's id (COPY_ID).
 
-Pins (Xa, Xb, Xc): squad [1, 2, 3], the client's guest id 8; H1 = 1, H2 = 2 (soldierId squad[0] / squad[1]), renamed on the
-host to H1_NAME / H2_NAME; G = 9 (the unit named "Guest Zzz": the merged copy, COPY_ID); seats {1: 0, 2: 0, 3: 0, 9: 1} on
-both; CRAFT 1, CRAFT_TYPE "STR_SKYRANGER", FIRST_OWN 0; HOST_BASE_COOP and the hostile count per boot (probes).
-  X1  the three gifts by lever (host {1, owner 1}, host {2, owner 1}, client {9, owner 0}; each landing before the next,
-      each receiver dismisses its notice): X1-gifts (precondition), X1-owner (the host's records carry the receivers as
-      owners), X1-common.
-  X2  the ending (guest_returns_dead's order): every live hostile killed, then H2, END TURN on both, the host's NextTurnState
-      closed: X2-end (precondition; then HREC1 / HREC2 / COPY are read), X2-names (both page-2 lists name a given soldier
-      as its receiver's).
-  X3  the client's OK through its follow-ups: X3-ok (precondition), X3-client (G left the client's world, H1 arrived as a
-      guest at the host's base, H2 did not, the return's sepReturn counts).
-  X4  the host's OK and its drain: X4-ok (precondition), X4-host (G kept as a host soldier with a fresh id, H1 gone),
-      X4-dead (H2 in the host's memorial as the host's: a declared guard, PASS on both builds).
-  X5  both worlds: X5-one (G and H1 live exactly once, H2 in exactly one memorial: a declared guard, PASS on both builds),
-      X5-common (no new crash file since the bring-up; the client wrote no save).
-Red at C1 (the base build): X1-owner, X2-names, X3-client, X4-host. Every other cell PASS.
+Pins (the same on three capture boots): squad [1, 2, 3], the client's guest id 8; H1 = 1, H2 = 2 (soldierId squad[0] /
+squad[1]), renamed on the host to H1_NAME / H2_NAME; G = 9 (the unit named "Guest Zzz": the merged copy, COPY_ID);
+seats {1: 0, 2: 0, 3: 0, 9: 1} on both; CRAFT 1, CRAFT_TYPE "STR_SKYRANGER", FIRST_OWN 0; HOST_BASE_COOP and the
+hostile count per boot (probes).
+  gifts_during_battle  the three gifts by the battle_gift test command (host {1, owner 1}, host {2, owner 1}, client
+      {9, owner 0}; each landing before the next, each receiver dismisses its notice): gifts_land (precondition),
+      receivers_own (the host's records carry the receivers as owners), gifts_common.
+  battle_ends  the ending (the order of test_battle_end_separate's guest_returns_dead): every live hostile killed, then
+      H2, END TURN on both, the host's NextTurnState closed: mission_ended (precondition; then HREC1 / HREC2 / COPY are
+      read), debrief_names_receivers (both page-2 lists name a given soldier as its receiver's).
+  client_return  the client's OK through its follow-ups: client_ok (precondition), client_world_updated (G left the
+      client's world, H1 arrived as a guest at the host's base, H2 did not, the return's sepReturn counts).
+  host_drain  the host's OK and its drain: host_ok (precondition), host_world_updated (G kept as a host soldier with a
+      fresh id, H1 gone), giver_memorial (H2 in the host's memorial as the host's).
+  both_worlds  each_soldier_once (G and H1 live exactly once, H2 in exactly one memorial), worlds_common (no new crash
+      file since the bring-up; the client wrote no save).
 
-A soldier in the other world is found by name AND equal initialStats, never by a display name alone. One
-EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a cell
-whose precondition failed FAILs "not reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE X line and
-fails every row "boot". Ids come from probes (S25). run in the foreground to completion. ONE run
-is the result, no skip path; exit 0 only when every cell passes, else 2.
+A soldier in the other world is found by name AND equal initialStats, never by a display name alone. One EVIDENCE line
+per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a cell whose
+precondition failed FAILs "not reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE boot line and
+fails every row "boot". Ids come from probes. No skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift_separate.py
 """
@@ -53,23 +50,26 @@ import test_battle_gift as GF  # noqa: E402
 import test_battle_gift_keep as KEEP  # noqa: E402
 import test_battle_end_separate as SEP  # noqa: E402
 
-PORT = "47602"                            # the coop session port (AMENDMENT R5U5-1 section 3: free)
-STEP_S = 30                               # every bounded staging wait (TASK 0: gifts land in 0.1 s)
-KILL_S = 45                               # chain_settled after each kill (TASK 0: 2.2-2.6 s)
-DEBRIEF_S = 60                            # the host's DebriefingState after END TURN (TASK 0: 0.05 s)
-CLIENT_DEBRIEF_S = 20                     # the client's display-only DebriefingState (TASK 0: 0.05 s)
-OK_S = 10                                 # a machine's geoscape after its OK (SEP's OK_S; TASK 0: 0.05 s)
+PORT = "47602"                            # the coop session port (no other test uses it)
+STEP_S = 30                               # every bounded staging wait (measured: gifts land in 0.1 s)
+KILL_S = 45                               # chain_settled after each kill (measured: 2.2-2.6 s)
+DEBRIEF_S = 60                            # the host's DebriefingState after END TURN (measured: 0.05 s)
+CLIENT_DEBRIEF_S = 20                     # the client's display-only DebriefingState (measured: 0.05 s)
+OK_S = 10                                 # a machine's geoscape after its OK (SEP's OK_S; measured: 0.05 s)
 DRAIN_S = 60                              # the host's OK + follow-ups down to its GeoscapeState
 SQUAD, GUEST_ID, H1, H2, G = [1, 2, 3], 8, 1, 2, 9
-COPY_ID = G                               # the battle copy's id (lastId + 1; R-U5-SC-1, F14084)
+COPY_ID = G                               # the battle copy's id (lastId + 1)
 GUEST_NAME = "Guest Zzz"                  # session.bring_up_separate_guest_battle's renamed client guest
 H1_NAME, H2_NAME = "Qqq One", "Qqq Two"   # the host's renames (no roster pool name holds "Qqq")
-CRAFT_TYPE = "STR_SKYRANGER"              # TASK 0 (Xp2, Xa, Xb, Xc)
+CRAFT_TYPE = "STR_SKYRANGER"              # the same on four capture boots
 TITLE = "Aliens defeated"
 STATUS_DEAD = 6
 HOST_ROSTER, CLIENT_ROSTER = SEP.ROSTER_NAMES     # ("HostPlayer", "ClientPlayer")
-ROWS = (("X1", ("X1-gifts", "X1-owner", "X1-common")), ("X2", ("X2-end", "X2-names")), ("X3", ("X3-ok", "X3-client")),
-        ("X4", ("X4-ok", "X4-host", "X4-dead")), ("X5", ("X5-one", "X5-common")))
+ROWS = (("gifts_during_battle", ("gifts_land", "receivers_own", "gifts_common")),
+        ("battle_ends", ("mission_ended", "debrief_names_receivers")),
+        ("client_return", ("client_ok", "client_world_updated")),
+        ("host_drain", ("host_ok", "host_world_updated", "giver_memorial")),
+        ("both_worlds", ("each_soldier_once", "worlds_common")))
 BRIEF = ("id", "where", "baseIndex", "name", "coopName", "owner", "coop", "craftId", "coopCraft", "coopCraftType",
          "missions", "kills", "rank", "recovery")
 
@@ -90,7 +90,7 @@ def bases(gc):
 
 
 def same_stats(rr, ref):
-    """The records of `rr` whose initialStats equal `ref`'s (a soldier found across worlds, F13600)."""
+    """The records of `rr` whose initialStats equal `ref`'s (a soldier found across worlds)."""
     want = (ref or {}).get("initialStats")
     return [r for r in rr if want is not None and r.get("initialStats") == want]
 
@@ -100,8 +100,8 @@ def lives_dead(rr):
 
 
 def bring_up(host, client):
-    """bring_up_separate_guest_battle on PORT with the pre-mission hook (R-U5-SC-1's renames, then the roster pins), the pins
-    and guards, pin_ai_neutral, the host idle, every hash bucket EQUAL, then the crash baseline."""
+    """bring_up_separate_guest_battle on PORT with the pre-mission hook (the host renames H1 and H2, then the roster
+    pins), the pins and guards, pin_ai_neutral, the host idle, every hash bucket EQUAL, then the crash baseline."""
     m, pre = (host, client), {}
 
     def roster(h, c):
@@ -119,8 +119,8 @@ def bring_up(host, client):
         pre["OWN0"] = recs(c, name=GUEST_NAME)
         pre["clientH1"], pre["clientH2"] = recs(c, name=H1_NAME), recs(c, name=H2_NAME)
 
-    GF.guarded("X", lambda: (host.spawn(), client.spawn(), host.connect(), client.connect()), m)
-    squad, guest = GF.guarded("X", lambda: session.bring_up_separate_guest_battle(host, client, port=PORT,
+    GF.guarded("boot", lambda: (host.spawn(), client.spawn(), host.connect(), client.connect()), m)
+    squad, guest = GF.guarded("boot", lambda: session.bring_up_separate_guest_battle(host, client, port=PORT,
                                                                                   pre_mission_start=roster), m)
     view, own0 = {}, pre.get("OWN0") or []
     guard = {"OWN0": brief(own0), "FIRST_OWN": pre.get("FIRST_OWN"), "CRAFT": pre.get("CRAFT"),
@@ -139,41 +139,41 @@ def bring_up(host, client):
                      "g": sorted(i for i, u in uh.items() if u.get("name") == GUEST_NAME),
                      "seats": [[(u.get(i) or {}).get("coop") for i in (1, 2, 3, G)] for u in (uh, uc)],
                      "unitNames": [[(u.get(i) or {}).get("name") for i in (H1, H2)] for u in (uh, uc)]})
-        assert view == want, f"boot X pins {view} (want {want})"
+        assert view == want, f"boot pins {view} (want {want})"
         o = own0[0] if len(own0) == 1 else {}
         assert (len(own0) == 1 and o.get("baseIndex") == pre["FIRST_OWN"] and o.get("coopCraft") == pre["CRAFT"]
                 and o.get("coopCraftType") == CRAFT_TYPE and pre["guestCoopBase"] == [pre["HOST_BASE_COOP"]]
-                and pre["HOST_BASE_COOP"] is not None), f"boot X guard OWN0 {guard} (want one record: baseIndex FIRST_OWN, " \
+                and pre["HOST_BASE_COOP"] is not None), f"boot guard OWN0 {guard} (want one record: baseIndex FIRST_OWN, " \
                                                         f"coopCraft CRAFT, {CRAFT_TYPE}, coopBase HOST_BASE_COOP)"
-        assert not guard["clientNamed"], f"boot X guard: client records named {H1_NAME!r} / {H2_NAME!r} with H1's / " \
+        assert not guard["clientNamed"], f"boot guard: client records named {H1_NAME!r} / {H2_NAME!r} with H1's / " \
                                          f"H2's initialStats {guard['clientNamed']} (want none)"
-    GF.guarded("X", pins, m)
-    GF.guarded("X", lambda: session.pin_ai_neutral(host, client, tag="r5u5x"), m)
-    GF.guarded("X", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
-    GF.guarded("X", lambda: session.assert_hash_clean(host, client, full=True, what="boot X"), m)
+    GF.guarded("boot", pins, m)
+    GF.guarded("boot", lambda: session.pin_ai_neutral(host, client, tag="test_battle_gift_separate"), m)
+    GF.guarded("boot", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
+    GF.guarded("boot", lambda: session.assert_hash_clean(host, client, full=True, what="boot"), m)
     return dict(view, **{k: guard[k] for k in ("FIRST_OWN", "CRAFT", "HOST_BASE_COOP")}, rolled=pre.get("rolled")), pre, \
         session._crash_log_snapshot()
 
 
-def row_x1(host, client, ctx, crash0):
+def row_gifts_during_battle(host, client, ctx, crash0):
     cells, ev = {}, {}
     landed, miss = KEEP.gifts_in_order([(host, H1, 1), (host, H2, 1), (client, G, 0)], host, client, ev)
     got = [GF.coops(host, client, u) for u in (H1, H2, G)]
     ok = landed and got == [[1, 1], [1, 1], [0, 0]]
-    cells["X1-gifts"] = (ok, f"H1 / H2 / G coop host/client {got} (want [1, 1] / [1, 1] / [0, 0], each landing within "
-                             f"{STEP_S} s){'; ' + miss if miss else ''}")
+    cells["gifts_land"] = (ok, f"H1 / H2 / G coop host/client {got} (want [1, 1] / [1, 1] / [0, 0], each landing "
+                               f"within {STEP_S} s){'; ' + miss if miss else ''}")
     ev["giftLines"] = GF.gift_lines(host)[-3:]
     if ok:
         rr = [recs(host, sid=H1), recs(host, sid=H2), recs(host, name=GUEST_NAME)]
         ev["hostRecs"] = [brief(r) for r in rr]
         oc = [[[x.get("owner"), x.get("coop")] for x in lst] for lst in rr]
-        cells["X1-owner"] = (oc == [[[1, 1]], [[1, 1]], [[0, 0]]],
-                             f"host soldier_record {{id: {H1}}} / {{id: {H2}}} / {{name: {GUEST_NAME!r}}} [owner, coop] {oc} "
-                             f"(want [[1, 1]] / [[1, 1]] / exactly one [0, 0]: the host writes the receiver into a "
-                             f"SEPARATE soldier's owner, EC1)")
+        cells["receivers_own"] = (oc == [[[1, 1]], [[1, 1]], [[0, 0]]],
+                                  f"host soldier_record {{id: {H1}}} / {{id: {H2}}} / {{name: {GUEST_NAME!r}}} "
+                                  f"[owner, coop] {oc} (want [[1, 1]] / [[1, 1]] / exactly one [0, 0]: the host writes "
+                                  f"the receiver into a SEPARATE soldier's owner)")
     else:
-        not_reached(cells, ("X1-owner",), "X1-gifts failed")
-    cells["X1-common"] = G3F.common(host, client, crash0)
+        not_reached(cells, ("receivers_own",), "gifts_land failed")
+    cells["gifts_common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
@@ -182,7 +182,7 @@ def debrief_view(gc):
     return {k: d.get(k) for k in ("shown", "onTop", "displayOnly", "title")}, [s.get("name") for s in d.get("soldiers") or []]
 
 
-def row_x2(host, client, ctx, crash0):
+def row_battle_ends(host, client, ctx, crash0):
     cells, ev = {}, {}
     ds = [G3F.es(host, "desyncSeen"), G3F.es(client, "desyncSeen")]
     hostiles = [u["id"] for u in battle_state(host).get("units", []) if u.get("faction") == 1 and not u.get("isOut")]
@@ -209,17 +209,18 @@ def row_x2(host, client, ctx, crash0):
     end_ok = (ds == [False, False] and bool(hostiles) and all(k[2] for k in kills) and ok2 and h2 == [STATUS_DEAD] * 2
               and dok and hview == {"shown": True, "onTop": True, "displayOnly": False, "title": TITLE}
               and (be.get("reason"), be.get("aborted")) == ("aliensDown", False) and cok)
-    cells["X2-end"] = (end_ok, f"desyncSeen {ds}; {len(hostiles)} hostiles, every kill settled within {KILL_S} s "
-                               f"{all(k[2] for k in kills)}; H2 settled {ok2}, status host/client {h2} (want 6 / 6); the host's "
-                               f"DebriefingState {dok} ({dsecs} s) {hview} (want shown, onTop, not displayOnly, {TITLE!r}); "
-                               f"battleEnd {ev['battleEnd']} (want aliensDown, not aborted); the client's display-only "
-                               f"DebriefingState {cok} ({csecs} s) {cview}")
+    cells["mission_ended"] = (end_ok, f"desyncSeen {ds}; {len(hostiles)} hostiles, every kill settled within "
+                                      f"{KILL_S} s {all(k[2] for k in kills)}; H2 settled {ok2}, status host/client "
+                                      f"{h2} (want 6 / 6); the host's DebriefingState {dok} ({dsecs} s) {hview} (want "
+                                      f"shown, onTop, not displayOnly, {TITLE!r}); battleEnd {ev['battleEnd']} (want "
+                                      f"aliensDown, not aborted); the client's display-only DebriefingState {cok} "
+                                      f"({csecs} s) {cview}")
     copies = recs(host, name=GUEST_NAME)
     ctx.update(end=end_ok, HREC1=(recs(host, sid=H1) or [{}])[0], HREC2=(recs(host, sid=H2) or [{}])[0],
                COPY=copies[0] if copies else {})
     ev["records"] = {k: brief([ctx[k]]) for k in ("HREC1", "HREC2", "COPY")}
     if not end_ok:
-        not_reached(cells, ("X2-names",), "X2-end failed")
+        not_reached(cells, ("debrief_names_receivers",), "mission_ended failed")
         return cells, ev
     hp, cp = f"[{CLIENT_ROSTER}] ", f"[{HOST_ROSTER}] "
     want = {"host": ([hp + H1_NAME, GUEST_NAME], [H1_NAME, hp + GUEST_NAME]),
@@ -227,32 +228,35 @@ def row_x2(host, client, ctx, crash0):
     got = {"host": hnames, "client": cnames}
     bad = [f"{side} page 2 {got[side]} lacks {n!r}" for side, (yes, _no) in want.items() for n in yes if n not in got[side]]
     bad += [f"{side} page 2 {got[side]} holds {n!r}" for side, (_yes, no) in want.items() for n in no if n in got[side]]
-    cells["X2-names"] = (not bad, "; ".join(bad) + " (the debriefing names a given soldier as its receiver's, VL-U5-C1)"
-                         if bad else f"host page 2 {hnames}; client page 2 {cnames}")
+    cells["debrief_names_receivers"] = (not bad, "; ".join(bad)
+                                        + " (the debriefing names a given soldier as its receiver's)"
+                                        if bad else f"host page 2 {hnames}; client page 2 {cnames}")
     return cells, ev
 
 
-def row_x3(host, client, ctx, crash0):
+def row_client_return(host, client, ctx, crash0):
     cells, ev = {}, {}
     ok1, reached, secs = SEP.client_ok_through_followups(client, ev, "ret")
     ok = ok1.get("pressed") is True and reached
-    cells["X3-ok"] = (ok, f"client OK {ok1}; geo_clean {reached} within {OK_S} s ({secs} s); chain "
-                          f"{(ev.get('ret') or {}).get('clientChain')}")
+    cells["client_ok"] = (ok, f"client OK {ok1}; geo_clean {reached} within {OK_S} s ({secs} s); chain "
+                              f"{(ev.get('ret') or {}).get('clientChain')}")
     ctx.update(cG=recs(client, name=GUEST_NAME), cH1=recs(client, name=H1_NAME), cH2=recs(client, name=H2_NAME))
     sep = SEP.record(client).get("sepReturn") or {}
     ev.update(sepReturn=sep, guest=brief(ctx["cG"]), H1=brief(ctx["cH1"]), H2=brief(ctx["cH2"]),
               id8=brief(recs(client, sid=GUEST_ID)))
     if not ok or not ctx.get("end"):
-        not_reached(cells, ("X3-client",), "X3-ok failed" if not ok else "X2-end failed")
+        not_reached(cells, ("client_world_updated",), "client_ok failed" if not ok else "mission_ended failed")
         return cells, ev
     pre, h1, h2 = ctx["pre"], ctx["HREC1"], ctx["HREC2"]
     bad = []
     counts = [len(recs(client, sid=GUEST_ID)), len(ctx["cG"])]
     if counts != [0, 0]:
-        bad.append(f"(a) client soldier_record {{id: {GUEST_ID}}} / {{name: {GUEST_NAME!r}}} counts {counts} (want 0 / 0)")
+        bad.append(f"G left: client soldier_record {{id: {GUEST_ID}}} / {{name: {GUEST_NAME!r}}} counts {counts} "
+                   f"(want 0 / 0)")
     arr = same_stats(ctx["cH1"], h1)
     if len(arr) != 1:
-        bad.append(f"(b) client records named {H1_NAME!r} with HREC1's initialStats: {len(arr)} (want exactly one)")
+        bad.append(f"H1 arrived: client records named {H1_NAME!r} with HREC1's initialStats: {len(arr)} (want "
+                   f"exactly one)")
     else:
         a = arr[0]
         seated = a.get("recovery") == 0
@@ -265,44 +269,44 @@ def row_x3(host, client, ctx, crash0):
         cb = [s.get("coopBase") for b in bases(client) for s in b.get("soldiers") or [] if s.get("id") == a.get("id")]
         ev["arrived"] = {"id": a.get("id"), "idCount": nid, "getSoldiersCoopBase": cb}
         if diff:
-            bad.append(f"(b) H1's record differs [got, want] {diff}")
+            bad.append(f"H1 arrived: H1's record differs [got, want] {diff}")
         if nid != 1:
-            bad.append(f"(b) soldier_record {{id: {a.get('id')}}} count {nid} (want 1)")
+            bad.append(f"H1 arrived: soldier_record {{id: {a.get('id')}}} count {nid} (want 1)")
         if cb != [pre["HOST_BASE_COOP"]]:
-            bad.append(f"(b) get_soldiers coopBase of id {a.get('id')} {cb} (want [{pre['HOST_BASE_COOP']}])")
+            bad.append(f"H1 arrived: get_soldiers coopBase of id {a.get('id')} {cb} (want [{pre['HOST_BASE_COOP']}])")
     if same_stats(ctx["cH2"], h2):
-        bad.append(f"(c) client records named {H2_NAME!r} with HREC2's initialStats {brief(same_stats(ctx['cH2'], h2))} "
-                   f"(want none)")
+        bad.append(f"H2 did not arrive: client records named {H2_NAME!r} with HREC2's initialStats "
+                   f"{brief(same_stats(ctx['cH2'], h2))} (want none)")
     ws = {"ownLoaded": 1, "guestsApplied": 0, "guestsMissing": 0, "deadApplied": 0, "giftedAway": 1, "giftedIn": 1,
           "giftedInFailed": 0, "pushed": 1}
     gs = {k: sep.get(k) for k in ws}
     if gs != ws:
-        bad.append(f"(d) sepReturn {gs} (want {ws})")
-    cells["X3-client"] = (not bad, "; ".join(bad) if bad else
-                          f"G left, H1 arrived as id {ev['arrived']['id']} (a guest at base {pre['HOST_BASE_COOP']}), "
-                          f"no H2, sepReturn {gs}")
+        bad.append(f"return counts: sepReturn {gs} (want {ws})")
+    cells["client_world_updated"] = (not bad, "; ".join(bad) if bad else
+                                     f"G left, H1 arrived as id {ev['arrived']['id']} (a guest at base "
+                                     f"{pre['HOST_BASE_COOP']}), no H2, sepReturn {gs}")
     return cells, ev
 
 
-def row_x4(host, client, ctx, crash0):
+def row_host_drain(host, client, ctx, crash0):
     cells, ev = {}, {}
     okh = SEP.press_ok(host)
     reached, screens = SEP.drain(host, timeout=DRAIN_S) if okh["pressed"] else (False, [])
     ok = okh["pressed"] and reached
-    cells["X4-ok"] = (ok, f"host OK {okh}; GeoscapeState {reached} within {DRAIN_S} s; screens {screens}")
+    cells["host_ok"] = (ok, f"host OK {okh}; GeoscapeState {reached} within {DRAIN_S} s; screens {screens}")
     ctx.update(hG=recs(host, name=GUEST_NAME), hH1=recs(host, name=H1_NAME), hH2=recs(host, name=H2_NAME))
     r1, r2 = recs(host, sid=H1), recs(host, sid=H2)
     ev.update(guest=brief(ctx["hG"]), id1=brief(r1), H1=brief(ctx["hH1"]), id2=brief(r2), H2=brief(ctx["hH2"]),
               battleEnd={k: SEP.record(host).get(k) for k in ("memorialRemoved", "reason")})
     if not ok:
-        not_reached(cells, ("X4-host", "X4-dead"), "X4-ok failed")
+        not_reached(cells, ("host_world_updated", "giver_memorial"), "host_ok failed")
         return cells, ev
     if not ctx.get("end"):
-        not_reached(cells, ("X4-host",), "X2-end failed")
+        not_reached(cells, ("host_world_updated",), "mission_ended failed")
     else:
         bad, lg = [], ctx["hG"]
         if len(lg) != 1:
-            bad.append(f"(a) host soldier_record {{name: {GUEST_NAME!r}}} count {len(lg)} (want exactly one)")
+            bad.append(f"G kept: host soldier_record {{name: {GUEST_NAME!r}}} count {len(lg)} (want exactly one)")
         else:
             g = lg[0]
             w = {"where": "base", "owner": 0, "coop": 0, "coopName": GUEST_NAME, "coopCraft": -1, "coopCraftType": "",
@@ -310,27 +314,28 @@ def row_x4(host, client, ctx, crash0):
             diff = {k: [g.get(k), v] for k, v in w.items() if g.get(k) != v}
             nid = len(recs(host, sid=g.get("id")))
             if diff:
-                bad.append(f"(a) the kept guest differs [got, want] {diff}")
+                bad.append(f"G kept: the kept guest differs [got, want] {diff}")
             if g.get("id") == COPY_ID or nid != 1:
-                bad.append(f"(a) the kept guest's id {g.get('id')} (want != the battle copy's {COPY_ID}), held by {nid} "
-                           f"record(s) (want 1)")
+                bad.append(f"G kept: the kept guest's id {g.get('id')} (want != the battle copy's {COPY_ID}), held by "
+                           f"{nid} record(s) (want 1)")
         h1s = same_stats(ctx["hH1"], ctx["HREC1"])
         if r1 or h1s:
-            bad.append(f"(b) host soldier_record {{id: {H1}}} count {len(r1)} (want 0); records named {H1_NAME!r} with "
-                       f"HREC1's initialStats {len(h1s)} (want 0)")
-        cells["X4-host"] = (not bad, "; ".join(bad) if bad else
-                            f"G kept as id {lg[0].get('id')} (owner 0, coop 0, unseated); H1 left the host's world")
+            bad.append(f"H1 gone: host soldier_record {{id: {H1}}} count {len(r1)} (want 0); records named {H1_NAME!r} "
+                       f"with HREC1's initialStats {len(h1s)} (want 0)")
+        cells["host_world_updated"] = (not bad, "; ".join(bad) if bad else
+                                       f"G kept as id {lg[0].get('id')} (owner 0, coop 0, unseated); H1 left the "
+                                       f"host's world")
     dv = [[r.get("where"), r.get("owner"), r.get("coop")] for r in r2]
-    cells["X4-dead"] = (dv == [["dead", 999, 0]], f"host soldier_record {{id: {H2}}} [where, owner, coop] {dv} (want "
-                                                  f"exactly one [dead, 999, 0]: the giver's memorial)")
+    cells["giver_memorial"] = (dv == [["dead", 999, 0]], f"host soldier_record {{id: {H2}}} [where, owner, coop] {dv} "
+                                                         f"(want exactly one [dead, 999, 0]: the giver's memorial)")
     return cells, ev
 
 
-def row_x5(host, client, ctx, crash0):
+def row_both_worlds(host, client, ctx, crash0):
     cells, ev = {}, {}
     have = all(k in ctx for k in ("cG", "cH1", "cH2", "hG", "hH1", "hH2")) and ctx.get("end")
     if not have:
-        not_reached(cells, ("X5-one",), "X2-end, X3 or X4 failed")
+        not_reached(cells, ("each_soldier_once",), "mission_ended, client_return or host_drain failed")
     else:
         census = {"G": [lives_dead(same_stats(ctx[k], ctx["COPY"])) for k in ("hG", "cG")],
                   "H1": [lives_dead(same_stats(ctx[k], ctx["HREC1"])) for k in ("hH1", "cH1")],
@@ -338,33 +343,36 @@ def row_x5(host, client, ctx, crash0):
         ev["census"] = census
         tot = {k: [sum(x[0] for x in v), sum(x[1] for x in v)] for k, v in census.items()}
         ok = tot["G"] == [1, 0] and tot["H1"] == [1, 0] and tot["H2"] == [0, 1] and census["H2"][0][1] == 1
-        cells["X5-one"] = (ok, f"[living, dead] host / client by name + initialStats {census} (want G and H1 living "
-                               f"exactly once in no memorial, H2 living nowhere and dead in the host's memorial only)")
+        cells["each_soldier_once"] = (ok, f"[living, dead] host / client by name + initialStats {census} (want G "
+                                          f"and H1 living exactly once in no memorial, H2 living nowhere and dead in "
+                                          f"the host's memorial only)")
     zd = None
     try:
         session.assert_client_zero_disk(client.user_dir)
     except AssertionError as e:
         zd = str(e)[:300]
     crash = sorted(session._crash_log_snapshot() - crash0)
-    cells["X5-common"] = (not crash and zd is None, f"new crash files since the bring-up {crash} (want none); the client's "
-                                                    f"zero-disk {zd or 'ok'}")
+    cells["worlds_common"] = (not crash and zd is None, f"new crash files since the bring-up {crash} (want none); the "
+                                                        f"client's zero-disk {zd or 'ok'}")
     return cells, ev
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", None, make_user_dir("r5u5_x_host"))
-    client = GameClient("client", None, make_user_dir("r5u5_x_client"))
+    host = GameClient("host", None, make_user_dir("battle_gift_separate_host"))
+    client = GameClient("client", None, make_user_dir("battle_gift_separate_client"))
     rows, fails = dict(ROWS), 0
     try:
         try:
             boot, pre, crash0 = bring_up(host, client)
-            print(f"[r5u5] boot X: {json.dumps(boot, default=str)}", flush=True)
+            print(f"[test_battle_gift_separate] boot: {json.dumps(boot, default=str)}", flush=True)
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE X line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         else:
             ctx = {"pre": pre}
-            for row, fn in (("X1", row_x1), ("X2", row_x2), ("X3", row_x3), ("X4", row_x4), ("X5", row_x5)):
+            for row, fn in (("gifts_during_battle", row_gifts_during_battle), ("battle_ends", row_battle_ends),
+                            ("client_return", row_client_return), ("host_drain", row_host_drain),
+                            ("both_worlds", row_both_worlds)):
                 fails += G3F.run_row(row, rows[row], lambda fn=fn: fn(host, client, ctx, crash0))
     finally:
         G3F.shut(host, client)
