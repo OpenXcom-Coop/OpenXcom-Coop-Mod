@@ -300,6 +300,32 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 			}
 		}
 	}
+	else if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		// One-world campaigns never reorder the host-owned roster locally: the
+		// player's own soldiers go back to their order from when this screen
+		// opened through the host (soldier_order), and the list refreshes when
+		// it lands. A visitor never reorders another player's roster (RU8).
+		if (!(_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase))
+		{
+			std::vector<Soldier*> ownOrder = SharedEcon::visibleSoldiers(_game, _base);
+			const std::vector<Soldier*> unsorted = ownOrder;
+			for (const auto* origSoldier : _origSoldierOrder)
+			{
+				auto soldierIt = std::find(ownOrder.begin(), ownOrder.end(), origSoldier);
+				if (soldierIt != ownOrder.end())
+				{
+					Soldier *s = *soldierIt;
+					ownOrder.erase(soldierIt);
+					ownOrder.push_back(s);
+				}
+			}
+			if (ownOrder != unsorted)
+			{
+				SharedEcon::submitSoldierOrder(_game, _base, ownOrder);
+			}
+		}
+	}
 	else
 	{
 		// restore original ordering, ignoring (of course) those
