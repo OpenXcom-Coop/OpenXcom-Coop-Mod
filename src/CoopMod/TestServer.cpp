@@ -1448,10 +1448,13 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		// force=true bypasses the client capacity gate (issue #121: models a stale
 		// replica whose gate passed), so the request reaches the host un-gated and
 		// the host validator is the one under test.
+		// Craft ids are per craft TYPE: optional craft_type picks the type. Without
+		// it, an id that more than one armed craft at the base uses is an error.
 		std::string weapon = req.get("weapon", "").asString();
 		int slot = req.get("slot", 0).asInt();
 		std::string baseName = req.get("base", "").asString();
 		int craftId = req.get("craft_id", -1).asInt();
+		const std::string craftType = req.get("craft_type", "").asString();
 		bool force = req.get("force", false).asBool();
 		Base* target = nullptr;
 		if (_game->getSavedGame())
@@ -1460,12 +1463,23 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 				                     : b->getName() == baseName)
 				{ target = b; break; }
 		size_t idx = target ? target->getCrafts()->size() : 0;
+		int matches = 0;
 		if (target)
 			for (size_t i = 0; i < target->getCrafts()->size(); ++i)
-				if (craftId < 0 || target->getCrafts()->at(i)->getId() == craftId)
-				{ idx = i; break; }
+			{
+				const Craft* c = target->getCrafts()->at(i);
+				if ((craftId >= 0 && c->getId() != craftId)
+					|| (!craftType.empty() && c->getRules()->getType() != craftType)
+					|| (craftType.empty() && c->getRules()->getWeapons() <= 0))
+					continue;
+				if (matches++ == 0) idx = i;
+				if (craftId < 0) break; // no id: the first (armed) craft, as before
+			}
 		if (!target)
 			resp["error"] = "base not found";
+		else if (matches > 1)
+			resp["error"] = "ambiguous craft id " + std::to_string(craftId)
+				+ ": more than one armed craft type uses it, pass craft_type";
 		else if (idx >= target->getCrafts()->size())
 			resp["error"] = "craft not found";
 		else
@@ -6839,10 +6853,16 @@ std::string TestServer::execute(const std::string& line)
 			// / coop:true narrow the search to one base (the base_report selector).
 			std::string caBase = req.get("base", "").asString();
 			bool caCoop = req.get("coop", false).asBool();
+			// Ids also repeat across craft TYPES at one base (Skyranger 1 and
+			// Interceptor 1). Optional craft_type picks the type; without it the
+			// id must name one craft at the base that carries soldiers, otherwise
+			// the request is an error.
+			const std::string caType = req.get("craft_type", "").asString();
 			SavedGame* sg = _game->getSavedGame();
 			Base* base = nullptr;
 			size_t craftIdx = 0;
 			bool found = false;
+			int caMatches = 0;
 			if (sg)
 			{
 				for (auto* b : *sg->getBases())
@@ -6850,7 +6870,14 @@ std::string TestServer::execute(const std::string& line)
 					if (caCoop && !b->_isForeignBase) continue;
 					if (!caBase.empty() && b->getName() != caBase) continue;
 					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
-						if (b->getCrafts()->at(i)->getId() == craftId) { base = b; craftIdx = i; found = true; break; }
+					{
+						const Craft* c = b->getCrafts()->at(i);
+						if (c->getId() != craftId
+							|| (!caType.empty() && c->getRules()->getType() != caType)
+							|| (caType.empty() && c->getRules()->getMaxUnits() <= 0))
+							continue;
+						if (caMatches++ == 0) { base = b; craftIdx = i; found = true; }
+					}
 					if (found) break;
 				}
 			}
@@ -6867,6 +6894,9 @@ std::string TestServer::execute(const std::string& line)
 					{ sol = s; break; }
 			if (!found)
 				resp["error"] = "craft id not found";
+			else if (caMatches > 1)
+				resp["error"] = "ambiguous craft id " + std::to_string(craftId)
+					+ ": more than one craft type at the base uses it, pass craft_type";
 			else if (!sol)
 				resp["error"] = "soldier id not on craft's base";
 			else

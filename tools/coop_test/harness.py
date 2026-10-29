@@ -328,6 +328,32 @@ class GameClient:
             raise RuntimeError(f"{self.name}: {obj.get('cmd')} failed: {r.get('error')}")
         return r
 
+    def cmd_together(self, *objs):
+        """Send several plain commands in ONE socket write, so the TestServer
+        runs them in the same frame: nothing the game receives can be applied
+        between them (a command sent on a stale view). Returns the responses in
+        request order. No coop host/join port rewriting."""
+        ids, lines = [], b""
+        for obj in objs:
+            self._request_id += 1
+            request = dict(obj)
+            request["_requestId"] = self._request_id
+            ids.append(self._request_id)
+            lines += (json.dumps(request) + "\n").encode()
+        self.sock.sendall(lines)
+        got = {}
+        while len(got) < len(ids):
+            while b"\n" not in self.buf:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    raise ConnectionError(f"{self.name}: socket closed")
+                self.buf += chunk
+            line, self.buf = self.buf.split(b"\n", 1)
+            response = json.loads(line)
+            if response.get("_requestId") in ids:
+                got[response["_requestId"]] = response
+        return [got[i] for i in ids]
+
     def wait_for(self, desc, predicate, timeout=90, interval=1.0):
         deadline = time.time() + timeout
         last = None
@@ -390,6 +416,63 @@ def remove_links(root):
                 stack.append(entry.path)
 
 
+def _unlink_keeping_attributes(path):
+    """Delete one directory entry of a read-only file without changing the file.
+
+    A hard link shares the read-only attribute with every other name of the same
+    file, so clearing it to delete the user dir's link would also clear it on the
+    real mod file. Windows 10 1809+ can delete a read-only entry as is
+    (FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE); only this name goes."""
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                                     wintypes.HANDLE)
+    kernel32.SetFileInformationByHandle.restype = wintypes.BOOL
+    kernel32.SetFileInformationByHandle.argtypes = (wintypes.HANDLE, ctypes.c_int,
+                                                    wintypes.LPVOID, wintypes.DWORD)
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    delete_access, share_all, open_existing = 0x00010000, 0x7, 3
+    open_reparse_point = 0x00200000
+    file_disposition_info_ex = 21
+    # DELETE | POSIX_SEMANTICS | IGNORE_READONLY_ATTRIBUTE
+    flags = wintypes.DWORD(0x1 | 0x2 | 0x10)
+    handle = kernel32.CreateFileW(path, delete_access, share_all, None,
+                                  open_existing, open_reparse_point, None)
+    if handle in (None, wintypes.HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not kernel32.SetFileInformationByHandle(handle, file_disposition_info_ex,
+                                                   ctypes.byref(flags),
+                                                   ctypes.sizeof(flags)):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _remove_readonly(func, path, exc_info):
+    """shutil.rmtree onerror: remove a read-only entry of the harness's own tree.
+
+    Some large Windows mods contain read-only files. A previous run may have
+    staged them as hard links, which share the read-only attribute with the real
+    mod file: such an entry is deleted without touching its attributes. Only an
+    entry with no other name (a copy or a directory the harness made) is made
+    writable first."""
+    try:
+        st = os.lstat(path)
+        if stat.S_ISDIR(st.st_mode) or st.st_nlink <= 1:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        elif os.name == "nt":
+            _unlink_keeping_attributes(path)
+        else:
+            raise exc_info[1]
+    except OSError:
+        raise exc_info[1]
+
+
 def make_user_dir(name, saves=(), mods=(), options=None):
     """Hermetic, isolated user folder: a freshly written options.cfg pinning
     the stock `xcom1` master (see HERMETIC_OPTIONS) with no external mods and
@@ -415,19 +498,8 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     name = "s%d_%s" % (HARNESS_SLOT, name)
     d = os.path.join(TEST_ROOT, name)
     if os.path.exists(d):
-        # Some large Windows mods contain read-only files.  Their attributes are
-        # preserved when the harness stages them as hardlinks, so a previous run
-        # must make such entries writable before retrying their removal.
-        def remove_readonly(func, path, exc_info):
-            try:
-                os.chmod(path, stat.S_IWRITE)
-                func(path)
-                return
-            except OSError:
-                raise exc_info[1]
-
         remove_links(d)
-        shutil.rmtree(d, onerror=remove_readonly)
+        shutil.rmtree(d, onerror=_remove_readonly)
     os.makedirs(os.path.join(d, "xcom1"))
     # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
     # joined list of paths - to mod folder(s) appended to EVERY instance's mod set,
@@ -466,9 +538,13 @@ def make_user_dir(name, saves=(), mods=(), options=None):
             junction_created = result.returncode == 0
 
         # Non-Windows and unusual Windows filesystems retain the old hardlink
-        # staging, falling back to copies only when a particular link fails.
+        # staging, falling back to copies only when a particular link fails. A
+        # read-only file is copied: a hard link would share its attributes with
+        # the real mod file, and removing the user dir has to clear them.
         def link_or_copy(source, destination):
             try:
+                if not os.stat(source).st_mode & stat.S_IWRITE:
+                    return shutil.copy2(source, destination)
                 os.link(source, destination)
                 return destination
             except OSError:
