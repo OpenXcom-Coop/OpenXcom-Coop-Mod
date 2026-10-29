@@ -16989,7 +16989,15 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// the peer is expected back in the SAME battle, and the game mode
 		// (PVE/PVP/PVE2) decides which units each machine commands. Zeroing it
 		// here would hand a rejoining player the wrong side of its own battle.
-		if (!coopBattleLive(_game))
+		// A campaign host keeps its world through a peer drop too, and the game
+		// mode is part of that world: PvP is stored as a Separate campaign, so a
+		// zero here made the host apply single-world Separate rules (and save
+		// mode 0) while it waited. The main menu and every save load reset it.
+		SavedGame* keptWorld = _game ? _game->getSavedGame() : nullptr;
+		const bool hostKeepsCampaign = session.role == CoopRole::Host
+			&& keptWorld && keptWorld->isCoopSave()
+			&& keptWorld->getMonthsPassed() != -1;
+		if (!coopBattleLive(_game) && !hostKeepsCampaign)
 		{
 			connectionTCP::_coopGamemode = 0;
 		}
