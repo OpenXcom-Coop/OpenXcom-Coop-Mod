@@ -770,7 +770,23 @@ void SoldiersState::cbxScreenActionsChange(Action *action)
 */
 void SoldiersState::btnInventoryClick(Action *)
 {
-	if (_base->getAvailableSoldiers(true, true) > 0)
+	// Separate single world: the screen shows only this player's soldiers
+	// (BattlescapeGenerator::deployXCOM), so it needs one of them to show.
+	bool canShow = _base->getAvailableSoldiers(true, true) > 0;
+	if (canShow && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+	{
+		canShow = false;
+		for (const Soldier* soldier : SharedEcon::visibleSoldiers(_game, _base))
+		{
+			if ((soldier->hasFullHealth() || soldier->canDefendBase())
+				&& (!soldier->getCraft() || soldier->getCraft()->getStatus() != "STR_OUT"))
+			{
+				canShow = true;
+				break;
+			}
+		}
+	}
+	if (canShow)
 	{
 		SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 		_game->getSavedGame()->setBattleGame(bgame);
