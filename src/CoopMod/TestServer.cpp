@@ -7044,6 +7044,37 @@ std::string TestServer::execute(const std::string& line)
 					resp["error"] = want ? "craft refused the soldier" : "soldier could not be unseated";
 			}
 		}
+		else if (cmd == "craft_deassign")
+		{
+			// The Select Squad screen's de-assign buttons, through the real handlers:
+			// all:true = "de-assign all soldiers at the base", else the craft's crew.
+			// Params: base (name), craft_id, craft_type. In a one-world campaign the
+			// unseats go to the host (async: poll the craft afterwards).
+			const std::string daBase = req.get("base", "").asString();
+			const int daId = req.get("craft_id", -1).asInt();
+			const std::string daType = req.get("craft_type", "STR_SKYRANGER").asString();
+			Base* base = nullptr;
+			size_t craftIdx = 0;
+			if (_game->getSavedGame())
+				for (auto* b : *_game->getSavedGame()->getBases())
+				{
+					if (b->getName() != daBase) continue;
+					for (size_t i = 0; i < b->getCrafts()->size(); ++i)
+						if (b->getCrafts()->at(i)->getId() == daId
+							&& b->getCrafts()->at(i)->getRules()->getType() == daType)
+						{ base = b; craftIdx = i; }
+				}
+			if (!base)
+				resp["error"] = "craft not found at that base";
+			else
+			{
+				CraftSoldiersState* st = new CraftSoldiersState(base, craftIdx);
+				if (req.get("all", false).asBool()) st->btnDeassignAllSoldiersClick(nullptr);
+				else st->btnDeassignCraftSoldiersClick(nullptr);
+				delete st;
+				resp["ok"] = true;
+			}
+		}
 		else if (cmd == "confirm_landing")
 		{
 			ConfirmLandingState* cl = findState<ConfirmLandingState>(_game);

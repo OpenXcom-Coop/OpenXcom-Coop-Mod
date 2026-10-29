@@ -31,6 +31,7 @@ class Text;
 class TextList;
 class ComboBox;
 class Base;
+class Craft;
 class Soldier;
 struct SortFunctor;
 
@@ -94,6 +95,8 @@ public:
 	/// Handler for clicking the De-assign All Soldiers button.
 	void btnDeassignAllSoldiersClick(Action *action);
 	void btnDeassignCraftSoldiersClick(Action *action);
+	/// coop: routes a de-assign button through the host (one-world campaigns).
+	bool submitOneWorldDeassign(Craft *craft);
 	/// Harness (PRD-J09): toggle a soldier's assignment by id, driving the same
 	/// path as a left-click (SHARED -> craft_assign command; SEPARATE -> local).
 	void harnessToggle(int soldierId);
