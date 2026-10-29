@@ -2993,15 +2993,18 @@ void SavedGame::makeAllResearchDiscovered(const Mod* mod)
  */
 void SavedGame::addFinishedResearch(const RuleResearch * research, const Mod * mod, Base * base, bool score)
 {
-	if (isResearchRuleStatusDisabled(research->getName()))
-	{
-		return;
-	}
-
 	const std::string researchOwner = (base && isSeparateCoopCampaign()
 		&& !_separateCampaign.isResearchSharingEnabled())
 		? base->getOwnerPlayerName() : std::string();
 	const bool playerScoped = !researchOwner.empty();
+	// Private research disables topics per player. A completion for another
+	// player's base (a replica applying the host player's research) must check
+	// that player's disabled topics, never the local player's, so the check
+	// waits for the owner's scope below.
+	if (!playerScoped && isResearchRuleStatusDisabled(research->getName()))
+	{
+		return;
+	}
 	// Every research check below (disabled topics included) is this player's.
 	SeparateResearchScope researchScope(this, researchOwner);
 	if (playerScoped && isResearchRuleStatusDisabled(research->getName()))
