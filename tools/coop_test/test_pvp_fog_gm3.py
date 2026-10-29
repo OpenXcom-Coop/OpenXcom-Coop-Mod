@@ -1,33 +1,32 @@
-"""R5-U1 S-A rows G1-G4 (boot A3, gm3: the HOST plays the aliens, seat 0; the partner the seven X-COM soldiers, seat
-1): the alien host draws, on its map and minimap, only its own units and the X-COM soldiers its side sees now (owner
-PvP model "fog is per side", R5-V3; QU1-1 (a): on the host the side's live visible lists).
+"""PvP fog, gm3 (the HOST plays the aliens, seat 0; the partner the seven X-COM soldiers, seat 1): the alien host
+draws, on its map and minimap, only its own units and the X-COM soldiers its side sees now (fog is per side; on the
+host that is the side's live visible lists).
 
-Spec: docs repo rewrite/prompts/r5u1_pvp_fog_camera.md section (f) test_pvp_fog_gm3.py, with the orchestrator
-rulings AMENDMENT U1-1 (here A-4 item 7: EVIDENCE F12701 after G4) and R-U1-SA-1 (W_OUT).
-Constants: rewrite/r5u1-task0/sa/CONSTANTS.md (TASK 0 boots Ac, Ad; every pin equal).
-
-Boot A3 (key 48917, dirs r5u1_a3_host / _client): G3F.bring_up (the HOST on the Alien team, STR_SMALL_SCOUT, map seed
+Boot (key 48917, dirs pvp_fog_gm3_host / _client): G3F.bring_up (the HOST on the Alien team, STR_SMALL_SCOUT, map seed
 1), every live unit's reactions 0, RM.TILES with W (12) on W_OUT facing W_DIR, the settle cycle (the partner's END
 TURN, the host's END TURN -> side 0 turn 2). Partner orders are intents (session.send_walk); host orders are real-UI.
-VH(gc, id) = battle_state(gc).units[id].visibleHere (the T1 probe); HU = the HOST's union of visibleUnits over the
-live hostile units; X-COM ids = the live FACTION_PLAYER units at the read.
-  G1  the alien host does not draw X-COM soldiers its side does not see (side 0 turn 2), after the settle cycle:
-      G1-pre (HU == SEEN0), G1-hide (VH(host, id) false for U0), G1-show (true for A and SEEN0), G1-client (on the
-      client visibleHere == visible for every unit).
-  G2  drawn once its aliens see it: the partner's send_walk(W, W_IN). G2-walk (one new host context {intent, walk, W},
-      coopIntentsSent.walk +1), G2-pre (W in HU), G2-agree (every X-COM id: VH(host, id) == id in HU).
-  G3  hidden once it leaves their sight: the partner's send_walk(11, S4_OUT). G3-walk, G3-pre (11 not in HU), G3-hide
-      (VH(host, 11) false).
-  G4  the host's own alien walk hides what it stops seeing: the partner's END TURN -> side 1 turn 2; one TAB +
-      tab_select(host, A); the host's real-UI walk of A to G4_DEST. G4-walk ({host, walk, A}; A on G4_DEST on both),
-      G4-hide (VH(host, id) false for every X-COM id not in HU). Then EVIDENCE F12701: every unit's `visible` on both
-      machines (A-4 item 7; no cell).
-Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
-RED at A1: G1-hide, G2-agree, G3-hide, G4-hide; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL line
-per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and
-fails every row "boot"; a staging step past its bound fails the rows that need it "staging". Lever pairs go to the
-client first. run in the foreground to completion. ONE run is the result, no skip
-path; exit 0 only when every cell passes, else 2.
+VH(gc, id) = battle_state(gc).units[id].visibleHere; HU = the HOST's union of visibleUnits over the live hostile
+units; X-COM ids = the live FACTION_PLAYER units at the read.
+  unseen_not_drawn  the alien host does not draw X-COM soldiers its side does not see (side 0 turn 2), after the
+      settle cycle: unseen_not_drawn-pre (HU == SEEN_IDS), unseen_not_drawn-hide (VH(host, id) false for UNSEEN_IDS),
+      unseen_not_drawn-show (true for A and SEEN_IDS), unseen_not_drawn-client (on the client visibleHere == visible
+      for every unit).
+  seen_drawn  drawn once its aliens see it: the partner's send_walk(W, W_IN). seen_drawn-walk (one new host context
+      {intent, walk, W}, coopIntentsSent.walk +1), seen_drawn-pre (W in HU), seen_drawn-agree (every X-COM id:
+      VH(host, id) == id in HU).
+  left_sight_hidden  hidden once it leaves their sight: the partner's send_walk(11, S4_OUT). left_sight_hidden-walk,
+      left_sight_hidden-pre (11 not in HU), left_sight_hidden-hide (VH(host, 11) false).
+  own_walk_hides  the host's own alien walk hides what it stops seeing: the partner's END TURN -> side 1 turn 2; one
+      TAB + tab_select(host, A); the host's real-UI walk of A to A_DEST. own_walk_hides-walk ({host, walk, A}; A on
+      A_DEST on both), own_walk_hides-hide (VH(host, id) false for every X-COM id not in HU). Then EVIDENCE visible:
+      every unit's `visible` on both machines (no cell).
+Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in this harness slot's crash
+folder.
+Without the fix, unseen_not_drawn-hide, seen_drawn-agree, left_sight_hidden-hide and own_walk_hides-hide FAIL; every
+other cell passes. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a
+failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound
+fails the rows that need it "staging". Test-command pairs go to the client first. ONE run is the result, no skip path;
+exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_fog_gm3.py
 """
@@ -53,15 +52,18 @@ W_ID, S4_ID = 12, 11
 W_OUT, W_DIR = (19, 2, 0), 6
 W_IN = (17, 5, 0)
 S4_OUT = (24, 8, 0)
-G4_DEST = (15, 1, 0)              # one tile north of A: A faces north and loses its southern sight
+A_DEST = (15, 1, 0)              # one tile north of A: A faces north and loses its southern sight
 TILES = dict(RM.TILES)
 TILES[W_ID] = (W_OUT, W_DIR)
-SEEN0, U0 = [8, 9, 10, 11], [12, 13, 14]   # HU and the unseen X-COM ids after the settle cycle (Ac, Ad)
+SEEN_IDS, UNSEEN_IDS = [8, 9, 10, 11], [12, 13, 14]   # HU and the unseen X-COM ids after the settle cycle
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
-ROWS = (("G1", ("G1-pre", "G1-hide", "G1-show", "G1-client", "G1-common")),
-        ("G2", ("G2-walk", "G2-pre", "G2-agree", "G2-common")),
-        ("G3", ("G3-walk", "G3-pre", "G3-hide", "G3-common")),
-        ("G4", ("G4-walk", "G4-hide", "G4-common")))
+ROWS = (("unseen_not_drawn",
+         ("unseen_not_drawn-pre", "unseen_not_drawn-hide", "unseen_not_drawn-show", "unseen_not_drawn-client",
+          "unseen_not_drawn-common")),
+        ("seen_drawn", ("seen_drawn-walk", "seen_drawn-pre", "seen_drawn-agree", "seen_drawn-common")),
+        ("left_sight_hidden",
+         ("left_sight_hidden-walk", "left_sight_hidden-pre", "left_sight_hidden-hide", "left_sight_hidden-common")),
+        ("own_walk_hides", ("own_walk_hides-walk", "own_walk_hides-hide", "own_walk_hides-common")))
 
 units, pos, es, ctxs, cv = G3F.units, G3F.pos, RM.es, RM.ctxs, RM.cv
 
@@ -108,50 +110,52 @@ def walk_cell(new, sent, uid):
 # ===================== rows =====================
 
 
-def row_g1(host, client, crash0):
+def row_unseen_not_drawn(host, client, crash0):
     cells = {}
     h, xc = hu(host), xcom_ids(host)
-    ev = {"HU": h, "U0": [i for i in xc if i not in h], "xcom": xc, "sightHost": sight(host),
+    ev = {"HU": h, "UNSEEN_IDS": [i for i in xc if i not in h], "xcom": xc, "sightHost": sight(host),
           "sightClient": sight(client), "sel": [battle_state(gc).get("selectedId") for gc in (host, client)]}
-    cells["G1-pre"] = (h == SEEN0, f"HU {h} (want {SEEN0})")
-    got = {i: vh(host, i) for i in U0}
-    cells["G1-hide"] = (all(v is False for v in got.values()), f"VH(host, id) for U0: {got} (want False for each)")
-    shows = {i: vh(host, i) for i in [A_ID] + SEEN0}
-    cells["G1-show"] = (all(v is True for v in shows.values()), f"VH(host, id) for A and SEEN0: {shows} (want True)")
+    cells["unseen_not_drawn-pre"] = (h == SEEN_IDS, f"HU {h} (want {SEEN_IDS})")
+    got = {i: vh(host, i) for i in UNSEEN_IDS}
+    cells["unseen_not_drawn-hide"] = (all(v is False for v in got.values()),
+                                      f"VH(host, id) for UNSEEN_IDS: {got} (want False for each)")
+    shows = {i: vh(host, i) for i in [A_ID] + SEEN_IDS}
+    cells["unseen_not_drawn-show"] = (all(v is True for v in shows.values()),
+                                      f"VH(host, id) for A and SEEN_IDS: {shows} (want True)")
     diff = {i: [u.get("visible"), u.get("visibleHere")] for i, u in units(client).items()
             if u.get("visibleHere") != u.get("visible")}
-    cells["G1-client"] = (not diff, f"client units with visibleHere != visible: {diff} (want none)")
-    cells["G1-common"] = G3F.common(host, client, crash0)
+    cells["unseen_not_drawn-client"] = (not diff, f"client units with visibleHere != visible: {diff} (want none)")
+    cells["unseen_not_drawn-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_g2(host, client, crash0):
+def row_seen_drawn(host, client, crash0):
     ev, cells = {}, {}
     new, sent = partner_walk(host, client, W_ID, W_IN, ev)
     h, xc = hu(host), xcom_ids(host)
     ev.update(HU=h, xcom=xc, sightHost=sight(host))
-    cells["G2-walk"] = walk_cell(new, sent, W_ID)
-    cells["G2-pre"] = (W_ID in h, f"HU {h} (want W {W_ID} in it)")
+    cells["seen_drawn-walk"] = walk_cell(new, sent, W_ID)
+    cells["seen_drawn-pre"] = (W_ID in h, f"HU {h} (want W {W_ID} in it)")
     bad = {i: [vh(host, i), i in h] for i in xc if vh(host, i) != (i in h)}
-    cells["G2-agree"] = (not bad, f"X-COM ids {xc} with VH(host, id) != (id in HU {h}): {bad} (want none)")
-    cells["G2-common"] = G3F.common(host, client, crash0)
+    cells["seen_drawn-agree"] = (not bad, f"X-COM ids {xc} with VH(host, id) != (id in HU {h}): {bad} (want none)")
+    cells["seen_drawn-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_g3(host, client, crash0):
+def row_left_sight_hidden(host, client, crash0):
     ev, cells = {}, {}
     new, sent = partner_walk(host, client, S4_ID, S4_OUT, ev)
     h = hu(host)
     ev.update(HU=h, u11=[vh(host, S4_ID), vh(client, S4_ID)])
-    cells["G3-walk"] = walk_cell(new, sent, S4_ID)
-    cells["G3-pre"] = (S4_ID not in h, f"HU {h} (want 11 not in it)")
+    cells["left_sight_hidden-walk"] = walk_cell(new, sent, S4_ID)
+    cells["left_sight_hidden-pre"] = (S4_ID not in h, f"HU {h} (want 11 not in it)")
     v = vh(host, S4_ID)
-    cells["G3-hide"] = (v is False, f"VH(host, 11) {v} (want False)")
-    cells["G3-common"] = G3F.common(host, client, crash0)
+    cells["left_sight_hidden-hide"] = (v is False, f"VH(host, 11) {v} (want False)")
+    cells["left_sight_hidden-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_g4(host, client, crash0):
+def row_own_walk_hides(host, client, crash0):
     ev, cells = {}, {}
     side = ev["side"] = {}
     RM.side_change(host, client, client, FACTION_HOSTILE, 2, side)
@@ -161,7 +165,7 @@ def row_g4(host, client, crash0):
     ev["tab"] = tab_select(host, A_ID)
     ctx0 = ctxs(host)
     try:
-        new = RM.host_walk(host, client, A_ID, G4_DEST, ev)
+        new = RM.host_walk(host, client, A_ID, A_DEST, ev)
     except Exception as e:
         new, ev["walkError"] = new_contexts(ctx0, ctxs(host)), str(e)[:300]
     at = [pos(host, A_ID), pos(client, A_ID)]
@@ -169,20 +173,20 @@ def row_g4(host, client, crash0):
     ev.update(newCtx=[cv(c) for c in new], at=at, HU=h, xcom=xc, sightHost=sight(host),
               aDir=[(units(gc).get(A_ID) or {}).get("direction") for gc in (host, client)])
     ok, txt = OU.ctx_cell(new, "host", "walk", A_ID)
-    cells["G4-walk"] = (ok and at == [G4_DEST, G4_DEST], f"{txt}; A host/client {at} (want {G4_DEST} on both)")
+    cells["own_walk_hides-walk"] = (ok and at == [A_DEST, A_DEST], f"{txt}; A host/client {at} (want {A_DEST} on both)")
     got = {i: vh(host, i) for i in xc if i not in h}
-    cells["G4-hide"] = (all(v is False for v in got.values()),
+    cells["own_walk_hides-hide"] = (all(v is False for v in got.values()),
                         f"VH(host, id) for every X-COM id not in HU {h}: {got} (want False for each)")
-    cells["G4-common"] = G3F.common(host, client, crash0)
+    cells["own_walk_hides-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-# ===================== boot A3 =====================
+# ===================== boot =====================
 
 
 def stage(host, client):
     m, ev = (host, client), {}
-    ev["placed"] = RM.stage_tiles(host, client, TILES, (W_IN, S4_OUT, G4_DEST))
+    ev["placed"] = RM.stage_tiles(host, client, TILES, (W_IN, S4_OUT, A_DEST))
     sv = ev["settle"] = {}
     G3F.guarded("staging", lambda: RM.side_change(host, client, client, FACTION_HOSTILE, 1, sv.setdefault("a", {})), m)
     G3F.guarded("staging", lambda: RM.side_change(host, client, host, FACTION_PLAYER, 2, sv.setdefault("b", {})), m)
@@ -190,16 +194,16 @@ def stage(host, client):
     return ev
 
 
-def boot_a3():
-    host = GameClient("host", None, make_user_dir("r5u1_a3_host"))
-    client = GameClient("client", None, make_user_dir("r5u1_a3_client"))
+def run_boot():
+    host = GameClient("host", None, make_user_dir("pvp_fog_gm3_host"))
+    client = GameClient("client", None, make_user_dir("pvp_fog_gm3_client"))
     m = (host, client)
     try:
         try:
-            boot, crash0 = G3F.bring_up(host, client, KEY, "A3")
-            G3F.guarded("A3", lambda: G3F.reactions_zero(host, client), m)
+            boot, crash0 = G3F.bring_up(host, client, KEY, "boot")
+            G3F.guarded("boot", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE A3 line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         try:
             st = stage(host, client)
         except G3F.Miss:
@@ -207,15 +211,17 @@ def boot_a3():
         st["boot"] = boot
         print(f"EVIDENCE staging: {json.dumps(st, sort_keys=True, default=str)}", flush=True)
         rows = dict(ROWS)
-        fails = G3F.run_row("G1", rows["G1"], lambda: row_g1(host, client, crash0))
-        fails += G3F.run_row("G2", rows["G2"], lambda: row_g2(host, client, crash0))
-        fails += G3F.run_row("G3", rows["G3"], lambda: row_g3(host, client, crash0))
-        fails += G3F.run_row("G4", rows["G4"], lambda: row_g4(host, client, crash0))
+        fails = G3F.run_row("unseen_not_drawn", rows["unseen_not_drawn"],
+                            lambda: row_unseen_not_drawn(host, client, crash0))
+        fails += G3F.run_row("seen_drawn", rows["seen_drawn"], lambda: row_seen_drawn(host, client, crash0))
+        fails += G3F.run_row("left_sight_hidden", rows["left_sight_hidden"],
+                             lambda: row_left_sight_hidden(host, client, crash0))
+        fails += G3F.run_row("own_walk_hides", rows["own_walk_hides"], lambda: row_own_walk_hides(host, client, crash0))
         try:
             vis = {gc.name: {i: u.get("visible") for i, u in sorted(units(gc).items())} for gc in m}
         except Exception as e:
             vis = f"probe failed: {type(e).__name__}: {e}"
-        print(f"EVIDENCE F12701: {json.dumps(vis, sort_keys=True, default=str)}", flush=True)
+        print(f"EVIDENCE visible: {json.dumps(vis, sort_keys=True, default=str)}", flush=True)
         return fails
     finally:
         G3F.shut(host, client)
@@ -223,7 +229,7 @@ def boot_a3():
 
 def main():
     t0 = time.time()
-    fails = boot_a3()
+    fails = run_boot()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pvp_fog_gm3: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
