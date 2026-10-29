@@ -9,25 +9,27 @@ visible) always draws the map there. hiddenMovementShown TRUE = the map is drawn
 screen.
 
 ONE classic co-op boot (lobby key 48869, user dirs r5u2_e1_host / r5u2_e1_client): test_client_alien_sight's bring-up
-(its boot copied with the key as a parameter, F10917) and its staging (W, D1, D2, A to P0, V = soldier 9 to V_TILE
+(its boot copied with the key as a parameter, F10917) and its staging (walk_to_start, first_path_walk,
+second_path_walk, A to A_START, V = soldier 9 to V_TILE
 facing 6; its asserts are the pins). The sampler is W2-H35's (battle_state host then client every 0.25 s inside
 alien_cycle).
 A "side-1 sample" of a machine is a sample whose side on that machine is 1 (the alien side).
 
 Rows, in order (every row runs after a failure):
-  CH2  it sees an alien its side sees walk: alien_cycle(SEED_A, HOLD) (A walks A_PATH into V's view),
+  CH2  it sees an alien its side sees walk: alien_cycle(SEED_WALK_IN, HOLD) (A walks IN_PATH into V's view),
        close_client_screen.
-       CH2-walk (the walk is A_PATH; >= 3 client side-1 samples with client-A on an A_PATH tile; precondition),
+       CH2-walk (the walk is IN_PATH; >= 3 client side-1 samples with client-A on an IN_PATH tile; precondition),
        CH2-during (>= 1 of those samples has client hms True; guard).
-  CH3  it does not see an unseen alien walk: client_turn(V, V_TURN_A) (staging: V's final facing V_TURN_A on both),
-       alien_cycle(SEED_B, HOLD) (A walks B_PATH out of every view), close_client_screen.
-       CH3-walk (the walk is B_PATH; no shot / hit / death / spot ev; >= 3 client side-1 samples; precondition),
+  CH3  it does not see an unseen alien walk: client_turn(V, V_TURN_SEE) (staging: V's final facing V_TURN_SEE on both),
+       alien_cycle(SEED_WALK_OUT, HOLD) (A walks OUT_PATH out of every view), close_client_screen.
+       CH3-walk (the walk is OUT_PATH; no shot / hit / death / spot ev; >= 3 client side-1 samples; precondition),
        CH3-hidden (every client side-1 sample has hms False).
-  CH1  off its own side with no alien acting it sees the screen: A base TU 0 on both, alien_cycle(SEED_D, 0.5, d_side).
-       CH1-held (dSide: side 1 on both, the host's top NextTurnState, caught True; no A chain ev; precondition),
-       CH1-screen (the dSide client hms False and every client side-1 sample False).
+  CH1  off its own side with no alien acting it sees the screen: A base TU 0 on both,
+       alien_cycle(SEED_SIDE_CHANGE, 0.5, held_read).
+       CH1-held (heldRead: side 1 on both, the host's top NextTurnState, caught True; no A chain ev; precondition),
+       CH1-screen (the heldRead client hms False and every client side-1 sample False).
   CH4  the host is unchanged (guard), from CH2's and CH3's records. CH4-host (>= 1 host side-1 sample True with host-A
-       on an A_PATH tile in CH2; every host side-1 sample with host-A on B_PATH[1:] False in CH3, F13343).
+       on an IN_PATH tile in CH2; every host side-1 sample with host-A on OUT_PATH[1:] False in CH3, F13343).
   Every row: <row>-common (hash_now full: every bucket EQUAL; event_state.desyncSeen false on both; 0 new crash files).
 
 RED at the red commit E1 (unchanged build): CH1-screen, CH3-hidden FAIL; every other cell PASS. GREEN (E2, UE1): every
@@ -53,7 +55,8 @@ import session
 from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
 import repro_atom_walk as raw
 import test_client_alien_sight as AS   # its per-GameClient lock patch is wanted (sampler thread + driver)
-from test_client_alien_sight import (A_ID, A_TU, P0, A_PATH, B_PATH, V_ID, V_TURN_A, SEED_A, SEED_B, SEED_D, HOLD,
+from test_client_alien_sight import (A_ID, A_TU, A_START, IN_PATH, OUT_PATH, V_ID, V_TURN_SEE, SEED_WALK_IN,
+                                     SEED_WALK_OUT, SEED_SIDE_CHANGE, HOLD,
                                         COMBAT_KINDS, CHAIN_KINDS, ua, snap)
 
 KEY = "48869"          # this file's lobby key (R5-U2 spec (E))
@@ -129,12 +132,12 @@ def cycle_evidence(name, rec):
 
 
 def row_ch2(host, client):
-    rec = AS.alien_cycle(host, client, SEED_A, HOLD)
+    rec = AS.alien_cycle(host, client, SEED_WALK_IN, HOLD)
     RECS["CH2"] = rec
     cycle_evidence("CH2", rec)
-    on = [r for r in side1(rec, "c") if ua(r["c"]).get("pos") in A_PATH]
-    cell("CH2-walk", rec["path"] == A_PATH and len(on) >= MIN_SAMPLES,
-         f"walk {rec['path']} (want A_PATH); client side-1 samples with A on an A_PATH tile {len(on)} "
+    on = [r for r in side1(rec, "c") if ua(r["c"]).get("pos") in IN_PATH]
+    cell("CH2-walk", rec["path"] == IN_PATH and len(on) >= MIN_SAMPLES,
+         f"walk {rec['path']} (want IN_PATH); client side-1 samples with A on an IN_PATH tile {len(on)} "
          f"(>= {MIN_SAMPLES})")
     hms = [r["c"]["hms"] for r in on]
     cell("CH2-during", any(v is True for v in hms),
@@ -145,21 +148,21 @@ def row_ch2(host, client):
 
 
 def row_ch3(host, client):
-    r, s = AS.client_turn(host, client, V_ID, V_TURN_A)
+    r, s = AS.client_turn(host, client, V_ID, V_TURN_SEE)
     dirs = (ua(s["h"], V_ID).get("dir"), ua(s["c"], V_ID).get("dir"))
     ev(f"CH3 staging: V turn intent {r}; V dir h/c {dirs}; {AS.fmt(s)}")
-    if dirs != (V_TURN_A, V_TURN_A):
+    if dirs != (V_TURN_SEE, V_TURN_SEE):
         for c in ("CH3-walk", "CH3-hidden"):
-            cell(c, False, f"staging: V dir h/c {dirs} (want {V_TURN_A} on both)")
+            cell(c, False, f"staging: V dir h/c {dirs} (want {V_TURN_SEE} on both)")
         common(host, client, "CH3")
         return
-    rec = AS.alien_cycle(host, client, SEED_B, HOLD)
+    rec = AS.alien_cycle(host, client, SEED_WALK_OUT, HOLD)
     RECS["CH3"] = rec
     cycle_evidence("CH3", rec)
     combat = [(q, k) for q, k in rec["hev"] if k in COMBAT_KINDS]
     cs = side1(rec, "c")
-    cell("CH3-walk", rec["path"] == B_PATH and not combat and len(cs) >= MIN_SAMPLES,
-         f"walk {rec['path']} (want B_PATH); combat evs {combat}; client side-1 samples {len(cs)} (>= {MIN_SAMPLES})")
+    cell("CH3-walk", rec["path"] == OUT_PATH and not combat and len(cs) >= MIN_SAMPLES,
+         f"walk {rec['path']} (want OUT_PATH); combat evs {combat}; client side-1 samples {len(cs)} (>= {MIN_SAMPLES})")
     hms = [r["c"]["hms"] for r in cs]
     cell("CH3-hidden", bool(hms) and all(v is False for v in hms),
          f"client hms in its side-1 samples {hms} (want all False: the HIDDEN MOVEMENT screen through an unseen walk)")
@@ -171,21 +174,21 @@ def row_ch3(host, client):
 def row_ch1(host, client):
     AS.both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": 0},
             ("tu",))
-    rec = AS.alien_cycle(host, client, SEED_D, 0.5, d_side=True)
+    rec = AS.alien_cycle(host, client, SEED_SIDE_CHANGE, 0.5, held_read=True)
     RECS["CH1"] = rec
     cycle_evidence("CH1", rec)
-    ds = rec["dSide"]
-    ev(f"CH1 dSide: caught {rec.get('caught')}; host top {rec.get('dSideTop')}; hms h/c {ds['h']['hms']}/"
+    ds = rec["heldRead"]
+    ev(f"CH1 heldRead: caught {rec.get('caught')}; host top {rec.get('heldReadTop')}; hms h/c {ds['h']['hms']}/"
        f"{ds['c']['hms']}; {AS.fmt(ds)}")
     a_evs = [(q, k) for q, k in rec["hev"] if k in CHAIN_KINDS]
-    held = (ds["h"]["side"] == 1 and ds["c"]["side"] == 1 and "NextTurnState" in (rec.get("dSideTop") or "")
+    held = (ds["h"]["side"] == 1 and ds["c"]["side"] == 1 and "NextTurnState" in (rec.get("heldReadTop") or "")
             and rec.get("caught") is True)
     cell("CH1-held", held and not a_evs,
-         f"side h/c {ds['h']['side']}/{ds['c']['side']}, host top {rec.get('dSideTop')}, caught {rec.get('caught')} "
+         f"side h/c {ds['h']['side']}/{ds['c']['side']}, host top {rec.get('heldReadTop')}, caught {rec.get('caught')} "
          f"(want 1/1, NextTurnState, True); A chain evs {a_evs} (want none)")
     hms = [r["c"]["hms"] for r in side1(rec, "c")]
     cell("CH1-screen", ds["c"]["hms"] is False and all(v is False for v in hms),
-         f"dSide client hms {ds['c']['hms']}, client side-1 samples {hms} (want False and all False: the screen "
+         f"heldRead client hms {ds['c']['hms']}, client side-1 samples {hms} (want False and all False: the screen "
          f"while no alien acts)")
     AS.settle_on_battlescape(client)
     AS.settle_on_battlescape(host)
@@ -196,9 +199,9 @@ def row_ch1(host, client):
 
 def row_ch4(host, client):
     r2, r3 = RECS.get("CH2"), RECS.get("CH3")
-    h2 = [r["h"]["hms"] for r in side1(r2, "h") if ua(r["h"]).get("pos") in A_PATH] if r2 else None
-    h3 = [r["h"]["hms"] for r in side1(r3, "h") if ua(r["h"]).get("pos") in B_PATH[1:]] if r3 else None
-    ev(f"CH4: host side-1 hms with host-A on A_PATH (CH2) {h2}; on B_PATH[1:] (CH3) {h3}")
+    h2 = [r["h"]["hms"] for r in side1(r2, "h") if ua(r["h"]).get("pos") in IN_PATH] if r2 else None
+    h3 = [r["h"]["hms"] for r in side1(r3, "h") if ua(r["h"]).get("pos") in OUT_PATH[1:]] if r3 else None
+    ev(f"CH4: host side-1 hms with host-A on IN_PATH (CH2) {h2}; on OUT_PATH[1:] (CH3) {h3}")
     ok2 = h2 is not None and any(v is True for v in h2)
     ok3 = h3 is not None and all(v is False for v in h3)
     cell("CH4-host", ok2 and ok3,
@@ -264,7 +267,7 @@ def main():
             try:
                 AS.staging(host, client)
                 s = snap(host, client)
-                assert [ua(s[m]).get("pos") for m in ("h", "c")] == [P0, P0], f"A not on P0: {AS.fmt(s)}"
+                assert [ua(s[m]).get("pos") for m in ("h", "c")] == [A_START, A_START], f"A not on A_START: {AS.fmt(s)}"
             except Exception as e:
                 print(f"STAGING: {short(e, 600)}", flush=True)
                 blocked = "staging"
