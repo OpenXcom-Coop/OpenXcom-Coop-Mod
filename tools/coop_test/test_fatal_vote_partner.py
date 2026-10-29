@@ -6,8 +6,8 @@ gm2 boot_pvp.
   V9  (Q8 (a)) the client's own real-UI snap kills the last alien (snap_kill: SEED_MAP 1 terror map, C = 8 with a rifle
       at C_TILE, A = 1000000 at A_TILE with health 1, set_seed SEED_SNAP_KILL right before the click).
       SV-T3: the 12 other
-      hostiles die first (one host kill_unit_real each, auto-end still off), then stage_v turns auto-end on and wounds
-      WS1 = C2 = 9 (client first). Green: the host never shows the question (it does not vote) and opens the vote
+      hostiles die first (one host kill_unit_real each, auto-end still off), then stage_vote turns auto-end on and
+      wounds WS1 = C2 = 9 (client first). Green: the host never shows the question (it does not vote) and opens the vote
       only after the shot's chain: the open ev's seq > the shot context's bt_action_end seq (SV-T4, relations only);
       host CoopFatalVoteHold + the Wait line naming the client; the client's question (N 1); client OK -> close end ->
       NextTurnState -> battle_end with last_alien_down's battle_end pins (T0-3) and the display-only debriefing equal to the
@@ -143,7 +143,7 @@ def pvp_elimination_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb
 def row_v9(r):
     h, c = r.host, r.client
     stage_c16(r)
-    census = fvt.stage_v(r, [cs.C2_ID], seat_pins=((0, cs.H_ID), (1, cs.C_ID)))
+    census = fvt.stage_vote(r, [cs.C2_ID], seat_pins=((0, cs.H_ID), (1, cs.C_ID)))
     try:
         r.ev["press"] = cs.aim_click(c, cs.KEY_SNAP, cs.A_TILE,
                                      lambda: h.ok({"cmd": "set_seed", "seed": cs.SEED_SNAP_KILL}))
@@ -166,7 +166,7 @@ def row_v9(r):
 
 
 def row_e6v(r):
-    census = fvt.stage_v(r, [GM2_WS0], seat_pins=((0, GM2_WS0),))
+    census = fvt.stage_vote(r, [GM2_WS0], seat_pins=((0, GM2_WS0),))
     resp = r.host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "faction": FACTION_HOSTILE})
     r.ev["kill"] = resp
     if not resp.get("ok") or resp.get("killed") != [rules.A_ID]:

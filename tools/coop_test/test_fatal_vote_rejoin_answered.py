@@ -38,7 +38,7 @@ LABEL = "w2p7_fatal_vote_rejoin_answered"
 
 def row_v7b(r):
     h, c = r.host, r.client
-    census = fvt.vote_open(r, [fvt.WS0, fvt.WS1], [0, 1])
+    census = fvt.vote_open(r, [fvt.HOST_SOLDIER, fvt.CLIENT_SOLDIER], [0, 1])
     fvt.answer(r, c, "OK", "answer")   # the client's yes while the host's own question is unanswered
     fvt.wait_until(lambda: fvt.norm(fvt.fv(h)).get("answers") == {1: True} and fvt.top(c) == fvt.MAP, fvt.STEP_S)
     hs, cs = fvt.snap(h), fvt.snap(c)
@@ -58,7 +58,7 @@ def row_v7b(r):
         r.ending = "the host's OK was not pressed"
     rj.close(r, True, "end", {0: True, 1: True},
              {"answerSent": "yes", "questionPushed": 1, "questionClosedByClose": 0}, "")
-    fvt.ending(r, census, fvt.e1_verdict)
+    fvt.ending(r, census, fvt.last_alien_down_verdict)
 
 
 ROWS = (("V7b", row_v7b),)

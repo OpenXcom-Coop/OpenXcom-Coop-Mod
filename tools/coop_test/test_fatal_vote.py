@@ -1,61 +1,67 @@
-"""test_fatal_vote.py: the fatal-wounds question becomes a vote of every player who owns a bleeding
-soldier (owner D159; no timeout, D186; the vote pauses everyone, D214 (a)). Spec: docs
-rewrite/prompts/w2p7_sv_fatal_vote_design.md (sections 2 and 4, ORCHESTRATOR RULINGS Q1-Q9 (a), SV-M1..SV-M13) as
-re-pinned by rewrite/prompts/w2p7_battle_end.md AMENDMENT P7-5 section 4.2 (P7-5 RULINGS Q5-Q11 (a); P7-5b SV-T1..SV-T4).
-Constants: docs rewrite/w2p7-sv-task0/CONSTANTS.md (TASK 0 `w2p7-sv-t0`, F4380-F4396).
+"""test_fatal_vote.py: the fatal-wounds question becomes a vote of every player who owns a bleeding soldier. The vote
+has no timeout (it waits until every voter answers) and it pauses everyone (a non-voter's orders are held).
 
 With battleAutoEnd on, the last alien's death while an X-COM soldier bleeds asks vanilla's "Mission complete. / N of
-us is still fatally wounded / End Mission?" (ConfirmEndMissionState, OK / CANCEL). Before S-V-A.2 only the host is asked
-and a partner's order runs under the host's question. After it: the host opens the vote at quiescence,
+us is still fatally wounded / End Mission?" (ConfirmEndMissionState, OK / CANCEL). Without the vote only the host is
+asked and a partner's order runs under the host's question. With it, the host opens the vote at quiescence,
 every owner seat of a bleeding soldier answers vanilla's own question on its own machine (OK = yes, CANCEL = no), the
 mission ends only on all yes, the first no closes every question (`continue`: the battle ends at END TURN, no second
 question), a host that does not vote (or has answered) sits on `CoopFatalVoteHold` with the existing Wait line naming
 the voter, and a partner's order or END TURN press made while the vote is open is held and runs only if the battle
-continues. This file: rows V0-V6 on the classic boot (test_battle_end.boot: SEED_MAP 1, MAP_FP, A_ID 1000000 the
-only alien, pin_ai_neutral, hash-clean). test_fatal_vote_partner.py holds V9 and E6v (SV-T1).
+continues. This file: seven rows on the classic boot (test_battle_end.boot: SEED_MAP 1, MAP_FP, A_ID 1000000 the
+only alien, pin_ai_neutral, hash-clean). test_fatal_vote_partner.py covers a vote after a partner's kill and in PvP.
 
-Staging (stage_v, design section 4): host set_option battleAutoEnd true; WS1 = 8 / WS0 = 10 (the lowest seat-1 /
+Staging (stage_vote): host set_option battleAutoEnd true; CLIENT_SOLDIER = 8 / HOST_SOLDIER = 10 (the lowest seat-1 /
 seat-0 soldier, asserted); battle_set_unit_state fatalWounds [0,1,0,0,0,0] client first then host; both settle;
 the pre-ending census (test_battle_end.pre_census: hash clean, desync, both battleEnd records at zero) and both
 machines' fatalVote at its zeros. Kill: host battle_action kill_unit_real A. Answers ONLY through click_widget
 {match: "OK" | "CANCEL"} on the answering machine, pressed only while its top is ConfirmEndMissionState and the button
-shows. dismiss_popup (Q11) is called only on the host's NextTurnState, never while the host's vote is Armed or Open,
+shows. dismiss_popup is called only on the host's NextTurnState, never while the host's vote is Armed or Open,
 and its reply must be handled "NextTurnState->close" (never "generic"). Ending: the host's NextTurnState closes ->
-finishBattle -> battle_end, then test_battle_end's last_alien_down assertion set (row_verdict "last_alien_down": battle_end aliensDown, both
-debriefs = HOST_DEBRIEF["last_alien_down"], the client's display-only debriefing, the host hold).
+finishBattle -> battle_end, then test_battle_end's last_alien_down assertion set (row_verdict "last_alien_down":
+battle_end aliensDown, both debriefs = HOST_DEBRIEF["last_alien_down"], the client's display-only debriefing, the host
+hold).
 
-| row | wounds | during the vote | answers | green (the S-V-A.2 product) |
-|---|---|---|---|---|
-| V0 | none | - | - | no question on either machine, fatalVote armed/opened 0, NextTurnState -> battle_end |
-| V1 | WS1 | - | client OK | host top CoopFatalVoteHold + Wait line naming the client, busyOwnerSeat 1; client top the question (N 1); voters [1]; close end |
-| V2 | WS0 | client turn intent | host OK | the intent denied busy and held (lastDeny busy, pending, the Wait line naming the host), direction unchanged on both, heldIntents 1; close end; the held order never runs |
-| V3 | WS0+WS1 | - | host OK, client OK | voters [0,1]; after the host OK the host top CoopFatalVoteHold; one close end |
-| V4 | WS0+WS1 | - | host OK, client CANCEL | close continue; both on BattlescapeState; END TURN client then host -> battle_end; no second question |
-| V5 | WS0 | client turn intent + client END TURN | host CANCEL | held as V2; host tally "END TURN 1/2", no NextTurnState, heldCommits >= 1; after continue the held turn applies on both; host END TURN -> battle_end; no second question |
-| V6 | WS0+WS1 | - | host CANCEL while the client asks | the client's question closes by itself (questionClosedByClose 1, answerSent ""); continue |
+Rows (wounded soldiers; during the vote; answers: expected):
+  no_wounded (none; -; -): no question on either machine, fatalVote armed/opened 0, NextTurnState -> battle_end.
+  client_votes_yes (CLIENT_SOLDIER; -; client OK): host top CoopFatalVoteHold + Wait line naming the client,
+      busyOwnerSeat 1; client top the question (N 1); voters [1]; close end.
+  order_held_then_end (HOST_SOLDIER; client turn intent; host OK): the intent denied busy and held (lastDeny busy,
+      pending, the Wait line naming the host), direction unchanged on both, heldIntents 1; close end; the held order
+      never runs.
+  both_vote_yes (both; -; host OK, client OK): voters [0,1]; after the host OK the host top CoopFatalVoteHold; one
+      close end.
+  client_votes_no (both; -; host OK, client CANCEL): close continue; both on BattlescapeState; END TURN client then
+      host -> battle_end; no second question.
+  order_held_then_continue (HOST_SOLDIER; client turn intent + client END TURN; host CANCEL): held as
+      order_held_then_end; host tally "END TURN 1/2", no NextTurnState, heldCommits >= 1; after continue the held turn
+      applies on both; host END TURN -> battle_end; no second question.
+  host_no_closes_question (both; -; host CANCEL while the client asks): the client's question closes by itself
+      (questionClosedByClose 1, answerSent ""); continue.
 
-Every vote row also asserts both machines' fatalVote at the open and after the close (the pinned field set: state
+Every vote row also asserts both machines' fatalVote at the open and after the close (the probe's field set: state
 Open on both while open, Closed on the host after (the client's neither Open nor Armed), voteId >= 1 and equal on both,
 armed 1, opened 1, voters, wounded N, answers, result, openSeq > the kill's last seq, closeSeq > openSeq and < the
-battle_end seq (SV-T4: relations only), coveredStepsWhileOpen 0, answersDropped 0, resends and coverWaitPasses 0),
+battle_end seq (relations only), coveredStepsWhileOpen 0, answersDropped 0, resends and coverWaitPasses 0),
 hash_now clean while open (and after a `continue` close), desyncSeen false, the host's hostCovered.steps unchanged
 while the question/hold is up, and at most one question per machine per battle.
 
-RED (S-V-A.1 = the tip + the zero-valued probe; one run, exit 2; V1-V6 measured 8/10/10/10/10/6 lines). V0 PASSES
-(if red: STOP, the T2 path is broken). Every vote row fails its four fatalVote lines (host and client, at the open
-and after the close: the zero record). Beyond those:
-  V1  open: host top ConfirmEndMissionState, no Wait line, busyOwnerSeat -1; client top BattlescapeState. answer:
-      client OK not pressed. ending: not run.
-  V2  held: the turn admitted and applied under the host's question (direction changed on both; no busy deny,
-      nothing pending, no Wait line; host intentsReceived admitted 1). covered: hostCovered.steps grew. after close:
-      the held order ran. ending: runs and passes; the close-before-battle_end line fails.
-  V3  open: client top BattlescapeState. hold: after the host OK the host top NextTurnState (no Wait line,
+A build whose fatalVote probe answers but that has no vote (one run, exit 2; the six vote rows fail 8 / 10 / 10 / 10 /
+10 / 6 lines) passes no_wounded, whose ending has no question. Every vote row fails its four fatalVote lines (host and
+client, at the open and after the close: the zero record). Beyond those:
+  client_votes_yes  open: host top ConfirmEndMissionState, no Wait line, busyOwnerSeat -1; client top
+      BattlescapeState. answer: client OK not pressed. ending: not run.
+  order_held_then_end  held: the turn admitted and applied under the host's question (direction changed on both; no
+      busy deny, nothing pending, no Wait line; host intentsReceived admitted 1). covered: hostCovered.steps grew.
+      after close: the held order ran. ending: runs and passes; the close-before-battle_end line fails.
+  both_vote_yes  open: client top BattlescapeState. hold: after the host OK the host top NextTurnState (no Wait line,
       busyOwnerSeat -1), the client top not the question, the host's record not Open. answer: client OK not pressed.
       ending: not run.
-  V4  as V3 (the host OK ends the battle; the client CANCEL not pressed).
-  V5  held and covered as V2; end turn: the host's record not Open, heldCommits 0. ending: runs and passes; the
-      close-before-battle_end line fails.
-  V6  open: client top BattlescapeState. ending: runs and passes; the close-before-battle_end line fails.
+  client_votes_no  as both_vote_yes (the host OK ends the battle; the client CANCEL not pressed).
+  order_held_then_continue  held and covered as order_held_then_end; end turn: the host's record not Open,
+      heldCommits 0. ending: runs and passes; the close-before-battle_end line fails.
+  host_no_closes_question  open: client top BattlescapeState. ending: runs and passes; the close-before-battle_end
+      line fails.
 
 one run is the result; no skip path, one boot per row. Each row prints ONE "EVIDENCE <id>:" line
 before its verdict; main() runs every row and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded.
@@ -75,12 +81,14 @@ from session import battle_state, event_state, assert_hash_clean
 import repro_atom_walk as raw
 import test_battle_end as tbe
 
-# ----- the classic boot (TASK 0 CONSTANTS) -----
+# ----- the classic boot -----
 A_ID = tbe.A_ID
-WS0, WS1 = 10, 8                 # the lowest seat-0 / seat-1 soldier (seat 1 = [8, 9], seat 0 = [10..14])
-C_ID = WS1                       # the client's soldier that receives V2/V5's turn order (T0-2)
+HOST_SOLDIER, CLIENT_SOLDIER = 10, 8   # the lowest seat-0 / seat-1 soldier (seat 1 = [8, 9], seat 0 = [10..14])
+C_ID = CLIENT_SOLDIER                  # the client's soldier that receives the held rows' turn order
 WOUND = [0, 1, 0, 0, 0, 0]       # one torso fatal wound
-ROW_PORT = {"V0": "48540", "V1": "48541", "V2": "48542", "V3": "48543", "V4": "48544", "V5": "48545", "V6": "48546"}
+ROW_PORT = {"no_wounded": "48540", "client_votes_yes": "48541", "order_held_then_end": "48542",
+            "both_vote_yes": "48543", "client_votes_no": "48544", "order_held_then_continue": "48545",
+            "host_no_closes_question": "48546"}
 CTRL_PORTS = (49896, 49897)      # GameClient labels (the control sockets are ephemeral)
 
 # ----- the vote -----
@@ -90,18 +98,18 @@ TEXT_WAIT_CLIENT = f"Please wait for {raw.CLIENT_PLAYER}'s action to finish"   #
 TEXT_WAIT_HOST = f"Please wait for {raw.HOST_PLAYER}'s action to finish"
 TALLY_1_2 = "END TURN 1/2"
 NEXT_CLOSE = "NextTurnState->close"
-# AMENDMENT P7-5 4.2: the pinned probe field set and its zeros (both machines carry every key).
+# The probe's field set and its zeros (both machines carry every key).
 FV_ZERO = {"state": "Idle", "voteId": 0, "armed": 0, "opened": 0, "voters": [], "wounded": 0, "answers": {},
            "result": "", "openSeq": 0, "closeSeq": 0, "heldIntents": 0, "heldCommits": 0, "coveredStepsWhileOpen": 0,
            "answersDropped": 0, "resends": 0, "answered": [], "opensApplied": 0, "closesApplied": 0,
            "questionPushed": 0, "questionPushedMs": 0, "ghostWaitPasses": 0, "coverWaitPasses": 0, "answerSent": "",
            "questionClosedByClose": 0}
 
-OPEN_S = 10       # the question / hold after the kill (TASK 0: 0.90 s host kill, +2.00 s partner kill)
-STEP_S = 10       # each answer's effect, the client's question, the close (TASK 0: OK -> NextTurnState <= 0.063 s)
+OPEN_S = 10       # the question / hold after the kill (measured: 0.90 s after a host kill, +2.00 s after a partner's)
+STEP_S = 10       # each answer's effect, the client's question, the close (measured: OK -> NextTurnState <= 0.063 s)
 SETTLE_S = 15     # the client catches up with the host's stream
 BUTTON_S = 5      # the question's button shows (its popup window hides every surface until the popup ends)
-HELD_OBS_S = 1.5  # a held order is watched this long (T0-2: an admitted turn applies on both <= 0.1 s)
+HELD_OBS_S = 1.5  # a held order is watched this long (measured: an admitted turn applies on both <= 0.1 s)
 TALLY_S = 20      # the host paints END TURN 1/2 after the client's press
 POLL = 0.05
 
@@ -250,12 +258,12 @@ def wait_held_done(r, phase):
                                    and event_state(c).get("inFlight") is None
                                    and event_state(h).get("busyOwnerSeat") == -1), STEP_S)
     r.ev.setdefault("heldWait", {})[phase] = {"idle": ok, "secs": secs}
-    print(f"[w2p7-sv] {r.rid} {phase}: held-order wait {secs}s (idle={ok})", flush=True)
+    print(f"[test_fatal_vote] {r.rid} {phase}: held-order wait {secs}s (idle={ok})", flush=True)
 
 
-def stage_v(r, wounded, seat_pins=((0, WS0), (1, WS1))):
-    """Design section 4 staging: auto-end on, the seat pins, the wounds (client first), the pre-ending census and
-    both machines' fatalVote zeros. Returns the census (b0)."""
+def stage_vote(r, wounded, seat_pins=((0, HOST_SOLDIER), (1, CLIENT_SOLDIER))):
+    """The staging: auto-end on, the seat pins, the wounds (client first), the pre-ending census and both machines'
+    fatalVote zeros. Returns the census."""
     h, c = r.host, r.client
     ae = h.cmd({"cmd": "set_option", "name": "battleAutoEnd", "value": True})
     if ae.get("value") is not True:
@@ -407,7 +415,7 @@ def check_hold(r, n_answers):
 
 def check_close(r, result, answers, client_want, host_want=None, held=False):
     """The decision: both machines' records after the close; continue rows also both tops and the hash.
-    `held`: the row's held order is resubmitted after the close (wait_held_done before settle, R-Y1-2)."""
+    `held`: the row's held order is resubmitted after the close (wait_held_done before settle)."""
     h, c = r.host, r.client
     cov_last = r.covered_last
     if cov_last != r.covered_open:
@@ -487,7 +495,7 @@ def check_held(r, d0, iseq):
 
 
 def never_runs(r, d0):
-    """V2 after the close end: the held order never runs (C keeps d0 on both for HELD_OBS_S)."""
+    """order_held_then_end after the close end: the held order never runs (C keeps d0 on both for HELD_OBS_S)."""
     seen, t0 = set(), time.time()
     while time.time() - t0 < HELD_OBS_S:
         seen.add((dir_c(r.host), dir_c(r.client)))
@@ -513,7 +521,7 @@ def end_turns(r, client_too=True):
 
 
 def dismiss_next(r):
-    """Q11: the ONLY dismiss_popup call - the host's NextTurnState, never while its vote is Armed or Open."""
+    """The ONLY dismiss_popup call - the host's NextTurnState, never while its vote is Armed or Open."""
     h = r.host
     st = (fv(h) or {}).get("state")
     if top(h) != NEXT or st in ("Armed", "Open"):
@@ -526,7 +534,8 @@ def dismiss_next(r):
 
 
 def ending(r, census, verdict, vote=True):
-    """NextTurnState -> close -> battle_end, then `verdict` (the last_alien_down / E6 assertion set) and the vote's relations."""
+    """NextTurnState -> close -> battle_end, then `verdict` (the last_alien_down or pvp_elimination assertion set) and
+    the vote's relations."""
     h, c = r.host, r.client
     if r.ending:
         r.fail("ending", f"not run: {r.ending}")
@@ -584,8 +593,9 @@ def ending(r, census, verdict, vote=True):
         r.line("ending", "client fatalVote at the end", mism(cv, {"questionPushed": pushed, "closesApplied": 1}))
 
 
-def e1_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
-    """test_battle_end's last_alien_down assertion set (TASK 0: every V0-V6 ending equals last_alien_down's pins, F4382)."""
+def last_alien_down_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
+    """test_battle_end's last_alien_down assertion set (every row's ending matches last_alien_down's expected
+    values)."""
     return tbe.row_verdict("last_alien_down", tbe.ROW_EXPECT["last_alien_down"], hrec, crec, cend, hend, b0, cleft,
                            extra, hold, hdeb, cdeb, None)
 
@@ -593,8 +603,8 @@ def e1_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
 # ===================== the rows =====================
 
 
-def row_v0(r):
-    census = stage_v(r, [])
+def row_no_wounded(r):
+    census = stage_vote(r, [])
     kill(r)
     trace, last, t0 = [], None, time.time()
     while time.time() - t0 < OPEN_S:
@@ -611,11 +621,11 @@ def row_v0(r):
     for gc in (r.host, r.client):
         r.line("open", f"{gc.name} fatalVote", mism(norm(fv(gc)), {"state": "Idle", "armed": 0, "opened": 0,
                                                                      "opensApplied": 0, "questionPushed": 0}))
-    ending(r, census, e1_verdict, vote=False)
+    ending(r, census, last_alien_down_verdict, vote=False)
 
 
 def vote_open(r, wounded, voters):
-    census = stage_v(r, wounded)
+    census = stage_vote(r, wounded)
     kill(r)
     ok, trace = detect_open(r)
     if not ok:
@@ -624,17 +634,17 @@ def vote_open(r, wounded, voters):
     return census
 
 
-def row_v1(r):
-    census = vote_open(r, [WS1], [1])
+def row_client_votes_yes(r):
+    census = vote_open(r, [CLIENT_SOLDIER], [1])
     r.covered_last = covered(r.host)
     if not answer(r, r.client, "OK", "answer"):
         r.ending = "the client's OK was not pressed"
     check_close(r, "end", {1: True}, {"answerSent": "yes", "questionPushed": 1, "questionClosedByClose": 0})
-    ending(r, census, e1_verdict)
+    ending(r, census, last_alien_down_verdict)
 
 
-def row_v2(r):
-    census = vote_open(r, [WS0], [0])
+def row_order_held_then_end(r):
+    census = vote_open(r, [HOST_SOLDIER], [0])
     d0, _to, iseq = turn_order(r)
     check_held(r, d0, iseq)
     r.covered_last = covered(r.host)
@@ -643,11 +653,11 @@ def row_v2(r):
     check_close(r, "end", {0: True}, {"answerSent": "", "questionPushed": 0, "questionClosedByClose": 0},
                 {"heldIntents": 1})
     never_runs(r, d0)
-    ending(r, census, e1_verdict)
+    ending(r, census, last_alien_down_verdict)
 
 
 def both_yes_or_no(r, client_match):
-    census = vote_open(r, [WS0, WS1], [0, 1])
+    census = vote_open(r, [HOST_SOLDIER, CLIENT_SOLDIER], [0, 1])
     pressed = answer(r, r.host, "OK", "answer")
     check_hold(r, {0: True})
     r.covered_last = covered(r.host)
@@ -657,23 +667,23 @@ def both_yes_or_no(r, client_match):
     return census
 
 
-def row_v3(r):
+def row_both_vote_yes(r):
     census = both_yes_or_no(r, "OK")
     check_close(r, "end", {0: True, 1: True}, {"answerSent": "yes", "questionPushed": 1, "questionClosedByClose": 0})
-    ending(r, census, e1_verdict)
+    ending(r, census, last_alien_down_verdict)
 
 
-def row_v4(r):
+def row_client_votes_no(r):
     census = both_yes_or_no(r, "CANCEL")
     check_close(r, "continue", {0: True, 1: False},
                 {"answerSent": "no", "questionPushed": 1, "questionClosedByClose": 0})
     if not r.ending:
         end_turns(r)
-    ending(r, census, e1_verdict)
+    ending(r, census, last_alien_down_verdict)
 
 
-def row_v5(r):
-    census = vote_open(r, [WS0], [0])
+def row_order_held_then_continue(r):
+    census = vote_open(r, [HOST_SOLDIER], [0])
     d0, to_dir, iseq = turn_order(r)
     check_held(r, d0, iseq)
     r.client.cmd({"cmd": "battle_action", "action": "end_turn_button"})
@@ -705,18 +715,18 @@ def row_v5(r):
     if not r.ending:
         hash_clean(r, "after close", "after the held turn")
         end_turns(r, client_too=False)
-    ending(r, census, e1_verdict)
+    ending(r, census, last_alien_down_verdict)
 
 
-def row_v6(r):
-    census = vote_open(r, [WS0, WS1], [0, 1])
+def row_host_no_closes_question(r):
+    census = vote_open(r, [HOST_SOLDIER, CLIENT_SOLDIER], [0, 1])
     r.covered_last = covered(r.host)
     if not answer(r, r.host, "CANCEL", "answer"):
         r.ending = "the host's CANCEL was not pressed"
     check_close(r, "continue", {0: False}, {"answerSent": "", "questionPushed": 1, "questionClosedByClose": 1})
     if not r.ending:
         end_turns(r)
-    ending(r, census, e1_verdict)
+    ending(r, census, last_alien_down_verdict)
 
 
 # ===================== runner =====================
@@ -751,7 +761,7 @@ def run_row(rid, boot_fn, row_fn, results, port, label):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p7-sv] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_fatal_vote] shutdown {gc.name}: {short(e)}", flush=True)
 
 
 def run_rows(name, rows, ports, label):
@@ -767,12 +777,15 @@ def run_rows(name, rows, ports, label):
     return 0 if not failed else 2
 
 
-ROWS = (("V0", tbe.boot, row_v0), ("V1", tbe.boot, row_v1), ("V2", tbe.boot, row_v2), ("V3", tbe.boot, row_v3),
-        ("V4", tbe.boot, row_v4), ("V5", tbe.boot, row_v5), ("V6", tbe.boot, row_v6))
+ROWS = (("no_wounded", tbe.boot, row_no_wounded), ("client_votes_yes", tbe.boot, row_client_votes_yes),
+        ("order_held_then_end", tbe.boot, row_order_held_then_end), ("both_vote_yes", tbe.boot, row_both_vote_yes),
+        ("client_votes_no", tbe.boot, row_client_votes_no),
+        ("order_held_then_continue", tbe.boot, row_order_held_then_continue),
+        ("host_no_closes_question", tbe.boot, row_host_no_closes_question))
 
 
 def main():
-    return run_rows("test_fatal_vote", ROWS, ROW_PORT, "w2p7_fatal_vote")
+    return run_rows("test_fatal_vote", ROWS, ROW_PORT, "fatal_vote")
 
 
 if __name__ == "__main__":

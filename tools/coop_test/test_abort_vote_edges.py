@@ -7,8 +7,8 @@ down before the next:
   Boot leave (lobby key 48614; abort_vote_leave_host / _client / _client2): leave_cancels_vote: a leave cancels the vote;
          after the rejoin (client2, test_rejoin_end_turn.stage_rejoin's steps copied) a new vote works.
   Boot fatal_vote (lobby key 48616; abort_vote_fatal_vote_host / _client): abort_waits_for_fatal_vote: an abort request
-         during the fatal-wounds vote waits for it (test_fatal_vote's stage_v(r, [WS0]) + kill + detect_open: the host is
-         the only voter).
+         during the fatal-wounds vote waits for it (test_fatal_vote's stage_vote(r, [HOST_SOLDIER]) + kill +
+         detect_open: the host is the only voter).
 
 Cells (GUARD = passes with or without the wait, FIX = fails without it: the abort VoteMenu then opens over the host's
 question at once):
@@ -201,7 +201,7 @@ def row_leave_cancels_vote(r, m):
 def row_abort_waits_for_fatal_vote(r, m):
     host, client = m["host"], m["client"]
     fr = fvt.Row("abort_waits_for_fatal_vote", host, client)
-    fvt.stage_v(fr, [fvt.WS0])
+    fvt.stage_vote(fr, [fvt.HOST_SOLDIER])
     fvt.kill(fr)
     ok, trace = fvt.detect_open(fr)
     r.ev["stage"] = {"fails": fr.fails, "hostTrace": trace}

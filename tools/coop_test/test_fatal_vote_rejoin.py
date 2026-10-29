@@ -260,18 +260,18 @@ def seed_once(r):
 
 
 def row_v7(r):
-    census = fvt.vote_open(r, [fvt.WS1], [1])
+    census = fvt.vote_open(r, [fvt.CLIENT_SOLDIER], [1])
     leave(r, fvt.HOLD, {})
     t_res = rejoin(r, fvt.HOLD)
     after_rejoin(r, t_res, [1], 1, {}, [])
     pressed = fvt.answer(r, r.client, "OK", "answer")
     close(r, pressed, "end", {1: True}, {"answerSent": "yes", "questionPushed": 1, "questionClosedByClose": 0},
           "client2's OK was not pressed")
-    fvt.ending(r, census, fvt.e1_verdict)
+    fvt.ending(r, census, fvt.last_alien_down_verdict)
 
 
 def row_v8(r):
-    census = fvt.vote_open(r, [fvt.WS0, fvt.WS1], [0, 1])
+    census = fvt.vote_open(r, [fvt.HOST_SOLDIER, fvt.CLIENT_SOLDIER], [0, 1])
     fvt.answer(r, r.host, "OK", "answer")
     fvt.check_hold(r, {0: True})
     leave(r, fvt.HOLD, {0: True})
@@ -282,7 +282,7 @@ def row_v8(r):
           {"answerSent": "no", "questionPushed": 1, "questionClosedByClose": 0}, "client2's CANCEL was not pressed")
     if not r.ending:
         fvt.end_turns(r)
-    fvt.ending(r, census, fvt.e1_verdict)
+    fvt.ending(r, census, fvt.last_alien_down_verdict)
     seed_once(r)
 
 
