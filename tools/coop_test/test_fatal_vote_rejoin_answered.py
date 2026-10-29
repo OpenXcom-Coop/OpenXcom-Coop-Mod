@@ -1,26 +1,26 @@
-"""test_fatal_vote_rejoin_answered.py: a voter who answered, then left and rejoined, is asked again
-(owner D223 (b), docs rewrite/prompts/w2p7_battle_end.md ### P7-7, row V7b). Spec, staging, the drop, the rejoin and
-the shared assertions: test_fatal_vote_rejoin.py (whose helpers this file runs), and through it
-test_fatal_vote.py. The split from test_fatal_vote_rejoin.py is SV-T1's pattern (P7-7: the file stays <= 150 s
-solo; V7, V8 and V7b together ran 153.3 s at red).
+"""test_fatal_vote_rejoin_answered.py: a voter who answered, then left and rejoined, is asked again. Staging, the
+drop, the rejoin and the shared assertions: test_fatal_vote_rejoin.py (whose helpers this file runs), and through it
+test_fatal_vote.py. This row has its own file to keep each file's wall short (the three rejoin rows ran 153.3 s
+together on a build without the resend).
 
-  V7b WS0 + WS1 wounded; the vote opens with the host's own question and the client's. The client answers OK while
-      the host's question is still unanswered (host answers {1: yes}, host top the question, client top the map); the
-      client drops (dialog 62 over the host's question, the vote Open, {1: yes} kept); client2 rejoins; the host's
-      RESUME. Green: the host drops the rejoining seat's stored answer before the resend, so
-      after the rejoin the host's answers are {} and client2's answered [] (resends 1); client2 shows the question
-      (N 2); client2 OK (host answers {1: yes}), then the host's OK -> close end {0: yes, 1: yes} -> NextTurnState ->
-      battle_end with test_battle_end's last_alien_down set over client2.
+  answer_dropped_on_rejoin  HOST_SOLDIER + CLIENT_SOLDIER wounded; the vote opens with the host's own question and the
+      client's. The client answers OK while the host's question is still unanswered (host answers {1: yes}, host top
+      the question, client top the map); the client drops (dialog 62 over the host's question, the vote Open, {1: yes}
+      kept); client2 rejoins; the host's RESUME. Expected: the host drops the rejoining seat's stored answer before
+      the resend, so after the rejoin the host's answers are {} and client2's answered [] (resends 1); client2 shows
+      the question (N 2); client2 OK (host answers {1: yes}), then the host's OK -> close end {0: yes, 1: yes} ->
+      NextTurnState -> battle_end with test_battle_end's last_alien_down set over client2.
 
-RED (S-V-B.1 = the S-V-A.2 build with H12b; no resend exists; one run, exit 2). Every precondition passes (the open,
-the client's OK, the pause, dialog 68, RESUME, phase, battleId, hash). rejoin: host fatalVote resends 0 and answers
-{1: yes} (want {}); client2 no question within 30 s of RESUME (host resends 0, client2 opensApplied 0, the vote still
-Open); client2 fatalVote at its zeros. answer: client2 OK not pressed; the host's OK then decides end on the stale yes.
-close: host resends 0; client2 opensApplied 0, answerSent "", questionPushed 0. ending: runs and passes.
+A build without the resend (one run, exit 2) passes every precondition (the open, the client's OK, the pause, dialog
+68, RESUME, phase, battleId, hash). rejoin: host fatalVote resends 0 and answers {1: yes} (want {}); client2 no
+question within 30 s of RESUME (host resends 0, client2 opensApplied 0, the vote still Open); client2 fatalVote at its
+zeros. answer: client2 OK not pressed; the host's OK then decides end on the stale yes. close: host resends 0; client2
+opensApplied 0, answerSent "", questionPushed 0. ending: runs and passes.
 
-one run is the result; no skip path, one boot. The row prints ONE "EVIDENCE V7b:" line, then
-"PASS V7b" / "FAIL V7b: <message>"; a rejoin step past its bound prints one CAPTURE line and FAILs "rejoin
-(setup failure)". Exit 0 only when the row passes, 2 otherwise. run in the foreground to completion.
+one run is the result; no skip path, one boot. The row prints ONE "EVIDENCE answer_dropped_on_rejoin:" line, then
+"PASS answer_dropped_on_rejoin" / "FAIL answer_dropped_on_rejoin: <message>"; a rejoin step past its bound prints one
+CAPTURE line and FAILs "rejoin (setup failure)". Exit 0 only when the row passes, 2 otherwise. run in the foreground to
+completion.
 
 Run:  python tools/coop_test/test_fatal_vote_rejoin_answered.py
 """
@@ -32,11 +32,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import test_fatal_vote as fvt
 import test_fatal_vote_rejoin as rj
 
-ROW_PORT = {"V7b": "48551"}   # the next unused lobby key after 48550 (0 matches in the tree and REGRESSION-BATCHES.md)
-LABEL = "w2p7_fatal_vote_rejoin_answered"
+ROW_PORT = {"answer_dropped_on_rejoin": "48551"}   # the lobby key after test_fatal_vote_rejoin's 48550
+LABEL = "fatal_vote_rejoin_answered"
 
 
-def row_v7b(r):
+def row_answer_dropped_on_rejoin(r):
     h, c = r.host, r.client
     census = fvt.vote_open(r, [fvt.HOST_SOLDIER, fvt.CLIENT_SOLDIER], [0, 1])
     fvt.answer(r, c, "OK", "answer")   # the client's yes while the host's own question is unanswered
@@ -61,7 +61,7 @@ def row_v7b(r):
     fvt.ending(r, census, fvt.last_alien_down_verdict)
 
 
-ROWS = (("V7b", row_v7b),)
+ROWS = (("answer_dropped_on_rejoin", row_answer_dropped_on_rejoin),)
 
 
 def main():
