@@ -5,19 +5,19 @@ updateCoopTask()'s receive-loop catch puts the same message back and sets -3. On
 (hundreds of crash logs a second). A message one game cannot read must be dropped once and the partner dropped as a bad frame does (TCP:
 the host thread's canonical drop; UDP: the canonical -2), so the partner sees "Server connection lost" and can rejoin.
 Three rows, one fresh boot pair each (key "49201", dirs w2h60_<row>_host / _client / _client2; session.new_campaign SEPARATE gm1, R-U
-transport udp; then FIX.stable_geo(host, client, STABLE_S)). Every trigger is the TEST-ONLY lever throw_next_rx (commit P1).
+transport udp; then F.stable_geo(host, client, STABLE_S)). Every trigger is the TEST-ONLY lever throw_next_rx (commit P1).
   R-A (tcp) host throw_next_rx {state: "target_positions"}; MARKED on the host within W_MARK; the client's 21 within W_21; wait(host) R1 / R2;
-      then (only if A-partner passed) client.kill(), FIX.rejoin(host, client2, KEY, NAME), FIX.resume_and_clear(host), client2's top
-      GeoscapeState within W_GEO, FIX.quick_save(host). Cells: A-pre GUARD, A-flood FIX, A-hatch FIX, A-drop FIX, A-name FIX, A-partner FIX,
+      then (only if A-partner passed) client.kill(), F.rejoin(host, client2, KEY, NAME), F.resume_and_clear(host), client2's top
+      GeoscapeState within W_GEO, F.quick_save(host). Cells: A-pre GUARD, A-flood FIX, A-hatch FIX, A-drop FIX, A-name FIX, A-partner FIX,
       A-rejoin FIX, A-resume FIX, A-save FIX, A-common GUARD.
   R-U (udp) as R-A over transport udp, the client's 21 within W_21U, no rejoin. Cells: U-pre GUARD, U-flood FIX, U-hatch FIX, U-drop FIX,
       U-partner FIX, U-common GUARD.
   R-C (tcp, the client cannot read a message: control, LAST) client throw_next_rx {state: "target_positions"}; MARKED on the client; the
       client's 440 within W_440; wait(host) R1; R2 = HOLD_S after the 440. Cells: C-pre GUARD, C-440 GUARD, C-log FIX, C-host GUARD,
       C-common GUARD.
-wait(host) = FIX.wait_62(host, SEEN_S), the top's TextButtons settled (every TextButton hidden false, W2-H55 HDD's settled, copied) +
+wait(host) = F.wait_62(host, SEEN_S), the top's TextButtons settled (every TextButton hidden false, W2-H55 HDD's settled, copied) +
 SETTLE_S = R1; R2 = HOLD_S later. hatch = code 62, saveQuitVisible and abandonVisible true, RESUME visible false, title contains "to
-reconnect". CRASH = new files in FIX.crashes() (the lane crash folder) since the row's baseline. 21 cells. Red (commit R1, P1 build): exit 2,
+reconnect". CRASH = new files in F.crashes() (the lane crash folder) since the row's baseline. 21 cells. Red (commit R1, P1 build): exit 2,
 RED exactly on A-flood, A-hatch, A-drop, A-name, A-partner, A-rejoin, A-resume, A-save, U-flood, U-hatch, U-drop, U-partner, C-log (13).
 A precondition miss ends its row (later cells "not reached" = FAIL); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE
 line per row, one PASS / FAIL line per cell, then the row verdict; exit 0 only when every cell passes, else 2. Kills only
@@ -29,7 +29,7 @@ import json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
-import drop_fixture as FIX  # noqa: E402
+import drop_fixture as F  # noqa: E402
 from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49201"
@@ -133,7 +133,7 @@ def named(bs):
 
 
 def crash_n(c0):
-    return len(FIX.crashes() - c0)
+    return len(F.crashes() - c0)
 
 
 def read(h, tt, c0):
@@ -149,8 +149,8 @@ def hatch(rd):
 
 
 def wait_host(r, h, tt):
-    """FIX.wait_62 + settled (every TextButton of the top CoopState hidden false, F18080) + SETTLE_S -> R1 (else Stop)"""
-    w = FIX.wait_62(h, SEEN_S)
+    """F.wait_62 + settled (every TextButton of the top CoopState hidden false, F18080) + SETTLE_S -> R1 (else Stop)"""
+    w = F.wait_62(h, SEEN_S)
     r.ev["62"] = {"ok": w["ok"], "at s": round(time.time() - tt, 3), "dialog": w["dialog"], "hostStack": w["hostStack"]}
     if not w["ok"]:
         raise Stop("WAIT the host's 62 on a top CoopState: not within %.0f s" % SEEN_S)
@@ -205,7 +205,7 @@ class Row:
 
 
 def baseline(r, x):
-    x.c0, x.n_h, x.n_c = FIX.crashes(), len(log(x.host)), len(log(x.client))
+    x.c0, x.n_h, x.n_c = F.crashes(), len(log(x.host)), len(log(x.client))
     hc = coop(x.host)
     r.ev["base"] = {"cpu": cpu(), "host stack": stack(x.host), "client stack": stack(x.client), "host get_coop": hc,
                     "client get_coop": coop(x.client), "crash folder": len(x.c0)}
@@ -273,18 +273,18 @@ def row_a(x, results, walls):
             raise Stop("A-partner failed: the rejoin is not reached")
         c.kill()
         x.c2 = GameClient("client2", None, make_user_dir("w2h60_a_client2"))
-        ev["rejoin"] = rj = trim_rejoin(FIX.rejoin(h, x.c2, KEY, x.name))
+        ev["rejoin"] = rj = trim_rejoin(F.rejoin(h, x.c2, KEY, x.name))
         r.cell("A-rejoin", rj["t68"] is not None and rj["ack"] is not None, "client2 t68 %s, ack %s" % (rj["t68"], rj["ack"]))
         if rj["t68"] is None or rj["ack"] is None:
             raise Stop("A-rejoin failed: the resume is not reached")
-        rc = FIX.resume_and_clear(h)
+        rc = F.resume_and_clear(h)
         ev["resume"] = {"ok": rc.get("ok"), "click": rc["resume"].get("click"), "cancel": "cancel" in rc, "end": rc.get("end")}
         ev["client2 geo s"] = geo = wait(lambda: top(x.c2) == "GeoscapeState", W_GEO)
         r.cell("A-resume", rc.get("ok") and geo is not None, "resume_and_clear ok %s; client2's top GeoscapeState within %.0f s: %s"
                % (rc.get("ok"), W_GEO, geo))
         if not (rc.get("ok") and geo is not None):
             raise Stop("A-resume failed: the save is not reached")
-        sv = FIX.quick_save(h)
+        sv = F.quick_save(h)
         ev["save"] = {k: sv.get(k) for k in ("ok", "seen54", "written", "t", "trigger")} | {"last trail": (sv.get("trail") or [None])[-1]}
         r.cell("A-save", sv.get("ok"), "quick_save ok %s (the 54 seen %s, _quick_.asav written %s)" % (sv.get("ok"), sv.get("seen54"),
                                                                                                      sv.get("written")))
@@ -366,7 +366,7 @@ def procs(x):
 
 
 def boot(rid, tag, udp):
-    """host + client spawn, connect, session.new_campaign(port=KEY), FIX.stable_geo (else x.err + ONE CAPTURE line)"""
+    """host + client spawn, connect, session.new_campaign(port=KEY), F.stable_geo (else x.err + ONE CAPTURE line)"""
     x = SimpleNamespace(rid=rid, tag=tag, host=None, client=None, c2=None, err=None, c0=set(), n_h=0, n_c=0, name=DEFAULT_NAME)
     try:
         x.host, x.client = GameClient("host", None, make_user_dir(tag + "_host")), GameClient("client", None, make_user_dir(tag + "_client"))
@@ -375,9 +375,9 @@ def boot(rid, tag, udp):
             session.new_campaign(x.host, x.client, port=KEY, transport="udp")
         else:
             session.new_campaign(x.host, x.client, port=KEY)
-        s = FIX.stable_geo(x.host, x.client, STABLE_S)
+        s = F.stable_geo(x.host, x.client, STABLE_S)
         if not s["ok"]:
-            raise Stop("FIX.stable_geo: %s" % js(s))
+            raise Stop("F.stable_geo: %s" % js(s))
     except Exception as e:  # noqa: BLE001 - a boot that raises is a boot miss
         x.err = short(e, 600)
         cap = {n: {"stack": stack(g), "coop_dialog_info": dlg(g), "get_coop": coop(g)} for n, g in (("host", x.host), ("client", x.client))
