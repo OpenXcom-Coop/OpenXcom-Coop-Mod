@@ -225,7 +225,7 @@ def boot_a(placement, game_port, host_port, client_port):
         corner, facing = far_corner(door, mx, my)
         [(teleport_all_resp, _)] = place_deterministic(
             host, client,
-            [{"lever": "battle_teleport_all", "faction": "hostile",
+            [{"cmd": "battle_teleport_all", "faction": "hostile",
               "corner": corner, "facing": facing}],
             what=f"{tag} A5 hostiles to far corner")
         record["a5_corner"] = corner
@@ -262,7 +262,7 @@ def boot_a(placement, game_port, host_port, client_port):
         facing_door = opposite_dir(d_out)
         place_deterministic(
             host, client,
-            [{"lever": "battle_teleport_unit", "unit": hostile1,
+            [{"cmd": "battle_teleport_unit", "unit": hostile1,
               "x": target[0], "y": target[1], "z": target[2], "dir": facing_door}],
             what=f"{tag} place hostile #{hostile1} at {target}")
         record["a6_hostile_id"] = hostile1
@@ -278,7 +278,7 @@ def boot_a(placement, game_port, host_port, client_port):
         if session.unit_pos(actor) != near:
             place_deterministic(
                 host, client,
-                [{"lever": "battle_teleport_unit", "unit": actor_id,
+                [{"cmd": "battle_teleport_unit", "unit": actor_id,
                   "x": near[0], "y": near[1], "z": near[2], "dir": d_out}],
                 what=f"{tag} place actor {actor_id} at near={near}")
         record["a6_actor_id"] = actor_id
@@ -375,9 +375,9 @@ def boot_b(game_port, host_port, client_port):
         neutral_facing = session._CORNER_FACING[neutral_corner]
         [(hostile_move, _), (neutral_move, _)] = place_deterministic(
             host, client,
-            [{"lever": "battle_teleport_all", "faction": "hostile",
+            [{"cmd": "battle_teleport_all", "faction": "hostile",
               "corner": hostile_corner, "facing": hostile_facing},
-             {"lever": "battle_teleport_all", "faction": "neutral",
+             {"cmd": "battle_teleport_all", "faction": "neutral",
               "corner": neutral_corner, "facing": neutral_facing}],
             what=f"{tag} B2 hostiles+civilians to opposite corners")
         record["b2_hostile_corner"] = hostile_corner

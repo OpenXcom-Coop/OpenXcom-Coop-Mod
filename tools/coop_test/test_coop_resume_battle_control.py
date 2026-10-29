@@ -438,7 +438,7 @@ def _walker_to(host, client, walker_id, tile, what):
     w = next(u for u in battle(host)["units"] if u["id"] == walker_id)
     if (w["x"], w["y"], w["z"]) != tile:
         session.place_deterministic(
-            host, client, [{"lever": "battle_teleport_unit", "unit": walker_id,
+            host, client, [{"cmd": "battle_teleport_unit", "unit": walker_id,
                             "x": tile[0], "y": tile[1], "z": tile[2]}], what=what)
 
 
@@ -462,7 +462,7 @@ def stage_alien_and_walk(host, client, walker_id):
     elevator = (lx, ly, 1)
     away = s16._away_direction(walker, (lx, ly))
     session.place_deterministic(
-        host, client, [{"lever": "battle_teleport_unit", "unit": alien["id"],
+        host, client, [{"cmd": "battle_teleport_unit", "unit": alien["id"],
                         "x": lx, "y": ly, "z": 1, "dir": away}],
         what="park alien in UFO")
     print(f"[stage] alien {alien['id']} parked at UFO lift {elevator} (dir={away})")

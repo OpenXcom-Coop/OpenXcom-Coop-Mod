@@ -302,7 +302,7 @@ def phase_zero_step_spot(host, client, actor_id, door):
     spot = (door["x"] + GS.LANE_DX_START + 3, door["y"] + GS.LANE_DY, door["z"] + GS.ROOF_DZ)
     session.place_deterministic(
         host, client,
-        [{"lever": "battle_teleport_unit", "unit": actor_id,
+        [{"cmd": "battle_teleport_unit", "unit": actor_id,
           "x": spot[0], "y": spot[1], "z": spot[2], "dir": F}],
         what="ZERO-STEP SPOT PHASE soldier roof spot")
 
@@ -318,7 +318,7 @@ def phase_zero_step_spot(host, client, actor_id, door):
     enemy_tile = off(spot, left, 2)
     session.place_deterministic(
         host, client,
-        [{"lever": "battle_teleport_unit", "unit": alien_id,
+        [{"cmd": "battle_teleport_unit", "unit": alien_id,
           "x": enemy_tile[0], "y": enemy_tile[1], "z": enemy_tile[2], "dir": left}],
         what="ZERO-STEP SPOT PHASE hostile placement")
     for gc, tag in ((client, "client"), (host, "host")):  # client first

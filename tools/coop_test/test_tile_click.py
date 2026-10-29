@@ -215,7 +215,7 @@ def boot(host, client):
     guarded("K", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
 
     def stage():
-        session.place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": H, "x": TILE_H[0],
+        session.place_deterministic(host, client, [{"cmd": "battle_teleport_unit", "unit": H, "x": TILE_H[0],
                                                     "y": TILE_H[1], "z": TILE_H[2], "dir": DIR_TW}], what="rvu2 H")
         for uid, t in ((U, TILE_U), (C, TILE_C), (C2, TILE_C2)):
             place(host, client, uid, t, STAGE_DIR)
@@ -267,7 +267,7 @@ def row_k3(host, client, crash0):
 
 def row_k4(host, client, crash0):
     ev = {"tab": tab_select(host, H), "sel0": sel(host), "Hdir": (live(host).get(H) or {}).get("direction")}
-    r = session.place_deterministic(host, client, [{"lever": "battle_teleport_all", "faction": "hostile",
+    r = session.place_deterministic(host, client, [{"cmd": "battle_teleport_all", "faction": "hostile",
                                                     "corner": HOSTILE_CORNER, "facing": HOSTILE_FACING}],
                                     what="rvu2 K4 hostiles")
     hostiles = sorted((i, (u["x"], u["y"], u["z"])) for i, u in live(host).items() if u.get("faction") == 1)

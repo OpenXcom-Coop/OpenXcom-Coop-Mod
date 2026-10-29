@@ -288,10 +288,10 @@ def bring_up_pinned_battle():
         moves = []
         if any(u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")
                for u in st["units"]):
-            moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+            moves.append({"cmd": "battle_teleport_all", "faction": "hostile",
                           "corner": corner, "facing": session._CORNER_FACING[corner]})
         if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
-            moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+            moves.append({"cmd": "battle_teleport_all", "faction": "neutral",
                           "corner": opp, "facing": session._CORNER_FACING[opp]})
         if moves:
             session.place_deterministic(host, client, moves, what="corner placement")
@@ -317,7 +317,7 @@ def bring_up_pinned_battle():
         slot_unit[6] = host_ids[1]
         assert len(slot_unit) == 7
 
-        moves = [{"lever": "battle_teleport_unit", "unit": slot_unit[s],
+        moves = [{"cmd": "battle_teleport_unit", "unit": slot_unit[s],
                   "x": FORMATION[s][0], "y": FORMATION[s][1], "z": Z, "dir": 2}
                  for s in range(7)]
         session.place_deterministic(host, client, moves, what="FORMATION")
@@ -700,7 +700,7 @@ def phase_denies(host, client, slot4_id, slot0_id):
     block_dest = lane_dest(host, slot4_id, 1)
     session.place_deterministic(
         host, client,
-        [{"lever": "battle_teleport_unit", "unit": slot0_id,
+        [{"cmd": "battle_teleport_unit", "unit": slot0_id,
           "x": block_dest[0], "y": block_dest[1], "z": block_dest[2], "dir": 2}],
         what="DENY PHASE path_changed blocker placement")
     walker = unit_of(host, slot4_id)
@@ -732,7 +732,7 @@ def phase_denies(host, client, slot4_id, slot0_id):
     # slot 4's next tile is free for the cost_changed walk to ship.
     session.place_deterministic(
         host, client,
-        [{"lever": "battle_teleport_unit", "unit": slot0_id,
+        [{"cmd": "battle_teleport_unit", "unit": slot0_id,
           "x": slot0_home[0], "y": slot0_home[1], "z": slot0_home[2], "dir": 2}],
         what="DENY PHASE restore blocker to its lane")
 

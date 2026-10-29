@@ -99,7 +99,7 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
 
             [(moved, _c_moved)] = place_deterministic(
                 host, client,
-                [{"lever": "battle_teleport_all", "faction": "hostile",
+                [{"cmd": "battle_teleport_all", "faction": "hostile",
                   "corner": "SE", "facing": 3}],
                 what=f"{tag} 2x2 whole move")
 
@@ -140,7 +140,7 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
         # ---- battle_teleport_all: every live hostile, IDENTICAL replies ----
         [(hr_all, _cr_all)] = place_deterministic(
             host, client,
-            [{"lever": "battle_teleport_all", "faction": "hostile", "corner": "SE", "facing": 3}],
+            [{"cmd": "battle_teleport_all", "faction": "hostile", "corner": "SE", "facing": 3}],
             what=f"{tag} teleport_all")
         assert hr_all.get("count") == n_hostile_before, (
             f"{tag}: battle_teleport_all moved {hr_all.get('count')}, "

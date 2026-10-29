@@ -218,10 +218,10 @@ def bring_up_roof_battle(seat_count, tag, pre_ok=None):
         moves = []
         if any(u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut")
                for u in st["units"]):
-            moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+            moves.append({"cmd": "battle_teleport_all", "faction": "hostile",
                           "corner": corner, "facing": session._CORNER_FACING[corner]})
         if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
-            moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+            moves.append({"cmd": "battle_teleport_all", "faction": "neutral",
                           "corner": opp, "facing": session._CORNER_FACING[opp]})
         if moves:
             session.place_deterministic(host, client, moves, what="ghost-stepper roof corner placement")
@@ -249,7 +249,7 @@ def teleport_to_lane(host, client, actor_id, door):
     start = (door["x"] + LANE_DX_START, door["y"] + LANE_DY, door["z"] + ROOF_DZ)
     session.place_deterministic(
         host, client,
-        [{"lever": "battle_teleport_unit", "unit": actor_id,
+        [{"cmd": "battle_teleport_unit", "unit": actor_id,
           "x": start[0], "y": start[1], "z": start[2], "dir": 2}],
         what=f"ghost roof lane-start unit {actor_id}")
     return start
@@ -262,7 +262,7 @@ def park(host, client, actor_id, door, k):
     p = (door["x"] + LANE_DX_START + k, door["y"] + PARK_DY, door["z"] + ROOF_DZ)
     session.place_deterministic(
         host, client,
-        [{"lever": "battle_teleport_unit", "unit": actor_id, "x": p[0], "y": p[1], "z": p[2], "dir": 2}],
+        [{"cmd": "battle_teleport_unit", "unit": actor_id, "x": p[0], "y": p[1], "z": p[2], "dir": 2}],
         what=f"ghost park unit {actor_id}")
 
 

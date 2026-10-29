@@ -345,7 +345,7 @@ def stage(host, client, ev):
         "cmd": "battle_give", "unit": C1, "item": "STR_RIFLE", "ammo": "STR_RIFLE_CLIP", "slot": "right",
         "clear_hands": True}, ("weaponId", "ammoId")), m)
     ev["rifle"] = [g.get("weaponId"), g.get("ammoId")]
-    move = {"lever": "battle_teleport_unit", "unit": C1, "x": STAGE_S[0], "y": STAGE_S[1], "z": STAGE_S[2],
+    move = {"cmd": "battle_teleport_unit", "unit": C1, "x": STAGE_S[0], "y": STAGE_S[1], "z": STAGE_S[2],
             "dir": STAGE_DIR}
     res = G3F.guarded("CV staging", lambda: session.place_deterministic(host, client, [move], what="w2h26 CV"), m)
     ev["place"] = res[0][0]

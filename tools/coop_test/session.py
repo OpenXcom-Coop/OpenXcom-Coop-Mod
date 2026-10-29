@@ -53,7 +53,7 @@ WIDGET_READY_S = 10.0   # bound of wait_widget_ready (a POPUP window opens in ab
 
 
 def wait_widget_ready(gc, match, nth=0, timeout=WIDGET_READY_S, interval=0.05):
-    """W2-U9 (R-U9-0 item 5; R-H68-2 / F20003, F20796, F20872, F21000): wait until the TextButton that
+    """Wait until the TextButton that
     `click_widget {match, nth}` would pick (click_widget's own rule: the nth VISIBLE TextButton of the top state
     whose caption contains `match`, case-insensitive) exists and is NOT hidden. A POPUP window (InterceptState,
     UfopaediaStartState, ...) hides every surface of its state while it opens (Window::think -> State::hideAll), a
@@ -89,7 +89,8 @@ def wait_coop_session(gc, timeout=5.0, interval=0.02):
     """wait until `gc`'s get_coop coopSession is true; returns the seconds waited, or None when it stayed false for
     `timeout` (the caller goes on and its own check reports the miss). A host save shows its "Saving..." (CoopState 54) only
     in a live session (SaveGameState's deferral needs isCoopSession()); after a rejoin the host logs sessionLive first and
-    sets the flag only when the partner's COOP_READY_CLIENT or the r4 handshake lands, so a save sent at once writes with no 54."""
+    sets the flag only when the partner's COOP_READY_CLIENT or the battle handshake's battle_ready lands, so a save sent at once
+    writes with no 54."""
     t0 = time.time()
     while True:
         try:
@@ -188,7 +189,7 @@ def new_campaign(host, client, port="47900",
 
     # one session key per harness lane. The UDP client also dials its host's port +- a radius (NAT port guessing,
     # connectionUDP::buildCandidates), and lanes on one machine get neighbouring ephemeral ports, so with one shared key
-    # a lane's client authenticated the next lane's host (captured: client :65343 -> host :65342, its own host :65341)
+    # a lane's client can authenticate the next lane's host (seen: client :65343 -> host :65342, its own host :65341)
     udp_pw = "harness-lan-s%s" % os.environ.get("OXC_HARNESS_SLOT", "0")
     client_udp_port = str(int(port) + 1)
 
@@ -316,14 +317,14 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     Like resume_campaign(), but the save carries a battleGame, so this must NOT
     wait on the geoscape-resume `resumeAck` / BEGIN handshake: for a battle-
     eligible client the host's resume_ack handler (connectionTCP.cpp) calls
-    `CoopHandshake::offerResumedBattle()` - the r4 disk-resume sibling of SPEC
-    16's `offerRejoinBattle()` (SPEC 18, r4 T4, M2) - which mints a fresh
+    `CoopHandshake::offerResumedBattle()` - the disk-resume sibling of
+    `offerRejoinBattle()` - which mints a fresh
     battleId, rebuilds the authority/seat store from the loaded battle, and
     emits `battle_offer{resumed:true}` through the SAME accept/blob/
     `battle_ready` pipe a fresh join uses. The client loads it, both hash-
     check it, and the host's own COOP_DLG_WAIT_PLAYERS modal - already on its
     stack from the resume lobby - is what the caller presses (`coop_dialog_
-    back`) afterwards to land both machines on BattlescapeState (M4); this
+    back`) afterwards to land both machines on BattlescapeState; this
     helper does not press it. We only drive the lobby up to the host accepting
     the resume, then wait (BOUNDED - never hang) until BOTH machines report
     battle_state.inBattle.
@@ -598,8 +599,8 @@ def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
         ps = host.cmd({"cmd": "parallel_state"})
         persist_alarms = int(ps.get("syncBoundaryPersistAlarms") or 0)
         pending = int(ps.get("syncBoundaryPending") or 0)
-        # U3: desyncSeen is published by event_state only (battle_state has no
-        # such key, so the old read was always None); a missing key fails, never passes.
+        # desyncSeen is published by event_state only (battle_state has no
+        # such key); a missing key fails, never passes.
         desync = host.cmd({"cmd": "event_state"}).get("desyncSeen")
         alarmed = {n: c for n, c in bad.items() if buckets[n]["alarm"]}
         if (alarmed or pending) and not quiet:
@@ -679,11 +680,11 @@ def drain_to_geoscape(gc, deadline, interval=0.4):
 
 
 def abort_vote_yes(host, voter, timeout=20):
-    """R4-L1 (design-D8, D231, D244): the partner's YES on the abort vote an AbortMissionState OK opened: wait
+    """The partner's YES on the abort vote an AbortMissionState OK opened: wait
     the vote open on `voter`, vote_cast {id, yes: true} (accepted), wait the host's pass: its vote finished + passed,
     its abortVote.passes grown, or its stage / battleEnd record newly emitted with aborted true (the host drops the
-    vote once the battle ended, and a stage hand-off's initBattleAuthority clears the abortVote record: R-L1-A-3,
-    F10833). One `timeout` for both waits.
+    vote once the battle ended, and a stage hand-off's initBattleAuthority clears the abortVote record).
+    One `timeout` for both waits.
     Raises TimeoutError("the partner's abort vote never opened ...") / AssertionError; a row appends str(e)."""
     t0, v = time.time(), {}
     while time.time() - t0 < timeout:
@@ -713,8 +714,7 @@ def abort_vote_yes(host, voter, timeout=20):
 
 def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
                       interval=0.4):
-    """End a live rewrite-era co-op battle through the abort vote (R4-L1;
-    owner design-D8, D231, D244): the host's btnAbortClick pushes the vanilla
+    """End a live co-op battle through the unanimous abort vote: the host's btnAbortClick pushes the vanilla
     AbortMissionState, its OK (dismiss_popup -> AbortMissionState::btnOkClick)
     opens the unanimous abort vote with the host's YES counted, and the
     partner's YES (abort_vote_yes) passes it; the host then runs vanilla's
@@ -722,8 +722,9 @@ def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
 
     finishBattle is battle-wide and host-authoritative:
     in a SHARED battle it returns BOTH machines to the geoscape; in a SEPARATE
-    battle it returns only the HOST (the client's clean return is r4 T2
-    `debrief_result` - OUT of wave 1; call with expect_both=False, E65.1).
+    battle it returns only the HOST (the client leaves through its own
+    display-only debriefing from the host's `debrief_result`, which this helper
+    does not drive; call with expect_both=False).
 
     Raises AssertionError if the host's confirm was not AbortMissionState or
     the partner's YES was refused, and TimeoutError if the vote never opened or
@@ -754,7 +755,7 @@ def coop_abort_battle(host, client, expect_both=True, drain_timeout=200,
                 f"  client: {states(client)[-3:]}")
 
     print("host-authoritative abort: %s back on the geoscape"
-          % ("both machines" if expect_both else "host (client return = r4 T2)"))
+          % ("both machines" if expect_both else "host (the client leaves through its own debriefing)"))
 
 
 def save_files(user_dir):
@@ -771,15 +772,11 @@ def assert_client_zero_disk(client_dir):
     assert files == [], f"CLIENT WROTE SAVE DATA TO DISK: {files}"
 
 
-# ===== R2-P11 (rewrite spike, SPIKE-RUNBOOK.md RB-D32): the new pump/hash
-# introspection surface's harness helpers. `assert_sync_clean` above (and
+# ===== event pump and hash helpers. `assert_sync_clean` above (and
 # `sync_check`/`sync_buckets`/`wait_sync_loop_closed`/`battle_checksum`/
-# `assert_battle_synced`, all reading the OLD parallel-architecture
-# `parallel_state`/`sync_check` commands) are LEFT IN PLACE per this packet's
-# own instructions - they still back whatever SKIP-PENDING tests eventually
-# resume against the pre-rewrite build. These two are their rewrite-era
-# successors, reading the NEW TestServer commands (event_log/event_state/
-# hash_now) this packet adds.
+# `assert_battle_synced`) read the older parallel-turns
+# `parallel_state`/`sync_check` commands. The two helpers below read the
+# event pump's TestServer commands (event_log/event_state/hash_now).
 
 def assert_events(gc, kinds):
     """Assert `gc`'s event_log (CoopEventLog, BattlePump.h) tail contains at
@@ -801,13 +798,13 @@ def assert_events(gc, kinds):
 
 
 def assert_hash_clean(host, client, buckets=None, full=False, what=""):
-    """Successor of `assert_sync_clean` (above) for the rewrite spike's
-    one-way compare model (SS2.8: "host ships h in evs; CLIENT hashes
-    post-apply, compares... host never compares"). Unlike assert_sync_clean,
+    """The hash check of the one-way compare model: the host ships h in evs,
+    the CLIENT hashes after applying and compares, the host never compares.
+    Unlike assert_sync_clean (above),
     there is no host-side ring to poll for a compare-catches-up loop - this is
     a direct, synchronous `hash_now` snapshot on BOTH machines, bucket-for-
-    bucket equal. Correct for a t=0 (pre-first-event) call (SS2.8's own
-    boundary-sweep language); a caller comparing AFTER live actions have run
+    bucket equal. Correct for a t=0 (pre-first-event) call, a boundary
+    sweep; a caller comparing AFTER live actions have run
     is responsible for its own settle/quiescence wait first (e.g.
     `event_state.queueDepth == 0` on both machines) - this helper does not
     wait on anything itself.
@@ -844,7 +841,7 @@ def assert_hash_clean(host, client, buckets=None, full=False, what=""):
 
 # deterministic placement helpers. Faction/seat/tilepart
 # constants are declared locally rather than imported - every repro in this
-# tree (repro_atom_door.py, repro_atom_walk.py, ...) already re-declares its
+# tree (repro_atom_walk.py, ...) already re-declares its
 # own copies rather than session.py exporting a shared set, so this follows
 # the existing convention instead of inventing a new one.
 _FACTION_PLAYER = 0
@@ -852,14 +849,14 @@ _COOP_SEAT_1 = 1
 _O_WESTWALL = 1
 _O_NORTHWALL = 2
 
-# dir 0 = north, clockwise (repro_atom_door.py/repro_atom_walk.py's own
+# dir 0 = north, clockwise (repro_atom_walk.py's own
 # DIR_DX/DIR_DY tables): (dx, dy) -> dir.
 _DIR_FROM_DELTA = {
     (0, -1): 0, (1, -1): 1, (1, 0): 2, (1, 1): 3,
     (0, 1): 4, (-1, 1): 5, (-1, 0): 6, (-1, -1): 7,
 }
 
-# This lever OWNS the corner<->geometry mapping - TestServer.cpp's own
+# The corner<->geometry mapping - TestServer.cpp's own
 # battle_teleport_all comment states the same convention - NW=(low x,low y),
 # NE=(high x,low y), SW=(low x,high y), SE=(high x,high y). "Facing the map
 # edge" means facing further INTO that same corner, i.e. away
@@ -868,18 +865,18 @@ _CORNER_FACING = {"NW": 7, "NE": 1, "SW": 5, "SE": 3}
 
 
 def place_deterministic(host, client, moves, what=""):
-    """applies the SAME sequence of placement-lever calls
+    """applies the SAME sequence of placement test commands
     (`battle_teleport_unit` / `battle_teleport_all`) to BOTH machines, in the
     same order, with identical arguments - never any coop wire traffic
-    (WV-D63(b): the harness applies each machine's lever call independently)
+    (the harness sends each machine's command independently)
     - then asserts `hash_now{full:true}` ALL buckets EQUAL: the gate every
-    WV-D63 fixture must pass before its measured action.
+    deterministic-placement fixture must pass before the action it tests.
 
-    `moves`: a list of dicts, each `{"lever": "battle_teleport_unit"|
-    "battle_teleport_all", **params}` - `params` match that lever's own JSON
-    fields exactly (TestServer.cpp). Raises if either machine's lever call
-    errors, if the two machines' replies for one move DIFFER (WV-D63(f):
-    "moves N units on BOTH machines with identical replies" - dict equality
+    `moves`: a list of dicts, each `{"cmd": "battle_teleport_unit"|
+    "battle_teleport_all", **params}` - `params` match that command's own JSON
+    fields exactly (TestServer.cpp). Raises if either machine's command
+    errors, if the two machines' replies for one move DIFFER (both machines
+    must move the same units with identical replies - dict equality
     is the right comparison here, since these are JSON objects, not an
     ordering promise), or if the post-placement hash comparison mismatches.
     Returns the list of (host_reply, client_reply) pairs, one per move.
@@ -888,17 +885,17 @@ def place_deterministic(host, client, moves, what=""):
     results = []
     for i, move in enumerate(moves):
         move = dict(move)
-        lever = move.pop("lever")
-        req = {"cmd": lever, **move}
+        command = move.pop("cmd")
+        req = {"cmd": command, **move}
         # CLIENT first, then HOST. The host's per-tick
-        # reveal flush stamps `h` from host state, so a host-first lever let
+        # reveal flush stamps `h` from host state, so a host-first call would let
         # it ship an ev the client could not match yet.
         cr = client.cmd(req)
         hr = host.cmd(req)
-        assert hr.get("ok"), f"place_deterministic{tag}: move {i} ({lever}) failed on host: {hr}"
-        assert cr.get("ok"), f"place_deterministic{tag}: move {i} ({lever}) failed on client: {cr}"
+        assert hr.get("ok"), f"place_deterministic{tag}: move {i} ({command}) failed on host: {hr}"
+        assert cr.get("ok"), f"place_deterministic{tag}: move {i} ({command}) failed on client: {cr}"
         assert hr == cr, (
-            f"place_deterministic{tag}: move {i} ({lever}) replies differ between "
+            f"place_deterministic{tag}: move {i} ({command}) replies differ between "
             f"host and client - host={hr} client={cr}")
         results.append((hr, cr))
         wait_seq_barrier(host, client)
@@ -907,11 +904,11 @@ def place_deterministic(host, client, moves, what=""):
 
 
 def _tile_standable(gc, pos):
-    """Conservative READ-ONLY proxy for the placement lever's own
+    """Conservative READ-ONLY proxy for the placement command's own
     standability predicate (Tile.cpp:289/:300/:319 via `tile_info`, the same
-    floor-presence check `repro_atom_door.tile_walkable()` uses) - used here
+    floor-presence check `tile_walkable()` below uses) - used here
     only to CHOOSE which side of a door to stand on before calling the
-    lever; the lever itself is the real judge and refuses (changing nothing)
+    command; the command itself is the real judge and refuses (changing nothing)
     if this proxy ever disagrees."""
     ti = gc.cmd({"cmd": "tile_info", "x": pos[0], "y": pos[1], "z": pos[2]})
     if not ti.get("ok"):
@@ -923,12 +920,11 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
                                  actor_id=None, teleport_hostiles=True):
     """builds a CONTACT-FREE UFO-door crossing SITUATION
     deterministically via `place_deterministic`, instead of searching a
-    freshly generated map for one the way `repro_atom_door.py`'s
-    `walk_through_candidates()`/`MAX_REROLLS` loop does. Call once the battle
+    freshly generated map for one and re-rolling. Call once the battle
     is Active on both machines (after the usual bring-up +
     `dismiss_battle_start_overlays`/`dismiss_client_briefing`).
 
-    WHY `actor_id`/`teleport_hostiles` exist (SPEC 6c2 (d) step 2): the WV-D59
+    WHY `actor_id`/`teleport_hostiles` exist: the
     door-reserve-fairness repro needs TWO deterministically-staged crossings
     in the SAME battle, one per leg - a client-origin crossing and a
     host-origin control - and this helper's own "lowest live seat-1 soldier"
@@ -937,34 +933,31 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
     lets that second call skip re-doing the (idempotent but redundant)
     `battle_teleport_all` the FIRST call already did in this battle.
 
-    1. Picks a CLOSED UFO door via `find_doors` (the same TestServer lever
-       `repro_atom_door.find_doors()` wraps), filtered to `isUfoDoor` and not
+    1. Picks a CLOSED UFO door via `find_doors` (the same TestServer command
+       `find_doors()` below wraps), filtered to `isUfoDoor` and not
        `isUfoDoorOpen`, in `find_doors`' own linear tile-index order
        (deterministic). `door_pick_rule(doors)` may override the SELECTION
        from that filtered list (default: the first).
     2. `battle_teleport_all {faction:"hostile", corner:<farthest from the
        door>, facing:<into that corner>}` - moves every live hostile out of
-       contact range on BOTH machines (WV-D63(a): "teleport all aliens away"
-       replaces "kill all but one"). SKIPPED when `teleport_hostiles=False`
+       contact range on BOTH machines (instead of killing all but one).
+       SKIPPED when `teleport_hostiles=False`
        (the caller already cleared hostiles earlier in this same battle).
     3. `battle_teleport_unit` - moves ONE live seat-1 soldier onto the
        standable tile in front of the door, facing it: the LOWEST live
        seat-1 id by default, or the given `actor_id` (asserted live, seat-1,
        and present on BOTH machines) when provided.
     4. `place_deterministic`'s own hash-equality gate (all buckets EQUAL).
-    5. Returns the `(actor_id, near, far, door)` crossing descriptor
-       `repro_atom_door.py`'s `walk_through_candidates()` already produces,
-       so a caller can feed it straight into that file's
-       `phase_walk_through()`/`phase_right_click()` unchanged.
+    5. Returns the `(actor_id, near, far, door)` crossing descriptor.
 
     Raises `AssertionError` (prefixed `FIXTURE:` where the cause is "this
     generated map cannot supply the situation", never a coop-atom failure)
     if there is no closed UFO door, no live seat-1 soldier (or the requested
     `actor_id` is not one, on EITHER machine), or neither side of the chosen
     door looks standable - the caller re-picks (a fresh bring-up / a
-    different door_pick_rule), the same re-roll discipline every other
-    wave-1 fixture uses. Defaults preserve every existing caller byte-for-
-    byte (`actor_id=None, teleport_hostiles=True` = today's behaviour).
+    different door_pick_rule), the same re-roll rule the other battle
+    fixtures use. The defaults (`actor_id=None, teleport_hostiles=True`)
+    stage one crossing with the lowest live seat-1 soldier.
     """
     tag = f" {what}" if what else ""
     doors_resp = host.cmd({"cmd": "find_doors", "limit": 512, "ufoOnly": True})
@@ -1032,9 +1025,9 @@ def contact_free_ufo_door_setup(host, client, door_pick_rule=None, what="",
 
     moves = []
     if teleport_hostiles:
-        moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+        moves.append({"cmd": "battle_teleport_all", "faction": "hostile",
                       "corner": corner, "facing": alien_facing})
-    moves.append({"lever": "battle_teleport_unit", "unit": actor_id,
+    moves.append({"cmd": "battle_teleport_unit", "unit": actor_id,
                   "x": near[0], "y": near[1], "z": near[2], "dir": soldier_dir})
     place_deterministic(host, client, moves, what=f"contact_free_ufo_door_setup{tag}")
 
@@ -1053,7 +1046,7 @@ def lightning_door(host):
 class KnownFlake(AssertionError):
     """a KNOWN flaky scenario was detected and its evidence recorded. Exit 2, loudly."""
 
-    def __init__(self, message, test=None, tracking="WV-D90"):
+    def __init__(self, message, test=None, tracking="known-flake"):
         super().__init__(message)
         self.test = test
         self.tracking = tracking
@@ -1061,7 +1054,7 @@ class KnownFlake(AssertionError):
 
 KNOWN_FLAKE_BANNER = (
     "################################################################################\n"
-    "#  KNOWN FLAKY SCENARIO - NOT A NEW FAILURE - EVIDENCE CAPTURED FOR THE RCA    #\n"
+    "#  KNOWN FLAKY SCENARIO - NOT A NEW FAILURE - EVIDENCE KEPT FOR DEBUGGING      #\n"
     "#  {test}: {summary}\n"
     "#  Tracked as {tracking}. This failure is IMPORTANT EVIDENCE toward fixing the    #\n"
     "#  known flake: keep this log. The JSON record follows / preceded this banner. #\n"
@@ -1075,7 +1068,7 @@ def print_known_flake_banner(test, tracking, summary):
 
 def units_near(gc, tiles, radius=3):
     """Every living unit within Chebyshev `radius` of ANY of `tiles`: id, faction, position,
-    armorSize, status - 'anything that could be on the tile' (owner, 2026-09-06)."""
+    armorSize, status - anything that could be on the tile."""
     out = []
     for u in battle_state(gc).get("units", []):
         if u.get("isOut"):
@@ -1095,7 +1088,7 @@ def known_flake(test, tracking, summary, record):
     print_known_flake_banner(test, tracking, summary)
     print("KNOWN-FLAKE-RECORD " + _json.dumps(record, default=str, sort_keys=True), flush=True)
     print_known_flake_banner(test, tracking, summary)
-    raise KnownFlake(f"{test}: {summary} (WV-D90 {tracking}; record printed above)", test, tracking)
+    raise KnownFlake(f"{test}: {summary} (known flake {tracking}; record printed above)", test, tracking)
 
 
 _OPPOSITE_CORNER = {"NW": "SE", "NE": "SW", "SW": "NE", "SE": "NW"}
@@ -1116,7 +1109,7 @@ def _nearest_non_player(st, t):
 
 def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, contact_min=21,
                             need_weapon=False, run_length=1, scan_radius=12):
-    """WV-D86 (SPEC 0e-3): stage the 'open-ground, no-door, no-contact' actor the wave-1
+    """Stage the 'open-ground, no-door, no-contact' actor the battle
     fixtures need on the FIRST map, instead of re-rolling for one.
 
     1. Every live hostile -> the corner FARTHEST from the player squad's centroid, facing into
@@ -1125,18 +1118,19 @@ def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, conta
     2. For each soldier in `soldier_ids` (caller's order; skip it if `need_weapon` and it carries
        none), scan tiles at the soldier's own z in rings of growing Chebyshev radius 0..scan_radius
        around its position (within a ring: sorted by (dy, dx)); take the FIRST tile that
-       (a) has a floor and is unoccupied (tile_walkable; the soldier's own tile counts as free),
-       (b) has no door part within `door_radius` at that z (find_doors, one round trip),
-       (c) is >= `contact_min` (3D) from every living non-player unit,
-       (d) if run_length > 0: has, in at least one of N/E/S/W (checked in that order), a straight
-           run of `run_length` tiles that each satisfy (a)-(c).
+       - has a floor and is unoccupied (tile_walkable; the soldier's own tile counts as free),
+       - has no door part within `door_radius` at that z (find_doors, one round trip),
+       - is >= `contact_min` (3D) from every living non-player unit,
+       - if run_length > 0: has, in at least one of N/E/S/W (checked in that order), a straight
+         run of `run_length` tiles that each meet the three conditions above.
     3. Teleport the soldier there (both machines, hash gate), facing the run direction (or its
        current facing when run_length == 0). Returns (unit_dict_after, tile, run_dir_or_None).
 
     Never re-rolls. No tile within scan_radius for any soldier => AssertionError prefixed
-    'FIXTURE:' (a FAIL: the caller exits 2, D59). Rule (a) of the old qualifying rules ('nothing
-    spotted at t=0') is deliberately NOT part of this: the lever does not recompute sight, so
-    the visible list can be stale; (c) is what prevents a mid-chain abort (spotted-set GROWTH).
+    'FIXTURE:' (a FAIL: the caller exits 2). A 'nothing spotted at t=0' condition is
+    deliberately NOT part of this: the teleport command does not recompute sight, so
+    the visible list can be stale; the contact distance is what prevents a mid-chain abort
+    (spotted-set GROWTH).
     """
     what = f"stage_open_ground_actor[{tag}]"
     st = battle_state(host)
@@ -1154,10 +1148,10 @@ def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, conta
     opposite = _OPPOSITE_CORNER[corner]
     moves = []
     if any(u.get("faction") == FACTION_HOSTILE and not u.get("isOut") for u in st["units"]):
-        moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+        moves.append({"cmd": "battle_teleport_all", "faction": "hostile",
                       "corner": corner, "facing": _CORNER_FACING[corner]})
     if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
-        moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+        moves.append({"cmd": "battle_teleport_all", "faction": "neutral",
                       "corner": opposite, "facing": _CORNER_FACING[opposite]})
     if moves:
         place_deterministic(host, client, moves, what=f"{what} clear the field")
@@ -1208,7 +1202,7 @@ def stage_open_ground_actor(host, client, soldier_ids, tag, door_radius=2, conta
                         continue
                 facing = run_dir if run_dir is not None else unit.get("direction", 0)
                 place_deterministic(host, client, [
-                    {"lever": "battle_teleport_unit", "unit": unit["id"],
+                    {"cmd": "battle_teleport_unit", "unit": unit["id"],
                      "x": t[0], "y": t[1], "z": t[2], "dir": facing}],
                     what=f"{what} stage actor {unit['id']} at {t} facing {facing}")
                 after = next(u for u in battle_state(host)["units"] if u["id"] == unit["id"])
@@ -1233,12 +1227,12 @@ def assert_turret_parity(host, client, what="", unit_ids=None):
     which reports "saveBlob differs" without ever naming a field. This assert
     names it.
 
-    Regression gate for the 2026-09-02 RCA: the R3-P1 applier wrote a body
-    turn with BattleUnit::setDirection(), which couples the turret to the
+    Regression gate: a client applier that writes a body turn with
+    BattleUnit::setDirection() couples the turret to the
     body (BattleUnit.cpp:988-994, "only used for initial unit placement"),
     while the host's real rotation runs through BattleUnit::turn() and leaves
     a turret-less soldier's turret untouched (the `_turretType > -1` guards,
-    BattleUnit.cpp:1326-1347). Two rotations of one soldier were enough to
+    BattleUnit.cpp:1326-1347). Two rotations of one soldier are enough to
     drive host=0 / client=2 and break `hash_now full` on saveBlob alone.
 
     Lives here (next to assert_hash_clean) rather than inline in one repro:
@@ -1282,7 +1276,7 @@ def assert_reveal_parity(host, client, what="", samples=24, extra_positions=()):
          (x, y, z) tuples, e.g. the acting unit's own neighbourhood - per-TILE
          evidence, not just matching totals.
 
-    Lives here next to assert_hash_clean/assert_turret_parity: every rewrite
+    Lives here next to assert_hash_clean/assert_turret_parity: every
     repro that drives an action needs it. Returns the host's reveal_state dict.
     """
     tag = f" {what}" if what else ""
@@ -1332,8 +1326,8 @@ def host_reveal_emits(host):
     far this process, read straight out of its own log. The event ring
     (CoopEventLog) is a fixed POD struct and deliberately carries no payload,
     so this is the only way to assert "this action emitted NO reveal field" -
-    which is exactly what SS2.4a's presence-gating promises for an action that
-    discovered nothing."""
+    which is exactly what the reveal field's presence gating promises for an
+    action that discovered nothing."""
     path = os.path.join(host.user_dir, "openxcom.log")
     try:
         with open(path, "r", errors="replace") as f:
@@ -1343,49 +1337,37 @@ def host_reveal_emits(host):
 
 
 def dismiss_battle_start_overlays(host, timeout=10):
-    """Clear the vanilla battle-start overlays stacked over the HOST's
+    """Clear the vanilla battle-start overlays stacked over one machine's
     BattlescapeState, so the map screen is on top and its _gameTimer ticks
     again. Presses ESC (Options::keyCancel) until BattlescapeState is the top
     state.
 
-    CONSOLIDATED HERE BY W1-P4 (WAVE1-RUNBOOK.md SS4 harness ripple, IR2-1).
-    Five files carried a copy of this helper - repro_atom_turn.py,
-    repro_atom_kneel.py, repro_reveal_sync.py, test_input_gating.py and
-    test_retry_cancel.py - each documenting the same surprise in slightly
-    different words. W1-P4 changed what is actually on that stack, so keeping
-    five copies in sync stopped being free; this follows W1-P3's own precedent
-    (dismiss_client_briefing() below).
+    One shared copy: repro_atom_turn.py, repro_atom_kneel.py,
+    repro_reveal_sync.py, test_input_gating.py and test_retry_cancel.py each
+    carried their own, and the stack it clears changes with the battle-entry
+    code, so one copy is easier to keep right (as with
+    dismiss_client_briefing() below).
 
-    WHY IT EXISTS (the original surprise, found while building repro_atom_turn):
+    WHY IT EXISTS:
     a freshly generated battle stacks overlays on top of BattlescapeState, and
     Game::run() only think()s _states.back() (Game.cpp) - so BattlescapeState's
     _gameTimer, and with it the whole BState machine including an admitted coop
     action, never ticks until they are gone. An injected TAB/click would also
     land on the overlay instead of the map.
 
-    WHAT IS ON THAT STACK NOW (W1-P4, ruling D3 = WV-D9/WV-D34, mechanism
-    WV-D43): in a COOP battle it is ONLY vanilla's "Turn 1 begins"
-    (NextTurnState). The pre-battle equip screen (InventoryState) is FROZEN -
-    BriefingState::btnOkClick skips its push and calls
-    SavedBattleGame::startFirstTurn() itself - so there is no InventoryState to
-    dismiss any more. In a plain SP battle BOTH are still there
-    (['BattlescapeState','NextTurnState','InventoryState']), which is why this
-    stays an ESC LOOP on the top state rather than a fixed number of presses:
-    it is correct for both shapes, and for a stack that is already clean.
-
-    HOST-only. The client loads the streamed blob straight into
-    BattlescapeState with no generation-time popups; its own entry overlay is
-    the read-only BriefingState, which dismiss_client_briefing() below owns.
-
-    W2-P8b S-H (docs rewrite/prompts/w2p8b_prebattle_equip.md, AMENDMENT P8b-1
-    section 4 S-H): a fresh co-op battle now opens the pre-battle equip screen on
-    BOTH machines and its OK - which ESC is bound to - is the
+    WHAT IS ON THAT STACK: a fresh co-op battle opens the pre-battle equip
+    screen on BOTH machines and its OK - which ESC is bound to - is the
     ready TOGGLE, so an ESC loop over it would flap this seat's
     ready. While this machine's `event_state.equip.phase` is "open" this helper
     therefore RAISES instead of pressing ESC: the equip screens close through
     equip_both_ready() below. After the equip end both machines hold vanilla's
-    Turn-1 screen (the client's since Q7 a), and this helper clears either one;
-    called for the host and then for the client by drive_to_battlescape().
+    "Turn 1 begins" screen (NextTurnState), and this helper clears either one;
+    drive_to_battlescape() calls it for the host and then for the client. The
+    client's entry overlay before that is the read-only BriefingState, which
+    dismiss_client_briefing() below owns. In a plain SP battle the stack is
+    ['BattlescapeState','NextTurnState','InventoryState'], which is why this
+    stays an ESC LOOP on the top state rather than a fixed number of presses:
+    it is correct for every shape, and for a stack that is already clean.
     """
     deadline, t_esc = time.time() + timeout, None
     while time.time() < deadline:
@@ -1396,56 +1378,52 @@ def dismiss_battle_start_overlays(host, timeout=10):
             # pass and shows its SaveGameState
             if "BattlescapeState" not in (states(host) or [""])[-1]:
                 continue
-            # the old fixed 0.3 s after the LAST ESC stays as the floor: it also lets the battle's turn-start states end
-            # (isBusy; F24290: an END TURN pressed before that does nothing). Waiting for isBusy false instead would also
+            # 0.3 s after the LAST ESC is the floor: it also lets the battle's turn-start states end
+            # (isBusy: an END TURN pressed before that does nothing). Waiting for isBusy false instead would also
             # wait out a generation casualty's collapse, which test_corpse_node reads for at this point.
             if t_esc is not None and time.time() < t_esc + 0.3:
                 time.sleep(t_esc + 0.3 - time.time())
                 continue
             return
         if st and "SaveGameState" in st[-1]:
-            # wait out a save in progress instead of pressing ESC into it (the old fixed 0.3 s step let it finish first)
+            # wait out a save in progress instead of pressing ESC into it (at most 0.3 s per pass)
             _wait_stacks_change((host,), (st,), 0.3)
             continue
         phase = (event_state(host).get("equip") or {}).get("phase")
         if phase == "open":
             raise AssertionError(
                 f"{host.name}: dismiss_battle_start_overlays called while the pre-battle equip phase is "
-                f"open (ESC is the ready toggle there, F2755) - use equip_both_ready() first; "
+                f"open (ESC is the ready toggle there) - use equip_both_ready() first; "
                 f"stack={states(host)}")
         host.ok({"cmd": "inject_input", "kind": "key", "key": 27})  # SDLK_ESCAPE / Options::keyCancel
         t_esc = time.time()
-        _wait_stacks_change((host,), (st,), 0.3)  # until the overlay closes, at most the old 0.3 s
+        _wait_stacks_change((host,), (st,), 0.3)  # until the overlay closes, at most 0.3 s
     raise TimeoutError(f"{host.name}: battle-start overlays never cleared, stack={states(host)}")
 
 
 def dismiss_client_briefing(client, timeout=20):
-    """W1-P3 (WAVE1-RUNBOOK.md SS4 / ruling D3 = WV-D9, and SS1's WAVE-1
-    ADDITIONS trap 2): the coop CLIENT now enters a battle the way the host
+    """The coop CLIENT enters a battle the way the host
     does - BattlescapeState FIRST, then a READ-ONLY BriefingState OVER it
     (CoopHandshake::onBlobChunkAppended, connectionTCP.cpp). Every fixture that
     DRIVES the client must dismiss that briefing explicitly instead of assuming
-    the battle screen is on top. Three reasons, all real:
+    the battle screen is on top. Two reasons:
       * Game::run() only think()s _states.back(), so an injected key/click
         lands on the BRIEFING, not on the map;
       * BriefingState's ctor holds the GEOSCAPE base resolution while it is up
         (BriefingState.cpp:58-60), so any screen-projection probe computes
-        against the wrong viewport - the exact failure repro_atom_turn.py's
-        run_ui_variant hit on W1-P3's first run ("computed click target
-        (-330,350) is off the 320x200 map viewport");
-      * the runbook's own rule: "any repro that drives the client through a
-        briefing must dismiss it explicitly (close_briefing) rather than
-        assuming the battle probes work under it."
+        against the wrong viewport (repro_atom_turn.py's run_ui_variant then
+        reports "computed click target (-330,350) is off the 320x200 map
+        viewport").
 
     Read-only PROBES (battle_state / event_state / hash_now / get_palettes) do
     work under it - test_client_briefing.py asserts exactly that - so this
     helper is about DRIVING, not probing.
 
-    Idempotent and version-tolerant: a no-op when the client has no
-    BriefingState on its stack (a resume entry, or any pre-W1-P3 build), so it
+    Idempotent: a no-op when the client has no
+    BriefingState on its stack (a resume entry), so it
     is safe to call unconditionally at the end of every drive_to_battlescape().
 
-    in a fresh co-op battle the
+    In a fresh co-op battle the
     client's equip entry (a pump step once its briefing has closed) pushes
     vanilla's Turn-1 screen and then its pre-battle equip screen, so the landing
     top is InventoryState, NextTurnState or BattlescapeState (the entry not yet
@@ -1462,21 +1440,19 @@ def dismiss_client_briefing(client, timeout=20):
     top = states(client)[-1] if states(client) else None
     assert top and any(t in top for t in ("InventoryState", "NextTurnState", "BattlescapeState")), (
         "closing the client's entry briefing should land it on its pre-battle equip screen, its "
-        f"Turn-1 screen or BattlescapeState (W2-P8b), got stack={states(client)}")
+        f"Turn-1 screen or BattlescapeState, got stack={states(client)}")
     return True
 
 
 # ---------------------------------------------------------------------------
-# FIXTURE PINNING (WV-D5 sweep, 2026-09-03; RB-D15, WV-D18, REVIEW4 IR-4).
+# FIXTURE ACTOR SELECTION: the contact rule.
 #
-# THE ONE shared copy of SELECTION RULE (c). It lived inline in three repros
-# before this sweep; four separate files were caught in three days carrying an
-# UNPINNED version of the same premise, each costing a red run to discover, so
-# it is hoisted here where every coop test already imports from.
+# The one shared copy of the contact rule, here where every coop test already
+# imports from, so every test that picks a fixture actor applies the same premise.
 #
-# WHAT IT PINS. RB-D15 and WV-D18 both require an "open-ground, no-door,
-# NO-ENEMY-LOS" fixture actor. Rules (a) "no hostile ALREADY spotted at t=0"
-# and (b) "no door within 2 tiles" cover the first two; NEITHER says anything
+# WHAT IT CHECKS. A turn fixture needs an "open-ground, no-door,
+# NO-ENEMY-LOS" actor. The spotted rule ("no hostile ALREADY spotted at t=0")
+# and the door rule ("no door within 2 tiles") cover the first two; NEITHER says anything
 # about whether the actor's ROTATION will bring a unit into view. Vanilla
 # aborts a BA_NONE turn mid-chain the moment getUnitsSpottedThisTurn() grows
 # (UnitTurnBState.cpp:117), leaving the unit on an intermediate facing - and
@@ -1484,9 +1460,9 @@ def dismiss_client_briefing(client, timeout=20):
 # ABORTED mid-chain - the turn fixture guards ... should have
 # prevented this".
 #
-# It is a PIN on the selection rule (the IR-4 treatment), never a relaxation of
-# anything a test asserts: a fixture that fails it is RE-ROLLED, and the
-# assertions that run afterwards are unchanged.
+# It narrows which actor a fixture picks, never relaxes anything a test
+# asserts: a fixture that fails it is RE-ROLLED, and the assertions that run
+# afterwards are unchanged.
 # ---------------------------------------------------------------------------
 
 FACTION_PLAYER_ID = 0
@@ -1520,7 +1496,7 @@ def nearest_non_player_distance(battle_state_resp, unit):
 
 
 def actor_is_contact_free(battle_state_resp, unit, tag):
-    """SELECTION RULE (c): True iff no LIVING NON-PLAYER unit is within
+    """The contact rule: True iff no LIVING NON-PLAYER unit is within
     MAX_VIEW_DISTANCE of @a unit - i.e. no rotation of this actor can spot
     anybody, so vanilla's unitSpotted abort branch is unreachable for it.
 
@@ -1529,38 +1505,31 @@ def actor_is_contact_free(battle_state_resp, unit, tag):
     the bounded re-roll loop boots a fresh generation."""
     d = nearest_non_player_distance(battle_state_resp, unit)
     if d is not None and d <= MAX_VIEW_DISTANCE:
-        print("[%s] rule (c): nearest non-player unit is %.2f tiles from the actor "
+        print("[%s] contact rule: nearest non-player unit is %.2f tiles from the actor "
               "(cap %d) - its rotation could spot one and abort mid-chain"
               % (tag, d, MAX_VIEW_DISTANCE))
         return False
-    print("[%s] rule (c) ok: nearest non-player unit is %s away (cap %d)"
+    print("[%s] contact rule ok: nearest non-player unit is %s away (cap %d)"
           % (tag, "none at all" if d is None else "%.2f tiles" % d,
              MAX_VIEW_DISTANCE))
     return True
 
 
-# ===== primitives relocated from repro_atom_door.py ==
-# That file was 2113 lines of map-ROLLED door search whose coverage now lives in
-# repro_door_deterministic.py (SPEC 6d/6e/6f), and it was a proven flake. These
-# helpers were shared, so they move here VERBATIM; the file itself is deleted.
-# Two authorized substitutions were made in drive_to_battlescape: its
-# W.top_state/W.states calls became the session-local top_state/states_stripped
-# below, and its session.-prefixed self-calls lost the prefix now that it lives
-# here. Nothing else changed.
+# ===== battle primitives shared by the door, walk and turn repros: the state
+# stack, units, doors, tiles, walks, staging and the battle bring-up.
 
 
 def states_stripped(gc):
     """`states()` with MSVC's "class OpenXcom::" prefix removed - the form every
-    repro compares against. Copied from repro_atom_walk.states (SPEC 6g
-    AMENDMENT 1): it is a pure wrapper over this module's OWN states(), so it
+    repro compares against. The same as repro_atom_walk.states: it is a pure
+    wrapper over this module's OWN states(), so it
     lives here without importing repro_atom_walk (which imports session, and
     would cycle)."""
     return [s.replace("class OpenXcom::", "") for s in states(gc)]
 
 
 def top_state(gc):
-    """The top of the state stack, prefix-stripped. Copied from
-    repro_atom_walk.top_state (SPEC 6g AMENDMENT 1)."""
+    """The top of the state stack, prefix-stripped (as repro_atom_walk.top_state)."""
     st = states_stripped(gc)
     return st[-1] if st else None
 
@@ -1589,33 +1558,30 @@ COOP_SEAT_NONE = -1  # CoopSeat.h: "no seat commands this unit"
 
 
 def pin_ai_neutral(host, client, tag=""):
-    """REV E.48 SS.B.2 (D49, RULED 2026-09-11) - the ONE shared AI-neutral pin
-    every boundary-crossing test in the SPEC 9..15 chain imports rather than
-    re-implementing (SS.A.7: written by SPEC 9, imported by 10, 11, 12, 13).
-    A boundary-crossing test is any test that presses END TURN and lets the
-    battle run through the alien (and civilian) phase back to the player
-    side - wave 1 streams no alien action before SPEC 12 (walk/turn only
-    after it), so a non-player unit that acts during such a test desyncs the
-    client. This pins every unit no human seat commands so it CANNOT act.
+    """The ONE shared AI-neutral pin every boundary-crossing test imports
+    rather than re-implementing. A boundary-crossing test is any test that
+    presses END TURN and lets the battle run through the alien (and civilian)
+    phase back to the player side; no non-player unit may act during such a
+    test, so this pins every unit no human seat commands so it CANNOT act.
 
     Call immediately after drive_to_battlescape(). Reads `battle_state.units`
     on the HOST for every LIVE unit whose `coop` seat is COOP_SEAT_NONE (-1)
     and whose `faction` is not FACTION_PLAYER (0) - i.e. no human seat owns
     it. In gm2 the client's own aliens sit at seat 1 (not NONE), so they are
-    correctly left unpinned and this may legitimately find zero (REV E.48
-    SS.B.4) - callers of a gm2 boot must not assert count > 0 themselves; a
-    CLASSIC boot with zero pinned units is a red (the premise - a NONE-seat
-    non-player unit exists for the pin to act on - is unexercised, M9a-3).
+    correctly left unpinned and this may legitimately find zero - callers of
+    a gm2 boot must not assert count > 0 themselves; a
+    CLASSIC boot with zero pinned units is a failure (the premise - a NONE-seat
+    non-player unit exists for the pin to act on - is unexercised).
 
-    THE CALL SHAPE (M9a-1 / F136, empirically measured against the set_stat
-    handler at the tip, TestServer.cpp ~7454-7499): a top-level `tu` key is
+    THE CALL SHAPE (measured against the set_stat
+    handler, TestServer.cpp): a top-level `tu` key is
     silently IGNORED by that handler (only `psiSkill`/`psiStrength` are read
     as top-level keys; `tu`/`reactions`/`firing` are read ONLY through the
     `stat`+`value` pair), and `setStat("tu", v)` alone writes only the unit's
     BASE stats, never the current `_tu` - an alien already holding a full TU
     bar at t=0 would still act on its first hostile phase. Per unit, to BOTH
     machines (each machine independently simulates the battle - the same
-    WV-D63 discipline place_deterministic above follows), three `set_stat`
+    rule place_deterministic above follows), three `set_stat`
     calls:
       {stat: "psiSkill",  value: 0}
       {stat: "reactions", value: 0}   - zeroes BattleUnit::getReactionScore()
@@ -1628,15 +1594,15 @@ def pin_ai_neutral(host, client, tag=""):
     The third call's reply reports `tu` after the write - asserted 0 on BOTH
     machines for every pinned unit.
 
-    WHY THE PIN HOLDS AT EVERY LATER PHASE (M9a-2 / F137, verified by reading
-    the code): SavedBattleGame::endTurn() -> prepareNewTurn() ->
+    WHY THE PIN HOLDS AT EVERY LATER PHASE (from the code):
+    SavedBattleGame::endTurn() -> prepareNewTurn() ->
     updateUnitStats(true, false) -> prepareTimeUnits() -> setValueMax(_tu,
     recovery, 0, getBaseStats()->tu) - with base tu clamped to 0 this pins
     `_tu` back to 0 every turn, forever. No re-pin per phase is needed.
 
     Finally asserts `assert_hash_clean(host, client, full=True)` (a t=0,
     pre-first-event boundary sweep - the clean precondition every later
-    per-boundary check in this chain builds on).
+    per-boundary check builds on).
 
     Prints and returns the pinned unit id list; does NOT itself assert the
     count is non-zero (see the gm2 note above) - that is the caller's job."""

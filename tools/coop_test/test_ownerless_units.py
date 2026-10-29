@@ -101,7 +101,7 @@ def give(host, client, uid, item, ammo):
 
 def tele(host, client, uid, t, d, what):
     """One hash-gated teleport (session.place_deterministic: both machines, equal replies, every bucket EQUAL)."""
-    return session.place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": uid, "x": t[0],
+    return session.place_deterministic(host, client, [{"cmd": "battle_teleport_unit", "unit": uid, "x": t[0],
                                                        "y": t[1], "z": t[2], "dir": d}], what=what)[0][0]
 
 

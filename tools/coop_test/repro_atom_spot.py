@@ -813,7 +813,7 @@ def stage_contact(host, client, soldier_ids, baseline):
     far_ground = (far[0], far[1], far[2] - 1)
     d_out = session.dir_between(near, far)
     corner = ("S" if door["y"] < my / 2.0 else "N") + ("E" if door["x"] < mx / 2.0 else "W")
-    place_deterministic(host, client, [{"lever": "battle_teleport_all", "faction": "hostile",
+    place_deterministic(host, client, [{"cmd": "battle_teleport_all", "faction": "hostile",
                                         "corner": corner, "facing": session._CORNER_FACING[corner]}],
                         what="contact staging corner")
     hostiles = sorted((u for u in living_non_players(battle_state(host))
@@ -824,7 +824,7 @@ def stage_contact(host, client, soldier_ids, baseline):
     dest = (far_ground[0] + DIR_DX[d_out] * 2, far_ground[1] + DIR_DY[d_out] * 2, far_ground[2])
     assert session._tile_standable(host, alien_tile) and session._tile_standable(host, dest), (
         f"FIXTURE: alien tile {alien_tile} or destination {dest} not standable on this map")
-    place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": alien,
+    place_deterministic(host, client, [{"cmd": "battle_teleport_unit", "unit": alien,
                                         "x": alien_tile[0], "y": alien_tile[1], "z": alien_tile[2],
                                         "dir": (d_out + 4) % 8}], what="contact staging alien")
     mine = seat1_units(host, soldier_ids)
@@ -834,7 +834,7 @@ def stage_contact(host, client, soldier_ids, baseline):
     park_id = next(u["id"] for u in mine if u["id"] != actor_id)
     park_client_selection(host, client, park_id)
     if pos_of(actor) != near:
-        place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": actor_id,
+        place_deterministic(host, client, [{"cmd": "battle_teleport_unit", "unit": actor_id,
                                             "x": near[0], "y": near[1], "z": near[2], "dir": d_out}],
                             what="contact staging actor")
     u = unit_of(host, actor_id)

@@ -434,7 +434,7 @@ def row_m2(host, client, crash0):
 def row_r1(host, client, crash0):
     ev = {}
     ev["moved"] = [r[0].get("to") for r in session.place_deterministic(host, client, [
-        {"lever": "battle_teleport_unit", "unit": uid, "x": t[0], "y": t[1], "z": t[2], "dir": FACE_AWAY}
+        {"cmd": "battle_teleport_unit", "unit": uid, "x": t[0], "y": t[1], "z": t[2], "dir": FACE_AWAY}
         for uid, t in MOVE_AWAY.items()], "R-U3-B-5")]
     side_change(host, client, client, FACTION_PLAYER, 2, ev)
     g = give_both(host, client, A_ID, PISTOL, CLIP)

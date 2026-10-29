@@ -195,7 +195,7 @@ def run():
         host_tile = (door["x"] + gs.LANE_DX_START + 2, door["y"] + gs.LANE_DY, door["z"] + gs.ROOF_DZ)
         session.place_deterministic(
             host, client,
-            [{"lever": "battle_teleport_unit", "unit": host_leg_id,
+            [{"cmd": "battle_teleport_unit", "unit": host_leg_id,
               "x": host_tile[0], "y": host_tile[1], "z": host_tile[2], "dir": 2}],
             what="level_change_gate HOST leg unit lane start + 2")
 

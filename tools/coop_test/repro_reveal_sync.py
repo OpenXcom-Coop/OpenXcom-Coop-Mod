@@ -467,7 +467,7 @@ def stage_on_roof(host, client, actor, tag, turn_delta):
     centre_dir = int(round(math.degrees(math.atan2(dx, -dy)) / 45.0)) % 8
     facing = (centre_dir - turn_delta) % 8
     session.place_deterministic(host, client, [
-        {"lever": "battle_teleport_unit", "unit": actor["id"],
+        {"cmd": "battle_teleport_unit", "unit": actor["id"],
          "x": roof[0], "y": roof[1], "z": roof[2], "dir": facing}],
         what=f"[{tag}] roof staging")
     print(f"[repro_reveal_sync/{tag}] actor {actor['id']} staged on the craft roof at {roof}, "

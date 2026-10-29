@@ -179,10 +179,10 @@ def lightning_setup(host, client, tag, actor_id=None, move_factions=True):
     st = session.battle_state(host)
     if move_factions:
         if any(u.get("faction") == session.FACTION_HOSTILE and not u.get("isOut") for u in st["units"]):
-            moves.append({"lever": "battle_teleport_all", "faction": "hostile",
+            moves.append({"cmd": "battle_teleport_all", "faction": "hostile",
                           "corner": corner, "facing": session._CORNER_FACING[corner]})
         if any(u.get("faction") == 2 and not u.get("isOut") for u in st["units"]):
-            moves.append({"lever": "battle_teleport_all", "faction": "neutral",
+            moves.append({"cmd": "battle_teleport_all", "faction": "neutral",
                           "corner": opposite, "facing": session._CORNER_FACING[opposite]})
     seat1 = sorted(u["id"] for u in session.seat_units(host))
     assert seat1, f"FIXTURE: {tag}: no live seat-1 soldier"
@@ -197,9 +197,9 @@ def lightning_setup(host, client, tag, actor_id=None, move_factions=True):
         occupied = {session.unit_pos(u) for u in st["units"] if not u.get("isOut")}
         free = next((t for t in deck if t not in (near, far) and session.tile_walkable(host, t, occupied)), None)
         assert free is not None, f"FIXTURE: {tag}: no free deck tile to move unit {occupant['id']} off {near}"
-        moves.append({"lever": "battle_teleport_unit", "unit": occupant["id"],
+        moves.append({"cmd": "battle_teleport_unit", "unit": occupant["id"],
                       "x": free[0], "y": free[1], "z": free[2], "dir": occupant.get("direction", 0)})
-    moves.append({"lever": "battle_teleport_unit", "unit": actor_id,
+    moves.append({"cmd": "battle_teleport_unit", "unit": actor_id,
                   "x": near[0], "y": near[1], "z": near[2], "dir": session.dir_between(near, far)})
     place_deterministic(host, client, moves, what=f"lightning_setup {tag}")
     st = session.battle_state(host)
@@ -359,7 +359,7 @@ def phase_turn_opens_door(host, client, tag, want_ufo, exclude_door_keys, used_a
     away_dir = (want_dir + 4) % 8  # any facing that is NOT toward the door
 
     place_deterministic(host, client, [
-        {"lever": "battle_teleport_unit", "unit": actor_id,
+        {"cmd": "battle_teleport_unit", "unit": actor_id,
          "x": stand[0], "y": stand[1], "z": stand[2], "dir": away_dir},
     ], what=f"{tag} place actor {actor_id} at door {door_key} facing away")
 
@@ -586,7 +586,7 @@ def phase_walk_through_normal_door(host, client, tag, exclude_door_keys, used_ac
     actor_id = pick_soldier(host, client, used_actors, tag)
 
     place_deterministic(host, client, [
-        {"lever": "battle_teleport_unit", "unit": actor_id,
+        {"cmd": "battle_teleport_unit", "unit": actor_id,
          "x": back[0], "y": back[1], "z": back[2],
          "dir": session.dir_between(back, stand)},
     ], what=f"{tag} place actor {actor_id} one tile behind normal door {door_key}")
@@ -910,7 +910,7 @@ def run_scenario(host, client, tag):
                      and session.tile_walkable(host, t, occupied)), None)
         assert free is not None, (
             f"FIXTURE: {tag} client leg: no free deck tile to move unit {back_occupant['id']} off {back}")
-        moves.append({"lever": "battle_teleport_unit", "unit": back_occupant["id"],
+        moves.append({"cmd": "battle_teleport_unit", "unit": back_occupant["id"],
                       "x": free[0], "y": free[1], "z": free[2],
                       "dir": back_occupant.get("direction", 0)})
         occupied = occupied - {back}
@@ -919,7 +919,7 @@ def run_scenario(host, client, tag):
             f"FIXTURE: {tag} client leg: the one-tile-back approach {back} is not "
             "walkable or is occupied - this map roll cannot supply client leg's "
             "door-between-steps geometry")
-    moves.append({"lever": "battle_teleport_unit", "unit": client_actor,
+    moves.append({"cmd": "battle_teleport_unit", "unit": client_actor,
                   "x": back[0], "y": back[1], "z": back[2], "dir": session.dir_between(back, near)})
     place_deterministic(host, client, moves,
                         what=f"{tag} client leg back up one tile for the door-between-steps geometry")
