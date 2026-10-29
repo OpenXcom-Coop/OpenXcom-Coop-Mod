@@ -1,116 +1,82 @@
-"""test_end_turn_tally.py: the PARALLEL-mode END TURN
-readiness tally (SS2.W3, frozen) - `bt_end_turn_ready` (client->host) and
-`bt_end_turn_tally` (host->all) - wired by CoopEndTurn (engine + tools commit
-ef9b8d55b, "feat(coop): W1-P13b engine + tools - END TURN readiness tally
-(SPEC 10 commit 0)"). This is the SEPARATE tests commit that spec names.
+"""test_end_turn_tally.py: the PARALLEL-mode END TURN readiness tally -
+`bt_end_turn_ready` (client->host) and `bt_end_turn_tally` (host->all),
+wired by CoopEndTurn.
 
-AI-NEUTRAL PINNING (WV-D45/IR2-9, REV E.48 SS.B.2/D49) - see
-repro_atom_side_transition.py's module docstring for the full rationale
-(wave 1 streams no alien action at all, so an un-pinned non-player unit
-would desync the client the instant it moved); this file imports the SAME
-session.pin_ai_neutral() helper (SS.A.7) rather than re-implementing it.
-Both boots pin mission STR_SMALL_SCOUT (no civilians, no terror units,
-exactly one alien on every seed - M9a-3) and `set_seed 1` in `pre_ok`.
+AI-NEUTRAL PINNING. Every unit no human seat commands is pinned via the
+shared session.pin_ai_neutral() helper right after drive_to_battlescape(),
+so no non-player unit acts during the alien phase (see
+repro_atom_side_transition.py's module docstring). Every boot pins mission
+STR_SMALL_SCOUT (no civilians, no terror units, exactly one alien on every
+seed) and runs `set_seed 1` in `pre_ok`.
 
-BOOT A (seated classic, seat_count=2): both seats are LIVE on the player
-side (seat 0/host: 5 units, seat 1/client: 2 units - REV E.48 SPEC 10 R1
-MEASUREMENT), so `needed==2` throughout the player phase. Legs L1-L7'
-exercise, in order: the t=0 baseline, a real-button arm (L2), a real-button
-un-arm (L3), the CONSTRUCTED stale press plus its positive control
-(REV E.48 C.2 / D57, L4), a full three-transition cycle with both seats
-armed (REV E.48 C.1, L5), the tally's inertness on the two zero-human-seat
-phases plus the boundary reset (L6), and finally - LAST, because it ends the
-client - the D98 tally-freeze (L7', SPEC 16 cycle 5): after the host has
-armed its own seat and the client leaves, SPEC 16 M1 keeps the co-op battle
-authority ALIVE (phase stays "Active", authority.peerAbsent goes true)
-instead of tearing it down, so the host's painted tally text and its
-button's latched state FREEZE at their pre-drop value - "END TURN 1/2"
-SURVIVES a drop, it does not clear. This replaces the OLD REV E.51 E51.3
-F174 authority-reset clear (a full teardown used to wipe the tally; that
-path is gone by design now that a mid-Active drop pauses instead of tearing
-down). REV E.48 C.3's seat-loss claim (the host advancing the side once
-`needed` drops to 1) remains DELETED by owner ruling D69 = (d): seat loss
-is pause-on-leave (r4 T4/T5), and D98/D91 forbid the host being left armed
-to close the side SOLO (a "1/1" state) - `needed` stays frozen at 2, it
-does not recompute down to the surviving seat count.
+SEATED BOOT (classic, seat_count=2): both seats are LIVE on the player side
+(measured: seat 0/host 5 units, seat 1/client 2 units), so `needed==2`
+throughout the player phase. Its legs run in order: entry_baseline (the t=0
+baseline), client_arm (a real-button arm), client_unarm (a real-button
+un-arm), stale_press (a CONSTRUCTED stale press plus its positive control),
+full_cycle (a full three-transition cycle with both seats armed),
+inert_phases (the tally's inertness on the two zero-human-seat phases plus
+the boundary reset), and finally - LAST, because it ends the client -
+drop_freeze: after the host has armed its own seat and the client leaves,
+the co-op battle authority stays ALIVE (phase stays "Active",
+authority.peerAbsent goes true) instead of tearing down, so the host's
+painted tally text and its button's latched state FREEZE at their pre-drop
+value - "END TURN 1/2" SURVIVES a drop, it does not clear. A seat loss
+pauses the battle (pause-on-leave), and the host is never left armed to
+close the side SOLO (a "1/1" state): `needed` stays frozen at 2, it does not
+recompute down to the surviving seat count.
 
-BOOT B (client UNSEATED via `seat_client=False`): REV E.48 C.4's spectator
-case - a CONNECTED seat with no live commandable unit on the active side is
-NOT a live seat, is never counted in `needed`, is never handed the baton,
-and its press is dropped and answered with the tally exactly like a stale
-press is.
+SPECTATOR BOOT (client UNSEATED via `seat_client=False`): a CONNECTED seat
+with no live commandable unit on the active side is NOT a live seat, is
+never counted in `needed`, is never handed the baton, and its press is
+dropped and answered with the tally exactly like a stale press is.
 
-BUILDER FINDING (measured, not inferred - WV-D77 instrument-first). The raw
-CoopEndTurn tally is UNINITIALIZED at t=0, not a live "needed==2" recompute.
-Reading CoopEndTurn.h's doc comment and its connectionTCP.cpp body (at
-ef9b8d55b) shows `emitTally()` runs ONLY from `onSideTransition()` (a
-boundary), `applyReady()` (a press) and `onSeatSetChanged()` (a seat drop) -
-never once at battle entry. A scratch probe (not committed) confirmed this
-empirically on the pinned classic fixture: immediately after
+MEASURED AT ENTRY. In parallel mode the raw CoopEndTurn tally is the
+`reset()` default at t=0, not a live "needed==2" recompute: no `emitTally()`
+runs at battle entry (`onBattleActive()` emits only in traditional mode); the
+first tally comes from a press (`applyReady()`), a side change
+(`onSideTransition()`) or a seat change (`onSeatSetChanged()`). Right after
 `drive_to_battlescape()` + `pin_ai_neutral()`, BEFORE any END TURN action,
-`event_state.coopEndTurnTally` on BOTH machines read exactly
-`{"turn": 0, "side": "", "count": 0, "needed": 0, "ready": []}` - the
-`reset()` defaults, never a recompute the shipped code does not perform.
-(SPEC 18 F405, §A.10 re-point: D100(b) added `activeSeat` to this SAME
-probed object - the reset() default now reads `activeSeat: -1` alongside
-the fields above; the shape below is updated to match, nothing else about
-this finding changed.)
-L1 therefore asserts that TRUE default and proves the fixture's needed==2
-PREMISE the same way SPEC 9's repro_atom_side_begin proves
-"activeSeats==[0,1]" - functionally, off `battle_state.units`, before any
-tally has ever been emitted. `needed==2` on the CoopEndTurn tally object
-itself is asserted for the first time at L2, once the client's real arm has
-triggered the first genuine `emitTally()` call. This is a test-side
-correction to the dispatch spec's literal "the host's event_state
-.coopEndTurnTally reads needed==2, count==0" wording for L1 - the honest
-zero/count-0 half holds, the needed==2 half does not until a tally has
-actually been emitted, so it is proven by the same functional-proxy method
-already used elsewhere in this chain rather than by an unfired probe.
+`event_state.coopEndTurnTally` on BOTH machines reads exactly
+`{"turn": 0, "side": "", "count": 0, "needed": 0, "ready": [],
+"activeSeat": -1}`. entry_baseline therefore asserts that default and proves
+the fixture's needed==2 premise from `battle_state.units` (a live player unit
+on each seat), the way repro_atom_side_begin.py proves "activeSeats==[0,1]",
+before any tally has been emitted. `needed==2` on the tally object itself is
+first asserted in client_arm, once the client's real arm has triggered the
+first `emitTally()` call.
 
-SECOND BUILDER FINDING (measured, then traced to source - WV-D77). L5/L6's
-`coopEndTurnTalliesSeen` delta across "host end_turn_button; drive the full
-cycle" is TWO, not the ONE a literal reading of SPEC 10 (f) suggests.
-`connectionTCP.cpp`'s `applyReady()` (read at ef9b8d55b) calls `emitTally()`
-UNCONDITIONALLY before `tryCommit()`, so the host's own final arming press -
-the one that completes readiness (count==needed) - mints its OWN genuine
-tally (a real "2/2" snapshot) BEFORE `requestEndTurn()` ever runs; only then
-does the boundary cascade start (PLAYER->HOSTILE INERT, HOSTILE->NEUTRAL
-INERT, NEUTRAL->PLAYER GENUINE). A live run confirmed this exactly (host
-talliesSeen 4 -> 6, not 4 -> 5). L6 therefore asserts +2 (the commit press +
-the sole non-inert boundary), which is the stronger, fully-traced claim; the
-zero-human-seat phases still emit NONE between them, which remains the
-property this leg exists to prove.
+MEASURED, THEN TRACED TO THE SOURCE. The `coopEndTurnTalliesSeen` delta across
+"host end_turn_button; drive the full cycle" (full_cycle / inert_phases) is
+TWO, not one. `applyReady()` calls `emitTally()` UNCONDITIONALLY before
+`tryCommit()`, so the host's own final arming press - the one that completes
+readiness (count==needed) - mints its OWN genuine tally (a real "2/2"
+snapshot) BEFORE `requestEndTurn()` ever runs; only then does the boundary
+cascade start (PLAYER->HOSTILE INERT, HOSTILE->NEUTRAL INERT,
+NEUTRAL->PLAYER GENUINE). A live run confirmed this exactly (host
+talliesSeen 4 -> 6, not 4 -> 5). inert_phases therefore asserts +2 (the
+commit press + the sole non-inert boundary); the zero-human-seat phases
+still emit NONE between them, which is the property that leg exists to
+prove.
 
-Cites SPEC 10, REV E.48 SS.C, REV E.50 (D66/E50.1, D67/E50.2, D68/E50.3),
-REV E.51 (D69 = (d)/E51.1 - the C.3 seat-loss leg deleted, E51.3 - the OLD
-F174 authority-reset clear, superseded below, E51.4 - BOOT B's counter
-form), SPEC 16 (D91 - host-continues-solo forbidden, D98 - L7' re-pointed
-to the M1 pause tally-freeze, cycle 5), WV-D46/IR2-4, WR-3, WR-4, WR-20,
-D-24, D53 (SS.C.4 - the LIVE seat definition), D57 (SS.C.2 - the
-constructed stale press).
-
-BOOT C (W1-P13c / SPEC 11, REV E.52 E52.1, added by commit 1 of this unit -
-tests only, no engine change in this commit). The classic seated fixture
-above, but the HOST sets `CoopTurnMode=traditional` before the offer (the
-`test_turn_mode.py` OPTION="CoopTurnMode" / `set_mode()` / `live_mode()`
-shape, imported rather than reimplemented) while the CLIENT's own option is
-left at the D-26 default (parallel), so `live_mode(host) ==
-live_mode(client) == "traditional"` is a genuine wire-mirror proof, not a
-locally-set coincidence. Asserts the TRADITIONAL ENTRY TALLY REV E.52 E52.1
-describes: on BOTH machines, right after `drive_to_battlescape` +
-`pin_ai_neutral`, `event_state.coopActiveSeat == 0` (the first LIVE seat in
-D-23 order - host seat 0 first), the raw tally reads
-`needed=1/count=0/ready=[]/side='player'`, the WV-D46 side-phase counter is
-still 0 (the entry tally is NOT a side phase), and nothing is painted
+TRADITIONAL BOOT. The classic seated fixture above, but the HOST sets
+`CoopTurnMode=traditional` before the offer (the `test_turn_mode.py`
+OPTION="CoopTurnMode" / `set_mode()` / `live_mode()` shape, imported rather
+than reimplemented) while the CLIENT's own option is left at the default
+(parallel), so `live_mode(host) == live_mode(client) == "traditional"` is a
+genuine wire-mirror proof, not a locally-set coincidence. It asserts the
+TRADITIONAL ENTRY TALLY on BOTH machines, right after
+`drive_to_battlescape` + `pin_ai_neutral`: `event_state.coopActiveSeat == 0`
+(the first LIVE seat in seat order - host seat 0 first), the raw tally reads
+`needed=1/count=0/ready=[]/side='player'`, the side-phase counter is still 0
+(the entry tally is NOT a side phase), and nothing is painted
 (`coopEndTurnText==''`, `coopEndTurnArmed is False` - count 0 paints
-nothing, SPEC 10's own rule). This is the traditional-mode counterpart to
-BOOT A's L1: BOOT A's L1 proves parallel emits NOTHING at t=0 (the raw
-tally is the `reset()` default); BOOT C proves traditional emits EXACTLY
-ONE genuine tally at the same point. Every BOOT A / BOOT B assertion above
-is UNCHANGED and REMAINS a PARALLEL-mode assertion; BOOT A's L1 additionally
-now asserts `coopActiveSeat == -1` on both machines (parallel never writes
-`BattleAuthority::activeSeat` - the readable form of the old "activeSeat is
--1" control), which REV E.52 E52.1 explicitly leaves untouched.
+nothing). This is the traditional-mode counterpart to entry_baseline:
+parallel emits NOTHING at t=0 (the raw tally is the `reset()` default);
+traditional emits EXACTLY ONE genuine tally at the same point. Every seated
+and spectator boot assertion is a PARALLEL-mode assertion; entry_baseline
+also asserts `coopActiveSeat == -1` on both machines (parallel never writes
+`BattleAuthority::activeSeat`).
 
 Run:  python tools/coop_test/test_end_turn_tally.py
 """
@@ -130,7 +96,7 @@ COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 MISSION = "STR_SMALL_SCOUT"
 TALLY_TEXT_1_OF_2 = "END TURN 1/2"
-# D98 (SPEC 16 M1 pause modal) - CoopState state code, matches
+# The pause-on-leave wait dialog's CoopState state code, matches
 # test_pause_on_leave.py's own constant of the same name.
 COOP_DLG_WAIT_PLAYERS = 62
 
@@ -198,7 +164,7 @@ def dismiss_next_turn_if_present(gc):
 
 
 def drive_full_cycle(host, client, turn0, timeout=60):
-    """L5 driver: presses nothing itself (the caller already pressed END
+    """The full-cycle driver: presses nothing itself (the caller already pressed END
     TURN) - polls both machines to completion, dismissing any NextTurnState
     via close_nextturn on BOTH machines exactly the way
     repro_atom_side_transition.dismiss_next_turn_if_present does. Raises
@@ -228,14 +194,14 @@ def drive_full_cycle(host, client, turn0, timeout=60):
         f"host={battle_state(host)} client={battle_state(client)}")
 
 
-def run_boot_a():
-    """Classic seated fixture (seat_count=2): L1-L7', ending with the REV
-    E.51 E51.3 F174 authority-reset clear leg (which ends the client - LAST
-    leg by construction; REV E.48 C.3's seat-loss claim is DELETED, D69 =
-    (d))."""
+def run_seated_boot():
+    """Classic seated fixture (seat_count=2): entry_baseline .. drop_freeze,
+    ending with the drop_freeze leg (which ends the client - LAST leg by
+    construction). Nothing here asserts a side advance after a seat loss: a
+    seat loss pauses the battle."""
     port = "48160"
-    host_dir = make_user_dir("test_end_turn_tally_a_host")
-    client_dir = make_user_dir("test_end_turn_tally_a_client")
+    host_dir = make_user_dir("test_end_turn_tally_seated_host")
+    client_dir = make_user_dir("test_end_turn_tally_seated_client")
     host = GameClient("host", 49550, host_dir)
     client = GameClient("client", 49551, client_dir)
     seated = {}
@@ -244,15 +210,14 @@ def run_boot_a():
         session.drive_to_battlescape(host, client, seated, mission=MISSION, seat_count=2,
                                       pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": 1}))
 
-        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-a")
+        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-seated")
         assert len(pinned) > 0, (
             f"pin_ai_neutral pinned ZERO NONE-seat non-player units on a CLASSIC "
             f"{MISSION} boot - the premise (a unit for the pin to act on) is "
-            "unexercised (M9a-3)")
+            "unexercised")
 
-        # ----- L1: baseline at t=0 (PARALLEL mode - REV E.52 E52.1 leaves
-        # this leg untouched: parallel emits NOTHING at entry, so every
-        # assertion below stands exactly as SPEC 10 wrote it) -----
+        # ----- entry_baseline: the baseline at t=0 (PARALLEL mode: parallel
+        # emits NOTHING at entry) -----
         for gc, who in ((host, "host"), (client, "client")):
             bs = battle_state(gc)
             assert bs.get("coopEndTurnText") == "", (
@@ -261,14 +226,13 @@ def run_boot_a():
             assert bs.get("coopEndTurnArmed") is False, (
                 f"{who}: coopEndTurnArmed is not False at t=0: "
                 f"{bs.get('coopEndTurnArmed')}")
-            # REV E.52 E52.1: parallel mode never writes
-            # BattleAuthority::activeSeat - the readable form of the
-            # "activeSeat is -1" control for the mode this whole boot drives.
+            # Parallel mode never writes BattleAuthority::activeSeat, which
+            # event_state reads as coopActiveSeat: -1 for this whole boot.
             assert event_state(gc).get("coopActiveSeat") == -1, (
                 f"{who}: coopActiveSeat is not -1 in PARALLEL mode at t=0 "
-                f"(REV E.52 E52.1 - parallel never writes the field): "
+                f"(parallel never writes the field): "
                 f"{event_state(gc).get('coopActiveSeat')}")
-        # See the module docstring's BUILDER FINDING: no emitTally() call has
+        # See the module docstring's MEASURED AT ENTRY: no emitTally() call has
         # run yet, so the raw tally is the reset() default, not a live
         # recompute - assert the TRUE default, never a value the shipped code
         # has not yet computed.
@@ -277,19 +241,16 @@ def run_boot_a():
             f"host coopEndTurnPhaseCounter is not 0 at t=0: "
             f"{hes0.get('coopEndTurnPhaseCounter')}")
         t0_tally = hes0.get("coopEndTurnTally", {})
-        # SPEC 18 F405 (§A.10 re-point): D100(b) added `activeSeat` to this
-        # SAME probed object (event_state.coopEndTurnTally.activeSeat, the
-        # wire-echoed tally holder) - the reset() default now carries
-        # activeSeat:-1 alongside the fields this file's own BUILDER FINDING
-        # already established. Re-pointed to the exact new value; nothing
-        # else about the finding or this assertion's strength changed.
+        # The same probed object also carries `activeSeat`
+        # (event_state.coopEndTurnTally.activeSeat, the wire-echoed tally
+        # holder): its reset() default is -1.
         assert t0_tally == {"turn": 0, "side": "", "count": 0, "needed": 0, "ready": [],
                             "activeSeat": -1}, (
             f"host coopEndTurnTally at t=0 is not the reset() default: {t0_tally}")
-        # The fixture's OWN needed==2 premise, proven functionally (same
-        # method SPEC 9's repro_atom_side_begin uses for its
-        # "activeSeats==[0,1]" functional proxy) - the CoopEndTurn tally
-        # object's own needed field is asserted ==2 for the first time at L2.
+        # The fixture's OWN needed==2 premise, proven functionally (the same
+        # method repro_atom_side_begin.py uses for its "activeSeats==[0,1]"
+        # check) - the CoopEndTurn tally object's own needed field is
+        # asserted ==2 for the first time at client_arm.
         hs0 = battle_state(host)
         seat0_units = [u for u in hs0["units"] if u.get("coop") == COOP_SEAT_0
                        and u.get("faction") == FACTION_PLAYER and not u.get("isOut")]
@@ -297,8 +258,8 @@ def run_boot_a():
                        and u.get("faction") == FACTION_PLAYER and not u.get("isOut")]
         assert seat0_units, "classic boot: seat 0 (host) has no live player unit"
         assert seat1_units, "classic boot: seat 1 (client) has no live player unit"
-        assert_hash_clean(host, client, full=True, what="L1 t=0 baseline")
-        print(f"[L1] baseline OK: coopEndTurnText=='' and coopEndTurnArmed==False "
+        assert_hash_clean(host, client, full=True, what="entry_baseline at t=0")
+        print(f"[entry_baseline] OK: coopEndTurnText=='' and coopEndTurnArmed==False "
               f"on both machines; host tally is the reset() default {t0_tally}; "
               f"seat 0 has {len(seat0_units)} live unit(s), seat 1 has "
               f"{len(seat1_units)} (the needed==2 fixture premise); 9/9 buckets "
@@ -307,7 +268,7 @@ def run_boot_a():
         turn0 = hs0["turn"]
         side0 = hs0["side"]
 
-        # ----- L2: the client arms through its REAL button -----
+        # ----- client_arm: the client arms through its REAL button -----
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         def host_shows_1_of_2():
@@ -333,11 +294,11 @@ def run_boot_a():
         het = event_state(host).get("coopEndTurnTally", {})
         assert het.get("needed") == 2 and het.get("count") == 1, (
             f"host tally after the client's arm is not count=1/needed=2: {het}")
-        print(f"[L2] client armed via its real button: both machines paint "
+        print(f"[client_arm] client armed via its real button: both machines paint "
               f"{TALLY_TEXT_1_OF_2!r}; client armed=True / host armed=False; "
               f"turn/side unchanged ({turn0}/{side0}); host tally={het}")
 
-        # ----- L3: un-arm on the SAME machine -----
+        # ----- client_unarm: un-arm on the SAME machine -----
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         def both_show_empty():
@@ -351,19 +312,19 @@ def run_boot_a():
         hs_now = battle_state(host)
         cs_now = battle_state(client)
         assert hs_now["turn"] == turn0 and hs_now["side"] == side0, (
-            f"D-24: un-arming (a legal parallel-mode press) advanced the side: "
+            f"un-arming (a legal parallel-mode press) advanced the side: "
             f"{turn0}/{side0} -> {hs_now['turn']}/{hs_now['side']}")
         assert cs_now["turn"] == turn0 and cs_now["side"] == side0, (
-            f"D-24: un-arming advanced the client's turn/side: {turn0}/{side0} "
+            f"un-arming advanced the client's turn/side: {turn0}/{side0} "
             f"-> {cs_now['turn']}/{cs_now['side']}")
         het = event_state(host).get("coopEndTurnTally", {})
         assert het.get("count") == 0, (
             f"host tally count after the un-arm is not back to 0: {het}")
-        print(f"[L3] un-arm via the same real button: no advance; both machines "
-              f"paint '' (F170); client armed=False; host tally count back to "
+        print(f"[client_unarm] un-arm via the same real button: no advance; both machines "
+              f"paint ''; client armed=False; host tally count back to "
               f"0 ({het})")
 
-        # ----- L4: the CONSTRUCTED stale press (REV E.48 C.2 / D57) -----
+        # ----- stale_press: the CONSTRUCTED stale press -----
         current_turn = event_state(client).get("coopEndTurnTally", {}).get("turn", 0)
         stale_turn = current_turn - 1
         host_count_before = event_state(host).get("coopEndTurnTally", {}).get("count")
@@ -379,7 +340,7 @@ def run_boot_a():
 
         host_count_after = event_state(host).get("coopEndTurnTally", {}).get("count")
         assert host_count_after == host_count_before, (
-            f"D57/WR-4: the stale press (turn={stale_turn}, current={current_turn}) "
+            f"the stale press (turn={stale_turn}, current={current_turn}) "
             f"changed the host's stored readies: {host_count_before} -> "
             f"{host_count_after}")
         assert battle_state(client).get("coopEndTurnArmed") is False, (
@@ -388,26 +349,26 @@ def run_boot_a():
             f"the CONSTRUCTED stale press painted a non-empty tally text: "
             f"{battle_state(client).get('coopEndTurnText')!r}")
         client_seen_after_stale = event_state(client).get("coopEndTurnTalliesSeen")
-        print(f"[L4 stale] turn={stale_turn} (current={current_turn}) DROPPED and "
+        print(f"[stale_press] turn={stale_turn} (current={current_turn}) DROPPED and "
               f"ANSWERED: host count unchanged ({host_count_before}); client "
               f"talliesSeen {client_seen_before} -> {client_seen_after_stale}; "
               "client armed=False; text==''")
 
-        # Positive control, same leg: the same lever with the CURRENT turn
-        # must arm. Leave the client ARMED going into L5.
+        # Positive control, same leg: the same test command with the CURRENT turn
+        # must arm. Leave the client ARMED going into full_cycle.
         client.ok({"cmd": "battle_end_turn_ready", "turn": current_turn, "ready": True})
 
         def host_shows_1_of_2_again():
             return True if battle_state(host).get("coopEndTurnText") == TALLY_TEXT_1_OF_2 else None
-        client.wait_for("host paints END TURN 1/2 after the lever's CURRENT-turn press",
+        client.wait_for("host paints END TURN 1/2 after the test command's CURRENT-turn press",
                         host_shows_1_of_2_again, timeout=15)
         assert battle_state(client).get("coopEndTurnArmed") is True, (
-            "the CURRENT-turn lever press (positive control) did not arm the client")
-        print(f"[L4 positive control] turn={current_turn} (current) ARMED via the "
-              f"same lever: client armed=True; host text=={TALLY_TEXT_1_OF_2!r}; "
-              "client left ARMED for L5")
+            "the CURRENT-turn test command press (positive control) did not arm the client")
+        print(f"[stale_press positive control] turn={current_turn} (current) ARMED via the "
+              f"same test command: client armed=True; host text=={TALLY_TEXT_1_OF_2!r}; "
+              "client left ARMED for full_cycle")
 
-        # ----- L5: both seats armed -> the side advances, one full cycle -----
+        # ----- full_cycle: both seats armed -> the side advances, one full cycle -----
         turn_before = battle_state(host)["turn"]
         host_counter_before = event_state(host).get("coopEndTurnPhaseCounter")
         client_counter_before = event_state(client).get("coopEndTurnPhaseCounter")
@@ -448,19 +409,18 @@ def run_boot_a():
         assert (battle_state(host)["side"] == FACTION_PLAYER
                 and battle_state(client)["side"] == FACTION_PLAYER), (
             "side is not back to FACTION_PLAYER on both machines after the cycle")
-        hh, ch = assert_hash_clean(host, client, full=True, what="L5 post-cycle boundary")
-        print(f"[L5] full cycle: 3 side_transition + 3 side_begin envelopes; "
+        hh, ch = assert_hash_clean(host, client, full=True, what="full_cycle post-cycle boundary")
+        print(f"[full_cycle] full cycle: 3 side_transition + 3 side_begin envelopes; "
               f"side-phase counter +3 on both (host {host_counter_before}->"
               f"{host_counter_after}, client {client_counter_before}->"
               f"{client_counter_after}) while battle_state.turn +1 on both "
               f"({turn_before}->{turn_after_h}); side back to FACTION_PLAYER; "
               f"{len(hh)} buckets EQUAL")
 
-        # ----- L6: the tally is INERT on hostile/neutral; stored readies do
-        # NOT survive a boundary -----
-        # BUILDER FINDING (measured, not inferred - WV-D77 instrument-first).
-        # The delta here is TWO, not one. Traced directly in
-        # connectionTCP.cpp's applyReady() (read at ef9b8d55b): every
+        # ----- inert_phases: the tally is INERT on hostile/neutral; stored
+        # readies do NOT survive a boundary -----
+        # Measured, then traced to the source: the delta here is TWO, not
+        # one. In connectionTCP.cpp, every
         # applyReady() call - INCLUDING the host's own final arming press -
         # calls emitTally() BEFORE tryCommit(), so the press that completes
         # readiness (count==needed) mints its OWN genuine tally (a real
@@ -469,9 +429,9 @@ def run_boot_a():
         # cascade start: PLAYER->HOSTILE (needed==0, INERT) ->
         # HOSTILE->NEUTRAL (needed==0, INERT) -> NEUTRAL->PLAYER (needed==2,
         # GENUINE). So "host end_turn_button; drive the full cycle", measured
-        # from a baseline taken BEFORE the host's own press (as SPEC 10 (f)
-        # orders the steps), sees exactly TWO genuine tallies: the host's own
-        # commit press, plus the sole non-inert boundary. A live run
+        # from a baseline taken BEFORE the host's own press, sees exactly TWO
+        # genuine tallies: the host's own commit press, plus the sole
+        # non-inert boundary. A live run
         # confirmed this exactly (host talliesSeen 4 -> 6). The
         # zero-human-seat phases (PLAYER->HOSTILE, HOSTILE->NEUTRAL) still
         # emit NONE between them, which is the property this leg exists to
@@ -497,35 +457,32 @@ def run_boot_a():
         assert (battle_state(host).get("coopEndTurnArmed") is False
                 and battle_state(client).get("coopEndTurnArmed") is False), (
             "the END TURN button is not un-latched on the new player side")
-        print(f"[L6] tally INERT on hostile+neutral: talliesSeen advanced by "
+        print(f"[inert_phases] tally INERT on hostile+neutral: talliesSeen advanced by "
               f"exactly TWO on both machines (the host's own commit press + "
               f"the sole non-inert boundary; host {host_seen_before_cycle}->"
               f"{host_seen_after_cycle}, client {client_seen_before_cycle}->"
               f"{client_seen_after_cycle}); the new player side reads "
               "count=0/needed=2 on both; text==''; button un-latched")
 
-        # ----- L7': D98 (owner-ruled, SPEC 16 cycle 5) - the tally-freeze
-        # that REPLACES the OLD REV E.51 E51.3 F174 authority-reset clear.
-        # SPEC 16 M1 keeps a mid-Active client drop's co-op battle authority
-        # ALIVE (phase stays "Active", authority.peerAbsent goes true)
-        # instead of tearing it down to Idle, so there is no more
-        # battle-authority reset on this path to clear the tally at. D91
-        # forbids the host being left free to advance the side SOLO once
-        # `needed` would otherwise drop 2->1 (a "1/1" armed state), so D98
-        # gates CoopEndTurn::onSeatSetChanged() off the M1 pause path - the
-        # tally FREEZES at its pre-drop value instead. This is the LAST leg,
-        # and ends the client. REV E.48 C.3's seat-loss claim (the host
-        # advancing the side once `needed` drops to 1) remains DELETED:
-        # a client leaving a live coop battle
-        # HALTS the game for everyone until it reconnects (pause-on-leave,
-        # r4 T4/T5), so "the host advances the side with a single vote" is
-        # not a true statement and is asserted NOWHERE below. L7' asserts
-        # NOTHING about a side advance and nothing about the client. -----
+        # ----- drop_freeze: the tally freezes when the client leaves. A
+        # mid-Active client drop keeps the co-op battle authority ALIVE
+        # (phase stays "Active", authority.peerAbsent goes true) instead of
+        # tearing it down to Idle, so no battle-authority reset clears the
+        # tally on this path. The host must not be left free to advance the
+        # side SOLO once `needed` would otherwise drop 2->1 (a "1/1" armed
+        # state), so CoopEndTurn::onSeatSetChanged() is not called on the
+        # pause path - the tally FREEZES at its pre-drop value instead. This
+        # is the LAST leg, and ends the client. A client leaving a live coop
+        # battle HALTS the game for everyone until it reconnects
+        # (pause-on-leave), so "the host advances the side with a single
+        # vote" is not a true statement and is asserted NOWHERE below.
+        # drop_freeze asserts NOTHING about a side advance and nothing about
+        # the client. -----
 
         # The HOST arms its OWN seat first (count 1 of needed 2), so the
-        # side does NOT advance (measured - see the pinned R1 table: host
-        # presses END TURN alone -> text=='END TURN 1/2', armed==True, side
-        # stays 0, turn stays unchanged).
+        # side does NOT advance (measured: the host presses END TURN alone
+        # -> text=='END TURN 1/2', armed==True, side stays 0, turn stays
+        # unchanged).
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         def host_armed_pre_drop():
@@ -533,7 +490,7 @@ def run_boot_a():
             return True if (bs.get("coopEndTurnText") == TALLY_TEXT_1_OF_2
                              and bs.get("coopEndTurnArmed") is True) else None
         host.wait_for("host paints END TURN 1/2 and its own button arms "
-                      "before the drop (non-vacuity, REV E.51 E51.3)",
+                      "before the drop (non-vacuity)",
                       host_armed_pre_drop, timeout=15)
         # The pre-drop capture: makes the post-drop assertions below
         # non-vacuous, and every failure message quotes it.
@@ -549,68 +506,66 @@ def run_boot_a():
             authority = battle_state(host).get("authority", {})
             return True if authority.get("peerAbsent") is True else None
         host.wait_for("host's battle authority marks the departed peer "
-                      "absent (SPEC 16 M1 pause, D98)",
+                      "absent (the battle pauses)",
                       host_paused_peer_absent, timeout=20)
 
         post_drop = battle_state(host)
         post_authority = post_drop.get("authority", {})
         dlg = host.cmd({"cmd": "coop_dialog_info"})
         assert post_authority.get("peerAbsent") is True, (
-            f"L7' (D98): host's authority.peerAbsent did not go True after "
+            f"drop_freeze: host's authority.peerAbsent did not go True after "
             f"the client's departure: {post_authority}")
         assert post_drop.get("phase") == "Active", (
-            f"L7' (D98): host's battle phase is not 'Active' after the "
-            f"client's departure - the M1 pause must keep the authority "
+            f"drop_freeze: host's battle phase is not 'Active' after the "
+            f"client's departure - the pause must keep the authority "
             f"alive, not tear it down: {post_drop.get('phase')!r}")
         assert post_drop.get("inBattle") is True, (
-            f"L7' (D98): host is not inBattle after the client's "
+            f"drop_freeze: host is not inBattle after the client's "
             f"departure - pre-drop was text={pre_drop_text!r} "
             f"armed={pre_drop_armed!r}: {post_drop}")
         assert post_drop.get("side") == pre_drop_side, (
-            f"L7' (D98): side changed across the pause - pre-drop "
+            f"drop_freeze: side changed across the pause - pre-drop "
             f"{pre_drop_side!r}, post-drop {post_drop.get('side')!r}")
         assert post_drop.get("turn") == pre_drop_turn, (
-            f"L7' (D98): turn changed across the pause - pre-drop "
+            f"drop_freeze: turn changed across the pause - pre-drop "
             f"{pre_drop_turn!r}, post-drop {post_drop.get('turn')!r}")
         assert post_drop.get("coopEndTurnText") == TALLY_TEXT_1_OF_2, (
-            f"L7' (D98): host's coopEndTurnText did not FREEZE at the "
+            f"drop_freeze: host's coopEndTurnText did not FREEZE at the "
             f"pre-drop tally - pre-drop was {pre_drop_text!r}, post-drop is "
             f"{post_drop.get('coopEndTurnText')!r} (onSeatSetChanged() must "
-            f"stay gated off the M1 pause path, or `needed` drops 2->1 and "
-            f"the host ends up armed at 1/1 - D91 forbids host-continues-"
+            f"stay gated off the pause path, or `needed` drops 2->1 and "
+            f"the host ends up armed at 1/1, free to end the side "
             f"solo)")
         assert post_drop.get("coopEndTurnArmed") is True, (
-            f"L7' (D98): host's coopEndTurnArmed did not stay latched - "
+            f"drop_freeze: host's coopEndTurnArmed did not stay latched - "
             f"pre-drop was {pre_drop_armed!r}, post-drop is "
             f"{post_drop.get('coopEndTurnArmed')!r}")
         assert dlg.get("present") and dlg.get("code") == COOP_DLG_WAIT_PLAYERS, (
-            f"L7' (D98): the wait-for-players dialog (code "
+            f"drop_freeze: the wait-for-players dialog (code "
             f"{COOP_DLG_WAIT_PLAYERS}) is not up over the paused battle: "
             f"{dlg}")
-        print(f"[L7'] D98 tally-freeze (SPEC 16 M1 pause replaces the OLD "
-              f"F174 authority-reset clear): after the client's "
+        print(f"[drop_freeze] tally freeze on the pause: after the client's "
               f"disconnect_to_menu, the host's painted tally and armed bit "
               f"stayed FROZEN at {pre_drop_text!r}/armed={pre_drop_armed!r} "
               f"while authority.peerAbsent=True, phase=Active, side/turn "
               f"unchanged ({pre_drop_side!r}/{pre_drop_turn!r}), dialog "
               f"{COOP_DLG_WAIT_PLAYERS} up")
 
-        print("PASS: test_end_turn_tally BOOT A (classic, seat_count=2)")
+        print("PASS: test_end_turn_tally seated boot (classic, seat_count=2)")
     finally:
         host.shutdown()
         client.shutdown()
 
 
-def run_boot_b():
-    """REV E.48 C.4 - the SPECTATOR boot: the client is never seated
+def run_spectator_boot():
+    """The SPECTATOR boot: the client is never seated
     (`seat_client=False`), so it is a CONNECTED seat with zero live
     commandable units on the active side - not a LIVE seat, never counted in
     `needed`, never handed the baton, and its press is dropped and answered
-    with the tally exactly like a stale press is (D57's same WR-4
-    discipline)."""
+    with the tally exactly like a stale press is."""
     port = "48161"
-    host_dir = make_user_dir("test_end_turn_tally_b_host")
-    client_dir = make_user_dir("test_end_turn_tally_b_client")
+    host_dir = make_user_dir("test_end_turn_tally_spectator_host")
+    client_dir = make_user_dir("test_end_turn_tally_spectator_client")
     host = GameClient("host", 49552, host_dir)
     client = GameClient("client", 49553, client_dir)
     seated = {}
@@ -620,17 +575,17 @@ def run_boot_b():
                                       pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": 1}),
                                       seat_client=False)
 
-        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-b")
-        print(f"[boot B] pin_ai_neutral pinned {len(pinned)} unit(s)")
+        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-spectator")
+        print(f"[spectator boot] pin_ai_neutral pinned {len(pinned)} unit(s)")
 
         hs0 = battle_state(host)
         seat1_units = [u for u in hs0["units"] if u.get("coop") == COOP_SEAT_1]
         assert not seat1_units, (
-            f"boot B premise broke: the UNSEATED client owns unit(s) anyway: "
+            f"spectator boot premise broke: the UNSEATED client owns unit(s) anyway: "
             f"{seat1_units}")
         seat0_units = [u for u in hs0["units"] if u.get("coop") == COOP_SEAT_0
                        and u.get("faction") == FACTION_PLAYER and not u.get("isOut")]
-        assert seat0_units, "boot B: seat 0 (host) has no live player unit"
+        assert seat0_units, "spectator boot: seat 0 (host) has no live player unit"
 
         turn0 = hs0["turn"]
         client_seen_before = event_state(client).get("coopEndTurnTalliesSeen")
@@ -646,11 +601,11 @@ def run_boot_b():
 
         het = event_state(host).get("coopEndTurnTally", {})
         assert het.get("needed") == 1, (
-            f"REV E.48 C.4: needed is not 1 with the client UNSEATED: {het}")
+            f"needed is not 1 with the client UNSEATED: {het}")
         assert het.get("count") == 0, (
             f"the spectator's press changed the host's stored readies: {het}")
         assert battle_state(client).get("coopEndTurnArmed") is False, (
-            "the spectator's press left the client's button armed (D53/C.4: a "
+            "the spectator's press left the client's button armed (a "
             "connected seat with no live unit is not a live seat)")
         hs_now = battle_state(host)
         cs_now = battle_state(client)
@@ -658,22 +613,21 @@ def run_boot_b():
             f"the spectator's press advanced the host's side: {hs_now}")
         assert cs_now["turn"] == turn0 and cs_now["side"] == FACTION_PLAYER, (
             f"the spectator's press advanced the client's side: {cs_now}")
-        print(f"[boot B] spectator's press changed nothing and was answered: "
+        print(f"[spectator boot] spectator's press changed nothing and was answered: "
               f"needed==1; host tally count unchanged (0); client talliesSeen "
               f"{client_seen_before} -> "
               f"{event_state(client).get('coopEndTurnTalliesSeen')}; client "
               "armed=False; no side advance")
 
         # ----- the HOST's press ALONE advances the side: measured via
-        # counters taken AFTER the full cycle. orch41b
-        # found this driver racing a transient phase: with zero human seats
-        # on the hostile and neutral phases, the whole three-transition
-        # cycle completes in ~0.35s, so a poll for side==FACTION_HOSTILE
-        # (the old drive_to_side helper, now DELETED) is usually already
-        # gone before the first poll lands. The hostile/neutral phases'
-        # inertness is proven by the counter deltas below, never by
-        # catching the transient phase mid-flight - a poll for it is a
-        # STOP-IF, not something to slow down or retry.
+        # counters taken AFTER the full cycle. A driver that polls for the
+        # transient phase races it: with zero human seats on the hostile and
+        # neutral phases, the whole three-transition cycle completes in
+        # ~0.35s, so a poll for side==FACTION_HOSTILE usually lands after
+        # that phase is already gone. The hostile/neutral phases' inertness
+        # is proven by the counter deltas below, never by catching the
+        # transient phase mid-flight - do not add a poll for it, and never
+        # answer a missed one by slowing it down or retrying it.
         host_counter_before = event_state(host).get("coopEndTurnPhaseCounter")
         client_counter_before = event_state(client).get("coopEndTurnPhaseCounter")
         # Baseline is 1, not 0: the spectator's own press above already
@@ -732,9 +686,9 @@ def run_boot_b():
                 and battle_state(client).get("coopEndTurnArmed") is False), (
             "the END TURN button is not un-latched on the new player side")
 
-        hh, ch = assert_hash_clean(host, client, full=True, what="boot B post-cycle")
-        print(f"[boot B] ONE host end_turn_button + full cycle (REV E.51 "
-              f"E51.4, measured after the cycle - never polled mid-flight): "
+        hh, ch = assert_hash_clean(host, client, full=True, what="spectator boot post-cycle")
+        print(f"[spectator boot] ONE host end_turn_button + full cycle (measured "
+              f"after the cycle - never polled mid-flight): "
               f"phase counter +3 on both (host {host_counter_before}->"
               f"{host_counter_after}, client {client_counter_before}->"
               f"{client_counter_after}); talliesSeen +2 on both (host "
@@ -745,28 +699,27 @@ def run_boot_b():
               f"count=0/ready=[]/needed=1/side='player'; text=='' and "
               f"armed=False on both; {len(hh)} buckets EQUAL")
 
-        print("PASS: test_end_turn_tally BOOT B (spectator, client unseated)")
+        print("PASS: test_end_turn_tally spectator boot (client unseated)")
     finally:
         host.shutdown()
         client.shutdown()
 
 
-def run_boot_c():
-    """W1-P13c / SPEC 11, REV E.52 E52.1 - the TRADITIONAL entry tally.
-    Same classic seated fixture as BOOT A (seat_count=2, STR_SMALL_SCOUT,
-    seed 1, B.2's pin), but the HOST sets CoopTurnMode=traditional before
-    the offer while the CLIENT's own option is left at the D-26 default
-    (parallel) - a genuine wire-mirror non-vacuity control, the same shape
+def run_traditional_boot():
+    """The TRADITIONAL entry tally. The same classic seated fixture as the
+    seated boot (seat_count=2, STR_SMALL_SCOUT, seed 1, the AI-neutral pin),
+    but the HOST sets CoopTurnMode=traditional before the offer while the
+    CLIENT's own option is left at the default (parallel) - a genuine wire-mirror non-vacuity control, the same shape
     `test_turn_mode.test_wire_traditional` uses. Asserts the ENTRY tally
     on BOTH machines, immediately after drive_to_battlescape + pin_ai_neutral
     and before any END TURN action: `coopActiveSeat==0` (the first LIVE seat
-    in D-23 order), the raw tally is exactly
-    needed=1/count=0/ready=[]/side='player', the WV-D46 side-phase counter is
+    in seat order), the raw tally is exactly
+    needed=1/count=0/ready=[]/side='player', the side-phase counter is
     still 0 (an entry tally is NOT a side phase), and nothing is painted
-    (text=='' / armed=False, count==0 paints nothing per SPEC 10's rule)."""
+    (text=='' / armed=False, count==0 paints nothing)."""
     port = "48162"
-    host_dir = make_user_dir("test_end_turn_tally_c_host")
-    client_dir = make_user_dir("test_end_turn_tally_c_client")
+    host_dir = make_user_dir("test_end_turn_tally_traditional_host")
+    client_dir = make_user_dir("test_end_turn_tally_traditional_client")
     host = GameClient("host", 49554, host_dir)
     client = GameClient("client", 49555, client_dir)
     seated = {}
@@ -781,58 +734,58 @@ def run_boot_c():
                                       pre_ok=pre_ok_traditional)
 
         assert live_mode(host) == TRADITIONAL and live_mode(client) == TRADITIONAL, (
-            f"REV E.52 E52.1 fixture: expected both machines' live battle mode "
+            f"traditional fixture: expected both machines' live battle mode "
             f"to be {TRADITIONAL!r} (host set it, client mirrors off the wire "
             f"while its OWN option stays {PARALLEL!r}): host={live_mode(host)!r} "
             f"client={live_mode(client)!r}")
 
-        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-c")
+        pinned = pin_ai_neutral(host, client, tag="end_turn_tally-traditional")
         assert len(pinned) > 0, (
             f"pin_ai_neutral pinned ZERO NONE-seat non-player units on a CLASSIC "
             f"{MISSION} boot - the premise (a unit for the pin to act on) is "
-            "unexercised (M9a-3)")
+            "unexercised")
 
         for gc, who in ((host, "host"), (client, "client")):
             es = event_state(gc)
             assert es.get("coopActiveSeat") == 0, (
-                f"{who}: coopActiveSeat at the entry tally is not 0 (REV E.52 "
-                f"E52.1, D-23 first-live-seat order - host seat 0 first): "
+                f"{who}: coopActiveSeat at the entry tally is not 0 (the "
+                f"first live seat in seat order - host seat 0 first): "
                 f"{es.get('coopActiveSeat')}")
             tally = es.get("coopEndTurnTally", {})
             assert (tally.get("needed") == 1 and tally.get("count") == 0
                     and tally.get("ready") == [] and tally.get("side") == "player"), (
                 f"{who}: the traditional entry tally is not exactly "
-                f"needed=1/count=0/ready=[]/side='player' (REV E.52 E52.1): "
+                f"needed=1/count=0/ready=[]/side='player': "
                 f"{tally}")
             assert es.get("coopEndTurnPhaseCounter") == 0, (
                 f"{who}: coopEndTurnPhaseCounter is not 0 at the entry tally - "
-                f"an entry tally is NOT a side phase (REV E.52 E52.1, WV-D46): "
+                f"an entry tally is NOT a side phase: "
                 f"{es.get('coopEndTurnPhaseCounter')}")
             bs = battle_state(gc)
             assert bs.get("coopEndTurnText") == "", (
                 f"{who}: coopEndTurnText is not empty at the entry tally "
-                f"(count==0 paints nothing, SPEC 10's rule): "
+                f"(count==0 paints nothing): "
                 f"{bs.get('coopEndTurnText')!r}")
             assert bs.get("coopEndTurnArmed") is False, (
                 f"{who}: coopEndTurnArmed is not False at the entry tally: "
                 f"{bs.get('coopEndTurnArmed')}")
 
         assert_hash_clean(host, client, full=True, what="traditional entry tally")
-        print("[boot C] REV E.52 E52.1 entry tally OK on both machines: "
+        print("[traditional boot] entry tally OK on both machines: "
               "coopActiveSeat==0, tally needed=1/count=0/ready=[]/side='player', "
               "coopEndTurnPhaseCounter==0, text=='' and armed=False")
 
-        print("PASS: test_end_turn_tally BOOT C (traditional, entry tally)")
+        print("PASS: test_end_turn_tally traditional boot (entry tally)")
     finally:
         host.shutdown()
         client.shutdown()
 
 
 def main():
-    run_boot_a()
-    run_boot_b()
-    run_boot_c()
-    print("ALL SPEC 10 + SPEC 11 (REV E.52 E52.1) test_end_turn_tally TESTS PASSED")
+    run_seated_boot()
+    run_spectator_boot()
+    run_traditional_boot()
+    print("ALL test_end_turn_tally TESTS PASSED")
 
 
 if __name__ == "__main__":
