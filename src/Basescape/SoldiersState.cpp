@@ -545,9 +545,29 @@ void SoldiersState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// Playtest: SHARED must not reorder the shared roster (diverges from the host).
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
-	// roster locally: there is no reorder command, and the row is an index into
-	// the owner-filtered list, not into _base->getSoldiers().
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _filteredListOfSoldiers, row, true, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollUp(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -602,9 +622,29 @@ void SoldiersState::lstItemsRightArrowClick(Action *action)
 void SoldiersState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
-	// roster locally: there is no reorder command, and the row is an index into
-	// the owner-filtered list, not into _base->getSoldiers().
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _filteredListOfSoldiers, row, false, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollDown(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{

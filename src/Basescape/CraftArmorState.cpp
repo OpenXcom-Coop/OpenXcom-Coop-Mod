@@ -165,6 +165,7 @@ CraftArmorState::CraftArmorState(Base *base, size_t craft) : _base(base), _craft
  */
 CraftArmorState::~CraftArmorState()
 {
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -290,6 +291,25 @@ void CraftArmorState::init()
 	}
 
 	touchComponentsRefresh();
+	_sharedRefresh.bind(_game, this, _base);
+}
+
+/**
+ * Applies a pending PRD-J10 live refresh: rebuild the list in place.
+ */
+void CraftArmorState::think()
+{
+	State::think();
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		_savedScrollPosition = _lstSoldiers->getScroll();
+		init();
+	}
 }
 
 /**
@@ -383,9 +403,29 @@ void CraftArmorState::lstItemsLeftArrowClick(Action *action)
 void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
-	// roster locally: there is no reorder command, and the row is an index into
-	// the owner-filtered list, not into _base->getSoldiers().
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, true, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollUp(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -440,9 +480,29 @@ void CraftArmorState::lstItemsRightArrowClick(Action *action)
 void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
-	// roster locally: there is no reorder command, and the row is an index into
-	// the owner-filtered list, not into _base->getSoldiers().
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) return;
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, false, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollDown(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{

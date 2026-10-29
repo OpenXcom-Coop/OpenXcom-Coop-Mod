@@ -1035,10 +1035,22 @@ void BasescapeState::miniRightClick(Action *)
 void BasescapeState::moveBaseLeft(size_t baseIndex)
 {
 	// SHARED and Separate commands address a base by its index in getBases(), so
-	// both machines must keep one order: a local swap would send a later buy or
-	// transfer to another base (RU8). There is no host command for it.
-	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	// both machines must keep one order: the move is a host command (base_move)
+	// that every machine applies, and this screen refreshes when it lands. A
+	// Separate player moves only their own bases.
+	const bool shared = _game->getCoopMod()->isSharedCampaign();
+	if (shared || _game->getCoopMod()->isSeparateCampaign())
+	{
+		auto* bases = _game->getSavedGame()->getBases();
+		if (baseIndex >= bases->size() || (*bases)[baseIndex] != _base
+			|| _base->_isForeignBase || SharedEcon::baseMoveTarget(_game, _base) < 0)
+			return;
+		if (shared)
+			SharedEcon::submitLocalCmd(_game, "base_move", (int)baseIndex, Json::Value(Json::objectValue));
+		else
+			SeparateEcon::submitLocalCmd(_game, "base_move", (int)baseIndex, Json::Value(Json::objectValue));
 		return;
+	}
 	if (baseIndex > 0 && baseIndex < _game->getSavedGame()->getBases()->size())
 	{
 		auto& bases = *_game->getSavedGame()->getBases();

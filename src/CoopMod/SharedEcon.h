@@ -132,6 +132,10 @@ int lastApplySeat();
 
 /// Index of @a base in SavedGame::getBases() - the SHARED shared base key - or -1.
 int baseIndex(Game* game, const Base* base);
+/// Index of the base @a base swaps places with when the mini base strip moves it
+/// one place left (base_move), or -1 when it cannot move. Separate moves it past
+/// the previous base of the same owner; SHARED past the base before it.
+int baseMoveTarget(Game* game, const Base* base);
 
 /**
  * PRD-J10 screen-refresh binding. A SHARED screen owns one of these, binds it in
@@ -318,6 +322,12 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
 /// True if this machine's player owns @a soldier (co-op campaign owner==localSeat;
 /// solo always true).
 bool ownsSoldier(Game* game, const Soldier* soldier);
+/// Moves the soldier at @a row of @a visible (the owner-filtered list a roster
+/// screen shows) one place up or down, or to the top / bottom with @a max, by
+/// sending this player's new soldier order at @a base to the host (soldier_order).
+/// False when the row cannot move that way; nothing is sent then.
+bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
+	unsigned int row, bool up, bool max);
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);
 /// Playtest (Bug: waypoint arrival never reached clients): host broadcasts that a craft
