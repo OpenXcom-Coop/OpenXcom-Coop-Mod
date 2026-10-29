@@ -1,13 +1,15 @@
-"""W2-H16f (F6606; D226 a; Q1 a .. Q6 a; OC-H16f-1 = R-H16f-1; veto V1-V3): a craft pilot pick and a "Remove All
-Pilots" made on one machine reach the shared world; a launch's automatic pilots reach the replica. Spec docs
-rewrite/prompts/w2h16f_craft_pilots.md (e)-(f); TASK 0 rewrite/w2h16f-task0/CONSTANTS.md (R-H16f-T0-1..5 applied).
-Mod Coop_Pilots_Test: the Skyranger gets two pilot seats (stock xcom1 crafts have none). Levers (test-only):
+"""test_craft_pilots.py: a craft pilot pick and a "Remove All Pilots" made on one machine reach the shared world; a
+launch's automatic pilots reach the replica.
+Mod Coop_Pilots_Test: the Skyranger gets two pilot seats (stock xcom1 crafts have none). Test commands:
 open_craft_pilots (the REAL CraftPilotsState), craft_pilots_probe (read-only; the list read through Craft::save),
 set_craft_pilots (staging, THIS machine). Real input: click_widget "Add Pilot" -> the select list not hidden -> inject_input
-at the probe's row of the soldier; click_widget "Remove All". Boot A (SHARED): H16f-1..7 (H16f-7, the launch, last);
-Boot B (SEPARATE): H16f-8 (guard row). S0: set_craft_pilots on both (client first) to the row's start list.
-RED (commit 1): H16f-1..7 fail on their named cell, H16f-8 passes; GREEN: all pass. "guard:" cells are guards (CAPTURE on a
-miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
+at the probe's row of the soldier; click_widget "Remove All". SHARED boot: client_pick_reaches, host_pick_reaches,
+client_remove_all, host_remove_all, partner_soldier_refused, last_seat_race, launch_pilots_reach (the launch, last);
+SEPARATE boot: separate_pick_local (guard row). at_start: set_craft_pilots on both (client first) to the row's start
+list.
+A build without the fix fails each SHARED row on its named cell and passes separate_pick_local; with the fix all pass.
+"guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass,
+else 2.
 """
 
 import json
@@ -23,8 +25,8 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Pilots_Test")
-BOOT_A = ("w2h16fa", (49344, 49345, 47334))      # SHARED; lobby 47334
-BOOT_B = ("w2h16fb", (49346, 49347, 47336))      # SEPARATE; lobby 47336
+BOOT_SHARED = ("craft_pilots_shared", (49344, 49345, 47334))      # SHARED; lobby 47334
+BOOT_SEPARATE = ("craft_pilots_separate", (49346, 49347, 47336))      # SEPARATE; lobby 47336
 SKY = {"craftId": 1, "craftType": "STR_SKYRANGER"}
 POLL_S, POLL_I, UI_S, BETWEEN_S, SETTLE_S = 3.0, 0.25, 3.0, 10.0, 0.25
 GEO, CPS, CPSS = "GeoscapeState", "CraftPilotsState", "CraftPilotSelectState"
@@ -54,7 +56,7 @@ def probe(gc):
     return dict(p, top=str(p.get("top", "")).replace("class OpenXcom::", ""))
 
 def shown(gc):
-    """CraftPilotSelectState on top with its TextList no longer hidden by the POPUP_BOTH window (R-H16f-T0-1)."""
+    """CraftPilotSelectState on top with its TextList no longer hidden by the POPUP_BOTH window."""
     w = gc.cmd({"cmd": "list_widgets"})
     tl = [e for e in w.get("widgets", []) if "TextList" in e.get("type", "")]
     return tl[0] if (CPSS in w.get("state", "") and tl and tl[0].get("hidden") is False) else None
@@ -136,23 +138,24 @@ def end(r, x):
     r.ev["end shared_stats"] = {gc.name: ss(gc) for gc in (x.host, x.client)}
     return {n: p.get("pilots") for n, p in e.items()}
 
-def s0(r, x, start):
-    """Row frame S0: both on the geoscape; set_craft_pilots on both (client first); guard: both lists equal the start."""
+def preset_start(r, x, start):
+    """Row frame at_start: both on the geoscape; set_craft_pilots on both (client first); guard: both lists equal the
+    start."""
     h, c = x.host, x.client
     ok = wait_until(lambda: top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0]
     guard(r, x, "start", ok, f"stacks {stack(h)} / {stack(c)}")
     st = {gc.name: gc.cmd(dict({"cmd": "set_craft_pilots", "pilots": list(start)}, **SKY)) for gc in (c, h)}
-    r.ev["S0"] = d = {"start": list(start), "set": st, "pilots": {gc.name: pil(gc) for gc in (h, c)},
+    r.ev["at_start"] = d = {"start": list(start), "set": st, "pilots": {gc.name: pil(gc) for gc in (h, c)},
                       "req": {gc.name: rs(gc)["requests"] for gc in (h, c)}, "ss": {gc.name: ss(gc) for gc in (h, c)}}
-    guard(r, x, "S0 equal", all(v.get("ok") is True for v in st.values())
+    guard(r, x, "at_start equal", all(v.get("ok") is True for v in st.values())
           and d["pilots"]["host"] == d["pilots"]["client"] == list(start), f"{d}")
     return d
 
 def close(r, x, d):
-    """close_screens on both; the replica-repair guard: shared_resync_stats.requests unchanged since S0 (STOP-IF 5)."""
+    """close_screens on both; the replica-repair guard: shared_resync_stats.requests unchanged since at_start."""
     r.ev["close"] = {gc.name: keys(gc.cmd({"cmd": "close_screens"}), "popped", "refused") for gc in (x.client, x.host)}
     now = {gc.name: rs(gc)["requests"] for gc in (x.host, x.client)}
-    r.cell("clean", now == d["req"], f"resync requests S0 {d['req']} -> {now} (a rise = STOP-IF 5)")
+    r.cell("clean", now == d["req"], f"resync requests at_start {d['req']} -> {now} (a rise = a replica repair)")
 
 def dialog_back(r, x, gc, tag):
     """A refused shared command raises CoopState on its sender: close it with coop_dialog_back (guard: back on GEO)."""
@@ -162,8 +165,9 @@ def dialog_back(r, x, gc, tag):
     guard(r, x, f"{tag} refusal box closed", wait_until(lambda: top(gc) == GEO, UI_S, 0.05)[0], f"{b}; {stack(gc)}")
 
 def reach(r, x, gc, sid, tag, why, host_apply):
-    """H16f-1 / H16f-2: one machine picks its own soldier; both hold [sid] by the end of the poll."""
-    d = s0(r, x, [])
+    """client_pick_reaches / host_pick_reaches: one machine picks its own soldier; both hold [sid] by the end of the
+    poll."""
+    d = preset_start(r, x, [])
     pick(r, x, gc, sid, tag)
     r.ev["poll"] = poll(x)
     v = end(r, x)
@@ -174,21 +178,22 @@ def reach(r, x, gc, sid, tag, why, host_apply):
     close(r, x, d)
 
 def remove(r, x, gc, own, keep, tag):
-    """H16f-3 / H16f-4: S0 [H1, C1]; one machine's Remove All Pilots; both keep only the partner's pilot."""
-    d = s0(r, x, [x.H1, x.C1])
+    """client_remove_all / host_remove_all: at_start [H1, C1]; one machine's Remove All Pilots; both keep only the
+    partner's pilot."""
+    d = preset_start(r, x, [x.H1, x.C1])
     clear(r, x, gc, own, tag)
     r.ev["poll"] = poll(x)
     v = end(r, x)
     me, other = ("client", "host") if gc is x.client else ("host", "client")
     r.cell("keepsPartner", v[me] == [keep], f"{me} {v[me]} (want [{keep}]): the {me}'s Remove All took the "
-           f"partner's pilot (aud-E1-11)")
+           f"partner's pilot")
     r.cell("applied", v[other] == [keep], f"{other} {v[other]} (want [{keep}]): the {me}'s Remove All stayed local")
     close(r, x, d)
 
-def row_h16f_5(r, x):
+def row_partner_soldier_refused(r, x):
     """The host refuses an add of the partner's soldier ("not your soldier"); the control (own soldier) lands."""
     h, c = x.host, x.client
-    d = s0(r, x, [])
+    d = preset_start(r, x, [])
     r.ev["reset"] = [gc.ok({"cmd": "shared_reset_stats"}) for gc in (h, c)]
     def send(sid): return c.cmd({"cmd": "shared_cmd", "jcmd": "craft_pilots", "baseId": 0,  # noqa: E704
                                  "payload": dict(SKY, op="add", soldierId=sid)})
@@ -211,10 +216,10 @@ def row_h16f_5(r, x):
            f"host {v['host']}, client {v['client']} (want [{x.C1}] on both): the control pick never landed")
     close(r, x, d)
 
-def row_h16f_6(r, x):
+def row_last_seat_race(r, x):
     """The last seat, both at once: the client's applies held; the host takes H2, the client (stale) takes C1."""
     h, c = x.host, x.client
-    d = s0(r, x, [x.H1])
+    d = preset_start(r, x, [x.H1])
     try:
         r.ev["defer on"] = dn = c.cmd({"cmd": "shared_update_defer", "on": True})
         guard(r, x, "defer on", dn.get("deferred") is True, f"{dn}")
@@ -229,7 +234,7 @@ def row_h16f_6(r, x):
         r.ev["defer off"] = c.cmd({"cmd": "shared_update_defer", "on": False})
     r.ev["poll"] = poll(x)
     v = end(r, x)
-    # F7071 / R-H16f-R-1: the host applied the winning pick (its applyCount + 1 after its own pick)
+    # the host applied the winning pick (its applyCount + 1 after its own pick)
     r.cell("agree", v["host"] == [x.H1, x.H2] and v["client"] == [x.H1, x.H2] and ha["ok"],
            f"host {v['host']}, client {v['client']} (want [{x.H1}, {x.H2}] on both); host applyCount {ha['before']} -> "
            f"{ha['now']} after its pick (want +1): two pilots for one seat; the worlds disagree")
@@ -239,10 +244,10 @@ def sky_status(gc):
     return next((cr.get("status") for b in gc.ok({"cmd": "geo_state"}).get("bases") or [] for cr in b.get("crafts") or []
                  if cr.get("id") == SKY["craftId"] and cr.get("type") == SKY["craftType"]), None)
 
-def row_h16f_7(r, x):
+def row_launch_pilots_reach(r, x):
     """The host launches the Skyranger (REAL ConfirmDestinationState): its automatic pilots reach the client too."""
     h, c = x.host, x.client
-    d = s0(r, x, [])
+    d = preset_start(r, x, [])
     b0 = h.ok({"cmd": "geo_state"})["bases"][0]
     r.ev["order"] = o = h.cmd({"cmd": "craft_order", "order": "target", "craft_id": SKY["craftId"],
                                "craft_type": SKY["craftType"], "lon": b0["lon"] + 0.05, "lat": b0["lat"] + 0.03})
@@ -253,25 +258,27 @@ def row_h16f_7(r, x):
     auto = list(reversed(x.crew))[:2]
     guard(r, x, "host automatic pilots", v["host"] == auto, f"host {v['host']} (want {auto}, the crew's rear)")
     r.cell("launchPilots", v["client"] == auto, f"client {v['client']}, host {v['host']} (want {auto} on both): "
-           f"after a launch the client's craft shows no pilots (F6703)")
+           f"after a launch the client's craft shows no pilots")
     close(r, x, d)
 
-def row_h16f_8(r, x):
+def row_separate_pick_local(r, x):
     """SEPARATE: the client's pick on its own base's Skyranger stays local; no shared command on either machine."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0],
           f"stacks {stack(h)} / {stack(c)}")
     p0, sid = probe(c), (x.crew[0] if x.crew else None)
-    r.ev["S0"] = {"client": keys(p0, "required", "pilots", "crew"), "id": sid, "name": x.names.get(sid)}
-    guard(r, x, "S0", p0.get("required") == 2 and sid is not None and p0.get("pilots") == [], f"{r.ev['S0']}")
-    s_0 = {gc.name: ss(gc) for gc in (h, c)}
+    r.ev["at_start"] = {"client": keys(p0, "required", "pilots", "crew"), "id": sid, "name": x.names.get(sid)}
+    guard(r, x, "at_start", p0.get("required") == 2 and sid is not None and p0.get("pilots") == [],
+          f"{r.ev['at_start']}")
+    ss_start = {gc.name: ss(gc) for gc in (h, c)}
     pick(r, x, c, sid, "client own")
     time.sleep(2.0)
-    a, s_1 = pil(c), {gc.name: ss(gc) for gc in (h, c)}
-    r.ev["end"] = {"client": probe(c), "shared_stats": {"S0": s_0, "end": s_1}}
+    a, ss_end = pil(c), {gc.name: ss(gc) for gc in (h, c)}
+    r.ev["end"] = {"client": probe(c), "shared_stats": {"at_start": ss_start, "end": ss_end}}
     r.cell("clientOwn", a == [sid], f"client {a} (want [{sid}])")
-    r.cell("noCmd", all(keys(s_0[n], "cmd", "applyCount") == keys(s_1[n], "cmd", "applyCount") for n in s_0),
-           f"shared_stats {s_0} -> {s_1} (want cmd / applyCount unchanged)")
+    r.cell("noCmd", all(keys(ss_start[n], "cmd", "applyCount") == keys(ss_end[n], "cmd", "applyCount")
+                        for n in ss_start),
+           f"shared_stats {ss_start} -> {ss_end} (want cmd / applyCount unchanged)")
     r.ev["close"] = {gc.name: keys(gc.cmd({"cmd": "close_screens"}), "popped", "refused") for gc in (c, h)}
 
 def run_one(rid, fn, x, results):
@@ -296,17 +303,17 @@ def run_one(rid, fn, x, results):
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
 def setup(x, tag):
-    """Boot A: C1, C2 / H1, H2 from base_report owners; Boot B: the client's own crew by craft (R-H16f-T0-5)."""
+    """The SHARED boot: C1, C2 / H1, H2 from base_report owners; the SEPARATE boot: the client's own crew by craft."""
     h, c = x.host, x.client
     pr = {gc.name: probe(gc) for gc in (h, c)}
     info = {"probe": {n: keys(p, "required", "pilots", "crew", "top") for n, p in pr.items()}}
-    if tag == BOOT_B[0]:
+    if tag == BOOT_SEPARATE[0]:
         br = c.ok({"cmd": "base_report"})      # no args: the client's own base (index 0)
         x.names = {s["id"]: s["name"] for s in br["soldiers"]}
         x.crew = [e["id"] for e in pr["client"].get("crew") or []]
         info.update(base=br.get("name"), crew=x.crew, names=x.names)
         if pr["client"].get("required") != 2 or pr["client"].get("pilots") != [] or not x.crew:
-            raise RuntimeError(f"boot B guard (client's own Skyranger: two seats, no pilot, a crew): {info}")
+            raise RuntimeError(f"separate boot guard (client's own Skyranger: two seats, no pilot, a crew): {info}")
         return info
     seat = {gc.name: gc.cmd({"cmd": "synced_options_state"}).get("localSeat") for gc in (h, c)}
     br = h.ok({"cmd": "base_report"})
@@ -318,13 +325,14 @@ def setup(x, tag):
     ok = (all(p.get("required") == 2 and p.get("pilots") == [] and [e["id"] for e in p.get("crew") or []] == x.crew
               for p in pr.values()) and x.crew == list(range(1, 9)) and len(cl) >= 2 and len(ho) >= 2)
     if not ok:
-        raise RuntimeError(f"boot A guard (the two seats on both, no pilot, crew 1-8, two soldiers per seat): {info}")
+        raise RuntimeError(f"shared boot guard (the two seats on both, no pilot, crew 1-8, two soldiers per seat): "
+                           f"{info}")
     x.C1, x.C2, x.H1, x.H2 = cl[0], cl[1], ho[0], ho[1]
     info.update(C1=x.C1, C2=x.C2, H1=x.H1, H2=x.H2)
     return info
 
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def boot_separate():
+    tag, (hp, cp, lp) = BOOT_SEPARATE
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
     try:
@@ -356,22 +364,26 @@ def boot(tag, up, rows, results, walls):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h16f] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[test_craft_pilots] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
-ROWS_A = (("H16f-1", lambda r, x: reach(r, x, x.client, x.C1, "client C1",
-                                        "the client's pilot pick stayed on its machine (F6606)", True)),
-          ("H16f-2", lambda r, x: reach(r, x, x.host, x.H1, "host H1", "the host's pick never reached the client", False)),
-          ("H16f-3", lambda r, x: remove(r, x, x.client, x.C1, x.H1, "client")),
-          ("H16f-4", lambda r, x: remove(r, x, x.host, x.H1, x.C1, "host")),
-          ("H16f-5", row_h16f_5), ("H16f-6", row_h16f_6), ("H16f-7", row_h16f_7))
-ROWS_B = (("H16f-8", row_h16f_8),)
+ROWS_SHARED = (("client_pick_reaches", lambda r, x: reach(r, x, x.client, x.C1, "client C1",
+                                        "the client's pilot pick stayed on its machine", True)),
+          ("host_pick_reaches", lambda r, x: reach(r, x, x.host, x.H1, "host H1",
+                                                   "the host's pick never reached the client", False)),
+          ("client_remove_all", lambda r, x: remove(r, x, x.client, x.C1, x.H1, "client")),
+          ("host_remove_all", lambda r, x: remove(r, x, x.host, x.H1, x.C1, "host")),
+          ("partner_soldier_refused", row_partner_soldier_refused), ("last_seat_race", row_last_seat_race),
+          ("launch_pilots_reach", row_launch_pilots_reach))
+ROWS_SEPARATE = (("separate_pick_local", row_separate_pick_local),)
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_A[0], lambda: shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,)), ROWS_A, results, walls)
-    boot(BOOT_B[0], boot_b, ROWS_B, results, walls)
-    failed, n = [rid for rid, _ in ROWS_A + ROWS_B if not results.get(rid)], len(ROWS_A + ROWS_B)
+    boot(BOOT_SHARED[0], lambda: shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,)), ROWS_SHARED,
+         results, walls)
+    boot(BOOT_SEPARATE[0], boot_separate, ROWS_SEPARATE, results, walls)
+    failed, n = ([rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE if not results.get(rid)],
+                 len(ROWS_SHARED + ROWS_SEPARATE))
     print(f"\ntest_craft_pilots: {n - len(failed)}/{n} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
