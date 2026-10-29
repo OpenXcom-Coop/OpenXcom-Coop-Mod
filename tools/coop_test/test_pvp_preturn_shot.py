@@ -61,7 +61,7 @@ A_ID, S9, S8 = RM.A_ID, RM.S3_ID, RM.S_ID   # 1000000 the alien; 9 P4's reactor;
 A_TILE = RM.TILES[A_ID][0]                 # (15,2,0)
 P_TILE = (15, 7, 0)                        # open, 5 tiles south of A, nothing on the line
 P1_DIR, P2_DIR = 0, 4                      # A faces away for P1; P1's turn leaves it facing P_TILE
-P4_DEST = RM.R2_DEST                       # (15,4,0); SEED_P4 halts A after (15,3,0) on 9's reaction
+P4_DEST = RM.ALIEN_WALK_DEST                       # (15,4,0); SEED_P4 halts A after (15,3,0) on 9's reaction
 P3_TILE = (15, 13, 0)                      # open, 4 tiles south of 8 (15,9,0) facing 0
 SEED_P1 = SEED_P2 = SEED_P4 = SEED_P3 = 1
 PISTOL, CLIP = RM.PISTOL, RM.CLIP          # STR_PLASMA_PISTOL / _CLIP

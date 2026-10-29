@@ -75,8 +75,8 @@ A_ID = RM.A_ID                    # the host's alien (gm3 seat 0, FACTION_HOSTIL
 S_ID, S3_ID, S2_ID, S6_ID = 8, 9, 10, 11   # R3's walker, R4's reactor, M3's target, M4's psi attacker
 TILES = {uid: RM.TILES[uid] for uid in (A_ID, S_ID, S3_ID, S2_ID, 12, 13, 14)}
 TILES[S6_ID] = RM.TILES[11]       # boot B2's S4 tile (18,8,0) dir 0
-R4_DEST = RM.R2_DEST              # (15,4,0): SEED_R4 halts A after (15,3,0)
-R3_DEST = RM.R1_DEST              # (17,9,0): SEED_R3 halts S after (16,9,0)
+R4_DEST = RM.ALIEN_WALK_DEST              # (15,4,0): SEED_R4 halts A after (15,3,0)
+R3_DEST = RM.SOLDIER_WALK_DEST              # (17,9,0): SEED_R3 halts S after (16,9,0)
 M3_DEST = (11, 7, 0)              # S2 one tile west
 A_TU, S2_TU = RM.A_TU, RM.S2_TU   # 54 / 58
 SEED_R4 = SEED_M3 = SEED_R3 = SEED_P2 = SEED_M4 = 1

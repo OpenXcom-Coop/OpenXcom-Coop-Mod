@@ -75,8 +75,8 @@ S_ID, S3_ID, S2_ID, S4_ID, S5_ID = 8, 9, 10, 11, 12   # R1's walker / M1's attac
 TILES = {   # TASK 0 staging (open ground, z 0, equal on both; S5 and 13 / 14 far from every walk tile)
     A_ID: ((15, 2, 0), 4), S3_ID: ((18, 6, 0), 7), S_ID: ((15, 9, 0), 0), S2_ID: ((12, 7, 0), 0),
     S4_ID: ((18, 8, 0), 0), S5_ID: ((36, 36, 0), 0), 13: ((33, 33, 0), 0), 14: ((34, 33, 0), 0)}
-R2_DEST = (15, 4, 0)              # A 2 tiles south; SEED_R2 halts it after (15,3,0)
-R1_DEST = (17, 9, 0)              # S 2 tiles east; SEED_R1 halts it after (16,9,0)
+ALIEN_WALK_DEST = (15, 4, 0)              # A 2 tiles south; SEED_R2 halts it after (15,3,0)
+SOLDIER_WALK_DEST = (17, 9, 0)              # S 2 tiles east; SEED_R1 halts it after (16,9,0)
 M1_DEST = (14, 3, 0)              # A one tile west of its R2 halt tile (15,3,0)
 A_TU, S2_TU = 54, 58              # bring-up TUs: A's refill / TU cap after M1, S2's TU cap after M2
 SEED_R2 = SEED_R1 = SEED_M2 = SEED_M1 = 1
@@ -344,7 +344,7 @@ def row_r2(host, client, crash0, st):
     seq0, ctx0, prev = es(host, "lastSeqEmitted") or 0, ctxs(host), session.walk_action_id(host)
     sent0 = dict(es(client, "coopIntentsSent") or {})
     host.ok({"cmd": "set_seed", "seed": SEED_R2})
-    ev["walk"] = session.send_walk(client, A_ID, R2_DEST)
+    ev["walk"] = session.send_walk(client, A_ID, ALIEN_WALK_DEST)
     try:
         session.wait_walk_settled(host, client, prev, timeout=STEP_S)
     except Exception as e:
@@ -445,7 +445,7 @@ def row_r1(host, client, crash0):
     ev["tab"] = tab_select(host, S_ID)
     seq0, ctx0 = es(host, "lastSeqEmitted") or 0, ctxs(host)
     try:
-        host_walk(host, client, S_ID, R1_DEST, ev, seed=SEED_R1)
+        host_walk(host, client, S_ID, SOLDIER_WALK_DEST, ev, seed=SEED_R1)
     except Exception as e:
         ev["walkError"] = str(e)[:300]
     cells = walk_react("R1", host, client, ctx0, seq0, "host", S_ID, A_ID, ev)
@@ -502,7 +502,7 @@ def row_m1(host, client, crash0):
 
 
 def stage(host, client):
-    ev = {"placed": stage_tiles(host, client, TILES, (R2_DEST, R1_DEST, M1_DEST))}
+    ev = {"placed": stage_tiles(host, client, TILES, (ALIEN_WALK_DEST, SOLDIER_WALK_DEST, M1_DEST))}
     m = (host, client)
     g = G3F.guarded("staging", lambda: give_both(host, client, A_ID, PISTOL, CLIP), m)
     ev["aPistol"] = (g["weaponId"], g["ammoId"])

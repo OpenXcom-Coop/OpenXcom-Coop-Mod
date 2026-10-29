@@ -11,16 +11,16 @@ Constants: rewrite/r5u6-task0/sa/CONSTANTS.md (TASK 0 boots RAa, RAb, rh2, rh2b,
 Boot RA (key 49060): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, R5-U3's
 staging (test_pvp_react_mc.stage: TILES, A's plasma pistol, S3's rifle, the host's END TURN -> side 1 turn 1).
   RN2  X-COM does not react to the alien seat's walk: S3 reactions 100, firing 0, TU 255; host set_seed SEED_R2; the
-       client's send_walk of A to R2_DEST.
+       client's send_walk of A to ALIEN_WALK_DEST.
        RN2-walk  one new host context W {intent, walk, A}; the client's coopIntentsSent.walk +1, inFlight null
        RN2-none  no `reaction` context nested in W; no `shot` ev in the row
-       RN2-dest  A's executed path RN2_PATH, not halted, A on R2_DEST on both; lastWalk.restate equal on both
+       RN2-dest  A's executed path RN2_PATH, not halted, A on ALIEN_WALK_DEST on both; lastWalk.restate equal on both
        After RN2: A back on its TILES tile facing 4; S3 reactions 0.
   RN1  the alien does not react to the X-COM host's walk: the client's END TURN -> side 0 turn 2; A's pistol (lever),
-       reactions 100, firing 0, TU A_TU; host set_seed SEED_R1; the host's real-UI walk of S to R1_DEST.
+       reactions 100, firing 0, TU A_TU; host set_seed SEED_R1; the host's real-UI walk of S to SOLDIER_WALK_DEST.
        RN1-walk  one new host context W {host, walk, S}
        RN1-none  no `reaction` context nested in W
-       RN1-dest  S's executed path RN1_PATH, not halted, S on R1_DEST on both
+       RN1-dest  S's executed path RN1_PATH, not halted, S on SOLDIER_WALK_DEST on both
   RNK  a kneel still draws reaction fire (QU6-1 (a), `main` parity, a guard): S back on its TILES tile facing 0, TU S_TU;
        A reactions 100 and TU A_TU; the host TABs to S, host set_seed SEED_RNK, ONE real kneel key.
        RNK-react one new {host, kneel, S} and exactly one `reaction` {actorId A, nestedIn it} with a shot by A; S after
@@ -61,7 +61,7 @@ HOST_OPTIONS = {"EnableReactionFirePvp": False}   # the host's option off; the c
 A_ID, S_ID, S3_ID = RM.A_ID, RM.S_ID, RM.S3_ID     # the alien (client, seat 1); RN1's walker / RNK's kneeler; RN2's reactor
 A_HOME, A_DIR = RM.TILES[A_ID]                    # (15,2,0) facing 4
 S_HOME, S_DIR = RM.TILES[S_ID]                    # (15,9,0) facing 0
-R2_DEST, R1_DEST, A_TU = RM.R2_DEST, RM.R1_DEST, RM.A_TU
+ALIEN_WALK_DEST, SOLDIER_WALK_DEST, A_TU = RM.ALIEN_WALK_DEST, RM.SOLDIER_WALK_DEST, RM.A_TU
 RN2_PATH = [(15, 3, 0), (15, 4, 0)]               # TASK 0 RAa: the reactors-0 stand-in's walk of A (not halted)
 RN1_PATH = [(16, 9, 0), (17, 9, 0)]               # TASK 0 rh2: the reactors-0 stand-in's walk of S (not halted)
 SEED_R2 = 1                                       # R5-U3's R2 recipe
@@ -155,13 +155,14 @@ def row_rn2(host, client, crash0, st):
     seq0, ctx0, prev = es(host, "lastSeqEmitted") or 0, RM.ctxs(host), session.walk_action_id(host)
     sent0 = dict(es(client, "coopIntentsSent") or {})
     host.ok({"cmd": "set_seed", "seed": SEED_R2})
-    ev["walk"] = session.send_walk(client, A_ID, R2_DEST)
+    ev["walk"] = session.send_walk(client, A_ID, ALIEN_WALK_DEST)
     try:
         session.wait_walk_settled(host, client, prev, timeout=STEP_S)
     except Exception as e:
         ev["walkError"] = str(e)[:200]
     RM.settle(host, client, ev)
-    cells = walk_cells("RN2", host, client, ctx0, seq0, "intent", A_ID, RN2_PATH, R2_DEST, ev, sent0, shots_cell=True)
+    cells = walk_cells("RN2", host, client, ctx0, seq0, "intent", A_ID, RN2_PATH, ALIEN_WALK_DEST, ev, sent0,
+                       shots_cell=True)
     cells["RN2-common"] = G3F.common(host, client, crash0)
     ev["cameras"] = cameras(host, client)
     return cells, ev
@@ -179,10 +180,10 @@ def row_rn1(host, client, crash0):
     ev["tab"] = tab_select(host, S_ID)
     seq0, ctx0 = es(host, "lastSeqEmitted") or 0, RM.ctxs(host)
     try:
-        RM.host_walk(host, client, S_ID, R1_DEST, ev, seed=SEED_R1)
+        RM.host_walk(host, client, S_ID, SOLDIER_WALK_DEST, ev, seed=SEED_R1)
     except Exception as e:
         ev["walkError"] = str(e)[:300]
-    cells = walk_cells("RN1", host, client, ctx0, seq0, "host", S_ID, RN1_PATH, R1_DEST, ev)
+    cells = walk_cells("RN1", host, client, ctx0, seq0, "host", S_ID, RN1_PATH, SOLDIER_WALK_DEST, ev)
     ev["A"] = [uview(host, A_ID), uview(client, A_ID)]
     cells["RN1-common"] = G3F.common(host, client, crash0)
     ev["cameras"] = cameras(host, client)
