@@ -5,19 +5,19 @@ each machine's own report; a held repair writes both reports and raises no notic
 boot (raw.bring_up_lobby, drive_to_battlescape with set_seed SEED_MAP, MAP_FP, pin_ai_neutral, HASH), the pins asserted (a miss =
 FIXTURE-STOP: ONE CAPTURE line, every row FAILs "boot"). Rows in order (N4 last: the battle halts):
   N1 (saveBlob) the client pokes H2's reactions (+7, client-only), the host's real-UI kneel of H (its bt_action_end); wait <= 45 s for host
-     RS released +1 and client RS loaded +1, <= 10 s for the notice on top of both; desync_dialog read BEFORE any dismissal. N1-1 RED client:
+     RS released +1 and client RS loaded +1, <= 10 s for the notice on top of both; desync_dialog read BEFORE any dismissal. N1-1 FIX client:
      live, headline "saveBlob diverged at action <seq>: bt_action_end" (<seq> the DESYNC line's; R-L3-A-2: the spec names no kind string for
      a bt_action_end desync, so `bt_action_end`; the base records "?"), message "CO-OP DESYNC REPAIRED..." holding its zip, zipPath == RS
-     bundle (written in this row in its own desync-reports), OPEN FOLDER target, GitHub URL, the three buttons. N1-2 RED the host, its own zip.
-     N1-3 RED raiseCount +1, RS notices +1 on each. N1-4 RED OK (click_widget once OK is shown) closes each; a client walk of G to
+     bundle (written in this row in its own desync-reports), OPEN FOLDER target, GitHub URL, the three buttons. N1-2 FIX the host, its own zip.
+     N1-3 FIX raiseCount +1, RS notices +1 on each. N1-4 FIX OK (click_widget once OK is shown) closes each; a client walk of G to
      G_DEST applies; HASH.
-  N2 (N1's reports) N2-1 RED the host's zip: role host, bucket / seq / kind == the client zip's (kind bt_action_end), peerBundlePath, its log,
-     saveBlob-host.yaml. N2-2 GUARD the client's zip (saveBlob, log, saveBlob-client.yaml) and the host's seq text. N2-3 RED the
+  N2 (N1's reports) N2-1 FIX the host's zip: role host, bucket / seq / kind == the client zip's (kind bt_action_end), peerBundlePath, its log,
+     saveBlob-host.yaml. N2-2 GUARD the client's zip (saveBlob, log, saveBlob-client.yaml) and the host's seq text. N2-3 FIX the
      client zip's kind and both RS last.kind == bt_action_end.
-  N3 (unitsStats) tu_both(K4), client corrupt_bucket (U), the host's kneel of K4; waits as N1. N3-1 RED the client's zip holds
-     saveBlob-client.yaml, bucket unitsStats, role client. N3-2 RED a notice on each again (raiseCount / notices +1); OK on each.
+  N3 (unitsStats) tu_both(K4), client corrupt_bucket (U), the host's kneel of K4; waits as N1. N3-1 FIX the client's zip holds
+     saveBlob-client.yaml, bucket unitsStats, role client. N3-2 FIX a notice on each again (raiseCount / notices +1); OK on each.
   N4 (held) host resync_hold on; N1's poke + kneel; wait <= 30 s for desyncs +1 on both. N4-1 GUARD the halt (client frozen, host held +1,
-     the banner). N4-2 RED both machines gained one zip, the host's role host. N4-3 GUARD no notice within 10 s.
+     the banner). N4-2 FIX both machines gained one zip, the host's role host. N4-3 GUARD no notice within 10 s.
   N-CRASH GUARD no new crash_*.log in this lane's crash folder over the whole run (read after the shutdown).
 Definitions (spec (f)): POLL 0.25 s; RS(gc) = resync_state.resync, counters as deltas from the row's baseline; HASH = wait_host_idle +
 assert_hash_clean(full); N3 / N4 start with NOTICE_OK on both (a no-op before S-C) and LIVE (client RS frozen false, both tops
@@ -374,17 +374,17 @@ def row_n1(x, results, walls):
                                       "RS host": rh, "RS client": rc, "desync_dialog before": {k: dd_short(v) for k, v in d0.items()},
                                       "host lines": [ln.split("\t")[-1][:160] for ln in log(h)[nh:] if "[coop-resync]" in ln][:8]}), flush=True)
         ok, ev = notice_check(c, d1["client"], rc, want, [n for n in listing(c) if n not in x.n1["lc0"]])
-        r.cell("N1-1", "RED", "client: the notice on top names its own report (headline %r, %s..., zip, OPEN FOLDER, GitHub URL, buttons)"
+        r.cell("N1-1", "FIX", "client: the notice on top names its own report (headline %r, %s..., zip, OPEN FOLDER, GitHub URL, buttons)"
                % (want, REPAIRED_TEXT), ok, ev)
         ok, ev = notice_check(h, d1["host"], rh, want, [n for n in listing(h) if n not in x.n1["lh0"]])
-        r.cell("N1-2", "RED", "host: the same with the host's own zip in the host's user dir", ok, ev)
+        r.cell("N1-2", "FIX", "host: the same with the host's own zip in the host's user dir", ok, ev)
         inc = {n: [(raises(d1[n]) - (raises(d0[n]) or 0)) if raises(d1[n]) is not None else None,
                    delta(rh0 if n == "host" else rc0, rh if n == "host" else rc, "notices")] for n in ("host", "client")}
-        r.cell("N1-3", "RED", "last.raiseCount +1 and RS notices +1 on each machine", all(v == [1, 1] for v in inc.values()),
+        r.cell("N1-3", "FIX", "last.raiseCount +1 and RS notices +1 on each machine", all(v == [1, 1] for v in inc.values()),
                {"[raiseCount +, notices +] host/client": inc})
         cok, cev = close_notices(x)
         wok, wev = walk(x, G, G_DEST, "N1-4")
-        r.cell("N1-4", "RED", "OK closes it: click_widget OK on each -> top BattlescapeState <= %.0f s; a client walk of G %d to %s applies; "
+        r.cell("N1-4", "FIX", "OK closes it: click_widget OK on each -> top BattlescapeState <= %.0f s; a client walk of G %d to %s applies; "
                "HASH" % (W_NOTICE, G, G_DEST), cok and wok, {"OK": cev, "walk": wev})
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
@@ -400,7 +400,7 @@ def row_n2(x, results, walls):
         (hzl,), (czl,) = hz[-1:] or [{}], cz[-1:] or [{}]
         hinfo, cinfo, hmem, cmem = hzl.get("info") or {}, czl.get("info") or {}, hzl.get("members") or {}, czl.get("members") or {}
         print("EVIDENCE N2: %s" % js({"host new zips": hz, "client new zips": cz, "host listing": listing(h), "N1 seq": n1["seq"]}), flush=True)
-        r.cell("N2-1", "RED", "the host's new zip: desync-info.json role host, bucket / seq == the client zip's, kind == the client zip's == %s, "
+        r.cell("N2-1", "FIX", "the host's new zip: desync-info.json role host, bucket / seq == the client zip's, kind == the client zip's == %s, "
                "peerBundlePath == the client's zip; openxcom.log; saveBlob-host.yaml non-empty" % KIND_END,
                bool(hz) and bool(cz) and hinfo.get("role") == "host" and hinfo.get("bucket") == cinfo.get("bucket") == "saveBlob"
                and hinfo.get("seq") == cinfo.get("seq") and hinfo.get("kind") == cinfo.get("kind") == KIND_END
@@ -415,7 +415,7 @@ def row_n2(x, results, walls):
                and len(texts) == 1, {"client members": cmem, "client info": cinfo, "host texts": texts})
         kinds = {"client zip": cinfo.get("kind"), "client RS last": (rs(c).get("last") or {}).get("kind"),
                  "host RS last": (rs(h).get("last") or {}).get("kind")}
-        r.cell("N2-3", "RED", "R-L3-A-2: a bt_action_end desync names the action end: the client zip's kind and both RS last.kind == %s"
+        r.cell("N2-3", "FIX", "R-L3-A-2: a bt_action_end desync names the action end: the client zip's kind and both RS last.kind == %s"
                % KIND_END, all(v == KIND_END for v in kinds.values()), kinds)
     except Exception as e:
         r.stop(e)
@@ -444,14 +444,14 @@ def row_n3(x, results, walls):
                                       "desync_dialog": {k: dd_short(v) for k, v in d1.items()}}), flush=True)
         cz = new_zips(c, lc0)
         cinfo, cmem = (cz[-1:] or [{}])[0].get("info") or {}, (cz[-1:] or [{}])[0].get("members") or {}
-        r.cell("N3-1", "RED", "the client's new zip holds saveBlob-client.yaml (non-empty) and desync-info.json bucket %s, role client" % BUCKET_N3,
+        r.cell("N3-1", "FIX", "the client's new zip holds saveBlob-client.yaml (non-empty) and desync-info.json bucket %s, role client" % BUCKET_N3,
                len(cz) == 1 and (cmem.get("saveBlob-client.yaml") or 0) > 0 and cinfo.get("bucket") == BUCKET_N3 and cinfo.get("role") == "client",
                {"client new zips": cz})
         each = {n: {"live": d1[n].get("live"), "raiseCount +": (raises(d1[n]) - (raises(d0[n]) or 0)) if raises(d1[n]) is not None else None,
                     "notices +": delta(rh0 if n == "host" else rc0, rh if n == "host" else rc, "notices"), "headline": d1[n].get("headline")}
                 for n in ("host", "client")}
         cok, cev = close_notices(x)
-        r.cell("N3-2", "RED", "a notice on each machine again (live, last.raiseCount +1 more, RS notices +1); OK on each -> BattlescapeState",
+        r.cell("N3-2", "FIX", "a notice on each machine again (live, last.raiseCount +1 more, RS notices +1); OK on each -> BattlescapeState",
                all(v["live"] is True and v["raiseCount +"] == 1 and v["notices +"] == 1 for v in each.values()) and cok, {"each": each, "OK": cev})
     except Exception as e:
         r.stop(e)
@@ -480,7 +480,7 @@ def row_n4(x, results, walls):
                rc.get("frozen") is True and delta(rh0, rh, "held") == 1 and wt == HALTED,
                {"client frozen": rc.get("frozen"), "host held +": delta(rh0, rh, "held"), "coopWaitText": wt})
         hz, cz = new_zips(h, lh0), new_zips(c, lc0)
-        r.cell("N4-2", "RED", "both wrote a report: the client's and the host's desync-reports each gained one zip, the host's role host",
+        r.cell("N4-2", "FIX", "both wrote a report: the client's and the host's desync-reports each gained one zip, the host's role host",
                len(cz) == 1 and len(hz) == 1 and (hz[0].get("info") or {}).get("role") == "host",
                {"client new zips": cz, "host new zips": hz, "host listing": listing(h)})
         seen, t_end = [], time.time() + W_NOTICE

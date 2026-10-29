@@ -6,19 +6,19 @@ down in process and loads the host's, and both screens close by themselves once 
   SEED_MAP before newbattle_ok, MAP_FP on both, pin_ai_neutral, wait_host_idle, HASH); the pins H, H2, G, G_TILE asserted (a miss = FIXTURE-STOP
   with ONE CAPTURE line, every row FAILs "boot"). Rows in this order:
   DR1 player turn: a client-only `set_stat reactions` +7 on H2 is found at the host's real-UI kneel of H (its bt_action_end, `saveBlob`) and
-      repaired. DR1-1 GUARD set_stat ok + the diff ['saveBlob']; DR1-2 RED the desync on both records (client last == {saveBlob, s0 + 2,
-      KIND_DR1}, the host's the same); DR1-3 RED offered +1, lastOfferSide 0, the OFFER and RESYNC host lines +1; DR1-4 RED REPAIRED, client
-      teardowns / loaded +1, host completed / released +1, CLIENT_ACTIVE +1, host turn T0; DR1-5 RED HASH + H2's reactions equal; DR1-6 RED
-      SPLIT == SPLIT0; DR1-7 RED a client walk of G to G_DEST applies on both + HASH; DR1-8 RED the probes after the repair (client desyncSeen
+      repaired. DR1-1 GUARD set_stat ok + the diff ['saveBlob']; DR1-2 FIX the desync on both records (client last == {saveBlob, s0 + 2,
+      KIND_DR1}, the host's the same); DR1-3 FIX offered +1, lastOfferSide 0, the OFFER and RESYNC host lines +1; DR1-4 FIX REPAIRED, client
+      teardowns / loaded +1, host completed / released +1, CLIENT_ACTIVE +1, host turn T0; DR1-5 FIX HASH + H2's reactions equal; DR1-6 FIX
+      SPLIT == SPLIT0; DR1-7 FIX a client walk of G to G_DEST applies on both + HASH; DR1-8 FIX the probes after the repair (client desyncSeen
       true, RS frozen false; host desyncSeen true; QL3-4 (a)); DR1-9 GUARD CRASH 0.
   DR4 a second desync in the same battle: tu_both(K4), a client corrupt_bucket {unitsStats} (U), the host's kneel of K4. DR4-1 GUARD the corrupt
-      ok, exactly U's client TU moved, U != K4; DR4-2 RED desyncs +1 on both, client last {unitsStats, KIND_DR4}; DR4-3 RED REPAIRED + offered /
-      completed / released / teardowns / loaded +1; DR4-4 RED HASH + U's TU equal; DR4-5 RED a client walk of G back to G_TILE + HASH; DR4-6
+      ok, exactly U's client TU moved, U != K4; DR4-2 FIX desyncs +1 on both, client last {unitsStats, KIND_DR4}; DR4-3 FIX REPAIRED + offered /
+      completed / released / teardowns / loaded +1; DR4-4 FIX HASH + U's TU equal; DR4-5 FIX a client walk of G back to G_TILE + HASH; DR4-6
       GUARD CRASH 0.
   DR2 the alien side: the poke on H, both press END TURN; the desync lands at the boundary (side_transition, saveBlob) and the repair runs on
-      the hostile side. DR2-1 GUARD set_stat ok, the client's H reactions r0 + 7; DR2-2 RED the diff ['saveBlob'] before the presses, client
-      last {BUCKET_DR2, KIND_DR2}, host lastOfferSide 1; DR2-3 RED REPAIRED + the RS deltas as DR4-3; DR2-4 RED both on turn T1 + 1 side 0 +
-      HASH; DR2-5 RED a client walk of G to G_DEST + HASH; DR2-6 GUARD CRASH 0.
+      the hostile side. DR2-1 GUARD set_stat ok, the client's H reactions r0 + 7; DR2-2 FIX the diff ['saveBlob'] before the presses, client
+      last {BUCKET_DR2, KIND_DR2}, host lastOfferSide 1; DR2-3 FIX REPAIRED + the RS deltas as DR4-3; DR2-4 FIX both on turn T1 + 1 side 0 +
+      HASH; DR2-5 FIX a client walk of G to G_DEST + HASH; DR2-6 GUARD CRASH 0.
 Definitions (spec (f)): POLL 0.25 s; RS(gc) = resync_state.resync, counters as deltas from the row's own baseline; HASH = wait_host_idle +
 assert_hash_clean(full); SPLIT = sorted (id, coop) of faction 0, not isOut; NOTICE_OK(gc) = a CoopDesyncNoticeState on top is dismissed
 (dismiss_popup) and the top is BattlescapeState within 10 s (a no-op before S-C); REPAIRED(b0, n) within W_REPAIR 45 s: host RS released +n,
@@ -353,36 +353,36 @@ def row_dr1(x, results, walls):
         want = {"bucket": "saveBlob", "seq": (s0 or 0) + SEQ_OFF_DR1, "kind": KIND_DR1, "battleId": x.b0}
         print("EVIDENCE DR1: %s" % js({"kneel": kev, "repair": rev, "repair wall (host log) s": log_dt(h, nh, RELEASED, t_press),
                                        "client DESYNC": desync_line(c, nc), "RS host": rh, "RS client": rc}), flush=True)
-        r.cell("DR1-2", "RED", "the desync on both records: client RS desyncs +1, last == %s; host RS desyncs +1 with the same last" % want,
+        r.cell("DR1-2", "FIX", "the desync on both records: client RS desyncs +1, last == %s; host RS desyncs +1 with the same last" % want,
                delta(rc0, rc, "desyncs") == 1 and clast == want and delta(rh0, rh, "desyncs") == 1 and hlast == clast,
                {"client": [delta(rc0, rc, "desyncs"), clast], "host": [delta(rh0, rh, "desyncs"), hlast], "want": want,
                 "client DESYNC line": desync_line(c, nc)})
         offers, resyncs = since(h, nh, OFFER), since(h, nh, RESYNC)
-        r.cell("DR1-3", "RED", "the repair: host RS offered +1, lastOfferSide 0; host log OFFER (battleId=%s) +1 and RESYNC +1" % x.b0,
+        r.cell("DR1-3", "FIX", "the repair: host RS offered +1, lastOfferSide 0; host log OFFER (battleId=%s) +1 and RESYNC +1" % x.b0,
                delta(rh0, rh, "offered") == 1 and rh.get("lastOfferSide") == 0 and len(offers) == 1
                and ("battleId=%s," % x.b0) in offers[0] and len(resyncs) == 1,
                {"offered": delta(rh0, rh, "offered"), "lastOfferSide": rh.get("lastOfferSide"), "OFFER": offers, "RESYNC": resyncs})
         act, ah = since(c, nc, CLIENT_ACTIVE), auth(h)
-        r.cell("DR1-4", "RED", "REPAIRED within %.0f s; client RS teardowns / loaded +1; host RS completed / released +1; client CLIENT_ACTIVE "
+        r.cell("DR1-4", "FIX", "REPAIRED within %.0f s; client RS teardowns / loaded +1; host RS completed / released +1; client CLIENT_ACTIVE "
                "(battleId=%s) +1; host turn == T0 %s" % (W_REPAIR, x.b0, t0),
                good and delta(rc0, rc, "teardowns") == 1 and delta(rc0, rc, "loaded") == 1 and delta(rh0, rh, "completed") == 1
                and delta(rh0, rh, "released") == 1 and len(act) == 1 and ("battleId=%s," % x.b0) in act[0] and ah.get("turn") == t0,
                {"REPAIRED": good, "deltas": {k: [delta(rh0, rh, k), delta(rc0, rc, k)] for k in ("teardowns", "loaded", "completed", "released")},
                 "CLIENT_ACTIVE": act, "host": ah, "T0": t0})
         eh, ec = es(h), es(c)
-        r.cell("DR1-8", "RED", "the probes after the repair: client event_state.desyncSeen true and RS frozen false; host desyncSeen true",
+        r.cell("DR1-8", "FIX", "the probes after the repair: client event_state.desyncSeen true and RS frozen false; host desyncSeen true",
                ec.get("desyncSeen") is True and rc.get("frozen") is False and eh.get("desyncSeen") is True,
                {"client desyncSeen": ec.get("desyncSeen"), "client RS frozen": rc.get("frozen"), "host desyncSeen": eh.get("desyncSeen")})
         if not good:
             raise Stop("REPAIRED not reached within %.0f s (%s)" % (W_REPAIR, rev.get("wait")))
         hok, hev = hash_ok(h, c, "DR1 after the repair")
         rr = [units(h).get(H2, {}).get("reactions"), units(c).get(H2, {}).get("reactions")]
-        r.cell("DR1-5", "RED", "HASH (every bucket EQUAL); H2's reactions equal on both (the poke undone)", hok and rr[0] == rr[1] is not None,
+        r.cell("DR1-5", "FIX", "HASH (every bucket EQUAL); H2's reactions equal on both (the poke undone)", hok and rr[0] == rr[1] is not None,
                {"HASH": hev, "H2 reactions host/client": rr})
         sh, sc = split(h), split(c)
-        r.cell("DR1-6", "RED", "SPLIT(host) == SPLIT(client) == SPLIT0", sh == sc == x.split0, {"host": sh, "client": sc, "SPLIT0": x.split0})
+        r.cell("DR1-6", "FIX", "SPLIT(host) == SPLIT(client) == SPLIT0", sh == sc == x.split0, {"host": sh, "client": sc, "SPLIT0": x.split0})
         wok, wev = walk(x, G, G_DEST, "DR1-7")
-        r.cell("DR1-7", "RED", "play continues: a client walk of G %d to %s applies on both; HASH" % (G, G_DEST), wok, wev)
+        r.cell("DR1-7", "FIX", "play continues: a client walk of G %d to %s applies on both; HASH" % (G, G_DEST), wok, wev)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end("DR1-9", results, walls)
@@ -411,20 +411,20 @@ def row_dr4(x, results, walls):
         clast = rc.get("last") or {}
         print("EVIDENCE DR4: %s" % js({"kneel": kev, "repair": rev, "repair wall (host log) s": log_dt(h, nh, RELEASED, t_press),
                                        "client DESYNC": desync_line(c, nc), "RS host": rh, "RS client": rc}), flush=True)
-        r.cell("DR4-2", "RED", "client RS desyncs +1, last.bucket %s, kind %s; host RS desyncs +1" % (BUCKET_DR4, KIND_DR4),
+        r.cell("DR4-2", "FIX", "client RS desyncs +1, last.bucket %s, kind %s; host RS desyncs +1" % (BUCKET_DR4, KIND_DR4),
                delta(rc0, rc, "desyncs") == 1 and clast.get("bucket") == BUCKET_DR4 and clast.get("kind") == KIND_DR4
                and delta(rh0, rh, "desyncs") == 1, {"client": [delta(rc0, rc, "desyncs"), clast], "host": [delta(rh0, rh, "desyncs"), rh.get("last")]})
         dd = {k: [delta(rh0, rh, k), delta(rc0, rc, k)] for k in ("offered", "completed", "released", "teardowns", "loaded")}
-        r.cell("DR4-3", "RED", "REPAIRED; host RS offered / completed / released +1 each; client teardowns / loaded +1 each",
+        r.cell("DR4-3", "FIX", "REPAIRED; host RS offered / completed / released +1 each; client teardowns / loaded +1 each",
                good and all(dd[k][0] == 1 for k in ("offered", "completed", "released")) and all(dd[k][1] == 1 for k in ("teardowns", "loaded")),
                {"REPAIRED": good, "deltas host/client": dd})
         if not good:
             raise Stop("REPAIRED not reached within %.0f s (%s)" % (W_REPAIR, rev.get("wait")))
         hok, hev = hash_ok(h, c, "DR4 after the repair")
         tus = [units(h).get(U, {}).get("tu"), units(c).get(U, {}).get("tu")]
-        r.cell("DR4-4", "RED", "HASH; U %d's TU equal on both" % U, hok and tus[0] == tus[1] is not None, {"HASH": hev, "U TU host/client": tus})
+        r.cell("DR4-4", "FIX", "HASH; U %d's TU equal on both" % U, hok and tus[0] == tus[1] is not None, {"HASH": hev, "U TU host/client": tus})
         wok, wev = walk(x, G, G_TILE, "DR4-5")
-        r.cell("DR4-5", "RED", "a client walk of G %d back to its DR1 tile %s applies on both; HASH" % (G, G_TILE), wok, wev)
+        r.cell("DR4-5", "FIX", "a client walk of G %d back to its DR1 tile %s applies on both; HASH" % (G, G_TILE), wok, wev)
     except Exception as e:
         r.stop(e)
     r.end("DR4-6", results, walls)
@@ -461,11 +461,11 @@ def row_dr2(x, results, walls):
         clast = rc.get("last") or {}
         print("EVIDENCE DR2: %s" % js({"repair": rev, "repair wall (host log) s": log_dt(h, nh, RELEASED, t_press),
                                        "client DESYNC": desync_line(c, nc), "RS host": rh, "RS client": rc}), flush=True)
-        r.cell("DR2-2", "RED", "the diff before the END TURN presses == ['saveBlob']; client RS last {bucket %s, kind %s}; host RS lastOfferSide 1"
+        r.cell("DR2-2", "FIX", "the diff before the END TURN presses == ['saveBlob']; client RS last {bucket %s, kind %s}; host RS lastOfferSide 1"
                % (BUCKET_DR2, KIND_DR2), diff == ["saveBlob"] and clast.get("bucket") == BUCKET_DR2 and clast.get("kind") == KIND_DR2
                and rh.get("lastOfferSide") == 1, {"diff": diff, "client last": clast, "host lastOfferSide": rh.get("lastOfferSide")})
         dd = {k: [delta(rh0, rh, k), delta(rc0, rc, k)] for k in ("offered", "completed", "released", "teardowns", "loaded")}
-        r.cell("DR2-3", "RED", "REPAIRED; the RS deltas as DR4-3",
+        r.cell("DR2-3", "FIX", "REPAIRED; the RS deltas as DR4-3",
                good and all(dd[k][0] == 1 for k in ("offered", "completed", "released")) and all(dd[k][1] == 1 for k in ("teardowns", "loaded")),
                {"REPAIRED": good, "deltas host/client": dd})
         if not good:
@@ -483,12 +483,12 @@ def row_dr2(x, results, walls):
         except Stop as e:
             seen["wait"] = str(e)
         hok, hev = hash_ok(h, c, "DR2 after the cycle")
-        r.cell("DR2-4", "RED", "both on turn T1 + 1 = %s, side 0 within %.0f s of the press; HASH" % ((t1 or 0) + 1, W_TURN),
+        r.cell("DR2-4", "FIX", "both on turn T1 + 1 = %s, side 0 within %.0f s of the press; HASH" % ((t1 or 0) + 1, W_TURN),
                "wait" not in seen and hok, {"turn/side": seen, "HASH": hev})
         if "wait" in seen:
             raise Stop(seen["wait"])
         wok, wev = walk(x, G, G_DEST, "DR2-5")
-        r.cell("DR2-5", "RED", "a client walk of G %d to %s applies on both; HASH" % (G, G_DEST), wok, wev)
+        r.cell("DR2-5", "FIX", "a client walk of G %d to %s applies on both; HASH" % (G, G_DEST), wok, wev)
     except Exception as e:
         r.stop(e)
     r.end("DR2-6", results, walls)

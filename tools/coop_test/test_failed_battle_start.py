@@ -5,14 +5,14 @@ for <name>" over a briefing that can never start and a rejoin never reaches RESU
   Boot A (lobby key "48580", w2h24_a_host / _client): C1 a refused start (host corrupt_next_blob), then C0 the negative control on the
   same world (a clean start, then a mid-battle kill: the SPEC 16 pause). Boot B (key "48581", w2h24_b_host / _client / _client2): C2 the
   partner lost during the start (client hold_battle_ready, then kill), then client2 rejoins (test_rejoin_flow.py :47-:70).
-  Cells: C1-1 GUARD refused, C1-2 GUARD no battle, C1-3 RED UNWIND, C1-4 RED no re-prompt, C1-5 RED craft turned home, C1-6 RED MARKS 0,
-  C1-7 GUARD the site stays, C1-8 GUARD CRASH 0; C0-1 GUARD the start works, C0-2 GUARD the SPEC 16 pause, C0-3 GUARD CRASH 0; C2-1 RED
-  UNWIND, C2-2 RED the host waits on the geoscape, C2-3 RED craft home, C2-4 RED MARKS 0, C2-5 RED the rejoin works (TASK 0 T0-2: the
+  Cells: C1-1 GUARD refused, C1-2 GUARD no battle, C1-3 FIX UNWIND, C1-4 FIX no re-prompt, C1-5 FIX craft turned home, C1-6 FIX MARKS 0,
+  C1-7 GUARD the site stays, C1-8 GUARD CRASH 0; C0-1 GUARD the start works, C0-2 GUARD the SPEC 16 pause, C0-3 GUARD CRASH 0; C2-1 FIX
+  UNWIND, C2-2 FIX the host waits on the geoscape, C2-3 FIX craft home, C2-4 FIX MARKS 0, C2-5 FIX the rejoin works (TASK 0 T0-2: the
   kill took the -2 path; today client2 gets the world but the host never reads resumeAck in 120 s), C2-6 GUARD CRASH 0.
   Stage S-B (AMENDMENT H24-2 section 2, D259 (a); TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B1): boot C (key "48582",
   w2h24_c_host / _client), row S1 a co-op SKIRMISH start that loses its partner: test_handshake_teardown.drive_to_seated, the
-  client's hold_battle_ready, newbattle_ok, host Handshake + client held, client.kill(), observe W. Cells: S1-1 RED UNWIND, S1-2 RED
-  the host lands on a bare main menu with the session ended (as a refused skirmish start, D259 (a)), S1-3 RED no battle, S1-4 GUARD
+  client's hold_battle_ready, newbattle_ok, host Handshake + client held, client.kill(), observe W. Cells: S1-1 FIX UNWIND, S1-2 FIX
+  the host lands on a bare main menu with the session ended (as a refused skirmish start, D259 (a)), S1-3 FIX no battle, S1-4 GUARD
   CRASH 0. EVIDENCE names the loss path and the stale-heal line delta (recorded, never asserted, F5197).
 W = 15 s, POLL = 0.2 s. CAMP = r4l6 TASK 0 t0_2.py's head (session.bring_up_separate_guest_battle :2446-:2546 through the landing prompt,
 geoscape clock left at its speed). SKY = the host's geo_state entry of the craft. MARKS = host save_game, then the file's "inBattlescape:
@@ -255,14 +255,14 @@ def row_c1(x, results, walls):
         r.cell("C1-2", "GUARD", "no battle: host phase Idle, inBattle false, battleId 0; client phase Idle; both onConnect 1, coopSession true",
                hb["phase"] == "Idle" and hb["inBattle"] is False and hb["battleId"] == 0 and cb["phase"] == "Idle"
                and all(v["onConnect"] == 1 and v["coopSession"] is True for v in (hc, cc)), {"host": [hb, hc], "client": [cb, cc]})
-        r.cell("C1-3", "RED", 'UNWIND +1 reading "(refused) unwound - %s" (red today: 0 lines, T0-1)' % MARKED,
+        r.cell("C1-3", "FIX", 'UNWIND +1 reading "(refused) unwound - %s" (red today: 0 lines, T0-1)' % MARKED,
                len(unw) == 1 and ("(refused) unwound - " + MARKED) in unw[0], unw)
         hit = [t for t, st in polls if CLS in st]
-        r.cell("C1-4", "RED", "no re-prompt: ConfirmLandingState on no host poll after the refusal (red today: up from 1.71 s, T0-1)",
+        r.cell("C1-4", "FIX", "no re-prompt: ConfirmLandingState on no host poll after the refusal (red today: up from 1.71 s, T0-1)",
                bool(polls) and not hit, {"polls": len(polls), "with CLS": len(hit), "first CLS s": hit[:1], "stacks": changes(polls)})
-        r.cell("C1-5", "RED", 'craft turned home: SKY destKind not "site", and destKind "base" while status STR_OUT (red today: "site")',
+        r.cell("C1-5", "FIX", 'craft turned home: SKY destKind not "site", and destKind "base" while status STR_OUT (red today: "site")',
                s1.get("destKind") not in (None, "site") and (s1.get("status") != "STR_OUT" or s1.get("destKind") == "base"), s1)
-        r.cell("C1-6", "RED", "MARKS = 0 lines (red today: 2, bases/crafts + missionSites, T0-1)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
+        r.cell("C1-6", "FIX", "MARKS = 0 lines (red today: 2, bases/crafts + missionSites, T0-1)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
         ids = sky(h, None, sites=True)
         r.cell("C1-7", "GUARD", "the target stays: host geo_state.missionSites holds the site id %s" % x.site, x.site in ids, ids)
     except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
@@ -351,17 +351,17 @@ def row_c2(x, results, walls):
         why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
         path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
                 "UNWIND reason": why}
-        r.cell("C2-1", "RED", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-2)' % MARKED,
+        r.cell("C2-1", "FIX", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-2)' % MARKED,
                len(unw) == 1 and bool(why) and MARKED in unw[0], {"UNWIND": unw, "path": path})
-        r.cell("C2-2", "RED", "the host waits on the geoscape: stack ends [GeoscapeState, CoopState], dialog 62, no BriefingState / "
+        r.cell("C2-2", "FIX", "the host waits on the geoscape: stack ends [GeoscapeState, CoopState], dialog 62, no BriefingState / "
                "BattlescapeState, inBattle false, phase Idle, peerAbsent false (red today: 62 over BriefingState, inBattle true, T0-2)",
                hs[-2:] == [GEO, COOP] and d.get("code") == 62 and BRF not in hs and BS not in hs and hb["inBattle"] is False
                and hb["phase"] == "Idle" and hb["peerAbsent"] is False, {"stack": hs, "dialog": d, "battle": hb, "stacks": changes(polls)})
-        r.cell("C2-3", "RED", 'SKY destKind "base" (red today: "site", T0-2)', s.get("destKind") == "base", s)
-        r.cell("C2-4", "RED", "MARKS = 0 (red today: 2, T0-2)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
+        r.cell("C2-3", "FIX", 'SKY destKind "base" (red today: "site", T0-2)', s.get("destKind") == "base", s)
+        r.cell("C2-4", "FIX", "MARKS = 0 (red today: 2, T0-2)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
         ev = {}
         ok = rejoin(x, n_h, ev)
-        r.cell("C2-5", "RED", "the rejoin works: resumeAck true, RESUME pressed, client2 and host top GeoscapeState, rejoin guard +0, "
+        r.cell("C2-5", "FIX", "the rejoin works: resumeAck true, RESUME pressed, client2 and host top GeoscapeState, rejoin guard +0, "
                "client2 never > 30 s on CoopState 52 (red today: resumeAck never true in 120 s, T0-2)", ok, ev)
     except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
         r.stop(e)
@@ -389,15 +389,15 @@ def row_s1(x, results, walls):
         why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
         path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
                 "UNWIND reason": why, "stale-heal lines (recorded, never asserted, F5197)": stale}
-        r.cell("S1-1", "RED", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-B1)' % UNMARKED,
+        r.cell("S1-1", "FIX", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-B1)' % UNMARKED,
                len(unw) == 1 and bool(why) and UNMARKED in unw[0], {"UNWIND": unw, "path": path})
         lobby = [t for t, st in polls if "LobbyMenu" in st]
-        r.cell("S1-2", "RED", "the host lands on a bare main menu, the session ended (D259 (a)): at W stack ['MainMenuState'], has_save "
+        r.cell("S1-2", "FIX", "the host lands on a bare main menu, the session ended (D259 (a)): at W stack ['MainMenuState'], has_save "
                "false, coopSession false, onConnect -1, no coop dialog, LobbyMenu on no poll (red today: [BriefingState, CoopState] 62, "
                "T0-B1)", hs == ["MainMenuState"] and has_save is False and hc["coopSession"] is False and hc["onConnect"] == -1
                and d.get("present") is False and bool(polls) and not lobby,
                {"stack": hs, "has_save": has_save, "get_coop": hc, "dialog": d, "LobbyMenu polls s": lobby[:3], "stacks": changes(polls)})
-        r.cell("S1-3", "RED", "no battle: host phase Idle, inBattle false, battleId 0 (red today: inBattle true, T0-B1)",
+        r.cell("S1-3", "FIX", "no battle: host phase Idle, inBattle false, battleId 0 (red today: inBattle true, T0-B1)",
                hb["phase"] == "Idle" and hb["inBattle"] is False and hb["battleId"] == 0, hb)
     except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
         r.stop(e)

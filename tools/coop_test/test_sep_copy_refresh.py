@@ -8,14 +8,14 @@ start-of-game maintenance a second time (GeoscapeState's first-month block) and 
   BES.MARKER_DELTA (client set_funds, the C28P marker); GEO0 = its geo_state (funds == MARKER); OWN_BEFORE = its "Guest Zzz" soldier_record;
   OWN_SOLDIER = its get_soldiers record of that id (coopBase); H_FX = copy_view(host) read AFTER the marker; the host log length (REJECT
   baseline). pin: host set_seed BES.SEED_P. Both mapFingerprints == BES.MAP_FP_P. A boot miss fails both rows "boot" with ONE CAPTURE line.
-  Row RE (the host's copy at the battle entry): RE-1 RED within W_COPY 15 s the copy's fnv != H_FX's, then its view funds == MARKER,
+  Row RE (the host's copy at the battle entry): RE-1 FIX within W_COPY 15 s the copy's fnv != H_FX's, then its view funds == MARKER,
   monthsPassed == GEO0's, guest lines >= 1; RE-2 GUARD both tops BattlescapeState, the host's REJECT count since fx 0 (no CoopState 994), HASH.
   Row RJ (client2 returns from a rejoined battle; R4-L2's CR2 + CR4 construction): CR.baseline, client.kill(), CR.pause, CR.rejoin, CR.resume,
   both tops BattlescapeState, COPY = CRS.ending, client2's display-only debriefing, its OK through its follow-ups, +1.0 s reads, the host's
   OK + drain, reads again. RJ-1 GUARD the rejoin resumed (PAUSE, resumeAck, RESUME, both tops, battleId B0 on both, HASH); RJ-2 GUARD client2
-  -> its own GeoscapeState, battleEnd.sepReturn includes SEP_WANT; RJ-funds RED client2's funds == MARKER at +1 s and after the host's OK;
-  RJ-guest RED its guest's soldier_record name / coopCraft / coopCraftType / where / baseIndex == OWN_BEFORE's (MR6: coopCraft -1 and
-  coopCraftType "" when COPY.recovery > 0), missions == OWN_BEFORE's + 1, get_soldiers coopBase == OWN_SOLDIER's; RJ-copy RED within
+  -> its own GeoscapeState, battleEnd.sepReturn includes SEP_WANT; RJ-funds FIX client2's funds == MARKER at +1 s and after the host's OK;
+  RJ-guest FIX its guest's soldier_record name / coopCraft / coopCraftType / where / baseIndex == OWN_BEFORE's (MR6: coopCraft -1 and
+  coopCraftType "" when COPY.recovery > 0), missions == OWN_BEFORE's + 1, get_soldiers coopBase == OWN_SOLDIER's; RJ-copy FIX within
   BES.FNV_S of client2's OK the copy's fnv changes, its view funds == MARKER, monthsPassed == GEO0's, guest lines >= 1; RJ-end GUARD the
   host's OK + drain -> GeoscapeState, no alive "Guest Zzz" on the host; RJ-crash GUARD CRASH 0 and client2 zero-disk (every case).
 copy_view(host) = the PBE host_copy pattern: coop_file_info {role host_copy_of_client}, dump_coop_file on the HOST only (a client stays
@@ -159,7 +159,7 @@ def row_re(x, results, walls):
         sh, sc = CR.stack(h), CR.stack(c)
         print("EVIDENCE RE: %s" % json.dumps({"H_FX": hfx, "now": now, "changed s": s, "waited s": round(time.time() - t0, 2),
                                               "host stack": sh, "client stack": sc}, sort_keys=True, default=str), flush=True)
-        r.cell("RE-1", "RED", "within W_COPY %.0f s the host's copy of the client world changes (fnv != H_FX's %s), then its view: funds == "
+        r.cell("RE-1", "FIX", "within W_COPY %.0f s the host's copy of the client world changes (fnv != H_FX's %s), then its view: funds == "
                "MARKER %s, monthsPassed == GEO0's %s, guest lines >= 1 (red today: fnv unchanged at W_COPY; F_S0 / -1 / 0, F12512)"
                % (W_COPY, hfx.get("fnv"), FX["MARKER"], FX["GEO0"].get("monthsPassed")), s is not None and view_ok(now),
                {"changed s": s, "now": now, "H_FX": hfx})
@@ -230,21 +230,21 @@ def row_rj(x, results, walls):
         at_geo_h, screens = BES.drain(h) if hok2.get("pressed") else (False, [])
         g2 = CRS.geo_view(c2)
         evo.update({"client2 +1 s": g1, "client2 after the host's OK": g2, "host": CRS.geo_view(h)})
-        r.cell("RJ-funds", "RED", "client2's funds == MARKER %s 1 s after its GeoscapeState AND after the host's OK + drain (D180 (a); red today: "
+        r.cell("RJ-funds", "FIX", "client2's funds == MARKER %s 1 s after its GeoscapeState AND after the host's OK + drain (D180 (a); red today: "
                "F_S0 %s - 1869000 both times, F12511)" % (FX["MARKER"], FX["F_S0"]), g1.get("funds") == g2.get("funds") == FX["MARKER"],
                {"+1 s": g1, "after the host's OK": g2, "MARKER": FX["MARKER"], "F_S0": FX["F_S0"]})
         want = {k: own.get(k) for k in GUEST_FIELDS}
         if (copy.get("recovery") or 0) > 0:  # MR6: a wounded guest loses its seat at the return
             want.update(coopCraft=-1, coopCraftType="")
         got = {k: rec.get(k) for k in GUEST_FIELDS}
-        r.cell("RJ-guest", "RED", "client2's guest (soldier_record id %s): %s == %s, missions == OWN_BEFORE's + 1, get_soldiers coopBase == "
+        r.cell("RJ-guest", "FIX", "client2's guest (soldier_record id %s): %s == %s, missions == OWN_BEFORE's + 1, get_soldiers coopBase == "
                "OWN_SOLDIER's %s (D155 (a); red today: coopCraft -1, coopCraftType \"\", coopBase -1, F12421)" % (own.get("id"), GUEST_FIELDS,
                                                                                                                  want, osd.get("coopBase")),
                bool(rec) and got == want and rec.get("missions") == (own.get("missions") or 0) + 1 and bool(osd2)
                and osd2.get("coopBase") == osd.get("coopBase"),
                {"record": got, "want": want, "missions": [rec.get("missions"), own.get("missions")], "get_soldiers": osd2, "OWN_SOLDIER": osd,
                 "COPY.recovery": copy.get("recovery")})
-        r.cell("RJ-copy", "RED", "within BES.FNV_S %d s of client2's OK the host's copy changes (fnv != %s), its view: funds == MARKER %s, "
+        r.cell("RJ-copy", "FIX", "within BES.FNV_S %d s of client2's OK the host's copy changes (fnv != %s), its view: funds == MARKER %s, "
                "monthsPassed == GEO0's %s, guest lines >= 1 (red today: F_S0 / -1)" % (BES.FNV_S, fnv0, FX["MARKER"], FX["GEO0"].get("monthsPassed")),
                changed is not None and view_ok(after), {"changed s": changed, "fnv before the OK": fnv0, "view": after})
         if changed is None:

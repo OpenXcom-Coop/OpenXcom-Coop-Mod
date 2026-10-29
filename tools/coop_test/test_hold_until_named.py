@@ -14,22 +14,22 @@ the lines of that machine's openxcom.log between two marks. Every row starts wit
     V-no995 the partner's log window click -> V-live has no CoopState push.  V-home host GEOSCAPE: GeoscapeState within 5 s, funds == PRE.
   Row G  (C1) partner to BaseNameState; host BASES, SOLDIERS, GIFT_ROW click, GIVE_KEY, the partner's button; partner GiftNoticeState OK,
          names NAME_G.
-    G-no995 (RED) partner log RECV -> PlaceLiftState push: no CoopState push.  G-named partner PlaceLiftState within 5 s of the OK.
-    G-lands (RED) within LANDS_S of the OK the host copy fnv differs from H0, no host save.  G-calm no CoopState push PlaceLiftState ->
+    G-no995 (FIX) partner log RECV -> PlaceLiftState push: no CoopState push.  G-named partner PlaceLiftState within 5 s of the OK.
+    G-lands (FIX) within LANDS_S of the OK the host copy fnv differs from H0, no host save.  G-calm no CoopState push PlaceLiftState ->
     the watch end (named and landed + TAIL_S, at most T_OK + LANDS_S; D306 O2).
   Row P  (C2) partner to BaseNameState; host visits PARTNER_BASE; both polled every POLL for WAIT_S; partner names NAME_P.
-    P-wait (RED) host top CoopState 50 at +WAIT_S.  P-no995 (RED) no partner poll saw 995.  P-named partner PlaceLiftState within 5 s.
-    P-live (RED) within ENTER_S of the OK host BasescapeState with FUNDS digits == partner funds.  P-home partner lift + GEOSCAPE; host
+    P-wait (FIX) host top CoopState 50 at +WAIT_S.  P-no995 (FIX) no partner poll saw 995.  P-named partner PlaceLiftState within 5 s.
+    P-live (FIX) within ENTER_S of the OK host BasescapeState with FUNDS digits == partner funds.  P-home partner lift + GEOSCAPE; host
     GEOSCAPE: GeoscapeState within 5 s, funds == PRE.
   Row H  (C2b) row P with the roles swapped: the host names NAME_H, the partner visits HOST_BASE.  H-wait, H-no995, H-named, H-live, H-home.
   Row Q  (C1 + C2 in one naming) partner to BaseNameState; host gift (BASES, MINI0, SOLDIERS, ...); host visits PARTNER_BASE; WAIT_S polls;
          H1 = host copy fnv; partner names NAME_Q; polled every POLL until named, live and landed + TAIL_S (D306 O1 /
          O2), at most T_OK + LANDS_S once live is seen, else T_OK + ENTER_S. The watch end = where that poll stops.
-    Q-wait (RED) host CoopState 50 at +WAIT_S.  Q-no995 (RED) partner log RECV -> the watch end: no CoopState push.  Q-named.
-    Q-live (RED) within ENTER_S host BasescapeState, FUNDS digits == partner funds.  Q-lands (RED) within LANDS_S the host copy differs from
+    Q-wait (FIX) host CoopState 50 at +WAIT_S.  Q-no995 (FIX) partner log RECV -> the watch end: no CoopState push.  Q-named.
+    Q-live (FIX) within ENTER_S host BasescapeState, FUNDS digits == partner funds.  Q-lands (FIX) within LANDS_S the host copy differs from
     H1, save folder unchanged.  Q-stays host log OK -> the watch end: no BasescapeState pop.  Q-home as P-home.
   END    CRASH (GUARD) no new crash file in harness.CRASH_DIR since row V, both processes alive until their shutdown.
-Red today: the 12 RED cells FAIL, the 14 others PASS. Green (W2-H66 S-B G1: EB1-EB5 with EB4-R): all 26 PASS.
+Red today: the 12 FIX cells FAIL, the 14 others PASS. Green (W2-H66 S-B G1: EB1-EB5 with EB4-R): all 26 PASS.
 Every press is a real click_widget or inject_input (no gift, visit, leave, dismiss or dialog-back lever). One EVIDENCE line per row, one
 PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached"); a boot miss fails every cell
 "boot" with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
@@ -57,7 +57,7 @@ CLICK_SETTLE = 0.25                         # D306 O4: after a click moved the s
 ROWS = (("V", ("V-enter", "V-live", "V-no995", "V-home")), ("G", ("G-no995", "G-named", "G-lands", "G-calm")),
         ("P", ("P-wait", "P-no995", "P-named", "P-live", "P-home")), ("H", ("H-wait", "H-no995", "H-named", "H-live", "H-home")),
         ("Q", ("Q-wait", "Q-no995", "Q-named", "Q-live", "Q-lands", "Q-stays", "Q-home")), ("END", ("CRASH",)))
-RED = ("G-no995", "G-lands", "P-wait", "P-no995", "P-live", "H-wait", "H-no995", "H-live", "Q-wait", "Q-no995", "Q-live", "Q-lands")
+FIX = ("G-no995", "G-lands", "P-wait", "P-no995", "P-live", "H-wait", "H-no995", "H-live", "Q-wait", "Q-no995", "Q-live", "Q-lands")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -214,7 +214,7 @@ class Row:
         fails = []
         for cid in dict(ROWS)[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
@@ -534,7 +534,7 @@ def main():
             print("CAPTURE boot: %s" % js(capture(b)), flush=True)
             for rid, cells in ROWS:
                 for cid in cells:
-                    print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                    print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                     b.fails.append(cid)
                 print("FAIL %s: boot" % rid, flush=True)
         else:

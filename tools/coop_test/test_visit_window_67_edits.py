@@ -11,7 +11,7 @@ R15's rename_soldier, QH70C-5; no reload, no rejoin):
   R15 (W3 rename) SOLDIERS; the window; B3; rename_soldier GIFTNAME -> RENAME (the view lists it = the last precondition); SoldiersState's
       OK; the leave; HOLD_L: R15-write (the fnv after SoldiersState's OK != B3), R15-name (the own-base soldier with B's guest id is
       named RENAME).
-Cells: X-pre GUARD; the RED cells above; X-common GUARD (both machines alive at the read, no new .dmp since B). 12 cells; red (commit
+Cells: X-pre GUARD; the FIX cells above; X-common GUARD (both machines alive at the read, no new .dmp since B). 12 cells; red (commit
 R1): RED exactly on R13-write, R13-seat, R14-write, R14-home, R15-write, R15-name. Never in one K=2 batch with
 test_manual_promotion.py (its port tuple shares 49290, F20703). ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row
 verdict; every row runs; exit 0 only when every cell passes, else 2. one foreground run per invocation.
@@ -80,21 +80,21 @@ def cells_w3(rid, ev):
     if rid == "R13":
         f = after[1][3] if len(after) > 1 and len(after[1]) > 3 else None
         view = (ev.get("revisit") or {}).get("view") or []
-        out = [("R13-write", "RED", "the client's \"basehost\" fnv after CraftInfoState's OK %s != B3 %s (red today: equal, F20447)" % (f, b3),
+        out = [("R13-write", "FIX", "the client's \"basehost\" fnv after CraftInfoState's OK %s != B3 %s (red today: equal, F20447)" % (f, b3),
                 bool(b3) and bool(f) and f != b3),
-               ("R13-seat", "RED", "on the re-visit the guest has a craft in the view (%s; red today: none, F20447)" % view,
+               ("R13-seat", "FIX", "on the re-visit the guest has a craft in the view (%s; red today: none, F20447)" % view,
                 len(view) == 1 and bool(view[0][5]))]
     elif rid == "R14":
         f, hm = (ev.get("move") or {}).get("fnv"), cs.get("name")
-        out = [("R14-write", "RED", "the client's \"basehost\" fnv after the MOVE's OK %s != B3 %s (red today: equal, F20448)" % (f, b3),
+        out = [("R14-write", "FIX", "the client's \"basehost\" fnv after the MOVE's OK %s != B3 %s (red today: equal, F20448)" % (f, b3),
                 bool(b3) and bool(f) and f != b3),
-               ("R14-home", "RED", "HOLD_L after the leave: the guest on the client's own base with coopBase -1 (%s; red today: the host "
+               ("R14-home", "FIX", "HOLD_L after the leave: the guest on the client's own base with coopBase -1 (%s; red today: the host "
                 "base's coop id, F20448)" % hm, bool(hm) and len(hm) == 1 and hm[0][3] == -1)]
     else:
         f, rn, byid = after[0][3] if after and len(after[0]) > 3 else None, (ev.get("rename") or {}).get("name"), cs.get("id")
-        out = [("R15-write", "RED", "the client's \"basehost\" fnv after SoldiersState's OK %s != B3 %s (red today: equal, CANDIDATE "
+        out = [("R15-write", "FIX", "the client's \"basehost\" fnv after SoldiersState's OK %s != B3 %s (red today: equal, CANDIDATE "
                 "F20706)" % (f, b3), bool(b3) and bool(f) and f != b3),
-               ("R15-name", "RED", "HOLD_L after the leave: the own-base soldier with B's guest id is named %r (%s; red today: GIFTNAME, "
+               ("R15-name", "FIX", "HOLD_L after the leave: the own-base soldier with B's guest id is named %r (%s; red today: GIFTNAME, "
                 "CANDIDATE F20706)" % (rn, byid), bool(byid) and len(byid) == 1 and byid[0][3] == rn)]
     return out + [common_c(rid, ev.get("read") or {})]
 

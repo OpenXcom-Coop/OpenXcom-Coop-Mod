@@ -11,7 +11,7 @@ DebriefingState OK, OK_GAP_S, the other's; both GeoscapeState calm 2 s = T; READ
            [(CB_NAME, CB)] exactly at READ. R-6b (GUARD) no base in mir(host) has coopBaseId HB. R-6c (GUARD) mir(client2) holds
            (HB_NAME, HB) at READ.
   Row R-5 (boot 2, KB; the trap rejoin: the client's Escape > PauseState CO-OP > LobbyMenu DISCONNECT, Direct Connect from that
-           ServerList, the host's RESUME once its 62 shows resumeAck; the host's OK first; RED) R-5a (RED) as R-6a; R-5b (GUARD) as
+           ServerList, the host's RESUME once its 62 shows resumeAck; the host's OK first; RED) R-5a (FIX) as R-6a; R-5b (GUARD) as
            R-6b; R-5c (GUARD) as R-6c for the same client process.
   END      CRASH (GUARD): no crash file new since the file start (both boots); every process alive until its shutdown (the killed client
            excepted).
@@ -39,7 +39,7 @@ DROP_S, TRAP_S, REJOIN_S, BOTH_S, VOTE_S, DEBRIEF_S, OK_GAP_S, READ_S = 30.0, 10
 NEEDLES = ("[coop] coopBase3 marker", "[coop-session]", "COOP_READY")
 ROWS = (("R-6", ("R-6a", "R-6b", "R-6c")), ("R-5", ("R-5a", "R-5b", "R-5c")), ("END", ("CRASH",)))
 BOOTS = (("t1", KA, "R-6", lambda b, r: row_r6(b, r)), ("t2", KB, "R-5", lambda b, r: row_r5(b, r)))
-RED = ("R-5a",)
+FIX = ("R-5a",)
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 SDLK_END, SDLK_BACKSPACE = 279, 8
 T0 = [time.time()]
@@ -231,7 +231,7 @@ class Row:
         fails = []
         for cid in dict(ROWS)[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
@@ -342,7 +342,7 @@ def run_boot(x, tag, key, rid, row_fn, seed, last):
     if not ok:
         print("CAPTURE boot %s: %s" % (tag, js(capture(b))), flush=True)
         for cid in dict(ROWS)[rid]:
-            print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+            print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
             x.fails.append(cid)
         return "miss"
     hb, cb, r = ev["HB"], ev["CB"], Row(x, b, rid)

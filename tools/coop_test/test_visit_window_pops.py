@@ -10,19 +10,19 @@ the levers save_game_ui (the save trigger) and hold_base_result (TEST-ONLY, comm
 force_stream_key_miss (W2-H66; both S45, below) and the probes.
   R1 (host, L-H64-1; no hold): B; save_game_ui quick (the host's 54, the client's 67); the client's OK, PURCHASE/RECRUIT, ONE arrow click on
     ITEM's row, OK (the host's 150 over the 54); HOLD_PRE; read P; the client's GEOSCAPE; QUICK written (W_SAVE); read W after WAIT_W; the
-    host's real OK on a 150. Cells: R1-pre GUARD, R1-notice RED, R1-items GUARD, R1-written GUARD, R1-ok RED, R1-client GUARD, R1-common GUARD.
+    host's real OK on a 150. Cells: R1-pre GUARD, R1-notice FIX, R1-items GUARD, R1-written GUARD, R1-ok FIX, R1-client GUARD, R1-common GUARD.
   S45 (vwp-gap, F20480-F20486): W2-H70 pushes the visitor's own world at a gift made during a visit, so the leave's push carries the same
     bytes and no longer moves the host fnv inside the held 50. R2 makes the gift inside the host's held 50 (the harness gift: the host's
     screens are under its modal 50); R3 holds the gift's push on the client's lever until the client's 50 is up.
   R2 (host, L-LT8-1; host hold): B (H0 = host coop_file_info host_copy_of_client fnv1a64); host hold_base_result HOLD_MS; the host's real
     click on the client's marker; HOLD (W_HOLD); at once the host's soldier gift to the visiting client (hold_gift) and the client's OK on its
-    notice; the client's GEOSCAPE; watch until the host's top is BasescapeState for 1 s; read V. Cells: R2-pre GUARD, R2-stack RED,
-    R2-geo RED, R2-lift RED, R2-leave GUARD.
+    notice; the client's GEOSCAPE; watch until the host's top is BasescapeState for 1 s; read V. Cells: R2-pre GUARD, R2-stack FIX,
+    R2-geo FIX, R2-lift FIX, R2-leave GUARD.
   R3 (client, L-LT8-1; client hold, QH71-2 (a)): the client's lever on; the gift; its push held (held: one W2-H70 line, one logged miss);
     B; client hold_base_result; the client's GEOSCAPE, back on [GeoscapeState]; at once its real click on the host's marker; with the
     client's 50 on top the lever off; watch until its top is BasescapeState for 1 s; read V. Cells: R3-pre GUARD (R-H71-2: the start of
     the last host fnv == H0 read is later than the client's logged 50 push, the first changed read ends before its logged BasescapeState
-    push), R3-stack RED, R3-geo RED, R3-lift RED, R3-leave GUARD.
+    push), R3-stack FIX, R3-geo FIX, R3-lift FIX, R3-leave GUARD.
   -lift cells: clicked ONLY on [GeoscapeState, BasescapeState] (else FAIL "not reached (red stack)", no click): the real click on
     the visited base's lift tile -> BriefingState over GeoscapeState within W_UI; the briefing's OK, then end_turn_button -> [GeoscapeState,
     BasescapeState] within W_UI (TASK 0's way back); both alive.
@@ -443,7 +443,7 @@ def row_r1(x, results):
         n = counts(h, x.n_h)
         W = ev["W"] = {"stack": stack(h), "dlg": dlg(h), "pending": coop(h).get("pendingHostSaveName"), "needles": n, "client s": tcl,
                        "transfers": next((b.get("transfers") for b in h.ok({"cmd": "geo_state"}).get("bases", []) if b.get("name") == x.hb["name"]), None)}
-        r.cell("R1-notice", "RED", "read W: host top CoopState 150 with its OK visible, 3 states (red today: [GeoscapeState], the 150 popped "
+        r.cell("R1-notice", "FIX", "read W: host top CoopState 150 with its OK visible, 3 states (red today: [GeoscapeState], the 150 popped "
                "unread, F19760)", W["stack"] == [GEO, "CoopState", "CoopState"] and W["dlg"].get("code") == 150 and W["dlg"].get("backVisible") is True)
         r.cell("R1-items", "GUARD", "read W: %s in %s's transfers, qty 1" % (ITEM, x.hb["name"]),
                any(t.get("rule") == ITEM and t.get("qty") == 1 for t in W["transfers"] or []))
@@ -453,9 +453,9 @@ def row_r1(x, results):
             vb, sb = wait(lambda: stack(h) == [GEO], W_CLOSE, 0.005)
             c54 = sum(1 for ln in log(h)[n0:] if NEEDLES["CLOSE54"] in ln)
             ev["OK"] = {"click": ok, "back s": sb, "close54": c54}
-            r.cell("R1-ok", "RED", "the host's real OK on the 150 -> [GeoscapeState] within %.0f s, CLOSE54 +1" % W_CLOSE, bool(ok and vb and c54 == 1))
+            r.cell("R1-ok", "FIX", "the host's real OK on the 150 -> [GeoscapeState] within %.0f s, CLOSE54 +1" % W_CLOSE, bool(ok and vb and c54 == 1))
         else:
-            r.cell("R1-ok", "RED", "not reached (no 150 on top at read W; red today)", False)
+            r.cell("R1-ok", "FIX", "not reached (no 150 on top at read W; red today)", False)
         E = ev["E"] = {"mtimes": mt + [quick(h)], "needles": counts(h, x.n_h)}
         r.cell("R1-written", "GUARD", "%s's mtime moved exactly once since B; CLEAR +1; pendingHostSaveName \"\" at W" % QUICK,
                len(set(E["mtimes"])) == 2 and E["needles"]["CLEAR"] == 1 and W["pending"] == "")
@@ -532,17 +532,17 @@ def visit_row(x, results, rid, who):
                      "changed read ended before its logged BasescapeState push (R-H71-2)")
         guard(r, p + "-pre", label, pre)
         V = ev["V"] = stack(gc)
-        r.cell(p + "-stack", "RED", "read V: the %s stack == [GeoscapeState, BasescapeState] (red today: [BasescapeState])" % who, V == [GEO, BS])
+        r.cell(p + "-stack", "FIX", "read V: the %s stack == [GeoscapeState, BasescapeState] (red today: [BasescapeState])" % who, V == [GEO, BS])
         lines = [ln.split("\t")[-1] for ln in log(gc)[x.nk:]]
         geopop, bsp = sum(1 for ln in lines if NEEDLES["GEOPOP"] in ln), [ln for ln in lines if NEEDLES["BSPUSH"] in ln]
         ev["geo"] = {"GEOPOP": geopop, "BSPUSH": bsp}
-        r.cell(p + "-geo", "RED", "the %s log since the click: GEOPOP 0 and the BSPUSH line ends depth=2 (red today: GEOPOP 1, depth=1)" % who,
+        r.cell(p + "-geo", "FIX", "the %s log since the click: GEOPOP 0 and the BSPUSH line ends depth=2 (red today: GEOPOP 1, depth=1)" % who,
                geopop == 0 and len(bsp) == 1 and bsp[0].endswith("depth=2"))
         if V == [GEO, BS]:
-            r.cell(p + "-lift", "RED", "the real lift click -> BriefingState over GeoscapeState; OK, end_turn_button -> [GeoscapeState, "
+            r.cell(p + "-lift", "FIX", "the real lift click -> BriefingState over GeoscapeState; OK, end_turn_button -> [GeoscapeState, "
                    "BasescapeState] within %.0f s; both alive" % W_UI, lift(x, gc, (x.cb if who == "host" else x.hb)["name"], ev))
         else:
-            r.cell(p + "-lift", "RED", "not reached (red stack %s: no lift click on it, R-H71-2)" % V, False)
+            r.cell(p + "-lift", "FIX", "not reached (red stack %s: no lift click on it, R-H71-2)" % V, False)
         ok = real_click(gc, "GEOSCAPE", W_UI)
         vb, ev["leave s"] = wait(lambda: stack(gc) == [GEO], W_UI, 0.02)
         nc = sorted(crashes() - x.cr0)

@@ -5,9 +5,9 @@ under offerRejoinBattle()), and client2 is killed there. disconnectTCP()'s SPEC 
 phase Idle, battleId 0, peerAbsent false, dialog 62 kept; offerRejoinBattle()'s guard then refuses every later rejoin
 (GUARD +1, client3 on 52 for good). TASK 0 T0-L measured it 2/2, the kill on the -2 path both times.
   Boot L (key "48601", w2r4l2_l_host / _client / _client2 / _client3): row RL. Cells: RL-1 GUARD PAUSE; RL-2 GUARD the rejoin in flight (host
-  phase Handshake, client2 held, OFFER +1 reading battleId=B0, client2 CLIENT_ACTIVE +1); RL-3 RED the pause kept at W (phase Active, peerAbsent
-  true, battleId B0, inBattle true, dialog 62 backVisible false, LOST +1; EVIDENCE names the loss path); RL-4 RED client3's rejoin (OFFER +1
-  more, GUARD +0, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both); RL-5 RED SPLIT(host) ==
+  phase Handshake, client2 held, OFFER +1 reading battleId=B0, client2 CLIENT_ACTIVE +1); RL-3 FIX the pause kept at W (phase Active, peerAbsent
+  true, battleId B0, inBattle true, dialog 62 backVisible false, LOST +1; EVIDENCE names the loss path); RL-4 FIX client3's rejoin (OFFER +1
+  more, GUARD +0, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both); RL-5 FIX SPLIT(host) ==
   SPLIT(client3) == SPLIT0 and HASH(host, client3); RL-6 GUARD CRASH 0.
 Definitions (spec (f)): POLL 0.25 s; W 15 s (the host observed at 0.2 s); W_ACK = WATCH_CAP_S (RV-U13 S-D; was 30 s); PAUSE(host)
 within 30 s of the leave: phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState,
@@ -232,7 +232,7 @@ def lost(r, x):
     path = "-2" if n["DROP"] >= 1 and n["FREEZE"] == 0 else ("-3" if n["FREEZE"] >= 1 and n["DROP"] == 0 else "unclear")
     ev = {"loss path": "%s (first poll phase %s; onClientDrop +%d, freeze +%d)" % (path, first, n["DROP"], n["FREEZE"]), "kill": kev,
           "needles since the kill": n, "LOST": since(h, n_k, LOST), "at W": {"battle": b, "dialog": d, "stack": stack(h)}, "timeline": tl}
-    r.cell("RL-3", "RED", "the pause is kept: at W host phase Active, peerAbsent true, battleId %s, inBattle true, dialog 62 backVisible false, "
+    r.cell("RL-3", "FIX", "the pause is kept: at W host phase Active, peerAbsent true, battleId %s, inBattle true, dialog 62 backVisible false, "
            "LOST +1 (red today: Idle, battleId 0, peerAbsent false, LOST +0, T0-L)" % x.b0,
            b.get("phase") == "Active" and b.get("peerAbsent") is True and b.get("battleId") == x.b0 and b.get("inBattle") is True
            and d.get("code") == 62 and d.get("backVisible") is False and n["LOST"] == 1, ev)
@@ -308,7 +308,7 @@ def row_rl(x, results, walls):
             ev["tops wait"] = str(e)
         hb, cb = auth(h), auth(c3)
         ev.update(OFFER=since(h, n_k, OFFER), GUARD=since(h, n_k, GUARD), needles=n, host=hb, client3=cb, tops=[top(h), top(c3)])
-        r.cell("RL-4", "RED", "client3's rejoin: OFFER +1 more, GUARD +0, RESUME within W_ACK %.0f s, both tops BattlescapeState, phase Active, "
+        r.cell("RL-4", "FIX", "client3's rejoin: OFFER +1 more, GUARD +0, RESUME within W_ACK %.0f s, both tops BattlescapeState, phase Active, "
                "peerAbsent false, battleId %s on both (red today: GUARD +1, client3 on 52, the wait times out, T0-L)" % (W_ACK, x.b0),
                n["OFFER"] == 1 and n["GUARD"] == 0 and resumed and tops and hb.get("phase") == cb.get("phase") == "Active"
                and hb.get("peerAbsent") is False and cb.get("peerAbsent") is False and hb.get("battleId") == cb.get("battleId") == x.b0, ev)
@@ -316,7 +316,7 @@ def row_rl(x, results, walls):
             raise Stop("REJOIN: no RESUME or the tops wait failed (resumeAck wait: %s)" % ev.get("ack wait", "passed"))
         sh, sc = split(h), split(c3)
         hok, hev = hash_ok(h, c3, "RL after RESUME")
-        r.cell("RL-5", "RED", "SPLIT(host) == SPLIT(client3) == SPLIT0 and HASH(host, client3)", sh == sc == x.split0 and hok,
+        r.cell("RL-5", "FIX", "SPLIT(host) == SPLIT(client3) == SPLIT0 and HASH(host, client3)", sh == sc == x.split0 and hok,
                {"host": sh, "client3": sc, "SPLIT0": x.split0, "HASH": hev})
     except Exception as e:  # Stop, or a probe / spawn that raised: the row ends here
         r.stop(e)

@@ -69,7 +69,7 @@ ROWS = {"S": {"R1": ["R1-before", "R1-relink", "R1-arrive"], "R2": ["R2-before",
               "R4": ["R4-client", "R4-host", "R4-ids"], "R5": ["R5-file", "R5-relink", "R5-arrive"], "S-common": ["S-common"]},
         "P": {"P-mode": ["P-mode"], "R3": ["R3-before", "R3-relink", "R3-arrive"], "R4-gm3": ["R4-gm3", "R4-gm3-ids"],
               "R5-gm3": ["R5-gm3"], "P-common": ["P-common"]}}
-RED = {"R1-relink", "R1-arrive", "R2-relink", "R2-arrive", "R4-client", "R4-host", "R3-relink", "R3-arrive", "R4-gm3"}
+FIX = {"R1-relink", "R1-arrive", "R2-relink", "R2-arrive", "R4-client", "R4-host", "R3-relink", "R3-arrive", "R4-gm3"}
 RESULTS, EV, BOOT = [], {}, {"tag": "S"}      # (cell, ok, detail); per boot: every value read (EVIDENCE); the boot in flight
 
 class FixtureMiss(Exception): pass
@@ -512,7 +512,7 @@ def main():
     print(f"\n==== W2-H48 craft -> mirrored alien base across a save and reload: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s, cpu {EV.get('S', {}).get('load0')} -> {EV.get('P', {}).get('load1')} ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 if __name__ == "__main__":

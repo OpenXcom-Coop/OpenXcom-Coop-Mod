@@ -11,10 +11,10 @@ constants F3326/F3327: staged items, never stock ids)).
 
 Before S-C.2 (product untouched, commit S-C.1) every one of these tools runs vanilla's
 code on the second player's own machine: the client's copy of the soldier changes,
-nothing is sent, the host's copy stays as it was (P8b-1 section 5's RED cell
+nothing is sent, the host's copy stays as it was (P8b-1 section 5's FIX cell
 "client-local writes / nothing sent"). The rows are (L) rows (P8b-1 section 5): at
 red each one writes on the client alone. They share this boot, so at red the
-divergence accumulates; each row's RED cell is therefore judged on its OWN per-machine
+divergence accumulates; each row's FIX cell is therefore judged on its OWN per-machine
 change - the host's target soldier unchanged by the row, the client's changed by it,
 no `inv_bulk` sent - never on a state an earlier row left behind. At red nothing is
 sent at all, so no host ev reaches the client and no in-game desync freezes it.
@@ -67,7 +67,7 @@ vanilla's digits (InventoryState::handle: Ctrl+1..9 saves, 1..9 applies; key 1 =
   EQ20  auto-equip (keyInvAutoEquip): the client's screen on C1 (empty after EQ19) ->
         the key. GREEN: C1 holds items (vanilla autoEquip from the pile) - the same ids
         and fields on both - the host's C1 changed, one `inv_bulk`.
-  RED (commit S-C.1): exactly EQ16-EQ20 fail, each on its RED cell - the host's target
+  RED (commit S-C.1): exactly EQ16-EQ20 fail, each on its FIX cell - the host's target
   soldier unchanged by the row while the client's changed to the tool's result, and no
   `inv_bulk` sent (buckets then differ). A row whose tool did not change the client's
   own copy fails for another reason (FIXTURE, stated in its message).
@@ -100,7 +100,7 @@ vanilla's digits (InventoryState::handle: Ctrl+1..9 saves, 1..9 applies; key 1 =
         CONTROL (vanilla, passes at red): the HOST applies the same short template (its
         screen on H1 -> create_template -> NEXT to H2 -> apply_template; H2's own PROX_T is
         the only one it finds) and the host's own line shows the text.
-  RED (commit S-C.3a): exactly EQ27 fails, on its RED cell; EQ16-EQ20 pass (S-C.2).
+  RED (commit S-C.3a): exactly EQ27 fails, on its FIX cell; EQ16-EQ20 pass (S-C.2).
 
 Common asserts, every row: hash_now {full:true} every bucket EQUAL after the queues
 drain; desyncSeen false on both; the client's turnMirrorFired 0; coopClientBStatePushes
@@ -113,7 +113,7 @@ SEED_MAP 1, MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) - imported from
 test_prebattle_equip.py (Boot A's bring-up, the same seed).
 
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
-"PASS <id>" / "FAIL <id>: <message>" (the RED cell first); main() runs every row even
+"PASS <id>" / "FAIL <id>: <message>" (the FIX cell first); main() runs every row even
 after an earlier one failed. Every wait is bounded. one run is the
 result; no skip path, no second boot. Exit 0 only when every row passes, 2 otherwise (a
 bring-up or spine failure is also 2). run in the foreground to completion.
@@ -485,7 +485,7 @@ def snapshot(host, client):
 def run_tool(host, client, ctx, row, target, other, press, want, want_text):
     """Press one bulk tool on the client (`press(ev)`), then wait (bounded) for the green outcome: the host's
     `target` layout satisfies `want(sig, host_pre_sig)`, the client's copy of `target` equals the host's (ids and
-    fields), the pile ids equal, nothing in flight. Returns (ev, fails) with the RED cell first."""
+    fields), the pile ids equal, nothing in flight. Returns (ev, fails) with the FIX cell first."""
     b = snapshot(host, client)
     ev = {"target": target, "want": want_text}
     press(ev)
@@ -515,7 +515,7 @@ def run_tool(host, client, ctx, row, target, other, press, want, want_text):
                "turn": [turn(host), turn(client)]})
     fails = []
     if hpost == hpre:
-        fails.append(f"{row}: the host's {target} did not change ({hpre}) - RED: the client wrote alone (the client's "
+        fails.append(f"{row}: the host's {target} did not change ({hpre}) - FIX: the client wrote alone (the client's "
                      f"{target} {cpre} -> {cpost}) and sent {sent} inv_bulk (want: the host performs one inv_bulk, "
                      f"{want_text})")
     elif not want(hpost, hpre):
@@ -878,7 +878,7 @@ def eq27_template_short(host, client, ctx):
 
     if seen is None:
         fails.append(f"EQ27: the client's line never showed {TEXT_SHORT!r} after its apply (last read {last}, "
-                     f"+{LINE_READ_S}s read {at_read}) - RED: the inv_bulk answer carries no 'not enough items' flag "
+                     f"+{LINE_READ_S}s read {at_read}) - FIX: the inv_bulk answer carries no 'not enough items' flag "
                      f"(the partial apply itself landed: C1 {ev['c1']['host']}, {ev['missing']} template item(s) "
                      f"missing)")
     if landed_at is None:

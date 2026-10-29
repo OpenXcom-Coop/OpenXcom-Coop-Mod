@@ -13,13 +13,13 @@ then part 2 (test_multistage.run_spine).
   S2X-1 GUARD stage-2 offer out (precondition): stage-1 guards empty; host stage emitted 1 / toBattleId 2 / nextStage FINAL at the
         close; host log +1 hand-off, +1 OFFER (battleId=2); host phase Handshake battleId 2; client held; host stack at the window
         [GeoscapeState, BriefingState]; PART2(host) mapFingerprint FP2. A failure ends the row.
-  S2X-2 RED   PARK +1 and UNWIND +0 (red today: PARK 0).
+  S2X-2 FIX   PARK +1 and UNWIND +0 (red today: PARK 0).
   S2X-3 GUARD the host waits inside part 2: at W the stack ends [GeoscapeState, BriefingState, CoopState], dialog 62 backVisible
         false, world_state.has_battle true, phase Idle, PART2(host) mapFingerprint FP2.
   S2X-4 GUARD SKY at W equals SKY0.   S2X-5 GUARD MARKS at W equal MARKS0 (1).   S2X-6 GUARD WORLD at W equals WORLD0.
-  S2X-7 RED   the rejoin reaches RESUME: host resumeAck true within RJ, RESUME pressed, RESUMED_GUARD +0, client2 never > 30 s on
+  S2X-7 FIX   the rejoin reaches RESUME: host resumeAck true within RJ, RESUME pressed, RESUMED_GUARD +0, client2 never > 30 s on
         CoopState 52 (red today: resumeAck never true, that line +1).
-  S2X-8 RED   part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1; run_spine(host, client2) to turn 1; PART2 on host
+  S2X-8 FIX   part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1; run_spine(host, client2) to turn 1; PART2 on host
         and client2: phase Active, equal battleId > 2, turn 1, missionType MT2, mapFingerprint FP2, xcom XCOM2; UNWIND still 0. With
         no RESUME it fails at once ("no RESUME").
   S2X-9 GUARD CRASH 0.
@@ -260,7 +260,7 @@ def rejoin(host, ctx, key, tag, n_j, evd):
 def part2_cells(r, cid, host, c2, ctx, n_k, spine):
     """S2X-8 / S2M-5: REARM +1 and OFFER +1 within 60 s of RESUME, the spine, PART2 on both, UNWIND 0."""
     if "t_resume" not in ctx:
-        return r.cell(cid, "RED", "part 2 starts for both", False, {"no RESUME": True})
+        return r.cell(cid, "FIX", "part 2 starts for both", False, {"no RESUME": True})
     n_r, evd = ctx["n_resume"], {}
     try:
         evd["rearm s"] = wait("REARM and OFFER", lambda: since(host, n_r, REARM) and since(host, n_r, OFFER), 60.0)
@@ -274,7 +274,7 @@ def part2_cells(r, cid, host, c2, ctx, n_k, spine):
           and hp.get("battleId") == cp.get("battleId") and isinstance(hp.get("battleId"), int) and hp["battleId"] > 2
           and all(p.get("phase") == "Active" and p.get("turn") == 1 and p.get("missionType") == MT2 and p.get("mapFingerprint") == ctx["FP2"]
                   and p.get("xcom") == ctx["XCOM2"] for p in (hp, cp)))
-    r.cell(cid, "RED", "part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1, the spine to turn 1, PART2 host == client2: "
+    r.cell(cid, "FIX", "part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1, the spine to turn 1, PART2 host == client2: "
            "Active, battleId > 2, turn 1, %s, mapFingerprint FP2, xcom XCOM2; UNWIND 0 (red today: no RESUME)" % MT2, ok, evd)
 
 
@@ -319,7 +319,7 @@ def row_s2x(host, client, crash0, ctx):
         path = {"first poll after the kill": {k: v for k, v in first.items() if k != "stage"},
                 "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first.get("phase"), "?"),
                 "host after": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]]}
-        r.cell("S2X-2", "RED", "PARK +1 and UNWIND +0 (red today: PARK 0)", len(park) == 1 and not unw,
+        r.cell("S2X-2", "FIX", "PARK +1 and UNWIND +0 (red today: PARK 0)", len(park) == 1 and not unw,
                {"PARK": park, "UNWIND": unw, "path": path})
         hasb = q(host, {"cmd": "world_state"}).get("has_battle")
         r.cell("S2X-3", "GUARD", "the host waits inside part 2: stack ends [GeoscapeState, BriefingState, CoopState], dialog 62 backVisible "
@@ -334,7 +334,7 @@ def row_s2x(host, client, crash0, ctx):
         r.cell("S2X-6", "GUARD", "WORLD at W equals WORLD0 (part 1 not yet debriefed)", w1 == ctx["WORLD0"] and not any(w1["errors"]),
                {"WORLD0": ctx["WORLD0"], "WORLD": w1})
         evd, n_j = {}, len(log(host))
-        r.cell("S2X-7", "RED", "the rejoin reaches RESUME: resumeAck true within %.0f s, RESUME pressed, offerResumedBattle guard +0, "
+        r.cell("S2X-7", "FIX", "the rejoin reaches RESUME: resumeAck true within %.0f s, RESUME pressed, offerResumedBattle guard +0, "
                "client2 never > 30 s on 52 (red today: resumeAck never true, that line +1)" % RJ,
                rejoin(host, ctx, KEY, "w2h24x_s2x", n_j, evd), evd)
         part2_cells(r, "S2X-8", host, ctx["client2"], ctx, n_k, lambda h, c: run_spine(h, c))

@@ -64,7 +64,7 @@ other bucket EQUAL). Then:
         (nothing goes out before Active); after the release the host leaves Handshake,
         abortPending false, and every EQ24 GREEN cell above. RED: no battle_end reaches
         the client after the release (no Handshake latch; abortPending stays false).
-  RED (commit S-E.1): exactly EQ24 and EQ24b fail, each on its RED cell.
+  RED (commit S-E.1): exactly EQ24 and EQ24b fail, each on its FIX cell.
 Boot E3 (ONE boot; stage S-E.3, P8b-2i ruling SE-4, F3684): Boot E2's bring-up and spine
 on its own lobby port (the client's battle_ready held, the host in phase Handshake, the
 client on its pre-battle screen, the aliens staged on both machines per SE-1). Then:
@@ -84,7 +84,7 @@ client on its pre-battle screen, the aliens staged on both machines per SE-1). T
         abortPending true and emitted 0 (its debriefing deleted the battle before the
         latch's send could read it); no battle_end reaches the client, which stays on
         its pre-battle screen.
-  RED (commit S-E.3a): exactly EQ24c fails on its RED cell; EQ24 and EQ24b pass.
+  RED (commit S-E.3a): exactly EQ24c fails on its FIX cell; EQ24 and EQ24b pass.
 Boot F1 (ONE boot; stage S-F): Boot E1's bring-up with NO soldier seated to the client
 (seat_count 0 = drive_to_battlescape's seat_client=False: a spectator); the host keeps
 every craft soldier (ALL_IDS). Spine (spine_f): both briefings (the client's <= 30 s,
@@ -116,7 +116,7 @@ seated, index SEAT_ALL refused); the host commands no soldier. Spine: spine_f. T
         the host's Turn-1 screen still on top, then ONE real key closes it; hostScreens
         .closes and hostCovered unchanged since the spine. RED: the host's pre-battle
         equip screen opens on a client soldier (or empty) - the host commands none.
-  RED (commit S-F.1): exactly EQ25 and EQ26 fail, each on its RED cell; EQ24, EQ24b and
+  RED (commit S-F.1): exactly EQ25 and EQ26 fail, each on its FIX cell; EQ24, EQ24b and
   EQ24c pass.
 
 Common asserts before each ending (both machines in the battle): hash_now {full:true}
@@ -633,7 +633,7 @@ def eq24_no_aliens_start(host, client, ctx):
         finish([f"EQ24: no battle_end reached the client within {END_WAIT_S} s of the host's briefing OK (client "
                 f"battleEnd {rec_brief(record(client))}, host battleEnd emitted {record(host).get('emitted')}, host "
                 f"top {top(host)!r}); the client stays on its pre-battle screen (top {top(client)!r}, preBattle "
-                f"{inv_view(client).get('preBattle')}) - RED: abandonPreparedOffer is a no-op once the offer was "
+                f"{inv_view(client).get('preBattle')}) - FIX: abandonPreparedOffer is a no-op once the offer was "
                 f"emitted (F2759)"])
     finish(ending_green(host, client, "EQ24", ev, base))
 
@@ -671,7 +671,7 @@ def eq24b_no_aliens_in_handshake(host, client, ctx):
                     f"{rec_brief(record(client))}, host battleEnd emitted {record(host).get('emitted')}, host phase "
                     f"{es(host).get('phase')!r}; host equip.abortPending after its briefing OK "
                     f"{ev['hostClose'].get('abortPending')}, after the release {ev['afterRelease']['abortPending']}); "
-                    f"the client stays on its pre-battle screen (top {top(client)!r}) - RED: no Handshake latch"])
+                    f"the client stays on its pre-battle screen (top {top(client)!r}) - FIX: no Handshake latch"])
         fails = []
         hc = ev["hostClose"]
         if hc.get("hostPhase") != "Handshake" or hc.get("abortPending") is not True or hc.get("emitted") != 0:
@@ -761,7 +761,7 @@ def eq24c_host_ok_in_handshake(host, client, ctx):
                     f"{rec_brief(record(client))} (applied 1 never seen within {END_WAIT_S} s), its top "
                     f"{ar['clientTop']!r}, preBattle {ar['clientPreBattle']}; snapshot A {a}; after the release the "
                     f"host phase {ar['hostPhase']!r}, equip.abortPending {ar['abortPending']}, battleEnd emitted "
-                    f"{ar['hostEmitted']}, resultSent {ar['hostResultSent']} - RED: the host's debriefing deleted the "
+                    f"{ar['hostEmitted']}, resultSent {ar['hostResultSent']} - FIX: the host's debriefing deleted the "
                     f"battle in phase Handshake, so the held battle_end never goes out (F3731)"])
         fails = []
         if ev["release"].get("sent") is not True:
@@ -939,7 +939,7 @@ def eq25_spectator(host, client, ctx):
         finish([f"EQ25: the client's top {e['clientStack'][-1:]} {ENTRY_WAIT_S} s after its briefing OK (want "
                 f"{TURN_SCREEN} at once, D215 a; client stack {e['clientStack']}, turn host/client {e['turn']}, client "
                 f"equip {e['clientEquip']})"
-                + (" - RED: the client on its map, no Turn-1 screen (S-A's interim: nothing is pushed for a seat "
+                + (" - FIX: the client on its map, no Turn-1 screen (S-A's interim: nothing is pushed for a seat "
                    "with nothing to equip)" if red else "")])
     fails = []
     if any("InventoryState" in s for s in e["clientStack"]) or e["clientEquip"].get("screen"):
@@ -1005,7 +1005,7 @@ def eq26_host_nothing(host, client, ctx):
                 f"{TURN_SCREEN} with no InventoryState on its stack, D215 a; host stack {e['hostStack']}, its "
                 f"inventory_view {e['hostView']}, host equip {e['hostEquip']}, host screen checks "
                 f"{e['hostProbes']})"
-                + (f" - RED: the host's pre-battle equip screen opened on "
+                + (f" - FIX: the host's pre-battle equip screen opened on "
                    f"{'client soldier ' + str(uid) if uid in ALL_IDS else 'no soldier'} (the host commands none)"
                    if red else "")])
     fails = []

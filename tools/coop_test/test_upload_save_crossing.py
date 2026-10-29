@@ -7,21 +7,21 @@ presses (RH gift) and the crossing stream is the partner's unasked push after it
 NAME (never a base placement: a fresh world is evidence); RESUME only after the host's ack.
   Row crossed: CROSSING (CH: first_save; arm_ack_hold; GIFT; PUSH; HELD; arm_reply_hold; crossing_save; REPLY + read idsRead; release_ack_hold; save_done; read after_save; release_reply_hold;
           store_done; read after_store); KILL; REJOIN; read R.
-          crossed-pre (GUARD) every CROSSING step met.  crossed-host (RED) after_save: the host's saveID (both probes) == id2.
-          crossed-log (RED) after_save: >= 1 "[coop] partner upload validated" line on the host since crossing_save.
-          crossed-sav (RED) the QUICK .sav: saveID == id2 and exactly one entry, key host_<id2>_<NAME>.data.
-          crossed-key (RED) host_<the host's saveID> present at after_save and at after_store.
+          crossed-pre (GUARD) every CROSSING step met.  crossed-host (FIX) after_save: the host's saveID (both probes) == id2.
+          crossed-log (FIX) after_save: >= 1 "[coop] partner upload validated" line on the host since crossing_save.
+          crossed-sav (FIX) the QUICK .sav: saveID == id2 and exactly one entry, key host_<id2>_<NAME>.data.
+          crossed-key (FIX) host_<the host's saveID> present at after_save and at after_store.
           crossed-ids (GUARD) after_store: the host's saveID == the partner's == id2.
-          crossed-rejoin (RED) no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S.
-          crossed-world (RED) read R: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
-          crossed-resume (RED) resume_and_clear ok, both tops GeoscapeState.  crossed-common (GUARD) host + rejoiner alive, no new crash file.
+          crossed-rejoin (FIX) no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S.
+          crossed-world (FIX) read R: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
+          crossed-resume (FIX) resume_and_clear ok, both tops GeoscapeState.  crossed-common (GUARD) host + rejoiner alive, no new crash file.
   Row control (the control: no hold): first_save; gift_push (RH gift_push: the push lands, no hook armed); NOTICE; after_stream_save = a quick save after the
           stream; HOLD; after_stream; KILL; REJOIN; read R.
           control-pre (GUARD) first_save, gift_push (push key client_<id1>_<NAME>.data, the host's fnv change), NOTICE.
           control-save (GUARD) after_stream_save ok, id2 != id1, world copy "1 ... from id1 to id2".  control-ids (GUARD) after_stream: host == partner == id2, host_<id2>.
           control-log (GUARD) 0 "[coop] partner upload validated" lines on the host since first_save.  control-sav (GUARD) as crossed-sav.
           control-rejoin, control-world, control-resume, control-common (GUARD) as crossed's.
-RED cells fail on a build without the saveID fix: crossed-host, crossed-log, crossed-sav, crossed-key, crossed-rejoin, crossed-world, crossed-resume (7 of 19);
+FIX cells fail on a build without the saveID fix: crossed-host, crossed-log, crossed-sav, crossed-key, crossed-rejoin, crossed-world, crossed-resume (7 of 19);
 every other cell passes there too.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its row (later cells "not reached",
 one CAPTURE line); every row runs after a failure. ONE foreground run, no SKIP; exit 0 only when every cell
@@ -38,7 +38,7 @@ import crossing_helpers as CH  # noqa: E402
 KEY = "49643"
 crossed = ("crossed-pre", "crossed-host", "crossed-log", "crossed-sav", "crossed-key", "crossed-ids", "crossed-rejoin", "crossed-world", "crossed-resume", "crossed-common")
 control = ("control-pre", "control-save", "control-ids", "control-log", "control-sav", "control-rejoin", "control-world", "control-resume", "control-common")
-RED = ("crossed-host", "crossed-log", "crossed-sav", "crossed-key", "crossed-rejoin", "crossed-world", "crossed-resume")
+FIX = ("crossed-host", "crossed-log", "crossed-sav", "crossed-key", "crossed-rejoin", "crossed-world", "crossed-resume")
 
 
 def sav_ok(sav, i, name):
@@ -107,7 +107,7 @@ def row_control(r):
 
 
 def main():
-    return RH.run("upload save crossing", (("crossed", crossed, row_crossed, "upload_crossing", KEY), ("control", control, row_control, "upload_plain", KEY)), RED)
+    return RH.run("upload save crossing", (("crossed", crossed, row_crossed, "upload_crossing", KEY), ("control", control, row_control, "upload_plain", KEY)), FIX)
 
 
 if __name__ == "__main__":

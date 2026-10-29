@@ -17,7 +17,7 @@ Cells (X = D0 D1 D2 B0 B1 B2):
   X-file (X0 GUARD, X1 RED: <name> holds the new save (a save header, mtime newer than the trigger) and <name>.bak is gone; X2 GUARD:
   <name> is still the placeholder and <name>.bak holds the new save); X-dialog (X0 X1 GUARD: the host stack = B's; X2 RED: B's +
   [ErrorMessageState] whose text is SaveGameState::error's "STR_SAVE_UNSUCCESSFUL" TOK_NL_SMALL "Save backed up in <name>.bak");
-  X2-ok RED (the error's OK closes it: B's stack within W_OK); X2-next GUARD (after the helper exits, a second save with no lock lands:
+  X2-ok FIX (the error's OK closes it: B's stack within W_OK); X2-next GUARD (after the helper exits, a second save with no lock lands:
   <name> a new save, no <name>.bak, B's stack); X-partner GUARD (the client's stack = its B within W_PARTNER, no ErrorMessageState);
   X-common GUARD (both alive, no new crash_*.log since B). 38 cells.
 Red at the base (`cc5875d65`): exit 2, RED exactly on D1-file, B1-file, D2-dialog, D2-ok, B2-dialog, B2-ok (6).
@@ -317,16 +317,16 @@ def row(x, results, walls):
             r.cell(p + "-lock", "GUARD", "the helper saw %s while it held %s and held it %.1f s more" % (BAK, NAME, hold),
                    hr.get("seen") is not None and hr.get("released") is not None and hr["released"] - hr["seen"] >= hold)
         if lvl < 2:
-            r.cell(p + "-file", "RED" if lvl == 1 else "GUARD", "%s holds the new save (a save header, mtime newer than the trigger), no %s%s" % (
+            r.cell(p + "-file", "FIX" if lvl == 1 else "GUARD", "%s holds the new save (a save header, mtime newer than the trigger), no %s%s" % (
                 NAME, BAK, " (red today: not written, the rename failed silently, F24199)" if lvl == 1 else ""),
                 fs[NAME]["save"] and fs[NAME]["newer"] and not fs[BAK]["present"])
             r.cell(p + "-dialog", "GUARD", "the host stack = B's %s after the save (no error)" % B["host"], rd["host"] == B["host"])
         else:
             r.cell(p + "-file", "GUARD", "%s still the placeholder, %s holds the new save (vanilla: the save stays in the backup)" % (NAME, BAK),
                    fs[NAME]["placeholder"] and fs[BAK]["save"] and fs[BAK]["newer"])
-            r.cell(p + "-dialog", "RED", "the host stack = B's + [ErrorMessageState], its text %r (red today: silent, no error)" % ERROR_TEXT,
+            r.cell(p + "-dialog", "FIX", "the host stack = B's + [ErrorMessageState], its text %r (red today: silent, no error)" % ERROR_TEXT,
                    rd["host"] == B["host"] + ["ErrorMessageState"] and top_state == "ErrorMessageState" and ERROR_TEXT in top_texts)
-            r.cell(p + "-ok", "RED", "the error's OK closes it: the host stack = B's within %.0f s (red today: no error to close)" % W_OK,
+            r.cell(p + "-ok", "FIX", "the error's OK closes it: the host stack = B's within %.0f s (red today: no error to close)" % W_OK,
                    "ok s" in ev)
             nr = ev["next read"]
             r.cell(p + "-next", "GUARD", "a second save with no lock lands: %s a new save, no %s, B's stack" % (NAME, BAK),

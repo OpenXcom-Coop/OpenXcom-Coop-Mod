@@ -152,11 +152,11 @@ def setup(row, fp, stunned=None):
 def cells_a(row, red):
     e = es(row.client)
     n, site = e.get("coopClientBStatePushes"), e.get("coopClientBStateLastSite")
-    row.check("A1", n == 0, {"refusals": n, "lastSite": site}, f"{' RED' if red else ''} REF 0 at A")
+    row.check("A1", n == 0, {"refusals": n, "lastSite": site}, f"{' FIX' if red else ''} REF 0 at A")
     d = uf_diff(row.host, row.client)
-    row.check("A2", not d, {"ufDiff": d}, f"{' RED' if red and row.name != 'R2' else ''} UF equal at A")
+    row.check("A2", not d, {"ufDiff": d}, f"{' FIX' if red and row.name != 'R2' else ''} UF equal at A")
     nd, _, cnt = saves(row, "A")
-    row.check("A3", not nd, {"nodeDiff": nd, "nodes": cnt[0]}, f"{' RED' if red else ''} NODES equal at A")
+    row.check("A3", not nd, {"nodeDiff": nd, "nodes": cnt[0]}, f"{' FIX' if red else ''} NODES equal at A")
 
 
 def b1(row, cue_want, cue_cell=True):

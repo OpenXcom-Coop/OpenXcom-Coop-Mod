@@ -37,7 +37,7 @@ UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESE
 SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (the green's log line)
 NEEDLES = ("baseRequest not answered", "coopBase3 marker", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
 ROWS = (("R4", ("R4-pre", "R4-gone", "R4-host", "R4-skip0")), ("END", ("CRASH",)))
-RED = ()
+FIX = ()
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -158,7 +158,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

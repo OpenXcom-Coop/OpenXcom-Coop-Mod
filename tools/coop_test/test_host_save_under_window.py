@@ -13,9 +13,9 @@ client's OK on its 67, SOLDIERS, the guest's row, KP2, the host's button: the ho
   within W_62, then the client is killed after the read.
 The read is HOLD_S after the drop event. Cells (X = GD GT): X-pre GUARD (construction met; the 54 on top within SEEN54_S, name QUICK,
 CLEAR +0; the client's 67; the notice on top within W_NOTICE over B's stack + [CoopState], name QUICK, CLEAR +0; GD: the client exited;
-GT: SERVER +1, the 62 within W_62); X-file RED (QUICK written: mtime newer than B's); X-blob RED (one embedded partner world, key
-host_<saveID at the 54>_<B clientName>.data, its FNV-1a 64 = B's coop_file_info fnv1a64); GD-path RED ((H59LOG, CLEAR, FREEZE, DROP) =
-(1, 1, 1, 1)); GT-path RED ((1, 1, 1, 0) and SERVER 1); GD-name GUARD / GT-name RED (pendingHostSaveName ""); X-stack GUARD (B's stack +
+GT: SERVER +1, the 62 within W_62); X-file FIX (QUICK written: mtime newer than B's); X-blob FIX (one embedded partner world, key
+host_<saveID at the 54>_<B clientName>.data, its FNV-1a 64 = B's coop_file_info fnv1a64); GD-path FIX ((H59LOG, CLEAR, FREEZE, DROP) =
+(1, 1, 1, 1)); GT-path FIX ((1, 1, 1, 0) and SERVER 1); GD-name GUARD / GT-name FIX (pendingHostSaveName ""); X-stack GUARD (B's stack +
 [CoopState, GiftNoticeState, CoopState], code 62: the 54 stays under the notice); X-common GUARD (host alive; each new crash_*.log
 is the lever's miss, one per W2-H70 push). 14 cells.
 Red (commit R1): exit 2, RED exactly on GD-file, GD-blob, GD-path, GT-file, GT-blob, GT-path, GT-name (7).
@@ -430,19 +430,19 @@ def drop_row(x, results, walls, rid, p, drop):
         r.evidence()
         r.cell(p + "-pre", "GUARD", pre, True)
         nd = rd["needles"]
-        r.cell(p + "-file", "RED", "%s written (mtime newer than B's) %.0f s after the drop (red today: not written, F19186)" % (QUICK, HOLD_S),
+        r.cell(p + "-file", "FIX", "%s written (mtime newer than B's) %.0f s after the drop (red today: not written, F19186)" % (QUICK, HOLD_S),
                rd["written"])
         key, fv = "host_%s_%s.data" % (a["saveID"], B["get_coop"].get("clientName")), B["coop_file_info"].get("fnv1a64")
         e = (rd.get("blob") or {}).get("entries")
-        r.cell(p + "-blob", "RED", "the file embeds 1 partner world, key %s, FNV-1a 64 = B's coop_file_info %s (red today: no file; F19188)"
+        r.cell(p + "-blob", "FIX", "the file embeds 1 partner world, key %s, FNV-1a 64 = B's coop_file_info %s (red today: no file; F19188)"
                % (key, fv), bool(rd["written"] and e is not None and len(e) == 1 and e[0]["key"] == key and e[0]["fnv1a64"] == fv))
         if p == "GT":
-            r.cell("GT-path", "RED", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 0) and SERVER 1 since B (red today: (0, 0, 1, 0))",
+            r.cell("GT-path", "FIX", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 0) and SERVER 1 since B (red today: (0, 0, 1, 0))",
                    tuple(nd[k] for k in PATH4) == (1, 1, 1, 0) and nd["SERVER"] == 1)
-            r.cell("GT-name", "RED", "pendingHostSaveName \"\" at the read (red today: still armed, a3 has no onClientDrop)",
+            r.cell("GT-name", "FIX", "pendingHostSaveName \"\" at the read (red today: still armed, a3 has no onClientDrop)",
                    rd["get_coop"].get("pendingHostSaveName") == "")
         else:
-            r.cell("GD-path", "RED", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1) since B (red today: (0, 0, 1, 1))",
+            r.cell("GD-path", "FIX", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1) since B (red today: (0, 0, 1, 1))",
                    tuple(nd[k] for k in PATH4) == (1, 1, 1, 1))
             r.cell("GD-name", "GUARD", "pendingHostSaveName \"\" at the read (onClientDrop clears it)", rd["get_coop"].get("pendingHostSaveName") == "")
         r.cell(p + "-stack", "GUARD", "the host stack = B's + [CoopState, GiftNoticeState, CoopState] with code 62 (the 54 stays under the notice)",

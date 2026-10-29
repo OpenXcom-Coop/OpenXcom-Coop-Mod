@@ -18,9 +18,9 @@ GeoscapeState calm 1 s; A1h = the host's CYCLE (INTERCEPT, CANCEL) + RT_SETTLE; 
 click on its marker, watch W_OPEN, then (if a view opened) the host's real GEOSCAPE.
   Rows HA / HB (X = HA, HB)
           X-pre (GUARD) seat ok; ClientBase2 in mir(host); the client's OK reached and ClientBase2 gone from its own; TOPS [GeoscapeState]
-          only until ConfirmLandingState; both on the battlescape; both DebriefingState; both GeoscapeState at A0.  X-a0 (RED) no CB2_ID in
-          mir(host) at A0.  X-rt (RED) none at A1h.  X-open (RED) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.
-          X-cache (RED) the host's LINE(CB2_ID) since H-mark: exactly 1, containing "cache=1".  X-cb (GUARD) CB_ID in mir(host) at A0 and
+          only until ConfirmLandingState; both on the battlescape; both DebriefingState; both GeoscapeState at A0.  X-a0 (FIX) no CB2_ID in
+          mir(host) at A0.  X-rt (FIX) none at A1h.  X-open (FIX) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.
+          X-cache (FIX) the host's LINE(CB2_ID) since H-mark: exactly 1, containing "cache=1".  X-cb (GUARD) CB_ID in mir(host) at A0 and
           A1h (the partner's live base kept, HPM R-7a's purpose).
   END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start (both boots); every process alive until its
           shutdown.
@@ -50,7 +50,7 @@ NEEDLE = "[coop] removed base: id=%s cache="
 LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ROWS = (("HA", ("HA-pre", "HA-a0", "HA-rt", "HA-open", "HA-cache", "HA-cb")),
         ("HB", ("HB-pre", "HB-a0", "HB-rt", "HB-open", "HB-cache", "HB-cb")), ("END", ("CRASH",)))
-RED = ("HA-a0", "HA-rt", "HA-open", "HA-cache", "HB-a0", "HB-rt", "HB-open", "HB-cache")
+FIX = ("HA-a0", "HA-rt", "HA-open", "HA-cache", "HB-a0", "HB-rt", "HB-open", "HB-cache")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -268,7 +268,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

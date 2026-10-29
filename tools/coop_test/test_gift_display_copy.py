@@ -27,7 +27,7 @@ PRE = ("each construction step met its precondition (boot, picker, the visit, B,
 
 
 def cells_client(rid, ev):
-    return cells_b(rid, ev, "client", rid == "R7", "GUARD" if rid == "G7" else "RED")
+    return cells_b(rid, ev, "client", rid == "R7", "GUARD" if rid == "G7" else "FIX")
 
 
 def cells_host(rid, ev):

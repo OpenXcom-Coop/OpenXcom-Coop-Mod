@@ -42,7 +42,7 @@ SNAP = "[coop-debrief] client: SEPARATE battle-entry own-world snapshot taken"
 LABELS = "mission labels applied from battle_offer"
 POP = "pop  class OpenXcom::"
 KEYS = ("[coop-debrief]", "[coop-ui]", "battle_offer", LABELS)
-RED = "named red: TASK 0 2/2 sepSnapshot 0, no SNAP line, funds after the return == funds0 (the MARKER lost)"
+FIX = "named red: TASK 0 2/2 sepSnapshot 0, no SNAP line, funds after the return == funds0 (the MARKER lost)"
 q, stack, short, wait_until = pr.q, pr.stack, pr.short, pr.wait_until
 
 
@@ -174,8 +174,8 @@ def entry_row(r, x, kind):
                   i_lab is not None and i_pop is not None and i_pop > i_lab, {"labels at": i_lab, "pop at": i_pop}):
         return capture(r, x)
     sep_snap, snap = be.record(c).get("sepSnapshot"), any(SNAP in ln for ln in cl)
-    r.ev["RED 1"] = red1 = {"sepSnapshot": sep_snap, "SNAP in CL": snap}
-    r.cell("RED 1: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP", sep_snap == 1 and snap, red1)
+    r.ev["FIX 1"] = red1 = {"sepSnapshot": sep_snap, "SNAP in CL": snap}
+    r.cell("FIX 1: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP", sep_snap == 1 and snap, red1)
     hostiles = [u["id"] for u in battle_state(h).get("units", []) if u.get("faction") == 1 and not u.get("isOut")]
     settled = []
     for uid in hostiles:
@@ -197,9 +197,9 @@ def entry_row(r, x, kind):
     ctx = {}
     ok1, ok, _secs = be.client_ok_through_followups(c, ctx, "ret")
     sep = be.record(c).get("sepReturn") or {}
-    r.ev["RED 2"] = red2 = {"ok": ok1, "geo_clean": be.geo_clean(c), "stack": stack(c), "funds": q(c, {"cmd": "geo_state"}).get("funds"),
+    r.ev["FIX 2"] = red2 = {"ok": ok1, "geo_clean": be.geo_clean(c), "stack": stack(c), "funds": q(c, {"cmd": "geo_state"}).get("funds"),
                             "MARKER": x.marker, "inBattle": coop(c, "inBattle")["inBattle"], "sepReturn": sep, "chain": ctx.get("ret")}
-    r.cell("RED 2: the client top GeoscapeState with no CoopState / LoadGameState, geo_state.funds == MARKER, inBattle false, "
+    r.cell("FIX 2: the client top GeoscapeState with no CoopState / LoadGameState, geo_state.funds == MARKER, inBattle false, "
            "sepReturn.ownLoaded 1", ok1.get("pressed") and ok and red2["geo_clean"] and red2["funds"] == x.marker
            and red2["inBattle"] is False and sep.get("ownLoaded") == 1, red2)
     changed = wait_until(lambda: be.coop_fnv(h, "host_copy_of_client")[0] not in (h0, None, ""), W)
@@ -218,7 +218,7 @@ def entry_row(r, x, kind):
 
 
 def run(rid, tag, ports, kind, results, walls):
-    t0, x, r = time.time(), X(tag, ports[2]), pr.Row(rid, RED)
+    t0, x, r = time.time(), X(tag, ports[2]), pr.Row(rid, FIX)
     x.crash0 = pr.crash_names()
     try:
         try:

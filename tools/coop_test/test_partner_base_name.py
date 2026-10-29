@@ -8,13 +8,13 @@ ONE boot (key K1). Bring-up B: spawn + connect both; session.new_campaign (host 
 window mapping per machine from INTERCEPT + its CANCEL (real clicks).
   Row R-2  host BASES, BUILD NEW BASE, one globe click at PICK (globe_point), OK -> BaseNameState, own base N2 "" [P2-1]; client INTERCEPT +
            CANCEL, WIN_S -> client mirror N2 "" [P2-2]; host NAME2 (key presses), OK, lift tile LIFT, GEOSCAPE.
-    R-2a (RED) client mirror N2 named NAME2 at +READ_S after the lift.  R-2b (RED) the same after one more client INTERCEPT + CANCEL
+    R-2a (FIX) client mirror N2 named NAME2 at +READ_S after the lift.  R-2b (FIX) the same after one more client INTERCEPT + CANCEL
     and WIN_S.  R-2c (GUARD) exactly one client mirror with id N2.
   Row R-1  both on GeoscapeState [P1-0]; the client builds N1 the same way [P1-1]; host INTERCEPT + CANCEL, WIN_S -> host mirror N1 ""
            [P1-2]; client NAME1, OK, LIFT, GEOSCAPE.
-    R-1a (RED) host mirror N1 named NAME1 at +READ_S after the lift.  R-1b (RED) the same after one more host INTERCEPT + CANCEL and
-    WIN_S.  R-1e (GUARD) exactly one host mirror with id N1.  R-1c (RED) host BASES, TRANSFER: screen_state rows hold NAME1, no "".
-    R-1d (RED) the host's click on marker N1 (CLICK rule) -> BasescapeState within VISIT_S; geo_state.selectedBase (the open basescape's
+    R-1a (FIX) host mirror N1 named NAME1 at +READ_S after the lift.  R-1b (FIX) the same after one more host INTERCEPT + CANCEL and
+    WIN_S.  R-1e (GUARD) exactly one host mirror with id N1.  R-1c (FIX) host BASES, TRANSFER: screen_state rows hold NAME1, no "".
+    R-1d (FIX) the host's click on marker N1 (CLICK rule) -> BasescapeState within VISIT_S; geo_state.selectedBase (the open basescape's
     base, F19342) is NAME1. Then a CoopState on top closed by its own button, GEOSCAPE, session.wait_back_on_geoscape: EVIDENCE only.
   END   CRASH (GUARD): no crash file new in the lane's crash folder since the file start; both processes alive until their shutdown.
 Red today: R-2a, R-2b, R-1a, R-1b, R-1c, R-1d FAIL; R-2c, R-1e, CRASH PASS. Green (EA1-EA4: every in-place mirror refresh takes the
@@ -40,7 +40,7 @@ VISIT_S, VISIT_S2 = 20.0, 30.0
 ZOOM_MIN, SYM_PLUS, SYM_ESC = 3, 43, 27
 NEEDLES = ("coop-ui] push", "coop-ui] pop", "Save failed", "basehost", "LoadGame", "[coop-session]")
 ROWS = (("R-2", ("R-2a", "R-2b", "R-2c")), ("R-1", ("R-1a", "R-1b", "R-1e", "R-1c", "R-1d")), ("END", ("CRASH",)))
-RED = ("R-2a", "R-2b", "R-1a", "R-1b", "R-1c", "R-1d")
+FIX = ("R-2a", "R-2b", "R-1a", "R-1b", "R-1c", "R-1d")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -165,7 +165,7 @@ class Row:
         fails = []
         for cid in dict(ROWS)[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
@@ -361,7 +361,7 @@ def main():
         if not ok:
             print("CAPTURE boot: %s" % js(capture(b)), flush=True)
             for cid in ROWS[0][1] + ROWS[1][1]:
-                print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                 x.fails.append(cid)
         else:
             for rid, fn in (("R-2", row_r2), ("R-1", row_r1)):

@@ -5,7 +5,7 @@ staging miss. Verdicts follow the teardown. ONE run; exit 0 only all PASS, else 
 U3 (W2-H24 S-B, docs rewrite/prompts/w2h24_failed_battle_start.md AMENDMENT H24-2 section 2, D259 (a), QH24-3 (a), F9980;
 TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B2): its own boot after U1 / U2's teardown on the same stub (key 48583,
 w2h24_u3_host / _client): the client's hold_battle_ready keeps the host in Handshake, the client is killed, the host is
-observed for W_U. U3-1 RED UNWIND +1 "(partner dropped)", U3-2 RED the host on a bare main menu with the session ended
+observed for W_U. U3-1 FIX UNWIND +1 "(partner dropped)", U3-2 FIX the host on a bare main menu with the session ended
 (as a refused skirmish start), U3-3 GUARD CRASH 0 under H13-T1 (after U3's teardown). Red: U1, U2 PASS; U3 FAIL U3-1, U3-2."""
 
 import json
@@ -284,9 +284,9 @@ def u3(stub, out):
                polls=[p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]])
     out["cells"] = {
         "U3-1": (len(unw) == 1 and "(partner dropped)" in unw[0] and UNMARKED in unw[0],
-                 f'RED UNWIND +1 reading "(partner dropped)" and "{UNMARKED}" (red today: 0 lines, T0-B2)'),
+                 f'FIX UNWIND +1 reading "(partner dropped)" and "{UNMARKED}" (red today: 0 lines, T0-B2)'),
         "U3-2": (st == ["MainMenuState"] and has_save is False and hc.get("coopSession") is False and hc.get("onConnect") == -1
-                 and d.get("present") is False, "RED the host lands on a bare main menu, the session ended (D259 (a)): stack "
+                 and d.get("present") is False, "FIX the host lands on a bare main menu, the session ended (D259 (a)): stack "
                  "['MainMenuState'], has_save false, coopSession false, onConnect -1, no coop dialog (red today: [BriefingState, "
                  "CoopState] 62, T0-B2)")}
     out["capture"] = {"host stack": st, "phase": ph, "authority": a, "get_coop": hc, "dialog": rec["host"]["dialog"], "UNWIND": unw,

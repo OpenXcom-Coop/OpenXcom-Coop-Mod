@@ -12,7 +12,7 @@ client, 0xC0000005 in BattlescapeGame::getStates). The S-B green asks connection
   canUse present; S0-camera battle_camera_center {T} no error.
   S1 the stale window: host disconnect_to_menu; the client polled with get_state / coop_dialog_info only, <= 15 s, until dialog 21;
   then 2.0 s. S1-pre GUARD: the leave ok, client stack exactly [GoToMainMenuState, CoopState], dialog 21 "Server connection lost",
-  get_coop.inBattle true, world_state.has_battle true, host top MainMenuState. RED cells, each probe followed by a ping that answers:
+  get_coop.inBattle true, world_state.has_battle true, host top MainMenuState. FIX cells, each probe followed by a ping that answers:
   S1-state battle_state ok, inBattle true, isBusy false, pendingStates 0, panicHandled false, currentActionActorId -1, mouseOverIcons
   false, cursorType -1, hiddenMovementShown false, coopWaitText / coopEndTurnText / warningText "", coopEndTurnArmed / coopOffBatonGray
   false, no hud key; S1-screen map_tile_screen_pos {T} error "no BattlescapeState"; S1-canuse can_use_weapon {G, I, snap} error
@@ -21,7 +21,7 @@ client, 0xC0000005 in BattlescapeGame::getStates). The S-B green asks connection
   lane's crash folder since the baseline. EVIDENCE only: client coop_dialog_back -> top MainMenuState within 30 s, world_state.has_save
   false; host ping.
 Rules: an S1 probe (or its ping) that raises FAILs that cell "client gone" and every later S1 cell (no retry, no reconnect); a client
-that is dead at the end after an S1 RED cell failed is reaped with its own exit code (those cells hold the failure). Outside the S1
+that is dead at the end after an S1 FIX cell failed is reaped with its own exit code (those cells hold the failure). Outside the S1
 cells no machine is probed with battle_state, an executeBattle12 command, can_use_weapon, battle_camera_center or battle_set_unit_state
 while its stack holds no BattlescapeState and its world holds a battle. EVIDENCE before each verdict; a failed row prints ONE
 CAPTURE line (the four safe probes per machine, new crash files, 40 engine log lines per machine); every row runs after a failure.
@@ -257,7 +257,7 @@ def row_s1(x, results, walls):
         if cid == "S1-panic":
             evc["new crash files"] = new_crashes(x)
             ok = ok and not evc["new crash files"]
-        r.cell(cid, "RED", label, ok, evc)
+        r.cell(cid, "FIX", label, ok, evc)
         x.red_failed = x.red_failed or not ok
     out = {}
     if alive(c) and not x.gone:
@@ -277,7 +277,7 @@ def row_s1(x, results, walls):
 
 
 def shut(x):
-    """both machines; a client dead after an S1 RED cell failed is reaped with its own exit code -> the shutdown failures"""
+    """both machines; a client dead after an S1 FIX cell failed is reaped with its own exit code -> the shutdown failures"""
     failed = []
     for gc in (x.client, x.host):
         if gc is None or gc.proc is None:
@@ -290,7 +290,7 @@ def shut(x):
                     pass
             if gc is x.client and x.red_failed and not alive(gc):
                 rc = gc.proc.poll()
-                print("EVIDENCE shutdown client: dead after an S1 RED cell failed (%s), exit code %s; reaped with it" % (x.gone, rc),
+                print("EVIDENCE shutdown client: dead after an S1 FIX cell failed (%s), exit code %s; reaped with it" % (x.gone, rc),
                       flush=True)
                 gc.shutdown(expected_returncodes=(rc,))
             else:

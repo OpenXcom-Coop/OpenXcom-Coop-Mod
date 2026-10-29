@@ -14,10 +14,10 @@ window mapping per machine from INTERCEPT + its CANCEL (real clicks); TS0 = the 
            host own bases; host on GeoscapeState, client on PlaceLiftState); the host's click on marker N1 (CLICK rule); DLG = every top state
            and CoopState code until BasescapeState + 3 s, the client still on PlaceLiftState then [P3-3]; a CoopState on top closed by its own
            button; client LIFT, GEOSCAPE; host GEOSCAPE; session.wait_back_on_geoscape; POST_S; POST (F1, T1, C1, host bases) on GeoscapeState.
-    R-3a (RED)   DLG holds no CoopState 995.
-    R-3b (RED)   F1 == F0 (the host's funds kept).
-    R-3c (RED)   T1 >= T0 (the host's clock never runs back).
-    R-3d (RED)   C1 >= C0 (the client's clock never runs back).
+    R-3a (FIX)   DLG holds no CoopState 995.
+    R-3b (FIX)   F1 == F0 (the host's funds kept).
+    R-3c (FIX)   T1 >= T0 (the host's clock never runs back).
+    R-3d (FIX)   C1 >= C0 (the client's clock never runs back).
     R-3e (GUARD) the host's own bases after == before (ids and names).
     R-3f (GUARD) the host shows exactly one marker with id N1 after.
   END   CRASH (GUARD): no crash file new in the lane's crash folder since the file start; both processes alive until their shutdown.
@@ -47,7 +47,7 @@ POST_S, POST_CAP_S = 2.0, 5.0
 ZOOM_MIN, SYM_PLUS, SYM_ESC = 3, 43, 27
 NEEDLES = ("coop-ui] push", "coop-ui] pop", "Save failed", "basehost", "LoadGame", "[coop-session]")
 ROWS = (("R-3", ("R-3a", "R-3b", "R-3c", "R-3d", "R-3e", "R-3f")), ("END", ("CRASH",)))
-RED = ("R-3a", "R-3b", "R-3c", "R-3d")
+FIX = ("R-3a", "R-3b", "R-3c", "R-3d")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -183,7 +183,7 @@ class Row:
         fails = []
         for cid in dict(ROWS)[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
@@ -364,7 +364,7 @@ def main():
         if not ok:
             print("CAPTURE boot: %s" % js(capture(b)), flush=True)
             for cid in dict(ROWS)["R-3"]:
-                print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                 x.fails.append(cid)
         else:
             r = Row(x, b, "R-3")

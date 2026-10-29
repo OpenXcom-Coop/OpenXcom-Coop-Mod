@@ -15,10 +15,10 @@ HOST OK (real clicks to GeoscapeState); OK_GAP_S; CLIENT OK; A0 both GeoscapeSta
 on the host; A2 >= PLUS10_S after A0. GHOST(host) = host mirrors with id LOST or within POS_TOL of LOST_POS.
   Row R1  R1-pre (GUARD) the construction above reached A0 (P0, the trigger names HB, host BattlescapeState + client phase Active, both
           DebriefingState, LOST gone from the host's own list at HOST_BACK, the client still on DebriefingState after OK_GAP_S, the client's
-          RETURN line, both GeoscapeState at A0).  R1-A0 (RED) GHOST(host) empty at A0.  R1-RT (RED) GHOST(host) empty at A1h.
-          R1-10 (RED) GHOST(host) empty at A2.  R1-cb (GUARD) CB in the host's mirrors at A0, A1h, A2.  R1-skip (RED) the client's SKIP
+          RETURN line, both GeoscapeState at A0).  R1-A0 (FIX) GHOST(host) empty at A0.  R1-RT (FIX) GHOST(host) empty at A1h.
+          R1-10 (FIX) GHOST(host) empty at A2.  R1-cb (GUARD) CB in the host's mirrors at A0, A1h, A2.  R1-skip (FIX) the client's SKIP
           lines between D-mark and A0 >= 1.  R1-own (GUARD) the client's SKIP lines between A0 and A2 == 0.
-  Row R2  R2-open (RED) no ghost to click at A2, or the host's click on it (right-click centre, ZOOM_MIN, click) opens no BasescapeState
+  Row R2  R2-open (FIX) no ghost to click at A2, or the host's click on it (right-click centre, ZOOM_MIN, click) opens no BasescapeState
           within W_OPEN (today: BasescapeState of the client's world, selectedBase = CB's name).
   Row R3  R3-mir (GUARD) the client's mirror ids == [SPARE] at A0, A1, A1h and A2.
   END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
@@ -48,7 +48,7 @@ RETURN_N = "SEPARATE return - own world loaded"                                 
 NEEDLES = ("baseRequest not answered", "coopBase3 marker", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
 ROWS = (("R1", ("R1-pre", "R1-A0", "R1-RT", "R1-10", "R1-cb", "R1-skip", "R1-own")), ("R2", ("R2-open",)), ("R3", ("R3-mir",)),
         ("END", ("CRASH",)))
-RED = ("R1-A0", "R1-RT", "R1-10", "R1-skip", "R2-open")
+FIX = ("R1-A0", "R1-RT", "R1-10", "R1-skip", "R2-open")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -174,7 +174,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and stop.capture:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

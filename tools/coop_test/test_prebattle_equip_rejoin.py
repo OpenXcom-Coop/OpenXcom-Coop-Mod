@@ -31,7 +31,7 @@ hold_battle_ready {on: true}; the host's mapFingerprint = MAP_FP.
         Active, equip.openAnnounced true (the announce `sync`), the clip on that soldier's
         belt (0,0) on the client too, turn 0 on both, turnMode traditional on both.
         RED: the host's briefing OK starts turn 1 (the freeze) with no equip screen.
-  RED (commit S-A.1): EQ1b fails on its RED cell.
+  RED (commit S-A.1): EQ1b fails on its FIX cell.
 Stage S-B's rows (AMENDMENT P8b-1 section 4 S-B and section 5; owner D205 a, D207 a:
 pre-battle placements and priming are TU-free orders the host performs). The spine
 after EQ1b: S-B's staging (client first, F607: C1 gets a rifle loaded with a clip in
@@ -56,7 +56,7 @@ row of the boot.
   EQ13b the default fuse (Inventory.cpp's BFT_INSTANT branch): a right-click on C1's
         STR_PROXIMITY_GRENADE. GREEN: its default fuse (0) on both. RED: on the client
         alone, -1 on the host.
-  RED (commit S-B.1): exactly EQ10b, EQ11b, EQ13, EQ13b fail, each on its RED cell;
+  RED (commit S-B.1): exactly EQ10b, EQ11b, EQ13, EQ13b fail, each on its FIX cell;
   EQ1b passes.
 Stage S-D's boots (AMENDMENT P8b-1 section 4 S-D and section 5 rows EQ21-EQ23; owner
 D208 a, ORCHESTRATOR RULING Q6 a: a player who leaves during the pre-battle equip and
@@ -101,7 +101,7 @@ pre-battle screen while the host still reads its briefing (phase Active).
         equip-open announce on both (equip.openAnnounced true on the rejoiner); turn 0
         on both. RED: no equip screen after the rejoin (the rejoiner lands without an
         equip phase).
-  RED (commit S-D.1): exactly EQ21, EQ22, EQ23 fail, each on its RED cell; Boot W's
+  RED (commit S-D.1): exactly EQ21, EQ22, EQ23 fail, each on its FIX cell; Boot W's
   rows pass.
 
 Common asserts (after the release): hash_now {full:true} every bucket EQUAL after the
@@ -247,7 +247,7 @@ def eq1b_host_equips_in_handshake(host, client, ctx):
         if not (g3 and hv.get("preBattle") is True and ev["afterOk"]["hostTurn"] == 0):
             evidence("EQ1b", ev)
             fails.append(f"EQ1b: the host's briefing OK left turn {ev['afterOk']['hostTurn']} with no pre-battle "
-                         f"screen (host stack {ev['afterOk']['hostStack']}, inventory_view {view_brief(hv)}; RED: the "
+                         f"screen (host stack {ev['afterOk']['hostStack']}, inventory_view {view_brief(hv)}; FIX: the "
                          f"freeze starts turn 1 at the host's briefing OK)")
             finish(fails)   # raises; the `finally` below still releases the hold
         if ev["afterOk"]["hostPhase"] != "Handshake":
@@ -457,7 +457,7 @@ def eq10b_baton(host, client, ctx):
         fails.append(f"EQ10b: the pile grenade was not picked ({ev['pick']})")
     elif not got:
         fails.append(f"EQ10b: the grenade {item} host={ev['itemHost']} client={ev['itemClient']} (want {want} on both; "
-                     f"RED: refused by the traditional baton at the client's execution point - invGuard.counts.baton "
+                     f"FIX: refused by the traditional baton at the client's execution point - invGuard.counts.baton "
                      f"{g0.get('baton')} -> {guard_counts(client).get('baton')}, line "
                      f"{ev['refusal']['invLastWarning'][1]!r} (the baton text is {TEXT_NOT_YOUR_GO!r}))")
     if guard_counts(client).get("baton", 0) != g0.get("baton", 0):
@@ -508,7 +508,7 @@ def eq11b_quick_unload(host, client, ctx):
                      f"clip {clip} host={ev['clipAfter']['host']} client={ev['clipAfter']['client']} (want the rifle in "
                      f"{RIGHT_HAND} unloaded and the clip on the ground at {PILE} on both within {LAND_WAIT_S} s)")
     if lw1 != lw0:
-        fails.append(f"EQ11b: the client's invLocalWrites {lw0} -> {lw1} (want unchanged: RED - vanilla's quick-unload "
+        fails.append(f"EQ11b: the client's invLocalWrites {lw0} -> {lw1} (want unchanged: FIX - vanilla's quick-unload "
                      f"branch wrote on the client alone; buckets differ {ev['diff']})")
     if ev["cursor"] != -1:
         fails.append(f"EQ11b: the client's cursor holds {ev['cursor']} (want empty)")
@@ -568,7 +568,7 @@ def eq13_prime_unprime(host, client, ctx):
         fails.append(f"EQ13: key 3 left the client on {top(client)!r} (want its InventoryState back on top)")
     if not got3:
         fails.append(f"EQ13: after key 3 the fuse host/client {ev['primed']['fuse']} (want [{FUSE_KEYED}, {FUSE_KEYED}] "
-                     f"within {ANSWER_WAIT_S} s; RED: the fuse written on the client alone)")
+                     f"within {ANSWER_WAIT_S} s; FIX: the fuse written on the client alone)")
     if not got4:
         fails.append(f"EQ13: after the second right-click the fuse host/client {ev['unprimed']['fuse']} (want "
                      f"[{FUSE_NONE}, {FUSE_NONE}] within {ANSWER_WAIT_S} s)")
@@ -599,7 +599,7 @@ def eq13b_default_fuse(host, client, ctx):
     evidence("EQ13b", ev)
     if not got:
         fails.append(f"EQ13b: after the right-click the fuse host/client {ev['fuse']} (want the default "
-                     f"[{FUSE_DEFAULT_INSTANT}, {FUSE_DEFAULT_INSTANT}] within {ANSWER_WAIT_S} s; RED: written on the "
+                     f"[{FUSE_DEFAULT_INSTANT}, {FUSE_DEFAULT_INSTANT}] within {ANSWER_WAIT_S} s; FIX: written on the "
                      f"client alone)")
     if ev["clientTop"] != "InventoryState":
         fails.append(f"EQ13b: the client's top {ev['clientTop']!r} (want its InventoryState: an instant fuse opens no "
@@ -714,7 +714,7 @@ def sd_rejoin_fixture_fails(row, rec):
 
 
 def sd_screen_cells(row, host, rj, rec, ok_pressed, host_screen=True):
-    """The GREEN cells every S-D rejoin shares: the rejoiner's pre-battle screen (the RED cell first), its OK look,
+    """The GREEN cells every S-D rejoin shares: the rejoiner's pre-battle screen (the FIX cell first), its OK look,
     the pile, the host's screen (not for EQ23: the host still reads its briefing), the equip phase and turn 0 on
     both."""
     fails = []
@@ -722,7 +722,7 @@ def sd_screen_cells(row, host, rj, rec, ok_pressed, host_screen=True):
     eq = (rec.get("rejoiner") or {}).get("equip") or {}
     if rec.get("screenWithin") is None:
         fails.append(f"{row}: the rejoiner's top is {top(rj)!r} {ENTRY_WAIT_S} s after RESUME released its hold (want "
-                     f"its pre-battle InventoryState; RED: no equip screen after the rejoin - rejoiner equip.phase "
+                     f"its pre-battle InventoryState; FIX: no equip screen after the rejoin - rejoiner equip.phase "
                      f"{eq.get('phase')!r}, stack {(rec.get('rejoiner') or {}).get('stack')})")
     else:
         if rv.get("unitId") not in C_IDS:
@@ -846,7 +846,7 @@ def eq22_leave_ready(host, client, ctx):
         ev["readyPress"] = {"absent": True, "clientStack": stack(client), "clientView": view_brief(inv_view(client)),
                             "hostView": view_brief(inv_view(host))}
         fails.append(f"EQ22: no client pre-battle screen to press OK on before the leave (client stack "
-                     f"{ev['readyPress']['clientStack']}; RED: no equip screen after EQ21's rejoin)")
+                     f"{ev['readyPress']['clientStack']}; FIX: no equip screen after EQ21's rejoin)")
     pressed = ev["readyPress"].get("hostReadyWithin") is not None
     # 2. the client leaves; the host keeps its ready flag while it is away (Q6 a)
     ev["leave"] = {}

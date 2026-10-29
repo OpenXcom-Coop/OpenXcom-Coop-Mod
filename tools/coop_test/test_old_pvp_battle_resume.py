@@ -61,7 +61,7 @@ O4_LINE = "[coop-convert] an older version's mid-battle PvE2 campaign save loade
 TITLE_WIN, STUB_FUNDS = GB.TITLE_WIN, GB.STUB_FUNDS
 LOAD_S, LOG_S, RESUME_S, PRESS_S, TOPS_S = 30, 10, 180, 60, 60
 ROWS = {"C2": ["C2-load", "C2-resume", "C2-mode", "C2-seats", "C2-win", "C2-common"], "O4": ["O4-refused"]}
-RED = {"C2-load", "C2-resume", "C2-mode", "C2-seats", "C2-win", "O4-refused"}
+FIX = {"C2-load", "C2-resume", "C2-mode", "C2-seats", "C2-win", "O4-refused"}
 SUBS = ["O4-dialog", "O4-held", "O4-client", "O4-ok", "O4-common"]
 stack, top, crash_set, wait, alive = RR.stack, RR.top, RR.crash_set, RR.wait, RR.alive
 
@@ -325,7 +325,7 @@ def main():
     print(f"\n==== D246-U S-C1 older PvP / PvE2 campaign battle saves: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 

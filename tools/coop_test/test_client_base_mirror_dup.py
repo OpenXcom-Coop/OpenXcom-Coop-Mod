@@ -34,7 +34,7 @@ ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]                              # Globe
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
 ROWS = {"C0": ["C0-count", "C0-craft", "C0-base"], "R1": ["R1-5s", "R1-crafts", "R1-client", "R1-30s"], "R3": ["R3-click"],
         "R2": ["R2-click", "R2-back", "CRASH"]}
-RED = {"R1-5s", "R1-crafts", "R3-click", "R1-30s", "R2-click"}
+FIX = {"R1-5s", "R1-crafts", "R3-click", "R1-30s", "R2-click"}
 RESULTS, EV = [], {"rows": {r: [] for r in list(ROWS) + ["END"]}}
 T0 = time.time()
 
@@ -404,7 +404,7 @@ def main():
     print(f"\n==== W2-H57 one mirror of the partner's base after a SEPARATE resume: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, wall "
           f"{time.time() - T0:.1f} s, cpu {EV['load0']} -> {EV['load1']} ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 if __name__ == "__main__":

@@ -102,7 +102,7 @@ def catch_up(host, client, ev):
 
 def skip_cell(sk0, sk1, red):
     d = None if None in (sk0, sk1) else sk1 - sk0
-    return (d == 0, f"host projectileSkips {sk0} -> {sk1}: delta {d} (want 0; RED at C1: {red})")
+    return (d == 0, f"host projectileSkips {sk0} -> {sk1}: delta {d} (want 0; FIX at C1: {red})")
 
 
 def lever_snap(host, client, shooter, weapon, tile, seed, ev):

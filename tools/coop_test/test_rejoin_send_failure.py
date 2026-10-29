@@ -6,9 +6,9 @@ so offerRejoinBattle()'s guard refuses the rejoin (GUARD +1); a skirmish host ge
 (TASK 0 T0-X1 / T0-X2, 2/2 each).
   Boot X1 (key "48602", shared_fixture.bring_up("w2r4l2_x1", (1, 2, 48602)) + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2 dir
   w2r4l2_x1_client2): row X1, SHARED. Cells: X1-1 GUARD the link broke on the host's send (lever armed true, the armed line +1, the client on
-  21 within 15 s); X1-2 RED the pause at W (phase Active, peerAbsent true, battleId B0, dialog 62 backVisible false, SEND_LOST +1, DROP +1);
-  X1-3 RED client2's rejoin (OFFER +1, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both,
-  client2 CLIENT_ACTIVE +1); X1-4 RED SPLIT(host) == SPLIT(client2) == SPLIT0 and HASH(host, client2); X1-5 GUARD CRASH 0.
+  21 within 15 s); X1-2 FIX the pause at W (phase Active, peerAbsent true, battleId B0, dialog 62 backVisible false, SEND_LOST +1, DROP +1);
+  X1-3 FIX client2's rejoin (OFFER +1, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both,
+  client2 CLIENT_ACTIVE +1); X1-4 FIX SPLIT(host) == SPLIT(client2) == SPLIT0 and HASH(host, client2); X1-5 GUARD CRASH 0.
   Boot X2 (key "48603", w2r4l2_x2_host / _client / _client2): row X2, skirmish (start_skirmish_battle, rejoin_skirmish). Cells as X1, and X2-2
   also: no host poll in W shows CoopState 440 or a stack without BattlescapeState.
 Definitions (spec (f)): POLL 0.25 s; W 15 s, the host observed at 0.2 s from the arm until W after the client's 21 (every poll's stack
@@ -207,7 +207,7 @@ def the_pause(r, x, tl, s, skirmish):
             "-3 without disconnectTCP(): %s" % ("CoopState(440)" if bad else "freeze +%d, onClientDrop +%d" % (n["FREEZE"], n["DROP"])))
     ok = (b.get("phase") == "Active" and b.get("peerAbsent") is True and b.get("battleId") == x.b0 and d.get("code") == 62
           and d.get("backVisible") is False and n["SEND_LOST"] == 1 and n["DROP"] == 1 and (not skirmish or not bad))
-    r.cell(rid + "-2", "RED", "the pause: at W host phase Active, peerAbsent true, battleId %s, dialog 62 backVisible false, SEND_LOST +1, DROP +1%s "
+    r.cell(rid + "-2", "FIX", "the pause: at W host phase Active, peerAbsent true, battleId %s, dialog 62 backVisible false, SEND_LOST +1, DROP +1%s "
            "(red today: %s)" % (x.b0, ", no poll with CoopState 440 or without BattlescapeState" if skirmish else "",
                                 "a CoopState 440 over no battle, T0-X2" if skirmish else "peerAbsent false, 62 RESUME shown, FREEZE +1, "
                                 "DROP +0, SEND_LOST +0, T0-X1"), ok,
@@ -280,7 +280,7 @@ def rejoin_cells(r, x, key, skirmish):
     hb, cb, n = auth(h), auth(c2), counts(h, r.n_h)
     offer, act = since(h, r.n_h, OFFER), [ln.split("\t")[-1][:160] for ln in log(c2) if CLIENT_ACTIVE in ln]
     ev.update(OFFER=offer, GUARD=since(h, r.n_h, GUARD), needles=n, host=hb, client2=cb, tops=[stack(h), stack(c2)], CLIENT_ACTIVE=act)
-    r.cell(rid + "-3", "RED", "client2's rejoin: OFFER +1 reading battleId=%s, RESUME within W_ACK %.0f s, both tops BattlescapeState, phase Active, "
+    r.cell(rid + "-3", "FIX", "client2's rejoin: OFFER +1 reading battleId=%s, RESUME within W_ACK %.0f s, both tops BattlescapeState, phase Active, "
            "peerAbsent false, battleId %s on both, client2 CLIENT_ACTIVE +1 (red today: %s)" % (x.b0, W_ACK, x.b0, "the join refused, the host "
            "not serving (T0-X2)" if skirmish else "GUARD +1, OFFER +0, client2 on 68 (T0-X1)"),
            len(offer) == 1 and ("battleId=%s," % x.b0) in offer[0] and resumed and tops and hb.get("phase") == cb.get("phase") == "Active"
@@ -290,7 +290,7 @@ def rejoin_cells(r, x, key, skirmish):
         raise Stop("REJOIN: no RESUME or the tops wait failed (resumeAck wait: %s)" % ev.get("ack wait", "passed"))
     sh, sc = split(h), split(c2)
     hok, hev = hash_ok(h, c2, rid + " after RESUME")
-    r.cell(rid + "-4", "RED", "SPLIT(host) == SPLIT(client2) == SPLIT0 and HASH(host, client2)", sh == sc == x.split0 and hok,
+    r.cell(rid + "-4", "FIX", "SPLIT(host) == SPLIT(client2) == SPLIT0 and HASH(host, client2)", sh == sc == x.split0 and hok,
            {"host": sh, "client2": sc, "SPLIT0": x.split0, "HASH": hev})
 
 def row_x(x, results, walls, key, skirmish):

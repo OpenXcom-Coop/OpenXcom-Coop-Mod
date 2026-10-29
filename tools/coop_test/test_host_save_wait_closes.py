@@ -17,7 +17,7 @@ gift (the client's OK on its 67, SOLDIERS, the guest's row, KP2, the host's butt
     written and the 54 gone within W_SAVE (the blob handler's pop); read E 1 s later.
 R-GN / R-GR: poll POLL_S up to W_CLOSE after the notice's OK for back() (the host stack == B's, top GeoscapeState), then read E. Needles
 (host log since B): H59LOG, CLEAR, FREEZE, DROP and CLOSE54 (EB1's log line). Cells (16): GN-pre / GR-pre / GW-pre GUARD (the
-preconditions, with reads W / D); GR-rejoin GUARD (read R); GN-close / GR-close RED (back() within W_CLOSE); GN-log / GR-log RED (CLOSE54
+preconditions, with reads W / D); GR-rejoin GUARD (read R); GN-close / GR-close FIX (back() within W_CLOSE); GN-log / GR-log FIX (CLOSE54
 1 at E); GN-once / GR-once GUARD (QUICK's mtime at E == at W / D; CLEAR 1); GW-hold GUARD (read H: the 54 on top, armed, CLEAR 0);
 GW-write GUARD; GW-log GUARD (CLOSE54 0 at H and E); X-common GUARD (host alive; each new crash_*.log since B is the lever's miss, one per W2-H70 push).
 Red (commit R1, the HEAD build = S-A green): exit 2, RED exactly on GN-close, GN-log, GR-close, GR-log (4).
@@ -451,9 +451,9 @@ def ok_and_close(r, x, p):
     ok = r.ev["notice OK"] = real_click(x.host, "OK", W_UI)
     bs = r.ev["back s"] = wait_back(r, x)
     E = r.ev["E"] = read(r, x)
-    r.cell(p + "-close", "RED", "back(): the host stack == B's (top GeoscapeState) within %.0f s after the notice's OK (red today: top CoopState "
+    r.cell(p + "-close", "FIX", "back(): the host stack == B's (top GeoscapeState) within %.0f s after the notice's OK (red today: top CoopState "
            "54 \"Saving...\" with nothing armed, F19185 / F19187)" % W_CLOSE, bool(ok and bs is not None))
-    r.cell(p + "-log", "RED", "CLOSE54 = 1 at E (red today: 0)", E["needles"]["CLOSE54"] == 1)
+    r.cell(p + "-log", "FIX", "CLOSE54 = 1 at E (red today: 0)", E["needles"]["CLOSE54"] == 1)
     return E
 
 def common_cell(r, p, E):

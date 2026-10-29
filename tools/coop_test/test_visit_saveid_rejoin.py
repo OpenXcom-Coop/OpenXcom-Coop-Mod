@@ -9,7 +9,7 @@ keyinfo, ok67 over BasescapeState, leave and drop_now copied from the capture's 
   C4  a fresh pair resumes C1's QUICK (only if C1 reached read T): the host's saveID, its stored partner world, the partner's world.
   CTL (control) MARKER; VISIT; read B; GEOSCAPE without a save; the host's quick save with the partner on its geoscape; read T; the drop;
       the rejoin; read R.
-Cells (21): C1-pre GUARD, C1-ids RED, C1-key RED, C1-log RED, C1-rejoin RED, C1-world RED, C1-resume RED, C1-common GUARD; C4-pre, C4-id,
+Cells (21): C1-pre GUARD, C1-ids FIX, C1-key FIX, C1-log FIX, C1-rejoin FIX, C1-world FIX, C1-resume FIX, C1-common GUARD; C4-pre, C4-id,
 C4-key, C4-world, C4-common GUARD; CTL-pre, CTL-ids, CTL-key, CTL-log, CTL-rejoin, CTL-world, CTL-resume, CTL-common GUARD. Red (commit R1):
 RED exactly C1-ids, C1-key, C1-log, C1-rejoin, C1-world, C1-resume (6 of 21). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B.
 ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row
@@ -254,7 +254,7 @@ def alive_clean(ev, k):
 
 
 def drop_cells(p, kind, prelabel, pre_need):
-    """the cells of a row with a drop + rejoin (C1 RED / CTL GUARD)"""
+    """the cells of a row with a drop + rejoin (C1 FIX / CTL GUARD)"""
     return [
         ("%s-pre" % p, "GUARD", prelabel, "start", lambda ev: pre_need in ev["reached"]),
         ("%s-ids" % p, kind, "read T: host and client saveID == S", "T",
@@ -273,7 +273,7 @@ def drop_cells(p, kind, prelabel, pre_need):
     ]
 
 
-C1_CELLS = drop_cells("C1", "RED", "VISIT, SAVE54 with S != B, OK67B, LEAVE (QUICK written) all reached", "T")
+C1_CELLS = drop_cells("C1", "FIX", "VISIT, SAVE54 with S != B, OK67B, LEAVE (QUICK written) all reached", "T")
 CTL_CELLS = drop_cells("CTL", "GUARD", "VISIT, LEAVE, the quick save ok with S != B", "T")
 C4_CELLS = [
     ("C4-pre", "GUARD", "the reload boot reached both GeoscapeState stable", "start", lambda ev: "T" in ev["reached"]),

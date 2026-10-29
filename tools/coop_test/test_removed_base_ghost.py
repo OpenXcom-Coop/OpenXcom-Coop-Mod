@@ -11,8 +11,8 @@ per machine (real INTERCEPT + CANCEL). HB_ID = the host's first base id (mir(cli
           + real GEOSCAPE; DEL_SETTLE; client real GEOSCAPE; RT_SETTLE; read A; client CYCLE (INTERCEPT, CANCEL) + RT_SETTLE; read B; CLICK
           (only if G_ID in mir(client) at B): a real globe click on its marker, watch W_OPEN, then (if a view opened) real GEOSCAPE.
           G-pre (GUARD) HostBase2 in the host's own and in mir(client); the client's view shows its own base and no G_ID; the host's OK
-          reached, HostBase2 gone from its own; the client back on GeoscapeState.  G-a (RED) no G_ID in mir(client) at A.  G-rt (RED) none
-          at B.  G-open (RED) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.  G-stash (RED) the client's LINE(G_ID) since
+          reached, HostBase2 gone from its own; the client back on GeoscapeState.  G-a (FIX) no G_ID in mir(client) at A.  G-rt (FIX) none
+          at B.  G-open (FIX) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.  G-stash (FIX) the client's LINE(G_ID) since
           G-mark: exactly 1, ending "stash=1".  G-mir (GUARD) HB_ID in mir(client) at B (the client keeps the host's first-base marker;
           CONSTANTS.md F22520).
   Row C   (G-ctl) host build_new_base HostBase3 at B3; C_ID; the client stays on its globe; C-mark; the host dismantles HostBase3; GONE = poll
@@ -43,7 +43,7 @@ W_OPEN, BOOT_S = 20.0, 60.0
 NEEDLE = "[coop] removed base: id=%s cache="
 LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ROWS = (("G", ("G-pre", "G-a", "G-rt", "G-open", "G-stash", "G-mir")), ("C", ("C-pre", "C-gone")), ("END", ("CRASH",)))
-RED = ("G-a", "G-rt", "G-open", "G-stash")
+FIX = ("G-a", "G-rt", "G-open", "G-stash")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -261,7 +261,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

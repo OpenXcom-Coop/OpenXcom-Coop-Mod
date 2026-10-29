@@ -12,17 +12,17 @@ down before the next:
   Boot B (lobby key 48613): AV1 the host's ABORT opens it, one YES does not abort, no deadline; AV3 a vote passed during
          a running action lands after it and both YES end the battle for both.
 
-Cells (RED = fails on the red commit, GUARD = passes on both builds; AV1b-2 is RED per TASK 0 T0-2 (b): on the unchanged
+Cells (FIX = fails on the red commit, GUARD = passes on both builds; AV1b-2 is RED per TASK 0 T0-2 (b): on the unchanged
 build the client's END TURN under an open vote commits within 0.2 s):
-  AV0-1 RED unanimous abort rules (requiredYes 3, pending after 2 YES, failed after a NO, noDeadline true);
+  AV0-1 FIX unanimous abort rules (requiredYes 3, pending after 2 YES, failed after a NO, noDeadline true);
   AV0-2 GUARD other votes keep #87's rules; AV0-3 GUARD the host's AbortMissionState = HOST_DLG, ESC closes, no vote.
-  AV2-1 RED the client's dialog (HOST_DLG, no refusal banner, buckets EQUAL, dialogDonor 1); AV2-2 RED the vote on both;
-  AV2-3 RED a NO fails it, the battle goes on. AV2b-1 RED the same asker's second vote opens at once (no 558, cooldown
-  0, opens 2); AV2b-2 RED it fails on the NO. AV1b-1 RED the host's ABORT after its END TURN opens the vote; AV1b-2 RED
-  no END TURN commit while it is open (heldCommits >= 1); AV1b-3 RED the held presses commit once after the failed
-  vote's CLOSE. AV1-1 RED the vote opens; AV1-2 RED one YES does not abort; AV1-3 RED no deadline (vote_force_timeout
-  refused, no "TIME", the rule line); AV1-4 GUARD-after-open dismiss_popup refuses the VoteMenu; AV1-5 RED the NO fails
-  it. AV3-1 GUARD the walk ran under the vote; AV3-2 RED the apply waited for it; AV3-3 RED both end on their debriefing.
+  AV2-1 FIX the client's dialog (HOST_DLG, no refusal banner, buckets EQUAL, dialogDonor 1); AV2-2 FIX the vote on both;
+  AV2-3 FIX a NO fails it, the battle goes on. AV2b-1 FIX the same asker's second vote opens at once (no 558, cooldown
+  0, opens 2); AV2b-2 FIX it fails on the NO. AV1b-1 FIX the host's ABORT after its END TURN opens the vote; AV1b-2 FIX
+  no END TURN commit while it is open (heldCommits >= 1); AV1b-3 FIX the held presses commit once after the failed
+  vote's CLOSE. AV1-1 FIX the vote opens; AV1-2 FIX one YES does not abort; AV1-3 FIX no deadline (vote_force_timeout
+  refused, no "TIME", the rule line); AV1-4 GUARD-after-open dismiss_popup refuses the VoteMenu; AV1-5 FIX the NO fails
+  it. AV3-1 GUARD the walk ran under the vote; AV3-2 FIX the apply waited for it; AV3-3 FIX both end on their debriefing.
 
 Flow rule: checks never end a row; a WAIT that times out ends the row (later cells "not reached"). Every row runs after a
 failure. Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <cells>" and, on a FAIL, ONE
@@ -61,7 +61,7 @@ VOTEMENU_REFUSAL = "VoteMenu (answer via vote_cast; not dismissable)"
 HOST_DLG = [["7 Units in X-Com Craft", True], ["0 Units in Target Exit", False], ["0 Units left outside", True],
             [QUESTION, True]]
 WALK_ACTOR, WALK_DEST = 8, (4, 9, 0)                                  # CONSTANTS T0-2 (a): 4.19 s, 9 steps
-AV1B2_LABEL = "RED"                                                   # CONSTANTS T0-2 (b)
+AV1B2_LABEL = "FIX"                                                   # CONSTANTS T0-2 (b)
 ENDING_PINS = tbe.ROW_EXPECT["E2"]
 COOLDOWN_DLG = 558
 CELLS = {"AV0": ["AV0-1", "AV0-2", "AV0-3"], "AV2": ["AV2-1", "AV2-2", "AV2-3"], "AV2b": ["AV2b-1", "AV2b-2"],

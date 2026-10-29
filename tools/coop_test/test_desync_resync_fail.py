@@ -5,17 +5,17 @@ waiting screen says the battle could not be repaired. Two boots, one row each, e
   DR3a (boot F1, key "48753", dirs r4l3_f1_host / _client) the re-sent battle is refused: the host arms the TEST-ONLY `corrupt_next_blob`,
       the client pokes H2's reactions (+7, client-only), the host's real-UI kneel of H raises the desync; wait <= 30 s for the host's
       `rejoin refused (corrupt)` line, <= W_TITLE for the 62 title to leave "Repairing the battle", then HOLD_S. DR3a-1 GUARD
-      the repair was offered, the lever fired on it, the client refused it (reason=corrupt), client phase Idle, client top CoopStageHold; DR3a-2 RED host RS failed +1, lastFail "refused"; DR3a-3 GUARD at
+      the repair was offered, the lever fired on it, the client refused it (reason=corrupt), client phase Idle, client top CoopStageHold; DR3a-2 FIX host RS failed +1, lastFail "refused"; DR3a-3 GUARD at
       every HOLD_S poll: host phase Active, peerAbsent true, 62 on top with back hidden and SAVE & QUIT / ABANDON shown, offered unchanged
       (no loop), client top unchanged, client desyncSeen true; DR3a-4 GUARD the escape: host ABANDON -> host MainMenuState <= 60 s, client
-      code 21 <= 30 s, client OK -> MainMenuState <= 60 s; DR3a-5 RED the 62 title at every HOLD_S poll == TITLE_FAILED; DR3a-6
+      code 21 <= 30 s, client OK -> MainMenuState <= 60 s; DR3a-5 FIX the 62 title at every HOLD_S poll == TITLE_FAILED; DR3a-6
       GUARD CRASH 0.
   DR3b (boot F2, key "48754", dirs r4l3_f2_host / _client) the re-sent copy does not match: the host arms the TEST-ONLY
       `resync_ready_mismatch`, the same chain; wait <= 30 s for the host's `battle_ready saveBlob MISMATCH` line, <= W_TITLE for the 62 title
       to leave "Repairing the battle", then HOLD_S. DR3b-1 GUARD
-      offered +1, client RS loaded +1, host `rejoin desync` +1, client top CoopState 68; DR3b-2 RED no RESUME: back hidden at
-      every HOLD_S poll (red: shown, "All players connected", F10818); DR3b-3 RED host RS failed +1, lastFail "ready mismatch"; DR3b-4 GUARD
-      no second offer, host peerAbsent true, the client still on 68 at every poll; DR3b-5 RED as DR3a-5; DR3b-6 RED at B1
+      offered +1, client RS loaded +1, host `rejoin desync` +1, client top CoopState 68; DR3b-2 FIX no RESUME: back hidden at
+      every HOLD_S poll (red: shown, "All players connected", F10818); DR3b-3 FIX host RS failed +1, lastFail "ready mismatch"; DR3b-4 GUARD
+      no second offer, host peerAbsent true, the client still on 68 at every poll; DR3b-5 FIX as DR3a-5; DR3b-6 FIX at B1
       the escape as DR3a-4 - on the red build 62 shows RESUME and hides ABANDON, so a refused ABANDON fails the cell at
       once and the row ends with the capture; DR3b-7 GUARD CRASH 0.
 Definitions (spec (f)): POLL 0.25 s; HOLD_S 20 s; RS(gc) = resync_state.resync, counters as deltas from the row's own baseline; the host's
@@ -252,7 +252,7 @@ def escape(x):
 
 def title_cell(r, cid, polls, rid):
     titles = distinct([dict(p, title=p["62"].get("title")) for p in polls], "title")
-    r.cell(cid, "RED (D267 a)", "the host's 62 title at every HOLD_S poll == %r" % TITLE_FAILED,
+    r.cell(cid, "FIX (D267 a)", "the host's 62 title at every HOLD_S poll == %r" % TITLE_FAILED,
            bool(polls) and all(p["62"].get("title") == TITLE_FAILED for p in polls),
            {"titles seen (first s, polls)": titles, "TASK 0 measured at B1": T0_TITLE[rid]})
 
@@ -281,7 +281,7 @@ def row_dr3a(x, results, walls):
         print("EVIDENCE DR3a title settle: %s" % js({"s": tw, "title": dlg(h).get("title")}), flush=True)
         polls = hold(x, rh0)
         rh = rs(h)
-        r.cell("DR3a-2", "RED", "host RS failed +1, lastFail 'refused'", delta(rh0, rh, "failed") == 1 and rh.get("lastFail") == "refused",
+        r.cell("DR3a-2", "FIX", "host RS failed +1, lastFail 'refused'", delta(rh0, rh, "failed") == 1 and rh.get("lastFail") == "refused",
                {"failed": delta(rh0, rh, "failed"), "lastFail": rh.get("lastFail"), "RS host": rh})
         bad = [p for p in polls if not (p["host top"] == [CSTATE] and p["phase"] == "Active" and p["peerAbsent"] is True
                                         and p["62"].get("code") == 62 and p["62"].get("backVisible") is False
@@ -324,10 +324,10 @@ def row_dr3b(x, results, walls):
         print("EVIDENCE DR3b title settle: %s" % js({"s": tw, "title": dlg(h).get("title")}), flush=True)
         polls = hold(x, rh0)
         rh = rs(h)
-        r.cell("DR3b-2", "RED", "no RESUME: at every HOLD_S poll the host's 62 has backVisible false (red: true, 'All players connected', F10818)",
+        r.cell("DR3b-2", "FIX", "no RESUME: at every HOLD_S poll the host's 62 has backVisible false (red: true, 'All players connected', F10818)",
                bool(polls) and all(p["62"].get("code") == 62 and p["62"].get("backVisible") is False for p in polls),
                {"polls": len(polls), "62 seen": distinct(polls, "62")})
-        r.cell("DR3b-3", "RED", "host RS failed +1, lastFail 'ready mismatch'",
+        r.cell("DR3b-3", "FIX", "host RS failed +1, lastFail 'ready mismatch'",
                delta(rh0, rh, "failed") == 1 and rh.get("lastFail") == "ready mismatch",
                {"failed": delta(rh0, rh, "failed"), "lastFail": rh.get("lastFail"), "RS host": rh})
         bad = [p for p in polls if not (p["offered"] == 1 and p["peerAbsent"] is True and p["client top"] == [CSTATE]
@@ -338,7 +338,7 @@ def row_dr3b(x, results, walls):
                 "client code seen": distinct(polls, "client code")})
         title_cell(r, "DR3b-5", polls, "DR3b")
         eok, eev, cap = escape(x)
-        r.cell("DR3b-6", "RED (R-L3-B-1)", "the escape as DR3a-4 (red: 62 shows RESUME and hides ABANDON, F12062 - the refused ABANDON fails "
+        r.cell("DR3b-6", "FIX (R-L3-B-1)", "the escape as DR3a-4 (red: 62 shows RESUME and hides ABANDON, F12062 - the refused ABANDON fails "
                "at once)", eok, eev)
     except Exception as e:
         r.stop(e)

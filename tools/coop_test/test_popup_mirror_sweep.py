@@ -5,7 +5,7 @@ right before the delete, as its CANCEL does. Probe popup_mirror_check as in test
 client; levers stage only (bases, spawn_ufo, the globe centre, geo_set_speed 1 on both, set_ufo_damage on the host); every player press is a real
 click and is made only with its cell's named top shown and pmc dangling 0 read right before. Fresh boots, each shut down before the next; key "49508".
   Boot SA (dirs w2h81_sa_*): the host loses its UFO 0.2 s after the client's popup shows (inside the host's 1000 ms grace): the sweep deletes the
-  mirror under it (S1a). Cells SA-dangling RED, SA-held RED, SA-top RED, SA-alive.
+  mirror under it (S1a). Cells SA-dangling FIX, SA-held FIX, SA-top FIX, SA-alive.
   Boot SB (dirs w2h81_sb_*): the loss 3.0 s after (outside the grace): no sweep while the popup is open; after CANCEL the mirror goes (S1b).
   Cells SB-held, SB-after, SB-alive.
 Red (commit R1): exit 2, RED exactly on SA-dangling, SA-held, SA-top (3 of 7). A guard (G:) miss: ONE CAPTURE line, the row's remaining cells FAIL
@@ -313,14 +313,14 @@ def row_sa(row):
     time.sleep(SETTLE_SA)
     S = {"pmc": pmc(client), "top": top(client), "host top": top(row.host)}
     ev["S"] = S
-    row.cell("SA-dangling", S["pmc"].get("dangling") == 0, "RED: after the sweep pmc dangling %s; want 0" % S["pmc"].get("dangling"))
-    row.cell("SA-held", S["pmc"].get("holders") == 0, "RED: after the sweep pmc holders %s (the popup closed before the delete); want 0"
+    row.cell("SA-dangling", S["pmc"].get("dangling") == 0, "FIX: after the sweep pmc dangling %s; want 0" % S["pmc"].get("dangling"))
+    row.cell("SA-held", S["pmc"].get("holders") == 0, "FIX: after the sweep pmc holders %s (the popup closed before the delete); want 0"
              % S["pmc"].get("holders"))
     if row.guarded_press(client, "GeoscapeState", "INTERCEPT", "InterceptState") and \
             row.guarded_press(client, "InterceptState", "CANCEL", "GeoscapeState", exact=True):
-        row.cell("SA-top", True, "RED: after the sweep top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real)")
+        row.cell("SA-top", True, "FIX: after the sweep top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real)")
     else:
-        row.cell("SA-top", False, "RED: top: after the sweep top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (S["top"], S["pmc"]))
+        row.cell("SA-top", False, "FIX: top: after the sweep top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (S["top"], S["pmc"]))
     row.alive_cell("SA-alive", client, ALIVE_S)
 
 def row_sb(row):

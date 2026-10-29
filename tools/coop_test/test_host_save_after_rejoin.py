@@ -14,9 +14,9 @@ ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the con
   Row M1 (the red, LAST) an autosave drop of client2 at the host's first sight of its 54 once a half-sent upload is buffered (READY; b54 > 0,
          precondition), client3 rejoins, RESUME, the stale 54 CANCELLED when it is on top, LIVE, then a host quick save
          with client3 (t3) and a 0.1 s window until the save landed (_quick_.asav after t3, pending "", top GeoscapeState) or 1 s after
-         the first new crash file (QH58-B2 (a)) or SAVE2_S. M1-world (GUARD) as CB-world for client3. M1-buf (RED) b1 = buf(host) at
-         DROP_READ_S after the kill == 0. M1-write (RED) _quick_.asav mtime after t3. M1-crash (RED) no crash file new since t3.
-         M1-host (RED) host stack [GeoscapeState] and onConnect 1. M1-key (RED, ruling R-H58-B-1) key(id3) present with a fnv1a64
+         the first new crash file (QH58-B2 (a)) or SAVE2_S. M1-world (GUARD) as CB-world for client3. M1-buf (FIX) b1 = buf(host) at
+         DROP_READ_S after the kill == 0. M1-write (FIX) _quick_.asav mtime after t3. M1-crash (FIX) no crash file new since t3.
+         M1-host (FIX) host stack [GeoscapeState] and onConnect 1. M1-key (RED, ruling R-H58-B-1) key(id3) present with a fnv1a64
          different from key(id2)'s at the 54 (S-A's re-mint copy carries id2's bytes; only a landed upload changes the fnv).
          PRE-CRASH (GUARD) no crash file new since the boot start at t3.
 Red today: M1-buf, M1-write, M1-crash, M1-host, M1-key FAIL; the other 7 cells PASS. Green (EB1: onClientDrop empties mapData): 12/12.
@@ -45,7 +45,7 @@ LIVE_S, READY_S = 10.0, 2.0  # bounds: the host's resume handshake after RESUME;
 SUSPEND_DELAY_MS, DROP_READ_S, SAVE2_S = 0, 1.0, 20.0
 ROWS = (("C0", ("C0-blob",)), ("CB", ("CB-write1", "CB-world", "CB-buf0", "CB-write2")),
         ("M1", ("M1-world", "M1-buf", "M1-write", "M1-crash", "M1-host", "M1-key", "PRE-CRASH")))
-RED = ("M1-buf", "M1-write", "M1-crash", "M1-host", "M1-key")
+FIX = ("M1-buf", "M1-write", "M1-crash", "M1-host", "M1-key")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 
 
@@ -159,7 +159,7 @@ class Row:
         print("EVIDENCE %s: %s" % (self.rid, js(self.ev)), flush=True)
         fails = []
         for cid in dict(ROWS)[self.rid]:
-            kind = "RED" if cid in RED else "GUARD"
+            kind = "FIX" if cid in FIX else "GUARD"
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
             print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, kind, label), flush=True)
             if not ok:
@@ -320,7 +320,7 @@ def boot(x):
         print("CAPTURE boot: %s" % js(capture(x)), flush=True)
         for _rid, cells in ROWS:
             for cid in cells:
-                print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                 x.fails.append(cid)
     return ok
 

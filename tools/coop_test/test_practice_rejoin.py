@@ -39,7 +39,7 @@ GEO, BS, INV, CES, CS = "GeoscapeState", "BattlescapeState", "InventoryState", "
 RELEASE = "[coop] restream adopted; the host wait dialog owns the release"
 REFUSED = "offerResumedBattle() called outside a disk resume"
 KEYS = ("restream adopted", "offerResumedBattle", "F3 battle resume", "[coop-session]", "streaming authoritative")
-RED = ("named red: TASK 0 4/4 no resumeAck at W_ACK, REFUSED in HL, client2 on 68 "
+FIX = ("named red: TASK 0 4/4 no resumeAck at W_ACK, REFUSED in HL, client2 on 68 "
        "(T0-I: resumeBattlePending=1 with preview=1 / baseInv=1)")
 q, stack, short, wait_until = pr.q, pr.stack, pr.short, pr.wait_until
 
@@ -132,11 +132,11 @@ def rejoin_row(r, x, kind, label):
     t_ack = round(time.time() - t_join, 2)
     rel = bool(ack) and wait_until(lambda: any(RELEASE in ln for ln in pr.log_lines(h, n_hl)), HOLD)
     refused = [ln for ln in msg(pr.log_lines(h, n_hl)) if REFUSED in ln]
-    r.ev["RED 1"] = red1 = {"resumeAck": ack, "s": t_ack, "RELEASE": rel, "REFUSED": refused, "host stack": stack(h),
+    r.ev["FIX 1"] = red1 = {"resumeAck": ack, "s": t_ack, "RELEASE": rel, "REFUSED": refused, "host stack": stack(h),
                             "client2": [stack(c2), coop(c2, "coopDialog")]}
-    if not r.cell(f"RED 1: within {W_ACK:.0f} s the host's resumeAck true, HL holds RELEASE and no REFUSED", ack and rel and not refused,
+    if not r.cell(f"FIX 1: within {W_ACK:.0f} s the host's resumeAck true, HL holds RELEASE and no REFUSED", ack and rel and not refused,
                   red1):
-        r.ev["not reached (RED 1 ends the row)"] = "RESUME, client2 geoscape, the host's screen, the close, world / names, zero-disk"
+        r.ev["not reached (FIX 1 ends the row)"] = "RESUME, client2 geoscape, the host's screen, the close, world / names, zero-disk"
         return capture(r, x, n_hl, pr.crash_info(before))
     if pr.on_top(h, "Profile"):
         r.ev["profile_ok"] = q(h, {"cmd": "profile_ok"})
@@ -207,7 +207,7 @@ def boot(r, x, ports, separate):
 
 
 def shut(r, x, tolerate_host=False):
-    """every machine of the boot; the row's killed client is already reaped; a host death is tolerated only on a RED cell"""
+    """every machine of the boot; the row's killed client is already reaped; a host death is tolerated only on a FIX cell"""
     for gc in (x.client2, x.client, x.host):
         if gc is None:
             continue
@@ -215,13 +215,13 @@ def shut(r, x, tolerate_host=False):
             gc.shutdown()
         except Exception as e:
             if gc is x.host and tolerate_host:
-                r.ev["shutdown, host died on a RED cell (tolerated)"] = short(e, 300)
+                r.ev["shutdown, host died on a FIX cell (tolerated)"] = short(e, 300)
             else:
                 r.cell(f"{x.tag} shutdown ({gc.name})", False, short(e, 300))
                 r.cap.setdefault("shutdown", short(e, 300))
 
 
-def run(rid, tag, ports, row, results, walls, separate=False, args=(), task0=RED):
+def run(rid, tag, ports, row, results, walls, separate=False, args=(), task0=FIX):
     t0, x, r = time.time(), X(tag), pr.Row(rid, task0)
     try:
         if boot(r, x, ports, separate):

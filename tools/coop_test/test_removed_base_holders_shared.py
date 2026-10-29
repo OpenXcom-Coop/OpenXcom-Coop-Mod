@@ -16,8 +16,8 @@ ONE SHARED boot (key KEY, dirs w2h83_hs_*, campaign_mode "shared"); row SI, then
   SI-pre (GUARD) HB and SPARE on both; STRIP every reply ok + dead, HB 0 soldiers on both; P0 top InterceptState over GeoscapeState, HB crafts
          listed; the trigger names HB; BaseDestroyedState on the host within W_BDS, no BriefingState; the host's OK reached GeoscapeState.
   SI-gone (GUARD) within DEL_SETTLE HB gone from both lists, SPARE kept; P1's top ErrorMessageState.
-  SI-closed (RED) P1: no InterceptState; the stack ends [GeoscapeState, ErrorMessageState].
-  SI-top (RED) P2: no InterceptState; GeoscapeState is the top or directly under it (a notice queued meanwhile may open once the globe shows).
+  SI-closed (FIX) P1: no InterceptState; the stack ends [GeoscapeState, ErrorMessageState].
+  SI-top (FIX) P2: no InterceptState; GeoscapeState is the top or directly under it (a notice queued meanwhile may open once the globe shows).
   END CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
 Red today: SI-closed, SI-top FAIL (2 of 5); every other cell PASS. Green (EC2-EC12): all 5 PASS.
 Every press is a real click_widget or inject_input except the logged levers build_new_base, geo_set_speed, set_funds (only if needed),
@@ -38,7 +38,7 @@ UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESE
        "trajectory": "P0", "state": "flying"}
 LOGN = ("[coop] removed base: ", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop", "shared_resync")
 ROWS = (("SI", ("SI-pre", "SI-gone", "SI-closed", "SI-top")), ("END", ("CRASH",)))
-RED = ("SI-closed", "SI-top")
+FIX = ("SI-closed", "SI-top")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -198,7 +198,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

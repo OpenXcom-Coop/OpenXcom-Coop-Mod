@@ -49,7 +49,7 @@ DRIVE_S, DROP_S, SQ_S, ENTRY_S, SETTLE_S, PAUSE_S, ABANDON_S, LOST_S, FILE_S = 1
 ROWS = {"S": ["S-count", "S-files"], "H": ["H-count", "H-client", "H-123", "H-files", "H-common"],
         "G": ["G-count", "G-nolist", "G-file", "G-only", "G-menu", "G-common"],
         "A": ["A-c0", "A-save", "A-only", "A-menu", "A-client", "A-common"]}
-RED = {"H-count", "H-client", "H-123", "H-files", "G-nolist", "G-file", "G-only", "A-save"}
+FIX = {"H-count", "H-client", "H-123", "H-files", "G-nolist", "G-file", "G-only", "A-save"}
 BOOT = {"tag": "S"}
 
 
@@ -453,7 +453,7 @@ def main():
     print(f"\n==== W2-H53 co-op ironman save paths: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, wall {time.time() - t0:.1f} s ====",
           flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 

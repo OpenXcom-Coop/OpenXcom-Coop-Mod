@@ -374,7 +374,7 @@ def kr7_fails(w, s, shots):
     fails = []
     if any(supw.values()):
         fails.append(f"KR7w: host camera.suppressed delta {supw} over the opponent's walk (want all +0: in PvP the "
-                     f"opponent's walk moves the watching host's view level as vanilla does, D131 / SC-5; RED is "
+                     f"opponent's walk moves the watching host's view level as vanilla does, D131 / SC-5; FIX is "
                      f"walkLevel +{KR7W_WALKLEVEL_RED}, F4206)")
     if any(sups.values()):
         fails.append(f"KR7s: host camera.suppressed delta {sups} over the opponent's shot (want all +0: the opponent's "

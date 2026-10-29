@@ -68,14 +68,14 @@ def cells(rid, ev):
     """R1-R3 cells after the read and the reload: [(cell, kind, label, ok)]"""
     hv, rl, out = ev.get("halves"), reloaded(ev), []
     if rid == "R2":
-        out.append(("R2-live", "RED", "once_host HOLD_L after the leave (red today: the client's own base has it, owner 999, F19742)",
+        out.append(("R2-live", "FIX", "once_host HOLD_L after the leave (red today: the client's own base has it, owner 999, F19742)",
                     once_host(ev["live"])))
     if rid in ("R1", "R2"):
-        out.append((rid + "-file", "RED", "GIFTNAME once in QUICK's host half, in no client entry (red today: both, F19740)", bool(hv) and file_once_host(hv)))
-        out.append((rid + "-reload", "RED", "once_host after the reload (red today: DUP)", bool(rl) and once_host(rl)))
+        out.append((rid + "-file", "FIX", "GIFTNAME once in QUICK's host half, in no client entry (red today: both, F19740)", bool(hv) and file_once_host(hv)))
+        out.append((rid + "-reload", "FIX", "once_host after the reload (red today: DUP)", bool(rl) and once_host(rl)))
     else:
-        out.append(("R3-file", "RED", "GIFTNAME once in one client entry, not in the host half (red today: neither, F19743)", bool(hv) and file_once_client(hv)))
-        out.append(("R3-reload", "RED", "once_client after the reload (red today: neither)", bool(rl) and once_client(rl)))
+        out.append(("R3-file", "FIX", "GIFTNAME once in one client entry, not in the host half (red today: neither, F19743)", bool(hv) and file_once_client(hv)))
+        out.append(("R3-reload", "FIX", "once_client after the reload (red today: neither)", bool(rl) and once_client(rl)))
     return out + [common(rid, ev.get("read") or {})]
 
 PRE = {"R1": "the guest staged, the visit, insideCoopBase true at the KP2, the host's notice and its OK, the 54 (QUICK) + the client's 67, "

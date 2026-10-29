@@ -63,7 +63,7 @@ CK = ("type", "id", "name", "status", "destKind", "displayStatus", "lon", "lat",
 ROWS = {"R1": ["R1-before", "R1-relink", "R1-follow"], "R2": ["R2-before", "R2-relink", "R2-follow"],
         "R3": ["R3-before", "R3-relink", "R3-status"], "R4": ["R4-before", "R4-relink", "R4-status", "R4-nopatrol"],
         "R5": ["R5-before", "R5-relink", "R5-file"], "R6": ["R6-client", "R6-host", "R6-ids"], "S-common": ["S-common"]}
-RED = {"R1-relink", "R1-follow", "R2-relink", "R2-follow", "R3-relink", "R3-status", "R4-relink", "R4-status", "R4-nopatrol",
+FIX = {"R1-relink", "R1-follow", "R2-relink", "R2-follow", "R3-relink", "R3-status", "R4-relink", "R4-status", "R4-nopatrol",
        "R6-client", "R6-host"}
 RESULTS, EV, IDS = [], {}, {}      # (cell, ok, detail); every value read (EVIDENCE); craft name -> id
 
@@ -559,7 +559,7 @@ def main():
     print(f"\n==== W2-H51 craft -> the partner's craft across a save and reload: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s, cpu {EV['S'].get('load0')} -> {EV['S'].get('load1')} ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ LOAD, SAVE, SAA, ABANDON = "LOAD GAME", "SAVE GAME", "SAVE AND ABANDON GAME", "A
 ROWS = {"G": ["G-load", "G-save", "G-abandon"], "B": ["B-load", "B-save", "B-abandon"], "N": ["N-load", "N-save", "N-abandon"],
         "C": ["C-host", "C-client"], "X": ["X-crash"]}
 BOOTS = {"I": ["G", "B"], "N": ["N"], "C": ["C"]}
-RED = {"G-load", "G-save", "B-load", "B-save"}
+FIX = {"G-load", "G-save", "B-load", "B-save"}
 RESULTS = {}
 
 class Miss(Exception):
@@ -370,7 +370,7 @@ def main():
     print(f"\n==== W2-H67 solo ironman pause menu: {len(allc) - len(fails)}/{len(allc)} cells PASS, wall {time.time() - t0:.1f} s "
           f"(boots {walls}) ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails else 2)
 
 if __name__ == "__main__":

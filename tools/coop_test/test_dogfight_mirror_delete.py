@@ -6,12 +6,12 @@ Probes: dogfight_ufo_check (read-only pointer compares, safe after a delete) and
 UFO had left the saved game). dogfight_state dereferences every dogfight's UFO: it is read ONLY before a row's delete (lever or kill).
 Owner = client, fighter = host in every row. Every player press is a real click; levers stage the UFO, the clock, the globe centre, base placement,
 the owner-side loss (set_ufo_damage) and the drop (kill). Each boot is fresh and shut down before the next; key "49449".
-  Boot SW (dirs w2h76_sw_*): row SW - the sweep deletes a mirror a minimized dogfight chases (C2-min, no drop). Cells SW-seen RED, SW-end,
+  Boot SW (dirs w2h76_sw_*): row SW - the sweep deletes a mirror a minimized dogfight chases (C2-min, no drop). Cells SW-seen FIX, SW-end,
   SW-craft, SW-input, SW-common.
   Boot DM (dirs w2h76_dm_*, rejoin w2h76_dm_client2): row DM - the partner drops while a minimized dogfight chases its mirror (C1-min). Cells
-  DM-dfs RED, DM-dangling RED, DM-craft RED, DM-home, DM-seen RED, DM-after, DM-input, DM-common.
-  Boot DO (dirs w2h76_do_*, rejoin w2h76_do_client2): row DO - as DM with the dogfight window open (C1). Cells DO-dfs RED, DO-dangling RED,
-  DO-craft RED, DO-home, DO-seen RED, DO-after, DO-input, DO-common.
+  DM-dfs FIX, DM-dangling FIX, DM-craft FIX, DM-home, DM-seen FIX, DM-after, DM-input, DM-common.
+  Boot DO (dirs w2h76_do_*, rejoin w2h76_do_client2): row DO - as DM with the dogfight window open (C1). Cells DO-dfs FIX, DO-dangling FIX,
+  DO-craft FIX, DO-home, DO-seen FIX, DO-after, DO-input, DO-common.
 Red (commit R1): exit 2, RED exactly on SW-seen, DM-dfs, DM-dangling, DM-craft, DM-seen, DO-dfs, DO-dangling, DO-craft, DO-seen (9 of 21). A guard
 miss: ONE CAPTURE line and the row's remaining cells FAIL "guard"; a host crash after the row's delete: they FAIL "crash" (the UAF itself). ONE
 EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2.
@@ -377,7 +377,7 @@ def row_sw(row):
     c, k = chk(host), icpt(host, cid)
     ev["chk"], ev["icpt"] = c, k
     seen = (c.get("danglingSeen") or 0) - (s0 or 0)
-    row.cell("SW-seen", seen == 0, "RED: danglingSeen - S0 = %d (S0 %s, now %s); want 0" % (seen, s0, c.get("danglingSeen")))
+    row.cell("SW-seen", seen == 0, "FIX: danglingSeen - S0 = %d (S0 %s, now %s); want 0" % (seen, s0, c.get("danglingSeen")))
     row.cell("SW-end", c.get("count") == 0 and c.get("pending") == 0 and c.get("dangling") == 0 and c.get("danglingPending") == 0,
              "chk %s; want count 0, pending 0, dangling 0, danglingPending 0" % c)
     row.cell("SW-craft", k is not None and k.get("destKind") == "base" and k.get("inDogfight") is False,
@@ -404,11 +404,11 @@ def row_drop(row, minimize):
     ev["under 62"] = {"chk": c, "icpt": k, "coop ufos": len(left)}
     if left:
         raise Guard("G: no coop UFO on the host under the 62: %s" % left)
-    row.cell(p + "-dfs", c.get("count") == 0 and c.get("pending") == 0, "RED: under the 62 chk count %s, pending %s; want 0, 0"
+    row.cell(p + "-dfs", c.get("count") == 0 and c.get("pending") == 0, "FIX: under the 62 chk count %s, pending %s; want 0, 0"
              % (c.get("count"), c.get("pending")))
     row.cell(p + "-dangling", c.get("dangling") == 0 and c.get("danglingPending") == 0,
-             "RED: under the 62 chk dangling %s, danglingPending %s; want 0, 0" % (c.get("dangling"), c.get("danglingPending")))
-    row.cell(p + "-craft", k is not None and k.get("inDogfight") is False, "RED: under the 62 CID %s: %s; want inDogfight false" % (cid, k))
+             "FIX: under the 62 chk dangling %s, danglingPending %s; want 0, 0" % (c.get("dangling"), c.get("danglingPending")))
+    row.cell(p + "-craft", k is not None and k.get("inDogfight") is False, "FIX: under the 62 CID %s: %s; want inDogfight false" % (cid, k))
     row.cell(p + "-home", k is not None and k.get("destKind") == "base", "under the 62 CID %s destKind %s; want base"
              % (cid, (k or {}).get("destKind")))
     row.client2 = GameClient("client", None, make_user_dir("w2h76_%s_client2" % p.lower()))
@@ -429,7 +429,7 @@ def row_drop(row, minimize):
     c = chk(host)
     ev["after RESUME"] = c
     seen = (c.get("danglingSeen") or 0) - (s0 or 0)
-    row.cell(p + "-seen", seen == 0, "RED: after RESUME + %.0f s danglingSeen - S0 = %d (S0 %s, now %s); want 0"
+    row.cell(p + "-seen", seen == 0, "FIX: after RESUME + %.0f s danglingSeen - S0 = %d (S0 %s, now %s); want 0"
              % (SETTLE_DROP, seen, s0, c.get("danglingSeen")))
     row.cell(p + "-after", c.get("count") == 0 and c.get("pending") == 0 and c.get("dangling") == 0,
              "after RESUME chk %s; want count 0, pending 0, dangling 0" % c)

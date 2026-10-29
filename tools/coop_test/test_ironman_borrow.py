@@ -48,7 +48,7 @@ GEO_S, LIST_S, ENTRY_S, SETTLE_S, FILE_S, KEY_S, PAUSE_S, SIDE_S, DEBRIEF_S, GEO
 ROWS_I = {"C0": ["I-c0"], "N1": ["N1-file", "N1-only", "N1-borrow"], "N2": ["N2-x", "N2-client", "N2-a"], "N3": ["N3-f6", "N3-f5"],
           "N4": ["N4-file", "N4-only", "N4-pause", "N4-home"], "I-common": ["I-common"]}
 ROWS_N = {"C5": ["N-c0", "N-start", "N-pause", "N-f5", "N-after", "N-common"]}
-RED = {"N1-file", "N1-only", "N2-x", "N2-a", "N3-f6", "N3-f5", "N4-file", "N4-only"}
+FIX = {"N1-file", "N1-only", "N2-x", "N2-a", "N3-f6", "N3-f5", "N4-file", "N4-only"}
 BOOT = {"tag": "I"}
 
 
@@ -472,7 +472,7 @@ def main():
     print(f"\n==== W2-H49 ironman alien host in a gm3 borrowed battle: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 

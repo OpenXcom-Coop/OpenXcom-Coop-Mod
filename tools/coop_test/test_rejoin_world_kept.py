@@ -12,9 +12,9 @@ ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the con
   Row K2ii (control: an autosave drop, F18423) client2 dropped at the host's first sight of its 54, client3 rejoins, RESUME, the stale 54
            CANCELLED when it is on top. K2ii-id: at the 54 saveID == id1, key(id1) with K2i's end fnv.
            K2ii-world: as K2i-world for client3.
-  Row RK1  (the red, LAST) a quick save, client3 dropped at its 54 (id2 = the re-minted id), client4 rejoins. RK1-key (RED): key(id2)
-           present at the 54 with key(id1)'s bytes and fnv1a64. RK1-world (RED): client4 never BuildNewBaseState and its 68 within JOIN_S.
-           RK1-bases (RED): own(client4) holds (CB_NAME, CB). RK1-store (GUARD): key(id1) present at the join with its at-54 fnv.
+  Row RK1  (the red, LAST) a quick save, client3 dropped at its 54 (id2 = the re-minted id), client4 rejoins. RK1-key (FIX): key(id2)
+           present at the 54 with key(id1)'s bytes and fnv1a64. RK1-world (FIX): client4 never BuildNewBaseState and its 68 within JOIN_S.
+           RK1-bases (FIX): own(client4) holds (CB_NAME, CB). RK1-store (GUARD): key(id1) present at the join with its at-54 fnv.
   END      CRASH (GUARD, evaluated at the end of every run): no crash file new since the boot start; the host alive.
 Red today: RK1-key, RK1-world, RK1-bases FAIL (the fresh world); every other cell PASS. Green (EA1-EA3): all PASS.
 own(gc) = geo_state bases with coopIcon false as [name, coopBaseId]; key(id) = coop_file_info {key: host_<id>_ClientPlayer.data}. Every
@@ -39,7 +39,7 @@ NAME = "ClientPlayer"
 STABLE_S, SEEN_S, DROP_S, JOIN_S, ACK_S, SAVE_S = 5.0, 10.0, 5.0, 10.0, 30.0, 20.0
 ROWS = (("C0", ("C0-blob",)), ("K2i", ("K2i-key", "K2i-world")), ("K2ii", ("K2ii-id", "K2ii-world")),
         ("RK1", ("RK1-key", "RK1-world", "RK1-bases", "RK1-store")), ("END", ("CRASH",)))
-RED = ("RK1-key", "RK1-world", "RK1-bases")
+FIX = ("RK1-key", "RK1-world", "RK1-bases")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 
 
@@ -120,7 +120,7 @@ class Row:
         print("EVIDENCE %s: %s" % (self.rid, js(self.ev)), flush=True)
         fails = []
         for cid in dict(ROWS)[self.rid]:
-            kind = "RED" if cid in RED else "GUARD"
+            kind = "FIX" if cid in FIX else "GUARD"
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
             print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, kind, label), flush=True)
             if not ok:
@@ -248,7 +248,7 @@ def boot(x):
         print("CAPTURE boot: %s" % js(capture(x)), flush=True)
         for _rid, cells in ROWS:
             for cid in cells:
-                print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                 x.fails.append(cid)
     return ok
 

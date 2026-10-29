@@ -12,9 +12,9 @@ Rows (each driver is called with timeout=5):
 Cells per row (x = 1..4):
   SDx-ctrl   GUARD  both machines already on side 0 turn 5 with one NextTurnState each: the driver returns, no
                     exception; no NextTurnState left on either.
-  SDx-race   RED    both on side 1 turn 4, none open; each machine changes to side 0 turn 5 and pushes one
+  SDx-race   FIX    both on side 1 turn 4, none open; each machine changes to side 0 turn 5 and pushes one
                     NextTurnState at its FIRST battle_state read (R5-U3 TASK 0 Ae): the driver returns; none left.
-  SDx-stack  RED    both on side 0 turn 5 with TWO NextTurnStates stacked (the Ae second cycle): returns; none left.
+  SDx-stack  FIX    both on side 0 turn 5 with TWO NextTurnStates stacked (the Ae second cycle): returns; none left.
   SDx-held   GUARD  both on side 0 turn 5 with one NextTurnState that a close does not pop (the W2-P8b hold): the
                     driver returns inside its timeout, no exception; exactly that one left on each.
 RED at A1 (the unchanged drivers): SD1..SD4 -race and -stack FAIL, each "left (1, 1)"; every -ctrl and -held
@@ -113,7 +113,7 @@ ROWS = {
     "SD3": "test_end_turn_tally.drive_full_cycle",
     "SD4": "repro_atom_side_transition.drive_full_cycle (capture_l10=False)",
 }
-KIND = {"ctrl": "GUARD", "race": "RED", "stack": "RED", "held": "GUARD"}
+KIND = {"ctrl": "GUARD", "race": "FIX", "stack": "FIX", "held": "GUARD"}
 
 
 def run_cell(row, case):

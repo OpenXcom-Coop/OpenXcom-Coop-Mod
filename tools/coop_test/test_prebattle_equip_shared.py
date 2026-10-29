@@ -41,7 +41,7 @@ the plain keyInvSavePersonalEquipment, the global save vanilla's Ctrl+1
         layout 0 = L and the client's = the host's, one `inv_bulk` for it, none
         denied; C's items unchanged on both. RED: each save lands in the client's world
         only (the client's layout = L, the host's unchanged, 0 `inv_bulk` sent).
-  RED (commit S-C.1b): EQ16s fails on its RED cell.
+  RED (commit S-C.1b): EQ16s fails on its FIX cell.
   EQ28s  (stage S-C.3, P8b-2c ruling SC-5, follows vanilla): a SHARED layout save keeps
         its armor half as vanilla does - the save dialog's "with armor" choice and
         oxcePersonalLayoutIncludingArmor ride the `inv_bulk` save payload. R3 (at
@@ -93,7 +93,7 @@ the plain keyInvSavePersonalEquipment, the global save vanilla's Ctrl+1
         held order also completes (the rifle and its clip on the pile on both, C empty).
         RED: the save is dropped (the host's personal layout stays L; client
         invGuard "unsent").
-  RED (commit S-C.3a): exactly EQ28s and EQ29s fail, each on its RED cell; EQ16s passes.
+  RED (commit S-C.3a): exactly EQ28s and EQ29s fail, each on its FIX cell; EQ16s passes.
 
 Common asserts: hash_now {full:true} every bucket EQUAL after the queues drain;
 desyncSeen false on both; the client's turnMirrorFired 0; coopClientBStatePushes 0 on
@@ -102,7 +102,7 @@ both; the client's pre-battle ground ids = its own pile ids (STOP-IF 8; the pile
 client's equip.pile, the offer's) and the pile ids equal on both machines.
 
 Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
-"PASS <id>" / "FAIL <id>: <message>" (the RED cell first). Every wait is bounded.
+"PASS <id>" / "FAIL <id>: <message>" (the FIX cell first). Every wait is bounded.
 one run is the result; no skip path, no second boot. Exit 0 only when
 every row passes, 2 otherwise (a bring-up or spine failure is also 2). run in
 the foreground to completion.
@@ -288,7 +288,7 @@ def spine_open_screens(host, client, ctx):
 
 def save_leg(host, client, ctx, ev, name, press, read, sig_l):
     """One save: `press()`, then wait (bounded) for the host's layout (`read(gc)`) = L and the client's = the
-    host's. Returns the fails, the RED cell first."""
+    host's. Returns the fails, the FIX cell first."""
     b = {"host": layout_sig(read(host)), "client": layout_sig(read(client)), "sent": sent_bulk(client),
          "log": [e.get("iseq") for e in host_bulk_log(host)], "denied": host_bulk_denied(host)}
     rec = {"before": {k: b[k] for k in ("host", "client")}}
@@ -308,7 +308,7 @@ def save_leg(host, client, ctx, ev, name, press, read, sig_l):
     ev[name] = rec
     fails = []
     if h != sig_l:
-        red = " - RED: the save landed in the client's world only" if h == b["host"] and c == sig_l else ""
+        red = " - FIX: the save landed in the client's world only" if h == b["host"] and c == sig_l else ""
         fails.append(f"EQ16s {name}: the host's layout {b['host']} -> {h} (want L {sig_l}: the host saves it into the "
                      f"shared world, Q9 a){red} (the client's {b['client']} -> {c}, inv_bulk sent {sent})")
     if c != sig_l:
@@ -601,7 +601,7 @@ def eq28s_save_armor(host, client, ctx):
     evidence("EQ28s", ev)
 
     fails = []
-    # (a) the RED cell first
+    # (a) the FIX cell first
     if a.get("listShownWithin") is None or a.get("nameFieldWithin") is None:
         fails.append(f"EQ28s dialog: FIXTURE - the dialog's list never stopped being hidden or the name field never "
                      f"appeared (dialog {a.get('dialogWithin')}, list shown {a.get('listShownWithin')}, row {a.get('row')}, "
@@ -615,12 +615,12 @@ def eq28s_save_armor(host, client, ctx):
         client_ok = c_after == want_g and str(typed_name).endswith(NAME_LETTER[0]) \
             and typed_name != a["client"]["before"][2]
         if h_after[1] != armor:
-            red = (" - RED: the host's copy lacks the armor half (its layout " +
+            red = (" - FIX: the host's copy lacks the armor half (its layout " +
                    ("landed" if h_after[0] == sig_l else f"is {h_after[0]}") + ")") if client_ok else ""
             fails.append(f"EQ28s dialog: the host's global layout {idx} armor {h_after[1]!r} (want {armor!r}: SAVE+ keeps "
                          f"the armor, SC-5){red} (host {a['host']}, client {a['client']})")
         if h_after[2] != typed_name:
-            red = " - RED: the host's shared world keeps its old name (the save carries no name)" if client_ok else ""
+            red = " - FIX: the host's shared world keeps its old name (the save carries no name)" if client_ok else ""
             fails.append(f"EQ28s dialog: the host's global layout {idx} name {a['host']['before'][2]!r} -> {h_after[2]!r} "
                          f"(want the name the client typed {typed_name!r}, SC-9){red}")
         if h_after[0] != sig_l:
@@ -641,7 +641,7 @@ def eq28s_save_armor(host, client, ctx):
     else:
         h_after, c_after = p["host"]["after"], p["client"]["after"]
         if h_after[1] != armor:
-            red = " - RED: the host's copy lacks the armor half (the host used its own option, off)" \
+            red = " - FIX: the host's copy lacks the armor half (the host used its own option, off)" \
                 if c_after == [sig_lb, armor] else ""
             fails.append(f"EQ28s personal: the host's C personal armor {p['host']['before'][1]!r} -> {h_after[1]!r} "
                          f"(want {armor!r}: the client's oxcePersonalLayoutIncludingArmor is on, SC-5){red}")
@@ -752,7 +752,7 @@ def eq29s_save_in_flight(host, client, ctx):
     fails = []
     h_after = ev["personalAfter"]["host"][0]
     if h_after != sig_lp:
-        red = (" - RED: the save pressed while C's order was in flight was dropped (the host's copy unchanged; "
+        red = (" - FIX: the save pressed while C's order was in flight was dropped (the host's copy unchanged; "
                f"client inv_bulk sent +{ev['invBulkSent']})") if h_after == before["host"][0] else ""
         fails.append(f"EQ29s: the host's C personal layout {before['host'][0]} -> {h_after} (want the saved L' "
                      f"{sig_lp}: the host's shared world receives every save, SC-6){red}")

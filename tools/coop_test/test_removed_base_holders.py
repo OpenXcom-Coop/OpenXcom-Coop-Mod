@@ -20,7 +20,7 @@ survivor, so losing HB is no game over), each + real GEOSCAPE, each in mir(clien
           ConfirmDestinationState on HostBase3; P0; the host dismantles HostBase3 + real GEOSCAPE; DEL_SETTLE; P1. No press, end of the boot.
   Cells per row R: R-pre (GUARD) the popup on the client's top holding the doomed object (P0: holders 1, dangling 0, mirror 1); the host's
           delete step reached (MT / CD: the base gone from own(host) after the DismantleFacilityState OK; GC: BaseDestroyedState, HB gone from
-          own(host) after the OK).  R-dangle (RED) P1 dangling 0.  R-closed (RED) MT / GC: P1 top GeoscapeState and holders 0; CD (Z9): P1 no
+          own(host) after the OK).  R-dangle (FIX) P1 dangling 0.  R-closed (FIX) MT / GC: P1 top GeoscapeState and holders 0; CD (Z9): P1 no
           ConfirmDestinationState on the stack, top SelectDestinationState, holders 0.
   END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
 Red today: MT-dangle, MT-closed, GC-dangle, GC-closed, CD-dangle, CD-closed FAIL (6 of 10); every other cell PASS. Green (EC1): all 10 PASS.
@@ -51,7 +51,7 @@ NEEDLE = "[coop] removed base: id=%s cache="
 LOGN = ("[coop] removed base: ", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ROWS = (("MT", ("MT-pre", "MT-dangle", "MT-closed")), ("GC", ("GC-pre", "GC-dangle", "GC-closed")), ("CD", ("CD-pre", "CD-dangle", "CD-closed")),
         ("END", ("CRASH",)))
-RED = ("MT-dangle", "MT-closed", "GC-dangle", "GC-closed", "CD-dangle", "CD-closed")
+FIX = ("MT-dangle", "MT-closed", "GC-dangle", "GC-closed", "CD-dangle", "CD-closed")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -294,7 +294,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

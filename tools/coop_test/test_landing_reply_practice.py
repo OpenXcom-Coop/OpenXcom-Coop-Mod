@@ -152,7 +152,7 @@ def row(r, x, kind, crash0):
             break
         time.sleep(POLL)
     r.ev["host timeline after the YES"] = tl
-    r.cell("%swithin %.0f s the host stack == %s" % ("" if kind == "LG" else "RED: ", W, WANT), tl[-1][1] == WANT, tl[-1][1])
+    r.cell("%swithin %.0f s the host stack == %s" % ("" if kind == "LG" else "FIX: ", W, WANT), tl[-1][1] == WANT, tl[-1][1])
     pre = r.ev["isPreview"] = q(host, {"cmd": "battle_state"}).get("isPreview")
     r.cell("battle_state.isPreview false", pre is False, pre)
     time.sleep(HOLD)

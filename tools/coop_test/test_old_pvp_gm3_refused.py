@@ -60,7 +60,7 @@ FILES = {"G3": os.path.basename(G3_SAVE), "N2S": "d246sc2_n2s.sav", "N2M": "d246
 AWAY = ("HostMenu", "LobbyMenu", "BattlescapeState")
 ROWS = {"G3": ["G3-refused", "G3-text", "G3-ok"], "N2S": ["N2S-text"], "N2M": ["N2M-text"]}
 ALL = ROWS["G3"] + ROWS["N2S"] + ROWS["N2M"] + ["C-common"]
-RED = {"G3-text"}
+FIX = {"G3-text"}
 stack, top, crash_set, wait, alive = RR.stack, RR.top, RR.crash_set, RR.wait, RR.alive
 if TEXT_GM3 != VL_D284_1:  # character for character (spec (f))
     print(f"FAIL setup: TEXT_GM3 {TEXT_GM3!r} != VL-D284-1 {VL_D284_1!r}", flush=True)
@@ -292,7 +292,7 @@ def main():
     print(f"\n==== D246-U S-C2 older gm3 PvP campaign battle save refusal: {len(RESULTS) - len(fails)}/{len(ALL)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(ALL) else 2)
 
 

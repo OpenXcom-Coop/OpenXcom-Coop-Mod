@@ -174,7 +174,7 @@ def run():
              if u.get("armor") == ARMOR and u.get("coop") == COOP_SEAT_0
              and not u.get("isOut")), None)
         assert host_leg_unit is not None, (
-            f"RED (SS.A.8): no live unit in the battle roster has armor=={ARMOR!r} "
+            f"FIX (SS.A.8): no live unit in the battle roster has armor=={ARMOR!r} "
             f"and coop==0 - roster: "
             f"{[(u['id'], u.get('soldierId'), u.get('coop'), u.get('armor')) for u in hs0['units']]}")
         host_leg_id = host_leg_unit["id"]

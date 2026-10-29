@@ -16,11 +16,11 @@ TWO boots on key KEY (SEPARATE, Research Sync on, set_seed 1 on both), each shut
          researches T2; the host receives.
          RL1-pre (GUARD): STRIP / UFO / trigger ok; BaseDestroyedState within W_BDS; host own ids == {HB2's id}; host selectedBase == the
          client's first base (the mirror: the defect's precondition); host stack [GeoscapeState]; T2 unknown on the host; KNOWS(client, T2)
-         within ADV_CAP; t0 found. RL1-land (RED): LAND(host) <= W_LAND. RL1-popup (RED): exactly 1 RCP(host, n0), at <= t0 + W_LAND.
+         within ADV_CAP; t0 found. RL1-land (FIX): LAND(host) <= W_LAND. RL1-popup (FIX): exactly 1 RCP(host, n0), at <= t0 + W_LAND.
          RL1-index (GUARD): at the end of WATCH host selectedBase still the mirror and host own ids == {HB2's id} (the index is not moved).
   boot B (dirs w2h88_b_*): SETUP-B the client builds CB2 at B2, the host lists it.
     RL-2 (RL87-2-2, the client mirror image) LOSS-B (the client loses CB), then the host researches T2; the client receives.
-         RL2-pre / RL2-land (RED) / RL2-popup (RED) / RL2-index as RL-1 with the roles swapped (client own ids == {CB2's id}; client
+         RL2-pre / RL2-land (FIX) / RL2-popup (FIX) / RL2-index as RL-1 with the roles swapped (client own ids == {CB2's id}; client
          selectedBase == the host's first base).
   END CRASH (GUARD): no new file in harness.CRASH_DIR since the file start; every process alive until its shutdown; shutdown codes in OKRC.
 RL-4 (the view guard) is NOT a row: its precondition (the researcher's clock advances while the partner views its base) missed both ways
@@ -55,7 +55,7 @@ RCP = "[coop-ui] push class OpenXcom::ResearchCompleteState"
 LOGN = ("[coop-ui]", "[coop] removed base: ", "basehost", "delete_base", "LoadGameState")
 ROWS = (("RL3", ("RL3-pre", "RL3-land", "RL3-popup")), ("RL1", ("RL1-pre", "RL1-land", "RL1-popup", "RL1-index")),
         ("RL2", ("RL2-pre", "RL2-land", "RL2-popup", "RL2-index")), ("END", ("CRASH",)))
-RED = ("RL1-land", "RL1-popup", "RL2-land", "RL2-popup")
+FIX = ("RL1-land", "RL1-popup", "RL2-land", "RL2-popup")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -354,7 +354,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

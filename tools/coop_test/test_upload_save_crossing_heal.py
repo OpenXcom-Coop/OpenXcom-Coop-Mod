@@ -7,18 +7,18 @@ client on a fresh dir joining by NAME (never a base placement: a fresh world is 
 (resume_and_clear CANCELs a stale 54).
   Row heal (the heal): CROSSING (CH); NOTICE; heal_save = a quick save with the partner running; HOLD; after_heal; KILL; REJOIN; read R.
           heal-pre (GUARD) every CROSSING step met; NOTICE ok.
-          heal-copied (RED) heal_save's "[coop] N partner world(s) copied from saveID <id2> to <id3>" with N >= 1.
+          heal-copied (FIX) heal_save's "[coop] N partner world(s) copied from saveID <id2> to <id3>" with N >= 1.
           heal-healed (GUARD) heal_save ok, id3 != id2; after_heal: host == partner == id3 and host_<id3> present.
           heal-rejoin, heal-world, heal-resume, heal-common (GUARD) as test_upload_save_crossing.py's crossed cells (the completed heal save restores the own world).
   Row drop_in_heal (a drop during the heal save): CROSSING (CH); NOTICE; heal_drop = the partner dropped at the host's first 54 of the next quick save
           (probe: id3, host_<id3>, host_<id2>, host_<id1>); REJOIN; read R.
           drop_in_heal-pre (GUARD) every CROSSING step met; NOTICE ok; heal_drop ok (54 seen, the 62 after the kill), id3 != id2, and at the 54 no answer
           stored yet (host_<id3> absent or holding host_<id2>'s bytes).
-          drop_in_heal-copied (RED) heal_drop's world-copy line "N ... from saveID <id2> to <id3>" with N >= 1.  drop_in_heal-key (RED) at heal_drop's 54: host_<id3> present.
-          drop_in_heal-rejoin (RED) no BuildNewBaseState, 68 within JOIN_S, ack within ACK_S.
-          drop_in_heal-world (RED) read R: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
-          drop_in_heal-resume (RED) resume_and_clear ok, both tops GeoscapeState.  drop_in_heal-common (GUARD) host + rejoiner alive, no new crash file.
-RED cells fail on a build without the saveID fix: heal-copied, drop_in_heal-copied, drop_in_heal-key, drop_in_heal-rejoin, drop_in_heal-world, drop_in_heal-resume (6 of 14);
+          drop_in_heal-copied (FIX) heal_drop's world-copy line "N ... from saveID <id2> to <id3>" with N >= 1.  drop_in_heal-key (FIX) at heal_drop's 54: host_<id3> present.
+          drop_in_heal-rejoin (FIX) no BuildNewBaseState, 68 within JOIN_S, ack within ACK_S.
+          drop_in_heal-world (FIX) read R: the rejoiner's own bases == MARKER's and its soldiers hold the gifted one.
+          drop_in_heal-resume (FIX) resume_and_clear ok, both tops GeoscapeState.  drop_in_heal-common (GUARD) host + rejoiner alive, no new crash file.
+FIX cells fail on a build without the saveID fix: heal-copied, drop_in_heal-copied, drop_in_heal-key, drop_in_heal-rejoin, drop_in_heal-world, drop_in_heal-resume (6 of 14);
 every other cell passes there too.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss ends its row (later cells "not reached",
 one CAPTURE line); every row runs after a failure. ONE foreground run, no SKIP; exit 0 only when every cell
@@ -35,7 +35,7 @@ import crossing_helpers as CH  # noqa: E402
 KEY = "49644"
 heal = ("heal-pre", "heal-copied", "heal-healed", "heal-rejoin", "heal-world", "heal-resume", "heal-common")
 drop_in_heal = ("drop_in_heal-pre", "drop_in_heal-copied", "drop_in_heal-key", "drop_in_heal-rejoin", "drop_in_heal-world", "drop_in_heal-resume", "drop_in_heal-common")
-RED = ("heal-copied", "drop_in_heal-copied", "drop_in_heal-key", "drop_in_heal-rejoin", "drop_in_heal-world", "drop_in_heal-resume")
+FIX = ("heal-copied", "drop_in_heal-copied", "drop_in_heal-key", "drop_in_heal-rejoin", "drop_in_heal-world", "drop_in_heal-resume")
 
 
 def crossing_notice(r, host, client):
@@ -100,7 +100,7 @@ def row_drop_in_heal(r):
 
 
 def main():
-    return RH.run("upload save crossing heal", (("heal", heal, row_heal, "upload_heal", KEY), ("drop_in_heal", drop_in_heal, row_drop_in_heal, "upload_heal_drop", KEY)), RED)
+    return RH.run("upload save crossing heal", (("heal", heal, row_heal, "upload_heal", KEY), ("drop_in_heal", drop_in_heal, row_drop_in_heal, "upload_heal_drop", KEY)), FIX)
 
 
 if __name__ == "__main__":

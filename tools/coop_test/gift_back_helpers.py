@@ -264,33 +264,33 @@ def cells_back(rid, ev):
     filed = "QUICK entries %d, host half %s %s, client entry %s %s" % (len(ent), g, cnt(hh, g), g, cnt(e1, g))
     if rid == "client_gives_back":
         st = (ev.get("stored back") or {}).get("entry")
-        return [("client_gives_back-stored", "RED", "stored(back) holds every own0(client) pair and no %s: missing %s, %s %d" % (
+        return [("client_gives_back-stored", "FIX", "stored(back) holds every own0(client) pair and no %s: missing %s, %s %d" % (
                     g, sorted(oc - PS(st)) if st else st, g, cnt(st, g)), st is not None and oc <= PS(st) and cnt(st, g) == 0),
-                ("client_gives_back-own", "RED", "after the leave every own0(client) pair on the client's own bases: missing %s" % sorted(oc - P(lv.get("client"))),
+                ("client_gives_back-own", "FIX", "after the leave every own0(client) pair on the client's own bases: missing %s" % sorted(oc - P(lv.get("client"))),
                  "client" in lv and oc <= P(lv["client"])),
-                ("client_gives_back-client", "RED", "%s on none of the client's own bases: %s" % (g, w[g].get("client")), w[g].get("client") == []),
+                ("client_gives_back-client", "FIX", "%s on none of the client's own bases: %s" % (g, w[g].get("client")), w[g].get("client") == []),
                 ("client_gives_back-host", "GUARD", "%s once on the host's own bases under the giver's id %s: %s; host ids %s = own0(host) ids %s" % (
                     g, gid, w[g].get("host"), ids_of(lv.get("host")), ids_of(o0.get("host"))),
                  len(w[g].get("host") or []) == 1 and w[g]["host"][0][1] == gid and ids_of(lv.get("host")) == ids_of(o0.get("host"))),
                 ids,
-                ("client_gives_back-file", "RED", filed + ", own0(client) pairs missing from it %s" % (sorted(oc - PS(e1)) if e1 is not None else None),
+                ("client_gives_back-file", "FIX", filed + ", own0(client) pairs missing from it %s" % (sorted(oc - PS(e1)) if e1 is not None else None),
                  e1 is not None and cnt(hh, g) == 1 and cnt(e1, g) == 0 and oc <= PS(e1))]
     if rid == "host_gives_back":
-        return [("host_gives_back-host", "RED", "after the host's leave %s on none of the host's own bases: %s" % (g, w[g].get("host")), w[g].get("host") == []),
+        return [("host_gives_back-host", "FIX", "after the host's leave %s on none of the host's own bases: %s" % (g, w[g].get("host")), w[g].get("host") == []),
                 ("host_gives_back-own", "GUARD", "every own0(host) pair on the host's own bases: missing %s" % sorted(oh - P(lv.get("host"))),
                  "host" in lv and oh <= P(lv["host"])),
                 ("host_gives_back-client", "GUARD", "%s once on the client's own bases under the giver's id %s: %s; client ids %s = own0(client) ids %s" % (
                     g, gid, w[g].get("client"), ids_of(lv.get("client")), ids_of(o0.get("client"))),
                  len(w[g].get("client") or []) == 1 and w[g]["client"][0][1] == gid and ids_of(lv.get("client")) == ids_of(o0.get("client"))),
                 ids,
-                ("host_gives_back-file", "RED", filed, e1 is not None and cnt(hh, g) == 0 and cnt(e1, g) == 1)]
+                ("host_gives_back-file", "FIX", filed, e1 is not None and cnt(hh, g) == 0 and cnt(e1, g) == 1)]
     s1, s2, s3 = ((ev.get("stored " + k) or {}).get("entry") for k in ("g1", "g2", "send"))
     rest = {p for p in oc if p[1] != gu}
     return [("gift_twice_stored-g1", "GUARD", "stored(g1): %s %d, own0(client) pairs missing %s" % (g, cnt(s1, g), sorted(oc - PS(s1)) if s1 else s1),
              s1 is not None and cnt(s1, g) == 1 and oc <= PS(s1)),
-            ("gift_twice_stored-g2", "RED", "stored(g2): %s %d, %s %d, own0(client) pairs missing %s" % (g, cnt(s2, g), g2, cnt(s2, g2), sorted(oc - PS(s2)) if s2 else s2),
+            ("gift_twice_stored-g2", "FIX", "stored(g2): %s %d, %s %d, own0(client) pairs missing %s" % (g, cnt(s2, g), g2, cnt(s2, g2), sorted(oc - PS(s2)) if s2 else s2),
              s2 is not None and cnt(s2, g) == 1 and cnt(s2, g2) == 1 and oc <= PS(s2)),
-            ("gift_twice_stored-send", "RED", "stored(send): %s %d, %s %d, %s %d, other own0(client) pairs missing %s" % (
+            ("gift_twice_stored-send", "FIX", "stored(send): %s %d, %s %d, %s %d, other own0(client) pairs missing %s" % (
                 g, cnt(s3, g), g2, cnt(s3, g2), gu, cnt(s3, gu), sorted(rest - PS(s3)) if s3 else s3),
              s3 is not None and cnt(s3, g) == 1 and cnt(s3, g2) == 1 and cnt(s3, gu) == 0 and rest <= PS(s3)),
             ("gift_twice_stored-leave", "GUARD", "after the leave client %s %s, %s %s, %s %s; host %s %s" % (

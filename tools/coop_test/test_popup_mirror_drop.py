@@ -8,11 +8,11 @@ same for GeoscapeState's queued popups; the drop reds are read under the 62, bef
 host owns its UFO). Every player press is a real click (globe, INTERCEPT, list rows, the tracker hotkey T, Profile OK, RESUME, CANCEL); levers
 stage only (bases, spawn_ufo, the globe centre, the drop = kill). Binding rule: no press on a popup unless its cell's named top shows and pmc
 dangling 0 was read right before. Each boot is fresh and shut down before the next; key "49507"; the rejoin is a NEW client (ClientPlayer).
-  Boot UD (dirs w2h81_ud_*): the partner drops while the host's UFO-detected popup shows its UFO (D-UD). Cells UD-dangling RED, UD-held RED,
-  UD-gone, UD-top RED, UD-alive.
-  Boot CD (dirs w2h81_cd_*): ... while the host confirms a craft's destination on its UFO (D-CD). Cells CD-dangling RED, CD-held RED, CD-below,
-  CD-top RED, CD-craft, CD-alive.
-  Boot TI (dirs w2h81_ti_*): ... while the host's target-info window shows its UFO (D-TI). Cells TI-dangling RED, TI-held RED, TI-top RED, TI-alive.
+  Boot UD (dirs w2h81_ud_*): the partner drops while the host's UFO-detected popup shows its UFO (D-UD). Cells UD-dangling FIX, UD-held FIX,
+  UD-gone, UD-top FIX, UD-alive.
+  Boot CD (dirs w2h81_cd_*): ... while the host confirms a craft's destination on its UFO (D-CD). Cells CD-dangling FIX, CD-held FIX, CD-below,
+  CD-top FIX, CD-craft, CD-alive.
+  Boot TI (dirs w2h81_ti_*): ... while the host's target-info window shows its UFO (D-TI). Cells TI-dangling FIX, TI-held FIX, TI-top FIX, TI-alive.
   Boot DC (dirs w2h81_dc_*): ... while the host's popup shows the host's OWN UFO (the targeting guard). Cells DC-kept, DC-top, DC-cancel.
 Red (commit R1): exit 2, RED exactly on UD-dangling, UD-held, UD-top, CD-dangling, CD-held, CD-top, TI-dangling, TI-held, TI-top (9 of 18).
 A guard (G:) miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
@@ -353,8 +353,8 @@ class Row:
         return failed
 
 def drop_reds(row, U, p):
-    row.cell(p + "-dangling", U["pmc"].get("dangling") == 0, "RED: under the 62 pmc dangling %s; want 0" % U["pmc"].get("dangling"))
-    row.cell(p + "-held", U["pmc"].get("holders") == 0, "RED: under the 62 pmc holders %s (the popup closed before the delete); want 0"
+    row.cell(p + "-dangling", U["pmc"].get("dangling") == 0, "FIX: under the 62 pmc dangling %s; want 0" % U["pmc"].get("dangling"))
+    row.cell(p + "-held", U["pmc"].get("holders") == 0, "FIX: under the 62 pmc holders %s (the popup closed before the delete); want 0"
              % U["pmc"].get("holders"))
 
 def intercept_round(row, p, R):
@@ -362,9 +362,9 @@ def intercept_round(row, p, R):
     host = row.host
     if row.guarded_press(host, "GeoscapeState", "INTERCEPT", "InterceptState") and \
             row.guarded_press(host, "InterceptState", "CANCEL", "GeoscapeState", exact=True):
-        row.cell(p + "-top", True, "RED: after RESUME top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real)")
+        row.cell(p + "-top", True, "FIX: after RESUME top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real)")
     else:
-        row.cell(p + "-top", False, "RED: top: after RESUME top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (R["top"], R["pmc"]))
+        row.cell(p + "-top", False, "FIX: top: after RESUME top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (R["top"], R["pmc"]))
 
 def row_ud(row):
     """UD - the partner drops while the host's UFO-detected popup shows its UFO (D-UD)"""
@@ -415,9 +415,9 @@ def row_cd(row):
     k = craft(host, cid)
     ev["CID after R"] = k
     if row.guarded_press(host, "SelectDestinationState", "CANCEL", "GeoscapeState"):
-        row.cell("CD-top", True, "RED: after RESUME top SelectDestinationState, dangling 0; CANCEL -> GeoscapeState (real)")
+        row.cell("CD-top", True, "FIX: after RESUME top SelectDestinationState, dangling 0; CANCEL -> GeoscapeState (real)")
     else:
-        row.cell("CD-top", False, "RED: top: after RESUME top %s, pmc %s; want SelectDestinationState, dangling 0 (no press)"
+        row.cell("CD-top", False, "FIX: top: after RESUME top %s, pmc %s; want SelectDestinationState, dangling 0 (no press)"
                  % (R["top"], R["pmc"]))
     row.cell("CD-craft", k is not None and k.get("status") == "STR_READY", "after R CID %s: %s; want status STR_READY" % (cid, k))
     row.alive_cell("CD-alive", row.client2, ALIVE_S)

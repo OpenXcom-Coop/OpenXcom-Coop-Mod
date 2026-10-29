@@ -246,7 +246,7 @@ def count_row(rid, base, task0, boot, construct, watched, results, walls, after=
     r.ev["constructions"] = recs
     r.cell(f"non-vacuity: every surviving {watched} reached its effect",
            all(c.get("effect") for c in recs if c.get(watched + " died ms", 0) is None), [c.get("effect") for c in recs])
-    r.cell(f"RED: no {watched} death in {N} constructions", deaths == 0, f"{deaths}/{N} died")
+    r.cell(f"FIX: no {watched} death in {N} constructions", deaths == 0, f"{deaths}/{N} died")
     walls[rid] = r.ev["wall s"] = round(time.time() - t0, 1)
     r.report(results)
 

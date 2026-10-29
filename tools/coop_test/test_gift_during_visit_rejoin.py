@@ -10,8 +10,8 @@ w2h70_<row>_client2; real presses only):
      (MEMORY)") at the write + 2 s.
   R6 (C2W) as R5 to the 67's OK, the host's CANCEL, then the host's gift to the visitor (its "RECV deferred (no own base in current
      save)"), HOLD_P, the client killed and rejoined: R6-rejoin HOLD_R after the rejoin.
-Cells: X-pre GUARD; R4-rejoin RED (once_host), R5-file RED (once in QUICK's host half, no client entry), R5-reload RED (once_host),
-R5-log RED, R5-995 RED, R6-rejoin RED (once_client); X-common GUARD (both machines alive at the read, no new .dmp; R4 / R6: no hash-map
+Cells: X-pre GUARD; R4-rejoin FIX (once_host), R5-file FIX (once in QUICK's host half, no client entry), R5-reload FIX (once_host),
+R5-log FIX, R5-995 FIX, R6-rejoin FIX (once_client); X-common GUARD (both machines alive at the read, no new .dmp; R4 / R6: no hash-map
 file). 12 cells; red (commit R1): RED exactly on R4-rejoin, R5-file, R5-reload, R5-log, R5-995, R6-rejoin. ONE EVIDENCE line per row,
 one PASS / FAIL line per cell, the row verdict; every row runs; exit 0 only when every cell passes, else 2.
 one foreground run per invocation.
@@ -82,15 +82,15 @@ def cells_b(rid, ev):
     """R4-R6 cells after the read (R5: and the reload)"""
     rd, hv, rl, out = ev.get("read") or {}, ev.get("halves"), reloaded(ev), []
     if rid == "R5":
-        out.append(("R5-file", "RED", "GIFTNAME once in QUICK's host half, in no client entry (red today: both, F19747)", bool(hv) and file_once_host(hv)))
-        out.append(("R5-reload", "RED", "once_host after the reload (red today: DUP)", bool(rl) and once_host(rl)))
-        out.append(("R5-log", "RED", "no new crash-folder file with \"Failed to read from hash map\" since B (red today: >= 1)",
+        out.append(("R5-file", "FIX", "GIFTNAME once in QUICK's host half, in no client entry (red today: both, F19747)", bool(hv) and file_once_host(hv)))
+        out.append(("R5-reload", "FIX", "once_host after the reload (red today: DUP)", bool(rl) and once_host(rl)))
+        out.append(("R5-log", "FIX", "no new crash-folder file with \"Failed to read from hash map\" since B (red today: >= 1)",
                     (rd.get("crash") or {}).get("hashlogs") == 0))
-        out.append(("R5-995", "RED", "the client's coop_dialog_info code != 995 at the read (red today: 995, F19921)",
+        out.append(("R5-995", "FIX", "the client's coop_dialog_info code != 995 at the read (red today: 995, F19921)",
                     (rd.get("clientDlg") or {}).get("code") != 995))
     else:
         f = once_host if rid == "R4" else once_client
-        out.append((rid + "-rejoin", "RED", "%s HOLD_R after the rejoin (red today: %s)" % (f.__name__, "both, F19745" if rid == "R4" else "neither"),
+        out.append((rid + "-rejoin", "FIX", "%s HOLD_R after the rejoin (red today: %s)" % (f.__name__, "both, F19745" if rid == "R4" else "neither"),
                     f(ev["live"])))
     return out + [common(rid, rd)]
 

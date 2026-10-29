@@ -273,7 +273,7 @@ class Row:
         print("EVIDENCE %s: %s" % (self.rid, js(self.ev)), flush=True)
         for cid in self.cells:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in self.red else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in self.red else "GUARD", label), flush=True)
             self.fails += [] if ok else [cid]
         if stop:
             cap = {gc.name: {"stack": F.stk(gc), "dialog": F.dlg(gc), "get_coop": F.coop(gc), "log": F.lines_since(gc, 0, ("[coop",))[-40:]}

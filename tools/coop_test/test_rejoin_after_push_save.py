@@ -9,18 +9,18 @@ placement: a fresh world is evidence); RESUME only after the host's ack (resume_
   Row C2 (capture "extra c2") BOOT; S1; D1; REJOIN(2) + RESUME; GIFT (the host's real presses) + PUSH (client2's unasked upload); D2 =
           client2 dropped at the host's first 54 of the next quick save (probe: id3, host_<id3>, host_<host id before D2>); REJOIN(3); read R.
           C2-pre (GUARD) S1, D1, REJOIN(2) ack + RESUME, GIFT + PUSH, D2 (54 seen, 62 after the kill).
-          C2-copied (RED) the host's log since D2's trigger: "[coop] N partner world(s) copied from saveID A to id3" with N >= 1.
-          C2-key (RED) at D2's 54: host_<id3> present.  C2-rejoin (RED) REJOIN(3): no BuildNewBaseState, 68 within JOIN_S, ack within ACK_S.
-          C2-world (RED) read R: client3's own bases == MARKER's and its soldiers hold the gifted one.
-          C2-resume (RED) resume_and_clear ok and both tops GeoscapeState.  C2-common (GUARD) host + client3 alive, no new crash file.
+          C2-copied (FIX) the host's log since D2's trigger: "[coop] N partner world(s) copied from saveID A to id3" with N >= 1.
+          C2-key (FIX) at D2's 54: host_<id3> present.  C2-rejoin (FIX) REJOIN(3): no BuildNewBaseState, 68 within JOIN_S, ack within ACK_S.
+          C2-world (FIX) read R: client3's own bases == MARKER's and its soldiers hold the gifted one.
+          C2-resume (FIX) resume_and_clear ok and both tops GeoscapeState.  C2-common (GUARD) host + client3 alive, no new crash file.
   Row X3 (capture X3, the resume route) BOOT; S1; D1; SAV = parse_sav of the host's QUICK (written at the drop); QUICK copied to the
           row's save dir; the host shut; BOOT2 = a NEW pair resumes the copy (session.resume_campaign: the client joins as NAME, the host's
           real RESUME); read M; GIFT (host2 -> the resumed client) + PUSH; read G; KILL; REJOIN(3) on host2; read R.
           X3-pre (GUARD) S1, D1, QUICK's mtime after D1's trigger, BOOT2 both GeoscapeState stable.
           X3-sav (GUARD) SAV saveID == id2; exactly one coopClientSaves entry, key host_<id2>_<NAME>.data, its blob saveID == id1 != id2.
-          X3-ids (RED) read M: the resumed client's saveID == host2's == id2.  X3-log (RED) read M: its log holds >= 1 '[coop] own world "' line.
-          X3-host (RED) read G: host2's saveID == id2 and the push line's key == client_<id2>_<NAME>.data.
-          X3-rejoin, X3-world, X3-resume (RED) as C2's for client3 on host2.  X3-common (GUARD) host2 + client3 alive, no new crash file.
+          X3-ids (FIX) read M: the resumed client's saveID == host2's == id2.  X3-log (FIX) read M: its log holds >= 1 '[coop] own world "' line.
+          X3-host (FIX) read G: host2's saveID == id2 and the push line's key == client_<id2>_<NAME>.data.
+          X3-rejoin, X3-world, X3-resume (FIX) as C2's for client3 on host2.  X3-common (GUARD) host2 + client3 alive, no new crash file.
 Red today (no W2-H84 fix): C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, X3-ids, X3-log, X3-host, X3-rejoin, X3-world, X3-resume
 FAIL (11 of 16); every other cell PASS. One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a precondition miss
 ends its row (later cells "not reached", one CAPTURE line); every row runs after a failure. ONE foreground
@@ -40,7 +40,7 @@ import rejoin_helpers as RH  # noqa: E402
 KEY = "49499"
 C2 = ("C2-pre", "C2-copied", "C2-key", "C2-rejoin", "C2-world", "C2-resume", "C2-common")
 X3 = ("X3-pre", "X3-sav", "X3-ids", "X3-log", "X3-host", "X3-rejoin", "X3-world", "X3-resume", "X3-common")
-RED = ("C2-copied", "C2-key", "C2-rejoin", "C2-world", "C2-resume", "X3-ids", "X3-log", "X3-host", "X3-rejoin", "X3-world", "X3-resume")
+FIX = ("C2-copied", "C2-key", "C2-rejoin", "C2-world", "C2-resume", "X3-ids", "X3-log", "X3-host", "X3-rejoin", "X3-world", "X3-resume")
 H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 
 
@@ -120,7 +120,7 @@ def row_x3(r):
 
 
 def main():
-    return RH.run("W2-H84 RAS", (("C2", C2, row_c2, "w2h84_c2", KEY), ("X3", X3, row_x3, "w2h84_x3", KEY)), RED)
+    return RH.run("W2-H84 RAS", (("C2", C2, row_c2, "w2h84_c2", KEY), ("X3", X3, row_x3, "w2h84_x3", KEY)), FIX)
 
 
 if __name__ == "__main__":

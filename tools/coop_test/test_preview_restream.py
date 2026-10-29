@@ -223,9 +223,9 @@ def row(r, x, js, mode):
     r.cell(f"{what}, {BS} on its stack, isPreview true)", served and h["alive"] and BS in h["stack"] and h["isPreview"] is True, h)
     bl = blob(x.host)
     r.ev["BLOB"] = {k: v for k, v in bl.items() if k != "head"}
-    r.cell("RED 1: BLOB noBattle (the host's copy carries no preview battle)", bl["reply"].get("ok") and bl["battleGame"] is False,
+    r.cell("FIX 1: BLOB noBattle (the host's copy carries no preview battle)", bl["reply"].get("ok") and bl["battleGame"] is False,
            r.ev["BLOB"])
-    if not client_cells(r, x, t1, n_cl, before, CL_1, "RED 2: ", bl):
+    if not client_cells(r, x, t1, n_cl, before, CL_1, "FIX 2: ", bl):
         return
     ok, r.ev["END(host)"] = end_preview(x.host, x.keys["host"])
     r.cell("END(host) -> [GeoscapeState], has_battle false", ok and q(x.host, {"cmd": "world_state"}).get("has_battle") is False,

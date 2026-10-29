@@ -12,9 +12,9 @@ the 54 and read the host HOLD_S after the drop event (R-S: after SEND_LOST_GEO, 
 1 s after the 54 is gone and the file written.
 Cells (X = Q A S T H C): X-pre GUARD (the 54 on top within SEEN54_S, the armed name = the row's file; drop rows: CLEAR +0 at the 54, the
 suspend rc 0; Q A H: the client exited; S: armed + ARMED +1 + SEND_LOST_GEO +1 within W_LOST; T: SERVER +1 + the 62 within W_62);
-X-file RED (written: present, mtime newer than B's); X-dialog RED (B's stack + [CoopState], code 62); X-blob RED (Q A S T: one
+X-file FIX (written: present, mtime newer than B's); X-dialog FIX (B's stack + [CoopState], code 62); X-blob FIX (Q A S T: one
 coopClientSaves entry, key host_<saveID at the 54>_<B clientName>.data, its FNV-1a 64 = B's coop_file_info fnv1a64); X-name GUARD (Q A S
-H C: pendingHostSaveName ""); T-name RED; X-path RED ((H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1); T (1, 1, 1, 0) and SERVER 1);
+H C: pendingHostSaveName ""); T-name FIX; X-path FIX ((H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1); T (1, 1, 1, 0) and SERVER 1);
 X-common GUARD (host alive, no new crash_*.log since B); C-file / C-dialog / C-blob / C-path GUARD (written, B's stack within W_SAVE, the
 single entry at the saveID after with coop_file_info's fnv after the write, (0, 1, 0, 0)). 41 cells. Red (commit R1): exit 2, RED exactly
 on Q / A / S -file -dialog -blob -path, T-file, T-dialog, T-name, T-blob, T-path, H-file, H-dialog, H-path (20).
@@ -293,22 +293,22 @@ def drop_row(x, results, walls, rid, p, stype, f, drop, shared=False):
         r.evidence()
         r.cell(p + "-pre", "GUARD", pre + "; " + what, True)
         n = rd["needles"]
-        r.cell(p + "-file", "RED", "%s written (present, mtime newer than B's) %.0f s after the drop (red today: not written, F18260)" % (f, HOLD_S),
+        r.cell(p + "-file", "FIX", "%s written (present, mtime newer than B's) %.0f s after the drop (red today: not written, F18260)" % (f, HOLD_S),
                rd["written"])
-        r.cell(p + "-dialog", "RED", "the host stack = B's + [CoopState] with code 62 (red today: B + [CoopState, CoopState], the 54 under "
+        r.cell(p + "-dialog", "FIX", "the host stack = B's + [CoopState] with code 62 (red today: B + [CoopState, CoopState], the 54 under "
                "the 62)", rd["stack"] == B["stack"] + ["CoopState"] and rd["dialog"].get("code") == 62)
         if blob:
             key = "host_%s_%s.data" % (a["saveID"], B["get_coop"].get("clientName"))
-            r.cell(p + "-blob", "RED", "the file's coopClientSaves: 1 entry, key %s, FNV-1a 64 = B's coop_file_info %s (red today: no file)" % (
+            r.cell(p + "-blob", "FIX", "the file's coopClientSaves: 1 entry, key %s, FNV-1a 64 = B's coop_file_info %s (red today: no file)" % (
                 key, B["coop_file_info"].get("fnv1a64")), blob_ok(rd, key, B["coop_file_info"].get("fnv1a64")))
         if p == "T":
-            r.cell("T-name", "RED", "pendingHostSaveName \"\" at the read (red today: still armed, a3 has no onClientDrop, F18408)",
+            r.cell("T-name", "FIX", "pendingHostSaveName \"\" at the read (red today: still armed, a3 has no onClientDrop, F18408)",
                    rd["get_coop"].get("pendingHostSaveName") == "")
-            r.cell("T-path", "RED", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 0) and SERVER 1 since B (red today: (0, 0, 1, 0))",
+            r.cell("T-path", "FIX", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 0) and SERVER 1 since B (red today: (0, 0, 1, 0))",
                    tuple(n[k] for k in PATH4) == (1, 1, 1, 0) and n["SERVER"] == 1)
         else:
             r.cell(p + "-name", "GUARD", "pendingHostSaveName \"\" at the read (onClientDrop clears it)", rd["get_coop"].get("pendingHostSaveName") == "")
-            r.cell(p + "-path", "RED", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1) since B (red today: (0, 0, 1, 1))",
+            r.cell(p + "-path", "FIX", "(H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1) since B (red today: (0, 0, 1, 1))",
                    tuple(n[k] for k in PATH4) == (1, 1, 1, 1))
         r.cell(p + "-common", "GUARD", "the host alive at the read, no new crash_*.log since B", rd["alive"] and not rd["new crash"])
     except Exception as e:  # Stop, or a probe that raised: the row ends here

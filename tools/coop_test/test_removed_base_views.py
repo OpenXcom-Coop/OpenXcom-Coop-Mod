@@ -16,9 +16,9 @@ V boot (dirs w2h83_v_*, campaign_mode "coop"): spawn + connect; session.new_camp
           after its GEOSCAPE: own(client) non-empty and no HostBase3 id in mir(client) after RT_SETTLE.
   Row V   (LAST) client real globe click on HostBase2 -> the visit (selectedBase HostBase2); V-mark; the host dismantles HostBase2; poll the client
           every 0.05 s for W_LEAVE from the host's OK click; host real GEOSCAPE; RT_SETTLE; read; WATCH both stacks until W_END after the OK.
-          No client press after the dismantle.  V-pre (GUARD) the visit open on HostBase2; the host's OK reached.  V-leave (RED) within W_LEAVE
-          of the OK the client's top GeoscapeState and own(client) non-empty.  V-log (RED) the client's LEAVE lines since V-mark: exactly 1.
-          V-mir (RED) after RT_SETTLE mir(client) ids == {HB_ID}.  V-end (GUARD) no CutsceneState / StatisticsState / SlideshowState on either
+          No client press after the dismantle.  V-pre (GUARD) the visit open on HostBase2; the host's OK reached.  V-leave (FIX) within W_LEAVE
+          of the OK the client's top GeoscapeState and own(client) non-empty.  V-log (FIX) the client's LEAVE lines since V-mark: exactly 1.
+          V-mir (FIX) after RT_SETTLE mir(client) ids == {HB_ID}.  V-end (GUARD) no CutsceneState / StatisticsState / SlideshowState on either
           stack up to W_END.  V-host (GUARD) HostBase2 gone from own(host); the host's top GeoscapeState.
 S boot (dirs w2h83_s_*, campaign_mode "shared"): as V's bring-up; FB = the one shared base at boot. Rows BF, AC, NR (LAST), each on a fresh
   lift-only SharedBaseN built by the host's build_new_base at B2 / B3 / B4 and present on both machines (set_funds 2x the cost on the host only
@@ -28,8 +28,8 @@ S boot (dirs w2h83_s_*, campaign_mode "shared"): as V's bring-up; FB = the one s
   GEOSCAPE; read. Recovery before the next row: BF real OK / AC real Cancel if the window is still on top (the only presses on a window whose
   base was freed), the base view on FB, real GEOSCAPE. NR: none (LAST).
           R-pre (GUARD) SharedBaseN on both machines; the window on the client's top (NR: NewResearchListState over ResearchState); the host's
-          OK reached; SharedBaseN gone from both lists.  R-pop (RED) within W_POP the window is off the client's stack (NR: NewResearchListState
-          AND ResearchState).  R-view (RED) within W_POP the client's top BasescapeState and geo_state.selectedBase FB.
+          OK reached; SharedBaseN gone from both lists.  R-pop (FIX) within W_POP the window is off the client's stack (NR: NewResearchListState
+          AND ResearchState).  R-view (FIX) within W_POP the client's top BasescapeState and geo_state.selectedBase FB.
 END       CRASH (GUARD): no new crash file in the lane's crash folder over both boots; every process alive until its shutdown.
 Red today: V-leave, V-log, V-mir, BF-pop, BF-view, AC-pop, AC-view, NR-pop, NR-view FAIL (9 of 19); every other cell PASS. Green (EB1-EB5):
 all 19 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon,
@@ -62,7 +62,7 @@ WIN = {"BF": "BuildFacilitiesState", "AC": "ManageAlienContainmentState", "NR": 
 ROWS = (("VC", ("VC-pre", "VC-stay", "VC-gone")), ("V", ("V-pre", "V-leave", "V-log", "V-mir", "V-end", "V-host")),
         ("BF", ("BF-pre", "BF-pop", "BF-view")), ("AC", ("AC-pre", "AC-pop", "AC-view")), ("NR", ("NR-pre", "NR-pop", "NR-view")),
         ("END", ("CRASH",)))
-RED = ("V-leave", "V-log", "V-mir", "BF-pop", "BF-view", "AC-pop", "AC-view", "NR-pop", "NR-view")
+FIX = ("V-leave", "V-log", "V-mir", "BF-pop", "BF-view", "AC-pop", "AC-view", "NR-pop", "NR-view")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -274,7 +274,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

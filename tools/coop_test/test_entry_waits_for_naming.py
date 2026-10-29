@@ -12,26 +12,26 @@ BattlescapeState directly under it. A "log window" = the partner's openxcom.log 
 M_END (read 3 s after the first poll that saw it entered; no entry seen: at the row's last polled step, before the battle drive).
   Row N  landing (site SITE_N, the Skyranger forced to it, the host's ConfirmLandingState); the partner: BASES, BUILD NEW BASE, ONE real globe
          click at LAND_PICK, OK -> BaseNameState with one own base "" (paid); the host's real YES (click_widget); both polled every POLL s.
-    N-hold     (RED)   no poll saw the partner entered and at T_YES + WAIT_S its top is BaseNameState.
-    N-hostwait (RED)   at T_YES + WAIT_S the host's event_state.phase is Handshake and its stack holds BriefingState.
+    N-hold     (FIX)   no poll saw the partner entered and at T_YES + WAIT_S its top is BaseNameState.
+    N-hostwait (FIX)   at T_YES + WAIT_S the host's event_state.phase is Handshake and its stack holds BriefingState.
                (step)  host close_briefing -> pre-battle InventoryState; battle_inventory ok; LINE_S s.
     N-hostline (GUARD) the host's inventory_view line is WAIT_TEXT and visible.
                (step)  if the partner's top is BaseNameState: NAME by real key presses, OK; else "pulled in" (the next 3 cells not reached).
-    N-named    (RED)   the partner's top is PlaceLiftState within 5 s of the OK.
-    N-liftwait (RED)   at OK + LIFT_HOLD_S the partner's top is PlaceLiftState, not entered, the host's phase Handshake.
+    N-named    (FIX)   the partner's top is PlaceLiftState within 5 s of the OK.
+    N-liftwait (FIX)   at OK + LIFT_HOLD_S the partner's top is PlaceLiftState, not entered, the host's phase Handshake.
                (step)  the LIFT_TILE real click.
-    N-enter    (RED)   within ENTER_S of the lift click the partner is entered.
-    N-no995    (RED)   the partner's log window holds no "push class OpenXcom::CoopState".
+    N-enter    (FIX)   within ENTER_S of the lift click the partner is entered.
+    N-no995    (FIX)   the partner's log window holds no "push class OpenXcom::CoopState".
                (step)  session.drive_both_to_tactical; session.coop_abort_battle; the partner back on its own geoscape.
-    N-base     (RED)   the partner's own bases hold one named NAME with at least 1 facility.
-    N-funds    (RED)   the partner's funds equal PAID (the funds after the build).
+    N-base     (FIX)   the partner's own bases hold one named NAME with at least 1 facility.
+    N-funds    (FIX)   the partner's funds equal PAID (the funds after the build).
   Row U  (guard: a placement not yet paid for does not hold the battle) landing (SITE_U); the partner to ConfirmNewBaseState at LAND_PICK_U
          (no OK); the host's real YES; polled every POLL s.
     U-enter (GUARD) within ENTER_S of the YES the partner is entered, no BuildNewBaseState / ConfirmNewBaseState on its stack.
     U-calm  (GUARD) the partner's log window holds no "push class OpenXcom::CoopState".
   END    CRASH (GUARD) no crash file new in harness.CRASH_DIR since the bring-up; both processes alive until their shutdown (row U's battle is
          left at its briefing).
-Red today: the 8 RED cells FAIL; N-hostline, U-enter, U-calm, CRASH PASS. Green: all 12 PASS.
+Red today: the 8 FIX cells FAIL; N-hostline, U-enter, U-calm, CRASH PASS. Green: all 12 PASS.
 Every subject press is a real click_widget / inject_input; no dismiss_popup or coop_dialog_back reaches the partner while it names. One
 EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached"); a
 boot miss fails every row "boot" with ONE CAPTURE line.
@@ -56,7 +56,7 @@ WAIT_TEXT = "Waiting for ClientPlayer to finish equipping"  # STR_COOP_WAITING_F
 PUSH995 = "push class OpenXcom::CoopState"
 ROWS = (("N", ("N-hold", "N-hostwait", "N-hostline", "N-named", "N-liftwait", "N-enter", "N-no995", "N-base", "N-funds")),
         ("U", ("U-enter", "U-calm")), ("END", ("CRASH",)))
-RED = ("N-hold", "N-hostwait", "N-named", "N-liftwait", "N-enter", "N-no995", "N-base", "N-funds")
+FIX = ("N-hold", "N-hostwait", "N-named", "N-liftwait", "N-enter", "N-no995", "N-base", "N-funds")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -192,7 +192,7 @@ class Row:
         fails = []
         for cid in dict(ROWS)[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
@@ -417,7 +417,7 @@ def main():
             print("CAPTURE boot: %s" % js(capture(b)), flush=True)
             for rid, cells in ROWS[:2]:
                 for cid in cells:
-                    print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                    print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                     x.fails.append(cid)
                 print("FAIL %s: boot" % rid, flush=True)
         else:

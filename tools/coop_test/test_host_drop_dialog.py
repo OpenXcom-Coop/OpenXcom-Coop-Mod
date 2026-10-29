@@ -4,8 +4,8 @@ arm pushes the wait dialog 62 without CoopSession::onClientDrop(): resumeAck kee
 connected" with RESUME shown and SAVE & QUIT / ABANDON GAME hidden for a partner who is gone. A failed receive (-2) takes the canonical drop.
   Row R-A (the lever; key "49184", dirs w2h55_a_*): session.new_campaign (SEPARATE gm1, tcp), both tops GeoscapeState unchanged STABLE_S;
   host force_send_failure (TEST-ONLY, one-shot, -3); the client's 21 within W_21; the host's 62 on top within SEEN_S; settled; R1; R2.
-  Cells: A-pre GUARD (resumeAck true before the arm, armed + ARMED +1, the 21, the 62 settled); A-hatch RED (SAVE & QUIT and ABANDON GAME
-  shown at R1 and R2); A-resume RED (the wait: RESUME hidden, "...to reconnect", at R1 and R2); A-ack RED (resumeAck false at R1); A-drop RED
+  Cells: A-pre GUARD (resumeAck true before the arm, armed + ARMED +1, the 21, the 62 settled); A-hatch FIX (SAVE & QUIT and ABANDON GAME
+  shown at R1 and R2); A-resume FIX (the wait: RESUME hidden, "...to reconnect", at R1 and R2); A-ack FIX (resumeAck false at R1); A-drop FIX
   (FREEZE +1, DROP +1, SEND_LOST_GEO +1, SEND_LOST +0); A-common GUARD (both alive at R2, no new crash file).
   Row R-B (the control, LAST; dirs w2h55_b_*): the same boot; client.kill(); the 62; settled; R1; R2. Cells: B-pre GUARD (the 62 settled);
   B-dialog GUARD (the hatch and the wait at R1 and R2, resumeAck false at R1); B-drop GUARD (FREEZE +1, DROP +1; SEND_LOST_GEO recorded);
@@ -207,12 +207,12 @@ def row_a(x, results, walls):
         r.cell("A-pre", "GUARD", "resumeAck true before the arm, armed true + ARMED +1, the client's 21 within %.0f s, the host's 62 on top, "
                "settled" % W_21, True)
         R1, R2, n = ev["R1"], ev["R2"], ev["needles"]
-        r.cell("A-hatch", "RED", "SAVE & QUIT and ABANDON GAME shown (dialog + TextButtons visible, not hidden) at R1 and R2 (red today: hidden, "
+        r.cell("A-hatch", "FIX", "SAVE & QUIT and ABANDON GAME shown (dialog + TextButtons visible, not hidden) at R1 and R2 (red today: hidden, "
                "F18081)", hatch(R1) and hatch(R2))
-        r.cell("A-resume", "RED", "the wait at R1 and R2: RESUME hidden, the title contains \"%s\" and is not \"%s\" (red today: \"%s\", RESUME "
+        r.cell("A-resume", "FIX", "the wait at R1 and R2: RESUME hidden, the title contains \"%s\" and is not \"%s\" (red today: \"%s\", RESUME "
                "shown, F10809)" % (WAITING, READY, READY), waits(R1) and waits(R2))
-        r.cell("A-ack", "RED", "the host's resumeAck false at R1 (red today: true, F18186)", R1["coop"].get("resumeAck") is False)
-        r.cell("A-drop", "RED", "FREEZE +1, DROP +1, SEND_LOST_GEO +1, SEND_LOST +0 (red today: DROP +0, SEND_LOST_GEO +0)",
+        r.cell("A-ack", "FIX", "the host's resumeAck false at R1 (red today: true, F18186)", R1["coop"].get("resumeAck") is False)
+        r.cell("A-drop", "FIX", "FREEZE +1, DROP +1, SEND_LOST_GEO +1, SEND_LOST +0 (red today: DROP +0, SEND_LOST_GEO +0)",
                (n["FREEZE"], n["DROP"], n["SEND_LOST_GEO"], n["SEND_LOST"]) == (1, 1, 1, 0))
         r.cell("A-common", "GUARD", "host and client alive at R2, no new crash_*.log since the row's baseline",
                ev["alive R2"] == [True, True] and not ev["new crash"])

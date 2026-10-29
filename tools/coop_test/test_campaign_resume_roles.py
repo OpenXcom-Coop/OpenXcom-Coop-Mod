@@ -54,7 +54,7 @@ SQUAD = 2
 SAVE = {"P1": "d250uc4a_p1.sav", "P2": "d250uc4a_p2.sav"}
 STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 0}]   # FX4A-11: buildCoopStub's one unplaced, unnamed, empty base
 STUB_FUNDS = 1000                                              # FX4A-11: get_coop.noBases's effect on geo_state.funds
-RED = {"P1-mode", "P1-role", "P1-land", "P1-seats", "P2-mode", "P2-land", "P2-seats"}   # TASK 0 Ra_ui / Rb_ui (= SC5-5)
+FIX = {"P1-mode", "P1-role", "P1-land", "P1-seats", "P2-mode", "P2-land", "P2-seats"}   # TASK 0 Ra_ui / Rb_ui (= SC5-5)
 # ----- bounds -----
 SAVE_S = 10
 MIRROR_S = 30
@@ -492,7 +492,7 @@ def main():
     print(f"\n==== D250-U S-C4a resumed PvP campaign roles: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 

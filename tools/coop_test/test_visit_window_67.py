@@ -49,7 +49,7 @@ def post_11(x, ev):
 def cells_11(rid, ev):
     codes = [e[2] for e in ev.get("trace") or [] if e[2] is not None]
     hw, lv, wr, aw = ev.get("HOLD_W") or {}, ev.get("leave") or {}, ev.get("write"), ev.get("after write")
-    k, red = ("RED", "red today: ") if rid == "R11" else ("GUARD", "C1-ctl: ")
+    k, red = ("FIX", "red today: ") if rid == "R11" else ("GUARD", "C1-ctl: ")
     return [(rid + "-67", k, "the client's first CoopState code after the second 54 is 67, no 53 / 995 in the trace (%s%s; seen %s)"
              % (red, "53 + 995, F20442" if rid == "R11" else "67, F20444", codes[:4]), bool(codes) and codes[0] == 67 and not {53, 995} & set(codes)),
             (rid + "-key", k, "K0 %s present at HOLD_W (%s)" % (hw.get("K0") is True and "is" or "NOT", red + ("erased" if rid == "R11" else "present")),
@@ -71,7 +71,7 @@ def pre_r12(x, ev):
 def cells_r12(rid, ev):
     codes = [e[2] for e in ev.get("trace") or [] if e[2] is not None]
     vw, cb = ev.get("view") or {}, (ev.get("host picker") or {}).get("cb") or [None]
-    return [("R12-995", "RED", "no 995 in the client's trace from the host's click to HOLD_V (seen %s; red today: 995 at 0.15 s, F20446)" % codes[:4],
+    return [("R12-995", "FIX", "no 995 in the client's trace from the host's click to HOLD_V (seen %s; red today: 995 at 0.15 s, F20446)" % codes[:4],
              995 not in codes),
             ("R12-view", "GUARD", "the host's base_report coop name %r = the client's own base %r (F20446)" % ((vw.get("report") or {}).get("name"), cb[0]),
              cb[0] is not None and (vw.get("report") or {}).get("name") == cb[0]),

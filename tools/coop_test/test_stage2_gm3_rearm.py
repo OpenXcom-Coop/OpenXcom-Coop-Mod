@@ -14,12 +14,12 @@ battleId B1 + 1, client held) <= WINDOW_S. FXG-5 client.kill(), W of host stacks
 NAME, resumeAck <= RJ, profile_ok, RESUME). FXG-7 part 2.
 
   G3X-1 GUARD part 1 by the hand-off + the window (precondition; a failure ends the row).
-  G3X-2 RED   PARK +1 and UNWIND +0 (red today: UNWIND +1, PARK 0).
-  G3X-3 RED   the alien host waits inside part 2 in the borrowed world at W: [.., GeoscapeState, BriefingState, CoopState] 62 backVisible
+  G3X-2 FIX   PARK +1 and UNWIND +0 (red today: UNWIND +1, PARK 0).
+  G3X-3 FIX   the alien host waits inside part 2 in the borrowed world at W: [.., GeoscapeState, BriefingState, CoopState] 62 backVisible
               false, has_battle true, PART2 Idle / MT2 / FP2, HOME 0, pvpBorrow active true with swappedBack / borrowed == P0's, gamemode 3,
               noBases false, real bases == CLIENT0's (red today: [GeoscapeState, CoopState], has_battle false, HOME 1, noBases true).
   G3X-4 GUARD the rejoin reaches RESUME (resumeAck <= RJ, RESUME pressed, RESUMED_GUARD +0, client2 never > 30 s on 52).
-  G3X-5 RED   part 2 starts for both: has_battle true at RESUME; REARM +1 and OFFER +1 <= REARM_S; the spine to turn 1; PART2 host ==
+  G3X-5 FIX   part 2 starts for both: has_battle true at RESUME; REARM +1 and OFFER +1 <= REARM_S; the spine to turn 1; PART2 host ==
               client2 (Active, battleId > B1 + 1, turn 1, MT2, FP2, xcom == XCOM2); census seats; borrow kept; hash EQUAL; UNWIND 0
               (red today: "no part 2 on the host", at once).
   G3X-6 GUARD desyncSeen false on host and client before the kill and on host and client2 at the end; part 1's hash EQUAL.
@@ -202,13 +202,13 @@ def g3x_5(r, host, c2, ctx, n_k):
              "UNWIND 0 (red today: no part 2 on the host)" % (REARM_S, MT2))
     evd = {"has_battle at RESUME": ctx.get("hasBattleAtResume")}
     if "t_resume" not in ctx:
-        return r.cell("G3X-5", "RED", label, False, dict(evd, why="no RESUME"))
+        return r.cell("G3X-5", "FIX", label, False, dict(evd, why="no RESUME"))
     n_r = ctx["n_resume"]
     if ctx.get("hasBattleAtResume") is not True:
         evd.update({"why": "no part 2 on the host", "REARM": since(host, n_r, REARM), "OFFER": since(host, n_r, OFFER),
                     "UNWIND": since(host, n_k, UNWIND), "HOME": since(host, n_k, HOME), "host stack": stack(host),
                     "client2 stack": stack(c2), "host pvpBorrow": pvp(host)})
-        return r.cell("G3X-5", "RED", label, False, evd)
+        return r.cell("G3X-5", "FIX", label, False, evd)
     try:
         evd["rearm s"] = wait("REARM and OFFER", lambda: since(host, n_r, REARM) and since(host, n_r, OFFER), REARM_S)
         t = time.time()
@@ -230,7 +230,7 @@ def g3x_5(r, host, c2, ctx, n_k):
           and all(p.get("phase") == "Active" and p.get("turn") == 1 and p.get("missionType") == MT2 and p.get("mapFingerprint") == ctx["FP2"]
                   and p.get("xcom") == ctx["XCOM2"] for p in (hp, cp))
           and pv.get("borrowed") == p0.get("borrowed") and pv.get("active") is True)
-    r.cell("G3X-5", "RED", label, ok, evd)
+    r.cell("G3X-5", "FIX", label, ok, evd)
 
 
 def row_g3x(r, host, client, ctx, bev, tc):
@@ -247,7 +247,7 @@ def row_g3x(r, host, client, ctx, bev, tc):
     path = {"first poll after the kill": {k: v for k, v in first.items() if k != "stage"}, "reason": why,
             "loss path (first poll)": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first.get("phase"), "?"),
             "host after": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]]}
-    r.cell("G3X-2", "RED", "PARK +1 and UNWIND +0 (red today: UNWIND +1, PARK 0)", len(park) == 1 and not unw and len(why) == 1,
+    r.cell("G3X-2", "FIX", "PARK +1 and UNWIND +0 (red today: UNWIND +1, PARK 0)", len(park) == 1 and not unw and len(why) == 1,
            {"PARK": park, "UNWIND": unw, "path": path})
     hs, d, hasb, hp = stack(host), dlg(host), q(host, {"cmd": "world_state"}).get("has_battle"), part2(host)
     hco, pv, rb = G3E.coop(host), pvp(host), G3E.real_bases(q(host, {"cmd": "geo_state"}))
@@ -257,7 +257,7 @@ def row_g3x(r, host, client, ctx, bev, tc):
            and not home and pv.get("active") is True and pv.get("swappedBack") == p0.get("swappedBack")
            and pv.get("borrowed") == p0.get("borrowed") and hco.get("gamemode") == 3 and hco.get("noBases") is False
            and rb == ctx["CLIENT0"]["realBases"])
-    r.cell("G3X-3", "RED", "the alien host waits inside part 2 in the borrowed world: stack ends [GeoscapeState, BriefingState, CoopState], "
+    r.cell("G3X-3", "FIX", "the alien host waits inside part 2 in the borrowed world: stack ends [GeoscapeState, BriefingState, CoopState], "
            "dialog 62 backVisible false, has_battle true, PART2 Idle / %s / FP2, HOME 0, pvpBorrow active true, swappedBack and borrowed "
            "== P0's, gamemode 3, noBases false, real bases == CLIENT0's (red today: [GeoscapeState, CoopState], has_battle false, HOME 1, "
            "swappedBack P0 + 1, noBases true, real bases == HOST0's)" % MT2, ok3,

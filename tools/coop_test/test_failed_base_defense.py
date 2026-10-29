@@ -12,7 +12,7 @@ session): a refused base defence now takes S-A's shared unwind like every other 
   Boot BD (lobby key "48588", w2h24_e_host / _client / _client2): BD the client's hold_battle_ready armed, the trigger, the window (host
   Handshake + client held), U1, client.kill(), observe W, S1 / MARKS, then client2 rejoins (rejoin(): a copy of
   test_failed_battle_start.rejoin() with a 60 s resumeAck cap, ending at RESUME) and both reach phase Active within 60 s, U2.
-  Cells: BD-1 RED UNWIND, BD-2 RED the host waits on the world map, BD-3 RED the stores are back (S1 == S0), BD-4 RED MARKS 0, BD-5 RED
+  Cells: BD-1 FIX UNWIND, BD-2 FIX the host waits on the world map, BD-3 FIX the stores are back (S1 == S0), BD-4 FIX MARKS 0, BD-5 FIX
   the defence starts again for both (U2 == U1), BD-6 GUARD CRASH 0.
 BASEDEF = test_failed_battle_start.camp() through drain_host_coop_notice (host squad of 3 on the Skyranger, the client's "Guest"
 transferred to the host base and seated), then the baseline (host base_report storage S0 + soldier ids R0, MARKS []), spawn_ufo
@@ -200,16 +200,16 @@ def row_bd(x, results, walls):
         why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
         path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
                 "UNWIND reason": why}
-        r.cell("BD-1", "RED", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-D1)' % REARMED,
+        r.cell("BD-1", "FIX", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-D1)' % REARMED,
                len(unw) == 1 and bool(why) and REARMED in unw[0], {"UNWIND": unw, "path": path, "window": win, "U1": u1})
-        r.cell("BD-2", "RED", "the host waits on the world map: at W the stack ends [GeoscapeState, CoopState], dialog 62, no "
+        r.cell("BD-2", "FIX", "the host waits on the world map: at W the stack ends [GeoscapeState, CoopState], dialog 62, no "
                "BriefingState / BattlescapeState, inBattle false, phase Idle (red today: 62 over BriefingState, inBattle true, T0-D1)",
                hs[-2:] == [GEO, COOP] and d.get("code") == 62 and BRF not in hs and BS not in hs and hb["inBattle"] is False
                and hb["phase"] == "Idle", {"stack": hs, "dialog": d, "battle": hb, "stacks": changes(polls)})
         r1 = sorted(s.get("id") for s in b1.get("soldiers") or [])
-        r.cell("BD-3", "RED", "the stores are back: S1 == S0 (red today: 12 item types short, T0-D1)", s1 == x.s0,
+        r.cell("BD-3", "FIX", "the stores are back: S1 == S0 (red today: 12 item types short, T0-D1)", s1 == x.s0,
                {"S1 vs S0 differences": diff, "base": b1.get("name"), "soldiers after the drop": r1, "R0": x.r0})
-        r.cell("BD-4", "RED", "MARKS = 0 lines (red today: 1, bases/inBattlescape, T0-D1)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
+        r.cell("BD-4", "FIX", "MARKS = 0 lines (red today: 1, bases/inBattlescape, T0-D1)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
         ev = {}
         ok = rejoin(x, len(log(h)), ev)
         if ok:
@@ -224,7 +224,7 @@ def row_bd(x, results, walls):
         r2 = sorted(s.get("id") for s in q(h, {"cmd": "base_report"}).get("soldiers") or [])
         ev.update({"host": hb2, "client2": cb2, "missionType": mt, "PREPARED after RESUME": prep, "U1": u1, "U2": u2,
                    "soldiers after the rejoin": r2})
-        r.cell("BD-5", "RED", "the defence starts again for both: resumeAck true, RESUME pressed, host PREPARED +1 after the RESUME, "
+        r.cell("BD-5", "FIX", "the defence starts again for both: resumeAck true, RESUME pressed, host PREPARED +1 after the RESUME, "
                'within 60 s both phase Active with equal battleId, host missionType "STR_BASE_DEFENSE", U2 == U1 (red today: resumeAck '
                "never true in 60 s, T0-D1)", ok and len(prep) == 1 and hb2["phase"] == cb2.get("phase") == "Active" and bool(hb2["battleId"])
                and hb2["battleId"] == cb2.get("battleId") and mt == "STR_BASE_DEFENSE" and bool(u1) and u2 == u1, ev)

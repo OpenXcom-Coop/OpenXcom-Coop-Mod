@@ -23,16 +23,16 @@ SHARED boot (dirs w2h83_w_*, campaign_mode "shared"): spawn + connect; session.n
        client press after it.
        R-pre (GUARD) the base on both; the receiver's stack as named; the remover's OK (ST: the lever's reply) reached; the base gone from
        both lists (a dead ST client: a poll without it, or its StoresState pop line - the guard pops only once the base left the list).
-       R-pop (RED) within W_POP none of the row's windows on the receiver's stack.  R-view (RED) within W_POP the receiver's top is
-       BasescapeState with selectedBase B0 (IC: GeoscapeState).  R-log (RED) CLOSED(receiver, R-mark) == DF [DismantleFacilityState];
+       R-pop (FIX) within W_POP none of the row's windows on the receiver's stack.  R-view (FIX) within W_POP the receiver's top is
+       BasescapeState with selectedBase B0 (IC: GeoscapeState).  R-log (FIX) CLOSED(receiver, R-mark) == DF [DismantleFacilityState];
        TB [TransferBaseState]; IC [InterceptState]; MC [MonthlyCostsState, BaseInfoState]; ST [StoresState, BaseInfoState].
 SEPARATE boot (dirs w2h83_ws_*, campaign_mode "coop"): as above; HB = the host's first base (mir(client)); the host's build_new_base HostBase2
   at P1 + real GEOSCAPE; HostBase2 in mir(client).
   TS   (LAST) client BASES (its own base; key 1 if another shows, W2-H68) -> TRANSFER -> TransferBaseState listing HostBase2 (TS-mark); the
        host removes HostBase2; poll; RT_SETTLE; read. No client press.  TS-pre (GUARD) HostBase2 in mir(client); TransferBaseState over the
-       BasescapeState of the client's own base, HostBase2 in its rows; the host's OK reached.  TS-pop (RED) within W_POP TransferBaseState
-       off the client's stack.  TS-view (RED) within W_POP the client's top BasescapeState, selectedBase its own base.  TS-hide (RED) after
-       RT_SETTLE no coopIcon base in the client's geo_state (the view hides the mirrors again, W2-H8).  TS-log (RED) CLOSED(client, TS-mark)
+       BasescapeState of the client's own base, HostBase2 in its rows; the host's OK reached.  TS-pop (FIX) within W_POP TransferBaseState
+       off the client's stack.  TS-view (FIX) within W_POP the client's top BasescapeState, selectedBase its own base.  TS-hide (FIX) after
+       RT_SETTLE no coopIcon base in the client's geo_state (the view hides the mirrors again, W2-H8).  TS-log (FIX) CLOSED(client, TS-mark)
        == [TransferBaseState].
 END       CRASH (GUARD): no new crash file in the lane's crash folder over both boots; every process alive until its shutdown.
 Red today: DF / TB / IC / MC / ST -pop -view -log and TS -pop -view -hide -log FAIL (19 of 28), plus CRASH when the client died inside ST;
@@ -67,7 +67,7 @@ BASE = {"CTL": "SharedBase2", "DF": "SharedBase3", "TB": "SharedBase4", "IC": "S
 ROWS = (("CTL", ("CTL-pre", "CTL-stay")),) + tuple((r, tuple("%s-%s" % (r, c) for c in ("pre", "pop", "view", "log")))
                                                   for r in ("DF", "TB", "IC", "MC", "ST")) + \
     (("TS", ("TS-pre", "TS-pop", "TS-view", "TS-hide", "TS-log")), ("END", ("CRASH",)))
-RED = tuple("%s-%s" % (r, c) for r in ("DF", "TB", "IC", "MC", "ST") for c in ("pop", "view", "log")) + \
+FIX = tuple("%s-%s" % (r, c) for r in ("DF", "TB", "IC", "MC", "ST") for c in ("pop", "view", "log")) + \
     ("TS-pop", "TS-view", "TS-hide", "TS-log")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
@@ -267,7 +267,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

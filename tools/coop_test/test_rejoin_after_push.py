@@ -9,14 +9,14 @@ on a fresh dir joining by NAME (never a base placement: a fresh world is evidenc
   Row X1  (capture X1) BOOT; S1; D1; REJOIN(2) + RESUME; read M; GIFT (the host's real presses) + PUSH (client2's unasked upload); read G;
           KILL client2; REJOIN(3); read R.
           X1-pre (GUARD) S1, D1 (at the 54 host_<id2> holds host_<id1>'s fnv), REJOIN(2) ack + RESUME.
-          X1-ids (RED) read M: client2's saveID (get_coop and save_markers) == the host's == id2.
-          X1-own (RED) read M: client2's coop_file_info {role own_world} present under client_<id2>_<NAME>.data.
-          X1-log (RED) read M: client2's log holds >= 1 '[coop] own world "' line.
+          X1-ids (FIX) read M: client2's saveID (get_coop and save_markers) == the host's == id2.
+          X1-own (FIX) read M: client2's coop_file_info {role own_world} present under client_<id2>_<NAME>.data.
+          X1-log (FIX) read M: client2's log holds >= 1 '[coop] own world "' line.
           X1-push (GUARD) one soldier gifted (RECV), client2's push line, the host's host_<id2> fnv changed.
-          X1-host (RED) read G: the host's saveID == id2 and the push line's key == client_<id2>_<NAME>.data.
-          X1-rejoin (RED) REJOIN(3): no BuildNewBaseState, client3's 68 within JOIN_S, the host's ack within ACK_S.
-          X1-world (RED) read R: client3's own bases == MARKER's and its soldiers hold the gifted one.
-          X1-resume (RED) resume_and_clear ok and both tops GeoscapeState.  X1-common (GUARD) host + client3 alive, no new crash file.
+          X1-host (FIX) read G: the host's saveID == id2 and the push line's key == client_<id2>_<NAME>.data.
+          X1-rejoin (FIX) REJOIN(3): no BuildNewBaseState, client3's 68 within JOIN_S, the host's ack within ACK_S.
+          X1-world (FIX) read R: client3's own bases == MARKER's and its soldiers hold the gifted one.
+          X1-resume (FIX) resume_and_clear ok and both tops GeoscapeState.  X1-common (GUARD) host + client3 alive, no new crash file.
   Row CTL (captures X1-ctl + X2, the controls) BOOT; S1; D1; REJOIN(2) + RESUME; KILL client2; REJOIN(3) + RESUME; read R1; GIFT + PUSH to
           client3; S3 = a quick save with client3 running; read H; KILL client3; REJOIN(4) + RESUME; read R2.
           CTL-pre (GUARD) S1, D1, REJOIN(2) ack + RESUME. CTL-r1 (GUARD) REJOIN(3) 68 + ack + RESUME, no BuildNewBaseState.
@@ -40,7 +40,7 @@ import rejoin_helpers as RH  # noqa: E402
 KEY = "49498"
 X1 = ("X1-pre", "X1-ids", "X1-own", "X1-log", "X1-push", "X1-host", "X1-rejoin", "X1-world", "X1-resume", "X1-common")
 CTL = ("CTL-pre", "CTL-r1", "CTL-w1", "CTL-push", "CTL-heal", "CTL-r2", "CTL-w2", "CTL-common")
-RED = ("X1-ids", "X1-own", "X1-log", "X1-host", "X1-rejoin", "X1-world", "X1-resume")
+FIX = ("X1-ids", "X1-own", "X1-log", "X1-host", "X1-rejoin", "X1-world", "X1-resume")
 
 
 def first_rejoin(r, host, client):
@@ -120,7 +120,7 @@ def row_ctl(r):
 
 
 def main():
-    return RH.run("W2-H84 RAP", (("X1", X1, row_x1, "w2h84_x1", KEY), ("CTL", CTL, row_ctl, "w2h84_ctl", KEY)), RED)
+    return RH.run("W2-H84 RAP", (("X1", X1, row_x1, "w2h84_x1", KEY), ("CTL", CTL, row_ctl, "w2h84_ctl", KEY)), FIX)
 
 
 if __name__ == "__main__":

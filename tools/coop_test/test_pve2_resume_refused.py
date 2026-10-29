@@ -53,7 +53,7 @@ SRC_MODE = 0            # the mode session.new_campaign's saves carry (TASK 0 TG
 TEXT = "There must be at least one player on the X-COM team for campaign games."   # owner D275, exact
 DIALOG = "CampaignTeamRefusedState"                                                 # S-C6 QC6-1 (a): the file-local dialog
 G1_SAVE, G4_SAVE, M4_SAVE = "d283_g1.sav", "d283_g4.sav", "d283_m4.sav"
-RED = {"G4-dialog", "G4-held", "G4-client", "G4-ok", "M4-dialog", "M4-held", "M4-client", "M4-ok"}   # TASK 0 TG / TM
+FIX = {"G4-dialog", "G4-held", "G4-client", "G4-ok", "M4-dialog", "M4-held", "M4-client", "M4-ok"}   # TASK 0 TG / TM
 # ----- bounds -----
 DIALOG_S, OK_S, READ_S = 5.0, 5.0, 1.5
 SETTLE_S = 3.0          # >= 2 x T_c (0.05 s in TG and TM)
@@ -468,7 +468,7 @@ def main():
     print(f"\n==== D283 PvE2 campaign save refused on RESUME: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 

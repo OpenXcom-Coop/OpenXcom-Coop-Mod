@@ -65,7 +65,7 @@ STUB_FUNDS = 1000                            # the alien role's funds (get_coop.
 TITLE_WIN = "Aliens defeated"                # FX4B-10
 CLIENT = "ClientPlayer"
 SAVED_BORROWED = 2                           # P4-save: the turn-1 autosave + the quick save (R-D250-SC4B-1 (a); Kb / Kb2 2/2)
-RED = {"P4-save", "P5-header", "P5-body", "P5-blob", "P4-borrow", "P4-host", "P4-return", "P4-alien"}   # TASK 0 Ka (3/11)
+FIX = {"P4-save", "P5-header", "P5-body", "P5-blob", "P4-borrow", "P4-host", "P4-return", "P4-alien"}   # TASK 0 Ka (3/11)
 # ----- bounds -----
 MIRROR_S, LANDING_S, BOTH_IN_S, STEP_S = 30, 180, 60, 60
 SAVE_S, GUARD_S = 30, 1.0
@@ -570,7 +570,7 @@ def main():
     print(f"\n==== D250-U S-C4b a gm3 borrowed battle saved and resumed: {len(RESULTS) - len(fails)}/{len(ALL_CELLS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(ALL_CELLS) else 2)
 
 

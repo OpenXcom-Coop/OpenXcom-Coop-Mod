@@ -56,7 +56,7 @@ POINT = RR.POINT                             # G2F.to_battle's b0 + (0.35, 0.10)
 SQUAD = 2
 STUB, STUB_FUNDS = RR.STUB, RR.STUB_FUNDS    # FX4A-11
 TITLE_WIN = "Aliens defeated"                # FX4A-12 (S-B's pin)
-RED = {"P3-mode", "P3-seats", "P3-win", "P6-host", "P6-back", "P6-land"}   # TASK 0 Rc_ui / Rd (= SC5-5)
+FIX = {"P3-mode", "P3-seats", "P3-win", "P6-host", "P6-back", "P6-land"}   # TASK 0 Rc_ui / Rd (= SC5-5)
 # ----- bounds -----
 LANDING_S, BOTH_IN_S = 180, 180
 SAVE_S = 30
@@ -473,7 +473,7 @@ def main():
     print(f"\n==== D250-U S-C4a resumed gm2 battle and gm2 rejoin: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 

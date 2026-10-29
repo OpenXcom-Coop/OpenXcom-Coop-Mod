@@ -11,26 +11,26 @@ from INTERCEPT + its CANCEL (real clicks). "Growth" = new crash_*.log files in t
 whose text holds "Error in loopData" (each file read once).
   Row N  client BASES, BUILD NEW BASE, ONE real globe click at LAND_PICK (globe_point), OK -> BaseNameState, own base X "";
          host save_game_ui {type: quick} -> 54 within 2 s; the client polled every POLL s for HOLD_S.
-    N-held   (RED) at +HOLD_S the client's top is BaseNameState, no CoopState over it.
-    N-no995  (RED) no client poll of the row saw coop_dialog_info code 995.
-    N-noflood(RED) growth from the trigger to +HOLD_S is 0.
+    N-held   (FIX) at +HOLD_S the client's top is BaseNameState, no CoopState over it.
+    N-no995  (FIX) no client poll of the row saw coop_dialog_info code 995.
+    N-noflood(FIX) growth from the trigger to +HOLD_S is 0.
     N-wait   (GUARD) at +HOLD_S the host's top is CoopState 54, pendingHostSaveName non-empty, no _quick_.asav newer than the trigger.
          (precondition N-held) NEWNAME by real key presses, OK.
-    N-named  (RED) the client's top is PlaceLiftState, or a CoopState 53 over it, within 5 s of the OK.
-    N-done   (RED) within DONE_S of the OK the host's top is GeoscapeState and _quick_.asav is newer than the trigger.
-    N-fresh  (RED) that file's client blob (coopClientSaves) lists a base named NEWNAME.
-    N-close  (RED) within DONE_S of the OK the client has no CoopState in its stack.
-    N-lift   (RED) (client top PlaceLiftState) a real click on LIFT_TILE gives the client top BasescapeState within 5 s.
-    N-calm   (RED) growth over the whole row is 0.
+    N-named  (FIX) the client's top is PlaceLiftState, or a CoopState 53 over it, within 5 s of the OK.
+    N-done   (FIX) within DONE_S of the OK the host's top is GeoscapeState and _quick_.asav is newer than the trigger.
+    N-fresh  (FIX) that file's client blob (coopClientSaves) lists a base named NEWNAME.
+    N-close  (FIX) within DONE_S of the OK the client has no CoopState in its stack.
+    N-lift   (FIX) (client top PlaceLiftState) a real click on LIFT_TILE gives the client top BasescapeState within 5 s.
+    N-calm   (FIX) growth over the whole row is 0.
   Row C  (the control) the row N construction, NEWNAME, OK, LIFT_TILE, GEOSCAPE (client top GeoscapeState, own list holds NEWNAME);
          host quick save; the client polled for DONE_S.
     C-done (GUARD) within DONE_S the host's top is GeoscapeState and _quick_.asav is newer than the trigger.
     C-fresh (GUARD) its client blob lists NEWNAME.   C-no995 (GUARD) no 995 on the client during DONE_S.   C-calm (GUARD) growth 0.
   Row F  client force_stream_key_miss {on: true} (P1, TEST-ONLY); host quick save; F_WINDOW; lever off.
-    F-once (RED) growth in F_WINDOW is exactly 1.   F-wait (GUARD) at +F_WINDOW the host's top is CoopState 54.
+    F-once (FIX) growth in F_WINDOW is exactly 1.   F-wait (GUARD) at +F_WINDOW the host's top is CoopState 54.
     F-heal (GUARD) within DONE_S of the lever off the host's top is GeoscapeState, _quick_.asav newer than the trigger, no client CoopState.
-    F-calm (RED) growth over the whole row is exactly 1.
-Red today: the 11 RED cells FAIL; the 7 GUARD cells PASS. Green: all 18 PASS.
+    F-calm (FIX) growth over the whole row is exactly 1.
+Red today: the 11 FIX cells FAIL; the 7 GUARD cells PASS. Green: all 18 PASS.
 Every press is a real click_widget or inject_input; only the save trigger and the lever are commands; the client's Disconnect is never
 pressed; the lever is off before shutdown. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
 miss ends its row (later cells "not reached"); a boot miss fails every row of that boot "boot" with ONE CAPTURE line. The END line
@@ -54,7 +54,7 @@ HOLD_S, DONE_S, F_WINDOW, POLL, STATE_S = 5.0, 10.0, 3.0, 0.2, 5.0
 QK = "_quick_.asav"
 ROWS = (("N", ("N-held", "N-no995", "N-noflood", "N-wait", "N-named", "N-done", "N-fresh", "N-close", "N-lift", "N-calm")),
         ("C", ("C-done", "C-fresh", "C-no995", "C-calm")), ("F", ("F-once", "F-wait", "F-heal", "F-calm")))
-RED = ("N-held", "N-no995", "N-noflood", "N-named", "N-done", "N-fresh", "N-close", "N-lift", "N-calm", "F-once", "F-calm")
+FIX = ("N-held", "N-no995", "N-noflood", "N-named", "N-done", "N-fresh", "N-close", "N-lift", "N-calm", "F-once", "F-calm")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -218,7 +218,7 @@ class Row:
         fails = []
         for cid in dict(ROWS)[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % stop))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
@@ -403,7 +403,7 @@ def run_pair(x, pair, rows):
             print("CAPTURE boot %s: %s" % (pair, js(capture(b))), flush=True)
             for rid, fn in rows:
                 for cid in dict(ROWS)[rid]:
-                    print("FAIL %s %s: boot" % (cid, "RED" if cid in RED else "GUARD"), flush=True)
+                    print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                     x.fails.append(cid)
                 print("FAIL %s: boot" % rid, flush=True)
             return

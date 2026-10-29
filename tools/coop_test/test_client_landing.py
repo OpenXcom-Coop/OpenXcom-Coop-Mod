@@ -340,10 +340,10 @@ def row_h9_1():
             shot = os.path.join(TEST_ROOT, "w2h9_h9_1_prompt_s%s.png"
                                 % os.environ.get("OXC_HARNESS_SLOT", "0"))
             client.cmd({"cmd": "screenshot", "path": shot})
-            log("H9-1 RED: screenshot lever check %s exists=%s size=%s" % (
+            log("H9-1 FIX: screenshot lever check %s exists=%s size=%s" % (
                 shot, os.path.exists(shot), os.path.getsize(shot) if os.path.exists(shot) else 0))
             r = client.cmd({"cmd": "confirm_landing"})
-            log("H9-1 RED: client confirm_landing -> %s" % r)
+            log("H9-1 FIX: client confirm_landing -> %s" % r)
             entered = None
             deadline = time.time() + 30
             while time.time() < deadline and not entered:

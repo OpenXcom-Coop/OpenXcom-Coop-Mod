@@ -6,13 +6,13 @@ connected" with RESUME and no SAVE & QUIT / ABANDON GAME. A 62 already up and re
 The reading: a poll thread on the host, started right before each kill, runs get_coop THEN coop_dialog_info every POLL_S. A 62
 read is fresh when "to reconnect" is in the title, RESUME is hidden and SAVE & QUIT and ABANDON GAME are shown; any other 62 read is stale. R
 counts a read only when its get_coop returned resumeAck false. Needles count from the host log's line count read just before the kill.
-  Row K (SEPARATE; key "49203", dirs w2h61_K_*): session.new_campaign; the poll; client.kill(); TRAIL_S. Cells K-seen GUARD, K-first RED,
-  K-stale RED, K-late GUARD, K-log GUARD (FREEZE +1, DROP +1).
+  Row K (SEPARATE; key "49203", dirs w2h61_K_*): session.new_campaign; the poll; client.kill(); TRAIL_S. Cells K-seen GUARD, K-first FIX,
+  K-stale FIX, K-late GUARD, K-log GUARD (FREEZE +1, DROP +1).
   Row R (continues K's host): N_CYCLES x a fresh client (w2h61_R<c>_client) join_tcp (KEY, "ClientPlayer") -> its 68 within HOLD_S -> the
   host acks it, its join Profile is dismissed (profile_ok, as test_reconnect_dialog; only the top state thinks) -> the host's 62 ready within
-  READY_S; the poll; the kill; TRAIL_S. Cells R-ready GUARD, R-stale RED, R-late GUARD, R-log GUARD (SUPP +1, DROP +1, FREEZE +0 per cycle).
+  READY_S; the poll; the kill; TRAIL_S. Cells R-ready GUARD, R-stale FIX, R-late GUARD, R-log GUARD (SUPP +1, DROP +1, FREEZE +0 per cycle).
   Row H (SHARED; dirs w2h61_H_*): as K, but the kill right after the host's BEGIN press (a copy of new_campaign's body, CONSTANTS.md KILL_AT:
-  after new_campaign returns the gate was 570 ms old). Cells H-seen, H-first RED, H-stale RED, H-late, H-log.
+  after new_campaign returns the gate was 570 ms old). Cells H-seen, H-first FIX, H-stale FIX, H-late, H-log.
   Row Q (quiet control, SEPARATE; dirs w2h61_Q_*): as K, after QUIET_S with coop_dialog_info.present false at every 0.1 s check (the gate is
   open). Cells Q-seen, Q-first, Q-log (GUARDs: fresh on both builds).
 Red (commit R1): exit 2, RED exactly on K-first, K-stale, R-stale, H-first, H-stale. Nothing is clicked on the 62. A precondition miss ends
@@ -230,12 +230,12 @@ def row_kill(x, rid, cells, results, walls):
         r.cell(rid + "-seen", "GUARD", "a 62 read within %.0f s of the kill" % SEEN_S, rd["first"] is not None and rd["first"]["t"] <= SEEN_S)
         if rd["first"] is None:
             raise Stop("%s-seen: no 62 read" % rid)
-        kind = "GUARD" if rid == "Q" else "RED"
+        kind = "GUARD" if rid == "Q" else "FIX"
         r.cell(rid + "-first", kind, "the first 62 read is fresh (\"%s\", RESUME hidden, SAVE & QUIT and ABANDON GAME shown; red today: \"%s\" + "
-               "RESUME, F18629)" % (WAITING, READY) if kind == "RED" else "the first 62 read is fresh (the gate is open: no CoopState for "
+               "RESUME, F18629)" % (WAITING, READY) if kind == "FIX" else "the first 62 read is fresh (the gate is open: no CoopState for "
                "%.0f s)" % QUIET_S, fresh(rd["first"]))
         if "stale" in cells:
-            r.cell(rid + "-stale", "RED", "0 stale reads in the trail (red today: >= 1)", rd["stale"] == 0)
+            r.cell(rid + "-stale", "FIX", "0 stale reads in the trail (red today: >= 1)", rd["stale"] == 0)
         if "late" in cells:
             r.cell(rid + "-late", "GUARD", "the read at %.1f s after the first 62 read is fresh" % LATE_S, rd["late"] is not None and fresh(rd["late"]))
         n = ev["needles"]
@@ -286,7 +286,7 @@ def row_r(x, results, walls, extra):
         r.evidence()
         cys = ev["cycles"]
         r.cell("R-ready", "GUARD", "each cycle: the rejoiner's 68, the host's 62 ready (\"%s\", RESUME) before the kill" % READY, True)
-        r.cell("R-stale", "RED", "0 stale counted reads (resumeAck false) over the %d cycles (red today: >= 1)" % N_CYCLES,
+        r.cell("R-stale", "FIX", "0 stale counted reads (resumeAck false) over the %d cycles (red today: >= 1)" % N_CYCLES,
                sum(cy["_stale"] for cy in cys) == 0)
         r.cell("R-late", "GUARD", "each cycle: fresh at %.1f s after the drop is booked" % LATE_S, all(cy["_late"] for cy in cys))
         r.cell("R-log", "GUARD", "each cycle: SUPP +1, DROP +1, FREEZE +0",

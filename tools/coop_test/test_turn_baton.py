@@ -206,7 +206,7 @@ def find_widget(widgets, type_name, x, y, width, height, label):
     assert len(matches) == 1, (
         f"{label}: expected exactly one {type_name!r} surface at "
         f"{width}x{height}@({x},{y}), found {len(matches)} (zero or several "
-        f"is a RED naming the row - REV E.52 E52.2 / E53.3): {matches}")
+        f"is a FIX naming the row - REV E.52 E52.2 / E53.3): {matches}")
     return matches[0]
 
 
@@ -514,7 +514,7 @@ def run_boot_a():
             f"unit {sel_unit_a8['id']} at "
             f"({sel_unit_a8['x']},{sel_unit_a8['y']},{sel_unit_a8['z']}) - "
             "this leg's premise (an open ground neighbour exists) does not "
-            "hold on this roll (a RED, never a skip - REV E.48 SS.A.8)")
+            "hold on this roll (a FIX, never a skip - REV E.48 SS.A.8)")
         walk_a8_0 = event_state(client).get("coopWalkArmEntered")
         seq_a8_0 = event_state(client).get("lastSeqEmitted")
 

@@ -82,7 +82,7 @@ TITLE = {"A1": "Alien Base destroyed", "U2": "UFO is not recovered"}        # FX
 SQUAD = 2
 SAVED_AT = (2, 0)                            # FX44-4: (turn, side)
 STUB_FUNDS = 1000                            # the alien role's funds
-RED = {"A1-id", "A1-file", "A1-borrow", "A1-host", "A1-target"}          # TASK 0 Ka / Kb, 2/2
+FIX = {"A1-id", "A1-file", "A1-borrow", "A1-host", "A1-target"}          # TASK 0 Ka / Kb, 2/2
 # ----- bounds (FX44-11) -----
 MIRROR_S, LANDING_S, BOTH_IN_S, STEP_S, SAVE_S, GUARD_S = 30, 180, 60, 60, 30, 1.0
 RESUME_S, RESUME_PRESS_S, TOPS_S, ABORT_S = 180, 60, 60, 30
@@ -586,7 +586,7 @@ def main():
     print(f"\n==== W2-H44 resumed borrowed battles at an alien base and a landed UFO: {len(RESULTS) - len(fails)}/{len(ALL_CELLS)} "
           f"cells PASS, wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(ALL_CELLS) else 2)
 
 

@@ -279,7 +279,7 @@ def reload_b(x, ev, key):
     finally:
         x.shutfail = shut(y)
 
-def cells_b(rid, ev, who, reloads, kind="RED"):
+def cells_b(rid, ev, who, reloads, kind="FIX"):
     """the row's cells after X-pre: live, ids, file (+ reload) for the receiver `who` ("client": R7, G7, R9, R10; "host": R8)"""
     lv, hv, rl = ev.get("live") or {}, ev.get("halves") or {}, ev.get("reload") or {}
     once = once_client if who == "client" else once_host

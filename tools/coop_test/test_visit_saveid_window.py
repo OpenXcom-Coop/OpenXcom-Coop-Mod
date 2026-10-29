@@ -8,8 +8,8 @@ from the capture's cap.py):
       (F drop_at_54; S2 = the host's id at that 54); a NEW client rejoins by name; RESUME only after the host's ack; read R.
   C3  MARKER; VISIT; read B; SOLDIERS; SAVE54 (the 67 over SoldiersState), its OK (insideCoopBase false); the client's real OK on
       SoldiersState -> BasescapeState inside the 67 window; read W (the client's saveID); GEOSCAPE (QUICK written); read T.
-Cells (13): C2-pre GUARD, C2-copied RED, C2-key RED, C2-rejoin RED, C2-world RED, C2-resume RED, C2-common GUARD; C3-pre GUARD, C3-ok RED,
-C3-log RED, C3-ids RED, C3-key RED, C3-common GUARD. Red (commit R1): RED exactly C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, C3-ok,
+Cells (13): C2-pre GUARD, C2-copied FIX, C2-key FIX, C2-rejoin FIX, C2-world FIX, C2-resume FIX, C2-common GUARD; C3-pre GUARD, C3-ok FIX,
+C3-log FIX, C3-ids FIX, C3-key FIX, C3-common GUARD. Red (commit R1): RED exactly C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, C3-ok,
 C3-log, C3-ids, C3-key (9 of 13). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B. ONE EVIDENCE line per row, one PASS / FAIL
 line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row (later cells "not reached"); a boot or
 construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info, get_coop, the last 40 log lines of each
@@ -232,14 +232,14 @@ def copied(ev):
 C2_CELLS = [
     ("C2-pre", "GUARD", "VISIT, SAVE54 (S != B), OK67B, LEAVE, DROP54 ok (the 54 seen, the 62 after the kill)", "start",
      lambda ev: "D" in ev["reached"]),
-    ("C2-copied", "RED", "the host log since the second trigger: 'W2-H58: N partner world(s) copied from saveID S to S2', N >= 1", "D", copied),
-    ("C2-key", "RED", "DROP54's probe at the 54: host_<S2>_<name>.data present", "D",
+    ("C2-copied", "FIX", "the host log since the second trigger: 'W2-H58: N partner world(s) copied from saveID S to S2', N >= 1", "D", copied),
+    ("C2-key", "FIX", "DROP54's probe at the 54: host_<S2>_<name>.data present", "D",
      lambda ev: g(ev, "drop54", "probe", "saveID") == ev.get("S2") and g(ev, "drop54", "probe", "info", "present") is True),
-    ("C2-rejoin", "RED", "REJOIN: no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S", "R",
+    ("C2-rejoin", "FIX", "REJOIN: no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S", "R",
      lambda ev: g(ev, "rejoin", "buildNewBase") is None and g(ev, "rejoin", "t68") is not None and g(ev, "rejoin", "ack") is not None),
-    ("C2-world", "RED", "read R: own bases, funds == read T's, the MARKER soldier [name, id] present", "R",
+    ("C2-world", "FIX", "read R: own bases, funds == read T's, the MARKER soldier [name, id] present", "R",
      lambda ev: same_world(g(ev, "R", "world"), g(ev, "T", "world"), ev.get("marker"))),
-    ("C2-resume", "RED", "resume_and_clear ok: both tops GeoscapeState", "R",
+    ("C2-resume", "FIX", "resume_and_clear ok: both tops GeoscapeState", "R",
      lambda ev: bool(g(ev, "resume", "ok")) and g(ev, "R", "tops") == ["GeoscapeState", "GeoscapeState"]),
     ("C2-common", "GUARD", "the host alive to the end, the rejoiner alive at read R; no new crash file since the boot", "R",
      lambda ev: g(ev, "R", "alive") == [True, True] and g(ev, "R", "crash") == 0),
@@ -247,11 +247,11 @@ C2_CELLS = [
 C3_CELLS = [
     ("C3-pre", "GUARD", "VISIT, SOLDIERS, SAVE54 (S != B), the 67's OK, the SoldiersState OK, LEAVE (QUICK written) reached", "start",
      lambda ev: "T" in ev["reached"]),
-    ("C3-ok", "RED", "read W: the client's saveID == S", "T", lambda ev: ev.get("S") is not None and g(ev, "W", "client") == ev["S"]),
-    ("C3-log", "RED", "the client log since read B: KEPT >= 1", "T", lambda ev: (g(ev, "T", "kept", "client") or 0) >= 1),
-    ("C3-ids", "RED", "read T: host and client saveID == S", "T",
+    ("C3-ok", "FIX", "read W: the client's saveID == S", "T", lambda ev: ev.get("S") is not None and g(ev, "W", "client") == ev["S"]),
+    ("C3-log", "FIX", "the client log since read B: KEPT >= 1", "T", lambda ev: (g(ev, "T", "kept", "client") or 0) >= 1),
+    ("C3-ids", "FIX", "read T: host and client saveID == S", "T",
      lambda ev: ev.get("S") is not None and g(ev, "T", "host") == ev["S"] and g(ev, "T", "client") == ev["S"]),
-    ("C3-key", "RED", "read T: role host_copy_of_client present", "T", lambda ev: g(ev, "T", "role", "present") is True),
+    ("C3-key", "FIX", "read T: role host_copy_of_client present", "T", lambda ev: g(ev, "T", "role", "present") is True),
     ("C3-common", "GUARD", "both alive; no new crash file since the boot", "T",
      lambda ev: g(ev, "T", "alive") == [True, True] and g(ev, "T", "crash") == 0),
 ]

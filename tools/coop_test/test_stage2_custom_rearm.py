@@ -11,12 +11,12 @@ the custom battle (test_skirmish_flow.skirmish_client_at_browser, then join_tcp 
 
   S2M-1 GUARD stage-2 offer out (precondition): ms1_trigger guards []; host phase Handshake battleId 2; client hold_blob_ack.held >= 1;
         host log +1 hand-off; PART2(host) mapFingerprint FP2. A failure ends the row.
-  S2M-2 RED   PARK +1 and UNWIND +0 (red today: PARK 0).
+  S2M-2 FIX   PARK +1 and UNWIND +0 (red today: PARK 0).
   S2M-3 GUARD the host waits inside part 2: at W the stack ends [BriefingState, CoopState], dialog 62 backVisible false,
         battle_state.inBattle true, phase Idle, mapFingerprint FP2.
-  S2M-4 RED   the rejoin reaches RESUME: host resumeAck true within RJ, RESUME pressed, REJOIN_GUARD +0 (red today: resumeAck never
+  S2M-4 FIX   the rejoin reaches RESUME: host resumeAck true within RJ, RESUME pressed, REJOIN_GUARD +0 (red today: resumeAck never
         true, that line +1).
-  S2M-5 RED   part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1; the spine to turn 1; PART2 on host and client2:
+  S2M-5 FIX   part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1; the spine to turn 1; PART2 on host and client2:
         phase Active, equal battleId > 2, turn 1, missionType MT2, mapFingerprint FP2, xcom XCOM2; UNWIND 0. With no RESUME it fails at
         once ("no RESUME").
   S2M-6 GUARD CRASH 0.
@@ -139,7 +139,7 @@ class Row:
 def part2_cells(r, cid, host, c2, ctx, n_k, spine):
     """S2X-8 / S2M-5: REARM +1 and OFFER +1 within 60 s of RESUME, the spine, PART2 on both, UNWIND 0."""
     if "t_resume" not in ctx:
-        return r.cell(cid, "RED", "part 2 starts for both", False, {"no RESUME": True})
+        return r.cell(cid, "FIX", "part 2 starts for both", False, {"no RESUME": True})
     n_r, evd = ctx["n_resume"], {}
     try:
         evd["rearm s"] = wait("REARM and OFFER", lambda: since(host, n_r, REARM) and since(host, n_r, OFFER), 60.0)
@@ -153,7 +153,7 @@ def part2_cells(r, cid, host, c2, ctx, n_k, spine):
           and hp.get("battleId") == cp.get("battleId") and isinstance(hp.get("battleId"), int) and hp["battleId"] > 2
           and all(p.get("phase") == "Active" and p.get("turn") == 1 and p.get("missionType") == MT2 and p.get("mapFingerprint") == ctx["FP2"]
                   and p.get("xcom") == ctx["XCOM2"] for p in (hp, cp)))
-    r.cell(cid, "RED", "part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1, the spine to turn 1, PART2 host == client2: "
+    r.cell(cid, "FIX", "part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1, the spine to turn 1, PART2 host == client2: "
            "Active, battleId > 2, turn 1, %s, mapFingerprint FP2, xcom XCOM2; UNWIND 0 (red today: no RESUME)" % MT2, ok, evd)
 
 
@@ -254,14 +254,14 @@ def row_s2m(host, client, crash0, ctx):
         path = {"first poll after the kill": {k: v for k, v in first.items() if k != "stage"},
                 "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first.get("phase"), "?"),
                 "host after": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]]}
-        r.cell("S2M-2", "RED", "PARK +1 and UNWIND +0 (red today: PARK 0)", len(park) == 1 and not unw,
+        r.cell("S2M-2", "FIX", "PARK +1 and UNWIND +0 (red today: PARK 0)", len(park) == 1 and not unw,
                {"PARK": park, "UNWIND": unw, "path": path})
         r.cell("S2M-3", "GUARD", "the host waits inside part 2: stack ends [BriefingState, CoopState], dialog 62 backVisible false, "
                "inBattle true, phase Idle, mapFingerprint FP2", hs1[-2:] == [BRF, COOP] and d.get("code") == 62
                and d.get("backVisible") is False and hp1.get("inBattle") is True and hp1.get("phase") == "Idle"
                and hp1.get("mapFingerprint") == FP2, {"stack": hs1, "dialog": d, "PART2 host": hp1, "coop": coop(host)})
         evd, n_j = {}, len(log(host))
-        r.cell("S2M-4", "RED", "the rejoin reaches RESUME: resumeAck true within %.0f s, RESUME pressed, offerRejoinBattle guard +0 (red "
+        r.cell("S2M-4", "FIX", "the rejoin reaches RESUME: resumeAck true within %.0f s, RESUME pressed, offerRejoinBattle guard +0 (red "
                "today: resumeAck never true, that line +1)" % RJ, rejoin_custom(host, ctx, n_j, evd), evd)
         part2_cells(r, "S2M-5", host, ctx["client2"], ctx, n_k, lambda h, c: session.briefings_to_battlescape(h, c))
     except Exception as e:  # the precondition, a timed-out wait, or a lever / kill() that raised: the row ends here

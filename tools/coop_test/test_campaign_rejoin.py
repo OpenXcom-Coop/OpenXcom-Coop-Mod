@@ -5,8 +5,8 @@ resumeAck never true, the host waits on dialog 62 and the rejoiner on 68 for goo
   Boot H (key "48597", shared_fixture.bring_up("w2r4l2_h", (1, 2, 48597)) + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2
   dir w2r4l2_h_client2): row CR1, SHARED, the client leaves gracefully (disconnect_to_menu), a fresh client2 rejoins. Cells: CR1-1 GUARD
   PAUSE, peerLeftByChoice true, title "has left the battle"; CR1-2 GUARD phase 1 served (SHARED_STREAM +1, a client2 poll on 68);
-  CR1-3 RED the live offer (OFFER +1 reading battleId=B0, REFUSED +0); CR1-4 RED RESUME offered ("All players connected", within
-  W_ACK) and pressed; CR1-5 RED the same battle on both; CR1-6 RED SPLIT; CR1-7 RED HASH; CR1-8 RED one client2 walk of squad[1]
+  CR1-3 FIX the live offer (OFFER +1 reading battleId=B0, REFUSED +0); CR1-4 FIX RESUME offered ("All players connected", within
+  W_ACK) and pressed; CR1-5 FIX the same battle on both; CR1-6 FIX SPLIT; CR1-7 FIX HASH; CR1-8 FIX one client2 walk of squad[1]
   applied (walk_far, R-L2-A-1), HASH again; CR1-9 GUARD CRASH 0 and client2 zero-disk.
   Boot C (key "48598", w2r4l2_c_host / _client): row CR3, SEPARATE, the host leaves (disconnect_to_menu; aud-I93, MJ-2). Cells: CR3-1
   GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s; CR3-2 GUARD still CoopState 8 s later;
@@ -260,12 +260,12 @@ def rejoin_tail(r, x, rid, key, actor, cell2):
     n = counts(h, n_h)
     cell2(ev, n)
     offer = since(h, n_h, OFFER)
-    r.cell(rid + "-3", "RED", "the live offer: OFFER +1 reading battleId=%s, REFUSED +0 (red today: OFFER +0, REFUSED +1, T0-1 / T0-2)" % x.b0,
+    r.cell(rid + "-3", "FIX", "the live offer: OFFER +1 reading battleId=%s, REFUSED +0 (red today: OFFER +0, REFUSED +1, T0-1 / T0-2)" % x.b0,
            len(offer) == 1 and ("battleId=%s," % x.b0) in offer[0] and n["REFUSED"] == 0,
            {"OFFER": offer, "REFUSED": since(h, n_h, REFUSED), "GUARD": since(h, n_h, GUARD), "needles": n})
     resumed = acked and resume(x, ev)
     title = (ev.get("RESUME dialog") or {}).get("title")
-    r.cell(rid + "-4", "RED", "RESUME offered: host resumeAck true and peerAbsent false within W_ACK %.0f s, dialog 62 backVisible true titled "
+    r.cell(rid + "-4", "FIX", "RESUME offered: host resumeAck true and peerAbsent false within W_ACK %.0f s, dialog 62 backVisible true titled "
            "\"All players connected\", RESUME pressed (red today: resumeAck false at W_ACK)" % W_ACK,
            resumed and title == "All players connected", ev)
     if not resumed:
@@ -273,15 +273,15 @@ def rejoin_tail(r, x, rid, key, actor, cell2):
     wait("both tops BattlescapeState", lambda: top(h) == BS and top(c2) == BS, 60.0)
     hb, cb = auth(h), auth(c2)
     act = [ln for ln in log(c2) if CLIENT_ACTIVE in ln]
-    r.cell(rid + "-5", "RED", "the same battle on both: tops BattlescapeState, phase Active, peerAbsent false, battleId == B0 %s, client2 "
+    r.cell(rid + "-5", "FIX", "the same battle on both: tops BattlescapeState, phase Active, peerAbsent false, battleId == B0 %s, client2 "
            "CLIENT_ACTIVE +1, host turn == T0 %s" % (x.b0, x.t0),
            top(h) == BS and top(c2) == BS and hb.get("phase") == cb.get("phase") == "Active" and hb.get("peerAbsent") is False
            and cb.get("peerAbsent") is False and hb.get("battleId") == cb.get("battleId") == x.b0 and len(act) == 1
            and hb.get("turn") == x.t0, {"host": hb, "client2": cb, "CLIENT_ACTIVE": [a.split("\t")[-1][:160] for a in act]})
     sh, sc = split(h), split(c2)
-    r.cell(rid + "-6", "RED", "SPLIT(host) == SPLIT(client2) == SPLIT0", sh == sc == x.split0, {"host": sh, "client2": sc, "SPLIT0": x.split0})
+    r.cell(rid + "-6", "FIX", "SPLIT(host) == SPLIT(client2) == SPLIT0", sh == sc == x.split0, {"host": sh, "client2": sc, "SPLIT0": x.split0})
     ok, hev = hash_ok(h, c2, rid + " after RESUME")
-    r.cell(rid + "-7", "RED", "HASH(host, client2)", ok, hev)
+    r.cell(rid + "-7", "FIX", "HASH(host, client2)", ok, hev)
     wev = {"actor": actor, "start": pos(h, actor)}
     try:
         hw = walk_far(h, c2, actor, wev)
@@ -291,7 +291,7 @@ def rejoin_tail(r, x, rid, key, actor, cell2):
     last, halted = (steps[-1].get("to") if steps else None), bool((hw.get("restate") or {}).get("halted"))
     wev.update(steps=len(steps), last=last, halted=halted, host=pos(h, actor), client2=pos(c2, actor))
     hok2, wev["HASH"] = hash_ok(h, c2, rid + " after the walk")
-    r.cell(rid + "-8", "RED", "one client2 walk of unit %s applied: >= 1 step, the final tile equal on both and != the start, == the last "
+    r.cell(rid + "-8", "FIX", "one client2 walk of unit %s applied: >= 1 step, the final tile equal on both and != the start, == the last "
            "step unless a reaction / spotting halted it (R-L2-A-1), HASH again" % actor, bool(steps) and wev["host"] is not None
            and wev["host"] == wev["client2"] != wev["start"] and (halted or wev["host"] == (last["x"], last["y"], last["z"])) and hok2, wev)
 

@@ -42,7 +42,7 @@ import test_campaign_resume_gm2 as RG2  # noqa: E402  (to_battle, snap, win_cell
 KEY = "49122"
 SAVE = {"D3": "w2h46_d3.sav", "D2": "w2h46_d2.sav"}
 STUB, STUB_FUNDS = RR.STUB, RR.STUB_FUNDS          # RR's FX4A-11 stub: one unplaced, unnamed, empty base; funds 1000
-RED = {"D3-start2", "D3-mode", "D3-role", "D3-save", "D2-start2", "D2-mode", "D2-save"}
+FIX = {"D3-start2", "D3-mode", "D3-role", "D3-save", "D2-start2", "D2-mode", "D2-save"}
 # ----- bounds (spec PINNED SETUP VALUES; TASK 0 measured 0.05 / 0.05 / 1.56 / 3.61 / - / 0.0 / 0.2 / 2.4 / 0.05 s) -----
 DISC_S, LOBBY_S, JOIN_S, RESUME_S, SETTLE_S, SAVE_S, PAUSE_S, ACK_S, END_S = 15, 30, 120, 120, 5, 10, 30, 135, 10
 ROWS = {"D3": ["D3-start1", "D3-leave", "D3-start2", "D3-mode", "D3-role", "D3-save", "D3-common"],
@@ -468,7 +468,7 @@ def main():
     print(f"\n==== W2-H46 resumed PvP campaign mode after the host's DISCONNECT and START HOST: {len(RESULTS) - len(fails)}/{len(allc)} "
           f"cells PASS, wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (expected red)' if n in RED else ''}", flush=True)
+        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 if __name__ == "__main__":

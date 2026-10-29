@@ -24,7 +24,7 @@ Count rows (orchestrator ruling R-H21d-S1-1, R-H21-T0-1: N = 3 fresh SHARED boot
         host death in N. A dead host's shutdown is tolerated (its CRASH is the evidence).
 W = 10 s at 0.25 s polls, HOLD = 2 s. HL = the host's openxcom.log from the size noted before the kill. CRASH = new crashlogs/crash_*.log
 since the row started (first 4 frames). Drive, setup guard (stacks [GeoscapeState], localSeat 0 / 1, has_battle false, the host's
-lobbyMode 1), CAPTURE and shutdown from test_practice_rejoin (main-guarded); a host that dies on a RED cell is tolerated at shutdown.
+lobbyMode 1), CAPTURE and shutdown from test_practice_rejoin (main-guarded); a host that dies on a FIX cell is tolerated at shutdown.
 EVIDENCE before each verdict; a failed row prints ONE CAPTURE line (incl. the file's first 30 battle lines); every row runs after a
 failure; ONE run; exit 0 iff every row passes, else 2.
 """
@@ -87,10 +87,10 @@ def save_quit_row(r, x, kind, name):
     r.ev["SAV"]["file"] = savs[0]
     sv = r.ev["SAV"]
     if kind == "P1":
-        r.cell("RED 1: the .sav has no line `battleGame:` and no header line starting `mission:`",
+        r.cell("FIX 1: the .sav has no line `battleGame:` and no header line starting `mission:`",
                sv["battleGame: line"] is None and not sv["header mission"], sv)
     else:
-        r.cell("RED 1: no `battleGame:` and no `inBattlescape: true` line in the .sav",
+        r.cell("FIX 1: no `battleGame:` and no `inBattlescape: true` line in the .sav",
                sv["battleGame: line"] is None and not sv["inBattlescape: true lines"], sv)
     rep = q(h, {"cmd": "load_save", "file": os.path.basename(savs[0])})
     time.sleep(HOLD)
@@ -100,10 +100,10 @@ def save_quit_row(r, x, kind, name):
     crash = pr.crash_info(crash0)
     st, ib = (stack(h), prj.coop(h, "inBattle")["inBattle"]) if alive else (["<dead>"], None)
     x.host_died_on_red = not alive
-    r.ev["RED 2"] = {"load_save": rep, "alive": alive, "stack": st, "inBattle": ib, "CRASH": crash,
+    r.ev["FIX 2"] = {"load_save": rep, "alive": alive, "stack": st, "inBattle": ib, "CRASH": crash,
                      "rc": h.proc.poll() if h.proc else None}
-    r.cell(f"RED 2: the host's load_save -> alive {HOLD:.0f} s later, inBattle false, stack [{GEO}], no CRASH",
-           rep.get("ok") and alive and ib is False and st == [GEO] and not crash, r.ev["RED 2"])
+    r.cell(f"FIX 2: the host's load_save -> alive {HOLD:.0f} s later, inBattle false, stack [{GEO}], no CRASH",
+           rep.get("ok") and alive and ib is False and st == [GEO] and not crash, r.ev["FIX 2"])
     if r.fails:
         prj.capture(r, x, n_hl, crash, {"battle head": head})
 
@@ -153,7 +153,7 @@ def count_row(rid, base, ports, trigger, task0, results, walls):
     r.ev["constructions"] = recs
     r.cell("non-vacuity: every surviving construction reached its effect",
            all(c.get("effect") for c in recs if c.get("host died") is False), [c.get("effect") for c in recs])
-    r.cell(f"RED: no host death in {N_COUNT} constructions", deaths == 0, f"{deaths}/{N_COUNT} died")
+    r.cell(f"FIX: no host death in {N_COUNT} constructions", deaths == 0, f"{deaths}/{N_COUNT} died")
     walls[rid] = r.ev["wall s"] = round(time.time() - t0, 1)
     r.report(results)
 

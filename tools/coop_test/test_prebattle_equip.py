@@ -60,7 +60,7 @@ screen shows C1; C1's TU is read on both machines before and after each row.
         at S-B.1: S-A built it): the clip on that H soldier on both, the client applied
         the host's evs, and the client's pre-battle ground ids = the host's pile ids =
         the host screen's ground ids.
-  RED (commit S-B.1): exactly EQ10, EQ11, EQ12, EQ14 fail, each on its RED cell; every
+  RED (commit S-B.1): exactly EQ10, EQ11, EQ12, EQ14 fail, each on its FIX cell; every
   other row passes.
   EQ1   both briefings: the host's BriefingState is up; wait <= 30 s for the
         client's. GREEN: the client's BriefingState up while the host's is up, turn 0
@@ -115,7 +115,7 @@ screen shows C1; C1's TU is read on both machines before and after each row.
         and invForcedCloses unchanged since EQ2, forceCloseSkips 0; the host's
         selectedId in H. RED: the host's turn 1 at its briefing OK (freeze), the client
         never on an equip screen.
-  RED (commit S-A.1): every row above fails on its RED cell (EQ7b inside EQ7).
+  RED (commit S-A.1): every row above fails on its FIX cell (EQ7b inside EQ7).
 
 Common asserts, every row (with both machines in the battle): hash_now {full:true}
 every bucket EQUAL after the queues drain; desyncSeen false on both; the client's
@@ -508,7 +508,7 @@ def eq1_both_briefings(host, client, ctx):
     fails = []
     if not got:
         fails.append(f"EQ1: no client BriefingState within {EQ1_WAIT_S} s while the host's is up (client stack "
-                     f"{ev['clientStack']}, client inBattle {cb.get('inBattle')}, host phase {ev['hostPhase']}; RED: "
+                     f"{ev['clientStack']}, client inBattle {cb.get('inBattle')}, host phase {ev['hostPhase']}; FIX: "
                      f"no offer before the host's OK)")
         finish(fails)
     if not has(host, "BriefingState"):
@@ -535,7 +535,7 @@ def eq2_client_first(host, client, ctx):
     if not pre:
         evidence("EQ2", ev)
         finish([f"EQ2: precondition absent - the client has no battle / no BriefingState (client stack "
-                f"{ev['pre']['clientStack']}; RED: no client battle before the host's OK)"])
+                f"{ev['pre']['clientStack']}; FIX: no client battle before the host's OK)"])
     ctx["baseline"] = {"hostCovered": es(host).get("hostCovered"),
                        "hostScreensCloses": (es(host).get("hostScreens") or {}).get("closes"),
                        "invForcedCloses": es(client).get("invForcedCloses")}
@@ -1102,7 +1102,7 @@ def eq10_tu_free_move(host, client, ctx):
                      f"within {LAND_WAIT_S} s)")
     if tu1 != tu0:
         fails.append(f"EQ10: C1's tu host/client {tu0} -> {tu1} (want unchanged on both: a pre-battle placement "
-                     f"costs no TU, D205 a; RED: the battle move cost, ground -> leg {TU_GROUND_TO_LEG}, spent)")
+                     f"costs no TU, D205 a; FIX: the battle move cost, ground -> leg {TU_GROUND_TO_LEG}, spent)")
     if ev["clientCursor"] != -1:
         fails.append(f"EQ10: the client's cursor holds {ev['clientCursor']} after the move (want empty)")
     fails += tail_fails(host, client, "EQ10")
@@ -1160,7 +1160,7 @@ def eq11_shift_load(host, client, ctx):
         fails.append(f"EQ11: after the Shift-drop of {new} on the loaded rifle {rifle}: rifle ammo host/client "
                      f"{(ev['rifleAfter']['host'] or {}).get('ammo')}/{(ev['rifleAfter']['client'] or {}).get('ammo')}, "
                      f"old clip {old} host={ev['oldClipAfter']['host']} client={ev['oldClipAfter']['client']} (want "
-                     f"[{new}] loaded and {old} on the ground at {PILE} on both: vanilla's pre-battle quick-swap; RED: "
+                     f"[{new}] loaded and {old} on the ground at {PILE} on both: vanilla's pre-battle quick-swap; FIX: "
                      f"the host refuses it by the battle rules, client lastDeny {ev['lastDeny'][1]})")
     if tu1 != tu0:
         fails.append(f"EQ11: C1's tu host/client {tu0} -> {tu1} (want unchanged on both)")
@@ -1219,7 +1219,7 @@ def eq12_unload_widget(host, client, ctx):
                      f"clip {loaded} host={ev['clipAfter']['host']} client={ev['clipAfter']['client']} (want the rifle "
                      f"in {RIGHT_HAND} and the clip in {LEFT_HAND}, C1's, on both within {LAND_WAIT_S} s)")
     if tu1 != tu0:
-        fails.append(f"EQ12: C1's tu host/client {tu0} -> {tu1} (want unchanged on both: TU-free, D205 a; RED: the "
+        fails.append(f"EQ12: C1's tu host/client {tu0} -> {tu1} (want unchanged on both: TU-free, D205 a; FIX: the "
                      f"battle unload cost spent)")
     if ev["clientCursor"] != -1:
         fails.append(f"EQ12: the client's cursor holds {ev['clientCursor']} after the unload (want empty)")
@@ -1306,7 +1306,7 @@ def eq14_host_cursor_item(host, client, ctx):
             fails.append(f"EQ14: the host's cursor holds {a['hostCursor']} at the answer (want Y {y} still on it)")
         if not (on_pile(a["yHost"]) and on_pile(a["yClient"])):
             fails.append(f"EQ14: Y {y} host={a['yHost']} client={a['yClient']} at the answer (want on the pile {PILE} on "
-                         f"both; RED: the host executes the order on its cursor item)")
+                         f"both; FIX: the host executes the order on its cursor item)")
         if a["clientCursor"] != -1:
             fails.append(f"EQ14: the client's cursor holds {a['clientCursor']} after the answer (want empty)")
     if ev["after"]["hostCursor"] != -1:
@@ -1494,11 +1494,11 @@ def eq8_turn_one(host, client, ctx):
           "clientStack": stack(client), "hostStack": stack(host)}
     fails = []
     if spine.get("hostTurnAfterOk") != 0:
-        fails.append(f"EQ8: the host's turn right after its briefing OK = {spine.get('hostTurnAfterOk')} (want 0; RED: "
+        fails.append(f"EQ8: the host's turn right after its briefing OK = {spine.get('hostTurnAfterOk')} (want 0; FIX: "
                      f"the freeze starts turn 1 at the host's briefing OK; host stack then "
                      f"{spine.get('hostStackAfterOk')})")
     if qc.get("entries") != 1:
-        fails.append(f"EQ8: client equip.entries={qc.get('entries')} (want 1; RED: the client never on an equip "
+        fails.append(f"EQ8: client equip.entries={qc.get('entries')} (want 1; FIX: the client never on an equip "
                      f"screen)")
     if not got:
         fails.append(f"EQ8: turn host/client {ev['turn']} (want 1 on both within {TURN_WAIT_S} s)")

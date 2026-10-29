@@ -15,13 +15,13 @@ TWO boots on key KEY (SEPARATE, Research Sync on, mod Coop_GeoEvent_Test on both
     HR (host row) LOSS-A = LOSE(host, HB); FIRE(host, T_TRANSFER, E_TRANSFER); ARRIVE(host); SAVE(host, "w2h89_a_host.sav").
          HR-pre (GUARD): STRIP / spawn_ufo / trigger ok; BaseDestroyedState within W_BDS; host own bases == [HB2]; host bases[0] == CB with
          coopBase and coopIcon true (the defect's precondition); host stack [GeoscapeState]; start ok; the host's E_TRANSFER window.
-         HR-items (RED): HB2 ITEMSUM +2 and STR_PISTOL >= +1; mirror CB ITEMSUM +0. HR-craft (RED): HB2 STR_SKYRANGER +1.
-         HR-xfer (RED): HB2 gains exactly 2 STR_SOLDIER transfers. HR-arrive (RED): at the host's Items Arriving HB2 soldiers +2, mirror CB
-         soldiers 0, no STR_SOLDIER transfer left. HR-save (RED): the save parses; saved bases == [HB2]; HB2 ITEMSUM == S0 + 2 with
+         HR-items (FIX): HB2 ITEMSUM +2 and STR_PISTOL >= +1; mirror CB ITEMSUM +0. HR-craft (FIX): HB2 STR_SKYRANGER +1.
+         HR-xfer (FIX): HB2 gains exactly 2 STR_SOLDIER transfers. HR-arrive (FIX): at the host's Items Arriving HB2 soldiers +2, mirror CB
+         soldiers 0, no STR_SOLDIER transfer left. HR-save (FIX): the save parses; saved bases == [HB2]; HB2 ITEMSUM == S0 + 2 with
          STR_PISTOL >= 1, STR_SKYRANGER == S0 + 1, soldiers == S0 + 2.
   boot B (dirs w2h89_b_*): SETUP-B the client builds CB2 at B2, the host lists it.
     CR (the client mirror image) LOSS-B = LOSE(client, CB); FIRE(client, T_TRANSFER, E_TRANSFER); ARRIVE(client); SAVE(client,
-         "w2h89_b_client.sav"). CR-pre (GUARD) / CR-items / CR-craft / CR-xfer / CR-arrive / CR-save (RED) as HR's with the roles swapped
+         "w2h89_b_client.sav"). CR-pre (GUARD) / CR-items / CR-craft / CR-xfer / CR-arrive / CR-save (FIX) as HR's with the roles swapped
          (client own bases == [CB2]; client bases[0] == HB, both flags true; the client's mirror HB).
   END CRASH (GUARD): no new file in harness.CRASH_DIR since the file start; every process alive until its shutdown; shutdown codes in OKRC.
 READ(m) = geo_state + get_soldiers of m per base (ITEMSUM = the sum of `items` over ITEMS, STR_PISTOL, crafts per type, transfers,
@@ -66,7 +66,7 @@ LOGN = ("[coop-ui]", "[coop] removed base: ", "delete_base", "LoadGameState")
 ROWS = (("CTL", ("CTL-pre", "CTL-land")),
         ("HR", ("HR-pre", "HR-items", "HR-craft", "HR-xfer", "HR-arrive", "HR-save")),
         ("CR", ("CR-pre", "CR-items", "CR-craft", "CR-xfer", "CR-arrive", "CR-save")), ("END", ("CRASH",)))
-RED = ("HR-items", "HR-craft", "HR-xfer", "HR-arrive", "HR-save", "CR-items", "CR-craft", "CR-xfer", "CR-arrive", "CR-save")
+FIX = ("HR-items", "HR-craft", "HR-xfer", "HR-arrive", "HR-save", "CR-items", "CR-craft", "CR-xfer", "CR-arrive", "CR-save")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -385,7 +385,7 @@ class Row:
         for cid in cells:
             miss = "precondition miss: %s" % stop if cid == cells[0] and cid.endswith("-pre") else "not reached (%s)" % stop
             ok, label = self.res.get(cid, (False, miss))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and capture_it and self.b is not None:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)

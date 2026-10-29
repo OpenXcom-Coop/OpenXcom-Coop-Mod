@@ -8,12 +8,12 @@ Three rows, one fresh boot pair each (key "49201", dirs w2h60_<row>_host / _clie
 transport udp; then FIX.stable_geo(host, client, STABLE_S)). Every trigger is the TEST-ONLY lever throw_next_rx (commit P1).
   R-A (tcp) host throw_next_rx {state: "target_positions"}; MARKED on the host within W_MARK; the client's 21 within W_21; wait(host) R1 / R2;
       then (only if A-partner passed) client.kill(), FIX.rejoin(host, client2, KEY, NAME), FIX.resume_and_clear(host), client2's top
-      GeoscapeState within W_GEO, FIX.quick_save(host). Cells: A-pre GUARD, A-flood RED, A-hatch RED, A-drop RED, A-name RED, A-partner RED,
-      A-rejoin RED, A-resume RED, A-save RED, A-common GUARD.
-  R-U (udp) as R-A over transport udp, the client's 21 within W_21U, no rejoin. Cells: U-pre GUARD, U-flood RED, U-hatch RED, U-drop RED,
-      U-partner RED, U-common GUARD.
+      GeoscapeState within W_GEO, FIX.quick_save(host). Cells: A-pre GUARD, A-flood FIX, A-hatch FIX, A-drop FIX, A-name FIX, A-partner FIX,
+      A-rejoin FIX, A-resume FIX, A-save FIX, A-common GUARD.
+  R-U (udp) as R-A over transport udp, the client's 21 within W_21U, no rejoin. Cells: U-pre GUARD, U-flood FIX, U-hatch FIX, U-drop FIX,
+      U-partner FIX, U-common GUARD.
   R-C (tcp, the client cannot read a message: control, LAST) client throw_next_rx {state: "target_positions"}; MARKED on the client; the
-      client's 440 within W_440; wait(host) R1; R2 = HOLD_S after the 440. Cells: C-pre GUARD, C-440 GUARD, C-log RED, C-host GUARD,
+      client's 440 within W_440; wait(host) R1; R2 = HOLD_S after the 440. Cells: C-pre GUARD, C-440 GUARD, C-log FIX, C-host GUARD,
       C-common GUARD.
 wait(host) = FIX.wait_62(host, SEEN_S), the top's TextButtons settled (every TextButton hidden false, W2-H55 HDD's settled, copied) +
 SETTLE_S = R1; R2 = HOLD_S later. hatch = code 62, saveQuitVisible and abandonVisible true, RESUME visible false, title contains "to
@@ -46,7 +46,7 @@ NAMES = ("RESUME", "SAVE & QUIT", "ABANDON GAME")
 CELLS = {"R-A": ("A-pre", "A-flood", "A-hatch", "A-drop", "A-name", "A-partner", "A-rejoin", "A-resume", "A-save", "A-common"),
          "R-U": ("U-pre", "U-flood", "U-hatch", "U-drop", "U-partner", "U-common"),
          "R-C": ("C-pre", "C-440", "C-log", "C-host", "C-common")}
-RED = ("A-flood", "A-hatch", "A-drop", "A-name", "A-partner", "A-rejoin", "A-resume", "A-save", "U-flood", "U-hatch", "U-drop", "U-partner",
+FIX = ("A-flood", "A-hatch", "A-drop", "A-name", "A-partner", "A-rejoin", "A-resume", "A-save", "U-flood", "U-hatch", "U-drop", "U-partner",
        "C-log")
 
 
@@ -188,7 +188,7 @@ class Row:
         fails = []
         for cid in CELLS[self.rid]:
             ok, label = self.res.get(cid, (False, "not reached (%s)" % (str(stop)[:160] if stop else "?")))
-            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "RED" if cid in RED else "GUARD", label), flush=True)
+            print("%s %s %s: %s" % ("PASS" if ok else "FAIL", cid, "FIX" if cid in FIX else "GUARD", label), flush=True)
             fails += [] if ok else [cid]
         if stop and not x.err:
             cap = {g.name: {"stack": stack(g), "coop_dialog_info": dlg(g), "get_coop": coop(g)} for g in procs(x) if alive(g)}
@@ -199,7 +199,7 @@ class Row:
 
     def boot_miss(self, results, walls):
         for cid in CELLS[self.rid]:
-            print("FAIL %s %s: boot (%s)" % (cid, "RED" if cid in RED else "GUARD", self.x.err), flush=True)
+            print("FAIL %s %s: boot (%s)" % (cid, "FIX" if cid in FIX else "GUARD", self.x.err), flush=True)
         walls[self.rid], results[self.rid] = 0.0, list(CELLS[self.rid])
         print("FAIL %s: boot" % self.rid, flush=True)
 
