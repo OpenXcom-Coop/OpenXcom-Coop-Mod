@@ -1,36 +1,33 @@
-"""SPEC 0e-1: the Lightning-contact
-SPIKE. MEASURES the two staging designs the owner chose - WV-D87 (the door
-atom and the spot atom stage on the LIGHTNING craft's own UFO door) and
-WV-D88 (non-UFO door coverage and the 2x2 proof stage on STR_TERROR_MISSION +
-STR_FLOATER, aliens and civilians in opposite corners) - on LIVE BOOTS, before
-SPEC 0e-2/0e-3 rewrite a single test against them. This file is a MEASUREMENT
-TOOL, not a regression member (WV-D86's no-reroll rule does not make this a
-fixture - there is nothing here to re-roll: a map that cannot support the
-staging is itself the finding).
+"""Lightning-contact measurement. MEASURES two staging designs for the contact
+tests on LIVE BOOTS: the door-opening and spotting tests staged on the
+LIGHTNING craft's own UFO door, and non-UFO door coverage plus the 2x2 unit
+check staged on STR_TERROR_MISSION + STR_FLOATER, aliens and civilians in
+opposite corners. This file is a MEASUREMENT TOOL, not part of the regression
+suite: there is nothing here to re-roll, and a map that cannot support the
+staging is itself the result.
 
-EXIT CODES (binding, spec 0e-1 (i)):
+EXIT CODES:
   0 - every measurement was taken (an "expected: X" line is a PREDICTION,
       recorded as CONFIRMED or NOT in the printed RESULT block - a NOT is a
-      finding for the supervisor, never a failure of this file);
+      result to read, never a failure of this file);
   2 - at least one measurement's own PRECONDITION could not be met (no
       LIGHTNIN door found, newbattle_craft refused STR_LIGHTNING,
       newbattle_race refused STR_FLOATER, a door has no walk-through sides,
-      no standable perpendicular tile, a lever call errored, ...) - the
-      printed record IS the STOP-IF report. Every boot still runs (each
+      no standable perpendicular tile, a test command errored, ...) - the
+      printed record says which. Every boot still runs (each
       catches its own precondition failure independently) so a single miss
       never hides the other two boots' measurements.
 
 Three boots, each printing one `RESULT` block:
-  BOOT A placement=P1  default mission, Lightning craft. Hostile staged
-                       STRAIGHT OUT from the door.
-  BOOT A placement=P2  same recipe, fresh boot. Hostile staged AROUND THE
-                       CORNER from the door.
-  BOOT B               STR_TERROR_MISSION + STR_FLOATER + Lightning craft.
+  boot=default_mission placement=straight_out   default mission, Lightning
+                       craft. Hostile staged STRAIGHT OUT from the door.
+  boot=default_mission placement=around_corner  same recipe, fresh boot.
+                       Hostile staged AROUND THE CORNER from the door.
+  boot=terror_mission  STR_TERROR_MISSION + STR_FLOATER + Lightning craft.
                        No walk - a placement-only measurement.
 
-Run:  python tools/coop_test/spike_lightning_contact.py
-      (its own harness invocation - the standing rule, one test per
-       invocation, machine-wide harness lock.)
+Run:  python tools/coop_test/measure_lightning_contact.py
+      (one test per harness invocation; the harness lock is machine-wide.)
 """
 
 import json
@@ -68,9 +65,9 @@ def require(cond, msg):
 
 
 def pred(confirmed, actual):
-    """One line of the RESULT block for a spec EXPECTATION - never raises,
-    never gates anything downstream (spec 0e-1: "a NOT is a finding for the
-    supervisor, never a failure and never a reason to change anything")."""
+    """One line of the RESULT block for an EXPECTED value - never raises,
+    never gates anything downstream (a NOT is a result to read, never a
+    failure and never a reason to change anything)."""
     return {"status": "CONFIRMED" if confirmed else "NOT", "actual": actual}
 
 
@@ -83,20 +80,20 @@ def find_doors_raw(gc, **extra):
 
 
 def lightning_door(host, record):
-    """A1/WV-D87: the craft's own LIGHTNIN UFO door, by dataset NAME. Hard
+    """ufo_door_found: the craft's own LIGHTNIN UFO door, by dataset NAME. Hard
     STOP only when NONE is found at all - the situation every later
     measurement in this boot depends on would not exist. Count != 1 / not a
-    UFO door / already open at boot are recorded PREDICTIONS (WV-D87's
-    decided premise is being MEASURED here, not assumed), never a reason to
+    UFO door / already open at boot are recorded PREDICTIONS (the staging
+    premise is being MEASURED here, not assumed), never a reason to
     stop; this file proceeds with the first one found either way."""
     raw = find_doors_raw(host)
     lightnin = [d for d in raw["doors"] if d.get("dataSet") == "LIGHTNIN"]
-    require(lightnin, "no LIGHTNIN door found by find_doors - WV-D87's staging "
+    require(lightnin, "no LIGHTNIN door found by find_doors - the UFO-door staging "
                        "premise (a closed UFO door on every map) does not hold "
                        "on this boot")
     door = lightnin[0]
-    record["a1_lightnin_doors"] = lightnin
-    record["a1_predictions"] = {
+    record["lightnin_doors"] = lightnin
+    record["door_predictions"] = {
         "exactly_1_lightnin_door": pred(len(lightnin) == 1, len(lightnin)),
         "isUfoDoor_true": pred(door.get("isUfoDoor") is True, door.get("isUfoDoor")),
         "closed_at_boot": pred(door.get("isUfoDoorOpen") is False, door.get("isUfoDoorOpen")),
@@ -114,7 +111,7 @@ def far_corner(door, mx, my):
 
 
 def near_far_sides(door, seat1):
-    """A4: `door_sides` gives the two tiles a wall-part door joins; `near` is
+    """near_far: `door_sides` gives the two tiles a wall-part door joins; `near` is
     whichever is CLOSER to a seated soldier (the craft interior), `far` the
     other (the exterior)."""
     sides = session.door_sides(door)
@@ -149,9 +146,9 @@ def perpendiculars(d):
 
 def read_hash(host, client):
     """Non-raising counterpart of session.assert_hash_clean. The POST-ACTION
-    hash compare in A6/A7 is a MEASUREMENT, not a staging gate - a mismatch
-    there is exactly the kind of finding this spike exists to surface, never
-    a spike precondition failure. (Every STAGING move above still goes
+    hash compare after the contact walk is a MEASUREMENT, not a staging gate - a
+    mismatch there is exactly the kind of result this tool exists to surface,
+    never a precondition failure. (Every STAGING move above still goes
     through `place_deterministic`, whose own internal hash gate DOES raise -
     a desynced SITUATION is not a valid experiment.)"""
     hr = host.cmd({"cmd": "hash_now", "full": True})
@@ -161,7 +158,7 @@ def read_hash(host, client):
     return equal, hh, ch
 
 
-# ----- pre_seat callbacks (SPEC 0e-1: mission -> craft -> race -> seats -> ok) ---
+# ----- pre_seat callbacks (order: mission -> craft -> race -> seats -> ok) ---
 
 def pin_lightning(host):
     r = host.cmd({"cmd": "newbattle_craft", "type": "STR_LIGHTNING"})
@@ -174,13 +171,13 @@ def pin_lightning_and_floater(host):
     require(r.get("ok"), f"newbattle_race refused STR_FLOATER: {r}")
 
 
-# ----- BOOT A: default mission, Lightning --------------------------
+# ----- boot default_mission: default mission, Lightning --------------------------
 
-def boot_a(placement, game_port, host_port, client_port):
-    tag = f"lightning_a_{placement.lower()}"
-    record = {"boot": "A", "placement": placement}
-    host_dir = make_user_dir(f"spike_{tag}_host")
-    client_dir = make_user_dir(f"spike_{tag}_client")
+def boot_default_mission(placement, game_port, host_port, client_port):
+    tag = f"lightning_default_{placement.lower()}"
+    record = {"boot": "default_mission", "placement": placement}
+    host_dir = make_user_dir(f"contact_{tag}_host")
+    client_dir = make_user_dir(f"contact_{tag}_client")
     host = GameClient(f"{tag}-host", host_port, host_dir)
     client = GameClient(f"{tag}-client", client_port, client_dir)
     try:
@@ -192,47 +189,47 @@ def boot_a(placement, game_port, host_port, client_port):
         door, mx, my, mz = lightning_door(host, record)
         door_pos = (door["x"], door["y"], door["z"])
 
-        # A2: every seat-1 soldier's Chebyshev distance to the door.
+        # seat1_distance: every seat-1 soldier's Chebyshev distance to the door.
         seat1 = session.seat_units(host)
         require(seat1, "no live seat-1 soldier after bring-up")
         distances = {u["id"]: session.cheb(session.unit_pos(u), door_pos) for u in seat1}
-        record["a2_seat1_distance_to_door"] = distances
-        record["a2_prediction_all_le_6"] = pred(all(d <= 6 for d in distances.values()),
-                                                 distances)
+        record["seat1_distance_to_door"] = distances
+        record["prediction_seat1_all_le_6"] = pred(all(d <= 6 for d in distances.values()),
+                                                   distances)
 
-        # A3: spotted sets at turn start.
+        # spotted_at_start: spotted sets at turn start.
         bs0 = session.battle_state(host)
         spotted0 = bs0.get("spotted", [])
         player_spotted = {u["id"]: u.get("spottedThisTurn", [])
                            for u in bs0.get("units", [])
                            if u.get("faction") == FACTION_PLAYER and u.get("spottedThisTurn")}
-        record["a3_spotted_at_turn_start"] = spotted0
-        record["a3_player_spottedThisTurn"] = player_spotted
-        record["a3_prediction_all_empty"] = pred(
+        record["spotted_at_turn_start"] = spotted0
+        record["player_spottedThisTurn"] = player_spotted
+        record["prediction_spotted_all_empty"] = pred(
             not spotted0 and not player_spotted,
             {"spotted": spotted0, "player_spottedThisTurn": player_spotted})
 
-        # A4: near/far + outward direction + its two perpendiculars.
+        # near_far: near/far + outward direction + its two perpendiculars.
         near, far = near_far_sides(door, seat1)
         d_out = outward_dir(near, far)
         perp1, perp2 = perpendiculars(d_out)
-        record["a4_near"] = near
-        record["a4_far"] = far
-        record["a4_d_out"] = d_out
-        record["a4_perpendiculars"] = [perp1, perp2]
+        record["door_near"] = near
+        record["door_far"] = far
+        record["door_d_out"] = d_out
+        record["door_perpendiculars"] = [perp1, perp2]
 
-        # A5: hostiles to the corner farthest from the door; hash gate.
+        # hostiles_far_corner: hostiles to the corner farthest from the door; hash gate.
         corner, facing = far_corner(door, mx, my)
         [(teleport_all_resp, _)] = place_deterministic(
             host, client,
             [{"cmd": "battle_teleport_all", "faction": "hostile",
               "corner": corner, "facing": facing}],
-            what=f"{tag} A5 hostiles to far corner")
-        record["a5_corner"] = corner
-        record["a5_teleport_all"] = teleport_all_resp
+            what=f"{tag} hostiles to the far corner")
+        record["hostile_far_corner"] = corner
+        record["hostile_teleport_all"] = teleport_all_resp
 
-        # A6/A7: place hostile #1 (lowest id) - P1 straight out, P2 around
-        # the corner via the first standable perpendicular.
+        # contact_walk: place hostile #1 (lowest id) - straight_out: straight out from
+        # the door; around_corner: around the corner via the first standable perpendicular.
         live_hostiles = sorted(
             (u for u in session.units(host)
              if u.get("faction") == FACTION_HOSTILE and not u.get("isOut")),
@@ -240,12 +237,12 @@ def boot_a(placement, game_port, host_port, client_port):
         require(live_hostiles, "no live hostile to stage the contact with")
         hostile1 = live_hostiles[0]["id"]
 
-        # Z CORRECTION (REV E.18, traced on 6 boots): the Lightning deck sits at door.z and
+        # Z CORRECTION (traced on 6 boots): the Lightning deck sits at door.z and
         # everything past the door is void at that z; the exit tile is one level DOWN.
         far_ground = (far[0], far[1], far[2] - 1)
-        record["a4_far_ground"] = far_ground
-        record["a4_far_ground_standable"] = session._tile_standable(host, far_ground)
-        if placement == "P1":
+        record["door_far_ground"] = far_ground
+        record["door_far_ground_standable"] = session._tile_standable(host, far_ground)
+        if placement == "straight_out":
             target = add_delta(far_ground, d_out, 1)
         else:
             target = None
@@ -253,7 +250,7 @@ def boot_a(placement, game_port, host_port, client_port):
                 cand = add_delta(add_delta(far_ground, d_out, 1), perp, 2)
                 if session._tile_standable(host, cand):
                     target = cand
-                    record["a7_perp_used"] = perp
+                    record["perp_used"] = perp
                     break
             require(target is not None,
                     f"neither perpendicular tile near {far} is standable "
@@ -265,9 +262,9 @@ def boot_a(placement, game_port, host_port, client_port):
             [{"cmd": "battle_teleport_unit", "unit": hostile1,
               "x": target[0], "y": target[1], "z": target[2], "dir": facing_door}],
             what=f"{tag} place hostile #{hostile1} at {target}")
-        record["a6_hostile_id"] = hostile1
-        record["a6_hostile_target"] = target
-        record["a6_hostile_facing"] = facing_door
+        record["hostile_id"] = hostile1
+        record["hostile_target"] = target
+        record["hostile_facing"] = facing_door
 
         # reactions pinned to 0 on all non-players, both machines; hash gate
         # (both done inside pin_reaction_fire).
@@ -281,7 +278,7 @@ def boot_a(placement, game_port, host_port, client_port):
                 [{"cmd": "battle_teleport_unit", "unit": actor_id,
                   "x": near[0], "y": near[1], "z": near[2], "dir": d_out}],
                 what=f"{tag} place actor {actor_id} at near={near}")
-        record["a6_actor_id"] = actor_id
+        record["actor_id"] = actor_id
 
         status, hw = W.send_walk_outcome(host, client, actor_id, far_ground)
         require(status == "walk",
@@ -299,30 +296,30 @@ def boot_a(placement, game_port, host_port, client_port):
         client_spotted = session.battle_state(client).get("spotted", [])
         hash_equal, host_h, client_h = read_hash(host, client)
 
-        record["a6_walk"] = {"halted": halted, "reason": reason,
-                              "executed_prefix_len": len(executed), "executed": executed}
-        record["a6_door_ev_present"] = door_ev_present
-        record["a6_seen_host"] = host_seen
-        record["a6_seen_client"] = client_seen
-        record["a6_spotted_host"] = host_spotted
-        record["a6_spotted_client"] = client_spotted
-        record["a6_hash_equal"] = hash_equal
+        record["walk"] = {"halted": halted, "reason": reason,
+                          "executed_prefix_len": len(executed), "executed": executed}
+        record["door_ev_present"] = door_ev_present
+        record["seen_host"] = host_seen
+        record["seen_client"] = client_seen
+        record["spotted_host"] = host_spotted
+        record["spotted_client"] = client_spotted
+        record["hash_equal"] = hash_equal
         if not hash_equal:
-            record["a6_hash_mismatch"] = {
+            record["hash_mismatch"] = {
                 k: (host_h.get(k), client_h.get(k))
                 for k in set(host_h) | set(client_h) if host_h.get(k) != client_h.get(k)}
 
-        if placement == "P1":
-            record["a6_prediction_halt_after_1_step_spot"] = pred(
+        if placement == "straight_out":
+            record["prediction_halt_after_1_step_spot"] = pred(
                 halted is True and len(executed) == 1 and reason == "spot" and door_ev_present,
                 {"halted": halted, "executed_prefix_len": len(executed)})
         else:
-            record["a7_prediction_no_halt_outside_vision_cone"] = pred(
+            record["prediction_no_halt_outside_vision_cone"] = pred(
                 door_ev_present and len(executed) == 1 and halted is False,
                 {"door_ev_present": door_ev_present, "executed_prefix_len": len(executed),
                  "halted": halted})
 
-        record["a8_prediction_client_spotted_equals_host"] = pred(
+        record["prediction_client_spotted_equals_host"] = pred(
             sorted(host_spotted) == sorted(client_spotted),
             {"host": host_spotted, "client": client_spotted})
 
@@ -337,13 +334,13 @@ def boot_a(placement, game_port, host_port, client_port):
         client.shutdown()
 
 
-# ----- BOOT B: STR_TERROR_MISSION + STR_FLOATER + Lightning -------
+# ----- boot terror_mission: STR_TERROR_MISSION + STR_FLOATER + Lightning -------
 
-def boot_b(game_port, host_port, client_port):
-    tag = "lightning_b_terror"
-    record = {"boot": "B"}
-    host_dir = make_user_dir(f"spike_{tag}_host")
-    client_dir = make_user_dir(f"spike_{tag}_client")
+def boot_terror_mission(game_port, host_port, client_port):
+    tag = "lightning_terror"
+    record = {"boot": "terror_mission"}
+    host_dir = make_user_dir(f"contact_{tag}_host")
+    client_dir = make_user_dir(f"contact_{tag}_client")
     host = GameClient(f"{tag}-host", host_port, host_dir)
     client = GameClient(f"{tag}-client", client_port, client_dir)
     try:
@@ -354,7 +351,7 @@ def boot_b(game_port, host_port, client_port):
 
         door, mx, my, mz = lightning_door(host, record)
 
-        # B1: hostiles by armor size, civilian count, map size.
+        # terror_census: hostiles by armor size, civilian count, map size.
         units0 = session.units(host)
         hostiles0 = [u for u in units0 if u.get("faction") == FACTION_HOSTILE and not u.get("isOut")]
         civilians0 = [u for u in units0 if u.get("faction") == FACTION_NEUTRAL and not u.get("isOut")]
@@ -362,13 +359,13 @@ def boot_b(game_port, host_port, client_port):
         for u in hostiles0:
             sz = u.get("armorSize", 1)
             by_size[sz] = by_size.get(sz, 0) + 1
-        record["b1_hostiles_by_armor_size"] = by_size
-        record["b1_civilian_count"] = len(civilians0)
-        record["b1_map_size"] = {"x": mx, "y": my, "z": mz}
-        record["b1_prediction_ge_2_size2"] = pred(by_size.get(2, 0) >= 2, by_size.get(2, 0))
-        record["b1_civilians_count"] = len(civilians0)  # varies per map (9 and 11 measured); the deployment's 16 is a ceiling, not a guarantee
+        record["hostiles_by_armor_size"] = by_size
+        record["civilian_count"] = len(civilians0)
+        record["map_size"] = {"x": mx, "y": my, "z": mz}
+        record["prediction_ge_2_size2"] = pred(by_size.get(2, 0) >= 2, by_size.get(2, 0))
+        record["civilians_count"] = len(civilians0)  # varies per map (9 and 11 measured); the deployment's 16 is a ceiling, not a guarantee
 
-        # B2: hostiles to the corner farthest from the door; civilians to the
+        # opposite_corners: hostiles to the corner farthest from the door; civilians to the
         # diagonally OPPOSITE corner; hash gate.
         hostile_corner, hostile_facing = far_corner(door, mx, my)
         neutral_corner = _OPPOSITE_CORNER[hostile_corner]
@@ -379,24 +376,24 @@ def boot_b(game_port, host_port, client_port):
               "corner": hostile_corner, "facing": hostile_facing},
              {"cmd": "battle_teleport_all", "faction": "neutral",
               "corner": neutral_corner, "facing": neutral_facing}],
-            what=f"{tag} B2 hostiles+civilians to opposite corners")
-        record["b2_hostile_corner"] = hostile_corner
-        record["b2_neutral_corner"] = neutral_corner
-        record["b2_hostile_move"] = hostile_move
-        record["b2_neutral_move"] = neutral_move
-        record["b2_prediction_hostile_count_all"] = pred(
+            what=f"{tag} hostiles+civilians to opposite corners")
+        record["hostile_corner"] = hostile_corner
+        record["neutral_corner"] = neutral_corner
+        record["hostile_move"] = hostile_move
+        record["neutral_move"] = neutral_move
+        record["prediction_hostile_count_all"] = pred(
             hostile_move.get("count") == len(hostiles0),
             {"count": hostile_move.get("count"), "expected": len(hostiles0)})
-        record["b2_prediction_every_move_has_size"] = pred(
+        record["prediction_every_move_has_size"] = pred(
             bool(hostile_move.get("moves")) and all("size" in mv for mv in hostile_move.get("moves", [])),
             hostile_move.get("moves"))
 
-        # B3: non-UFO closed doors; per-door distances; the one that
+        # non_ufo_doors: non-UFO closed doors; per-door distances; the one that
         # maximises min-distance-to-hostiles.
         raw_all = find_doors_raw(host)
         non_ufo = [d for d in raw_all["doors"] if not d.get("isUfoDoor")]
         require(non_ufo, "no non-UFO door found on this URBAN terror map - "
-                          "WV-D88's non-UFO-door-coverage premise does not hold "
+                          "the non-UFO-door-coverage premise does not hold "
                           "on this boot")
 
         post_units = session.units(host)
@@ -416,18 +413,18 @@ def boot_b(game_port, host_port, client_port):
                 "min_dist_hostile": min_dist(d, live_hostiles),
                 "min_dist_civilian": min_dist(d, live_civilians),
             })
-        record["b3_non_ufo_door_count"] = len(non_ufo)
-        record["b3_per_door"] = per_door
+        record["non_ufo_door_count"] = len(non_ufo)
+        record["per_door"] = per_door
         best = max(per_door,
                    key=lambda e: (e["min_dist_hostile"] is not None, e["min_dist_hostile"] or -1))
-        record["b3_best_door"] = best
-        record["b3_prediction_best_ge_21"] = pred(
+        record["best_door"] = best
+        record["prediction_best_ge_21"] = pred(
             best["min_dist_hostile"] is not None and best["min_dist_hostile"] >= SIGHT_CAP_PLUS_ONE,
             best["min_dist_hostile"])
 
-        # B4: spotted sets on both machines after the moves. No walk in boot B.
-        record["b4_spotted_host"] = session.battle_state(host).get("spotted", [])
-        record["b4_spotted_client"] = session.battle_state(client).get("spotted", [])
+        # spotted_after_moves: spotted sets on both machines after the moves. No walk in this boot.
+        record["spotted_host_after_moves"] = session.battle_state(host).get("spotted", [])
+        record["spotted_client_after_moves"] = session.battle_state(client).get("spotted", [])
 
         record["stopped"] = False
         return record
@@ -454,21 +451,21 @@ def print_result(record):
 def main():
     results = []
 
-    results.append(boot_a("P1", "48210", 48211, 48212))
+    results.append(boot_default_mission("straight_out", "48210", 48211, 48212))
     print_result(results[-1])
 
-    results.append(boot_a("P2", "48220", 48221, 48222))
+    results.append(boot_default_mission("around_corner", "48220", 48221, 48222))
     print_result(results[-1])
 
-    results.append(boot_b("48230", 48231, 48232))
+    results.append(boot_terror_mission("48230", 48231, 48232))
     print_result(results[-1])
 
     if any(r.get("stopped") for r in results):
-        print("\nspike_lightning_contact: STOP - at least one measurement's "
+        print("\nmeasure_lightning_contact: STOP - at least one measurement's "
               "own precondition could not be met (see stop_reason above)")
         sys.exit(2)
 
-    print("\nspike_lightning_contact: every measurement taken")
+    print("\nmeasure_lightning_contact: every measurement taken")
     sys.exit(0)
 
 

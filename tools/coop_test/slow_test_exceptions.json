@@ -26,15 +26,15 @@
   "exceptions": {
     "test_coop_parallel_turns_latch": {
       "budget_s": 180,
-      "reason": "MG-P1 (QMF-2 (a)): main's multi-boot file re-pointed on rewrite/merge-main; K=2 wall 69.1s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
+      "reason": "Multi-boot test (a fresh campaign per row); K=2 wall 69.1s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
     },
     "test_coop_battle_start_sync": {
       "budget_s": 180,
-      "reason": "MG-P1 (QMF-2 (a)): main's multi-boot file re-pointed on rewrite/merge-main; K=2 wall 36.6s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
+      "reason": "Multi-boot test (a fresh campaign per row); K=2 wall 36.6s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
     },
     "test_coop_client_mission_abort": {
       "budget_s": 180,
-      "reason": "MG-P1 (QMF-2 (a)): main's multi-boot file re-pointed on rewrite/merge-main; K=2 wall 63.5s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
+      "reason": "Multi-boot test (a fresh campaign per row); K=2 wall 63.5s (run_parallel -k 2), 2026-10-15; budget = max(180, ceil(1.5 x the wall))."
     },
     "test_coop_debrief_sync": {
       "budget_s": 700,
@@ -66,7 +66,7 @@
     },
     "test_pause_on_leave": {
       "budget_s": 420,
-      "reason": "orch50 SPEC 19 REGRESSION-33 K=2: 214.5s local (pause-on-leave S1 = drop-detect + rejoin + restream, intrinsically long waits). First time this SPEC 16 test runs in a K=2 regression -- it was the unit-under-test at its own acceptance, never budgeted, and is byte-unchanged by SPEC 19. Functionally PASSES; 420s gives K=2-contention + slower-CI headroom (hard-kill 840s)."
+      "reason": "K=2: 214.5s local (the client drops mid-turn: drop detection + rejoin + restream, intrinsically long waits). Functionally PASSES; 420s gives K=2-contention + slower-CI headroom (hard-kill 840s)."
     }
   }
 }

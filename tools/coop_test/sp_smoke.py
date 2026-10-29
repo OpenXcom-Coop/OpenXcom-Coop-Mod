@@ -1,25 +1,21 @@
-"""SP battle smoke - the mandatory single-player proof for any packet that
-touches a file under src/Battlescape/** or src/Savegame/**.
+"""SP battle smoke - the single-player check to run after any change to a
+file under src/Battlescape/** or src/Savegame/**.
 
-AUTHORED BY SPEC 1 (P11-ACCEPT) per BLOCK SP-SMOKE's SPEC-1 carve-out
-(WAVE1-RUNBOOK.md 4b): FX-1 was to write this file, but P11-ACCEPT
-runs first and needs the proof (W1-P11 touched src/Battlescape/UnitWalkBState.cpp),
-so it lands here with the four assertions and at the path the block fixes.
-SPEC 2 finds it already present and only re-runs it - nobody re-invents it in a
-scratchpad (that mistake cost this wave two SP-smoke runners).
-
-The four assertions, verbatim from BLOCK SP-SMOKE:
-  1. one instance, NO coop, newbattle_ok -> close_briefing;
-  2. the state stack after close_briefing is
+The four checks:
+  plain_sp_battle: one instance, NO coop, newbattle_ok -> close_briefing;
+  equip_screen_pushed: the state stack after close_briefing is
      ['BattlescapeState','NextTurnState','InventoryState'] - the SP equip
-     screen is STILL pushed (this is what keeps W1-P4's freeze provably
-     coop-only). The stack probe is get_palettes's states[].state, which
+     screen is STILL pushed (this is what keeps the coop pre-battle equip
+     freeze, CoopHandshake::freezePreBattleEquip, provably coop-only). The
+     stack probe is get_palettes's states[].state, which
      reports typeid(*state).name(); MSVC renders that as
      'class OpenXcom::BattlescapeState', so it is matched by SUBSTRING.
-  3. battle_state.strTarget and strCraftOrBase are non-empty (vanilla minted them);
-  4. a real ground click through inject_input kind=click MOVES a unit
-     (position changes, TU drops), and event_state.coopWalkArmEntered == 0,
-     coopWalkIntentsSent == 0, lastWalk == None.
+  briefing_labels_minted: battle_state.strTarget and strCraftOrBase are
+     non-empty (vanilla minted them);
+  ground_click_walks: a real ground click through inject_input kind=click
+     MOVES a unit (position changes, TU drops), and
+     event_state.coopWalkArmEntered == 0, coopWalkIntentsSent == 0,
+     lastWalk == None.
 
 HEADLESS, single instance, no client, no coop. Exit 0 = PASS, 2 = FAIL (the
 harness exit-code convention; there is no fixture-exhaustion path here).
@@ -85,7 +81,7 @@ def select_unit(gc, uid, tries=24):
 def sp_ground_click_walks(gc):
     """PICK a player unit, center on it, click an adjacent open tile, and prove
     the unit MOVED. Tries every player unit and its open neighbours so a single
-    blocked squad member is not read as an atom result. Returns (uid, before, after)
+    blocked squad member is not read as a failed walk. Returns (uid, before, after)
     on success, or None if no unit could be walked (which is a FAIL here - a fresh
     SP squad on open ground always has a step available)."""
     st = bstate(gc)
@@ -140,7 +136,7 @@ def main():
         harness.shutdown_clients(host)
         raise
     try:
-        # (1) one instance, NO coop: open the New Battle screen and start it,
+        # plain_sp_battle: one instance, NO coop: open the New Battle screen and start it,
         # WITHOUT newbattle_coop (the step that turns it into a coop session).
         host.ok({"cmd": "open_new_battle"})
         host.wait_for("NewBattleState",
@@ -162,31 +158,31 @@ def main():
 
         # This must be a PLAIN SP battle, not a coop session.
         assert bstate(host).get("coopSession") in (False, None, 0), (
-            "SP-SMOKE (1): coopSession is truthy - this is not a plain SP battle "
+            "SP-SMOKE plain_sp_battle: coopSession is truthy - this is not a plain SP battle "
             f"(coopSession={bstate(host).get('coopSession')!r})")
-        print("PASS (1): one instance, no coop, newbattle_ok -> close_briefing")
+        print("PASS plain_sp_battle: one instance, no coop, newbattle_ok -> close_briefing")
 
-        # (2) the SP equip screen is STILL pushed.
+        # equip_screen_pushed: the SP equip screen is STILL pushed.
         stack = palette_stack(host)
         classnames = [s.split("::")[-1] for s in stack]
         assert len(stack) == len(EXPECTED_STACK) and all(
             exp in got for exp, got in zip(EXPECTED_STACK, classnames)), (
-            "SP-SMOKE (2): the post-briefing SP stack is not "
+            "SP-SMOKE equip_screen_pushed: the post-briefing SP stack is not "
             f"{EXPECTED_STACK} - got {stack!r}. If InventoryState is absent, "
-            "W1-P4's freeze has leaked into SP; if there are extra states, the "
+            "the coop pre-battle equip freeze has leaked into SP; if there are extra states, the "
             "SP flow changed and the assertion must be re-pinned to the new "
             "measured stack (not relaxed).")
-        print(f"PASS (2): stack after close_briefing = {classnames} "
+        print(f"PASS equip_screen_pushed: stack after close_briefing = {classnames} "
               "(SP equip screen still pushed)")
 
-        # (3) vanilla minted the two BriefingState labels.
+        # briefing_labels_minted: vanilla minted the two BriefingState labels.
         st = bstate(host)
         target, cob = st.get("strTarget", ""), st.get("strCraftOrBase", "")
         assert target and cob, (
-            "SP-SMOKE (3): a BriefingState label is empty "
+            "SP-SMOKE briefing_labels_minted: a BriefingState label is empty "
             f"(strTarget={target!r}, strCraftOrBase={cob!r}) - vanilla did not "
             "mint them")
-        print(f"PASS (3): strTarget={target!r} strCraftOrBase={cob!r}")
+        print(f"PASS briefing_labels_minted: strTarget={target!r} strCraftOrBase={cob!r}")
 
         # Reach BattlescapeState (dismiss the equip screen + the Turn-1 overlay).
         session.dismiss_battle_start_overlays(host)
@@ -194,27 +190,27 @@ def main():
             "SP-SMOKE: could not reach BattlescapeState to test the ground click, "
             f"stack={palette_stack(host)!r}")
 
-        # (4) a real ground click WALKS a unit, and NO coop counter moved.
+        # ground_click_walks: a real ground click WALKS a unit, and NO coop counter moved.
         arm0 = estate(host).get("coopWalkArmEntered", 0)
         sent0 = estate(host).get("coopWalkIntentsSent", 0)
         moved = sp_ground_click_walks(host)
         assert moved is not None, (
-            "SP-SMOKE (4): no player unit's ground click produced a walk on open "
+            "SP-SMOKE ground_click_walks: no player unit's ground click produced a walk on open "
             "ground - the three UnitWalkBState hooks or the split gate are NOT inert "
             "in SP, OR the click recipe failed")
         uid, before, after = moved
         es = estate(host)
         assert es.get("coopWalkArmEntered", 0) == 0, (
-            "SP-SMOKE (4): coopWalkArmEntered moved in SP "
+            "SP-SMOKE ground_click_walks: coopWalkArmEntered moved in SP "
             f"({arm0} -> {es.get('coopWalkArmEntered')}) - the coop walk arm is NOT "
             "guarded off outside co-op")
         assert es.get("coopWalkIntentsSent", 0) == 0, (
-            "SP-SMOKE (4): coopWalkIntentsSent moved in SP "
+            "SP-SMOKE ground_click_walks: coopWalkIntentsSent moved in SP "
             f"({sent0} -> {es.get('coopWalkIntentsSent')})")
         assert es.get("lastWalk") in (None, {}, 0), (
-            f"SP-SMOKE (4): lastWalk is set in SP ({es.get('lastWalk')!r}) - a coop "
+            f"SP-SMOKE ground_click_walks: lastWalk is set in SP ({es.get('lastWalk')!r}) - a coop "
             "walk ev was recorded for a single-player walk")
-        print(f"PASS (4): unit {uid} walked {before[0]}->{after[0]} "
+        print(f"PASS ground_click_walks: unit {uid} walked {before[0]}->{after[0]} "
               f"TU {before[1]}->{after[1]}; coopWalkArmEntered=0 "
               "coopWalkIntentsSent=0 lastWalk=None")
     finally:
